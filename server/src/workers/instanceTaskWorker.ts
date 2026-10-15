@@ -1,3 +1,5 @@
+import { executeHostReplacement } from '../services/host-replacement.js'
+import { prepareDedicatedDelivery } from '../services/dedicated-delivery.js'
 /**
  * 实例操作任务队列调度器
  * 确保同一台宿主机同一时间只有一个实例操作任务在执行
@@ -68,10 +70,10 @@ const LIGHT_TASK_CONCURRENCY = 5
 const LIGHT_TASK_NAMES = new Set(['start', 'stop', 'restart'])
 
 // 重量任务类型（需串行执行）
-const HEAVY_TASK_NAMES = new Set(['rebuild', 'clone', 'recreate', 'change_host'])
+const HEAVY_TASK_NAMES = new Set(['rebuild', 'clone', 'recreate', 'change_host', 'replace_host'])
 
 // 重量任务类型数组（用于 Prisma 查询）
-const HEAVY_TASK_TYPES: InstanceTaskType[] = ['rebuild', 'clone', 'recreate', 'change_host' as InstanceTaskType]
+const HEAVY_TASK_TYPES: InstanceTaskType[] = ['rebuild', 'clone', 'recreate', 'change_host' as InstanceTaskType, 'replace_host']
 const ALPINE_BUSY_UPDATE_CANCEL_AFTER_MS = 10_000
 
 let workerInterval: ReturnType<typeof setInterval> | null = null
@@ -536,6 +538,10 @@ async function executeTask(taskId: number): Promise<void> {
       throw new Error('实例已删除，任务取消')
     }
 
+    if (['rebuild', 'recreate'].includes(task.taskType) && instance.dedicated_ipv4) {
+      await prisma.instance.update({ where: { id: instance.id }, data: { dedicatedNetworkReady: false } })
+    }
+
     const earliestActiveTask = await prisma.instanceTask.findFirst({
       where: {
         instanceId: task.instanceId,
@@ -550,6 +556,9 @@ async function executeTask(taskId: number): Promise<void> {
       throw new Error(`实例已有更早的任务正在执行: ${earliestActiveTask.taskType}`)
     }
 
+    if (task.taskType === 'replace_host') {
+      await executeHostReplacement(task)
+    } else {
     const host = await db.getHostById(task.hostId)
     if (!host) throw new Error('宿主机不存在')
 
@@ -584,6 +593,7 @@ async function executeTask(taskId: number): Promise<void> {
         break
       default:
         throw new Error(`未知任务类型: ${task.taskType}`)
+    }
     }
 
     // 任务完成
@@ -690,7 +700,9 @@ async function executeStartTask(
       }
       const ipv4 = extractIPv4(state)
       const ipv6 = extractIPv6(state)
-      await db.updateInstanceStatus(task.instanceId, 'running', { ipv4, ipv6 })
+      const dedicatedReady = await prepareDedicatedDelivery(client, task.instanceId)
+  if (dedicatedReady) await prisma.instance.update({ where: { id: task.instanceId }, data: { dedicatedNetworkReady: true } })
+  await db.updateInstanceStatus(task.instanceId, 'running', { ipv4, ipv6 })
       const { reconcileTrafficStateForInstanceIds } = await import('../services/traffic-scheduler.js')
       await reconcileTrafficStateForInstanceIds([task.instanceId])
 
@@ -747,6 +759,8 @@ async function executeStartTask(
     }
   }
 
+  const dedicatedReady = await prepareDedicatedDelivery(client, task.instanceId)
+  if (dedicatedReady) await prisma.instance.update({ where: { id: task.instanceId }, data: { dedicatedNetworkReady: true } })
   await db.updateInstanceStatus(task.instanceId, 'running', { ipv4, ipv6 })
   const { reconcileTrafficStateForInstanceIds } = await import('../services/traffic-scheduler.js')
   await reconcileTrafficStateForInstanceIds([task.instanceId])
@@ -920,6 +934,8 @@ async function executeRestartTask(
     }
   }
 
+  const dedicatedReady = await prepareDedicatedDelivery(client, task.instanceId)
+  if (dedicatedReady) await prisma.instance.update({ where: { id: task.instanceId }, data: { dedicatedNetworkReady: true } })
   await db.updateInstanceStatus(task.instanceId, 'running', { ipv4, ipv6 })
 
   await sendNotification(task.userId, 'instance_restarted', {
@@ -1257,6 +1273,8 @@ async function executeRebuildTask(
     }
   }
 
+  const dedicatedReady = await prepareDedicatedDelivery(client, task.instanceId)
+  if (dedicatedReady) await prisma.instance.update({ where: { id: task.instanceId }, data: { dedicatedNetworkReady: true } })
   await db.updateInstanceStatus(task.instanceId, 'running', { ipv4, ipv6 })
   const { reconcileTrafficStateForInstanceIds } = await import('../services/traffic-scheduler.js')
   await reconcileTrafficStateForInstanceIds([task.instanceId])
@@ -1570,6 +1588,10 @@ async function executeRecreateTask(
     } catch { /* ignore */ }
   }
 
+  const dedicatedReady = await prepareDedicatedDelivery(client, task.instanceId, {
+    hostId: instance.host_id, name: newIncusId, ipv4: newIPv4, password: newPassword
+  })
+
   // 15. 更新数据库（使用新分配的 IP）
   await updateInstanceTaskProgress(task.id, 'updating_database')
 
@@ -1609,6 +1631,7 @@ async function executeRecreateTask(
       image: imageAlias,
       rootPassword: encryptSensitiveData(newPassword),
       status: 'running',
+      dedicatedNetworkReady: dedicatedReady,
       ipv4: newIPv4,  // 使用新分配的 IP
       ipv6: actualIpv6 || instance.ipv6,  // IPv6 可能从网络获取或保留旧值
       storagePoolName: storagePool

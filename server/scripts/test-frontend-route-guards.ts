@@ -1009,7 +1009,7 @@ assert.ok(
   'InstanceDetailView must not render an unavailable instance failure reason'
 )
 assert.ok(
-  instancesViewSource.includes("import { instanceCreatePath, instanceDetailPath, isAdminEntry, transfersPath, walletPath } from '@/utils/app-paths'") &&
+  instancesViewSource.includes("import { instanceCreatePath, instanceDetailPath, isAdminEntry, walletPath } from '@/utils/app-paths'") &&
     instancesViewSource.includes('interface CustomerBillingApi') &&
     instancesViewSource.includes('const customerBillingApi = api as typeof api & CustomerBillingApi') &&
     instancesViewSource.includes('const canUseCustomerBillingActions = computed<boolean>(() => !isAdminEntry && !isViewingAnotherUsersInstances.value)') &&
@@ -1033,12 +1033,30 @@ assert.ok(
   'admin-reachable instance list must guard customer batch renewal, auto-renew, billing destroy self-service features, and keep the desktop list free of PC horizontal overflow'
 )
 assert.ok(
+  instancesViewSource.includes("import TransferModal from '@/components/instance/modals/TransferModal.vue'") &&
+    instancesViewSource.includes('transferTarget.value = instance') &&
+    instancesViewSource.includes('v-if="transferTarget"') &&
+    instancesViewSource.includes(':instance="transferTarget"') &&
+    !instancesViewSource.includes('transfersPath('),
+  'instance-list PUSH must open the selected instance transfer form directly, rather than navigating to a transfer list or admin inbox'
+)
+const adminTransferModalSource = readRepoFile('client/src/components/instance/modals/AdminTransferModal.vue')
+assert.ok(
+  adminTransferModalSource.includes("from '@/api/admin'") &&
+    adminTransferModalSource.includes('api.adminInstancePush.create') &&
+    adminTransferModalSource.includes('expectedOwnerId: report.value.owner.id') &&
+    adminTransferModalSource.includes('expectedFee: report.value.fee') &&
+    adminTransferModalSource.includes('SensitiveVerificationModal') &&
+    !adminTransferModalSource.includes('api.transfers.'),
+  'admin PUSH must use its dedicated admin API and confirm the source owner, fee and administrator verification'
+)
+assert.ok(
   initCommandSelectorSource.includes("import { extensionsPath } from '@/utils/app-paths'") &&
     initCommandSelectorSource.includes('const manageExtensionsPath = extensionsPath()') &&
     initCommandSelectorSource.includes('v-if="manageExtensionsPath"') &&
     initCommandSelectorSource.includes(':to="manageExtensionsPath"') &&
     !initCommandSelectorSource.includes('to="/extensions"') &&
-    viteConfigSource.includes('TransferModalAdminStub.vue') &&
+    viteConfigSource.includes('AdminTransferModal.vue') &&
     viteConfigSource.includes('RenewModalAdminStub.vue') &&
     viteConfigSource.includes('ApplyAffCodeModalAdminStub.vue') &&
     viteConfigSource.includes('ChangePlanModalAdminStub.vue') &&

@@ -56,6 +56,7 @@ const publicIpv4Address = computed<string | null>(() => {
   const candidate = (props.instance as any).nat_public_ip ?? props.instance.natPublicIp ?? props.instance.host?.nat_public_ip ?? null
   return isIpv4Address(candidate) ? candidate : null
 })
+const primaryIpv4Address = computed(() => props.instance.dedicatedIpv4 ? publicIpv4Address.value : props.instance.ipv4)
 
 // 宿主机公网 IPv6 地址（从 host_ip_address 中提取，仅在 IPv6 NAT 模式下使用）
 function isIpv6Address(value: string | null | undefined): boolean {
@@ -87,6 +88,7 @@ const portLimit = computed<number | null>(() => {
 
 // 最终显示的公网 IPv6 地址（根据网络模式决定优先级）
 const displayIpv6 = computed<string | null>(() => {
+  if (props.instance.dedicatedIpv4) return props.instance.ipv6 || null
   const mode = props.instance.network_mode
   // nat_ipv6_nat / ipv6_nat 模式：容器共享宿主机 IPv6，优先显示宿主机公网 IPv6
   if (mode === 'nat_ipv6_nat' || mode === 'ipv6_nat') {
@@ -106,6 +108,7 @@ const portQuotaRemaining = computed<number>(() => {
 const isPortQuotaFull = computed<boolean>(() => portLimit.value !== null && portQuotaRemaining.value <= 0)
 const canMutateNetwork = computed<boolean>(() => props.canManagePorts !== false)
 const canAddPorts = computed<boolean>(() => {
+  if (props.instance.dedicatedIpv4) return false
   if (!canMutateNetwork.value) return false
   if (isIpv6OnlyInstance.value) return false
   return true
@@ -251,7 +254,7 @@ const canReassignIpv6 = computed(() => {
       </h2>
       <dl class="space-y-3 text-sm">
         <!-- NAT 模式: 显示内网 IPv4 和公网 IPv4（如果有） -->
-        <template v-if="['nat', 'nat_ipv6', 'nat_ipv6_nat', 'ipv6_nat', 'ipv6_only'].includes(instance.network_mode || '')">
+        <template v-if="!instance.dedicatedIpv4 && ['nat', 'nat_ipv6', 'nat_ipv6_nat', 'ipv6_nat', 'ipv6_only'].includes(instance.network_mode || '')">
           <!-- 内网 IPv4 -->
           <div class="flex justify-between items-center">
             <dt class="text-gray-500">{{ t('instance.detail.network.privateIpv4') }}</dt>
@@ -273,7 +276,7 @@ const canReassignIpv6 = computed(() => {
                 </svg>
               </button>
             </dd>
-            <dd v-else class="text-gray-500">-</dd>
+            <dd v-else class="text-gray-500">{{ t("dedicated.unassigned") }}</dd>
           </div>
           <!-- 只有真实公网 IPv4 时才显示 -->
           <div v-if="publicIpv4Address" class="flex justify-between items-center mt-3">
@@ -349,22 +352,23 @@ const canReassignIpv6 = computed(() => {
                 </svg>
               </button>
             </dd>
-            <dd v-else class="text-gray-500">-</dd>
+            <dd v-else class="text-gray-500">{{ t("dedicated.unassigned") }}</dd>
           </div>
         </template>
-        <!-- 非 NAT 模式: 显示公网 IPv4 和公网 IPv6 -->
+        <!-- 独占实例及非 NAT 模式: 显示公网 IPv4 和公网 IPv6 -->
         <template v-else>
+          <p v-if="instance.publicIpUpdating" class="text-sm text-amber-600 dark:text-amber-400 mb-3" role="status">{{ t('hostIpSync.customerUpdating') }}</p>
           <div class="flex justify-between items-center">
             <dt class="text-gray-500">{{ t('instance.detail.network.publicIpv4') }}</dt>
-            <dd v-if="instance.ipv4" class="flex items-center gap-2">
+            <dd v-if="primaryIpv4Address" class="flex items-center gap-2">
               <code
                 class="font-mono px-2 py-0.5 rounded"
                 :class="themeStore.isDark ? 'text-gray-300 bg-gray-800' : 'text-gray-700 bg-gray-100'"
-              >{{ instance.ipv4 }}</code>
+              >{{ primaryIpv4Address }}</code>
               <button
                 class="text-gray-500 hover:text-gray-400"
                 :title="t('common.copy')"
-                @click="emit('copy', instance.ipv4, 'ipv4')"
+                @click="emit('copy', primaryIpv4Address, 'ipv4')"
               >
                 <svg v-if="copied !== 'ipv4'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -374,11 +378,11 @@ const canReassignIpv6 = computed(() => {
                 </svg>
               </button>
             </dd>
-            <dd v-else class="text-gray-500">-</dd>
+            <dd v-else class="text-gray-500">{{ t("dedicated.unassigned") }}</dd>
           </div>
-          <div v-if="instance.ipv6" class="flex justify-between items-center mt-3">
+          <div v-if="instance.dedicatedIpv4 || instance.ipv6" class="flex justify-between items-center mt-3">
             <dt class="text-gray-500">{{ t('instance.detail.network.publicIpv6') }}</dt>
-            <dd class="flex items-center gap-2">
+            <dd v-if="instance.ipv6" class="flex items-center gap-2">
               <code
                 class="font-mono text-xs px-2 py-0.5 rounded truncate max-w-[300px]"
                 :class="themeStore.isDark ? 'text-gray-400 bg-gray-800/50' : 'text-gray-600 bg-gray-100'"
@@ -397,13 +401,14 @@ const canReassignIpv6 = computed(() => {
                 </svg>
               </button>
             </dd>
+            <dd v-else class="text-gray-500">{{ t('dedicated.unassigned') }}</dd>
           </div>
         </template>
       </dl>
     </div>
 
     <!-- Port Mappings (NAT modes) -->
-    <div v-if="['nat', 'nat_ipv6', 'nat_ipv6_nat', 'ipv6_nat', 'ipv6_only'].includes(instance.network_mode || '')" class="card p-5">
+    <div v-if="!instance.dedicatedIpv4 && ['nat', 'nat_ipv6', 'nat_ipv6_nat', 'ipv6_nat', 'ipv6_only'].includes(instance.network_mode || '')" class="card p-5">
       <div class="flex items-center justify-between gap-3 mb-4">
         <div>
           <div class="flex items-center gap-2">

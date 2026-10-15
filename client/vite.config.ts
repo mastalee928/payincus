@@ -353,7 +353,7 @@ export default defineConfig(({ mode }) => {
     ? './src/config/side-nav-items-admin.ts'
     : './src/config/side-nav-items-user.ts'
   const transferModalEntry = appEntry === 'admin'
-    ? './src/components/instance/modals/TransferModalAdminStub.vue'
+    ? './src/components/instance/modals/AdminTransferModal.vue'
     : './src/components/instance/modals/TransferModal.vue'
   const renewModalEntry = appEntry === 'admin'
     ? './src/components/instance/modals/RenewModalAdminStub.vue'

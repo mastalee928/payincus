@@ -204,13 +204,13 @@ const xAxisLabels = computed(() => {
                 / {{ trafficData.monthlyLimitFormatted }}
               </template>
               <template v-else>
-                / {{ $t('traffic.unlimited') }}
+                / {{ $t('dedicated.unlimited') }}
               </template>
             </span>
           </div>
 
           <!-- Progress Bar -->
-          <div 
+          <div v-if="trafficData.monthlyLimit"
             class="h-2 rounded-full overflow-hidden"
             :class="themeStore.isDark ? 'bg-gray-700' : 'bg-gray-200'"
           >
@@ -220,7 +220,7 @@ const xAxisLabels = computed(() => {
             ></div>
           </div>
 
-          <div class="flex justify-between text-xs">
+          <div v-if="trafficData.monthlyLimit" class="flex justify-between text-xs">
             <span :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-500'">
               {{ trafficData.percentage.toFixed(1) }}%
             </span>

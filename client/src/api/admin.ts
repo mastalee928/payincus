@@ -1,4 +1,6 @@
+import type { HostSshConnection, OnboardingCredentials, CreateOnboardingRequest, OnboardingListResponse, OnboardingGatewayStatus, HostRegionGroup, HostMachineGroup, HostInventoryResponse, HostInventoryQuery, UpdateHostGroupsRequest, HostPoolPrice, HostPoolPriceInput, HostPoolInventoryRow } from '@/types/host-pool'
 import axios, { type AxiosInstance } from 'axios'
+import type { AdminInstancePushPreview, AdminInstancePushTarget } from '@/types/instance-push'
 import { useAuthStore } from '@/stores/auth'
 import { buildApiUrl } from '@/utils/api-url'
 import type { LoginRequest, LoginResponse, UpdateUserResponse, GenerateInviteRequest, InviteListResponse, User, BadgeCatalogItem, BadgeSeriesItem, UserQuota, UpdateUserRequest, Instance, InstanceWithDetails, InstanceStats, CreateInstanceRequest, CreateInstanceResponse, UpdateInstanceRequest, ChangeHostOptionsResponse, PortMapping, CreatePortMappingRequest, IpAddress, Ipv6Subnet, HostAgentStatusResponse, HostAgentInstallCommandResponse, HostAgentUpgradeRequestResponse, Snapshot, Backup, CreateSnapshotRequest, CreateBackupRequest, SnapshotPolicy, BackupPolicy, UpdateSnapshotPolicyRequest, UpdateBackupPolicyRequest, Host, HostWithDetails, AvailableHost, CreateHostRequest, UpdateHostRequest, Package, CreatePackageRequest, UpdatePackageRequest, SshKey, CreateSshKeyRequest, NotificationChannel, CreateNotificationChannelRequest, UpdateNotificationChannelRequest, OAuthConfig, UserOAuthBinding, UpdateOAuthConfigRequest, OAuthClientApp, AdminOAuthAuthorization, UpsertOAuthClientAppRequest, HelpArticle, CreateHelpArticleRequest, UpdateHelpArticleRequest, HostImagePolicy, SystemImage, CreateSystemImageRequest, UpdateSystemImageRequest, Log, PaginatedResponse, Ticket, TicketMessage, TicketStatus, TicketObjectLink, TicketObjectLinkType, TicketSupportContext, TicketInternalNote, CreateTicketRequest, PaginatedTickets, PaginatedTicketMessages, TerminalSavedCommand, CreateTerminalSavedCommandRequest, UpdateTerminalSavedCommandRequest, TelegramBindingStatus, TelegramBindTokenResponse, TelegramAdminBindingsResponse, TelegramWebhookDeleteResponse, TelegramWebhookInfoResponse, TelegramWebhookSetupResponse, VersionMetadata, SystemUpdateCheckResult, SystemUpdateTask, PublicApiScopeMetadata, CreateGiftCardBatchRequest, CreateGiftCardRequest, GiftCardListResponse, GiftCardRecord, GiftCardStats } from '@/types/api.js'
@@ -766,6 +768,15 @@ const api = {
       http.put(`/terminal-saved-commands/${id}`, data),
     delete: (id: number): Promise<{ message: string }> =>
       http.delete(`/terminal-saved-commands/${id}`)
+  },
+
+  adminInstancePush: {
+    preview: (id: number): Promise<AdminInstancePushPreview> => http.get(`/admin/instance-push/${id}`),
+    target: (id: number, username: string): Promise<{ user: AdminInstancePushTarget }> =>
+      http.get(`/admin/instance-push/${id}/target`, { params: { username } }),
+    create: (id: number, data: { targetUsername: string; expectedOwnerId: number; expectedFee: number; acknowledge: boolean; remark?: string }):
+      Promise<{ message: string; transfer: { id: number; status: string; toUser: AdminInstancePushTarget } }> =>
+      http.post(`/admin/instance-push/${id}`, data)
   },
 
   // 实例管理
@@ -1791,7 +1802,9 @@ const api = {
       scans: Array<any>
       actions: Array<any>
     }> => http.get(`/hosts/${hostId}/ops/audit/history`, { params })
-  },
+  ,
+
+},
 
   // 套餐管理
   packages: {
@@ -4053,6 +4066,51 @@ const api = {
       refundType: string
     }> => http.post(`/mail/admin/subscriptions/${id}/cancel`, data)
   }
+,
+hostOnboarding: {
+    getPublicIp: (id: number): Promise<import('@/types/host-pool').HostPublicIpSync> => http.get(`/host-onboarding/inventory/${id}/public-ip`),
+    syncPublicIp: (id: number, settings?: import('@/types/host-pool').HostPublicIpSettings): Promise<import('@/types/host-pool').HostPublicIpSync> => http.post(`/host-onboarding/inventory/${id}/public-ip/sync`, { settings }, { timeout: 150000 }),
+    inspectRecovery: (id: number): Promise<import('@/types/host-pool').HostRecoveryReport> => http.get(`/host-onboarding/inventory/${id}/recovery`),
+    recover: (id: number, data: { confirmation: string; acknowledgeCleanup: boolean }): Promise<{ success: boolean }> => http.post(`/host-onboarding/inventory/${id}/recover`, data, { timeout: 65000 }),
+    replacementOptions: (id: number): Promise<{ hosts: Array<{ id: number; name: string; natPublicIp: string | null }>; backups: Array<{ id: number; remoteFileName: string | null; finishedAt: string | null }>; task: { id: number; status: string; progress: string | null; error: string | null } | null }> => http.get(`/instances/${id}/replacement-options`),
+    replaceHost: (id: number, data: { targetHostId: number; backupUploadId: number | null; acknowledgeRebuild: boolean }): Promise<{ taskId: number }> => http.post(`/instances/${id}/replace-host`, data),
+    setProtocol: (id: number, protocol: "tcp" | "tcp_udp"): Promise<unknown> => http.patch(`/hosts/${id}/port-protocol`, { protocol }),
+    getSsh: (id: number): Promise<HostSshConnection> => http.get(`/host-onboarding/inventory/${id}/ssh`),
+    setSsh: (id: number, data: { host: string; port: number; username: string }): Promise<{ success: boolean }> => http.patch(`/host-onboarding/inventory/${id}/ssh`, data),
+    deleteHost: (id: number): Promise<{ success: boolean }> => http.delete(`/host-onboarding/inventory/${id}`),
+    groups: (): Promise<{ groups: HostMachineGroup[] }> => http.get('/host-onboarding/groups'),
+    createMachineGroup: (name: string): Promise<HostMachineGroup> => http.post('/host-onboarding/groups/machines', { name }),
+    renameMachineGroup: (id: number, name: string): Promise<HostMachineGroup> => http.patch(`/host-onboarding/groups/machines/${id}`, { name }),
+    deleteMachineGroup: (id: number): Promise<{ success: boolean }> => http.delete(`/host-onboarding/groups/machines/${id}`),
+    createRegionGroup: (data: { machineGroupId: number; name: string; countryCode?: string | null }): Promise<HostRegionGroup> => http.post('/host-onboarding/groups/regions', data),
+    renameRegionGroup: (id: number, data: { name: string; countryCode?: string | null }): Promise<HostRegionGroup> => http.patch(`/host-onboarding/groups/regions/${id}`, data),
+    deleteRegionGroup: (id: number): Promise<{ success: boolean }> => http.delete(`/host-onboarding/groups/regions/${id}`),
+    inventory: (params: HostInventoryQuery = {}): Promise<HostInventoryResponse> => http.get('/host-onboarding/inventory', { params }),
+    updateGroups: (data: UpdateHostGroupsRequest): Promise<{ success: boolean; updated: number }> => http.patch('/host-onboarding/inventory/groups', data),
+    // 给已接入的机器补设规格（机型/核心 + 磁盘档），配额按预设自动算
+    updateSpec: (data: { hostIds: number[]; resourcePreset: string; customerDiskGiB: number }): Promise<{ success: boolean; updated: number }> =>
+      http.patch('/host-onboarding/inventory/spec', data),
+    gateway: (): Promise<OnboardingGatewayStatus> => http.get('/host-onboarding/gateway'),
+    list: (params: { page?: number; search?: string } = {}): Promise<OnboardingListResponse> => http.get('/host-onboarding', { params }),
+    create: (data: CreateOnboardingRequest): Promise<{ id: string }> => http.post('/host-onboarding', data),
+    retry: (id: string, credentials: OnboardingCredentials): Promise<{ success: boolean }> => http.post(`/host-onboarding/nodes/${id}/retry`, credentials),
+    cancel: (id: string): Promise<{ success: boolean }> => http.post(`/host-onboarding/nodes/${id}/cancel`),
+    deleteTask: (id: string): Promise<{ success: boolean }> => http.delete(`/host-onboarding/nodes/${id}`)
+  },
+
+hostPools: {
+    // 池子定价表。resourcePreset 用 string 而不是 ResourcePreset：服务端有 enum 校验，
+    // 这里不引入额外的类型导入依赖。
+    prices: (params: { machineGroupId?: number; resourcePreset?: string } = {}): Promise<{ prices: HostPoolPrice[] }> =>
+      http.get('/host-pools/prices', { params }),
+    savePrices: (items: HostPoolPriceInput[], removeIds: number[] = []): Promise<{ saved: number; ids: number[] }> =>
+      http.post('/host-pools/prices/batch', { items, removeIds }),
+    deletePrice: (id: number): Promise<{ success: boolean }> => http.delete(`/host-pools/prices/${id}`),
+    inventory: (): Promise<{
+      pools: HostPoolInventoryRow[]
+      unspecified: Array<{ id: number; name: string; architecture: string; machineGroupId: number | null; regionGroupId: number | null; machineGroup: string | null; regionGroup: string | null }>
+    }> => http.get('/host-pools/inventory')
+  },
 }
 
 export default api

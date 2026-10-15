@@ -225,7 +225,7 @@ export async function getAllPackages(
   const { userId, excludeUserId, ownerRole, includeOwnerEmail = false } = options
 
   // 构建查询条件
-  const whereCondition: any = {}
+  const whereCondition: any = { hidden: false }
 
   if (activeOnly) {
     whereCondition.active = true
@@ -1355,7 +1355,7 @@ export async function increaseHostQuota(hostId: number, cpuAdd: number, memoryAd
 export async function checkPackageSoldOut(packageId: number): Promise<boolean> {
   // 1. 获取套餐绑定的宿主机以及其资源使用情况
   const packageHosts = await prisma.packageHost.findMany({
-    where: { packageId },
+    where: { packageId, host: { singleTenant: false } },
     include: {
       host: {
         select: {
@@ -1455,7 +1455,7 @@ export async function checkPackagesSoldOut(packageIds: number[]): Promise<Map<nu
 
   // 1. 一次性获取所有套餐的宿主机绑定和资源信息
   const allPackageHosts = await prisma.packageHost.findMany({
-    where: { packageId: { in: packageIds } },
+    where: { packageId: { in: packageIds }, host: { singleTenant: false } },
     include: {
       host: {
         select: {

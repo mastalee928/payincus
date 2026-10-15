@@ -33,7 +33,7 @@ Do not create `/opt/incudal/current` as a regular directory. It must be a symlin
 
 ## Download and Verify a Release
 
-Confirm the version and server architecture on [GitHub Releases](https://github.com/VipMaxxxx/payincus/releases). The version below is an example; replace it with the production tag you intend to deploy.
+Confirm the version and server architecture on [GitHub Releases](https://github.com/mastalee928/payincus/releases). The version below is an example; replace it with the production tag you intend to deploy.
 
 ```bash
 export VERSION=v1.3.4
@@ -41,8 +41,8 @@ export ARCH=amd64
 export PACKAGE="incudal-${VERSION}-linux-${ARCH}.tar.gz"
 export RELEASE_DIR="/opt/incudal/releases/${VERSION}"
 
-curl -fLO "https://github.com/VipMaxxxx/payincus/releases/download/${VERSION}/${PACKAGE}"
-curl -fLO "https://github.com/VipMaxxxx/payincus/releases/download/${VERSION}/${PACKAGE}.sha256"
+curl -fLO "https://github.com/mastalee928/payincus/releases/download/${VERSION}/${PACKAGE}"
+curl -fLO "https://github.com/mastalee928/payincus/releases/download/${VERSION}/${PACKAGE}.sha256"
 sha256sum -c "${PACKAGE}.sha256"
 ```
 

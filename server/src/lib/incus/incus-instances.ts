@@ -1,3 +1,4 @@
+import { removeDedicatedForward } from './dedicated-network.js'
 /**
  * Incus 实例管理
  */
@@ -263,7 +264,13 @@ export async function createInstance(client: IncusClient, config: unknown): Prom
  * 删除实例
  */
 export async function deleteInstance(client: IncusClient, name: string): Promise<unknown> {
-  return client.request('DELETE', `/1.0/instances/${name}`)
+  let result: unknown
+  try { result = await client.request('DELETE', `/1.0/instances/${name}`) }
+  catch (error) {
+    if (!(error instanceof Error) || !/not found|not exist/i.test(error.message)) throw error
+  }
+  await removeDedicatedForward(client, name)
+  return result
 }
 
 /**

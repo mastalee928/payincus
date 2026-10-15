@@ -1,382 +1,51 @@
-# PayIncus / Incudal Operations Handoff
+# PayIncus 操作手册
 
-Last updated: 2026-07-10 05:02 CST
-
-This is the operational handoff for engineers or agents taking over PayIncus / Incudal release work. Do not put server passwords, API tokens, cookies, private keys, or customer secrets in this file.
-
-## Current Baseline
-
-- Active worktree: `/Users/max/.codex/worktrees/payincus-release-v133`
-- GitHub repository: `VipMaxxxx/payincus`
-- Git remote name in this worktree: `payincus`
-- Production install root: `/opt/incudal`
-- Production current symlink: `/opt/incudal/current`
-- User frontend: <https://pay.payincus.com>
-- Admin frontend: <https://admin.payincus.com>
-- Current production version: `v1.5.3`
-- Current production release path: `/opt/incudal/releases/v1.5.3-20260713114056`
-- Current production OTA task: `#154`
-- Current release commit/tag: `2422606` / `v1.5.3`
-- Latest product main commit before this evidence update: `7f5728f`
-
-`v1.5.3` fixes the admin 节点详情 full-page blank (MyHostDetailView is shared by the user and admin routers but its reload guard hardcoded the user-side route name `my-host-detail`, so on admin it always returned early; the component is inside <KeepAlive> so onMounted never re-ran; and the template had v-if/v-else-if with no v-else, so with loading=false + host=null nothing rendered at all — no crash, no console error, no hosts/:id request, and a refresh "fixed" it because that re-mounts). Also pins wgcf/RFW to fixed versions with SHA-256 committed in the script (RFW previously pulled upstream `latest`). `v1.5.2` (prior) is a systematic remediation of the three scripts that run as **root on customer hosts** (`server/templates/install.sh`, `agent-install.sh`, `caddy.sh`). All were pre-existing defects. Highlights: `nat` mode enabled IPv6 forwarding without `accept_ra=2`, so a host whose IPv6 default route comes from RA/SLAAC silently loses it 30min–2h after install — an admin on IPv6 SSH gets locked out hours later; panel cert rotation removed the old trust *before* importing the new cert (a bad download orphaned the host from the panel); ZFS cleanup blanket-purged the customer's `build-essential`/`gcc` and every `linux-headers-*`; uninstall did `rm -rf /etc/wireguard/`; token-bearing scripts persisted at 0755 and the Caddy admin password went through argv (visible in `ps`). Also: all install commands now use `curl -fsSL` — without `-f`, a Cloudflare "Just a moment..." challenge page (403 HTML) was saved/piped straight into bash. **Deliberately NOT changed (needs owner decision):** Guardian mirroring every IPv4 NAT port onto the host's `[::]:port` (exposes instance ports on all host IPv6 addresses without opt-in), and SHA-256/version pinning for the wgcf/RFW downloads. Production OTA task `#153` (`v1.5.1 -> v1.5.2`) succeeded with `RUN_DB_CHECKS=0`; no schema change. Post-OTA it was verified that the panel now serves the fixed templates.
-
-`v1.5.1` (prior) fixed a System/Telegram settings full-page white-screen caused by an unescaped literal `@` in an i18n string (vue-i18n compile error code 10; now escaped as `{'@'}`), unifies refunds to balance-only by removing the plugin-gateway-dependent original-route recharge-refund, adds an i18n message-compile guard (`test:i18n-message-compile-guards`) that compiles all messages with the real vue-i18n compiler to catch this class, and drops the `recharge_refund_requests` table/enum plus 6 orphan `Exchange*` enums. Production OTA task `#152` (`v1.5.0 -> v1.5.1`) completed successfully with `RUN_DB_CHECKS=0`; migrations are idempotent and lossless. `v1.5.0` (prior) removed 12 modules + the whole plugin/theme platform and fixed the sidebar white-screen. See `HANDOFF.md` for full v1.5.1 evidence.
-
-The Claude UI work is already merged into main and included in production:
-
-- `f9df2160c` - full anime-style UI makeover.
-- `f32e44e02` - `v1.3.3` release.
-- `bd0a36c69` - `v1.3.4` reload-loop hotfix.
+适用仓库：[mastalee928/payincus](https://github.com/mastalee928/payincus)。当前版本与验证证据以 [HANDOFF.md](HANDOFF.md) 为准。此文件只包含可公开的运维规则；实际地址、账号、凭据和备份证据另存于维护者内部记录。
 
 ## Private Backend Must Run As A Single Instance
 
-The private backend at `127.0.0.1:3001` must run as exactly one Node.js process. The supported production topology is the single `incudal-backend.service` process; do not use Node cluster mode, multiple systemd service replicas, process-manager worker counts above one, containers with multiple replicas, or horizontal backend scaling.
+The private backend on 127.0.0.1:3001 must run as exactly one Node.js process. Treat a second backend replica as an unsupported deployment. Login locks, OAuth nonces, replay prevention, task state and configuration caches include process-local state; PostgreSQL advisory locks do not make multiple replicas safe. Move that state into shared storage before considering additional workers.
 
-This is an architecture invariant because the backend intentionally has no Redis and keeps these correctness-relevant states in process memory:
+用户端与管理端使用不同源，通过各自的 /api 和 /api/ws 代理到同一后端，不共享 cookie 域。生产设置 SERVE_STATIC_CLIENT=false，由 Nginx 或现有入口提供两端静态文件。
 
-- login failure locks in `server/src/lib/security.ts`;
-- OAuth state nonce and one-time login-code replay protection in `server/src/lib/security.ts`;
-- exchange delivery finalize re-entry deduplication in `server/src/workers/exchangeDeliveryWorker.ts`;
-- system configuration cache and its update invalidation in `server/src/lib/config-cache.ts`.
-
-The security module also keeps export-task state in process memory. PostgreSQL advisory locks remain the coordination mechanism for database-backed jobs, but they do not make these process-local maps shared. Before any multi-process or horizontal expansion, move the affected locks, nonce/replay records, deduplication, and cache invalidation to PostgreSQL or another shared store. Treat a second backend replica as an unsupported deployment, not as extra capacity.
-
-## First Things To Read
-
-Before making changes, read:
+## 安装与来源
 
 ```bash
-sed -n '1,180p' HANDOFF.md
-git status --short
-git diff --stat
-git log --oneline --decorate -10
+curl -fsSL https://raw.githubusercontent.com/mastalee928/payincus/main/scripts/install-panel.sh -o install-panel.sh
+sudo bash install-panel.sh
 ```
 
-`HANDOFF.md` is the version evidence ledger. This file is the operations runbook. Keep both aligned after production releases.
+面板安装目录为 /opt/incudal；旧布局直接运行该目录，原子 OTA 布局使用 releases/ 与 current 软链。不要把旧版 --upgrade 用于原子布局。
 
-## Hard Rules
+源码、发行包和更新源均应使用自己的仓库：
 
-- Default to Chinese communication with the owner.
-- Do not run `git reset`, `git checkout --`, force-delete files, or clean untracked files unless the owner explicitly asks.
-- Do not OTA, publish, push, tag, or touch production unless the owner explicitly asks.
-- Treat authentication, payment, permissions, risk control, resource delivery, exchange flows, instance creation, and OTA as high risk.
-- Read existing code and tests before editing high-risk paths.
-- Keep edits minimal. Do not do broad refactors during release fixes.
-- Do not include credentials in commits, handoff notes, terminal summaries, or screenshots.
-- Local passing does not mean production verified. Keep local, GitHub Actions, Release asset, OTA, and live proof separate.
+```dotenv
+SYSTEM_UPDATE_RELEASE_REPOSITORY=mastalee928/payincus
+INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
+INCUDAL_AGENT_RELEASE_DIR=
+```
 
-## Current Known Caveat And OTA Policy
+INCUDAL_AGENT_RELEASE_DIR 仅供临时验收覆盖；正常安装从自己的 Agent Release 获取二进制。不要公开 .env、私钥、cookie 或带认证信息的日志。
 
-The active payment provider readiness check fails because production cannot resolve `max.xinyuqicheng.cn`. Task `#143` auto-rolled back for this reason. The owner issued a standing directive on 2026-07-10 that all future PayIncus OTA runs should use:
+## 管理网关
+
+一键安装可配置 WireGuard 与受限 SSH 网关。地址必须为公网 IPv4 或直连域名，不能经过 CDN；云厂商安全组需允许管理 UDP 端口。安装时跳过可执行 `sudo bash install-panel.sh --configure-host-pool`。
+
+默认管理地址 10.253.240.1/24、UDP 51820、主控 SSH 22。使用 ONBOARDING_MANAGEMENT_ADDRESS、ONBOARDING_WG_PORT、ONBOARDING_CONTROL_SSH_PORT 调整。已有密钥和 peer 保留，冲突时停止。自动接入的宿主机通过 WireGuard 管理，公网 22 端口交给客户实例。
+
+## 发布和更新
+
+1. 完成类型检查、相关守卫、全套测试、双端构建和受影响流程的测试。
+2. 将已审查的源码提交到本仓库，先手动运行 Build & Release 做预览验证。工作流在 amd64/arm64 临时机器上从真实发行包运行一键安装，验证数据库迁移、唯一后端、两端页面、管理员登录与管理网关。
+3. 验证成功后推送稳定版本标签，核对面板双架构安装包、SHA256、OTA manifest 和 Agent Release。Agent Release 不设置为面板 latest。
+4. 更新前备份数据库、.env、证书、网关配置和私钥；只在 owner 授权后更改现有主控。更新失败先保留日志和备份，再按已验证流程回滚。
+5. 更新后检查唯一后端、两端访问、登录、Agent 心跳以及变更涉及的业务流程，并将实证写入版本台账。
+
+禁止未经明确批准设置 RUN_DB_CHECKS=0。数据库和支付就绪检查失败时，先查明原因，不能以跳过检查代替修复。
 
 ```bash
-RUN_DB_CHECKS=0 bash scripts/apply-online-update.sh <version>
+systemctl status incudal-backend --no-pager
+curl -fsS http://127.0.0.1:3001/api/health
 ```
 
-This is a standing authorization; do not ask for a per-release DB/payment readiness waiver again unless the owner revokes it. Continue all artifact SHA256, Prisma migration, static environment, split-host, Agent manifest, service health, and log/header checks. Payment runtime signature/status/amount/idempotency checks are not disabled by this waiver.
-
-Current sanitized configuration findings after v1.3.5:
-
-- Five secret-type system settings are configured.
-- One plugin is enabled, no themes are installed, one Telegram notification channel is enabled, and no OAuth providers are configured.
-- `DE-01` Agent heartbeat is stale. Production readiness also reports one active package without sufficient online host capacity and two sold-out package groups.
-
-## Normal Development Checks
-
-Use targeted checks first, then broaden based on risk:
-
-```bash
-pnpm --filter client type-check
-pnpm --filter server type-check
-pnpm --filter server test:frontend-route-guards
-pnpm build
-pnpm test
-git diff --check
-```
-
-For docs/release notes:
-
-```bash
-pnpm --dir docs-site --ignore-workspace changelog
-pnpm --dir docs-site --ignore-workspace build
-```
-
-For split-host production checks:
-
-```bash
-pnpm verify:split:host
-pnpm verify:production
-pnpm verify:log-header
-```
-
-`pnpm verify:final-acceptance` is stricter than `pnpm verify:live-acceptance`; do not treat them as equivalent.
-
-## Release Preparation
-
-Use a clean worktree except for intentional release changes:
-
-```bash
-git status --short
-git diff --stat
-git diff --check
-```
-
-For a version release, update all version-bearing files that apply:
-
-- `package.json`
-- `client/package.json`
-- `server/package.json`
-- `client/public/sw.js` cache name, for example `incudal-cache-v1.3.5`
-- `docs-site/release-notes/vX.Y.Z.md`
-- generated docs-site version logs, if release notes changed
-- `HANDOFF.md` only after there is real release/OTA evidence
-
-Run the release verification set before tagging:
-
-```bash
-pnpm --filter client type-check
-pnpm --filter server type-check
-pnpm build
-pnpm test
-pnpm --dir docs-site --ignore-workspace changelog
-pnpm --dir docs-site --ignore-workspace build
-git diff --check
-```
-
-Commit and tag:
-
-```bash
-git add <changed-files>
-git commit -m "Release vX.Y.Z <short reason>"
-git tag vX.Y.Z
-git push payincus HEAD:main
-git push payincus vX.Y.Z
-```
-
-Do not move an existing version tag after it has been pushed unless the owner explicitly approves rewriting release history.
-
-## GitHub Actions And Release Asset Checks
-
-After pushing, wait for all relevant workflows for the release commit:
-
-- CI
-- Build & Release
-- Deploy docs site to GitHub Pages
-
-If `gh` is available:
-
-```bash
-gh run list --repo VipMaxxxx/payincus --limit 10
-```
-
-If `gh` is not available, use the GitHub API:
-
-```bash
-node - <<'NODE'
-const sha = '<full-release-commit-sha>'
-const res = await fetch(`https://api.github.com/repos/VipMaxxxx/payincus/actions/runs?head_sha=${sha}&per_page=20`, {
-  headers: { 'User-Agent': 'payincus-release-check' },
-})
-const data = await res.json()
-for (const run of data.workflow_runs || []) {
-  console.log(`${run.name}\t${run.status}\t${run.conclusion || '-'}\t${run.html_url}`)
-}
-NODE
-```
-
-Check the GitHub Release and OTA manifest:
-
-```bash
-node - <<'NODE'
-const version = 'vX.Y.Z'
-const release = await fetch(`https://api.github.com/repos/VipMaxxxx/payincus/releases/tags/${version}`, {
-  headers: { 'User-Agent': 'payincus-release-check' },
-})
-console.log(release.status, release.statusText)
-const data = await release.json()
-console.log(JSON.stringify({
-  tag_name: data.tag_name,
-  published_at: data.published_at,
-  assets: (data.assets || []).map(a => ({ name: a.name, size: a.size })),
-}, null, 2))
-
-const manifest = await fetch(`https://github.com/VipMaxxxx/payincus/releases/download/${version}/ota-manifest.json`, {
-  headers: { 'User-Agent': 'payincus-release-check' },
-})
-console.log(await manifest.text())
-NODE
-```
-
-Required release assets:
-
-- `incudal-vX.Y.Z-linux-amd64.tar.gz`
-- `incudal-vX.Y.Z-linux-amd64.tar.gz.sha256`
-- `incudal-vX.Y.Z-linux-arm64.tar.gz`
-- `incudal-vX.Y.Z-linux-arm64.tar.gz.sha256`
-- `incudal-vX.Y.Z-ota-manifest.json`
-- `ota-manifest.json`
-- plugin assets, if plugin packaging is still enabled
-- `plugin-market-index.json`
-
-Do not OTA until the GitHub Release exists and the required assets are present.
-
-## Production Preflight Before OTA
-
-Use current authorized SSH details from the owner/operator. Do not save passwords in files.
-
-On production:
-
-```bash
-cd /opt/incudal
-git fetch --tags payincus
-git rev-parse vX.Y.Z
-systemctl is-active incudal-backend
-readlink -f /opt/incudal/current
-cat /opt/incudal/current/version.json
-curl -fsS --max-time 10 http://127.0.0.1:3001/api/health
-curl -fsS --max-time 10 https://pay.payincus.com/api/health
-curl -fsS --max-time 10 https://admin.payincus.com/api/health
-```
-
-If the tag cannot resolve, the service is not active, or health checks fail, stop and diagnose before OTA.
-
-## OTA Command
-
-Standard OTA:
-
-```bash
-cd /opt/incudal
-bash scripts/apply-online-update.sh vX.Y.Z
-```
-
-Only with explicit owner approval to skip DB/payment readiness checks:
-
-```bash
-cd /opt/incudal
-RUN_DB_CHECKS=0 bash scripts/apply-online-update.sh vX.Y.Z
-```
-
-The script creates a system update task and prints JSON containing:
-
-- `task.id`
-- `targetVersion`
-- `fromVersion`
-- `logPath`
-
-Example log path:
-
-```text
-/opt/incudal/update-logs/system-update-141.log
-```
-
-## OTA Monitoring
-
-Tail the task log until it clearly succeeds or fails:
-
-```bash
-tail -f /opt/incudal/update-logs/system-update-<id>.log
-```
-
-Success indicators:
-
-- Backend health is ready
-- Host-process split deployment verification passed
-- Production readiness verification passed
-- Log/header exposure verification passed
-- System update completed successfully
-
-Failure indicators:
-
-- System update failed
-- Rolling back
-- Production readiness verification failed
-
-If the update fails, first check whether the updater auto-rolled back:
-
-```bash
-readlink -f /opt/incudal/current
-cat /opt/incudal/current/version.json
-systemctl is-active incudal-backend
-curl -fsS --max-time 10 http://127.0.0.1:3001/api/health
-tail -n 160 /opt/incudal/update-logs/system-update-<id>.log
-```
-
-Do not manually relink `/opt/incudal/current` unless the updater did not recover, production is impaired, and the owner explicitly approves manual rollback.
-
-## Post-OTA Live Verification
-
-After success:
-
-```bash
-systemctl is-active incudal-backend
-readlink -f /opt/incudal/current
-cat /opt/incudal/current/version.json
-curl -fsS --max-time 10 http://127.0.0.1:3001/api/health
-curl -fsS --max-time 10 https://pay.payincus.com/api/health
-curl -fsS --max-time 10 https://admin.payincus.com/api/health
-```
-
-Check Service Worker versioned URL:
-
-```bash
-curl -fsS --max-time 10 'https://pay.payincus.com/sw.js?v=X.Y.Z' | rg 'incudal-cache-vX.Y.Z'
-curl -fsS --max-time 10 'https://admin.payincus.com/sw.js?v=X.Y.Z' | rg 'incudal-cache-vX.Y.Z'
-```
-
-For frontend asset fixes, confirm the new code is actually in live bundles. Example for the `v1.3.4` reload guard:
-
-```bash
-for origin in https://pay.payincus.com https://admin.payincus.com; do
-  echo "== $origin =="
-  curl -fsS --max-time 15 "$origin/" \
-    | rg -o '/assets/[^"]+\.js' \
-    | sort -u \
-    | while read asset; do
-        keys="$(curl -fsS --max-time 20 "$origin$asset" \
-          | rg -o 'incudal:service-worker-controller-reloaded|incudal:stale-asset-reload-signature' \
-          | sort -u \
-          | tr '\n' ' ' || true)"
-        if [ -n "$keys" ]; then
-          echo "$asset -> $keys"
-        fi
-      done
-done
-```
-
-For browser-only issues, use a real browser session when available. If the Codex in-app browser is unavailable, say so plainly and rely on HTTP/live asset proof only; do not claim browser observation was completed.
-
-## Updating Evidence After OTA
-
-After production is verified:
-
-Update `HANDOFF.md` top section with the new production version, release commit, GitHub Actions, Release assets, OTA manifest proof, OTA task id/log path, current symlink, health checks, and known caveats.
-
-Commit the handoff evidence separately after the release tag commit:
-
-```bash
-git add HANDOFF.md OPERATIONS_HANDOFF.md
-git commit -m "Update handoff for vX.Y.Z production OTA"
-git push payincus HEAD:main
-```
-
-Do not move the version tag for a handoff-only evidence commit.
-
-## What To Report After Any Modification
-
-Every completed change report must include:
-
-- What files changed.
-- Why they changed.
-- Risk points.
-- How it was verified.
-
-For OTA/release work, also report:
-
-- release commit/tag
-- GitHub Actions status
-- Release asset status
-- OTA task id and log path
-- production current symlink
-- live health checks
-- skipped checks, if any, and who authorized the skip
+详细安装说明见 [一键安装](docs-site/docs/deployment/one-click-install.md)，故障换机、隔离恢复、协议切换与 IP 变更见 [主机接入与管理](docs/host-pool.md)。

@@ -6,7 +6,16 @@ CONFIG_DIR="${INCUDAL_CONFIG_DIR:-/etc/incudal-agent}"
 CONFIG_FILE="${INCUDAL_CONFIG_FILE:-${CONFIG_DIR}/config.yaml}"
 INSTALL_DIR="${INCUDAL_INSTALL_DIR:-/usr/local/bin}"
 BIN_PATH="${INCUDAL_AGENT_BIN:-${INSTALL_DIR}/incudal-agent}"
-SERVICE_FILE="${INCUDAL_SERVICE_FILE:-/etc/systemd/system/${SERVICE_NAME}.service}"
+INIT_SYSTEM="${INCUDAL_INIT_SYSTEM:-}"
+if [ -z "$INIT_SYSTEM" ]; then
+  INIT_SYSTEM=systemd
+  if command -v rc-service >/dev/null 2>&1 && ! command -v systemctl >/dev/null 2>&1; then INIT_SYSTEM=openrc; fi
+fi
+case "$INIT_SYSTEM" in
+  systemd) SERVICE_FILE="${INCUDAL_SERVICE_FILE:-/etc/systemd/system/${SERVICE_NAME}.service}" ;;
+  openrc) SERVICE_FILE="${INCUDAL_SERVICE_FILE:-/etc/init.d/${SERVICE_NAME}}" ;;
+  *) echo 'unsupported service manager' >&2; exit 1 ;;
+esac
 HEARTBEAT_INTERVAL="${INCUDAL_HEARTBEAT_INTERVAL_SECONDS:-60}"
 REQUEST_TIMEOUT="${INCUDAL_REQUEST_TIMEOUT_SECONDS:-10}"
 DRY_RUN="${INCUDAL_AGENT_DRY_RUN:-0}"
@@ -244,6 +253,31 @@ install_binary_atomically() {
   mv -f "${next}" "${target}"
 }
 
+agent_service() {
+  local action="$1"
+  if [ "$INIT_SYSTEM" = openrc ]; then
+    case "$action" in
+      daemon-reload) return 0 ;;
+      enable) rc-update add "$SERVICE_NAME" default ;;
+      disable) rc-update del "$SERVICE_NAME" default ;;
+      is-enabled) [ -e "/etc/runlevels/default/$SERVICE_NAME" ] ;;
+      is-active|status) rc-service "$SERVICE_NAME" status ;;
+      restart)
+        if rc-service "$SERVICE_NAME" status >/dev/null 2>&1; then rc-service "$SERVICE_NAME" restart
+        else rc-service "$SERVICE_NAME" start; fi ;;
+      stop) rc-service "$SERVICE_NAME" stop ;;
+      *) return 1 ;;
+    esac
+  else
+    case "$action" in
+      daemon-reload) systemctl daemon-reload ;;
+      is-active|is-enabled) systemctl "$action" --quiet "$SERVICE_NAME" ;;
+      status) systemctl status "$SERVICE_NAME" --no-pager --lines=20 ;;
+      *) systemctl "$action" "$SERVICE_NAME" ;;
+    esac
+  fi
+}
+
 preflight_target_parent() {
   local path="$1"
   local parent
@@ -262,11 +296,17 @@ preflight_target_parent() {
 
 preflight_environment() {
   if [ "${DRY_RUN}" = "1" ]; then
-    echo "+ preflight root, systemd, curl, and target directories"
+    echo "+ preflight root, service manager, curl, and target directories"
   else
     [ "$(id -u)" -eq 0 ] || fail "must run as root"
-    command -v systemctl >/dev/null 2>&1 || fail "systemctl is required"
-    [ -d /run/systemd/system ] || fail "systemd is not running"
+    if [ "$INIT_SYSTEM" = openrc ]; then
+      command -v rc-service >/dev/null 2>&1 || fail "rc-service is required"
+      command -v rc-update >/dev/null 2>&1 || fail "rc-update is required"
+      [ -d /run/openrc ] || fail "OpenRC is not running"
+    else
+      command -v systemctl >/dev/null 2>&1 || fail "systemctl is required"
+      [ -d /run/systemd/system ] || fail "systemd is not running"
+    fi
     command -v curl >/dev/null 2>&1 || fail "curl is required"
   fi
 
@@ -275,9 +315,26 @@ preflight_environment() {
   preflight_target_parent "${SERVICE_FILE}"
 }
 
+ensure_ingress_dependencies() {
+  command -v nft >/dev/null 2>&1 && return 0
+  if [ "${DRY_RUN}" = "1" ]; then
+    echo "+ install nftables for the ingress protocol policy"
+    return 0
+  fi
+  if command -v apk >/dev/null 2>&1; then
+    apk add --no-cache nftables
+  elif command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nftables
+  else
+    fail "nftables is required; install it with your system package manager"
+  fi
+  command -v nft >/dev/null 2>&1 || fail "nftables installation failed"
+}
+
 rollback_agent_install() {
   local restore_ok=1
-  systemctl stop "${SERVICE_NAME}" >/dev/null 2>&1 || true
+  agent_service stop >/dev/null 2>&1 || true
 
   if [ "${HAD_OLD_BIN}" = "1" ] && [ -e "${BACKUP_BIN}" ]; then
     mv -f "${BACKUP_BIN}" "${BIN_PATH}" || restore_ok=0
@@ -295,17 +352,17 @@ rollback_agent_install() {
     rm -f "${SERVICE_FILE}"
   fi
 
-  systemctl daemon-reload >/dev/null 2>&1 || restore_ok=0
+  agent_service daemon-reload >/dev/null 2>&1 || restore_ok=0
   if [ "${OLD_SERVICE_ENABLED}" = "1" ]; then
-    systemctl enable "${SERVICE_NAME}" >/dev/null 2>&1 || restore_ok=0
+    agent_service enable >/dev/null 2>&1 || restore_ok=0
   else
-    systemctl disable "${SERVICE_NAME}" >/dev/null 2>&1 || true
+    agent_service disable >/dev/null 2>&1 || true
   fi
   if [ "${OLD_SERVICE_ACTIVE}" = "1" ]; then
-    systemctl restart "${SERVICE_NAME}" >/dev/null 2>&1 || restore_ok=0
-    systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null || restore_ok=0
+    agent_service restart >/dev/null 2>&1 || restore_ok=0
+    agent_service is-active 2>/dev/null || restore_ok=0
   else
-    systemctl stop "${SERVICE_NAME}" >/dev/null 2>&1 || true
+    agent_service stop >/dev/null 2>&1 || true
   fi
 
   [ "${restore_ok}" = "1" ]
@@ -373,6 +430,7 @@ cleanup() {
 trap cleanup EXIT
 
 preflight_environment
+ensure_ingress_dependencies
 
 # 无一次性 token 时，静态凭据也必须在任何下载前完整存在。
 if [ -z "${INCUDAL_AGENT_INSTALL_TOKEN:-}" ]; then
@@ -431,6 +489,27 @@ heartbeat_interval_seconds: ${HEARTBEAT_INTERVAL}
 request_timeout_seconds: ${REQUEST_TIMEOUT}
 EOF_CONFIG
 
+if [ "$INIT_SYSTEM" = openrc ]; then
+write_file "${STAGED_SERVICE}" 0755 root:root <<EOF_OPENRC
+#!/sbin/openrc-run
+name="Incudal Host Agent"
+supervisor="supervise-daemon"
+command="${BIN_PATH}"
+command_args="-config ${CONFIG_FILE}"
+pidfile="/run/${SERVICE_NAME}.pid"
+respawn_delay=5
+respawn_max=0
+output_log="/var/log/${SERVICE_NAME}.log"
+error_log="/var/log/${SERVICE_NAME}.log"
+depend() {
+  need net
+  after incusd
+}
+start_pre() {
+  checkpath --file --mode 0600 --owner root:root "/var/log/${SERVICE_NAME}.log"
+}
+EOF_OPENRC
+else
 write_file "${STAGED_SERVICE}" 0644 root:root <<EOF_SERVICE
 [Unit]
 Description=Incudal Host Agent
@@ -459,6 +538,7 @@ LogRateLimitBurst=120
 [Install]
 WantedBy=multi-user.target
 EOF_SERVICE
+fi
 
 if [ "${DRY_RUN}" = "1" ]; then
   echo "Dry run completed."
@@ -482,10 +562,10 @@ if [ -e "${SERVICE_FILE}" ]; then
   cp -a "${SERVICE_FILE}" "${BACKUP_SERVICE}" || fail "failed to back up existing Agent service"
   HAD_OLD_SERVICE="1"
 fi
-if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+if agent_service is-active 2>/dev/null; then
   OLD_SERVICE_ACTIVE="1"
 fi
-if systemctl is-enabled --quiet "${SERVICE_NAME}" 2>/dev/null; then
+if agent_service is-enabled 2>/dev/null; then
   OLD_SERVICE_ENABLED="1"
 fi
 
@@ -498,19 +578,19 @@ if [ "${COMMIT_OK}" = "1" ]; then
   mv -f "${STAGED_SERVICE}" "${SERVICE_FILE}" || COMMIT_OK="0"
 fi
 if [ "${COMMIT_OK}" = "1" ]; then
-  systemctl daemon-reload || COMMIT_OK="0"
+  agent_service daemon-reload || COMMIT_OK="0"
 fi
 if [ "${COMMIT_OK}" = "1" ]; then
-  systemctl enable "${SERVICE_NAME}" || COMMIT_OK="0"
+  agent_service enable || COMMIT_OK="0"
 fi
 if [ "${COMMIT_OK}" = "1" ]; then
   # 已安装场景下 enable --now 不会重启旧进程；restart 确保升级后立即使用最新文件。
-  systemctl restart "${SERVICE_NAME}" || COMMIT_OK="0"
+  agent_service restart || COMMIT_OK="0"
 fi
 if [ "${COMMIT_OK}" = "1" ]; then
   sleep 2
-  systemctl is-enabled --quiet "${SERVICE_NAME}" 2>/dev/null || COMMIT_OK="0"
-  systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null || COMMIT_OK="0"
+  agent_service is-enabled 2>/dev/null || COMMIT_OK="0"
+  agent_service is-active 2>/dev/null || COMMIT_OK="0"
 fi
 
 if [ "${COMMIT_OK}" != "1" ]; then
@@ -522,6 +602,6 @@ if [ "${COMMIT_OK}" != "1" ]; then
 fi
 
 rm -f "${BACKUP_BIN}" "${BACKUP_CONFIG}" "${BACKUP_SERVICE}"
-systemctl status "${SERVICE_NAME}" --no-pager --lines=20 || true
+agent_service status || true
 
 echo "Incudal Agent installed or upgraded and started."

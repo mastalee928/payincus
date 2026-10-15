@@ -48,7 +48,7 @@ sudo install -d -o incudal -g incudal /opt/incudal /opt/incudal/releases /opt/in
 
 ## 下载并校验 Release
 
-先在 [GitHub Releases](https://github.com/VipMaxxxx/payincus/releases) 确认版本和服务器架构。以下版本号仅为示例，请替换为准备部署的正式 Tag。
+先在 [GitHub Releases](https://github.com/mastalee928/payincus/releases) 确认版本和服务器架构。以下版本号仅为示例，请替换为准备部署的正式 Tag。
 
 ```bash
 export VERSION=v1.3.4
@@ -56,8 +56,8 @@ export ARCH=amd64
 export PACKAGE="incudal-${VERSION}-linux-${ARCH}.tar.gz"
 export RELEASE_DIR="/opt/incudal/releases/${VERSION}"
 
-curl -fLO "https://github.com/VipMaxxxx/payincus/releases/download/${VERSION}/${PACKAGE}"
-curl -fLO "https://github.com/VipMaxxxx/payincus/releases/download/${VERSION}/${PACKAGE}.sha256"
+curl -fLO "https://github.com/mastalee928/payincus/releases/download/${VERSION}/${PACKAGE}"
+curl -fLO "https://github.com/mastalee928/payincus/releases/download/${VERSION}/${PACKAGE}.sha256"
 sha256sum -c "${PACKAGE}.sha256"
 ```
 

@@ -28,6 +28,7 @@ import {
   rotateHostAgentCredentials,
   type HostAgentRecord
 } from '../lib/host-agent-credentials.js'
+import { acceptPortProtocolReport } from '../services/host-port-protocol.js'
 import { processAgentInstanceReport } from '../services/agent-instance-report.js'
 
 interface AgentCredentialsParams {
@@ -46,6 +47,7 @@ interface AgentInstallCommandBody {
 }
 
 interface AgentHeartbeatBody {
+  portProtocolStatus?: Record<string, unknown>
   version?: string
   capabilities?: string[]
   runtime?: Record<string, unknown>
@@ -110,7 +112,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const agentBinaryNamePattern = /^incudal-agent-linux-(amd64|arm64)(?:\.gz)?$/
 const agentReleaseBinaryNamePattern = /^incudal-agent-(x86_64|aarch64)-v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/
-const defaultAgentReleaseRepository = 'VipMaxxxx/payincus'
+const defaultAgentReleaseRepository = 'mastalee928/payincus'
 const githubApiBaseUrl = 'https://api.github.com'
 const githubDownloadBaseUrl = 'https://github.com'
 const agentReleaseCacheTtlMs = 5 * 60 * 1000
@@ -1492,6 +1494,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     }
 
     const now = new Date()
+    await acceptPortProtocolReport(agent.hostId, request.body.portProtocolStatus)
     let instanceReport: Awaited<ReturnType<typeof processAgentInstanceReport>> | null = null
     try {
       instanceReport = await processAgentInstanceReport(agent.hostId, request.body.instances)
@@ -1514,7 +1517,9 @@ export default async function agentRoutes(fastify: FastifyInstance) {
       }
     })
 
+    const hostProtocol = await prisma.host.findUniqueOrThrow({ where: { id: agent.hostId }, select: { portProtocol: true, portProtocolRevision: true } })
     return {
+      portProtocol: { mode: hostProtocol.portProtocol, revision: hostProtocol.portProtocolRevision },
       ok: true,
       serverTime: now.toISOString(),
       taskPollIntervalSeconds: 15,

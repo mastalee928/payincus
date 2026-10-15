@@ -4,6 +4,7 @@
  */
 
 import { Agent, request } from 'undici'
+import { X509Certificate } from 'node:crypto'
 import { readFileSync } from 'fs'
 import type {
   IncusClientOptions,
@@ -13,6 +14,8 @@ import { waitForOperation } from './incus-utils.js'
 import { resolveCertificatePair } from './certificate-paths.js'
 
 export class IncusClient {
+  private serverCertificate: string | null
+  private serverFingerprint: string | null
   baseUrl: string
   certPath: string | null
   keyPath: string | null
@@ -20,6 +23,11 @@ export class IncusClient {
   connected: boolean = false
 
   constructor(options: IncusClientOptions) {
+    this.serverCertificate = options.serverCertificate || null
+    this.serverFingerprint = options.serverFingerprint || null
+    if (this.serverCertificate && new X509Certificate(this.serverCertificate).fingerprint256 !== this.serverFingerprint) {
+      throw new Error('Incus TLS pin does not match the stored certificate')
+    }
     this.baseUrl = IncusClient.normalizeUrl(options.url)
     const certificatePair = resolveCertificatePair(options.certPath, options.keyPath)
     this.certPath = certificatePair.certPath
@@ -76,7 +84,12 @@ export class IncusClient {
         connect: {
           cert,
           key,
-          rejectUnauthorized: false // Incus 使用自签名证书
+          ...(this.serverCertificate ? {
+            ca: this.serverCertificate,
+            rejectUnauthorized: true,
+            checkServerIdentity: (_hostname: string, peer: { fingerprint256: string }) => peer.fingerprint256 === this.serverFingerprint
+              ? undefined : new Error('Incus TLS fingerprint changed')
+          } : { rejectUnauthorized: false }) // Preserve existing manually registered hosts.
         },
         // 超时配置，防止 Headers Timeout Error
         headersTimeout: 120000, // 2分钟
@@ -98,7 +111,7 @@ export class IncusClient {
    * 发送 API 请求
    * @param timeout 异步操作的超时时间（毫秒），默认 120 秒。对于长时间操作（如复制实例），建议使用 300000（5分钟）
    */
-  async request<T = unknown>(method: string, path: string, body: unknown = null, timeout: number = 120000): Promise<T> {
+  async request<T = unknown>(method: string, path: string, body: unknown = null, timeout: number = 120000, signal?: AbortSignal): Promise<T> {
     if (!this.agent) {
       throw new Error('Incus 客户端未连接')
     }
@@ -109,9 +122,11 @@ export class IncusClient {
       dispatcher: Agent
       headers: Record<string, string>
       body?: string
+      signal?: AbortSignal
     } = {
       method,
       dispatcher: this.agent,
+      signal,
       headers: {
         'Content-Type': 'application/json'
       }

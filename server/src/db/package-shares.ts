@@ -649,7 +649,7 @@ export async function getAccessiblePackageIds(userId: number): Promise<number[]>
     const blockerIds = await getBlockerIdsForUser(userId)
     // 获取自己的套餐（管理员）
     const ownPackages = await prisma.package.findMany({
-        where: { userId, active: true },
+        where: { userId, active: true, hidden: false },
         select: { id: true }
     })
 
@@ -681,7 +681,7 @@ export async function getAccessiblePackageIds(userId: number): Promise<number[]>
  */
 export async function canUserAccessPackage(userId: number, packageId: number): Promise<boolean> {
     const pkg = await prisma.package.findUnique({
-        where: { id: packageId },
+        where: { id: packageId, hidden: false },
         select: {
             userId: true,
             active: true,

@@ -1759,7 +1759,7 @@ Signed-By: /etc/apt/keyrings/zabbly.gpg
 SRC
 
     apt-get update -qq 2>/dev/null
-    apt-get install -y -qq incus >/dev/null
+    apt-get install -y -qq incus nftables >/dev/null
     log "Incus 安装完成"
 }
 

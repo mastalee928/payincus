@@ -137,6 +137,7 @@ enum InstanceTaskType {
   rebuild
   clone
   recreate  // 重建：创建新实例替换旧实例
+  replace_host // 故障换机：管理员从备用池重建
   change_host // 改节点：在其他节点重建实例并保留数据库实例 ID
 }
 
@@ -205,6 +206,7 @@ model InstanceTask {
   customInitCommandIds String? @map("custom_init_command_ids") // 重装使用的自定义初始化命令ID列表 (JSON数组)
   targetName           String? @map("target_name") // 克隆的目标名称
   targetHostId         Int?    @map("target_host_id") // 克隆的目标宿主机
+  replacementState     Json? @map("replacement_state")
   snapshotName         String? @map("snapshot_name") // 克隆时的快照名称
   newInstanceId        Int?    @map("new_instance_id") // 克隆后的新实例 ID
 
@@ -215,6 +217,7 @@ model InstanceTask {
 
   instance Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
+  @@index([targetHostId, status])
   @@index([hostId, status])
   @@index([instanceId])
   @@index([userId])
@@ -383,6 +386,7 @@ enum FriendshipStatus {
 // ==================== 用户相关模型 ====================
 
 model User {
+  poolOrders PoolOrder[]
   id           Int        @id @default(autoincrement())
   username     String     @unique
   email        String?
@@ -762,6 +766,33 @@ model Host {
   @@unique([userId, name]) // 同一用户下名称唯一
   @@index([userId])
   @@map("hosts")
+
+  machineGroup String? @map("machine_group")
+  regionGroup String? @map("region_group")
+  machineGroupId Int? @map("machine_group_id")
+  regionGroupId Int? @map("region_group_id")
+  resourcePreset String? @map("resource_preset")
+  customerDiskGiB Int? @map("customer_disk_gib")
+  resourceSnapshot Json? @map("resource_snapshot")
+  portProtocol String @default("tcp_udp") @map("port_protocol")
+  portProtocolRevision Int @default(1) @map("port_protocol_revision")
+  portProtocolApplied String @default("tcp_udp") @map("port_protocol_applied")
+  portProtocolAppliedRevision Int @default(0) @map("port_protocol_applied_revision")
+  portProtocolError String? @map("port_protocol_error")
+  poolFaulted Boolean @default(false) @map("pool_faulted")
+  publicIpSyncBlocked Boolean @default(false) @map("public_ip_sync_blocked")
+  publicIpSync Json? @map("public_ip_sync")
+  singleTenant Boolean @default(false) @map("single_tenant")
+  managementSshHost String? @map("management_ssh_host")
+  managementSshPort Int? @map("management_ssh_port")
+  managementSshUser String? @map("management_ssh_user")
+  serverCertificate String? @db.Text @map("server_certificate")
+  serverFingerprint String? @map("server_fingerprint")
+  onboardingNode HostOnboardingNode?
+  machineGroupEntry HostMachineGroup? @relation(fields: [machineGroupId], references: [id], onDelete: SetNull)
+  regionGroupEntry HostRegionGroup? @relation(fields: [regionGroupId], references: [id], onDelete: SetNull)
+
+  @@index([machineGroupId, regionGroupId])
 }
 
 model HostAgent {
@@ -904,6 +935,7 @@ model PackageHost {
 }
 
 model Package {
+  hidden              Boolean      @default(false)
   id                  Int          @id @default(autoincrement())
   userId              Int          @map("user_id") // 所有者
   name                String
@@ -982,6 +1014,8 @@ model Package {
 // ==================== 实例相关模型 ====================
 
 model Instance {
+  dedicatedIpv4 Boolean @default(false) @map("dedicated_ipv4")
+  dedicatedNetworkReady Boolean @default(false) @map("dedicated_network_ready")
   id               Int            @id @default(autoincrement())
   incusId          String         @map("incus_id")
   idempotencyKey   String?        @unique @map("idempotency_key")
@@ -1112,6 +1146,14 @@ model Instance {
   @@index([expiresAt])      // 计费调度器使用：查找即将到期的实例
   @@index([userId, displayOrder, createdAt(sort: Desc)])
   @@map("instances")
+
+  poolPriceId Int? @map("pool_price_id")
+  purchaseBatchId String? @map("purchase_batch_id")
+  provisioningCleanupPending Boolean @default(false) @map("provisioning_cleanup_pending")
+  deletionBillingPending Boolean @default(false) @map("deletion_billing_pending")
+  poolPrice HostPoolPrice? @relation(fields: [poolPriceId], references: [id], onDelete: SetNull)
+
+  @@index([purchaseBatchId])
 }
 
 // IP 地址类型枚举
@@ -2831,6 +2873,9 @@ model InstanceBillingRecord {
   @@index([instanceId, createdAt(sort: Desc)])
   @@index([userId, createdAt(sort: Desc)])
   @@map("instance_billing_records")
+
+  purchaseBatchId String? @map("purchase_batch_id")
+  @@index([purchaseBatchId])
 }
 
 // ==================== AFF推荐计划模型 ====================
@@ -3525,4 +3570,133 @@ model GiftCard {
   @@index([ownerId])
   @@index([usedById])
   @@map("gift_cards")
+}
+
+
+model HostMachineGroup {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  regions   HostRegionGroup[]
+  hosts     Host[]
+  nodes     HostOnboardingNode[]
+  poolPrices HostPoolPrice[]
+
+  @@map("host_machine_groups")
+}
+
+
+model HostRegionGroup {
+  id             Int      @id @default(autoincrement())
+  machineGroupId Int      @map("machine_group_id")
+  name           String
+  countryCode    String?  @map("country_code")
+  createdAt      DateTime @default(now()) @map("created_at")
+  machineGroup   HostMachineGroup @relation(fields: [machineGroupId], references: [id], onDelete: Cascade)
+  hosts          Host[]
+  nodes          HostOnboardingNode[]
+  poolPrices     HostPoolPrice[]
+
+  @@unique([machineGroupId, name])
+  @@map("host_region_groups")
+}
+
+
+model HostPoolPrice {
+  id             Int      @id @default(autoincrement())
+  machineGroupId Int      @map("machine_group_id")
+  resourcePreset String   @map("resource_preset") // E2 / ARM1C / ARM2C / ARM3C / ARM4C
+  regionGroupId  Int      @map("region_group_id")
+  diskGiB        Int      @map("disk_gib")
+  name           String? // 客户看到的商品名，留空则按机型/地区/磁盘档自动生成
+  // 单位是「分」，与 PackagePlan.price 一致；Instance.billingPrice 才是「元」。
+  monthlyPrice   Decimal  @map("monthly_price") @db.Decimal(12, 0)
+  setupFee       Decimal  @default(0) @map("setup_fee") @db.Decimal(12, 0) // 一次性初装费（分），0 = 不收
+  active         Boolean  @default(true)
+  // 影子方案（PackagePlan）ID：下单解析按它精确取方案，不再依赖名字里带 ID。
+  shadowPlanId   Int?     @map("shadow_plan_id")
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  machineGroup HostMachineGroup @relation(fields: [machineGroupId], references: [id], onDelete: Cascade)
+  regionGroup  HostRegionGroup  @relation(fields: [regionGroupId], references: [id], onDelete: Cascade)
+  instances    Instance[]
+
+  // 显式短名：默认名超过 Postgres 的 63 字符上限会被截断，导致 Prisma 与实际库漂移
+  @@unique([machineGroupId, resourcePreset, regionGroupId, diskGiB], name: "host_pool_prices_pool_key", map: "host_pool_prices_pool_key")
+  @@index([regionGroupId])
+  @@index([active])
+  @@map("host_pool_prices")
+}
+
+
+model HostOnboardingBatch {
+  id           String   @id
+  createdById  Int      @map("created_by_id")
+  name         String
+  accountLabel String   @map("account_label")
+  defaults     Json
+  createdAt    DateTime @default(now()) @map("created_at")
+  nodes        HostOnboardingNode[]
+
+  @@index([createdAt(sort: Desc)])
+  @@map("host_onboarding_batches")
+}
+
+
+model HostOnboardingNode {
+  id                   String    @id @default(uuid())
+  batchId              String    @map("batch_id")
+  hostId               Int?      @unique @map("host_id")
+  name                 String
+  publicIp             String    @unique @map("public_ip")
+  machineGroup         String?   @map("machine_group")
+  regionGroup          String?   @map("region_group")
+  machineGroupId       Int?      @map("machine_group_id")
+  regionGroupId        Int?      @map("region_group_id")
+  resourcePreset       String?   @map("resource_preset")
+  customerDiskGiB      Int?      @map("customer_disk_gib")
+  resolvedResources    Json?     @map("resolved_resources")
+  countryCode          String?   @map("country_code")
+  sshPort              Int       @default(22) @map("ssh_port")
+  sshFingerprint       String?   @map("ssh_fingerprint")
+  credentialsEncrypted String?   @db.Text @map("credentials_encrypted")
+  credentialsExpireAt  DateTime  @map("credentials_expire_at")
+  managementIp         String?   @map("management_ip")
+  nodePublicKey        String?   @map("node_public_key")
+  status               String    @default("queued")
+  step                 String    @default("queued")
+  errorCode            String?   @map("error_code")
+  attempt              Int       @default(0)
+  leaseToken           String?   @map("lease_token")
+  leaseUntil           DateTime? @map("lease_until")
+  startedAt            DateTime? @map("started_at")
+  completedAt          DateTime? @map("completed_at")
+  deletedAt            DateTime? @map("deleted_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  batch HostOnboardingBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  host  Host? @relation(fields: [hostId], references: [id], onDelete: SetNull)
+  machineGroupEntry HostMachineGroup? @relation(fields: [machineGroupId], references: [id], onDelete: SetNull)
+  regionGroupEntry HostRegionGroup? @relation(fields: [regionGroupId], references: [id], onDelete: SetNull)
+
+  @@unique([batchId, name])
+  @@index([status, leaseUntil])
+  @@index([deletedAt, createdAt])
+  @@map("host_onboarding_nodes")
+}
+
+// One persistent checkout intent prevents duplicate charges across retries.
+model PoolOrder {
+  id          String   @id
+  userId      Int      @map("user_id")
+  requestHash String   @map("request_hash")
+  totalCents  Decimal  @db.Decimal(14, 0) @map("total_cents")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("pool_orders")
 }

@@ -5,7 +5,7 @@
 import { prisma } from './prisma.js'
 import { Prisma } from '@prisma/client'
 import type { TransferStatus } from '@prisma/client'
-import { TRANSFER_CREATE_LOCK_NAMESPACE, USER_BALANCE_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from './advisory-locks.js'
+import { INSTANCE_OPERATION_LOCK_NAMESPACE, TRANSFER_CREATE_LOCK_NAMESPACE, USER_BALANCE_LOCK_NAMESPACE, advisoryTransactionLock, tryAdvisoryTransactionLock } from './advisory-locks.js'
 
 // 事务隔离级别配置
 const TRANSFER_TRANSACTION_OPTIONS = {
@@ -94,6 +94,16 @@ export interface TransferSnapshot {
     backupsCount: number
     ipv4: string | null
     ipv6: string | null
+    dedicatedIpv4?: boolean
+    initiatedByAdminId?: number
+}
+
+export async function hasActiveTransferWorkflow(instanceId: number, db: Pick<Prisma.TransactionClient, 'instanceTask' | 'restoreTask' | 'backupUploadTask'> = prisma): Promise<boolean> {
+    const where = { instanceId, status: { in: ['PENDING', 'PROCESSING'] as ('PENDING' | 'PROCESSING')[] } }
+    const counts = await Promise.all([
+        db.instanceTask.count({ where }), db.restoreTask.count({ where }), db.backupUploadTask.count({ where })
+    ])
+    return counts.some(count => count > 0)
 }
 
 // 创建转移请求（带手续费扣除，事务安全）
@@ -105,11 +115,41 @@ export async function createTransferWithFee(data: {
     remark?: string
     fee: number
     instanceName: string
+    adminActorId?: number
 }): Promise<{ transferId: number; feeDeducted: boolean }> {
+    if (!Number.isFinite(data.fee) || data.fee < 0) throw new Error('TRANSFER_FEE_CHANGED')
     for (let attempt = 0; attempt < TRANSFER_CREATE_LOCK_RETRY_LIMIT; attempt++) {
         const result = await prisma.$transaction(async (tx) => {
+            if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, data.instanceId)) return null
             const locked = await tryAdvisoryTransactionLock(tx, TRANSFER_CREATE_LOCK_NAMESPACE, data.instanceId)
             if (!locked) return null
+
+            await tx.$queryRaw`SELECT id FROM instances WHERE id = ${data.instanceId} FOR UPDATE`
+            const current = await tx.instance.findUnique({ where: { id: data.instanceId }, include: { host: true } })
+            if (!current || current.userId !== data.fromUserId) throw new Error('TRANSFER_SOURCE_CHANGED')
+            if (!['running', 'stopped'].includes(current.status) || current.provisioningCleanupPending || current.deletionBillingPending) {
+                throw new Error('TRANSFER_INVALID_STATUS')
+            }
+            if (current.host.transferEnabled === false) throw new Error('TRANSFER_HOST_DISABLED')
+            if (current.dedicatedIpv4 && (!current.dedicatedNetworkReady || current.host.publicIpSyncBlocked || current.host.poolFaulted)) {
+                throw new Error('TRANSFER_INVALID_STATUS')
+            }
+            if (await hasActiveTransferWorkflow(data.instanceId, tx)) {
+                throw new Error('TRANSFER_INSTANCE_BUSY')
+            }
+            const source = await tx.user.findUnique({ where: { id: data.fromUserId }, select: { status: true } })
+            if (!source || source.status !== 'active') throw new Error('TRANSFER_SOURCE_CHANGED')
+            const recipient = await tx.user.findUnique({ where: { id: data.toUserId }, select: { status: true, role: true } })
+            if (!recipient || recipient.status !== 'active') throw new Error('TRANSFER_TO_BANNED')
+            if (data.fromUserId === data.toUserId) throw new Error('TRANSFER_TO_SELF')
+            if (data.adminActorId !== undefined) {
+                const actor = await tx.user.findUnique({ where: { id: data.adminActorId }, select: { role: true, status: true } })
+                if (actor?.role !== 'admin' || actor.status !== 'active') throw new Error('FORBIDDEN')
+                if (recipient.role !== 'user') throw new Error('TRANSFER_TARGET_UNAVAILABLE')
+                const feeConfig = await tx.systemConfig.findUnique({ where: { key: 'transfer_fee' }, select: { value: true } })
+                const feeValue = Number.parseFloat(feeConfig?.value ?? '0')
+                if (data.fee !== (Number.isFinite(feeValue) ? feeValue : 0)) throw new Error('TRANSFER_FEE_CHANGED')
+            }
 
             // 0. 在事务内检查是否已有 pending/processing 转移
             const existingTransfer = await tx.instanceTransfer.findFirst({
@@ -557,17 +597,35 @@ export async function cancelTransfer(id: number): Promise<void> {
 export async function executeTransfer(
     transferId: number,
     instanceId: number,
-    _fromUserId: number,  // 保留参数以保持接口兼容性，但不再使用（不再更新实例配额）
+    fromUserId: number,
     toUserId: number,
     newInstanceName: string,
-    newIncusId: string
+    newIncusId: string,
+    expectedIncusId?: string
 ): Promise<void> {
     await prisma.$transaction(async (tx) => {
+        await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
+        await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
         // 获取转移记录，获取 fee 和 fromUserId
         const transfer = await tx.instanceTransfer.findUnique({
             where: { id: transferId },
-            select: { fee: true, fromUserId: true }
+            select: { fee: true, fromUserId: true, toUserId: true, instanceId: true, status: true }
         })
+        const current = await tx.instance.findUnique({ where: { id: instanceId }, include: { host: true } })
+        const recipient = await tx.user.findUnique({ where: { id: toUserId }, select: { status: true } })
+        if (!transfer || transfer.status !== 'processing' || transfer.instanceId !== instanceId ||
+            transfer.fromUserId !== fromUserId || transfer.toUserId !== toUserId || !current || current.userId !== fromUserId ||
+            (expectedIncusId !== undefined && current.incusId !== expectedIncusId)) throw new Error('TRANSFER_SOURCE_CHANGED')
+        if (!recipient || recipient.status !== 'active') throw new Error('TRANSFER_TO_BANNED')
+        if (!current.host.transferEnabled) throw new Error('TRANSFER_HOST_DISABLED')
+        if (!['running', 'stopped'].includes(current.status) || current.provisioningCleanupPending || current.deletionBillingPending ||
+            (current.dedicatedIpv4 && (!current.dedicatedNetworkReady || current.host.publicIpSyncBlocked || current.host.poolFaulted || newIncusId !== current.incusId)) ||
+            (!current.dedicatedIpv4 && current.status !== 'stopped')) {
+            throw new Error('TRANSFER_INVALID_STATUS')
+        }
+        if (await hasActiveTransferWorkflow(instanceId, tx)) {
+            throw new Error('TRANSFER_INSTANCE_BUSY')
+        }
 
         // 注意：不再更新实例配额，实例转移只更新实例的所有者、名称和 Incus ID
 

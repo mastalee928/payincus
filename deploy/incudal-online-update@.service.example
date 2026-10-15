@@ -1,6 +1,6 @@
 [Unit]
 Description=PayIncus online update task %i
-Documentation=https://github.com/VipMaxxxx/payincus
+Documentation=https://github.com/mastalee928/payincus
 After=network.target postgresql.service redis-server.service
 Requires=postgresql.service redis-server.service
 

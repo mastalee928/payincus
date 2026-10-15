@@ -1,7 +1,7 @@
 import { PayIncusPublicApiClient, PayIncusPublicApiError, type PayIncusServiceAction } from '../payincus-public-api'
 
 const client = new PayIncusPublicApiClient({
-  baseUrl: process.env.PAYINCUS_BASE_URL || 'https://payincus.com',
+  baseUrl: process.env.PAYINCUS_BASE_URL || 'https://panel.example.com',
   token: process.env.PAYINCUS_API_TOKEN || ''
 })
 

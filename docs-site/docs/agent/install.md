@@ -15,7 +15,7 @@ Agent 运行在 Incus 宿主机上，用于上报宿主机资源、实例状态�
 ## 发布配置
 
 ```dotenv
-INCUDAL_AGENT_RELEASE_REPOSITORY=VipMaxxxx/payincus
+INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
 INCUDAL_AGENT_RELEASE_TOKEN=
 ```
 

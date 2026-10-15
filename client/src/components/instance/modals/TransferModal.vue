@@ -6,6 +6,7 @@ import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
 import { useConfigStore } from '@/stores/config'
 import { translateError } from '@/utils/errorHandler'
+import SensitiveVerificationModal from '@/components/SensitiveVerificationModal.vue'
 
 const props = defineProps<{
   show: boolean
@@ -15,6 +16,7 @@ const props = defineProps<{
     cpu: number
     memory: number
     disk: number
+    dedicatedIpv4?: boolean
   }
 }>()
 
@@ -33,6 +35,7 @@ const targetUsername = ref('')
 const remark = ref('')
 const searchLoading = ref(false)
 const transferLoading = ref(false)
+const showVerification = ref(false)
 const searchError = ref('')
 
 // 用户余额
@@ -60,8 +63,10 @@ const hasEnoughBalance = computed(() => {
 
 // 用户状态检查（用户存在且未被封禁且余额足够）
 const canTransfer = computed(() => {
-  return targetUser.value !== null && targetUser.value.status === 'active' && hasEnoughBalance.value
+  return !searchLoading.value && !loadingBalance.value && targetUser.value !== null && targetUser.value.username === targetUsername.value.trim() && targetUser.value.status === 'active' && hasEnoughBalance.value
 })
+
+watch(targetUsername, () => { targetUser.value = null; searchError.value = '' })
 
 // 弹窗打开时加载余额
 watch(() => props.show, async (show) => {
@@ -85,20 +90,23 @@ watch(() => props.show, async (show) => {
     targetUser.value = null
     searchError.value = ''
     userBalance.value = 0
+    showVerification.value = false
   }
-})
+}, { immediate: true })
 
 async function searchUser() {
-  if (!targetUsername.value.trim()) return
+  if (!targetUsername.value.trim() || searchLoading.value || transferLoading.value) return
+  const searchedUsername = targetUsername.value.trim()
   
   searchLoading.value = true
   searchError.value = ''
   targetUser.value = null
   
   try {
-    const response = await api.transfers.searchUser(targetUsername.value.trim())
-    targetUser.value = response.user
+    const response = await api.transfers.searchUser(searchedUsername)
+    if (targetUsername.value.trim() === searchedUsername) targetUser.value = response.user
   } catch (error: any) {
+    if (targetUsername.value.trim() !== searchedUsername) return
     if (error?.code === 'USER_NOT_FOUND') {
       searchError.value = t('transfer.modal.userNotFound')
     } else if (error?.code === 'TRANSFER_TO_SELF') {
@@ -114,7 +122,7 @@ async function searchUser() {
 }
 
 async function handleTransfer() {
-  if (!targetUser.value || !canTransfer.value) return
+  if (!targetUser.value || !canTransfer.value || transferLoading.value) return
   
   transferLoading.value = true
   try {
@@ -123,10 +131,16 @@ async function handleTransfer() {
     emit('success')
     emit('close')
   } catch (error: any) {
-    toast.error(translateError(error))
+    if (error?.code === 'VERIFICATION_REQUIRED') showVerification.value = true
+    else toast.error(translateError(error))
   } finally {
     transferLoading.value = false
   }
+}
+
+function onVerified() {
+  showVerification.value = false
+  void handleTransfer()
 }
 
 
@@ -146,13 +160,15 @@ function formatDisk(mb: number) {
   <div 
     v-if="show"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-    @click.self="emit('close')"
+    @click.self="!transferLoading && emit('close')"
   >
     <div 
       class="w-full max-w-lg p-6 rounded-lg shadow-xl max-h-[90vh] overflow-y-auto"
       :class="themeStore.isDark ? 'bg-gray-900' : 'bg-white'"
+      role="dialog" aria-modal="true" aria-labelledby="user-push-title"
     >
-      <h3 class="text-lg font-medium mb-4">{{ $t('transfer.modal.title') }}</h3>
+      <h3 id="user-push-title" class="text-lg font-medium mb-4">{{ $t('transfer.modal.title') }}</h3>
+      <p class="mb-4 text-sm text-themed-muted">{{ t('transfer.modal.requestHint') }}</p>
       
       <div class="space-y-4">
         <!-- Instance Info -->
@@ -162,7 +178,7 @@ function formatDisk(mb: number) {
         >
           <div class="font-medium">{{ instance.name }}</div>
           <div class="text-sm text-gray-500 mt-1">
-            {{ instance.cpu }}% CPU · {{ formatMemory(instance.memory) }} · {{ formatDisk(instance.disk) }}
+            {{ instance.dedicatedIpv4 ? `${instance.cpu / 100} ${t('instance.selector.cores')}` : `${instance.cpu}% CPU` }} · {{ formatMemory(instance.memory) }} · {{ formatDisk(instance.disk) }}
           </div>
         </div>
 
@@ -174,12 +190,13 @@ function formatDisk(mb: number) {
               v-model="targetUsername"
               type="text"
               class="input flex-1"
+              maxlength="64" :disabled="transferLoading" autocomplete="off"
               :placeholder="$t('transfer.modal.targetUserPlaceholder')"
               @keyup.enter="searchUser"
             />
             <button 
               class="btn-secondary"
-              :disabled="searchLoading || !targetUsername.trim()"
+              :disabled="searchLoading || transferLoading || !targetUsername.trim()"
               @click="searchUser"
             >
               {{ searchLoading ? '...' : $t('transfer.modal.searchUser') }}
@@ -221,6 +238,7 @@ function formatDisk(mb: number) {
           <label class="block text-sm font-medium mb-1">{{ $t('transfer.modal.remark') }}</label>
           <textarea
             v-model="remark"
+            maxlength="200" :disabled="transferLoading"
             class="input w-full h-20 resize-none"
             :placeholder="$t('transfer.modal.remarkPlaceholder')"
           ></textarea>
@@ -280,13 +298,13 @@ function formatDisk(mb: number) {
             <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <span>{{ $t('transfer.modal.deleteWarning') }}</span>
+            <span>{{ t(instance.dedicatedIpv4 ? 'transfer.modal.dedicatedWarning' : 'transfer.modal.deleteWarning') }}</span>
           </div>
         </div>
 
         <!-- Actions -->
         <div class="flex justify-end gap-2 pt-2">
-          <button class="btn-ghost" @click="emit('close')">
+          <button class="btn-ghost" :disabled="transferLoading" @click="emit('close')">
             {{ $t('common.cancel') }}
           </button>
           <button 
@@ -300,4 +318,6 @@ function formatDisk(mb: number) {
       </div>
     </div>
   </div>
+  <SensitiveVerificationModal :show="showVerification" operation-type="transfer_instance" :resource-id="instance.id"
+    @close="showVerification = false" @verified="onVerified" />
 </template>

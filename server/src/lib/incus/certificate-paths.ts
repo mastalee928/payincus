@@ -26,3 +26,11 @@ export function resolveCertificatePair(certPath: string | null, keyPath: string 
     keyPath: resolveCertificatePath(keyPath)
   }
 }
+
+export function panelCertificatePaths(): { certPath: string; keyPath: string } {
+  const installDir = process.env.INCUDAL_INSTALL_DIR || '/opt/incudal'
+  return {
+    certPath: process.env.PANEL_CRT_PATH || join(installDir, 'server/certs/client.crt'),
+    keyPath: process.env.PANEL_KEY_PATH || join(installDir, 'server/certs/client.key')
+  }
+}

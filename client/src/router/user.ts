@@ -102,6 +102,16 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresUser: true, titleKey: 'nav.dashboard', title: '概览' }
   },
   {
+    path: '/purchase', name: 'pool-purchase',
+    component: () => import('@/components/purchase/PoolPurchaseWizard.vue'),
+    meta: { titleKey: 'nav.purchase', title: '购买主机' }
+  },
+  {
+    path: '/checkout', name: 'checkout',
+    component: () => import('@/views/CheckoutView.vue'),
+    meta: { requiresAuth: true, requiresUser: true, titleKey: 'nav.cart', title: '购物车' }
+  },
+  {
     path: '/market',
     name: 'market',
     component: () => import('@/views/MarketView.vue'),

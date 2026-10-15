@@ -139,6 +139,7 @@ jobs:
 
           cp agent/dist/incudal-agent-linux-amd64 "agent/release/incudal-agent-x86_64-${VERSION}"
           cp agent/dist/incudal-agent-linux-arm64 "agent/release/incudal-agent-aarch64-${VERSION}"
+          cp LICENSE agent/release/LICENSE
 
       - name: Verify release assets
         shell: bash
@@ -155,6 +156,7 @@ jobs:
           path: |
             agent/release/incudal-agent-x86_64-${{ needs.version.outputs.version }}
             agent/release/incudal-agent-aarch64-${{ needs.version.outputs.version }}
+            agent/release/LICENSE
           retention-days: 30
 
   release-agent:
@@ -183,8 +185,10 @@ jobs:
           files: |
             agent-release/incudal-agent-x86_64-${{ needs.version.outputs.version }}
             agent-release/incudal-agent-aarch64-${{ needs.version.outputs.version }}
+            agent-release/LICENSE
           generate_release_notes: true
           draft: false
+          make_latest: false
           prerelease: ${{ contains(needs.version.outputs.version, '-') }}
           fail_on_unmatched_files: true
           overwrite_files: true

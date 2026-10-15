@@ -73,6 +73,7 @@ export interface Host {
   cert_path: string | null
   key_path: string | null
   nat_public_ip: string | null
+  public_ip_sync_blocked?: boolean
   nat_public_ipv6?: string | null
   nat_bind_ip?: string | null
   nat_bind_ipv6?: string | null
@@ -189,6 +190,8 @@ export interface Package {
 export type InstanceStatus = 'creating' | 'running' | 'stopped' | 'suspended' | 'error' | 'deleted'
 
 export interface Instance {
+  dedicated_ipv4?: boolean
+  dedicated_network_ready?: boolean
   id: number
   incus_id: string
   name: string

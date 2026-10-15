@@ -10,8 +10,8 @@ const taskId = Number(process.argv[2])
 const appDir = resolve(process.env.INCUDAL_APP_DIR || process.cwd())
 const installDir = resolve(process.env.INSTALL_DIR || deriveInstallDir(appDir))
 const serviceName = process.env.SERVICE_NAME || 'incudal-backend'
-const frontendUrl = process.env.FRONTEND_URL || 'https://pay.payincus.com'
-const adminFrontendUrl = process.env.ADMIN_FRONTEND_URL || 'https://admin.payincus.com'
+const frontendUrl = process.env.FRONTEND_URL || 'http://127.0.0.1:3000'
+const adminFrontendUrl = process.env.ADMIN_FRONTEND_URL || 'http://127.0.0.1:3002'
 const backendUrl = process.env.BACKEND_URL || 'http://127.0.0.1:3001'
 const logDir = resolve(process.env.SYSTEM_UPDATE_LOG_DIR || join(installDir, 'update-logs'))
 const logPath = resolve(process.env.SYSTEM_UPDATE_LOG_PATH || join(logDir, `system-update-${taskId}-rollback.log`))
@@ -184,6 +184,10 @@ async function main(): Promise<void> {
     await mkdir(join(installDir, '.cache'), { recursive: true })
     await mkdir(join(installDir, 'server/certs'), { recursive: true })
     await chownInstallDir()
+    const gatewayRefresh = join(installDir, existsSync(join(installDir, 'current')) ? 'current' : '.', 'scripts/refresh-onboarding-gateway.sh')
+    if (process.platform === 'linux' && existsSync(gatewayRefresh)) {
+      await run('bash', [gatewayRefresh], { timeoutMs: 30000 })
+    }
     await run('systemctl', ['restart', serviceName], { timeoutMs: 120000 })
     await waitForBackendHealth()
     await run('bash', ['scripts/verify-split-host.sh'], {

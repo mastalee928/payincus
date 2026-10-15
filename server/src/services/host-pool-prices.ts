@@ -1,0 +1,323 @@
+import type { Prisma } from '@prisma/client'
+import { prisma } from '../db/prisma.js'
+import { getSystemConfigNumber } from '../db/system-config.js'
+import { OnboardingError, RESOURCE_PRESETS, type ResourcePreset } from '../lib/host-onboarding.js'
+import { presetQuota } from '../lib/onboarding-resources.js'
+import { HOST_OCCUPIED_INSTANCE_WHERE, dedicatedHostReadyWhere } from '../lib/host-resource-usage.js'
+import { poolCapacityReady, poolCapacitySelect, poolKeyOf, poolKeyString } from '../lib/pool-stock.js'
+import { lockHostGroups } from './host-groups.js'
+
+type DbClient = Prisma.TransactionClient | typeof prisma
+
+/**
+ * 影子套餐名（客户可见）：独立机型 E2 / 独立机型 ARM2C。
+ * Package 上有 @@unique([userId, name])；查找只认 hidden=true 的行，不会串到真实套餐。
+ */
+const shadowPackageName = (preset: string) => `独立机型 ${preset}`
+/** 迁移前的旧名，仅用于兜底查找尚未改名的历史行。 */
+const legacyShadowPackageName = (preset: string) => `[池子] ${preset}`
+
+/** 影子方案名（客户可见）：地区 · 磁盘档，如「美国西部（圣何塞） · 30G」。 */
+const shadowPlanName = (regionName: string, diskGiB: number) => `${regionName} · ${diskGiB}G`
+/** 迁移前的旧名，仅用于兜底查找尚未关联 shadowPlanId 的历史行。 */
+const legacyShadowPlanName = (poolPriceId: number) => `池子 #${poolPriceId}`
+
+/**
+ * 「事实无限」的流量占位值：1 EiB。
+ * `PackagePlan.trafficLimit` 是必填，而创建路径会把它原样复制到实例的
+ * `monthlyTrafficLimit` 上——填 0 会让客户实例立刻流量超限，所以必须给大值。
+ * 一机一卖不按流量结算，这个值不会被真正消耗。
+ */
+const UNLIMITED_TRAFFIC = 1n << 60n
+
+export interface PoolPriceInput {
+  machineGroupId: number
+  resourcePreset: ResourcePreset
+  regionGroupId: number
+  diskGiB: number
+  name?: string | null
+  monthlyPrice: number // 分
+  setupFee: number // 分
+  active?: boolean
+  sortOrder?: number
+}
+
+export interface PoolInventoryRow {
+  machineGroupId: number
+  resourcePreset: string | null
+  regionGroupId: number | null
+  diskGiB: number | null
+  total: number
+  idle: number
+}
+
+function validateInput(input: PoolPriceInput): void {
+  if (!RESOURCE_PRESETS.includes(input.resourcePreset)) throw new OnboardingError('POOL_PRESET_INVALID')
+  if (input.monthlyPrice + input.setupFee > 9999999999) throw new OnboardingError('POOL_PRICE_INVALID')
+  if (!Number.isInteger(input.diskGiB) || input.diskGiB < 10 || input.diskGiB > 10000) throw new OnboardingError('POOL_DISK_INVALID')
+  for (const value of [input.monthlyPrice, input.setupFee]) {
+    if (!Number.isInteger(value) || value < 0 || value > 9999999999) throw new OnboardingError('POOL_PRICE_INVALID')
+  }
+  if (input.name !== undefined && input.name !== null && (typeof input.name !== 'string' || input.name.length > 60)) {
+    throw new OnboardingError('POOL_NAME_INVALID')
+  }
+}
+
+/**
+ * 影子套餐：每个「核心数预设」一条，hidden=true，不出现在任何套餐选择界面；
+ * 实例详情等只读位置显示客户可读名（独立机型 E2）。
+ * 它存在的唯一理由是让 Instance.packageId 与既有计费/优惠券/统计逻辑继续工作。
+ * 只按预设索引、不含机型分组：机型分组对下游没有任何影响。
+ */
+async function ensureShadowPackage(tx: DbClient, preset: ResourcePreset, ownerId: number, diskGiB: number) {
+  const name = shadowPackageName(preset)
+  // 按名称查找而不是按所有者：两个管理员先后保存同一个预设时不应各建一条。
+  // 兜底迁移前的旧名（[池子] X）：找到就顺手改成客户可读的新名。
+  const existing = await tx.package.findFirst({ where: { name, hidden: true } })
+    ?? await tx.package.findFirst({ where: { name: legacyShadowPackageName(preset), hidden: true } })
+  const quota = presetQuota(preset)
+  // cpuMax / memoryMax / diskMax 只在「没有方案」的免费套餐路径上生效；
+  // 影子套餐永远配有方案，所以这三个值对实例没有影响，仅为满足非空约束。
+  const data = {
+    cpuMax: quota.cpuAllowanceMax,
+    memoryMax: quota.memoryMax,
+    diskMax: diskGiB * 1024,
+    portLimit: 0,
+    snapshotLimit: 0,
+    backupLimit: 0,
+    siteLimit: 0,
+    monthlyTrafficLimit: null, // null = 不限
+    hidden: true,
+    active: true,
+    // 只能从机器池结算入口购买，避免普通套餐入口绕过整机库存分配。
+    globalShared: false
+  }
+  if (existing) return tx.package.update({ where: { id: existing.id }, data: { ...data, name } })
+  return tx.package.create({ data: { userId: ownerId, name, description: '系统生成的计费套餐，不对用户展示', ...data } })
+}
+
+/**
+ * 影子方案：每个池子行一条，价格与初装费直接镜像自定价表。
+ * 创建路径只读方案，所以这里的每个字段都必须是「一机一卖下的正确值」。
+ * 客户可读名 = 地区 · 磁盘档；与价格行通过 shadowPlanId 精确关联（不靠名字）。
+ */
+async function ensureShadowPlan(
+  tx: DbClient,
+  packageId: number,
+  row: { id: number; resourcePreset: string; diskGiB: number; monthlyPrice: Prisma.Decimal; setupFee: Prisma.Decimal; shadowPlanId: number | null },
+  regionName: string,
+  machineName: string
+) {
+  const quota = presetQuota(row.resourcePreset as ResourcePreset)
+  // 同一套餐内重名（例如同机型分组下有同名地区组）时依次补机型分组、价格行号区分，
+  // 保证 (packageId, name) 唯一约束下每次都能落一个稳定、客户可读的名字。
+  const baseName = shadowPlanName(regionName, row.diskGiB)
+  const candidates = [baseName, `${baseName} · ${machineName}`, `${baseName} · ${machineName} ${row.id}`]
+  let name = candidates[candidates.length - 1]
+  for (const candidate of candidates) {
+    const clash = await tx.packagePlan.findFirst({ where: { packageId, name: candidate }, select: { id: true } })
+    if (!clash || clash.id === row.shadowPlanId) { name = candidate; break }
+  }
+  const data = {
+    name,
+    cpu: quota.cpuAllowanceMax,
+    memory: quota.memoryMax,
+    disk: row.diskGiB * 1024, // 实例侧磁盘单位是 MiB
+    portLimit: 0, // Reuse PayIncus NAT mappings; SSH is system-managed.
+    snapshotLimit: 0,
+    backupLimit: 0,
+    siteLimit: 0,
+    swapSize: 0,
+    trafficLimit: UNLIMITED_TRAFFIC,
+    trafficLimitSpeed: '100000Mbit', // '0' 是「不加带宽限制」的哨兵值，创建路径只在 !== '0' 时套用限速
+    price: row.monthlyPrice,
+    billingCycle: 1,
+    setupFee: row.setupFee,
+    isActive: true,
+    isSoldOut: false,
+    sortOrder: 0
+  }
+  const existing = row.shadowPlanId
+    ? await tx.packagePlan.findUnique({ where: { id: row.shadowPlanId } })
+    : await tx.packagePlan.findFirst({ where: { packageId, name: legacyShadowPlanName(row.id) } })
+  if (existing) return tx.packagePlan.update({ where: { id: existing.id }, data })
+  return tx.packagePlan.create({ data: { packageId, ...data } })
+}
+
+/**
+ * Prisma 的 Decimal 会序列化成字符串，而仓库既有做法是转成 Number 再返回
+ * （见 routes/packages.ts 的 `Number(plan.setupFee)`）。价格单位是分、都是整数，
+ * 转 Number 不会丢精度。不转换的话前端会拿到字符串，算价时静默出错。
+ */
+export function serializePoolPrice<T extends { monthlyPrice: Prisma.Decimal; setupFee: Prisma.Decimal }>(row: T) {
+  return { ...row, monthlyPrice: Number(row.monthlyPrice), setupFee: Number(row.setupFee) }
+}
+
+/** 写入单行定价 + 影子套餐/方案。调用方必须已持有分组锁与事务。 */
+async function writePoolPrice(tx: DbClient, input: PoolPriceInput, ownerId: number): Promise<number> {
+  const machine = await tx.hostMachineGroup.findUnique({ where: { id: input.machineGroupId } })
+  if (!machine) throw new OnboardingError('HOST_GROUP_NOT_FOUND')
+  const region = await tx.hostRegionGroup.findUnique({ where: { id: input.regionGroupId } })
+  if (!region) throw new OnboardingError('HOST_GROUP_NOT_FOUND')
+  if (region.machineGroupId !== machine.id) throw new OnboardingError('HOST_GROUP_MISMATCH')
+
+  const key = {
+    machineGroupId: input.machineGroupId,
+    resourcePreset: input.resourcePreset,
+    regionGroupId: input.regionGroupId,
+    diskGiB: input.diskGiB
+  }
+  const name = input.name?.trim() || null
+  const saved = await tx.hostPoolPrice.upsert({
+    // 复合唯一约束在 schema 里用了自定义名，Prisma 生成的 where 键就是该约束名本身
+    where: { host_pool_prices_pool_key: key },
+    create: { ...key, name, monthlyPrice: input.monthlyPrice, setupFee: input.setupFee, active: input.active ?? true, sortOrder: input.sortOrder ?? 0 },
+    update: {
+      name,
+      monthlyPrice: input.monthlyPrice,
+      setupFee: input.setupFee,
+      ...(input.active === undefined ? {} : { active: input.active }),
+      ...(input.sortOrder === undefined ? {} : { sortOrder: input.sortOrder })
+    }
+  })
+
+  const shadowPackage = await ensureShadowPackage(tx, input.resourcePreset, ownerId, input.diskGiB)
+  const shadowPlan = await ensureShadowPlan(tx, shadowPackage.id, saved, region.name, machine.name)
+  // 把影子方案挂到价格行上：下单解析按 ID 精确取，改名/换地区都不受影响。
+  if (saved.shadowPlanId !== shadowPlan.id) {
+    await tx.hostPoolPrice.update({ where: { id: saved.id }, data: { shadowPlanId: shadowPlan.id } })
+  }
+  return saved.id
+}
+
+/** 新增或更新一个池子商品。影子套餐与影子方案在同一事务内跟进。 */
+export async function upsertPoolPrice(input: PoolPriceInput, ownerId: number) {
+  validateInput(input)
+  const id = await prisma.$transaction(async tx => {
+    // 与分组改名/删除串行，避免「地区正在被删」的同时还在给它定价
+    await lockHostGroups(tx)
+    return writePoolPrice(tx, input, ownerId)
+  })
+  const row = await prisma.hostPoolPrice.findUniqueOrThrow({ where: { id } })
+  return { price: serializePoolPrice(row) }
+}
+
+/**
+ * 批量保存定价表：一屏几十格一次提交。
+ * 全部在同一个事务里，避免「保存到一半」留下半套价格。
+ */
+export async function upsertPoolPrices(items: PoolPriceInput[], ownerId: number, removeIds: number[] = []) {
+  if (!Array.isArray(items) || items.length + removeIds.length === 0 || items.length + removeIds.length > 500) throw new OnboardingError('POOL_BATCH_INVALID')
+  for (const item of items) validateInput(item)
+  return prisma.$transaction(async tx => {
+    await lockHostGroups(tx)
+    const ids: number[] = []
+    for (const item of items) ids.push(await writePoolPrice(tx, item, ownerId))
+    for (const id of removeIds) {
+      const row = await tx.hostPoolPrice.findUnique({ where: { id } })
+      if (!row) throw new OnboardingError('POOL_PRICE_NOT_FOUND')
+      if (row.shadowPlanId) await tx.packagePlan.updateMany({ where: { id: row.shadowPlanId }, data: { isActive: false } })
+      await tx.hostPoolPrice.delete({ where: { id } })
+    }
+    return { saved: ids.length, removed: removeIds.length, ids }
+  })
+}
+
+/** 删除可售商品，保留历史方案关联，避免已购实例被误判为免费实例。 */
+export async function deletePoolPrice(id: number) {
+  return prisma.$transaction(async tx => {
+    await lockHostGroups(tx)
+    const row = await tx.hostPoolPrice.findUnique({ where: { id } })
+    if (!row) throw new OnboardingError('POOL_PRICE_NOT_FOUND')
+    if (row.shadowPlanId) {
+      await tx.packagePlan.updateMany({ where: { id: row.shadowPlanId }, data: { isActive: false } })
+    } else {
+      // 迁移前创建的旧行：按旧名兜底。
+      const shadowPackage = await tx.package.findFirst({ where: { hidden: true, name: { in: [shadowPackageName(row.resourcePreset), legacyShadowPackageName(row.resourcePreset)] } } })
+      if (shadowPackage) await tx.packagePlan.updateMany({ where: { packageId: shadowPackage.id, name: legacyShadowPlanName(id) }, data: { isActive: false } })
+    }
+    await tx.hostPoolPrice.delete({ where: { id } })
+    return { success: true }
+  })
+}
+
+/**
+ * 把池子商品解析成「影子套餐 + 影子方案」，供下单路径复用既有的创建流程。
+ *
+ * 这是影子机制的关键一环：解析出 id 之后，创建路径的计费、优惠券、AFF、到期
+ * 全部照旧工作，不需要为池子模型改任何一条。
+ */
+export async function resolvePoolProduct(poolPriceId: number) {
+  const price = await prisma.hostPoolPrice.findUnique({ where: { id: poolPriceId } })
+  if (!price || !price.active) return null
+  const shadowPackage = await prisma.package.findFirst({ where: { name: shadowPackageName(price.resourcePreset), hidden: true } })
+    ?? await prisma.package.findFirst({ where: { name: legacyShadowPackageName(price.resourcePreset), hidden: true } })
+  if (!shadowPackage) return null
+  // 优先按 shadowPlanId 精确关联；迁移前的旧行按旧名兜底。
+  const shadowPlan = price.shadowPlanId
+    ? await prisma.packagePlan.findUnique({ where: { id: price.shadowPlanId } })
+    : await prisma.packagePlan.findFirst({ where: { packageId: shadowPackage.id, name: legacyShadowPlanName(price.id) } })
+  if (!shadowPlan) return null
+  return { price, packageId: shadowPackage.id, planId: shadowPlan.id }
+}
+
+/** 定价表：某个机型 + 核心下的全部行（含未上架的），供管理端渲染矩阵。 */
+export async function listPoolPrices(machineGroupId?: number, resourcePreset?: string) {
+  const rows = await prisma.hostPoolPrice.findMany({
+    where: { ...(machineGroupId === undefined ? {} : { machineGroupId }), ...(resourcePreset === undefined ? {} : { resourcePreset }) },
+    include: { regionGroup: { select: { id: true, name: true, countryCode: true } }, machineGroup: { select: { id: true, name: true } } },
+    orderBy: [{ resourcePreset: 'asc' }, { diskGiB: 'asc' }, { id: 'asc' }]
+  })
+  return rows.map(serializePoolPrice)
+}
+
+/**
+ * 每个池子的库存：总台数与空闲台数。
+ *
+ * `readyOnly` 决定口径，两种用途必须分清：
+ * - 管理端定价页用 false：你给「池子」定价，不是给当前就绪的那几台定价，
+ *   机器离线也该看得见。
+ * - 购买页用 true：必须与分配器 `selectAvailableHost` 用**同一套就绪判据**，
+ *   否则会出现「页面显示有货、下单却挑不到机器」。
+ */
+export async function poolInventory(_options: { readyOnly?: boolean } = {}): Promise<PoolInventoryRow[]> {
+  const [hosts, readyHosts, moves] = await Promise.all([
+    prisma.host.findMany({ where: { singleTenant: true }, select: {
+      id: true, machineGroupId: true, resourcePreset: true, regionGroupId: true, customerDiskGiB: true,
+      ...poolCapacitySelect, _count: { select: { instances: { where: HOST_OCCUPIED_INSTANCE_WHERE } } }
+    } }),
+    prisma.host.findMany({ where: { singleTenant: true, ...dedicatedHostReadyWhere() }, select: { id: true } }),
+    prisma.instanceTask.findMany({ where: { taskType: { in: ['change_host', 'replace_host'] }, status: { in: ['PENDING', 'PROCESSING'] }, targetHostId: { not: null } }, select: { targetHostId: true } })
+  ])
+  const ready = new Set(readyHosts.map(host => host.id)), reserved = new Set(moves.map(task => task.targetHostId))
+  const byPool = new Map<string, PoolInventoryRow>()
+  for (const host of hosts) {
+    const key = poolKeyOf(host), id = poolKeyString(key)
+    const row = byPool.get(id) ?? { ...key, total: 0, idle: 0 }
+    row.total++
+    if (!host._count.instances && !reserved.has(host.id) && ready.has(host.id) && poolCapacityReady(host)) row.idle++
+    byPool.set(id, row)
+  }
+  return [...byPool.values()]
+}
+
+export async function publicPoolCatalog() {
+  const [prices, inventory] = await Promise.all([listPoolPrices(), poolInventory()])
+  const stock = new Map(inventory.map(row => [poolKeyString(row), row]))
+  const regions = new Map<number, { id: number; name: string; countryCode: string | null; products: Array<{
+    id: number; resourcePreset: string; diskGiB: number; monthlyPrice: number; setupFee: number;
+    cpu: number; memoryMiB: number; idle: number; total: number
+  }> }>()
+  for (const price of prices) {
+    if (!price.active || !price.shadowPlanId) continue
+    const group = price.regionGroup
+    const region = regions.get(group.id) ?? { id: group.id, name: `${price.machineGroup.name} · ${group.name}`, countryCode: group.countryCode, products: [] }
+    const capacity = stock.get(poolKeyString(price))
+    const quota = presetQuota(price.resourcePreset as ResourcePreset)
+    region.products.push({ id: price.id, resourcePreset: price.resourcePreset, diskGiB: price.diskGiB,
+      monthlyPrice: price.monthlyPrice, setupFee: price.setupFee, cpu: quota.cpuAllowanceMax, memoryMiB: quota.memoryMax,
+      idle: capacity?.idle ?? 0, total: capacity?.total ?? 0 })
+    regions.set(group.id, region)
+  }
+  return { regions: [...regions.values()], maxInstances: Math.max(1, Math.min(100, Math.floor(await getSystemConfigNumber('pool_order_max_instances', 100)))) }
+}

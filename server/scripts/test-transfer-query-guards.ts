@@ -122,6 +122,18 @@ assert.ok(
   'completed transfers must disable auto-renew when ownership changes'
 )
 
+for (const [name, route] of [['accept', acceptRoute], ['push', pushRoute]] as const) {
+  assert.ok(route.includes('instance.dedicated_ipv4 ? oldIncusId :') &&
+    route.includes('if (newIncusId !== oldIncusId) await renameIncusInstance') &&
+    route.includes("if (!instance.dedicated_ipv4 && instance.status === 'running')"),
+  `${name} must preserve the Incus ID and full-port forwards for a running dedicated instance`)
+}
+assert.ok(executeTransferHelper.includes("transfer.status !== 'processing'") &&
+  executeTransferHelper.includes('current.userId !== fromUserId') &&
+  executeTransferHelper.includes('current.incusId !== expectedIncusId') &&
+  executeTransferHelper.includes('hasActiveTransferWorkflow(instanceId, tx)'),
+  'ownership execution must recheck the claimed request, owner, Incus ID and competing workflows in its transaction')
+
 assert.ok(
   acceptRoute.includes("sendNotification(user.id, 'transfer_ownership_received'") &&
     pushRoute.includes("sendNotification(transfer.toUserId, 'transfer_ownership_received'") &&

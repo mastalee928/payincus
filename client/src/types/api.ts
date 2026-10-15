@@ -767,6 +767,9 @@ export interface BadgeMultiDrawResponse {
 // ==================== 实例相关 ====================
 
 export interface Instance {
+  dedicatedIpv4?: boolean
+  dedicatedNetworkReady?: boolean
+  publicIpUpdating?: boolean
   id: number
   incus_id: string
   name: string
@@ -1648,7 +1651,7 @@ export interface UpdateTerminalSavedCommandRequest {
 
 // ==================== 实例任务相关 ====================
 
-export type InstanceTaskType = 'start' | 'stop' | 'restart' | 'rebuild' | 'recreate' | 'clone' | 'change_host'
+export type InstanceTaskType = 'start' | 'stop' | 'restart' | 'rebuild' | 'recreate' | 'clone' | 'change_host' | 'replace_host'
 export type InstanceTaskStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED'
 
 export interface InstanceTask {
@@ -2352,3 +2355,5 @@ export interface PaginatedResponse<T> {
   pageSize: number
   totalPages: number
 }
+
+export type { OnboardingCredentials, ResourcePreset, OnboardingResourceInput, ResolvedHostResources, OnboardingInputNode, OnboardingDefaults, CreateOnboardingRequest, OnboardingTargetInput, OnboardingStatus, OnboardingNode, OnboardingBatch, OnboardingListResponse, OnboardingGatewayStatus, ManagedHost, HostStockCounts, HostRegionGroup, HostMachineGroup, HostInventoryResponse, HostInventoryQuery, UpdateHostGroupsRequest, HostPoolPrice, HostPoolPriceInput, HostPoolInventoryRow, HostPoolUnspecifiedHost, UpdateHostSpecRequest } from './host-pool'

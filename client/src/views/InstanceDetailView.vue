@@ -2393,7 +2393,7 @@ function formatShortDate(dateStr: string | null | undefined): string {
               />
             </div>
             <div
-              class="absolute -bottom-1 -right-1 rounded-full border border-themed bg-themed-surface px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-themed-muted shadow-sm"
+              v-if="isAdminEntry" class="absolute -bottom-1 -right-1 rounded-full border border-themed bg-themed-surface px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-themed-muted shadow-sm"
             >
               {{ $t(`common.instanceType.${instance.instanceType}`) }}
             </div>
@@ -2407,7 +2407,7 @@ function formatShortDate(dateStr: string | null | undefined): string {
                 {{ getStatusInfo(instance.status, t).label }}
               </span>
             </div>
-            <p class="page-description mt-0.5 font-mono tabular-nums">{{ formatImageName(instance.image, (instance as any).imageName) }} · <span class="uppercase">{{ (instance as any).host?.name || (instance as any).host || '-' }}</span></p>
+            <p class="page-description mt-0.5 font-mono tabular-nums">{{ formatImageName(instance.image, (instance as any).imageName) }}<span v-if="isAdminEntry"> · <span class="uppercase">{{ (instance as any).host?.name || (instance as any).host || '-' }}</span></span></p>
           </div>
         </div>
 

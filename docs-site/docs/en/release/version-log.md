@@ -8,18 +8,85 @@ This page is generated from Git tags and commits to show system version history.
 
 ## Latest Release State / 最新发布状态
 
-- Latest Release Commit / 最新发布提交: `9fda0a300`
-- Commit date / 提交日期: 2026-07-13
-- Commit subject / 提交说明: Release v1.5.2 宿主机/Agent/Caddy 安装脚本系统性整改
-- Latest tag / 最新 tag: `v1.5.2`
+- Latest Release Commit / 最新发布提交: `b140752e9`
+- Commit date / 提交日期: 2026-07-14
+- Commit subject / 提交说明: Release v1.5.8 修复内网 IP 分配竞态 + LXC 端口转发改走内核 NAT
+- Latest tag / 最新 tag: `v1.6.0`
 
 ## Unreleased Changes / 未发布变更
 
-### Other Changes / 其他变更
-
-- OPERATIONS_HANDOFF: 叙述段更新为 v1.5.2(root 级安装脚本整改 + 两项待 owner 决策) `ea4cb7315`
+- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
 
 ## Historical Versions / 历史版本
+
+## v1.6.0
+
+- Release commit / 发布提交: `b140752e9`
+- Commit date / 提交日期: 2026-07-14
+- Commit subject / 提交说明: Release v1.5.8 修复内网 IP 分配竞态 + LXC 端口转发改走内核 NAT
+
+- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
+
+## v1.5.8
+
+- Release commit / 发布提交: `b140752e9`
+- Commit date / 提交日期: 2026-07-14
+- Commit subject / 提交说明: Release v1.5.8 修复内网 IP 分配竞态 + LXC 端口转发改走内核 NAT
+
+- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
+
+## v1.5.7
+
+- Release commit / 发布提交: `3e2a64257`
+- Commit date / 提交日期: 2026-07-14
+- Commit subject / 提交说明: Release v1.5.7 修复宿主机 ZFS 安装失败 + 预编译内核模块加 SHA-256 校验
+
+- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
+
+## v1.5.6
+
+- Release commit / 发布提交: `1cf90c34a`
+- Commit date / 提交日期: 2026-07-14
+- Commit subject / 提交说明: Release v1.5.6 OTA 不再依赖 Git + 创建实例自动下发远程端口
+
+- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
+
+## v1.5.5
+
+- Release commit / 发布提交: `49ebad913`
+- Commit date / 提交日期: 2026-07-14
+- Commit subject / 提交说明: Release v1.5.5 页面级错误边界：渲染异常不再导致静默白屏
+
+- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
+
+## v1.5.4
+
+- Release commit / 发布提交: `d17675b30`
+- Commit date / 提交日期: 2026-07-13
+- Commit subject / 提交说明: Release v1.5.4 修复管理端节点详情白屏（Transition out-in + KeepAlive）
+
+- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
+
+## v1.5.3
+
+- Release commit / 发布提交: `24226069a`
+- Commit date / 提交日期: 2026-07-13
+- Commit subject / 提交说明: Release v1.5.3 修复节点详情白屏 + 第三方二进制固定版本与 SHA-256 校验
+
+
+### 修复
+
+- **管理后台「节点 → 节点详情」整页白屏（刷新后恢复正常）**：节点详情视图被用户端与管理端共用，但页面内负责在路由参数变化时重新加载数据的守卫写死了用户端的路由名（`my-host-detail`），管理端的路由名是 `admin-my-host-detail`，因此该守卫在管理端永远提前返回、从不加载数据。而该组件外层包着 `<KeepAlive>`，被缓存复用时 `onMounted` 不会再执行——于是页面进入「既不在加载中、节点数据又为空」的状态；模板此前没有对应的兜底分支，两个条件都不成立就什么都不渲染，表现为整页白屏（没有任何报错，刷新因为是全新挂载才恢复）。
+
+  三处修复：路由守卫改为同时识别用户端与管理端的路由名；新增 `onActivated`，组件被 `KeepAlive` 缓存复用时按需重新加载；模板补上兜底分支，数据为空时明确展示「加载失败」并提供重试 / 返回，杜绝再次渲染成空白页。
+
+### 安全（宿主机安装脚本）
+
+- **第三方二进制改为固定版本 + 固定 SHA-256 校验**：`wgcf` 与 `RFW` 以 root 身份安装并执行在客户宿主机上。此前 `RFW` 拉取的是上游的 `latest`——上游一旦变更，客户机器上装到的就是另一个二进制，既不可复现也无法校验；`wgcf` 虽已固定版本但没有任何哈希校验。现在两者的版本与期望 SHA-256 都固定在脚本内，下载后逐字节比对，任一不符即丢弃并重试，校验不通过一律不安装（fail closed）。
+
+  > 说明：仅比对上游同源的 `checksums.txt` 是不够的——能替换二进制的攻击者同样能替换那份校验和。因此哈希由本项目固定，并已通过独立下载重算核对。升级第三方组件时需同步更新版本号与哈希。
+
+> 本版不涉及数据库结构变更。基于 v1.5.2。
 
 ## v1.5.2
 

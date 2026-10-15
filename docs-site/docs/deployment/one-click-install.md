@@ -32,16 +32,15 @@ description: 使用经过校验的 GitHub Release 在 Debian 或 Ubuntu 上部�
 ## 安装命令
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/VipMaxxxx/payincus/main/scripts/install-panel.sh -o install-panel.sh
+curl -fsSL https://raw.githubusercontent.com/mastalee928/payincus/main/scripts/install-panel.sh -o install-panel.sh
 sudo bash install-panel.sh
 ```
 
 安装过程中按提示输入：
 
-- 用户端域名。
-- 管理后台域名。
-- 初始管理员邮箱，留空默认 `admin@payincus.local`。
-- 初始管理员密码，生产必须使用强密码。
+- 初始管理员邮箱，留空默认 `admin@payincus.local`。管理员密码随机生成，安装完成后显示，请妥善保存。
+- 外部访问模式；选择 Nginx 或 Cloudflare Tunnel 时，填写用户端和管理后台域名，以及相应证书邮箱或 Tunnel 凭证。
+- 机器池管理网关的公网 IPv4 或直连域名，不能经过 CDN。留空可稍后配置。
 
 ## 脚本会做什么
 
@@ -54,6 +53,19 @@ sudo bash install-panel.sh
 - 创建 OTA、证书、缓存和日志目录。
 - 写入用户端和管理端 Nginx 配置。
 - 设置 `FRONTEND_URL`、`ADMIN_FRONTEND_URL`、`SITE_URL` 和 `PAYMENT_CALLBACK_BASE_URL`。
+- 如果提供管理网关地址，配置 WireGuard、受限 SSH 密钥与主机指纹，验证后端连接后写入环境配置。默认管理网段为 `10.253.240.0/24`，云厂商安全组需允许入站 UDP `51820`。
+
+## 机器池管理网关
+
+机器池自动接入和宿主机管理使用独立的 WireGuard 隧道。主控需允许 root 公钥 SSH 登录；安装器不会更改全局登录策略。用户端域名可以经过 CDN，但管理网关必须使用公网 IPv4 或直连域名。
+
+安装时留空，或需要为已有安装补配时：
+
+```bash
+sudo bash install-panel.sh --configure-host-pool
+```
+
+可通过 `ONBOARDING_PUBLIC_HOST`、`ONBOARDING_MANAGEMENT_ADDRESS`、`ONBOARDING_WG_PORT`、`ONBOARDING_CONTROL_SSH_PORT` 指定地址和端口。已有网关密钥与 peer 会保留。分离部署或自定义网关见[机器池配置](https://github.com/mastalee928/payincus/blob/main/docs/host-pool.md)。
 
 ## 升级和卸载
 

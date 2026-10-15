@@ -794,7 +794,7 @@ export default async function packageRoutes(fastify: FastifyInstance) {
     
     // 构建查询条件
     const where: any = {
-      active: true,        // 只返回已启用的套餐
+      active: true, hidden: false,        // 只返回已启用的套餐
       globalShared: true   // 只返回公开套餐
     }
     
@@ -880,7 +880,7 @@ export default async function packageRoutes(fastify: FastifyInstance) {
       let soldOut = isPaid && availablePlans.length === 0
       if (hostIds.length > 0) {
         const hosts = await prisma.host.findMany({
-          where: { id: { in: hostIds }, status: 'online' },
+          where: { id: { in: hostIds }, status: 'online', singleTenant: false },
           select: { id: true, cpuAllowanceMax: true, memoryMax: true, cpuUsed: true, memoryUsed: true }
         })
         
@@ -976,7 +976,7 @@ export default async function packageRoutes(fastify: FastifyInstance) {
     
     // 构建查询条件
     const where: any = {
-      active: true,
+      active: true, hidden: false,
       globalShared: true
     }
     
@@ -1012,7 +1012,7 @@ export default async function packageRoutes(fastify: FastifyInstance) {
     
     // 获取宿主机信息
     const hosts = await prisma.host.findMany({
-      where: { id: { in: Array.from(allHostIds) }, status: 'online' },
+      where: { id: { in: Array.from(allHostIds) }, status: 'online', singleTenant: false },
       select: {
         id: true,
         countryCode: true,
@@ -3040,7 +3040,7 @@ export default async function packageRoutes(fastify: FastifyInstance) {
     
     // 官方/托管市场/托管专区：使用统一公开套餐逻辑
     let whereCondition: any = {
-      active: true,
+      active: true, hidden: false,
       plans: {
         some: {
           isActive: true

@@ -1,3 +1,11 @@
+import hostReplacementRoutes from './routes/host-replacements.js'
+import adminInstancePushRoutes from './routes/admin-instance-push.js'
+import hostPortProtocolRoutes from './routes/host-port-protocol.js'
+import hostOnboardingRoutes from './routes/host-onboarding.js'
+import hostPoolPriceRoutes from './routes/host-pool-prices.js'
+import poolOrderRoutes from './routes/pool-orders.js'
+import { startHostOnboardingWorker, stopHostOnboardingWorker } from './workers/hostOnboardingWorker.js'
+import { startHostPublicIpSync, stopHostPublicIpSync } from './services/host-public-ip-sync.js'
 // 确保环境变量被加载（必须在最前面）
 import './config/env.js'
 
@@ -501,6 +509,14 @@ await fastify.register(authRoutes, { prefix: '/api/auth' })
 await fastify.register(userRoutes, { prefix: '/api/users' })
 await fastify.register(instanceRoutes, { prefix: '/api/instances' })
 await fastify.register(hostRoutes, { prefix: '/api/hosts' })
+await fastify.register(hostReplacementRoutes, { prefix: '/api/instances' })
+await fastify.register(adminInstancePushRoutes, { prefix: '/api/admin/instance-push' })
+await fastify.register(hostPortProtocolRoutes, { prefix: '/api/hosts' })
+await fastify.register(hostOnboardingRoutes, { prefix: '/api/host-onboarding' })
+await fastify.register(hostPoolPriceRoutes, { prefix: '/api/host-pools' })
+await fastify.register(poolOrderRoutes, { prefix: '/api/instances' })
+fastify.addHook('onClose', async () => { await stopHostOnboardingWorker() })
+fastify.addHook('onClose', async () => { await stopHostPublicIpSync() })
 await fastify.register(packageRoutes, { prefix: '/api/packages' })
 await fastify.register(snapshotRoutes, { prefix: '/api/instances' })
 await fastify.register(backupRoutes, { prefix: '/api/instances' })
@@ -772,6 +788,8 @@ const start = async (): Promise<void> => {
     const { cleanupStaleTasks: cleanupStaleInstanceTasks, startInstanceTaskWorker } = await import('./workers/instanceTaskWorker.js')
     await cleanupStaleInstanceTasks()
     startInstanceTaskWorker()
+    startHostOnboardingWorker()
+    startHostPublicIpSync()
     console.log('⚙️ 实例操作任务调度器已启动')
 
     // 启动备份恢复和远程上传队列 Worker

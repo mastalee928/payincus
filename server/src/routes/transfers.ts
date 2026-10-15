@@ -246,7 +246,7 @@ export default async function transferRoutes(fastify: FastifyInstance) {
             packageId: instance.package_id,
             packageName: pkg?.name || null,
             hostId: instance.host_id,
-            hostName: host?.name || 'unknown',
+            hostName: instance.dedicated_ipv4 ? '' : host?.name || 'unknown',
             hostLocation: host?.location || null,
             hostCountryCode: host?.country_code || 'us',
             originalName: instance.name,
@@ -257,8 +257,9 @@ export default async function transferRoutes(fastify: FastifyInstance) {
             portMappingsCount: portMappings.length,
             snapshotsCount: snapshots.length,
             backupsCount: backups.filter((b: any) => b.status !== 'deleted').length,
-            ipv4: instance.ipv4,
-            ipv6: instance.ipv6
+            ipv4: instance.dedicated_ipv4 ? host?.nat_public_ip || null : instance.ipv4,
+            ipv6: instance.ipv6,
+            dedicatedIpv4: instance.dedicated_ipv4 === true
         }
 
         // 使用事务安全函数创建转移记录（扣费和创建记录在同一事务中）
@@ -285,6 +286,9 @@ export default async function transferRoutes(fastify: FastifyInstance) {
             }
             if (errorMsg === 'TRANSFER_ALREADY_PENDING') {
                 return reply.code(400).send(apiError(ErrorCode.TRANSFER_ALREADY_PENDING))
+            }
+            if (['TRANSFER_SOURCE_CHANGED', 'TRANSFER_INSTANCE_BUSY', 'TRANSFER_INVALID_STATUS', 'TRANSFER_HOST_DISABLED', 'TRANSFER_TO_BANNED', 'TRANSFER_TO_SELF'].includes(errorMsg)) {
+                return reply.code(409).send({ code: errorMsg, error: '实例或接收用户状态已变化，请刷新后重试' })
             }
             console.error('[Transfer] Failed to create transfer:', error)
             return reply.code(500).send(apiError(ErrorCode.INTERNAL_ERROR))
@@ -494,7 +498,7 @@ export default async function transferRoutes(fastify: FastifyInstance) {
         }
 
         // ===== 检查实例状态：必须是停止状态才能重命名 =====
-        if (instance.status === 'running') {
+        if (!instance.dedicated_ipv4 && instance.status === 'running') {
             await rollbackToPending()
             return reply.code(400).send({
                 error: 'Instance must be stopped before transfer',
@@ -526,10 +530,12 @@ export default async function transferRoutes(fastify: FastifyInstance) {
 
         // ===== 1. 先重命名实例（最关键的操作，失败则不影响任何附属资源）=====
         const oldIncusId = instance.incus_id
-        const newIncusId = `u${user.id}-${nanoid()}`
+        // Dedicated address forwards belong to the existing Incus ID. Keep that
+        // ID on an ownership transfer so full-port delivery stays intact.
+        const newIncusId = instance.dedicated_ipv4 ? oldIncusId : `u${user.id}-${nanoid()}`
         
         try {
-            await renameIncusInstance(client, oldIncusId, newIncusId)
+            if (newIncusId !== oldIncusId) await renameIncusInstance(client, oldIncusId, newIncusId)
             console.log(`[Transfer] Renamed instance from ${oldIncusId} to ${newIncusId}`)
         } catch (err) {
             console.error('[Transfer] Failed to rename instance in Incus:', err)
@@ -567,13 +573,14 @@ export default async function transferRoutes(fastify: FastifyInstance) {
                 transfer.fromUserId,
                 transfer.toUserId,
                 newName,
-                newIncusId
+                newIncusId,
+                oldIncusId
             )
         } catch (dbErr) {
             console.error('[Transfer] Database update failed:', dbErr)
             // 尝试回滚 Incus 重命名
             try {
-                await renameIncusInstance(client, newIncusId, oldIncusId)
+                if (newIncusId !== oldIncusId) await renameIncusInstance(client, newIncusId, oldIncusId)
                 console.log(`[Transfer] Rolled back Incus rename from ${newIncusId} to ${oldIncusId}`)
             } catch (rollbackErr) {
                 // 回滚失败，记录严重错误（需要人工干预）
@@ -961,7 +968,7 @@ export default async function transferRoutes(fastify: FastifyInstance) {
         // 权限检查：发起方可以直接推送（已在 lockResult 中通过 fromUserId 验证）
 
         // ===== 检查实例状态：必须是停止状态才能重命名 =====
-        if (instance.status === 'running') {
+        if (!instance.dedicated_ipv4 && instance.status === 'running') {
             await rollbackToPending()
             return reply.code(400).send({
                 error: 'Instance must be stopped before transfer',
@@ -987,10 +994,10 @@ export default async function transferRoutes(fastify: FastifyInstance) {
 
         // ===== 1. 先重命名实例 =====
         const oldIncusId = instance.incus_id
-        const newIncusId = `u${transfer.toUserId}-${nanoid()}`
+        const newIncusId = instance.dedicated_ipv4 ? oldIncusId : `u${transfer.toUserId}-${nanoid()}`
         
         try {
-            await renameIncusInstance(client, oldIncusId, newIncusId)
+            if (newIncusId !== oldIncusId) await renameIncusInstance(client, oldIncusId, newIncusId)
             console.log(`[Transfer] Renamed instance from ${oldIncusId} to ${newIncusId}`)
         } catch (err) {
             console.error('[Transfer] Failed to rename instance in Incus:', err)
@@ -1026,13 +1033,14 @@ export default async function transferRoutes(fastify: FastifyInstance) {
                 transfer.fromUserId,
                 transfer.toUserId,
                 newName,
-                newIncusId
+                newIncusId,
+                oldIncusId
             )
         } catch (dbErr) {
             console.error('[Transfer] Database update failed:', dbErr)
             // 尝试回滚 Incus 重命名
             try {
-                await renameIncusInstance(client, newIncusId, oldIncusId)
+                if (newIncusId !== oldIncusId) await renameIncusInstance(client, newIncusId, oldIncusId)
                 console.log(`[Transfer] Rolled back Incus rename from ${newIncusId} to ${oldIncusId}`)
             } catch (rollbackErr) {
                 console.error('[Transfer] CRITICAL: Failed to rollback Incus rename!', {

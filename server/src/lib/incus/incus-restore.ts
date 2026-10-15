@@ -3,8 +3,7 @@
  * 实现从备份流恢复实例、重命名实例等功能
  */
 
-import { Agent, request } from 'undici'
-import { readFileSync } from 'fs'
+import { type Agent, request } from 'undici'
 import type { Readable } from 'stream'
 import type { IncusClient } from './incus-client.js'
 import type { IncusApiResponse } from '../../types/incus.js'
@@ -100,20 +99,8 @@ export async function restoreFromStream({
         throw new Error('Certificate path not configured')
     }
 
-    const cert = readFileSync(client.certPath)
-    const key = readFileSync(client.keyPath)
-
-    // 创建专用 Agent，设置长超时
-    const restoreAgent = new Agent({
-        connect: {
-            cert,
-            key,
-            rejectUnauthorized: false,
-            timeout: 60000
-        },
-        bodyTimeout: 0, // 禁用 body 超时
-        headersTimeout: 60000
-    })
+    const restoreAgent = client.agent
+    if (!restoreAgent) throw new Error('Incus client is not connected')
 
     try {
         const url = `${client.baseUrl}/1.0/instances`
@@ -155,7 +142,7 @@ export async function restoreFromStream({
             await waitForRestoreOperation(client.baseUrl, data.operation, restoreAgent)
         }
     } finally {
-        await restoreAgent.close().catch(() => { })
+        // Connection lifecycle is owned by the Incus client pool.
     }
 }
 

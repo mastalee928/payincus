@@ -16,8 +16,9 @@ import FlagIcon from '@/components/FlagIcon.vue'
 import DistroIcon from '@/components/icons/DistroIcon.vue'
 import InstanceDisplayIcon from '@/components/InstanceDisplayIcon.vue'
 import InstanceOrderMenu from '@/components/instance/InstanceOrderMenu.vue'
+import TransferModal from '@/components/instance/modals/TransferModal.vue'
 import { freeSiteCopy, getFreeSiteBillingCycleLabel } from '@/utils/freeSiteFun'
-import { instanceCreatePath, instanceDetailPath, isAdminEntry, transfersPath, walletPath } from '@/utils/app-paths'
+import { instanceCreatePath, instanceDetailPath, isAdminEntry, walletPath } from '@/utils/app-paths'
 
 // 为 KeepAlive include 匹配定义组件名称（必须在所有 import 之后）
 defineOptions({ name: 'InstancesView' })
@@ -68,6 +69,7 @@ const listError = ref<string>('')
 const actionLoading = ref<Record<number, string>>({})
 const orderLoading = ref<boolean>(false)
 const recentlyOrderedInstanceId = ref<number | null>(null)
+const transferTarget = ref<Instance | null>(null)
 const batchActionLoading = ref<string>('')
 
 // 搜索和分页
@@ -604,7 +606,8 @@ function getIps(instance: Instance): Array<{ip: string, type: 'ipv4' | 'ipv6'}> 
 }
 
 function getInstanceHostName(instance: Instance): string {
-  return (instance as any).host?.name || (instance as any).host || '-'
+  const host = (instance as any).host
+  return (typeof host === 'string' ? host : host?.name) || '-'
 }
 
 function getInstancePackageName(instance: Instance): string | null {
@@ -628,7 +631,9 @@ function getPrimaryIp(instance: Instance): string {
 }
 
 function getInstanceConfigSummary(instance: Instance): string {
-  return `${instance.cpu}${t('instance.mobileCard.cpuCore')} ${formatMemory(instance.memory)} ${formatDisk(instance.disk)}`
+  const cpu = instance.dedicatedIpv4 ? Number.parseFloat(String(instance.cpu)) / 100 : instance.cpu
+  const cpuUnit = instance.dedicatedIpv4 ? ` ${t('instance.selector.cores')}` : t('instance.mobileCard.cpuCore')
+  return `${cpu}${cpuUnit} ${formatMemory(instance.memory)} ${formatDisk(instance.disk)}`
 }
 
 function getInstanceNetworkMode(instance: Instance): string {
@@ -663,6 +668,7 @@ function getInstanceNetworkBadgeClass(instance: Instance): string {
 }
 
 function getInstanceQuotaSummary(instance: Instance): string {
+  if (instance.dedicatedIpv4) return t('dedicated.allPorts')
   return `${(instance as any).portLimit ?? '-'} ${t('instance.mobileCard.ports')} / ${(instance as any).snapshotLimit ?? '-'} ${t('instance.mobileCard.snapshots')} / ${(instance as any).siteLimit ?? '-'} ${t('instance.mobileCard.sites')}`
 }
 
@@ -687,15 +693,18 @@ function getInstanceBandwidthSummary(instance: Instance): string {
 }
 
 function getInstanceTrafficLimitLabel(instance: Instance): string {
+  if (instance.dedicatedIpv4) return t("dedicated.unlimited")
   const limit = (instance as any).monthlyTrafficLimit
   return limit ? formatBytes(Number(limit)) : t('instance.mobileCard.unlimited')
 }
 
 function getInstanceNetworkSummary(instance: Instance): string {
+  if (!isAdminEntry || instance.dedicatedIpv4) return `${t('instance.card.traffic')} ${getInstanceTrafficLimitLabel(instance)}`
   return `${t('instance.card.bandwidth')} ${getInstanceBandwidthSummary(instance)} ${t('instance.card.traffic')} ${getInstanceTrafficLimitLabel(instance)}${t('instance.card.perMonth')}`
 }
 
 function getInstanceTrafficUsage(instance: Instance): string {
+  if (instance.dedicatedIpv4) return t("dedicated.unlimited")
   const used = formatBytes(Number((instance as any).monthlyTrafficUsed || 0))
   return `${used} / ${getInstanceTrafficLimitLabel(instance)}`
 }
@@ -706,7 +715,7 @@ function getInstanceResetTrafficPrice(instance: Instance): string {
 }
 
 function canResetInstanceTraffic(instance: Instance): boolean {
-  if (isAdminEntry) return false
+  if (isAdminEntry || instance.dedicatedIpv4) return false
   if (instance.status?.toLowerCase() === 'deleted') return false
   return Number((instance as any).monthlyTrafficUsed || 0) > 0
 }
@@ -1250,7 +1259,7 @@ async function openSingleRenewModal(instance: Instance): Promise<void> {
 }
 
 function openInstanceTransfer(instance: Instance): void {
-  void router.push({ path: transfersPath(), query: { instanceId: String(instance.id) } })
+  transferTarget.value = instance
 }
 
 async function openBatchRenewModal(): Promise<void> {
@@ -1385,7 +1394,7 @@ async function confirmBatchDestroy(): Promise<void> {
           </template>
         </p>
       </div>
-      <RouterLink :to="instanceCreatePath()" class="btn-primary w-full sm:w-auto justify-center">
+      <RouterLink :to="isAdmin ? instanceCreatePath() : '/purchase'" class="btn-primary w-full sm:w-auto justify-center">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
         </svg>
@@ -1722,7 +1731,7 @@ async function confirmBatchDestroy(): Promise<void> {
         {{ search ? $t('instance.noMatchingInstances') : $t('instance.noInstances') }}
       </h3>
       <p class="text-themed-muted mb-4">{{ search ? $t('instance.tryOtherKeywords') : $t('instance.createFirstInstance') }}</p>
-      <RouterLink v-if="!search" :to="instanceCreatePath()" class="btn-primary">{{ configStore.freeSiteMode ? freeSiteCopy.instanceCreateFirst : $t('instance.create') }}</RouterLink>
+      <RouterLink v-if="!search" :to="isAdmin ? instanceCreatePath() : '/purchase'" class="btn-primary">{{ configStore.freeSiteMode ? freeSiteCopy.instanceCreateFirst : $t('instance.create') }}</RouterLink>
     </div>
 
     <!-- 实例列表 -->
@@ -1843,7 +1852,7 @@ async function confirmBatchDestroy(): Promise<void> {
               </td>
               <td class="px-3 py-3">
                 <div class="flex items-center gap-1.5">
-                  <span
+                  <span v-if="isAdminEntry"
                     class="text-xs px-1.5 py-0.5 rounded"
                     :class="getInstanceTypeBadgeClass(instance)"
                   >
@@ -1853,14 +1862,14 @@ async function confirmBatchDestroy(): Promise<void> {
                     class="text-xs px-1.5 py-0.5 rounded"
                     :class="getInstanceNetworkBadgeClass(instance)"
                   >
-                    {{ $t('common.networkMode.' + getInstanceNetworkMode(instance)) }}
+                    {{ instance.dedicatedIpv4 ? 'IPv4' + (instance.ipv6 ? ' + IPv6' : '') : $t('common.networkMode.' + getInstanceNetworkMode(instance)) }}
                   </span>
                 </div>
               </td>
               <td class="px-3 py-3">
                 <div class="space-y-0.5">
                   <div class="text-sm font-mono tabular-nums text-themed">
-                    {{ instance.cpu }}% / {{ formatMemory(instance.memory) }} / {{ formatDisk(instance.disk) }}
+                    {{ getInstanceConfigSummary(instance) }}
                   </div>
                   <div class="text-xs font-mono tabular-nums text-themed-faint">
                     {{ formatBytes(Number((instance as any).monthlyTrafficUsed || 0)) }}
@@ -1869,7 +1878,7 @@ async function confirmBatchDestroy(): Promise<void> {
                       {{ formatBytes(Number((instance as any).monthlyTrafficLimit)) }}
                     </template>
                     <template v-else>
-                      {{ $t('instance.mobileCard.unlimited') }}
+                      {{ instance.dedicatedIpv4 ? $t('dedicated.unlimited') : $t('instance.mobileCard.unlimited') }}
                     </template>
                   </div>
                 </div>
@@ -2034,7 +2043,7 @@ async function confirmBatchDestroy(): Promise<void> {
                     {{ formatImageName(instance.image, (instance as any).imageName) }}
                   </div>
                   <div class="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span
+                    <span v-if="isAdminEntry"
                       class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium"
                       :class="getInstanceTypeBadgeClass(instance)"
                     >
@@ -2044,7 +2053,7 @@ async function confirmBatchDestroy(): Promise<void> {
                       class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium"
                       :class="getInstanceNetworkBadgeClass(instance)"
                     >
-                      {{ $t('common.networkMode.' + getInstanceNetworkMode(instance)) }}
+                      {{ instance.dedicatedIpv4 ? 'IPv4' + (instance.ipv6 ? ' + IPv6' : '') : $t('common.networkMode.' + getInstanceNetworkMode(instance)) }}
                     </span>
                   </div>
                 </div>
@@ -2083,7 +2092,7 @@ async function confirmBatchDestroy(): Promise<void> {
                     class="text-xs font-mono tabular-nums"
                     :class="'text-themed'"
                   >
-                    {{ instance.cpu }}{{ $t('instance.mobileCard.cpuCore') }} / {{ formatMemory(instance.memory) }} / {{ formatDisk(instance.disk) }}
+                    {{ getInstanceConfigSummary(instance) }}
                   </span>
                 </div>
                 <div class="flex items-center justify-between">
@@ -2105,18 +2114,18 @@ async function confirmBatchDestroy(): Promise<void> {
                       {{ formatBytes(Number((instance as any).monthlyTrafficUsed || 0)) }} / {{ formatBytes(Number((instance as any).monthlyTrafficLimit)) }}
                     </template>
                     <template v-else>
-                      {{ formatBytes(Number((instance as any).monthlyTrafficUsed || 0)) }} / {{ $t('instance.mobileCard.unlimited') }}
+                      {{ formatBytes(Number((instance as any).monthlyTrafficUsed || 0)) }} / {{ instance.dedicatedIpv4 ? $t('dedicated.unlimited') : $t('instance.mobileCard.unlimited') }}
                     </template>
                   </span>
                 </div>
-                <div class="flex items-center justify-between">
+                <div v-if="isAdmin" class="flex items-center justify-between">
                   <span class="text-themed-muted text-xs">{{ $t('instance.mobileCard.host') }}</span>
                   <span class="inline-flex items-center gap-1.5">
                     <FlagIcon :code="(instance as any).host?.country_code || (instance as any).hostCountryCode || 'us'" size="xs" />
                     <span
                       class="uppercase text-xs font-medium"
                       :class="'text-themed'"
-                    >{{ (instance as any).host?.name || (instance as any).host || '-' }}</span>
+                    >{{ getInstanceHostName(instance) }}</span>
                   </span>
                 </div>
                 <div class="flex items-center justify-between">
@@ -2251,7 +2260,7 @@ async function confirmBatchDestroy(): Promise<void> {
                     </svg>
                     <span class="truncate font-mono">{{ getPrimaryIp(instance) }}</span>
                   </span>
-                  <span
+                  <span v-if="isAdminEntry"
                     class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium"
                     :class="getInstanceTypeBadgeClass(instance)"
                   >
@@ -2261,7 +2270,7 @@ async function confirmBatchDestroy(): Promise<void> {
                     class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium"
                     :class="getInstanceNetworkBadgeClass(instance)"
                   >
-                    {{ $t('common.networkMode.' + getInstanceNetworkMode(instance)) }}
+                    {{ instance.dedicatedIpv4 ? 'IPv4' + (instance.ipv6 ? ' + IPv6' : '') : $t('common.networkMode.' + getInstanceNetworkMode(instance)) }}
                   </span>
                 </div>
               </button>
@@ -2288,8 +2297,8 @@ async function confirmBatchDestroy(): Promise<void> {
                 {{ getInstanceRegionLabel(instance) }}
               </dd>
 
-              <dt class="font-semibold" :class="'text-themed'">{{ $t('instance.host') }}</dt>
-              <dd class="min-w-0 truncate" :class="'text-themed-muted'">{{ getInstanceHostName(instance) }}</dd>
+              <dt v-if="isAdmin" class="font-semibold" :class="'text-themed'">{{ $t('instance.host') }}</dt>
+              <dd v-if="isAdmin" class="min-w-0 truncate" :class="'text-themed-muted'">{{ getInstanceHostName(instance) }}</dd>
 
               <dt class="font-semibold" :class="'text-themed'">{{ $t('instance.package') }}</dt>
               <dd class="min-w-0 truncate" :class="'text-themed-muted'" :title="getInstancePlanName(instance)">
@@ -2310,8 +2319,8 @@ async function confirmBatchDestroy(): Promise<void> {
               <dt class="font-semibold" :class="'text-themed'">{{ $t('instance.trafficLabel') }}</dt>
               <dd class="min-w-0 truncate font-mono tabular-nums" :class="'text-themed-muted'">{{ getInstanceTrafficUsage(instance) }}</dd>
 
-              <dt class="font-semibold" :class="'text-themed'">{{ $t('instance.card.trafficReset') }}</dt>
-              <dd class="min-w-0 truncate font-mono tabular-nums text-themed">{{ getInstanceResetTrafficPrice(instance) }}</dd>
+              <dt v-if="!instance.dedicatedIpv4" class="font-semibold" :class="'text-themed'">{{ $t('instance.card.trafficReset') }}</dt>
+              <dd v-if="!instance.dedicatedIpv4" class="min-w-0 truncate font-mono tabular-nums text-themed">{{ getInstanceResetTrafficPrice(instance) }}</dd>
 
               <dt class="font-semibold" :class="'text-themed'">{{ $t('instance.card.price') }}</dt>
               <dd class="min-w-0 truncate font-mono tabular-nums text-themed">{{ getInstanceMonthlyPrice(instance) }}</dd>
@@ -2406,6 +2415,14 @@ async function confirmBatchDestroy(): Promise<void> {
         </TransitionGroup>
       </div>
     </template>
+
+    <TransferModal
+      v-if="transferTarget"
+      :show="true"
+      :instance="transferTarget"
+      @close="transferTarget = null"
+      @success="loadInstances(true)"
+    />
 
     <div v-if="!loading && instances.length > 0" class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-sm text-themed-muted">
       <span class="tabular-nums">{{ $t('instance.totalRecords', { count: total }) }} · {{ page }} / {{ totalPages }}</span>

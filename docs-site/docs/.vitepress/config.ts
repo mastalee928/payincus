@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitepress'
 
-const siteOrigin = 'https://payincus.com'
+const siteOrigin = 'https://mastalee928.github.io/payincus'
 
 function routeFromRelativePath(relativePath: string) {
   let route = relativePath.replace(/\\/g, '/').replace(/\.md$/, '')
@@ -28,8 +28,8 @@ const zhNav = [
     items: [
       { text: '在线 Demo', link: '/demo' },
       { text: '版本日志', link: '/release/version-log' },
-      { text: 'Telegram 交流群', link: 'https://t.me/Payincus' },
-      { text: 'GitHub', link: 'https://github.com/VipMaxxxx/payincus' }
+      { text: '问题反馈', link: 'https://github.com/mastalee928/payincus/issues' },
+      { text: 'GitHub', link: 'https://github.com/mastalee928/payincus' }
     ]
   }
 ]
@@ -43,8 +43,8 @@ const enNav = [
     items: [
       { text: 'Demo', link: '/en/demo' },
       { text: 'Version Log', link: '/en/release/version-log' },
-      { text: 'Telegram Group', link: 'https://t.me/Payincus' },
-      { text: 'GitHub', link: 'https://github.com/VipMaxxxx/payincus' }
+      { text: 'Issues', link: 'https://github.com/mastalee928/payincus/issues' },
+      { text: 'GitHub', link: 'https://github.com/mastalee928/payincus' }
     ]
   }
 ]
@@ -306,6 +306,7 @@ const enApiSidebar = [
 ]
 
 export default defineConfig({
+  base: '/payincus/',
   vite: {
     resolve: {
       preserveSymlinks: true
@@ -318,7 +319,7 @@ export default defineConfig({
   lastUpdated: true,
   appearance: true,
   sitemap: {
-    hostname: siteOrigin
+    hostname: `${siteOrigin}/`
   },
   transformHead({ pageData }) {
     const route = routeFromRelativePath(pageData.relativePath)
@@ -331,7 +332,7 @@ export default defineConfig({
     ]
   },
   head: [
-    ['link', { rel: 'icon', href: '/incudal_logo.webp' }],
+    ['link', { rel: 'icon', href: '/payincus/incudal_logo.webp' }],
     ['meta', { name: 'theme-color', content: '#111827' }]
   ],
   locales: {
@@ -343,7 +344,7 @@ export default defineConfig({
       themeConfig: {
         nav: zhNav,
         editLink: {
-          pattern: 'https://github.com/VipMaxxxx/payincus/edit/main/docs-site/docs/:path',
+          pattern: 'https://github.com/mastalee928/payincus/edit/main/docs-site/docs/:path',
           text: '在 GitHub 上编辑此页'
         },
         lastUpdated: {
@@ -371,7 +372,7 @@ export default defineConfig({
       themeConfig: {
         nav: enNav,
         editLink: {
-          pattern: 'https://github.com/VipMaxxxx/payincus/edit/main/docs-site/docs/:path',
+          pattern: 'https://github.com/mastalee928/payincus/edit/main/docs-site/docs/:path',
           text: 'Edit this page on GitHub'
         },
         lastUpdated: {
@@ -399,7 +400,7 @@ export default defineConfig({
       provider: 'local'
     },
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/VipMaxxxx/payincus' }
+      { icon: 'github', link: 'https://github.com/mastalee928/payincus' }
     ],
     footer: {
       message: 'PayIncus documentation',

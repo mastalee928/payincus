@@ -62,6 +62,10 @@ export async function resolveInstanceTrafficLimitForHost(
     baseTrafficLimit: bigint | null
   }
 ): Promise<bigint | null> {
+  if ('host' in client) {
+    const host = await client.host.findUnique({ where: { id: params.hostId }, select: { singleTenant: true } })
+    if (host?.singleTenant) return null
+  }
   if (!params.packageId) {
     return params.baseTrafficLimit
   }

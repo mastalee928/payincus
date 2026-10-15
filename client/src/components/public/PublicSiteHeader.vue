@@ -23,6 +23,7 @@ const langMenuRef = ref<HTMLElement | null>(null)
 const navigation = computed(() => [
   { label: t('publicSite.nav.home'), compactLabel: t('publicSite.nav.overview'), to: '/' },
   { label: t('publicSite.nav.products'), compactLabel: t('publicSite.nav.products'), to: marketPath() },
+  { label: t('nav.purchase'), compactLabel: t('nav.purchase'), to: '/purchase' },
   { label: t('publicSite.nav.help'), compactLabel: t('publicSite.nav.help'), to: helpPath() }
 ])
 

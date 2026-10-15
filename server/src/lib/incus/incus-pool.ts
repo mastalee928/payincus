@@ -8,6 +8,7 @@
  * 4. 过期清理：自动清理长时间未使用的连接
  */
 
+import { prisma } from '../../db/prisma.js'
 import type { IncusClient } from './incus-client.js'
 import { IncusClient as Client } from './incus-client.js'
 import { recordHostSuccess, recordHostError as recordHostHealthError } from './host-health.js'
@@ -115,7 +116,9 @@ export async function getIncusClient(host: Host): Promise<IncusClient> {
   // 创建新连接（带锁保护）
   const connectPromise = (async () => {
     try {
+      const pin = await prisma.host.findUnique({ where: { id: host.id }, select: { serverCertificate: true, serverFingerprint: true } })
       const client = new Client({
+        ...pin,
         url: host.url,
         certPath: host.cert_path || host.certPath || null,
         keyPath: host.key_path || host.keyPath || null

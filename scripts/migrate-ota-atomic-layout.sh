@@ -4,7 +4,7 @@ set -Eeuo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/incudal}"
 SERVICE_NAME="${SERVICE_NAME:-incudal-backend}"
 RUN_USER="${RUN_USER:-incudal}"
-GITHUB_REPO="${GITHUB_REPO:-VipMaxxxx/payincus}"
+GITHUB_REPO="${GITHUB_REPO:-mastalee928/payincus}"
 VERIFIED_RELEASE_ARCHIVE="${VERIFIED_RELEASE_ARCHIVE:-}"
 
 log() {
@@ -197,8 +197,8 @@ main() {
   systemctl enable "$SERVICE_NAME" >/dev/null 2>&1
   systemctl restart "$SERVICE_NAME"
 
-  FRONTEND_URL="${FRONTEND_URL:-https://pay.payincus.com}" \
-  ADMIN_FRONTEND_URL="${ADMIN_FRONTEND_URL:-https://admin.payincus.com}" \
+  FRONTEND_URL="${FRONTEND_URL:-http://127.0.0.1:3000}" \
+  ADMIN_FRONTEND_URL="${ADMIN_FRONTEND_URL:-http://127.0.0.1:3002}" \
   BACKEND_URL="${BACKEND_URL:-http://127.0.0.1:3001}" \
     bash "$current_link/scripts/verify-split-host.sh"
 

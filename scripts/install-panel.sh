@@ -14,13 +14,13 @@
 #   升级：  sudo bash install-panel.sh --upgrade
 #   卸载：  sudo bash install-panel.sh --uninstall
 #
-# 项目地址: https://github.com/VipMaxxxx/payincus
+# 项目地址: https://github.com/mastalee928/payincus
 # ============================================================================
 set -euo pipefail
 
 # ========================== 全局常量 ==========================
-readonly SCRIPT_VERSION="3.0.0"
-readonly GITHUB_REPO="VipMaxxxx/payincus"
+readonly SCRIPT_VERSION="3.1.0"
+readonly GITHUB_REPO="mastalee928/payincus"
 readonly INSTALL_DIR="/opt/incudal"
 readonly SERVICE_NAME="incudal-backend"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -232,7 +232,7 @@ ensure_env_keys() {
     set_env_if_missing "SYSTEM_UPDATE_RELEASE_REPOSITORY" "${GITHUB_REPO}" "在线更新 GitHub Release 仓库"
     set_env_if_missing "SYSTEM_UPDATE_RELEASE_TOKEN" "" "在线更新私有 Release Token"
     set_env_if_missing "SYSTEM_UPDATE_APPLY_MODE" "auto" "在线更新应用模式"
-    set_env_if_missing "INCUDAL_AGENT_RELEASE_REPOSITORY" "" "Agent GitHub Release 仓库"
+    set_env_if_missing "INCUDAL_AGENT_RELEASE_REPOSITORY" "${GITHUB_REPO}" "Agent GitHub Release 仓库"
     set_env_if_missing "INCUDAL_AGENT_RELEASE_TOKEN" "" "Agent GitHub Release Token"
     set_env_if_missing "INCUDAL_AGENT_RELEASE_DIR" "" "Agent 本地 Release 目录"
     set_env_if_missing "INCUDAL_AGENT_BINARY_URL" "" "Agent 自定义二进制地址"
@@ -394,12 +394,12 @@ install_pnpm() {
 install_system_tools() {
     step "安装基础系统工具..."
 
-    apt-get install -y -qq ca-certificates curl git sudo tar >/dev/null 2>&1
+    apt-get install -y -qq ca-certificates curl git sudo tar python3 openssh-client openssh-server wireguard-tools >/dev/null 2>&1
 
     # apt 的错误此前被完全吞掉：任何一个基础工具没装上，后面都会以难以定位的方式失败
     # （例如 git 缺失会让部署目录不是 Git 工作区，只留下一句 warn）。这里显式验一遍。
     local missing=""
-    for _tool in curl git sudo tar; do
+    for _tool in curl git sudo tar python3 ssh ssh-keygen wg; do
         command -v "$_tool" &>/dev/null || missing="${missing} ${_tool}"
     done
     if [[ -n "$missing" ]]; then
@@ -828,6 +828,12 @@ configure_git_metadata() {
             git remote set-url origin "https://github.com/${GITHUB_REPO}.git" 2>/dev/null || true
     fi
 
+    # Git creates executable sample hooks; root OTA rejects executable hooks.
+    # Samples are documentation only, so keep them without execute permission.
+    if [[ -d "${INSTALL_DIR}/.git/hooks" ]]; then
+        find "${INSTALL_DIR}/.git/hooks" -type f -name '*.sample' -exec chmod a-x {} +
+    fi
+
     git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
     sudo -u "$RUN_USER" HOME="$INSTALL_DIR" git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
     if git fetch --tags --force --quiet origin; then
@@ -992,7 +998,7 @@ SYSTEM_UPDATE_APPLY_MODE=auto
 
 # ============ Agent Release 配置 ============
 # 可使用 GitHub Release 仓库、本地 release 目录，或自定义二进制 URL+SHA256。
-INCUDAL_AGENT_RELEASE_REPOSITORY=
+INCUDAL_AGENT_RELEASE_REPOSITORY=${GITHUB_REPO}
 INCUDAL_AGENT_RELEASE_TOKEN=
 INCUDAL_AGENT_RELEASE_DIR=
 INCUDAL_AGENT_BINARY_URL=
@@ -1369,7 +1375,7 @@ setup_nginx_certbot() {
         return 1
     fi
 
-    echo -ne "  ${BOLD}请输入客户面板域名 (例如 pay.payincus.com): ${NC}"
+    echo -ne "  ${BOLD}请输入客户面板域名 (例如 panel.example.com): ${NC}"
     read -r DOMAIN
 
     if [[ -z "$DOMAIN" ]]; then
@@ -1377,7 +1383,7 @@ setup_nginx_certbot() {
         return 1
     fi
 
-    echo -ne "  ${BOLD}请输入管理后台域名 (例如 admin.payincus.com): ${NC}"
+    echo -ne "  ${BOLD}请输入管理后台域名 (例如 admin.example.com): ${NC}"
     read -r ADMIN_DOMAIN
 
     if [[ -z "$ADMIN_DOMAIN" ]]; then
@@ -1442,7 +1448,7 @@ setup_cf_tunnel() {
         return 1
     fi
 
-    echo -ne "  ${BOLD}请输入客户面板域名 (例: pay.payincus.com): ${NC}"
+    echo -ne "  ${BOLD}请输入客户面板域名 (例: panel.example.com): ${NC}"
     read -r DOMAIN
 
     if [[ -z "$DOMAIN" ]]; then
@@ -1451,7 +1457,7 @@ setup_cf_tunnel() {
         return 1
     fi
 
-    echo -ne "  ${BOLD}请输入管理后台域名 (例: admin.payincus.com): ${NC}"
+    echo -ne "  ${BOLD}请输入管理后台域名 (例: admin.example.com): ${NC}"
     read -r ADMIN_DOMAIN
 
     if [[ -z "$ADMIN_DOMAIN" ]]; then
@@ -1606,6 +1612,9 @@ do_upgrade() {
         exit 1
     fi
     install_release "$tar_file" true
+    if [[ -f "$INSTALL_DIR/scripts/refresh-onboarding-gateway.sh" ]]; then
+        bash "$INSTALL_DIR/scripts/refresh-onboarding-gateway.sh"
+    fi
 
     local version="unknown"
     if [[ -f "${INSTALL_DIR}/version.json" ]]; then
@@ -1683,6 +1692,30 @@ do_uninstall() {
     info "数据库数据保留在 PostgreSQL 中，如需删除请手动执行："
     echo -e "  ${CYAN}sudo -u postgres psql -c \"DROP DATABASE incudal;\"${NC}"
     echo -e "  ${CYAN}sudo -u postgres psql -c \"DROP USER incudal;\"${NC}"
+}
+
+# ========================== 机器池管理网关 ==========================
+configure_host_pool_gateway() {
+    local public_host="${ONBOARDING_PUBLIC_HOST:-}"
+    if [[ -n "$(get_env_value ONBOARDING_GATEWAY_HOST)" && -n "$(get_env_value ONBOARDING_GATEWAY_KEY_PATH)" && -n "$(get_env_value ONBOARDING_GATEWAY_FINGERPRINT)" && -n "$(get_env_value ONBOARDING_WG_ENDPOINT)" ]]; then
+        info "机器池管理网关已配置，保留现有地址和密钥"
+        return 0
+    fi
+    if [[ -z "$public_host" ]]; then
+        echo -ne "  ${BOLD}机器池管理网关公网 IPv4 或直连域名（不能经过 CDN，留空稍后配置）: ${NC}" >&2
+        read -r public_host
+    fi
+    if [[ -z "$public_host" ]]; then
+        warn "自动接入尚未配置。需要时运行: sudo bash install-panel.sh --configure-host-pool"
+        return 0
+    fi
+    local app_dir="$INSTALL_DIR"
+    is_atomic_layout && app_dir="$INSTALL_DIR/current"
+    python3 "$app_dir/scripts/setup-onboarding-control.py" \
+        --public-host "$public_host" \
+        --management-address "${ONBOARDING_MANAGEMENT_ADDRESS:-10.253.240.1/24}" \
+        --listen-port "${ONBOARDING_WG_PORT:-51820}" \
+        --ssh-port "${ONBOARDING_CONTROL_SSH_PORT:-22}"
 }
 
 # ========================== 全新安装流程 ==========================
@@ -1800,6 +1833,9 @@ do_install() {
         *) info "无效选项，跳过网络配置" ;;
     esac
 
+    # 配置管理隧道及受限 SSH 网关，成功验证后才写入环境配置。
+    configure_host_pool_gateway
+
     # 启动服务
     start_service
 
@@ -1818,6 +1854,12 @@ main() {
         --uninstall|--remove)
             do_uninstall
             ;;
+        --configure-host-pool)
+            check_existing || { error "请先安装面板"; exit 1; }
+            install_system_tools
+            configure_host_pool_gateway
+            systemctl restart "$SERVICE_NAME"
+            ;;
         --help|-h)
             echo "PayIncus 面板部署脚本 v${SCRIPT_VERSION}"
             echo ""
@@ -1827,6 +1869,7 @@ main() {
             echo "  (无参数)      全新安装"
             echo "  --upgrade     升级已有安装"
             echo "  --uninstall   卸载 PayIncus"
+            echo "  --configure-host-pool  配置机器池管理网关"
             echo "  --help        显示帮助"
             ;;
         *)

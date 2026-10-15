@@ -8,7 +8,7 @@ interface OAuthTokenResponse {
   expires_in: number
 }
 
-const baseUrl = process.env.PAYINCUS_BASE_URL || 'https://payincus.com'
+const baseUrl = process.env.PAYINCUS_BASE_URL || 'https://panel.example.com'
 const clientId = process.env.PAYINCUS_OAUTH_CLIENT_ID || ''
 const clientSecret = process.env.PAYINCUS_OAUTH_CLIENT_SECRET || ''
 const redirectUri = process.env.PAYINCUS_OAUTH_REDIRECT_URI || 'https://example.com/oauth/callback'

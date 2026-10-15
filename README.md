@@ -3,31 +3,33 @@
 <p align="center">面向 Incus 的 NAT VPS 销售、资源交付、支付账务、Public API 和后台 OTA 平台。</p>
 
 <p align="center">
-  <a href="https://payincus.com">文档站</a>
+  <a href="./docs-site/docs/index.md">项目文档</a>
   ·
-  <a href="https://payincus.com/demo">在线 Demo</a>
+  <a href="./docs/host-pool.md">主机接入与管理</a>
   ·
-  <a href="https://payincus.com/api/overview">API 文档</a>
+  <a href="./docs-site/docs/api/overview.md">API 文档</a>
   ·
-  <a href="https://t.me/Payincus">Telegram</a>
+  <a href="https://github.com/mastalee928/payincus/issues">问题反馈</a>
   ·
-  <a href="https://github.com/VipMaxxxx/payincus/releases">Releases</a>
+  <a href="https://github.com/mastalee928/payincus/releases">Releases</a>
 </p>
 
 ## 项目定位
 
 PayIncus 是一套面向 hosting 业务的 Incus 商业化交付平台。它把套餐销售、余额扣费、实例创建、NAT 网络、带宽和流量、用户自助后台、管理后台、支付回调、工单通知、宿主机 Agent、Public API 和后台在线升级放到同一套可审计流程里。
 
-PayIncus 的公开文档、源码和 Release 都以当前仓库为准：
+此仓库由 mastalee928 独立维护。源码、新安装、面板更新、Agent 和文档发布均使用 `mastalee928/payincus`。原有 BSD 3-Clause 许可证和版权声明保留在 [LICENSE](LICENSE) 中。
 
-- 项目仓库：<https://github.com/VipMaxxxx/payincus>
-- 文档站：<https://payincus.com>
-- 在线 Demo：<https://payincus.com/demo>
-- API 参考：<https://payincus.com/api/overview>
-- Telegram：<https://t.me/Payincus>
+- 项目仓库：<https://github.com/mastalee928/payincus>
+- 主机接入与管理：[使用说明](docs/host-pool.md)
+- 安装与发布：[维护说明](docs/fork-release.md)
+- 项目文档：[本仓库文档](docs-site/docs/index.md)
+- API 参考：[本仓库 API 文档](docs-site/docs/api/overview.md)
+- 问题反馈：<https://github.com/mastalee928/payincus/issues>
 
 ## 核心能力
 
+- 一机一卖：机器池、定价、购物车批量购买、Alpine 自动接入、1 GiB 宿主 swap、WireGuard 管理、客户独占全端口、TCP / TCP+UDP、无限流量、公网 IPv4 自动同步、故障换机及用户/管理员 PUSH。
 - 实例交付：基于 Incus 创建和管理 LXC / KVM 实例，支持 NAT、IPv6、镜像、套餐、方案、存储池、带宽和月流量。
 - 用户后台：注册登录、套餐购买、实例列表、实例详情、Web 终端、续费、升级、钱包、订单、工单、通知、礼品卡、邮箱和托管节点。
 - 管理后台：用户、套餐、方案、节点、镜像、订单、支付渠道、财务对账、系统配置、日志、通知、资源池和 OTA。
@@ -65,12 +67,12 @@ PayIncus 生产环境推荐非 Docker split 部署：用户端、管理端和后
 
 ```text
 用户浏览器
-  -> https://demo.payincus.com
+  -> https://panel.example.com
   -> Nginx: /opt/incudal/current/client/dist/user
   -> /api, /api/ws -> http://10.0.0.12:3001
 
 管理员浏览器
-  -> https://demoadmin.payincus.com
+  -> https://admin.example.com
   -> Nginx: /opt/incudal/current/client/dist/admin
   -> /api, /api/ws -> http://10.0.0.12:3001
 
@@ -92,7 +94,7 @@ PayIncus 生产环境推荐非 Docker split 部署：用户端、管理端和后
 ## 一键安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/VipMaxxxx/payincus/main/scripts/install-panel.sh -o install-panel.sh
+curl -fsSL https://raw.githubusercontent.com/mastalee928/payincus/main/scripts/install-panel.sh -o install-panel.sh
 sudo bash install-panel.sh
 ```
 
@@ -113,7 +115,7 @@ sudo bash install-panel.sh --upgrade
 sudo bash install-panel.sh --uninstall
 ```
 
-完整安装说明见：<https://payincus.com/deployment/one-click-install>
+完整安装说明见：[一键安装](docs-site/docs/deployment/one-click-install.md)。安装器从本仓库的正式 Release 下载匹配架构的包并验证 SHA-256。机器池网关配置时填写主控公网 IPv4 或域名，并在云厂商安全组放行所选 WireGuard UDP 端口（默认 51820）。
 
 ## 手动部署
 
@@ -127,8 +129,8 @@ pnpm install --frozen-lockfile
 pnpm --filter server exec prisma generate
 pnpm --filter server exec prisma migrate deploy
 VITE_API_BASE_URL=/api \
-VITE_CUSTOMER_BASE_URL=https://demo.payincus.com \
-VITE_ADMIN_BASE_URL=https://demoadmin.payincus.com \
+VITE_CUSTOMER_BASE_URL=https://panel.example.com \
+VITE_ADMIN_BASE_URL=https://admin.example.com \
 pnpm build
 ```
 
@@ -147,10 +149,10 @@ NODE_ENV=production \
 HOST=127.0.0.1 \
 PORT=3001 \
 SERVE_STATIC_CLIENT=false \
-FRONTEND_URL=https://demo.payincus.com \
-ADMIN_FRONTEND_URL=https://demoadmin.payincus.com \
-SITE_URL=https://demo.payincus.com \
-PAYMENT_CALLBACK_BASE_URL=https://demo.payincus.com \
+FRONTEND_URL=https://panel.example.com \
+ADMIN_FRONTEND_URL=https://admin.example.com \
+SITE_URL=https://panel.example.com \
+PAYMENT_CALLBACK_BASE_URL=https://panel.example.com \
 node server/dist/app.js
 ```
 
@@ -169,10 +171,10 @@ deploy/nginx-split-intranet.conf.example
 
 部署文档：
 
-- 手动部署：<https://payincus.com/deployment/manual-install>
-- Nginx split：<https://payincus.com/deployment/nginx>
-- systemd：<https://payincus.com/deployment/systemd>
-- 环境变量：<https://payincus.com/deployment/environment>
+- 手动部署：[部署说明](docs-site/docs/deployment/manual-install.md)
+- Nginx split：[代理配置](docs-site/docs/deployment/nginx.md)
+- systemd：[服务配置](docs-site/docs/deployment/systemd.md)
+- 环境变量：[变量说明](docs-site/docs/deployment/environment.md)
 
 ## 生产验证
 
@@ -181,19 +183,19 @@ deploy/nginx-split-intranet.conf.example
 ```bash
 RUN_LIVE_CHECKS=0 pnpm verify:production
 
-FRONTEND_URL=https://demo.payincus.com \
-ADMIN_FRONTEND_URL=https://demoadmin.payincus.com \
+FRONTEND_URL=https://panel.example.com \
+ADMIN_FRONTEND_URL=https://admin.example.com \
 BACKEND_URL=http://10.0.0.12:3001 \
 pnpm verify:split:host
 
 ENV_FILE=/opt/incudal/.env \
-FRONTEND_URL=https://demo.payincus.com \
-ADMIN_FRONTEND_URL=https://demoadmin.payincus.com \
+FRONTEND_URL=https://panel.example.com \
+ADMIN_FRONTEND_URL=https://admin.example.com \
 BACKEND_URL=http://10.0.0.12:3001 \
 pnpm verify:production
 
 ENV_FILE=/opt/incudal/.env \
-FRONTEND_URL=https://demo.payincus.com \
+FRONTEND_URL=https://panel.example.com \
 BACKEND_URL=http://10.0.0.12:3001 \
 pnpm verify:log-header
 
@@ -205,7 +207,7 @@ pnpm verify:final-acceptance
 
 `pnpm verify:production` 会强制开启生产预检；`RUN_LIVE_CHECKS=0 pnpm verify:production` 只检查配置和构建前置条件，适合还没接入真实域名时使用。`pnpm verify:split:host` 覆盖用户端/后台分离入口、`/api` 代理和登录/权限 smoke。最终验收必须提供真实 proof ref，`LIVE_PAYMENT_PROOF_REF`、`LIVE_LOG_HEADER_PROOF_REF` 等占位文字必须替换为可追溯的生产证据。
 
-验收文档：<https://payincus.com/deployment/production-checklist>
+验收文档：[部署验证](docs-site/docs/deployment/manual-install.md#验证)
 
 ## 后台 OTA
 
@@ -217,9 +219,9 @@ PayIncus 管理后台提供系统更新页面，接口前缀为 `/api/admin/syst
 SYSTEM_UPDATE_ALLOWED_ADMIN_IDS=1
 SYSTEM_UPDATE_LOG_DIR=/opt/incudal/update-logs
 SYSTEM_UPDATE_STARTED_BY_USER_ID=1
-SYSTEM_UPDATE_RELEASE_REPOSITORY=VipMaxxxx/payincus
+SYSTEM_UPDATE_RELEASE_REPOSITORY=mastalee928/payincus
 SYSTEM_UPDATE_APPLY_MODE=auto
-INCUDAL_AGENT_RELEASE_REPOSITORY=VipMaxxxx/payincus
+INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
 ```
 
 原子 OTA 布局：
@@ -230,7 +232,7 @@ INCUDAL_AGENT_RELEASE_REPOSITORY=VipMaxxxx/payincus
 /opt/incudal/update-logs/
 ```
 
-OTA 文档：<https://payincus.com/guide/ota-update>
+OTA 文档：[在线更新](docs-site/docs/guide/ota-update.md)
 
 ## Public API
 
@@ -255,9 +257,9 @@ Authorization: Bearer pat_xxx
 Authorization: Bearer poa_xxx
 ```
 
-API 文档：<https://payincus.com/api/overview>
+API 文档：[接口说明](docs-site/docs/api/overview.md)
 
-TypeScript SDK：<https://payincus.com/sdk/payincus-public-api.ts>
+TypeScript SDK：[下载源码](https://raw.githubusercontent.com/mastalee928/payincus/main/docs-site/docs/public/sdk/payincus-public-api.ts)
 
 ## 开发命令
 

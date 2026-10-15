@@ -6,6 +6,10 @@
 import { sanitizeTokensInString } from './log-sanitizer.js'
 
 export const ErrorCode = {
+  POOL_STOCK_SHORT: 'POOL_STOCK_SHORT',
+  POOL_PRICE_CHANGED: 'POOL_PRICE_CHANGED',
+  POOL_ORDER_INVALID: 'POOL_ORDER_INVALID',
+  POOL_ORDER_TOO_LARGE: 'POOL_ORDER_TOO_LARGE',
     // Common errors
     INVALID_ID: 'INVALID_ID',
     NOT_FOUND: 'NOT_FOUND',
@@ -683,6 +687,10 @@ export const ErrorMessages: Record<ErrorCodeType, string> = {
     [ErrorCode.RESOURCE_POOL_SYSTEM_CODE_REQUIRES_INSTANCE]: 'System redeem code requires an instance to be specified',
 
     // Internal errors
+    [ErrorCode.POOL_STOCK_SHORT]: 'Insufficient machine pool stock',
+    [ErrorCode.POOL_PRICE_CHANGED]: 'Prices changed; review the order total',
+    [ErrorCode.POOL_ORDER_INVALID]: 'Invalid checkout request',
+    [ErrorCode.POOL_ORDER_TOO_LARGE]: 'Too many machines in one order',
     [ErrorCode.INTERNAL_ERROR]: 'Internal server error',
 
     // Mail module errors

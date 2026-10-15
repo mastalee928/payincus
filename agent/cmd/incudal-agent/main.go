@@ -11,17 +11,23 @@ import (
 	"time"
 
 	"incudal-agent/internal/config"
+	"incudal-agent/internal/ingress"
 	"incudal-agent/internal/panel"
 	"incudal-agent/internal/report"
 	"incudal-agent/internal/upgrade"
 )
 
 var version = "dev"
+var lastPortProtocolStatus *ingress.Status
 
 func main() {
 	configPath := flag.String("config", "/etc/incudal-agent/config.yaml", "agent config file")
 	once := flag.Bool("once", false, "send one heartbeat and exit")
+	restoreIngress := flag.Bool("restore-port-protocol", false, "restore saved ingress policy")
 	flag.Parse()
+	if *restoreIngress {
+		if err := ingress.Restore(context.Background()); err != nil { log.Fatal(err) }; return
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -31,6 +37,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if err := ingress.Restore(ctx); err != nil { log.Printf("restore ingress: %v", err) }
 	client := panel.New(cfg)
 	if *once {
 		if _, err := sendHeartbeat(ctx, client, cfg.HeartbeatIntervalSeconds); err != nil {
@@ -69,9 +76,17 @@ func main() {
 }
 
 func sendHeartbeat(ctx context.Context, client *panel.Client, heartbeatIntervalSeconds int) (panel.HeartbeatResult, error) {
-	result, err := client.Heartbeat(ctx, report.HeartbeatPayload(version, heartbeatIntervalSeconds))
+	payload := report.HeartbeatPayload(version, heartbeatIntervalSeconds)
+	if lastPortProtocolStatus != nil { payload["portProtocolStatus"] = *lastPortProtocolStatus }
+	result, err := client.Heartbeat(ctx, payload)
 	if err != nil {
 		return result, err
+	}
+	if result.PortProtocol != nil {
+		applyCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		status := ingress.Apply(applyCtx, *result.PortProtocol); cancel()
+		lastPortProtocolStatus = &status
+		if !status.Applied { log.Printf("apply ingress: %s", status.Error) }
 	}
 	return result, nil
 }

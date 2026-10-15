@@ -458,6 +458,7 @@ export async function getInstancesPaginated(options: PaginationOptions = {}): Pr
           location: true,
           countryCode: true,
           natPublicIp: true,
+          publicIpSyncBlocked: true,
           natPublicIpv6: true,
           ipv6Gateway: true,
           ipAddress: true,
@@ -501,6 +502,9 @@ export async function getInstancesPaginated(options: PaginationOptions = {}): Pr
     items: instances.map(i => ({
       id: i.id,
       incus_id: i.incusId,
+      dedicated_ipv4: i.dedicatedIpv4,
+      dedicated_network_ready: i.dedicatedNetworkReady,
+      public_ip_sync_blocked: i.host.publicIpSyncBlocked,
       name: i.name,
       user_id: i.userId,
       host_id: i.hostId,

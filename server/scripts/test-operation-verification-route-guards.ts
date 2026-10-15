@@ -77,4 +77,9 @@ for (const { file, source: routeSource } of sensitiveOperationRouteSources) {
   )
 }
 
+const adminPushSource = readFileSync(resolve(__dirname, '../src/services/admin-instance-push.ts'), 'utf8')
+assert.ok(adminPushSource.includes("claimOperationVerificationRequirement(actorId, 'transfer_instance', instanceId)") &&
+  adminPushSource.indexOf('claimOperationVerificationRequirement(actorId') < adminPushSource.indexOf('await createTransferWithFee('),
+  'admin PUSH must claim the administrator verification before creating a request or charging the original owner')
+
 console.log('operation verification route guard tests passed')

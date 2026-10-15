@@ -181,7 +181,9 @@ export async function compensateFailedInstancePurchase(
 
     return { refunded: true, refundAmount }
   }, {
-    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    // Blocking balance locks serialize refunds. Read after the lock is acquired:
+    // a Serializable snapshot taken while waiting can abort sibling cart refunds.
+    isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
     timeout: 15000
   })
 }

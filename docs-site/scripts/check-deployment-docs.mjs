@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -51,22 +51,22 @@ for (const path of [
 }
 
 const config = read('docs-site/docs/.vitepress/config.ts')
-requireText(config, "const siteOrigin = 'https://payincus.com'", 'VitePress config')
+requireText(config, "const siteOrigin = 'https://mastalee928.github.io/payincus'", 'VitePress config')
+requireText(config, "base: '/payincus/'", 'VitePress config')
 requireText(config, 'transformHead({ pageData })', 'VitePress config')
-requireText(config, 'hostname: siteOrigin', 'VitePress config')
+requireText(config, 'hostname: `${siteOrigin}/`', 'VitePress config')
 
 const changelogGenerator = read('docs-site/scripts/generate-changelog.mjs')
 requireText(changelogGenerator, "--format=%H%x09%cs%x09%s", 'changelog generator')
 requireText(changelogGenerator, 'fullHash.slice(0, 9)', 'changelog generator')
 requireText(changelogGenerator, 'normalizeEmbeddedReleaseNoteHeadings', 'changelog generator')
 
-const cname = read('docs-site/docs/public/CNAME').trim()
-if (cname !== 'payincus.com') {
-  throw new Error(`CNAME must be payincus.com, received ${JSON.stringify(cname)}`)
+if (existsSync(resolve(repoRoot, 'docs-site/docs/public/CNAME'))) {
+  throw new Error('Repository Pages must not claim an upstream custom domain')
 }
 
 const robots = read('docs-site/docs/public/robots.txt')
-requireText(robots, 'Sitemap: https://payincus.com/sitemap.xml', 'robots.txt')
+requireText(robots, 'Sitemap: https://mastalee928.github.io/payincus/sitemap.xml', 'robots.txt')
 
 const workflow = read('.github/workflows/docs-pages.yml')
 requireText(workflow, '- main', 'docs workflow')

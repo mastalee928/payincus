@@ -15,7 +15,7 @@ When this happens, generate a fresh host install command from the admin console 
 ## Release Configuration
 
 ```dotenv
-INCUDAL_AGENT_RELEASE_REPOSITORY=VipMaxxxx/payincus
+INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
 INCUDAL_AGENT_RELEASE_TOKEN=
 ```
 

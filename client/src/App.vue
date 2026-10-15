@@ -34,7 +34,8 @@ const showLayout = computed<boolean>(() => {
   return authStore.isAuthenticated && !noLayoutRoutes.includes(route.name as string) && !showPublicSiteLayout.value
 })
 const showPublicSiteLayout = computed<boolean>(() => {
-  return typeof route.name === 'string' && publicSiteRouteNames.has(route.name)
+  return typeof route.name === 'string' && (publicSiteRouteNames.has(route.name) ||
+    (route.name === 'pool-purchase' && !authStore.isAuthenticated))
 })
 
 watchEffect(() => {

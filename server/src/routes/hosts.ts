@@ -1409,8 +1409,11 @@ export default async function hostRoutes(fastify: FastifyInstance) {
   })
 
   // 安装脚本下载接口（基于 installToken 鉴权，保留给老版本兼容）
-  fastify.get<{ Params: { token: string } }>('/install.sh/:token', async (request, reply) => {
+  fastify.get<{ Params: { token: string }; Querystring: { os?: string } }>('/install.sh/:token', async (request, reply) => {
     const { token } = request.params
+    if (request.query.os !== undefined && request.query.os !== 'alpine') {
+      return reply.code(400).send('# Error: Unsupported installer platform')
+    }
 
     if (!token || token.length < 10) {
       request.log.warn('Invalid install script download token format')
@@ -1451,7 +1454,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       }
 
       // 读取安装脚本
-      const scriptPath = join(__dirname, '../../templates/install.sh')
+      const scriptPath = join(__dirname, request.query.os === 'alpine' ? '../../templates/install-alpine.sh' : '../../templates/install.sh')
       let script: string
       try {
         script = readFileSync(scriptPath, 'utf-8')
@@ -2391,6 +2394,21 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         normalizedNatBindIp = ipValidation.sanitized || nextNatBindIp
       } else {
         normalizedNatBindIp = null
+      }
+    }
+
+    // Managed dedicated IPv4 must pass the same gateway/identity verification as
+    // automatic changes. Ignore stale unchanged form fields during other edits.
+    if (normalizedNatPublicIp !== undefined || normalizedNatBindIp !== undefined) {
+      const managed = await prisma.host.findFirst({ where: { id: hostId, singleTenant: true,
+        onboardingNode: { is: { status: 'succeeded' } } }, select: { id: true } })
+      if (managed) {
+        if ((normalizedNatPublicIp !== undefined && normalizedNatPublicIp !== host.nat_public_ip) ||
+            (normalizedNatBindIp !== undefined && normalizedNatBindIp !== host.nat_bind_ip)) {
+          return reply.code(409).send({ code: 'IP_SYNC_REQUIRED', error: '请在机器池使用“检测与同步 IP”，验证成功后地址会自动更新。' })
+        }
+        normalizedNatPublicIp = undefined
+        normalizedNatBindIp = undefined
       }
     }
 
@@ -3361,11 +3379,16 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       })
     }
 
-    // 移除连接
-    await removeIncusClient(hostId)
-
     // 删除记录
-    await db.deleteHost(hostId)
+    try {
+      await db.deleteHost(hostId)
+    } catch (error) {
+      if (error instanceof db.HostRemovalError) {
+        return reply.code(error.code === 'HOST_NOT_FOUND' ? 404 : 409).send({ code: error.code })
+      }
+      throw error
+    }
+    await removeIncusClient(hostId).catch(() => {})
 
     // 注意：已取消配额限制，不再更新 hostUsed
 

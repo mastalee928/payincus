@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAdminEntry } from '@/utils/app-paths'
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatMemory, formatDisk, formatDate } from '@/utils/formatters'
@@ -205,7 +206,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
           <dt class="text-themed-muted">{{ t('instance.detail.info.image') }}</dt>
           <dd class="text-themed font-medium">{{ formatImageName(instance.image, (instance as any).imageName) }}</dd>
         </div>
-        <div class="flex justify-between items-center">
+        <div v-if="isAdminEntry" class="flex justify-between items-center">
           <dt class="text-themed-muted">{{ t('instance.detail.info.instanceMode') }}</dt>
           <dd class="flex flex-wrap items-center gap-2">
             <span
@@ -270,7 +271,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
           </dd>
         </div>
         <!-- 节点 - 移到创建/到期时间上面 -->
-        <div class="flex justify-between">
+        <div v-if="isAdminEntry" class="flex justify-between">
           <dt class="text-themed-muted">{{ t('instance.detail.info.host') }}</dt>
           <dd class="flex items-center gap-2 text-themed font-medium">
             <FlagIcon v-if="(instance as any).host?.country_code || (instance as any).hostCountryCode" :code="(instance as any).host?.country_code || (instance as any).hostCountryCode || 'us'" size="sm" />
@@ -389,7 +390,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
               </span>
             </span>
           </div>
-          <div class="h-2 rounded-full overflow-hidden bg-themed/20">
+          <div v-if="!instance.dedicatedIpv4 && trafficData?.monthlyLimit" class="h-2 rounded-full overflow-hidden bg-themed/20">
             <div
               class="h-full rounded-full transition-all duration-500"
               :class="stats.memory.usagePercent > 80 ? 'bg-red-500' : stats.memory.usagePercent > 60 ? 'bg-yellow-500' : 'bg-green-500'"
@@ -416,7 +417,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
               </span>
             </span>
           </div>
-          <div class="h-2 rounded-full overflow-hidden bg-themed/20">
+          <div v-if="!instance.dedicatedIpv4 && trafficData?.monthlyLimit" class="h-2 rounded-full overflow-hidden bg-themed/20">
             <div
               class="h-full rounded-full transition-all duration-500"
               :class="stats.disk.usagePercent > 80 ? 'bg-red-500' : stats.disk.usagePercent > 60 ? 'bg-yellow-500' : 'bg-purple-500'"
@@ -434,7 +435,8 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
               {{ t('traffic.monthlyUsage') }}
             </span>
             <span class="text-themed font-medium">
-              <template v-if="trafficLoading">
+              <template v-if="instance.dedicatedIpv4">{{ t("dedicated.unlimited") }}</template>
+              <template v-else-if="trafficLoading">
                 <span class="text-xs text-themed-secondary">{{ t('common.loading') }}</span>
               </template>
               <template v-else-if="trafficData">
@@ -445,7 +447,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
                 <template v-else>
                   / {{ t('traffic.unlimited') }}
                 </template>
-                <span class="text-xs text-themed-muted ml-1">
+                <span v-if="trafficData.monthlyLimit" class="text-xs text-themed-muted ml-1">
                   ({{ (trafficData.percentage || 0).toFixed(1) }}%)
                 </span>
               </template>
@@ -455,7 +457,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
             </span>
           </div>
           <div
-            class="h-2 rounded-full overflow-hidden bg-themed/20"
+            v-if="!instance.dedicatedIpv4 && trafficData?.monthlyLimit" class="h-2 rounded-full overflow-hidden bg-themed/20"
             :class="{ 'opacity-0': !trafficData || trafficLoading }"
           >
             <div
@@ -465,7 +467,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
           </div>
         </div>
         <!-- Bandwidth Limits -->
-        <div class="pt-2 border-t-2 border-themed">
+        <div v-if="!instance.dedicatedIpv4 && isAdminEntry" class="pt-2 border-t-2 border-themed">
           <div class="flex justify-between text-xs text-themed-muted">
             <span>
               <span class="inline-block w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full mr-1"></span>

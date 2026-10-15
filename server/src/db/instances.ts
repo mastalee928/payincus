@@ -36,6 +36,8 @@ export async function getInstancesByUserId(userId: number): Promise<Array<Instan
   return instances.map(inst => ({
     id: inst.id,
     incus_id: inst.incusId,
+    dedicated_ipv4: inst.dedicatedIpv4,
+    dedicated_network_ready: inst.dedicatedNetworkReady,
     name: inst.name,
     user_id: inst.userId,
     host_id: inst.hostId,
@@ -119,6 +121,8 @@ export async function getAllInstances(): Promise<Array<Instance & {
   return instances.map(inst => ({
     id: inst.id,
     incus_id: inst.incusId,
+    dedicated_ipv4: inst.dedicatedIpv4,
+    dedicated_network_ready: inst.dedicatedNetworkReady,
     name: inst.name,
     user_id: inst.userId,
     host_id: inst.hostId,
@@ -211,6 +215,8 @@ export async function getInstanceById(id: number): Promise<(Instance & {
   return {
     id: inst.id,
     incus_id: inst.incusId,
+    dedicated_ipv4: inst.dedicatedIpv4,
+    dedicated_network_ready: inst.dedicatedNetworkReady,
     name: inst.name,
     user_id: inst.userId,
     host_id: inst.hostId,

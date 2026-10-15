@@ -32,16 +32,15 @@ The default install directory is `/opt/incudal`. This is the real path used by t
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/VipMaxxxx/payincus/main/scripts/install-panel.sh -o install-panel.sh
+curl -fsSL https://raw.githubusercontent.com/mastalee928/payincus/main/scripts/install-panel.sh -o install-panel.sh
 sudo bash install-panel.sh
 ```
 
 During installation, provide:
 
-- User portal domain.
-- Admin console domain.
-- Initial admin email. Empty input defaults to `admin@payincus.local`.
-- Initial admin password. Use a strong password in production.
+- Initial admin email. Empty input defaults to `admin@payincus.local`. The installer generates a random administrator password and displays it after installation; save it securely.
+- External access mode. Nginx and Cloudflare Tunnel modes ask for separate user/admin domains and the relevant certificate email or Tunnel credentials.
+- Management gateway public IPv4 or direct DNS name, without a CDN proxy. Leave it empty to configure the gateway later.
 
 ## What It Does
 
@@ -54,6 +53,19 @@ During installation, provide:
 - Creates OTA, certificate, cache, and log directories.
 - Writes Nginx configuration for both domains.
 - Sets `FRONTEND_URL`, `ADMIN_FRONTEND_URL`, `SITE_URL`, and `PAYMENT_CALLBACK_BASE_URL`.
+- When a gateway address is supplied, configures WireGuard, restricted SSH keys and host-key pinning, and verifies backend access before saving the configuration. The default management subnet is `10.253.240.0/24`; allow inbound UDP `51820` in the cloud firewall.
+
+## Host Pool Management Gateway
+
+Automatic onboarding and host management use a separate WireGuard tunnel. The control server must permit root SSH public-key authentication; the installer does not change the global login policy. The user portal can use a CDN, but the management gateway needs a public IPv4 or direct DNS name.
+
+To configure an existing installation or finish a skipped gateway setup:
+
+```bash
+sudo bash install-panel.sh --configure-host-pool
+```
+
+Use `ONBOARDING_PUBLIC_HOST`, `ONBOARDING_MANAGEMENT_ADDRESS`, `ONBOARDING_WG_PORT` and `ONBOARDING_CONTROL_SSH_PORT` to set the address and ports. Existing gateway keys and peers are preserved. See [host pool configuration](https://github.com/mastalee928/payincus/blob/main/docs/host-pool.md) for a separate or custom gateway.
 
 ## Upgrade and Uninstall
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"incudal-agent/internal/config"
+	"incudal-agent/internal/ingress"
 	"incudal-agent/internal/protocol"
 )
 
@@ -24,6 +25,7 @@ type Client struct {
 }
 
 type HeartbeatResult struct {
+	PortProtocol *ingress.Instruction
 	StatusCode int
 	Body       string
 	OK         bool
@@ -41,6 +43,7 @@ type UpgradeInstruction struct {
 }
 
 type heartbeatResponse struct {
+	PortProtocol *ingress.Instruction `json:"portProtocol"`
 	Upgrade *UpgradeInstruction `json:"upgrade"`
 }
 
@@ -106,6 +109,7 @@ func (client *Client) Heartbeat(ctx context.Context, payload map[string]any) (He
 	var parsedResponse heartbeatResponse
 	if err := json.Unmarshal(responseBody, &parsedResponse); err == nil {
 		result.Upgrade = parsedResponse.Upgrade
+		result.PortProtocol = parsedResponse.PortProtocol
 	}
 
 	var parsed map[string]any

@@ -1,3 +1,4 @@
+import type { PoolCheckoutResult } from '@/types/host-pool'
 import axios, { type AxiosInstance } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { buildApiUrl } from '@/utils/api-url'
@@ -536,7 +537,7 @@ http.interceptors.response.use(
       } catch (refreshError: any) {
         // 刷新失败，根据错误类型决定是否跳转登录
         processQueue(refreshError, null)
-        
+
         // 如果是 refreshToken 失效（401 或 400），清除所有认证状态并跳转到登录页
         // 400 通常表示 refresh token 无效、过期或格式错误
         if (refreshError?.message === 'REFRESH_TOKEN_INVALID' || 
@@ -1029,7 +1030,16 @@ const api = {
     // 重新分配 IPv6 地址（仅 nat_ipv6 模式）
     reassignIpv6: (id: number): Promise<{ message: string; oldIpv6: string | null; newIpv6: string }> =>
       http.post(`/instances/${id}/reassign-ipv6`, {})
-  },
+  ,
+poolOrder: (data: {
+      requestId: string
+      turnstileToken?: string
+      items: Array<{ poolPriceId: number; quantity: number; namePrefix: string; image: string; customInitCommandIds?: number[] }>
+      sshKeyId?: number | null
+      expectedTotal: number
+    }): Promise<PoolCheckoutResult> => http.post('/instances/pool-order', data, { timeout: TIMEOUT.LONG }),
+    getPoolOrder: (id: string): Promise<PoolCheckoutResult> => http.get(`/instances/pool-orders/${id}`),
+},
 
   // SSH 密钥
   sshKeys: {
@@ -1907,7 +1917,24 @@ const api = {
         packageIds: number[]  // 该地区包含的套餐 ID 列表
       }>
     }> => http.get('/packages/regions', { params }),
-  },
+
+getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
+      id: number
+      name: string
+      countryCode: string | null
+      products: Array<{
+        id: number
+        resourcePreset: string
+        diskGiB: number
+        monthlyPrice: number
+        setupFee: number
+        cpu: number
+        memoryMiB: number
+        idle: number
+        total: number
+      }>
+    }> }> => http.get('/host-pools/public/catalog'),
+},
 
   // OAuth 自助绑定
   oauth: {

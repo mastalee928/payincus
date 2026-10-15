@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://payincus.com/sitemap.xml
+Sitemap: https://mastalee928.github.io/payincus/sitemap.xml

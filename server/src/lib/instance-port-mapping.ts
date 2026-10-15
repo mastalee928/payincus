@@ -38,6 +38,8 @@ export async function provisionAutoRemotePort(input: {
 
     const instance = await db.getInstanceById(input.instanceId)
     if (!instance) return
+    const dedicated = await prisma.instance.findUnique({ where: { id: input.instanceId }, select: { dedicatedIpv4: true } })
+    if (dedicated?.dedicatedIpv4) return
 
     const host = await db.getHostById(instance.host_id)
     if (!host) return
@@ -102,6 +104,8 @@ function isUniqueConstraintError(error: unknown): boolean {
  */
 export async function addInstancePortMapping(input: AddPortMappingInput): Promise<AddPortMappingResult> {
   const { instance, host, protocol, privatePort, remark, systemManaged = false } = input
+  const dedicated = await prisma.instance.findUnique({ where: { id: instance.id }, select: { dedicatedIpv4: true } })
+  if (dedicated?.dedicatedIpv4) return { ok: false, code: ErrorCode.FORBIDDEN, message: "独占实例直接使用公网端口，无需端口映射" }
 
   if (!host) {
     return { ok: false, code: ErrorCode.HOST_NOT_FOUND }

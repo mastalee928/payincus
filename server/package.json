@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "1.5.8",
+  "version": "1.6.1",
   "description": "PayIncus backend service",
   "type": "module",
   "main": "dist/app.js",
@@ -11,6 +11,13 @@
     "start": "node dist/app.js",
     "build": "tsc",
     "type-check": "tsc --noEmit",
+    "test:host-pool-guards": "node --import tsx scripts/test-host-pool-guards.ts",
+    "test:admin-instance-push-integration": "node --import tsx scripts/test-admin-instance-push-integration.ts",
+    "test:host-public-ip": "node --import tsx scripts/test-host-public-ip.ts",
+    "test:host-public-ip-integration": "node --import tsx scripts/test-host-public-ip-integration.ts",
+    "test:host-pool-integration": "node --import tsx scripts/test-host-pool-integration.ts",
+    "test:host-pool-recovery-integration": "node --import tsx scripts/test-host-pool-recovery-integration.ts",
+    "test:host-onboarding-lease-integration": "node --import tsx scripts/test-host-onboarding-lease-integration.ts",
     "migrate:data": "node --import tsx scripts/migrate-data.ts",
     "backfill:instance-network": "node --import tsx scripts/backfill-instance-network-addresses.ts",
     "fix:migrated-billing": "node --import tsx scripts/fix-migrated-instance-billing.ts",
@@ -186,7 +193,9 @@
     "test:instance-create-failure-compensation": "node --import tsx scripts/test-instance-create-failure-compensation.ts",
     "test:instance-create-turnstile-guards": "node --import tsx scripts/test-instance-create-turnstile-guards.ts",
     "test:websocket-origin-guard": "node --import tsx scripts/test-websocket-origin-guard.ts",
-    "test:nat-ipv4-allocation-guards": "node --import tsx scripts/test-nat-ipv4-allocation-guards.ts"
+    "test:nat-ipv4-allocation-guards": "node --import tsx scripts/test-nat-ipv4-allocation-guards.ts",
+    "test:dedicated-delivery": "node --import tsx scripts/test-dedicated-delivery.ts",
+    "test:host-replacement-integration": "node --import tsx scripts/test-host-replacement-integration.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",
@@ -219,6 +228,7 @@
     "pino-pretty": "^13.0.0",
     "prisma": "^7.1.0",
     "qrcode": "^1.5.4",
+    "ssh2": "^1.17.0",
     "ssh2-sftp-client": "^11.0.0",
     "undici": "^7.1.0",
     "webdav": "^5.8.0",
@@ -231,6 +241,7 @@
     "@types/nodemailer": "^7.0.4",
     "@types/pg": "^8.15.6",
     "@types/qrcode": "^1.5.6",
+    "@types/ssh2": "^1.15.5",
     "@types/ssh2-sftp-client": "^9.0.4",
     "@typescript-eslint/eslint-plugin": "^8.48.1",
     "@typescript-eslint/parser": "^8.48.1",

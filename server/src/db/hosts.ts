@@ -1,3 +1,4 @@
+import { dedicatedHostReadyWhere, HOST_OCCUPIED_INSTANCE_WHERE, hostPendingMoveWhere } from '../lib/host-resource-usage.js'
 /**
  * 主机相关数据库操�?
  * 使用 Prisma ORM
@@ -137,6 +138,7 @@ export async function getHostById(id: number): Promise<Host | null> {
     memory_used: host.memoryUsed,
     disk_used: host.diskUsed,
     ip_address: host.ipAddress,
+    public_ip_sync_blocked: host.publicIpSyncBlocked,
     storage_driver: host.storageDriver,
     storage_type: host.storageType,
     storage_path: host.storagePath,
@@ -694,21 +696,22 @@ export async function reservePlanUpgradeCapacityWithLock(
  * 删除主机
  * 注意：在删除宿主机之前，必须先删除所有关联的记录以解除外键约�?
  */
+export class HostRemovalError extends Error {
+  constructor(public code: 'HOST_HAS_INSTANCES' | 'HOST_HAS_PENDING_TASKS' | 'HOST_NOT_FOUND') { super(code) }
+}
+
 export async function deleteHost(id: number): Promise<void> {
-  // 1. 先删除所有端口映射（PortMapping 的外键到 Host �?RESTRICT�?
-  await prisma.portMapping.deleteMany({
-    where: { hostId: id }
-  })
-  
-  // 2. 删除所有关联的实例记录（包括已删除状态的�?
-  // 这会自动删除关联的快照、备份、端口映射等（通过 Cascade�?
-  await prisma.instance.deleteMany({
-    where: { hostId: id }
-  })
-  
-  // 3. 删除宿主机（会自动删除关联的 PackageHost，因为它�?Cascade�?
-  await prisma.host.delete({
-    where: { id }
+  await prisma.$transaction(async tx => {
+    const rows = await tx.$queryRaw<Array<{ id: number }>>`SELECT id FROM hosts WHERE id = ${id} FOR UPDATE`
+    if (!rows.length) throw new HostRemovalError('HOST_NOT_FOUND')
+    if (await tx.instance.count({ where: { hostId: id, ...HOST_OCCUPIED_INSTANCE_WHERE } })) throw new HostRemovalError('HOST_HAS_INSTANCES')
+    const tasks = await tx.instanceTask.count({ where: { OR: [{ hostId: id }, { targetHostId: id }], status: { in: ['PENDING', 'PROCESSING'] } } })
+    const onboarding = await tx.hostOnboardingNode.count({ where: { hostId: id, status: { in: ['queued', 'running'] } } })
+    if (tasks || onboarding) throw new HostRemovalError('HOST_HAS_PENDING_TASKS')
+    await tx.hostOnboardingNode.updateMany({ where: { hostId: id }, data: { deletedAt: new Date(), credentialsEncrypted: null } })
+    await tx.portMapping.deleteMany({ where: { hostId: id } })
+    await tx.instance.deleteMany({ where: { hostId: id } })
+    await tx.host.delete({ where: { id } })
   })
 }
 
@@ -806,10 +809,12 @@ export async function selectAvailableHost(options: {
   // 构建查询条件
   const where: {
     status: 'online'
+    singleTenant: false
     id?: number | { in: number[] }
     userId?: number
     tags?: { path: string[]; array_contains: string }
   } = {
+    singleTenant: false,
     status: 'online'
   }
 
@@ -986,6 +991,11 @@ export async function selectAvailableHost(options: {
 export async function selectAndReserveHostWithLock(
   tx: Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>,
   options: {
+    poolImageId?: number
+    poolMachineGroupId?: number
+    poolRegionGroupId?: number
+    poolResourcePreset?: string
+    poolDiskGiB?: number
     packageHostIds?: number[]
     nodeSelectors?: string[]
     cpu: number
@@ -1021,6 +1031,21 @@ export async function selectAndReserveHostWithLock(
     params.push(ownerId)
   }
 
+  if (options.poolMachineGroupId !== undefined) {
+    const poolFilter = await tx.host.findMany({
+      where: { ...dedicatedHostReadyWhere(), singleTenant: true,
+        machineGroupId: options.poolMachineGroupId, regionGroupId: options.poolRegionGroupId,
+        resourcePreset: options.poolResourcePreset, customerDiskGiB: options.poolDiskGiB,
+        architecture: options.poolResourcePreset?.startsWith('ARM') ? 'aarch64' : 'x86_64',
+        ...(options.poolImageId ? { AND: [{ OR: [{ allowedImages: { none: {} } }, { allowedImages: { some: { imageId: options.poolImageId } } }] }] } : {}) },
+      select: { id: true }
+    })
+    whereConditions.push(`id = ANY($${params.length + 1}::int[])`)
+    params.push(poolFilter.map(host => host.id))
+  } else {
+    whereConditions.push('single_tenant = false')
+  }
+
   // 使用 FOR UPDATE 锁定候选宿主机记录
   // 按负载排序，优先选择低负载的节点
   const lockQuery = `
@@ -1033,7 +1058,7 @@ export async function selectAndReserveHostWithLock(
            created_at, updated_at
     FROM hosts
     WHERE ${whereConditions.join(' AND ')}
-    ORDER BY memory_used ASC, cpu_used ASC
+    ORDER BY id ASC
     FOR UPDATE
   `
   
@@ -1070,6 +1095,16 @@ export async function selectAndReserveHostWithLock(
 
   // 遍历候选宿主机，检查资源并预占
   for (const host of hosts) {
+    if (options.poolMachineGroupId !== undefined) {
+      // Recheck after obtaining the row lock: inventory can change while waiting.
+      const ready = await tx.host.findFirst({ where: { id: host.id, singleTenant: true,
+        ...dedicatedHostReadyWhere(), machineGroupId: options.poolMachineGroupId,
+        regionGroupId: options.poolRegionGroupId, resourcePreset: options.poolResourcePreset,
+        customerDiskGiB: options.poolDiskGiB, instances: { none: HOST_OCCUPIED_INSTANCE_WHERE },
+        ...(options.poolImageId ? { AND: [{ OR: [{ allowedImages: { none: {} } }, { allowedImages: { some: { imageId: options.poolImageId } } }] }] } : {}) }, select: { id: true } })
+      if (!ready || await tx.instanceTask.count({ where: hostPendingMoveWhere(host.id) })) continue
+    }
+
     // 检查标签选择�?
     if (nodeSelectors.length > 0) {
       const hostTags = (host.tags as string[]) || []

@@ -1,3 +1,5 @@
+import { applyCustomerInstanceView } from '../lib/customer-instance-view.js'
+import { prepareDedicatedDelivery } from '../services/dedicated-delivery.js'
 /**
  * 实例管理路由
  */
@@ -475,6 +477,7 @@ async function buildChangeHostOptions(instance: {
   cpu: number
   memory: number
   package_plan_id?: number | null
+  dedicated_ipv4?: boolean
 }): Promise<ChangeHostOptionsResponse> {
   const sshKeys = await db.getSSHKeysByUserId(instance.user_id)
 
@@ -495,7 +498,7 @@ async function buildChangeHostOptions(instance: {
     canChangeHost: false
   } satisfies ChangeHostOptionsResponse
 
-  if (!instance.package_id) {
+  if (!instance.package_id || instance.dedicated_ipv4) {
     return { ...baseResponse, unavailableReason: 'no_package' }
   }
 
@@ -765,6 +768,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           disk: number
           ipv4: string | null
           ipv6: string | null
+          dedicated_ipv4?: boolean
+          dedicated_network_ready?: boolean
+          public_ip_sync_blocked?: boolean
           host_name: string | null
           host_id: number
           host_country_code: string | null
@@ -897,6 +903,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           response.hostId = instance.host_id
         }
 
+        applyCustomerInstanceView(response, instance, request.user.role === "admin")
         return response
       }),
       total: result.total,
@@ -2660,6 +2667,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     // root_password should NEVER be returned in API responses
     // It's only returned once during instance creation
 
+    applyCustomerInstanceView(response, { ...instance, public_ip_sync_blocked: host?.public_ip_sync_blocked }, request.user.role === 'admin')
     return { instance: response }
   })
 
@@ -3360,6 +3368,10 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     const instance = await db.getInstanceById(instanceId)
     if (!instance || instance.status === 'deleted') {
       return reply.code(404).send(apiError(ErrorCode.INSTANCE_NOT_FOUND))
+    }
+
+    if (instance.dedicated_ipv4) {
+      return reply.code(409).send({ code: 'DEDICATED_HOST_CHANGE_MANAGED', error: '独占实例的故障换机由管理员在机器池中处理' })
     }
 
     const hasPermission = await checkInstanceOperationPermission(user, instance)
@@ -6650,6 +6662,9 @@ async function createInstanceAsync(
 
     console.log(`[Provisioning] 实例 ${config.name} IP 配置: IPv4=${ipv4}, IPv6=${ipv6}`)
 
+    await prisma.instance.updateMany({ where: { id: instanceId, status: 'creating' }, data: { ipv4, ipv6 } })
+    const dedicatedReady = await prepareDedicatedDelivery(client, instanceId)
+
     // 使用原子操作更新状态，防止与超时清理任务竞争
     // 只有状态仍为 creating 时才更新为 running
     const updateResult = await prisma.instance.updateMany({
@@ -6659,6 +6674,7 @@ async function createInstanceAsync(
       },
       data: {
         status: 'running',
+        dedicatedNetworkReady: dedicatedReady,
         ipv4: ipv4 ?? null,
         ipv6: ipv6 ?? null,
         storagePoolName: config.storagePool || 'default'
@@ -6728,14 +6744,14 @@ async function createInstanceAsync(
       await sendNotification(userId, 'instance_created', {
         instanceName: instance.name,
         status: 'running',
-        hostName: host.name,
+        hostName: dedicatedReady ? '' : host.name,
         hostLocation: host.location || undefined,
         image: config.image,
         cpu: config.cpu,
         memory: config.memory,
         disk: config.disk,
         networkMode: config.networkMode,
-        ipv4: ipv4 || undefined,
+        ipv4: (dedicatedReady ? host.nat_public_ip : ipv4) || undefined,
         ipv6: ipv6 || undefined
       })
 
@@ -6759,12 +6775,12 @@ async function createInstanceAsync(
           await sendInstanceCreatedEmail(user.email, {
             username: user.username,
             instanceName: instance.name,
-            hostName: host.name,
+            hostName: dedicatedReady ? '' : host.name,
             image: config.image,
             cpu: config.cpu,
             memory: config.memory,
             disk: config.disk,
-            ipv4: ipv4 || undefined,
+            ipv4: (dedicatedReady ? host.nat_public_ip : ipv4) || undefined,
             ipv6: ipv6 || undefined,
             isPaid,
             planName: instanceWithBilling?.packagePlan?.name,
@@ -6782,7 +6798,7 @@ async function createInstanceAsync(
         userId,
         'instance',
         'instance.create',
-        `Created instance "${instance.name}" [host: ${host.name}, image: ${config.image}, CPU: ${config.cpu}%, Memory: ${config.memory}MB, Disk: ${config.disk}MB, IPv4: ${ipv4 || 'N/A'}, IPv6: ${ipv6 || 'N/A'}, network: ${config.networkMode}]`,
+        `Created instance "${instance.name}" [host: ${dedicatedReady ? "dedicated" : host.name}, image: ${config.image}, CPU: ${config.cpu}%, Memory: ${config.memory}MB, Disk: ${config.disk}MB, IPv4: ${ipv4 || 'N/A'}, IPv6: ${ipv6 || 'N/A'}, network: ${config.networkMode}]`,
         'success',
         { instanceId }
       )
@@ -6823,8 +6839,8 @@ async function createInstanceAsync(
         const { sendNotification } = await import('../lib/notifier.js')
         await sendNotification(userId, 'instance_create_failed', {
           instanceName: instance.name,
-          hostName: host.name,
-          error: errorMessage
+          hostName: undefined,
+          error: '实例开通失败，请联系管理员'
         })
       } catch (notifyErr) {
         console.error(`[Provisioning] 发送失败通知失败:`, notifyErr)
@@ -6843,3 +6859,5 @@ async function createInstanceAsync(
     throw error
   }
 }
+
+export { createInstanceAsync, compensateFailedInstanceCreation }

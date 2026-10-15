@@ -87,13 +87,17 @@ client/node_modules/.vite-temp/
 
 # ==================== TypeScript ====================
 *.tsbuildinfo
+__pycache__/
+*.pyc
 
 # ==================== 测试覆盖率 ====================
 coverage/
 .nyc_output/
 
 # ==================== 文档 (内部) ====================
-docs/
+docs/*
+!docs/host-pool.md
+!docs/fork-release.md
 !docs-site/docs/
 !docs-site/docs/**
 !plugin-templates/ai-ticket-agent-plugin/docs/

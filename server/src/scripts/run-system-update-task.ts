@@ -25,8 +25,8 @@ let targetVersion = String(process.argv[3] || '').trim()
 const appDir = resolve(process.env.INCUDAL_APP_DIR || process.cwd())
 const installDir = resolve(process.env.INSTALL_DIR || deriveInstallDir(appDir))
 const serviceName = process.env.SERVICE_NAME || 'incudal-backend'
-const frontendUrl = process.env.FRONTEND_URL || 'https://pay.payincus.com'
-const adminFrontendUrl = process.env.ADMIN_FRONTEND_URL || 'https://admin.payincus.com'
+const frontendUrl = process.env.FRONTEND_URL || 'http://127.0.0.1:3000'
+const adminFrontendUrl = process.env.ADMIN_FRONTEND_URL || 'http://127.0.0.1:3002'
 const backendUrl = process.env.BACKEND_URL || 'http://127.0.0.1:3001'
 const logDir = resolve(process.env.SYSTEM_UPDATE_LOG_DIR || join(installDir, 'update-logs'))
 const logPath = resolve(process.env.SYSTEM_UPDATE_LOG_PATH || join(logDir, `system-update-${taskId}.log`))
@@ -690,8 +690,16 @@ async function applyGitUpdate(backupDir: string): Promise<string> {
   return backupDir
 }
 
+async function refreshLocalOnboardingGateway(): Promise<void> {
+  const script = join(installDir, existsSync(join(installDir, 'current')) ? 'current' : '.', 'scripts/refresh-onboarding-gateway.sh')
+  if (process.platform === 'linux' && existsSync(script)) {
+    await run('bash', [script], { timeoutMs: 30000 })
+  }
+}
+
 async function verifyUpdatedRuntime(isArtifactMode: boolean): Promise<void> {
   await chownInstallDir()
+  await refreshLocalOnboardingGateway()
   await run('systemctl', ['restart', serviceName], { timeoutMs: 120000 })
   await waitForBackendHealth()
   await run('bash', ['scripts/verify-split-host.sh'], {
@@ -749,6 +757,7 @@ async function autoRollbackFromBackup(backupDir: string, timestamp: string): Pro
     await log(`Auto rollback switching current release back to: ${backupDir}`)
     await switchCurrentRelease(backupDir)
     await chownInstallDir()
+    await refreshLocalOnboardingGateway()
     await run('systemctl', ['restart', serviceName], { timeoutMs: 120000 })
     await waitForBackendHealth()
     await run('bash', ['scripts/verify-split-host.sh'], {
@@ -777,6 +786,7 @@ async function autoRollbackFromBackup(backupDir: string, timestamp: string): Pro
   await mkdir(join(installDir, '.cache'), { recursive: true })
   await mkdir(join(installDir, 'server/certs'), { recursive: true })
   await chownInstallDir()
+  await refreshLocalOnboardingGateway()
   await run('systemctl', ['restart', serviceName], { timeoutMs: 120000 })
   await waitForBackendHealth()
   await run('bash', ['scripts/verify-split-host.sh'], {

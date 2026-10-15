@@ -66,3 +66,10 @@ func TestSignatureChangesWithPath(t *testing.T) {
 		t.Fatalf("signature should change when request path changes")
 	}
 }
+
+func TestCanonicalNestedStruct(t *testing.T) {
+    type status struct { Mode string `json:"mode"`; Revision int `json:"revision"`; Applied bool `json:"applied"` }
+    got, err := CanonicalJSON(map[string]any{"portProtocolStatus": status{Mode: "tcp", Revision: 7, Applied: true}})
+    want := `{"portProtocolStatus":{"applied":true,"mode":"tcp","revision":7}}`
+    if err != nil || string(got) != want { t.Fatalf("canonical nested report: %s (%v)", got, err) }
+}
