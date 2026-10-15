@@ -8,16 +8,53 @@ This page is generated from Git tags and commits to show system version history.
 
 ## Latest Release State / 最新发布状态
 
-- Latest Release Commit / 最新发布提交: `b140752e9`
-- Commit date / 提交日期: 2026-07-14
-- Commit subject / 提交说明: Release v1.5.8 修复内网 IP 分配竞态 + LXC 端口转发改走内核 NAT
-- Latest tag / 最新 tag: `v1.6.0`
+- Latest Release Commit / 最新发布提交: `737c6863a`
+- Commit date / 提交日期: 2026-10-16
+- Commit subject / 提交说明: fix: install the system Node runtime required by systemd
+- Latest tag / 最新 tag: `v1.6.1`
 
 ## Unreleased Changes / 未发布变更
 
 - This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
 
 ## Historical Versions / 历史版本
+
+## v1.6.1
+
+- Release commit / 发布提交: `737c6863a`
+- Commit date / 提交日期: 2026-10-16
+- Commit subject / 提交说明: fix: install the system Node runtime required by systemd
+
+### v1.6.1 主机池与独占实例交付
+
+本仓库首个独立维护版本，包含机器池与独占交付的完整源码。发行源码为 [737c6863a36c](https://github.com/mastalee928/payincus/commit/737c6863a36c436de8f9071e1831015f285b872b)，[正式发布工作流](https://github.com/mastalee928/payincus/actions/runs/38789679660) 已通过双架构全新安装验证并发布安装包。
+
+### 新增
+
+- 管理端增加「主机接入与管理」，包含按机型、地区组织的机器池和定价；支持纯净 Alpine 自动接入、批量导入、SSH 连接信息及机器删除。
+- 用户通过购物车选择多种完整配置、镜像和数量，统一付款；结算检查库存、价格和余额，重试不会重复扣费。
+- 一台宿主机交付一个客户实例，公网 IPv4 全端口由客户使用，SSH 为公网 IP 的 22 端口；宿主机管理使用 WireGuard。
+- 管理端可选择 TCP 或 TCP+UDP，并显示 Agent 实际应用状态；交付前验证客户公网 SSH 登录。
+- 管理员可将独占实例更换到同地区、同机型的备用机器，保留用户、价格和到期时间；原机持续隔离。无异地备份时须确认重建系统。
+- 宿主机更换公网 IPv4 后，通过管理隧道发现、验证并同步到机器池和用户实例；支持手动指定入口。
+- 用户端 PUSH 直接填写目标用户；管理端支持代用户转移实例，保留价格和账期并记录操作日志。
+
+### 展示与维护
+
+- 用户端显示公网 IPv4 和实际分配的 IPv6，流量显示无限；隐藏宿主机内部名称、虚拟化类型、带宽及端口转发操作。管理端仍显示宿主机名称。
+- 购买结果显示逐台交付状态、实际 SSH 命令和遮盖的密码；支持重新进入订单查看进度。
+- 安装、面板 OTA 和 Agent 的默认发布来源改为 `mastalee928/payincus`，保留原项目许可证与版权。
+- 一键安装支持配置 WireGuard 管理网关；已有安装可用 `--configure-host-pool` 补配。OTA 同步网关程序并保留密钥与 peer。
+- 修复预装 PostgreSQL 未启动、Node.js 只存在于用户环境、SSH 私钥权限顺序导致的新安装失败；服务使用经过检查的系统运行时。
+- 发布工作流在 Linux amd64 和 arm64 临时机器上执行真实安装、数据库迁移、管理员登录、双端访问与网关连接验证，安装失败则阻止发布。
+
+### 升级与验证
+
+- 新增主机池结算与独占交付迁移，包含单机占用、备用机预占与故障隔离保护。升级前备份数据库和持久配置。
+- 配套 [Agent v1.0.2](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.2) 已发布，支持协议切换和 Alpine OpenRC 管理。
+- 已完成普通用户测试余额购买、公网 SSH、TCP/UDP 切换和两台 Alpine 的无备份故障换机实测；通过类型检查、守卫、隔离数据库集成测试及双端构建。
+- Ubuntu 24.04 amd64 / arm64 全新安装验证通过：207 条数据库迁移、唯一后端、双端页面、随机管理员密码登录、机器池 API、固定指纹 SSH 网关及重复配置检查。
+- 本轮未真机验收外部支付、客户公网 IPv6、异地备份恢复；无备份换机不会恢复旧磁盘数据。旧机彻底不可访问时，需要运维确认关闭或隔离，系统不能远程保证旧实例停止。
 
 ## v1.6.0
 

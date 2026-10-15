@@ -32,4 +32,11 @@ INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
 
 `HANDOFF.md` 记录当前源码、发行与主控验证状态。上游历史运行记录已归档，不能用来证明本仓库的 Actions、Release 或当前主控已经验证。2026-10-15 已完成直接部署及双机换机验收，详细运行证据另存于维护者工作区内部，不随公开发行包发布。
 
-当前待发布版本为面板 `v1.6.1` 和 Agent `agent-v1.0.2`。代码与 Release 说明已准备，当前线上预览部署不等同于 GitHub 发版；发布必须包含经过验证的源码提交、面板双架构安装包、校验文件、OTA manifest 与 Agent Release。
+## 已发布版本
+
+- 面板 [v1.6.1](https://github.com/mastalee928/payincus/releases/tag/v1.6.1)，发行源码 `737c6863a36c436de8f9071e1831015f285b872b`，已设为面板 latest。
+- [正式发布工作流](https://github.com/mastalee928/payincus/actions/runs/38789679660) 已完成 Ubuntu 24.04 amd64 / arm64 的构建与全新安装验证，包含数据库迁移、唯一后端、双端访问、管理员登录、机器池 API 和 SSH 管理网关。
+- 公开安装包的实际 SHA256、大小、OTA manifest、版本与源码提交均已核对；两种架构均携带原 LICENSE。
+- [Agent v1.0.2](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.2) 已发布，包含 Linux amd64 / arm64 二进制；不占用面板 latest。
+
+新安装使用 README 的一键安装命令即可获取本仓库稳定发行包。已有主控的应用版本以实际部署为准：本轮仅切换其更新来源并验证 Agent 下载，现有预览面板未因发布 Release 自动升级。

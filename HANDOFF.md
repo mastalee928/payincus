@@ -4,15 +4,20 @@
 
 ## 当前源码与发布状态
 
-- 本次准备面板 v1.6.1、Agent v1.0.2。此前 GitHub main 停留在 b140752，后续功能只在维护者工作区及测试主控直接部署，导致远端缺少更新。
+- 面板 [v1.6.1](https://github.com/mastalee928/payincus/releases/tag/v1.6.1) 与 [Agent v1.0.2](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.2) 已发布。面板发行源码为 `737c6863a36c436de8f9071e1831015f285b872b`；后续文档提交不改变已发布标签或安装包。
+- 此前 GitHub main 停留在 b140752，后续功能只在维护者工作区及测试主控直接部署。`429e858` 已补齐完整功能，后续提交修复全新安装验证中发现的问题。
 - 源码包括机器池、定价、购物车、一机一卖、Alpine 接入、1 GiB swap、WireGuard 管理、全端口 TCP/TCP+UDP、故障换机、公网 IPv4 自动同步及用户/管理员 PUSH。
 - 安装器、OTA、Agent、文档和问题反馈均使用本仓库。新安装增加管理网关配置，发行包包含完整迁移、探测、网络、swap 与网关脚本。
 - 本地类型检查及全套配置测试已逐项通过；安装器、仓库来源、部署配置、OTA 与网关参数守卫通过。Lint 无错误，保留已有样式警告；文档构建通过。
-- 双架构发行包、新机器安装与 Release 验证仍在进行，完成后在此补充实际工作流和版本链接。不能把本地通过当成发行或线上验证。
+- [正式发布工作流](https://github.com/mastalee928/payincus/actions/runs/38789679660) 全部成功：Ubuntu 24.04 amd64 / arm64 分别构建并从真实发行包全新安装，通过 207 条数据库迁移、唯一后端启动、双端访问、管理员登录、机器池 API 与固定主机指纹 SSH 网关验证。
+- 已实际下载两种架构的公开安装包，确认 SHA256、文件大小、OTA manifest、包内版本与 Git 提交一致；包内 LICENSE 与发行源码原文一致。GitHub 的面板 latest 为 v1.6.1。
+- [源码 CI](https://github.com/mastalee928/payincus/actions/runs/38788543345)、[Agent 发布](https://github.com/mastalee928/payincus/actions/runs/38783090823) 均通过；[本仓库文档站](https://mastalee928.github.io/payincus/) 已上线。
 
 ## 测试主控的既有证据
 
 维护者测试主控使用 v1.6.1-preview.3 直接部署，尚未由本轮操作切换到稳定 Release。普通用户余额购买、公网密码 SSH、TCP/UDP 切换、两台 Alpine 无备份故障换机、故障隔离恢复、公网 IPv4 更换与同步，以及用户和管理员 PUSH 已完成测试。隔离 PostgreSQL 数据库另有库存、扣费、任务租约、换机和权限测试。
+
+本轮已将该主控的面板与 Agent 更新源切换到本仓库，并清空临时 Agent 目录覆盖。主控从 GitHub 下载的两种 Agent、实际提供的 Agent manifest 与二进制下载均已核对 SHA256；唯一后端及双端健康检查正常。此项验证不代表主控已 OTA 至稳定面板版本。
 
 外部支付、客户公网 IPv6、异地备份恢复不在这次真机验收范围。无备份换机不会恢复旧磁盘；旧机完全失联时需由运维在云厂商侧隔离，系统不能保证远端旧实例已经停止。
 

@@ -3,11 +3,11 @@
 <p align="center">面向 Incus 的 NAT VPS 销售、资源交付、支付账务、Public API 和后台 OTA 平台。</p>
 
 <p align="center">
-  <a href="./docs-site/docs/index.md">项目文档</a>
+  <a href="https://mastalee928.github.io/payincus/">项目文档</a>
   ·
   <a href="./docs/host-pool.md">主机接入与管理</a>
   ·
-  <a href="./docs-site/docs/api/overview.md">API 文档</a>
+  <a href="https://mastalee928.github.io/payincus/api/overview">API 文档</a>
   ·
   <a href="https://github.com/mastalee928/payincus/issues">问题反馈</a>
   ·
@@ -20,11 +20,13 @@ PayIncus 是一套面向 hosting 业务的 Incus 商业化交付平台。它把�
 
 此仓库由 mastalee928 独立维护。源码、新安装、面板更新、Agent 和文档发布均使用 `mastalee928/payincus`。原有 BSD 3-Clause 许可证和版权声明保留在 [LICENSE](LICENSE) 中。
 
+当前稳定版：[v1.6.1](https://github.com/mastalee928/payincus/releases/tag/v1.6.1)，配套 [Agent v1.0.2](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.2)。
+
 - 项目仓库：<https://github.com/mastalee928/payincus>
 - 主机接入与管理：[使用说明](docs/host-pool.md)
 - 安装与发布：[维护说明](docs/fork-release.md)
-- 项目文档：[本仓库文档](docs-site/docs/index.md)
-- API 参考：[本仓库 API 文档](docs-site/docs/api/overview.md)
+- 项目文档：[本项目文档站](https://mastalee928.github.io/payincus/)
+- API 参考：[本项目 API 文档](https://mastalee928.github.io/payincus/api/overview)
 - 问题反馈：<https://github.com/mastalee928/payincus/issues>
 
 ## 核心能力
@@ -98,6 +100,8 @@ curl -fsSL https://raw.githubusercontent.com/mastalee928/payincus/main/scripts/i
 sudo bash install-panel.sh
 ```
 
+发行前会在 Ubuntu 24.04 的 amd64 / arm64 环境执行全新安装，验证数据库迁移、双端访问、管理员登录和机器池管理网关。新控制机建议使用已验证的 Ubuntu 24.04。
+
 安装脚本会完成：
 
 - 安装 Node.js、pnpm、PostgreSQL、Redis、Nginx 和 systemd 服务。
@@ -108,7 +112,9 @@ sudo bash install-panel.sh
 - 配置用户端和管理端 Nginx 站点。
 - 初始化 OTA、证书和运行缓存目录。
 
-升级和卸载：
+已有安装优先通过管理后台 OTA 更新。`--upgrade` 仅用于旧式直接安装布局；存在 `/opt/incudal/current` 的原子布局请使用 OTA。
+
+旧式布局升级或卸载：
 
 ```bash
 sudo bash install-panel.sh --upgrade

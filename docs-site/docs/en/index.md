@@ -71,12 +71,12 @@ description: PayIncus deployment, operations, development, and OTA documentation
   <section class="docs-home-section">
     <div class="docs-home-section-label">
       <h2>Project links</h2>
-      <p>Source, community, and demo environment.</p>
+      <p>Source, issue tracking, and test deployments.</p>
     </div>
     <div class="docs-home-links">
       <a class="docs-home-link" href="https://github.com/mastalee928/payincus"><span class="docs-home-link-index">GH</span><span><strong>GitHub</strong><small>Source, Releases, and issue tracking.</small></span></a>
-      <a class="docs-home-link" href="https://github.com/mastalee928/payincus/issues"><span class="docs-home-link-index">TG</span><span><strong>Issues</strong><small>Report issues and request features in this repository.</small></span></a>
-      <a class="docs-home-link" href="/payincus/en/demo"><span class="docs-home-link-index">DE</span><span><strong>Live Demo</strong><small>Demo accounts and read-only limitations.</small></span></a>
+      <a class="docs-home-link" href="https://github.com/mastalee928/payincus/issues"><span class="docs-home-link-index">IS</span><span><strong>Issues</strong><small>Report issues and request features in this repository.</small></span></a>
+      <a class="docs-home-link" href="/payincus/en/demo"><span class="docs-home-link-index">DE</span><span><strong>Try a Deployment</strong><small>Install and explore the platform in your own test environment.</small></span></a>
     </div>
   </section>
 </main>
