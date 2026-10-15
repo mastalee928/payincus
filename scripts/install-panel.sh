@@ -348,14 +348,16 @@ is_atomic_layout() {
 install_nodejs() {
     step "安装 Node.js ${NODE_MAJOR}..."
 
-    if command -v node &>/dev/null; then
+    # systemd executes /usr/bin/node with ProtectHome enabled. A Node binary
+    # from nvm or a CI tool cache does not satisfy that runtime requirement.
+    if [[ -x /usr/bin/node ]]; then
         local current_ver
-        current_ver=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
+        current_ver=$(/usr/bin/node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
         if [[ "$current_ver" -ge "$NODE_MAJOR" ]] 2>/dev/null; then
-            log "Node.js $(node -v) 已安装，跳过"
+            log "系统 Node.js $(/usr/bin/node -v) 已安装，跳过"
             return 0
         fi
-        warn "当前 Node.js 版本较低 ($(node -v))，将升级到 v${NODE_MAJOR}"
+        info "系统 Node.js 版本较低 ($(/usr/bin/node -v))，将升级到 v${NODE_MAJOR}"
     fi
 
     # 通过 NodeSource 安装
@@ -363,7 +365,8 @@ install_nodejs() {
     curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - >/dev/null 2>&1
     apt-get install -y -qq nodejs >/dev/null 2>&1
 
-    log "Node.js $(node -v) 安装完成"
+    [[ -x /usr/bin/node ]] || { error "系统 Node.js 安装失败，缺少 /usr/bin/node"; return 1; }
+    log "系统 Node.js $(/usr/bin/node -v) 安装完成"
 }
 
 # ========================== 安装 pnpm ==========================
@@ -1102,6 +1105,8 @@ Description=PayIncus 容器虚拟化管理平台
 Documentation=https://github.com/${GITHUB_REPO}
 After=network.target postgresql.service redis-server.service
 Requires=postgresql.service redis-server.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -1130,8 +1135,6 @@ TimeoutStopSec=30
 # 自动重启
 Restart=on-failure
 RestartSec=10
-StartLimitBurst=5
-StartLimitIntervalSec=300
 
 # 安全加固
 # 后台在线更新需要通过受限 sudoers 启动 root-owned systemd oneshot 单元。

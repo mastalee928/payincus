@@ -37,6 +37,8 @@ grep -Fq 'ExecStart=/usr/local/libexec/incudal/incudal-online-task update %i' "$
 grep -Fq 'ExecStart=/usr/local/libexec/incudal/incudal-online-task rollback %i' "$REPO_ROOT/scripts/install-panel.sh"
 grep -Fq 'chown "root:${RUN_USER}" "$ENV_FILE"' "$REPO_ROOT/scripts/install-panel.sh"
 grep -Fq 'Defaults:${RUN_USER} secure_path=/usr/local/libexec/incudal:' "$REPO_ROOT/scripts/install-panel.sh"
+grep -Fq 'if [[ -x /usr/bin/node ]]; then' "$REPO_ROOT/scripts/install-panel.sh"
+grep -Fq 'current_ver=$(/usr/bin/node -v' "$REPO_ROOT/scripts/install-panel.sh"
 
 for helper in \
     incudal-online-task.sh.example \
