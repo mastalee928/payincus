@@ -92,7 +92,7 @@ onMounted(load)
           <h2 class="font-semibold text-themed">1. {{ t('poolPurchase.region') }}</h2>
           <div class="grid sm:grid-cols-2 gap-2">
             <button v-for="value in regions" :key="value.id" type="button" class="selection-tile" :class="value.id === regionId ? 'selected' : ''" :disabled="regionStock(value) === 0" @click="selectRegion(value.id)">
-              <span class="flex items-center gap-2 min-w-0"><FlagIcon v-if="value.countryCode" :code="value.countryCode" size="xs" /><span class="break-words">{{ value.name }}</span></span>
+              <span class="flex items-center gap-2 min-w-0"><FlagIcon v-if="value.countryCode" :code="value.countryCode" size="sm" class="shrink-0" /><span class="break-words">{{ value.name }}</span></span>
               <span class="text-xs text-themed-muted whitespace-nowrap">{{ regionStock(value) ? t('poolPurchase.stock', { count: regionStock(value) }) : t('poolPurchase.soldOut') }}</span>
             </button>
           </div>
@@ -127,7 +127,10 @@ onMounted(load)
       <aside class="card p-5 space-y-4 lg:sticky lg:top-5">
         <h2 class="font-semibold text-themed">{{ t('poolPurchase.summary') }}</h2>
         <template v-if="product">
-          <p class="text-sm text-themed">{{ region?.name }}<br />{{ presetLabel(product.resourcePreset) }} · {{ product.diskGiB }} GiB × {{ quantity }}</p>
+          <div class="space-y-1 text-sm text-themed">
+            <p class="flex items-center gap-2 min-w-0"><FlagIcon v-if="region?.countryCode" :code="region.countryCode" size="sm" class="shrink-0" /><span class="break-words">{{ region?.name }}</span></p>
+            <p>{{ presetLabel(product.resourcePreset) }} · {{ product.diskGiB }} GiB × {{ quantity }}</p>
+          </div>
           <dl class="space-y-2 text-sm"><div class="flex justify-between text-themed-secondary"><dt>{{ t('poolPurchase.monthly') }}</dt><dd>¥{{ formatPublicPrice(product.monthlyPrice * quantity) }}</dd></div><div class="flex justify-between text-themed-secondary"><dt>{{ t('poolPurchase.setup') }}</dt><dd>¥{{ formatPublicPrice(product.setupFee * quantity) }}</dd></div></dl>
           <div class="border-t border-themed pt-3"><p class="text-xs text-themed-muted">{{ t('poolPurchase.firstPayment') }}</p><p class="text-2xl font-semibold text-themed">¥{{ formatPublicPrice(subtotal) }}</p></div>
           <p class="text-xs text-themed-muted">{{ t('poolPurchase.cartHint') }}</p>
