@@ -19,12 +19,14 @@ interface Props {
   stepNumber?: number  // 步骤编号，默认 3
   title?: string
   emptyMessage?: string
+  embedded?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   stepNumber: 3,
   title: undefined,
-  emptyMessage: undefined
+  emptyMessage: undefined,
+  embedded: false
 })
 const emit = defineEmits<{
   'update:selectedImage': [value: string]
@@ -34,7 +36,7 @@ const themeStore = useThemeStore()
 const isOpen = ref(false)
 const searchQuery = ref('')
 const buttonRef = ref<HTMLElement | null>(null)
-const dropdownStyle = ref<{ top: string; left: string; width: string }>({ top: '0px', left: '0px', width: '0px' })
+const dropdownStyle = ref<{ top: string; left: string; width: string; bottom?: string; maxHeight?: string }>({ top: '0px', left: '0px', width: '0px' })
 
 const selectedImageData = computed(() => {
   return props.availableImages.find(img => img.value === props.selectedImage)
@@ -78,6 +80,20 @@ function toggleDropdown() {
 function updateDropdownPosition() {
   if (buttonRef.value) {
     const rect = buttonRef.value.getBoundingClientRect()
+    if (props.embedded) {
+      const gap = 8
+      const below = window.innerHeight - rect.bottom - gap
+      const above = rect.top - gap
+      const openAbove = below < 320 && above > below
+      dropdownStyle.value = {
+        top: openAbove ? 'auto' : `${rect.bottom + gap}px`,
+        bottom: openAbove ? `${window.innerHeight - rect.top + gap}px` : undefined,
+        left: `${rect.left}px`,
+        width: `${rect.width}px`,
+        maxHeight: `${Math.max(0, Math.min(360, (openAbove ? above : below) - gap))}px`
+      }
+      return
+    }
     dropdownStyle.value = {
       top: `${rect.bottom + 8}px`,
       left: `${rect.left}px`,
@@ -111,8 +127,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="card p-5">
-    <div class="flex items-center gap-2 mb-4">
+  <div :class="embedded ? 'image-selector-embedded' : 'card p-5'">
+    <div v-if="!embedded" class="flex items-center gap-2 mb-4">
       <span 
         class="w-6 h-6 rounded-full text-sm font-bold flex items-center justify-center"
         :class="themeStore.isDark ? 'bg-white text-gray-900' : 'bg-gray-900 text-white'"
@@ -155,8 +171,11 @@ onUnmounted(() => {
           themeStore.isDark
             ? 'border-gray-700 bg-gray-900 hover:border-gray-600'
             : 'border-gray-200 bg-white hover:border-gray-300',
-          isOpen ? (themeStore.isDark ? 'border-blue-500' : 'border-blue-500') : ''
+          isOpen ? (themeStore.isDark ? 'border-blue-500' : 'border-blue-500') : '',
+          embedded ? 'image-selector-trigger-embedded' : ''
         ]"
+        :aria-expanded="isOpen"
+        :aria-label="props.title ? `${props.title}: ${selectedImageData?.label || ''}` : undefined"
         @click.stop="toggleDropdown"
       >
         <DistroIcon
@@ -190,8 +209,8 @@ onUnmounted(() => {
         <div
           v-show="isOpen"
           class="fixed z-[9999] rounded-lg border shadow-lg overflow-hidden"
-          :class="themeStore.isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'"
-          :style="{ top: dropdownStyle.top, left: dropdownStyle.left, width: dropdownStyle.width }"
+          :class="[themeStore.isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white', embedded ? 'image-selector-dropdown-embedded' : '']"
+          :style="dropdownStyle"
         >
           <!-- Search input -->
           <div class="p-2 border-b" :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-100'">
@@ -222,6 +241,7 @@ onUnmounted(() => {
                 v-for="img in images"
                 :key="img.value"
                 type="button"
+                :aria-pressed="selectedImage === img.value"
                 class="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors"
                 :class="[
                   themeStore.isDark
@@ -274,3 +294,19 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.image-selector-trigger-embedded { min-height: 48px; border-color: var(--border-color) !important; border-radius: 9px; background: var(--bg-elevated) !important; color: var(--text-primary); }
+.image-selector-trigger-embedded:hover { border-color: var(--text-secondary) !important; }
+.image-selector-trigger-embedded:focus-visible { outline: 2px solid var(--border-hover); outline-offset: 2px; }
+.image-selector-embedded :deep(svg[role="img"]), .image-selector-dropdown-embedded :deep(svg[role="img"]) { filter: grayscale(1); }
+.image-selector-dropdown-embedded { display: flex; flex-direction: column; border-color: var(--kawaii-line, var(--border-color)) !important; border-radius: 12px; background: var(--kawaii-surface, var(--bg-elevated)) !important; color: var(--kawaii-text, var(--text-primary)); box-shadow: 0 12px 30px rgb(0 0 0 / 0.12); }
+.image-selector-dropdown-embedded > div { border-color: var(--kawaii-line, var(--border-color)) !important; }
+.image-selector-dropdown-embedded > div:first-child { flex-shrink: 0; }
+.image-selector-dropdown-embedded > div:last-child { min-height: 0; }
+.image-selector-dropdown-embedded input { background: var(--kawaii-surface-soft, var(--bg-tertiary)) !important; border-color: var(--kawaii-line, var(--border-color)) !important; color: var(--kawaii-text, var(--text-primary)) !important; box-shadow: none !important; }
+.image-selector-dropdown-embedded input:focus { border-color: var(--kawaii-muted, var(--text-secondary)) !important; }
+.image-selector-dropdown-embedded .sticky { background: var(--kawaii-surface-soft, var(--bg-tertiary)) !important; color: var(--kawaii-muted, var(--text-secondary)); }
+.image-selector-dropdown-embedded button[aria-pressed="true"], .image-selector-dropdown-embedded button:hover { background: var(--kawaii-surface-soft, var(--bg-tertiary)) !important; }
+.image-selector-dropdown-embedded button > svg:last-child { color: var(--kawaii-text, var(--text-primary)); }
+</style>
