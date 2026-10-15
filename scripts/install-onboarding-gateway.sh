@@ -17,6 +17,7 @@ install -m 755 "$script_dir/onboarding-gateway.py" /usr/local/sbin/incudal-onboa
 if [[ ! -f /root/.ssh/incudal-host-management ]]; then
   ssh-keygen -q -t ed25519 -N '' -C incudal-control-management -f /root/.ssh/incudal-host-management
 fi
+chmod 600 /root/.ssh/incudal-host-management
 ssh-keygen -y -f /root/.ssh/incudal-host-management > /root/.ssh/incudal-host-management.pub
 if [[ ! -d "$(dirname -- "$app_key_path")" ]]; then
   install -d -m 700 "$(dirname -- "$app_key_path")"
@@ -24,12 +25,15 @@ fi
 if [[ ! -f "$app_key_path" ]]; then
   ssh-keygen -q -t ed25519 -N '' -C incudal-onboarding-gateway -f "$app_key_path"
 fi
+# OpenSSH checks root-owned private keys before reading them. Tighten the mode
+# before deriving the public key, including when rerunning a group-readable key.
+chmod 600 "$app_key_path"
 app_public_key=$(ssh-keygen -y -f "$app_key_path")
 management_public_key=$(cat /root/.ssh/incudal-host-management.pub)
 [[ "$app_public_key" != "$management_public_key" ]] || { echo 'The application and host management keys must be different.' >&2; exit 1; }
 authorized_line="restrict,command=\"/usr/local/sbin/incudal-onboarding-gateway\" $app_public_key incudal-onboarding-gateway"
 touch /root/.ssh/authorized_keys
-chmod 600 /root/.ssh/authorized_keys "$app_key_path" /root/.ssh/incudal-host-management
+chmod 600 /root/.ssh/authorized_keys
 if ! grep -Fxq "$authorized_line" /root/.ssh/authorized_keys; then
   if grep -Fq "$app_public_key" /root/.ssh/authorized_keys; then
     echo 'The application key is already authorized with different restrictions.' >&2
