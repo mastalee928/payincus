@@ -13,7 +13,11 @@ import tempfile
 def run(*args):
     result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode:
-        raise RuntimeError(f"{pathlib.Path(args[0]).name} failed (exit {result.returncode}); check the local service configuration")
+        # Commands receive fixed arguments and file paths, never credentials.
+        # Keep the final diagnostic line, with any key-like value redacted.
+        detail = " ".join(result.stderr.strip().splitlines()[-1:])
+        detail = re.sub(r"[A-Za-z0-9+/=_-]{40,}", "[redacted]", detail)[:400]
+        raise RuntimeError(f"{pathlib.Path(args[0]).name} failed (exit {result.returncode}): {detail or 'check the local service configuration'}")
     return result.stdout.strip()
 
 
@@ -113,6 +117,9 @@ def main():
             handle.flush()
             os.fsync(handle.fileno())
     run("systemctl", "enable", "--now", "wg-quick@incudal-mgmt")
+    # Minimal/cloud images may only ship some SSH host-key algorithms.
+    # Generate missing keys without replacing existing server identities.
+    run("ssh-keygen", "-A")
     run("systemctl", "start", "ssh")
     key_path = pathlib.Path("/opt/incudal/server/certs/onboarding-gateway.key")
     if key_path.is_symlink():
