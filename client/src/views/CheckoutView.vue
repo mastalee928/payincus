@@ -8,6 +8,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { ArrowLeft, ArrowRight, Cpu, HardDrive, KeyRound, Loader2, LockKeyhole, MemoryStick, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-vue-next'
 import api from '@/api'
 import FlagIcon from '@/components/FlagIcon.vue'
 import { useCartStore, type CartItem } from '@/stores/cart'
@@ -146,6 +147,8 @@ const rows = computed<CheckoutRow[]>(() => {
 
 const totalQuantity = computed(() => cartStore.totalQuantity)
 const totalCents = computed(() => rows.value.reduce((sum, row) => sum + row.subtotalCents, 0))
+const monthlyTotalCents = computed(() => rows.value.reduce((sum, row) => sum + (row.live?.monthlyPrice ?? 0) * row.item.quantity, 0))
+const setupTotalCents = computed(() => rows.value.reduce((sum, row) => sum + (row.live?.setupFee ?? 0) * row.item.quantity, 0))
 const tooMany = computed(() => totalQuantity.value > maxInstances.value)
 /** 有问题的行：已下架 / 库存不足 / 名称不合法。付款时会就地拦下并引导处理。 */
 const problemRows = computed(() => rows.value.filter(row => row.offSale || row.stockShort || !!row.nameError))
@@ -282,153 +285,298 @@ async function pay(): Promise<void> {
 </script>
 
 <template>
-  <div class="space-y-4 animate-fade-in">
-    <div class="page-header gap-3">
-      <div class="min-w-0">
-        <h1 class="page-title">{{ t('cart.title') }}</h1>
-        <p class="page-description">{{ t('cart.description') }}</p>
+  <div class="checkout-page animate-fade-in" :aria-busy="loading || paying">
+    <header class="checkout-header">
+      <div class="flex items-center gap-3 min-w-0">
+        <span class="checkout-heading-icon"><ShoppingBag :size="22" :stroke-width="1.6" aria-hidden="true" /></span>
+        <div class="min-w-0">
+          <h1>{{ t(orderResult ? 'cart.accepted' : 'cart.title') }}</h1>
+          <p v-if="!loading && !orderResult && rows.length" class="checkout-heading-meta">
+            {{ t('cart.itemKinds', { count: rows.length }) }}<span aria-hidden="true">·</span>{{ t('cart.count', { count: totalQuantity }) }}
+          </p>
+        </div>
       </div>
-      <router-link to="/purchase" class="btn-secondary whitespace-nowrap">{{ t('cart.goShopping') }}</router-link>
-    </div>
+      <router-link v-if="rows.length || orderResult" to="/purchase" class="checkout-back-link">
+        <ArrowLeft :size="15" aria-hidden="true" />{{ t('cart.continueShopping') }}
+      </router-link>
+    </header>
 
-    <div v-if="error" class="card p-4 text-sm text-red-600 dark:text-red-400" role="alert">{{ error }}</div>
+    <div v-if="error && (orderResult || loading || !rows.length)" class="checkout-alert checkout-alert-error" role="alert">{{ error }}</div>
     <section v-if="orderResult" class="space-y-4" aria-live="polite">
-      <div class="card p-5"><h2 class="text-lg font-semibold text-themed">{{ t('cart.accepted') }}</h2><p class="text-sm text-themed-muted mt-2">{{ t('cart.creatingHint') }}</p><p class="font-mono text-xs text-themed-muted mt-2">{{ orderResult.batchId }}</p></div>
-      <article v-for="instance in orderResult.instances" :key="instance.id" class="card p-4 space-y-3">
+      <div class="checkout-panel p-5"><p class="text-xs text-themed-muted">{{ t('cart.orderNumber') }}</p><p class="font-mono text-xs text-themed mt-2 break-all">{{ orderResult.batchId }}</p></div>
+      <article v-for="instance in orderResult.instances" :key="instance.id" class="checkout-panel p-5 space-y-3">
         <div class="flex items-center justify-between gap-3"><RouterLink :to="`/instances/${instance.id}`" class="font-semibold text-themed break-all">{{ instance.name }}</RouterLink><span class="text-sm" :class="instance.status === 'error' ? 'text-red-600 dark:text-red-400' : instance.status === 'creating' ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'">{{ instance.refunded ? t('cart.refunded') : instance.status === 'creating' ? t('cart.creating') : instance.status === 'error' ? t('cart.failed') : t('cart.ready') }}</span></div>
         <div v-if="instance.host && instance.sshPort" class="flex flex-wrap items-center gap-2"><code class="text-xs text-themed break-all">ssh -p {{ instance.sshPort }} root@{{ instance.host }}</code><button class="btn-secondary text-xs" @click="copyValue(`ssh -p ${instance.sshPort} root@${instance.host}`)">{{ t('hostInventory.sshCopy') }}</button></div>
         <p v-else class="text-xs text-themed-muted">{{ t(instance.publicIpUpdating ? 'hostIpSync.customerUpdating' : instance.status === 'creating' ? 'cart.connectionPending' : instance.refunded ? 'cart.refunded' : instance.refundPending ? 'cart.refundPending' : instance.status === 'error' ? 'cart.failed' : 'cart.connectionManual') }}</p>
         <div v-if="instance.rootPassword && instance.status !== 'error'" class="flex flex-wrap items-center gap-2"><label class="text-xs text-themed-muted">{{ t('publicSite.market.pool.credsPassword') }} <input :type="showPasswords ? 'text' : 'password'" :value="instance.rootPassword" readonly class="input font-mono text-xs" /></label><button class="btn-secondary text-xs" @click="showPasswords = !showPasswords">{{ t(showPasswords ? 'cart.hidePassword' : 'cart.showPassword') }}</button><button class="btn-secondary text-xs" @click="copyValue(instance.rootPassword)">{{ t('publicSite.market.pool.credsCopy') }}</button></div>
       </article>
-      <div class="flex gap-3"><RouterLink to="/instances" class="btn-primary">{{ t('publicSite.market.pool.credsViewInstances') }}</RouterLink><button class="btn-secondary" @click="pollOrder">{{ t('common.refresh') }}</button></div>
+      <div class="flex flex-wrap gap-3"><RouterLink to="/instances" class="checkout-primary">{{ t('publicSite.market.pool.credsViewInstances') }}</RouterLink><button class="checkout-secondary" @click="pollOrder">{{ t('common.refresh') }}</button></div>
     </section>
-    <div v-else-if="loading" class="card p-8 text-center text-sm text-themed-muted">{{ t('common.loading') }}</div>
-
-    <div v-else-if="rows.length === 0" class="card p-12 text-center">
-      <p class="text-sm text-themed-secondary">{{ t('cart.empty') }}</p>
-      <router-link to="/purchase" class="btn-primary inline-flex mt-5">{{ t('cart.goShopping') }}</router-link>
+    <div v-else-if="loading" class="checkout-panel checkout-loading" role="status">
+      <Loader2 :size="22" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />{{ t('common.loading') }}
     </div>
 
-    <fieldset v-else :disabled="paying" class="space-y-4">
-      <div class="space-y-3">
-        <div
+    <div v-else-if="rows.length === 0" class="checkout-panel checkout-empty">
+      <span class="checkout-empty-icon"><ShoppingBag :size="32" :stroke-width="1.4" aria-hidden="true" /></span>
+      <h2>{{ t('cart.empty') }}</h2>
+      <router-link to="/purchase" class="checkout-primary">
+        {{ t('cart.goShopping') }}<ArrowRight :size="16" aria-hidden="true" />
+      </router-link>
+    </div>
+
+    <fieldset v-else :disabled="paying" class="checkout-layout">
+      <legend class="sr-only">{{ t('cart.title') }}</legend>
+      <section class="checkout-items" aria-labelledby="checkout-items-title">
+        <div class="checkout-section-heading">
+          <h2 id="checkout-items-title">{{ t('cart.items') }}</h2>
+          <span>{{ t('cart.count', { count: totalQuantity }) }}</span>
+        </div>
+        <article
           v-for="row in rows"
           :id="`cart-row-${row.item.key}`"
           :key="row.item.key"
-          class="card p-4 space-y-3"
+          class="checkout-panel checkout-item"
           :class="[
-            row.offSale || row.stockShort || row.nameError ? (themeStore.isDark ? 'border border-red-500/40' : 'border border-red-300') : '',
+            row.offSale || row.stockShort || row.nameError ? 'checkout-item-invalid' : '',
             shakingKey === row.item.key ? 'cart-shake' : ''
           ]"
         >
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div class="min-w-0 space-y-1">
-              <div class="flex items-center gap-2 text-base font-medium text-themed">
-                <FlagIcon v-if="row.item.snapshot.countryCode" :code="row.item.snapshot.countryCode" size="xs" />
-                <span class="truncate">{{ row.region?.name || row.item.snapshot.regionName }}</span>
-                <span class="text-xs font-normal text-themed-muted">{{ presetLabel(row.item.snapshot.resourcePreset) }} · {{ row.item.snapshot.diskGiB }} GiB</span>
-              </div>
-              <div class="text-xs text-themed-muted">
-                {{ row.item.snapshot.cpu }}% CPU · {{ formatMemoryMiB(row.item.snapshot.memoryMiB) }} · {{ row.item.snapshot.imageLabel }}
-              </div>
-              <div class="text-xs text-themed-muted">
-                {{ t('cart.line.unit') }}：
-                <template v-if="row.live">
-                  ¥{{ formatPublicPrice(row.live.monthlyPrice) }}{{ row.live.setupFee > 0 ? ` + ¥${formatPublicPrice(row.live.setupFee)}` : '' }}
-                </template>
-                <template v-else>-</template>
+          <div class="checkout-item-heading">
+            <div class="min-w-0">
+              <h3 class="checkout-region">
+                <FlagIcon v-if="row.region?.countryCode || row.item.snapshot.countryCode" :code="row.region?.countryCode || row.item.snapshot.countryCode!" size="sm" class="shrink-0" />
+                <span>{{ row.region?.name || row.item.snapshot.regionName }}</span>
+              </h3>
+              <div class="checkout-item-subtitle">
+                <span class="checkout-preset">{{ presetLabel(row.item.snapshot.resourcePreset) }}</span>
+                <span>{{ row.item.snapshot.imageLabel }}</span>
               </div>
             </div>
-            <div class="text-right shrink-0">
-              <div class="text-lg font-semibold text-themed">¥{{ formatPublicPrice(row.subtotalCents) }}</div>
-              <button type="button" class="text-xs text-red-500 hover:underline mt-1" @click="cartStore.remove(row.item.key)">{{ t('cart.line.remove') }}</button>
-            </div>
+            <button type="button" class="checkout-remove" :aria-label="`${t('cart.line.remove')} ${row.region?.name || row.item.snapshot.regionName}`" :title="t('cart.line.remove')" @click="cartStore.remove(row.item.key)">
+              <Trash2 :size="17" :stroke-width="1.7" aria-hidden="true" />
+            </button>
           </div>
 
-          <div class="grid gap-3 sm:grid-cols-[8rem_1fr]">
-            <label class="text-xs text-themed-muted">
-              {{ t('cart.line.quantity') }}
-              <input
-                :value="row.item.quantity"
-                type="number" min="1" :max="Math.max(1, Math.min(row.available || 1, maxInstances))" step="1"
-                class="input w-full mt-1"
-                :disabled="row.offSale"
-                @change="updateQuantity(row, Number(($event.target as HTMLInputElement).value))"
-              />
-            </label>
-            <label class="text-xs text-themed-muted">
+          <dl class="checkout-specs">
+            <div><dt><Cpu :size="14" aria-hidden="true" />{{ t('cart.specs.cpu') }}</dt><dd>{{ t('cart.specs.cores', { count: row.item.snapshot.cpu / 100 }) }}</dd></div>
+            <div><dt><MemoryStick :size="14" aria-hidden="true" />{{ t('cart.specs.memory') }}</dt><dd>{{ formatMemoryMiB(row.item.snapshot.memoryMiB) }}</dd></div>
+            <div><dt><HardDrive :size="14" aria-hidden="true" />{{ t('cart.specs.disk') }}</dt><dd>{{ row.item.snapshot.diskGiB }} GiB</dd></div>
+          </dl>
+
+          <div class="checkout-item-fields">
+            <label class="checkout-field">
               {{ row.item.quantity > 1 ? t('cart.line.namePrefix') : t('cart.line.name') }}
               <input
                 :value="row.item.namePrefix"
                 type="text" maxlength="60"
-                class="input w-full mt-1"
+                class="input checkout-input"
+                :aria-invalid="!!row.nameError"
+                :aria-describedby="row.nameError ? `cart-name-error-${row.item.key}` : undefined"
                 @input="cartStore.setNamePrefix(row.item.key, ($event.target as HTMLInputElement).value)"
               />
-              <span v-if="row.item.quantity > 1 && !row.nameError" class="block mt-1 text-[11px]">{{ row.names.slice(0, 3).join(', ') }}{{ row.names.length > 3 ? ' …' : '' }}</span>
+              <span v-if="row.item.quantity > 1 && !row.nameError" class="checkout-name-preview">{{ row.names.slice(0, 3).join(', ') }}{{ row.names.length > 3 ? ' …' : '' }}</span>
             </label>
+            <div class="checkout-field">
+              <label :for="`cart-quantity-${row.item.key}`">{{ t('cart.line.quantity') }}</label>
+              <div class="checkout-quantity">
+                <button type="button" :aria-label="t('cart.line.decrease')" :disabled="row.offSale || row.item.quantity <= 1" @click="updateQuantity(row, row.item.quantity - 1)"><Minus :size="15" aria-hidden="true" /></button>
+                <input
+                  :id="`cart-quantity-${row.item.key}`"
+                  :value="row.item.quantity"
+                  type="number" min="1" :max="Math.max(1, Math.min(row.available || 1, maxInstances))" step="1"
+                  :disabled="row.offSale"
+                  @change="updateQuantity(row, Number(($event.target as HTMLInputElement).value))"
+                />
+                <button type="button" :aria-label="t('cart.line.increase')" :disabled="row.offSale || row.item.quantity >= Math.max(1, Math.min(row.available || 1, maxInstances))" @click="updateQuantity(row, row.item.quantity + 1)"><Plus :size="15" aria-hidden="true" /></button>
+              </div>
+            </div>
           </div>
 
-          <p v-if="row.offSale" class="text-xs text-red-500">{{ t('cart.flags.offSale') }}</p>
-          <p v-else-if="row.stockShort" class="text-xs text-red-500">{{ row.available <= 0 ? t('cart.flags.stockEmpty') : t('cart.flags.stockShort', { available: row.available }) }}</p>
-          <p v-if="row.priceChanged && row.live" class="text-xs text-amber-600 dark:text-amber-400">
-            {{ t('cart.flags.priceChanged', { price: formatPublicPrice(row.live.monthlyPrice + row.live.setupFee) }) }}
-          </p>
-          <p v-if="row.nameError" class="text-xs text-red-500">{{ row.nameError }}</p>
-        </div>
-      </div>
+          <div class="checkout-item-pricing">
+            <div class="checkout-unit-prices">
+              <p>{{ t('cart.line.monthly') }}<span>{{ row.live ? `¥${formatPublicPrice(row.live.monthlyPrice)}` : '—' }}</span></p>
+              <p v-if="row.live && row.live.setupFee > 0">{{ t('cart.line.setup') }}<span>¥{{ formatPublicPrice(row.live.setupFee) }}</span></p>
+            </div>
+            <div class="checkout-item-subtotal">
+              <span>{{ t('cart.line.subtotal') }}</span>
+              <strong>{{ row.live ? `¥${formatPublicPrice(row.subtotalCents)}` : '—' }}</strong>
+            </div>
+          </div>
 
-      <div class="card p-5 space-y-4">
-        <div class="grid gap-3 sm:grid-cols-2">
-          <div class="space-y-2">
-            <div class="flex gap-2">
+          <div v-if="row.offSale || row.stockShort || row.priceChanged || row.nameError" class="checkout-row-messages">
+            <p v-if="row.offSale" class="text-red-600 dark:text-red-400">{{ t('cart.flags.offSale') }}</p>
+            <p v-else-if="row.stockShort" class="text-red-600 dark:text-red-400">{{ row.available <= 0 ? t('cart.flags.stockEmpty') : t('cart.flags.stockShort', { available: row.available }) }}</p>
+            <p v-if="row.priceChanged && row.live" class="text-amber-600 dark:text-amber-400">{{ t('cart.flags.priceChanged', { price: formatPublicPrice(row.live.monthlyPrice + row.live.setupFee) }) }}</p>
+            <p v-if="row.nameError" :id="`cart-name-error-${row.item.key}`" class="text-red-600 dark:text-red-400">{{ row.nameError }}</p>
+          </div>
+        </article>
+      </section>
+
+      <aside class="checkout-panel checkout-summary" aria-labelledby="checkout-summary-title">
+        <div class="checkout-summary-section">
+          <h2 id="checkout-summary-title">{{ t('cart.summary') }}</h2>
+          <dl class="checkout-totals">
+            <div><dt>{{ t('cart.line.quantity') }}</dt><dd>{{ t('cart.count', { count: totalQuantity }) }}</dd></div>
+            <div><dt>{{ t('cart.monthlyTotal') }}</dt><dd>¥{{ formatPublicPrice(monthlyTotalCents) }}</dd></div>
+            <div v-if="setupTotalCents > 0"><dt>{{ t('cart.setupTotal') }}</dt><dd>¥{{ formatPublicPrice(setupTotalCents) }}</dd></div>
+            <div><dt>{{ t('cart.paymentMethod') }}</dt><dd>{{ t('cart.balance') }}</dd></div>
+          </dl>
+          <div class="checkout-grand-total">
+            <span>{{ t('cart.firstPayment') }}</span>
+            <strong><span class="checkout-currency">¥</span>{{ formatPublicPrice(totalCents) }}</strong>
+          </div>
+        </div>
+
+        <div class="checkout-summary-section checkout-login">
+          <h3 id="checkout-auth-title">{{ t('cart.loginMethod') }}</h3>
+          <div class="checkout-auth-options" role="group" aria-labelledby="checkout-auth-title">
               <button
                 type="button"
-                class="rounded-lg border px-3 py-2 text-sm transition-colors"
-                :class="authMode === 'key' ? 'border-blue-500 text-themed' : 'border-themed text-themed-muted'"
+                class="checkout-auth-option"
+                :class="{ 'is-selected': authMode === 'key' }"
+                :aria-pressed="authMode === 'key'"
                 @click="authMode = 'key'"
               >
-                {{ t('publicSite.market.pool.authKey') }}
+                <KeyRound :size="16" aria-hidden="true" />{{ t('publicSite.market.pool.authKey') }}
               </button>
               <button
                 type="button"
-                class="rounded-lg border px-3 py-2 text-sm transition-colors"
-                :class="authMode === 'password' ? 'border-blue-500 text-themed' : 'border-themed text-themed-muted'"
+                class="checkout-auth-option"
+                :class="{ 'is-selected': authMode === 'password' }"
+                :aria-pressed="authMode === 'password'"
                 @click="authMode = 'password'"
               >
-                {{ t('publicSite.market.pool.authPassword') }}
+                <LockKeyhole :size="16" aria-hidden="true" />{{ t('cart.passwordLogin') }}
               </button>
-            </div>
-            <label v-if="authMode === 'key'" class="block text-sm text-themed-secondary">
-              {{ t('cart.sshKey') }}
-              <select v-model="sshKeyId" class="input w-full mt-1" :disabled="sshKeys.length === 0">
-                <option v-for="key in sshKeys" :key="key.id" :value="key.id">{{ key.name || `#${key.id}` }}</option>
-              </select>
-              <span v-if="sshKeys.length === 0" class="block mt-1 text-xs text-red-500">{{ t('cart.noSshKey') }}</span>
-            </label>
-            <p v-else class="text-xs text-themed-muted">{{ t('publicSite.market.pool.authPasswordHint') }}</p>
           </div>
-          <div class="text-right">
-            <div class="text-xs text-themed-muted">{{ t('cart.count', { count: totalQuantity }) }}</div>
-            <div class="text-sm text-themed-muted mt-1">{{ t('cart.total') }}</div>
-            <div class="text-3xl font-bold text-themed">¥{{ formatPublicPrice(totalCents) }}</div>
-          </div>
+          <label v-if="authMode === 'key'" class="checkout-field">
+            {{ t('cart.sshKey') }}
+            <select v-model="sshKeyId" class="input checkout-input" :disabled="sshKeys.length === 0">
+              <option v-for="key in sshKeys" :key="key.id" :value="key.id">{{ key.name || `#${key.id}` }}</option>
+            </select>
+            <span v-if="sshKeys.length === 0" class="text-xs text-red-600 dark:text-red-400">{{ t('cart.noSshKey') }}</span>
+          </label>
+          <p v-else class="checkout-password-hint">{{ t('cart.passwordHint') }}</p>
         </div>
 
-        <p v-if="tooMany" class="text-xs text-red-500">{{ t('cart.tooMany', { max: maxInstances }) }}</p>
-        <p class="text-xs text-themed-muted leading-relaxed">{{ t('cart.notice') }}</p>
-        <div v-if="error" class="p-3 rounded-lg border text-sm" :class="themeStore.isDark ? 'bg-red-900/20 border-red-500/30 text-red-400' : 'bg-red-50 border-red-200 text-red-700'">{{ error }}</div>
-        <label v-if="rows.some(row => row.priceChanged)" class="flex gap-2 text-sm text-themed"><input v-model="acceptPrices" type="checkbox" />{{ t('cart.acceptPrices') }}</label>
-        <TurnstileWidget v-if="turnstileRequired" ref="turnstileRef" v-model="turnstileToken" :site-key="configStore.turnstileSiteKey!" :theme="themeStore.isDark ? 'dark' : 'light'" action="pool-checkout" />
-        <button type="button" class="btn-primary w-full" :disabled="!canPay" @click="pay">
-          {{ paying ? t('cart.paying') : t('cart.pay') }}
-        </button>
-      </div>
+        <div class="checkout-summary-section checkout-payment">
+          <p v-if="tooMany" class="text-xs text-red-600 dark:text-red-400">{{ t('cart.tooMany', { max: maxInstances }) }}</p>
+          <div v-if="error" class="checkout-alert checkout-alert-error" role="alert">{{ error }}</div>
+          <label v-if="rows.some(row => row.priceChanged)" class="checkout-price-consent"><input v-model="acceptPrices" type="checkbox" />{{ t('cart.acceptPrices') }}</label>
+          <div v-if="turnstileRequired" class="checkout-verification">
+            <TurnstileWidget ref="turnstileRef" v-model="turnstileToken" :site-key="configStore.turnstileSiteKey!" :theme="themeStore.isDark ? 'dark' : 'light'" size="compact" action="pool-checkout" />
+          </div>
+          <button type="button" class="checkout-primary checkout-pay" :disabled="!canPay" @click="pay">
+            <Loader2 v-if="paying" :size="17" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            {{ paying ? t('cart.paying') : t('cart.pay') }}
+          </button>
+        </div>
+      </aside>
     </fieldset>
   </div>
-
 </template>
 
 <style scoped>
+.checkout-page { display: grid; gap: 24px; color: var(--text-primary); }
+.checkout-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 4px 0 8px; }
+.checkout-header h1 { font-size: 24px; font-weight: 650; letter-spacing: -0.035em; line-height: 1.3; }
+.checkout-heading-icon { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid var(--border-color); border-radius: 14px; background: var(--bg-secondary); flex-shrink: 0; }
+.checkout-heading-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; color: var(--text-secondary); font-size: 12px; }
+.checkout-back-link { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 13px; flex-shrink: 0; }
+.checkout-back-link:hover { color: var(--text-primary); }
+.checkout-panel { min-width: 0; border: 1px solid var(--border-color); border-radius: 18px; background: var(--bg-secondary); box-shadow: 0 2px 6px rgb(0 0 0 / 0.025); }
+.checkout-layout { min-width: 0; display: grid; gap: 24px; align-items: start; }
+.checkout-items { min-width: 0; display: grid; gap: 14px; }
+.checkout-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px 2px; }
+.checkout-section-heading h2, .checkout-summary h2 { font-size: 15px; font-weight: 600; }
+.checkout-section-heading > span { font-size: 12px; color: var(--text-tertiary); }
+.checkout-item { padding: 22px; scroll-margin: 24px; }
+.checkout-item-invalid { border-color: rgb(239 68 68 / 0.5); }
+.checkout-item-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+.checkout-region { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 600; line-height: 1.5; }
+.checkout-region > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.checkout-item-subtitle { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 7px; font-size: 12px; color: var(--text-secondary); }
+.checkout-preset { padding: 2px 7px; border-radius: 5px; background: var(--bg-tertiary); font-size: 10px; font-weight: 600; letter-spacing: 0.025em; }
+.checkout-remove { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border-radius: 9px; color: var(--text-tertiary); transition: color 150ms, background 150ms; }
+.checkout-remove:hover:not(:disabled) { color: #dc2626; background: rgb(239 68 68 / 0.07); }
+.checkout-specs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; padding: 15px 0; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); }
+.checkout-specs > div { min-width: 0; }
+.checkout-specs dt { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-tertiary); }
+.checkout-specs dd { margin-top: 6px; font-size: 14px; font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.checkout-item-fields { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 20px; }
+.checkout-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 12px; color: var(--text-secondary); }
+.checkout-page .checkout-input { width: 100%; min-width: 0; min-height: 42px; margin: 0; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-secondary); color: var(--text-primary); box-shadow: none; font-size: 13px; }
+.checkout-page .checkout-input:focus { border-color: var(--text-secondary); outline: 2px solid var(--border-hover); outline-offset: 2px; box-shadow: none; }
+.checkout-page .checkout-input[aria-invalid="true"] { border-color: rgb(239 68 68 / 0.65); }
+.checkout-name-preview { font-size: 11px; color: var(--text-tertiary); overflow-wrap: anywhere; line-height: 1.5; }
+.checkout-quantity { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; height: 42px; border: 1px solid var(--border-color); border-radius: 9px; overflow: hidden; color: var(--text-primary); }
+.checkout-quantity button { display: grid; place-items: center; transition: background 150ms; }
+.checkout-quantity button:hover:not(:disabled) { background: var(--bg-tertiary); }
+.checkout-quantity input { width: 100%; min-width: 0; border: 0; padding: 0; background: transparent; text-align: center; color: var(--text-primary); font-size: 13px; font-variant-numeric: tabular-nums; appearance: textfield; box-shadow: none; }
+.checkout-quantity input::-webkit-inner-spin-button, .checkout-quantity input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.checkout-quantity input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--text-secondary); }
+.checkout-item-pricing { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 12px; margin-top: 22px; }
+.checkout-unit-prices { display: grid; gap: 5px; font-size: 11px; color: var(--text-tertiary); }
+.checkout-unit-prices p { display: flex; gap: 10px; align-items: baseline; }
+.checkout-unit-prices span { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.checkout-item-subtotal { display: grid; gap: 3px; text-align: right; }
+.checkout-item-subtotal > span { font-size: 11px; color: var(--text-tertiary); }
+.checkout-item-subtotal > strong { font-size: 20px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.checkout-row-messages { display: grid; gap: 5px; margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--border-color); font-size: 12px; line-height: 1.6; }
+.checkout-summary { overflow: hidden; }
+.checkout-summary-section { padding: 22px; }
+.checkout-summary-section + .checkout-summary-section { border-top: 1px solid var(--border-color); }
+.checkout-totals { display: grid; gap: 13px; margin-top: 22px; font-size: 12px; }
+.checkout-totals > div { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.checkout-totals dt { color: var(--text-secondary); }
+.checkout-totals dd { text-align: right; font-variant-numeric: tabular-nums; }
+.checkout-grand-total { display: grid; gap: 7px; margin-top: 22px; padding-top: 19px; border-top: 1px solid var(--border-color); }
+.checkout-grand-total > span { font-size: 12px; color: var(--text-secondary); }
+.checkout-grand-total strong { font-size: 36px; line-height: 1.2; font-weight: 650; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; }
+.checkout-currency { margin-right: 4px; font-size: 23px; font-weight: 500; }
+.checkout-login { display: grid; gap: 14px; }
+.checkout-login h3 { font-size: 13px; font-weight: 600; }
+.checkout-auth-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.checkout-auth-option { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 43px; padding: 8px; border: 1px solid var(--border-color); border-radius: 9px; font-size: 12px; color: var(--text-secondary); transition: background 150ms, border-color 150ms; }
+.checkout-auth-option > svg { flex-shrink: 0; }
+.checkout-auth-option.is-selected { color: var(--text-primary); border-color: var(--text-primary); background: var(--bg-tertiary); box-shadow: inset 0 0 0 1px var(--text-primary); }
+.checkout-password-hint { color: var(--text-tertiary); font-size: 11px; line-height: 1.6; }
+.checkout-payment { display: grid; gap: 14px; }
+.checkout-primary, .checkout-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 11px 18px; border: 1px solid var(--text-primary); border-radius: 10px; font-size: 13px; font-weight: 550; line-height: 1.5; transition: opacity 150ms, background 150ms; }
+.checkout-primary { background: var(--text-primary); color: var(--bg-secondary); }
+.checkout-primary:hover:not(:disabled) { opacity: 0.85; }
+.checkout-secondary { background: var(--bg-secondary); border-color: var(--border-color); color: var(--text-primary); }
+.checkout-pay { width: 100%; min-height: 46px; }
+.checkout-page button:disabled { cursor: not-allowed; opacity: 0.45; }
+.checkout-page button:focus-visible, .checkout-back-link:focus-visible, .checkout-primary:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 3px; }
+.checkout-quantity button:focus-visible { outline-offset: -3px; }
+.checkout-price-consent { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; line-height: 1.6; }
+.checkout-price-consent input { margin-top: 2px; flex-shrink: 0; color: var(--text-primary); border-color: var(--border-hover); border-radius: 4px; }
+.checkout-verification { min-width: 0; max-width: 100%; }
+.checkout-alert { padding: 12px 14px; border: 1px solid rgb(239 68 68 / 0.25); border-radius: 10px; font-size: 12px; line-height: 1.65; }
+.checkout-alert-error { color: #dc2626; background: rgb(239 68 68 / 0.045); }
+:global(.dark) .checkout-alert-error { color: #f87171; }
+.checkout-loading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 240px; color: var(--text-secondary); font-size: 13px; }
+.checkout-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; min-height: 350px; padding: 40px 24px; text-align: center; }
+.checkout-empty h2 { font-size: 17px; font-weight: 550; letter-spacing: -0.025em; }
+.checkout-empty-icon { display: grid; place-items: center; width: 72px; height: 72px; border: 1px solid var(--border-color); border-radius: 22px; background: var(--bg-tertiary); color: var(--text-secondary); }
+@media (min-width: 1100px) {
+  .checkout-layout { grid-template-columns: minmax(0, 1fr) 320px; }
+  .checkout-summary { position: sticky; top: 24px; }
+}
+@media (max-width: 540px) {
+  .checkout-page { gap: 20px; }
+  .checkout-header { align-items: flex-start; gap: 12px; }
+  .checkout-header h1 { font-size: 21px; }
+  .checkout-heading-icon { display: none; }
+  .checkout-back-link { margin-top: 6px; font-size: 12px; }
+  .checkout-layout { gap: 20px; }
+  .checkout-item, .checkout-summary-section { padding: 18px; }
+  .checkout-region { font-size: 14px; }
+  .checkout-item-fields { grid-template-columns: minmax(0, 1fr) 112px; gap: 12px; }
+  .checkout-quantity { grid-template-columns: 32px minmax(0, 1fr) 32px; }
+  .checkout-specs { gap: 8px; }
+}
 /* 缺货商品框左右抖动：付款被拦下时就地提醒用户处理这一行。 */
 @keyframes cart-shake {
   0%, 100% { transform: translateX(0); }
@@ -443,5 +591,6 @@ async function pay(): Promise<void> {
 }
 @media (prefers-reduced-motion: reduce) {
   .cart-shake { animation: none; }
+  .checkout-page *, .checkout-page *::before, .checkout-page *::after { transition: none !important; }
 }
 </style>
