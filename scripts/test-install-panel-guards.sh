@@ -45,6 +45,17 @@ for helper in \
     bash -n "$REPO_ROOT/deploy/$helper"
 done
 
+# Preinstalled PostgreSQL can be stopped (for example, on a fresh CI image).
+# Skipping the package install must still start it before database creation.
+(
+    psql() { printf 'psql (PostgreSQL) 16.4\n'; }
+    systemctl() { printf '%s\n' "$*" >> "$WORK_DIR/postgresql-service-calls"; }
+    pg_isready() { grep -Fxq 'start postgresql' "$WORK_DIR/postgresql-service-calls"; }
+    install_postgresql
+    grep -Fxq 'enable postgresql' "$WORK_DIR/postgresql-service-calls"
+    grep -Fxq 'start postgresql' "$WORK_DIR/postgresql-service-calls"
+)
+
 if grep -Fq 'ExecStart=/usr/bin/node /opt/incudal/current/server/dist/scripts/' \
     "$REPO_ROOT/deploy/incudal-online-update@.service.example" \
     "$REPO_ROOT/deploy/incudal-online-rollback@.service.example"; then

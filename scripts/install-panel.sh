@@ -411,6 +411,20 @@ install_system_tools() {
 }
 
 # ========================== 安装 PostgreSQL ==========================
+ensure_postgresql_running() {
+    systemctl enable postgresql >/dev/null 2>&1
+    systemctl start postgresql
+    local attempt
+    for attempt in $(seq 1 30); do
+        if pg_isready -h 127.0.0.1 -p 5432 -q; then
+            return 0
+        fi
+        sleep 1
+    done
+    error "PostgreSQL 在 127.0.0.1:5432 未就绪，请检查 postgresql 服务及集群配置后重试"
+    return 1
+}
+
 install_postgresql() {
     step "安装 PostgreSQL ${PG_VERSION}..."
 
@@ -418,8 +432,9 @@ install_postgresql() {
         local pg_ver
         pg_ver=$(psql --version 2>/dev/null | awk '{print $3}' | cut -d. -f1)
         if [[ "$pg_ver" -ge "$PG_VERSION" ]] 2>/dev/null; then
-            log "PostgreSQL ${pg_ver} 已安装，跳过"
-            return 0
+            info "PostgreSQL ${pg_ver} 已安装，检查服务是否就绪"
+            ensure_postgresql_running
+            return
         fi
     fi
 
@@ -437,8 +452,7 @@ install_postgresql() {
     apt-get install -y -qq "postgresql-${PG_VERSION}" >/dev/null 2>&1
 
     # 确保服务启动
-    systemctl enable postgresql >/dev/null 2>&1
-    systemctl start postgresql
+    ensure_postgresql_running
 
     log "PostgreSQL ${PG_VERSION} 安装完成"
 }
