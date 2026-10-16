@@ -8467,9 +8467,11 @@ cart: {
         balance: 'Account balance',
         firstPayment: 'Due today',
         loginMethod: 'Instance login',
+        loginScope: 'Applies to all servers in this order',
         passwordLogin: 'Password',
         passwordHint: 'Your password will be available after setup.',
         empty: 'Your cart is empty',
+        emptyHint: 'Choose your locations and configurations, then check out together here.',
         goShopping: 'Browse servers',
         specs: {
             cpu: 'CPU',

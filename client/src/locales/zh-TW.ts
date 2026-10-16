@@ -8810,9 +8810,11 @@ cart: {
         balance: '帳戶餘額',
         firstPayment: '首期應付',
         loginMethod: '實例登入方式',
+        loginScope: '用於本次購買的所有主機',
         passwordLogin: '密碼登入',
         passwordHint: '密碼將於開通後提供。',
         empty: '購物車還是空的',
+        emptyHint: '選好地區和配置後，在這裡一起結帳。',
         goShopping: '選購主機',
         specs: {
             cpu: 'CPU',

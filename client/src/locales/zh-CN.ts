@@ -8540,9 +8540,11 @@ cart: {
         balance: '账户余额',
         firstPayment: '首期应付',
         loginMethod: '实例登录方式',
+        loginScope: '用于本次购买的所有主机',
         passwordLogin: '密码登录',
         passwordHint: '密码将在开通后提供。',
         empty: '购物车还是空的',
+        emptyHint: '选好地区和配置后，在这里一起结算。',
         goShopping: '选购主机',
         specs: {
             cpu: 'CPU',

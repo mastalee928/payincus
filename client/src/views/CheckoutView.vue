@@ -8,7 +8,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, ArrowRight, Cpu, HardDrive, KeyRound, Loader2, LockKeyhole, MemoryStick, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, Check, Cpu, HardDrive, KeyRound, Loader2, LockKeyhole, MemoryStick, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-vue-next'
 import api from '@/api'
 import FlagIcon from '@/components/FlagIcon.vue'
 import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
@@ -286,20 +286,15 @@ async function pay(): Promise<void> {
 </script>
 
 <template>
-  <div class="checkout-page animate-fade-in" :aria-busy="loading || paying">
+  <div class="checkout-page" :aria-busy="loading || paying">
     <header class="checkout-header">
-      <div class="flex items-center gap-3 min-w-0">
-        <span class="checkout-heading-icon"><ShoppingBag :size="22" :stroke-width="1.6" aria-hidden="true" /></span>
-        <div class="min-w-0">
-          <h1>{{ t(orderResult ? 'cart.accepted' : 'cart.title') }}</h1>
-          <p v-if="!loading && !orderResult && rows.length" class="checkout-heading-meta">
-            {{ t('cart.itemKinds', { count: rows.length }) }}<span aria-hidden="true">·</span>{{ t('cart.count', { count: totalQuantity }) }}
-          </p>
-        </div>
-      </div>
+      <h1>{{ t(orderResult ? 'cart.accepted' : 'cart.title') }}</h1>
       <router-link v-if="rows.length || orderResult" to="/purchase" class="checkout-back-link">
         <ArrowLeft :size="15" aria-hidden="true" />{{ t('cart.continueShopping') }}
       </router-link>
+      <p v-if="!loading && !orderResult && rows.length" class="checkout-heading-meta">
+        {{ t('cart.itemKinds', { count: rows.length }) }}<span aria-hidden="true">·</span>{{ t('cart.count', { count: totalQuantity }) }}
+      </p>
     </header>
 
     <div v-if="error && (orderResult || loading || !rows.length)" class="checkout-alert checkout-alert-error" role="alert">{{ error }}</div>
@@ -323,7 +318,10 @@ async function pay(): Promise<void> {
 
     <div v-else-if="rows.length === 0" class="checkout-panel checkout-empty">
       <span class="checkout-empty-icon"><ShoppingBag :size="32" :stroke-width="1.4" aria-hidden="true" /></span>
-      <h2>{{ t('cart.empty') }}</h2>
+      <div class="checkout-empty-copy">
+        <h2>{{ t('cart.empty') }}</h2>
+        <p>{{ t('cart.emptyHint') }}</p>
+      </div>
       <router-link to="/purchase" class="checkout-primary">
         {{ t('cart.goShopping') }}<ArrowRight :size="16" aria-hidden="true" />
       </router-link>
@@ -331,91 +329,132 @@ async function pay(): Promise<void> {
 
     <fieldset v-else :disabled="paying" class="checkout-layout">
       <legend class="sr-only">{{ t('cart.title') }}</legend>
-      <section class="checkout-items" aria-labelledby="checkout-items-title">
-        <div class="checkout-section-heading">
-          <h2 id="checkout-items-title">{{ t('cart.items') }}</h2>
-          <span>{{ t('cart.count', { count: totalQuantity }) }}</span>
-        </div>
-        <article
-          v-for="row in rows"
-          :id="`cart-row-${row.item.key}`"
-          :key="row.item.key"
-          class="checkout-panel checkout-item"
-          :class="[
-            row.offSale || row.stockShort || row.nameError ? 'checkout-item-invalid' : '',
-            shakingKey === row.item.key ? 'cart-shake' : ''
-          ]"
-        >
-          <div class="checkout-item-heading">
-            <div class="min-w-0">
-              <h3 class="checkout-region">
-                <FlagIcon v-if="row.region?.countryCode || row.item.snapshot.countryCode" :code="row.region?.countryCode || row.item.snapshot.countryCode!" size="sm" class="shrink-0" />
-                <span>{{ row.region?.name || row.item.snapshot.regionName }}</span>
-              </h3>
-              <div class="checkout-item-subtitle">
-                <span class="checkout-preset">{{ presetLabel(row.item.snapshot.resourcePreset) }}</span>
-                <span>{{ row.item.snapshot.imageLabel }}</span>
+      <div class="checkout-main">
+        <section class="checkout-items" aria-labelledby="checkout-items-title">
+          <div class="checkout-section-heading">
+            <h2 id="checkout-items-title">{{ t('cart.items') }}</h2>
+          </div>
+          <article
+            v-for="row in rows"
+            :id="`cart-row-${row.item.key}`"
+            :key="row.item.key"
+            :aria-labelledby="`cart-title-${row.item.key}`"
+            class="checkout-panel checkout-item"
+            :class="[
+              row.offSale || row.stockShort || row.nameError ? 'checkout-item-invalid' : '',
+              shakingKey === row.item.key ? 'cart-shake' : ''
+            ]"
+          >
+            <div class="checkout-item-heading">
+              <div class="min-w-0">
+                <h3 :id="`cart-title-${row.item.key}`" class="checkout-region">
+                  <FlagIcon v-if="row.region?.countryCode || row.item.snapshot.countryCode" :code="row.region?.countryCode || row.item.snapshot.countryCode!" size="sm" class="shrink-0" />
+                  <span>{{ row.region?.name || row.item.snapshot.regionName }}</span>
+                </h3>
+                <div class="checkout-item-subtitle">
+                  <span class="checkout-preset">{{ presetLabel(row.item.snapshot.resourcePreset) }}</span>
+                  <span>{{ row.item.snapshot.imageLabel }}</span>
+                </div>
+              </div>
+              <div class="checkout-item-cost">
+                <div class="checkout-item-subtotal">
+                  <span>{{ t('cart.line.subtotal') }}</span>
+                  <strong>{{ row.live ? `¥${formatPublicPrice(row.subtotalCents)}` : '—' }}</strong>
+                </div>
+                <div class="checkout-unit-prices">
+                  <p>{{ t('cart.line.monthly') }}<span>{{ row.live ? `¥${formatPublicPrice(row.live.monthlyPrice)}` : '—' }}</span></p>
+                  <p v-if="row.live && row.live.setupFee > 0">{{ t('cart.line.setup') }}<span>¥{{ formatPublicPrice(row.live.setupFee) }}</span></p>
+                </div>
+              </div>
+              <button type="button" class="checkout-remove" :aria-label="`${t('cart.line.remove')} ${row.region?.name || row.item.snapshot.regionName}`" :title="t('cart.line.remove')" @click="cartStore.remove(row.item.key)">
+                <Trash2 :size="17" :stroke-width="1.7" aria-hidden="true" />
+              </button>
+            </div>
+
+            <dl class="checkout-specs">
+              <div><dt><Cpu :size="14" aria-hidden="true" />{{ t('cart.specs.cpu') }}</dt><dd>{{ t('cart.specs.cores', { count: row.item.snapshot.cpu / 100 }) }}</dd></div>
+              <div><dt><MemoryStick :size="14" aria-hidden="true" />{{ t('cart.specs.memory') }}</dt><dd>{{ formatMemoryMiB(row.item.snapshot.memoryMiB) }}</dd></div>
+              <div><dt><HardDrive :size="14" aria-hidden="true" />{{ t('cart.specs.disk') }}</dt><dd>{{ row.item.snapshot.diskGiB }} GiB</dd></div>
+            </dl>
+
+            <div class="checkout-item-fields">
+              <div class="checkout-field">
+                <label :for="`cart-name-${row.item.key}`">{{ row.item.quantity > 1 ? t('cart.line.namePrefix') : t('cart.line.name') }}</label>
+                <input
+                  :id="`cart-name-${row.item.key}`"
+                  :value="row.item.namePrefix"
+                  type="text" maxlength="60"
+                  class="input checkout-input"
+                  :aria-invalid="!!row.nameError"
+                  :aria-describedby="row.nameError ? `cart-name-error-${row.item.key}` : row.item.quantity > 1 ? `cart-name-preview-${row.item.key}` : undefined"
+                  @input="cartStore.setNamePrefix(row.item.key, ($event.target as HTMLInputElement).value)"
+                />
+                <span v-if="row.item.quantity > 1 && !row.nameError" :id="`cart-name-preview-${row.item.key}`" class="checkout-name-preview">{{ row.names.slice(0, 3).join(', ') }}{{ row.names.length > 3 ? ' …' : '' }}</span>
+              </div>
+              <div class="checkout-field">
+                <label :for="`cart-quantity-${row.item.key}`">{{ t('cart.line.quantity') }}</label>
+                <div class="checkout-quantity">
+                  <button type="button" :aria-label="`${t('cart.line.decrease')} ${row.item.namePrefix}`" :disabled="row.offSale || row.item.quantity <= 1" @click="updateQuantity(row, row.item.quantity - 1)"><Minus :size="15" aria-hidden="true" /></button>
+                  <input
+                    :id="`cart-quantity-${row.item.key}`"
+                    :value="row.item.quantity"
+                    type="number" min="1" :max="Math.max(1, Math.min(row.available || 1, maxInstances))" step="1"
+                    :disabled="row.offSale"
+                    @change="updateQuantity(row, Number(($event.target as HTMLInputElement).value))"
+                  />
+                  <button type="button" :aria-label="`${t('cart.line.increase')} ${row.item.namePrefix}`" :disabled="row.offSale || row.item.quantity >= Math.max(1, Math.min(row.available || 1, maxInstances))" @click="updateQuantity(row, row.item.quantity + 1)"><Plus :size="15" aria-hidden="true" /></button>
+                </div>
               </div>
             </div>
-            <button type="button" class="checkout-remove" :aria-label="`${t('cart.line.remove')} ${row.region?.name || row.item.snapshot.regionName}`" :title="t('cart.line.remove')" @click="cartStore.remove(row.item.key)">
-              <Trash2 :size="17" :stroke-width="1.7" aria-hidden="true" />
+
+            <div v-if="row.offSale || row.stockShort || row.priceChanged || row.nameError" class="checkout-row-messages">
+              <p v-if="row.offSale" class="text-red-600 dark:text-red-400">{{ t('cart.flags.offSale') }}</p>
+              <p v-else-if="row.stockShort" class="text-red-600 dark:text-red-400">{{ row.available <= 0 ? t('cart.flags.stockEmpty') : t('cart.flags.stockShort', { available: row.available }) }}</p>
+              <p v-if="row.priceChanged && row.live" class="text-amber-600 dark:text-amber-400">{{ t('cart.flags.priceChanged', { price: formatPublicPrice(row.live.monthlyPrice + row.live.setupFee) }) }}</p>
+              <p v-if="row.nameError" :id="`cart-name-error-${row.item.key}`" class="text-red-600 dark:text-red-400">{{ row.nameError }}</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="checkout-panel checkout-login" aria-labelledby="checkout-auth-title">
+          <div class="checkout-login-heading">
+            <h2 id="checkout-auth-title">{{ t('cart.loginMethod') }}</h2>
+            <p>{{ t('cart.loginScope') }}</p>
+          </div>
+          <div class="checkout-auth-options" role="group" aria-labelledby="checkout-auth-title">
+            <button
+              type="button"
+              class="checkout-auth-option"
+              :class="{ 'is-selected': authMode === 'key' }"
+              :aria-pressed="authMode === 'key'"
+              @click="authMode = 'key'"
+            >
+              <KeyRound :size="18" aria-hidden="true" />
+              <span>{{ t('publicSite.market.pool.authKey') }}</span>
+              <span class="checkout-auth-check" aria-hidden="true"><Check v-if="authMode === 'key'" :size="12" :stroke-width="3" /></span>
+            </button>
+            <button
+              type="button"
+              class="checkout-auth-option"
+              :class="{ 'is-selected': authMode === 'password' }"
+              :aria-pressed="authMode === 'password'"
+              @click="authMode = 'password'"
+            >
+              <LockKeyhole :size="18" aria-hidden="true" />
+              <span>{{ t('cart.passwordLogin') }}</span>
+              <span class="checkout-auth-check" aria-hidden="true"><Check v-if="authMode === 'password'" :size="12" :stroke-width="3" /></span>
             </button>
           </div>
-
-          <dl class="checkout-specs">
-            <div><dt><Cpu :size="14" aria-hidden="true" />{{ t('cart.specs.cpu') }}</dt><dd>{{ t('cart.specs.cores', { count: row.item.snapshot.cpu / 100 }) }}</dd></div>
-            <div><dt><MemoryStick :size="14" aria-hidden="true" />{{ t('cart.specs.memory') }}</dt><dd>{{ formatMemoryMiB(row.item.snapshot.memoryMiB) }}</dd></div>
-            <div><dt><HardDrive :size="14" aria-hidden="true" />{{ t('cart.specs.disk') }}</dt><dd>{{ row.item.snapshot.diskGiB }} GiB</dd></div>
-          </dl>
-
-          <div class="checkout-item-fields">
-            <label class="checkout-field">
-              {{ row.item.quantity > 1 ? t('cart.line.namePrefix') : t('cart.line.name') }}
-              <input
-                :value="row.item.namePrefix"
-                type="text" maxlength="60"
-                class="input checkout-input"
-                :aria-invalid="!!row.nameError"
-                :aria-describedby="row.nameError ? `cart-name-error-${row.item.key}` : undefined"
-                @input="cartStore.setNamePrefix(row.item.key, ($event.target as HTMLInputElement).value)"
-              />
-              <span v-if="row.item.quantity > 1 && !row.nameError" class="checkout-name-preview">{{ row.names.slice(0, 3).join(', ') }}{{ row.names.length > 3 ? ' …' : '' }}</span>
-            </label>
-            <div class="checkout-field">
-              <label :for="`cart-quantity-${row.item.key}`">{{ t('cart.line.quantity') }}</label>
-              <div class="checkout-quantity">
-                <button type="button" :aria-label="t('cart.line.decrease')" :disabled="row.offSale || row.item.quantity <= 1" @click="updateQuantity(row, row.item.quantity - 1)"><Minus :size="15" aria-hidden="true" /></button>
-                <input
-                  :id="`cart-quantity-${row.item.key}`"
-                  :value="row.item.quantity"
-                  type="number" min="1" :max="Math.max(1, Math.min(row.available || 1, maxInstances))" step="1"
-                  :disabled="row.offSale"
-                  @change="updateQuantity(row, Number(($event.target as HTMLInputElement).value))"
-                />
-                <button type="button" :aria-label="t('cart.line.increase')" :disabled="row.offSale || row.item.quantity >= Math.max(1, Math.min(row.available || 1, maxInstances))" @click="updateQuantity(row, row.item.quantity + 1)"><Plus :size="15" aria-hidden="true" /></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="checkout-item-pricing">
-            <div class="checkout-unit-prices">
-              <p>{{ t('cart.line.monthly') }}<span>{{ row.live ? `¥${formatPublicPrice(row.live.monthlyPrice)}` : '—' }}</span></p>
-              <p v-if="row.live && row.live.setupFee > 0">{{ t('cart.line.setup') }}<span>¥{{ formatPublicPrice(row.live.setupFee) }}</span></p>
-            </div>
-            <div class="checkout-item-subtotal">
-              <span>{{ t('cart.line.subtotal') }}</span>
-              <strong>{{ row.live ? `¥${formatPublicPrice(row.subtotalCents)}` : '—' }}</strong>
-            </div>
-          </div>
-
-          <div v-if="row.offSale || row.stockShort || row.priceChanged || row.nameError" class="checkout-row-messages">
-            <p v-if="row.offSale" class="text-red-600 dark:text-red-400">{{ t('cart.flags.offSale') }}</p>
-            <p v-else-if="row.stockShort" class="text-red-600 dark:text-red-400">{{ row.available <= 0 ? t('cart.flags.stockEmpty') : t('cart.flags.stockShort', { available: row.available }) }}</p>
-            <p v-if="row.priceChanged && row.live" class="text-amber-600 dark:text-amber-400">{{ t('cart.flags.priceChanged', { price: formatPublicPrice(row.live.monthlyPrice + row.live.setupFee) }) }}</p>
-            <p v-if="row.nameError" :id="`cart-name-error-${row.item.key}`" class="text-red-600 dark:text-red-400">{{ row.nameError }}</p>
-          </div>
-        </article>
-      </section>
+          <label v-if="authMode === 'key'" class="checkout-field">
+            {{ t('cart.sshKey') }}
+            <select v-model="sshKeyId" class="input checkout-input" :disabled="sshKeys.length === 0">
+              <option v-for="key in sshKeys" :key="key.id" :value="key.id">{{ key.name || `#${key.id}` }}</option>
+            </select>
+            <span v-if="sshKeys.length === 0" class="text-xs text-red-600 dark:text-red-400">{{ t('cart.noSshKey') }}</span>
+          </label>
+          <p v-else class="checkout-password-hint">{{ t('cart.passwordHint') }}</p>
+        </section>
+      </div>
 
       <aside class="checkout-panel checkout-summary" aria-labelledby="checkout-summary-title">
         <div class="checkout-summary-section">
@@ -432,38 +471,6 @@ async function pay(): Promise<void> {
           </div>
         </div>
 
-        <div class="checkout-summary-section checkout-login">
-          <h3 id="checkout-auth-title">{{ t('cart.loginMethod') }}</h3>
-          <div class="checkout-auth-options" role="group" aria-labelledby="checkout-auth-title">
-              <button
-                type="button"
-                class="checkout-auth-option"
-                :class="{ 'is-selected': authMode === 'key' }"
-                :aria-pressed="authMode === 'key'"
-                @click="authMode = 'key'"
-              >
-                <KeyRound :size="16" aria-hidden="true" />{{ t('publicSite.market.pool.authKey') }}
-              </button>
-              <button
-                type="button"
-                class="checkout-auth-option"
-                :class="{ 'is-selected': authMode === 'password' }"
-                :aria-pressed="authMode === 'password'"
-                @click="authMode = 'password'"
-              >
-                <LockKeyhole :size="16" aria-hidden="true" />{{ t('cart.passwordLogin') }}
-              </button>
-          </div>
-          <label v-if="authMode === 'key'" class="checkout-field">
-            {{ t('cart.sshKey') }}
-            <select v-model="sshKeyId" class="input checkout-input" :disabled="sshKeys.length === 0">
-              <option v-for="key in sshKeys" :key="key.id" :value="key.id">{{ key.name || `#${key.id}` }}</option>
-            </select>
-            <span v-if="sshKeys.length === 0" class="text-xs text-red-600 dark:text-red-400">{{ t('cart.noSshKey') }}</span>
-          </label>
-          <p v-else class="checkout-password-hint">{{ t('cart.passwordHint') }}</p>
-        </div>
-
         <div class="checkout-summary-section checkout-payment">
           <p v-if="tooMany" class="text-xs text-red-600 dark:text-red-400">{{ t('cart.tooMany', { max: maxInstances }) }}</p>
           <div v-if="error" class="checkout-alert checkout-alert-error" role="alert">{{ error }}</div>
@@ -474,6 +481,7 @@ async function pay(): Promise<void> {
           <button type="button" class="checkout-primary checkout-pay" :disabled="!canPay" @click="pay">
             <Loader2 v-if="paying" :size="17" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
             {{ paying ? t('cart.paying') : t('cart.pay') }}
+            <ArrowRight v-if="!paying" :size="17" aria-hidden="true" />
           </button>
         </div>
       </aside>
@@ -482,77 +490,78 @@ async function pay(): Promise<void> {
 </template>
 
 <style scoped>
-.checkout-page { display: grid; gap: 24px; color: var(--text-primary); }
-.checkout-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 4px 0 8px; }
-.checkout-header h1 { font-size: 24px; font-weight: 650; letter-spacing: -0.035em; line-height: 1.3; }
-.checkout-heading-icon { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid var(--border-color); border-radius: 14px; background: var(--bg-elevated); flex-shrink: 0; }
-.checkout-heading-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; color: var(--text-secondary); font-size: 12px; }
-.checkout-back-link { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 13px; flex-shrink: 0; }
-.checkout-back-link:hover { color: var(--text-primary); }
-.checkout-panel { min-width: 0; border: 1px solid var(--border-color); border-radius: 18px; background: var(--bg-elevated); box-shadow: 0 2px 6px rgb(0 0 0 / 0.025); }
+.checkout-page { display: grid; gap: 24px; width: 100%; max-width: 1200px; margin-inline: auto; color: var(--text-primary); }
+.checkout-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 20px; padding: 4px 0 22px; border-bottom: 1px solid var(--border-color); }
+.checkout-header h1 { font-size: 26px; font-weight: 650; letter-spacing: -0.03em; line-height: 1.3; }
+.checkout-heading-meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-secondary); font-size: 13px; }
+.checkout-back-link { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; color: var(--text-secondary); font-size: 13px; flex-shrink: 0; text-underline-offset: 4px; }
+.checkout-back-link:hover { color: var(--text-primary); text-decoration: underline; }
+.checkout-panel { min-width: 0; border: 1px solid var(--border-color); border-radius: 14px; background: var(--bg-elevated); }
 .checkout-layout { min-width: 0; display: grid; gap: 24px; align-items: start; }
-.checkout-items { min-width: 0; display: grid; gap: 14px; }
-.checkout-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px 2px; }
-.checkout-section-heading h2, .checkout-summary h2 { font-size: 15px; font-weight: 600; }
-.checkout-section-heading > span { font-size: 12px; color: var(--text-tertiary); }
-.checkout-item { padding: 22px; scroll-margin: 24px; }
+.checkout-main { display: grid; gap: 24px; min-width: 0; container: checkout-main / inline-size; }
+.checkout-items { min-width: 0; display: grid; gap: 12px; }
+.checkout-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 4px; }
+.checkout-section-heading h2, .checkout-summary h2, .checkout-login h2 { font-size: 15px; font-weight: 600; line-height: 1.5; }
+.checkout-item { padding: 20px; scroll-margin: 24px; }
 .checkout-item-invalid { border-color: rgb(239 68 68 / 0.5); }
-.checkout-item-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
-.checkout-region { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 600; line-height: 1.5; }
+.checkout-item-heading { display: grid; grid-template-columns: minmax(0, 1fr) max-content 44px; align-items: start; gap: 12px; }
+.checkout-region { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 600; line-height: 1.5; }
 .checkout-region > span:last-child { min-width: 0; overflow-wrap: anywhere; }
-.checkout-item-subtitle { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 7px; font-size: 12px; color: var(--text-secondary); }
-.checkout-preset { padding: 2px 7px; border-radius: 5px; background: var(--bg-tertiary); font-size: 10px; font-weight: 600; letter-spacing: 0.025em; }
-.checkout-remove { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border-radius: 9px; color: var(--text-tertiary); transition: color 150ms, background 150ms; }
+.checkout-item-subtitle { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--text-secondary); }
+.checkout-preset { padding-right: 8px; border-right: 1px solid var(--border-color); font-weight: 600; }
+.checkout-remove { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 8px; color: var(--text-secondary); transition: color 150ms, background 150ms; }
 .checkout-remove:hover:not(:disabled) { color: #dc2626; background: rgb(239 68 68 / 0.07); }
-.checkout-specs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; padding: 15px 0; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); }
+.checkout-specs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0; padding: 14px 0; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); }
 .checkout-specs > div { min-width: 0; }
-.checkout-specs dt { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-tertiary); }
-.checkout-specs dd { margin-top: 6px; font-size: 14px; font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.checkout-item-fields { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 20px; }
-.checkout-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 12px; color: var(--text-secondary); }
+.checkout-specs dt { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+.checkout-specs dd { margin-top: 5px; font-size: 15px; font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.checkout-item-fields { display: grid; grid-template-columns: minmax(0, 1fr) 140px; gap: 16px; }
+.checkout-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: 12px; color: var(--text-secondary); }
 /* Keep checkout fields neutral despite the app shell's input overrides. */
-.checkout-page .checkout-input { width: 100%; min-width: 0; min-height: 42px; margin: 0; padding: 10px 12px; border: 1px solid var(--border-color); border-color: var(--border-color) !important; border-radius: 9px; background: var(--bg-elevated) !important; color: var(--text-primary); box-shadow: none !important; font-size: 13px; }
+.checkout-page .checkout-input { width: 100%; min-width: 0; min-height: 44px; margin: 0; padding: 10px 12px; border: 1px solid var(--border-color); border-color: var(--border-color) !important; border-radius: 8px; background: var(--bg-elevated) !important; color: var(--text-primary); caret-color: var(--text-primary); box-shadow: none !important; font-size: 14px; }
 .checkout-page .checkout-input:focus { border-color: var(--text-secondary) !important; outline: 2px solid var(--border-hover); outline-offset: 2px; box-shadow: none !important; }
 .checkout-page .checkout-input[aria-invalid="true"] { border-color: rgb(239 68 68 / 0.65) !important; }
-.checkout-name-preview { font-size: 11px; color: var(--text-tertiary); overflow-wrap: anywhere; line-height: 1.5; }
-.checkout-quantity { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; height: 42px; border: 1px solid var(--border-color); border-radius: 9px; overflow: hidden; color: var(--text-primary); }
+.checkout-name-preview { font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; line-height: 1.5; }
+.checkout-quantity { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; height: 44px; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; color: var(--text-primary); }
 .checkout-quantity button { display: grid; place-items: center; transition: background 150ms; }
 .checkout-quantity button:hover:not(:disabled) { background: var(--bg-tertiary); }
-.checkout-quantity input { width: 100%; min-width: 0; border: 0; border-color: transparent !important; padding: 0; background: transparent !important; text-align: center; color: var(--text-primary); font-size: 13px; font-variant-numeric: tabular-nums; appearance: textfield; box-shadow: none !important; }
+.checkout-quantity input { width: 100%; min-width: 0; border: 0; border-color: transparent !important; padding: 0; background: transparent !important; text-align: center; color: var(--text-primary); caret-color: var(--text-primary); font-size: 14px; font-variant-numeric: tabular-nums; appearance: textfield; box-shadow: none !important; }
 .checkout-quantity input::-webkit-inner-spin-button, .checkout-quantity input::-webkit-outer-spin-button { appearance: none; margin: 0; }
 .checkout-quantity input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--text-secondary) !important; }
-.checkout-item-pricing { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 12px; margin-top: 22px; }
-.checkout-unit-prices { display: grid; gap: 5px; font-size: 11px; color: var(--text-tertiary); }
-.checkout-unit-prices p { display: flex; gap: 10px; align-items: baseline; }
-.checkout-unit-prices span { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-.checkout-item-subtotal { display: grid; gap: 3px; text-align: right; }
-.checkout-item-subtotal > span { font-size: 11px; color: var(--text-tertiary); }
-.checkout-item-subtotal > strong { font-size: 20px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.checkout-item-cost { display: grid; gap: 6px; min-width: 0; }
+.checkout-unit-prices { display: grid; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.checkout-unit-prices p { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.checkout-unit-prices span { font-variant-numeric: tabular-nums; }
+.checkout-item-subtotal { display: grid; gap: 2px; text-align: right; }
+.checkout-item-subtotal > span { font-size: 12px; color: var(--text-secondary); }
+.checkout-item-subtotal > strong { font-size: 22px; font-weight: 600; line-height: 1.3; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .checkout-row-messages { display: grid; gap: 5px; margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--border-color); font-size: 12px; line-height: 1.6; }
-.checkout-summary { overflow: hidden; }
+.checkout-summary { min-width: 0; }
 .checkout-summary-section { padding: 22px; }
-.checkout-summary-section + .checkout-summary-section { border-top: 1px solid var(--border-color); }
-.checkout-totals { display: grid; gap: 13px; margin-top: 22px; font-size: 12px; }
+.checkout-totals { display: grid; gap: 14px; margin-top: 22px; font-size: 13px; }
 .checkout-totals > div { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
 .checkout-totals dt { color: var(--text-secondary); }
 .checkout-totals dd { text-align: right; font-variant-numeric: tabular-nums; }
-.checkout-grand-total { display: grid; gap: 7px; margin-top: 22px; padding-top: 19px; border-top: 1px solid var(--border-color); }
-.checkout-grand-total > span { font-size: 12px; color: var(--text-secondary); }
-.checkout-grand-total strong { font-size: 36px; line-height: 1.2; font-weight: 650; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; }
-.checkout-currency { margin-right: 4px; font-size: 23px; font-weight: 500; }
-.checkout-login { display: grid; gap: 14px; }
-.checkout-login h3 { font-size: 13px; font-weight: 600; }
-.checkout-auth-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.checkout-auth-option { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 43px; padding: 8px; border: 1px solid var(--border-color); border-radius: 9px; font-size: 12px; color: var(--text-secondary); transition: background 150ms, border-color 150ms; }
+.checkout-grand-total { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 12px; margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--border-color); }
+.checkout-grand-total > span { font-size: 13px; font-weight: 550; }
+.checkout-grand-total strong { min-width: 0; margin-left: auto; font-size: 32px; line-height: 1.2; font-weight: 650; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.checkout-currency { margin-right: 3px; font-size: 20px; font-weight: 500; }
+.checkout-login { display: grid; gap: 16px; padding: 20px; }
+.checkout-login-heading p { margin-top: 5px; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+.checkout-auth-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.checkout-auth-option { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; text-align: left; font-size: 13px; color: var(--text-secondary); transition: background 150ms, border-color 150ms; }
 .checkout-auth-option > svg { flex-shrink: 0; }
-.checkout-auth-option.is-selected { color: var(--text-primary); border-color: var(--text-primary); background: var(--bg-tertiary); box-shadow: inset 0 0 0 1px var(--text-primary); }
-.checkout-password-hint { color: var(--text-tertiary); font-size: 11px; line-height: 1.6; }
-.checkout-payment { display: grid; gap: 14px; }
+.checkout-auth-option:hover:not(:disabled) { background: var(--bg-secondary); border-color: var(--border-hover); }
+.checkout-auth-option.is-selected { color: var(--text-primary); border-color: var(--text-primary); background: var(--bg-secondary); }
+.checkout-auth-check { display: grid; place-items: center; width: 18px; height: 18px; margin-left: auto; flex-shrink: 0; border: 1px solid var(--border-hover); border-radius: 50%; }
+.is-selected .checkout-auth-check { border-color: var(--text-primary); background: var(--text-primary); color: var(--bg-elevated); }
+.checkout-password-hint { color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+.checkout-payment { display: grid; gap: 14px; padding-top: 0; }
 .checkout-primary, .checkout-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 11px 18px; border: 1px solid var(--text-primary); border-radius: 10px; font-size: 13px; font-weight: 550; line-height: 1.5; transition: opacity 150ms, background 150ms; }
 .checkout-primary { background: var(--text-primary); color: var(--bg-elevated); }
 .checkout-primary:hover:not(:disabled) { opacity: 0.85; }
 .checkout-secondary { background: var(--bg-elevated); border-color: var(--border-color); color: var(--text-primary); }
-.checkout-pay { width: 100%; min-height: 46px; }
+.checkout-pay { width: 100%; min-height: 48px; font-size: 14px; }
 .checkout-page button:disabled { cursor: not-allowed; opacity: 0.45; }
 .checkout-page button:focus-visible, .checkout-back-link:focus-visible, .checkout-primary:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 3px; }
 .checkout-quantity button:focus-visible { outline-offset: -3px; }
@@ -563,25 +572,39 @@ async function pay(): Promise<void> {
 .checkout-alert-error { color: #dc2626; background: rgb(239 68 68 / 0.045); }
 :global(.dark) .checkout-alert-error { color: #f87171; }
 .checkout-loading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 240px; color: var(--text-secondary); font-size: 13px; }
-.checkout-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; min-height: 350px; padding: 40px 24px; text-align: center; }
-.checkout-empty h2 { font-size: 17px; font-weight: 550; letter-spacing: -0.025em; }
-.checkout-empty-icon { display: grid; place-items: center; width: 72px; height: 72px; border: 1px solid var(--border-color); border-radius: 22px; background: var(--bg-tertiary); color: var(--text-secondary); }
+.checkout-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; min-height: 340px; padding: 40px 24px; text-align: center; }
+.checkout-empty h2 { font-size: 20px; font-weight: 550; letter-spacing: -0.02em; }
+.checkout-empty-copy p { max-width: 36ch; margin-top: 8px; font-size: 14px; line-height: 1.7; color: var(--text-secondary); }
+.checkout-empty-icon { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 16px; background: var(--bg-secondary); color: var(--text-secondary); }
+.checkout-page ::selection { background: var(--text-primary); color: var(--bg-elevated); }
 @media (min-width: 1100px) {
   .checkout-layout { grid-template-columns: minmax(0, 1fr) 320px; }
-  .checkout-summary { position: sticky; top: 24px; }
+  .checkout-summary { position: sticky; top: 24px; margin-top: 38px; }
+}
+@container checkout-main (max-width: 560px) {
+  .checkout-item-heading { grid-template-columns: minmax(0, 1fr) 44px; }
+  .checkout-remove { grid-area: 1 / 2; }
+  .checkout-item-cost { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: end; gap: 16px; }
+  .checkout-item-subtotal { text-align: left; }
 }
 @media (max-width: 540px) {
   .checkout-page { gap: 20px; }
-  .checkout-header { align-items: flex-start; gap: 12px; }
-  .checkout-header h1 { font-size: 21px; }
-  .checkout-heading-icon { display: none; }
-  .checkout-back-link { margin-top: 6px; font-size: 12px; }
-  .checkout-layout { gap: 20px; }
-  .checkout-item, .checkout-summary-section { padding: 18px; }
-  .checkout-region { font-size: 14px; }
-  .checkout-item-fields { grid-template-columns: minmax(0, 1fr) 112px; gap: 12px; }
-  .checkout-quantity { grid-template-columns: 32px minmax(0, 1fr) 32px; }
+  .checkout-header { column-gap: 12px; row-gap: 6px; }
+  .checkout-header h1 { font-size: 23px; }
+  .checkout-back-link { font-size: 12px; }
+  .checkout-layout, .checkout-main { gap: 20px; }
+  .checkout-item, .checkout-login, .checkout-summary-section { padding: 16px; }
+  .checkout-payment { padding-top: 0; }
+  .checkout-region { font-size: 15px; }
+  .checkout-item-fields { gap: 12px; }
+  .checkout-auth-option { gap: 7px; padding: 10px; }
   .checkout-specs { gap: 8px; }
+}
+@media (max-width: 360px) {
+  .checkout-auth-options { grid-template-columns: minmax(0, 1fr); }
+  .checkout-item-fields { grid-template-columns: minmax(0, 1fr); }
+  .checkout-item-fields > .checkout-field:last-child { flex-direction: row; align-items: center; justify-content: space-between; }
+  .checkout-quantity { width: 140px; }
 }
 /* 缺货商品框左右抖动：付款被拦下时就地提醒用户处理这一行。 */
 @keyframes cart-shake {
