@@ -106,13 +106,20 @@ try {
 
   responseBody = { status_code: 200, data: { ...data, expiration_time: Math.floor(data.expiration_time / 1000) } }
   assert.equal((await client.createOrder(input)).expiresAt, Math.floor(data.expiration_time / 1000) * 1000)
+  // UPAY's AppUrl may be its HTTP backend behind a reverse proxy. Never return that origin.
+  for (const gatewayOrigin of ['http://1.1.1.1:8090', 'http://127.0.0.1:8090', 'https://example.com']) {
+    responseBody = { status_code: 200, data: { ...data, payment_url: `${gatewayOrigin}/pay/checkout-counter/${data.trade_id}` } }
+    const proxiedOrder = await client.createOrder(input)
+    assert.equal(proxiedOrder.payUrl, data.payment_url, 'checkout must use the configured HTTPS origin and validated trade ID')
+  }
   for (const patch of [
     { order_id: 'R_OTHER' }, { trade_id: '' }, { amount: 70.01 }, { amount: '70' }, { amount: 70.001 },
     { actual_amount: 0 }, { actual_amount: '10.0001' }, { token: '' },
     { expiration_time: 1 }, { expiration_time: null }, { expiration_time: 9e18 },
-    { payment_url: `https://example.com/pay/checkout-counter/${data.trade_id}` },
-    { payment_url: `http://8.8.8.8/pay/checkout-counter/${data.trade_id}` },
     { payment_url: `${data.payment_url}?redirect=https://example.com` },
+    { payment_url: `${data.payment_url}#fragment` },
+    { payment_url: `https://user:password@8.8.8.8/pay/checkout-counter/${data.trade_id}` },
+    { payment_url: `https://example.com/pay/checkout-counter/OTHER_TRADE` },
     { payment_url: 'https://8.8.8.8/another-order' }, { payment_url: 'javascript:alert(1)' }
   ]) {
     responseBody = { status_code: 200, data: { ...data, ...patch } }

@@ -174,14 +174,19 @@ export class UpayProClient {
     }
     let payUrl: URL
     try {
-      payUrl = new URL(String(data.payment_url))
+      const gatewayPayUrl = new URL(String(data.payment_url))
+      const apiUrl = new URL(this.config.apiurl)
+      const checkoutPath = `/pay/checkout-counter/${data.trade_id}`
       if (
-        payUrl.origin !== new URL(this.config.apiurl).origin || payUrl.protocol !== 'https:' ||
-        payUrl.username || payUrl.password || payUrl.search || payUrl.hash ||
-        payUrl.pathname !== `/pay/checkout-counter/${data.trade_id}`
+        apiUrl.protocol !== 'https:' || !['http:', 'https:'].includes(gatewayPayUrl.protocol) ||
+        gatewayPayUrl.username || gatewayPayUrl.password || gatewayPayUrl.search || gatewayPayUrl.hash ||
+        gatewayPayUrl.pathname !== checkoutPath
       ) throw new Error('invalid URL')
+      // UPAY builds payment_url from AppUrl, which may be an internal HTTP backend.
+      // Keep checkout on the configured, validated HTTPS origin; never follow AppUrl.
+      payUrl = new URL(checkoutPath, apiUrl.origin)
     } catch {
-      throw new Error('UPAY Pro 返回的收银台地址无效或与接口域名不一致')
+      throw new Error('UPAY Pro 返回的收银台地址或订单路径无效')
     }
     return {
       orderId: input.order_id,
