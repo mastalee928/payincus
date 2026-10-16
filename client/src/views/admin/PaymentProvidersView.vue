@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
@@ -22,6 +22,38 @@ const loading = ref(true)
 const showModal = ref(false)
 const isEditing = ref(false)
 const modalLoading = ref(false)
+const modalError = ref('')
+const providerForm = ref<HTMLFormElement | null>(null)
+let modalTrigger: HTMLElement | null = null
+watch(showModal, async (open) => {
+  if (open) {
+    modalTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    modalError.value = ''
+    await nextTick()
+    providerForm.value?.querySelector<HTMLElement>('#payment-provider-name')?.focus()
+  } else {
+    modalTrigger?.focus()
+  }
+})
+
+function handleModalKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    showModal.value = false
+  }
+  if (event.key !== 'Tab') return
+  const controls = [...(providerForm.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)') || [])]
+    .filter(control => control.getClientRects().length > 0)
+  const first = controls[0]
+  const last = controls[controls.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last?.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first?.focus()
+  }
+}
 const formData = ref({
   id: 0,
   name: '',
@@ -42,7 +74,11 @@ const formData = ref({
 
 const DEFAULT_YIPAY_METHODS = ['alipay', 'wxpay']
 const YIPAY_METHODS = ['alipay', 'wxpay', 'qqpay']
-const IMPLEMENTED_PROVIDER_TYPES = new Set(['yipay', 'heleket', 'antom', 'manual'])
+const IMPLEMENTED_PROVIDER_TYPES = new Set(['yipay', 'heleket', 'antom', 'upaypro', 'manual'])
+const UPAY_PRO_PAYMENT_TYPES = [
+  'USDT-TRC20', 'TRX', 'USDT-Polygon', 'USDT-BSC', 'USDT-ERC20',
+  'USDT-ArbitrumOne', 'USDC-ERC20', 'USDC-Polygon', 'USDC-BSC', 'USDC-ArbitrumOne'
+]
 
 function getConfigMethodFees(config: Record<string, unknown>): Record<string, { feeRate?: number; feeFixed?: number }> {
   const raw = (config as any).methodFees
@@ -115,6 +151,7 @@ function getSecretHint(key: string, fallback: string): string {
 const providerTypes = computed(() => [
   { value: 'yipay', label: t('admin.paymentProviders.providerTypes.yipay') },
   { value: 'heleket', label: t('admin.paymentProviders.providerTypes.heleket') },
+  { value: 'upaypro', label: t('admin.paymentProviders.providerTypes.upaypro') },
   { value: 'antom', label: t('admin.paymentProviders.providerTypes.antom') },
   { value: 'stripe', label: t('admin.paymentProviders.providerTypes.stripe') },
   { value: 'alipay_direct', label: t('admin.paymentProviders.providerTypes.alipayDirect') },
@@ -186,6 +223,8 @@ function getDefaultConfig(type: string, version?: string): Record<string, unknow
         currency: 'CNY',
         lifetime: 3600
       }
+    case 'upaypro':
+      return { apiurl: '', secret_key: '', payment_type: 'USDT-TRC20' }
     case 'antom':
       return {
         environment: 'sandbox',
@@ -243,6 +282,7 @@ function getDefaultMethods(type: string): string[] {
 }
 
 function handleProviderTypeChange(type: string) {
+  modalError.value = ''
   formData.value.config = getDefaultConfig(type)
   formData.value.methods = getDefaultMethods(type)
 }
@@ -315,18 +355,23 @@ function buildConfigForSave(): Record<string, unknown> {
 }
 
 async function saveProvider() {
-  if (!formData.value.name.trim()) {
-    toast.error(t('admin.paymentProviders.nameRequired'))
+  const name = formData.value.type === 'upaypro'
+    ? String(formData.value.config.payment_type || '')
+    : formData.value.name.trim()
+  modalError.value = ''
+  if (!name) {
+    modalError.value = t('admin.paymentProviders.nameRequired')
+    toast.error(modalError.value)
     return
   }
   
   modalLoading.value = true
   try {
     const data = {
-      name: formData.value.name.trim(),
+      name,
       type: formData.value.type,
       config: buildConfigForSave(),
-      methods: formData.value.methods,
+      methods: formData.value.type === 'upaypro' ? [name] : formData.value.methods,
       minAmount: formData.value.minAmount,
       maxAmount: formData.value.maxAmount,
       feeRate: formData.value.type === 'yipay' ? 0 : formData.value.feeRate / 100, // 转换回小数
@@ -345,7 +390,8 @@ async function saveProvider() {
     showModal.value = false
     await loadProviders()
   } catch (err: any) {
-    toast.error((isEditing.value ? t('admin.paymentProviders.updateFailed') : t('admin.paymentProviders.createFailed')) + ': ' + err.message)
+    modalError.value = (isEditing.value ? t('admin.paymentProviders.updateFailed') : t('admin.paymentProviders.createFailed')) + ': ' + err.message
+    toast.error(modalError.value)
   } finally {
     modalLoading.value = false
   }
@@ -506,13 +552,13 @@ function togglePaymentMethod(method: string) {
     <!-- 创建/编辑弹窗 -->
     <Teleport to="body">
       <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
-        <div class="modal-content max-w-2xl">
+        <form ref="providerForm" class="modal-content max-w-2xl" role="dialog" aria-modal="true" aria-labelledby="payment-provider-title" :aria-describedby="modalError ? 'payment-provider-error' : undefined" :aria-busy="modalLoading" @submit.prevent="saveProvider" @keydown="handleModalKeydown">
           <div class="modal-header">
-            <h3 class="modal-title">
+            <h3 id="payment-provider-title" class="modal-title">
               {{ isEditing ? $t('admin.paymentProviders.edit') : $t('admin.paymentProviders.add') }}
             </h3>
-            <button class="btn btn-ghost btn-sm" @click="showModal = false">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button type="button" class="btn btn-ghost btn-sm" :aria-label="$t('common.close')" @click="showModal = false">
+              <svg aria-hidden="true" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -520,13 +566,17 @@ function togglePaymentMethod(method: string) {
           
           <div class="modal-body space-y-4">
             <div>
-              <label class="label">{{ $t('admin.paymentProviders.name') }} *</label>
-              <input v-model="formData.name" type="text" class="input w-full" :placeholder="$t('admin.paymentProviders.namePlaceholder')" />
+              <label for="payment-provider-name" class="label">{{ formData.type === 'upaypro' ? $t('admin.paymentProviders.config.upayPaymentName') : $t('admin.paymentProviders.name') }} *</label>
+              <select v-if="formData.type === 'upaypro'" id="payment-provider-name" v-model="formData.config.payment_type" class="input w-full" required aria-describedby="upay-name-hint">
+                <option v-for="paymentType in UPAY_PRO_PAYMENT_TYPES" :key="paymentType" :value="paymentType">{{ paymentType }}</option>
+              </select>
+              <input v-else id="payment-provider-name" v-model="formData.name" type="text" class="input w-full" required :placeholder="$t('admin.paymentProviders.namePlaceholder')" />
+              <p v-if="formData.type === 'upaypro'" id="upay-name-hint" class="mt-1 text-xs text-themed-muted">{{ $t('admin.paymentProviders.config.upayPaymentNameHint') }}</p>
             </div>
             
             <div>
-              <label class="label">{{ $t('admin.paymentProviders.type') }}</label>
-              <select v-model="formData.type" class="input w-full" :disabled="isEditing" @change="handleProviderTypeChange(formData.type)">
+              <label for="payment-provider-type" class="label">{{ $t('admin.paymentProviders.type') }}</label>
+              <select id="payment-provider-type" v-model="formData.type" class="input w-full" :disabled="isEditing" @change="handleProviderTypeChange(formData.type)">
                 <option v-for="opt in providerTypes" :key="opt.value" :value="opt.value" :disabled="opt.disabled">
                   {{ opt.label }}
                 </option>
@@ -782,6 +832,19 @@ function togglePaymentMethod(method: string) {
               </div>
             </template>
             
+            <template v-else-if="formData.type === 'upaypro'">
+              <div>
+                <label for="upay-secret" class="label">{{ $t('admin.paymentProviders.config.upaySecretKey') }} *</label>
+                <input id="upay-secret" v-model="formData.config.secret_key" type="password" autocomplete="new-password" class="input w-full font-mono" :required="!formData.config.secret_keyConfigured" aria-describedby="upay-secret-hint" :placeholder="getSecretPlaceholder('secret_key', $t('admin.paymentProviders.config.upaySecretKey'))" />
+                <p id="upay-secret-hint" class="mt-1 text-xs text-themed-muted">{{ getSecretHint('secret_key', $t('admin.paymentProviders.config.upaySecretKeyHint')) }}</p>
+              </div>
+              <div>
+                <label for="upay-api-url" class="label">{{ $t('admin.paymentProviders.config.upayApiUrl') }} *</label>
+                <input id="upay-api-url" v-model="formData.config.apiurl" type="url" required class="input w-full" placeholder="https://upay.example.com" aria-describedby="upay-api-url-hint" />
+                <p id="upay-api-url-hint" class="mt-1 text-xs text-themed-muted">{{ $t('admin.paymentProviders.config.upayApiUrlHint') }}</p>
+              </div>
+            </template>
+
             <!-- 人工充值配置 -->
             <template v-else-if="formData.type === 'manual'">
               <div>
@@ -822,12 +885,13 @@ function togglePaymentMethod(method: string) {
           </div>
           
           <div class="modal-footer">
-            <button class="btn btn-ghost" @click="showModal = false">{{ $t('common.cancel') }}</button>
-            <button class="btn btn-primary" :disabled="modalLoading" @click="saveProvider">
+            <p v-if="modalError" id="payment-provider-error" role="alert" class="mr-auto text-sm text-rose-600 dark:text-rose-400">{{ modalError }}</p>
+            <button type="button" class="btn btn-ghost" @click="showModal = false">{{ $t('common.cancel') }}</button>
+            <button type="submit" class="btn btn-primary" :disabled="modalLoading">
               {{ modalLoading ? $t('common.saving') : $t('common.save') }}
             </button>
           </div>
-        </div>
+        </form>
       </div>
     </Teleport>
 

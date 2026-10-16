@@ -288,6 +288,7 @@ enum VipBenefitClaimStatus {
 enum PaymentProviderType {
   yipay         // 易支付
   heleket       // Heleket 加密支付
+  upaypro       // UPAY Pro 自托管加密支付
   antom         // Antom Hosted Checkout
   stripe        // Stripe
   alipay_direct // 支付宝直连（预留）

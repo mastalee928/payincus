@@ -2,6 +2,7 @@ import type { HeleketConfig, HeleketPayment } from './heleket.js'
 import { extractHeleketPaymentDetails, getHeleketInvoiceAmount } from './heleket.js'
 import type { AntomConfig, AntomPaymentInquiryResponse, AntomPaymentNotification } from './antom.js'
 import { calculateAntomMinorAmount } from './antom.js'
+import type { UpayProConfig, UpayProOrder, UpayProPaymentType } from './upaypro.js'
 
 export interface RechargePaymentDetails {
   kind?: string
@@ -16,6 +17,17 @@ export interface RechargePaymentDetails {
   }
   manual?: {
     instructions?: string | null
+  }
+  upaypro?: {
+    orderId: string
+    tradeId: string
+    paymentType: UpayProPaymentType
+    invoiceAmount: number
+    paymentAmount: number
+    address: string
+    expiresAt: string
+    status: 'pending' | 'paid'
+    txid?: string | null
   }
   heleket?: {
     invoiceCurrency?: string | null
@@ -222,10 +234,41 @@ export function mergeAntomPaymentDetails(
   }
 }
 
+export function buildUpayProPaymentDetails(order: UpayProOrder, config: UpayProConfig): RechargePaymentDetails {
+  return {
+    kind: 'upaypro',
+    upaypro: {
+      orderId: order.orderId,
+      tradeId: order.tradeId,
+      paymentType: config.payment_type,
+      invoiceAmount: order.amount,
+      paymentAmount: order.actualAmount,
+      address: order.address,
+      expiresAt: new Date(order.expiresAt).toISOString(),
+      status: 'pending'
+    }
+  }
+}
+
 export function extractRechargePaymentDisplayInfo(value: unknown): RechargePaymentDisplayInfo {
   const details = readRechargePaymentDetails(value)
   const heleket = details.heleket
   const antom = details.antom
+  const upaypro = details.upaypro
+
+  if (upaypro) {
+    const [currency, network] = upaypro.paymentType.split('-')
+    return {
+      invoiceCurrency: 'CNY',
+      paymentCurrency: currency,
+      paymentNetwork: network || 'TRON',
+      actualPaymentMethod: upaypro.paymentType,
+      paymentUuid: upaypro.tradeId,
+      paymentTxid: upaypro.txid || null,
+      gatewayStatus: upaypro.status,
+      gatewayStatusDescription: upaypro.status === 'paid' ? '支付成功' : '待支付'
+    }
+  }
 
   return {
     invoiceCurrency: heleket?.invoiceCurrency || antom?.currency || null,

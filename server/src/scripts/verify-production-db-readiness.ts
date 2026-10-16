@@ -4,6 +4,7 @@ import { getAllPaymentProviders } from '../db/payment-providers.js'
 import { getSystemConfig } from '../db/system-config.js'
 import { assertSafeHttpUrl } from '../lib/outbound-security.js'
 import { buildAntomConfig } from '../lib/antom.js'
+import { buildUpayProConfig } from '../lib/upaypro.js'
 
 type CheckLevel = 'warn' | 'fail'
 
@@ -93,7 +94,7 @@ async function checkPaymentProviders(): Promise<void> {
     const config = provider.config as Record<string, unknown>
     const prefix = `Payment provider #${provider.id} (${provider.name}, ${provider.type})`
 
-    if (provider.type !== 'yipay' && provider.type !== 'heleket' && provider.type !== 'antom') {
+    if (provider.type !== 'yipay' && provider.type !== 'heleket' && provider.type !== 'antom' && provider.type !== 'upaypro') {
       fail(`${prefix} uses unsupported provider type for recharge`)
       continue
     }
@@ -115,6 +116,11 @@ async function checkPaymentProviders(): Promise<void> {
         // 运行时实际外呼仍由安全 fetch 强制 SSRF 防护。此处降级为告警，供运维核查该渠道配置。
         warn(`${prefix} apiurl could not be verified as a safe outbound HTTP(S) URL: ${error instanceof Error ? error.message : String(error)}（不阻断发布，请核查该支付渠道配置）`)
       }
+    }
+
+    if (provider.type === 'upaypro') {
+      const upay = buildUpayProConfig(config)
+      if (!upay.valid) fail(`${prefix} configuration is invalid: ${upay.error || 'unknown error'}`)
     }
 
     if (provider.type === 'yipay') {

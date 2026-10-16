@@ -30,6 +30,8 @@ export interface UpdateRechargePaymentSelectionInput {
   fee: number
   actualAmount: number
   paymentDetails: Record<string, unknown> | null
+  expiredAt?: Date
+  expectedPaymentDetails?: Record<string, unknown>
 }
 
 export interface RechargeRecordWithProvider extends RechargeRecord {
@@ -300,6 +302,7 @@ export async function completeRecharge(
     callbackData?: Record<string, unknown>
     actualAmount?: number
     paymentDetails?: Record<string, unknown>
+    expectedPaymentDetails?: Record<string, unknown>
   }
 ): Promise<CompleteRechargeResult> {
   const record = await prisma.rechargeRecord.findUnique({
@@ -333,7 +336,10 @@ export async function completeRecharge(
     const updateResult = await tx.rechargeRecord.updateMany({
       where: {
         orderNo,
-        status: { in: ['pending', 'paid'] }  // 状态机：只有这两种状态可以转为 completed
+        status: { in: ['pending', 'paid'] },  // 状态机：只有这两种状态可以转为 completed
+        ...(data.expectedPaymentDetails !== undefined
+          ? { paymentDetails: { equals: data.expectedPaymentDetails as any } }
+          : {})
       },
       data: {
         status: 'completed',
@@ -494,13 +500,17 @@ export async function updatePendingRechargePaymentSelection(
   const result = await prisma.rechargeRecord.updateMany({
     where: {
       orderNo,
-      status: 'pending'
+      status: 'pending',
+      ...(data.expectedPaymentDetails !== undefined
+        ? { paymentDetails: { equals: data.expectedPaymentDetails as any } }
+        : {})
     },
     data: {
       paymentMethod: data.paymentMethod || null,
       fee: data.fee,
       actualAmount: data.actualAmount,
-      paymentDetails: data.paymentDetails as any
+      paymentDetails: data.paymentDetails as any,
+      ...(data.expiredAt !== undefined ? { expiredAt: data.expiredAt } : {})
     }
   })
 

@@ -21,6 +21,7 @@ import {
   buildManualRechargePaymentDetails,
   buildAntomPaymentDetails,
   buildHeleketInvoicePaymentDetails,
+  buildUpayProPaymentDetails,
   extractRechargePaymentDisplayInfo,
   getRechargePayableAmount,
   mergeHeleketPaymentDetails,
@@ -38,6 +39,14 @@ import {
   type AntomPaymentNotification
 } from '../lib/antom.js'
 import {
+  buildUpayProConfig,
+  UpayProClient,
+  upayProMoneyToCents,
+  verifyUpayProNotification,
+  type UpayProNotification,
+  type UpayProOrder
+} from '../lib/upaypro.js'
+import {
   buildRechargeProviderConfigSnapshot,
   resolveRechargeProviderConfigSnapshot
 } from '../lib/recharge-provider-snapshot.js'
@@ -53,7 +62,7 @@ import { assertSafeHttpUrl, isIpPrivateOrReserved } from '../lib/outbound-securi
 const AMOUNT_TOLERANCE_CENTS = 1
 
 const MANUAL_PROVIDER_TYPE = 'manual'
-const SUPPORTED_RECHARGE_PROVIDER_TYPES = new Set(['yipay', 'heleket', 'antom', MANUAL_PROVIDER_TYPE])
+const SUPPORTED_RECHARGE_PROVIDER_TYPES = new Set(['yipay', 'heleket', 'antom', 'upaypro', MANUAL_PROVIDER_TYPE])
 const HELEKET_CALLBACK_IPS = ['31.133.220.8']
 const POSITIVE_ID_PATTERN = /^[1-9]\d*$/
 const RECHARGE_STATUSES = new Set(['pending', 'paid', 'completed', 'failed', 'cancelled', 'refunded'])
@@ -601,6 +610,7 @@ function extractRechargeOrderNoFromCallback(
     case 'wechat_direct':
       return typeof callbackData.out_trade_no === 'string' ? callbackData.out_trade_no : undefined
     case 'heleket':
+    case 'upaypro':
       return typeof callbackData.order_id === 'string' ? callbackData.order_id : undefined
     case 'antom':
       return typeof callbackData.paymentRequestId === 'string' ? callbackData.paymentRequestId : undefined
@@ -635,7 +645,7 @@ async function createRechargePayUrl(
   amount: number,
   paymentMethod: string | undefined,
   urls: { notifyUrl: string; returnUrl: string; successUrl: string }
-): Promise<string | null> {
+): Promise<{ payUrl: string | null; upayOrder?: UpayProOrder }> {
   if (provider.type === 'yipay') {
     const { epayConfig, valid, error } = buildEpayConfig(config)
     if (!valid) {
@@ -648,14 +658,16 @@ async function createRechargePayUrl(
       apiurl: safeApiUrl.toString().replace(/\/+$/, '')
     } as EpayConfig
     const epay = createEpayClient(safeEpayConfig)
-    return epay.getPayLink({
-      type: paymentMethod || 'alipay',
-      out_trade_no: orderNo,
-      name: '账户充值',
-      money: amount.toFixed(2),
-      notify_url: urls.notifyUrl,
-      return_url: urls.successUrl
-    })
+    return {
+      payUrl: epay.getPayLink({
+        type: paymentMethod || 'alipay',
+        out_trade_no: orderNo,
+        name: '账户充值',
+        money: amount.toFixed(2),
+        notify_url: urls.notifyUrl,
+        return_url: urls.successUrl
+      })
+    }
   }
 
   if (provider.type === 'heleket') {
@@ -675,7 +687,19 @@ async function createRechargePayUrl(
       url_callback: urls.notifyUrl
     })
 
-    return typeof invoice.url === 'string' && invoice.url.trim() ? invoice.url : null
+    return { payUrl: typeof invoice.url === 'string' && invoice.url.trim() ? invoice.url : null }
+  }
+
+  if (provider.type === 'upaypro') {
+    const built = buildUpayProConfig(config)
+    if (!built.valid) throw new Error(built.error || 'UPAY Pro 支付渠道配置不完整')
+    const upayOrder = await new UpayProClient(built.config).createOrder({
+      order_id: orderNo,
+      amount,
+      notify_url: urls.notifyUrl,
+      redirect_url: urls.successUrl
+    })
+    return { payUrl: upayOrder.payUrl, upayOrder }
   }
 
   if (provider.type === 'antom') {
@@ -696,10 +720,10 @@ async function createRechargePayUrl(
     }
     const normalUrl = await assertSafeHttpUrl(session.normalUrl, 'Antom Hosted Checkout URL')
     if (normalUrl.protocol !== 'https:') throw new Error('Antom Hosted Checkout 地址必须使用 HTTPS')
-    return normalUrl.toString()
+    return { payUrl: normalUrl.toString() }
   }
 
-  return null
+  return { payUrl: null }
 }
 
 function validateActiveRechargeProvider(
@@ -724,6 +748,11 @@ function validateActiveRechargeProvider(
     return { valid, error }
   }
 
+  if (provider.type === 'upaypro') {
+    const { valid, error } = buildUpayProConfig(provider.config)
+    return { valid, error }
+  }
+
   if (provider.type === MANUAL_PROVIDER_TYPE) {
     return normalizeManualRechargeInstructions(provider.config.instructions)
       ? { valid: true }
@@ -737,7 +766,7 @@ async function validatePaymentProviderApiUrl(
   providerType: string,
   config: Record<string, unknown>
 ): Promise<{ valid: boolean; error?: string; config: Record<string, unknown> }> {
-  if (providerType !== 'yipay' && providerType !== 'heleket') {
+  if (providerType !== 'yipay' && providerType !== 'heleket' && providerType !== 'upaypro') {
     return { valid: true, config }
   }
 
@@ -748,7 +777,7 @@ async function validatePaymentProviderApiUrl(
   try {
     const safeApiUrl = await assertSafeHttpUrl(
       config.apiurl,
-      providerType === 'heleket' ? 'Heleket API URL' : 'Epay API URL'
+      providerType === 'upaypro' ? 'UPAY Pro API URL' : providerType === 'heleket' ? 'Heleket API URL' : 'Epay API URL'
     )
     return {
       valid: true,
@@ -818,6 +847,12 @@ async function validatePaymentProviderAdminInput(
       orderDescription: antomConfig.orderDescription,
       sessionExpiryMinutes: antomConfig.sessionExpiryMinutes
     })
+  }
+
+  if (providerType === 'upaypro') {
+    const built = buildUpayProConfig(normalizedConfig)
+    if (!built.valid) return { valid: false, error: built.error, config: normalizedConfig }
+    Object.assign(normalizedConfig, built.config)
   }
 
   if (providerType === MANUAL_PROVIDER_TYPE) {
@@ -1037,7 +1072,9 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         return reply.status(400).send({ error: validation.error })
       }
 
-      const selectedPaymentMethod = resolveRechargePaymentMethod(
+      const selectedPaymentMethod = provider.type === 'upaypro'
+        ? buildUpayProConfig(providerConfig).config.payment_type
+        : resolveRechargePaymentMethod(
         provider.type,
         getProviderMethods(provider.methods),
         paymentMethod
@@ -1074,7 +1111,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       })
 
       // 创建订单
-      const order = await db.createRechargeOrder({
+      let order = await db.createRechargeOrder({
         orderNo,
         userId: user.id,
         providerId: providerIdNum,
@@ -1094,7 +1131,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       const urls = buildRechargeUrls(provider.id, order.orderNo)
 
       try {
-        payUrl = await createRechargePayUrl(
+        const payment = await createRechargePayUrl(
           provider,
           providerConfig,
           order.orderNo,
@@ -1102,6 +1139,22 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           selectedPaymentMethod,
           urls
         )
+        payUrl = payment.payUrl
+        if (payment.upayOrder) {
+          const updatedOrder = await db.updatePendingRechargePaymentSelection(order.orderNo, {
+            paymentMethod: selectedPaymentMethod || null,
+            fee,
+            actualAmount,
+            paymentDetails: {
+              ...paymentDetails,
+              ...buildUpayProPaymentDetails(payment.upayOrder, buildUpayProConfig(providerConfig).config)
+            },
+            expiredAt: new Date(payment.upayOrder.expiresAt),
+            expectedPaymentDetails: paymentDetails as Record<string, unknown>
+          })
+          if (!updatedOrder) return reply.status(409).send({ error: '订单状态已变化，请刷新后重试' })
+          order = updatedOrder
+        }
       } catch (payError) {
         request.log.warn({ providerId: providerIdNum, orderNo: order.orderNo, error: payError }, '生成支付链接失败')
         throw payError
@@ -1319,7 +1372,9 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       }
 
       // 生成支付链接
-      const selectedPaymentMethod = resolveRechargePaymentMethod(
+      const selectedPaymentMethod = provider.type === 'upaypro'
+        ? buildUpayProConfig(effectiveProviderConfig).config.payment_type
+        : resolveRechargePaymentMethod(
         provider.type,
         getProviderMethods(provider.methods),
         paymentMethod || record.paymentMethod
@@ -1392,9 +1447,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
 
       let payUrl: string | null = null
       const urls = buildRechargeUrls(provider.id, record.orderNo)
+      let upayExpiredAt: Date | undefined
 
       try {
-        payUrl = await createRechargePayUrl(
+        const payment = await createRechargePayUrl(
           provider,
           effectiveProviderConfig,
           gatewayOrderNo,
@@ -1402,6 +1458,14 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           selectedPaymentMethod,
           urls
         )
+        payUrl = payment.payUrl
+        if (payment.upayOrder) {
+          paymentDetails = {
+            ...(paymentDetails || {}),
+            ...buildUpayProPaymentDetails(payment.upayOrder, buildUpayProConfig(effectiveProviderConfig).config)
+          }
+          upayExpiredAt = new Date(payment.upayOrder.expiresAt)
+        }
       } catch (payError) {
         request.log.warn({ orderNo, providerId: provider.id, error: payError }, '重新生成支付链接失败')
         throw payError
@@ -1415,7 +1479,11 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         paymentMethod: selectedPaymentMethod || null,
         fee,
         actualAmount,
-        paymentDetails
+        paymentDetails,
+        ...(provider.type === 'upaypro' ? {
+          expiredAt: upayExpiredAt,
+          expectedPaymentDetails: record.paymentDetails as Record<string, unknown>
+        } : {})
       })
       if (!updatedRecord) {
         return reply.status(409).send({ error: '订单状态已变化，请刷新后重试' })
@@ -1430,7 +1498,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           fee,
           paymentMethod: selectedPaymentMethod || null,
           status: record.status,
-          expiredAt: record.expiredAt?.toISOString() || null
+          expiredAt: updatedRecord.expiredAt?.toISOString() || null
         },
         payUrl,
         previousPaymentLinkInvalidated: paymentAttempt !== null,
@@ -1565,7 +1633,8 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           success: true,
           verified: false,
           status: record.status,
-          message: '订单待支付，请稍后重试',
+          // UPAY's public check-status endpoint has no signed order or amount evidence.
+          message: provider.type === 'upaypro' ? '等待 UPAY Pro 支付通知，请稍后刷新' : '订单待支付，请稍后重试',
           order: {
             orderNo: record.orderNo,
             amount: Number(record.amount),
@@ -2197,6 +2266,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       const provider = await db.createPaymentProvider({
         ...input,
         ...financialValidation.data,
+        ...(input.type === 'upaypro' ? {
+          name: validation.config.payment_type as string,
+          methods: [validation.config.payment_type as string]
+        } : {}),
         config: validation.config
       })
       return { provider: db.sanitizePaymentProviderForResponse(provider) }
@@ -2253,6 +2326,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       const provider = await db.updatePaymentProvider(providerId, {
         ...input,
         ...patchFinancialValidation.data,
+        ...(existing.type === 'upaypro' ? {
+          name: validation.config.payment_type as string,
+          methods: [validation.config.payment_type as string]
+        } : {}),
         ...(input.config !== undefined ? { config: validation.config } : {})
       })
       return { provider: db.sanitizePaymentProviderForResponse(provider) }
@@ -2572,6 +2649,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
     let heleketPaymentState = 'pending'
     let antomConfig: ReturnType<typeof buildAntomConfig>['config'] | null = null
     let antomNotification: AntomPaymentNotification | null = null
+    let upayNotification: UpayProNotification | null = null
 
     if (provider.type === 'yipay') {
       const { epayConfig, valid } = buildEpayConfig(config)
@@ -2609,6 +2687,15 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
 
       heleketPaymentStatus = extractHeleketStatus(callbackData)
       heleketPaymentState = getHeleketPaymentState(callbackData)
+    } else if (provider.type === 'upaypro') {
+      upayNotification = request.method === 'POST'
+        ? verifyUpayProNotification(callbackData, buildUpayProConfig(config).config.secret_key)
+        : null
+      if (!upayNotification) {
+        request.log.warn({ providerId, ip: clientIp }, 'UPAY Pro 支付回调签名或参数验证失败')
+        return reply.status(400).send({ error: 'UPAY Pro 回调签名或参数无效' })
+      }
+      if (upayNotification.status !== 2) return 'ok'
     } else if (provider.type === 'antom') {
       const built = buildAntomConfig(config)
       if (!built.valid) {
@@ -2663,6 +2750,11 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         (typeof callbackData.order_id === 'string' && callbackData.order_id.trim() ? callbackData.order_id : '')
       )
       actualAmount = heleketPaymentState === 'paid' ? getHeleketInvoiceAmount(callbackData) : undefined
+    } else if (provider.type === 'upaypro' && upayNotification) {
+      orderNo = upayNotification.order_id
+      tradeNo = upayNotification.trade_id
+      // UPAY amount is CNY; actual_amount is cryptocurrency, not the credited balance.
+      actualAmount = upayNotification.amount
     } else if (provider.type === 'antom' && antomConfig && antomNotification) {
       orderNo = antomNotification.paymentRequestId
       tradeNo = antomNotification.paymentId
@@ -2701,6 +2793,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
     if (await isCallbackProcessed(providerIdNum, orderNo, tradeNoForIndex)) {
       request.log.info({ orderNo }, '重复回调，忽略')
       // 返回成功，避免支付平台重试
+      if (provider.type === 'upaypro') return 'ok'
       if (provider.type === 'antom') return antomNotificationResponse(true)
       return provider.type === 'yipay' && epayVersion === 'v1' ? 'success' : { code: 'SUCCESS', message: 'OK' }
     }
@@ -2726,6 +2819,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         { orderNo: record.orderNo, gatewayOrderNo, tradeNo },
         '支付回调来自已失效的支付尝试，拒绝入账'
       )
+      if (provider.type === 'upaypro') return 'ok'
       if (provider.type === 'antom') return antomNotificationResponse(true)
       return provider.type === 'yipay' && epayVersion === 'v1' ? 'success' : { code: 'SUCCESS', message: 'OK' }
     }
@@ -2735,6 +2829,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
     if (record.status === 'completed') {
       await markCallbackProcessed(providerIdNum, orderNo, tradeNoForIndex, clientIp)
       request.log.info({ orderNo }, '订单已完成，幂等返回')
+      if (provider.type === 'upaypro') return 'ok'
       if (provider.type === 'antom') return antomNotificationResponse(true)
       return provider.type === 'yipay' && epayVersion === 'v1' ? 'success' : { code: 'SUCCESS', message: 'OK' }
     }
@@ -2845,6 +2940,23 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       paymentDetails: (record as any).paymentDetails
     })
     const creditedAmount = record.actualAmount !== null && record.actualAmount !== undefined ? Number(record.actualAmount) : rechargeAmount
+    if (provider.type === 'upaypro' && upayNotification) {
+      const invoice = readRechargePaymentDetails(record.paymentDetails).upaypro
+      if (
+        !invoice || invoice.orderId !== gatewayOrderNo || invoice.tradeId !== upayNotification.trade_id ||
+        invoice.paymentType !== buildUpayProConfig(config).config.payment_type ||
+        upayProMoneyToCents(upayNotification.amount) !== upayProMoneyToCents(expectedAmount) ||
+        upayProMoneyToCents(invoice.invoiceAmount) !== upayProMoneyToCents(expectedAmount) ||
+        invoice.paymentAmount !== upayNotification.actual_amount || invoice.address !== upayNotification.token
+      ) {
+        request.log.warn({ orderNo, providerId }, 'UPAY Pro 回调与创建时的订单信息不匹配')
+        return reply.status(400).send({ error: 'UPAY Pro 支付订单或金额不匹配' })
+      }
+      paymentDetails = {
+        ...paymentDetails,
+        upaypro: { ...invoice, status: 'paid', txid: upayNotification.block_transaction_id === '0' ? null : upayNotification.block_transaction_id }
+      }
+    }
     if (provider.type === 'heleket') {
       paymentDetails = mergeHeleketPaymentDetails(
         (record as any).paymentDetails,
@@ -2912,7 +3024,8 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         tradeNo,
         actualAmount: creditedAmount,
         callbackData: callbackData,
-        paymentDetails
+        paymentDetails,
+        ...(provider.type === 'upaypro' ? { expectedPaymentDetails: record.paymentDetails as Record<string, unknown> } : {})
       })
 
       // 记录已处理
@@ -2969,6 +3082,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       request.log.info({ orderNo, tradeNo, completedNow: completion.completedNow }, '支付回调处理成功')
 
       // 根据不同支付渠道返回不同格式的成功响应
+      if (provider.type === 'upaypro') return 'ok'
       if (provider.type === 'yipay') {
         // V1版本返回小写 'success' 字符串
         return epayVersion === 'v1' ? 'success' : { code: 'SUCCESS', message: 'OK' }
@@ -2986,6 +3100,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       const currentRecord = await db.getRechargeRecordByOrderNo(orderNo)
       if (currentRecord && currentRecord.status === 'completed') {
         await markCallbackProcessed(providerIdNum, orderNo, tradeNoForIndex, clientIp)
+        if (provider.type === 'upaypro') return 'ok'
         if (provider.type === 'antom') return antomNotificationResponse(true)
         return provider.type === 'yipay' && epayVersion === 'v1' ? 'success' : { code: 'SUCCESS', message: 'OK' }
       }

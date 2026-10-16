@@ -135,6 +135,8 @@
     "test:payment-provider-secret-redaction": "node --import tsx scripts/test-payment-provider-secret-redaction.ts",
     "test:manual-payment-provider-guards": "node --import tsx scripts/test-manual-payment-provider-guards.ts",
     "test:antom-payment-guards": "node --import tsx scripts/test-antom-payment-guards.ts",
+    "test:upaypro-payment-guards": "node --import tsx scripts/test-upaypro-payment-guards.ts",
+    "test:upaypro-payment-integration": "node --import tsx scripts/test-upaypro-payment-integration.ts",
     "test:payment-provider-outbound-guard": "node --import tsx scripts/test-payment-provider-outbound-guard.ts",
     "test:plan-bandwidth-limit-guards": "node --import tsx scripts/test-plan-bandwidth-limit-guards.ts",
     "test:plan-upgrade-capacity-guards": "node --import tsx scripts/test-plan-upgrade-capacity-guards.ts",

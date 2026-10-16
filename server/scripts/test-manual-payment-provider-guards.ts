@@ -43,7 +43,7 @@ assert.ok(
 )
 
 assert.ok(
-  paymentProvidersView.includes("new Set(['yipay', 'heleket', 'antom', 'manual'])") &&
+  paymentProvidersView.includes("new Set(['yipay', 'heleket', 'antom', 'upaypro', 'manual'])") &&
     paymentProvidersView.includes("formData.type === 'manual'") &&
     paymentProvidersView.includes('instructionsPlaceholder'),
   'admin payment provider UI must allow configuring manual payment instructions'
