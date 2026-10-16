@@ -143,7 +143,9 @@ function assertFrontendKeysExist(): void {
   assert.ok(keys.has('aff.withdrawalStatus.pending'), 'frontend i18n guard must cover admin AFF review nested status labels')
   assert.ok(!keys.has('instance.errorBanner.reasonLabel'), 'frontend must not reference the removed instance failure reason label')
   for (const key of [
-    'publicSite.portal.heroTitlePrimary',
+    'publicSite.storefront.titleFirst',
+    'publicSite.storefront.chooseProduct',
+    'poolPurchase.addedCount',
     'hostPublicIpv4.title',
     'terminal.errors.connectionFailed',
     'invites.title',
@@ -170,7 +172,7 @@ function flattenMessageKeys(source: unknown, prefix = ''): string[] {
 }
 
 function assertD152NamespaceParity(): void {
-  const namespaces = ['hostPublicIpv4', 'invites', 'telegramConfig']
+  const namespaces = ['hostPublicIpv4', 'invites', 'telegramConfig', 'publicSite.storefront']
   for (const namespace of namespaces) {
     const expected = flattenMessageKeys(resolveMessage(zhCN, namespace), namespace).sort()
     assert.ok(expected.length > 0, `zhCN must define ${namespace}`)

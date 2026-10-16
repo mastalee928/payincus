@@ -7,7 +7,7 @@ import { useConfigStore } from '@/stores/config'
 import { useThemeStore } from '@/stores/theme'
 import { useBrand } from '@/composables/useBrand'
 import { supportedLocales, setLocale, type Locale } from '@/locales'
-import { dashboardPath, helpPath, loginPath, marketPath, registerPath } from '@/utils/app-paths'
+import { dashboardPath, helpPath, loginPath, registerPath } from '@/utils/app-paths'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,10 +19,10 @@ const brand = useBrand()
 
 const langMenuOpen = ref(false)
 const langMenuRef = ref<HTMLElement | null>(null)
+const langMenuButton = ref<HTMLButtonElement | null>(null)
 
 const navigation = computed(() => [
   { label: t('publicSite.nav.home'), compactLabel: t('publicSite.nav.overview'), to: '/' },
-  { label: t('publicSite.nav.products'), compactLabel: t('publicSite.nav.products'), to: marketPath() },
   { label: t('nav.purchase'), compactLabel: t('nav.purchase'), to: '/purchase' },
   { label: t('publicSite.nav.help'), compactLabel: t('publicSite.nav.help'), to: helpPath() }
 ])
@@ -90,7 +90,12 @@ function toggleLangMenu(): void {
 
 function changeLocale(nextLocale: Locale): void {
   setLocale(nextLocale)
+  closeLangMenu()
+}
+
+function closeLangMenu(): void {
   langMenuOpen.value = false
+  langMenuButton.value?.focus()
 }
 
 function getThemeTooltip(): string {
@@ -149,7 +154,7 @@ onUnmounted(() => {
 
 <template>
   <header
-    class="kawaii-public-header sticky top-0 z-50 border-b transition-[background-color,border-color,backdrop-filter] duration-200"
+    class="public-header sticky top-0 z-50 border-b"
     :class="scrolled ? 'is-scrolled' : ''"
   >
     <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -157,7 +162,7 @@ onUnmounted(() => {
         <div class="flex min-w-0 items-center gap-3 sm:gap-6">
           <RouterLink to="/" class="flex items-center gap-2 sm:gap-3">
             <div
-              class="kawaii-brand-mark flex h-10 w-10 items-center justify-center rounded-xl"
+              class="public-brand-mark flex h-10 w-10 items-center justify-center rounded-xl"
             >
               <img :src="brand.brandLogoUrl" :alt="brand.brandName" class="h-6 w-6 rounded-xl object-contain" />
             </div>
@@ -166,7 +171,7 @@ onUnmounted(() => {
                 {{ brand.brandName }}
               </div>
               <div class="hidden truncate text-xs text-themed-muted sm:block">
-                {{ brand.brandSubtitle }}
+                {{ t('publicSite.brandTagline') }}
               </div>
             </div>
           </RouterLink>
@@ -176,8 +181,9 @@ onUnmounted(() => {
               v-for="item in navigation"
               :key="item.to"
               :to="item.to"
-              class="kawaii-public-nav-link rounded-full px-4 py-2 text-sm font-medium tracking-normal transition-colors duration-150"
+              class="public-header-nav rounded-lg px-4 py-2 text-sm font-medium"
               :class="isActive(item.to) ? 'is-active' : ''"
+              :aria-current="isActive(item.to) ? 'page' : undefined"
             >
               {{ item.label }}
             </RouterLink>
@@ -186,7 +192,7 @@ onUnmounted(() => {
 
         <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
           <button
-            class="kawaii-header-icon group relative rounded-full p-2.5 transition-colors duration-150"
+            class="public-header-icon group relative rounded-lg p-2.5"
             :title="getThemeTooltip()"
             :aria-label="t('nav.toggleTheme')"
             @click="themeStore.toggleTheme"
@@ -202,10 +208,13 @@ onUnmounted(() => {
             </svg>
           </button>
 
-          <div ref="langMenuRef" class="relative">
+          <div ref="langMenuRef" class="relative" @keydown.esc.prevent.stop="closeLangMenu">
             <button
-              class="kawaii-header-icon rounded-full px-3 py-2 text-xs font-semibold transition-colors duration-150 sm:px-3.5"
+              ref="langMenuButton"
+              class="public-header-icon rounded-lg px-3 py-2 text-xs font-semibold sm:px-3.5"
               :aria-label="t('nav.toggleLanguage')"
+              :aria-expanded="langMenuOpen"
+              aria-controls="public-language-options"
               @click.stop="toggleLangMenu"
             >
               {{ currentLocaleShort() }}
@@ -221,12 +230,13 @@ onUnmounted(() => {
             >
               <div
                 v-if="langMenuOpen"
-                class="kawaii-menu-panel absolute right-0 mt-2 w-36 overflow-hidden rounded-[24px] border p-1 shadow-xl"
+                id="public-language-options"
+                class="public-language-menu absolute right-0 mt-2 w-36 overflow-hidden rounded-xl border p-1 shadow-lg"
               >
                 <button
                   v-for="lang in supportedLocales"
                   :key="lang.code"
-                  class="kawaii-menu-item flex w-full items-center justify-between rounded-[18px] px-3 py-2 text-sm transition-[background-color,color]"
+                  class="public-language-option flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm"
                   :class="locale === lang.code ? 'is-active' : ''"
                   @click="changeLocale(lang.code)"
                 >
@@ -240,7 +250,7 @@ onUnmounted(() => {
           </div>
 
           <button
-            class="kawaii-header-cta inline-flex h-10 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-5 text-sm font-medium tracking-[0.01em] transition-[background-color,box-shadow] duration-150 sm:gap-2"
+            class="public-header-action inline-flex h-10 min-w-0 shrink-0 items-center gap-1.5 rounded-lg px-4 text-sm font-medium sm:gap-2"
             @click="handlePrimaryAction"
           >
             <span class="sm:hidden">{{ primaryActionCompactLabel }}</span>
@@ -257,8 +267,9 @@ onUnmounted(() => {
           v-for="item in navigation"
           :key="item.to"
           :to="item.to"
-          class="kawaii-public-nav-link inline-flex min-w-0 items-center rounded-full px-3.5 py-2 text-xs font-semibold transition-colors duration-150"
+          class="public-header-nav inline-flex min-w-0 items-center rounded-lg px-3.5 py-2 text-xs font-semibold"
           :class="isActive(item.to) ? 'is-active' : ''"
+          :aria-current="isActive(item.to) ? 'page' : undefined"
         >
           {{ item.compactLabel }}
         </RouterLink>
@@ -266,3 +277,19 @@ onUnmounted(() => {
     </div>
   </header>
 </template>
+
+<style scoped>
+.public-header { color: var(--text-primary); background: var(--bg-elevated); border-color: var(--border-color); }
+.public-brand-mark { border: 1px solid var(--border-color); }
+.public-header-nav, .public-header-icon { color: var(--text-secondary); transition: background 150ms, color 150ms; }
+.public-header-nav:hover, .public-header-icon:hover { color: var(--text-primary); background: var(--bg-secondary); }
+.public-header-nav.is-active { color: var(--text-primary); background: var(--bg-secondary); }
+.public-header-action { color: var(--bg-elevated); background: var(--text-primary); transition: opacity 150ms; }
+.public-header-action:hover { opacity: 0.85; }
+.public-language-menu { color: var(--text-primary); background: var(--bg-elevated); border-color: var(--border-color); }
+.public-language-option:hover, .public-language-option.is-active { background: var(--bg-secondary); }
+.public-header :is(a, button):focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .public-header *, .public-header *::before, .public-header *::after { animation: none !important; transition: none !important; }
+}
+</style>

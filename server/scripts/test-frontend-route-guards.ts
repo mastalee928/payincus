@@ -37,6 +37,7 @@ const staleAssetRecoverySource = readRepoFile('client/src/utils/staleAssetRecove
 const turnstileWidgetSource = readRepoFile('client/src/components/TurnstileWidget.vue')
 const publicHeaderSource = readRepoFile('client/src/components/public/PublicSiteHeader.vue')
 const publicFooterSource = readRepoFile('client/src/components/public/PublicSiteFooter.vue')
+const publicHostOfferSource = readRepoFile('client/src/components/public/PublicHostOffer.vue')
 const sideNavSource = readRepoFile('client/src/components/layout/SideNav.vue')
 const sideNavUserItemsSource = readRepoFile('client/src/config/side-nav-items-user.ts')
 const sideNavAdminItemsSource = readRepoFile('client/src/config/side-nav-items-admin.ts')
@@ -374,9 +375,10 @@ assert.equal(
 )
 
 assert.ok(
-  publicHeaderSource.includes("import { dashboardPath, helpPath, loginPath, marketPath, registerPath } from '@/utils/app-paths'") &&
+  publicHeaderSource.includes("import { dashboardPath, helpPath, loginPath, registerPath } from '@/utils/app-paths'") &&
     publicHeaderSource.includes("to: '/'") &&
-    publicHeaderSource.includes('to: marketPath()') &&
+    publicHeaderSource.includes("to: '/purchase'") &&
+    !publicHeaderSource.includes('marketPath()') &&
     publicHeaderSource.includes('to: helpPath()') &&
     publicHeaderSource.includes('const consoleTarget = computed(() => dashboardPath())') &&
     publicHeaderSource.includes('router.push(registerPath())') &&
@@ -384,8 +386,9 @@ assert.ok(
     !publicHeaderSource.includes("router.push('/register')") &&
     !publicHeaderSource.includes("router.push('/login')") &&
     publicFooterSource.includes("{ to: '/', label: t('publicSite.nav.overview') }") &&
-    publicFooterSource.includes("import { dashboardPath, forgotPasswordPath, helpPath, loginPath, marketPath, registerPath } from '@/utils/app-paths'") &&
-    publicFooterSource.includes("to: marketPath()") &&
+    publicFooterSource.includes("import { dashboardPath, forgotPasswordPath, helpPath, loginPath, registerPath } from '@/utils/app-paths'") &&
+    publicFooterSource.includes("to: '/purchase'") &&
+    !publicFooterSource.includes('marketPath()') &&
     publicFooterSource.includes(':to="helpPath()"') &&
     publicFooterSource.includes("to: loginPath()") &&
     publicFooterSource.includes("to: registerPath()") &&
@@ -396,18 +399,30 @@ assert.ok(
     !publicFooterSource.includes("to: '/forgot-password'") &&
     portalViewSource.includes("name: 'PortalView'") &&
     marketViewSource.includes("name: 'MarketView'"),
-  'public navigation links to / and /market must land on the real public views'
+  'public navigation must expose one pooled purchase entry while keeping customer account and help routes'
 )
 assert.ok(
-  portalViewSource.includes("import { dashboardPath, loginPath, marketPath } from '@/utils/app-paths'") &&
-    portalViewSource.includes("path: marketPath()") &&
+  portalViewSource.includes("import { dashboardPath, helpPath, loginPath } from '@/utils/app-paths'") &&
+    portalViewSource.includes('to="/purchase"') &&
     !portalViewSource.includes('openAdminConsole') &&
     portalViewSource.includes("void router.push(dashboardPath())") &&
     portalViewSource.includes("void router.push(loginPath())") &&
     !portalViewSource.includes("path: '/market'") &&
     !portalViewSource.includes("void router.push('/dashboard')") &&
     !portalViewSource.includes("void router.push('/login')"),
-  'PortalView CTA must browse the public market and keep authenticated users on the customer console or guests on customer login'
+  'PortalView CTA must browse pooled hosts and keep authenticated users on the customer console or guests on customer login'
+)
+assert.ok(
+  portalViewSource.includes('api.packages.getPublicCatalog()') &&
+    !portalViewSource.includes('api.packages.listPublic()') &&
+    portalViewSource.includes('buildPoolPurchaseRegions(regions.value)') &&
+    portalViewSource.includes('regionId: region.id, product') &&
+    publicHostOfferSource.includes("path: '/purchase'") &&
+    publicHostOfferSource.includes('region: String(props.regionId), product: String(props.product.id)') &&
+    publicHostOfferSource.includes('v-if="product.idle > 0"') &&
+    publicHostOfferSource.includes('class="host-offer-action" disabled') &&
+    publicHostOfferSource.includes('product.cpu / 100'),
+  'homepage offers must use the real pooled catalog, carry both identifiers into the existing purchase flow, and disable sold-out products'
 )
 assert.ok(
   oauthAuthorizeViewSource.includes("import { dashboardPath } from '@/utils/app-paths'") &&

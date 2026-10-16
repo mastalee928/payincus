@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useConfigStore } from '@/stores/config'
 import { useBrand } from '@/composables/useBrand'
-import { dashboardPath, forgotPasswordPath, helpPath, loginPath, marketPath, registerPath } from '@/utils/app-paths'
+import { dashboardPath, forgotPasswordPath, helpPath, loginPath, registerPath } from '@/utils/app-paths'
 
 const route = useRoute()
 const router = useRouter()
@@ -36,9 +36,9 @@ const primaryActionLabel = computed(() => {
 })
 
 const secondaryAction = computed(() => (
-  route.name === 'market'
+  route.name === 'pool-purchase'
     ? { to: '/', label: t('publicSite.nav.overview') }
-    : { to: marketPath(), label: t('publicSite.actions.browseProducts') }
+    : { to: '/purchase', label: t('nav.purchase') }
 ))
 
 const accountLinks = computed(() => {
@@ -76,85 +76,51 @@ void configStore.loadPublicConfig()
 </script>
 
 <template>
-  <footer class="kawaii-public-footer relative border-t">
-
-    <div class="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-      <div
-        class="kawaii-footer-panel rounded-[32px] border p-6 shadow-sm sm:p-8"
-      >
-        <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div class="max-w-2xl">
-            <div class="flex items-center gap-3">
-              <div
-                class="kawaii-footer-logo flex h-11 w-11 items-center justify-center rounded-2xl border"
-              >
-                <img :src="brand.brandLogoUrl" :alt="brand.brandName" class="h-6 w-6 rounded-xl object-contain" />
-              </div>
-              <div>
-                <div class="text-sm font-semibold text-themed">{{ brand.brandName }}</div>
-                <div class="text-xs text-themed-muted">{{ brand.brandSubtitle }}</div>
-              </div>
-            </div>
-
-            <p class="mt-4 max-w-2xl text-sm leading-7 text-themed-muted">
-              {{ t('publicSite.footer.description') }}
-            </p>
-          </div>
-
-          <div class="flex flex-col gap-3 sm:flex-row">
-            <RouterLink
-              class="kawaii-secondary-button inline-flex items-center justify-center rounded-full border px-5 py-3 text-sm font-semibold transition-colors"
-              :to="secondaryAction.to"
-            >
-              {{ secondaryAction.label }}
-            </RouterLink>
-            <button
-              class="kawaii-primary-button inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-semibold transition-colors"
-              @click="handlePrimaryAction"
-            >
-              {{ primaryActionLabel }}
-            </button>
-          </div>
+  <footer class="public-footer">
+    <div class="public-footer-inner">
+      <div class="public-footer-main">
+        <div class="public-footer-brand">
+          <img :src="brand.brandLogoUrl" :alt="brand.brandName" width="28" height="28" />
+          <span>{{ brand.brandName }}</span>
+        </div>
+        <p>{{ t('publicSite.footer.description') }}</p>
+        <div class="public-footer-actions">
+          <RouterLink :to="secondaryAction.to">{{ secondaryAction.label }}</RouterLink>
+          <button type="button" @click="handlePrimaryAction">{{ primaryActionLabel }}</button>
         </div>
       </div>
-
-      <div class="mt-10 grid gap-8 sm:grid-cols-2">
-        <div class="space-y-3">
-          <div class="text-xs font-semibold uppercase tracking-[0.2em] text-themed-faint">
-            {{ t('publicSite.footer.explore') }}
-          </div>
-          <div class="flex flex-col gap-2 text-sm">
-            <RouterLink class="kawaii-footer-link transition-colors" to="/">
-              {{ t('publicSite.nav.home') }}
-            </RouterLink>
-            <RouterLink class="kawaii-footer-link transition-colors" :to="marketPath()">
-              {{ t('publicSite.nav.products') }}
-            </RouterLink>
-            <RouterLink class="kawaii-footer-link transition-colors" :to="helpPath()">
-              {{ t('publicSite.nav.help') }}
-            </RouterLink>
-          </div>
-        </div>
-
-        <div class="space-y-3">
-          <div class="text-xs font-semibold uppercase tracking-[0.2em] text-themed-faint">
-            {{ t('publicSite.footer.account') }}
-          </div>
-          <div class="flex flex-col gap-2 text-sm">
-            <RouterLink
-              v-for="link in accountLinks"
-              :key="link.to"
-              class="kawaii-footer-link transition-colors"
-              :to="link.to"
-            >
-              {{ link.label }}
-            </RouterLink>
-          </div>
-          <p class="text-xs leading-6 text-themed-muted">
-            {{ t('publicSite.footer.purchaseHint') }}
-          </p>
-        </div>
+      <div class="public-footer-links">
+        <h2>{{ t('publicSite.footer.explore') }}</h2>
+        <RouterLink to="/">{{ t('publicSite.nav.home') }}</RouterLink>
+        <RouterLink to="/purchase">{{ t('nav.purchase') }}</RouterLink>
+        <RouterLink :to="helpPath()">{{ t('publicSite.nav.help') }}</RouterLink>
+      </div>
+      <div class="public-footer-links">
+        <h2>{{ t('publicSite.footer.account') }}</h2>
+        <RouterLink v-for="link in accountLinks" :key="link.to" :to="link.to">{{ link.label }}</RouterLink>
       </div>
     </div>
   </footer>
 </template>
+
+<style scoped>
+.public-footer { border-top: 1px solid var(--border-color); color: var(--text-primary); background: var(--bg-elevated); }
+.public-footer-inner { display: grid; grid-template-columns: minmax(0, 1fr) 140px 140px; gap: 48px; max-width: 1280px; margin: 0 auto; padding: 36px 32px; }
+.public-footer-brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; }
+.public-footer-brand img { object-fit: contain; }
+.public-footer-main p { max-width: 50ch; margin-top: 14px; color: var(--text-secondary); font-size: 12px; line-height: 1.8; text-wrap: pretty; }
+.public-footer-actions { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 18px; font-size: 12px; font-weight: 550; }
+.public-footer-links { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; font-size: 12px; }
+.public-footer-links h2 { margin-bottom: 3px; font-weight: 600; }
+.public-footer-links a { color: var(--text-secondary); }
+.public-footer :is(a, button) { text-underline-offset: 4px; }
+.public-footer :is(a, button):hover { color: var(--text-primary); text-decoration: underline; }
+.public-footer :is(a, button):focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 4px; border-radius: 3px; }
+@media (max-width: 800px) {
+  .public-footer-inner { padding: 32px 24px; grid-template-columns: minmax(0, 1fr) 100px 100px; gap: 28px; }
+}
+@media (max-width: 580px) {
+  .public-footer-inner { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; padding: 28px 20px; }
+  .public-footer-main { grid-column: 1 / -1; }
+}
+</style>

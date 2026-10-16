@@ -6,6 +6,8 @@ import { ArrowRight, Check, Cpu, Globe2, HardDrive, Loader2, MemoryStick, Minus,
 import api from '@/api'
 import FlagIcon from '@/components/FlagIcon.vue'
 import ImageSelector from '@/components/instance/ImageSelector.vue'
+import SelectionTabs from '@/components/ui/SelectionTabs.vue'
+import CartAddedNotice from '@/components/purchase/CartAddedNotice.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 import { useToast } from '@/stores/toast'
@@ -38,6 +40,10 @@ const purchaseRegions = computed(() => buildPoolPurchaseRegions(regions.value))
 const selectedPurchaseRegion = computed(() => purchaseRegions.value.find(value => value.regions.some(group => group.id === regionId.value)))
 const configurations = computed(() => selectedPurchaseRegion.value?.regions.flatMap(group => group.products.map(value => ({ ...value, regionId: group.id }))) ?? [])
 const continents = computed(() => groupByContinent(purchaseRegions.value))
+const continentOptions = computed(() => [
+  { value: 'all', label: t('poolPurchase.allRegions') },
+  ...continents.value.map(group => ({ value: group.code, label: t('poolPurchase.continents.' + group.code) }))
+])
 const currentContinent = computed(() => continentFilter.value ?? continentOf((selectedPurchaseRegion.value
   ?? purchaseRegions.value.find(value => value.regions.length)
   ?? purchaseRegions.value[0])?.countryCode))
@@ -53,6 +59,11 @@ const selectedImageLabel = computed(() => images.value.find(value => value.value
 function selectPurchaseRegion(value: PoolPurchaseRegion) {
   const available = value.regions.find(group => regionStock(group) > 0)
   if (available) selectRegion(available.id)
+}
+
+function selectContinent(value: string) {
+  continentFilter.value = value as ContinentCode | 'all'
+  regionSearch.value = ''
 }
 
 async function load() {
@@ -103,14 +114,14 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="purchase-page animate-fade-in" :class="{ 'purchase-public': !auth.isAuthenticated }" :aria-busy="loading">
+  <div class="purchase-page" :class="{ 'purchase-public': !auth.isAuthenticated }" :aria-busy="loading">
     <header class="purchase-header">
       <div class="purchase-heading">
         <span class="purchase-heading-icon"><Server :size="22" :stroke-width="1.6" aria-hidden="true" /></span>
         <h1>{{ t('poolPurchase.title') }}</h1>
       </div>
       <RouterLink to="/checkout" class="purchase-cart-link">
-        <ShoppingBag :size="17" aria-hidden="true" />{{ t('cart.title') }}<span class="purchase-cart-count">{{ cart.totalQuantity }}</span>
+        <ShoppingBag :size="17" aria-hidden="true" />{{ t('cart.title') }}<span class="purchase-cart-count"><Transition name="purchase-number" mode="out-in"><span :key="cart.totalQuantity">{{ cart.totalQuantity }}</span></Transition></span>
       </RouterLink>
     </header>
 
@@ -124,21 +135,23 @@ onMounted(load)
           <div class="purchase-section-heading">
             <span class="purchase-step" aria-hidden="true">01</span><h2 id="purchase-region-title">{{ t('poolPurchase.chooseRegion') }}</h2>
           </div>
-          <div v-if="continents.length > 1" class="purchase-continents" role="group" :aria-label="t('poolPurchase.continentFilter')">
-            <button type="button" :class="{ 'is-active': currentContinent === 'all' || regionSearch.trim() }" :aria-pressed="currentContinent === 'all' || !!regionSearch.trim()" @click="continentFilter = 'all'; regionSearch = ''">{{ t('poolPurchase.allRegions') }}</button>
-            <button v-for="group in continents" :key="group.code" type="button" :class="{ 'is-active': currentContinent === group.code && !regionSearch.trim() }" :aria-pressed="currentContinent === group.code && !regionSearch.trim()" @click="continentFilter = group.code; regionSearch = ''">{{ t(`poolPurchase.continents.${group.code}`) }}</button>
-          </div>
+          <SelectionTabs
+            v-if="continents.length > 1" class="purchase-continents"
+            :model-value="regionSearch.trim() ? 'all' : currentContinent"
+            :options="continentOptions" :label="t('poolPurchase.continentFilter')"
+            @update:model-value="selectContinent"
+          />
           <label v-if="purchaseRegions.length > 6" class="purchase-region-search">
             <Search :size="16" aria-hidden="true" /><span class="sr-only">{{ t('poolPurchase.searchRegions') }}</span>
             <input v-model="regionSearch" type="search" :placeholder="t('poolPurchase.searchRegions')" />
           </label>
-          <div v-if="visibleRegions.length" class="purchase-region-grid">
+          <TransitionGroup v-if="visibleRegions.length" name="purchase-options" tag="div" class="purchase-region-grid">
             <button v-for="value in visibleRegions" :key="value.key" type="button" class="purchase-region-option" :class="{ 'is-selected': value.key === selectedPurchaseRegion?.key }" :aria-pressed="value.key === selectedPurchaseRegion?.key" :disabled="poolPurchaseRegionStock(value) === 0" @click="selectPurchaseRegion(value)">
               <span class="purchase-region-top"><FlagIcon v-if="value.countryCode" :code="value.countryCode" size="sm" /><Globe2 v-else :size="19" aria-hidden="true" /><span class="purchase-choice-indicator"><Check v-if="value.key === selectedPurchaseRegion?.key" :size="12" :stroke-width="2.5" aria-hidden="true" /></span></span>
               <span class="purchase-region-name">{{ value.name }}</span>
               <span class="purchase-stock" :class="{ 'is-available': poolPurchaseRegionStock(value) > 0 }"><span aria-hidden="true"></span>{{ poolPurchaseRegionStock(value) ? t('poolPurchase.stock', { count: poolPurchaseRegionStock(value) }) : t(value.regions.length ? 'poolPurchase.soldOut' : 'poolPurchase.notListed') }}</span>
             </button>
-          </div>
+          </TransitionGroup>
           <p v-else class="purchase-filter-empty">{{ t('poolPurchase.noMatchingRegions') }}</p>
         </section>
 
@@ -146,7 +159,7 @@ onMounted(load)
           <div class="purchase-section-heading">
             <span class="purchase-step" aria-hidden="true">02</span><h2 id="purchase-config-title">{{ t('poolPurchase.chooseConfiguration') }}</h2>
           </div>
-          <div class="purchase-config-grid">
+          <TransitionGroup name="purchase-options" tag="div" class="purchase-config-grid">
             <button v-for="value in configurations" :key="value.id" type="button" class="purchase-config-option" :class="{ 'is-selected': value.id === productId }" :aria-pressed="value.id === productId" :disabled="value.idle === 0" @click="regionId = value.regionId; productId = value.id">
               <span class="purchase-config-top"><span class="purchase-preset">{{ presetLabel(value.resourcePreset) }}</span><span class="purchase-choice-indicator"><Check v-if="value.id === productId" :size="12" :stroke-width="2.5" aria-hidden="true" /></span></span>
               <span class="purchase-config-specs">
@@ -157,7 +170,7 @@ onMounted(load)
               <span class="purchase-config-price"><span><strong><span>¥</span>{{ formatPublicPrice(value.monthlyPrice) }}</strong><span class="purchase-price-period"> / {{ t('poolPurchase.month') }}</span></span><span class="purchase-stock" :class="{ 'is-available': value.idle > 0 }"><span aria-hidden="true"></span>{{ value.idle ? t('poolPurchase.stock', { count: value.idle }) : t('poolPurchase.soldOut') }}</span></span>
               <span v-if="value.setupFee > 0" class="purchase-setup-fee">{{ t('poolPurchase.setupFee') }} ¥{{ formatPublicPrice(value.setupFee) }}</span>
             </button>
-          </div>
+          </TransitionGroup>
         </section>
 
         <section v-if="product" class="purchase-panel purchase-section" aria-labelledby="purchase-system-title">
@@ -212,11 +225,12 @@ onMounted(load)
         <template v-if="product">
           <div class="purchase-summary-section">
             <dl class="purchase-fees"><div><dt>{{ t('poolPurchase.monthly') }}</dt><dd>¥{{ formatPublicPrice(product.monthlyPrice * quantity) }}</dd></div><div v-if="product.setupFee > 0"><dt>{{ t('poolPurchase.setup') }}</dt><dd>¥{{ formatPublicPrice(product.setupFee * quantity) }}</dd></div></dl>
-            <div class="purchase-grand-total"><span>{{ t('poolPurchase.firstPayment') }}</span><strong><span>¥</span>{{ formatPublicPrice(subtotal) }}</strong></div>
+            <div class="purchase-grand-total"><span>{{ t('poolPurchase.firstPayment') }}</span><Transition name="purchase-number" mode="out-in"><strong :key="subtotal"><span>¥</span>{{ formatPublicPrice(subtotal) }}</strong></Transition></div>
           </div>
           <div class="purchase-summary-section purchase-actions">
             <button v-if="!auth.isAuthenticated" type="button" class="purchase-primary" @click="login">{{ t('poolPurchase.login') }}<ArrowRight :size="16" aria-hidden="true" /></button>
             <template v-else>
+              <CartAddedNotice :total="cart.totalQuantity" :selection="productId" />
               <button type="button" class="purchase-primary" :disabled="!canAdd" @click="add()"><ShoppingBag :size="16" aria-hidden="true" />{{ t('poolPurchase.add') }}</button>
               <button type="button" class="purchase-secondary" :disabled="!canAdd" @click="add(true)">{{ t('poolPurchase.checkout') }}<ArrowRight :size="15" aria-hidden="true" /></button>
               <p v-if="!name.trim()" class="purchase-action-hint">{{ t('poolPurchase.nameRequired') }}</p>
@@ -245,10 +259,7 @@ onMounted(load)
 .purchase-section-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
 .purchase-section-heading h2, .purchase-summary h2 { font-size: 15px; font-weight: 600; }
 .purchase-step { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 11px; font-weight: 550; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
-.purchase-continents { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
-.purchase-continents button { border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 10px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; transition: background 150ms, color 150ms; }
-.purchase-continents button:hover { background: var(--bg-tertiary); }
-.purchase-continents button.is-active { background: var(--text-primary); border-color: var(--text-primary); color: var(--bg-elevated); }
+.purchase-continents { margin-bottom: 16px; }
 .purchase-region-search { display: flex; align-items: center; gap: 8px; padding: 0 12px; margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: 9px; color: var(--text-tertiary); }
 .purchase-region-search svg { flex-shrink: 0; }
 .purchase-page .purchase-region-search input { width: 100%; min-width: 0; height: 40px; padding: 8px 0; border: 0 !important; border-radius: 0; background: transparent !important; color: var(--text-primary); font-size: 12px; box-shadow: none !important; outline: none; }
@@ -323,6 +334,17 @@ onMounted(load)
 .purchase-alert { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 14px 18px; border: 1px solid rgb(239 68 68 / 0.25); border-radius: 12px; background: rgb(239 68 68 / 0.045); color: #dc2626; font-size: 13px; line-height: 1.65; }
 .purchase-alert button { font-weight: 600; text-decoration: underline; flex-shrink: 0; }
 :global(.dark) .purchase-alert { color: #f87171; }
+.purchase-options-move, .purchase-options-enter-active { transition: transform 180ms ease-out, opacity 180ms ease-out; }
+.purchase-options-enter-from { opacity: 0; transform: translateY(5px); }
+.purchase-number-enter-active { transition: transform 180ms ease-out, opacity 180ms ease-out; }
+.purchase-number-leave-active { transition: opacity 80ms; }
+.purchase-number-enter-from { opacity: 0; transform: translateY(5px); }
+.purchase-number-leave-to { opacity: 0; }
+.purchase-choice-indicator svg { animation: purchase-check-in 180ms ease-out; }
+@keyframes purchase-check-in {
+  from { opacity: 0; transform: scale(0.65); }
+  to { opacity: 1; transform: scale(1); }
+}
 .purchase-page button:focus-visible, .purchase-cart-link:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 3px; }
 @media (min-width: 1100px) {
   .purchase-layout { grid-template-columns: minmax(0, 1fr) 320px; }
@@ -342,6 +364,7 @@ onMounted(load)
   .purchase-quantity { grid-template-columns: 32px minmax(0, 1fr) 32px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .purchase-page *, .purchase-page *::before, .purchase-page *::after { transition: none !important; }
+  .purchase-page *, .purchase-page *::before, .purchase-page *::after { animation: none !important; transition: none !important; }
+  .purchase-options-enter-from, .purchase-number-enter-from { transform: none; }
 }
 </style>
