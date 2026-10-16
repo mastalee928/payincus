@@ -34,9 +34,9 @@ INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
 
 ## 已发布版本
 
-- 面板 [v1.6.1](https://github.com/mastalee928/payincus/releases/tag/v1.6.1)，发行源码 `737c6863a36c436de8f9071e1831015f285b872b`，已设为面板 latest。
-- [正式发布工作流](https://github.com/mastalee928/payincus/actions/runs/38789679660) 已完成 Ubuntu 24.04 amd64 / arm64 的构建与全新安装验证，包含数据库迁移、唯一后端、双端访问、管理员登录、机器池 API 和 SSH 管理网关。
+- 面板 [v1.6.2](https://github.com/mastalee928/payincus/releases/tag/v1.6.2)，发行源码 `2b81ce66e99c0941df8f579f085be59ce909541f`，已设为面板 latest。包含多 IPv6、首页与 45 区域选购、购物车及 UPAY Pro 更新。
+- [正式发布工作流](https://github.com/mastalee928/payincus/actions/runs/38878414833) 已完成 Linux amd64 / arm64 的构建与全新安装验证，包含 209 条数据库迁移、IPv6 数据字段、唯一后端、双端访问、管理员登录、机器池 API、SSH 管理网关及正式 Agent 下载和执行。
 - 公开安装包的实际 SHA256、大小、OTA manifest、版本与源码提交均已核对；两种架构均携带原 LICENSE。
-- [Agent v1.0.2](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.2) 已发布，包含 Linux amd64 / arm64 二进制；不占用面板 latest。
+- [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3) 已发布，包含 Linux amd64 / arm64 二进制。发布前通过 Go 测试及真实隔离网络中的双 IPv6 数据包、协议限制、地址变更与恢复验收；不占用面板 latest。
 
-新安装使用 README 的一键安装命令即可获取本仓库稳定发行包。已有主控的应用版本以实际部署为准：本轮仅切换其更新来源并验证 Agent 下载，现有预览面板未因发布 Release 自动升级。
+新安装使用 README 的一键安装命令即可获取本仓库最新稳定发行包。已确认测试主控的“运维—版本更新”能发现 `v1.6.2` 并允许管理员升级；现有面板的运行版本以实际部署为准。两台测试宿主已自动升级到正式 Agent `v1.0.3`，心跳、IPv6 和端口策略正常。

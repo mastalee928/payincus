@@ -20,7 +20,7 @@ PayIncus 是一套面向 hosting 业务的 Incus 商业化交付平台。它把�
 
 此仓库由 mastalee928 独立维护。源码、新安装、面板更新、Agent 和文档发布均使用 `mastalee928/payincus`。原有 BSD 3-Clause 许可证和版权声明保留在 [LICENSE](LICENSE) 中。
 
-当前稳定版：[v1.6.1](https://github.com/mastalee928/payincus/releases/tag/v1.6.1)，配套 [Agent v1.0.2](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.2)。
+当前稳定版：[v1.6.2](https://github.com/mastalee928/payincus/releases/tag/v1.6.2)，配套 [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3)。一键安装默认获取本仓库最新正式版。
 
 - 项目仓库：<https://github.com/mastalee928/payincus>
 - 主机接入与管理：[使用说明](docs/host-pool.md)
@@ -31,7 +31,9 @@ PayIncus 是一套面向 hosting 业务的 Incus 商业化交付平台。它把�
 
 ## 核心能力
 
-- 一机一卖：机器池、定价、购物车批量购买、Alpine 自动接入、1 GiB 宿主 swap、WireGuard 管理、客户独占全端口、TCP / TCP+UDP、无限流量、公网 IPv4 自动同步、故障换机及用户/管理员 PUSH。
+- 一机一卖：机器池、定价、购物车批量购买、Alpine / Debian 自动接入、1 GiB 宿主 swap、WireGuard 管理、客户独占全端口、TCP / TCP+UDP、无限流量、公网 IPv4 自动同步、故障换机及用户/管理员 PUSH。
+- 多 IPv6：接入后附加、更换和移除地址，OCI 云地址自动配置、全部地址交付同一实例、独立出口与重启恢复；用户只看到已验证可用的地址。
+- 商品选购：首页真实主机商品、完整 45 个区域、国旗与库存、购物车批量结算及交互动效。
 - 实例交付：基于 Incus 创建和管理 LXC / KVM 实例，支持 NAT、IPv6、镜像、套餐、方案、存储池、带宽和月流量。
 - 用户后台：注册登录、套餐购买、实例列表、实例详情、Web 终端、续费、升级、钱包、订单、工单、通知、礼品卡、邮箱和托管节点。
 - 管理后台：用户、套餐、方案、节点、镜像、订单、支付渠道、财务对账、系统配置、日志、通知、资源池和 OTA。
