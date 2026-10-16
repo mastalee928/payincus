@@ -23,8 +23,8 @@ INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
 ## 发布流程
 
 1. 在本仓库开发并完成类型检查、相关守卫、全套测试和双端构建。新交付流程还需在测试宿主机验收。
-2. 将经过审查的代码提交并推送到本仓库。先手动运行 `Build & Release` 做预览构建与全新安装验证。推送 `vX.Y.Z` 标签后，同一工作流分别在 Linux amd64 / arm64 构建并安装；两种架构全部通过后，才发布发行包、SHA256 校验文件和 OTA manifest。
-3. 首次 Agent 发布需手动运行 `Agent Build & Release`，勾选 `publish_release`。后续修改 `agent/VERSION` 并推送会触发新的 Agent Release；只改代码而不修改版本不会自动发布 Agent。
+2. 将经过审查的代码提交并推送到本仓库。如果本次修改 Agent，同步提高 `agent/VERSION`，等待 `Agent Build & Release` 测试、构建和发布成功；只改代码而不修改版本不会自动发布 Agent。首次或补发可手动运行该工作流并勾选 `publish_release`。
+3. 再手动运行 `Build & Release` 做预览构建与全新安装验证。推送 `vX.Y.Z` 标签后，同一工作流分别在 Linux amd64 / arm64 构建并安装；两种架构全部通过后，才发布发行包、SHA256 校验文件和 OTA manifest。安装验收检查源码版本、全部迁移及 IPv6 数据字段，并通过新装面板的默认更新源下载两种架构的正式 Agent，校验版本、大小和 SHA256，执行本机架构二进制确认包含 IPv6 能力。不能用工作区的临时 Agent 替代正式资产。
 4. 确认两种架构资产齐全、校验通过后再更新主控。Agent Release 不占用面板的 `latest` 标记。
 5. 更新后验证主控健康状态、用户端与管理端、安装脚本、Agent 心跳，以及这次变更涉及的业务流程。
 

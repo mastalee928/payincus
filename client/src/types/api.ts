@@ -769,6 +769,8 @@ export interface BadgeMultiDrawResponse {
 export interface Instance {
   dedicatedIpv4?: boolean
   dedicatedNetworkReady?: boolean
+  publicIpv6Addresses?: string[]
+  publicIpv6Status?: 'none' | 'ready' | 'pending' | 'failed'
   publicIpUpdating?: boolean
   id: number
   incus_id: string
@@ -1113,6 +1115,7 @@ export interface HostWithDetails extends Host {
   natConfig?: {
     publicIp: string | null
     publicIpv6?: string | null
+    publicIpv6Sync?: import('./host-pool').HostPublicIpv6Sync | null
     bindIp?: string | null
     bindIpv6?: string | null
     portRangeStart: number | null

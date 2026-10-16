@@ -6,6 +6,7 @@ import hostPoolPriceRoutes from './routes/host-pool-prices.js'
 import poolOrderRoutes from './routes/pool-orders.js'
 import { startHostOnboardingWorker, stopHostOnboardingWorker } from './workers/hostOnboardingWorker.js'
 import { startHostPublicIpSync, stopHostPublicIpSync } from './services/host-public-ip-sync.js'
+import { startHostPublicIpv6Sync, stopHostPublicIpv6Sync } from './services/host-public-ipv6-sync.js'
 // 确保环境变量被加载（必须在最前面）
 import './config/env.js'
 
@@ -517,6 +518,7 @@ await fastify.register(hostPoolPriceRoutes, { prefix: '/api/host-pools' })
 await fastify.register(poolOrderRoutes, { prefix: '/api/instances' })
 fastify.addHook('onClose', async () => { await stopHostOnboardingWorker() })
 fastify.addHook('onClose', async () => { await stopHostPublicIpSync() })
+fastify.addHook('onClose', async () => { await stopHostPublicIpv6Sync() })
 await fastify.register(packageRoutes, { prefix: '/api/packages' })
 await fastify.register(snapshotRoutes, { prefix: '/api/instances' })
 await fastify.register(backupRoutes, { prefix: '/api/instances' })
@@ -790,6 +792,7 @@ const start = async (): Promise<void> => {
     startInstanceTaskWorker()
     startHostOnboardingWorker()
     startHostPublicIpSync()
+    startHostPublicIpv6Sync()
     console.log('⚙️ 实例操作任务调度器已启动')
 
     // 启动备份恢复和远程上传队列 Worker

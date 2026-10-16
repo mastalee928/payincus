@@ -1,4 +1,4 @@
-import type { InstanceTask, Prisma } from '@prisma/client'
+import { Prisma, type InstanceTask } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import * as db from '../db/index.js'
 import { advisoryTransactionLock, INSTANCE_OPERATION_LOCK_NAMESPACE } from '../db/advisory-locks.js'
@@ -10,6 +10,7 @@ import { generateIncusConfig } from '../lib/incus-config-generator.js'
 import { decryptSensitiveData, encryptSensitiveData } from '../lib/security.js'
 import { generateRandomIPv6 } from '../lib/ip-calculator.js'
 import { DEDICATED_BANDWIDTH, prepareDedicatedDelivery } from './dedicated-delivery.js'
+import { prepareDedicatedIpv6Delivery } from './host-public-ipv6-sync.js'
 import { StorageFactory } from '../storage/factory.js'
 import { restoreFromStream } from '../lib/incus/incus-restore.js'
 import { createLog } from '../db/logs.js'
@@ -144,6 +145,7 @@ export async function executeHostReplacement(task: InstanceTask): Promise<void> 
     await assertActive()
     await save('verifying_public_ssh')
     await prepareDedicatedDelivery(client, instance.id, { hostId: targetId, name: state.targetIncusId, ipv4: state.ipv4, password })
+    const dedicatedIpv6 = await prepareDedicatedIpv6Delivery(client, instance.id, targetId, state.targetIncusId)
     await prisma.$transaction(async tx => {
       await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)
       await tx.$queryRaw`SELECT id FROM instance_tasks WHERE id = ${task.id} FOR UPDATE`
@@ -158,7 +160,8 @@ export async function executeHostReplacement(task: InstanceTask): Promise<void> 
       // Price, billing records, owner, name, expiry and renew settings stay intact.
       await tx.instance.update({ where: { id: instance.id }, data: { hostId: targetId, incusId: state.targetIncusId,
         ipv4: state.ipv4, ipv6: state.ipv6 || null, storagePoolName: state.storagePool, networkMode, status: 'running',
-        dedicatedNetworkReady: true, rootPassword: encryptSensitiveData(password), monthlyTrafficLimit: null,
+        dedicatedNetworkReady: true, dedicatedIpv6: dedicatedIpv6 ? dedicatedIpv6 as unknown as Prisma.InputJsonValue : Prisma.JsonNull,
+        rootPassword: encryptSensitiveData(password), monthlyTrafficLimit: null,
         trafficStatus: 'NORMAL', portLimit: 0, limitsIngress: DEDICATED_BANDWIDTH, limitsEgress: DEDICATED_BANDWIDTH } })
       await tx.ipAddress.create({ data: { address: state.ipv4!, type: 'inet4', device: 'eth0', isPrimary: true, hostId: targetId, instanceId: instance.id } })
       if (state.ipv6) await tx.ipAddress.create({ data: { address: state.ipv6, type: 'inet6', device: 'eth1', isPrimary: true, hostId: targetId, instanceId: instance.id } })

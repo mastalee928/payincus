@@ -1,5 +1,6 @@
 import { generateRandomIPv6 } from '../lib/ip-calculator.js'
 import { DEDICATED_BANDWIDTH } from './dedicated-delivery.js'
+import { customerIpv6View } from '../lib/host-public-ipv6.js'
 /**
  * 一机一卖的多台订单：购物车结算与「直接付款」共用的唯一下单路径。
  *
@@ -67,6 +68,8 @@ export interface PoolOrderResult {
     refundPending: boolean
     sshPort: number | null
     rootPassword: string | null
+    publicIpv6Addresses?: string[]
+    publicIpv6Status?: string
   }>
 }
 
@@ -266,9 +269,11 @@ export async function getPoolOrderResult(userId: number, batchId: string): Promi
   const paid = new Set(purchases.filter(purchase => Number(purchase.amount) > 0).map(purchase => purchase.instanceId))
   return { batchId, total: Number(order.totalCents), instances: instances.map(instance => {
     const ready = instance.dedicatedNetworkReady && !instance.host.publicIpSyncBlocked && ['running', 'stopped'].includes(instance.status)
+    const ipv6 = customerIpv6View(instance.dedicatedIpv6, { hostId: instance.hostId, instanceName: instance.incusId, networkReady: instance.dedicatedNetworkReady })
     return { id: instance.id, name: instance.name, incusId: instance.incusId, status: instance.status, refunded: refunded.has(instance.id),
       refundPending: instance.status === 'error' && paid.has(instance.id) && !refunded.has(instance.id),
       host: ready ? instance.host.natPublicIp : null, sshPort: ready ? 22 : null, publicIpUpdating: instance.host.publicIpSyncBlocked,
+      publicIpv6Addresses: ['running', 'stopped'].includes(instance.status) ? ipv6?.addresses ?? [] : [], publicIpv6Status: ipv6?.status ?? 'none',
       rootPassword: ready && instance.rootPassword ? decryptSensitiveData(instance.rootPassword) : null }
   }) }
 }

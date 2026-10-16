@@ -57,12 +57,17 @@ systemctl is-active --quiet wg-quick@incudal-mgmt
 
 for file in client/dist/user/index.html client/dist/admin/index.html server/dist/services/admin-instance-push.js \
   server/dist/workers/hostOnboardingWorker.js server/templates/install-alpine.sh scripts/ensure-host-swap.py \
+  server/dist/services/host-public-ipv6-sync.js server/dist/lib/incus/dedicated-ipv6.js \
+  server/dist/lib/agent-version.js server/dist/lib/upaypro.js \
+  server/prisma/migrations/202610160002_dedicated_ipv6/migration.sql \
   scripts/onboarding-gateway.py scripts/setup-onboarding-control.py LICENSE; do
   test -s "/opt/incudal/$file"
 done
 expected_migrations=$(find /opt/incudal/server/prisma/migrations -name migration.sql -type f | wc -l)
 actual_migrations=$(sudo -u postgres psql -d incudal -tAc 'SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')
 test "$expected_migrations" = "$actual_migrations"
+ipv6_columns=$(sudo -u postgres psql -d incudal -tAc "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND data_type = 'jsonb' AND (table_name, column_name) IN (('hosts', 'public_ipv6_sync'), ('instances', 'dedicated_ipv6'))")
+test "$ipv6_columns" = 2
 sudo -u incudal test -r /opt/incudal/server/certs/onboarding-gateway.key
 sudo -u incudal test ! -r /root/.ssh/incudal-host-management
 
@@ -89,4 +94,4 @@ NGINX
 nginx -t
 systemctl restart nginx
 node "$repo_dir/scripts/smoke-fresh-install.mjs"
-echo "Fresh install passed: $(uname -m), $actual_migrations migrations, one backend, both frontends, admin login, management gateway."
+echo "Fresh install passed: $(uname -m), $actual_migrations migrations, IPv6 schema, one backend, both frontends, admin login, management gateway, published Agent downloads."

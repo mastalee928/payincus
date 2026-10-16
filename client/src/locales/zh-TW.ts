@@ -2,7 +2,9 @@
 // Traditional Chinese (Taiwan) - 使用台灣用語習慣
 import en from './en'
 
+import { zhTW as ipv6Delivery } from './ipv6-delivery'
 const zhTW = {
+  ipv6Delivery,
   hostIpSync: {
     title: '偵測與同步 IP', description: '預設每分鐘偵測公網 IPv4。更換 IP 後，透過管理通道確認機器、轉發及公網入口，再更新機器池、節點與使用者實例位址，通常需 1–3 分鐘。',
     current: '目前已確認 IPv4', detected: '偵測到的新 IPv4', checked: '最近偵測', mode: '公網 IP 來源', auto: '自動偵測', manual: '手動指定',

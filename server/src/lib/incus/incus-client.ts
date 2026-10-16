@@ -168,7 +168,7 @@ export class IncusClient {
 
     // 异步操作需要等待完成
     if (data.type === 'async' && data.operation) {
-      return await waitForOperation(this, data.operation, timeout) as T
+      return await waitForOperation(this, data.operation, timeout, signal) as T
     }
 
     return (data.metadata || data) as T
@@ -190,7 +190,7 @@ export class IncusClient {
    * 读取实例文件（用于 Files API，不解析 JSON）
    * @returns 文件内容与 HTTP 状态码
    */
-  async readFile(path: string): Promise<{ content: string; statusCode: number }> {
+  async readFile(path: string, signal?: AbortSignal): Promise<{ content: string; statusCode: number }> {
     if (!this.agent) {
       throw new Error('Incus 客户端未连接')
     }
@@ -199,6 +199,7 @@ export class IncusClient {
     const response = await request(url, {
       method: 'GET',
       dispatcher: this.agent,
+      signal,
       headers: {
         'Content-Type': 'application/json'
       }

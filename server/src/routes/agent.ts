@@ -30,6 +30,7 @@ import {
 } from '../lib/host-agent-credentials.js'
 import { acceptPortProtocolReport } from '../services/host-port-protocol.js'
 import { processAgentInstanceReport } from '../services/agent-instance-report.js'
+import { shouldUpgradeAgent } from '../lib/agent-version.js'
 
 interface AgentCredentialsParams {
   hostId: string
@@ -797,7 +798,7 @@ function getAgentVersionStatus(agentVersion: string | null, latestVersion: strin
   if (!agentVersion || !latestVersion) {
     return 'unknown'
   }
-  return agentVersion === latestVersion ? 'latest' : 'outdated'
+  return shouldUpgradeAgent(agentVersion, latestVersion) ? 'outdated' : 'latest'
 }
 
 function isSha256(value: string | undefined): value is string {
@@ -812,7 +813,7 @@ async function buildAgentUpgradeInstruction(request: FastifyRequest, body: Agent
   }
 
   const currentVersion = sanitizeShortString(body.version, 128)
-  if (currentVersion === manifestVersion) {
+  if (!shouldUpgradeAgent(currentVersion, manifestVersion)) {
     return { available: false, version: manifestVersion }
   }
 

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { Agent, request as undiciRequest } from 'undici'
 import * as db from '../db/index.js'
+import { discoverHostPublicIpv6, publicIpv6State } from '../lib/host-public-ipv6.js'
 import { prisma } from '../db/prisma.js'
 import { checkHostingAccess } from '../lib/hosting-access.js'
 import { createInboxMessage } from '../db/inbox.js'
@@ -651,49 +652,6 @@ async function generateUniqueOwnedName(
 }
 
 /**
- * 从 Incus resources 数据中提取宿主机的公网 IPv6 地址
- * 遍历网卡的地址列表，查找 scope=global 的 IPv6 地址
- * 排除 link-local (fe80::) 和 unique-local (fd/fc) 地址
- */
-function extractHostPublicIpv6FromResources(resources: Record<string, unknown>): string | null {
-  try {
-    const network = resources.network as { cards?: Array<{ addresses?: Array<{ address?: string; family?: string; scope?: string }>; ports?: Array<{ addresses?: Array<{ address?: string; family?: string; scope?: string }> }> }> } | undefined
-    if (!network?.cards) return null
-
-    for (const card of network.cards) {
-      // 直接检查网卡地址
-      const addresses = card.addresses || []
-      for (const addr of addresses) {
-        if (addr.family === 'inet6' && addr.scope === 'global' && addr.address) {
-          const ip = addr.address
-          // 排除 link-local、unique-local 地址
-          if (!ip.startsWith('fe80:') && !ip.startsWith('fd') && !ip.startsWith('fc')) {
-            return ip
-          }
-        }
-      }
-      // 检查端口上的地址
-      if (card.ports) {
-        for (const port of card.ports) {
-          const portAddresses = port.addresses || []
-          for (const addr of portAddresses) {
-            if (addr.family === 'inet6' && addr.scope === 'global' && addr.address) {
-              const ip = addr.address
-              if (!ip.startsWith('fe80:') && !ip.startsWith('fd') && !ip.startsWith('fc')) {
-                return ip
-              }
-            }
-          }
-        }
-      }
-    }
-  } catch {
-    // 忽略解析失败
-  }
-  return null
-}
-
-/**
  * 从请求上下文推导面板访问地址
  * 优先级：SITE_URL/FRONTEND_URL 环境变量 > Origin/Referer 头 > Host 头拼接
  */
@@ -864,6 +822,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         storage_size?: number
         nat_public_ip?: string | null
         nat_public_ipv6?: string | null
+        public_ipv6_sync?: unknown
         nat_bind_ip?: string | null
         nat_bind_ipv6?: string | null
         nat_port_start?: number | null
@@ -903,6 +862,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         natConfig: {
           publicIp: host.nat_public_ip,
           publicIpv6: host.nat_public_ipv6,
+          publicIpv6Sync: host.public_ipv6_sync ? publicIpv6State(host.public_ipv6_sync) : null,
           bindIp: (host as any).nat_bind_ip || null,
           bindIpv6: (host as any).nat_bind_ipv6 || null,
           portRangeStart: host.nat_port_start,
@@ -1725,7 +1685,12 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       const diskTotalMB = Math.round(diskTotalBytes / 1024 / 1024)
 
       // 自动检测宿主机公网 IPv6 地址
-      const detectedIpv6 = extractHostPublicIpv6FromResources(resources)
+      const detectedIpv6 = (await discoverHostPublicIpv6({ request: async <T>(_method: string, path: string): Promise<T> => {
+        const response = await undiciRequest(`${baseUrl}${path}`, { method: 'GET', dispatcher: panelAgent, signal: AbortSignal.timeout(8000) })
+        const data = await response.body.json() as { type?: string; metadata?: T }
+        if (response.statusCode !== 200 || data.type === 'error' || !data.metadata) throw new Error('IPv6 inventory unavailable')
+        return data.metadata
+      } }).catch(() => []))[0] ?? null
 
       // 只更新连接状态和证书路径，不覆盖任何用户输入的信息
       const updateData: Record<string, unknown> = {
@@ -2037,6 +2002,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         natConfig: {
           publicIp: host.nat_public_ip,
           publicIpv6: host.nat_public_ipv6,
+          publicIpv6Sync: host.public_ipv6_sync ? publicIpv6State(host.public_ipv6_sync) : null,
           bindIp: (host as any).nat_bind_ip || null,
           bindIpv6: (host as any).nat_bind_ipv6 || null,
           portRangeStart: host.nat_port_start,
@@ -2777,7 +2743,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       await db.updateHostStatus(hostId, 'online')
 
       // 自动检测宿主机公网 IPv6（仅在未手动配置时自动填入）
-      const detectedIpv6 = extractHostPublicIpv6FromResources(resources as Record<string, unknown>)
+      const detectedIpv6 = (await discoverHostPublicIpv6(client).catch(() => []))[0] ?? null
       if (detectedIpv6 && !host.nat_public_ipv6) {
         await prisma.host.update({
           where: { id: hostId },
@@ -7349,15 +7315,11 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       const client = await getIncusClient(host)
 
       // 1. 同步宿主机资源信息（复用 sync 逻辑）
-      const resources = await client.getResources() as {
-        cpu?: { total?: number }
-        memory?: { total?: number }
-        storage?: { disks?: Array<{ size?: number }>; pools?: Record<string, { space?: { total?: number } }> }
-      }
+      await client.getResources()
 
       await db.updateHostStatus(hostId, 'online')
 
-      const detectedIpv6 = extractHostPublicIpv6FromResources(resources as Record<string, unknown>)
+      const detectedIpv6 = (await discoverHostPublicIpv6(client).catch(() => []))[0] ?? null
       if (detectedIpv6 && !host.nat_public_ipv6) {
         await prisma.host.update({
           where: { id: hostId },

@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import type { Instance } from '@/types/api'
+import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
 
 const { t } = useI18n()
 
@@ -380,7 +381,11 @@ const canReassignIpv6 = computed(() => {
             </dd>
             <dd v-else class="text-gray-500">{{ t("dedicated.unassigned") }}</dd>
           </div>
-          <div v-if="instance.dedicatedIpv4 || instance.ipv6" class="flex justify-between items-center mt-3">
+          <div v-if="instance.dedicatedIpv4" class="mt-4 space-y-2">
+            <dt class="text-gray-500">{{ t('instance.detail.network.publicIpv6') }}</dt>
+            <dd><PublicIpv6Addresses :addresses="instance.publicIpv6Addresses ?? (instance.ipv6 ? [instance.ipv6] : [])" :status="instance.publicIpv6Status" show-empty /></dd>
+          </div>
+          <div v-else-if="instance.ipv6" class="flex justify-between items-center mt-3">
             <dt class="text-gray-500">{{ t('instance.detail.network.publicIpv6') }}</dt>
             <dd v-if="instance.ipv6" class="flex items-center gap-2">
               <code

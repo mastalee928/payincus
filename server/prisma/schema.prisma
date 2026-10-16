@@ -783,6 +783,7 @@ model Host {
   poolFaulted Boolean @default(false) @map("pool_faulted")
   publicIpSyncBlocked Boolean @default(false) @map("public_ip_sync_blocked")
   publicIpSync Json? @map("public_ip_sync")
+  publicIpv6Sync Json? @map("public_ipv6_sync")
   singleTenant Boolean @default(false) @map("single_tenant")
   managementSshHost String? @map("management_ssh_host")
   managementSshPort Int? @map("management_ssh_port")
@@ -1017,6 +1018,7 @@ model Package {
 model Instance {
   dedicatedIpv4 Boolean @default(false) @map("dedicated_ipv4")
   dedicatedNetworkReady Boolean @default(false) @map("dedicated_network_ready")
+  dedicatedIpv6 Json? @map("dedicated_ipv6")
   id               Int            @id @default(autoincrement())
   incusId          String         @map("incus_id")
   idempotencyKey   String?        @unique @map("idempotency_key")

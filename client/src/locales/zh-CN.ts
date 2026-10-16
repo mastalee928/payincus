@@ -1,4 +1,6 @@
+import { zhCN as ipv6Delivery } from './ipv6-delivery'
 export default {
+  ipv6Delivery,
   hostIpSync: {
     title: '检测与同步 IP', description: '默认每分钟检测公网 IPv4。换 IP 后，通过管理通道确认机器和转发，再更新机器池、节点及用户实例地址，通常需 1–3 分钟。',
     current: '当前已确认 IPv4', detected: '检测到的新 IPv4', checked: '最近检测', mode: '公网 IP 来源', auto: '自动检测', manual: '手动指定',

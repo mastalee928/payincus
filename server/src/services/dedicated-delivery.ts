@@ -6,6 +6,8 @@ import { ensureDedicatedForward } from '../lib/incus/dedicated-network.js'
 import { execWithOutput } from '../lib/incus/incus-instances.js'
 import type { IncusClient } from '../lib/incus/incus-client.js'
 import { portProtocolSelect, portProtocolView, PORT_PROTOCOL_CAPABILITY } from './host-port-protocol.js'
+import { prepareDedicatedIpv6Delivery } from './host-public-ipv6-sync.js'
+import type { Prisma } from '@prisma/client'
 
 export const DEDICATED_BANDWIDTH = '100000Mbit'
 
@@ -81,5 +83,10 @@ export async function prepareDedicatedDelivery(client: IncusClient, instanceId: 
   if (!ipv4 || !password) throw new Error('实例地址或 SSH 密码未就绪')
   await ensureDedicatedForward(client, name, host.natBindIp, ipv4)
   await verifyDedicatedSsh(client, name, host.natPublicIp, password)
+  if (!options) {
+    const ipv6 = await prepareDedicatedIpv6Delivery(client, instanceId, host.id, name)
+    if (ipv6) await prisma.instance.updateMany({ where: { id: instanceId, hostId: host.id, incusId: name },
+      data: { dedicatedIpv6: ipv6 as unknown as Prisma.InputJsonValue } })
+  }
   return true
 }

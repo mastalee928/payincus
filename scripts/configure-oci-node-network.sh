@@ -191,6 +191,11 @@ ip6tables -w -N INCUDAL_OCI_IN 2>/dev/null || ip6tables -w -S INCUDAL_OCI_IN >/d
 ip6tables -w -F INCUDAL_OCI_IN
 ip6tables -w -A INCUDAL_OCI_IN -i lo -p tcp --dport "$api_port" -j ACCEPT
 ip6tables -w -A INCUDAL_OCI_IN -p tcp --dport "$api_port" -j REJECT --reject-with tcp-reset
+# Static IPv6 guests still need neighbour discovery to reach their gateway.
+# Accept only link-local NDP (hop limit 255); host services remain inaccessible.
+for icmp_type in 135 136; do
+    ip6tables -w -A INCUDAL_OCI_IN -i "$bridge" -p ipv6-icmp --icmpv6-type "$icmp_type" -m hl --hl-eq 255 -j ACCEPT
+done
 ip6tables -w -A INCUDAL_OCI_IN -i "$bridge" -j REJECT --reject-with icmp6-adm-prohibited
 while ip6tables -w -C INPUT -j INCUDAL_OCI_IN 2>/dev/null; do
     ip6tables -w -D INPUT -j INCUDAL_OCI_IN

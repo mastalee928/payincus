@@ -2,6 +2,7 @@ import { isIPv4 } from 'node:net'
 import { createHash } from 'node:crypto'
 import { Client } from 'ssh2'
 import { isOnboardingPublicIPv4 } from './host-onboarding.js'
+import { publicIpv6 } from './host-public-ipv6.js'
 
 export type PublicIpSettings = { mode: 'auto' | 'manual'; publicIp: string | null; bindIp: string | null; sshPort: number }
 export type PublicIpSyncState = {
@@ -62,7 +63,7 @@ export function chooseBindAddress(addresses: string[], current: string | null, e
 /** Verify key exchange completion, not merely a banner or a claimed public key.
  * No password, private key, authentication attempt, or remote command is needed. */
 export function verifyPublicSshIdentity(host: string, port: number, fingerprints: string[], timeoutMs = 8000): Promise<void> {
-  if (!isOnboardingPublicIPv4(host) || !fingerprints.length) return Promise.reject(new PublicIpSyncError('IP_IDENTITY_UNAVAILABLE'))
+  if ((!isOnboardingPublicIPv4(host) && !publicIpv6(host)) || !fingerprints.length) return Promise.reject(new PublicIpSyncError('IP_IDENTITY_UNAVAILABLE'))
   return new Promise((resolve, reject) => {
     const client = new Client()
     let finished = false, matched = false

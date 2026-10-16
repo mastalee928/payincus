@@ -1,5 +1,6 @@
 import { executeHostReplacement } from '../services/host-replacement.js'
 import { prepareDedicatedDelivery } from '../services/dedicated-delivery.js'
+import { prepareDedicatedIpv6Delivery } from '../services/host-public-ipv6-sync.js'
 /**
  * 实例操作任务队列调度器
  * 确保同一台宿主机同一时间只有一个实例操作任务在执行
@@ -12,7 +13,7 @@ import { prepareDedicatedDelivery } from '../services/dedicated-delivery.js'
  */
 
 import { prisma } from '../db/prisma.js'
-import { InstanceTaskType } from '@prisma/client'
+import { InstanceTaskType, Prisma } from '@prisma/client'
 import { getIncusClient, getInstance, updateInstance, deleteInstance, createInstance } from '../lib/incus/index.js'
 import {
   startInstance,
@@ -1591,6 +1592,7 @@ async function executeRecreateTask(
   const dedicatedReady = await prepareDedicatedDelivery(client, task.instanceId, {
     hostId: instance.host_id, name: newIncusId, ipv4: newIPv4, password: newPassword
   })
+  const dedicatedIpv6 = dedicatedReady ? await prepareDedicatedIpv6Delivery(client, task.instanceId, instance.host_id, newIncusId) : null
 
   // 15. 更新数据库（使用新分配的 IP）
   await updateInstanceTaskProgress(task.id, 'updating_database')
@@ -1632,6 +1634,7 @@ async function executeRecreateTask(
       rootPassword: encryptSensitiveData(newPassword),
       status: 'running',
       dedicatedNetworkReady: dedicatedReady,
+      dedicatedIpv6: dedicatedIpv6 ? dedicatedIpv6 as unknown as Prisma.InputJsonValue : Prisma.JsonNull,
       ipv4: newIPv4,  // 使用新分配的 IP
       ipv6: actualIpv6 || instance.ipv6,  // IPv6 可能从网络获取或保留旧值
       storagePoolName: storagePool

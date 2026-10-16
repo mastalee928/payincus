@@ -11,6 +11,7 @@ import { useI18n } from 'vue-i18n'
 import { ArrowLeft, ArrowRight, Cpu, HardDrive, KeyRound, Loader2, LockKeyhole, MemoryStick, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-vue-next'
 import api from '@/api'
 import FlagIcon from '@/components/FlagIcon.vue'
+import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
 import { useCartStore, type CartItem } from '@/stores/cart'
 import { useConfigStore } from '@/stores/config'
 import { useAuthStore } from '@/stores/auth'
@@ -309,6 +310,10 @@ async function pay(): Promise<void> {
         <div v-if="instance.host && instance.sshPort" class="flex flex-wrap items-center gap-2"><code class="text-xs text-themed break-all">ssh -p {{ instance.sshPort }} root@{{ instance.host }}</code><button class="btn-secondary text-xs" @click="copyValue(`ssh -p ${instance.sshPort} root@${instance.host}`)">{{ t('hostInventory.sshCopy') }}</button></div>
         <p v-else class="text-xs text-themed-muted">{{ t(instance.publicIpUpdating ? 'hostIpSync.customerUpdating' : instance.status === 'creating' ? 'cart.connectionPending' : instance.refunded ? 'cart.refunded' : instance.refundPending ? 'cart.refundPending' : instance.status === 'error' ? 'cart.failed' : 'cart.connectionManual') }}</p>
         <div v-if="instance.rootPassword && instance.status !== 'error'" class="flex flex-wrap items-center gap-2"><label class="text-xs text-themed-muted">{{ t('publicSite.market.pool.credsPassword') }} <input :type="showPasswords ? 'text' : 'password'" :value="instance.rootPassword" readonly class="input font-mono text-xs" /></label><button class="btn-secondary text-xs" @click="showPasswords = !showPasswords">{{ t(showPasswords ? 'cart.hidePassword' : 'cart.showPassword') }}</button><button class="btn-secondary text-xs" @click="copyValue(instance.rootPassword)">{{ t('publicSite.market.pool.credsCopy') }}</button></div>
+        <div v-if="instance.publicIpv6Addresses?.length || ['pending', 'failed'].includes(instance.publicIpv6Status || '')" class="space-y-1.5">
+          <p class="text-xs text-themed-muted">{{ t('ipv6Delivery.title') }}</p>
+          <PublicIpv6Addresses :addresses="instance.publicIpv6Addresses ?? []" :status="instance.publicIpv6Status" />
+        </div>
       </article>
       <div class="flex flex-wrap gap-3"><RouterLink to="/instances" class="checkout-primary">{{ t('publicSite.market.pool.credsViewInstances') }}</RouterLink><button class="checkout-secondary" @click="pollOrder">{{ t('common.refresh') }}</button></div>
     </section>

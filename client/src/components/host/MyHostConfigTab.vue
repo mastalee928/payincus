@@ -9,6 +9,7 @@ import { buildHostApiUrl, extractHostAddressFromUrl, validateIdentifier, validat
 import api from '@/api'
 import { useToast } from '@/stores/toast'
 import FlagIcon from '@/components/FlagIcon.vue'
+import type { HostPublicIpv6Sync } from '@/types/host-pool'
 
 const { t, locale } = useI18n()
 const themeStore = useThemeStore()
@@ -42,6 +43,7 @@ interface Host {
   natConfig?: {
     publicIp: string | null
     publicIpv6?: string | null
+    publicIpv6Sync?: HostPublicIpv6Sync | null
     bindIp?: string | null
     bindIpv6?: string | null
     portRangeStart: number | null
@@ -59,6 +61,7 @@ interface Emits {
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+const automaticIpv6 = computed(() => props.host.natConfig?.publicIpv6Sync?.supported === true)
 
 const saving = ref(false)
 
@@ -307,7 +310,8 @@ async function saveConfig() {
       enableResourcePool: form.value.enableResourcePool,
       announcement: form.value.announcement || null,
       probeUrl: form.value.probeUrl || null,
-      natConfig: (form.value.natConfig.publicIp || form.value.natConfig.publicIpv6 || form.value.natConfig.bindIp || form.value.natConfig.bindIpv6 || form.value.natConfig.portRangeStart || form.value.natConfig.portRangeEnd) ? form.value.natConfig : undefined
+      natConfig: (form.value.natConfig.publicIp || form.value.natConfig.publicIpv6 || form.value.natConfig.bindIp || form.value.natConfig.bindIpv6 || form.value.natConfig.portRangeStart || form.value.natConfig.portRangeEnd)
+        ? { ...form.value.natConfig, ...(automaticIpv6.value ? { publicIpv6: undefined, bindIpv6: undefined } : {}) } : undefined
     })
     
     // 检查节点类型变更带来的套餐警告
@@ -485,8 +489,8 @@ async function saveConfig() {
           </div>
           <div>
             <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.natPublicIpv6') }}</label>
-            <input v-model="form.natConfig.publicIpv6" type="text" class="input" :placeholder="t('admin.hosts.natPublicIpv6Placeholder')" />
-            <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.natPublicIpv6Desc') }}</p>
+            <input v-model="form.natConfig.publicIpv6" type="text" class="input" :readonly="automaticIpv6" :placeholder="t('admin.hosts.natPublicIpv6Placeholder')" />
+            <p class="text-xs text-themed-muted mt-1">{{ t(automaticIpv6 ? 'ipv6Delivery.managedSetting' : 'admin.hosts.natPublicIpv6Desc') }}</p>
           </div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -497,7 +501,7 @@ async function saveConfig() {
           </div>
           <div>
             <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.natBindIpv6') }}</label>
-            <input v-model="form.natConfig.bindIpv6" type="text" class="input" :placeholder="t('admin.hosts.natBindIpv6Placeholder')" />
+            <input v-model="form.natConfig.bindIpv6" type="text" class="input" :readonly="automaticIpv6" :placeholder="t('admin.hosts.natBindIpv6Placeholder')" />
             <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.natBindIpv6Desc') }}</p>
           </div>
         </div>

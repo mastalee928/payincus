@@ -98,6 +98,7 @@ export interface OnboardingGatewayStatus {
 
 export interface ManagedHost {
   publicIpSync?: HostPublicIpSync
+  publicIpv6Sync?: HostPublicIpv6Sync
   poolFaulted?: boolean
   portProtocol?: { requested: "tcp" | "tcp_udp"; applied: "tcp" | "tcp_udp"; status: "pending" | "applied" | "failed" }
   id: number
@@ -126,6 +127,15 @@ export interface ManagedHost {
   /** 不可售原因（可售时为 null）：assigned/no-spec/not-single-tenant/not-ready/no-price */
   sellReason?: string | null
   instances: Array<{ id: number; name: string; status: string; cpu: number; memory: number; disk: number; user: { id: number; username: string } }>
+}
+export interface HostPublicIpv6Sync {
+  supported?: boolean
+  addresses: string[]
+  primary: string | null
+  status: 'idle' | 'synced' | 'pending' | 'failed'
+  checkedAt: string | null
+  changedAt: string | null
+  error: string | null
 }
 export interface HostRecoveryReport {
   hostId: number
@@ -236,7 +246,7 @@ export interface HostSshConnection {
 export interface PoolCheckoutResult {
   batchId: string
   total: number
-  instances: Array<{ id: number; name: string; incusId: string; host: string | null; status: string; refunded: boolean; refundPending: boolean; publicIpUpdating?: boolean; sshPort: number | null; rootPassword: string | null }>
+  instances: Array<{ id: number; name: string; incusId: string; host: string | null; status: string; refunded: boolean; refundPending: boolean; publicIpUpdating?: boolean; sshPort: number | null; rootPassword: string | null; publicIpv6Addresses?: string[]; publicIpv6Status?: string }>
 }
 
 export interface HostPublicIpSettings {

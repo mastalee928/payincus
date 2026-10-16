@@ -13,12 +13,14 @@ import type { IncusApiResponse, IncusOperation } from '../../types/incus.js'
 export async function waitForOperation(
   client: IncusClient,
   operationUrl: string,
-  timeout: number = 300000 // 从 120000 放宽到 300000 (5分钟)
+  timeout: number = 300000, // 从 120000 放宽到 300000 (5分钟)
+  signal?: AbortSignal
 ): Promise<unknown> {
   const startTime = Date.now()
 
   while (Date.now() - startTime < timeout) {
-    const op = await client.request<IncusOperation>('GET', `${operationUrl}/wait?timeout=10`)
+    signal?.throwIfAborted()
+    const op = await client.request<IncusOperation>('GET', `${operationUrl}/wait?timeout=10`, null, timeout, signal)
 
     if (op.status === 'Success') {
       return op.metadata

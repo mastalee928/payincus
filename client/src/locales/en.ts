@@ -1,4 +1,6 @@
+import { en as ipv6Delivery } from './ipv6-delivery'
 export default {
+  ipv6Delivery,
   hostIpSync: {
     title: 'Check and sync IP', description: 'Public IPv4 is checked every minute. After an IP change, the management connection, forwarding and public endpoint are verified before updating inventory, node and customer addresses. This usually takes 1–3 minutes.',
     current: 'Confirmed IPv4', detected: 'Detected IPv4', checked: 'Last check', mode: 'Public IP source', auto: 'Automatic detection', manual: 'Specify manually',

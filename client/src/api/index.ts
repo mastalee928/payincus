@@ -1151,6 +1151,7 @@ poolOrder: (data: {
     requestAgentUpgrade: (id: number): Promise<HostAgentUpgradeRequestResponse> =>
       http.post(`/agent/hosts/${id}/upgrade`, {}),
     sync: (id: number): Promise<void> => http.post(`/hosts/${id}/sync`, {}, { timeout: TIMEOUT.LONG }),
+    syncIpv6: (id: number): Promise<import('@/types/host-pool').HostPublicIpv6Sync> => http.post(`/host-onboarding/inventory/${id}/ipv6/sync`, {}, { timeout: 150000 }),
     setMaintenance: (id: number, enabled: boolean): Promise<Host> =>
       http.post(`/hosts/${id}/maintenance`, { enabled }),
     // 存储池管理

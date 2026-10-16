@@ -49,7 +49,23 @@
 
 公网入口和出口不同的环境可选择“手动指定”，该选择会持久保存，后续扫描继续验证指定入口。用户修改 SSH 端口时，在高级设置填写实际端口；空机使用接入时记录的宿主机 SSH 端口。SSH 关闭、用户实例关机、正在创建/换机/备份、协议未应用或管理隧道失联时显示具体原因并自动重试，不自动启动用户关机的实例。检测到地址变化但尚未验证时暂停空机出售并隐藏用户端旧连接地址；数据库触发器同时拒绝过期库存请求的分配和换机预占。成功后自动解除该 IP 等待状态，故障隔离仍由独立恢复流程处理。
 
-管理网关新增受限 `peers` 只读命令，需要一并更新 `/usr/local/sbin/incudal-onboarding-gateway`；不需更新宿主机 Agent。此次自动变更范围为公网 IPv4 和对应的内网绑定。已有用户 IPv6 按原实例配置显示，IPv6 前缀迁移需另行配置。
+管理网关新增受限 `peers` 只读命令，需要一并更新 `/usr/local/sbin/incudal-onboarding-gateway`；仅使用 IPv4 自动同步时不需更新宿主机 Agent。IPv6 自动同步的要求见下节。
+
+## 自动接入主机的多个 IPv6
+
+对自动接入、单租户且未设置独立 routed 前缀的节点，系统读取宿主物理网卡上实际配置的公网 IPv6。接入前已有或接入后添加、更换、删除地址，都无需重新接入。一个节点的全部 IPv6 交给同一客户实例；不会从 `/64` 路由中自行生成未经云厂商分配的地址。普通手动接入或 routed IPv6 的原有配置保持由管理员管理。
+
+需要支持 `network_forward_snat` 的 Incus、nftables，以及报告 `dedicated-ipv6-v1` 能力的新版 Agent。管理端会提示缺少的条件。IPv6 安全组独立于 IPv4，也需允许用户所需的流量。主控需要 IPv6 出站连接，才能验证客户公网 SSH 身份。
+
+OCI 自动接入节点使用新版 Agent 从固定的 IMDS v2 网卡接口读取实际分配地址，按 MAC 匹配物理网卡后配置 `/128` 地址与独立的默认路由。此过程使用 Linux 通用接口，兼容 Debian/systemd 与 Alpine/OpenRC，不依赖 DHCPv6 续租，也不需要重启实例。通常 Agent 在 15 秒内识别附加或更换，随后面板约每分钟完成交付检查。云平台尚未返回地址、Agent 版本过旧或协议尚未生效时，单纯等待不能代替处理对应原因。
+
+Agent 只删除自己记录过且已被云平台撤回的地址，保留无关手工地址和路由；元数据失败或缺少地址字段时保留上一次配置。宿主重启后自动重建，新增地址在绑定前先限制宿主服务的公网访问，客户转发与管理隧道仍正常工作。其他云平台继续读取物理网卡实际地址，需通过该平台的网络配置机制使地址进入宿主系统。不能把只分配了前缀但未分配具体地址的网段当作可售 IPv6。
+
+机器池与节点网络信息展示所有检测到的地址。后台约每分钟扫描，也可点击“立即同步 IPv6”。客户实例与开通结果只展示已完成网络配置、通过公网 SSH 身份校验的地址；失联不会被误认为全部地址被移除。关机、隔离或正在执行其他实例任务时记录变化，恢复后再应用。更新 IPv6 不改变 IPv4、实例磁盘、价格或到期时间。地址较多时分批验证，失败地址不会阻塞后面的新地址。
+
+每个 IPv6 的 TCP/UDP 全端口均交给实例，协议限制与 IPv4 共用现有 TCP／TCP+UDP 开关；管理 SSH 继续使用 WireGuard。Agent 为每个内部地址维护对应公网出口，并允许必要的 IPv6 邻居发现。客户不能通过网桥访问宿主管理服务。规则支持宿主及实例重启恢复；宿主暂时无法联系主控时，已保存规则仍可恢复。实例内使用平台管理的内部地址，应用若同时监听多个 IPv6，应绑定相应地址或使用 `IPV6_PKTINFO` 按收包地址回复 UDP。
+
+数据库迁移 `202610160002_dedicated_ipv6` 分别保存宿主地址清单与实例已验证的交付状态。更新面板时必须同步更新宿主 Agent；旧版稳定 Agent 不具备上述能力。
 
 ## 自动接入前提
 
@@ -97,6 +113,7 @@ sudo bash install-panel.sh --configure-host-pool
 ```sh
 pnpm --filter server test:host-pool-guards
 pnpm --filter server test:host-public-ip
+pnpm --filter server test:host-public-ipv6
 pnpm --filter server test:dedicated-delivery
 pnpm --filter server test:instance-create-failure-compensation
 pnpm --filter server test:frontend-route-guards
@@ -108,6 +125,8 @@ pnpm build
 真实数据库集成测试只允许本机、名称以 `_pool_test` 结尾、已应用迁移的隔离数据库。运行 `DATABASE_URL=... pnpm --filter server test:host-pool-integration`。测试创建独立命名的夹具，覆盖库存竞争、重复提交、混合配置、价格变化、退款、定价删除、SSH 权限与机器删除竞争；不连接真实宿主机。
 
 `test:host-replacement-integration` 使用同样受限的隔离数据库，验证换机权限、并发预占、失败后的价格和账期保留、清理确认与持久隔离。`test:host-public-ip-integration` 验证换公网/内网 IP、身份不匹配、失败重试、规则归属、停止/忙碌状态、手动入口、SSH 端口、重复请求和数据库分配阻断；远端网络使用模拟客户端。`python3 scripts/test-ingress-network.py` 在 Linux 网络命名空间中验证 TCP 和 UDP 实际数据包。
+
+`test:host-public-ipv6-integration` 验证 IPv6 新增、更换、移除、任务互斥及客户数据映射。Linux 上执行 `cd agent && INCUDAL_IPV6_NETNS_TEST=1 go test ./internal/dedicatedipv6`，在独立网络命名空间验证两个 IPv6 的入站端口、独立出站 TCP/UDP/ICMP、邻居发现、管理隔离、协议切换和防火墙重载。测试地址只存在于隔离网络，不占用云侧地址。
 
 Linux 上可执行 `python3 scripts/test-onboarding-gateway.py` 和 `python3 scripts/test-host-swap.py`。这些测试只操作临时目录和模拟系统命令。真正的安装、WireGuard、防火墙、TLS 与 Agent 心跳仍需在一台空白测试主机完成验收。
 

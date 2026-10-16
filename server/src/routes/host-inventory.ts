@@ -1,6 +1,8 @@
 import { portProtocolSelect, portProtocolView } from '../services/host-port-protocol.js'
 import { getPublicIpSync, publicIpView, syncHostPublicIp } from '../services/host-public-ip-sync.js'
 import { PublicIpSyncError } from '../lib/host-public-ip.js'
+import { publicIpv6View, syncHostPublicIpv6 } from '../services/host-public-ipv6-sync.js'
+import { PublicIpv6SyncError } from '../lib/host-public-ipv6.js'
 import { HostRecoveryError, inspectHostRecovery, recoverPoolHost } from '../services/host-pool-recovery.js'
 import type { FastifyInstance } from 'fastify'
 import type { Prisma } from '@prisma/client'
@@ -88,7 +90,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
     const [hosts, total] = await Promise.all([
       prisma.host.findMany({ where, orderBy: { id: 'desc' }, skip: (page - 1) * 20, take: 20, select: {
         id: true, name: true, location: true, url: true, countryCode: true, natPublicIp: true, ipAddress: true,
-        natBindIp: true, publicIpSync: true, publicIpSyncBlocked: true,
+        natBindIp: true, publicIpSync: true, publicIpSyncBlocked: true, publicIpv6Sync: true, ipv6Mode: true, ipv6Subnet: true,
         machineGroup: true, regionGroup: true, machineGroupId: true, regionGroupId: true,
         machineGroupEntry: { select: { name: true } }, regionGroupEntry: { select: { name: true } },
         architecture: true, status: true, isInstalled: true, resourcePreset: true, customerDiskGiB: true,
@@ -108,6 +110,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
         publicIp: host.natPublicIp || host.onboardingNode?.publicIp || (isOnboardingPublicIPv4(host.ipAddress) ? host.ipAddress : null),
         managementAddress, countryCode: host.countryCode, poolFaulted: host.poolFaulted, portProtocol: portProtocolView(host),
         publicIpSync: publicIpView(host),
+        publicIpv6Sync: publicIpv6View(host),
         machineGroup: host.machineGroupEntry?.name || host.machineGroup, regionGroup: host.regionGroupEntry?.name || host.regionGroup,
         machineGroupId: host.machineGroupId, regionGroupId: host.regionGroupId,
         architecture: host.architecture, status: host.status, isInstalled: host.isInstalled,
@@ -210,6 +213,17 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
   })
 
   const hostIdSchema = { params: { type: 'object', required: ['id'], properties: { id: { type: 'integer', minimum: 1, maximum: 2147483647 } } } }
+  fastify.post<{ Params: { id: number } }>('/inventory/:id/ipv6/sync', {
+    onRequest: [fastify.authenticateAdmin], schema: hostIdSchema,
+    config: { rateLimit: { max: 6, timeWindow: '1 minute' } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    try { return await syncHostPublicIpv6(Number(request.params.id), { force: true }) }
+    catch (error) {
+      if (error instanceof PublicIpv6SyncError) return reply.code(error.code === 'HOST_NOT_FOUND' ? 404 : 409).send({ code: error.code })
+      throw error
+    }
+  })
   fastify.get<{ Params: { id: number } }>('/inventory/:id/public-ip', {
     onRequest: [fastify.authenticateAdmin], schema: hostIdSchema
   }, async (request, reply) => {

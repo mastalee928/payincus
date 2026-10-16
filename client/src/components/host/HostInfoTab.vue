@@ -5,9 +5,12 @@ import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
 import api from '@/api'
 import FlagIcon from '@/components/FlagIcon.vue'
+import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
+import { useAuthStore } from '@/stores/auth'
+import type { HostPublicIpv6Sync } from '@/types/host-pool'
 import type { HostAgentStatus } from '@/types/api'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const themeStore = useThemeStore()
 const toast = useToast()
 
@@ -33,6 +36,7 @@ interface Host {
   natConfig?: {
     publicIp: string | null
     publicIpv6?: string | null
+    publicIpv6Sync?: HostPublicIpv6Sync | null
     bindIp?: string | null
     bindIpv6?: string | null
     portRangeStart: number | null
@@ -48,6 +52,18 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const authStore = useAuthStore()
+const syncingIpv6 = ref(false)
+const ipv6Sync = computed(() => props.host.natConfig?.publicIpv6Sync)
+const ipv6Error = computed(() => ipv6Sync.value?.error && te('ipv6Delivery.errors.' + ipv6Sync.value.error)
+  ? t('ipv6Delivery.errors.' + ipv6Sync.value.error) : '')
+async function syncIpv6() {
+  if (syncingIpv6.value) return
+  syncingIpv6.value = true
+  try { await api.hosts.syncIpv6(props.host.id); emit('refresh') }
+  catch { toast.error(t('ipv6Delivery.status.failed')) }
+  finally { syncingIpv6.value = false }
+}
 
 // 从系统数据库获取实例统计
 const instanceStats = ref({
@@ -608,7 +624,20 @@ const xAxisLabels = computed(() => {
             <dt class="text-gray-500">{{ t('admin.hosts.natPublicIpv4') }}</dt>
             <dd class="font-mono" :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-700'">{{ host.natConfig.publicIp }}</dd>
           </div>
-          <div v-if="host.natConfig?.publicIpv6" class="flex justify-between">
+          <div v-if="ipv6Sync" class="space-y-2 pt-2">
+            <dt class="flex flex-wrap items-center justify-between gap-2">
+              <span class="text-gray-500">{{ t('ipv6Delivery.title') }}</span>
+              <button v-if="authStore.user?.role === 'admin'" type="button" class="btn-secondary text-xs" :disabled="syncingIpv6" @click="syncIpv6">{{ t(syncingIpv6 ? 'ipv6Delivery.checking' : 'ipv6Delivery.sync') }}</button>
+            </dt>
+            <dd class="space-y-2">
+              <PublicIpv6Addresses :addresses="ipv6Sync.addresses" show-empty />
+              <p class="text-xs" :class="ipv6Sync.status === 'failed' ? 'text-red-600 dark:text-red-400' : ipv6Sync.status === 'pending' ? 'text-amber-700 dark:text-amber-300' : 'text-themed-muted'" role="status">{{ t('ipv6Delivery.status.' + ipv6Sync.status) }}</p>
+              <p v-if="ipv6Error" class="text-xs text-amber-700 dark:text-amber-300">{{ ipv6Error }}</p>
+              <p class="text-xs text-themed-muted">{{ t('ipv6Delivery.adminHint') }}</p>
+              <p v-if="ipv6Sync.checkedAt" class="text-xs text-themed-muted">{{ t('ipv6Delivery.checked') }}: {{ new Date(ipv6Sync.checkedAt).toLocaleString() }}</p>
+            </dd>
+          </div>
+          <div v-else-if="host.natConfig?.publicIpv6" class="flex justify-between">
             <dt class="text-gray-500">{{ t('admin.hosts.natPublicIpv6') }}</dt>
             <dd class="font-mono break-all text-right" :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-700'">{{ host.natConfig.publicIpv6 }}</dd>
           </div>

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"incudal-agent/internal/config"
+	"incudal-agent/internal/dedicatedipv6"
 	"incudal-agent/internal/ingress"
 	"incudal-agent/internal/panel"
 	"incudal-agent/internal/report"
@@ -24,9 +25,26 @@ func main() {
 	configPath := flag.String("config", "/etc/incudal-agent/config.yaml", "agent config file")
 	once := flag.Bool("once", false, "send one heartbeat and exit")
 	restoreIngress := flag.Bool("restore-port-protocol", false, "restore saved ingress policy")
+	syncIPv6 := flag.Bool("sync-dedicated-ipv6", false, "reconcile managed dedicated IPv6 networking")
 	flag.Parse()
+	if *syncIPv6 {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := dedicatedipv6.Reconcile(ctx); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if *restoreIngress {
-		if err := ingress.Restore(context.Background()); err != nil { log.Fatal(err) }; return
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := ingress.Restore(ctx); err != nil {
+			log.Fatal(err)
+		}
+		if err := dedicatedipv6.Restore(ctx); err != nil {
+			log.Fatal(err)
+		}
+		return
 	}
 
 	cfg, err := config.Load(*configPath)
@@ -37,7 +55,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := ingress.Restore(ctx); err != nil { log.Printf("restore ingress: %v", err) }
+	if err := ingress.Restore(ctx); err != nil {
+		log.Printf("restore ingress: %v", err)
+	}
+	if err := dedicatedipv6.Restore(ctx); err != nil {
+		log.Printf("restore dedicated IPv6: %v", err)
+	}
+	// IPv6 recovery must work even while the panel or heartbeat is unavailable.
+	go reconcileIPv6(ctx)
 	client := panel.New(cfg)
 	if *once {
 		if _, err := sendHeartbeat(ctx, client, cfg.HeartbeatIntervalSeconds); err != nil {
@@ -75,18 +100,41 @@ func main() {
 	}
 }
 
+func reconcileIPv6(ctx context.Context) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		applyCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+		err := dedicatedipv6.Reconcile(applyCtx)
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			log.Printf("dedicated IPv6 reconciliation: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 func sendHeartbeat(ctx context.Context, client *panel.Client, heartbeatIntervalSeconds int) (panel.HeartbeatResult, error) {
 	payload := report.HeartbeatPayload(version, heartbeatIntervalSeconds)
-	if lastPortProtocolStatus != nil { payload["portProtocolStatus"] = *lastPortProtocolStatus }
+	if lastPortProtocolStatus != nil {
+		payload["portProtocolStatus"] = *lastPortProtocolStatus
+	}
 	result, err := client.Heartbeat(ctx, payload)
 	if err != nil {
 		return result, err
 	}
 	if result.PortProtocol != nil {
 		applyCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		status := ingress.Apply(applyCtx, *result.PortProtocol); cancel()
+		status := ingress.Apply(applyCtx, *result.PortProtocol)
+		cancel()
 		lastPortProtocolStatus = &status
-		if !status.Applied { log.Printf("apply ingress: %s", status.Error) }
+		if !status.Applied {
+			log.Printf("apply ingress: %s", status.Error)
+		}
 	}
 	return result, nil
 }
@@ -122,7 +170,7 @@ func (state *heartbeatLogState) logFailure(err error) {
 }
 
 func scheduleAgentUpgrade(ctx context.Context, runner *upgrade.Runner, result panel.HeartbeatResult, upgradeInProgress *atomic.Bool) {
-	if result.Upgrade == nil || !result.Upgrade.Available {
+	if result.Upgrade == nil || !result.Upgrade.Available || !upgrade.ShouldUpgrade(version, result.Upgrade.Version) {
 		return
 	}
 	if !upgradeInProgress.CompareAndSwap(false, true) {

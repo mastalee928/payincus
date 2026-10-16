@@ -188,6 +188,8 @@ interface PublicApiSort {
   value: string
 }
 
+import { customerIpv6View, publicIpv6 } from '../lib/host-public-ipv6.js'
+
 const publicServiceSelect = {
   id: true,
   name: true,
@@ -198,6 +200,11 @@ const publicServiceSelect = {
   disk: true,
   ipv4: true,
   ipv6: true,
+  dedicatedIpv4: true,
+  dedicatedNetworkReady: true,
+  dedicatedIpv6: true,
+  hostId: true,
+  incusId: true,
   networkMode: true,
   portLimit: true,
   snapshotLimit: true,
@@ -786,6 +793,7 @@ function serializePublicBillingRecord(record: PublicBillingRecord) {
 }
 
 function serializePublicService(instance: PublicServiceRecord) {
+  const ipv6 = customerIpv6View(instance.dedicatedIpv6, { hostId: instance.hostId, instanceName: instance.incusId, networkReady: instance.dedicatedNetworkReady })
   return {
     id: instance.id,
     name: instance.name,
@@ -799,7 +807,8 @@ function serializePublicService(instance: PublicServiceRecord) {
     network: {
       mode: instance.networkMode,
       ipv4: instance.ipv4,
-      ipv6: instance.ipv6
+      ipv6: instance.dedicatedIpv4 ? (ipv6 ? ipv6.primary : publicIpv6(instance.ipv6)) : instance.ipv6,
+      ...(instance.dedicatedIpv4 ? { publicIpv6Addresses: ipv6?.addresses ?? [], publicIpv6Status: ipv6?.status ?? 'none' } : {})
     },
     limits: {
       ports: instance.portLimit,

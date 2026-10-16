@@ -12,6 +12,7 @@ on:
       - 'server/src/lib/agent-auth.ts'
       - 'server/src/lib/host-agent-credentials.ts'
       - 'server/src/services/agent-instance-report.ts'
+      - 'scripts/test-dedicated-ipv6-network.py'
       - '.github/workflows/agent-release.yml'
   pull_request:
     branches:
@@ -23,6 +24,7 @@ on:
       - 'server/src/lib/agent-auth.ts'
       - 'server/src/lib/host-agent-credentials.ts'
       - 'server/src/services/agent-instance-report.ts'
+      - 'scripts/test-dedicated-ipv6-network.py'
       - '.github/workflows/agent-release.yml'
   workflow_dispatch:
     inputs:
@@ -126,6 +128,14 @@ jobs:
       - name: Test Agent
         working-directory: agent
         run: go test ./...
+
+      - name: Test IPv6 packet delivery and address lifecycle
+        working-directory: agent
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq iproute2 nftables iputils-ping python3 util-linux
+          sudo env "PATH=$PATH" INCUDAL_IPV6_NETNS_TEST=1 go test -count=1 -v ./internal/dedicatedipv6
 
       - name: Build Agent release files
         run: VERSION="${{ needs.version.outputs.version }}" bash agent/scripts/build-release.sh

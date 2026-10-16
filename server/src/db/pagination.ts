@@ -504,6 +504,7 @@ export async function getInstancesPaginated(options: PaginationOptions = {}): Pr
       incus_id: i.incusId,
       dedicated_ipv4: i.dedicatedIpv4,
       dedicated_network_ready: i.dedicatedNetworkReady,
+      dedicated_ipv6: i.dedicatedIpv6,
       public_ip_sync_blocked: i.host.publicIpSyncBlocked,
       name: i.name,
       user_id: i.userId,

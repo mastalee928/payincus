@@ -83,7 +83,7 @@ func (runner *Runner) Apply(ctx context.Context, instruction panel.UpgradeInstru
 	if instruction.Version == "" {
 		return errors.New("upgrade version is required")
 	}
-	if instruction.Version == currentVersion {
+	if !ShouldUpgrade(currentVersion, instruction.Version) {
 		return nil
 	}
 	if instruction.URL == "" {

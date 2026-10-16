@@ -2,6 +2,7 @@
 import HostReplacementModal from './HostReplacementModal.vue'
 import HostRecoveryModal from './HostRecoveryModal.vue'
 import HostPublicIpModal from './HostPublicIpModal.vue'
+import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
@@ -13,6 +14,14 @@ import { presetLabel } from '@/utils/poolCatalog'
 
 const { t, te, locale } = useI18n()
 const toast = useToast()
+const syncingIpv6Host = ref<number | null>(null)
+async function syncIpv6(host: ManagedHost) {
+  if (syncingIpv6Host.value !== null) return
+  syncingIpv6Host.value = host.id
+  try { host.publicIpv6Sync = await api.hostOnboarding.syncIpv6(host.id) }
+  catch { toast.error(t('ipv6Delivery.status.failed')) }
+  finally { syncingIpv6Host.value = null }
+}
 const hosts = ref<ManagedHost[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -276,6 +285,11 @@ defineExpose({ refresh })
             <div class="flex flex-wrap gap-x-2"><dt class="text-themed-muted">{{ t('hostInventory.publicIp') }}</dt><dd class="font-mono text-themed break-all">{{ host.publicIp || '—' }}</dd></div>
             <p v-if="host.publicIpSync?.supported" class="text-xs" :class="host.publicIpSync.blocked || host.publicIpSync.status === 'failed' ? 'text-amber-600 dark:text-amber-400' : 'text-themed-muted'">{{ t('hostIpSync.status.' + host.publicIpSync.status) }}</p>
             <div class="flex flex-wrap gap-x-2"><dt class="text-themed-muted">{{ t('hostInventory.managementIp') }}</dt><dd class="font-mono text-themed break-all">{{ host.managementAddress || '—' }}</dd></div>
+            <div v-if="host.publicIpv6Sync?.supported" class="pt-2 space-y-1">
+              <dt class="text-themed-muted">{{ t('ipv6Delivery.title') }}</dt>
+              <dd><PublicIpv6Addresses :addresses="host.publicIpv6Sync.addresses" show-empty /></dd>
+              <dd v-if="host.publicIpv6Sync.status !== 'synced'" class="text-amber-700 dark:text-amber-300">{{ t('ipv6Delivery.status.' + host.publicIpv6Sync.status) }}</dd>
+            </div>
           </dl>
         </div>
         <div class="col-start-2 xl:col-start-auto min-w-0">
@@ -313,6 +327,7 @@ defineExpose({ refresh })
           </div>
           <button v-if="host.poolFaulted" type="button" class="btn-secondary text-xs whitespace-nowrap" @click="recoveryHost = host">{{ t('hostPoolOps.recovery.title') }}</button>
           <button v-if="host.publicIpSync?.supported" type="button" class="btn-secondary text-xs whitespace-nowrap" @click="publicIpHost = host">{{ t('hostIpSync.title') }}</button>
+          <button v-if="host.publicIpv6Sync?.supported" type="button" class="btn-secondary text-xs" :disabled="syncingIpv6Host !== null" @click="syncIpv6(host)">{{ t(syncingIpv6Host === host.id ? 'ipv6Delivery.checking' : 'ipv6Delivery.sync') }}</button>
           <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="openSsh(host)">SSH</button>
           <button v-if="host.instances.length === 1" type="button" class="btn-secondary text-xs whitespace-nowrap" @click="replacement = host.instances[0]">{{ t('dedicated.replacement.title') }}</button>
           <button type="button" class="btn-danger text-xs whitespace-nowrap" :disabled="host.instanceCount > 0" :title="host.instanceCount > 0 ? t('hostInventory.deleteBusy') : t('common.delete')" @click="removeHost = host">{{ t('common.delete') }}</button>

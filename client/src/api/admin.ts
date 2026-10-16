@@ -4068,6 +4068,7 @@ const api = {
   }
 ,
 hostOnboarding: {
+    syncIpv6: (id: number): Promise<import('@/types/host-pool').HostPublicIpv6Sync> => http.post(`/host-onboarding/inventory/${id}/ipv6/sync`, {}, { timeout: 150000 }),
     getPublicIp: (id: number): Promise<import('@/types/host-pool').HostPublicIpSync> => http.get(`/host-onboarding/inventory/${id}/public-ip`),
     syncPublicIp: (id: number, settings?: import('@/types/host-pool').HostPublicIpSettings): Promise<import('@/types/host-pool').HostPublicIpSync> => http.post(`/host-onboarding/inventory/${id}/public-ip/sync`, { settings }, { timeout: 150000 }),
     inspectRecovery: (id: number): Promise<import('@/types/host-pool').HostRecoveryReport> => http.get(`/host-onboarding/inventory/${id}/recovery`),
