@@ -1019,6 +1019,13 @@ assert.ok(
   'admin-reachable instance detail must guard customer transfer, redeem, subscription, billing-destroy, and badge self-service features'
 )
 assert.ok(
+  instanceDetailViewSource.includes("if (tab.key === 'config') return isAdminEntry") &&
+    instanceDetailViewSource.includes('v-if="isAdminEntry && activeTab === \'config\' && instance"') &&
+    instanceDetailViewSource.includes('const InstanceConfigTab = isAdminEntry') &&
+    !instanceDetailViewSource.includes("import InstanceConfigTab from"),
+  'customer instance details must omit both the advanced config tab and its component, even with a forced active tab'
+)
+assert.ok(
   !instanceDetailViewSource.includes('failureReason') &&
     !instanceDetailViewSource.includes('instance.errorBanner.reasonLabel'),
   'InstanceDetailView must not render an unavailable instance failure reason'

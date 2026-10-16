@@ -87,6 +87,8 @@ assert.ok(userBuildFiles.length > 0, 'customer build output must contain text fi
 assert.ok(adminBuildFiles.length > 0, 'admin build output must contain text files')
 
 assertNoFixedMarkers('customer', userBuildFiles, [
+  'instanceConfig.boostProcesses.button',
+  'instanceConfig.boostProcesses.confirm',
   '/api/admin',
   '/admin/login',
   '/admin/users',

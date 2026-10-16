@@ -12,6 +12,7 @@
     "build": "tsc",
     "type-check": "tsc --noEmit",
     "test:host-pool-guards": "node --import tsx scripts/test-host-pool-guards.ts",
+    "test:instance-config-access": "node --import tsx scripts/test-instance-config-access.ts",
     "test:admin-instance-push-integration": "node --import tsx scripts/test-admin-instance-push-integration.ts",
     "test:host-public-ip": "node --import tsx scripts/test-host-public-ip.ts",
     "test:host-public-ipv6": "node --import tsx scripts/test-host-public-ipv6.ts",

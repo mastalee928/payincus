@@ -173,6 +173,16 @@ export default async function batchConfigRoutes(fastify: FastifyInstance) {
     const { user } = request
     const { id } = request.params
     const { instanceIds, config } = request.body
+
+    // The batch endpoint must not bypass the admin-only advanced configuration APIs.
+    if (user.role !== 'admin' && [
+      'swapEnabled', 'swapSize', 'limitsRead', 'limitsWrite', 'limitsReadIops', 'limitsWriteIops',
+      'limitsIngress', 'limitsEgress', 'limitsProcesses', 'limitsCpuPriority',
+      'bootAutostart', 'bootAutostartPriority', 'bootAutostartDelay', 'bootHostShutdownTimeout'
+    ].some(key => Object.prototype.hasOwnProperty.call(config, key))) {
+      return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+    }
+
     const hostId = parsePositiveRouteId(id)
 
     if (!hostId) {

@@ -5330,9 +5330,10 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
   // ==================== 实例配置 API ====================
 
+  // 高级配置仅供管理员使用；必须在读取配置前校验权限，旧客户端也不能绕过。
   // 获取实例配置（合并套餐默认值和实例覆盖值）
   fastify.get<{ Params: { id: string } }>('/:id/config', {
-    onRequest: [fastify.authenticate]
+    onRequest: [fastify.authenticateAdmin]
   }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     const { id } = request.params
     const instanceId = parsePositiveRouteId(id)
@@ -5461,7 +5462,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
   // 启用实例 SWAP
   fastify.post<{ Params: { id: string } }>('/:id/swap/enable', {
-    onRequest: [fastify.authenticate],
+    onRequest: [fastify.authenticateAdmin],
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } }
   }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     const { id } = request.params
@@ -5569,7 +5570,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
   // 关闭实例 SWAP
   fastify.post<{ Params: { id: string } }>('/:id/swap/disable', {
-    onRequest: [fastify.authenticate],
+    onRequest: [fastify.authenticateAdmin],
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } }
   }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     const { id } = request.params
@@ -5687,7 +5688,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       bootHostShutdownTimeout?: number | null
     }
   }>('/:id/advanced-config', {
-    onRequest: [fastify.authenticate],
+    onRequest: [fastify.authenticateAdmin],
     schema: {
       body: {
         type: 'object',
@@ -5733,7 +5734,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
   fastify.post<{
     Params: { id: string }
   }>('/:id/boost-processes', {
-    onRequest: [fastify.authenticate],
+    onRequest: [fastify.authenticateAdmin],
     schema: {
       params: {
         type: 'object',
@@ -5760,7 +5761,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       return reply.code(404).send(apiError(ErrorCode.INSTANCE_NOT_FOUND))
     }
 
-    // 权限检查：只有实例所有者可以提升进程数
+    // 管理员身份已由 authenticateAdmin 校验；保留实例权限检查。
     if (instance.user_id !== user.id && user.role !== 'admin') {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }

@@ -103,6 +103,19 @@ const boostRouteEnd = source.indexOf("}>('/:id/task'", boostRouteStart)
 assert.ok(boostRouteEnd > boostRouteStart, 'boost-processes route end marker not found')
 const boostRoute = source.slice(boostRouteStart, boostRouteEnd)
 
+for (const path of ['/:id/config', '/:id/swap/enable', '/:id/swap/disable', '/:id/advanced-config', '/:id/boost-processes']) {
+  const start = path === '/:id/config'
+    ? source.indexOf("fastify.get<{ Params: { id: string } }>('/:id/config'")
+    : source.indexOf(`}>('${path}'`)
+  assert.ok(start >= 0, `missing advanced configuration route: ${path}`)
+  const optionsEnd = source.indexOf('}, async (', start)
+  assert.ok(optionsEnd > start, `missing route options: ${path}`)
+  assert.ok(
+    source.slice(start, optionsEnd).includes('onRequest: [fastify.authenticateAdmin]'),
+    `${path} must reject customer requests before reading configuration or changing resource limits`
+  )
+}
+
 assert.ok(
   boostRoute.includes('const previousProcesses = instanceConfig?.limits_processes ?? null') &&
     boostRoute.includes('limitsProcesses: previousProcesses'),

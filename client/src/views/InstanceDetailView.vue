@@ -4,7 +4,7 @@ defineOptions({
   name: 'InstanceDetailView'
 })
 
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
@@ -16,7 +16,6 @@ import { useConfigStore } from '@/stores/config'
 import InstanceInfoTab from '@/components/instance/InstanceInfoTab.vue'
 import InstanceNetworkTab from '@/components/instance/InstanceNetworkTab.vue'
 import InstanceQuotaTab from '@/components/instance/InstanceQuotaTab.vue'
-import InstanceConfigTab from '@/components/instance/InstanceConfigTab.vue'
 import InstanceSitesTab from '@/components/instance/InstanceSitesTab.vue'
 import InstanceLogsTab from '@/components/instance/InstanceLogsTab.vue'
 import SnapshotManager from '@/components/SnapshotManager.vue'
@@ -40,6 +39,11 @@ import { getStatusInfo } from '@/utils/formatters'
 import { translateError } from '@/utils/errorHandler'
 import { freeSiteCopy, getFreeSiteBillingCycleLabel, getFreeSiteBillingCycleShort } from '@/utils/freeSiteFun'
 import type { Instance, InstanceWithDetails, Snapshot, UserQuota, UpdateInstanceRequest, Package, CloudInitState, CloudInitStatusResponse } from '@/types/api'
+
+// Do not include the advanced configuration UI in the customer entry.
+const InstanceConfigTab = isAdminEntry
+  ? defineAsyncComponent(() => import('@/components/instance/InstanceConfigTab.vue'))
+  : null
 
 // 格式化镜像名称：优先使用 imageName，否则去掉 images: 前缀
 function formatImageName(image: string, imageName?: string | null): string {
@@ -774,7 +778,7 @@ function handleTerminalCloudInitManualComplete(): void {
 // 分页数据 - 已移至子组件
 const portMappingsCount = computed<number>(() => (instance.value as any)?.port_mappings?.length || 0)
 
-// Tab definitions - config tab visible to all, quota tab only visible to host owners
+// Advanced configuration belongs to the admin entry; quota visibility is checked separately.
 interface DetailTab {
   key: TabType
   labelKey: string
@@ -817,13 +821,13 @@ const hasSnapshotQuota = computed<boolean>(() => getInstanceQuotaLimit('snapshot
 
 const visibleTabs = computed(() => {
   const tabs = allTabs.filter(tab => {
+    if (tab.key === 'config') return isAdminEntry
     if (tab.key === 'sites') return hasSiteQuota.value
     if (tab.key === 'snapshots') return hasSnapshotQuota.value
     return true
   })
 
   // Quota tab visible to host owners or admins
-  // Config tab visible to all users (read-only for non-host owners)
   if (instance.value?.isHostOwner || authStore.isAdmin) {
     return tabs
   }
@@ -3096,7 +3100,7 @@ function formatShortDate(dateStr: string | null | undefined): string {
 
           <!-- Config Tab -->
           <InstanceConfigTab
-            v-if="activeTab === 'config' && instance"
+            v-if="isAdminEntry && activeTab === 'config' && instance"
             :instance-id="instance.id"
             :can-edit-config="instance.isHostOwner === true"
             :show-boot-settings="instance.isHostOwner === true"
