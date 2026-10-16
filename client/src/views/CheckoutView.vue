@@ -11,7 +11,7 @@ import { useI18n } from 'vue-i18n'
 import { ArrowLeft, ArrowRight, Check, Cpu, HardDrive, KeyRound, Loader2, LockKeyhole, MemoryStick, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-vue-next'
 import api from '@/api'
 import FlagIcon from '@/components/FlagIcon.vue'
-import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
+import CheckoutOrderResult from '@/components/CheckoutOrderResult.vue'
 import { useCartStore, type CartItem } from '@/stores/cart'
 import { useConfigStore } from '@/stores/config'
 import { useAuthStore } from '@/stores/auth'
@@ -19,7 +19,6 @@ import type { SshKey } from '@/types/api'
 import type { PoolCheckoutResult } from '@/types/host-pool'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useThemeStore } from '@/stores/theme'
-import { useToast } from '@/stores/toast'
 import { translateError } from '@/utils/errorHandler'
 import { validateName } from '@/utils/validation'
 import {
@@ -38,7 +37,6 @@ const route = useRoute()
 const authStore = useAuthStore()
 const { t } = useI18n()
 const themeStore = useThemeStore()
-const toast = useToast()
 const cartStore = useCartStore()
 const configStore = useConfigStore()
 const sshKeys = ref<SshKey[]>([])
@@ -53,7 +51,6 @@ const serverAvailable = ref<Record<number, number>>({})
 /** 认证方式：整单共用。key = 选一把 SSH 密钥；password = 系统生成 root 密码。 */
 const authMode = ref<'key' | 'password'>('key')
 const orderResult = ref<PoolCheckoutResult | null>(null)
-const showPasswords = ref(false)
 const turnstileToken = ref('')
 const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
 const turnstileRequired = computed(() => configStore.turnstileEnabled && !!configStore.turnstileSiteKey)
@@ -78,10 +75,6 @@ async function acceptOrder(result: PoolCheckoutResult) {
   await router.replace({ path: '/checkout', query: { order: result.batchId } })
   void authStore.fetchCurrentUser().catch(() => {})
   void pollOrder()
-}
-async function copyValue(value: string) {
-  try { await navigator.clipboard.writeText(value); toast.success(t('hostInventory.sshCopied')) }
-  catch { toast.error(t('hostInventory.sshCopyFailed')) }
 }
 onUnmounted(() => { disposed = true; clearTimeout(pollTimer) })
 
@@ -287,8 +280,8 @@ async function pay(): Promise<void> {
 
 <template>
   <div class="checkout-page" :aria-busy="loading || paying">
-    <header class="checkout-header">
-      <h1>{{ t(orderResult ? 'cart.accepted' : 'cart.title') }}</h1>
+    <header v-if="!orderResult" class="checkout-header">
+      <h1>{{ t('cart.title') }}</h1>
       <router-link v-if="rows.length || orderResult" to="/purchase" class="checkout-back-link">
         <ArrowLeft :size="15" aria-hidden="true" />{{ t('cart.continueShopping') }}
       </router-link>
@@ -298,20 +291,7 @@ async function pay(): Promise<void> {
     </header>
 
     <div v-if="error && (orderResult || loading || !rows.length)" class="checkout-alert checkout-alert-error" role="alert">{{ error }}</div>
-    <section v-if="orderResult" class="space-y-4" aria-live="polite">
-      <div class="checkout-panel p-5"><p class="text-xs text-themed-muted">{{ t('cart.orderNumber') }}</p><p class="font-mono text-xs text-themed mt-2 break-all">{{ orderResult.batchId }}</p></div>
-      <article v-for="instance in orderResult.instances" :key="instance.id" class="checkout-panel p-5 space-y-3">
-        <div class="flex items-center justify-between gap-3"><RouterLink :to="`/instances/${instance.id}`" class="font-semibold text-themed break-all">{{ instance.name }}</RouterLink><span class="text-sm" :class="instance.status === 'error' ? 'text-red-600 dark:text-red-400' : instance.status === 'creating' ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'">{{ instance.refunded ? t('cart.refunded') : instance.status === 'creating' ? t('cart.creating') : instance.status === 'error' ? t('cart.failed') : t('cart.ready') }}</span></div>
-        <div v-if="instance.host && instance.sshPort" class="flex flex-wrap items-center gap-2"><code class="text-xs text-themed break-all">ssh -p {{ instance.sshPort }} root@{{ instance.host }}</code><button class="btn-secondary text-xs" @click="copyValue(`ssh -p ${instance.sshPort} root@${instance.host}`)">{{ t('hostInventory.sshCopy') }}</button></div>
-        <p v-else class="text-xs text-themed-muted">{{ t(instance.publicIpUpdating ? 'hostIpSync.customerUpdating' : instance.status === 'creating' ? 'cart.connectionPending' : instance.refunded ? 'cart.refunded' : instance.refundPending ? 'cart.refundPending' : instance.status === 'error' ? 'cart.failed' : 'cart.connectionManual') }}</p>
-        <div v-if="instance.rootPassword && instance.status !== 'error'" class="flex flex-wrap items-center gap-2"><label class="text-xs text-themed-muted">{{ t('publicSite.market.pool.credsPassword') }} <input :type="showPasswords ? 'text' : 'password'" :value="instance.rootPassword" readonly class="input font-mono text-xs" /></label><button class="btn-secondary text-xs" @click="showPasswords = !showPasswords">{{ t(showPasswords ? 'cart.hidePassword' : 'cart.showPassword') }}</button><button class="btn-secondary text-xs" @click="copyValue(instance.rootPassword)">{{ t('publicSite.market.pool.credsCopy') }}</button></div>
-        <div v-if="instance.publicIpv6Addresses?.length || ['pending', 'failed'].includes(instance.publicIpv6Status || '')" class="space-y-1.5">
-          <p class="text-xs text-themed-muted">{{ t('ipv6Delivery.title') }}</p>
-          <PublicIpv6Addresses :addresses="instance.publicIpv6Addresses ?? []" :status="instance.publicIpv6Status" />
-        </div>
-      </article>
-      <div class="flex flex-wrap gap-3"><RouterLink to="/instances" class="checkout-primary">{{ t('publicSite.market.pool.credsViewInstances') }}</RouterLink><button class="checkout-secondary" @click="pollOrder">{{ t('common.refresh') }}</button></div>
-    </section>
+    <CheckoutOrderResult v-if="orderResult" :order="orderResult" @refresh="pollOrder" />
     <div v-else-if="loading" class="checkout-panel checkout-loading" role="status">
       <Loader2 :size="22" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />{{ t('common.loading') }}
     </div>
