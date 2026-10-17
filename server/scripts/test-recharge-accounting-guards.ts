@@ -45,7 +45,7 @@ assert.ok(
 assert.ok(
   createOrderRoute.includes('const rechargeAmount = parsePositiveJsonMoney(amount)') &&
     createOrderRoute.includes('if (rechargeAmount === null)') &&
-    createOrderRoute.includes('const normalizedAmount = Math.round(rechargeAmount * 100) / 100'),
+    createOrderRoute.includes('let normalizedAmount = Math.round(rechargeAmount * 100) / 100'),
   'recharge order creation must reject string, non-finite, and non-positive amounts before normalization'
 )
 assert.ok(
@@ -182,5 +182,67 @@ for (const [label, source] of [
     `${label}: must not keep the old completed-recharge amount aggregate pattern`
   )
 }
+
+const creditTargetHelper = sectionBetween(
+  providerDbSource,
+  'export function calculateRechargeAmountForCredit(',
+  'export function validateRechargeAmount('
+)
+assert.ok(
+  creditTargetHelper.includes('isSurchargeFeeProvider(provider)') &&
+    creditTargetHelper.includes('feeRate >= 1') &&
+    creditTargetHelper.includes('while (calculateActualAmount(provider, amount) < target)'),
+  'credit-target recharge helper must short-circuit surcharge channels, reject impossible fee rates, and verify the credited amount cent by cent'
+)
+assert.ok(
+  createOrderRoute.includes('const creditTarget = creditTargetInput === undefined ? null : parsePositiveJsonMoney(creditTargetInput)') &&
+    createOrderRoute.includes('db.calculateRechargeAmountForCredit(provider, creditTarget)') &&
+    createOrderRoute.indexOf('calculateRechargeAmountForCredit') < createOrderRoute.indexOf('db.validateRechargeAmount(provider, normalizedAmount)'),
+  'checkout credit-target recharge must gross up channel fees before the amount-range validation'
+)
+
+const checkoutViewSource = readFileSync(resolve(__dirname, '../../client/src/views/CheckoutView.vue'), 'utf8')
+const userApiSource = readFileSync(resolve(__dirname, '../../client/src/api/index.ts'), 'utf8')
+assert.ok(
+  userApiSource.includes("http.post('/recharge/orders', { providerId, amount, paymentMethod, ...(creditTarget !== undefined ? { creditTarget } : {}) })"),
+  'customer API client must forward the checkout credit target to the recharge order endpoint'
+)
+assert.ok(
+  checkoutViewSource.includes('api.billing.createRechargeOrder(providerId, targetYuan, undefined, targetYuan)') &&
+    checkoutViewSource.includes("if (status === 'completed')") &&
+    checkoutViewSource.includes("payChoice.value = 'balance'") &&
+    checkoutViewSource.includes('gatewayCredited.value = true'),
+  'pool checkout must create a credit-target recharge, wait for completion, then settle through balance'
+)
+
+const callbackHandlerSource = sectionBetween(
+  routeSource,
+  'async function handlePaymentCallback(',
+  '// POST 回调接口'
+)
+assert.ok(
+  callbackHandlerSource.includes('if (!isIpInWhitelist(clientIp, provider.type))') &&
+    callbackHandlerSource.includes('validateActiveRechargeProvider({ type: provider.type, config })') &&
+    callbackHandlerSource.includes('epay.verifyWithStatus(callbackData as CallbackData)') &&
+    callbackHandlerSource.includes('heleket.verifyWebhookSignature(callbackData)') &&
+    callbackHandlerSource.includes('verifyUpayProNotification(callbackData, buildUpayProConfig(config).config.secret_key)') &&
+    callbackHandlerSource.includes('verifyAntomWebhook({') &&
+    callbackHandlerSource.includes('verifyCallbackSignature({ type: provider.type, config }, callbackData, signature)'),
+  'recharge callbacks must reject calls outside the source IP whitelist and verify the per-channel signature before settling'
+)
+assert.ok(
+  callbackHandlerSource.indexOf('isIpInWhitelist(clientIp, provider.type)') < callbackHandlerSource.indexOf('await db.completeRecharge(') &&
+    callbackHandlerSource.indexOf('epay.verifyWithStatus(callbackData as CallbackData)') < callbackHandlerSource.indexOf('await db.completeRecharge(') &&
+    callbackHandlerSource.includes('if (record.providerId !== providerIdNum)') &&
+    callbackHandlerSource.includes('!isCurrentRechargePaymentAttempt(') &&
+    callbackHandlerSource.includes('if (await isCallbackProcessed(providerIdNum, orderNo, tradeNoForIndex))'),
+  'source IP, signature, channel consistency, current-attempt and replay checks must all run before a recharge callback can credit a balance'
+)
+assert.ok(
+  checkoutViewSource.includes("if (status === 'completed')") &&
+    !checkoutViewSource.includes('creditBalance') &&
+    !checkoutViewSource.includes('/recharge/callback'),
+  'pool checkout must never credit a balance itself; it only unlocks settlement on the server-reported completed status'
+)
 
 console.log('recharge accounting guard tests passed')

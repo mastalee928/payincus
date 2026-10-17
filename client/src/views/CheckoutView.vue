@@ -8,7 +8,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, ArrowRight, Check, Cpu, HardDrive, KeyRound, Loader2, LockKeyhole, MemoryStick, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, Check, CreditCard, Cpu, HardDrive, KeyRound, Loader2, LockKeyhole, MemoryStick, Minus, Plus, ShoppingBag, Trash2, Wallet } from 'lucide-vue-next'
 import api from '@/api'
 import FlagIcon from '@/components/FlagIcon.vue'
 import CheckoutOrderResult from '@/components/CheckoutOrderResult.vue'
@@ -56,7 +56,26 @@ const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
 const turnstileRequired = computed(() => configStore.turnstileEnabled && !!configStore.turnstileSiteKey)
 const acceptPrices = ref(false)
 const maxInstances = ref(100)
+/**
+ * 支付方式：'balance' 走现有余额扣款；数字是后台已启用渠道的 id。
+ * 选渠道时按整单金额创建充值单（服务端把手续费补足到账不少于订单额），到账后仍由余额完成
+ * 整单扣款与开通 —— 购买订单本身没有新增任何支付状态。
+ */
+const payProviders = ref<Array<{ id: number; name: string; type: string }>>([])
+const payChoice = ref<'balance' | number>('balance')
+const gatewayBusy = ref(false)
+const gatewayError = ref('')
+const gatewayCredited = ref(false)
+const gatewayOrder = ref<{
+  orderNo: string
+  providerName: string
+  payableCents: number
+  actualAmountCents: number
+  payUrl: string | null
+  manualInstructions: string | null
+} | null>(null)
 let pollTimer: ReturnType<typeof setTimeout> | undefined
+let gatewayPollTimer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 async function pollOrder() {
   clearTimeout(pollTimer)
@@ -76,7 +95,7 @@ async function acceptOrder(result: PoolCheckoutResult) {
   void authStore.fetchCurrentUser().catch(() => {})
   void pollOrder()
 }
-onUnmounted(() => { disposed = true; clearTimeout(pollTimer) })
+onUnmounted(() => { disposed = true; clearTimeout(pollTimer); clearTimeout(gatewayPollTimer) })
 
 interface CheckoutRow {
   item: CartItem
@@ -178,6 +197,9 @@ onMounted(async () => {
       return
     }
     await Promise.all([configStore.loadPublicConfig(), api.sshKeys.list().then(result => { sshKeys.value = result.keys }), loadCatalog()])
+    void api.billing.getPaymentProviders()
+      .then(result => { payProviders.value = result.providers })
+      .catch(() => { payProviders.value = [] })
     if (sshKeys.value.length > 0) sshKeyId.value = sshKeys.value[0].id
     else authMode.value = 'password'
   } catch (err) {
@@ -275,6 +297,108 @@ async function pay(): Promise<void> {
     turnstileToken.value = ''; turnstileRef.value?.reset()
     paying.value = false
   }
+}
+
+const payChoiceLabel = computed(() => {
+  if (payChoice.value === 'balance') return t('cart.balance')
+  return payProviders.value.find(provider => provider.id === payChoice.value)?.name ?? t('cart.balance')
+})
+
+function selectPayChoice(choice: 'balance' | number): void {
+  payChoice.value = choice
+  gatewayError.value = ''
+  error.value = ''
+}
+
+function openGatewayPage(): void {
+  if (gatewayOrder.value?.payUrl) window.open(gatewayOrder.value.payUrl, '_blank', 'noopener')
+}
+
+function scheduleGatewayPoll(delay = 5000): void {
+  clearTimeout(gatewayPollTimer)
+  if (disposed || !gatewayOrder.value || gatewayCredited.value) return
+  gatewayPollTimer = setTimeout(() => void refreshGatewayOrder(), delay)
+}
+
+/** 查充值单：到账即解锁结算；手动点刷新时再主动向网关查询一次（并非所有渠道都支持）。 */
+async function refreshGatewayOrder(manual = false, silent = false): Promise<void> {
+  const order = gatewayOrder.value
+  if (!order || gatewayCredited.value) return
+  if (!silent) gatewayBusy.value = true
+  try {
+    if (manual) await api.billing.verifyRechargeOrder(order.orderNo).catch(() => null)
+    const detail = await api.billing.getRechargeOrder(order.orderNo)
+    const status = detail.order.status
+    if (status === 'completed') {
+      if (detail.order.actualAmount !== null) order.actualAmountCents = Math.round(Number(detail.order.actualAmount) * 100)
+      gatewayCredited.value = true
+      gatewayError.value = ''
+      payChoice.value = 'balance'
+      return
+    }
+    if (status === 'failed' || status === 'cancelled' || status === 'expired' || status === 'refunded') {
+      gatewayOrder.value = null
+      gatewayError.value = t('cart.gatewayFailed')
+      return
+    }
+    gatewayError.value = ''
+  } catch (err) {
+    if (!silent) gatewayError.value = translateError(err)
+  } finally {
+    if (!silent) gatewayBusy.value = false
+  }
+  scheduleGatewayPoll()
+}
+
+/** 选渠道时按整单金额创建充值单；到账后仍由余额完成扣款与开通。 */
+async function startGatewayPayment(): Promise<void> {
+  const providerId = payChoice.value
+  if (providerId === 'balance' || gatewayBusy.value || rows.value.length === 0) return
+  // 已有一张未完成的充值单时不再重复创建，直接回到支付页并刷新状态。
+  if (gatewayOrder.value && !gatewayCredited.value) {
+    openGatewayPage()
+    void refreshGatewayOrder(true)
+    return
+  }
+  if (tooMany.value) { error.value = t('cart.tooMany', { max: maxInstances.value }); return }
+  const problem = problemRows.value[0]
+  if (problem) { error.value = ''; highlightRow(problem.item.key); return }
+  if (rows.value.some(row => row.priceChanged) && !acceptPrices.value) { error.value = t('cart.acceptPricesRequired'); return }
+  gatewayBusy.value = true
+  gatewayError.value = ''
+  error.value = ''
+  try {
+    const targetYuan = totalCents.value / 100
+    const result = await api.billing.createRechargeOrder(providerId, targetYuan, undefined, targetYuan)
+    gatewayOrder.value = {
+      orderNo: result.order.orderNo,
+      providerName: result.provider.name,
+      payableCents: Math.round(Number(result.order.payableAmount) * 100),
+      actualAmountCents: Math.round(Number(result.order.actualAmount) * 100),
+      payUrl: result.payUrl,
+      manualInstructions: result.manualPayment?.instructions ?? null
+    }
+    if (result.payUrl) window.open(result.payUrl, '_blank', 'noopener')
+    scheduleGatewayPoll(4000)
+  } catch (err) {
+    gatewayError.value = translateError(err)
+  } finally {
+    gatewayBusy.value = false
+  }
+}
+
+const primaryLabel = computed(() => {
+  if (paying.value) return t('cart.paying')
+  if (gatewayBusy.value) return t('cart.gatewayCreating')
+  if (gatewayOrder.value && !gatewayCredited.value) return t('cart.gatewayWaiting')
+  if (payChoice.value !== 'balance') return t('cart.gatewayPayButton', { amount: formatPublicPrice(totalCents.value) })
+  return t('cart.pay')
+})
+
+function onPrimaryAction(): void {
+  if (gatewayOrder.value && !gatewayCredited.value) return
+  if (payChoice.value === 'balance') void pay()
+  else void startGatewayPayment()
 }
 </script>
 
@@ -443,7 +567,7 @@ async function pay(): Promise<void> {
             <div><dt>{{ t('cart.line.quantity') }}</dt><dd>{{ t('cart.count', { count: totalQuantity }) }}</dd></div>
             <div><dt>{{ t('cart.monthlyTotal') }}</dt><dd>¥{{ formatPublicPrice(monthlyTotalCents) }}</dd></div>
             <div v-if="setupTotalCents > 0"><dt>{{ t('cart.setupTotal') }}</dt><dd>¥{{ formatPublicPrice(setupTotalCents) }}</dd></div>
-            <div><dt>{{ t('cart.paymentMethod') }}</dt><dd>{{ t('cart.balance') }}</dd></div>
+            <div><dt>{{ t('cart.paymentMethod') }}</dt><dd>{{ payChoiceLabel }}</dd></div>
           </dl>
           <div class="checkout-grand-total">
             <span>{{ t('cart.firstPayment') }}</span>
@@ -454,14 +578,40 @@ async function pay(): Promise<void> {
         <div class="checkout-summary-section checkout-payment">
           <p v-if="tooMany" class="text-xs text-red-600 dark:text-red-400">{{ t('cart.tooMany', { max: maxInstances }) }}</p>
           <div v-if="error" class="checkout-alert checkout-alert-error" role="alert">{{ error }}</div>
+          <div v-if="payProviders.length > 0 && totalCents > 0" class="checkout-pay-choice" role="group" :aria-label="t('cart.paymentMethod')">
+            <button type="button" class="checkout-pay-option" :class="{ 'is-selected': payChoice === 'balance' }" :aria-pressed="payChoice === 'balance'" @click="selectPayChoice('balance')">
+              <Wallet :size="16" aria-hidden="true" />
+              <span>{{ t('cart.balance') }}</span>
+              <span class="checkout-pay-check" aria-hidden="true"><Check v-if="payChoice === 'balance'" :size="12" :stroke-width="3" /></span>
+            </button>
+            <button v-for="provider in payProviders" :key="provider.id" type="button" class="checkout-pay-option" :class="{ 'is-selected': payChoice === provider.id }" :aria-pressed="payChoice === provider.id" @click="selectPayChoice(provider.id)">
+              <CreditCard :size="16" aria-hidden="true" />
+              <span>{{ provider.name }}</span>
+              <span class="checkout-pay-check" aria-hidden="true"><Check v-if="payChoice === provider.id" :size="12" :stroke-width="3" /></span>
+            </button>
+          </div>
+          <p v-if="payChoice !== 'balance'" class="checkout-pay-hint">{{ t('cart.gatewayAmountHint') }}</p>
+          <div v-if="gatewayOrder" class="checkout-gateway" role="status">
+            <p v-if="gatewayCredited" class="checkout-gateway-credited">{{ t('cart.gatewayCredited', { amount: formatPublicPrice(gatewayOrder.actualAmountCents) }) }}</p>
+            <template v-else>
+              <p>{{ t('cart.gatewayPending', { name: gatewayOrder.providerName }) }}</p>
+              <p class="checkout-gateway-meta">{{ t('cart.gatewayPayHint', { payable: formatPublicPrice(gatewayOrder.payableCents), actual: formatPublicPrice(gatewayOrder.actualAmountCents) }) }}</p>
+              <pre v-if="gatewayOrder.manualInstructions" class="checkout-gateway-manual">{{ gatewayOrder.manualInstructions }}</pre>
+            </template>
+            <p v-if="gatewayError" class="text-xs text-red-600 dark:text-red-400">{{ gatewayError }}</p>
+            <div v-if="!gatewayCredited" class="checkout-gateway-actions">
+              <button v-if="gatewayOrder.payUrl" type="button" class="checkout-secondary" @click="openGatewayPage">{{ t('cart.gatewayOpen') }}</button>
+              <button type="button" class="checkout-secondary" :disabled="gatewayBusy" @click="refreshGatewayOrder(true)">{{ t('cart.gatewayRefresh') }}</button>
+            </div>
+          </div>
           <label v-if="rows.some(row => row.priceChanged)" class="checkout-price-consent"><input v-model="acceptPrices" type="checkbox" />{{ t('cart.acceptPrices') }}</label>
           <div v-if="turnstileRequired" class="checkout-verification">
             <TurnstileWidget ref="turnstileRef" v-model="turnstileToken" :site-key="configStore.turnstileSiteKey!" :theme="themeStore.isDark ? 'dark' : 'light'" size="compact" action="pool-checkout" />
           </div>
-          <button type="button" class="checkout-primary checkout-pay" :disabled="!canPay" @click="pay">
-            <Loader2 v-if="paying" :size="17" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            {{ paying ? t('cart.paying') : t('cart.pay') }}
-            <ArrowRight v-if="!paying" :size="17" aria-hidden="true" />
+          <button type="button" class="checkout-primary checkout-pay" :disabled="!canPay || gatewayBusy || (!!gatewayOrder && !gatewayCredited)" @click="onPrimaryAction">
+            <Loader2 v-if="paying || gatewayBusy" :size="17" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            {{ primaryLabel }}
+            <ArrowRight v-if="!paying && !gatewayBusy" :size="17" aria-hidden="true" />
           </button>
         </div>
       </aside>
@@ -602,4 +752,19 @@ async function pay(): Promise<void> {
   .cart-shake { animation: none; }
   .checkout-page *, .checkout-page *::before, .checkout-page *::after { transition: none !important; }
 }
+.checkout-pay-choice { display: grid; gap: 8px; }
+.checkout-pay-option { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; text-align: left; font-size: 13px; color: var(--text-secondary); transition: background 150ms, border-color 150ms; }
+.checkout-pay-option > svg { flex-shrink: 0; }
+.checkout-pay-option:hover:not(:disabled) { background: var(--bg-secondary); border-color: var(--border-hover); }
+.checkout-pay-option.is-selected { color: var(--text-primary); border-color: var(--text-primary); background: var(--bg-secondary); }
+.checkout-pay-check { display: grid; place-items: center; width: 18px; height: 18px; margin-left: auto; flex-shrink: 0; border: 1px solid var(--border-hover); border-radius: 50%; }
+.is-selected .checkout-pay-check { border-color: var(--text-primary); background: var(--text-primary); color: var(--bg-elevated); }
+.checkout-pay-hint { font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
+.checkout-gateway { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-secondary); font-size: 12px; line-height: 1.6; }
+.checkout-gateway p { overflow-wrap: anywhere; }
+.checkout-gateway-meta { color: var(--text-secondary); }
+.checkout-gateway-credited { color: var(--text-primary); font-weight: 550; }
+.checkout-gateway-manual { margin: 0; padding: 8px; border-radius: 8px; background: var(--bg-elevated); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.checkout-gateway-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.checkout-gateway-actions .checkout-secondary { min-height: 40px; padding: 9px 14px; font-size: 12px; }
 </style>

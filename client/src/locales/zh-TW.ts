@@ -321,6 +321,7 @@ const zhTW = {
         main: '常用',
         dashboard: '總覽',
         instances: '實例',
+        myInstances: '我的實例',
         transfers: '移轉',
         friends: '好友',
         tickets: '工單',
@@ -385,7 +386,7 @@ poolPricing: "定價",
 
 cart: "購物車",
 
-purchase: "購買主機",
+purchase: "建立實例",
 },
 
     // 佈景主題
@@ -8833,6 +8834,16 @@ cart: {
         setupTotal: '開通費合計',
         paymentMethod: '付款方式',
         balance: '帳戶餘額',
+        gatewayAmountHint: '依訂單金額線上支付，手續費依渠道規則處理，到帳金額不少於訂單金額。',
+        gatewayPayButton: '前往支付 ¥{amount}',
+        gatewayCreating: '正在建立支付單…',
+        gatewayWaiting: '等待支付到帳…',
+        gatewayPending: '請在 {name} 完成付款，到帳後即可完成結算。',
+        gatewayPayHint: '應付 ¥{payable}，到帳 ¥{actual}',
+        gatewayOpen: '開啟支付頁面',
+        gatewayRefresh: '我已完成支付，重新整理',
+        gatewayCredited: '儲值已到帳 ¥{amount}，點擊下方按鈕完成結算。',
+        gatewayFailed: '該支付單未完成，可重新發起。',
         firstPayment: '首期應付',
         loginMethod: '實例登入方式',
         loginScope: '用於本次購買的所有主機',

@@ -14,7 +14,7 @@ export const navMenuItems: MenuItem[] = [
   { name: 'dashboard', path: '/dashboard', icon: 'home', label: 'nav.dashboard' },
   { name: 'pool-purchase', path: '/purchase', icon: 'package', label: 'nav.purchase' },
   { name: 'checkout', path: '/checkout', icon: 'card', label: 'nav.cart' },
-  { name: 'instances', path: '/instances', icon: 'server', label: 'nav.instances' },
+  { name: 'instances', path: '/instances', icon: 'server', label: 'nav.myInstances' },
   { name: 'mail', path: '/mail', icon: 'mail', label: 'nav.mail' },
   { name: 'terminal', path: '/terminal', icon: 'terminal', label: 'nav.terminal' },
   { divider: true, label: 'nav.billing' },
@@ -34,6 +34,5 @@ export const navMenuItems: MenuItem[] = [
   { name: 'hosting-wallet', path: '/hosting-wallet', icon: 'coin', label: 'nav.earnings' },
   { divider: true, label: 'nav.system' },
   { name: 'extensions', path: '/extensions', icon: 'puzzle', label: 'nav.extensions' },
-  { name: 'entertainment', path: '/entertainment', icon: 'gift', label: 'nav.entertainment' },
   { name: 'profile', path: '/profile', icon: 'settings', label: 'nav.settings' },
 ]

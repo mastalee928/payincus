@@ -548,6 +548,35 @@ export function calculateActualAmount(provider: PaymentProvider, amount: number)
 }
 
 /**
+ * 按「实际到账目标」反推充值金额（元，两位小数）。
+ *
+ * 结算页选择网关渠道时，用户期望到账金额不少于整单金额：易支付手续费外加（充值额即到账额），
+ * 其它渠道手续费内扣（到账 = 充值额 - 手续费），必须向上补足，否则付完款余额仍不够结算。
+ * 返回 null 表示该配置下无论如何都到不了目标（手续费率 >= 100%）。
+ */
+export function calculateRechargeAmountForCredit(provider: PaymentProvider, creditTarget: number): number | null {
+  const target = Number(creditTarget.toFixed(2))
+  if (!Number.isFinite(target) || target <= 0) return null
+
+  if (isSurchargeFeeProvider(provider)) {
+    return target
+  }
+
+  const feeRate = Number(provider.feeRate) || 0
+  const feeFixed = Number(provider.feeFixed) || 0
+  if (feeRate >= 1) return null
+
+  // 先按费率解一次，再用实际到账函数逐分校验，避免浮点取整后少一分钱。
+  let amount = Math.ceil(((target + feeFixed) / (1 - feeRate)) * 100) / 100
+  let guard = 0
+  while (calculateActualAmount(provider, amount) < target) {
+    amount = Number((amount + 0.01).toFixed(2))
+    if (++guard > 10000) return null
+  }
+  return amount
+}
+
+/**
  * 验证充值金额是否在渠道允许范围内
  */
 export function validateRechargeAmount(provider: PaymentProvider, amount: number): { valid: boolean; error?: string } {

@@ -15,7 +15,9 @@ This page is generated from Git tags and commits to show system version history.
 
 ## Unreleased Changes / 未发布变更
 
-- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
+### Other Changes / 其他变更
+
+- docs: record the v1.6.3 release and the master verification `7c6962634`
 
 ## Historical Versions / 历史版本
 

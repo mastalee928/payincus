@@ -1027,14 +1027,19 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       }
 
       const user = request.user!
-      const { providerId, amount, paymentMethod } = request.body as {
+      const { providerId, amount, paymentMethod, creditTarget: creditTargetInput } = request.body as {
         providerId: unknown
         amount: unknown
         paymentMethod?: string  // 支付方式：alipay, wxpay 等
+        creditTarget?: unknown  // 结算页按「实际到账目标」充值：服务端据此把手续费补足
       }
 
       const providerIdNum = parsePositiveId(providerId)
       const rechargeAmount = parsePositiveJsonMoney(amount)
+      const creditTarget = creditTargetInput === undefined ? null : parsePositiveJsonMoney(creditTargetInput)
+      if (creditTargetInput !== undefined && creditTarget === null) {
+        return reply.status(400).send({ error: '充值金额无效' })
+      }
 
       // 参数验证
       if (!providerIdNum || amount === undefined) {
@@ -1046,7 +1051,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       }
 
       // 规范化金额为两位小数（避免浮点数精度问题）
-      const normalizedAmount = Math.round(rechargeAmount * 100) / 100
+      let normalizedAmount = Math.round(rechargeAmount * 100) / 100
       if (normalizedAmount <= 0) {
         return reply.status(400).send({ error: '充值金额无效' })
       }
@@ -1064,6 +1069,15 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       if (!providerValidation.valid) {
         request.log.warn({ providerId: providerIdNum, type: provider.type, error: providerValidation.error }, '拒绝使用未安全实现的支付渠道创建订单')
         return reply.status(400).send({ error: providerValidation.error || '支付渠道不可用' })
+      }
+
+      // 结算页「按订单金额充值」：把渠道手续费补足，保证实际到账不少于目标金额。
+      if (creditTarget !== null) {
+        const grossedUpAmount = db.calculateRechargeAmountForCredit(provider, creditTarget)
+        if (grossedUpAmount === null) {
+          return reply.status(400).send({ error: '按订单金额充值在该渠道不可用，请更换支付渠道' })
+        }
+        normalizedAmount = Math.max(grossedUpAmount, Number(provider.minAmount) || 0)
       }
 
       // 验证金额范围

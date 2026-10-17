@@ -368,6 +368,7 @@ export default {
         main: '常用',
         dashboard: '概览',
         instances: '实例',
+        myInstances: '我的实例',
         transfers: '转移',
         friends: '好友',
         tickets: '工单',
@@ -432,7 +433,7 @@ poolPricing: "定价",
 
 cart: "购物车",
 
-purchase: "购买主机",
+purchase: "创建实例",
 },
 
     // 主题
@@ -8563,6 +8564,16 @@ cart: {
         setupTotal: '开通费合计',
         paymentMethod: '支付方式',
         balance: '账户余额',
+        gatewayAmountHint: '按订单金额在线支付，手续费按渠道规则处理，到账金额不少于订单金额。',
+        gatewayPayButton: '前往支付 ¥{amount}',
+        gatewayCreating: '正在创建支付单…',
+        gatewayWaiting: '等待支付到账…',
+        gatewayPending: '请在 {name} 完成付款，到账后即可完成结算。',
+        gatewayPayHint: '应付 ¥{payable}，到账 ¥{actual}',
+        gatewayOpen: '打开支付页面',
+        gatewayRefresh: '我已完成支付，刷新状态',
+        gatewayCredited: '充值已到账 ¥{amount}，点击下方按钮完成结算。',
+        gatewayFailed: '该支付单未完成，可重新发起。',
         firstPayment: '首期应付',
         loginMethod: '实例登录方式',
         loginScope: '用于本次购买的所有主机',

@@ -317,6 +317,7 @@ export default {
         main: 'Main',
         dashboard: 'Dashboard',
         instances: 'Instances',
+        myInstances: 'My Instances',
         transfers: 'Transfers',
         friends: 'Friends',
         tickets: 'Tickets',
@@ -381,7 +382,7 @@ poolPricing: "Pricing",
 
 cart: "Cart",
 
-purchase: "Buy a server",
+purchase: "Create Instance",
 },
 
     // Theme
@@ -8490,6 +8491,16 @@ cart: {
         setupTotal: 'Setup fees',
         paymentMethod: 'Payment method',
         balance: 'Account balance',
+        gatewayAmountHint: 'Pay the order total online. Channel fees follow the gateway rules, and the credited balance covers the order total.',
+        gatewayPayButton: 'Pay ¥{amount}',
+        gatewayCreating: 'Creating payment order…',
+        gatewayWaiting: 'Waiting for payment…',
+        gatewayPending: 'Complete the payment in {name}. Checkout unlocks once the credit arrives.',
+        gatewayPayHint: 'Pay ¥{payable}, credited ¥{actual}',
+        gatewayOpen: 'Open payment page',
+        gatewayRefresh: 'I have paid, refresh',
+        gatewayCredited: '¥{amount} credited. Use the button below to finish checkout.',
+        gatewayFailed: 'This payment was not completed. You can start it again.',
         firstPayment: 'Due today',
         loginMethod: 'Instance login',
         loginScope: 'Applies to all servers in this order',

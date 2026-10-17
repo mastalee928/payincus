@@ -1120,8 +1120,8 @@ assert.ok(
     marketViewSource.includes("query: { redirect }") &&
     !marketViewSource.includes("path: '/instances/create'") &&
     !marketViewSource.includes("path: '/login'") &&
-    dashboardViewSource.includes("import { instanceCreatePath, instanceDetailPath, instancesPath } from '@/utils/app-paths'") &&
-    dashboardViewSource.includes(':to="instanceCreatePath()"') &&
+    dashboardViewSource.includes("import { instanceCreatePath, instanceDetailPath, instancesPath, isAdminEntry } from '@/utils/app-paths'") &&
+    dashboardViewSource.includes(":to=\"isAdminEntry ? instanceCreatePath() : '/purchase'\"") &&
     dashboardViewSource.includes(':to="instancesPath()"') &&
     dashboardViewSource.includes(':to="instanceDetailPath(instance.id)"') &&
     !dashboardViewSource.includes('to="/instances/create"') &&

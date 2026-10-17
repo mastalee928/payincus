@@ -104,7 +104,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/purchase', name: 'pool-purchase',
     component: () => import('@/components/purchase/PoolPurchaseWizard.vue'),
-    meta: { titleKey: 'nav.purchase', title: '购买主机' }
+    meta: { titleKey: 'nav.purchase', title: '创建实例' }
   },
   {
     path: '/checkout', name: 'checkout',
@@ -121,7 +121,7 @@ const routes: RouteRecordRaw[] = [
     path: '/instances',
     name: 'instances',
     component: () => import('@/views/InstancesView.vue'),
-    meta: { requiresAuth: true, requiresUser: true, titleKey: 'nav.instances', title: '实例' }
+    meta: { requiresAuth: true, requiresUser: true, titleKey: 'nav.myInstances', title: '我的实例' }
   },
   {
     path: '/instances/create',
@@ -279,13 +279,6 @@ const routes: RouteRecordRaw[] = [
     name: 'inbox',
     component: () => import('@/views/InboxView.vue'),
     meta: { requiresAuth: true, requiresUser: true, titleKey: 'nav.inbox', title: '通知' }
-  },
-  // 娱乐系统
-  {
-    path: '/entertainment',
-    name: 'entertainment',
-    component: () => import('@/views/EntertainmentView.vue'),
-    meta: { requiresAuth: true, requiresUser: true, titleKey: 'nav.entertainment', title: '娱乐' }
   },
   // 集中式终端管理
   {

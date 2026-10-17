@@ -13,7 +13,9 @@
 
 ## 未发布变更 / Unreleased Changes
 
-- 该 tag 与相邻 tag 指向同一提交，未产生额外 Git commit。
+### 其他变更 / Other Changes
+
+- docs: record the v1.6.3 release and the master verification `7c6962634`
 
 ## 历史版本 / Historical Versions
 
