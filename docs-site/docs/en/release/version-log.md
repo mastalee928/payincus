@@ -8,16 +8,38 @@ This page is generated from Git tags and commits to show system version history.
 
 ## Latest Release State / 最新发布状态
 
-- Latest Release Commit / 最新发布提交: `737c6863a`
+- Latest Release Commit / 最新发布提交: `2b81ce66e`
 - Commit date / 提交日期: 2026-10-16
-- Commit subject / 提交说明: fix: install the system Node runtime required by systemd
-- Latest tag / 最新 tag: `v1.6.1`
+- Commit subject / 提交说明: chore: integrate v1.6.2 release preparation
+- Latest tag / 最新 tag: `v1.6.2`
 
 ## Unreleased Changes / 未发布变更
 
-- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
+### Other Changes / 其他变更
+
+- style: refine checkout provisioning and connection details `7679c50a7`
+- docs: record instance configuration access verification `6e03d23a1`
+- docs: record checkout refinement verification `e833a335e`
+- style(checkout): refine cart layout and separate login settings `3c8227d1c`
+- docs: record v1.6.2 release and verified installation assets `026504ecd`
+
+### Fixes and Stability / 修复与稳定性
+
+- fix: restrict advanced instance configuration to administrators `b9c1e7321`
 
 ## Historical Versions / 历史版本
+
+## v1.6.2
+
+- Release commit / 发布提交: `2b81ce66e`
+- Commit date / 提交日期: 2026-10-16
+- Commit subject / 提交说明: chore: integrate v1.6.2 release preparation
+
+多 IPv6 自动发现、附加、更换与完整端口交付，支持 Alpine 和 Debian。
+OCI 分配地址自动配置、独立 IPv6 出口与持久恢复；TCP/TCP+UDP 策略保持一致。
+首页真实商品、完整 45 个区域、购物车排版与交互动效更新。
+UPAY Pro 支付渠道及 DNS、HTTPS 收银台修复。
+配套 Agent v1.0.3；发行包新装验证覆盖双架构、209 条迁移和正式 Agent 下载。
 
 ## v1.6.1
 

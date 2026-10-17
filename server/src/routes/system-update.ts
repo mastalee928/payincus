@@ -4,7 +4,9 @@ import { join, resolve, sep } from 'path'
 import { promisify } from 'util'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
+  cancelPendingSystemUpdateTask,
   createSystemUpdateTask,
+  failStaleSystemUpdateTasks,
   getSystemUpdateTask,
   hasRunningSystemUpdateTask,
   listSystemUpdateTasks,
@@ -54,6 +56,49 @@ async function canManageSystemUpdates(user: { id: number; username: string; role
 
 function getLogDir(root: string): string {
   return resolve(process.env.SYSTEM_UPDATE_LOG_DIR || join(root, 'update-logs'))
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => {
+    setTimeout(resolve, ms)
+  })
+}
+
+// systemd oneshot 用 --no-block 启动，unit 自身的失败不会回传到 API；而 helper 在拉起 worker
+// 之前就会做可信清单与 Git 校验，失败时 worker 永不执行，任务只会留在 pending。这里在启动后
+// 用短轮询确认任务是否被 worker 认领，认领不了就立刻判失败，避免留下永久 pending 记录。
+const WORKER_CLAIM_TIMEOUT_MS = 24000
+const WORKER_CLAIM_POLL_MS = 2000
+
+async function waitForTaskClaim(taskId: number, timeoutMs = WORKER_CLAIM_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs
+  let task = await getSystemUpdateTask(taskId)
+  while (task && task.status === 'pending' && Date.now() < deadline) {
+    await sleep(WORKER_CLAIM_POLL_MS)
+    task = await getSystemUpdateTask(taskId)
+  }
+  return task
+}
+
+// 只读取 unit 属性：服务用户无权读 journal（不在 systemd-journal 组），但 systemctl show 允许。
+// 必须用绝对路径 /usr/bin/systemctl —— 后端服务的 PATH 把受控 wrapper 放在最前，wrapper 只接受
+// start --no-block <unit>，用 'systemctl' 会命中 wrapper 而报错。
+async function describeUpdateUnitFailure(unitName: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      '/usr/bin/systemctl',
+      ['show', unitName, '-p', 'ActiveState', '-p', 'SubState', '-p', 'Result', '-p', 'ExecMainStatus'],
+      { timeout: 10000 }
+    )
+    const props: Record<string, string> = {}
+    for (const line of stdout.split(/\r?\n/)) {
+      const separator = line.indexOf('=')
+      if (separator > 0) props[line.slice(0, separator).trim()] = line.slice(separator + 1).trim()
+    }
+    return `unit ${props.ActiveState || 'unknown'}/${props.SubState || 'unknown'}，Result=${props.Result || 'unknown'}，ExecMainStatus=${props.ExecMainStatus || 'unknown'}`
+  } catch (error) {
+    return `无法读取 unit 状态：${error instanceof Error ? error.message : String(error)}`
+  }
 }
 
 function spawnUpdater(scriptName: string, args: string[], logPath: string): void {
@@ -195,6 +240,17 @@ export default async function systemUpdateRoutes(fastify: FastifyInstance) {
         code: 'GIT_REPOSITORY_REQUIRED'
       })
     }
+    // 先回收「从未启动」的陈旧 pending 记录，否则它们会被下面这行当成占用，永久挡住更新与回滚。
+    const releasedStaleTasks = await failStaleSystemUpdateTasks()
+    if (releasedStaleTasks > 0) {
+      await createLog(
+        getRequestUser(request).id,
+        LogModule.SYSTEM,
+        'system.update.stale_pending_released',
+        `Released ${releasedStaleTasks} stale pending system update task(s)`,
+        LogResult.WARNING
+      )
+    }
     if (await hasRunningSystemUpdateTask()) {
       return reply.code(409).send({ error: 'Another update task is already running', code: 'UPDATE_TASK_RUNNING' })
     }
@@ -231,7 +287,19 @@ export default async function systemUpdateRoutes(fastify: FastifyInstance) {
       })
       return reply.code(500).send({ error: 'Failed to start system update worker', code: 'UPDATE_WORKER_START_FAILED' })
     }
-    return reply.code(202).send({ task: serializeSystemUpdateTask({ ...task, logPath }) })
+
+    const claimed = await waitForTaskClaim(task.id)
+    if (claimed && claimed.status === 'pending') {
+      const unitName = `incudal-online-update@${task.id}.service`
+      const detail = await describeUpdateUnitFailure(unitName)
+      await markSystemUpdateTaskFinished(task.id, {
+        status: 'failed',
+        errorMessage: `更新任务未在 ${Math.round(WORKER_CLAIM_TIMEOUT_MS / 1000)} 秒内启动（${detail}）。常见原因：受保护文件被手工替换后未重新 seal，或 Git 元数据不符。排查命令：journalctl -u '${unitName}'`,
+        backupPath: null
+      })
+    }
+    const finalTask = await getSystemUpdateTask(task.id)
+    return reply.code(202).send({ task: serializeSystemUpdateTask(finalTask ?? { ...task, logPath }) })
   })
 
   fastify.post<{ Params: TaskParams }>('/tasks/:id/rollback', {
@@ -271,5 +339,33 @@ export default async function systemUpdateRoutes(fastify: FastifyInstance) {
       return reply.code(500).send({ error: 'Failed to start rollback worker', code: 'ROLLBACK_WORKER_START_FAILED' })
     }
     return reply.code(202).send({ taskId: id, logPath })
+  })
+
+  // 清理从未启动的 pending 任务：这种记录没有任何进程会推进它，却会把后续更新与回滚全部挡成 409。
+  // 只允许取消 pending（未认领）任务；running 的任务由 worker 自己收尾，不做中途取消。
+  fastify.post<{ Params: TaskParams }>('/tasks/:id/cancel', {
+    onRequest: [fastify.authenticateAdmin]
+  }, async (request: FastifyRequest<{ Params: TaskParams }>, reply: FastifyReply) => {
+    if (!(await requireUpdateManager(request, reply))) return
+    const id = parsePositiveId(request.params.id)
+    if (!id) return reply.code(400).send({ error: 'Invalid task id', code: 'INVALID_TASK_ID' })
+    const task = await getSystemUpdateTask(id)
+    if (!task) return reply.code(404).send({ error: 'Task not found', code: 'TASK_NOT_FOUND' })
+
+    const cancelled = await cancelPendingSystemUpdateTask(id, '已由管理员取消：任务从未启动')
+    if (!cancelled) {
+      return reply.code(409).send({ error: 'Only a pending update task can be cancelled', code: 'TASK_NOT_CANCELLABLE' })
+    }
+
+    const user = getRequestUser(request)
+    await createLog(
+      user.id,
+      LogModule.SYSTEM,
+      'system.update.cancel',
+      `Cancelled pending system update task #${id}`,
+      LogResult.WARNING
+    )
+    const updated = await getSystemUpdateTask(id)
+    return reply.code(200).send({ task: serializeSystemUpdateTask(updated ?? task) })
   })
 }

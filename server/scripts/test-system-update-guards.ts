@@ -331,4 +331,30 @@ assert.ok(
   'atomic OTA migration script must create current/releases layout, rewrite systemd units, and verify the split host'
 )
 
+// 停在 pending、从未被 worker 认领的任务没有任何进程会推进它，但会被 hasRunningSystemUpdateTask()
+// 一直算作占用，把之后所有更新与回滚挡成 409，而以前没有任何清理入口。回归要求：发起更新前回收
+// 陈旧 pending；启动后用短轮询确认任务被认领，认领不了立即判失败并给出 unit 级原因与排查命令；
+// 同时提供仅限超级管理员的取消入口（只允许取消 pending）。
+assert.ok(
+  route.includes('failStaleSystemUpdateTasks()') &&
+    route.includes('system.update.stale_pending_released') &&
+    route.includes('waitForTaskClaim(task.id)') &&
+    route.includes('WORKER_CLAIM_TIMEOUT_MS') &&
+    route.includes('describeUpdateUnitFailure(unitName)') &&
+    route.includes("'/usr/bin/systemctl'") &&
+    route.includes('更新任务未在') &&
+    route.includes("journalctl -u '${unitName}'") &&
+    route.includes("'/tasks/:id/cancel'") &&
+    route.includes('cancelPendingSystemUpdateTask(id') &&
+    route.includes('TASK_NOT_CANCELLABLE') &&
+    systemUpdateTasksDb.includes('export async function failStaleSystemUpdateTasks') &&
+    systemUpdateTasksDb.includes('export async function cancelPendingSystemUpdateTask') &&
+    systemUpdateTasksDb.includes("status: 'pending',") &&
+    systemUpdateTasksDb.includes('startedAt: null') &&
+    adminApi.includes('/admin/system-update/tasks/${id}/cancel') &&
+    read('client/src/views/admin/SystemUpdateView.vue').includes('cancelTask') &&
+    read('client/src/views/admin/SystemUpdateView.vue').includes("selectedTask?.status === 'pending'"),
+  'a stuck pending update task must never block later updates: stale unclaimed pending tasks are released before starting, an unclaimed task is failed with unit-level detail instead of staying pending, and super admins can cancel a pending task'
+)
+
 console.log('system update guard tests passed')

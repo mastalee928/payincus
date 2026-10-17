@@ -2140,7 +2140,9 @@ const api = {
     start: (targetVersion: string): Promise<{ task: SystemUpdateTask }> =>
       http.post('/admin/system-update/start', { targetVersion }, { timeout: TIMEOUT.LONG }),
     rollback: (id: number): Promise<{ taskId: number; logPath: string }> =>
-      http.post(`/admin/system-update/tasks/${id}/rollback`, {}, { timeout: TIMEOUT.LONG })
+      http.post(`/admin/system-update/tasks/${id}/rollback`, {}, { timeout: TIMEOUT.LONG }),
+    cancel: (id: number): Promise<{ task: SystemUpdateTask }> =>
+      http.post(`/admin/system-update/tasks/${id}/cancel`, {}, { timeout: TIMEOUT.LONG })
   },
 
   // Storage Configs (远程存储配置)

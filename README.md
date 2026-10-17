@@ -20,7 +20,7 @@ PayIncus 是一套面向 hosting 业务的 Incus 商业化交付平台。它把�
 
 此仓库由 mastalee928 独立维护。源码、新安装、面板更新、Agent 和文档发布均使用 `mastalee928/payincus`。原有 BSD 3-Clause 许可证和版权声明保留在 [LICENSE](LICENSE) 中。
 
-当前稳定版：[v1.6.2](https://github.com/mastalee928/payincus/releases/tag/v1.6.2)，配套 [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3)。一键安装默认获取本仓库最新正式版。
+当前稳定版：[v1.6.3](https://github.com/mastalee928/payincus/releases/tag/v1.6.3)，配套 [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3)。一键安装默认获取本仓库最新正式版。
 
 - 项目仓库：<https://github.com/mastalee928/payincus>
 - 主机接入与管理：[使用说明](docs/host-pool.md)

@@ -111,6 +111,8 @@ SYSTEM_UPDATE_BACKUP_TASKS_KEEP=3
 
 - 后台管理员可以查看当前版本、最新 release tag 和 OTA 包状态。
 - 只允许超级管理员启动更新和回滚。
+- 未启动的更新任务（长时间停在 `pending`）会在发起新一次更新时自动释放，选中该任务后也可在日志面板直接点击“取消任务”。
+- 更新任务未能启动时会立即标记为失败，并在列表与日志面板显示 unit 状态和 `journalctl -u 'incudal-online-update@<任务ID>'` 排查命令。
 - 更新 API 固定在 `/api/admin/system-update/*`。
 - 用户端不包含更新入口和更新 API。
 - 更新和回滚会保留 `.env`、`server/certs`、`agent-release`、`.npm` 和 `.cache`。

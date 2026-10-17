@@ -15,6 +15,7 @@ const loading = ref(true)
 const checking = ref(false)
 const starting = ref(false)
 const rollingBackTaskId = ref<number | null>(null)
+const cancellingTaskId = ref<number | null>(null)
 const version = ref<VersionMetadata | null>(null)
 const updateCheck = ref<SystemUpdateCheckResult | null>(null)
 const tasks = ref<SystemUpdateTask[]>([])
@@ -243,6 +244,25 @@ async function rollbackTask(task: SystemUpdateTask) {
     toast.error('启动回滚失败：' + (err?.message || String(err)))
   } finally {
     rollingBackTaskId.value = null
+  }
+}
+
+async function cancelTask(task: SystemUpdateTask) {
+  if (task.status !== 'pending' || cancellingTaskId.value === task.id) return
+  const confirmed = window.confirm(`确认取消未启动的更新任务 #${task.id}？取消后可重新发起更新。`)
+  if (!confirmed) return
+
+  cancellingTaskId.value = task.id
+  try {
+    await api.systemUpdate.cancel(task.id)
+    selectedTaskId.value = task.id
+    toast.success('已取消未启动的更新任务')
+    await loadTasks()
+    await loadSelectedTaskLogs()
+  } catch (err: any) {
+    toast.error('取消失败：' + (err?.message || String(err)))
+  } finally {
+    cancellingTaskId.value = null
   }
 }
 
@@ -536,6 +556,14 @@ onUnmounted(() => {
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
                 </svg>
                 {{ rollingBackTaskId === selectedTask?.id ? '回滚中...' : '回滚' }}
+              </button>
+              <button
+                v-if="selectedTask?.status === 'pending'"
+                class="btn-secondary"
+                :disabled="cancellingTaskId === selectedTask?.id"
+                @click="selectedTask && cancelTask(selectedTask)"
+              >
+                {{ cancellingTaskId === selectedTask?.id ? '取消中...' : '取消任务' }}
               </button>
             </div>
           </div>

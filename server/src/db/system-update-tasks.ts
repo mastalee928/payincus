@@ -125,3 +125,38 @@ export async function markSystemUpdateTaskFinished(id: number, input: {
     }
   })
 }
+
+// 停在 pending、且从未被 worker 认领（startedAt 为空）的任务不会再自己前进：面板用
+// `systemctl start --no-block` 起 unit，helper 层失败（可信清单或 Git 元数据不符）只写 journal，
+// 不会回写数据库。这类记录会被 hasRunningSystemUpdateTask() 一直算作「占用中」，挡掉之后所有
+// 更新与回滚，而系统原本没有任何清理入口。因此在发起新任务前，把超时仍未被启动的 pending 记录判失败。
+const STALE_PENDING_TASK_MS = 10 * 60 * 1000
+
+export async function failStaleSystemUpdateTasks(maxAgeMs = STALE_PENDING_TASK_MS): Promise<number> {
+  const cutoff = new Date(Date.now() - maxAgeMs)
+  const result = await prisma.systemUpdateTask.updateMany({
+    where: {
+      status: 'pending',
+      startedAt: null,
+      createdAt: { lt: cutoff }
+    },
+    data: {
+      status: 'failed',
+      errorMessage: '更新任务长时间未启动，已自动标记失败；如仍需更新请重新发起。',
+      finishedAt: new Date()
+    }
+  })
+  return result.count
+}
+
+export async function cancelPendingSystemUpdateTask(id: number, reason: string): Promise<boolean> {
+  const result = await prisma.systemUpdateTask.updateMany({
+    where: { id, status: 'pending' },
+    data: {
+      status: 'failed',
+      errorMessage: reason,
+      finishedAt: new Date()
+    }
+  })
+  return result.count === 1
+}

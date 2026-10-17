@@ -84,6 +84,8 @@ When disk space is insufficient, the update fails before download or migration a
 
 - Admin users can view the current version, latest release tag and OTA package status.
 - Only super administrators can start updates and rollbacks.
+- An update task that never starts (stuck in `pending`) is released automatically before the next update is started, and a selected pending task can be cancelled from the task log panel.
+- A task that fails to start is marked failed immediately; the task list and log panel show the unit state and the `journalctl -u 'incudal-online-update@<taskId>'` command for investigation.
 - Update APIs stay under `/api/admin/system-update/*`.
 - The user portal does not include update controls or update APIs.
 - Updates and rollbacks preserve `.env`, `server/certs`, `agent-release`, `.npm` and `.cache`.

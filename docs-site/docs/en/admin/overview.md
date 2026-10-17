@@ -113,6 +113,6 @@ The operations overview is returned only by the admin statistics API and is not 
 
 ## OTA
 
-`/admin/system-update` shows current version, latest release tag, tag, commit, build time, deployment time, release notes, paginated task logs and rollback controls. If the deployment is already on the latest tag, the latest version still remains visible and the update action is disabled as already up to date.
+`/admin/system-update` shows current version, latest release tag, tag, commit, build time, deployment time, release notes, paginated task logs and rollback controls. If the deployment is already on the latest tag, the latest version still remains visible and the update action is disabled as already up to date. A task that never starts is released before the next update is started, or can be cancelled from the task list; a task that fails to start is marked failed with the unit state and the `journalctl` command for investigation.
 
 Verification must prove that regular users cannot enter the admin console, that the admin bundle does not include user self-service workflows, that ticket support context and internal notes are admin-only and cannot bypass adjustment workflows, that logs and audit exports are admin-only, redacted and recorded as export actions, that the order center does not expose raw callback payloads, provider snapshots or payment secrets, and that reconciliation exports remain redacted.
