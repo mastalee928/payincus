@@ -15,7 +15,13 @@ This page is generated from Git tags and commits to show system version history.
 
 ## Unreleased Changes / 未发布变更
 
-- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
+### Fixes and Stability / 修复与稳定性
+
+- fix: retry rate-limited GitHub Agent release lookups and install CI with a token `67efd41ca`
+
+### Other Changes / 其他变更
+
+- docs: record the v1.6.4 release and the master verification `81fe5e528`
 
 ## Historical Versions / 历史版本
 

@@ -13,7 +13,13 @@
 
 ## 未发布变更 / Unreleased Changes
 
-- 该 tag 与相邻 tag 指向同一提交，未产生额外 Git commit。
+### 修复与稳定性 / Fixes and Stability
+
+- fix: retry rate-limited GitHub Agent release lookups and install CI with a token `67efd41ca`
+
+### 其他变更 / Other Changes
+
+- docs: record the v1.6.4 release and the master verification `81fe5e528`
 
 ## 历史版本 / Historical Versions
 
