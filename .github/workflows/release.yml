@@ -264,7 +264,7 @@ jobs:
         run: |
           package=$(find "$PWD/install-artifact" -maxdepth 1 -name '*.tar.gz' -type f)
           test "$(printf '%s\n' "$package" | wc -l)" = 1
-          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted bash scripts/smoke-fresh-install.sh "$package"
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted INCUDAL_AGENT_RELEASE_TOKEN=${{ github.token }} bash scripts/smoke-fresh-install.sh "$package"
 
   # ===== 安装验证成功后才发布 Release =====
   release:

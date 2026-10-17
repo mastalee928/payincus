@@ -119,6 +119,10 @@ const githubDownloadBaseUrl = 'https://github.com'
 const agentReleaseCacheTtlMs = 5 * 60 * 1000
 const agentBinaryDownloadLimitBytes = 64 * 1024 * 1024
 const agentReleaseFetchTimeoutMs = 15 * 1000
+const agentReleaseFetchAttempts = 3
+const agentReleaseRetryBaseDelayMs = 1000
+const agentReleaseRetryMaxDelayMs = 10 * 1000
+const agentReleaseStaleRetryTtlMs = 60 * 1000
 const maxAgentInstallUrlLength = 2048
 const defaultAgentHeartbeatIntervalSeconds = 30
 const minAgentHeartbeatIntervalSeconds = 5
@@ -552,14 +556,75 @@ function releaseAssetNameToAgentPlatform(name: string): 'linux-amd64' | 'linux-a
   return null
 }
 
-async function fetchJsonFromGitHub<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: getGitHubHeaders('application/vnd.github+json'),
-    signal: AbortSignal.timeout(agentReleaseFetchTimeoutMs)
-  })
-  if (!response.ok) {
-    throw new Error(`GitHub request failed: ${response.status} ${response.statusText}`)
+/**
+ * GitHub 匿名 API 有速率限制（403 rate limit / 429）。元数据与校验和请求做有界重试：
+ * 只重试限流、5xx 与网络错误，优先遵守 Retry-After，其它 4xx 立即失败。
+ */
+function isRetryableGitHubResponse(status: number, headers: Headers): boolean {
+  if (status === 429 || status >= 500) {
+    return true
   }
+  if (status === 403) {
+    return headers.get('x-ratelimit-remaining') === '0' || headers.has('retry-after')
+  }
+  return false
+}
+
+function resolveGitHubRetryDelayMs(attempt: number, headers: Headers | null): number {
+  const retryAfterSeconds = Number(headers?.get('retry-after'))
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+    return Math.min(retryAfterSeconds * 1000, agentReleaseRetryMaxDelayMs)
+  }
+  return Math.min(agentReleaseRetryBaseDelayMs * 2 ** (attempt - 1), agentReleaseRetryMaxDelayMs)
+}
+
+function buildGitHubRequestErrorMessage(purpose: string, response: Response): string {
+  const message = 'GitHub request failed: ' + response.status + ' ' + response.statusText + ' (' + purpose + ')'
+  if ((response.status === 403 || response.status === 429) && !process.env.INCUDAL_AGENT_RELEASE_TOKEN?.trim()) {
+    return message + '。GitHub 匿名 API 限流，可配置 INCUDAL_AGENT_RELEASE_TOKEN 提高限额'
+  }
+  return message
+}
+
+function waitForAgentReleaseRetry(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function fetchGitHubWithRetry(url: string, accept: string, purpose: string): Promise<Response> {
+  let lastError: unknown = null
+  for (let attempt = 1; attempt <= agentReleaseFetchAttempts; attempt += 1) {
+    let response: Response
+    try {
+      response = await fetch(url, {
+        headers: getGitHubHeaders(accept),
+        signal: AbortSignal.timeout(agentReleaseFetchTimeoutMs)
+      })
+    } catch (error) {
+      lastError = error
+      if (attempt >= agentReleaseFetchAttempts) {
+        throw error
+      }
+      await waitForAgentReleaseRetry(resolveGitHubRetryDelayMs(attempt, null))
+      continue
+    }
+
+    if (response.ok) {
+      return response
+    }
+
+    if (!isRetryableGitHubResponse(response.status, response.headers) || attempt >= agentReleaseFetchAttempts) {
+      throw new Error(buildGitHubRequestErrorMessage(purpose, response))
+    }
+
+    console.warn('[AgentRelease] ' + purpose + ' throttled (' + response.status + '), retrying attempt ' + (attempt + 1))
+    await waitForAgentReleaseRetry(resolveGitHubRetryDelayMs(attempt, response.headers))
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('GitHub request failed: ' + purpose)
+}
+
+async function fetchJsonFromGitHub<T>(url: string): Promise<T> {
+  const response = await fetchGitHubWithRetry(url, 'application/vnd.github+json', 'agent release metadata')
   return await response.json() as T
 }
 
@@ -589,12 +654,9 @@ async function fetchAgentReleaseAssetSha256(asset: GitHubReleaseAsset): Promise<
   }
   assertTrustedAgentReleaseDownloadUrl(downloadUrl)
 
-  const response = await fetch(downloadUrl, {
-    headers: getGitHubHeaders('application/octet-stream'),
-    signal: AbortSignal.timeout(agentReleaseFetchTimeoutMs)
-  })
-  if (!response.ok || !response.body) {
-    throw new Error(`Agent release asset download failed: ${response.status} ${response.statusText}`)
+  const response = await fetchGitHubWithRetry(downloadUrl, 'application/octet-stream', 'agent release asset checksum')
+  if (!response.body) {
+    throw new Error('Agent release asset download returned an empty body')
   }
 
   const hash = createHash('sha256')
@@ -628,6 +690,15 @@ async function readAgentUpgradeManifest(): Promise<AgentUpgradeManifest | null> 
   try {
     release = await fetchLatestAgentRelease()
   } catch (error) {
+    if (agentReleaseManifestCache) {
+      console.warn('[AgentRelease] Failed to fetch latest Agent release; serving stale Agent release manifest', error)
+      const staleManifest = agentReleaseManifestCache.manifest
+      agentReleaseManifestCache = {
+        expiresAt: Date.now() + agentReleaseStaleRetryTtlMs,
+        manifest: staleManifest
+      }
+      return staleManifest
+    }
     console.warn('[AgentRelease] Failed to fetch latest Agent release', error)
     return null
   }

@@ -19,6 +19,8 @@ INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
 INCUDAL_AGENT_RELEASE_TOKEN=
 ```
 
+面板匿名读取 GitHub Release 会受 GitHub 限流（403 rate limit）；配置该 Token 可显著提高限额。遇到限流时面板会自动退避重试，并在已有清单缓存时继续提供旧清单。
+
 如果暂时没有 GitHub Agent Release，也可以使用本地 release 目录：
 
 ```dotenv

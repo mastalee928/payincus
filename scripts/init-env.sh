@@ -100,7 +100,7 @@ set_env_if_missing "VITE_CUSTOMER_BASE_URL" "" "管理后台生成客户链接�
 set_env_if_missing "VITE_ADMIN_BASE_URL" "" "客户前端管理后台地址"
 set_env_if_missing "SYSTEM_UPDATE_RELEASE_REPOSITORY" "mastalee928/payincus" "在线更新 GitHub Release 仓库"
 set_env_if_missing "INCUDAL_AGENT_RELEASE_REPOSITORY" "mastalee928/payincus" "Agent GitHub Release 仓库"
-set_env_if_missing "INCUDAL_AGENT_RELEASE_TOKEN" "" "Agent GitHub Release Token"
+set_env_if_missing "INCUDAL_AGENT_RELEASE_TOKEN" "${INCUDAL_AGENT_RELEASE_TOKEN:-}" "Agent GitHub Release Token"
 set_env_if_missing "INCUDAL_AGENT_RELEASE_DIR" "" "Agent 本地 Release 目录"
 set_env_if_missing "INCUDAL_AGENT_BINARY_URL" "" "Agent 自定义二进制地址"
 set_env_if_missing "INCUDAL_AGENT_BINARY_SHA256" "" "Agent 自定义二进制 SHA256"

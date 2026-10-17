@@ -19,6 +19,8 @@ INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
 INCUDAL_AGENT_RELEASE_TOKEN=
 ```
 
+Anonymous GitHub Release requests are rate limited (403). Setting this token raises the limit substantially; the panel backs off and retries when throttled and keeps serving the cached manifest while GitHub is unavailable.
+
 If GitHub Agent releases are not available yet, use a local release directory:
 
 ```dotenv

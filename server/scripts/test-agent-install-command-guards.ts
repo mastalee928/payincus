@@ -129,8 +129,13 @@ assert.ok(
 )
 assert.equal(
   (agentRouteSource.match(/signal: AbortSignal\.timeout\(agentReleaseFetchTimeoutMs\)/g) ?? []).length,
-  3,
-  'Agent release API, checksum, and binary fetch paths must all use the bounded timeout'
+  2,
+  'the GitHub retry helper and the binary download path must be the only bounded-timeout fetch sites'
+)
+assert.ok(
+  agentRouteSource.includes("fetchGitHubWithRetry(url, 'application/vnd.github+json', 'agent release metadata')") &&
+    agentRouteSource.includes("fetchGitHubWithRetry(downloadUrl, 'application/octet-stream', 'agent release asset checksum')"),
+  'Agent release metadata and checksum fetches must go through the bounded GitHub retry helper'
 )
 assert.ok(
   agentRouteSource.includes('function getLocalAgentReleaseDir') &&
@@ -184,6 +189,29 @@ assert.ok(
     hostAgentCredentialsSource.includes('installTokenExpiresAt: null') &&
     hostAgentCredentialsSource.includes('installTokenUsedAt: new Date()'),
   'Agent install-token consumption must clear the token hash and mark used-at'
+)
+
+const releaseWorkflowSource = readFileSync(resolve(__dirname, '../../.github/workflows/release.yml'), 'utf8')
+const installPanelSource = readFileSync(resolve(__dirname, '../../scripts/install-panel.sh'), 'utf8')
+const initEnvSource = readFileSync(resolve(__dirname, '../../scripts/init-env.sh'), 'utf8')
+
+assert.ok(
+  agentRouteSource.includes('async function fetchGitHubWithRetry(') &&
+    agentRouteSource.includes("headers.get('x-ratelimit-remaining') === '0'") &&
+    agentRouteSource.includes("headers?.get('retry-after')") &&
+    agentRouteSource.includes('isRetryableGitHubResponse(response.status, response.headers)'),
+  'Agent release GitHub requests must retry rate limits with Retry-After-aware backoff instead of failing on the first 403'
+)
+assert.ok(
+  agentRouteSource.includes('INCUDAL_AGENT_RELEASE_TOKEN 提高限额') &&
+    agentRouteSource.includes('serving stale Agent release manifest'),
+  'Agent release fetch failures must hint at the token and keep serving a stale manifest while GitHub is unavailable'
+)
+assert.ok(
+  releaseWorkflowSource.includes('INCUDAL_AGENT_RELEASE_TOKEN=${{ github.token }}') &&
+    installPanelSource.includes('set_env_if_missing "INCUDAL_AGENT_RELEASE_TOKEN" "${INCUDAL_AGENT_RELEASE_TOKEN:-}"') &&
+    initEnvSource.includes('set_env_if_missing "INCUDAL_AGENT_RELEASE_TOKEN" "${INCUDAL_AGENT_RELEASE_TOKEN:-}"'),
+  'fresh-install verification must install the panel with an authenticated GitHub token so the Agent release lookup is not rate limited'
 )
 
 console.log('agent install command guard tests passed')
