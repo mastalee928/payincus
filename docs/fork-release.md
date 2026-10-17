@@ -34,9 +34,10 @@ INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
 
 ## 已发布版本
 
+- 面板 [v1.6.3](https://github.com/mastalee928/payincus/releases/tag/v1.6.3)，发行源码 `f8d2ca450e01a10a54ae5f57b75e4f80821371dd`，已设为面板 latest。修复后台在线更新任务未能启动时的失败可见性与阻塞问题（含可取消未启动任务），并包含购物车与开通结果页界面精修、实例高级配置仅限管理员。
 - 面板 [v1.6.2](https://github.com/mastalee928/payincus/releases/tag/v1.6.2)，发行源码 `2b81ce66e99c0941df8f579f085be59ce909541f`，已设为面板 latest。包含多 IPv6、首页与 45 区域选购、购物车及 UPAY Pro 更新。
 - [正式发布工作流](https://github.com/mastalee928/payincus/actions/runs/38878414833) 已完成 Linux amd64 / arm64 的构建与全新安装验证，包含 209 条数据库迁移、IPv6 数据字段、唯一后端、双端访问、管理员登录、机器池 API、SSH 管理网关及正式 Agent 下载和执行。
 - 公开安装包的实际 SHA256、大小、OTA manifest、版本与源码提交均已核对；两种架构均携带原 LICENSE。
 - [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3) 已发布，包含 Linux amd64 / arm64 二进制。发布前通过 Go 测试及真实隔离网络中的双 IPv6 数据包、协议限制、地址变更与恢复验收；不占用面板 latest。
 
-新安装使用 README 的一键安装命令即可获取本仓库最新稳定发行包。已确认测试主控的“运维—版本更新”能发现 `v1.6.2` 并允许管理员升级；现有面板的运行版本以实际部署为准。两台测试宿主已自动升级到正式 Agent `v1.0.3`，心跳、IPv6 和端口策略正常。
+新安装使用 README 的一键安装命令即可获取本仓库最新稳定发行包。已确认测试主控的“运维—版本更新”能发现 `v1.6.3` 并完成升级（主控现运行 `v1.6.3`）；现有面板的运行版本以实际部署为准（本次已确认主控运行 v1.6.3）。两台测试宿主已自动升级到正式 Agent `v1.0.3`，心跳、IPv6 和端口策略正常。

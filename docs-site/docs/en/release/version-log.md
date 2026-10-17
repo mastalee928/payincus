@@ -8,26 +8,41 @@ This page is generated from Git tags and commits to show system version history.
 
 ## Latest Release State / 最新发布状态
 
-- Latest Release Commit / 最新发布提交: `2b81ce66e`
-- Commit date / 提交日期: 2026-10-16
-- Commit subject / 提交说明: chore: integrate v1.6.2 release preparation
-- Latest tag / 最新 tag: `v1.6.2`
+- Latest Release Commit / 最新发布提交: `f8d2ca450`
+- Commit date / 提交日期: 2026-10-17
+- Commit subject / 提交说明: fix: surface failed update tasks and release stale pending ones
+- Latest tag / 最新 tag: `v1.6.3`
 
 ## Unreleased Changes / 未发布变更
 
-### Other Changes / 其他变更
-
-- style: refine checkout provisioning and connection details `7679c50a7`
-- docs: record instance configuration access verification `6e03d23a1`
-- docs: record checkout refinement verification `e833a335e`
-- style(checkout): refine cart layout and separate login settings `3c8227d1c`
-- docs: record v1.6.2 release and verified installation assets `026504ecd`
-
-### Fixes and Stability / 修复与稳定性
-
-- fix: restrict advanced instance configuration to administrators `b9c1e7321`
+- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
 
 ## Historical Versions / 历史版本
+
+## v1.6.3
+
+- Release commit / 发布提交: `f8d2ca450`
+- Commit date / 提交日期: 2026-10-17
+- Commit subject / 提交说明: fix: surface failed update tasks and release stale pending ones
+
+
+本次发布修复后台在线更新（OTA）在任务未能启动时的处理缺陷，并包含此前已在 main 上完成、尚未进入正式安装包的界面与权限调整。
+
+### 修复与稳定性 / Fixes and Stability
+
+- 卡在 `pending`、从未被 worker 认领的更新任务不再永久阻塞后续更新与回滚：发起新更新前自动回收超过时限仍未启动的记录，并写入失败原因。
+- 更新任务未能在预期时间内启动时立即判为失败，错误信息包含 unit 状态（`ActiveState` / `Result` / `ExecMainStatus`）与该 unit 的 `journalctl` 排查命令，不再让面板一直停留在“已有更新任务执行中”。
+- 管理端“版本更新”页可取消未启动的更新任务（仅限 `pending`，执行中的任务仍由 worker 自行收尾）。
+
+### 改进与调整 / Improvements and Adjustments
+
+- 购物车结算与开通结果页面板式精修：单价、开通费与小计集中展示，登录方式独立于商品清单；开通结果页展示连接信息与凭据入口。
+- 实例高级配置（配置读取、进程上限提升、SWAP 开关与高级写入、批量配置）统一要求管理员权限，用户端不再加载相关入口与组件。
+
+### 验证 / Verification
+
+- 双端类型检查、ESLint、全套守卫测试与双端生产构建通过；发布包在 Linux amd64 / arm64 上完成全新安装验证后才发布。
+- 在线更新修复在隔离环境复现原故障路径：受保护文件与可信清单不一致时，任务会立即判失败并给出排查命令，而不是停留在 `pending`。
 
 ## v1.6.2
 
