@@ -6,18 +6,44 @@
 
 ## 最新发布状态 / Latest Release State
 
-- 最新发布提交 / Latest Release Commit: `f8d2ca450`
-- 提交日期 / Commit date: 2026-10-17
-- 提交说明 / Commit subject: fix: surface failed update tasks and release stale pending ones
-- 最新 tag / Latest tag: `v1.6.3`
+- 最新发布提交 / Latest Release Commit: `41d878205`
+- 提交日期 / Commit date: 2026-10-18
+- 提交说明 / Commit subject: feat: choose a payment channel at checkout and retune user navigation
+- 最新 tag / Latest tag: `v1.6.4`
 
 ## 未发布变更 / Unreleased Changes
 
-### 其他变更 / Other Changes
-
-- docs: record the v1.6.3 release and the master verification `7c6962634`
+- 该 tag 与相邻 tag 指向同一提交，未产生额外 Git commit。
 
 ## 历史版本 / Historical Versions
+
+## v1.6.4
+
+- 发布提交 / Release commit: `41d878205`
+- 提交日期 / Commit date: 2026-10-18
+- 提交说明 / Commit subject: feat: choose a payment channel at checkout and retune user navigation
+
+
+本次发布把用户端导航与结算体验调整到「创建实例 / 我的实例」口径，让购物车结算可以选择后台已启用的在线支付渠道，并把支付回调的验签与来源校验钉进守卫。
+
+### 新增能力 / New Capabilities
+
+- 购物车结算（含选购页「加入并结算」）新增支付方式选择：账户余额，或后台已启用的任一在线支付渠道。选择网关渠道时按整单金额创建充值单，服务端把渠道手续费补足，保证实际到账不少于订单金额；网关付清到账后，仍由余额完成整单扣款与开通 —— 购买订单本身没有新增支付状态，账务沿用现有充值语义。
+- 用户端「概览」页的创建实例入口改为直达选购页，与实例列表页的行为一致。
+
+### 改进与调整 / Improvements and Adjustments
+
+- 用户端导航文案：「购买主机」调整为「创建实例」，「实例」调整为「我的实例」；公共站的同一入口与选购页标题同步使用「创建实例」。
+- 用户端导航移除「福利」入口，`/entertainment` 不再对用户开放；页面代码保留，便于日后重新启用。
+
+### 修复与稳定性 / Fixes and Stability
+
+- 支付回调补充防伪守卫断言：来源 IP 白名单、逐渠道签名验证与渠道一致性校验必须在入账之前完成，重复回调继续按渠道 + 订单号 + 交易号去重。结算页只轮询服务端订单状态，到账前不解锁结算，前端不参与任何入账判断。
+
+### 验证 / Verification
+
+- 双端类型检查、相关守卫测试与双端生产构建通过；完整守卫套件与全新安装验证由发布工作流在 Linux amd64 / arm64 上执行，通过后才发布。
+- 在线支付渠道流程在测试主站按真实渠道配置验证：选渠道创建充值单、到账后由余额完成结算；余额支付路径保持原有行为。
 
 ## v1.6.3
 
