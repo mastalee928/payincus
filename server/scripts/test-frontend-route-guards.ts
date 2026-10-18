@@ -49,6 +49,8 @@ const adminMailViewSource = readRepoFile('client/src/views/admin/AdminMailView.v
 const adminImagesViewSource = readRepoFile('client/src/views/admin/ImagesView.vue')
 const extensionsViewSource = readRepoFile('client/src/views/ExtensionsView.vue')
 const instancesViewSource = readRepoFile('client/src/views/InstancesView.vue')
+const instanceInfoTabSource = readRepoFile('client/src/components/instance/InstanceInfoTab.vue')
+const destroyInstanceModalSource = readRepoFile('client/src/components/instance/modals/DestroyInstanceModal.vue')
 const instanceCreateViewSource = readRepoFile('client/src/views/InstanceCreateView.vue')
 const instanceDetailViewSource = readRepoFile('client/src/views/InstanceDetailView.vue')
 const trafficStatsSource = readRepoFile('client/src/components/instance/TrafficStats.vue')
@@ -1029,6 +1031,23 @@ assert.ok(
   !instanceDetailViewSource.includes('failureReason') &&
     !instanceDetailViewSource.includes('instance.errorBanner.reasonLabel'),
   'InstanceDetailView must not render an unavailable instance failure reason'
+)
+assert.ok(
+  instanceDetailViewSource.includes('localizePoolRegionName') &&
+    instanceDetailViewSource.includes('ociMachineShape') &&
+    !instanceDetailViewSource.includes('{{ (instance as any).planName }}') &&
+    !instanceDetailViewSource.includes('{{ (instance as any).packageName }}') &&
+    instancesViewSource.includes('getInstanceMachineLabel(instance)'),
+  'instance pages must show the localized region name (without the disk suffix) and the OCI machine shape instead of the raw shadow package strings'
+)
+assert.ok(
+  !destroyInstanceModalSource.includes('destroyInfo.instance.hostName') &&
+    !destroyInstanceModalSource.includes('instance.destroy.rulesTitle') &&
+    !destroyInstanceModalSource.includes('instance.destroy.refundInfo') &&
+    !instanceInfoTabSource.includes("emit('edit-config')") &&
+    instanceDetailViewSource.includes('openResetPasswordModal') &&
+    instancesViewSource.includes('localizePoolRegionName'),
+  'destroy dialog hides node/rules/refund, the info tab drops the config-edit entry, and the customer instance pages expose password reset plus the localized region label'
 )
 assert.ok(
   instancesViewSource.includes("import { instanceCreatePath, instanceDetailPath, isAdminEntry, walletPath } from '@/utils/app-paths'") &&

@@ -23,7 +23,8 @@ import {
   addDevice,
   removeDevice,
   mapInstanceStatus,
-  getTrafficCountersFromState
+  getTrafficCountersFromState,
+  execWithOutput
 } from '../lib/incus/index.js'
 import { deleteSnapshot } from '../lib/incus/incus-snapshots.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
@@ -775,6 +776,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           host_name: string | null
           host_resource_preset?: string | null
           host_architecture?: string | null
+          host_region_group_name?: string | null
           host_id: number
           host_country_code: string | null
           host_nat_public_ip: string | null
@@ -816,7 +818,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           disk: number
           ipv4: string | null
           ipv6: string | null
-          host: { name: string; country_code: string; nat_public_ip?: string | null; ip_address?: string | null; resourcePreset?: string | null; architecture?: string | null }
+          host: { name: string; country_code: string; nat_public_ip?: string | null; ip_address?: string | null; resourcePreset?: string | null; architecture?: string | null; regionGroupName?: string | null }
           hostCountryCode: string
           networkMode: string
           natPublicIp?: string | null
@@ -867,7 +869,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
             nat_public_ip: instance.host_nat_public_ip || null,
             ip_address: instance.host_ip_address || null,
             resourcePreset: instance.host_resource_preset || null,
-            architecture: instance.host_architecture || null
+            architecture: instance.host_architecture || null,
+            regionGroupName: instance.host_region_group_name ?? null
           },
           hostCountryCode: instance.host_country_code || 'us',
           networkMode: instance.network_mode,
@@ -2717,6 +2720,59 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     return {
       rootPassword: null
     }
+  })
+
+  // 重置实例Root密码（实例所有者或管理员）：生成新密码 → incus exec 里 chpasswd → 加密回库
+  fastify.post<{ Params: { id: string } }>('/:id/reset-password', {
+    onRequest: [fastify.authenticate],
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } }
+  }, async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    const { id } = request.params
+    const instanceId = parsePositiveRouteId(id)
+
+    if (!instanceId) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
+    }
+
+    const { user } = request
+
+    const instance = await db.getInstanceById(instanceId)
+    if (!instance) {
+      return reply.code(404).send(apiError(ErrorCode.INSTANCE_NOT_FOUND))
+    }
+
+    // AUTH004: 与查看密码同口径——仅实例所有者或管理员，宿主机所有者禁止
+    if (instance.user_id !== user.id && user.role !== 'admin') {
+      return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+    }
+
+    if (instance.status !== 'running') {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, '实例需处于运行状态才能重置密码'))
+    }
+
+    const host = await db.getHostById(instance.host_id)
+    if (!host || !instance.incus_id) {
+      return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
+    }
+
+    const password = generateRandomPassword(16)
+    try {
+      const client = await getIncusClient(host)
+      // base64 中转：密码字符集含 !@#$%^&*，避免特殊字符经过 shell
+      const encoded = Buffer.from(`root:${password}`, 'utf8').toString('base64')
+      const result = await execWithOutput(client, instance.incus_id, ['sh', '-c', `printf '%s' '${encoded}' | base64 -d | chpasswd`], {}, 20000)
+      const exitCode = (result.metadata as { return?: number } | null)?.return
+      if (exitCode !== 0) {
+        request.log.error({ instanceId, exitCode, stderr: result.stderr.slice(0, 500) }, 'reset password exec failed')
+        return reply.code(502).send(apiError(ErrorCode.UPSTREAM_ERROR, '在实例中执行重置失败，请稍后重试'))
+      }
+    } catch (error) {
+      request.log.error({ instanceId, error }, 'reset password exec error')
+      return reply.code(502).send(apiError(ErrorCode.UPSTREAM_ERROR, '无法连接实例执行重置，请稍后重试'))
+    }
+
+    await db.updateInstance(instanceId, { rootPassword: encryptSensitiveData(password) })
+    return { message: '密码已重置', rootPassword: password }
   })
 
   // 获取实例实时资源使用情况

@@ -464,7 +464,8 @@ export async function getInstancesPaginated(options: PaginationOptions = {}): Pr
           natPublicIpv6: true,
           ipv6Gateway: true,
           ipAddress: true,
-          url: true
+          url: true,
+          regionGroupEntry: { select: { name: true } }
         }
       },
       user: {
@@ -558,6 +559,7 @@ export async function getInstancesPaginated(options: PaginationOptions = {}): Pr
       host_resource_preset: i.host.resourcePreset,
       host_architecture: i.host.architecture,
       host_country_code: i.host.countryCode,
+      host_region_group_name: i.host.regionGroupEntry?.name ?? null,
       host_nat_public_ip: i.host.natPublicIp,
       host_nat_public_ipv6: i.host.natPublicIpv6,
       host_ipv6_gateway: i.host.ipv6Gateway,

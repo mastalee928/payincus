@@ -1639,8 +1639,8 @@ pool: {
         destroy: {
             button: '销毁',
             title: '销毁实例',
-            warning: '此操作将永久删除实例及其所有数据，包括快照、备份、端口映射等，且不可恢复。',
-            warningFree: '此操作将永久删除实例及其所有数据，且不可恢复。',
+            warning: '此操作将永久删除实例及其所有数据，包括快照、备份等，无退款且不可恢复。',
+            warningFree: '此操作将永久删除实例及其所有数据，包括快照、备份等，无退款且不可恢复。',
             rulesTitle: '销毁规则',
             rulesDesc: '了解销毁功能的使用规则和限制',
             ruleFirstFree: '首次销毁免手续费',
@@ -1686,6 +1686,14 @@ pool: {
             invalidId: '无效的实例 ID',
             notExist: '实例不存在',
             loadFailed: '加载实例失败',
+            resetPassword: {
+                button: '重置密码',
+                title: '重置密码',
+                hint: '将为实例生成新的 SSH 随机密码，旧密码将立即失效。',
+                confirm: '确认重置',
+                newPassword: '新密码',
+                success: '密码已重置，请妥善保存新密码',
+            },
             tabs: {
                 info: '信息',
                 network: '网络',

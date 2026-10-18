@@ -57,14 +57,6 @@ const isRunning = computed<boolean>(() => {
   return s === 'running'
 })
 
-// 是否可以编辑配置（只有 running 或 stopped 状态才能编辑，且需要权限）
-const canEditConfig = computed<boolean>(() => {
-  const s = props.instance?.status?.toLowerCase()
-  const statusOk = s === 'running' || s === 'stopped'
-  // 只有明确传递 true 时才允许编辑，默认 false
-  const hasPermission = props.canEditConfig === true
-  return statusOk && hasPermission
-})
 
 // 获取实例类型的样式类
 function getInstanceTypeClass(type: string | undefined | null): string {
@@ -334,24 +326,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
             </svg>
             {{ t('instance.detail.info.redeem') }}
           </button>
-          <!-- 编辑按钮 -->
-          <button
-            class="text-xs px-2 py-1 rounded-lg transition-all border"
-            :class="[
-              canEditConfig
-                ? 'bg-gray-800/50 hover:bg-gray-700/50 text-themed-muted hover:text-themed border-themed/30 hover:shadow-glow-sakura'
-                : 'bg-gray-800/30 text-themed-secondary cursor-not-allowed border-themed/20'
-            ]"
-            :disabled="!canEditConfig"
-            :title="canEditConfig ? '' : t('instance.detail.info.cannotEditConfig')"
-            @click="canEditConfig && emit('edit-config')"
-          >
-            <svg class="w-3.5 h-3.5 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-            {{ t('common.edit') }}
-          </button>
-          <div
+<div
             v-if="isRunning && statsLoading"
             class="w-3 h-3 border-2 border-sakura-400 border-t-transparent rounded-full animate-spin"
           ></div>

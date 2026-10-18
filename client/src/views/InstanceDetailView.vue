@@ -23,6 +23,8 @@ import TrafficStats from '@/components/instance/TrafficStats.vue'
 import AddPortModal from '@/components/instance/modals/AddPortModal.vue'
 import PortConflictModal from '@/components/instance/modals/PortConflictModal.vue'
 import { helpPath, hostDetailPath, instancesPath, isAdminEntry } from '@/utils/app-paths'
+import { localizePoolRegionName } from '@/utils/poolRegionCatalog'
+import { ociMachineShape } from '@/utils/poolCatalog'
 import RebuildModal from '@/components/instance/modals/RebuildModal.vue'
 import RecreateModal from '@/components/instance/modals/RecreateModal.vue'
 import TransferModal from '@/components/instance/modals/TransferModal.vue'
@@ -65,7 +67,7 @@ function getInstanceIconType(inst: { instanceType?: string; host?: { name?: stri
   return inst.instanceType === 'vm' ? 'prime' : 'pro'
 }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -131,6 +133,22 @@ function isInstanceDetailRouteName(name: unknown): boolean {
 
 // 实例数据
 const instance = ref<InstanceWithDetails | null>(null)
+
+/** 头部区域行：影子方案名「地区 · 30G」剥掉磁盘档，按当前语言映射成目录区域名；目录外原名原样。 */
+const planRegionLabel = computed(() => {
+  const value = instance.value as any
+  const raw = String(value?.planName ?? '')
+  if (!raw) return raw
+  const regionRaw = raw.replace(/ · \d+G$/, '')
+  return localizePoolRegionName(regionRaw, value?.hostCountryCode ?? value?.host?.country_code ?? null, locale.value)
+})
+
+/** 头部机型行：E2 / ARM 显示 OCI 规格名（中英同文）；取不到规格时回退影子套餐名。 */
+const machineShapeLabel = computed(() => {
+  const value = instance.value as any
+  const preset = value?.host?.resourcePreset ?? /^独立机型\s+(.+)$/.exec(String(value?.packageName ?? ''))?.[1]?.trim() ?? null
+  return ociMachineShape(preset, value?.host?.architecture) ?? String(value?.packageName ?? '')
+})
 const loading = ref<boolean>(true)
 const loadError = ref<string>('')
 const actionLoading = ref<string>('')
@@ -277,6 +295,11 @@ const remainingQuota = ref<RemainingQuota>({ // 剩余额度
 
 // 配置编辑
 const showConfigEditModal = ref<boolean>(false)
+
+// 重置密码（重置该实例的 SSH 密码）
+const showResetPasswordModal = ref<boolean>(false)
+const resetPasswordLoading = ref<boolean>(false)
+const resetPasswordValue = ref<string>('')
 const configEditLoading = ref<boolean>(false)
 const instancePackage = ref<Package | null>(null)
 
@@ -1143,7 +1166,8 @@ async function doClone(): Promise<void> {
 
 // 配置编辑
 async function openConfigEditModal(): Promise<void> {
-  if (!instance.value) return
+  // 客户侧已移除编辑入口；这里兜底，用户不可从其他路径进入配置编辑
+  if (!isAdminEntry || !instance.value) return
 
   // 加载套餐信息（如果实例绑定了套餐）
   if (instance.value.package_id && instance.value.package_id > 0) {
@@ -1291,6 +1315,29 @@ async function handleDestroy(): Promise<void> {
     toast.error(translateError(err))
   } finally {
     destroyLoading.value = false
+  }
+}
+
+// 重置实例 SSH 密码：成功后直接解锁信息面板显示新密码
+function openResetPasswordModal(): void {
+  if (!instance.value) return
+  resetPasswordValue.value = ''
+  showResetPasswordModal.value = true
+}
+
+async function handleResetPassword(): Promise<void> {
+  if (!instance.value || resetPasswordLoading.value) return
+  resetPasswordLoading.value = true
+  try {
+    const response = await api.instances.resetPassword(instance.value.id)
+    resetPasswordValue.value = response.rootPassword || ''
+    instancePassword.value[instance.value.id] = response.rootPassword || null
+    showPassword.value[instance.value.id] = true
+    toast.success(t('instance.detail.resetPassword.success'))
+  } catch (err) {
+    toast.error(translateError(err))
+  } finally {
+    resetPasswordLoading.value = false
   }
 }
 
@@ -2857,13 +2904,13 @@ function formatShortDate(dateStr: string | null | undefined): string {
                         class="text-lg sm:text-xl font-semibold truncate"
                         :class="themeStore.isDark ? 'text-white' : 'text-gray-900'"
                       >
-                        {{ (instance as any).planName }}
+                        {{ planRegionLabel }}
                       </h3>
                       <p
                         class="mt-1 text-sm truncate"
                         :class="themeStore.isDark ? 'text-gray-400' : 'text-gray-600'"
                       >
-                        {{ (instance as any).packageName }}
+                        {{ machineShapeLabel }}
                       </p>
                     </div>
                   </div>
@@ -3000,9 +3047,9 @@ function formatShortDate(dateStr: string | null | undefined): string {
 	                        class="btn-secondary btn-sm w-full justify-center sm:w-auto sm:min-w-[110px]"
 	                        :disabled="isOperationDisabled"
 	                        :class="isOperationDisabled ? 'opacity-50 cursor-not-allowed' : ''"
-	                        @click="showChangePlanModal = true"
+	                        @click="openResetPasswordModal"
 	                      >
-	                        {{ $t('billing.changePlan') }}
+	                        {{ $t('instance.detail.resetPassword.button') }}
 	                      </button>
 
                       <button
@@ -3295,8 +3342,56 @@ function formatShortDate(dateStr: string | null | undefined): string {
       v-model:visible="showDestroyModal"
       :loading="destroyLoading"
       :destroy-info="destroyInfo"
+      :machine-shape="machineShapeLabel"
       @destroy="handleDestroy"
     />
+
+    <!-- Reset Password Modal -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="!isAdminEntry && showResetPasswordModal" class="modal-overlay">
+          <div class="modal-backdrop" @click="showResetPasswordModal = false"></div>
+          <div class="modal-content max-w-md">
+            <div class="modal-header">
+              <h3 class="modal-title">{{ $t('instance.detail.resetPassword.title') }}</h3>
+              <button class="text-themed-muted hover:text-themed" @click="showResetPasswordModal = false">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div class="modal-body space-y-4">
+              <div v-if="instance" class="p-3 rounded-lg" :class="themeStore.isDark ? 'bg-gray-800' : 'bg-gray-100'">
+                <div class="flex items-center gap-2">
+                  <span class="text-sm text-themed-muted">{{ $t('checkin.targetInstance') }}:</span>
+                  <span class="text-sm font-medium text-themed">{{ instance.name }}</span>
+                </div>
+              </div>
+              <div v-if="!resetPasswordValue" class="text-xs text-themed-muted p-3 rounded-lg bg-themed-secondary">
+                <p>{{ $t('instance.detail.resetPassword.hint') }}</p>
+              </div>
+              <div v-else class="p-3 rounded-lg bg-themed-secondary space-y-2">
+                <p class="text-xs text-themed-muted">{{ $t('instance.detail.resetPassword.newPassword') }}</p>
+                <code class="block text-sm font-mono break-all text-themed">{{ resetPasswordValue }}</code>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn" @click="showResetPasswordModal = false">
+                {{ resetPasswordValue ? $t('common.confirm') : $t('common.cancel') }}
+              </button>
+              <button
+                v-if="!resetPasswordValue"
+                class="btn btn-primary"
+                :disabled="resetPasswordLoading"
+                @click="handleResetPassword"
+              >
+                {{ resetPasswordLoading ? $t('common.loading') : $t('instance.detail.resetPassword.confirm') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- Rename Modal -->
     <Teleport to="body">

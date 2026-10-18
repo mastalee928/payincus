@@ -1585,8 +1585,8 @@ pool: {
         destroy: {
             button: 'Destroy',
             title: 'Destroy Instance',
-            warning: 'This action will permanently delete the instance and all its data, including snapshots, backups, port mappings, etc. This cannot be undone.',
-            warningFree: 'This action will permanently delete the instance and all its data. This cannot be undone.',
+            warning: 'This action will permanently delete the instance and all its data, including snapshots and backups, with no refund. This cannot be undone.',
+            warningFree: 'This action will permanently delete the instance and all its data, including snapshots and backups, with no refund. This cannot be undone.',
             rulesTitle: 'Destroy Rules',
             rulesDesc: 'Learn about the rules and limitations of the destroy feature',
             ruleFirstFree: 'First destroy is fee-free',
@@ -1632,6 +1632,14 @@ pool: {
             invalidId: 'Invalid instance ID',
             notExist: 'Instance does not exist',
             loadFailed: 'Failed to load instance',
+            resetPassword: {
+                button: 'Reset Password',
+                title: 'Reset Password',
+                hint: 'A new random SSH password will be generated for this instance. The old password stops working immediately.',
+                confirm: 'Reset Password',
+                newPassword: 'New password',
+                success: 'Password reset. Please save the new password.',
+            },
             tabs: {
                 info: 'Info',
                 network: 'Network',

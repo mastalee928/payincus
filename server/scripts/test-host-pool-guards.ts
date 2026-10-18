@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { hostSshConnection } from '../src/lib/host-ssh.js'
 import { poolCapacityReady, unsellableReason } from '../src/lib/pool-stock.js'
 import { resolveHostResources } from '../src/lib/onboarding-resources.js'
-import { buildPoolPurchaseRegions, poolPurchaseRegionStock } from '../../client/src/utils/poolRegionCatalog.js'
+import { buildPoolPurchaseRegions, localizePoolRegionName, poolPurchaseRegionStock } from '../../client/src/utils/poolRegionCatalog.js'
+import { ociMachineShape } from '../../client/src/utils/poolCatalog.js'
 import { groupByContinent } from '../../client/src/utils/countryContinent.js'
 
 const facts = { occupied: false, reserved: false, singleTenant: true, ready: true, hasPrice: true, resourcePreset: 'E2', customerDiskGiB: 30 }
@@ -40,6 +41,15 @@ assert.throws(() => resolveHostResources(probe, { ...defaults, customerDiskGiB: 
 
 const locations = buildPoolPurchaseRegions([])
 assert.equal(locations.length, 45, 'the public region picker keeps the complete geographic catalog without listings')
+assert.ok(locations.every(location => location.nameEn && location.nameZhTW), 'every catalog location must carry English and Traditional Chinese display names')
+assert.equal(ociMachineShape('E2', 'x86_64'), 'VM.Standard.E2.1.Micro')
+assert.equal(ociMachineShape('ARM2C', 'aarch64'), 'VM.Standard.A1.Flex')
+assert.equal(ociMachineShape(null, 'x86_64'), 'VM.Standard.E2.1.Micro', 'architecture alone still resolves the shape')
+assert.equal(ociMachineShape(null, null), null)
+assert.equal(localizePoolRegionName('美国 · 圣何塞', 'us', 'zh-CN'), '美国西部（圣何塞）', 'zh-CN display also maps to the catalog name')
+assert.equal(localizePoolRegionName('美国 · 圣何塞', 'us', 'en'), 'US West (San Jose)')
+assert.equal(localizePoolRegionName('E2 · 德国 · 法兰克福', 'DE', 'zh-TW'), '德國中部（法蘭克福）')
+assert.equal(localizePoolRegionName('Custom · 新地区', null, 'en'), 'Custom · 新地区', 'unmatched names stay untouched')
 assert.deepEqual(groupByContinent(locations).map(group => [group.code, group.items.length]), [
   ['north-america', 8], ['south-america', 5], ['europe', 13], ['middle-east-africa', 7], ['asia-pacific', 12]
 ])

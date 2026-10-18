@@ -843,6 +843,7 @@ export interface Instance {
     storageDriver?: string
     resourcePreset?: string | null
     architecture?: string | null
+    regionGroupName?: string | null
   }
   hostCountryCode?: string
   natPublicIp?: string | null

@@ -35,6 +35,8 @@ interface Props {
   visible: boolean
   loading: boolean
   destroyInfo: DestroyInfo | null
+  /** 父组件解析好的 OCI 机型名（E2 / ARM），当前方案行优先展示 */
+  machineShape?: string
 }
 
 interface Emits {
@@ -46,7 +48,6 @@ const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const confirmInput = ref('')
-const rulesExpanded = ref(false)
 
 // 确认输入是否正确
 const isConfirmValid = computed(() => {
@@ -64,7 +65,6 @@ const canExecuteDestroy = computed(() => {
 watch(() => props.visible, (visible) => {
   if (!visible) {
     confirmInput.value = ''
-    rulesExpanded.value = false
   }
 })
 
@@ -78,10 +78,6 @@ function handleDestroy() {
   }
 }
 
-// 格式化货币
-function formatCurrency(value: number): string {
-  return `¥${value.toFixed(2)}`
-}
 </script>
 
 <template>
@@ -167,137 +163,7 @@ function formatCurrency(value: number): string {
               </div>
             </div>
 
-            <!-- Rules (Collapsible) -->
-            <div 
-              class="rounded-lg border overflow-hidden"
-              :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'"
-            >
-              <button
-                class="w-full flex items-center justify-between p-3 text-left transition-colors"
-                :class="themeStore.isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-50'"
-                @click="rulesExpanded = !rulesExpanded"
-              >
-                <div class="flex items-center gap-2">
-                  <svg 
-                    class="w-4 h-4"
-                    :class="themeStore.isDark ? 'text-blue-400' : 'text-blue-500'"
-                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                  >
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span 
-                    class="text-sm font-medium"
-                    :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'"
-                  >
-                    {{ t('instance.destroy.rulesTitle') }}
-                  </span>
-                </div>
-                <svg 
-                  class="w-4 h-4 transition-transform"
-                  :class="[
-                    themeStore.isDark ? 'text-gray-500' : 'text-gray-400',
-                    rulesExpanded ? 'rotate-180' : ''
-                  ]"
-                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                >
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              
-              <div 
-                v-show="rulesExpanded"
-                class="px-3 pb-3 space-y-2 border-t"
-                :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'"
-              >
-                <div class="pt-3 space-y-2">
-                  <!-- First free -->
-                  <div class="flex items-start gap-2">
-                    <svg class="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    <div>
-                      <p 
-                        class="text-xs font-medium"
-                        :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'"
-                      >
-                        {{ t('instance.destroy.ruleFirstFree') }}
-                      </p>
-                      <p 
-                        class="text-xs"
-                        :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'"
-                      >
-                        {{ t('instance.destroy.ruleFirstFreeDesc') }}
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <!-- Fee rate -->
-                  <div class="flex items-start gap-2">
-                    <svg class="w-4 h-4 text-orange-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div>
-                      <p 
-                        class="text-xs font-medium"
-                        :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'"
-                      >
-                        {{ t('instance.destroy.ruleFeeRate', { rate: destroyInfo.rules.feeRate * 100 }) }}
-                      </p>
-                      <p 
-                        class="text-xs"
-                        :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'"
-                      >
-                        {{ t('instance.destroy.ruleFeeRateDesc', { rate: destroyInfo.rules.feeRate * 100 }) }}
-                      </p>
-                    </div>
-                  </div>
-
-                  <!-- Paid traffic threshold -->
-                  <div class="flex items-start gap-2">
-                    <svg class="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6h13M9 5v6h13M5 5v12" />
-                    </svg>
-                    <div>
-                      <p 
-                        class="text-xs font-medium"
-                        :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'"
-                      >
-                        {{ t('instance.destroy.ruleTrafficThreshold') }}
-                      </p>
-                      <p 
-                        class="text-xs"
-                        :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'"
-                      >
-                        {{ t('instance.destroy.ruleTrafficThresholdDesc') }}
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <!-- Free instance -->
-                  <div class="flex items-start gap-2">
-                    <svg class="w-4 h-4 text-gray-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                    </svg>
-                    <div>
-                      <p 
-                        class="text-xs font-medium"
-                        :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'"
-                      >
-                        {{ t('instance.destroy.ruleFreeInstance') }}
-                      </p>
-                      <p 
-                        class="text-xs"
-                        :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'"
-                      >
-                        {{ t('instance.destroy.ruleFreeInstanceDesc') }}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Instance Info -->
+<!-- Instance Info -->
             <div 
               class="rounded-lg p-3 space-y-2"
               :class="themeStore.isDark ? 'bg-gray-800' : 'bg-gray-50'"
@@ -317,117 +183,18 @@ function formatCurrency(value: number): string {
                 <div :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'">
                   {{ destroyInfo.instance.name }}
                 </div>
-                <div>
-                  <span :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'">
-                    {{ t('instance.destroy.hostName') }}
-                  </span>
-                </div>
-                <div :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'">
-                  {{ destroyInfo.instance.hostName }}
-                </div>
                 <div v-if="destroyInfo.instance.planName">
                   <span :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'">
                     {{ t('instance.destroy.planName') }}
                   </span>
                 </div>
                 <div v-if="destroyInfo.instance.planName" :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'">
-                  {{ destroyInfo.instance.planName }}
+                  {{ machineShape || destroyInfo.instance.planName }}
                 </div>
               </div>
             </div>
 
-            <!-- Refund Info (only for paid instances) -->
-            <div 
-              v-if="!destroyInfo.isFreeInstance"
-              class="rounded-lg p-3 space-y-2"
-              :class="themeStore.isDark ? 'bg-gray-800' : 'bg-gray-50'"
-            >
-              <p 
-                class="text-xs font-medium mb-2"
-                :class="themeStore.isDark ? 'text-gray-400' : 'text-gray-500'"
-              >
-                {{ t('instance.destroy.refundInfo') }}
-              </p>
-              <div class="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'">
-                    {{ t('instance.destroy.remainingDays') }}
-                  </span>
-                </div>
-                <div :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'">
-                  {{ destroyInfo.refund.remainingDays }} {{ t('instance.destroy.days') }}
-                </div>
-                <div>
-                  <span :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'">
-                    {{ t('instance.destroy.remainingValue') }}
-                  </span>
-                </div>
-                <div :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'">
-                  {{ formatCurrency(destroyInfo.refund.remainingValue) }}
-                </div>
-                <template v-if="destroyInfo.refund.maxRefundable > 0">
-                  <div>
-                    <span :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'">
-                      {{ t('instance.destroy.maxRefundable') }}
-                    </span>
-                  </div>
-                  <div class="text-orange-500">
-                    {{ formatCurrency(destroyInfo.refund.maxRefundable) }}
-                  </div>
-                </template>
-                <div>
-                  <span :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'">
-                    {{ t('instance.destroy.feeRate') }}
-                  </span>
-                </div>
-                <div :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'">
-                  <template v-if="destroyInfo.isFirstTime">
-                    <span class="text-green-500">{{ t('instance.destroy.firstTimeFree') }}</span>
-                  </template>
-                  <template v-else>
-                    {{ (destroyInfo.refund.feeRate * 100).toFixed(0) }}%
-                  </template>
-                </div>
-                <div>
-                  <span :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'">
-                    {{ t('instance.destroy.feeAmount') }}
-                  </span>
-                </div>
-                <div :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-700'">
-                  {{ formatCurrency(destroyInfo.refund.feeAmount) }}
-                </div>
-                <div>
-                  <span 
-                    class="font-medium"
-                    :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-600'"
-                  >
-                    {{ t('instance.destroy.refundAmount') }}
-                  </span>
-                </div>
-                <div 
-                  class="font-medium"
-                  :class="themeStore.isDark ? 'text-green-400' : 'text-green-600'"
-                >
-                  {{ formatCurrency(destroyInfo.refund.refundAmount) }}
-                </div>
-              </div>
-            </div>
-
-            <!-- Free instance notice -->
-            <div 
-              v-else
-              class="p-3 rounded-lg"
-              :class="themeStore.isDark ? 'bg-gray-800' : 'bg-gray-50'"
-            >
-              <p 
-                class="text-xs"
-                :class="themeStore.isDark ? 'text-gray-400' : 'text-gray-500'"
-              >
-                {{ t('instance.destroy.freeInstanceNoRefund') }}
-              </p>
-            </div>
-
-            <!-- Confirmation Input -->
+<!-- Confirmation Input -->
             <div v-if="destroyInfo.canDestroy" class="space-y-2">
               <label 
                 class="block text-xs"

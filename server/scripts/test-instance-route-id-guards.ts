@@ -30,7 +30,7 @@ assert.ok(
 
 assert.equal(
   source.match(/parsePositiveRouteId\(id\)/g)?.length ?? 0,
-  27,
+  28,
   'all instance routes that destructure id must use strict positive route ID parsing'
 )
 

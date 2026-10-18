@@ -19,6 +19,8 @@ import InstanceOrderMenu from '@/components/instance/InstanceOrderMenu.vue'
 import TransferModal from '@/components/instance/modals/TransferModal.vue'
 import { freeSiteCopy, getFreeSiteBillingCycleLabel } from '@/utils/freeSiteFun'
 import { instanceCreatePath, instanceDetailPath, isAdminEntry, walletPath } from '@/utils/app-paths'
+import { ociMachineShape } from '@/utils/poolCatalog'
+import { localizePoolRegionName } from '@/utils/poolRegionCatalog'
 
 // 为 KeepAlive include 匹配定义组件名称（必须在所有 import 之后）
 defineOptions({ name: 'InstancesView' })
@@ -618,12 +620,25 @@ function getInstancePlanName(instance: Instance): string {
   return getInstancePackageName(instance) || instance.planName || t('instance.freeInstanceLabel')
 }
 
+/** 池子实例的套餐是影子名（独立机型 E2 / ARM2C）；客户侧改显示 OCI 机型名，普通套餐照旧。 */
+function getInstanceMachineLabel(instance: Instance): string {
+  const host = (instance as any).host
+  const preset = (typeof host === 'object' && host ? host.resourcePreset : null)
+    ?? /^独立机型\s+(.+)$/.exec(getInstancePackageName(instance) ?? '')?.[1]?.trim()
+    ?? null
+  const architecture = typeof host === 'object' && host ? host.architecture : null
+  return ociMachineShape(preset, architecture) ?? getInstancePlanName(instance)
+}
+
 function getInstanceRegionCode(instance: Instance): string {
   return String((instance as any).host?.country_code || (instance as any).hostCountryCode || 'us').toLowerCase()
 }
 
 function getInstanceRegionLabel(instance: Instance): string {
-  return getCountryLabel(getInstanceRegionCode(instance))
+  const code = getInstanceRegionCode(instance)
+  const regionName = (instance as any).host?.regionGroupName as string | null | undefined
+  // 池子实例展示目录区域名（如「德国中部（法兰克福）」）；取不到区域分组名时退回国家名
+  return regionName ? localizePoolRegionName(regionName, code, locale.value) : getCountryLabel(code)
 }
 
 function getPrimaryIp(instance: Instance): string {
@@ -2301,8 +2316,8 @@ async function confirmBatchDestroy(): Promise<void> {
               <dd v-if="isAdmin" class="min-w-0 truncate" :class="'text-themed-muted'">{{ getInstanceHostName(instance) }}</dd>
 
               <dt class="font-semibold" :class="'text-themed'">{{ $t('instance.package') }}</dt>
-              <dd class="min-w-0 truncate" :class="'text-themed-muted'" :title="getInstancePlanName(instance)">
-                {{ getInstancePlanName(instance) }}
+              <dd class="min-w-0 truncate" :class="'text-themed-muted'" :title="getInstanceMachineLabel(instance)">
+                {{ getInstanceMachineLabel(instance) }}
               </dd>
 
               <dt class="font-semibold" :class="'text-themed'">{{ $t('instance.config') }}</dt>
