@@ -344,7 +344,7 @@ export async function placePoolOrder(userId: number, username: string, input: Po
           amount: -totalYuan,
           balanceBefore: roundMoney(balanceAfter + totalYuan),
           balanceAfter,
-          remark: `一机一卖订单 ${batchId}：${totalCount} 台`
+          remark: `购买实例订单 ${batchId}：${totalCount} 台`
         }
       })
 

@@ -919,6 +919,18 @@ assert.ok(
   'OrdersView must render mobile order cards and a fixed-layout desktop table without PC horizontal overflow while preserving detail access'
 )
 assert.ok(
+  ordersViewSource.includes('<Teleport to="body">') &&
+    ordersViewSource.includes('class="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm"'),
+  'the orders detail drawer must teleport to body so the console header cannot cover its header'
+)
+assert.ok(
+  walletViewSource.includes('const affTabVisible: boolean = false') &&
+    walletViewSource.includes("...(affTabVisible ? [{ key: 'aff' as WalletTab, label: t('aff.title') }] : [])") &&
+    walletViewSource.includes("if (!affTabVisible && tab === 'aff')") &&
+    walletViewSource.includes('v-if="affTabVisible && !configStore.freeSiteMode"'),
+  'wallet referral tab must stay hidden: no tab entry, switchTab fallback and gated render'
+)
+assert.ok(
   invitesViewSource.includes("import { dashboardPath } from '@/utils/app-paths'") &&
     invitesViewSource.includes(':to="dashboardPath()"') &&
     !invitesViewSource.includes('to="/dashboard"') &&

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { hostSshConnection } from '../src/lib/host-ssh.js'
 import { poolCapacityReady, unsellableReason } from '../src/lib/pool-stock.js'
 import { resolveHostResources } from '../src/lib/onboarding-resources.js'
@@ -76,4 +77,10 @@ const madridCatalog = buildPoolPurchaseRegions([
 assert.equal(madridCatalog.find(location => location.name === '西班牙中部 2（马德里）')!.regions[0].id, 73)
 assert.equal(madridCatalog.find(location => location.name === '西班牙中部（马德里）')!.regions.length, 0)
 assert.deepEqual(madridCatalog.filter(location => location.key.startsWith('custom:')).map(location => location.regions[0].id), [74, 75, 76], 'ambiguous or custom names must remain visible without guessing their geographic identity')
+const poolOrderServiceSource = readFileSync(new URL('../src/services/pool-orders.ts', import.meta.url), 'utf8')
+assert.ok(!poolOrderServiceSource.includes('一机一卖订单'), 'balance-log remarks must not carry the internal one-machine jargon')
+assert.ok(poolOrderServiceSource.includes('购买实例订单'), 'pool checkout ledger remarks must use the customer-facing wording')
+const poolRemarkMigration = readFileSync(new URL('../prisma/migrations/202610180003_pool_remark_wording/migration.sql', import.meta.url), 'utf8')
+assert.ok(poolRemarkMigration.includes('UPDATE "balance_logs"') && poolRemarkMigration.includes('一机一卖'), 'the migration must rewrite existing balance-log remarks away from the jargon')
+
 console.log('Host pool resource, availability, SSH and public region catalog checks passed')

@@ -304,6 +304,7 @@ onMounted(loadOrders)
       </div>
     </section>
 
+    <Teleport to="body">
     <div v-if="selectedOrder" class="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" @click.self="selectedOrder = null">
       <aside class="flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-themed bg-themed-surface shadow-2xl">
         <div class="flex items-start justify-between gap-4 border-b border-themed bg-themed p-6">
@@ -339,6 +340,7 @@ onMounted(loadOrders)
         </dl>
       </aside>
     </div>
+    </Teleport>
   </div>
 </template>
 

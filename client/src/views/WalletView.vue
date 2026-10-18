@@ -36,6 +36,9 @@ interface ManualPaymentInfo {
   instructions: string
 }
 
+// AFF 推荐计划暂不上线：Tab 与内容整体隐藏，代码保留，恢复上线时把这里改为 true
+const affTabVisible: boolean = false
+
 // 当前 TAB
 const activeTab = ref<WalletTab>('balance')
 const walletTabs = computed((): Array<{ key: WalletTab; label: string }> => [
@@ -46,7 +49,7 @@ const walletTabs = computed((): Array<{ key: WalletTab; label: string }> => [
       ? []
       : [
           { key: 'records' as WalletTab, label: t('wallet.tabs.records') },
-          { key: 'aff' as WalletTab, label: t('aff.title') }
+          ...(affTabVisible ? [{ key: 'aff' as WalletTab, label: t('aff.title') }] : [])
         ]
   )
 ])
@@ -406,6 +409,10 @@ async function cancelOrder(orderNo: string) {
 }
 
 function switchTab(tab: WalletTab) {
+  if (!affTabVisible && tab === 'aff') {
+    activeTab.value = 'balance'
+    return
+  }
   if (configStore.freeSiteMode && (tab === 'records' || tab === 'aff')) {
     activeTab.value = 'balance'
     return
@@ -1448,7 +1455,7 @@ function formatAmount() {
     </div>
 
     <!-- 推荐计划 TAB -->
-    <div v-if="!configStore.freeSiteMode" v-show="activeTab === 'aff'" class="space-y-6">
+    <div v-if="affTabVisible && !configStore.freeSiteMode" v-show="activeTab === 'aff'" class="space-y-6">
       <!-- 加载中 -->
       <div v-if="affLoading" class="card p-8 text-center text-themed-muted">
         {{ $t('common.loading') }}...
