@@ -67,6 +67,7 @@
     "pnpm --filter server test:aff-review-ui-guards",
     "pnpm --filter server test:admin-hosting-route-id-guards",
     "pnpm --filter server test:admin-notification-channel-guards",
+    "pnpm --filter server test:admin-alert-bots-guards",
     "pnpm --filter server test:admin-billing-route-id-guards",
     "pnpm --filter server test:admin-entertainment-route-guards",
     "pnpm --filter server test:admin-route-guards",

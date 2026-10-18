@@ -9,6 +9,7 @@ import { createBalanceAdjustmentRequest } from '../db/balance.js'
 import { findUserById, getSystemConfigBoolean, performRenewal } from '../db/index.js'
 import { getAllAdminUserIds } from '../db/users.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
+import { notifyAdminTicketCreated, notifyAdminTicketReplied } from '../lib/admin-alerts.js'
 import { sendRenewSuccessEmail } from '../lib/mailer.js'
 import { cancelInstanceTask, createInstanceTask, getTaskQueuePosition, InstanceTaskConflictError } from '../db/instance-tasks.js'
 import {
@@ -2081,6 +2082,13 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
               instanceName: instance?.name || '无'
             })
           }
+          void notifyAdminTicketCreated({
+            ticketId: result.ticketId,
+            username: apiToken.user.username,
+            subject,
+            hostName: host?.name || '系统',
+            instanceName: instance?.name || '无'
+          }).catch(err => console.warn('[PublicAPI] 管理员工单告警发送失败:', err))
         }
       } catch (error) {
         console.error('[PublicAPI] Failed to send ticket creation notification:', error)
@@ -2308,6 +2316,13 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
               replyFrom: apiToken.user.username
             })
           }
+          void notifyAdminTicketReplied({
+            ticketId: ticket.id,
+            subject: ticket.subject,
+            replyFrom: apiToken.user.username,
+            excerpt: content,
+            hostName: ticket.host?.name || '系统'
+          }).catch(err => console.warn('[PublicAPI] 管理员工单告警发送失败:', err))
         }
       } catch (error) {
         console.error('[PublicAPI] Failed to send ticket reply notification:', error)

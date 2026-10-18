@@ -812,6 +812,7 @@ model HostAgent {
   capabilities          Json?     @default("[]")
   lastReport            Json?     @default("{}") @map("last_report")
   lastSeenAt            DateTime? @map("last_seen_at")
+  adminOfflineAlertedAt DateTime? @map("admin_offline_alerted_at") // 离线告警已发送时间；非空表示已推送过离线告警、等待恢复
   lastHeartbeatIp       String?   @map("last_heartbeat_ip")
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
@@ -1381,6 +1382,7 @@ model NotificationChannel {
   config    Json
   enabled   Boolean                 @default(true)
   isGlobal  Boolean                 @default(false) @map("is_global") // 管理员创建的全局渠道，对所有托管用户开放
+  alertCategory String? @map("alert_category") // 管理员告警类别：ticket | host | payment | instance（个人/全局渠道为 null）
   createdAt DateTime                @default(now()) @map("created_at")
 
   user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)

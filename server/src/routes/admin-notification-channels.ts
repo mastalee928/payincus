@@ -8,6 +8,7 @@ import { prisma } from '../db/prisma.js'
 import { createLog } from '../db/logs.js'
 import { testNotificationChannel } from '../lib/notifier.js'
 import type { NotificationChannel } from '../types/database.js'
+import { ADMIN_ALERT_CATEGORIES } from '../lib/admin-alerts.js'
 
 const telegramBotTokenPattern = /^[1-9]\d{5,19}:[A-Za-z0-9_-]{20,}$/
 const telegramChatIdPattern = /^-?\d{1,20}$|^@[A-Za-z0-9_]{5,32}$/
@@ -57,11 +58,12 @@ function normalizeGlobalTelegramChannelInput(input: {
 export default async function adminNotificationChannelsRoutes(fastify: FastifyInstance) {
 
   // 获取所有全局通知渠道（管理员视角，含完整信息）
-  fastify.get('/', {
+  fastify.get<{ Querystring: { scope?: string } }>('/', {
     onRequest: [fastify.authenticateAdmin]
-  }, async () => {
+  }, async (request: FastifyRequest<{ Querystring: { scope?: string } }>) => {
+    const alertScope = request.query.scope === 'alert'
     const channels = await prisma.notificationChannel.findMany({
-      where: { isGlobal: true } as any,
+      where: (alertScope ? { alertCategory: { not: null } } : { isGlobal: true }) as any,
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -70,11 +72,12 @@ export default async function adminNotificationChannelsRoutes(fastify: FastifyIn
         config: true,
         enabled: true,
         createdAt: true,
+        alertCategory: true,
         _count: { select: { packages: true } }
       } as any
     }) as unknown as Array<{
       id: number; name: string; type: string; config: unknown; enabled: boolean; createdAt: Date;
-      _count: { packages: number }
+      alertCategory: string | null; _count: { packages: number }
     }>
 
     return {
@@ -85,6 +88,7 @@ export default async function adminNotificationChannelsRoutes(fastify: FastifyIn
           name: c.name,
           type: c.type,
           enabled: c.enabled,
+          alertCategory: c.alertCategory ?? null,
           boundPackages: c._count.packages,
           configPreview: getTelegramPreview(config),
           createdAt: c.createdAt
@@ -101,7 +105,7 @@ export default async function adminNotificationChannelsRoutes(fastify: FastifyIn
     if (!channelId) return reply.code(400).send({ error: 'Invalid ID' })
 
     const channel = await prisma.notificationChannel.findFirst({
-      where: { id: channelId, isGlobal: true } as any
+      where: { id: channelId, OR: [{ isGlobal: true }, { alertCategory: { not: null } }] } as any
     })
     if (!channel) return reply.code(404).send({ error: 'Channel not found' })
 
@@ -113,6 +117,7 @@ export default async function adminNotificationChannelsRoutes(fastify: FastifyIn
         name: channel.name,
         type: channel.type,
         enabled: channel.enabled,
+        alertCategory: channel.alertCategory ?? null,
         config: maskBotToken(config),
         createdAt: channel.createdAt
       }
@@ -132,12 +137,13 @@ export default async function adminNotificationChannelsRoutes(fastify: FastifyIn
           name: { type: 'string', minLength: 1, maxLength: 50 },
           botToken: { type: 'string', minLength: 1 },
           chatId: { type: 'string', minLength: 1 },
-          enabled: { type: 'boolean' }
+          enabled: { type: 'boolean' },
+          alertCategory: { type: 'string', enum: [...ADMIN_ALERT_CATEGORIES] }
         }
       }
     }
   }, async (
-    request: FastifyRequest<{ Body: { name: string; botToken: string; chatId: string; enabled?: boolean } }>,
+    request: FastifyRequest<{ Body: { name: string; botToken: string; chatId: string; enabled?: boolean; alertCategory?: string } }>,
     reply: FastifyReply
   ) => {
     const { enabled = true } = request.body
@@ -147,6 +153,19 @@ export default async function adminNotificationChannelsRoutes(fastify: FastifyIn
     }
     const { name, botToken, chatId } = normalized.value
 
+    const rawAlertCategory = typeof request.body.alertCategory === 'string' ? request.body.alertCategory : null
+    if (rawAlertCategory !== null && !(ADMIN_ALERT_CATEGORIES as readonly string[]).includes(rawAlertCategory)) {
+      return reply.code(400).send({ error: 'Invalid alert category' })
+    }
+    if (rawAlertCategory) {
+      const existingAlertChannel = await prisma.notificationChannel.findFirst({
+        where: { alertCategory: rawAlertCategory } as any
+      })
+      if (existingAlertChannel) {
+        return reply.code(409).send({ error: 'Alert channel for this category already exists' })
+      }
+    }
+
     const channel = await prisma.notificationChannel.create({
       data: {
         userId: request.user.id,
@@ -154,16 +173,17 @@ export default async function adminNotificationChannelsRoutes(fastify: FastifyIn
         name,
         config: { botToken, chatId },
         enabled,
-        isGlobal: true
+        isGlobal: rawAlertCategory ? false : true,
+        alertCategory: rawAlertCategory
       } as any
     })
 
     await createLog(request.user.id, 'notification', 'admin.global_channel.create',
-      `Created global TG channel "${name}" (chatId: ${chatId})`, 'success')
+      `Created ${rawAlertCategory ? `admin alert (${rawAlertCategory})` : 'global'} TG channel "${name}" (chatId: ${chatId})`, 'success')
 
     return reply.code(201).send({
       message: 'Global notification channel created',
-      channel: { id: channel.id, name, type: 'telegram', enabled }
+      channel: { id: channel.id, name, type: 'telegram', enabled, alertCategory: rawAlertCategory }
     })
   })
 
@@ -192,7 +212,7 @@ export default async function adminNotificationChannelsRoutes(fastify: FastifyIn
     if (!channelId) return reply.code(400).send({ error: 'Invalid ID' })
 
     const existing = await prisma.notificationChannel.findFirst({
-      where: { id: channelId, isGlobal: true } as any
+      where: { id: channelId, OR: [{ isGlobal: true }, { alertCategory: { not: null } }] } as any
     })
     if (!existing) return reply.code(404).send({ error: 'Channel not found' })
 
@@ -233,7 +253,7 @@ export default async function adminNotificationChannelsRoutes(fastify: FastifyIn
     if (!channelId) return reply.code(400).send({ error: 'Invalid ID' })
 
     const channel = await prisma.notificationChannel.findFirst({
-      where: { id: channelId, isGlobal: true } as any
+      where: { id: channelId, OR: [{ isGlobal: true }, { alertCategory: { not: null } }] } as any
     })
     if (!channel) return reply.code(404).send({ error: 'Channel not found' })
 
@@ -253,7 +273,7 @@ export default async function adminNotificationChannelsRoutes(fastify: FastifyIn
     if (!channelId) return reply.code(400).send({ error: 'Invalid ID' })
 
     const channel = await prisma.notificationChannel.findFirst({
-      where: { id: channelId, isGlobal: true } as any
+      where: { id: channelId, OR: [{ isGlobal: true }, { alertCategory: { not: null } }] } as any
     })
     if (!channel) return reply.code(404).send({ error: 'Channel not found' })
 

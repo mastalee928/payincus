@@ -193,6 +193,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'nav.telegramSettings', title: 'Telegram 设置' }
   },
   {
+    path: '/admin/settings/admin-alerts',
+    name: 'admin-settings-admin-alerts',
+    component: () => import('@/views/admin/AdminAlertsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'adminAlerts.title', title: '告警推送' }
+  },
+  {
     path: '/admin/system-update',
     name: 'admin-system-update',
     component: () => import('@/views/admin/SystemUpdateView.vue'),

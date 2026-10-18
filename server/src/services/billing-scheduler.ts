@@ -8,6 +8,7 @@ import pLimit from 'p-limit'
 import { prisma } from '../db/prisma.js'
 import * as db from '../db/index.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
+import { notifyAdminAutoRenewSummary } from '../lib/admin-alerts.js'
 import { 
   sendExpiryReminderEmail, 
   sendAutoRenewSuccessEmail, 
@@ -44,6 +45,12 @@ const EXPIRY_NOTIFY_DAYS = [3] // 仅在到期前3天提醒一次
 const INSTANCE_BILLING_JOB_LOCK_EXPIRE_MS = 30 * 60 * 1000
 const INSTANCE_BILLING_JOB_LOCK_WAIT_MS = 100
 let schedulerStarted = false
+
+// 管理员告警：本轮自动续费汇总（每次整点任务开始时清空，结束后按需推送一条）
+const autoRenewAlertSummary: {
+  successes: Array<{ username: string; instanceName: string; amount: number }>
+  failures: Array<{ username: string; instanceName: string; reason: string }>
+} = { successes: [], failures: [] }
 
 /**
  * 延迟函数
@@ -93,6 +100,8 @@ function buildAutoRenewAttemptGuard(instance: any, now: Date, expiryThreshold: D
 async function executeAutoRenew(): Promise<void> {
   console.log('[Billing] Starting auto-renew job...')
   const startTime = Date.now()
+  autoRenewAlertSummary.successes.length = 0
+  autoRenewAlertSummary.failures.length = 0
 
   try {
     // 获取24小时内到期且开启了自动续费的实例
@@ -106,6 +115,13 @@ async function executeAutoRenew(): Promise<void> {
         limit(() => withInstanceBillingJobLock('auto-renew', instance.id, () => processAutoRenew(instance)))
       )
     )
+
+    if (autoRenewAlertSummary.successes.length > 0 || autoRenewAlertSummary.failures.length > 0) {
+      void notifyAdminAutoRenewSummary({
+        successes: [...autoRenewAlertSummary.successes],
+        failures: [...autoRenewAlertSummary.failures]
+      }).catch(err => console.warn('[Billing] 管理员自动续费告警发送失败:', err))
+    }
 
     const duration = Date.now() - startTime
     console.log(`[Billing] Auto-renew job completed in ${duration}ms`)
@@ -219,6 +235,12 @@ async function processAutoRenew(instance: any): Promise<void> {
         'failed',
         { instanceId: instance.id }
       )
+
+      autoRenewAlertSummary.failures.push({
+        username: user.username,
+        instanceName: instance.name,
+        reason: '余额不足'
+      })
       return
     }
 
@@ -281,6 +303,12 @@ async function processAutoRenew(instance: any): Promise<void> {
 
     console.log(`[Billing] Auto-renewed instance ${instance.id}`)
 
+    autoRenewAlertSummary.successes.push({
+      username: user.username,
+      instanceName: instance.name,
+      amount: result.amount
+    })
+
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     console.error(`[Billing] Auto-renew failed for instance ${instance.id}:`, errorMessage)
@@ -324,6 +352,12 @@ async function processAutoRenew(instance: any): Promise<void> {
       'failed',
       { instanceId: instance.id }
     )
+
+    autoRenewAlertSummary.failures.push({
+      username: `用户#${instance.userId}`,
+      instanceName: instance.name,
+      reason: errorMessage
+    })
   }
 }
 

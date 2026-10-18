@@ -7,6 +7,8 @@ import poolOrderRoutes from './routes/pool-orders.js'
 import { startHostOnboardingWorker, stopHostOnboardingWorker } from './workers/hostOnboardingWorker.js'
 import { startHostPublicIpSync, stopHostPublicIpSync } from './services/host-public-ip-sync.js'
 import { startHostPublicIpv6Sync, stopHostPublicIpv6Sync } from './services/host-public-ipv6-sync.js'
+import { startHostOfflineAlertWorker, stopHostOfflineAlertWorker } from './workers/hostOfflineAlertWorker.js'
+import { notifyAdminInstanceCreateFailed } from './lib/admin-alerts.js'
 // 确保环境变量被加载（必须在最前面）
 import './config/env.js'
 
@@ -517,6 +519,7 @@ await fastify.register(hostOnboardingRoutes, { prefix: '/api/host-onboarding' })
 await fastify.register(hostPoolPriceRoutes, { prefix: '/api/host-pools' })
 await fastify.register(poolOrderRoutes, { prefix: '/api/instances' })
 fastify.addHook('onClose', async () => { await stopHostOnboardingWorker() })
+fastify.addHook('onClose', async () => { stopHostOfflineAlertWorker() })
 fastify.addHook('onClose', async () => { await stopHostPublicIpSync() })
 fastify.addHook('onClose', async () => { await stopHostPublicIpv6Sync() })
 await fastify.register(packageRoutes, { prefix: '/api/packages' })
@@ -791,6 +794,7 @@ const start = async (): Promise<void> => {
     await cleanupStaleInstanceTasks()
     startInstanceTaskWorker()
     startHostOnboardingWorker()
+    startHostOfflineAlertWorker()
     startHostPublicIpSync()
     startHostPublicIpv6Sync()
     console.log('⚙️ 实例操作任务调度器已启动')
@@ -948,8 +952,31 @@ const start = async (): Promise<void> => {
             } else if (compensation.reason !== 'not_paid_purchase') {
               console.log(`[CreateTimeout] 实例 ${instance.name} 创建超时无需退款: ${compensation.reason || 'unknown'}`)
             }
+
+            void notifyAdminInstanceCreateFailed({
+              userId: instance.user_id,
+              instanceId: instance.id,
+              errorMessage: '创建超时（10 分钟未完成，已按失败清理）',
+              refundStatus: compensation.refunded
+                ? 'refunded'
+                : compensation.reason === 'not_paid_purchase'
+                  ? 'not_required'
+                  : compensation.reason === 'already_refunded'
+                    ? 'already_refunded'
+                    : 'not_completed',
+              refundAmount: compensation.refundAmount,
+              refundReason: compensation.reason
+            }).catch(() => {})
           } catch (compensationErr) {
             console.error(`[CreateTimeout] 实例 ${instance.name} 创建超时后的账务补偿失败:`, compensationErr)
+            void notifyAdminInstanceCreateFailed({
+              userId: instance.user_id,
+              instanceId: instance.id,
+              errorMessage: '创建超时（10 分钟未完成，已按失败清理）',
+              refundStatus: 'failed',
+              refundAmount: 0,
+              refundError: compensationErr instanceof Error ? compensationErr.message : String(compensationErr)
+            }).catch(() => {})
           }
           
           // 3. 尝试清理 Incus 残留

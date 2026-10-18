@@ -14,6 +14,7 @@ import { prisma } from '../db/prisma.js'
 import { getAllAdminUserIds } from '../db/users.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { sendNotification } from '../lib/notifier.js'
+import { notifyAdminTicketClosed, notifyAdminTicketCreated, notifyAdminTicketReplied } from '../lib/admin-alerts.js'
 import { assertSafeHttpUrl, safeFetch } from '../lib/outbound-security.js'
 import {
   ALLOWED_IMAGE_MIME_TYPES,
@@ -255,6 +256,13 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
               instanceName: instance?.name || '无'
             })
           }
+          void notifyAdminTicketCreated({
+            ticketId: result.ticketId,
+            username: user.username,
+            subject,
+            hostName: host?.name || '系统',
+            instanceName: instance?.name || '无'
+          }).catch(err => console.warn('[Tickets] 管理员工单告警发送失败:', err))
         }
       } catch (err) {
         console.error('[Tickets] Failed to send notification:', err)
@@ -682,6 +690,13 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
                 replyFrom: user.username
               })
             }
+            void notifyAdminTicketReplied({
+              ticketId,
+              subject: ticket.subject,
+              replyFrom: user.username,
+              excerpt: content,
+              hostName: ticket.host?.name || '系统'
+            }).catch(err => console.warn('[Tickets] 管理员工单告警发送失败:', err))
           }
         }
       } catch (err) {
@@ -867,6 +882,12 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
               closedBy: user.username
             })
           }
+          void notifyAdminTicketClosed({
+            ticketId,
+            subject: ticket.subject,
+            closedBy: user.username,
+            hostName: ticket.host?.name || '系统'
+          }).catch(err => console.warn('[Tickets] 管理员工单告警发送失败:', err))
         }
       } else {
         // 宿主机所有者或管理员关闭工单，通知工单创建用户

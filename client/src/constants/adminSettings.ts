@@ -1,7 +1,7 @@
 export type SystemSettingsSectionKey = 'access' | 'hosting' | 'brand' | 'security' | 'mail' | 'tickets' | 'popup' | 'operations'
 
 export interface SystemSettingsNavigationItem {
-  key: SystemSettingsSectionKey | 'telegram'
+  key: SystemSettingsSectionKey | 'telegram' | 'adminAlerts'
   path: string
   labelKey: string
   descriptionKey?: string
@@ -64,5 +64,10 @@ export const systemSettingsNavigationItems: SystemSettingsNavigationItem[] = [
     key: 'telegram',
     path: '/admin/settings/telegram',
     labelKey: 'admin.system.tabs.telegram'
+  },
+  {
+    key: 'adminAlerts',
+    path: '/admin/settings/admin-alerts',
+    labelKey: 'adminAlerts.title'
   }
 ]

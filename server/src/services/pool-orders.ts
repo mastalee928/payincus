@@ -28,6 +28,7 @@ import { ErrorCode, type ErrorCodeType } from '../lib/errors.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
 import { encryptSensitiveData, decryptSensitiveData, validateName } from '../lib/security.js'
 import { createInstanceAsync, compensateFailedInstanceCreation } from '../routes/instances.js'
+import { notifyAdminPoolOrderPurchase } from '../lib/admin-alerts.js'
 import { poolInventory, resolvePoolProduct } from './host-pool-prices.js'
 
 const shortId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 8)
@@ -464,6 +465,16 @@ export async function placePoolOrder(userId: number, username: string, input: Po
   }
 
   if (created === null) return (await getPoolOrderResult(userId, batchId))!
+
+  // 管理员告警：池订单扣款（余额支付）
+  void notifyAdminPoolOrderPurchase({
+    userId,
+    batchId,
+    totalCount,
+    totalYuan,
+    namePrefix: input.items[0]?.namePrefix || null,
+    image: input.items[0]?.image || null
+  }).catch(err => console.warn('[PoolOrder] 管理员扣款告警发送失败:', err))
 
   // 事务之后逐台完成 IP 预留、cloud-init、存储池并入队开通。
   // Preparation failures enter the same immediate, idempotent compensation as ordinary purchases.

@@ -54,6 +54,7 @@ import { createLog } from '../db/logs.js'
 import { prisma } from '../db/prisma.js'
 import { createInboxMessage } from '../db/inbox.js'
 import { sendRechargeSuccessEmail } from '../lib/mailer.js'
+import { notifyAdminRecharge } from '../lib/admin-alerts.js'
 import { sanitizeObject } from '../lib/log-sanitizer.js'
 import { isRechargeGatewayOrderNoMatch } from '../lib/recharge-order-guard.js'
 import { assertSafeHttpUrl, isIpPrivateOrReserved } from '../lib/outbound-security.js'
@@ -2177,6 +2178,18 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           } catch (notifyError) {
             request.log.warn({ orderNo, error: notifyError }, '发送充值成功通知失败')
           }
+
+          // 管理员告警：充值到账（verify API 入账）
+          void notifyAdminRecharge({
+            userId: record.userId,
+            amount: displayAmount,
+            orderNo,
+            tradeNo,
+            providerName: record.provider?.name ?? null,
+            providerType: record.provider?.type ?? null,
+            paymentMethod: (record as any).paymentMethod ?? null,
+            paymentMethodCode: (paymentDetails as any)?.paymentMethodCode ?? null
+          }).catch(err => request.log.warn({ orderNo, error: err }, '发送管理员充值告警失败'))
         }
 
         request.log.info({ orderNo, tradeNo, completedNow: completion.completedNow }, '通过 verify API 完成充值')
@@ -3091,6 +3104,18 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           // 通知失败不影响主流程
           request.log.warn({ orderNo, error: notifyError }, '发送充值成功通知失败')
         }
+
+        // 管理员告警：充值到账（支付回调入账）
+        void notifyAdminRecharge({
+          userId: record.userId,
+          amount: creditedAmount,
+          orderNo,
+          tradeNo,
+          providerName: record.provider?.name ?? null,
+          providerType: record.provider?.type ?? null,
+          paymentMethod: (record as any).paymentMethod ?? null,
+          paymentMethodCode: (paymentDetails as any)?.paymentMethodCode ?? null
+        }).catch(err => request.log.warn({ orderNo, error: err }, '发送管理员充值告警失败'))
       }
 
       request.log.info({ orderNo, tradeNo, completedNow: completion.completedNow }, '支付回调处理成功')

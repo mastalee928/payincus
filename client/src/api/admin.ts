@@ -1207,13 +1207,13 @@ const api = {
 
   // 管理员全局通知渠道管理
   adminNotificationChannels: {
-    list: (): Promise<{
-      channels: Array<{ id: number; name: string; type: string; enabled: boolean; boundPackages: number; configPreview: string; createdAt: string }>
-    }> => http.get('/admin/notification-channels'),
+    list: (scope?: 'alert'): Promise<{
+      channels: Array<{ id: number; name: string; type: string; enabled: boolean; alertCategory?: string | null; boundPackages: number; configPreview: string; createdAt: string }>
+    }> => scope ? http.get('/admin/notification-channels', { params: { scope } }) : http.get('/admin/notification-channels'),
     get: (id: number): Promise<{
-      channel: { id: number; name: string; type: string; enabled: boolean; config: Record<string, unknown>; createdAt: string }
+      channel: { id: number; name: string; type: string; enabled: boolean; alertCategory?: string | null; config: Record<string, unknown>; createdAt: string }
     }> => http.get(`/admin/notification-channels/${id}`),
-    create: (data: { name: string; botToken: string; chatId: string; enabled?: boolean }): Promise<{ message: string; channel: { id: number; name: string } }> =>
+    create: (data: { name: string; botToken: string; chatId: string; enabled?: boolean; alertCategory?: string }): Promise<{ message: string; channel: { id: number; name: string } }> =>
       http.post('/admin/notification-channels', data),
     update: (id: number, data: { name?: string; botToken?: string; chatId?: string; enabled?: boolean }): Promise<{ message: string }> =>
       http.patch(`/admin/notification-channels/${id}`, data),

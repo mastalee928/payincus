@@ -9,6 +9,7 @@ import { prisma } from '../db/prisma.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
+import { notifyAdminRenew, notifyAdminRenewBatch } from '../lib/admin-alerts.js'
 import { getIncusClient, patchInstanceResources } from '../lib/incus/index.js'
 import { restoreBandwidth } from '../lib/incus/incus-traffic.js'
 import { sendRenewSuccessEmail } from '../lib/mailer.js'
@@ -559,6 +560,14 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
         { instanceId }
       )
 
+      // 管理员告警：手动续费（余额支付）
+      void notifyAdminRenew({
+        userId: user.id,
+        instanceName: instance.name,
+        months,
+        amount: result.amount
+      }).catch(err => console.warn('[续费] 管理员续费告警发送失败:', err))
+
       return {
         message: '续费成功',
         amount: result.amount,
@@ -650,6 +659,17 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
       `Batch renew processed ${results.length} instance(s): success=${successCount}, skipped=${skippedCount}, failed=${failedCount}`,
       failedCount > 0 ? 'warning' : 'success'
     )
+
+    const renewedItems = results
+      .filter((item): item is BatchRenewResultItem & { amount: number } => item.success === true && typeof item.amount === 'number')
+      .map(item => ({ name: item.name, amount: item.amount }))
+    if (renewedItems.length > 0) {
+      void notifyAdminRenewBatch({
+        username: request.user.username,
+        months: request.body.months,
+        items: renewedItems
+      }).catch(err => console.warn('[批量续费] 管理员续费告警发送失败:', err))
+    }
 
     return {
       message: successCount > 0 ? '批量续费已处理' : '没有实例完成续费',

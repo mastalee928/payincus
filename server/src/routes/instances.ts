@@ -57,6 +57,7 @@ import { calculateVipLevel, getVipBadgeStyleForLevel, getVipRules } from '../ser
 import { ProxyStrategyFactory } from '../lib/proxy/index.js'
 import { createCaddyClient } from '../lib/caddy-client.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
+import { notifyAdminInstanceCreateFailed, notifyAdminInstanceCreated, notifyAdminInstancePurchase } from '../lib/admin-alerts.js'
 import {
   createInstanceTask,
   InstanceTaskConflictError,
@@ -1903,6 +1904,13 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       instanceId = result.instanceId
       host = result.host
       planBandwidthLimit = result.planBandwidthLimit
+
+      // 管理员告警：实例购买扣款（余额支付）
+      void notifyAdminInstancePurchase({
+        userId: user.id,
+        instanceId: result.instanceId,
+        amount: result.actualPrice
+      }).catch(err => console.warn('[Provisioning] 管理员购买告警发送失败:', err))
 
       // 事务完成后，发送托管收入通知（仅发送到外部渠道，不创建站内信）
       if (result.hostingIncomeResult) {
@@ -6505,6 +6513,20 @@ async function compensateFailedInstanceCreation(input: {
     } else if (compensation.reason !== 'not_paid_purchase') {
       console.log(`[Provisioning] 实例 ${instanceId} 创建失败无需退款: ${compensation.reason || 'unknown'}`)
     }
+    void notifyAdminInstanceCreateFailed({
+      userId,
+      instanceId,
+      errorMessage: input.errorMessage,
+      refundStatus: compensation.refunded
+        ? 'refunded'
+        : compensation.reason === 'not_paid_purchase'
+          ? 'not_required'
+          : compensation.reason === 'already_refunded'
+            ? 'already_refunded'
+            : 'not_completed',
+      refundAmount: compensation.refundAmount,
+      refundReason: compensation.reason
+    }).catch(err => console.warn('[Provisioning] 管理员失败告警发送失败:', err))
     return {
       claimed: true,
       refundStatus: compensation.refunded
@@ -6520,6 +6542,14 @@ async function compensateFailedInstanceCreation(input: {
   } catch (compensationErr) {
     const refundError = compensationErr instanceof Error ? compensationErr.message : String(compensationErr)
     console.error(`[Provisioning] 实例 ${instanceId} 创建失败后的账务补偿失败:`, compensationErr)
+    void notifyAdminInstanceCreateFailed({
+      userId,
+      instanceId,
+      errorMessage: input.errorMessage,
+      refundStatus: 'failed',
+      refundAmount: 0,
+      refundError
+    }).catch(err => console.warn('[Provisioning] 管理员失败告警发送失败:', err))
     return { claimed: true, refundStatus: 'failed', refundAmount: 0, refundError }
   }
 }
@@ -6796,6 +6826,22 @@ async function createInstanceAsync(
       } catch (emailErr) {
         console.warn(`[Provisioning] 发送实例创建成功邮件失败:`, emailErr)
       }
+
+      // 管理员告警：实例开通成功
+      void notifyAdminInstanceCreated({
+        userId,
+        instanceId,
+        hostId: host.id,
+        image: config.image,
+        cpu: config.cpu,
+        memory: config.memory,
+        disk: config.disk,
+        networkMode: config.networkMode,
+        ipv4: dedicatedReady ? host.nat_public_ip : ipv4,
+        ipv6: ipv6 || null,
+        sshPort: typeof (config as { sshPort?: number | null }).sshPort === 'number' ? (config as { sshPort?: number | null }).sshPort : null,
+        dedicatedReady
+      }).catch(err => console.warn('[Provisioning] 管理员开通告警发送失败:', err))
 
       // 注意：不再检查实例配额使用率警告，因为不再限制用户的实例配额
 

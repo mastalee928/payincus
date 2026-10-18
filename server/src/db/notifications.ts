@@ -31,7 +31,7 @@ function normalizeNotificationLogStatus(status: string | undefined): 'pending' |
  */
 export async function getNotificationChannelsByUserId(userId: number): Promise<NotificationChannel[]> {
   const channels = await prisma.notificationChannel.findMany({
-    where: { userId },
+    where: { userId, alertCategory: null },
     orderBy: {
       createdAt: 'desc'
     }
@@ -135,7 +135,8 @@ export async function getEnabledChannelsByUserId(userId: number): Promise<Notifi
     where: {
       userId,
       enabled: true,
-      isGlobal: false
+      isGlobal: false,
+      alertCategory: null
     }
   })
 
