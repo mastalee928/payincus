@@ -6,18 +6,54 @@
 
 ## 最新发布状态 / Latest Release State
 
-- 最新发布提交 / Latest Release Commit: `9f1a14a79`
+- 最新发布提交 / Latest Release Commit: `fa716ee69`
 - 提交日期 / Commit date: 2026-10-18
-- 提交说明 / Commit subject: chore: prepare the v1.6.6 release
-- 最新 tag / Latest tag: `v1.6.6`
+- 提交说明 / Commit subject: chore: prepare the v1.6.7 release
+- 最新 tag / Latest tag: `v1.6.7`
 
 ## 未发布变更 / Unreleased Changes
 
-### 修复与稳定性 / Fixes and Stability
-
-- fix: drop the misleading CPU-quota load bar from dashboard instance cards `ec7c32908`
+- 该 tag 与相邻 tag 指向同一提交，未产生额外 Git commit。
 
 ## 历史版本 / Historical Versions
+
+## v1.6.7
+
+- 发布提交 / Release commit: `fa716ee69`
+- 提交日期 / Commit date: 2026-10-18
+- 提交说明 / Commit subject: chore: prepare the v1.6.7 release
+
+
+本次发布聚焦客户实例与选购体验的打磨：机器池面板改版、45 个区域名称中英繁三语化与 OCI 机型名展示、实例重置密码、更克制的销毁弹窗，以及钱包与订单页的三处体验修复。
+
+### 新功能 / Features
+
+- **机器池面板改版（管理端）**：宿主行操作收纳为操作菜单，新增地区筛选 chips，紧凑行直接展示公网 IPv4 与 OCI 账号。
+- **区域名称三语化**：45 个地理目录全部提供英文与繁体中文名称，选购向导、首页、结算与实例页面跟随界面语言显示；中文界面同样显示目录规范名，未匹配的自定义区域保持原样。
+- **OCI 机型名展示**：客户实例页面以 `VM.Standard.E2.1.Micro` / `VM.Standard.A1.Flex` 显示机型，替代内部预设代号（中英文一致）。
+- **实例重置密码**：实例详情页「升级」入口改为「重置密码」，经宿主机把新密码写入实例并加密保存，重置后旧密码立即失效。
+- **概览「我的实例」区域 chip**：实例行在 IP 前显示国旗与本地化区域名（切换英文显示英文）。
+
+### 改进与调整 / Improvements and Adjustments
+
+- 选购页区域卡片去掉「可售 N 台 / 未上架」状态行，缩小卡片高度。
+- 实例管理卡片去掉「网络」「流量」两行；「地区」行保留国旗并显示本地化区域名。
+- 销毁实例弹窗隐藏内部节点名、删除退款与规则区块，当前方案显示 OCI 机型名，顶部说明改为「永久删除、无退款且不可恢复」。
+- 资源占用面板删除编辑入口，用户无法再经任何路径进入配置编辑（管理员保留）。
+- IPv6 地址行的复制按钮紧贴地址显示。
+- 钱包「推荐计划」Tab 暂时隐藏（暂不做 AFF 推广）：入口、切换与渲染三层拦截，代码保留待启用。
+- 余额明细中的内部用语「一机一卖」改为「购买实例」，并对存量记录执行数据迁移统一改写。
+
+### 修复与稳定性 / Fixes and Stability
+
+- 修复订单详情抽屉头部被控制台顶栏遮挡的问题（抽屉改为挂载到 body）。
+- 修复概览实例卡片上误导性的 CPU 配额进度条（已移除）。
+
+### 验证 / Verification
+
+- main 上执行 `node scripts/run-tests.mjs`：planned / executed / passed 均为 171，failed 0。
+- 前后端类型检查、双端生产构建与 dist 边界守卫、Lint（0 错误）通过。
+- 完整守卫套件与双架构全新安装验证由发布工作流在 Linux amd64 / arm64 上执行，通过后才发布发行包。
 
 ## v1.6.6
 

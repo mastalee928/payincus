@@ -4,7 +4,8 @@
 
 ## 当前源码与发布状态
 
-- 面板 [v1.6.6](https://github.com/mastalee928/payincus/releases/tag/v1.6.6) 已正式发布，发行源码 `9f1a14a799a9600a4aa6a3c84f9cffa7d68ad087`（注解标签 `v1.6.6`，对象 `55bdb1dcfba1197b42a050ad8bf130afccaf6410`）；GitHub 面板 latest 为 v1.6.6，测试主控已通过面板 OTA 升级至 v1.6.6；其后的仪表盘负载条修复为未发版源码提交，随下一次发布进入安装包。下方 v1.6.5 及其“已通过面板 OTA 升级至 v1.6.5”为当时状态。
+- 面板 [v1.6.7](https://github.com/mastalee928/payincus/releases/tag/v1.6.7) 已正式发布，发行源码 `fa716ee699e4ff77400b21bd093968c8be5f0dbc`（注解标签 `v1.6.7`，对象 `da4fdd3d1087d8cc59a8b0c4fcedba637ae95a6a`）；GitHub 面板 latest 为 v1.6.7。测试主控已载入 v1.6.7 同源内容（发布前经第六轮内部热替换上机，双端 index.html 与发行包逐字节一致）；面板 OTA 正式升级待执行。下方 v1.6.6 及其“已通过面板 OTA 升级至 v1.6.6”为当时状态。
+- 面板 [v1.6.6](https://github.com/mastalee928/payincus/releases/tag/v1.6.6) 已正式发布，发行源码 `9f1a14a799a9600a4aa6a3c84f9cffa7d68ad087`（注解标签 `v1.6.6`，对象 `55bdb1dcfba1197b42a050ad8bf130afccaf6410`）；GitHub 面板 latest 为 v1.6.6，测试主控已通过面板 OTA 升级至 v1.6.6；其后的仪表盘负载条修复等提交已随 v1.6.7 发布。下方 v1.6.5 及其“已通过面板 OTA 升级至 v1.6.5”为当时状态。
 - 面板 [v1.6.5](https://github.com/mastalee928/payincus/releases/tag/v1.6.5) 已正式发布，发行源码 `3fb8a0eb9dd95088addf221e538a9eeac4e687f3`（注解标签 `v1.6.5`，对象 `26a2651773e813b7292506c9a7fd776b4672bb16`）；GitHub 面板 latest 为 v1.6.5，测试主控已通过面板 OTA 升级至 v1.6.5。下方 v1.6.4 及其“已通过面板 OTA 升级至 v1.6.4”为当时状态。
 - 面板 [v1.6.4](https://github.com/mastalee928/payincus/releases/tag/v1.6.4) 已正式发布，发行源码 `41d87820504977ffb24f895ab6c735a67f17fdaa`（注解标签 `v1.6.4`，对象 `8d39a04ea5d084378664e24ff0c0326758c2d744`）；GitHub 面板 latest 为 v1.6.4，测试主控已通过面板 OTA 升级至 v1.6.4。下方 v1.6.3 及其“已通过面板 OTA 升级至 v1.6.3”为当时状态。
 - 面板 [v1.6.3](https://github.com/mastalee928/payincus/releases/tag/v1.6.3) 已正式发布，发行源码 `f8d2ca450e01a10a54ae5f57b75e4f80821371dd`（注解标签 `v1.6.3`，对象 `5d7b3e170a6de887256c5ccc2ba32e8e8d7bb58f`）；GitHub 面板 latest 为 v1.6.3，测试主控已通过面板 OTA 升级至 v1.6.3。下方 v1.6.2 及其“尚未进入新的正式安装包”为当时状态。
@@ -16,6 +17,23 @@
 - [正式发布工作流](https://github.com/mastalee928/payincus/actions/runs/38878414833) 全部成功：Linux amd64 / arm64 分别构建并从真实发行包全新安装，通过 209 条数据库迁移、IPv6 数据字段、唯一后端启动、双端访问、管理员登录、机器池 API、固定主机指纹 SSH 网关及正式 Agent 下载和执行验证。
 - 已实际下载两种架构的公开安装包，确认 SHA256、文件大小、OTA manifest、包内版本与 Git 提交一致；检查全部迁移和 IPv6、UPAY 等关键模块，包内 LICENSE 与发行源码原文一致。GitHub 的面板 latest 为 v1.6.2；公开一键安装脚本与发行源码一致。
 - [源码 CI](https://github.com/mastalee928/payincus/actions/runs/38877110604)、[Agent 发布](https://github.com/mastalee928/payincus/actions/runs/38877110746) 均通过；[本仓库文档站](https://mastalee928.github.io/payincus/) 已上线。
+
+## 2026-10-18 v1.6.7 发布（机器池面板改版、区域三语化与客户实例打磨）
+
+- 发行源码 `fa716ee699e4ff77400b21bd093968c8be5f0dbc`（`ec7c329` 仪表盘负载条修复、`f006276`/`e74c81a` 机器池面板改版、`0563db7` 选购区域卡片瘦身、`d7b609c` 区域三语与 OCI 机型名、`6a96e1e` 重置密码与精简销毁弹窗、`58e9e9b` 实例面打磨、`f141fa8` 钱包推荐计划隐藏与余额流水文案迁移、`fa716ee` 版本准备）；注解标签 `v1.6.7`（对象 `da4fdd3d1087d8cc59a8b0c4fcedba637ae95a6a`）。[正式发布运行](https://github.com/mastalee928/payincus/actions/runs/39141400802) 运行级结论 success，五个作业全部成功：构建 arm64 2m32s、构建 amd64 5m36s、全新安装验证 arm64 1m23s、全新安装验证 amd64 1m25s、发布 Release 19s（15:38:34Z→15:46:01Z；publishedAt 2026-10-18T15:45:58Z，非 draft、非 prerelease；GitHub 面板 latest 为 v1.6.7）。
+- [预览运行](https://github.com/mastalee928/payincus/actions/runs/39140719213)（7m42s）：两个构建作业成功（arm64 2m35s、amd64 5m54s），双架构全新安装验证均成功（arm64 1m39s、amd64 1m34s），`发布 Release` 按预览设计 skipped。
+- 公开资产：`incudal-v1.6.7-linux-amd64.tar.gz` 104572352 字节 sha256 `b85ac4b269a59b6c3580bdc55201102a4fe386ee27bba6e899304332959d61dd`；`incudal-v1.6.7-linux-arm64.tar.gz` 103739504 字节 sha256 `5073b7b6f5fe0102c55db3c808ce1d6036daab993daebb70e6920e4e35c55654`；两份 `.sha256` 已重新下载复核通过；`incudal-v1.6.7-ota-manifest.json` 与通用 `ota-manifest.json` 内容一致，记录 `gitCommit=fa716ee699e4`、`minimumUpdaterVersion=v0.0.3`；发行包内 user/admin `index.html` 与本地构建逐字节一致（双架构相同）。
+- 同一提交的源码 CI（[39140374936](https://github.com/mastalee928/payincus/actions/runs/39140374936)、[39140704865](https://github.com/mastalee928/payincus/actions/runs/39140704865)）与文档站 Pages 部署（[39140704831](https://github.com/mastalee928/payincus/actions/runs/39140704831)）成功。
+- 本地验证：`node scripts/run-tests.mjs` 全部通过（planned / executed / passed 171、failed 0、5m46s）；前后端类型检查、双端生产构建与 dist 边界守卫、Lint（0 错误）通过。
+- 本次发布内容：
+  - 管理端机器池面板改版（行操作菜单、地区筛选 chips、紧凑行展示公网 IPv4 与 OCI 账号）；选购页区域卡片去掉库存状态行。
+  - 45 个区域名称英/繁三语化，选购、首页、结算与实例页面随界面语言显示；客户实例页面显示 OCI 机型名（`VM.Standard.E2.1.Micro` / `VM.Standard.A1.Flex`）。
+  - 实例详情「重置密码」替换升级入口（宿主机侧 chpasswd 写入并加密保存）；资源占用面板移除配置编辑入口。
+  - 销毁弹窗隐藏内部节点名、删除退款与规则区块、显示 OCI 机型名、顶部警示无退款且不可恢复（三语）。
+  - 实例卡去「网络」「流量」行；概览「我的实例」IP 前显示国旗与本地化区域名；IPv6 复制按钮贴地址。
+  - 钱包「推荐计划」Tab 隐藏（入口、切换、渲染三层拦截，代码保留待启用）；余额明细内部用语「一机一卖」改为「购买实例」，存量记录经迁移 `202610180003_pool_remark_wording` 统一改写。
+  - 订单详情抽屉 Teleport 到 body，修复头部被控制台顶栏遮挡。
+- 测试主控上机：发布前第六轮全量热替换（ps48，备份 `/root/incudal-handswap-2026-10-18-round6`）载入 `f141fa8` 构建，双端 `index.html` 与本地构建及发行包逐字节一致；迁移应用后存量「一机一卖」文案 0 条、新文案 14 条；健康检查 200、路由探测与标记抽查全中、seal 23:30。面板 OTA 正式升级至 v1.6.7 待 owner 执行。
 
 ## 2026-10-18 v1.6.6 发布（用户 Telegram 通知、管理端分类告警机器人与管理员建号）
 
