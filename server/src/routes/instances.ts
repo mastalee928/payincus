@@ -772,6 +772,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           dedicated_network_ready?: boolean
           public_ip_sync_blocked?: boolean
           host_name: string | null
+          host_resource_preset?: string | null
+          host_architecture?: string | null
           host_id: number
           host_country_code: string | null
           host_nat_public_ip: string | null
@@ -813,7 +815,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           disk: number
           ipv4: string | null
           ipv6: string | null
-          host: { name: string; country_code: string; nat_public_ip?: string | null; ip_address?: string | null }
+          host: { name: string; country_code: string; nat_public_ip?: string | null; ip_address?: string | null; resourcePreset?: string | null; architecture?: string | null }
           hostCountryCode: string
           networkMode: string
           natPublicIp?: string | null
@@ -862,7 +864,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
             name: instance.host_name || 'unknown',
             country_code: instance.host_country_code || 'us',
             nat_public_ip: instance.host_nat_public_ip || null,
-            ip_address: instance.host_ip_address || null
+            ip_address: instance.host_ip_address || null,
+            resourcePreset: instance.host_resource_preset || null,
+            architecture: instance.host_architecture || null
           },
           hostCountryCode: instance.host_country_code || 'us',
           networkMode: instance.network_mode,

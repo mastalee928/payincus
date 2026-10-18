@@ -93,14 +93,18 @@ function formatImageName(image: string, imageName?: string | null): string {
   return image?.replace(/^images:/, '') || ''
 }
 
-function getInstanceTypeLabel(instance: Instance): string {
-  const key = `instance.instanceType.${instance.instanceType === 'vm' ? 'vm' : 'container'}`
-  const translated = t(key)
-  return translated === key ? (instance.instanceType === 'vm' ? 'KVM' : 'LXC') : translated
+// 机型标签：按宿主机规格（resourcePreset，缺失时看 architecture）映射到实际机型名；
+// 拿不到规格时不显示徽标，也不回退到 LXC/KVM 这类对客户无意义的类型名。
+function getMachineShapeLabel(instance: Instance): string {
+  const preset = instance.host?.resourcePreset || ''
+  const architecture = instance.host?.architecture || ''
+  if (preset.startsWith('ARM') || architecture === 'aarch64') return 'VM.Standard.A1.Flex'
+  if (preset === 'E2' || architecture === 'x86_64') return 'VM.Standard.E2.1.Micro'
+  return ''
 }
 
 function getHostName(instance: Instance): string {
-  return instance.host?.name || t('dashboard.unknownHost')
+  return instance.host?.name?.trim() || ''
 }
 
 function getStatusKey(instance: Instance): string {
@@ -803,8 +807,8 @@ function getInstanceRowClass(): string {
                       <span :class="['h-1.5 w-1.5 rounded-full', getStatusInfo(instance.status, t).dot]"></span>
                       {{ getStatusInfo(instance.status, t).label }}
                     </span>
-                    <span class="nimbus-chip-idle inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium sm:text-[11px]">
-                      {{ getInstanceTypeLabel(instance) }}
+                    <span v-if="getMachineShapeLabel(instance)" class="nimbus-chip-idle inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium sm:text-[11px]">
+                      {{ getMachineShapeLabel(instance) }}
                     </span>
                   </div>
 
@@ -833,7 +837,7 @@ function getInstanceRowClass(): string {
             </div>
 
             <div class="flex flex-wrap items-center gap-2 lg:justify-end lg:pl-4">
-              <span class="nimbus-meta-chip inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px]">
+              <span v-if="getHostName(instance)" class="nimbus-meta-chip inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px]">
                 <FlagIcon :code="instance.host?.country_code || instance.hostCountryCode || 'us'" size="xs" />
                 <span class="max-w-[8rem] truncate">{{ getHostName(instance) }}</span>
               </span>

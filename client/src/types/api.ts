@@ -838,6 +838,8 @@ export interface Instance {
     country_code: string
     nat_public_ip?: string | null
     storageDriver?: string
+    resourcePreset?: string | null
+    architecture?: string | null
   }
   hostCountryCode?: string
   natPublicIp?: string | null
