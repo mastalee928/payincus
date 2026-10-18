@@ -6,16 +6,53 @@
 
 ## 最新发布状态 / Latest Release State
 
-- 最新发布提交 / Latest Release Commit: `3fb8a0eb9`
+- 最新发布提交 / Latest Release Commit: `9f1a14a79`
 - 提交日期 / Commit date: 2026-10-18
-- 提交说明 / Commit subject: chore: prepare the v1.6.5 release
-- 最新 tag / Latest tag: `v1.6.5`
+- 提交说明 / Commit subject: chore: prepare the v1.6.6 release
+- 最新 tag / Latest tag: `v1.6.6`
 
 ## 未发布变更 / Unreleased Changes
 
-- 该 tag 与相邻 tag 指向同一提交，未产生额外 Git commit。
+### 修复与稳定性 / Fixes and Stability
+
+- fix: drop the misleading CPU-quota load bar from dashboard instance cards `ec7c32908`
 
 ## 历史版本 / Historical Versions
+
+## v1.6.6
+
+- 发布提交 / Release commit: `9f1a14a79`
+- 提交日期 / Commit date: 2026-10-18
+- 提交说明 / Commit subject: chore: prepare the v1.6.6 release
+
+
+本次发布聚焦 Telegram 通知体系：管理端四类告警机器人、面向用户的核心事件通知，以及按用户聚合的定时提醒；同时包含管理员直接建号、仪表盘机型展示等改进。
+
+### 新功能 / Features
+
+- **管理端 Telegram 告警机器人**：设置菜单新增「告警推送」子页，可分别配置工单、宿主机、财务、实例四类独立 Bot。工单推送包含主题、内容摘要、分类、优先级与附件数量；宿主机离线推一次、恢复再推一次；财务覆盖充值、余额扣款购买、续费与自动续费汇总（含用户使用的支付通道）；实例推送覆盖开通成功与失败（含退款状态）。
+- **用户 Telegram 通知**：用户在个人设置完成 Telegram 绑定后默认开启通知，通过官方站点 Bot 私聊直接接收核心事件：开通成功 / 失败（含超时）、续费成功（手动与自动）、自动续费失败、充值到账、充值支付失败、临期提醒与已到期提醒。设置页提供「接收通知」开关与最近一次推送失败提示；机器人内支持 `/notify on` 与 `/notify off`，绑定成功回复与帮助文案同步更新。
+- **通知聚合防轰炸**：临期提醒、已到期通知与自动续费结果按「每用户每轮任务一条」合并发送，同一批到期的多台实例合并为一条清单（最多列出 15 台，超出折叠计数），站内信、Telegram 与邮件同步聚合；单台实例的通知文案与此前完全一致。
+- **管理员可直接创建用户**：用户管理页复用注册校验（标识、邮箱格式与域名白名单、危险字符），拒绝重名，生成 16 位初始密码以 bcrypt cost 12 存储，可指定角色与状态，并写入管理员审计记录。
+- **仪表盘实例卡片展示机型规格**：按宿主机资源预设映射机型（E2 → `VM.Standard.E2.1.Micro`、ARM → `VM.Standard.A1.Flex`，回退宿主机架构），替代原先意义不大的 LXC/KVM 标签；无宿主机名称时不再显示「未分配」。
+
+### 改进与调整 / Improvements and Adjustments
+
+- 临期提醒由「到期前 3 天一次」调整为 **T-3 / T-2 / T-1 三档**，站内信、邮件与 Telegram 同档。
+- 充值到账通知改走统一通知器：站内信、自建渠道（自建 Bot / Webhook 等）与站点 Bot 一致送达，此前仅站内信与邮件。
+- 通知中的时间统一显示为本地可读格式（Asia/Shanghai），不再输出原始 ISO 字符串。
+- 自动续费成功 / 失败、临期与已到期提醒的邮件同步聚合：多台实例合并为一封。
+
+### 修复与稳定性 / Fixes and Stability
+
+- 到期封停通知改为独立的「实例已到期」事件（含自动封停说明与 3 天删除倒计时），与手动封停的「已被封停」通知区分。
+- 到期提醒与自动续费的新聚合链路保持原有安全不变量（先原子领取再发送、只对已领取条目发送、陈旧行不发送），并由守卫逐条钉住；计费调度器启动日志文案修正。
+
+### 验证 / Verification
+
+- main 上执行 `node scripts/run-tests.mjs`：planned / executed / passed 均为 171，failed 0。
+- 前后端类型检查、双端生产构建与 dist 边界守卫、Lint（0 错误）通过。
+- 完整守卫套件与双架构全新安装验证由发布工作流在 Linux amd64 / arm64 上执行，通过后才发布发行包。
 
 ## v1.6.5
 
