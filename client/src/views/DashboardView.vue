@@ -8,6 +8,7 @@ import { useThemeStore } from '@/stores/theme'
 import api, { type VipLevelProgress, type VipProgressCondition, type VipProgressMetric } from '@/api'
 import Skeleton from '@/components/Skeleton.vue'
 import { formatMemory, formatDisk, getStatusInfo } from '@/utils/formatters'
+import { getLocalizedCountryName } from '@/utils/countryDisplay'
 import type { Instance, UserBalance } from '@/types/api'
 import DistroIcon from '@/components/icons/DistroIcon.vue'
 import FlagIcon from '@/components/FlagIcon.vue'
@@ -18,6 +19,7 @@ import { getVipBadgeInlineStyle, normalizeVipBadgeStyle, type VipBadgeStyle } fr
 import { instanceCreatePath, instanceDetailPath, instancesPath, isAdminEntry } from '@/utils/app-paths'
 import { useReveal } from '@/composables/useReveal'
 import { ociMachineShape } from '@/utils/poolCatalog'
+import { localizePoolRegionName } from '@/utils/poolRegionCatalog'
 
 // 为 KeepAlive include 匹配定义组件名称（必须在所有 import 之后）
 defineOptions({ name: 'DashboardView' })
@@ -109,6 +111,21 @@ function getStatusKey(instance: Instance): string {
 }
 
 const { t, locale } = useI18n()
+
+// 池子实例在「我的实例」列表里显示国旗 + 本地化区域名（如「德国中部（法兰克福）」）；取不到区域分组名时退回国家名
+function getInstanceRegionCode(instance: Instance): string {
+  return String(instance.host?.country_code || (instance as any).hostCountryCode || 'us').toLowerCase()
+}
+
+function getInstanceRegionLabel(instance: Instance): string {
+  const code = getInstanceRegionCode(instance)
+  const regionName = instance.host?.regionGroupName as string | null | undefined
+  return regionName ? localizePoolRegionName(regionName, code, locale.value) : getCountryLabel(code)
+}
+
+function getCountryLabel(code: string): string {
+  return getLocalizedCountryName(code, locale.value, (key, fallback) => t(key, fallback))
+}
 const authStore = useAuthStore()
 const configStore = useConfigStore()
 const themeStore = useThemeStore()
@@ -826,6 +843,10 @@ function getInstanceRowClass(): string {
               <span v-if="getHostName(instance)" class="nimbus-meta-chip inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px]">
                 <FlagIcon :code="instance.host?.country_code || instance.hostCountryCode || 'us'" size="xs" />
                 <span class="max-w-[8rem] truncate">{{ getHostName(instance) }}</span>
+              </span>
+              <span class="nimbus-meta-chip inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px]">
+                <FlagIcon :code="getInstanceRegionCode(instance)" size="xs" />
+                <span class="max-w-[12rem] truncate">{{ getInstanceRegionLabel(instance) }}</span>
               </span>
               <span class="nimbus-meta-chip inline-flex items-center rounded-lg px-2 py-1 text-[11px] font-mono">
                 {{ getDisplayIp(instance) || $t('dashboard.noPublicIp') }}

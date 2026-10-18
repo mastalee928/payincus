@@ -49,6 +49,7 @@ const adminMailViewSource = readRepoFile('client/src/views/admin/AdminMailView.v
 const adminImagesViewSource = readRepoFile('client/src/views/admin/ImagesView.vue')
 const extensionsViewSource = readRepoFile('client/src/views/ExtensionsView.vue')
 const instancesViewSource = readRepoFile('client/src/views/InstancesView.vue')
+const publicIpv6AddressesSource = readRepoFile('client/src/components/PublicIpv6Addresses.vue')
 const instanceInfoTabSource = readRepoFile('client/src/components/instance/InstanceInfoTab.vue')
 const destroyInstanceModalSource = readRepoFile('client/src/components/instance/modals/DestroyInstanceModal.vue')
 const instanceCreateViewSource = readRepoFile('client/src/views/InstanceCreateView.vue')
@@ -1050,6 +1051,19 @@ assert.ok(
   'destroy dialog hides node/rules/refund, the info tab drops the config-edit entry, and the customer instance pages expose password reset plus the localized region label'
 )
 assert.ok(
+  !instancesViewSource.includes('instance.card.network') &&
+    !instancesViewSource.includes('getInstanceNetworkSummary') &&
+    !instancesViewSource.includes('getInstanceBandwidthSummary') &&
+    !instancesViewSource.includes('formatNetworkRate') &&
+    instancesViewSource.includes('getInstanceTrafficUsage(resetTrafficTarget)'),
+  'customer instance cards must drop the network and traffic rows (the traffic usage helper survives only for the admin reset-traffic dialog)'
+)
+assert.ok(
+  publicIpv6AddressesSource.includes('<div class="min-w-0 py-1">') &&
+    !publicIpv6AddressesSource.includes('min-w-0 flex-1'),
+  'IPv6 rows must keep the copy button hugging the address (no flex-1 spacer pushing it to the row edge)'
+)
+assert.ok(
   instancesViewSource.includes("import { instanceCreatePath, instanceDetailPath, isAdminEntry, walletPath } from '@/utils/app-paths'") &&
     instancesViewSource.includes('interface CustomerBillingApi') &&
     instancesViewSource.includes('const customerBillingApi = api as typeof api & CustomerBillingApi') &&
@@ -1148,6 +1162,13 @@ assert.ok(
     !dashboardViewSource.includes('to="/checkin"') &&
     !dashboardViewSource.includes(':to="`/instances/${instance.id}`"'),
   'MarketView CTA must send authenticated users to instance creation and guests through login with a redirect'
+)
+assert.ok(
+  dashboardViewSource.includes("import { localizePoolRegionName } from '@/utils/poolRegionCatalog'") &&
+    dashboardViewSource.includes('getInstanceRegionLabel(instance)') &&
+    dashboardViewSource.includes('getInstanceRegionCode(instance)') &&
+    dashboardViewSource.includes('<FlagIcon :code="getInstanceRegionCode(instance)" size="xs" />'),
+  'dashboard instance rows must show the flag and the localized region name in front of the IP'
 )
 assert.ok(
   adminHelpManageViewSource.includes('class="card overflow-hidden"') &&

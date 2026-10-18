@@ -24,7 +24,7 @@ onUnmounted(() => clearTimeout(timer))
   <div class="min-w-0 space-y-2">
     <ul v-if="addresses.length" class="space-y-1.5" :aria-label="t('ipv6Delivery.title')">
       <li v-for="(address, index) in addresses" :key="address" class="flex items-start gap-2">
-        <div class="min-w-0 flex-1 py-1">
+        <div class="min-w-0 py-1">
           <code class="text-sm font-mono text-themed break-all">{{ address }}</code>
           <span v-if="addresses.length > 1 && index === 0" class="ml-2 text-xs text-themed-muted">{{ t('ipv6Delivery.primary') }}</span>
         </div>

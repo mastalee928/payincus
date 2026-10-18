@@ -687,35 +687,10 @@ function getInstanceQuotaSummary(instance: Instance): string {
   return `${(instance as any).portLimit ?? '-'} ${t('instance.mobileCard.ports')} / ${(instance as any).snapshotLimit ?? '-'} ${t('instance.mobileCard.snapshots')} / ${(instance as any).siteLimit ?? '-'} ${t('instance.mobileCard.sites')}`
 }
 
-function formatNetworkRate(value: unknown): string | null {
-  if (value === null || value === undefined || value === '') return null
-  const raw = String(value)
-  const unitMatch = raw.trim().match(/^(\d+(?:\.\d+)?)\s*(m|g)?(?:bit|bps)?$/i)
-  if (unitMatch) {
-    const numeric = Number(unitMatch[1])
-    if (!Number.isFinite(numeric) || numeric <= 0) return null
-    const mbps = numeric * (unitMatch[2]?.toLowerCase() === 'g' ? 1024 : 1)
-    return `${Number.isInteger(mbps) ? mbps.toFixed(0) : mbps.toFixed(1)} Mbps`
-  }
-  return raw.replace(/Mbit/gi, 'Mbps').replace(/Gbit/gi, 'Gbps')
-}
-
-function getInstanceBandwidthSummary(instance: Instance): string {
-  const ingress = formatNetworkRate(instance.limitsIngress || (instance as any).limits_ingress)
-  const egress = formatNetworkRate(instance.limitsEgress || (instance as any).limits_egress)
-  if (ingress && egress && ingress === egress) return ingress
-  return [ingress, egress].filter(Boolean).join(' / ') || '-'
-}
-
 function getInstanceTrafficLimitLabel(instance: Instance): string {
   if (instance.dedicatedIpv4) return t("dedicated.unlimited")
   const limit = (instance as any).monthlyTrafficLimit
   return limit ? formatBytes(Number(limit)) : t('instance.mobileCard.unlimited')
-}
-
-function getInstanceNetworkSummary(instance: Instance): string {
-  if (!isAdminEntry || instance.dedicatedIpv4) return `${t('instance.card.traffic')} ${getInstanceTrafficLimitLabel(instance)}`
-  return `${t('instance.card.bandwidth')} ${getInstanceBandwidthSummary(instance)} ${t('instance.card.traffic')} ${getInstanceTrafficLimitLabel(instance)}${t('instance.card.perMonth')}`
 }
 
 function getInstanceTrafficUsage(instance: Instance): string {
@@ -2325,14 +2300,6 @@ async function confirmBatchDestroy(): Promise<void> {
 
               <dt class="font-semibold" :class="'text-themed'">{{ $t('instance.quotaLabel') }}</dt>
               <dd class="min-w-0 truncate font-mono tabular-nums" :class="'text-themed-muted'">{{ getInstanceQuotaSummary(instance) }}</dd>
-
-              <dt class="font-semibold" :class="'text-themed'">{{ $t('instance.card.network') }}</dt>
-              <dd class="min-w-0 truncate" :class="'text-themed-muted'" :title="getInstanceNetworkSummary(instance)">
-                {{ getInstanceNetworkSummary(instance) }}
-              </dd>
-
-              <dt class="font-semibold" :class="'text-themed'">{{ $t('instance.trafficLabel') }}</dt>
-              <dd class="min-w-0 truncate font-mono tabular-nums" :class="'text-themed-muted'">{{ getInstanceTrafficUsage(instance) }}</dd>
 
               <dt v-if="!instance.dedicatedIpv4" class="font-semibold" :class="'text-themed'">{{ $t('instance.card.trafficReset') }}</dt>
               <dd v-if="!instance.dedicatedIpv4" class="min-w-0 truncate font-mono tabular-nums text-themed">{{ getInstanceResetTrafficPrice(instance) }}</dd>
