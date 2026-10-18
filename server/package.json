@@ -184,6 +184,7 @@
     "test:trust-proxy-config": "node --import tsx scripts/test-trust-proxy-config.ts",
     "test:user-route-id-guards": "node --import tsx scripts/test-user-route-id-guards.ts",
     "test:user-notification-channel-guards": "node --import tsx scripts/test-user-notification-channel-guards.ts",
+    "test:user-telegram-notify-guards": "node --import tsx scripts/test-user-telegram-notify-guards.ts",
     "test:admin-user-delete-resource-guards": "node --import tsx scripts/test-admin-user-delete-resource-guards.ts",
     "test:user-destroy-incus-order": "node --import tsx scripts/test-user-destroy-incus-order.ts",
     "test:instance-delete-incus-order": "node --import tsx scripts/test-instance-delete-incus-order.ts",

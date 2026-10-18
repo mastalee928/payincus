@@ -1096,7 +1096,9 @@ poolOrder: (data: {
   telegram: {
     getBinding: (): Promise<TelegramBindingStatus> => http.get('/telegram/binding'),
     createBindToken: (): Promise<TelegramBindTokenResponse> => http.post('/telegram/bind-token'),
-    unlink: (): Promise<{ message: string }> => http.delete('/telegram/binding')
+    unlink: (): Promise<{ message: string }> => http.delete('/telegram/binding'),
+    setNotification: (enabled: boolean): Promise<{ message: string; notifyEnabled: boolean }> =>
+      http.put('/telegram/notification', { enabled })
   },
 
   // 主机管理

@@ -46,9 +46,12 @@ type EventType =
   | 'instance_plan_changed'
   | 'instance_price_changed'
   | 'instance_expiring'
+  | 'instance_expired'
   | 'instance_extended'
   | 'instances_batch_extended'
   | 'auto_renew_failed'
+  | 'recharge_success'
+  | 'recharge_failed'
   | 'refund_completed'
   | 'instance_deleted_refunded'
   | 'auto_snapshot'
@@ -157,6 +160,11 @@ interface EventData {
   closedBy?: string           // 关闭者用户名
   // 计费相关
   renewMonths?: number        // 续费月数
+  orderNo?: string            // 充值订单号
+  tradeNo?: string            // 充值交易号
+  deleteAfterDays?: number    // 到期后自动删除倒计时（天）
+  expiredAt?: string          // 到期时间
+  instanceNames?: string[]    // 同批聚合通知涉及的实例名称列表
   renewAmount?: number        // 续费金额
   newExpiresAt?: string       // 新到期时间
   oldPlanName?: string        // 原套餐方案名称
@@ -230,6 +238,16 @@ function formatDisk(mb: number | undefined): string {
   if (!mb) return '-'
   if (mb >= 1024) return `${(mb / 1024).toFixed(0)} GB`
   return `${mb} MB`
+}
+
+/**
+ * 把 ISO 时间字符串格式化为站点常用显示（Asia/Shanghai）；解析失败或为空时原样返回。
+ */
+function formatNotifyTime(value: string | undefined): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
 }
 
 /**
@@ -667,10 +685,19 @@ const EVENT_TEMPLATES: Record<EventType, EventTemplate> = {
   instance_renewed: {
     title: '✅ 实例续费成功',
     message: (data) => {
+      const names = Array.isArray(data.instanceNames) ? data.instanceNames : null
+      if (names && names.length > 1) {
+        const shown = names.slice(0, 15)
+        let msg = `您有 ${names.length} 台实例自动续费成功`
+        if (data.renewAmount !== undefined) msg += `\n合计扣费: ¥${Number(data.renewAmount).toFixed(2)}`
+        msg += `\n实例: ${shown.join('、')}${names.length > shown.length ? ` …等共 ${names.length} 台` : ''}`
+        msg += `\n到期时间已自动顺延`
+        return msg
+      }
       let msg = `实例「${data.instanceName}」续费成功`
       if (data.renewMonths) msg += `\n续费时长: ${data.renewMonths} 个月`
       if (data.renewAmount !== undefined) msg += `\n扣费金额: ¥${Number(data.renewAmount).toFixed(2)}`
-      if (data.newExpiresAt) msg += `\n新到期时间: ${data.newExpiresAt}`
+      if (data.newExpiresAt) msg += `\n新到期时间: ${formatNotifyTime(data.newExpiresAt)}`
       return msg
     }
   },
@@ -707,24 +734,90 @@ const EVENT_TEMPLATES: Record<EventType, EventTemplate> = {
   instance_expiring: {
     title: '⚠️ 实例即将到期',
     message: (data) => {
+      const names = Array.isArray(data.instanceNames) ? data.instanceNames : null
+      if (names && names.length > 1) {
+        const shown = names.slice(0, 15)
+        let msg = `您有 ${names.length} 台实例即将到期`
+        if (data.daysRemaining !== undefined) {
+          msg += `\n剩余时间: ${data.daysRemaining} 天`
+        }
+        if (data.newExpiresAt) {
+          msg += `\n最早到期时间: ${formatNotifyTime(data.newExpiresAt)}`
+        }
+        msg += `\n实例: ${shown.join('、')}${names.length > shown.length ? ` …等共 ${names.length} 台` : ''}`
+        msg += `\n请及时续费以避免实例被封停或删除`
+        return msg
+      }
       let msg = `实例「${data.instanceName}」即将到期`
       if (data.daysRemaining !== undefined) {
         msg += `\n剩余时间: ${data.daysRemaining} 天`
       }
       if (data.newExpiresAt) {
-        msg += `\n到期时间: ${data.newExpiresAt}`
+        msg += `\n到期时间: ${formatNotifyTime(data.newExpiresAt)}`
       }
       msg += `\n请及时续费以避免实例被封停或删除`
+      return msg
+    }
+  },
+  instance_expired: {
+    title: '⏰ 实例已到期',
+    message: (data) => {
+      const names = Array.isArray(data.instanceNames) ? data.instanceNames : null
+      if (names && names.length > 1) {
+        const shown = names.slice(0, 15)
+        let msg = `您有 ${names.length} 台实例已到期，现已自动封停`
+        if (data.expiredAt) msg += `\n到期时间: ${formatNotifyTime(data.expiredAt)}`
+        msg += `\n实例: ${shown.join('、')}${names.length > shown.length ? ` …等共 ${names.length} 台` : ''}`
+        msg += `\n续费后可立即恢复使用`
+        if (data.deleteAfterDays) msg += `\n封停满 ${data.deleteAfterDays} 天未续费将自动删除`
+        return msg
+      }
+      let msg = `实例「${data.instanceName}」已到期，现已自动封停`
+      if (data.expiredAt) msg += `\n到期时间: ${formatNotifyTime(data.expiredAt)}`
+      msg += `\n封停期间实例无法启动、重启、重装等操作`
+      msg += `\n续费后可立即恢复使用`
+      if (data.deleteAfterDays) msg += `\n封停满 ${data.deleteAfterDays} 天未续费将自动删除`
       return msg
     }
   },
   auto_renew_failed: {
     title: '❌ 自动续费失败',
     message: (data) => {
+      const names = Array.isArray(data.instanceNames) ? data.instanceNames : null
+      if (names && names.length > 1) {
+        const shown = names.slice(0, 15)
+        let msg = `您有 ${names.length} 台实例自动续费失败`
+        if (data.failReason) msg += `\n原因: ${data.failReason}`
+        if (data.renewAmount !== undefined) msg += `\n合计所需金额: ¥${Number(data.renewAmount).toFixed(2)}`
+        msg += `\n实例: ${shown.join('、')}${names.length > shown.length ? ` …等共 ${names.length} 台` : ''}`
+        msg += `\n请确保余额充足或手动续费`
+        return msg
+      }
       let msg = `实例「${data.instanceName}」自动续费失败`
       if (data.failReason) msg += `\n原因: ${data.failReason}`
       if (data.renewAmount !== undefined) msg += `\n所需金额: ¥${Number(data.renewAmount).toFixed(2)}`
       msg += `\n请确保余额充足或手动续费`
+      return msg
+    }
+  },
+  recharge_success: {
+    title: '💰 充值到账通知',
+    message: (data) => {
+      let msg = '您的充值已到账！'
+      if (data.amount !== undefined) msg += `\n充值金额: ￥${Number(data.amount).toFixed(2)}`
+      if (data.orderNo) msg += `\n订单号: ${data.orderNo}`
+      if (data.tradeNo) msg += `\n交易号: ${data.tradeNo}`
+      return msg
+    }
+  },
+  recharge_failed: {
+    title: '❌ 充值未完成',
+    message: (data) => {
+      let msg = '您的充值订单支付失败'
+      if (data.amount !== undefined && Number.isFinite(Number(data.amount))) msg += `\n订单金额: ￥${Number(data.amount).toFixed(2)}`
+      if (data.orderNo) msg += `\n订单号: ${data.orderNo}`
+      if (data.reason) msg += `\n原因: ${String(data.reason).slice(0, 200)}`
+      msg += '\n如仍需充值，请回到网站重新发起。'
       return msg
     }
   },
@@ -894,6 +987,75 @@ async function readSafeNotificationError(response: Response): Promise<string> {
 }
 
 /**
+ * 站点 Bot 推送白名单：仅核心财务与生命周期事件直推用户绑定的官方机器人私聊。
+ * 注意：个人渠道（自建 Bot 等）仍按原逻辑接收全部事件，这里只控制站点 Bot。
+ */
+const SITE_BOT_NOTIFY_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
+  'instance_created',
+  'instance_create_failed',
+  'instance_create_timeout',
+  'instance_renewed',
+  'auto_renew_failed',
+  'recharge_success',
+  'recharge_failed',
+  'instance_expiring',
+  'instance_expired'
+])
+
+const SITE_BOT_NOTIFY_ERROR_MAX_CHARS = 500
+
+/**
+ * 推送站点 Bot 通知（绑定后默认开启；可在个人设置或机器人 /notify 命令关闭）。
+ * 失败仅记录到绑定行与日志，绝不影响其它渠道与业务主流程。
+ */
+async function deliverSiteBotNotification(
+  userId: number,
+  eventType: EventType,
+  title: string,
+  message: string
+): Promise<void> {
+  if (!SITE_BOT_NOTIFY_EVENT_TYPES.has(eventType)) return
+
+  try {
+    const binding = await prisma.userTelegramBinding.findUnique({
+      where: { userId }
+    })
+    if (!binding || !binding.notifyEnabled) return
+
+    const botEnabled = await db.getSystemConfigBoolean('telegram_bot_enabled', false)
+    if (!botEnabled) return
+    const botToken = await db.getSystemConfig('telegram_bot_token')
+    if (!botToken) return
+
+    const result = await sendWithRetry(
+      () => sendTelegram({ botToken, chatId: binding.telegramUserId }, title, message),
+      'Telegram(站点Bot)'
+    )
+
+    if (!result.success) {
+      console.warn(`[Notifier] Site bot delivery to user ${userId} failed: ${result.error}`)
+      await prisma.userTelegramBinding.update({
+        where: { userId },
+        data: {
+          notifyLastError: sanitizeTokensInString(result.error || 'Unknown error').slice(0, SITE_BOT_NOTIFY_ERROR_MAX_CHARS),
+          notifyLastErrorAt: new Date()
+        }
+      }).catch(() => {})
+      return
+    }
+
+    if (binding.notifyLastError) {
+      await prisma.userTelegramBinding.update({
+        where: { userId },
+        data: { notifyLastError: null, notifyLastErrorAt: null }
+      }).catch(() => {})
+    }
+  } catch (err) {
+    console.warn('[Notifier] deliverSiteBotNotification error:', err)
+  }
+}
+
+/**
  * 发送通知到用户的所有启用渠道
  * 同时创建站内信
  */
@@ -925,7 +1087,10 @@ export async function sendNotification(
       console.error('[Notifier] Failed to create inbox message:', err)
     }
 
-    // 2. 发送外部通知
+    // 2. 站点 Bot 直推（用户绑定的官方机器人私聊，核心事件）
+    await deliverSiteBotNotification(userId, eventType, title, message)
+
+    // 3. 发送外部渠道通知
     const channels = await db.getEnabledChannelsByUserId(userId)
 
     if (channels.length === 0) {

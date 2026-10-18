@@ -61,7 +61,7 @@ assert.ok(expiryNotificationClaimFunction.includes('return result.count > 0'), '
 
 const processSuspend = sectionBetween(
   schedulerSource,
-  'async function processExpirySuspend(instance: any): Promise<void> {',
+  'async function processExpirySuspend(instance: any): Promise<{ userId: number; instanceName: string; expiresAt: Date | null } | null> {',
   '// ==================== 到期删除任务 ===================='
 )
 
@@ -127,13 +127,16 @@ const processNotify = sectionBetween(
 )
 
 const notifyLatestIndex = processNotify.indexOf('const latest = await prisma.instance.findUnique')
-const notifySendIndex = processNotify.indexOf("await sendNotification(instance.userId, 'instance_expiring'")
 const notifyClaimIndex = processNotify.indexOf('const notificationClaimed = await updateExpiryNotifiedAt(instance.id, {')
+const notifyCollectIndex = processNotify.indexOf('claimedExpiryNotifications.push({')
+const notifySendIndex = processNotify.indexOf("await sendNotification(userId, 'instance_expiring'")
 assert.notEqual(notifyLatestIndex, -1, 'expiry notify must re-read the instance inside the per-instance scheduler lock')
 assert.notEqual(notifyClaimIndex, -1, 'expiry notify must conditionally claim the notification before user-facing side effects')
-assert.notEqual(notifySendIndex, -1, 'expiry notification send call not found')
-assert.ok(notifyLatestIndex < notifySendIndex, 'expiry notify eligibility must be rechecked before user-facing side effects')
-assert.ok(notifyClaimIndex < notifySendIndex, 'expiry notify must claim before sending user-facing side effects')
+assert.notEqual(notifyCollectIndex, -1, 'expiry notify must collect claimed entries for the per-user aggregation')
+assert.notEqual(notifySendIndex, -1, 'expiry notification aggregate send call not found')
+assert.ok(notifyLatestIndex < notifyClaimIndex, 'expiry notify eligibility must be rechecked before the notification claim')
+assert.ok(notifyClaimIndex < notifyCollectIndex, 'expiry notify must only collect after a successful claim')
+assert.ok(notifyCollectIndex < notifySendIndex, 'expiry notify must send only entries collected after claims')
 assert.ok(processNotify.includes('expiryNotifiedAt: true'), 'expiry notify must recheck recent notification state')
 assert.ok(processNotify.includes('expiresAt: true'), 'expiry notify must reload current expiry time')
 assert.ok(processNotify.includes('autoRenew: true'), 'expiry notify must reload current auto-renew state')
@@ -148,7 +151,9 @@ assert.ok(
 )
 assert.ok(processNotify.includes('if (!notificationClaimed)'), 'expiry notify must skip side effects when the notification claim fails')
 assert.ok(processNotify.includes('notification already claimed or no longer eligible'), 'expiry notify must log stale notification claims')
-assert.ok(processNotify.includes('newExpiresAt: latest.expiresAt.toISOString()'), 'expiry notify must send the reloaded expiry time')
-assert.ok(processNotify.includes('expiresAt: latest.expiresAt'), 'expiry reminder email must use the reloaded expiry time')
+assert.ok(processNotify.includes('expiresAt: latest.expiresAt'), 'expiry notify must carry the reloaded expiry time into the collected entry')
+assert.ok(processNotify.includes('newExpiresAt: earliest.expiresAt.toISOString()'), 'expiry notify must send the reloaded expiry time')
+assert.ok(processNotify.includes('expiresAt: earliest.expiresAt'), 'expiry reminder email must use the reloaded expiry time')
+assert.ok(processNotify.includes('const claimedByUser = new Map'), 'expiry notify must aggregate claimed entries per user')
 
 console.log('billing expiry race guard tests passed')

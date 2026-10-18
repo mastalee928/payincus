@@ -52,7 +52,7 @@ import {
 } from '../lib/recharge-provider-snapshot.js'
 import { createLog } from '../db/logs.js'
 import { prisma } from '../db/prisma.js'
-import { createInboxMessage } from '../db/inbox.js'
+import { sendNotification } from '../lib/notifier.js'
 import { sendRechargeSuccessEmail } from '../lib/mailer.js'
 import { notifyAdminRecharge } from '../lib/admin-alerts.js'
 import { sanitizeObject } from '../lib/log-sanitizer.js'
@@ -2144,18 +2144,12 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
             'success'
           )
 
-          // 发送充值成功通知（站内信）
+          // 发送充值到账通知（站内信 + 个人渠道 + 站点 Bot）
           try {
-            await createInboxMessage({
-              userId: record.userId,
-              eventType: 'recharge_success',
-              title: '充值到账通知',
-              content: `您的充值已到账！\n充值金额：￥${displayAmount.toFixed(2)}\n订单号：${orderNo}\n交易号：${tradeNo || 'N/A'}`,
-              data: {
-                orderNo,
-                amount: displayAmount,
-                tradeNo
-              }
+            await sendNotification(record.userId, 'recharge_success', {
+              orderNo,
+              amount: displayAmount,
+              tradeNo: tradeNo || undefined
             })
 
             // 发送充值成功邮件通知
@@ -3069,18 +3063,12 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           'success'
         )
 
-        // 发送充值成功通知（站内信）
+        // 发送充值到账通知（站内信 + 个人渠道 + 站点 Bot）
         try {
-          await createInboxMessage({
-            userId: record.userId,
-            eventType: 'recharge_success',
-            title: '充值到账通知',
-            content: `您的充值已到账！\n充值金额：￥${creditedAmount.toFixed(2)}\n订单号：${orderNo}\n交易号：${tradeNo || 'N/A'}`,
-            data: {
-              orderNo,
-              amount: creditedAmount,
-              tradeNo
-            }
+          await sendNotification(record.userId, 'recharge_success', {
+            orderNo,
+            amount: creditedAmount,
+            tradeNo: tradeNo || undefined
           })
 
           // 发送充值成功邮件通知

@@ -1450,6 +1450,9 @@ model UserTelegramBinding {
   telegramUsername String?  @map("telegram_username")
   firstName        String?  @map("first_name")
   lastName         String?  @map("last_name")
+  notifyEnabled    Boolean  @default(true) @map("notify_enabled")
+  notifyLastError  String?  @map("notify_last_error")
+  notifyLastErrorAt DateTime? @map("notify_last_error_at")
   boundAt          DateTime @default(now()) @map("bound_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 

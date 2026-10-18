@@ -3485,7 +3485,7 @@ pool: {
         },
         telegramBinding: {
             title: 'Telegram 綁定',
-            description: '綁定後可用於私有使用者群准入等功能。',
+            description: '綁定後可用於接收通知推送與私有使用者群准入。',
             refresh: '重新整理',
             refreshing: '重新整理中',
             unavailableTitle: '暫未啟用',
@@ -3511,6 +3511,12 @@ pool: {
             confirmUnlink: '確定解除 Telegram 綁定？',
             unlinked: 'Telegram 綁定已解除',
             unlinkFailed: '解除綁定失敗: {error}',
+            notifyLabel: '接收通知',
+            notifyHint: '儲值、開通、續費、到期等關鍵事件會推送至此 Telegram。',
+            notifyEnabledToast: '已開啟 Telegram 通知',
+            notifyDisabledToast: '已關閉 Telegram 通知',
+            notifySaveFailed: '更新通知設定失敗: {error}',
+            notifyErrorHint: '最近一次推送未送達: {error}',
         },
         // 遠端儲存
         storage: {

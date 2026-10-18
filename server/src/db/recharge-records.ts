@@ -449,6 +449,19 @@ export async function failRecharge(
   }
 
   if (updateResult.count > 0) {
+    // 用户通知：充值支付失败（fire-and-forget，不阻塞状态流转；仅在本次真正转为 failed 时推送）
+    void (async () => {
+      try {
+        const { sendNotification } = await import('../lib/notifier.js')
+        await sendNotification(record.userId, 'recharge_failed', {
+          orderNo: record.orderNo,
+          amount: Number(record.amount),
+          reason: failReason
+        })
+      } catch (err) {
+        console.warn('[Recharge] Failed to send recharge failure notification:', err)
+      }
+    })()
   }
 
   return record

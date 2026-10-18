@@ -41,7 +41,7 @@ const limit = pLimit(5)
 const AUTO_RENEW_HOURS_BEFORE = 24 // 到期前24小时尝试自动续费
 const AUTO_RENEW_MAX_ATTEMPTS = 3 // 最大自动续费尝试次数
 const SUSPEND_AFTER_DELETE_DAYS = 3 // 封停后3天自动删除
-const EXPIRY_NOTIFY_DAYS = [3] // 仅在到期前3天提醒一次
+const EXPIRY_NOTIFY_DAYS = [3, 2, 1] // 到期前 3/2/1 天各提醒一次
 const INSTANCE_BILLING_JOB_LOCK_EXPIRE_MS = 30 * 60 * 1000
 const INSTANCE_BILLING_JOB_LOCK_WAIT_MS = 100
 let schedulerStarted = false
@@ -51,6 +51,27 @@ const autoRenewAlertSummary: {
   successes: Array<{ username: string; instanceName: string; amount: number }>
   failures: Array<{ username: string; instanceName: string; reason: string }>
 } = { successes: [], failures: [] }
+
+// 用户侧自动续费结果（每次整点任务开始时清空，结束后按用户聚合推送：成功/失败各至多一条）
+const autoRenewUserSuccesses: Array<{
+  userId: number
+  username: string
+  email: string | null
+  instanceName: string
+  renewMonths: number
+  amount: number
+  newExpiresAt: Date
+}> = []
+const autoRenewUserFailures: Array<{
+  userId: number
+  username: string
+  email: string | null
+  instanceName: string
+  failReason: string
+  renewAmount: number | null
+  expiresAt: Date
+  currentAttempt: number
+}> = []
 
 /**
  * 延迟函数
@@ -102,6 +123,8 @@ async function executeAutoRenew(): Promise<void> {
   const startTime = Date.now()
   autoRenewAlertSummary.successes.length = 0
   autoRenewAlertSummary.failures.length = 0
+  autoRenewUserSuccesses.length = 0
+  autoRenewUserFailures.length = 0
 
   try {
     // 获取24小时内到期且开启了自动续费的实例
@@ -123,10 +146,110 @@ async function executeAutoRenew(): Promise<void> {
       }).catch(err => console.warn('[Billing] 管理员自动续费告警发送失败:', err))
     }
 
+    await flushAutoRenewUserNotifications()
+
     const duration = Date.now() - startTime
     console.log(`[Billing] Auto-renew job completed in ${duration}ms`)
   } catch (error) {
     console.error('[Billing] Auto-renew job failed:', error)
+  }
+}
+
+/**
+ * 把本轮自动续费的用户通知按用户聚合后发送（站内信/TG/邮件各至多一条）。
+ */
+async function flushAutoRenewUserNotifications(): Promise<void> {
+  const failuresByUser = new Map<number, typeof autoRenewUserFailures>()
+  for (const item of autoRenewUserFailures) {
+    const list = failuresByUser.get(item.userId)
+    if (list) list.push(item)
+    else failuresByUser.set(item.userId, [item])
+  }
+  for (const [userId, items] of failuresByUser) {
+    try {
+      const first = items[0]
+      const failReason = [...new Set(items.map(item => item.failReason))].join('；')
+      const knownAmounts = items.map(item => item.renewAmount).filter((value): value is number => value !== null)
+      if (items.length === 1) {
+        await sendNotification(userId, 'auto_renew_failed', {
+          instanceName: first.instanceName,
+          failReason: first.failReason,
+          ...(first.renewAmount !== null ? { renewAmount: first.renewAmount } : {})
+        })
+      } else {
+        await sendNotification(userId, 'auto_renew_failed', {
+          instanceNames: items.map(item => item.instanceName),
+          failReason,
+          ...(knownAmounts.length > 0 ? { renewAmount: knownAmounts.reduce((sum, value) => sum + value, 0) } : {})
+        })
+      }
+      if (first.email) {
+        try {
+          await sendAutoRenewFailedEmail(first.email, {
+            username: first.username,
+            instanceName: first.instanceName,
+            failReason,
+            currentAttempt: first.currentAttempt,
+            maxAttempts: AUTO_RENEW_MAX_ATTEMPTS,
+            expiresAt: first.expiresAt,
+            aggregateNames: items.length > 1 ? items.map(item => item.instanceName) : undefined
+          })
+        } catch (emailErr) {
+          console.warn('[Billing] Failed to send auto-renew failed email:', emailErr)
+        }
+      }
+      console.log(`[Billing] Sent auto-renew failure notification(s) for user ${userId}: ${items.length} instance(s)`)
+    } catch (error) {
+      console.error(`[Billing] Failed to send auto-renew failure notifications for user ${userId}:`, error)
+    }
+  }
+
+  const successesByUser = new Map<number, typeof autoRenewUserSuccesses>()
+  for (const item of autoRenewUserSuccesses) {
+    const list = successesByUser.get(item.userId)
+    if (list) list.push(item)
+    else successesByUser.set(item.userId, [item])
+  }
+  for (const [userId, items] of successesByUser) {
+    try {
+      const first = items[0]
+      const totalAmount = items.reduce((sum, item) => sum + item.amount, 0)
+      if (items.length === 1) {
+        await sendNotification(userId, 'instance_renewed', {
+          instanceName: first.instanceName,
+          renewAmount: first.amount,
+          renewMonths: first.renewMonths,
+          newExpiresAt: first.newExpiresAt.toISOString()
+        })
+      } else {
+        await sendNotification(userId, 'instance_renewed', {
+          instanceNames: items.map(item => item.instanceName),
+          renewAmount: totalAmount
+        })
+      }
+      if (first.email) {
+        try {
+          const userAfter = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { balance: true }
+          })
+          await sendAutoRenewSuccessEmail(first.email, {
+            username: first.username,
+            instanceName: first.instanceName,
+            amount: totalAmount,
+            months: first.renewMonths,
+            newExpiresAt: first.newExpiresAt,
+            newBalance: Number(userAfter?.balance ?? 0),
+            aggregateNames: items.length > 1 ? items.map(item => item.instanceName) : undefined
+          })
+        } catch (emailErr) {
+          console.warn('[Billing] Failed to send auto-renew success email:', emailErr)
+        }
+      }
+      console.log(`[Billing] Sent auto-renew success notification(s) for user ${userId}: ${items.length} instance(s)`)
+    } catch (error) {
+      console.error(`[Billing] Failed to send auto-renew success notifications for user ${userId}:`, error)
+    }
   }
 }
 
@@ -204,28 +327,17 @@ async function processAutoRenew(instance: any): Promise<void> {
         return
       }
 
-      // 发送自动续费失败站内通知
-      await sendNotification(instance.userId, 'auto_renew_failed', {
+      // 用户通知（站内信/TG/邮件）延后到本轮结束时按用户聚合发送
+      autoRenewUserFailures.push({
+        userId: instance.userId,
+        username: user.username,
+        email: user.email,
         instanceName: instance.name,
         failReason: `余额不足（需要 ¥${renewAmount.toFixed(2)}，当前 ¥${balance.toFixed(2)}）`,
-        renewAmount
+        renewAmount,
+        expiresAt: instance.expiresAt,
+        currentAttempt: attempts
       })
-
-      // 发送自动续费失败邮件
-      if (user.email) {
-        try {
-          await sendAutoRenewFailedEmail(user.email, {
-            username: user.username,
-            instanceName: instance.name,
-            failReason: `余额不足（需要 ¥${renewAmount.toFixed(2)}，当前 ¥${balance.toFixed(2)}）`,
-            currentAttempt: attempts,
-            maxAttempts: AUTO_RENEW_MAX_ATTEMPTS,
-            expiresAt: instance.expiresAt
-          })
-        } catch (emailErr) {
-          console.warn(`[Billing] Failed to send auto-renew failed email:`, emailErr)
-        }
-      }
 
       await createLog(
         instance.userId,
@@ -247,12 +359,15 @@ async function processAutoRenew(instance: any): Promise<void> {
     // 执行续费
     const result = await performRenewal(instance.userId, instance, renewMonths)
 
-    // 发送续费成功站内通知
-    await sendNotification(instance.userId, 'instance_renewed', {
+    // 用户通知（站内信/TG/邮件）延后到本轮结束时按用户聚合发送
+    autoRenewUserSuccesses.push({
+      userId: instance.userId,
+      username: user.username,
+      email: user.email,
       instanceName: instance.name,
-      renewAmount: result.amount,  // 元（performRenewal 返回的是元）
-      renewMonths: renewMonths,
-      newExpiresAt: result.newExpiresAt.toISOString()
+      renewMonths,
+      amount: result.amount, // 元（performRenewal 返回的是元）
+      newExpiresAt: result.newExpiresAt
     })
 
     if (result.hostingIncomeResult) {
@@ -267,29 +382,6 @@ async function processAutoRenew(instance: any): Promise<void> {
       ).catch(err => {
         console.warn('[Billing] Failed to send host renew notification:', err)
       })
-    }
-
-    // 发送自动续费成功邮件
-    if (user.email) {
-      try {
-        // 获取续费后的余额
-        const userAfter = await prisma.user.findUnique({
-          where: { id: instance.userId },
-          select: { balance: true }
-        })
-        const newBalance = Number(userAfter?.balance ?? 0)
-
-        await sendAutoRenewSuccessEmail(user.email, {
-          username: user.username,
-          instanceName: instance.name,
-          amount: result.amount,
-          months: renewMonths,
-          newExpiresAt: result.newExpiresAt,
-          newBalance
-        })
-      } catch (emailErr) {
-        console.warn(`[Billing] Failed to send auto-renew success email:`, emailErr)
-      }
     }
 
     await createLog(
@@ -318,31 +410,22 @@ async function processAutoRenew(instance: any): Promise<void> {
       return
     }
 
-    // 发送失败站内通知
-    await sendNotification(instance.userId, 'auto_renew_failed', {
-      instanceName: instance.name,
-      failReason: errorMessage
-    })
-
-    // 发送自动续费失败邮件
     const userForEmail = await prisma.user.findUnique({
       where: { id: instance.userId },
       select: { email: true, username: true }
     })
-    if (userForEmail?.email) {
-      try {
-        await sendAutoRenewFailedEmail(userForEmail.email, {
-          username: userForEmail.username,
-          instanceName: instance.name,
-          failReason: errorMessage,
-          currentAttempt: attempts,
-          maxAttempts: AUTO_RENEW_MAX_ATTEMPTS,
-          expiresAt: instance.expiresAt
-        })
-      } catch (emailErr) {
-        console.warn(`[Billing] Failed to send auto-renew failed email:`, emailErr)
-      }
-    }
+
+    // 用户通知（站内信/TG/邮件）延后到本轮结束时按用户聚合发送
+    autoRenewUserFailures.push({
+      userId: instance.userId,
+      username: userForEmail?.username || `用户#${instance.userId}`,
+      email: userForEmail?.email || null,
+      instanceName: instance.name,
+      failReason: errorMessage,
+      renewAmount: null,
+      expiresAt: instance.expiresAt,
+      currentAttempt: attempts
+    })
 
     await createLog(
       instance.userId,
@@ -376,15 +459,48 @@ async function executeExpirySuspend(): Promise<void> {
 
     console.log(`[Billing] Found ${instances.length} expired instances to suspend`)
 
-    // 并发处理
+    // 并发处理（先完成封停与停机，通知在本轮末尾按用户聚合发送）
+    const suspendedNotifications: Array<{ userId: number; instanceName: string; expiresAt: Date | null }> = []
     await Promise.all(
       instances.map(instance =>
-        limit(() => withInstanceBillingJobLock('expiry-suspend', instance.id, () => processExpirySuspend(instance)))
+        limit(() => withInstanceBillingJobLock('expiry-suspend', instance.id, async () => {
+          const suspended = await processExpirySuspend(instance)
+          if (suspended) suspendedNotifications.push(suspended)
+        }))
       )
     )
 
+    const suspendedByUser = new Map<number, Array<{ instanceName: string; expiresAt: Date | null }>>()
+    for (const item of suspendedNotifications) {
+      const list = suspendedByUser.get(item.userId)
+      if (list) list.push(item)
+      else suspendedByUser.set(item.userId, [item])
+    }
+    for (const [userId, items] of suspendedByUser) {
+      try {
+        items.sort((a, b) => (a.expiresAt?.getTime() ?? 0) - (b.expiresAt?.getTime() ?? 0))
+        const earliest = items[0]
+        if (items.length === 1) {
+          await sendNotification(userId, 'instance_expired', {
+            instanceName: earliest.instanceName,
+            expiredAt: earliest.expiresAt ? earliest.expiresAt.toISOString() : undefined,
+            deleteAfterDays: SUSPEND_AFTER_DELETE_DAYS
+          })
+        } else {
+          await sendNotification(userId, 'instance_expired', {
+            instanceNames: items.map(item => item.instanceName),
+            expiredAt: earliest.expiresAt ? earliest.expiresAt.toISOString() : undefined,
+            deleteAfterDays: SUSPEND_AFTER_DELETE_DAYS
+          })
+        }
+        console.log(`[Billing] Sent expiry suspension notification(s) for user ${userId}: ${items.length} instance(s)`)
+      } catch (error) {
+        console.error(`[Billing] Failed to send expiry suspension notifications for user ${userId}:`, error)
+      }
+    }
+
     const duration = Date.now() - startTime
-    console.log(`[Billing] Expiry suspend job completed in ${duration}ms`)
+    console.log(`[Billing] Expiry suspension job completed in ${duration}ms`)
   } catch (error) {
     console.error('[Billing] Expiry suspend job failed:', error)
   }
@@ -393,13 +509,13 @@ async function executeExpirySuspend(): Promise<void> {
 /**
  * 处理单个实例的到期封停
  */
-async function processExpirySuspend(instance: any): Promise<void> {
+async function processExpirySuspend(instance: any): Promise<{ userId: number; instanceName: string; expiresAt: Date | null } | null> {
   try {
     // 封停实例
     const suspendedInstance = await suspendInstanceByExpiry(instance.id)
     if (!suspendedInstance) {
       console.log(`[Billing] Skip expiry suspend for instance ${instance.id}: no longer expired or already processed`)
-      return
+      return null
     }
 
     // 尝试停止 Incus 实例
@@ -415,12 +531,6 @@ async function processExpirySuspend(instance: any): Promise<void> {
       console.log(`[Billing] Failed to stop Incus instance ${suspendedInstance.incusId}:`, stopError)
     }
 
-    // 发送封停通知
-    await sendNotification(suspendedInstance.userId, 'instance_suspended', {
-      instanceName: suspendedInstance.name,
-      suspendReason: '实例已到期'
-    })
-
     await createLog(
       suspendedInstance.userId,
       'instance',
@@ -432,8 +542,16 @@ async function processExpirySuspend(instance: any): Promise<void> {
 
     console.log(`[Billing] Suspended expired instance ${suspendedInstance.id}`)
 
+    // 用户通知延后到本轮结束时按用户聚合发送
+    return {
+      userId: suspendedInstance.userId,
+      instanceName: suspendedInstance.name,
+      expiresAt: suspendedInstance.expiresAt
+    }
+
   } catch (error) {
     console.error(`[Billing] Failed to suspend instance ${instance.id}:`, error)
+    return null
   }
 }
 
@@ -654,13 +772,19 @@ async function notifyExpiringInstances(days: number): Promise<void> {
 
   console.log(`[Billing] Found ${instances.length} instances expiring in ${days} days`)
 
-  // 并发发送邮件通知
+  const claimedExpiryNotifications: Array<{
+    userId: number
+    email: string | null
+    username: string
+    instanceName: string
+    expiresAt: Date
+  }> = []
+
+  // 并发领取本轮到期提醒（先原子领取，再在函数尾部按用户聚合发送）
   await Promise.all(
     instances.map(instance =>
       limit(() => withInstanceBillingJobLock('expiry-notify', instance.id, async () => {
         try {
-          const daysRemaining = days
-
           const latest = await prisma.instance.findUnique({
             where: { id: instance.id },
             select: {
@@ -699,34 +823,68 @@ async function notifyExpiringInstances(days: number): Promise<void> {
             return
           }
 
-          // 发送站内通知
-          await sendNotification(instance.userId, 'instance_expiring', {
+          claimedExpiryNotifications.push({
+            userId: instance.userId,
+            email: instance.user?.email || null,
+            username: instance.user?.username || '',
             instanceName: instance.name,
-            daysRemaining,
-            newExpiresAt: latest.expiresAt.toISOString()
+            expiresAt: latest.expiresAt
           })
 
-          // 发送邮件通知
-          if (instance.user?.email) {
-            try {
-              await sendExpiryReminderEmail(instance.user.email, {
-                username: instance.user.username,
-                instanceName: instance.name,
-                daysRemaining,
-                expiresAt: latest.expiresAt
-              })
-            } catch (emailErr) {
-              console.warn(`[Billing] Failed to send expiry email for instance ${instance.id}:`, emailErr)
-            }
-          }
-
-          console.log(`[Billing] Sent expiry notification for instance ${instance.id}`)
+          console.log(`[Billing] Claimed expiry notification for instance ${instance.id}`)
         } catch (error) {
           console.error(`[Billing] Failed to notify instance ${instance.id}:`, error)
         }
       }))
     )
   )
+
+  // 按用户聚合发送：同一用户本轮多台到期提醒合并为一条（单台保持原文案与邮件）
+  const claimedByUser = new Map<number, typeof claimedExpiryNotifications>()
+  for (const item of claimedExpiryNotifications) {
+    const list = claimedByUser.get(item.userId)
+    if (list) list.push(item)
+    else claimedByUser.set(item.userId, [item])
+  }
+
+  for (const [userId, items] of claimedByUser) {
+    try {
+      items.sort((a, b) => a.expiresAt.getTime() - b.expiresAt.getTime())
+      const earliest = items[0]
+
+      if (items.length === 1) {
+        await sendNotification(userId, 'instance_expiring', {
+          instanceName: earliest.instanceName,
+          daysRemaining: days,
+          newExpiresAt: earliest.expiresAt.toISOString()
+        })
+      } else {
+        await sendNotification(userId, 'instance_expiring', {
+          instanceNames: items.map(item => item.instanceName),
+          daysRemaining: days,
+          newExpiresAt: earliest.expiresAt.toISOString()
+        })
+      }
+
+      if (earliest.email) {
+        try {
+          await sendExpiryReminderEmail(earliest.email, {
+            username: earliest.username,
+            instanceName: earliest.instanceName,
+            daysRemaining: days,
+            expiresAt: earliest.expiresAt,
+            aggregateNames: items.length > 1 ? items.map(item => item.instanceName) : undefined
+          })
+        } catch (emailErr) {
+          console.warn(`[Billing] Failed to send expiry email for user ${userId}:`, emailErr)
+        }
+      }
+
+      console.log(`[Billing] Sent expiry notification(s) for user ${userId}: ${items.length} instance(s)`)
+    } catch (error) {
+      console.error(`[Billing] Failed to send expiry notifications for user ${userId}:`, error)
+    }
+  }
 }
 
 // ==================== 充值订单清理任务 ====================
@@ -833,7 +991,7 @@ export function startBillingScheduler(): void {
   console.log('[Billing] - Auto-renew: hourly at :00 (24h before expiry, max 3 attempts)')
   console.log('[Billing] - Expiry suspend: every 30 minutes')
   console.log('[Billing] - Expiry delete: daily at 03:00 (3 days after suspend)')
-  console.log('[Billing] - Expiry notify (email): hourly at :15 (3 days before, auto-renew instances skipped)')
+  console.log('[Billing] - Expiry reminders: hourly at :15 (T-3/T-2/T-1, aggregated per user, auto-renew instances skipped)')
   console.log('[Billing] - Expired recharge cleanup: hourly at :30')
   console.log('[Billing] - Payment callback cleanup: daily at 04:30')
 }

@@ -1194,6 +1194,8 @@ const api = {
     getBinding: (): Promise<TelegramBindingStatus> => http.get('/telegram/binding'),
     createBindToken: (): Promise<TelegramBindTokenResponse> => http.post('/telegram/bind-token'),
     unlink: (): Promise<{ message: string }> => http.delete('/telegram/binding'),
+    setNotification: (enabled: boolean): Promise<{ message: string; notifyEnabled: boolean }> =>
+      http.put('/telegram/notification', { enabled }),
     getWebhookInfo: (): Promise<TelegramWebhookInfoResponse> => http.get('/telegram/admin/webhook/info'),
     setupWebhook: (data: { baseUrl?: string } = {}): Promise<TelegramWebhookSetupResponse> =>
       http.post('/telegram/admin/webhook/setup', data),

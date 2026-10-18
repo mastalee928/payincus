@@ -843,6 +843,9 @@ export default async function telegramRoutes(fastify: FastifyInstance) {
         telegramUsername: binding.telegramUsername,
         firstName: binding.firstName,
         lastName: binding.lastName,
+        notifyEnabled: binding.notifyEnabled !== false,
+        notifyLastError: binding.notifyLastError || null,
+        notifyLastErrorAt: binding.notifyLastErrorAt ? binding.notifyLastErrorAt.toISOString() : null,
         boundAt: binding.boundAt.toISOString()
       } : null
     }
@@ -890,6 +893,35 @@ export default async function telegramRoutes(fastify: FastifyInstance) {
     return { message: 'Telegram binding removed' }
   })
 
+  fastify.put<{ Body: { enabled?: unknown } }>('/notification', {
+    onRequest: [fastify.authenticate]
+  }, async (request: FastifyRequest<{ Body: { enabled?: unknown } }>, reply: FastifyReply) => {
+    const enabled = request.body?.enabled
+    if (typeof enabled !== 'boolean') {
+      return reply.code(400).send({ error: 'enabled must be a boolean' })
+    }
+
+    const binding = await telegramBindingModel.findUnique({
+      where: { userId: request.user.id }
+    })
+    if (!binding) {
+      return reply.code(404).send({ error: 'Telegram binding not found' })
+    }
+
+    await telegramBindingModel.update({
+      where: { userId: request.user.id },
+      data: {
+        notifyEnabled: enabled,
+        ...(enabled ? { notifyLastError: null, notifyLastErrorAt: null } : {})
+      }
+    })
+
+    return {
+      message: enabled ? 'Telegram notifications enabled' : 'Telegram notifications disabled',
+      notifyEnabled: enabled
+    }
+  })
+
   fastify.post<{ Body: TelegramWebhookUpdate }>('/webhook', async (
     request: FastifyRequest<{ Body: TelegramWebhookUpdate }>,
     reply: FastifyReply
@@ -924,11 +956,51 @@ export default async function telegramRoutes(fastify: FastifyInstance) {
       return { ok: true }
     }
 
+    const notifyCommandMatch = text?.match(/^\/notify(?:\s+(on|off))?$/i)
+    if (notifyCommandMatch) {
+      const notifyBinding = await telegramBindingModel.findUnique({
+        where: { telegramUserId: String(from.id) }
+      })
+      if (!notifyBinding) {
+        await notifyTelegram(
+          config.botToken,
+          chatId,
+          '当前 Telegram 账号还没有绑定网站账号。请先登录网站，在个人设置里生成 Telegram 绑定链接。'
+        )
+        return { ok: true }
+      }
+
+      const notifyAction = typeof notifyCommandMatch[1] === 'string' ? notifyCommandMatch[1].toLowerCase() : null
+      if (!notifyAction) {
+        await notifyTelegram(
+          config.botToken,
+          chatId,
+          notifyBinding.notifyEnabled
+            ? '网站通知当前为开启状态。发送 /notify off 可关闭。'
+            : '网站通知当前为关闭状态。发送 /notify on 可开启。'
+        )
+        return { ok: true }
+      }
+
+      const notifyEnabled = notifyAction === 'on'
+      if (notifyBinding.notifyEnabled !== notifyEnabled) {
+        await telegramBindingModel.update({
+          where: { id: notifyBinding.id },
+          data: {
+            notifyEnabled,
+            ...(notifyEnabled ? { notifyLastError: null, notifyLastErrorAt: null } : {})
+          }
+        })
+      }
+      await notifyTelegram(config.botToken, chatId, notifyEnabled ? '已开启网站通知。' : '已关闭网站通知。')
+      return { ok: true }
+    }
+
     if (!bindTokenMatch) {
       await notifyTelegram(
         config.botToken,
         chatId,
-        '可用指令：\n绑定账号：请先登录网站，在个人设置里生成 Telegram 绑定链接。\n申请普通群：绑定后私聊发送 /join。\n申请高级群：绑定后私聊发送 /join_vip。'
+        '可用指令：\n绑定账号：请先登录网站，在个人设置里生成 Telegram 绑定链接。\n申请普通群：绑定后私聊发送 /join。\n申请高级群：绑定后私聊发送 /join_vip。\n通知开关：/notify on 开启，/notify off 关闭。'
       )
       return { ok: true }
     }
@@ -992,7 +1064,7 @@ export default async function telegramRoutes(fastify: FastifyInstance) {
     await notifyTelegram(
       config.botToken,
       chatId,
-      '绑定成功。你现在可以关闭 Telegram，回到网站个人设置查看状态。'
+      '绑定成功，网站通知已开启（发送 /notify off 可关闭）。你现在可以关闭 Telegram，回到网站个人设置查看状态。'
     )
 
     return { ok: true }

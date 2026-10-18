@@ -170,6 +170,7 @@
     "pnpm --filter server test:resource-quota-bigint-guards",
     "pnpm --filter server test:billing-expiry-delete",
     "pnpm --filter server test:billing-expiry-race-guards",
+    "pnpm --filter server test:user-telegram-notify-guards",
     "pnpm --filter server test:billing-query-guards",
     "pnpm --filter server test:instance-billing-route-id-guards",
     "pnpm --filter server test:instance-operation-conflict-guards",

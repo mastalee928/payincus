@@ -11,6 +11,7 @@ const toast = useToast()
 const loading = ref(false)
 const generating = ref(false)
 const unlinking = ref(false)
+const savingNotify = ref(false)
 const bindUrl = ref('')
 const expiresAt = ref('')
 const status = ref<TelegramBindingStatus>({
@@ -99,6 +100,25 @@ async function unlinkTelegram(): Promise<void> {
   }
 }
 
+async function toggleNotify(enabled: boolean): Promise<void> {
+  savingNotify.value = true
+  try {
+    const response = await api.telegram.setNotification(enabled)
+    if (status.value.binding) {
+      status.value.binding.notifyEnabled = response.notifyEnabled
+      if (response.notifyEnabled) {
+        status.value.binding.notifyLastError = null
+        status.value.binding.notifyLastErrorAt = null
+      }
+    }
+    toast.success(t(response.notifyEnabled ? 'profile.telegramBinding.notifyEnabledToast' : 'profile.telegramBinding.notifyDisabledToast'))
+  } catch (error: any) {
+    toast.error(t('profile.telegramBinding.notifySaveFailed', { error: error?.message || String(error) }))
+  } finally {
+    savingNotify.value = false
+  }
+}
+
 onMounted(loadBinding)
 
 defineExpose({ loadBinding })
@@ -143,6 +163,20 @@ defineExpose({ loadBinding })
           <p class="text-xs text-themed-muted mt-1">
             {{ t('profile.telegramBinding.joinHint', { bot: botLabel }) }}
             <code class="px-1 py-0.5 rounded bg-themed-secondary">/join</code>
+          </p>
+          <label class="mt-2 inline-flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              class="w-4 h-4 rounded"
+              :checked="binding.notifyEnabled"
+              :disabled="savingNotify"
+              @change="toggleNotify(($event.target as HTMLInputElement).checked)"
+            />
+            <span class="text-xs text-themed">{{ t('profile.telegramBinding.notifyLabel') }}</span>
+          </label>
+          <p class="text-xs text-themed-muted mt-1">{{ t('profile.telegramBinding.notifyHint') }}</p>
+          <p v-if="binding.notifyLastError" class="text-xs text-amber-600 dark:text-amber-400 mt-1 break-all">
+            {{ t('profile.telegramBinding.notifyErrorHint', { error: binding.notifyLastError }) }}
           </p>
         </div>
         <button class="btn-ghost btn-sm text-error" :disabled="unlinking" @click="unlinkTelegram">

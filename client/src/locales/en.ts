@@ -2797,7 +2797,7 @@ pool: {
         },
         telegramBinding: {
             title: 'Telegram Binding',
-            description: 'Use Telegram for private group admission and related access checks.',
+            description: 'Receive account notifications and use private group admission after binding.',
             refresh: 'Refresh',
             refreshing: 'Refreshing',
             unavailableTitle: 'Not enabled',
@@ -2823,6 +2823,12 @@ pool: {
             confirmUnlink: 'Unlink Telegram binding?',
             unlinked: 'Telegram binding removed',
             unlinkFailed: 'Failed to unlink Telegram: {error}',
+            notifyLabel: 'Receive notifications',
+            notifyHint: 'Key events like recharges, provisioning, renewals and expiry will be pushed to this Telegram.',
+            notifyEnabledToast: 'Telegram notifications enabled',
+            notifyDisabledToast: 'Telegram notifications disabled',
+            notifySaveFailed: 'Failed to update notification setting: {error}',
+            notifyErrorHint: 'Last push failed to deliver: {error}',
         },
         // Remote Storage
         storage: {

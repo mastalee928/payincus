@@ -1714,6 +1714,7 @@ export async function sendExpiryReminderEmail(
         instanceName: string
         daysRemaining: number
         expiresAt: Date
+        aggregateNames?: string[]
     }
 ): Promise<{ success: boolean; error?: string }> {
     try {
@@ -1726,6 +1727,10 @@ export async function sendExpiryReminderEmail(
         const { config, brandName, brandLogoUrl } = await getMailContext()
 
         const expiresAtStr = formatDate(data.expiresAt)
+        const aggregateNames = data.aggregateNames && data.aggregateNames.length > 1 ? data.aggregateNames : null
+        const aggregateListText = aggregateNames
+            ? `${data.instanceName} 等 ${aggregateNames.length} 台（${aggregateNames.slice(0, 15).join('、')}${aggregateNames.length > 15 ? ' …' : ''}）`
+            : data.instanceName
         const alertType = data.daysRemaining <= 1 ? 'danger' : 'warning'
         const urgencyText = data.daysRemaining <= 1 
             ? '紧急！您的实例即将到期' 
@@ -1735,7 +1740,7 @@ export async function sendExpiryReminderEmail(
             title: '实例到期提醒',
             alertType: alertType,
             alertTitle: urgencyText,
-            alertMessage: `实例「${data.instanceName}」将于 ${expiresAtStr} 到期`,
+            alertMessage: aggregateNames ? `您有 ${aggregateNames.length} 台实例将于 ${expiresAtStr} 前后到期` : `实例「${data.instanceName}」将于 ${expiresAtStr} 到期`,
             greeting: `您好，${data.username}`,
             paragraphs: [
                 '为避免实例被封停，请及时续费。',
@@ -1744,7 +1749,7 @@ export async function sendExpiryReminderEmail(
             ],
             infoTitle: '实例详情',
             infoItems: [
-                { label: '实例名称', value: data.instanceName },
+                { label: aggregateNames ? '到期实例' : '实例名称', value: aggregateListText },
                 { label: '到期时间', value: expiresAtStr },
                 { label: '剩余天数', value: `${data.daysRemaining} 天` }
             ],
@@ -1756,7 +1761,7 @@ export async function sendExpiryReminderEmail(
         const textContent = generateEmailText({
             title: '实例到期提醒',
             alertTitle: urgencyText,
-            alertMessage: `实例「${data.instanceName}」将于 ${expiresAtStr} 到期`,
+            alertMessage: aggregateNames ? `您有 ${aggregateNames.length} 台实例将于 ${expiresAtStr} 前后到期` : `实例「${data.instanceName}」将于 ${expiresAtStr} 到期`,
             greeting: `您好，${data.username}`,
             paragraphs: [
                 '为避免实例被封停，请及时续费。',
@@ -1765,7 +1770,7 @@ export async function sendExpiryReminderEmail(
             ],
             infoTitle: '实例详情',
             infoItems: [
-                { label: '实例名称', value: data.instanceName },
+                { label: aggregateNames ? '到期实例' : '实例名称', value: aggregateListText },
                 { label: '到期时间', value: expiresAtStr },
                 { label: '剩余天数', value: `${data.daysRemaining} 天` }
             ],
@@ -1777,7 +1782,7 @@ export async function sendExpiryReminderEmail(
         await transporter.sendMail({
             from: config.fromName ? `"${config.fromName}" <${config.fromEmail}>` : config.fromEmail,
             to: email,
-            subject: formatBrandSubject(brandName, `实例「${data.instanceName}」将在 ${data.daysRemaining} 天后到期`),
+            subject: formatBrandSubject(brandName, aggregateNames ? `${aggregateNames.length} 台实例将在 ${data.daysRemaining} 天后到期` : `实例「${data.instanceName}」将在 ${data.daysRemaining} 天后到期`),
             text: textContent,
             html: htmlContent
         })
@@ -1802,6 +1807,7 @@ export async function sendAutoRenewSuccessEmail(
         months: number
         newExpiresAt: Date
         newBalance: number
+        aggregateNames?: string[]
     }
 ): Promise<{ success: boolean; error?: string }> {
     try {
@@ -1814,17 +1820,21 @@ export async function sendAutoRenewSuccessEmail(
         const { config, brandName, brandLogoUrl } = await getMailContext()
 
         const newExpiresAtStr = formatDate(data.newExpiresAt)
+        const aggregateNames = data.aggregateNames && data.aggregateNames.length > 1 ? data.aggregateNames : null
+        const aggregateListText = aggregateNames
+            ? `${data.instanceName} 等 ${aggregateNames.length} 台（${aggregateNames.slice(0, 15).join('、')}${aggregateNames.length > 15 ? ' …' : ''}）`
+            : data.instanceName
 
         const htmlContent = generateEmailHtml({
             title: '自动续费成功',
             alertType: 'success',
             alertTitle: '自动续费成功',
-            alertMessage: `实例「${data.instanceName}」已自动续费 ${data.months} 个月`,
+            alertMessage: aggregateNames ? `您有 ${aggregateNames.length} 台实例已自动续费成功` : `实例「${data.instanceName}」已自动续费 ${data.months} 个月`,
             greeting: `您好，${data.username}`,
             paragraphs: ['您的实例已自动续费成功，以下是续费详情：'],
             infoTitle: '续费详情',
             infoItems: [
-                { label: '实例名称', value: data.instanceName },
+                { label: aggregateNames ? '续费实例' : '实例名称', value: aggregateListText },
                 { label: '续费时长', value: `${data.months} 个月` },
                 { label: '扣费金额', value: `￥${data.amount.toFixed(2)}` },
                 { label: '新到期时间', value: newExpiresAtStr },
@@ -1838,12 +1848,12 @@ export async function sendAutoRenewSuccessEmail(
         const textContent = generateEmailText({
             title: '自动续费成功',
             alertTitle: '自动续费成功',
-            alertMessage: `实例「${data.instanceName}」已自动续费 ${data.months} 个月`,
+            alertMessage: aggregateNames ? `您有 ${aggregateNames.length} 台实例已自动续费成功` : `实例「${data.instanceName}」已自动续费 ${data.months} 个月`,
             greeting: `您好，${data.username}`,
             paragraphs: ['您的实例已自动续费成功，以下是续费详情：'],
             infoTitle: '续费详情',
             infoItems: [
-                { label: '实例名称', value: data.instanceName },
+                { label: aggregateNames ? '续费实例' : '实例名称', value: aggregateListText },
                 { label: '续费时长', value: `${data.months} 个月` },
                 { label: '扣费金额', value: `￥${data.amount.toFixed(2)}` },
                 { label: '新到期时间', value: newExpiresAtStr },
@@ -1856,7 +1866,7 @@ export async function sendAutoRenewSuccessEmail(
         await transporter.sendMail({
             from: config.fromName ? `"${config.fromName}" <${config.fromEmail}>` : config.fromEmail,
             to: email,
-            subject: formatBrandSubject(brandName, `自动续费成功：实例「${data.instanceName}」`),
+            subject: formatBrandSubject(brandName, aggregateNames ? `自动续费成功：${aggregateNames.length} 台实例` : `自动续费成功：实例「${data.instanceName}」`),
             text: textContent,
             html: htmlContent
         })
@@ -1881,6 +1891,7 @@ export async function sendAutoRenewFailedEmail(
         currentAttempt: number
         maxAttempts: number
         expiresAt: Date
+        aggregateNames?: string[]
     }
 ): Promise<{ success: boolean; error?: string }> {
     try {
@@ -1893,6 +1904,10 @@ export async function sendAutoRenewFailedEmail(
         const { config, brandName, brandLogoUrl } = await getMailContext()
 
         const expiresAtStr = formatDate(data.expiresAt)
+        const aggregateNames = data.aggregateNames && data.aggregateNames.length > 1 ? data.aggregateNames : null
+        const aggregateListText = aggregateNames
+            ? `${data.instanceName} 等 ${aggregateNames.length} 台（${aggregateNames.slice(0, 15).join('、')}${aggregateNames.length > 15 ? ' …' : ''}）`
+            : data.instanceName
         const remainingAttempts = data.maxAttempts - data.currentAttempt
         const isLastAttempt = remainingAttempts <= 0
 
@@ -1909,7 +1924,7 @@ export async function sendAutoRenewFailedEmail(
             title: '自动续费失败',
             alertType: alertType,
             alertTitle: alertTitle,
-            alertMessage: `实例「${data.instanceName}」自动续费失败`,
+            alertMessage: aggregateNames ? `您有 ${aggregateNames.length} 台实例自动续费失败` : `实例「${data.instanceName}」自动续费失败`,
             greeting: `您好，${data.username}`,
             paragraphs: [
                 '您的实例自动续费失败，请查看详情：',
@@ -1918,7 +1933,7 @@ export async function sendAutoRenewFailedEmail(
             ],
             infoTitle: '失败详情',
             infoItems: [
-                { label: '实例名称', value: data.instanceName },
+                { label: aggregateNames ? '失败实例' : '实例名称', value: aggregateListText },
                 { label: '失败原因', value: data.failReason },
                 { label: '当前尝试', value: `第 ${data.currentAttempt} 次 / 共 ${data.maxAttempts} 次` },
                 { label: '到期时间', value: expiresAtStr }
@@ -1931,7 +1946,7 @@ export async function sendAutoRenewFailedEmail(
         const textContent = generateEmailText({
             title: '自动续费失败',
             alertTitle: alertTitle,
-            alertMessage: `实例「${data.instanceName}」自动续费失败`,
+            alertMessage: aggregateNames ? `您有 ${aggregateNames.length} 台实例自动续费失败` : `实例「${data.instanceName}」自动续费失败`,
             greeting: `您好，${data.username}`,
             paragraphs: [
                 '您的实例自动续费失败，请查看详情：',
@@ -1940,7 +1955,7 @@ export async function sendAutoRenewFailedEmail(
             ],
             infoTitle: '失败详情',
             infoItems: [
-                { label: '实例名称', value: data.instanceName },
+                { label: aggregateNames ? '失败实例' : '实例名称', value: aggregateListText },
                 { label: '失败原因', value: data.failReason },
                 { label: '当前尝试', value: `第 ${data.currentAttempt} 次 / 共 ${data.maxAttempts} 次` },
                 { label: '到期时间', value: expiresAtStr }
@@ -1953,7 +1968,7 @@ export async function sendAutoRenewFailedEmail(
         await transporter.sendMail({
             from: config.fromName ? `"${config.fromName}" <${config.fromEmail}>` : config.fromEmail,
             to: email,
-            subject: formatBrandSubject(brandName, `自动续费失败：实例「${data.instanceName}」`),
+            subject: formatBrandSubject(brandName, aggregateNames ? `自动续费失败：${aggregateNames.length} 台实例` : `自动续费失败：实例「${data.instanceName}」`),
             text: textContent,
             html: htmlContent
         })

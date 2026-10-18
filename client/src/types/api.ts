@@ -579,6 +579,9 @@ export interface TelegramBindingStatus {
     telegramUsername: string | null
     firstName: string | null
     lastName: string | null
+    notifyEnabled: boolean
+    notifyLastError: string | null
+    notifyLastErrorAt: string | null
     boundAt: string
   } | null
 }
