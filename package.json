@@ -1,14 +1,14 @@
 {
   "name": "payincus",
-  "version": "1.6.4",
+  "version": "1.6.5",
   "description": "PayIncus commercial Incus platform",
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n \"server,user,admin\" -c \"blue,green,magenta\" \"NODE_ENV=development JWT_SECRET=dev-secret-12345678 HOST=127.0.0.1 PORT=3001 pnpm --filter server exec tsx watch src/app.ts\" \"VITE_APP_ENTRY=user VITE_DEV_PORT=3000 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 VITE_ADMIN_BASE_URL=http://127.0.0.1:3002 pnpm --filter client dev:user --host 127.0.0.1\" \"VITE_APP_ENTRY=admin VITE_CUSTOMER_BASE_URL=http://127.0.0.1:3000 VITE_DEV_PORT=3002 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 pnpm --filter client dev:admin --host 127.0.0.1\"",
-    "dev:split": "concurrently -n \"backend,user,admin\" -c \"blue,green,magenta\" \"NODE_ENV=development JWT_SECRET=dev-secret-12345678 HOST=127.0.0.1 PORT=3001 pnpm --filter server exec tsx watch src/app.ts\" \"VITE_APP_ENTRY=user VITE_DEV_PORT=3000 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 VITE_ADMIN_BASE_URL=http://127.0.0.1:3002 pnpm --filter client dev:user --host 127.0.0.1\" \"VITE_APP_ENTRY=admin VITE_CUSTOMER_BASE_URL=http://127.0.0.1:3000 VITE_DEV_PORT=3002 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 pnpm --filter client dev:admin --host 127.0.0.1\"",
-    "dev:user": "VITE_APP_ENTRY=user VITE_DEV_PORT=3000 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 VITE_ADMIN_BASE_URL=http://127.0.0.1:3002 pnpm --filter client dev:user --host 127.0.0.1",
-    "dev:admin": "VITE_APP_ENTRY=admin VITE_CUSTOMER_BASE_URL=http://127.0.0.1:3000 VITE_DEV_PORT=3002 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 pnpm --filter client dev:admin --host 127.0.0.1",
+    "dev": "concurrently -n \"server,user,admin\" -c \"blue,green,magenta\" \"cross-env NODE_ENV=development JWT_SECRET=dev-secret-12345678 HOST=127.0.0.1 PORT=3001 pnpm --filter server exec tsx watch src/app.ts\" \"cross-env VITE_APP_ENTRY=user VITE_DEV_PORT=3000 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 VITE_ADMIN_BASE_URL=http://127.0.0.1:3002 pnpm --filter client dev:user --host 127.0.0.1\" \"cross-env VITE_APP_ENTRY=admin VITE_CUSTOMER_BASE_URL=http://127.0.0.1:3000 VITE_DEV_PORT=3002 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 pnpm --filter client dev:admin --host 127.0.0.1\"",
+    "dev:split": "concurrently -n \"backend,user,admin\" -c \"blue,green,magenta\" \"cross-env NODE_ENV=development JWT_SECRET=dev-secret-12345678 HOST=127.0.0.1 PORT=3001 pnpm --filter server exec tsx watch src/app.ts\" \"cross-env VITE_APP_ENTRY=user VITE_DEV_PORT=3000 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 VITE_ADMIN_BASE_URL=http://127.0.0.1:3002 pnpm --filter client dev:user --host 127.0.0.1\" \"cross-env VITE_APP_ENTRY=admin VITE_CUSTOMER_BASE_URL=http://127.0.0.1:3000 VITE_DEV_PORT=3002 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 pnpm --filter client dev:admin --host 127.0.0.1\"",
+    "dev:user": "cross-env VITE_APP_ENTRY=user VITE_DEV_PORT=3000 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 VITE_ADMIN_BASE_URL=http://127.0.0.1:3002 pnpm --filter client dev:user --host 127.0.0.1",
+    "dev:admin": "cross-env VITE_APP_ENTRY=admin VITE_CUSTOMER_BASE_URL=http://127.0.0.1:3000 VITE_DEV_PORT=3002 VITE_DEV_PROXY_TARGET=http://127.0.0.1:3001 pnpm --filter client dev:admin --host 127.0.0.1",
     "build": "pnpm --filter client build && pnpm --filter server test:frontend-dist-boundary-guards && pnpm --filter server build",
     "build:client": "pnpm --filter client build",
     "build:server": "pnpm --filter server build",
@@ -216,7 +216,8 @@
     "pnpm --filter server test:host-public-ipv6"
   ],
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "cross-env": "^10.1.0"
   },
   "engines": {
     "node": ">=20.0.0"
