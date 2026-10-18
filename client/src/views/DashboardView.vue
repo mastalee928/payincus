@@ -821,17 +821,6 @@ function getInstanceRowClass(): string {
                     <span class="nimbus-dot">•</span>
                     <span class="font-mono text-themed">{{ formatDisk(instance.disk) }}</span>
                   </div>
-
-                  <div class="nimbus-load mt-2.5 max-w-md">
-                    <div
-                      class="nimbus-load-fill"
-                      :class="{
-                        'nimbus-load-fill--danger': instance.cpu > 85,
-                        'nimbus-load-fill--warn': instance.cpu > 60 && instance.cpu <= 85
-                      }"
-                      :style="{ width: Math.min(Math.max(instance.cpu, 0), 100) + '%' }"
-                    ></div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1242,26 +1231,6 @@ function getInstanceRowClass(): string {
   background: var(--nb-tint);
 }
 
-/* --- 实例负载条：CPU 真实占用，>85% 转红，>60% 转琥珀 --- */
-.nimbus-load {
-  height: 5px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--nb-muted) 14%, transparent);
-}
-.nimbus-load-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--nb-accent);
-  transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.nimbus-load-fill--warn {
-  background: var(--nb-amber);
-}
-.nimbus-load-fill--danger {
-  background: #dc2626;
-}
-
 /* --- 空状态图标 --- */
 .nimbus-empty-icon {
   color: var(--nb-faint);
@@ -1330,8 +1299,7 @@ function getInstanceRowClass(): string {
     animation: none;
     opacity: 1;
   }
-  .nimbus-bar-fill,
-  .nimbus-load-fill {
+  .nimbus-bar-fill {
     transition: none;
   }
   .nimbus-bar-fill--vip::after,
