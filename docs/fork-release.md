@@ -34,6 +34,7 @@ INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
 
 ## 已发布版本
 
+- 面板 [v1.6.5](https://github.com/mastalee928/payincus/releases/tag/v1.6.5)，发行源码 `3fb8a0eb9dd95088addf221e538a9eeac4e687f3`，已设为面板 latest。Windows 侧守卫套件改由 Node runner 逐条执行（消除超长命令串被截断的假绿）、源码按 LF 检出、前端与根脚本走 cross-env；面板读取 GitHub Agent Release 遇限流会退避重试并保留旧清单，全新安装验证改用带 token 的方式安装。
 - 面板 [v1.6.4](https://github.com/mastalee928/payincus/releases/tag/v1.6.4)，发行源码 `41d87820504977ffb24f895ab6c735a67f17fdaa`，已设为面板 latest。购物车结算可选账户余额或后台已启用的在线支付渠道（到账后由余额完成扣款与开通）；用户端导航改为「创建实例 / 我的实例」、创建实例入口直达选购页、下线「福利」入口（页面保留）；支付回调验签与来源校验纳入守卫。
 - 面板 [v1.6.3](https://github.com/mastalee928/payincus/releases/tag/v1.6.3)，发行源码 `f8d2ca450e01a10a54ae5f57b75e4f80821371dd`，已设为面板 latest。修复后台在线更新任务未能启动时的失败可见性与阻塞问题（含可取消未启动任务），并包含购物车与开通结果页界面精修、实例高级配置仅限管理员。
 - 面板 [v1.6.2](https://github.com/mastalee928/payincus/releases/tag/v1.6.2)，发行源码 `2b81ce66e99c0941df8f579f085be59ce909541f`，已设为面板 latest。包含多 IPv6、首页与 45 区域选购、购物车及 UPAY Pro 更新。
@@ -41,4 +42,4 @@ INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus
 - 公开安装包的实际 SHA256、大小、OTA manifest、版本与源码提交均已核对；两种架构均携带原 LICENSE。
 - [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3) 已发布，包含 Linux amd64 / arm64 二进制。发布前通过 Go 测试及真实隔离网络中的双 IPv6 数据包、协议限制、地址变更与恢复验收；不占用面板 latest。
 
-新安装使用 README 的一键安装命令即可获取本仓库最新稳定发行包。已确认测试主控的“运维—版本更新”能发现 `v1.6.4` 并完成升级（主控现运行 `v1.6.4`）；现有面板的运行版本以实际部署为准（本次已确认主控运行 v1.6.4）。两台测试宿主已自动升级到正式 Agent `v1.0.3`，心跳、IPv6 和端口策略正常。
+新安装使用 README 的一键安装命令即可获取本仓库最新稳定发行包。已确认测试主控的“运维—版本更新”能发现 `v1.6.5` 并完成升级（主控现运行 `v1.6.5`）；现有面板的运行版本以实际部署为准（本次已确认主控运行 v1.6.5）。两台测试宿主已自动升级到正式 Agent `v1.0.3`，心跳、IPv6 和端口策略正常。

@@ -8,22 +8,44 @@ This page is generated from Git tags and commits to show system version history.
 
 ## Latest Release State / 最新发布状态
 
-- Latest Release Commit / 最新发布提交: `41d878205`
+- Latest Release Commit / 最新发布提交: `3fb8a0eb9`
 - Commit date / 提交日期: 2026-10-18
-- Commit subject / 提交说明: feat: choose a payment channel at checkout and retune user navigation
-- Latest tag / 最新 tag: `v1.6.4`
+- Commit subject / 提交说明: chore: prepare the v1.6.5 release
+- Latest tag / 最新 tag: `v1.6.5`
 
 ## Unreleased Changes / 未发布变更
 
-### Fixes and Stability / 修复与稳定性
-
-- fix: retry rate-limited GitHub Agent release lookups and install CI with a token `67efd41ca`
-
-### Other Changes / 其他变更
-
-- docs: record the v1.6.4 release and the master verification `81fe5e528`
+- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
 
 ## Historical Versions / 历史版本
+
+## v1.6.5
+
+- Release commit / 发布提交: `3fb8a0eb9`
+- Commit date / 提交日期: 2026-10-18
+- Commit subject / 提交说明: chore: prepare the v1.6.5 release
+
+
+本次发布聚焦 Windows 开发与发版工具链，以及面板读取 GitHub Agent Release 时的限流健壮性：守卫套件改由 Node runner 逐条执行，源码统一按 LF 检出，前端与根脚本可在 Windows cmd 下构建，面板遇到 GitHub 限流会退避重试并在必要时继续提供旧清单。
+
+### 修复与稳定性 / Fixes and Stability
+
+- 面板读取 GitHub Agent Release 的元数据与校验和改为有界重试：只对限流（403 rate limit / 429）与 5xx、网络错误重试，优先遵守 `Retry-After`，其它 4xx 立即失败；连续失败且已有清单缓存时继续提供旧清单，并在日志中给出配置 `INCUDAL_AGENT_RELEASE_TOKEN` 的提示。此前全新安装验证曾因匿名抓取触发 403 限流而失败。
+- 全新安装验证在 CI 中以带 token 的方式安装面板，两个安装脚本会把环境里的 `INCUDAL_AGENT_RELEASE_TOKEN` 写入 `.env`，避免安装阶段就被限流。
+- 根 `pnpm test` 不再使用「`&&` 串成一条超长脚本」的形式。该形式在 Windows 上会被 shell 静默截断（曾出现漏跑 20 条守卫却整体退出码为 0 的假绿），现改为 `node scripts/run-tests.mjs` 逐条 spawn 执行，执行前校验每个条目的脚本真实存在，任一失败即带守卫名与日志路径非零退出。
+
+### 改进与调整 / Improvements and Adjustments
+
+- `.gitattributes` 把源码与文本类扩展名钉为 `text eol=lf`，`*.bat` / `*.cmd` / `*.ps1` 保持 CRLF；逐字节断言的守卫因此在各平台行为一致。
+- 前端 `dev` / `build` 相关脚本与根 `dev` / `dev:split` / `dev:user` / `dev:admin` 改用 `cross-env`，Windows cmd 下 `pnpm build` 与 `pnpm dev` 不再因 POSIX 环境变量前缀失败。
+- 发行包纳入 `scripts/run-tests.mjs`：装机目录中的 `pnpm test` 不再因缺少该文件而报模块缺失，而是明确提示缺少工作区 `package.json` 并返回非零退出码（守卫套件仍只在源码仓库中运行）。
+- `AGENTS.md` 的测试纪律与命令表更新为新的入口，并说明清单维护与 `pnpm test:check` / `pnpm test:list` 的用法。
+
+### 验证 / Verification
+
+- main 上执行 `node scripts/run-tests.mjs`：planned / executed / passed 均为 169，failed 0。
+- 源码 CI（Lint & Type Check + Build）通过；双端生产构建与 dist 边界守卫通过。
+- 完整守卫套件与双架构全新安装验证由发布工作流在 Linux amd64 / arm64 上执行，通过后才发布发行包。
 
 ## v1.6.4
 
