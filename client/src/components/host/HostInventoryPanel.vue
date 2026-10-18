@@ -14,6 +14,9 @@ import { presetLabel } from '@/utils/poolCatalog'
 
 const { t, te, locale } = useI18n()
 const toast = useToast()
+const chipIdle = 'inline-flex items-center gap-1.5 rounded-full border border-themed px-3 py-1 text-xs whitespace-nowrap transition-colors text-themed hover:bg-gray-50 dark:hover:bg-gray-800'
+const chipOn = 'inline-flex items-center gap-1.5 rounded-full border border-transparent bg-gray-900 px-3 py-1 text-xs whitespace-nowrap text-white transition-colors dark:bg-gray-100 dark:text-gray-900'
+const menuItemClass = 'flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-themed transition-colors hover:bg-gray-50 dark:hover:bg-gray-800'
 const syncingIpv6Host = ref<number | null>(null)
 async function syncIpv6(host: ManagedHost) {
   if (syncingIpv6Host.value !== null) return
@@ -32,11 +35,29 @@ const regionGroup = ref<number | ''>('')
 const stock = ref<ManagedHost['stock'] | ''>('')
 const groups = ref<HostMachineGroup[]>([])
 const regions = computed(() => groups.value.find(group => group.id === machineGroup.value)?.regions || [])
+type RegionChip = { id: number; machineGroupId: number; name: string; counts: HostStockCounts }
+const zeroCounts: HostStockCounts = { total: 0, available: 0, assigned: 0, unavailable: 0 }
+const regionChips = computed<RegionChip[]>(() => (machineGroup.value === '' ? groups.value.flatMap(group => group.regions) : regions.value)
+  .map(region => ({ id: region.id, machineGroupId: region.machineGroupId, name: region.name, counts: region.counts || zeroCounts })))
+const activeRegionChips = computed(() => regionChips.value.filter(chip => chip.counts.total > 0)
+  .sort((a, b) => (b.counts.available - a.counts.available) || (b.counts.total - a.counts.total) || a.name.localeCompare(b.name)))
+const emptyRegionChips = computed(() => regionChips.value.filter(chip => chip.counts.total === 0).sort((a, b) => a.name.localeCompare(b.name)))
+function selectRegionChip(chip: RegionChip) { selectGroup(chip.machineGroupId, chip.id) }
+function regionChipLabel(chip: RegionChip) {
+  if (machineGroup.value !== '') return chip.name
+  const group = groups.value.find(item => item.id === chip.machineGroupId)
+  return group ? group.name + ' · ' + chip.name : chip.name
+}
 const summary = ref<HostStockCounts>({ total: 0, available: 0, assigned: 0, unavailable: 0 })
 const ungrouped = ref<HostStockCounts>({ total: 0, available: 0, assigned: 0, unavailable: 0 })
 const loading = ref(true)
 const failed = ref(false)
 const selected = ref<number[]>([])
+const compactView = ref(true)
+const showEmptyRegions = ref(false)
+const menuHostId = ref<number | null>(null)
+function toggleHostMenu(id: number) { menuHostId.value = menuHostId.value === id ? null : id }
+function closeHostMenu() { menuHostId.value = null }
 const allSelected = computed({
   get: () => hosts.value.length > 0 && hosts.value.every(host => selected.value.includes(host.id)),
   set: (value: boolean) => { selected.value = value ? hosts.value.map(host => host.id) : [] }
@@ -86,6 +107,20 @@ function sellReasonText(reason: string) {
 }
 function protocolOffline(host: ManagedHost) {
   return !host.agentLastSeenAt || Date.parse(host.agentLastSeenAt) < Date.now() - 90000
+}
+function protocolChipText(host: ManagedHost) {
+  return host.portProtocol?.status === 'failed'
+    ? t('hostInventory.protocolFailedShort') + ' · ' + t('hostPoolOps.protocolRetry')
+    : t(protocolOffline(host) ? 'hostPoolOps.protocolOffline' : 'hostPoolOps.protocolApplying')
+}
+function protocolChipClass(host: ManagedHost) {
+  const base = 'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs whitespace-nowrap transition-colors disabled:opacity-60 '
+  return base + (host.portProtocol?.status === 'failed'
+    ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950 dark:text-red-300'
+    : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300')
+}
+function protocolChipTitle(host: ManagedHost) {
+  return host.portProtocol?.status === 'failed' ? t('hostPoolOps.protocolFailed') : t('hostPoolOps.protocolAutoHint')
 }
 async function openSsh(host: ManagedHost) {
   sshHost.value = host; sshConnection.value = null; sshLoading.value = true
@@ -176,9 +211,9 @@ async function refresh() {
     if (!disposed && current === sequence) { loading.value = false; timer = setTimeout(() => void refresh(), hosts.value.some(host => host.portProtocol?.status === 'pending') ? 3000 : 15000) }
   }
 }
-function filter() { page.value = 1; selected.value = []; void refresh() }
+function filter() { page.value = 1; selected.value = []; closeHostMenu(); void refresh() }
 function selectGroup(machine: number | '', region: number | '' = '') { machineGroup.value = machine; regionGroup.value = region; filter() }
-function changePage(value: number) { page.value = value; selected.value = []; void refresh() }
+function changePage(value: number) { page.value = value; selected.value = []; closeHostMenu(); void refresh() }
 function openGroups(targets: ManagedHost[]) {
   groupTargets.value = targets
   machineAction.value = targets.length === 1 && targets[0].machineGroupId ? 'set' : 'keep'
@@ -237,8 +272,23 @@ async function deleteGroupDefinition() {
   finally { saving.value = false }
 }
 function status(host: ManagedHost) { return te(`onboarding.hostStatus.${host.status}`) ? t(`onboarding.hostStatus.${host.status}`) : host.status }
-onMounted(() => void refresh())
-onUnmounted(() => { disposed = true; clearTimeout(timer) })
+function onMenuOutsideClick(event: MouseEvent) {
+  const target = event.target as Element | null
+  if (target?.closest('.host-row-menu')) return
+  closeHostMenu()
+}
+function onMenuEscape(event: KeyboardEvent) { if (event.key === 'Escape') closeHostMenu() }
+onMounted(() => {
+  void refresh()
+  document.addEventListener('click', onMenuOutsideClick)
+  document.addEventListener('keydown', onMenuEscape)
+})
+onUnmounted(() => {
+  disposed = true
+  clearTimeout(timer)
+  document.removeEventListener('click', onMenuOutsideClick)
+  document.removeEventListener('keydown', onMenuEscape)
+})
 defineExpose({ refresh })
 </script>
 
@@ -248,40 +298,57 @@ defineExpose({ refresh })
       <p class="text-sm text-themed">{{ t('hostInventory.stockSummary', summary) }}</p>
       <button class="btn-secondary whitespace-nowrap" @click="showGroupManager = true">{{ t('hostInventory.manageGroups') }}</button>
     </div>
-    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-      <section v-for="group in groups" :key="group.id" class="card p-3 min-w-0" :class="machineGroup === group.id ? 'ring-2 ring-primary-500' : ''">
-        <button class="text-left w-full" @click="selectGroup(group.id)"><span class="text-sm font-semibold text-themed break-words">{{ group.name }}</span><span v-if="group.counts" class="block mt-1 text-xs text-themed-muted">{{ t('hostInventory.stockSummary', group.counts) }}</span></button>
-        <div class="mt-2 space-y-1">
-          <button v-for="region in group.regions" :key="region.id" class="w-full rounded px-2 py-1.5 text-left text-xs flex flex-wrap items-center justify-between gap-1" :class="regionGroup === region.id ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'bg-themed-secondary text-themed'" @click="selectGroup(group.id, region.id)"><span class="break-words">{{ region.name }}</span><span v-if="region.counts" class="text-themed-muted">{{ t('hostInventory.regionStock', region.counts) }}</span></button>
-        </div>
-      </section>
+    <div class="flex flex-wrap items-start gap-2">
+      <span class="pt-1.5 text-xs whitespace-nowrap text-themed-muted">{{ t('hostInventory.machineGroup') }}</span>
+      <div class="flex min-w-0 flex-wrap gap-1.5">
+        <button type="button" :class="machineGroup === '' ? chipOn : chipIdle" @click="selectGroup('')">{{ t('hostInventory.allMachines') }}<span class="opacity-60">{{ summary.total }}</span></button>
+        <button v-for="group in groups" :key="group.id" type="button" :class="machineGroup === group.id ? chipOn : chipIdle" @click="selectGroup(group.id)">{{ group.name }}<span class="opacity-60">{{ group.counts?.total || 0 }}</span></button>
+        <button type="button" :class="machineGroup === 0 ? chipOn : chipIdle" @click="selectGroup(0)">{{ t('hostInventory.machineUnset') }}<span class="opacity-60">{{ ungrouped.total }}</span></button>
+      </div>
     </div>
-    <div class="flex flex-wrap gap-2"><button class="btn-secondary text-xs" @click="selectGroup('')">{{ t('hostInventory.allMachines') }}</button><button class="btn-secondary text-xs" @click="selectGroup(0)">{{ t('hostInventory.ungroupedCount', { count: ungrouped.total }) }}</button></div>
-    <form class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1fr)_10rem_10rem_9rem_auto] gap-2" @submit.prevent="filter">
+    <div v-if="regionChips.length" class="flex flex-wrap items-start gap-2">
+      <span class="pt-1.5 text-xs whitespace-nowrap text-themed-muted">{{ t('hostInventory.regionGroup') }}</span>
+      <div class="flex min-w-0 flex-wrap gap-1.5">
+        <button type="button" :class="regionGroup === '' ? chipOn : chipIdle" @click="selectGroup(machineGroup)">{{ t('hostInventory.allRegions') }}</button>
+        <button v-for="chip in activeRegionChips" :key="chip.id" type="button" :class="regionGroup === chip.id ? chipOn : chipIdle" @click="selectRegionChip(chip)">{{ regionChipLabel(chip) }}<span class="opacity-60">{{ chip.counts.available > 0 ? t('hostInventory.regionStockShort', { available: chip.counts.available }) : t('hostInventory.regionFull') }}</span></button>
+        <button type="button" :class="regionGroup === 0 ? chipOn : chipIdle" @click="selectGroup(machineGroup, 0)">{{ t('hostInventory.regionUnset') }}</button>
+        <button v-if="emptyRegionChips.length" type="button" :class="chipIdle + ' border-dashed text-themed-muted'" @click="showEmptyRegions = !showEmptyRegions">{{ showEmptyRegions ? t('hostInventory.hideEmptyRegions') : t('hostInventory.emptyRegions', { count: emptyRegionChips.length }) }}{{ showEmptyRegions ? ' ▴' : ' ▾' }}</button>
+      </div>
+    </div>
+    <div v-if="showEmptyRegions && emptyRegionChips.length" class="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-dashed border-themed p-2">
+      <button v-for="chip in emptyRegionChips" :key="chip.id" type="button" :class="chipIdle + ' border-dashed text-themed-muted'" @click="selectRegionChip(chip)">{{ regionChipLabel(chip) }}</button>
+    </div>
+    <form class="grid grid-cols-1 sm:grid-cols-[minmax(12rem,1fr)_10rem_auto] gap-2" @submit.prevent="filter">
       <input v-model="search" type="search" class="input w-full min-w-0" maxlength="100" :aria-label="t('common.search')" :placeholder="t('hostInventory.search')" />
-      <select v-model="machineGroup" class="input w-full min-w-0" :aria-label="t('hostInventory.machineGroup')" @change="regionGroup = ''; filter()"><option value="">{{ t('hostInventory.allMachines') }}</option><option :value="0">{{ t('hostInventory.machineUnset') }}</option><option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</option></select>
-      <select v-model="regionGroup" class="input w-full min-w-0" :aria-label="t('hostInventory.regionGroup')" @change="filter"><option value="">{{ t('hostInventory.allRegions') }}</option><option :value="0">{{ t('hostInventory.regionUnset') }}</option><option v-for="region in regions" :key="region.id" :value="region.id">{{ region.name }}</option></select>
       <select v-model="stock" class="input w-full min-w-0" :aria-label="t('hostInventory.stockLabel')" @change="filter"><option value="">{{ t('hostInventory.allStock') }}</option><option v-for="value in ['available', 'assigned', 'unavailable']" :key="value" :value="value">{{ t('hostInventory.stock.' + value) }}</option></select>
       <button class="btn-secondary whitespace-nowrap" type="submit">{{ t('common.search') }}</button>
     </form>
     <div class="flex flex-wrap items-center justify-between gap-3">
+      <label class="flex items-center gap-2 text-sm text-themed"><input v-model="allSelected" type="checkbox" :disabled="!hosts.length" />{{ t('hostInventory.selectPage') }}</label>
       <div class="flex flex-wrap items-center gap-3">
-        <label class="flex items-center gap-2 text-sm text-themed"><input v-model="allSelected" type="checkbox" :disabled="!hosts.length" />{{ t('hostInventory.selectPage') }}</label>
-        <button type="button" class="btn-secondary text-xs whitespace-nowrap" :disabled="!selected.length" @click="openGroups(hosts.filter(host => selected.includes(host.id)))">{{ t('hostInventory.batchGroups', { count: selected.length }) }}</button>
-        <button type="button" class="btn-secondary text-xs whitespace-nowrap" :disabled="!selected.length" @click="openSpec(hosts.filter(host => selected.includes(host.id)))">{{ t('hostInventory.batchSpec', { count: selected.length }) }}</button>
+        <span class="text-xs text-themed-muted">{{ t('hostInventory.total', { count: total }) }}</span>
+        <div class="inline-flex overflow-hidden rounded-lg border border-themed">
+          <button type="button" class="px-2.5 py-1 text-xs transition-colors" :class="compactView ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900' : 'text-themed-muted hover:bg-gray-50 dark:hover:bg-gray-800'" @click="compactView = true">{{ t('hostInventory.viewCompact') }}</button>
+          <button type="button" class="px-2.5 py-1 text-xs transition-colors" :class="!compactView ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900' : 'text-themed-muted hover:bg-gray-50 dark:hover:bg-gray-800'" @click="compactView = false">{{ t('hostInventory.viewCard') }}</button>
+        </div>
       </div>
-      <span class="text-xs text-themed-muted">{{ t('hostInventory.total', { count: total }) }}</span>
+    </div>
+    <div v-if="selected.length" class="flex flex-wrap items-center gap-2 rounded-xl bg-gray-900 px-3 py-2 text-white dark:bg-gray-800">
+      <span class="text-sm">{{ t('hostInventory.selectedCount', { count: selected.length }) }}</span>
+      <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="openGroups(hosts.filter(host => selected.includes(host.id)))">{{ t('hostInventory.batchGroups', { count: selected.length }) }}</button>
+      <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="openSpec(hosts.filter(host => selected.includes(host.id)))">{{ t('hostInventory.batchSpec', { count: selected.length }) }}</button>
+      <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="selected = []">{{ t('hostInventory.clearSelection') }}</button>
     </div>
     <p v-if="failed" class="card p-4 text-sm text-red-600 dark:text-red-400" role="alert">{{ t('hostInventory.loadFailed') }}</p>
     <div v-if="loading" class="card p-8 text-sm text-themed-muted text-center">{{ t('common.loading') }}</div>
     <div v-else-if="!hosts.length && !failed" class="card p-8 text-sm text-themed-muted text-center">{{ t('hostInventory.empty') }}</div>
-    <div v-if="hosts.length" class="card divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
-      <article v-for="host in hosts" :key="host.id" class="p-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-3 xl:grid-cols-[auto_minmax(13rem,1.4fr)_minmax(9rem,1fr)_minmax(8rem,1fr)_auto] xl:items-center">
+    <div v-if="hosts.length" class="card divide-y divide-gray-100 dark:divide-gray-800">
+      <article v-for="host in hosts" :key="host.id" class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-3 xl:grid-cols-[auto_minmax(13rem,1.4fr)_minmax(9rem,1fr)_minmax(8rem,1fr)_auto] xl:items-center" :class="compactView ? 'px-3 py-2.5' : 'p-4'">
         <input v-model="selected" type="checkbox" :value="host.id" class="mt-1 xl:mt-0" :aria-label="t('hostInventory.selectHost', { name: host.name })" />
         <div class="min-w-0">
           <RouterLink :to="`/admin/resources/hosts/${host.id}`" class="text-sm font-semibold text-blue-600 dark:text-blue-400 break-all">{{ host.name }}</RouterLink>
           <span class="ml-2 text-xs text-themed-muted">#{{ host.id }}</span>
-          <dl class="mt-2 text-xs space-y-1">
+          <dl v-if="!compactView" class="mt-2 text-xs space-y-1">
             <div class="flex flex-wrap gap-x-2"><dt class="text-themed-muted">{{ t('hostInventory.publicIp') }}</dt><dd class="font-mono text-themed break-all">{{ host.publicIp || '—' }}</dd></div>
             <p v-if="host.publicIpSync?.supported" class="text-xs" :class="host.publicIpSync.blocked || host.publicIpSync.status === 'failed' ? 'text-amber-600 dark:text-amber-400' : 'text-themed-muted'">{{ t('hostIpSync.status.' + host.publicIpSync.status) }}</p>
             <div class="flex flex-wrap gap-x-2"><dt class="text-themed-muted">{{ t('hostInventory.managementIp') }}</dt><dd class="font-mono text-themed break-all">{{ host.managementAddress || '—' }}</dd></div>
@@ -297,40 +364,45 @@ defineExpose({ refresh })
             <span class="px-2 py-1 rounded bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 break-all">{{ host.machineGroup || t('hostInventory.machineUnset') }}</span>
             <span class="px-2 py-1 rounded bg-themed-secondary text-themed break-all">{{ host.regionGroup || t('hostInventory.regionUnset') }}</span>
           </div>
-          <p v-if="host.accountLabel" class="text-xs text-themed-muted mt-2 break-words">{{ t('onboarding.accountLabel') }}: {{ host.accountLabel }}</p>
-          <p class="text-xs mt-2" :class="hasSpec(host) ? 'text-themed' : 'text-amber-600 dark:text-amber-400 font-medium'">
-            <template v-if="hasSpec(host)">{{ presetLabel(host.resourcePreset!) }} · {{ host.cpuAllowanceMax / 100 }} CPU · {{ host.memoryMax }} MiB · {{ host.customerDiskGiB }} GiB</template>
-            <template v-else>{{ t('hostInventory.specMissing') }}</template>
-          </p>
-          <p v-if="host.resourceSnapshot" class="text-xs text-themed-muted mt-1">{{ t('hostInventory.detectedMemory', { memory: host.resourceSnapshot.probe.memoryMiB, pool: host.storageSize }) }}</p>
+          <p v-if="host.accountLabel && !compactView" class="text-xs text-themed-muted mt-2 break-words">{{ t('onboarding.accountLabel') }}: {{ host.accountLabel }}</p>
+          <p v-if="hasSpec(host)" class="text-xs mt-2 text-themed">{{ presetLabel(host.resourcePreset!) }} · {{ host.cpuAllowanceMax / 100 }} CPU · {{ host.memoryMax }} MiB · {{ host.customerDiskGiB }} GiB</p>
+          <button v-else type="button" class="mt-2 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300" @click="openSpec([host])">{{ t('hostInventory.specMissing') }}</button>
+          <p v-if="host.resourceSnapshot && !compactView" class="text-xs text-themed-muted mt-1">{{ t('hostInventory.detectedMemory', { memory: host.resourceSnapshot.probe.memoryMiB, pool: host.storageSize }) }}</p>
         </div>
         <div class="col-start-2 xl:col-start-auto min-w-0 space-y-2">
           <p class="flex flex-wrap items-center gap-2 text-xs"><span class="h-2 w-2 rounded-full" :class="host.status === 'online' ? 'bg-green-500' : 'bg-gray-400'"></span><span class="text-themed">{{ host.status === 'online' ? t('hostPoolOps.managementOnline') : status(host) }}</span><span class="text-themed-muted">{{ host.architecture }}</span></p>
+          <div class="flex flex-wrap items-center gap-1.5" aria-live="polite">
+            <p v-if="host.portProtocol?.status === 'applied'" class="text-xs text-green-600 dark:text-green-400">{{ t(host.portProtocol.applied === 'tcp' ? 'hostPoolOps.udpClosed' : 'hostPoolOps.udpOpen') }}</p>
+            <button v-else type="button" :class="protocolChipClass(host)" :title="protocolChipTitle(host)" :disabled="saving" @click="applyProtocol(host, host.portProtocol?.requested || 'tcp_udp')">{{ protocolChipText(host) }}</button>
+            <button v-if="host.poolFaulted" type="button" class="inline-flex items-center rounded-full border border-red-300 bg-red-50 px-3 py-1 text-xs text-red-700 transition-colors hover:bg-red-100 dark:border-red-900 dark:bg-red-950 dark:text-red-300" :title="t('hostPoolOps.quarantineHint')" @click="recoveryHost = host">{{ t('hostPoolOps.recovery.title') }}</button>
+          </div>
           <p class="text-xs text-themed-muted">{{ t('hostPoolOps.assignedInstances', { count: host.instanceCount }) }}</p>
           <p class="text-xs font-medium" :class="host.stock === 'available' ? 'text-green-600 dark:text-green-400' : 'text-themed-muted'">{{ t('hostInventory.stock.' + host.stock) }}</p>
           <p v-if="host.sellReason" class="text-xs font-medium text-amber-600 dark:text-amber-400">{{ sellReasonText(host.sellReason) }}</p>
-          <p v-if="host.poolFaulted" class="text-xs text-themed-muted">{{ t('hostPoolOps.quarantineHint') }}</p>
-          <p v-for="instance in host.instances" :key="instance.id" class="text-xs text-themed break-words">{{ instance.user.username }} · {{ instance.name }} (#{{ instance.id }})</p>
+          <p v-if="host.poolFaulted && !compactView" class="text-xs text-themed-muted">{{ t('hostPoolOps.quarantineHint') }}</p>
+          <template v-if="!compactView">
+            <p v-for="instance in host.instances" :key="instance.id" class="text-xs text-themed break-words">{{ instance.user.username }} · {{ instance.name }} (#{{ instance.id }})</p>
+          </template>
         </div>
-        <div class="col-start-2 xl:col-start-auto flex flex-wrap gap-2 xl:max-w-48 xl:justify-end">
+        <div class="col-start-2 xl:col-start-auto flex flex-wrap items-start gap-2 xl:justify-end">
           <RouterLink :to="`/admin/resources/hosts/${host.id}`" class="btn-primary text-xs whitespace-nowrap">{{ t('hostInventory.manage') }}</RouterLink>
-          <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="openGroups([host])">{{ t('hostInventory.groups') }}</button>
-          <button type="button" class="text-xs whitespace-nowrap" :class="hasSpec(host) ? 'btn-secondary' : 'btn-primary'" @click="openSpec([host])">{{ t('hostInventory.spec') }}</button>
-          <label class="flex items-center gap-2 text-xs text-themed-muted">{{ t('dedicated.protocol') }}<select :value="host.portProtocol?.requested || 'tcp_udp'" class="input text-xs py-1" :disabled="saving" @change="changeProtocol(host, $event)"><option value="tcp_udp">TCP+UDP</option><option value="tcp">TCP</option></select></label>
-          <div class="w-full space-y-1 xl:text-right" aria-live="polite">
-            <p v-if="host.portProtocol?.status === 'applied'" class="text-xs text-green-600 dark:text-green-400">{{ t(host.portProtocol.applied === 'tcp' ? 'hostPoolOps.udpClosed' : 'hostPoolOps.udpOpen') }}</p>
-            <template v-else>
-              <p class="text-xs" :class="host.portProtocol?.status === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'">{{ t(host.portProtocol?.status === 'failed' ? 'hostPoolOps.protocolFailed' : protocolOffline(host) ? 'hostPoolOps.protocolOffline' : 'hostPoolOps.protocolApplying') }}</p>
-              <p class="text-xs text-themed-muted">{{ t('hostPoolOps.protocolAutoHint') }}</p>
-              <button type="button" class="btn-secondary text-xs" :disabled="saving" @click="applyProtocol(host, host.portProtocol?.requested || 'tcp_udp')">{{ t('hostPoolOps.protocolRetry') }}</button>
-            </template>
+          <div class="host-row-menu relative">
+            <button type="button" class="btn-secondary px-2.5 py-1 text-xs" aria-haspopup="true" :aria-expanded="menuHostId === host.id" :aria-label="t('hostInventory.moreActions')" @click="toggleHostMenu(host.id)">⋯</button>
+            <div v-if="menuHostId === host.id" class="card absolute right-0 top-full z-20 mt-1 w-56 p-1 shadow-lg">
+              <button type="button" :class="menuItemClass" @click="closeHostMenu(); openGroups([host])">{{ t('hostInventory.groups') }}</button>
+              <button type="button" :class="menuItemClass" @click="closeHostMenu(); openSpec([host])">{{ t('hostInventory.spec') }}</button>
+              <div class="my-1 border-t border-themed"></div>
+              <div class="flex items-center justify-between gap-2 px-2 py-1 text-xs text-themed-muted"><span>{{ t('hostInventory.protocol') }}</span><select :value="host.portProtocol?.requested || 'tcp_udp'" class="input w-auto py-0.5 text-xs" :disabled="saving" @change="changeProtocol(host, $event)"><option value="tcp_udp">TCP+UDP</option><option value="tcp">TCP</option></select></div>
+              <button v-if="host.publicIpSync?.supported" type="button" :class="menuItemClass" @click="closeHostMenu(); publicIpHost = host">{{ t('hostIpSync.title') }}</button>
+              <button v-if="host.publicIpv6Sync?.supported" type="button" :class="menuItemClass" :disabled="syncingIpv6Host !== null" @click="closeHostMenu(); syncIpv6(host)">{{ t(syncingIpv6Host === host.id ? 'ipv6Delivery.checking' : 'ipv6Delivery.sync') }}</button>
+              <button type="button" :class="menuItemClass" @click="closeHostMenu(); openSsh(host)">SSH</button>
+              <div v-if="host.poolFaulted || host.instances.length === 1" class="my-1 border-t border-themed"></div>
+              <button v-if="host.poolFaulted" type="button" :class="menuItemClass" @click="closeHostMenu(); recoveryHost = host">{{ t('hostPoolOps.recovery.title') }}</button>
+              <button v-if="host.instances.length === 1" type="button" :class="menuItemClass" @click="closeHostMenu(); replacement = host.instances[0]">{{ t('dedicated.replacement.title') }}</button>
+              <div class="my-1 border-t border-themed"></div>
+              <button type="button" class="flex w-full items-center rounded-lg px-2 py-1.5 text-left text-xs transition-colors" :class="host.instanceCount > 0 ? 'cursor-not-allowed text-themed-muted' : 'text-red-600 hover:bg-gray-50 dark:text-red-400 dark:hover:bg-gray-800'" :disabled="host.instanceCount > 0" :title="host.instanceCount > 0 ? t('hostInventory.deleteBusy') : t('common.delete')" @click="closeHostMenu(); removeHost = host">{{ t('common.delete') }}</button>
+            </div>
           </div>
-          <button v-if="host.poolFaulted" type="button" class="btn-secondary text-xs whitespace-nowrap" @click="recoveryHost = host">{{ t('hostPoolOps.recovery.title') }}</button>
-          <button v-if="host.publicIpSync?.supported" type="button" class="btn-secondary text-xs whitespace-nowrap" @click="publicIpHost = host">{{ t('hostIpSync.title') }}</button>
-          <button v-if="host.publicIpv6Sync?.supported" type="button" class="btn-secondary text-xs" :disabled="syncingIpv6Host !== null" @click="syncIpv6(host)">{{ t(syncingIpv6Host === host.id ? 'ipv6Delivery.checking' : 'ipv6Delivery.sync') }}</button>
-          <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="openSsh(host)">SSH</button>
-          <button v-if="host.instances.length === 1" type="button" class="btn-secondary text-xs whitespace-nowrap" @click="replacement = host.instances[0]">{{ t('dedicated.replacement.title') }}</button>
-          <button type="button" class="btn-danger text-xs whitespace-nowrap" :disabled="host.instanceCount > 0" :title="host.instanceCount > 0 ? t('hostInventory.deleteBusy') : t('common.delete')" @click="removeHost = host">{{ t('common.delete') }}</button>
         </div>
       </article>
     </div>
