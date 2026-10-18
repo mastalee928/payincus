@@ -687,6 +687,67 @@ export async function sendVerificationEmail(
  * 此函数允许在 smtp_enabled 为 false 时进行测试，
  * 只要提供了配置信息即可
  */
+/**
+ * 发送“管理员创建账号”邮件：把初始密码交给用户本人。
+ * 仅在 SMTP 已启用时可用（getTransporter 会返回 null）；密码不写入日志。
+ */
+export async function sendAdminCreatedUserEmail(
+    email: string,
+    username: string,
+    initialPassword: string
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const transporter = await getTransporter()
+
+        if (!transporter) {
+            return { success: false, error: 'SMTP not configured' }
+        }
+
+        const { config, brandName, brandLogoUrl } = await getMailContext()
+
+        const title = '您的账户已创建'
+        const paragraphs = [
+            '管理员已为您在 ' + brandName + ' 创建账户，用户名为 ' + username + '。',
+            '请使用下面的初始密码登录，并尽快在账户设置中修改密码：'
+        ]
+
+        const htmlContent = generateEmailHtml({
+            title,
+            greeting: '您好，',
+            paragraphs,
+            code: initialPassword,
+            codeExpiry: '请在首次登录后立即修改密码',
+            actionTip: '如果这不是您预期的操作，请立即联系站点管理员。',
+            brandName,
+            brandLogoUrl
+        })
+
+        const textContent = generateEmailText({
+            title,
+            greeting: '您好，',
+            paragraphs: [paragraphs[0], '初始密码：' + initialPassword, '请使用该密码登录，并尽快修改。'],
+            actionTip: '如果这不是您预期的操作，请立即联系站点管理员。',
+            brandName,
+            brandLogoUrl
+        })
+
+        await transporter.sendMail({
+            from: config.fromName ? '"' + config.fromName + '" <' + config.fromEmail + '>' : config.fromEmail,
+            to: email,
+            subject: formatBrandSubject(brandName, title),
+            text: textContent,
+            html: htmlContent
+        })
+
+        return { success: true }
+    } catch (error: unknown) {
+        // 只记录错误信息，绝不记录密码明文
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        console.error('Failed to send admin-created user email:', errorMessage)
+        return { success: false, error: errorMessage }
+    }
+}
+
 export async function testSmtpConnection(): Promise<{ success: boolean; error?: string }> {
     try {
         const config = await getSmtpConfig()

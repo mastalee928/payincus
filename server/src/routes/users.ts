@@ -2,6 +2,8 @@
  * 用户管理路由
  */
 
+import { randomInt } from 'node:crypto'
+
 // @ts-ignore - bcryptjs has its own types
 import bcrypt from 'bcryptjs'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
@@ -10,12 +12,12 @@ import { prisma } from '../db/prisma.js'
 import { createLog } from '../db/logs.js'
 import type { UpdateUserRequest } from '../types/api.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
-import { containsDangerousChars, revokeAllUserRefreshTokens, getUserSessions, logAdminAction, validatePassword, invalidateUserAccessTokens } from '../lib/security.js'
+import { containsDangerousChars, revokeAllUserRefreshTokens, getUserSessions, logAdminAction, validatePassword, invalidateUserAccessTokens, validateIdentifier } from '../lib/security.js'
 import {
     isOperationVerified,
     claimOperationVerificationRequirement
 } from '../lib/operation-verification.js'
-import { isSmtpEnabled, sendBanNotificationEmail, sendVerificationEmail } from '../lib/mailer.js'
+import { isSmtpEnabled, sendAdminCreatedUserEmail, sendBanNotificationEmail, sendVerificationEmail } from '../lib/mailer.js'
 import { sendNotification } from '../lib/notifier.js'
 import { closeUserSessions } from '../lib/terminal-proxy.js'
 import { createVerificationCode, verifyCode } from '../db/email-verification.js'
@@ -135,6 +137,16 @@ function parsePositiveIntegerQuery(value: string | undefined, fallback: number):
 
 function parseClampedPositiveIntegerQuery(value: string | undefined, fallback: number, max: number): number {
   return Math.min(parsePositiveIntegerQuery(value, fallback), max)
+}
+
+// 管理员直接创建用户时生成的初始密码：去掉易混淆字符与 HTML 特殊字符
+const INITIAL_PASSWORD_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#%^*-_=+'
+function generateInitialPassword(length = 16): string {
+  let password = ''
+  for (let i = 0; i < length; i += 1) {
+    password += INITIAL_PASSWORD_CHARS.charAt(randomInt(INITIAL_PASSWORD_CHARS.length))
+  }
+  return password
 }
 
 export default async function userRoutes(fastify: FastifyInstance) {
@@ -1856,4 +1868,96 @@ export default async function userRoutes(fastify: FastifyInstance) {
       frozen: Number(frozenResult._sum.amount || 0)
     }
   })
+
+  // 管理员直接创建用户：可把初始密码发到邮箱（verifyEmail），否则一次性回显
+  fastify.post<{
+    Body: {
+      username: string
+      email: string
+      role: 'admin' | 'user'
+      status: 'active' | 'banned'
+      verifyEmail?: boolean
+    }
+  }>('/', {
+    onRequest: [fastify.authenticateAdmin],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['username', 'email', 'role', 'status'],
+        properties: {
+          username: { type: 'string', minLength: 3, maxLength: 32 },
+          email: { type: 'string', format: 'email' },
+          role: { type: 'string', enum: ['admin', 'user'] },
+          status: { type: 'string', enum: ['active', 'banned'] },
+          verifyEmail: { type: 'boolean' }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const admin = request.user
+    const username = String(request.body.username || '').trim()
+    const email = String(request.body.email || '').trim().toLowerCase()
+    const { role, status } = request.body
+    const verifyEmail = request.body.verifyEmail === true
+
+    const identifierCheck = validateIdentifier(username, 'Username', 3, 32)
+    if (!identifierCheck.valid) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, identifierCheck.message))
+    }
+    if (containsDangerousChars(username)) {
+      return reply.code(400).send(apiError(ErrorCode.USERNAME_CONTAINS_ILLEGAL))
+    }
+    if (!email.includes('@')) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_EMAIL))
+    }
+    const emailWithoutAllowed = email.replace(/@/g, '').replace(/\./g, '')
+    if (containsDangerousChars(emailWithoutAllowed)) {
+      return reply.code(400).send(apiError(ErrorCode.EMAIL_CONTAINS_ILLEGAL))
+    }
+    const domainValidation = await validateEmailDomain(email)
+    if (!domainValidation.valid) {
+      return reply.code(400).send(apiError(ErrorCode.EMAIL_DOMAIN_NOT_ALLOWED, domainValidation.domain))
+    }
+    if (verifyEmail && !(await isSmtpEnabled())) {
+      return reply.code(400).send(apiError(ErrorCode.EMAIL_VERIFICATION_DISABLED, 'SMTP is not enabled'))
+    }
+    if (await db.findUserByUsername(username)) {
+      return reply.code(400).send(apiError(ErrorCode.USER_EXISTS))
+    }
+    if (await db.findUserByEmail(email)) {
+      return reply.code(400).send(apiError(ErrorCode.EMAIL_ALREADY_REGISTERED))
+    }
+
+    const initialPassword = generateInitialPassword()
+    const passwordHash = await bcrypt.hash(initialPassword, 12)
+    const userId = await db.createUser(username, email, passwordHash, role)
+    if (status === 'banned') {
+      await db.updateUserStatus(userId, 'banned')
+    }
+
+    let emailSent: boolean | undefined
+    if (verifyEmail) {
+      const sendResult = await sendAdminCreatedUserEmail(email, username, initialPassword)
+      emailSent = sendResult.success
+      if (!sendResult.success) {
+        // 只记录错误信息，绝不记录初始密码
+        console.warn('[AdminCreateUser] failed to send the initial password email for user ' + userId + ': ' + (sendResult.error || 'unknown error'))
+      }
+    }
+
+    await logAdminAction(admin.id, 'create_user', {
+      targetUserId: userId,
+      targetUsername: username,
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] || undefined,
+      metadata: { role, status, verifyEmail, emailSent: emailSent === true }
+    })
+
+    return {
+      success: true,
+      user: { id: userId, username, email, role, status },
+      ...(verifyEmail ? { emailSent: emailSent === true } : { initialPassword })
+    }
+  })
 }
+

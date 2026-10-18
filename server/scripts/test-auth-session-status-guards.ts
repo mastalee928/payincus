@@ -306,6 +306,31 @@ for (const actionBinding of [
   )
 }
 
+// 管理员直接创建用户：接口仅管理员可用、与注册同源校验、初始密码只在“不验证邮箱”时一次性返回，且永不打日志
+const adminCreateUserRouteSource = readFileSync(resolve(__dirname, '../src/routes/users.ts'), 'utf8')
+assert.ok(
+  adminCreateUserRouteSource.includes("}>('/', {") &&
+    adminCreateUserRouteSource.includes('onRequest: [fastify.authenticateAdmin]') &&
+    adminCreateUserRouteSource.includes('validateIdentifier(username') &&
+    adminCreateUserRouteSource.includes('await db.findUserByUsername(username)') &&
+    adminCreateUserRouteSource.includes('await db.findUserByEmail(email)') &&
+    adminCreateUserRouteSource.includes('const passwordHash = await bcrypt.hash(initialPassword, 12)') &&
+    adminCreateUserRouteSource.includes('await db.createUser(username, email, passwordHash, role)') &&
+    adminCreateUserRouteSource.includes('...(verifyEmail ? { emailSent: emailSent === true } : { initialPassword })') &&
+    !adminCreateUserRouteSource.includes('console.log(initialPassword') &&
+    !adminCreateUserRouteSource.includes('console.error(initialPassword'),
+  'admin create-user route must be admin-only, reuse the registration validators, and only return the initial password when it is not emailed'
+)
+assert.ok(
+  adminUsersViewSource.includes('api.users.create(') &&
+    adminUsersViewSource.includes("const createUserResult = ref(null)") &&
+    adminUsersViewSource.includes("t('admin.users.initialPasswordHint')") &&
+    adminUsersViewSource.includes('@click="openCreateUserModal"') &&
+    adminUsersViewSource.includes('@click="copyInitialPassword"') &&
+    !adminUsersViewSource.includes('generatedPassword'),
+  'admin users UI must create users through the admin API and show the returned initial password once, without reviving reset-password credential display'
+)
+
 for (const [name, route] of [
   ['admin password reset', adminResetPasswordRoute],
   ['admin 2FA disable', adminDisable2FARoute],

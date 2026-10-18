@@ -670,6 +670,8 @@ const api = {
     list: (params: Record<string, unknown> = {}): Promise<PaginatedResponse<User>> =>
       http.get('/users', { params }),
     get: (id: number): Promise<User> => http.get(`/users/${id}`),
+    create: (data: { username: string; email: string; role: 'admin' | 'user'; status: 'active' | 'banned'; verifyEmail: boolean }): Promise<{ success: boolean; user: { id: number; username: string; email: string | null; role: 'admin' | 'user'; status: 'active' | 'banned' }; initialPassword?: string; emailSent?: boolean }> =>
+      http.post('/users', data),
     update: (id: number, data: UpdateUserRequest): Promise<UpdateUserResponse> =>
       http.patch(`/users/${id}`, data),
     sendChangeEmailCode: (id: number, email: string): Promise<{ message: string; expiresAt: string }> =>

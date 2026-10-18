@@ -62,6 +62,12 @@ const inviteStatusFilterOptions = computed(() => [
 // 生成邀请码弹窗
 const showInviteModal = ref(false)
 const showGenerateModal = ref(false)  // 生成前的配置弹窗
+const showCreateUserModal = ref(false)
+const createUserSubmitting = ref(false)
+const createUserError = ref('')
+const createUserForm = ref({ username: '', email: '', role: 'user', status: 'active', verifyEmail: true })
+const createUserResult = ref(null)
+const initialPasswordCopied = ref(false)
 const inviteExpireDays = ref(7)  // 默认7天过期
 const inviteCount = ref(1)  // 生成数量
 const newInviteCode = ref('')
@@ -278,6 +284,69 @@ async function generateInvite() {
   } finally {
     inviteGenerating.value = false
   }
+}
+
+function openCreateUserModal() {
+  createUserForm.value = { username: '', email: '', role: 'user', status: 'active', verifyEmail: true }
+  createUserError.value = ''
+  createUserResult.value = null
+  initialPasswordCopied.value = false
+  showCreateUserModal.value = true
+}
+
+function closeCreateUserModal() {
+  showCreateUserModal.value = false
+  createUserError.value = ''
+  createUserResult.value = null
+  initialPasswordCopied.value = false
+}
+
+async function submitCreateUser() {
+  if (createUserSubmitting.value) return
+  createUserError.value = ''
+  createUserSubmitting.value = true
+  const verifyEmail = createUserForm.value.verifyEmail
+  try {
+    const response = await api.users.create({
+      username: createUserForm.value.username.trim(),
+      email: createUserForm.value.email.trim(),
+      role: createUserForm.value.role,
+      status: createUserForm.value.status,
+      verifyEmail
+    })
+    await loadUsers()
+    if (verifyEmail) {
+      showCreateUserModal.value = false
+      if (response.emailSent) {
+        toast.success(t('admin.users.createUserVerifyEmailSent'))
+      } else {
+        toast.error(t('admin.users.createUserEmailFailed'))
+      }
+      return
+    }
+    createUserResult.value = { user: response.user, initialPassword: response.initialPassword || '' }
+  } catch (err) {
+    createUserError.value = err.message || t('admin.users.createUserFailed')
+  } finally {
+    createUserSubmitting.value = false
+  }
+}
+
+async function copyInitialPassword() {
+  const password = createUserResult.value?.initialPassword || ''
+  if (!password) return
+  try {
+    await navigator.clipboard.writeText(password)
+  } catch {
+    const input = document.createElement('textarea')
+    input.value = password
+    document.body.appendChild(input)
+    input.select()
+    document.execCommand('copy')
+    document.body.removeChild(input)
+  }
+  initialPasswordCopied.value = true
+  setTimeout(() => (initialPasswordCopied.value = false), 2000)
 }
 
 async function deleteInvite(invite) {
@@ -994,12 +1063,20 @@ function _getQuotaPercent(used, limit) {
         <h1 class="page-title">{{ t('admin.users.title') }}</h1>
         <p class="page-description">{{ t('admin.users.description') }}</p>
       </div>
-      <button class="btn-primary w-full sm:w-auto justify-center" @click="openGenerateModal">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
-        {{ t('admin.users.generateInvite') }}
-      </button>
+      <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+        <button class="btn-secondary w-full justify-center sm:w-auto" @click="openCreateUserModal">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+          </svg>
+          {{ t('admin.users.create') }}
+        </button>
+        <button class="btn-primary w-full justify-center sm:w-auto" @click="openGenerateModal">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          {{ t('admin.users.generateInvite') }}
+        </button>
+      </div>
     </div>
 
     <!-- Tab 切换 -->
@@ -2151,6 +2228,79 @@ function _getQuotaPercent(used, limit) {
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
                 {{ inviteGenerating ? t('admin.users.generating') : t('admin.users.generate') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 创建用户弹窗 -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="showCreateUserModal" class="modal-overlay">
+          <div class="modal-backdrop" @click="closeCreateUserModal"></div>
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 class="modal-title">{{ createUserResult ? t('admin.users.createUserSuccessTitle') : t('admin.users.create') }}</h3>
+              <button class="text-themed-muted hover:text-themed" @click="closeCreateUserModal">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div v-if="!createUserResult" class="modal-body space-y-4">
+              <p class="text-sm text-themed-muted">{{ t('admin.users.createUserDesc') }}</p>
+              <div>
+                <label class="block text-sm text-themed-secondary mb-2">{{ t('admin.users.createUserUsername') }}</label>
+                <input v-model="createUserForm.username" type="text" class="input" :placeholder="t('admin.users.createUserUsernamePlaceholder')" autocomplete="off" />
+                <p class="text-xs text-themed-muted mt-1.5">{{ t('admin.users.createUserUsernameHint') }}</p>
+              </div>
+              <div>
+                <label class="block text-sm text-themed-secondary mb-2">{{ t('admin.users.createUserEmail') }}</label>
+                <input v-model="createUserForm.email" type="email" class="input" :placeholder="t('admin.users.createUserEmailPlaceholder')" autocomplete="off" />
+              </div>
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label class="block text-sm text-themed-secondary mb-2">{{ t('admin.users.role') }}</label>
+                  <select v-model="createUserForm.role" class="input">
+                    <option value="user">{{ t('admin.users.user') }}</option>
+                    <option value="admin">{{ t('admin.users.admin') }}</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm text-themed-secondary mb-2">{{ t('admin.users.status') }}</label>
+                  <select v-model="createUserForm.status" class="input">
+                    <option value="active">{{ t('admin.users.active') }}</option>
+                    <option value="banned">{{ t('admin.users.banned') }}</option>
+                  </select>
+                </div>
+              </div>
+              <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-themed p-3">
+                <input v-model="createUserForm.verifyEmail" type="checkbox" class="checkbox mt-0.5" />
+                <span>
+                  <span class="block text-sm text-themed-secondary">{{ t('admin.users.createUserVerifyEmail') }}</span>
+                  <span class="mt-1 block text-xs text-themed-muted">{{ t('admin.users.createUserVerifyEmailHint') }}</span>
+                </span>
+              </label>
+              <p v-if="createUserError" class="text-sm text-red-500">{{ createUserError }}</p>
+            </div>
+            <div v-else class="modal-body space-y-3">
+              <p class="text-sm text-themed-secondary">{{ t('admin.users.createUserResultHint') }}</p>
+              <div class="bg-themed-tertiary rounded-lg p-4 font-mono tabular-nums text-lg text-center text-themed tracking-wider">
+                {{ createUserResult.initialPassword }}
+              </div>
+              <p class="text-xs text-themed-muted">{{ t('admin.users.initialPasswordHint') }}</p>
+            </div>
+            <div class="modal-footer">
+              <template v-if="!createUserResult">
+                <button class="btn-secondary" @click="closeCreateUserModal">{{ t('common.cancel') }}</button>
+                <button :disabled="createUserSubmitting" class="btn-primary" @click="submitCreateUser">
+                  {{ createUserSubmitting ? t('admin.users.creating') : t('admin.users.createUserSubmit') }}
+                </button>
+              </template>
+              <button v-else class="btn-primary flex-1" @click="copyInitialPassword">
+                {{ initialPasswordCopied ? t('admin.users.copied') : t('admin.users.initialPasswordCopy') }}
               </button>
             </div>
           </div>
