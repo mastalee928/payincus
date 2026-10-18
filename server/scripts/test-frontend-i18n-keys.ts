@@ -255,4 +255,13 @@ assertNoForcedSimplifiedChineseFallback()
 assertSplitLocalePruneKeepsAdminBenefits()
 assertTrafficNotificationPlaceholders()
 
+function assertRequestedCustomerWording(): void {
+  assert.equal(resolveMessage(en, 'nav.myInstances'), 'Instances', 'the English sidebar label must read Instances')
+  assert.equal(resolveMessage(zhCN, 'nav.myInstances'), '我的实例', 'the Simplified Chinese sidebar label must stay unchanged')
+  assert.equal(resolveMessage(zhTW, 'nav.myInstances'), '我的實例', 'the Traditional Chinese sidebar label must stay unchanged')
+  assert.equal(resolveMessage(en, 'poolPurchase.title'), 'Create Instance', 'the English purchase page title must read Create Instance')
+}
+
+assertRequestedCustomerWording()
+
 console.log('frontend i18n key checks passed')

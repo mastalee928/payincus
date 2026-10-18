@@ -143,7 +143,8 @@ function stripAdminOnlyLocaleMessages(source: string): string {
     'friends',
     'transfers',
     'transfer',
-    'checkin'
+    'checkin',
+    'orders'
   ]
 
   for (const key of userOnlyTopLevelKeys) {

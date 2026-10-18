@@ -924,6 +924,14 @@ assert.ok(
   'the orders detail drawer must teleport to body so the console header cannot cover its header'
 )
 assert.ok(
+  ordersViewSource.includes("$t('orders.title')") &&
+    ordersViewSource.includes("t('orders.loadFailed')") &&
+    !ordersViewSource.includes('订单中心') &&
+    !ordersViewSource.includes('暂无订单记录') &&
+    !ordersViewSource.includes('全部类型'),
+  'the customer order center must render every label through the orders i18n namespace instead of hardcoded Chinese'
+)
+assert.ok(
   walletViewSource.includes('const affTabVisible: boolean = false') &&
     walletViewSource.includes("...(affTabVisible ? [{ key: 'aff' as WalletTab, label: t('aff.title') }] : [])") &&
     walletViewSource.includes("if (!affTabVisible && tab === 'aff')") &&

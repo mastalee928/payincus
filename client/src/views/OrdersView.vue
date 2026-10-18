@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import { useReveal } from '@/composables/useReveal'
 
 const revealRoot = ref<HTMLElement | null>(null)
 useReveal(revealRoot)
+
+const { t, locale } = useI18n()
 
 type OrderSourceType = 'recharge' | 'instance_billing'
 
@@ -51,33 +54,33 @@ const status = ref('')
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
-const typeOptions = [
-  { value: '', label: '全部类型' },
-  { value: 'recharge', label: '余额充值' },
-  { value: 'instance_billing', label: '实例账单' }
-]
+const typeOptions = computed(() => [
+  { value: '', label: t('orders.typeAll') },
+  { value: 'recharge', label: t('orders.typeRecharge') },
+  { value: 'instance_billing', label: t('orders.typeInstanceBilling') }
+])
 
 const statusOptions = computed(() => {
   if (type.value === 'instance_billing') {
     return [
-      { value: '', label: '全部状态' },
-      { value: 'newPurchase', label: '新购' },
-      { value: 'renew', label: '续费' },
-      { value: 'upgrade', label: '升级' },
-      { value: 'downgrade', label: '降级' },
-      { value: 'refund', label: '退款' },
-      { value: 'transfer_fee', label: '转移手续费' }
+      { value: '', label: t('orders.statusAll') },
+      { value: 'newPurchase', label: t('orders.billingNewPurchase') },
+      { value: 'renew', label: t('orders.billingRenew') },
+      { value: 'upgrade', label: t('orders.billingUpgrade') },
+      { value: 'downgrade', label: t('orders.billingDowngrade') },
+      { value: 'refund', label: t('orders.billingRefund') },
+      { value: 'transfer_fee', label: t('orders.billingTransferFee') }
     ]
   }
 
   return [
-    { value: '', label: '全部状态' },
-    { value: 'pending', label: '待支付' },
-    { value: 'paid', label: '处理中' },
-    { value: 'completed', label: '已完成' },
-    { value: 'failed', label: '失败' },
-    { value: 'cancelled', label: '已取消' },
-    { value: 'refunded', label: '已退款' }
+    { value: '', label: t('orders.statusAll') },
+    { value: 'pending', label: t('orders.rechargePending') },
+    { value: 'paid', label: t('orders.rechargePaid') },
+    { value: 'completed', label: t('orders.rechargeCompleted') },
+    { value: 'failed', label: t('orders.rechargeFailed') },
+    { value: 'cancelled', label: t('orders.rechargeCancelled') },
+    { value: 'refunded', label: t('orders.rechargeRefunded') }
   ]
 })
 
@@ -87,18 +90,18 @@ function formatMoney(value: number | null | undefined): string {
 
 function formatTime(value: string | null | undefined): string {
   if (!value) return '-'
-  return new Date(value).toLocaleString('zh-CN', { hour12: false })
+  return new Date(value).toLocaleString(locale.value, { hour12: false })
 }
 
 function statusLabel(order: OrderItem): string {
-  const labels: Record<string, string> = {
-    completed: '已完成',
-    pending: '待处理',
-    failed: '失败',
-    cancelled: '已取消',
-    refunded: '已退款'
+  switch (order.status) {
+    case 'completed': return t('orders.statusCompleted')
+    case 'pending': return t('orders.statusPending')
+    case 'failed': return t('orders.statusFailed')
+    case 'cancelled': return t('orders.statusCancelled')
+    case 'refunded': return t('orders.statusRefunded')
+    default: return order.rawStatus
   }
-  return labels[order.status] || order.rawStatus
 }
 
 function statusClass(statusValue: string): string {
@@ -110,7 +113,20 @@ function statusClass(statusValue: string): string {
 }
 
 function sourceLabel(sourceType: OrderSourceType): string {
-  return sourceType === 'recharge' ? '充值订单' : '实例账单'
+  return sourceType === 'recharge' ? t('orders.sourceRecharge') : t('orders.sourceInstanceBilling')
+}
+
+function orderTitle(order: OrderItem): string {
+  if (order.sourceType === 'recharge') return t('orders.titleRecharge')
+  switch (order.rawStatus) {
+    case 'newPurchase': return t('orders.titleNewPurchase')
+    case 'renew': return t('orders.titleRenew')
+    case 'upgrade': return t('orders.titleUpgrade')
+    case 'downgrade': return t('orders.titleDowngrade')
+    case 'refund': return t('orders.titleRefund')
+    case 'transfer_fee': return t('orders.titleTransferFee')
+    default: return order.title
+  }
 }
 
 function instanceName(order: OrderItem): string {
@@ -131,7 +147,7 @@ async function loadOrders() {
     orders.value = res.orders as OrderItem[]
     total.value = res.total
   } catch (err: any) {
-    error.value = err?.message || '订单加载失败'
+    error.value = err?.message || t('orders.loadFailed')
   } finally {
     loading.value = false
   }
@@ -172,15 +188,15 @@ onMounted(loadOrders)
   <div ref="revealRoot" class="space-y-5 animate-fade-in">
     <header data-reveal class="page-header flex-col gap-4 sm:flex-row sm:items-center sm:gap-0">
       <div>
-        <h1 class="page-title">订单中心</h1>
-        <p class="page-description">查看充值订单、实例新购、续费和退款账单。</p>
+        <h1 class="page-title">{{ $t('orders.title') }}</h1>
+        <p class="page-description">{{ $t('orders.description') }}</p>
       </div>
       <button class="btn btn-secondary w-full justify-center gap-2 sm:w-auto" :disabled="loading" @click="loadOrders">
         <svg class="h-4 w-4" :class="{ 'animate-spin': loading }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21 12a9 9 0 1 1-2.64-6.36" />
           <polyline points="21 3 21 9 15 9" />
         </svg>
-        刷新
+        {{ $t('orders.refresh') }}
       </button>
     </header>
 
@@ -192,7 +208,7 @@ onMounted(loadOrders)
         <select v-model="status" class="input" @change="applyFilters">
           <option v-for="item in statusOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
         </select>
-        <button class="btn btn-secondary justify-self-start" @click="clearFilters">重置</button>
+        <button class="btn btn-secondary justify-self-start" @click="clearFilters">{{ $t('orders.reset') }}</button>
       </div>
     </section>
 
@@ -206,7 +222,7 @@ onMounted(loadOrders)
     </div>
 
     <section data-reveal class="overflow-hidden rounded-xl border border-themed bg-themed-surface shadow-sm">
-      <div v-if="loading" class="p-10 text-center text-sm text-themed-muted">正在加载订单...</div>
+      <div v-if="loading" class="p-10 text-center text-sm text-themed-muted">{{ $t('orders.loading') }}</div>
       <div v-else-if="orders.length === 0" class="flex flex-col items-center gap-3 px-6 py-14 text-center">
         <div class="flex h-14 w-14 items-center justify-center rounded-2xl border border-themed bg-themed-secondary text-themed-muted">
           <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -214,7 +230,7 @@ onMounted(loadOrders)
             <path d="M9 12h6M9 16h6M9 8h3" />
           </svg>
         </div>
-        <div class="text-sm text-themed-muted">暂无订单记录</div>
+        <div class="text-sm text-themed-muted">{{ $t('orders.empty') }}</div>
       </div>
       <div v-else class="space-y-3 p-4 lg:hidden">
         <div
@@ -224,7 +240,7 @@ onMounted(loadOrders)
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <div class="truncate text-sm font-semibold text-themed" :title="order.title">{{ order.title }}</div>
+              <div class="truncate text-sm font-semibold text-themed" :title="orderTitle(order)">{{ orderTitle(order) }}</div>
               <div class="mt-1 truncate font-mono text-xs text-themed-muted" :title="order.orderNo">{{ order.orderNo }}</div>
             </div>
             <span :class="['inline-flex shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium', statusClass(order.status)]">
@@ -234,25 +250,25 @@ onMounted(loadOrders)
 
           <div class="mt-4 grid grid-cols-2 gap-2 text-sm">
             <div class="rounded-lg bg-themed-secondary px-3 py-2">
-              <div class="text-[11px] font-medium uppercase tracking-wide text-themed-muted">类型</div>
+              <div class="text-[11px] font-medium uppercase tracking-wide text-themed-muted">{{ $t('orders.colType') }}</div>
               <div class="mt-1 truncate text-themed">{{ sourceLabel(order.sourceType) }}</div>
             </div>
             <div class="rounded-lg bg-themed-secondary px-3 py-2">
-              <div class="text-[11px] font-medium uppercase tracking-wide text-themed-muted">金额</div>
+              <div class="text-[11px] font-medium uppercase tracking-wide text-themed-muted">{{ $t('orders.colAmount') }}</div>
               <div class="mt-1 font-mono font-semibold tabular-nums text-themed">{{ formatMoney(order.amount) }}</div>
             </div>
             <div class="rounded-lg bg-themed-secondary px-3 py-2">
-              <div class="text-[11px] font-medium uppercase tracking-wide text-themed-muted">关联实例</div>
+              <div class="text-[11px] font-medium uppercase tracking-wide text-themed-muted">{{ $t('orders.colInstance') }}</div>
               <div class="mt-1 truncate text-themed" :title="instanceName(order)">{{ instanceName(order) }}</div>
             </div>
             <div class="rounded-lg bg-themed-secondary px-3 py-2">
-              <div class="text-[11px] font-medium uppercase tracking-wide text-themed-muted">时间</div>
+              <div class="text-[11px] font-medium uppercase tracking-wide text-themed-muted">{{ $t('orders.colTime') }}</div>
               <div class="mt-1 text-xs text-themed">{{ formatTime(order.createdAt) }}</div>
             </div>
           </div>
 
           <div class="mt-4 flex justify-end">
-            <button class="btn btn-sm btn-secondary" @click="openDetail(order)">详情</button>
+            <button class="btn btn-sm btn-secondary" @click="openDetail(order)">{{ $t('orders.detail') }}</button>
           </div>
         </div>
       </div>
@@ -260,19 +276,19 @@ onMounted(loadOrders)
         <table class="w-full table-fixed divide-y divide-themed">
           <thead class="bg-themed-tertiary">
             <tr class="text-left text-xs font-semibold uppercase tracking-wide text-themed-muted">
-              <th class="w-[25%] px-4 py-3">订单</th>
-              <th class="w-[12%] px-4 py-3">类型</th>
-              <th class="w-[11%] px-4 py-3">金额</th>
-              <th class="w-[11%] px-4 py-3">状态</th>
-              <th class="w-[17%] px-4 py-3">关联实例</th>
-              <th class="w-[16%] px-4 py-3">时间</th>
-              <th class="w-[8%] px-4 py-3 text-right">操作</th>
+              <th class="w-[25%] px-4 py-3">{{ $t('orders.colOrder') }}</th>
+              <th class="w-[12%] px-4 py-3">{{ $t('orders.colType') }}</th>
+              <th class="w-[11%] px-4 py-3">{{ $t('orders.colAmount') }}</th>
+              <th class="w-[11%] px-4 py-3">{{ $t('orders.colStatus') }}</th>
+              <th class="w-[17%] px-4 py-3">{{ $t('orders.colInstance') }}</th>
+              <th class="w-[16%] px-4 py-3">{{ $t('orders.colTime') }}</th>
+              <th class="w-[8%] px-4 py-3 text-right">{{ $t('orders.colActions') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-themed">
             <tr v-for="order in orders" :key="order.id" class="text-sm transition-colors hover:bg-themed-hover">
               <td class="px-4 py-3">
-                <div class="truncate font-medium text-themed" :title="order.title">{{ order.title }}</div>
+                <div class="truncate font-medium text-themed" :title="orderTitle(order)">{{ orderTitle(order) }}</div>
                 <div class="truncate font-mono text-xs text-themed-muted" :title="order.orderNo">{{ order.orderNo }}</div>
               </td>
               <td class="px-4 py-3 text-themed-muted">
@@ -287,7 +303,7 @@ onMounted(loadOrders)
               </td>
               <td class="px-4 py-3 text-themed-muted whitespace-nowrap">{{ formatTime(order.createdAt) }}</td>
               <td class="px-4 py-3 text-right whitespace-nowrap">
-                <button class="btn btn-sm btn-secondary" @click="openDetail(order)">详情</button>
+                <button class="btn btn-sm btn-secondary" @click="openDetail(order)">{{ $t('orders.detail') }}</button>
               </td>
             </tr>
           </tbody>
@@ -295,11 +311,11 @@ onMounted(loadOrders)
       </div>
 
       <div class="flex flex-col items-stretch justify-between gap-3 border-t border-themed px-4 py-3 text-sm text-themed-muted sm:flex-row sm:items-center">
-        <span>共 <span class="font-mono tabular-nums text-themed">{{ total }}</span> 条记录</span>
+        <span>{{ $t('orders.totalRecords', { count: total }) }}</span>
         <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:flex">
-          <button class="btn btn-sm btn-secondary justify-center" :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
+          <button class="btn btn-sm btn-secondary justify-center" :disabled="page <= 1" @click="goPage(page - 1)">{{ $t('orders.prevPage') }}</button>
           <span class="min-w-[72px] text-center font-mono tabular-nums">{{ page }} / {{ totalPages }}</span>
-          <button class="btn btn-sm btn-secondary justify-center" :disabled="page >= totalPages" @click="goPage(page + 1)">下一页</button>
+          <button class="btn btn-sm btn-secondary justify-center" :disabled="page >= totalPages" @click="goPage(page + 1)">{{ $t('orders.nextPage') }}</button>
         </div>
       </div>
     </section>
@@ -309,7 +325,7 @@ onMounted(loadOrders)
       <aside class="flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-themed bg-themed-surface shadow-2xl">
         <div class="flex items-start justify-between gap-4 border-b border-themed bg-themed p-6">
           <div class="min-w-0">
-            <h2 class="truncate text-xl font-semibold text-themed">{{ selectedOrder.title }}</h2>
+            <h2 class="truncate text-xl font-semibold text-themed">{{ orderTitle(selectedOrder) }}</h2>
             <p class="mt-1 truncate font-mono text-sm text-themed-muted">{{ selectedOrder.orderNo }}</p>
           </div>
           <button class="btn btn-sm btn-secondary gap-1.5" @click="selectedOrder = null">
@@ -317,26 +333,26 @@ onMounted(loadOrders)
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-            关闭
+            {{ $t('orders.close') }}
           </button>
         </div>
 
-        <div v-if="detailLoading" class="p-6 text-sm text-themed-muted">正在加载详情...</div>
+        <div v-if="detailLoading" class="p-6 text-sm text-themed-muted">{{ $t('orders.detailLoading') }}</div>
         <dl v-else class="grid gap-px bg-themed-secondary p-px text-sm">
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">状态</dt><dd class="col-span-2 text-themed"><span :class="['inline-flex rounded-full border px-2 py-0.5 text-xs font-medium', statusClass(selectedOrder.status)]">{{ statusLabel(selectedOrder) }}</span></dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">金额</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.amount) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">实际到账</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ selectedOrder.actualAmount === null ? '-' : formatMoney(selectedOrder.actualAmount) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">手续费</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.fee) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">支付渠道</dt><dd class="col-span-2 text-themed">{{ selectedOrder.provider?.name || selectedOrder.paymentMethod || '-' }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">交易号</dt><dd class="col-span-2 break-all font-mono text-themed">{{ selectedOrder.tradeNo || '-' }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">关联实例</dt><dd class="col-span-2 text-themed">{{ instanceName(selectedOrder) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">账期</dt><dd class="col-span-2 text-themed">{{ selectedOrder.months ? `${selectedOrder.months} 个月` : '-' }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">开始时间</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.periodStart) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">结束时间</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.periodEnd) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">创建时间</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.createdAt) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">完成时间</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.completedAt) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">失败原因</dt><dd class="col-span-2 text-themed">{{ selectedOrder.failReason || '-' }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">备注</dt><dd class="col-span-2 text-themed">{{ selectedOrder.remark || '-' }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldStatus') }}</dt><dd class="col-span-2 text-themed"><span :class="['inline-flex rounded-full border px-2 py-0.5 text-xs font-medium', statusClass(selectedOrder.status)]">{{ statusLabel(selectedOrder) }}</span></dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldAmount') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.amount) }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldActualAmount') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ selectedOrder.actualAmount === null ? '-' : formatMoney(selectedOrder.actualAmount) }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldFee') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.fee) }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldChannel') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.provider?.name || selectedOrder.paymentMethod || '-' }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldTradeNo') }}</dt><dd class="col-span-2 break-all font-mono text-themed">{{ selectedOrder.tradeNo || '-' }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldInstance') }}</dt><dd class="col-span-2 text-themed">{{ instanceName(selectedOrder) }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldPeriod') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.months ? $t('orders.monthsCount', { count: selectedOrder.months }) : '-' }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldPeriodStart') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.periodStart) }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldPeriodEnd') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.periodEnd) }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldCreatedAt') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.createdAt) }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldCompletedAt') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.completedAt) }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldFailReason') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.failReason || '-' }}</dd></div>
+          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldRemark') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.remark || '-' }}</dd></div>
         </dl>
       </aside>
     </div>
