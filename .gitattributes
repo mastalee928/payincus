@@ -10,6 +10,30 @@
 Dockerfile text eol=lf
 docker-compose*.yml text eol=lf
 
+# Source and text files must always use LF so that byte-level guard assertions
+# (server/scripts/test-*.ts, matching "\n" exactly) behave identically on every
+# platform, including Windows checkouts with core.autocrlf=true.
+*.ts text eol=lf
+*.tsx text eol=lf
+*.vue text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.svg text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.sql text eol=lf
+*.prisma text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+*.example text eol=lf
+
 # Keep Windows batch files with CRLF
 *.bat text eol=crlf
 *.cmd text eol=crlf

@@ -59,6 +59,11 @@
 ## 4. 🛡️ 守卫测试纪律（本仓库的命门）
 
 `server/package.json` 里有 **200+ 个独立 `test-*-guards.ts`**。它们把关键业务/前端结构“钉死”，`pnpm test` 会跑全套（client+server type-check + 全部守卫）。**任何改动必须让相关守卫通过。**
+- **总入口**：`pnpm test` → `node scripts/run-tests.mjs`，把根 `package.json` 里的 `testGuards` 数组**逐条 spawn** 执行（169 条 = client/server type-check 各 1 条 + 167 条 server 守卫，顺序即数组顺序）。
+  - 为什么不再用「`&&` 串成一条超长脚本」：Windows 上脚本串会被 shell **静默截断**（本机实测 Git Bash `bash -c` 传 9250 字符只跑了 268/302 条、stderr 为空、退出码 0；cmd.exe 超过 8191 字符则直接抛 `The command line is too long.`），而 **pnpm 对不存在的脚本返回 0**（只打印 `None of the selected packages has a "test:ins" script`）——两者叠加，v1.6.4 曾出现「漏跑 20 条却整体全绿」。
+  - `pnpm test:check` 只校验清单（每条命令都能解析到真实脚本 + server 侧 `test:*` 全覆盖），`pnpm test:list` 打印清单与总数。
+  - 单跑 / 分片：`pnpm test -- --only <关键字>`、`pnpm test -- --shard 1/4`；失败会打印**守卫名 + 尾部日志 + 日志路径**（`logs/test-run-*/`，已在 .gitignore），并整体**非零退出**。
+  - **新增守卫必须同时加进 `testGuards`**；若它需要活体环境或已构建的 dist（集成/流程类），登记到 `scripts/run-tests.mjs` 的 `EXCLUDED_FROM_SUITE` 并写原因。未归类的 `test:*` 会让 `pnpm test` / `pnpm test:check` 直接报错。
 
 - **全量**（慢，发版前跑）：`pnpm test`
 - **单个**：`pnpm --filter server test:<guard-name>`
@@ -84,7 +89,7 @@
 | 只构建前端 / 后端 | `pnpm build:client` / `pnpm build:server` |
 | Lint（检查 / 自动修）| `pnpm lint` / `pnpm lint:fix` |
 | 类型检查 | `pnpm --filter client type-check` · `pnpm --filter server type-check` |
-| 全套守卫 | `pnpm test` |
+| 全套守卫 | `pnpm test`（= `node scripts/run-tests.mjs`，逐条 spawn，失败即非零）|
 | 文档站开发 / 构建 | `pnpm docs:dev` / `pnpm docs:build` |
 
 ---
