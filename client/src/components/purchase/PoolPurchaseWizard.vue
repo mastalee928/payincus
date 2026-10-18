@@ -149,7 +149,6 @@ onMounted(load)
             <button v-for="value in visibleRegions" :key="value.key" type="button" class="purchase-region-option" :class="{ 'is-selected': value.key === selectedPurchaseRegion?.key }" :aria-pressed="value.key === selectedPurchaseRegion?.key" :disabled="poolPurchaseRegionStock(value) === 0" @click="selectPurchaseRegion(value)">
               <span class="purchase-region-top"><FlagIcon v-if="value.countryCode" :code="value.countryCode" size="sm" /><Globe2 v-else :size="19" aria-hidden="true" /><span class="purchase-choice-indicator"><Check v-if="value.key === selectedPurchaseRegion?.key" :size="12" :stroke-width="2.5" aria-hidden="true" /></span></span>
               <span class="purchase-region-name">{{ value.name }}</span>
-              <span class="purchase-stock" :class="{ 'is-available': poolPurchaseRegionStock(value) > 0 }"><span aria-hidden="true"></span>{{ poolPurchaseRegionStock(value) ? t('poolPurchase.stock', { count: poolPurchaseRegionStock(value) }) : t(value.regions.length ? 'poolPurchase.soldOut' : 'poolPurchase.notListed') }}</span>
             </button>
           </TransitionGroup>
           <p v-else class="purchase-filter-empty">{{ t('poolPurchase.noMatchingRegions') }}</p>
@@ -265,7 +264,7 @@ onMounted(load)
 .purchase-page .purchase-region-search input { width: 100%; min-width: 0; height: 40px; padding: 8px 0; border: 0 !important; border-radius: 0; background: transparent !important; color: var(--text-primary); font-size: 12px; box-shadow: none !important; outline: none; }
 .purchase-region-search:focus-within { outline: 2px solid var(--border-hover); outline-offset: 2px; border-color: var(--text-secondary); }
 .purchase-region-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 175px), 1fr)); gap: 10px; }
-.purchase-region-option { display: flex; flex-direction: column; gap: 12px; padding: 15px; border: 1px solid var(--border-color); border-radius: 12px; text-align: left; background: var(--bg-elevated); transition: border-color 150ms, background 150ms; }
+.purchase-region-option { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--border-color); border-radius: 12px; text-align: left; background: var(--bg-elevated); transition: border-color 150ms, background 150ms; }
 .purchase-region-top, .purchase-config-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .purchase-region-name { flex: 1; font-size: 13px; font-weight: 550; line-height: 1.6; overflow-wrap: anywhere; }
 .purchase-region-option:hover:not(:disabled), .purchase-config-option:hover:not(:disabled) { border-color: var(--text-secondary); }
