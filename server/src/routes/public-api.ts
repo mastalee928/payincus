@@ -2086,6 +2086,10 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
             ticketId: result.ticketId,
             username: apiToken.user.username,
             subject,
+            content,
+            category,
+            priority,
+            attachmentCount: uploadedAttachments.length,
             hostName: host?.name || '系统',
             instanceName: instance?.name || '无'
           }).catch(err => console.warn('[PublicAPI] 管理员工单告警发送失败:', err))

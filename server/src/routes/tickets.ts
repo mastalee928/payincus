@@ -260,6 +260,10 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
             ticketId: result.ticketId,
             username: user.username,
             subject,
+            content,
+            category: category || 'general',
+            priority: priority || 'normal',
+            attachmentCount: uploadedAttachments.length,
             hostName: host?.name || '系统',
             instanceName: instance?.name || '无'
           }).catch(err => console.warn('[Tickets] 管理员工单告警发送失败:', err))

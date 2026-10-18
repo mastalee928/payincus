@@ -159,17 +159,60 @@ async function dispatch(category: AdminAlertCategory, title: string, lines: Arra
 
 // ==================== 工单 ====================
 
+const TICKET_CATEGORY_LABELS: Record<string, string> = {
+  general: '常规',
+  technical: '技术',
+  billing: '账单',
+  refund: '退款',
+  abuse: '举报',
+  account: '账号',
+  other: '其他'
+}
+
+const TICKET_PRIORITY_LABELS: Record<string, string> = {
+  low: '低',
+  normal: '普通',
+  high: '高',
+  urgent: '紧急'
+}
+
+function ticketCategoryLabel(value: string | null | undefined): string {
+  const raw = (value ?? '').trim()
+  if (!raw) return ''
+  return TICKET_CATEGORY_LABELS[raw.toLowerCase()] || raw
+}
+
+function ticketPriorityLabel(value: string | null | undefined): string {
+  const raw = (value ?? '').trim()
+  if (!raw) return ''
+  return TICKET_PRIORITY_LABELS[raw.toLowerCase()] || raw
+}
+
 export async function notifyAdminTicketCreated(input: {
   ticketId: number
   username: string
   subject: string
+  content?: string | null
+  category?: string | null
+  priority?: string | null
+  attachmentCount?: number
   hostName?: string | null
   instanceName?: string | null
 }): Promise<void> {
+  const metaParts: string[] = []
+  const categoryLabel = ticketCategoryLabel(input.category)
+  if (categoryLabel) metaParts.push(`分类：${categoryLabel}`)
+  const priorityLabel = ticketPriorityLabel(input.priority)
+  if (priorityLabel) metaParts.push(`优先级：${priorityLabel}`)
+  const excerpt = clip(input.content, ADMIN_ALERT_EXCERPT_MAX_CHARS)
+  const attachmentCount = input.attachmentCount || 0
   await dispatch('ticket', `🎫 新工单 #${input.ticketId}`, [
     `用户：${clip(input.username, 80)}`,
     `主题：${clip(input.subject, 120)}`,
+    metaParts.length > 0 ? metaParts.join(' ｜ ') : null,
     `节点：${clip(input.hostName || '系统', 80)} ｜ 实例：${clip(input.instanceName || '无', 80)}`,
+    excerpt ? `内容：${excerpt}` : (attachmentCount > 0 ? '内容：未填写文字，见附件' : null),
+    attachmentCount > 0 ? `附件：${attachmentCount} 张图片` : null,
     `时间：${formatTime()}`
   ])
 }

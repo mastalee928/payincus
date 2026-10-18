@@ -125,15 +125,23 @@ assert.ok(
   ticketsSource.includes('void notifyAdminTicketCreated({') &&
     ticketsSource.includes('void notifyAdminTicketReplied({') &&
     ticketsSource.includes('void notifyAdminTicketClosed({') &&
-    ticketsSource.includes('excerpt: content,'),
-  'user ticket create, reply and close must push admin ticket alerts with reply excerpt'
+    ticketsSource.includes('excerpt: content,') &&
+    ticketsSource.includes('attachmentCount: uploadedAttachments.length,'),
+  'user ticket create, reply and close must push admin ticket alerts with reply excerpt and attachment count'
+)
+assert.ok(
+  adminAlertsSource.includes('内容：') &&
+    adminAlertsSource.includes('分类：') &&
+    adminAlertsSource.includes('input.content'),
+  'admin ticket creation alerts must include category, content excerpt and attachment count'
 )
 
 const publicApiSource = readServerFile('src/routes/public-api.ts')
 assert.ok(
   publicApiSource.includes('void notifyAdminTicketCreated({') &&
-    publicApiSource.includes('void notifyAdminTicketReplied({'),
-  'public API ticket create and reply must push admin ticket alerts'
+    publicApiSource.includes('void notifyAdminTicketReplied({') &&
+    publicApiSource.includes('attachmentCount: uploadedAttachments.length,'),
+  'public API ticket create and reply must push admin ticket alerts with attachment count'
 )
 
 const workerSource = readServerFile('src/workers/hostOfflineAlertWorker.ts')
