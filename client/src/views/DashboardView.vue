@@ -17,6 +17,7 @@ import { freeSiteCopy } from '@/utils/freeSiteFun'
 import { getVipBadgeInlineStyle, normalizeVipBadgeStyle, type VipBadgeStyle } from '@/utils/vipBadge'
 import { instanceCreatePath, instanceDetailPath, instancesPath, isAdminEntry } from '@/utils/app-paths'
 import { useReveal } from '@/composables/useReveal'
+import { ociMachineShape } from '@/utils/poolCatalog'
 
 // 为 KeepAlive include 匹配定义组件名称（必须在所有 import 之后）
 defineOptions({ name: 'DashboardView' })
@@ -96,11 +97,7 @@ function formatImageName(image: string, imageName?: string | null): string {
 // 机型标签：按宿主机规格（resourcePreset，缺失时看 architecture）映射到实际机型名；
 // 拿不到规格时不显示徽标，也不回退到 LXC/KVM 这类对客户无意义的类型名。
 function getMachineShapeLabel(instance: Instance): string {
-  const preset = instance.host?.resourcePreset || ''
-  const architecture = instance.host?.architecture || ''
-  if (preset.startsWith('ARM') || architecture === 'aarch64') return 'VM.Standard.A1.Flex'
-  if (preset === 'E2' || architecture === 'x86_64') return 'VM.Standard.E2.1.Micro'
-  return ''
+  return ociMachineShape(instance.host?.resourcePreset, instance.host?.architecture) ?? ''
 }
 
 function getHostName(instance: Instance): string {

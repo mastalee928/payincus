@@ -63,3 +63,11 @@ export function buildPoolInstanceNames(prefix: string, quantity: number): string
   const width = Math.max(2, String(count).length)
   return Array.from({ length: count }, (_, index) => `${prefix}-${String(index + 1).padStart(width, '0')}`)
 }
+
+/** OCI 机型名（客户可见，中英均显示该英文）：E2 → VM.Standard.E2.1.Micro；ARM → VM.Standard.A1.Flex。取不到规格时返回 null。 */
+export function ociMachineShape(resourcePreset?: string | null, architecture?: string | null): string | null {
+  const preset = resourcePreset || ''
+  if (preset.startsWith('ARM') || architecture === 'aarch64') return 'VM.Standard.A1.Flex'
+  if (preset === 'E2' || architecture === 'x86_64') return 'VM.Standard.E2.1.Micro'
+  return null
+}

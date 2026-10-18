@@ -29,13 +29,14 @@ import {
   type PoolCatalogProduct,
   type PoolCatalogRegion
 } from '@/utils/poolCatalog'
+import { localizePoolRegionName } from '@/utils/poolRegionCatalog'
 
 defineOptions({ name: 'CheckoutView' })
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const themeStore = useThemeStore()
 const cartStore = useCartStore()
 const configStore = useConfigStore()
@@ -117,6 +118,13 @@ function findLive(poolPriceId: number): { region: PoolCatalogRegion; product: Po
   }
   return null
 }
+
+/** 区域行标题按当前语言展示：优先活体目录名（「机型分组 · 地区」映射回静态目录），目录外原样返回。 */
+const rowRegionLabel = (row: CheckoutRow) => localizePoolRegionName(
+  row.region?.name ?? row.item.snapshot.regionName,
+  row.region?.countryCode ?? row.item.snapshot.countryCode,
+  locale.value
+)
 
 const rows = computed<CheckoutRow[]>(() => {
   const seenNames = new Set<string>()
@@ -453,7 +461,7 @@ function onPrimaryAction(): void {
               <div class="min-w-0">
                 <h3 :id="`cart-title-${row.item.key}`" class="checkout-region">
                   <FlagIcon v-if="row.region?.countryCode || row.item.snapshot.countryCode" :code="row.region?.countryCode || row.item.snapshot.countryCode!" size="sm" class="shrink-0" />
-                  <span>{{ row.region?.name || row.item.snapshot.regionName }}</span>
+                  <span>{{ rowRegionLabel(row) }}</span>
                 </h3>
                 <div class="checkout-item-subtitle">
                   <span class="checkout-preset">{{ presetLabel(row.item.snapshot.resourcePreset) }}</span>
@@ -470,7 +478,7 @@ function onPrimaryAction(): void {
                   <p v-if="row.live && row.live.setupFee > 0">{{ t('cart.line.setup') }}<span>¥{{ formatPublicPrice(row.live.setupFee) }}</span></p>
                 </div>
               </div>
-              <button type="button" class="checkout-remove" :aria-label="`${t('cart.line.remove')} ${row.region?.name || row.item.snapshot.regionName}`" :title="t('cart.line.remove')" @click="cartStore.remove(row.item.key)">
+              <button type="button" class="checkout-remove" :aria-label="`${t('cart.line.remove')} ${rowRegionLabel(row)}`" :title="t('cart.line.remove')" @click="cartStore.remove(row.item.key)">
                 <Trash2 :size="17" :stroke-width="1.7" aria-hidden="true" />
               </button>
             </div>

@@ -10,7 +10,7 @@ import PublicHostOffer from '@/components/public/PublicHostOffer.vue'
 import { usePageSeo } from '@/composables/usePageSeo'
 import { useAuthStore } from '@/stores/auth'
 import { useBrand } from '@/composables/useBrand'
-import { buildPoolPurchaseRegions } from '@/utils/poolRegionCatalog'
+import { buildPoolPurchaseRegions, poolRegionLocalizedName, type PoolPurchaseRegion } from '@/utils/poolRegionCatalog'
 import { continentOf, groupByContinent } from '@/utils/countryContinent'
 import type { PoolCatalogRegion } from '@/utils/poolCatalog'
 import { dashboardPath, helpPath, loginPath } from '@/utils/app-paths'
@@ -18,7 +18,7 @@ import { dashboardPath, helpPath, loginPath } from '@/utils/app-paths'
 defineOptions({ name: 'PortalView' })
 
 const router = useRouter()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const authStore = useAuthStore()
 const brand = useBrand()
 const regions = ref<PoolCatalogRegion[]>([])
@@ -28,6 +28,7 @@ const continent = ref('all')
 const visibleCount = ref(6)
 
 const locations = computed(() => buildPoolPurchaseRegions(regions.value))
+const locationLabel = (value: PoolPurchaseRegion) => poolRegionLocalizedName(value, locale.value)
 const offers = computed(() => locations.value.flatMap(location =>
   location.regions.flatMap(region => region.products.map(product => ({
     location, regionId: region.id, product
@@ -134,7 +135,7 @@ onMounted(loadCatalog)
             <li v-for="offer in visibleOffers" :key="offer.product.id">
               <PublicHostOffer
                 :product="offer.product" :region-id="offer.regionId"
-                :name="offer.location.name" :country-code="offer.location.countryCode"
+                :name="locationLabel(offer.location)" :country-code="offer.location.countryCode"
               />
             </li>
           </TransitionGroup>

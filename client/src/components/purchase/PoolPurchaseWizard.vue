@@ -14,10 +14,10 @@ import { useToast } from '@/stores/toast'
 import { translateError } from '@/utils/errorHandler'
 import { validateName } from '@/utils/validation'
 import { continentOf, groupByContinent, type ContinentCode } from '@/utils/countryContinent'
-import { buildPoolPurchaseRegions, poolPurchaseRegionStock, type PoolPurchaseRegion } from '@/utils/poolRegionCatalog'
+import { buildPoolPurchaseRegions, poolPurchaseRegionStock, poolRegionLocalizedName, poolRegionMatchesSearch, type PoolPurchaseRegion } from '@/utils/poolRegionCatalog'
 import { architectureOfPreset, buildPoolInstanceNames, formatMemoryMiB, formatPublicPrice, presetLabel, type PoolCatalogRegion } from '@/utils/poolCatalog'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const route = useRoute(), router = useRouter(), auth = useAuthStore(), cart = useCartStore(), toast = useToast()
 const regions = ref<PoolCatalogRegion[]>([])
 const regionId = ref<number | null>(null), productId = ref<number | null>(null)
@@ -38,6 +38,8 @@ const continentFilter = ref<ContinentCode | 'all' | null>(null)
 const regionSearch = ref('')
 const purchaseRegions = computed(() => buildPoolPurchaseRegions(regions.value))
 const selectedPurchaseRegion = computed(() => purchaseRegions.value.find(value => value.regions.some(group => group.id === regionId.value)))
+const regionLabel = (value: PoolPurchaseRegion) => poolRegionLocalizedName(value, locale.value)
+const selectedRegionLabel = computed(() => selectedPurchaseRegion.value ? regionLabel(selectedPurchaseRegion.value) : '')
 const configurations = computed(() => selectedPurchaseRegion.value?.regions.flatMap(group => group.products.map(value => ({ ...value, regionId: group.id }))) ?? [])
 const continents = computed(() => groupByContinent(purchaseRegions.value))
 const continentOptions = computed(() => [
@@ -51,7 +53,7 @@ const visibleRegions = computed(() => {
   const query = regionSearch.value.trim().toLocaleLowerCase()
   return purchaseRegions.value.filter(value => (!query && currentContinent.value !== 'all'
     ? continentOf(value.countryCode) === currentContinent.value
-    : true) && (!query || value.name.toLocaleLowerCase().includes(query)))
+    : true) && (!query || poolRegionMatchesSearch(value, query)))
 })
 const hasStock = computed(() => regions.value.some(value => regionStock(value) > 0))
 const selectedImageLabel = computed(() => images.value.find(value => value.value === image.value)?.label ?? '')
@@ -148,7 +150,7 @@ onMounted(load)
           <TransitionGroup v-if="visibleRegions.length" name="purchase-options" tag="div" class="purchase-region-grid">
             <button v-for="value in visibleRegions" :key="value.key" type="button" class="purchase-region-option" :class="{ 'is-selected': value.key === selectedPurchaseRegion?.key }" :aria-pressed="value.key === selectedPurchaseRegion?.key" :disabled="poolPurchaseRegionStock(value) === 0" @click="selectPurchaseRegion(value)">
               <span class="purchase-region-top"><FlagIcon v-if="value.countryCode" :code="value.countryCode" size="sm" /><Globe2 v-else :size="19" aria-hidden="true" /><span class="purchase-choice-indicator"><Check v-if="value.key === selectedPurchaseRegion?.key" :size="12" :stroke-width="2.5" aria-hidden="true" /></span></span>
-              <span class="purchase-region-name">{{ value.name }}</span>
+              <span class="purchase-region-name">{{ regionLabel(value) }}</span>
             </button>
           </TransitionGroup>
           <p v-else class="purchase-filter-empty">{{ t('poolPurchase.noMatchingRegions') }}</p>
@@ -209,7 +211,7 @@ onMounted(load)
         <div class="purchase-summary-section">
           <h2 id="purchase-summary-title">{{ t('poolPurchase.summary') }}</h2>
           <template v-if="product">
-            <div class="purchase-selected-region"><FlagIcon v-if="region?.countryCode" :code="region.countryCode" size="sm" class="shrink-0" /><span>{{ selectedPurchaseRegion?.name }}</span></div>
+            <div class="purchase-selected-region"><FlagIcon v-if="region?.countryCode" :code="region.countryCode" size="sm" class="shrink-0" /><span>{{ selectedRegionLabel }}</span></div>
             <span class="purchase-selected-preset">{{ presetLabel(product.resourcePreset) }}</span>
             <dl class="purchase-summary-specs">
               <div><dt>{{ t('cart.specs.cpu') }}</dt><dd>{{ t('cart.specs.cores', { count: product.cpu / 100 }) }}</dd></div>
