@@ -348,6 +348,10 @@ defineExpose({ refresh })
         <div class="min-w-0">
           <RouterLink :to="`/admin/resources/hosts/${host.id}`" class="text-sm font-semibold text-blue-600 dark:text-blue-400 break-all">{{ host.name }}</RouterLink>
           <span class="ml-2 text-xs text-themed-muted">#{{ host.id }}</span>
+          <p v-if="compactView" class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-themed-muted">
+            <span>{{ t('hostInventory.publicIp') }}: <span class="font-mono text-themed">{{ host.publicIp || '—' }}</span></span>
+            <span v-if="host.accountLabel" class="break-words">{{ t('onboarding.accountLabel') }}: <span class="text-themed">{{ host.accountLabel }}</span></span>
+          </p>
           <dl v-if="!compactView" class="mt-2 text-xs space-y-1">
             <div class="flex flex-wrap gap-x-2"><dt class="text-themed-muted">{{ t('hostInventory.publicIp') }}</dt><dd class="font-mono text-themed break-all">{{ host.publicIp || '—' }}</dd></div>
             <p v-if="host.publicIpSync?.supported" class="text-xs" :class="host.publicIpSync.blocked || host.publicIpSync.status === 'failed' ? 'text-amber-600 dark:text-amber-400' : 'text-themed-muted'">{{ t('hostIpSync.status.' + host.publicIpSync.status) }}</p>
