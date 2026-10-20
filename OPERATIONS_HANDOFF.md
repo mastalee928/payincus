@@ -49,3 +49,5 @@ curl -fsS http://127.0.0.1:3001/api/health
 ```
 
 详细安装说明见 [一键安装](docs-site/docs/deployment/one-click-install.md)，故障换机、隔离恢复、协议切换与 IP 变更见 [主机接入与管理](docs/host-pool.md)。
+
+v1.6.8 起的阿里云 OSS 平台备份、旧版执行器补装、恢复保护和 CLI 入口见 [OSS 平台备份](docs-site/docs/deployment/oss-backup.md)。自动备份默认关闭；真实 OSS 测试桶验收与生产恢复演练必须分别记录，不能用本地存储替身的 CI 结果代替。

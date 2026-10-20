@@ -8,16 +8,54 @@ This page is generated from Git tags and commits to show system version history.
 
 ## Latest Release State / 最新发布状态
 
-- Latest Release Commit / 最新发布提交: `fa716ee69`
-- Commit date / 提交日期: 2026-10-18
-- Commit subject / 提交说明: chore: prepare the v1.6.7 release
-- Latest tag / 最新 tag: `v1.6.7`
+- Latest Release Commit / 最新发布提交: `44d26132f`
+- Commit date / 提交日期: 2026-10-20
+- Commit subject / 提交说明: feat: add encrypted OSS platform backup and recovery for v1.6.8
+- Latest tag / 最新 tag: `v1.6.8`
 
 ## Unreleased Changes / 未发布变更
 
 - This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
 
 ## Historical Versions / 历史版本
+
+## v1.6.8
+
+- Release commit / 发布提交: `44d26132f`
+- Commit date / 提交日期: 2026-10-20
+- Commit subject / 提交说明: feat: add encrypted OSS platform backup and recovery for v1.6.8
+
+
+新增阿里云 OSS 平台级加密备份与恢复，管理员入口位于「系统 → OAuth」下方。同时包含上一版发布后的客户订单中心三语化与英文导航文案调整。
+
+### 新功能
+
+- 选择 OSS 地域，分页浏览存储桶和目录，新建私有 Standard 桶，确认名称后删除未使用的空桶。
+- 自定义备份目录与独立加密密码，保留最新 1/3/5 份，每 1/3/6/12/24/72 小时自动备份。
+- 备份完整平台数据库、机器池分组和宿主登记、运行环境与受管证书；本机管理网关同时保护 WireGuard、SSH 管理身份及节点地址登记。
+- 上传后下载核对密文，再标记成功并执行保留清理；支持手动备份和任务进度。
+- 恢复预检、二次确认、数据库与文件回退、恢复保护模式，以及后台无法登录时使用的 root 命令行入口。
+
+### 恢复保护
+
+- 加密包采用 scrypt 与 AES-256-GCM，完整认证后提取文件；错误密码、篡改、路径越界及版本不匹配时拒绝恢复。
+- 恢复暂停业务接口及后台任务，失效旧会话/API 凭据，并隔离机器池库存，等待核对真实支付、宿主和实例后再恢复运营。
+- 备份与受限 systemd OTA 任务互斥，私有后端维持单实例；云端密码和密钥不回传至浏览器。
+- 自动备份默认关闭，须保存并测试连接后启用。
+
+### 使用边界
+
+- 执行器要求标准 Linux/systemd 部署和本机 PostgreSQL；恢复要求相同应用版本、迁移历史和 PG 大版本。平台备份不包含客户 VPS 磁盘或外部图床/邮箱原件。
+- 换 IP 后需人工核对域名、第三方回调、网关身份和节点连接，WireGuard 自动重连不在本版范围内。
+- 严格按份数保留暂不支持启用/曾启用版本控制、WORM 或启用生命周期规则的桶。
+- 从旧版升级后应检查备份执行器是否已安装；旧 OTA 进程可能不会调用新版新增的安装步骤，详见 [部署说明](https://mastalee928.github.io/payincus/deployment/oss-backup)。
+- **真实阿里云 OSS 权限、云端上传和云端故障场景尚待专用测试桶验收。** 本地 SDK 回归与 CI 的本地存储替身不替代该证据。
+
+### 验证
+
+- 本地全量 172 项检查、双端构建、后端编译与 dist 边界检查通过；Lint 0 错误。
+- 发布工作流先验证双架构真实发行包首装，再执行本机数据库备份、隔离预检、恢复、回退、恢复保护登录和主密钥一致性演练；OSS 传输使用本地文件替身。
+- GitHub Release、CI 验证与生产 OTA 属于不同证据；本次发版不代表已经操作生产主控。
 
 ## v1.6.7
 
