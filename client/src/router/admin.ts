@@ -117,6 +117,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'nav.oauth', title: 'OAuth' }
   },
   {
+    path: '/admin/aliyun-oss',
+    name: 'admin-aliyun-oss',
+    component: () => import('@/views/admin/AliyunOssView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'nav.aliyunOss', title: '阿里云OSS' }
+  },
+  {
     path: '/admin/gift-cards',
     name: 'admin-gift-cards',
     component: () => import('@/views/admin/GiftCardsView.vue'),

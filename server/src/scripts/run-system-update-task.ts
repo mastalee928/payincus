@@ -851,6 +851,8 @@ async function main(): Promise<void> {
     databaseBackupPath = await backupDatabase(backupDir, timestamp)
     databaseMigrationAttempted = true
     await deployDatabaseMigrations()
+    const backupInstaller = join(await isAtomicReleaseLayout() ? join(installDir, 'current') : installDir, 'scripts/install-platform-backup.sh')
+    if (existsSync(backupInstaller)) await run('bash', [backupInstaller], { timeoutMs: 60000 })
     await verifyUpdatedRuntime(Boolean(artifact))
 
     await updateTask({

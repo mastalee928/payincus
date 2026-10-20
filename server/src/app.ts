@@ -11,6 +11,9 @@ import { startHostOfflineAlertWorker, stopHostOfflineAlertWorker } from './worke
 import { notifyAdminInstanceCreateFailed } from './lib/admin-alerts.js'
 // 确保环境变量被加载（必须在最前面）
 import './config/env.js'
+import adminAliyunOssRoutes from './routes/admin-aliyun-oss.js'
+import { recoveryHeld, recoveryRequestAllowed } from './services/platform-backup-core.js'
+import { startPlatformBackupScheduler, stopPlatformBackupScheduler } from './services/platform-backup-scheduler.js'
 
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import cors from '@fastify/cors'
@@ -504,8 +507,24 @@ fastify.decorate('authenticateUser', async function (request, reply) {
 
 // 健康检查
 fastify.get('/api/health', async () => {
-  return { status: 'ok', timestamp: new Date().toISOString() }
+  return { status: 'ok', recoveryHeld: recoveryHeld(), timestamp: new Date().toISOString() }
 })
+
+// The recovery marker is outside the restored database. Block all ordinary
+// API/agent/callback/WebSocket traffic until reconciliation is acknowledged.
+fastify.addHook('onRequest', async (request, reply) => {
+  if (!recoveryHeld()) return
+  const path = request.url.split('?')[0]
+  // The password login page loads both public settings and providers together;
+  // keep its captcha/2FA flow usable without enabling an OAuth callback.
+  if (path === '/api/oauth/providers' && (request.method === 'GET' || request.method === 'HEAD')) return reply.send({ providers: [] })
+  if (recoveryRequestAllowed(request.method, request.url)) return
+  if (!path.startsWith('/api/')) return
+  reply.header('Retry-After', '60')
+  return reply.code(503).send({ code: 'PLATFORM_RECOVERY_HELD', error: 'Platform recovery awaits administrator reconciliation' })
+})
+await fastify.register(adminAliyunOssRoutes, { prefix: '/api/admin/aliyun-oss' })
+fastify.addHook('onClose', async () => { stopPlatformBackupScheduler() })
 
 // 注册 API 路由
 await fastify.register(authRoutes, { prefix: '/api/auth' })
@@ -737,6 +756,13 @@ const start = async (): Promise<void> => {
       jwtCheck.warnings.forEach(w => console.warn(`   - ${w}`))
     }
 
+    // Do not run startup mutations or workers against a database awaiting review.
+    if (recoveryHeld()) {
+      await fastify.listen({ port: parseInt(process.env.PORT || '3001', 10), host: process.env.HOST || '127.0.0.1' })
+      console.log('Platform recovery protection is active; background jobs are disabled.')
+      return
+    }
+
     // 初始化 Prisma 数据库
     // 支持通过环境变量 RESET_DATABASE=true 清空数据库
     await initPrismaDatabase({
@@ -754,6 +780,8 @@ const start = async (): Promise<void> => {
 
     await fastify.listen({ port, host })
     console.log(`🚀 Incudal 服务已启动: http://localhost:${port}`)
+
+    startPlatformBackupScheduler()
 
     // 启动流量调度器
     const { startTrafficScheduler } = await import('./services/traffic-scheduler.js')

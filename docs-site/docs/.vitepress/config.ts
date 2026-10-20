@@ -70,6 +70,7 @@ const zhSidebar = [
       { text: '手动部署', link: '/deployment/manual-install' },
       { text: 'Nginx 分离部署', link: '/deployment/nginx' },
       { text: 'systemd 服务', link: '/deployment/systemd' },
+      { text: 'OSS 平台备份', link: '/deployment/oss-backup' },
       { text: '环境变量', link: '/deployment/environment' }
     ]
   },

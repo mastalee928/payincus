@@ -1,9 +1,11 @@
+import { zhTW as ossMessages } from './aliyun-oss'
 // 繁體中文（台灣）語言檔案
 // Traditional Chinese (Taiwan) - 使用台灣用語習慣
 import en from './en'
 
 import { zhTW as ipv6Delivery } from './ipv6-delivery'
 const zhTW = {
+    oss: ossMessages,
   ipv6Delivery,
   hostIpSync: {
     title: '偵測與同步 IP', description: '預設每分鐘偵測公網 IPv4。更換 IP 後，透過管理通道確認機器、轉發及公網入口，再更新機器池、節點與使用者實例位址，通常需 1–3 分鐘。',
@@ -383,6 +385,7 @@ const zhTW = {
         packages: '方案',
         helpManage: '說明',
         oauth: 'OAuth',
+        aliyunOss: '阿里雲OSS',
         broadcast: '公告',
         paymentProviders: '支付渠道',
         billing: '計費管理',

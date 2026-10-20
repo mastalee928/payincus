@@ -1,6 +1,7 @@
 import type { HostSshConnection, OnboardingCredentials, CreateOnboardingRequest, OnboardingListResponse, OnboardingGatewayStatus, HostRegionGroup, HostMachineGroup, HostInventoryResponse, HostInventoryQuery, UpdateHostGroupsRequest, HostPoolPrice, HostPoolPriceInput, HostPoolInventoryRow } from '@/types/host-pool'
 import axios, { type AxiosInstance } from 'axios'
 import type { AdminInstancePushPreview, AdminInstancePushTarget } from '@/types/instance-push'
+import type { OssConfig, OssTask, OssBackup, OssDirectory } from '@/types/aliyun-oss'
 import { useAuthStore } from '@/stores/auth'
 import { buildApiUrl } from '@/utils/api-url'
 import type { LoginRequest, LoginResponse, UpdateUserResponse, GenerateInviteRequest, InviteListResponse, User, BadgeCatalogItem, BadgeSeriesItem, UserQuota, UpdateUserRequest, Instance, InstanceWithDetails, InstanceStats, CreateInstanceRequest, CreateInstanceResponse, UpdateInstanceRequest, ChangeHostOptionsResponse, PortMapping, CreatePortMappingRequest, IpAddress, Ipv6Subnet, HostAgentStatusResponse, HostAgentInstallCommandResponse, HostAgentUpgradeRequestResponse, Snapshot, Backup, CreateSnapshotRequest, CreateBackupRequest, SnapshotPolicy, BackupPolicy, UpdateSnapshotPolicyRequest, UpdateBackupPolicyRequest, Host, HostWithDetails, AvailableHost, CreateHostRequest, UpdateHostRequest, Package, CreatePackageRequest, UpdatePackageRequest, SshKey, CreateSshKeyRequest, NotificationChannel, CreateNotificationChannelRequest, UpdateNotificationChannelRequest, OAuthConfig, UserOAuthBinding, UpdateOAuthConfigRequest, OAuthClientApp, AdminOAuthAuthorization, UpsertOAuthClientAppRequest, HelpArticle, CreateHelpArticleRequest, UpdateHelpArticleRequest, HostImagePolicy, SystemImage, CreateSystemImageRequest, UpdateSystemImageRequest, Log, PaginatedResponse, Ticket, TicketMessage, TicketStatus, TicketObjectLink, TicketObjectLinkType, TicketSupportContext, TicketInternalNote, CreateTicketRequest, PaginatedTickets, PaginatedTicketMessages, TerminalSavedCommand, CreateTerminalSavedCommandRequest, UpdateTerminalSavedCommandRequest, TelegramBindingStatus, TelegramBindTokenResponse, TelegramAdminBindingsResponse, TelegramWebhookDeleteResponse, TelegramWebhookInfoResponse, TelegramWebhookSetupResponse, VersionMetadata, SystemUpdateCheckResult, SystemUpdateTask, PublicApiScopeMetadata, CreateGiftCardBatchRequest, CreateGiftCardRequest, GiftCardListResponse, GiftCardRecord, GiftCardStats } from '@/types/api.js'
@@ -620,6 +621,23 @@ http.interceptors.response.use(
 
 // API 模块
 const api = {
+  aliyunOss: {
+    config: (): Promise<{ config: OssConfig | null; runtimeReady: boolean; recoveryHeld: boolean; activeTask: OssTask | null }> => http.get('/admin/aliyun-oss/config'),
+    save: (data: Record<string, unknown>): Promise<{ config: OssConfig }> => http.put('/admin/aliyun-oss/config', data),
+    test: (): Promise<{ config: OssConfig }> => http.post('/admin/aliyun-oss/test-connection', {}, { timeout: 180000 }),
+    regions: (): Promise<{ regions: Array<{ id: string; name: string }> }> => http.get('/admin/aliyun-oss/regions'),
+    buckets: (cursor?: string): Promise<{ buckets: Array<{ name: string; region: string; creationDate: string }>; nextCursor: string | null }> => http.get('/admin/aliyun-oss/buckets', { params: { cursor } }),
+    createBucket: (region: string, name: string) => http.post('/admin/aliyun-oss/buckets', { region, name }),
+    deleteBucket: (region: string, name: string, confirmation: string) => http.delete(`/admin/aliyun-oss/buckets/${encodeURIComponent(name)}`, { data: { region, confirmation } }),
+    objects: (params: { region: string; bucket: string; prefix: string; cursor?: string }): Promise<OssDirectory> => http.get('/admin/aliyun-oss/objects', { params }),
+    backups: (prefix?: string): Promise<{ backups: OssBackup[] }> => http.get('/admin/aliyun-oss/backups', { params: { prefix }, timeout: 180000 }),
+    tasks: (): Promise<{ tasks: OssTask[]; recoveryHeld: boolean }> => http.get('/admin/aliyun-oss/tasks'),
+    backup: (): Promise<{ task: OssTask }> => http.post('/admin/aliyun-oss/backups'),
+    preview: (prefix: string, password: string): Promise<{ task: OssTask }> => http.post('/admin/aliyun-oss/restore-previews', { prefix, password }),
+    restore: (previewId: string, confirmation: string): Promise<{ task: OssTask }> => http.post('/admin/aliyun-oss/restores', { previewId, confirmation }),
+    resume: (confirmation: string): Promise<{ task: OssTask }> => http.post('/admin/aliyun-oss/resume', { confirmation }),
+    rollback: (confirmation: string): Promise<{ task: OssTask }> => http.post('/admin/aliyun-oss/rollback', { confirmation })
+  },
   // 认证
   auth: {
     check2FA: (username: string): Promise<{ requires2FA: boolean }> =>

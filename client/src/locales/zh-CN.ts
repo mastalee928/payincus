@@ -1,5 +1,7 @@
+import { zhCN as ossMessages } from './aliyun-oss'
 import { zhCN as ipv6Delivery } from './ipv6-delivery'
 export default {
+    oss: ossMessages,
   ipv6Delivery,
   hostIpSync: {
     title: '检测与同步 IP', description: '默认每分钟检测公网 IPv4。换 IP 后，通过管理通道确认机器和转发，再更新机器池、节点及用户实例地址，通常需 1–3 分钟。',
@@ -430,6 +432,7 @@ export default {
         packages: '套餐',
         helpManage: '帮助',
         oauth: 'OAuth',
+        aliyunOss: '阿里云OSS',
         broadcast: '公告',
         paymentProviders: '支付',
         billing: '计费',

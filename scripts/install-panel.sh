@@ -1264,6 +1264,10 @@ EOF
     # directories writable by incudal, and writes the trusted file manifest.
     /usr/local/libexec/incudal/incudal-online-task seal
 
+    if [[ -f "${app_dir}/scripts/install-platform-backup.sh" ]]; then
+        bash "${app_dir}/scripts/install-platform-backup.sh"
+    fi
+
     systemctl daemon-reload
 
     log "在线更新 systemd 单元和 sudoers 创建完成"

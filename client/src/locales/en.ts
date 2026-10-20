@@ -1,5 +1,7 @@
+import { en as ossMessages } from './aliyun-oss'
 import { en as ipv6Delivery } from './ipv6-delivery'
 export default {
+    oss: ossMessages,
   ipv6Delivery,
   hostIpSync: {
     title: 'Check and sync IP', description: 'Public IPv4 is checked every minute. After an IP change, the management connection, forwarding and public endpoint are verified before updating inventory, node and customer addresses. This usually takes 1–3 minutes.',
@@ -379,6 +381,7 @@ export default {
         packages: 'Packages',
         helpManage: 'Help',
         oauth: 'OAuth',
+        aliyunOss: 'Alibaba Cloud OSS',
         broadcast: 'Broadcast',
         paymentProviders: 'Payment Providers',
         billing: 'Billing',

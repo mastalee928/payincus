@@ -30,5 +30,6 @@ export const navMenuItems: MenuItem[] = [
   { name: 'admin-entertainment', path: '/admin/entertainment', icon: 'gift', label: 'nav.entertainment' },
   { name: 'admin-profile', path: '/admin/profile', icon: 'settings', label: 'nav.settings' },
   { name: 'admin-statistics', path: '/admin/statistics', icon: 'chart', label: 'nav.statistics' },
-  { name: 'admin-oauth', path: '/admin/oauth', icon: 'key', label: 'nav.oauth' }
+  { name: 'admin-oauth', path: '/admin/oauth', icon: 'key', label: 'nav.oauth' },
+  { name: 'admin-aliyun-oss', path: '/admin/aliyun-oss', icon: 'database', label: 'nav.aliyunOss' }
 ]

@@ -201,6 +201,11 @@ run_task() {
   local task_id="$2"
   [[ "$task_id" =~ ^[1-9][0-9]*$ ]] || fail "task id must be a positive integer"
 
+  # Shared with platform backup/restore so maintenance cannot race OTA.
+  exec 9>/var/lib/incudal-platform-operation.lock
+  flock -n 9 || fail "another platform maintenance task is running"
+  [[ ! -e /var/lib/incudal-backup/recovery-hold.json ]] || fail "platform recovery is awaiting review"
+
   apply_secure_ownership
   verify_manifest
   verify_git_control
@@ -240,6 +245,17 @@ run_task() {
 }
 
 case "${1:-}" in
+  platform-backup)
+    [[ "$#" -eq 2 && "$2" =~ ^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$ ]] || fail "invalid platform task id"
+    exec 9>/var/lib/incudal-platform-operation.lock
+    flock -n 9 || fail "another platform maintenance task is running"
+    verify_manifest
+    app_dir="$(resolve_app_dir)"
+    [[ -f "$app_dir/server/dist/scripts/run-platform-backup-task.js" && ! -L "$app_dir/server/dist/scripts/run-platform-backup-task.js" ]] || fail "platform worker missing"
+    exec /usr/bin/env -u NODE_OPTIONS -u NODE_PATH -u LD_PRELOAD -u BASH_ENV -u ENV \
+      PATH="$SYSTEM_PATH" INCUDAL_APP_DIR="$app_dir" NODE_ENV=production \
+      /usr/bin/node "$app_dir/server/dist/scripts/run-platform-backup-task.js" "$2"
+    ;;
   harden)
     [[ "$#" -eq 1 ]] || fail "harden accepts no arguments"
     apply_secure_ownership

@@ -283,7 +283,7 @@ function stripAdminOnlyLocaleMessages(source: string): string {
 }
 
 function stripUserOnlyLocaleMessages(source: string): string {
-  let stripped = source
+  let stripped = removeLocaleObjectProperty(source, 'oss', 4)
   const adminOnlyTopLevelKeys = [
     'statistics',
     'hosting',
@@ -298,6 +298,7 @@ function stripUserOnlyLocaleMessages(source: string): string {
     'helpManage'
   ]
   const adminOnlyNavKeys = [
+    'aliyunOss',
     'admin',
     'users',
     'statistics',

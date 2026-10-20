@@ -1,6 +1,6 @@
 {
   "name": "payincus",
-  "version": "1.6.7",
+  "version": "1.6.8",
   "description": "PayIncus commercial Incus platform",
   "type": "module",
   "private": true,
@@ -215,7 +215,8 @@
     "pnpm --filter server test:error-response-guards",
     "pnpm --filter server test:dedicated-delivery",
     "pnpm --filter server test:host-public-ip",
-    "pnpm --filter server test:host-public-ipv6"
+    "pnpm --filter server test:host-public-ipv6",
+    "pnpm --filter server test:platform-backup-guards"
   ],
   "devDependencies": {
     "concurrently": "^9.1.0",
