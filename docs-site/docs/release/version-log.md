@@ -6,16 +6,51 @@
 
 ## 最新发布状态 / Latest Release State
 
-- 最新发布提交 / Latest Release Commit: `44d26132f`
-- 提交日期 / Commit date: 2026-10-20
-- 提交说明 / Commit subject: feat: add encrypted OSS platform backup and recovery for v1.6.8
-- 最新 tag / Latest tag: `v1.6.8`
+- 最新发布提交 / Latest Release Commit: `54203107f`
+- 提交日期 / Commit date: 2026-10-21
+- 提交说明 / Commit subject: feat: verify complete OSS backups and add readable encrypted ZIP for v1.6.9
+- 最新 tag / Latest tag: `v1.6.9`
 
 ## 未发布变更 / Unreleased Changes
 
 - 该 tag 与相邻 tag 指向同一提交，未产生额外 Git commit。
 
 ## 历史版本 / Historical Versions
+
+## v1.6.9
+
+- 发布提交 / Release commit: `54203107f`
+- 提交日期 / Commit date: 2026-10-21
+- 提交说明 / Commit subject: feat: verify complete OSS backups and add readable encrypted ZIP for v1.6.9
+
+
+保留原 OSS 自动恢复备份，在同一备份集目录额外上传按 UTC 日期时间命名、使用相同密码的 AES-256 ZIP/ZIP64。管理端「阿里云 OSS」页面底部提供中文恢复指南和工具下载。
+
+### 备份内容与校验
+
+- ZIP 包含完整原生数据库归档、整库 SQL、按表排列的 SQL、角色与授权资料、运行配置、受管证书、网关身份、快照清单、完整性报告、中文说明和交互恢复工具。
+- 全部 SQL 从同一个已验证数据库归档生成。备份在共享快照下检查每张表的完整记录、结构和大对象，并核对归档中的序列状态。
+- 实际还原到隔离数据库并核对完整性；ZIP 每项解密哈希及原包、额外 ZIP 的 OSS 回读都通过后，才写入完成标记并清理旧备份。清理失败显示警告。
+- 原 `payload.enc` 自动恢复流程继续保留；旧备份可兼容读取，但不会补生成 ZIP，也不能等同于通过新版完整性校验。
+
+### 页面与工具
+
+- 页面直接说明「面板还能打开」和「服务器损坏、面板打不开」两种恢复流程，并提供中文说明和工具下载。
+- 工具交互读取凭据与备份密码，固定读取目标机配置并调用已安装的恢复执行器。
+- 修复 OSS 连接保存入口和 V4 签名下的根目录浏览。
+
+### 使用要求
+
+- 恢复需匹配应用版本、迁移历史和 PostgreSQL 大版本；正式恢复需要维护窗口，恢复后保持保护，核对账目、宿主、实例和库存后再恢复运营。
+- 额外 ZIP 可用支持 AES ZIP/ZIP64 的 7-Zip 或 WinRAR 打开，Windows 自带解压器可能不支持。逐表 SQL 用于查看和隔离核验，正式恢复以整库为单位。
+- 备份只包含快照时刻的数据；后续交易、VPS 磁盘、客户网站文件、外部项目数据库和非受管文件需另行备份。
+
+### 验证
+
+- 发行提交完整执行 172 项检查并全部通过，双端构建、后端编译、产物边界及安装器守卫通过。
+- 双架构真实发行包首装通过 212 条迁移、唯一后端、两端访问和管理员登录，并通过备份、预检、恢复、回退、恢复运营、主密钥及 SQL/原生归档完整性演练；CI 中 OSS 传输使用本地替身。
+- 授权测试主控的真实 OSS 上传、回读与隔离恢复已通过，验证 126 张表、1,318 条记录和 118 个序列，原自动恢复包预检也成功。
+- 两种架构公开发行包的 SHA256、大小、OTA 清单、包内版本及恢复工具副本一致。本次发版不代表生产主控已执行 OTA。
 
 ## v1.6.8
 

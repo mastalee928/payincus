@@ -4,6 +4,7 @@
 
 ## 当前源码与发布状态
 
+- 面板 [v1.6.9](https://github.com/mastalee928/payincus/releases/tag/v1.6.9) 已正式发布，发行源码 `54203107fa138d92f0e29ece97d0c3fe1ed80090`，注解标签对象 `bce6f35d18e9bf00549349db8dc4fb8e4696980f`。GitHub 面板 latest 为 v1.6.9；双架构预览及正式首装/恢复演练、真实 OSS 额外 ZIP 上传/回读/隔离恢复均通过。测试主控已直接热更新验证，生产 OTA 未执行。
 - 面板 [v1.6.8](https://github.com/mastalee928/payincus/releases/tag/v1.6.8) 已正式发布，发行源码 `44d26132f02f9bbaeb87c50305e39fb40f65be6c`，注解标签对象 `733c867101089fe1d24b9dd53d25b36c8c0a90a1`。GitHub 面板 latest 为 v1.6.8，双架构预览、正式首装及 Linux 本机备份/恢复/回退演练均成功。真实 OSS 测试桶验收及生产 OTA 未执行。
 - 面板 [v1.6.7](https://github.com/mastalee928/payincus/releases/tag/v1.6.7) 已正式发布，发行源码 `fa716ee699e4ff77400b21bd093968c8be5f0dbc`（注解标签 `v1.6.7`，对象 `da4fdd3d1087d8cc59a8b0c4fcedba637ae95a6a`）；GitHub 面板 latest 为 v1.6.7。测试主控已载入 v1.6.7 同源内容（发布前经第六轮内部热替换上机，双端 index.html 与发行包逐字节一致）；面板 OTA 正式升级待执行。下方 v1.6.6 及其“已通过面板 OTA 升级至 v1.6.6”为当时状态。
 - 面板 [v1.6.6](https://github.com/mastalee928/payincus/releases/tag/v1.6.6) 已正式发布，发行源码 `9f1a14a799a9600a4aa6a3c84f9cffa7d68ad087`（注解标签 `v1.6.6`，对象 `55bdb1dcfba1197b42a050ad8bf130afccaf6410`）；GitHub 面板 latest 为 v1.6.6，测试主控已通过面板 OTA 升级至 v1.6.6；其后的仪表盘负载条修复等提交已随 v1.6.7 发布。下方 v1.6.5 及其“已通过面板 OTA 升级至 v1.6.5”为当时状态。
@@ -19,15 +20,18 @@
 - 已实际下载两种架构的公开安装包，确认 SHA256、文件大小、OTA manifest、包内版本与 Git 提交一致；检查全部迁移和 IPv6、UPAY 等关键模块，包内 LICENSE 与发行源码原文一致。GitHub 的面板 latest 为 v1.6.2；公开一键安装脚本与发行源码一致。
 - [源码 CI](https://github.com/mastalee928/payincus/actions/runs/38877110604)、[Agent 发布](https://github.com/mastalee928/payincus/actions/runs/38877110746) 均通过；[本仓库文档站](https://mastalee928.github.io/payincus/) 已上线。
 
-## 2026-10-21 v1.6.9 发布准备（完整备份、额外 ZIP 与恢复指南）
+## 2026-10-21 v1.6.9 发布（完整备份、额外 ZIP 与恢复指南）
 
+- [正式发行 39539930557](https://github.com/mastalee928/payincus/actions/runs/39539930557) 的五个作业全部成功，2026-10-21 11:47:37（北京时间）发布，非 draft、非 prerelease。发行源码及标签对象与上方记录一致；amd64 作业完整执行 172 项检查，planned / executed / passed 均为 172、failed 为 0。双架构 Linux 首装及恢复演练使用本地 OSS 传输替身；真实云端证据单独记录在下方。
+- 两种架构的公开发行包已下载复核：amd64 109177028 字节、SHA256 `5f8f97cb8ad928ac31ded4eb9308000f86da819cb663c809814d5d121d705016`；arm64 108318101 字节、SHA256 `780f7036271ace68fab685e686c621f9d0bcfc77fa2b4a8220f4d4f3b96d300a`。各自 `.sha256`、GitHub 资产 digest 与 OTA manifest 一致；两份 manifest 逐字节一致，记录 `gitCommit=54203107fa13`、`minimumUpdaterVersion=v0.0.3`、`buildTime=2026-10-21T03:47:25.946Z`。包内版本、212 条迁移、备份模块、双端工具/说明与发行脚本同源均通过；两种架构的双端 index.html 哈希一致，不含本地 `.env` 或 `oss-review.html`。核验记录：`logs/release-v1.6.9/verification.json`。
+- 同一发行提交的 [源码 CI 39538543643](https://github.com/mastalee928/payincus/actions/runs/39538543643) 与 [文档 Pages 39538543664](https://github.com/mastalee928/payincus/actions/runs/39538543664) 均成功。公开 main 的安装器、恢复工具和说明与本地源码逐字节一致，发行包内上述脚本与 LICENSE 与发行提交逐字节一致。Agent v1.0.3 仍提供 x86_64/aarch64 两种二进制，面板 latest 仍为 v1.6.9。
 - 保留原自动恢复 `payload.enc` 与完成标记，额外上传按 UTC 日期时间命名、使用同一密码的 AES-256 ZIP/ZIP64。ZIP 包含同源整库归档、可移植整库 SQL、按表排列 SQL、权限/配置/身份、快照清单、完整性报告、中文说明和交互工具。
 - 备份在共享快照下核对每张表的完整记录、多重集、结构、大对象及归档序列状态；保留原归属/授权和 globals。实际临时库恢复匹配后才打包；ZIP 每项解密哈希与两份 OSS 对象回读均通过才发布 complete 标记。清理失败显示警告；中断清理覆盖额外 ZIP，且限于当前安装命名空间。
 - 页面底部直接提供两种中文恢复场景和说明/工具下载；工具使用目标机已安装执行器，交互读取秘密并固定读取目标 .env。旧加密格式读取保持兼容，旧包不会补生成 ZIP。
 - 本地 172 项完整检查全部通过（`logs/test-run-20261021-103403/summary.txt`），双端/后端构建和 dist 边界、安装器守卫、冻结依赖通过；Lint 0 错误（663 条既有样式警告）。后续数据库 SQL 导出调整另跑类型/平台备份守卫/后端构建。说明和工具公开副本与发行脚本同源校验通过。
 - 浏览器真实点击恢复步骤、说明/工具下载通过；390px 深色样本页面宽度与 scrollWidth 均 390，无横向溢出。样本使用模拟接口；不等同于云端上传或实际恢复。机械 UI 检查返回空列表。
 - 测试主控恢复工具 `status` 实际调用成功；公网下载与安装脚本副本逐字节一致（SHA256 `6116600a752ab8df540a002a25c82a1b362ddd3594ee367964753c780480d039`）。新增发行首装断言核对双端公开工具/说明与执行器脚本的副本一致。
-- 授权测试主控已热更新，唯一后端健康且 NRestarts=0；更新前保存数据库、运行配置、证书及受影响文件。真实 Linux 隔离演练已通过逐表 SQL、整库 SQL 与原生归档恢复一致性，以及金额、数组下标、序列、大对象、缺表、外部表拒绝等检查。真实 OSS 已验证：备份 e0b7ab24-8998-4814-899a-902f134e5d33，ZIP `payincus-backup-20261021-031730-UTC.zip`（北京时间 11:17:30）1,845,157 字节；相同密码解密全部文件、126 表/1,318 行/118 序列、整库 SQL 与原生归档实际恢复一致，原 payload.enc 预检成功。预检任务 1a91e48a-009d-4f3a-a0f0-83c11037a4a2，配置 revision 与恢复保护保持不变。双架构预览及正式发版待完成；生产 OTA 未执行。
+- 授权测试主控已热更新，唯一后端健康且 NRestarts=0；更新前保存数据库、运行配置、证书及受影响文件。真实 Linux 隔离演练已通过逐表 SQL、整库 SQL 与原生归档恢复一致性，以及金额、数组下标、序列、大对象、缺表、外部表拒绝等检查。真实 OSS 已验证：备份 e0b7ab24-8998-4814-899a-902f134e5d33，ZIP `payincus-backup-20261021-031730-UTC.zip`（北京时间 11:17:30）1,845,157 字节；相同密码解密全部文件、126 表/1,318 行/118 序列、整库 SQL 与原生归档实际恢复一致，原 payload.enc 预检成功。预检任务 1a91e48a-009d-4f3a-a0f0-83c11037a4a2，配置 revision 与恢复保护保持不变。[双架构预览 39538838380](https://github.com/mastalee928/payincus/actions/runs/39538838380) 和 [正式发行 39539930557](https://github.com/mastalee928/payincus/actions/runs/39539930557) 均通过，包含 212 条迁移、唯一后端、双端登录、备份/预检/恢复/回退/恢复运营、密钥一致性与全库 SQL/原生恢复核对。生产 OTA 未执行。
 
 ## 2026-10-20 OSS 设置修复（测试主控热更新，未发版）
 
