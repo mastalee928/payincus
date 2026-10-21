@@ -16,6 +16,7 @@ const owner = await prisma.user.create({ data: { username: `${prefix}-admin`, pa
 const buyer = await prisma.user.create({ data: { username: `${prefix}-buyer`, passwordHash: 'unusable-test-hash', balance: 100 } })
 const group = await prisma.hostMachineGroup.create({ data: { name: prefix } })
 const region = await prisma.hostRegionGroup.create({ data: { name: prefix, machineGroupId: group.id, countryCode: 'de' } })
+const otherRegion = await prisma.hostRegionGroup.create({ data: { name: `${prefix}-us`, machineGroupId: group.id, countryCode: 'us' } })
 let sequence = 0
 async function makeHost(extra: Record<string, unknown> = {}) {
   const host = await prisma.host.create({ data: {
@@ -48,14 +49,31 @@ try {
   const a = await prisma.instance.create({ data: instanceData(sourceA.id, 'a') })
   const b = await prisma.instance.create({ data: instanceData(sourceB.id, 'b') })
   const target = await makeHost()
+  const crossRegion = await makeHost({ regionGroupId: otherRegion.id, countryCode: 'us' })
   const quarantined = await makeHost({ poolFaulted: true })
   await makeHost({ architecture: 'aarch64' })
   await makeHost({ memoryMax: 512 })
+  const incompatible = await Promise.all([
+    makeHost({ cpuAllowanceMax: 300 }), makeHost({ memoryMax: 1024 }),
+    makeHost({ customerDiskGiB: 60 }), makeHost({ customerDiskGiB: 20 }),
+    makeHost({ resourcePreset: 'ARM2C' }), makeHost({ regionGroupId: otherRegion.id, memoryMax: 1024 })
+  ])
   await makeHost({ status: 'offline' })
   assert.deepEqual((await replacementCandidates(a.id)).map(host => host.id), [target.id])
+  assert.deepEqual((await replacementCandidates(a.id, true)).map(host => host.id).sort((a, b) => a - b), [target.id, crossRegion.id])
+  const options = await app.inject({ method: 'GET', url: `/instances/${a.id}/replacement-options?allRegions=true`, headers: { 'x-test-role': 'admin' } })
+  assert.equal(options.statusCode, 200)
+  assert.deepEqual(options.json().hosts.map((host: { id: number }) => host.id).sort((a: number, b: number) => a - b), [target.id, crossRegion.id])
+  assert.equal(options.json().hosts.find((host: { id: number }) => host.id === crossRegion.id).regionGroupEntry.name, otherRegion.name)
+  const wrongScope = await app.inject({ method: 'POST', url: `/instances/${a.id}/replace-host`, headers: { 'x-test-role': 'admin' }, payload: { targetHostId: crossRegion.id, acknowledgeRebuild: true } })
+  assert.equal(wrongScope.statusCode, 409, 'cross-region execution requires the selected all-regions scope')
+  for (const host of incompatible) {
+    const rejected = await app.inject({ method: 'POST', url: `/instances/${a.id}/replace-host`, headers: { 'x-test-role': 'admin' }, payload: { targetHostId: host.id, acknowledgeRebuild: true, allRegions: true } })
+    assert.equal(rejected.statusCode, 409, 'larger, smaller or different configurations cannot bypass candidate validation')
+  }
   for (const method of ['GET', 'POST'] as const) {
     const response = await app.inject({ method, url: `/instances/${a.id}/${method === 'GET' ? 'replacement-options' : 'replace-host'}`,
-      headers: { 'x-test-role': 'user' }, ...(method === 'POST' ? { payload: { targetHostId: target.id, acknowledgeRebuild: true } } : {}) })
+      headers: { 'x-test-role': 'user' }, ...(method === 'POST' ? { payload: { targetHostId: crossRegion.id, acknowledgeRebuild: true, allRegions: true } } : { query: { allRegions: 'true' } }) })
     assert.equal(response.statusCode, 403, 'only administrators may view or execute replacement')
   }
   const unconfirmed = await app.inject({ method: 'POST', url: `/instances/${a.id}/replace-host`, headers: { 'x-test-role': 'admin' }, payload: { targetHostId: target.id } })
@@ -91,6 +109,13 @@ try {
   assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), 100)
   assert.equal(await prisma.balanceLog.count({ where: { userId: buyer.id } }), 0)
 
+  const crossRequest = await app.inject({ method: 'POST', url: `/instances/${before.id}/replace-host`, headers: { 'x-test-role': 'admin' }, payload: { targetHostId: crossRegion.id, acknowledgeRebuild: true, allRegions: true } })
+  assert.equal(crossRequest.statusCode, 202, 'same configuration in another region can be reserved')
+  const crossTask = await prisma.instanceTask.update({ where: { id: crossRequest.json().taskId }, data: { status: 'PROCESSING' } })
+  await assert.rejects(executeHostReplacement(crossTask))
+  await prisma.instanceTask.update({ where: { id: crossTask.id }, data: { status: 'FAILED' } })
+  assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: crossRegion.id } })).cpuUsed, 0)
+
   // After a process interruption, an uncertain remote target stays quarantined.
   const retry = await requestHostReplacement(before.id, target.id, owner.id)
   const uncertain = await prisma.instanceTask.update({ where: { id: retry.taskId }, data: { status: 'PROCESSING', replacementState: {
@@ -110,7 +135,7 @@ try {
   await app.close()
   await prisma.instance.deleteMany({ where: { userId: buyer.id } })
   await prisma.host.deleteMany({ where: { userId: owner.id } })
-  await prisma.hostRegionGroup.delete({ where: { id: region.id } })
+  await prisma.hostRegionGroup.deleteMany({ where: { id: { in: [region.id, otherRegion.id] } } })
   await prisma.hostMachineGroup.delete({ where: { id: group.id } })
   await prisma.user.deleteMany({ where: { id: { in: [buyer.id, owner.id] } } })
   await closeAllClients()

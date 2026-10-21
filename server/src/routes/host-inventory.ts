@@ -7,6 +7,7 @@ import { HostRecoveryError, inspectHostRecovery, recoverPoolHost } from '../serv
 import type { FastifyInstance } from 'fastify'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
+import { hostLiveStatus } from '../lib/host-live-status.js'
 import { createLog } from '../db/logs.js'
 import { OnboardingError, isOnboardingPublicIPv4, RESOURCE_PRESETS, type ResourcePreset } from '../lib/host-onboarding.js'
 import { presetQuota } from '../lib/onboarding-resources.js'
@@ -95,7 +96,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
         machineGroupEntry: { select: { name: true } }, regionGroupEntry: { select: { name: true } },
         architecture: true, status: true, isInstalled: true, resourcePreset: true, customerDiskGiB: true,
         cpuAllowanceMax: true, memoryMax: true, storageSize: true, resourceSnapshot: true, singleTenant: true, poolFaulted: true, ...portProtocolSelect,
-        agent: { select: { lastSeenAt: true } },
+        agent: { select: { enabled: true, lastSeenAt: true, lastReport: true } },
         instances: { where: occupied, select: { id: true, name: true, status: true, cpu: true, memory: true, disk: true, user: { select: { id: true, username: true } } }, orderBy: { id: 'asc' } },
         onboardingNode: { select: { publicIp: true, status: true, managementIp: true, batch: { select: { accountLabel: true } } } }
       } }),
@@ -113,7 +114,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
         publicIpv6Sync: publicIpv6View(host),
         machineGroup: host.machineGroupEntry?.name || host.machineGroup, regionGroup: host.regionGroupEntry?.name || host.regionGroup,
         machineGroupId: host.machineGroupId, regionGroupId: host.regionGroupId,
-        architecture: host.architecture, status: host.status, isInstalled: host.isInstalled,
+        architecture: host.architecture, status: hostLiveStatus(host.status, host.agent), isInstalled: host.isInstalled,
         instanceCount: host.instances.length, instances: host.instances, stock: stateById.get(host.id) || 'unavailable', sellReason: reasonById.get(host.id) ?? null,
         resourcePreset: host.resourcePreset, customerDiskGiB: host.customerDiskGiB, cpuAllowanceMax: host.cpuAllowanceMax,
         memoryMax: host.memoryMax, storageSize: host.storageSize, resourceSnapshot: host.resourceSnapshot, singleTenant: host.singleTenant,
@@ -252,7 +253,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
   })
   fastify.get<{ Params: { id: number } }>('/inventory/:id/recovery', {
     onRequest: [fastify.authenticateAdmin], schema: hostIdSchema,
-    config: { rateLimit: { max: 10, timeWindow: '1 minute' } }
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
   }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
     try { return await inspectHostRecovery(Number(request.params.id)) }
@@ -262,7 +263,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
     }
   })
   fastify.post<{ Params: { id: number }; Body: { confirmation: string; acknowledgeCleanup: boolean } }>('/inventory/:id/recover', {
-    onRequest: [fastify.authenticateAdmin], config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    onRequest: [fastify.authenticateAdmin], config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
     schema: { ...hostIdSchema, body: { type: 'object', additionalProperties: false,
       required: ['confirmation', 'acknowledgeCleanup'], properties: {
         confirmation: { type: 'string', pattern: '^[a-f0-9]{64}$' }, acknowledgeCleanup: { type: 'boolean' }

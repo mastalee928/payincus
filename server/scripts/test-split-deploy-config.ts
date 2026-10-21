@@ -327,6 +327,7 @@ assert.ok(
     agentReleaseSmoke.includes('INVALID_AGENT_BINARY_NAME'),
   'Agent release smoke must cover install script serving and deterministic binary download rejection paths'
 )
+assert.ok(releaseWorkflow.includes('cp scripts/reconnect-host-management.sh release/scripts/'), 'release packages must include the existing-identity host management recovery tool')
 assert.ok(readme.includes('INCUDAL_AGENT_RELEASE_REPOSITORY=mastalee928/payincus'), 'README must document the current Agent release repository')
 assert.ok(backendServiceExample.includes('Documentation=https://github.com/mastalee928/payincus'), 'systemd backend example must point documentation to the current repository')
 assert.ok(
@@ -812,6 +813,7 @@ const forbiddenClientSourceStrings = [
 const allowedClientNetworkPrimitiveLines = new Map<string, string[]>([
   ['client/src/App.vue', ["fetch(buildApiUrl('/auth/refresh'), {"]],
   ['client/src/admin/AdminApp.vue', ["fetch(buildApiUrl('/auth/refresh'), {"]],
+  ['client/src/components/layout/AppLayout.vue', ["fetch(buildApiUrl('/health'), {"]],
   ['client/src/api/index.ts', ["fetch(buildApiUrl('/auth/refresh'), {"]],
   ['client/src/api/admin.ts', ["fetch(buildApiUrl('/auth/refresh'), {"]],
   ['client/src/components/TermsOfServiceModal.vue', ['fetch(`/tos/${lang}.md`)']],

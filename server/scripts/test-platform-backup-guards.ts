@@ -11,11 +11,21 @@ import { decryptBackup, encryptBackup, hashFile, validAssetName, validateManifes
 import { AliyunOssClient, sanitizedOssError } from '../src/services/aliyun-oss-client.js'
 import { assertDatabaseIntegrity, normalizedDumpHash, type DatabaseIntegrity } from '../src/services/platform-backup-database.js'
 import { createReadableZip, readableZipName, verifyReadableZip } from '../src/services/platform-backup-readable.js'
+import { retainGatewayEndpoints } from '../src/services/platform-backup-gateway.js'
 
 process.env.ENCRYPTION_KEY = 'local-test-encryption-key-not-a-real-credential'
 const workspace = await mkdtemp(join(tmpdir(), 'payincus-oss-test-'))
 assert.ok(resolve(workspace).startsWith(resolve(tmpdir(), 'payincus-oss-test-')))
 try {
+  const peerKey = 'a'.repeat(43) + '=', otherKey = 'b'.repeat(43) + '='
+  const gatewayConfig = `[Interface]\nPrivateKey = test-controller-identity\nAddress = 10.253.240.1/24\n[Peer]\nPublicKey = ${peerKey}\nAllowedIPs = 10.253.240.2/32\n`
+  assert.ok(retainGatewayEndpoints(gatewayConfig, gatewayConfig, `${peerKey}\t192.0.2.1:51820\n`).includes('Endpoint = 192.0.2.1:51820'))
+  assert.ok(retainGatewayEndpoints(gatewayConfig, gatewayConfig, `${peerKey}\t[2001:db8::1]:51820\n`).includes('Endpoint = [2001:db8::1]:51820'))
+  for (const endpoint of ['(none)', '999.0.0.1:51820', '192.0.2.1:65536', '192.0.2.1:0', 'malicious;command:22']) assert.equal(retainGatewayEndpoints(gatewayConfig, gatewayConfig, `${peerKey}\t${endpoint}\n`), gatewayConfig)
+  assert.equal(retainGatewayEndpoints(gatewayConfig, gatewayConfig.replace('test-controller-identity', 'other-identity'), `${peerKey}\t192.0.2.1:51820\n`), gatewayConfig.replace('test-controller-identity', 'other-identity'))
+  assert.equal(retainGatewayEndpoints(gatewayConfig, gatewayConfig.replace(peerKey, otherKey), `${peerKey}\t192.0.2.1:51820\n`), gatewayConfig.replace(peerKey, otherKey))
+  const fixedGateway = gatewayConfig + 'Endpoint = 192.0.2.2:51820\n'
+  assert.equal(retainGatewayEndpoints(gatewayConfig, fixedGateway, `${peerKey}\t192.0.2.1:51820\n`), fixedGateway)
   const secret = sealSecret('test-password-123')
   assert.equal(openSecret(secret), 'test-password-123')
   assert.throws(() => openSecret('plaintext'), /OSS_SECRET_DECRYPT_FAILED/)
@@ -93,7 +103,7 @@ try {
   for (const url of ['/api/health', '/api/auth/me', '/api/system-config/public?login=1', '/api/oauth/providers']) assert.equal(recoveryRequestAllowed('GET', url), true)
   assert.equal(recoveryRequestAllowed('POST', '/api/auth/check-2fa'), true)
   assert.equal(recoveryRequestAllowed('POST', '/api/auth/login'), true)
-  for (const url of ['/api/instances', '/api/oauth/github/callback', '/api/agent/heartbeat', '/api/auth/register', '/api/ws', '/api/admin/system-update/start']) {
+  for (const url of ['/api/instances', '/api/users', '/api/host-onboarding/inventory', '/api/admin/system-update/version', '/api/oauth/github/callback', '/api/agent/heartbeat', '/api/auth/register', '/api/ws', '/api/admin/system-update/start']) {
     for (const method of ['GET', 'POST', 'PUT', 'DELETE']) assert.equal(recoveryRequestAllowed(method, url), false)
   }
   assert.equal(recoveryRequestAllowed('POST', '/api/system-config/public'), false)
@@ -292,6 +302,12 @@ try {
   assert.ok(source.includes('rollbackJournal(directory)') && source.includes('protectedHealth()'), 'restore needs rollback and protected health verification')
   assert.ok(source.includes("before-authorized-keys") && source.includes("await chmod(`${INSTALL}/server/certs/onboarding-gateway.key`, 0o640)"), 'gateway recovery must save local authorization and preserve backend key access')
   const app = await readFile(resolve(import.meta.dirname, '../src/app.ts'), 'utf8')
+  assert.equal((source.match(/await refreshRestoredGateway\(gatewayBefore/g) || []).length, 2, 'restore and rollback must preserve unchanged live management tunnels')
+  const gateway = await readFile(resolve(import.meta.dirname, '../src/services/platform-backup-gateway.ts'), 'utf8')
+  assert.ok(gateway.includes('if (active && previous === next) return') && gateway.includes("['syncconf', 'incudal-mgmt', input]"), 'unchanged gateway state must avoid restart and changed peer configuration must synchronize live endpoints')
+  const layout = await readFile(resolve(import.meta.dirname, '../../client/src/components/layout/AppLayout.vue'), 'utf8')
+  assert.ok(layout.includes("fetch(buildApiUrl('/health')") && layout.includes('state.recoveryHeld === true'), 'layout must check the public protection state without loading privileged settings')
+  assert.ok(layout.includes('<section v-if="recoveryHeld"') && layout.includes('oss.protectionMessage') && layout.includes('<slot v-if="!recoveryHeld || (isAdminEntry && route.name === \'admin-aliyun-oss\')"'), 'held business pages must show recovery guidance instead of misleading empty lists while keeping recovery controls reachable')
   assert.ok(app.indexOf('if (recoveryHeld()) {') < app.indexOf('await initPrismaDatabase('), 'recovery gate precedes initialization and background jobs')
   const helper = await readFile(resolve(import.meta.dirname, '../../deploy/incudal-online-task.sh.example'), 'utf8')
   assert.ok(helper.includes('flock -n 9') && helper.includes('verify_manifest'), 'privileged workers must serialize with OTA and verify code')

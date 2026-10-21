@@ -107,6 +107,7 @@ function getHostName(instance: Instance): string {
 }
 
 function getStatusKey(instance: Instance): string {
+  if (instance.serviceFault) return 'fault'
   return instance.status?.toLowerCase() || 'unknown'
 }
 
@@ -817,9 +818,9 @@ function getInstanceRowClass(): string {
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-2">
                     <span class="nimbus-row-name max-w-full truncate text-sm sm:text-[15px]">{{ instance.name }}</span>
-                    <span :class="['badge inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] sm:text-[11px] flex-shrink-0', getStatusInfo(instance.status, t).class]">
-                      <span :class="['h-1.5 w-1.5 rounded-full', getStatusInfo(instance.status, t).dot]"></span>
-                      {{ getStatusInfo(instance.status, t).label }}
+                    <span :class="['badge inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] sm:text-[11px] flex-shrink-0', getStatusInfo(getStatusKey(instance), t).class]">
+                      <span :class="['h-1.5 w-1.5 rounded-full', getStatusInfo(getStatusKey(instance), t).dot]"></span>
+                      {{ getStatusInfo(getStatusKey(instance), t).label }}
                     </span>
                     <span v-if="getMachineShapeLabel(instance)" class="nimbus-chip-idle inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium sm:text-[11px]">
                       {{ getMachineShapeLabel(instance) }}

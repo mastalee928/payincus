@@ -10,6 +10,7 @@ import { BACKUP_INTERVALS, BACKUP_RETENTIONS, backupRoot, BackupError, ensure, o
 import { captureDatabaseBackup, databaseMetadata, localDatabaseAdmin, pgQuery, postgresConnection, quoteIdentifier, restoreDatabase, verifyDatabaseBackup, verifyRestoredDatabase, type DatabaseIntegrity } from './platform-backup-database.js'
 import { exportReadableDatabase } from './platform-backup-database.js'
 import { createReadableZip, readableZipName, validReadableZipName } from './platform-backup-readable.js'
+import { refreshRestoredGateway } from './platform-backup-gateway.js'
 
 const exec = promisify(execFile)
 const INSTALL = '/opt/incudal'
@@ -167,11 +168,12 @@ async function rollbackJournal(directory: string): Promise<boolean> {
   }
   await localDatabaseAdmin(`ALTER DATABASE ${q(journal.database)} WITH ALLOW_CONNECTIONS true;`)
   const gid = Number((await exec('/usr/bin/id', ['-g', 'incudal'])).stdout.trim())
+  const gatewayBefore = journal.files.some(f => f.target === '/etc/wireguard/incudal-mgmt.conf') ? await readFile('/etc/wireguard/incudal-mgmt.conf', 'utf8') : null
   for (const file of journal.files) {
     if (file.saved) { await atomicFileCopy(file.saved, file.target); await chmod(file.target, file.mode); await chown(file.target, 0, file.mode === 0o640 ? gid : 0) }
     else await unlink(file.target).catch((err: NodeJS.ErrnoException) => { if (err.code !== 'ENOENT') throw err })
   }
-  if (journal.files.some(f => f.target === '/etc/wireguard/incudal-mgmt.conf')) await exec('/usr/bin/systemctl', ['restart', 'wg-quick@incudal-mgmt'], { timeout: 30000 })
+  if (gatewayBefore !== null) await refreshRestoredGateway(gatewayBefore)
   // These ciphertexts belong to the original environment key restored above.
   // This also makes an explicit rollback in a later process restore credentials.
   await writeBackupConfig({ ...journal.config, enabled: false, nextRunAt: null, testedRevision: null })
@@ -340,6 +342,7 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
       await localDatabaseAdmin(`ALTER DATABASE ${q(database)} WITH ALLOW_CONNECTIONS false; SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${database.replace(/'/g, "''")}' AND pid<>pg_backend_pid(); ALTER DATABASE ${q(database)} RENAME TO ${q(rollback)}; ALTER DATABASE ${q(staging)} RENAME TO ${q(database)};`)
       journal.stage = 'database_switched'; await writeJson(join(directory, 'journal.json'), journal)
       const gid = Number((await exec('/usr/bin/id', ['-g', 'incudal'])).stdout.trim())
+      const gatewayBefore = files.has('gateway.conf') ? await readFile('/etc/wireguard/incudal-mgmt.conf', 'utf8') : null
       for (const action of actions) { await atomicFileCopy(action.source, action.target); await chmod(action.target, action.mode); await chown(action.target, 0, action.mode === 0o640 ? gid : 0) }
       journal.stage = 'files_switched'; await writeJson(join(directory, 'journal.json'), journal)
       // Recreate only trusted gateway authorization/helper code, not arbitrary archived scripts.
@@ -350,7 +353,7 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
         // must regain its existing group-read permission before it starts.
         await chmod(`${INSTALL}/server/certs/onboarding-gateway.key`, 0o640)
         await chown(`${INSTALL}/server/certs/onboarding-gateway.key`, 0, gid)
-        await exec('/usr/bin/systemctl', ['restart', 'wg-quick@incudal-mgmt'], { timeout: 30000 })
+        await refreshRestoredGateway(gatewayBefore!)
       }
       const savedConfig = { ...request.config, enabled: false, nextRunAt: null, testedRevision: null }
       const accessSecret = openSecret(savedConfig.accessKeySecret), backupPassword = savedConfig.backupPassword ? openSecret(savedConfig.backupPassword) : ''

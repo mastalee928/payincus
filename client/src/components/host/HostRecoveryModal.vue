@@ -61,7 +61,7 @@ onMounted(() => void check())
               <p v-for="instance in report.instances" :key="instance.name" class="text-sm break-all text-themed-muted">{{ instance.name }} · {{ t(instance.removable ? 'hostPoolOps.recovery.stoppedOld' : 'hostPoolOps.recovery.manualReview') }}</p>
             </div>
             <p v-if="report.forwardCount" class="text-sm text-themed-muted">{{ t('hostPoolOps.recovery.forwards', { count: report.forwardCount }) }}</p>
-            <p v-if="report.canRecover && !report.needsCleanup" class="text-sm text-themed-muted">{{ t('hostPoolOps.recovery.empty') }}</p>
+            <p v-if="report.canRecover && !report.needsCleanup" class="text-sm text-themed-muted">{{ t(report.mode === 'preserve' ? 'hostPoolOps.recovery.preserve' : 'hostPoolOps.recovery.empty') }}</p>
             <label v-if="report.canRecover && report.needsCleanup" class="flex items-start gap-3 rounded-lg border border-red-200 dark:border-red-900 p-3 text-sm text-themed">
               <input v-model="acknowledged" type="checkbox" class="mt-1" :disabled="saving" />
               <span>{{ t('hostPoolOps.recovery.acknowledge') }}</span>

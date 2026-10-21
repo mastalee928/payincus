@@ -41,6 +41,8 @@ export default {
     "udpClosed": "Applied · Inbound UDP blocked",
     "udpOpen": "Applied · TCP+UDP",
     "recovery": {
+      "preserve": "The existing customer instance, storage and network rules match. Releasing quarantine preserves ownership, price, expiry and occupied resources. This host remains sold and cannot be sold again.",
+      "batch": {"title": "Batch check and recovery · {count} hosts", "description": "Check selected quarantined hosts one at a time and recover only those that pass. Failed checks retain their reasons; instance ownership, network and residual data checks are never skipped.", "progress": "Checked {checked}/{total} · Ready {ready} · Recovered {recovered}", "checkPage": "Check quarantined hosts on this page", "checkSelected": "Check and recover selected hosts", "working": "Processing hosts…", "restoreReady": "Recover {count} hosts that passed", "status": {"pending": "Pending", "checking": "Checking", "ready": "Ready", "blocked": "Blocked", "recovering": "Recovering", "recovered": "Recovered", "failed": "Failed"}},
       "title": "Check and recover",
       "description": "Quarantined hosts cannot be sold. Check the connection, tasks, old systems and network before releasing quarantine.",
       "checking": "Checking the host and remaining data…",
@@ -59,8 +61,10 @@ export default {
       "success": "Quarantine released. The host can be sold when its specification and pricing are ready.",
       "failed": "Recovery did not finish. The host remains quarantined. Check again.",
       "blockers": {
+        "assigned-mismatch": "The existing instance does not match the remote system, project or runtime state. No cleanup or forced release will run.",
+        "assigned-not-ready": "The customer instance is not fully delivered, or its network, storage and address records are not ready. Existing data is preserved.",
         "not-quarantined": "Quarantine has already been released. Refresh the inventory.",
-        "assigned": "Customer instances or billing cleanup still occupy this host.",
+        "assigned": "Instance cleanup, billing cleanup or conflicting instance records remain unresolved.",
         "busy": "Provisioning, replacement or maintenance is still in progress.",
         "offline": "Management is offline. Restore the host or network connection first.",
         "agent-offline": "No recent Agent report. Check its service and management connection.",
@@ -84,7 +88,7 @@ export default {
       }
     }
   },
-  dedicated: { allPorts: 'All ports', replacement: {"title": "Replace host", "description": "Choose a spare in the same region and machine group. Price and expiry are preserved with no extra charge. The public IP will usually change.", "target": "Spare host", "choose": "Choose an available host", "noStock": "No matching spare hosts. Add a compatible host to continue.", "restore": "System and data", "rebuild": "Create a fresh system", "acknowledge": "Create a fresh system. Data cannot be recovered without an offsite backup.", "submit": "Start replacement", "loadFailed": "Could not load replacement options", "failed": "Replacement failed. Choose a spare and retry.", "status": {"PENDING": "Queued", "PROCESSING": "Replacing and verifying SSH", "COMPLETED": "Replacement complete", "FAILED": "Failed, retry available", "CANCELLED": "Cancelled"}}, protocol: 'Public protocol', protocolStatus: { pending: 'Applying', failed: 'Apply failed' }, faulted: 'Quarantined', unassigned: "Not assigned", unlimited: "unlimit / Unlimited" },
+  dedicated: { allPorts: 'All ports', replacement: {"manageTitle": "Change machine", "manageDescription": "Choose a spare in this region or another region with the same CPU, memory, disk and architecture. Customer, price and expiry are preserved with no extra charge. The public IP will change.", "scope": "Target region scope", "sameRegion": "Same region", "allRegions": "All regions (including other regions)", "dataBoundary": "An offsite backup restores data to its backup time. A fresh system does not automatically copy the current disk data from the old machine.", "title": "Replace host", "description": "Choose a spare in the same region and machine group. Price and expiry are preserved with no extra charge. The public IP will usually change.", "target": "Spare host", "choose": "Choose an available host", "noStock": "No matching spare hosts. Add a compatible host to continue.", "restore": "System and data", "rebuild": "Create a fresh system", "acknowledge": "Create a fresh system. Data cannot be recovered without an offsite backup.", "submit": "Start replacement", "loadFailed": "Could not load replacement options", "failed": "Replacement failed. Choose a spare and retry.", "status": {"PENDING": "Queued", "PROCESSING": "Replacing and verifying SSH", "COMPLETED": "Replacement complete", "FAILED": "Failed, retry available", "CANCELLED": "Cancelled"}}, protocol: 'Public protocol', protocolStatus: { pending: 'Applying', failed: 'Apply failed' }, faulted: 'Quarantined', unassigned: "Not assigned", unlimited: "unlimit / Unlimited" },
     hostPublicIpv4: {
         title: 'Dedicated IPv4 Pools', description: 'Allocate, reclaim, and validate routed public IPv4 capacity for dedicated IPv4 plans.', newPool: 'New pool', newPoolTitle: 'New dedicated IPv4 pool',
         total: 'Total addresses', empty: 'No dedicated IPv4 pools.', enabled: 'Enabled', disabled: 'Disabled', enable: 'Enable', disable: 'Disable', gateway: 'Gateway', addAddress: 'Add addresses', add: 'Add',
@@ -1255,6 +1259,7 @@ pool: {
         quotaLabel: 'Quota',
         trafficLabel: 'Traffic',
         status: {
+            fault: 'Fault',
             running: 'Running',
             stopped: 'Stopped',
             suspended: 'Suspended',
@@ -2056,6 +2061,8 @@ pool: {
 
     // Rebuild modal
     rebuildModal: {
+        passwordOnly: "Root password only",
+        optionalKeyHint: "A new root password is generated by default. Select an SSH key if needed; rebuilding does not require a saved key.",
         title: 'Rebuild System',
         dangerWarning: 'Dangerous Operation',
         warningList: {
@@ -2064,10 +2071,10 @@ pool: {
             irreversible: 'This action cannot be undone!',
         },
         preserveInfo: 'Port mappings will be preserved during rebuild.',
-        manualStartHint: 'The instance needs to be started manually after the rebuild is complete.',
+        manualStartHint: "The instance starts automatically after rebuilding.",
         selectImage: 'Select New Image',
         imageHint: 'Only images currently allowed on this host are available',
-        selectSshKey: 'Select SSH Key',
+        selectSshKey: "SSH key (optional)",
         noSshKey: 'No available keys',
         addSshKeyHint: 'Please add an SSH key in settings first',
         passwordHint: 'A new root password will be generated after rebuild, viewable on the instance detail page.',

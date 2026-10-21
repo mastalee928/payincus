@@ -22,6 +22,8 @@ PayIncus 是一套面向 hosting 业务的 Incus 商业化交付平台。它把�
 
 当前稳定版：[v1.6.9](https://github.com/mastalee928/payincus/releases/tag/v1.6.9)（完整备份校验、额外密码 ZIP 与中文恢复工具），配套 [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3)。一键安装默认获取本仓库最新正式版。OSS 使用要求及验证边界见 [部署说明](docs-site/docs/deployment/oss-backup.md)。
 
+当前源码候选为 **v1.7.0**，包含批量检查恢复、已售机器无损解除隔离、实时故障状态、客户日志脱敏、可选 SSH 密钥的密码重装及同配置跨区域更换机器。使用边界见 [v1.7.0 发布说明](docs-site/release-notes/v1.7.0.md)，正式发布与生产部署状态以 [HANDOFF.md](HANDOFF.md) 为准。
+
 - 项目仓库：<https://github.com/mastalee928/payincus>
 - 主机接入与管理：[使用说明](docs/host-pool.md)
 - 安装与发布：[维护说明](docs/fork-release.md)

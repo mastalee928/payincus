@@ -52,6 +52,7 @@ import {
   normalizeNetworkMode
 } from '../lib/network-modes.js'
 import { issueHostAgentInstallToken } from '../lib/host-agent-credentials.js'
+import { hostLiveStatus } from '../lib/host-live-status.js'
 import {
   persistResolvedInstanceNetworkAddresses,
   resolveInstanceNetworkAddresses
@@ -799,6 +800,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       includeOwner
     })
 
+    const listedAgents = await prisma.hostAgent.findMany({ where: { hostId: { in: result.items.map(host => host.id) } }, select: { hostId: true, enabled: true, lastSeenAt: true, lastReport: true } })
+    const agentByHost = new Map(listedAgents.map(agent => [agent.hostId, agent]))
     // 获取每个宿主机的实例数量
     const hostsWithCount = await Promise.all(result.items.map(async (h: unknown) => {
       const host = h as {
@@ -842,7 +845,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         id: host.id,
         name: host.name,
         url: host.url,
-        status: host.status,
+        status: hostLiveStatus(host.status, agentByHost.get(host.id)),
         maintenance: host.status === 'maintenance',
         location: host.location,
         countryCode: host.country_code || 'us',
@@ -1938,6 +1941,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
+    const currentAgent = await prisma.hostAgent.findUnique({ where: { hostId }, select: { enabled: true, lastSeenAt: true, lastReport: true } })
+    const liveStatus = hostLiveStatus(host.status, currentAgent)
     // 获取该宿主机上的实例列表
     const instances = await db.getInstancesByHost(hostId)
 
@@ -1945,7 +1950,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     let diskTotalMB = host.storage_size ? host.storage_size * 1024 : (host.disk_total || 0) // 默认值：使用创建时输入的存储大小（GB转MB）
     
     // 如果宿主机在线，尝试从存储池获取实际大小
-    if (host.status === 'online' && host.cert_path && host.key_path) {
+    if (liveStatus === 'online' && host.cert_path && host.key_path) {
       try {
         const client = await getIncusClient(host)
         // 获取所有系统盘存储池（purpose = 'instance_data'）
@@ -1983,7 +1988,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         id: host.id,
         name: host.name,
         url: host.url,
-        status: host.status,
+        status: liveStatus,
         maintenance: host.status === 'maintenance',
         location: host.location,
         countryCode: host.country_code || 'us',

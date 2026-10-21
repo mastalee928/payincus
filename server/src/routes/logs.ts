@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { createLog, getLogsForAuditExport, getLogsPaginated, getLogModules, LogModule, LogResult } from '../db/logs.js'
 import { ErrorCode, apiError } from '../lib/errors.js'
 import { getRiskOperationDefinitions } from '../lib/risk-audit.js'
+import { customerLogContent } from '../lib/customer-log-view.js'
 
 const POSITIVE_INTEGER_PATTERN = /^[1-9]\d*$/
 const LOG_MODULE_FILTER_MAX_LENGTH = 64
@@ -189,7 +190,7 @@ export default async function logRoutes(fastify: FastifyInstance) {
 
     return {
       success: true,
-      logs: result.items,
+      logs: request.user.role === 'admin' ? result.items : result.items.map(log => ({ ...log, content: customerLogContent(log.content) })),
       total: result.total,
       page: result.page,
       pageSize: result.pageSize,

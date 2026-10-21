@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import HostReplacementModal from './HostReplacementModal.vue'
 import HostRecoveryModal from './HostRecoveryModal.vue'
+import HostRecoveryBatchModal from './HostRecoveryBatchModal.vue'
 import HostPublicIpModal from './HostPublicIpModal.vue'
 import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
@@ -81,6 +82,8 @@ const sshForm = ref({ host: '', port: 22, username: 'root' })
 const removeHost = ref<ManagedHost | null>(null)
 const replacement = ref<{ id: number; name: string } | null>(null)
 const recoveryHost = ref<ManagedHost | null>(null)
+const recoveryTargets = ref<ManagedHost[]>([])
+function openBatchRecovery(targets: ManagedHost[]) { recoveryTargets.value = targets.filter(host => host.poolFaulted) }
 const publicIpHost = ref<ManagedHost | null>(null)
 const protocolRequests = new Map<number, string>()
 async function changeProtocol(host: ManagedHost, event: Event) {
@@ -297,6 +300,7 @@ defineExpose({ refresh })
     <div class="flex flex-wrap items-center justify-between gap-3">
       <p class="text-sm text-themed">{{ t('hostInventory.stockSummary', summary) }}</p>
       <button class="btn-secondary whitespace-nowrap" @click="showGroupManager = true">{{ t('hostInventory.manageGroups') }}</button>
+      <button type="button" class="btn-secondary whitespace-nowrap" :disabled="loading || !hosts.some(host => host.poolFaulted)" @click="openBatchRecovery(hosts)">{{ t('hostPoolOps.recovery.batch.checkPage') }}</button>
     </div>
     <div class="flex flex-wrap items-start gap-2">
       <span class="pt-1.5 text-xs whitespace-nowrap text-themed-muted">{{ t('hostInventory.machineGroup') }}</span>
@@ -337,6 +341,7 @@ defineExpose({ refresh })
       <span class="text-sm">{{ t('hostInventory.selectedCount', { count: selected.length }) }}</span>
       <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="openGroups(hosts.filter(host => selected.includes(host.id)))">{{ t('hostInventory.batchGroups', { count: selected.length }) }}</button>
       <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="openSpec(hosts.filter(host => selected.includes(host.id)))">{{ t('hostInventory.batchSpec', { count: selected.length }) }}</button>
+      <button type="button" class="btn-secondary text-xs whitespace-nowrap" :disabled="!hosts.some(host => selected.includes(host.id) && host.poolFaulted)" @click="openBatchRecovery(hosts.filter(host => selected.includes(host.id)))">{{ t('hostPoolOps.recovery.batch.checkSelected') }}</button>
       <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="selected = []">{{ t('hostInventory.clearSelection') }}</button>
     </div>
     <p v-if="failed" class="card p-4 text-sm text-red-600 dark:text-red-400" role="alert">{{ t('hostInventory.loadFailed') }}</p>
@@ -417,6 +422,7 @@ defineExpose({ refresh })
     <HostReplacementModal v-if="replacement" :instance-id="replacement.id" :instance-name="replacement.name" @close="replacement = null" @changed="refresh" />
     <HostPublicIpModal v-if="publicIpHost" :host-id="publicIpHost.id" :host-name="publicIpHost.name" @close="publicIpHost = null" @changed="refresh" />
     <HostRecoveryModal v-if="recoveryHost" :host-id="recoveryHost.id" :host-name="recoveryHost.name" @close="recoveryHost = null" @changed="refresh" @ssh="openSsh(recoveryHost); recoveryHost = null" />
+    <HostRecoveryBatchModal v-if="recoveryTargets.length" :hosts="recoveryTargets" @close="recoveryTargets = []" @changed="refresh" />
     <Teleport to="body">
       <div v-if="groupTargets.length" class="modal-overlay" @keydown.esc="closeGroups">
         <div class="modal-backdrop" @click="closeGroups"></div>

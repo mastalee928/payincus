@@ -770,6 +770,7 @@ export interface BadgeMultiDrawResponse {
 // ==================== 实例相关 ====================
 
 export interface Instance {
+  serviceFault?: boolean
   dedicatedIpv4?: boolean
   dedicatedNetworkReady?: boolean
   publicIpv6Addresses?: string[]

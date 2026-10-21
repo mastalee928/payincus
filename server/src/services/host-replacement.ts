@@ -21,16 +21,25 @@ type ReplacementState = {
   stage: 'reserved' | 'creating' | 'delivered' | 'cleaned' | 'cleanup_pending'
 }
 
-export async function replacementCandidates(instanceId: number) {
+function replacementConfigurationWhere(instance: { cpu: number; memory: number; disk: number; host: { machineGroupId: number | null; regionGroupId: number | null; resourcePreset: string | null; architecture: string } }, allRegions: boolean): Prisma.HostWhereInput {
+  return {
+    machineGroupId: instance.host.machineGroupId,
+    ...(allRegions ? {} : { regionGroupId: instance.host.regionGroupId }),
+    resourcePreset: instance.host.resourcePreset, architecture: instance.host.architecture,
+    cpuAllowanceMax: instance.cpu, memoryMax: instance.memory,
+    customerDiskGiB: Math.ceil(instance.disk / 1024)
+  }
+}
+
+export async function replacementCandidates(instanceId: number, allRegions = false) {
   const instance = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId }, include: { host: true } })
   if (!instance.dedicatedIpv4) throw new Error('仅独占实例支持故障换机')
   const hosts = await prisma.host.findMany({ where: {
     ...dedicatedHostReadyWhere(), id: { not: instance.hostId }, singleTenant: true,
-    machineGroupId: instance.host.machineGroupId, regionGroupId: instance.host.regionGroupId,
-    resourcePreset: instance.host.resourcePreset, architecture: instance.host.architecture,
-    customerDiskGiB: { gte: Math.ceil(instance.disk / 1024) },
+    ...replacementConfigurationWhere(instance, allRegions),
     instances: { none: HOST_OCCUPIED_INSTANCE_WHERE }
   }, select: { id: true, name: true, natPublicIp: true, countryCode: true, resourcePreset: true,
+    regionGroupId: true, regionGroupEntry: { select: { name: true } },
     cpuAllowanceMax: true, memoryMax: true, storageSize: true, customerDiskGiB: true, cpuUsed: true, memoryUsed: true, diskUsed: true } })
   const reserved = await prisma.instanceTask.findMany({ where: { taskType: { in: ['change_host', 'replace_host'] }, status: { in: ['PENDING', 'PROCESSING'] } }, select: { targetHostId: true } })
   return hosts.filter(host => !reserved.some(task => task.targetHostId === host.id) &&
@@ -38,7 +47,7 @@ export async function replacementCandidates(instanceId: number) {
     host.storageSize * 1024 - host.diskUsed >= instance.disk)
 }
 
-export async function requestHostReplacement(instanceId: number, targetHostId: number, adminId: number, backupUploadId?: number | null) {
+export async function requestHostReplacement(instanceId: number, targetHostId: number, adminId: number, backupUploadId?: number | null, allRegions = false) {
   return prisma.$transaction(async tx => {
     await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
     await lockHostGroups(tx)
@@ -50,8 +59,7 @@ export async function requestHostReplacement(instanceId: number, targetHostId: n
         await tx.restoreTask.count({ where: { instanceId, status: { in: ['PENDING', 'PROCESSING'] } } }) ||
         await tx.backupUploadTask.count({ where: { instanceId, status: { in: ['PENDING', 'PROCESSING'] } } })) throw new Error('实例有其他任务正在执行')
     const target = await tx.host.findFirst({ where: { ...dedicatedHostReadyWhere(), id: targetHostId, singleTenant: true,
-      machineGroupId: instance.host.machineGroupId, regionGroupId: instance.host.regionGroupId,
-      resourcePreset: instance.host.resourcePreset, architecture: instance.host.architecture,
+      ...replacementConfigurationWhere(instance, allRegions),
       instances: { none: HOST_OCCUPIED_INSTANCE_WHERE } } })
     if (!target || await tx.instanceTask.count({ where: hostPendingMoveWhere(targetHostId) }) ||
         target.cpuAllowanceMax - target.cpuUsed < instance.cpu || target.memoryMax - target.memoryUsed < instance.memory ||
@@ -170,7 +178,7 @@ export async function executeHostReplacement(task: InstanceTask): Promise<void> 
       await tx.instanceTask.update({ where: { id: task.id }, data: { status: 'COMPLETED', progress: 'delivered', finishedAt: new Date(), replacementState: state as Prisma.InputJsonValue } })
     }, { timeout: 20000 })
     switched = true
-    await createLog(instance.userId, 'instance', 'instance.replace_host', `实例「${instance.name}」故障换机完成，公网 IP 已更新，原价格和到期时间保留`, 'success', { instanceId: instance.id })
+    await createLog(instance.userId, 'instance', 'instance.replace_host', `实例「${instance.name}」更换机器已完成，公网 IP 已更新，原价格和到期时间保留`, 'success', { instanceId: instance.id })
   } catch (error) {
     if (!switched) {
       let cleaned = !state.targetIncusId

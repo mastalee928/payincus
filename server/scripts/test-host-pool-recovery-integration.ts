@@ -112,7 +112,7 @@ try {
   }
   assert.equal(deletions.length, 0, 'unknown, running and reused names must never be deleted')
   const assigned = await inspectHostRecovery(target.id, connect)
-  assert.ok(assigned.blockers.includes('assigned'))
+  assert.ok(assigned.blockers.includes('assigned-not-ready'), 'occupied hosts require completed delivery and storage mapping before preservation recovery')
   const task = await prisma.instanceTask.create({ data: { instanceId: current.id, userId: owner.id,
     hostId: source.id, targetHostId: source.id, taskType: 'replace_host', status: 'PROCESSING' } })
   assert.ok((await inspectHostRecovery(source.id, connect)).blockers.includes('busy'))
@@ -143,6 +143,56 @@ try {
   assert.equal(forwards.length, 0)
   assert.deepEqual(await prisma.instance.findUniqueOrThrow({ where: { id: current.id } }), current, 'the replacement customer instance and billing remain untouched')
   assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), 123)
+  const occupiedHost = await makeHost(false)
+  const liveInstance = await prisma.instance.create({ data: { userId: buyer.id, hostId: occupiedHost.id, name: `${prefix}-occupied`,
+    incusId: `${prefix}-occupied`, status: 'running', image: 'images:alpine/3.21', cpu: 200, memory: 768, disk: 30720,
+    ipv4: '10.10.4.2', storagePoolName: 'default', dedicatedIpv4: true, dedicatedNetworkReady: true, billingPrice: 9.5,
+    autoRenew: true, expiresAt: new Date('2030-01-01T00:00:00Z') } })
+  const occupiedBefore = await prisma.host.update({ where: { id: occupiedHost.id }, data: { poolFaulted: true, cpuUsed: 200, memoryUsed: 768, diskUsed: 30720 } })
+  let mismatchedInstance = false, mismatchedNetwork = false, extraDataVolume = false
+  let ipv6ForwardPresent = false
+  const occupiedConnect = async () => ({ request: async (method: string, path: string) => {
+    assert.equal(method, 'GET', 'occupied recovery must never mutate customer systems, snapshots or network rules')
+    if (path.startsWith('/1.0/instances?')) return [{ name: mismatchedInstance ? 'unknown' : liveInstance.incusId, status: 'Running', project: 'default' }]
+    if (path.startsWith('/1.0/projects?')) return [{ name: 'default' }]
+    if (path.startsWith('/1.0/networks?')) return [{ name: 'incusbr0', managed: true, type: 'bridge' }]
+    if (path.startsWith('/1.0/operations?')) return { running: [] }
+    if (path.startsWith('/1.0/storage-pools?')) return [{ name: 'default', status: 'Created' }]
+    if (path.includes('/forwards?')) return [{ listen_address: occupiedHost.natBindIp, description: `payincus-dedicated:${liveInstance.incusId}`, config: { target_address: mismatchedNetwork ? '10.10.4.99' : liveInstance.ipv4 }, ports: [] }, ...(ipv6ForwardPresent ? [{ listen_address: '2603:c024::1234', description: `payincus-dedicated:${liveInstance.incusId}`, config: { target_address: 'fd00::2' }, ports: [] }] : [])]
+    if (path.includes('/volumes?')) return [{ name: liveInstance.incusId, type: 'container' }, ...(extraDataVolume ? [{ name: 'private-data', type: 'custom' }] : [])]
+    throw new Error('Unexpected occupied inspection endpoint')
+  } }) as any
+  for (const reason of ['assigned-mismatch', 'unknown-forward', 'volumes'] as const) {
+    mismatchedInstance = reason === 'assigned-mismatch'; mismatchedNetwork = reason === 'unknown-forward'; extraDataVolume = reason === 'volumes'
+    const blocked = await inspectHostRecovery(occupiedHost.id, occupiedConnect)
+    assert.ok(blocked.blockers.includes(reason))
+    await assert.rejects(recoverPoolHost(occupiedHost.id, owner.id, { confirmation: blocked.confirmation, acknowledgeCleanup: false }, occupiedConnect), error => error instanceof HostRecoveryError && error.code === 'HOST_RECOVERY_BLOCKED')
+  }
+  mismatchedInstance = false; mismatchedNetwork = false; extraDataVolume = false
+  const occupiedReport = await inspectHostRecovery(occupiedHost.id, occupiedConnect)
+  assert.equal(occupiedReport.mode, 'preserve')
+  assert.equal(occupiedReport.canRecover, true)
+  assert.equal(occupiedReport.needsCleanup, false)
+  assert.deepEqual(occupiedReport.instances, [])
+  await prisma.instance.update({ where: { id: liveInstance.id }, data: { dedicatedIpv6: {
+    version: 1, hostId: occupiedHost.id, instanceName: liveInstance.incusId, status: 'pending', error: 'IPV6_HOST_QUARANTINED',
+    mappings: []
+  } } })
+  assert.ok((await inspectHostRecovery(occupiedHost.id, occupiedConnect)).blockers.includes('assigned-not-ready'), 'quarantine cannot make unverified IPv6 mappings ready')
+  await prisma.instance.update({ where: { id: liveInstance.id }, data: { dedicatedIpv6: {
+    version: 1, hostId: occupiedHost.id, instanceName: liveInstance.incusId, status: 'pending', error: 'IPV6_HOST_QUARANTINED',
+    mappings: [{ publicIp: '2603:c024::1234', privateIp: 'fd00::2', ready: true }]
+  } } })
+  assert.ok((await inspectHostRecovery(occupiedHost.id, occupiedConnect)).blockers.includes('unknown-forward'), 'paused IPv6 recovery must verify every retained mapping remotely')
+  ipv6ForwardPresent = true
+  const liveBeforeRecovery = await prisma.instance.findUniqueOrThrow({ where: { id: liveInstance.id } })
+  const finalOccupiedReport = await inspectHostRecovery(occupiedHost.id, occupiedConnect)
+  assert.equal(finalOccupiedReport.canRecover, true, 'verified retained IPv6 rules break the quarantine/reconciliation dependency cycle')
+  await recoverPoolHost(occupiedHost.id, owner.id, { confirmation: finalOccupiedReport.confirmation, acknowledgeCleanup: false }, occupiedConnect)
+  const occupiedAfter = await prisma.host.findUniqueOrThrow({ where: { id: occupiedHost.id } })
+  assert.equal(occupiedAfter.poolFaulted, false)
+  assert.deepEqual([occupiedAfter.cpuUsed, occupiedAfter.memoryUsed, occupiedAfter.diskUsed], [occupiedBefore.cpuUsed, occupiedBefore.memoryUsed, occupiedBefore.diskUsed])
+  assert.deepEqual(await prisma.instance.findUniqueOrThrow({ where: { id: liveInstance.id } }), liveBeforeRecovery, 'occupied recovery must retain owner, billing, expiry, renewal and network records')
   console.log('Host pool recovery: authorization, confirmation, ownership, remote state, partial failure, retry, concurrency and billing preservation passed')
 } catch (error) { failure = error }
 finally {

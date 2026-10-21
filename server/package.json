@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "1.6.9",
+  "version": "1.7.0",
   "description": "PayIncus backend service",
   "type": "module",
   "main": "dist/app.js",

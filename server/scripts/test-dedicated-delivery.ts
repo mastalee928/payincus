@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { ensureDedicatedForward, removeDedicatedForward, removeObsoleteDedicatedForwards } from '../src/lib/incus/dedicated-network.js'
 import { applyCustomerInstanceView, publicInstanceIpv6 } from '../src/lib/customer-instance-view.js'
+import { readFileSync } from 'node:fs'
+import { generateIncusConfig } from '../src/lib/incus-config-generator.js'
 
 const forwards: Array<any> = []
 const calls: string[] = []
@@ -60,4 +62,30 @@ assert.equal(publicInstanceIpv6('fe80::1'), null)
 const admin: Record<string, any> = { host: { name: 'internal-host-secret' } }
 applyCustomerInstanceView(admin, { dedicated_ipv4: true }, true)
 assert.equal(admin.host.name, 'internal-host-secret', 'administrators retain the host name')
+const fault: Record<string, any> = { status: 'running', host: { name: 'internal-host-secret' }, natPublicIp: '192.0.2.1' }
+applyCustomerInstanceView(fault, { dedicated_ipv4: true, dedicated_network_ready: true, service_fault: true }, false)
+assert.equal(fault.status, 'running', 'connection failure must not rewrite persisted instance lifecycle or billing state')
+assert.equal(fault.serviceFault, true, 'customer list and detail must receive an explicit fault presentation flag')
+assert.equal(fault.host.name, '', 'fault responses must not expose infrastructure names')
+applyCustomerInstanceView(fault, { dedicated_ipv4: true, dedicated_network_ready: true, service_fault: false }, false)
+assert.equal(fault.serviceFault, false, 'a fresh healthy connection must clear the presentation fault')
+for (const file of ['InstancesView.vue', 'InstanceDetailView.vue']) {
+  const page = readFileSync(new URL(`../../client/src/views/${file}`, import.meta.url), 'utf8')
+  assert.ok(page.includes("getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t)"), 'customer list and detail must render fault instead of stale running')
+}
+const formatters = readFileSync(new URL('../../client/src/utils/formatters.ts', import.meta.url), 'utf8')
+assert.ok(formatters.includes("fault: { labelKey: 'instance.status.fault', class: 'badge-error'"), 'fault has a customer-facing translation and failure color')
+for (const type of ['container', 'virtual-machine'] as const) {
+  const password = 'local-guard-password-123'
+  const result = generateIncusConfig({ instanceName: 'rebuild-guard', imageAlias: 'images:debian/12', rootPassword: password, type, networkMode: 'nat' })
+  const config = JSON.stringify(result.configPayload)
+  assert.ok(config.includes(password) && config.includes('PasswordAuthentication yes') && !config.includes('ssh_authorized_keys:'), 'password-only rebuild configuration must enable root login without a key')
+  const withKey = generateIncusConfig({ instanceName: 'rebuild-guard', imageAlias: 'images:debian/12', rootPassword: password, sshKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestOnly guard', type, networkMode: 'nat' })
+  assert.ok(JSON.stringify(withKey.configPayload).includes('ssh_authorized_keys:'), 'an explicitly chosen key must be included')
+}
+const rebuildModal = readFileSync(new URL('../../client/src/components/instance/modals/RebuildModal.vue', import.meta.url), 'utf8')
+assert.ok(rebuildModal.includes('sshKeyId: selectedSshKeyId.value ?? undefined') && rebuildModal.includes('rebuildModal.passwordOnly') && !rebuildModal.includes('selectedSshKeyId.value = keys[0].id') && !rebuildModal.includes('loading || !selectedImage || !selectedSshKeyId'), 'rebuild UI must default to password login without requiring saved keys')
+const worker = readFileSync(new URL('../src/workers/instanceTaskWorker.ts', import.meta.url), 'utf8')
+const rebuild = worker.slice(worker.indexOf('async function executeRebuildTask('), worker.indexOf('async function executeRecreateTask('))
+assert.ok(!rebuild.includes('getSSHKeysByUserId') && rebuild.includes('SSH_KEY_NOT_OWNED') && rebuild.indexOf('SSH_KEY_NOT_OWNED') < rebuild.indexOf('deleting_snapshots'), 'rebuild must validate only the selected key before destructive steps and never silently inject another key')
 console.log('Dedicated address ownership, idempotency and customer privacy checks passed')

@@ -11,8 +11,25 @@ import SideNav from './SideNav.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
 import { instancesPath, loginPath, profilePath, terminalPath } from '@/utils/app-paths'
+import { buildApiUrl } from '@/utils/api-url'
 
 const isAdminEntry = import.meta.env.VITE_APP_ENTRY === 'admin'
+const recoveryHeld = ref(false)
+let recoveryPoll: ReturnType<typeof setInterval> | undefined
+let checkingRecovery = false
+let layoutDisposed = false
+
+async function checkRecoveryProtection() {
+  if (checkingRecovery || layoutDisposed) return
+  checkingRecovery = true
+  try {
+    const response = await fetch(buildApiUrl('/health'), { signal: AbortSignal.timeout(5000), cache: 'no-store' })
+    if (!response.ok) return
+    const state = await response.json() as { recoveryHeld?: boolean }
+    if (!layoutDisposed) recoveryHeld.value = state.recoveryHeld === true
+  } catch { /* Keep the last protection state during a backend restart. */ }
+  finally { checkingRecovery = false }
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -107,11 +124,15 @@ function getCurrentLocaleShort(): string {
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
+  void checkRecoveryProtection()
+  recoveryPoll = setInterval(checkRecoveryProtection, 5000)
   // 启动站内信轮询
   inboxStore.startPolling()
 })
 
 onUnmounted(() => {
+  layoutDisposed = true
+  if (recoveryPoll) clearInterval(recoveryPoll)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>
@@ -341,7 +362,12 @@ onUnmounted(() => {
       <!-- 页面内容 -->
       <main class="kawaii-workspace nimbus-workspace flex-1 px-4 md:px-6 xl:px-10 py-5 md:py-6" :class="isSplitPane ? 'overflow-auto lg:overflow-hidden' : 'overflow-auto'">
         <div class="w-full mx-auto" :class="isSplitPane ? 'lg:h-full' : 'max-w-[1680px]'">
-          <slot />
+          <section v-if="recoveryHeld" class="recovery-notice" role="status" aria-labelledby="recovery-notice-title">
+            <h1 id="recovery-notice-title">{{ t('oss.protectionTitle') }}</h1>
+            <p>{{ t('oss.protectionMessage') }}</p>
+            <router-link v-if="isAdminEntry && route.name !== 'admin-aliyun-oss'" :to="{ name: 'admin-aliyun-oss' }">{{ t('oss.openRecovery') }}</router-link>
+          </section>
+          <slot v-if="!recoveryHeld || (isAdminEntry && route.name === 'admin-aliyun-oss')" />
         </div>
       </main>
     </div>
@@ -349,6 +375,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.recovery-notice { padding: 24px; margin-bottom: 24px; border: 1px solid var(--kawaii-line); border-radius: 12px; color: var(--kawaii-text); background: var(--kawaii-surface); }
+.recovery-notice h1 { margin: 0 0 12px; font-size: 20px; font-weight: 600; }
+.recovery-notice p { margin: 0; max-width: 75ch; font-size: 16px; line-height: 1.7; }
+.recovery-notice a { display: inline-block; margin-top: 16px; padding: 8px 0; text-decoration: underline; text-underline-offset: 4px; }
+.recovery-notice a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
 /* ============================================================
    Nimbus topbar — translucent blurred console header + clean
    34px icon buttons with indigo hover. Colors from CSS tokens.

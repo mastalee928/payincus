@@ -138,6 +138,7 @@ export interface HostPublicIpv6Sync {
   error: string | null
 }
 export interface HostRecoveryReport {
+  mode?: 'empty' | 'preserve'
   hostId: number
   quarantined: boolean
   checkedAt: string

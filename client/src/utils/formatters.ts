@@ -93,6 +93,7 @@ export function getStatusInfo(status: string, t?: TranslateFunction): StatusInfo
     
     const statusMap: Record<string, { labelKey: string; class: string; dot: string }> = {
         running: { labelKey: 'instance.status.running', class: 'badge-success', dot: 'bg-green-500' },
+          fault: { labelKey: 'instance.status.fault', class: 'badge-error', dot: 'bg-red-500' },
         stopped: { labelKey: 'instance.status.stopped', class: 'badge-default', dot: 'bg-gray-500' },
         suspended: { labelKey: 'instance.status.suspended', class: 'badge-error', dot: 'bg-red-500' },
         starting: { labelKey: 'instance.status.starting', class: 'badge-warning', dot: 'bg-yellow-500 animate-pulse' },

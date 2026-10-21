@@ -46,6 +46,10 @@ import type { Instance, InstanceWithDetails, Snapshot, UserQuota, UpdateInstance
 const InstanceConfigTab = isAdminEntry
   ? defineAsyncComponent(() => import('@/components/instance/InstanceConfigTab.vue'))
   : null
+const HostReplacementModal = isAdminEntry
+  ? defineAsyncComponent(() => import('@/components/host/HostReplacementModal.vue'))
+  : null
+const showHostReplacement = ref(false)
 
 // 格式化镜像名称：优先使用 imageName，否则去掉 images: 前缀
 function formatImageName(image: string, imageName?: string | null): string {
@@ -137,7 +141,7 @@ const instance = ref<InstanceWithDetails | null>(null)
 /** 头部区域行：影子方案名「地区 · 30G」剥掉磁盘档，按当前语言映射成目录区域名；目录外原名原样。 */
 const planRegionLabel = computed(() => {
   const value = instance.value as any
-  const raw = String(value?.planName ?? '')
+  const raw = String(value?.host?.regionGroupName || value?.planName || '')
   if (!raw) return raw
   const regionRaw = raw.replace(/ · \d+G$/, '')
   return localizePoolRegionName(regionRaw, value?.hostCountryCode ?? value?.host?.country_code ?? null, locale.value)
@@ -465,12 +469,12 @@ watch(activeTab, async (tab: TabType) => {
 
 const isRunning = computed<boolean>(() => {
   const s = instance.value?.status?.toLowerCase()
-  return s === 'running'
+  return !instance.value?.serviceFault && s === 'running'
 })
 
 const isStopped = computed<boolean>(() => {
   const s = instance.value?.status?.toLowerCase()
-  return s === 'stopped'
+  return !instance.value?.serviceFault && s === 'stopped'
 })
 
 const isSuspended = computed<boolean>(() => {
@@ -1002,6 +1006,7 @@ async function loadStats(): Promise<void> {
 
   try {
     const response = await api.instances.getStats(instanceId)
+    instance.value.serviceFault = (response as { serviceFault?: boolean }).serviceFault === true
     const newStats = (response as { stats?: ResourceStats; status?: string }).stats
     const newStatus = (response as { stats?: ResourceStats; status?: string }).status
 
@@ -1523,9 +1528,9 @@ async function loadSshKeys(): Promise<void> {
   }
 }
 
-async function doRebuild(data: { image: string; sshKeyId: number; customInitCommandIds?: number[] }): Promise<void> {
-  if (!data.image || !data.sshKeyId || !instance.value) {
-    toast.error(t('instance.detail.actions.selectImageAndKey'))
+async function doRebuild(data: { image: string; sshKeyId?: number; customInitCommandIds?: number[] }): Promise<void> {
+  if (!data.image || !instance.value) {
+    toast.error(t('rebuildModal.selectImage'))
     return
   }
   rebuildLoading.value = true
@@ -2453,9 +2458,9 @@ function formatShortDate(dateStr: string | null | undefined): string {
           <div class="min-w-0">
             <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
               <h1 class="page-title max-w-full truncate">{{ instance.name }}</h1>
-              <span :class="['badge nimbus-status-pill gap-1.5 font-mono tabular-nums', getStatusInfo(instance.status, t).class]">
-                <span :class="['nimbus-status-dot', getStatusInfo(instance.status, t).dot]"></span>
-                {{ getStatusInfo(instance.status, t).label }}
+              <span :class="['badge nimbus-status-pill gap-1.5 font-mono tabular-nums', getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).class]">
+                <span :class="['nimbus-status-dot', getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).dot]"></span>
+                {{ getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).label }}
               </span>
             </div>
             <p class="page-description mt-0.5 font-mono tabular-nums">{{ formatImageName(instance.image, (instance as any).imageName) }}<span v-if="isAdminEntry"> · <span class="uppercase">{{ (instance as any).host?.name || (instance as any).host || '-' }}</span></span></p>
@@ -2633,6 +2638,12 @@ function formatShortDate(dateStr: string | null | undefined): string {
             </svg>
             <span class="hidden sm:inline ml-1">{{ $t('instance.actions.clone') }}</span>
           </button>
+          <button
+            v-if="isAdminEntry && instance.dedicatedIpv4"
+            :disabled="isOperationDisabled || !['running', 'stopped', 'error'].includes(instance.status)"
+            class="btn-secondary btn-sm sm:btn"
+            @click="showHostReplacement = true"
+          >{{ $t('dedicated.replacement.manageTitle') }}</button>
           <!-- 重建按钮（始终可点击，运行时提示需要先关机） -->
           <button
             v-if="canRebuild"
@@ -3208,6 +3219,16 @@ function formatShortDate(dateStr: string | null | undefined): string {
       :port-range-end="(instance as any)?.port_range_end"
       @confirm="handlePortConflictConfirm"
       @cancel="handlePortConflictCancel"
+    />
+
+    <HostReplacementModal
+      v-if="isAdminEntry && showHostReplacement && instance"
+      :key="instance.id"
+      :instance-id="instance.id"
+      :instance-name="instance.name"
+      allow-other-regions
+      @close="showHostReplacement = false"
+      @changed="loadInstance(); checkActiveTask()"
     />
 
     <RebuildModal

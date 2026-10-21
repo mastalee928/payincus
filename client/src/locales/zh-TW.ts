@@ -45,6 +45,8 @@ const zhTW = {
     "udpClosed": "已生效 · UDP 入站已關閉",
     "udpOpen": "已生效 · TCP+UDP",
     "recovery": {
+      "preserve": "現有使用者實例、磁碟與網路規則已核對一致；解除隔離後保留使用者、價格、到期時間和資源佔用，這台機器仍屬已售，不會重複出售。",
+      "batch": {"title": "批次檢查與恢復 · {count} 台", "description": "逐台檢查所選隔離主機，僅恢復檢查通過的機器。檢查失敗會保留原因；不會跳過實例佔用、網路或遺留資料檢查。", "progress": "已檢查 {checked}/{total} 台 · 可恢復 {ready} 台 · 已恢復 {recovered} 台", "checkPage": "批次檢查本頁隔離主機", "checkSelected": "檢查並恢復所選主機", "working": "正在逐台處理…", "restoreReady": "恢復檢查通過的 {count} 台", "status": {"pending": "等待檢查", "checking": "檢查中", "ready": "檢查通過", "blocked": "檢查未通過", "recovering": "恢復中", "recovered": "已恢復", "failed": "操作失敗"}},
       "title": "檢查與恢復",
       "description": "隔離期間機器不會出售。檢查連線、任務、舊系統及網路，處理完成後才能解除隔離。",
       "checking": "正在檢查主機和遺留資料…",
@@ -63,8 +65,10 @@ const zhTW = {
       "success": "已解除隔離，符合規格和定價條件後可重新出售。",
       "failed": "恢復未完成，機器繼續隔離，請重新檢查。",
       "blockers": {
+        "assigned-mismatch": "現有實例與主機上的系統、專案或執行狀態不一致，不會清理或強行解除隔離。",
+        "assigned-not-ready": "使用者實例尚未完成交付，或其網路、儲存與位址登記尚未就緒；恢復將保留現有資料。",
         "not-quarantined": "這台機器已經解除隔離，請重新整理機器池。",
-        "assigned": "仍有使用者實例或待完成的帳務清理，請先處理這些實例。",
+        "assigned": "仍有待完成的實例清理、帳務清理，或實例登記衝突，請先處理這些問題。",
         "busy": "仍有開通、換機或維護任務，完成後再檢查。",
         "offline": "管理連線離線，請先修復主機或網路。",
         "agent-offline": "主機尚未回報最新狀態，請檢查 Agent 服務及管理連線。",
@@ -88,7 +92,7 @@ const zhTW = {
       }
     }
   },
-  dedicated: { allPorts: '全連接埠', replacement: {"title": "故障換機", "description": "從同機型、同地區的備用池選擇機器。價格及到期時間保留，不重複扣款；換機後公網 IP 通常改變。", "target": "備用機器", "choose": "選擇可用機器", "noStock": "目前沒有匹配的備用機器，接入同規格機器後即可選擇。", "restore": "系統與資料", "rebuild": "重新建立系統", "acknowledge": "確認重新建立系統；沒有異地備份時無法還原舊機資料。", "submit": "開始換機", "loadFailed": "換機資訊載入失敗", "failed": "換機失敗，可重新選擇備用機器", "status": {"PENDING": "排隊中", "PROCESSING": "正在換機並驗證連線", "COMPLETED": "換機完成", "FAILED": "換機失敗，可重試", "CANCELLED": "已取消"}}, protocol: '公網協定', protocolStatus: { pending: '待套用', failed: '套用失敗' }, faulted: '故障隔離', unassigned: "未分配", unlimited: "unlimit / 無限制" },
+  dedicated: { allPorts: '全連接埠', replacement: {"manageTitle": "更換機器", "manageDescription": "選擇同區域或其他區域的同規格備用機器。CPU、記憶體、磁碟及架構必須相同；保留客戶、價格及到期時間，不重複扣款，公網 IP 將更新。", "scope": "目標區域範圍", "sameRegion": "同區域", "allRegions": "所有區域（含跨區域）", "dataBoundary": "選擇異地備份會還原到該備份的時間點；選擇重新建立系統會得到全新系統，不會自動搬遷舊機目前的磁碟資料。", "title": "故障換機", "description": "從同機型、同地區的備用池選擇機器。價格及到期時間保留，不重複扣款；換機後公網 IP 通常改變。", "target": "備用機器", "choose": "選擇可用機器", "noStock": "目前沒有匹配的備用機器，接入同規格機器後即可選擇。", "restore": "系統與資料", "rebuild": "重新建立系統", "acknowledge": "確認重新建立系統；沒有異地備份時無法還原舊機資料。", "submit": "開始換機", "loadFailed": "換機資訊載入失敗", "failed": "換機失敗，可重新選擇備用機器", "status": {"PENDING": "排隊中", "PROCESSING": "正在換機並驗證連線", "COMPLETED": "換機完成", "FAILED": "換機失敗，可重試", "CANCELLED": "已取消"}}, protocol: '公網協定', protocolStatus: { pending: '待套用', failed: '套用失敗' }, faulted: '故障隔離', unassigned: "未分配", unlimited: "unlimit / 無限制" },
     hostPublicIpv4: {
         title: '獨立 IPv4 位址池', description: '為獨立 IPv4 方案提供 routed 公網 IPv4 分配、回收和容量驗證。', newPool: '新增位址池', newPoolTitle: '新增獨立 IPv4 位址池',
         total: '總位址', empty: '暫無獨立 IPv4 位址池。', enabled: '啟用', disabled: '停用', enable: '啟用', disable: '停用', gateway: '閘道', addAddress: '新增位址', add: '新增',
@@ -1768,6 +1772,7 @@ pool: {
         rename: '重新命名',
         forceStop: '強制停止',
         status: {
+            fault: '故障',
             running: '運行中',
             stopped: '已停止',
             starting: '啟動中',
@@ -2525,6 +2530,8 @@ pool: {
 
     // 重裝系統彈窗
     rebuildModal: {
+        passwordOnly: "僅使用 root 密碼登入",
+        optionalKeyHint: "預設產生新的 root 密碼。需要金鑰登入時可選擇 SSH 金鑰；未新增金鑰也能重裝。",
         title: '重裝系統',
         dangerWarning: '危險操作',
         warningList: {
@@ -2533,10 +2540,10 @@ pool: {
             irreversible: '此操作不可回復！',
         },
         preserveInfo: '重裝系統會保留連接埠映射。',
-        manualStartHint: '重裝完成後需手動啟動實例。',
+        manualStartHint: "重裝完成後將自動啟動實例。",
         selectImage: '選擇新映像檔',
         imageHint: '只能選擇該節點目前允許的映像檔',
-        selectSshKey: '選擇 SSH 金鑰',
+        selectSshKey: "SSH 金鑰（選填）",
         noSshKey: '暫無可用金鑰',
         addSshKeyHint: '請先在設定中新增 SSH 金鑰',
         passwordHint: '重裝後將自動產生新的 root 密碼，可在實例詳情頁查看。',

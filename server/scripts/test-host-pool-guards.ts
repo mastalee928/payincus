@@ -6,8 +6,17 @@ import { resolveHostResources } from '../src/lib/onboarding-resources.js'
 import { buildPoolPurchaseRegions, localizePoolRegionName, poolPurchaseRegionStock } from '../../client/src/utils/poolRegionCatalog.js'
 import { ociMachineShape } from '../../client/src/utils/poolCatalog.js'
 import { groupByContinent } from '../../client/src/utils/countryContinent.js'
+import { inspectRecoveryBatch, recoverRecoveryBatch, type RecoveryBatchItem } from '../../client/src/utils/hostRecoveryBatch.js'
+import { hostLiveStatus } from '../src/lib/host-live-status.js'
 
 const facts = { occupied: false, reserved: false, singleTenant: true, ready: true, hasPrice: true, resourcePreset: 'E2', customerDiskGiB: 30 }
+const now = Date.now()
+assert.equal(hostLiveStatus('online', { enabled: true, lastSeenAt: new Date(now - 300000) }, now), 'offline', 'historical online state must not hide expired heartbeats')
+assert.equal(hostLiveStatus('online', { enabled: true, lastSeenAt: new Date(now - 30000) }, now), 'online')
+assert.equal(hostLiveStatus('maintenance', { enabled: true, lastSeenAt: new Date(now) }, now), 'maintenance')
+assert.equal(hostLiveStatus('online', { enabled: false, lastSeenAt: new Date(now) }, now), 'offline')
+assert.equal(hostLiveStatus('online', { enabled: true, lastSeenAt: new Date(now - 300000), lastReport: { metrics: { heartbeatIntervalSeconds: 120 } } }, now), 'online', 'configured heartbeat interval must be respected')
+assert.equal(hostLiveStatus('online', null, now), 'online', 'legacy hosts without an Agent preserve existing status semantics')
 assert.equal(unsellableReason(facts), null)
 assert.equal(unsellableReason({ ...facts, occupied: true }), 'assigned')
 assert.equal(unsellableReason({ ...facts, reserved: true }), 'reserved')
@@ -83,4 +92,43 @@ assert.ok(poolOrderServiceSource.includes('购买实例订单'), 'pool checkout 
 const poolRemarkMigration = readFileSync(new URL('../prisma/migrations/202610180003_pool_remark_wording/migration.sql', import.meta.url), 'utf8')
 assert.ok(poolRemarkMigration.includes('UPDATE "balance_logs"') && poolRemarkMigration.includes('一机一卖'), 'the migration must rewrite existing balance-log remarks away from the jargon')
 
-console.log('Host pool resource, availability, SSH and public region catalog checks passed')
+const batchItems: RecoveryBatchItem[] = [1, 2, 3, 4].map(id => ({ id, name: `host-${id}`, status: 'pending', report: null, error: '' }))
+const calls: number[] = [], recoveredIds: number[] = []
+const batchApi = {
+  inspectRecovery: async (id: number) => {
+    calls.push(id)
+    if (id === 2) throw { code: 'HOST_RECOVERY_UNREACHABLE' }
+    return { hostId: id, quarantined: true, checkedAt: new Date().toISOString(), blockers: id === 3 ? ['assigned'] : [], instances: [], forwardCount: 0, needsCleanup: id === 4, canRecover: id !== 3, confirmation: String(id).repeat(64) }
+  },
+  recover: async (id: number, options: { confirmation: string; acknowledgeCleanup: boolean }) => {
+    assert.equal(options.confirmation, String(id).repeat(64))
+    recoveredIds.push(id)
+    if (id === 1) throw { code: 'HOST_RECOVERY_CHANGED', report: { hostId: id, quarantined: true, checkedAt: new Date().toISOString(), blockers: ['busy'], instances: [], forwardCount: 0, needsCleanup: false, canRecover: false, confirmation: String(id).repeat(64) } }
+    assert.equal(options.acknowledgeCleanup, true)
+  }
+}
+await inspectRecoveryBatch(batchItems, batchApi)
+assert.deepEqual(calls, [1, 2, 3, 4], 'one failed inspection must not stop later hosts')
+assert.deepEqual(batchItems.map(item => item.status), ['ready', 'failed', 'blocked', 'ready'])
+await recoverRecoveryBatch(batchItems, batchApi, false)
+assert.deepEqual(recoveredIds, [1], 'blocked and unconfirmed cleanup hosts must never be restored')
+assert.deepEqual(batchItems[0].report?.blockers, ['busy'], 'the real API interceptor exposes updated blockers on the top-level error')
+await recoverRecoveryBatch(batchItems, batchApi, true)
+assert.deepEqual(recoveredIds, [1, 4], 'a failed host cannot hide a later successful recovery')
+assert.equal(batchItems[3].status, 'recovered')
+await inspectRecoveryBatch(batchItems, batchApi)
+assert.equal(batchItems[3].status, 'recovered', 'rechecking failed hosts must preserve successful results')
+const batchModal = readFileSync(new URL('../../client/src/components/host/HostRecoveryBatchModal.vue', import.meta.url), 'utf8')
+assert.ok(batchModal.includes('item.report.blockers') && batchModal.includes('cleanupNeeded && !acknowledged') && batchModal.includes("dialog.value?.showModal()"), 'batch modal must show per-host blockers, explicit cleanup consent and native focus management')
+const recoveryService = readFileSync(new URL('../src/services/host-pool-recovery.ts', import.meta.url), 'utf8')
+const preserveBranch = recoveryService.slice(recoveryService.indexOf("if (before.report.mode === 'preserve')"), recoveryService.indexOf('// Log intent'))
+assert.ok(preserveBranch.includes('poolFaulted: false') && preserveBranch.includes('return') && !preserveBranch.includes('cpuUsed: 0') && !preserveBranch.includes("'DELETE'"), 'occupied recovery releases quarantine without changing occupied resources or deleting customer systems')
+const replacementService = readFileSync(new URL('../src/services/host-replacement.ts', import.meta.url), 'utf8')
+assert.equal(replacementService.match(/\.\.\.replacementConfigurationWhere\(instance, allRegions\)/g)?.length, 2, 'candidate listing and transactional reservation must enforce the same configuration and region policy')
+assert.ok(replacementService.includes('cpuAllowanceMax: instance.cpu') && replacementService.includes('memoryMax: instance.memory') && replacementService.includes('customerDiskGiB: Math.ceil(instance.disk / 1024)'), 'replacement machines must match all customer resource quotas exactly')
+const replacementDetail = readFileSync(new URL('../../client/src/views/InstanceDetailView.vue', import.meta.url), 'utf8')
+assert.match(replacementDetail, /const HostReplacementModal = isAdminEntry\s*\? defineAsyncComponent/, 'customer entry must not import admin replacement capabilities')
+assert.ok(replacementDetail.includes('isAdminEntry && instance.dedicatedIpv4') && replacementDetail.includes('allow-other-regions'), 'admin dedicated instance detail exposes regional replacement')
+const replacementModal = readFileSync(new URL('../../client/src/components/host/HostReplacementModal.vue', import.meta.url), 'utf8')
+assert.ok(replacementModal.includes('sequence !== refreshSequence') && replacementModal.includes('replacement.dataBoundary') && replacementModal.includes('dialog.value?.showModal()'), 'replacement dialog rejects stale scope responses and provides data-boundary wording and focus management')
+console.log('Host pool resource, availability, SSH, public region catalog, replacement and batch recovery checks passed')

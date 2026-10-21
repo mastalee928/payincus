@@ -960,6 +960,14 @@ async function executeRebuildTask(
 ): Promise<void> {
   const imageAlias = task.imageAlias
   if (!imageAlias) throw new Error('未指定重装镜像')
+  // Only inject a key explicitly selected for this rebuild. Omitting it means password login.
+  const targetUserId = task.userId || instance.user_id
+  let sshKey: string | undefined
+  if (task.sshKeyId) {
+    const keyRecord = await db.getSSHKeyById(task.sshKeyId)
+    if (!keyRecord || keyRecord.user_id !== targetUserId) throw new Error('SSH_KEY_NOT_OWNED')
+    sshKey = keyRecord.public_key
+  }
   const allowCancelBusyUpdate = isAlpineImageAlias(instance.image) || isAlpineImageAlias(imageAlias)
 
   // 关闭该实例的所有终端连接
@@ -1012,21 +1020,6 @@ async function executeRebuildTask(
 
   // 执行重装
   await updateInstanceTaskProgress(task.id, 'rebuilding')
-
-  // 获取 SSH 密钥：优先使用任务指定的 sshKeyId，否则取用户第一个密钥
-  const targetUserId = task.userId || instance.user_id
-  let sshKey: string | undefined
-  if (task.sshKeyId) {
-    const keyRecord = await db.getSSHKeyById(task.sshKeyId)
-    if (keyRecord && keyRecord.user_id === targetUserId) {
-      sshKey = keyRecord.public_key
-    }
-  }
-  if (!sshKey) {
-    // 回退：取用户第一个密钥
-    const userSshKeys = await db.getSSHKeysByUserId(targetUserId)
-    sshKey = userSshKeys && userSshKeys.length > 0 ? userSshKeys[0].public_key : undefined
-  }
 
   // SSH key is optional; password login still remains available when no key is present.
   if (!sshKey) {

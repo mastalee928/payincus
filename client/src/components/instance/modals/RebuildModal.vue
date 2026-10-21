@@ -28,7 +28,7 @@ interface Props {
 
 interface Emits {
   (e: 'update:visible', value: boolean): void
-  (e: 'submit', data: { image: string; sshKeyId: number; customInitCommandIds?: number[] }): void
+  (e: 'submit', data: { image: string; sshKeyId?: number; customInitCommandIds?: number[] }): void
 }
 
 const props = defineProps<Props>()
@@ -80,10 +80,7 @@ watch(
       if (images.length > 0 && !selectedImage.value) {
         selectedImage.value = images[0].incusAlias
       }
-      // 设置默认 SSH 密钥
-      if (keys.length > 0 && !selectedSshKeyId.value) {
-        selectedSshKeyId.value = keys[0].id
-      }
+      if (selectedSshKeyId.value && !keys.some(key => key.id === selectedSshKeyId.value)) selectedSshKeyId.value = null
     } else {
       // 弹窗关闭时重置
       selectedImage.value = ''
@@ -108,10 +105,10 @@ function toggleImageDropdown() {
 }
 
 function handleSubmit(): void {
-  if (selectedImage.value && selectedSshKeyId.value) {
+  if (selectedImage.value) {
     emit('submit', { 
       image: selectedImage.value, 
-      sshKeyId: selectedSshKeyId.value,
+      sshKeyId: selectedSshKeyId.value ?? undefined,
       customInitCommandIds: customInitCommandIds.value.length > 0 ? customInitCommandIds.value : undefined
     })
   }
@@ -300,18 +297,17 @@ function close(): void {
 
           <!-- SSH key selection -->
           <div>
-            <label class="block text-xs text-gray-500 mb-1.5">{{ t('rebuildModal.selectSshKey') }}</label>
-            <select v-model="selectedSshKeyId" class="input" :disabled="sshKeys.length === 0">
-              <option v-if="sshKeys.length === 0" :value="null">{{ t('rebuildModal.noSshKey') }}</option>
+            <label for="rebuild-ssh-key" class="block text-xs text-gray-500 mb-1.5">{{ t('rebuildModal.selectSshKey') }}</label>
+            <select id="rebuild-ssh-key" v-model="selectedSshKeyId" class="input" :disabled="loading">
+              <option :value="null">{{ t('rebuildModal.passwordOnly') }}</option>
               <option v-for="key in sshKeys" :key="key.id" :value="key.id">
                 {{ key.name }}
               </option>
             </select>
             <p 
-              v-if="sshKeys.length === 0"
-              class="text-xs mt-1.5 text-red-500"
+              class="text-xs mt-1.5 text-themed-muted"
             >
-              {{ t('rebuildModal.addSshKeyHint') }}
+              {{ t('rebuildModal.optionalKeyHint') }}
             </p>
           </div>
 
@@ -343,7 +339,7 @@ function close(): void {
           <div class="flex justify-end gap-3 pt-2">
             <button type="button" class="btn-secondary" @click="close">{{ t('rebuildModal.cancel') }}</button>
             <button 
-              :disabled="loading || !selectedImage || !selectedSshKeyId || sshKeys.length === 0" 
+              :disabled="loading || !selectedImage"
               class="btn-danger" 
               @click="handleSubmit"
             >

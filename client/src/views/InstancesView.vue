@@ -153,8 +153,8 @@ const isAllSelected = computed(() => instances.value.length > 0 && selectedIds.v
 const isPartialSelected = computed(() => selectedIds.value.size > 0 && selectedIds.value.size < instances.value.length)
 const selectedCount = computed(() => selectedIds.value.size)
 const selectedInstances = computed(() => instances.value.filter(instance => selectedIds.value.has(instance.id)))
-const selectedRunningCount = computed(() => selectedInstances.value.filter(instance => instance.status?.toLowerCase() === 'running').length)
-const selectedStoppedCount = computed(() => selectedInstances.value.filter(instance => instance.status?.toLowerCase() === 'stopped').length)
+const selectedRunningCount = computed(() => selectedInstances.value.filter(instance => !instance.serviceFault && instance.status?.toLowerCase() === 'running').length)
+const selectedStoppedCount = computed(() => selectedInstances.value.filter(instance => !instance.serviceFault && instance.status?.toLowerCase() === 'stopped').length)
 const selectedBillingActionIds = computed(() =>
   selectedInstances.value
     .filter(instance => !!instance.packagePlanId)
@@ -754,7 +754,7 @@ function canUseInstanceBillingAction(instance: Instance): boolean {
 }
 
 function canStartInstance(instance: Instance): boolean {
-  return instance.status?.toLowerCase() === 'stopped'
+  return !instance.serviceFault && instance.status?.toLowerCase() === 'stopped'
 }
 
 function canDeleteInstance(instance: Instance): boolean {
@@ -762,6 +762,7 @@ function canDeleteInstance(instance: Instance): boolean {
 }
 
 function getInstanceStatusTextClass(instance: Instance): string {
+  if (instance.serviceFault) return 'text-red-600'
   switch (instance.status?.toLowerCase()) {
     case 'running':
       return 'text-green-600'
@@ -1059,10 +1060,10 @@ function openInstanceDetail(instanceId: number): void {
 
 function getBatchTargets(action: BatchSimpleAction): Instance[] {
   if (action === 'start') {
-    return selectedInstances.value.filter(instance => instance.status?.toLowerCase() === 'stopped')
+    return selectedInstances.value.filter(instance => !instance.serviceFault && instance.status?.toLowerCase() === 'stopped')
   }
   if (action === 'stop' || action === 'restart') {
-    return selectedInstances.value.filter(instance => instance.status?.toLowerCase() === 'running')
+    return selectedInstances.value.filter(instance => !instance.serviceFault && instance.status?.toLowerCase() === 'running')
   }
   return selectedInstances.value
 }
@@ -1816,9 +1817,9 @@ async function confirmBatchDestroy(): Promise<void> {
 	                </div>
 	              </td>
               <td class="px-3 py-3">
-                <span :class="['inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-mono text-[11px] tabular-nums', getStatusInfo(instance.status, t).class]">
-                  <span :class="['w-1.5 h-1.5 rounded-full', getStatusInfo(instance.status, t).dot]"></span>
-                  {{ getStatusInfo(instance.status, t).label }}
+                <span :class="['inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-mono text-[11px] tabular-nums', getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).class]">
+                  <span :class="['w-1.5 h-1.5 rounded-full', getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).dot]"></span>
+                  {{ getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).label }}
                 </span>
               </td>
               <td class="pl-4 pr-3 py-3">
@@ -1928,7 +1929,7 @@ async function confirmBatchDestroy(): Promise<void> {
                     </svg>
                   </button>
                   <button
-                    v-if="instance.status?.toLowerCase() === 'running'"
+                    v-if="!instance.serviceFault && instance.status?.toLowerCase() === 'running'"
                     :disabled="!!actionLoading[instance.id]"
                     class="p-1.5 rounded hover:bg-amber-50 dark:hover:bg-amber-900/20 text-amber-500 transition-colors disabled:opacity-50"
                     :title="$t('instance.actions.stop')"
@@ -1943,7 +1944,7 @@ async function confirmBatchDestroy(): Promise<void> {
                     </svg>
                   </button>
                   <button
-                    v-if="instance.status?.toLowerCase() === 'running'"
+                    v-if="!instance.serviceFault && instance.status?.toLowerCase() === 'running'"
                     :disabled="!!actionLoading[instance.id]"
                     class="p-1.5 rounded hover:bg-primary-500/10 text-primary-600 transition-colors disabled:opacity-50 dark:text-primary-400"
                     :title="$t('instance.actions.restart')"
@@ -2021,9 +2022,9 @@ async function confirmBatchDestroy(): Promise<void> {
                     >
                       {{ instance.name }}
                     </div>
-                    <span :class="['inline-flex items-center gap-1 flex-shrink-0 rounded-full px-2 py-0.5 font-mono', getStatusInfo(instance.status, t).class]">
-                      <span :class="['w-1 h-1 rounded-full', getStatusInfo(instance.status, t).dot]"></span>
-                      <span class="text-[10px]">{{ getStatusInfo(instance.status, t).label }}</span>
+                    <span :class="['inline-flex items-center gap-1 flex-shrink-0 rounded-full px-2 py-0.5 font-mono', getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).class]">
+                      <span :class="['w-1 h-1 rounded-full', getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).dot]"></span>
+                      <span class="text-[10px]">{{ getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).label }}</span>
                     </span>
                   </div>
                   <div
@@ -2170,7 +2171,7 @@ async function confirmBatchDestroy(): Promise<void> {
                 <span class="text-xs">{{ actionLoading[instance.id] === 'start' ? '...' : $t('instance.actions.start') }}</span>
               </button>
               <button
-                v-if="instance.status?.toLowerCase() === 'running'"
+                v-if="!instance.serviceFault && instance.status?.toLowerCase() === 'running'"
                 :disabled="!!actionLoading[instance.id]"
                 class="btn-ghost btn-sm flex-1"
                 @click.stop="handleAction(instance, 'stop')"
@@ -2182,7 +2183,7 @@ async function confirmBatchDestroy(): Promise<void> {
                 <span class="text-xs">{{ actionLoading[instance.id] === 'stop' ? '...' : $t('instance.actions.stop') }}</span>
               </button>
               <button
-                v-if="instance.status?.toLowerCase() === 'running'"
+                v-if="!instance.serviceFault && instance.status?.toLowerCase() === 'running'"
                 :disabled="!!actionLoading[instance.id]"
                 class="btn-ghost btn-sm flex-1"
                 @click.stop="handleAction(instance, 'restart')"
@@ -2240,8 +2241,8 @@ async function confirmBatchDestroy(): Promise<void> {
                   {{ instance.name }}
                 </h2>
                 <div class="mt-2 flex min-w-0 flex-wrap items-center gap-2">
-                  <span :class="['inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-[11px]', getStatusInfo(instance.status, t).class]">
-                    {{ getStatusInfo(instance.status, t).label }}
+                  <span :class="['inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-[11px]', getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).class]">
+                    {{ getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).label }}
                   </span>
                   <span class="inline-flex min-w-0 items-center gap-1.5 text-sm" :class="'text-themed-muted'">
                     <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2341,8 +2342,8 @@ async function confirmBatchDestroy(): Promise<void> {
 
             <div class="mt-4 flex items-center justify-between gap-3">
               <div class="inline-flex min-w-0 items-center gap-2">
-                <span :class="['h-5 w-5 rounded-full border-4 border-themed', getStatusInfo(instance.status, t).dot]"></span>
-                <span class="truncate text-sm font-semibold" :class="getInstanceStatusTextClass(instance)">{{ getStatusInfo(instance.status, t).label }}</span>
+                <span :class="['h-5 w-5 rounded-full border-4 border-themed', getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).dot]"></span>
+                <span class="truncate text-sm font-semibold" :class="getInstanceStatusTextClass(instance)">{{ getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).label }}</span>
               </div>
 
               <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">

@@ -2,12 +2,21 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
+import { customerLogContent } from '../src/lib/customer-log-view.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 const logsDbSource = readFileSync(resolve(__dirname, '../src/db/logs.ts'), 'utf8')
 const logsRouteSource = readFileSync(resolve(__dirname, '../src/routes/logs.ts'), 'utf8')
+for (const address of ['10.253.240.3:8443', '10.253.240.*:8443', '192.168.1.2', '172.16.0.2', '172.31.255.2', '127.0.0.1:3001', '169.254.1.2', '100.64.1.2', 'https://10.10.1.2:8443', '[fd00::2]:8443', 'fe80::2', '[::1]:3001', 'localhost:3001']) {
+  const output = customerLogContent(`Connection ${address}`)
+  assert.ok(!output.includes(address), `customer logs must hide full and already masked internal addresses: ${address}`)
+}
+assert.equal(customerLogContent('Public address 8.8.8.8'), 'Public address 8.8.8.8')
+const failure = customerLogContent('实例「example」的 stop 任务失败: 无法连接到 Incus: connect EHOSTUNREACH 10.253.240.*:8443')
+assert.ok(failure.includes('example') && failure.includes('任务失败') && !failure.includes('Incus') && !failure.includes('EHOSTUNREACH') && !failure.includes('10.253'))
+assert.ok(logsRouteSource.includes("logs: request.user.role === 'admin' ? result.items : result.items.map(log => ({ ...log, content: customerLogContent(log.content) }))"), 'only customer response text is redacted; historical administrator audit records are retained')
 
 assert.ok(
   logsRouteSource.includes('onRequest: [fastify.authenticate]') &&

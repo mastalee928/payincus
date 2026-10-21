@@ -9,8 +9,10 @@ export function publicInstanceIpv6(value: string | null | undefined): string | n
 export function applyCustomerInstanceView(response: Record<string, any>, instance: {
   dedicated_ipv4?: boolean; dedicated_network_ready?: boolean; public_ip_sync_blocked?: boolean
   dedicated_ipv6?: unknown; host_id?: number; incus_id?: string | null
+  service_fault?: boolean
 }, admin: boolean): void {
   response.dedicatedIpv4 = instance.dedicated_ipv4 === true
+  response.serviceFault = instance.service_fault === true
   response.publicIpUpdating = instance.public_ip_sync_blocked === true
   response.dedicatedNetworkReady = instance.dedicated_network_ready === true && !response.publicIpUpdating
   delete response.dedicated_ipv6

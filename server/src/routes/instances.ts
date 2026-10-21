@@ -1,4 +1,5 @@
 import { applyCustomerInstanceView } from '../lib/customer-instance-view.js'
+import { hostLiveStatus } from '../lib/host-live-status.js'
 import { prepareDedicatedDelivery } from '../services/dedicated-delivery.js'
 /**
  * 实例管理路由
@@ -755,6 +756,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     }
 
     const result = await db.getInstancesPaginated(options)
+    const instanceHosts = await prisma.host.findMany({ where: { id: { in: result.items.map(item => item.host_id) } }, select: { id: true, status: true, agent: { select: { enabled: true, lastSeenAt: true, lastReport: true } } } })
+    const unavailableHosts = new Set(instanceHosts.filter(host => hostLiveStatus(host.status, host.agent) === 'offline').map(host => host.id))
 
     return {
       instances: result.items.map((i: unknown) => {
@@ -911,7 +914,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           response.hostId = instance.host_id
         }
 
-        applyCustomerInstanceView(response, instance, request.user.role === "admin")
+        applyCustomerInstanceView(response, { ...instance, service_fault: unavailableHosts.has(instance.host_id) && !['creating', 'deleted', 'error'].includes(instance.status) }, request.user.role === "admin")
         return response
       }),
       total: result.total,
@@ -2434,7 +2437,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       disk: number
       ipv4: string | null
       ipv6: string | null
-      host: { name: string; country_code: string; storageDriver?: string }
+      host: { name: string; country_code: string; storageDriver?: string; regionGroupName?: string | null }
       hostCountryCode: string
       network_mode: string
       instance_type: 'container' | 'vm'
@@ -2506,7 +2509,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       host: {
         name: instance.host_name || 'unknown',
         country_code: instance.host_country_code || 'us',
-        storageDriver: (instance as any).host_storage_driver
+        storageDriver: (instance as any).host_storage_driver,
+        regionGroupName: (await prisma.host.findUnique({ where: { id: instance.host_id }, select: { regionGroupEntry: { select: { name: true } } } }))?.regionGroupEntry?.name ?? null
       },
       hostCountryCode: instance.host_country_code || 'us',
       network_mode: instance.network_mode,
@@ -2682,7 +2686,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     // root_password should NEVER be returned in API responses
     // It's only returned once during instance creation
 
-    applyCustomerInstanceView(response, { ...instance, public_ip_sync_blocked: host?.public_ip_sync_blocked }, request.user.role === 'admin')
+    const statusAgent = await prisma.hostAgent.findUnique({ where: { hostId: instance.host_id }, select: { enabled: true, lastSeenAt: true, lastReport: true } })
+    applyCustomerInstanceView(response, { ...instance, public_ip_sync_blocked: host?.public_ip_sync_blocked,
+      service_fault: hostLiveStatus(host?.status || 'offline', statusAgent) === 'offline' && !['creating', 'deleted', 'error'].includes(instance.status) }, request.user.role === 'admin')
     return { instance: response }
   })
 
@@ -2799,6 +2805,10 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
+    const statusHost = await prisma.host.findUnique({ where: { id: instance.host_id }, select: { status: true, agent: { select: { enabled: true, lastSeenAt: true, lastReport: true } } } })
+    if (!statusHost || hostLiveStatus(statusHost.status, statusHost.agent) === 'offline') {
+      return { serviceFault: true, status: instance.status, stats: null }
+    }
     if (instance.status !== 'running') {
       return {
         stats: {
@@ -2873,6 +2883,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           }
         },
         // 返回当前实例状态，便于前端及时更新
+        serviceFault: false,
         status: currentStatus
       }
     } catch (err) {
@@ -2884,6 +2895,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           disk: { usage: 0, limit: instance.disk, usagePercent: 0 },
           network: { bytesReceived: 0, bytesSent: 0 }
         },
+        serviceFault: true,
         status: instance.status
       }
     }

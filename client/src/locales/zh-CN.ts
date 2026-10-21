@@ -41,6 +41,8 @@ export default {
     "udpClosed": "已生效 · UDP 入站已关闭",
     "udpOpen": "已生效 · TCP+UDP",
     "recovery": {
+      "preserve": "现有用户实例、磁盘与网络规则已核对一致；解除隔离后保留用户、价格、到期时间和资源占用，这台机器仍属已售，不会重复出售。",
+      "batch": {"title": "批量检查与恢复 · {count} 台", "description": "逐台检查所选隔离宿主，仅恢复检查通过的机器。检查失败会保留原因；不会跳过实例占用、网络或遗留数据检查。", "progress": "已检查 {checked}/{total} 台 · 可恢复 {ready} 台 · 已恢复 {recovered} 台", "checkPage": "批量检查本页隔离宿主", "checkSelected": "检查并恢复所选宿主", "working": "正在逐台处理…", "restoreReady": "恢复检查通过的 {count} 台", "status": {"pending": "等待检查", "checking": "检查中", "ready": "检查通过", "blocked": "检查未通过", "recovering": "恢复中", "recovered": "已恢复", "failed": "操作失败"}},
       "title": "检查与恢复",
       "description": "隔离期间机器不会出售。检查连接、任务、旧系统及网络，处理完成后才能解除隔离。",
       "checking": "正在检查宿主机和遗留数据…",
@@ -59,8 +61,10 @@ export default {
       "success": "已解除隔离，满足规格和定价条件后可重新出售。",
       "failed": "恢复未完成，机器继续隔离，请重新检查。",
       "blockers": {
+        "assigned-mismatch": "现有实例与宿主上的系统、项目或运行状态不一致，不会清理或强行解除隔离。",
+        "assigned-not-ready": "用户实例尚未完成交付，或其网络、存储与地址登记尚未就绪；恢复将保留现有数据。",
         "not-quarantined": "这台机器已经解除隔离，请刷新机器池。",
-        "assigned": "仍有用户实例或待完成的账务清理，请先处理这些实例。",
+        "assigned": "仍有待完成的实例清理、账务清理，或实例登记冲突，请先处理这些问题。",
         "busy": "仍有开通、换机或维护任务，完成后再检查。",
         "offline": "管理连接离线，请先修复主机或网络。",
         "agent-offline": "宿主机尚未上报最新状态，请检查 Agent 服务及管理连接。",
@@ -84,7 +88,7 @@ export default {
       }
     }
   },
-  dedicated: { allPorts: '全端口', replacement: {"title": "故障换机", "description": "从同机型、同地区的备用池选择机器。价格和到期时间保留，不重复扣费；换机后公网 IP 通常改变。", "target": "备用机器", "choose": "选择可用机器", "noStock": "当前没有匹配的备用机器。接入同规格机器后即可选择。", "restore": "系统与数据", "rebuild": "重新创建系统", "acknowledge": "确认重新创建系统；没有异地备份时无法恢复旧机数据。", "submit": "开始换机", "loadFailed": "换机信息加载失败", "failed": "换机失败，可重新选择备用机器", "status": {"PENDING": "排队中", "PROCESSING": "正在换机并验证连接", "COMPLETED": "换机完成", "FAILED": "换机失败，可重试", "CANCELLED": "已取消"}}, protocol: '公网协议', protocolStatus: { pending: '待应用', failed: '应用失败' }, faulted: '故障隔离', unassigned: '未分配', unlimited: 'unlimit / 无限制' },
+  dedicated: { allPorts: '全端口', replacement: {"manageTitle": "更换机器", "manageDescription": "选择同区域或其他区域的同配置备用机器。CPU、内存、磁盘和架构必须相同；保留客户、价格和到期时间，不重复扣费，公网 IP 将更新。", "scope": "目标区域范围", "sameRegion": "同区域", "allRegions": "所有区域（含跨区域）", "dataBoundary": "选择异地备份将恢复到该备份的时间点；选择重新创建系统将得到全新系统，不会自动搬迁旧机的当前磁盘数据。", "title": "故障换机", "description": "从同机型、同地区的备用池选择机器。价格和到期时间保留，不重复扣费；换机后公网 IP 通常改变。", "target": "备用机器", "choose": "选择可用机器", "noStock": "当前没有匹配的备用机器。接入同规格机器后即可选择。", "restore": "系统与数据", "rebuild": "重新创建系统", "acknowledge": "确认重新创建系统；没有异地备份时无法恢复旧机数据。", "submit": "开始换机", "loadFailed": "换机信息加载失败", "failed": "换机失败，可重新选择备用机器", "status": {"PENDING": "排队中", "PROCESSING": "正在换机并验证连接", "COMPLETED": "换机完成", "FAILED": "换机失败，可重试", "CANCELLED": "已取消"}}, protocol: '公网协议', protocolStatus: { pending: '待应用', failed: '应用失败' }, faulted: '故障隔离', unassigned: '未分配', unlimited: 'unlimit / 无限制' },
     hostPublicIpv4: {
         title: '独立 IPv4 地址池', description: '为独立 IPv4 套餐提供 routed 公网 IPv4 分配、回收和容量校验。',
         newPool: '新增地址池', newPoolTitle: '新增独立 IPv4 地址池', total: '总地址', empty: '暂无独立 IPv4 地址池。',
@@ -1309,6 +1313,7 @@ pool: {
         quotaLabel: '配额',
         trafficLabel: '流量',
         status: {
+            fault: '故障',
             running: '运行中',
             stopped: '已停止',
             suspended: '已封停',
@@ -2110,6 +2115,8 @@ pool: {
 
     // 重装系统弹窗
     rebuildModal: {
+        passwordOnly: "仅使用 root 密码登录",
+        optionalKeyHint: "默认生成新的 root 密码。需要密钥登录时可选择 SSH 密钥；未添加密钥也能重装。",
         title: '重装系统',
         dangerWarning: '危险操作',
         warningList: {
@@ -2118,10 +2125,10 @@ pool: {
             irreversible: '此操作不可恢复！',
         },
         preserveInfo: '重装系统会保留端口映射。',
-        manualStartHint: '重装完成后需手动启动实例。',
+        manualStartHint: "重装完成后将自动启动实例。",
         selectImage: '选择新镜像',
         imageHint: '只能选择该节点当前允许的镜像',
-        selectSshKey: '选择 SSH 密钥',
+        selectSshKey: "SSH 密钥（可选）",
         noSshKey: '暂无可用密钥',
         addSshKeyHint: '请先在设置中添加 SSH 密钥',
         passwordHint: '重装后将自动生成新的 root 密码，可在实例详情页查看。',
