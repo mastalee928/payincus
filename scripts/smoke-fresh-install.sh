@@ -95,4 +95,5 @@ nginx -t
 systemctl restart nginx
 node "$repo_dir/scripts/smoke-fresh-install.mjs"
 node "$repo_dir/scripts/smoke-platform-backup.mjs"
+RUN_BACKUP_INTEGRITY_DRILL=1 node "$repo_dir/scripts/smoke-platform-backup-integrity.mjs"
 echo "Fresh install passed: $(uname -m), $actual_migrations migrations, IPv6 schema, one backend, both frontends, admin login, management gateway, published Agent downloads."

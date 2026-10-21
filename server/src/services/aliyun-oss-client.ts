@@ -7,6 +7,7 @@ import { pipeline } from 'node:stream/promises'
 import { resolvePublicHostname } from '../lib/outbound-security.js'
 import { BackupError, ensure, openSecret, validateBucket, validateId, validatePrefix, validateRegion, type BackupConfig } from './platform-backup-core.js'
 import { boundedDownload, hashFile, MAX_ARCHIVE_BYTES } from './platform-backup-archive.js'
+import { validReadableZipName } from './platform-backup-readable.js'
 
 type NativeOss = OSS & {
   getBucketVersioning(name: string): Promise<{ versionStatus?: string }>
@@ -14,12 +15,18 @@ type NativeOss = OSS & {
 }
 export interface BackupIndex {
   format: 1; id: string; installationId: string; createdAt: string; version: string; bytes: number; sha256: string
+  readableZip?: { name: string; bytes: number; sha256: string }
 }
 export interface RemoteBackup extends BackupIndex { prefix: string }
 const noConfig = (error: unknown, code: string) => (error as { code?: string }).code === code || (error as { name?: string }).name === `${code}Error`
 export function sanitizedOssError(error: unknown): BackupError {
   if (error instanceof BackupError) return error
   const code = String((error as { code?: string }).code || '').replace(/Error$/, '')
+  if (code === 'ENOENT') return new BackupError('OSS_STATE_NOT_INITIALIZED', 503)
+  if (['EACCES', 'EPERM', 'EROFS'].includes(code)) return new BackupError('OSS_STATE_PERMISSION_DENIED', 503)
+  if (code === 'ENOSPC') return new BackupError('OSS_STATE_DISK_FULL', 503)
+  if (['ENOTFOUND', 'EAI_AGAIN', 'OSS_DNS_REJECTED', 'OSS_ENDPOINT_REJECTED'].includes(code) || ['OSS_DNS_REJECTED', 'OSS_ENDPOINT_REJECTED'].includes(String((error as Error | null)?.message))) return new BackupError('OSS_NETWORK_FAILED', 502)
+  if (['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ConnectionTimeout', 'RequestTimeout'].includes(code)) return new BackupError('OSS_NETWORK_FAILED', 502)
   const allowed = ['AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch', 'BucketNotEmpty', 'BucketAlreadyExists', 'NoSuchBucket', 'NoSuchKey', 'RequestTimeTooSkewed', 'TooManyBuckets']
   return new BackupError(allowed.includes(code) ? `OSS_${code}` : 'OSS_OPERATION_FAILED', 502)
 }
@@ -28,7 +35,7 @@ export class AliyunOssClient {
   readonly agent: Agent
   readonly bucket: string
   constructor(config: Pick<BackupConfig, 'region' | 'bucket' | 'accessKeyId' | 'accessKeySecret'>) {
-    const region = validateRegion(config.region); this.bucket = validateBucket(config.bucket)
+    const region = validateRegion(config.region); this.bucket = config.bucket === '' ? '' : validateBucket(config.bucket)
     const host = `${region}.aliyuncs.com`
     const lookup: LookupFunction = (hostname, options, callback) => {
       if (hostname !== host && hostname !== `${this.bucket}.${host}`) { callback(new Error('OSS_ENDPOINT_REJECTED'), '', 4); return }
@@ -51,11 +58,14 @@ export class AliyunOssClient {
     return { buckets: (result.buckets || []).map(b => ({ name: b.name, region: b.region, creationDate: b.creationDate })), nextCursor: result.isTruncated ? result.nextMarker : null }
   }
   async listObjects(prefix: string, cursor?: string) {
+    ensure(this.bucket, 'OSS_BUCKET_REQUIRED', 409)
     prefix = validatePrefix(prefix, true); ensure(!cursor || cursor.length <= 4096, 'OSS_CURSOR_INVALID')
-    const result = await this.client.listV2({ prefix, delimiter: '/', 'max-keys': 100, ...(cursor ? { 'continuation-token': cursor } : {}) })
+    // OSS V4 rejects this SDK's canonical query when an empty prefix is sent as prefix=.
+    const result = await this.client.listV2({ ...(prefix ? { prefix } : {}), delimiter: '/', 'max-keys': 100, ...(cursor ? { 'continuation-token': cursor } : {}) })
     return { directories: result.prefixes || [], objects: (result.objects || []).map(o => ({ name: o.name, size: o.size, lastModified: o.lastModified })), nextCursor: result.isTruncated ? result.nextContinuationToken : null }
   }
   async assertBackupBucket(region: string) {
+    ensure(this.bucket, 'OSS_BUCKET_REQUIRED', 409)
     const location = await this.client.getBucketLocation(this.bucket)
     ensure(location.location === region, 'OSS_REGION_MISMATCH')
     const acl = await this.client.getBucketACL(this.bucket)
@@ -70,6 +80,9 @@ export class AliyunOssClient {
     } catch (error) { if (!noConfig(error, 'NoSuchLifecycle')) throw error }
   }
   async test(config: BackupConfig) {
+    // Before a target is selected, verify credentials using the account bucket list.
+    // A selected bucket always uses the stricter backup read/write checks below.
+    if (!this.bucket) { await this.listBuckets(); return }
     await this.assertBackupBucket(config.region)
     const key = `${config.prefix}${config.installationId}/.probe-${randomUUID()}`
     const payload = Buffer.from(randomUUID())
@@ -92,9 +105,11 @@ export class AliyunOssClient {
     const parsed = JSON.parse((await this.readSmall(`${prefix}complete.json`)).toString('utf8')) as BackupIndex
     validateId(parsed.id); validateId(parsed.installationId)
     ensure(parsed.format === 1 && prefix.endsWith(`/${parsed.installationId}/${parsed.id}/`) && /^[a-f0-9]{64}$/.test(parsed.sha256) && Number.isSafeInteger(parsed.bytes) && parsed.bytes > 0 && parsed.bytes <= MAX_ARCHIVE_BYTES && typeof parsed.createdAt === 'string' && Number.isFinite(Date.parse(parsed.createdAt)) && typeof parsed.version === 'string' && parsed.version.length <= 64, 'OSS_INDEX_INVALID')
+    if (parsed.readableZip) ensure(validReadableZipName(parsed.readableZip.name) && Number.isSafeInteger(parsed.readableZip.bytes) && parsed.readableZip.bytes > 0 && parsed.readableZip.bytes <= MAX_ARCHIVE_BYTES && /^[a-f0-9]{64}$/.test(parsed.readableZip.sha256), 'OSS_INDEX_INVALID')
     return { ...parsed, prefix }
   }
   async backups(prefix: string): Promise<RemoteBackup[]> {
+    ensure(this.bucket, 'OSS_BUCKET_REQUIRED', 409)
     prefix = validatePrefix(prefix); const backups: RemoteBackup[] = []; let cursor: string | undefined; const seen = new Set<string>()
     for (let page = 0; page < 100; page++) {
       const result = await this.client.listV2({ prefix, 'max-keys': 100, ...(cursor ? { 'continuation-token': cursor } : {}) })
@@ -109,7 +124,7 @@ export class AliyunOssClient {
     await pipeline(response.stream, boundedDownload(backup.bytes), createWriteStream(destination, { flags: 'wx', mode: 0o600 }))
     ensure(await hashFile(destination) === backup.sha256, 'OSS_VERIFY_FAILED')
   }
-  async upload(config: BackupConfig, file: string, metadata: BackupIndex, verificationPath: string, onCheckpoint?: (checkpoint: OSS.Checkpoint) => Promise<void>) {
+  async upload(config: BackupConfig, file: string, metadata: BackupIndex, verificationPath: string, onCheckpoint?: (checkpoint: OSS.Checkpoint) => Promise<void>, readablePath?: string) {
     const prefix = `${config.prefix}${config.installationId}/${metadata.id}/`
     let checkpoint: OSS.Checkpoint | undefined
     try {
@@ -121,6 +136,14 @@ export class AliyunOssClient {
         } })
       // Read back the ciphertext: neither an ETag nor our own metadata proves remote content.
       await this.download({ ...metadata, prefix }, verificationPath)
+      if (metadata.readableZip) {
+        ensure(readablePath && validReadableZipName(metadata.readableZip.name), 'OSS_READABLE_ZIP_INVALID')
+        await this.client.multipartUpload(`${prefix}${metadata.readableZip.name}`, readablePath, { parallel: 2, partSize: 8 * 1024 ** 2, headers: { 'x-oss-forbid-overwrite': 'true' }, progress: async (_p, next) => { if (next) { checkpoint = next; await onCheckpoint?.(next) } } })
+        const response = await this.client.getStream(`${prefix}${metadata.readableZip.name}`)
+        const path = `${verificationPath}.zip`
+        await pipeline(response.stream, boundedDownload(metadata.readableZip.bytes), createWriteStream(path, { flags: 'wx', mode: 0o600 }))
+        ensure(await hashFile(path) === metadata.readableZip.sha256, 'OSS_VERIFY_FAILED')
+      }
       await this.client.put(`${prefix}complete.json`, Buffer.from(JSON.stringify(metadata)), { headers: { 'x-oss-forbid-overwrite': 'true' } })
       return prefix
     } catch (error) {
@@ -152,8 +175,13 @@ export class AliyunOssClient {
       cursor = result.nextContinuationToken; ensure(cursor && !seen.has(cursor) && page < 99, 'OSS_LIST_LIMIT'); seen.add(cursor)
     }
     const removeSet = async (prefix: string) => {
+      // Enumerate only the known companion filename, including after an interrupted deletion.
+      const result = await this.client.listV2({ prefix, 'max-keys': 10 })
+      ensure(!result.isTruncated, 'OSS_DELETE_SCOPE_INVALID')
+      const zipKeys = (result.objects || []).filter(object => object.name.startsWith(prefix) && validReadableZipName(object.name.slice(prefix.length)))
       await this.client.delete(`${prefix}complete.json`)
       await this.client.delete(`${prefix}payload.enc`)
+      for (const object of zipKeys) await this.client.delete(object.name)
       await this.client.delete(`${prefix}deleting.json`)
     }
     for (const prefix of pending) await removeSet(prefix)

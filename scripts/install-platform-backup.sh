@@ -7,6 +7,7 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 for file in "$root/deploy/incudal-online-task.sh.example" "$root/deploy/incudal-systemctl-wrapper.sh.example" "$root/deploy/incudal-platform-backup@.service.example"; do
   [[ -f "$file" && ! -L "$file" && $(stat -c %u "$file") == 0 ]] || { echo 'Untrusted helper source.' >&2; exit 1; }
 done
+install -d -o root -g root -m 0755 /usr/local/libexec/incudal
 install -d -o root -g incudal -m 0750 /var/lib/incudal-backup
 install -d -o incudal -g incudal -m 0700 /var/lib/incudal-backup/inbox
 install -d -o root -g incudal -m 0750 /var/lib/incudal-backup/results
@@ -27,7 +28,8 @@ cat > /etc/systemd/system/incudal-backend.service.d/platform-backup.conf <<EOF
 [Service]
 ReadWritePaths=/var/lib/incudal-backup/inbox
 ExecStartPre=
+ExecStartPre=+/usr/bin/bash $work_dir/scripts/install-platform-backup.sh
 ExecStartPre=/usr/bin/bash -lc 'if [ ! -e /var/lib/incudal-backup/recovery-hold.json ]; then cd $work_dir/server && pnpm exec prisma migrate deploy; fi'
 EOF
 chmod 0644 /etc/systemd/system/incudal-backend.service.d/platform-backup.conf
-systemctl daemon-reload
+/usr/bin/systemctl daemon-reload

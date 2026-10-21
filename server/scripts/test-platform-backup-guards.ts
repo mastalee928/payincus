@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createCipheriv, randomBytes, randomUUID, scryptSync } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Readable } from 'node:stream'
+import { ZipFile } from 'yazl'
+import { openPromise } from 'yauzl'
 import { BackupError, normalizeConfig, openSecret, sealSecret, publicConfig, recoveryRequestAllowed, validatePrefix, nextScheduledTime } from '../src/services/platform-backup-core.js'
 import { decryptBackup, encryptBackup, hashFile, validAssetName, validateManifest } from '../src/services/platform-backup-archive.js'
-import { AliyunOssClient } from '../src/services/aliyun-oss-client.js'
+import { AliyunOssClient, sanitizedOssError } from '../src/services/aliyun-oss-client.js'
+import { assertDatabaseIntegrity, normalizedDumpHash, type DatabaseIntegrity } from '../src/services/platform-backup-database.js'
+import { createReadableZip, readableZipName, verifyReadableZip } from '../src/services/platform-backup-readable.js'
 
 process.env.ENCRYPTION_KEY = 'local-test-encryption-key-not-a-real-credential'
 const workspace = await mkdtemp(join(tmpdir(), 'payincus-oss-test-'))
@@ -20,6 +24,68 @@ try {
   assert.ok(!JSON.stringify(publicConfig(config)).includes('TestSecretValue'))
   assert.ok(!('backupPassword' in publicConfig(config)))
   assert.throws(() => normalizeConfig({ ...config, enabled: true, accessKeySecret: '', backupPassword: '' }, config))
+  // Connection settings can be saved before a bucket or encryption password is chosen.
+  const credentialsInput = { enabled: false, region: 'oss-cn-hangzhou', bucket: '', prefix: 'backups/', accessKeyId: 'TestAccessKeyId', accessKeySecret: 'TestSecretValue', backupPassword: '', intervalHours: 24, retention: 3 }
+  const credentials = normalizeConfig(credentialsInput)
+  assert.equal(credentials.bucket, '')
+  assert.equal(credentials.backupPassword, '')
+  assert.equal(publicConfig(credentials).hasAccessKeySecret, true)
+  assert.equal(publicConfig(credentials).hasBackupPassword, false)
+  assert.throws(() => normalizeConfig({ ...credentialsInput, accessKeySecret: '' }), /OSS_CREDENTIAL_REQUIRED/)
+  credentials.testedRevision = credentials.revision
+  const retainedCredentials = normalizeConfig({ ...credentialsInput, revision: credentials.revision, accessKeySecret: '' }, credentials)
+  assert.equal(openSecret(retainedCredentials.accessKeySecret), 'TestSecretValue')
+  assert.throws(() => normalizeConfig({ ...credentialsInput, revision: credentials.revision, enabled: true, accessKeySecret: '' }, credentials), /OSS_BUCKET_REQUIRED/)
+  const bucketSettings = normalizeConfig({ ...credentialsInput, revision: credentials.revision, bucket: config.bucket, accessKeySecret: '' }, credentials)
+  assert.equal(bucketSettings.testedRevision, null, 'choosing a bucket invalidates the account-only test')
+  bucketSettings.testedRevision = bucketSettings.revision
+  assert.throws(() => normalizeConfig({ ...credentialsInput, revision: bucketSettings.revision, bucket: config.bucket, enabled: true, accessKeySecret: '' }, bucketSettings), /OSS_BACKUP_PASSWORD_REQUIRED/)
+  const passwordSettings = normalizeConfig({ ...credentialsInput, revision: bucketSettings.revision, bucket: config.bucket, accessKeySecret: '', backupPassword: 'test-password-123' }, bucketSettings)
+  assert.equal(passwordSettings.testedRevision, null)
+  passwordSettings.testedRevision = passwordSettings.revision
+  const enabledSettings = normalizeConfig({ ...credentialsInput, revision: passwordSettings.revision, bucket: config.bucket, enabled: true, accessKeySecret: '', backupPassword: '' }, passwordSettings)
+  assert.equal(enabledSettings.testedRevision, enabledSettings.revision)
+  assert.ok(enabledSettings.nextRunAt)
+  const credentialsTransport = new AliyunOssClient(credentials)
+  let accountTests = 0
+  credentialsTransport.listBuckets = async () => { accountTests++; return { buckets: [], nextCursor: null } }
+  credentialsTransport.assertBackupBucket = async () => { throw new Error('account test must not probe a bucket') }
+  try {
+    await credentialsTransport.test(credentials)
+    assert.equal(accountTests, 1)
+    await assert.rejects(credentialsTransport.listObjects(''), /OSS_BUCKET_REQUIRED/)
+    await assert.rejects(credentialsTransport.backups('backups/'), /OSS_BUCKET_REQUIRED/)
+  } finally { credentialsTransport.close() }
+  const bucketTransport = new AliyunOssClient(bucketSettings)
+  bucketTransport.listBuckets = async () => { throw new Error('selected bucket must not use account-only test') }
+  bucketTransport.assertBackupBucket = async () => { throw new BackupError('OSS_AccessDenied') }
+  try { await assert.rejects(bucketTransport.test(bucketSettings), /OSS_AccessDenied/) } finally { bucketTransport.close() }
+  for (const [code, expected] of [['ENOENT', 'OSS_STATE_NOT_INITIALIZED'], ['EACCES', 'OSS_STATE_PERMISSION_DENIED'], ['EROFS', 'OSS_STATE_PERMISSION_DENIED'], ['ENOSPC', 'OSS_STATE_DISK_FULL'], ['ENOTFOUND', 'OSS_NETWORK_FAILED'], ['ETIMEDOUT', 'OSS_NETWORK_FAILED'], ['AccessDenied', 'OSS_AccessDenied']]) {
+    const failure = sanitizedOssError({ code, message: 'sensitive fixture details' })
+    assert.equal(failure.code, expected)
+    assert.ok(!failure.message.includes('sensitive fixture details'))
+  }
+  assert.equal(sanitizedOssError({}).code, 'OSS_OPERATION_FAILED')
+  // Keep the installed SDK's V4 signer and replace only its outbound HTTP transport.
+  // Empty prefix= fails against OSS V4; browsing the root must omit that query key.
+  const listingTransport = new AliyunOssClient(config)
+  const listingRequests: URL[] = []
+  ;(listingTransport.client as any).urllib = { request: async (url: string, options: any) => {
+    const requestUrl = new URL(url)
+    assert.ok(options.headers.authorization.startsWith('OSS4-HMAC-SHA256 '))
+    assert.ok(!requestUrl.searchParams.has('prefix') || requestUrl.searchParams.get('prefix') !== '')
+    listingRequests.push(requestUrl)
+    return { status: 200, headers: {}, data: Buffer.from('<ListBucketResult><IsTruncated>false</IsTruncated><KeyCount>0</KeyCount></ListBucketResult>') }
+  } }
+  try {
+    assert.deepEqual(await listingTransport.listObjects(''), { directories: [], objects: [], nextCursor: null })
+    assert.equal(listingRequests[0].searchParams.has('prefix'), false)
+    assert.equal(listingRequests[0].searchParams.get('list-type'), '2')
+    assert.equal(listingRequests[0].searchParams.get('delimiter'), '/')
+    await listingTransport.listObjects('nested', 'fixture+cursor/=')
+    assert.equal(listingRequests[1].searchParams.get('prefix'), 'nested/')
+    assert.equal(listingRequests[1].searchParams.get('continuation-token'), 'fixture+cursor/=')
+  } finally { listingTransport.close() }
   for (const prefix of ['../escape', '/absolute', 'a/../b', 'a\\b', 'a//b', 'a%2fb', 'a\0b']) assert.throws(() => validatePrefix(prefix))
   assert.equal(validatePrefix('backups'), 'backups/')
   assert.equal(nextScheduledTime('2026-01-30T08:00:00Z', 72, Date.parse('2026-01-30T08:00:00Z')), '2026-02-02T08:00:00.000Z')
@@ -33,14 +99,76 @@ try {
   assert.equal(recoveryRequestAllowed('POST', '/api/system-config/public'), false)
   assert.equal(validAssetName('certs/onboarding-gateway.key.pub'), true)
   assert.equal(validAssetName('certs/../../authorized_keys.pub'), false)
+  assert.equal(validAssetName('database-globals.sql'), true)
+  assert.equal(validAssetName('database-integrity.json'), true)
+  const firstDump = '\\restrict RandomKey1\nCREATE ROLE example;\n\\unrestrict RandomKey1\n'
+  const nextDump = '\\restrict RandomKey2\nCREATE ROLE example;\n\\unrestrict RandomKey2\n'
+  assert.equal(normalizedDumpHash(firstDump), normalizedDumpHash(nextDump))
+  assert.notEqual(normalizedDumpHash(firstDump), normalizedDumpHash(nextDump.replace('CREATE ROLE example;', 'CREATE ROLE different;')))
+  const databaseIntegrity: DatabaseIntegrity = { format: 1, dataEncoding: 'postgres-record-text-v1', database: { encoding: 6, datcollate: 'C.UTF-8', datctype: 'C.UTF-8', datlocprovider: 'c' }, schemaSha256: 'b'.repeat(64), tables: [{ schema: 'public', name: 'orders', kind: 'r', rows: '3', sha256: 'c'.repeat(64) }], sequences: [{ schema: 'public', name: 'orders_id_seq', reference: 'public.orders_id_seq', lastValue: '9007199254740993', isCalled: true }], largeObjects: { objects: '1', pages: '2', sha256: 'd'.repeat(64) } }
+  assertDatabaseIntegrity(databaseIntegrity, structuredClone(databaseIntegrity))
+  for (const changed of [
+    { ...databaseIntegrity, tables: [] },
+    { ...databaseIntegrity, tables: [{ ...databaseIntegrity.tables[0], rows: '2' }] },
+    { ...databaseIntegrity, tables: [{ ...databaseIntegrity.tables[0], sha256: 'e'.repeat(64) }] },
+    { ...databaseIntegrity, schemaSha256: 'e'.repeat(64) },
+    { ...databaseIntegrity, sequences: [{ ...databaseIntegrity.sequences[0], lastValue: '9007199254740992' }] },
+    { ...databaseIntegrity, largeObjects: { ...databaseIntegrity.largeObjects, sha256: 'e'.repeat(64) } }
+  ]) assert.throws(() => assertDatabaseIntegrity(databaseIntegrity, changed), /OSS_DATABASE_INTEGRITY_MISMATCH/)
+  assert.throws(() => assertDatabaseIntegrity(databaseIntegrity, { ...databaseIntegrity, database: { ...databaseIntegrity.database, datcollate: 'C' } }), /OSS_DATABASE_LOCALE_MISMATCH/)
 
   const dump = join(workspace, 'db'), env = join(workspace, 'env'), encrypted = join(workspace, 'payload.enc')
   await writeFile(dump, Buffer.alloc(256 * 1024, 61)); await writeFile(env, 'ENCRYPTION_KEY=test-archive-key\n')
   const metadata = { format: 1 as const, id: randomUUID(), installationId: randomUUID(), version: '1.6.7', createdAt: new Date().toISOString(), migrationHash: 'a'.repeat(64), postgresMajor: 16, databaseBytes: 1024 * 1024 }
   const manifest = await encryptBackup([{ name: 'database.dump', path: dump }, { name: 'runtime.env', path: env }], metadata, 'test-password-123', encrypted)
+  assert.equal(readableZipName('2026-10-21T02:03:04.567Z'), 'payincus-backup-20261021-020304-UTC.zip')
+  const readablePath = join(workspace, 'readable.zip')
+  const readableSources = [{ name: 'database.dump', path: dump }, { name: 'tables/public/orders.sql', path: env }]
+  const readableMeta = await createReadableZip(readableSources, metadata.createdAt, 'test-password-123', readablePath)
+  assert.ok(readableMeta.name.endsWith('-UTC.zip'))
+  const expectedReadable = await Promise.all(readableSources.map(async f => ({ name: f.name, size: (await readFile(f.path)).length, sha256: await hashFile(f.path) })))
+  await verifyReadableZip(readablePath, 'test-password-123', expectedReadable)
+  await assert.rejects(verifyReadableZip(readablePath, 'wrong-password', expectedReadable), /OSS_READABLE_ZIP_INVALID/)
+  await assert.rejects(verifyReadableZip(readablePath, 'test-password-123', expectedReadable.map(f => ({ ...f, sha256: 'f'.repeat(64) }))), /OSS_READABLE_ZIP_INVALID/)
+  const corruptedReadable = join(workspace, 'readable-corrupt.zip'); const rawReadable = await readFile(readablePath); rawReadable[rawReadable.indexOf(Buffer.from('database.dump')) + 70] ^= 1; await writeFile(corruptedReadable, rawReadable)
+  await assert.rejects(verifyReadableZip(corruptedReadable, 'test-password-123', expectedReadable), /OSS_READABLE_ZIP_INVALID/)
   const decoded = await decryptBackup(encrypted, 'test-password-123', join(workspace, 'decoded'))
   assert.deepEqual(decoded.manifest, manifest)
+  assert.ok(decoded.zipPath)
+  const inspectedZip = await openPromise(decoded.zipPath!)
+  const zipNames: string[] = []
+  for await (const entry of inspectedZip.eachEntry()) zipNames.push(entry.fileName)
+  assert.deepEqual(zipNames.sort(), ['database.dump', 'manifest.json', 'runtime.env'])
   assert.equal(await hashFile(decoded.files.get('database.dump')!), await hashFile(dump))
+  const wrap = async (plaintext: Buffer, magic: 'PICBKP01' | 'PICBKP02', name: string) => {
+    const salt = randomBytes(16), nonce = randomBytes(12), header = Buffer.concat([Buffer.from(magic), salt, nonce])
+    const key = scryptSync('test-password-123', salt, 32, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 ** 2 })
+    const cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(header)
+    const path = join(workspace, name)
+    await writeFile(path, Buffer.concat([header, cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]))
+    key.fill(0); return path
+  }
+  const manifestBytes = Buffer.from(JSON.stringify(manifest)), length = Buffer.alloc(4); length.writeUInt32BE(manifestBytes.length)
+  const legacy = await wrap(Buffer.concat([length, manifestBytes, await readFile(dump), await readFile(env)]), 'PICBKP01', 'legacy.enc')
+  const legacyDecoded = await decryptBackup(legacy, 'test-password-123', join(workspace, 'legacy-decoded'))
+  assert.deepEqual(legacyDecoded.manifest, manifest)
+  assert.equal(await hashFile(legacyDecoded.files.get('database.dump')!), await hashFile(dump))
+  const buildZip = async (extra: 'duplicate' | 'missing' | 'symlink' | 'oversized' | 'hash-mismatch') => {
+    const zip = new ZipFile(), chunks: Buffer[] = []
+    const collected = (async () => { for await (const chunk of zip.outputStream as Readable) chunks.push(Buffer.from(chunk)); return Buffer.concat(chunks) })()
+    zip.addBuffer(manifestBytes, 'manifest.json')
+    if (extra !== 'missing') zip.addBuffer(await readFile(dump), 'database.dump', extra === 'symlink' ? { mode: 0o120777 } : {})
+    const contents = await readFile(env)
+    zip.addBuffer(extra === 'oversized' ? Buffer.alloc(2 * 1024 * 1024) : extra === 'hash-mismatch' ? Buffer.alloc(contents.length, 1) : contents, 'runtime.env')
+    if (extra === 'duplicate') zip.addBuffer(contents, 'runtime.env')
+    zip.end({ forceZip64Format: true, comment: '' }); return collected
+  }
+  for (const malformed of ['duplicate', 'missing', 'symlink', 'oversized', 'hash-mismatch'] as const) {
+    const file = await wrap(await buildZip(malformed), 'PICBKP02', `${malformed}.enc`)
+    const directory = join(workspace, `zip-${malformed}`)
+    await assert.rejects(decryptBackup(file, 'test-password-123', directory), /OSS_ARCHIVE_/)
+    assert.deepEqual(await readdir(directory), [], 'malformed ZIPs must leave no extracted files')
+  }
   await assert.rejects(decryptBackup(encrypted, 'incorrect-password', join(workspace, 'wrong')), /OSS_ARCHIVE_AUTH_FAILED/)
   assert.deepEqual(await readdir(join(workspace, 'wrong')), [])
   const changed = await readFile(encrypted); changed[45] ^= 1
@@ -79,6 +207,19 @@ try {
   }
 
   const transport = new AliyunOssClient(config)
+  const companion = new AliyunOssClient(config)
+  const published: string[] = []
+  companion.client.multipartUpload = async (name: string) => { published.push(name); return {} as never }
+  companion.client.put = async (name: string) => { published.push(name); return {} as never }
+  companion.client.getStream = async (name: string) => ({ stream: Readable.from([await readFile(name.endsWith('.zip') ? readablePath : encrypted)]) } as never)
+  try {
+    await companion.upload(config, encrypted, { ...metadata, bytes: (await readFile(encrypted)).length, sha256: await hashFile(encrypted), readableZip: readableMeta }, join(workspace, 'both-verify'), undefined, readablePath)
+    assert.deepEqual(published.map(name => name.split('/').at(-1)), ['payload.enc', readableMeta.name, 'complete.json'])
+    published.length = 0
+    companion.client.getStream = async (name: string) => ({ stream: Readable.from([name.endsWith('.zip') ? Buffer.from('bad zip') : await readFile(encrypted)]) } as never)
+    await assert.rejects(companion.upload(config, encrypted, { ...metadata, bytes: (await readFile(encrypted)).length, sha256: await hashFile(encrypted), readableZip: readableMeta }, join(workspace, 'both-bad'), undefined, readablePath), /OSS_VERIFY_FAILED/)
+    assert.ok(!published.some(name => name.endsWith('/complete.json')), 'ZIP readback failure must never publish success')
+  } finally { companion.close() }
   const deleted: string[] = []
   const root = `${config.prefix}${config.installationId}/`
   const entries = [0, 1, 2, 3, 4, 5].map(i => ({ ...metadata, id: randomUUID(), installationId: config.installationId, prefix: `${root}${i}/`, bytes: 1, sha256: 'a'.repeat(64) }))
@@ -102,6 +243,19 @@ try {
   await assert.rejects(transport.retain(config, new Set()), /OSS_AccessDenied/)
   assert.equal(deleted.length, 0)
   transport.close()
+  const prune = new AliyunOssClient(config)
+  const oldPrefix = `${root}${randomUUID()}/`
+  const pruneDeleted: string[] = []
+  prune.assertBackupBucket = async () => {}
+  prune.backups = async () => [{ ...metadata, prefix: `${root}${metadata.id}/`, installationId: config.installationId, bytes: 1, sha256: 'a'.repeat(64) }, { ...metadata, prefix: oldPrefix, installationId: config.installationId, bytes: 1, sha256: 'a'.repeat(64) }]
+  prune.client.listV2 = async (options: any) => ({ objects: options.prefix === oldPrefix ? [{ name: `${oldPrefix}${readableMeta.name}` }, { name: `${oldPrefix}unrelated.txt` }] : [], isTruncated: false } as never)
+  prune.client.put = async () => ({} as never)
+  prune.client.delete = async name => { pruneDeleted.push(name); return {} as never }
+  try {
+    await prune.retain({ ...config, retention: 1 }, new Set())
+    assert.ok(pruneDeleted.includes(`${oldPrefix}${readableMeta.name}`))
+    assert.ok(!pruneDeleted.includes(`${oldPrefix}unrelated.txt`))
+  } finally { prune.close() }
 
   // Route authorization is checked on every endpoint, including read-only ones.
   process.env.DATABASE_URL = 'postgresql://localhost:5432/payincus_oss_test'
@@ -130,14 +284,23 @@ try {
 
   const source = await readFile(resolve(import.meta.dirname, '../src/services/platform-backup-worker.ts'), 'utf8')
   assert.ok(source.indexOf("await client.upload(") < source.indexOf('await client.retain('), 'retention must follow verified upload')
+  assert.ok(source.indexOf('await verifyDatabaseBackup(') < source.indexOf('await encryptBackup('), 'a backup must restore and match every source table before encryption or publication')
+  const databaseSource = await readFile(resolve(import.meta.dirname, '../src/services/platform-backup-database.ts'), 'utf8')
+  const dumpSource = databaseSource.slice(databaseSource.indexOf('export async function dumpDatabase('), databaseSource.indexOf('export async function restoreDatabase('))
+  assert.ok(dumpSource.includes('--snapshot=') && dumpSource.includes('--large-objects') && !dumpSource.includes('--no-privileges') && !dumpSource.includes('--no-owner'), 'full dump must preserve ownership, grants and large objects under the shared snapshot')
+  assert.ok(databaseSource.includes('--globals-only') && databaseSource.includes('OSS_DATABASE_FOREIGN_TABLE_UNSUPPORTED'), 'cluster authorization must be archived and silently omitted foreign data rejected')
   assert.ok(source.includes('rollbackJournal(directory)') && source.includes('protectedHealth()'), 'restore needs rollback and protected health verification')
   assert.ok(source.includes("before-authorized-keys") && source.includes("await chmod(`${INSTALL}/server/certs/onboarding-gateway.key`, 0o640)"), 'gateway recovery must save local authorization and preserve backend key access')
   const app = await readFile(resolve(import.meta.dirname, '../src/app.ts'), 'utf8')
   assert.ok(app.indexOf('if (recoveryHeld()) {') < app.indexOf('await initPrismaDatabase('), 'recovery gate precedes initialization and background jobs')
   const helper = await readFile(resolve(import.meta.dirname, '../../deploy/incudal-online-task.sh.example'), 'utf8')
   assert.ok(helper.includes('flock -n 9') && helper.includes('verify_manifest'), 'privileged workers must serialize with OTA and verify code')
+  const installer = await readFile(resolve(import.meta.dirname, '../../scripts/install-platform-backup.sh'), 'utf8')
+  assert.ok(installer.includes('/usr/bin/systemctl daemon-reload') && !/^systemctl daemon-reload$/m.test(installer), 'startup installer must bypass the restricted task wrapper using the real systemctl path')
   const release = await readFile(resolve(import.meta.dirname, '../../.github/workflows/release.yml'), 'utf8')
   assert.ok(release.includes('cp scripts/install-platform-backup.sh release/scripts/'), 'release artifacts must include the backup executor installer')
+  assert.ok(release.includes('cp scripts/platform-backup-recovery.py scripts/platform-backup-recovery-guide.md release/scripts/'), 'release must carry offline recovery instructions and tool')
+  for (const [sourcePath, publicPath] of [['scripts/platform-backup-recovery.py', 'client/public/recovery/payincus-recovery.py'], ['scripts/platform-backup-recovery-guide.md', 'client/public/recovery/恢复说明.md']]) assert.equal(await readFile(resolve(import.meta.dirname, '../..', sourcePath), 'utf8'), await readFile(resolve(import.meta.dirname, '../..', publicPath), 'utf8'))
   console.log('Platform backup guards passed: authenticated archive, tampering, paths, schedule, retention and restore boundaries.')
 } finally {
   await rm(workspace, { recursive: true, force: true })

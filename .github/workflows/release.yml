@@ -132,6 +132,7 @@ jobs:
           cp scripts/refresh-onboarding-gateway.sh release/scripts/
           cp scripts/install-panel.sh release/scripts/
           cp scripts/install-platform-backup.sh release/scripts/
+          cp scripts/platform-backup-recovery.py scripts/platform-backup-recovery-guide.md release/scripts/
 
       # ===== 安装生产依赖 =====
       - name: 安装后端生产依赖

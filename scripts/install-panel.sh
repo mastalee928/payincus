@@ -1122,6 +1122,7 @@ Environment=XDG_CACHE_HOME=${INSTALL_DIR}/.cache
 Environment=PATH=/usr/local/libexec/incudal:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # 启动前自动执行数据库迁移
+ExecStartPre=+/usr/bin/bash -c 'if [ -f ${app_dir}/scripts/install-platform-backup.sh ]; then bash ${app_dir}/scripts/install-platform-backup.sh; fi'
 ExecStartPre=/usr/bin/bash -c 'cd ${app_dir}/server && pnpm exec prisma migrate deploy'
 
 # 启动主程序

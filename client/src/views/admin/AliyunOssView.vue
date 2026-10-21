@@ -19,6 +19,11 @@ const modal = ref<HTMLDialogElement>(), modalKind = ref<'create' | 'delete' | 'p
 const newBucketName = ref(''), newBucketRegion = ref('oss-cn-hangzhou'), selectedPreview = ref<OssTask | null>(null)
 const active = computed(() => tasks.value.some(task => task.status === 'pending' || task.status === 'running'))
 const disabled = computed(() => busy.value || active.value)
+const dirty = computed(() => !config.value || Boolean(form.accessKeySecret || form.backupPassword) || ['enabled', 'region', 'bucket', 'prefix', 'accessKeyId', 'intervalHours', 'retention'].some(key => form[key as keyof typeof form] !== config.value![key as keyof OssConfig]))
+const backupReady = computed(() => config.value?.bucket && config.value.hasBackupPassword && config.value.testedRevision === config.value.revision && !dirty.value)
+const connectionForm = ref<HTMLFormElement>()
+const saveThenTest = ref(false)
+const actionError = ref('')
 let poll: ReturnType<typeof setInterval> | undefined, polling = false, disposed = false
 const date = (value?: string | null) => value ? new Date(value).toLocaleString(locale.value) : t('oss.notScheduled')
 const size = (bytes: number) => bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GiB` : `${(bytes / 1024 ** 2).toFixed(2)} MiB`
@@ -29,8 +34,8 @@ function acceptConfig(value: OssConfig) {
 }
 async function action(work: () => Promise<void>) {
   if (busy.value) return
-  busy.value = true
-  try { await work() } catch (error: any) { toast.error(errorText(error?.code || error?.response?.data?.code)) }
+  busy.value = true; actionError.value = ''
+  try { await work() } catch (error: any) { actionError.value = errorText(error?.code || error?.response?.data?.code); toast.error(actionError.value) }
   finally { busy.value = false }
 }
 async function loadTasks() {
@@ -42,7 +47,7 @@ async function loadBackups() {
   const result = await api.aliyunOss.backups(searchPrefix.value || undefined); backups.value = result.backups
 }
 async function initialize() {
-  loading.value = true; loadError.value = ''
+  loading.value = true; loadError.value = ''; actionError.value = ''
   try {
     const [state, catalog] = await Promise.all([api.aliyunOss.config(), api.aliyunOss.regions()])
     if (state.config) acceptConfig(state.config)
@@ -62,7 +67,19 @@ onMounted(async () => {
 })
 onUnmounted(() => { disposed = true; if (poll) clearInterval(poll) })
 function save() { return action(async () => { const result = await api.aliyunOss.save({ ...form }); acceptConfig(result.config); toast.success(t('oss.saved')) }) }
-function test() { return action(async () => { const result = await api.aliyunOss.test(); acceptConfig(result.config); toast.success(t('oss.tested')) }) }
+function test() {
+  if (!connectionForm.value?.reportValidity()) return
+  saveThenTest.value = true; connectionForm.value.requestSubmit()
+}
+async function submitSettings() {
+  const shouldTest = saveThenTest.value; saveThenTest.value = false
+  if (!shouldTest) return save()
+  return action(async () => {
+    if (dirty.value) { const saved = await api.aliyunOss.save({ ...form, enabled: false }); acceptConfig(saved.config) }
+    const result = await api.aliyunOss.test(); acceptConfig(result.config)
+    toast.success(t(config.value?.bucket ? 'oss.tested' : 'oss.credentialsTested'))
+  })
+}
 async function listBuckets(cursor?: string) {
   const result = await api.aliyunOss.buckets(cursor); bucketRows.value = result.buckets; bucketCursor.value = result.nextCursor
 }
@@ -96,17 +113,22 @@ const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'dele
   <main class="oss-page" :aria-busy="loading || busy">
     <header class="oss-header"><div><h1>{{ t('oss.title') }}</h1><p>{{ t('oss.description') }}</p></div><button :disabled="busy" @click="initialize">{{ t('oss.refresh') }}</button></header>
     <p v-if="loadError" role="alert" class="oss-notice danger">{{ loadError }}</p>
-    <template v-else-if="!loading">
-      <p v-if="!runtimeReady" class="oss-notice" role="status">{{ t('oss.runtimeMissing') }}</p>
+    <p v-if="actionError" role="alert" class="oss-notice danger">{{ actionError }}</p>
+    <template v-if="!loading && !loadError">
+      <div v-if="!runtimeReady" class="oss-notice" role="status"><p>{{ t('oss.runtimeMissing') }}</p><a href="https://mastalee928.github.io/payincus/deployment/oss-backup" target="_blank" rel="noopener noreferrer">{{ t('oss.deploymentHelp') }}</a></div>
       <div v-if="held" class="oss-notice"><p>{{ t('oss.held') }}</p><div class="oss-actions"><button :disabled="disabled" @click="openModal('resume')">{{ t('oss.resume') }}</button><button :disabled="disabled" @click="openModal('rollback')">{{ t('oss.rollback') }}</button></div></div>
-      <form @submit.prevent="save">
+      <form ref="connectionForm" @submit.prevent="submitSettings">
         <section aria-labelledby="oss-connection-title">
           <h2 id="oss-connection-title">{{ t('oss.connection') }}</h2><p class="hint">{{ t('oss.setupHint') }}</p>
           <fieldset :disabled="disabled || held" class="oss-fields">
             <label for="oss-key-id">{{ t('oss.keyId') }}<input id="oss-key-id" v-model="form.accessKeyId" required autocomplete="off" maxlength="128"></label>
             <label for="oss-key-secret">{{ t('oss.keySecret') }}<input id="oss-key-secret" v-model="form.accessKeySecret" type="password" :required="!config?.hasAccessKeySecret" :placeholder="config?.hasAccessKeySecret ? t('oss.retainedSecret') : ''" autocomplete="new-password" maxlength="256"></label>
+          </fieldset>
+          <div class="oss-actions"><button type="submit" class="primary" :disabled="disabled || held" @click="saveThenTest = false">{{ t('oss.save') }}</button><button type="button" :disabled="disabled || held" @click="test">{{ t('oss.saveAndTest') }}</button></div>
+          <p class="hint">{{ t('oss.connectionTestHint') }}</p>
+          <fieldset :disabled="disabled || held" class="oss-fields">
             <label for="oss-region">{{ t('oss.region') }}<select id="oss-region" v-model="form.region"><option v-for="region in regions" :key="region.id" :value="region.id">{{ locale.startsWith('zh') ? region.name : region.id }} — {{ region.id }}</option></select></label>
-            <label for="oss-bucket">{{ t('oss.bucket') }}<input id="oss-bucket" v-model="form.bucket" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" maxlength="63" autocomplete="off"></label>
+            <label for="oss-bucket">{{ t('oss.bucket') }}<input id="oss-bucket" v-model="form.bucket" pattern="[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]" maxlength="63" autocomplete="off"></label>
           </fieldset>
           <div class="oss-actions"><button type="button" :disabled="disabled || !config || held" @click="action(() => listBuckets())">{{ t('oss.browse') }}</button><button type="button" :disabled="disabled || !config || held" @click="openModal('create')">{{ t('oss.newBucket') }}</button></div>
           <div v-if="bucketRows.length" class="bucket-list"><button v-for="bucket in bucketRows" :key="bucket.name" type="button" :disabled="busy" @click="chooseBucket(bucket)">{{ bucket.name }} <small>{{ bucket.region }}</small></button><button v-if="bucketCursor" type="button" :disabled="busy" @click="action(() => listBuckets(bucketCursor!))">{{ t('oss.loadMore') }}</button></div>
@@ -122,13 +144,14 @@ const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'dele
           <h2 id="oss-settings-title">{{ t('oss.settings') }}</h2>
           <fieldset :disabled="disabled || held" class="oss-fields">
             <label for="oss-prefix">{{ t('oss.prefix') }}<input id="oss-prefix" v-model="form.prefix" required maxlength="400" aria-describedby="oss-prefix-hint"><small id="oss-prefix-hint">{{ t('oss.prefixHint') }}</small></label>
-            <label for="oss-password">{{ t('oss.password') }}<input id="oss-password" v-model="form.backupPassword" type="password" :required="!config?.hasBackupPassword" minlength="12" maxlength="256" autocomplete="new-password" :placeholder="config?.hasBackupPassword ? t('oss.retainedSecret') : ''" aria-describedby="oss-password-hint"><small id="oss-password-hint">{{ t('oss.passwordHint') }}</small></label>
+            <label for="oss-password">{{ t('oss.password') }}<input id="oss-password" v-model="form.backupPassword" type="password" :required="form.enabled && !config?.hasBackupPassword" minlength="12" maxlength="256" autocomplete="new-password" :placeholder="config?.hasBackupPassword ? t('oss.retainedSecret') : ''" aria-describedby="oss-password-hint"><small id="oss-password-hint">{{ t('oss.passwordHint') }}</small></label>
             <label for="oss-interval">{{ t('oss.interval') }}<select id="oss-interval" v-model.number="form.intervalHours"><option v-for="hours in [1,3,6,12,24,72]" :key="hours" :value="hours">{{ t('oss.everyHours', { hours }) }}</option></select></label>
             <label for="oss-retention">{{ t('oss.retention') }}<select id="oss-retention" v-model.number="form.retention"><option v-for="count in [1,3,5]" :key="count" :value="count">{{ t('oss.keep', { count }) }}</option></select></label>
-            <label class="oss-toggle" for="oss-enabled"><input id="oss-enabled" v-model="form.enabled" type="checkbox" :disabled="!runtimeReady || config?.testedRevision !== config?.revision || !config">{{ t('oss.enabled') }}</label>
+            <label class="oss-toggle" for="oss-enabled"><input id="oss-enabled" v-model="form.enabled" type="checkbox" :disabled="!runtimeReady || !config?.bucket || !config.hasBackupPassword || config.testedRevision !== config.revision">{{ t('oss.enabled') }}</label>
           </fieldset>
           <p class="hint">{{ t('oss.nextRun') }}: {{ date(config?.nextRunAt) }}</p>
-          <div class="oss-actions"><button type="submit" class="primary" :disabled="disabled || held">{{ t('oss.save') }}</button><button type="button" :disabled="disabled || !config || held" @click="test">{{ t('oss.test') }}</button><button type="button" :disabled="disabled || !runtimeReady || !config || config.testedRevision !== config.revision || held" @click="action(async () => { await api.aliyunOss.backup(); await loadTasks() })">{{ t('oss.backupNow') }}</button></div>
+          <p v-if="!backupReady" class="hint">{{ t('oss.needsTest') }}</p>
+          <div class="oss-actions"><button type="submit" class="primary" :disabled="disabled || held" @click="saveThenTest = false">{{ t('oss.save') }}</button><button type="button" :disabled="disabled || held" @click="test">{{ t('oss.saveAndTest') }}</button><button type="button" :disabled="disabled || !runtimeReady || !backupReady || held" @click="action(async () => { await api.aliyunOss.backup(); await loadTasks() })">{{ t('oss.backupNow') }}</button></div>
         </section>
       </form>
       <section aria-labelledby="oss-backups-title">
@@ -139,6 +162,15 @@ const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'dele
       </section>
       <section aria-labelledby="oss-tasks-title"><h2 id="oss-tasks-title">{{ t('oss.tasks') }}</h2><ul class="backup-list"><li v-for="task in tasks" :key="task.id"><div><strong>{{ t(`oss.stages.${task.stage}`) }}</strong><small class="task-status" :class="{ 'danger-text': task.status === 'failed' }">{{ t(`oss.statuses.${task.status}`) }} · {{ date(task.createdAt) }}</small><p v-if="task.error" class="danger-text">{{ errorText(task.error) }}</p><small class="break-all">{{ task.id }}</small></div><button v-if="task.preview && task.status === 'success'" :disabled="disabled || held || Date.parse(task.preview.expiresAt) < Date.now()" @click="openModal('restore', task)">{{ t('oss.restore') }}</button></li></ul></section>
     </template>
+    <section aria-labelledby="oss-recovery-title" class="oss-recovery">
+      <h2 id="oss-recovery-title">{{ t('oss.recoveryTitle') }}</h2>
+      <p>{{ t('oss.packageInfo') }}</p>
+      <details open><summary>{{ t('oss.usableTitle') }}</summary><ol><li v-for="index in 3" :key="index">{{ t(`oss.usableSteps.${index - 1}`) }}</li></ol></details>
+      <details><summary>{{ t('oss.lostTitle') }}</summary><ol><li v-for="index in 3" :key="index">{{ t(`oss.lostSteps.${index - 1}`) }}</li></ol></details>
+      <p>{{ t('oss.toolHint') }}</p>
+      <div class="oss-actions"><a href="/recovery/恢复说明.md" download>{{ t('oss.downloadGuide') }}</a><a href="/recovery/payincus-recovery.py" download>{{ t('oss.downloadTool') }}</a></div>
+      <p class="hint">{{ t('oss.recoveryBoundary') }}</p>
+    </section>
     <dialog ref="modal" aria-labelledby="oss-modal-title" @cancel="busy ? $event.preventDefault() : closeModal()">
       <form @submit.prevent="submitModal"><h2 id="oss-modal-title">{{ modalTitle }}</h2>
         <template v-if="modalKind === 'create'"><p>{{ t('oss.createHint') }}</p><label for="oss-new-region">{{ t('oss.region') }}<select id="oss-new-region" v-model="newBucketRegion"><option v-for="region in regions" :key="region.id" :value="region.id">{{ locale.startsWith('zh') ? region.name : region.id }}</option></select></label><label for="oss-new-bucket">{{ t('oss.bucketName') }}<input id="oss-new-bucket" v-model="newBucketName" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" maxlength="63"></label></template>
@@ -174,5 +206,6 @@ button:disabled, fieldset:disabled { opacity: .55; cursor: not-allowed; } :is(bu
 .backup-list li { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--oss-line); } .backup-list li > div { min-width: 0; } .backup-list li > button { flex-shrink: 0; } .task-status { margin-top: 6px; font-variant-numeric: tabular-nums; } .break-all { overflow-wrap: anywhere; }
 dialog { background: var(--oss-bg); color: var(--oss-fg); width: min(540px, calc(100% - 32px)); border: 1px solid var(--oss-line); border-radius: 14px; padding: 26px; margin: auto; max-height: calc(100dvh - 32px); overflow-y: auto; } dialog::backdrop { background: rgb(0 0 0 / .55); } dialog label { margin-top: 18px; } dialog .oss-actions { justify-content: flex-end; } code { font-size: 13px; }
 ::selection { background: var(--oss-fg); color: var(--oss-bg); }
+.oss-recovery details { margin: 20px 0; max-width: 75ch; } .oss-recovery summary { cursor: pointer; font-weight: 600; padding: 6px 0; } .oss-recovery ol { padding-left: 24px; margin-top: 12px; } .oss-recovery li { line-height: 1.7; margin: 10px 0; } .oss-recovery a { color: var(--oss-fg); text-decoration: underline; text-underline-offset: 4px; padding: 8px 0; } .oss-recovery :is(a,summary):focus-visible { outline: 2px solid var(--oss-fg); outline-offset: 3px; }
 @media (max-width: 640px) { .oss-page { padding: 16px; } h1 { font-size: 24px; } .oss-fields { grid-template-columns: 1fr; } .oss-header { gap: 12px; } .oss-search { flex-direction: column; align-items: stretch; } .backup-list li { flex-direction: column; align-items: stretch; } .oss-browser { padding: 12px; } }
 </style>

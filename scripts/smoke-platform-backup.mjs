@@ -33,11 +33,15 @@ await saveConfig()
 // Local object storage stubs are in this CI process only, never in production code.
 AliyunOssClient.prototype.assertBackupBucket = async () => {}
 AliyunOssClient.prototype.retain = async () => {}
-AliyunOssClient.prototype.upload = async function (settings, source, metadata, verification) {
+AliyunOssClient.prototype.upload = async function (settings, source, metadata, verification, _checkpoint, readablePath) {
   const prefix = `${settings.prefix}${settings.installationId}/${metadata.id}/`
   const path = join(storage, metadata.id)
   await copyFile(source, path); await copyFile(path, verification)
   assert.equal(createHash('sha256').update(await readFile(verification)).digest('hex'), metadata.sha256)
+  assert.ok(metadata.readableZip && readablePath)
+  const zipCopy = join(storage, metadata.readableZip.name)
+  await copyFile(readablePath, zipCopy)
+  assert.equal(createHash('sha256').update(await readFile(zipCopy)).digest('hex'), metadata.readableZip.sha256)
   records.set(prefix, { ...metadata, prefix, path }); return prefix
 }
 AliyunOssClient.prototype.index = async prefix => { assert.ok(records.has(prefix)); return records.get(prefix) }
@@ -57,6 +61,11 @@ async function health(held) {
   assert.equal((await response.json()).recoveryHeld, held)
 }
 try {
+  for (const entry of ['user', 'admin']) {
+    assert.equal(await readFile(`/opt/incudal/client/dist/${entry}/recovery/payincus-recovery.py`, 'utf8'), await readFile('/opt/incudal/scripts/platform-backup-recovery.py', 'utf8'))
+    assert.equal(await readFile(`/opt/incudal/client/dist/${entry}/recovery/恢复说明.md`, 'utf8'), await readFile('/opt/incudal/scripts/platform-backup-recovery-guide.md', 'utf8'))
+  }
+  await exec('python3', ['/opt/incudal/scripts/platform-backup-recovery.py', 'status'])
   for (const path of ['/etc/systemd/system/incudal-platform-backup@.service', '/etc/systemd/system/incudal-backend.service.d/platform-backup.conf']) assert.ok((await stat(path)).isFile())
   await exec('/usr/bin/sudo', ['-u', 'incudal', 'test', '-w', '/var/lib/incudal-backup/inbox'])
   await assert.rejects(exec('/usr/bin/sudo', ['-u', 'incudal', 'test', '-r', '/var/lib/incudal-backup/private']))

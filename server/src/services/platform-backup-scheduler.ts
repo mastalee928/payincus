@@ -32,7 +32,11 @@ export async function enqueueBackupTask(kind: BackupTaskKind, createdBy: number,
   ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409)
   ensure(kind === 'resume' || kind === 'rollback' || !recoveryHeld(), 'OSS_RECOVERY_HELD', 409)
   const config = await readBackupConfig(); ensure(config, 'OSS_CONFIG_REQUIRED', 409)
-  if (kind === 'backup') ensure(config.testedRevision === config.revision, 'OSS_TEST_REQUIRED', 409)
+  if (kind === 'backup') {
+    ensure(config.bucket, 'OSS_BUCKET_REQUIRED', 409)
+    ensure(config.backupPassword, 'OSS_BACKUP_PASSWORD_REQUIRED', 409)
+    ensure(config.testedRevision === config.revision, 'OSS_TEST_REQUIRED', 409)
+  }
   const id = randomUUID(), createdAt = new Date().toISOString()
   const request: BackupTaskRequest = { id, kind, createdBy, createdAt, config, ...extras }
   const pending: BackupTaskResult = { id, kind, createdAt, updatedAt: createdAt, status: 'pending', stage: 'queued' }

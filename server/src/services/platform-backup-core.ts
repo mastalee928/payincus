@@ -75,6 +75,7 @@ export function normalizeConfig(input: Record<string, unknown>, previous?: Backu
   const secret = (field: 'accessKeySecret' | 'backupPassword', min: number) => {
     const v = input[field]
     if (v === undefined || v === '') {
+      if (field === 'backupPassword' && !previous?.[field]) return ''
       ensure(previous?.[field], 'OSS_CREDENTIAL_REQUIRED')
       return previous[field]
     }
@@ -83,12 +84,16 @@ export function normalizeConfig(input: Record<string, unknown>, previous?: Backu
   }
   const next: BackupConfig = {
     revision: randomUUID(), installationId: previous?.installationId || randomUUID(), enabled: input.enabled,
-    region: validateRegion(input.region), bucket: validateBucket(input.bucket), prefix: validatePrefix(input.prefix),
+    region: validateRegion(input.region), bucket: input.bucket === '' ? '' : validateBucket(input.bucket), prefix: validatePrefix(input.prefix),
     accessKeyId: input.accessKeyId, accessKeySecret: secret('accessKeySecret', 8), backupPassword: secret('backupPassword', 12),
     intervalHours: input.intervalHours as number, retention: input.retention as number, nextRunAt: null, testedRevision: null
   }
   const sameTarget = previous && ['region', 'bucket', 'prefix', 'accessKeyId', 'accessKeySecret', 'backupPassword'].every(k => next[k as keyof BackupConfig] === previous[k as keyof BackupConfig])
   if (sameTarget && previous.testedRevision === previous.revision) next.testedRevision = next.revision
+  if (next.enabled) {
+    ensure(next.bucket, 'OSS_BUCKET_REQUIRED', 409)
+    ensure(next.backupPassword, 'OSS_BACKUP_PASSWORD_REQUIRED', 409)
+  }
   ensure(!next.enabled || next.testedRevision === next.revision, 'OSS_TEST_REQUIRED', 409)
   next.nextRunAt = next.enabled ? (previous?.enabled && previous.intervalHours === next.intervalHours ? previous.nextRunAt : new Date(Date.now() + next.intervalHours * 3600000).toISOString()) : null
   return next

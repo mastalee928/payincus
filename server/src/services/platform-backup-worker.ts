@@ -7,7 +7,9 @@ import { parse as parseEnv } from 'dotenv'
 import { AliyunOssClient, sanitizedOssError } from './aliyun-oss-client.js'
 import { atomicFileCopy, decryptBackup, encryptBackup, hashFile, validAssetName, type BackupManifest, type BackupSource } from './platform-backup-archive.js'
 import { BACKUP_INTERVALS, BACKUP_RETENTIONS, backupRoot, BackupError, ensure, openSecret, readJson, recoveryHeld, sealSecret, statePath, validateBucket, validateId, validatePrefix, validateRegion, writeBackupConfig, writeJson, type BackupConfig, type BackupTaskRequest, type BackupTaskResult } from './platform-backup-core.js'
-import { databaseMetadata, dumpDatabase, localDatabaseAdmin, pgQuery, postgresConnection, quoteIdentifier, restoreDatabase } from './platform-backup-database.js'
+import { captureDatabaseBackup, databaseMetadata, localDatabaseAdmin, pgQuery, postgresConnection, quoteIdentifier, restoreDatabase, verifyDatabaseBackup, verifyRestoredDatabase, type DatabaseIntegrity } from './platform-backup-database.js'
+import { exportReadableDatabase } from './platform-backup-database.js'
+import { createReadableZip, readableZipName, validReadableZipName } from './platform-backup-readable.js'
 
 const exec = promisify(execFile)
 const INSTALL = '/opt/incudal'
@@ -84,10 +86,10 @@ async function cleanupInterruptedUploads(client: AliyunOssClient, config: Backup
     if (id === currentId || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(id)) continue
     const directory = taskDir(id)
     if (existsSync(join(directory, 'journal.json')) || existsSync(join(directory, 'plan.json'))) continue
-    const checkpoint = await readJson<{ bucket: string; region: string; installationId: string; prefix: string; name: string; uploadId: string | null }>(join(directory, 'upload-checkpoint.json'))
+    const checkpoint = await readJson<{ bucket: string; region: string; installationId: string; prefix: string; name: string; uploadId: string | null; readableZipName?: string }>(join(directory, 'upload-checkpoint.json'))
     if (!checkpoint || checkpoint.bucket !== config.bucket || checkpoint.region !== config.region || checkpoint.installationId !== config.installationId || checkpoint.prefix !== config.prefix) continue
     const prefix = `${config.prefix}${config.installationId}/${id}/`
-    ensure(checkpoint.name === `${prefix}payload.enc` && (checkpoint.uploadId === null || (typeof checkpoint.uploadId === 'string' && checkpoint.uploadId.length <= 1024)), 'OSS_CHECKPOINT_INVALID')
+    ensure((checkpoint.name === `${prefix}payload.enc` || (checkpoint.readableZipName && validReadableZipName(checkpoint.readableZipName) && checkpoint.name === `${prefix}${checkpoint.readableZipName}`)) && (!checkpoint.readableZipName || validReadableZipName(checkpoint.readableZipName)) && (checkpoint.uploadId === null || (typeof checkpoint.uploadId === 'string' && checkpoint.uploadId.length <= 1024)), 'OSS_CHECKPOINT_INVALID')
     let committed = false
     try { await client.client.head(`${prefix}complete.json`); committed = true }
     catch (error) { if ((error as { code?: string }).code !== 'NoSuchKey' && (error as { name?: string }).name !== 'NoSuchKeyError') throw error }
@@ -95,7 +97,10 @@ async function cleanupInterruptedUploads(client: AliyunOssClient, config: Backup
       try { await client.client.abortMultipartUpload(checkpoint.name, checkpoint.uploadId) }
       catch (error) { if ((error as { code?: string }).code !== 'NoSuchUpload' && (error as { name?: string }).name !== 'NoSuchUploadError') throw error }
     }
-    if (!committed) await client.client.delete(checkpoint.name)
+    if (!committed) {
+      await client.client.delete(`${prefix}payload.enc`)
+      if (checkpoint.readableZipName) await client.client.delete(`${prefix}${checkpoint.readableZipName}`)
+    }
     await rm(directory, { recursive: true, force: true })
   }
 }
@@ -208,29 +213,41 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
     await pinnedBackups()
     if (request.kind === 'backup') {
       ensure(client, 'OSS_CLIENT_REQUIRED')
+      ensure(request.config.backupPassword, 'OSS_BACKUP_PASSWORD_REQUIRED', 409)
       ensure(!recoveryHeld(), 'OSS_RECOVERY_HELD', 409)
       await client.assertBackupBucket(request.config.region)
       await cleanupInterruptedUploads(client, request.config, id)
-      const metadata = await databaseMetadata(); await freeSpace(metadata.bytes * 4)
+      const metadata = await databaseMetadata(); await freeSpace(metadata.bytes * 10)
       const { sources, snapshot } = await snapshotAssets(directory)
       const dump = join(directory, 'database.dump'); await update('exporting')
-      const snapshotAt = new Date().toISOString(); await dumpDatabase(dump)
+      const database = await captureDatabaseBackup(dump, directory); const snapshotAt = database.snapshotAt
+      await update('checking_database'); await verifyDatabaseBackup(dump, database.report, directory, id)
+      const integrity = join(directory, 'database-integrity.json'); await writeJson(integrity, database.report)
       await verifyAssetSnapshot(sources, snapshot)
       await update('encrypting'); const encrypted = join(directory, 'payload.enc')
       const archivedConfig = join(directory, 'backup-config.json'); await writeJson(archivedConfig, request.config)
-      const manifest = await encryptBackup([{ name: 'database.dump', path: dump }, { name: 'backup.config', path: archivedConfig }, ...snapshot], {
+      const backupSources = [{ name: 'database.dump', path: dump }, { name: 'database-globals.sql', path: database.globals }, { name: 'database-integrity.json', path: integrity }, { name: 'backup.config', path: archivedConfig }, ...snapshot]
+      const manifest = await encryptBackup(backupSources, {
         format: 1, id, installationId: request.config.installationId, createdAt: snapshotAt,
-        version: await version(), migrationHash: metadata.migrationHash, postgresMajor: metadata.postgresMajor, databaseBytes: metadata.bytes
+        version: await version(), migrationHash: database.metadata.migrationHash, postgresMajor: database.metadata.postgresMajor, databaseBytes: database.metadata.bytes
       }, openSecret(request.config.backupPassword), encrypted)
+      const sqlSources = await exportReadableDatabase(dump, database.report, directory)
+      const readableManifest = join(directory, 'readable-manifest.json'); await writeJson(readableManifest, manifest)
+      const app = process.env.INCUDAL_APP_DIR || (existsSync(`${INSTALL}/current`) ? `${INSTALL}/current` : INSTALL)
+      const readable = join(directory, readableZipName(snapshotAt))
+      const readableZip = await createReadableZip([...backupSources, ...sqlSources,
+        { name: 'manifest.json', path: readableManifest },
+        { name: '恢复说明.md', path: join(app, 'scripts/platform-backup-recovery-guide.md') },
+        { name: 'payincus-recovery.py', path: join(app, 'scripts/platform-backup-recovery.py') }], snapshotAt, openSecret(request.config.backupPassword), readable)
       result.bytes = (await stat(encrypted)).size
       await update('uploading')
       // Record intent even for a small PUT or a failure before the first SDK
       // checkpoint. Cleanup must cover completed but uncommitted ciphertext too.
       await writeJson(join(directory, 'upload-checkpoint.json'), { bucket: request.config.bucket, region: request.config.region, installationId: request.config.installationId,
-        prefix: request.config.prefix, name: `${request.config.prefix}${request.config.installationId}/${id}/payload.enc`, uploadId: null })
+        prefix: request.config.prefix, name: `${request.config.prefix}${request.config.installationId}/${id}/payload.enc`, uploadId: null, readableZipName: readableZip.name })
       result.objectPrefix = await client.upload(request.config, encrypted, { format: 1, id, installationId: manifest.installationId,
-        createdAt: manifest.createdAt, version: manifest.version, bytes: result.bytes, sha256: await hashFile(encrypted) }, join(directory, 'verify.enc'),
-      checkpoint => writeJson(join(directory, 'upload-checkpoint.json'), { bucket: request.config.bucket, region: request.config.region, installationId: request.config.installationId, prefix: request.config.prefix, name: checkpoint.name, uploadId: checkpoint.uploadId }))
+        createdAt: manifest.createdAt, version: manifest.version, bytes: result.bytes, sha256: await hashFile(encrypted), readableZip }, join(directory, 'verify.enc'),
+      checkpoint => writeJson(join(directory, 'upload-checkpoint.json'), { bucket: request.config.bucket, region: request.config.region, installationId: request.config.installationId, prefix: request.config.prefix, name: checkpoint.name, uploadId: checkpoint.uploadId, readableZipName: readableZip.name }), readable)
       await update('retaining')
       try { await client.retain(request.config, await pinnedBackups()) }
       catch { result.error = 'OSS_RETENTION_FAILED'; await update('complete', 'warning'); return }
@@ -251,6 +268,10 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
       await localDatabaseAdmin(`CREATE DATABASE ${quoteIdentifier(staging)} OWNER ${quoteIdentifier(postgresConnection().user)} TEMPLATE template0;`)
       try {
         await update('checking_database'); await restoreDatabase(archive.files.get('database.dump')!, staging)
+        if (archive.files.has('database-integrity.json')) {
+          const expected = await readJson<DatabaseIntegrity>(archive.files.get('database-integrity.json')!); ensure(expected, 'OSS_DATABASE_INTEGRITY_INVALID')
+          await verifyRestoredDatabase(staging, expected, directory, 'preview')
+        }
         const restored = await databaseMetadata(staging); ensure(restored.migrationHash === current.migrationHash, 'OSS_VERSION_MISMATCH')
       } finally { await localDatabaseAdmin(`DROP DATABASE IF EXISTS ${quoteIdentifier(staging)} WITH (FORCE);`) }
       const plan: RestorePlan = { id, createdBy: request.createdBy, expiresAt: new Date(Date.now() + 15 * 60000).toISOString(), manifest: archive.manifest, prefix: source.prefix, files: [...archive.files] }
@@ -279,6 +300,10 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
       await update('stopping'); await service('stop')
       await localDatabaseAdmin(`CREATE DATABASE ${quoteIdentifier(staging)} OWNER ${quoteIdentifier(user)} TEMPLATE template0;`)
       await update('restoring_database'); await restoreDatabase(files.get('database.dump')!, staging)
+      if (files.has('database-integrity.json')) {
+        const expected = await readJson<DatabaseIntegrity>(files.get('database-integrity.json')!); ensure(expected, 'OSS_DATABASE_INTEGRITY_INVALID')
+        await verifyRestoredDatabase(staging, expected, directory, 'restore')
+      }
       // Expire every restored session and API credential. They may have been revoked since the snapshot.
       await pgQuery('DELETE FROM refresh_tokens', [], staging)
       await pgQuery('UPDATE public_api_tokens SET revoked_at=NOW() WHERE revoked_at IS NULL', [], staging)
@@ -328,9 +353,9 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
         await exec('/usr/bin/systemctl', ['restart', 'wg-quick@incudal-mgmt'], { timeout: 30000 })
       }
       const savedConfig = { ...request.config, enabled: false, nextRunAt: null, testedRevision: null }
-      const accessSecret = openSecret(savedConfig.accessKeySecret), backupPassword = openSecret(savedConfig.backupPassword)
+      const accessSecret = openSecret(savedConfig.accessKeySecret), backupPassword = savedConfig.backupPassword ? openSecret(savedConfig.backupPassword) : ''
       process.env.ENCRYPTION_KEY = parseEnv(await readFile(`${INSTALL}/.env`, 'utf8')).ENCRYPTION_KEY
-      savedConfig.accessKeySecret = sealSecret(accessSecret); savedConfig.backupPassword = sealSecret(backupPassword)
+      savedConfig.accessKeySecret = sealSecret(accessSecret); savedConfig.backupPassword = backupPassword ? sealSecret(backupPassword) : ''
       await writeBackupConfig(savedConfig)
       await chown(statePath('inbox', 'config.json'), Number((await exec('/usr/bin/id', ['-u', 'incudal'])).stdout.trim()), gid)
       await update('protected_start'); await service('start'); await protectedHealth()
