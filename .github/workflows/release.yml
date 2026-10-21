@@ -229,7 +229,8 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           cd release
-          tar -czf "../incudal-${VERSION}-linux-${{ matrix.arch }}.tar.gz" .
+          # Old installed OTA workers preserve archive owners; privileged helper sources must be root-owned.
+          tar --owner=0 --group=0 --numeric-owner -czf "../incudal-${VERSION}-linux-${{ matrix.arch }}.tar.gz" .
           cd ..
           ls -lh "incudal-${VERSION}-linux-${{ matrix.arch }}.tar.gz"
           echo "📦 发行包大小: $(du -h "incudal-${VERSION}-linux-${{ matrix.arch }}.tar.gz" | cut -f1)"

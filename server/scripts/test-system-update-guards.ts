@@ -33,6 +33,13 @@ const rollbackTask = read('server/src/scripts/rollback-system-update-task.ts')
 const systemUpdateTasksDb = read('server/src/db/system-update-tasks.ts')
 const rootPackage = read('package.json')
 const serverPackage = read('server/package.json')
+const freshInstall = read('scripts/smoke-fresh-install.sh')
+
+assert.ok(runTask.includes("run('tar', ['--no-same-owner', '-xzf', artifactPath"), 'root OTA extraction must not inherit build-runner archive ownership')
+assert.ok(releaseWorkflow.includes('tar --owner=0 --group=0 --numeric-owner -czf'), 'new release archives must remain compatible with installed OTA workers that preserve archive owners')
+assert.ok(freshInstall.includes('member.uid != 0 or member.gid != 0'), 'both architecture fresh-install jobs must inspect actual archive ownership before install normalization can hide an OTA regression')
+const migrationAndInstaller = runTask.slice(runTask.indexOf('await deployDatabaseMigrations()'), runTask.indexOf('await verifyUpdatedRuntime(Boolean(artifact))'))
+assert.ok(migrationAndInstaller.indexOf('await chownInstallDir()') >= 0 && migrationAndInstaller.indexOf('await chownInstallDir()') < migrationAndInstaller.indexOf("const backupInstaller"), 'OTA must harden installed files before the root-only backup installer checks its sources')
 
 assert.ok(
   serverApp.includes("import systemUpdateRoutes from './routes/system-update.js'") &&
@@ -154,7 +161,7 @@ assert.ok(
     runTask.includes('downloadArtifact') &&
     runTask.includes('createHash') &&
     runTask.includes('OTA artifact sha256 mismatch') &&
-    runTask.includes("tar', ['-xzf', artifactPath") &&
+    runTask.includes("tar', ['--no-same-owner', '-xzf', artifactPath") &&
     runTask.includes('assertArtifactStaging') &&
     runTask.includes("'.git'") &&
     runTask.includes('No usable OTA artifact found; falling back to Git build mode') &&

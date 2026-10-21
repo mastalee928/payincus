@@ -7,6 +7,15 @@ umask 077
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 package=${1:?Pass the release archive path}
 test -s "$package"
+# Exercise the ownership behavior of already installed root OTA workers, before the installer normalizes it.
+python3 - "$package" <<'PY'
+import sys, tarfile
+with tarfile.open(sys.argv[1], 'r:gz') as archive:
+    for member in archive.getmembers():
+        if member.uid != 0 or member.gid != 0:
+            raise SystemExit('Release archive contains non-root ownership: ' + member.name)
+print('Release archive ownership verified for legacy root OTA extraction.')
+PY
 install -d -m 755 /tmp/incudal
 cp "$package" /tmp/incudal/
 sha256sum "/tmp/incudal/$(basename "$package")" > "/tmp/incudal/$(basename "$package").sha256"

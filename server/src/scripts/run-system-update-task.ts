@@ -652,7 +652,8 @@ async function applyArtifactUpdate(artifact: OtaArtifactInfo, backupDir: string,
 
   await rm(stagingDir, { recursive: true, force: true })
   await mkdir(stagingDir, { recursive: true })
-  await run('tar', ['-xzf', artifactPath, '-C', stagingDir], { timeoutMs: 180000 })
+  // Release archives carry the build runner's UID; the root updater must own extracted helpers.
+  await run('tar', ['--no-same-owner', '-xzf', artifactPath, '-C', stagingDir], { timeoutMs: 180000 })
   await assertArtifactStaging(stagingDir)
 
   if (await isAtomicReleaseLayout()) {
@@ -851,6 +852,8 @@ async function main(): Promise<void> {
     databaseBackupPath = await backupDatabase(backupDir, timestamp)
     databaseMigrationAttempted = true
     await deployDatabaseMigrations()
+    // The backup installer validates root ownership before it installs privileged helpers.
+    await chownInstallDir()
     const backupInstaller = join(await isAtomicReleaseLayout() ? join(installDir, 'current') : installDir, 'scripts/install-platform-backup.sh')
     if (existsSync(backupInstaller)) await run('bash', [backupInstaller], { timeoutMs: 60000 })
     await verifyUpdatedRuntime(Boolean(artifact))

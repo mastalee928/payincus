@@ -4,7 +4,7 @@
 
 ## 当前源码与发布状态
 
-- 当前源码候选 **v1.7.0**，owner 已授权整理、提交、推送及发布。纳入下方已验证的恢复保护、批量/已售恢复、故障状态、客户日志、密码重装及跨区域更换机器；首页改版已取消，本地设计样稿和新安装的设计技能不进入发行提交。正式标签与资产尚未生成，生产 OTA 未执行。
+- 面板 [v1.7.0](https://github.com/mastalee928/payincus/releases/tag/v1.7.0) 已正式发布，发行源码 `33b08791dc62e819fbbff847c38cd9e9ba438a37`，注解标签对象 `e778882f3e20e62067abdcc289136de3d7e0f407`，GitHub 面板 latest 为 v1.7.0。纳入恢复保护、批量/已售恢复、故障状态、客户日志、密码重装及同配置跨区域更换机器；双架构预览与正式首装/恢复演练通过。首页改版已取消，设计样稿和新安装的设计技能未进入发行提交。测试站此前已热更新验证相关功能，生产 OTA 未执行。
 - 面板 [v1.6.9](https://github.com/mastalee928/payincus/releases/tag/v1.6.9) 已正式发布，发行源码 `54203107fa138d92f0e29ece97d0c3fe1ed80090`，注解标签对象 `bce6f35d18e9bf00549349db8dc4fb8e4696980f`。GitHub 面板 latest 为 v1.6.9；双架构预览及正式首装/恢复演练、真实 OSS 额外 ZIP 上传/回读/隔离恢复均通过。测试主控已直接热更新验证，生产 OTA 未执行。
 - 面板 [v1.6.8](https://github.com/mastalee928/payincus/releases/tag/v1.6.8) 已正式发布，发行源码 `44d26132f02f9bbaeb87c50305e39fb40f65be6c`，注解标签对象 `733c867101089fe1d24b9dd53d25b36c8c0a90a1`。GitHub 面板 latest 为 v1.6.8，双架构预览、正式首装及 Linux 本机备份/恢复/回退演练均成功。真实 OSS 测试桶验收及生产 OTA 未执行。
 - 面板 [v1.6.7](https://github.com/mastalee928/payincus/releases/tag/v1.6.7) 已正式发布，发行源码 `fa716ee699e4ff77400b21bd093968c8be5f0dbc`（注解标签 `v1.6.7`，对象 `da4fdd3d1087d8cc59a8b0c4fcedba637ae95a6a`）；GitHub 面板 latest 为 v1.6.7。测试主控已载入 v1.6.7 同源内容（发布前经第六轮内部热替换上机，双端 index.html 与发行包逐字节一致）；面板 OTA 正式升级待执行。下方 v1.6.6 及其“已通过面板 OTA 升级至 v1.6.6”为当时状态。
@@ -20,6 +20,18 @@
 - [正式发布工作流](https://github.com/mastalee928/payincus/actions/runs/38878414833) 全部成功：Linux amd64 / arm64 分别构建并从真实发行包全新安装，通过 209 条数据库迁移、IPv6 数据字段、唯一后端启动、双端访问、管理员登录、机器池 API、固定主机指纹 SSH 网关及正式 Agent 下载和执行验证。
 - 已实际下载两种架构的公开安装包，确认 SHA256、文件大小、OTA manifest、包内版本与 Git 提交一致；检查全部迁移和 IPv6、UPAY 等关键模块，包内 LICENSE 与发行源码原文一致。GitHub 的面板 latest 为 v1.6.2；公开一键安装脚本与发行源码一致。
 - [源码 CI](https://github.com/mastalee928/payincus/actions/runs/38877110604)、[Agent 发布](https://github.com/mastalee928/payincus/actions/runs/38877110746) 均通过；[本仓库文档站](https://mastalee928.github.io/payincus/) 已上线。
+
+## 2026-10-21 v1.7.0 旧版本 OTA 权限回归与 v1.7.1 修复
+
+- Owner 在测试主控发起任务 #11（v1.6.8 → v1.7.0），北京时间 21:52:31 失败于 `scripts/install-platform-backup.sh`，错误 `Untrusted helper source`，21:54:03 自动代码回滚完成。完整错误保存在失败版本副本中；活动日志在旧布局回滚时被旧备份覆盖，任务记录保留。迁移无新增变更，数据库预迁移备份 `/opt/incudal.bak.20261021135125/db-pre-migrate-v1.7.0-20261021135125.sql` 保留。
+- 根因：GitHub 发行包记录构建机 UID 1001，旧 root OTA `tar -xzf` 保留此 UID；备份执行器安装要求来源文件为 root 所有，而更新流程在该安装后才加固权限。首装安装器会预先归一化权限，因此双架构首装通过未覆盖旧 OTA 场景。保持安全校验，修复新执行器 `--no-same-owner` 解包及安装前权限加固，并将后续发行包统一 `--owner=0 --group=0 --numeric-owner`，兼容已安装旧执行器。双架构验证直接检查安装前归档 UID/GID。
+- 已备份测试机执行器与环境到 `/root/incudal-ota-owner-fix-iDf6bZ`，只修改已安装执行器的两处权限顺序并同步受信 seal，沿用 owner 的测试站更新授权重试。任务 #12 于北京时间 22:04:26 完成 v1.7.0 更新，数据库/支付就绪、双端 API/静态资源/WS、日志凭据检查通过；服务 `MainPID=1273505`、`NRestarts=0`，恢复保护关闭。实例 ID 13/15 的归属、机器、名称、CPU/内存/磁盘、价格、到期、续费及所有用户余额与更新前逐项一致。正式发行 v1.7.1 准备中。
+
+## 2026-10-21 v1.7.0 正式发行证据
+
+- 发行源码 `33b08791dc62e819fbbff847c38cd9e9ba438a37`，标签对象 `e778882f3e20e62067abdcc289136de3d7e0f407`。预览 [39608386204](https://github.com/mastalee928/payincus/actions/runs/39608386204)、正式 [39609841694](https://github.com/mastalee928/payincus/actions/runs/39609841694) 均通过双架构构建及首装、212 条迁移、唯一后端、管理员登录、管理网关、备份/预检/恢复/回退/恢复运营演练；OSS 传输在 CI 中使用本地替身。正式发布北京时间 21:47:30，非 draft、非 prerelease。
+- 实际下载两份公开安装包，amd64 109195921 字节 SHA256 `fc2a91fe3ca2f0c17cb3a32085f5a1d3a2949d1b06c402b396ac00b3b04917e4`，arm64 108303008 字节 SHA256 `66cf7ac7aaba0440adcdaaedfa694f970545d08827a1cd775c8328f90da1d196`。校验文件、资产 digest、两个 OTA manifest 一致，包内版本/源码/迁移与关键运行模块一致；用户 dist 无管理员换机接口、本地设计及技能未包含。校验记录 `logs/release-v1.7.0/verification.json`。
+- 本地最终全套 172/172（`logs/test-run-20261021-211836/summary.txt`）、双端/后端构建、文档构建和 Lint 通过。Linux [源码 CI 39608386337](https://github.com/mastalee928/payincus/actions/runs/39608386337) 包含 Agent 测试通过，文档 Pages [39608386414](https://github.com/mastalee928/payincus/actions/runs/39608386414) 通过。后续旧 OTA 所有权问题及真实更新证据见上方，不将首装通过等同于旧版本 OTA 验证。
 
 ## 2026-10-21 PHP 紧急安全通告适用性核对
 
