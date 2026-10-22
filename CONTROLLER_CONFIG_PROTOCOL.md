@@ -177,3 +177,15 @@ TLS1.3、客户端证书CA验证及精确证书SHA256固定均必需；每证书
 准备返回见证签名许可；激活核验节点回执；签发/续期必须核验新鲜节点回执和当前维护进程gate proof，权限只能缩小，序号持久前进。公开状态暂保留signedWriteLeaseAvailable=false，因为真实宿主回执采集和资源写端尚未集成；协议夹具获得签名租约不作为宿主已就绪证明。
 
 显式Linux CLI测试 `INCUDAL_WITNESS_CLI_TEST=1 node scripts/test-controller-witness-cli.mjs <server/dist> <受保护测试父目录>` 在新目录生成临时身份，只启动独立测试进程；验证缺失状态拒绝、初始化不可重做、mTLS、重复权威拒绝、正常/强制退出重启代次保持、损坏状态拒绝和RSS。它不修改系统服务、业务库或客户资源，不加入普通无基础设施守卫清单。
+
+## 15. 签名双管理通道与独立维护命令
+
+host-management-channels/v1 是独立传输协议，不是写租约。Ed25519 配置根签名，绑定platformId/nodeId、epoch/sequence、15分钟内有效期与按a/b排序的1–2条通道。每通道固定gatewayId、公钥、公网IPv4/域名及UDP端口、两端10/8管理地址和1280–1420 MTU；地址、公钥、网关身份不能重复。未知字段、任意AllowedIPs/default路由、错误签名、跨节点、过期、低代次或同代次不同内容拒绝。10份Node/Go共同向量验证协议相同。
+
+独立 `incudal-channels --apply|--restore|--serve <受保护配置路径>` 只运行Linux root。配置保存platformId/nodeId、trustedKeys、stateDirectory、signedConfiguration和a/b本地私钥路径；文件0600、目录0700、根拥有及受信祖先检查。它仅管理incudal-ha-a/incudal-ha-b，各有身份alias、独立私钥、接口和host route。管理AllowedIPs严格为对应控制地址/32，无公网默认路由。固定系统ip/wg工具经权限及路径验证，私钥从stdin传入、不使用showconf/dump、不写日志。
+
+施加前检查所有路由表、地址、公钥和接口归属；冲突拒绝，不能覆盖客户或其它网段。初始化发布不可变本地公钥身份，最高签名配置原子落盘后再改内核；已初始化时缺失配置拒绝重新开始。现有通道身份/公钥/地址不允许隐式替换，省略通道不自动退役，后续显式轮换/退役流程仍待施工。执行逐条回执，部分失败可按同代次重试，不能回退到更低配置。
+
+--restore 只恢复已落盘、验签且身份固定的最高传输配置；它可在配置时间过期而主控离线时维持恢复通道，但不接受远端过期更新，不授权资源写。--serve 持有独立服务锁，启动先恢复，每30秒核验受保护签名更新并重解析域名；更新拒绝单独报告，随后只尝试恢复当前已认证状态。DNS解析失败或私网/混合结果拒绝，不降低公钥认证。
+
+显式 `scripts/test-controller-channels-netns.py` 使用root/unshare/ip/wg/ping，在与父宿主分离的网络命名空间运行真实Go路径及WireGuard A/B，另有两个网关namespace。实测双握手、坏签名/路由冲突/重放拒绝、A断链B继续、接口丢失恢复、过期本地恢复与过期更新拒绝、独立命令/单服务/停止保持通道，客户默认路由一致。该测试不是独立机器故障或实际客户验收，正式安装、Alpine/Debian启动顺序、跨机UDP、发现下发及页面仍待验证。
