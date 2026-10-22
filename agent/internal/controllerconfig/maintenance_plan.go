@@ -7,21 +7,22 @@ import (
 )
 
 type MaintenancePlan struct {
-	PlatformID            string        `json:"platformId"`
-	NodeID                string        `json:"nodeId"`
-	Epoch                 string        `json:"epoch"`
-	Sequence              string        `json:"sequence"`
-	ControllerID          string        `json:"controllerId"`
-	GatewayID             string        `json:"gatewayId"`
-	ManagementAddress     string        `json:"managementAddress"`
-	ControllerAddress     string        `json:"controllerAddress"`
-	PreparationPermitted  bool          `json:"preparationPermitted"`
-	ActiveIncusOperations int           `json:"activeIncusOperations"`
-	ReadyForFencing       bool          `json:"readyForFencing"`
-	CanWrite              bool          `json:"canWrite"`
-	Blockers              []string      `json:"blockers"`
-	NetworkFenceApplied   bool          `json:"networkFenceApplied"`
-	ProcessAudit          *ProcessAudit `json:"processAudit,omitempty"`
+	PlatformID            string            `json:"platformId"`
+	NodeID                string            `json:"nodeId"`
+	Epoch                 string            `json:"epoch"`
+	Sequence              string            `json:"sequence"`
+	ControllerID          string            `json:"controllerId"`
+	GatewayID             string            `json:"gatewayId"`
+	ManagementAddress     string            `json:"managementAddress"`
+	ControllerAddress     string            `json:"controllerAddress"`
+	PreparationPermitted  bool              `json:"preparationPermitted"`
+	ActiveIncusOperations int               `json:"activeIncusOperations"`
+	ReadyForFencing       bool              `json:"readyForFencing"`
+	CanWrite              bool              `json:"canWrite"`
+	Blockers              []string          `json:"blockers"`
+	NetworkFenceApplied   bool              `json:"networkFenceApplied"`
+	ProcessAudit          *ProcessAudit     `json:"processAudit,omitempty"`
+	WriterAudit           *LocalWriterAudit `json:"writerAudit,omitempty"`
 }
 
 // InspectMaintenancePreparation verifies both independent authorities before

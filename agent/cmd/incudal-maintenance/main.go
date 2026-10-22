@@ -28,6 +28,7 @@ type enrollment struct {
 	IncusSocket            string                                 `json:"incusSocket"`
 	ObservedStateDirectory string                                 `json:"observedStateDirectory"`
 	ManagementPorts        *controllerconfig.ManagementFencePorts `json:"managementPorts,omitempty"`
+	WriterAuditPolicy      *controllerconfig.WriterAuditPolicy    `json:"writerAuditPolicy,omitempty"`
 }
 type input struct {
 	Candidate     string `json:"candidate"`
@@ -147,6 +148,15 @@ func run(args []string, source io.Reader, output io.Writer) error {
 			}
 		}
 		plan.Blockers = remaining
+	}
+	if enrolled.WriterAuditPolicy != nil {
+		audit, auditErr := controllerconfig.ReadLocalWriterAudit(ctx, *enrolled.WriterAuditPolicy)
+		if auditErr != nil {
+			return auditErr
+		}
+		plan.WriterAudit = &audit
+		// The audit inventories known facts only. It does not change credentials
+		// or managed job authorization; keep the physical activation blockers.
 	}
 	return json.NewEncoder(output).Encode(plan)
 }

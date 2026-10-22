@@ -207,3 +207,9 @@ gateway-transport/v1由预登记配置根签名，绑定平台/网关身份、�
 独立 `incudal-gateway --apply|--restore|--serve <受保护配置>` 只管理 incudal-gw-a 或 incudal-gw-b，拒绝无关接口、peer、地址及路由冲突。先持久不可变网关公钥身份与最高签名配置，再协调WireGuard和逐peer回程host route；重试能够完成已落盘撤销，旧快照不能复活peer。--restore恢复本地已认证最高状态，--serve独立维护；不执行客户FORWARD/NAT、账务或资源写操作。
 
 显式安装器install-management-gateway.sh先验SHA256、文件权限与既有unit归属，提供不修改系统的--plan。systemd独立unit、启动前同步恢复、128MiB内存限额、固定网络capability及只写状态目录；OpenRC安装定义同样独立，实际Alpine验证仍待完成。正常停启不依赖PayIncus、数据库或Nginx；对端重握手另行探测，不以active或握手时间冒充通信通过。
+
+## 18. 本地写者事实审计
+
+可选writerAuditPolicy只从受保护宿主登记加载，包含允许的固定可执行文件哈希、配置文件哈希与完整调度目录清单；不接受“已隔离”远端布尔值。拒绝shell/解释器/SSH/cron等程序作为无害例外，核对有效UID、permitted capability及Incus管理组，读取真实procfs、PID/start身份/可执行链接并再次枚举，变化不作为稳定快照。
+
+审计限量清点Incus本地socket、netlink及BPF描述符、未知特权进程、系统/root调度配置和文件哈希；禁止读取cmdline/environ或打印凭据。文件使用NOFOLLOW/权限/单链接检查，缺失或未知调度目录及启用子目录保持阻断。结果可出现在维护预检writerAudit；ManagedWriterIsolationVerified保持false，事实检查通过本身不撤销旧授权或证明定时任务/任意root旁路已隔离，不能签完整宿主回执或开放写租约。
