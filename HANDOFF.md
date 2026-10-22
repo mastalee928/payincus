@@ -22,6 +22,24 @@
 - 已实际下载两种架构的公开安装包，确认 SHA256、文件大小、OTA manifest、包内版本与 Git 提交一致；检查全部迁移和 IPv6、UPAY 等关键模块，包内 LICENSE 与发行源码原文一致。GitHub 的面板 latest 为 v1.6.2；公开一键安装脚本与发行源码一致。
 - [源码 CI](https://github.com/mastalee928/payincus/actions/runs/38877110604)、[Agent 发布](https://github.com/mastalee928/payincus/actions/runs/38877110746) 均通过；[本仓库文档站](https://mastalee928.github.io/payincus/) 已上线。
 
+## 2026-10-23 签名候选与独立发现基础（隔离实测，完整接管未完成）
+
+- 新增 [CONTROLLER_CONFIG_PROTOCOL.md](CONTROLLER_CONFIG_PROTOCOL.md)。Node 与 Go 共用 Ed25519 字节封装、严格结构、平台/节点绑定、毫秒过期和精确 int64 字符串代次；未知命令、重复键、篡改、旧代次及同代次冲突拒绝。候选结果始终 canWrite=false，不授予管理写权。
+- Go 新增独立 HTTPS 签名读取和 Linux 最高观察代次存储：校验 TLS、禁止重定向/HTTP、响应限量，磁盘互斥/原子改名/文件及目录同步，重启重新加载；文件损坏、权限/链接/持久化异常拒绝。未接入现有 Agent main，不变更当前心跳或网络指令。
+- 独立 Node HTTPS 服务不导入业务后端、Prisma、Web cookie 或平台调度。节点独立签名请求、原点绑定、nonce 持久防重放、异步存储后再次核对撤销，错误信息脱敏。显式 CLI 仅监听 loopback，同状态目录 flock 防多进程，强制退出无需删除遗留锁；配置/TLS/状态均受文件权限及链接守卫约束。
+- 73 份共同 Node/Go 向量通过；Windows 27 项 HTTPS/存储检查、Linux 真机 41 项（含正式 CLI、不同端口第二进程拒绝、SIGKILL/SIGTERM 重启、防重放保留和不安全配置拒绝）通过。正式独立 CLI 与实际 Go 客户端通过真实 TLS 双向签名、超 JS 精度代次及可配置地址验证，canWrite=false。Go 全包 race 与 vet 通过。本地证据 `logs/controller-takeover-research-20261022/`，不包含提交的凭据或私有配置。
+- 全套 planned/executed/passed=173、failed=0，`logs/test-run-20261023-003759/summary.txt`；之后新增进程锁/CLI检查另过服务器类型检查、编译、候选守卫及 Linux 实测。根 lint 0 错误，保留 665 条既有前端格式告警。无前端源码变化；本阶段未使用网页模拟接管代替真实结果。
+- 测试仅在临时独立进程/目录进行，未安装到现有运行后端、未修改原宿主连接、未停止旧主控。最后现存数据核对为 6 宿主、6 Agent、0 临时探针、15 实例；业务后端 MainPID=41330、NRestarts=0（当时核对结果）。
+- 持久登记/撤销和候选发布、独立见证/宿主旧写者门禁、受限通道维护、双网关覆盖、页面接管、网关 Web 认证及自主 OSS 备份仍待施工。整体 34 项灾备验收尚未通过；本阶段不发布新标签/版本、不修改 v1.7.1 资产、不执行生产 OTA，后续完整验收后随正常发版纳入。
+
+## 2026-10-22 主控页面接管研究与 CF Agent 通讯实测（当时接管功能未实施）
+
+- Owner要求作为项目通用能力研究：未来正式主控不是本次测试IP，最终操作尽量在PayIncus页面完成。新增 [CONTROLLER_TAKEOVER_RESEARCH.md](CONTROLLER_TAKEOVER_RESEARCH.md)，明确可配置HTTPS上报、直连WireGuard入口、独立签名发现、预建B通道和控制权隔离；不是逐台SSH临时改地址方案。
+- 在授权测试主控创建独立临时Host/Agent，仅验证CF公网API传输：有效HMAC心跳HTTP200并记录时间；同一nonce重放HTTP401/AGENT_NONCE_REPLAY；错误签名HTTP401/AGENT_SIGNATURE_INVALID。使用项目实际Go心跳客户端再次验证HTTP200及心跳记录；官方Go临时工具链SHA256已核对。临时身份/nonce清理完成，正式宿主未被伪造在线，旧主控和宿主Endpoint/上报地址未改变。证据仅保留本地 `logs/controller-takeover-research-20261022/`。
+- 当前Agent单panel_url、宿主单WireGuard通道，没有旧网关完全失联后从新页面直接重连的能力。正常灾备需提前部署独立发现/备用通道；遗留宿主可经已有受控路径页面补装，全部路径失效时仍须云控制台或经另行授权实现的云远程命令适配，不能承诺凭数据库记录接管。
+- 本轮验证只覆盖真实客户端从测试服务器访问CF，不等同于现有客户宿主迁移、管理SSH/Incus接管或跨故障域恢复。接管根签名、节点最高代次、旧写连接隔离和页面任务仍待实施；AC30–AC34补入施工验收，总计34项。用户已选择保留旧主控运行的恢复演练，当前继续遵守此范围。
+- 进一步使用隔离HTTPS服务与临时CA/Ed25519身份完成16项独立签名配置拉取检查：地址配置变更、跨节点/平台、篡改、过期、HTTP降级、非法端口、同版本冲突、持久状态重读后旧配置回放、读取nonce回放及不可信证书均按预期处理。旧入口故障由未监听端口模拟，真实旧主控未停止，网关/Agent配置未修改；证据 `logs/controller-takeover-research-20261022/discovery-prototype.json`。原型仅证明读取协议方向，不作为真实切换、控制租约或旧写连接隔离的验收。
+
 ## 2026-10-22 网关独立界面、高可用与自主 OSS 备份方案整理（未实施）
 
 - Owner 同意主控页面配置网关、独立网关轻量 Web 界面、活动/备用网关及灾备方向；独立备份沿用阿里云 OSS，在平台定时备份之外增加网关自主调度和变更备份，主控离线时仍可上传。可同桶不同前缀和独立RAM权限，但同桶不代表跨存储故障域。

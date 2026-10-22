@@ -47,6 +47,7 @@
   "testGuards": [
     "pnpm --filter client type-check",
     "pnpm --filter server type-check",
+    "pnpm --filter server test:controller-config-guards",
     "pnpm --filter server test:accounting-route-id-guards",
     "pnpm --filter server test:security-config",
     "pnpm --filter server test:security-headers",

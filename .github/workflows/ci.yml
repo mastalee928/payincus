@@ -48,6 +48,9 @@ jobs:
       - name: Type check (server)
         run: pnpm --filter server type-check
 
+      - name: Controller candidate and discovery guards
+        run: pnpm --filter server test:controller-config-guards
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -57,6 +60,10 @@ jobs:
       - name: Test Agent
         working-directory: agent
         run: go test ./...
+
+      - name: Controller discovery race checks
+        working-directory: agent
+        run: go test -race ./internal/controllerconfig
 
   build:
     name: Build
