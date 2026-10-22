@@ -12,6 +12,7 @@ export interface ControllerReadProof {
 }
 export interface ControllerReadTrust {
   platformId: string; nodeId: string; nodePublicKey: string; authority: string; now: number
+  path?: '/v1/controller-config' | '/v1/management-channels'
   // The service must persistently reserve the nonce before returning data.
   // Returning false rejects replay; storage failure must propagate as failure.
   claimNonce: (claim: { platformId: string; nodeId: string; nonce: string; expiresAt: number }) => Promise<boolean>
@@ -38,7 +39,9 @@ export async function verifyControllerReadProof(proof: ControllerReadProof, trus
   const key = Buffer.from(trust.nodePublicKey, 'base64'), signature = Buffer.from(proof.signature, 'base64')
   check(key.length === 32 && key.toString('base64') === trust.nodePublicKey && signature.length === 64 && signature.toString('base64') === proof.signature, 'CONTROLLER_DISCOVERY_IDENTITY_INVALID')
   const publicKey = createPublicKey({ key: Buffer.concat([SPKI_PREFIX, key]), format: 'der', type: 'spki' })
-  const payload = PREFIX + ['GET', trust.authority, PATH, proof.platformId, proof.nodeId, proof.timestamp, proof.nonce].join('\n')
+  const path = trust.path ?? PATH
+  check(path === PATH || path === '/v1/management-channels', 'CONTROLLER_DISCOVERY_ENDPOINT_INVALID')
+  const payload = PREFIX + ['GET', trust.authority, path, proof.platformId, proof.nodeId, proof.timestamp, proof.nonce].join('\n')
   check(verify(null, Buffer.from(payload), publicKey, signature), 'CONTROLLER_DISCOVERY_SIGNATURE_INVALID')
   check(typeof trust.claimNonce === 'function', 'CONTROLLER_DISCOVERY_NONCE_STORAGE_REQUIRED')
   check(await trust.claimNonce({ platformId: proof.platformId, nodeId: proof.nodeId, nonce: proof.nonce,

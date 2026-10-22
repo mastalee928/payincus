@@ -5,9 +5,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -25,6 +30,13 @@ type configuration struct {
 	StateDirectory      string                                  `json:"stateDirectory"`
 	SignedConfiguration string                                  `json:"signedConfiguration"`
 	LocalIdentities     []controllerconfig.ChannelLocalIdentity `json:"localIdentities"`
+	Discovery           *discoveryConfiguration                 `json:"discovery,omitempty"`
+}
+
+type discoveryConfiguration struct {
+	Endpoint     string `json:"endpoint"`
+	NodeSeedPath string `json:"nodeSeedPath"`
+	CAPath       string `json:"caPath"`
 }
 
 func load(path string) (configuration, error) {
@@ -60,6 +72,28 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		return err
 	}
 	trust := controllerconfig.Context{PlatformID: config.PlatformID, NodeID: config.NodeID, TrustedKeys: config.TrustedKeys}
+	var reader *controllerconfig.DiscoveryReader
+	if config.Discovery != nil {
+		seedRaw, err := controllerconfig.ReadProtectedChannelFile(config.Discovery.NodeSeedPath, 64)
+		if err != nil {
+			return err
+		}
+		seed, err := base64.StdEncoding.Strict().DecodeString(string(seedRaw))
+		if err != nil || len(seed) != 32 || base64.StdEncoding.EncodeToString(seed) != string(seedRaw) {
+			return fmt.Errorf("invalid node identity")
+		}
+		ca, err := controllerconfig.ReadProtectedChannelFile(config.Discovery.CAPath, 16384)
+		if err != nil {
+			return err
+		}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(ca) {
+			return fmt.Errorf("invalid discovery CA")
+		}
+		transport := &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}}
+		defer transport.CloseIdleConnections()
+		reader = &controllerconfig.DiscoveryReader{Endpoint: config.Discovery.Endpoint, NodeKey: ed25519.NewKeyFromSeed(seed), Transport: transport, Timeout: 10 * time.Second}
+	}
 	once := func(restore bool) error {
 		bounded, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
@@ -68,7 +102,11 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 			result, err = controllerconfig.RestoreManagementChannels(bounded, trust, config.StateDirectory, config.LocalIdentities)
 		} else {
 			var encoded []byte
-			encoded, err = controllerconfig.ReadProtectedChannelFile(config.SignedConfiguration, controllerconfig.MaxEnvelopeBytes)
+			if reader != nil {
+				encoded, _, err = reader.ReadChannels(bounded, trust)
+			} else {
+				encoded, err = controllerconfig.ReadProtectedChannelFile(config.SignedConfiguration, controllerconfig.MaxEnvelopeBytes)
+			}
 			if err == nil {
 				result, err = controllerconfig.ApplyManagementChannels(bounded, encoded, trust, config.StateDirectory, config.LocalIdentities)
 			}

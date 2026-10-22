@@ -7,6 +7,7 @@ import { createServer, type ServerOptions } from 'node:https'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { ControllerConfigError, CONTROLLER_CONFIG_MAX_BYTES, controllerSigningKeyId, verifyControllerPrepareConfig } from '../lib/controller-config.js'
 import { verifyControllerReadProof } from '../lib/controller-discovery-auth.js'
+import { verifyManagementChannels } from '../lib/controller-channels.js'
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/
 const PUBKEY = /^[A-Za-z0-9+/]{43}=$/
@@ -74,6 +75,7 @@ export const acquireDiscoveryMutationLock = (root: string) => acquireDiscoveryLo
 
 export interface DiscoveryNodeRecord {
   platformId: string; nodeId: string; enabled: boolean; publicKey: string; candidate: string
+  channels?: string
 }
 export interface DiscoveryRepository {
   node: (nodeId: string) => Promise<DiscoveryNodeRecord | null>
@@ -91,16 +93,17 @@ export async function createFileDiscoveryRepository(root: string): Promise<Disco
     async node(nodeId) {
       if (!UUID.test(nodeId)) fail('CONTROLLER_DISCOVERY_IDENTITY_INVALID')
       let encoded: string
-      try { encoded = await readDiscoveryPrivateFile(join(root, 'nodes', `${nodeId}.json`), 18000) }
+      try { encoded = await readDiscoveryPrivateFile(join(root, 'nodes', `${nodeId}.json`), 32768) }
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error }
       const record = JSON.parse(encoded) as DiscoveryNodeRecord
       const keys = ['platformId', 'nodeId', 'enabled', 'publicKey', 'candidate']
-      if (!record || typeof record !== 'object' || Array.isArray(record) || Object.keys(record).length !== keys.length ||
+      if (!record || typeof record !== 'object' || Array.isArray(record) || !Object.keys(record).every(key => keys.includes(key) || key === 'channels') ||
         !keys.every(key => Object.hasOwn(record, key)) || typeof record.platformId !== 'string' || !UUID.test(record.platformId) || record.nodeId !== nodeId ||
         typeof record.enabled !== 'boolean' || typeof record.publicKey !== 'string' || !PUBKEY.test(record.publicKey) ||
         Buffer.from(record.publicKey, 'base64').toString('base64') !== record.publicKey || typeof record.candidate !== 'string' ||
         Buffer.byteLength(record.candidate) > CONTROLLER_CONFIG_MAX_BYTES) fail('CONTROLLER_DISCOVERY_STATE_INVALID')
       if (Buffer.from(record.publicKey, 'base64').equals(Buffer.alloc(32))) fail('CONTROLLER_DISCOVERY_STATE_INVALID')
+      if (record.channels !== undefined && (typeof record.channels !== 'string' || Buffer.byteLength(record.channels) > CONTROLLER_CONFIG_MAX_BYTES)) fail('CONTROLLER_DISCOVERY_STATE_INVALID')
       return record
     },
     async claimNonce(claim) {
@@ -169,7 +172,7 @@ export function createControllerDiscoveryServer(tls: ServerOptions, options: Con
     const rate = !row || now - row.start > 60000 ? { start: now, count: 0 } : row
     rate.count++; rates.set(ip, rate)
     if (rate.count > 120) { send(reply, 429, 'CONTROLLER_DISCOVERY_RATE_LIMIT'); return }
-    if (request.method !== 'GET' || request.url !== '/v1/controller-config') { send(reply, 404, 'CONTROLLER_DISCOVERY_ROUTE_INVALID'); return }
+    if (request.method !== 'GET' || (request.url !== '/v1/controller-config' && request.url !== '/v1/management-channels')) { send(reply, 404, 'CONTROLLER_DISCOVERY_ROUTE_INVALID'); return }
     const hostCount = request.rawHeaders.filter((_value, index) => index % 2 === 0 && request.rawHeaders[index].toLowerCase() === 'host').length
     if (hostCount !== 1 || request.headers.host !== options.authority || request.headers['transfer-encoding'] ||
       (request.headers['content-length'] && request.headers['content-length'] !== '0')) { send(reply, 400, 'CONTROLLER_DISCOVERY_REQUEST_INVALID'); return }
@@ -186,16 +189,20 @@ export function createControllerDiscoveryServer(tls: ServerOptions, options: Con
       const node = await options.repository.node(proof.nodeId)
       if (!node?.enabled) { send(reply, 401, 'CONTROLLER_DISCOVERY_UNAUTHORIZED'); return }
       await verifyControllerReadProof(proof, { platformId: node.platformId, nodeId: node.nodeId, nodePublicKey: node.publicKey,
-        authority: options.authority, now, claimNonce: options.repository.claimNonce })
+        authority: options.authority, path: request.url, now, claimNonce: options.repository.claimNonce })
       // Re-read enrollment after nonce I/O. Revocation/key rotation must not
       // release a candidate loaded before that state changed.
       const current = await options.repository.node(proof.nodeId)
       if (!current?.enabled || current.publicKey !== node.publicKey || current.platformId !== node.platformId) {
         send(reply, 401, 'CONTROLLER_DISCOVERY_UNAUTHORIZED'); return
       }
-      verifyControllerPrepareConfig(current.candidate, { platformId: node.platformId, nodeId: node.nodeId, now: Date.now(), trustedKeys: options.trustedConfigKeys })
+      const trust = { platformId: node.platformId, nodeId: node.nodeId, now: Date.now(), trustedKeys: options.trustedConfigKeys }
+      const encoded = request.url === '/v1/management-channels' ? current.channels : current.candidate
+      if (!encoded) fail('CONTROLLER_DISCOVERY_NOT_READY')
+      if (request.url === '/v1/management-channels') verifyManagementChannels(encoded, trust)
+      else verifyControllerPrepareConfig(encoded, trust)
       reply.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
-      reply.end(current.candidate)
+      reply.end(encoded)
     } catch (error) {
       // Avoid exposing enrolled node details, stored candidates or parser errors.
       const auth = error instanceof ControllerConfigError && /IDENTITY|SIGNATURE|TIMESTAMP|NONCE_REPLAY|REQUEST_INVALID/.test(error.code)

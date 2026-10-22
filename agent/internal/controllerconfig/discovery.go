@@ -26,9 +26,28 @@ type DiscoveryReader struct {
 }
 
 func (reader DiscoveryReader) Read(ctx context.Context, trust Context) (Result, error) {
-	var empty Result
+	payload, err := reader.readEnvelope(ctx, trust, "/v1/controller-config")
+	if err != nil {
+		return Result{}, err
+	}
+	trust.Now = time.Now().UnixMilli()
+	return VerifyPrepareConfig(payload, trust)
+}
+
+func (reader DiscoveryReader) ReadChannels(ctx context.Context, trust Context) ([]byte, ChannelsResult, error) {
+	payload, err := reader.readEnvelope(ctx, trust, "/v1/management-channels")
+	if err != nil {
+		return nil, ChannelsResult{}, err
+	}
+	trust.Now = time.Now().UnixMilli()
+	result, err := VerifyManagementChannels(payload, trust)
+	return payload, result, err
+}
+
+func (reader DiscoveryReader) readEnvelope(ctx context.Context, trust Context, path string) ([]byte, error) {
+	var empty []byte
 	endpoint, err := url.Parse(reader.Endpoint)
-	if err != nil || len(reader.Endpoint) > 512 || endpoint.Scheme != "https" || endpoint.User != nil || endpoint.Host == "" || strings.HasSuffix(endpoint.Host, ":") || endpoint.Opaque != "" || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" || endpoint.RawFragment != "" || endpoint.RawPath != "" || endpoint.Path != "/v1/controller-config" || endpoint.String() != reader.Endpoint {
+	if err != nil || len(reader.Endpoint) > 512 || endpoint.Scheme != "https" || endpoint.User != nil || endpoint.Host == "" || strings.HasSuffix(endpoint.Host, ":") || endpoint.Opaque != "" || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" || endpoint.RawFragment != "" || endpoint.RawPath != "" || endpoint.Path != path || endpoint.String() != reader.Endpoint {
 		return empty, failure("CONTROLLER_DISCOVERY_ENDPOINT_INVALID")
 	}
 	if len(reader.NodeKey) != ed25519.PrivateKeySize || !uuidPattern.MatchString(trust.PlatformID) || !uuidPattern.MatchString(trust.NodeID) {
@@ -98,6 +117,5 @@ func (reader DiscoveryReader) Read(ctx context.Context, trust Context) (Result, 
 		return empty, failure("CONTROLLER_DISCOVERY_TOO_LARGE")
 	}
 	// Use receive time, not pre-request time, so a delayed response cannot bypass expiry.
-	trust.Now = time.Now().UnixMilli()
-	return VerifyPrepareConfig(payload, trust)
+	return payload, nil
 }

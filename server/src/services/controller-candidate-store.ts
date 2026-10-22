@@ -3,6 +3,7 @@ import { mkdir, open, rename, unlink } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { ControllerConfigError, verifyControllerPrepareConfig } from '../lib/controller-config.js'
+import { verifyManagementChannels } from '../lib/controller-channels.js'
 import { acquireDiscoveryMutationLock, createFileDiscoveryRepository, validateDiscoveryPrivateDirectory, type DiscoveryNodeRecord } from './controller-discovery.js'
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/
@@ -100,6 +101,21 @@ export async function createControllerCandidateStore(root: string, trustedKeys: 
         // identity requires a future explicit trust-rotation protocol.
         await write({ ...current, enabled: false })
         return { duplicate: false, canWrite: false }
+      })
+    },
+    async publishChannels(nodeId: string, encoded: string): Promise<{ duplicate: boolean; canWrite: false }> {
+      identity(nodeId)
+      return serialized(async () => {
+        const current = await repository.node(nodeId)
+        if (!current?.enabled) fail('CONTROLLER_DISCOVERY_NODE_REVOKED_OR_UNKNOWN')
+        let previous
+        if (current.channels) {
+          const issuedAt = JSON.parse(Buffer.from(JSON.parse(current.channels).payload, 'base64').toString()).issuedAt as number
+          previous = verifyManagementChannels(current.channels, { platformId: current.platformId, nodeId, now: issuedAt, trustedKeys: trust }).observed
+        }
+        const result = verifyManagementChannels(encoded, { platformId: current.platformId, nodeId, now: Date.now(), trustedKeys: trust, previous })
+        if (!result.duplicate) await write({ ...current, channels: encoded })
+        return { duplicate: result.duplicate, canWrite: false }
       })
     }
   }

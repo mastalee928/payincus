@@ -1,4 +1,5 @@
 import { dirname, isAbsolute, join } from 'node:path'
+import { isIP } from 'node:net'
 import { acquireDiscoveryProcessLock, createFileDiscoveryRepository, createControllerDiscoveryServer, readDiscoveryPrivateFile } from '../services/controller-discovery.js'
 
 // Explicit standalone entrypoint. It deliberately imports neither app.ts,
@@ -9,7 +10,8 @@ async function main() {
   const raw = JSON.parse(await readDiscoveryPrivateFile(path, 16384)) as Record<string, unknown>
   const keys = ['schemaVersion', 'authority', 'listenHost', 'listenPort', 'stateDirectory', 'trustedConfigKeys']
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).length !== keys.length || !keys.every(k => Object.hasOwn(raw, k)) ||
-    raw.schemaVersion !== 1 || typeof raw.authority !== 'string' || raw.listenHost !== '127.0.0.1' || !Number.isInteger(raw.listenPort) ||
+    raw.schemaVersion !== 1 || typeof raw.authority !== 'string' || typeof raw.listenHost !== 'string' || !isIP(raw.listenHost) ||
+    !(raw.listenHost === '127.0.0.1' || /^10\./.test(raw.listenHost) || /^192\.168\./.test(raw.listenHost) || /^172\.(?:1[6-9]|2[0-9]|3[01])\./.test(raw.listenHost)) || !Number.isInteger(raw.listenPort) ||
     Number(raw.listenPort) < 1024 || Number(raw.listenPort) > 65535 || typeof raw.stateDirectory !== 'string' || !isAbsolute(raw.stateDirectory) ||
     !raw.trustedConfigKeys || typeof raw.trustedConfigKeys !== 'object' || Array.isArray(raw.trustedConfigKeys)) throw new Error('configuration invalid')
   const directory = dirname(path)
@@ -18,7 +20,7 @@ async function main() {
   const server = createControllerDiscoveryServer(tls, { authority: raw.authority, trustedConfigKeys: raw.trustedConfigKeys as Record<string, string>, repository })
   const release = await acquireDiscoveryProcessLock(raw.stateDirectory)
   try {
-    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(Number(raw.listenPort), '127.0.0.1', resolve) })
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(Number(raw.listenPort), raw.listenHost as string, resolve) })
   } catch (error) { await release(); throw error }
   const stop = () => { server.close(() => { void release().finally(() => process.exit(0)) }); server.closeAllConnections() }
   process.once('SIGTERM', stop); process.once('SIGINT', stop)

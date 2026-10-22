@@ -11,6 +11,7 @@ import { promisify } from 'node:util'
 import { controllerSigningKeyId, signControllerPrepareConfig, type ControllerPrepareConfig } from '../src/lib/controller-config.js'
 import { acquireDiscoveryProcessLock, createControllerDiscoveryServer, createFileDiscoveryRepository, readDiscoveryPrivateFile } from '../src/services/controller-discovery.js'
 import { createControllerCandidateStore } from '../src/services/controller-candidate-store.js'
+import { signManagementChannels } from '../src/lib/controller-channels.js'
 
 const exec = promisify(execFile)
 const directory = await mkdtemp(join(tmpdir(), 'payincus-discovery-'))
@@ -30,9 +31,9 @@ const config: ControllerPrepareConfig = { schemaVersion: 1, purpose: 'controller
 const candidate = signControllerPrepareConfig(config, rootKeys.privateKey)
 const record = { platformId, nodeId, enabled: true, publicKey: nodePublicKey, candidate }
 const saveRecord = async (value: unknown) => { await writeFile(nodePath, JSON.stringify(value), { mode: 0o600 }); await chmod(nodePath, 0o600) }
-const proofHeaders = (node = nodeId, proofAuthority = authority) => {
+const proofHeaders = (node = nodeId, proofAuthority = authority, path = '/v1/controller-config') => {
   const nonce = randomBytes(24).toString('base64url'), timestamp = String(Date.now())
-  const message = 'payincus/controller-config-read/v1\n' + ['GET', proofAuthority, '/v1/controller-config', platformId, node, timestamp, nonce].join('\n')
+  const message = 'payincus/controller-config-read/v1\n' + ['GET', proofAuthority, path, platformId, node, timestamp, nonce].join('\n')
   return { 'x-payincus-platform-id': platformId, 'x-payincus-node-id': node, 'x-payincus-timestamp': timestamp,
     'x-payincus-nonce': nonce, 'x-payincus-signature': sign(null, Buffer.from(message), nodeKeys.privateKey).toString('base64') }
 }
@@ -76,6 +77,15 @@ try {
   const headers = proofHeaders(), first = await send(headers)
   assert.equal(first.status, 200); assert.equal(first.body, candidate); assert.equal(first.headers['cache-control'], 'no-store'); count++
   const store = await createControllerCandidateStore(state, options.trustedConfigKeys)
+  const channels = signManagementChannels({schemaVersion:1,purpose:'host-management-channels',platformId,nodeId,epoch:'2',sequence:'1',issuedAt:now,expiresAt:now+900000,
+    channels:[{slot:'a',...config.gateway,mtu:1380}]},rootKeys.privateKey)
+  assert.equal((await send(proofHeaders(nodeId,authority,'/v1/management-channels'),'/v1/management-channels')).status,503);count++
+  await store.publishChannels(nodeId,channels)
+  assert.equal((await send(proofHeaders(nodeId,authority,'/v1/management-channels'),'/v1/management-channels')).body,channels);count++
+  assert.equal((await send(proofHeaders(),'/v1/management-channels')).status,401);count++
+  assert.equal((await store.publishChannels(nodeId,channels)).duplicate,true);count++
+  await assert.rejects(store.publishChannels(nodeId,signManagementChannels({schemaVersion:1,purpose:'host-management-channels',platformId,nodeId,epoch:'1',sequence:'1',issuedAt:now,expiresAt:now+900000,
+    channels:[{slot:'a',...config.gateway,mtu:1380}]},rootKeys.privateKey)));count++
   const published = signControllerPrepareConfig({ ...config, sequence: '2' }, rootKeys.privateKey)
   await store.publish(nodeId, published)
   assert.equal((await send(proofHeaders())).body, published); count++

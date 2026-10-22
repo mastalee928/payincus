@@ -191,3 +191,11 @@ host-management-channels/v1 是独立传输协议，不是写租约。Ed25519 �
 显式 `scripts/test-controller-channels-netns.py` 使用root/unshare/ip/wg/ping，在与父宿主分离的网络命名空间运行真实Go路径及WireGuard A/B，另有两个网关namespace。实测双握手、坏签名/路由冲突/重放拒绝、A断链B继续、接口丢失恢复、过期本地恢复与过期更新拒绝、独立命令/单服务/停止保持通道，客户默认路由一致。该测试不是独立机器故障或实际客户验收，正式安装、Alpine/Debian启动顺序、跨机UDP、发现下发及页面仍待验证。
 
 显式安装入口 `bash scripts/install-management-channels.sh --plan|--install <二进制> <SHA256> <受保护配置>`；计划不改系统，安装先验哈希/配置/原单元归属，再执行签名通道命令。systemd使用独立unit、ExecStartPre同步恢复接口、限128MiB/CAP_NET_ADMIN与NET_RAW、仅状态目录可写，不依赖PayIncus/PostgreSQL/Nginx。OpenRC生成独立服务与start_pre恢复，未在Alpine完成实际验收。停止服务不删除通道；再次启动先恢复接口，再由握手验证确认对端可达，不能仅凭active宣称通信完成。
+
+## 16. 双通道独立发现领取
+
+独立发现服务增加GET `/v1/management-channels`，与候选读取使用同一预登记节点身份和持久nonce库。签名明确绑定实际路径，候选读取证明不能用于领取通道配置。节点记录可含独立签名channels；内部publishChannels核对身份、最高代次和永久撤销状态，过期历史仍保留水位。返回前在nonce存储后重新读取节点、核对撤销及公钥并验证通道签名。配置不存在或过期返回不可用，不返回未验证对象。
+
+Go DiscoveryReader.ReadChannels只读取受保护配置中的固定HTTPS地址，拒绝HTTP/重定向/TLS跳过验证，并以实际接收时间核验签名/身份/代次。incudal-channels可选discovery字段包含endpoint、nodeSeedPath、caPath；它只使用节点私有seed签读取证明，不携带管理员/OSS凭据。常驻服务每30秒主动领取新配置；失败报告CHANNEL_UPDATE_REJECTED，然后仅重建已落盘的当前通道，不回退旧代次或开放资源权限。
+
+独立发现CLI仍默认loopback，可显式监听规范私有IPv4用于独立机器直连；禁止通配公网地址，TLS证书须匹配配置域名。真实跨机TLS证书及安全组/防火墙必须单独验证，不能因域名解析成功就视为认证通过。
