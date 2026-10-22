@@ -199,3 +199,11 @@ host-management-channels/v1 是独立传输协议，不是写租约。Ed25519 �
 Go DiscoveryReader.ReadChannels只读取受保护配置中的固定HTTPS地址，拒绝HTTP/重定向/TLS跳过验证，并以实际接收时间核验签名/身份/代次。incudal-channels可选discovery字段包含endpoint、nodeSeedPath、caPath；它只使用节点私有seed签读取证明，不携带管理员/OSS凭据。常驻服务每30秒主动领取新配置；失败报告CHANNEL_UPDATE_REJECTED，然后仅重建已落盘的当前通道，不回退旧代次或开放资源权限。
 
 独立发现CLI仍默认loopback，可显式监听规范私有IPv4用于独立机器直连；禁止通配公网地址，TLS证书须匹配配置域名。真实跨机TLS证书及安全组/防火墙必须单独验证，不能因域名解析成功就视为认证通过。
+
+## 17. 独立网关传输协调
+
+gateway-transport/v1由预登记配置根签名，绑定平台/网关身份、代次、slot、管理地址、UDP端口、MTU以及按nodeId排序的最多256条peer记录。每peer绑定独立公钥、/32管理地址和enabled；撤销保留墓碑，已有peer不可换身份/地址，不得删记录或通过更高代次重新启用。Node/Go10共同向量核验签名、身份、过期及代次。
+
+独立 `incudal-gateway --apply|--restore|--serve <受保护配置>` 只管理 incudal-gw-a 或 incudal-gw-b，拒绝无关接口、peer、地址及路由冲突。先持久不可变网关公钥身份与最高签名配置，再协调WireGuard和逐peer回程host route；重试能够完成已落盘撤销，旧快照不能复活peer。--restore恢复本地已认证最高状态，--serve独立维护；不执行客户FORWARD/NAT、账务或资源写操作。
+
+显式安装器install-management-gateway.sh先验SHA256、文件权限与既有unit归属，提供不修改系统的--plan。systemd独立unit、启动前同步恢复、128MiB内存限额、固定网络capability及只写状态目录；OpenRC安装定义同样独立，实际Alpine验证仍待完成。正常停启不依赖PayIncus、数据库或Nginx；对端重握手另行探测，不以active或握手时间冒充通信通过。

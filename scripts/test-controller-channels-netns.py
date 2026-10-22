@@ -57,7 +57,7 @@ def isolated():
                'INCUDAL_CHANNELS_PUBLIC_DIRECTORY': root,
                'INCUDAL_CHANNELS_GATEWAY_A_KEY': keys['a'], 'INCUDAL_CHANNELS_GATEWAY_B_KEY': keys['b']}
         binary = str(Path(os.environ['INCUDAL_CHANNELS_TEST_BINARY']).resolve(strict=True))
-        test = subprocess.Popen([binary, '-test.run=^TestManagementChannelsIsolatedExecution$', '-test.v'], env=env,
+        test = subprocess.Popen([binary, '-test.run=^Test(ManagementChannels|GatewayTransport)IsolatedExecution$', '-test.v'], env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         processes.append(test)
         for _ in range(500):
