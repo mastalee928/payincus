@@ -87,3 +87,15 @@ Go observed.json、observe.lock 放在宿主独立 0700 目录，不能随历史
 真实 Incus 6.0.4 在隔离 mount/net/pid 命名空间及独立状态目录验证：提交延迟镜像任务后关闭客户端连接，任务仍运行；本模块准确拒绝，任务最终失败结束后才认定工作静止。失败任务的资源核对仍必须单独完成。实验不创建容器，不改系统 Incus 服务，不接管客户宿主。测试程序为 scripts/test-controller-quiescence-incus.py，需先在专用 Linux ARM64 实验目录提取 Debian 的 incus-base、incus-client 及依赖，并编译服务器；当前依赖布局只验证 ARM64。
 
 复验时明确配置 INCUDAL_INCUS_TEST_ROOT（含 rootfs 提取目录）、INCUDAL_QUIESCENCE_CHECK_SCRIPT（仓库 scripts/check-controller-quiescence.mjs 的绝对路径），设置 INCUDAL_INCUS_QUIESCENCE_TEST=1 并保存父 net/mnt/pid 命名空间标识到 INCUDAL_PARENT_NET/MNT/PID；随后由 unshare --mount --net --pid --fork --mount-proc 启动 Python 程序。脚本在任何 mount 或服务启动之前核对三个 namespace 必须不同。sys 与 proc/sys 只读，隐藏 AppArmor 控制目录，状态目录每轮新建；服务在 finally 终止，数据与日志留在专用实验目录，不进入备份或发行资产。该显式真机测试不加入普通无基础设施守卫清单。
+
+## 7. 宿主隔离回执及见证基础
+
+Node/Go 已实现 host-fence-receipt/v1 协议。节点使用自己的预登记 Ed25519 身份签名，载荷绑定平台、节点、主控、请求、epoch/sequence、候选载荷哈希、24字节随机挑战与当前 bootId。最长有效期30秒，时钟容差5秒；要求旧连接/遗留凭据已阻断且SSH进程、本地任务和Incus活动操作均为0。域分离为 `payincus/host-fence-receipt/v1\n`；外层 schemaVersion、payload、signature，严格规范编码和4KiB上限。未知字段、重复键、错签名、错节点/候选/挑战及过期均拒绝。签名函数本身无法替代宿主实际执行，当前未接入 root 维护组件。
+
+独立内部 createControllerWitness 已有持久两阶段基础：受信候选只能以更高epoch准备接管，随机挑战保存后等待宿主签名回执；激活前核对回执全部绑定。同请求可幂等重试，并发不同主控同代次不能双激活，重新启动重读最高代次。新准备废弃旧回执；状态缺失/损坏/不安全权限拒绝，不能自动初始化epoch1。Linux 使用独立目录mutation.lock、原子改名、文件/目录同步。
+
+当前见证是受控内部文件状态库，每节点使用独立目录并预配置初始身份。尚无正式初始化/灾备重建、管理认证、签名写租约、租约续期、服务部署/复制协议；始终报告 signedWriteLeaseAvailable=false。active 只表示内部已核验回执，期限不超回执，不会让现有Agent/SSH/Incus执行资源操作。独立权威目录必须位于主控/A故障域之外，并禁止复制旧快照作为并行活动权威；完整多故障域见证及宿主启动/过期门禁需后续验收。
+
+已验证共同26项回执向量、实际Go签名→Node核验，以及Windows/Linux见证准备/激活/并发/重启/损坏检查。它们验证协议和持久状态方向，不代表主控恢复后已能在页面接管宿主。
+
+见证状态新增 lastObservedAt：持久时间只前进，超过5秒回拨拒绝；在容差内仍按最高观察时间校验过期，不能复活已过期请求。当前只验证单机进程重启及文件持久状态，不承诺旧磁盘快照、整台见证替换或多副本安全恢复。正式签名租约还须引入受信见证身份/代次恢复、宿主boot与单调时钟执行，完成分区验收前不开放写。

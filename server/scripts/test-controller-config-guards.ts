@@ -144,3 +144,5 @@ console.log('Controller discovery read proof guards passed: node/origin binding,
 await import('./test-controller-discovery-service.js')
 await import('./test-controller-candidate-store.js')
 await import('./test-controller-quiescence.js')
+await import('./test-controller-fence-receipt.js')
+await import('./test-controller-witness.js')
