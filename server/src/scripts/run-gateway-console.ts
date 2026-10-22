@@ -15,8 +15,10 @@ async function main() {
     config.schemaVersion !== 1 || typeof config.origin !== 'string' || typeof config.listenHost !== 'string' || !isIP(config.listenHost) ||
     config.listenHost === '0.0.0.0' || config.listenHost === '::' || !Number.isInteger(config.listenPort) || Number(config.listenPort) < 1024 || Number(config.listenPort) > 65535) throw new Error('invalid config')
   for (const field of ['authDirectory', 'assetDirectory', 'tlsKey', 'tlsCertificate']) if (typeof config[field] !== 'string' || !isAbsolute(config[field])) throw new Error('protected path required')
-  const transport = config.transport as { platformId: string; gatewayId: string; statePath: string; trustedKeys: Record<string, string>; componentVersion: string }
-  if (!transport || Object.keys(transport).length !== 5 || !isAbsolute(transport.statePath) || typeof transport.componentVersion !== 'string' || transport.componentVersion.length > 80) throw new Error('transport enrollment required')
+  const transport = config.transport as { platformId: string; gatewayId: string; statePath: string; trustedKeys: Record<string, string>; componentVersion: string;backupStatePath?:string }
+  const transportFields=['platformId','gatewayId','statePath','trustedKeys','componentVersion']
+  if (!transport || !transportFields.every(field=>Object.hasOwn(transport,field))||!Object.keys(transport).every(field=>transportFields.includes(field)||field==='backupStatePath') ||
+    !isAbsolute(transport.statePath) || typeof transport.componentVersion !== 'string' || transport.componentVersion.length > 80 ||(transport.backupStatePath!==undefined&&!isAbsolute(transport.backupStatePath))) throw new Error('transport enrollment required')
   if (mode === '--initialize') {
     const user = config.initialUser as { username: string; password: string; role: GatewayRole; totpSeed: string; recoveryCodes: string[] }
     await initializeGatewayAuth(config.authDirectory as string, user)

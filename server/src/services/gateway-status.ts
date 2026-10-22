@@ -8,7 +8,7 @@ const exec = promisify(execFile)
 // Only fixed, public WireGuard inspection commands. Never dump/showconf,
 // command interpolation, private keys, customer configuration or a remote URL.
 export function createGatewayStatusReader(config: {
-  platformId: string; gatewayId: string; statePath: string; trustedKeys: Readonly<Record<string, string>>; componentVersion: string
+  platformId: string; gatewayId: string; statePath: string; trustedKeys: Readonly<Record<string, string>>; componentVersion: string; backupStatePath?:string
 }): () => Promise<GatewayConsoleStatus> {
   const identity = { ...config, trustedKeys: Object.freeze({ ...config.trustedKeys }) }
   return async () => {
@@ -41,12 +41,20 @@ export function createGatewayStatusReader(config: {
       configuredAddresses.length === 1 && configuredAddresses[0].addr_info.some(value => value.local === transport.address && value.prefixlen === 32) &&
       enabled.every(peer => routes.some(route => (route.dst === peer.address || route.dst === peer.address + '/32') && route.dev === name && !route.gateway))
     const now = Date.now() / 1000
+    let backup:{ready:boolean;lastCompletedAt:number|null}={ready:false,lastCompletedAt:null}
+    if(identity.backupStatePath){
+      try{
+        const saved=JSON.parse(await readDiscoveryPrivateFile(identity.backupStatePath,4096)) as {phase:string;lastCompletedAt:number|null;epoch:string;sequence:string}
+        if(!['running','failed','complete'].includes(saved.phase)||(saved.lastCompletedAt!==null&&(!Number.isSafeInteger(saved.lastCompletedAt)||saved.lastCompletedAt<=0||saved.lastCompletedAt>Date.now())))throw Error('backup state invalid')
+        backup={ready:saved.phase==='complete'&&saved.epoch===transport.epoch&&saved.sequence===transport.sequence,lastCompletedAt:saved.lastCompletedAt}
+      }catch{backup={ready:false,lastCompletedAt:null}}
+    }
     return { gatewayId: transport.gatewayId, slot: transport.slot, address: transport.address, componentVersion: identity.componentVersion,
       configurationEpoch: transport.epoch, configurationSequence: transport.sequence, transportReady, canWrite: false,
-      blockers: ['host-write-service-not-ready', 'backup-not-configured'], peers: transport.peers.map(peer => {
+      blockers: ['host-write-service-not-ready',...(backup.ready?[]:['backup-not-configured'])], peers: transport.peers.map(peer => {
         const value = times.get(peer.publicKey) || 0
         return { nodeId: peer.nodeId, address: peer.address, enabled: peer.enabled,
           lastHandshakeAt: Number.isSafeInteger(value) && value > 0 && value <= now ? value : 0 }
-      }), backup: { ready: false, lastCompletedAt: null } }
+      }), backup }
   }
 }
