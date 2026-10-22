@@ -31,6 +31,8 @@ readonly NODE_MAJOR=22
 readonly PNPM_VERSION="9.14.2"
 readonly PG_VERSION=16
 RELEASE_VERIFIED_THIS_RUN=false
+CF_TUNNEL_SELECTED=false
+CF_TUNNEL_VERIFIED=false
 
 install_verified_root_helpers_from_archive() {
     local tar_file="$1"
@@ -1456,94 +1458,375 @@ setup_nginx_certbot() {
 }
 
 # ========================== Cloudflare Tunnel ==========================
+show_cf_tunnel_guide() {
+    info "准备配置 Cloudflare Tunnel 内网穿透（外部访问选项 2）"
+    cat <<'GUIDE'
+  先在 Cloudflare Zero Trust → Networks → Tunnels / Connectors 创建 Cloudflared Tunnel。
+  一个 Tunnel 添加两个 Public Hostnames / Published application routes：
+
+  用途       子域名示例   Domain           Path   Type   URL
+  客户面板   panel        example.com      留空   HTTP   127.0.0.1:80
+  管理后台   admin        example.com      留空   HTTP   127.0.0.1:80
+
+  若界面只有「内网 Service URL」输入框，直接填写完整地址 http://127.0.0.1:80。
+  若 Type 和 URL 分开填写，选择 HTTP，URL 填 127.0.0.1:80。
+  两个域名共用本机 Nginx 的 80 端口；不要填后端 3001，不需要选择 HTTPS。
+  浏览器仍使用 HTTPS；高级设置保持默认，HTTP Host Header 留空以区分两端。
+  Domain 必须由 Cloudflare 管理；保存路由后检查对应 DNS 记录已创建。
+  Token 是 CF 安装命令中 service install 后的长字符串，只复制 Token，不是 API Token。
+  脚本会在本机配置 Nginx 托管前端并反代 /api 到后端，不会代建 CF 路由。
+  此 Tunnel 只提供网站访问；机器池 WireGuard / SSH 网关仍需直连公网地址。
+GUIDE
+}
+
+show_cf_route_summary() {
+    info "请在同一个 Tunnel 保存以下两条路由（两端均使用本机 Nginx）："
+    printf '  %-12s %-36s %s\n' '用途' 'Public Hostname' '内网 Service URL' >&2
+    printf '  %-12s %-36s %s\n' '客户面板' "$DOMAIN" 'http://127.0.0.1:80' >&2
+    printf '  %-12s %-36s %s\n' '管理后台' "$ADMIN_DOMAIN" 'http://127.0.0.1:80' >&2
+    info "Zone 选择对应的 Cloudflare 域名；Path 和 HTTP Host Header 留空。保存后确认 DNS 记录已创建。"
+}
+
+is_valid_cf_domain() {
+    local domain="$1" label
+    local -a labels
+    [[ ${#domain} -le 253 && "$domain" == *.* && "$domain" != *[!a-zA-Z0-9.-]* ]] || return 1
+    [[ "$domain" != .* && "$domain" != *. && "$domain" != *..* && ! "$domain" =~ ^[0-9.]+$ ]] || return 1
+    IFS='.' read -r -a labels <<< "$domain"
+    for label in "${labels[@]}"; do
+        [[ ${#label} -le 63 && "$label" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]] || return 1
+    done
+}
+
+prompt_cf_domain() {
+    local label="$1" example="$2" input
+    while true; do
+        echo -ne "  ${BOLD}请输入${label}域名 (例: ${example}，不带 https://): ${NC}" >&2
+        if ! read -r input; then
+            error "未读到域名，已停止配置。"
+            return 1
+        fi
+        if is_valid_cf_domain "$input"; then
+            printf '%s' "${input,,}"
+            return 0
+        fi
+        error "Cloudflare Tunnel 生产部署必须配置浏览器访问域名；只填域名，不带协议、端口、路径或空格。"
+        info "FRONTEND_URL/SITE_URL/PAYMENT_CALLBACK_BASE_URL 会用于 WebSocket Origin、OAuth 和支付回调。"
+    done
+}
+
+cf_service_exists() {
+    local state
+    state="$(systemctl show cloudflared.service -p LoadState --value 2>/dev/null)" || {
+        [[ "$state" == not-found ]] || return 2;
+    }
+    [[ -n "$state" ]] || return 2
+    [[ "$state" != "not-found" || -e /etc/systemd/system/cloudflared.service ||
+        -e /lib/systemd/system/cloudflared.service || -e /usr/lib/systemd/system/cloudflared.service ]]
+}
+
+check_cf_prerequisites() {
+    local tool listeners
+    for tool in curl python3 systemctl ss; do
+        if ! command -v "$tool" &>/dev/null; then
+            error "CF 配置缺少工具 ${tool}；请先安装 curl、python3、iproute2，并使用 systemd 系统。"
+            return 1
+        fi
+    done
+    if ! listeners="$(ss -H -ltnp '( sport = :80 )' 2>/dev/null)"; then
+        error "无法检查本机 80 端口占用，已停止配置。"
+        return 1
+    fi
+    if [[ -n "$listeners" ]] && [[ -n "$(printf '%s\n' "$listeners" | grep -v '"nginx"' || true)" ]]; then
+        error "本机 80 端口被其他程序占用；请自行检查 sudo ss -ltnp，不会自动停止其他服务。"
+        return 1
+    fi
+    if command -v nginx &>/dev/null && ! nginx -t >/dev/null 2>&1; then
+        error "现有 Nginx 配置未通过检查；请先在本机运行 sudo nginx -t 修复，未写入 CF 配置。"
+        return 1
+    fi
+}
+
+install_cf_service() {
+    # Never trace or forward cloudflared output: both can contain the Tunnel token.
+    set +x
+    local cf_token output install_status=0
+    echo -ne "  ${BOLD}请输入 Cloudflare Tunnel Token（隐藏输入）: ${NC}" >&2
+    if ! read -r -s cf_token; then
+        echo >&2
+        error "未读到 Token，已停止配置。"
+        return 1
+    fi
+    echo >&2
+    if [[ -z "$cf_token" || "$cf_token" == *[[:space:]]* || "$cf_token" == -* ]]; then
+        error "Token 不能为空、含空格或是一整条命令；请只复制 service install 后的 Token。"
+        return 1
+    fi
+    output="$(cloudflared service install "$cf_token" 2>&1)" || install_status=$?
+    unset cf_token
+    if [[ "$install_status" -ne 0 ]]; then
+        if [[ "${output,,}" == *"token"* && "${output,,}" == *"invalid"* ]] ||
+            [[ "${output,,}" == *"token is not valid"* ]]; then
+            error "cloudflared 服务安装失败：Token 无效，请从正确的 Tunnel 页面重新复制。"
+        elif [[ "${output,,}" == *"already"* ]]; then
+            error "cloudflared 服务安装失败：已有服务，未覆盖。请检查已有 Tunnel 的用途。"
+        elif [[ "${output,,}" == *"permission denied"* ]]; then
+            error "cloudflared 服务安装失败：权限不足，请使用 sudo 运行脚本。"
+        else
+            error "cloudflared 服务安装失败（退出码 ${install_status}）；检查 Token、systemd 和出站网络。"
+        fi
+        info "原始 cloudflared 输出可能包含凭证，因此不打印。可运行 --check-cf-tunnel 查看分层诊断。"
+        return 1
+    fi
+}
+
+configure_cf_nginx() {
+    local client_dist="$1" admin_client_dist="$2"
+    local server_name="${DOMAIN}"
+    info "安装并配置本机 Nginx 静态前端与 /api 反代..."
+    if ! apt-get install -y -qq nginx >/dev/null 2>&1; then
+        error "Nginx 软件包安装失败，请检查 APT 源和网络。"
+        return 1
+    fi
+    {
+        write_nginx_split_maps
+        write_nginx_split_server_block "$server_name" "$client_dist" "default"
+        write_nginx_split_server_block "$ADMIN_DOMAIN" "$admin_client_dist"
+    } > /etc/nginx/sites-available/incudal.conf || { error "无法写入 Nginx 站点配置。"; return 1; }
+    ln -sf /etc/nginx/sites-available/incudal.conf /etc/nginx/sites-enabled/ || return 1
+    rm -f /etc/nginx/sites-enabled/default || return 1
+    if ! nginx -t >/dev/null 2>&1; then
+        error "新 Nginx 配置检查失败；请在本机运行 sudo nginx -t 检查端口、重复 default_server 或站点冲突。"
+        return 1
+    fi
+    if ! systemctl enable nginx >/dev/null 2>&1 || ! systemctl restart nginx >/dev/null 2>&1; then
+        error "Nginx 启动失败；检查 80 端口占用和 Nginx 配置。"
+        return 1
+    fi
+}
+
 setup_cf_tunnel() {
-    info "准备配置 Cloudflare Tunnel 内网穿透"
-    echo -e "  ${DIM}请先在 Cloudflare Zero Trust 管理后台创建 Tunnel${NC}"
-    echo -e "  ${DIM}当前部署为前后端分离，脚本会在本机配置 Nginx 托管前端并反代 /api 到后端${NC}"
-    echo -e "  ${DIM}请将 Cloudflare Public Hostname 的目标路由设置为 http://localhost:80${NC}"
-    echo ""
-    echo -ne "  ${BOLD}请输入 Cloudflare Tunnel Token: ${NC}"
-    read -r CF_TOKEN
-
-    if [[ -z "$CF_TOKEN" ]]; then
-        error "Token 不能为空！"
+    set +x
+    show_cf_tunnel_guide
+    local reuse=false existing_status=0 input
+    cf_service_exists || existing_status=$?
+    if [[ "$existing_status" -eq 2 ]]; then
+        error "无法查询 cloudflared 的 systemd 服务，已停止配置。"
         return 1
+    elif [[ "$existing_status" -eq 0 ]]; then
+        warn "检测到已有 cloudflared 服务；不会安装新 Token、覆盖配置或重启该服务。"
+        warn "只有确认它就是本面板使用的 Tunnel，且 CF 两条域名路由已配置时才复用。"
+        echo -ne "  输入 reuse 复用已有服务；回车停止配置: " >&2
+        read -r input || return 1
+        [[ "$input" == "reuse" ]] || { error "已停止配置，已有 Tunnel 保持原样。"; return 1; }
+        reuse=true
     fi
-
-    echo -ne "  ${BOLD}请输入客户面板域名 (例: panel.example.com): ${NC}"
-    read -r DOMAIN
-
-    if [[ -z "$DOMAIN" ]]; then
-        error "域名不能为空！Cloudflare Tunnel 生产部署必须配置浏览器访问域名。"
-        error "FRONTEND_URL/SITE_URL/PAYMENT_CALLBACK_BASE_URL 会用于 WebSocket Origin、OAuth 和支付回调。"
-        return 1
-    fi
-
-    echo -ne "  ${BOLD}请输入管理后台域名 (例: admin.example.com): ${NC}"
-    read -r ADMIN_DOMAIN
-
-    if [[ -z "$ADMIN_DOMAIN" ]]; then
-        error "管理后台域名不能为空！Cloudflare Tunnel 生产部署必须配置浏览器访问域名。"
-        return 1
-    fi
-
+    DOMAIN="$(prompt_cf_domain "客户面板" "panel.example.com")" || return 1
+    ADMIN_DOMAIN="$(prompt_cf_domain "管理后台" "admin.example.com")" || return 1
     if [[ "$ADMIN_DOMAIN" == "$DOMAIN" ]]; then
         error "管理后台域名必须与客户面板域名分开！"
         return 1
     fi
-
+    show_cf_route_summary
+    local client_dist admin_client_dist
+    client_dist="$(resolve_static_dist_dir "client/dist/user")"
+    admin_client_dist="$(resolve_static_dist_dir "client/dist/admin")"
+    if [[ ! -s "$client_dist/index.html" || ! -s "$admin_client_dist/index.html" ]]; then
+        error "缺少用户端或管理端 index.html，请确认安装包包含 client/dist/user 和 client/dist/admin。"
+        return 1
+    fi
+    check_cf_prerequisites || return 1
+    if [[ "$reuse" == false ]]; then
+        if ! command -v cloudflared &>/dev/null; then
+            local binary
+            info "下载 cloudflared..."
+            binary="$(mktemp)"
+            if ! curl -fsSL --connect-timeout 10 --max-time 180 \
+                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}" -o "$binary" ||
+                ! install -m 0755 "$binary" /usr/local/bin/cloudflared; then
+                rm -f "$binary"
+                error "cloudflared 下载或安装失败，请检查 GitHub 访问和系统架构。"
+                return 1
+            fi
+            rm -f "$binary"
+        fi
+        install_cf_service || return 1
+        if ! systemctl enable cloudflared >/dev/null 2>&1 || ! systemctl start cloudflared >/dev/null 2>&1; then
+            error "cloudflared 服务启动失败；安装未完成，请运行 --check-cf-tunnel 检查。"
+            return 1
+        fi
+    elif ! systemctl is-active --quiet cloudflared; then
+        error "已有 cloudflared 服务未运行；请先确认其配置并自行启动，再复用。"
+        return 1
+    fi
+    configure_cf_nginx "$client_dist" "$admin_client_dist" || return 1
     set_env_value "FRONTEND_URL" "https://${DOMAIN}" "前端公网地址"
     set_env_value "ADMIN_FRONTEND_URL" "https://${ADMIN_DOMAIN}" "管理后台公网地址"
     set_env_value "SITE_URL" "https://${DOMAIN}" "站点公网地址"
     set_env_value "PAYMENT_CALLBACK_BASE_URL" "https://${DOMAIN}" "支付回调公网地址"
     set_env_value "VITE_CUSTOMER_BASE_URL" "https://${DOMAIN}" "管理后台生成客户链接的前端地址"
     set_env_value "VITE_ADMIN_BASE_URL" "https://${ADMIN_DOMAIN}" "前端管理后台地址"
+    CF_TUNNEL_SELECTED=true
+    CF_TUNNEL_VERIFIED=false
+    info "本机配置已写入；后端启动后将检查两端页面、API、隧道和公网入口。"
+}
 
-    local client_dist
-    local admin_client_dist
+cf_health_body_ok() {
+    python3 - "$1" <<'PY'
+import json, sys
+try:
+    data = json.load(open(sys.argv[1], encoding='utf-8'))
+    sys.exit(0 if isinstance(data, dict) and data.get('status') == 'ok' else 1)
+except (OSError, ValueError):
+    sys.exit(1)
+PY
+}
+
+cf_probe_http() {
+    local label="$1" url="$2" expected="$3" host="${4:-}" body code rc=0 attempt max_attempts=1
+    local -a args=(--silent --show-error --compressed --connect-timeout 3 --max-time 12)
+    [[ -z "$host" ]] || args+=(--noproxy '*' -H "Host: ${host}")
+    [[ "$url" != http://127.0.0.1:* ]] || args+=(--noproxy '*')
+    [[ "$url" != https://* ]] || max_attempts=3
+    body="$(mktemp)"
+    for ((attempt=1; attempt<=max_attempts; attempt++)); do
+        rc=0
+        code="$(curl "${args[@]}" -o "$body" -w '%{http_code}' "$url" 2>/dev/null)" || rc=$?
+        # Retry transient public network failures only; HTTP/content/certificate
+        # errors stay visible and no alternative resolver can claim success.
+        [[ "$rc" -eq 6 || "$rc" -eq 7 || "$rc" -eq 28 ]] || break
+        [[ "$attempt" -lt "$max_attempts" ]] || break
+        info "${label}：暂时无法访问（curl ${rc}），3 秒后重试（$((attempt+1))/${max_attempts}）；新域名可能仍受 DNS 缓存或传播延迟影响。"
+        sleep 3
+    done
+    if [[ "$rc" -ne 0 ]]; then
+        case "$rc" in
+            6) error "${label}：尚未验证，DNS 解析失败；检查 CF 路由和 DNS 记录。若浏览器已能访问，服务器自身可能仍有 DNS 缓存或传播延迟；稍后重跑 --check-cf-tunnel，无需重装面板。" ;;
+            7) error "${label}：无法连接目标端口；本机检查 Nginx / 后端，公网检查出站网络及 DNS 是否仍指向旧地址。" ;;
+            28) error "${label}：尚未验证，请求超时；检查网络、CF 路由并稍后重试。" ;;
+            35|60) error "${label}：HTTPS / 证书检查失败；检查系统时间与 CA 证书、CF 边缘证书。" ;;
+            *) error "${label}：请求失败（curl 退出码 ${rc}）。" ;;
+        esac
+    elif [[ "$code" != 200 ]]; then
+        case "$code" in
+            502) error "${label}：HTTP 502；检查 CF 路由 Type=HTTP、URL=127.0.0.1:80（内网 Service URL=http://127.0.0.1:80），以及本机 /api 反代。" ;;
+            530) error "${label}：HTTP 530；检查 CF Tunnel 在线状态、路由与 DNS（可能是 1033 隧道未连接）。" ;;
+            301|302|303|307|308|401|403) error "${label}：HTTP ${code}；可能被 Cloudflare Access、WAF 或重定向拦截。" ;;
+            *) error "${label}：HTTP ${code}；检查域名路由及 Nginx 站点。" ;;
+        esac
+    elif [[ "$expected" == health ]] && cf_health_body_ok "$body"; then
+        rm -f "$body"
+        log "${label}：通过（API status=ok）"
+        return 0
+    elif [[ "$expected" != health ]] && cmp -s "$body" "$expected"; then
+        rm -f "$body"
+        log "${label}：通过（页面与本机对应构建一致）"
+        return 0
+    else
+        error "${label}：HTTP 200 但内容不符；检查两端是否指反、HTTP Host Header、Access 登录页或 CF 缓存/HTML 改写。"
+    fi
+    rm -f "$body"
+    return 1
+}
+
+cf_connection_ready() {
+    local invocation metrics_log endpoint port metrics
+    systemctl is-active --quiet cloudflared || return 1
+    # Only the current process's loopback metrics are trusted; never print raw journals or units.
+    invocation="$(systemctl show cloudflared.service -p InvocationID --value 2>/dev/null)" || return 2
+    [[ "$invocation" =~ ^[a-fA-F0-9]{32}$ ]] || return 2
+    metrics_log="$(journalctl "_SYSTEMD_INVOCATION_ID=${invocation}" --no-pager -o cat \
+        --grep 'Starting metrics server on' -n 1 2>/dev/null)" || return 2
+    endpoint="$(printf '%s\n' "$metrics_log" | sed -nE 's/.*Starting metrics server on ((127\.0\.0\.1|\[::1\]):[0-9]+)\/metrics.*/\1/p')"
+    port="${endpoint##*:}"
+    [[ "$port" =~ ^[0-9]{1,5}$ && "$port" -gt 0 && "$port" -le 65535 ]] || return 2
+    metrics="$(curl --noproxy '*' -fsS --connect-timeout 1 --max-time 2 "http://${endpoint}/metrics" 2>/dev/null)" || return 2
+    printf '%s\n' "$metrics" | awk '
+        /^cloudflared_tunnel_ha_connections(\{|[[:space:]])/ { seen=1; if ($NF+0 > 0) ready=1 }
+        END { if (!seen) exit 2; exit ready ? 0 : 1 }
+    '
+}
+
+diagnose_cf_tunnel() {
+    set +x
+    CF_TUNNEL_VERIFIED=false
+    local failed=0 attempt connection_status=2 client_dist admin_client_dist
+    step "Cloudflare Tunnel 分层检查"
+    info "此检查不修改 CF 或本机配置，不打印 Token、systemd 启动命令或原始日志。"
+    if ! is_valid_cf_domain "${DOMAIN:-}" || ! is_valid_cf_domain "${ADMIN_DOMAIN:-}" || [[ "${DOMAIN,,}" == "${ADMIN_DOMAIN,,}" ]]; then
+        error "缺少有效且不同的两端域名；请运行 --configure-cf-tunnel 补配。"
+        return 1
+    fi
+    for attempt in curl python3 nginx systemctl journalctl; do
+        command -v "$attempt" &>/dev/null || { error "检查缺少 ${attempt}，请先补齐工具。"; return 1; }
+    done
+    if nginx -t >/dev/null 2>&1; then
+        log "Nginx 配置：通过"
+    else
+        error "Nginx 配置：失败；请在本机运行 sudo nginx -t。"
+        failed=1
+    fi
     client_dist="$(resolve_static_dist_dir "client/dist/user")"
     admin_client_dist="$(resolve_static_dist_dir "client/dist/admin")"
-    if [[ ! -d "$client_dist" ]]; then
-        error "未找到前端构建目录: $client_dist"
-        error "请确认安装包包含 client/dist/user，或先完成前端构建后再配置 Cloudflare Tunnel。"
+    cf_probe_http "本机用户端" "http://127.0.0.1:80/" "$client_dist/index.html" "$DOMAIN" || failed=1
+    cf_probe_http "本机管理端" "http://127.0.0.1:80/" "$admin_client_dist/index.html" "$ADMIN_DOMAIN" || failed=1
+    info "等待后端 API 启动，最多检查 10 次..."
+    for attempt in {1..10}; do
+        if curl --noproxy '*' -fsS --connect-timeout 1 --max-time 2 "http://127.0.0.1:${DEFAULT_PORT}/api/health" >/dev/null 2>&1; then
+            break
+        fi
+        [[ "$attempt" -eq 10 ]] || sleep 1
+    done
+    cf_probe_http "后端 API" "http://127.0.0.1:${DEFAULT_PORT}/api/health" health || failed=1
+    cf_probe_http "本机用户端 API 反代" "http://127.0.0.1:80/api/health" health "$DOMAIN" || failed=1
+    cf_probe_http "本机管理端 API 反代" "http://127.0.0.1:80/api/health" health "$ADMIN_DOMAIN" || failed=1
+    if systemctl is-active --quiet cloudflared; then
+        log "cloudflared 服务：运行中（运行不等于隧道在线）"
+        info "等待隧道连接，最多检查 10 次..."
+        for attempt in {1..10}; do
+            connection_status=0
+            cf_connection_ready || connection_status=$?
+            [[ "$connection_status" -ne 0 ]] || break
+            [[ "$attempt" -eq 10 ]] || sleep 2
+        done
+        if [[ "$connection_status" -eq 0 ]]; then
+            log "隧道连接：通过（当前进程实时连接数大于 0）"
+        elif [[ "$connection_status" -eq 2 ]]; then
+            warn "隧道连接：尚未验证，无法读取当前进程的本机连接指标；请在 CF 后台确认 Healthy。"
+            failed=1
+        else
+            error "隧道连接：未建立；检查 Token 是否撤销，以及出站 UDP/TCP 7844，CF 后台应显示 Healthy。"
+            failed=1
+        fi
+    else
+        error "cloudflared 服务：未运行；检查服务是否安装成功及 Token，勿分享含凭证的原始服务配置。"
+        failed=1
+    fi
+    cf_probe_http "用户端公网页面" "https://${DOMAIN}/" "$client_dist/index.html" || failed=1
+    cf_probe_http "用户端公网 API" "https://${DOMAIN}/api/health" health || failed=1
+    cf_probe_http "管理端公网页面" "https://${ADMIN_DOMAIN}/" "$admin_client_dist/index.html" || failed=1
+    cf_probe_http "管理端公网 API" "https://${ADMIN_DOMAIN}/api/health" health || failed=1
+    if [[ "$failed" -ne 0 ]]; then
+        warn "CF 访问检查未全部通过；修正上方失败项后运行 sudo bash $0 --check-cf-tunnel。"
         return 1
     fi
+    CF_TUNNEL_VERIFIED=true
+    log "Cloudflare Tunnel 两端页面与 API 访问检查通过；请继续在浏览器实测登录和受影响流程。"
+    info "客户面板：https://${DOMAIN}；管理后台：https://${ADMIN_DOMAIN}"
+}
 
-    if [[ ! -d "$admin_client_dist" ]]; then
-        error "未找到后台前端构建目录: $admin_client_dist"
-        error "请确认安装包包含 client/dist/admin，或先完成前端构建后再配置 Cloudflare Tunnel。"
-        return 1
-    fi
-
-    local server_name="${DOMAIN}"
-    info "安装并配置本机 Nginx 静态前端与 /api 反代..."
-    apt-get install -y -qq nginx >/dev/null 2>&1
-
-    {
-        write_nginx_split_maps
-        write_nginx_split_server_block "$server_name" "$client_dist" "default"
-        write_nginx_split_server_block "$ADMIN_DOMAIN" "$admin_client_dist"
-    } > /etc/nginx/sites-available/incudal.conf
-
-    ln -sf /etc/nginx/sites-available/incudal.conf /etc/nginx/sites-enabled/
-    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
-    nginx -t >/dev/null 2>&1
-    systemctl enable nginx >/dev/null 2>&1
-    systemctl restart nginx
-
-    # 安装 cloudflared
-    if ! command -v cloudflared &>/dev/null; then
-        info "安装 cloudflared..."
-        curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH} \
-            -o /usr/local/bin/cloudflared
-        chmod +x /usr/local/bin/cloudflared
-    fi
-
-    # 创建 cloudflared systemd 服务
-    cloudflared service install "$CF_TOKEN" 2>/dev/null || true
-
-    log "Cloudflare Tunnel 配置完成！"
-    echo -e "  访问地址: ${GREEN}https://${DOMAIN}${NC}"
+load_cf_domains() {
+    local user_url admin_url
+    user_url="$(get_env_value FRONTEND_URL)"
+    admin_url="$(get_env_value ADMIN_FRONTEND_URL)"
+    [[ "$user_url" == https://* && "$admin_url" == https://* ]] || {
+        error "当前 .env 未配置两端 HTTPS 地址；请运行 --configure-cf-tunnel。"; return 1;
+    }
+    DOMAIN="${user_url#https://}"
+    ADMIN_DOMAIN="${admin_url#https://}"
+    DOMAIN="${DOMAIN%/}"
+    ADMIN_DOMAIN="${ADMIN_DOMAIN%/}"
+    is_valid_cf_domain "$DOMAIN" && is_valid_cf_domain "$ADMIN_DOMAIN" && [[ "${DOMAIN,,}" != "${ADMIN_DOMAIN,,}" ]]
 }
 
 # ========================== 启动服务 ==========================
@@ -1573,7 +1856,11 @@ show_result() {
 
     echo ""
     divider
-    echo -e "  ${GREEN}${BOLD}✅ PayIncus 面板部署成功！${NC}"
+    if [[ "$CF_TUNNEL_SELECTED" == true && "$CF_TUNNEL_VERIFIED" != true ]]; then
+        echo -e "  ${YELLOW}${BOLD}PayIncus 本机已部署，CF 外部访问尚未全部验证通过。${NC}"
+    else
+        echo -e "  ${GREEN}${BOLD}✅ PayIncus 面板部署成功！${NC}"
+    fi
     divider
     echo ""
     echo -e "  ${BOLD}面板信息${NC}"
@@ -1581,6 +1868,11 @@ show_result() {
     echo -e "  配置文件  :  ${GREEN}${ENV_FILE}${NC}"
     echo -e "  服务名称  :  ${GREEN}${SERVICE_NAME}${NC}"
     echo -e "  监听端口  :  ${GREEN}${DEFAULT_PORT}${NC}"
+    if [[ "$CF_TUNNEL_SELECTED" == true ]]; then
+        echo -e "  客户面板  :  ${GREEN}https://${DOMAIN}${NC}"
+        echo -e "  管理后台  :  ${GREEN}https://${ADMIN_DOMAIN}${NC}"
+        echo -e "  CF 复查   :  ${CYAN}sudo bash $0 --check-cf-tunnel${NC}"
+    fi
     echo ""
     echo -e "  ${BOLD}默认账号${NC}"
     echo -e "  用户名    :  ${GREEN}admin${NC}"
@@ -1861,6 +2153,11 @@ do_install() {
     # 启动服务
     start_service
 
+    if [[ "$CF_TUNNEL_SELECTED" == true ]] && ! diagnose_cf_tunnel; then
+        show_result
+        return 1
+    fi
+
     # 显示结果
     show_result
 }
@@ -1882,6 +2179,21 @@ main() {
             configure_host_pool_gateway
             systemctl restart "$SERVICE_NAME"
             ;;
+        --configure-cf-tunnel)
+            check_existing || { error "请先安装面板"; exit 1; }
+            check_os
+            setup_cf_tunnel
+            if ! systemctl restart "$SERVICE_NAME"; then
+                error "后端重启失败；请在本机检查 incudal-backend 服务。"
+                exit 1
+            fi
+            diagnose_cf_tunnel
+            ;;
+        --check-cf-tunnel)
+            check_existing || { error "请先安装面板"; exit 1; }
+            load_cf_domains || { error "两端域名配置无效，请先运行 --configure-cf-tunnel。"; exit 1; }
+            diagnose_cf_tunnel
+            ;;
         --help|-h)
             echo "PayIncus 面板部署脚本 v${SCRIPT_VERSION}"
             echo ""
@@ -1892,6 +2204,8 @@ main() {
             echo "  --upgrade     升级已有安装"
             echo "  --uninstall   卸载 PayIncus"
             echo "  --configure-host-pool  配置机器池管理网关"
+            echo "  --configure-cf-tunnel  为已有安装配置 CF Tunnel（不升级程序或迁移数据库）"
+            echo "  --check-cf-tunnel      只检查 CF 两端页面、API 和隧道连接"
             echo "  --help        显示帮助"
             ;;
         *)

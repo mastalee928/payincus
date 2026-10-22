@@ -22,6 +22,16 @@
 - 已实际下载两种架构的公开安装包，确认 SHA256、文件大小、OTA manifest、包内版本与 Git 提交一致；检查全部迁移和 IPv6、UPAY 等关键模块，包内 LICENSE 与发行源码原文一致。GitHub 的面板 latest 为 v1.6.2；公开一键安装脚本与发行源码一致。
 - [源码 CI](https://github.com/mastalee928/payincus/actions/runs/38877110604)、[Agent 发布](https://github.com/mastalee928/payincus/actions/runs/38877110746) 均通过；[本仓库文档站](https://mastalee928.github.io/payincus/) 已上线。
 
+## 2026-10-22 CF Tunnel 安装引导与真实首装验收（源码更新，未发新版本）
+
+- 安装器 CF 方案明确为选项 2；增加「内网 Service URL」合并输入框与 Type/URL 分开输入两种填写方式，统一使用 `http://127.0.0.1:80`。输入两端域名后显示实际路由表，说明两端共用本机 Nginx、Path/HTTP Host Header 留空、保存路由后核实 DNS。两端 `.env` 地址仍走既有配置路径，不更改业务 API、鉴权或支付逻辑。
+- 修复 cloudflared 安装失败被忽略仍报告成功：隐藏 Token 输入，不打印可能带凭据的原始 CLI 输出；已有服务必须显式输入 `reuse`，不覆盖配置或重启 Tunnel。增加域名/双端构建/端口/Nginx 前置检查、`--configure-cf-tunnel` 补配和 `--check-cf-tunnel` 只读分层诊断；验证当前进程实时连接数、两端正确页面及 JSON 健康 API，任何失败或未知项保持非零退出。
+- 真实新域名生效过程中出现浏览器可访问、服务器递归 DNS 仍解析失败的现象。公网 DNS/连接/超时失败最多尝试 3 次，间隔 3 秒；保持原 DNS 与证书验证，不修改系统解析配置。持续失败提示 DNS 缓存或传播延迟、稍后只读复查，无需重装；HTTP 错误、错误页面/健康状态与 TLS 错误不重试。相关守卫覆盖恢复、持续失败、次数边界、已有服务/安装失败与 Token 不泄露；修正夹具受真实主机已有 cloudflared 服务文件影响的问题。
+- 经 owner 授权在干净 Debian 13 ARM64 测试服务器从公开 v1.7.1 ARM64 发行包首次安装，使用本轮前期改进版安装器；完成 212 条迁移、唯一后端监听 `127.0.0.1:3001`、Nginx/cloudflared 启动。Owner 保存同一 Tunnel 的两条公网路由后，浏览器用户页和管理员登录成功，用户管理页显示初始管理员；本机 API 登录/查询/退出均返回 200，refresh cookie 为 Secure/HttpOnly 且无 Domain。凭据不写入公开记录。
+- 本轮最终脚本与守卫在同一测试服务器的隔离验证目录运行：Linux 安装守卫通过，`--check-cf-tunnel` 返回 0，两端本机及公网页面与各自已安装构建一致、四个 API 反代检查和实时隧道连接均通过。检查前后 `.env`/Nginx 配置哈希及后端/cloudflared MainPID、NRestarts 一致（均未重启）；脱敏证据 `logs/cf-install-20261022/verification.json` 与 `linux-guards-and-diagnostics.txt`，仅保留本地。
+- 本地最终检查：全套 planned/executed/passed 均为 172、failed=0（`logs/test-run-20261022-171733/summary.txt`），Windows/Linux 安装守卫、清单校验、仓库来源及部署文档守卫通过；双端/后端构建、dist 边界与文档构建通过。中文及英文安装说明同步。本次不含技能配置与构建自动生成的无关版本日志。
+- 本轮按 owner 授权提交并推送源码与验收记录；GitHub Actions 结果单独查看，不能以本地通过代替。未打标签、未重建或替换 v1.7.1 Release 资产、未执行生产 OTA。管理网关安装时暂跳过；实例终端、资源交付和支付回调未在这台新测试机验收，不作为此次网站安装通过的证据。
+
 ## 2026-10-22 v1.7.1 正式发行与测试站 OTA 收尾核验
 
 - 发行源码 `9d1e5ba47dd6bf0a0937413892dacfeeb15e4a1d`，标签对象 `b9e5ca546250ada32e9df55455bba454f54f5a4d`。预览 [39614785962](https://github.com/mastalee928/payincus/actions/runs/39614785962)、正式 [39616260761](https://github.com/mastalee928/payincus/actions/runs/39616260761) 均成功：amd64/arm64 构建、归档 root UID/GID 检查、真实发行包首装、212 条迁移、唯一后端、管理员登录、管理网关及备份/预检/恢复/回退/恢复运营演练。OSS 传输在 CI 中使用本地替身。正式发布于北京时间 2026-10-21 22:31:35，非 draft、非 prerelease；本轮 GitHub API 复核 latest 为 v1.7.1。

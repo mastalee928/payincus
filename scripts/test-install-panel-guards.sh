@@ -6,7 +6,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/scripts/install-panel.sh"
 
 WORK_DIR="$(mktemp -d)"
-trap 'rm -rf "$WORK_DIR"' EXIT
+HTTP_FIXTURE_PID=""
+trap '[[ -z "$HTTP_FIXTURE_PID" ]] || kill "$HTTP_FIXTURE_PID" 2>/dev/null || true; rm -rf "$WORK_DIR"' EXIT
 
 mkdir -p "$WORK_DIR/payload"
 printf 'payincus installer guard\n' > "$WORK_DIR/payload/version.txt"
@@ -65,4 +66,321 @@ if grep -Fq 'ExecStart=/usr/bin/node /opt/incudal/current/server/dist/scripts/' 
     exit 1
 fi
 
-echo "install-panel guards passed"
+# Windows Git Bash can provide Python as python.exe rather than python3.
+PYTHON_BIN="$(command -v python3 || command -v python)"
+if ! command -v python3 >/dev/null && command -v python >/dev/null; then
+    python3() { python "$@"; }
+fi
+
+for domain in panel.example.com admin.example.com PANEL.example.com xn--fiqs8s.example.com; do
+    is_valid_cf_domain "$domain" || { echo "valid CF domain rejected" >&2; exit 1; }
+done
+for domain in '' localhost 127.0.0.1 https://panel.example.com panel.example.com/ \
+    panel.example.com:80 'panel.example.com injected' '-panel.example.com' \
+    'panel-.example.com' 'panel..example.com' '.panel.example.com' 'panel.example.com.'; do
+    if is_valid_cf_domain "$domain"; then
+        echo "invalid CF domain accepted" >&2
+        exit 1
+    fi
+done
+[[ "$(printf 'https://panel.example.com\nPANEL.example.com\n' | prompt_cf_domain 客户 panel.example.com 2>/dev/null)" == panel.example.com ]]
+show_cf_tunnel_guide > "$WORK_DIR/cf-guide" 2>&1
+grep -Fq '内网 Service URL' "$WORK_DIR/cf-guide"
+grep -Fq 'http://127.0.0.1:80' "$WORK_DIR/cf-guide"
+(
+    DOMAIN=customer.sub.example.com
+    ADMIN_DOMAIN=control.sub.example.com
+    show_cf_route_summary > "$WORK_DIR/cf-routes" 2>&1
+    grep -Eq 'customer\.sub\.example\.com +http://127\.0\.0\.1:80' "$WORK_DIR/cf-routes"
+    grep -Eq 'control\.sub\.example\.com +http://127\.0\.0\.1:80' "$WORK_DIR/cf-routes"
+)
+
+# Invalid tokens and CLI output must not leak, and a failed install must stay failed.
+(
+    cloudflared() { printf 'Provided Tunnel token is not valid: %s\n' "$3"; return 1; }
+    if install_cf_service <<< 'installer-guard-placeholder' > "$WORK_DIR/cf-token-output" 2>&1; then
+        echo "failed cloudflared install accepted" >&2
+        exit 1
+    fi
+    ! grep -Fq 'installer-guard-placeholder' "$WORK_DIR/cf-token-output"
+    grep -Fq 'Token 无效' "$WORK_DIR/cf-token-output"
+    cloudflared() { printf 'unsafe successful output: %s\n' "$3"; }
+    install_cf_service <<< 'installer-guard-placeholder' > "$WORK_DIR/cf-token-output" 2>&1
+    ! grep -Fq 'installer-guard-placeholder' "$WORK_DIR/cf-token-output"
+    cloudflared() { echo 'unexpected invocation' >> "$WORK_DIR/cf-invalid-token-call"; }
+    if install_cf_service <<< 'cloudflared service install placeholder' >/dev/null 2>&1; then exit 1; fi
+    [[ ! -e "$WORK_DIR/cf-invalid-token-call" ]]
+)
+
+mkdir -p "$WORK_DIR/cf-user" "$WORK_DIR/cf-admin"
+printf '<html>customer frontend</html>\n' > "$WORK_DIR/cf-user/index.html"
+printf '<html>admin frontend</html>\n' > "$WORK_DIR/cf-admin/index.html"
+
+# systemctl may return 1 for not-found. Local unit files can still exist on a
+# live test host; neither situation is an inability to query systemd (status 2).
+(
+    systemctl() { printf 'not-found\n'; return 1; }
+    status=0
+    cf_service_exists || status=$?
+    [[ "$status" -ne 2 ]]
+    systemctl() { return 1; }
+    status=0
+    cf_service_exists || status=$?
+    [[ "$status" -eq 2 ]]
+)
+
+# Exercise setup without touching /etc, starting services or contacting Cloudflare.
+(
+    # Ignore a real host's existing unit files when exercising installation.
+    cf_service_exists() { [[ "${CF_GUARD_LOAD:-not-found}" != not-found ]]; }
+    resolve_static_dist_dir() {
+        if [[ "$1" == client/dist/user ]]; then printf '%s' "$WORK_DIR/cf-user";
+        else printf '%s' "$WORK_DIR/cf-admin"; fi
+    }
+    check_cf_prerequisites() { return 0; }
+    configure_cf_nginx() { echo nginx >> "$WORK_DIR/cf-actions"; }
+    set_env_value() { printf 'env:%s\n' "$1" >> "$WORK_DIR/cf-actions"; }
+    systemctl() {
+        printf '%s\n' "$*" >> "$WORK_DIR/cf-service-calls"
+        case "$1" in
+            show) printf '%s\n' "${CF_GUARD_LOAD:-not-found}" ;;
+            is-active) [[ "${CF_GUARD_ACTIVE:-yes}" == yes ]] ;;
+            enable|start) [[ "${CF_GUARD_START:-yes}" == yes ]] ;;
+        esac
+    }
+    cloudflared() { [[ "${CF_GUARD_INSTALL:-yes}" == yes ]]; }
+    CF_GUARD_INSTALL=no
+    if setup_cf_tunnel <<< $'panel.example.com\nadmin.example.com\ninstaller-guard-placeholder' >/dev/null 2>&1; then exit 1; fi
+    [[ ! -e "$WORK_DIR/cf-actions" && "$CF_TUNNEL_SELECTED" == false ]]
+    CF_GUARD_INSTALL=yes
+    CF_GUARD_START=no
+    if setup_cf_tunnel <<< $'panel.example.com\nadmin.example.com\ninstaller-guard-placeholder' >/dev/null 2>&1; then exit 1; fi
+    [[ ! -e "$WORK_DIR/cf-actions" ]]
+    CF_GUARD_START=yes
+    setup_cf_tunnel <<< $'panel.example.com\nadmin.example.com\ninstaller-guard-placeholder' >/dev/null 2>&1
+    [[ "$CF_TUNNEL_SELECTED" == true && "$CF_TUNNEL_VERIFIED" == false ]]
+    grep -Fxq nginx "$WORK_DIR/cf-actions"
+    [[ "$(grep -c '^env:' "$WORK_DIR/cf-actions")" -eq 6 ]]
+
+    : > "$WORK_DIR/cf-actions"
+    configure_cf_nginx() { return 1; }
+    CF_TUNNEL_SELECTED=false
+    if setup_cf_tunnel <<< $'panel.example.com\nadmin.example.com\ninstaller-guard-placeholder' >/dev/null 2>&1; then exit 1; fi
+    [[ ! -s "$WORK_DIR/cf-actions" && "$CF_TUNNEL_SELECTED" == false ]]
+    configure_cf_nginx() { echo nginx >> "$WORK_DIR/cf-actions"; }
+
+    # Existing tunnels require explicit reuse and must never be installed/restarted.
+    : > "$WORK_DIR/cf-actions"
+    : > "$WORK_DIR/cf-service-calls"
+    CF_GUARD_LOAD=loaded
+    CF_TUNNEL_SELECTED=false
+    if setup_cf_tunnel <<< '' >/dev/null 2>&1; then exit 1; fi
+    [[ ! -s "$WORK_DIR/cf-actions" && "$CF_TUNNEL_SELECTED" == false ]]
+    cloudflared() { echo 'overwrote existing tunnel' >> "$WORK_DIR/cf-actions"; return 1; }
+    CF_GUARD_ACTIVE=no
+    if setup_cf_tunnel <<< $'reuse\npanel.example.com\nadmin.example.com' >/dev/null 2>&1; then exit 1; fi
+    [[ ! -s "$WORK_DIR/cf-actions" ]]
+    CF_GUARD_ACTIVE=yes
+    setup_cf_tunnel <<< $'reuse\npanel.example.com\nadmin.example.com' >/dev/null 2>&1
+    ! grep -Eq '^(enable|start|restart)' "$WORK_DIR/cf-service-calls"
+    ! grep -Fq 'overwrote' "$WORK_DIR/cf-actions"
+    if setup_cf_tunnel <<< $'reuse\npanel.example.com\nPANEL.example.com' >/dev/null 2>&1; then exit 1; fi
+)
+
+# Stored URLs are read as data, and invalid URL fields cannot enter diagnostics.
+(
+    get_env_value() {
+        if [[ "$1" == FRONTEND_URL ]]; then echo "${CF_GUARD_USER_URL:-https://panel.example.com/}";
+        else echo "${CF_GUARD_ADMIN_URL:-https://admin.example.com}"; fi
+    }
+    load_cf_domains
+    [[ "$DOMAIN" == panel.example.com && "$ADMIN_DOMAIN" == admin.example.com ]]
+    CF_GUARD_ADMIN_URL=https://PANEL.example.com
+    if load_cf_domains; then exit 1; fi
+    CF_GUARD_ADMIN_URL=https://admin.example.com/path
+    if load_cf_domains; then exit 1; fi
+    CF_GUARD_USER_URL=http://panel.example.com
+    if load_cf_domains >/dev/null 2>&1; then exit 1; fi
+)
+
+# A non-Nginx listener on port 80 must fail preflight without killing it.
+(
+    ss() { echo 'LISTEN 0 128 0.0.0.0:80 0.0.0.0:* users:(("other-server",pid=42,fd=5))'; }
+    systemctl() { return 0; }
+    if check_cf_prerequisites > "$WORK_DIR/cf-preflight" 2>&1; then exit 1; fi
+    grep -Fq '80 端口被其他程序占用' "$WORK_DIR/cf-preflight"
+    ss() { return 0; }
+    nginx() { return 1; }
+    if check_cf_prerequisites > "$WORK_DIR/cf-preflight" 2>&1; then exit 1; fi
+    grep -Fq '现有 Nginx 配置未通过' "$WORK_DIR/cf-preflight"
+)
+
+# Only live connection metrics from this service invocation can prove readiness.
+(
+    systemctl() { [[ "$1" != show ]] || echo 0123456789abcdef0123456789abcdef; }
+    journalctl() {
+        [[ "$1" == _SYSTEMD_INVOCATION_ID=0123456789abcdef0123456789abcdef ]] || return 1
+        echo 'Starting metrics server on 127.0.0.1:20241/metrics'
+    }
+    curl() { echo "cloudflared_tunnel_ha_connections ${CF_GUARD_CONNECTIONS:-4}"; }
+    cf_connection_ready
+    journalctl() { echo 'Starting metrics server on [::1]:20241/metrics'; }
+    curl() {
+        [[ "${*: -1}" == 'http://[::1]:20241/metrics' ]] || return 1
+        echo "cloudflared_tunnel_ha_connections ${CF_GUARD_CONNECTIONS:-4}"
+    }
+    cf_connection_ready
+    CF_GUARD_CONNECTIONS=0
+    status=0; cf_connection_ready || status=$?
+    [[ "$status" -eq 1 ]]
+    curl() { echo '# unrelated metrics'; }
+    status=0; cf_connection_ready || status=$?
+    [[ "$status" -eq 2 ]]
+    journalctl() { echo 'Starting metrics server on 0.0.0.0:20241/metrics'; }
+    status=0; cf_connection_ready || status=$?
+    [[ "$status" -eq 2 ]]
+)
+
+# Real local HTTP responses: 200 alone is insufficient, and roles must not swap.
+cat > "$WORK_DIR/cf-http-fixture.py" <<'PY'
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+import sys
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        code = {'/502': 502, '/530': 530, '/access': 302}.get(self.path, 200)
+        if self.path == '/api/health':
+            body = b'{"status":"ok"}'
+        elif self.path == '/bad-health':
+            body = b'{"status":"failed"}'
+        else:
+            role = 'cf-admin' if self.headers.get('Host') == 'admin.example.com' else 'cf-user'
+            body = (Path(sys.argv[2]) / role / 'index.html').read_bytes()
+        self.send_response(code)
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *args):
+        pass
+
+server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+Path(sys.argv[1]).write_text(str(server.server_port), encoding='utf-8')
+server.serve_forever()
+PY
+"$PYTHON_BIN" "$WORK_DIR/cf-http-fixture.py" "$WORK_DIR/cf-http-port" "$WORK_DIR" &
+HTTP_FIXTURE_PID=$!
+for attempt in {1..50}; do
+    [[ ! -s "$WORK_DIR/cf-http-port" ]] || break
+    sleep 0.1
+done
+[[ -s "$WORK_DIR/cf-http-port" ]]
+CF_HTTP_URL="http://127.0.0.1:$(cat "$WORK_DIR/cf-http-port")"
+cf_probe_http 用户端 "$CF_HTTP_URL/" "$WORK_DIR/cf-user/index.html" panel.example.com
+cf_probe_http 管理端 "$CF_HTTP_URL/" "$WORK_DIR/cf-admin/index.html" admin.example.com
+cf_probe_http 健康检查 "$CF_HTTP_URL/api/health" health
+if cf_probe_http 错误页面 "$CF_HTTP_URL/" "$WORK_DIR/cf-admin/index.html" panel.example.com > "$WORK_DIR/cf-probe" 2>&1; then exit 1; fi
+grep -Fq '内容不符' "$WORK_DIR/cf-probe"
+if cf_probe_http 错误健康状态 "$CF_HTTP_URL/bad-health" health >/dev/null 2>&1; then exit 1; fi
+for route in 502 530 access; do
+    if cf_probe_http 公网 "$CF_HTTP_URL/$route" health > "$WORK_DIR/cf-probe" 2>&1; then exit 1; fi
+    case "$route" in
+        502) grep -Fq 'Type=HTTP、URL=127.0.0.1:80' "$WORK_DIR/cf-probe" ;;
+        530) grep -Fq '1033' "$WORK_DIR/cf-probe" ;;
+        access) grep -Fq 'Access' "$WORK_DIR/cf-probe" ;;
+    esac
+done
+(
+    curl() { return 6; }
+    sleep() { return 0; }
+    if cf_probe_http 公网 https://panel.example.com/ health > "$WORK_DIR/cf-probe" 2>&1; then exit 1; fi
+    grep -Fq 'DNS 解析失败' "$WORK_DIR/cf-probe"
+    grep -Fq 'DNS 缓存或传播延迟' "$WORK_DIR/cf-probe"
+    grep -Fq '无需重装面板' "$WORK_DIR/cf-probe"
+)
+
+# Recover transient public failures using the same resolver and verified response.
+# Persistent failures are bounded; local, HTTP, content and TLS failures do not retry.
+(
+    sleep() { echo "$1" >> "$WORK_DIR/cf-retry-sleeps"; }
+    curl() {
+        local call_count=0 arg
+        [[ ! -f "$WORK_DIR/cf-retry-count" ]] || call_count="$(cat "$WORK_DIR/cf-retry-count")"
+        call_count=$((call_count+1))
+        printf '%s' "$call_count" > "$WORK_DIR/cf-retry-count"
+        for arg in "$@"; do
+            [[ "$arg" != https://panel.example.com/* ]] || {
+                if [[ "$CF_GUARD_RETRY_CODE" -ne 0 ]] &&
+                    [[ "$CF_GUARD_RETRY_ALWAYS" == yes || "$call_count" -eq 1 ]]; then
+                    return "$CF_GUARD_RETRY_CODE"
+                fi
+                # Use the real local HTTP fixture for the successful response.
+                set -- "${@:1:$#-1}" "$CF_HTTP_URL/${arg#https://panel.example.com/}"
+                break
+            }
+        done
+        command curl "$@"
+    }
+    CF_GUARD_RETRY_ALWAYS=no
+    for CF_GUARD_RETRY_CODE in 6 7 28; do
+        rm -f "$WORK_DIR/cf-retry-count" "$WORK_DIR/cf-retry-sleeps"
+        cf_probe_http 公网 https://panel.example.com/api/health health > "$WORK_DIR/cf-probe" 2>&1
+        [[ "$(cat "$WORK_DIR/cf-retry-count")" == 2 ]]
+        [[ "$(cat "$WORK_DIR/cf-retry-sleeps")" == 3 ]]
+        grep -Fq 'API status=ok' "$WORK_DIR/cf-probe"
+    done
+    CF_GUARD_RETRY_ALWAYS=yes
+    CF_GUARD_RETRY_CODE=6
+    rm -f "$WORK_DIR/cf-retry-count" "$WORK_DIR/cf-retry-sleeps"
+    if cf_probe_http 公网 https://panel.example.com/api/health health > "$WORK_DIR/cf-probe" 2>&1; then exit 1; fi
+    [[ "$(cat "$WORK_DIR/cf-retry-count")" == 3 ]]
+    [[ "$(wc -l < "$WORK_DIR/cf-retry-sleeps")" -eq 2 ]]
+    ! grep -Fq '通过' "$WORK_DIR/cf-probe"
+    CF_GUARD_RETRY_CODE=60
+    rm -f "$WORK_DIR/cf-retry-count" "$WORK_DIR/cf-retry-sleeps"
+    if cf_probe_http 公网 https://panel.example.com/api/health health >/dev/null 2>&1; then exit 1; fi
+    [[ "$(cat "$WORK_DIR/cf-retry-count")" == 1 && ! -e "$WORK_DIR/cf-retry-sleeps" ]]
+    CF_GUARD_RETRY_ALWAYS=no
+    CF_GUARD_RETRY_CODE=0
+    for route in 502 bad-health; do
+        rm -f "$WORK_DIR/cf-retry-count" "$WORK_DIR/cf-retry-sleeps"
+        if cf_probe_http 公网 "https://panel.example.com/$route" health >/dev/null 2>&1; then exit 1; fi
+        [[ "$(cat "$WORK_DIR/cf-retry-count")" == 1 && ! -e "$WORK_DIR/cf-retry-sleeps" ]]
+    done
+    curl() { echo call >> "$WORK_DIR/cf-local-count"; return 6; }
+    if cf_probe_http 本机 "$CF_HTTP_URL/api/health" health >/dev/null 2>&1; then exit 1; fi
+    [[ "$(wc -l < "$WORK_DIR/cf-local-count")" -eq 1 && ! -e "$WORK_DIR/cf-retry-sleeps" ]]
+)
+
+# Diagnostics collect all layers, and no failure/unknown state can announce success.
+(
+    DOMAIN=panel.example.com
+    ADMIN_DOMAIN=admin.example.com
+    nginx() { return 0; }
+    systemctl() { return 0; }
+    journalctl() { return 0; }
+    curl() { return 0; }
+    sleep() { return 0; }
+    resolve_static_dist_dir() { echo "$WORK_DIR/cf-user"; }
+    cf_connection_ready() { return "${CF_GUARD_READY:-0}"; }
+    cf_probe_http() {
+        echo "$1" >> "$WORK_DIR/cf-diagnostic-calls"
+        [[ "$1" != "${CF_GUARD_FAIL:-none}" ]]
+    }
+    diagnose_cf_tunnel >/dev/null 2>&1
+    [[ "$CF_TUNNEL_VERIFIED" == true ]]
+    CF_GUARD_FAIL=用户端公网页面
+    if diagnose_cf_tunnel >/dev/null 2>&1; then exit 1; fi
+    [[ "$CF_TUNNEL_VERIFIED" == false ]]
+    grep -Fxq '管理端公网 API' "$WORK_DIR/cf-diagnostic-calls"
+    CF_GUARD_FAIL=none
+    CF_GUARD_READY=2
+    if diagnose_cf_tunnel > "$WORK_DIR/cf-diagnostic" 2>&1; then exit 1; fi
+    grep -Fq '尚未验证' "$WORK_DIR/cf-diagnostic"
+    CF_TUNNEL_SELECTED=true
+    get_env_value() { return 0; }
+    show_result > "$WORK_DIR/cf-result" 2>&1
+    ! grep -Fq '部署成功' "$WORK_DIR/cf-result"
+    grep -Fq '尚未全部验证通过' "$WORK_DIR/cf-result"
+)
+
+echo "install-panel guards passed (including CF setup, secret handling and layered diagnostics)"

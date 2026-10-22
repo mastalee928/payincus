@@ -17,6 +17,12 @@ sudo bash install-panel.sh
 
 面板安装目录为 /opt/incudal；旧布局直接运行该目录，原子 OTA 布局使用 releases/ 与 current 软链。不要把旧版 --upgrade 用于原子布局。
 
+### Cloudflare Tunnel 网站入口
+
+安装器选择选项 2，同一个 Tunnel 为用户端与管理端分别添加 Public Hostname。合并的「内网 Service URL」输入框均填 `http://127.0.0.1:80`；若 Type/URL 分开，选 HTTP、URL 填 `127.0.0.1:80`。Path 与 HTTP Host Header 留空，由本机 Nginx 按域名提供各端前端与 `/api` 反代。保存路由后核实对应 DNS 记录，网站 Tunnel 不替代机器池管理网关。
+
+已有安装可运行 `sudo bash install-panel.sh --configure-cf-tunnel` 补配；它会重启唯一后端使两端地址生效，已有 cloudflared 只允许显式 `reuse`，不覆盖或重启 Tunnel。`sudo bash install-panel.sh --check-cf-tunnel` 只读检查本机、实时隧道连接及公网两端页面/API，不升级、不迁移或重启服务。公网 DNS/连接/超时失败最多尝试 3 次，间隔 3 秒；浏览器已可访问但服务器仍解析失败时，等待其 DNS 缓存或传播延迟消退后重查，无需重装。未验证项保持非零退出。详细填写和错误提示见安装说明。
+
 源码、发行包和更新源均应使用自己的仓库：
 
 ```dotenv
