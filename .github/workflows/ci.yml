@@ -61,9 +61,9 @@ jobs:
         working-directory: agent
         run: go test ./...
 
-      - name: Controller discovery race checks
+      - name: Controller discovery and maintenance race checks
         working-directory: agent
-        run: go test -race ./internal/controllerconfig
+        run: go test -race ./internal/controllerconfig ./cmd/incudal-maintenance
 
   build:
     name: Build

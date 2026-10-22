@@ -101,3 +101,67 @@ Node/Go 已实现 host-fence-receipt/v1 协议。节点使用自己的预登记 
 见证状态新增 lastObservedAt：持久时间只前进，超过5秒回拨拒绝；在容差内仍按最高观察时间校验过期，不能复活已过期请求。当前只验证单机进程重启及文件持久状态，不承诺旧磁盘快照、整台见证替换或多副本安全恢复。正式签名租约还须引入受信见证身份/代次恢复、宿主boot与单调时钟执行，完成分区验收前不开放写。
 
 Go 已新增 ReadIncusQuiescence：只访问显式配置的本机安全 Unix socket，固定GET全部项目操作，不携带远程凭据、不跟随跳转；5秒超时、1MiB/1024操作限制、JSON重复键及深度限制、响应/状态分组严格核对。权限、链接、API失败、未知格式或取消请求拒绝；不把连不上等同于无任务。真实隔离Incus已验证Go本机读取活动/结束状态。复验脚本可用 INCUDAL_GO_QUIESCENCE_PROBE 指定临时采集探针（输出Active数量），不将临时探针打包进正式Agent。
+
+## 8. 见证准备许可和独立维护预检
+
+host-fence-prepare/v1 由独立见证签名，域分离为 `payincus/host-fence-prepare/v1\n` + keyId + `\n` + payload。载荷包含witnessId、平台/宿主/主控/请求、epoch/sequence、候选哈希、挑战和60秒以内有效期。宿主持预登记的独立见证公钥，不从请求自行建立信任。只有见证内部preparing状态可生成许可；许可不能执行客户资源写入。21项共同Node/Go向量及见证准备/活动阶段守卫通过。
+
+新增独立 incudal-maintenance 命令，支持 `--inspect --enrollment <绝对路径>` 与显式 `--prepare-fence --enrollment <绝对路径>`，两个模式互斥。登记文件为0600、直属目录0700、当前用户拥有的单链接普通文件；严格拒绝不受信祖先、符号链接、重复/未知JSON和超限输入。登记字段为schemaVersion、platformId、nodeId、witnessId、candidateKeys、witnessKeys、incusSocket、observedStateDirectory；准备隔离还必须预登记managementPorts（ssh、incus两个不同TCP端口），端口不得来自远端请求。stdin只接收candidate与preparePermit两项签名封装，输出仅为计划/阻断项，不含签名根、节点密钥或OSS凭据。
+
+另增互斥 `--restore-fence --enrollment <绝对路径>` 供本机启动恢复：读取受保护的network-fence.json及最高水位，按历史有效时间验签原候选和准备许可，只恢复已授权拒绝规则，不消费远端新请求、不接受历史写租约。
+
+顺序：先核验候选+见证许可，成功后加锁原子记录宿主最高观察代次，再次核对有效期/代次并读取本机Incus。无任务也仍显示network-fence-not-applied、legacy-credential-audit-required、local-process-audit-required，readyForFencing/canWrite固定false。错误许可不会写入观察状态，旧请求不能覆盖较高代次，重复预检幂等。只修改独立观察文件，不修改路由、防火墙、WireGuard、AgentURL或客户数据。
+
+独立命令未加入正式Agent安装/升级服务或发行资产，当前仅可从源码构建作受控验收。真实隔离Incus已验证有/无活动任务、错误许可、不安全登记及最高代次记录；Go全包race/vet和命令级回归通过。它是受限执行器的准备入口，SSH进程/旧授权处理、签名写租约执行及页面任务尚待实现。
+
+## 9. 宿主外部管理 TCP 的准备隔离
+
+`--prepare-fence` 先校验双签名并记录最高观察代次、确认本机Incus读取可用，再通过固定 `/usr/sbin/nft` 执行仅拒绝的INPUT规则。执行必须为Linux root，观察目录及祖先均root拥有且不可组/其它用户写；以network-fence.lock和observe.lock共同互斥并重读磁盘observed.json，不能信任调用者传入的旧水位。缺失/损坏状态拒绝，较高代次观察不能与旧请求执行并发。nft清单与检查之后按当前时间再验许可，过期不能开始修改。
+
+规则位于独立 `inet incudal_controller_fence` 表，在priority=-200的INPUT中拒绝所有非lo接口到预登记管理TCP端口的流量，包括已有连接后续字节；本机检查保留。此阶段候选主控也不能直接写入。首次使用create table防止并发出现的同名表被合并；已有表必须严格匹配归属标记、hook/priority、端口和表达式，未知字段/额外规则/休眠标记拒绝。检查和替换为原子事务，执行后读取实际表确认，错误不删除当前隔离。
+
+隔离不操作FORWARD、OUTPUT、客户DNAT/IPv6规则、WireGuard配置、SSH密钥或Incus任务。命令隔离后重读本机任务；查询失败不输出成功且保留已施加的拒绝规则。只有本次实际施加并核验成功才返回networkFenceApplied=true，仍报告legacy-credential-audit-required、local-process-audit-required及任何active-incus-operations，canWrite/readyForFencing始终false，不签发完整隔离回执。
+
+新增显式验收 `scripts/test-controller-management-fence-netns.py`：Linux root下先创建与父环境不同的未命名net namespace，另建client/server子namespace；实际编译Go测试入口校验签名、受保护状态并调用生产nft路径。IPv4/IPv6既有及新管理连接拒绝，同端口客户DNAT/FORWARD、loopback检查和其它服务通过，客户表保持一致；同时验证维护命令缺失端口拒绝、未完成审计阻断及隔离后读取失败不冒充成功。
+
+复验需先在agent目录 `go test -c -o <绝对路径>/management-fence.test ./internal/controllerconfig` 和 `go test -c -o <绝对路径>/maintenance-command.test ./cmd/incudal-maintenance`，设置INCUDAL_MANAGEMENT_FENCE_NETNS_TEST=1、INCUDAL_MANAGEMENT_FENCE_TEST_BINARY和INCUDAL_MAINTENANCE_FENCE_TEST_BINARY后执行Python脚本。它需要unshare/nsenter/ip/nft/sysctl及内核权限，不加入普通守卫；普通Go测试不修改真实网络。真实Incus6.0.4在隔离mount/net/pid环境另验准备命令活动任务及结束状态。
+
+这是运行期准备隔离，尚无重启时持久重装/启动门禁、遗留授权/本地进程审计、租约代理或实际WireGuard/SSH写权限接管。不能安装到客户宿主并据此宣称完整旧写者隔离或灾备完成。
+
+后续新增network-fence.json：施加前先原子保存双签名对象和本地端口、文件/目录同步；启动恢复重读最高代次并验原许可，只恢复拒绝。隔离net namespace已验证删除运行期表后恢复成功、端口变化拒绝及客户规则保持，独立命令恢复输出canWrite=false。尚未安装systemd/OpenRC启动单元并绑定SSH/Incus启动顺序，整机重启时序的完整门禁仍需验收；上一段“无持久重装”为此前阶段。
+
+## 10. 短写租约编码及单调门禁（尚未签发或接入代理）
+
+controller-write-lease/v1使用独立域分离、Ed25519见证签名及规范JSON封装，最长30秒，无写权限的正向时间容差。绑定见证/平台/宿主/主控/请求、最高epoch与sequence、候选哈希、leaseId与单调leaseSequence、内核bootId、每次维护进程启动的新gateId、持有者公钥摘要和固定权限列表。当前范围只有inspect、instance-power、management-channel；未知/重复/乱序权限、任意shell、过期、错误身份、gate和签名均拒绝。
+
+36项Node/Go共同向量验证相同编码及时间/身份/权限边界。Go LeaseGate使用单调截止，重复同一对象不刷新时限，同序号不同内容和低序号拒绝；Revoke保留已观察序号防重放，进程新gateId不能沿用旧租约。记录单调经过时间及逻辑墙钟，时间回退不能复活续期。维护服务必须从真实隔离审计生成绑定、持久保留最高序号并为每次启动创建新gateId；模块自身不开放端口或root执行权限。
+
+Revoke关闭该gate直到重建，不允许更高leaseSequence把已撤销门禁重新打开。请求还核对逻辑墙钟未跨租约expiresAt；宿主进程暂停/系统时间前进不能仅靠仍剩余的单调截止继续放行。见证续期仅可缩小此前权限，扩大范围须重新准备/授权。
+
+见证内部issueWriteLease已经支持由受信宿主回执及gate proof签发/续期；调用者不能传入新的见证密钥，签名身份在初始化时固定。保存后的租约逐次验签并与状态/序号核对，过期对象保留高水位；签发/续期先原子保存再返回。新gate/持有者需更高epoch重新准备，当前最长授权窗口仍不超候选15分钟，每次续期需新鲜宿主证明。内部Linux32项/Windows30项守卫通过。公共服务仍报告signedWriteLeaseAvailable=false，因为真实凭据/进程审计、节点服务及写代理尚未接入；夹具签名不代表物理门禁完成。
+
+controller-gate-proof/v1由宿主身份签名，绑定完整隔离回执哈希、当前bootId/gateId、候选和持有者，最长30秒，禁止未来签发。它把维护进程重启身份带入租约，不修改原host-fence-receipt/v1的字节兼容。当前只有编码/签名及内部见证联调，实际维护服务须自行采集事实，不能让请求填写“隔离成功”。
+
+写请求还需持有者Ed25519证明，绑定完整租约SHA256、权限、精确正文SHA256、规范毫秒时间及24字节nonce，域分离controller-lease-request/v1。接收端自行对最多64KiB正文求哈希，不能相信未验签的摘要；同一门禁内nonce最多1024项并保留整个最长租约期，续期不清空，重复并发仅一次通过。错误正文/租约/范围、过期时间和错签名不消耗nonce。Node签名→Go校验9项共同向量及并发重放测试通过。仅知道持有者公钥摘要不能调用写请求授权，公开端点必须走证明验证。
+
+## 11. 宿主进程事实采集（完整本地写者审计未完成）
+
+准备报告增加processAudit，固定读取真实procfs、两遍核对PID/父PID/开始ticks/UID/名称，最多32768项，检查取消和格式/权限失败；不读取cmdline或environ避免凭据进入日志。SSH守护进程子会话及其后代计入会话任务，监听守护进程单独计数；父链缺失/进程变化标StableSnapshot=false，环和无界链拒绝。启动最初ticks=0属于有效内核事实，不当作错误。
+
+真实Linux采集、解析边界和Go全包race/vet通过。进程数/父链不是完整本地写者证明：已脱离SSH的脚本、定时任务、Incus自动任务和其它root写者需要专门持久任务登记及授权隔离。因此localWriterAuditComplete仍固定false，不移除local-process-audit-required，不生成完整隔离回执。
+
+## 12. 固定宿主操作执行模块（未安装服务）
+
+HostOperationExecutor只接受schemaVersion=1、inspect-operations，或instance-power指定默认项目既有实例及start/stop/restart。拒绝任意URL、shell、创建/删除/重装、force、未知字段、重复键和实例路径穿越；不对其它项目自动授权。请求正文绑定持有者证明、租约范围与nonce后，读取实际Incus活动任务；有任务不提交电源操作，身份/type不匹配拒绝。固定PUT state包含timeout=60、force=false，不等待异步任务伪装完成，只返回接受的operationId。
+
+执行绑定剩余租约的context，Revoke同时取消在途请求；这不取消Incus已接受的操作，仍需实际任务/资源核对。调用模块前维护服务必须完成本地凭据/进程审计与启动门禁；本模块没有开启网络监听，也没有绕过未完成的物理审计。替身Unix API守卫覆盖错误身份/证明、忙任务、正文/路径限制、重放和撤销，真实Incus只读检查另有隔离证据；实际实例电源动作尚待专用实例验收。
+
+## 13. 独立 HTTPS 准备服务
+
+显式入口为 `incudal-maintenance --serve <绝对配置路径>`，仅支持 Linux root。它独立于监控 Agent，尚未通过正式安装器部署到宿主。配置包含 schemaVersion=1、enrollment、listenAddress、tlsCertificate、tlsPrivateKey、clientCa；配置、登记及 TLS 文件遵循 0600/直属目录0700、受信祖先及单链接普通文件约束。
+
+listenAddress 必须为规范的 loopback 或私有管理 IP 和独立端口，不接受通配或公网监听，也不能与登记的 SSH/Incus 端口重合。同一观察状态目录的 maintenance-service.lock 在服务整个生命周期由 flock 持有，另一个端口不能绕过单实例锁。打开端口之前必须从持久签名状态恢复拒绝规则；缺失、损坏、错误身份或端口变化均拒绝启动，不从空状态重建授权。
+
+TLS 最低1.3，客户端必须提供由预登记 CA 验证的证书。客户端认证只提供传输身份，候选及见证许可仍逐请求验签和检查宿主绑定。只提供 POST /v1/inspect 和 POST /v1/prepare，拒绝查询参数、编码路径、任意代理和资源写入口；仅接受 application/json、最多20000字节，不接受压缩正文。并发准备返回409，不排队执行重复变更。失败仅输出固定错误码，丢弃任何部分成功输出；响应禁止缓存。
+
+SIGTERM/中断关闭监听，已安装拒绝规则仍保留。该服务不接收写租约、不创建完整隔离回执，canWrite 始终 false；旧凭据与本地任务审计、受限写代理、systemd/OpenRC 启动顺序及首次准备入口仍待后续施工。隔离 Linux 网络环境已验证真实服务恢复后监听、mTLS 检查、重复监听拒绝、停止关闭端口、缺失状态不监听以及双栈客户转发保持；HTTPS 守卫另验证无证书/其它 CA、接口及正文限制、失败输出和并发边界。

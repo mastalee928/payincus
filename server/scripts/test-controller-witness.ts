@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createPublicKey, generateKeyPairSync, randomBytes } from 'node:crypto'
+import { createHash, createPublicKey, generateKeyPairSync, randomBytes } from 'node:crypto'
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +7,9 @@ import { controllerSigningKeyId, signControllerPrepareConfig, verifyControllerPr
 import { signControllerFenceReceipt, type ControllerFenceReceipt } from '../src/lib/controller-fence-receipt.js'
 import { createControllerWitness, type ControllerWitnessState } from '../src/services/controller-witness.js'
 import { acquireDiscoveryMutationLock } from '../src/services/controller-discovery.js'
+import { verifyControllerPreparePermit } from '../src/lib/controller-prepare-permit.js'
+import { signControllerGateProof } from '../src/lib/controller-gate-proof.js'
+import { verifyControllerWriteLease } from '../src/lib/controller-write-lease.js'
 
 const directory = await mkdtemp(join(tmpdir(), 'payincus-witness-'))
 const root = generateKeyPairSync('ed25519'), node = generateKeyPairSync('ed25519'), attacker = generateKeyPairSync('ed25519')
@@ -25,7 +28,8 @@ const initial: ControllerWitnessState = { schemaVersion: 1, ...identity, epoch: 
   candidateSha256: observed.payloadSha256, controllerId: config.controllerId, requestId: config.requestId,
   challenge: randomBytes(24).toString('base64url'), phase: 'preparing', preparedAt: now, expiresAt: config.expiresAt,
   lastObservedAt: now, leaseId: null, receiptSha256: null, bootId: null }
-const statePath = join(directory, 'witness.json'), trust = { candidateKeys, nodePublicKey }
+const witnessId = '88888888-8888-4888-8888-888888888888'
+const statePath = join(directory, 'witness.json'), trust = { candidateKeys, nodePublicKey, writeAuthority: { witnessId, signingKey: root.privateKey } }
 let checks = 0
 try {
   await chmod(directory, 0o700)
@@ -43,8 +47,11 @@ try {
   ])
   assert.equal(concurrent.filter(item => item.status === 'fulfilled').length, 1); checks++
   const binding = await second.prepare(candidate({ epoch: '9007199254740994' }))
+  const permit = await second.preparePermit(witnessId, root.privateKey)
+  assert.equal(verifyControllerPreparePermit(permit, { binding, witnessId, trustedWitnessKeys: candidateKeys, now: Date.now() }).epoch, binding.epoch); checks++
+  const receiptTime = Date.now()
   const receipt: ControllerFenceReceipt = { schemaVersion: 1, purpose: 'host-fence-receipt', ...binding,
-    bootId: '77777777-7777-4777-8777-777777777777', issuedAt: Date.now(), expiresAt: Date.now() + 30000,
+    bootId: '77777777-7777-4777-8777-777777777777', issuedAt: receiptTime, expiresAt: receiptTime + 30000,
     oldConnectionsBlocked: true, legacyCredentialsBlocked: true, outstandingSshProcesses: 0, outstandingLocalJobs: 0, activeIncusOperations: 0 }
   const before = await readFile(statePath)
   for (const encoded of [signControllerFenceReceipt(receipt, attacker.privateKey),
@@ -56,16 +63,39 @@ try {
   const signedReceipt = signControllerFenceReceipt(receipt, node.privateKey)
   const leases = await Promise.all([first.activate(signedReceipt), second.activate(signedReceipt)])
   assert.equal(leases[0].leaseId, leases[1].leaseId); assert.equal(leases[0].signedWriteLeaseAvailable, false); checks++
+  await assert.rejects(second.preparePermit(witnessId, root.privateKey), /WITNESS_INVALID/); checks++
   const restoredProcess = await createControllerWitness(directory, identity, trust)
   await assert.rejects(restoredProcess.prepare(candidate()), /ROLLBACK/); checks++
   assert.equal((await restoredProcess.status()).state.bootId, receipt.bootId); checks++
   await assert.rejects(restoredProcess.activate(signControllerFenceReceipt({ ...receipt, bootId: config.gateway.gatewayId }, node.privateKey))); checks++
+  const gateId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', holderKeyId = controllerSigningKeyId(rawKey(attacker.privateKey))
+  const gateTime = Date.now()
+  const gateBinding = { platformId: binding.platformId, nodeId: binding.nodeId, controllerId: binding.controllerId,
+    requestId: binding.requestId, epoch: binding.epoch, sequence: binding.sequence, candidateSha256: binding.candidateSha256,
+    bootId: receipt.bootId, gateId, holderKeyId }
+  const gateProof = signControllerGateProof({ schemaVersion: 1, purpose: 'controller-gate-proof', ...gateBinding,
+    receiptSha256: createHash('sha256').update(signedReceipt).digest('hex'), issuedAt: gateTime, expiresAt: gateTime + 30000 }, node.privateKey)
+  const writeOptions = { gateId, holderKeyId, permissions: ['inspect', 'instance-power'] as ('inspect' | 'instance-power')[] }
+  const lease1 = await first.issueWriteLease(signedReceipt, gateProof, writeOptions)
+  const leaseBinding = { witnessId, ...gateBinding, leaseId: leases[0].leaseId }
+  assert.equal(verifyControllerWriteLease(lease1, { binding: leaseBinding, witnessKeys: candidateKeys, now: Date.now() }).leaseSequence, '1'); checks++
+  const lease2 = await restoredProcess.issueWriteLease(signedReceipt, gateProof, writeOptions)
+  assert.equal(verifyControllerWriteLease(lease2, { binding: leaseBinding, witnessKeys: candidateKeys, now: Date.now() }).leaseSequence, '2'); checks++
+  const issuedState = await readFile(statePath)
+  await assert.rejects(first.issueWriteLease(signedReceipt, gateProof, { ...writeOptions, gateId: config.gateway.gatewayId }))
+  await assert.rejects(createControllerWitness(directory, identity, { ...trust, writeAuthority: { witnessId, signingKey: attacker.privateKey } }))
+  await assert.rejects(first.issueWriteLease(signedReceipt, gateProof, { ...writeOptions, permissions: ['inspect', 'instance-power', 'management-channel'] }))
+  assert.deepEqual(await readFile(statePath), issuedState); checks++
+  const concurrentLeases = await Promise.all([first.issueWriteLease(signedReceipt, gateProof, writeOptions), second.issueWriteLease(signedReceipt, gateProof, writeOptions)])
+  const sequences = concurrentLeases.map(encoded => verifyControllerWriteLease(encoded, { binding: leaseBinding, witnessKeys: candidateKeys, now: Date.now() }).leaseSequence).sort()
+  assert.deepEqual(sequences, ['3', '4']); checks++
   // A new epoch invalidates the prior active receipt; its old challenge cannot
   // activate the replacement writer, even when the former receipt has live TTL.
   const newer = await first.prepare(candidate({ epoch: '9007199254740995' }))
   assert.notEqual(newer.challenge, binding.challenge)
   await assert.rejects(second.activate(signedReceipt)); checks++
   assert.equal((await second.status()).state.phase, 'preparing'); checks++
+  await assert.rejects(second.issueWriteLease(signedReceipt, gateProof, writeOptions)); checks++
   const shiftedNow = Date.now()
   await first.prepare(candidate({ epoch: '9007199254740996', issuedAt: shiftedNow + 25000, expiresAt: shiftedNow + 925000 }))
   assert.ok((await second.status()).state.expiresAt - (await second.status()).state.preparedAt <= 900000); checks++
@@ -98,5 +128,5 @@ try {
   await assert.rejects(createControllerWitness(directory, identity, trust)); checks++
   await rm(statePath); await assert.rejects(first.prepare(candidate({ epoch: '9007199254740996' }))); checks++
   assert.equal((await readFile(join(directory, 'mutation.lock')).catch(() => Buffer.alloc(0))).length, 0)
-  console.log(`Controller witness passed: ${checks} atomic preparation/receipt/activation/restart boundary checks; signed write lease disabled`)
+  console.log(`Controller witness passed: ${checks} atomic preparation/receipt/activation/restart boundary checks; internal lease issuance tested, public host writes unavailable`)
 } finally { await rm(directory, { recursive: true, force: true }) }

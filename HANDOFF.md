@@ -24,6 +24,25 @@
 
 ## 2026-10-23 签名候选与独立发现基础（隔离实测，完整接管未完成）
 
+- 接手原聊天后继续原完整网关/灾备规格（截图最初26项，现行规格已扩展34项）：目标仍为页面灾备准备→新页面恢复并确认→宿主主动读取签名配置/建新通道/上报；双通道、独立备用身份、旧写者隔离、历史副本和部分失败均须交付。没有缩减为测试机通讯修补，旧主控与客户宿主保持原运行状态。
+- 新增独立准备隔离 `--prepare-fence`，本地受保护登记ssh/incus端口，远端候选和见证许可均需验签；重读并锁住最高代次，nft检查后重新按当前时间核验有效期，拒绝无关同名表/额外规则/休眠或设备绑定，执行后核验实际规则。仅阻断宿主外部管理INPUT TCP，不开放候选写入、不取消Incus任务、不动客户FORWARD/DNAT、WireGuard、SSH密钥或Agent地址。输出networkFenceApplied=true仍保留凭据/本地进程及活动任务阻断，canWrite=false。
+- 真实Linux隔离net namespace中，实际Go生产路径及维护命令验证7项：双签名和磁盘水位→原子规则及重试→缺失登记端口拒绝/隔离后读取失败无成功输出→IPv4/IPv6旧连接字节与新连接拒绝→相同管理端口上的客户DNAT/FORWARD既有/新连接保持→loopback与其它INPUT可用→客户规则一致。Go全包race/vet通过；真实Incus6.0.4在独立mount/net/pid namespace验证活动与结束任务均准确报告，隔离不取消已接受的任务。证据 `management-fence-command-final.json`、`maintenance-prepare-real-incus.json`；新增可复验脚本 `scripts/test-controller-management-fence-netns.py`。尚无重启门禁、旧凭据/进程审计或租约代理，未上客户宿主、未发新版本。
+- 本轮全清单通过四分片覆盖173项（44+43+43+43），每个进程独立exit=0，另过服务器编译、Go全包race/vet及真实准备命令/Incus联调；Lint 0错误、665条既有格式告警。分片2记录 `logs/test-run-20261023-033925/summary.txt`；并发分片1/3/4因同秒启动共用日志目录，分别的成功结果另存 `logs/controller-takeover-research-20261022/maintenance-suite-shards.json`，不能只以被覆盖的单份summary作为173项证据。此前单次全量033022因会话中断仅执行部分，不作为全量通过记录。本轮没有前端源码变化，双端构建不作为新增证据。
+- Owner更新目标：完成P0–P6，在130.61.72.222测试机核验主控兼网关、独立网关、主控经独立网关及备用网关；旧主控允许作为灾难演练机器。必须复审代码、权限/回放等基础漏洞及实际前端按钮，全部上线门槛达成后才提交最终实现、推送及发版。准备隔离只是阶段成果，不触发提前发版，也不授权破坏客户实例/磁盘/账务。
+- P0新增实现决策 `GATEWAY_CONTROL_DESIGN.md`，明确独立单写文件见证的故障/恢复边界、短租约与boot/gate身份、固定管理代理及A/B传输映射。Node/Go短写租约编码36项共同向量通过，Go LeaseGate单调截止/重复不续命/撤销重放/错误持有者与范围/过期和进程重开拒绝通过；逻辑时间随单调时间前进，回拨不复活。最终Go全包race/vet通过，相关Node守卫通过，新增编译及类型证据随后确认。尚未接入见证签发、真实凭据/进程审计、端口代理或资源动作；不能据此标P0完成，见证仍signedWriteLeaseAvailable=false。证据 `write-lease-go.json`。
+- 继续补写请求的持有者证明：精确租约/正文哈希、权限、时间和nonce签名，9项Node→Go共同向量通过；错误正文不消耗nonce，8并发同请求仅一次授权，过期证明/改权限拒绝；公开门禁不接受公钥摘要作为写认证。时间校验与租约共用不回退逻辑时间，nonce覆盖整个最长租约并在续期中保留。Go全包race/vet通过；服务器类型检查及编译通过，候选总守卫包括新增租约/证明检查。证据 `write-lease-request-go.json`，仍无真实执行端点或签发。
+- 见证继续接入内部短租约签发/续期：固定初始化的见证签名身份，验证新鲜host-fence-receipt及绑定boot/gate/持有者的controller-gate-proof；租约序号原子保存，重启重读并验签落盘对象，错误密钥/新gate/旧epoch/并发冲突拒绝。Windows30项、Linux32项见证守卫通过，Node/Go gate proof编码测试通过，证据 `witness-write-lease-linux.json`。目前使用签名夹具，无实际宿主凭据/进程审计或写代理，公开可用状态仍false，不能标物理隔离/接管已完成；上一条“无签发”为当时状态。
+- 准备报告加入真实本机processAudit：确认procfs、两遍核对PID/父链/UID/名称/启动ticks，SSH会话及后代任务计数、监听进程分列、父链变化不冒充稳定；不读取cmdline/environ。真机发现内核启动早期ticks=0合法，已兼容。真实procfs读取/取消、父链循环/缺失及解析边界、最终Go全包race/vet通过，证据 `process-audit-go.json`。脱离SSH的旧任务及本地root写者仍未完成隔离审计，localWriterAuditComplete=false并继续阻断；不能据无SSH会话签发完整物理回执。
+- 内部HostOperationExecutor加入固定inspect-operations与既有默认项目实例start/stop/restart协议，拒绝任意Incus路径/原始shell/创建删除/force和路径穿越；先租约+持有者正文证明，再查活动任务/实例身份，最后发固定电源请求。执行上下文受剩余租约时限与Revoke取消绑定，已接受任务仍须后续核对。真实Unix API替身验证错签名不触达、忙任务不写、重复不二次执行、撤销拒绝，Go全包race/vet通过；无网络监听/正式服务，没有更改客户实例。证据 `host-operation-go.json`。
+- 真实Incus6.0.4隔离mount/net/pid环境通过内部执行器的租约+持有者证明只读链，活动与结束任务均准确检出；未提交真实实例电源操作。证据 `host-operation-real-incus.json`。随后加入准备前持久network-fence.json及 `--restore-fence`：原子保存签名拒绝授权，启动仅恢复已授权拒绝；隔离网络中删除运行期表模拟规则丢失，恢复与端口变化拒绝、双栈客户转发保持均通过，Go全包race/vet通过，证据 `management-fence-startup.json`。尚无已安装init启动顺序、旧凭据/本地写者完整审计，未标整机重启或完整接管验收。
+- Owner 后续明确改为每完成一个大步骤、通过对应验证后立即提交推送，不再积累到全部阶段结束；此前“最终实现完成才提交”不再适用于阶段源码提交。完整灾备验收与发布仍分开记录。
+- 继续补齐独立 incudal-maintenance HTTPS 准备服务：TLS1.3 客户端证书认证，逐请求候选/见证验签；只开放检查与拒绝准备，私有/loopback 独立端口、同宿主身份 flock 单服务；先恢复持久签名拒绝再监听。拒绝查询/编码路径、未知接口、超限/压缩正文和并发准备，失败不泄露配置或部分输出；SIGTERM 关闭监听，保留拒绝状态。尚无租约写入口、完整本地写者审计或正式宿主启动安装。
+- 本阶段最终全套检查 planned/executed/passed=173、failed=0，`logs/test-run-20261023-044946/summary.txt`；服务器构建通过。独立 Ubuntu 24.04 amd64 的完整 Go race/vet 与维护服务构建通过，证据 `maintenance-service-race.json`；真实隔离 net namespace 中，生产 HTTPS 服务恢复签名隔离后监听、mTLS 检查、不同端口重复服务及缺失状态拒绝、停止关闭监听均通过，双栈客户转发规则保持，证据 `maintenance-service-lifecycle.json`。CI 增加维护命令的 race 检查；没有前端源码改动、真实实例电源操作或整机重启验收，不作为完整P0–P6通过证据。
+
+- 本机采集提交 [e9aa5f4](https://github.com/mastalee928/payincus/commit/e9aa5f4b31af9a828a103ac6a8d6e10fb4c4549b) 的 [CI 39830723408](https://github.com/mastalee928/payincus/actions/runs/39830723408) 和 [Agent 构建 39830723410](https://github.com/mastalee928/payincus/actions/runs/39830723410) 成功，未修改VERSION或发布新资产。
+- 继续实现host-fence-prepare/v1见证签名准备许可，21项共同Node/Go边界通过；独立incudal-maintenance只读预检严格核对登记/输入、两方签名及最高观察代次后读取本机Incus，尚未完成的网络/凭据/进程审计始终列为阻断，canWrite=false。错误许可不创建状态、高代次后拒绝旧请求、重复预检/错误权限/未知命令与JSON均有命令级守卫。
+- 实际Incus6.0.4隔离环境中，由Node见证生成许可、Go独立维护命令读取真实活动/结束任务并持久记录最高代次；有任务时准确阻断，无任务仍不冒充物理隔离。错误许可/不安全登记拒绝；Go全包race/vet通过，类型检查/服务器编译/相关候选守卫通过。证据 `maintenance-cli-go.json`、`maintenance-real-incus.json` 保留本地。未接入正式Agent main/安装服务，未改宿主或主控管理入口。
+
 - 见证提交 [7eb81a3](https://github.com/mastalee928/payincus/commit/7eb81a339afdea2ac495157cc513e30fa64b3fc3) 的 [CI 39829854002](https://github.com/mastalee928/payincus/actions/runs/39829854002) 与 [Agent 构建 39829853941](https://github.com/mastalee928/payincus/actions/runs/39829853941) 成功，版本不变，未发Agent新版本。
 - 宿主Go加入独立本机只读Incus操作采集，固定Unix socket GET全部项目操作，安全文件/祖先权限与链接检查、超时/取消、响应大小/操作数量/JSON深度/重复键边界；连接失败、HTTP拒绝/跳转/HTML、未知分组拒绝。Go全包race/vet通过；实际Incus6.0.4隔离任务活动及最终结束分别被Go检出，Node静止门禁同步验证。证据 `quiescence-go-final.json`、`incus-go-quiescence.json`。尚未接入Agent main或宿主写权限执行，原主控/宿主不变。
 

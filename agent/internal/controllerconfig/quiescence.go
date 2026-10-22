@@ -79,6 +79,15 @@ func duplicateJSONKeys(raw []byte) bool {
 	_, err := decoder.Token()
 	return err != io.EOF
 }
+
+// ValidateProtocolJSON bounds nesting/tokens and rejects duplicate keys before
+// decoding command input or protected enrollment. It does not authenticate it.
+func ValidateProtocolJSON(raw []byte, limit int) error {
+	if limit < 1 || limit > 1048576 || len(raw) > limit || !utf8.Valid(raw) || duplicateJSONKeys(raw) {
+		return invalid()
+	}
+	return nil
+}
 func ParseIncusQuiescence(raw []byte) (IncusQuiescence, error) {
 	result := IncusQuiescence{ActiveOperationIDs: []string{}}
 	fail := func() (IncusQuiescence, error) { return IncusQuiescence{}, failure("CONTROLLER_QUIESCENCE_INVALID") }

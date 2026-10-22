@@ -1,5 +1,6 @@
-// Package controllerconfig validates candidate controller configurations only.
-// It never changes routing, Agent configuration or resource-writer permissions.
+// Package controllerconfig validates controller preparation and local quiescence.
+// Its explicit preparation fence can deny host management TCP; it never grants
+// resource-writer permissions or changes customer routing or Agent configuration.
 package controllerconfig
 
 import (
