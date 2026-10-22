@@ -13,7 +13,7 @@ const PUBKEY = /^[A-Za-z0-9+/]{43}=$/
 const NONCE_FILE = /^[a-f0-9]{64}\.json$/
 
 function fail(code: string): never { throw new ControllerConfigError(code) }
-async function privateDirectory(path: string): Promise<void> {
+export async function validateDiscoveryPrivateDirectory(path: string): Promise<void> {
   if (resolve(path) !== path) fail('CONTROLLER_DISCOVERY_STATE_INVALID')
   let current = path
   while (true) {
@@ -32,7 +32,7 @@ async function privateDirectory(path: string): Promise<void> {
 
 export async function readDiscoveryPrivateFile(path: string, limit: number): Promise<string> {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 65536) fail('CONTROLLER_DISCOVERY_STATE_INVALID')
-  await privateDirectory(dirname(path))
+  await validateDiscoveryPrivateDirectory(dirname(path))
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
     const info = await file.stat()
@@ -53,10 +53,10 @@ export async function readDiscoveryPrivateFile(path: string, limit: number): Pro
 
 // Linux flock locks the inherited open file description, which the Node
 // process retains. No PID files or stale-lock deletion after an unclean exit.
-export async function acquireDiscoveryProcessLock(root: string): Promise<() => Promise<void>> {
+async function acquireDiscoveryLock(root: string, name: 'service.lock' | 'mutation.lock'): Promise<() => Promise<void>> {
   if (process.platform !== 'linux') fail('CONTROLLER_DISCOVERY_PLATFORM_UNSUPPORTED')
-  await privateDirectory(root)
-  const file = await open(join(root, 'service.lock'), constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600)
+  await validateDiscoveryPrivateDirectory(root)
+  const file = await open(join(root, name), constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600)
   try {
     const info = await file.stat()
     if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid!() || (info.mode & 0o777) !== 0o600) fail('CONTROLLER_DISCOVERY_STATE_INVALID')
@@ -69,6 +69,9 @@ export async function acquireDiscoveryProcessLock(root: string): Promise<() => P
   } catch (error) { await file.close(); throw error }
 }
 
+export const acquireDiscoveryProcessLock = (root: string) => acquireDiscoveryLock(root, 'service.lock')
+export const acquireDiscoveryMutationLock = (root: string) => acquireDiscoveryLock(root, 'mutation.lock')
+
 export interface DiscoveryNodeRecord {
   platformId: string; nodeId: string; enabled: boolean; publicKey: string; candidate: string
 }
@@ -80,9 +83,9 @@ export interface DiscoveryRepository {
 // Standalone service storage: local enrolled node records and immutable nonce
 // reservations only. No PayIncus database, admin cookie, OSS key or writer lease.
 export async function createFileDiscoveryRepository(root: string): Promise<DiscoveryRepository> {
-  await privateDirectory(root)
-  await privateDirectory(join(root, 'nodes'))
-  await privateDirectory(join(root, 'nonces'))
+  await validateDiscoveryPrivateDirectory(root)
+  await validateDiscoveryPrivateDirectory(join(root, 'nodes'))
+  await validateDiscoveryPrivateDirectory(join(root, 'nonces'))
   let queue: Promise<unknown> = Promise.resolve()
   return {
     async node(nodeId) {
@@ -107,7 +110,7 @@ export async function createFileDiscoveryRepository(root: string): Promise<Disco
         const directory = join(root, 'nonces', claim.nodeId)
         // Directories are prepared during enrollment; requests cannot create
         // arbitrary users or directory trees.
-        await privateDirectory(directory)
+        await validateDiscoveryPrivateDirectory(directory)
         const now = Date.now(), names: string[] = []
         // Stop enumeration before allocating an unbounded directory listing.
         const entries = await opendir(directory)

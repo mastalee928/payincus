@@ -10,6 +10,7 @@ import { createServer as createTcpServer } from 'node:net'
 import { promisify } from 'node:util'
 import { controllerSigningKeyId, signControllerPrepareConfig, type ControllerPrepareConfig } from '../src/lib/controller-config.js'
 import { acquireDiscoveryProcessLock, createControllerDiscoveryServer, createFileDiscoveryRepository, readDiscoveryPrivateFile } from '../src/services/controller-discovery.js'
+import { createControllerCandidateStore } from '../src/services/controller-candidate-store.js'
 
 const exec = promisify(execFile)
 const directory = await mkdtemp(join(tmpdir(), 'payincus-discovery-'))
@@ -74,6 +75,14 @@ try {
   await start()
   const headers = proofHeaders(), first = await send(headers)
   assert.equal(first.status, 200); assert.equal(first.body, candidate); assert.equal(first.headers['cache-control'], 'no-store'); count++
+  const store = await createControllerCandidateStore(state, options.trustedConfigKeys)
+  const published = signControllerPrepareConfig({ ...config, sequence: '2' }, rootKeys.privateKey)
+  await store.publish(nodeId, published)
+  assert.equal((await send(proofHeaders())).body, published); count++
+  await store.revoke(nodeId)
+  assert.equal((await send(proofHeaders())).status, 401); count++
+  // Restore only this isolated fixture for the remaining corruption tests.
+  await saveRecord(record)
   assert.equal((await send(headers)).status, 401); count++
   await stop(); await start()
   assert.equal((await send(headers)).status, 401, 'server restart must retain nonce reservations'); count++

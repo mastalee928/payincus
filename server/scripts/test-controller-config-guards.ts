@@ -142,3 +142,4 @@ await assert.rejects(verifyControllerReadProof(signedProof, { ...readTrust, clai
 await assert.rejects(verifyControllerReadProof(signedProof, { ...readTrust, claimNonce: undefined as unknown as typeof readTrust.claimNonce }), /CONTROLLER_DISCOVERY_NONCE_STORAGE_REQUIRED/)
 console.log('Controller discovery read proof guards passed: node/origin binding, nonce replay and storage failure')
 await import('./test-controller-discovery-service.js')
+await import('./test-controller-candidate-store.js')

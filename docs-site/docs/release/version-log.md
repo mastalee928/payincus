@@ -6,16 +6,48 @@
 
 ## 最新发布状态 / Latest Release State
 
-- 最新发布提交 / Latest Release Commit: `33b08791d`
+- 最新发布提交 / Latest Release Commit: `9d1e5ba47`
 - 提交日期 / Commit date: 2026-10-21
-- 提交说明 / Commit subject: feat: add recovery safety and customer instance operations for v1.7.0
-- 最新 tag / Latest tag: `v1.7.0`
+- 提交说明 / Commit subject: fix: preserve root ownership for legacy OTA upgrades in v1.7.1
+- 最新 tag / Latest tag: `v1.7.1`
 
 ## 未发布变更 / Unreleased Changes
 
-- 该 tag 与相邻 tag 指向同一提交，未产生额外 Git commit。
+### 新增能力 / New Capabilities
+
+- feat: add signed controller candidate discovery foundation `5e2a3ccfc`
+
+### 其他变更 / Other Changes
+
+- docs: specify gateway management failover and disaster recovery `41dcf168c`
+- docs: record installer inclusion in next regular release `38e50b40c`
+- docs: record owner confirmation of v1.7.1 host health `f4376a54b`
+- docs: record v1.7.1 release and verified test OTA `d762db4aa`
+
+### 修复与稳定性 / Fixes and Stability
+
+- fix: restore compatible OSS backups on replacement controllers `3a2d42f57`
+- fix: guide Cloudflare Tunnel setup and diagnose public access `e5c73e6a2`
 
 ## 历史版本 / Historical Versions
+
+## v1.7.1
+
+- 发布提交 / Release commit: `9d1e5ba47`
+- 提交日期 / Commit date: 2026-10-21
+- 提交说明 / Commit subject: fix: preserve root ownership for legacy OTA upgrades in v1.7.1
+
+
+修复 v1.7.0 从旧版本在线升级时，备份执行器安装步骤报告「Untrusted helper source」并自动回滚的问题。
+
+### 修复内容
+
+- 发行包统一使用 root 所有权，避免已经安装的旧 OTA 执行器按构建机 UID 解包后，无法通过受信运维文件检查。
+- 新 OTA 执行器解包时不继承归档所有者；在安装备份执行器前先完成现有权限加固。
+- 保留运维文件 root 所有权校验、受信清单、数据库及支付就绪检查和自动回滚，不通过放宽安全检查解决问题。
+- 双架构安装验证在安装器归一化权限前检查真实发行包的 UID/GID，避免首装成功掩盖旧 OTA 升级问题。
+
+包含 v1.7.0 的批量恢复、已售机器无损恢复、故障状态、日志脱敏、密码重装及同配置跨区域更换机器能力。旧机升级使用新发行包；已失败并回滚的更新保留原任务和数据库备份，重新发起新版更新。
 
 ## v1.7.0
 
@@ -23,6 +55,8 @@
 - 提交日期 / Commit date: 2026-10-21
 - 提交说明 / Commit subject: feat: add recovery safety and customer instance operations for v1.7.0
 
+
+> 已发现旧版本 OTA 更新到 v1.7.0 时可能因归档文件所有权校验失败而回滚。请使用 v1.7.1 修正版；已回滚的机器保留原任务和数据库备份，重新发起新版更新。
 
 完善平台恢复后的运营检查，新增批量恢复和管理员同配置跨区域更换机器，并修正客户故障状态、日志内容及密码重装体验。
 

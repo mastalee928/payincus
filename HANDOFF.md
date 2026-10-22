@@ -24,6 +24,10 @@
 
 ## 2026-10-23 签名候选与独立发现基础（隔离实测，完整接管未完成）
 
+- 基础提交 [5e2a3cc](https://github.com/mastalee928/payincus/commit/5e2a3ccfc341b4018a4a811e2e03fcb0339e8544) 已推送；[CI 39819910429](https://github.com/mastalee928/payincus/actions/runs/39819910429) 和 [Agent 构建 39819910433](https://github.com/mastalee928/payincus/actions/runs/39819910433) 均成功，Agent VERSION 未修改，发布作业未触发。文档站本地构建通过；这些结果不等同于线上接管。
+- 继续补齐内部候选状态库：受限结构登记、跨实例串行/跨进程 mutation.lock、原子持久发布、过期历史候选最高代次验证、同版本幂等及永久撤销墓碑；撤销不删除身份/nonce，不通过普通 enroll 自动复活。尚未开放受权网页/主控管理接口。Windows 20 项、Linux 22 项状态库边界及 29/43 项 HTTPS/CLI 检查通过；真实 Go 客户端经正式 CLI 验证登记→读取→新配置发布→再读取→撤销→拒绝，仍无写授权。最终全套 173 项通过，`logs/test-run-20261023-011442/summary.txt`；服务器编译通过。
+- 新增显式启用的 Linux `scripts/test-controller-fence-netns.py`，在未命名独立网络命名空间验证 8 项网络门禁方向：旧既有/新建管理套接字拒绝、新管理源通过、客户模拟连接保持、重载幂等，并证明已接受的任务不会随连接隔离取消。网络规则仅作用于测试命名空间，未改主控或宿主防火墙；使用 TCP/任务夹具，不冒充真实 WireGuard/SSH/Incus 或完整写者门禁。完整接管仍须执行路径/已启动任务隔离与核对，证据 `logs/controller-takeover-research-20261022/fence-netns.json`。
+
 - 新增 [CONTROLLER_CONFIG_PROTOCOL.md](CONTROLLER_CONFIG_PROTOCOL.md)。Node 与 Go 共用 Ed25519 字节封装、严格结构、平台/节点绑定、毫秒过期和精确 int64 字符串代次；未知命令、重复键、篡改、旧代次及同代次冲突拒绝。候选结果始终 canWrite=false，不授予管理写权。
 - Go 新增独立 HTTPS 签名读取和 Linux 最高观察代次存储：校验 TLS、禁止重定向/HTTP、响应限量，磁盘互斥/原子改名/文件及目录同步，重启重新加载；文件损坏、权限/链接/持久化异常拒绝。未接入现有 Agent main，不变更当前心跳或网络指令。
 - 独立 Node HTTPS 服务不导入业务后端、Prisma、Web cookie 或平台调度。节点独立签名请求、原点绑定、nonce 持久防重放、异步存储后再次核对撤销，错误信息脱敏。显式 CLI 仅监听 loopback，同状态目录 flock 防多进程，强制退出无需删除遗留锁；配置/TLS/状态均受文件权限及链接守卫约束。
