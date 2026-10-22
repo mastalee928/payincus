@@ -119,12 +119,12 @@ export async function createControllerWitness(root: string, identity: { platform
     return Math.max(now, state.lastObservedAt)
   }
   return {
-    async preparePermit(witnessId: string, signingKey: KeyObject): Promise<string> {
+    async preparePermit(): Promise<string> {
       return serialized(async () => {
         const state = await read(), now = checkClock(state, Date.now())
-        require(state.phase === 'preparing' && state.expiresAt > now)
-        const encoded = signControllerPreparePermit({ schemaVersion: 1, purpose: 'host-fence-prepare', witnessId,
-          ...binding(state), issuedAt: now, expiresAt: Math.min(state.expiresAt, now + 60000) }, signingKey)
+        require(authority && state.phase === 'preparing' && state.expiresAt > now)
+        const encoded = signControllerPreparePermit({ schemaVersion: 1, purpose: 'host-fence-prepare', witnessId: authority.witnessId,
+          ...binding(state), issuedAt: now, expiresAt: Math.min(state.expiresAt, now + 60000) }, authority.signingKey)
         // Persist time before releasing the signed preparation authority.
         await save({ ...state, lastObservedAt: now })
         return encoded

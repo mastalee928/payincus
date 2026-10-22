@@ -47,7 +47,7 @@ try {
   ])
   assert.equal(concurrent.filter(item => item.status === 'fulfilled').length, 1); checks++
   const binding = await second.prepare(candidate({ epoch: '9007199254740994' }))
-  const permit = await second.preparePermit(witnessId, root.privateKey)
+  const permit = await second.preparePermit()
   assert.equal(verifyControllerPreparePermit(permit, { binding, witnessId, trustedWitnessKeys: candidateKeys, now: Date.now() }).epoch, binding.epoch); checks++
   const receiptTime = Date.now()
   const receipt: ControllerFenceReceipt = { schemaVersion: 1, purpose: 'host-fence-receipt', ...binding,
@@ -63,7 +63,7 @@ try {
   const signedReceipt = signControllerFenceReceipt(receipt, node.privateKey)
   const leases = await Promise.all([first.activate(signedReceipt), second.activate(signedReceipt)])
   assert.equal(leases[0].leaseId, leases[1].leaseId); assert.equal(leases[0].signedWriteLeaseAvailable, false); checks++
-  await assert.rejects(second.preparePermit(witnessId, root.privateKey), /WITNESS_INVALID/); checks++
+  await assert.rejects(second.preparePermit(), /WITNESS_INVALID/); checks++
   const restoredProcess = await createControllerWitness(directory, identity, trust)
   await assert.rejects(restoredProcess.prepare(candidate()), /ROLLBACK/); checks++
   assert.equal((await restoredProcess.status()).state.bootId, receipt.bootId); checks++
