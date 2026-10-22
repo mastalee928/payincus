@@ -189,3 +189,5 @@ host-management-channels/v1 是独立传输协议，不是写租约。Ed25519 �
 --restore 只恢复已落盘、验签且身份固定的最高传输配置；它可在配置时间过期而主控离线时维持恢复通道，但不接受远端过期更新，不授权资源写。--serve 持有独立服务锁，启动先恢复，每30秒核验受保护签名更新并重解析域名；更新拒绝单独报告，随后只尝试恢复当前已认证状态。DNS解析失败或私网/混合结果拒绝，不降低公钥认证。
 
 显式 `scripts/test-controller-channels-netns.py` 使用root/unshare/ip/wg/ping，在与父宿主分离的网络命名空间运行真实Go路径及WireGuard A/B，另有两个网关namespace。实测双握手、坏签名/路由冲突/重放拒绝、A断链B继续、接口丢失恢复、过期本地恢复与过期更新拒绝、独立命令/单服务/停止保持通道，客户默认路由一致。该测试不是独立机器故障或实际客户验收，正式安装、Alpine/Debian启动顺序、跨机UDP、发现下发及页面仍待验证。
+
+显式安装入口 `bash scripts/install-management-channels.sh --plan|--install <二进制> <SHA256> <受保护配置>`；计划不改系统，安装先验哈希/配置/原单元归属，再执行签名通道命令。systemd使用独立unit、ExecStartPre同步恢复接口、限128MiB/CAP_NET_ADMIN与NET_RAW、仅状态目录可写，不依赖PayIncus/PostgreSQL/Nginx。OpenRC生成独立服务与start_pre恢复，未在Alpine完成实际验收。停止服务不删除通道；再次启动先恢复接口，再由握手验证确认对端可达，不能仅凭active宣称通信完成。
