@@ -81,3 +81,9 @@ Go observed.json、observe.lock 放在宿主独立 0700 目录，不能随历史
 现有代码入口复审覆盖 configure-oci-node-network.sh、onboarding-ssh.ts、incus-client.ts、incus-pool.ts、terminal-proxy.ts、instanceTaskWorker.ts、hostOnboardingWorker.ts、auto-policy-scheduler.ts 与 host-pool-recovery.ts。Incus 长任务提交后可独立运行，连接池和终端也可能保留旧连接；仅新后端停止写不能约束已失联旧后端。客户公网 SSH 的交付验证是访问客户实例，不可当作宿主恢复路径或由宿主管理门禁误拦。
 
 下一阶段门禁顺序：获得独立见证候选授权→宿主拒绝旧写连接及新旧管理凭据旁路→清点并中止/等待旧的可识别写任务→持久记录隔离回执→新写租约激活→资源/实例核对。无法证明旧操作结束时保持接管待核对，不能只凭新握手成功继续创建或出售。租约过期或见证失联时拒绝新管理写入，保留客户规则与磁盘；网络分区和旧主控复活需真实专用宿主验证。
+
+已新增 inspectControllerQuiescence 只读检查：严格解析实际 Incus 的状态→数组分组、ID/状态码一致性，拒绝未知/非递归格式；任何活动操作、遗留凭据旁路、未隔离旧连接、SSH 进程或本地任务都阻断。canActivate 只表示输入事实无未结束工作，既不是签名回执，也不是资源一致性结论或写租约；宿主执行器仍需实际收集、绑定代次并签名。
+
+真实 Incus 6.0.4 在隔离 mount/net/pid 命名空间及独立状态目录验证：提交延迟镜像任务后关闭客户端连接，任务仍运行；本模块准确拒绝，任务最终失败结束后才认定工作静止。失败任务的资源核对仍必须单独完成。实验不创建容器，不改系统 Incus 服务，不接管客户宿主。测试程序为 scripts/test-controller-quiescence-incus.py，需先在专用 Linux ARM64 实验目录提取 Debian 的 incus-base、incus-client 及依赖，并编译服务器；当前依赖布局只验证 ARM64。
+
+复验时明确配置 INCUDAL_INCUS_TEST_ROOT（含 rootfs 提取目录）、INCUDAL_QUIESCENCE_CHECK_SCRIPT（仓库 scripts/check-controller-quiescence.mjs 的绝对路径），设置 INCUDAL_INCUS_QUIESCENCE_TEST=1 并保存父 net/mnt/pid 命名空间标识到 INCUDAL_PARENT_NET/MNT/PID；随后由 unshare --mount --net --pid --fork --mount-proc 启动 Python 程序。脚本在任何 mount 或服务启动之前核对三个 namespace 必须不同。sys 与 proc/sys 只读，隐藏 AppArmor 控制目录，状态目录每轮新建；服务在 finally 终止，数据与日志留在专用实验目录，不进入备份或发行资产。该显式真机测试不加入普通无基础设施守卫清单。

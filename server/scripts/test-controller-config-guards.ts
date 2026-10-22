@@ -143,3 +143,4 @@ await assert.rejects(verifyControllerReadProof(signedProof, { ...readTrust, clai
 console.log('Controller discovery read proof guards passed: node/origin binding, nonce replay and storage failure')
 await import('./test-controller-discovery-service.js')
 await import('./test-controller-candidate-store.js')
+await import('./test-controller-quiescence.js')
