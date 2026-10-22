@@ -213,3 +213,13 @@ gateway-transport/v1由预登记配置根签名，绑定平台/网关身份、�
 可选writerAuditPolicy只从受保护宿主登记加载，包含允许的固定可执行文件哈希、配置文件哈希与完整调度目录清单；不接受“已隔离”远端布尔值。拒绝shell/解释器/SSH/cron等程序作为无害例外，核对有效UID、permitted capability及Incus管理组，读取真实procfs、PID/start身份/可执行链接并再次枚举，变化不作为稳定快照。
 
 审计限量清点Incus本地socket、netlink及BPF描述符、未知特权进程、系统/root调度配置和文件哈希；禁止读取cmdline/environ或打印凭据。文件使用NOFOLLOW/权限/单链接检查，缺失或未知调度目录及启用子目录保持阻断。结果可出现在维护预检writerAudit；ManagedWriterIsolationVerified保持false，事实检查通过本身不撤销旧授权或证明定时任务/任意root旁路已隔离，不能签完整宿主回执或开放写租约。
+
+## 19. 网关独立 HTTPS 认证与控制台
+
+run-gateway-console.js提供显式初始化/服务入口，不加载PayIncus app、数据库或平台登录。网关账号使用独立scrypt密码、TOTP seed、一次性恢复码哈希；TOTP步数和恢复码消耗先持久化，登录失败五次锁15分钟，重启不清锁。会话只在当前服务进程保存，账号版本撤销、重启及退出后失效；敏感后续动作须两分钟内重新认证。受保护认证文件及状态检查不允许缺失/损坏重建。
+
+HTTPS最低TLS1.3，Host绑定独立origin，Cookie为__Host/Secure/HttpOnly/SameSite=Strict、无Domain。POST要求同源Origin和CSRF，拒绝跨站Fetch、未知端点、超限/压缩/重复键正文；CSP仅允许自身脚本/样式，禁止嵌入。浏览器登录响应不返回会话token、密码、MFA seed或恢复码。当前仅登录/会话/重新认证/退出及只读本机状态，不暴露任意命令、资源代理或应急写入口。
+
+控制台按黑白Data terminal方向（seed779163351，保留品牌字体/配色）展示真实网关身份、签名代次、peer、近期握手、接口/地址/回程路由和灾备阻断条件。数据采集使用固定本机ip/wg命令，不读私钥；完整路由清单保留dev字段，避免ip按dev过滤省略字段造成错误。传输ready不等于canWrite；尚未完成的写代理/备份明确显示阻断。桌面/平板/手机、原生表单、错误提示、主题/刷新/退出与恢复码重放已有浏览器测试，样本状态与真机状态分开记录。
+
+安装器install-gateway-console.sh检查运行时/入口/配置的root归属和受保护目录，拒绝未知已有unit；systemd独立生命周期、只写auth目录、256MiB限额，传输不随Web停止。OpenRC定义已提供，Alpine实际验收仍待完成。初始MFA与恢复材料独立保存，初始化后运行配置initialUser设为null；首次页面配置/主控联动和应急操作仍待后续施工。

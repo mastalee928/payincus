@@ -10,7 +10,7 @@
     "postinstall": "prisma generate",
     "dev": "cross-env NODE_ENV=development JWT_SECRET=dev-secret-12345678 HOST=127.0.0.1 PORT=3001 tsx watch src/app.ts",
     "start": "node dist/app.js",
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-gateway-ui.mjs",
     "type-check": "tsc --noEmit",
     "test:host-pool-guards": "node --import tsx scripts/test-host-pool-guards.ts",
     "test:instance-config-access": "node --import tsx scripts/test-instance-config-access.ts",

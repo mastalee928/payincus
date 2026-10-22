@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PayIncus · 独立网关</title><link rel="stylesheet" href="/console.css">
+  <script src="/console.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#workspace">跳至主要内容</a>
+  <header class="shell"><span class="brand">PayIncus</span><span class="scope">独立网关</span><button id="theme" type="button">切换主题</button></header>
+  <main id="workspace" class="workspace">
+    <section id="login-view" class="login-layout">
+      <div><h1>网关控制台</h1><p class="lead">主控离线时，仍可核验管理通道与灾备覆盖。</p><p class="muted">使用此网关的独立账号和验证器登录。</p></div>
+      <form id="login-form" class="panel" aria-describedby="login-error">
+        <label for="username">账号</label><input id="username" name="username" autocomplete="username" required maxlength="64">
+        <label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256">
+        <label for="totp">验证器验证码</label><input id="totp" name="totp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+        <button id="recovery-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="recovery-fields">使用恢复码</button>
+        <div id="recovery-fields" hidden><label for="recovery-code">一次性恢复码</label><input id="recovery-code" name="recovery-code" autocomplete="off" maxlength="64"><p class="muted small">成功登录后，此恢复码会立即失效。</p></div>
+        <p id="login-error" class="error" role="alert"></p><button id="login-submit" class="primary" type="submit">登录网关</button>
+      </form>
+    </section>
+    <section id="console-view" hidden>
+      <div class="title-row"><div><h1>管理通道</h1><p id="gateway-summary" class="lead">正在读取此网关状态。</p></div><div class="actions"><button id="refresh" type="button">重新检查</button><button id="logout" type="button">退出</button></div></div>
+      <p id="console-error" class="error" role="alert"></p>
+      <div class="overview">
+        <section class="panel status-panel"><h2>网关身份</h2><dl><div><dt>角色位置</dt><dd id="slot">—</dd></div><div><dt>配置代次</dt><dd id="generation">—</dd></div><div><dt>管理地址</dt><dd id="address">—</dd></div><div><dt>组件版本</dt><dd id="version">—</dd></div></dl><p id="identity" class="muted identity"></p></section>
+        <section class="panel"><h2>接管条件</h2><p id="write-state" class="condition">正在核验</p><ul id="blockers" class="blockers"></ul><p class="muted small">通道连接与控制权授权分别核验。</p></section>
+      </div>
+      <section class="node-section"><div class="section-title"><h2>节点连接</h2><span id="node-count" class="muted"></span></div><ul id="nodes" class="nodes" aria-live="polite"></ul></section>
+      <section class="backup-section"><h2>灾备覆盖</h2><p id="backup-status">正在读取备份状态。</p><p id="updated" class="muted small" role="status"></p></section>
+    </section>
+  </main>
+</body>
+</html>
