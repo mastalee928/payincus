@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { createHash } from 'node:crypto'
 import { Pool, type PoolClient } from 'pg'
 import { BackupError, ensure } from './platform-backup-core.js'
+import type { BackupMigration } from './platform-backup-compatibility.js'
 
 const exec = promisify(execFile)
 export function postgresConnection() {
@@ -27,10 +28,15 @@ export async function pgQuery<T extends import('pg').QueryResultRow>(sql: string
   const pool = new Pool({ connectionString: url.toString(), max: 1, connectionTimeoutMillis: 15000, statement_timeout: 60000 })
   try { return (await pool.query<T>(sql, params)).rows } finally { await pool.end() }
 }
+export async function appliedBackupMigrations(database?: string): Promise<BackupMigration[]> {
+  const [unfinished] = await pgQuery<{ count: string }>('SELECT count(*)::text AS count FROM "_prisma_migrations" WHERE finished_at IS NULL AND rolled_back_at IS NULL', [], database)
+  ensure(unfinished.count === '0', 'OSS_MIGRATION_HISTORY_MISMATCH', 409)
+  return pgQuery<BackupMigration>('SELECT migration_name, checksum FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name', [], database)
+}
 export async function databaseMetadata(database?: string) {
   const [info] = await pgQuery<{ version: string; bytes: string; superuser: boolean }>("SELECT current_setting('server_version_num') AS version, pg_database_size(current_database())::text AS bytes, rolsuper AS superuser FROM pg_roles WHERE rolname=current_user", [], database)
   ensure(!info.superuser, 'OSS_DATABASE_SUPERUSER_FORBIDDEN', 503)
-  const migrations = await pgQuery('SELECT migration_name, checksum FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name', [], database)
+  const migrations = await appliedBackupMigrations(database)
   return { postgresMajor: Math.floor(Number(info.version) / 10000), bytes: Number(info.bytes), migrationHash: createHash('sha256').update(JSON.stringify(migrations)).digest('hex') }
 }
 // Child utilities run as the application OS user; secrets never enter argv or logs.
@@ -61,6 +67,21 @@ export async function dumpDatabase(destination: string, snapshot?: string) {
 }
 export async function restoreDatabase(source: string, target: string) {
   await pgProcess('pg_restore', ['--dbname', target, '--no-owner', '--no-privileges', '--exit-on-error', '--single-transaction'], target, source)
+}
+
+export async function migrateBackupDatabase(app: string, database: string) {
+  const uid = Number((await exec('/usr/bin/id', ['-u', 'incudal'])).stdout.trim())
+  const gid = Number((await exec('/usr/bin/id', ['-g', 'incudal'])).stdout.trim())
+  ensure(uid > 0 && gid > 0 && /^incudal_(check|restore)_[a-f0-9]{32}$/.test(database), 'OSS_RUNTIME_INVALID', 503)
+  const { url } = postgresConnection(); url.pathname = `/${database}`
+  // Execute installed release tooling only, with destination credentials in env.
+  // Never load archived .env or execute archived migration files.
+  try {
+    await exec('/usr/bin/node', [join(app, 'server/node_modules/prisma/build/index.js'), 'migrate', 'deploy'], {
+      cwd: join(app, 'server'), uid, gid, timeout: 10 * 60 * 1000, maxBuffer: 1024 * 1024,
+      env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/opt/incudal', NODE_ENV: 'production', DATABASE_URL: url.toString() }
+    })
+  } catch { throw new BackupError('OSS_BACKUP_MIGRATION_FAILED', 409) }
 }
 export async function restoreDatabaseSql(source: string, target: string) {
   await pgProcess('psql', ['-X', '--set', 'ON_ERROR_STOP=1', '--single-transaction', '--dbname', target], target, source)
@@ -129,7 +150,7 @@ export function normalizedDumpHash(value: string) {
   }
   return createHash('sha256').update(value).digest('hex')
 }
-async function schemaFingerprint(directory: string, suffix: string, database?: string, snapshot?: string) {
+export async function schemaFingerprint(directory: string, suffix: string, database?: string, snapshot?: string) {
   const path = join(directory, `schema-${suffix}.sql`)
   // Verification normalizes destination role/tablespace mapping only. The actual archive keeps this metadata.
   await pgProcess('pg_dump', ['--schema-only', '--no-owner', '--no-privileges', '--no-tablespaces', ...(snapshot ? [`--snapshot=${validateSnapshot(snapshot)}`] : [])], database, undefined, path)
@@ -247,14 +268,25 @@ export async function verifyRestoredDatabase(database: string, expected: Databas
 export async function verifyDatabaseBackup(source: string, expected: DatabaseIntegrity, directory: string, taskId: string) {
   ensure(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(taskId), 'OSS_TASK_INVALID')
   const staging = `incudal_verify_${taskId.replace(/-/g, '')}`
+  await createBackupRestoreDatabase(staging, expected)
+  try { await restoreDatabase(source, staging); await verifyRestoredDatabase(staging, expected, directory, 'verified') }
+  finally { await localDatabaseAdmin(`DROP DATABASE ${quoteIdentifier(staging)} WITH (FORCE);`) }
+}
+export async function createBackupRestoreDatabase(staging: string, expected?: DatabaseIntegrity) {
+  ensure(/^incudal_(check|restore|verify)_[a-f0-9]{32}$/.test(staging), 'OSS_RUNTIME_INVALID', 503)
+  if (!expected) {
+    await localDatabaseAdmin(`CREATE DATABASE ${quoteIdentifier(staging)} OWNER ${quoteIdentifier(postgresConnection().user)} TEMPLATE template0;`)
+    return
+  }
   const properties = expected.database
   ensure(typeof properties.datcollate === 'string' && typeof properties.datctype === 'string' && typeof properties.encodingName === 'string', 'OSS_DATABASE_INTEGRITY_INVALID')
   const provider = properties.datlocprovider
   ensure(!provider || provider === 'c', 'OSS_DATABASE_LOCALE_UNSUPPORTED', 409)
+  const locales = (await exec('/usr/bin/locale', ['-a'], { timeout: 10000 })).stdout.split(/\r?\n/)
+  const localeKey = (value: string) => value.toLowerCase().replace(/utf-8/g, 'utf8')
+  ensure([properties.datcollate, properties.datctype].every(value => locales.some(locale => localeKey(locale) === localeKey(value))), 'OSS_DATABASE_LOCALE_UNAVAILABLE', 409)
   // Locale differences must not silently change index or text semantics during verification.
   await localDatabaseAdmin(`CREATE DATABASE ${quoteIdentifier(staging)} OWNER ${quoteIdentifier(postgresConnection().user)} TEMPLATE template0 ENCODING ${quoteLiteral(properties.encodingName)} LC_COLLATE ${quoteLiteral(properties.datcollate)} LC_CTYPE ${quoteLiteral(properties.datctype)};`)
-  try { await restoreDatabase(source, staging); await verifyRestoredDatabase(staging, expected, directory, 'verified') }
-  finally { await localDatabaseAdmin(`DROP DATABASE ${quoteIdentifier(staging)} WITH (FORCE);`) }
 }
 export async function localDatabaseAdmin(sql: string) {
   const { url } = postgresConnection()

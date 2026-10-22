@@ -245,6 +245,18 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
       <button type="button" class="btn-secondary shrink-0 self-start whitespace-nowrap" @click="refresh">{{ t('common.refresh') }}</button>
     </section>
 
+    <details class="card p-4">
+      <summary class="cursor-pointer text-sm font-medium text-themed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4">{{ t('onboarding.gatewaySetup') }}</summary>
+      <div class="mt-3 space-y-3 text-sm text-themed-muted">
+        <p>{{ t('onboarding.gatewaySetupHint') }}</p>
+        <pre class="rounded-lg bg-themed-secondary p-3 text-xs text-themed whitespace-pre-wrap break-all"><code>curl -fsSL https://raw.githubusercontent.com/mastalee928/payincus/main/scripts/install-panel.sh -o install-panel.sh
+sudo bash install-panel.sh --configure-host-pool</code></pre>
+        <p>{{ t('onboarding.gatewaySetupAddress') }}</p>
+        <p>{{ t('onboarding.gatewaySetupCheck') }}</p>
+        <a class="inline-block underline underline-offset-4 text-themed" href="https://mastalee928.github.io/payincus/deployment/one-click-install.html#机器池管理网关" target="_blank" rel="noopener noreferrer">{{ t('onboarding.gatewaySetupDocs') }}</a>
+      </div>
+    </details>
+
     <div class="flex flex-wrap gap-2" role="tablist" :aria-label="t('onboarding.title')">
       <button type="button" role="tab" :aria-selected="activeTab === 'hosts'" :class="activeTab === 'hosts' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'hosts'">{{ t('hostInventory.hostsTab') }}</button>
       <button type="button" role="tab" :aria-selected="activeTab === 'tasks'" :class="activeTab === 'tasks' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'tasks'">{{ t('hostInventory.tasksTab') }}</button>

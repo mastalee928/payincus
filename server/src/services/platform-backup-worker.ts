@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 import { existsSync } from 'node:fs'
 import { chmod, chown, copyFile, lstat, mkdir, readdir, readFile, rm, stat, statfs, unlink, writeFile } from 'node:fs/promises'
@@ -7,14 +8,15 @@ import { parse as parseEnv } from 'dotenv'
 import { AliyunOssClient, sanitizedOssError } from './aliyun-oss-client.js'
 import { atomicFileCopy, decryptBackup, encryptBackup, hashFile, validAssetName, type BackupManifest, type BackupSource } from './platform-backup-archive.js'
 import { BACKUP_INTERVALS, BACKUP_RETENTIONS, backupRoot, BackupError, ensure, openSecret, readJson, recoveryHeld, sealSecret, statePath, validateBucket, validateId, validatePrefix, validateRegion, writeBackupConfig, writeJson, type BackupConfig, type BackupTaskRequest, type BackupTaskResult } from './platform-backup-core.js'
-import { captureDatabaseBackup, databaseMetadata, localDatabaseAdmin, pgQuery, postgresConnection, quoteIdentifier, restoreDatabase, verifyDatabaseBackup, verifyRestoredDatabase, type DatabaseIntegrity } from './platform-backup-database.js'
+import { appliedBackupMigrations, captureDatabaseBackup, createBackupRestoreDatabase, databaseMetadata, localDatabaseAdmin, migrateBackupDatabase, normalizedDumpHash, pgQuery, postgresConnection, quoteIdentifier, restoreDatabase, schemaFingerprint, verifyDatabaseBackup, verifyRestoredDatabase, type DatabaseIntegrity } from './platform-backup-database.js'
+import { assertBackupVersion, assertMigrationHistory, normalizedReleaseSchema, releaseMigrationHash, releaseMigrations } from './platform-backup-compatibility.js'
 import { exportReadableDatabase } from './platform-backup-database.js'
 import { createReadableZip, readableZipName, validReadableZipName } from './platform-backup-readable.js'
 import { refreshRestoredGateway } from './platform-backup-gateway.js'
 
 const exec = promisify(execFile)
 const INSTALL = '/opt/incudal'
-interface RestorePlan { id: string; createdBy: number; expiresAt: string; manifest: BackupManifest; prefix: string; files: Array<[string, string]> }
+interface RestorePlan { id: string; createdBy: number; expiresAt: string; manifest: BackupManifest; prefix: string; files: Array<[string, string]>; compatibility?: { targetVersion: string; postgresMajor: number; migrationHash: string; releaseHash: string; schemaHash: string } }
 interface RestoreJournal { taskId: string; database: string; staging: string; rollback: string; stage: string; config: BackupConfig; files: Array<{ target: string; saved: string | null; mode: number }> }
 const holdPath = () => join(backupRoot(), 'recovery-hold.json')
 const taskDir = (id: string) => statePath('private', validateId(id))
@@ -31,6 +33,37 @@ async function version(): Promise<string> {
   const pkg = await readJson<{ version: string }>(join(root, 'package.json'))
   const result = metadata?.version || pkg?.version
   ensure(result, 'OSS_VERSION_UNKNOWN', 503); return result.replace(/^v/, '')
+}
+
+export async function verifyBackupCompatibility(manifest: BackupManifest, staging: string, directory: string, expected?: RestorePlan['compatibility']) {
+  const app = process.env.INCUDAL_APP_DIR || (existsSync(`${INSTALL}/current`) ? `${INSTALL}/current` : INSTALL)
+  const current = await databaseMetadata(), targetVersion = await version(), release = await releaseMigrations(app)
+  assertBackupVersion(manifest.version, targetVersion)
+  ensure(manifest.postgresMajor === current.postgresMajor, 'OSS_POSTGRES_VERSION_MISMATCH', 409)
+  assertMigrationHistory(await appliedBackupMigrations(), release, true)
+  const raw = await databaseMetadata(staging)
+  // The authenticated manifest must describe exactly what was restored.
+  ensure(raw.migrationHash === manifest.migrationHash, 'OSS_MIGRATION_HISTORY_MISMATCH', 409)
+  const rows = await appliedBackupMigrations(staging)
+  assertMigrationHistory(rows, release)
+  const targetDirectory = join(directory, `target-schema-${randomUUID()}`)
+  await mkdir(targetDirectory, { mode: 0o700 })
+  await schemaFingerprint(targetDirectory, 'target')
+  const schemaHash = normalizedDumpHash(normalizedReleaseSchema(await readFile(join(targetDirectory, 'schema-target.sql'), 'utf8'), release))
+  const compatibility = { targetVersion, postgresMajor: current.postgresMajor, migrationHash: current.migrationHash, releaseHash: releaseMigrationHash(release), schemaHash }
+  if (expected) ensure(JSON.stringify(expected) === JSON.stringify(compatibility), 'OSS_PREVIEW_TARGET_CHANGED', 409)
+  // Canonicalize only release-verified newline aliases in the isolated database.
+  for (const [i, row] of rows.entries()) if (row.checksum !== release[i].checksum) {
+    await pgQuery('UPDATE "_prisma_migrations" SET checksum=$1 WHERE migration_name=$2 AND checksum=$3', [release[i].checksum, row.migration_name, row.checksum], staging)
+  }
+  if (rows.length < release.length) await migrateBackupDatabase(app, staging)
+  assertMigrationHistory(await appliedBackupMigrations(staging), release, true)
+  const restoredDirectory = join(directory, `restored-schema-${randomUUID()}`)
+  await mkdir(restoredDirectory, { mode: 0o700 })
+  await schemaFingerprint(restoredDirectory, 'restored', staging)
+  const restoredHash = normalizedDumpHash(normalizedReleaseSchema(await readFile(join(restoredDirectory, 'schema-restored.sql'), 'utf8'), release))
+  ensure(restoredHash === schemaHash, 'OSS_BACKUP_SCHEMA_MISMATCH', 409)
+  return compatibility
 }
 async function listSources(): Promise<BackupSource[]> {
   const sources: BackupSource[] = [{ name: 'runtime.env', path: `${INSTALL}/.env` }]
@@ -265,18 +298,23 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
       await freeSpace(archive.manifest.databaseBytes * 2 + source.bytes * 2)
       ensure(archive.manifest.id === source.id && archive.manifest.installationId === source.installationId, 'OSS_ARCHIVE_INVALID')
       const current = await databaseMetadata()
-      ensure(archive.manifest.version === await version() && archive.manifest.postgresMajor === current.postgresMajor && archive.manifest.migrationHash === current.migrationHash, 'OSS_VERSION_MISMATCH', 409)
+      assertBackupVersion(archive.manifest.version, await version())
+      ensure(archive.manifest.postgresMajor === current.postgresMajor, 'OSS_POSTGRES_VERSION_MISMATCH', 409)
       const staging = `incudal_check_${id.replace(/-/g, '')}`
-      await localDatabaseAdmin(`CREATE DATABASE ${quoteIdentifier(staging)} OWNER ${quoteIdentifier(postgresConnection().user)} TEMPLATE template0;`)
+      const integrity = archive.files.has('database-integrity.json') ? await readJson<DatabaseIntegrity>(archive.files.get('database-integrity.json')!) : undefined
+      ensure(!archive.files.has('database-integrity.json') || integrity, 'OSS_DATABASE_INTEGRITY_INVALID')
+      await createBackupRestoreDatabase(staging, integrity || undefined)
+      let compatibility: RestorePlan['compatibility']
       try {
         await update('checking_database'); await restoreDatabase(archive.files.get('database.dump')!, staging)
         if (archive.files.has('database-integrity.json')) {
           const expected = await readJson<DatabaseIntegrity>(archive.files.get('database-integrity.json')!); ensure(expected, 'OSS_DATABASE_INTEGRITY_INVALID')
           await verifyRestoredDatabase(staging, expected, directory, 'preview')
         }
-        const restored = await databaseMetadata(staging); ensure(restored.migrationHash === current.migrationHash, 'OSS_VERSION_MISMATCH')
+        await update('checking_compatibility')
+        compatibility = await verifyBackupCompatibility(archive.manifest, staging, directory)
       } finally { await localDatabaseAdmin(`DROP DATABASE IF EXISTS ${quoteIdentifier(staging)} WITH (FORCE);`) }
-      const plan: RestorePlan = { id, createdBy: request.createdBy, expiresAt: new Date(Date.now() + 15 * 60000).toISOString(), manifest: archive.manifest, prefix: source.prefix, files: [...archive.files] }
+      const plan: RestorePlan = { id, createdBy: request.createdBy, expiresAt: new Date(Date.now() + 15 * 60000).toISOString(), manifest: archive.manifest, prefix: source.prefix, files: [...archive.files], compatibility }
       await prepareFiles(plan, directory)
       await writeJson(join(directory, 'plan.json'), plan)
       result.preview = { version: plan.manifest.version, createdAt: plan.manifest.createdAt, files: plan.files.length, expiresAt: plan.expiresAt }
@@ -287,11 +325,11 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
       ensure(request.confirmation === `RESTORE ${previewId}`, 'OSS_CONFIRMATION_REQUIRED')
       const plan = await readJson<RestorePlan>(join(taskDir(previewId), 'plan.json'), 4 * 1024 * 1024)
       ensure(plan && plan.createdBy === request.createdBy && Date.parse(plan.expiresAt) > Date.now(), 'OSS_PREVIEW_EXPIRED', 409)
-      ensure(plan.manifest.version === await version() && plan.manifest.migrationHash === (await databaseMetadata()).migrationHash, 'OSS_VERSION_MISMATCH', 409)
+      ensure(plan.compatibility, 'OSS_PREVIEW_EXPIRED', 409)
       // Consume before side effects. The authenticated package is root-private and immutable to the API user.
       await unlink(join(taskDir(previewId), 'plan.json'))
       const actions = await prepareFiles(plan, directory)
-      const files = new Map(plan.files), { database, user } = postgresConnection()
+      const files = new Map(plan.files), { database } = postgresConnection()
       const staging = `incudal_restore_${id.replace(/-/g, '')}`, rollback = `incudal_before_${id.replace(/-/g, '')}`
       await freeSpace((await databaseMetadata()).bytes + plan.manifest.databaseBytes * 2)
       const journal: RestoreJournal = { taskId: id, database, staging, rollback, stage: 'prepared', config: request.config, files: [] }
@@ -300,12 +338,16 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
       preserve = true
       await writeJson(join(directory, 'journal.json'), journal)
       await update('stopping'); await service('stop')
-      await localDatabaseAdmin(`CREATE DATABASE ${quoteIdentifier(staging)} OWNER ${quoteIdentifier(user)} TEMPLATE template0;`)
+      const integrity = files.has('database-integrity.json') ? await readJson<DatabaseIntegrity>(files.get('database-integrity.json')!) : undefined
+      ensure(!files.has('database-integrity.json') || integrity, 'OSS_DATABASE_INTEGRITY_INVALID')
+      await createBackupRestoreDatabase(staging, integrity || undefined)
       await update('restoring_database'); await restoreDatabase(files.get('database.dump')!, staging)
       if (files.has('database-integrity.json')) {
         const expected = await readJson<DatabaseIntegrity>(files.get('database-integrity.json')!); ensure(expected, 'OSS_DATABASE_INTEGRITY_INVALID')
         await verifyRestoredDatabase(staging, expected, directory, 'restore')
       }
+      await update('checking_compatibility')
+      await verifyBackupCompatibility(plan.manifest, staging, directory, plan.compatibility)
       // Expire every restored session and API credential. They may have been revoked since the snapshot.
       await pgQuery('DELETE FROM refresh_tokens', [], staging)
       await pgQuery('UPDATE public_api_tokens SET revoked_at=NOW() WHERE revoked_at IS NULL', [], staging)
@@ -348,12 +390,14 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
       // Recreate only trusted gateway authorization/helper code, not arbitrary archived scripts.
       if (files.has('gateway.conf')) {
         const app = process.env.INCUDAL_APP_DIR || `${INSTALL}/current`
+        // A new controller may have a different management subnet/identity.
+        // Activate the restored configuration before validating its gateway.
+        await refreshRestoredGateway(gatewayBefore!)
         await exec('/usr/bin/bash', [join(app, 'scripts/install-onboarding-gateway.sh'), `${INSTALL}/server/certs/onboarding-gateway.key`], { timeout: 30000 })
         // ssh-keygen in the installer tightens the key to 0600. The backend
         // must regain its existing group-read permission before it starts.
         await chmod(`${INSTALL}/server/certs/onboarding-gateway.key`, 0o640)
         await chown(`${INSTALL}/server/certs/onboarding-gateway.key`, 0, gid)
-        await refreshRestoredGateway(gatewayBefore!)
       }
       const savedConfig = { ...request.config, enabled: false, nextRunAt: null, testedRevision: null }
       const accessSecret = openSecret(savedConfig.accessKeySecret), backupPassword = savedConfig.backupPassword ? openSecret(savedConfig.backupPassword) : ''

@@ -12,11 +12,39 @@ import { AliyunOssClient, sanitizedOssError } from '../src/services/aliyun-oss-c
 import { assertDatabaseIntegrity, normalizedDumpHash, type DatabaseIntegrity } from '../src/services/platform-backup-database.js'
 import { createReadableZip, readableZipName, verifyReadableZip } from '../src/services/platform-backup-readable.js'
 import { retainGatewayEndpoints } from '../src/services/platform-backup-gateway.js'
+import { assertBackupVersion, assertMigrationHistory, normalizedReleaseSchema, releaseMigrationHash, releaseMigrations } from '../src/services/platform-backup-compatibility.js'
 
 process.env.ENCRYPTION_KEY = 'local-test-encryption-key-not-a-real-credential'
 const workspace = await mkdtemp(join(tmpdir(), 'payincus-oss-test-'))
 assert.ok(resolve(workspace).startsWith(resolve(tmpdir(), 'payincus-oss-test-')))
 try {
+  assertBackupVersion('1.6.8', '1.7.1')
+  assertBackupVersion('v1.7.1', '1.7.1')
+  assertBackupVersion('preview-abcdef1', 'preview-abcdef1')
+  assert.throws(() => assertBackupVersion('preview-abcdef1', 'preview-abcdef2'), /OSS_APP_VERSION_UNSUPPORTED/)
+  assert.throws(() => assertBackupVersion('1.7.2', '1.7.1'), /OSS_BACKUP_VERSION_NEWER/)
+  for (const source of ['2.0.0', '1.7.1-rc.1', 'unknown', '1.9007199254740993.0']) assert.throws(() => assertBackupVersion(source, '1.7.1'), /OSS_APP_VERSION_UNSUPPORTED/)
+  assert.throws(() => assertBackupVersion('0.6.1', '0.7.1'), /OSS_APP_VERSION_UNSUPPORTED/)
+  const migrationFixture = join(workspace, 'migration-app/server/prisma/migrations/202610150001_fixture')
+  await import('node:fs/promises').then(fs => fs.mkdir(migrationFixture, { recursive: true }))
+  const migrationSql = 'CREATE FUNCTION example() RETURNS void LANGUAGE plpgsql AS $$\nBEGIN\n  RETURN;\nEND;\n$$;\n'
+  await writeFile(join(migrationFixture, 'migration.sql'), migrationSql)
+  const releaseRows = await releaseMigrations(join(workspace, 'migration-app'))
+  assert.equal(releaseRows[0].acceptedChecksums.length, 2)
+  for (const checksum of releaseRows[0].acceptedChecksums) assertMigrationHistory([{ migration_name: releaseRows[0].name, checksum }], releaseRows, true)
+  assertMigrationHistory([], releaseRows)
+  assert.throws(() => assertMigrationHistory([], releaseRows, true), /OSS_MIGRATION_HISTORY_MISMATCH/)
+  assert.throws(() => assertMigrationHistory([{ migration_name: releaseRows[0].name, checksum: 'f'.repeat(64) }], releaseRows), /OSS_MIGRATION_HISTORY_MISMATCH/)
+  assert.throws(() => assertMigrationHistory([{ migration_name: 'unknown', checksum: releaseRows[0].checksum }], releaseRows), /OSS_MIGRATION_HISTORY_MISMATCH/)
+  assert.equal(normalizedReleaseSchema(migrationSql.replace(/\n/g, '\r\n'), releaseRows).replace(/\r\n/g, '\n'), migrationSql)
+  const unknownBody = "SELECT $$unknown\r\nvalue$$;"
+  assert.equal(normalizedReleaseSchema(unknownBody, releaseRows), unknownBody, 'unknown SQL or literal bytes must remain unchanged')
+  assert.equal(releaseMigrationHash(releaseRows), releaseMigrationHash(releaseRows.map(r => ({ ...r, acceptedChecksums: r.acceptedChecksums.slice().reverse() }))))
+  const realRelease = await releaseMigrations(resolve(import.meta.dirname, '../..'))
+  assert.ok(realRelease.length > 200, 'release migration catalog must include the full historical schema')
+  const newlineMigration = realRelease.find(row => row.name === '202610150001_host_pool_checkout')!
+  assert.ok(newlineMigration.acceptedChecksums.includes('2917406bac0323defb81c040c3813bd39ad32cce77874e64b6e1dca4b0afee6f'))
+  assert.ok(newlineMigration.acceptedChecksums.includes('5b6ad43ac8e41c1080633c7d501e765a7f83f7b0030a47048361400cbab089a8'))
   const peerKey = 'a'.repeat(43) + '=', otherKey = 'b'.repeat(43) + '='
   const gatewayConfig = `[Interface]\nPrivateKey = test-controller-identity\nAddress = 10.253.240.1/24\n[Peer]\nPublicKey = ${peerKey}\nAllowedIPs = 10.253.240.2/32\n`
   assert.ok(retainGatewayEndpoints(gatewayConfig, gatewayConfig, `${peerKey}\t192.0.2.1:51820\n`).includes('Endpoint = 192.0.2.1:51820'))
@@ -300,6 +328,12 @@ try {
   assert.ok(dumpSource.includes('--snapshot=') && dumpSource.includes('--large-objects') && !dumpSource.includes('--no-privileges') && !dumpSource.includes('--no-owner'), 'full dump must preserve ownership, grants and large objects under the shared snapshot')
   assert.ok(databaseSource.includes('--globals-only') && databaseSource.includes('OSS_DATABASE_FOREIGN_TABLE_UNSUPPORTED'), 'cluster authorization must be archived and silently omitted foreign data rejected')
   assert.ok(source.includes('rollbackJournal(directory)') && source.includes('protectedHealth()'), 'restore needs rollback and protected health verification')
+  assert.equal((source.match(/await verifyBackupCompatibility\(/g) || []).length, 2, 'preview and final restore must both verify target compatibility')
+  assert.ok(source.includes('raw.migrationHash === manifest.migrationHash') && source.includes('JSON.stringify(expected) === JSON.stringify(compatibility)'), 'authenticated raw history and preview destination identity must be pinned')
+  assert.ok(source.indexOf('await verifyRestoredDatabase(staging, expected, directory, \'restore\')') < source.lastIndexOf('await verifyBackupCompatibility(plan.manifest'), 'verify archive data before isolated migrations change restored records')
+  assert.ok(databaseSource.includes("/^incudal_(check|restore)_[a-f0-9]{32}$/") && databaseSource.includes("'server/node_modules/prisma/build/index.js'"), 'migration tooling must be trusted and restricted to isolated restore databases')
+  assert.equal((source.match(/await createBackupRestoreDatabase\(staging/g) || []).length, 2, 'preview and restore must create staging databases with the authenticated backup locale')
+  assert.ok(databaseSource.includes('LC_COLLATE ${quoteLiteral(properties.datcollate)} LC_CTYPE ${quoteLiteral(properties.datctype)}'), 'new-machine recovery must preserve the backup collation instead of inheriting destination defaults')
   assert.ok(source.includes("before-authorized-keys") && source.includes("await chmod(`${INSTALL}/server/certs/onboarding-gateway.key`, 0o640)"), 'gateway recovery must save local authorization and preserve backend key access')
   const app = await readFile(resolve(import.meta.dirname, '../src/app.ts'), 'utf8')
   assert.equal((source.match(/await refreshRestoredGateway\(gatewayBefore/g) || []).length, 2, 'restore and rollback must preserve unchanged live management tunnels')
@@ -316,6 +350,8 @@ try {
   const release = await readFile(resolve(import.meta.dirname, '../../.github/workflows/release.yml'), 'utf8')
   assert.ok(release.includes('cp scripts/install-platform-backup.sh release/scripts/'), 'release artifacts must include the backup executor installer')
   assert.ok(release.includes('cp scripts/platform-backup-recovery.py scripts/platform-backup-recovery-guide.md release/scripts/'), 'release must carry offline recovery instructions and tool')
+  const freshInstall = await readFile(resolve(import.meta.dirname, '../../scripts/smoke-fresh-install.sh'), 'utf8')
+  assert.ok(freshInstall.includes('RUN_BACKUP_COMPATIBILITY_DRILL=1') && freshInstall.includes('smoke-platform-backup-compatibility.mjs'), 'both release architectures must run isolated migration compatibility acceptance')
   for (const [sourcePath, publicPath] of [['scripts/platform-backup-recovery.py', 'client/public/recovery/payincus-recovery.py'], ['scripts/platform-backup-recovery-guide.md', 'client/public/recovery/恢复说明.md']]) assert.equal(await readFile(resolve(import.meta.dirname, '../..', sourcePath), 'utf8'), await readFile(resolve(import.meta.dirname, '../..', publicPath), 'utf8'))
   console.log('Platform backup guards passed: authenticated archive, tampering, paths, schedule, retention and restore boundaries.')
 } finally {

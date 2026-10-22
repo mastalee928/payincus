@@ -131,4 +131,7 @@ assert.match(replacementDetail, /const HostReplacementModal = isAdminEntry\s*\? 
 assert.ok(replacementDetail.includes('isAdminEntry && instance.dedicatedIpv4') && replacementDetail.includes('allow-other-regions'), 'admin dedicated instance detail exposes regional replacement')
 const replacementModal = readFileSync(new URL('../../client/src/components/host/HostReplacementModal.vue', import.meta.url), 'utf8')
 assert.ok(replacementModal.includes('sequence !== refreshSequence') && replacementModal.includes('replacement.dataBoundary') && replacementModal.includes('dialog.value?.showModal()'), 'replacement dialog rejects stale scope responses and provides data-boundary wording and focus management')
+const onboardingView = readFileSync(new URL('../../client/src/views/admin/HostOnboardingView.vue', import.meta.url), 'utf8')
+assert.ok(onboardingView.includes('<details class="card p-4">') && onboardingView.includes('onboarding.gatewaySetup') && onboardingView.includes('sudo bash install-panel.sh --configure-host-pool'), 'machine pool must offer keyboard-accessible gateway setup instructions using the existing root installer')
+assert.ok(onboardingView.includes('onboarding.gatewaySetupAddress') && onboardingView.includes('onboarding.gatewaySetupCheck'), 'gateway instructions must explain direct addressing, firewall and readiness verification')
 console.log('Host pool resource, availability, SSH, public region catalog, replacement and batch recovery checks passed')

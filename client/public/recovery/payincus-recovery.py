@@ -10,12 +10,12 @@ import sys
 
 def main():
     if sys.platform != "linux" or os.geteuid() != 0:
-        raise ValueError("请在已安装相同版本 PayIncus 的 Linux 目标主控上使用 sudo 运行。")
+        raise ValueError("请在已安装兼容稳定版本 PayIncus 的 Linux 目标主控上使用 sudo 运行。")
     root = Path("/opt/incudal")
     app = root / "current" if (root / "current").is_dir() else root
     cli = app / "server/dist/scripts/platform-backup-cli.js"
     if not cli.is_file():
-        raise ValueError("未找到已安装的恢复程序，请先安装与备份相同的面板版本。")
+        raise ValueError("未找到已安装的恢复程序，请先安装与备份相同或兼容更新的稳定面板版本。")
     command = sys.argv[1] if len(sys.argv) == 2 else input("操作 configure/status/preview/restore/rollback/resume：").strip()
     payload = {}
     if command == "configure":
