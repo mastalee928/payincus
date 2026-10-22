@@ -53,7 +53,13 @@ try:
  def check_gate(operations,expected):
   response=subprocess.run(['node',str(gate)],input=json.dumps({'operations':operations,'expected':expected}),text=True,capture_output=True,timeout=5)
   if response.returncode:raise RuntimeError('quiescence module rejected actual Incus data')
+ def check_go(expected_active):
+  binary=os.environ.get('INCUDAL_GO_QUIESCENCE_PROBE')
+  if not binary:return
+  result=json.loads(subprocess.check_output([str(Path(binary).resolve()),str(state/'unix.socket')],text=True,timeout=5))
+  if bool(result['Active'])!=expected_active:raise RuntimeError('Go local collection disagrees with actual Incus state')
  check_gate(running,False)
+ check_go(True)
  release.set()
  deadline=time.time()+5
  while time.time()<deadline:
@@ -63,8 +69,9 @@ try:
  else:raise RuntimeError('task failed to reach final state')
  terminal=read('/1.0/operations?recursion=1&all-projects=true')[1]['metadata']
  check_gate(terminal,True)
+ check_go(False)
  source.shutdown();source.server_close()
- print(json.dumps({'passed':True,'incusVersion':body['metadata']['environment']['server_version'],'realIncusOperation':True,'clientDisconnectLeavesOperationRunning':True,'quiescenceRejectsActive':True,'quiescenceAcceptsTerminalOnlyWithFencingFacts':True,'taskFinalStatus':state_op['status'],'transport':'isolated Unix socket','realGatewayTakeover':False}))
+ print(json.dumps({'passed':True,'incusVersion':body['metadata']['environment']['server_version'],'realIncusOperation':True,'actualGoLocalCollection':bool(os.environ.get('INCUDAL_GO_QUIESCENCE_PROBE')),'clientDisconnectLeavesOperationRunning':True,'quiescenceRejectsActive':True,'quiescenceAcceptsTerminalOnlyWithFencingFacts':True,'taskFinalStatus':state_op['status'],'transport':'isolated Unix socket','realGatewayTakeover':False}))
 finally:
  p.terminate()
  try:p.wait(timeout=8)

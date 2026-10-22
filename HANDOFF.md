@@ -24,6 +24,9 @@
 
 ## 2026-10-23 签名候选与独立发现基础（隔离实测，完整接管未完成）
 
+- 见证提交 [7eb81a3](https://github.com/mastalee928/payincus/commit/7eb81a339afdea2ac495157cc513e30fa64b3fc3) 的 [CI 39829854002](https://github.com/mastalee928/payincus/actions/runs/39829854002) 与 [Agent 构建 39829853941](https://github.com/mastalee928/payincus/actions/runs/39829853941) 成功，版本不变，未发Agent新版本。
+- 宿主Go加入独立本机只读Incus操作采集，固定Unix socket GET全部项目操作，安全文件/祖先权限与链接检查、超时/取消、响应大小/操作数量/JSON深度/重复键边界；连接失败、HTTP拒绝/跳转/HTML、未知分组拒绝。Go全包race/vet通过；实际Incus6.0.4隔离任务活动及最终结束分别被Go检出，Node静止门禁同步验证。证据 `quiescence-go-final.json`、`incus-go-quiescence.json`。尚未接入Agent main或宿主写权限执行，原主控/宿主不变。
+
 - 接管前静止检查提交 `7834689` 已推送。后续新增 Node/Go 宿主隔离回执：绑定候选/挑战/bootId及主控代次，要求实际旧连接/凭据隔离和无未结束任务，严格规范字节与30秒有效期。26项跨语言向量、实际Go签名由Node核验、Go race/vet通过；未接入宿主root执行器，签名协议不是实际隔离证明。
 - 新增内部独立见证两阶段状态库：更高epoch候选准备→持久挑战→验证宿主回执→内部激活；同请求幂等，冲突/旧代次/错误签名或挑战/过期/不同boot回执拒绝，缺失/损坏状态不自动重建，文件原子同步及进程锁。尚无管理认证、正式初始化/灾备重建、签名写租约和续期，signedWriteLeaseAvailable=false，不改变现有资源控制。
 - 见证最终 Windows 23项/Linux 25项守卫通过，包含时钟回拨持久保护和容差内逻辑时间防过期复活。实际Go使用预登记临时节点私钥签署见证挑战回执，Node见证原子激活、进程重开幂等、下一代拒绝旧回执全部通过；证据 `witness-linux.json`、`witness-go-integration.json` 保留本地。此处只有内部状态联调，无真实资源写权限。
