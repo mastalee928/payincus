@@ -44,6 +44,7 @@ grep -Fq -- '--configure-gateway-controller)' "$REPO_ROOT/scripts/install-panel.
 grep -Fq -- '"$action" == --initialize' "$REPO_ROOT/scripts/install-gateway-controller.sh"
 grep -Fq '/usr/bin/python3 -I -B "$tool" "$action"' "$REPO_ROOT/scripts/install-gateway-controller.sh"
 grep -Fq '"$INSTALL_DIR/scripts/install-gateway-controller.sh" --initialize-release' "$REPO_ROOT/scripts/install-panel.sh"
+grep -Fq 'chmod go-w /opt' "$REPO_ROOT/scripts/smoke-fresh-install.sh"
 grep -Fq 'provision_action=--refresh' "$REPO_ROOT/scripts/install-gateway-controller.sh"
 bash -n "$REPO_ROOT/scripts/install-gateway-controller.sh"
 grep -Fq 'NOPASSWD: /usr/local/libexec/incudal/systemctl' "$REPO_ROOT/scripts/install-gateway-controller.sh"

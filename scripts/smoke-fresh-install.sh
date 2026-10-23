@@ -3,6 +3,10 @@
 set -euo pipefail
 [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]] || { echo 'Disposable GitHub runner required' >&2; exit 1; }
 [[ $EUID -eq 0 && ! -e /opt/incudal ]] || { echo 'A clean root installation is required' >&2; exit 1; }
+# GitHub images expose /opt as 0777 for setup tools. This disposable root VM
+# must provide the same protected parent required by the release verifier.
+[[ -d /opt && ! -L /opt && $(stat -c %u /opt) == 0 ]] || { echo 'Root-owned /opt required' >&2; exit 1; }
+chmod go-w /opt
 umask 077
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 package=${1:?Pass the release archive path}
