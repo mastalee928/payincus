@@ -6,6 +6,13 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-24 物理 A 失联后的真实 OSS 恢复与原宿主管理重连
+
+- 源 A 在独立 PG16 与挂载环境中用产品执行器完成整库备份至真实 OSS 新测试前缀，包含原控制签名、WireGuard、管理 SSH、Incus 客户端证书及宿主登记。专用 AMD64 宿主使用原生 Incus，备份前产品 SSH/mTLS 客户端验证三台运行实例和磁盘标记。目标 B 的恢复输入只有云端位置、密码/OSS 配置与校验摘要；原私钥和数据库均由云端归档取得。
+- 最终完整运行 `57188cbfd03f4797a4862fe990ad99e3`：停止 A 后端、源测试数据库和管理通道，确认宿主不可达，保留应急 SSH；B 完成云预检、整库与身份激活并保持恢复保护。仅切换试验网络内固定域名的 DNS，产品守护程序自动更新 Endpoint，原公钥重握手；经受限网关 SSH 和原 Incus TLS 证书/指纹验证库存三台一致、仍 Running、磁盘标记不变。最终管理结果落盘后再次核实 A 后端仍 inactive、故障保护仍 active。
+- 同一次最终运行验证了真实余额 137.25、目标数据库/JWT/SSH 指纹及受信组件保留、管理员可登录、旧会话拒绝、业务 503、原生 WG 激活，以及显式回滚和解除保护。B 原服务与原环境/网关配置恢复；随后恢复 A 原服务和试验 DNS 基线。前几次失败未记通过：人工观察超时、旧预览测试目录遗漏新 probe helper，以及验证脚本仅断开 Prisma 而未关闭外部 PG pool，导致回滚时空闲连接被管理员终止。改为当前源码 helper、明确观察窗口及现有 closePrismaDatabase 后完整复验成功；另在新进程完成过中断回滚恢复。
+- 本节是源码现场验收：同源旧预览包加本轮局部源码 overlay，不能当成当前完整发行包验证。公共 DNS 未改；A 整机断电、宿主整机重启/心跳、快照后账务修订及销售/续费/到期联合验收仍未完成。正式版本仍 v1.7.1，完整 P0–P6/AC01–AC34/72 小时目标保留。
+
 ## 2026-10-24 核对入口双架构预览与物理宿主连接基线
 
 - `74d97bbcbe47190f6309f894aa3cebfacfca6986` 的[源码 CI](https://github.com/mastalee928/payincus/actions/runs/40006901699) 已成功；[发行预览](https://github.com/mastalee928/payincus/actions/runs/40007174008) 的 AMD64/ARM64 构建、全新安装及恢复/回滚全部成功，Release 为预期 skipped。正式发行仍 v1.7.1，未新增 tag、Release 或生产 OTA。
