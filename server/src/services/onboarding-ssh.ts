@@ -3,7 +3,6 @@ import { createHash } from 'crypto'
 import { readFile } from 'fs/promises'
 import { isIPv4 } from 'net'
 import { OnboardingError, isOnboardingPublicIPv4 } from '../lib/host-onboarding.js'
-import { currentOnboardingGatewayEndpoint } from './onboarding-gateway-endpoint.js'
 
 export function sshFingerprint(key: Buffer): string {
   return 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '')
@@ -120,6 +119,9 @@ export async function gatewayCommand(command = 'status'): Promise<OnboardingGate
     let raw: unknown
     try { raw = JSON.parse(await sshExec(client, command)) }
     catch (error) { if (error instanceof OnboardingError) throw error; throw new OnboardingError('GATEWAY_RESPONSE_INVALID') }
+    // Validation and SSH helpers are also used by standalone guard processes.
+    // Load database-backed endpoint settings only for an actual gateway command.
+    const { currentOnboardingGatewayEndpoint } = await import('./onboarding-gateway-endpoint.js')
     return validateGatewayResponse(raw, await currentOnboardingGatewayEndpoint(), process.env.ONBOARDING_SSH_JUMP_HOST || process.env.ONBOARDING_GATEWAY_HOST!)
   } finally { client.end() }
 }

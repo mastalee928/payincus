@@ -35,6 +35,7 @@ Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payinc
 - Alpine3.22隔离rootfs用实际OpenRC/supervise-daemon验证安装/重复、自启动链接、子进程故障重启及原绑定保持；网络启动依赖在夹具中代表已完成网络，未修改物理宿主网络。初次夹具缺sshd权限分离用户、tmpfs目录权限/旧绑定和网络依赖错误均修复并保留失败记录，不放宽生产校验。无实际整机重启证据。
 - 真实空PG数据库+远端安装边界夹具覆盖缺管理/恢复保护不下发、失败持久、重试、并发重复拒绝和历史回执身份/域名失效；登记独立 `test:host-gateway-dns-integration` 及排除原因，CI在独立PG16任务运行。root Python两组各9项通过。真实浏览器保存/重读、补装失败→重试、缺身份禁用、三宽度/深浅色无横向溢出；inspector0 FAIL/1空白WARN（独立组件预览余下空白，完整页另有安装记录区块）。
 - 全套planned/executed/passed177、failed0（`logs/test-run-20261023-204739/summary.txt`，7m17s），前后端类型、双端生产构建、dist边界、后台构建和新组件ESLint通过；最新小改的相关验证随后记录。证据在本地 `dns-service-runtime-result.json`、`dns-ssh-install-result.json`、`dns-openrc-result.json`、`gateway-page-browser/endpoint-browser-result.json`。未部署原客户宿主或新正式版本；完整OSS身份恢复、旧主控丢失/新IP联合演练、账务补偿及完整P0–P6继续。
+- 阶段 b6ecea3 已推送，源码 CI 39957744733 的双架构组件和独立 PG 联调成功，网关守卫因无 DATABASE_URL 失败：通用 onboarding-ssh 顶层导入数据库配置。修正为实际 gatewayCommand 才按需加载端点设置；新增独立无数据库进程的预检回归，Windows 网关全守卫与 Linux 独立预检、服务器类型和构建通过。CI/首装及线上证据分开，本地177项使用占位DB配置曾掩盖此初始化依赖；后续新CI结论另记。
 
 ## 2026-10-23 五分钟实例到期巡检（阶段源码，未发版）
 
