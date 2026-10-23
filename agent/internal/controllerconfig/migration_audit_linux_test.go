@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -35,7 +37,7 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 			}
 			env = append(env, "INCUDAL_MIGRATION_PARENT_"+ns+"="+value)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 55*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, "/usr/bin/unshare", "--mount", "--net", "--pid", "--fork", "--mount-proc", binary, "-test.run=^TestMigrationAuditIsolatedHost$", "-test.v")
 		cmd.Env = env
@@ -69,7 +71,7 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	if _, err = channelCommand(ctx, "/usr/sbin/ip", []string{"link", "set", "lo", "up"}, ""); err != nil {
 		t.Fatal(err)
@@ -102,20 +104,78 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	socket := filepath.Join(dir, "unix.socket")
-	listener, err := net.Listen("unix", socket)
-	if err != nil {
-		t.Fatal(err)
+	realIncus := os.Getenv("INCUDAL_MIGRATION_REAL_INCUS_ROOT")
+	var realDaemon string
+	if realIncus == "" {
+		listener, err := net.Listen("unix", socket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Chmod(socket, 0600)
+		server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			json.NewEncoder(w).Encode(map[string]any{"type": "sync", "status_code": 200, "metadata": map[string]any{}})
+		})}
+		go server.Serve(listener)
+		defer server.Close()
+	} else {
+		if !filepath.IsAbs(realIncus) || filepath.Clean(realIncus) != realIncus {
+			t.Fatal("protected extracted Incus root required")
+		}
+		// Confine daemon mounts/sysctls to this test. This extracted daemon never
+		// contacts the system Incus or uses any customer instance state.
+		if err = syscall.Mount("/sys", "/sys", "", syscall.MS_BIND, ""); err != nil {
+			t.Fatal(err)
+		}
+		if err = syscall.Mount("", "/sys", "", syscall.MS_REMOUNT|syscall.MS_BIND|syscall.MS_RDONLY, ""); err != nil {
+			t.Fatal(err)
+		}
+		if err = syscall.Mount("tmpfs", "/sys/kernel/security", "tmpfs", 0, "mode=0700"); err != nil {
+			t.Fatal(err)
+		}
+		state := filepath.Join(dir, "incus")
+		if err = os.Mkdir(state, 0700); err != nil {
+			t.Fatal(err)
+		}
+		socket = filepath.Join(state, "unix.socket")
+		realDaemon = filepath.Join(realIncus, "rootfs/usr/libexec/incus/incusd")
+		log, err := os.OpenFile(filepath.Join(dir, "incus.log"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer log.Close()
+		cmd := exec.CommandContext(ctx, realDaemon, "--verbose")
+		cmd.Env = append(os.Environ(), "INCUS_DIR="+state, "LD_LIBRARY_PATH="+filepath.Join(realIncus, "rootfs/usr/lib/aarch64-linux-gnu"), "PATH="+filepath.Join(realIncus, "rootfs/usr/bin")+":"+filepath.Join(realIncus, "rootfs/usr/sbin")+":/usr/sbin:/usr/bin:/sbin:/bin")
+		cmd.Stdout = log
+		cmd.Stderr = log
+		if err = cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { cmd.Process.Signal(syscall.SIGTERM); cmd.Wait() }()
+		ready := false
+		for attempt := 0; attempt < 60; attempt++ {
+			if _, err = os.Stat(socket); err == nil {
+				os.Chmod(socket, 0600)
+				if _, err = ReadIncusQuiescence(ctx, socket); err == nil {
+					ready = true
+					break
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !ready {
+			t.Fatal("isolated real Incus did not initialize")
+		}
 	}
-	os.Chmod(socket, 0600)
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"type": "sync", "status_code": 200, "metadata": map[string]any{}})
-	})}
-	go server.Serve(listener)
-	defer server.Close()
 	policy := WriterAuditPolicy{SchemaVersion: 1, Executables: map[string]string{}, ConfigurationFiles: map[string]string{}, SchedulerDirectories: []string{"/etc/cron.d", "/var/spool/cron", "/etc/systemd/system", "/usr/lib/systemd/system", "/run/systemd/system"}, SchedulerTreeHashes: map[string]string{}}
 	policy.Executables["/usr/bin/false"], err = writerFileHash(ctx, "/usr/bin/false", 1048576)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if realDaemon != "" {
+		policy.Executables[realDaemon], err = writerFileHash(ctx, realDaemon, 67108864)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, path := range []string{"/etc/crontab", "/etc/anacrontab", "/etc/ssh/sshd_config"} {
 		policy.ConfigurationFiles[path], err = writerFileHash(ctx, path, 1048576)
@@ -152,7 +212,7 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	witnessPub, witness, _ := ed25519.GenerateKey(rand.Reader)
-	holderPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	holderPub, holderKey, _ := ed25519.GenerateKey(rand.Reader)
 	witnessID := "77777777-7777-4777-8777-777777777777"
 	keys := map[string]string{SigningKeyID(witnessPub): base64.StdEncoding.EncodeToString(witnessPub)}
 	permit := PreparePermit{1, "host-fence-prepare", witnessID, config.PlatformID, config.NodeID, config.ControllerID, config.RequestID, config.Epoch, config.Sequence, checked.Observed.PayloadSHA256, base64.RawURLEncoding.EncodeToString(make([]byte, 24)), trust.Now, trust.Now + 60000}
@@ -200,11 +260,49 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 	if err != nil || result.Receipt == "" || result.GateProof == "" || result.CanWrite || len(result.Blockers) != 0 {
 		t.Fatalf("actual audit attestation: %+v %v", result, err)
 	}
+	// Test transport/runtime against the actual daemon. The witness signature
+	// here is a local test identity; remote authority issuance is a separate test.
+	var receiptEnv fenceEnvelope
+	var receipt FenceReceipt
+	if decodeStrict([]byte(result.Receipt), &receiptEnv) != nil {
+		t.Fatal("receipt")
+	}
+	receiptRaw, _ := base64.StdEncoding.DecodeString(receiptEnv.Payload)
+	if decodeStrict(receiptRaw, &receipt) != nil {
+		t.Fatal("receipt")
+	}
+	lease := WriteLease{1, "controller-write-lease", witnessID, config.PlatformID, config.NodeID, config.ControllerID, config.RequestID, config.Epoch, config.Sequence, receipt.CandidateSHA256,
+		"55555555-5555-4555-8555-555555555555", "1", result.BootID, result.GateID, SigningKeyID(holderPub), time.Now().UnixMilli(), time.Now().UnixMilli() + 3000, []string{"inspect"}}
+	leaseRaw, _ := canonical(lease)
+	leasePayload := base64.StdEncoding.EncodeToString(leaseRaw)
+	leaseEncoded, _ := canonical(envelope{1, id, leasePayload, base64.StdEncoding.EncodeToString(ed25519.Sign(witness, []byte(writeLeasePrefix+id+"\n"+leasePayload)))})
+	if err = runtime.AcceptLease(ctx, leaseEncoded); err != nil {
+		t.Fatal("actual lease audit: ", err)
+	}
+	body := []byte(`{"schemaVersion":1,"operation":"inspect-operations"}`)
+	proof := LeaseRequest{LeaseBodySHA256(leaseEncoded), "inspect", LeaseBodySHA256(body), strconv.FormatInt(time.Now().UnixMilli(), 10), base64.RawURLEncoding.EncodeToString(make([]byte, 24)), ""}
+	proof.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(holderKey, []byte(leaseRequestPrefix+strings.Join([]string{proof.LeaseSHA256, proof.Permission, proof.BodySHA256, proof.Timestamp, proof.Nonce}, "\n"))))
+	executed, err := runtime.Execute(ctx, body, proof, base64.StdEncoding.EncodeToString(holderPub))
+	if err != nil || !executed.Accepted {
+		t.Fatal("actual runtime inspect: ", err)
+	}
+	if _, err = runtime.Execute(ctx, body, proof, base64.StdEncoding.EncodeToString(holderPub)); err == nil {
+		t.Fatal("actual runtime request replay accepted")
+	}
+	for time.Now().UnixMilli() <= lease.ExpiresAt {
+		time.Sleep(50 * time.Millisecond)
+	}
+	proof.Timestamp = strconv.FormatInt(time.Now().UnixMilli(), 10)
+	proof.Nonce = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("x", 24)))
+	proof.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(holderKey, []byte(leaseRequestPrefix+strings.Join([]string{proof.LeaseSHA256, proof.Permission, proof.BodySHA256, proof.Timestamp, proof.Nonce}, "\n"))))
+	if _, err = runtime.Execute(ctx, body, proof, base64.StdEncoding.EncodeToString(holderPub)); err == nil {
+		t.Fatal("actual expired lease left daemon access")
+	}
 	// A changed scheduler tree must immediately block a fresh attestation.
 	os.WriteFile("/etc/cron.d/legacy-job", []byte("* * * * * root /usr/bin/true\n"), 0600)
 	blocked, err := runtime.Prepare(ctx, candidate, encoded, base64.StdEncoding.EncodeToString(holderPub))
 	if err != nil || blocked.Receipt != "" || len(blocked.Blockers) == 0 {
 		t.Fatal("changed scheduler did not block", err)
 	}
-	t.Log("actual isolated SSH effective config, root-only socket, procfs/scheduler audit and signed host receipt; scheduler change blocks activation")
+	t.Logf("actual isolated SSH/socket/procfs/scheduler/nft receipt and lease inspection/replay/expiry; real Incus=%v; scheduler change blocks activation", realDaemon != "")
 }
