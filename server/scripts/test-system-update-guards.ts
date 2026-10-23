@@ -245,7 +245,8 @@ assert.ok(
     rollbackService.includes('ExecStart=/usr/local/libexec/incudal/incudal-online-task rollback %i') &&
     !rollbackService.includes('/opt/incudal/current/server/dist/scripts/') &&
     installPanel.includes('/etc/sudoers.d/incudal-online-update') &&
-    installPanel.includes('NOPASSWD: /usr/local/libexec/incudal/systemctl start --no-block incudal-online-update@*.service') &&
+    installPanel.includes('NOPASSWD: /usr/local/libexec/incudal/systemctl\n') &&
+    !installPanel.includes('NOPASSWD: /usr/local/libexec/incudal/systemctl start') &&
     installPanel.includes('Defaults:${RUN_USER} secure_path=/usr/local/libexec/incudal:') &&
     installPanel.includes('/usr/local/libexec/incudal/incudal-online-task seal') &&
     installPanel.includes('install -o root -g root -m 0755') &&

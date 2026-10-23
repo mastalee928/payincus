@@ -46,6 +46,30 @@ grep -Fq '/usr/bin/python3 -I -B "$tool" "$action"' "$REPO_ROOT/scripts/install-
 grep -Fq '"$INSTALL_DIR/scripts/install-gateway-controller.sh" --initialize-release' "$REPO_ROOT/scripts/install-panel.sh"
 grep -Fq 'provision_action=--refresh' "$REPO_ROOT/scripts/install-gateway-controller.sh"
 bash -n "$REPO_ROOT/scripts/install-gateway-controller.sh"
+grep -Fq 'NOPASSWD: /usr/local/libexec/incudal/systemctl' "$REPO_ROOT/scripts/install-gateway-controller.sh"
+if grep -Fq 'NOPASSWD: /usr/local/libexec/incudal/systemctl start' "$REPO_ROOT/scripts/install-gateway-controller.sh"; then
+    echo 'gateway sudo rule must use the argument-validating wrapper, without parser-dependent wildcard arguments' >&2
+    exit 1
+fi
+for sudo_source in install-panel.sh install-platform-backup.sh migrate-ota-atomic-layout.sh; do
+    grep -Fq 'NOPASSWD: /usr/local/libexec/incudal/systemctl' "$REPO_ROOT/scripts/$sudo_source"
+    if grep -Fq 'NOPASSWD: /usr/local/libexec/incudal/systemctl start' "$REPO_ROOT/scripts/$sudo_source"; then
+        echo 'managed worker sudo rules must avoid parser-dependent wildcard arguments' >&2
+        exit 1
+    fi
+done
+grep -Fq 'cmp -s "$wrapper" "$root/deploy/incudal-systemctl-wrapper.sh.example"' "$REPO_ROOT/scripts/install-gateway-controller.sh"
+for rejected in \
+    'start --no-block ssh.service' \
+    'restart --no-block incudal-gateway-task@11111111-1111-4111-8111-111111111111.service' \
+    'start --no-block incudal-gateway-task@*.service' \
+    'start --no-block incudal-gateway-task@11111111-1111-4111-8111-111111111111.service extra'; do
+    read -r -a rejected_args <<< "$rejected"
+    if bash "$REPO_ROOT/deploy/incudal-systemctl-wrapper.sh.example" "${rejected_args[@]}" >/dev/null 2>&1; then
+        echo 'systemctl wrapper accepted an unsupported gateway invocation' >&2
+        exit 1
+    fi
+done
 
 for helper in \
     incudal-online-task.sh.example \

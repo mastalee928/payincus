@@ -31,6 +31,13 @@
 - 真实 Linux arm64 + 独立空 PostgreSQL + Incus 6.0.4 专用实例联合通过：断网暂停、同快照两笔续费仅一次成功和扣费、重连后续费实例保持 Running、3 天保留期到期停机/删除、确认不存在后库存归零、重复巡检无重复动作。Incus 在独立 mount/net、专用 delegated cgroup 及有界测试单元中运行，应用数据库独立；未改变客户实例或唯一业务后端。初次隔离未挂载 cgroup 控制层导致 LXC 监控 C 库崩溃/回执超时，修正测试环境后真实回执/删除通过，失败样本保留。
 - 仓库新增可重复 `test:billing-expiry-integration`（必须显式 opt-in、空本机 *_expiry_test 库及 OpenSSL），覆盖 HTTPS Incus 夹具断网、重试、丢失 DELETE 回执和一次扣费/释放；登记全量排除原因并增加独立 PG16 CI 作业。该夹具与上一条真实 Incus 证据分开。证据：`logs/controller-takeover-research-20261022/expiry-real-scheduler-result.json`、`expiry-integration-result.json`、`gateway-page-browser/expiry-browser-result.json`。
 - 最终全套 planned/executed/passed=176、failed=0（6 分 36 秒，`logs/test-run-20261023-190403/summary.txt`），专项 8/8、前后端类型、最终后台构建、此前本阶段双端构建和 dist 边界通过。Lint 0 errors、665 既有告警。源码提交和 Actions 状态另记；无新正式 Release 或客户后端部署；DNS 设置/旧宿主补装/联合 OSS 切换与错过自动续费对账仍未完成。
+- 阶段提交 [f84a160](https://github.com/mastalee928/payincus/commit/f84a1601b49eb2f8aec24dc500f3c4ab0a070ac5) 已推送；[CI 39944597711](https://github.com/mastalee928/payincus/actions/runs/39944597711) 五项全部成功：独立 PG16 到期回归、amd64/arm64 组件包、Lint/类型、Build。源码/CI 通过不表示现有主控已部署该巡检。
+
+## 2026-10-23 首装 sudo 解析兼容与拒绝阶段诊断（未发版）
+
+- 后续 sudo 解析器拒绝命令参数里的 wildcard。网关/备份/OTA 安装和原子布局迁移规则统一只授权 root 固定 systemctl wrapper，继续由 wrapper 严格限制三个参数、start/--no-block 及管理任务模板/ID；不授权原始 systemctl。网关安装额外核对 wrapper 父目录不可写、root:root/0755 和发行源码逐字节一致后才安装规则。
+- 安装 shell 守卫、网关/OTA/部署/备份 6 项检查、真实 Linux visudo、实际 incudal 用户 sudo 的有效 UUID/错误单元拒绝通过。实际 ARM64 预览包在隔离 mount/空状态目录的原安装入口与新规则均能登记两个架构并生成新独立测试身份，systemctl 在该测试内使用固定命令替身；没有安装到原业务主控全局目录。不能据该结果宣称 CI 首装问题均已修好。
+- ARM64 CI 的身份准备拒绝在上述实际包重放中尚未重现。准备器仅增加固定 stage 字段（catalog、环境、组件验证/保存、身份和发布环境），不输出异常或文件内容；14 项 Linux 准备守卫含异常敏感文本不可外泄检查通过。后续预览以阶段提示定位 runner 差异，失败仍保持拒绝；禁止以忽略验签、放宽目录权限或重建已有身份替代修复。
 
 ## 2026-10-23 发行预览 AMD64 组件权限修复（未发版）
 

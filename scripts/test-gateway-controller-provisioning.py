@@ -10,6 +10,9 @@ import os
 import shutil
 import subprocess
 import unittest
+from unittest.mock import patch
+from contextlib import redirect_stdout
+import io
 from pathlib import Path
 
 
@@ -168,6 +171,16 @@ class ProvisioningTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.provision('refresh')
         self.assertEqual(path.read_bytes(), b'tampered')
+
+    def test_rejection_reports_only_fixed_stage_not_sensitive_exception(self):
+        output = io.StringIO()
+        provisioner.stage('environment')
+        with patch.object(provisioner, 'provision', side_effect=ValueError('fixture-private-value')), \
+             patch.object(provisioner.sys, 'argv', ['provision-gateway-controller.py', '--initialize', '/opt/incudal']), redirect_stdout(output):
+            self.assertEqual(provisioner.main(), 1)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result, {'code': 'GATEWAY_CONTROLLER_PROVISIONING_REJECTED', 'stage': 'environment', 'canWrite': False})
+        self.assertNotIn('fixture-private-value', output.getvalue())
 
 
 if __name__ == '__main__':

@@ -247,7 +247,8 @@ assert.ok(
 assert.ok(
   installPanel.includes('install_verified_root_helpers_from_archive "$tar_file"') &&
     installPanel.includes('install -o root -g root -m 0440 "$sudoers_tmp" /etc/sudoers.d/incudal-online-update') &&
-    installPanel.includes('${RUN_USER} ALL=(root) NOPASSWD: /usr/local/libexec/incudal/systemctl start --no-block incudal-online-update@*.service') &&
+    installPanel.includes('${RUN_USER} ALL=(root) NOPASSWD: /usr/local/libexec/incudal/systemctl\n') &&
+    !installPanel.includes('NOPASSWD: /usr/local/libexec/incudal/systemctl start') &&
     !installPanel.includes('NOPASSWD: /usr/bin/systemctl'),
   'installer must source root helpers from the verified artifact and grant sudo only through the constrained wrapper'
 )

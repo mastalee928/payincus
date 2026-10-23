@@ -10,6 +10,13 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 source="$root/deploy/incudal-gateway-task@.service.example"
 [[ -f "$source" && ! -L "$source" && $(stat -c %u "$source") == 0 ]] || { echo 'Untrusted gateway worker source.' >&2; exit 1; }
 if find "$source" -perm /022 -print -quit | grep -q .; then exit 1; fi
+for directory in /usr /usr/local /usr/local/libexec /usr/local/libexec/incudal; do
+    [[ -d "$directory" && ! -L "$directory" && $(stat -c %u "$directory") == 0 ]] || exit 1
+    if find "$directory" -maxdepth 0 -perm /022 -print -quit | grep -q .; then exit 1; fi
+done
+wrapper=/usr/local/libexec/incudal/systemctl
+[[ -f "$wrapper" && ! -L "$wrapper" && $(stat -c '%u:%g:%a' "$wrapper") == 0:0:755 ]] || exit 1
+cmp -s "$wrapper" "$root/deploy/incudal-systemctl-wrapper.sh.example" || { echo 'Gateway worker wrapper does not match the verified release.' >&2; exit 1; }
 for target in /etc/systemd/system/incudal-gateway-task@.service /etc/sudoers.d/incudal-gateway-task; do
     if [[ -e "$target" || -L "$target" ]]; then
         [[ -f "$target" && ! -L "$target" && $(stat -c %u "$target") == 0 ]] && grep -Fxq '# payincus-gateway-task-v1' "$target" || { echo 'Unrelated gateway worker configuration.' >&2; exit 1; }
@@ -24,7 +31,9 @@ fi
 install -o root -g root -m 0644 "$source" /etc/systemd/system/incudal-gateway-task@.service
 temporary=$(mktemp)
 trap 'rm -f "$temporary"' EXIT
-printf '%s\n' '# payincus-gateway-task-v1' 'incudal ALL=(root) NOPASSWD: /usr/local/libexec/incudal/systemctl start --no-block incudal-gateway-task@*.service' > "$temporary"
+# The root-owned wrapper already validates the exact argument count and unit
+# UUID. New sudo parsers reject shell wildcards in command arguments.
+printf '%s\n' '# payincus-gateway-task-v1' 'incudal ALL=(root) NOPASSWD: /usr/local/libexec/incudal/systemctl' > "$temporary"
 chmod 0440 "$temporary"
 visudo -cf "$temporary" >/dev/null
 install -o root -g root -m 0440 "$temporary" /etc/sudoers.d/incudal-gateway-task

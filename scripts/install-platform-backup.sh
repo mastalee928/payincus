@@ -17,7 +17,7 @@ install -o root -g root -m 0755 "$root/deploy/incudal-systemctl-wrapper.sh.examp
 install -o root -g root -m 0644 "$root/deploy/incudal-platform-backup@.service.example" /etc/systemd/system/incudal-platform-backup@.service
 temporary=$(mktemp)
 trap 'rm -f "$temporary"' EXIT
-printf '%s\n' 'incudal ALL=(root) NOPASSWD: /usr/local/libexec/incudal/systemctl start --no-block incudal-platform-backup@*.service' > "$temporary"
+printf '%s\n' 'incudal ALL=(root) NOPASSWD: /usr/local/libexec/incudal/systemctl' > "$temporary"
 chmod 0440 "$temporary"
 visudo -cf "$temporary" >/dev/null
 install -o root -g root -m 0440 "$temporary" /etc/sudoers.d/incudal-platform-backup

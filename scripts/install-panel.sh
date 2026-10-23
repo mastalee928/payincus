@@ -1254,8 +1254,8 @@ EOF
 Defaults:${RUN_USER} !requiretty
 Defaults:${RUN_USER} secure_path=/usr/local/libexec/incudal:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Only the root-owned wrapper is allowed.  It rejects extra arguments and only
-# accepts positive numeric task IDs for these two unit templates.
-${RUN_USER} ALL=(root) NOPASSWD: /usr/local/libexec/incudal/systemctl start --no-block incudal-online-update@*.service, /usr/local/libexec/incudal/systemctl start --no-block incudal-online-rollback@*.service
+# accepts only fixed managed unit templates and validated task IDs.
+${RUN_USER} ALL=(root) NOPASSWD: /usr/local/libexec/incudal/systemctl
 EOF
     chmod 440 "$sudoers_tmp"
     visudo -cf "$sudoers_tmp" >/dev/null

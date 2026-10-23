@@ -149,7 +149,7 @@ EOF
   cat > "$sudoers_tmp" <<EOF
 Defaults:${RUN_USER} !requiretty
 Defaults:${RUN_USER} secure_path=/usr/local/libexec/incudal:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-${RUN_USER} ALL=(root) NOPASSWD: /usr/local/libexec/incudal/systemctl start --no-block incudal-online-update@*.service, /usr/local/libexec/incudal/systemctl start --no-block incudal-online-rollback@*.service
+${RUN_USER} ALL=(root) NOPASSWD: /usr/local/libexec/incudal/systemctl
 EOF
   chmod 440 "$sudoers_tmp"
   visudo -cf "$sudoers_tmp" >/dev/null

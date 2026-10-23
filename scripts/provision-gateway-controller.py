@@ -21,6 +21,14 @@ package = enrollment.package
 require = enrollment.require
 COMPONENT_ROOT = Path('/var/lib/incudal-gateway-components')
 INSTALL = Path('/opt/incudal')
+PROVISION_STAGE = 'arguments'
+
+
+def stage(value):
+    # Only fixed stage names are exposed. Never include file contents, environment
+    # values, signatures, keys, exception text or subprocess output.
+    global PROVISION_STAGE
+    PROVISION_STAGE = value
 
 
 def read_environment(path):
@@ -47,6 +55,7 @@ def release_catalog(app):
     version = json.loads(package.protected_read(app / 'server/package.json', 65536), object_pairs_hook=package.strict_object)
     require(version.get('version') == catalog['version'])
     for architecture in catalog['architectures']:
+        stage('verify-' + architecture)
         package.verify_package(app / 'vendor/gateway' / architecture, catalog['packageSigningKey'], architecture, catalog['version'], catalog['sourceCommit'])
     return catalog
 
@@ -80,18 +89,24 @@ def provision_locked(action, app, env_path, controller_root, component_root):
     require(action in ['initialize', 'refresh'])
     app = Path(app)
     catalog = release_catalog(app)
+    stage('environment')
     raw, platform = read_environment(env_path)
     if action == 'refresh':
+        stage('existing-identity')
         saved = enrollment.verify_enrollment(controller_root)
         require(platform == saved['platformId'] and catalog['packageSigningKey'] == saved['packageSigningKey'])
     else:
+        stage('fresh-identity')
         # Existing or partial state must never be adopted by fresh provisioning.
         require(not controller_root.exists() or set(item.name for item in controller_root.iterdir()) <= {'enrollment.lock'})
         platform = platform or str(uuid.uuid4())
+    stage('persist-components')
     components = {architecture: persist_component(app, catalog, architecture, component_root) for architecture in catalog['architectures']}
     value = {'platformId': platform, 'packageSigningKey': catalog['packageSigningKey'], 'components': components}
+    stage('enroll-identity')
     result = enrollment.enroll(action, value, controller_root)
     if action == 'initialize':
+        stage('publish-environment')
         # Preserve the exact runtime file except the platform identity setting.
         if re.search(r'^GATEWAY_PLATFORM_ID=', raw, re.M):
             updated = re.sub(r'^GATEWAY_PLATFORM_ID=.*$', 'GATEWAY_PLATFORM_ID=' + platform, raw, flags=re.M)
@@ -123,6 +138,7 @@ def provision_locked(action, app, env_path, controller_root, component_root):
 
 
 def provision(action, app, env_path=INSTALL / '.env', controller_root=enrollment.ROOT, component_root=COMPONENT_ROOT):
+    stage('component-directory')
     component_root = Path(component_root)
     env_path = Path(env_path)
     controller_root = Path(controller_root)
@@ -136,6 +152,7 @@ def provision(action, app, env_path=INSTALL / '.env', controller_root=enrollment
         info = os.fstat(descriptor)
         require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1 and stat.S_IMODE(info.st_mode) == 0o600)
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        stage('release-catalog')
         return provision_locked(action, app, env_path, controller_root, component_root)
     finally:
         os.close(descriptor)
@@ -149,7 +166,7 @@ def main():
         print(json.dumps(provision(sys.argv[1][2:], app), separators=(',', ':')))
         return 0
     except (ValueError, OSError, KeyError, TypeError, RecursionError, subprocess.SubprocessError):
-        print('{"code":"GATEWAY_CONTROLLER_PROVISIONING_REJECTED","canWrite":false}')
+        print(json.dumps({'code': 'GATEWAY_CONTROLLER_PROVISIONING_REJECTED', 'stage': PROVISION_STAGE, 'canWrite': False}, separators=(',', ':')))
         return 1
 
 
