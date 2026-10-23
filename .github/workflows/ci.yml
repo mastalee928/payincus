@@ -111,7 +111,7 @@ jobs:
           openssl pkey -in "$test_root/signing.pem" -pubout -outform DER | tail -c 32 | base64 -w0 > "$test_root/pinned.pub"
           node scripts/build-gateway-component-package.mjs --out "$test_root/package" --architecture "$PACKAGE_ARCH" --node "$node_runtime" --go "$go_runtime" --signing-key "$test_root/signing.pem"
           protected_root=$(sudo mktemp -d /root/incudal-component-ci-XXXXXX)
-          sudo cp -R "$test_root/package" "$protected_root/package"
+          sudo cp -R --preserve=mode --no-preserve=ownership "$test_root/package" "$protected_root/package"
           sudo install -m 600 "$test_root/pinned.pub" "$protected_root/pinned.pub"
           sudo python3 -B scripts/test-gateway-controller-enrollment.py
           sudo python3 -B scripts/test-gateway-controller-provisioning.py

@@ -130,7 +130,7 @@ jobs:
           NODE
           chmod 644 release/vendor/gateway/catalog.json
           protected_root=$(sudo mktemp -d /root/incudal-release-gateway-XXXXXX)
-          sudo cp -R release/vendor/gateway "$protected_root/gateway"
+          sudo cp -R --preserve=mode --no-preserve=ownership release/vendor/gateway "$protected_root/gateway"
           printf '%s' "$GATEWAY_SIGNING_PUBLIC_KEY" | sudo tee "$protected_root/pinned.pub" >/dev/null
           sudo chmod 600 "$protected_root/pinned.pub"
           for arch in amd64 arm64; do

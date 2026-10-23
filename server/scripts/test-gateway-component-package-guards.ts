@@ -17,6 +17,10 @@ assert.ok(!verify(null, Buffer.from('incorrect-domain\n' + envelope.keyId + '\n'
 assert.throws(() => signGatewayComponentManifest(manifest, pair.publicKey))
 const python = await readFile(new URL('../../scripts/verify-gateway-component-package.py', import.meta.url), 'utf8')
 const builder = await readFile(new URL('../../scripts/build-gateway-component-package.mjs', import.meta.url), 'utf8')
+for (const workflow of ['ci.yml', 'release.yml']) {
+  const source = await readFile(new URL('../../.github/workflows/' + workflow, import.meta.url), 'utf8')
+  assert.ok(source.includes('sudo cp -R --preserve=mode --no-preserve=ownership'), 'root staging must preserve signed file modes independently of sudo umask')
+}
 for (const path of GATEWAY_COMPONENT_FILES) assert.ok(python.includes(`'${path}'`), 'cross-language fixed file list: ' + path)
 assert.ok(builder.includes('bundle: true') && builder.includes('metafile: true') && builder.includes('@prisma|dotenv'))
 assert.ok(builder.includes('GATEWAY_PROXY_UNSUPPORTED'), 'optional proxy branch must not bypass endpoint pinning')

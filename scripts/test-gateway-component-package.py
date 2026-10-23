@@ -93,6 +93,17 @@ class PackageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify()
 
+    def test_privileged_staging_preserves_signed_modes_under_restrictive_umask(self):
+        broken = self.root / 'copy-without-mode'
+        subprocess.run(['/usr/bin/bash', '-c', 'umask 077; cp -R "$1" "$2"', 'copy', str(self.package), str(broken)], check=True, capture_output=True)
+        with self.assertRaises(ValueError):
+            verifier.verify_package(broken, self.pinned, 'arm64', '1.7.1', 'a' * 40)
+        fixed = self.root / 'copy-with-mode'
+        subprocess.run(['/usr/bin/bash', '-c', 'umask 077; cp -R --preserve=mode --no-preserve=ownership "$1" "$2"', 'copy', str(self.package), str(fixed)], check=True, capture_output=True)
+        self.assertTrue(verifier.verify_package(fixed, self.pinned, 'arm64', '1.7.1', 'a' * 40)['verified'])
+        self.assertEqual((fixed / 'ui/index.html').stat().st_mode & 0o777, 0o644)
+        self.assertEqual((fixed / 'bin/incudal-gateway').stat().st_mode & 0o777, 0o755)
+
     def test_bad_elf_signed(self):
         path = self.package / 'bin/incudal-gateway'
         path.write_bytes(b'not-an-elf')

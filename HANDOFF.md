@@ -22,6 +22,11 @@
 - 已实际下载两种架构的公开安装包，确认 SHA256、文件大小、OTA manifest、包内版本与 Git 提交一致；检查全部迁移和 IPv6、UPAY 等关键模块，包内 LICENSE 与发行源码原文一致。GitHub 的面板 latest 为 v1.6.2；公开一键安装脚本与发行源码一致。
 - [源码 CI](https://github.com/mastalee928/payincus/actions/runs/38877110604)、[Agent 发布](https://github.com/mastalee928/payincus/actions/runs/38877110746) 均通过；[本仓库文档站](https://mastalee928.github.io/payincus/) 已上线。
 
+## 2026-10-23 发行预览 AMD64 组件权限修复（未发版）
+
+- 57c8411 源码 CI 39927406425 全部成功；发行预览 39927543459 的 ARM64 面板包构建完成，但 AMD64 在 root 侧组件验签失败，首次安装作业因此未执行。两种组件编译、Node 官方下载 SHA256 和固定签名公钥匹配已通过；不把 ARM64 构建或源码 CI 当作首装通过。
+- 真实 Linux 复现严格 umask 077 下普通 cp -R 改变已签名文件权限，固定验证器按清单拒绝。CI/Release 的 root 拷贝改为 --preserve=mode --no-preserve=ownership，保留已核验来源模式且目标归 root，不放宽验证器。13 组包回归通过，新增先复现无权限保持失败、再验证正确拷贝成功的测试；Node 来源守卫增加两工作流参数约束。修复后的双架构预览另行运行记录。
+
 ## 2026-10-23 签名组件发行与首装准备接线（预览待验，未发版）
 
 - Owner 明确授权生成专用 Ed25519 组件发行身份并配置仓库。私钥保存于仓库外受限 Windows ACL 目录，GitHub Secret `GATEWAY_COMPONENT_SIGNING_KEY` 保存私钥、变量 `GATEWAY_COMPONENT_SIGNING_PUBLIC_KEY` 固定公钥；只核对配置名称及公钥摘要，不记录凭据。原控制签名身份与该发行身份独立。
