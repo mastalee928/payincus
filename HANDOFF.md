@@ -6,6 +6,14 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-23 故障后自动续费补处理（阶段源码）
+
+- 到期巡检先执行自动续费，查询覆盖已到期付费实例及系统到期暂停，沿用原周期和AFF/VIP计价，从当前时间续期；不追扣离线多个周期。手动暂停、免费、已删除/待清理及活动实例/恢复/上传任务排除，恢复保护禁止自动扣款。
+- 小时任务与五分钟巡检共用执行promise和通知批次，同一用户的多台实例按余额锁顺序串行。扣款事务在原实例版本之外再次核对自动续费开关、精确到期时间、当前资格与三次上限，陈旧请求导致整个余额事务回滚。失败至少间隔一小时，剩余重试保留已停止磁盘；三次失败且暂停满三天后执行删除，不延长免费运行。
+- 真实空PG测试库/HTTPS Incus夹具验证错过36小时/5天的续费、暂停后补续、小时与巡检重叠只扣一次、手动/免费/远期排除、恢复保护、关闭自动续费后的事务回滚，以及一小时重试/三次失败/暂停保留期删除。首轮同一买家并发遇到余额advisory锁冲突，修为按用户串行后整轮通过；不将该失败算作通过。
+- 真实Incus6.0.4独立mount/net与临时委派systemd服务验证：运行中的到期容器补续费只扣一次且实际继续Running；随后关闭自动续费并设已过暂停保留期，实际停机/删除/不存在核验、库存释放与重复巡检通过。独立PG夹具和真实Incus证据分别为 `catchup-integration-result.json`、`catchup-real-scheduler-result.json`，均位于维护者本地忽略目录。临时服务退出，原唯一业务后端active且未部署此源码。
+- 全量planned/executed/passed177、failed0（`logs/test-run-20261023-215428/summary.txt`，6m35s）；最后事务条件调整后的6项计费守卫、服务器类型/构建及修改TS ESLint通过。前端未变更。本阶段CI/预览随后另记；真实OSS丢失A→B恢复→DNS重连及备份后交易对账仍待联合验收，正式版本保持v1.7.1。
+
 ## 当前源码与发布状态
 
 - 面板 [v1.7.1](https://github.com/mastalee928/payincus/releases/tag/v1.7.1) 已正式发布，发行源码 `9d1e5ba47dd6bf0a0937413892dacfeeb15e4a1d`，注解标签对象 `b9e5ca546250ada32e9df55455bba454f54f5a4d`，GitHub 面板 latest 为 v1.7.1。修复旧 OTA 解包保留构建机 UID 导致备份执行器安装回滚的问题；双架构预览、正式首装/恢复演练与公开资产校验通过。测试主控任务 #13 已使用原版 v1.7.0 执行器成功升级至 v1.7.1，2026-10-22 从实际管理后台复核成功日志及运行版本；同日 owner 明确确认已升级至 v1.7.1、正常运行、所有宿主均正常。下方各版本 latest 为当时状态；生产 OTA 未执行。
@@ -45,6 +53,8 @@ Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payinc
 - 映射提交 bb694ff [源码CI39959624357](https://github.com/mastalee928/payincus/actions/runs/39959624357) 和 [双架构预览39959627974](https://github.com/mastalee928/payincus/actions/runs/39959627974) 全部success；两种实际首装/恢复演练确认端口映射及回滚目标环境，Release skipped。
 
 ## 2026-10-23 控制签名身份纳入平台归档（新增源码）
+
+- 提交0374bee [源码CI39961966190](https://github.com/mastalee928/payincus/actions/runs/39961966190)全部success；[双架构预览39961969761](https://github.com/mastalee928/payincus/actions/runs/39961969761)的AMD64/ARM64构建和实际首装全部success。两种架构均执行新增控制签名身份备份、恢复后核验和回滚；Release预期skipped，未创建正式发行或部署客户主控。此演练的OSS传输仍为本地替身，真实云端冷恢复/宿主重连联合验收尚未完成。
 
 - 平台备份增加固定controller/signing.pem、identity.json、enrollment.json，备份前完整root登记验证及环境平台ID匹配。归档仅接受三项固定路径，保留加密认证/回读/完整性限制。
 - 恢复要求三份完整、私钥摘要/身份/平台/发行信任匹配；旧组件路径不作为恢复目标，使用B已验签登记的组件目录重新生成登记信息，保留A原私钥及平台身份。写文件后和回滚后再次运行固定root登记验证器，失败保护模式不放行；环境平台ID从已核对身份映射。备份不包含可执行旧组件或任意归档路径。

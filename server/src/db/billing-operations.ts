@@ -5,6 +5,8 @@
 
 import { prisma } from './prisma.js'
 import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
+import { autoRenewEligibility } from '../lib/instance-auto-renew.js'
+import { recoveryHeld } from '../services/platform-backup-core.js'
 import type { Instance, PackagePlan, Prisma } from '@prisma/client'
 import { getInstanceAffBinding, processAffCommission } from './aff.js'
 import { getInstanceBillingLineageIds } from './billing-records.js'
@@ -543,14 +545,16 @@ export function previewRenewPrices(
 export async function performRenewal(
   userId: number,
   instance: Instance,
-  months: number
+  months: number,
+  automatic?: { expiryThreshold: Date }
 ): Promise<{ newExpiresAt: Date; amount: number; balanceLogId: number; discountAmount?: number; hostingIncomeResult?: { hostOwnerId: number; hostName: string } | null }> {
-  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months))
+  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months, automatic))
 }
 
 async function performRenewalMutation(
-  userId: number, instance: Instance, months: number
+  userId: number, instance: Instance, months: number, automatic?: { expiryThreshold: Date }
 ): Promise<{ newExpiresAt: Date; amount: number; balanceLogId: number; discountAmount?: number; hostingIncomeResult?: { hostOwnerId: number; hostName: string } | null }> {
+  if (automatic && recoveryHeld()) throw new Error('AUTO_RENEW_RECOVERY_HELD')
   if (instance.status === 'deleted') {
     throw new Error('实例已删除，无法续费')
   }
@@ -630,15 +634,24 @@ async function performRenewalMutation(
     const newBalance = Number(updatedUser.balance)
 
     // 乐观锁：检查实例版本号并更新
+    if (automatic && recoveryHeld()) throw new Error('AUTO_RENEW_RECOVERY_HELD')
+    if (automatic) {
+      const pending = { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
+      if (await tx.instanceTask.count({ where: pending }) || await tx.restoreTask.count({ where: pending }) ||
+        await tx.backupUploadTask.count({ where: pending })) throw new Error('AUTO_RENEW_INSTANCE_TASK_ACTIVE')
+    }
     const instanceUpdateResult = await tx.instance.updateMany({
       where: {
         id: instance.id,
         status: { not: 'deleted' },
-        version: instance.version  // 确保版本号未变
+        version: instance.version,  // 确保版本号未变
+        ...(automatic ? { AND: [autoRenewEligibility(new Date(), automatic.expiryThreshold), { expiresAt: instance.expiresAt }],
+          autoRenewAttempts: { lt: 3 } } : {})
       },
       data: {
         expiresAt: newExpiresAt,
         autoRenewAttempts: 0,
+        lastAutoRenewAttemptAt: null,
         version: { increment: 1 },  // 增加版本号
         // 如果因到期被封停，续费后解除封停（恢复为 stopped）
         ...(instance.status === 'suspended' && instance.suspendReason === 'expired' ? {

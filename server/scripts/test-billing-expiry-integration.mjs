@@ -19,7 +19,7 @@ const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 assert.equal(await prisma.user.count(), 0, 'test database must contain no users')
 assert.equal(await prisma.host.count(), 0, 'test database must contain no hosts')
 assert.equal(await prisma.instance.count(), 0, 'test database must contain no instances')
-const { executeExpiryEnforcement, getExpiryEnforcementStatus, startExpiryEnforcement } = await import('../src/services/billing-scheduler.js')
+const { executeAutoRenew, executeExpiryEnforcement, getExpiryEnforcementStatus, startExpiryEnforcement } = await import('../src/services/billing-scheduler.js')
 const { performRenewal } = await import('../src/db/billing-operations.js')
 const { withInstanceBillingMutation } = await import('../src/lib/instance-billing-mutation.js')
 const cron = await import('node-cron')
@@ -46,6 +46,7 @@ const server = createServer({ key: await readFile(root + '/tls.key'), cert: awai
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const owner = await prisma.user.create({ data: { username: 'expiry-fixture-owner', passwordHash: 'unusable', role: 'admin' } })
 const user = await prisma.user.create({ data: { username: 'expiry-fixture-buyer', passwordHash: 'unusable', balance: 100 } })
+const poor = await prisma.user.create({ data: { username: 'expiry-fixture-insufficient', passwordHash: 'unusable', balance: 0 } })
 const pkg = await prisma.package.create({ data: { userId: owner.id, name: 'Expiry fixtures', cpuMax: 100, memoryMax: 128, diskMax: 1024 } })
 const plan = await prisma.packagePlan.create({ data: { packageId: pkg.id, name: 'Expiry fixtures', cpu: 100, memory: 128, disk: 1024,
   portLimit: 1, snapshotLimit: 0, backupLimit: 0, siteLimit: 0, trafficLimit: 0n, price: 10 } })
@@ -103,16 +104,58 @@ try {
   assert.equal([...cron.getTasks().values()].filter(task => task.name === 'instance-expiry-enforcement').length, 1)
   await tasks[0].destroy()
   await withInstanceBillingMutation(stopTarget.id, async () => {})
+  const catchup = await instance('expiry-missed-renew-running', { autoRenew: true, expiresAt: new Date(Date.now() - 36 * 3600000) })
+  const catchupSuspended = await instance('expiry-missed-renew-suspended', { autoRenew: true, status: 'suspended', suspendReason: 'expired', suspendedBy: null,
+    suspendedAt: new Date(Date.now() - 4 * 86400000), expiresAt: new Date(Date.now() - 5 * 86400000) })
+  const manualAuto = await instance('expiry-auto-manual', { autoRenew: true, status: 'suspended', suspendReason: 'manual', suspendedBy: owner.id })
+  const freeAuto = await instance('expiry-auto-free', { autoRenew: true, packagePlanId: null })
+  const farAuto = await instance('expiry-auto-far', { autoRenew: true, expiresAt: new Date(Date.now() + 7 * 86400000) })
+  const hold = join(root, 'recovery-hold.json')
+  const { writeFile } = await import('node:fs/promises')
+  await writeFile(hold, '{}')
+  await executeAutoRenew(); await executeExpiryEnforcement()
+  assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: catchup.id, type: 'renew' } }), 0, 'recovery protection blocks automatic charges')
+  await unlink(hold)
+  await Promise.all([executeAutoRenew(), executeAutoRenew(), executeExpiryEnforcement(), executeExpiryEnforcement()])
+  for (const target of [catchup, catchupSuspended]) {
+    const current = await prisma.instance.findUniqueOrThrow({ where: { id: target.id } })
+    assert.ok(current.expiresAt > new Date()); assert.equal(current.suspendReason, null)
+    assert.equal(current.lastAutoRenewAttemptAt, null)
+    assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: target.id, type: 'renew' } }), 1)
+    assert.equal(remote.get(target.incusId), 'Running', 'catchup settles before remote stop/delete')
+  }
+  assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), 70, 'one charge per missed renewal despite overlapping jobs')
+  for (const target of [manualAuto, freeAuto, farAuto]) assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: target.id, type: 'renew' } }), 0)
+  const disabledDuringWait = await instance('expiry-auto-disabled-in-lane', { autoRenew: true })
+  const staleAutomatic = await prisma.instance.findUniqueOrThrow({ where: { id: disabledDuringWait.id } })
+  await withInstanceBillingMutation(disabledDuringWait.id, async () => { await prisma.instance.update({ where: { id: disabledDuringWait.id }, data: { autoRenew: false } }) })
+  await assert.rejects(performRenewal(user.id, staleAutomatic, 1, { expiryThreshold: new Date(Date.now() + 86400000) }))
+  assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), 70, 'disabled automatic charge rolls back the balance transaction')
+  const insufficient = await instance('expiry-auto-insufficient', { userId: poor.id, autoRenew: true })
+  await executeExpiryEnforcement(); await executeExpiryEnforcement()
+  let failed = await prisma.instance.findUniqueOrThrow({ where: { id: insufficient.id } })
+  assert.equal(failed.autoRenewAttempts, 1, 'repeated five-minute runs preserve hourly retries')
+  assert.equal(failed.status, 'suspended'); assert.equal(remote.get(insufficient.incusId), 'Stopped')
+  for (const expected of [2, 3]) {
+    await prisma.instance.update({ where: { id: insufficient.id }, data: { lastAutoRenewAttemptAt: new Date(Date.now() - 61 * 60000), suspendedAt: new Date(Date.now() - 4 * 86400000) } })
+    await executeExpiryEnforcement()
+    failed = await prisma.instance.findUniqueOrThrow({ where: { id: insufficient.id } })
+    assert.equal(failed.autoRenewAttempts, expected)
+    if (expected < 3) assert.equal(remote.has(insufficient.incusId), true, 'pending bounded retries retain stopped disk')
+  }
+  assert.equal(remote.has(insufficient.incusId), false, 'exhausted retries do not retain unpaid expired disks past grace')
+  assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: insufficient.id, type: 'renew' } }), 0)
   const result = { passed: true, realPostgres: true, httpIncusFixture: true, realCustomerOperations: false, offlineSuspensionPreserved: true,
     reconnectStopRetried: true, manualAndFreePreserved: true, concurrentRenewChargedOnce: true, renewedNotStopped: true,
-    uncertainDeleteKeepsAllocation: true, laterDeleteFinalizesOnce: true, noDuplicateStops: true, restartIdempotent: true, stopCount, deleteCount }
+    uncertainDeleteKeepsAllocation: true, laterDeleteFinalizesOnce: true, noDuplicateStops: true, restartIdempotent: true,
+    missedRenewalCatchup: true, renewalBeforeDeletion: true, recoveryBlocksCharges: true, boundedHourlyRetries: true, staleAutomaticRollsBack: true, stopCount, deleteCount }
   console.log(JSON.stringify(result)); passed = true
 } finally {
   for (const task of cron.getTasks().values()) await task.destroy()
   await prisma.instance.deleteMany({ where: { hostId: host.id } })
   await prisma.host.delete({ where: { id: host.id } })
   await prisma.package.delete({ where: { id: pkg.id } })
-  await prisma.user.deleteMany({ where: { id: { in: [owner.id, user.id] } } })
+  await prisma.user.deleteMany({ where: { id: { in: [owner.id, user.id, poor.id] } } })
   await closePrismaDatabase(); await new Promise(resolve => server.close(resolve))
   await unlink(join(root, 'tls.key')); await unlink(join(root, 'tls.crt'))
   // Existing notifier/security timers are process-wide; the isolated test exits explicitly.

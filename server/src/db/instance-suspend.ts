@@ -5,6 +5,7 @@
 
 import { prisma } from './prisma.js'
 import type { Instance } from '@prisma/client'
+import { autoRenewEligibility } from '../lib/instance-auto-renew.js'
 
 // ==================== 封停操作 ====================
 
@@ -246,15 +247,7 @@ export async function getAutoRenewInstances(
   const expiryThreshold = new Date(now.getTime() + hoursBeforeExpiry * 60 * 60 * 1000)
 
   return prisma.instance.findMany({
-    where: {
-      autoRenew: true,
-      expiresAt: {
-        not: null,
-        lte: expiryThreshold,
-        gt: now // 还未到期
-      },
-      status: { notIn: ['suspended', 'deleted'] } // 未封停且未删除
-    }
+    where: autoRenewEligibility(now, expiryThreshold)
   })
 }
 
@@ -279,13 +272,7 @@ export async function updateAutoRenewAttempt(
       id: instanceId,
       ...(guard
         ? {
-            autoRenew: true,
-            expiresAt: {
-              not: null,
-              gt: guard.now,
-              lte: guard.expiryThreshold
-            },
-            status: { notIn: ['suspended', 'deleted'] },
+            ...autoRenewEligibility(guard.now, guard.expiryThreshold),
             version: guard.version,
             autoRenewAttempts: guard.currentAttempts
           }

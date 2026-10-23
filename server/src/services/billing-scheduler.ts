@@ -35,6 +35,7 @@ import { acquireLock, releaseLock } from '../lib/distributed-lock.js'
 import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
 import { enforceExpiredStop } from './billing-expiry-enforcement.js'
 import { recoveryHeld } from './platform-backup-core.js'
+import { isAutoRenewEligible } from '../lib/instance-auto-renew.js'
 
 // 并发限制
 const limit = pLimit(5)
@@ -47,6 +48,7 @@ const EXPIRY_NOTIFY_DAYS = [3, 2, 1] // 到期前 3/2/1 天各提醒一次
 const INSTANCE_BILLING_JOB_LOCK_EXPIRE_MS = 30 * 60 * 1000
 const INSTANCE_BILLING_JOB_LOCK_WAIT_MS = 100
 let schedulerStarted = false
+let autoRenewPromise: Promise<void> | null = null
 let expiryEnforcementRunning = false
 let expiryEnforcementTask: ReturnType<typeof schedule> | null = null
 let expiryStartPromise: Promise<void> | null = null
@@ -127,6 +129,13 @@ function buildAutoRenewAttemptGuard(instance: any, now: Date, expiryThreshold: D
  * 执行自动续费
  */
 async function executeAutoRenew(): Promise<void> {
+  if (recoveryHeld()) return
+  if (autoRenewPromise) return autoRenewPromise
+  const running = runAutoRenew()
+  autoRenewPromise = running
+  try { await running } finally { if (autoRenewPromise === running) autoRenewPromise = null }
+}
+async function runAutoRenew(): Promise<void> {
   console.log('[Billing] Starting auto-renew job...')
   const startTime = Date.now()
   autoRenewAlertSummary.successes.length = 0
@@ -140,11 +149,17 @@ async function executeAutoRenew(): Promise<void> {
 
     console.log(`[Billing] Found ${instances.length} instances for auto-renew`)
 
-    // 并发处理
+    // Different instances of one buyer share the same balance advisory lock.
+    // Serialize that buyer's renewals instead of spending retries on ourselves.
+    const byUser = new Map<number, typeof instances>()
+    for (const instance of instances) {
+      const group = byUser.get(instance.userId) || []
+      group.push(instance); byUser.set(instance.userId, group)
+    }
     await Promise.all(
-      instances.map(instance =>
-        limit(() => withInstanceBillingJobLock('auto-renew', instance.id, () => processAutoRenew(instance)))
-      )
+      [...byUser.values()].map(group => limit(async () => {
+        for (const instance of group) await withInstanceBillingJobLock('auto-renew', instance.id, () => processAutoRenew(instance))
+      }))
     )
 
     if (autoRenewAlertSummary.successes.length > 0 || autoRenewAlertSummary.failures.length > 0) {
@@ -160,6 +175,7 @@ async function executeAutoRenew(): Promise<void> {
     console.log(`[Billing] Auto-renew job completed in ${duration}ms`)
   } catch (error) {
     console.error('[Billing] Auto-renew job failed:', error)
+    throw error
   }
 }
 
@@ -272,18 +288,16 @@ async function processAutoRenew(instance: any): Promise<void> {
   })
   if (
     !latestInstance ||
-    !latestInstance.autoRenew ||
-    !latestInstance.expiresAt ||
-    latestInstance.expiresAt <= now ||
-    latestInstance.expiresAt > expiryThreshold ||
-    latestInstance.status === 'suspended' ||
-    latestInstance.status === 'deleted'
+    recoveryHeld() || !isAutoRenewEligible(latestInstance, now, expiryThreshold)
   ) {
     console.log(`[Billing] Skip auto-renew for instance ${instance.id}: no longer eligible`)
     return
   }
 
   instance = latestInstance
+  const pending = { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
+  if (await prisma.instanceTask.count({ where: pending }) || await prisma.restoreTask.count({ where: pending }) ||
+    await prisma.backupUploadTask.count({ where: pending })) return
   const attempts = (instance.autoRenewAttempts || 0) + 1
   const attemptGuard = buildAutoRenewAttemptGuard(instance, now, expiryThreshold)
 
@@ -365,7 +379,7 @@ async function processAutoRenew(instance: any): Promise<void> {
     }
 
     // 执行续费
-    const result = await performRenewal(instance.userId, instance, renewMonths)
+    const result = await performRenewal(instance.userId, instance, renewMonths, { expiryThreshold })
 
     // 用户通知（站内信/TG/邮件）延后到本轮结束时按用户聚合发送
     autoRenewUserSuccesses.push({
@@ -410,6 +424,7 @@ async function processAutoRenew(instance: any): Promise<void> {
     })
 
   } catch (error) {
+    if (recoveryHeld()) return
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     console.error(`[Billing] Auto-renew failed for instance ${instance.id}:`, errorMessage)
     const attemptClaimed = await updateAutoRenewAttempt(instance.id, attempts, false, attemptGuard)
@@ -640,6 +655,9 @@ async function processExpiryDelete(instance: any): Promise<void> {
     if (!latest || latest.suspendReason !== 'expired' || latest.suspendedBy !== null || !latest.packagePlanId || !latest.expiresAt || latest.expiresAt >= new Date()) return
     const resumingCleanup = latest.status === 'deleted' && latest.deletionBillingPending && latest.suspendedBy === null
     if (latest.status !== 'suspended' && !resumingCleanup) return
+    // A missed renewal may still be waiting for its next bounded retry. Stop
+    // enforcement remains active, but preserve the disk until retries finish.
+    if (!resumingCleanup && latest.autoRenew && latest.autoRenewAttempts < AUTO_RENEW_MAX_ATTEMPTS) return
     instance = latest
     const deleteThreshold = new Date()
     deleteThreshold.setDate(deleteThreshold.getDate() - SUSPEND_AFTER_DELETE_DAYS)
@@ -990,6 +1008,9 @@ export async function executeExpiryEnforcement(): Promise<void> {
   expiryEnforcementRunning = true
   expiryLastStartedAt = new Date().toISOString(); expiryFailureCount = 0; expiryLastError = null
   try {
+    // Catch missed renewals before stopping or deleting the restored inventory.
+    try { await executeAutoRenew() } catch { noteExpiryFailure('EXPIRY_AUTO_RENEW_SCAN_FAILED'); return }
+    if (recoveryHeld()) return
     await executeExpirySuspend()
     await executeExpiryDelete()
   } finally { expiryEnforcementRunning = false; expiryLastFinishedAt = new Date().toISOString() }
