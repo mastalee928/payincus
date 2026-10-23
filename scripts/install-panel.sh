@@ -2121,6 +2121,16 @@ do_install() {
     # 生成 .env
     generate_env "$db_password" "$redis_password" "$(gen_password 16)" "$admin_email"
 
+    # Only a fresh, checksum-verified release with its full signed component
+    # catalog may initialize a new controller identity. Restarts never do this.
+    if [[ -f "$INSTALL_DIR/vendor/gateway/catalog.json" ]]; then
+        if [[ -f /var/lib/incudal-gateway-controller/enrollment.json ]]; then
+            bash "$INSTALL_DIR/scripts/install-gateway-controller.sh"
+        else
+            bash "$INSTALL_DIR/scripts/install-gateway-controller.sh" --initialize-release
+        fi
+    fi
+
     # 创建 systemd 服务
     create_service
     create_online_update_service

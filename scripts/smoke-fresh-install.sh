@@ -74,6 +74,11 @@ for file in client/dist/user/index.html client/dist/admin/index.html server/dist
   scripts/verify-gateway-component-package.py deploy/incudal-gateway-task@.service.example LICENSE; do
   test -s "/opt/incudal/$file"
 done
+test -s /opt/incudal/vendor/gateway/catalog.json
+test -s /var/lib/incudal-gateway-controller/identity.json
+test -s /var/lib/incudal-gateway-controller/enrollment.json
+python3 -I -B /opt/incudal/scripts/enroll-gateway-controller.py --verify
+sudo -u incudal test ! -r /var/lib/incudal-gateway-controller/signing.pem
 expected_migrations=$(find /opt/incudal/server/prisma/migrations -name migration.sql -type f | wc -l)
 actual_migrations=$(sudo -u postgres psql -d incudal -tAc 'SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')
 test "$expected_migrations" = "$actual_migrations"

@@ -49,6 +49,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache-dependency-path: agent/go.mod
+
       - name: 校验一键安装脚本
         run: bash scripts/test-install-panel-guards.sh
 
@@ -90,6 +96,47 @@ jobs:
       - name: 编译后端 (TypeScript)
         run: pnpm --filter server build
 
+      - name: 构建受信双架构网关组件
+        env:
+          GATEWAY_SIGNING_KEY: ${{ secrets.GATEWAY_COMPONENT_SIGNING_KEY }}
+          GATEWAY_SIGNING_PUBLIC_KEY: ${{ vars.GATEWAY_COMPONENT_SIGNING_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$GATEWAY_SIGNING_KEY" && test -n "$GATEWAY_SIGNING_PUBLIC_KEY"
+          key_dir=$(mktemp -d "$RUNNER_TEMP/gateway-signing-XXXXXX")
+          trap 'rm -f "$key_dir/signing.pem"; rmdir "$key_dir"' EXIT
+          printf '%s\n' "$GATEWAY_SIGNING_KEY" > "$key_dir/signing.pem"
+          actual_public=$(openssl pkey -in "$key_dir/signing.pem" -pubout -outform DER | tail -c 32 | base64 -w0)
+          test "$actual_public" = "$GATEWAY_SIGNING_PUBLIC_KEY"
+          mkdir -p release/vendor/gateway
+          node_version=$(node --version)
+          for arch in amd64 arm64; do
+            node_arch=x64; test "$arch" != arm64 || node_arch=arm64
+            runtime_dir=$(mktemp -d "$RUNNER_TEMP/gateway-runtime-XXXXXX")
+            runtime_name="node-${node_version}-linux-${node_arch}.tar.xz"
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "https://nodejs.org/dist/${node_version}/${runtime_name}" -o "$runtime_dir/$runtime_name"
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "https://nodejs.org/dist/${node_version}/SHASUMS256.txt" -o "$runtime_dir/SHASUMS256.txt"
+            (cd "$runtime_dir"; grep "  ${runtime_name}$" SHASUMS256.txt | sha256sum --check -)
+            tar -xJf "$runtime_dir/$runtime_name" -C "$runtime_dir"
+            node scripts/build-gateway-component-package.mjs --out "release/vendor/gateway/$arch" --architecture "$arch" --node "$runtime_dir/node-${node_version}-linux-${node_arch}/bin/node" --go "$(command -v go)" --signing-key "$key_dir/signing.pem"
+          done
+          export GATEWAY_SOURCE_COMMIT="$(git rev-parse HEAD)"
+          node --input-type=module <<'NODE'
+          import { writeFileSync, readFileSync } from 'node:fs'
+          writeFileSync('release/vendor/gateway/catalog.json', JSON.stringify({ schemaVersion: 1,
+            packageSigningKey: process.env.GATEWAY_SIGNING_PUBLIC_KEY, version: JSON.parse(readFileSync('server/package.json')).version,
+            sourceCommit: process.env.GATEWAY_SOURCE_COMMIT, architectures: ['amd64', 'arm64'] }))
+          NODE
+          chmod 644 release/vendor/gateway/catalog.json
+          protected_root=$(sudo mktemp -d /root/incudal-release-gateway-XXXXXX)
+          sudo cp -R release/vendor/gateway "$protected_root/gateway"
+          printf '%s' "$GATEWAY_SIGNING_PUBLIC_KEY" | sudo tee "$protected_root/pinned.pub" >/dev/null
+          sudo chmod 600 "$protected_root/pinned.pub"
+          for arch in amd64 arm64; do
+            sudo python3 -B scripts/verify-gateway-component-package.py "$protected_root/gateway/$arch" "$protected_root/pinned.pub" "$arch" "$(node -p 'require("./server/package.json").version')" "$GATEWAY_SOURCE_COMMIT"
+          done
+
       # ===== 准备发行目录 =====
       - name: 准备发行目录结构
         run: |
@@ -125,7 +172,7 @@ jobs:
           cp scripts/migrate-ota-atomic-layout.sh release/scripts/
           cp scripts/probe-onboarding-resources.py release/scripts/
           cp scripts/probe-management-gateway.py release/scripts/
-          cp scripts/gateway-install-plan.py scripts/execute-gateway-install.py scripts/verify-gateway-component-package.py scripts/install-gateway-controller.sh scripts/enroll-gateway-controller.py release/scripts/
+          cp scripts/gateway-install-plan.py scripts/execute-gateway-install.py scripts/verify-gateway-component-package.py scripts/install-gateway-controller.sh scripts/enroll-gateway-controller.py scripts/provision-gateway-controller.py release/scripts/
           cp scripts/ensure-host-swap.py release/scripts/
           cp scripts/configure-oci-node-network.sh release/scripts/
           cp scripts/onboarding-gateway.py release/scripts/

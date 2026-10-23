@@ -37,6 +37,10 @@ INCUDAL_AGENT_RELEASE_DIR 仅供临时验收覆盖；正常安装从自己的 Ag
 
 ### 独立组件控制身份登记
 
+包含完整 `vendor/gateway/` 双架构签名组件的新版发行包，在首装已核对包校验值、生成运行环境后自动准备组件并登记平台身份。正式构建从 GitHub Secret `GATEWAY_COMPONENT_SIGNING_KEY` 与变量 `GATEWAY_COMPONENT_SIGNING_PUBLIC_KEY` 取得独立发行身份，必须先核对私钥导出的公钥匹配固定变量，再签名组件；签名材料不进入安装包。Node 两种架构运行时从官方 HTTPS 下载并核对对应 SHA256，包内源码提交与面板 version.json 绑定。
+
+组件按签名清单哈希保存到 root 私有 `/var/lib/incudal-gateway-components/`，避免 OTA 清理旧 release 使登记目录失效。已有 v2 身份的正常服务启动只刷新已验签组件目录并保持原私钥/identity；恢复保护时停止自动刷新，不从缺失文件生成新身份。旧版本无目录的安装维持显式登记流程；已有 v1 测试/人工登记需单独迁移，不能隐式重新初始化。主控控制身份仍不等于取得宿主写权或完成备用覆盖。
+
 页面安装计划使用 root 私有登记 `/var/lib/incudal-gateway-controller/enrollment.json`。服务启动只安装受限 worker，不生成签名身份。首次登记必须显式执行 `sudo bash scripts/install-panel.sh --configure-gateway-controller --initialize < catalog.json`；已有身份仅用 `--refresh` 更新组件目录，`--verify` 只核验登记与组件。命令从已验证安装目录运行，不重启业务后端或网关。平台 `GATEWAY_PLATFORM_ID` 必须与登记的 `platformId` 一致；首次填入后重启唯一后端使环境配置生效。
 
 `catalog.json` 仅包含 `platformId`、独立固定的 Base64 Ed25519 `packageSigningKey`，以及 `components` 的 `amd64`/`arm64` 目录、`version` 和完整 `sourceCommit`。只登记已解包、root 所有且通过固定包验证器的软件包。组件公钥必须从独立受信来源取得，不能从待安装包中自行信任；发布签名身份与本机控制签名身份分离。组件目录不可由业务服务用户写入。

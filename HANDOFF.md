@@ -22,6 +22,14 @@
 - 已实际下载两种架构的公开安装包，确认 SHA256、文件大小、OTA manifest、包内版本与 Git 提交一致；检查全部迁移和 IPv6、UPAY 等关键模块，包内 LICENSE 与发行源码原文一致。GitHub 的面板 latest 为 v1.6.2；公开一键安装脚本与发行源码一致。
 - [源码 CI](https://github.com/mastalee928/payincus/actions/runs/38877110604)、[Agent 发布](https://github.com/mastalee928/payincus/actions/runs/38877110746) 均通过；[本仓库文档站](https://mastalee928.github.io/payincus/) 已上线。
 
+## 2026-10-23 签名组件发行与首装准备接线（预览待验，未发版）
+
+- Owner 明确授权生成专用 Ed25519 组件发行身份并配置仓库。私钥保存于仓库外受限 Windows ACL 目录，GitHub Secret `GATEWAY_COMPONENT_SIGNING_KEY` 保存私钥、变量 `GATEWAY_COMPONENT_SIGNING_PUBLIC_KEY` 固定公钥；只核对配置名称及公钥摘要，不记录凭据。原控制签名身份与该发行身份独立。
+- 发行工作流原生 runner 构建 amd64/arm64 两套独立组件并纳入每个面板包：Node 官方 HTTPS 下载/对应 SHA256 核对、Go 交叉编译、bundle 源码身份守卫、固定公钥匹配、组件签名与 root 侧双架构验签。清单绑定版本/源码提交，首装准备器再次核对面板 version.json、server package 版本和两个架构完整包，不接受包内自行生成的未知信任。
+- 新固定首装准备器将受信组件按清单哈希保存至独立 root 私有持久目录，首次显式安装后创建独立控制身份并只补 GATEWAY_PLATFORM_ID；环境文件原子替换，保留其它配置、属主/权限。已有 v2 身份服务启动只刷新组件目录，私钥/平台/固定信任保持；恢复保护期间不自动刷新，缺身份不在重启时重新初始化。没有重新安装网关服务或获取宿主写权。
+- Linux 13 组真实双架构签名/文件/权限/并发首装准备回归通过，覆盖环境/原平台保持、错误信任/版本/面板提交、组件篡改/持久副本拒绝、缺身份/重复初始化与软链。网关/安装器/来源守卫、服务器类型与 shell 语法通过；新增 Python 测试登记双架构 CI，发行首装要求实际 catalog/identity 与业务服务用户无法读取控制私钥。前阶段 bb8dacd 的 CI 39924271193 全部成功。实际新双架构发行预览及原安装包首装结果在运行后另记，不能以本地回归替代。
+- 此阶段仍不代表完整 HA：控制身份的备份/恢复与较新事件对账、已有 v1 迁移/连接/更新、业务路径与见证接管、全部 34 项及 72 小时演练尚需继续。未打标签、未创建正式 Release、未执行生产 OTA。
+
 ## 2026-10-23 显式网关控制身份登记（阶段交付，未发版）
 
 - 增加 root 固定 JSON 登记器与安装器显式 `--configure-gateway-controller --initialize|--refresh|--verify` 入口。正常业务服务启动仍只安装受限 worker，不自动生成身份。初始化验签已登记架构组件后生成独立 Ed25519 控制私钥，root:root/0600，绑定平台/控制公钥摘要/组件信任的 identity.json 与 v2 enrollment.json 原子发布；组件发行公钥不得由待安装软件包自行信任。

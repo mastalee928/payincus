@@ -43,6 +43,8 @@ grep -Fq 'current_ver=$(/usr/bin/node -v' "$REPO_ROOT/scripts/install-panel.sh"
 grep -Fq -- '--configure-gateway-controller)' "$REPO_ROOT/scripts/install-panel.sh"
 grep -Fq -- '"$action" == --initialize' "$REPO_ROOT/scripts/install-gateway-controller.sh"
 grep -Fq '/usr/bin/python3 -I -B "$tool" "$action"' "$REPO_ROOT/scripts/install-gateway-controller.sh"
+grep -Fq '"$INSTALL_DIR/scripts/install-gateway-controller.sh" --initialize-release' "$REPO_ROOT/scripts/install-panel.sh"
+grep -Fq 'provision_action=--refresh' "$REPO_ROOT/scripts/install-gateway-controller.sh"
 bash -n "$REPO_ROOT/scripts/install-gateway-controller.sh"
 
 for helper in \
