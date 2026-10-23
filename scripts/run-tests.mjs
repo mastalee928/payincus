@@ -50,6 +50,8 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:gateway-installation-live', 'explicit Linux root opt-in installs a real fresh gateway using a protected controller enrollment and isolated *_gateway_test database'],
+  ['test:gateway-installation-integration', 'requires isolated real PostgreSQL *_gateway_test database for installation preparation, MFA and secret delivery'],
   ['test:gateway-component-integration', 'requires built native Linux gateway component package and root network namespace isolation'],
   ['test:gateway-management-integration', 'requires Linux live read-only probe and isolated real PostgreSQL *_gateway_test database'],
   ['test:gateway-task-integration', 'requires isolated real PostgreSQL *_gateway_test database'],

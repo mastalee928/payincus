@@ -125,6 +125,7 @@ jobs:
           cp scripts/migrate-ota-atomic-layout.sh release/scripts/
           cp scripts/probe-onboarding-resources.py release/scripts/
           cp scripts/probe-management-gateway.py release/scripts/
+          cp scripts/gateway-install-plan.py scripts/execute-gateway-install.py scripts/verify-gateway-component-package.py scripts/install-gateway-controller.sh release/scripts/
           cp scripts/ensure-host-swap.py release/scripts/
           cp scripts/configure-oci-node-network.sh release/scripts/
           cp scripts/onboarding-gateway.py release/scripts/

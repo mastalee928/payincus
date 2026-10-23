@@ -10,7 +10,7 @@ if [[ "$#" -ne 3 || "$1" != "start" || "$2" != "--no-block" ]]; then
 fi
 
 readonly UNIT_NAME="$3"
-if [[ ! "$UNIT_NAME" =~ ^incudal-online-(update|rollback)@[1-9][0-9]*\.service$ && ! "$UNIT_NAME" =~ ^incudal-platform-backup@[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}\.service$ ]]; then
+if [[ ! "$UNIT_NAME" =~ ^incudal-online-(update|rollback)@[1-9][0-9]*\.service$ && ! "$UNIT_NAME" =~ ^incudal-platform-backup@[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}\.service$ && ! "$UNIT_NAME" =~ ^incudal-gateway-task@[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}\.service$ ]]; then
   echo "incudal systemctl wrapper: invalid unit name" >&2
   exit 64
 fi

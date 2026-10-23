@@ -404,6 +404,7 @@ model User {
   twoFactorEnabled       Boolean @default(false) @map("two_factor_enabled")
   twoFactorSecret        String? @map("two_factor_secret")
   twoFactorRecoveryCodes String? @map("two_factor_recovery_codes") // JSON array of encrypted codes
+  gatewayMfaReplays       ManagementGatewayMfaReplay[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -3736,6 +3737,15 @@ model ManagementGatewayTask {
   plan                 Json
   planHash             String   @map("plan_hash")
   inspection           Json?
+  preparationState     String?  @map("preparation_state")
+  installation         Json?
+  installationPreview  Json?    @map("installation_preview")
+  installationReceipt  Json?    @map("installation_receipt")
+  bootstrapEncrypted   String?  @db.Text @map("bootstrap_encrypted")
+  bootstrapExpiresAt   DateTime? @map("bootstrap_expires_at")
+  approvedCredentialHash String? @map("approved_credential_hash")
+  approvedSessionId     String?  @map("approved_session_id")
+  recoveryContext       String?  @map("recovery_context")
   basedOnRevision      BigInt   @map("based_on_revision")
   status               String   @default("awaiting_confirmation")
   approvedById         Int?     @map("approved_by_id")
@@ -3774,4 +3784,12 @@ model ManagementGatewayStep {
   @@id([taskId, key])
   @@unique([taskId, ordinal])
   @@map("management_gateway_steps")
+}
+
+model ManagementGatewayMfaReplay {
+  userId Int    @map("user_id")
+  step   BigInt
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  @@id([userId, step])
+  @@map("management_gateway_mfa_replays")
 }

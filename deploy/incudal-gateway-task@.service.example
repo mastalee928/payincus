@@ -1,0 +1,18 @@
+# payincus-gateway-task-v1
+[Unit]
+Description=PayIncus management gateway task %i
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+Group=incudal
+WorkingDirectory=/opt/incudal
+EnvironmentFile=/opt/incudal/.env
+Environment=NODE_ENV=production
+UMask=0077
+ExecStart=/usr/local/libexec/incudal/incudal-online-task gateway-task %i
+TimeoutStartSec=20min
+KillMode=control-group
+StandardOutput=journal
+StandardError=journal

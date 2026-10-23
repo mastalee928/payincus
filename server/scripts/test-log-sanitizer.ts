@@ -44,6 +44,11 @@ const sanitized = sanitizeObject({
     private_key: 'snake-private-key',
     totpCode: '123456',
     totp_code: '654321',
+    totpSeed: 'gateway-mfa-seed',
+    recoveryCodes: ['gateway-recovery-code'],
+    credentialsEncrypted: 'gateway-bootstrap-ssh-ciphertext',
+    bootstrapEncrypted: 'gateway-console-ciphertext',
+    leaseToken: 'gateway-executor-lease',
     note: 'keep-me'
   },
   items: [
@@ -89,6 +94,11 @@ assert.equal(sanitized.nested.privateKey, redacted)
 assert.equal(sanitized.nested.private_key, redacted)
 assert.equal(sanitized.nested.totpCode, redacted)
 assert.equal(sanitized.nested.totp_code, redacted)
+assert.equal(sanitized.nested.totpSeed, redacted)
+assert.equal(sanitized.nested.recoveryCodes, redacted)
+assert.equal(sanitized.nested.credentialsEncrypted, redacted)
+assert.equal(sanitized.nested.bootstrapEncrypted, redacted)
+assert.equal(sanitized.nested.leaseToken, redacted)
 assert.equal(sanitized.nested.note, 'keep-me')
 
 assert.equal(sanitized.items[0].backupCode, redacted)

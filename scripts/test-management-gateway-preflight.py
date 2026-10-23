@@ -2,6 +2,10 @@
 """Pure validation/conflict guards; live probing is separately recorded."""
 import importlib.util
 import ipaddress
+import json
+import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -53,6 +57,15 @@ class GatewayProbeTests(unittest.TestCase):
         self.assertEqual(probe.listener_ports('UNCONN 0 0 0.0.0.0:51980 0.0.0.0:*\nLISTEN 0 128 [::]:18480 [::]:*'), {51980, 18480})
         with self.assertRaises(ValueError):
             probe.listener_ports('unexpected response')
+
+    @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() != 0, 'actual unprivileged Linux process only')
+    def test_unprivileged_read_only_probe(self):
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name('probe-management-gateway.py'))],
+                                input=json.dumps(self.request()), text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0)
+        report = json.loads(result.stdout)
+        self.assertEqual(report['schemaVersion'], 1)
+        self.assertRegex(report['machineId'], r'^[a-f0-9]{32}$')
 
 
 if __name__ == '__main__':

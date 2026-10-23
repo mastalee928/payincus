@@ -4,7 +4,6 @@ import hashlib
 import base64
 import ipaddress
 import json
-import os
 import platform
 import re
 import shutil
@@ -113,8 +112,9 @@ def service_fact(name, marker):
 
 def probe(request):
     blockers = []
-    if os.geteuid() != 0:
-        raise ValueError('root inspection required')
+    # This entry only reads public machine/network/service facts. The Web
+    # backend runs without root; privileged observations that are unavailable
+    # remain explicit blockers. Installation planning/execution still require root.
     machine = Path('/etc/machine-id').read_text().strip()
     if not re.fullmatch(r'[a-f0-9]{32}', machine) or set(machine) == {'0'}:
         raise ValueError('invalid machine identity')

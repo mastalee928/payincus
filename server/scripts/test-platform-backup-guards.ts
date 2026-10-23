@@ -345,6 +345,10 @@ try {
   assert.ok(app.indexOf('if (recoveryHeld()) {') < app.indexOf('await initPrismaDatabase('), 'recovery gate precedes initialization and background jobs')
   const helper = await readFile(resolve(import.meta.dirname, '../../deploy/incudal-online-task.sh.example'), 'utf8')
   assert.ok(helper.includes('flock -n 9') && helper.includes('verify_manifest'), 'privileged workers must serialize with OTA and verify code')
+  const recoveryWorker = await readFile(resolve(import.meta.dirname, '../src/services/platform-backup-worker.ts'), 'utf8')
+  assert.ok(recoveryWorker.includes('await pgQuery(QUARANTINE_RESTORED_GATEWAY_TASKS_SQL, [], staging)') &&
+    recoveryWorker.indexOf('await pgQuery(QUARANTINE_RESTORED_GATEWAY_TASKS_SQL, [], staging)') < recoveryWorker.indexOf("journal.stage = 'switching'"),
+  'restored text-status gateway tasks and bootstrap grants must be quarantined in staging before activation')
   const installer = await readFile(resolve(import.meta.dirname, '../../scripts/install-platform-backup.sh'), 'utf8')
   assert.ok(installer.includes('/usr/bin/systemctl daemon-reload') && !/^systemctl daemon-reload$/m.test(installer), 'startup installer must bypass the restricted task wrapper using the real systemctl path')
   const release = await readFile(resolve(import.meta.dirname, '../../.github/workflows/release.yml'), 'utf8')

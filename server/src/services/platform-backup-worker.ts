@@ -13,6 +13,7 @@ import { assertBackupVersion, assertMigrationHistory, normalizedReleaseSchema, r
 import { exportReadableDatabase } from './platform-backup-database.js'
 import { createReadableZip, readableZipName, validReadableZipName } from './platform-backup-readable.js'
 import { refreshRestoredGateway } from './platform-backup-gateway.js'
+import { QUARANTINE_RESTORED_GATEWAY_TASKS_SQL } from '../lib/gateway-recovery-context.js'
 
 const exec = promisify(execFile)
 const INSTALL = '/opt/incudal'
@@ -364,6 +365,7 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
         if (terminal) await pgQuery(`UPDATE ${quoteIdentifier(column.table_name)} SET status=$1 WHERE status::text IN ('pending','running','PENDING','PROCESSING','RUNNING')`, [terminal], staging)
       }
       await pgQuery("UPDATE host_onboarding_nodes SET status='failed', step='recovery_review', credentials_encrypted=NULL, lease_token=NULL, lease_until=NULL WHERE status IN ('queued','running')", [], staging)
+      await pgQuery(QUARANTINE_RESTORED_GATEWAY_TASKS_SQL, [], staging)
       await pgQuery('UPDATE hosts SET pool_faulted=true WHERE single_tenant=true', [], staging)
       for (const [i, action] of actions.entries()) {
         const saved = existsSync(action.target) ? join(directory, `before-${i}`) : null

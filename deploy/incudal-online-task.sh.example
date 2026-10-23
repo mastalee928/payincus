@@ -245,6 +245,17 @@ run_task() {
 }
 
 case "${1:-}" in
+  gateway-task)
+    [[ "$#" -eq 2 && "$2" =~ ^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$ ]] || fail "invalid gateway task id"
+    exec 9>/var/lib/incudal-platform-operation.lock
+    flock -n 9 || fail "another platform maintenance task is running"
+    verify_manifest
+    app_dir="$(resolve_app_dir)"
+    [[ -f "$app_dir/server/dist/scripts/run-gateway-installation-task.js" && ! -L "$app_dir/server/dist/scripts/run-gateway-installation-task.js" ]] || fail "gateway worker missing"
+    exec /usr/bin/env -u NODE_OPTIONS -u NODE_PATH -u LD_PRELOAD -u BASH_ENV -u ENV -u PYTHONPATH -u PYTHONHOME \
+      PATH="$SYSTEM_PATH" INCUDAL_APP_DIR="$app_dir" NODE_ENV=production \
+      /usr/bin/node "$app_dir/server/dist/scripts/run-gateway-installation-task.js" "$2"
+    ;;
   platform-backup)
     [[ "$#" -eq 2 && "$2" =~ ^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$ ]] || fail "invalid platform task id"
     exec 9>/var/lib/incudal-platform-operation.lock
