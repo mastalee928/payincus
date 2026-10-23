@@ -241,3 +241,11 @@ MaintenanceRuntime每进程生成gateId、读取内核bootId，候选/见证双�
 独立维护服务可选受保护nodeSeedPath启用/v1/attest、/v1/lease和/v1/operations。启用时必须将TLS客户端证书SHA256固定到controllerId/holderPublicKey；同CA其它证书及错持有者拒绝。只有受控collector报告真实完整隔离才签节点回执/gate proof；当前正式collector仍保留遗留凭据及受管任务未隔离的阻断，不因协议夹具成功而开放客户写入口。
 
 实际Linux隔离HTTPS验证带节点身份/证书绑定的服务仍拒绝未隔离宿主完整回执，客户IPv4/IPv6 DNAT/FORWARD保持；完整Go race/vet验证旧代次、磁盘高水位、进程新gate、错签名/持有者和操作重放。旧凭据与受管本地任务迁移、真实Incus电源动作、独立见证端到端及故障分区仍待后续验收。
+
+## 22. 迁移凭据与受审调度事实
+
+ReadLocalCredentialAudit读取实际sshd -T，只接受所有SSH认证方法、root登录及PAM均禁用；安全指令重复拒绝，HostKey/ListenAddress等正常可重复项不误拒绝。SSH配置文件root权限/Include范围检查，任何Match旁路阻断；Incus本地socket须root:root/0600。旧会话及后台任务另由真实进程审计拒绝，不凭删一把公钥放行。
+
+WriterAuditPolicy可提供预先审查的SchedulerTreeHashes，绑定全部root/system/vendor/run调度树的路径、类型、链接目标和文件内容。未知或变化文件、可写树、解释器例外及未知特权进程继续阻断；只有完整事实与受审调度树一致才设置ManagedWriterIsolationVerified。已核验固定daemon可持有自身内核/API描述符；未核验进程不享有此例外。审计不自动生成可信基线，也不替管理员删旧任务或改SSH。
+
+显式 INCUDAL_MIGRATION_AUDIT_TEST=1 的Go集成测试创建与父环境不同的mnt/net/pid命名空间，屏蔽测试调度目录和SSH配置，真实sshd有效配置/root-only Unix API/procfs/nft持久水位采集后签署宿主回执；新增调度任务立即阻断。Unix API在此使用固定替身，不冒充实际Incus或客户宿主安装，后续真实任务及多故障域仍须单独验收。

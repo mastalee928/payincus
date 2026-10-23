@@ -106,9 +106,9 @@ func TestWriterAuditReadsActualProcAndRefusesUnknownLocalWriters(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("root read-only audit")
 	}
-	policy := WriterAuditPolicy{1, map[string]string{"/usr/lib/systemd/systemd": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		map[string]string{"/etc/crontab": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "/etc/anacrontab": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "/etc/ssh/sshd_config": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		[]string{"/etc/cron.d", "/var/spool/cron", "/etc/systemd/system", "/usr/lib/systemd/system", "/run/systemd/system"}}
+	policy := WriterAuditPolicy{SchemaVersion: 1, Executables: map[string]string{"/usr/lib/systemd/systemd": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		ConfigurationFiles:   map[string]string{"/etc/crontab": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "/etc/anacrontab": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "/etc/ssh/sshd_config": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		SchedulerDirectories: []string{"/etc/cron.d", "/var/spool/cron", "/etc/systemd/system", "/usr/lib/systemd/system", "/run/systemd/system"}}
 	result, err := ReadLocalWriterAudit(context.Background(), policy)
 	if result.Complete {
 		t.Fatal("unreviewed live host declared complete")

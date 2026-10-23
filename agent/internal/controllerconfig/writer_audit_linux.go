@@ -90,6 +90,16 @@ func validateWriterPolicy(policy WriterAuditPolicy) error {
 		}
 		required[path] = true
 	}
+	if policy.SchedulerTreeHashes != nil {
+		if len(policy.SchedulerTreeHashes) != len(policy.SchedulerDirectories) {
+			return failure("CONTROLLER_WRITER_AUDIT_POLICY")
+		}
+		for _, path := range policy.SchedulerDirectories {
+			if !hashPattern.MatchString(policy.SchedulerTreeHashes[path]) {
+				return failure("CONTROLLER_WRITER_AUDIT_POLICY")
+			}
+		}
+	}
 	for _, present := range required {
 		if !present {
 			return failure("CONTROLLER_WRITER_AUDIT_POLICY")
@@ -287,32 +297,6 @@ func ReadLocalWriterAudit(ctx context.Context, policy WriterAuditPolicy) (LocalW
 			return result, err
 		}
 		result.ProcessesChecked++
-		fds, err := os.ReadDir(filepath.Join(base, "fd"))
-		if os.IsNotExist(err) {
-			result.StableSnapshot = false
-			continue
-		}
-		if err != nil || len(fds) > 8192 {
-			return result, failure("CONTROLLER_WRITER_AUDIT_FD")
-		}
-		for _, fd := range fds {
-			link, err := os.Readlink(filepath.Join(base, "fd", fd.Name()))
-			if os.IsNotExist(err) {
-				result.StableSnapshot = false
-				continue
-			}
-			if err != nil {
-				return result, err
-			}
-			if pid != os.Getpid() {
-				if inodes[link] {
-					result.IncusSocketHolders++
-				}
-				if strings.Contains(link, "bpf-map") || strings.Contains(link, "bpf-prog") || netlinkInodes[link] {
-					result.PrivilegedDescriptorHolders++
-				}
-			}
-		}
 		privileged, err := writerProcessAuthorityGroups(filepath.Join(base, "status"), managementGroups)
 		if os.IsNotExist(err) {
 			result.StableSnapshot = false
@@ -322,6 +306,49 @@ func ReadLocalWriterAudit(ctx context.Context, policy WriterAuditPolicy) (LocalW
 			return result, err
 		}
 		observedExecutable := ""
+		trustedDaemon := false
+		if privileged && pid != os.Getpid() {
+			observedExecutable, _ = os.Readlink(filepath.Join(base, "exe"))
+			if expected, known := policy.Executables[observedExecutable]; known && !forbiddenWriterExecutable.MatchString(filepath.Base(observedExecutable)) {
+				actual := cache[observedExecutable]
+				if actual == "" {
+					actual, err = writerFileHash(ctx, observedExecutable, 67108864)
+					if err != nil {
+						return result, err
+					}
+					cache[observedExecutable] = actual
+				}
+				trustedDaemon = actual == expected
+			}
+		}
+		fds, err := os.ReadDir(filepath.Join(base, "fd"))
+		if os.IsNotExist(err) {
+			result.StableSnapshot = false
+			continue
+		}
+		if err != nil || len(fds) > 8192 {
+			return result, failure("CONTROLLER_WRITER_AUDIT_FD")
+		}
+		if pid != os.Getpid() {
+			for _, fd := range fds {
+				link, err := os.Readlink(filepath.Join(base, "fd", fd.Name()))
+				if os.IsNotExist(err) {
+					result.StableSnapshot = false
+					continue
+				}
+				if err != nil {
+					return result, err
+				}
+				if pid != os.Getpid() && !trustedDaemon {
+					if inodes[link] {
+						result.IncusSocketHolders++
+					}
+					if strings.Contains(link, "bpf-map") || strings.Contains(link, "bpf-prog") || netlinkInodes[link] {
+						result.PrivilegedDescriptorHolders++
+					}
+				}
+			}
+		}
 		if privileged && pid != os.Getpid() {
 			exe, err := os.Readlink(filepath.Join(base, "exe"))
 			observedExecutable = exe
@@ -399,6 +426,16 @@ func ReadLocalWriterAudit(ctx context.Context, policy WriterAuditPolicy) (LocalW
 		}
 	}
 	for _, directory := range policy.SchedulerDirectories {
+		if policy.SchedulerTreeHashes != nil {
+			actual, err := WriterSchedulerTreeHash(ctx, directory)
+			if err != nil {
+				return result, err
+			}
+			if actual != policy.SchedulerTreeHashes[directory] {
+				result.ScheduledWriterEntries++
+			}
+			continue
+		}
 		info, err := os.Lstat(directory)
 		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return result, failure("CONTROLLER_WRITER_AUDIT_SCHEDULERS")
@@ -421,5 +458,92 @@ func ReadLocalWriterAudit(ctx context.Context, policy WriterAuditPolicy) (LocalW
 		}
 	}
 	result.Complete = result.StableSnapshot && result.ConfigurationIntact && result.UnknownPrivilegedProcesses == 0 && result.IncusSocketHolders == 0 && result.ScheduledWriterEntries == 0 && result.PrivilegedDescriptorHolders == 0
+	result.ManagedWriterIsolationVerified = result.Complete && policy.SchedulerTreeHashes != nil
 	return result, nil
+}
+
+// Hash a reviewed scheduler tree, including relative paths and link targets.
+// A hash is useful only after its contents were reviewed against the migration
+// plan; this helper never installs or trusts a new baseline automatically.
+func WriterSchedulerTreeHash(ctx context.Context, directory string) (string, error) {
+	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
+		return "", failure("CONTROLLER_WRITER_AUDIT_PERMISSION")
+	}
+	for current := directory; ; current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return "", failure("CONTROLLER_WRITER_AUDIT_PERMISSION")
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Uid != 0 || info.Mode().Perm()&0022 != 0 {
+			return "", failure("CONTROLLER_WRITER_AUDIT_PERMISSION")
+		}
+		if current == filepath.Dir(current) {
+			break
+		}
+	}
+	hash := sha256.New()
+	count, total := 0, int64(0)
+	err := filepath.WalkDir(directory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		count++
+		if count > 4096 {
+			return failure("CONTROLLER_WRITER_AUDIT_CAPACITY")
+		}
+		relative, err := filepath.Rel(directory, path)
+		if err != nil {
+			return err
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Uid != 0 || (info.Mode()&os.ModeSymlink == 0 && info.Mode().Perm()&0022 != 0) {
+			return failure("CONTROLLER_WRITER_AUDIT_PERMISSION")
+		}
+		hash.Write([]byte(relative + "\x00" + info.Mode().String() + "\x00"))
+		if info.IsDir() {
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return err
+			}
+			hash.Write([]byte(target + "\x00"))
+			if target == "/dev/null" {
+				return nil
+			}
+			// systemd aliases may point at another trusted regular unit.
+			digest, err := writerFileHash(ctx, target, 1048576)
+			if err != nil {
+				return err
+			}
+			hash.Write([]byte(digest))
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return failure("CONTROLLER_WRITER_AUDIT_PERMISSION")
+		}
+		total += info.Size()
+		if total > 16*1024*1024 {
+			return failure("CONTROLLER_WRITER_AUDIT_CAPACITY")
+		}
+		digest, err := writerFileHash(ctx, path, 1048576)
+		if err != nil {
+			return err
+		}
+		hash.Write([]byte(digest))
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }

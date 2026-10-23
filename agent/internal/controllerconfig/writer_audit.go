@@ -8,6 +8,7 @@ type WriterAuditPolicy struct {
 	Executables          map[string]string `json:"executables"`
 	ConfigurationFiles   map[string]string `json:"configurationFiles"`
 	SchedulerDirectories []string          `json:"schedulerDirectories"`
+	SchedulerTreeHashes  map[string]string `json:"schedulerTreeHashes,omitempty"`
 }
 type LocalWriterAudit struct {
 	ProcessesChecked               int  `json:"processesChecked"`

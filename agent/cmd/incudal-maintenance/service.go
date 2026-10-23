@@ -287,9 +287,11 @@ func serveMaintenance(ctx context.Context, configPath string) error {
 					return controllerconfig.RuntimeFenceFacts{}, err
 				}
 			}
-			// Legacy credentials and managed local jobs require explicit migration;
-			// never infer isolation from a quiet process list.
-			return controllerconfig.RuntimeFenceFacts{NetworkBlocked: true, Processes: processes, Writers: writers, ActiveIncusOperations: len(operations.ActiveOperationIDs), Observed: &observed}, nil
+			credentials, err := controllerconfig.ReadLocalCredentialAudit(ctx, enrolled.IncusSocket)
+			if err != nil {
+				return controllerconfig.RuntimeFenceFacts{}, err
+			}
+			return controllerconfig.RuntimeFenceFacts{NetworkBlocked: true, LegacyCredentialsBlocked: credentials.Complete, Processes: processes, Writers: writers, ActiveIncusOperations: len(operations.ActiveOperationIDs), Observed: &observed}, nil
 		}
 		runtime, err = controllerconfig.NewMaintenanceRuntime(trust, enrolled.WitnessID, enrolled.WitnessKeys, ed25519.NewKeyFromSeed(seed), enrolled.IncusSocket, collector)
 		if err != nil {
