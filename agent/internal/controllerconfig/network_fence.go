@@ -215,6 +215,26 @@ func RestoreManagementPreparationFence(ctx context.Context, trust Context, witne
 	return applyDenyOnlyFence(ctx, ports, fixedNftCommand, nil)
 }
 
+// InspectManagementFence checks the current kernel denial and disk watermark.
+func InspectManagementFence(ctx context.Context, ports ManagementFencePorts, stateDirectory string) (ObservedState, error) {
+	observed, release, err := lockNetworkFenceState(stateDirectory)
+	if err != nil {
+		return ObservedState{}, err
+	}
+	defer release()
+	if err = validateNetworkFenceRuntime(); err != nil {
+		return ObservedState{}, err
+	}
+	raw, err := fixedNftCommand(ctx, []string{"-j", "list", "table", "inet", "incudal_controller_fence"}, "")
+	if err != nil {
+		return ObservedState{}, err
+	}
+	if err = verifyManagementFenceTable([]byte(raw), ports); err != nil {
+		return ObservedState{}, err
+	}
+	return observed, nil
+}
+
 func verifyManagementFenceTable(raw []byte, ports ManagementFencePorts) error {
 	fail := func() error { return failure("CONTROLLER_NETWORK_FENCE_CONFLICT") }
 	if ValidateProtocolJSON(raw, 65536) != nil {

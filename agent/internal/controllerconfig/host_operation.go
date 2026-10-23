@@ -78,6 +78,12 @@ func parseHostOperation(raw []byte) (HostOperation, string, error) {
 }
 
 func (e *HostOperationExecutor) Execute(ctx context.Context, raw []byte, proof LeaseRequest, holderPublicKey string) (HostOperationResult, error) {
+	return e.ExecuteAudited(ctx, raw, proof, holderPublicKey, nil)
+}
+
+// The runtime's local fence audit runs only after the holder proves possession
+// for this exact body; invalid requests cannot use it as an Incus read oracle.
+func (e *HostOperationExecutor) ExecuteAudited(ctx context.Context, raw []byte, proof LeaseRequest, holderPublicKey string, audit func(context.Context) error) (HostOperationResult, error) {
 	empty := HostOperationResult{}
 	op, permission, err := parseHostOperation(raw)
 	if err != nil {
@@ -94,6 +100,11 @@ func (e *HostOperationExecutor) Execute(ctx context.Context, raw []byte, proof L
 		return empty, err
 	}
 	defer release()
+	if audit != nil {
+		if err = audit(ctx); err != nil {
+			return empty, err
+		}
+	}
 	operations, err := ReadIncusQuiescence(ctx, e.socketPath)
 	if err != nil {
 		return empty, err

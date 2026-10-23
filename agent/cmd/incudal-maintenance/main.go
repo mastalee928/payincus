@@ -29,6 +29,7 @@ type enrollment struct {
 	ObservedStateDirectory string                                 `json:"observedStateDirectory"`
 	ManagementPorts        *controllerconfig.ManagementFencePorts `json:"managementPorts,omitempty"`
 	WriterAuditPolicy      *controllerconfig.WriterAuditPolicy    `json:"writerAuditPolicy,omitempty"`
+	NodeSeedPath           string                                 `json:"nodeSeedPath,omitempty"`
 }
 type input struct {
 	Candidate     string `json:"candidate"`

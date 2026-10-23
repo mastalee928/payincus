@@ -233,3 +233,11 @@ OSS客户端固定区域公开HTTPS端点，DNS拒绝私网，固定自身平台
 run-gateway-backup.js提供--once、--serve及--recover，独立systemd/OpenRC调度、不依赖PayIncus/PG/Nginx。定时及任一备份源变更触发；失败限频重试，不输出凭据。--recover仅从已完成认证云归档提取到全新0700目录，逐项0600和同步，不自动覆盖网关状态或激活旧控制身份。控制台可独立读取本机完成代次，旧覆盖或失败不显示ready。
 
 真实OSS已在新的测试前缀验证上传/回读、主控应用离线时定时完成、认证配置变化触发、另机空目录解密与身份哈希一致。此证据不替代独立RAM策略真实越权验证、主控整机离线/72小时运行、磁盘满/限流、完整事件队列/告警或旧身份重新登记；这些仍是最终P4/P6验收必需项。
+
+## 21. 宿主维护运行状态与固定 HTTPS 入口
+
+MaintenanceRuntime每进程生成gateId、读取内核bootId，候选/见证双签名与主控/持有者绑定后准备；有效新epoch先撤销旧门禁，检查失败不恢复旧写权限。实际collector重读最高磁盘代次、nft拒绝表、procfs及Incus操作，任何不一致阻断；操作先验证租约和精确正文证明，再采集本机事实，错误证明不触及Incus。租约短期、单调截止、重放与撤销由原LeaseGate执行，旧租约不可跨进程重启，同epoch的新配置不能隐式重建写者。
+
+独立维护服务可选受保护nodeSeedPath启用/v1/attest、/v1/lease和/v1/operations。启用时必须将TLS客户端证书SHA256固定到controllerId/holderPublicKey；同CA其它证书及错持有者拒绝。只有受控collector报告真实完整隔离才签节点回执/gate proof；当前正式collector仍保留遗留凭据及受管任务未隔离的阻断，不因协议夹具成功而开放客户写入口。
+
+实际Linux隔离HTTPS验证带节点身份/证书绑定的服务仍拒绝未隔离宿主完整回执，客户IPv4/IPv6 DNAT/FORWARD保持；完整Go race/vet验证旧代次、磁盘高水位、进程新gate、错签名/持有者和操作重放。旧凭据与受管本地任务迁移、真实Incus电源动作、独立见证端到端及故障分区仍待后续验收。

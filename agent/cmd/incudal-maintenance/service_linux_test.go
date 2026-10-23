@@ -3,9 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -13,6 +18,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"incudal-agent/internal/controllerconfig"
 )
 
 // Called only by the isolated preparation harness, after it has checked that
@@ -37,7 +44,32 @@ func testMaintenanceServiceLifecycle(t *testing.T, dir, enrollmentPath string, r
 		l.Close()
 		return address
 	}
-	config := serviceConfiguration{SchemaVersion: 1, Enrollment: enrollmentPath, ListenAddress: freeAddress(), TLSCertificate: write("service.crt", cert), TLSPrivateKey: write("service.key", key), ClientCA: write("client-ca.crt", ca)}
+	_, nodeKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrolled.NodeSeedPath = write("node.seed", []byte(base64.StdEncoding.EncodeToString(nodeKey.Seed())))
+	enrollmentBytes, _ := json.Marshal(enrolled)
+	if os.WriteFile(enrollmentPath, enrollmentBytes, 0600) != nil {
+		t.Fatal("enrollment write")
+	}
+	var in input
+	if json.Unmarshal(request, &in) != nil {
+		t.Fatal("request")
+	}
+	checked, err := controllerconfig.VerifyPrepareConfig([]byte(in.Candidate), controllerconfig.Context{PlatformID: enrolled.PlatformID, NodeID: enrolled.NodeID, Now: time.Now().UnixMilli(), TrustedKeys: enrolled.CandidateKeys})
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder, _, _ := ed25519.GenerateKey(rand.Reader)
+	holderPublic := base64.StdEncoding.EncodeToString(holder)
+	leaf, err := x509.ParseCertificate(identity.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(leaf.Raw)
+	config := serviceConfiguration{SchemaVersion: 1, Enrollment: enrollmentPath, ListenAddress: freeAddress(), TLSCertificate: write("service.crt", cert), TLSPrivateKey: write("service.key", key), ClientCA: write("client-ca.crt", ca),
+		ClientIdentities: map[string]maintenanceClientIdentity{fmt.Sprintf("%x", digest): {checked.Config.ControllerID, holderPublic}}}
 	configRaw, _ := json.Marshal(config)
 	path := write("service.json", configRaw)
 	roots := x509.NewCertPool()
@@ -73,6 +105,17 @@ func testMaintenanceServiceLifecycle(t *testing.T, dir, enrollmentPath string, r
 	var plan MaintenanceOutput
 	if response.StatusCode != 200 || json.Unmarshal(raw, &plan) != nil || plan.CanWrite || !plan.PreparationPermitted {
 		t.Fatalf("production HTTPS inspection rejected: %d", response.StatusCode)
+	}
+	attestBody, _ := json.Marshal(map[string]string{"candidate": in.Candidate, "preparePermit": in.PreparePermit, "holderPublicKey": holderPublic})
+	attested, err := client.Post("https://"+config.ListenAddress+"/v1/attest", "application/json", bytes.NewReader(attestBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	attestedRaw, _ := io.ReadAll(attested.Body)
+	attested.Body.Close()
+	var preparation controllerconfig.RuntimePreparation
+	if attested.StatusCode != 200 || json.Unmarshal(attestedRaw, &preparation) != nil || preparation.Receipt != "" || preparation.GateProof != "" || preparation.CanWrite || len(preparation.Blockers) < 2 {
+		t.Fatal("actual unisolated service created writer evidence")
 	}
 	duplicate := config
 	duplicate.ListenAddress = freeAddress()
