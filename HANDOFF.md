@@ -6,6 +6,14 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-23 对话接手与控制身份真实 OSS 冷恢复
+
+- 接手已中断的网关灾备工作，完整读取原聊天及其关联施工记录；优先范围仍为主控兼网关 A 丢失后 B 从 OSS 恢复、固定域名重连和账务核对，完整 P0–P6/AC01–AC34 与 72 小时离线目标保留。专用测试机、故障注入、新 OSS 测试前缀和分阶段提交推送沿用 owner 明确授权；不据此扩大生产变更范围。
+- 当前源码 `24b70e1055b630fed3f966183eb40a5d35ff75e8` 的 [CI 39968460120](https://github.com/mastalee928/payincus/actions/runs/39968460120) 与 [预览 39968464066](https://github.com/mastalee928/payincus/actions/runs/39968464066) 已重新读取终态：源码 CI、AMD64/ARM64 构建和双首装/恢复均 success；Release 为预期 skipped，正式发行仍 v1.7.1。
+- 专用测试主控隔离 mount 中，以受信签名组件分别初始化 A/B 身份；使用实际平台归档编码器、真实隔离 PG dump 和生产 OSS 客户端上传/回读三份控制身份。上传完成后移除隔离环境的 A 原身份目录及本地归档/dump，再启动另一 Node 进程，仅从新测试前缀下载、认证和恢复。三份文件哈希匹配、错误密码拒绝、B 新私钥未冒充 A、B 受信组件目录保留及 root 登记验证均通过。
+- 脱敏证据为维护者忽略目录 `logs/controller-takeover-research-20261022/controller-cloud-codec-result.json` 和 `controller-cloud-root-result.json`。原测试业务后端 PID/重启计数不变、健康正常。该专项尚未执行完整平台恢复或激活客户管理身份，未验证宿主重连、DNS 故障切换、备份后交易对账或完整 HA，不将其计为联合验收完成。
+- 本轮仅补充验证和文档，未改产品源码；平台备份守卫、security-config 文档约束、177 项测试清单校验及 diff 检查通过，未将清单校验记作全量执行。
+
 ## 2026-10-23 故障后自动续费补处理（阶段源码）
 
 - 到期巡检先执行自动续费，查询覆盖已到期付费实例及系统到期暂停，沿用原周期和AFF/VIP计价，从当前时间续期；不追扣离线多个周期。手动暂停、免费、已删除/待清理及活动实例/恢复/上传任务排除，恢复保护禁止自动扣款。
