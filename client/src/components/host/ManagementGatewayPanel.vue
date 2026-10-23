@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
+import GatewayInstallationPanel from './GatewayInstallationPanel.vue'
 import type { GatewayInspectionConfiguration, GatewayManagementList, GatewayInspectionResult, ManagementGateway } from '@/types/management-gateway'
 const { t, te, locale } = useI18n()
 const list = ref<GatewayManagementList | null>(null)
@@ -133,11 +134,12 @@ onUnmounted(() => { disposed = true; credential.value = '' })
       <li v-for="gateway in list.gateways" :key="gateway.id" class="card p-4 space-y-2">
         <div class="flex flex-wrap justify-between gap-3 items-center"><h3 class="font-semibold text-themed">{{ gateway.name }}</h3><button type="button" class="btn-secondary" :disabled="busy" @click="selectGateway(gateway)">{{ t('managementGateway.again') }}</button></div>
         <p class="text-xs text-themed-muted break-all">{{ t('managementGateway.machine') }} · {{ gateway.target.machineId }}</p>
-        <template v-if="gateway.tasks[0]">
+        <template v-if="gateway.tasks[0]?.kind === 'inspect'">
           <p class="text-sm text-themed">{{ t(gateway.tasks[0].inspection ? gateway.tasks[0].inspection.report.blockers.length ? 'managementGateway.blocked' : 'managementGateway.clear' : 'managementGateway.pending') }}</p>
           <ul v-if="gateway.tasks[0].inspection" class="space-y-1 text-sm text-amber-700 dark:text-amber-300"><li v-for="code in gateway.tasks[0].inspection.report.blockers" :key="code">{{ message(code) }}</li></ul>
           <p v-if="gateway.tasks[0].errorCode" class="text-sm text-red-700 dark:text-red-300">{{ message(gateway.tasks[0].errorCode) }}</p>
         </template>
+        <GatewayInstallationPanel :gateway="gateway" @changed="refresh" />
       </li>
     </ul>
   </section>

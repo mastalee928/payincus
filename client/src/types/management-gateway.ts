@@ -15,6 +15,10 @@ export interface GatewayManagementTask {
   id: string; gatewayId: string; kind: string; status: string; errorCode: string | null; createdAt: string
   inspection: null | { request: GatewayInspectionConfiguration; report: GatewayInspection }
   steps: Array<{ key: string; ordinal: number; status: string }>
+  planHash: string; preparationState: 'queued' | 'running' | 'ready' | 'failed' | null
+  installationPreview: GatewayInstallationPreview | null; installationReceipt: GatewayInstallationReceipt | null
+  bootstrapExpiresAt: string | null; approvedAt: string | null; approvalExpiresAt: string | null
+  updatedAt: string; startedAt: string | null; completedAt: string | null
 }
 export interface ManagementGateway {
   id: string; name: string; mode: 'local' | 'remote' | 'existing'; revision: string; retiredAt: string | null
@@ -23,3 +27,25 @@ export interface ManagementGateway {
 }
 export interface GatewayManagementList { configured: true; platformId: string; gateways: ManagementGateway[] }
 export interface GatewayInspectionResult { task: GatewayManagementTask; report: GatewayInspection | null; canWrite: false; duplicate: boolean }
+export interface GatewayInstallationConfiguration extends GatewayInspectionConfiguration { consoleOrigin: string }
+export interface GatewayInstallationInput {
+  requestId: string; gatewayId: string; configuration: GatewayInstallationConfiguration
+  credentials?: { password?: string; privateKey?: string }
+}
+export interface GatewayInstallationPreview {
+  schemaVersion: 1; planHash: string; expiresAt: number
+  package: { verified: true; architecture: 'amd64' | 'arm64'; version: string; sourceCommit: string; files: number; manifestHash: string; canWrite: false }
+  target: { machineId: string; osId: string; architecture: 'amd64' | 'arm64' }
+  configuration: GatewayInstallationConfiguration
+  transport: { epoch: string; sequence: string; mtu: number; peerCount: number }
+  changes: { packageDirectory: string; stateDirectory: string; services: string[]; interface: string; newIndependentIdentity: true
+    consoleCertificate: 'independently-pinned'; businessBackendRestart: false; consoleListenAddress: '0.0.0.0'; existingFilesOverwritten: false; customerRoutesChanged: false }
+  blockers: string[]; installable: boolean; canWrite: false
+}
+export interface GatewayInstallationReceipt {
+  schemaVersion: 1; taskId: string; planHash: string; gatewayId: string; publicKey: string; consoleCertificateSha256: string
+  installed: true; transportReady: true; canWrite: false; bootstrapAvailable: true; blockers: string[]
+}
+export interface GatewayInstallationConfirmation { planHash: string; confirmation: string; password: string; totpCode?: string }
+export interface GatewayBootstrapAuthorization { password: string; totpCode?: string }
+export interface GatewayBootstrapMaterial { username: string; password: string; role: 'operator'; totpSeed: string; recoveryCodes: string[] }

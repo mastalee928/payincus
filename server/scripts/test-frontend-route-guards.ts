@@ -1231,4 +1231,23 @@ assert.ok(
     !adminImagesViewSource.includes('table-auto w-full min-w-[640px]'),
   'admin image list must render mobile cards and a fixed desktop table while preserving visibility/edit/delete actions'
 )
+const gatewayInstallationPanelSource = readRepoFile('client/src/components/host/GatewayInstallationPanel.vue')
+const gatewayManagementPanelSource = readRepoFile('client/src/components/host/ManagementGatewayPanel.vue')
+const gatewayAdminApiSource = readRepoFile('client/src/api/admin.ts')
+assert.match(gatewayManagementPanelSource, /<GatewayInstallationPanel :gateway="gateway" @changed="refresh"/)
+for (const action of ['gatewayTask', 'prepareGatewayInstallation', 'confirmGatewayInstallation', 'cancelGatewayInstallation', 'retrieveGatewayBootstrap']) {
+  assert.match(gatewayInstallationPanelSource, new RegExp(`api\\.hostOnboarding\\.${action}\\(`), `gateway installation action ${action} must reach the admin API`)
+}
+for (const endpoint of ['/management-gateways/installations', '/confirm', '/cancel', '/bootstrap']) assert.ok(gatewayAdminApiSource.includes(endpoint))
+assert.match(gatewayInstallationPanelSource, /preview\.value\.planHash === task\.value\.planHash/)
+assert.match(gatewayInstallationPanelSource, /selected\.planHash !== task\.value\.planHash/)
+assert.match(gatewayInstallationPanelSource, /preview\.value\.expiresAt > now\.value/)
+assert.match(gatewayInstallationPanelSource, /dialog\.value\?\.showModal\(\)/)
+assert.match(gatewayInstallationPanelSource, /returnFocus\?\.focus\(\)/)
+assert.match(gatewayInstallationPanelSource, /credential\.value = ''; material\.value = null/)
+assert.doesNotMatch(gatewayInstallationPanelSource, /localStorage|sessionStorage|console\.(?:log|debug)|navigator\.clipboard/)
+assert.match(gatewayInstallationPanelSource, /bootstrapExpiresAt: null/)
+assert.match(gatewayInstallationPanelSource, /const \{ slot, network, address, listenPort, consolePort \} = inspection\.request/)
+assert.doesNotMatch(gatewayInstallationPanelSource, /\.\.\.inspection\.request/)
+assert.match(gatewayInstallationPanelSource, /if \(dialog\.value\?\.open\) return/)
 console.log('frontend route guard tests passed')

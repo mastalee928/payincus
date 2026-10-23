@@ -1,4 +1,6 @@
+import { zhCN as installationZhCN, zhTW as installationZhTW, en as installationEn } from './gateway-installation'
 export const zhCN = {
+  ...installationZhCN,
   title: '管理网关', description: '核对机器身份、管理网络与安装条件。', scope: '当前平台',
   inspect: '检查环境', inspecting: '正在连接并检查…', refresh: '刷新记录', empty: '还没有登记网关。先检查本机或独立机器。',
   name: '网关名称', mode: '配置方式', local: '主控本机', remote: '独立机器', existing: '连接已有网关',
@@ -8,10 +10,11 @@ export const zhCN = {
   slot: '管理通道', network: '管理网段', address: '网关管理地址', udp: 'WireGuard UDP 端口', https: '独立 HTTPS 端口',
   report: '检查结果', inspected: '最近检查', machine: '物理机器身份', system: '系统与架构', memory: '内存', disk: '可用磁盘',
   clear: '环境检查无阻断', blocked: '环境检查有阻断', pending: '尚未完成检查',
-  next: '安装与接管流程正在施工。当前检查不改变网关角色或宿主控制权。', noStandby: '备用覆盖与写授权尚未验收',
+  next: '检查后，在网关记录中生成安装计划并确认。已有网关连接与接管流程仍在施工。', noStandby: '备用覆盖与写授权尚未验收',
   again: '重新检查', newTarget: '检查另一台机器', fallback: '检查未完成，请重试并核对配置。',
-  steps: { 'verify-target': '核对机器身份', 'inspect-environment': '核对环境与冲突' },
+  steps: { ...installationZhCN.steps, 'verify-target': '核对机器身份', 'inspect-environment': '核对环境与冲突' },
   errors: {
+    ...installationZhCN.errors,
     GATEWAY_PLATFORM_NOT_CONFIGURED: '主控尚未配置平台身份，暂不能登记管理网关。',
     GATEWAY_WEB_SESSION_REQUIRED: '需要当前管理端会话。请重新登录后再检查。',
     GATEWAY_TASK_TARGET_CONFLICT: '这台机器已绑定其他身份，或目标身份已变化。',
@@ -31,7 +34,7 @@ export const zhCN = {
   }
 }
 export const zhTW = {
-  ...zhCN, title: '管理閘道', description: '核對機器身分、管理網路與安裝條件。', scope: '目前平台',
+  ...zhCN, ...installationZhTW, title: '管理閘道', description: '核對機器身分、管理網路與安裝條件。', scope: '目前平台',
   inspect: '檢查環境', inspecting: '正在連線並檢查…', refresh: '重新整理記錄', empty: '尚未登記閘道。先檢查本機或獨立機器。',
   name: '閘道名稱', mode: '設定方式', local: '主控本機', remote: '獨立機器', existing: '連線既有閘道',
   localHint: '直接檢查主控本機，無需 SSH 憑證。', remoteHint: 'SSH 位址用於設定機器，公開 WireGuard UDP 入口在安裝計畫中另外設定。',
@@ -40,10 +43,11 @@ export const zhTW = {
   slot: '管理通道', network: '管理網段', address: '閘道管理位址', udp: 'WireGuard UDP 連接埠', https: '獨立 HTTPS 連接埠',
   report: '檢查結果', inspected: '最近檢查', machine: '實體機器身分', system: '系統與架構', memory: '記憶體', disk: '可用磁碟',
   clear: '環境檢查無阻擋', blocked: '環境檢查有阻擋', pending: '尚未完成檢查',
-  next: '安裝與接管流程正在施工。目前檢查不改變閘道角色或宿主控制權。', noStandby: '備用覆蓋與寫入授權尚未驗收',
+  next: '檢查後，在閘道記錄中產生安裝計畫並確認。既有閘道連線與接管流程仍在施工。', noStandby: '備用覆蓋與寫入授權尚未驗收',
   again: '重新檢查', newTarget: '檢查另一台機器', fallback: '檢查未完成，請重試並核對設定。',
-  steps: { 'verify-target': '核對機器身分', 'inspect-environment': '核對環境與衝突' },
+  steps: { ...installationZhTW.steps, 'verify-target': '核對機器身分', 'inspect-environment': '核對環境與衝突' },
   errors: {
+    ...installationZhTW.errors,
     GATEWAY_PLATFORM_NOT_CONFIGURED: '主控尚未設定平台身分，暫不能登記管理閘道。', GATEWAY_WEB_SESSION_REQUIRED: '需要目前管理端工作階段。請重新登入後再檢查。',
     GATEWAY_TASK_TARGET_CONFLICT: '這台機器已綁定其他身分，或目標身分已變更。', GATEWAY_TASK_IDEMPOTENCY_CONFLICT: '此請求已綁定另一份設定，請開始新的檢查。',
     GATEWAY_TASK_JOURNAL_BUSY: '另一項檢查正在執行，請稍後重試。', GATEWAY_PREFLIGHT_FAILED: '無法完成機器預檢，請核對 SSH 與執行環境。',
@@ -58,6 +62,7 @@ export const zhTW = {
   }
 }
 export const en = {
+  ...installationEn,
   title: 'Management gateways', description: 'Verify machine identity, networks and installation requirements.', scope: 'Platform',
   inspect: 'Inspect environment', inspecting: 'Connecting and inspecting…', refresh: 'Refresh records', empty: 'No gateways registered. Inspect this controller or a separate machine.',
   name: 'Gateway name', mode: 'Setup mode', local: 'This controller', remote: 'Separate machine', existing: 'Connect existing gateway',
@@ -67,10 +72,11 @@ export const en = {
   slot: 'Management channel', network: 'Management subnet', address: 'Gateway management address', udp: 'WireGuard UDP port', https: 'Independent HTTPS port',
   report: 'Inspection', inspected: 'Last inspected', machine: 'Physical machine identity', system: 'System and architecture', memory: 'Memory', disk: 'Available disk',
   clear: 'Environment has no blockers', blocked: 'Environment has blockers', pending: 'Inspection incomplete',
-  next: 'Installation and takeover are being implemented. Inspection leaves gateway roles and host authority unchanged.', noStandby: 'Standby coverage and write authority remain unverified',
+  next: 'After inspection, prepare and confirm an installation plan in the gateway record. Existing gateway connection and takeover remain under development.', noStandby: 'Standby coverage and write authority remain unverified',
   again: 'Inspect again', newTarget: 'Inspect another machine', fallback: 'Inspection failed. Check the settings and retry.',
-  steps: { 'verify-target': 'Verify machine identity', 'inspect-environment': 'Inspect environment and conflicts' },
+  steps: { ...installationEn.steps, 'verify-target': 'Verify machine identity', 'inspect-environment': 'Inspect environment and conflicts' },
   errors: {
+    ...installationEn.errors,
     GATEWAY_PLATFORM_NOT_CONFIGURED: 'Configure the controller platform identity before registering gateways.', GATEWAY_WEB_SESSION_REQUIRED: 'Sign in again with a current admin session.',
     GATEWAY_TASK_TARGET_CONFLICT: 'The machine is bound to another identity or its identity changed.', GATEWAY_TASK_IDEMPOTENCY_CONFLICT: 'This request belongs to other settings. Start a new inspection.',
     GATEWAY_TASK_JOURNAL_BUSY: 'Another inspection is running. Retry shortly.', GATEWAY_PREFLIGHT_FAILED: 'Machine inspection failed. Check SSH and the runtime.',

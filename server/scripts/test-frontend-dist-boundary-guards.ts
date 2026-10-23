@@ -160,4 +160,8 @@ assertNoRegexMarkers('admin', adminBuildFiles, [
   { label: 'customer package share endpoint', pattern: /\/packages\/[^"'`\s]+\/share/g }
 ])
 
+assertNoRegexMarkers('user', userBuildFiles, [
+  { label: 'gateway installation control endpoint', pattern: /management-gateways\/(?:installations|tasks)/g },
+  { label: 'gateway private material retrieval', pattern: /retrieveGatewayBootstrap|prepareGatewayInstallation/g }
+])
 console.log('frontend dist boundary guard tests passed')
