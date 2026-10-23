@@ -2,6 +2,10 @@
 
 维护仓库：[mastalee928/payincus](https://github.com/mastalee928/payincus)。GitHub Fork 关系已于 2026-10-16 解除；仓库地址和提交历史保留。原 BSD 3-Clause 许可证与版权声明继续保留在 LICENSE。
 
+## 可复用发版验证 skill
+
+Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
+
 ## 当前源码与发布状态
 
 - 面板 [v1.7.1](https://github.com/mastalee928/payincus/releases/tag/v1.7.1) 已正式发布，发行源码 `9d1e5ba47dd6bf0a0937413892dacfeeb15e4a1d`，注解标签对象 `b9e5ca546250ada32e9df55455bba454f54f5a4d`，GitHub 面板 latest 为 v1.7.1。修复旧 OTA 解包保留构建机 UID 导致备份执行器安装回滚的问题；双架构预览、正式首装/恢复演练与公开资产校验通过。测试主控任务 #13 已使用原版 v1.7.0 执行器成功升级至 v1.7.1，2026-10-22 从实际管理后台复核成功日志及运行版本；同日 owner 明确确认已升级至 v1.7.1、正常运行、所有宿主均正常。下方各版本 latest 为当时状态；生产 OTA 未执行。
@@ -42,6 +46,7 @@
 - 诊断提交 43b668c [源码 CI 39947512535](https://github.com/mastalee928/payincus/actions/runs/39947512535) 成功。[预览 39947515057](https://github.com/mastalee928/payincus/actions/runs/39947515057) 两种构建成功、首装均拒绝 release-directory；非敏感元数据确证两种 GitHub runner 的 /opt 均为 root:root/0777，导致受信父目录检查拒绝，包内文件权限正确。一次性 GitHub 首装测试先核验 root 非链接 /opt 并移除 group/other 写权限，生产验签/登记检查保持。真实 Linux 隔离 mount 重现 0777 拒绝、chmod go-w 后实际签名目录通过，安装 shell 守卫通过；新预览结果单独记录。
 - d1ca985 [预览 39948962555](https://github.com/mastalee928/payincus/actions/runs/39948962555) 两种构建成功，目录信任拒绝已消失。AMD64 在后续 OTA sudoers 遇到新版 parser 不支持 requiretty，移除该默认关闭的可选设置；ARM64 已安装、唯一后台/双端/管理员登录/机器池/Agent 下载通过，但备份演练报 OSS_ARCHIVE_INVALID。根因是 manifest 只接受数字版本，而既有 assertBackupVersion 已接受同提交 preview-hex；增加严格 7–40 位十六进制 preview 归档格式支持，同预览认证往返通过，跨预览恢复仍拒绝。Windows 与真实 ARM64 备份守卫、类型和后台构建通过，安装 shell 守卫通过；待后续预览重新核验，不宣称完整首装通过。
 - 1f81d80 [预览 39950946588](https://github.com/mastalee928/payincus/actions/runs/39950946588) 两种构建、首装/登录/Agent、备份/预检/恢复/回滚/续跑及完整数据库/ZIP 数据校验通过，最后的历史版本迁移兼容演练均因 OSS_BACKUP_MIGRATION_FAILED 失败。迁移夹具目录继承首装 umask077，但 Prisma 使用 incudal 用户读取；仅将该无密钥、受信临时夹具目录设为0755、文件0644，不放宽生产迁移权限。授权 ARM64 主控仅创建独立临时数据库，在实际 umask077 下完整旧版本/CRLF迁移、金额保持及错误版本/数据库版本/未知迁移拒绝通过；唯一业务后端不变。新预览结果另记，未发布 Release。
+- 迁移夹具修复 [7dd0887](https://github.com/mastalee928/payincus/commit/7dd0887) 已推送，[发行预览 39952149465](https://github.com/mastalee928/payincus/actions/runs/39952149465) 完整 success：两个构建及 AMD64/ARM64 全新安装验证均成功，Release 按无 tag 预览设计 skipped。首装包括唯一后台、双端/管理员登录/机器池与 Agent、控制身份登记、备份预检/恢复/回滚/续跑、完整数据库/ZIP 数据和历史版本/CRLF迁移验收；此前失败样本保留。DNS补装/完整OSS故障切换仍未验收，没有新正式Release或客户OTA。
 
 ## 2026-10-23 发行预览 AMD64 组件权限修复（未发版）
 

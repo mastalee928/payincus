@@ -1,0 +1,4 @@
+interface:
+  display_name: "PayIncus 双架构发版验证"
+  short_description: "核对发行源码、双架构首装和备份恢复证据，定位权限与预览兼容失败"
+  default_prompt: "使用 $payincus-release-validation 核对当前发行预览并修复首装或备份恢复失败，按证据更新台账。"
