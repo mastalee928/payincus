@@ -43,15 +43,20 @@ def read_environment(path):
 
 
 def release_catalog(app):
+    stage('release-directory')
     enrollment.directory(app)
+    stage('catalog-file')
     catalog = json.loads(package.protected_read(app / 'vendor/gateway/catalog.json', 8192, 0o644), object_pairs_hook=package.strict_object)
+    stage('catalog-fields')
     enrollment.exact(catalog, ['schemaVersion', 'packageSigningKey', 'version', 'sourceCommit', 'architectures'])
     require(catalog['schemaVersion'] == 1 and catalog['architectures'] == ['amd64', 'arm64'])
     require(isinstance(catalog['version'], str) and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?', catalog['version']))
     require(isinstance(catalog['sourceCommit'], str) and re.fullmatch(r'[a-f0-9]{40}', catalog['sourceCommit']))
+    stage('version-metadata')
     metadata = json.loads(package.protected_read(app / 'version.json', 8192), object_pairs_hook=package.strict_object)
     require(isinstance(metadata, dict) and isinstance(metadata.get('gitCommit'), str) and
             12 <= len(metadata['gitCommit']) <= 40 and catalog['sourceCommit'].startswith(metadata['gitCommit']))
+    stage('server-version')
     version = json.loads(package.protected_read(app / 'server/package.json', 65536), object_pairs_hook=package.strict_object)
     require(version.get('version') == catalog['version'])
     for architecture in catalog['architectures']:

@@ -38,6 +38,7 @@
 - 后续 sudo 解析器拒绝命令参数里的 wildcard。网关/备份/OTA 安装和原子布局迁移规则统一只授权 root 固定 systemctl wrapper，继续由 wrapper 严格限制三个参数、start/--no-block 及管理任务模板/ID；不授权原始 systemctl。网关安装额外核对 wrapper 父目录不可写、root:root/0755 和发行源码逐字节一致后才安装规则。
 - 安装 shell 守卫、网关/OTA/部署/备份 6 项检查、真实 Linux visudo、实际 incudal 用户 sudo 的有效 UUID/错误单元拒绝通过。实际 ARM64 预览包在隔离 mount/空状态目录的原安装入口与新规则均能登记两个架构并生成新独立测试身份，systemctl 在该测试内使用固定命令替身；没有安装到原业务主控全局目录。不能据该结果宣称 CI 首装问题均已修好。
 - ARM64 CI 的身份准备拒绝在上述实际包重放中尚未重现。准备器仅增加固定 stage 字段（catalog、环境、组件验证/保存、身份和发布环境），不输出异常或文件内容；14 项 Linux 准备守卫含异常敏感文本不可外泄检查通过。后续预览以阶段提示定位 runner 差异，失败仍保持拒绝；禁止以忽略验签、放宽目录权限或重建已有身份替代修复。
+- [acdfece](https://github.com/mastalee928/payincus/commit/acdfece8dd80ed2962abb1afe0801a5588d1655d) 已推送，[源码 CI 39945675497](https://github.com/mastalee928/payincus/actions/runs/39945675497) 成功。[发行预览 39945678206](https://github.com/mastalee928/payincus/actions/runs/39945678206) 两种构建成功，sudo wildcard 错误消失，两种首装均在 release-catalog 阶段拒绝。实际同份 ARM64 新预览包在独立 root 目录核对 catalog/版本/签名组件通过，尚未定位 runner 路径差异；继续细分固定阶段并在失败时输出属主/权限/大小/是否链接等非敏感元数据。Release skipped，无新正式发行。
 
 ## 2026-10-23 发行预览 AMD64 组件权限修复（未发版）
 

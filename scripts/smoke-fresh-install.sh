@@ -46,6 +46,14 @@ for name in ['/var/tmp/incudal-fresh-install.log', '/var/tmp/incudal-fresh-servi
         for secret in sorted(secrets, key=len, reverse=True):
             text = text.replace(secret, '[redacted]')
         print(text)
+import stat
+for name in ['/opt', '/opt/incudal', '/opt/incudal/vendor', '/opt/incudal/vendor/gateway', '/opt/incudal/vendor/gateway/catalog.json', '/opt/incudal/version.json', '/opt/incudal/server/package.json']:
+    path = pathlib.Path(name)
+    try:
+        info = path.lstat()
+        print('release trust metadata', name, info.st_uid, info.st_gid, oct(stat.S_IMODE(info.st_mode)), info.st_nlink, info.st_size, 'symlink' if path.is_symlink() else 'regular')
+    except OSError:
+        print('release trust metadata', name, 'missing')
 PY
 }
 trap 'journalctl -u incudal-backend --no-pager -n 35 > /var/tmp/incudal-fresh-service.log 2>&1 || true; report_failure' ERR
