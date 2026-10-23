@@ -4,6 +4,7 @@
  */
 
 import { prisma } from './prisma.js'
+import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
 import type { Instance, PackagePlan, Prisma } from '@prisma/client'
 import { getInstanceAffBinding, processAffCommission } from './aff.js'
 import { getInstanceBillingLineageIds } from './billing-records.js'
@@ -543,6 +544,12 @@ export async function performRenewal(
   userId: number,
   instance: Instance,
   months: number
+): Promise<{ newExpiresAt: Date; amount: number; balanceLogId: number; discountAmount?: number; hostingIncomeResult?: { hostOwnerId: number; hostName: string } | null }> {
+  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months))
+}
+
+async function performRenewalMutation(
+  userId: number, instance: Instance, months: number
 ): Promise<{ newExpiresAt: Date; amount: number; balanceLogId: number; discountAmount?: number; hostingIncomeResult?: { hostOwnerId: number; hostName: string } | null }> {
   if (instance.status === 'deleted') {
     throw new Error('实例已删除，无法续费')

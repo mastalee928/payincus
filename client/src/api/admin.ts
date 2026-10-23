@@ -3,6 +3,7 @@ import axios, { type AxiosInstance } from 'axios'
 import type { AdminInstancePushPreview, AdminInstancePushTarget } from '@/types/instance-push'
 import type { OssConfig, OssTask, OssBackup, OssDirectory } from '@/types/aliyun-oss'
 import type { GatewayManagementList, GatewayInspectionInput, GatewayInspectionResult, GatewayManagementTask, GatewayInstallationInput, GatewayInstallationConfirmation, GatewayBootstrapAuthorization, GatewayBootstrapMaterial } from '@/types/management-gateway'
+import type { ExpiryEnforcementStatus } from '@/types/expiry-enforcement'
 import { useAuthStore } from '@/stores/auth'
 import { buildApiUrl } from '@/utils/api-url'
 import type { LoginRequest, LoginResponse, UpdateUserResponse, GenerateInviteRequest, InviteListResponse, User, BadgeCatalogItem, BadgeSeriesItem, UserQuota, UpdateUserRequest, Instance, InstanceWithDetails, InstanceStats, CreateInstanceRequest, CreateInstanceResponse, UpdateInstanceRequest, ChangeHostOptionsResponse, PortMapping, CreatePortMappingRequest, IpAddress, Ipv6Subnet, HostAgentStatusResponse, HostAgentInstallCommandResponse, HostAgentUpgradeRequestResponse, Snapshot, Backup, CreateSnapshotRequest, CreateBackupRequest, SnapshotPolicy, BackupPolicy, UpdateSnapshotPolicyRequest, UpdateBackupPolicyRequest, Host, HostWithDetails, AvailableHost, CreateHostRequest, UpdateHostRequest, Package, CreatePackageRequest, UpdatePackageRequest, SshKey, CreateSshKeyRequest, NotificationChannel, CreateNotificationChannelRequest, UpdateNotificationChannelRequest, OAuthConfig, UserOAuthBinding, UpdateOAuthConfigRequest, OAuthClientApp, AdminOAuthAuthorization, UpsertOAuthClientAppRequest, HelpArticle, CreateHelpArticleRequest, UpdateHelpArticleRequest, HostImagePolicy, SystemImage, CreateSystemImageRequest, UpdateSystemImageRequest, Log, PaginatedResponse, Ticket, TicketMessage, TicketStatus, TicketObjectLink, TicketObjectLinkType, TicketSupportContext, TicketInternalNote, CreateTicketRequest, PaginatedTickets, PaginatedTicketMessages, TerminalSavedCommand, CreateTerminalSavedCommandRequest, UpdateTerminalSavedCommandRequest, TelegramBindingStatus, TelegramBindTokenResponse, TelegramAdminBindingsResponse, TelegramWebhookDeleteResponse, TelegramWebhookInfoResponse, TelegramWebhookSetupResponse, VersionMetadata, SystemUpdateCheckResult, SystemUpdateTask, PublicApiScopeMetadata, CreateGiftCardBatchRequest, CreateGiftCardRequest, GiftCardListResponse, GiftCardRecord, GiftCardStats } from '@/types/api.js'
@@ -2874,6 +2875,9 @@ const api = {
       http.delete(`/admin/hosting/zones/${id}`),
 
     // ==================== 计费管理 ====================
+    expiryEnforcementStatus: (): Promise<ExpiryEnforcementStatus> => http.get('/admin/billing/expiry-enforcement'),
+    startExpiryEnforcement: (): Promise<ExpiryEnforcementStatus> => http.post('/admin/billing/expiry-enforcement/start', {}),
+    runExpiryEnforcement: (): Promise<ExpiryEnforcementStatus> => http.post('/admin/billing/expiry-enforcement/run', {}),
 
     // 获取计费概览
     getBillingOverview: (): Promise<{

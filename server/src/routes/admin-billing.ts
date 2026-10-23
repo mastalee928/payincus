@@ -58,6 +58,9 @@ import {
 } from '../lib/network-modes.js'
 import { calculateDailyPrice } from '../lib/billing-calc.js'
 import { reverseInstanceAffCommissionForRefund } from './instance-destroy.js'
+import { registerExpiryEnforcementRoutes } from './billing-expiry-enforcement.js'
+import { getExpiryEnforcementStatus, startExpiryEnforcement, executeExpiryEnforcement } from '../services/billing-scheduler.js'
+import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
 
 // 自定义 nanoid，只使用小写字母和数字
 const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 8)
@@ -670,6 +673,7 @@ async function buildBatchPriceUpdatePreview(
 }
 
 export default async function adminBillingRoutes(app: FastifyInstance): Promise<void> {
+  await registerExpiryEnforcementRoutes(app, { status: getExpiryEnforcementStatus, start: startExpiryEnforcement, run: executeExpiryEnforcement })
   // ==================== 计费概览 ====================
 
   // GET /api/admin/billing/overview - 计费概览
@@ -1742,6 +1746,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         return reply.status(400).send({ error: '参数无效，延期天数必须在 1-365 之间' })
       }
 
+      return await withInstanceBillingMutation(instanceId, async () => {
       const instance = await prisma.instance.findUnique({
         where: { id: instanceId },
         include: { user: { select: { id: true, username: true, balance: true } } }
@@ -1826,6 +1831,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
             where: { id: instanceId },
             data: {
               expiresAt: newExpiresAt,
+              version: { increment: 1 },
               // 如果是因到期被封停，解除封停
               ...(instance.status === 'suspended' && instance.suspendReason === 'expired' ? {
                 status: 'stopped',
@@ -1859,6 +1865,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
             where: { id: instanceId },
             data: {
               expiresAt: newExpiresAt,
+              version: { increment: 1 },
               // 如果是因到期被封停，解除封停
               ...(instance.status === 'suspended' && instance.suspendReason === 'expired' ? {
                 status: 'stopped',
@@ -1908,6 +1915,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         amount: extendAmount,
         newExpiresAt: newExpiresAt.toISOString()
       }
+      })
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       if (errorMessage.includes('BALANCE_CONFLICT')) {

@@ -30,9 +30,11 @@ import {
   updateExpiryNotifiedAt
 } from '../db/instance-suspend.js'
 import { deleteInstance as deleteIncusInstance, getIncusClient } from '../lib/incus/index.js'
-import { rollbackResources } from '../db/index.js'
 import { sendReleaseNotification } from '../lib/release-notifier.js'
 import { acquireLock, releaseLock } from '../lib/distributed-lock.js'
+import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
+import { enforceExpiredStop } from './billing-expiry-enforcement.js'
+import { recoveryHeld } from './platform-backup-core.js'
 
 // 并发限制
 const limit = pLimit(5)
@@ -45,6 +47,11 @@ const EXPIRY_NOTIFY_DAYS = [3, 2, 1] // 到期前 3/2/1 天各提醒一次
 const INSTANCE_BILLING_JOB_LOCK_EXPIRE_MS = 30 * 60 * 1000
 const INSTANCE_BILLING_JOB_LOCK_WAIT_MS = 100
 let schedulerStarted = false
+let expiryEnforcementRunning = false
+let expiryEnforcementTask: ReturnType<typeof schedule> | null = null
+let expiryStartPromise: Promise<void> | null = null
+let expiryLastStartedAt: string | null = null, expiryLastFinishedAt: string | null = null
+let expiryFailureCount = 0, expiryLastError: string | null = null
 
 // 管理员告警：本轮自动续费汇总（每次整点任务开始时清空，结束后按需推送一条）
 const autoRenewAlertSummary: {
@@ -98,7 +105,8 @@ async function withInstanceBillingJobLock(
   }
 
   try {
-    await fn()
+    if (purpose === 'expiry-suspend' || purpose === 'expiry-delete') await withInstanceBillingMutation(instanceId, async () => { if (!recoveryHeld()) await fn() })
+    else await fn()
   } finally {
     await releaseLock(lockKey, lock.ownerId)
   }
@@ -454,8 +462,16 @@ async function executeExpirySuspend(): Promise<void> {
   const startTime = Date.now()
 
   try {
+    const renewedSuspensions = await prisma.instance.findMany({ where: { packagePlanId: { not: null },
+      status: 'suspended', suspendReason: 'expired', suspendedBy: null, expiresAt: { gt: new Date() } }, select: { id: true } })
+    for (const instance of renewedSuspensions) await withInstanceBillingJobLock('expiry-suspend', instance.id, async () => {
+      await prisma.instance.updateMany({ where: { id: instance.id, status: 'suspended', suspendReason: 'expired', suspendedBy: null,
+        expiresAt: { gt: new Date() } }, data: { status: 'stopped', suspendedAt: null, suspendReason: null, suspendedBy: null, version: { increment: 1 } } })
+    })
     // 获取已到期但未封停的实例
-    const instances = await getExpiredUnsuspendedInstances()
+    const fresh = await getExpiredUnsuspendedInstances()
+    const retry = await prisma.instance.findMany({ where: { packagePlanId: { not: null }, status: 'suspended', suspendReason: 'expired', suspendedBy: null, expiresAt: { lt: new Date() } } })
+    const instances = [...new Map([...fresh, ...retry].map(instance => [instance.id, instance])).values()]
 
     console.log(`[Billing] Found ${instances.length} expired instances to suspend`)
 
@@ -502,6 +518,7 @@ async function executeExpirySuspend(): Promise<void> {
     const duration = Date.now() - startTime
     console.log(`[Billing] Expiry suspension job completed in ${duration}ms`)
   } catch (error) {
+    noteExpiryFailure('EXPIRY_SUSPEND_SCAN_FAILED')
     console.error('[Billing] Expiry suspend job failed:', error)
   }
 }
@@ -514,19 +531,16 @@ async function processExpirySuspend(instance: any): Promise<{ userId: number; in
     // 封停实例
     const suspendedInstance = await suspendInstanceByExpiry(instance.id)
     if (!suspendedInstance) {
+      await stopCurrentExpiredInstance(instance.id)
       console.log(`[Billing] Skip expiry suspend for instance ${instance.id}: no longer expired or already processed`)
       return null
     }
 
     // 尝试停止 Incus 实例
     try {
-      const host = await db.getHostById(suspendedInstance.hostId)
-      if (host) {
-        const client = await getIncusClient(host)
-        const { stopInstance } = await import('../lib/incus/index.js')
-        await stopInstance(client, suspendedInstance.incusId, true) // force stop
-      }
+      await stopCurrentExpiredInstance(suspendedInstance.id)
     } catch (stopError) {
+      noteExpiryFailure('EXPIRY_REMOTE_STOP_PENDING')
       // 停止失败不影响封停逻辑
       console.log(`[Billing] Failed to stop Incus instance ${suspendedInstance.incusId}:`, stopError)
     }
@@ -550,25 +564,38 @@ async function processExpirySuspend(instance: any): Promise<{ userId: number; in
     }
 
   } catch (error) {
+    noteExpiryFailure('EXPIRY_REMOTE_STOP_PENDING')
     console.error(`[Billing] Failed to suspend instance ${instance.id}:`, error)
     return null
   }
 }
 
-// ==================== 到期删除任务 ====================
-
-async function restoreExpiryDeleteClaim(instance: any): Promise<void> {
-  await prisma.instance.updateMany({
-    where: {
-      id: instance.id,
-      status: 'deleted'
+async function stopCurrentExpiredInstance(instanceId: number) {
+  const pending = { instanceId, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
+  if (await prisma.instanceTask.count({ where: pending }) || await prisma.restoreTask.count({ where: pending }) ||
+    await prisma.backupUploadTask.count({ where: pending })) return
+  const { getInstanceState, stopInstance } = await import('../lib/incus/index.js')
+  const result = await enforceExpiredStop({
+    load: () => prisma.instance.findUnique({ where: { id: instanceId } }),
+    state: async instance => {
+      const host = await db.getHostById(instance.hostId)
+      if (!host) throw new Error('EXPIRY_HOST_UNAVAILABLE')
+      return await getInstanceState(await getIncusClient(host), instance.incusId) as { status?: string }
     },
-    data: {
-      status: 'suspended',
-      version: { increment: 1 }
+    stop: async instance => {
+      const host = await db.getHostById(instance.hostId)
+      if (!host) throw new Error('EXPIRY_HOST_UNAVAILABLE')
+      await stopInstance(await getIncusClient(host), instance.incusId, true)
     }
   })
+  if (result === 'stopped') {
+    const instance = await prisma.instance.findUnique({ where: { id: instanceId }, select: { userId: true } })
+    if (instance) await createLog(instance.userId, 'instance', 'instance.expiry_stop_reconciled',
+      'Expired instance stop verified after retry', 'success', { instanceId })
+  }
 }
+
+// ==================== 到期删除任务 ====================
 
 /**
  * 执行到期删除（封停超过3天的实例）
@@ -583,11 +610,15 @@ async function executeExpiryDelete(): Promise<void> {
 
     // 过滤出到期封停的（非手动封停）
     const expiredInstances = instances.filter(i => i.suspendReason === 'expired')
+    const cleanup = await prisma.instance.findMany({ where: {
+      status: 'deleted', suspendReason: 'expired', suspendedBy: null, deletionBillingPending: true,
+      instanceTasks: { none: { status: { in: ['PENDING', 'PROCESSING'] } } }
+    } })
 
     console.log(`[Billing] Found ${expiredInstances.length} expired instances to delete`)
 
     // 串行处理删除（避免并发问题）
-    for (const instance of expiredInstances) {
+    for (const instance of [...expiredInstances, ...cleanup]) {
       await withInstanceBillingJobLock('expiry-delete', instance.id, () => processExpiryDelete(instance))
       await delay(1000) // 间隔1秒
     }
@@ -595,6 +626,7 @@ async function executeExpiryDelete(): Promise<void> {
     const duration = Date.now() - startTime
     console.log(`[Billing] Expiry delete job completed in ${duration}ms`)
   } catch (error) {
+    noteExpiryFailure('EXPIRY_DELETE_SCAN_FAILED')
     console.error('[Billing] Expiry delete job failed:', error)
   }
 }
@@ -604,15 +636,37 @@ async function executeExpiryDelete(): Promise<void> {
  */
 async function processExpiryDelete(instance: any): Promise<void> {
   try {
+    const latest = await prisma.instance.findUnique({ where: { id: instance.id } })
+    if (!latest || latest.suspendReason !== 'expired' || latest.suspendedBy !== null || !latest.packagePlanId || !latest.expiresAt || latest.expiresAt >= new Date()) return
+    const resumingCleanup = latest.status === 'deleted' && latest.deletionBillingPending && latest.suspendedBy === null
+    if (latest.status !== 'suspended' && !resumingCleanup) return
+    instance = latest
     const deleteThreshold = new Date()
     deleteThreshold.setDate(deleteThreshold.getDate() - SUSPEND_AFTER_DELETE_DAYS)
+    if (!instance.suspendedAt || instance.suspendedAt >= deleteThreshold) return
+    const pending = { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
+    if (await prisma.instanceTask.count({ where: pending }) || await prisma.restoreTask.count({ where: pending }) ||
+      await prisma.backupUploadTask.count({ where: pending })) return
 
-    const claimResult = await prisma.instance.updateMany({
+    const host = await db.getHostById(instance.hostId)
+    if (!host) { noteExpiryFailure('EXPIRY_HOST_UNAVAILABLE'); return }
+    const client = await getIncusClient(host)
+    // Establish contact before claiming deletion, so temporary DNS outages do
+    // not block a user from renewing an intact instance.
+    if (!resumingCleanup) {
+      const present = await client.request<unknown>('GET', '/1.0/instances')
+      if (!Array.isArray(present) || present.some(name => typeof name !== 'string' || !name.startsWith('/1.0/instances/'))) throw new Error('EXPIRY_REMOTE_STATE_UNKNOWN')
+      if (present.includes('/1.0/instances/' + instance.incusId)) await stopCurrentExpiredInstance(instance.id)
+    }
+
+    const claimResult = resumingCleanup ? { count: 1 } : await prisma.instance.updateMany({
       where: {
         id: instance.id,
         version: instance.version,
         status: 'suspended',
         suspendReason: 'expired',
+        packagePlanId: { not: null }, expiresAt: { lt: new Date() },
+        suspendedBy: null,
         suspendedAt: {
           not: null,
           lt: deleteThreshold
@@ -620,6 +674,7 @@ async function processExpiryDelete(instance: any): Promise<void> {
       },
       data: {
         status: 'deleted',
+        deletionBillingPending: true,
         version: { increment: 1 }
       }
     })
@@ -629,19 +684,16 @@ async function processExpiryDelete(instance: any): Promise<void> {
       return
     }
 
-    const host = await db.getHostById(instance.hostId)
-    if (!host) {
-      await restoreExpiryDeleteClaim(instance)
-      console.log(`[Billing] Skip expiry delete for instance ${instance.id}: host not found`)
-      return
-    }
-
     try {
-      const client = await getIncusClient(host)
       await deleteIncusInstance(client, instance.incusId)
+      const names = await client.request<unknown>('GET', '/1.0/instances')
+      if (!Array.isArray(names) || names.some(name => typeof name !== 'string' || !name.startsWith('/1.0/instances/')) ||
+        names.includes('/1.0/instances/' + instance.incusId)) throw new Error('EXPIRY_DELETE_NOT_VERIFIED')
     } catch (incusError) {
-      await restoreExpiryDeleteClaim(instance)
-      console.log(`[Billing] Failed to delete Incus instance ${instance.incusId}, restored expired suspension:`, incusError)
+      // DELETE may already have been accepted remotely. Keep occupied pending
+      // cleanup instead of resurrecting a possibly destroyed instance.
+      noteExpiryFailure('EXPIRY_REMOTE_DELETE_PENDING')
+      console.log(`[Billing] Failed to delete Incus instance ${instance.incusId}, pending reconciliation:`, incusError)
       return
     }
 
@@ -649,43 +701,28 @@ async function processExpiryDelete(instance: any): Promise<void> {
       where: { instanceId: instance.id }
     })
 
-    // 回滚实例资源
-    await rollbackResources({
-      hostId: instance.hostId,
-      cpu: instance.cpu,
-      memory: instance.memory,
-      disk: instance.disk,
-      portCount: portMappingsCount
-    })
-
-    // Keep the conditionally claimed instance as a soft-deleted row so billing records remain linked.
-    // Explicitly release network allocations that the former hard-delete cascade removed.
+    // Finalize allocations, counters and occupied-host marker in one transaction.
+    // Recomputing rather than decrementing makes cleanup retries idempotent.
     await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id=${instance.hostId} FOR UPDATE`
+      const current = await tx.instance.findUnique({ where: { id: instance.id } })
+      if (!current || current.status !== 'deleted' || !current.deletionBillingPending || current.version !== instance.version + (resumingCleanup ? 0 : 1)) throw new Error('EXPIRY_DELETE_STATE_CHANGED')
       await tx.portMapping.deleteMany({ where: { instanceId: instance.id } })
       await tx.ipAddress.deleteMany({ where: { instanceId: instance.id } })
       await tx.ipv6Subnet.deleteMany({ where: { instanceId: instance.id } })
       await db.releasePublicIpv4ForInstance(tx, instance.id)
-    })
-
-    // Recalculate host resource counters from active instances and remaining port mappings.
-    const usedResources = await db.calculateHostResourcesFromInstances(instance.hostId)
-    const actualPortsUsed = await prisma.portMapping.count({
-      where: {
-        instance: {
-          hostId: instance.hostId,
-          status: { not: 'deleted' }
-        }
-      }
-    })
-    await db.updateHostResources(instance.hostId, {
-      cpuUsed: usedResources.cpuUsed,
-      memoryUsed: usedResources.memoryUsed,
-      diskUsed: usedResources.diskUsed
-    })
-    await prisma.host.update({
-      where: { id: instance.hostId },
-      data: { natPortsUsedCount: actualPortsUsed }
-    })
+      const allocated = { hostId: instance.hostId, id: { not: instance.id }, OR: [
+        { status: { not: 'deleted' as const } }, { deletionBillingPending: true }, { provisioningCleanupPending: true }
+      ] }
+      const usedResources = await tx.instance.aggregate({ where: allocated, _sum: { cpu: true, memory: true, disk: true } })
+      const actualPortsUsed = await tx.portMapping.count({ where: { instance: allocated } })
+      await tx.host.update({ where: { id: instance.hostId }, data: {
+        cpuUsed: usedResources._sum.cpu || 0, memoryUsed: usedResources._sum.memory || 0,
+        diskUsed: usedResources._sum.disk || 0, natPortsUsedCount: actualPortsUsed
+      } })
+      await tx.instance.update({ where: { id: instance.id }, data: { deletionBillingPending: false } })
+    }, { maxWait: 5000, timeout: 10000 })
+    console.log(`[Billing] Expiry deletion finalized; released ${portMappingsCount} port mapping(s)`)
 
     // 发送删除通知
     await sendNotification(instance.userId, 'instance_deleted', {
@@ -713,6 +750,7 @@ async function processExpiryDelete(instance: any): Promise<void> {
     }
 
   } catch (error) {
+    noteExpiryFailure('EXPIRY_DELETE_RECONCILIATION_PENDING')
     console.error(`[Billing] Failed to delete instance ${instance.id}:`, error)
   }
 }
@@ -947,6 +985,40 @@ async function cleanOldPaymentCallbacks(): Promise<void> {
 
 // ==================== 调度器入口 ====================
 
+export async function executeExpiryEnforcement(): Promise<void> {
+  if (expiryEnforcementRunning || recoveryHeld()) return
+  expiryEnforcementRunning = true
+  expiryLastStartedAt = new Date().toISOString(); expiryFailureCount = 0; expiryLastError = null
+  try {
+    await executeExpirySuspend()
+    await executeExpiryDelete()
+  } finally { expiryEnforcementRunning = false; expiryLastFinishedAt = new Date().toISOString() }
+}
+
+function noteExpiryFailure(code: string) { expiryFailureCount++; expiryLastError = code }
+export async function getExpiryEnforcementStatus() {
+  const task = expiryEnforcementTask
+  const state = task ? await task.getStatus() : 'stopped'
+  return { enabled: !!task && !['stopped', 'destroyed'].includes(state), running: expiryEnforcementRunning,
+    intervalMinutes: 5, retentionDays: SUSPEND_AFTER_DELETE_DAYS, lastStartedAt: expiryLastStartedAt,
+    lastFinishedAt: expiryLastFinishedAt, nextRunAt: task?.getNextRun()?.toISOString() || null,
+    failureCount: expiryFailureCount, lastError: expiryLastError, recoveryHeld: recoveryHeld() }
+}
+export async function startExpiryEnforcement() {
+  if (recoveryHeld()) throw new Error('EXPIRY_RECOVERY_HELD')
+  if (!expiryStartPromise) {
+    expiryStartPromise = (async () => {
+      const status = await getExpiryEnforcementStatus()
+      if (status.enabled) return
+      if (expiryEnforcementTask && await expiryEnforcementTask.getStatus() !== 'destroyed') await expiryEnforcementTask.start()
+      else expiryEnforcementTask = schedule('*/5 * * * *', async () => { await executeExpiryEnforcement() }, { noOverlap: true, name: 'instance-expiry-enforcement' })
+    })()
+  }
+  const starting = expiryStartPromise
+  try { await starting } finally { if (expiryStartPromise === starting) expiryStartPromise = null }
+  return getExpiryEnforcementStatus()
+}
+
 /**
  * 启动计费调度器
  */
@@ -962,15 +1034,8 @@ export function startBillingScheduler(): void {
     executeAutoRenew().catch(console.error)
   })
 
-  // 每30分钟检查到期封停
-  schedule('*/30 * * * *', () => {
-    executeExpirySuspend().catch(console.error)
-  })
-
-  // 每天凌暨3点检查到期删除
-  schedule('0 3 * * *', () => {
-    executeExpiryDelete().catch(console.error)
-  })
+  // Retry expiry actions after gateway reconnect; keep the existing 3-day grace.
+  void startExpiryEnforcement().catch(console.error)
 
   // 每小时检查到期提醒
   schedule('15 * * * *', () => {
@@ -989,8 +1054,7 @@ export function startBillingScheduler(): void {
 
   console.log('[Billing] Scheduler started')
   console.log('[Billing] - Auto-renew: hourly at :00 (24h before expiry, max 3 attempts)')
-  console.log('[Billing] - Expiry suspend: every 30 minutes')
-  console.log('[Billing] - Expiry delete: daily at 03:00 (3 days after suspend)')
+  console.log('[Billing] - Expiry enforcement: every 5 minutes; stop retries and deletion after 3 suspended days')
   console.log('[Billing] - Expiry reminders: hourly at :15 (T-3/T-2/T-1, aggregated per user, auto-renew instances skipped)')
   console.log('[Billing] - Expired recharge cleanup: hourly at :30')
   console.log('[Billing] - Payment callback cleanup: daily at 04:30')

@@ -13,6 +13,7 @@ import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import BillingOverviewIcon from '@/components/admin/BillingOverviewIcon.vue'
+import ExpiryEnforcementPanel from '@/components/admin/ExpiryEnforcementPanel.vue'
 import { calculateDiscountedPrice } from '@/utils/billing'
 import { instanceDetailPath } from '@/utils/app-paths'
 
@@ -1301,6 +1302,7 @@ function copyToClipboard(text: string) {
 
     <!-- 概览 Tab -->
     <div v-show="activeTab === 'overview'">
+      <ExpiryEnforcementPanel />
       <div v-if="overviewLoading" class="space-y-5">
         <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <div v-for="i in 4" :key="`overview-kpi-${i}`" class="card h-36 animate-pulse p-5">

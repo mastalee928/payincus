@@ -74,6 +74,42 @@ jobs:
         working-directory: agent
         run: go test -race ./internal/controllerconfig ./cmd/incudal-maintenance
 
+  billing-expiry-integration:
+    name: Billing expiry integration
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: expiry_test
+          POSTGRES_PASSWORD: expiry_test
+          POSTGRES_DB: ci_expiry_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://expiry_test:expiry_test@127.0.0.1:5432/ci_expiry_test
+      BILLING_EXPIRY_INTEGRATION_TEST: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - name: Install test dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Prepare isolated schema
+        run: |
+          pnpm --filter server exec prisma generate
+          pnpm --filter server exec prisma migrate deploy
+      - name: Verify expiry retry and renewal accounting
+        run: pnpm --filter server test:billing-expiry-integration
+
   gateway-component-package:
     name: Gateway component package (${{ matrix.architecture }})
     runs-on: ${{ matrix.runner }}

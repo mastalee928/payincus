@@ -96,15 +96,15 @@ const processDelete = sectionBetween(
   '// ==================== 到期提醒任务 ===================='
 )
 
-const claimIndex = processDelete.indexOf('const claimResult = await prisma.instance.updateMany')
+const claimIndex = processDelete.indexOf('await prisma.instance.updateMany')
 const incusDeleteIndex = processDelete.indexOf('await deleteIncusInstance')
 const networkReleaseIndex = processDelete.indexOf('await tx.portMapping.deleteMany')
-const restoreIndex = processDelete.indexOf('await restoreExpiryDeleteClaim(instance)')
+const pendingIndex = processDelete.indexOf('deletionBillingPending: true')
 
 assert.notEqual(claimIndex, -1, 'expiry delete must conditionally claim the instance before side effects')
 assert.notEqual(incusDeleteIndex, -1, 'expiry delete Incus delete not found')
 assert.notEqual(networkReleaseIndex, -1, 'expiry delete network allocation release not found')
-assert.notEqual(restoreIndex, -1, 'expiry delete must restore claimed rows when Incus deletion cannot be completed')
+assert.notEqual(pendingIndex, -1, 'expiry delete must retain a pending allocation when the remote outcome is uncertain')
 assert.ok(claimIndex < incusDeleteIndex, 'expiry delete must claim before Incus deletion')
 assert.ok(claimIndex < networkReleaseIndex, 'expiry delete must claim before releasing network allocations')
 assert.ok(incusDeleteIndex < networkReleaseIndex, 'expiry delete must delete Incus before releasing network allocations')
@@ -116,9 +116,10 @@ assert.ok(processDelete.includes('version: { increment: 1 }'), 'expiry delete cl
 assert.ok(processDelete.includes('if (claimResult.count === 0)'), 'expiry delete must skip stale ineligible rows')
 assert.ok(!processDelete.includes('prisma.instance.delete'), 'expiry delete must never hard-delete the instance')
 assert.ok(
-  processDelete.includes('if (!host)') && processDelete.includes('restored expired suspension'),
-  'expiry delete must stop and restore when the host or Incus deletion is unavailable'
+  processDelete.includes('if (!host)') && processDelete.includes('pending reconciliation'),
+  'expiry delete must defer host failure and retain occupied allocation after uncertain deletion'
 )
+assert.ok(processDelete.includes('expiresAt: { lt: new Date() }') && processDelete.includes('const latest = await prisma.instance.findUnique'), 'expiry deletion must recheck latest paid expiry immediately before claiming')
 
 const processNotify = sectionBetween(
   schedulerSource,

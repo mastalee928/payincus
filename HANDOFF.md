@@ -22,9 +22,20 @@
 - 已实际下载两种架构的公开安装包，确认 SHA256、文件大小、OTA manifest、包内版本与 Git 提交一致；检查全部迁移和 IPv6、UPAY 等关键模块，包内 LICENSE 与发行源码原文一致。GitHub 的面板 latest 为 v1.6.2；公开一键安装脚本与发行源码一致。
 - [源码 CI](https://github.com/mastalee928/payincus/actions/runs/38877110604)、[Agent 发布](https://github.com/mastalee928/payincus/actions/runs/38877110746) 均通过；[本仓库文档站](https://mastalee928.github.io/payincus/) 已上线。
 
+## 2026-10-23 五分钟实例到期巡检（阶段源码，未发版）
+
+- Owner 调整优先序：先验收「主控兼网关 A 丢失→B 从 OSS 恢复→固定直连域名切 DNS→原宿主重连」，并覆盖到期/续费和后台巡检；完整 P0–P6、四拓扑与 AC01–AC34 保留后续施工。最新状态见 [工程进度](GATEWAY_PROGRESS.md)。
+- 巡检每 5 分钟同时检查当前到期时间、系统暂停状态和实际 Incus 状态，补停机并保留原暂停后 3 天删除政策；排除管理员手动暂停及免费实例，已续费旧暂停状态按最新日期纠正。续费及管理员延期和巡检共用实例串行通道，续费余额/实例版本事务保持；管理员付费/免费延期均递增版本，防止陈旧续费快照覆盖延期。
+- 删除先建立远端可达性，失败保留可续费暂停；发送删除后回执不确定则保留 deleted + deletionBillingPending 及占用，不复活可能已经被删除的实例。以后巡检核对实际不存在、清理转发，在宿主行锁事务内释放地址/端口、重算计数、清除待核对标记。恢复保护和实例/恢复/上传任务期间不做冲突动作；等待执行的巡检拿到串行通道后再次核对恢复保护。
+- 管理端计费概览增加真实调度状态、运行时间、下一轮、本轮失败、刷新/启动/立即执行。使用原黑白界面与已有字体；浏览器专项 1440/768/390、深浅色、启动/立即执行/失败/重复点击/运行禁用通过，无横向溢出；独立组件预览 inspector 0 FAIL、1 空白 WARN（预览只挂载该新增组件，完整计费页面仍有其它原有区块）。时间/错误计数在进程重启后重置，后台完全停止时不能由页面启动服务。
+- 真实 Linux arm64 + 独立空 PostgreSQL + Incus 6.0.4 专用实例联合通过：断网暂停、同快照两笔续费仅一次成功和扣费、重连后续费实例保持 Running、3 天保留期到期停机/删除、确认不存在后库存归零、重复巡检无重复动作。Incus 在独立 mount/net、专用 delegated cgroup 及有界测试单元中运行，应用数据库独立；未改变客户实例或唯一业务后端。初次隔离未挂载 cgroup 控制层导致 LXC 监控 C 库崩溃/回执超时，修正测试环境后真实回执/删除通过，失败样本保留。
+- 仓库新增可重复 `test:billing-expiry-integration`（必须显式 opt-in、空本机 *_expiry_test 库及 OpenSSL），覆盖 HTTPS Incus 夹具断网、重试、丢失 DELETE 回执和一次扣费/释放；登记全量排除原因并增加独立 PG16 CI 作业。该夹具与上一条真实 Incus 证据分开。证据：`logs/controller-takeover-research-20261022/expiry-real-scheduler-result.json`、`expiry-integration-result.json`、`gateway-page-browser/expiry-browser-result.json`。
+- 最终全套 planned/executed/passed=176、failed=0（6 分 36 秒，`logs/test-run-20261023-190403/summary.txt`），专项 8/8、前后端类型、最终后台构建、此前本阶段双端构建和 dist 边界通过。Lint 0 errors、665 既有告警。源码提交和 Actions 状态另记；无新正式 Release 或客户后端部署；DNS 设置/旧宿主补装/联合 OSS 切换与错过自动续费对账仍未完成。
+
 ## 2026-10-23 发行预览 AMD64 组件权限修复（未发版）
 
 - 57c8411 源码 CI 39927406425 全部成功；发行预览 39927543459 的 ARM64 面板包构建完成，但 AMD64 在 root 侧组件验签失败，首次安装作业因此未执行。两种组件编译、Node 官方下载 SHA256 和固定签名公钥匹配已通过；不把 ARM64 构建或源码 CI 当作首装通过。
+- 后续 c3d28c1 [预览 39929532392](https://github.com/mastalee928/payincus/actions/runs/39929532392) 两种构建成功，但两种首装均失败：AMD64 visudo 拒绝命令参数里的 wildcard；ARM64 在环境生成后拒绝控制身份准备。Release 作业 skipped，没有新 tag/正式资产或 OTA；这两项继续修复，不能把该预览记录为成功。
 - 真实 Linux 复现严格 umask 077 下普通 cp -R 改变已签名文件权限，固定验证器按清单拒绝。CI/Release 的 root 拷贝改为 --preserve=mode --no-preserve=ownership，保留已核验来源模式且目标归 root，不放宽验证器。13 组包回归通过，新增先复现无权限保持失败、再验证正确拷贝成功的测试；Node 来源守卫增加两工作流参数约束。修复后的双架构预览另行运行记录。
 
 ## 2026-10-23 签名组件发行与首装准备接线（预览待验，未发版）

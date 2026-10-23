@@ -1,7 +1,9 @@
 import { en as ossMessages } from './aliyun-oss'
 import { en as ipv6Delivery } from './ipv6-delivery'
 import { en as managementGateway } from './management-gateway'
+import { en as expiryEnforcement } from './expiry-enforcement'
 export default {
+  expiryEnforcement,
   managementGateway,
     oss: ossMessages,
   ipv6Delivery,

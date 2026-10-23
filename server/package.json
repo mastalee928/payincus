@@ -6,6 +6,8 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:billing-expiry-enforcement": "node --import tsx scripts/test-billing-expiry-enforcement.ts",
+    "test:billing-expiry-integration": "node --import tsx scripts/test-billing-expiry-integration.mjs",
     "test:gateway-task-guards": "node --import tsx scripts/test-gateway-task-guards.ts",
     "test:gateway-component-integration": "node --import tsx scripts/test-gateway-component-integration.ts",
     "test:gateway-installation-integration": "node --import tsx scripts/test-gateway-installation-integration.ts",

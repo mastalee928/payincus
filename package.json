@@ -45,6 +45,7 @@
     "test:demo-readonly-redaction-guards": "pnpm --filter server test:demo-readonly-redaction-guards"
   },
   "testGuards": [
+    "pnpm --filter server test:billing-expiry-enforcement",
     "pnpm --filter server test:gateway-management-route-guards",
     "pnpm --filter server test:gateway-task-guards",
     "pnpm --filter client type-check",
