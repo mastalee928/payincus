@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { createPublicKey, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { authenticator } from 'otplib'
@@ -106,4 +107,9 @@ try {
   for (let attempt = 0; attempt < 8; attempt++) await assert.rejects(authorizeGatewayAdministration(tx, 2, { password: 'incorrect' }), /REAUTH_REQUIRED/)
   await assert.rejects(authorizeGatewayAdministration(tx, 2, { password: 'changed-password' }), /REAUTH_LOCKED/)
 } finally { if (previousKey === undefined) delete process.env.ENCRYPTION_KEY; else process.env.ENCRYPTION_KEY = previousKey }
+const enrollmentSource = readFileSync(new URL('../../scripts/enroll-gateway-controller.py', import.meta.url), 'utf8')
+const driverSource = readFileSync(new URL('../src/services/gateway-installation-driver.ts', import.meta.url), 'utf8')
+assert.ok(enrollmentSource.includes("action == 'initialize'") && enrollmentSource.includes("package.verify_package"))
+assert.ok(enrollmentSource.includes("flock") && enrollmentSource.includes("identity.json") && enrollmentSource.includes('Never silently repair'))
+assert.ok(driverSource.includes('config.schemaVersion === 2') && driverSource.includes('identity.signingKeyId === config.signingKeyId'))
 console.log('Gateway installation guards passed: signed plan/receipt bindings, safe preview, private bootstrap, password/MFA and persistent step replay contract')

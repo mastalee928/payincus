@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { createPrivateKey, createPublicKey } from 'node:crypto'
+import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
 import { mkdir, readFile, writeFile, chmod } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,7 +14,7 @@ import { inspectLocalManagementGateway, inspectRemoteManagementGateway } from '.
 import { connectOnboardingSsh, sshExec } from './onboarding-ssh.js'
 
 interface Component { directory: string; version: string; sourceCommit: string }
-interface Enrollment { schemaVersion: 1; platformId: string; signingKeyPath: string; packageSigningKey: string; components: Partial<Record<'amd64' | 'arm64', Component>> }
+interface Enrollment { schemaVersion: 1 | 2; platformId: string; signingKeyPath: string; signingKeyId?: string; packageSigningKey: string; components: Partial<Record<'amd64' | 'arm64', Component>> }
 const scripts = fileURLToPath(new URL('../../../scripts/', import.meta.url))
 const python = '/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/python3 -I -B'
 function require(value: unknown, code = 'GATEWAY_CONTROLLER_CONFIGURATION_INVALID'): asserts value { if (!value) throw new GatewayTaskError(code) }
@@ -35,7 +35,8 @@ async function enrollment() {
   const path = process.env.GATEWAY_CONTROLLER_CONFIG || '/var/lib/incudal-gateway-controller/enrollment.json'
   require(safePath(path))
   const raw = await readDiscoveryPrivateFile(path, 8192), config = JSON.parse(raw) as Enrollment
-  require(config && Object.keys(config).length === 5 && config.schemaVersion === 1 &&
+  require(config && ((config.schemaVersion === 1 && Object.keys(config).length === 5) ||
+    (config.schemaVersion === 2 && Object.keys(config).length === 6 && typeof config.signingKeyId === 'string')) &&
     /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(config.platformId) && safePath(config.signingKeyPath) &&
     typeof config.packageSigningKey === 'string' && /^[A-Za-z0-9+/]{43}=$/.test(config.packageSigningKey) &&
     Buffer.from(config.packageSigningKey, 'base64').toString('base64') === config.packageSigningKey &&
@@ -47,6 +48,13 @@ async function enrollment() {
   require(key.asymmetricKeyType === 'ed25519')
   const publicKey = createPublicKey(key).export({ type: 'spki', format: 'der' }).subarray(12).toString('base64')
   require(publicKey !== config.packageSigningKey, 'GATEWAY_SIGNING_KEYS_MUST_BE_INDEPENDENT')
+  if (config.schemaVersion === 2) {
+    require(config.signingKeyId === 'key_' + createHash('sha256').update(Buffer.from(publicKey, 'base64')).digest('hex'))
+    const identity = JSON.parse(await readDiscoveryPrivateFile(join(dirname(path), 'identity.json'), 1024)) as Record<string, unknown>
+    require(identity && Object.keys(identity).length === 4 && identity.schemaVersion === 1 &&
+      identity.platformId === config.platformId && identity.signingKeyId === config.signingKeyId && identity.packageSigningKey === config.packageSigningKey)
+    require(config.signingKeyPath === join(dirname(path), 'signing.pem'))
+  }
   const requests = join(dirname(path), 'requests'); await privateDirectory(requests)
   return { config, key, publicKey, requests }
 }

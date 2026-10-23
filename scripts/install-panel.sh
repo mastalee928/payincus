@@ -2179,6 +2179,15 @@ main() {
             configure_host_pool_gateway
             systemctl restart "$SERVICE_NAME"
             ;;
+        --configure-gateway-controller)
+            check_existing || { error "请先安装面板"; exit 1; }
+            local app_dir="$INSTALL_DIR"
+            [[ ! -L "$INSTALL_DIR/current" ]] || app_dir="$(readlink -f -- "$INSTALL_DIR/current")"
+            [[ "$app_dir" == "$INSTALL_DIR" || "$app_dir" == "$INSTALL_DIR/releases/"* ]] || { error "安装路径无效"; exit 1; }
+            local action="${2:-}"
+            [[ $# -eq 2 && ( "$action" == --initialize || "$action" == --refresh || "$action" == --verify ) ]] || { error "需要显式 --initialize、--refresh 或 --verify"; exit 1; }
+            bash "$app_dir/scripts/install-gateway-controller.sh" "$action"
+            ;;
         --configure-cf-tunnel)
             check_existing || { error "请先安装面板"; exit 1; }
             check_os
@@ -2204,6 +2213,7 @@ main() {
             echo "  --upgrade     升级已有安装"
             echo "  --uninstall   卸载 PayIncus"
             echo "  --configure-host-pool  配置机器池管理网关"
+            echo "  --configure-gateway-controller --initialize|--refresh|--verify  显式登记或核验独立网关控制身份（JSON 从 stdin 读取）"
             echo "  --configure-cf-tunnel  为已有安装配置 CF Tunnel（不升级程序或迁移数据库）"
             echo "  --check-cf-tunnel      只检查 CF 两端页面、API 和隧道连接"
             echo "  --help        显示帮助"

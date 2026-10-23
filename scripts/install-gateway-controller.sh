@@ -3,6 +3,8 @@
 # independent transport/console/backup services are not restarted or replaced.
 set -Eeuo pipefail
 [[ $EUID -eq 0 ]] || { echo 'Run as root.' >&2; exit 1; }
+action="${1:-}"
+[[ $# -le 1 && ( -z "$action" || "$action" == --initialize || "$action" == --refresh || "$action" == --verify ) ]] || { echo 'Expected --initialize, --refresh or --verify.' >&2; exit 1; }
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 [[ "$root" == /opt/incudal || "$root" == /opt/incudal/releases/* ]] || { echo 'Unexpected install directory.' >&2; exit 1; }
 source="$root/deploy/incudal-gateway-task@.service.example"
@@ -27,3 +29,11 @@ chmod 0440 "$temporary"
 visudo -cf "$temporary" >/dev/null
 install -o root -g root -m 0440 "$temporary" /etc/sudoers.d/incudal-gateway-task
 /usr/bin/systemctl daemon-reload
+if [[ -n "$action" ]]; then
+    # JSON is read directly from stdin by the fixed enrollment tool. It cannot
+    # select a destination, shell command, service name, or a new trust on refresh.
+    tool="$root/scripts/enroll-gateway-controller.py"
+    [[ -f "$tool" && ! -L "$tool" && $(stat -c %u "$tool") == 0 ]] || exit 1
+    if find "$tool" -perm /022 -print -quit | grep -q .; then exit 1; fi
+    /usr/bin/python3 -I -B "$tool" "$action"
+fi

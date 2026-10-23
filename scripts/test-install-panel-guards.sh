@@ -40,6 +40,10 @@ grep -Fq 'chown "root:${RUN_USER}" "$ENV_FILE"' "$REPO_ROOT/scripts/install-pane
 grep -Fq 'Defaults:${RUN_USER} secure_path=/usr/local/libexec/incudal:' "$REPO_ROOT/scripts/install-panel.sh"
 grep -Fq 'if [[ -x /usr/bin/node ]]; then' "$REPO_ROOT/scripts/install-panel.sh"
 grep -Fq 'current_ver=$(/usr/bin/node -v' "$REPO_ROOT/scripts/install-panel.sh"
+grep -Fq -- '--configure-gateway-controller)' "$REPO_ROOT/scripts/install-panel.sh"
+grep -Fq -- '"$action" == --initialize' "$REPO_ROOT/scripts/install-gateway-controller.sh"
+grep -Fq '/usr/bin/python3 -I -B "$tool" "$action"' "$REPO_ROOT/scripts/install-gateway-controller.sh"
+bash -n "$REPO_ROOT/scripts/install-gateway-controller.sh"
 
 for helper in \
     incudal-online-task.sh.example \
