@@ -54,6 +54,7 @@ jobs:
       - name: Management gateway task guards
         run: |
           pnpm --filter server test:gateway-task-guards
+          pnpm --filter server test:gateway-management-route-guards
           python3 scripts/test-management-gateway-preflight.py
 
       - name: Setup Go

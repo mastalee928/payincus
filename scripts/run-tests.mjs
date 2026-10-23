@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:gateway-management-integration', 'requires Linux live read-only probe and isolated real PostgreSQL *_gateway_test database'],
   ['test:gateway-task-integration', 'requires isolated real PostgreSQL *_gateway_test database'],
   ['test:frontend-dist-boundary-guards', 'needs a built client/dist; runs in "pnpm build" and release.yml'],
   ['test:gift-card-flow', 'end-to-end flow test needing live infrastructure'],

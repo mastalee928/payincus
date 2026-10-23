@@ -3735,6 +3735,7 @@ model ManagementGatewayTask {
   kind                 String
   plan                 Json
   planHash             String   @map("plan_hash")
+  inspection           Json?
   basedOnRevision      BigInt   @map("based_on_revision")
   status               String   @default("awaiting_confirmation")
   approvedById         Int?     @map("approved_by_id")

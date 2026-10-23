@@ -103,7 +103,7 @@ export function parseGatewayPreflightReport(raw: string): GatewayPreflightReport
   check(typeof row.observedStateHash === 'string' && /^[a-f0-9]{64}$/.test(row.observedStateHash))
   return row as unknown as GatewayPreflightReport
 }
-function bindReport(raw: string, request: GatewayPreflightRequest): GatewayPreflightReport {
+export function bindGatewayPreflightReport(raw: string, request: GatewayPreflightRequest): GatewayPreflightReport {
   const report = parseGatewayPreflightReport(raw)
   const stable = { request, machineId: report.machineId, osId: report.osId, architecture: report.architecture,
     tools: report.tools, facts: report.facts, blockers: report.blockers }
@@ -133,12 +133,12 @@ export async function inspectLocalManagementGateway(input: unknown): Promise<Gat
     })
     child.stdin!.end(JSON.stringify(request))
   })
-  return bindReport(raw, request)
+  return bindGatewayPreflightReport(raw, request)
 }
 export async function inspectRemoteManagementGateway(client: Client, input: unknown): Promise<GatewayPreflightReport> {
   const request = validateGatewayPreflightRequest(input), script = await readFile(probePath, 'utf8')
   const encoded = Buffer.from(JSON.stringify(request)).toString('base64')
   const raw = await sshExec(client, '/usr/bin/python3 -', `INCUDAL_PREFLIGHT_REQUEST = '${encoded}'\n${script}`)
     .catch(() => { throw new GatewayTaskError('GATEWAY_PREFLIGHT_FAILED') })
-  return bindReport(raw, request)
+  return bindGatewayPreflightReport(raw, request)
 }

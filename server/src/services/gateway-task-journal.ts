@@ -4,6 +4,7 @@ import { prisma } from '../db/prisma.js'
 import { tryAdvisoryTransactionLock, MANAGEMENT_GATEWAY_TASK_LOCK_NAMESPACE } from '../db/advisory-locks.js'
 import { GatewayTaskError, GATEWAY_TASK_STEPS, gatewayTaskHash, validateGatewayTaskPlan, validateGatewayTaskTarget,
   validateGatewayStepReceipt } from '../lib/gateway-task-plan.js'
+import { bindGatewayPreflightReport, validateGatewayPreflightRequest } from './gateway-preflight.js'
 
 const LEASE_MS = 60000
 const APPROVAL_MS = 10 * 60000
@@ -25,7 +26,7 @@ async function journalTransaction<T>(work: (tx: Prisma.TransactionClient) => Pro
 // Internal journal only. No HTTP authorization or remote executor is implied.
 // In particular, caller-supplied receipts are not trusted by a web route.
 export const gatewayTaskPublicSelect = {
-  id: true, gatewayId: true, kind: true, plan: true, planHash: true, basedOnRevision: true,
+  id: true, gatewayId: true, kind: true, plan: true, planHash: true, inspection: true, basedOnRevision: true,
   status: true, approvedAt: true, approvalExpiresAt: true, attempt: true, errorCode: true,
   startedAt: true, completedAt: true, createdAt: true, updatedAt: true,
   steps: { select: { key: true, ordinal: true, status: true, operationId: true, receipt: true,
@@ -123,7 +124,8 @@ export async function approveManagementGatewayTask(id: string, planHash: string,
     return tx.managementGatewayTask.findUniqueOrThrow({ where: { id }, select: gatewayTaskPublicSelect })
   })
 }
-export async function claimManagementGatewayTask() {
+export async function claimManagementGatewayTask(id?: string) {
+  if (id !== undefined && !UUID.test(id)) fail('GATEWAY_TASK_PLAN_INVALID')
   return journalTransaction(async tx => {
     await lock(tx)
     // Expired executors are not automatically replayed. They may have changed
@@ -132,7 +134,7 @@ export async function claimManagementGatewayTask() {
       UPDATE management_gateway_tasks SET status = 'needs_review', error_code = 'GATEWAY_TASK_EXECUTOR_INTERRUPTED',
         lease_token = NULL, lease_until = NULL, updated_at = (NOW() AT TIME ZONE 'UTC')
       WHERE status = 'running' AND lease_until <= (NOW() AT TIME ZONE 'UTC')`
-    const task = await tx.managementGatewayTask.findFirst({ where: { status: 'queued' }, orderBy: { createdAt: 'asc' }, include: { gateway: true } })
+    const task = await tx.managementGatewayTask.findFirst({ where: { status: 'queued', ...(id ? { id } : {}) }, orderBy: { createdAt: 'asc' }, include: { gateway: true } })
     if (!task) return null
     let errorCode: string | undefined
     try { await activeAdmin(tx, task.createdById); authenticatedPlan(task, task.gateway) }
@@ -206,15 +208,26 @@ export async function completeManagementGatewayStep(id: string, token: string, k
     return { duplicate: false }
   })
 }
-export async function finishManagementGatewayTask(id: string, token: string) {
+export async function finishManagementGatewayTask(id: string, token: string, inspection?: { request: unknown; report: unknown }) {
+  const snapshot = inspection ? structuredClone(inspection) : undefined
   return journalTransaction(async tx => {
     await lock(tx)
     const { task, plan } = await liveTask(tx, id, token), expected = GATEWAY_TASK_STEPS[plan.kind]
     if (task.steps.length !== expected.length || task.steps.some((step, i) => step.ordinal !== i || step.key !== expected[i] || step.status !== 'succeeded')) fail('GATEWAY_TASK_INCOMPLETE')
     for (const step of task.steps) if (step.receiptHash !== gatewayTaskHash(validateGatewayStepReceipt(step.receipt, plan, step.key, step.operationId))) fail('GATEWAY_TASK_JOURNAL_INVALID')
+    let evidence: Prisma.InputJsonObject | undefined
+    if (snapshot) {
+      if (plan.kind !== 'inspect') fail('GATEWAY_TASK_RECEIPT_INVALID')
+      const request = validateGatewayPreflightRequest(snapshot.request), report = bindGatewayPreflightReport(JSON.stringify(snapshot.report), request)
+      const { slot, network, address, listenPort, consolePort } = request
+      if (request.platformId !== plan.platformId || request.gatewayId !== plan.gatewayId || report.machineId !== plan.target.machineId ||
+        report.observedStateHash !== plan.observedStateHash || gatewayTaskHash({ slot, network, address, listenPort, consolePort }) !== plan.configurationHash ||
+        task.steps.some(step => (step.receipt as unknown as { evidenceHash: string }).evidenceHash !== report.observedStateHash)) fail('GATEWAY_TASK_RECEIPT_INVALID')
+      evidence = json({ request, report })
+    }
     if (plan.kind !== 'inspect') await tx.managementGateway.update({ where: { id: task.gatewayId }, data: { revision: { increment: 1 } } })
     await tx.managementGatewayTask.update({ where: { id }, data: { status: 'succeeded', completedAt: new Date(),
-      leaseToken: null, leaseUntil: null, credentialsEncrypted: null, credentialsExpireAt: null } })
+      inspection: evidence, leaseToken: null, leaseUntil: null, credentialsEncrypted: null, credentialsExpireAt: null } })
     return tx.managementGatewayTask.findUniqueOrThrow({ where: { id }, select: gatewayTaskPublicSelect })
   })
 }
