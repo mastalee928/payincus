@@ -11,9 +11,12 @@ async function main() {
   if (!['--initialize', '--serve'].includes(mode) || !path || !isAbsolute(path) || process.argv.length !== 4) throw new Error('usage')
   const raw = await readDiscoveryPrivateFile(path, 32768), config = JSON.parse(raw) as Record<string, unknown>
   const fields = ['schemaVersion', 'origin', 'listenHost', 'listenPort', 'authDirectory', 'assetDirectory', 'tlsKey', 'tlsCertificate', 'transport', 'initialUser']
+  // A protected enrollment may explicitly expose independent IPv4 HTTPS;
+  // the installer plan shows this listener and the console still enforces TLS,
+  // exact Host/Origin, independent MFA and cookie/CSRF boundaries.
   if (!config || raw !== JSON.stringify(config) || Object.keys(config).length !== fields.length || !fields.every(field => Object.hasOwn(config, field)) ||
     config.schemaVersion !== 1 || typeof config.origin !== 'string' || typeof config.listenHost !== 'string' || !isIP(config.listenHost) ||
-    config.listenHost === '0.0.0.0' || config.listenHost === '::' || !Number.isInteger(config.listenPort) || Number(config.listenPort) < 1024 || Number(config.listenPort) > 65535) throw new Error('invalid config')
+    config.listenHost === '::' || !Number.isInteger(config.listenPort) || Number(config.listenPort) < 1024 || Number(config.listenPort) > 65535) throw new Error('invalid config')
   for (const field of ['authDirectory', 'assetDirectory', 'tlsKey', 'tlsCertificate']) if (typeof config[field] !== 'string' || !isAbsolute(config[field])) throw new Error('protected path required')
   const transport = config.transport as { platformId: string; gatewayId: string; statePath: string; trustedKeys: Record<string, string>; componentVersion: string;backupStatePath?:string }
   const transportFields=['platformId','gatewayId','statePath','trustedKeys','componentVersion']

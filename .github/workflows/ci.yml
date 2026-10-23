@@ -57,6 +57,8 @@ jobs:
           pnpm --filter server test:gateway-management-route-guards
           python3 scripts/test-management-gateway-preflight.py
           sudo python3 scripts/test-gateway-component-package.py
+          sudo python3 scripts/test-gateway-install-plan.py
+          sudo python3 scripts/test-gateway-install-executor.py
 
       - name: Setup Go
         uses: actions/setup-go@v5

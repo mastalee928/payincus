@@ -7,7 +7,8 @@ export const GATEWAY_COMPONENT_FILES = [
   'lib/gateway-console.cjs', 'lib/gateway-backup.cjs', 'lib/controller-discovery.cjs', 'lib/controller-witness.cjs',
   'ui/index.html', 'ui/console.css', 'ui/console.js',
   'scripts/install-management-gateway.sh', 'scripts/install-management-channels.sh', 'scripts/install-gateway-console.sh',
-  'scripts/install-gateway-backup.sh', 'scripts/probe-management-gateway.py'
+  'scripts/install-gateway-backup.sh', 'scripts/probe-management-gateway.py',
+  'scripts/gateway-install-plan.py', 'scripts/verify-gateway-component-package.py', 'scripts/execute-gateway-install.py'
 ].sort()
 export const GATEWAY_BUILD_INPUTS = [
   'agent', 'server/src', 'server/package.json', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'LICENSE',

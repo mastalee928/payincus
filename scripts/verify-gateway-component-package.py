@@ -18,6 +18,8 @@ FILES = sorted([
     'ui/index.html', 'ui/console.css', 'ui/console.js',
     'scripts/install-management-gateway.sh', 'scripts/install-management-channels.sh', 'scripts/install-gateway-console.sh',
     'scripts/install-gateway-backup.sh', 'scripts/probe-management-gateway.py',
+    'scripts/gateway-install-plan.py', 'scripts/verify-gateway-component-package.py',
+    'scripts/execute-gateway-install.py',
 ])
 PREFIX = b'payincus/gateway-component-package/v1\n'
 PROTOCOLS = {'gatewayTransport': 1, 'managementChannels': 1, 'maintenance': 1, 'discovery': 1, 'witness': 1, 'console': 1, 'backup': 1}
@@ -59,7 +61,7 @@ def protected_read(path, limit, mode=None):
         return raw
 
 
-def verify_signature(envelope, pinned):
+def verify_signature(envelope, pinned, *, prefix=PREFIX):
     require(isinstance(envelope, dict) and set(envelope) == {'schemaVersion', 'keyId', 'payload', 'signature'} and type(envelope['schemaVersion']) is int and envelope['schemaVersion'] == 1)
     public_key = base64.b64decode(pinned, validate=True)
     require(len(public_key) == 32 and base64.b64encode(public_key).decode() == pinned)
@@ -68,7 +70,7 @@ def verify_signature(envelope, pinned):
     payload = base64.b64decode(envelope['payload'], validate=True)
     signature = base64.b64decode(envelope['signature'], validate=True)
     require(len(payload) <= 32768 and len(signature) == 64 and base64.b64encode(payload).decode() == envelope['payload'] and base64.b64encode(signature).decode() == envelope['signature'])
-    message = PREFIX + key_id.encode() + b'\n' + envelope['payload'].encode()
+    message = prefix + key_id.encode() + b'\n' + envelope['payload'].encode()
     with tempfile.TemporaryDirectory(prefix='incudal-package-signature-') as directory:
         root = Path(directory)
         (root / 'public.der').write_bytes(bytes.fromhex('302a300506032b6570032100') + public_key)

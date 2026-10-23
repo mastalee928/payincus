@@ -58,7 +58,7 @@ class PackageTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_valid(self):
-        self.assertEqual(self.verify()['files'], 17)
+        self.assertEqual(self.verify()['files'], 20)
         self.assertFalse(self.verify()['canWrite'])
 
     def test_binding(self):
