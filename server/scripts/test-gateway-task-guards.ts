@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { GatewayTaskError, gatewayTaskHash, validateGatewayTaskPlan, validateGatewayTaskTarget,
   validateGatewayStepReceipt, type GatewayTaskPlan } from '../src/lib/gateway-task-plan.js'
 await import('./test-gateway-preflight-guards.js')
+await import('./test-gateway-component-package-guards.js')
 
 const target = { mode: 'local' as const, machineId: 'a'.repeat(32), ssh: null }
 const plan: GatewayTaskPlan = { schemaVersion: 1, taskId: randomUUID(), gatewayId: randomUUID(), platformId: randomUUID(),

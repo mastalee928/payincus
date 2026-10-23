@@ -7,6 +7,7 @@
   "types": "dist/app.d.ts",
   "scripts": {
     "test:gateway-task-guards": "node --import tsx scripts/test-gateway-task-guards.ts",
+    "test:gateway-component-integration": "node --import tsx scripts/test-gateway-component-integration.ts",
     "test:gateway-management-route-guards": "node --import tsx scripts/test-gateway-management-route-guards.ts",
     "test:gateway-management-integration": "node --import tsx scripts/test-gateway-management-integration.ts",
     "test:gateway-task-integration": "node --import tsx scripts/test-gateway-task-integration.ts",

@@ -56,6 +56,7 @@ jobs:
           pnpm --filter server test:gateway-task-guards
           pnpm --filter server test:gateway-management-route-guards
           python3 scripts/test-management-gateway-preflight.py
+          sudo python3 scripts/test-gateway-component-package.py
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -70,6 +71,48 @@ jobs:
       - name: Controller discovery and maintenance race checks
         working-directory: agent
         run: go test -race ./internal/controllerconfig ./cmd/incudal-maintenance
+
+  gateway-component-package:
+    name: Gateway component package (${{ matrix.architecture }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache-dependency-path: agent/go.mod
+      - name: Install build dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build and verify isolated package
+        env:
+          PACKAGE_ARCH: ${{ matrix.architecture }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test_root=$(mktemp -d "$RUNNER_TEMP/gateway-package-XXXXXX")
+          node_runtime=$(command -v node)
+          go_runtime=$(command -v go)
+          openssl genpkey -algorithm Ed25519 -out "$test_root/signing.pem"
+          openssl pkey -in "$test_root/signing.pem" -pubout -outform DER | tail -c 32 | base64 -w0 > "$test_root/pinned.pub"
+          node scripts/build-gateway-component-package.mjs --out "$test_root/package" --architecture "$PACKAGE_ARCH" --node "$node_runtime" --go "$go_runtime" --signing-key "$test_root/signing.pem"
+          protected_root=$(sudo mktemp -d /root/incudal-component-ci-XXXXXX)
+          sudo cp -R "$test_root/package" "$protected_root/package"
+          sudo install -m 600 "$test_root/pinned.pub" "$protected_root/pinned.pub"
+          sudo python3 scripts/verify-gateway-component-package.py "$protected_root/package" "$protected_root/pinned.pub" "$PACKAGE_ARCH" "$(node -p 'require("./server/package.json").version')" "$(git rev-parse HEAD)"
+          sudo env GATEWAY_COMPONENT_PACKAGE="$protected_root/package" "$node_runtime" --import "$PWD/server/node_modules/tsx/dist/loader.mjs" "$PWD/server/scripts/test-gateway-component-integration.ts"
 
   build:
     name: Build
