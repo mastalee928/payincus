@@ -15,9 +15,16 @@ import { createReadableZip, readableZipName, validReadableZipName } from './plat
 import { refreshRestoredGateway } from './platform-backup-gateway.js'
 import { QUARANTINE_RESTORED_GATEWAY_TASKS_SQL } from '../lib/gateway-recovery-context.js'
 import { mergeBackupEnvironment } from './platform-backup-environment.js'
+import { CONTROLLER_BACKUP_FILES, restoreControllerIdentity } from './platform-backup-controller.js'
 
 const exec = promisify(execFile)
 const INSTALL = '/opt/incudal'
+const CONTROLLER_ROOT = '/var/lib/incudal-gateway-controller'
+async function verifyControllerEnrollment() {
+  const app = process.env.INCUDAL_APP_DIR || (existsSync(`${INSTALL}/current`) ? `${INSTALL}/current` : INSTALL)
+  try { await exec('/usr/bin/python3', ['-I', '-B', join(app, 'scripts/enroll-gateway-controller.py'), '--verify'], { timeout: 30000 }) }
+  catch { throw new BackupError('OSS_CONTROLLER_IDENTITY_INVALID', 409) }
+}
 interface RestorePlan { id: string; createdBy: number; expiresAt: string; manifest: BackupManifest; prefix: string; files: Array<[string, string]>; compatibility?: { targetVersion: string; postgresMajor: number; migrationHash: string; releaseHash: string; schemaHash: string } }
 interface RestoreJournal { taskId: string; database: string; staging: string; rollback: string; stage: string; config: BackupConfig; files: Array<{ target: string; saved: string | null; mode: number }> }
 const holdPath = () => join(backupRoot(), 'recovery-hold.json')
@@ -83,6 +90,13 @@ async function listSources(): Promise<BackupSource[]> {
   if (localGateway) {
     sources.push({ name: 'gateway.conf', path: '/etc/wireguard/incudal-mgmt.conf' }, { name: 'management.key', path: '/root/.ssh/incudal-host-management' }, { name: 'management.pub', path: '/root/.ssh/incudal-host-management.pub' })
     await addDirectory('/var/lib/incudal-onboarding', 'peers', true)
+  }
+  if (existsSync(CONTROLLER_ROOT)) {
+    await verifyControllerEnrollment()
+    const enrolled = await readJson<{ platformId: string }>(join(CONTROLLER_ROOT, 'enrollment.json'), 8192)
+    const environment = parseEnv(await readFile(`${INSTALL}/.env`, 'utf8'))
+    ensure(enrolled && enrolled.platformId === environment.GATEWAY_PLATFORM_ID, 'OSS_CONTROLLER_PLATFORM_MISMATCH')
+    for (const name of CONTROLLER_BACKUP_FILES) sources.push({ name, path: join(CONTROLLER_ROOT, name.slice('controller/'.length)) })
   }
   for (const source of sources) {
     const info = await lstat(source.path)
@@ -155,8 +169,21 @@ function safeGatewayConfig(value: string) {
 async function prepareFiles(plan: RestorePlan, directory: string) {
   const files = new Map(plan.files); const actions: Array<{ source: string; target: string; mode: number }> = []
   const preparedEnv = join(directory, 'prepared.env')
+  const controllerPresent = CONTROLLER_BACKUP_FILES.some(name => files.has(name))
+  let controllerPlatformId: string | undefined
+  if (controllerPresent) {
+    ensure(CONTROLLER_BACKUP_FILES.every(name => files.has(name)), 'OSS_REQUIRED_ASSET_MISSING')
+    await verifyControllerEnrollment()
+    const restored = restoreControllerIdentity(await readFile(files.get('controller/signing.pem')!, 'utf8'),
+      await readFile(files.get('controller/identity.json')!, 'utf8'), await readFile(files.get('controller/enrollment.json')!, 'utf8'),
+      await readFile(join(CONTROLLER_ROOT, 'enrollment.json'), 'utf8'))
+    const enrollment = join(directory, 'prepared-controller-enrollment.json')
+    await writeFile(enrollment, restored.enrollment, { flag: 'wx', mode: 0o600 })
+    files.set('controller/enrollment.json', enrollment)
+    controllerPlatformId = restored.platformId
+  }
   const restoredGateway = files.has('gateway.conf') ? safeGatewayConfig(await readFile(files.get('gateway.conf')!, 'utf8')) : undefined
-  await writeFile(preparedEnv, mergeBackupEnvironment(await readFile(`${INSTALL}/.env`, 'utf8'), await readFile(files.get('runtime.env')!, 'utf8'), restoredGateway), { flag: 'wx', mode: 0o600 })
+  await writeFile(preparedEnv, mergeBackupEnvironment(await readFile(`${INSTALL}/.env`, 'utf8'), await readFile(files.get('runtime.env')!, 'utf8'), restoredGateway, controllerPlatformId), { flag: 'wx', mode: 0o600 })
   actions.push({ source: preparedEnv, target: `${INSTALL}/.env`, mode: 0o640 })
   const gatewayPresent = files.has('gateway.conf')
   if (gatewayPresent) {
@@ -172,6 +199,7 @@ async function prepareFiles(plan: RestorePlan, directory: string) {
     if (name === 'gateway.conf') target = '/etc/wireguard/incudal-mgmt.conf'
     if (name === 'management.key') target = '/root/.ssh/incudal-host-management'
     if (name === 'management.pub') target = '/root/.ssh/incudal-host-management.pub'
+    if ((CONTROLLER_BACKUP_FILES as readonly string[]).includes(name)) target = join(CONTROLLER_ROOT, name.slice('controller/'.length))
     if (target) {
       if (existsSync(target)) ensure(!(await lstat(target)).isSymbolicLink(), 'OSS_ASSET_SYMLINK')
       actions.push({ source, target, mode: name.startsWith('certs/') ? 0o640 : 0o600 })
@@ -201,6 +229,7 @@ async function rollbackJournal(directory: string): Promise<boolean> {
     else await unlink(file.target).catch((err: NodeJS.ErrnoException) => { if (err.code !== 'ENOENT') throw err })
   }
   if (gatewayBefore !== null) await refreshRestoredGateway(gatewayBefore)
+  if (journal.files.some(file => file.target.startsWith(CONTROLLER_ROOT + '/'))) await verifyControllerEnrollment()
   // These ciphertexts belong to the original environment key restored above.
   // This also makes an explicit rollback in a later process restore credentials.
   await writeBackupConfig({ ...journal.config, enabled: false, nextRunAt: null, testedRevision: null })
@@ -382,6 +411,7 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
       const gatewayBefore = files.has('gateway.conf') ? await readFile('/etc/wireguard/incudal-mgmt.conf', 'utf8') : null
       for (const action of actions) { await atomicFileCopy(action.source, action.target); await chmod(action.target, action.mode); await chown(action.target, 0, action.mode === 0o640 ? gid : 0) }
       journal.stage = 'files_switched'; await writeJson(join(directory, 'journal.json'), journal)
+      if (CONTROLLER_BACKUP_FILES.some(name => files.has(name))) await verifyControllerEnrollment()
       // Recreate only trusted gateway authorization/helper code, not arbitrary archived scripts.
       if (files.has('gateway.conf')) {
         const app = process.env.INCUDAL_APP_DIR || `${INSTALL}/current`

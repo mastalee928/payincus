@@ -23,6 +23,9 @@ const core = await import('/opt/incudal/server/dist/services/platform-backup-cor
 const { AliyunOssClient } = await import('/opt/incudal/server/dist/services/aliyun-oss-client.js')
 const { runPlatformBackupTask } = await import('/opt/incudal/server/dist/services/platform-backup-worker.js')
 const { pgQuery } = await import('/opt/incudal/server/dist/services/platform-backup-database.js')
+const controllerRoot = '/var/lib/incudal-gateway-controller'
+const controllerKeyBefore = createHash('sha256').update(await readFile(`${controllerRoot}/signing.pem`)).digest('hex')
+const controllerIdentityBefore = await readFile(`${controllerRoot}/identity.json`, 'utf8')
 const storage = await mkdtemp('/var/tmp/incudal-backup-drill-')
 const records = new Map()
 let config = core.normalizeConfig({ enabled: false, region: 'oss-cn-hangzhou', bucket: 'local-drill-only', prefix: 'drill/',
@@ -97,6 +100,9 @@ try {
   const restoredEnv = require('dotenv').parse(await readFile('/opt/incudal/.env'))
   assert.equal(restoredEnv.ONBOARDING_WG_ENDPOINT, originalEndpoint, 'restored UDP listen port must replace fresh-machine environment default')
   assert.equal(restoredEnv.ONBOARDING_GATEWAY_FINGERPRINT, initialEnv.ONBOARDING_GATEWAY_FINGERPRINT, 'destination SSH host identity must remain pinned')
+  assert.equal(createHash('sha256').update(await readFile(`${controllerRoot}/signing.pem`)).digest('hex'), controllerKeyBefore)
+  assert.equal(await readFile(`${controllerRoot}/identity.json`, 'utf8'), controllerIdentityBefore)
+  await exec('/usr/bin/python3', ['-I', '-B', '/opt/incudal/scripts/enroll-gateway-controller.py', '--verify'])
   for (const path of ['/api/host-onboarding/inventory', '/api/instances', '/api/oauth/github/callback']) assert.equal((await fetch(`http://127.0.0.1:3001${path}`)).status, 503)
   assert.equal((await fetch('http://127.0.0.1:3001/api/system-config/public')).status, 200)
   const login = await fetch('http://127.0.0.1:3001/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: initialEnv.ADMIN_PASSWORD }) })
@@ -109,6 +115,7 @@ try {
   assert.equal((await pgQuery('SELECT value FROM system_configs WHERE key=$1', [key]))[0].value, 'before-restore')
   assert.equal(process.env.ENCRYPTION_KEY, targetKey)
   assert.equal(require('dotenv').parse(await readFile('/opt/incudal/.env')).ONBOARDING_WG_ENDPOINT, targetEnv.ONBOARDING_WG_ENDPOINT, 'rollback preserves destination environment bytes')
+  assert.equal(createHash('sha256').update(await readFile(`${controllerRoot}/signing.pem`)).digest('hex'), controllerKeyBefore)
   assert.equal(core.openSecret((await core.readBackupConfig()).backupPassword), password)
   await task('resume', { confirmation: 'RESUME AFTER RECONCILIATION' })
   await health(false)

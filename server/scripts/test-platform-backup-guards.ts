@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createCipheriv, randomBytes, randomUUID, scryptSync } from 'node:crypto'
+import { createCipheriv, createPublicKey, generateKeyPairSync, randomBytes, randomUUID, scryptSync } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -14,6 +14,8 @@ import { createReadableZip, readableZipName, verifyReadableZip } from '../src/se
 import { retainGatewayEndpoints } from '../src/services/platform-backup-gateway.js'
 import { mergeBackupEnvironment } from '../src/services/platform-backup-environment.js'
 import { parse as parseEnv } from 'dotenv'
+import { restoreControllerIdentity } from '../src/services/platform-backup-controller.js'
+import { controllerSigningKeyId } from '../src/lib/controller-config.js'
 import { assertBackupVersion, assertMigrationHistory, normalizedReleaseSchema, releaseMigrationHash, releaseMigrations } from '../src/services/platform-backup-compatibility.js'
 
 process.env.ENCRYPTION_KEY = 'local-test-encryption-key-not-a-real-credential'
@@ -30,6 +32,21 @@ try {
   assert.throws(() => mergeBackupEnvironment(replacement, oldEnvironment, '[Interface]\nListenPort = 0\n'), /OSS_GATEWAY_CONFIG_UNSUPPORTED/)
   assert.throws(() => mergeBackupEnvironment(replacement, oldEnvironment, '[Peer]\nListenPort = 51999\n'), /OSS_GATEWAY_CONFIG_UNSUPPORTED/)
   assert.throws(() => mergeBackupEnvironment(replacement.replace('127.0.0.1', 'gateway.example.com'), oldEnvironment, '[Interface]\nListenPort = 51999\n'), /OSS_GATEWAY_MAPPING_REQUIRED/)
+  const signing = generateKeyPairSync('ed25519'), signingPem = signing.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+  const signingPublic = createPublicKey(signing.privateKey).export({ type: 'spki', format: 'der' }).subarray(12).toString('base64')
+  const platform = randomUUID(), packageSigningKey = Buffer.alloc(32, 7).toString('base64')
+  const identity = { schemaVersion: 1, platformId: platform, signingKeyId: controllerSigningKeyId(signingPublic), packageSigningKey }
+  const oldController = { schemaVersion: 2, platformId: platform, signingKeyPath: '/var/lib/incudal-gateway-controller/signing.pem',
+    signingKeyId: identity.signingKeyId, packageSigningKey, components: { arm64: { directory: '/old-source-package', version: '1.7.1', sourceCommit: 'a'.repeat(40) } } }
+  const replacementController = { ...oldController, platformId: randomUUID(), components: { arm64: { directory: '/var/lib/incudal-gateway-components/' + 'b'.repeat(64), version: '1.7.1', sourceCommit: 'b'.repeat(40) } } }
+  const preparedController = restoreControllerIdentity(signingPem, JSON.stringify(identity), JSON.stringify(oldController), JSON.stringify(replacementController))
+  assert.equal(preparedController.privatePem, signingPem); assert.equal(preparedController.platformId, platform)
+  assert.deepEqual(JSON.parse(preparedController.enrollment).components, replacementController.components, 'only verified replacement component paths may survive recovery')
+  assert.equal(parseEnv(mergeBackupEnvironment(replacement, oldEnvironment + 'GATEWAY_PLATFORM_ID=' + platform + '\n', undefined, platform)).GATEWAY_PLATFORM_ID, platform)
+  assert.throws(() => mergeBackupEnvironment(replacement, oldEnvironment, undefined, platform), /OSS_CONTROLLER_PLATFORM_MISMATCH/)
+  assert.throws(() => restoreControllerIdentity(signingPem, JSON.stringify({ ...identity, signingKeyId: 'key_' + 'f'.repeat(64) }), JSON.stringify(oldController), JSON.stringify(replacementController)), /OSS_CONTROLLER_TRUST_MISMATCH/)
+  assert.throws(() => restoreControllerIdentity(signingPem, JSON.stringify(identity), JSON.stringify(oldController), JSON.stringify({ ...replacementController, packageSigningKey: Buffer.alloc(32, 9).toString('base64') })), /OSS_CONTROLLER_TRUST_MISMATCH/)
+  assert.throws(() => restoreControllerIdentity(signingPem, JSON.stringify(identity), JSON.stringify(oldController), JSON.stringify({ ...replacementController, components: { arm64: { ...replacementController.components.arm64, directory: '/tmp/untrusted' } } })), /OSS_CONTROLLER_COMPONENTS_INVALID/)
   assertBackupVersion('1.6.8', '1.7.1')
   assertBackupVersion('v1.7.1', '1.7.1')
   assertBackupVersion('preview-abcdef1', 'preview-abcdef1')
@@ -190,6 +207,15 @@ try {
   const mappedArchive = parseEnv(mergeBackupEnvironment(replacement, await readFile(mappingDecoded.files.get('runtime.env')!, 'utf8'), await readFile(mappingDecoded.files.get('gateway.conf')!, 'utf8')))
   assert.equal(mappedArchive.ONBOARDING_WG_ENDPOINT, 'gateway.example.com:51999')
   assert.equal(mappedArchive.ONBOARDING_GATEWAY_FINGERPRINT, 'SHA256:' + 'A'.repeat(43))
+  const controllerKey = join(workspace, 'controller.pem'), controllerIdentity = join(workspace, 'controller-identity.json'), controllerEnrollment = join(workspace, 'controller-enrollment.json')
+  await writeFile(controllerKey, signingPem); await writeFile(controllerIdentity, JSON.stringify(identity)); await writeFile(controllerEnrollment, JSON.stringify(oldController))
+  const controllerArchive = join(workspace, 'controller.enc')
+  await encryptBackup([{ name: 'database.dump', path: dump }, { name: 'runtime.env', path: env }, { name: 'controller/signing.pem', path: controllerKey },
+    { name: 'controller/identity.json', path: controllerIdentity }, { name: 'controller/enrollment.json', path: controllerEnrollment }], metadata, 'test-password-123', controllerArchive)
+  const controllerDecoded = await decryptBackup(controllerArchive, 'test-password-123', join(workspace, 'controller-restored'))
+  assert.equal(restoreControllerIdentity(await readFile(controllerDecoded.files.get('controller/signing.pem')!, 'utf8'),
+    await readFile(controllerDecoded.files.get('controller/identity.json')!, 'utf8'), await readFile(controllerDecoded.files.get('controller/enrollment.json')!, 'utf8'),
+    JSON.stringify(replacementController)).privatePem, signingPem)
   assert.equal(readableZipName('2026-10-21T02:03:04.567Z'), 'payincus-backup-20261021-020304-UTC.zip')
   const readablePath = join(workspace, 'readable.zip')
   const readableSources = [{ name: 'database.dump', path: dump }, { name: 'tables/public/orders.sql', path: env }]
@@ -352,6 +378,9 @@ try {
   } finally { await appServer.close() }
 
   const source = await readFile(resolve(import.meta.dirname, '../src/services/platform-backup-worker.ts'), 'utf8')
+  assert.ok(source.includes('CONTROLLER_BACKUP_FILES.every(name => files.has(name))'), 'partial controller identity must not be restored')
+  assert.ok(source.includes('await verifyControllerEnrollment()') && source.includes("'OSS_CONTROLLER_PLATFORM_MISMATCH'"), 'controller identity and environment must be checked before backup')
+  assert.ok(source.includes("files.set('controller/enrollment.json', enrollment)"), 'restore must use prepared replacement component catalog')
   assert.ok(source.indexOf("await client.upload(") < source.indexOf('await client.retain('), 'retention must follow verified upload')
   assert.ok(source.indexOf('await verifyDatabaseBackup(') < source.indexOf('await encryptBackup('), 'a backup must restore and match every source table before encryption or publication')
   const databaseSource = await readFile(resolve(import.meta.dirname, '../src/services/platform-backup-database.ts'), 'utf8')

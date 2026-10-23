@@ -29,7 +29,8 @@ export async function hashFile(path: string): Promise<string> {
   return hash.digest('hex')
 }
 export function validAssetName(name: string): boolean {
-  return ['database.dump', 'database-globals.sql', 'database-integrity.json', 'runtime.env', 'backup.config', 'gateway.conf', 'management.key', 'management.pub'].includes(name) ||
+  return ['database.dump', 'database-globals.sql', 'database-integrity.json', 'runtime.env', 'backup.config', 'gateway.conf', 'management.key', 'management.pub',
+    'controller/signing.pem', 'controller/identity.json', 'controller/enrollment.json'].includes(name) ||
     /^certs\/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,100}\.(crt|key|pem|pub)$/.test(name) ||
     /^peers\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\.json$/.test(name)
 }

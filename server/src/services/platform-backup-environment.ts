@@ -4,10 +4,14 @@ import { ensure, BackupError } from './platform-backup-core.js'
 
 // Only reviewed identity material is restored; destination network/database/
 // session settings remain authoritative on the replacement controller.
-export function mergeBackupEnvironment(current: string, restored: string, gatewayConfig?: string): string {
+export function mergeBackupEnvironment(current: string, restored: string, gatewayConfig?: string, controllerPlatformId?: string): string {
   const old = parseEnv(restored), target = parseEnv(current)
   ensure(old.ENCRYPTION_KEY?.length >= 16, 'OSS_ARCHIVE_KEY_MISSING')
   target.ENCRYPTION_KEY = old.ENCRYPTION_KEY
+  if (controllerPlatformId !== undefined) {
+    ensure(old.GATEWAY_PLATFORM_ID === controllerPlatformId, 'OSS_CONTROLLER_PLATFORM_MISMATCH')
+    target.GATEWAY_PLATFORM_ID = controllerPlatformId
+  }
   if (gatewayConfig !== undefined) {
     ensure(['localhost', '127.0.0.1', '::1'].includes(target.ONBOARDING_GATEWAY_HOST || ''), 'OSS_GATEWAY_MAPPING_REQUIRED', 409)
     // The archived WireGuard identity includes its listen port. Preserve B's
