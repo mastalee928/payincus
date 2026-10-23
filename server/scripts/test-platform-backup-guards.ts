@@ -12,12 +12,24 @@ import { AliyunOssClient, sanitizedOssError } from '../src/services/aliyun-oss-c
 import { assertDatabaseIntegrity, normalizedDumpHash, type DatabaseIntegrity } from '../src/services/platform-backup-database.js'
 import { createReadableZip, readableZipName, verifyReadableZip } from '../src/services/platform-backup-readable.js'
 import { retainGatewayEndpoints } from '../src/services/platform-backup-gateway.js'
+import { mergeBackupEnvironment } from '../src/services/platform-backup-environment.js'
+import { parse as parseEnv } from 'dotenv'
 import { assertBackupVersion, assertMigrationHistory, normalizedReleaseSchema, releaseMigrationHash, releaseMigrations } from '../src/services/platform-backup-compatibility.js'
 
 process.env.ENCRYPTION_KEY = 'local-test-encryption-key-not-a-real-credential'
 const workspace = await mkdtemp(join(tmpdir(), 'payincus-oss-test-'))
 assert.ok(resolve(workspace).startsWith(resolve(tmpdir(), 'payincus-oss-test-')))
 try {
+  const replacement = 'DATABASE_URL=target-fixture\nENCRYPTION_KEY=target-fixture-key\nJWT_SECRET=target-session-fixture\nONBOARDING_GATEWAY_HOST=127.0.0.1\nONBOARDING_GATEWAY_FINGERPRINT=SHA256:' + 'A'.repeat(43) + '\nONBOARDING_WG_ENDPOINT=gateway.example.com:51820\n'
+  const oldEnvironment = 'DATABASE_URL=old-fixture\nENCRYPTION_KEY=original-fixture-key\nJWT_SECRET=old-session-fixture\nONBOARDING_GATEWAY_FINGERPRINT=SHA256:' + 'B'.repeat(43) + '\n'
+  const mapped = parseEnv(mergeBackupEnvironment(replacement, oldEnvironment, '[Interface]\nListenPort = 51999\n[Peer]\nPublicKey = fixture\n'))
+  assert.equal(mapped.ONBOARDING_WG_ENDPOINT, 'gateway.example.com:51999')
+  assert.equal(mapped.ONBOARDING_GATEWAY_FINGERPRINT, 'SHA256:' + 'A'.repeat(43), 'B must retain its own verified SSH host identity')
+  assert.equal(mapped.JWT_SECRET, 'target-session-fixture'); assert.equal(mapped.DATABASE_URL, 'target-fixture')
+  assert.equal(mapped.ENCRYPTION_KEY, 'original-fixture-key')
+  assert.throws(() => mergeBackupEnvironment(replacement, oldEnvironment, '[Interface]\nListenPort = 0\n'), /OSS_GATEWAY_CONFIG_UNSUPPORTED/)
+  assert.throws(() => mergeBackupEnvironment(replacement, oldEnvironment, '[Peer]\nListenPort = 51999\n'), /OSS_GATEWAY_CONFIG_UNSUPPORTED/)
+  assert.throws(() => mergeBackupEnvironment(replacement.replace('127.0.0.1', 'gateway.example.com'), oldEnvironment, '[Interface]\nListenPort = 51999\n'), /OSS_GATEWAY_MAPPING_REQUIRED/)
   assertBackupVersion('1.6.8', '1.7.1')
   assertBackupVersion('v1.7.1', '1.7.1')
   assertBackupVersion('preview-abcdef1', 'preview-abcdef1')
@@ -170,6 +182,14 @@ try {
   const previewBackup = await decryptBackup(previewPath, 'test-password-123', join(workspace, 'preview-restored'))
   assert.equal(previewBackup.manifest.version, previewVersion, 'release preview archive must survive authenticated round trip')
   const manifest = await encryptBackup([{ name: 'database.dump', path: dump }, { name: 'runtime.env', path: env }], metadata, 'test-password-123', encrypted)
+  const gatewayAsset = join(workspace, 'source-gateway.conf'), environmentAsset = join(workspace, 'source-runtime.env'), mappingArchive = join(workspace, 'mapping.enc')
+  await writeFile(gatewayAsset, '[Interface]\nListenPort = 51999\n')
+  await writeFile(environmentAsset, oldEnvironment)
+  await encryptBackup([{ name: 'database.dump', path: dump }, { name: 'runtime.env', path: environmentAsset }, { name: 'gateway.conf', path: gatewayAsset }], metadata, 'test-password-123', mappingArchive)
+  const mappingDecoded = await decryptBackup(mappingArchive, 'test-password-123', join(workspace, 'mapping-restored'))
+  const mappedArchive = parseEnv(mergeBackupEnvironment(replacement, await readFile(mappingDecoded.files.get('runtime.env')!, 'utf8'), await readFile(mappingDecoded.files.get('gateway.conf')!, 'utf8')))
+  assert.equal(mappedArchive.ONBOARDING_WG_ENDPOINT, 'gateway.example.com:51999')
+  assert.equal(mappedArchive.ONBOARDING_GATEWAY_FINGERPRINT, 'SHA256:' + 'A'.repeat(43))
   assert.equal(readableZipName('2026-10-21T02:03:04.567Z'), 'payincus-backup-20261021-020304-UTC.zip')
   const readablePath = join(workspace, 'readable.zip')
   const readableSources = [{ name: 'database.dump', path: dump }, { name: 'tables/public/orders.sql', path: env }]

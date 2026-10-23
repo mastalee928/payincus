@@ -14,6 +14,7 @@ import { exportReadableDatabase } from './platform-backup-database.js'
 import { createReadableZip, readableZipName, validReadableZipName } from './platform-backup-readable.js'
 import { refreshRestoredGateway } from './platform-backup-gateway.js'
 import { QUARANTINE_RESTORED_GATEWAY_TASKS_SQL } from '../lib/gateway-recovery-context.js'
+import { mergeBackupEnvironment } from './platform-backup-environment.js'
 
 const exec = promisify(execFile)
 const INSTALL = '/opt/incudal'
@@ -151,19 +152,11 @@ function safeGatewayConfig(value: string) {
   }
   return value
 }
-function mergedEnvironment(current: string, restored: string): string {
-  const old = parseEnv(restored), target = parseEnv(current)
-  ensure(old.ENCRYPTION_KEY?.length >= 16, 'OSS_ARCHIVE_KEY_MISSING')
-  // Keep destination addresses, database login, runtime controls and JWT identity.
-  // Archive .env remains available privately for operator-reviewed additional mapping.
-  target.ENCRYPTION_KEY = old.ENCRYPTION_KEY
-  for (const value of Object.values(target)) ensure(!/[\r\n\x00']/.test(value), 'OSS_ENV_FORMAT_UNSUPPORTED')
-  return Object.entries(target).map(([key, value]) => { ensure(/^[A-Z][A-Z0-9_]*$/.test(key), 'OSS_ENV_FORMAT_UNSUPPORTED'); return `${key}='${value}'` }).join('\n') + '\n'
-}
 async function prepareFiles(plan: RestorePlan, directory: string) {
   const files = new Map(plan.files); const actions: Array<{ source: string; target: string; mode: number }> = []
   const preparedEnv = join(directory, 'prepared.env')
-  await writeFile(preparedEnv, mergedEnvironment(await readFile(`${INSTALL}/.env`, 'utf8'), await readFile(files.get('runtime.env')!, 'utf8')), { flag: 'wx', mode: 0o600 })
+  const restoredGateway = files.has('gateway.conf') ? safeGatewayConfig(await readFile(files.get('gateway.conf')!, 'utf8')) : undefined
+  await writeFile(preparedEnv, mergeBackupEnvironment(await readFile(`${INSTALL}/.env`, 'utf8'), await readFile(files.get('runtime.env')!, 'utf8'), restoredGateway), { flag: 'wx', mode: 0o600 })
   actions.push({ source: preparedEnv, target: `${INSTALL}/.env`, mode: 0o640 })
   const gatewayPresent = files.has('gateway.conf')
   if (gatewayPresent) {

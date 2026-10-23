@@ -77,7 +77,9 @@ try {
   // recovers the destination key and its encrypted backup configuration.
   const targetKey = randomUUID() + randomUUID()
   const sourceSecret = core.openSecret(config.accessKeySecret)
-  const targetEnv = { ...initialEnv, ENCRYPTION_KEY: targetKey }
+  const originalEndpoint = initialEnv.ONBOARDING_WG_ENDPOINT
+  assert.ok(originalEndpoint && /:51820$/.test(originalEndpoint), 'fresh-install management endpoint expected')
+  const targetEnv = { ...initialEnv, ENCRYPTION_KEY: targetKey, ONBOARDING_WG_ENDPOINT: originalEndpoint.replace(/:51820$/, ':51999') }
   await writeFile('/opt/incudal/.env', Object.entries(targetEnv).map(([name, value]) => `${name}='${value}'`).join('\n') + '\n')
   process.env.ENCRYPTION_KEY = targetKey
   config.accessKeySecret = core.sealSecret(sourceSecret); config.backupPassword = core.sealSecret(password)
@@ -92,6 +94,9 @@ try {
   assert.equal((await pgQuery('SELECT value FROM system_configs WHERE key=$1', [key]))[0].value, 'snapshot')
   assert.equal(core.openSecret((await core.readBackupConfig()).backupPassword), password)
   assert.equal(process.env.ENCRYPTION_KEY, initialEnv.ENCRYPTION_KEY)
+  const restoredEnv = require('dotenv').parse(await readFile('/opt/incudal/.env'))
+  assert.equal(restoredEnv.ONBOARDING_WG_ENDPOINT, originalEndpoint, 'restored UDP listen port must replace fresh-machine environment default')
+  assert.equal(restoredEnv.ONBOARDING_GATEWAY_FINGERPRINT, initialEnv.ONBOARDING_GATEWAY_FINGERPRINT, 'destination SSH host identity must remain pinned')
   for (const path of ['/api/host-onboarding/inventory', '/api/instances', '/api/oauth/github/callback']) assert.equal((await fetch(`http://127.0.0.1:3001${path}`)).status, 503)
   assert.equal((await fetch('http://127.0.0.1:3001/api/system-config/public')).status, 200)
   const login = await fetch('http://127.0.0.1:3001/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: initialEnv.ADMIN_PASSWORD }) })
@@ -103,6 +108,7 @@ try {
   await health(true)
   assert.equal((await pgQuery('SELECT value FROM system_configs WHERE key=$1', [key]))[0].value, 'before-restore')
   assert.equal(process.env.ENCRYPTION_KEY, targetKey)
+  assert.equal(require('dotenv').parse(await readFile('/opt/incudal/.env')).ONBOARDING_WG_ENDPOINT, targetEnv.ONBOARDING_WG_ENDPOINT, 'rollback preserves destination environment bytes')
   assert.equal(core.openSecret((await core.readBackupConfig()).backupPassword), password)
   await task('resume', { confirmation: 'RESUME AFTER RECONCILIATION' })
   await health(false)
