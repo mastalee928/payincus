@@ -147,7 +147,6 @@ EOF
   local sudoers_tmp
   sudoers_tmp="$(mktemp)"
   cat > "$sudoers_tmp" <<EOF
-Defaults:${RUN_USER} !requiretty
 Defaults:${RUN_USER} secure_path=/usr/local/libexec/incudal:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ${RUN_USER} ALL=(root) NOPASSWD: /usr/local/libexec/incudal/systemctl
 EOF

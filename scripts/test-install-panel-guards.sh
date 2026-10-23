@@ -58,6 +58,10 @@ for sudo_source in install-panel.sh install-platform-backup.sh migrate-ota-atomi
         echo 'managed worker sudo rules must avoid parser-dependent wildcard arguments' >&2
         exit 1
     fi
+    if grep -Fq 'requiretty' "$REPO_ROOT/scripts/$sudo_source"; then
+        echo 'managed worker sudo rules must not require parser-specific requiretty settings' >&2
+        exit 1
+    fi
 done
 grep -Fq 'cmp -s "$wrapper" "$root/deploy/incudal-systemctl-wrapper.sh.example"' "$REPO_ROOT/scripts/install-gateway-controller.sh"
 for rejected in \

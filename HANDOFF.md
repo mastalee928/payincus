@@ -40,6 +40,7 @@
 - ARM64 CI 的身份准备拒绝在上述实际包重放中尚未重现。准备器仅增加固定 stage 字段（catalog、环境、组件验证/保存、身份和发布环境），不输出异常或文件内容；14 项 Linux 准备守卫含异常敏感文本不可外泄检查通过。后续预览以阶段提示定位 runner 差异，失败仍保持拒绝；禁止以忽略验签、放宽目录权限或重建已有身份替代修复。
 - [acdfece](https://github.com/mastalee928/payincus/commit/acdfece8dd80ed2962abb1afe0801a5588d1655d) 已推送，[源码 CI 39945675497](https://github.com/mastalee928/payincus/actions/runs/39945675497) 成功。[发行预览 39945678206](https://github.com/mastalee928/payincus/actions/runs/39945678206) 两种构建成功，sudo wildcard 错误消失，两种首装均在 release-catalog 阶段拒绝。实际同份 ARM64 新预览包在独立 root 目录核对 catalog/版本/签名组件通过，尚未定位 runner 路径差异；继续细分固定阶段并在失败时输出属主/权限/大小/是否链接等非敏感元数据。Release skipped，无新正式发行。
 - 诊断提交 43b668c [源码 CI 39947512535](https://github.com/mastalee928/payincus/actions/runs/39947512535) 成功。[预览 39947515057](https://github.com/mastalee928/payincus/actions/runs/39947515057) 两种构建成功、首装均拒绝 release-directory；非敏感元数据确证两种 GitHub runner 的 /opt 均为 root:root/0777，导致受信父目录检查拒绝，包内文件权限正确。一次性 GitHub 首装测试先核验 root 非链接 /opt 并移除 group/other 写权限，生产验签/登记检查保持。真实 Linux 隔离 mount 重现 0777 拒绝、chmod go-w 后实际签名目录通过，安装 shell 守卫通过；新预览结果单独记录。
+- d1ca985 [预览 39948962555](https://github.com/mastalee928/payincus/actions/runs/39948962555) 两种构建成功，目录信任拒绝已消失。AMD64 在后续 OTA sudoers 遇到新版 parser 不支持 requiretty，移除该默认关闭的可选设置；ARM64 已安装、唯一后台/双端/管理员登录/机器池/Agent 下载通过，但备份演练报 OSS_ARCHIVE_INVALID。根因是 manifest 只接受数字版本，而既有 assertBackupVersion 已接受同提交 preview-hex；增加严格 7–40 位十六进制 preview 归档格式支持，同预览认证往返通过，跨预览恢复仍拒绝。Windows 与真实 ARM64 备份守卫、类型和后台构建通过，安装 shell 守卫通过；待后续预览重新核验，不宣称完整首装通过。
 
 ## 2026-10-23 发行预览 AMD64 组件权限修复（未发版）
 

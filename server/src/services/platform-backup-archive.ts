@@ -36,7 +36,8 @@ export function validAssetName(name: string): boolean {
 export function validateManifest(input: unknown): BackupManifest {
   ensure(input && typeof input === 'object', 'OSS_ARCHIVE_INVALID')
   const m = input as BackupManifest
-  ensure(m.format === 1 && typeof m.version === 'string' && /^v?\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.-]+)?$/.test(m.version), 'OSS_ARCHIVE_INVALID')
+  ensure(m.format === 1 && typeof m.version === 'string' &&
+    (/^v?\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.-]+)?$/.test(m.version) || /^preview-[a-f0-9]{7,40}$/.test(m.version)), 'OSS_ARCHIVE_INVALID')
   validateId(m.id); validateId(m.installationId)
   ensure(typeof m.createdAt === 'string' && Number.isFinite(Date.parse(m.createdAt)) && /^[a-f0-9]{64}$/.test(m.migrationHash) && Number.isInteger(m.postgresMajor) && m.postgresMajor >= 14 && m.postgresMajor <= 30, 'OSS_ARCHIVE_INVALID')
   ensure(Number.isSafeInteger(m.databaseBytes) && m.databaseBytes > 0 && m.databaseBytes < 1024 ** 5, 'OSS_ARCHIVE_INVALID')

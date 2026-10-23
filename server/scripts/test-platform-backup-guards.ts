@@ -158,6 +158,17 @@ try {
   const dump = join(workspace, 'db'), env = join(workspace, 'env'), encrypted = join(workspace, 'payload.enc')
   await writeFile(dump, Buffer.alloc(256 * 1024, 61)); await writeFile(env, 'ENCRYPTION_KEY=test-archive-key\n')
   const metadata = { format: 1 as const, id: randomUUID(), installationId: randomUUID(), version: '1.6.7', createdAt: new Date().toISOString(), migrationHash: 'a'.repeat(64), postgresMajor: 16, databaseBytes: 1024 * 1024 }
+  const previewVersion = 'preview-' + 'a'.repeat(7)
+  validateManifest({ ...metadata, version: previewVersion, files: [{ name: 'database.dump', size: 1, sha256: 'a'.repeat(64) }, { name: 'runtime.env', size: 1, sha256: 'b'.repeat(64) }] })
+  for (const version of ['preview-', 'preview-' + 'a'.repeat(6), 'preview-not-a-commit', 'preview-' + 'a'.repeat(41)]) {
+    assert.throws(() => validateManifest({ ...metadata, version, files: [{ name: 'database.dump', size: 1, sha256: 'a'.repeat(64) }, { name: 'runtime.env', size: 1, sha256: 'b'.repeat(64) }] }), /OSS_ARCHIVE_INVALID/)
+  }
+  assertBackupVersion(previewVersion, previewVersion)
+  assert.throws(() => assertBackupVersion(previewVersion, 'preview-' + 'b'.repeat(7)), /OSS_APP_VERSION_UNSUPPORTED/)
+  const previewPath = join(workspace, 'preview.enc')
+  await encryptBackup([{ name: 'database.dump', path: dump }, { name: 'runtime.env', path: env }], { ...metadata, version: previewVersion }, 'test-password-123', previewPath)
+  const previewBackup = await decryptBackup(previewPath, 'test-password-123', join(workspace, 'preview-restored'))
+  assert.equal(previewBackup.manifest.version, previewVersion, 'release preview archive must survive authenticated round trip')
   const manifest = await encryptBackup([{ name: 'database.dump', path: dump }, { name: 'runtime.env', path: env }], metadata, 'test-password-123', encrypted)
   assert.equal(readableZipName('2026-10-21T02:03:04.567Z'), 'payincus-backup-20261021-020304-UTC.zip')
   const readablePath = join(workspace, 'readable.zip')
