@@ -6,6 +6,14 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-24 当前完整预览包与真实 Agent 源端基线
+
+- 源码 `101aeba742cd64968708d833d7997168aef5b38d` 的[源码 CI](https://github.com/mastalee928/payincus/actions/runs/40035690849)与[发行预览](https://github.com/mastalee928/payincus/actions/runs/40035691682)均 success；AMD64/ARM64 构建、全新安装及恢复/回滚通过，Release 预期 skipped。179/179 本地全量检查通过，日志 `logs/test-run-20261024-063147/`。正式发行仍 v1.7.1。
+- 下载同次预览的实际双架构资产；完整 ARM64 包 SHA256 `fe06ef4a4d1782e602220051f580dbbfe2c75549de02a98e30f574a7f4a1f6d3` 在物理 A/B 传输后匹配。初始化/刷新前，包内发行公钥与独立保存的既有受信登记比较一致；产品登记器验证两种架构组件、版本和完整源码提交。新隔离环境使用该完整包，未加源码 overlay。
+- 旧源临时命名空间结束导致其 tmpfs 控制身份丢失；A 通过生产归档认证和恢复函数从原真实 OSS 备份取回控制签名身份，映射到新包的已验签组件，再由固定登记器验证。原管理 SSH、WireGuard、Incus 客户端和宿主服务端信任保留；本轮私有材料改用持久实体目录，不依赖 tmpfs 保存。
+- A 唯一实际 systemd 后端运行完整包；原生 Incus 三台 Running 和磁盘标记核对通过。三台测试实例已登记真实付费计划。正式 Agent v1.0.3 AMD64 资产哈希与 GitHub 发布摘要一致，经原管理隧道访问私有代理至唯一 127.0.0.1:3001 后端；生产 HMAC 验签、心跳落库 online/version/lastSeenAt 和原 Incus socket 读取通过，凭据在下一份备份前入库。脱敏结果 `logs/controller-takeover-research-20261022/joint101-baseline-result.json`。
+- 本节仅为当前完整包源端基线；保护内账务、快照后交易、B 恢复后的原 Agent 心跳、补续费/到期/销售联合与整机重启仍需验收。未新增 tag、Release 或生产 OTA，完整 P0–P6/AC01–AC34/72 小时目标保留。
+
 ## 2026-10-24 恢复保护内网页账务修订（阶段源码）
 
 - 账户余额行新增「核对并修订」：原生模态窗口读取准确余额/最近日志、可修订到期及未完成充值；提供最终余额、外部凭证/时间、实际续费到期、到账充值与密码/MFA输入。提交前显示净额和选中数量；窗口重试保持请求 ID，凭据发送即清空，不写浏览器持久化。外层解除保护和回滚在编辑期间禁用；Tab 首尾循环、取消及成功后的焦点恢复已验证。
