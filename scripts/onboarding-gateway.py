@@ -3,7 +3,7 @@
 
 Authorize a dedicated key with:
 restrict,command="/usr/local/sbin/incudal-onboarding-gateway" ssh-ed25519 ...
-Only status and idempotent peer registration are supported.
+Only status, idempotent peer registration and fixed enrolled-host DNS installation are supported.
 """
 import fcntl
 import ipaddress
@@ -15,11 +15,84 @@ import shlex
 import subprocess
 import tempfile
 import time
+import hashlib
+import base64
+import sys
+import stat
 
 INTERFACE = "incudal-mgmt"
 CONFIG = pathlib.Path("/etc/wireguard") / (INTERFACE + ".conf")
 STATE = pathlib.Path("/var/lib/incudal-onboarding")
 MANAGEMENT_PUBLIC_KEY = pathlib.Path("/root/.ssh/incudal-host-management.pub")
+DNS_TOOLS = pathlib.Path('/usr/local/libexec/incudal-onboarding-dns')
+
+
+def strict_json(pairs):
+    result = {}
+    for name, value in pairs:
+        if name in result: raise ValueError('duplicate input field')
+        result[name] = value
+    return result
+
+
+def install_host_dns(job, control, gateway_public):
+    # A fixed one-hop operation, restricted to a previously reserved management
+    # /32. It never connects to the host's customer-facing public SSH port.
+    raw = sys.stdin.buffer.read(2049)
+    if len(raw) > 2048: raise ValueError('input too large')
+    request = json.loads(raw, object_pairs_hook=strict_json)
+    if not isinstance(request, dict) or set(request) != {'hostname', 'port', 'sshPort', 'sshFingerprint', 'nodePublicKey'}: raise ValueError('invalid DNS request')
+    domain = request['hostname']
+    if not isinstance(domain, str) or len(domain) > 253 or domain != domain.lower() or not re.fullmatch(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?', domain): raise ValueError('invalid domain')
+    if domain.endswith(('.localhost', '.local', '.internal', '.invalid', '.test')): raise ValueError('nonpublic domain')
+    if any(type(request[name]) is not int or not 1 <= request[name] <= 65535 for name in ['port', 'sshPort']): raise ValueError('invalid port')
+    if not isinstance(request['sshFingerprint'], str) or not re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}', request['sshFingerprint']): raise ValueError('invalid fingerprint')
+    reservation = STATE / (job + '.json')
+    for parent in [reservation, *reservation.parents]:
+        info = parent.lstat()
+        if info.st_uid != 0 or stat.S_ISLNK(info.st_mode) or info.st_mode & 0o022: raise ValueError('untrusted management reservation')
+    if not reservation.is_file() or reservation.stat().st_size > 4096 or reservation.stat().st_nlink != 1: raise ValueError('invalid management reservation')
+    saved = json.loads(reservation.read_text(), object_pairs_hook=strict_json)
+    address = ipaddress.IPv4Address(saved['managementIp'])
+    if address not in control.network or address in (control.ip, control.network.network_address, control.network.broadcast_address): raise ValueError('invalid management target')
+    peer_key = saved['nodePublicKey']
+    if not re.fullmatch(r'[A-Za-z0-9+/]{43}=', peer_key) or request['nodePublicKey'] != peer_key: raise ValueError('invalid peer identity')
+    if run('wg', 'show', INTERFACE, 'listen-port') != str(request['port']): raise ValueError('gateway port conflict')
+    allowed = dict(line.split(maxsplit=1) for line in run('wg', 'show', INTERFACE, 'allowed-ips').splitlines())
+    if allowed.get(peer_key) != str(address) + '/32': raise ValueError('management route conflict')
+    files = {}
+    for name in ['refresh-host-gateway-endpoint.py', 'install-host-gateway-dns.sh']:
+        path = DNS_TOOLS / name
+        for parent in [path, *path.parents]:
+            info = parent.lstat()
+            if info.st_uid != 0 or stat.S_ISLNK(info.st_mode) or info.st_mode & 0o022: raise ValueError('untrusted DNS tool')
+        if not path.is_file() or path.stat().st_size > 65536: raise ValueError('invalid DNS tool')
+        files[name] = path.read_bytes()
+    scan = subprocess.run(['ssh-keyscan', '-T', '5', '-p', str(request['sshPort']), '-t', 'ed25519,rsa,ecdsa', str(address)], capture_output=True, timeout=15, check=False)
+    known = []
+    for line in scan.stdout.decode().splitlines():
+        fields = line.split()
+        if len(fields) != 3 or fields[1] not in ['ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256']: continue
+        fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(fields[2], validate=True)).digest()).decode().rstrip('=')
+        if fingerprint == request['sshFingerprint']: known.append(line)
+    if len(known) != 1: raise ValueError('host SSH identity changed')
+    binding = {'schemaVersion': 1, 'nodeId': job, 'localPublicKey': peer_key, 'peerPublicKey': gateway_public,
+               'localAddress': str(address) + '/32', 'allowedIp': str(control.ip) + '/32', 'hostname': domain, 'port': request['port']}
+    with tempfile.TemporaryDirectory(prefix='incudal-host-dns-', dir='/root') as directory:
+        trust = pathlib.Path(directory) / 'known_hosts'; trust.write_text(known[0] + '\n'); trust.chmod(0o600)
+        # Base64 contains no shell metacharacters. Only fixed trusted release
+        # files and the strict JSON binding are transported, never user scripts.
+        script = 'set -eu\numask 077\nd=$(mktemp -d /root/incudal-dns-install-XXXXXX)\ntrap \'rm -f "$d/refresh-host-gateway-endpoint.py" "$d/install-host-gateway-dns.sh"; rmdir "$d"\' EXIT\n'
+        for name, content in files.items():
+            script += "printf '%s' '" + base64.b64encode(content).decode() + "' | base64 -d > \"$d/" + name + '\"\n'
+        script += "printf '%s' '" + base64.b64encode(json.dumps(binding, separators=(',', ':')).encode()).decode() + "' | base64 -d | bash \"$d/install-host-gateway-dns.sh\"\n"
+        result = subprocess.run(['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
+                                 '-o', 'UserKnownHostsFile=' + str(trust), '-o', 'ConnectTimeout=10', '-o', 'IdentitiesOnly=yes',
+                                 '-i', str(MANAGEMENT_PUBLIC_KEY.with_suffix('')), '-p', str(request['sshPort']), 'root@' + str(address), 'sh -s'],
+                                input=script.encode(), capture_output=True, timeout=90, check=False)
+        if result.returncode != 0: raise ValueError('host DNS install not verified')
+        if b'Existing gateway DNS refresh enabled' not in result.stdout: raise ValueError('missing DNS install receipt')
+    return {'nodeId': job, 'dnsRefreshInstalled': True, 'endpoint': domain + ':' + str(request['port']), 'keysAndRoutesPreserved': True}
 
 
 def run(*args):
@@ -142,7 +215,8 @@ def peer_status(control):
 def main():
     os.umask(0o077)
     args = shlex.split(os.environ.get("SSH_ORIGINAL_COMMAND", ""))
-    if args not in (["status"], ["peers"]) and not (len(args) == 3 and args[0] == "add" and re.fullmatch(r"[a-f0-9-]{36}", args[1]) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", args[2])):
+    dns_request = len(args) == 2 and args[0] == 'dns' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
+    if args not in (["status"], ["peers"]) and not dns_request and not (len(args) == 3 and args[0] == "add" and re.fullmatch(r"[a-f0-9-]{36}", args[1]) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", args[2])):
         raise ValueError("unsupported operation")
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     with open(STATE / "lock", "a") as lock:
@@ -157,6 +231,8 @@ def main():
             raise ValueError("management public key missing")
         result = {"publicKey": run("wg", "show", INTERFACE, "public-key"), "controlIp": str(control.ip),
                   "network": str(control.network), "managementSshPublicKey": " ".join(public_key_parts[:2])}
+        if dns_request:
+            print(json.dumps(install_host_dns(args[1], control, result['publicKey']))); return
         if args[0] == "peers":
             result["peers"] = peer_status(control)
         if args[0] == "add":

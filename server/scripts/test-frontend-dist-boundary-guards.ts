@@ -163,6 +163,7 @@ assertNoRegexMarkers('admin', adminBuildFiles, [
 assertNoRegexMarkers('user', userBuildFiles, [
   { label: 'gateway installation control endpoint', pattern: /management-gateways\/(?:installations|tasks)/g },
   { label: 'gateway private material retrieval', pattern: /retrieveGatewayBootstrap|prepareGatewayInstallation/g },
-  { label: 'admin expiry enforcement control', pattern: /\/admin\/billing\/expiry-enforcement/g }
+  { label: 'admin expiry enforcement control', pattern: /\/admin\/billing\/expiry-enforcement/g },
+  { label: 'host gateway DNS control', pattern: /host-onboarding\/gateway\/endpoint/g }
 ])
 console.log('frontend dist boundary guard tests passed')

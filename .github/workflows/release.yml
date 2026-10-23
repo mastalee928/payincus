@@ -179,6 +179,7 @@ jobs:
           cp scripts/install-onboarding-gateway.sh release/scripts/
           cp scripts/setup-onboarding-control.py release/scripts/
           cp scripts/refresh-onboarding-gateway.sh release/scripts/
+          cp scripts/refresh-host-gateway-endpoint.py scripts/install-host-gateway-dns.sh release/scripts/
           cp scripts/reconnect-host-management.sh release/scripts/
           cp scripts/install-panel.sh release/scripts/
           cp scripts/install-platform-backup.sh release/scripts/

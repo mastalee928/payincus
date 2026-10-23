@@ -4,6 +4,9 @@ import ipaddress
 import json
 import pathlib
 import tempfile
+import io
+import base64
+import hashlib
 import unittest
 from unittest import mock
 
@@ -92,6 +95,39 @@ class GatewayTests(unittest.TestCase):
             "endpoints": "new-peer\t8.8.4.4:22", "latest-handshakes": "new-peer\t1000", "allowed-ips": "new-peer\t10.253.240.99/32"
         }[args[-1]]
         self.assertEqual(gateway.peer_status(self.control), [])
+
+    @unittest.skipUnless(hasattr(gateway.os, 'geteuid') and gateway.os.geteuid() == 0, 'root-owned DNS tool checks require Linux root')
+    def test_dns_install_uses_only_reserved_management_ip_and_pinned_ssh(self):
+        peer = base64.b64encode(bytes([2]) * 32).decode()
+        self.register(peer)
+        protected_tools = tempfile.TemporaryDirectory(prefix='incudal-dns-tools-', dir='/root') if hasattr(gateway.os, 'geteuid') and gateway.os.geteuid() == 0 else tempfile.TemporaryDirectory()
+        self.addCleanup(protected_tools.cleanup)
+        tools = pathlib.Path(protected_tools.name)
+        for name in ['refresh-host-gateway-endpoint.py', 'install-host-gateway-dns.sh']:
+            (tools / name).write_text('trusted fixture'); (tools / name).chmod(0o644)
+        host_key = base64.b64encode(b'fixture-ssh-key').decode()
+        fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(b'fixture-ssh-key').digest()).decode().rstrip('=')
+        request = {'hostname': 'gateway.example.com', 'port': 51820, 'sshPort': 2222, 'sshFingerprint': fingerprint, 'nodePublicKey': peer}
+        commands = []
+        def subprocess_run(args, **kwargs):
+            commands.append(args)
+            if args[0] == 'ssh-keyscan':
+                return type('Result', (), {'returncode': 0, 'stdout': ('[10.253.240.3]:2222 ssh-ed25519 ' + host_key + '\n').encode()})()
+            self.assertIn('root@10.253.240.3', args)
+            self.assertIn('StrictHostKeyChecking=yes', args)
+            self.assertIn('2222', args)
+            self.assertNotIn('1.1.1.1', args)
+            return type('Result', (), {'returncode': 0, 'stdout': b'Existing gateway DNS refresh enabled'})()
+        self.runner.side_effect = lambda *args: '51820' if args[-1] == 'listen-port' else peer + '\t10.253.240.3/32'
+        protected_state = tools / 'state'; protected_state.mkdir(mode=0o700)
+        (protected_state / (self.job + '.json')).write_text((gateway.STATE / (self.job + '.json')).read_text())
+        (protected_state / (self.job + '.json')).chmod(0o600)
+        with mock.patch.object(gateway, 'DNS_TOOLS', tools), mock.patch.object(gateway, 'STATE', protected_state), \
+             mock.patch.object(gateway, 'sys', type('System', (), {'stdin': type('Input', (), {'buffer': io.BytesIO(json.dumps(request).encode())})()})()), \
+             mock.patch.object(gateway.subprocess, 'run', side_effect=subprocess_run):
+            receipt = gateway.install_host_dns(self.job, self.control, peer)
+            self.assertTrue(receipt['dnsRefreshInstalled'])
+            self.assertEqual(commands[-1][0], 'ssh')
 
 
 if __name__ == "__main__":

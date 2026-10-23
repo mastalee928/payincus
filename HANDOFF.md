@@ -26,6 +26,16 @@ Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payinc
 - 已实际下载两种架构的公开安装包，确认 SHA256、文件大小、OTA manifest、包内版本与 Git 提交一致；检查全部迁移和 IPv6、UPAY 等关键模块，包内 LICENSE 与发行源码原文一致。GitHub 的面板 latest 为 v1.6.2；公开一键安装脚本与发行源码一致。
 - [源码 CI](https://github.com/mastalee928/payincus/actions/runs/38877110604)、[Agent 发布](https://github.com/mastalee928/payincus/actions/runs/38877110746) 均通过；[本仓库文档站](https://mastalee928.github.io/payincus/) 已上线。
 
+## 2026-10-23 固定网关域名和宿主补装（阶段源码）
+
+- 后台机器池管理网关增加固定域名/UDP端口设置、逐台宿主补装及失败/缺通道状态。域名保存校验当前公网IPv4/端口；普通用户、无Web sid、跨Origin及未知字段拒绝。配置入库后供新接入使用，随平台整库备份保留；已有宿主不因保存设置被冒充已迁移。
+- 受限网关SSH强制命令只增加固定dns操作：目标来自root登记管理/32、公钥与平台请求交叉核对，ssh-keyscan筛选已登记指纹并用独立known_hosts严格连接；不使用客户公网SSH、不接受脚本/路径/任意shell。固定发布脚本通过stdin传递，收到已验证安装回执才记录成功；回执持久绑定宿主公钥/SSH指纹/管理地址，变化后失效。
+- root固定DNS程序持久登记节点/本机公钥/网关公钥/管理地址/AllowedIPs/域名/端口。同一明确登记可以幂等补装、恢复中断；信任或固定域名冲突拒绝。守护进程每30秒限定解析公网IPv4，仅更新原peer Endpoint；失败保持现有配置。systemd沙箱和Alpine/OpenRC supervise-daemon自启动/重启；文件/链接/属主/重复字段和原绑定校验保持。
+- 真实Ubuntu AMD64测试机的隔离mount/net验证实际WireGuard+libc DNS：A测试网关停止，运行中的同一进程30秒周期更新B Endpoint，实际握手与ping恢复，配置/密钥/路由保持；杀进程后生产10秒RestartSec自动恢复。首次/重复安装固定程序通过，实际systemd沙箱服务独立验证。实际OpenSSH沿WireGuard管理地址首次/重复补装通过，错误指纹拒绝；该SSH测试的init命令使用固定替身，真实init证据分开。
+- Alpine3.22隔离rootfs用实际OpenRC/supervise-daemon验证安装/重复、自启动链接、子进程故障重启及原绑定保持；网络启动依赖在夹具中代表已完成网络，未修改物理宿主网络。初次夹具缺sshd权限分离用户、tmpfs目录权限/旧绑定和网络依赖错误均修复并保留失败记录，不放宽生产校验。无实际整机重启证据。
+- 真实空PG数据库+远端安装边界夹具覆盖缺管理/恢复保护不下发、失败持久、重试、并发重复拒绝和历史回执身份/域名失效；登记独立 `test:host-gateway-dns-integration` 及排除原因，CI在独立PG16任务运行。root Python两组各9项通过。真实浏览器保存/重读、补装失败→重试、缺身份禁用、三宽度/深浅色无横向溢出；inspector0 FAIL/1空白WARN（独立组件预览余下空白，完整页另有安装记录区块）。
+- 全套planned/executed/passed177、failed0（`logs/test-run-20261023-204739/summary.txt`，7m17s），前后端类型、双端生产构建、dist边界、后台构建和新组件ESLint通过；最新小改的相关验证随后记录。证据在本地 `dns-service-runtime-result.json`、`dns-ssh-install-result.json`、`dns-openrc-result.json`、`gateway-page-browser/endpoint-browser-result.json`。未部署原客户宿主或新正式版本；完整OSS身份恢复、旧主控丢失/新IP联合演练、账务补偿及完整P0–P6继续。
+
 ## 2026-10-23 五分钟实例到期巡检（阶段源码，未发版）
 
 - Owner 调整优先序：先验收「主控兼网关 A 丢失→B 从 OSS 恢复→固定直连域名切 DNS→原宿主重连」，并覆盖到期/续费和后台巡检；完整 P0–P6、四拓扑与 AC01–AC34 保留后续施工。最新状态见 [工程进度](GATEWAY_PROGRESS.md)。

@@ -2,7 +2,9 @@ import { zhCN as ossMessages } from './aliyun-oss'
 import { zhCN as ipv6Delivery } from './ipv6-delivery'
 import { zhCN as managementGateway } from './management-gateway'
 import { zhCN as expiryEnforcement } from './expiry-enforcement'
+import { zhCN as gatewayEndpoint } from './gateway-endpoint'
 export default {
+  gatewayEndpoint,
   expiryEnforcement,
   managementGateway,
     oss: ossMessages,

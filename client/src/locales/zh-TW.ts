@@ -6,7 +6,9 @@ import en from './en'
 import { zhTW as ipv6Delivery } from './ipv6-delivery'
 import { zhTW as managementGateway } from './management-gateway'
 import { zhTW as expiryEnforcement } from './expiry-enforcement'
+import { zhTW as gatewayEndpoint } from './gateway-endpoint'
 const zhTW = {
+  gatewayEndpoint,
   expiryEnforcement,
   managementGateway,
     oss: ossMessages,

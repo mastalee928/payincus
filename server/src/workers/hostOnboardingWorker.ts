@@ -112,6 +112,19 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
     if (!gateway.managementIp) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
     await checkpoint('tunnel', { managementIp: gateway.managementIp, nodePublicKey: publicKey })
     await sshExec(ssh, 'sh -s', wireguardScript(node.id, gateway), 60000)
+    // Resolve the stable endpoint independently of the controller/Agent, so a
+    // restored co-located controller can reconnect after the DNS A record moves.
+    const endpoint = /^(.+):([0-9]+)$/.exec(gateway.endpoint)!
+    if (!isIPv4(endpoint[1])) {
+      const dnsDirectory = '/root/.incudal-onboarding/' + node.id
+      for (const file of ['refresh-host-gateway-endpoint.py', 'install-host-gateway-dns.sh']) {
+        const source = await readFile(fileURLToPath(new URL('../../../scripts/' + file, import.meta.url)), 'utf8')
+        await sshExec(ssh, `umask 077; cat > ${q(dnsDirectory + '/' + file)}`, source)
+      }
+      const binding = { schemaVersion: 1, nodeId: node.id, localPublicKey: publicKey, peerPublicKey: gateway.publicKey,
+        localAddress: gateway.managementIp + '/32', allowedIp: gateway.controlIp + '/32', hostname: endpoint[1].toLowerCase(), port: Number(endpoint[2]) }
+      await sshExec(ssh, `bash ${q(dnsDirectory + '/install-host-gateway-dns.sh')}`, JSON.stringify(binding), 60000)
+    }
     let management: Client | undefined
     for (let attempt = 0; attempt < 5; attempt++) {
       try { management = await connect(gateway.managementIp, credentials); break } catch { await pause(2000) }

@@ -41,6 +41,7 @@ jobs:
           bash scripts/test-install-panel-guards.sh
           python3 scripts/test-onboarding-control.py
           python3 scripts/test-onboarding-gateway.py
+          sudo python3 -B scripts/test-host-gateway-dns.py
 
       - name: Type check (client)
         run: pnpm --filter client type-check
@@ -109,6 +110,10 @@ jobs:
           pnpm --filter server exec prisma migrate deploy
       - name: Verify expiry retry and renewal accounting
         run: pnpm --filter server test:billing-expiry-integration
+      - name: Verify host DNS deployment state
+        run: pnpm --filter server test:host-gateway-dns-integration
+        env:
+          HOST_GATEWAY_DNS_INTEGRATION_TEST: '1'
 
   gateway-component-package:
     name: Gateway component package (${{ matrix.architecture }})

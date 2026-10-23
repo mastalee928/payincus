@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import GatewayInstallationPanel from './GatewayInstallationPanel.vue'
+import GatewayEndpointPanel from './GatewayEndpointPanel.vue'
 import type { GatewayInspectionConfiguration, GatewayManagementList, GatewayInspectionResult, ManagementGateway } from '@/types/management-gateway'
 const { t, te, locale } = useI18n()
 const list = ref<GatewayManagementList | null>(null)
@@ -77,6 +78,7 @@ onUnmounted(() => { disposed = true; credential.value = '' })
     </div>
     <p v-if="list" class="text-xs text-themed-muted break-all">{{ t('managementGateway.scope') }} · {{ list.platformId }}</p>
     <p class="text-sm text-amber-700 dark:text-amber-300">{{ t('managementGateway.noStandby') }}</p>
+    <GatewayEndpointPanel />
     <p v-if="error" id="gateway-form-error" role="alert" class="text-sm text-red-700 dark:text-red-300">{{ error }}</p>
     <form class="card p-4 space-y-4" :aria-describedby="error ? 'gateway-form-error' : undefined" @submit.prevent="inspect">
       <fieldset class="space-y-4" :disabled="busy">

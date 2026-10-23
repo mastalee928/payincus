@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:host-gateway-dns-integration', 'requires explicit opt-in and an empty local *_expiry_test PostgreSQL database; verifies host DNS deployment state and conflict boundaries'],
   ['test:billing-expiry-integration', 'requires explicit opt-in, an empty local *_expiry_test PostgreSQL database and OpenSSL; exercises renewal/expiry scheduler against an HTTPS Incus fixture'],
   ['test:gateway-installation-live', 'explicit Linux root opt-in installs a real fresh gateway using a protected controller enrollment and isolated *_gateway_test database'],
   ['test:gateway-installation-integration', 'requires isolated real PostgreSQL *_gateway_test database for installation preparation, MFA and secret delivery'],
