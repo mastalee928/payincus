@@ -2,7 +2,7 @@
 // Never switches the live application database or uses customer credentials in output.
 import assert from 'node:assert/strict'
 import { randomUUID, createHash } from 'node:crypto'
-import { mkdtemp, mkdir, writeFile, readFile, symlink, chmod, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, symlink, chmod, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
 
@@ -35,6 +35,17 @@ try {
   await writeFile(join(app, 'server/prisma/schema.prisma'), 'datasource db {\n provider = "postgresql"\n}\nmodel ledger {\n id Int @id\n amount Decimal\n note String?\n}\n')
   await writeFile(join(app, 'server/prisma.config.ts'), "import { defineConfig, env } from 'prisma/config'; export default defineConfig({schema:'prisma/schema.prisma',migrations:{path:'prisma/migrations'},datasource:{url:env('DATABASE_URL')}});\n")
   await symlink('/opt/incudal/server/node_modules', join(app, 'server/node_modules'))
+  // The parent smoke runner uses umask 077. Prisma migrates as the incudal
+  // account, so this non-secret release fixture must be traversable/readable.
+  const readableFixture = async path => {
+    await chmod(path, 0o755)
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) continue
+      if (entry.isDirectory()) await readableFixture(join(path, entry.name))
+      else await chmod(join(path, entry.name), 0o644)
+    }
+  }
+  await readableFixture(app)
   await db.localDatabaseAdmin(`CREATE DATABASE ${q(target)} OWNER ${q(db.postgresConnection().user)} TEMPLATE template0;`); targetCreated = true
   await db.localDatabaseAdmin(`CREATE DATABASE ${q(restored)} OWNER ${q(db.postgresConnection().user)} TEMPLATE template0;`); restoredCreated = true
   await db.migrateBackupDatabase(app, target)
