@@ -52,7 +52,9 @@ jobs:
         run: pnpm --filter server test:controller-config-guards
 
       - name: Management gateway task guards
-        run: pnpm --filter server test:gateway-task-guards
+        run: |
+          pnpm --filter server test:gateway-task-guards
+          python3 scripts/test-management-gateway-preflight.py
 
       - name: Setup Go
         uses: actions/setup-go@v5

@@ -25,6 +25,7 @@
 ## 2026-10-23 签名候选与独立发现基础（隔离实测，完整接管未完成）
 
 - 后台网关任务补齐持久底座：固定平台/网关/物理machine-id与SSH指纹，严格计划哈希、独立步骤operationId、单目标活动任务约束、PG事务前有界排队及跨进程非阻塞锁。失去执行租约转needs_review并保留机器占用，不自动重放；重新确认后要求started步骤对账。全部回执与配置版本校验后只推进一次版本，凭据与执行租约不进入公共select，结束/过期清除凭据。尚未开放任务API、页面执行或特权安装接线，摘要回执不是物理证明，不标HA就绪。
+- 任务底座提交9b526f5已推送，[CI 39883087278](https://github.com/mastalee928/payincus/actions/runs/39883087278)成功。随后新增统一只读网关预检：本机固定execFile无需SSH、远端固定python stdin，读取实际机器/系统/服务归属、接口alias与地址、全路由及UDP/TCP监听；错误目标、既有路由重叠、未知服务和占用HTTPS端口阻断。Node严格校验报告并重新计算请求/现场摘要。实际主控ARM64本机执行器、固定SSH指纹的A网关amd64远端执行器、B状态、错误机器ID/占用端口/路由冲突通过；证据 `gateway-preflight-live.json`、`gateway-preflight-local-bound.json`、`gateway-preflight-remote-bound.json`。A/B使用专用Node目录，系统PATH缺Node按事实显示依赖缺口，未自动忽略。Python7组冲突守卫、Node请求/报告边界、双端类型及相关候选/机器池守卫、服务器构建与新文件ESLint通过；尚无页面任务/安装执行接线。
 - 新增迁移仅应用于新建隔离PostgreSQL16数据库；在授权测试主控独立Node22 ARM64目录执行11组真实事务验收，覆盖8路重复请求、跨进程锁竞争、新进程重读UTC租约（数据库会话Asia/Shanghai）、中断保留占用/同operationId对账、回执重放/冲突、精确确认/过期、版本只推进一次、管理员撤销与远端凭据过期清除。两次同机验收通过，证据 `gateway-task-journal-live.json`。跨机SSH隧道样本发现默认5秒事务排队超时，修为事务前排队；新进程首次连接抖动另以同机隔离连接完成正式证据，不把失败样本计作通过。
 - 14项新增守卫已登记根清单及CI，清单现174项；相关双端类型、候选/发现、管理员权限、会话状态、机器池守卫通过，服务器构建与新增文件ESLint通过。没有前端文件变更，没有在业务数据库应用迁移，现有唯一测试后端active、NRestarts=0。最新前三阶段提交ac1b09e/183bedd/706af0d的CI与Agent构建已复核成功；本轮不更改版本、标签或正式Release资产。
 
