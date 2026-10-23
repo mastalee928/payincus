@@ -38,7 +38,8 @@ export async function recoveryReview(section: RecoveryReviewSection = 'balances'
     const totals = { balances: users, instances, recharges, balanceLogs: logs, poolOrders }
     let rows: Array<Record<string, unknown>>
     if (section === 'balances') rows = (await tx.user.findMany({ skip, take: pageSize, orderBy: { id: 'asc' },
-      select: { id: true, username: true, balance: true } })).map(row => ({ ...row, balance: row.balance.toFixed(2) }))
+      select: { id: true, username: true, balance: true, balanceLogs: { orderBy: { id: 'desc' }, take: 1, select: { id: true } } } }))
+      .map(({ balanceLogs, ...row }) => ({ ...row, balance: row.balance.toFixed(2), latestBalanceLogId: balanceLogs[0]?.id || null }))
     else if (section === 'instances') rows = (await tx.instance.findMany({ skip, take: pageSize, orderBy: { id: 'asc' },
       where: { OR: [{ status: { not: 'deleted' } }, { deletionBillingPending: true }] },
       select: { id: true, userId: true, hostId: true, name: true, status: true, expiresAt: true, billingPrice: true,
@@ -54,11 +55,12 @@ export async function recoveryReview(section: RecoveryReviewSection = 'balances'
     else rows = (await tx.poolOrder.findMany({ skip, take: pageSize, orderBy: { createdAt: 'desc' },
       select: { id: true, userId: true, totalCents: true, createdAt: true } })).map(row => ({ id: row.id, userId: row.userId,
       amount: row.totalCents.div(100).toFixed(2), createdAt: row.createdAt.toISOString() }))
-    return { summary: { users, instances, recharges, balanceLogs: logs, poolOrders, balance: balance._sum.balance?.toFixed(2) || '0.00' },
+    const reconciliationCount = await tx.platformRecoveryReconciliation.count({ where: { holdTaskId: hold.taskId } })
+    return { reconciliationCount, summary: { users, instances, recharges, balanceLogs: logs, poolOrders, balance: balance._sum.balance?.toFixed(2) || '0.00' },
       hosts, hostsTruncated: await tx.host.count() > hosts.length, section, page, pageSize, total: totals[section], rows }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
   ensure((await readRecoveryHold()).taskId === hold.taskId, 'OSS_RECOVERY_STATE_CHANGED', 409)
-  return { hold, checkedAt: new Date().toISOString(), snapshotOnly: true as const, ...result }
+  return { hold, checkedAt: new Date().toISOString(), snapshotOnly: result.reconciliationCount === 0, ...result }
 }
 
 export function compareRecoveryInventory(expected: string[], actual: string[]) {

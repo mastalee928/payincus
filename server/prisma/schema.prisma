@@ -405,6 +405,8 @@ model User {
   twoFactorSecret        String? @map("two_factor_secret")
   twoFactorRecoveryCodes String? @map("two_factor_recovery_codes") // JSON array of encrypted codes
   gatewayMfaReplays       ManagementGatewayMfaReplay[]
+  recoveryReconciliationsAuthored PlatformRecoveryReconciliation[] @relation("RecoveryReconciler")
+  recoveryReconciliationsReceived PlatformRecoveryReconciliation[] @relation("RecoveryAccount")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2533,6 +2535,26 @@ model BalanceLog {
   @@index([userId, createdAt(sort: Desc)])
   @@index([type])
   @@map("balance_logs")
+}
+
+// Corrections applied while the restored platform is held. Credentials are never journaled.
+model PlatformRecoveryReconciliation {
+  id          String   @id @db.Uuid
+  holdTaskId  String   @db.Uuid @map("hold_task_id")
+  actorId     Int      @map("actor_id")
+  userId      Int      @map("user_id")
+  reference   String
+  observedAt  DateTime @map("observed_at")
+  payloadHash String   @map("payload_hash")
+  payload     Json
+  result      Json
+  createdAt   DateTime @default(now()) @map("created_at")
+  actor       User @relation("RecoveryReconciler", fields: [actorId], references: [id], onDelete: Restrict)
+  user        User @relation("RecoveryAccount", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([holdTaskId, userId, reference], map: "platform_recovery_evidence_key")
+  @@index([holdTaskId, createdAt], map: "platform_recovery_hold_created_idx")
+  @@map("platform_recovery_reconciliations")
 }
 
 model BalanceAdjustmentRequest {

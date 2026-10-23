@@ -199,7 +199,7 @@ export interface BalanceAdjustmentRequestListOptions {
   userId?: number
 }
 
-async function changeBalanceInTransaction(
+export async function changeBalanceInTransaction(
   tx: Prisma.TransactionClient,
   input: BalanceChangeInput
 ): Promise<{ balanceLog: BalanceLog; newBalance: number }> {

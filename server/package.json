@@ -217,7 +217,9 @@
     "test:dedicated-delivery": "node --import tsx scripts/test-dedicated-delivery.ts",
     "test:host-replacement-integration": "node --import tsx scripts/test-host-replacement-integration.ts",
     "test:platform-backup-guards": "node --import tsx scripts/test-platform-backup-guards.ts",
-    "test:platform-recovery-review": "node --import tsx scripts/test-platform-recovery-review.ts"
+    "test:platform-recovery-review": "node --import tsx scripts/test-platform-recovery-review.ts",
+    "test:platform-recovery-reconciliation": "node --import tsx scripts/test-platform-recovery-reconciliation.ts",
+    "test:platform-recovery-reconciliation-integration": "node scripts/test-platform-recovery-reconciliation-integration.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",

@@ -6,6 +6,7 @@ import { isDemoRequest } from '../lib/demo-safety.js'
 import { createLog } from '../db/logs.js'
 import { recoveryReview, probeRecoveryHost, RECOVERY_REVIEW_SECTIONS, type RecoveryReviewSection } from '../services/platform-recovery-review.js'
 import { normalizeOrigin } from '../lib/origin-config.js'
+import { reconcileRecovery, recoveryReconciliations, type RecoveryCorrection } from '../services/platform-recovery-reconciliation.js'
 
 export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
   const requireBackupAdmin = async (request: FastifyRequest) => {
@@ -42,6 +43,35 @@ export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
   }, async request => serializeBackupMutation(async () => {
     ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409)
     return probeRecoveryHost(Number(request.params.id))
+  }))
+  fastify.get('/recovery-review/reconciliations', {
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession]
+  }, async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    return recoveryReconciliations()
+  })
+  fastify.post<{ Body: { correction: RecoveryCorrection; password: string; totpCode?: string } }>('/recovery-review/reconcile', {
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], bodyLimit: 16384,
+    config: { rateLimit: { max: 8, timeWindow: '1 minute' } },
+    schema: { body: { ...objectSchema, required: ['correction', 'password'], properties: {
+      password: { type: 'string', minLength: 1, maxLength: 256 }, totpCode: { type: 'string', pattern: '^[0-9]{6}$' },
+      correction: { ...objectSchema, required: ['id', 'holdTaskId', 'userId', 'reference', 'observedAt', 'expectedBalance', 'targetBalance', 'expectedLatestLogId', 'instances', 'recharges'], properties: {
+        id: { type: 'string', maxLength: 36 }, holdTaskId: { type: 'string', maxLength: 36 }, userId: { type: 'integer', minimum: 1, maximum: 2147483647 },
+        reference: { type: 'string', minLength: 6, maxLength: 120 }, observedAt: { type: 'string', maxLength: 24 },
+        expectedBalance: { type: 'string', maxLength: 11 }, targetBalance: { type: 'string', maxLength: 11 },
+        expectedLatestLogId: { anyOf: [{ type: 'integer', minimum: 1, maximum: 2147483647 }, { type: 'null' }] },
+        instances: { type: 'array', maxItems: 20, items: { ...objectSchema, required: ['id', 'expectedVersion', 'expectedExpiresAt', 'targetExpiresAt'], properties: {
+          id: { type: 'integer', minimum: 1 }, expectedVersion: { type: 'integer', minimum: 0 }, expectedExpiresAt: { type: 'string', maxLength: 24 }, targetExpiresAt: { type: 'string', maxLength: 24 }
+        } } },
+        recharges: { type: 'array', maxItems: 20, items: { ...objectSchema, required: ['id', 'orderNo', 'expectedStatus', 'expectedAmount'], properties: {
+          id: { type: 'integer', minimum: 1 }, orderNo: { type: 'string', maxLength: 100 }, expectedStatus: { type: 'string', enum: ['pending', 'paid', 'cancelled'] }, expectedAmount: { type: 'string', maxLength: 11 }
+        } } }
+      } }
+    } } }
+  }, async (request, reply) => serializeBackupMutation(async () => {
+    ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409)
+    reply.header('Cache-Control', 'no-store')
+    return reconcileRecovery(request.body.correction, request.user.id, { password: request.body.password, totpCode: request.body.totpCode })
   }))
   async function connection<T>(action: (client: AliyunOssClient) => Promise<T>, target?: { region?: string; bucket?: string }) {
     const config = await readBackupConfig(); ensure(config, 'OSS_CONFIG_REQUIRED', 409)
