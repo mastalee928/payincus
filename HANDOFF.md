@@ -6,6 +6,12 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-24 核对入口双架构预览与物理宿主连接基线
+
+- `74d97bbcbe47190f6309f894aa3cebfacfca6986` 的[源码 CI](https://github.com/mastalee928/payincus/actions/runs/40006901699) 已成功；[发行预览](https://github.com/mastalee928/payincus/actions/runs/40007174008) 的 AMD64/ARM64 构建、全新安装及恢复/回滚全部成功，Release 为预期 skipped。正式发行仍 v1.7.1，未新增 tag、Release 或生产 OTA。
+- 专用 AMD64 宿主使用官方原生 Incus，三台隔离实例仍运行；独立管理 WireGuard 与另一物理机源 A 连通，沿原公钥和管理 /32 无丢包。固定域名守护程序在该宿主通过真实 DNS/libc 解析源 A 并运行周期检查。测试 DNS 仅存在于隔离网络，未修改公共 DNS；原测试后端和独立网关服务核实仍 active。
+- 本节仅为源端连接基线。B 尚未从这份跨机测试备份取得原身份，A 通道失联后的 B 自动重连、SSH/mTLS/心跳及账务修订仍待联合验收；不能视为首要发行目标或完整 HA 已达标。
+
 ## 2026-10-24 恢复保护内的网页核对入口（阶段源码）
 
 - OSS 页面新增恢复核对：在保护期间分页读取账户余额、实例到期、充值订单、余额日志及机器池订单意向；显示真实备份截止时间、库存隔离和快照后交易边界。数据库查询使用 repeatable-read/read-only 事务，字段白名单不返回密码、认证材料、私钥路径或支付配置。旧恢复记录无时间时不编造，回滚保持保护并标明回退数据。
