@@ -23,6 +23,7 @@ export const IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE = 4119
 export const GIFT_CARD_LOCK_NAMESPACE = 4120
 export const INSTANCE_TRAFFIC_RESET_LOCK_NAMESPACE = 4121
 export const HOST_PUBLIC_IP_SYNC_LOCK_NAMESPACE = 4122
+export const MANAGEMENT_GATEWAY_TASK_LOCK_NAMESPACE = 4123
 
 export async function tryAdvisoryTransactionLock(
   tx: Prisma.TransactionClient,

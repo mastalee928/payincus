@@ -251,3 +251,13 @@ WriterAuditPolicy可提供预先审查的SchedulerTreeHashes，绑定全部root/
 显式 INCUDAL_MIGRATION_AUDIT_TEST=1 的Go集成测试创建与父环境不同的mnt/net/pid命名空间，屏蔽测试调度目录和SSH配置，真实sshd有效配置/root-only Unix API/procfs/nft持久水位采集后签署宿主回执；新增调度任务立即阻断。Unix API在此使用固定替身，不冒充实际Incus或客户宿主安装，后续真实任务及多故障域仍须单独验收。
 
 同一显式验收可配置INCUDAL_MIGRATION_REAL_INCUS_ROOT，启动提取的真实Incus6.0.4独立持久目录；sys只读且隐藏AppArmor控制面，预登记daemon可执行哈希。实际SSH/socket/procfs/nft审计→签回执→短租约→固定只读Incus操作已通过，重放和真实时间到期拒绝，调度变化继续阻断。该模式仅验证arm64隔离读路径，未执行真实实例电源、云宿主或独立见证HTTP签发，不替代全链路验收。
+
+## 23. 主控网关身份与持久任务底座
+
+management_gateways固定平台/网关与物理machine-id、配置目标和SSH指纹；同一物理身份只登记一次，不允许通过换IP或新网关ID绕过串行任务。local目标不接受SSH，remote/existing目标由预检解析成固定IPv4并记录SSH SHA256指纹。表内身份和配置版本不授予宿主写租约，也不代表已具备备用覆盖。
+
+任务计划采用严格字段、规范JSON哈希，绑定任务/平台/网关、目标、基础配置版本及软件/配置/现场状态哈希。独立步骤operationId在创建时落库；执行前标记started，完成后仅保存严格结构的摘要回执，不接受原始输出或秘密。凭据单独保存在有期限的加密字段，公共查询select排除凭据和执行租约。首次安装、连接已有和更新必须经调用层当前会话重新认证、CSRF与明确确认；内部journal不把传入验证时间当成完整认证。
+
+任务在打开PG事务前有界排队，跨进程使用非阻塞advisory lock；业务后端仍仅支持单实例。数据库部分唯一索引保留queued/running/needs_review目标占用，防止执行中断后另一任务覆盖现场。租约过期转needs_review，不自动重放；重新确认后对started步骤返回相同operationId及reconcile要求，由受信执行器读取目标journal完成对账。完成任务前重新验证全部步骤、回执和配置版本，变更任务只推进一次版本并清除凭据。
+
+这一阶段只交付持久底座；暂无对外任务路由、重新认证入口或特权执行器接线。摘要回执由受信执行器提供，其结构哈希不是远程物理证明，后续接口不得接受浏览器自行提交的回执来标记安装或HA就绪。检查/安装步骤和宿主覆盖/控制权验收必须分别展示。

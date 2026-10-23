@@ -3708,3 +3708,69 @@ model PoolOrder {
   @@index([userId, createdAt])
   @@map("pool_orders")
 }
+
+// Control-plane inventory and journals. A role here never grants a host lease.
+model ManagementGateway {
+  id                  String   @id
+  platformId          String   @map("platform_id")
+  name                String
+  mode                String
+  target              Json
+  targetHash          String   @map("target_hash")
+  machineId           String   @unique @map("machine_id")
+  revision            BigInt   @default(0)
+  retiredAt           DateTime? @map("retired_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  tasks               ManagementGatewayTask[]
+
+  @@index([platformId, createdAt])
+  @@map("management_gateways")
+}
+
+model ManagementGatewayTask {
+  id                   String   @id
+  gatewayId            String   @map("gateway_id")
+  createdById          Int      @map("created_by_id")
+  kind                 String
+  plan                 Json
+  planHash             String   @map("plan_hash")
+  basedOnRevision      BigInt   @map("based_on_revision")
+  status               String   @default("awaiting_confirmation")
+  approvedById         Int?     @map("approved_by_id")
+  approvedAt           DateTime? @map("approved_at")
+  approvalExpiresAt    DateTime? @map("approval_expires_at")
+  credentialsEncrypted String?  @db.Text @map("credentials_encrypted")
+  credentialsExpireAt  DateTime? @map("credentials_expire_at")
+  leaseToken           String?  @map("lease_token")
+  leaseUntil           DateTime? @map("lease_until")
+  attempt              Int      @default(0)
+  errorCode            String?  @map("error_code")
+  startedAt            DateTime? @map("started_at")
+  completedAt          DateTime? @map("completed_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  gateway              ManagementGateway @relation(fields: [gatewayId], references: [id], onDelete: Restrict)
+  steps                ManagementGatewayStep[]
+
+  @@index([status, leaseUntil, createdAt])
+  @@index([gatewayId, createdAt(sort: Desc)])
+  @@map("management_gateway_tasks")
+}
+
+model ManagementGatewayStep {
+  taskId        String   @map("task_id")
+  key           String
+  ordinal       Int
+  status        String   @default("pending")
+  operationId   String   @unique @map("operation_id")
+  receipt       Json?
+  receiptHash   String?  @map("receipt_hash")
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+  task          ManagementGatewayTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
+
+  @@id([taskId, key])
+  @@unique([taskId, ordinal])
+  @@map("management_gateway_steps")
+}

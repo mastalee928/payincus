@@ -51,6 +51,9 @@ jobs:
       - name: Controller candidate and discovery guards
         run: pnpm --filter server test:controller-config-guards
 
+      - name: Management gateway task guards
+        run: pnpm --filter server test:gateway-task-guards
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
