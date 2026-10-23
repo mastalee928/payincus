@@ -18,9 +18,11 @@ const browseBucket = ref(''), browseRegion = ref('oss-cn-hangzhou'), browsePrefi
 const listing = ref<OssDirectory>({ directories: [], objects: [], nextCursor: null })
 const modal = ref<HTMLDialogElement>(), modalKind = ref<'create' | 'delete' | 'preview' | 'restore' | 'resume' | 'rollback'>('create')
 const newBucketName = ref(''), newBucketRegion = ref('oss-cn-hangzhou'), selectedPreview = ref<OssTask | null>(null)
-const active = computed(() => tasks.value.some(task => task.status === 'pending' || task.status === 'running'))
+const activeTask = ref<OssTask | null>(null)
+const active = computed(() => activeTask.value !== null)
 const reviewBusy = ref(false)
-const disabled = computed(() => busy.value || active.value || reviewBusy.value)
+const reviewEditing = ref(false)
+const disabled = computed(() => busy.value || active.value || reviewBusy.value || reviewEditing.value)
 const dirty = computed(() => !config.value || Boolean(form.accessKeySecret || form.backupPassword) || ['enabled', 'region', 'bucket', 'prefix', 'accessKeyId', 'intervalHours', 'retention'].some(key => form[key as keyof typeof form] !== config.value![key as keyof OssConfig]))
 const backupReady = computed(() => config.value?.bucket && config.value.hasBackupPassword && config.value.testedRevision === config.value.revision && !dirty.value)
 const connectionForm = ref<HTMLFormElement>()
@@ -42,7 +44,7 @@ async function action(work: () => Promise<void>) {
 }
 async function loadTasks() {
   const result = await api.aliyunOss.tasks()
-  if (!disposed) { tasks.value = result.tasks; held.value = result.recoveryHeld }
+  if (!disposed) { tasks.value = result.tasks; activeTask.value = result.activeTask ?? null; held.value = result.recoveryHeld }
 }
 async function loadBackups() {
   if (!config.value) return
@@ -119,7 +121,7 @@ const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'dele
     <template v-if="!loading && !loadError">
       <div v-if="!runtimeReady" class="oss-notice" role="status"><p>{{ t('oss.runtimeMissing') }}</p><a href="https://mastalee928.github.io/payincus/deployment/oss-backup" target="_blank" rel="noopener noreferrer">{{ t('oss.deploymentHelp') }}</a></div>
       <div v-if="held" class="oss-notice"><p>{{ t('oss.held') }}</p><div class="oss-actions"><button :disabled="disabled" @click="openModal('resume')">{{ t('oss.resume') }}</button><button :disabled="disabled" @click="openModal('rollback')">{{ t('oss.rollback') }}</button></div></div>
-      <OssRecoveryReview v-if="held" :disabled="disabled" @busy="reviewBusy = $event" />
+      <OssRecoveryReview v-if="held" :disabled="busy || active" @busy="reviewBusy = $event" @editing="reviewEditing = $event" />
       <form ref="connectionForm" @submit.prevent="submitSettings">
         <section aria-labelledby="oss-connection-title">
           <h2 id="oss-connection-title">{{ t('oss.connection') }}</h2><p class="hint">{{ t('oss.setupHint') }}</p>
@@ -163,7 +165,7 @@ const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'dele
         <p v-if="!backups.length" class="hint">{{ t('oss.noBackups') }}</p>
         <ul class="backup-list"><li v-for="backup in backups" :key="backup.prefix"><div><strong>{{ date(backup.createdAt) }}</strong><p class="break-all">{{ backup.prefix }}</p><small>{{ t('oss.version') }} {{ backup.version }} · {{ size(backup.bytes) }}</small></div><button :disabled="disabled || !runtimeReady || held" @click="preview(backup)">{{ t('oss.preview') }}</button></li></ul>
       </section>
-      <section aria-labelledby="oss-tasks-title"><h2 id="oss-tasks-title">{{ t('oss.tasks') }}</h2><ul class="backup-list"><li v-for="task in tasks" :key="task.id"><div><strong>{{ t(`oss.stages.${task.stage}`) }}</strong><small class="task-status" :class="{ 'danger-text': task.status === 'failed' }">{{ t(`oss.statuses.${task.status}`) }} · {{ date(task.createdAt) }}</small><p v-if="task.error" class="danger-text">{{ errorText(task.error) }}</p><small class="break-all">{{ task.id }}</small></div><button v-if="task.preview && task.status === 'success'" :disabled="disabled || held || Date.parse(task.preview.expiresAt) < Date.now()" @click="openModal('restore', task)">{{ t('oss.restore') }}</button></li></ul></section>
+      <section aria-labelledby="oss-tasks-title"><h2 id="oss-tasks-title">{{ t('oss.tasks') }}</h2><ul class="backup-list"><li v-for="task in tasks" :key="task.id"><div><strong>{{ t(`oss.stages.${task.stage}`) }}</strong><small class="task-status" :class="{ 'danger-text': task.status === 'failed' }">{{ ['pending', 'running'].includes(task.status) && activeTask?.id !== task.id ? t('oss.review.reconciliation.taskCheckpoint') : t(`oss.statuses.${task.status}`) }} · {{ date(task.createdAt) }}</small><p v-if="task.error" class="danger-text">{{ errorText(task.error) }}</p><small class="break-all">{{ task.id }}</small></div><button v-if="task.preview && task.status === 'success'" :disabled="disabled || held || Date.parse(task.preview.expiresAt) < Date.now()" @click="openModal('restore', task)">{{ t('oss.restore') }}</button></li></ul></section>
     </template>
     <section aria-labelledby="oss-recovery-title" class="oss-recovery">
       <h2 id="oss-recovery-title">{{ t('oss.recoveryTitle') }}</h2>
@@ -175,7 +177,8 @@ const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'dele
       <p class="hint">{{ t('oss.recoveryBoundary') }}</p>
     </section>
     <dialog ref="modal" aria-labelledby="oss-modal-title" @cancel="busy ? $event.preventDefault() : closeModal()">
-      <form @submit.prevent="submitModal"><h2 id="oss-modal-title">{{ modalTitle }}</h2>
+      <form @submit.prevent="submitModal">
+        <h2 id="oss-modal-title">{{ modalTitle }}</h2>
         <template v-if="modalKind === 'create'"><p>{{ t('oss.createHint') }}</p><label for="oss-new-region">{{ t('oss.region') }}<select id="oss-new-region" v-model="newBucketRegion"><option v-for="region in regions" :key="region.id" :value="region.id">{{ locale.startsWith('zh') ? region.name : region.id }}</option></select></label><label for="oss-new-bucket">{{ t('oss.bucketName') }}<input id="oss-new-bucket" v-model="newBucketName" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" maxlength="63"></label></template>
         <template v-if="modalKind === 'delete'"><p>{{ t('oss.deleteHint') }}</p><strong class="break-all">{{ browseBucket }}</strong><label for="oss-delete-confirm">{{ t('oss.nameConfirmation') }}<input id="oss-delete-confirm" v-model="confirmation" required autocomplete="off"></label></template>
         <template v-if="modalKind === 'preview'"><p>{{ t('oss.previewHint') }}</p><p class="break-all">{{ sourcePrefix }}</p><label for="oss-restore-password">{{ t('oss.restorePassword') }}<input id="oss-restore-password" v-model="restorePassword" type="password" required minlength="12" maxlength="256" autocomplete="new-password"></label></template>

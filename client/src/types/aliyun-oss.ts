@@ -18,10 +18,11 @@ export interface RecoveryReviewRow {
   expiresAt?: string | null; billingPrice?: string | null; autoRenew?: boolean; version?: number; status?: string
   deletionBillingPending?: boolean; amount?: string; orderNo?: string; type?: string; balanceBefore?: string
   balanceAfter?: string; instanceId?: number | null; orderId?: number | null; createdAt?: string
+  latestBalanceLogId?: number | null
 }
 export interface RecoveryReviewReport {
   hold: { taskId: string; createdAt: string; mode: 'restore' | 'rollback'; snapshot: { createdAt: string; version: string } | null }
-  checkedAt: string; snapshotOnly: true
+  checkedAt: string; snapshotOnly: boolean; reconciliationCount: number
   summary: { users: number; instances: number; recharges: number; balanceLogs: number; poolOrders: number; balance: string }
   hosts: Array<{ id: number; name: string; status: string; poolFaulted: boolean; managementSshHost: string | null; managementSshPort: number | null }>
   hostsTruncated: boolean; section: RecoveryReviewSection; page: number; pageSize: number; total: number; rows: RecoveryReviewRow[]
@@ -29,4 +30,26 @@ export interface RecoveryReviewReport {
 export interface RecoveryHostProbe {
   hostId: number; checkedAt: string; managementVerified: boolean; code: string | null
   inventory?: { expectedCount: number; actualCount: number; missing: string[]; unexpected: string[]; inventoryMatched: boolean }
+}
+export interface RecoveryCorrectionAccount {
+  hold: RecoveryReviewReport['hold']; checkedAt: string; requiresMfa: boolean
+  account: { id: number; username: string; balance: string; latestBalanceLogId: number | null }
+  instances: Array<{ id: number; name: string; status: string; expiresAt: string | null; version: number; billingPrice: string | null; eligible: boolean }>
+  recharges: Array<{ id: number; orderNo: string; amount: string; status: 'pending' | 'paid' | 'cancelled' }>
+  instancesTruncated: boolean; rechargesTruncated: boolean
+}
+export interface RecoveryCorrection {
+  id: string; holdTaskId: string; userId: number; reference: string; observedAt: string
+  expectedBalance: string; targetBalance: string; expectedLatestLogId: number | null
+  instances: Array<{ id: number; expectedVersion: number; expectedExpiresAt: string; targetExpiresAt: string }>
+  recharges: Array<{ id: number; orderNo: string; expectedStatus: 'pending' | 'paid' | 'cancelled'; expectedAmount: string }>
+}
+export interface RecoveryCorrectionResponse {
+  id: string; createdAt: string; replayed: boolean
+  result: { userId: number; balanceBefore: string; balanceAfter: string; balanceLogIds: number[];
+    instances: Array<{ id: number; expiresAt: string; version: number }>; completedRecharges: number[]; recoveryHeld: true }
+}
+export interface RecoveryReconciliationHistory {
+  holdTaskId: string; total: number; page: number; pageSize: number
+  rows: Array<{ id: string; actorId: number; userId: number; reference: string; observedAt: string; createdAt: string; result: RecoveryCorrectionResponse['result'] }>
 }

@@ -626,6 +626,9 @@ http.interceptors.response.use(
 const api = {
   aliyunOss: {
     recoveryReview: (section: import('@/types/aliyun-oss').RecoveryReviewSection = 'balances', page = 1): Promise<import('@/types/aliyun-oss').RecoveryReviewReport> => http.get('/admin/aliyun-oss/recovery-review', { params: { section, page } }),
+    recoveryCorrectionAccount: (id: number): Promise<import('@/types/aliyun-oss').RecoveryCorrectionAccount> => http.get(`/admin/aliyun-oss/recovery-review/accounts/${id}`),
+    reconcileRecovery: (correction: import('@/types/aliyun-oss').RecoveryCorrection, password: string, totpCode?: string): Promise<import('@/types/aliyun-oss').RecoveryCorrectionResponse> => http.post('/admin/aliyun-oss/recovery-review/reconcile', { correction, password, ...(totpCode ? { totpCode } : {}) }, { timeout: 30000 }),
+    recoveryReconciliations: (page = 1): Promise<import('@/types/aliyun-oss').RecoveryReconciliationHistory> => http.get('/admin/aliyun-oss/recovery-review/reconciliations', { params: { page } }),
     probeRecoveryHost: (id: number): Promise<import('@/types/aliyun-oss').RecoveryHostProbe> => http.post(`/admin/aliyun-oss/recovery-review/hosts/${id}/probe`, {}, { timeout: 70000 }),
     config: (): Promise<{ config: OssConfig | null; runtimeReady: boolean; recoveryHeld: boolean; activeTask: OssTask | null }> => http.get('/admin/aliyun-oss/config'),
     save: (data: Record<string, unknown>): Promise<{ config: OssConfig }> => http.put('/admin/aliyun-oss/config', data),
@@ -636,7 +639,7 @@ const api = {
     deleteBucket: (region: string, name: string, confirmation: string) => http.delete(`/admin/aliyun-oss/buckets/${encodeURIComponent(name)}`, { data: { region, confirmation } }),
     objects: (params: { region: string; bucket: string; prefix: string; cursor?: string }): Promise<OssDirectory> => http.get('/admin/aliyun-oss/objects', { params }),
     backups: (prefix?: string): Promise<{ backups: OssBackup[] }> => http.get('/admin/aliyun-oss/backups', { params: { prefix }, timeout: 180000 }),
-    tasks: (): Promise<{ tasks: OssTask[]; recoveryHeld: boolean }> => http.get('/admin/aliyun-oss/tasks'),
+    tasks: (): Promise<{ tasks: OssTask[]; activeTask: OssTask | null; recoveryHeld: boolean }> => http.get('/admin/aliyun-oss/tasks'),
     backup: (): Promise<{ task: OssTask }> => http.post('/admin/aliyun-oss/backups'),
     preview: (prefix: string, password: string): Promise<{ task: OssTask }> => http.post('/admin/aliyun-oss/restore-previews', { prefix, password }),
     restore: (previewId: string, confirmation: string): Promise<{ task: OssTask }> => http.post('/admin/aliyun-oss/restores', { previewId, confirmation }),

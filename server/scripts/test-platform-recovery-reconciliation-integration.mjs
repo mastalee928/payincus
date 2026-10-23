@@ -71,6 +71,11 @@ try {
   assert.equal(changed.status, 'running'); assert.equal(changed.autoRenewAttempts, 0)
   const report = await app.inject({ method: 'GET', url: base, headers })
   assert.equal(report.json().snapshotOnly, false); assert.equal(report.json().reconciliationCount, 1)
+  const accountRead = await app.inject({ method: 'GET', url: `${base}/accounts/${customer.id}`, headers })
+  assert.equal(accountRead.statusCode, 200); assert.equal(accountRead.json().account.balance, '130.00')
+  assert.equal(accountRead.json().account.latestBalanceLogId, await latest())
+  assert.ok(accountRead.json().instances.some(row => row.id === instance.id && row.eligible))
+  assert.ok(!accountRead.body.includes('passwordHash') && !accountRead.body.includes('callbackData'))
 
   phase = 'idempotency'
   const retry = await apply(correction)

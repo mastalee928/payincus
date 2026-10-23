@@ -155,10 +155,49 @@ export async function reconcileRecovery(input: RecoveryCorrection, actorId: numb
   }, { maxWait: 5000, timeout: 15000 }))
 }
 
-export async function recoveryReconciliations() {
+export async function recoveryReconciliations(page = 1) {
+  ensure(Number.isSafeInteger(page) && page >= 1 && page <= 1000000, 'OSS_REVIEW_QUERY_INVALID')
   const hold = await readRecoveryHold()
-  const rows = await prisma.platformRecoveryReconciliation.findMany({ where: { holdTaskId: hold.taskId }, orderBy: { createdAt: 'desc' }, take: 100,
-    select: { id: true, actorId: true, userId: true, reference: true, observedAt: true, result: true, createdAt: true } })
+  const result = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SET TRANSACTION READ ONLY`
+    const where = { holdTaskId: hold.taskId }
+    const [rows, total] = await Promise.all([
+      tx.platformRecoveryReconciliation.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 20, skip: (page - 1) * 20,
+        select: { id: true, actorId: true, userId: true, reference: true, observedAt: true, result: true, createdAt: true } }),
+      tx.platformRecoveryReconciliation.count({ where })
+    ])
+    return { rows, total, page, pageSize: 20 }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
   ensure((await readRecoveryHold()).taskId === hold.taskId, 'OSS_RECONCILIATION_CONTEXT_CHANGED', 409)
-  return { holdTaskId: hold.taskId, rows }
+  return { holdTaskId: hold.taskId, ...result }
+}
+
+export async function recoveryCorrectionAccount(userId: number, actorId: number) {
+  positiveId(userId)
+  const hold = await readRecoveryHold()
+  const result = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SET TRANSACTION READ ONLY`
+    const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, username: true, balance: true,
+      balanceLogs: { orderBy: { id: 'desc' }, take: 1, select: { id: true } } } })
+    ensure(user, 'OSS_REVIEW_ACCOUNT_NOT_FOUND', 404)
+    const actor = await tx.user.findUnique({ where: { id: actorId }, select: { twoFactorEnabled: true } })
+    const instanceWhere = { userId, status: { not: 'deleted' as const } }, rechargeWhere = { userId, status: { in: ['pending', 'paid', 'cancelled'] as Array<'pending' | 'paid' | 'cancelled'> } }
+    const [instances, recharges, instanceCount, rechargeCount] = await Promise.all([
+      tx.instance.findMany({ where: instanceWhere, orderBy: { id: 'asc' }, take: 50, select: { id: true, name: true, status: true,
+        expiresAt: true, version: true, billingPrice: true, packagePlanId: true, deletionBillingPending: true, provisioningCleanupPending: true,
+        instanceTasks: { where: { status: { in: ['PENDING', 'PROCESSING'] } }, select: { id: true }, take: 1 } } }),
+      tx.rechargeRecord.findMany({ where: rechargeWhere, orderBy: { id: 'desc' }, take: 50, select: { id: true, orderNo: true, amount: true, status: true } }),
+      tx.instance.count({ where: instanceWhere }), tx.rechargeRecord.count({ where: rechargeWhere })
+    ])
+    return { account: { id: user.id, username: user.username, balance: user.balance.toFixed(2), latestBalanceLogId: user.balanceLogs[0]?.id || null },
+      requiresMfa: actor?.twoFactorEnabled || false,
+      instances: instances.map(({ instanceTasks, packagePlanId, deletionBillingPending, provisioningCleanupPending, ...row }) => ({ ...row,
+        expiresAt: row.expiresAt?.toISOString() || null, billingPrice: row.billingPrice?.toFixed(2) || null,
+        eligible: !!row.expiresAt && packagePlanId !== null && ['running', 'stopped', 'suspended'].includes(row.status) &&
+          !deletionBillingPending && !provisioningCleanupPending && !instanceTasks.length })),
+      recharges: recharges.map(row => ({ ...row, amount: row.amount.toFixed(2) })),
+      instancesTruncated: instanceCount > instances.length, rechargesTruncated: rechargeCount > recharges.length }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })
+  ensure((await readRecoveryHold()).taskId === hold.taskId, 'OSS_RECONCILIATION_CONTEXT_CHANGED', 409)
+  return { hold, checkedAt: new Date().toISOString(), ...result }
 }

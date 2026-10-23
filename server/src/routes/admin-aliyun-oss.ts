@@ -6,7 +6,7 @@ import { isDemoRequest } from '../lib/demo-safety.js'
 import { createLog } from '../db/logs.js'
 import { recoveryReview, probeRecoveryHost, RECOVERY_REVIEW_SECTIONS, type RecoveryReviewSection } from '../services/platform-recovery-review.js'
 import { normalizeOrigin } from '../lib/origin-config.js'
-import { reconcileRecovery, recoveryReconciliations, type RecoveryCorrection } from '../services/platform-recovery-reconciliation.js'
+import { reconcileRecovery, recoveryReconciliations, recoveryCorrectionAccount, type RecoveryCorrection } from '../services/platform-recovery-reconciliation.js'
 
 export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
   const requireBackupAdmin = async (request: FastifyRequest) => {
@@ -44,11 +44,19 @@ export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
     ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409)
     return probeRecoveryHost(Number(request.params.id))
   }))
-  fastify.get('/recovery-review/reconciliations', {
-    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession]
-  }, async (_request, reply) => {
+  fastify.get<{ Querystring: { page?: number } }>('/recovery-review/reconciliations', {
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession],
+    schema: { querystring: { ...objectSchema, properties: { page: { type: 'integer', minimum: 1, maximum: 1000000 } } } }
+  }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
-    return recoveryReconciliations()
+    return recoveryReconciliations(request.query.page)
+  })
+  fastify.get<{ Params: { id: string } }>('/recovery-review/accounts/:id', {
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession],
+    schema: { params: { ...objectSchema, required: ['id'], properties: { id: { type: 'string', pattern: '^[1-9][0-9]{0,9}$' } } } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    return recoveryCorrectionAccount(Number(request.params.id), request.user.id)
   })
   fastify.post<{ Body: { correction: RecoveryCorrection; password: string; totpCode?: string } }>('/recovery-review/reconcile', {
     onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], bodyLimit: 16384,
@@ -133,7 +141,7 @@ export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
       if (index < 0) tasks.unshift(task)
       else if (Date.parse(task.updatedAt) >= Date.parse(tasks[index].updatedAt)) tasks[index] = task
     }
-    return { tasks, recoveryHeld: recoveryHeld() }
+    return { tasks, activeTask: active, recoveryHeld: recoveryHeld() }
   })
   fastify.post('/backups', { onRequest: [fastify.authenticateAdmin, requireBackupAdmin] }, async (request, reply) => serializeBackupMutation(async () => {
     const task = await enqueueBackupTask('backup', request.user.id); await audit(request, 'backup.start'); return reply.code(202).send({ task })

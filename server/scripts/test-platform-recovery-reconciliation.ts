@@ -47,7 +47,7 @@ await app.register(routes, { prefix: '/api/admin/aliyun-oss' })
 const headers = { 'x-test-role': 'admin', authorization: 'Bearer fixture', origin: 'https://admin.example.test' }
 const body = { correction: input, password: 'fixture-password' }
 try {
-  for (const route of ['reconcile', 'reconciliations']) {
+  for (const route of ['reconcile', 'reconciliations', 'accounts/2']) {
     const method = route === 'reconcile' ? 'POST' : 'GET'
     const url = `/api/admin/aliyun-oss/recovery-review/${route}`
     for (const denied of [{ ...headers, 'x-test-role': 'user' }, { ...headers, 'x-backup-denied': '1' },
@@ -73,6 +73,13 @@ try {
   assert.ok(service.includes('changeBalanceInTransaction') && service.includes("status: 'completed'"), 'confirmed recharges must use the normal money ledger and prevent later callback credit')
   assert.ok(service.includes('payload: correction') && !service.includes('payload: credentials'), 'reauthentication secrets must never enter the evidence journal')
   assert.ok(migration.includes('CREATE UNIQUE INDEX "platform_recovery_evidence_key"') && migration.includes('"payload" JSONB NOT NULL'), 'evidence deduplication and durable journal must be enforced by the database')
+  const form = await readFile(new URL('../../client/src/components/backup/OssRecoveryReconcile.vue', import.meta.url), 'utf8')
+  assert.ok(form.includes('showModal()') && form.includes('@cancel="cancel"'), 'financial correction uses a native modal with keyboard cancellation')
+  assert.ok(form.includes('const requestId = crypto.randomUUID()') && form.includes('id: requestId'), 'a failed response must retain the same idempotency identity')
+  assert.ok(form.includes("password.value = ''; totpCode.value = ''") && !form.includes('localStorage'), 'reauthentication values must be cleared and never stored in browser persistence')
+  assert.ok(form.includes('expectedLatestLogId: account.account.latestBalanceLogId') && form.includes('expectedVersion: row.version'), 'the form must bind the exact read snapshot instead of overriding a stale account')
+  const view = await readFile(new URL('../../client/src/views/admin/AliyunOssView.vue', import.meta.url), 'utf8')
+  assert.ok(view.includes('activeTask.value = result.activeTask') && !view.includes('tasks.value.some(task => task.status'), 'historical interrupted checkpoints must not block a current recovery review')
   console.log('Recovery reconciliation guards passed: strict money/evidence, stale identities, Web permissions, hold and transactional journal boundaries.')
 } finally { await app.close(); await rm(folder, { recursive: true, force: true }) }
 process.exit(0)
