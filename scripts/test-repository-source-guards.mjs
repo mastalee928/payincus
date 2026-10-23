@@ -20,7 +20,7 @@ for (const match of readme.matchAll(/\]\(([^)]+)\)|href="([^"]+)"/g)) {
 }
 assert.match(read('LICENSE'), /Copyright \(c\) 2026, VipMaxxxx/, 'original copyright must be retained')
 const workflow = read('.github/workflows/release.yml')
-for (const path of ['probe-onboarding-resources.py', 'ensure-host-swap.py', 'configure-oci-node-network.sh', 'onboarding-gateway.py', 'install-onboarding-gateway.sh', 'setup-onboarding-control.py', 'refresh-onboarding-gateway.sh', 'install-panel.sh']) {
+for (const path of ['probe-management-gateway.py', 'probe-onboarding-resources.py', 'ensure-host-swap.py', 'configure-oci-node-network.sh', 'onboarding-gateway.py', 'install-onboarding-gateway.sh', 'setup-onboarding-control.py', 'refresh-onboarding-gateway.sh', 'install-panel.sh']) {
   assert.ok(workflow.includes(`cp scripts/${path} release/scripts/`), `release must include ${path}`)
 }
 assert.ok(workflow.includes('fresh-install:'), 'publication must depend on fresh installation checks')

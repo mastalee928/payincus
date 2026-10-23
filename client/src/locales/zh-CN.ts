@@ -1,6 +1,8 @@
 import { zhCN as ossMessages } from './aliyun-oss'
 import { zhCN as ipv6Delivery } from './ipv6-delivery'
+import { zhCN as managementGateway } from './management-gateway'
 export default {
+  managementGateway,
     oss: ossMessages,
   ipv6Delivery,
   hostIpSync: {

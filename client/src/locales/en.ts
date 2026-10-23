@@ -1,6 +1,8 @@
 import { en as ossMessages } from './aliyun-oss'
 import { en as ipv6Delivery } from './ipv6-delivery'
+import { en as managementGateway } from './management-gateway'
 export default {
+  managementGateway,
     oss: ossMessages,
   ipv6Delivery,
   hostIpSync: {

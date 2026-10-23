@@ -124,6 +124,7 @@ jobs:
           cp scripts/apply-online-update.sh release/scripts/
           cp scripts/migrate-ota-atomic-layout.sh release/scripts/
           cp scripts/probe-onboarding-resources.py release/scripts/
+          cp scripts/probe-management-gateway.py release/scripts/
           cp scripts/ensure-host-swap.py release/scripts/
           cp scripts/configure-oci-node-network.sh release/scripts/
           cp scripts/onboarding-gateway.py release/scripts/

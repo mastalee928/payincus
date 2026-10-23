@@ -6,12 +6,22 @@ import { useToast } from '@/stores/toast'
 import { availableFlagCountryCodes, getLocalizedCountryName } from '@/utils/countryDisplay'
 import { OnboardingCsvError, parseHostOnboardingCsv } from '@/utils/hostOnboardingCsv'
 import HostInventoryPanel from '@/components/host/HostInventoryPanel.vue'
+import ManagementGatewayPanel from '@/components/host/ManagementGatewayPanel.vue'
 import type { OnboardingBatch, OnboardingCredentials, OnboardingDefaults, OnboardingGatewayStatus, OnboardingNode, OnboardingStatus, OnboardingTargetInput, HostMachineGroup, ResourcePreset } from '@/types/api'
 
 const { t, te, locale } = useI18n()
 const toast = useToast()
 // Machine inventory and durable onboarding tasks share the machine-pool page.
-const activeTab = ref<'hosts' | 'tasks'>('hosts')
+const activeTab = ref<'hosts' | 'tasks' | 'gateways'>('hosts')
+function switchPoolTab(event: KeyboardEvent) {
+  const tabs = ['hosts', 'tasks', 'gateways'] as const
+  const current = tabs.indexOf(activeTab.value)
+  const next = event.key === 'ArrowRight' ? (current + 1) % tabs.length : event.key === 'ArrowLeft' ? (current + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1
+  if (next < 0) return
+  event.preventDefault(); activeTab.value = tabs[next]
+  const buttons = (event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('[role="tab"]')
+  buttons[next]?.focus()
+}
 const inventory = ref<InstanceType<typeof HostInventoryPanel> | null>(null)
 const batches = ref<OnboardingBatch[]>([])
 const gateway = ref<OnboardingGatewayStatus | null>(null)
@@ -257,70 +267,73 @@ sudo bash install-panel.sh --configure-host-pool</code></pre>
       </div>
     </details>
 
-    <div class="flex flex-wrap gap-2" role="tablist" :aria-label="t('onboarding.title')">
-      <button type="button" role="tab" :aria-selected="activeTab === 'hosts'" :class="activeTab === 'hosts' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'hosts'">{{ t('hostInventory.hostsTab') }}</button>
-      <button type="button" role="tab" :aria-selected="activeTab === 'tasks'" :class="activeTab === 'tasks' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'tasks'">{{ t('hostInventory.tasksTab') }}</button>
+    <div class="flex flex-wrap gap-2" role="tablist" :aria-label="t('onboarding.title')" @keydown="switchPoolTab">
+      <button id="pool-tab-hosts" type="button" role="tab" :tabindex="activeTab === 'hosts' ? 0 : -1" :aria-selected="activeTab === 'hosts'" aria-controls="pool-tab-content" :class="activeTab === 'hosts' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'hosts'">{{ t('hostInventory.hostsTab') }}</button>
+      <button id="pool-tab-tasks" type="button" role="tab" :tabindex="activeTab === 'tasks' ? 0 : -1" :aria-selected="activeTab === 'tasks'" aria-controls="pool-tab-content" :class="activeTab === 'tasks' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'tasks'">{{ t('hostInventory.tasksTab') }}</button>
+      <button id="pool-tab-gateways" type="button" role="tab" :tabindex="activeTab === 'gateways' ? 0 : -1" :aria-selected="activeTab === 'gateways'" aria-controls="pool-tab-content" :class="activeTab === 'gateways' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'gateways'">{{ t('managementGateway.title') }}</button>
     </div>
-    <HostInventoryPanel v-if="activeTab === 'hosts'" ref="inventory" />
-    <div v-else class="space-y-4">
-      <form class="flex flex-wrap items-center gap-2" @submit.prevent="applySearch">
-        <input v-model="search" type="search" class="input flex-1 min-w-0 sm:max-w-sm" maxlength="100" :aria-label="t('common.search')" :placeholder="t('onboarding.searchPlaceholder')" />
-        <button class="btn-secondary whitespace-nowrap" type="submit">{{ t('common.search') }}</button>
-        <span class="text-xs text-themed-muted">{{ t('onboarding.batchCount', { count: total }) }}</span>
-      </form>
-      <div v-if="loadFailed" class="card p-4 text-sm text-red-600 dark:text-red-400" role="alert">{{ t('onboarding.loadFailed') }}</div>
-      <div v-if="loading" class="card p-8 text-sm text-themed-muted text-center">{{ t('common.loading') }}</div>
-      <div v-else-if="!batches.length && !loadFailed" class="card p-8 text-center text-sm text-themed-muted">{{ t('onboarding.empty') }}</div>
+    <div id="pool-tab-content" role="tabpanel" :aria-labelledby="`pool-tab-${activeTab}`">
+      <HostInventoryPanel v-if="activeTab === 'hosts'" ref="inventory" />
+      <ManagementGatewayPanel v-else-if="activeTab === 'gateways'" />
+      <div v-else class="space-y-4">
+        <form class="flex flex-wrap items-center gap-2" @submit.prevent="applySearch">
+          <input v-model="search" type="search" class="input flex-1 min-w-0 sm:max-w-sm" maxlength="100" :aria-label="t('common.search')" :placeholder="t('onboarding.searchPlaceholder')" />
+          <button class="btn-secondary whitespace-nowrap" type="submit">{{ t('common.search') }}</button>
+          <span class="text-xs text-themed-muted">{{ t('onboarding.batchCount', { count: total }) }}</span>
+        </form>
+        <div v-if="loadFailed" class="card p-4 text-sm text-red-600 dark:text-red-400" role="alert">{{ t('onboarding.loadFailed') }}</div>
+        <div v-if="loading" class="card p-8 text-sm text-themed-muted text-center">{{ t('common.loading') }}</div>
+        <div v-else-if="!batches.length && !loadFailed" class="card p-8 text-center text-sm text-themed-muted">{{ t('onboarding.empty') }}</div>
 
-      <section v-for="batch in batches" :key="batch.id" class="card overflow-hidden">
-        <button type="button" class="w-full p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-left" :aria-expanded="expanded === batch.id" @click="expanded = expanded === batch.id ? null : batch.id">
-          <span class="min-w-0">
-            <span class="block text-sm font-semibold text-themed break-words">{{ batch.name }}</span>
-            <span class="block text-xs text-themed-muted mt-1 break-words"><template v-if="batch.accountLabel">{{ batch.accountLabel }} · </template>{{ date(batch.createdAt) }}</span>
-          </span>
-          <span class="text-xs text-themed-muted shrink-0">{{ t('onboarding.summary', counts(batch)) }} {{ expanded === batch.id ? '−' : '+' }}</span>
-        </button>
-        <div v-if="expanded === batch.id" class="border-t border-themed">
-          <div class="px-4 py-2 text-xs text-themed-muted flex flex-wrap gap-x-4 gap-y-1 bg-themed-secondary">
-            <span>{{ t('onboarding.preset') }}: {{ batch.defaults.resourcePreset || t('onboarding.autoResources') }}</span>
-            <span v-if="batch.defaults.customerDiskGiB">{{ t('onboarding.customerDisk') }}: {{ batch.defaults.customerDiskGiB }} GiB</span>
-          </div>
-          <div class="divide-y divide-gray-100 dark:divide-gray-800">
-            <article v-for="node in batch.nodes" :key="node.id" class="p-4 grid grid-cols-1 md:grid-cols-[minmax(10rem,1fr)_minmax(14rem,2fr)_auto] gap-3 md:items-center">
-              <div class="min-w-0">
-                <RouterLink v-if="node.hostId" :to="`/resources/hosts/${node.hostId}`" class="text-sm font-medium text-blue-600 dark:text-blue-400 break-all">{{ node.name }}</RouterLink>
-                <span v-else class="text-sm font-medium text-themed break-all">{{ node.name }}</span>
-                <p class="text-xs text-themed-muted font-mono mt-1">{{ node.publicIp }}:{{ node.sshPort }}</p>
-                <p v-if="node.managementIp" class="text-xs text-themed-muted mt-1">{{ t('onboarding.managementIp') }}: {{ node.managementIp }}</p>
-                <p v-if="node.machineGroup || node.regionGroup" class="text-xs text-themed-muted mt-1 break-words">{{ node.machineGroup }} · {{ node.regionGroup }}</p>
-                <p v-if="node.resolvedResources" class="text-xs text-themed-muted mt-1">{{ node.resolvedResources.cpuAllowanceMax / 100 }} CPU · {{ node.resolvedResources.memoryMax }} MiB · {{ node.resolvedResources.customerDiskGiB ?? '—' }} GiB</p>
-              </div>
-              <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-2 text-xs">
-                  <span class="px-2 py-1 rounded" :class="statusClasses[node.status]">{{ t(`onboarding.status.${node.status}`) }}</span>
-                  <span v-if="node.status !== 'succeeded' && node.status !== 'cancelled'" class="text-themed-muted">{{ t(`onboarding.steps.${node.step}`) }}</span>
-                  <span v-if="node.attempt > 0" class="text-themed-muted">{{ t('onboarding.attempt', { count: node.attempt }) }}</span>
+        <section v-for="batch in batches" :key="batch.id" class="card overflow-hidden">
+          <button type="button" class="w-full p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-left" :aria-expanded="expanded === batch.id" @click="expanded = expanded === batch.id ? null : batch.id">
+            <span class="min-w-0">
+              <span class="block text-sm font-semibold text-themed break-words">{{ batch.name }}</span>
+              <span class="block text-xs text-themed-muted mt-1 break-words"><template v-if="batch.accountLabel">{{ batch.accountLabel }} · </template>{{ date(batch.createdAt) }}</span>
+            </span>
+            <span class="text-xs text-themed-muted shrink-0">{{ t('onboarding.summary', counts(batch)) }} {{ expanded === batch.id ? '−' : '+' }}</span>
+          </button>
+          <div v-if="expanded === batch.id" class="border-t border-themed">
+            <div class="px-4 py-2 text-xs text-themed-muted flex flex-wrap gap-x-4 gap-y-1 bg-themed-secondary">
+              <span>{{ t('onboarding.preset') }}: {{ batch.defaults.resourcePreset || t('onboarding.autoResources') }}</span>
+              <span v-if="batch.defaults.customerDiskGiB">{{ t('onboarding.customerDisk') }}: {{ batch.defaults.customerDiskGiB }} GiB</span>
+            </div>
+            <div class="divide-y divide-gray-100 dark:divide-gray-800">
+              <article v-for="node in batch.nodes" :key="node.id" class="p-4 grid grid-cols-1 md:grid-cols-[minmax(10rem,1fr)_minmax(14rem,2fr)_auto] gap-3 md:items-center">
+                <div class="min-w-0">
+                  <RouterLink v-if="node.hostId" :to="`/resources/hosts/${node.hostId}`" class="text-sm font-medium text-blue-600 dark:text-blue-400 break-all">{{ node.name }}</RouterLink>
+                  <span v-else class="text-sm font-medium text-themed break-all">{{ node.name }}</span>
+                  <p class="text-xs text-themed-muted font-mono mt-1">{{ node.publicIp }}:{{ node.sshPort }}</p>
+                  <p v-if="node.managementIp" class="text-xs text-themed-muted mt-1">{{ t('onboarding.managementIp') }}: {{ node.managementIp }}</p>
+                  <p v-if="node.machineGroup || node.regionGroup" class="text-xs text-themed-muted mt-1 break-words">{{ node.machineGroup }} · {{ node.regionGroup }}</p>
+                  <p v-if="node.resolvedResources" class="text-xs text-themed-muted mt-1">{{ node.resolvedResources.cpuAllowanceMax / 100 }} CPU · {{ node.resolvedResources.memoryMax }} MiB · {{ node.resolvedResources.customerDiskGiB ?? '—' }} GiB</p>
                 </div>
-                <p v-if="node.errorCode" class="text-xs text-red-600 dark:text-red-400 mt-2 break-words">{{ errorText(node.errorCode) }}</p>
-                <p v-if="node.status === 'succeeded' && node.host" class="text-xs text-themed-muted mt-2">{{ node.host.architecture }} · {{ t(`onboarding.hostStatus.${node.host.status}`) }}</p>
-              </div>
-              <div class="flex flex-wrap gap-2 md:justify-end">
-                <button v-if="node.managementIp" type="button" class="btn-secondary text-xs whitespace-nowrap" @click="sshNode = node">SSH</button>
-                <button v-if="node.status === 'failed' || node.status === 'cancelled'" type="button" class="btn-secondary text-xs whitespace-nowrap" :disabled="!!actionNodeId || !gateway?.ready" @click="openRetry(node)">{{ t('common.retry') }}</button>
-                <button v-if="node.status === 'queued' || node.status === 'failed'" type="button" class="btn-secondary text-xs whitespace-nowrap" :disabled="!!actionNodeId" @click="cancel(node)">{{ t('common.cancel') }}</button>
-                <button v-if="['succeeded', 'failed', 'cancelled'].includes(node.status)" type="button" class="btn-secondary text-xs whitespace-nowrap text-red-600 dark:text-red-400" :disabled="!!actionNodeId" @click="deleteNode = node">{{ t('common.delete') }}</button>
-              </div>
-            </article>
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <span class="px-2 py-1 rounded" :class="statusClasses[node.status]">{{ t(`onboarding.status.${node.status}`) }}</span>
+                    <span v-if="node.status !== 'succeeded' && node.status !== 'cancelled'" class="text-themed-muted">{{ t(`onboarding.steps.${node.step}`) }}</span>
+                    <span v-if="node.attempt > 0" class="text-themed-muted">{{ t('onboarding.attempt', { count: node.attempt }) }}</span>
+                  </div>
+                  <p v-if="node.errorCode" class="text-xs text-red-600 dark:text-red-400 mt-2 break-words">{{ errorText(node.errorCode) }}</p>
+                  <p v-if="node.status === 'succeeded' && node.host" class="text-xs text-themed-muted mt-2">{{ node.host.architecture }} · {{ t(`onboarding.hostStatus.${node.host.status}`) }}</p>
+                </div>
+                <div class="flex flex-wrap gap-2 md:justify-end">
+                  <button v-if="node.managementIp" type="button" class="btn-secondary text-xs whitespace-nowrap" @click="sshNode = node">SSH</button>
+                  <button v-if="node.status === 'failed' || node.status === 'cancelled'" type="button" class="btn-secondary text-xs whitespace-nowrap" :disabled="!!actionNodeId || !gateway?.ready" @click="openRetry(node)">{{ t('common.retry') }}</button>
+                  <button v-if="node.status === 'queued' || node.status === 'failed'" type="button" class="btn-secondary text-xs whitespace-nowrap" :disabled="!!actionNodeId" @click="cancel(node)">{{ t('common.cancel') }}</button>
+                  <button v-if="['succeeded', 'failed', 'cancelled'].includes(node.status)" type="button" class="btn-secondary text-xs whitespace-nowrap text-red-600 dark:text-red-400" :disabled="!!actionNodeId" @click="deleteNode = node">{{ t('common.delete') }}</button>
+                </div>
+              </article>
+            </div>
           </div>
+        </section>
+        <div v-if="total > 10" class="flex items-center justify-end gap-3">
+          <button class="btn-secondary" :disabled="page <= 1" @click="changePage(page - 1)">{{ t('common.prevPage') }}</button>
+          <span class="text-sm text-themed-muted">{{ page }} / {{ pageCount }}</span>
+          <button class="btn-secondary" :disabled="page >= pageCount" @click="changePage(page + 1)">{{ t('common.nextPage') }}</button>
         </div>
-      </section>
-      <div v-if="total > 10" class="flex items-center justify-end gap-3">
-        <button class="btn-secondary" :disabled="page <= 1" @click="changePage(page - 1)">{{ t('common.prevPage') }}</button>
-        <span class="text-sm text-themed-muted">{{ page }} / {{ pageCount }}</span>
-        <button class="btn-secondary" :disabled="page >= pageCount" @click="changePage(page + 1)">{{ t('common.nextPage') }}</button>
       </div>
     </div>
-
     <Teleport to="body">
       <div v-if="showCreate" class="modal-overlay" @keydown.esc="closeCreate">
         <div class="modal-backdrop" @click="closeCreate"></div>

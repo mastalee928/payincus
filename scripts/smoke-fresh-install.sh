@@ -69,7 +69,7 @@ for file in client/dist/user/index.html client/dist/admin/index.html server/dist
   server/dist/services/host-public-ipv6-sync.js server/dist/lib/incus/dedicated-ipv6.js \
   server/dist/lib/agent-version.js server/dist/lib/upaypro.js \
   server/prisma/migrations/202610160002_dedicated_ipv6/migration.sql \
-  scripts/onboarding-gateway.py scripts/setup-onboarding-control.py LICENSE; do
+  scripts/probe-management-gateway.py scripts/onboarding-gateway.py scripts/setup-onboarding-control.py LICENSE; do
   test -s "/opt/incudal/$file"
 done
 expected_migrations=$(find /opt/incudal/server/prisma/migrations -name migration.sql -type f | wc -l)

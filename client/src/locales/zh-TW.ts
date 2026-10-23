@@ -4,7 +4,9 @@ import { zhTW as ossMessages } from './aliyun-oss'
 import en from './en'
 
 import { zhTW as ipv6Delivery } from './ipv6-delivery'
+import { zhTW as managementGateway } from './management-gateway'
 const zhTW = {
+  managementGateway,
     oss: ossMessages,
   ipv6Delivery,
   hostIpSync: {
