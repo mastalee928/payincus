@@ -6,6 +6,14 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-24 恢复保护内的网页核对入口（阶段源码）
+
+- OSS 页面新增恢复核对：在保护期间分页读取账户余额、实例到期、充值订单、余额日志及机器池订单意向；显示真实备份截止时间、库存隔离和快照后交易边界。数据库查询使用 repeatable-read/read-only 事务，字段白名单不返回密码、认证材料、私钥路径或支付配置。旧恢复记录无时间时不编造，回滚保持保护并标明回退数据。
+- 探测仅经已登记 /32 管理通道，固定 SSH 命令核对宿主接入 ID，并要求原 Incus TLS 证书/指纹及管理地址匹配，再只读比较现存实例；缺失/未知/重复实例不冒充库存就绪，不改余额、到期、实例状态、peer 或占用。受限备份管理员、Web sid/Bearer 和管理员 Origin 边界保留；实际发现跨 Origin 请求未显式拒绝后补齐，失败未记为通过。
+- 类型/后端构建、前端双构建、路由/i18n/dist、备份及新增核对守卫、原网关9项Python登记守卫和修改TS ESLint通过；新增守卫登记到全套清单，现planned178（不是本阶段全量执行）。真实隔离 PG/Fastify 证明匿名、普通用户、非授权管理员、跨Origin拒绝，五种分类/金额读取与秘密省略、未知管理身份阻断及业务503通过。真实 OpenSSH/WG证明新探测的身份与错误指纹拒绝、配置不变。
+- 真实后端浏览器核对六种宽度/主题、分类切换与失败提示，无横向溢出；设计源码0FAIL/0WARN、渲染0FAIL/0WARN，实际字体与桌面/平板/手机复核。沿用黑白样式，achromatic-ledger seed168876278，保留配色/字体，恢复截止时间和实测连接与快照数据分别标注。证据维护者忽略目录 `recovery-review-api-result.json`、`recovery-probe-ssh-result.json`、`gateway-page-browser/review-browser-result.json`。
+- 新备份截止/回滚标记已再跑真实完整OSS restore/rollback/resume，全部成功；原主控服务active、NRestarts0、health正常。该阶段不包含账目修订/补回快照后订单，不宣称跨机器宿主联合验收通过。物理旧A已准备同源ARM64预览包；AMD64专用宿主用官方Incus6.0.0实际启动3台隔离测试容器，原独立网关服务保持，证据 `cross-native-host-result.json`，留供下一阶段实际跨机器测试。
+
 ## 2026-10-24 完整隔离 OSS 恢复、原生网关激活与回滚
 
 - 接上方真实整库云备份/预检，正式执行器在独立测试 PG 集群完成 `restore → awaiting_review → rollback → resume`。实际唯一 `incudal-backend` systemd 服务与原生 `wg-quick@incudal-mgmt` 临时复用；恢复保持保护，业务 API 返回 503，管理员可登录，恢复前 JWT 会话拒绝。余额按实际 `Decimal(10,2)` 保持 `137.25`；原控制签名、WireGuard、管理 SSH 和证书哈希匹配，B 的数据库/JWT/已核实 SSH 指纹及受信组件目录保留。

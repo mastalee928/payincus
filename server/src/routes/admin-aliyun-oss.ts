@@ -4,6 +4,8 @@ import { BackupError, ensure, initBackupState, normalizeConfig, OSS_REGIONS, pub
 import { activeBackupTask, backupRuntimeReady, enqueueBackupTask } from '../services/platform-backup-scheduler.js'
 import { isDemoRequest } from '../lib/demo-safety.js'
 import { createLog } from '../db/logs.js'
+import { recoveryReview, probeRecoveryHost, RECOVERY_REVIEW_SECTIONS, type RecoveryReviewSection } from '../services/platform-recovery-review.js'
+import { normalizeOrigin } from '../lib/origin-config.js'
 
 export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
   const requireBackupAdmin = async (request: FastifyRequest) => {
@@ -19,6 +21,28 @@ export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
   })
   const objectSchema = { type: 'object', additionalProperties: false } as const
   const audit = (request: FastifyRequest, action: string) => createLog(request.user.id, 'system', `oss.${action}`, `OSS ${action}`, 'success')
+  const requireReviewWebSession = async (request: FastifyRequest) => {
+    const origins = (process.env.ADMIN_FRONTEND_URL || '').split(',').map(value => normalizeOrigin(value.trim())).filter(Boolean)
+    const origin = request.headers.origin
+    ensure(request.user.sid && request.headers.authorization?.startsWith('Bearer ') && request.headers['sec-fetch-site'] !== 'cross-site' &&
+      (request.method === 'GET' && origin === undefined || typeof origin === 'string' && origins.includes(origin)), 'OSS_REVIEW_WEB_SESSION_REQUIRED', 403)
+  }
+  fastify.get<{ Querystring: { section?: RecoveryReviewSection; page?: number } }>('/recovery-review', {
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], schema: { querystring: { ...objectSchema, properties: {
+      section: { type: 'string', enum: [...RECOVERY_REVIEW_SECTIONS] }, page: { type: 'integer', minimum: 1, maximum: 1000000 }
+    } } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    return recoveryReview(request.query.section, request.query.page)
+  })
+  fastify.post<{ Params: { id: string } }>('/recovery-review/hosts/:id/probe', {
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    schema: { params: { ...objectSchema, required: ['id'], properties: { id: { type: 'string', pattern: '^[1-9][0-9]{0,9}$' } } },
+      body: { ...objectSchema, maxProperties: 0 } }
+  }, async request => serializeBackupMutation(async () => {
+    ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409)
+    return probeRecoveryHost(Number(request.params.id))
+  }))
   async function connection<T>(action: (client: AliyunOssClient) => Promise<T>, target?: { region?: string; bucket?: string }) {
     const config = await readBackupConfig(); ensure(config, 'OSS_CONFIG_REQUIRED', 409)
     const client = new AliyunOssClient({ ...config, ...(target?.region ? { region: validateRegion(target.region) } : {}), ...(target?.bucket ? { bucket: validateBucket(target.bucket) } : {}) })

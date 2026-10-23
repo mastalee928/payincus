@@ -625,6 +625,8 @@ http.interceptors.response.use(
 // API 模块
 const api = {
   aliyunOss: {
+    recoveryReview: (section: import('@/types/aliyun-oss').RecoveryReviewSection = 'balances', page = 1): Promise<import('@/types/aliyun-oss').RecoveryReviewReport> => http.get('/admin/aliyun-oss/recovery-review', { params: { section, page } }),
+    probeRecoveryHost: (id: number): Promise<import('@/types/aliyun-oss').RecoveryHostProbe> => http.post(`/admin/aliyun-oss/recovery-review/hosts/${id}/probe`, {}, { timeout: 70000 }),
     config: (): Promise<{ config: OssConfig | null; runtimeReady: boolean; recoveryHeld: boolean; activeTask: OssTask | null }> => http.get('/admin/aliyun-oss/config'),
     save: (data: Record<string, unknown>): Promise<{ config: OssConfig }> => http.put('/admin/aliyun-oss/config', data),
     test: (): Promise<{ config: OssConfig }> => http.post('/admin/aliyun-oss/test-connection', {}, { timeout: 180000 }),

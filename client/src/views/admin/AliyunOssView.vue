@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
 import type { OssBackup, OssConfig, OssDirectory, OssTask } from '@/types/aliyun-oss'
+import OssRecoveryReview from '@/components/backup/OssRecoveryReview.vue'
 
 const { t, te, locale } = useI18n()
 const toast = useToast()
@@ -18,7 +19,8 @@ const listing = ref<OssDirectory>({ directories: [], objects: [], nextCursor: nu
 const modal = ref<HTMLDialogElement>(), modalKind = ref<'create' | 'delete' | 'preview' | 'restore' | 'resume' | 'rollback'>('create')
 const newBucketName = ref(''), newBucketRegion = ref('oss-cn-hangzhou'), selectedPreview = ref<OssTask | null>(null)
 const active = computed(() => tasks.value.some(task => task.status === 'pending' || task.status === 'running'))
-const disabled = computed(() => busy.value || active.value)
+const reviewBusy = ref(false)
+const disabled = computed(() => busy.value || active.value || reviewBusy.value)
 const dirty = computed(() => !config.value || Boolean(form.accessKeySecret || form.backupPassword) || ['enabled', 'region', 'bucket', 'prefix', 'accessKeyId', 'intervalHours', 'retention'].some(key => form[key as keyof typeof form] !== config.value![key as keyof OssConfig]))
 const backupReady = computed(() => config.value?.bucket && config.value.hasBackupPassword && config.value.testedRevision === config.value.revision && !dirty.value)
 const connectionForm = ref<HTMLFormElement>()
@@ -117,6 +119,7 @@ const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'dele
     <template v-if="!loading && !loadError">
       <div v-if="!runtimeReady" class="oss-notice" role="status"><p>{{ t('oss.runtimeMissing') }}</p><a href="https://mastalee928.github.io/payincus/deployment/oss-backup" target="_blank" rel="noopener noreferrer">{{ t('oss.deploymentHelp') }}</a></div>
       <div v-if="held" class="oss-notice"><p>{{ t('oss.held') }}</p><div class="oss-actions"><button :disabled="disabled" @click="openModal('resume')">{{ t('oss.resume') }}</button><button :disabled="disabled" @click="openModal('rollback')">{{ t('oss.rollback') }}</button></div></div>
+      <OssRecoveryReview v-if="held" :disabled="disabled" @busy="reviewBusy = $event" />
       <form ref="connectionForm" @submit.prevent="submitSettings">
         <section aria-labelledby="oss-connection-title">
           <h2 id="oss-connection-title">{{ t('oss.connection') }}</h2><p class="hint">{{ t('oss.setupHint') }}</p>

@@ -3,7 +3,7 @@
 
 Authorize a dedicated key with:
 restrict,command="/usr/local/sbin/incudal-onboarding-gateway" ssh-ed25519 ...
-Only status, idempotent peer registration and fixed enrolled-host DNS installation are supported.
+Only status, peer registration, fixed DNS installation and enrolled-host identity probes are supported.
 """
 import fcntl
 import ipaddress
@@ -97,6 +97,43 @@ def install_host_dns(job, control, gateway_public):
 
 def run(*args):
     return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL).strip()
+
+
+def probe_host(job, control):
+    raw = sys.stdin.buffer.read(2049)
+    if len(raw) > 2048: raise ValueError('input too large')
+    request = json.loads(raw, object_pairs_hook=strict_json)
+    if not isinstance(request, dict) or set(request) != {'sshPort', 'sshFingerprint', 'nodePublicKey'}: raise ValueError('invalid probe request')
+    if type(request['sshPort']) is not int or not 1 <= request['sshPort'] <= 65535: raise ValueError('invalid port')
+    if not isinstance(request['sshFingerprint'], str) or not re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}', request['sshFingerprint']): raise ValueError('invalid fingerprint')
+    reservation = STATE / (job + '.json')
+    for path in [reservation, *reservation.parents]:
+        info = path.lstat()
+        if info.st_uid != 0 or stat.S_ISLNK(info.st_mode) or info.st_mode & 0o022: raise ValueError('untrusted reservation')
+    if not reservation.is_file() or reservation.stat().st_size > 4096 or reservation.stat().st_nlink != 1: raise ValueError('invalid reservation')
+    saved = json.loads(reservation.read_text(), object_pairs_hook=strict_json)
+    address = ipaddress.IPv4Address(saved['managementIp'])
+    if address not in control.network or address in (control.ip, control.network.network_address, control.network.broadcast_address): raise ValueError('invalid target')
+    peer = saved['nodePublicKey']
+    if not re.fullmatch(r'[A-Za-z0-9+/]{43}=', peer) or request['nodePublicKey'] != peer: raise ValueError('peer mismatch')
+    allowed = dict(line.split(maxsplit=1) for line in run('wg', 'show', INTERFACE, 'allowed-ips').splitlines())
+    if allowed.get(peer) != str(address) + '/32': raise ValueError('route mismatch')
+    scan = subprocess.run(['ssh-keyscan', '-T', '5', '-p', str(request['sshPort']), '-t', 'ed25519,rsa,ecdsa', str(address)], capture_output=True, timeout=15, check=False)
+    known = []
+    for line in scan.stdout.decode().splitlines():
+        fields = line.split()
+        if len(fields) != 3 or fields[1] not in ['ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256']: continue
+        fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(fields[2], validate=True)).digest()).decode().rstrip('=')
+        if fingerprint == request['sshFingerprint']: known.append(line)
+    if len(known) != 1: raise ValueError('host SSH identity changed')
+    with tempfile.TemporaryDirectory(prefix='incudal-host-probe-', dir='/root') as directory:
+        trust = pathlib.Path(directory) / 'known_hosts'; trust.write_text(known[0] + '\n'); trust.chmod(0o600)
+        result = subprocess.run(['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
+                                 '-o', 'UserKnownHostsFile=' + str(trust), '-o', 'ConnectTimeout=8', '-o', 'IdentitiesOnly=yes',
+                                 '-i', str(MANAGEMENT_PUBLIC_KEY.with_suffix('')), '-p', str(request['sshPort']), 'root@' + str(address),
+                                 'head -c64 /etc/incudal-onboarding-id'], capture_output=True, timeout=15, check=False)
+        if result.returncode or result.stdout.decode().strip() != job: raise ValueError('host identity mismatch')
+    return {'nodeId': job, 'sshIdentityVerified': True, 'keysAndRoutesPreserved': True}
 
 
 def atomic_write(path, content):
@@ -216,7 +253,8 @@ def main():
     os.umask(0o077)
     args = shlex.split(os.environ.get("SSH_ORIGINAL_COMMAND", ""))
     dns_request = len(args) == 2 and args[0] == 'dns' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
-    if args not in (["status"], ["peers"]) and not dns_request and not (len(args) == 3 and args[0] == "add" and re.fullmatch(r"[a-f0-9-]{36}", args[1]) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", args[2])):
+    probe_request = len(args) == 2 and args[0] == 'probe' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
+    if args not in (["status"], ["peers"]) and not dns_request and not probe_request and not (len(args) == 3 and args[0] == "add" and re.fullmatch(r"[a-f0-9-]{36}", args[1]) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", args[2])):
         raise ValueError("unsupported operation")
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     with open(STATE / "lock", "a") as lock:
@@ -233,6 +271,8 @@ def main():
                   "network": str(control.network), "managementSshPublicKey": " ".join(public_key_parts[:2])}
         if dns_request:
             print(json.dumps(install_host_dns(args[1], control, result['publicKey']))); return
+        if probe_request:
+            print(json.dumps(probe_host(args[1], control))); return
         if args[0] == "peers":
             result["peers"] = peer_status(control)
         if args[0] == "add":

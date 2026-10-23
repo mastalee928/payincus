@@ -235,6 +235,8 @@ async function rollbackJournal(directory: string): Promise<boolean> {
   await writeBackupConfig({ ...journal.config, enabled: false, nextRunAt: null, testedRevision: null })
   await chown(statePath('inbox', 'config.json'), Number((await exec('/usr/bin/id', ['-u', 'incudal'])).stdout.trim()), gid)
   process.env.ENCRYPTION_KEY = parseEnv(await readFile(`${INSTALL}/.env`, 'utf8')).ENCRYPTION_KEY
+  const held = await readJson<Record<string, unknown>>(holdPath())
+  if (held) await writeJson(holdPath(), { ...held, mode: 'rollback', snapshot: null }, 0o640)
   journal.stage = 'rolled_back_review'; await writeJson(join(directory, 'journal.json'), journal)
   await service('start')
   await protectedHealth()
@@ -357,7 +359,8 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
       await freeSpace((await databaseMetadata()).bytes + plan.manifest.databaseBytes * 2)
       const journal: RestoreJournal = { taskId: id, database, staging, rollback, stage: 'prepared', config: request.config, files: [] }
       // Persistent across application and database restarts; gate is created before stopping any writer.
-      await writeJson(holdPath(), { taskId: id, createdAt: new Date().toISOString(), reason: 'restore' }, 0o640)
+      await writeJson(holdPath(), { taskId: id, createdAt: new Date().toISOString(), reason: 'restore', mode: 'restore',
+        snapshot: { createdAt: plan.manifest.createdAt, version: plan.manifest.version } }, 0o640)
       preserve = true
       await writeJson(join(directory, 'journal.json'), journal)
       await update('stopping'); await service('stop')

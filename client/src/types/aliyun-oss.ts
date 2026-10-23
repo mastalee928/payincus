@@ -12,3 +12,21 @@ export interface OssBackup { id: string; installationId: string; prefix: string;
 export interface OssDirectory {
   directories: string[]; objects: Array<{ name: string; size: number; lastModified: string }>; nextCursor: string | null
 }
+export type RecoveryReviewSection = 'balances' | 'instances' | 'recharges' | 'balanceLogs' | 'poolOrders'
+export interface RecoveryReviewRow {
+  id: number | string; userId?: number; username?: string; balance?: string; name?: string; hostId?: number
+  expiresAt?: string | null; billingPrice?: string | null; autoRenew?: boolean; version?: number; status?: string
+  deletionBillingPending?: boolean; amount?: string; orderNo?: string; type?: string; balanceBefore?: string
+  balanceAfter?: string; instanceId?: number | null; orderId?: number | null; createdAt?: string
+}
+export interface RecoveryReviewReport {
+  hold: { taskId: string; createdAt: string; mode: 'restore' | 'rollback'; snapshot: { createdAt: string; version: string } | null }
+  checkedAt: string; snapshotOnly: true
+  summary: { users: number; instances: number; recharges: number; balanceLogs: number; poolOrders: number; balance: string }
+  hosts: Array<{ id: number; name: string; status: string; poolFaulted: boolean; managementSshHost: string | null; managementSshPort: number | null }>
+  hostsTruncated: boolean; section: RecoveryReviewSection; page: number; pageSize: number; total: number; rows: RecoveryReviewRow[]
+}
+export interface RecoveryHostProbe {
+  hostId: number; checkedAt: string; managementVerified: boolean; code: string | null
+  inventory?: { expectedCount: number; actualCount: number; missing: string[]; unexpected: string[]; inventoryMatched: boolean }
+}

@@ -139,3 +139,15 @@ export async function installGatewayHostDns(nodeId: string, input: { hostname: s
   } catch (error) { throw error instanceof OnboardingError ? error : new OnboardingError('GATEWAY_DNS_INSTALL_FAILED') }
   finally { client.end() }
 }
+
+export async function probeGatewayHost(nodeId: string, input: { sshPort: number; sshFingerprint: string; nodePublicKey: string }) {
+  if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(nodeId) || !gatewayConfigured()) throw new OnboardingError('GATEWAY_NOT_CONFIGURED')
+  const privateKey = await readFile(process.env.ONBOARDING_GATEWAY_KEY_PATH!)
+  const client = await connectOnboardingSsh({ host: process.env.ONBOARDING_GATEWAY_HOST!, port: Number(process.env.ONBOARDING_GATEWAY_PORT || 22), privateKey },
+    async fingerprint => fingerprint === process.env.ONBOARDING_GATEWAY_FINGERPRINT)
+  try {
+    const value = JSON.parse(await sshExec(client, `probe ${nodeId}`, JSON.stringify(input), 40000))
+    if (Object.keys(value).sort().join(',') !== 'keysAndRoutesPreserved,nodeId,sshIdentityVerified' || value.nodeId !== nodeId ||
+      value.sshIdentityVerified !== true || value.keysAndRoutesPreserved !== true) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
+  } finally { client.end() }
+}
