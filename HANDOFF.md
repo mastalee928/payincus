@@ -6,6 +6,14 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-24 专用宿主整机重启与五分钟自然巡检
+
+- 延续完整包 OSS/账务演练，唯一后端在 08:05 自然触发五分钟巡检（UTC 00:05:00.019→00:05:00.894），失败数 0；上一轮管理员立即执行结束于 UTC 00:03:29.562，下一次自然执行为 UTC 00:10。不是只读取 cron 配置或手动触发的证据。
+- 将专用 AMD64 宿主的临时演练入口改为持久 systemd 启动：复用原 Incus 数据目录、证书、实例和磁盘，仅按既有测试实例设置自启动；保留固定域名绑定、原 WG/管理 SSH/Agent 凭据。先验证新命名空间启动，三台原 UUID/磁盘标记一致，两台已续实例 Running、未续实例 Stopped，原网关和应急 SSH socket 保持。首次启用撞到既有同名 transient Agent，未记通过；改用独立持久单元名后通过，未重建实例。
+- 实际执行专用宿主整机 reboot；按原独立 SSH 指纹重连，boot ID 与重启前不同。持久宿主/DNS/SSH/Agent 服务自动启动，原独立网关也 active。原 Incus 证书及私钥、宿主 WG 与管理 SSH 密钥摘要、三台实例 UUID 和磁盘标记一致；固定域名产品守护程序自动将原 peer Endpoint 指向 B。两台已续实例自动 Running，未续实例保持 Stopped。
+- 重启后再次通过 B 的原 Incus TLS 管理与正式 Go Agent 原凭据心跳（UTC 00:23:25.269），账务仍 137.25，漏续费仍只记一次，充值重放无再次入账。最终再次确认 A 后端/测试 PG inactive、故障保护 active。脱敏结果 `joint101-natural-timer-result.json`、`joint101-reboot-result.json`、`joint101-after-reboot-result.json`，均在维护者忽略目录。
+- 本阶段仅为专用隔离宿主整机重启，不是客户宿主部署、控制器 A 整机断电、完整主备切换或 72 小时演练。销售交付、正常账单明细/其它快照后交易完整核对、保留期删除/库存和双架构升级仍需继续；正式发行保持 v1.7.1，未新发 tag/Release，未执行生产 OTA。
+
 ## 2026-10-24 完整包 OSS 恢复、保护内网页修订与补续费联合实证
 
 - 使用完整 `101aeba` ARM64 预览包在物理 A 新建真实 OSS 备份 `b1dd3c26-05bf-4750-aee2-032b46ce84d2`，包含三台付费测试实例、原控制签名/WG/SSH/Incus 身份和备份前登记的正式 Go Agent 凭据。备份后用正规业务函数完成 20 元测试充值及一台实例 10 元续费，余额 137.25→147.25；这是人工支付渠道夹具，未冒充外部支付供应商回调。独立证据确认该场景无托管收益及 AFF 记录。
