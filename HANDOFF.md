@@ -6,6 +6,15 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-24 完整包 OSS 恢复、保护内网页修订与补续费联合实证
+
+- 使用完整 `101aeba` ARM64 预览包在物理 A 新建真实 OSS 备份 `b1dd3c26-05bf-4750-aee2-032b46ce84d2`，包含三台付费测试实例、原控制签名/WG/SSH/Incus 身份和备份前登记的正式 Go Agent 凭据。备份后用正规业务函数完成 20 元测试充值及一台实例 10 元续费，余额 137.25→147.25；这是人工支付渠道夹具，未冒充外部支付供应商回调。独立证据确认该场景无托管收益及 AFF 记录。
+- A 后端、测试 PG 和管理隧道保持停止，应急 SSH 保留；B 仅接收 OSS 位置/密码/配置、摘要和外部账务证据，原私钥及数据库来自 OSS。修正隔离副本权限后的完整恢复运行 `c8efe61171624085b0378f83cc0f2eb4` 成功，preview `735a93e0-e812-494f-81c4-052af4b8bee3`，恢复保护 `1d568f2f-5606-432d-a268-70fd949cfc8e`。原身份摘要、B 已验签组件和目标连接身份核对通过；业务与实际 Agent 心跳 503。首轮隔离 copytree 丢失属组导致后端看不到保护，产品受保护启动失败并回滚；该失败未记通过，按安装器权限修正后先验证回滚保护再重做。
+- 只切试验网络内固定域名 DNS，原守护程序自动将 Endpoint 从 A 改 B，无重建 peer。完整包受限网关 SSH、原宿主 SSH 指纹、原 Incus 客户端/服务端 TLS 和三台 Running/磁盘标记通过。隔离网关 SSH 读取同一身份目录，目标占位指纹先被拒绝，再以 owner 已独立核实的 B Ed25519 指纹验证并配置私有 loopback 入口；没有放宽指纹检查，公共 DNS 未修改。
+- 真实 Web 密码登录、生产账务 API 及真实 OSS hold 下的网页修订成功：余额 147.25、充值 completed、已完成续费的到期延长（网页时间输入按秒），保护继续启用；修订 `451b2b46-186d-4f0f-a91e-e850c3baf5f1` 持久保存，同一请求重试只返回原记录。网页使用同源组件验收入口，后端为完整包，不能声称此项已验证正式前端资产部署。截图先清除后台 OSS 凭据字段后保存。
+- 独立核对此测试场景账务后执行产品 resume。真实管理员启动/立即巡检接口均 202，调度间隔 5 分钟、失败数 0；漏续费实例只新增一次正常续费及 10 元扣款，已修订续费实例不再扣，正规充值完成函数重放返回未再次入账，最终余额 137.25。原 Go Agent v1.0.3 无轮换凭据在 B 恢复 online/lastSeenAt；原生 Incus `cloud-kept`/`cloud-renewed` Running、`cloud-expired` Stopped，三台磁盘标记保留，未到删除保留期不释放占用。最终结果取得后再次确认 A 后端/测试 PG inactive、故障保护 active。
+- 脱敏证据：维护者忽略目录 `joint101-restore-result.json`、`joint101-ui-result.json`、`joint101-joint-result.json`、`joint101-reconciliation.jpg`。本阶段未改产品源码。新销售资源交付、已完成续费的正常账单明细/其它快照后订单完整核对、保留期删除及库存联合、五分钟自然触发、宿主整机重启、双架构升级仍需继续；不能据此宣布首要范围或完整 P0–P6/AC01–AC34/72 小时完成，未新增 tag、Release 或生产 OTA。
+
 ## 2026-10-24 当前完整预览包与真实 Agent 源端基线
 
 - 源码 `101aeba742cd64968708d833d7997168aef5b38d` 的[源码 CI](https://github.com/mastalee928/payincus/actions/runs/40035690849)与[发行预览](https://github.com/mastalee928/payincus/actions/runs/40035691682)均 success；AMD64/ARM64 构建、全新安装及恢复/回滚通过，Release 预期 skipped。179/179 本地全量检查通过，日志 `logs/test-run-20261024-063147/`。正式发行仍 v1.7.1。
