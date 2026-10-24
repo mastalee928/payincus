@@ -6,6 +6,19 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-25 严格权限首装修复与带 TG 配置的真实 OSS 快照
+
+- 在已授权 AMD64 替代测试主控运行 ef08d03/v1.7.2 完整包安装器，umask077 导致 PostgreSQL 公开验签钥匙为0600，_apt 不可读，APT 报 NO_PUBKEY。原公开钥匙指纹保持，设置0644后实际 apt-get update 验签通过；安装器完成、空库唯一后端与健康正常。源码仅显式设置该公开钥匙0644，运行环境和私钥权限保持。
+- 增加安装器隔离回归：严格umask下执行实际 PostgreSQL 安装函数，APT入口检查钥匙权限；Windows Git Bash及真实ARM64 Linux安装守卫通过，split-deploy-config、system-update-guards、server type-check、diff检查通过。pnpm直接调用bash在Windows PATH缺失的首次失败保留，随后用已有Git Bash执行通过；不把失败算作成功。
+- 两种实际 ef08d03 完整包SHA256/源码身份与独立固定发行公钥下的双组件验签通过。ARM64独立源库包含四台运行实例、原账147.25、客户余额0.00、此前一笔10.00续费及Bot/绑定；完整产品备份执行器在新测试前缀完成真实OSS加密归档、额外副本与回读，结果 `v172-source-backup-result.json`，备份ID ad4e41cb-22d2-4fb5-a49e-d84c7a998fe1。原源库和身份保留，随后仅停止源测试PG，原源后端保持停止。
+- 四台实际客户实例UUID/运行状态以及etc/root/home/srv/var/www/var/lib完整文件内容、权限和链接已留基线；新增客户经过真实NAT代理、公钥和固定客机SSH公钥维持同一SSH连接，客机boot/init起点保持。完整包B冷恢复、前后文件校验、管理DNS重连与双架构升级仍须收尾；正式仍v1.7.1。该源码修复尚未进入新安装包，不将旧候选首装记作新源码包验证。
+
+## 2026-10-25 对话续接与恢复补续 TG 到达确认
+
+- Owner 确认已收到实例名含「恢复补续测试-CloudReady」的续费成功 TG 消息，补齐此前 API 接受后仍待收件人确认的真实到达证据。维护者忽略目录 `tg-renew-result.json` 记录实际调度补续 10.00 元、余额 10.00→0.00、一条正常续费账单；重复巡检没有再次扣款或发送。仅向 owner 已授权绑定投递，未改原站点数据库或 Webhook。
+- 配置和绑定在已真实 OSS 恢复的独立测试库中补入，不能据此宣称 Bot 配置/用户绑定已随完整 OSS 冷恢复验证；该门槛继续保留。2026-10-25 重新读取 ef08d03/v1.7.2 的源码 CI 40093230737、完整预览 40093232351：双架构构建/首装均 success，Release skipped，正式发行仍 v1.7.1。
+- 首要目标与完整 P0–P6/AC01–AC34/四拓扑/72 小时目标在新对话恢复；继续完整包冷恢复、客户持续连接/持久数据校验及双架构实际升级。Owner 原公网后台保持可用，DD 由 owner 在首要门槛通过后执行。
+
 ## 2026-10-24 owner 后台登录恢复与测试覆盖收尾
 
 - 发现公网后台仍被 zz-jointd03 服务覆盖指向独立恢复测试库，owner 无法使用原管理员配置 Bot。停止该覆盖对应后端，移除仅本轮创建且带固定注释的 backend/WireGuard drop-in，恢复原环境、原 WG 和原数据库连接；原 .env/WG 文件摘要与 original-services 记录一致。单一后端恢复正常。

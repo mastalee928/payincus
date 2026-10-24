@@ -127,6 +127,36 @@ for helper in \
     bash -n "$REPO_ROOT/deploy/$helper"
 done
 
+# A restrictive caller umask must not prevent APT from reading its public key.
+postgresql_function=$(declare -f install_postgresql)
+postgresql_function=${postgresql_function//\/etc\/apt\/keyrings\/postgresql.gpg/$WORK_DIR\/postgresql-public.gpg}
+postgresql_function=${postgresql_function//\/etc\/apt\/sources.list.d\/pgdg.list/$WORK_DIR\/pgdg.list}
+printf '%s\n' "$postgresql_function" > "$WORK_DIR/postgresql-functions.sh"
+bash -s -- "$WORK_DIR" <<'PG_KEY_GUARD'
+    set -euo pipefail
+    key_work="$1"
+    source "$key_work/postgresql-functions.sh"
+    PG_VERSION=16
+    OS_CODENAME=guard
+    umask 077
+    psql() { printf 'psql (PostgreSQL) 0.1\n'; }
+    step() { :; }
+    info() { :; }
+    log() { :; }
+    curl() { printf 'public-key-fixture\n'; }
+    gpg() { cat > "${@: -1}"; }
+    apt-get() {
+        if [[ "$1" == update && "$(uname -s)" == Linux ]]; then
+            [[ "$(stat -c %a "$key_work/postgresql-public.gpg")" == 644 ]] || {
+                echo 'strict umask left the public PostgreSQL signing key unreadable by APT' >&2
+                return 1
+            }
+        fi
+    }
+    ensure_postgresql_running() { :; }
+    install_postgresql
+PG_KEY_GUARD
+
 # Preinstalled PostgreSQL can be stopped (for example, on a fresh CI image).
 # Skipping the package install must still start it before database creation.
 (

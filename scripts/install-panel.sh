@@ -449,6 +449,9 @@ install_postgresql() {
 
     curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
         | gpg --yes --dearmor -o /etc/apt/keyrings/postgresql.gpg
+    # APT verifies repositories as _apt, including when the caller uses umask 077.
+    # This is a public verification key; keep private runtime files restricted.
+    chmod 0644 /etc/apt/keyrings/postgresql.gpg
 
     echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${OS_CODENAME}-pgdg main" \
         > /etc/apt/sources.list.d/pgdg.list
