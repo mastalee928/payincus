@@ -1,3 +1,4 @@
+import { prepareNewContainerCloudInit } from './new-container-cloud-init.js'
 import { prisma } from '../db/prisma.js'
 import * as db from '../db/index.js'
 import { buildInstanceConfig, createInstance, deleteInstance, getIncusClient, getInstanceState, startInstance, stopInstance } from '../lib/incus/index.js'
@@ -86,6 +87,7 @@ export async function provisionManagedInstanceAsync(
     })
 
     await createInstance(client, incusConfig)
+    await prepareNewContainerCloudInit(client, config.name, config.cloudInitConfig, config.instanceType)
 
     let ready = false
     for (let i = 0; i < 60; i++) {

@@ -1,3 +1,4 @@
+import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
 /**
  * 管理员计费相关路由
  */
@@ -4779,6 +4780,7 @@ async function createInstanceAsync(
 
     console.log(`[Admin Provisioning] 正在调用 Incus API 创建实例...`)
     await createInstance(client, incusConfig)
+    await prepareNewContainerCloudInit(client, config.name, config.cloudInitConfig, config.instanceType)
 
     // 等待实例创建完成
     let ready = false

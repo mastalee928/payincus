@@ -1,3 +1,4 @@
+import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
 import { applyCustomerInstanceView } from '../lib/customer-instance-view.js'
 import { hostLiveStatus } from '../lib/host-live-status.js'
 import { prepareDedicatedDelivery } from '../services/dedicated-delivery.js'
@@ -6730,6 +6731,7 @@ async function createInstanceAsync(
     console.log(`[Provisioning] Incus 配置已生成，敏感字段已跳过日志输出`)
 
     await createInstance(client, incusConfig)
+    await prepareNewContainerCloudInit(client, config.name, config.cloudInitConfig, config.instanceType)
     const instanceTypeLabel = config.instanceType === 'vm' ? '虚拟机' : '容器'
     console.log(`[Provisioning] 实例 ${config.name} ${instanceTypeLabel}创建完成`)
 

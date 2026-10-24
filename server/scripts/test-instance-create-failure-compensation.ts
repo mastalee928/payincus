@@ -1,3 +1,4 @@
+import { prepareNewContainerCloudInit } from '../src/lib/new-container-cloud-init.js'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -217,3 +218,37 @@ assert.ok(
 )
 
 console.log('instance create failure compensation checks passed')
+
+const cloudInitRequests: Array<{ method: string; path: string }> = []
+const cloudInitClient = {
+  async request<T>(method: string, path: string): Promise<T> {
+    cloudInitRequests.push({ method, path })
+    return undefined as T
+  }
+}
+await prepareNewContainerCloudInit(cloudInitClient, 'new-customer', { 'user.user-data': '#cloud-config\n{}' })
+assert.deepEqual(cloudInitRequests, [{ method: 'DELETE', path: '/1.0/instances/new-customer/files?path=/etc/cloud/cloud-init.disabled' }])
+cloudInitRequests.length = 0
+for (const config of [undefined, {}, { 'user.user-data': '  ' }]) {
+  await prepareNewContainerCloudInit(cloudInitClient, 'not-initialized', config)
+}
+await prepareNewContainerCloudInit(cloudInitClient, 'vm', { 'user.user-data': '#cloud-config\n{}' }, 'vm')
+assert.equal(cloudInitRequests.length, 0, 'VMs and creates without requested cloud-init must not touch guest files')
+await prepareNewContainerCloudInit(cloudInitClient, 'new-cloud-key', { 'cloud-init.user-data': '#cloud-config\n{}' })
+assert.equal(cloudInitRequests.length, 1)
+const missingMarkerClient = { async request<T>(): Promise<T> { throw Error('open /etc/cloud/cloud-init.disabled: no such file or directory') } }
+await prepareNewContainerCloudInit(missingMarkerClient, 'new-no-marker', { 'user.user-data': '#cloud-config\n{}' })
+for (const failure of ['permission denied', 'Incus unavailable']) {
+  const failingClient = { async request<T>(): Promise<T> { throw Error(failure) } }
+  await assert.rejects(prepareNewContainerCloudInit(failingClient, 'new-failing', { 'user.user-data': '#cloud-config\n{}' }), new RegExp(failure))
+}
+for (const source of [createInstanceAsyncSection, adminAsyncSection, managedAsyncSection]) {
+  const create = source.indexOf('await createInstance(client, incusConfig)')
+  const prepare = source.indexOf('await prepareNewContainerCloudInit(client, config.name, config.cloudInitConfig, config.instanceType)')
+  const start = source.indexOf('await startInstance(client, config.name)')
+  assert.ok(create >= 0 && prepare > create && start > prepare, 'new container initialization must be prepared after creation and before its first start')
+}
+for (const path of ['src/workers/instanceTaskWorker.ts', 'src/workers/restoreTaskWorker.ts', 'src/services/platform-backup-worker.ts', 'src/lib/incus/incus-instances.ts']) {
+  assert.ok(!readFileSync(resolve(__dirname, '../', path), 'utf8').includes('prepareNewContainerCloudInit'), 'existing instance restore/move/recreate and generic Incus calls must not initialize customer disks')
+}
+console.log('Fresh container cloud-init preparation passed: disable marker, missing marker, failure, VM/no-config exclusion and existing-disk boundaries')
