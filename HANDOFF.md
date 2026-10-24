@@ -6,6 +6,14 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-24 当前完整候选包真实 OSS 冷恢复复验
+
+- 源码 `d03fdc1fa93ee1928bfef33ca01c92af251e8e8b` 的[源码 CI40064236220](https://github.com/mastalee928/payincus/actions/runs/40064236220)和[预览40064236950](https://github.com/mastalee928/payincus/actions/runs/40064236950)均 success；AMD64/ARM64 构建、全新安装及恢复/回滚全部通过，Release 预期 skipped。此前新.env遗漏 Agent 下载令牌的失败已在这一提交终态关闭。
+- 下载同次双架构实际完整包；ARM64 SHA256 `d25e61133bc4d26918d273981fdf852d0643b74807bb001e0742f429d71dc3bc`，AMD64 `7b7004c06bce960a2cc515be55dc1256a9a3e7a330293c13f1d3eec936d76394`。ARM完整包传到物理A/B后哈希一致；使用独立既有发行信任核对并验证包内两架构组件和完整sourceCommit，未加源码覆盖。B独立空数据库、新环境和新控制签名/WG/SSH/TLS身份先完成受信登记，确认新身份与A不同。
+- 旧 `preview-101aeba` 备份被当前包以 `OSS_APP_VERSION_UNSUPPORTED` 正确拒绝；未放宽跨预览限制。改在A原测试库的独立副本使用同一候选包创建新的OSS测试前缀；源端自然补续只影响副本，原账库保留。原Go Agent在快照前重新在线。本轮快照余额137.25，之后用正常业务函数完成测试充值20与续费10，余额147.25，保存关联正常账单、准确周期和到账时间；人工渠道测试不冒充外部供应商回调。
+- A唯一后端、独立源PG及管理通道确认停止，B只收到OSS输入、摘要和独立账证。新备份 `de7a1d23-85b6-4f4c-b93c-b6038cf7b731`、预检 `96d708c1-be41-4a69-bf45-d86a5b2517f9` 的产品恢复成功：整库、三台付费实例和原控制/WG/管理SSH/Incus TLS摘要一致；B目的环境与新受信组件保留，固定登记验证通过，恢复保护下业务和Agent503。演练旧单元引用及已迁移库冗余迁移调用的失败未计通过；脚本修正后完整产品恢复通过，无产品代码放宽。
+- 脱敏实证在维护者忽略目录 `joint-d03-source-result.json` / `joint-d03-restore-result.json`。本阶段尚未解除保护；当前完整前端账单核对、宿主重连、销售交付/删除库存及实际升级继续，正式仍v1.7.1，未tag/Release/生产OTA。完整P0–P6/AC01–AC34/72小时目标保留。
+
 ## 2026-10-24 新表单预览的 AMD64 Agent 首装失败修复
 
 - `f3c7592764d69295c152e3f3f24c4bd1caf66e2f` 的[源码 CI40058400498](https://github.com/mastalee928/payincus/actions/runs/40058400498)成功，[预览40058665238](https://github.com/mastalee928/payincus/actions/runs/40058665238)失败：两架构构建及 ARM64 首装成功，AMD64 作业 `120768753351` 已完成迁移、网关登记和服务启动，在读取已发布 Agent 清单时由 GitHub 匿名 403 限流导致面板404，`new installation must resolve a published Agent` 断言失败。未到后续备份恢复验收，Release跳过；不是账单网页构建失败。
