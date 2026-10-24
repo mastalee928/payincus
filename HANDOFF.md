@@ -6,6 +6,16 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-24 当前 OSS 恢复后的删除库存、真实新购与重试修复
+
+- 接手 01a1692e-f39d-7b01-a40e-a03ec0f50352 后，从 B 实际文件确认最后解除保护任务已成功。原 Go Agent 在 B 持续在线；原账余额 147.25、保留实例续费 1 条、补回实例续费 2 条及准确时间保持，未重复扣款或充值。A 原后端、源测试库和管理通道继续隔离。
+- 当前 d03 完整包的后台真实巡检删除未续费测试实例，远端确认不存在后释放 CPU 1、内存 64MB、磁盘 1MB 的测试占用，库存从 3/192/3 恢复为 2/128/2；重复巡检不重复释放，另外两台原 UUID、磁盘和账单保留。四天封停时间是独立恢复库中的时间夹具，不宣称真实经过三天。脱敏证据 joint-d03-delete-result.json。
+- 专用 AMD64 宿主原隔离环境仅适用于旧特权 BusyBox 夹具。补齐正式软件包中的 dnsmasq、普通容器 UID/GID、LXC 默认挂载路径、目标网络 sysfs/proc 视图及映射 UID 必需的目录遍历 ACL；原身份、两台保留实例 UUID 和磁盘一致。普通官方 Alpine 容器实际启动/停止/删除预检通过。旧四小时 holder 和 PG 已终止后，复用仍在运行的同包后端视图并重启同一 PG 数据目录，未重建恢复库。未改产品信任或生产配置。
+- 独立客户以真实用户登录，在恢复后的 d03 唯一后端购买 10 元普通 Alpine 实例；真实 Incus Running、正常 newPurchase/consume 关联、余额 20→10，源账 147.25 保持。环境未就绪时三笔失败均由正常业务自动退款，随后经真实管理员删除确认远端不存在；账单保留且无重复退款。不存在第二个业务后端。
+- 真实订单重试暴露共享 maxInstances=1 的预检查早于幂等返回，成功意向被当作第二台拒绝。仅将共享预检查移至既有包/方案/权限验证和已接受付费意向返回之后；新购的共享配额及事务内检查保持。新守卫约束这一顺序。编译模块专项在同一恢复测试库验证原意向 200、仍仅一实例一账单/余额10；新意向仍400/SHARE_QUOTA_INSTANCES_EXCEEDED。该修复是单路由源码覆盖，不能视作新的完整发行包验收；新资产复验继续。
+- server 构建、179/179 全量检查（logs/test-run-20261024-180030，7m48s）和清单检查通过；client/server 类型均在全量中通过。修改文件 ESLint 与 HEAD 基线逐项比较，无新增诊断；原文件仍有既有 no-empty 错误及 unused catch 警告，未冒充完整 lint 通过。未改前端文件。
+- 客户 SSH 验收尚未通过：已校验官方 Alpine 3.24 rootfs 确含 /etc/cloud/cloud-init.disabled，用户公钥虽进入实际 Incus user-data，cloud-init 被禁用，授权文件与服务未完成。这是下一项明确交付缺口，不能把容器 Running 算完整客户交付。后续须修复/验收初始化、客户 NAT SSH、新完整包及双架构实际升级；正式仍 v1.7.1，未新 tag/Release/生产 OTA。完整 P0–P6/AC01–AC34/四拓扑/72小时保留。
+
 ## 2026-10-24 当前完整候选包真实 OSS 冷恢复复验
 
 - 源码 `d03fdc1fa93ee1928bfef33ca01c92af251e8e8b` 的[源码 CI40064236220](https://github.com/mastalee928/payincus/actions/runs/40064236220)和[预览40064236950](https://github.com/mastalee928/payincus/actions/runs/40064236950)均 success；AMD64/ARM64 构建、全新安装及恢复/回滚全部通过，Release 预期 skipped。此前新.env遗漏 Agent 下载令牌的失败已在这一提交终态关闭。

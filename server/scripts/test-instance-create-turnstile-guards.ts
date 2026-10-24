@@ -86,4 +86,17 @@ for (const [name, source] of [
   assert(source.includes('turnstileFailed'), `${name} locale must include turnstileFailed`)
 }
 
+const paidReplayIndex = instanceRoutesSource.indexOf('if (selectedPlan && normalPaidIdempotencyKey)')
+const sharedQuotaIndex = instanceRoutesSource.indexOf('if (shareInfo.maxInstances === 0)')
+assert(
+  paidReplayIndex > instanceRoutesSource.indexOf('const canAccessPackage =') &&
+    paidReplayIndex > instanceRoutesSource.indexOf('if (!selectedPlan || selectedPlan.packageId !== packageId)') &&
+    sharedQuotaIndex > paidReplayIndex,
+  'accepted paid create retries must replay after package/plan permission checks and before current shared quota checks'
+)
+assert(
+  instanceRoutesSource.indexOf('const txShareInfo = await db.getPackageShareForUser(packageId, user.id, tx as any)') > sharedQuotaIndex,
+  'new paid creates must retain the transactional shared quota check after the preflight check'
+)
+
 console.log('instance create Turnstile guards passed')

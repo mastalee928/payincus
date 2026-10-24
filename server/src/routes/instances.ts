@@ -1285,47 +1285,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       }
     }
 
-    // 1.2 如果是共享套餐，初步检查共享配额限制（快速失败）
-    // 注意：完整的配额检查将在事务中进行，这里只是初步验证以减少无效请求
     const isOwnPackage = pkg.user_id === user.id
-    let shareInfo: { quotaMultiplier: number | null; maxInstances: number | null } | null = null
-    if (!isOwnPackage) {
-      shareInfo = await db.getPackageShareForUser(packageId, user.id)
-      if (shareInfo) {
-        // 初步检查：maxInstances = 0 表示不允许创建实例
-        if (shareInfo.maxInstances === 0) {
-          return reply.code(400).send(apiError(ErrorCode.SHARE_QUOTA_INSTANCES_EXCEEDED,
-            '该套餐的实例数量限制为 0，不允许创建实例'))
-        }
-
-        // 获取已使用的配额（初步检查，完整检查在事务中）
-        const usage = await db.getSharedPackageUsage(packageId, user.id)
-
-        // 检查实例数量限制（排除 0，因为已经在上面检查了）
-        if (shareInfo.maxInstances !== null && shareInfo.maxInstances > 0 && usage.instanceCount >= shareInfo.maxInstances) {
-          return reply.code(400).send(apiError(ErrorCode.SHARE_QUOTA_INSTANCES_EXCEEDED,
-            `已开通 ${usage.instanceCount}/${shareInfo.maxInstances} 台`))
-        }
-
-        // 检查 CPU/内存配额限制
-        if (shareInfo.quotaMultiplier !== null) {
-          const maxCpu = Math.floor(pkg.cpu_max * shareInfo.quotaMultiplier)
-          const maxMemory = Math.floor(pkg.memory_max * shareInfo.quotaMultiplier)
-          const requestedCpuCheck = cpu || 15
-          const requestedMemoryCheck = memory || 128
-
-          if (usage.totalCpu + requestedCpuCheck > maxCpu) {
-            return reply.code(400).send(apiError(ErrorCode.SHARE_QUOTA_CPU_EXCEEDED,
-              `已使用 ${usage.totalCpu}%，限额 ${maxCpu}%`))
-          }
-
-          if (usage.totalMemory + requestedMemoryCheck > maxMemory) {
-            return reply.code(400).send(apiError(ErrorCode.SHARE_QUOTA_MEMORY_EXCEEDED,
-              `已使用 ${usage.totalMemory}MB，限额 ${maxMemory}MB`))
-          }
-        }
-      }
-    }
 
     // 1.3 验证付费方案（如果提供了 planId）
     let selectedPlan: Awaited<ReturnType<typeof getPlanById>> = null
@@ -1373,6 +1333,48 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       const replay = await findNormalPaidCreateReplay(user.id, normalPaidIdempotencyKey)
       if (replay) {
         return reply.code(200).send(replay)
+      }
+    }
+
+    // 已接受的付费意向先返回原结果，不能被当前共享配额挡住重试。
+    // 1.3.2 如果是共享套餐，初步检查共享配额限制（快速失败）
+    // 注意：完整的配额检查将在事务中进行，这里只是初步验证以减少无效请求
+    let shareInfo: { quotaMultiplier: number | null; maxInstances: number | null } | null = null
+    if (!isOwnPackage) {
+      shareInfo = await db.getPackageShareForUser(packageId, user.id)
+      if (shareInfo) {
+        // 初步检查：maxInstances = 0 表示不允许创建实例
+        if (shareInfo.maxInstances === 0) {
+          return reply.code(400).send(apiError(ErrorCode.SHARE_QUOTA_INSTANCES_EXCEEDED,
+            '该套餐的实例数量限制为 0，不允许创建实例'))
+        }
+
+        // 获取已使用的配额（初步检查，完整检查在事务中）
+        const usage = await db.getSharedPackageUsage(packageId, user.id)
+
+        // 检查实例数量限制（排除 0，因为已经在上面检查了）
+        if (shareInfo.maxInstances !== null && shareInfo.maxInstances > 0 && usage.instanceCount >= shareInfo.maxInstances) {
+          return reply.code(400).send(apiError(ErrorCode.SHARE_QUOTA_INSTANCES_EXCEEDED,
+            `已开通 ${usage.instanceCount}/${shareInfo.maxInstances} 台`))
+        }
+
+        // 检查 CPU/内存配额限制
+        if (shareInfo.quotaMultiplier !== null) {
+          const maxCpu = Math.floor(pkg.cpu_max * shareInfo.quotaMultiplier)
+          const maxMemory = Math.floor(pkg.memory_max * shareInfo.quotaMultiplier)
+          const requestedCpuCheck = cpu || 15
+          const requestedMemoryCheck = memory || 128
+
+          if (usage.totalCpu + requestedCpuCheck > maxCpu) {
+            return reply.code(400).send(apiError(ErrorCode.SHARE_QUOTA_CPU_EXCEEDED,
+              `已使用 ${usage.totalCpu}%，限额 ${maxCpu}%`))
+          }
+
+          if (usage.totalMemory + requestedMemoryCheck > maxMemory) {
+            return reply.code(400).send(apiError(ErrorCode.SHARE_QUOTA_MEMORY_EXCEEDED,
+              `已使用 ${usage.totalMemory}MB，限额 ${maxMemory}MB`))
+          }
+        }
       }
     }
 
