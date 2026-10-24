@@ -12,6 +12,7 @@ Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payinc
 - 将专用 AMD64 宿主的临时演练入口改为持久 systemd 启动：复用原 Incus 数据目录、证书、实例和磁盘，仅按既有测试实例设置自启动；保留固定域名绑定、原 WG/管理 SSH/Agent 凭据。先验证新命名空间启动，三台原 UUID/磁盘标记一致，两台已续实例 Running、未续实例 Stopped，原网关和应急 SSH socket 保持。首次启用撞到既有同名 transient Agent，未记通过；改用独立持久单元名后通过，未重建实例。
 - 实际执行专用宿主整机 reboot；按原独立 SSH 指纹重连，boot ID 与重启前不同。持久宿主/DNS/SSH/Agent 服务自动启动，原独立网关也 active。原 Incus 证书及私钥、宿主 WG 与管理 SSH 密钥摘要、三台实例 UUID 和磁盘标记一致；固定域名产品守护程序自动将原 peer Endpoint 指向 B。两台已续实例自动 Running，未续实例保持 Stopped。
 - 重启后再次通过 B 的原 Incus TLS 管理与正式 Go Agent 原凭据心跳（UTC 00:23:25.269），账务仍 137.25，漏续费仍只记一次，充值重放无再次入账。最终再次确认 A 后端/测试 PG inactive、故障保护 active。脱敏结果 `joint101-natural-timer-result.json`、`joint101-reboot-result.json`、`joint101-after-reboot-result.json`，均在维护者忽略目录。
+- 完成证据采集后恢复 A/B 原环境和原网关配置，移除本轮后端覆盖，两个原唯一后端 active、NRestarts=0、health ok/recoveryHeld=false；仅停止独立测试 PG，原数据库不动。专用宿主持久测试实例及身份保留供后续验收，原独立网关 active；新测试备份、外部账务证据和修订后的隔离库也保留。
 - 本阶段仅为专用隔离宿主整机重启，不是客户宿主部署、控制器 A 整机断电、完整主备切换或 72 小时演练。销售交付、正常账单明细/其它快照后交易完整核对、保留期删除/库存和双架构升级仍需继续；正式发行保持 v1.7.1，未新发 tag/Release，未执行生产 OTA。
 
 ## 2026-10-24 完整包 OSS 恢复、保护内网页修订与补续费联合实证
