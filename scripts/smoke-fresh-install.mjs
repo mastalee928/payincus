@@ -11,6 +11,15 @@ assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Only run on a disposable CI ma
 assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
 const require = createRequire('/opt/incudal/server/package.json')
 const env = require('dotenv').parse(await readFile('/opt/incudal/.env'))
+const suppliedAgentToken = process.env.INCUDAL_AGENT_RELEASE_TOKEN?.trim()
+if (suppliedAgentToken) {
+  // Boolean assertions prevent credentials being printed by assertion diagnostics.
+  assert.ok(env.INCUDAL_AGENT_RELEASE_TOKEN === suppliedAgentToken, 'installer must retain the supplied Agent release token')
+  const backendPid = (await promisify(execFile)('systemctl', ['show', 'incudal-backend', '-p', 'MainPID', '--value'])).stdout.trim()
+  assert.match(backendPid, /^[1-9][0-9]*$/)
+  const backendEnv = (await readFile(`/proc/${backendPid}/environ`, 'utf8')).split('\0')
+  assert.ok(backendEnv.includes(`INCUDAL_AGENT_RELEASE_TOKEN=${suppliedAgentToken}`), 'the single backend must receive the supplied Agent release token')
+}
 assert.equal(env.SYSTEM_UPDATE_RELEASE_REPOSITORY, 'mastalee928/payincus')
 assert.equal(env.INCUDAL_AGENT_RELEASE_REPOSITORY, 'mastalee928/payincus')
 assert.equal(env.INCUDAL_AGENT_RELEASE_DIR, '')

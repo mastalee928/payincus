@@ -6,6 +6,12 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-24 新表单预览的 AMD64 Agent 首装失败修复
+
+- `f3c7592764d69295c152e3f3f24c4bd1caf66e2f` 的[源码 CI40058400498](https://github.com/mastalee928/payincus/actions/runs/40058400498)成功，[预览40058665238](https://github.com/mastalee928/payincus/actions/runs/40058665238)失败：两架构构建及 ARM64 首装成功，AMD64 作业 `120768753351` 已完成迁移、网关登记和服务启动，在读取已发布 Agent 清单时由 GitHub 匿名 403 限流导致面板404，`new installation must resolve a published Agent` 断言失败。未到后续备份恢复验收，Release跳过；不是账单网页构建失败。
+- 根因是全新 `generate_env()` 的 heredoc 固定生成空 `INCUDAL_AGENT_RELEASE_TOKEN`，已有 `.env` 路径的补齐逻辑没有在此执行，导致 CI 传入 token 没进入后台。初始生成改为使用显式提供值；既有非空 token 不覆盖、空值补齐保持。首装 smoke 在请求 Agent 前以布尔断言核对 `.env` 和唯一后端 `/proc/<pid>/environ` 中的提供值，不在失败输出暴露凭据；真实公开 Agent 和双架构下载/校验断言保持。
+- 安装守卫覆盖 fresh/保留非空/补齐空值/未提供值及不打印 token，保留生产 readonly 路径常量，测试在独立 shell 装载同一组函数。Git Bash 守卫及 JS 语法通过；隔离 Linux 实物环境文件 root:incudal/0640、真实 systemd/incudal 用户收到测试 token 通过，未改原站点/服务。部署、Agent版本和平台备份守卫通过。此项修复仍需新提交双架构预览终态，不能把旧 ARM 成功计为新运行全通过；未tag/Release/生产OTA。
+
 ## 2026-10-24 网页补回续费账单与实际到账信息
 
 - 恢复核对表单可补回多笔已完成续费：独立凭证、金额、月数、付款时间及每个账期结束，起点从恢复到期自动连续衔接，最终到期直接取最后账期，避免两个时间输入不一致。仅填写到期与补回正常账单明确区分；添加/移除有上限和焦点回归。充值可填确认净额、到账时间和流水；预览分列到账、续费扣款及其它净额调整。三种语言补齐，所有日期输入保留毫秒。

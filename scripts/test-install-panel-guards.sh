@@ -9,6 +9,50 @@ WORK_DIR="$(mktemp -d)"
 HTTP_FIXTURE_PID=""
 trap '[[ -z "$HTTP_FIXTURE_PID" ]] || kill "$HTTP_FIXTURE_PID" 2>/dev/null || true; rm -rf "$WORK_DIR"' EXIT
 
+# A fresh file used to discard the supplied token even though upgrades populated
+# empty values. Exercise both paths without real credentials or system ownership.
+declare -f generate_env ensure_env_keys get_env_value set_env_if_missing set_env_value set_env_if_value gen_secret gen_password > "$WORK_DIR/env-functions.sh"
+# Installer paths are intentionally readonly. Run the unchanged functions in a
+# separate shell so test paths cannot weaken those production constants.
+bash -s -- "$WORK_DIR" "$WORK_DIR/env-functions.sh" <<'ENV_GUARD'
+    set -euo pipefail
+    token_work="$1"
+    source "$2"
+    DEFAULT_PORT=3001
+    INSTALL_DIR=/opt/incudal
+    GITHUB_REPO=mastalee928/payincus
+    RUN_USER=incudal
+    log() { printf '%s\n' "$*"; }
+    info() { printf '%s\n' "$*"; }
+    step() { printf '%s\n' "$*"; }
+    ENV_FILE="$token_work/fresh-agent-token.env"
+    INCUDAL_AGENT_RELEASE_TOKEN=guard_agent_token_not_a_credential
+    chown() { :; }
+    generate_env guard_db guard_redis guard_admin installer@example.invalid > "$token_work/agent-token-output" 2>&1
+    [[ "$(get_env_value INCUDAL_AGENT_RELEASE_TOKEN)" == "$INCUDAL_AGENT_RELEASE_TOKEN" ]]
+    [[ "$(grep -c '^INCUDAL_AGENT_RELEASE_TOKEN=' "$ENV_FILE")" == 1 ]]
+    chmod_mode=$(stat -c %a "$ENV_FILE")
+    # Windows file modes are not Linux deployment evidence.
+    [[ "$(uname -s)" != Linux || "$chmod_mode" == 640 ]]
+    if grep -Fq "$INCUDAL_AGENT_RELEASE_TOKEN" "$token_work/agent-token-output"; then
+        echo 'installer exposed the supplied Agent token' >&2; exit 1
+    fi
+    INCUDAL_AGENT_RELEASE_TOKEN=guard_different_agent_token
+    generate_env guard_db guard_redis guard_admin installer@example.invalid >> "$token_work/agent-token-output" 2>&1
+    [[ "$(get_env_value INCUDAL_AGENT_RELEASE_TOKEN)" == guard_agent_token_not_a_credential ]]
+    sed -i 's/^INCUDAL_AGENT_RELEASE_TOKEN=.*/INCUDAL_AGENT_RELEASE_TOKEN=/' "$ENV_FILE"
+    ensure_env_keys >> "$token_work/agent-token-output" 2>&1
+    [[ "$(get_env_value INCUDAL_AGENT_RELEASE_TOKEN)" == "$INCUDAL_AGENT_RELEASE_TOKEN" ]]
+    if grep -Fq "$INCUDAL_AGENT_RELEASE_TOKEN" "$token_work/agent-token-output"; then
+        echo 'installer exposed the supplied Agent token' >&2; exit 1
+    fi
+    ENV_FILE="$token_work/no-agent-token.env"
+    unset INCUDAL_AGENT_RELEASE_TOKEN
+    chown() { :; }
+    generate_env guard_db guard_redis guard_admin installer@example.invalid > /dev/null 2>&1
+    [[ -z "$(get_env_value INCUDAL_AGENT_RELEASE_TOKEN)" ]]
+ENV_GUARD
+
 mkdir -p "$WORK_DIR/payload"
 printf 'payincus installer guard\n' > "$WORK_DIR/payload/version.txt"
 

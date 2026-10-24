@@ -46,6 +46,12 @@ Python 导入可能留下 `__pycache__`，严格包覆盖检查会拒绝。受�
 
 在实际 umask077、真实 PostgreSQL 与 incudal 运行身份下复验：旧版本/已核实 CRLF历史升级、金额精度保持；新于目标的备份、PG大版本不符、结构漂移、目标变化及未知迁移 checksum 均拒绝。该测试不切换业务数据库。
 
+## CI 提供 token 但新装后台仍走匿名请求
+
+2026-10-24 预览40058665238：双构建和ARM64首装成功，AMD64首装的公开Agent清单断言404；日志确认GitHub匿名403限流。工作流已传INCUDAL_AGENT_RELEASE_TOKEN，但安装器新建.env的heredoc固定写空值；只有既有.env路径调用补齐逻辑。修正初始生成读取显式提供值，并在首装smoke请求Agent之前检查环境文件及实际唯一后端进程收到该值。
+
+断言只输出布尔结果/固定说明，不把token作为assert.equal的actual/expected打印。保持公开Agent、版本、双架构大小/hash和原生运行验收，不用本地替身或取消断言来消除失败。新装/非空保留/空值补齐/无提供值/不记录token需分别验证；Linux的root:incudal/0640及真实systemd服务用户接收与Windows静态测试分开。不要仅根据403认定是同一问题：有token时也可能被上游限流，先核对实际进程环境。
+
 ## 成功记录的边界
 
 `7dd0887e80fc8d6317bf456f699e6f142c4eb94d` 的预览 [39952149465](https://github.com/mastalee928/payincus/actions/runs/39952149465) 通过 AMD64/ARM64 构建、全新安装、唯一后台/双端登录/机器池/Agent、身份登记、备份预检/恢复/回滚/续跑、完整数据库/ZIP和迁移兼容检查。OSS transport 在首装演练中使用本地替身；真实云OSS、DNS换机、主备写者隔离和72小时离线要求分别验收。
