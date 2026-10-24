@@ -34,20 +34,22 @@ export interface RecoveryHostProbe {
 export interface RecoveryCorrectionAccount {
   hold: RecoveryReviewReport['hold']; checkedAt: string; requiresMfa: boolean
   account: { id: number; username: string; balance: string; latestBalanceLogId: number | null }
-  instances: Array<{ id: number; name: string; status: string; expiresAt: string | null; version: number; billingPrice: string | null; eligible: boolean }>
+  instances: Array<{ id: number; name: string; status: string; expiresAt: string | null; version: number; billingPrice: string | null; eligible: boolean; latestBillingRecordId: number | null }>
   recharges: Array<{ id: number; orderNo: string; amount: string; status: 'pending' | 'paid' | 'cancelled' }>
   instancesTruncated: boolean; rechargesTruncated: boolean
 }
+export interface RecoveryRenewalEvidence { reference: string; amount: string; months: number; periodStart: string; periodEnd: string; completedAt: string }
 export interface RecoveryCorrection {
   id: string; holdTaskId: string; userId: number; reference: string; observedAt: string
   expectedBalance: string; targetBalance: string; expectedLatestLogId: number | null
-  instances: Array<{ id: number; expectedVersion: number; expectedExpiresAt: string; targetExpiresAt: string }>
-  recharges: Array<{ id: number; orderNo: string; expectedStatus: 'pending' | 'paid' | 'cancelled'; expectedAmount: string }>
+  instances: Array<{ id: number; expectedVersion: number; expectedExpiresAt: string; targetExpiresAt: string; expectedLatestBillingRecordId?: number | null; renewals?: RecoveryRenewalEvidence[] }>
+  recharges: Array<{ id: number; orderNo: string; expectedStatus: 'pending' | 'paid' | 'cancelled'; expectedAmount: string; settlement?: { creditedAmount: string; completedAt: string; tradeNo?: string } }>
 }
 export interface RecoveryCorrectionResponse {
   id: string; createdAt: string; replayed: boolean
   result: { userId: number; balanceBefore: string; balanceAfter: string; balanceLogIds: number[];
-    instances: Array<{ id: number; expiresAt: string; version: number }>; completedRecharges: number[]; recoveryHeld: true }
+    instances: Array<{ id: number; expiresAt: string; version: number }>; completedRecharges: number[]; recoveryHeld: true;
+    restoredRenewals?: Array<{ reference: string; instanceId: number; billingRecordId: number; balanceLogId: number }> }
 }
 export interface RecoveryReconciliationHistory {
   holdTaskId: string; total: number; page: number; pageSize: number
