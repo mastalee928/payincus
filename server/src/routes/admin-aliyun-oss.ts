@@ -59,7 +59,7 @@ export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
     return recoveryCorrectionAccount(Number(request.params.id), request.user.id)
   })
   fastify.post<{ Body: { correction: RecoveryCorrection; password: string; totpCode?: string } }>('/recovery-review/reconcile', {
-    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], bodyLimit: 16384,
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], bodyLimit: 32768,
     config: { rateLimit: { max: 8, timeWindow: '1 minute' } },
     schema: { body: { ...objectSchema, required: ['correction', 'password'], properties: {
       password: { type: 'string', minLength: 1, maxLength: 256 }, totpCode: { type: 'string', pattern: '^[0-9]{6}$' },
@@ -69,10 +69,18 @@ export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
         expectedBalance: { type: 'string', maxLength: 11 }, targetBalance: { type: 'string', maxLength: 11 },
         expectedLatestLogId: { anyOf: [{ type: 'integer', minimum: 1, maximum: 2147483647 }, { type: 'null' }] },
         instances: { type: 'array', maxItems: 20, items: { ...objectSchema, required: ['id', 'expectedVersion', 'expectedExpiresAt', 'targetExpiresAt'], properties: {
-          id: { type: 'integer', minimum: 1 }, expectedVersion: { type: 'integer', minimum: 0 }, expectedExpiresAt: { type: 'string', maxLength: 24 }, targetExpiresAt: { type: 'string', maxLength: 24 }
+          id: { type: 'integer', minimum: 1 }, expectedVersion: { type: 'integer', minimum: 0 }, expectedExpiresAt: { type: 'string', maxLength: 24 }, targetExpiresAt: { type: 'string', maxLength: 24 },
+          expectedLatestBillingRecordId: { anyOf: [{ type: 'integer', minimum: 1, maximum: 2147483647 }, { type: 'null' }] },
+          renewals: { type: 'array', minItems: 1, maxItems: 20, items: { ...objectSchema, required: ['reference', 'amount', 'months', 'periodStart', 'periodEnd', 'completedAt'], properties: {
+            reference: { type: 'string', minLength: 6, maxLength: 120 }, amount: { type: 'string', maxLength: 11 }, months: { type: 'integer', minimum: 1, maximum: 24 },
+            periodStart: { type: 'string', maxLength: 24 }, periodEnd: { type: 'string', maxLength: 24 }, completedAt: { type: 'string', maxLength: 24 }
+          } } }
         } } },
         recharges: { type: 'array', maxItems: 20, items: { ...objectSchema, required: ['id', 'orderNo', 'expectedStatus', 'expectedAmount'], properties: {
-          id: { type: 'integer', minimum: 1 }, orderNo: { type: 'string', maxLength: 100 }, expectedStatus: { type: 'string', enum: ['pending', 'paid', 'cancelled'] }, expectedAmount: { type: 'string', maxLength: 11 }
+          id: { type: 'integer', minimum: 1 }, orderNo: { type: 'string', maxLength: 100 }, expectedStatus: { type: 'string', enum: ['pending', 'paid', 'cancelled'] }, expectedAmount: { type: 'string', maxLength: 11 },
+          settlement: { ...objectSchema, required: ['creditedAmount', 'completedAt'], properties: {
+            creditedAmount: { type: 'string', maxLength: 11 }, completedAt: { type: 'string', maxLength: 24 }, tradeNo: { type: 'string', minLength: 1, maxLength: 100 }
+          } }
         } } }
       } }
     } } }

@@ -8,11 +8,19 @@ import { authorizeGatewayAdministration } from './gateway-admin-authorization.js
 import { BackupError, ensure, validateId } from './platform-backup-core.js'
 import { readRecoveryHold } from './platform-recovery-review.js'
 
+export interface RecoveryRenewalEvidence {
+  reference: string; amount: string; months: number; periodStart: string; periodEnd: string; completedAt: string
+}
+export interface RecoveryCorrectionInstance {
+  id: number; expectedVersion: number; expectedExpiresAt: string; targetExpiresAt: string
+  expectedLatestBillingRecordId?: number | null; renewals?: RecoveryRenewalEvidence[]
+}
+export interface RecoveryRechargeSettlement { creditedAmount: string; completedAt: string; tradeNo?: string }
 export interface RecoveryCorrection {
   id: string; holdTaskId: string; userId: number; reference: string; observedAt: string
   expectedBalance: string; targetBalance: string; expectedLatestLogId: number | null
-  instances: Array<{ id: number; expectedVersion: number; expectedExpiresAt: string; targetExpiresAt: string }>
-  recharges: Array<{ id: number; orderNo: string; expectedStatus: 'pending' | 'paid' | 'cancelled'; expectedAmount: string }>
+  instances: RecoveryCorrectionInstance[]
+  recharges: Array<{ id: number; orderNo: string; expectedStatus: 'pending' | 'paid' | 'cancelled'; expectedAmount: string; settlement?: RecoveryRechargeSettlement }>
 }
 function object(value: unknown, keys: string[]) {
   ensure(value && typeof value === 'object' && !Array.isArray(value), 'OSS_RECONCILIATION_INVALID')
@@ -33,33 +41,67 @@ function timestamp(value: unknown): string {
     new Date(value).toISOString() === value, 'OSS_RECONCILIATION_INVALID')
   return value
 }
+function evidenceReference(value: unknown): string {
+  ensure(typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:/-]{5,119}$/.test(value), 'OSS_RECONCILIATION_INVALID')
+  return value
+}
 export function normalizeRecoveryCorrection(value: unknown): RecoveryCorrection {
   const row = object(value, ['id', 'holdTaskId', 'userId', 'reference', 'observedAt', 'expectedBalance', 'targetBalance', 'expectedLatestLogId', 'instances', 'recharges'])
   validateId(row.id); validateId(row.holdTaskId)
-  ensure(typeof row.reference === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:/-]{5,119}$/.test(row.reference), 'OSS_RECONCILIATION_INVALID')
+  const reference = evidenceReference(row.reference), observedAt = timestamp(row.observedAt)
   if (row.expectedLatestLogId !== null) positiveId(row.expectedLatestLogId)
   ensure(Array.isArray(row.instances) && Array.isArray(row.recharges) && row.instances.length <= 20 && row.recharges.length <= 20, 'OSS_RECONCILIATION_INVALID')
+  const renewalReferences: string[] = []
   const instances = row.instances.map(value => {
-    const item = object(value, ['id', 'expectedVersion', 'expectedExpiresAt', 'targetExpiresAt'])
+    const withBills = value && typeof value === 'object' && Object.hasOwn(value, 'renewals')
+    const item = object(value, ['id', 'expectedVersion', 'expectedExpiresAt', 'targetExpiresAt', ...(withBills ? ['renewals', 'expectedLatestBillingRecordId'] : [])])
     ensure(Number.isSafeInteger(item.expectedVersion) && Number(item.expectedVersion) >= 0 && Number(item.expectedVersion) < 2147483647, 'OSS_RECONCILIATION_INVALID')
     const expectedExpiresAt = timestamp(item.expectedExpiresAt), targetExpiresAt = timestamp(item.targetExpiresAt)
     // This first correction flow restores a proven extension; shortening or making a paid instance free is not accepted.
     ensure(Date.parse(targetExpiresAt) > Date.parse(expectedExpiresAt), 'OSS_RECONCILIATION_INVALID')
-    return { id: positiveId(item.id), expectedVersion: Number(item.expectedVersion), expectedExpiresAt, targetExpiresAt }
+    const result: RecoveryCorrectionInstance = { id: positiveId(item.id), expectedVersion: Number(item.expectedVersion), expectedExpiresAt, targetExpiresAt }
+    if (withBills) {
+      ensure(Array.isArray(item.renewals) && item.renewals.length > 0 && item.renewals.length <= 20, 'OSS_RECONCILIATION_INVALID')
+      if (item.expectedLatestBillingRecordId !== null) positiveId(item.expectedLatestBillingRecordId)
+      let periodStart = expectedExpiresAt, completedAt = ''
+      result.renewals = item.renewals.map(value => {
+        const bill = object(value, ['reference', 'amount', 'months', 'periodStart', 'periodEnd', 'completedAt'])
+        const reference = evidenceReference(bill.reference), amount = money(bill.amount), start = timestamp(bill.periodStart), end = timestamp(bill.periodEnd), completed = timestamp(bill.completedAt)
+        ensure(Number.isSafeInteger(bill.months) && Number(bill.months) >= 1 && Number(bill.months) <= 24 && start === periodStart &&
+          Date.parse(end) > Date.parse(start) && Date.parse(completed) <= Date.parse(observedAt) &&
+          (!completedAt || Date.parse(completed) >= Date.parse(completedAt)), 'OSS_RECONCILIATION_INVALID')
+        periodStart = end; completedAt = completed; renewalReferences.push(reference)
+        return { reference, amount, months: Number(bill.months), periodStart: start, periodEnd: end, completedAt: completed }
+      })
+      ensure(periodStart === targetExpiresAt, 'OSS_RECONCILIATION_INVALID')
+      result.expectedLatestBillingRecordId = item.expectedLatestBillingRecordId as number | null
+    }
+    return result
   }).sort((a, b) => a.id - b.id)
+  ensure(renewalReferences.length <= 20 && new Set(renewalReferences).size === renewalReferences.length, 'OSS_RECONCILIATION_INVALID')
   const recharges = row.recharges.map(value => {
-    const item = object(value, ['id', 'orderNo', 'expectedStatus', 'expectedAmount'])
+    const withSettlement = value && typeof value === 'object' && Object.hasOwn(value, 'settlement')
+    const item = object(value, ['id', 'orderNo', 'expectedStatus', 'expectedAmount', ...(withSettlement ? ['settlement'] : [])])
     ensure(typeof item.orderNo === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(item.orderNo) &&
       ['pending', 'paid', 'cancelled'].includes(String(item.expectedStatus)), 'OSS_RECONCILIATION_INVALID')
     const expectedAmount = money(item.expectedAmount)
     ensure(new Prisma.Decimal(expectedAmount).greaterThan(0), 'OSS_RECONCILIATION_INVALID')
-    return { id: positiveId(item.id), orderNo: item.orderNo, expectedStatus: item.expectedStatus as 'pending' | 'paid' | 'cancelled', expectedAmount }
+    const result: RecoveryCorrection['recharges'][number] = { id: positiveId(item.id), orderNo: item.orderNo, expectedStatus: item.expectedStatus as 'pending' | 'paid' | 'cancelled', expectedAmount }
+    if (withSettlement) {
+      const withTrade = item.settlement && typeof item.settlement === 'object' && Object.hasOwn(item.settlement, 'tradeNo')
+      const value = object(item.settlement, ['creditedAmount', 'completedAt', ...(withTrade ? ['tradeNo'] : [])])
+      const creditedAmount = money(value.creditedAmount), completedAt = timestamp(value.completedAt)
+      ensure(new Prisma.Decimal(creditedAmount).greaterThan(0) && Date.parse(completedAt) <= Date.parse(observedAt), 'OSS_RECONCILIATION_INVALID')
+      if (withTrade) ensure(typeof value.tradeNo === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value.tradeNo), 'OSS_RECONCILIATION_INVALID')
+      result.settlement = { creditedAmount, completedAt, ...(withTrade ? { tradeNo: value.tradeNo as string } : {}) }
+    }
+    return result
   }).sort((a, b) => a.id - b.id)
   ensure(new Set(instances.map(item => item.id)).size === instances.length && new Set(recharges.map(item => item.id)).size === recharges.length, 'OSS_RECONCILIATION_INVALID')
   const expectedBalance = money(row.expectedBalance), targetBalance = money(row.targetBalance)
   ensure(instances.length || recharges.length || expectedBalance !== targetBalance, 'OSS_RECONCILIATION_EMPTY')
-  return { id: row.id as string, holdTaskId: row.holdTaskId as string, userId: positiveId(row.userId), reference: row.reference,
-    observedAt: timestamp(row.observedAt), expectedBalance, targetBalance, expectedLatestLogId: row.expectedLatestLogId as number | null, instances, recharges }
+  return { id: row.id as string, holdTaskId: row.holdTaskId as string, userId: positiveId(row.userId), reference,
+    observedAt, expectedBalance, targetBalance, expectedLatestLogId: row.expectedLatestLogId as number | null, instances, recharges }
 }
 
 async function reauthenticate(tx: Prisma.TransactionClient, actorId: number, credentials: { password: string; totpCode?: string }) {
@@ -83,7 +125,11 @@ export async function reconcileRecovery(input: RecoveryCorrection, actorId: numb
   const correction = normalizeRecoveryCorrection(input), hold = await readRecoveryHold()
   ensure(hold.taskId === correction.holdTaskId && hold.mode === 'restore' && hold.snapshot, 'OSS_RECONCILIATION_CONTEXT_CHANGED', 409)
   ensure(Date.parse(correction.observedAt) > Date.parse(hold.snapshot.createdAt) && Date.parse(correction.observedAt) <= Date.now(), 'OSS_RECONCILIATION_EVIDENCE_TIME')
-  for (const item of correction.instances) ensure(Date.parse(item.targetExpiresAt) <= Date.now() + 10 * 366 * 86400000, 'OSS_RECONCILIATION_INVALID')
+  for (const item of correction.instances) {
+    ensure(Date.parse(item.targetExpiresAt) <= Date.now() + 10 * 366 * 86400000, 'OSS_RECONCILIATION_INVALID')
+    for (const bill of item.renewals || []) ensure(Date.parse(bill.completedAt) > Date.parse(hold.snapshot.createdAt), 'OSS_RECONCILIATION_EVIDENCE_TIME')
+  }
+  for (const item of correction.recharges) if (item.settlement) ensure(Date.parse(item.settlement.completedAt) > Date.parse(hold.snapshot.createdAt), 'OSS_RECONCILIATION_EVIDENCE_TIME')
   const hash = gatewayTaskHash(correction)
   return instanceLanes(correction.instances.map(item => item.id), () => prisma.$transaction(async tx => {
     await reauthenticate(tx, actorId, credentials)
@@ -106,36 +152,76 @@ export async function reconcileRecovery(input: RecoveryCorrection, actorId: numb
         instance.expiresAt?.toISOString() === item.expectedExpiresAt && instance.packagePlanId !== null &&
         ['running', 'stopped', 'suspended'].includes(instance.status) && !instance.deletionBillingPending && !instance.provisioningCleanupPending &&
         !instance.instanceTasks.length, 'OSS_RECONCILIATION_STALE', 409)
+      if (item.renewals) {
+        const latestBill = await tx.instanceBillingRecord.findFirst({ where: { instanceId: item.id }, orderBy: { id: 'desc' }, select: { id: true } })
+        ensure((latestBill?.id || null) === item.expectedLatestBillingRecordId, 'OSS_RECONCILIATION_STALE', 409)
+        for (const bill of item.renewals) {
+          ensure(!await tx.instanceBillingRecord.count({ where: { instanceId: item.id, type: 'renew',
+            periodStart: new Date(bill.periodStart), periodEnd: new Date(bill.periodEnd) } }), 'OSS_RECONCILIATION_CONFLICT', 409)
+          // Serialized backup mutations prevent the same source receipt being
+          // published for another account while this journal is committed.
+          const used = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM platform_recovery_reconciliations
+            WHERE hold_task_id = ${hold.taskId}
+            AND jsonb_path_exists(payload, '$.instances[*].renewals[*] ? (@.reference == $reference)',
+              jsonb_build_object('reference', ${bill.reference}::text)) LIMIT 1`
+          ensure(!used.length, 'OSS_RECONCILIATION_CONFLICT', 409)
+        }
+      }
     }
     const rechargeRows = []
     for (const item of correction.recharges) {
-      const recharge = await tx.rechargeRecord.findUnique({ where: { id: item.id }, select: { id: true, userId: true, orderNo: true, amount: true, status: true } })
+      const recharge = await tx.rechargeRecord.findUnique({ where: { id: item.id }, select: { id: true, userId: true, orderNo: true, amount: true, status: true, tradeNo: true } })
       ensure(recharge && recharge.userId === correction.userId && recharge.orderNo === item.orderNo && recharge.status === item.expectedStatus &&
         recharge.amount.toFixed(2) === item.expectedAmount && !await tx.balanceLog.count({ where: { orderId: item.orderNo, type: 'recharge' } }), 'OSS_RECONCILIATION_STALE', 409)
-      rechargeRows.push(recharge)
+      ensure(!item.settlement?.tradeNo || !recharge.tradeNo || recharge.tradeNo === item.settlement.tradeNo, 'OSS_RECONCILIATION_STALE', 409)
+      rechargeRows.push({ ...recharge, credit: new Prisma.Decimal(item.settlement?.creditedAmount || recharge.amount),
+        completedAt: item.settlement?.completedAt || correction.observedAt, tradeNo: item.settlement?.tradeNo || recharge.tradeNo })
     }
-    const rechargeTotal = rechargeRows.reduce((sum, row) => sum.plus(row.amount), new Prisma.Decimal(0))
-    const remainingAdjustment = new Prisma.Decimal(correction.targetBalance).minus(user.balance).minus(rechargeTotal)
-    ensure(rechargeTotal.lessThanOrEqualTo('99999999.99') && remainingAdjustment.abs().lessThanOrEqualTo('99999999.99'), 'OSS_RECONCILIATION_AMOUNT_LIMIT')
-    ensure(!remainingAdjustment.isNegative() || user.balance.plus(remainingAdjustment).greaterThanOrEqualTo(0) ||
-      user.balance.plus(rechargeTotal).lessThanOrEqualTo('99999999.99'), 'OSS_RECONCILIATION_AMOUNT_LIMIT')
-    // Balance corrections use the existing money lock and normal ledger writer.
-    // Apply a negative remainder first to avoid temporary overflow on a net correction.
+    const rechargeTotal = rechargeRows.reduce((sum, row) => sum.plus(row.credit), new Prisma.Decimal(0))
+    const renewals = correction.instances.flatMap(item => (item.renewals || []).map(bill => ({ instanceId: item.id, ...bill })))
+    const renewalTotal = renewals.reduce((sum, bill) => sum.plus(bill.amount), new Prisma.Decimal(0))
+    const remainingAdjustment = new Prisma.Decimal(correction.targetBalance).minus(user.balance).minus(rechargeTotal).plus(renewalTotal)
+    const maximum = new Prisma.Decimal('99999999.99')
+    ensure(rechargeTotal.lessThanOrEqualTo(maximum) && renewalTotal.lessThanOrEqualTo(maximum) && remainingAdjustment.abs().lessThanOrEqualTo(maximum), 'OSS_RECONCILIATION_AMOUNT_LIMIT')
+    // Reconstruct evidenced consume/recharge entries while keeping the confirmed
+    // final balance. Only the unmatched remainder is an administrative adjustment.
     const remark = `OSS recovery ${hold.taskId}; evidence ${correction.reference}`
     const logs: number[] = []
-    async function adjustment() {
-      if (remainingAdjustment.isZero()) return
+    const restoredRenewals: Array<{ reference: string; instanceId: number; billingRecordId: number; balanceLogId: number }> = []
+    const entries: Array<{ amount: Prisma.Decimal; apply: () => Promise<void> }> = []
+    if (!remainingAdjustment.isZero()) entries.push({ amount: remainingAdjustment, apply: async () => {
       const value = await changeBalanceInTransaction(tx, { userId: correction.userId, type: 'admin_adjust', amount: remainingAdjustment.toNumber(), remark })
       logs.push(value.balanceLog.id)
-    }
-    if (remainingAdjustment.isNegative() && user.balance.plus(remainingAdjustment).greaterThanOrEqualTo(0)) await adjustment()
-    for (const recharge of rechargeRows) {
-      const claimed = await tx.rechargeRecord.updateMany({ where: { id: recharge.id, status: recharge.status }, data: { status: 'completed', completedAt: new Date(correction.observedAt) } })
+    } })
+    for (const recharge of rechargeRows) entries.push({ amount: recharge.credit, apply: async () => {
+      const claimed = await tx.rechargeRecord.updateMany({ where: { id: recharge.id, status: recharge.status }, data: { status: 'completed', actualAmount: recharge.credit,
+        tradeNo: recharge.tradeNo, completedAt: new Date(recharge.completedAt) } })
       ensure(claimed.count === 1, 'OSS_RECONCILIATION_STALE', 409)
-      const value = await changeBalanceInTransaction(tx, { userId: correction.userId, type: 'recharge', amount: recharge.amount.toNumber(), orderId: recharge.orderNo, remark })
+      const value = await changeBalanceInTransaction(tx, { userId: correction.userId, type: 'recharge', amount: recharge.credit.toNumber(), orderId: recharge.orderNo, remark })
+      await tx.balanceLog.update({ where: { id: value.balanceLog.id }, data: { createdAt: new Date(recharge.completedAt) } })
       logs.push(value.balanceLog.id)
+    } })
+    for (const bill of renewals) entries.push({ amount: new Prisma.Decimal(bill.amount).negated(), apply: async () => {
+      const amount = new Prisma.Decimal(bill.amount), billRemark = `${remark}; renewal ${bill.reference}`
+      const log = amount.isZero()
+        ? await tx.balanceLog.create({ data: { userId: correction.userId, instanceId: bill.instanceId, type: 'consume', amount: 0,
+          balanceBefore: balance, balanceAfter: balance, remark: billRemark, createdAt: new Date(bill.completedAt) } })
+        : (await changeBalanceInTransaction(tx, { userId: correction.userId, instanceId: bill.instanceId, type: 'consume', amount: amount.negated().toNumber(), remark: billRemark })).balanceLog
+      if (!amount.isZero()) await tx.balanceLog.update({ where: { id: log.id }, data: { createdAt: new Date(bill.completedAt) } })
+      const record = await tx.instanceBillingRecord.create({ data: { userId: correction.userId, instanceId: bill.instanceId, type: 'renew',
+        amount, months: bill.months, periodStart: new Date(bill.periodStart), periodEnd: new Date(bill.periodEnd),
+        balanceLogId: log.id, createdAt: new Date(bill.completedAt), remark: billRemark } })
+      logs.push(log.id); restoredRenewals.push({ reference: bill.reference, instanceId: bill.instanceId, billingRecordId: record.id, balanceLogId: log.id })
+    } })
+    // Use whole ledger entries in an order that never creates a negative or
+    // overflowing intermediate balance. Impossible evidence is rejected atomically.
+    let balance = user.balance
+    while (entries.length) {
+      const index = entries.findIndex(entry => balance.plus(entry.amount).greaterThanOrEqualTo(0) && balance.plus(entry.amount).lessThanOrEqualTo(maximum))
+      ensure(index >= 0, 'OSS_RECONCILIATION_AMOUNT_LIMIT')
+      const [entry] = entries.splice(index, 1)
+      await entry.apply(); balance = balance.plus(entry.amount)
     }
-    if (!remainingAdjustment.isNegative() || user.balance.plus(remainingAdjustment).lessThan(0)) await adjustment()
     const updatedInstances = []
     for (const item of correction.instances) {
       const changed = await tx.instance.updateMany({ where: { id: item.id, userId: correction.userId, version: item.expectedVersion, expiresAt: new Date(item.expectedExpiresAt) },
@@ -147,7 +233,8 @@ export async function reconcileRecovery(input: RecoveryCorrection, actorId: numb
     ensure(final.balance.toFixed(2) === correction.targetBalance, 'OSS_RECONCILIATION_BALANCE_MISMATCH', 409)
     ensure((await readRecoveryHold()).taskId === hold.taskId, 'OSS_RECONCILIATION_CONTEXT_CHANGED', 409)
     const result = { userId: correction.userId, balanceBefore: correction.expectedBalance, balanceAfter: correction.targetBalance,
-      balanceLogIds: logs, instances: updatedInstances, completedRecharges: rechargeRows.map(row => row.id), recoveryHeld: true }
+      balanceLogIds: logs, instances: updatedInstances, completedRecharges: rechargeRows.map(row => row.id), recoveryHeld: true,
+      ...(restoredRenewals.length ? { restoredRenewals } : {}) }
     const entry = await tx.platformRecoveryReconciliation.create({ data: { id: correction.id, holdTaskId: hold.taskId, actorId, userId: correction.userId,
       reference: correction.reference, observedAt: new Date(correction.observedAt), payloadHash: hash, payload: correction as unknown as Prisma.InputJsonObject, result } })
     await tx.log.create({ data: { userId: actorId, module: 'system', action: 'oss.recovery.reconcile', content: `${remark}; account ${correction.userId}; journal ${entry.id}`, result: 'success' } })
@@ -185,13 +272,15 @@ export async function recoveryCorrectionAccount(userId: number, actorId: number)
     const [instances, recharges, instanceCount, rechargeCount] = await Promise.all([
       tx.instance.findMany({ where: instanceWhere, orderBy: { id: 'asc' }, take: 50, select: { id: true, name: true, status: true,
         expiresAt: true, version: true, billingPrice: true, packagePlanId: true, deletionBillingPending: true, provisioningCleanupPending: true,
+        billingRecords: { orderBy: { id: 'desc' }, take: 1, select: { id: true } },
         instanceTasks: { where: { status: { in: ['PENDING', 'PROCESSING'] } }, select: { id: true }, take: 1 } } }),
       tx.rechargeRecord.findMany({ where: rechargeWhere, orderBy: { id: 'desc' }, take: 50, select: { id: true, orderNo: true, amount: true, status: true } }),
       tx.instance.count({ where: instanceWhere }), tx.rechargeRecord.count({ where: rechargeWhere })
     ])
     return { account: { id: user.id, username: user.username, balance: user.balance.toFixed(2), latestBalanceLogId: user.balanceLogs[0]?.id || null },
       requiresMfa: actor?.twoFactorEnabled || false,
-      instances: instances.map(({ instanceTasks, packagePlanId, deletionBillingPending, provisioningCleanupPending, ...row }) => ({ ...row,
+      instances: instances.map(({ instanceTasks, billingRecords, packagePlanId, deletionBillingPending, provisioningCleanupPending, ...row }) => ({ ...row,
+        latestBillingRecordId: billingRecords[0]?.id || null,
         expiresAt: row.expiresAt?.toISOString() || null, billingPrice: row.billingPrice?.toFixed(2) || null,
         eligible: !!row.expiresAt && packagePlanId !== null && ['running', 'stopped', 'suspended'].includes(row.status) &&
           !deletionBillingPending && !provisioningCleanupPending && !instanceTasks.length })),
