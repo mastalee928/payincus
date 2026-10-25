@@ -4,6 +4,13 @@
 > `CLAUDE.md` 通过 `@AGENTS.md` 引用本文件 —— Claude Code 与 codex 读到的是**同一套规矩**，改这一个文件即可。
 > 权威运维/发版事实以仓库根的 `OPERATIONS_HANDOFF.md`（操作手册）与 `HANDOFF.md`（版本证据台账）为准。
 
+## 首先读取 owner 要求（所有对话强制）
+
+- **任何新对话、接手、恢复或上下文压缩后的项目工作，第一优先读取仓库根 [OWNER_REQUIREMENTS.md](OWNER_REQUIREMENTS.md)，再读取本文件与操作/版本台账。**
+- `OWNER_REQUIREMENTS.md` 是 owner 目标、优先级、简单配置/UI 和验收红线的统一来源；不得仅凭旧规格或旧聊天摘要缩减目标，也不得让 owner 在每个对话重复要求。
+- 首要目标是 **A 单机同时担任主控和网关、A 完全失联后，B 全新安装并从 OSS 恢复，原宿主自动重连 B，客户实例保持正常**；管理网关 UI 必须完整、简洁、一目了然，常规配置只填 SSH 地址和密码，其他参数由系统处理。
+- Owner 有新要求时同步更新该文件。实现状态仍以 `HANDOFF.md` / `GATEWAY_PROGRESS.md` 的实际证据为准，要求文件不代表验收已完成。
+
 ---
 
 ## 0. 沟通语言
