@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import GatewayEndpointPanel from './GatewayEndpointPanel.vue'
+import GatewayExtensionEntrypoints from './GatewayExtensionEntrypoints.vue'
 import type { GatewaySetupProgress } from '@/types/gateway-endpoint'
 import type { OnboardingGatewayStatus } from '@/types/api'
 const { t, te } = useI18n()
@@ -99,6 +100,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); password.value = '' })
       </div>
     </section>
     <section class="card p-5"><GatewayEndpointPanel /></section>
+    <GatewayExtensionEntrypoints />
   </section>
 </template>
 <style scoped>

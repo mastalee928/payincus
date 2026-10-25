@@ -110,6 +110,20 @@ export const zhCN = {
     "reconnecting": "后台正在刷新，任务继续运行。连接恢复后会自动显示结果。",
     "currentCapacity": "当前地址池可接入 {count} 台宿主。",
     "loading": "正在读取当前网关状态…"
+  },
+  "extensions": {
+    "title": "扩展网关",
+    "description": "独立网关与备用网关分别管理，入口已预留。",
+    "reserved": "预留入口",
+    "pending": "配置能力将在后续版本开放。",
+    "independent": {
+      "title": "外部独立网关",
+      "description": "在独立服务器运行管理网关，集中管理接入、状态与更新。"
+    },
+    "backup": {
+      "title": "备用 / 备份网关",
+      "description": "管理备用网关、独立备份、接管准备与切换进度。"
+    }
   }
 }
 export const zhTW = {
@@ -224,6 +238,20 @@ export const zhTW = {
     "reconnecting": "後台正在重新載入，任務繼續執行。連線恢復後會自動顯示結果。",
     "currentCapacity": "目前位址池可接入 {count} 台宿主。",
     "loading": "正在讀取目前網關狀態…"
+  },
+  "extensions": {
+    "title": "擴充網關",
+    "description": "獨立與備用網關分別管理，入口已預留。",
+    "reserved": "預留入口",
+    "pending": "配置功能將於後續版本開放。",
+    "independent": {
+      "title": "外部獨立網關",
+      "description": "在獨立伺服器執行管理網關，集中管理接入、狀態與更新。"
+    },
+    "backup": {
+      "title": "備用 / 備份網關",
+      "description": "管理備用網關、獨立備份、接管準備與切換進度。"
+    }
   }
 }
 export const en = {
@@ -338,5 +366,19 @@ export const en = {
     "reconnecting": "The backend is restarting. The task continues; results will refresh when the connection returns.",
     "currentCapacity": "The current address pool supports {count} hosts.",
     "loading": "Loading current gateway status…"
+  },
+  "extensions": {
+    "title": "Additional gateways",
+    "description": "Independent and standby gateways have separate reserved entries.",
+    "reserved": "Reserved entry",
+    "pending": "Configuration will be available in a later release.",
+    "independent": {
+      "title": "External independent gateway",
+      "description": "Run the gateway on a separate server and manage enrollment, status and updates here."
+    },
+    "backup": {
+      "title": "Standby / backup gateway",
+      "description": "Manage standby gateways, independent backups, takeover readiness and switching progress here."
+    }
   }
 }

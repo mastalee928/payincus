@@ -18,7 +18,11 @@ run('ip', 'link', 'set', 'lo', 'up')
 run('ip', 'link', 'add', 'incudal-mgmt', 'type', 'wireguard')
 run('ip', 'address', 'add', '10.253.240.1/24', 'dev', 'incudal-mgmt')
 run('ip', 'link', 'set', 'incudal-mgmt', 'up')
-with tempfile.TemporaryDirectory() as directory:
+# Distribution wg confinement permits its configuration directory, while some
+# Ubuntu runner images reject private-key reads from a generic /tmp directory.
+# Use a private, unique test folder; no existing gateway file is touched.
+pathlib.Path('/etc/wireguard').mkdir(mode=0o700, exist_ok=True)
+with tempfile.TemporaryDirectory(prefix='.incudal-network-test-', dir='/etc/wireguard') as directory:
     key = pathlib.Path(directory) / 'key'
     key.write_text(run('wg', 'genkey') + '\n')
     key.chmod(0o600)
