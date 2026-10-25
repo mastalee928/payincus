@@ -59,7 +59,7 @@ jobs:
         run: |
           pnpm --filter server test:gateway-task-guards
           pnpm --filter server test:gateway-management-route-guards
-          pnpm --filter server test:simple-gateway-setup
+          node scripts/run-tests.mjs --only simple-gateway-setup
           python3 scripts/test-management-gateway-preflight.py
           sudo python3 scripts/test-gateway-component-package.py
           sudo python3 scripts/test-gateway-install-plan.py
