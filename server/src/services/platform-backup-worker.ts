@@ -16,6 +16,7 @@ import { refreshRestoredGateway } from './platform-backup-gateway.js'
 import { QUARANTINE_RESTORED_GATEWAY_TASKS_SQL } from '../lib/gateway-recovery-context.js'
 import { mergeBackupEnvironment } from './platform-backup-environment.js'
 import { CONTROLLER_BACKUP_FILES, restoreControllerIdentity } from './platform-backup-controller.js'
+import { waitForProtectedBackendHealth as protectedHealth } from './platform-backup-health.js'
 
 const exec = promisify(execFile)
 const INSTALL = '/opt/incudal'
@@ -241,18 +242,6 @@ async function rollbackJournal(directory: string): Promise<boolean> {
   await service('start')
   await protectedHealth()
   return true
-}
-
-async function protectedHealth(expectedHeld = true) {
-  for (let i = 0; i < 30; i++) {
-    try {
-      const response = await fetch('http://127.0.0.1:3001/api/health', { signal: AbortSignal.timeout(2000), redirect: 'error' })
-      const value = await response.json() as { recoveryHeld?: boolean }
-      if (response.ok && value.recoveryHeld === expectedHeld) return
-    } catch { /* wait for the single protected backend */ }
-    await new Promise(resolve => setTimeout(resolve, 1000))
-  }
-  throw new BackupError('OSS_PROTECTED_START_FAILED', 503)
 }
 
 export async function runPlatformBackupTask(request: BackupTaskRequest): Promise<void> {

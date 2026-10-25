@@ -11,6 +11,7 @@ import { decryptBackup, encryptBackup, hashFile, validAssetName, validateManifes
 import { AliyunOssClient, sanitizedOssError } from '../src/services/aliyun-oss-client.js'
 import { assertDatabaseIntegrity, normalizedDumpHash, restoreDumpToolchainHeader, type DatabaseIntegrity } from '../src/services/platform-backup-database.js'
 import { createReadableZip, readableZipName, verifyReadableZip } from '../src/services/platform-backup-readable.js'
+import { waitForProtectedBackendHealth } from '../src/services/platform-backup-health.js'
 import { retainGatewayEndpoints } from '../src/services/platform-backup-gateway.js'
 import { mergeBackupEnvironment } from '../src/services/platform-backup-environment.js'
 import { parse as parseEnv } from 'dotenv'
@@ -184,6 +185,21 @@ try {
   assert.notEqual(normalizedDumpHash(restoreDumpToolchainHeader(destinationSchemaDump.replace('id bigint', 'id text'), dumpToolchain)), normalizedDumpHash(legacySchemaDump), 'schema changes must remain integrity failures')
   assert.throws(() => restoreDumpToolchainHeader('SELECT 1;\n' + destinationSchemaDump, dumpToolchain), /OSS_DATABASE_DUMP_INVALID/)
   assert.throws(() => restoreDumpToolchainHeader(destinationSchemaDump, { ...dumpToolchain, dumpVersion: '16.15\nDROP TABLE example;' }), /OSS_DATABASE_DUMP_INVALID/)
+  let healthClock = 0
+  const healthRuntime = {
+    now: () => healthClock,
+    sleep: async (milliseconds: number) => { healthClock += milliseconds },
+    fetch: async (url: string | URL | Request, options?: RequestInit) => {
+      assert.equal(url, 'http://127.0.0.1:3001/api/health')
+      assert.equal(options?.redirect, 'error')
+      return new Response(JSON.stringify({ recoveryHeld: false }), { status: healthClock >= 45000 ? 200 : 503 })
+    }
+  }
+  await waitForProtectedBackendHealth(false, healthRuntime)
+  assert.equal(healthClock, 45000, 'a healthy startup slower than 30 seconds must be allowed before resume is rolled back')
+  healthClock = 0
+  await assert.rejects(waitForProtectedBackendHealth(false, { ...healthRuntime, fetch: async () => new Response(JSON.stringify({ recoveryHeld: true })) }), /OSS_PROTECTED_START_FAILED/)
+  assert.equal(healthClock, 90000, 'HTTP success with the wrong protection state must fail within the startup deadline')
   const databaseIntegrity: DatabaseIntegrity = { format: 1, dataEncoding: 'postgres-record-text-v1', database: { encoding: 6, datcollate: 'C.UTF-8', datctype: 'C.UTF-8', datlocprovider: 'c' }, schemaSha256: 'b'.repeat(64), tables: [{ schema: 'public', name: 'orders', kind: 'r', rows: '3', sha256: 'c'.repeat(64) }], sequences: [{ schema: 'public', name: 'orders_id_seq', reference: 'public.orders_id_seq', lastValue: '9007199254740993', isCalled: true }], largeObjects: { objects: '1', pages: '2', sha256: 'd'.repeat(64) } }
   assertDatabaseIntegrity(databaseIntegrity, structuredClone(databaseIntegrity))
   for (const changed of [
