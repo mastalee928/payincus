@@ -227,7 +227,11 @@ def main():
         try:
             info = os.fstat(lock)
             require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1 and stat.S_IMODE(info.st_mode) == 0o600)
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                print('{"code":"HOST_GATEWAY_DNS_SERVICE_BUSY"}', flush=True)
+                return 1
             if sys.argv[1:] == ['--enroll']:
                 raw = sys.stdin.buffer.read(4097); require(len(raw) <= 4096)
                 print(json.dumps(enroll(json.loads(raw, object_pairs_hook=strict_object)), separators=(',', ':')))

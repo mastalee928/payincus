@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "PayIncus backend service",
   "type": "module",
   "main": "dist/app.js",
@@ -219,7 +219,8 @@
     "test:platform-backup-guards": "node --import tsx scripts/test-platform-backup-guards.ts",
     "test:platform-recovery-review": "node --import tsx scripts/test-platform-recovery-review.ts",
     "test:platform-recovery-reconciliation": "node --import tsx scripts/test-platform-recovery-reconciliation.ts",
-    "test:platform-recovery-reconciliation-integration": "node scripts/test-platform-recovery-reconciliation-integration.mjs"
+    "test:platform-recovery-reconciliation-integration": "node scripts/test-platform-recovery-reconciliation-integration.mjs",
+    "test:simple-gateway-setup": "node --import tsx scripts/test-simple-gateway-setup.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",

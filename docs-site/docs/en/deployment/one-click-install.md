@@ -103,13 +103,15 @@ Page checks compare the response with the matching local build; API checks requi
 - Creates OTA, certificate, cache, and log directories.
 - Writes Nginx configuration for both domains.
 - Sets `FRONTEND_URL`, `ADMIN_FRONTEND_URL`, `SITE_URL`, and `PAYMENT_CALLBACK_BASE_URL`.
-- When a gateway address is supplied, configures WireGuard, restricted SSH keys and host-key pinning, and verifies backend access before saving the configuration. The default management subnet is `10.253.240.0/24`; allow inbound UDP `51820` in the cloud firewall.
+- When a gateway address is supplied, configures WireGuard, restricted SSH keys and host-key pinning, and verifies backend access before saving the configuration. The default address pool is `/20`, supporting 4093 hosts per gateway. The cloud firewall must allow the gateway's UDP traffic.
 
 ## Host Pool Management Gateway
 
 Automatic onboarding and host management use a separate WireGuard tunnel. The control server must permit root SSH public-key authentication; the installer does not change the global login policy. The user portal can use a CDN, but the management gateway needs a public IPv4 or direct DNS name.
 
-To configure an existing installation or finish a skipped gateway setup:
+For normal setup, open **Machine pool → Management gateway**, enter the current controller's SSH address and password, review the plan and confirm. The system plans the pool, retains existing keys and peers, and keeps progress and results visible. Save the direct domain once: enrolled hosts receive updates automatically, with bulk retries and per-server results.
+
+The following CLI is a maintainer fallback when the web interface is unavailable:
 
 ```bash
 sudo bash install-panel.sh --configure-host-pool

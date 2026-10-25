@@ -7,6 +7,9 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+import fcntl
+import io
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('dns_refresh', Path(__file__).with_name('refresh-host-gateway-endpoint.py'))
@@ -111,6 +114,20 @@ class EndpointTests(unittest.TestCase):
 
 @unittest.skipUnless(hasattr(os, 'geteuid') and os.geteuid() == 0, 'root-owned file checks require Linux root')
 class FileTests(unittest.TestCase):
+    def test_existing_daemon_lock_reports_service_busy(self):
+        with tempfile.TemporaryDirectory(prefix='incudal-dns-lock-', dir='/root') as directory:
+            path = Path(directory) / 'lock'
+            held = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+            waiting = os.open(path, os.O_RDWR)
+            try:
+                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                output = io.StringIO()
+                with patch.object(dns.os, 'open', return_value=waiting), patch.object(dns.sys, 'argv', ['refresh', '--enroll']), redirect_stdout(output):
+                    self.assertEqual(dns.main(), 1)
+                self.assertEqual(json.loads(output.getvalue())['code'], 'HOST_GATEWAY_DNS_SERVICE_BUSY')
+            finally:
+                os.close(held)
+
     def test_explicit_enrollment_is_durable_idempotent_and_refuses_trust_change(self):
         with tempfile.TemporaryDirectory(prefix='incudal-dns-', dir='/root') as directory:
             root = Path(directory); config = root / 'config'; identity = root / 'identity'; binding = root / 'binding'

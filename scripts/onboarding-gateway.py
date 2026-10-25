@@ -27,6 +27,28 @@ MANAGEMENT_PUBLIC_KEY = pathlib.Path("/root/.ssh/incudal-host-management.pub")
 DNS_TOOLS = pathlib.Path('/usr/local/libexec/incudal-onboarding-dns')
 
 
+class GatewayOperationError(ValueError):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
+def verified_host_scan(scan, fingerprint):
+    known = []
+    for line in scan.stdout.decode().splitlines():
+        fields = line.split()
+        if len(fields) != 3 or fields[1] not in ['ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256']:
+            continue
+        actual = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(fields[2], validate=True)).digest()).decode().rstrip('=')
+        if actual == fingerprint:
+            known.append(line)
+    if not scan.stdout.strip():
+        raise GatewayOperationError('GATEWAY_DNS_HOST_UNREACHABLE')
+    if len(known) != 1:
+        raise GatewayOperationError('GATEWAY_DNS_HOST_IDENTITY_CHANGED')
+    return known
+
+
 def strict_json(pairs):
     result = {}
     for name, value in pairs:
@@ -69,13 +91,7 @@ def install_host_dns(job, control, gateway_public):
         if not path.is_file() or path.stat().st_size > 65536: raise ValueError('invalid DNS tool')
         files[name] = path.read_bytes()
     scan = subprocess.run(['ssh-keyscan', '-T', '5', '-p', str(request['sshPort']), '-t', 'ed25519,rsa,ecdsa', str(address)], capture_output=True, timeout=15, check=False)
-    known = []
-    for line in scan.stdout.decode().splitlines():
-        fields = line.split()
-        if len(fields) != 3 or fields[1] not in ['ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256']: continue
-        fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(fields[2], validate=True)).digest()).decode().rstrip('=')
-        if fingerprint == request['sshFingerprint']: known.append(line)
-    if len(known) != 1: raise ValueError('host SSH identity changed')
+    known = verified_host_scan(scan, request['sshFingerprint'])
     binding = {'schemaVersion': 1, 'nodeId': job, 'localPublicKey': peer_key, 'peerPublicKey': gateway_public,
                'localAddress': str(address) + '/32', 'allowedIp': str(control.ip) + '/32', 'hostname': domain, 'port': request['port']}
     with tempfile.TemporaryDirectory(prefix='incudal-host-dns-', dir='/root') as directory:
@@ -90,7 +106,10 @@ def install_host_dns(job, control, gateway_public):
                                  '-o', 'UserKnownHostsFile=' + str(trust), '-o', 'ConnectTimeout=10', '-o', 'IdentitiesOnly=yes',
                                  '-i', str(MANAGEMENT_PUBLIC_KEY.with_suffix('')), '-p', str(request['sshPort']), 'root@' + str(address), 'sh -s'],
                                 input=script.encode(), capture_output=True, timeout=90, check=False)
-        if result.returncode != 0: raise ValueError('host DNS install not verified')
+        if result.returncode != 0:
+            if b'"code":"HOST_GATEWAY_DNS_SERVICE_BUSY"' in result.stdout:
+                raise GatewayOperationError('GATEWAY_DNS_SERVICE_BUSY')
+            raise GatewayOperationError('GATEWAY_DNS_INSTALL_FAILED')
         if b'Existing gateway DNS refresh enabled' not in result.stdout: raise ValueError('missing DNS install receipt')
     return {'nodeId': job, 'dnsRefreshInstalled': True, 'endpoint': domain + ':' + str(request['port']), 'keysAndRoutesPreserved': True}
 
@@ -119,13 +138,7 @@ def probe_host(job, control):
     allowed = dict(line.split(maxsplit=1) for line in run('wg', 'show', INTERFACE, 'allowed-ips').splitlines())
     if allowed.get(peer) != str(address) + '/32': raise ValueError('route mismatch')
     scan = subprocess.run(['ssh-keyscan', '-T', '5', '-p', str(request['sshPort']), '-t', 'ed25519,rsa,ecdsa', str(address)], capture_output=True, timeout=15, check=False)
-    known = []
-    for line in scan.stdout.decode().splitlines():
-        fields = line.split()
-        if len(fields) != 3 or fields[1] not in ['ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256']: continue
-        fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(fields[2], validate=True)).digest()).decode().rstrip('=')
-        if fingerprint == request['sshFingerprint']: known.append(line)
-    if len(known) != 1: raise ValueError('host SSH identity changed')
+    known = verified_host_scan(scan, request['sshFingerprint'])
     with tempfile.TemporaryDirectory(prefix='incudal-host-probe-', dir='/root') as directory:
         trust = pathlib.Path(directory) / 'known_hosts'; trust.write_text(known[0] + '\n'); trust.chmod(0o600)
         result = subprocess.run(['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
@@ -270,6 +283,10 @@ def main():
         result = {"publicKey": run("wg", "show", INTERFACE, "public-key"), "controlIp": str(control.ip),
                   "network": str(control.network), "managementSshPublicKey": " ".join(public_key_parts[:2])}
         if dns_request:
+            # DNS installation reads the reservation and validates exact peer
+            # identity; it does not mutate the controller's peers. Do not hold
+            # the global gateway lock across slow per-host SSH installations.
+            fcntl.flock(lock, fcntl.LOCK_UN)
             print(json.dumps(install_host_dns(args[1], control, result['publicKey']))); return
         if probe_request:
             print(json.dumps(probe_host(args[1], control))); return
@@ -289,7 +306,8 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        # Never print configuration, private keys, or raw command output.
-        print('{"error":"gateway operation failed"}')
+    except Exception as error:
+        # Fixed codes expose the failed step without keys or raw SSH output.
+        code = error.code if isinstance(error, GatewayOperationError) else 'GATEWAY_OPERATION_FAILED'
+        print('INCUDAL_ERROR:' + code)
         raise SystemExit(1)

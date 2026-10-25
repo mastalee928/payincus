@@ -4,7 +4,7 @@ import type { AdminInstancePushPreview, AdminInstancePushTarget } from '@/types/
 import type { OssConfig, OssTask, OssBackup, OssDirectory } from '@/types/aliyun-oss'
 import type { GatewayManagementList, GatewayInspectionInput, GatewayInspectionResult, GatewayManagementTask, GatewayInstallationInput, GatewayInstallationConfirmation, GatewayBootstrapAuthorization, GatewayBootstrapMaterial } from '@/types/management-gateway'
 import type { ExpiryEnforcementStatus } from '@/types/expiry-enforcement'
-import type { StableGatewayEndpoint, GatewayEndpointStatus, GatewayDnsHost } from '@/types/gateway-endpoint'
+import type {GatewayEndpointStatus, GatewayDnsHost, GatewaySetupProgress } from '@/types/gateway-endpoint'
 import { useAuthStore } from '@/stores/auth'
 import { buildApiUrl } from '@/utils/api-url'
 import type { LoginRequest, LoginResponse, UpdateUserResponse, GenerateInviteRequest, InviteListResponse, User, BadgeCatalogItem, BadgeSeriesItem, UserQuota, UpdateUserRequest, Instance, InstanceWithDetails, InstanceStats, CreateInstanceRequest, CreateInstanceResponse, UpdateInstanceRequest, ChangeHostOptionsResponse, PortMapping, CreatePortMappingRequest, IpAddress, Ipv6Subnet, HostAgentStatusResponse, HostAgentInstallCommandResponse, HostAgentUpgradeRequestResponse, Snapshot, Backup, CreateSnapshotRequest, CreateBackupRequest, SnapshotPolicy, BackupPolicy, UpdateSnapshotPolicyRequest, UpdateBackupPolicyRequest, Host, HostWithDetails, AvailableHost, CreateHostRequest, UpdateHostRequest, Package, CreatePackageRequest, UpdatePackageRequest, SshKey, CreateSshKeyRequest, NotificationChannel, CreateNotificationChannelRequest, UpdateNotificationChannelRequest, OAuthConfig, UserOAuthBinding, UpdateOAuthConfigRequest, OAuthClientApp, AdminOAuthAuthorization, UpsertOAuthClientAppRequest, HelpArticle, CreateHelpArticleRequest, UpdateHelpArticleRequest, HostImagePolicy, SystemImage, CreateSystemImageRequest, UpdateSystemImageRequest, Log, PaginatedResponse, Ticket, TicketMessage, TicketStatus, TicketObjectLink, TicketObjectLinkType, TicketSupportContext, TicketInternalNote, CreateTicketRequest, PaginatedTickets, PaginatedTicketMessages, TerminalSavedCommand, CreateTerminalSavedCommandRequest, UpdateTerminalSavedCommandRequest, TelegramBindingStatus, TelegramBindTokenResponse, TelegramAdminBindingsResponse, TelegramWebhookDeleteResponse, TelegramWebhookInfoResponse, TelegramWebhookSetupResponse, VersionMetadata, SystemUpdateCheckResult, SystemUpdateTask, PublicApiScopeMetadata, CreateGiftCardBatchRequest, CreateGiftCardRequest, GiftCardListResponse, GiftCardRecord, GiftCardStats } from '@/types/api.js'
@@ -4135,9 +4135,14 @@ hostOnboarding: {
       http.patch('/host-onboarding/inventory/spec', data),
     gateway: (): Promise<OnboardingGatewayStatus> => http.get('/host-onboarding/gateway'),
     gatewayEndpoint: (): Promise<GatewayEndpointStatus> => http.get('/host-onboarding/gateway/endpoint'),
-    saveGatewayEndpoint: (endpoint: StableGatewayEndpoint): Promise<GatewayEndpointStatus> => http.put('/host-onboarding/gateway/endpoint', endpoint),
+    saveGatewayEndpoint: (endpoint: { hostname: string; port?: number }): Promise<GatewayEndpointStatus> => http.put('/host-onboarding/gateway/endpoint', endpoint),
     gatewayDnsHosts: (): Promise<{ hosts: GatewayDnsHost[] }> => http.get('/host-onboarding/gateway/endpoint/hosts'),
-    installGatewayDnsHost: (id: string): Promise<{ dnsRefreshInstalled: true }> => http.post(`/host-onboarding/gateway/endpoint/hosts/${id}`, {}, { timeout: 120000 }),
+    installGatewayDnsHost: (id: string): Promise<{ queued: number }> => http.post(`/host-onboarding/gateway/endpoint/hosts/${id}`, {}),
+    synchronizeGatewayDnsHosts: (failedOnly = false): Promise<{ queued: number }> => http.post('/host-onboarding/gateway/endpoint/hosts', { failedOnly }),
+    gatewaySetupStatus: (): Promise<{ available: boolean; latest: GatewaySetupProgress | null; gateway: OnboardingGatewayStatus | null }> => http.get('/host-onboarding/gateway/setup'),
+    configureControllerGateway: (input: { requestId: string; sshAddress: string; password: string }): Promise<GatewaySetupProgress> => http.post('/host-onboarding/gateway/setup', input),
+    controllerGatewayTask: (id: string): Promise<GatewaySetupProgress> => http.get(`/host-onboarding/gateway/setup/${id}`),
+    confirmControllerGateway: (id: string, planHash: string): Promise<GatewaySetupProgress> => http.post(`/host-onboarding/gateway/setup/${id}/confirm`, { planHash }),
     list: (params: { page?: number; search?: string } = {}): Promise<OnboardingListResponse> => http.get('/host-onboarding', { params }),
     create: (data: CreateOnboardingRequest): Promise<{ id: string }> => http.post('/host-onboarding', data),
     retry: (id: string, credentials: OnboardingCredentials): Promise<{ success: boolean }> => http.post(`/host-onboarding/nodes/${id}/retry`, credentials),

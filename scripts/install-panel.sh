@@ -2029,7 +2029,7 @@ configure_host_pool_gateway() {
     is_atomic_layout && app_dir="$INSTALL_DIR/current"
     python3 "$app_dir/scripts/setup-onboarding-control.py" \
         --public-host "$public_host" \
-        --management-address "${ONBOARDING_MANAGEMENT_ADDRESS:-10.253.240.1/24}" \
+        --management-address "${ONBOARDING_MANAGEMENT_ADDRESS:-10.253.240.1/20}" \
         --listen-port "${ONBOARDING_WG_PORT:-51820}" \
         --ssh-port "${ONBOARDING_CONTROL_SSH_PORT:-22}"
 }

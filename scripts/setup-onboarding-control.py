@@ -60,6 +60,23 @@ def check_routes(address, routes):
             raise ValueError("Management subnet overlaps an existing route; choose another ONBOARDING_MANAGEMENT_ADDRESS")
 
 
+def automatic_management_address(existing, routes):
+    if existing:
+        address = management_address(existing)
+        target = management_address(str(address.ip) + '/' + str(min(address.network.prefixlen, 20)))
+        check_routes(target, routes)
+        return target
+    candidates = ['10.253.240.1/20'] + [f'10.240.{third}.1/20' for third in range(0, 256, 16)]
+    for candidate in candidates:
+        address = management_address(candidate)
+        try:
+            check_routes(address, routes)
+            return address
+        except ValueError:
+            pass
+    raise ValueError('No free management network with thousand-host capacity')
+
+
 def update_env(content, values):
     lines = content.splitlines()
     output = []
@@ -77,11 +94,33 @@ def update_env(content, values):
     return "\n".join(output) + "\n"
 
 
+def expand_live_management_address(address):
+    live = json.loads(run('ip', '-j', '-4', 'addr', 'show', 'dev', 'incudal-mgmt'))[0]['addr_info']
+    old = [item for item in live if item['family'] == 'inet' and item['local'] == str(address.ip) and item['prefixlen'] != address.network.prefixlen]
+    if not old:
+        return
+    try:
+        run('ip', '-4', 'address', 'replace', str(address), 'dev', 'incudal-mgmt')
+        checked = json.loads(run('ip', '-j', '-4', 'addr', 'show', 'dev', 'incudal-mgmt'))[0]['addr_info']
+        if not any(item['local'] == str(address.ip) and item['prefixlen'] == address.network.prefixlen for item in checked):
+            raise ValueError('Management network expansion did not apply')
+        for item in old:
+            if any(x['local'] == item['local'] and x['prefixlen'] == item['prefixlen'] for x in checked):
+                run('ip', '-4', 'address', 'del', item['local'] + '/' + str(item['prefixlen']), 'dev', 'incudal-mgmt')
+    except (OSError, RuntimeError, ValueError):
+        for item in old:
+            run('ip', '-4', 'address', 'replace', item['local'] + '/' + str(item['prefixlen']), 'dev', 'incudal-mgmt')
+        run('ip', '-4', 'address', 'del', str(address), 'dev', 'incudal-mgmt')
+        raise
+
+
 def main():
     import pwd
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--public-host", required=True)
-    parser.add_argument("--management-address", default="10.253.240.1/24")
+    parser.add_argument("--management-address", default="10.253.240.1/20")
+    parser.add_argument("--auto-network", action='store_true')
+    parser.add_argument("--plan-only", action='store_true')
     parser.add_argument("--listen-port", default="51820")
     parser.add_argument("--ssh-port", default="22")
     args = parser.parse_args()
@@ -98,15 +137,47 @@ def main():
     original_env = env_file.read_text()
     account = pwd.getpwnam("incudal")
     config = pathlib.Path("/etc/wireguard/incudal-mgmt.conf")
+    previous_network_content = None
     if config.is_symlink():
         raise ValueError("WireGuard configuration must not be a symlink")
+    if args.plan_only:
+        content = config.read_text() if config.exists() else ''
+        existing = re.search(r'(?m)^\s*Address\s*=\s*([^\r\n]+)', content)
+        configured_port = re.search(r'(?m)^\s*ListenPort\s*=\s*(\d+)\s*$', content)
+        address = automatic_management_address(existing.group(1).strip() if existing else None,
+                                              json.loads(run('ip', '-j', '-4', 'route', 'show', 'table', 'all')))
+        if content and (not existing or not configured_port):
+            raise ValueError('Existing management network configuration is incomplete')
+        print(json.dumps({'hostCapacity': address.network.num_addresses - 3,
+                          'existingWireGuard': bool(content), 'identitiesPreserved': True,
+                          'backendRestart': True}))
+        return
     if config.exists():
         content = config.read_text()
+        previous_network_content = content
         configured_address = re.search(r"(?m)^\s*Address\s*=\s*([^\r\n]+)", content)
         configured_port = re.search(r"(?m)^\s*ListenPort\s*=\s*(\d+)\s*$", content)
+        if args.auto_network and configured_address and configured_port:
+            address = automatic_management_address(configured_address.group(1).strip(), json.loads(run('ip', '-j', '-4', 'route', 'show', 'table', 'all')))
+            listen_port = int(configured_port.group(1))
+            updated = re.sub(r'(?m)^(\s*Address\s*=\s*)[^\r\n]+$', lambda match: match[1] + str(address), content)
+            if updated != content:
+                descriptor, temporary = tempfile.mkstemp(dir=config.parent, prefix='.incudal-network-')
+                try:
+                    with os.fdopen(descriptor, 'w') as handle:
+                        os.fchmod(handle.fileno(), 0o600)
+                        handle.write(updated); handle.flush(); os.fsync(handle.fileno())
+                    if config.read_text() != content:
+                        raise ValueError('Management configuration changed during planning')
+                    os.replace(temporary, config)
+                finally:
+                    if os.path.exists(temporary): os.unlink(temporary)
+            configured_address = re.search(r"(?m)^\s*Address\s*=\s*([^\r\n]+)", updated)
         if not configured_address or configured_address.group(1).strip() != str(address) or not configured_port or int(configured_port.group(1)) != listen_port:
             raise ValueError("Existing management configuration differs; keep it and supply its address and port explicitly")
     else:
+        if args.auto_network:
+            address = automatic_management_address(None, json.loads(run('ip', '-j', '-4', 'route', 'show', 'table', 'all')))
         check_routes(address, json.loads(run("ip", "-j", "-4", "route", "show", "table", "all")))
         if run("ip", "-o", "link", "show", "type", "wireguard").find("incudal-mgmt") >= 0:
             raise ValueError("An unmanaged incudal-mgmt interface already exists")
@@ -117,6 +188,20 @@ def main():
             handle.flush()
             os.fsync(handle.fileno())
     run("systemctl", "enable", "--now", "wg-quick@incudal-mgmt")
+    if args.auto_network:
+        try:
+            expand_live_management_address(address)
+        except (OSError, RuntimeError, ValueError):
+            if previous_network_content is not None and config.read_text() == updated:
+                descriptor, temporary = tempfile.mkstemp(dir=config.parent, prefix='.incudal-network-rollback-')
+                try:
+                    with os.fdopen(descriptor, 'w') as handle:
+                        os.fchmod(handle.fileno(), 0o600)
+                        handle.write(previous_network_content); handle.flush(); os.fsync(handle.fileno())
+                    os.replace(temporary, config)
+                finally:
+                    if os.path.exists(temporary): os.unlink(temporary)
+            raise
     # Minimal/cloud images may only ship some SSH host-key algorithms.
     # Generate missing keys without replacing existing server identities.
     run("ssh-keygen", "-A")
@@ -175,4 +260,6 @@ if __name__ == "__main__":
         main()
     except (ValueError, RuntimeError, OSError) as error:
         print(f"Gateway setup stopped: {error}")
+        code = 'SIMPLE_GATEWAY_NETWORK_CONFLICT' if 'network' in str(error).lower() or 'route' in str(error).lower() else 'SIMPLE_GATEWAY_CONFIGURE_FAILED'
+        print('INCUDAL_ERROR:' + code)
         raise SystemExit(1)

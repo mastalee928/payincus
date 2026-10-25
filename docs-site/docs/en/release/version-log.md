@@ -8,30 +8,38 @@ This page is generated from Git tags and commits to show system version history.
 
 ## Latest Release State / 最新发布状态
 
-- Latest Release Commit / 最新发布提交: `9d1e5ba47`
-- Commit date / 提交日期: 2026-10-21
-- Commit subject / 提交说明: fix: preserve root ownership for legacy OTA upgrades in v1.7.1
-- Latest tag / 最新 tag: `v1.7.1`
+- Latest Release Commit / 最新发布提交: `8eb306e2a`
+- Commit date / 提交日期: 2026-10-25
+- Commit subject / 提交说明: fix: wait for normal backend startup before releasing recovery protection
+- Latest tag / 最新 tag: `v1.7.2`
 
 ## Unreleased Changes / 未发布变更
 
-### New Capabilities / 新增能力
+### Fixes and Stability / 修复与稳定性
 
-- feat: add signed controller candidate discovery foundation `5e2a3ccfc`
+- fix: preserve trusted OTA rollback and legacy controller state `e40f3acfd`
 
 ### Other Changes / 其他变更
 
-- docs: specify gateway management failover and disaster recovery `41dcf168c`
-- docs: record installer inclusion in next regular release `38e50b40c`
-- docs: record owner confirmation of v1.7.1 host health `f4376a54b`
-- docs: record v1.7.1 release and verified test OTA `d762db4aa`
-
-### Fixes and Stability / 修复与稳定性
-
-- fix: restore compatible OSS backups on replacement controllers `3a2d42f57`
-- fix: guide Cloudflare Tunnel setup and diagnose public access `e5c73e6a2`
+- docs: require every project conversation to read owner requirements first `ed4e06017`
+- docs: finalize v1.7.2 release evidence and recovery operations `315730eb1`
+- docs: record final recovery acceptance and DD restore steps `61c109e66`
 
 ## Historical Versions / 历史版本
+
+## v1.7.2
+
+- Release commit / 发布提交: `8eb306e2a`
+- Commit date / 提交日期: 2026-10-25
+- Commit subject / 提交说明: fix: wait for normal backend startup before releasing recovery protection
+
+完整平台备份恢复原控制签名、WireGuard、管理 SSH 和 Incus 信任。恢复保护提供外部凭证核对及正常续费账单补回；已有宿主可补装固定域名定期解析。自然五分钟巡检处理漏续费、到期及确认删除后的库存释放。
+
+修复官方 Alpine 云镜像第一次启动的公钥初始化、已接受订单重试、严格 umask 下 PostgreSQL 公钥读取、跨发行系统的备份结构指纹及低配置恢复启动等待。
+
+验证：最终源码 CI 和 AMD64/ARM64 完整包构建、首装；真实 OSS 跨机恢复、原身份与客户持久数据保持、自然补续 TG 到达、新购公钥 NAT SSH 与不重复扣费；两架构旧平铺安装器升级。原子 OTA 的目标部署和完整 A/B 高可用、四拓扑、72 小时验收仍另行推进。
+
+DD 前先升级新版、补装已有宿主固定域名重连，并制作含新增控制身份的完整成功备份；保留外部账证。恢复后先核账，再解除保护。客户 VPS 磁盘不在平台备份内。操作说明：docs/controller-dd-oss-recovery-v1.7.2.md（main）。
 
 ## v1.7.1
 

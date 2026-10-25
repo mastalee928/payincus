@@ -10,6 +10,7 @@ import hostInventoryRoutes from './host-inventory.js'
 import hostGroupRoutes from './host-groups.js'
 import gatewayManagementRoutes from './gateway-management.js'
 import { registerGatewayEndpointRoutes } from './onboarding-gateway-endpoint.js'
+import simpleGatewaySetupRoutes from './simple-gateway-setup.js'
 
 const nodeSelect = {
   id: true, name: true, publicIp: true, sshPort: true, sshFingerprint: true, managementIp: true,
@@ -35,6 +36,7 @@ export default async function hostOnboardingRoutes(fastify: FastifyInstance) {
   await fastify.register(hostGroupRoutes)
   await fastify.register(gatewayManagementRoutes)
   await registerGatewayEndpointRoutes(fastify)
+  await fastify.register(simpleGatewaySetupRoutes)
   fastify.get('/gateway', { onRequest: [fastify.authenticateAdmin], config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (_request, reply) => {
     reply.header('Cache-Control', 'no-store')
     if (!gatewayConfigured()) return { ready: false, code: 'GATEWAY_NOT_CONFIGURED' }

@@ -41,13 +41,13 @@ INCUDAL_AGENT_RELEASE_DIR 仅供临时验收覆盖；正常安装从自己的 Ag
 
 组件按签名清单哈希保存到 root 私有 `/var/lib/incudal-gateway-components/`，避免 OTA 清理旧 release 使登记目录失效。已有 v2 身份的正常服务启动只刷新已验签组件目录并保持原私钥/identity；恢复保护时停止自动刷新，不从缺失文件生成新身份。旧版本无目录的安装维持显式登记流程；已有 v1 测试/人工登记需单独迁移，不能隐式重新初始化。主控控制身份仍不等于取得宿主写权或完成备用覆盖。
 
-页面安装计划使用 root 私有登记 `/var/lib/incudal-gateway-controller/enrollment.json`。服务启动只安装受限 worker，不生成签名身份。首次登记必须显式执行 `sudo bash scripts/install-panel.sh --configure-gateway-controller --initialize < catalog.json`；已有身份仅用 `--refresh` 更新组件目录，`--verify` 只核验登记与组件。命令从已验证安装目录运行，不重启业务后端或网关。平台 `GATEWAY_PLATFORM_ID` 必须与登记的 `platformId` 一致；首次填入后重启唯一后端使环境配置生效。
+页面安装计划使用 root 私有登记 `/var/lib/incudal-gateway-controller/enrollment.json`。网页执行器在已验证发行包下完成所需首次登记，已有身份保留。以下手工登记仅供维护者兜底：`sudo bash scripts/install-panel.sh --configure-gateway-controller --initialize < catalog.json`；已有身份仅用 `--refresh` 更新组件目录，`--verify` 只核验登记与组件。命令从已验证安装目录运行，不重启业务后端或网关。平台 `GATEWAY_PLATFORM_ID` 必须与登记的 `platformId` 一致；首次填入后重启唯一后端使环境配置生效。
 
 `catalog.json` 仅包含 `platformId`、独立固定的 Base64 Ed25519 `packageSigningKey`，以及 `components` 的 `amd64`/`arm64` 目录、`version` 和完整 `sourceCommit`。只登记已解包、root 所有且通过固定包验证器的软件包。组件公钥必须从独立受信来源取得，不能从待安装包中自行信任；发布签名身份与本机控制签名身份分离。组件目录不可由业务服务用户写入。
 
 初始化生成 root:root/0600 的 `signing.pem`，另存 `identity.json` 的平台/公钥摘要/组件信任绑定，最后原子发布 v2 登记。`--refresh` 保留原私钥和身份记录；平台或组件信任变化、身份文件缺失/损坏、换钥、软链、权限变宽及并发登记均拒绝，不自动重建。恢复应保留原控制身份并核对较新撤销/代次；不得用初始化替代灾备恢复。控制私钥和独立恢复材料必须安全保存，v1.7.2 平台备份已覆盖原控制身份；最新撤销/事件链自动恢复仍属持续工程，登记入口本身不能替代完整 OSS 恢复和核账。
 
-一键安装可配置 WireGuard 与受限 SSH 网关。地址必须为公网 IPv4 或直连域名，不能经过 CDN；云厂商安全组需允许管理 UDP 端口。安装时跳过可执行 `sudo bash install-panel.sh --configure-host-pool`。
+v1.7.3 常规网关配置使用后台「机器池 → 管理网关」：只填当前主控 SSH 地址和密码，检查计划后确认，系统自动规划至少/20地址池、读取端口并保留原管理身份。固定直连域名保存一次，已有宿主自动补装，新宿主自动加入；逐台进度、错误和重试结果持久保留。网页不再把root终端指令作为正常流程。`--configure-host-pool`仅保留为维护者故障兜底。地址不能经过CDN，云网络仍须允许原管理通信。
 
 默认管理地址 10.253.240.1/24、UDP 51820、主控 SSH 22。使用 ONBOARDING_MANAGEMENT_ADDRESS、ONBOARDING_WG_PORT、ONBOARDING_CONTROL_SSH_PORT 调整。已有密钥和 peer 保留，冲突时停止。自动接入的宿主机通过 WireGuard 管理，公网 22 端口交给客户实例。
 

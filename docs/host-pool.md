@@ -81,9 +81,11 @@ Agent 只删除自己记录过且已被云平台撤回的地址，保留无关�
 
 一键安装时会提示填写管理网关的公网 IPv4 或直连域名。填写后，脚本自动创建 WireGuard 管理接口、受限应用密钥和独立宿主管理密钥，验证后端能够通过固定 SSH 主机指纹访问网关，再写入 `.env`。管理网关地址不能经过 CDN 或 Cloudflare Tunnel；需要在云厂商安全组放行对应的入站 UDP 端口。
 
-默认使用 `10.253.240.1/24`、WireGuard UDP `51820` 和主控 SSH `22`。可通过 `ONBOARDING_PUBLIC_HOST`、`ONBOARDING_MANAGEMENT_ADDRESS`、`ONBOARDING_WG_PORT`、`ONBOARDING_CONTROL_SSH_PORT` 配置。脚本保留已有密钥和 peer，发现网段或端口冲突会停止。主控 OpenSSH 需允许 root 公钥认证；脚本不会修改全局 root 登录策略。
+网页配置自动规划至少 `/20` 的管理地址池，单网关可接入4093台宿主；已有管理地址、密钥、peer 与端口保留。发现路由冲突时停止并显示原因。主控 OpenSSH 需允许 root 公钥认证，程序不修改全局登录策略。
 
-安装时留空可稍后运行：
+常规配置在「机器池 → 管理网关」完成：填写当前主控的 SSH 地址和密码，查看自动生成的计划，确认配置。网页显示步骤、结果和后台重连进度。固定直连域名只保存一次；保存后系统自动给已接入宿主排队补装，支持批量重试、逐台结果和分页，新宿主也自动加入。端口和网段无需填写。
+
+以下 CLI 仅作为维护者故障兜底，常规网页配置无需运行：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mastalee928/payincus/main/scripts/install-panel.sh -o install-panel.sh

@@ -12,8 +12,8 @@ export async function connectOnboardingSsh(config: ConnectConfig, verify: (finge
   return new Promise((resolve, reject) => {
     const client = new ssh2.Client()
     let ready = false, mismatch = false
-    client.on('error', () => {
-      if (!ready) { client.destroy(); reject(new OnboardingError(mismatch ? 'SSH_HOST_KEY_CHANGED' : 'SSH_CONNECT_FAILED')) }
+    client.on('error', (error: { level?: string }) => {
+      if (!ready) { client.destroy(); reject(new OnboardingError(mismatch ? 'SSH_HOST_KEY_CHANGED' : error.level === 'client-authentication' ? 'SSH_AUTH_FAILED' : 'SSH_CONNECT_FAILED')) }
     })
     client.once('close', () => { if (!ready) reject(new OnboardingError(mismatch ? 'SSH_HOST_KEY_CHANGED' : 'SSH_CONNECT_FAILED')) })
     client.once('ready', () => { ready = true; resolve(client) })
@@ -27,7 +27,7 @@ export async function connectOnboardingSsh(config: ConnectConfig, verify: (finge
 
 // No PTY and no shell interpolation of credentials. The script arrives over
 // stdin, and only structured, bounded results are returned to the worker.
-export async function sshExec(client: Client, command: string, input = '', timeoutMs = 30000): Promise<string> {
+export async function sshExec(client: Client, command: string, input = '', timeoutMs = 30000, outputLimit = 65536): Promise<string> {
   return new Promise((resolve, reject) => {
     let settled = false
     const finish = (error?: Error, value?: string) => {
@@ -42,7 +42,7 @@ export async function sshExec(client: Client, command: string, input = '', timeo
       if (error) { finish(new OnboardingError('SSH_COMMAND_FAILED')); return }
       if (settled) { stream.close(); return }
       let output = ''
-      stream.on('data', (data: Buffer) => { output = (output + data.toString('utf8')).slice(-65536) })
+      stream.on('data', (data: Buffer) => { output = (output + data.toString('utf8')).slice(-outputLimit) })
       stream.stderr.on('data', () => {})
       stream.on('error', () => finish(new OnboardingError('SSH_COMMAND_FAILED')))
       stream.on('close', (code: number) => {
@@ -109,6 +109,16 @@ export function validateGatewayResponse(raw: unknown, endpoint: string, sshHost:
 export function gatewayConfigured(): boolean {
   return Boolean(process.env.ONBOARDING_GATEWAY_HOST && process.env.ONBOARDING_GATEWAY_KEY_PATH && process.env.ONBOARDING_GATEWAY_FINGERPRINT && process.env.ONBOARDING_WG_ENDPOINT)
 }
+export function gatewaySshHost(endpoint: string, settings = {
+  gatewayHost: process.env.ONBOARDING_GATEWAY_HOST || '', jumpHost: process.env.ONBOARDING_SSH_JUMP_HOST || '',
+  configuredEndpoint: process.env.ONBOARDING_WG_ENDPOINT || ''
+}) {
+  const originalHost = settings.configuredEndpoint.replace(/:[0-9]+$/, '')
+  // A restored single controller must not keep jumping to A's literal IP.
+  // Preserve an explicitly separate SSH bastion in legacy split deployments.
+  if (['127.0.0.1', 'localhost'].includes(settings.gatewayHost) && (!settings.jumpHost || settings.jumpHost === originalHost)) return endpoint.replace(/:[0-9]+$/, '')
+  return settings.jumpHost || settings.gatewayHost
+}
 
 export async function gatewayCommand(command = 'status'): Promise<OnboardingGateway> {
   if (!gatewayConfigured()) throw new OnboardingError('GATEWAY_NOT_CONFIGURED')
@@ -117,12 +127,13 @@ export async function gatewayCommand(command = 'status'): Promise<OnboardingGate
     async fingerprint => fingerprint === process.env.ONBOARDING_GATEWAY_FINGERPRINT)
   try {
     let raw: unknown
-    try { raw = JSON.parse(await sshExec(client, command)) }
+    try { raw = JSON.parse(await sshExec(client, command, '', 30000, command === 'peers' ? 2 * 1024 * 1024 : 65536)) }
     catch (error) { if (error instanceof OnboardingError) throw error; throw new OnboardingError('GATEWAY_RESPONSE_INVALID') }
     // Validation and SSH helpers are also used by standalone guard processes.
     // Load database-backed endpoint settings only for an actual gateway command.
     const { currentOnboardingGatewayEndpoint } = await import('./onboarding-gateway-endpoint.js')
-    return validateGatewayResponse(raw, await currentOnboardingGatewayEndpoint(), process.env.ONBOARDING_SSH_JUMP_HOST || process.env.ONBOARDING_GATEWAY_HOST!)
+    const endpoint = await currentOnboardingGatewayEndpoint()
+    return validateGatewayResponse(raw, endpoint, gatewaySshHost(endpoint))
   } finally { client.end() }
 }
 

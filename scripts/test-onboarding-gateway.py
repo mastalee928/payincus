@@ -16,6 +16,21 @@ spec.loader.exec_module(gateway)
 
 
 class GatewayTests(unittest.TestCase):
+    def test_thousand_distinct_host_reservations_fit_without_changing_gateway(self):
+        import uuid
+        self.control = ipaddress.ip_interface('10.253.240.1/20')
+        gateway.CONFIG.write_text(self.config.replace('/24', '/20'))
+        assigned = {self.register('node-key-' + str(i), str(uuid.uuid4())) for i in range(1000)}
+        self.assertEqual(len(assigned), 1000)
+        self.assertNotIn(str(self.control.ip), assigned)
+        self.assertTrue(all(ipaddress.ip_address(ip) in self.control.network for ip in assigned))
+
+    def test_missing_ssh_reply_is_not_reported_as_changed_identity(self):
+        from types import SimpleNamespace
+        with self.assertRaises(gateway.GatewayOperationError) as error:
+            gateway.verified_host_scan(SimpleNamespace(stdout=b''), 'SHA256:' + 'a' * 43)
+        self.assertEqual(error.exception.code, 'GATEWAY_DNS_HOST_UNREACHABLE')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="incudal-gateway-test-")
         self.addCleanup(self.temp.cleanup)

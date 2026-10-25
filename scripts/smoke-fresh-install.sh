@@ -82,7 +82,7 @@ for file in client/dist/user/index.html client/dist/admin/index.html server/dist
   server/dist/lib/agent-version.js server/dist/lib/upaypro.js \
   server/prisma/migrations/202610160002_dedicated_ipv6/migration.sql \
   scripts/probe-management-gateway.py scripts/onboarding-gateway.py scripts/setup-onboarding-control.py \
-  scripts/install-gateway-controller.sh scripts/gateway-install-plan.py scripts/execute-gateway-install.py \
+  scripts/install-gateway-controller.sh scripts/install-local-gateway-worker.sh scripts/gateway-install-plan.py scripts/execute-gateway-install.py \
   scripts/verify-gateway-component-package.py deploy/incudal-gateway-task@.service.example LICENSE; do
   test -s "/opt/incudal/$file"
 done

@@ -183,6 +183,7 @@ jobs:
           cp scripts/reconnect-host-management.sh release/scripts/
           cp scripts/install-panel.sh release/scripts/
           cp scripts/install-platform-backup.sh release/scripts/
+          cp scripts/install-local-gateway-worker.sh release/scripts/
           cp scripts/platform-backup-recovery.py scripts/platform-backup-recovery-guide.md release/scripts/
 
       # ===== 安装生产依赖 =====

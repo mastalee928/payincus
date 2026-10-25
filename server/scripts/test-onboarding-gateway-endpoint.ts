@@ -49,7 +49,7 @@ try {
   }
   assert.equal((await app.inject({ method: 'POST', url, headers, payload: { command: 'sh' } })).statusCode, 400)
   assert.equal(installations, 0)
-  assert.equal((await app.inject({ method: 'POST', url, headers, payload: {} })).statusCode, 200)
+  assert.equal((await app.inject({ method: 'POST', url, headers, payload: {} })).statusCode, 202)
   assert.equal(installations, 1)
 } finally {
   await app.close()

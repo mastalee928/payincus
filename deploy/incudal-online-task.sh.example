@@ -245,6 +245,17 @@ run_task() {
 }
 
 case "${1:-}" in
+  local-gateway)
+    [[ "$#" -eq 2 && "$2" =~ ^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$ ]] || fail "invalid local gateway task id"
+    exec 9>/var/lib/incudal-platform-operation.lock
+    flock -n 9 || fail "another platform maintenance task is running"
+    [[ ! -e /var/lib/incudal-backup/recovery-hold.json ]] || fail "platform recovery is awaiting review"
+    verify_manifest
+    app_dir="$(resolve_app_dir)"
+    exec /usr/bin/env -u NODE_OPTIONS -u NODE_PATH -u LD_PRELOAD -u BASH_ENV -u ENV \
+      PATH="$SYSTEM_PATH" INCUDAL_APP_DIR="$app_dir" NODE_ENV=production \
+      /usr/bin/node "$app_dir/server/dist/scripts/run-simple-gateway-setup.js" "$2"
+    ;;
   gateway-task)
     [[ "$#" -eq 2 && "$2" =~ ^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$ ]] || fail "invalid gateway task id"
     exec 9>/var/lib/incudal-platform-operation.lock

@@ -16,6 +16,7 @@ import { IncusClient } from '../lib/incus/index.js'
 import { normalizeArchitecture } from '../lib/architecture.js'
 import { parseResourceProbe, resolveHostResources, type ResolvedHostResources } from '../lib/onboarding-resources.js'
 import { lockHostGroups, resolveHostGroups } from '../services/host-groups.js'
+import { queueHostGatewayDns } from '../services/host-gateway-dns.js'
 
 let timer: ReturnType<typeof setInterval> | undefined
 let ticking = false
@@ -217,6 +218,7 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
     }
     if (!agentReady) throw new OnboardingError('AGENT_NOT_READY')
     await checkpoint('done', { status: 'succeeded', credentialsEncrypted: null, completedAt: new Date(), leaseUntil: null, leaseToken: null })
+    await queueHostGatewayDns(node.batch.createdById, node.id).catch(() => {})
     await createLog(node.batch.createdById, 'host', 'host.onboarding.complete', `Onboarded host "${node.name}" via management tunnel`, 'success')
   } catch (error) {
     const code = error instanceof OnboardingError ? error.code : 'ONBOARDING_STEP_FAILED'

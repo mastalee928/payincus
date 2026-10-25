@@ -33,6 +33,10 @@ ExecStartPre=/usr/bin/bash -lc 'if [ ! -e /var/lib/incudal-backup/recovery-hold.
 EOF
 chmod 0644 /etc/systemd/system/incudal-backend.service.d/platform-backup.conf
 /usr/bin/systemctl daemon-reload
+if [[ -f "$root/scripts/install-local-gateway-worker.sh" ]]; then
+    [[ ! -L "$root/scripts/install-local-gateway-worker.sh" && $(stat -c %u "$root/scripts/install-local-gateway-worker.sh") == 0 ]] || exit 1
+    bash "$root/scripts/install-local-gateway-worker.sh"
+fi
 if [[ -f "$root/scripts/install-gateway-controller.sh" ]]; then
     [[ ! -L "$root/scripts/install-gateway-controller.sh" && $(stat -c %u "$root/scripts/install-gateway-controller.sh") == 0 ]] || exit 1
     if find "$root/scripts/install-gateway-controller.sh" -perm /022 -print -quit | grep -q .; then exit 1; fi

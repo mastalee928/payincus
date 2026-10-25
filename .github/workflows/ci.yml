@@ -42,6 +42,9 @@ jobs:
           python3 scripts/test-onboarding-control.py
           python3 scripts/test-onboarding-gateway.py
           sudo python3 -B scripts/test-host-gateway-dns.py
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wireguard-tools iproute2
+          sudo env INCUDAL_NETWORK_NAMESPACE_TEST=1 unshare --net python3 scripts/test-onboarding-control-network.py
 
       - name: Type check (client)
         run: pnpm --filter client type-check
@@ -56,6 +59,7 @@ jobs:
         run: |
           pnpm --filter server test:gateway-task-guards
           pnpm --filter server test:gateway-management-route-guards
+          pnpm --filter server test:simple-gateway-setup
           python3 scripts/test-management-gateway-preflight.py
           sudo python3 scripts/test-gateway-component-package.py
           sudo python3 scripts/test-gateway-install-plan.py

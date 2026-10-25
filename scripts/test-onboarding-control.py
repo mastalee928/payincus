@@ -9,6 +9,14 @@ spec.loader.exec_module(setup)
 
 
 class ControlSetupTests(unittest.TestCase):
+    def test_automatic_thousand_host_pool_keeps_current_gateway_ip(self):
+        expanded = setup.automatic_management_address('10.253.240.1/24', [{'dst': '10.253.240.0/24', 'dev': 'incudal-mgmt'}])
+        self.assertEqual(str(expanded), '10.253.240.1/20')
+        self.assertEqual(expanded.network.num_addresses - 3, 4093)
+        chosen = setup.automatic_management_address(None, [{'dst': '10.253.0.0/16', 'dev': 'eth0'}])
+        self.assertFalse(chosen.network.overlaps(setup.ipaddress.ip_network('10.253.0.0/16')))
+        self.assertEqual(chosen.network.prefixlen, 20)
+
     def test_rejects_shell_text_private_endpoints_and_invalid_ports(self):
         for value in ["localhost", "127.0.0.1", "10.0.0.1", "::1", "https://control.example.com", "control.example.com;id", "$(id)", "bad\nname.example.com"]:
             with self.assertRaises(ValueError):

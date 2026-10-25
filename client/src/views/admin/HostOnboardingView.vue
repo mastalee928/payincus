@@ -13,6 +13,11 @@ const { t, te, locale } = useI18n()
 const toast = useToast()
 // Machine inventory and durable onboarding tasks share the machine-pool page.
 const activeTab = ref<'hosts' | 'tasks' | 'gateways'>('hosts')
+async function openGatewaySetup() {
+  activeTab.value = 'gateways'
+  await nextTick()
+  document.getElementById('gateway-ssh-address')?.focus()
+}
 function switchPoolTab(event: KeyboardEvent) {
   const tabs = ['hosts', 'tasks', 'gateways'] as const
   const current = tabs.indexOf(activeTab.value)
@@ -255,17 +260,8 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
       <button type="button" class="btn-secondary shrink-0 self-start whitespace-nowrap" @click="refresh">{{ t('common.refresh') }}</button>
     </section>
 
-    <details class="card p-4">
-      <summary class="cursor-pointer text-sm font-medium text-themed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4">{{ t('onboarding.gatewaySetup') }}</summary>
-      <div class="mt-3 space-y-3 text-sm text-themed-muted">
-        <p>{{ t('onboarding.gatewaySetupHint') }}</p>
-        <pre class="rounded-lg bg-themed-secondary p-3 text-xs text-themed whitespace-pre-wrap break-all"><code>curl -fsSL https://raw.githubusercontent.com/mastalee928/payincus/main/scripts/install-panel.sh -o install-panel.sh
-sudo bash install-panel.sh --configure-host-pool</code></pre>
-        <p>{{ t('onboarding.gatewaySetupAddress') }}</p>
-        <p>{{ t('onboarding.gatewaySetupCheck') }}</p>
-        <a class="inline-block underline underline-offset-4 text-themed" href="https://mastalee928.github.io/payincus/deployment/one-click-install.html#机器池管理网关" target="_blank" rel="noopener noreferrer">{{ t('onboarding.gatewaySetupDocs') }}</a>
-      </div>
-    </details>
+    <button type="button" class="btn-secondary" @click="openGatewaySetup">{{ t('onboarding.gatewaySetup') }}</button>
+
 
     <div class="flex flex-wrap gap-2" role="tablist" :aria-label="t('onboarding.title')" @keydown="switchPoolTab">
       <button id="pool-tab-hosts" type="button" role="tab" :tabindex="activeTab === 'hosts' ? 0 : -1" :aria-selected="activeTab === 'hosts'" aria-controls="pool-tab-content" :class="activeTab === 'hosts' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'hosts'">{{ t('hostInventory.hostsTab') }}</button>
