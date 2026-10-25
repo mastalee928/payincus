@@ -8,6 +8,41 @@ import { ociMachineShape } from '../../client/src/utils/poolCatalog.js'
 import { groupByContinent } from '../../client/src/utils/countryContinent.js'
 import { inspectRecoveryBatch, recoverRecoveryBatch, type RecoveryBatchItem } from '../../client/src/utils/hostRecoveryBatch.js'
 import { hostLiveStatus } from '../src/lib/host-live-status.js'
+import { refreshUnprovisionedSshIdentity, OnboardingError } from '../src/lib/host-onboarding.js'
+import { connectOnboardingSsh } from '../src/services/onboarding-ssh.js'
+import { generateKeyPairSync } from 'node:crypto'
+import ssh2 from 'ssh2'
+
+const unfinished = { status: 'failed', step: 'checking', hostId: null, managementIp: null, nodePublicKey: null, sshFingerprint: 'previous-system' }
+assert.equal(refreshUnprovisionedSshIdentity(unfinished), true, 'retry a failed first SSH connection using the current system after DD')
+assert.equal(refreshUnprovisionedSshIdentity({ ...unfinished, status: 'cancelled', step: 'queued' }), true)
+for (const step of ['tunnel', 'resources', 'swap']) assert.equal(refreshUnprovisionedSshIdentity({ ...unfinished, step }), true)
+for (const change of [{ hostId: 1 }, { managementIp: '10.90.0.2' }, { nodePublicKey: 'registered-peer' },
+  { step: 'installing' }, { step: 'done' }, { status: 'running' }, { status: 'queued' }, { status: 'succeeded' }, { sshFingerprint: null }]) {
+  assert.equal(refreshUnprovisionedSshIdentity({ ...unfinished, ...change }), false, 'an established or active identity must not be replaced on retry')
+}
+const sshFixtureKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' })
+let authenticated = 0
+const sshFixture = new ssh2.Server({ hostKeys: [sshFixtureKey] }, connection => {
+  connection.on('error', () => {})
+  connection.on('authentication', context => {
+    authenticated++
+    if (context.method === 'password' && context.password === 'fixture-password') context.accept()
+    else context.reject()
+  })
+})
+await new Promise<void>(resolve => sshFixture.listen(0, '127.0.0.1', resolve))
+try {
+  const port = (sshFixture.address() as { port: number }).port
+  const config = { host: '127.0.0.1', port, password: 'fixture-password' }
+  await assert.rejects(connectOnboardingSsh(config, async () => false), /SSH_HOST_KEY_CHANGED/)
+  assert.equal(authenticated, 0, 'an actual pinned-key mismatch must reject before sending credentials')
+  await assert.rejects(connectOnboardingSsh(config, async () => { throw Error('identity store unavailable') }), /SSH_IDENTITY_CHECK_FAILED/)
+  await assert.rejects(connectOnboardingSsh(config, async () => { throw new OnboardingError('WORKER_INTERRUPTED') }), /WORKER_INTERRUPTED/)
+  await assert.rejects(connectOnboardingSsh({ ...config, password: 'incorrect-fixture' }, async () => true), /SSH_AUTH_FAILED/)
+  const connected = await connectOnboardingSsh(config, async () => true)
+  connected.end()
+} finally { await new Promise<void>(resolve => sshFixture.close(() => resolve())) }
 
 const facts = { occupied: false, reserved: false, singleTenant: true, ready: true, hasPrice: true, resourcePreset: 'E2', customerDiskGiB: 30 }
 const now = Date.now()

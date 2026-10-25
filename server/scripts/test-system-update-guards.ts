@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication, backupSystemUpdateApplication } from '../src/lib/system-update-files.js'
+import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication, backupSystemUpdateApplication, systemUpdateExecutionDirectory } from '../src/lib/system-update-files.js'
 import { systemUpdateUnitStillStarting } from '../src/lib/system-update-worker-state.js'
 import { assertBundledSystemUpdateRuntime, runBundledSystemUpdateMigrations } from '../src/lib/system-update-runtime.js'
 import { runSystemUpdateCommand } from '../src/lib/system-update-command.js'
@@ -259,13 +259,14 @@ assert.ok(
     runTask.includes('OTA database backup failed; migration was not started') &&
     runTask.includes('databaseBackupPath = await backupDatabase(backupDir, timestamp)') &&
     runTask.includes('databaseMigrationAttempted = true') &&
-    runTask.includes('await runBundledSystemUpdateMigrations(appDir') &&
+    runTask.includes('await runBundledSystemUpdateMigrations(await systemUpdateExecutionDirectory(installDir, appDir)') &&
     runTask.indexOf('databaseBackupPath = await backupDatabase(backupDir, timestamp)') <
       runTask.indexOf('await deployDatabaseMigrations()') &&
     runTask.indexOf('await deployDatabaseMigrations()') < runTask.indexOf('await verifyUpdatedRuntime(Boolean(artifact))') &&
-    runTask.includes('DB 已迁移但代码回滚，DB 与旧代码可能不兼容') &&
-    runTask.includes('DB 不会自动回滚') &&
-    runTask.includes('该备份将保留'),
+    runTask.includes('数据库迁移曾尝试，代码已回滚') &&
+    runTask.includes('数据库不会自动回滚') &&
+    runTask.includes('核对迁移记录及旧代码兼容性') &&
+    runTask.includes('保留备份 ${databaseBackupPath}'),
   'online updater must back up PostgreSQL, deploy new-release migrations before restart, abort on failure, and preserve the backup with an explicit rollback warning'
 )
 
@@ -453,6 +454,29 @@ try {
 const runtimeFixture = await mkdtemp(join(tmpdir(), 'incudal-bundled-runtime-'))
 try {
   const bundle = join(runtimeFixture, 'bundle')
+  assert.equal(await systemUpdateExecutionDirectory(runtimeFixture, bundle), resolve(bundle))
+  assert.ok(runTask.includes('options.cwd || await systemUpdateExecutionDirectory(installDir, appDir)') &&
+    rollbackTask.includes('options.cwd || await systemUpdateExecutionDirectory(installDir, appDir)'),
+  'commands must follow the active current release after atomic switch or rollback, not the old physical appDir')
+  const atomicRoot = join(runtimeFixture, 'atomic'), oldRelease = join(atomicRoot, 'releases/old'), newRelease = join(atomicRoot, 'releases/new')
+  await mkdir(oldRelease, { recursive: true }); await mkdir(newRelease, { recursive: true })
+  let atomicLinks = true
+  try { await symlink(oldRelease, join(atomicRoot, 'current')) } catch (error) {
+    if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EPERM') throw error
+    atomicLinks = false
+  }
+  if (atomicLinks) {
+    assert.equal(await systemUpdateExecutionDirectory(atomicRoot, oldRelease), oldRelease)
+    await rm(join(atomicRoot, 'current')); await symlink(newRelease, join(atomicRoot, 'current'))
+    assert.equal(await systemUpdateExecutionDirectory(atomicRoot, oldRelease), newRelease)
+    const activeCwd = await runSystemUpdateCommand(process.execPath, ['-e', 'process.stdout.write(process.cwd())'], {
+      cwd: await systemUpdateExecutionDirectory(atomicRoot, oldRelease), env: process.env, capture: true, timeoutMs: 5000 })
+    assert.equal(activeCwd, newRelease, 'a real child process must execute in the new release directory')
+    await rm(join(atomicRoot, 'current')); await symlink(oldRelease, join(atomicRoot, 'current'))
+    assert.equal(await systemUpdateExecutionDirectory(atomicRoot, newRelease), oldRelease)
+    await rm(join(atomicRoot, 'current')); await symlink(runtimeFixture, join(atomicRoot, 'current'))
+    await assert.rejects(systemUpdateExecutionDirectory(atomicRoot, oldRelease), /outside the managed releases/)
+  }
   await mkdir(join(bundle, 'server'), { recursive: true })
   await writeFile(join(bundle, 'server/package.json'), JSON.stringify({ dependencies: { fastify: '1.0.0' } }))
   await assert.rejects(assertBundledSystemUpdateRuntime(bundle), /missing bundled runtime dependency/)

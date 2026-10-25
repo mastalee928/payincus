@@ -1,7 +1,7 @@
 export const zhCN = {
   history: {
   "title": "巡检与自动续费日志",
-  "description": "保留最近 {days} 天。支持时间、用户名、邮箱及中文关键词组合查询。",
+  "description": "保留最近 {days} 天",
   "status": "运行状态",
   "query": "日志查询",
   "refresh": "刷新结果",
@@ -74,7 +74,7 @@ export const zhCN = {
 export const zhTW = {
   history: {
   "title": "巡檢與自動續費日誌",
-  "description": "保留最近 {days} 天，支援時間、使用者名稱、電子郵件及中文關鍵字組合查詢。",
+  "description": "保留最近 {days} 天",
   "status": "運行狀態",
   "query": "日誌查詢",
   "refresh": "重新整理結果",
@@ -147,7 +147,7 @@ export const zhTW = {
 export const en = {
   history: {
   "title": "Inspection and automatic renewal logs",
-  "description": "Last {days} days. Combine time, username, email and description keywords.",
+  "description": "Last {days} days",
   "status": "Status",
   "query": "Search logs",
   "refresh": "Refresh results",

@@ -18,7 +18,8 @@ function actionName(item: ExpiryHistoryItem) {
   }
   return t(`expiryEnforcement.history.${names[item.action] || 'event'}`)
 }
-function outcome(item: ExpiryHistoryItem) { return t(`expiryEnforcement.history.${item.run && !item.run.finishedAt ? 'started' : item.result === 'success' ? 'success' : item.result === 'failed' ? 'failed' : 'warning'}`) }
+function displayedResult(item: ExpiryHistoryItem) { return item.action.startsWith('system.expiry_enforcement') && !item.run ? 'warning' : item.result }
+function outcome(item: ExpiryHistoryItem) { return t(`expiryEnforcement.history.${item.run && !item.run.finishedAt ? 'started' : displayedResult(item) === 'success' ? 'success' : displayedResult(item) === 'failed' ? 'failed' : 'warning'}`) }
 function description(item: ExpiryHistoryItem) {
   if (item.run) return item.run.finishedAt ? t('expiryEnforcement.history.runSummary', { count: item.run.failureCount }) : t('expiryEnforcement.history.runBeginning')
   if (item.action.startsWith('system.expiry_enforcement')) return t('expiryEnforcement.history.unreadableSummary')
@@ -60,7 +61,7 @@ onMounted(() => { void load() })
 <template>
   <div class="expiry-history space-y-5" :aria-busy="loading">
     <div class="flex flex-wrap items-start justify-between gap-3">
-      <div><h3 class="text-base font-semibold text-themed">{{ t('expiryEnforcement.history.title') }}</h3><p class="mt-1 text-sm text-themed-muted">{{ t('expiryEnforcement.history.description', { days: result?.retentionDays || 90 }) }}</p></div>
+      <div class="min-w-0 flex-1"><h3 class="text-base font-semibold text-themed">{{ t('expiryEnforcement.history.title') }}</h3><p class="mt-1 text-sm text-themed-muted">{{ t('expiryEnforcement.history.description', { days: result?.retentionDays || 90 }) }}</p></div>
       <button type="button" class="btn-secondary" :disabled="loading" @click="load(result?.page || 1)">{{ t('expiryEnforcement.history.refresh') }}</button>
     </div>
     <form class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" @submit.prevent="search">
@@ -82,7 +83,7 @@ onMounted(() => { void load() })
       <div v-else>
         <div class="space-y-3 md:hidden">
           <article v-for="item in result.items" :key="item.id" class="rounded-lg border border-themed p-4 space-y-2">
-            <div class="flex items-center justify-between gap-3"><p class="text-sm font-medium text-themed">{{ actionName(item) }}</p><span class="text-sm" :class="item.result === 'failed' ? 'text-red-700 dark:text-red-300' : item.result === 'success' ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'">{{ outcome(item) }}</span></div>
+            <div class="flex items-center justify-between gap-3"><p class="text-sm font-medium text-themed">{{ actionName(item) }}</p><span class="text-sm" :class="displayedResult(item) === 'failed' ? 'text-red-700 dark:text-red-300' : displayedResult(item) === 'success' ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'">{{ outcome(item) }}</span></div>
             <p class="text-xs text-themed-muted">{{ date(item.createdAt) }}</p>
             <p class="break-words text-sm text-themed">{{ item.username || t('expiryEnforcement.history.system') }}<span v-if="item.email" class="mt-1 block text-themed-muted">{{ item.email }}</span></p>
             <p class="break-words whitespace-pre-wrap text-sm text-themed">{{ description(item) }}</p>
@@ -96,7 +97,7 @@ onMounted(() => { void load() })
             <tbody class="divide-y divide-themed">
               <tr v-for="item in result.items" :key="item.id" class="align-top">
                 <td class="p-3 text-themed-muted">{{ date(item.createdAt) }}</td>
-                <td class="p-3" :class="item.result === 'failed' ? 'text-red-700 dark:text-red-300' : item.result === 'success' ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'">{{ outcome(item) }}</td>
+                <td class="p-3" :class="displayedResult(item) === 'failed' ? 'text-red-700 dark:text-red-300' : displayedResult(item) === 'success' ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'">{{ outcome(item) }}</td>
                 <td class="p-3 break-words text-themed">{{ item.username || t('expiryEnforcement.history.system') }}<span v-if="item.email" class="mt-1 block text-xs text-themed-muted">{{ item.email }}</span></td>
                 <td class="p-3"><p class="font-medium text-themed">{{ actionName(item) }}</p><p class="mt-1 whitespace-pre-wrap break-words text-themed-muted">{{ description(item) }}</p><details v-if="item.run" class="mt-2"><summary class="cursor-pointer text-xs text-themed-muted">{{ t('expiryEnforcement.history.details') }}</summary><p class="mt-2 text-xs text-themed-muted">{{ t('expiryEnforcement.started') }}：{{ date(item.run.startedAt) }}<br />{{ t('expiryEnforcement.finished') }}：{{ date(item.run.finishedAt) }}</p><p v-if="item.run.lastError" class="mt-2 text-red-700 dark:text-red-300">{{ failure(item.run.lastError) }}</p></details></td>
               </tr>

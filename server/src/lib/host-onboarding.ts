@@ -6,6 +6,14 @@ export class OnboardingError extends Error {
   constructor(public readonly code: string) { super(code) }
 }
 
+export function refreshUnprovisionedSshIdentity(node: {
+  status: string; step: string; hostId: number | null; managementIp: string | null
+  nodePublicKey: string | null; sshFingerprint: string | null
+}): boolean {
+  return ['failed', 'cancelled'].includes(node.status) && ['queued', 'checking', 'tunnel', 'resources', 'swap'].includes(node.step) &&
+    node.hostId === null && node.managementIp === null && node.nodePublicKey === null && !!node.sshFingerprint
+}
+
 export const RESOURCE_PRESETS = ['E2', 'ARM1C', 'ARM2C', 'ARM3C', 'ARM4C'] as const
 export type ResourcePreset = typeof RESOURCE_PRESETS[number]
 export interface OnboardingResourceInput {

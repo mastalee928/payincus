@@ -1,5 +1,16 @@
-import { cp, lstat, readFile, writeFile } from 'node:fs/promises'
-import { basename, dirname, resolve } from 'node:path'
+import { cp, lstat, readFile, realpath, writeFile } from 'node:fs/promises'
+import { basename, dirname, resolve, sep } from 'node:path'
+
+export async function systemUpdateExecutionDirectory(installDir: string, fallback: string): Promise<string> {
+  const current = resolve(installDir, 'current')
+  let info
+  try { info = await lstat(current) }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return resolve(fallback); throw error }
+  if (!info.isSymbolicLink()) return resolve(fallback)
+  const target = await realpath(current)
+  if (!target.startsWith(resolve(installDir, 'releases') + sep)) throw new Error('Current release resolves outside the managed releases directory')
+  return target
+}
 
 // Database dumps belong to the retained backup, never the restored code tree.
 // Preserving literal symlink targets keeps the root helper's sealed link set

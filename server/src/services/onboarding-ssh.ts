@@ -12,14 +12,18 @@ export async function connectOnboardingSsh(config: ConnectConfig, verify: (finge
   return new Promise((resolve, reject) => {
     const client = new ssh2.Client()
     let ready = false, mismatch = false
+    let verificationError: OnboardingError | null = null
     client.on('error', (error: { level?: string }) => {
-      if (!ready) { client.destroy(); reject(new OnboardingError(mismatch ? 'SSH_HOST_KEY_CHANGED' : error.level === 'client-authentication' ? 'SSH_AUTH_FAILED' : 'SSH_CONNECT_FAILED')) }
+      if (!ready) { client.destroy(); reject(verificationError || new OnboardingError(mismatch ? 'SSH_HOST_KEY_CHANGED' : error.level === 'client-authentication' ? 'SSH_AUTH_FAILED' : 'SSH_CONNECT_FAILED')) }
     })
-    client.once('close', () => { if (!ready) reject(new OnboardingError(mismatch ? 'SSH_HOST_KEY_CHANGED' : 'SSH_CONNECT_FAILED')) })
+    client.once('close', () => { if (!ready) reject(verificationError || new OnboardingError(mismatch ? 'SSH_HOST_KEY_CHANGED' : 'SSH_CONNECT_FAILED')) })
     client.once('ready', () => { ready = true; resolve(client) })
     try { client.connect({ ...config, username: 'root', readyTimeout: 15000, keepaliveInterval: 15000, keepaliveCountMax: 3,
       hostVerifier: (key: Buffer, callback: (valid: boolean) => void) => {
-        verify(sshFingerprint(key)).then(valid => { mismatch = !valid; callback(valid) }).catch(() => { mismatch = true; callback(false) })
+        verify(sshFingerprint(key)).then(valid => { mismatch = !valid; callback(valid) }).catch(error => {
+          verificationError = error instanceof OnboardingError ? error : new OnboardingError('SSH_IDENTITY_CHECK_FAILED')
+          callback(false)
+        })
       }
     }) } catch { client.destroy(); reject(new OnboardingError('SSH_CONNECT_FAILED')) }
   })

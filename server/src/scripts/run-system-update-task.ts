@@ -7,7 +7,7 @@ import { Readable } from 'stream'
 import { pipeline } from 'stream/promises'
 import { prisma, closePrismaDatabase } from '../db/prisma.js'
 import { tryMarkSystemUpdateTaskRunning } from '../db/system-update-tasks.js'
-import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication, backupSystemUpdateApplication } from '../lib/system-update-files.js'
+import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication, backupSystemUpdateApplication, systemUpdateExecutionDirectory } from '../lib/system-update-files.js'
 import { assertBundledSystemUpdateRuntime, runBundledSystemUpdateMigrations } from '../lib/system-update-runtime.js'
 import { runSystemUpdateCommand, SystemUpdateCommandNotStopped } from '../lib/system-update-command.js'
 import {
@@ -78,14 +78,14 @@ function assertSafeManagedPath(path: string, parent: string, label: string): voi
 
 async function run(command: string, args: string[], options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; cwd?: string } = {}): Promise<void> {
   await log(`$ ${command} ${args.join(' ')}`)
-  await runSystemUpdateCommand(command, args, { cwd: options.cwd || appDir,
+  await runSystemUpdateCommand(command, args, { cwd: options.cwd || await systemUpdateExecutionDirectory(installDir, appDir),
     env: { ...process.env, PATH: executionPath, ...options.env }, timeoutMs: options.timeoutMs,
     stdout: data => { void appendFile(logPath, data) }, stderr: data => { void appendFile(logPath, data) } })
 }
 
 async function runCapture(command: string, args: string[], options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; cwd?: string } = {}): Promise<string> {
   await log(`$ ${command} ${args.join(' ')}`)
-  return await runSystemUpdateCommand(command, args, { cwd: options.cwd || appDir,
+  return await runSystemUpdateCommand(command, args, { cwd: options.cwd || await systemUpdateExecutionDirectory(installDir, appDir),
     env: { ...process.env, PATH: executionPath, ...options.env }, timeoutMs: options.timeoutMs, capture: true })
 }
 
@@ -178,7 +178,7 @@ async function backupDatabase(backupDir: string, timestamp: string): Promise<str
 
 async function deployDatabaseMigrations(): Promise<void> {
   await log('Deploying database migrations from the new release before backend restart')
-  await runBundledSystemUpdateMigrations(appDir, {
+  await runBundledSystemUpdateMigrations(await systemUpdateExecutionDirectory(installDir, appDir), {
     env: { ...process.env, PATH: executionPath },
     stdout: data => { void appendFile(logPath, data) }, stderr: data => { void appendFile(logPath, data) }
   })
@@ -779,6 +779,7 @@ async function main(): Promise<void> {
       await assertEnoughDiskSpace('下载、解压 OTA 包并备份当前版本', getArtifactDiskRequirementMb(artifact) + backupRequirementMb)
       backupPath = await applyArtifactUpdate(artifact, backupDir, timestamp)
     } else {
+      if (await isAtomicReleaseLayout()) throw new Error('Atomic release updates require a complete release artifact; source-build fallback is unavailable')
       await assertEnoughDiskSpace('Git 构建并备份当前版本', minimumDiskFreeMb + ((await getInstallDirectorySizeMb()) || 0))
       backupPath = await applyGitUpdate(backupDir)
     }
@@ -814,7 +815,7 @@ async function main(): Promise<void> {
     }
     if (rolledBack && databaseMigrationAttempted && databaseBackupPath) {
       await log(
-        `WARNING: DB 已迁移但代码回滚，DB 与旧代码可能不兼容；DB 不会自动回滚。如需回滚 DB，请用 ${databaseBackupPath} 手工恢复。该备份将保留。`
+        `WARNING: 数据库迁移曾尝试，代码已回滚；数据库不会自动回滚。请核对迁移记录及旧代码兼容性。如需恢复数据库，请使用保留备份 ${databaseBackupPath}。`
       )
     }
     await updateTask({

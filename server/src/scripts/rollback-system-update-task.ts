@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'path'
 import { runSystemUpdateCommand, SystemUpdateCommandNotStopped } from '../lib/system-update-command.js'
 import { prisma, closePrismaDatabase } from '../db/prisma.js'
 import { tryMarkSystemUpdateTaskRunning } from '../db/system-update-tasks.js'
-import { restoreSystemUpdateApplication, backupSystemUpdateApplication } from '../lib/system-update-files.js'
+import { restoreSystemUpdateApplication, backupSystemUpdateApplication, systemUpdateExecutionDirectory } from '../lib/system-update-files.js'
 
 const taskId = Number(process.argv[2])
 const appDir = resolve(process.env.INCUDAL_APP_DIR || process.cwd())
@@ -40,7 +40,7 @@ async function log(message: string): Promise<void> {
 async function run(command: string, args: string[], options: { timeoutMs?: number; cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
   await log(`$ ${command} ${args.join(' ')}`)
   await runSystemUpdateCommand(command, args, {
-    cwd: options.cwd || installDir,
+    cwd: options.cwd || await systemUpdateExecutionDirectory(installDir, appDir),
     env: { ...process.env, PATH: executionPath, ...options.env }, timeoutMs: options.timeoutMs,
     stdout: data => { void appendFile(logPath, data) }, stderr: data => { void appendFile(logPath, data) }
   })

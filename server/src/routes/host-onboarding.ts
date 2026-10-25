@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { createLog } from '../db/logs.js'
 import { encryptSensitiveData } from '../lib/security.js'
-import { OnboardingError, RESOURCE_PRESETS, validateCredentials, validateOnboardingInput, resolveOnboardingInput, onboardingCredentials, onboardingPanelOrigin, type OnboardingRequest, type OnboardingCredentials } from '../lib/host-onboarding.js'
+import { OnboardingError, RESOURCE_PRESETS, validateCredentials, validateOnboardingInput, resolveOnboardingInput, onboardingCredentials, onboardingPanelOrigin, refreshUnprovisionedSshIdentity, type OnboardingRequest, type OnboardingCredentials } from '../lib/host-onboarding.js'
 import { gatewayCommand, gatewayConfigured } from '../services/onboarding-ssh.js'
 import { resolveHostGroups } from '../services/host-groups.js'
 import hostInventoryRoutes from './host-inventory.js'
@@ -154,10 +154,21 @@ export default async function hostOnboardingRoutes(fastify: FastifyInstance) {
       try { validateCredentials(request.body) } catch { return reply.code(400).send({ code: 'SSH_CREDENTIALS_INVALID' }) }
       encrypted = encryptSensitiveData(JSON.stringify({ password: request.body.password, privateKey: request.body.privateKey }))
     } else if (!encrypted || node.credentialsExpireAt < new Date()) return reply.code(400).send({ code: 'SSH_CREDENTIALS_REQUIRED' })
-    const updated = await prisma.hostOnboardingNode.updateMany({ where: { id: node.id, status: node.status, deletedAt: null }, data: {
-      status: 'queued', errorCode: null, credentialsEncrypted: encrypted,
-      credentialsExpireAt: new Date(Date.now() + 24 * 60 * 60 * 1000), startedAt: null, completedAt: null, leaseToken: null, leaseUntil: null
-    } })
+    const refreshIdentity = refreshUnprovisionedSshIdentity(node)
+    const updated = await prisma.$transaction(async tx => {
+      const updated = await tx.hostOnboardingNode.updateMany({ where: { id: node.id, status: node.status, deletedAt: null,
+        ...(refreshIdentity ? { hostId: null, managementIp: null, nodePublicKey: null,
+          step: node.step, sshFingerprint: node.sshFingerprint, updatedAt: node.updatedAt } : {})
+      }, data: {
+        status: 'queued', errorCode: null, credentialsEncrypted: encrypted,
+        ...(refreshIdentity ? { sshFingerprint: null, resolvedResources: Prisma.DbNull } : {}),
+        credentialsExpireAt: new Date(Date.now() + 24 * 60 * 60 * 1000), startedAt: null, completedAt: null, leaseToken: null, leaseUntil: null
+      } })
+      if (updated.count && refreshIdentity) await tx.log.create({ data: { userId: request.user.id, module: 'host',
+        action: 'host.onboarding.ssh_identity_refreshed', result: 'success',
+        content: `Explicit retry will inspect the current system of unprovisioned host "${node.name}"; previous SSH fingerprint: ${node.sshFingerprint}` } })
+      return updated
+    })
     if (!updated.count) return reply.code(409).send({ code: 'ONBOARDING_NOT_RETRYABLE' })
     await createLog(request.user.id, 'host', 'host.onboarding.retry', `Retried onboarding host "${node.name}"`, 'success')
     return { success: true }
