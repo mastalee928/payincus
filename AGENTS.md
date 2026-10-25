@@ -17,7 +17,7 @@
 - 与 owner 默认用**中文**沟通。
 
 ## 1. 这是什么项目
-**PayIncus**（内部代号 `incudal`）——商用 Incus（LXC/KVM）NAT VPS 售卖与交付平台，**线上运营中**。当前源码候选 **v1.7.5**，正式发行版本 **v1.7.4**，生产部署证据以 `HANDOFF.md` 为准。pnpm monorepo：
+**PayIncus**（内部代号 `incudal`）——商用 Incus（LXC/KVM）NAT VPS 售卖与交付平台，**线上运营中**。当前源码及正式发行版本 **v1.7.5**，生产部署证据以 `HANDOFF.md` 为准。pnpm monorepo：
 
 | 目录 | 技术栈 / 作用 |
 |------|----------------|
