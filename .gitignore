@@ -98,6 +98,7 @@ coverage/
 docs/*
 !docs/host-pool.md
 !docs/fork-release.md
+!docs/controller-dd-oss-recovery-v1.7.2.md
 !docs-site/docs/
 !docs-site/docs/**
 !plugin-templates/ai-ticket-agent-plugin/docs/

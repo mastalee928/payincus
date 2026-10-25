@@ -2,6 +2,17 @@
 
 维护仓库：[mastalee928/payincus](https://github.com/mastalee928/payincus)。GitHub Fork 关系已于 2026-10-16 解除；仓库地址和提交历史保留。原 BSD 3-Clause 许可证与版权声明继续保留在 LICENSE。
 
+## 2026-10-25 v1.7.2 最终首要场景验收与正式标签
+
+- 最终源码8eb306e2aba2b39a3bf3746995ae3da51532e3c3的[CI40153761970](https://github.com/mastalee928/payincus/actions/runs/40153761970)和[预览40153762395](https://github.com/mastalee928/payincus/actions/runs/40153762395)成功：双构建、双首装success，预览Release预期skipped。最终AMD64/ARM64完整包均已安装运行，无编译覆盖；独立公钥下双组件验签与完整源码身份通过。预览包SHA256：AMD64 8d3591b27aaf3b2ff9751715ccc2e3a8f08cea6ee960d9df10b784d26a549688，ARM64 1cc5eb7107fbaf70b67c83e085a5b58a446fcd32f0a42d755fc01aa7bec09361，正式重建资产另核对，不复用这些值冒充。
+- 真实OSS最终完整包backup20e42109-24f1-4512-ae02-7bf16ef96db9、preview ef9a916b-6327-4b08-816e-8286aab9d8d9、restore、核账与resume全部成功。五台running记录、原账147.25/补续账户0/新购账户10、实例8两笔renew和实例9一笔newPurchase精确保留；原控制/WG/管理SSH/TLS哈希、Bot及绑定保持，保护内SSH/Incus库存5/5匹配。resume实际72秒，验证90秒启动门禁；后端唯一PID165880/NRestarts0，health recoveryHeld=false。此次是同目标机完整恢复复验，独立跨机/新身份空库冷恢复已由c456完整包证明，不能混写。
+- 最终8eb恢复后复用原成功买家/订单/实例9，固定受信客机公钥NAT SSH通过；原意向重试200，仍一台/一笔10元正常newPurchase账单与consume关联，余额10、原账147.25，未重复扣费或手工客机初始化。新建202及公钥首次初始化来自前一c456完整业务包实证；最终包复验保持交付行为，证据8eb306e-sale-verification-result.json。
+- 原四台UUID/Running与969项持久内容/权限/链接保持，五台实际Running。仅u2的DHCP租约更新和02:00客机定时生成logrotate状态有差异，按实际路径/时间/日志轮转头单独审计，未改原基线或修客机数据。原Incus/WG/SSH身份哈希一致。公网同一严格客机公钥SSH跨完整更新/恢复持续90分钟以上，boot/init起点不变；使用仅向授权测试主控开放的透明命名空间转送，不计客户生产宿主部署。原公网后台PID500181/重启计数0、本机及公网health正常，专用宿主PID102787保持。
+- 首轮最终备份已上传并回读，但嵌套测试前缀355字符追加安装/备份ID超过400的校验上限，保留返回OSS_RETENTION_FAILED；明确错误为OSS_PREFIX_INVALID。原归档保留；短独立前缀的新输入全部成功。未放宽校验，此配置长度边界留作后续修复，安装恢复说明推荐短前缀。
+- Owner已确认完整OSS恢复后的「OSS完整恢复补续测试-CloudReady」TG到达，无需重绑；自然五分钟与重复巡检、正常补续、删除回执/库存、真实管理员入口、双架构旧平铺升级证据沿用此前分项。原子OTA尚未真机验收，不计为已通过。
+- 已按旧聊天明确授权将正式标签v1.7.2指向最终8eb源码并推送；[正式发行40158029302](https://github.com/mastalee928/payincus/actions/runs/40158029302)正在运行，公开资产尚待验收。源码/测试、预览包、正式Release与原站部署分别记录；原站仍保持旧版本，未DD/OTA。
+- 新增[DD与OSS恢复操作说明](docs/controller-dd-oss-recovery-v1.7.2.md)：原v1.7.1先升级、已有宿主补装固定域名、制作含新增身份的完整成功备份后才由owner DD；恢复保护内按外部凭证核账，最后解除。文档命令bash语法、相对链接与测试清单179项分类检查通过，业务代码未新增变更。完整P0–P6/AC01–AC34/四拓扑/切换切回/唯一写者/72小时仍保留，持续目标active。
+
 ## 可复用发版验证 skill
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
