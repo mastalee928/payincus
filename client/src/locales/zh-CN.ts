@@ -8299,7 +8299,7 @@ onboarding: {
         "gatewayReady": "管理网关已就绪",
         "gatewayUnavailable": "管理网关未就绪",
         "gatewaySetup": "配置管理网关",
-        "gatewaySetupHint": "在管理网关页面填写主控的 SSH 地址和密码，检查计划后确认配置。",
+        "gatewaySetupHint": "在管理网关页面直接检查当前主控本机，确认计划后配置，无需填写本机SSH。",
         "gatewaySetupAddress": "固定直连域名保存一次；管理端口和地址池由系统处理，无需填写。",
         "gatewaySetupCheck": "网页持续显示配置进度，并自动为宿主配置地址更新；失败原因与逐台结果会保留。",
         "gatewaySetupDocs": "查看管理网关安装说明",

@@ -13,8 +13,8 @@ export async function registerSimpleGatewaySetupRoutes(app: FastifyInstance, ope
   })
   app.post<{ Body: SimpleGatewayInput }>('/gateway/setup', { onRequest: [app.authenticateAdmin], bodyLimit: 4096,
     config: { rateLimit: { max: 3, timeWindow: '1 minute' } },
-    schema: { body: { type: 'object', additionalProperties: false, required: ['requestId', 'sshAddress', 'password'], properties: {
-      requestId: { type: 'string', format: 'uuid' }, sshAddress: { type: 'string', minLength: 1, maxLength: 253 }, password: { type: 'string', minLength: 1, maxLength: 1024 }
+    schema: { body: { type: 'object', additionalProperties: false, required: ['requestId'], properties: {
+      requestId: { type: 'string', format: 'uuid' }
     } } }
   }, async (request, reply) => {
     const origins = (process.env.ADMIN_FRONTEND_URL || '').split(',').map(value => normalizeOrigin(value.trim())).filter(Boolean)

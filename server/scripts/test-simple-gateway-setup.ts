@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import Fastify from 'fastify'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { validateSimpleGatewayRequest, simpleGatewayPlanHash } from '../src/lib/local-gateway-setup.js'
+import { validateSimpleGatewayRequest, simpleGatewayPlanHash, detectedGatewayPublicIPv4 } from '../src/lib/local-gateway-setup.js'
 import { gatewayDnsRetry, resumeGatewayDnsState } from '../src/lib/gateway-dns-queue.js'
 import { registerSimpleGatewaySetupRoutes } from '../src/routes/simple-gateway-setup.js'
 import { gatewaySshHost } from '../src/services/onboarding-ssh.js'
@@ -11,9 +11,8 @@ const id = '11111111-1111-4111-8111-111111111111', now = 1700000000000
 assert.equal(gatewaySshHost('gateway.example.com:51820', { gatewayHost: '127.0.0.1', jumpHost: '8.8.4.4', configuredEndpoint: '8.8.4.4:51820' }), 'gateway.example.com')
 assert.equal(gatewaySshHost('gateway.example.com:51820', { gatewayHost: '127.0.0.1', jumpHost: 'bastion.example.com', configuredEndpoint: '8.8.4.4:51820' }), 'bastion.example.com')
 assert.equal(gatewaySshHost('gateway.example.com:51820', { gatewayHost: '10.0.0.2', jumpHost: 'bastion.example.com', configuredEndpoint: '8.8.4.4:51820' }), 'bastion.example.com')
-const request = { schemaVersion: 1 as const, id, operation: 'prepare' as const, actorId: 1, createdAt: now,
-  sshAddress: '8.8.4.4', publicHost: 'gateway.example.com', approvedCredentialHash: 'a'.repeat(64),
-  approvedSessionId: 'session-1', passwordEncrypted: 'a'.repeat(32) + ':' + 'b'.repeat(32) + ':abcd' }
+const request = { schemaVersion: 2 as const, id, operation: 'prepare' as const, actorId: 1, createdAt: now,
+  publicHost: 'gateway.example.com', approvedCredentialHash: 'a'.repeat(64), approvedSessionId: 'session-1' }
 assert.deepEqual(validateSimpleGatewayRequest(request, now), request)
 for (const patch of [{ command: 'id' }, { sshAddress: '8.8.4.4;id' }, { passwordEncrypted: 'plaintext' },
   { actorId: 0 }, { createdAt: now - 300001 }, { createdAt: now + 5001 }, { approvedSessionId: '../../root' },
@@ -22,8 +21,12 @@ for (const patch of [{ command: 'id' }, { sshAddress: '8.8.4.4;id' }, { password
 }
 const hash = simpleGatewayPlanHash(request, 'state-1')
 assert.equal(simpleGatewayPlanHash({ ...request, operation: 'apply', planHash: hash }, 'state-1'), hash)
-for (const [changed, observed] of [[{ ...request, sshAddress: '1.1.1.1' }, 'state-1'],
+for (const [changed, observed] of [[{ ...request, publicHost: 'changed.example.com' }, 'state-1'],
   [{ ...request, actorId: 2 }, 'state-1'], [request, 'changed-state']] as const) assert.notEqual(simpleGatewayPlanHash(changed, observed), hash)
+assert.equal(validateSimpleGatewayRequest({ ...request, publicHost: null }, now).publicHost, null)
+assert.notEqual(simpleGatewayPlanHash({ ...request, publicHost: null }, 'state-1', '8.8.4.4'), simpleGatewayPlanHash({ ...request, publicHost: null }, 'state-1', '1.1.1.1'))
+assert.equal(detectedGatewayPublicIPv4('8.8.4.4\n'), '8.8.4.4')
+for (const value of ['10.0.0.1', '127.0.0.1', 'html response', '8.8.4.4;id']) assert.throws(() => detectedGatewayPublicIPv4(value))
 assert.equal(gatewayDnsRetry('SSH_CONNECT_FAILED', 1, now), now + 5000)
 assert.equal(gatewayDnsRetry('SSH_CONNECT_FAILED', 2, now), now + 20000)
 assert.equal(gatewayDnsRetry('SSH_CONNECT_FAILED', 3, now), null)
@@ -50,11 +53,12 @@ const headers = { 'x-role': 'admin', origin: 'https://admin.example.com', author
 try {
   for (const path of ['/gateway/setup', '/gateway/setup/' + id]) assert.equal((await app.inject({ url: path })).statusCode, 403)
   for (const path of ['/gateway/setup', '/gateway/setup/' + id + '/confirm']) {
-    const payload = path.endsWith('/confirm') ? { planHash: hash } : { requestId: id, sshAddress: '8.8.4.4', password: 'fixture-only' }
+    const payload = path.endsWith('/confirm') ? { planHash: hash } : { requestId: id }
     for (const change of [{ 'x-role': 'user' }, { origin: 'https://evil.example.com' }, { 'x-no-session': '1' },
       { authorization: '' }, { 'sec-fetch-site': 'cross-site' }]) assert.equal((await app.inject({ method: 'POST', url: path, headers: { ...headers, ...change }, payload })).statusCode, 403)
     assert.equal(writes, path.endsWith('/confirm') ? 1 : 0)
     assert.equal((await app.inject({ method: 'POST', url: path, headers, payload: { ...payload, command: 'id' } })).statusCode, 400)
+    if (!path.endsWith('/confirm')) assert.equal((await app.inject({ method: 'POST', url: path, headers, payload: { ...payload, sshAddress: '8.8.4.4', password: 'fixture' } })).statusCode, 400)
     assert.equal((await app.inject({ method: 'POST', url: path, headers, payload })).statusCode, 202)
   }
   assert.equal((await app.inject({ url: '/gateway/setup/' + id, headers: { ...headers, 'x-actor': '2' } })).statusCode, 403)
@@ -69,6 +73,7 @@ assert.match(worker, /prisma\.tokenInvalidation\.findFirst/)
 assert.match(worker, /select: SIMPLE_GATEWAY_ADMIN_SELECT/)
 assert.match(worker, /await observedStateHash\(\) !== observed/)
 assert.doesNotMatch(worker, /writeFile\(requestPath/)
+assert.doesNotMatch(worker, /connectOnboardingSsh|decryptGatewayTaskSecret|request\.sshAddress/)
 const installer = readFileSync(fileURLToPath(new URL('../../scripts/install-local-gateway-worker.sh', import.meta.url)), 'utf8')
 assert.match(installer, /\/usr\/bin\/systemctl daemon-reload/)
 assert.match(installer, /ReadWritePaths=\/var\/lib\/incudal-local-gateway\/inbox/)

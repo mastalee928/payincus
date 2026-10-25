@@ -63,10 +63,10 @@ export const zhCN = {
   },
   "setup": {
     "title": "主控管理网关",
-    "description": "填写当前主控的 SSH 地址和密码，系统自动配置网关、规划网络并检查连接。客户实例保持原状。",
+    "description": "当前主控同时担任管理网关。系统直接检查本机、规划网络并配置服务。",
     "address": "SSH IP / 地址",
     "password": "SSH 密码",
-    "start": "检查连接并生成计划",
+    "start": "检查本机并生成计划",
     "working": "正在配置…",
     "unavailable": "网关执行组件尚未就绪，请先升级到当前版本。",
     "capacity": "系统已规划可接入 {count} 台宿主的地址池。",
@@ -79,14 +79,14 @@ export const zhCN = {
       "awaiting_confirmation": "等待确认配置"
     },
     "steps": {
-      "connect": "检查主控 SSH 连接",
+      "connect": "检查本机环境",
       "configure": "自动规划网络并配置网关",
       "verify": "检查网关和后台服务",
       "complete": "配置已完成",
       "confirm": "安装前检查已通过"
     },
     "errors": {
-      "SIMPLE_GATEWAY_FAILED": "该步骤没有完成，请检查 SSH 地址和密码后重试。",
+      "SIMPLE_GATEWAY_FAILED": "本机配置步骤没有完成，具体任务结果会保留，可重新检查。",
       "SIMPLE_GATEWAY_ADMIN_REQUIRED": "需要管理员登录后配置。",
       "SIMPLE_GATEWAY_EXECUTOR_UNAVAILABLE": "网关执行器尚未就绪，请升级当前版本后重试。",
       "SIMPLE_GATEWAY_CURRENT_CONTROLLER_REQUIRED": "请填写当前主控服务器的 SSH 地址。",
@@ -96,20 +96,22 @@ export const zhCN = {
       "SSH_HOST_KEY_CHANGED": "这个 SSH 地址的服务器身份与当前主控不一致，请检查地址。",
       "SSH_CONNECT_FAILED": "无法登录主控 SSH，请检查地址和密码。",
       "SIMPLE_GATEWAY_RECOVERY_HELD": "恢复核对尚未完成，解除保护后可配置。",
-      "SIMPLE_GATEWAY_PLAN_EXPIRED": "配置计划已过期或机器配置发生变化，请重新检查连接。",
+      "SIMPLE_GATEWAY_PLAN_EXPIRED": "配置计划已过期或本机设置发生变化，请点击“检查本机并生成计划”重新检查。",
       "SIMPLE_GATEWAY_INVALID": "配置请求未通过安全检查，请重新生成计划。",
       "SIMPLE_GATEWAY_HOST_IDENTITY_MISSING": "主控缺少 SSH 服务器身份，无法安全核验连接。",
       "GATEWAY_WEB_SESSION_REQUIRED": "登录已失效，请重新登录。",
       "SIMPLE_GATEWAY_INTERRUPTED": "后台服务中断了配置任务，请查看当前网关状态后重新生成计划。",
       "SSH_AUTH_FAILED": "SSH 密码未通过验证，请核对当前主控的 root 密码。",
-      "SIMPLE_GATEWAY_ADDRESS_INVALID": "请输入主控服务器的 IP 或域名，不需要协议、用户名或端口。"
+      "SIMPLE_GATEWAY_ADDRESS_INVALID": "请输入主控服务器的 IP 或域名，不需要协议、用户名或端口。",
+      "SIMPLE_GATEWAY_PUBLIC_ADDRESS_UNAVAILABLE": "未能自动确定本机公网地址，请先保存固定网关域名后重试。"
     },
     "review": "安装前检查已通过",
     "confirm": "确认配置网关",
     "planDescription": "系统保留已有管理身份和宿主绑定，自动扩容地址池。安装时会重启一次主控后台，客户实例保持运行。",
     "reconnecting": "后台正在刷新，任务继续运行。连接恢复后会自动显示结果。",
     "currentCapacity": "当前地址池可接入 {count} 台宿主。",
-    "loading": "正在读取当前网关状态…"
+    "loading": "正在读取当前网关状态…",
+    "targetLocal": "配置目标：当前主控服务器（本机）"
   },
   "extensions": {
     "title": "扩展网关",
@@ -191,10 +193,10 @@ export const zhTW = {
   },
   "setup": {
     "title": "主控管理網關",
-    "description": "填寫目前主控的 SSH 位址和密碼，系統自動規劃網路、配置網關並核驗連線。",
+    "description": "目前主控同時擔任管理網關，系統直接檢查本機、規劃網路並配置服務。",
     "address": "SSH IP / 位址",
     "password": "SSH 密碼",
-    "start": "檢查連線並產生計畫",
+    "start": "檢查本機並產生計畫",
     "working": "正在配置…",
     "unavailable": "網關執行元件尚未就緒，請先升級目前版本。",
     "capacity": "位址池可接入 {count} 台宿主。",
@@ -210,14 +212,14 @@ export const zhTW = {
       "awaiting_confirmation": "等待確認配置"
     },
     "steps": {
-      "connect": "檢查主控 SSH 連線",
+      "connect": "檢查本機環境",
       "configure": "自動規劃網路並配置網關",
       "verify": "檢查網關與後台服務",
       "complete": "配置已完成",
       "confirm": "安裝前檢查已通過"
     },
     "errors": {
-      "SIMPLE_GATEWAY_FAILED": "此步驟未完成，請核對 SSH 位址和密碼後重試。",
+      "SIMPLE_GATEWAY_FAILED": "本機配置步驟未完成，任務結果會保留，可重新檢查。",
       "SIMPLE_GATEWAY_ADMIN_REQUIRED": "需要管理員登入後配置。",
       "SIMPLE_GATEWAY_EXECUTOR_UNAVAILABLE": "網關執行器尚未就緒，請升級後重試。",
       "SIMPLE_GATEWAY_CURRENT_CONTROLLER_REQUIRED": "請填寫目前主控伺服器的 SSH 位址。",
@@ -227,17 +229,19 @@ export const zhTW = {
       "SSH_HOST_KEY_CHANGED": "伺服器身分與目前主控不符，請檢查 SSH 位址。",
       "SSH_CONNECT_FAILED": "無法登入主控 SSH，請檢查位址和密碼。",
       "SIMPLE_GATEWAY_RECOVERY_HELD": "恢復核對尚未完成，解除保護後可配置。",
-      "SIMPLE_GATEWAY_PLAN_EXPIRED": "計畫已過期或機器配置已變更，請重新檢查連線。",
+      "SIMPLE_GATEWAY_PLAN_EXPIRED": "計畫已過期或本機設定已變更，請點擊「檢查本機並產生計畫」重新檢查。",
       "SIMPLE_GATEWAY_INVALID": "配置請求未通過安全檢查，請重新產生計畫。",
       "SIMPLE_GATEWAY_HOST_IDENTITY_MISSING": "主控缺少 SSH 伺服器身分，無法安全核驗。",
       "GATEWAY_WEB_SESSION_REQUIRED": "登入已失效，請重新登入。",
       "SIMPLE_GATEWAY_INTERRUPTED": "後台中斷了配置任務，請檢查網關狀態後重新產生計畫。",
       "SSH_AUTH_FAILED": "SSH 密碼驗證失敗，請核對目前主控的 root 密碼。",
-      "SIMPLE_GATEWAY_ADDRESS_INVALID": "請填寫主控 IP 或網域，無需協定、使用者名稱或連接埠。"
+      "SIMPLE_GATEWAY_ADDRESS_INVALID": "請填寫主控 IP 或網域，無需協定、使用者名稱或連接埠。",
+      "SIMPLE_GATEWAY_PUBLIC_ADDRESS_UNAVAILABLE": "無法自動取得本機公網位址，請先儲存固定網關網域。"
     },
     "reconnecting": "後台正在重新載入，任務繼續執行。連線恢復後會自動顯示結果。",
     "currentCapacity": "目前位址池可接入 {count} 台宿主。",
-    "loading": "正在讀取目前網關狀態…"
+    "loading": "正在讀取目前網關狀態…",
+    "targetLocal": "配置目標：目前主控伺服器（本機）"
   },
   "extensions": {
     "title": "擴充網關",
@@ -319,10 +323,10 @@ export const en = {
   },
   "setup": {
     "title": "Controller gateway",
-    "description": "Enter the controller SSH address and password. Network planning, setup and checks are automatic.",
+    "description": "This controller also runs the gateway. The system checks this machine, plans the network and configures its services directly.",
     "address": "SSH IP / address",
     "password": "SSH password",
-    "start": "Check connection and plan",
+    "start": "Check this controller and plan",
     "working": "Configuring…",
     "unavailable": "Upgrade to the current version to enable the gateway worker.",
     "capacity": "The address pool supports {count} hosts.",
@@ -335,14 +339,14 @@ export const en = {
       "awaiting_confirmation": "Awaiting confirmation"
     },
     "steps": {
-      "connect": "Check controller SSH",
+      "connect": "Check local environment",
       "configure": "Plan network and configure gateway",
       "verify": "Check gateway and backend",
       "complete": "Complete",
       "confirm": "Pre-install checks passed"
     },
     "errors": {
-      "SIMPLE_GATEWAY_FAILED": "This step did not finish. Check the SSH address and password, then retry.",
+      "SIMPLE_GATEWAY_FAILED": "The local setup step did not finish. Results are retained; run the checks again.",
       "SIMPLE_GATEWAY_ADMIN_REQUIRED": "Sign in as an administrator to configure the gateway.",
       "SIMPLE_GATEWAY_EXECUTOR_UNAVAILABLE": "The gateway worker is unavailable. Upgrade and retry.",
       "SIMPLE_GATEWAY_CURRENT_CONTROLLER_REQUIRED": "Enter the current controller server’s SSH address.",
@@ -352,20 +356,22 @@ export const en = {
       "SSH_HOST_KEY_CHANGED": "This SSH server’s identity differs from the controller. Check the address.",
       "SSH_CONNECT_FAILED": "Could not sign in to controller SSH. Check the address and password.",
       "SIMPLE_GATEWAY_RECOVERY_HELD": "Complete recovery review before configuring the gateway.",
-      "SIMPLE_GATEWAY_PLAN_EXPIRED": "The plan expired or server configuration changed. Check the connection again.",
+      "SIMPLE_GATEWAY_PLAN_EXPIRED": "The plan expired or local settings changed. Click Check this controller and generate plan again.",
       "SIMPLE_GATEWAY_INVALID": "The request failed security checks. Generate a new plan.",
       "SIMPLE_GATEWAY_HOST_IDENTITY_MISSING": "The controller has no SSH server identity for verification.",
       "GATEWAY_WEB_SESSION_REQUIRED": "Your session expired. Sign in again.",
       "SIMPLE_GATEWAY_INTERRUPTED": "The setup worker stopped. Check gateway status and generate a new plan.",
       "SSH_AUTH_FAILED": "SSH authentication failed. Check the controller’s root password.",
-      "SIMPLE_GATEWAY_ADDRESS_INVALID": "Enter the controller IP or domain without a scheme, username or port."
+      "SIMPLE_GATEWAY_ADDRESS_INVALID": "Enter the controller IP or domain without a scheme, username or port.",
+      "SIMPLE_GATEWAY_PUBLIC_ADDRESS_UNAVAILABLE": "Could not detect this server’s public address. Save the fixed gateway domain and retry."
     },
     "review": "Pre-install checks passed",
     "confirm": "Confirm gateway setup",
     "planDescription": "The system preserves management identities and host bindings, and expands the address pool. Setup restarts the controller backend once; customer instances keep running.",
     "reconnecting": "The backend is restarting. The task continues; results will refresh when the connection returns.",
     "currentCapacity": "The current address pool supports {count} hosts.",
-    "loading": "Loading current gateway status…"
+    "loading": "Loading current gateway status…",
+    "targetLocal": "Target: this controller server"
   },
   "extensions": {
     "title": "Additional gateways",

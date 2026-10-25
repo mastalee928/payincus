@@ -11,5 +11,5 @@ export interface GatewayDnsHost {
 }
 export interface GatewaySetupProgress {
   id: string; actorId: number; state: string; step: string; errorCode: string | null; updatedAt: string; hostCapacity?: number
-  plan?: { planHash: string; expiresAt: number; sshAddress: string; hostCapacity: number; existingWireGuard: boolean; identitiesPreserved: true; backendRestart: true }
+  plan?: { planHash: string; expiresAt: number; target: 'local-controller'; publicHost: string; hostCapacity: number; existingWireGuard: boolean; identitiesPreserved: true; backendRestart: true }
 }

@@ -7,7 +7,7 @@ import GatewayExtensionEntrypoints from './GatewayExtensionEntrypoints.vue'
 import type { GatewaySetupProgress } from '@/types/gateway-endpoint'
 import type { OnboardingGatewayStatus } from '@/types/api'
 const { t, te } = useI18n()
-const sshAddress = ref(''), password = ref(''), task = ref<GatewaySetupProgress | null>(null)
+const task = ref<GatewaySetupProgress | null>(null)
 const busy = ref(false), error = ref(''), available = ref(true)
 const loading = ref(true)
 const reconnecting = ref(false)
@@ -22,9 +22,8 @@ function message(code?: string | null) {
 async function start() {
   if (loading.value || busy.value || running.value) return
   busy.value = true; error.value = ''
-  const secret = password.value; password.value = ''
   try {
-    task.value = await api.hostOnboarding.configureControllerGateway({ requestId: crypto.randomUUID(), sshAddress: sshAddress.value.trim(), password: secret })
+    task.value = await api.hostOnboarding.configureControllerGateway({ requestId: crypto.randomUUID() })
     sessionStorage.setItem('gatewaySetupTask', task.value.id)
   } catch (failure) { error.value = message((failure as { code?: string }).code) }
   finally { busy.value = false }
@@ -62,11 +61,11 @@ onMounted(async () => {
   finally { loading.value = false }
   void poll()
 })
-onUnmounted(() => { disposed = true; clearTimeout(timer); password.value = '' })
+onUnmounted(() => { disposed = true; clearTimeout(timer) })
 </script>
 <template>
   <section class="management-gateway space-y-6" data-ui>
-    <div><h2 class="text-xl font-semibold text-themed">{{ t('gatewayEndpoint.setup.title') }}</h2><p class="mt-1 text-sm text-themed-muted">{{ t('gatewayEndpoint.setup.description') }}</p></div>
+    <div><h2 id="gateway-setup-heading" tabindex="-1" class="text-xl font-semibold text-themed">{{ t('gatewayEndpoint.setup.title') }}</h2><p class="mt-1 text-sm text-themed-muted">{{ t('gatewayEndpoint.setup.description') }}</p></div>
     <div v-if="gateway" role="status" class="space-y-1">
       <p class="text-sm font-medium" :class="gateway.ready ? 'text-green-700 dark:text-green-300' : 'text-amber-700 dark:text-amber-300'">{{ t(gateway.ready ? 'onboarding.gatewayReady' : 'onboarding.gatewayUnavailable') }}</p>
       <p v-if="!gateway.ready && gateway.code && te(`onboarding.errors.${gateway.code}`)" class="text-sm text-themed-muted">{{ t(`onboarding.errors.${gateway.code}`) }}</p>
@@ -74,11 +73,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); password.value = '' })
     </div>
     <section class="card p-5 space-y-4" :aria-busy="busy || running">
       <form class="space-y-4" @submit.prevent="start">
-        <fieldset class="grid grid-cols-1 sm:grid-cols-2 gap-4" :disabled="loading || busy || running || !available">
-          <legend class="sr-only">{{ t('gatewayEndpoint.setup.title') }}</legend>
-          <label class="block text-sm text-themed">{{ t('gatewayEndpoint.setup.address') }}<input id="gateway-ssh-address" v-model="sshAddress" required autocomplete="off" maxlength="253" class="input mt-2 w-full" aria-describedby="gateway-setup-error" /></label>
-          <label class="block text-sm text-themed">{{ t('gatewayEndpoint.setup.password') }}<input v-model="password" required type="password" autocomplete="new-password" maxlength="1024" class="input mt-2 w-full" aria-describedby="gateway-setup-error" /></label>
-        </fieldset>
+        <p class="text-sm text-themed">{{ t('gatewayEndpoint.setup.targetLocal') }}</p>
         <p v-if="!available" role="status" class="text-sm text-amber-700 dark:text-amber-300">{{ t('gatewayEndpoint.setup.unavailable') }}</p>
         <p v-if="loading" role="status" class="text-sm text-themed-muted">{{ t('gatewayEndpoint.setup.loading') }}</p>
         <p v-if="error" id="gateway-setup-error" role="alert" class="text-sm text-red-700 dark:text-red-300">{{ error }}</p>
@@ -86,7 +81,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); password.value = '' })
       </form>
       <div v-if="task?.state === 'awaiting_confirmation' && task.plan" class="rounded-lg bg-themed-secondary p-4 space-y-3">
         <h3 class="text-sm font-semibold text-themed">{{ t('gatewayEndpoint.setup.review') }}</h3>
-        <p class="text-sm text-themed break-words">{{ task.plan.sshAddress }}</p>
+        <p class="text-sm text-themed">{{ t('gatewayEndpoint.setup.targetLocal') }}</p>
         <p class="text-sm text-themed-muted">{{ t('gatewayEndpoint.setup.capacity', { count: task.plan.hostCapacity }) }}</p>
         <p class="text-sm text-themed-muted">{{ t('gatewayEndpoint.setup.planDescription') }}</p>
         <button type="button" class="btn-primary" :disabled="busy || reconnecting" @click="confirm">{{ t('gatewayEndpoint.setup.confirm') }}</button>

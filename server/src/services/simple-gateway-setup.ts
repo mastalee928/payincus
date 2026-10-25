@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import { prisma } from '../db/prisma.js'
-import { gatewayCredentialHash, gatewayCredentialSelect, encryptGatewayTaskSecret } from './gateway-admin-authorization.js'
+import { gatewayCredentialHash, gatewayCredentialSelect } from './gateway-admin-authorization.js'
 import { loadStableGatewayEndpoint } from './onboarding-gateway-endpoint.js'
 import { recoveryHeld } from './platform-backup-core.js'
 import { normalizeOnboardingAddress, OnboardingError } from '../lib/host-onboarding.js'
@@ -15,7 +15,7 @@ export const SIMPLE_GATEWAY_ROOT = '/var/lib/incudal-local-gateway'
 export const SIMPLE_GATEWAY_ADMIN_SELECT = { ...gatewayCredentialSelect, username: true } as const
 const exec = promisify(execFile)
 const latestKey = (actor: number) => 'onboarding_gateway_setup_latest_' + actor
-export interface SimpleGatewayInput { requestId: string; sshAddress: string; password: string }
+export interface SimpleGatewayInput { requestId: string }
 export function simpleGatewayExecutorAvailable() { return existsSync('/etc/systemd/system/incudal-local-gateway@.service') }
 export async function simpleGatewayStatus() {
   if (!gatewayConfigured()) return { ready: false, code: 'GATEWAY_NOT_CONFIGURED' }
@@ -30,16 +30,15 @@ export async function requestSimpleGatewaySetup(input: SimpleGatewayInput, actor
   if (!user || user.role !== 'admin' || user.status !== 'active') throw new LocalGatewaySetupError('SIMPLE_GATEWAY_ADMIN_REQUIRED')
   if (!sessionId || recoveryHeld()) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_RECOVERY_HELD')
   if (!simpleGatewayExecutorAvailable()) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_EXECUTOR_UNAVAILABLE')
-  if (typeof input.password !== 'string' || !input.password || Buffer.byteLength(input.password) > 1024) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_CREDENTIAL_REQUIRED')
-  let sshAddress: string
-  try { sshAddress = normalizeOnboardingAddress(input.sshAddress) } catch { throw new LocalGatewaySetupError('SIMPLE_GATEWAY_ADDRESS_INVALID') }
   const domain = await loadStableGatewayEndpoint()
-  const request = { schemaVersion: 1, operation: 'prepare', id, actorId, createdAt: Date.now(), sshAddress, publicHost: domain?.hostname || sshAddress,
-    approvedCredentialHash: gatewayCredentialHash(user), approvedSessionId: sessionId, passwordEncrypted: encryptGatewayTaskSecret(input.password) }
+  const configured = process.env.ONBOARDING_WG_ENDPOINT?.replace(/:[0-9]+$/, '')
+  const publicHost = domain?.hostname || (configured ? normalizeOnboardingAddress(configured) : null)
+  const request = { schemaVersion: 2, operation: 'prepare', id, actorId, createdAt: Date.now(), publicHost,
+    approvedCredentialHash: gatewayCredentialHash(user), approvedSessionId: sessionId }
   const path = join(SIMPLE_GATEWAY_ROOT, 'inbox', id + '.json')
   if (existsSync(path)) {
     const saved = JSON.parse(await readFile(path, 'utf8'))
-    if (saved.actorId !== actorId || saved.sshAddress !== sshAddress || saved.approvedSessionId !== sessionId) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_REQUEST_CONFLICT')
+    if (saved.actorId !== actorId || saved.publicHost !== publicHost || saved.approvedSessionId !== sessionId) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_REQUEST_CONFLICT')
     return readSimpleGatewaySetup(id)
   }
   await mkdir(join(SIMPLE_GATEWAY_ROOT, 'inbox'), { recursive: true, mode: 0o700 })

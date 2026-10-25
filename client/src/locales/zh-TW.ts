@@ -8570,7 +8570,7 @@ onboarding: {
         "gatewayReady": "管理閘道已就緒",
         "gatewayUnavailable": "管理閘道未就緒",
         "gatewaySetup": "設定管理閘道",
-        "gatewaySetupHint": "在管理網關填寫主控 SSH 位址和密碼，檢查計畫後確認配置。",
+        "gatewaySetupHint": "在管理網關直接檢查目前主控本機，確認計畫後配置，不需填寫本機SSH。",
         "gatewaySetupAddress": "固定直連網域儲存一次；連接埠及位址池由系統處理。",
         "gatewaySetupCheck": "網頁持續顯示進度並自動更新宿主位址；失敗原因及逐台結果會保留。",
         "gatewaySetupDocs": "查看管理閘道安裝說明",

@@ -8226,7 +8226,7 @@ onboarding: {
         "gatewayReady": "Management gateway ready",
         "gatewayUnavailable": "Management gateway unavailable",
         "gatewaySetup": "Configure management gateway",
-        "gatewaySetupHint": "Enter the controller SSH address and password on the gateway page, review the plan and confirm setup.",
+        "gatewaySetupHint": "Check this controller locally on the gateway page, review the plan and confirm setup without local SSH credentials.",
         "gatewaySetupAddress": "Save the direct domain once. Ports and the address pool are managed automatically.",
         "gatewaySetupCheck": "The page keeps progress, automatic host updates and per-server failure results visible.",
         "gatewaySetupDocs": "Read gateway installation instructions",

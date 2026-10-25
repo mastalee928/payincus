@@ -109,7 +109,7 @@ Page checks compare the response with the matching local build; API checks requi
 
 Automatic onboarding and host management use a separate WireGuard tunnel. The control server must permit root SSH public-key authentication; the installer does not change the global login policy. The user portal can use a CDN, but the management gateway needs a public IPv4 or direct DNS name.
 
-For normal setup, open **Machine pool → Management gateway**, enter the current controller's SSH address and password, review the plan and confirm. The system plans the pool, retains existing keys and peers, and keeps progress and results visible. Save the direct domain once: enrolled hosts receive updates automatically, with bulk retries and per-server results.
+For normal setup, open **Machine pool → Management gateway**, check this controller locally, review the plan and confirm, without entering local SSH credentials. The system plans the pool, retains existing keys and peers, and keeps progress and results visible. Save the direct domain once: enrolled hosts receive updates automatically, with bulk retries and per-server results.
 
 The following CLI is a maintainer fallback when the web interface is unavailable:
 

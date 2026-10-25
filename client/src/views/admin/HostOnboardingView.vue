@@ -16,7 +16,7 @@ const activeTab = ref<'hosts' | 'tasks' | 'gateways'>('hosts')
 async function openGatewaySetup() {
   activeTab.value = 'gateways'
   await nextTick()
-  document.getElementById('gateway-ssh-address')?.focus()
+  document.getElementById('gateway-setup-heading')?.focus()
 }
 function switchPoolTab(event: KeyboardEvent) {
   const tabs = ['hosts', 'tasks', 'gateways'] as const

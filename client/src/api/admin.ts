@@ -4140,7 +4140,7 @@ hostOnboarding: {
     installGatewayDnsHost: (id: string): Promise<{ queued: number }> => http.post(`/host-onboarding/gateway/endpoint/hosts/${id}`, {}),
     synchronizeGatewayDnsHosts: (failedOnly = false): Promise<{ queued: number }> => http.post('/host-onboarding/gateway/endpoint/hosts', { failedOnly }),
     gatewaySetupStatus: (): Promise<{ available: boolean; latest: GatewaySetupProgress | null; gateway: OnboardingGatewayStatus | null }> => http.get('/host-onboarding/gateway/setup'),
-    configureControllerGateway: (input: { requestId: string; sshAddress: string; password: string }): Promise<GatewaySetupProgress> => http.post('/host-onboarding/gateway/setup', input),
+    configureControllerGateway: (input: { requestId: string }): Promise<GatewaySetupProgress> => http.post('/host-onboarding/gateway/setup', input),
     controllerGatewayTask: (id: string): Promise<GatewaySetupProgress> => http.get(`/host-onboarding/gateway/setup/${id}`),
     confirmControllerGateway: (id: string, planHash: string): Promise<GatewaySetupProgress> => http.post(`/host-onboarding/gateway/setup/${id}/confirm`, { planHash }),
     list: (params: { page?: number; search?: string } = {}): Promise<OnboardingListResponse> => http.get('/host-onboarding', { params }),
