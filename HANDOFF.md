@@ -2,6 +2,22 @@
 
 维护仓库：[mastalee928/payincus](https://github.com/mastalee928/payincus)。GitHub Fork 关系已于 2026-10-16 解除；仓库地址和提交历史保留。原 BSD 3-Clause 许可证与版权声明继续保留在 LICENSE。
 
+## 2026-10-25 v1.7.3 正式发行
+
+- 正式tag v1.7.3绑定9b4110dfb7e7b222b88a977892da7cc4dc32eb9a。[正式流程40179811833](https://github.com/mastalee928/payincus/actions/runs/40179811833)双构建、双首装及Release全部success；[公开Release](https://github.com/mastalee928/payincus/releases/tag/v1.7.3)于09:26:20 UTC发布，非draft、非prerelease。同提交源码CI40177609000与预览40177617003均success。
+- 下载实际公开双架构包，SHA256、尺寸、OTA两份清单字节一致、版本/完整源码身份、原BSD许可证、双前端、双架构组件和无需SSH的新worker通过。正式AMD64 SHA256 d1fd3d247906da2be162526aea46d3648b3df862d350372f5f3c7dac3dd8f035；ARM64 75f72a9ed92bae1a73d599d5cbc67e42b9cc0199ff4da79bb40ff1eaafe74a12；这些值与预览分别记录。
+- 用此前独立登记的发行公钥核验两个公开包内的四份组件清单：Ed25519签名、源码/版本/架构和每份20项实际文件SHA全部匹配，ELF架构正确。Windows资产检查只证明签名、内容与来源；root权限和原生服务证据来自同提交预览首装及实际Linux完整包流程，不混记。
+- 使用方式：原后台“系统更新”选择v1.7.3；升级后“机器池→管理网关”直接检查本机并确认，主控兼网关无需SSH地址/密码。固定网关域名保存一次并自动同步已有宿主，容量4093，逐台错误和重试保留；独立/备用网关显示预留入口。本机配置实际成功截图位于维护者忽略目录local-only-package-success/browser-success.png。
+- 原公网主控部署证据仍是v1.7.2，agent没有自动生产OTA、改正式DNS或DD。隔离主控已运行完整v1.7.3预览包并通过本机配置，原五台客户及管理身份保持。生产升级、真实公网DNS切换/A整机失联由owner按此前约定实测；原子OTA和完整P0–P6/四拓扑/72小时仍按各自门槛继续，首要目标未标整体完成。
+
+## 2026-10-25 v1.7.3 同提交预览与完整包本机流程
+
+- 本机无需SSH修正已提交推送9b4110dfb7e7b222b88a977892da7cc4dc32eb9a。[源码CI40177609000](https://github.com/mastalee928/payincus/actions/runs/40177609000)全success；[发行预览40177617003](https://github.com/mastalee928/payincus/actions/runs/40177617003)双构建/双首装全success，Release预期skipped。
+- 下载实际双架构预览包，版本/源码/许可证/双前端及新worker一致。预览AMD64 SHA256 f1f611164b3140add16fa9b2e4cd87392a8b04895014b8e43c41b9bd42456536、ARM64 e0dc0dd05e7bbd562e75a0c80c1fe2acd0f1efe15024a37046b16c1c53cd2796。完整AMD64包传到隔离主控后哈希一致，使用此前独立登记的发行公钥验证包内两个架构的签名、20项文件内容和源码身份。
+- 在实际隔离主控以完整包安装器完成v1.7.2→v1.7.3非原子布局升级，退出0，数据库备份和旧程序备份保留；没有用源码覆盖新worker。原WG配置、管理SSH/Incus私钥、平台控制私钥与身份及整个.env保持，217迁移无待执行，唯一后端正常。安装启动交叠时首轮独立控制登记核验拒绝，安装完成后原核验器成功；未放宽检查或重建身份，不把首轮拒绝记为成功。
+- 完整包经网页执行本机计划与确认，任务1feca9bc-2a5c-46ba-b953-130a096b2d7a于09:13:51 UTC成功、容量4093、唯一后端MainPID224646/NRestarts0。五台客户UUID/Running/PID与原基线一致；再次核对密钥、WG、受保护环境和新worker字节通过。此项为安装器升级及本机流程，未记为原子OTA/真实公网灾备。
+- 已授权正式tag v1.7.3绑定9b4110d并推送；正式发行流程40179811833已全success，公开资产见上节独立核验，不使用预览哈希冒充正式资产。公网DNS及A整机失联由owner上线后实测，完整首要目标及P0–P6仍保留未完成。
+
 ## 2026-10-25 本机主控兼网关无需 SSH 的修正与实测
 
 - 最新已提交的63598325478ab368f18e4da15fe19c6ac68f230c：[源码CI40175370074](https://github.com/mastalee928/payincus/actions/runs/40175370074)全success；[发行预览40175370842](https://github.com/mastalee928/payincus/actions/runs/40175370842)双构建、双首装全success，Release预期skipped。此前588af59失败的DATABASE_URL占位问题已修复。此包仍为旧SSH两字段方案，不能将其当成本机无需SSH修正的发行证据。
