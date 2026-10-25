@@ -8,6 +8,7 @@ import { Readable } from 'stream'
 import { pipeline } from 'stream/promises'
 import { prisma, closePrismaDatabase } from '../db/prisma.js'
 import { tryMarkSystemUpdateTaskRunning } from '../db/system-update-tasks.js'
+import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication } from '../lib/system-update-files.js'
 import {
   getCurrentVersionMetadata,
   getOtaReleaseInfo,
@@ -531,7 +532,7 @@ async function copyIfExists(from: string, to: string): Promise<void> {
   if (existsSync(from)) {
     await rm(to, { recursive: true, force: true })
     await mkdir(dirname(to), { recursive: true })
-    await cp(from, to, { recursive: true, preserveTimestamps: true })
+    await cp(from, to, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
   }
 }
 
@@ -597,7 +598,7 @@ async function getRuntimeArtifact(targetVersion: string): Promise<OtaArtifactInf
 async function copyStagingToRelease(stagingDir: string, releaseDir: string): Promise<void> {
   await rm(releaseDir, { recursive: true, force: true })
   await mkdir(dirname(releaseDir), { recursive: true })
-  await cp(stagingDir, releaseDir, { recursive: true, preserveTimestamps: true })
+  await cp(stagingDir, releaseDir, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
 }
 
 async function applyArtifactAtomic(stagingDir: string, timestamp: string): Promise<string> {
@@ -629,10 +630,10 @@ async function applyArtifactAtomic(stagingDir: string, timestamp: string): Promi
 
 async function applyArtifactLegacy(stagingDir: string, backupDir: string): Promise<string> {
   await log(`Backup directory: ${backupDir}`)
-  await cp(installDir, backupDir, { recursive: true, preserveTimestamps: true })
+  await cp(installDir, backupDir, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
 
   await clearInstallDirForArtifact()
-  await cp(stagingDir, installDir, { recursive: true, preserveTimestamps: true })
+  await cp(stagingDir, installDir, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
   await restoreRuntimeAssets(backupDir)
 
   await run('corepack', ['enable'], { timeoutMs: 120000 })
@@ -668,7 +669,7 @@ async function applyGitUpdate(backupDir: string): Promise<string> {
   await run('git', ['rev-parse', '--verify', `${targetVersion}^{commit}`], { timeoutMs: 30000 })
 
   await log(`Backup directory: ${backupDir}`)
-  await cp(installDir, backupDir, { recursive: true, preserveTimestamps: true })
+  await cp(installDir, backupDir, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
 
   await run('git', ['checkout', '--force', targetVersion], { timeoutMs: 120000 })
   await run('git', ['clean', '-fdx', '-e', '.env', '-e', '.gitconfig', '-e', 'server/certs', '-e', 'agent-release', '-e', '.npm', '-e', '.cache', '-e', 'update-logs'], { timeoutMs: 120000 })
@@ -753,7 +754,7 @@ async function autoRollbackFromBackup(backupDir: string, timestamp: string): Pro
     if (failedTarget) {
       const failedInstallBackup = join(getReleasesDir(), `failed-update-${timestamp}`)
       await log(`Preserving failed release before auto rollback: ${failedInstallBackup}`)
-      await cp(failedTarget, failedInstallBackup, { recursive: true, preserveTimestamps: true })
+      await cp(failedTarget, failedInstallBackup, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
     }
     await log(`Auto rollback switching current release back to: ${backupDir}`)
     await switchCurrentRelease(backupDir)
@@ -778,11 +779,11 @@ async function autoRollbackFromBackup(backupDir: string, timestamp: string): Pro
   await log(`Preserving failed install before auto rollback: ${failedInstallBackup}`)
 
   if (existsSync(installDir)) {
-    await cp(installDir, failedInstallBackup, { recursive: true, preserveTimestamps: true })
+    await cp(installDir, failedInstallBackup, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
   }
 
   await clearInstallDirPreserving(['update-logs'])
-  await cp(backupDir, installDir, { recursive: true, preserveTimestamps: true })
+  await restoreSystemUpdateApplication(backupDir, installDir)
   await mkdir(join(installDir, '.npm'), { recursive: true })
   await mkdir(join(installDir, '.cache'), { recursive: true })
   await mkdir(join(installDir, 'server/certs'), { recursive: true })
@@ -841,6 +842,7 @@ async function main(): Promise<void> {
 
   try {
     const artifact = await getRuntimeArtifact(targetVersion)
+    await ensureSystemUpdateEnvironmentDefaults(join(installDir, '.env'))
     if (artifact) {
       const backupRequirementMb = (await isAtomicReleaseLayout()) ? 0 : (await getInstallDirectorySizeMb()) || 0
       await assertEnoughDiskSpace('下载、解压 OTA 包并备份当前版本', getArtifactDiskRequirementMb(artifact) + backupRequirementMb)

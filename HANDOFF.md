@@ -2,6 +2,17 @@
 
 维护仓库：[mastalee928/payincus](https://github.com/mastalee928/payincus)。GitHub Fork 关系已于 2026-10-16 解除；仓库地址和提交历史保留。原 BSD 3-Clause 许可证与版权声明继续保留在 LICENSE。
 
+## 2026-10-25 owner 主控实际 OTA 失败、修复与 v1.7.3 候选
+
+- 当前首要要求以 OWNER_REQUIREMENTS.md 为准：单机主控兼网关 A 整机完全失联，B 全新安装并从 OSS 恢复后宿主自动重连、客户保持正常。此完整新场景尚未验收；旧手工 SSH/逐台补装说明不再作为常规流程，正在替换为网页自动配置。当前正式版仍为 v1.7.2，新 UI 与 v1.7.3 尚未发布。
+
+- Owner 从原后台执行任务11升级v1.7.2失败。正式ARM64资产SHA256正确、五个新迁移成功；实际失败为新版install-platform-backup.sh调用控制器安装器时，原root所有且空的控制器目录是0755而要求0700。此前双首装、非原子安装器升级与隔离OSS证据未覆盖该旧机状态，不能代替此次OTA。
+- 第一次自动回滚还将数据库SQL备份副本复制到程序根，并把1230个pnpm相对软链接改为同一目标的绝对链接，导致后续封存门禁拒绝。比对原可信清单的23528个程序文件均一致；仅将与保留原备份哈希相同的SQL副本移回root私有区域，按原可信.links还原链接文本，解析目标保持相同，没有盲目重新seal、恢复旧数据库或清空业务数据。未认领的12/13任务明确失败，保留记录。
+- 修复空目录后，任务14已通过安装器，但生产就绪检查拒绝旧.env遗漏的PAYMENT_CALLBACK_SKIP_IP_WHITELIST显式false。确认运行代码仅literal true绕过IP检查，补入false保持安全行为；现有供应商来源配置保留，签名/状态/金额/幂等检查继续。完整环境/数据库预检通过后，任务15经后台相同的封存systemd worker真正完成v1.7.1→v1.7.2（04:17:29→04:19:28 UTC），全量生产DB/公网/Agent manifest检查通过，没有RUN_DB_CHECKS=0。
+- 原主控当前正式v1.7.2/8eb306e，唯一后端PID679544/NRestarts0与公网健康正常。升级后发现原组件缓存也为空0755，按同一空目录条件收紧为0700，通过已校验完整包的明确--initialize-release准备原平台控制身份，随后正常唯一后端加载；JWT、ENCRYPTION_KEY和数据库连接与本次升级前备份一致，未替换已有客户管理身份。DD及现存宿主逐台补装/最终OSS备份仍按操作说明执行。
+- v1.7.3候选只修必要升级兼容：空root目录0755→0700（非空/可写/非root/软链接仍拒绝）；所有备份/部署cp保持verbatimSymlinks；自动与手工回滚共用恢复函数，不把迁移SQL/中断临时SQL复制进程序树；升级补齐遗漏安全false，生产检查也按运行代码解释缺省false而仍拒绝显式true，兼容已安装旧worker。
+- 7项真实Linux目录回归、Linux实际回滚/删除原源目录后依赖仍有效及私有SQL保留、缺省环境的真实DB与公网全开校验通过；server类型/构建、修改文件ESLint、系统更新/分层配置/平台备份及安装器守卫通过。Windows缺少symlink权限的分支明确跳过，Linux真机补齐，不算Windows验证了链接。后续候选全套/双架构预览单独记录，当前正式发行仍v1.7.2；尚未发布1.7.3，也未把源代码修复冒充当前正式包内容。P0–P6持续目标保留。
+
 ## 2026-10-25 v1.7.2 正式发行与首要场景验收
 
 - 最终源码8eb306e2aba2b39a3bf3746995ae3da51532e3c3的[CI40153761970](https://github.com/mastalee928/payincus/actions/runs/40153761970)和[预览40153762395](https://github.com/mastalee928/payincus/actions/runs/40153762395)成功：双构建、双首装success，预览Release预期skipped。最终AMD64/ARM64完整包均已安装运行，无编译覆盖；独立公钥下双组件验签与完整源码身份通过。预览包SHA256：AMD64 8d3591b27aaf3b2ff9751715ccc2e3a8f08cea6ee960d9df10b784d26a549688，ARM64 1cc5eb7107fbaf70b67c83e085a5b58a446fcd32f0a42d755fc01aa7bec09361，正式重建资产另核对，不复用这些值冒充。

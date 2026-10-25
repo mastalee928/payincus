@@ -91,6 +91,13 @@ grep -Fq '"$INSTALL_DIR/scripts/install-gateway-controller.sh" --initialize-rele
 grep -Fq 'chmod go-w /opt' "$REPO_ROOT/scripts/smoke-fresh-install.sh"
 grep -Fq 'provision_action=--refresh' "$REPO_ROOT/scripts/install-gateway-controller.sh"
 bash -n "$REPO_ROOT/scripts/install-gateway-controller.sh"
+if [[ "$(uname -s)" == Linux ]]; then
+    if [[ $EUID -eq 0 ]]; then
+        python3 "$REPO_ROOT/scripts/test-gateway-controller-directory.py"
+    else
+        sudo -n python3 "$REPO_ROOT/scripts/test-gateway-controller-directory.py"
+    fi
+fi
 grep -Fq 'NOPASSWD: /usr/local/libexec/incudal/systemctl' "$REPO_ROOT/scripts/install-gateway-controller.sh"
 if grep -Fq 'NOPASSWD: /usr/local/libexec/incudal/systemctl start' "$REPO_ROOT/scripts/install-gateway-controller.sh"; then
     echo 'gateway sudo rule must use the argument-validating wrapper, without parser-dependent wildcard arguments' >&2

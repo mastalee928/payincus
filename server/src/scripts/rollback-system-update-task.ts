@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'path'
 import { spawn } from 'child_process'
 import { prisma, closePrismaDatabase } from '../db/prisma.js'
 import { tryMarkSystemUpdateTaskRunning } from '../db/system-update-tasks.js'
+import { restoreSystemUpdateApplication } from '../lib/system-update-files.js'
 
 const taskId = Number(process.argv[2])
 const appDir = resolve(process.env.INCUDAL_APP_DIR || process.cwd())
@@ -163,7 +164,7 @@ async function main(): Promise<void> {
       const currentTarget = await getCurrentReleaseTarget()
       if (currentTarget) {
         await log(`Preserving current release before rollback: ${rollbackBackup}`)
-        await cp(currentTarget, rollbackBackup, { recursive: true, preserveTimestamps: true })
+        await cp(currentTarget, rollbackBackup, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
       }
       await switchCurrentRelease(backupPath)
     } else {
@@ -175,10 +176,10 @@ async function main(): Promise<void> {
       }
       await log(`Preserving current install before rollback: ${rollbackBackup}`)
       if (existsSync(installDir)) {
-        await cp(installDir, rollbackBackup, { recursive: true, preserveTimestamps: true })
+        await cp(installDir, rollbackBackup, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
         await rm(installDir, { recursive: true, force: true })
       }
-      await cp(backupPath, installDir, { recursive: true, preserveTimestamps: true })
+      await restoreSystemUpdateApplication(backupPath, installDir)
     }
     await mkdir(join(installDir, '.npm'), { recursive: true })
     await mkdir(join(installDir, '.cache'), { recursive: true })

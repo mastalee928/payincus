@@ -179,6 +179,10 @@ PAYMENT_CALLBACK_BASE_URL_VALUE="$(trim_slash "$(config_value PAYMENT_CALLBACK_B
 PAYMENT_CALLBACK_IP_WHITELIST_VALUE="$(config_value PAYMENT_CALLBACK_IP_WHITELIST)"
 PAYMENT_CALLBACK_IP_WHITELIST_REQUIRED_VALUE="$(config_value PAYMENT_CALLBACK_IP_WHITELIST_REQUIRED)"
 PAYMENT_CALLBACK_SKIP_IP_WHITELIST_VALUE="$(config_value PAYMENT_CALLBACK_SKIP_IP_WHITELIST)"
+# The runtime bypasses IP checks only for literal true. Older environments can
+# omit this switch; interpret the same safe false default without accepting an
+# explicit bypass. This also covers installed older OTA workers.
+PAYMENT_CALLBACK_SKIP_IP_WHITELIST_VALUE="${PAYMENT_CALLBACK_SKIP_IP_WHITELIST_VALUE:-false}"
 COOKIE_DOMAIN_VALUE="$(config_value COOKIE_DOMAIN)"
 BACKEND_URL_VALUE="$(trim_slash "${BACKEND_URL:-$(config_value BACKEND_URL)}")"
 AGENT_RELEASE_REPOSITORY_VALUE="$(config_value INCUDAL_AGENT_RELEASE_REPOSITORY)"

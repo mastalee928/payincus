@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { cp, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication } from '../src/lib/system-update-files.js'
 
 const repoRoot = resolve(import.meta.dirname, '../..')
 
@@ -365,4 +368,51 @@ assert.ok(
   'a stuck pending update task must never block later updates: stale unclaimed pending tasks are released before starting, an unclaimed task is failed with unit-level detail instead of staying pending, and super admins can cancel a pending task'
 )
 
-console.log('system update guard tests passed')
+assert.ok(runTask.includes('restoreSystemUpdateApplication(backupDir, installDir)') &&
+  rollbackTask.includes('restoreSystemUpdateApplication(backupPath, installDir)'), 'automatic and manual rollback must use the same database-excluding restore')
+for (const source of [runTask, rollbackTask]) {
+  for (const line of source.split('\n').filter(line => line.includes('await cp('))) {
+    assert.ok(line.includes('verbatimSymlinks: true'), 'backup and staging copies must retain sealed relative links')
+  }
+}
+const fixture = await mkdtemp(join(tmpdir(), 'incudal-ota-copy-'))
+try {
+  const source = join(fixture, 'source'), backup = join(fixture, 'backup'), restored = join(fixture, 'restored')
+  await mkdir(join(source, 'modules'), { recursive: true })
+  await mkdir(join(source, 'store'))
+  await mkdir(join(source, 'server'))
+  await writeFile(join(source, 'store/library.js'), 'fixture dependency')
+  await writeFile(join(source, '.env'), 'fixture runtime configuration')
+  await ensureSystemUpdateEnvironmentDefaults(join(source, '.env'))
+  assert.equal(await readFile(join(source, '.env'), 'utf8'), 'fixture runtime configuration\nPAYMENT_CALLBACK_SKIP_IP_WHITELIST=false\n')
+  await ensureSystemUpdateEnvironmentDefaults(join(source, '.env'))
+  assert.equal((await readFile(join(source, '.env'), 'utf8')).match(/PAYMENT_CALLBACK_SKIP_IP_WHITELIST/g)?.length, 1)
+  await writeFile(join(source, '.env'), 'fixture runtime configuration\nPAYMENT_CALLBACK_SKIP_IP_WHITELIST=true\n')
+  await ensureSystemUpdateEnvironmentDefaults(join(source, '.env'))
+  assert.ok((await readFile(join(source, '.env'), 'utf8')).includes('PAYMENT_CALLBACK_SKIP_IP_WHITELIST=true'), 'unsafe explicit setting is not overwritten or hidden from readiness checks')
+  await writeFile(join(source, '.env'), 'fixture runtime configuration')
+  let links = true
+  try { await symlink('../store/library.js', join(source, 'modules/library.js')) } catch (error) {
+    if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EPERM') throw error
+    links = false
+    console.log('Windows symlink privilege unavailable; Linux CI verifies literal link restoration')
+  }
+  await cp(source, backup, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
+  const dump = 'db-pre-migrate-v1.7.2-20261025035150.sql'
+  await writeFile(join(backup, dump), 'private database backup')
+  await writeFile(join(backup, dump + '.tmp'), 'interrupted private backup')
+  await writeFile(join(backup, 'server', dump), 'ordinary nested application file')
+  await restoreSystemUpdateApplication(backup, restored)
+  await assert.rejects(readFile(join(restored, dump)), { code: 'ENOENT' })
+  await assert.rejects(readFile(join(restored, dump + '.tmp')), { code: 'ENOENT' })
+  assert.equal(await readFile(join(backup, dump), 'utf8'), 'private database backup', 'original database backup remains retained')
+  assert.equal(await readFile(join(restored, '.env'), 'utf8'), 'fixture runtime configuration')
+  assert.equal(await readFile(join(restored, 'server', dump), 'utf8'), 'ordinary nested application file')
+  if (links) {
+    assert.equal(await readlink(join(restored, 'modules/library.js')), '../store/library.js', 'rollback must preserve the trusted manifest link text')
+    await rm(source, { recursive: true })
+    await rm(backup, { recursive: true })
+    assert.equal(await readFile(join(restored, 'modules/library.js'), 'utf8'), 'fixture dependency', 'restored dependencies must work without staging or backup')
+  }
+} finally { await rm(fixture, { recursive: true, force: true }) }
+console.log('system update guard tests passed (including real rollback copies, private dumps and sealed relative links)')

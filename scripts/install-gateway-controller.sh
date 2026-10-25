@@ -22,12 +22,30 @@ for target in /etc/systemd/system/incudal-gateway-task@.service /etc/sudoers.d/i
         [[ -f "$target" && ! -L "$target" && $(stat -c %u "$target") == 0 ]] && grep -Fxq '# payincus-gateway-task-v1' "$target" || { echo 'Unrelated gateway worker configuration.' >&2; exit 1; }
     fi
 done
-[[ ! -L /var/lib/incudal-gateway-controller ]] || exit 1
-if [[ -d /var/lib/incudal-gateway-controller ]]; then
-    [[ $(stat -c '%u:%a' /var/lib/incudal-gateway-controller) == 0:700 ]] || exit 1
-else
-    install -d -o root -g root -m 0700 /var/lib/incudal-gateway-controller
-fi
+prepare_controller_state_directory() {
+    local directory="$1"
+    [[ ! -L "$directory" ]] || { echo 'Untrusted controller directory.' >&2; return 1; }
+    if [[ -d "$directory" ]]; then
+        [[ $(stat -c %u "$directory") == 0 ]] || { echo 'Untrusted controller directory owner.' >&2; return 1; }
+        local mode
+        mode=$(stat -c %a "$directory")
+        if [[ "$mode" != 700 ]]; then
+            # Older installations can leave an empty root-owned mkdir(0755).
+            # Tighten only that empty state; never repair exposed identities,
+            # writable directories, links or a partial enrollment implicitly.
+            local contents
+            contents=$(find "$directory" -mindepth 1 -maxdepth 1 -print -quit) || return 1
+            [[ "$mode" == 755 && -z "$contents" ]] || {
+                echo 'Controller directory permissions require review.' >&2; return 1;
+            }
+            chmod 0700 "$directory"
+        fi
+    else
+        install -d -o root -g root -m 0700 "$directory"
+    fi
+}
+prepare_controller_state_directory /var/lib/incudal-gateway-controller
+prepare_controller_state_directory /var/lib/incudal-gateway-components
 install -o root -g root -m 0644 "$source" /etc/systemd/system/incudal-gateway-task@.service
 temporary=$(mktemp)
 trap 'rm -f "$temporary"' EXIT

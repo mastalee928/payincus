@@ -525,6 +525,9 @@ assert.ok(
     verifyProductionReadiness.includes('require_equals PAYMENT_CALLBACK_SKIP_IP_WHITELIST "$PAYMENT_CALLBACK_SKIP_IP_WHITELIST_VALUE" false'),
   'production readiness verifier must enforce split production environment invariants'
 )
+assert.ok(verifyProductionReadiness.includes('PAYMENT_CALLBACK_SKIP_IP_WHITELIST_VALUE="${PAYMENT_CALLBACK_SKIP_IP_WHITELIST_VALUE:-false}"') &&
+  readRepoFile('server/src/routes/recharge.ts').includes("process.env.PAYMENT_CALLBACK_SKIP_IP_WHITELIST === 'true'"),
+  'readiness must interpret an omitted old switch as the runtime safe false default while continuing to reject explicit true')
 assert.ok(
   verifyProductionReadiness.includes('validate_ip_whitelist "$PAYMENT_CALLBACK_IP_WHITELIST_VALUE"') &&
     verifyProductionReadiness.includes('PAYMENT_CALLBACK_IP_WHITELIST contains an invalid IP') &&
