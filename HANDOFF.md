@@ -6,6 +6,14 @@
 
 Owner 要求记录本轮双架构预览全通过的排障方法，新增 [payincus-release-validation](.agents/skills/payincus-release-validation/SKILL.md) 与按需故障参考。覆盖签名模式/来源、root 父目录、sudo 解析差异、preview 归档和迁移夹具权限；要求读取当前运行证据，不从旧成功运行推断新版本。quick_validate、UI YAML、相对引用与脱敏检查通过。该 skill 不扩大部署授权，不把首装预览 success 解释为完整 P0–P6 或正式上线完成。
 
+## 2026-10-25 跨发行系统 OSS 完整性修复与保护内管理重连
+
+- 完整候选 ef08d03 的真实 Debian ARM64 源库→Ubuntu AMD64 空库预检拒绝 OSS_DATABASE_INTEGRITY_MISMATCH。两端均PostgreSQL16.15；实际schema-only SQL除随机restrict标记及两个pg_dump版本/发行系统头部注释外逐字相同。原错误预检保持失败，没有执行正式恢复或放宽数据校验。
+- 最小修复从已认证database.dump的pg_restore清单读取原工具版本，只映射pg_dump固定前导的两条版本注释；原schemaSha256/旧备份格式不变。表行多重集、序列、large object、SQL/函数体及locale继续严格核验；异常版本、非前导伪造及SQL变动回归拒绝。平台备份守卫、安全配置、server类型与构建通过；正确ESLint配置下已有两项诊断与HEAD一致，无新增诊断，不宣称全仓lint通过。
+- 在已授权替代主控以ef08d03完整包加两个明确记录的编译模块覆盖，实际产品OSS预检/恢复成功；原Wg/SSH/TLS/控制签名身份哈希恢复，新主控环境/数据库连接/组件保持。Bot配置及用户绑定由整库恢复取得、无需重绑；原账147.25、客户余额0.00、实例8一笔续费以及四台运行实例完整保留，保护保持。证据 `v172-overlay-cold-restore-result.json`；修复后的新完整发行包仍需复验。
+- 四台专用客户实例UUID/Running与管理身份保持；969个持久路径项内容/权限/链接相同，唯一变化为正常运行更新的var/lib/dhcpcd/eth0.lease，单独记为运行态，未篡改使测试通过。固定DNS守护进程自动指向替代主控；原防火墙REJECT管理UDP，保留原规则并仅新增专用宿主/恢复端口的命名测试放行，实际握手/管理ping及保护内产品SSH+Incus探测成功，实际库存4/4无缺漏。
+- 新客户经真实NAT代理、公钥/固定客机主机公钥维持同一SSH会话跨越冷恢复，boot/init起点不变；此观察来自专用宿主命名空间，并非公网客户跨地域持续连接证明。Owner原公网后台未重启。完整新包冷恢复/通知/双架构升级及正式发行继续；首装修复f9ae856的源码CI与双架构预览40143575619成功，不能替代本次数据库修复新候选。
+
 ## 2026-10-25 严格权限首装修复与带 TG 配置的真实 OSS 快照
 
 - 在已授权 AMD64 替代测试主控运行 ef08d03/v1.7.2 完整包安装器，umask077 导致 PostgreSQL 公开验签钥匙为0600，_apt 不可读，APT 报 NO_PUBKEY。原公开钥匙指纹保持，设置0644后实际 apt-get update 验签通过；安装器完成、空库唯一后端与健康正常。源码仅显式设置该公开钥匙0644，运行环境和私钥权限保持。

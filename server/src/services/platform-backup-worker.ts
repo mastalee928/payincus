@@ -334,7 +334,7 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
         await update('checking_database'); await restoreDatabase(archive.files.get('database.dump')!, staging)
         if (archive.files.has('database-integrity.json')) {
           const expected = await readJson<DatabaseIntegrity>(archive.files.get('database-integrity.json')!); ensure(expected, 'OSS_DATABASE_INTEGRITY_INVALID')
-          await verifyRestoredDatabase(staging, expected, directory, 'preview')
+          await verifyRestoredDatabase(staging, expected, directory, 'preview', archive.files.get('database.dump')!)
         }
         await update('checking_compatibility')
         compatibility = await verifyBackupCompatibility(archive.manifest, staging, directory)
@@ -370,7 +370,7 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
       await update('restoring_database'); await restoreDatabase(files.get('database.dump')!, staging)
       if (files.has('database-integrity.json')) {
         const expected = await readJson<DatabaseIntegrity>(files.get('database-integrity.json')!); ensure(expected, 'OSS_DATABASE_INTEGRITY_INVALID')
-        await verifyRestoredDatabase(staging, expected, directory, 'restore')
+        await verifyRestoredDatabase(staging, expected, directory, 'restore', files.get('database.dump')!)
       }
       await update('checking_compatibility')
       await verifyBackupCompatibility(plan.manifest, staging, directory, plan.compatibility)

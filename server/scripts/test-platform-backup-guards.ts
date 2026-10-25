@@ -9,7 +9,7 @@ import { openPromise } from 'yauzl'
 import { BackupError, normalizeConfig, openSecret, sealSecret, publicConfig, recoveryRequestAllowed, validatePrefix, nextScheduledTime } from '../src/services/platform-backup-core.js'
 import { decryptBackup, encryptBackup, hashFile, validAssetName, validateManifest } from '../src/services/platform-backup-archive.js'
 import { AliyunOssClient, sanitizedOssError } from '../src/services/aliyun-oss-client.js'
-import { assertDatabaseIntegrity, normalizedDumpHash, type DatabaseIntegrity } from '../src/services/platform-backup-database.js'
+import { assertDatabaseIntegrity, normalizedDumpHash, restoreDumpToolchainHeader, type DatabaseIntegrity } from '../src/services/platform-backup-database.js'
 import { createReadableZip, readableZipName, verifyReadableZip } from '../src/services/platform-backup-readable.js'
 import { retainGatewayEndpoints } from '../src/services/platform-backup-gateway.js'
 import { mergeBackupEnvironment } from '../src/services/platform-backup-environment.js'
@@ -172,6 +172,18 @@ try {
   const nextDump = '\\restrict RandomKey2\nCREATE ROLE example;\n\\unrestrict RandomKey2\n'
   assert.equal(normalizedDumpHash(firstDump), normalizedDumpHash(nextDump))
   assert.notEqual(normalizedDumpHash(firstDump), normalizedDumpHash(nextDump.replace('CREATE ROLE example;', 'CREATE ROLE different;')))
+  const dumpToolchain = { databaseVersion: '16.15 (Debian 16.15-1.pgdg13+2)', dumpVersion: '16.15 (Debian 16.15-1.pgdg13+2)' }
+  const schemaBody = "CREATE TABLE example (id bigint);\nCREATE FUNCTION example_banner() RETURNS text LANGUAGE sql AS $$ SELECT '-- Dumped by pg_dump version 16.15 (Ubuntu fixture)' $$;\n"
+  const schemaHeader = `--\n-- PostgreSQL database dump\n--\n\n\\restrict SchemaKey\n\n-- Dumped from database version ${dumpToolchain.databaseVersion}\n-- Dumped by pg_dump version ${dumpToolchain.dumpVersion}\n\n`
+  const legacySchemaDump = schemaHeader + schemaBody + '\\unrestrict SchemaKey\n'
+  const destinationSchemaDump = legacySchemaDump.replaceAll('Debian 16.15-1.pgdg13+2', 'Ubuntu 16.15-1.pgdg24.04+2')
+  assert.notEqual(normalizedDumpHash(destinationSchemaDump), normalizedDumpHash(legacySchemaDump))
+  const mappedSchemaDump = restoreDumpToolchainHeader(destinationSchemaDump, dumpToolchain)
+  assert.equal(normalizedDumpHash(mappedSchemaDump), normalizedDumpHash(legacySchemaDump), 'authenticated source toolchain must preserve legacy schema integrity hashes across distributions')
+  assert.ok(mappedSchemaDump.includes(schemaBody), 'toolchain mapping must not rewrite SQL/function-body strings resembling dump headers')
+  assert.notEqual(normalizedDumpHash(restoreDumpToolchainHeader(destinationSchemaDump.replace('id bigint', 'id text'), dumpToolchain)), normalizedDumpHash(legacySchemaDump), 'schema changes must remain integrity failures')
+  assert.throws(() => restoreDumpToolchainHeader('SELECT 1;\n' + destinationSchemaDump, dumpToolchain), /OSS_DATABASE_DUMP_INVALID/)
+  assert.throws(() => restoreDumpToolchainHeader(destinationSchemaDump, { ...dumpToolchain, dumpVersion: '16.15\nDROP TABLE example;' }), /OSS_DATABASE_DUMP_INVALID/)
   const databaseIntegrity: DatabaseIntegrity = { format: 1, dataEncoding: 'postgres-record-text-v1', database: { encoding: 6, datcollate: 'C.UTF-8', datctype: 'C.UTF-8', datlocprovider: 'c' }, schemaSha256: 'b'.repeat(64), tables: [{ schema: 'public', name: 'orders', kind: 'r', rows: '3', sha256: 'c'.repeat(64) }], sequences: [{ schema: 'public', name: 'orders_id_seq', reference: 'public.orders_id_seq', lastValue: '9007199254740993', isCalled: true }], largeObjects: { objects: '1', pages: '2', sha256: 'd'.repeat(64) } }
   assertDatabaseIntegrity(databaseIntegrity, structuredClone(databaseIntegrity))
   for (const changed of [
