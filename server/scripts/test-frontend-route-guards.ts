@@ -38,6 +38,10 @@ const turnstileWidgetSource = readRepoFile('client/src/components/TurnstileWidge
 const publicHeaderSource = readRepoFile('client/src/components/public/PublicSiteHeader.vue')
 const publicFooterSource = readRepoFile('client/src/components/public/PublicSiteFooter.vue')
 const publicHostOfferSource = readRepoFile('client/src/components/public/PublicHostOffer.vue')
+const homepageMapSource = readRepoFile('client/src/components/public/HomepageMapDemo.vue')
+const homepageAtlasSource = readRepoFile('client/src/components/public/HomeRegionAtlas.vue')
+const homepageTargetsSource = readRepoFile('client/src/utils/homeRegionAtlas.ts')
+const publicLayoutSource = readRepoFile('client/src/components/public/PublicSiteLayout.vue')
 const sideNavSource = readRepoFile('client/src/components/layout/SideNav.vue')
 const sideNavUserItemsSource = readRepoFile('client/src/config/side-nav-items-user.ts')
 const sideNavAdminItemsSource = readRepoFile('client/src/config/side-nav-items-admin.ts')
@@ -405,27 +409,39 @@ assert.ok(
   'public navigation must expose one pooled purchase entry while keeping customer account and help routes'
 )
 assert.ok(
-  portalViewSource.includes("import { dashboardPath, helpPath, loginPath } from '@/utils/app-paths'") &&
-    portalViewSource.includes('to="/purchase"') &&
-    !portalViewSource.includes('openAdminConsole') &&
-    portalViewSource.includes("void router.push(dashboardPath())") &&
-    portalViewSource.includes("void router.push(loginPath())") &&
-    !portalViewSource.includes("path: '/market'") &&
-    !portalViewSource.includes("void router.push('/dashboard')") &&
-    !portalViewSource.includes("void router.push('/login')"),
-  'PortalView CTA must browse pooled hosts and keep authenticated users on the customer console or guests on customer login'
+  portalViewSource.includes('<HomepageMapDemo :preview="false" />') &&
+    homepageMapSource.includes("import { dashboardPath, helpPath, loginPath } from '@/utils/app-paths'") &&
+    homepageMapSource.includes('to="/purchase"') &&
+    homepageMapSource.includes('void router.push(dashboardPath())') &&
+    homepageMapSource.includes('void router.push(loginPath())') &&
+    homepageMapSource.includes('authStore.isAuthenticated') &&
+    homepageMapSource.includes('v-if="props.preview" class="preview-note"') &&
+    !homepageMapSource.includes('class="motion-toggle"') &&
+    homepageMapSource.includes("motionPreference.addEventListener('change', syncMotionPreference)") &&
+    !homepageMapSource.includes('https://vm.oci.ee') &&
+    !homepageMapSource.includes('openAdminConsole') &&
+    !homepageMapSource.includes("void router.push('/dashboard')") &&
+    !homepageMapSource.includes("void router.push('/login')") &&
+    !homepageMapSource.includes("path: '/market'") &&
+    publicLayoutSource.includes('route.name === \'portal\'') &&
+    !portalViewSource.includes('openAdminConsole'),
+  'the formal homepage must render the confirmed map once, hide preview controls, and retain real customer login/console destinations'
 )
 assert.ok(
-  portalViewSource.includes('api.packages.getPublicCatalog()') &&
-    !portalViewSource.includes('api.packages.listPublic()') &&
-    portalViewSource.includes('buildPoolPurchaseRegions(regions.value)') &&
-    portalViewSource.includes('regionId: region.id, product') &&
+  homepageMapSource.includes('api.packages.getPublicCatalog()') &&
+    !homepageMapSource.includes('api.packages.listPublic()') &&
+    homepageMapSource.includes('presentation="minimal"') &&
+    homepageAtlasSource.includes("touchMode.value && route.query.mobile !== 'map'") &&
+    homepageTargetsSource.includes('buildPoolPurchaseRegions(catalog)') &&
+    homepageTargetsSource.includes('regionId: group.id') &&
+    homepageTargetsSource.includes("path: '/purchase', query: { region: String(group.id) }") &&
+    homepageAtlasSource.includes('selected.stock > 0 && !loading && !failed') &&
     publicHostOfferSource.includes("path: '/purchase'") &&
     publicHostOfferSource.includes('region: String(props.regionId), product: String(props.product.id)') &&
     publicHostOfferSource.includes('v-if="product.idle > 0"') &&
     publicHostOfferSource.includes('class="host-offer-action" disabled') &&
     publicHostOfferSource.includes('product.cpu / 100'),
-  'homepage offers must use the real pooled catalog, carry both identifiers into the existing purchase flow, and disable sold-out products'
+  'the homepage must use the real catalog and numeric purchase identifiers, default to the mobile globe, and disable unknown or sold-out inventory'
 )
 assert.ok(
   oauthAuthorizeViewSource.includes("import { dashboardPath } from '@/utils/app-paths'") &&

@@ -143,7 +143,7 @@ function assertFrontendKeysExist(): void {
   assert.ok(keys.has('aff.withdrawalStatus.pending'), 'frontend i18n guard must cover admin AFF review nested status labels')
   assert.ok(!keys.has('instance.errorBanner.reasonLabel'), 'frontend must not reference the removed instance failure reason label')
   for (const key of [
-    'publicSite.storefront.titleFirst',
+    'homeMapDemo.titleFirst',
     'publicSite.storefront.chooseProduct',
     'poolPurchase.addedCount',
     'hostPublicIpv4.title',
@@ -172,7 +172,7 @@ function flattenMessageKeys(source: unknown, prefix = ''): string[] {
 }
 
 function assertD152NamespaceParity(): void {
-  const namespaces = ['hostPublicIpv4', 'invites', 'telegramConfig', 'publicSite.storefront']
+  const namespaces = ['hostPublicIpv4', 'invites', 'telegramConfig', 'publicSite.storefront', 'homeMapDemo']
   for (const namespace of namespaces) {
     const expected = flattenMessageKeys(resolveMessage(zhCN, namespace), namespace).sort()
     assert.ok(expected.length > 0, `zhCN must define ${namespace}`)
@@ -260,6 +260,16 @@ function assertRequestedCustomerWording(): void {
   assert.equal(resolveMessage(zhCN, 'nav.myInstances'), '我的实例', 'the Simplified Chinese sidebar label must stay unchanged')
   assert.equal(resolveMessage(zhTW, 'nav.myInstances'), '我的實例', 'the Traditional Chinese sidebar label must stay unchanged')
   assert.equal(resolveMessage(en, 'poolPurchase.title'), 'Create Instance', 'the English purchase page title must read Create Instance')
+  const requestedHomepageLabels = [
+    [zhCN, ['产品', '解决方案', '控制台', '你的下一台主机，']],
+    [zhTW, ['產品', '解決方案', '控制台', '你的下一台主機，']],
+    [en, ['Products', 'Solutions', 'Console', 'Your next server,']]
+  ] as const
+  for (const [messages, labels] of requestedHomepageLabels) {
+    for (const [index, key] of ['products', 'solutions', 'console', 'titleFirst'].entries()) {
+      assert.equal(resolveMessage(messages, `homeMapDemo.${key}`), labels[index], 'homepage language changes must use the requested translation, including Traditional Chinese rather than the English fallback')
+    }
+  }
 }
 
 assertRequestedCustomerWording()

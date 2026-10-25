@@ -12,7 +12,9 @@ const isAuthPage = computed(() => authRouteNames.has(String(route.name || '')))
 </script>
 
 <template>
+  <slot v-if="route.name === 'portal'" />
   <div
+    v-else
     class="kawaii-public-shell flex min-h-screen flex-col selection:bg-sky-200/50 dark:selection:bg-sky-400/25"
   >
     <div

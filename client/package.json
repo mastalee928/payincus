@@ -1,6 +1,6 @@
 {
   "name": "client",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "PayIncus frontend client",
   "type": "module",
   "scripts": {
@@ -29,6 +29,7 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "axios": "^1.7.9",
+    "d3-geo": "3.1.1",
     "flag-icons": "^7.5.0",
     "gsap": "^3.15.0",
     "lucide-vue-next": "^0.468.0",
@@ -43,6 +44,7 @@
   "devDependencies": {
     "@eslint/js": "^9.16.0",
     "@tailwindcss/forms": "^0.5.9",
+    "@types/d3-geo": "3.1.0",
     "@types/node": "^24.10.1",
     "@typescript-eslint/eslint-plugin": "^8.48.1",
     "@typescript-eslint/parser": "^8.48.1",

@@ -135,6 +135,7 @@ function keepLocaleObjectProperties(source: string, key: string, indent: number,
 function stripAdminOnlyLocaleMessages(source: string): string {
   let stripped = source
   const userOnlyTopLevelKeys = [
+    'homeMapDemo',
     'freeSite',
     'publicSite',
     'wallet',
