@@ -1,13 +1,29 @@
 import type { FastifyInstance } from 'fastify'
 import { normalizeOrigin } from '../lib/origin-config.js'
 import { recoveryHeld } from '../services/platform-backup-core.js'
+import { ExpiryHistoryFilterError, type ExpiryHistoryQuery } from '../lib/expiry-enforcement-history.js'
 
 export interface ExpiryEnforcementOperations {
   status: () => unknown
   start: () => unknown
   run: () => Promise<void>
+  logs?: (query: ExpiryHistoryQuery) => Promise<unknown>
 }
 export async function registerExpiryEnforcementRoutes(app: FastifyInstance, operations: ExpiryEnforcementOperations) {
+  app.get<{ Querystring: ExpiryHistoryQuery }>('/api/admin/billing/expiry-enforcement/logs', {
+    onRequest: [app.authenticateAdmin],
+    schema: { querystring: { type: 'object', additionalProperties: false, properties: {
+      page: { type: 'integer', minimum: 1, maximum: 1000000 }, pageSize: { type: 'integer', minimum: 1, maximum: 50 },
+      startDate: { type: 'string', format: 'date-time' }, endDate: { type: 'string', format: 'date-time' },
+      username: { type: 'string', maxLength: 128 }, email: { type: 'string', maxLength: 254 }, search: { type: 'string', maxLength: 256 }
+    } } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    if (!operations.logs) return reply.code(503).send({ code: 'EXPIRY_LOG_LOAD_FAILED' })
+    try { return await operations.logs(request.query) }
+    catch (error) { return reply.code(error instanceof ExpiryHistoryFilterError ? 400 : 500).send({
+      code: error instanceof ExpiryHistoryFilterError ? error.message : 'EXPIRY_LOG_LOAD_FAILED' }) }
+  })
   app.get('/api/admin/billing/expiry-enforcement', { onRequest: [app.authenticateAdmin] }, async (_request, reply) => {
     reply.header('Cache-Control', 'no-store')
     return operations.status()

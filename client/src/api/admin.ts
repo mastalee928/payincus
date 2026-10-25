@@ -3,7 +3,7 @@ import axios, { type AxiosInstance } from 'axios'
 import type { AdminInstancePushPreview, AdminInstancePushTarget } from '@/types/instance-push'
 import type { OssConfig, OssTask, OssBackup, OssDirectory } from '@/types/aliyun-oss'
 import type { GatewayManagementList, GatewayInspectionInput, GatewayInspectionResult, GatewayManagementTask, GatewayInstallationInput, GatewayInstallationConfirmation, GatewayBootstrapAuthorization, GatewayBootstrapMaterial } from '@/types/management-gateway'
-import type { ExpiryEnforcementStatus } from '@/types/expiry-enforcement'
+import type { ExpiryEnforcementStatus, ExpiryHistoryQuery, ExpiryHistoryResponse } from '@/types/expiry-enforcement'
 import type {GatewayEndpointStatus, GatewayDnsHost, GatewaySetupProgress } from '@/types/gateway-endpoint'
 import { useAuthStore } from '@/stores/auth'
 import { buildApiUrl } from '@/utils/api-url'
@@ -2882,6 +2882,7 @@ const api = {
 
     // ==================== 计费管理 ====================
     expiryEnforcementStatus: (): Promise<ExpiryEnforcementStatus> => http.get('/admin/billing/expiry-enforcement'),
+    expiryEnforcementHistory: (params: ExpiryHistoryQuery = {}): Promise<ExpiryHistoryResponse> => http.get('/admin/billing/expiry-enforcement/logs', { params }),
     startExpiryEnforcement: (): Promise<ExpiryEnforcementStatus> => http.post('/admin/billing/expiry-enforcement/start', {}),
     runExpiryEnforcement: (): Promise<ExpiryEnforcementStatus> => http.post('/admin/billing/expiry-enforcement/run', {}),
 

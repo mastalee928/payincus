@@ -5,6 +5,7 @@
 
 import { schedule } from 'node-cron'
 import pLimit from 'p-limit'
+import { randomUUID } from 'node:crypto'
 import { prisma } from '../db/prisma.js'
 import * as db from '../db/index.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
@@ -36,6 +37,8 @@ import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js
 import { enforceExpiredStop } from './billing-expiry-enforcement.js'
 import { recoveryHeld } from './platform-backup-core.js'
 import { isAutoRenewEligible } from '../lib/instance-auto-renew.js'
+import { latestExpiryRunRecord, writeExpiryRunRecord } from './expiry-enforcement-history.js'
+import { EXPIRY_LOG_RETENTION_DAYS } from '../lib/expiry-enforcement-history.js'
 
 // 并发限制
 const limit = pLimit(5)
@@ -54,6 +57,7 @@ let expiryEnforcementTask: ReturnType<typeof schedule> | null = null
 let expiryStartPromise: Promise<void> | null = null
 let expiryLastStartedAt: string | null = null, expiryLastFinishedAt: string | null = null
 let expiryFailureCount = 0, expiryLastError: string | null = null
+let expiryHistoryError: string | null = null
 
 // 管理员告警：本轮自动续费汇总（每次整点任务开始时清空，结束后按需推送一条）
 const autoRenewAlertSummary: {
@@ -361,6 +365,8 @@ async function processAutoRenew(instance: any): Promise<void> {
         currentAttempt: attempts
       })
 
+      if (expiryEnforcementRunning) noteExpiryFailure('EXPIRY_AUTO_RENEW_FAILED')
+
       await createLog(
         instance.userId,
         'instance',
@@ -458,6 +464,7 @@ async function processAutoRenew(instance: any): Promise<void> {
       'failed',
       { instanceId: instance.id }
     )
+    if (expiryEnforcementRunning) noteExpiryFailure('EXPIRY_AUTO_RENEW_FAILED')
 
     autoRenewAlertSummary.failures.push({
       username: `用户#${instance.userId}`,
@@ -552,9 +559,11 @@ async function processExpirySuspend(instance: any): Promise<{ userId: number; in
     }
 
     // 尝试停止 Incus 实例
+    let stopPending = false
     try {
       await stopCurrentExpiredInstance(suspendedInstance.id)
     } catch (stopError) {
+      stopPending = true
       noteExpiryFailure('EXPIRY_REMOTE_STOP_PENDING')
       // 停止失败不影响封停逻辑
       console.log(`[Billing] Failed to stop Incus instance ${suspendedInstance.incusId}:`, stopError)
@@ -564,8 +573,8 @@ async function processExpirySuspend(instance: any): Promise<{ userId: number; in
       suspendedInstance.userId,
       'instance',
       'instance.suspended_expired',
-      `Instance "${suspendedInstance.name}" suspended due to expiry`,
-      'success',
+      stopPending ? `Instance "${suspendedInstance.name}" suspended due to expiry; host stop pending verification` : `Instance "${suspendedInstance.name}" suspended due to expiry`,
+      stopPending ? 'warning' : 'success',
       { instanceId: suspendedInstance.id }
     )
 
@@ -1007,23 +1016,39 @@ export async function executeExpiryEnforcement(): Promise<void> {
   if (expiryEnforcementRunning || recoveryHeld()) return
   expiryEnforcementRunning = true
   expiryLastStartedAt = new Date().toISOString(); expiryFailureCount = 0; expiryLastError = null
+  expiryHistoryError = null
+  const runId = randomUUID(), startedAt = expiryLastStartedAt
+  const persist = async (finishedAt: string | null) => {
+    try { await writeExpiryRunRecord({ schemaVersion: 1, runId, startedAt, finishedAt,
+      failureCount: expiryFailureCount, lastError: expiryLastError }) }
+    catch { expiryHistoryError = 'EXPIRY_LOG_WRITE_FAILED'; console.error('[Billing] Expiry run history write failed') }
+  }
+  await persist(null)
   try {
     // Catch missed renewals before stopping or deleting the restored inventory.
     try { await executeAutoRenew() } catch { noteExpiryFailure('EXPIRY_AUTO_RENEW_SCAN_FAILED'); return }
     if (recoveryHeld()) return
     await executeExpirySuspend()
     await executeExpiryDelete()
-  } finally { expiryEnforcementRunning = false; expiryLastFinishedAt = new Date().toISOString() }
+  } finally {
+    expiryLastFinishedAt = new Date().toISOString()
+    await persist(expiryLastFinishedAt)
+    expiryEnforcementRunning = false
+  }
 }
 
 function noteExpiryFailure(code: string) { expiryFailureCount++; expiryLastError = code }
 export async function getExpiryEnforcementStatus() {
   const task = expiryEnforcementTask
   const state = task ? await task.getStatus() : 'stopped'
+  const saved = !expiryLastStartedAt ? await latestExpiryRunRecord().catch(() => null) : null
+  const interrupted = saved && !saved.finishedAt
   return { enabled: !!task && !['stopped', 'destroyed'].includes(state), running: expiryEnforcementRunning,
-    intervalMinutes: 5, retentionDays: SUSPEND_AFTER_DELETE_DAYS, lastStartedAt: expiryLastStartedAt,
-    lastFinishedAt: expiryLastFinishedAt, nextRunAt: task?.getNextRun()?.toISOString() || null,
-    failureCount: expiryFailureCount, lastError: expiryLastError, recoveryHeld: recoveryHeld() }
+    intervalMinutes: 5, retentionDays: SUSPEND_AFTER_DELETE_DAYS, logRetentionDays: EXPIRY_LOG_RETENTION_DAYS,
+    historyError: expiryHistoryError, lastStartedAt: expiryLastStartedAt || saved?.startedAt || null,
+    lastFinishedAt: expiryLastFinishedAt || saved?.finishedAt || null, nextRunAt: task?.getNextRun()?.toISOString() || null,
+    failureCount: expiryLastStartedAt ? expiryFailureCount : interrupted ? Math.max(1, saved.failureCount) : saved?.failureCount || 0,
+    lastError: expiryLastStartedAt ? expiryLastError : interrupted ? 'EXPIRY_RUN_INTERRUPTED' : saved?.lastError || null, recoveryHeld: recoveryHeld() }
 }
 export async function startExpiryEnforcement() {
   if (recoveryHeld()) throw new Error('EXPIRY_RECOVERY_HELD')

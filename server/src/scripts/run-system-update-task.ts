@@ -3,12 +3,13 @@ import { createHash } from 'crypto'
 import { appendFile, mkdir, cp, rm, writeFile, readdir, stat, lstat, readlink, symlink, rename, statfs, access } from 'fs/promises'
 import { constants, createReadStream, createWriteStream, existsSync } from 'fs'
 import { dirname, join, resolve, sep } from 'path'
-import { spawn } from 'child_process'
 import { Readable } from 'stream'
 import { pipeline } from 'stream/promises'
 import { prisma, closePrismaDatabase } from '../db/prisma.js'
 import { tryMarkSystemUpdateTaskRunning } from '../db/system-update-tasks.js'
-import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication } from '../lib/system-update-files.js'
+import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication, backupSystemUpdateApplication } from '../lib/system-update-files.js'
+import { assertBundledSystemUpdateRuntime, runBundledSystemUpdateMigrations } from '../lib/system-update-runtime.js'
+import { runSystemUpdateCommand, SystemUpdateCommandNotStopped } from '../lib/system-update-command.js'
 import {
   getCurrentVersionMetadata,
   getOtaReleaseInfo,
@@ -77,82 +78,15 @@ function assertSafeManagedPath(path: string, parent: string, label: string): voi
 
 async function run(command: string, args: string[], options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; cwd?: string } = {}): Promise<void> {
   await log(`$ ${command} ${args.join(' ')}`)
-  await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd || appDir,
-      env: {
-        ...process.env,
-        PATH: executionPath,
-        ...options.env
-      },
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-
-    let timeout: NodeJS.Timeout | null = null
-    if (options.timeoutMs) {
-      timeout = setTimeout(() => {
-        child.kill('SIGTERM')
-        reject(new Error(`Command timed out: ${command} ${args.join(' ')}`))
-      }, options.timeoutMs)
-    }
-
-    child.stdout.on('data', data => {
-      void appendFile(logPath, data)
-    })
-    child.stderr.on('data', data => {
-      void appendFile(logPath, data)
-    })
-    child.on('error', reject)
-    child.on('close', code => {
-      if (timeout) clearTimeout(timeout)
-      if (code === 0) {
-        resolvePromise()
-      } else {
-        reject(new Error(`Command failed with exit code ${code}: ${command} ${args.join(' ')}`))
-      }
-    })
-  })
+  await runSystemUpdateCommand(command, args, { cwd: options.cwd || appDir,
+    env: { ...process.env, PATH: executionPath, ...options.env }, timeoutMs: options.timeoutMs,
+    stdout: data => { void appendFile(logPath, data) }, stderr: data => { void appendFile(logPath, data) } })
 }
 
 async function runCapture(command: string, args: string[], options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; cwd?: string } = {}): Promise<string> {
   await log(`$ ${command} ${args.join(' ')}`)
-  return await new Promise<string>((resolvePromise, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd || appDir,
-      env: {
-        ...process.env,
-        PATH: executionPath,
-        ...options.env
-      },
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-
-    let stdout = ''
-    let stderr = ''
-    let timeout: NodeJS.Timeout | null = null
-    if (options.timeoutMs) {
-      timeout = setTimeout(() => {
-        child.kill('SIGTERM')
-        reject(new Error(`Command timed out: ${command} ${args.join(' ')}`))
-      }, options.timeoutMs)
-    }
-
-    child.stdout.on('data', data => {
-      stdout += String(data)
-    })
-    child.stderr.on('data', data => {
-      stderr += String(data)
-    })
-    child.on('error', reject)
-    child.on('close', code => {
-      if (timeout) clearTimeout(timeout)
-      if (code === 0) {
-        resolvePromise(stdout)
-      } else {
-        reject(new Error(`Command failed with exit code ${code}: ${command} ${args.join(' ')}${stderr ? `\n${stderr}` : ''}`))
-      }
-    })
-  })
+  return await runSystemUpdateCommand(command, args, { cwd: options.cwd || appDir,
+    env: { ...process.env, PATH: executionPath, ...options.env }, timeoutMs: options.timeoutMs, capture: true })
 }
 
 function sleep(ms: number): Promise<void> {
@@ -173,7 +107,7 @@ async function commandExists(command: string): Promise<boolean> {
 }
 
 async function assertRequiredCommands(): Promise<void> {
-  const requiredCommands = ['bash', 'corepack', 'curl', 'git', 'pg_dump', 'systemctl', 'tar']
+  const requiredCommands = ['bash', 'corepack', 'curl', 'git', 'pg_dump', 'pnpm', 'systemctl', 'tar']
   if (process.platform === 'linux') {
     requiredCommands.push('chown', 'id')
   }
@@ -232,6 +166,7 @@ async function backupDatabase(backupDir: string, timestamp: string): Promise<str
     })
     await rename(temporaryPath, backupPath)
   } catch (error) {
+    if (error instanceof SystemUpdateCommandNotStopped) throw error
     await rm(temporaryPath, { force: true })
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`OTA database backup failed; migration was not started: ${message}`)
@@ -243,14 +178,14 @@ async function backupDatabase(backupDir: string, timestamp: string): Promise<str
 
 async function deployDatabaseMigrations(): Promise<void> {
   await log('Deploying database migrations from the new release before backend restart')
-  await run('pnpm', ['--filter', 'server', 'exec', 'prisma', 'migrate', 'deploy'], {
-    timeoutMs: 300000,
-    cwd: appDir
+  await runBundledSystemUpdateMigrations(appDir, {
+    env: { ...process.env, PATH: executionPath },
+    stdout: data => { void appendFile(logPath, data) }, stderr: data => { void appendFile(logPath, data) }
   })
 }
 
 async function waitForBackendHealth(): Promise<void> {
-  const deadline = Date.now() + 90000
+  const deadline = Date.now() + 180000
   let attempt = 1
   let lastError = ''
 
@@ -260,6 +195,7 @@ async function waitForBackendHealth(): Promise<void> {
       await log(`Backend health is ready after ${attempt} attempt(s)`)
       return
     } catch (error) {
+      if (error instanceof SystemUpdateCommandNotStopped) throw error
       lastError = error instanceof Error ? error.message : String(error)
       await log(`Backend health not ready after attempt ${attempt}; retrying in 2s`)
       await sleep(2000)
@@ -504,6 +440,7 @@ async function assertArtifactStaging(stagingDir: string): Promise<void> {
       throw new Error(`OTA artifact is missing required path: ${relativePath}`)
     }
   }
+  await assertBundledSystemUpdateRuntime(stagingDir)
 }
 
 async function clearInstallDirPreserving(preservedEntries: string[]): Promise<void> {
@@ -611,38 +548,28 @@ async function applyArtifactAtomic(stagingDir: string, timestamp: string): Promi
   await log(`Atomic release directory: ${releaseDir}`)
   await copyStagingToRelease(stagingDir, releaseDir)
   await restoreRuntimeAssets(currentTarget, releaseDir)
-  await run('corepack', ['enable'], { timeoutMs: 120000, cwd: releaseDir })
-  await run('corepack', ['prepare', 'pnpm@9.14.2', '--activate'], { timeoutMs: 120000, cwd: releaseDir })
-  await run('pnpm', ['install', '--prod', '--frozen-lockfile', '--force'], {
-    timeoutMs: 600000,
-    cwd: releaseDir,
-    env: { CI: '1' }
-  })
-  await run('pnpm', ['--filter', 'server', 'exec', 'prisma', 'generate'], {
-    timeoutMs: 180000,
-    cwd: releaseDir
-  })
+  await assertBundledSystemUpdateRuntime(releaseDir)
+  await updateTask({ backupPath: currentTarget })
   await writeVersionFile(releaseDir)
   await chownInstallDir()
+  await run('systemctl', ['stop', serviceName], { timeoutMs: 120000 })
   await switchCurrentRelease(releaseDir)
   return currentTarget
 }
 
 async function applyArtifactLegacy(stagingDir: string, backupDir: string): Promise<string> {
   await log(`Backup directory: ${backupDir}`)
-  await cp(installDir, backupDir, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
+  await backupSystemUpdateApplication(installDir, backupDir)
+  await updateTask({ backupPath: backupDir })
 
+  // A live backend can lazy-load files while the legacy tree is replaced.
+  // Stop only the panel; host agents and customer instances keep running.
+  await run('systemctl', ['stop', serviceName], { timeoutMs: 120000 })
   await clearInstallDirForArtifact()
   await cp(stagingDir, installDir, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
   await restoreRuntimeAssets(backupDir)
 
-  await run('corepack', ['enable'], { timeoutMs: 120000 })
-  await run('corepack', ['prepare', 'pnpm@9.14.2', '--activate'], { timeoutMs: 120000 })
-  await run('pnpm', ['install', '--prod', '--frozen-lockfile', '--force'], {
-    timeoutMs: 600000,
-    env: { CI: '1' }
-  })
-  await run('pnpm', ['--filter', 'server', 'exec', 'prisma', 'generate'], { timeoutMs: 180000 })
+  await assertBundledSystemUpdateRuntime(installDir)
   await writeVersionFile()
   return backupDir
 }
@@ -669,8 +596,10 @@ async function applyGitUpdate(backupDir: string): Promise<string> {
   await run('git', ['rev-parse', '--verify', `${targetVersion}^{commit}`], { timeoutMs: 30000 })
 
   await log(`Backup directory: ${backupDir}`)
-  await cp(installDir, backupDir, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
+  await backupSystemUpdateApplication(installDir, backupDir)
+  await updateTask({ backupPath: backupDir })
 
+  await run('systemctl', ['stop', serviceName], { timeoutMs: 120000 })
   await run('git', ['checkout', '--force', targetVersion], { timeoutMs: 120000 })
   await run('git', ['clean', '-fdx', '-e', '.env', '-e', '.gitconfig', '-e', 'server/certs', '-e', 'agent-release', '-e', '.npm', '-e', '.cache', '-e', 'update-logs'], { timeoutMs: 120000 })
   await restoreRuntimeAssets(backupDir)
@@ -754,9 +683,10 @@ async function autoRollbackFromBackup(backupDir: string, timestamp: string): Pro
     if (failedTarget) {
       const failedInstallBackup = join(getReleasesDir(), `failed-update-${timestamp}`)
       await log(`Preserving failed release before auto rollback: ${failedInstallBackup}`)
-      await cp(failedTarget, failedInstallBackup, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
+      await backupSystemUpdateApplication(failedTarget, failedInstallBackup)
     }
     await log(`Auto rollback switching current release back to: ${backupDir}`)
+    await run('systemctl', ['stop', serviceName], { timeoutMs: 120000 })
     await switchCurrentRelease(backupDir)
     await chownInstallDir()
     await refreshLocalOnboardingGateway()
@@ -779,10 +709,11 @@ async function autoRollbackFromBackup(backupDir: string, timestamp: string): Pro
   await log(`Preserving failed install before auto rollback: ${failedInstallBackup}`)
 
   if (existsSync(installDir)) {
-    await cp(installDir, failedInstallBackup, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
+    await backupSystemUpdateApplication(installDir, failedInstallBackup)
   }
 
-  await clearInstallDirPreserving(['update-logs'])
+  await run('systemctl', ['stop', serviceName], { timeoutMs: 120000 })
+  await clearInstallDirPreserving(['update-logs', '.npm', '.cache'])
   await restoreSystemUpdateApplication(backupDir, installDir)
   await mkdir(join(installDir, '.npm'), { recursive: true })
   await mkdir(join(installDir, '.cache'), { recursive: true })
@@ -872,9 +803,12 @@ async function main(): Promise<void> {
     const message = error instanceof Error ? error.message : String(error)
     await log(`ERROR: ${message}`)
     let rolledBack = false
+    let cleanupSafe = !(error instanceof SystemUpdateCommandNotStopped)
     try {
-      rolledBack = await autoRollbackFromBackup(backupPath, timestamp)
+      if (error instanceof SystemUpdateCommandNotStopped) await log('Automatic rollback blocked: update command children are still active')
+      else rolledBack = await autoRollbackFromBackup(backupPath, timestamp)
     } catch (rollbackError) {
+      if (rollbackError instanceof SystemUpdateCommandNotStopped) cleanupSafe = false
       const rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
       await log(`AUTO ROLLBACK ERROR: ${rollbackMessage}`)
     }
@@ -889,7 +823,7 @@ async function main(): Promise<void> {
       finishedAt: new Date(),
       errorMessage: (rolledBack ? `Update failed and was auto-rolled back: ${message}` : message).slice(0, 5000)
     })
-    await runFailedUpdateCleanup()
+    if (cleanupSafe) await runFailedUpdateCleanup()
     process.exitCode = 1
   } finally {
     await closePrismaDatabase()

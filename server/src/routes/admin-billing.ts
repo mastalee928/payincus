@@ -61,6 +61,7 @@ import { calculateDailyPrice } from '../lib/billing-calc.js'
 import { reverseInstanceAffCommissionForRefund } from './instance-destroy.js'
 import { registerExpiryEnforcementRoutes } from './billing-expiry-enforcement.js'
 import { getExpiryEnforcementStatus, startExpiryEnforcement, executeExpiryEnforcement } from '../services/billing-scheduler.js'
+import { getExpiryEnforcementHistory } from '../services/expiry-enforcement-history.js'
 import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
 
 // 自定义 nanoid，只使用小写字母和数字
@@ -674,7 +675,7 @@ async function buildBatchPriceUpdatePreview(
 }
 
 export default async function adminBillingRoutes(app: FastifyInstance): Promise<void> {
-  await registerExpiryEnforcementRoutes(app, { status: getExpiryEnforcementStatus, start: startExpiryEnforcement, run: executeExpiryEnforcement })
+  await registerExpiryEnforcementRoutes(app, { status: getExpiryEnforcementStatus, start: startExpiryEnforcement, run: executeExpiryEnforcement, logs: getExpiryEnforcementHistory })
   // ==================== 计费概览 ====================
 
   // GET /api/admin/billing/overview - 计费概览

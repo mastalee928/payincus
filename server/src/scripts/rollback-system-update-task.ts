@@ -1,11 +1,11 @@
 import '../config/env.js'
-import { appendFile, cp, mkdir, rm, lstat, readlink, rename, symlink } from 'fs/promises'
+import { appendFile, mkdir, rm, lstat, readlink, rename, symlink, readdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import { dirname, join, resolve } from 'path'
-import { spawn } from 'child_process'
+import { runSystemUpdateCommand, SystemUpdateCommandNotStopped } from '../lib/system-update-command.js'
 import { prisma, closePrismaDatabase } from '../db/prisma.js'
 import { tryMarkSystemUpdateTaskRunning } from '../db/system-update-tasks.js'
-import { restoreSystemUpdateApplication } from '../lib/system-update-files.js'
+import { restoreSystemUpdateApplication, backupSystemUpdateApplication } from '../lib/system-update-files.js'
 
 const taskId = Number(process.argv[2])
 const appDir = resolve(process.env.INCUDAL_APP_DIR || process.cwd())
@@ -39,28 +39,12 @@ async function log(message: string): Promise<void> {
 
 async function run(command: string, args: string[], options: { timeoutMs?: number; cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<void> {
   await log(`$ ${command} ${args.join(' ')}`)
-  await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd || installDir,
-      env: { ...process.env, PATH: executionPath, ...options.env },
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-    let timeout: NodeJS.Timeout | null = null
-    if (options.timeoutMs) {
-      timeout = setTimeout(() => {
-        child.kill('SIGTERM')
-        reject(new Error(`Command timed out: ${command} ${args.join(' ')}`))
-      }, options.timeoutMs)
-    }
-    child.stdout.on('data', data => void appendFile(logPath, data))
-    child.stderr.on('data', data => void appendFile(logPath, data))
-    child.on('error', reject)
-    child.on('close', code => {
-      if (timeout) clearTimeout(timeout)
-      if (code === 0) resolvePromise()
-      else reject(new Error(`Command failed with exit code ${code}: ${command} ${args.join(' ')}`))
-    })
+  await runSystemUpdateCommand(command, args, {
+    cwd: options.cwd || installDir,
+    env: { ...process.env, PATH: executionPath, ...options.env }, timeoutMs: options.timeoutMs,
+    stdout: data => { void appendFile(logPath, data) }, stderr: data => { void appendFile(logPath, data) }
   })
+
 }
 
 function sleep(ms: number): Promise<void> {
@@ -68,7 +52,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function waitForBackendHealth(): Promise<void> {
-  const deadline = Date.now() + 90000
+  const deadline = Date.now() + 180000
   let attempt = 1
   let lastError = ''
 
@@ -78,6 +62,7 @@ async function waitForBackendHealth(): Promise<void> {
       await log(`Backend health is ready after ${attempt} attempt(s)`)
       return
     } catch (error) {
+      if (error instanceof SystemUpdateCommandNotStopped) throw error
       lastError = error instanceof Error ? error.message : String(error)
       await log(`Backend health not ready after attempt ${attempt}; retrying in 2s`)
       await sleep(2000)
@@ -164,8 +149,9 @@ async function main(): Promise<void> {
       const currentTarget = await getCurrentReleaseTarget()
       if (currentTarget) {
         await log(`Preserving current release before rollback: ${rollbackBackup}`)
-        await cp(currentTarget, rollbackBackup, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
+        await backupSystemUpdateApplication(currentTarget, rollbackBackup)
       }
+      await run('systemctl', ['stop', serviceName], { timeoutMs: 120000 })
       await switchCurrentRelease(backupPath)
     } else {
       // 原子发布布局的备份位于 installDir/releases 内。若当前布局已不是原子软链，
@@ -176,8 +162,12 @@ async function main(): Promise<void> {
       }
       await log(`Preserving current install before rollback: ${rollbackBackup}`)
       if (existsSync(installDir)) {
-        await cp(installDir, rollbackBackup, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
-        await rm(installDir, { recursive: true, force: true })
+        await backupSystemUpdateApplication(installDir, rollbackBackup)
+        await run('systemctl', ['stop', serviceName], { timeoutMs: 120000 })
+        for (const entry of await readdir(installDir)) {
+          if (['.npm', '.cache', 'update-logs'].includes(entry)) continue
+          await rm(join(installDir, entry), { recursive: true, force: true })
+        }
       }
       await restoreSystemUpdateApplication(backupPath, installDir)
     }

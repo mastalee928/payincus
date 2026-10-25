@@ -160,3 +160,11 @@ export async function cancelPendingSystemUpdateTask(id: number, reason: string):
   })
   return result.count === 1
 }
+
+export async function failInterruptedSystemUpdateTask(id: number, startedAt: Date | null, reason: string): Promise<boolean> {
+  const result = await prisma.systemUpdateTask.updateMany({
+    where: { id, status: 'running', startedAt, finishedAt: null },
+    data: { status: 'failed', errorMessage: reason, finishedAt: new Date() }
+  })
+  return result.count === 1
+}

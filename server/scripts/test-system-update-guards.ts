@@ -3,7 +3,19 @@ import { readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication } from '../src/lib/system-update-files.js'
+import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication, backupSystemUpdateApplication } from '../src/lib/system-update-files.js'
+import { systemUpdateUnitStillStarting } from '../src/lib/system-update-worker-state.js'
+import { assertBundledSystemUpdateRuntime, runBundledSystemUpdateMigrations } from '../src/lib/system-update-runtime.js'
+import { runSystemUpdateCommand } from '../src/lib/system-update-command.js'
+
+for (const ActiveState of ['activating', 'active', 'reloading']) {
+  assert.equal(systemUpdateUnitStillStarting({ ActiveState, SubState: 'start', Result: 'success', ExecMainStatus: '0', Job: '0' }), true, 'slow sealed-file verification must remain pending')
+}
+assert.equal(systemUpdateUnitStillStarting({ ActiveState: 'inactive', Job: '123 /org/freedesktop/systemd1/job/123' }), true, 'queued dependency jobs are still starting')
+for (const ActiveState of ['inactive', 'failed']) assert.equal(systemUpdateUnitStillStarting({ ActiveState, Job: '0' }), false)
+assert.equal(systemUpdateUnitStillStarting({ LoadState: 'not-found', ActiveState: 'inactive', Job: '0' }), false)
+assert.equal(systemUpdateUnitStillStarting({}), null, 'unavailable observation must not fail a potentially live worker')
+assert.equal(systemUpdateUnitStillStarting({ LoadState: 'not-found', ActiveState: 'activating', Job: '0' }), true)
 
 const repoRoot = resolve(import.meta.dirname, '../..')
 
@@ -37,6 +49,23 @@ const systemUpdateTasksDb = read('server/src/db/system-update-tasks.ts')
 const rootPackage = read('package.json')
 const serverPackage = read('server/package.json')
 const freshInstall = read('scripts/smoke-fresh-install.sh')
+for (const worker of [runTask, rollbackTask]) {
+  assert.ok(worker.includes('const deadline = Date.now() + 180000'),
+    'allow a bounded three-minute cold startup on small hosts while retaining health checks')
+}
+
+for (const [begin, end, mutation] of [
+  ['async function applyArtifactLegacy', 'async function applyArtifactUpdate', 'await clearInstallDirForArtifact()'],
+  ['async function applyArtifactAtomic', 'async function applyArtifactLegacy', 'await switchCurrentRelease(releaseDir)'],
+  ['async function applyGitUpdate', 'async function refreshLocalOnboardingGateway', "await run('git', ['checkout'"],
+] as const) {
+  const body = runTask.slice(runTask.indexOf(begin), runTask.indexOf(end))
+  assert.ok(body.indexOf("await run('systemctl', ['stop', serviceName]") >= 0 &&
+    body.indexOf("await run('systemctl', ['stop', serviceName]") < body.indexOf(mutation),
+  'stop the only backend before changing files or current release; leave host/customer services running')
+}
+assert.ok(runTask.includes('await backupSystemUpdateApplication(installDir, failedInstallBackup)'),
+  'failed install preservation must exclude staging/download/cache copies that can exhaust rollback time')
 
 assert.ok(runTask.includes("run('tar', ['--no-same-owner', '-xzf', artifactPath"), 'root OTA extraction must not inherit build-runner archive ownership')
 assert.ok(releaseWorkflow.includes('tar --owner=0 --group=0 --numeric-owner -czf'), 'new release archives must remain compatible with installed OTA workers that preserve archive owners')
@@ -203,15 +232,18 @@ assert.ok(
 )
 
 assert.ok(
-  runTask.includes("pnpm', ['install', '--prod', '--frozen-lockfile', '--force']") &&
-    runTask.includes("timeoutMs: 600000,") &&
-    runTask.includes('cwd: releaseDir') &&
-    (runTask.match(/env: \{ CI: '1' \}/g) ?? []).length >= 2,
-  'artifact updates must recreate production dependency symlinks non-interactively inside the applied release, not keep links into temporary staging'
+  runTask.includes('assertBundledSystemUpdateRuntime(stagingDir)') &&
+    runTask.includes('assertBundledSystemUpdateRuntime(releaseDir)') &&
+    runTask.includes('assertBundledSystemUpdateRuntime(installDir)') &&
+    !runTask.includes("['install', '--prod', '--frozen-lockfile', '--force']") &&
+    runTask.includes('backupSystemUpdateApplication(installDir, backupDir)') &&
+    runTask.includes('runSystemUpdateCommand') &&
+    runTask.includes('Automatic rollback blocked'),
+  'verified artifacts must use complete bundled dependencies inside each release, retain relative links and stop command children before rollback'
 )
 
 assert.ok(
-  runTask.includes("const requiredCommands = ['bash', 'corepack', 'curl', 'git', 'pg_dump', 'systemctl', 'tar']") &&
+  runTask.includes("const requiredCommands = ['bash', 'corepack', 'curl', 'git', 'pg_dump', 'pnpm', 'systemctl', 'tar']") &&
     runTask.includes('async function backupDatabase') &&
     runTask.includes('db-pre-migrate-${targetVersion}-${timestamp}.sql') &&
     runTask.includes("run('pg_dump', ['--format=plain', '--no-owner', '--no-privileges', '--file', temporaryPath]") &&
@@ -227,7 +259,7 @@ assert.ok(
     runTask.includes('OTA database backup failed; migration was not started') &&
     runTask.includes('databaseBackupPath = await backupDatabase(backupDir, timestamp)') &&
     runTask.includes('databaseMigrationAttempted = true') &&
-    runTask.includes("pnpm', ['--filter', 'server', 'exec', 'prisma', 'migrate', 'deploy']") &&
+    runTask.includes('await runBundledSystemUpdateMigrations(appDir') &&
     runTask.indexOf('databaseBackupPath = await backupDatabase(backupDir, timestamp)') <
       runTask.indexOf('await deployDatabaseMigrations()') &&
     runTask.indexOf('await deployDatabaseMigrations()') < runTask.indexOf('await verifyUpdatedRuntime(Boolean(artifact))') &&
@@ -352,6 +384,9 @@ assert.ok(
     route.includes('waitForTaskClaim(task.id)') &&
     route.includes('WORKER_CLAIM_TIMEOUT_MS') &&
     route.includes('describeUpdateUnitFailure(unitName)') &&
+    route.includes('if (state.starting === false)') &&
+    route.includes('cancelPendingSystemUpdateTask(task.id,') &&
+    route.includes('await reconcileUnclaimedUpdate(claimed)') &&
     route.includes("'/usr/bin/systemctl'") &&
     route.includes('更新任务未在') &&
     route.includes("journalctl -u '${unitName}'") &&
@@ -415,4 +450,47 @@ try {
     assert.equal(await readFile(join(restored, 'modules/library.js'), 'utf8'), 'fixture dependency', 'restored dependencies must work without staging or backup')
   }
 } finally { await rm(fixture, { recursive: true, force: true }) }
-console.log('system update guard tests passed (including real rollback copies, private dumps and sealed relative links)')
+const runtimeFixture = await mkdtemp(join(tmpdir(), 'incudal-bundled-runtime-'))
+try {
+  const bundle = join(runtimeFixture, 'bundle')
+  await mkdir(join(bundle, 'server'), { recursive: true })
+  await writeFile(join(bundle, 'server/package.json'), JSON.stringify({ dependencies: { fastify: '1.0.0' } }))
+  await assert.rejects(assertBundledSystemUpdateRuntime(bundle), /missing bundled runtime dependency/)
+  await mkdir(join(runtimeFixture, 'node_modules/fastify'), { recursive: true })
+  await writeFile(join(runtimeFixture, 'node_modules/fastify/package.json'), '{"main":"index.js"}')
+  await writeFile(join(runtimeFixture, 'node_modules/fastify/index.js'), 'throw new Error("must not execute during validation")')
+  await assert.rejects(assertBundledSystemUpdateRuntime(bundle), /outside its release/, 'parent installation must never satisfy an incomplete artifact')
+  await mkdir(join(bundle, 'node_modules/fastify'), { recursive: true })
+  await writeFile(join(bundle, 'node_modules/fastify/package.json'), '{"main":"index.js"}')
+  await writeFile(join(bundle, 'node_modules/fastify/index.js'), 'throw new Error("validation must not execute package code")')
+  await assertBundledSystemUpdateRuntime(bundle)
+  const prismaModule = join(bundle, 'server/node_modules/prisma')
+  await mkdir(prismaModule, { recursive: true })
+  await writeFile(join(prismaModule, 'package.json'), JSON.stringify({ bin: { prisma: 'cli.cjs' } }))
+  await writeFile(join(prismaModule, 'cli.cjs'), 'if(require.main===module)process.stdout.write(JSON.stringify({args:process.argv.slice(2),fixture:process.env.OTA_CLI_TEST}))')
+  let migrationOutput = ''
+  await runBundledSystemUpdateMigrations(bundle, { env: { ...process.env, OTA_CLI_TEST: 'expected' },
+    stdout: data => { migrationOutput += data }, stderr: () => {} })
+  assert.deepEqual(JSON.parse(migrationOutput), { args: ['migrate', 'deploy'], fixture: 'expected' },
+    'execute only the bundled Prisma CLI with fixed migration arguments and inherited connection environment')
+  await writeFile(join(prismaModule, 'package.json'), JSON.stringify({ bin: { prisma: '../../../../node_modules/fastify/index.js' } }))
+  await assert.rejects(runBundledSystemUpdateMigrations(bundle, { env: process.env, stdout: () => {}, stderr: () => {} }), /Command failed/)
+  await mkdir(join(bundle, '.cache'), { recursive: true }); await writeFile(join(bundle, '.cache/tool'), 'mutable cache')
+  await mkdir(join(bundle, '.incudal-update-downloads'), { recursive: true }); await writeFile(join(bundle, '.incudal-update-downloads/archive'), 'disposable archive')
+  const snapshot = join(runtimeFixture, 'snapshot')
+  await backupSystemUpdateApplication(bundle, snapshot)
+  await assert.rejects(readFile(join(snapshot, '.cache/tool')), { code: 'ENOENT' })
+  await assert.rejects(readFile(join(snapshot, '.incudal-update-downloads/archive')), { code: 'ENOENT' })
+  assert.ok(await readFile(join(snapshot, 'server/package.json'), 'utf8'))
+  assert.equal((await runSystemUpdateCommand(process.execPath, ['-e', 'process.stdout.write("checked")'], { cwd: runtimeFixture, env: process.env, capture: true, timeoutMs: 5000 })), 'checked')
+  if (process.platform === 'linux') {
+    const counter = join(runtimeFixture, 'child-write-count')
+    const grandchild = `const fs=require('node:fs');process.on('SIGTERM',()=>{});fs.writeFileSync(${JSON.stringify(counter)},'start');setInterval(()=>fs.appendFileSync(${JSON.stringify(counter)},'x'),20)`
+    const parent = `require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(grandchild)}],{stdio:'inherit'});process.on('SIGTERM',()=>{});setInterval(()=>{},1000)`
+    await assert.rejects(runSystemUpdateCommand(process.execPath, ['-e', parent], { cwd: runtimeFixture, env: process.env, timeoutMs: 2000 }), /Command timed out/)
+    const stopped = await readFile(counter, 'utf8')
+    await new Promise(done => setTimeout(done, 250))
+    assert.equal(await readFile(counter, 'utf8'), stopped, 'timed-out grandchildren must stop writing before rollback can run')
+  } else console.log('Linux CI and native validation cover command process-group termination')
+} finally { await rm(runtimeFixture, { recursive: true, force: true }) }
+console.log('system update guards passed: trusted rollback, complete bundled runtime, bounded child lifecycle and pending observation')

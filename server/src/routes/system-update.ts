@@ -5,6 +5,7 @@ import { promisify } from 'util'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
   cancelPendingSystemUpdateTask,
+  failInterruptedSystemUpdateTask,
   createSystemUpdateTask,
   failStaleSystemUpdateTasks,
   getSystemUpdateTask,
@@ -22,6 +23,7 @@ import {
   isValidReleaseTag
 } from '../lib/system-version.js'
 import { getCombinedAdminIdAllowlist } from '../lib/runtime-settings.js'
+import { systemUpdateUnitStillStarting } from '../lib/system-update-worker-state.js'
 
 interface StartUpdateBody {
   targetVersion: string
@@ -66,7 +68,7 @@ function sleep(ms: number): Promise<void> {
 
 // systemd oneshot 用 --no-block 启动，unit 自身的失败不会回传到 API；而 helper 在拉起 worker
 // 之前就会做可信清单与 Git 校验，失败时 worker 永不执行，任务只会留在 pending。这里在启动后
-// 用短轮询确认任务是否被 worker 认领，认领不了就立刻判失败，避免留下永久 pending 记录。
+// 用短轮询观察认领。仍在校验的 unit 保持 pending；只有 unit 已结束且任务仍未认领才判失败。
 const WORKER_CLAIM_TIMEOUT_MS = 24000
 const WORKER_CLAIM_POLL_MS = 2000
 
@@ -83,11 +85,11 @@ async function waitForTaskClaim(taskId: number, timeoutMs = WORKER_CLAIM_TIMEOUT
 // 只读取 unit 属性：服务用户无权读 journal（不在 systemd-journal 组），但 systemctl show 允许。
 // 必须用绝对路径 /usr/bin/systemctl —— 后端服务的 PATH 把受控 wrapper 放在最前，wrapper 只接受
 // start --no-block <unit>，用 'systemctl' 会命中 wrapper 而报错。
-async function describeUpdateUnitFailure(unitName: string): Promise<string> {
+async function describeUpdateUnitFailure(unitName: string) {
   try {
     const { stdout } = await execFileAsync(
       '/usr/bin/systemctl',
-      ['show', unitName, '-p', 'ActiveState', '-p', 'SubState', '-p', 'Result', '-p', 'ExecMainStatus'],
+      ['show', unitName, '-p', 'ActiveState', '-p', 'SubState', '-p', 'Result', '-p', 'ExecMainStatus', '-p', 'LoadState', '-p', 'Job'],
       { timeout: 10000 }
     )
     const props: Record<string, string> = {}
@@ -95,10 +97,29 @@ async function describeUpdateUnitFailure(unitName: string): Promise<string> {
       const separator = line.indexOf('=')
       if (separator > 0) props[line.slice(0, separator).trim()] = line.slice(separator + 1).trim()
     }
-    return `unit ${props.ActiveState || 'unknown'}/${props.SubState || 'unknown'}，Result=${props.Result || 'unknown'}，ExecMainStatus=${props.ExecMainStatus || 'unknown'}`
+    return { starting: systemUpdateUnitStillStarting(props), detail: `unit ${props.ActiveState || 'unknown'}/${props.SubState || 'unknown'}，Result=${props.Result || 'unknown'}，ExecMainStatus=${props.ExecMainStatus || 'unknown'}` }
   } catch (error) {
-    return `无法读取 unit 状态：${error instanceof Error ? error.message : String(error)}`
+    return { starting: null, detail: `无法读取 unit 状态：${error instanceof Error ? error.message : String(error)}` }
   }
+}
+
+async function reconcileUnclaimedUpdate(task: NonNullable<Awaited<ReturnType<typeof getSystemUpdateTask>>>) {
+  if (!['pending', 'running'].includes(task.status) || process.platform !== 'linux' || process.env.NODE_ENV !== 'production' || process.env.SYSTEM_UPDATE_USE_SYSTEMD === 'false') return task
+  const unitName = `incudal-online-update@${task.id}.service`
+  const state = await describeUpdateUnitFailure(unitName)
+  if (state.starting === false) {
+    // The worker may claim the task after our read; never overwrite running.
+    if (task.status === 'pending') await cancelPendingSystemUpdateTask(task.id, `更新任务未在观察期内认领，启动单元已结束（${state.detail}）。请查看启动日志后重试：journalctl -u '${unitName}'`)
+    else await failInterruptedSystemUpdateTask(task.id, task.startedAt, `更新进程已中断且没有完成记录（${state.detail}）。请核对当前版本及保留备份后恢复；本记录不代表已完成回滚。`)
+    return await getSystemUpdateTask(task.id) || task
+  }
+  return task
+}
+
+async function reconcileUnclaimedUpdates() {
+  await failStaleSystemUpdateTasks()
+  const tasks = await listSystemUpdateTasks(30)
+  for (const task of tasks) if (['pending', 'running'].includes(task.status)) await reconcileUnclaimedUpdate(task)
 }
 
 function spawnUpdater(scriptName: string, args: string[], logPath: string): void {
@@ -173,7 +194,8 @@ export default async function systemUpdateRoutes(fastify: FastifyInstance) {
 
   fastify.get('/tasks', {
     onRequest: [fastify.authenticateAdmin]
-  }, async (_request: FastifyRequest) => {
+  }, async (request: FastifyRequest) => {
+    if (await canManageSystemUpdates(getRequestUser(request))) await reconcileUnclaimedUpdates()
     const tasks = await listSystemUpdateTasks(30)
     return { tasks: tasks.map(serializeSystemUpdateTask) }
   })
@@ -183,8 +205,9 @@ export default async function systemUpdateRoutes(fastify: FastifyInstance) {
   }, async (request: FastifyRequest<{ Params: TaskParams }>, reply: FastifyReply) => {
     const id = parsePositiveId(request.params.id)
     if (!id) return reply.code(400).send({ error: 'Invalid task id', code: 'INVALID_TASK_ID' })
-    const task = await getSystemUpdateTask(id)
+    let task = await getSystemUpdateTask(id)
     if (!task) return reply.code(404).send({ error: 'Task not found', code: 'TASK_NOT_FOUND' })
+    if (await canManageSystemUpdates(getRequestUser(request))) task = await reconcileUnclaimedUpdate(task)
     return { task: serializeSystemUpdateTask(task) }
   })
 
@@ -251,6 +274,7 @@ export default async function systemUpdateRoutes(fastify: FastifyInstance) {
         LogResult.WARNING
       )
     }
+    await reconcileUnclaimedUpdates()
     if (await hasRunningSystemUpdateTask()) {
       return reply.code(409).send({ error: 'Another update task is already running', code: 'UPDATE_TASK_RUNNING' })
     }
@@ -290,13 +314,7 @@ export default async function systemUpdateRoutes(fastify: FastifyInstance) {
 
     const claimed = await waitForTaskClaim(task.id)
     if (claimed && claimed.status === 'pending') {
-      const unitName = `incudal-online-update@${task.id}.service`
-      const detail = await describeUpdateUnitFailure(unitName)
-      await markSystemUpdateTaskFinished(task.id, {
-        status: 'failed',
-        errorMessage: `更新任务未在 ${Math.round(WORKER_CLAIM_TIMEOUT_MS / 1000)} 秒内启动（${detail}）。常见原因：受保护文件被手工替换后未重新 seal，或 Git 元数据不符。排查命令：journalctl -u '${unitName}'`,
-        backupPath: null
-      })
+      await reconcileUnclaimedUpdate(claimed)
     }
     const finalTask = await getSystemUpdateTask(task.id)
     return reply.code(202).send({ task: serializeSystemUpdateTask(finalTask ?? { ...task, logPath }) })
@@ -311,6 +329,7 @@ export default async function systemUpdateRoutes(fastify: FastifyInstance) {
     const task = await getSystemUpdateTask(id)
     if (!task) return reply.code(404).send({ error: 'Task not found', code: 'TASK_NOT_FOUND' })
     if (!task.backupPath) return reply.code(400).send({ error: 'Task has no backup path', code: 'BACKUP_MISSING' })
+    await reconcileUnclaimedUpdates()
     if (await hasRunningSystemUpdateTask()) {
       return reply.code(409).send({ error: 'Another update task is already running', code: 'UPDATE_TASK_RUNNING' })
     }

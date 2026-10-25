@@ -25,3 +25,10 @@ export async function ensureSystemUpdateEnvironmentDefaults(path: string): Promi
   // to the production gate, never silently overridden.
   if (!current) await writeFile(path, `${source.replace(/\n?$/, '\n')}PAYMENT_CALLBACK_SKIP_IP_WHITELIST=false\n`)
 }
+
+export async function backupSystemUpdateApplication(source: string, destination: string): Promise<void> {
+  const root = resolve(source)
+  const disposable = new Set(['.incudal-update-downloads', '.npm', '.cache', 'update-logs'])
+  await cp(root, destination, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true,
+    filter: path => dirname(resolve(path)) !== root || !disposable.has(basename(path)) })
+}

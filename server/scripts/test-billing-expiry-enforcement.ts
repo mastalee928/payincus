@@ -4,6 +4,7 @@ import Fastify from 'fastify'
 import { withInstanceBillingMutation } from '../src/lib/instance-billing-mutation.js'
 import { enforceExpiredStop, type ExpirySuspension } from '../src/services/billing-expiry-enforcement.js'
 import { registerExpiryEnforcementRoutes } from '../src/routes/billing-expiry-enforcement.js'
+import { expiryHistoryWhere, parseExpiryRunRecord } from '../src/lib/expiry-enforcement-history.js'
 let current: ExpirySuspension | null = { id: 1, hostId: 2, incusId: 'existing-instance', status: 'suspended', suspendReason: 'expired',
   packagePlanId: 3, expiresAt: new Date(Date.now() - 100000), version: 4, suspendedBy: null }
 let remoteStatus = 'Running', stops = 0, offline = true
@@ -43,9 +44,19 @@ app.decorate('authenticateAdmin', async (request, reply) => {
   request.user = { id: 1, username: 'fixture-admin', role: 'admin', sid: request.headers['x-no-session'] ? undefined : 'fixture-session' }
 })
 let starts = 0, runs = 0
-await registerExpiryEnforcementRoutes(app, { status: () => ({ enabled: starts > 0 }), start: () => { starts++; return {} }, run: async () => { runs++ } })
+await registerExpiryEnforcementRoutes(app, { status: () => ({ enabled: starts > 0 }), start: () => { starts++; return {} }, run: async () => { runs++ },
+  logs: async query => { expiryHistoryWhere(query); return { query } } })
 try {
   const headers = { 'x-test-role': 'admin', origin: 'https://admin.example.test', authorization: 'Bearer fixture' }
+  const historyUrl = '/api/admin/billing/expiry-enforcement/logs'
+  assert.equal((await app.inject({ url: historyUrl, headers: { 'x-test-role': 'user' } })).statusCode, 403)
+  for (const query of ['pageSize=51', 'page=0', 'command=id', 'startDate=invalid', 'search=' + 'x'.repeat(257)]) {
+    assert.equal((await app.inject({ url: historyUrl + '?' + query, headers })).statusCode, 400)
+  }
+  assert.equal((await app.inject({ url: historyUrl + '?startDate=2026-10-25T12:00:00Z&endDate=2026-10-25T11:00:00Z', headers })).statusCode, 400)
+  const history = await app.inject({ url: historyUrl + '?username=alice&email=%40example.test&search=' + encodeURIComponent('续费失败'), headers })
+  assert.equal(history.statusCode, 200); assert.equal(history.headers['cache-control'], 'no-store')
+  assert.deepEqual(history.json().query, { username: 'alice', email: '@example.test', search: '续费失败' })
   for (const action of ['start', 'run']) {
     const url = '/api/admin/billing/expiry-enforcement/' + action
     assert.equal((await app.inject({ method: 'POST', url, headers: { ...headers, 'x-test-role': 'user' }, payload: {} })).statusCode, 403)
@@ -58,6 +69,14 @@ try {
   assert.deepEqual([starts, runs], [1, 1])
 } finally { await app.close(); if (oldOrigin === undefined) delete process.env.ADMIN_FRONTEND_URL; else process.env.ADMIN_FRONTEND_URL = oldOrigin }
 const scheduler = await readFile(new URL('../src/services/billing-scheduler.ts', import.meta.url), 'utf8')
+assert.ok(scheduler.includes('await persist(null)') && scheduler.includes('await persist(expiryLastFinishedAt)'), 'each run must persist start and completion, including empty runs')
+assert.ok(scheduler.includes('latestExpiryRunRecord()') && scheduler.includes('EXPIRY_RUN_INTERRUPTED'), 'restart must retain previous history and identify missing completion')
+assert.ok(scheduler.includes("stopPending ? 'warning' : 'success'"), 'an unverified remote stop must not be logged as successful')
+const runRecord = { schemaVersion: 1 as const, runId: '11111111-1111-4111-8111-111111111111', startedAt: '2026-10-25T10:00:00Z', finishedAt: '2026-10-25T10:01:00Z', failureCount: 0, lastError: null }
+assert.deepEqual(parseExpiryRunRecord(JSON.stringify(runRecord)), runRecord)
+for (const patch of [{ token: 'not-returned' }, { failureCount: -1 }, { lastError: 'arbitrary private output' }, { runId: '-'.repeat(36) }, { finishedAt: 'invalid' }]) {
+  assert.equal(parseExpiryRunRecord(JSON.stringify({ ...runRecord, ...patch })), null)
+}
 assert.ok(scheduler.includes("schedule('*/5 * * * *'") && scheduler.includes('expiryEnforcementRunning'))
 assert.ok(scheduler.includes("status: 'suspended', suspendReason: 'expired'") && scheduler.includes('enforceExpiredStop'))
 assert.ok(scheduler.includes('resumingCleanup') && scheduler.includes('deletionBillingPending: true'))
