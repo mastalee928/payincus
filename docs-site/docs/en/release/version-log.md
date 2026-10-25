@@ -8,24 +8,39 @@ This page is generated from Git tags and commits to show system version history.
 
 ## Latest Release State / 最新发布状态
 
-- Latest Release Commit / 最新发布提交: `8eb306e2a`
+- Latest Release Commit / 最新发布提交: `a208d480a`
 - Commit date / 提交日期: 2026-10-25
-- Commit subject / 提交说明: fix: wait for normal backend startup before releasing recovery protection
-- Latest tag / 最新 tag: `v1.7.2`
+- Commit subject / 提交说明: fix: refresh unprovisioned host identity on retry
+- Latest tag / 最新 tag: `v1.7.4`
 
 ## Unreleased Changes / 未发布变更
 
-### Fixes and Stability / 修复与稳定性
-
-- fix: preserve trusted OTA rollback and legacy controller state `e40f3acfd`
-
-### Other Changes / 其他变更
-
-- docs: require every project conversation to read owner requirements first `ed4e06017`
-- docs: finalize v1.7.2 release evidence and recovery operations `315730eb1`
-- docs: record final recovery acceptance and DD restore steps `61c109e66`
+- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
 
 ## Historical Versions / 历史版本
+
+## v1.7.4
+
+- Release commit / 发布提交: `a208d480a`
+- Commit date / 提交日期: 2026-10-25
+- Commit subject / 提交说明: fix: refresh unprovisioned host identity on retry
+
+未接入的新宿主重装系统后，普通重试重新核验当前身份，继续使用 root 密码；原身份保留审计，已建立的管理连接保持。
+每五分钟巡检保存开始和完成日志，提供最近90天的时间、用户名、邮箱与中文描述关键词组合搜索。
+完整发行包OTA验证并使用包内依赖及Prisma主入口；等待真实启动状态，替换前停止唯一后端，超时子进程停止后才回滚，原子目录执行跟随current。
+
+## v1.7.3
+
+- Release commit / 发布提交: `9b4110dfb`
+- Commit date / 提交日期: 2026-10-25
+- Commit subject / 提交说明: fix: configure the local controller gateway without SSH credentials
+
+主控兼网关直接在后台检查并确认配置，无需填写本机 SSH 地址、密码、端口或管理网段。
+固定网关域名保存一次并自动同步已有宿主，保留逐台进度、失败原因和重试；地址池自动扩容，单网关可接入 4093 台宿主。
+为外部独立网关和备用/备份网关保留独立入口，当前显示预留状态。
+修复旧安装升级的空私有目录权限、回滚软链接和备份文件复制，以及安全配置缺省兼容。
+
+恢复前须准备原宿主自动更新及完整 OSS 备份；B 恢复原管理身份后，在恢复保护内核对账目和实际宿主连接。真实公网 DNS 切换及 A 整机失联由管理员另行验收。
 
 ## v1.7.2
 
