@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, watch, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -169,6 +169,30 @@ const deletingMode = ref<'database' | 'full' | null>(null)
 const isSyncing = ref(false)
 const showDeleteModal = ref(false)
 const deleteReason = ref('')
+const deleteRefund = ref(false)
+const deletePreviewError = ref('')
+const deleteRequestError = ref('')
+let deletePreviewSequence = 0
+const deleteDialog = ref<HTMLElement | null>(null)
+let deleteReturnFocus: HTMLElement | null = null
+watch(showDeleteModal, async (open) => {
+  if (open) {
+    deleteReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    await nextTick()
+    deleteDialog.value?.querySelector<HTMLButtonElement>('button')?.focus()
+  } else { deletePreviewSequence++; if (deleteReturnFocus?.isConnected) deleteReturnFocus.focus() }
+})
+function handleDeleteDialogKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); if (!isDeleting.value) showDeleteModal.value = false; return }
+  if (event.key !== 'Tab' || !deleteDialog.value) return
+  const controls = [...deleteDialog.value.querySelectorAll<HTMLElement>('button, input, textarea, [tabindex="0"]')]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const target = event.shiftKey ? controls.at(-1) : controls[0]
+  if (!controls.length || (event.shiftKey ? document.activeElement === controls[0] : document.activeElement === controls.at(-1))) {
+    event.preventDefault(); target?.focus()
+  }
+}
+const deleteFailures = ref<Array<{ id: number; name: string; error?: string }>>([])
 const deleteSelectionOverride = ref<number[] | null>(null)
 
 // 删除预览相关（退款信息）
@@ -384,35 +408,48 @@ function openSingleDeleteModal(instanceId: number): void {
 async function openBatchDeleteModal() {
   if (effectiveDeleteSelection.value.length === 0) return
   deleteReason.value = ''
+  deleteRefund.value = authStore.user?.role !== 'admin'
+  deletePreviewError.value = ''
+  deleteRequestError.value = ''
+  deleteFailures.value = []
   deletePreview.value = null
   showDeleteModal.value = true
-  
-  // 调用预览 API 获取退款信息
+  await loadDeletePreview()
+}
+
+async function loadDeletePreview() {
+  const sequence = ++deletePreviewSequence
+  const ids = [...effectiveDeleteSelection.value]
+  const selection = ids.join(',')
   deletePreviewLoading.value = true
+  deletePreview.value = null
+  deletePreviewError.value = ''
   try {
     const preview = await api.hosts.batchDeleteInstancesPreview(
       props.hostId,
-      effectiveDeleteSelection.value
+      ids
     )
-    deletePreview.value = preview
+    if (sequence === deletePreviewSequence && showDeleteModal.value && effectiveDeleteSelection.value.join(',') === selection) deletePreview.value = preview
   } catch (err: any) {
-    console.error('Failed to load delete preview:', err)
+    if (sequence === deletePreviewSequence && showDeleteModal.value && effectiveDeleteSelection.value.join(',') === selection) deletePreviewError.value = translateError(err)
   } finally {
-    deletePreviewLoading.value = false
+    if (sequence === deletePreviewSequence) deletePreviewLoading.value = false
   }
 }
 
 async function confirmBatchDelete(databaseOnly: boolean = false) {
-  if (effectiveDeleteSelection.value.length === 0) return
+  if (isDeleting.value || effectiveDeleteSelection.value.length === 0 || (deleteRefund.value && (!deletePreview.value || deletePreviewLoading.value))) return
   
   isDeleting.value = true
+  deleteRequestError.value = ''
   deletingMode.value = databaseOnly ? 'database' : 'full'
   try {
     const result = await api.hosts.batchDeleteInstances(
       props.hostId,
       effectiveDeleteSelection.value,
       deleteReason.value.trim() || undefined,
-      databaseOnly
+      databaseOnly,
+      deleteRefund.value
     )
     
     if (result.failedCount > 0) {
@@ -424,13 +461,15 @@ async function confirmBatchDelete(databaseOnly: boolean = false) {
       toast.success(t('admin.hosts.batchDeleteSuccess', { count: result.successCount }))
     }
     
-    selectedIds.value.clear()
-    deleteSelectionOverride.value = null
-    deleteReason.value = ''
-    showDeleteModal.value = false
+    deleteFailures.value = result.results.filter(item => !item.success)
+    selectedIds.value = new Set(deleteFailures.value.map(item => item.id))
+    deleteSelectionOverride.value = deleteFailures.value.length ? deleteFailures.value.map(item => item.id) : null
+    if (!deleteFailures.value.length) { deleteReason.value = ''; showDeleteModal.value = false }
+    else await loadDeletePreview()
     await loadInstances()
   } catch (err: any) {
-    toast.error(t('admin.hosts.batchDeleteFailed') + ': ' + (err?.message || String(err)))
+    deleteRequestError.value = translateError(err)
+    toast.error(t('admin.hosts.batchDeleteFailed') + ': ' + deleteRequestError.value)
   } finally {
     isDeleting.value = false
     deletingMode.value = null
@@ -1596,11 +1635,11 @@ function goToInstance(id: number) {
       <Teleport to="body">
         <Transition name="modal">
           <div v-if="showDeleteModal" class="modal-overlay">
-            <div class="modal-backdrop" @click="showDeleteModal = false"></div>
-            <div class="modal-content max-w-md">
+            <div class="modal-backdrop" @click="!isDeleting && (showDeleteModal = false)"></div>
+            <div ref="deleteDialog" class="modal-content max-w-md" role="dialog" aria-modal="true" aria-labelledby="host-delete-heading" @keydown="handleDeleteDialogKey">
               <div class="modal-header">
-                <h3 class="modal-title text-error">{{ t('admin.hosts.batchDeleteTitle') }}</h3>
-                <button class="text-themed-muted hover:text-themed" @click="showDeleteModal = false">
+                <h3 id="host-delete-heading" class="modal-title text-error">{{ t('admin.hosts.batchDeleteTitle') }}</h3>
+                <button type="button" :aria-label="t('common.close')" :disabled="isDeleting" class="text-themed-muted hover:text-themed" @click="showDeleteModal = false">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -1614,6 +1653,25 @@ function goToInstance(id: number) {
                   {{ t('admin.hosts.batchDeleteConfirm', { count: effectiveDeleteCount }) }}
                 </p>
                   
+                <div class="space-y-2 text-sm text-themed-secondary">
+                  <p>{{ t('admin.hosts.fullDeleteHint') }}</p>
+                  <p>{{ t('admin.hosts.databaseOnlyDeleteHint') }}</p>
+                </div>
+                <fieldset v-if="authStore.user?.role === 'admin'" class="space-y-2" :disabled="isDeleting">
+                  <legend class="text-sm font-medium text-themed mb-2">{{ t('admin.hosts.refundHandling') }}</legend>
+                  <div class="flex flex-wrap gap-x-5 gap-y-2">
+                    <label class="flex min-h-11 items-center gap-2 text-sm text-themed cursor-pointer"><input v-model="deleteRefund" type="radio" :value="false" name="delete-refund" />{{ t('admin.hosts.deleteWithoutRefund') }}</label>
+                    <label class="flex min-h-11 items-center gap-2 text-sm text-themed cursor-pointer"><input v-model="deleteRefund" type="radio" :value="true" name="delete-refund" />{{ t('admin.hosts.deleteWithRefund') }}</label>
+                  </div>
+                </fieldset>
+                <div v-if="deletePreviewError && deleteRefund" role="alert" class="space-y-2 text-sm text-error">
+                  <p>{{ deletePreviewError }}</p>
+                  <button type="button" class="btn-secondary" :disabled="isDeleting || deletePreviewLoading" @click="loadDeletePreview">{{ t('common.retry') }}</button>
+                </div>
+                <p v-if="deleteRequestError" role="alert" class="text-sm text-error break-words">{{ deleteRequestError }}</p>
+                <ul v-if="deleteFailures.length" role="alert" class="space-y-2 text-sm text-error">
+                  <li v-for="item in deleteFailures" :key="item.id" class="break-words">{{ item.name }} · {{ item.error }}</li>
+                </ul>
                 <!-- 退款提示区域 -->
                 <div v-if="deletePreviewLoading" class="flex items-center justify-center py-4">
                   <svg class="w-5 h-5 animate-spin text-themed-muted" fill="none" viewBox="0 0 24 24">
@@ -1622,7 +1680,7 @@ function goToInstance(id: number) {
                   </svg>
                   <span class="ml-2 text-sm text-themed-muted">{{ t('common.loading') }}</span>
                 </div>
-                <div v-else-if="deletePreview && deletePreview.totalRefundAmount > 0" class="space-y-3">
+                <div v-else-if="deleteRefund && deletePreview && deletePreview.totalRefundAmount > 0" class="space-y-3">
                   <!-- 退款警告 -->
                   <div class="p-3 rounded-lg" :class="themeStore.isDark ? 'bg-orange-500/10' : 'bg-orange-50'">
                     <p class="text-sm text-orange-600 dark:text-orange-400">
@@ -1660,6 +1718,7 @@ function goToInstance(id: number) {
                   <label class="block text-sm font-medium text-themed-secondary mb-1">{{ t('admin.hosts.deleteReason') }}</label>
                   <textarea
                     v-model="deleteReason"
+                    :disabled="isDeleting"
                     rows="3"
                     maxlength="500"
                     :placeholder="t('admin.hosts.deleteReasonPlaceholder')"
@@ -1674,7 +1733,7 @@ function goToInstance(id: number) {
                 </button>
                 <button
                   class="btn-warning"
-                  :disabled="isDeleting"
+                  :disabled="isDeleting || (deleteRefund && (!deletePreview || deletePreviewLoading))"
                   @click="confirmBatchDelete(true)"
                 >
                   <svg v-if="deletingMode === 'database'" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -1685,7 +1744,7 @@ function goToInstance(id: number) {
                 </button>
                 <button
                   class="btn-danger"
-                  :disabled="isDeleting"
+                  :disabled="isDeleting || (deleteRefund && (!deletePreview || deletePreviewLoading))"
                   @click="confirmBatchDelete(false)"
                 >
                   <svg v-if="deletingMode === 'full'" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">

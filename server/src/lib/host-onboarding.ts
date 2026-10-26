@@ -23,6 +23,7 @@ export interface OnboardingResourceInput {
 
 export interface OnboardingDefaults extends OnboardingResourceInput {
   countryCode: string
+  portProtocol?: 'tcp' | 'tcp_udp'
   machineGroup?: string
   regionGroup?: string
   machineGroupId?: number | null
@@ -158,6 +159,7 @@ export function validateOnboardingInput(input: unknown): asserts input is Onboar
   if (!Array.isArray(input.nodes) || input.nodes.length < 1 || input.nodes.length > 50) throw new OnboardingError('BATCH_SIZE_INVALID')
   const defaults = input.defaults
   if (!isRecord(defaults) || typeof defaults.countryCode !== 'string' || !/^[a-z]{2}$/.test(defaults.countryCode) ||
+      (defaults.portProtocol !== undefined && !['tcp', 'tcp_udp'].includes(String(defaults.portProtocol))) ||
       (defaults.storageSize !== undefined && !boundedInteger(defaults.storageSize, 10, 10000)) ||
       (defaults.cpuAllowanceMax !== undefined && !boundedInteger(defaults.cpuAllowanceMax, 1, 100000)) ||
       (defaults.memoryMax !== undefined && !boundedInteger(defaults.memoryMax, 256, 1048576))) throw new OnboardingError('BATCH_DEFAULTS_INVALID')

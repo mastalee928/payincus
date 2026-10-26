@@ -8,7 +8,7 @@ import { ociMachineShape } from '../../client/src/utils/poolCatalog.js'
 import { groupByContinent } from '../../client/src/utils/countryContinent.js'
 import { inspectRecoveryBatch, recoverRecoveryBatch, type RecoveryBatchItem } from '../../client/src/utils/hostRecoveryBatch.js'
 import { hostLiveStatus } from '../src/lib/host-live-status.js'
-import { refreshUnprovisionedSshIdentity, OnboardingError } from '../src/lib/host-onboarding.js'
+import { refreshUnprovisionedSshIdentity, OnboardingError, validateOnboardingInput } from '../src/lib/host-onboarding.js'
 import { connectOnboardingSsh } from '../src/services/onboarding-ssh.js'
 import { generateKeyPairSync } from 'node:crypto'
 import ssh2 from 'ssh2'
@@ -79,6 +79,10 @@ assert.match(tunnel.gatewayCommand!, /gateway\.example\.com/)
 
 const probe = { architecture: 'x86_64' as const, cpuCount: 2, memoryMiB: 1024, diskTotalBytes: String(60n * 1073741824n), diskAvailableBytes: String(50n * 1073741824n), diskSwapMiB: 0 }
 const defaults = { countryCode: 'us', resourcePreset: 'E2' as const, customerDiskGiB: 30 }
+const onboardingInput = { requestId: '11111111-1111-4111-8111-111111111111', name: 'protocol-fixture', accountLabel: '',
+  defaults, credentials: { password: 'fixture-only' }, nodes: [{ name: 'protocol-host', publicIp: '8.8.8.8' }] }
+for (const portProtocol of [undefined, 'tcp', 'tcp_udp']) validateOnboardingInput({ ...onboardingInput, defaults: { ...defaults, portProtocol } })
+assert.throws(() => validateOnboardingInput({ ...onboardingInput, defaults: { ...defaults, portProtocol: 'udp' } }), /BATCH_DEFAULTS_INVALID/)
 assert.equal(resolveHostResources(probe, defaults).memoryMax, 768)
 assert.throws(() => resolveHostResources({ ...probe, cpuCount: 1 }, defaults), /RESOURCE_CPU_INSUFFICIENT/)
 assert.throws(() => resolveHostResources({ ...probe, memoryMiB: 800 }, defaults), /RESOURCE_MEMORY_INSUFFICIENT/)

@@ -20,12 +20,20 @@ export async function compensateFailedInstancePurchase(
         id: true,
         name: true,
         userId: true,
-        hostId: true
+        hostId: true,
+        status: true
       }
     })
 
     if (!instance || instance.userId !== userId || instance.hostId !== hostId) {
       return { refunded: false, refundAmount: 0, reason: 'instance_not_found_or_mismatch' }
+    }
+
+    // Destroy claims the instance before remote I/O, then settles its remaining
+    // refund under this same balance lock. A late provision callback must not
+    // refund or reverse commissions after that claim.
+    if (instance.status === 'deleted') {
+      return { refunded: false, refundAmount: 0, reason: 'instance_deleted' }
     }
 
     const purchaseRecord = await tx.instanceBillingRecord.findFirst({

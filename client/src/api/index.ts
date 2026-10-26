@@ -1270,13 +1270,13 @@ poolOrder: (data: {
       totalRefundAmount: number
     }> => http.post(`/hosts/${hostId}/instances/batch-delete-preview`, { instanceIds }),
     // 批量删除实例
-    batchDeleteInstances: (hostId: number, instanceIds: number[], reason?: string, databaseOnly?: boolean): Promise<{
+    batchDeleteInstances: (hostId: number, instanceIds: number[], reason?: string, databaseOnly?: boolean, refund?: boolean): Promise<{
       message: string
       results: Array<{ id: number; name: string; success: boolean; error?: string; refundAmount?: number }>
       successCount: number
       failedCount: number
       totalRefundAmount: number
-    }> => http.delete(`/hosts/${hostId}/instances/batch`, { data: { instanceIds, reason, databaseOnly }, timeout: TIMEOUT.BATCH }),
+    }> => http.delete(`/hosts/${hostId}/instances/batch`, { data: { instanceIds, reason, databaseOnly, refund }, timeout: TIMEOUT.BATCH }),
     // 批量赠送时长
     giftDays: (hostId: number, instanceIds: number[], days: number): Promise<{
       message: string
@@ -2921,7 +2921,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
     }> => http.post(`/instances/${instanceId}/change-plan`, { newPlanId }),
 
     // 获取销毁预览信息
-    getDestroyInfo: (instanceId: number): Promise<{
+    getDestroyInfo: (instanceId: number, options?: { feeWaiver?: string }): Promise<{
       canDestroy: boolean
       cannotDestroyReason: string
       isFreeInstance: boolean
@@ -2943,7 +2943,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
         hostName: string
         planName: string | null
       }
-    }> => http.get(`/instances/${instanceId}/destroy-info`),
+    }> => http.get(`/instances/${instanceId}/destroy-info${options?.feeWaiver ? `?feeWaiver=${encodeURIComponent(options.feeWaiver)}` : ''}`),
 
     // 执行销毁
     destroyInstance: (instanceId: number, options?: { feeWaiver?: string }): Promise<{

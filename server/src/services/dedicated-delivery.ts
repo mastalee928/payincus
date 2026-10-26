@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto'
-import { Client } from 'ssh2'
 import { prisma } from '../db/prisma.js'
 import { decryptSensitiveData } from '../lib/security.js'
 import { ensureDedicatedForward } from '../lib/incus/dedicated-network.js'
@@ -8,49 +6,38 @@ import type { IncusClient } from '../lib/incus/incus-client.js'
 import { portProtocolSelect, portProtocolView, PORT_PROTOCOL_CAPABILITY } from './host-port-protocol.js'
 import { prepareDedicatedIpv6Delivery } from './host-public-ipv6-sync.js'
 import type { Prisma } from '@prisma/client'
+import { checkSshLogin, DedicatedSshVerificationError } from '../lib/dedicated-ssh.js'
+export { checkSshLogin } from '../lib/dedicated-ssh.js'
 
 export const DEDICATED_BANDWIDTH = '100000Mbit'
 
-export function checkSshLogin(host: string, password: string, fingerprint: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const client = new Client()
-    let finished = false
-    const finish = (error?: Error) => {
-      if (finished) return
-      finished = true
-      clearTimeout(timer)
-      client.end()
-      error ? reject(error) : resolve()
-    }
-    const timer = setTimeout(() => finish(new Error('SSH connection timed out')), 12000)
-    client.once('error', () => finish(new Error('Public SSH login failed')))
-    client.once('ready', () => client.exec('id -u', (error, stream) => {
-      if (error) return finish(new Error('SSH verification command failed'))
-      let output = ''
-      stream.on('data', (data: Buffer) => { output += data.toString() })
-      stream.on('close', (code: number) => finish(code === 0 && output.trim() === '0' ? undefined : new Error('SSH user verification failed')))
-    }))
-    client.connect({ host, port: 22, username: 'root', password, readyTimeout: 10000,
-      hostVerifier: (key: Buffer) => `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}` === fingerprint })
-  })
-}
-
 /** Verify the credentials shown to the customer, with the host key read over pinned Incus TLS. */
 export async function verifyDedicatedSsh(client: IncusClient, name: string, publicIp: string, password: string): Promise<void> {
+  let lastFailure = new DedicatedSshVerificationError('identityUnavailable')
   for (let attempt = 0; attempt < 24; attempt++) {
     try {
       const result = await execWithOutput(client, name, ['sh', '-c',
-        'for key in /etc/ssh/ssh_host_ed25519_key.pub /etc/ssh/ssh_host_rsa_key.pub; do [ ! -f "$key" ] || ssh-keygen -lf "$key" -E sha256; done'], {}, 15000)
+        'for key in /etc/ssh/ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ecdsa_key.pub /etc/ssh/ssh_host_rsa_key.pub; do [ ! -f "$key" ] || ssh-keygen -lf "$key" -E sha256; done; /usr/sbin/sshd -T 2>/dev/null | grep "^passwordauthentication " || true'], {}, 15000)
       const fingerprints = result.stdout.match(/SHA256:[A-Za-z0-9+/]+/g) || []
-      if (fingerprints.length) {
-        // ssh2 prefers ed25519 when available; pin exactly that public host key.
-        await checkSshLogin(publicIp, password, fingerprints[0]!)
+      if (!fingerprints.length) throw new DedicatedSshVerificationError('identityUnavailable')
+      try {
+        // Pin all keys read through authenticated Incus, including older images
+        // whose negotiated key is ECDSA/RSA rather than Ed25519.
+        await checkSshLogin(publicIp, password, fingerprints)
         return
+      } catch (error) {
+        if (error instanceof DedicatedSshVerificationError && error.reason === 'authentication' &&
+            /^passwordauthentication no$/m.test(result.stdout)) throw new DedicatedSshVerificationError('passwordDisabled')
+        throw error
       }
-    } catch { /* SSH and cloud-init may not be ready on the first attempt. */ }
+    } catch (error) {
+      // SSH/cloud-init may still be starting. Retain only controlled reasons,
+      // never raw SSH errors, credentials or guest command output.
+      lastFailure = error instanceof DedicatedSshVerificationError ? error : new DedicatedSshVerificationError('inspection')
+    }
     await new Promise(resolve => setTimeout(resolve, 3000))
   }
-  throw new Error('公网 SSH 验证失败，实例尚未交付')
+  throw new Error(`公网 SSH 验证失败，实例尚未交付：${lastFailure.message}`)
 }
 
 export async function prepareDedicatedDelivery(client: IncusClient, instanceId: number, options?: {

@@ -34,7 +34,7 @@ const error = ref<string>('')
 
 // 续费选项
 const renewOptions = computed<RenewPreview[]>(() => {
-  return billingInfo.value?.renewPreview || []
+  return billingInfo.value?.renewPreview?.filter(option => option.months === 1) || []
 })
 
 // 选中的续费方案
@@ -228,7 +228,7 @@ function handleClose() {
                 >
                   {{ t('billing.selectRenewPeriod') }}
                 </label>
-                <div class="grid grid-cols-3 gap-2">
+                <div class="grid grid-cols-1 gap-2">
                   <button
                     v-for="option in renewOptions"
                     :key="option.months"

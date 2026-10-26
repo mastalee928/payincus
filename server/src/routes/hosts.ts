@@ -53,6 +53,7 @@ import {
 } from '../lib/network-modes.js'
 import { issueHostAgentInstallToken } from '../lib/host-agent-credentials.js'
 import { hostLiveStatus } from '../lib/host-live-status.js'
+import { HOST_OCCUPIED_INSTANCE_WHERE } from '../lib/host-resource-usage.js'
 import {
   persistResolvedInstanceNetworkAddresses,
   resolveInstanceNetworkAddresses
@@ -264,7 +265,7 @@ async function claimHostBatchInstanceForDelete(instanceId: number, currentStatus
         id: instanceId,
         status: currentStatus
       },
-      data: { status: 'deleted' }
+      data: { status: 'deleted', deletionBillingPending: true }
     })
 
     return result.count === 1
@@ -353,7 +354,24 @@ async function restoreHostBatchDeleteClaim(instanceId: number, originalStatus: I
       id: instanceId,
       status: 'deleted'
     },
-    data: { status: originalStatus }
+    data: { status: originalStatus, deletionBillingPending: false }
+  })
+}
+
+async function finalizeHostBatchDelete(instanceId: number, hostId: number, databaseOnly: boolean): Promise<void> {
+  await prisma.$transaction(async tx => {
+    await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
+    await tx.instance.update({ where: { id: instanceId }, data: { status: 'deleted', deletionBillingPending: false } })
+    const where = { hostId, ...HOST_OCCUPIED_INSTANCE_WHERE }
+    const resources = await tx.instance.aggregate({ where, _sum: { cpu: true, memory: true, disk: true } })
+    const ports = await tx.portMapping.count({ where: { instance: where } })
+    await tx.host.update({ where: { id: hostId }, data: {
+      cpuUsed: resources._sum.cpu || 0, memoryUsed: resources._sum.memory || 0, diskUsed: resources._sum.disk || 0,
+      natPortsUsedCount: ports,
+      // The remote instance still exists after record-only removal; it cannot be sold again.
+      ...(databaseOnly ? { poolFaulted: true } : {})
+    } })
   })
 }
 
@@ -366,12 +384,12 @@ async function deleteIncusInstanceForHostBatch(
   instance: { incusId: string; status: string },
   logger: { warn: (...args: any[]) => void }
 ): Promise<void> {
-  if (instance.status === 'running') {
-    try {
-      await operations.stopInstance(client, instance.incusId, true)
-    } catch (err) {
-      logger.warn(err, '停止实例失败，继续尝试删除')
-    }
+  // A failed creation can leave a Running guest behind an error DB record.
+  // stopInstance checks the remote state, including its stopped no-op.
+  try {
+    await operations.stopInstance(client, instance.incusId, true)
+  } catch (err) {
+    logger.warn(err, '停止实例失败，继续尝试删除')
   }
 
   await operations.deleteInstance(client, instance.incusId)
@@ -2876,7 +2894,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
   // 批量删除宿主机上的实例（管理员或节点所有者）
   fastify.delete<{
     Params: { id: string }
-    Body: { instanceIds: number[]; reason?: string; databaseOnly?: boolean }
+    Body: { instanceIds: number[]; reason?: string; databaseOnly?: boolean; refund?: boolean }
   }>('/:id/instances/batch', {
     onRequest: [fastify.authenticate],
     schema: {
@@ -2891,14 +2909,15 @@ export default async function hostRoutes(fastify: FastifyInstance) {
             maxItems: 100
           },
           reason: { type: 'string', maxLength: 500 },
-          databaseOnly: { type: 'boolean' }
+          databaseOnly: { type: 'boolean' },
+          refund: { type: 'boolean' }
         }
       }
     }
   }, async (request, reply) => {
     const { user } = request
     const { id } = request.params
-    const { instanceIds, reason, databaseOnly } = request.body
+    const { instanceIds, reason, databaseOnly, refund = true } = request.body
     const hostId = parsePositiveRouteId(id)
 
     if (!hostId) {
@@ -2917,6 +2936,10 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     }
 
     // 获取所有实例并验证它们属于该节点
+    // Only administrators may waive a customer's refund. Hosted owners retain the refund requirement.
+    if (refund === false && user.role !== 'admin') {
+      return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+    }
     const instances = await prisma.instance.findMany({
       where: {
         id: { in: instanceIds },
@@ -2960,6 +2983,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       : await import('../lib/incus/incus-backups.js')
 
     for (const instance of instances) {
+      let deleteClaimed = false
+      let deletionFinalized = false
       try {
         // ===== 0. 检查转移锁定、恢复任务和上传任务 =====
         // 注意：批量删除接口只允许宿主机拥有者调用，所以不需要检查套餐限制
@@ -2985,13 +3010,12 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           continue
         }
 
-        if (!databaseOnly) {
-          const claimed = await claimHostBatchInstanceForDelete(instance.id, instance.status as InstanceStatus)
-          if (!claimed) {
-            results.push({ id: instance.id, name: instance.name, success: false, error: '实例正在删除或有正在进行的任务' })
-            continue
-          }
+        const claimed = await claimHostBatchInstanceForDelete(instance.id, instance.status as InstanceStatus)
+        if (!claimed) {
+          results.push({ id: instance.id, name: instance.name, success: false, error: '实例正在删除或有正在进行的任务' })
+          continue
         }
+        deleteClaimed = true
 
         // ===== 1. 删除反代站点（完整删除清 Caddy，DB-only 只清数据库）=====
         const proxySites = await getProxySitesByInstanceId(instance.id)
@@ -3070,13 +3094,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
             await deleteIncusInstanceForHostBatch(client, incusInstanceOperations, instance, fastify.log)
           } catch (incusError) {
             await restoreHostBatchDeleteClaim(instance.id, instance.status as InstanceStatus)
+            deleteClaimed = false
             throw incusError
           }
         }
 
         // ===== 6. 处理退款（节点所有者删除他人的付费实例时）=====
         let refundAmount = 0
-        if (instance.userId !== host.user_id) {
+        if (refund && instance.userId !== host.user_id) {
           // 删除的是他人的实例，检查是否需要退款
           const refundInfo = await db.calculateInstanceRefund({
             id: instance.id,
@@ -3091,7 +3116,15 @@ export default async function hostRoutes(fastify: FastifyInstance) {
 
             // 执行退款事务
             await prisma.$transaction(async (tx) => {
+              await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)
               await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, instance.userId)
+              const previousRefund = await tx.instanceBillingRecord.findFirst({ where: {
+                instanceId: instance.id, type: 'refund', remark: '节点实例删除退款'
+              } })
+              if (previousRefund) { refundAmount = 0; return }
+              const current = await tx.instance.findUniqueOrThrow({ where: { id: instance.id } })
+              refundAmount = (await db.calculateInstanceRefund(current, tx)).refundAmount
+              if (refundAmount <= 0) return
 
               // 获取用户当前余额
               const instanceOwner = await tx.user.findUnique({
@@ -3109,7 +3142,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
               const newBalance = Number(updatedUser.balance)
 
               // 记录余额日志
-              await tx.balanceLog.create({
+              const balanceLog = await tx.balanceLog.create({
                 data: {
                   userId: instance.userId,
                   type: 'refund',
@@ -3120,6 +3153,11 @@ export default async function hostRoutes(fastify: FastifyInstance) {
                   remark: `托管实例被删除退款：${instance.name}`
                 }
               })
+              await tx.instanceBillingRecord.create({ data: {
+                instanceId: instance.id, userId: instance.userId, type: 'refund', amount: refundAmount,
+                months: 0, periodStart: new Date(), periodEnd: current.expiresAt || new Date(),
+                balanceLogId: balanceLog.id, remark: '节点实例删除退款'
+              } })
 
               // 从节点所有者托管余额扣除
               await db.deductHostingBalance(
@@ -3195,18 +3233,9 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           // 忽略转移请求取消错误
         }
 
-        // ===== 8. 更新实例状态为 deleted =====
-        await db.updateInstanceStatus(instance.id, 'deleted')
-
-        // ===== 9. 释放资源配额 =====
-        const portMappingsCount = portMappings?.length || 0
-        await db.rollbackResources({
-          hostId: instance.hostId,
-          cpu: instance.cpu,
-          memory: instance.memory,
-          disk: instance.disk,
-          portCount: portMappingsCount
-        })
+        // ===== 8. 原子完成删除并按当前记录释放资源，重复执行不重复扣减 =====
+        await finalizeHostBatchDelete(instance.id, hostId, databaseOnly === true)
+        deletionFinalized = true
 
         // ===== 10. 发送删除通知给实例所有者 =====
         // 如果提供了删除原因，发送特定通知
@@ -3233,7 +3262,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
             }
           })
         } else {
-          await sendDeleteNotification()
+          await sendDeleteNotification().catch(() => fastify.log.warn(`删除通知发送失败 (#${instance.id})`))
         }
 
         results.push({ id: instance.id, name: instance.name, success: true, refundAmount: refundAmount > 0 ? refundAmount : undefined })
@@ -3246,6 +3275,10 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           'success'
         )
       } catch (err) {
+        if (deleteClaimed && !deletionFinalized) {
+          await prisma.instance.updateMany({ where: { id: instance.id, status: 'deleted', deletionBillingPending: true },
+            data: { status: 'error' } })
+        }
         const errorMessage = err instanceof Error ? err.message : String(err)
         results.push({ id: instance.id, name: instance.name, success: false, error: errorMessage })
         fastify.log.error(`批量删除实例失败 (${instance.name}): ${errorMessage}`)
@@ -3273,32 +3306,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       }).catch(() => {})
     }
 
-    // 重新计算宿主机资源使用量（包括端口）
-    try {
-      const usedResources = await db.calculateHostResourcesFromInstances(hostId)
-      // 重新计算端口映射使用量
-      const actualPortsUsed = await prisma.portMapping.count({
-        where: {
-          instance: {
-            hostId: hostId,
-            status: { not: 'deleted' }
-          }
-        }
-      })
-      await db.updateHostResources(hostId, {
-        cpuUsed: usedResources.cpuUsed,
-        memoryUsed: usedResources.memoryUsed,
-        diskUsed: usedResources.diskUsed
-      })
-      // 更新端口使用量
-      await prisma.host.update({
-        where: { id: hostId },
-        data: { natPortsUsedCount: actualPortsUsed }
-      })
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      fastify.log.error(`更新宿主机资源失败: ${errMsg}`)
-    }
+    // Each successful deletion already recalculates resources under the host row lock.
+    // A second unlocked write here could overwrite a concurrent reservation or free unfinished cleanup.
 
     const successCount = results.filter(r => r.success).length
     const failedCount = results.filter(r => !r.success).length

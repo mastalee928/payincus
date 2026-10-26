@@ -6,16 +6,29 @@
 
 ## 最新发布状态 / Latest Release State
 
-- 最新发布提交 / Latest Release Commit: `a208d480a`
-- 提交日期 / Commit date: 2026-10-25
-- 提交说明 / Commit subject: fix: refresh unprovisioned host identity on retry
-- 最新 tag / Latest tag: `v1.7.4`
+- 最新发布提交 / Latest Release Commit: `eb82a4fec`
+- 提交日期 / Commit date: 2026-10-26
+- 提交说明 / Commit subject: feat: add global map homepage and default mobile globe
+- 最新 tag / Latest tag: `v1.7.5`
 
 ## 未发布变更 / Unreleased Changes
 
-- 该 tag 与相邻 tag 指向同一提交，未产生额外 Git commit。
+### 其他变更 / Other Changes
+
+- docs: record verified v1.7.5 homepage release `92ee90989`
 
 ## 历史版本 / Historical Versions
+
+## v1.7.5
+
+- 发布提交 / Release commit: `eb82a4fec`
+- 提交日期 / Commit date: 2026-10-26
+- 提交说明 / Commit subject: feat: add global map homepage and default mobile globe
+
+全球地图首页与默认手机矢量球体：桌面保留宽幅地图，手机支持拖动旋转、双指缩放、大洲聚焦、密集节点候选和地区卡联动。
+首页导航为产品、解决方案、控制台，复用项目原有三语语言控件及原购买、帮助和登录路径。
+品牌、库存和地区编号读取真实配置与目录，保留地图来源署名；正常选购进入原创建实例流程。
+正式首页去掉本地预览、调试刷新、固定测试站链接和动态开关；动画自动遵循系统减少动态设置。
 
 ## v1.7.4
 

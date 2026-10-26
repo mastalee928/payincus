@@ -375,12 +375,12 @@ async function deleteIncusInstanceForDelete(
   instance: { incus_id: string; status: string },
   logger: { warn: (...args: any[]) => void }
 ): Promise<void> {
-  if (instance.status === 'running') {
-    try {
-      await stopInstance(client, instance.incus_id, true)
-    } catch (err) {
-      logger.warn(err, '停止实例失败，继续尝试删除')
-    }
+  // The database may say error while a failed provision is still Running.
+  // The stop helper reads Incus state and is a no-op for a stopped guest.
+  try {
+    await stopInstance(client, instance.incus_id, true)
+  } catch (err) {
+    logger.warn(err, '停止实例失败，继续尝试删除')
   }
 
   await deleteInstance(client, instance.incus_id)
@@ -3935,7 +3935,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
 
 
-    if (!await requireVerifiedOperation(reply, user.id, 'delete_instance', instanceId)) return
+    if (!isAdmin && !await requireVerifiedOperation(reply, user.id, 'delete_instance', instanceId)) return
 
     try {
       // 复用上面已获取的host
@@ -4096,8 +4096,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
         throw incusError
       }
 
-      // ===== 7. 处理退款（节点所有者/管理员删除他人的付费实例时）=====
-      if (isPrivilegedDeleter && instance.user_id !== user.id) {
+      // ===== 7. 处理退款（节点所有者删除他人的付费实例时；管理员直接删除不退款）=====
+      if (!isAdmin && isHostOwner && instance.user_id !== user.id) {
         const instanceBilling = await prisma.instance.findUnique({
           where: { id: instance.id },
           select: {
@@ -4777,7 +4777,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
                 select: { address: true }
               })
               if (ipv6Alias?.address) explicitBatchIpv6 = ipv6Alias.address
-            } catch { }
+            } catch {
+              // Keep the previously discovered IPv6 bind address when alias lookup is unavailable.
+            }
           }
 
           // == 一切参数交付给隔离后的独立网络策略类以规避共振 ==

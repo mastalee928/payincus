@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import type { GatewayEndpointStatus, GatewayDnsHost } from '@/types/gateway-endpoint'
 const { t, te, locale } = useI18n()
+withDefaults(defineProps<{ manageDomain?: boolean }>(), { manageDomain: true })
 const hostname = ref(''), status = ref<GatewayEndpointStatus | null>(null), hosts = ref<GatewayDnsHost[]>([])
 const loading = ref(true), busy = ref(false), error = ref(''), loadError = ref(''), notice = ref(''), search = ref(''), page = ref(1)
 const saving = ref(false)
@@ -60,14 +61,14 @@ onUnmounted(() => { disposed = true; clearTimeout(timer) })
 </script>
 <template>
   <section class="gateway-domain space-y-5" data-ui :aria-busy="loading || busy">
-    <div><h3 class="text-base font-semibold text-themed">{{ t('gatewayEndpoint.title') }}</h3><p class="mt-1 text-sm text-themed-muted">{{ t('gatewayEndpoint.description') }}</p></div>
-    <form class="flex flex-col gap-3 sm:flex-row sm:items-end" @submit.prevent="save">
+    <div v-if="manageDomain"><h3 class="text-base font-semibold text-themed">{{ t('gatewayEndpoint.title') }}</h3><p class="mt-1 text-sm text-themed-muted">{{ t('gatewayEndpoint.description') }}</p></div>
+    <form v-if="manageDomain" class="flex flex-col gap-3 sm:flex-row sm:items-end" @submit.prevent="save">
       <label class="block flex-1 text-sm text-themed">{{ t('gatewayEndpoint.hostname') }}
         <input v-model="hostname" required maxlength="253" autocomplete="off" class="input mt-2 w-full" aria-describedby="gateway-domain-help gateway-domain-error" :aria-invalid="!!error" />
       </label>
       <button type="submit" class="btn-primary shrink-0" :disabled="loading || busy">{{ t(saving ? 'gatewayEndpoint.saving' : 'gatewayEndpoint.save') }}</button>
     </form>
-    <p id="gateway-domain-help" class="text-xs text-themed-muted">{{ t('gatewayEndpoint.hint') }}</p>
+    <p v-if="manageDomain" id="gateway-domain-help" class="text-xs text-themed-muted">{{ t('gatewayEndpoint.hint') }}</p>
     <p v-if="error" id="gateway-domain-error" role="alert" class="text-sm text-red-700 dark:text-red-300">{{ error }}</p>
     <div v-if="loadError" role="alert" class="flex flex-wrap items-center gap-2 text-sm text-themed-muted"><span>{{ loadError }}</span><button type="button" class="btn-secondary" @click="refresh()">{{ t('gatewayEndpoint.reload') }}</button></div>
     <p v-if="notice" role="status" class="text-sm text-themed">{{ notice }}</p>

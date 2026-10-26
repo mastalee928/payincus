@@ -279,8 +279,14 @@ export async function getPoolOrderResult(userId: number, batchId: string): Promi
   }) }
 }
 
-export async function placePoolOrder(userId: number, username: string, input: PoolOrderInput): Promise<PoolOrderResult> {
-  const requestHash = poolOrderHash(input)
+export interface AdminPoolOrderOptions { actorId: number; billing: 'free' | 'paid'; chargeFirstMonth: boolean }
+
+export async function placePoolOrder(userId: number, username: string, input: PoolOrderInput, adminOptions?: AdminPoolOrderOptions): Promise<PoolOrderResult> {
+  if (adminOptions) {
+    const actor = await prisma.user.findUnique({ where: { id: adminOptions.actorId }, select: { role: true, status: true } })
+    if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw new PoolOrderError(ErrorCode.FORBIDDEN, '管理员权限不足')
+  }
+  const requestHash = adminOptions ? createHash('sha256').update(JSON.stringify({ input: poolOrderHash(input), adminOptions })).digest('hex') : poolOrderHash(input)
   const existingOrder = await prisma.poolOrder.findUnique({ where: { id: input.requestId } })
   if (existingOrder) {
     if (existingOrder.userId !== userId || existingOrder.requestHash !== requestHash) throw new PoolOrderError(ErrorCode.POOL_ORDER_INVALID, '结算请求已用于另一张订单')
@@ -297,7 +303,10 @@ export async function placePoolOrder(userId: number, username: string, input: Po
     sshKey = keyRecord.public_key
   }
 
-  const { items, totalYuan, totalCount } = await prepareOrder(userId, input, sshKey)
+  const { items, totalYuan: quotedTotal, totalCount } = await prepareOrder(userId, input, sshKey)
+  const waiveCharge = adminOptions && (adminOptions.billing === 'free' || !adminOptions.chargeFirstMonth)
+  const totalYuan = waiveCharge ? 0 : quotedTotal
+  const totalCents = Math.round(totalYuan * 100)
   const batchId = input.requestId
   const now = new Date()
 
@@ -305,6 +314,10 @@ export async function placePoolOrder(userId: number, username: string, input: Po
   try {
     created = await prisma.$transaction(async tx => {
       await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, userId)
+      if (adminOptions) {
+        const actor = await tx.user.findUnique({ where: { id: adminOptions.actorId }, select: { role: true, status: true } })
+        if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw new PoolOrderError(ErrorCode.FORBIDDEN, '管理员权限不足')
+      }
       const previous = await tx.poolOrder.findUnique({ where: { id: batchId } })
       if (previous) {
         if (previous.userId !== userId || previous.requestHash !== requestHash) throw new PoolOrderError(ErrorCode.POOL_ORDER_INVALID, '结算请求冲突')
@@ -326,7 +339,7 @@ export async function placePoolOrder(userId: number, username: string, input: Po
         const image = await tx.systemImage.findFirst({ where: { remoteAlias: item.input.image, hidden: false } })
         if (!image) throw new PoolOrderError(ErrorCode.IMAGE_NOT_FOUND, '镜像已下架')
       }
-      await tx.poolOrder.create({ data: { id: batchId, userId, requestHash, totalCents: input.expectedTotal } })
+      await tx.poolOrder.create({ data: { id: batchId, userId, requestHash, totalCents } })
       // 先扣款再预占：预占失败整单回滚时扣款一并撤销；带余额条件的原子更新防止并发下单用旧余额覆盖。
       const walletUpdate = await tx.user.updateMany({
         where: { id: userId, balance: { gte: totalYuan } },
@@ -382,7 +395,7 @@ export async function placePoolOrder(userId: number, username: string, input: Po
               userId,
               hostId: lockedHost.id,
               packageId: item.pkg.id,
-              packagePlanId: item.plan.id,
+              packagePlanId: adminOptions?.billing === 'free' ? null : item.plan.id,
               image: item.input.image,
               cpu: item.plan.cpu,
               memory: item.plan.memory,
@@ -401,7 +414,7 @@ export async function placePoolOrder(userId: number, username: string, input: Po
                 sshPublicKey: sshKey || null,
                 nodeSelectors: [],
                 billingMode: 'package',
-                packagePlanId: item.plan.id,
+                packagePlanId: adminOptions?.billing === 'free' ? null : item.plan.id,
                 poolPriceId: price.id,
                 purchaseBatchId: batchId,
                 createdAt: now.toISOString()
@@ -419,8 +432,8 @@ export async function placePoolOrder(userId: number, username: string, input: Po
               swapSize: item.plan.swapSize,
               limitsIngress: bandwidthLimit,
               limitsEgress: bandwidthLimit,
-              expiresAt: item.billing.expiresAt,
-              billingPrice: item.billing.price,
+              expiresAt: adminOptions?.billing === 'free' ? null : item.billing.expiresAt,
+              billingPrice: adminOptions?.billing === 'free' ? null : item.billing.price,
               billingCycle: item.billing.billingCycle,
               poolPriceId: price.id,
               purchaseBatchId: batchId,
@@ -433,7 +446,7 @@ export async function placePoolOrder(userId: number, username: string, input: Po
               instanceId: instance.id,
               userId,
               type: 'newPurchase',
-              amount: item.billing.totalPrice,
+              amount: waiveCharge ? 0 : item.billing.totalPrice,
               months: item.billing.billingCycle,
               periodStart: now,
               periodEnd: item.billing.expiresAt,
@@ -445,7 +458,7 @@ export async function placePoolOrder(userId: number, username: string, input: Po
             }
           })
 
-          await db.processHostingIncome(lockedHost.id, item.billing.totalPrice, instance.id, 'purchase', tx)
+          if (!waiveCharge) await db.processHostingIncome(lockedHost.id, item.billing.totalPrice, instance.id, 'purchase', tx)
           results.push({ instanceId: instance.id, host: lockedHost, item, planned })
         }
       }
@@ -491,10 +504,10 @@ export async function placePoolOrder(userId: number, username: string, input: Po
   }
 
   await createLog(
-    userId,
+    adminOptions?.actorId ?? userId,
     'instance',
-    'instance.pool_order',
-    `Pool order ${batchId}: ${totalCount} instance(s), ¥${totalYuan.toFixed(2)} by ${username}`,
+    adminOptions ? 'admin.instance.create' : 'instance.pool_order',
+    `Pool order ${batchId}: ${totalCount} instance(s), ¥${totalYuan.toFixed(2)} for ${username}${adminOptions ? ` (${adminOptions.billing}, charge=${!waiveCharge})` : ''}`,
     'success'
   ).catch(() => console.error('[PoolOrder] Audit log unavailable'))
 

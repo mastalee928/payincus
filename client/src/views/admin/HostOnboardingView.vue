@@ -56,7 +56,7 @@ const sshNode = ref<OnboardingNode | null>(null)
 const requestId = ref(crypto.randomUUID())
 const batchName = ref('')
 const accountLabel = ref('')
-const initialDefaults = (): OnboardingDefaults => ({ countryCode: 'us', resourcePreset: null, customerDiskGiB: 30, machineGroupId: null, regionGroupId: null })
+const initialDefaults = (): OnboardingDefaults => ({ countryCode: 'us', portProtocol: 'tcp', resourcePreset: null, customerDiskGiB: 30, machineGroupId: null, regionGroupId: null })
 const defaults = ref<OnboardingDefaults>(initialDefaults())
 const authType = ref<'password' | 'privateKey'>('password')
 const credential = ref('')
@@ -368,7 +368,8 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
                 <label class="text-sm text-themed min-w-0">{{ t('hostInventory.regionGroup') }}<select v-model="defaults.regionGroupId" :disabled="!defaults.machineGroupId" class="input w-full mt-1" @change="regionChanged"><option :value="null">{{ t('hostInventory.regionUnset') }}</option><option v-for="region in regions" :key="region.id" :value="region.id">{{ region.name }}</option></select></label>
               </div>
               <p class="text-xs text-themed-muted">{{ t('onboarding.autoResourceHint') }}</p>
-              <details :open="createMode === 'batch'" class="rounded-lg border border-themed" @invalid.capture="expandOptions">
+              <label class="block text-sm text-themed">{{ t('hostInventory.protocol') }}<select v-model="defaults.portProtocol" class="input w-full mt-1"><option value="tcp">TCP</option><option value="tcp_udp">TCP+UDP</option></select></label>
+              <details open class="rounded-lg border border-themed" @invalid.capture="expandOptions">
                 <summary class="cursor-pointer p-3 text-sm font-medium text-themed">{{ t('onboarding.optionalSettings') }}</summary>
                 <div class="px-3 pb-3 space-y-3">
                   <div v-if="createMode === 'single'" class="grid grid-cols-1 sm:grid-cols-2 gap-3">

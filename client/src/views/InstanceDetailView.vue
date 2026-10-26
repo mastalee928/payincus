@@ -86,7 +86,7 @@ interface CustomerSelfServiceApi {
       message: string
       autoRenew: boolean
     }>
-    getDestroyInfo: (instanceId: number) => Promise<unknown>
+    getDestroyInfo: (instanceId: number, options?: { feeWaiver?: string }) => Promise<unknown>
     destroyInstance: (instanceId: number, options?: { feeWaiver?: string }) => Promise<{
       success: boolean
       message: string
@@ -1357,12 +1357,20 @@ watch(showDestroyModal, async (visible) => {
 
 // 异常实例快速销毁（免手续费）
 async function handleErrorDestroy(): Promise<void> {
-  if (isAdminEntry || !instance.value) return
-  if (!confirm(t('instance.errorBanner.confirmDestroy'))) return
+  if (isAdminEntry || !instance.value || errorDestroyLoading.value) return
   errorDestroyLoading.value = true
   try {
+    const info = await customerSelfServiceApi.billing.getDestroyInfo(instance.value.id, { feeWaiver: 'error' }) as NonNullable<typeof destroyInfo.value>
+    if (!info.canDestroy) {
+      toast.error(info.cannotDestroyReason)
+      return
+    }
+    const confirmation = info.refund.refundAmount > 0
+      ? t('instance.errorBanner.confirmDestroy', { amount: info.refund.refundAmount.toFixed(2) })
+      : t('instance.errorBanner.confirmDestroyNoRefund')
+    if (!confirm(confirmation)) return
     const result = await customerSelfServiceApi.billing.destroyInstance(instance.value.id, { feeWaiver: 'error' })
-    if (result.isFreeInstance) {
+    if (result.isFreeInstance || result.refundAmount <= 0) {
       toast.success(t('instance.destroy.success'))
     } else {
       toast.success(t('instance.destroy.successWithRefund', { amount: result.refundAmount.toFixed(2) }))

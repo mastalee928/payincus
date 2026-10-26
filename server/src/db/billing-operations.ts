@@ -326,8 +326,8 @@ export async function calculateInstanceRefund(instance: {
   billingCycle: number | null
   expiresAt: Date | null
   packagePlanId: number | null
-}): Promise<InstanceRefundResult> {
-  const quote = await calculateInstanceRemainingRefundQuote(instance)
+}, tx?: Prisma.TransactionClient): Promise<InstanceRefundResult> {
+  const quote = await calculateInstanceRemainingRefundQuote(instance, tx)
 
   return {
     remainingDays: quote.remainingDays,

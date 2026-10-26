@@ -16,7 +16,7 @@ export type PublicIpv6State = {
   changedAt: string | null
   error: string | null
 }
-export type DedicatedIpv6Mapping = { publicIp: string; privateIp: string; fallbackIp?: string; ready: boolean; checkedAt?: string | null }
+export type DedicatedIpv6Mapping = { publicIp: string; privateIp: string; fallbackIp?: string; ready: boolean; checkedAt?: string | null; verification?: 'public-ssh' | 'guest-network' }
 export type DedicatedIpv6State = {
   version: 1
   hostId: number
@@ -71,6 +71,7 @@ export function dedicatedIpv6State(value: unknown): DedicatedIpv6State | null {
     publicIpv6(mapping?.publicIp) && privateIpv6(mapping?.privateIp) && (!mapping.fallbackIp || privateIpv6(mapping.fallbackIp)))
     .map(mapping => ({ publicIp: publicIpv6(mapping.publicIp)!, privateIp: privateIpv6(mapping.privateIp)!,
       ...(mapping.fallbackIp ? { fallbackIp: privateIpv6(mapping.fallbackIp)! } : {}), ready: mapping.ready === true,
+      ...(['public-ssh', 'guest-network'].includes(mapping.verification || '') ? { verification: mapping.verification } : {}),
       checkedAt: typeof mapping.checkedAt === 'string' && Number.isFinite(Date.parse(mapping.checkedAt)) ? mapping.checkedAt : null }))
   return { version: 1, hostId: input.hostId!, instanceName: input.instanceName, mappings, configured: input.configured === true || mappings.length > 0,
     primary: publicIpv6(input.primary), status: input.status ?? 'pending', checkedAt: input.checkedAt ?? null, error: input.error ?? null }

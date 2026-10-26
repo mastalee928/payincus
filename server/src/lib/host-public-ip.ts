@@ -73,7 +73,9 @@ export function verifyPublicSshIdentity(host: string, port: number, fingerprints
       error ? reject(error) : resolve()
     }
     const timer = setTimeout(() => finish(new PublicIpSyncError('IP_SSH_UNREACHABLE')), timeoutMs)
-    client.on('error', () => finish(new PublicIpSyncError('IP_SSH_UNREACHABLE')))
+    client.on('error', (error: Error & { code?: string }) => finish(new PublicIpSyncError(
+      publicIpv6(host) && ['ENETUNREACH', 'EAFNOSUPPORT', 'EADDRNOTAVAIL'].includes(error.code || '')
+        ? 'IPV6_CONTROLLER_NO_ROUTE' : 'IP_SSH_UNREACHABLE')))
     client.once('close', () => finish(new PublicIpSyncError('IP_SSH_UNREACHABLE')))
     client.once('handshake', () => finish(matched ? undefined : new PublicIpSyncError('IP_IDENTITY_MISMATCH')))
     try {

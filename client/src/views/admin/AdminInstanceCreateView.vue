@@ -15,6 +15,7 @@ import ImageSelector from '@/components/instance/ImageSelector.vue'
 import type { Package, AvailableHost, PackagePlan } from '@/types/api'
 import { validateName as validateInstanceName } from '@/utils/validation'
 import { translateError } from '@/utils/errorHandler'
+import AdminPoolInstanceCreate from '@/components/host/AdminPoolInstanceCreate.vue'
 
 interface ImageOption {
   value: string
@@ -48,6 +49,8 @@ const targetUser = ref<{ id: number; username: string; balance?: number } | null
 // 实例类型选择：免费/付费
 const instanceType = ref<'free' | 'paid'>('free')
 const packageScope = ref<PackageScope>('official')
+const resourceSource = ref<'pool' | 'package'>('pool')
+let usernameRequestSeq = 0
 
 // 付费方案相关
 const plans = ref<PackagePlan[]>([])
@@ -140,8 +143,6 @@ const canSubmit = computed<boolean>(() => {
 const hostsInsufficient = computed<boolean>(() => {
   return !hostsLoading.value &&
          selectedPackage.value !== undefined &&
-         !!selectedPackage.value.host_ids &&
-         selectedPackage.value.host_ids.length > 0 &&
          availableHosts.value.length === 0
 })
 
@@ -158,6 +159,8 @@ onMounted(async (): Promise<void> => {
 
 // 验证用户名
 async function checkUsername(): Promise<void> {
+  const username = usernameInput.value.trim()
+  const sequence = ++usernameRequestSeq
   if (!usernameInput.value.trim()) {
     usernameValid.value = null
     targetUser.value = null
@@ -167,7 +170,8 @@ async function checkUsername(): Promise<void> {
   usernameChecking.value = true
   try {
     // 使用精确查找接口，按用户名绝对匹配
-    const res = await api.admin.lookupUser(usernameInput.value.trim()) as any
+    const res = await api.admin.lookupUser(username) as any
+    if (sequence !== usernameRequestSeq || usernameInput.value.trim() !== username) return
     usernameValid.value = true
     targetUser.value = { 
       id: res.user.id, 
@@ -175,12 +179,14 @@ async function checkUsername(): Promise<void> {
       balance: res.user.balance ?? 0
     }
   } catch {
+    if (sequence !== usernameRequestSeq) return
     usernameValid.value = false
     targetUser.value = null
   } finally {
-    usernameChecking.value = false
+    if (sequence === usernameRequestSeq) usernameChecking.value = false
   }
 }
+watch(usernameInput, () => { usernameRequestSeq++; usernameValid.value = null; targetUser.value = null; usernameChecking.value = false })
 
 function sortPackagesForCreate(items: Package[]): Package[] {
   return [...items].sort((a, b) => {
@@ -305,14 +311,7 @@ async function selectPackage(pkg: Package): Promise<void> {
 
   isSwitchingPackage.value = false
 
-  if (!pkg.host_ids || pkg.host_ids.length === 0) {
-    availableHosts.value = []
-    availableImages.value = []
-    form.value.image = ''
-    toast.warning(t('instance.createPage.packageNoHosts'))
-  } else {
-    loadAvailableHosts()
-  }
+  void loadAvailableHosts()
 
   previousMemoryIsLow = form.value.memory <= 128
   
@@ -326,14 +325,6 @@ async function loadAvailableHosts(): Promise<void> {
   const planId = instanceType.value === 'paid' ? selectedPlanId.value || null : null
 
   if (!packageId) {
-    availableHosts.value = []
-    form.value.hostId = null
-    hostsLoading.value = false
-    clearImages()
-    return
-  }
-
-  if (!selectedPackage.value?.host_ids || selectedPackage.value.host_ids.length === 0) {
     availableHosts.value = []
     form.value.hostId = null
     hostsLoading.value = false
@@ -586,7 +577,7 @@ async function handleSubmit(): Promise<void> {
 </script>
 
 <template>
-  <div class="kawaii-page max-w-3xl mx-auto space-y-6 animate-fade-in">
+  <div class="admin-instance-create kawaii-page max-w-3xl mx-auto space-y-6 animate-fade-in">
     <div class="page-header">
       <div class="flex items-center gap-3">
         <span class="nimbus-title-icon">
@@ -609,7 +600,7 @@ async function handleSubmit(): Promise<void> {
       {{ $t('common.loading') }}
     </div>
 
-    <form v-else class="space-y-6" @submit.prevent="handleSubmit">
+    <div v-else class="space-y-6">
       <!-- 目标用户 -->
       <section class="card p-6">
         <div class="mb-4 flex items-center gap-2 border-b border-themed pb-4">
@@ -625,7 +616,7 @@ async function handleSubmit(): Promise<void> {
             class="input w-full pr-10"
             :placeholder="$t('admin.instanceCreate.usernamePlaceholder')"
             @blur="checkUsername"
-            @keyup.enter="checkUsername"
+            @keyup.enter.prevent="checkUsername"
           />
           <div v-if="usernameChecking" class="absolute right-3 top-1/2 -translate-y-1/2">
             <svg class="w-5 h-5 animate-spin text-themed-muted" fill="none" viewBox="0 0 24 24">
@@ -655,213 +646,223 @@ async function handleSubmit(): Promise<void> {
         </p>
       </section>
 
-      <!-- 套餐选择 -->
-      <PackageSelector
-        :packages="packages"
-        :selected-package-id="form.packageId"
-        :loading="packagesLoading"
-        @select="selectPackage"
-      >
-        <template #header-actions>
-          <div class="inline-flex rounded-lg p-1" :class="themeStore.isDark ? 'bg-gray-800' : 'bg-gray-100'">
-            <button
-              type="button"
-              class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-              :class="packageScope === 'official'
-                ? (themeStore.isDark ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow-sm')
-                : (themeStore.isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700')"
-              :disabled="packagesLoading"
-              @click="switchPackageScope('official')"
-            >
-              {{ $t('admin.instanceCreate.packageScope.official') }}
-            </button>
-            <button
-              type="button"
-              class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-              :class="packageScope === 'hosted'
-                ? (themeStore.isDark ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow-sm')
-                : (themeStore.isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700')"
-              :disabled="packagesLoading"
-              @click="switchPackageScope('hosted')"
-            >
-              {{ $t('admin.instanceCreate.packageScope.hosted') }}
-            </button>
+      <div class="flex flex-wrap gap-2" role="group" :aria-label="t('admin.instanceCreate.resourceSource')">
+        <button type="button" :class="resourceSource === 'pool' ? 'btn-primary' : 'btn-secondary'" :aria-pressed="resourceSource === 'pool'" @click="resourceSource = 'pool'">{{ t('admin.instanceCreate.poolSource') }}</button>
+        <button type="button" :class="resourceSource === 'package' ? 'btn-primary' : 'btn-secondary'" :aria-pressed="resourceSource === 'package'" @click="resourceSource = 'package'">{{ t('admin.instanceCreate.packageSource') }}</button>
+      </div>
+      <AdminPoolInstanceCreate v-if="resourceSource === 'pool'" :username="targetUser?.username || null" :balance="targetUser?.balance || 0" />
+      <form v-else class="space-y-6" @submit.prevent="handleSubmit">
+        <!-- 套餐选择 -->
+        <PackageSelector
+          :packages="packages"
+          :selected-package-id="form.packageId"
+          :loading="packagesLoading"
+          @select="selectPackage"
+        >
+          <template #header-actions>
+            <div class="inline-flex rounded-lg p-1" :class="themeStore.isDark ? 'bg-gray-800' : 'bg-gray-100'">
+              <button
+                type="button"
+                class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                :class="packageScope === 'official'
+                  ? (themeStore.isDark ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow-sm')
+                  : (themeStore.isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700')"
+                :disabled="packagesLoading"
+                @click="switchPackageScope('official')"
+              >
+                {{ $t('admin.instanceCreate.packageScope.official') }}
+              </button>
+              <button
+                type="button"
+                class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                :class="packageScope === 'hosted'
+                  ? (themeStore.isDark ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow-sm')
+                  : (themeStore.isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700')"
+                :disabled="packagesLoading"
+                @click="switchPackageScope('hosted')"
+              >
+                {{ $t('admin.instanceCreate.packageScope.hosted') }}
+              </button>
+            </div>
+          </template>
+        </PackageSelector>
+
+        <!-- 实例类型选择 -->
+        <section class="card p-6">
+          <div class="mb-4 flex items-center gap-2 border-b border-themed pb-4">
+            <svg class="h-4 w-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+            </svg>
+            <h2 class="text-base font-semibold text-themed">{{ $t('admin.instanceCreate.instanceType') }}</h2>
           </div>
-        </template>
-      </PackageSelector>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="nimbus-radio-card">
+              <input v-model="instanceType" type="radio" value="free" class="w-4 h-4 accent-accent" />
+              <span class="text-themed">{{ $t('admin.instanceCreate.freeInstance') }}</span>
+            </label>
+            <label class="nimbus-radio-card" :class="{ 'opacity-50': plans.length === 0 }">
+              <input v-model="instanceType" type="radio" value="paid" class="w-4 h-4 accent-accent" :disabled="plans.length === 0" />
+              <span class="text-themed">{{ $t('admin.instanceCreate.paidInstance') }}</span>
+            </label>
+          </div>
+          <p v-if="plans.length === 0" class="text-xs text-themed-muted mt-2">
+            {{ $t('admin.instanceCreate.noPlanHint') }}
+          </p>
+        </section>
 
-      <!-- 实例类型选择 -->
-      <section class="card p-6">
-        <div class="mb-4 flex items-center gap-2 border-b border-themed pb-4">
-          <svg class="h-4 w-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
-          </svg>
-          <h2 class="text-base font-semibold text-themed">{{ $t('admin.instanceCreate.instanceType') }}</h2>
-        </div>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <label class="nimbus-radio-card">
-            <input v-model="instanceType" type="radio" value="free" class="w-4 h-4 accent-accent" />
-            <span class="text-themed">{{ $t('admin.instanceCreate.freeInstance') }}</span>
-          </label>
-          <label class="nimbus-radio-card" :class="{ 'opacity-50': plans.length === 0 }">
-            <input v-model="instanceType" type="radio" value="paid" class="w-4 h-4 accent-accent" :disabled="plans.length === 0" />
-            <span class="text-themed">{{ $t('admin.instanceCreate.paidInstance') }}</span>
-          </label>
-        </div>
-        <p v-if="plans.length === 0" class="text-xs text-themed-muted mt-2">
-          {{ $t('admin.instanceCreate.noPlanHint') }}
-        </p>
-      </section>
-
-      <!-- 付费方案选择（仅付费实例） -->
-      <section v-if="instanceType === 'paid' && plans.length > 0" class="card p-6">
-        <div class="mb-4 flex items-center gap-2 border-b border-themed pb-4">
-          <svg class="h-4 w-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 18.75 4.5H5.25A2.25 2.25 0 0 0 3 6.75v10.5A2.25 2.25 0 0 0 5.25 19.5Z" />
-          </svg>
-          <h2 class="text-base font-semibold text-themed">{{ $t('admin.instanceCreate.selectPlan') }}</h2>
-        </div>
+        <!-- 付费方案选择（仅付费实例） -->
+        <section v-if="instanceType === 'paid' && plans.length > 0" class="card p-6">
+          <div class="mb-4 flex items-center gap-2 border-b border-themed pb-4">
+            <svg class="h-4 w-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 18.75 4.5H5.25A2.25 2.25 0 0 0 3 6.75v10.5A2.25 2.25 0 0 0 5.25 19.5Z" />
+            </svg>
+            <h2 class="text-base font-semibold text-themed">{{ $t('admin.instanceCreate.selectPlan') }}</h2>
+          </div>
         
-        <div v-if="plansLoading" class="text-center py-4 text-themed-muted">
-          {{ $t('common.loading') }}
-        </div>
+          <div v-if="plansLoading" class="text-center py-4 text-themed-muted">
+            {{ $t('common.loading') }}
+          </div>
         
-        <div v-else class="space-y-3">
-          <!-- 方案列表 -->
-          <div
-            v-for="plan in plans"
-            :key="plan.id"
-            class="nimbus-option p-4 rounded-lg border cursor-pointer transition-all"
-            :class="[
-              plan.isSoldOut ? 'cursor-not-allowed opacity-60' : '',
-              selectedPlanId === plan.id && !plan.isSoldOut
-                ? 'border-accent bg-themed-secondary'
-                : plan.isSoldOut
-                  ? (themeStore.isDark ? 'border-gray-700 bg-gray-800/40' : 'border-gray-200 bg-gray-50')
-                  : 'border-themed hover:border-accent'
-            ]"
-            @click="!plan.isSoldOut && (selectedPlanId = plan.id)"
-          >
-            <div class="flex justify-between items-start">
-              <div>
-                <div class="flex items-center gap-2">
-                  <span class="font-medium text-themed">{{ plan.name }}</span>
-                  <span
-                    v-if="plan.isSoldOut"
-                    class="text-xs px-2 py-0.5 rounded-full"
-                    :class="themeStore.isDark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-50 text-rose-700'"
-                  >
-                    {{ $t('instance.selector.planSoldOut') }}
+          <div v-else class="space-y-3">
+            <!-- 方案列表 -->
+            <div
+              v-for="plan in plans"
+              :key="plan.id"
+              class="nimbus-option p-4 rounded-lg border cursor-pointer transition-all"
+              :class="[
+                plan.isSoldOut ? 'cursor-not-allowed opacity-60' : '',
+                selectedPlanId === plan.id && !plan.isSoldOut
+                  ? 'border-accent bg-themed-secondary'
+                  : plan.isSoldOut
+                    ? (themeStore.isDark ? 'border-gray-700 bg-gray-800/40' : 'border-gray-200 bg-gray-50')
+                    : 'border-themed hover:border-accent'
+              ]"
+              @click="!plan.isSoldOut && (selectedPlanId = plan.id)"
+            >
+              <div class="flex justify-between items-start">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-themed">{{ plan.name }}</span>
+                    <span
+                      v-if="plan.isSoldOut"
+                      class="text-xs px-2 py-0.5 rounded-full"
+                      :class="themeStore.isDark ? 'bg-rose-500/15 text-rose-300' : 'bg-rose-50 text-rose-700'"
+                    >
+                      {{ $t('instance.selector.planSoldOut') }}
+                    </span>
+                  </div>
+                  <div class="nimbus-num text-sm text-themed-muted mt-1">
+                    CPU {{ plan.cpu }}% | {{ plan.memory >= 1024 ? `${(plan.memory / 1024).toFixed(1)} GB` : `${plan.memory} MB` }} | {{ plan.disk >= 1024 ? `${(plan.disk / 1024).toFixed(0)} GB` : `${plan.disk} MB` }}
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="nimbus-num font-semibold text-themed">¥{{ (plan.price / 100).toFixed(2) }}/{{ plan.billingCycle }}月</div>
+                </div>
+              </div>
+            </div>
+          
+            <!-- 扣除首月费用选项 -->
+            <div class="mt-4 pt-4 border-t border-themed">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input v-model="chargeFirstMonth" type="checkbox" class="w-4 h-4 accent-accent" />
+                <span class="text-sm text-themed">{{ $t('admin.instanceCreate.chargeFirstMonth') }}</span>
+              </label>
+              <p class="text-xs text-themed-muted mt-2 ml-6">
+                {{ chargeFirstMonth ? $t('admin.instanceCreate.chargeFirstMonthHint') : $t('admin.instanceCreate.noChargeFirstMonthHint') }}
+              </p>
+            </div>
+          
+            <!-- 费用摘要 -->
+            <div v-if="billingInfo && targetUser" class="mt-4 p-4 rounded-lg" :class="themeStore.isDark ? 'bg-gray-800' : 'bg-gray-50'">
+              <div class="nimbus-num space-y-2 text-sm">
+                <div class="flex justify-between">
+                  <span class="text-themed-muted">{{ $t('admin.instanceCreate.planPrice') }}</span>
+                  <span class="text-themed">¥{{ billingInfo.price.toFixed(2) }}</span>
+                </div>
+                <div class="flex justify-between font-medium pt-2 border-t border-themed">
+                  <span class="text-themed">{{ chargeFirstMonth ? $t('admin.instanceCreate.totalCharge') : $t('admin.instanceCreate.freeFirstMonth') }}</span>
+                  <span :class="chargeFirstMonth ? 'text-themed' : 'text-green-500'">
+                    {{ chargeFirstMonth ? `¥${billingInfo.totalPrice.toFixed(2)}` : '¥0.00' }}
                   </span>
                 </div>
-                <div class="nimbus-num text-sm text-themed-muted mt-1">
-                  CPU {{ plan.cpu }}% | {{ plan.memory >= 1024 ? `${(plan.memory / 1024).toFixed(1)} GB` : `${plan.memory} MB` }} | {{ plan.disk >= 1024 ? `${(plan.disk / 1024).toFixed(0)} GB` : `${plan.disk} MB` }}
+                <div class="flex justify-between text-xs">
+                  <span class="text-themed-muted">{{ $t('admin.instanceCreate.userBalance') }}</span>
+                  <span :class="isBalanceSufficient ? 'text-green-500' : 'text-rose-600 dark:text-rose-400'">
+                    ¥{{ (targetUser.balance ?? 0).toFixed(2) }}
+                    <span v-if="!isBalanceSufficient">(余额不足)</span>
+                  </span>
                 </div>
               </div>
-              <div class="text-right">
-                <div class="nimbus-num font-semibold text-themed">¥{{ (plan.price / 100).toFixed(2) }}/{{ plan.billingCycle }}月</div>
-              </div>
             </div>
           </div>
-          
-          <!-- 扣除首月费用选项 -->
-          <div class="mt-4 pt-4 border-t border-themed">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input v-model="chargeFirstMonth" type="checkbox" class="w-4 h-4 accent-accent" />
-              <span class="text-sm text-themed">{{ $t('admin.instanceCreate.chargeFirstMonth') }}</span>
+        </section>
+
+        <!-- 资源配置（仅免费实例） -->
+        <ResourceSliders
+          v-if="instanceType === 'free'"
+          :selected-package="selectedPackage || null"
+          :user-quota="null"
+          :cpu="form.cpu"
+          :memory="form.memory"
+          :disk="form.disk"
+          @update:cpu="form.cpu = $event"
+          @update:memory="form.memory = $event"
+          @update:disk="form.disk = $event"
+        />
+
+        <!-- 宿主机选择 -->
+        <HostSelector
+          :available-hosts="availableHosts"
+          :selected-host-id="form.hostId"
+          :hosts-loading="hostsLoading"
+          :hosts-insufficient="hostsInsufficient"
+          :cpu="instanceType === 'paid' && selectedPlan ? selectedPlan.cpu : form.cpu"
+          :memory="instanceType === 'paid' && selectedPlan ? selectedPlan.memory : form.memory"
+          :selected-package="selectedPackage || null"
+          @update:selected-host-id="form.hostId = $event"
+        />
+
+        <!-- 镜像选择 -->
+        <ImageSelector
+          :available-images="availableImages"
+          :selected-image="form.image"
+          :images-loading="imagesLoading"
+          @update:selected-image="form.image = $event"
+        />
+
+        <!-- 实例名称和提交 -->
+        <section class="card p-6">
+          <div class="mb-4 flex items-center gap-2 border-b border-themed pb-4">
+            <svg class="h-4 w-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 6h.008v.008H6V6Z" />
+            </svg>
+            <h2 class="text-base font-semibold text-themed">{{ $t('instance.createPage.instanceName') }}</h2>
+          </div>
+          <div class="space-y-4">
+            <label class="block space-y-1.5">
+              <span class="nimbus-field-label">{{ $t('instance.createPage.instanceName') }}</span>
+              <input v-model="form.name" type="text" class="input" :placeholder="$t('instance.createPage.instanceNamePlaceholder')" required />
             </label>
-            <p class="text-xs text-themed-muted mt-2 ml-6">
-              {{ chargeFirstMonth ? $t('admin.instanceCreate.chargeFirstMonthHint') : $t('admin.instanceCreate.noChargeFirstMonthHint') }}
-            </p>
-          </div>
-          
-          <!-- 费用摘要 -->
-          <div v-if="billingInfo && targetUser" class="mt-4 p-4 rounded-lg" :class="themeStore.isDark ? 'bg-gray-800' : 'bg-gray-50'">
-            <div class="nimbus-num space-y-2 text-sm">
-              <div class="flex justify-between">
-                <span class="text-themed-muted">{{ $t('admin.instanceCreate.planPrice') }}</span>
-                <span class="text-themed">¥{{ billingInfo.price.toFixed(2) }}</span>
-              </div>
-              <div class="flex justify-between font-medium pt-2 border-t border-themed">
-                <span class="text-themed">{{ chargeFirstMonth ? $t('admin.instanceCreate.totalCharge') : $t('admin.instanceCreate.freeFirstMonth') }}</span>
-                <span :class="chargeFirstMonth ? 'text-themed' : 'text-green-500'">
-                  {{ chargeFirstMonth ? `¥${billingInfo.totalPrice.toFixed(2)}` : '¥0.00' }}
-                </span>
-              </div>
-              <div class="flex justify-between text-xs">
-                <span class="text-themed-muted">{{ $t('admin.instanceCreate.userBalance') }}</span>
-                <span :class="isBalanceSufficient ? 'text-green-500' : 'text-rose-600 dark:text-rose-400'">
-                  ¥{{ (targetUser.balance ?? 0).toFixed(2) }}
-                  <span v-if="!isBalanceSufficient">(余额不足)</span>
-                </span>
-              </div>
+
+            <div v-if="error" class="p-3 rounded-lg border text-sm" :class="themeStore.isDark ? 'bg-rose-500/15 border-rose-500/30 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'">
+              {{ error }}
             </div>
+
+            <button type="submit" :disabled="!canSubmit" class="btn btn-primary w-full">
+              {{ submitting ? $t('instance.createPage.creating') : $t('admin.instanceCreate.submit') }}
+            </button>
           </div>
-        </div>
-      </section>
-
-      <!-- 资源配置（仅免费实例） -->
-      <ResourceSliders
-        v-if="instanceType === 'free'"
-        :selected-package="selectedPackage || null"
-        :user-quota="null"
-        :cpu="form.cpu"
-        :memory="form.memory"
-        :disk="form.disk"
-        @update:cpu="form.cpu = $event"
-        @update:memory="form.memory = $event"
-        @update:disk="form.disk = $event"
-      />
-
-      <!-- 宿主机选择 -->
-      <HostSelector
-        :available-hosts="availableHosts"
-        :selected-host-id="form.hostId"
-        :hosts-loading="hostsLoading"
-        :hosts-insufficient="hostsInsufficient"
-        :cpu="instanceType === 'paid' && selectedPlan ? selectedPlan.cpu : form.cpu"
-        :memory="instanceType === 'paid' && selectedPlan ? selectedPlan.memory : form.memory"
-        :selected-package="selectedPackage || null"
-        @update:selected-host-id="form.hostId = $event"
-      />
-
-      <!-- 镜像选择 -->
-      <ImageSelector
-        :available-images="availableImages"
-        :selected-image="form.image"
-        :images-loading="imagesLoading"
-        @update:selected-image="form.image = $event"
-      />
-
-      <!-- 实例名称和提交 -->
-      <section class="card p-6">
-        <div class="mb-4 flex items-center gap-2 border-b border-themed pb-4">
-          <svg class="h-4 w-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 6h.008v.008H6V6Z" />
-          </svg>
-          <h2 class="text-base font-semibold text-themed">{{ $t('instance.createPage.instanceName') }}</h2>
-        </div>
-        <div class="space-y-4">
-          <label class="block space-y-1.5">
-            <span class="nimbus-field-label">{{ $t('instance.createPage.instanceName') }}</span>
-            <input v-model="form.name" type="text" class="input" :placeholder="$t('instance.createPage.instanceNamePlaceholder')" required />
-          </label>
-
-          <div v-if="error" class="p-3 rounded-lg border text-sm" :class="themeStore.isDark ? 'bg-rose-500/15 border-rose-500/30 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'">
-            {{ error }}
-          </div>
-
-          <button type="submit" :disabled="!canSubmit" class="btn btn-primary w-full">
-            {{ submitting ? $t('instance.createPage.creating') : $t('admin.instanceCreate.submit') }}
-          </button>
-        </div>
-      </section>
-    </form>
+        </section>
+      </form>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.admin-instance-create :deep(.card) { box-shadow: none !important; }
+.admin-instance-create :deep(.btn-primary) { background: var(--text-primary) !important; color: var(--bg-primary) !important; box-shadow: none !important; }
+.admin-instance-create :deep(.btn-primary::before) { display: none !important; }
 /* Nimbus admin kit */
 .nimbus-num {
   font-variant-numeric: tabular-nums;

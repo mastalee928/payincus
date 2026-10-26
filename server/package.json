@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "1.7.5",
+  "version": "1.7.6",
   "description": "PayIncus backend service",
   "type": "module",
   "main": "dist/app.js",
@@ -31,6 +31,7 @@
     "test:host-public-ipv6-integration": "node --import tsx scripts/test-host-public-ipv6-integration.ts",
     "test:host-public-ip-integration": "node --import tsx scripts/test-host-public-ip-integration.ts",
     "test:host-pool-integration": "node --import tsx scripts/test-host-pool-integration.ts",
+    "test:admin-instance-delete-integration": "node --import tsx scripts/test-admin-instance-delete-integration.ts",
     "test:host-pool-recovery-integration": "node --import tsx scripts/test-host-pool-recovery-integration.ts",
     "test:host-onboarding-lease-integration": "node --import tsx scripts/test-host-onboarding-lease-integration.ts",
     "migrate:data": "node --import tsx scripts/migrate-data.ts",

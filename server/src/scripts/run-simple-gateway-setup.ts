@@ -10,7 +10,7 @@ import { gatewayCredentialHash } from '../services/gateway-admin-authorization.j
 import { SIMPLE_GATEWAY_ROOT, SIMPLE_GATEWAY_ADMIN_SELECT } from '../services/simple-gateway-setup.js'
 import { localGatewaySetupId, LocalGatewaySetupError, validateSimpleGatewayRequest, simpleGatewayPlanHash, SIMPLE_GATEWAY_PLAN_TTL, detectedGatewayPublicIPv4 } from '../lib/local-gateway-setup.js'
 import { recoveryHeld } from '../services/platform-backup-core.js'
-import { loadStableGatewayEndpoint, saveStableGatewayEndpoint } from '../services/onboarding-gateway-endpoint.js'
+import { loadStableGatewayEndpoint, saveStableGatewayEndpoint, resolveGatewayEndpointAddress } from '../services/onboarding-gateway-endpoint.js'
 import { queueHostGatewayDns } from '../services/host-gateway-dns.js'
 
 const id = localGatewaySetupId(process.argv[2]), exec = promisify(execFile)
@@ -68,6 +68,9 @@ try {
   const planHash = simpleGatewayPlanHash(request, observed, publicHost)
   if (request.operation === 'apply' && (oldState?.state !== 'awaiting_confirmation' || oldState.actorId !== actorId ||
     oldState.plan?.expiresAt <= Date.now() || oldState.plan?.planHash !== request.planHash || planHash !== request.planHash)) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_PLAN_EXPIRED')
+  if (request.confirmedHostname && await resolveGatewayEndpointAddress(request.confirmedHostname) !== await resolveGatewayEndpointAddress(publicHost)) {
+    throw new LocalGatewaySetupError('GATEWAY_DNS_TARGET_MISMATCH')
+  }
   await state('running')
   if (recoveryHeld()) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_RECOVERY_HELD')
   const app = process.env.INCUDAL_APP_DIR || '/opt/incudal'
@@ -82,7 +85,7 @@ try {
   if (await observedStateHash() !== observed) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_PLAN_EXPIRED')
   step = 'configure'; writing = true; await state('running')
   try {
-    await exec('/usr/bin/python3', ['-I', '-B', join(app, 'scripts/setup-onboarding-control.py'), '--auto-network', '--public-host', publicHost,
+    await exec('/usr/bin/python3', ['-I', '-B', join(app, 'scripts/setup-onboarding-control.py'), '--auto-network', '--public-host', request.confirmedHostname || publicHost,
       '--ssh-port', String(Number(process.env.ONBOARDING_GATEWAY_PORT || 22))], { timeout: 180000, maxBuffer: 32768 })
   } catch (error) {
     const code = (error as { stdout?: string }).stdout?.match(/INCUDAL_ERROR:([A-Z_]+)/)?.[1]
@@ -94,6 +97,11 @@ try {
     await exec('/usr/bin/bash', [join(app, 'scripts/install-gateway-controller.sh'), '--initialize-release'], { timeout: 120000 })
   }
   step = 'verify'; await state('running')
+  if (request.confirmedHostname) {
+    const config = await readFile('/etc/wireguard/incudal-mgmt.conf', 'utf8')
+    const port = Number(/ListenPort\s*=\s*(\d+)/.exec(config)?.[1])
+    await saveStableGatewayEndpoint({ hostname: request.confirmedHostname, port })
+  }
   await exec('/usr/bin/systemctl', ['restart', 'incudal-backend'], { timeout: 120000 })
   let ready = false
   for (let attempt = 0; attempt < 60; attempt++) {

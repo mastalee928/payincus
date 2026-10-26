@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:admin-instance-delete-integration', 'requires an isolated local *_pool_test PostgreSQL database; exercises actual administrator/owner route permissions, refund choices, duplicate requests and resource finalization'],
   ['test:platform-recovery-reconciliation-integration', 'explicit isolated local *_recovery_test PostgreSQL database and built server/dist; tests atomic recovery corrections, actual password/MFA, stale snapshots and rollback'],
   ['test:host-gateway-dns-integration', 'requires explicit opt-in and an empty local *_expiry_test PostgreSQL database; verifies host DNS deployment state and conflict boundaries'],
   ['test:billing-expiry-integration', 'requires explicit opt-in, an empty local *_expiry_test PostgreSQL database and OpenSSL; exercises renewal/expiry scheduler against an HTTPS Incus fixture'],

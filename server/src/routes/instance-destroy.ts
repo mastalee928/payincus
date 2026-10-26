@@ -7,6 +7,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import type { InstanceStatus, Prisma } from '@prisma/client'
 import * as db from '../db/index.js'
 import { prisma } from '../db/prisma.js'
+import { getMaxRefundable } from '../db/billing-operations.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
@@ -301,12 +302,12 @@ async function deleteIncusInstanceForUserDestroy(
   const { getIncusClient, stopInstance, deleteInstance } = await import('../lib/incus/index.js')
   const client = await getIncusClient(host)
 
-  if (instance.status === 'running') {
-    try {
-      await stopInstance(client, instance.incusId, true)
-    } catch (err) {
-      logger.warn(err, '停止实例失败，继续尝试删除')
-    }
+  // A failed provision can be recorded as error while Incus is still Running.
+  // stopInstance reads the actual remote state and is a no-op when stopped.
+  try {
+    await stopInstance(client, instance.incusId, true)
+  } catch (err) {
+    logger.warn(err, '停止实例失败，继续尝试删除')
   }
 
   await deleteInstance(client, instance.incusId)
@@ -323,11 +324,16 @@ async function settleUserDestroyBilling(params: {
   refundableValue: number
   feeWaiver: boolean
 }): Promise<{ refundAmount: number; feeAmount: number; isFirstTime: boolean }> {
-  const { requestUserId, instance, refundableValue, feeWaiver } = params
+  const { requestUserId, instance, feeWaiver } = params
   const instanceId = instance.id
 
   return await prisma.$transaction(async (tx) => {
     await advisoryTransactionLock(tx, USER_DESTROY_BILLING_LOCK_NAMESPACE, requestUserId)
+    await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, instance.userId)
+    // Remote deletion may outlast a concurrent failure refund. Quote again under
+    // the shared balance lock so settlement never credits an already refunded sum.
+    const { maxRefundable } = await getMaxRefundable(instanceId, tx)
+    const refundableValue = roundMoney(Math.max(0, Math.min(params.refundableValue, maxRefundable)))
 
     const destroyCount = await tx.userDestroyRecord.count({
       where: { userId: requestUserId }
@@ -340,8 +346,6 @@ async function settleUserDestroyBilling(params: {
     const refundAmount = roundMoney(Math.max(0, refundableValue - feeAmount))
 
     if (refundAmount > 0) {
-      await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, instance.userId)
-
       const currentUser = await tx.user.findUnique({
         where: { id: instance.userId },
         select: { balance: true }

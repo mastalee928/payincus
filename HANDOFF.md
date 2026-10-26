@@ -2,6 +2,38 @@
 
 维护仓库：[mastalee928/payincus](https://github.com/mastalee928/payincus)。GitHub Fork 关系已于 2026-10-16 解除；仓库地址和提交历史保留。原 BSD 3-Clause 许可证与版权声明继续保留在 LICENSE。
 
+## 2026-10-27 v1.7.6 最终源码审视与候选验证
+
+- Owner明确授权审视、提交推送和发版，范围为九项及本轮紧急交付/销毁修复；不包含生产OTA、客户删除退款或公网DNS变更。IPv6统一复用第1项修复，不做重复实现。
+- 审视补齐管理员单删/批删实际Incus停机，失败保留记录/库存/账目；用户销毁在共享余额锁内再次计算退款上限，创建失败回调不对已被销毁认领的实例退款。独立PG+实际HTTPS双向TLS的Incus边界覆盖error/Running、退款选择、角色权限、重放、远端失败保留、预览后退款交错，均通过；远端进程/磁盘为受控边界，不记为生产删除。
+- 容器/VM的72组SSH生成策略及真实SSH2算法/密码/root检查通过，VM补齐RHEL/Alpine客户端工具；旧Include能力使用stdin配置检测。Alpine3.21及Debian13原客户只读公网登录、跨区公网IPv6证据沿用前节；Ubuntu/Rocky/Alma/CentOS各版本全新镜像与VM启动仍未完整实机验收。
+- 最终业务源码全套180/180（logs/test-run-20261027-004244，8m41s）、双端/后端构建和全站Lint0 errors通过。随后UI审视补齐实例列表批量续费仅1月（此前只改详情）、单选布局和管理员退款提示；相关路由/i18n/类型/构建复验单独记录。新隔离CI job覆盖机器池、IPv6和删除数据库集成，避免仅静态守卫。
+- 编译后本地浏览器已操作指定用户、机器池免费/付费及首月扣费、原套餐资源、TCP默认/TCP+UDP、默认展开/地区、本机计划→单域名→确认成功→重新进入成功收起、节点退款选择→确认删除。数据是明确独立夹具，无生产代理；不把夹具结果当生产验收。1440/768/390人工截图与检查保存于忽略目录。检查发现旧应用壳装饰与新创建主按钮渐变/阴影，页面局部去除后复验，保留现有导航。
+- 尚未在本节声明已发版；同提交Actions、预览首装和公开资产须补真实运行与哈希。生产仍保持原部署，完整灾备门槛不变。
+
+## 2026-10-26 紧急排查：Alpine 新建／换机失败与 IPv4-only 主控的 IPv6 核验（源码未发布）
+
+- Owner重新核对九项源码完成情况。确认TCP默认及更多设置展开、45地区补齐迁移、单月续费、地图wheel处理均已有对应实现；管理员资源池／原套餐创建入口、本机计划／域名复用／成功折叠也已接入，但不能仅凭存在代码宣布完整UI／流程完成。进一步发现管理员单删与节点批删仍按DB状态running才停机，遗漏error记录对应Running容器；现已补为原停机函数查询实际Incus状态后删除，权限／管理员不退款／批量退款选择和删除失败回退保持，新增共同守卫。单删／批删顺序、用户销毁、操作验证守卫通过，相关类型／构建与Lint按本轮记录核验。IPv6修复统一作为原九项第1项，复用本轮代码和实证，后续只补完整候选验收，不拆成重复修复；九项仍未声明整体完成。
+
+- Owner随后要求补查Debian、Ubuntu、Rocky Linux、AlmaLinux、CentOS。矩阵扩大到18个OS／版本别名×容器／虚拟机×仅密码／公钥加密码，共72组；覆盖Alpine3.21/3.23/3.24 cloud及tinycloud、Debian10–13、Ubuntu20.04/22.04/24.04、Rocky8/9、Alma8/9、CentOS7/8-Stream/9-Stream的生成配置、实际SSH服务名和包管理路径。这些别名是兼容性测试输入，不声明所有旧版本仍提供可售或可下载镜像。
+- 补查修正VM路径中「99后读优先」的错误假设：平台策略改为`00-incudal-force.conf`，旧平台99文件按原初始化脚本清理；CentOS7容器与VM改用yum；两个生成器插入Include前用独立stdin配置交给实际sshd解析，避免不支持该指令的版本启动失败。首个能力检测实现误用`sshd -o Include`，原生验证发现该选项即使在新sshd也不支持，已修成配置文件解析后复跑两类型的支持／不支持四分支通过。不会把首次失败计为通过。
+- 交付核验补读ECDSA主机公钥，并只接受认证Incus内取得的Ed25519／ECDSA／RSA登记集合；此前只固定数组首项可能拒绝不同算法的合法协商。真实SSH协议守卫增加ECDSA/RSA服务端、登记集合匹配与错误身份在密码认证前拒绝，保留原密码及root命令核验，不信任未登记的公网密钥。
+- 原生Linux统一OpenSSH解析器使用各组实际生成策略，72组均得到passwordauthentication/permitrootlogin/pubkeyauthentication=yes；生成setup脚本（含特殊字符的夹具密码）均通过sh -n。Include分支中，支持使用真实sshd，不支持使用返回失败的受控探测边界；它不等于在CentOS7原镜像内启动其旧sshd。首次大块测试输入造成失败诊断被巨型源码行淹没，保留失败，压缩重复夹具传输后完成复跑。独立临时目录全部清理，没有改运行中的SSH配置或客户盘。证据在忽略目录`os-ssh-matrix-native-result.json`及构造脚本／输入文件。
+- 修复后的纯SSH核验模块通过stdin独立执行，现有Alpine3.21实例17及Debian13实例20的真实公网root原密码登录通过，原生产服务不被覆盖。Ubuntu/Rocky/Alma/CentOS各版本的真实镜像全新开通、VM开机仍未验收，不能把统一解析器或SSH2夹具当各发行版完整实机成功。最终相关类型、构建、密码／交付、创建失败补偿、实例重建及IPv6守卫继续按本轮结果记录；未提交、推送、发布或改生产。
+
+- 后续owner报告实例21「立即销毁」退款描述错误且提交失败。真实用户GET destroy-info返回refundAmount=0/maxRefundable=0，账单为newPurchase11和创建失败自动退款-11；页面旧固定文案却承诺再次退款。后端日志两次均为`Instance is running`：数据库error状态使旧用户销毁helper跳过停机，真实容器仍Running，Incus拒绝删除。源码helper现无条件调用原stopInstance（该函数读取真实远端状态，Stopped时不发送停机），之后仍需确认deleteInstance及其自带的独占转发清理成功，再进入原退款／资源释放；失败回退、归属和任务冲突守卫保留。
+- 用户页错误销毁流程先读取带feeWaiver=error的真实预览，canDestroy=false时不提交；零退款用独立简繁英文案「本次销毁不产生退款」，有退款时显示预览中的具体余额金额，成功响应refundAmount=0时不再显示「已退款0」。通用异常说明明确已退回余额不会重复退款。修改InstanceDetailView、原API getDestroyInfo及三语文案；增加前端顺序／零退款守卫与真实状态的Incus操作边界回归（Running、Stopped、Frozen）。用户销毁顺序、创建失败补偿、计费查询、前端路由／i18n守卫、双端类型、用户＋管理＋后端完整构建及dist边界通过；ESLint0 errors，详情页已有48项格式警告保持。
+- 本地浏览器使用实际构建和真实用户只读接口验证banner与零退款确认；所有生产变更请求被本地服务拒绝，销毁POST仅本地模拟响应。曾在同一真实实例展示中注入4元对照金额，使owner误以为仍会重复退款，已明确更正并撤销；预览恢复为直接返回真实API的0元，没有再次扣费或退款。该对照验证不能作为生产销毁成功的证据。真实生产仍旧代码及原实例记录，完整源码销毁＋退款／库存事务的新包现场终态尚未验收；截图在忽略目录`logs/emergency-alpine-ssh-20261026/destroy-banner-fixed.png`。
+
+- Owner要求先查根因并修复通用源码，防止后续安装者重复遇到问题；当前阶段不以修改客户记录、解除隔离或更新生产替代修复。接续中断对话的目标：主控兼网关保持IPv4-only，经IPv4 WireGuard管理宿主，宿主及客户实例的IPv6不以主控具备IPv6为前提。OWNER_REQUIREMENTS已同步该约束。
+- 两台伦敦失败实例18/19使用Alpine3.24/cloud，首尔新增失败实例21使用Alpine3.23/cloud；实际容器均已启动，公网SSH能取得与固定Incus身份内读取相同的客机公钥。真实密码登录被拒绝，客机`sshd -T`均为`passwordauthentication no`。平台原生成器对Alpine设置`ssh_pwauth:false`，生成的`50-cloud-init.conf`先于平台`50-incus.conf`读取；OpenSSH先读值生效，主配置后追加yes不能覆盖。美国Alpine3.21实例17真实登录通过、韩国Debian13实例20交付成功，不能仅按地区判断失败。
+- 修改`incus-config-container.ts`为所有已提供客户密码的容器设置`ssh_pwauth:true`，平台策略使用`00-incus.conf`先于cloud-init默认项；新建／按原流程重新初始化镜像共同使用该生成器，不改变现存客机磁盘、密码、主机公钥或业务记录。将原SSH核验函数独立到`lib/dedicated-ssh.ts`并保留原服务导出兼容；固定身份通过后才发送原客户密码，检查真实root登录。`dedicated-delivery.ts`保留原重试门槛，区分连接、身份、密码认证、密码登录关闭及验证命令失败，最终错误保留受控原因，不记录凭据或原始敏感输出。
+- 伦敦1的IPv6等待为`IPV6_HOST_QUARANTINED`：此前实例18的换机任务7/8失败，原流程将源／目标置于持久保护，不能以云防火墙错误解释或直接解除。伦敦2及首尔分别为`IPV6_INSTANCE_NOT_READY`，等待此前失败实例交付；三台宿主实际公网IPv6均已通过固定管理身份发现。另美国与韩国正常运行实例的旧IPv6核验为通用`IPV6_DELIVERY_FAILED`；主控实际没有公网IPv6或默认路由，旧代码从主控探测因不可达误判。延续工作区已有的`dedicated-ipv6-probe.ts`／IPv4-only主控核验候选，不启用主控IPv6、不跳过身份或源地址核对。
+- 本次新增真实SSH协议回归通过：正常root登录、密码拒绝、错误身份在认证之前拒绝、非root、命令失败和连接不可达；覆盖Alpine3.21/3.23/3.24 cloud及tinycloud、Debian、Ubuntu的生成策略。原生OpenSSH独立临时配置实测旧排序为no，新排序及新cloud-init设置为yes，未改运行中SSH配置。修复诊断模块经stdin在现场独立进程验证实例17成功、18/19/21均为认证拒绝且实际密码认证关闭，未覆盖线上程序。
+- IPv4-only主控通过已认证Incus检查美国实例17、韩国实例20：客机固定身份的真实SSH密钥交换、绑定其内部源地址的IPv6 HTTPS出站回显均通过，公网源与登记地址相同。两台客机另经各自公网IPv6互测TCP22完整密钥交换，双向通过且公钥匹配目标Incus身份；这项覆盖该两地址的真实公网入站，不代表伦敦失败客机尚未完成的IPv6配置、全部端口或所有宿主验收。
+- 最终server type-check、server build、相关文件ESLint和`git diff --check`通过；dedicated-delivery、instance-create-failure-compensation、instance-recreate-consistency、host-public-ipv6守卫通过。早先验证命令`pnpm test -- --only`被本机pnpm当作自身选项拒绝，改用根`node scripts/run-tests.mjs --only ...`逐项执行，未把未运行命令算通过。新增SSH测试最初CJS命名导入及数据库副作用导致失败／进程不退出，已改默认导入并仅依赖纯SSH核验模块；最终测试正常退出0，无需生产DB。脱敏现场证据在忽略目录`logs/emergency-alpine-ssh-20261026/evidence.json`。
+- 当前现场仍为正式v1.7.5，唯一`incudal-backend`PID869991/NRestarts0，health正常；未修改生产代码、DB、客户记录或隔离，未OTA、提交、推送或发布。本次是源码、真实SSH及网络分项验证；修复后的完整发行包全新安装／新购买／换机终态尚未验收，不声明现有故障已经恢复。先前九项候选的其它工作区改动保留，完整灾备与P0–P6验收边界保持。
+
 ## 2026-10-26 v1.7.5 正式发行：全球地图首页与手机球体
 
 - Owner明确授权推送和发版本。源码`eb82a4fecb5865ea550e0d36c6aefb1e249fb061`已推送main，正式tag v1.7.5绑定同一提交；[源码CI40228993793](https://github.com/mastalee928/payincus/actions/runs/40228993793)全部success。[发行预览40228994828](https://github.com/mastalee928/payincus/actions/runs/40228994828)AMD64/ARM64双构建和双首装全部success，Release预期skipped；干净检出的180项全量测试180/180通过。

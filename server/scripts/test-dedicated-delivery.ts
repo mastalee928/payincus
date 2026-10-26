@@ -3,6 +3,9 @@ import { ensureDedicatedForward, removeDedicatedForward, removeObsoleteDedicated
 import { applyCustomerInstanceView, publicInstanceIpv6 } from '../src/lib/customer-instance-view.js'
 import { readFileSync } from 'node:fs'
 import { generateIncusConfig } from '../src/lib/incus-config-generator.js'
+import { createHash } from 'node:crypto'
+import ssh2 from 'ssh2'
+import { checkSshLogin, DedicatedSshVerificationError } from '../src/lib/dedicated-ssh.js'
 
 const forwards: Array<any> = []
 const calls: string[] = []
@@ -89,3 +92,117 @@ const worker = readFileSync(new URL('../src/workers/instanceTaskWorker.ts', impo
 const rebuild = worker.slice(worker.indexOf('async function executeRebuildTask('), worker.indexOf('async function executeRecreateTask('))
 assert.ok(!rebuild.includes('getSSHKeysByUserId') && rebuild.includes('SSH_KEY_NOT_OWNED') && rebuild.indexOf('SSH_KEY_NOT_OWNED') < rebuild.indexOf('deleting_snapshots'), 'rebuild must validate only the selected key before destructive steps and never silently inject another key')
 console.log('Dedicated address ownership, idempotency and customer privacy checks passed')
+const osPasswordMatrix = [
+  ['alpine/3.21/cloud', 'sshd', 'apk'], ['alpine/3.23/cloud', 'sshd', 'apk'],
+  ['alpine/3.24/cloud', 'sshd', 'apk'], ['alpine/3.24/tinycloud', 'sshd', 'apk'],
+  ['debian/10/cloud', 'ssh', 'apt-get'], ['debian/11/cloud', 'ssh', 'apt-get'],
+  ['debian/12/cloud', 'ssh', 'apt-get'], ['debian/13/cloud', 'ssh', 'apt-get'],
+  ['ubuntu/20.04/cloud', 'ssh', 'apt-get'], ['ubuntu/22.04/cloud', 'ssh', 'apt-get'], ['ubuntu/24.04/cloud', 'ssh', 'apt-get'],
+  ['rockylinux/8/cloud', 'sshd', 'yum'], ['rockylinux/9/cloud', 'sshd', 'dnf'],
+  ['almalinux/8/cloud', 'sshd', 'yum'], ['almalinux/9/cloud', 'sshd', 'dnf'],
+  ['centos/7/cloud', 'sshd', 'yum'], ['centos/8-Stream/cloud', 'sshd', 'yum'], ['centos/9-Stream/cloud', 'sshd', 'dnf']
+] as const
+const optionalSshKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestOnly guard'
+for (const [alias, service, packageManager] of osPasswordMatrix) {
+  for (const type of ['container', 'virtual-machine'] as const) {
+    for (const sshKey of [undefined, optionalSshKey]) {
+      const imageAlias = `images:${alias}`
+      const generated = generateIncusConfig({ instanceName: 'password-policy-guard', imageAlias,
+        rootPassword: 'local-password-policy-guard', type, networkMode: 'nat', sshKey })
+      const cloudConfig = generated.configPayload['user.user-data']
+      const label = `${imageAlias}/${type}/${sshKey ? 'key-and-password' : 'password-only'}`
+      assert.match(cloudConfig, /^ssh_pwauth: true$/m, `${label}: cloud-init must enable the advertised password`)
+      assert.ok(cloudConfig.includes('PermitRootLogin yes') && cloudConfig.includes('PasswordAuthentication yes'), label)
+      assert.equal(cloudConfig.includes('ssh_authorized_keys:'), Boolean(sshKey), `${label}: never invent a customer key`)
+      assert.ok(cloudConfig.includes(type === 'container' ? '/etc/ssh/sshd_config.d/00-incus.conf' : '/etc/ssh/sshd_config.d/00-incudal-force.conf'),
+        `${label}: platform policy loads before cloud defaults`)
+      assert.ok(cloudConfig.includes('-T -f /dev/stdin'), `${label}: detect server-side Include through a real config, not unsupported command-line Include`)
+      assert.ok(!cloudConfig.includes('-o "Include /dev/null"'), `${label}: Include is not a valid sshd command-line option`)
+      assert.ok(cloudConfig.includes(packageManager === 'apk' ? 'apk add' : `${packageManager} install`), `${label}: correct package manager`)
+      if (type === 'virtual-machine' && ['yum', 'dnf'].includes(packageManager)) {
+        assert.ok(cloudConfig.includes('openssh-clients'), `${label}: IPv4-only controller IPv6 probes need ssh and ssh-keyscan in the guest`)
+      }
+      if (type === 'virtual-machine' && packageManager === 'apk') {
+        assert.ok(cloudConfig.includes('qemu-guest-agent openssh curl'), `${label}: Alpine must install both server and client tooling`)
+      }
+      assert.ok(cloudConfig.includes(packageManager === 'apk' ? 'rc-service sshd restart' : `systemctl restart ${service}`),
+        `${label}: restart the distribution's SSH service`)
+    }
+  }
+}
+console.log(`Customer password policy passed: ${osPasswordMatrix.length} OS/version aliases × container/VM × password-only/key-and-password`)
+
+// Exercise real SSH negotiation/authentication so failures remain actionable
+// without accepting another host key or exposing a password in the error.
+const testKey = ssh2.utils.generateKeyPairSync('ed25519')
+const parsedKey = ssh2.utils.parseKey(testKey.private)
+assert.ok(!(parsedKey instanceof Error))
+const fingerprint = `SHA256:${createHash('sha256').update(parsedKey.getPublicSSH()).digest('base64').replace(/=+$/, '')}`
+const testPassword = 'local-ssh-login-guard-password'
+let authenticatedAttempts = 0, reportedUid = '0', reportedExitCode = 0
+const sshServer = new ssh2.Server({ hostKeys: [testKey.private] }, connection => {
+  connection.on('error', () => {}) // A rejected host key deliberately closes negotiation.
+  connection.on('authentication', context => {
+    authenticatedAttempts++
+    if (context.method === 'password' && context.username === 'root' && context.password === testPassword) context.accept()
+    else context.reject(['password'])
+  })
+  connection.on('ready', () => connection.on('session', accept => {
+    const session = accept()
+    session.on('exec', (acceptExec, rejectExec, info) => {
+      if (info.command !== 'id -u') { rejectExec(); return }
+      const channel = acceptExec()
+      channel.write(`${reportedUid}\n`)
+      channel.exit(reportedExitCode)
+      channel.end()
+    })
+  }))
+})
+await new Promise<void>(resolve => sshServer.listen(0, '127.0.0.1', resolve))
+const address = sshServer.address()
+assert.ok(address && typeof address === 'object')
+const testPort = address.port
+try {
+  await checkSshLogin('127.0.0.1', testPassword, fingerprint, testPort)
+  await checkSshLogin('127.0.0.1', testPassword, ['SHA256:other-registered-key', fingerprint], testPort)
+  await assert.rejects(checkSshLogin('127.0.0.1', 'wrong-password', fingerprint, testPort),
+    error => error instanceof DedicatedSshVerificationError && error.reason === 'authentication' && !error.message.includes(testPassword))
+  const attemptsBeforeWrongIdentity = authenticatedAttempts
+  await assert.rejects(checkSshLogin('127.0.0.1', testPassword, 'SHA256:untrusted', testPort),
+    error => error instanceof DedicatedSshVerificationError && error.reason === 'identity')
+  assert.equal(authenticatedAttempts, attemptsBeforeWrongIdentity, 'a wrong public identity must fail before sending the customer password')
+  reportedUid = '1000'
+  await assert.rejects(checkSshLogin('127.0.0.1', testPassword, fingerprint, testPort),
+    error => error instanceof DedicatedSshVerificationError && error.reason === 'root')
+  reportedUid = '0'; reportedExitCode = 1
+  await assert.rejects(checkSshLogin('127.0.0.1', testPassword, fingerprint, testPort),
+    error => error instanceof DedicatedSshVerificationError && error.reason === 'command')
+} finally {
+  await new Promise<void>((resolve, reject) => sshServer.close(error => error ? reject(error) : resolve()))
+}
+await assert.rejects(checkSshLogin('127.0.0.1', testPassword, fingerprint, testPort),
+  error => error instanceof DedicatedSshVerificationError && error.reason === 'unreachable')
+console.log('Real SSH checks passed: correct root login, rejected password, identity pinning, non-root login, command failure and unreachable endpoint')
+
+for (const keyType of ['ecdsa', 'rsa'] as const) {
+  const pair = keyType === 'ecdsa' ? ssh2.utils.generateKeyPairSync('ecdsa', { bits: 256 }) : ssh2.utils.generateKeyPairSync('rsa', { bits: 2048 })
+  const parsed = ssh2.utils.parseKey(pair.private)
+  assert.ok(!(parsed instanceof Error))
+  const keyFingerprint = `SHA256:${createHash('sha256').update(parsed.getPublicSSH()).digest('base64').replace(/=+$/, '')}`
+  const compatibleServer = new ssh2.Server({ hostKeys: [pair.private] }, connection => {
+    connection.on('error', () => {})
+    connection.on('authentication', context => {
+      if (context.method === 'password' && context.username === 'root' && context.password === testPassword) context.accept()
+      else context.reject(['password'])
+    })
+    connection.on('ready', () => connection.on('session', accept => {
+      accept().on('exec', acceptExec => { const channel = acceptExec(); channel.write('0\n'); channel.exit(0); channel.end() })
+    }))
+  })
+  await new Promise<void>(resolve => compatibleServer.listen(0, '127.0.0.1', resolve))
+  const endpoint = compatibleServer.address()
+  assert.ok(endpoint && typeof endpoint === 'object')
+  try { await checkSshLogin('127.0.0.1', testPassword, [fingerprint, keyFingerprint], endpoint.port) }
+  finally { await new Promise<void>((resolve, reject) => compatibleServer.close(error => error ? reject(error) : resolve())) }
+}
+console.log('Legacy image SSH negotiation passed: ECDSA and RSA require their Incus-registered key')

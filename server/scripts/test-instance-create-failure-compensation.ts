@@ -26,6 +26,7 @@ function section(source: string, startPattern: string, endPattern: string): stri
 }
 
 const compensationSection = compensationSource
+assert.ok(compensationSection.includes("if (instance.status === 'deleted')"), 'late failure compensation must defer to claimed destroy settlement')
 
 const failureSection = section(
   instancesSource,

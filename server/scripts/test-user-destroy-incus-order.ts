@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { stopInstance, deleteInstance } from '../src/lib/incus/incus-instances.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -22,6 +23,8 @@ const helperSection = section(
 )
 assert.ok(helperSection.includes('await stopInstance'), 'user destroy helper should stop running instances before delete')
 assert.ok(helperSection.includes('await deleteInstance'), 'user destroy helper must require Incus instance deletion')
+assert.ok(!helperSection.includes("if (instance.status === 'running')"), 'user destroy must consult actual Incus state even when the database reports error or stopped')
+assert.ok(helperSection.indexOf('await stopInstance') < helperSection.indexOf('await deleteInstance'), 'the real-state stop attempt must precede deletion')
 assert.ok(!helperSection.includes("logger.error(incusErr, 'Incus 删除实例失败')"), 'helper must not swallow Incus delete failures')
 
 const batchSection = section(
@@ -61,6 +64,8 @@ const billingSection = section(
   'async function settleUserDestroyBilling(',
   'async function buildBatchDestroyPreviewItem('
 )
+assert.ok(billingSection.indexOf('USER_BALANCE_LOCK_NAMESPACE, instance.userId') < billingSection.indexOf('await getMaxRefundable(instanceId, tx)'))
+assert.ok(billingSection.includes('Math.min(params.refundableValue, maxRefundable)'), 'settlement must cap stale quotes after concurrent refunds')
 assert.ok(
   billingSection.includes('await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, instance.userId)'),
   'destroy refund should wait for the user balance lock instead of failing after Incus delete'
@@ -88,3 +93,21 @@ assert.ok(
 )
 
 console.log('user destroy Incus order tests passed')
+
+for (const initialStatus of ['Running', 'Stopped', 'Frozen']) {
+  let remoteStatus = initialStatus
+  const calls: string[] = []
+  const remote = { request: async (method: string, path: string, body?: any) => {
+    calls.push(`${method} ${path}`)
+    if (method === 'GET' && path.endsWith('/state')) return { status: remoteStatus }
+    if (method === 'PUT') { assert.equal(body.action, 'stop'); assert.equal(body.force, true); remoteStatus = 'Stopped'; return {} }
+    if (method === 'DELETE') { assert.equal(remoteStatus, 'Stopped', 'Incus must never receive deletion of a running guest'); return {} }
+    if (method === 'GET' && path.includes('/forwards')) return []
+    throw Error('Unexpected Incus request')
+  } } as any
+  await stopInstance(remote, 'failed-create-guest', true)
+  await deleteInstance(remote, 'failed-create-guest')
+  assert.equal(calls.filter(call => call.startsWith('PUT ')).length, initialStatus === 'Stopped' ? 0 : 1)
+  assert.ok(calls.includes('DELETE /1.0/instances/failed-create-guest'))
+}
+console.log('User destroy actual-state checks passed: running/error mismatch, stopped no-op and frozen guest')

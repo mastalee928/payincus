@@ -1,6 +1,7 @@
 /** Run only against an isolated PostgreSQL database with the pool migration applied. */
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import Fastify from 'fastify'
 
 const url = new URL(process.env.DATABASE_URL || '')
@@ -197,7 +198,56 @@ try {
   const raced = await host()
   const race = await Promise.allSettled([deleteHost(raced.id), prisma.instance.create({ data: instanceData(raced.id, 'delete-race') })])
   assert.equal(race.filter(result => result.status === 'fulfilled').length, 1, 'deletion cannot remove a concurrently assigned machine')
-  console.log('PASS pool integration: reservations, cart rollback, replay, cross-user access, refund, pricing and deletion races')
+
+  await upsertPoolPrice(priceInput, owner.id)
+  const adminCreate = (billing: 'free' | 'paid', chargeFirstMonth: boolean) => ({ requestId: randomUUID(),
+    username: buyer.username, name: `${prefix}-admin-${randomUUID().slice(0, 6)}`, poolPriceId: price.id,
+    image: systemImage.remoteAlias, expectedTotal: 1200, billing, chargeFirstMonth })
+  const forbiddenIntent = adminCreate('free', false)
+  const forbidden = await app.inject({ method: 'POST', url: '/instances/admin/pool-create', headers: { 'x-test-role': 'user' }, payload: forbiddenIntent })
+  assert.equal(forbidden.statusCode, 403, 'a customer cannot use administrator free creation')
+  assert.equal(await prisma.poolOrder.count({ where: { id: forbiddenIntent.requestId } }), 0)
+  await assert.rejects(() => placePoolOrder(buyer.id, buyer.username, order(), { actorId: buyer.id, billing: 'free', chargeFirstMonth: false }),
+    error => (error as any).code === 'FORBIDDEN', 'internal free creation also rechecks the actor role')
+
+  for (const mode of [{ billing: 'free' as const, charge: false }, { billing: 'paid' as const, charge: false }, { billing: 'paid' as const, charge: true }]) {
+    await host()
+    const intent = adminCreate(mode.billing, mode.charge)
+    const balanceBefore = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
+    const response = await app.inject({ method: 'POST', url: '/instances/admin/pool-create', headers: { 'x-test-role': 'admin' }, payload: intent })
+    assert.equal(response.statusCode, 202)
+    const result = response.json()
+    assert.equal(result.total, mode.charge ? 1200 : 0)
+    const created = await prisma.instance.findUniqueOrThrow({ where: { id: result.instances[0].id } })
+    assert.equal(created.userId, buyer.id, 'administrator creation assigns the target account')
+    assert.equal(created.poolPriceId, price.id)
+    assert.equal(created.packagePlanId !== null, mode.billing === 'paid')
+    assert.equal(created.expiresAt !== null, mode.billing === 'paid', 'free gifts must not silently expire')
+    const purchase = await prisma.instanceBillingRecord.findFirstOrThrow({ where: { instanceId: created.id, type: 'newPurchase' } })
+    assert.equal(Number(purchase.amount), mode.charge ? 12 : 0)
+    const replay = await app.inject({ method: 'POST', url: '/instances/admin/pool-create', headers: { 'x-test-role': 'admin' }, payload: intent })
+    assert.equal(replay.statusCode, 202)
+    assert.equal(replay.json().instances[0].id, created.id, 'replay must return the original instance')
+    assert.equal(await prisma.instance.count({ where: { purchaseBatchId: intent.requestId } }), 1)
+    await waitFor(async () => { const row = (await getPoolOrderResult(buyer.id, intent.requestId))!.instances[0]; return mode.charge ? row.refunded : row.status === 'error' })
+    assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), balanceBefore, 'fixture provisioning failure refunds only actual charges')
+    assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: created.id, type: 'refund' } }), mode.charge ? 1 : 0)
+  }
+  const regionMigration = readFileSync(new URL('../prisma/migrations/202610260001_complete_pool_regions/migration.sql', import.meta.url), 'utf8')
+  await prisma.$transaction(async tx => {
+    // PostgreSQL resolves these session-private temporary tables first. Product tables remain untouched.
+    await tx.$executeRawUnsafe('CREATE TEMP TABLE host_machine_groups (id integer PRIMARY KEY, name text UNIQUE) ON COMMIT DROP')
+    await tx.$executeRawUnsafe('CREATE TEMP TABLE host_region_groups (id serial PRIMARY KEY, machine_group_id integer, name text, country_code text, UNIQUE(machine_group_id,name)) ON COMMIT DROP')
+    await tx.$executeRawUnsafe("INSERT INTO host_machine_groups VALUES (10,'E2'),(20,'ARM'),(30,'custom')")
+    await tx.$executeRawUnsafe("INSERT INTO host_region_groups(id,machine_group_id,name,country_code) VALUES (777,10,'美国 · 阿什本','us'),(888,30,'Custom region','xx')")
+    await tx.$executeRawUnsafe(regionMigration)
+    const counts = await tx.$queryRaw<Array<{ machine_group_id: number; count: number }>>`SELECT machine_group_id, count(*)::integer AS count FROM host_region_groups GROUP BY machine_group_id ORDER BY machine_group_id`
+    assert.deepEqual(counts, [{ machine_group_id: 10, count: 45 }, { machine_group_id: 20, count: 45 }, { machine_group_id: 30, count: 1 }])
+    const preserved = await tx.$queryRaw<Array<{ id: number; name: string }>>`SELECT id,name FROM host_region_groups WHERE id IN (777,888) ORDER BY id`
+    assert.deepEqual(preserved, [{ id: 777, name: '美国 · 阿什本' }, { id: 888, name: 'Custom region' }])
+    assert.equal(await tx.$executeRawUnsafe(regionMigration), 0, 'migration replay cannot add duplicate locations')
+  })
+  console.log('PASS pool integration: reservations, cart rollback, replay, cross-user access, refund, pricing, deletion races and append-only region migration')
 } finally {
   await app.close()
   await closeAllClients()

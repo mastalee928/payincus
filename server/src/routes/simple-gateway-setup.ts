@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { normalizeOrigin } from '../lib/origin-config.js'
 import { requestSimpleGatewaySetup, readSimpleGatewaySetup, simpleGatewayExecutorAvailable, confirmSimpleGatewaySetup, latestSimpleGatewaySetup, simpleGatewayStatus, type SimpleGatewayInput } from '../services/simple-gateway-setup.js'
 import { LocalGatewaySetupError } from '../lib/local-gateway-setup.js'
+import { OnboardingError } from '../lib/host-onboarding.js'
 
 const installed = { request: requestSimpleGatewaySetup, read: readSimpleGatewaySetup, available: simpleGatewayExecutorAvailable, confirm: confirmSimpleGatewaySetup, latest: latestSimpleGatewaySetup, status: simpleGatewayStatus }
 type Operations = Omit<typeof installed, 'latest' | 'status'> & { latest?: typeof latestSimpleGatewaySetup; status?: typeof simpleGatewayStatus }
@@ -23,16 +24,16 @@ export async function registerSimpleGatewaySetupRoutes(app: FastifyInstance, ope
     try { return reply.code(202).send(await operations.request(request.body, request.user.id, request.user.sid)) }
     catch (error) { return reply.code(400).send({ code: error instanceof LocalGatewaySetupError ? error.code : 'SIMPLE_GATEWAY_FAILED' }) }
   })
-  app.post<{ Params: { id: string }; Body: { planHash: string } }>('/gateway/setup/:id/confirm', {
+  app.post<{ Params: { id: string }; Body: { planHash: string; hostname?: string } }>('/gateway/setup/:id/confirm', {
     onRequest: [app.authenticateAdmin], bodyLimit: 1024,
     schema: { params: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
-      body: { type: 'object', additionalProperties: false, required: ['planHash'], properties: { planHash: { type: 'string', pattern: '^[a-f0-9]{64}$' } } } }
+      body: { type: 'object', additionalProperties: false, required: ['planHash'], properties: { planHash: { type: 'string', pattern: '^[a-f0-9]{64}$' }, hostname: { type: 'string', minLength: 3, maxLength: 253 } } } }
   }, async (request, reply) => {
     const origins = (process.env.ADMIN_FRONTEND_URL || '').split(',').map(value => normalizeOrigin(value.trim())).filter(Boolean)
     if (!request.user.sid || !origins.includes(String(request.headers.origin)) || request.headers['sec-fetch-site'] === 'cross-site' ||
       !request.headers.authorization?.startsWith('Bearer ')) return reply.code(403).send({ code: 'GATEWAY_WEB_SESSION_REQUIRED' })
-    try { return reply.code(202).send(await operations.confirm(request.params.id, request.body.planHash, request.user.id, request.user.sid)) }
-    catch (error) { return reply.code(409).send({ code: error instanceof LocalGatewaySetupError ? error.code : 'SIMPLE_GATEWAY_FAILED' }) }
+    try { return reply.code(202).send(await operations.confirm(request.params.id, request.body.planHash, request.user.id, request.user.sid, request.body.hostname)) }
+    catch (error) { return reply.code(409).send({ code: error instanceof LocalGatewaySetupError || error instanceof OnboardingError ? error.code : 'SIMPLE_GATEWAY_FAILED' }) }
   })
   app.get<{ Params: { id: string } }>('/gateway/setup/:id', { onRequest: [app.authenticateAdmin],
     schema: { params: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } }

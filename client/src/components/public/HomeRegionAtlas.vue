@@ -200,6 +200,21 @@ function setContinent(value: string) {
 }
 function resetView() { zoom.value = 1; pan.value = { x: 0, y: 0 }; hoverSlug.value = ''; closeMobileFeedback(); if (globeTrial.value) mobileGlobe.value?.reset() }
 function changeZoom(delta: number) { zoom.value = boundedZoom(zoom.value + delta); limitPan(); hoverSlug.value = '' }
+function handleMapWheel(event: WheelEvent) {
+  if (touchMode.value || !svg.value || event.deltaY === 0) return
+  event.preventDefault()
+  const matrix = svg.value.getScreenCTM()
+  if (!matrix) return
+  const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
+  const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? svg.value.clientHeight : 1)
+  const previous = zoom.value
+  const next = boundedZoom(previous * Math.exp(-Math.max(-200, Math.min(200, pixels)) * 0.002))
+  pan.value = { x: point.x - 720 - (point.x - 720 - pan.value.x) * next / previous,
+    y: point.y - 250 - (point.y - 250 - pan.value.y) * next / previous }
+  zoom.value = next
+  limitPan()
+  hoverSlug.value = ''
+}
 function browseRegions() {
   activeRegionSlug.value = ''
   selectedSlug.value = ''
@@ -378,7 +393,7 @@ onBeforeUnmount(() => { resize?.disconnect(); mobileQuery?.removeEventListener('
       <MobileRegionGlobe v-if="globeTrial" ref="mobileGlobe" :regions="regions" :selected-slug="selectedSlug" :continent="continent" :loading="loading" :failed="failed" @choose="selectRegion($event, 'map')" />
       <template v-else>
         <div class="globe-atmosphere" aria-hidden="true"></div>
-        <svg ref="svg" class="map-svg" viewBox="0 0 1440 500" preserveAspectRatio="xMidYMid meet" role="group" :aria-label="minimal ? t('homeMapDemo.mapLabel') : t('homeMapDemo.catalogMapLabel')" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerUp" @dblclick.prevent="changeZoom(0.6)">
+        <svg ref="svg" class="map-svg" viewBox="0 0 1440 500" preserveAspectRatio="xMidYMid meet" role="group" :aria-label="minimal ? t('homeMapDemo.mapLabel') : t('homeMapDemo.catalogMapLabel')" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerUp" @wheel="handleMapWheel" @dblclick.prevent="changeZoom(0.6)">
           <defs>
             <filter id="atlas-neon" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="3.2" /><feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge></filter>
             <radialGradient id="atlas-pool"><stop offset="0" stop-color="#00f2fe" stop-opacity="0.14" /><stop offset="1" stop-color="#00f2fe" stop-opacity="0" /></radialGradient>

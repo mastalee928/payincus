@@ -7,6 +7,8 @@ import { ipv6BoundedClient } from '../src/lib/incus/ipv6-deadline.js'
 import { waitForOperation } from '../src/lib/incus/incus-utils.js'
 import { readFileSync } from 'node:fs'
 import { applyCustomerInstanceView } from '../src/lib/customer-instance-view.js'
+import { PublicIpSyncError } from '../src/lib/host-public-ip.js'
+import { dedicatedIpv6ProbeScript, validateDedicatedIpv6Probe } from '../src/lib/incus/dedicated-ipv6-probe.js'
 
 const a = '2603:c020:802a:cc00::1', b = '2603:c020:802a:cc00::2', c = '2603:c020:802a:cc00::3'
 assert.equal(publicIpv6('2603:C020:802A:CC00:0000:0000:0000:0001'), a)
@@ -47,7 +49,9 @@ const client: any = { request: async (method: string, path: string, body?: any) 
 const gateway = 'fd42:1:2:3::1'
 const verified: string[] = [], guestAddresses: string[][] = []
 let failure: string | null = null, guestFailure = false
+let guestVerifications = 0
 const deps = {
+  guestVerify: async () => { guestVerifications++ },
   bridge: async () => gateway,
   network: async () => {},
   guest: async (_client: any, _name: string, _gateway: string | null, addresses: string[]) => {
@@ -131,6 +135,43 @@ const networkPending = await reconcileDedicatedIpv6(client, input, { ...deps,
 })
 assert.equal(networkPending.status, 'pending')
 assert.deepEqual(customerIpv6View(networkPending)?.addresses, [])
+
+const controllerNoRoute = await reconcileDedicatedIpv6(client, input, { ...deps,
+  verify: async () => { throw new PublicIpSyncError('IPV6_CONTROLLER_NO_ROUTE') }
+})
+assert.equal(controllerNoRoute.status, 'ready', 'an IPv4-only controller verifies through authenticated Incus instead')
+assert.equal(controllerNoRoute.error, null)
+assert.equal(guestVerifications, 1)
+assert.equal(controllerNoRoute.mappings[0].verification, 'guest-network')
+assert.deepEqual(customerIpv6View(controllerNoRoute)?.addresses, [a])
+const failedGuest = await reconcileDedicatedIpv6(client, input, { ...deps,
+  verify: async () => { throw new PublicIpSyncError('IPV6_CONTROLLER_NO_ROUTE') },
+  guestVerify: async () => { throw new PublicIpv6SyncError('IPV6_SOURCE_MISMATCH') }
+})
+assert.equal(failedGuest.status, 'failed')
+assert.deepEqual(customerIpv6View(failedGuest)?.addresses, [], 'wrong guest egress source must never be advertised')
+assert.equal(failedGuest.error, 'IPV6_SOURCE_MISMATCH')
+const wrongIdentity = await reconcileDedicatedIpv6(client, input, { ...deps,
+  verify: async () => { throw new PublicIpSyncError('IP_IDENTITY_MISMATCH') }
+})
+assert.equal(wrongIdentity.error, 'IPV6_IDENTITY_MISMATCH')
+assert.equal(wrongIdentity.status, 'failed')
+assert.equal(guestVerifications, 1, 'an actual public SSH identity mismatch must never fall back')
+assert.equal((await reconcileDedicatedIpv6(client, { ...input, previous: failedGuest }, deps)).status, 'ready', 'automatic retry completes after guest connectivity recovers')
+const output = `256 SHA256:fixture key\nSSH_KEY_EXCHANGE_OK\nIPV6_SOURCE:${a}\n`
+validateDedicatedIpv6Probe(0, output, a, ['SHA256:fixture'])
+for (const [code, value] of [[78, output], [0, output.replace(a, b)], [0, output.replace('fixture', 'changed')], [0, output.replace('SSH_KEY_EXCHANGE_OK', 'SSH_BANNER_ONLY')]] as const) {
+  assert.throws(() => validateDedicatedIpv6Probe(code, value, a, ['SHA256:fixture']))
+}
+const probeScript = dedicatedIpv6ProbeScript({ publicIp: a, privateIp: 'fd42::2', ready: false }, 22)
+assert.match(probeScript, /--interface "\$source_ip" --noproxy '\*' --proto '=https'/)
+assert.match(probeScript, /StrictHostKeyChecking=yes/)
+assert.match(probeScript, /PreferredAuthentications=none/)
+assert.match(probeScript, /socket\.AF_INET6/)
+assert.match(probeScript, /ssl\.create_default_context\(\)/)
+assert.match(probeScript, /channel\.bind\(\(source, 0\)\)/)
+assert.doesNotMatch(probeScript, /--insecure|curl.* -k|apt |apk |systemctl |reboot/)
+assert.throws(() => dedicatedIpv6ProbeScript({ publicIp: a, privateIp: 'fd42::2;id', ready: false }, 22))
 
 input.addresses = Array.from({ length: MAX_IPV6_VERIFICATIONS_PER_PASS + 2 }, (_, i) => `2603:c020:802a:cc00::${(i + 32).toString(16)}`)
 verified.length = 0

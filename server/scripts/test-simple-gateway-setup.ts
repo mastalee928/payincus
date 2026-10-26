@@ -14,6 +14,13 @@ assert.equal(gatewaySshHost('gateway.example.com:51820', { gatewayHost: '10.0.0.
 const request = { schemaVersion: 2 as const, id, operation: 'prepare' as const, actorId: 1, createdAt: now,
   publicHost: 'gateway.example.com', approvedCredentialHash: 'a'.repeat(64), approvedSessionId: 'session-1' }
 assert.deepEqual(validateSimpleGatewayRequest(request, now), request)
+const confirmed = { ...request, operation: 'apply', planHash: 'a'.repeat(64), confirmedHostname: 'gateway.example.com' }
+assert.deepEqual(validateSimpleGatewayRequest(confirmed, now), confirmed)
+assert.equal(simpleGatewayPlanHash(confirmed as any, 'state-1'), simpleGatewayPlanHash(request, 'state-1'), 'a domain for the same verified public target preserves the reviewed plan')
+for (const confirmedHostname of ['8.8.8.8', 'https://gateway.example.com', 'gateway.example.com;id', '', 'localhost']) {
+  assert.throws(() => validateSimpleGatewayRequest({ ...confirmed, confirmedHostname }, now))
+}
+assert.throws(() => validateSimpleGatewayRequest({ ...request, confirmedHostname: 'gateway.example.com' }, now), 'domain selection is restricted to confirmation')
 for (const patch of [{ command: 'id' }, { sshAddress: '8.8.4.4;id' }, { passwordEncrypted: 'plaintext' },
   { actorId: 0 }, { createdAt: now - 300001 }, { createdAt: now + 5001 }, { approvedSessionId: '../../root' },
   { operation: 'apply' }, { publicHost: 'https://example.com' }, { id: '../../root' }]) {

@@ -192,7 +192,7 @@ function detectOsInfo(imageAlias: string): OsInfo {
     else if (alias.includes('centos')) defaultUser = 'centos'
     return {
       family: isVersion8 ? 'rhel8' : 'rhel',
-      packageManager: isVersion8 ? 'yum' : 'dnf',
+      packageManager: isVersion8 || /centos.*7/i.test(alias) ? 'yum' : 'dnf',
       initSystem: 'systemd',
       sshServiceName: 'sshd',
       defaultShell: '/bin/bash',
@@ -292,7 +292,7 @@ function getSetupCommands(osInfo: OsInfo): string[] {
   cmds.push('grep -q "^Subsystem sftp " /etc/ssh/sshd_config || printf "\\n%s\\n" "Subsystem sftp internal-sftp" >> /etc/ssh/sshd_config')
 
   if (osInfo.supportsInclude) {
-    cmds.push('grep -q "^Include /etc/ssh/sshd_config.d" /etc/ssh/sshd_config || sed -i "1i Include /etc/ssh/sshd_config.d/*.conf" /etc/ssh/sshd_config || true')
+    cmds.push('if printf "%s\\n" "Include /dev/null" | "$(command -v sshd)" -T -f /dev/stdin >/dev/null 2>&1; then grep -q "^Include /etc/ssh/sshd_config.d" /etc/ssh/sshd_config || sed -i "1i Include /etc/ssh/sshd_config.d/*.conf" /etc/ssh/sshd_config || true; fi')
   }
 
   cmds.push('command -v ssh-keygen >/dev/null && { test -f /etc/ssh/ssh_host_rsa_key || ssh-keygen -A 2>/dev/null; } || true')
@@ -377,7 +377,8 @@ $SED_BIN -i 's/^PermitRootLogin/#PermitRootLogin/g' $SSH_CONFIG 2>/dev/null || t
 $SED_BIN -i 's/^PasswordAuthentication/#PasswordAuthentication/g' $SSH_CONFIG 2>/dev/null || true
 $SED_BIN -i 's/^PubkeyAuthentication/#PubkeyAuthentication/g' $SSH_CONFIG 2>/dev/null || true
 
-if ! grep -q "^Include /etc/ssh/sshd_config.d" $SSH_CONFIG; then
+if printf '%s\\n' 'Include /dev/null' | "$(command -v sshd)" -T -f /dev/stdin >/dev/null 2>&1 &&
+   ! grep -q "^Include /etc/ssh/sshd_config.d" $SSH_CONFIG; then
     $SED_BIN -i "1i Include /etc/ssh/sshd_config.d/*.conf" $SSH_CONFIG 2>/dev/null || true
 fi
 
@@ -517,7 +518,9 @@ export function generateContainerConfig(params: IncusConfigParams): IncusConfigR
     .join('\n')
 
   // 2. SSH Config
-  const sshdDropInPath = '/etc/ssh/sshd_config.d/50-incus.conf'
+  // OpenSSH uses the first value it reads; load our customer login policy
+  // before image/cloud-init defaults such as 50-cloud-init.conf.
+  const sshdDropInPath = '/etc/ssh/sshd_config.d/00-incus.conf'
   const sshdDropInContent = [
     `Port ${sshPort}`,
     'PermitRootLogin yes',
@@ -583,7 +586,6 @@ export function generateContainerConfig(params: IncusConfigParams): IncusConfigR
   const bootcmdList = getBootcmd(osInfo)
   const bootcmdSection = bootcmdList.length > 0 ? `bootcmd:\n${bootcmdList.map(cmd => `  - ${cmd}`).join('\n')}\n` : ''
   const yamlSafePassword = rootPassword.replace(/'/g, "''").replace(/\\/g, '\\\\')
-  const sshPwauth = isAlpine ? 'false' : 'true'
   const packagesSection = packages.length > 0
     ? `packages:\n${packagesYaml}\n\n`
     : ''
@@ -605,7 +607,7 @@ package_update: ${isAlpine ? 'false' : 'true'}
 package_upgrade: false
 timezone: Asia/Shanghai
 
-ssh_pwauth: ${sshPwauth}
+ssh_pwauth: true
 disable_root: false
 
 ${packagesSection}${chpasswdSection}users:

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { isIPv4 } from 'node:net'
 import { normalizeOnboardingAddress, isOnboardingPublicIPv4 } from './host-onboarding.js'
 export class LocalGatewaySetupError extends Error {
   constructor(public readonly code: string) { super(code) }
@@ -11,13 +12,14 @@ export function localGatewaySetupId(value: unknown): string {
 export interface SimpleGatewayRequest {
   schemaVersion: 2; id: string; operation: 'prepare' | 'apply'; actorId: number; createdAt: number
   publicHost: string | null; approvedCredentialHash: string; approvedSessionId: string; planHash?: string
+  confirmedHostname?: string
 }
 export function validateSimpleGatewayRequest(value: unknown, now = Date.now()): SimpleGatewayRequest {
   const bad = (): never => { throw new LocalGatewaySetupError('SIMPLE_GATEWAY_INVALID') }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return bad()
   const row = value as Record<string, unknown>
   const fields = ['schemaVersion', 'id', 'operation', 'actorId', 'createdAt', 'publicHost',
-    'approvedCredentialHash', 'approvedSessionId', ...(row.operation === 'apply' ? ['planHash'] : [])]
+    'approvedCredentialHash', 'approvedSessionId', ...(row.operation === 'apply' ? ['planHash', ...(row.confirmedHostname === undefined ? [] : ['confirmedHostname'])] : [])]
   if (Object.keys(row).length !== fields.length || fields.some(field => !Object.hasOwn(row, field)) ||
     row.schemaVersion !== 2 || !['prepare', 'apply'].includes(String(row.operation)) ||
     !Number.isSafeInteger(row.actorId) || Number(row.actorId) < 1 || !Number.isSafeInteger(row.createdAt) ||
@@ -29,6 +31,8 @@ export function validateSimpleGatewayRequest(value: unknown, now = Date.now()): 
   if (row.publicHost !== null) {
     try { if (typeof row.publicHost !== 'string' || normalizeOnboardingAddress(row.publicHost) !== row.publicHost) return bad() } catch { return bad() }
   }
+  if (row.confirmedHostname !== undefined && (typeof row.confirmedHostname !== 'string' ||
+    normalizeOnboardingAddress(row.confirmedHostname) !== row.confirmedHostname || isIPv4(row.confirmedHostname))) return bad()
   return row as unknown as SimpleGatewayRequest
 }
 export function simpleGatewayPlanHash(request: SimpleGatewayRequest, observedStateHash: string, publicHost = request.publicHost) {

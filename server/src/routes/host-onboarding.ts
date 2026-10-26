@@ -66,6 +66,7 @@ export default async function hostOnboardingRoutes(fastify: FastifyInstance) {
     schema: { body: { type: 'object', additionalProperties: false, required: ['requestId', 'name', 'accountLabel', 'defaults', 'nodes'], properties: {
       requestId: { type: 'string', maxLength: 36 }, name: { type: 'string', maxLength: 80 }, accountLabel: { type: 'string', maxLength: 80 },
       defaults: { type: 'object', additionalProperties: false, required: ['countryCode'], properties: {
+        portProtocol: { type: 'string', enum: ['tcp', 'tcp_udp'] },
         countryCode: { type: 'string', pattern: '^[a-z]{2}$' }, storageSize: { type: 'integer', minimum: 10, maximum: 10000 },
         machineGroup: { type: 'string', maxLength: 60 }, regionGroup: { type: 'string', maxLength: 60 },
         cpuAllowanceMax: { type: 'integer', minimum: 1, maximum: 100000 }, memoryMax: { type: 'integer', minimum: 256, maximum: 1048576 },

@@ -32,6 +32,7 @@ export interface OnboardingInputNode extends OnboardingCredentials, OnboardingRe
 }
 export interface OnboardingDefaults extends OnboardingResourceInput {
   countryCode: string
+  portProtocol?: 'tcp' | 'tcp_udp'
   machineGroup?: string
   regionGroup?: string
   storageSize?: number
@@ -91,6 +92,7 @@ export interface OnboardingListResponse {
   gatewaySshHost: string | null
 }
 export interface OnboardingGatewayStatus {
+  local?: boolean
   ready: boolean
   code?: string
   gateway?: { controlIp: string; network: string; sshHost: string }

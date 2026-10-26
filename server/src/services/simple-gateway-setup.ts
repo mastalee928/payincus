@@ -5,7 +5,8 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import { prisma } from '../db/prisma.js'
 import { gatewayCredentialHash, gatewayCredentialSelect } from './gateway-admin-authorization.js'
-import { loadStableGatewayEndpoint } from './onboarding-gateway-endpoint.js'
+import { loadStableGatewayEndpoint, resolveGatewayEndpointAddress } from './onboarding-gateway-endpoint.js'
+import { validateStableGatewayEndpoint } from '../lib/onboarding-gateway-endpoint.js'
 import { recoveryHeld } from './platform-backup-core.js'
 import { normalizeOnboardingAddress, OnboardingError } from '../lib/host-onboarding.js'
 import { gatewayConfigured, gatewayCommand } from './onboarding-ssh.js'
@@ -21,7 +22,7 @@ export async function simpleGatewayStatus() {
   if (!gatewayConfigured()) return { ready: false, code: 'GATEWAY_NOT_CONFIGURED' }
   try {
     const gateway = await gatewayCommand()
-    return { ready: true, gateway: { controlIp: gateway.controlIp, network: gateway.network, sshHost: gateway.sshHost } }
+    return { ready: true, local: ['127.0.0.1', 'localhost'].includes(process.env.ONBOARDING_GATEWAY_HOST || ''), gateway: { controlIp: gateway.controlIp, network: gateway.network, sshHost: gateway.sshHost } }
   } catch (error) { return { ready: false, code: error instanceof OnboardingError ? error.code : 'GATEWAY_UNREACHABLE' } }
 }
 export async function requestSimpleGatewaySetup(input: SimpleGatewayInput, actorId: number, sessionId: string) {
@@ -52,7 +53,7 @@ export async function requestSimpleGatewaySetup(input: SimpleGatewayInput, actor
   }
   return { id, actorId, state: 'queued', step: 'connect', errorCode: null, updatedAt: new Date().toISOString() }
 }
-export async function confirmSimpleGatewaySetup(input: string, planHash: string, actorId: number, sessionId: string) {
+export async function confirmSimpleGatewaySetup(input: string, planHash: string, actorId: number, sessionId: string, hostname?: string) {
   const id = localGatewaySetupId(input), state = await readSimpleGatewaySetup(id)
   if (recoveryHeld()) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_RECOVERY_HELD')
   if (state.actorId !== actorId || state.state !== 'awaiting_confirmation' || state.plan?.planHash !== planHash || state.plan.expiresAt <= Date.now()) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_PLAN_EXPIRED')
@@ -61,8 +62,12 @@ export async function confirmSimpleGatewaySetup(input: string, planHash: string,
   if (request.actorId !== actorId || request.approvedSessionId !== sessionId) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_ADMIN_REQUIRED')
   const user = await prisma.user.findUnique({ where: { id: actorId }, select: SIMPLE_GATEWAY_ADMIN_SELECT })
   if (!user || user.role !== 'admin' || user.status !== 'active' || gatewayCredentialHash(user) !== request.approvedCredentialHash) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_ADMIN_REQUIRED')
+  const confirmedHostname = hostname === undefined ? undefined : validateStableGatewayEndpoint({ hostname, port: 51820 }).hostname
+  if (confirmedHostname && await resolveGatewayEndpointAddress(confirmedHostname) !== await resolveGatewayEndpointAddress(state.plan.publicHost)) {
+    throw new LocalGatewaySetupError('GATEWAY_DNS_TARGET_MISMATCH')
+  }
   const temporary = path + '.apply'
-  await writeFile(temporary, JSON.stringify({ ...request, operation: 'apply', planHash }), { flag: 'wx', mode: 0o600 })
+  await writeFile(temporary, JSON.stringify({ ...request, operation: 'apply', planHash, ...(confirmedHostname ? { confirmedHostname } : {}) }), { flag: 'wx', mode: 0o600 })
   await rename(temporary, path)
   try { await exec('/usr/bin/sudo', ['-n', '/usr/local/libexec/incudal/systemctl', 'start', '--no-block', `incudal-local-gateway@${id}.service`], { timeout: 10000 }) }
   catch { await writeFile(path, JSON.stringify({ ...request, passwordEncrypted: null }), { mode: 0o600 }); throw new LocalGatewaySetupError('SIMPLE_GATEWAY_EXECUTOR_UNAVAILABLE') }

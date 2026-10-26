@@ -24,6 +24,17 @@ const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
 const instancesSource = readFileSync(resolve(repoRoot, 'server/src/routes/instances.ts'), 'utf8')
 const hostsSource = readFileSync(resolve(repoRoot, 'server/src/routes/hosts.ts'), 'utf8')
 
+for (const [source, marker, stopCall, deleteCall] of [
+  [instancesSource, 'async function deleteIncusInstanceForDelete(', 'await stopInstance(', 'await deleteInstance('],
+  [hostsSource, 'async function deleteIncusInstanceForHostBatch(', 'await operations.stopInstance(', 'await operations.deleteInstance(']
+]) {
+  const helper = section(source, marker, '\n}\n')
+  assert(!helper.includes("if (instance.status === 'running')"), 'administrator deletion must not trust a stale database status to skip stopping Incus')
+  const stop = indexOfOrThrow(helper, stopCall, 'remote-state stop')
+  const remove = indexOfOrThrow(helper, deleteCall, 'confirmed remote deletion')
+  assert(stop < remove, 'administrator single/batch deletion must check actual state before deletion')
+}
+
 const configUpdateSection = section(
   instancesSource,
   '// 更新宿主机资源使用量',
@@ -87,7 +98,7 @@ assert(
 
 const batchDeleteSection = section(
   hostsSource,
-  'fastify.delete<{\n    Params: { id: string }\n    Body: { instanceIds: number[]; reason?: string; databaseOnly?: boolean }',
+  'fastify.delete<{\n    Params: { id: string }\n    Body: { instanceIds: number[]; reason?: string; databaseOnly?: boolean; refund?: boolean }',
   '  })\n\n  // 删除宿主机'
 )
 
@@ -117,7 +128,7 @@ const batchRemoteCleanup = indexOfOrThrow(batchDeleteSection, '// ===== 1. 删�
 const batchIncusDelete = indexOfOrThrow(batchDeleteSection, 'await deleteIncusInstanceForHostBatch(client, incusInstanceOperations, instance, fastify.log)', 'host batch strict Incus delete')
 const batchRefund = indexOfOrThrow(batchDeleteSection, '// ===== 6. 处理退款', 'host batch refund section')
 const batchDbCleanup = indexOfOrThrow(batchDeleteSection, '// ===== 7. 删除数据库附属记录', 'host batch DB cleanup section')
-const batchResourceRelease = indexOfOrThrow(batchDeleteSection, 'await db.rollbackResources({', 'host batch resource release')
+const batchResourceRelease = indexOfOrThrow(batchDeleteSection, 'await finalizeHostBatchDelete(instance.id, hostId, databaseOnly === true)', 'host batch resource release')
 
 assert(batchClaim < batchRemoteCleanup, 'host batch delete must claim before remote cleanup')
 assert(batchIncusDelete < batchRefund, 'host batch delete must delete Incus instance before refund')

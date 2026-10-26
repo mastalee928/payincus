@@ -1069,6 +1069,14 @@ assert.ok(
     !instanceDetailViewSource.includes('instance.errorBanner.reasonLabel'),
   'InstanceDetailView must not render an unavailable instance failure reason'
 )
+const errorDestroyHandler = instanceDetailViewSource.slice(instanceDetailViewSource.indexOf('async function handleErrorDestroy()'),
+  instanceDetailViewSource.indexOf('// 任务状态轮询', instanceDetailViewSource.indexOf('async function handleErrorDestroy()')))
+assert.ok(errorDestroyHandler.indexOf('billing.getDestroyInfo') < errorDestroyHandler.indexOf('confirm(confirmation)') &&
+  errorDestroyHandler.indexOf('confirm(confirmation)') < errorDestroyHandler.indexOf('billing.destroyInstance') &&
+  errorDestroyHandler.includes('if (!info.canDestroy)') && errorDestroyHandler.includes('info.refund.refundAmount > 0') &&
+  errorDestroyHandler.includes('instance.errorBanner.confirmDestroyNoRefund') &&
+  errorDestroyHandler.includes('result.refundAmount <= 0'),
+  'error-state destruction must preview actual refundable balance before confirmation and avoid promising a second refund')
 assert.ok(
   instanceDetailViewSource.includes('localizePoolRegionName') &&
     instanceDetailViewSource.includes('ociMachineShape') &&
@@ -1278,7 +1286,9 @@ assert.doesNotMatch(gatewayInstallationPanelSource, /\.\.\.inspection\.request/)
 assert.match(gatewayInstallationPanelSource, /if \(dialog\.value\?\.open\) return/)
 const expiryPanel = readRepoFile('client/src/components/admin/ExpiryEnforcementPanel.vue')
 const endpointPanel = readRepoFile('client/src/components/host/GatewayEndpointPanel.vue')
-assert.ok(readRepoFile('client/src/components/host/ManagementGatewayPanel.vue').includes('<GatewayEndpointPanel />'))
+assert.ok(gatewayManagementPanelSource.includes('<GatewayEndpointPanel :manage-domain="false" />'), 'local setup owns the single domain field; host synchronization remains available')
+assert.ok(gatewayManagementPanelSource.includes('v-model.trim="hostname"') && gatewayManagementPanelSource.includes('api.hostOnboarding.saveGatewayEndpoint'))
+assert.ok(endpointPanel.includes('v-if="manageDomain"'), 'standalone domain editor must remain available outside local setup')
 assert.ok(endpointPanel.includes('@submit.prevent="save"') && endpointPanel.includes('api.hostOnboarding.saveGatewayEndpoint'))
 assert.ok(endpointPanel.includes('onUnmounted') && endpointPanel.includes('clearTimeout(timer)'))
 assert.ok(endpointPanel.includes('api.hostOnboarding.installGatewayDnsHost') && endpointPanel.includes('@click="synchronize(false, host)"'))
@@ -1289,3 +1299,4 @@ assert.ok(adminBillingViewSource.includes('<ExpiryEnforcementPanel />'))
 for (const action of ['expiryEnforcementStatus', 'startExpiryEnforcement', 'runExpiryEnforcement']) assert.ok(expiryPanel.includes(`api.admin.${action}()`))
 assert.ok(expiryPanel.includes('status.running || status.recoveryHeld') && expiryPanel.includes('clearTimeout(timer)'))
 console.log('frontend route guard tests passed')
+assert.ok(readRepoFile('client/src/views/InstancesView.vue').includes('if (option.months === 1) options.add(option.months)'), 'instance list and batch renewal must offer only one month')

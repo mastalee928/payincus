@@ -149,6 +149,7 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
             userId: node.batch.createdById, name: node.name, url, location: node.batch.accountLabel,
             countryCode: node.countryCode || defaults.countryCode, tags: ['oci', node.batch.accountLabel],
             ...groups, singleTenant: true, resourcePreset: resources!.resourcePreset, customerDiskGiB: resources!.customerDiskGiB,
+            portProtocol: defaults.portProtocol ?? 'tcp',
             resourceSnapshot: resources as unknown as Prisma.InputJsonObject, architecture: resources!.probe.architecture,
             natPublicIp: node.publicIp, natBindIp: bindIp, ipAddress: node.publicIp, natPortStart: 1, natPortEnd: 65535,
             managementSshHost: gateway.managementIp, managementSshPort: node.sshPort, managementSshUser: 'root',

@@ -180,7 +180,7 @@ const batchRenewMonthOptions = computed(() => {
   for (const item of batchRenewPreview.value) {
     if (!item.canRenew) continue
     for (const option of item.options) {
-      options.add(option.months)
+      if (option.months === 1) options.add(option.months)
     }
   }
   return Array.from(options).sort((a, b) => a - b)

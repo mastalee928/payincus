@@ -62,6 +62,7 @@ export const zhCN = {
     "GATEWAY_DNS_SERVICE_BUSY": "这台服务器的地址更新服务正忙，系统会稍后自动重试并保留结果。"
   },
   "setup": {
+    "lastAttempt": "最近配置记录",
     "title": "主控管理网关",
     "description": "当前主控同时担任管理网关。系统直接检查本机、规划网络并配置服务。",
     "address": "SSH IP / 地址",
@@ -192,6 +193,7 @@ export const zhTW = {
     "GATEWAY_DNS_SERVICE_BUSY": "這台伺服器的位址更新服務正忙，系統會自動重試並保留結果。"
   },
   "setup": {
+    "lastAttempt": "最近設定記錄",
     "title": "主控管理網關",
     "description": "目前主控同時擔任管理網關，系統直接檢查本機、規劃網路並配置服務。",
     "address": "SSH IP / 位址",
@@ -322,6 +324,7 @@ export const en = {
     "GATEWAY_DNS_SERVICE_BUSY": "This server’s address update service is busy. Automatic retries and results are retained."
   },
   "setup": {
+    "lastAttempt": "Latest setup attempt",
     "title": "Controller gateway",
     "description": "This controller also runs the gateway. The system checks this machine, plans the network and configures its services directly.",
     "address": "SSH IP / address",

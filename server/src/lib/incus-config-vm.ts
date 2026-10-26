@@ -46,7 +46,7 @@ interface VmOsInfo {
 const DEFAULT_DNS_V4 = ['10.10.0.1']
 const DEFAULT_DNS_V6 = ['2606:4700:4700::1111', '2001:4860:4860::8888']
 const DEFAULT_IPV6_GATEWAY = 'fe80::1'
-const SSHD_PRIMARY_DROPIN_PATH = '/etc/ssh/sshd_config.d/99-incudal-force.conf'
+const SSHD_PRIMARY_DROPIN_PATH = '/etc/ssh/sshd_config.d/00-incudal-force.conf'
 const SSHD_LEGACY_DROPIN_PATH = '/etc/ssh/sshd_config.d/00-incudal-auth.conf'
 
 // ================= 工具函数 =================
@@ -131,7 +131,7 @@ function detectVmOsInfo(imageAlias: string): VmOsInfo {
 
     return {
       family: isRhel8Series(alias) ? 'rhel8' : 'rhel',
-      packageManager: isRhel8Series(alias) ? 'yum' : 'dnf',
+      packageManager: isRhel8Series(alias) || /centos.*7/i.test(alias) ? 'yum' : 'dnf',
       initSystem: 'systemd',
       sshServiceName: 'sshd',
       defaultShell: '/bin/bash',
@@ -159,11 +159,11 @@ function getPackageInstallCommand(osInfo: VmOsInfo): string {
     case 'apt':
       return 'retry_cmd "DEBIAN_FRONTEND=noninteractive apt-get update" && retry_cmd "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends qemu-guest-agent openssh-server curl ca-certificates"'
     case 'dnf':
-      return 'retry_cmd "dnf install -y qemu-guest-agent openssh-server curl ca-certificates"'
+      return 'retry_cmd "dnf install -y qemu-guest-agent openssh-server openssh-clients curl ca-certificates"'
     case 'yum':
-      return 'retry_cmd "yum install -y qemu-guest-agent openssh-server curl ca-certificates"'
+      return 'retry_cmd "yum install -y qemu-guest-agent openssh-server openssh-clients curl ca-certificates"'
     case 'apk':
-      return 'retry_cmd "apk update" && retry_cmd "apk add --no-cache qemu-guest-agent openssh-server openssh-keygen curl ca-certificates shadow" || retry_cmd "apk add --no-cache qemu-guest-agent openssh curl ca-certificates shadow"'
+      return 'retry_cmd "apk update" && retry_cmd "apk add --no-cache qemu-guest-agent openssh curl ca-certificates shadow"'
     default:
       return ':'
   }
@@ -175,7 +175,7 @@ function getCloudInitPackages(osInfo: VmOsInfo): string[] {
       return ['qemu-guest-agent', 'openssh-server', 'curl', 'ca-certificates']
     case 'dnf':
     case 'yum':
-      return ['qemu-guest-agent', 'openssh-server', 'curl', 'ca-certificates']
+      return ['qemu-guest-agent', 'openssh-server', 'openssh-clients', 'curl', 'ca-certificates']
     default:
       return []
   }
@@ -323,6 +323,8 @@ ensure_include_directive() {
   config_path="/etc/ssh/sshd_config"
   [ -f "$config_path" ] || return 0
 
+  # Older OpenSSH releases have no server-side Include directive.
+  printf '%s\\n' 'Include /dev/null' | "$(command -v sshd)" -T -f /dev/stdin >/dev/null 2>&1 || return 0
   grep -q '^Include /etc/ssh/sshd_config.d/\\*\\.conf$' "$config_path" && return 0
 
   tmp_path="$config_path.incudal.tmp"
@@ -337,9 +339,10 @@ write_sshd_dropin() {
   ensure_include_directive
   # 暴力清理各大云系统的防修改枷锁文件
   rm -f "${sshdLegacyDropInPath}" 2>/dev/null || true
+  rm -f /etc/ssh/sshd_config.d/99-incudal-force.conf 2>/dev/null || true
   rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf 2>/dev/null || true
   rm -f /etc/ssh/sshd_config.d/60-cloudimg-settings.conf 2>/dev/null || true
-  # 以 99 结尾占据排序优势
+  # OpenSSH uses the first value: load the platform policy before cloud defaults.
   cat > "${sshdPrimaryDropInPath}" <<'EOF'
 ${sshdDropInContent}
 EOF

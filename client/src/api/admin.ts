@@ -1418,13 +1418,13 @@ const api = {
       totalRefundAmount: number
     }> => http.post(`/hosts/${hostId}/instances/batch-delete-preview`, { instanceIds }),
     // 批量删除实例
-    batchDeleteInstances: (hostId: number, instanceIds: number[], reason?: string, databaseOnly?: boolean): Promise<{
+    batchDeleteInstances: (hostId: number, instanceIds: number[], reason?: string, databaseOnly?: boolean, refund?: boolean): Promise<{
       message: string
       results: Array<{ id: number; name: string; success: boolean; error?: string; refundAmount?: number }>
       successCount: number
       failedCount: number
       totalRefundAmount: number
-    }> => http.delete(`/hosts/${hostId}/instances/batch`, { data: { instanceIds, reason, databaseOnly }, timeout: TIMEOUT.BATCH }),
+    }> => http.delete(`/hosts/${hostId}/instances/batch`, { data: { instanceIds, reason, databaseOnly, refund }, timeout: TIMEOUT.BATCH }),
     // 批量赠送时长
     giftDays: (hostId: number, instanceIds: number[], days: number): Promise<{
       message: string
@@ -4143,7 +4143,7 @@ hostOnboarding: {
     gatewaySetupStatus: (): Promise<{ available: boolean; latest: GatewaySetupProgress | null; gateway: OnboardingGatewayStatus | null }> => http.get('/host-onboarding/gateway/setup'),
     configureControllerGateway: (input: { requestId: string }): Promise<GatewaySetupProgress> => http.post('/host-onboarding/gateway/setup', input),
     controllerGatewayTask: (id: string): Promise<GatewaySetupProgress> => http.get(`/host-onboarding/gateway/setup/${id}`),
-    confirmControllerGateway: (id: string, planHash: string): Promise<GatewaySetupProgress> => http.post(`/host-onboarding/gateway/setup/${id}/confirm`, { planHash }),
+    confirmControllerGateway: (id: string, planHash: string, hostname?: string): Promise<GatewaySetupProgress> => http.post(`/host-onboarding/gateway/setup/${id}/confirm`, { planHash, hostname }),
     list: (params: { page?: number; search?: string } = {}): Promise<OnboardingListResponse> => http.get('/host-onboarding', { params }),
     create: (data: CreateOnboardingRequest): Promise<{ id: string }> => http.post('/host-onboarding', data),
     retry: (id: string, credentials: OnboardingCredentials): Promise<{ success: boolean }> => http.post(`/host-onboarding/nodes/${id}/retry`, credentials),
@@ -4152,6 +4152,10 @@ hostOnboarding: {
   },
 
 hostPools: {
+    catalog: (): Promise<{ regions: import('@/utils/poolCatalog').PoolCatalogRegion[] }> => http.get('/host-pools/public/catalog'),
+    createForUser: (data: { requestId: string; username: string; name: string; poolPriceId: number; image: string;
+      expectedTotal: number; billing: 'free' | 'paid'; chargeFirstMonth: boolean }): Promise<{ instances: Array<{ id: number; status: string; refundPending: boolean }> }> =>
+      http.post('/instances/admin/pool-create', data, { timeout: TIMEOUT.BATCH }),
     // 池子定价表。resourcePreset 用 string 而不是 ResourcePreset：服务端有 enum 校验，
     // 这里不引入额外的类型导入依赖。
     prices: (params: { machineGroupId?: number; resourcePreset?: string } = {}): Promise<{ prices: HostPoolPrice[] }> =>

@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify'
 import { turnstileVerifier } from '../lib/turnstile.js'
 import { apiError, ErrorCode, type ErrorCodeType } from '../lib/errors.js'
 import { getPoolOrderResult, placePoolOrder, PoolOrderError, type PoolOrderInput } from '../services/pool-orders.js'
+import { prisma } from '../db/prisma.js'
 
 const STATUS_BY_CODE: Partial<Record<ErrorCodeType, number>> = {
   [ErrorCode.POOL_STOCK_SHORT]: 409,
@@ -14,6 +15,33 @@ const STATUS_BY_CODE: Partial<Record<ErrorCodeType, number>> = {
 }
 
 export default async function poolOrderRoutes(fastify: FastifyInstance) {
+  fastify.post<{ Body: { requestId: string; username: string; name: string; poolPriceId: number; image: string;
+    expectedTotal: number; billing: 'free' | 'paid'; chargeFirstMonth: boolean } }>('/admin/pool-create', {
+    onRequest: [fastify.authenticateAdmin],
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    schema: { body: { type: 'object', additionalProperties: false,
+      required: ['requestId', 'username', 'name', 'poolPriceId', 'image', 'expectedTotal', 'billing', 'chargeFirstMonth'], properties: {
+        requestId: { type: 'string', format: 'uuid' }, username: { type: 'string', minLength: 1, maxLength: 64 },
+        name: { type: 'string', minLength: 2, maxLength: 60 }, poolPriceId: { type: 'integer', minimum: 1 },
+        image: { type: 'string', minLength: 1, maxLength: 200 }, expectedTotal: { type: 'integer', minimum: 0 },
+        billing: { type: 'string', enum: ['free', 'paid'] }, chargeFirstMonth: { type: 'boolean' }
+      } } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    const target = await prisma.user.findUnique({ where: { username: request.body.username }, select: { id: true, username: true, status: true } })
+    if (!target || target.status !== 'active') return reply.code(400).send(apiError(ErrorCode.USER_NOT_FOUND))
+    const key = await prisma.sshKey.findFirst({ where: { userId: target.id }, orderBy: { id: 'asc' }, select: { id: true } })
+    try {
+      const result = await placePoolOrder(target.id, target.username, {
+        requestId: request.body.requestId, expectedTotal: request.body.expectedTotal, sshKeyId: key?.id ?? null,
+        items: [{ poolPriceId: request.body.poolPriceId, quantity: 1, namePrefix: request.body.name, image: request.body.image }]
+      }, { actorId: request.user.id, billing: request.body.billing, chargeFirstMonth: request.body.chargeFirstMonth })
+      return reply.code(202).send(result)
+    } catch (error) {
+      if (error instanceof PoolOrderError) return reply.code(STATUS_BY_CODE[error.code] ?? 400).send({ ...apiError(error.code, error.message), ...error.details })
+      throw error
+    }
+  })
   fastify.post<{ Body: PoolOrderInput }>('/pool-order', {
     onRequest: [fastify.authenticate],
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },

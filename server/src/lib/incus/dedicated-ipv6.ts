@@ -5,11 +5,22 @@ import { execWithOutput } from './incus-instances.js'
 import { ensureDedicatedIpv6Forward, removeObsoleteDedicatedIpv6Forwards } from './dedicated-network.js'
 import { dedicatedIpv6Address, dedicatedIpv6Gateway, dedicatedIpv6State, normalizeIpv6, privateIpv6, orderedPublicIpv6,
   PublicIpv6SyncError, MAX_PUBLIC_IPV6_ADDRESSES, type DedicatedIpv6Mapping, type DedicatedIpv6State } from '../host-public-ipv6.js'
-import { verifyPublicSshIdentity } from '../host-public-ip.js'
+import { verifyPublicSshIdentity, PublicIpSyncError } from '../host-public-ip.js'
+import { verifyDedicatedIpv6FromGuest } from './dedicated-ipv6-probe.js'
 
 const bridge = '/1.0/networks/incusbr0'
 const guestDirectory = '/etc/payincus/ipv6'
 export const MAX_IPV6_VERIFICATIONS_PER_PASS = 8
+
+function ipv6DeliveryError(error: unknown): string {
+  if (error instanceof PublicIpv6SyncError) return error.code
+  if (error instanceof PublicIpSyncError) {
+    if (error.code === 'IPV6_CONTROLLER_NO_ROUTE') return error.code
+    if (error.code === 'IP_IDENTITY_MISMATCH') return 'IPV6_IDENTITY_MISMATCH'
+    if (error.code === 'IP_IDENTITY_UNAVAILABLE') return 'IPV6_IDENTITY_UNAVAILABLE'
+  }
+  return 'IPV6_DELIVERY_FAILED'
+}
 
 export function dedicatedIpv6NetworkDigest(mappings: DedicatedIpv6Mapping[]): string {
   const lines = mappings.flatMap(mapping => [mapping.privateIp, mapping.fallbackIp].filter(Boolean)
@@ -151,7 +162,8 @@ export const dedicatedIpv6Dependencies = {
   guest: configureDedicatedIpv6Guest,
   network: waitForDedicatedIpv6Network,
   fingerprints: instanceSshFingerprints,
-  verify: verifyPublicSshIdentity
+  verify: verifyPublicSshIdentity,
+  guestVerify: verifyDedicatedIpv6FromGuest
 }
 
 /** The caller owns the instance operation lock and publishes only these verified results. */
@@ -173,7 +185,7 @@ export async function reconcileDedicatedIpv6(client: IncusClient, input: {
       const fallbackIp = dedicatedIpv6Address(gateway!, input.instanceId, `${publicIp}:other-protocols`)
       const old = sameInstance ? previous.mappings.find(mapping => mapping.publicIp === publicIp &&
         mapping.privateIp === privateIp && mapping.fallbackIp === fallbackIp) : undefined
-      return { publicIp, privateIp, fallbackIp, ready: old?.ready === true, checkedAt: old?.checkedAt ?? null }
+      return { publicIp, privateIp, fallbackIp, ready: old?.ready === true, checkedAt: old?.checkedAt ?? null, ...(old?.verification ? { verification: old.verification } : {}) }
     })
     // Delete only addresses no longer present on the host, including after a crash/retry.
     await removeObsoleteDedicatedIpv6Forwards(client, input.name, addresses)
@@ -190,7 +202,7 @@ export async function reconcileDedicatedIpv6(client: IncusClient, input: {
       } catch (error) {
         input.signal?.throwIfAborted()
         mapping.ready = false
-        state.error = error instanceof PublicIpv6SyncError ? error.code : 'IPV6_DELIVERY_FAILED'
+        state.error = ipv6DeliveryError(error)
       }
     }
     await deps.network(client, installed, input.signal)
@@ -204,14 +216,21 @@ export async function reconcileDedicatedIpv6(client: IncusClient, input: {
       input.signal?.throwIfAborted()
       mapping.checkedAt = new Date().toISOString()
       try {
-        await deps.verify(mapping.publicIp, input.sshPort, fingerprints)
+        try {
+          await deps.verify(mapping.publicIp, input.sshPort, fingerprints)
+          mapping.verification = 'public-ssh'
+        } catch (error) {
+          if (!(error instanceof PublicIpSyncError) || error.code !== 'IPV6_CONTROLLER_NO_ROUTE') throw error
+          await deps.guestVerify(client, input.name, mapping, input.sshPort, fingerprints)
+          mapping.verification = 'guest-network'
+        }
         mapping.ready = true
       } catch (error) {
         mapping.ready = false
-        state.error = error instanceof PublicIpv6SyncError ? error.code : 'IPV6_DELIVERY_FAILED'
+        state.error = ipv6DeliveryError(error)
       }
     }
-    state.status = state.error ? 'failed' : state.mappings.some(mapping => !mapping.ready) ? 'pending' : addresses.length ? 'ready' : 'none'
+    state.status = state.error === 'IPV6_CONTROLLER_NO_ROUTE' ? 'pending' : state.error ? 'failed' : state.mappings.some(mapping => !mapping.ready) ? 'pending' : addresses.length ? 'ready' : 'none'
   } catch (error) {
     state.error = input.signal?.aborted ? 'IPV6_SYNC_DEADLINE' : error instanceof PublicIpv6SyncError ? error.code : 'IPV6_DELIVERY_FAILED'
     state.status = ['IPV6_GUEST_INITIALIZING', 'IPV6_NETWORK_PENDING', 'IPV6_SYNC_DEADLINE'].includes(state.error) ? 'pending' : 'failed'
