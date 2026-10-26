@@ -20,9 +20,9 @@ PayIncus 是一套面向 hosting 业务的 Incus 商业化交付平台。它把�
 
 此仓库由 mastalee928 独立维护。源码、新安装、面板更新、Agent 和文档发布均使用 `mastalee928/payincus`。原有 BSD 3-Clause 许可证和版权声明保留在 [LICENSE](LICENSE) 中。
 
-当前稳定版：[v1.7.0](https://github.com/mastalee928/payincus/releases/tag/v1.7.0)（恢复安全、批量恢复、已售机器无损恢复、客户日志脱敏、密码重装与同配置跨区域更换机器），配套 [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3)。一键安装默认获取本仓库最新正式版。使用边界见 [v1.7.0 发布说明](docs-site/release-notes/v1.7.0.md) 和 [OSS 部署说明](docs-site/docs/deployment/oss-backup.md)，生产部署证据以 [HANDOFF.md](HANDOFF.md) 为准。
+当前稳定版：[v1.7.6](https://github.com/mastalee928/payincus/releases/tag/v1.7.6)（IPv4-only主控的IPv6交付核验、跨系统SSH密码初始化、异常销毁退款保护及管理员实例操作），配套 [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3)。一键安装默认获取本仓库最新正式版。使用边界见 [v1.7.6 发布说明](docs-site/release-notes/v1.7.6.md) 和 [OSS 部署说明](docs-site/docs/deployment/oss-backup.md)，生产部署证据以 [HANDOFF.md](HANDOFF.md) 为准。
 
-v1.7.0 已发现旧版本 OTA 归档所有权校验回归，可能自动回滚；当前源码 v1.7.1 修复该问题。正式发布后请使用 v1.7.1，失败任务和数据库备份保留。
+v1.7.0 的旧版本 OTA 归档所有权校验回归已在 v1.7.1 修复，新安装与更新使用最新正式版本。失败任务和数据库备份保留；发行完成不等于现有主控已升级，也不代表完整公网灾备场景已验收。
 
 - 项目仓库：<https://github.com/mastalee928/payincus>
 - 主机接入与管理：[使用说明](docs/host-pool.md)

@@ -6,18 +6,36 @@
 
 ## 最新发布状态 / Latest Release State
 
-- 最新发布提交 / Latest Release Commit: `eb82a4fec`
-- 提交日期 / Commit date: 2026-10-26
-- 提交说明 / Commit subject: feat: add global map homepage and default mobile globe
-- 最新 tag / Latest tag: `v1.7.5`
+- 最新发布提交 / Latest Release Commit: `fb328e87c`
+- 提交日期 / Commit date: 2026-10-27
+- 提交说明 / Commit subject: fix: stabilize pool delivery and instance administration
+- 最新 tag / Latest tag: `v1.7.6`
 
 ## 未发布变更 / Unreleased Changes
 
-### 其他变更 / Other Changes
-
-- docs: record verified v1.7.5 homepage release `92ee90989`
+- 该 tag 与相邻 tag 指向同一提交，未产生额外 Git commit。
 
 ## 历史版本 / Historical Versions
+
+## v1.7.6
+
+- 发布提交 / Release commit: `fb328e87c`
+- 提交日期 / Commit date: 2026-10-27
+- 提交说明 / Commit subject: fix: stabilize pool delivery and instance administration
+
+
+修复机器池开通、异常销毁及管理网关配置，并补齐管理员创建和实例管理操作。
+
+- IPv4-only 主控兼网关通过已认证的 IPv4 管理通道核验宿主与客户 IPv6，保留客机 SSH 身份、实际出口地址和 Agent 转发规则检查；同步错误区分未交付、故障隔离和网络失败。
+- 修复 Alpine cloud-init 禁用密码及 OpenSSH 先读配置优先级问题；容器与虚拟机覆盖 Debian、Ubuntu、Rocky Linux、AlmaLinux、CentOS 的初始化路径，兼容无 Include 指令的旧 SSH 服务。
+- 异常实例销毁读取实际退款预览，已自动退款时显示无新增退款；删除查询 Incus 实际运行状态，确认远端删除后才退款、释放资源，事务内重新核对退款上限。
+- 管理员从用户实例直接删除免二次验证且不退款；节点批量删除可选择退款或不退款，并区分完整删除与仅移除平台记录。客户和宿主所有者的原验证要求保留。
+- 管理员创建实例支持机器池及原有套餐，按指定用户、赠送或付费、是否扣首月费用处理。
+- 新增宿主默认 TCP，可选 TCP+UDP；更多设置默认展开。补齐项目权威目录地区，保留已有分组及绑定。
+- 本机管理网关直接检查和生成计划，固定 DNS only 域名只填写一次并自动复用；正确识别成功状态并收起配置，保留宿主自动更新和任务错误。
+- 用户详情与实例列表续费只显示 1 个月；桌面首页地图支持滚轮缩放。
+
+生成策略、原生 OpenSSH 解析及 SSH 协议测试覆盖 72 组 OS/类型/认证配置；此范围不等于所有发行版镜像都已完成真实新建与 VM 启动验收。生产 OTA、真实公网 DNS 灾备切换及完整 A/B 整机失联验收分别记录于 HANDOFF.md，不由发版代替。
 
 ## v1.7.5
 
