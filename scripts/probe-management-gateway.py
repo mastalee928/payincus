@@ -23,6 +23,13 @@ UNITS = {
 }
 
 
+class ProbeError(ValueError):
+    """Public failure code only; never include command output or file contents."""
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
 def strict_object(pairs):
     result = {}
     for key, value in pairs:
@@ -45,7 +52,7 @@ def validate_request(value):
     network = ipaddress.IPv4Network(value['network'], strict=True)
     address = ipaddress.IPv4Address(value['address'])
     private = any(network.subnet_of(ipaddress.IPv4Network(item)) for item in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))
-    if not private or not 24 <= network.prefixlen <= 30 or address not in network or address in (network.network_address, network.broadcast_address):
+    if not private or not 20 <= network.prefixlen <= 30 or address not in network or address in (network.network_address, network.broadcast_address):
         raise ValueError('invalid management network')
     if str(network) != value['network'] or str(address) != value['address']:
         raise ValueError('noncanonical network')
@@ -60,12 +67,20 @@ def validate_request(value):
 def command(tool, arguments):
     binary = shutil.which(tool, path='/usr/sbin:/usr/bin:/sbin:/bin')
     if not binary:
-        raise ValueError('missing tool')
-    result = subprocess.run([binary, *arguments], stdin=subprocess.DEVNULL, capture_output=True,
-                            timeout=8, check=True, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+        raise ProbeError('GATEWAY_DEPENDENCIES_MISSING')
+    try:
+        result = subprocess.run([binary, *arguments], stdin=subprocess.DEVNULL, capture_output=True,
+                                timeout=8, check=True, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+    except subprocess.TimeoutExpired:
+        raise ProbeError('GATEWAY_INSPECTION_TIMEOUT') from None
+    except (OSError, subprocess.CalledProcessError):
+        raise ProbeError('GATEWAY_INSPECTION_COMMAND_FAILED') from None
     if len(result.stdout) > 262144 or len(result.stderr) > 32768:
-        raise ValueError('oversize tool response')
-    return result.stdout.decode('utf8', errors='strict')
+        raise ProbeError('GATEWAY_INSPECTION_RESPONSE_INVALID')
+    try:
+        return result.stdout.decode('utf8', errors='strict')
+    except UnicodeError:
+        raise ProbeError('GATEWAY_INSPECTION_RESPONSE_INVALID') from None
 
 
 def route_conflicts(routes, network, interface):
@@ -115,9 +130,12 @@ def probe(request):
     # This entry only reads public machine/network/service facts. The Web
     # backend runs without root; privileged observations that are unavailable
     # remain explicit blockers. Installation planning/execution still require root.
-    machine = Path('/etc/machine-id').read_text().strip()
+    try:
+        machine = Path('/etc/machine-id').read_text().strip()
+    except OSError:
+        raise ProbeError('GATEWAY_MACHINE_ID_UNAVAILABLE') from None
     if not re.fullmatch(r'[a-f0-9]{32}', machine) or set(machine) == {'0'}:
-        raise ValueError('invalid machine identity')
+        raise ProbeError('GATEWAY_MACHINE_ID_UNAVAILABLE')
     if request['expectedMachineId'] is not None and request['expectedMachineId'] != machine:
         blockers.append('GATEWAY_TARGET_IDENTITY_CHANGED')
     os_values = {}
@@ -175,6 +193,8 @@ def probe(request):
             facts['portConflicts'].append({'protocol': 'tcp', 'port': request['consolePort']})
         if facts['portConflicts']:
             blockers.append('GATEWAY_PORT_CONFLICT')
+    except ProbeError as error:
+        blockers.extend(['GATEWAY_INSPECTION_INCOMPLETE', error.code])
     except (ValueError, OSError, subprocess.SubprocessError, KeyError, TypeError):
         blockers.append('GATEWAY_INSPECTION_INCOMPLETE')
     stable = {'request': request, 'machineId': machine, 'osId': os_id, 'architecture': architecture,
@@ -196,8 +216,15 @@ def main():
         if len(json.dumps(result)) > 16384:
             raise ValueError('oversize result')
         print(json.dumps(result, separators=(',', ':')))
+    except ProbeError as error:
+        if globals().get('INCUDAL_PREFLIGHT_REQUEST') is not None:
+            print('INCUDAL_ERROR:' + error.code)
+        else:
+            print(json.dumps({'code': error.code}, separators=(',', ':')))
+        return 1
     except (ValueError, OSError, subprocess.SubprocessError, KeyError, TypeError, IndexError):
-        print('{"code":"GATEWAY_PREFLIGHT_FAILED"}')
+        print('INCUDAL_ERROR:GATEWAY_PREFLIGHT_FAILED' if globals().get('INCUDAL_PREFLIGHT_REQUEST') is not None
+              else '{"code":"GATEWAY_PREFLIGHT_FAILED"}')
         return 1
     return 0
 

@@ -31,7 +31,7 @@ func ApplyGatewayTransport(ctx context.Context, encoded []byte, trust Context, d
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 	statePath := filepath.Join(directory, "gateway-transport.json")
-	prior, err := channelReadFile(statePath, 65536)
+	prior, err := channelReadFile(statePath, MaxGatewayTransportBytes)
 	var old *GatewayTransport
 	if err == nil {
 		var env envelope
@@ -96,7 +96,7 @@ func ApplyGatewayTransport(ctx context.Context, encoded []byte, trust Context, d
 	if _, err = decodeBase64(key, 32); err != nil {
 		return err
 	}
-	pub, err := channelCommand(ctx, "/usr/bin/wg", []string{"pubkey"}, key+"\n")
+	pub, err := gatewayCommand(ctx, "/usr/bin/wg", []string{"pubkey"}, key+"\n")
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func ApplyGatewayTransport(ctx context.Context, encoded []byte, trust Context, d
 	}
 	name := "incudal-gw-" + config.Slot
 	alias := "payincus-gateway/v1/" + config.PlatformID + "/" + config.GatewayID
-	all, err := channelCommand(ctx, "/usr/sbin/ip", []string{"-j", "link", "show"}, "")
+	all, err := gatewayCommand(ctx, "/usr/sbin/ip", []string{"-j", "link", "show"}, "")
 	if err != nil {
 		return err
 	}
@@ -139,13 +139,13 @@ func ApplyGatewayTransport(ctx context.Context, encoded []byte, trust Context, d
 		}
 	}
 	if found {
-		actual, err := channelCommand(ctx, "/usr/bin/wg", []string{"show", name, "public-key"}, "")
+		actual, err := gatewayCommand(ctx, "/usr/bin/wg", []string{"show", name, "public-key"}, "")
 		if err != nil || strings.TrimSpace(actual) != pub {
 			return failure("GATEWAY_TRANSPORT_LINK_CONFLICT")
 		}
 		// Preserve only exact previously enrolled peers. Unknown local peers
 		// cannot be silently removed by a downloaded replacement allowlist.
-		actual, err = channelCommand(ctx, "/usr/bin/wg", []string{"show", name, "peers"}, "")
+		actual, err = gatewayCommand(ctx, "/usr/bin/wg", []string{"show", name, "peers"}, "")
 		if err != nil {
 			return err
 		}
@@ -167,7 +167,7 @@ func ApplyGatewayTransport(ctx context.Context, encoded []byte, trust Context, d
 	for _, peer := range config.Peers {
 		addresses[peer.Address] = true
 	}
-	all, err = channelCommand(ctx, "/usr/sbin/ip", []string{"-j", "-4", "address", "show"}, "")
+	all, err = gatewayCommand(ctx, "/usr/sbin/ip", []string{"-j", "-4", "address", "show"}, "")
 	if err != nil {
 		return err
 	}
@@ -191,7 +191,7 @@ func ApplyGatewayTransport(ctx context.Context, encoded []byte, trust Context, d
 			}
 		}
 	}
-	all, err = channelCommand(ctx, "/usr/sbin/ip", []string{"-j", "-4", "route", "show", "table", "all"}, "")
+	all, err = gatewayCommand(ctx, "/usr/sbin/ip", []string{"-j", "-4", "route", "show", "table", "all"}, "")
 	if err != nil {
 		return err
 	}
@@ -233,10 +233,10 @@ func ApplyGatewayTransport(ctx context.Context, encoded []byte, trust Context, d
 		return failure("GATEWAY_TRANSPORT_EXPIRED")
 	}
 	if !found {
-		if _, err = channelCommand(ctx, "/usr/sbin/ip", []string{"link", "add", name, "type", "wireguard"}, ""); err != nil {
+		if _, err = gatewayCommand(ctx, "/usr/sbin/ip", []string{"link", "add", name, "type", "wireguard"}, ""); err != nil {
 			return err
 		}
-		if _, err = channelCommand(ctx, "/usr/sbin/ip", []string{"link", "set", "dev", name, "alias", alias}, ""); err != nil {
+		if _, err = gatewayCommand(ctx, "/usr/sbin/ip", []string{"link", "set", "dev", name, "alias", alias}, ""); err != nil {
 			return err
 		}
 	}
@@ -247,30 +247,30 @@ func ApplyGatewayTransport(ctx context.Context, encoded []byte, trust Context, d
 			fmt.Fprintf(&wireguard, "[Peer]\nPublicKey = %s\nAllowedIPs = %s/32\n", peer.PublicKey, peer.Address)
 		}
 	}
-	if _, err = channelCommand(ctx, "/usr/bin/wg", []string{"syncconf", name, "/dev/stdin"}, wireguard.String()); err != nil {
+	if _, err = gatewayCommand(ctx, "/usr/bin/wg", []string{"syncconf", name, "/dev/stdin"}, wireguard.String()); err != nil {
 		return err
 	}
 	for _, args := range [][]string{{"address", "replace", config.Address + "/32", "dev", name}, {"link", "set", "dev", name, "mtu", strconv.Itoa(config.MTU), "up"}} {
-		if _, err = channelCommand(ctx, "/usr/sbin/ip", args, ""); err != nil {
+		if _, err = gatewayCommand(ctx, "/usr/sbin/ip", args, ""); err != nil {
 			return err
 		}
 	}
 	for _, peer := range config.Peers {
 		if peer.Enabled {
-			if _, err = channelCommand(ctx, "/usr/sbin/ip", []string{"route", "replace", peer.Address + "/32", "dev", name, "src", config.Address, "proto", "static"}, ""); err != nil {
+			if _, err = gatewayCommand(ctx, "/usr/sbin/ip", []string{"route", "replace", peer.Address + "/32", "dev", name, "src", config.Address, "proto", "static"}, ""); err != nil {
 				return err
 			}
 		} else {
 			for _, route := range routes {
 				if route.Device == name && (route.Destination == peer.Address || route.Destination == peer.Address+"/32") {
-					if _, err = channelCommand(ctx, "/usr/sbin/ip", []string{"route", "del", peer.Address + "/32", "dev", name}, ""); err != nil {
+					if _, err = gatewayCommand(ctx, "/usr/sbin/ip", []string{"route", "del", peer.Address + "/32", "dev", name}, ""); err != nil {
 						return err
 					}
 				}
 			}
 		}
 	}
-	actual, err := channelCommand(ctx, "/usr/bin/wg", []string{"show", name, "allowed-ips"}, "")
+	actual, err := gatewayCommand(ctx, "/usr/bin/wg", []string{"show", name, "allowed-ips"}, "")
 	if err != nil {
 		return err
 	}

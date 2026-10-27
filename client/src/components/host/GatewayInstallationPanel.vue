@@ -4,10 +4,10 @@ import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import type { GatewayBootstrapMaterial, GatewayInstallationConfiguration, GatewayManagementTask, ManagementGateway } from '@/types/management-gateway'
 
-const props = defineProps<{ gateway: ManagementGateway }>()
+const props = defineProps<{ gateway: ManagementGateway; managed?: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
 const { t, te, locale } = useI18n()
-const expanded = ref(false), busy = ref(false), refreshing = ref(false), error = ref('')
+const expanded = ref(!!props.managed), busy = ref(false), refreshing = ref(false), error = ref('')
 const task = ref<GatewayManagementTask | null>(null)
 const configuration = ref<GatewayInstallationConfiguration>({ slot: 'a', network: '', address: '', listenPort: 51820, consolePort: 18443, consoleOrigin: '' })
 const credentialType = ref<'password' | 'privateKey'>('password'), credential = ref('')
@@ -38,7 +38,7 @@ const statusClass = computed(() => status.value === 'succeeded' ? 'text-green-70
   ['failed', 'needs_review'].includes(status.value) ? 'text-red-700 dark:text-red-300' : 'text-themed-muted')
 function message(code?: string | null) {
   const key = `managementGateway.errors.${code}`
-  return code && te(key) ? t(key) : t('managementGateway.installFallback')
+  return code && te(key) ? t(key) : `${t('managementGateway.installFallback')}${code ? ` (${code})` : ''}`
 }
 function date(value: string | number) { return new Date(value).toLocaleString(locale.value) }
 function applyTask(value: GatewayManagementTask) {
@@ -48,7 +48,8 @@ function applyTask(value: GatewayManagementTask) {
 }
 watch(() => props.gateway.tasks, tasks => {
   if (busy.value || refreshing.value) return
-  const value = task.value ? tasks.find(item => item.id === task.value!.id) : tasks.find(item => item.kind === 'install')
+  const latest = tasks.find(item => item.kind === 'install')
+  const value = latest && latest.id !== task.value?.id ? latest : tasks.find(item => item.id === task.value?.id)
   if (value && (!task.value || Date.parse(value.updatedAt) >= Date.parse(task.value.updatedAt))) applyTask(value)
 }, { immediate: true })
 watch(configuration, () => { requestId.value = crypto.randomUUID() }, { deep: true })
@@ -178,7 +179,7 @@ onUnmounted(() => {
       <h4 class="font-semibold text-themed">{{ t('managementGateway.installation') }}</h4>
       <p v-if="error" role="alert" class="text-sm text-red-700 dark:text-red-300">{{ error }}</p>
       <p v-if="gateway.mode === 'existing' || gateway.revision !== '0' && !task" class="text-sm text-themed-muted">{{ t('managementGateway.attachRequired') }}</p>
-      <form v-if="canPrepare" class="space-y-4" @submit.prevent="prepare">
+      <form v-if="canPrepare && !managed" class="space-y-4" @submit.prevent="prepare">
         <fieldset :disabled="busy || refreshing" class="space-y-4">
           <legend class="sr-only">{{ t('managementGateway.preparePlan') }}</legend>
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -287,4 +288,5 @@ onUnmounted(() => {
 .gateway-install-dialog { width: min(36rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; padding: 1.5rem; border: 1px solid var(--border-color); border-radius: .75rem; background: var(--bg-primary); color: var(--text-primary); }
 .gateway-install-dialog::backdrop { background: rgb(0 0 0 / .5); }
 .gateway-installation summary { cursor: pointer; padding-block: .5rem; }
+@media (max-width: 640px) { button, input, summary { min-height: 44px; } }
 </style>

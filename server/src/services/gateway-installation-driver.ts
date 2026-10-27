@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
+import { isIPv4 } from 'node:net'
 import { mkdir, readFile, writeFile, chmod } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Client, SFTPWrapper } from 'ssh2'
-import { GatewayTaskError, gatewayTaskHash, validateGatewayTaskPlan } from '../lib/gateway-task-plan.js'
+import { GatewayTaskError, gatewayExecutorFailureCode, gatewayTaskHash, validateGatewayTaskPlan } from '../lib/gateway-task-plan.js'
 import { validateCredentials, type OnboardingCredentials } from '../lib/host-onboarding.js'
 import { signGatewayTransport } from '../lib/gateway-transport.js'
 import { validateGatewayInstallationDesired, validateGatewayInstallationRequest, validateGatewayInstallationPreview,
@@ -12,6 +13,7 @@ import { validateGatewayInstallationDesired, validateGatewayInstallationRequest,
 import { readDiscoveryPrivateFile, validateDiscoveryPrivateDirectory } from './controller-discovery.js'
 import { inspectLocalManagementGateway, inspectRemoteManagementGateway } from './gateway-preflight.js'
 import { connectOnboardingSsh, sshExec } from './onboarding-ssh.js'
+import { verifyRemoteGatewayDomain } from './onboarding-gateway-endpoint.js'
 
 interface Component { directory: string; version: string; sourceCommit: string }
 interface Enrollment { schemaVersion: 1 | 2; platformId: string; signingKeyPath: string; signingKeyId?: string; packageSigningKey: string; components: Partial<Record<'amd64' | 'arm64', Component>> }
@@ -68,7 +70,8 @@ export async function createGatewayInstallationDriver(planInput: unknown, creden
   signal.addEventListener('abort', abort, { once: true })
   const local = (program: string, args: string[], input?: string, timeout = 60000) => new Promise<string>((resolve, reject) => {
     const child = execFile(program, args, { signal, timeout, maxBuffer: 65536, env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL: 'C', PYTHONDONTWRITEBYTECODE: '1' } }, (error, stdout) => {
-      if (error) reject(new GatewayTaskError('GATEWAY_INSTALL_EXECUTOR_FAILED')); else resolve(stdout)
+      if (error) reject(new GatewayTaskError(gatewayExecutorFailureCode(stdout,
+        error.killed ? 'GATEWAY_INSTALL_TIMEOUT' : 'GATEWAY_INSTALL_EXECUTOR_FAILED'))); else resolve(stdout)
     })
     child.stdin?.end(input)
   })
@@ -128,8 +131,13 @@ export async function createGatewayInstallationDriver(planInput: unknown, creden
       await putPrivate(prepared.taskDirectory + '/policy.json', JSON.stringify(prepared.policy))
       await putPrivate(prepared.taskDirectory + '/request.json', JSON.stringify(request))
       const script = prepared.packageDirectory + '/scripts/' + command
-      const raw = client ? await sshExec(client, `${python} ${script} ${prepared.taskDirectory}/policy.json ${prepared.taskDirectory}/request.json`, '', 120000) :
+      // The approved Python program returns a strict public error object on
+      // failure. Preserve that code without returning stderr or arbitrary JSON.
+      const raw = client ? await sshExec(client,
+        `/bin/sh -c '${python} ${script} ${prepared.taskDirectory}/policy.json ${prepared.taskDirectory}/request.json; result=$?; [ "$result" -le 1 ]'`, '', 120000) :
         await local('/usr/bin/python3', ['-I', '-B', script, prepared.taskDirectory + '/policy.json', prepared.taskDirectory + '/request.json'], undefined, 120000)
+      const code = gatewayExecutorFailureCode(raw, '')
+      if (code) throw new GatewayTaskError(code)
       return JSON.parse(raw) as unknown
     }
     return {
@@ -155,6 +163,12 @@ export async function createGatewayInstallationDriver(planInput: unknown, creden
         const request = validateGatewayInstallationRequest(input, control.publicKey)
         require(gatewayTaskHash(request.task) === gatewayTaskHash(plan), 'GATEWAY_TASK_PLAN_STALE')
         const { signedTransport: _signed, ...desired } = request.configuration
+        // Recheck DNS before any installation write. Keep the original SSH pin;
+        // a DNS record change cannot redirect the approved installation.
+        if (plan.target.mode !== 'local') {
+          const hostname = new URL(desired.consoleOrigin).hostname
+          if (!isIPv4(hostname)) await verifyRemoteGatewayDomain(plan.target.ssh!.address, hostname)
+        }
         const report = await inspect(desired)
         require(report.architecture === 'amd64' || report.architecture === 'arm64', 'GATEWAY_SYSTEM_UNSUPPORTED')
         const component = control.config.components[report.architecture]; require(component, 'GATEWAY_COMPONENT_UNAVAILABLE')

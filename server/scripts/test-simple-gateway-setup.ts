@@ -72,6 +72,10 @@ try {
   assert.equal((await app.inject({ url: '/gateway/setup/' + id, headers })).headers['cache-control'], 'no-store')
 } finally { await app.close(); if (old === undefined) delete process.env.ADMIN_FRONTEND_URL; else process.env.ADMIN_FRONTEND_URL = old }
 const worker = readFileSync(fileURLToPath(new URL('../src/scripts/run-simple-gateway-setup.ts', import.meta.url)), 'utf8')
+const setupService = readFileSync(fileURLToPath(new URL('../src/services/simple-gateway-setup.ts', import.meta.url)), 'utf8')
+assert.equal((setupService.match(/throw new LocalGatewaySetupError\('SIMPLE_GATEWAY_MIGRATION_REQUIRED'\)/g) || []).length, 2,
+  'both planning and confirmation must block overwriting an external gateway without handover')
+assert.match(setupService, /return \{ ready: false, local, target, code:/, 'failed checks retain current route without claiming readiness')
 assert.match(worker, /constants\.O_RDWR \| constants\.O_NOFOLLOW/)
 assert.match(worker, /info\.nlink !== 1/)
 assert.match(worker, /info\.uid !== owner/)

@@ -17,7 +17,21 @@ export async function resolveGatewayEndpointAddress(value: string): Promise<stri
     const addresses = [...new Set(answers.map(answer => answer.address))]
     if (addresses.length !== 1 || !isOnboardingPublicIPv4(addresses[0])) throw new OnboardingError('GATEWAY_DNS_LOOKUP_FAILED')
     return addresses[0]
+  } catch (error) {
+    throw error instanceof OnboardingError ? error : new OnboardingError('GATEWAY_DNS_LOOKUP_FAILED')
   } finally { clearTimeout(timer) }
+}
+export async function resolveRemoteGatewayDomain(address: string, hostname: string, resolve = resolveGatewayEndpointAddress) {
+  const domain = validateStableGatewayEndpoint({ hostname, port: 51820 }).hostname
+  let target: string, endpoint: string
+  try { [target, endpoint] = await Promise.all([resolve(address), resolve(domain)]) }
+  catch (error) { throw error instanceof OnboardingError ? error : new OnboardingError('GATEWAY_DNS_LOOKUP_FAILED') }
+  if (!isOnboardingPublicIPv4(target) || !isOnboardingPublicIPv4(endpoint)) throw new OnboardingError('GATEWAY_DNS_LOOKUP_FAILED')
+  if (target !== endpoint) throw new OnboardingError('GATEWAY_DNS_TARGET_MISMATCH')
+  return { hostname: domain, address: target }
+}
+export async function verifyRemoteGatewayDomain(address: string, hostname: string, resolve = resolveGatewayEndpointAddress) {
+  return (await resolveRemoteGatewayDomain(address, hostname, resolve)).hostname
 }
 export async function loadStableGatewayEndpoint(): Promise<StableGatewayEndpoint | null> {
   const config = await prisma.systemConfig.findUnique({ where: { key }, select: { value: true } })

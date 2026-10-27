@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { mock } from 'node:test'
+import { Client } from 'ssh2'
 import { chooseBindAddress, publicIpSettings, publicIpState, verifyPublicSshIdentity } from '../src/lib/host-public-ip.js'
 
 assert.deepEqual(publicIpSettings({}), { mode: 'auto', publicIp: null, bindIp: null, sshPort: 22 })
@@ -16,4 +18,19 @@ assert.throws(() => chooseBindAddress(['10.0.0.13', '10.0.0.14'], null, null), /
 assert.throws(() => chooseBindAddress(['10.0.0.13'], null, '10.0.0.15'), /IP_BIND_NOT_LOCAL/)
 assert.throws(() => chooseBindAddress(['127.0.0.1'], null, null), /IP_BIND_AMBIGUOUS/)
 assert.equal(publicIpState(null).status, 'idle')
+// A controller/gateway with the IPv6 stack disabled must select authenticated
+// guest verification. A real IPv4 reachability failure must keep its own error.
+for (const code of ['ENETUNREACH', 'EAFNOSUPPORT', 'EADDRNOTAVAIL', 'ECONNREFUSED', 'ETIMEDOUT']) for (const synchronous of [false, true]) {
+  const connection = mock.method(Client.prototype, 'connect', function (this: Client) {
+    const error = Object.assign(new Error('isolated socket failure'), { code })
+    if (synchronous) throw error
+    this.emit('error', error)
+    return this
+  })
+  try {
+    await assert.rejects(verifyPublicSshIdentity('2603:c020:802a:cc00::1', 22, ['SHA256:unused']),
+      ['ECONNREFUSED', 'ETIMEDOUT'].includes(code) ? /IP_SSH_UNREACHABLE/ : /IPV6_CONTROLLER_NO_ROUTE/)
+    await assert.rejects(verifyPublicSshIdentity('8.8.4.4', 22, ['SHA256:unused']), /IP_SSH_UNREACHABLE/)
+  } finally { connection.mock.restore() }
+}
 console.log('Host public IP input, local binding selection and endpoint validation passed')

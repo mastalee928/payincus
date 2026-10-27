@@ -1,25 +1,20 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
 import { availableFlagCountryCodes, getLocalizedCountryName } from '@/utils/countryDisplay'
 import { OnboardingCsvError, parseHostOnboardingCsv } from '@/utils/hostOnboardingCsv'
 import HostInventoryPanel from '@/components/host/HostInventoryPanel.vue'
-import ManagementGatewayPanel from '@/components/host/ManagementGatewayPanel.vue'
 import type { OnboardingBatch, OnboardingCredentials, OnboardingDefaults, OnboardingGatewayStatus, OnboardingNode, OnboardingStatus, OnboardingTargetInput, HostMachineGroup, ResourcePreset } from '@/types/api'
 
 const { t, te, locale } = useI18n()
 const toast = useToast()
 // Machine inventory and durable onboarding tasks share the machine-pool page.
-const activeTab = ref<'hosts' | 'tasks' | 'gateways'>('hosts')
-async function openGatewaySetup() {
-  activeTab.value = 'gateways'
-  await nextTick()
-  document.getElementById('gateway-setup-heading')?.focus()
-}
+const activeTab = ref<'hosts' | 'tasks'>('hosts')
 function switchPoolTab(event: KeyboardEvent) {
-  const tabs = ['hosts', 'tasks', 'gateways'] as const
+  const tabs = ['hosts', 'tasks'] as const
   const current = tabs.indexOf(activeTab.value)
   const next = event.key === 'ArrowRight' ? (current + 1) % tabs.length : event.key === 'ArrowLeft' ? (current + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1
   if (next < 0) return
@@ -260,17 +255,15 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
       <button type="button" class="btn-secondary shrink-0 self-start whitespace-nowrap" @click="refresh">{{ t('common.refresh') }}</button>
     </section>
 
-    <button type="button" class="btn-secondary" @click="openGatewaySetup">{{ t('onboarding.gatewaySetup') }}</button>
+    <RouterLink v-if="gateway && !gateway.ready" to="/admin/gateways" class="btn-secondary inline-flex items-center">{{ t('onboarding.gatewaySetup') }}</RouterLink>
 
 
     <div class="flex flex-wrap gap-2" role="tablist" :aria-label="t('onboarding.title')" @keydown="switchPoolTab">
       <button id="pool-tab-hosts" type="button" role="tab" :tabindex="activeTab === 'hosts' ? 0 : -1" :aria-selected="activeTab === 'hosts'" aria-controls="pool-tab-content" :class="activeTab === 'hosts' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'hosts'">{{ t('hostInventory.hostsTab') }}</button>
       <button id="pool-tab-tasks" type="button" role="tab" :tabindex="activeTab === 'tasks' ? 0 : -1" :aria-selected="activeTab === 'tasks'" aria-controls="pool-tab-content" :class="activeTab === 'tasks' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'tasks'">{{ t('hostInventory.tasksTab') }}</button>
-      <button id="pool-tab-gateways" type="button" role="tab" :tabindex="activeTab === 'gateways' ? 0 : -1" :aria-selected="activeTab === 'gateways'" aria-controls="pool-tab-content" :class="activeTab === 'gateways' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'gateways'">{{ t('managementGateway.title') }}</button>
     </div>
     <div id="pool-tab-content" role="tabpanel" :aria-labelledby="`pool-tab-${activeTab}`">
       <HostInventoryPanel v-if="activeTab === 'hosts'" ref="inventory" />
-      <ManagementGatewayPanel v-else-if="activeTab === 'gateways'" />
       <div v-else class="space-y-4">
         <form class="flex flex-wrap items-center gap-2" @submit.prevent="applySearch">
           <input v-model="search" type="search" class="input flex-1 min-w-0 sm:max-w-sm" maxlength="100" :aria-label="t('common.search')" :placeholder="t('onboarding.searchPlaceholder')" />

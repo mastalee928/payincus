@@ -503,6 +503,7 @@ export default {
 hostManagement: "Host onboarding and management",
 
 machinePool: "Machine pool",
+gateways: 'Gateways',
 
 poolPricing: "Pricing",
 

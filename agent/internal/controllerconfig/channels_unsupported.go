@@ -13,6 +13,9 @@ func RestoreManagementChannels(context.Context, Context, string, []ChannelLocalI
 func ReadProtectedChannelFile(string, int) ([]byte, error) {
 	return nil, failure("CONTROLLER_CHANNELS_PLATFORM_UNSUPPORTED")
 }
+func ReadProtectedGatewayFile(string) ([]byte, error) {
+	return nil, failure("CONTROLLER_CHANNELS_PLATFORM_UNSUPPORTED")
+}
 func LockChannelService(string) (func(), error) {
 	return nil, failure("CONTROLLER_CHANNELS_PLATFORM_UNSUPPORTED")
 }

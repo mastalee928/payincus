@@ -8,6 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { ControllerConfigError, CONTROLLER_CONFIG_MAX_BYTES, controllerSigningKeyId, verifyControllerPrepareConfig } from '../lib/controller-config.js'
 import { verifyControllerReadProof } from '../lib/controller-discovery-auth.js'
 import { verifyManagementChannels } from '../lib/controller-channels.js'
+import { MAX_GATEWAY_TRANSPORT_BYTES } from '../lib/gateway-transport.js'
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/
 const PUBKEY = /^[A-Za-z0-9+/]{43}=$/
@@ -33,6 +34,16 @@ export async function validateDiscoveryPrivateDirectory(path: string): Promise<v
 
 export async function readDiscoveryPrivateFile(path: string, limit: number): Promise<string> {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 65536) fail('CONTROLLER_DISCOVERY_STATE_INVALID')
+  return readProtectedPrivateFile(path, limit)
+}
+
+// Gateway catalogs have a separate bound. Host discovery messages keep their
+// smaller limit and both readers retain identical private-file protections.
+export async function readGatewayPrivateFile(path: string): Promise<string> {
+  return readProtectedPrivateFile(path, MAX_GATEWAY_TRANSPORT_BYTES)
+}
+
+async function readProtectedPrivateFile(path: string, limit: number): Promise<string> {
   await validateDiscoveryPrivateDirectory(dirname(path))
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {

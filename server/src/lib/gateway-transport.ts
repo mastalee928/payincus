@@ -3,6 +3,9 @@ import { isIPv4 } from 'node:net';
 import { ControllerConfigError, controllerSigningKeyId, type ControllerObservedState } from './controller-config.js';
 const PREFIX = 'payincus/gateway-transport/v1\n';
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
+export const MAX_GATEWAY_TRANSPORT_BYTES = 1024 * 1024;
+export const MAX_GATEWAY_TRANSPORT_PAYLOAD_BYTES = 768 * 1024;
+export const MAX_GATEWAY_TRANSPORT_PEERS = 4094;
 export interface GatewayTransportPeer {
     nodeId: string;
     publicKey: string;
@@ -35,7 +38,7 @@ function parse(value: unknown): GatewayTransport {
     for (const counter of [row.epoch, row.sequence])
         require(typeof counter === 'string' && /^[1-9][0-9]{0,18}$/.test(counter) && BigInt(counter) <= 9223372036854775807n);
     require(Number.isSafeInteger(row.issuedAt) && row.issuedAt > 0 && Number.isSafeInteger(row.expiresAt) && row.expiresAt > row.issuedAt && row.expiresAt - row.issuedAt <= 900000);
-    require((row.slot === 'a' || row.slot === 'b') && address(row.address) && Number.isInteger(row.listenPort) && row.listenPort > 0 && row.listenPort <= 65535 && Number.isInteger(row.mtu) && row.mtu >= 1280 && row.mtu <= 1420 && Array.isArray(row.peers) && row.peers.length <= 256);
+    require((row.slot === 'a' || row.slot === 'b') && address(row.address) && Number.isInteger(row.listenPort) && row.listenPort > 0 && row.listenPort <= 65535 && Number.isInteger(row.mtu) && row.mtu >= 1280 && row.mtu <= 1420 && Array.isArray(row.peers) && row.peers.length <= MAX_GATEWAY_TRANSPORT_PEERS);
     const addresses = new Set([row.address]), keys = new Set<string>();
     const peers = row.peers.map((peer, index) => {
         require(peer && Object.keys(peer).length === 4 && ['nodeId', 'publicKey', 'address', 'enabled'].every(key => Object.hasOwn(peer, key)) && UUID.test(peer.nodeId) && (index === 0 || peer.nodeId > row.peers[index - 1].nodeId));
@@ -48,8 +51,11 @@ function parse(value: unknown): GatewayTransport {
 }
 export function signGatewayTransport(config: GatewayTransport, key: KeyObject): string {
     require(key.type === 'private' && key.asymmetricKeyType === 'ed25519');
-    const publicKey = createPublicKey(key).export({ type: 'spki', format: 'der' }).subarray(12).toString('base64'), keyId = controllerSigningKeyId(publicKey), payload = Buffer.from(JSON.stringify(parse(config))).toString('base64');
-    return JSON.stringify({ schemaVersion: 1, keyId, payload, signature: sign(null, Buffer.from(PREFIX + keyId + '\n' + payload), key).toString('base64') });
+    const publicKey = createPublicKey(key).export({ type: 'spki', format: 'der' }).subarray(12).toString('base64'), keyId = controllerSigningKeyId(publicKey), raw = Buffer.from(JSON.stringify(parse(config)));
+    require(raw.length <= MAX_GATEWAY_TRANSPORT_PAYLOAD_BYTES);
+    const payload = raw.toString('base64'), encoded = JSON.stringify({ schemaVersion: 1, keyId, payload, signature: sign(null, Buffer.from(PREFIX + keyId + '\n' + payload), key).toString('base64') });
+    require(Buffer.byteLength(encoded) <= MAX_GATEWAY_TRANSPORT_BYTES);
+    return encoded;
 }
 export function verifyGatewayTransport(encoded: string, trust: {
     platformId: string;
@@ -61,7 +67,7 @@ export function verifyGatewayTransport(encoded: string, trust: {
     config: GatewayTransport;
     observed: ControllerObservedState;
 } {
-    require(typeof encoded === 'string' && Buffer.byteLength(encoded) <= 65536 && Number.isSafeInteger(trust.now) && trust.now > 0);
+    require(typeof encoded === 'string' && Buffer.byteLength(encoded) <= MAX_GATEWAY_TRANSPORT_BYTES && Number.isSafeInteger(trust.now) && trust.now > 0);
     const env = JSON.parse(encoded) as {
         schemaVersion: number;
         keyId: string;
@@ -72,7 +78,7 @@ export function verifyGatewayTransport(encoded: string, trust: {
     const publicKey = trust.trustedKeys[env.keyId];
     require(controllerSigningKeyId(publicKey) === env.keyId);
     const raw = Buffer.from(env.payload, 'base64'), signature = Buffer.from(env.signature, 'base64');
-    require(raw.length <= 40000 && raw.toString('base64') === env.payload && signature.length === 64 && signature.toString('base64') === env.signature && verify(null, Buffer.from(PREFIX + env.keyId + '\n' + env.payload), createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(publicKey, 'base64')]), type: 'spki', format: 'der' }), signature));
+    require(raw.length <= MAX_GATEWAY_TRANSPORT_PAYLOAD_BYTES && raw.toString('base64') === env.payload && signature.length === 64 && signature.toString('base64') === env.signature && verify(null, Buffer.from(PREFIX + env.keyId + '\n' + env.payload), createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(publicKey, 'base64')]), type: 'spki', format: 'der' }), signature));
     const config = parse(JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(raw)));
     require(raw.equals(Buffer.from(JSON.stringify(config))) && config.platformId === trust.platformId && config.gatewayId === trust.gatewayId && config.issuedAt <= trust.now + 5000 && config.expiresAt > trust.now);
     const observed: ControllerObservedState = { schemaVersion: 1, platformId: config.platformId, nodeId: config.gatewayId, epoch: config.epoch, sequence: config.sequence, payloadSha256: createHash('sha256').update(raw).digest('hex') };

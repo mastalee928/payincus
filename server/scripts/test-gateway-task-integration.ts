@@ -165,6 +165,30 @@ try {
       await prisma.managementGateway.delete({ where: { id: remoteGatewayId } })
     }
   })
+  await test('remote network reservation is atomic and survives cancellation', async () => {
+    const ids = [randomUUID(), randomUUID()]
+    const desired = {slot:'a' as const,network:'10.252.0.0/20',address:'10.252.0.1',listenPort:51820,consolePort:18443,consoleOrigin:'https://gateway.example.test:18443'}
+    const targets = ids.map((_,i)=>({mode:'remote' as const,machineId:randomBytes(16).toString('hex'),ssh:{address:`10.1.2.${i+1}`,port:22,username:'root' as const,fingerprint:'SHA256:'+Buffer.alloc(32,i+1).toString('base64').replace(/=+$/,'')}}))
+    try {
+      for(let i=0;i<ids.length;i++) await journal.registerManagementGateway({id:ids[i],platformId,name:`${prefix}-reserve-${i}`,target:targets[i]},admin.id)
+      const intents=ids.map((id,i)=>({...plan('install'),gatewayId:id,target:targets[i],configurationHash:gatewayTaskHash(desired)}))
+      const results=await Promise.allSettled(intents.map(intent=>journal.createManagementGatewayTask(intent,admin.id,undefined,desired)))
+      assert.equal(results.filter(r=>r.status==='fulfilled').length,1)
+      const rejected=results.find(r=>r.status==='rejected') as PromiseRejectedResult
+      assert.equal(rejected.reason.code,'GATEWAY_REMOTE_NETWORK_RESERVED')
+      const winner=results.findIndex(r=>r.status==='fulfilled'),loser=1-winner
+      await journal.cancelManagementGatewayTask(intents[winner].taskId,admin.id)
+      await rejects(()=>journal.createManagementGatewayTask(intents[loser],admin.id,undefined,desired),'GATEWAY_REMOTE_NETWORK_RESERVED')
+      const sameRole={...desired,network:'10.252.32.0/20',address:'10.252.32.1'}
+      await rejects(()=>journal.createManagementGatewayTask({...intents[loser],configurationHash:gatewayTaskHash(sameRole)},admin.id,undefined,sameRole),'GATEWAY_REMOTE_ROLE_RESERVED')
+      const alternate={...desired,network:'10.252.16.0/20',address:'10.252.16.1',slot:'b' as const}
+      await journal.createManagementGatewayTask({...intents[loser],configurationHash:gatewayTaskHash(alternate)},admin.id,undefined,alternate)
+    } finally {
+      await prisma.managementGatewayStep.deleteMany({where:{task:{gatewayId:{in:ids}}}})
+      await prisma.managementGatewayTask.deleteMany({where:{gatewayId:{in:ids}}})
+      await prisma.managementGateway.deleteMany({where:{id:{in:ids}}})
+    }
+  })
   console.log(`Gateway real PostgreSQL journal integration passed: ${count}`)
 } catch (error) {
   console.error('Gateway journal integration failed:', error instanceof GatewayTaskError ? error.code : error instanceof Error ? error.message : 'unknown error')

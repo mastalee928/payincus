@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
-import { chmod, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { decryptGatewaySnapshot, encryptGatewaySnapshot, gatewayBackupJob, gatewayBackupPrefix, restoreGatewaySnapshot,
-  uploadGatewaySnapshot,retainGatewaySnapshots, type GatewaySnapshot, type GatewayBackupStore } from '../src/services/gateway-backup.js'
+  uploadGatewaySnapshot,retainGatewaySnapshots, collectGatewaySnapshot, readGatewaySnapshotSource, type GatewaySnapshot, type GatewayBackupStore } from '../src/services/gateway-backup.js'
+import { readDiscoveryPrivateFile, readGatewayPrivateFile } from '../src/services/controller-discovery.js'
+import { MAX_GATEWAY_TRANSPORT_BYTES } from '../src/lib/gateway-transport.js'
 import { createGatewayOssStore } from '../src/services/gateway-backup-oss.js'
 
 const platformId=randomUUID(),gatewayId=randomUUID(),password='fixture-gateway-backup-password'
@@ -18,6 +20,22 @@ let checks=0
 const directory=await mkdtemp(join(tmpdir(),'payincus-gateway-backup-'))
 try{
   await chmod(directory,0o700)
+  const catalog = 'x'.repeat(800000), sources: Record<string,string> = {}
+  for (const name of ['gateway-identity.json','gateway-transport.json','wireguard.key']) {
+    sources[name] = join(directory,name)
+    await writeFile(sources[name], name==='gateway-transport.json'?catalog:'fixture-'+name,{mode:0o600})
+  }
+  const collected = await collectGatewaySnapshot({platformId,gatewayId,epoch:'3',sequence:'2',componentVersion:'test',sources})
+  assert.equal(Buffer.from(collected.files.find(file=>file.name==='gateway-transport.json')!.base64,'base64').toString(),catalog)
+  const largeEncoded=await encryptGatewaySnapshot(collected,password)
+  assert.deepEqual(await decryptGatewaySnapshot(largeEncoded,password,{platformId,gatewayId}),collected)
+  await assert.rejects(readDiscoveryPrivateFile(sources['gateway-transport.json'],65536))
+  await assert.rejects(readDiscoveryPrivateFile(sources['gateway-transport.json'],MAX_GATEWAY_TRANSPORT_BYTES))
+  await writeFile(sources['wireguard.key'],catalog,{mode:0o600})
+  await assert.rejects(readGatewaySnapshotSource('wireguard.key',sources['wireguard.key']))
+  await writeFile(sources['gateway-transport.json'],'x'.repeat(MAX_GATEWAY_TRANSPORT_BYTES+1),{mode:0o600})
+  await assert.rejects(readGatewayPrivateFile(sources['gateway-transport.json']))
+  checks++
   const encoded=await encryptGatewaySnapshot(snapshot,password)
   assert.deepEqual(await decryptGatewaySnapshot(encoded,password,{platformId,gatewayId}),snapshot);checks++
   await assert.rejects(decryptGatewaySnapshot(encoded,'wrong-password-1234',{platformId,gatewayId}));checks++

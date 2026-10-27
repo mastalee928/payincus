@@ -93,6 +93,7 @@ export interface OnboardingListResponse {
 }
 export interface OnboardingGatewayStatus {
   local?: boolean
+  target?: string
   ready: boolean
   code?: string
   gateway?: { controlIp: string; network: string; sshHost: string }

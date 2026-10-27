@@ -2,7 +2,7 @@ import type { HostSshConnection, OnboardingCredentials, CreateOnboardingRequest,
 import axios, { type AxiosInstance } from 'axios'
 import type { AdminInstancePushPreview, AdminInstancePushTarget } from '@/types/instance-push'
 import type { OssConfig, OssTask, OssBackup, OssDirectory } from '@/types/aliyun-oss'
-import type { GatewayManagementList, GatewayInspectionInput, GatewayInspectionResult, GatewayManagementTask, GatewayInstallationInput, GatewayInstallationConfirmation, GatewayBootstrapAuthorization, GatewayBootstrapMaterial } from '@/types/management-gateway'
+import type { GatewayManagementList, GatewayInspectionInput, GatewayInspectionResult, GatewayManagementTask, GatewayInstallationInput, GatewayInstallationConfirmation, GatewayBootstrapAuthorization, GatewayBootstrapMaterial, RemoteGatewaySetupInput } from '@/types/management-gateway'
 import type { ExpiryEnforcementStatus, ExpiryHistoryQuery, ExpiryHistoryResponse } from '@/types/expiry-enforcement'
 import type {GatewayEndpointStatus, GatewayDnsHost, GatewaySetupProgress } from '@/types/gateway-endpoint'
 import { useAuthStore } from '@/stores/auth'
@@ -4105,9 +4105,11 @@ const api = {
 ,
 hostOnboarding: {
     managementGateways: (): Promise<GatewayManagementList> => http.get('/host-onboarding/management-gateways'),
+    restartGatewayCandidate: (id: string): Promise<{ retired: true }> => http.post(`/host-onboarding/management-gateways/${id}/restart-candidate`, {}),
     inspectGateway: (data: GatewayInspectionInput): Promise<GatewayInspectionResult> => http.post('/host-onboarding/management-gateways/inspect', data, { timeout: 65000 }),
     gatewayTask: (id: string): Promise<GatewayManagementTask> => http.get(`/host-onboarding/management-gateways/tasks/${id}`),
     prepareGatewayInstallation: (data: GatewayInstallationInput): Promise<GatewayManagementTask> => http.post('/host-onboarding/management-gateways/installations', data),
+    prepareRemoteGateway: (data: RemoteGatewaySetupInput): Promise<{ gatewayId: string; task: GatewayManagementTask }> => http.post('/host-onboarding/management-gateways/remote', data, { timeout: 100000 }),
     confirmGatewayInstallation: (id: string, data: GatewayInstallationConfirmation): Promise<GatewayManagementTask> => http.post(`/host-onboarding/management-gateways/tasks/${id}/confirm`, data),
     cancelGatewayInstallation: (id: string): Promise<GatewayManagementTask> => http.post(`/host-onboarding/management-gateways/tasks/${id}/cancel`, {}),
     retrieveGatewayBootstrap: (id: string, data: GatewayBootstrapAuthorization): Promise<GatewayBootstrapMaterial> => http.post(`/host-onboarding/management-gateways/tasks/${id}/bootstrap`, data),

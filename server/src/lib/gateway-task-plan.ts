@@ -7,6 +7,15 @@ const MAX_REVISION = 9223372036854775807n
 export class GatewayTaskError extends Error {
   constructor(public readonly code: string) { super(code) }
 }
+export function gatewayExecutorFailureCode(raw: string, fallback: string): string {
+  if (Buffer.byteLength(raw) > 16384) return fallback
+  try {
+    const row = JSON.parse(raw) as Record<string, unknown>
+    if (row && !Array.isArray(row) && Object.keys(row).length === 2 && row.canWrite === false &&
+      typeof row.code === 'string' && /^GATEWAY_[A-Z_]{1,80}$/.test(row.code)) return row.code
+  } catch { /* Raw output must never appear in the public error. */ }
+  return fallback
+}
 function check(condition: unknown, code = 'GATEWAY_TASK_PLAN_INVALID'): asserts condition {
   if (!condition) throw new GatewayTaskError(code)
 }

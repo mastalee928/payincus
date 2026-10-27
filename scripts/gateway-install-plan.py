@@ -49,6 +49,11 @@ def require(condition, code='GATEWAY_INSTALL_PLAN_INVALID'):
         raise PlanRejected(code)
 
 
+def public_error_code(error, fallback):
+    code = getattr(error, 'code', None)
+    return code if isinstance(code, str) and re.fullmatch(r'GATEWAY_[A-Z_]{1,80}', code) else fallback
+
+
 def exact(value, fields):
     require(isinstance(value, dict) and set(value) == fields)
     return value
@@ -194,8 +199,8 @@ def main():
         request = decode_object(package.protected_read(sys.argv[2], 65536, 0o600))
         print(json.dumps(prepare_installation(request, policy), separators=(',', ':')))
         return 0
-    except (ValueError, OSError, KeyError, TypeError, RecursionError, subprocess.SubprocessError):
-        print('{"code":"GATEWAY_INSTALL_PLAN_REJECTED","canWrite":false}')
+    except (ValueError, OSError, KeyError, TypeError, RecursionError, subprocess.SubprocessError) as error:
+        print(json.dumps({'code': public_error_code(error, 'GATEWAY_INSTALL_PLAN_REJECTED'), 'canWrite': False}, separators=(',', ':')))
         return 1
 
 

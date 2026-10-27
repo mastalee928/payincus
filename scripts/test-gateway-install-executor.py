@@ -26,6 +26,16 @@ executor = load('gateway_executor', 'execute-gateway-install.py')
 plans = load('gateway_plan_tests', 'test-gateway-install-plan.py')
 
 
+class CommandErrorTests(unittest.TestCase):
+    def test_timeout_and_missing_tool_are_specific_and_public(self):
+        for error, code in [(subprocess.TimeoutExpired('private command', 1, stderr=b'private'), 'GATEWAY_INSTALL_TIMEOUT'),
+                            (FileNotFoundError('private path'), 'GATEWAY_DEPENDENCIES_MISSING')]:
+            with patch.object(executor.subprocess, 'run', side_effect=error):
+                with self.assertRaises(executor.planner.PlanRejected) as raised:
+                    executor.command('/usr/bin/tool', [])
+                self.assertEqual(raised.exception.code, code)
+
+
 @unittest.skipUnless(hasattr(os, 'geteuid') and os.geteuid() == 0, 'requires Linux protected-file semantics')
 class ExecutorTests(unittest.TestCase):
     def setUp(self):

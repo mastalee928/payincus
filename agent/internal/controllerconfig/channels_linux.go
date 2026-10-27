@@ -17,6 +17,26 @@ import (
 )
 
 func channelCommand(ctx context.Context, program string, args []string, input string) (string, error) {
+	return boundedChannelCommand(ctx, program, args, input, 65536)
+}
+
+func gatewayCommand(ctx context.Context, program string, args []string, input string) (string, error) {
+	return boundedChannelCommand(ctx, program, args, input, MaxGatewayTransportBytes)
+}
+
+type boundedChannelOutput struct {
+	strings.Builder
+	limit int
+}
+
+func (b *boundedChannelOutput) Write(raw []byte) (int, error) {
+	if len(raw) > b.limit-b.Len() {
+		return 0, failure("CONTROLLER_CHANNELS_EXECUTION")
+	}
+	return b.Builder.Write(raw)
+}
+
+func boundedChannelCommand(ctx context.Context, program string, args []string, input string, limit int) (string, error) {
 	// Distribution tools can use root-owned links (Ubuntu's /usr/sbin/ip).
 	// Resolve only within fixed system tool directories and verify every parent
 	// before execution; no PATH lookup or request-supplied executable is used.
@@ -52,7 +72,7 @@ func channelCommand(ctx context.Context, program string, args []string, input st
 	cmd := exec.CommandContext(bounded, resolved, args...)
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"}
 	cmd.Stdin = strings.NewReader(input)
-	var output boundedFenceOutput
+	output := boundedChannelOutput{limit: limit}
 	cmd.Stdout = &output
 	if cmd.Run() != nil {
 		return "", failure("CONTROLLER_CHANNELS_EXECUTION")
@@ -99,6 +119,15 @@ func ReadProtectedChannelFile(path string, limit int) ([]byte, error) {
 		return nil, failure("CONTROLLER_CHANNELS_PERMISSION")
 	}
 	return channelReadFile(path, limit)
+}
+
+// Gateway peer catalogs have their own bounded reader; host messages retain
+// the existing smaller limit and all root/file/identity checks.
+func ReadProtectedGatewayFile(path string) ([]byte, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, failure("CONTROLLER_CHANNELS_PERMISSION")
+	}
+	return channelReadFile(path, MaxGatewayTransportBytes)
 }
 func LockChannelService(directory string) (func(), error) {
 	if safeChannelDirectory(directory) != nil {

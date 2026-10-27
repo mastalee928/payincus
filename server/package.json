@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "1.7.6",
+  "version": "1.7.7",
   "description": "PayIncus backend service",
   "type": "module",
   "main": "dist/app.js",
@@ -11,6 +11,8 @@
     "test:billing-expiry-enforcement": "node --import tsx scripts/test-billing-expiry-enforcement.ts",
     "test:billing-expiry-integration": "node --import tsx scripts/test-billing-expiry-integration.mjs",
     "test:gateway-task-guards": "node --import tsx scripts/test-gateway-task-guards.ts",
+    "test:remote-gateway-setup-integration": "node --import tsx scripts/test-remote-gateway-setup-integration.ts",
+    "test:gateway-preflight-guards": "node --import tsx scripts/test-gateway-preflight-guards.ts",
     "test:gateway-component-integration": "node --import tsx scripts/test-gateway-component-integration.ts",
     "test:gateway-installation-integration": "node --import tsx scripts/test-gateway-installation-integration.ts",
     "test:gateway-installation-live": "node --import tsx scripts/test-gateway-installation-live.ts",

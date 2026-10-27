@@ -554,6 +554,7 @@ export default {
 hostManagement: "主机接入与管理",
 
 machinePool: "机器池",
+gateways: '网关',
 
 poolPricing: "定价",
 

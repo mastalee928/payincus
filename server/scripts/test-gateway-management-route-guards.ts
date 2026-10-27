@@ -15,10 +15,12 @@ app.decorate('authenticateAdmin', async (request, reply) => {
 })
 let inspected = 0
 let prepared = 0, confirmed = 0, cancelled = 0, delivered = 0
-let bootstrapUnavailable = false
+let bootstrapUnavailable = false, remotePrepared = 0, retired = 0
 const input = { requestId: randomUUID(), gatewayId: randomUUID(), name: 'Guard gateway', mode: 'local', target: null,
   configuration: { slot: 'a', network: '10.249.80.0/24', address: '10.249.80.1', listenPort: 51980, consolePort: 18480 } }
 await registerGatewayManagementRoutes(app, {
+  retireCandidate: async () => { retired++; return { retired: true } },
+  prepareRemote: async (_input, actor) => { assert.equal(actor, 1); remotePrepared++; return { gatewayId: input.gatewayId, task: {} } },
   list: async () => ({ configured: true, platformId: randomUUID(), gateways: [] }),
   task: async () => ({ id: input.requestId, status: 'succeeded' }),
   inspect: async (_input, actor) => { assert.equal(actor, 1); inspected++; return { task: {}, report: null, canWrite: false, duplicate: false } },
@@ -53,6 +55,8 @@ try {
   assert.equal(accepted.headers['cache-control'], 'no-store')
   assert.equal((await app.inject({ method: 'POST', url: '/management-gateways/execute', headers, payload: input })).statusCode, 404)
   const actions = [
+    { url: `/management-gateways/${input.gatewayId}/restart-candidate`, body: {}, status: 200 },
+    { url: '/management-gateways/remote', body: { requestId: input.requestId, gatewayId: input.gatewayId, name: 'Separate test gateway', purpose: 'backup', address: '8.8.4.4', hostname: 'gateway.example.com', credentials: { password: 'fixture-password' } }, status: 202 },
     { url: '/management-gateways/installations', body: { requestId: input.requestId, gatewayId: input.gatewayId, configuration: { ...input.configuration, consoleOrigin: 'https://gateway.example.com:18480' } }, status: 202 },
     { url: `/management-gateways/tasks/${input.requestId}/confirm`, body: { planHash: 'a'.repeat(64), confirmation: `CONFIRM ${input.requestId}`, password: 'fixture-password' }, status: 202 },
     { url: `/management-gateways/tasks/${input.requestId}/cancel`, body: {}, status: 200 },
@@ -70,6 +74,13 @@ try {
     assert.equal(response.statusCode, action.status); assert.equal(response.headers['cache-control'], 'no-store')
   }
   assert.deepEqual([prepared, confirmed, cancelled, delivered], [1, 1, 1, 1])
+  assert.equal(remotePrepared, 1)
+  assert.equal(retired,1)
+  const remoteBody = actions.find(action => action.url === '/management-gateways/remote')!.body
+  for (const change of [{ purpose: 'active' }, { network: '10.0.0.0/8' }, { port: 22 }, { credentials: { password: 'fixture', command: 'id' } }]) {
+    assert.equal((await app.inject({ method: 'POST', url: '/management-gateways/remote', headers, payload: { ...remoteBody, ...change } })).statusCode, 400)
+  }
+  assert.equal(remotePrepared, 1, 'no privileged remote action before strict input validation')
   bootstrapUnavailable = true
   assert.equal((await app.inject({ method: 'POST', url: `/management-gateways/tasks/${input.requestId}/bootstrap`, headers, payload: {} })).statusCode, 400)
   console.log('Gateway management real route guards passed: admin/session/Origin, strict inspect/install/confirm/cancel/bootstrap bodies and fixed worker operations')

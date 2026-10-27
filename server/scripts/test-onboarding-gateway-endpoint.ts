@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 import Fastify from 'fastify'
 import { validateStableGatewayEndpoint } from '../src/lib/onboarding-gateway-endpoint.js'
 import { registerGatewayEndpointRoutes } from '../src/routes/onboarding-gateway-endpoint.js'
+import { verifyRemoteGatewayDomain } from '../src/services/onboarding-gateway-endpoint.js'
+
+assert.equal(await verifyRemoteGatewayDomain('8.8.4.4', 'Gateway.Example.com', async () => '8.8.4.4'), 'gateway.example.com')
+await assert.rejects(verifyRemoteGatewayDomain('8.8.4.4', 'gateway.example.com', async host => host === '8.8.4.4' ? host : '8.8.8.8'), /TARGET_MISMATCH/)
+await assert.rejects(verifyRemoteGatewayDomain('8.8.4.4', '8.8.4.4', async () => '8.8.4.4'), /DNS_REQUIRED/)
+await assert.rejects(verifyRemoteGatewayDomain('8.8.4.4', 'gateway.example.com', async () => { throw new Error('DNS outage') }), /GATEWAY_DNS_LOOKUP_FAILED/)
+await assert.rejects(verifyRemoteGatewayDomain('8.8.4.4', 'gateway.example.com', async () => '127.0.0.1'), /GATEWAY_DNS_LOOKUP_FAILED/)
 
 assert.deepEqual(validateStableGatewayEndpoint({ hostname: 'Gateway.Example.com', port: 51820 }), { hostname: 'gateway.example.com', port: 51820 })
 for (const hostname of ['127.0.0.1', '8.8.4.4', 'localhost', 'https://gateway.example.com', 'gateway.example.com:51820', 'gateway.example.com;id']) {

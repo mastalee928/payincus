@@ -1,6 +1,6 @@
 import { isAbsolute, join,dirname,resolve } from 'node:path'
 import { readDiscoveryPrivateFile, acquireDiscoveryProcessLock,acquireDiscoveryMutationLock,validateDiscoveryPrivateDirectory } from '../services/controller-discovery.js'
-import { collectGatewaySnapshot, gatewayBackupJob, restoreGatewaySnapshot } from '../services/gateway-backup.js'
+import { collectGatewaySnapshot, gatewayBackupJob, restoreGatewaySnapshot, readGatewaySnapshotSource } from '../services/gateway-backup.js'
 import { createGatewayOssStore } from '../services/gateway-backup-oss.js'
 import { verifyGatewayTransport } from '../lib/gateway-transport.js'
 import { createHash } from 'node:crypto'
@@ -41,7 +41,7 @@ async function main(){
       }finally{await release()}
     }
     const once=async()=>{
-      const encoded=await readDiscoveryPrivateFile(config.sources['gateway-transport.json'],65536)
+      const encoded=await readGatewaySnapshotSource('gateway-transport.json',config.sources['gateway-transport.json'])
       const issuedAt=JSON.parse(Buffer.from(JSON.parse(encoded).payload,'base64').toString()).issuedAt as number
       const {config:transport}=verifyGatewayTransport(encoded,{platformId:config.platformId,gatewayId:config.gatewayId,now:issuedAt,trustedKeys:config.trustedKeys})
       const snapshot=await collectGatewaySnapshot({platformId:config.platformId,gatewayId:config.gatewayId,epoch:transport.epoch,sequence:transport.sequence,componentVersion:config.componentVersion,sources:config.sources})
@@ -57,7 +57,7 @@ async function main(){
       try{
         const hasher=createHash('sha256')
         for(const [name,path]of Object.entries(config.sources).sort(([a],[b])=>a.localeCompare(b))){
-          hasher.update(name+'\n');hasher.update(await readDiscoveryPrivateFile(path,65536));hasher.update('\n')
+          hasher.update(name+'\n');hasher.update(await readGatewaySnapshotSource(name,path));hasher.update('\n')
         }
         const digest=hasher.digest('hex')
         if(Date.now()-lastRun>=config.intervalSeconds*1000||digest!==lastDigest){await once();lastRun=Date.now();lastDigest=digest}

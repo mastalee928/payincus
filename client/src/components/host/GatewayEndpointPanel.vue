@@ -88,6 +88,8 @@ onUnmounted(() => { disposed = true; clearTimeout(timer) })
             <p class="text-sm font-medium text-themed break-words">{{ host.name }}</p>
             <p class="mt-1 text-sm" :class="state(host) === 'failed' ? 'text-red-700 dark:text-red-300' : state(host) === 'succeeded' ? 'text-green-700 dark:text-green-300' : 'text-themed-muted'">{{ t(`gatewayEndpoint.states.${state(host)}`) }}</p>
             <p v-if="host.error" class="mt-1 text-sm text-themed-muted">{{ t(`gatewayEndpoint.steps.${host.step === 'install' ? 'install' : 'connect'}`) }} · {{ reason(host.error) }}</p>
+            <p v-if="host.state === 'queued' && host.retryAt" class="mt-1 text-xs text-themed-muted">{{ t('gatewayEndpoint.flow.retryScheduled', { attempt: host.attempt || 0, max: host.maxAttempts || 3, time: new Date(host.retryAt).toLocaleTimeString(locale) }) }}</p>
+            <p v-else-if="host.state === 'failed' && host.error" class="mt-1 text-xs text-themed-muted">{{ t('gatewayEndpoint.flow.retryStopped') }}</p>
             <p v-if="host.updatedAt" class="mt-1 text-xs text-themed-muted">{{ new Date(host.updatedAt).toLocaleString(locale) }}</p>
           </div>
           <button v-if="host.eligible && !host.installed && !['queued','running'].includes(state(host))" type="button" class="btn-secondary shrink-0" :disabled="busy || !status?.endpoint" @click="synchronize(false, host)">{{ t('gatewayEndpoint.retry') }}</button>

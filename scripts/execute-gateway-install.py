@@ -38,8 +38,13 @@ STEPS = ['identity-prepared', 'console-initialized', 'transport-started', 'trans
 
 
 def command(program, args, data=None, timeout=30):
-    result = subprocess.run([program, *args], input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            timeout=timeout, check=False, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+    try:
+        result = subprocess.run([program, *args], input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                timeout=timeout, check=False, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+    except subprocess.TimeoutExpired:
+        raise planner.PlanRejected('GATEWAY_INSTALL_TIMEOUT') from None
+    except FileNotFoundError:
+        raise planner.PlanRejected('GATEWAY_DEPENDENCIES_MISSING') from None
     require(result.returncode == 0, 'GATEWAY_INSTALL_COMMAND_FAILED')
     require(len(result.stdout) <= 65536, 'GATEWAY_INSTALL_COMMAND_FAILED')
     return result.stdout
@@ -353,10 +358,10 @@ def install(request, policy):
         journal['status'] = 'succeeded'
         save_json(state / 'journal.json', journal)
         return receipt
-    except Exception:
+    except Exception as error:
         if journal is not None:
             journal['status'] = 'needs_review'
-            journal['errorCode'] = 'GATEWAY_INSTALL_INCOMPLETE'
+            journal['errorCode'] = planner.public_error_code(error, 'GATEWAY_INSTALL_INCOMPLETE')
             save_json(state / 'journal.json', journal)
         raise
     finally:
@@ -370,8 +375,8 @@ def main():
         request = read_json(Path(sys.argv[2]))
         print(json.dumps(install(request, policy), separators=(',', ':')))
         return 0
-    except Exception:
-        print('{"code":"GATEWAY_INSTALL_INCOMPLETE","canWrite":false}')
+    except Exception as error:
+        print(json.dumps({'code': planner.public_error_code(error, 'GATEWAY_INSTALL_INCOMPLETE'), 'canWrite': False}, separators=(',', ':')))
         return 1
 
 

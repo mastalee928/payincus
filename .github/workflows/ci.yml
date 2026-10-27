@@ -157,6 +157,40 @@ jobs:
           pnpm --filter server test:host-public-ipv6-integration
           pnpm --filter server test:admin-instance-delete-integration
 
+  remote-gateway-setup-integration:
+    name: Remote gateway setup journal integration
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gateway_test
+          POSTGRES_PASSWORD: gateway_test
+          POSTGRES_DB: ci_remote_gateway_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://gateway_test:gateway_test@127.0.0.1:5432/ci_remote_gateway_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - name: Prepare isolated schema
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm --filter server exec prisma generate
+          pnpm --filter server exec prisma migrate deploy
+      - name: Verify persistent planning, DNS pinning and credential boundaries
+        run: pnpm --filter server test:remote-gateway-setup-integration
+
   gateway-component-package:
     name: Gateway component package (${{ matrix.architecture }})
     runs-on: ${{ matrix.runner }}

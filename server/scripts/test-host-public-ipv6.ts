@@ -85,6 +85,22 @@ for (const address of [a, b]) {
   assert.ok(forward.ports.every((port: any) => port.target_address === mapping.privateIp && port.target_address !== forward.config.target_address), 'Incus port and default targets must differ')
 }
 const before = writes
+let ipv4ManagementProbes = 0
+const noGatewayIpv6 = await reconcileDedicatedIpv6(client, { ...input, previous: initial, force: true }, { ...deps,
+  verify: async () => { throw new PublicIpSyncError('IPV6_CONTROLLER_NO_ROUTE') },
+  guestVerify: async (managedClient: any, name: string, mapping: any, port: number, fingerprints: string[]) => {
+    assert.equal(managedClient, client, 'IPv6 verification reuses the original authenticated Incus connection')
+    assert.equal(name, input.name); assert.equal(port, 22); assert.deepEqual(fingerprints, ['SHA256:fixture'])
+    assert.ok(initial.mappings.some(prior => prior.publicIp === mapping.publicIp && prior.privateIp === mapping.privateIp))
+    ipv4ManagementProbes++
+  }
+})
+assert.equal(noGatewayIpv6.status, 'ready'); assert.equal(noGatewayIpv6.error, null)
+assert.equal(ipv4ManagementProbes, 2)
+assert.deepEqual(customerIpv6View(noGatewayIpv6)?.addresses, [a, b])
+assert.deepEqual(noGatewayIpv6.mappings.map(mapping => [mapping.publicIp, mapping.privateIp, mapping.fallbackIp]),
+  initial.mappings.map(mapping => [mapping.publicIp, mapping.privateIp, mapping.fallbackIp]))
+assert.equal(writes, before, 'disabling gateway IPv6 cannot recreate or remove customer IPv6 forwards')
 input.previous = initial; input.addresses.reverse()
 const repeated = await reconcileDedicatedIpv6(client, input, deps)
 assert.equal(writes, before, 'repeated reconciliation does not recreate or rewrite owned forwards')

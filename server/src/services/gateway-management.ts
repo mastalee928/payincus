@@ -1,6 +1,7 @@
 import { Resolver } from 'node:dns/promises'
 import { isIPv4 } from 'node:net'
 import { prisma } from '../db/prisma.js'
+import { parseRemoteGatewayPreparation } from '../lib/remote-gateway-setup.js'
 import { GatewayTaskError, gatewayTaskHash, type GatewayTaskPlan } from '../lib/gateway-task-plan.js'
 import { normalizeOnboardingAddress, isOnboardingPublicIPv4, validateCredentials, type OnboardingCredentials } from '../lib/host-onboarding.js'
 import { connectOnboardingSsh } from './onboarding-ssh.js'
@@ -13,7 +14,7 @@ export interface ManagementGatewayInspectInput {
   gatewayId: string
   name: string
   mode: 'local' | 'remote' | 'existing'
-  target: null | { address: string; port: number; fingerprint: string }
+  target: null | { address: string; port: number; fingerprint?: string }
   configuration: { slot: 'a' | 'b'; network: string; address: string; listenPort: number; consolePort: number }
   credentials?: OnboardingCredentials
 }
@@ -41,10 +42,41 @@ function publicTask<T>(value: T): unknown {
 }
 export async function listManagementGateways() {
   const platformId = managementGatewayPlatformId()
-  const gateways = await prisma.managementGateway.findMany({ where: { platformId }, orderBy: { createdAt: 'asc' }, take: 20,
+  // Filter failures before limiting history. Successes must not crowd out an
+  // unresolved failure, and old attempt rows must not all enter process memory.
+  const prefix = `management_gateway_remote_attempt_${platformId}_`
+  const attempts = await prisma.$queryRaw<Array<{ key: string; value: string }>>`
+    SELECT key, value FROM system_configs
+    WHERE left(key, length(${prefix})) = ${prefix}
+      AND value ~ '"state"[[:space:]]*:[[:space:]]*"failed"'
+    ORDER BY updated_at DESC, key DESC LIMIT 100`
+  const preparations = attempts.flatMap(row => {
+    const value = parseRemoteGatewayPreparation(row.value)
+    return value?.state === 'failed' && row.key === `management_gateway_remote_attempt_${platformId}_${value.requestId}` ? [value] : []
+  }).slice(0, 20).map(value => ({ ...value, retryable: true }))
+  const retired = await prisma.managementGateway.findMany({ where: { platformId, retiredAt: { not: null } }, select: { id: true } })
+  const retiredIds = new Set(retired.map(gateway => gateway.id))
+  const usedCandidates = await prisma.managementGatewayTask.findMany({ where: {
+    gatewayId: { in: preparations.map(value => value.gatewayId) }, gateway: { platformId }, kind: 'install',
+    OR: [{ status: { notIn: ['failed', 'cancelled'] } },
+      { steps: { some: { key: { in: ['install-components', 'verify-installation'] }, status: { not: 'pending' } } } }]
+  }, select: { gatewayId: true } })
+  const usedIds = new Set(usedCandidates.map(task => task.gatewayId))
+  for (const preparation of preparations) preparation.retryable = !retiredIds.has(preparation.gatewayId) && !usedIds.has(preparation.gatewayId)
+  const gateways = await prisma.managementGateway.findMany({ where: { platformId, retiredAt: null }, orderBy: { createdAt: 'asc' },
     select: { id: true, name: true, mode: true, target: true, revision: true, retiredAt: true,
-      tasks: { take: 5, orderBy: { createdAt: 'desc' }, select: gatewayTaskPublicSelect } } })
-  return { configured: true, platformId, gateways: publicTask(gateways) }
+      tasks: { take: 5, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: gatewayTaskPublicSelect } } })
+  // Automatic conflict checks may produce many inspections. Keep the latest
+  // task of each lifecycle kind visible even after those checks fill the list.
+  const lifecycle = await Promise.all(['inspect', 'install', 'attach', 'update'].map(kind =>
+    prisma.managementGateway.findMany({ where: { id: { in: gateways.map(gateway => gateway.id) }, platformId },
+      select: { id: true, tasks: { where: { kind }, take: 1,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: gatewayTaskPublicSelect } } })))
+  const histories = new Map(gateways.map(gateway => [gateway.id, new Map(gateway.tasks.map(task => [task.id, task]))]))
+  for (const group of lifecycle) for (const gateway of group) for (const task of gateway.tasks) histories.get(gateway.id)!.set(task.id, task)
+  return { configured: true, platformId, preparations, gateways: publicTask(gateways.map(gateway => ({ ...gateway,
+    tasks: [...histories.get(gateway.id)!.values()].sort((left, right) =>
+      right.createdAt.getTime() - left.createdAt.getTime() || right.id.localeCompare(left.id)) }))) }
 }
 export async function getManagementGatewayTask(id: string) {
   if (!UUID.test(id)) throw new GatewayTaskError('GATEWAY_TASK_NOT_FOUND')
@@ -73,7 +105,7 @@ export async function inspectManagementGateway(input: ManagementGatewayInspectIn
       const oldPlan = duplicate.plan as unknown as GatewayTaskPlan
       if (duplicate.planHash !== gatewayTaskHash(oldPlan) || oldPlan.platformId !== platformId ||
         oldPlan.configurationHash !== gatewayTaskHash(input.configuration) || oldPlan.target.mode !== input.mode ||
-        (input.mode !== 'local' && (oldPlan.target.ssh?.fingerprint !== input.target?.fingerprint || oldPlan.target.ssh?.port !== input.target?.port ||
+        (input.mode !== 'local' && ((input.target?.fingerprint && oldPlan.target.ssh?.fingerprint !== input.target.fingerprint) || oldPlan.target.ssh?.port !== input.target?.port ||
           oldPlan.target.ssh?.address !== await targetAddress(input.target?.address || '')))) throw new GatewayTaskError('GATEWAY_TASK_IDEMPOTENCY_CONFLICT')
       return { task: await getManagementGatewayTask(input.requestId), report: (duplicate.inspection as unknown as { report?: GatewayPreflightReport })?.report || null, canWrite: false, duplicate: true }
     }
@@ -84,13 +116,20 @@ export async function inspectManagementGateway(input: ManagementGatewayInspectIn
       target = { mode: 'local', machineId: report.machineId, ssh: null }
     } else {
       if (!input.target || !Number.isInteger(input.target.port) || input.target.port < 1 || input.target.port > 65535 ||
-        !/^SHA256:[A-Za-z0-9+/]{43}$/.test(input.target.fingerprint)) throw new GatewayTaskError('GATEWAY_SSH_FINGERPRINT_REQUIRED')
+        (input.target.fingerprint !== undefined && !/^SHA256:[A-Za-z0-9+/]{43}$/.test(input.target.fingerprint))) throw new GatewayTaskError('GATEWAY_SSH_FINGERPRINT_REQUIRED')
       validateCredentials(input.credentials)
       const address = await targetAddress(input.target.address)
-      if (existing && (existing.target as unknown as GatewayTaskPlan['target']).ssh?.address !== address) throw new GatewayTaskError('GATEWAY_TASK_TARGET_CONFLICT')
-      client = await connectOnboardingSsh({ host: address, port: input.target.port, ...input.credentials }, async fingerprint => fingerprint === input.target!.fingerprint)
+      const registered = existing?.target as unknown as GatewayTaskPlan['target'] | undefined
+      if (registered && (registered.mode !== input.mode || registered.ssh?.address !== address || registered.ssh.port !== input.target.port)) throw new GatewayTaskError('GATEWAY_TASK_TARGET_CONFLICT')
+      const expectedFingerprint = registered?.ssh?.fingerprint || input.target.fingerprint
+      let observedFingerprint = ''
+      client = await connectOnboardingSsh({ host: address, port: input.target.port, ...input.credentials }, async fingerprint => {
+        observedFingerprint = fingerprint
+        return expectedFingerprint ? fingerprint === expectedFingerprint : true
+      })
+      if (!observedFingerprint) throw new GatewayTaskError('GATEWAY_SSH_FINGERPRINT_REQUIRED')
       report = await inspectRemoteManagementGateway(client, request)
-      target = { mode: input.mode, machineId: report.machineId, ssh: { address, port: input.target.port, username: 'root', fingerprint: input.target.fingerprint } }
+      target = { mode: input.mode, machineId: report.machineId, ssh: { address, port: input.target.port, username: 'root', fingerprint: observedFingerprint } }
     }
     if (report.blockers.includes('GATEWAY_TARGET_IDENTITY_CHANGED')) throw new GatewayTaskError('GATEWAY_TASK_TARGET_CONFLICT')
     const gateway = await registerManagementGateway({ id: input.gatewayId, platformId, name: input.name, target }, actorId)

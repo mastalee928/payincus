@@ -1,4 +1,6 @@
+import { zhCN as flowZhCN, zhTW as flowZhTW, en as flowEn } from './gateway-flow'
 export const zhCN = {
+  flow: flowZhCN,
   "title": "网关域名与宿主连接",
   "description": "域名保存一次，系统自动为已接入宿主配置地址更新。恢复后沿用原身份重新连接。",
   "hostname": "固定网关域名",
@@ -116,7 +118,13 @@ export const zhCN = {
   },
   "extensions": {
     "title": "扩展网关",
-    "description": "独立网关与备用网关分别管理，入口已预留。",
+    "description": "连接独立服务器，生成安装计划并查看准备进度。",
+    "rootPassword": "这台服务器的 root 密码",
+    "automatic": "填写服务器地址、密码和 DNS-only 域名。系统检查身份并自动规划网段及端口，安装前确认计划。",
+    "prepare": "检查服务器并生成安装计划",
+    "empty": "尚未接入独立网关。选择用途后开始检查。",
+    "failed": "检查或计划生成未完成，请重试并查看该机器的结果。",
+    "notReady": "尚不可接管：仍需验证主控路径、宿主第二通道、独立备份及控制权见证。",
     "reserved": "预留入口",
     "pending": "配置能力将在后续版本开放。",
     "independent": {
@@ -130,6 +138,7 @@ export const zhCN = {
   }
 }
 export const zhTW = {
+  flow: flowZhTW,
   "title": "網關網域與宿主連線",
   "description": "網域儲存一次，系統自動為已接入宿主配置位址更新。恢復後沿用原身分重新連線。",
   "hostname": "固定網關網域",
@@ -247,7 +256,13 @@ export const zhTW = {
   },
   "extensions": {
     "title": "擴充網關",
-    "description": "獨立與備用網關分別管理，入口已預留。",
+    "description": "連線獨立伺服器，產生安裝計畫並查看準備進度。",
+    "rootPassword": "這台伺服器的 root 密碼",
+    "automatic": "填寫伺服器位址、密碼與 DNS-only 網域。系統核對身分並自動規劃網段與連接埠，安裝前確認計畫。",
+    "prepare": "檢查伺服器並產生安裝計畫",
+    "empty": "尚未接入獨立網關。選擇用途後開始檢查。",
+    "failed": "檢查或計畫產生未完成，請重試並查看這台機器的結果。",
+    "notReady": "尚不可接管：仍需驗證主控路徑、宿主第二通道、獨立備份及控制權見證。",
     "reserved": "預留入口",
     "pending": "配置功能將於後續版本開放。",
     "independent": {
@@ -261,6 +276,7 @@ export const zhTW = {
   }
 }
 export const en = {
+  flow: flowEn,
   "title": "Gateway domain and hosts",
   "description": "Save the domain once. Enrolled hosts receive automatic address updates and keep their original identities after recovery.",
   "hostname": "Permanent gateway domain",
@@ -378,7 +394,13 @@ export const en = {
   },
   "extensions": {
     "title": "Additional gateways",
-    "description": "Independent and standby gateways have separate reserved entries.",
+    "description": "Connect a separate server, review its installation plan and follow preparation progress.",
+    "rootPassword": "This server’s root password",
+    "automatic": "Enter the server address, password and DNS-only domain. Identity is checked and networks and ports are planned automatically. Confirm the plan before installation.",
+    "prepare": "Check server and prepare installation",
+    "empty": "No independent gateway enrolled. Choose a purpose to begin.",
+    "failed": "Inspection or plan preparation did not finish. Retry and review this machine’s results.",
+    "notReady": "Takeover unavailable: controller access, host second channels, independent backup and control witness still require verification.",
     "reserved": "Reserved entry",
     "pending": "Configuration will be available in a later release.",
     "independent": {

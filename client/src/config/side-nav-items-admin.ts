@@ -8,6 +8,7 @@ export const navMenuItems: MenuItem[] = [
   { name: 'admin-hosting', path: '/admin/hosting', icon: 'coin', label: 'nav.hosting' },
   { name: 'admin-settings', path: '/admin/settings', icon: 'cog', label: 'nav.system' },
   { divider: true, label: 'nav.hostManagement' },
+  { name: 'admin-gateways', path: '/admin/gateways', icon: 'server', label: 'nav.gateways' },
   { name: 'admin-host-onboarding', path: '/admin/host-onboarding', icon: 'database', label: 'nav.machinePool' },
   { name: 'admin-host-pricing', path: '/admin/host-pricing', icon: 'coin', label: 'nav.poolPricing' },
   { divider: true, label: 'nav.operations' },

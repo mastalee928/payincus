@@ -508,6 +508,7 @@ const zhTW = {
 hostManagement: "主機接入與管理",
 
 machinePool: "機器池",
+gateways: '閘道',
 
 poolPricing: "定價",
 

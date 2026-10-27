@@ -9,6 +9,9 @@ import (
 )
 
 const gatewayTransportPrefix = "payincus/gateway-transport/v1\n"
+const MaxGatewayTransportBytes = 1024 * 1024
+const MaxGatewayTransportPayloadBytes = 768 * 1024
+const MaxGatewayTransportPeers = 4094
 
 type GatewayTransportPeer struct {
 	NodeID    string `json:"nodeId"`
@@ -37,7 +40,7 @@ func VerifyGatewayTransport(encoded []byte, trust Context) (GatewayTransport, Ob
 	fail := func() (GatewayTransport, ObservedState, error) {
 		return GatewayTransport{}, ObservedState{}, failure("GATEWAY_TRANSPORT_INVALID")
 	}
-	if len(encoded) > 65536 || trust.Now <= 0 || trust.Now > maxSafeInteger {
+	if len(encoded) > MaxGatewayTransportBytes || trust.Now <= 0 || trust.Now > maxSafeInteger {
 		return fail()
 	}
 	var env envelope
@@ -57,11 +60,11 @@ func VerifyGatewayTransport(encoded []byte, trust Context) (GatewayTransport, Ob
 		return fail()
 	}
 	raw, err := base64.StdEncoding.Strict().DecodeString(env.Payload)
-	if err != nil || len(raw) > 40000 || base64.StdEncoding.EncodeToString(raw) != env.Payload || !ed25519.Verify(key, []byte(gatewayTransportPrefix+env.KeyID+"\n"+env.Payload), sig) || decodeStrict(raw, &config) != nil {
+	if err != nil || len(raw) > MaxGatewayTransportPayloadBytes || base64.StdEncoding.EncodeToString(raw) != env.Payload || !ed25519.Verify(key, []byte(gatewayTransportPrefix+env.KeyID+"\n"+env.Payload), sig) || decodeStrict(raw, &config) != nil {
 		return fail()
 	}
 	if config.SchemaVersion != 1 || config.Purpose != "gateway-transport" || !uuidPattern.MatchString(config.PlatformID) || !uuidPattern.MatchString(config.GatewayID) ||
-		config.PlatformID != trust.PlatformID || config.GatewayID != trust.NodeID || (config.Slot != "a" && config.Slot != "b") || !validManagementIP(config.Address) || !validPort(config.ListenPort) || config.MTU < 1280 || config.MTU > 1420 || len(config.Peers) > 256 {
+		config.PlatformID != trust.PlatformID || config.GatewayID != trust.NodeID || (config.Slot != "a" && config.Slot != "b") || !validManagementIP(config.Address) || !validPort(config.ListenPort) || config.MTU < 1280 || config.MTU > 1420 || len(config.Peers) > MaxGatewayTransportPeers {
 		return fail()
 	}
 	for _, value := range []string{config.Epoch, config.Sequence} {

@@ -7,7 +7,7 @@ export interface GatewayInspection {
 export interface GatewayInspectionConfiguration { slot: 'a' | 'b'; network: string; address: string; listenPort: number; consolePort: number }
 export interface GatewayInspectionInput {
   requestId: string; gatewayId: string; name: string; mode: 'local' | 'remote' | 'existing'
-  target: null | { address: string; port: number; fingerprint: string }
+  target: null | { address: string; port: number; fingerprint?: string }
   configuration: GatewayInspectionConfiguration
   credentials?: { password?: string; privateKey?: string }
 }
@@ -25,7 +25,12 @@ export interface ManagementGateway {
   target: { machineId: string; ssh: null | { address: string; port: number; fingerprint: string } }
   tasks: GatewayManagementTask[]
 }
-export interface GatewayManagementList { configured: true; platformId: string; gateways: ManagementGateway[] }
+export interface RemoteGatewayPreparation {
+  retryable?: boolean
+  requestId: string; gatewayId: string; actorId: number; name: string; purpose: 'independent' | 'backup'; address: string; hostname: string
+  state: 'running' | 'failed' | 'succeeded'; step: string; code: string | null; updatedAt: string
+}
+export interface GatewayManagementList { configured: true; platformId: string; gateways: ManagementGateway[]; preparations?: RemoteGatewayPreparation[] }
 export interface GatewayInspectionResult { task: GatewayManagementTask; report: GatewayInspection | null; canWrite: false; duplicate: boolean }
 export interface GatewayInstallationConfiguration extends GatewayInspectionConfiguration { consoleOrigin: string }
 export interface GatewayInstallationInput {
@@ -49,3 +54,6 @@ export interface GatewayInstallationReceipt {
 export interface GatewayInstallationConfirmation { planHash: string; confirmation: string; password: string; totpCode?: string }
 export interface GatewayBootstrapAuthorization { password: string; totpCode?: string }
 export interface GatewayBootstrapMaterial { username: string; password: string; role: 'operator'; totpSeed: string; recoveryCodes: string[] }
+export interface RemoteGatewaySetupInput {
+  requestId: string; gatewayId: string; name: string; purpose: 'independent' | 'backup'; address: string; hostname: string; credentials: { password: string }
+}

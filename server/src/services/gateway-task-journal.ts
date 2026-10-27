@@ -9,6 +9,7 @@ import { validateGatewayInstallationDesired, validateGatewayInstallationPreview,
   type GatewayInstallationDesired } from '../lib/gateway-installation.js'
 import { decryptGatewayTaskSecret, gatewayCredentialHash, gatewayCredentialSelect } from './gateway-admin-authorization.js'
 import { currentGatewayRecoveryContext } from '../lib/gateway-recovery-context.js'
+import { remoteGatewayNetworksOverlap } from '../lib/remote-gateway-setup.js'
 
 const LEASE_MS = 60000
 const APPROVAL_MS = 10 * 60000
@@ -86,6 +87,25 @@ export async function registerManagementGateway(input: { id: string; platformId:
       name, mode: target.mode, machineId: target.machineId, target: json(target), targetHash } })
   })
 }
+// DD retry retires an unused candidate, preserving its original identity and
+// all receipts. It never resets a live or partly installed gateway's trust.
+export async function retireUnusedGatewayCandidate(id: string, actorId: number) {
+  if (!UUID.test(id) || currentGatewayRecoveryContext()) fail('GATEWAY_TASK_RESTORED_REVIEW')
+  return journalTransaction(async tx => {
+    await lock(tx); await activeAdmin(tx, actorId)
+    const gateway = await tx.managementGateway.findUnique({ where: { id }, include: { tasks: { include: { steps: true } } } })
+    if (!gateway || gateway.platformId !== process.env.GATEWAY_PLATFORM_ID || gateway.mode !== 'remote' || gateway.revision !== 0n) {
+      fail('GATEWAY_INSTALL_EXISTING_REQUIRES_ATTACH')
+    }
+    if (gateway.tasks.some(task => !['inspect', 'install'].includes(task.kind) || !['succeeded', 'failed', 'cancelled'].includes(task.status) ||
+      task.kind !== 'inspect' && (!['failed', 'cancelled'].includes(task.status) || task.steps.some(step =>
+        ['install-components', 'verify-installation'].includes(step.key) && step.status !== 'pending')))) {
+      fail('GATEWAY_INSTALL_EXISTING_REQUIRES_ATTACH')
+    }
+    if (!gateway.retiredAt) await tx.managementGateway.update({ where: { id }, data: { retiredAt: new Date() } })
+    return { retired: true }
+  })
+}
 export async function createManagementGatewayTask(input: unknown, actorId: number,
   credentials?: { encrypted: string; expiresAt: Date }, preparation?: GatewayInstallationDesired) {
   // Snapshot input before awaiting; exact fields reject secret-bearing plans.
@@ -114,6 +134,18 @@ export async function createManagementGatewayTask(input: unknown, actorId: numbe
     if (!gateway) fail('GATEWAY_TASK_TARGET_UNKNOWN')
     authenticatedPlan({ id: plan.taskId, gatewayId: plan.gatewayId, kind: plan.kind, plan: json(plan), planHash, basedOnRevision: BigInt(plan.basedOnRevision) }, gateway)
     if (await tx.managementGatewayTask.count({ where: { gatewayId: plan.gatewayId, status: { in: ['queued', 'running', 'needs_review'] } } })) fail('GATEWAY_TASK_TARGET_BUSY')
+    if (desired && plan.target.mode === 'remote') {
+      // Reserve network intent in the same serialized DB transaction as the
+      // installation task. A crashed or failed install may still own routes;
+      // only retirement releases that machine's reserved network.
+      const reserved = await tx.managementGatewayTask.findMany({ where: { kind: 'install', gatewayId: { not: plan.gatewayId },
+        gateway: { platformId: plan.platformId, retiredAt: null } }, select: { installation: true } })
+      for (const task of reserved) {
+        const other = (task.installation as unknown as { desired?: GatewayInstallationDesired } | null)?.desired
+        if (other && remoteGatewayNetworksOverlap(desired.network, other.network)) fail('GATEWAY_REMOTE_NETWORK_RESERVED')
+        if (other?.slot === desired.slot) fail('GATEWAY_REMOTE_ROLE_RESERVED')
+      }
+    }
     return tx.managementGatewayTask.create({ data: {
       id: plan.taskId, gatewayId: plan.gatewayId, createdById: actorId, kind: plan.kind, plan: json(plan), planHash,
       basedOnRevision: BigInt(plan.basedOnRevision), status: plan.kind === 'inspect' ? 'queued' : 'awaiting_confirmation',
@@ -352,11 +384,12 @@ export async function completeGatewayInstallationPreparation(id: string, token: 
   })
 }
 
-export async function failGatewayInstallationPreparation(id: string, token: string) {
+export async function failGatewayInstallationPreparation(id: string, token: string, code = 'GATEWAY_INSTALL_PREPARATION_FAILED') {
+  if (!/^(?:GATEWAY|SSH)_[A-Z_]{1,80}$/.test(code)) code = 'GATEWAY_INSTALL_PREPARATION_FAILED'
   return journalTransaction(async tx => {
     await lock(tx)
     const changed = await tx.managementGatewayTask.updateMany({ where: { id, preparationState: 'running', leaseToken: token, status: 'awaiting_confirmation' },
-      data: { preparationState: 'failed', status: 'failed', errorCode: 'GATEWAY_INSTALL_PREPARATION_FAILED', leaseToken: null, leaseUntil: null,
+      data: { preparationState: 'failed', status: 'failed', errorCode: code, leaseToken: null, leaseUntil: null,
         credentialsEncrypted: null, credentialsExpireAt: null, completedAt: new Date() } })
     if (!changed.count) fail('GATEWAY_TASK_LEASE_LOST')
   })
@@ -424,16 +457,17 @@ export async function expireGatewayInstallationTasks() {
     }
   })
 }
-export async function interruptManagementGatewayTask(id: string, token: string) {
+export async function interruptManagementGatewayTask(id: string, token: string, code = 'GATEWAY_TASK_EXECUTOR_INTERRUPTED') {
+  if (!/^(?:GATEWAY|SSH)_[A-Z_]{1,80}$/.test(code)) code = 'GATEWAY_TASK_EXECUTOR_INTERRUPTED'
   return journalTransaction(async tx => {
     await lock(tx)
     const changed = await tx.managementGatewayTask.updateMany({ where: { id, status: 'running', leaseToken: token },
-      data: { status: 'needs_review', errorCode: 'GATEWAY_TASK_EXECUTOR_INTERRUPTED', leaseToken: null, leaseUntil: null } })
+      data: { status: 'needs_review', errorCode: code, leaseToken: null, leaseUntil: null } })
     if (!changed.count) fail('GATEWAY_TASK_LEASE_LOST')
   })
 }
 export async function failGatewayInstallationBeforeExecution(id: string, token: string, code: string) {
-  if (!/^GATEWAY_[A-Z_]{1,80}$/.test(code)) fail('GATEWAY_INSTALLATION_INVALID')
+  if (!/^(?:GATEWAY|SSH)_[A-Z_]{1,80}$/.test(code)) fail('GATEWAY_INSTALLATION_INVALID')
   return journalTransaction(async tx => {
     await lock(tx)
     const task = await tx.managementGatewayTask.findUnique({ where: { id }, include: { steps: true } })

@@ -57,7 +57,7 @@ export function validateGatewayPreflightRequest(value: unknown): GatewayPrefligh
   check(row.expectedMachineId === null || (typeof row.expectedMachineId === 'string' && /^[a-f0-9]{32}$/.test(row.expectedMachineId) && !/^0+$/.test(row.expectedMachineId)))
   check(typeof row.network === 'string')
   const parts = row.network.split('/'), network = ipv4Number(parts[0]), prefix = Number(parts[1])
-  check(parts.length === 2 && /^(?:2[4-9]|30)$/.test(parts[1]))
+  check(parts.length === 2 && /^(?:20|2[1-9]|30)$/.test(parts[1]))
   const width = 2 ** (32 - prefix), address = ipv4Number(row.address)
   check(network % width === 0 && address > network && address < network + width - 1)
   const first = Math.floor(network / 2 ** 24), second = Math.floor(network / 2 ** 16) % 256
@@ -72,6 +72,11 @@ export function parseGatewayPreflightReport(raw: string): GatewayPreflightReport
   check(Buffer.byteLength(raw) <= 16384)
   let parsed: unknown
   try { parsed = JSON.parse(raw) } catch { throw new GatewayTaskError('GATEWAY_PREFLIGHT_FAILED') }
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length === 1 && 'code' in parsed &&
+    ['GATEWAY_MACHINE_ID_UNAVAILABLE', 'GATEWAY_PREFLIGHT_FAILED', 'GATEWAY_DEPENDENCIES_MISSING',
+      'GATEWAY_INSPECTION_TIMEOUT', 'GATEWAY_INSPECTION_COMMAND_FAILED', 'GATEWAY_INSPECTION_RESPONSE_INVALID'].includes(String(parsed.code))) {
+    throw new GatewayTaskError(String(parsed.code))
+  }
   const row = object(parsed, ['schemaVersion', 'machineId', 'osId', 'architecture', 'memoryMiB', 'diskAvailableMiB', 'tools', 'facts', 'blockers', 'observedStateHash', 'inspectedAt'])
   check(row.schemaVersion === 1 && typeof row.machineId === 'string' && /^[a-f0-9]{32}$/.test(row.machineId) && !/^0+$/.test(row.machineId))
   check(typeof row.osId === 'string' && /^[a-z0-9._-]{1,40}$/.test(row.osId))
@@ -129,7 +134,14 @@ export async function inspectLocalManagementGateway(input: unknown): Promise<Gat
   const raw = await new Promise<string>((resolve, reject) => {
     const child = execFile('/usr/bin/python3', [probePath], { timeout: 30000, maxBuffer: 16384,
       env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL: 'C' } }, (error, stdout) => {
-      if (error) reject(new GatewayTaskError('GATEWAY_PREFLIGHT_FAILED')); else resolve(stdout)
+      if (error) {
+        if (error.code === 'ENOENT') reject(new GatewayTaskError('GATEWAY_DEPENDENCIES_MISSING'))
+        else if (error.killed) reject(new GatewayTaskError('GATEWAY_INSPECTION_TIMEOUT'))
+        else {
+          try { parseGatewayPreflightReport(stdout); reject(new GatewayTaskError('GATEWAY_PREFLIGHT_FAILED')) }
+          catch (failure) { reject(failure) }
+        }
+      } else resolve(stdout)
     })
     child.stdin!.end(JSON.stringify(request))
   })
@@ -138,7 +150,7 @@ export async function inspectLocalManagementGateway(input: unknown): Promise<Gat
 export async function inspectRemoteManagementGateway(client: Client, input: unknown): Promise<GatewayPreflightReport> {
   const request = validateGatewayPreflightRequest(input), script = await readFile(probePath, 'utf8')
   const encoded = Buffer.from(JSON.stringify(request)).toString('base64')
-  const raw = await sshExec(client, '/usr/bin/python3 -', `INCUDAL_PREFLIGHT_REQUEST = '${encoded}'\n${script}`)
-    .catch(() => { throw new GatewayTaskError('GATEWAY_PREFLIGHT_FAILED') })
+  const command = `/bin/sh -c 'if [ -x /usr/bin/python3 ]; then exec /usr/bin/python3 -; else printf "INCUDAL_ERROR:GATEWAY_DEPENDENCIES_MISSING\\n"; exit 1; fi'`
+  const raw = await sshExec(client, command, `INCUDAL_PREFLIGHT_REQUEST = '${encoded}'\n${script}`)
   return bindGatewayPreflightReport(raw, request)
 }

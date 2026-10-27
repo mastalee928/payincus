@@ -67,15 +67,16 @@ export function verifyPublicSshIdentity(host: string, port: number, fingerprints
   return new Promise((resolve, reject) => {
     const client = new Client()
     let finished = false, matched = false
+    const connectionError = (error: unknown) => new PublicIpSyncError(publicIpv6(host) &&
+      ['ENETUNREACH', 'EAFNOSUPPORT', 'EADDRNOTAVAIL'].includes(String((error as { code?: unknown } | null)?.code || ''))
+      ? 'IPV6_CONTROLLER_NO_ROUTE' : 'IP_SSH_UNREACHABLE')
     const finish = (error?: Error) => {
       if (finished) return
       finished = true; clearTimeout(timer); client.destroy()
       error ? reject(error) : resolve()
     }
     const timer = setTimeout(() => finish(new PublicIpSyncError('IP_SSH_UNREACHABLE')), timeoutMs)
-    client.on('error', (error: Error & { code?: string }) => finish(new PublicIpSyncError(
-      publicIpv6(host) && ['ENETUNREACH', 'EAFNOSUPPORT', 'EADDRNOTAVAIL'].includes(error.code || '')
-        ? 'IPV6_CONTROLLER_NO_ROUTE' : 'IP_SSH_UNREACHABLE')))
+    client.on('error', (error: Error) => finish(connectionError(error)))
     client.once('close', () => finish(new PublicIpSyncError('IP_SSH_UNREACHABLE')))
     client.once('handshake', () => finish(matched ? undefined : new PublicIpSyncError('IP_IDENTITY_MISMATCH')))
     try {
@@ -88,6 +89,6 @@ export function verifyPublicSshIdentity(host: string, port: number, fingerprints
           return matched
         }
       })
-    } catch { finish(new PublicIpSyncError('IP_SSH_UNREACHABLE')) }
+    } catch (error) { finish(connectionError(error)) }
   })
 }

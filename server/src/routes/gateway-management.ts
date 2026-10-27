@@ -6,6 +6,9 @@ import { getManagementGatewayTask, inspectManagementGateway, listManagementGatew
 import { requestGatewayInstallation, confirmGatewayInstallation, cancelGatewayInstallation, retrieveGatewayBootstrap,
   type GatewayInstallationInput, type GatewayInstallationConfirmation } from '../services/gateway-installation-management.js'
 import { startGatewayInstallationDispatcher } from '../services/gateway-installation-dispatcher.js'
+import { prepareRemoteGateway } from '../services/remote-gateway-setup.js'
+import type { RemoteGatewaySetupInput } from '../lib/remote-gateway-setup.js'
+import { retireUnusedGatewayCandidate } from '../services/gateway-task-journal.js'
 
 export interface GatewayManagementOperations {
   list: typeof listManagementGateways
@@ -15,6 +18,8 @@ export interface GatewayManagementOperations {
   confirm?: typeof confirmGatewayInstallation
   cancel?: typeof cancelGatewayInstallation
   bootstrap?: typeof retrieveGatewayBootstrap
+  prepareRemote?: typeof prepareRemoteGateway
+  retireCandidate?: typeof retireUnusedGatewayCandidate
 }
 export async function registerGatewayManagementRoutes(fastify: FastifyInstance, operations: GatewayManagementOperations) {
   const webMutation = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -51,7 +56,7 @@ export async function registerGatewayManagementRoutes(fastify: FastifyInstance, 
     schema: { body: { type: 'object', additionalProperties: false, required: ['requestId', 'gatewayId', 'name', 'mode', 'target', 'configuration'], properties: {
       requestId: { type: 'string', format: 'uuid' }, gatewayId: { type: 'string', format: 'uuid' }, name: { type: 'string', minLength: 1, maxLength: 80 },
       mode: { enum: ['local', 'remote', 'existing'] }, target: { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false,
-        required: ['address', 'port', 'fingerprint'], properties: { address: { type: 'string', minLength: 1, maxLength: 253 }, port: { type: 'integer', minimum: 1, maximum: 65535 }, fingerprint: { type: 'string', pattern: '^SHA256:[A-Za-z0-9+/]{43}$' } } }] },
+        required: ['address', 'port'], properties: { address: { type: 'string', minLength: 1, maxLength: 253 }, port: { type: 'integer', minimum: 1, maximum: 65535 }, fingerprint: { type: 'string', pattern: '^SHA256:[A-Za-z0-9+/]{43}$' } } }] },
       configuration: { type: 'object', additionalProperties: false, required: ['slot', 'network', 'address', 'listenPort', 'consolePort'], properties: {
         slot: { enum: ['a', 'b'] }, network: { type: 'string', maxLength: 18 }, address: { type: 'string', maxLength: 15 },
         listenPort: { type: 'integer', minimum: 1024, maximum: 65535 }, consolePort: { type: 'integer', minimum: 1024, maximum: 65535 }
@@ -62,6 +67,24 @@ export async function registerGatewayManagementRoutes(fastify: FastifyInstance, 
     try { return await operations.inspect(request.body, request.user.id) } catch (error) { return failure(reply, error) }
   })
   const params = { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }
+  if (operations.retireCandidate) fastify.post<{ Params: { id: string }; Body: Record<string, never> }>('/management-gateways/:id/restart-candidate', {
+    onRequest: [fastify.authenticateAdmin, webMutation], schema: { params, body: { type: 'object', additionalProperties: false, properties: {} } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    try { return await operations.retireCandidate!(request.params.id, request.user.id) } catch (error) { return failure(reply, error) }
+  })
+  if (operations.prepareRemote) fastify.post<{ Body: RemoteGatewaySetupInput }>('/management-gateways/remote', {
+    onRequest: [fastify.authenticateAdmin, webMutation], bodyLimit: 4096, config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    schema: { body: { type: 'object', additionalProperties: false, required: ['requestId', 'gatewayId', 'name', 'purpose', 'address', 'hostname', 'credentials'], properties: {
+      requestId: { type: 'string', format: 'uuid' }, gatewayId: { type: 'string', format: 'uuid' }, name: { type: 'string', minLength: 1, maxLength: 80 },
+      purpose: { enum: ['independent', 'backup'] }, address: { type: 'string', minLength: 1, maxLength: 253 },
+      hostname: { type: 'string', minLength: 1, maxLength: 253 },
+      credentials: { type: 'object', additionalProperties: false, required: ['password'], properties: { password: { type: 'string', minLength: 1, maxLength: 1024 } } }
+    } } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    try { return reply.code(202).send(await operations.prepareRemote!(request.body, request.user.id)) } catch (error) { return failure(reply, error) }
+  })
   if (operations.install) fastify.post<{ Body: GatewayInstallationInput }>('/management-gateways/installations', {
     onRequest: [fastify.authenticateAdmin, webMutation], bodyLimit: 40000, config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     schema: { body: { type: 'object', additionalProperties: false, required: ['requestId', 'gatewayId', 'configuration'], properties: {
@@ -100,7 +123,7 @@ export async function registerGatewayManagementRoutes(fastify: FastifyInstance, 
 }
 export default async function gatewayManagementRoutes(fastify: FastifyInstance) {
   await registerGatewayManagementRoutes(fastify, { list: listManagementGateways, task: getManagementGatewayTask, inspect: inspectManagementGateway,
-    install: requestGatewayInstallation, confirm: confirmGatewayInstallation, cancel: cancelGatewayInstallation, bootstrap: retrieveGatewayBootstrap })
+    install: requestGatewayInstallation, confirm: confirmGatewayInstallation, cancel: cancelGatewayInstallation, bootstrap: retrieveGatewayBootstrap, prepareRemote: prepareRemoteGateway, retireCandidate: retireUnusedGatewayCandidate })
   let stop: (() => void) | undefined
   fastify.addHook('onReady', async () => { stop = startGatewayInstallationDispatcher() })
   fastify.addHook('onClose', async () => { stop?.() })

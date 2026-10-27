@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { readDiscoveryPrivateFile } from './controller-discovery.js'
-import { verifyGatewayTransport } from '../lib/gateway-transport.js'
+import { readDiscoveryPrivateFile, readGatewayPrivateFile } from './controller-discovery.js'
+import { MAX_GATEWAY_TRANSPORT_BYTES, verifyGatewayTransport } from '../lib/gateway-transport.js'
 import type { GatewayConsoleStatus } from './gateway-console.js'
 
 const exec = promisify(execFile)
@@ -12,13 +12,13 @@ export function createGatewayStatusReader(config: {
 }): () => Promise<GatewayConsoleStatus> {
   const identity = { ...config, trustedKeys: Object.freeze({ ...config.trustedKeys }) }
   return async () => {
-    const encoded = await readDiscoveryPrivateFile(identity.statePath, 65536)
+    const encoded = await readGatewayPrivateFile(identity.statePath)
     const issuedAt = JSON.parse(Buffer.from(JSON.parse(encoded).payload, 'base64').toString()).issuedAt as number
     const { config: transport } = verifyGatewayTransport(encoded, { platformId: identity.platformId, gatewayId: identity.gatewayId,
       now: issuedAt, trustedKeys: identity.trustedKeys })
     const name = 'incudal-gw-' + transport.slot
     const run = async (tool: string, args: string[]) => {
-      const { stdout } = await exec(tool, args, { timeout: 3000, maxBuffer: 65536, env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL: 'C' } })
+      const { stdout } = await exec(tool, args, { timeout: 3000, maxBuffer: MAX_GATEWAY_TRANSPORT_BYTES, env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL: 'C' } })
       return stdout.trim()
     }
     const [peers, allowed, handshakes, links, port, routeText, addressText] = await Promise.all([

@@ -1,6 +1,6 @@
 import { prisma } from '../db/prisma.js'
 import { GatewayTaskError, gatewayTaskHash, validateGatewayTaskPlan } from '../lib/gateway-task-plan.js'
-import { validateCredentials, type OnboardingCredentials } from '../lib/host-onboarding.js'
+import { OnboardingError, validateCredentials, type OnboardingCredentials } from '../lib/host-onboarding.js'
 import { validateGatewayInstallationDesired, validateGatewayInstallationRequest, type GatewayInstallationDesired, type GatewayInstallationRequest } from '../lib/gateway-installation.js'
 import { decryptGatewayTaskSecret, encryptGatewayTaskSecret } from './gateway-admin-authorization.js'
 import { createGatewayInstallationDriver } from './gateway-installation-driver.js'
@@ -77,9 +77,12 @@ export async function runGatewayInstallationTask(id: string) {
       bootstrapExpiresAt: new Date(Date.now() + 30 * 60000) }))
     return { claimed: true, installed: true, canWrite: false }
   } catch (error) {
-    if (preparing) await retryGatewayJournal(() => failGatewayInstallationPreparation(id, token)).catch(() => {})
-    else if (writing) await retryGatewayJournal(() => interruptManagementGatewayTask(id, token)).catch(() => {})
-    else await retryGatewayJournal(() => failGatewayInstallationBeforeExecution(id, token, error instanceof GatewayTaskError ? error.code : 'GATEWAY_INSTALL_EXECUTOR_FAILED')).catch(() => {})
+    if (preparing) await retryGatewayJournal(() => failGatewayInstallationPreparation(id, token,
+      error instanceof GatewayTaskError || error instanceof OnboardingError ? error.code : 'GATEWAY_INSTALL_PREPARATION_FAILED')).catch(() => {})
+    else if (writing) await retryGatewayJournal(() => interruptManagementGatewayTask(id, token,
+      error instanceof GatewayTaskError || error instanceof OnboardingError ? error.code : 'GATEWAY_TASK_EXECUTOR_INTERRUPTED')).catch(() => {})
+    else await retryGatewayJournal(() => failGatewayInstallationBeforeExecution(id, token,
+      error instanceof GatewayTaskError || error instanceof OnboardingError ? error.code : 'GATEWAY_INSTALL_EXECUTOR_FAILED')).catch(() => {})
     throw error
   } finally { clearInterval(timer); clearTimeout(deadline); abort.abort(); driver?.close() }
 }

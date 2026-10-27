@@ -3,7 +3,7 @@ import { OnboardingError } from '../lib/host-onboarding.js'
 import { recoveryHeld } from './platform-backup-core.js'
 import { loadStableGatewayEndpoint } from './onboarding-gateway-endpoint.js'
 import { installGatewayHostDns, gatewayConfigured } from './onboarding-ssh.js'
-import { gatewayDnsRetry, resumeGatewayDnsState, type GatewayDnsQueueState } from '../lib/gateway-dns-queue.js'
+import { GATEWAY_DNS_MAX_ATTEMPTS, gatewayDnsRetry, resumeGatewayDnsState, type GatewayDnsQueueState } from '../lib/gateway-dns-queue.js'
 
 const active = new Set<string>()
 let dispatching = false
@@ -25,7 +25,9 @@ export async function listHostGatewayDns(nodeId?: string) {
       eligible: node.status === 'succeeded' && !!node.managementIp && !!node.sshFingerprint && !!node.nodePublicKey &&
         node.host?.managementSshHost === node.managementIp && node.host.managementSshPort === node.sshPort,
       running: active.has(node.id), state: active.has(node.id) ? 'running' : state.state || (state.installed ? 'succeeded' : state.code ? 'failed' : 'not_started'),
-      step: state.step || 'connect', attempt: state.attempt || 0, installed: state.installed === true && !!endpoint && state.endpoint === `${endpoint.hostname}:${endpoint.port}` &&
+      step: state.step || 'connect', attempt: state.attempt || 0, maxAttempts: GATEWAY_DNS_MAX_ATTEMPTS,
+      retryAt: state.state === 'queued' && Number.isSafeInteger(state.retryAt) ? state.retryAt : null,
+      installed: state.installed === true && !!endpoint && state.endpoint === `${endpoint.hostname}:${endpoint.port}` &&
         state.nodePublicKey === node.nodePublicKey && state.sshFingerprint === node.sshFingerprint && state.managementIp === node.managementIp, endpoint: state.endpoint || null,
       error: state.code || null, updatedAt: stored?.updatedAt.toISOString() || null }
   })

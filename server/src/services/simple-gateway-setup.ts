@@ -20,16 +20,21 @@ export interface SimpleGatewayInput { requestId: string }
 export function simpleGatewayExecutorAvailable() { return existsSync('/etc/systemd/system/incudal-local-gateway@.service') }
 export async function simpleGatewayStatus() {
   if (!gatewayConfigured()) return { ready: false, code: 'GATEWAY_NOT_CONFIGURED' }
+  const local = ['127.0.0.1', 'localhost'].includes(process.env.ONBOARDING_GATEWAY_HOST || '')
+  const target = process.env.ONBOARDING_GATEWAY_HOST!
   try {
     const gateway = await gatewayCommand()
-    return { ready: true, local: ['127.0.0.1', 'localhost'].includes(process.env.ONBOARDING_GATEWAY_HOST || ''), gateway: { controlIp: gateway.controlIp, network: gateway.network, sshHost: gateway.sshHost } }
-  } catch (error) { return { ready: false, code: error instanceof OnboardingError ? error.code : 'GATEWAY_UNREACHABLE' } }
+    return { ready: true, local, target, gateway: { controlIp: gateway.controlIp, network: gateway.network, sshHost: gateway.sshHost } }
+  } catch (error) { return { ready: false, local, target, code: error instanceof OnboardingError ? error.code : 'GATEWAY_UNREACHABLE' } }
 }
 export async function requestSimpleGatewaySetup(input: SimpleGatewayInput, actorId: number, sessionId: string) {
   const id = localGatewaySetupId(input.requestId)
   const user = await prisma.user.findUnique({ where: { id: actorId }, select: SIMPLE_GATEWAY_ADMIN_SELECT })
   if (!user || user.role !== 'admin' || user.status !== 'active') throw new LocalGatewaySetupError('SIMPLE_GATEWAY_ADMIN_REQUIRED')
   if (!sessionId || recoveryHeld()) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_RECOVERY_HELD')
+  if (gatewayConfigured() && !['127.0.0.1', 'localhost'].includes(process.env.ONBOARDING_GATEWAY_HOST || '')) {
+    throw new LocalGatewaySetupError('SIMPLE_GATEWAY_MIGRATION_REQUIRED')
+  }
   if (!simpleGatewayExecutorAvailable()) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_EXECUTOR_UNAVAILABLE')
   const domain = await loadStableGatewayEndpoint()
   const configured = process.env.ONBOARDING_WG_ENDPOINT?.replace(/:[0-9]+$/, '')
@@ -56,6 +61,9 @@ export async function requestSimpleGatewaySetup(input: SimpleGatewayInput, actor
 export async function confirmSimpleGatewaySetup(input: string, planHash: string, actorId: number, sessionId: string, hostname?: string) {
   const id = localGatewaySetupId(input), state = await readSimpleGatewaySetup(id)
   if (recoveryHeld()) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_RECOVERY_HELD')
+  if (gatewayConfigured() && !['127.0.0.1', 'localhost'].includes(process.env.ONBOARDING_GATEWAY_HOST || '')) {
+    throw new LocalGatewaySetupError('SIMPLE_GATEWAY_MIGRATION_REQUIRED')
+  }
   if (state.actorId !== actorId || state.state !== 'awaiting_confirmation' || state.plan?.planHash !== planHash || state.plan.expiresAt <= Date.now()) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_PLAN_EXPIRED')
   const path = join(SIMPLE_GATEWAY_ROOT, 'inbox', id + '.json')
   const request = validateSimpleGatewayRequest(JSON.parse(await readFile(path, 'utf8')))

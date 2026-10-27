@@ -1,6 +1,6 @@
 {
   "name": "payincus",
-  "version": "1.7.6",
+  "version": "1.7.7",
   "description": "PayIncus commercial Incus platform",
   "type": "module",
   "private": true,
@@ -48,6 +48,7 @@
     "pnpm --filter server test:onboarding-gateway-endpoint",
     "pnpm --filter server test:billing-expiry-enforcement",
     "pnpm --filter server test:gateway-management-route-guards",
+    "pnpm --filter server test:gateway-preflight-guards",
     "pnpm --filter server test:gateway-task-guards",
     "pnpm --filter client type-check",
     "pnpm --filter server type-check",

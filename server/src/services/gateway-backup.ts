@@ -4,13 +4,17 @@ import { constants } from 'node:fs'
 import { open, rename, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ControllerConfigError } from '../lib/controller-config.js'
-import { acquireDiscoveryMutationLock, readDiscoveryPrivateFile, validateDiscoveryPrivateDirectory } from './controller-discovery.js'
+import { acquireDiscoveryMutationLock, readDiscoveryPrivateFile, readGatewayPrivateFile, validateDiscoveryPrivateDirectory } from './controller-discovery.js'
 
 const MAGIC = Buffer.from('PICGWB01')
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/
 const HASH = /^[a-f0-9]{64}$/
 const MAX_BYTES = 8 * 1024 * 1024
 const ASSETS = ['gateway-identity.json', 'gateway-transport.json', 'wireguard.key', 'gateway-auth.json', 'tls.crt', 'tls.key', 'console-enrollment.json']
+export function readGatewaySnapshotSource(name: string, path: string): Promise<string> {
+  require(ASSETS.includes(name))
+  return name === 'gateway-transport.json' ? readGatewayPrivateFile(path) : readDiscoveryPrivateFile(path, 65536)
+}
 export interface GatewaySnapshot {
   schemaVersion: 1; purpose: 'gateway-backup'; platformId: string; gatewayId: string; id: string
   createdAt: number; epoch: string; sequence: string; componentVersion: string
@@ -137,12 +141,12 @@ export async function collectGatewaySnapshot(config: { platformId: string; gatew
   const files: GatewaySnapshot['files'] = []
   for (const [name, path] of Object.entries(config.sources).sort(([a], [b]) => a.localeCompare(b))) {
     require(ASSETS.includes(name))
-    const raw = Buffer.from(await readDiscoveryPrivateFile(path, 65536))
+    const raw = Buffer.from(await readGatewaySnapshotSource(name, path))
     files.push({ name, base64: raw.toString('base64'), sha256: sha(raw) })
   }
   // A concurrent config/credential change cannot produce a complete mixed
   // snapshot; exact protected bytes must still match after all collection.
-  for (const file of files) require(sha(Buffer.from(await readDiscoveryPrivateFile(config.sources[file.name], 65536))) === file.sha256)
+  for (const file of files) require(sha(Buffer.from(await readGatewaySnapshotSource(file.name, config.sources[file.name]))) === file.sha256)
   return validateSnapshot({ schemaVersion: 1, purpose: 'gateway-backup', platformId: config.platformId, gatewayId: config.gatewayId,
     id: randomUUID(), createdAt: Date.now(), epoch: config.epoch, sequence: config.sequence, componentVersion: config.componentVersion, files })
 }

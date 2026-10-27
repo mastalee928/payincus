@@ -7,7 +7,9 @@ import os
 import subprocess
 import sys
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('gateway_probe', Path(__file__).with_name('probe-management-gateway.py'))
 probe = importlib.util.module_from_spec(spec)
@@ -24,6 +26,8 @@ class GatewayProbeTests(unittest.TestCase):
     def test_valid_request(self):
         value = self.request()
         self.assertEqual(probe.validate_request(value), value)
+        large = {**value, 'network': '10.252.0.0/20', 'address': '10.252.0.1'}
+        self.assertEqual(probe.validate_request(large), large)
 
     def test_unknown_fields_and_secrets(self):
         for key in ('password', 'command', 'privateKey'):
@@ -57,6 +61,51 @@ class GatewayProbeTests(unittest.TestCase):
         self.assertEqual(probe.listener_ports('UNCONN 0 0 0.0.0.0:51980 0.0.0.0:*\nLISTEN 0 128 [::]:18480 [::]:*'), {51980, 18480})
         with self.assertRaises(ValueError):
             probe.listener_ports('unexpected response')
+
+    def test_debian_13_14_without_ipv6(self):
+        # Exercise the complete probe, not just a version string. The machine
+        # has only an IPv4 route; IPv6 reads/commands fail the test.
+        for version in ('13', '14'):
+            with self.subTest(version=version):
+                reads = {'/etc/machine-id': 'c'*32, '/etc/os-release': f'ID=debian\nVERSION_ID="{version}"',
+                         '/proc/meminfo': 'MemTotal: 2097152 kB\n'}
+                def read(path, *args, **kwargs):
+                    return reads[path.as_posix()]
+                def command(tool, args):
+                    self.assertNotIn('-6', args)
+                    if tool == 'systemctl':
+                        return 'LoadState=not-found\nActiveState=inactive\nFragmentPath=\n'
+                    if tool == 'ss':
+                        return ''
+                    if tool == 'ip':
+                        if 'route' in args:
+                            return '[{"dst":"default","gateway":"192.0.2.1","dev":"eth0"}]'
+                        return '[]'
+                    self.fail(f'unexpected command: {tool}')
+                with patch.object(Path, 'read_text', read), patch.object(Path, 'is_dir', return_value=True), \
+                     patch.object(probe.platform, 'machine', return_value='x86_64'), \
+                     patch.object(probe.shutil, 'disk_usage', return_value=SimpleNamespace(free=2**30)), \
+                     patch.object(probe.shutil, 'which', return_value='/usr/bin/tool'), patch.object(probe, 'command', command):
+                    report = probe.probe(self.request())
+                self.assertEqual(report['osId'], 'debian')
+                self.assertEqual(report['blockers'], [])
+                self.assertEqual(len(report['facts']['services']), 3)
+
+    def test_command_failures_have_specific_public_codes(self):
+        for failure, code in [(subprocess.TimeoutExpired('ip', 8, stderr=b'private-output'), 'GATEWAY_INSPECTION_TIMEOUT'),
+                              (subprocess.CalledProcessError(1, 'ip', stderr=b'private-output'), 'GATEWAY_INSPECTION_COMMAND_FAILED')]:
+            with patch.object(probe.shutil, 'which', return_value='/usr/bin/ip'), \
+                 patch.object(probe.subprocess, 'run', side_effect=failure):
+                with self.assertRaises(probe.ProbeError) as result:
+                    probe.command('ip', ['-j', '-4', 'route', 'show'])
+                self.assertEqual(result.exception.code, code)
+                self.assertNotIn('private-output', str(result.exception))
+
+    def test_missing_identity_is_not_identity_changed(self):
+        with patch.object(Path, 'read_text', side_effect=FileNotFoundError):
+            with self.assertRaises(probe.ProbeError) as result:
+                probe.probe(self.request())
+        self.assertEqual(result.exception.code, 'GATEWAY_MACHINE_ID_UNAVAILABLE')
 
     @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() != 0, 'actual unprivileged Linux process only')
     def test_unprivileged_read_only_probe(self):

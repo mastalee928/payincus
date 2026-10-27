@@ -51,7 +51,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		var encoded []byte
 		var err error
 		if !restore {
-			encoded, err = controllerconfig.ReadProtectedChannelFile(config.SignedConfiguration, 65536)
+			encoded, err = controllerconfig.ReadProtectedGatewayFile(config.SignedConfiguration)
 			if err != nil {
 				return err
 			}

@@ -23,6 +23,14 @@ planner = load('gateway_planner', 'gateway-install-plan.py')
 fixtures = load('gateway_package_fixtures', 'test-gateway-component-package.py')
 
 
+class PublicErrorTests(unittest.TestCase):
+    def test_only_structured_public_codes_are_returned(self):
+        self.assertEqual(planner.public_error_code(planner.PlanRejected('GATEWAY_INSTALL_TRANSPORT_MISMATCH'), 'fallback'),
+                         'GATEWAY_INSTALL_TRANSPORT_MISMATCH')
+        for error in [ValueError('private stderr'), planner.PlanRejected('password=private'), planner.PlanRejected('GATEWAY_FAILURE\nprivate')]:
+            self.assertEqual(planner.public_error_code(error, 'fallback'), 'fallback')
+
+
 @unittest.skipUnless(hasattr(os, 'geteuid') and os.geteuid() == 0, 'requires Linux protected-file semantics')
 class InstallPlanTests(unittest.TestCase):
     def setUp(self):
