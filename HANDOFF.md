@@ -1,6 +1,12 @@
 # 版本与验证记录
 
-## 2026-10-27 v1.7.7 再次代码复审与阶段发行准备
+## 2026-10-27 v1.7.7 正式发行与再次代码复审
+
+- 修复提交`ef12578eaa99a943808a162b0548a2be868a40f2`已推送main；[源码CI40446366307](https://github.com/mastalee928/payincus/actions/runs/40446366307)所有job成功，包含独立PG远端设置、IPv6/删除集成、Linux安装执行器、Go全量/竞态及双架构组件验签。Agent构建40446366305成功，Publish预期skipped，仍沿用Agent v1.0.3。
+- [同提交预览40446366982](https://github.com/mastalee928/payincus/actions/runs/40446366982)双构建、双首装全部成功，Release预期skipped。AMD64原生181/181；两架构实际应用218迁移、单后端、双前端、管理员登录及管理身份核验通过；备份/预检/恢复/回滚/续跑、整库SQL完整性与ZIP/迁移兼容演练通过，OSS传输为隔离替身，不计真实云端灾备。
+- 实际下载预览AMD64包SHA256为`4f92547519b8d1505cccfbccd456f130f67dca561847cc6b798d70ff7234fb69`，ARM64为`062236b501c89e30e6fa11edcbb181ab1fcd4f7f724612ac9e4936f08ec5cc92`。两包源码、version元数据、归档root身份、双前端/许可证、四份20文件独立组件签名/哈希/大小/模式/ELF及本次修复内容通过；固定组件公钥与原正式发行及GitHub配置一致。预览包浏览器实际操作表单、打开并提交确认后显示回执且当前仍本机，SSH/root/数据为隔离边界；390px无横溢出、可见主控件44px，截图已本地保存。
+- [v1.7.7正式Release](https://github.com/mastalee928/payincus/releases/tag/v1.7.7)已公开发布，非draft/非prerelease，latest为v1.7.7。正式tag绑定上述提交；[正式流程40447477254](https://github.com/mastalee928/payincus/actions/runs/40447477254)双构建、双首装与Release全部success。两架构正式包实际218迁移、单后端、双前端、管理员登录、管理身份、备份/预检/恢复/回滚/续跑、整库完整性与兼容检查通过；OSS传输仍为隔离替身。没有生产OTA、DD、DNS或客户操作。
+- 公开正式AMD64包SHA256为`d45fd04df7a9c5301c3794dbad2c912c8667d755d7d0a9eda5d6a53f8c9653e0`，ARM64为`250c06a5fcb13f11fa0cffc5ce9800e36413d87168217a8cae393a2f06769821`，分别211708006/210916752字节。实际下载六份公开资产均与GitHub digest、双SHA256文件及OTA清单一致；两份OTA清单逐字节相同，版本/tag/源码身份及双架构下载URL核验通过。两包再次通过四份20文件组件独立验签/哈希/大小/模式/ELF、归档root身份、双前端/许可证/地图、新迁移及最终错误预算/原任务重试/IPv6回归修复内容核验，证据在忽略目录logs/release-v1.7.7/formal-package-result.json及formal-manifest-result.json。
 
 - Owner明确再次代码审查后发版，本阶段范围为独立网关页面、外部/备用候选检查安装、持久错误和IPv4-only网关回归；完整接管/切回/新IP主控恢复与公网灾备仍未完成，见GATEWAY_PROGRESS及docs/gateway-setup-v1.7.7.md。前节未发版是上一轮事实，后续发行结果在本节追加。
 - 第二轮逐项审查SSH固定地址/身份、签名组件/受限路径、Python退出1的严格公开错误对象、worker部分写入状态、资源保留、退役边界、错误历史投影及IPv6分类。补修同步冲突检查70秒预算（下一轮须预留45秒），前端等待100秒；预算不足明确持久超时且不创建新安装。已有安装候选隐藏准备重试；本机预检完整接收6种公开错误，不丢弃缺工具/超时原因。
