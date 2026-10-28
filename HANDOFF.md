@@ -2,6 +2,16 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 恢复任务当前授权与入队绑定
+
+- 按owner要求继续分段提交推送。前一docs HEAD `fb5e14aa9bca52a537bfc052f3d4035dc6615d76`对应CI40651321886、f9e7e9f对应40651228111均success；此前四批业务各自7/7的证据保持。本节是新增源码阶段，不把前一CI当作当前改动验证。
+- 恢复入队锁host→instance并锁原实例/host/backup/操作人账户；实例owner与task操作人分开保存，保留实例owner、host owner、当前admin三种既有权限。重新检查当前账户/session、原归属/Incus名、ready备份ID/名称/创建时间、原host TLS摘要。每宿主10个PENDING上限与插入同锁，快照/站点/转移/upload/instance任务及清理/账务未决门禁生效。
+- 领取/执行准备再核对持久绑定，旧无绑定任务明确失败；仅从session取sid/iat，不允许附带id覆盖任务操作人。临时名改为随机UUID，领取持久attempt UUID，进度/终态/退回队列CAS绑定attempt、startedAt、identityHash。拒不存在/终态/本进程重复执行后才记录running；结束释放独立Incus连接。恢复主连接使用固定host TLS快照，授权或连接准备失败不触发远端补偿；未开始任务和准备失败任务不能经rollback启动/删除远端资源。取消在实例锁内复核当前权限/session和路由instanceId。
+- `logs/takeover-restore-auth-final.log`真实本机PG/Fastify/mTLS专项正常exit 0：14种目标/session变化分别在入队/领取/执行前、admin降权、三种操作人正常入口及mTLS派发、旧任务、7类未决门禁、恢复保护、取消竞争、10任务队列及唯一临时名、PG入队trigger失败、重复执行/旧attempt结果不覆盖后继、无远端操作任务拒回滚。mTLS只验证执行准备及拒绝边界，认证middleware为夹具，不是客机磁盘完整恢复。
+- 上批上传/备份删除回归`logs/takeover-restore-auth-upload-regression.log`exit 0；4/4相关守卫`logs/takeover-restore-auth-guards.log`；server类型`logs/takeover-restore-auth-typecheck-final.log`、后端build`logs/takeover-restore-auth-build.log`通过。新增专项登记并接入原CI PG job，清单188/53活体排除检查通过。升级库实际追加第227迁移`logs/takeover-restore-auth-migration.log`；运行夹具库单独SQL应用，不伪造迁移历史。本轮无前端改动、未重跑整套188。
+- 首轮专项实际抓到session附带id覆盖actor的问题，已修复；r2–r5为夹具站点必填字段/实例任务枚举错误；r6断言结束后因导入路由的维护interval未退出，明确终止该夹具进程后补清理完成退出，最终日志正常退出。首次生成client缺DATABASE_URL和并发日志占用、临时测试tsconfig的types路径/断言类型修正均不作为通过证据。
+- **仍未完成**：远端开始后的逐步授权/UUID/原设备与磁盘绑定、原副本停止确认、临时副本完整验证、原清单及operation持久回执、失败/重启持续门禁、真正rollback/SIGKILL。流量补采仍使用原helper重新查询host，不能称整个流程所有远端读取都固定；旧worker的stop异常吞掉、按名称清理副本及旧超时FAILED逻辑仍待下批。327及完整网关/OSS灾备保持未完成，三机可信SSH身份仍按私有档案核验，无生产/tag/Release操作。
+
 ## 2026-10-28 连续四批保存与下一阶段规格
 
 - 本轮四个业务阶段均已推送main并分别核对远端：上传当前授权`eac0b068916b55e7af82347526b3d4ec91886046`、上传attempt与退避`8d73ab341b83d1f7b3b729a3fcf2659143e8e867`、备份删除确认`5a8f9e53ce6a79d3813257343687d0b907f88695`、恢复传输`5e63e8e951a6064e8f93b537652e13785b858ebc`。前三批源码CI分别40648563020/40649284830/40650075642，均7/7 success。

@@ -466,7 +466,9 @@ try {
   try {
     await assert.rejects(submit(), /正在处理/)
     assert.equal(await createRestoreTask({ userId: user.id, hostId: host.id, instanceId: instance.id,
-      backupId: backup.id, tempInstanceName: 'fixture-restore', originalInstanceName: tag, originalIncusId: tag }), null)
+      backupId: backup.id, ownerId: user.id, session: actor, expectedBackupName: backup.incusName,
+      expectedBackupCreatedAt: backup.createdAt.toISOString(), expectedHostIdentity: transferHostIdentity(host),
+      originalInstanceName: tag, originalIncusId: tag }), null)
   } finally { releaseDelete() }
   assert.equal((await deletingResponse).statusCode, 200)
   deletionGate = undefined

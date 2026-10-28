@@ -51,6 +51,7 @@ environment:
  */
 const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-restore-transport', 'requires OpenSSL; actual local mTLS stream restore, total deadlines and exact existence errors'],
+  ['test:review-restore-authorization', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; real restore admission/claim/dispatch and current authorization with mTLS refusal boundary'],
   ['test:review-transfer-cleanup-integration', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; fixed transfer cleanup, UUID and pin checks, database faults, retry/concurrency and dedicated preservation with real mTLS Incus/TLS Caddy boundaries'],
   ['test:review-auto-snapshot-integration', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; automatic snapshot eligibility, shared locks, rotation and remote refusal through mTLS Incus fixture'],
   ['test:review-proxy-site-operations', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; durable proxy intent, authorization, replay and remote-success/database-failure recovery through TLS Caddy fixture'],

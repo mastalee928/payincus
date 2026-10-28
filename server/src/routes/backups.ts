@@ -11,6 +11,7 @@ import { Readable } from 'stream'
 import * as db from '../db/index.js'
 import { prisma } from '../db/prisma.js'
 import { BackupUploadAuthorizationError, uploadStorageIdentity } from '../db/backup-upload-authorization.js'
+import { RestoreAuthorizationError } from '../db/restore-task-authorization.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { deleteAuthorizedBackup } from '../db/backup-deletion.js'
 import { SnapshotMutationError } from '../db/snapshot-operation-guards.js'
@@ -22,7 +23,6 @@ import {
   getBackupExportStream
 } from '../lib/incus/incus-backups.js'
 import {
-  generateTempInstanceName,
   instanceExists
 } from '../lib/incus/incus-restore.js'
 import {
@@ -848,37 +848,32 @@ export default async function backupRoutes(fastify: FastifyInstance) {
         })
       }
 
-      // 检查队列长度（防止队列过长）
-      const pendingCount = await prisma.restoreTask.count({
-        where: {
+      const host = await prisma.host.findUnique({ where: { id: instance.host_id } })
+      if (!host) return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
+      // Current actor, target binding and queue limit are checked together under the host/instance locks.
+      let taskId: number | null
+      try {
+        taskId = await db.createRestoreTask({
+          instanceId: instanceIdNum,
+          backupId: backupIdNum,
           hostId: instance.host_id,
-          status: 'PENDING'
-        }
-      })
-      const QUEUE_MAX_LENGTH = 10
-      if (pendingCount >= QUEUE_MAX_LENGTH) {
-        return reply.code(429).send({
-          error: 'QUEUE_TOO_LONG',
-          message: `队列已满（${pendingCount}/${QUEUE_MAX_LENGTH}），请稍后再试`
+          userId: request.user.id,
+          ownerId: instance.user_id,
+          session: request.user,
+          expectedBackupName: backup.incus_name,
+          expectedBackupCreatedAt: backup.created_at,
+          expectedHostIdentity: transferHostIdentity(host),
+          originalInstanceName: instance.name,
+          originalIncusId: instance.incus_id
         })
+      } catch (error) {
+        if (error instanceof RestoreAuthorizationError) return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+        throw error
       }
-
-      // 创建恢复任务 (写入数据库，由 Worker 调度执行)
-      const tempName = generateTempInstanceName(instance.incus_id)
-
-      const taskId = await db.createRestoreTask({
-        instanceId: instanceIdNum,
-        backupId: backupIdNum,
-        hostId: instance.host_id,
-        userId: request.user.id,
-        tempInstanceName: tempName,
-        originalInstanceName: instance.name,
-        originalIncusId: instance.incus_id
-      })
       if (!taskId) {
         return reply.code(409).send({
           error: 'RESTORE_IN_PROGRESS',
-          message: '该实例已有恢复任务正在进行中'
+          message: '宿主或实例正在处理其他请求，请稍后重试'
         })
       }
 
@@ -1005,6 +1000,10 @@ export default async function backupRoutes(fastify: FastifyInstance) {
         })
       }
 
+      if (!task.startedAt || ['authorization_failed', 'preparation_failed'].includes(task.progress ?? '')) {
+        return reply.code(409).send({ error: 'ROLLBACK_NOT_ALLOWED', message: '此任务未开始远端恢复，无需回滚，请刷新后重新提交' })
+      }
+
       try {
         const host = await db.getHostById(instance.host_id)
         if (!host) {
@@ -1117,7 +1116,13 @@ export default async function backupRoutes(fastify: FastifyInstance) {
         })
       }
 
-      const cancelledTask = await db.cancelRestoreTask(taskIdNum)
+      let cancelledTask
+      try {
+        cancelledTask = await db.cancelRestoreTask(taskIdNum, instanceIdNum, request.user)
+      } catch (error) {
+        if (error instanceof RestoreAuthorizationError) return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+        throw error
+      }
       if (!cancelledTask) {
         return reply.code(400).send({
           error: 'CANCEL_FAILED',

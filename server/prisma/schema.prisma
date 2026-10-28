@@ -193,6 +193,11 @@ model RestoreTask {
   tempInstanceName     String?           @map("temp_instance_name")
   originalInstanceName String            @map("original_instance_name")
   originalIncusId      String            @map("original_incus_id")
+  ownerId              Int?              @map("owner_id")
+  actorSid             String?           @map("actor_sid")
+  actorIat             Int?              @map("actor_iat")
+  identityHash         String?           @map("identity_hash")
+  attemptId            String?           @db.Uuid @map("attempt_id")
   error                String?
   createdAt            DateTime          @default(now()) @map("created_at")
   startedAt            DateTime?         @map("started_at")

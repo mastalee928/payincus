@@ -227,11 +227,18 @@ assert.ok(
   'restore worker must remove running task tracking in a finally block'
 )
 assert.ok(
-  restoreExecuteSection.includes("where: { id: taskId, status: 'PROCESSING' }") &&
+  restoreExecuteSection.includes('where: restoreAttempt(task)') &&
     restoreExecuteSection.includes("status: 'COMPLETED'") &&
     restoreExecuteSection.includes("status: 'FAILED'"),
-  'restore worker final status writes must not overwrite non-processing task states'
+  'restore worker final status writes must bind the original processing attempt'
 )
+assert.ok(restoreExecuteSection.includes("task.status !== 'PROCESSING' || runningRestoreTaskIds.has(taskId)") &&
+  restoreExecuteSection.indexOf("task.status !== 'PROCESSING'") < restoreExecuteSection.indexOf('runningRestoreTaskIds.add(taskId)'),
+  'restore worker must reject missing, terminal and duplicate executions before running tracking')
+assert.ok(createRestoreSection.includes('loadAuthorizedRestore(tx, data, data.session)') &&
+  createRestoreSection.includes('HOST_TASK_CLAIM_LOCK_NAMESPACE') && createRestoreSection.includes('identityHash: current.identityHash') &&
+  restoreExecuteSection.includes('assertRestoreBinding(task, current)') && restoreExecuteSection.includes('new IncusClient(host)') &&
+  cancelRestoreSection.includes('loadRestoreInstance(tx, instanceId, actor)'), 'restore admission, dispatch and cancellation must recheck current authorization')
 assert.ok(
   restoreExecuteSection.includes('await prisma.backup.updateMany({') &&
     restoreExecuteSection.includes('where: {\n                instanceId: task.instanceId\n            }') &&

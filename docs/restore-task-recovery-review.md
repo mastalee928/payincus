@@ -1,8 +1,14 @@
 # 实例备份恢复后续施工复审
 
-2026-10-28。此文是下一阶段规格与代码审查结论，不代表已实现。已推送的传输层修复见HANDOFF；平台OSS恢复与客机磁盘恢复是不同流程。
+2026-10-28。此文保留原代码审查基线与后续规格；实际已实现部分见下方和HANDOFF。平台OSS恢复与客机磁盘恢复是不同流程。
 
-## 当前缺口
+## 已实现的第一阶段
+
+入队/领取/执行准备已增加current actor/session、独立owner、原host/instance/backup摘要和ready备份核验；host队列上限同锁、其它工作流门禁、UUID临时名和attempt CAS、取消当前权限复核。准备失败零远端补偿，未开始的FAILED不允许rollback。14种变化/3个边界和PG/Fastify/mTLS拒绝专项通过；不等于下列远端步骤已经闭合。
+
+后续优先补远端原UUID/设备清单、stop确认及临时副本完整性。执行前事务之后、connect/流量补采期间仍有变更窗口；补采helper还会重新查询host，必须结合持久阶段修复，不能把单次摘要检查解释成整个操作期授权锁定。成功末尾清理DB和副本、失败/启动/超时、rollback仍沿用旧主逻辑；未知状态持续门禁与唯一副本保护尚未完成。
+
+## 施工前缺口基线（已实现部分以顶部为准）
 
 - `db/restore-tasks.ts`入队只锁instance并检查同表活跃任务；请求当前actor/session、owner/host/Incus名/backup归属、host队列上限均未完整绑定到同一事务。
 - `restoreTaskWorker.ts`领取只复核实例未deleted；执行与rollback按名称找到实例，未持久保存原实例和临时实例的UUID。原名称被复用后不能据名称存在决定删除临时副本。
