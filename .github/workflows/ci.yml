@@ -204,6 +204,8 @@ jobs:
         run: pnpm --filter server test:review-ticket-lifecycle
       - name: Ticket actions keep their original target and preserve later drafts
         run: pnpm --filter server test:review-ticket-actions
+      - name: Ticket instance cards discard stale actions and release all polling
+        run: pnpm --filter server test:review-ticket-instance-card
       - name: Verify init command selector in Chrome
         run: pnpm --filter server test:review-init-command-selector
       - name: Verify init command modals in Chrome

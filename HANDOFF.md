@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-286 工单实例卡请求与轮询生命周期
+
+- 75a227e已push核远端一致；d0b1c91/75a227e源码CI最后仍运行。实例卡按账号/角色/session、props实例与激活代次隔离；详情/配置/任务组合读取及await stats后再核当前，stats/task各自序号，错详情ID拒绝。计时器只在当前激活实例创建；停用/卸载清全部timer，终端子组件按代次重新挂载/离页卸载，避免旧连接复用新实例。
+- start/stop/restart/sync/suspend/unsuspend/delete捕获原目标，函数复用按钮资格并阻重复，在途操作跨切换保持busy；旧成功/失败不写状态、不弹提示、不重建timer，settle后刷新当前卡。原后台权限、退款和资源行为不改，共享TerminalModal自身全部异步路径仍有独立待项。
+- `takeover-ticket-card-before.log`Chrome先红卸载stats后3250ms再次请求；`takeover-ticket-card-final.log`通过卸载零poll、实例ABA/同sid刷新/换账号、stats乱序、task乱序/终态刷新、旧error/错实例、固定操作/重复/当前失败与TASK_IN_PROGRESS、跨session/cache操作、注销及最终卸载3250ms零请求。1440中文/390英文截图已核，无横向溢出/运行异常；API受控，无真实Incus重启/删除/退款。
+- client types、5守卫、最终lint零error/warning、manifest191/104、最终双端build exit0和dist边界通过；专项登记Chrome CI。
+- 下一项R287四文件instance-batch-billing夹具已先红（`takeover-batch-billing-before.log`）：预览1后选2，确认发送2；InstancesView相关批量预览/提交/生命周期、续费与销毁批量routes/helper及billing-ID/user-destroy守卫已读，产品未改，不混本提交。续费固定已预览可操作ID、单月选项和用户销毁零退款保留，后台当前报价/权限及原生流程不扩大验收；327/R269/完整灾备未完。
+
 ## 2026-10-29 R1-285 关联工单写入与新草稿保护
 
 - d0b1c91已push核远端一致，c71d25c源码CI40782179348已success，d0b1c91最后仍运行。关闭/重开/状态、删除消息固定ticket/message，函数与按钮busy门禁；旧结果不改新工单、不提示或导航。备注/通知/关联对象固定参数与各自草稿revision，成功仅清原输入，busy跨重开保持；创建固定附件副本，新输入或离页后不清草稿/不跳转，当前成功仍进入新工单。

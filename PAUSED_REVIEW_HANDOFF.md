@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：75a227e已push；R286实例卡session/props/active、stats/task请求、await后timer与写回执已修，真实Chrome先红后绿/types/5守卫/lint/manifest191/104/最终双端build exit0/dist通过，准备push，无待poll。下一项R287 instance-batch-billing四文件已先红预览1选2提交2；产品未改，InstancesView批量与生命周期、后端续费/销毁批量routes/helper和billing-ID/user-destroy守卫已读。固定预览可操作集合、modal/session/route/cache代次、旧回执/重复busy；续费只1月/用户销毁0退款。列表本身mount/activated双timer及旧读取仍有独立风险；原生后端报价/权限/强杀/TerminalModal独立生命周期与327/R269/灾备未完。
+
 > **最新接续**：d0b1c91已push；R285关联关闭/重开/状态/删除/备注/通知/关联/创建旧回执与草稿已修，真实Chrome先红后绿/完整详情回归/types/5守卫/lint/manifest191/103/最终双端build exit0/dist通过，准备push，无待poll。下一项R286 ticket-instance-card四文件已先红卸载stats重建polling（3250ms多一次请求），产品未改；卡完整script、实例start/stop/restart/suspend/unsuspend/sync routes与task-query/cancel守卫已读。须current session/props/active代次、stats/task独立seq及每个await后检查、停用/卸载timer/terminal收尾；写回执固定目标，后台权限/真实Incus和TerminalModal独立生命周期另保范围。327/R269/灾备未完。
 
 > **最新接续**：c71d25c已push；R285详情/回复/分页/附件/session/缓存与各读取隔离已修，真实Chrome先红后绿/types/5守卫+最终2复跑/lint/manifest191/102/最终双端build exit0/dist通过，准备单项push，无待poll。下一段scripts/test-ticket-actions.mjs已先红关闭1污染2（未提交），扩展关闭/重开/状态/删除/备注/通知/关联/创建矩阵未跑；产品这些函数未改。相关routes与DB add/status当前授权守卫已读。复用captureDetail/page/草稿revision，防旧回执、固定目标、busy跨重开；不要改后端权限或实际发通知。R286卡完整script已读未改，327/R269/灾备持续未完成。

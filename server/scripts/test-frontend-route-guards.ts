@@ -113,6 +113,12 @@ const hostInstancesTabSource = readRepoFile('client/src/components/host/HostInst
 const hostCreateInstanceTabSource = readRepoFile('client/src/components/host/HostCreateInstanceTab.vue')
 const hostPublicIpv4TabSource = readRepoFile('client/src/components/host/HostPublicIpv4Tab.vue')
 const ticketInstanceOwnerCardSource = readRepoFile('client/src/components/tickets/TicketInstanceOwnerCard.vue')
+assert.ok(ticketInstanceOwnerCardSource.includes('currentGeneration === generation') &&
+  ticketInstanceOwnerCardSource.includes('session === sessionKey.value') && ticketInstanceOwnerCardSource.includes('requestId === statsRequestId') &&
+  ticketInstanceOwnerCardSource.includes('requestId === taskRequestId') && ticketInstanceOwnerCardSource.includes('onDeactivated(deactivate)') &&
+  ticketInstanceOwnerCardSource.includes('await api.instances.delete(instanceId, reason || undefined)') &&
+  ticketInstanceOwnerCardSource.includes('refreshAfterAction(current)') && ticketInstanceOwnerCardSource.includes(':key="terminalKey"'),
+  'ticket instance card requests, actions, timers and terminal lifetime must stay with its active instance/session')
 const myHostsViewSource = readRepoFile('client/src/views/resources/MyHostsView.vue')
 const myPackagesViewSource = readRepoFile('client/src/views/resources/MyPackagesView.vue')
 const instanceLogsTabSource = readRepoFile('client/src/components/instance/InstanceLogsTab.vue')

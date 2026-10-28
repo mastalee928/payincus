@@ -1,0 +1,133 @@
+import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { mkdirSync } from 'node:fs'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { resolve } from 'node:path'
+import { Browser, sleep } from '../.agents/skills/design-taste-frontend/scripts/lib/cdp.mjs'
+const root = fileURLToPath(new URL('..', import.meta.url)).replaceAll('\\', '/')
+const require = createRequire(new URL('../client/package.json', import.meta.url))
+const { createServer } = await import(pathToFileURL(require.resolve('vite')).href)
+const { default: vue } = await import(pathToFileURL(require.resolve('@vitejs/plugin-vue')).href)
+const tailwind = require('tailwindcss/loadConfig')(root + '/client/tailwind.config.js')
+tailwind.content = [root + '/client/src/**/*.{vue,js,ts}', root + '/scripts/fixtures/ticket-instance-card/*.js']
+const output = resolve(root, 'logs/ticket-instance-card-lifecycle'); mkdirSync(output, { recursive: true }); process.env.TASTE_SKILL_TMP = output
+const server = await createServer({ configFile: false, root: root + '/scripts/fixtures/ticket-instance-card', plugins: [vue()],
+  resolve: { alias: [{ find: /^@\/api$/, replacement: root + '/scripts/fixtures/ticket-instance-card/api.js' }, { find: '@', replacement: root + '/client/src' },
+    ...['vue', 'pinia', 'vue-i18n', 'vue-router'].map(name => ({ find: name, replacement: require.resolve(name === 'vue' ? 'vue/dist/vue.esm-bundler.js' : name) }))], dedupe: ['vue', 'pinia', 'vue-i18n', 'vue-router'] },
+  css: { postcss: { plugins: [require('tailwindcss')(tailwind), require('autoprefixer')()] } },
+  server: { host: '127.0.0.1', port: 19672, strictPort: true, fs: { allow: [root] } },
+})
+let browser
+try {
+  await server.listen(); browser = await Browser.launch(); const page = await browser.newPage({ reducedMotion: true })
+  await page.goto('http://127.0.0.1:19672', { settleMs: 1400 })
+  const run = async (fn, arg) => { const result = await page.eval(fn, arg); await sleep(70); return result }
+  const last = kind => page.eval(kind => window.cardHarness.pending.findLastIndex(item => item.kind === kind), kind)
+  const count = kind => page.eval(kind => window.cardHarness.pending.filter(item => item.kind === kind).length, kind)
+  const accept = (index, data) => run(({ index, data }) => window.cardHarness.pending[index].resolve(data), { index, data })
+  const reject = index => run(index => window.cardHarness.pending[index].reject(new Error('fixture failure')), index)
+  const view = key => page.eval(key => JSON.parse(JSON.stringify(window.cardHarness.view()[key])), key)
+  const instance = (id, status = 'running') => ({ id, name: `Fixture ${id}`, status, cpu: 100, memory: 512, disk: 5, instanceType: 'container', isHostOwner: true, isInstanceOwner: false })
+  const stats = (status = 'running', usage = 100) => ({ status, stats: { memory: { usage, limit: 1000, usagePercent: 10 }, disk: { usage, limit: 1000, usagePercent: 10 }, network: { bytesReceived: usage, bytesSent: usage } } })
+  await accept(await last('detail'), { instance: instance(1) }); await accept(await last('config'), { swap: { available: false }, config: {} }); await accept(await last('task'), { task: null })
+  const lateStats = await last('stats'); await run(() => { window.cardHarness.view(); window.cardHarness.state.mounted = false })
+  await accept(lateStats, stats()); const countAfterUnmount = await count('stats')
+  await sleep(3250)
+  assert.equal(await count('stats'), countAfterUnmount, 'late stats after unmount must not resurrect polling')
+  assert.equal(await page.eval(() => window.cardHarness.intervals.size), 0)
+  console.log('PASS late stats after unmount cannot rebuild polling')
+  const details = async (id, status = 'running', task = null) => {
+    await accept(await last('detail'), { instance: instance(id, status) })
+    await accept(await last('config'), { swap: { available: false }, config: {} })
+    await accept(await last('task'), { task })
+  }
+  const ready = async (id, status = 'running', task = null) => { await details(id, status, task); if (status === 'running') await accept(await last('stats'), stats()) }
+  const select = id => run(id => { window.cardHarness.state.summary = { id, name: `Fixture ${id}`, status: 'running' } }, id)
+  const intervals = () => page.eval(() => [...window.cardHarness.intervals.values()].sort((a, b) => a - b))
+  const toasts = () => page.eval(() => window.cardHarness.toasts.length)
+  await run(() => { window.cardHarness.state.mounted = true }); await ready(1)
+  assert.deepEqual(await intervals(), [3000, 15000])
+  const sameSid = await count('detail'); await run(() => window.cardHarness.session('a', 2)); assert.equal(await count('detail'), sameSid)
+  await run(() => { void window.cardHarness.view().loadStats(false) }); const oldStats = await last('stats')
+  await select(2); await ready(2); await accept(oldStats, stats('stopped', 999)); assert.equal((await view('instance')).id, 2); assert.equal((await view('instance')).status, 'running')
+  assert.equal((await view('stats')).memory.usage, 100)
+  await run(() => { void window.cardHarness.view().loadStats() }); const priorStats = await last('stats')
+  await run(() => { void window.cardHarness.view().loadStats() }); const freshStats = await last('stats')
+  await accept(freshStats, stats('running', 200)); await accept(priorStats, stats('stopped', 900)); assert.equal((await view('stats')).memory.usage, 200)
+  await select(1); const abaDetail = await last('detail'), abaConfig = await last('config'), abaTask = await last('task')
+  await select(2); await select(1)
+  await accept(abaDetail, { instance: instance(1, 'stopped') }); await accept(abaConfig, { swap: { available: false }, config: {} }); await accept(abaTask, { task: null })
+  assert.equal(await view('loading'), true); assert.equal(await view('instance'), null)
+  await ready(1); assert.deepEqual(await intervals(), [3000, 15000])
+  console.log('PASS instance ABA, same-session refresh, late and out-of-order statistics')
+
+  await run(() => { void window.cardHarness.view().pollActiveTask() }); const oldTask = await last('task')
+  await select(2); await ready(2); const taskToasts = await toasts()
+  await accept(oldTask, { task: { id: 1, status: 'FAILED', taskType: 'restart', error: 'obsolete task', queuePosition: 0 } })
+  assert.equal(await toasts(), taskToasts); assert.equal(await view('activeTask'), null)
+  await run(() => { void window.cardHarness.view().pollActiveTask() }); const priorTask = await last('task')
+  await run(() => { void window.cardHarness.view().pollActiveTask() }); const currentTask = await last('task')
+  await accept(priorTask, { task: null }); await accept(currentTask, { task: { id: 2, status: 'PROCESSING', taskType: 'restart', queuePosition: 0 } })
+  assert.equal((await view('activeTask')).id, 2)
+  await run(() => { window.cardHarness.view().startTaskPolling() }); assert.deepEqual(await intervals(), [2000, 3000, 15000])
+  await run(() => { void window.cardHarness.view().pollActiveTask() }); await accept(await last('task'), { task: null }); await ready(2)
+  assert.deepEqual(await intervals(), [3000, 15000])
+  await run(() => { void window.cardHarness.view().loadInstanceContext() }); const oldErrorDetail = await last('detail'), oldErrorConfig = await last('config'), oldErrorTask = await last('task')
+  await select(3); await reject(oldErrorDetail); await accept(oldErrorConfig, {}); await reject(oldErrorTask)
+  assert.equal(await view('loading'), true); assert.equal(await view('detailError'), '')
+  await ready(3)
+  await select(4); await accept(await last('detail'), { instance: instance(99) }); await accept(await last('config'), {}); await accept(await last('task'), { task: null })
+  assert.equal(await view('instance'), null); assert.ok(await view('detailError')); assert.deepEqual(await intervals(), [])
+  await run(() => { void window.cardHarness.view().loadInstanceContext() }); await ready(4)
+  console.log('PASS task result ordering, terminal task refresh, old failures and wrong-instance rejection')
+
+  await run(() => { window.confirm = () => true; window.prompt = () => 'fixture reason'; void window.cardHarness.view().handleInstanceAction('stop') })
+  const stopping = await last('stop'); await run(() => { void window.cardHarness.view().handleInstanceAction('stop'); void window.cardHarness.view().syncInstanceStatus() })
+  assert.equal(await last('stop'), stopping); assert.equal(await count('sync'), 0)
+  await select(5); await ready(5); const oldActionToasts = await toasts(); await accept(stopping, { taskId: 10 })
+  assert.equal(await toasts(), oldActionToasts); assert.equal(await view('optimisticStatus'), null); await ready(5)
+  await run(() => { void window.cardHarness.view().handleInstanceAction('stop') }); await accept(await last('stop'), { taskId: 11 })
+  await ready(5, 'stopped', { id: 11, status: 'PROCESSING', taskType: 'stop', queuePosition: 0 })
+  assert.equal(await view('actionLoading'), ''); assert.deepEqual(await intervals(), [2000, 15000])
+  await run(() => { void window.cardHarness.view().pollActiveTask() }); await accept(await last('task'), { task: null }); await ready(5, 'stopped')
+  await run(() => { void window.cardHarness.view().handleInstanceAction('start') }); await accept(await last('start'), { taskId: 12 }); await ready(5)
+  await run(() => { void window.cardHarness.view().syncInstanceStatus() }); const syncing = await last('sync')
+  await run(() => window.cardHarness.session('b')); await ready(5); await accept(syncing, { statusChanged: false, ipv4Changed: false }); await ready(5)
+  await run(() => { void window.cardHarness.view().suspendInstance() }); const suspending = await last('suspend')
+  await run(() => { window.cardHarness.state.active = false }); assert.deepEqual(await intervals(), []); const leaveToasts = await toasts()
+  await accept(suspending, {}); assert.equal(await toasts(), leaveToasts)
+  await run(() => { window.cardHarness.state.active = true }); await ready(5, 'suspended')
+  await run(() => { void window.cardHarness.view().unsuspendInstance() }); await accept(await last('unsuspend'), {}); await ready(5, 'stopped')
+  await run(() => { void window.cardHarness.view().deleteInstanceWithRefund() }); const deletion = await last('delete')
+  await select(6); await ready(6); await accept(deletion, { refundAmount: 0 }); assert.equal((await view('instance')).id, 6); await ready(6)
+  console.log('PASS fixed action targets, duplicate gating, session/cache isolation and current start/stop/unsuspend')
+  await run(() => { void window.cardHarness.view().handleInstanceAction('restart') }); const currentErrorToasts = await toasts()
+  await reject(await last('restart')); assert.equal(await view('actionLoading'), ''); assert.equal(await toasts(), currentErrorToasts + 1)
+  await run(() => { void window.cardHarness.view().handleInstanceAction('restart') }); const staleAction = await last('restart')
+  await select(7); await ready(7); const staleErrorToasts = await toasts(); await reject(staleAction)
+  assert.equal(await toasts(), staleErrorToasts); await ready(7)
+  await run(() => { void window.cardHarness.view().handleInstanceAction('stop') }); const conflict = await last('stop')
+  await run(index => window.cardHarness.pending[index].reject(Object.assign(new Error('fixture busy'), { code: 'TASK_IN_PROGRESS' })), conflict)
+  await ready(7, 'running', { id: 17, taskType: 'stop', status: 'PROCESSING', queuePosition: 0 })
+  assert.equal(await view('actionLoading'), ''); assert.deepEqual(await intervals(), [2000, 3000, 15000])
+  await select(6); await ready(6)
+
+  await run(() => { void window.cardHarness.view().loadStats(false) }); const logoutStats = await last('stats')
+  await run(() => window.cardHarness.session(null)); await reject(logoutStats); assert.equal(await view('instance'), null); assert.deepEqual(await intervals(), [])
+  await run(() => window.cardHarness.session('c')); await ready(6)
+  await run(() => { window.cardHarness.state.active = false }); assert.equal(await view('showTerminalModal'), false); assert.deepEqual(await intervals(), [])
+  await run(() => { window.cardHarness.state.active = true }); await ready(6)
+  await run(() => { window.cardHarness.auth.user = { id: 2, username: 'fixture-other', role: 'user' } })
+  assert.equal(await view('instance'), null); await ready(6)
+  for (const [locale, width, dark, mobile] of [['zh-CN', 1440, false, false], ['en', 390, true, true]]) {
+    await page.setViewport({ width, height: 1000, mobile })
+    await run(({ locale, dark }) => { window.cardHarness.setLocale(locale); window.cardHarness.theme.setTheme(dark ? 'dark' : 'light'); window.cardHarness.view().showDetails = true }, { locale, dark })
+    assert.equal(await page.eval(() => document.documentElement.scrollWidth <= innerWidth), true)
+    await page.screenshot({ path: resolve(output, `${locale}-${width}.png`), format: 'png' })
+  }
+  await run(() => { window.cardHarness.state.mounted = false }); assert.deepEqual(await intervals(), [])
+  const callsAtEnd = await page.eval(() => window.cardHarness.pending.length); await sleep(3250)
+  assert.equal(await page.eval(() => window.cardHarness.pending.length), callsAtEnd)
+  console.log('PASS logout, cached card, timer cleanup and desktop/mobile Chrome')
+  assert.equal(page.consoleErrors.length, 0, page.consoleErrors.join('\n'))
+} finally { if (browser) await browser.close(); await server.close() }

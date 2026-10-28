@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onMounted, onActivated, onDeactivated, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import InstanceDisplayIcon from '@/components/InstanceDisplayIcon.vue'
 import TerminalModal from '@/components/instance/TerminalModal.vue'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import type { InstanceConfigResponse, InstanceWithDetails } from '@/types/api'
 import { translateError } from '@/utils/errorHandler'
 import { formatBytes, formatDisk, formatMemory, getStatusInfo } from '@/utils/formatters'
@@ -62,6 +63,27 @@ const props = defineProps<{
 const { t, te } = useI18n()
 const router = useRouter()
 const toast = useToast()
+const authStore = useAuthStore()
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const pageActive = ref(false)
+const terminalKey = ref(0)
+let alive = true
+let generation = 0
+let statsRequestId = 0
+let taskRequestId = 0
+function captureContext() {
+  const currentGeneration = generation, id = props.instanceSummary.id, session = sessionKey.value
+  return () => alive && pageActive.value && !!session && session === sessionKey.value &&
+    currentGeneration === generation && id === props.instanceSummary.id && Number.isSafeInteger(id) && id > 0
+}
 
 const instance = ref<InstanceWithDetails | null>(null)
 const detailConfig = ref<InstanceConfigResponse | null>(null)
@@ -125,7 +147,7 @@ const isRunning = computed(() => displayStatus.value.toLowerCase() === 'running'
 const isSuspended = computed(() => displayStatus.value.toLowerCase() === 'suspended')
 const isDeleted = computed(() => displayStatus.value.toLowerCase() === 'deleted')
 const hasActiveTask = computed(() => !!activeTask.value && !['COMPLETED', 'FAILED'].includes(activeTask.value.status))
-const isBusy = computed(() => loading.value || actionLoading.value !== '' || hasActiveTask.value)
+const isBusy = computed(() => !captureContext()() || loading.value || actionLoading.value !== '' || hasActiveTask.value)
 const canStart = computed(() => !!instance.value && !isBusy.value && !isRunning.value && !isSuspended.value && !isDeleted.value)
 const canStop = computed(() => !!instance.value && !isBusy.value && isRunning.value)
 const canRestart = computed(() => !!instance.value && !isBusy.value && isRunning.value)
@@ -133,8 +155,8 @@ const hasSyncPermission = computed(() => {
   const inst = instance.value
   return !!inst && (inst.isHostOwner === true || inst.isInstanceOwner === true)
 })
-const canSync = computed(() => hasSyncPermission.value && actionLoading.value !== 'sync' && !loading.value)
-const canOpenTerminal = computed(() => !!instance.value && isRunning.value && !isDeleted.value)
+const canSync = computed(() => captureContext()() && hasSyncPermission.value && actionLoading.value === '' && !loading.value)
+const canOpenTerminal = computed(() => captureContext()() && !!instance.value && isRunning.value && !isDeleted.value)
 const canSuspend = computed(() => !!instance.value && !isBusy.value && !isSuspended.value && !isDeleted.value)
 const canUnsuspend = computed(() => !!instance.value && !isBusy.value && isSuspended.value)
 const canDeleteWithRefund = computed(() => !!instance.value && !isBusy.value && !isDeleted.value && instance.value.isHostOwner === true)
@@ -306,10 +328,11 @@ function normalizeStatsResponse(payload: unknown): { stats: TicketCardStats | nu
 
 function startRefreshPolling(): void {
   clearRefreshInterval()
-  if (!props.instanceSummary.id || !instance.value) return
+  const current = captureContext()
+  if (!current() || !instance.value) return
 
   refreshInterval = setInterval(() => {
-    if (!hasActiveTask.value) {
+    if (current() && !hasActiveTask.value && !actionLoading.value) {
       void loadInstanceContext(true)
     }
   }, 15000)
@@ -317,21 +340,26 @@ function startRefreshPolling(): void {
 
 function syncStatsPolling(): void {
   clearStatsInterval()
-  if (!props.instanceSummary.id || !instance.value || !isRunning.value) return
+  const current = captureContext()
+  if (!current() || !instance.value || !isRunning.value) return
 
   statsInterval = setInterval(() => {
-    void loadStats(true)
+    if (current() && !actionLoading.value) void loadStats(true)
   }, 3000)
 }
 
 async function loadStats(silent = true): Promise<void> {
-  if (!props.instanceSummary.id || !instance.value || !isRunning.value) {
+  const context = captureContext(), requestId = ++statsRequestId, instanceId = props.instanceSummary.id
+  const current = () => context() && requestId === statsRequestId
+  if (!current()) return
+  if (!instance.value || !isRunning.value) {
     stats.value = null
     return
   }
 
   try {
-    const response = await api.instances.getStats(props.instanceSummary.id)
+    const response = await api.instances.getStats(instanceId)
+    if (!current()) return
     const { stats: nextStats, status: nextStatus } = normalizeStatsResponse(response)
     stats.value = nextStats
 
@@ -339,7 +367,7 @@ async function loadStats(silent = true): Promise<void> {
       instance.value.status = nextStatus.toLowerCase() as InstanceWithDetails['status']
     }
   } catch (error) {
-    if (!silent) {
+    if (current() && !silent) {
       toast.error(`${t('common.loadFailed')}: ${translateError(error)}`)
     }
   }
@@ -347,13 +375,13 @@ async function loadStats(silent = true): Promise<void> {
 
 async function pollActiveTask(): Promise<void> {
   const instanceId = props.instanceSummary.id
-  if (!instanceId) {
-    clearTaskPollingInterval()
-    return
-  }
+  const context = captureContext(), requestId = ++taskRequestId
+  const current = () => context() && requestId === taskRequestId
+  if (!current()) return
 
   try {
     const response = await api.instances.getActiveTask(instanceId)
+    if (!current()) return
     const nextTask = response.task
     activeTask.value = nextTask
 
@@ -366,22 +394,27 @@ async function pollActiveTask(): Promise<void> {
       await loadInstanceContext(true)
     }
   } catch {
-    clearTaskPollingInterval()
+    if (current()) clearTaskPollingInterval()
   }
 }
 
 function startTaskPolling(): void {
   clearTaskPollingInterval()
+  const current = captureContext()
+  if (!current()) return
   taskPollingInterval = setInterval(() => {
-    void pollActiveTask()
+    if (current() && !actionLoading.value) void pollActiveTask()
   }, 2000)
 }
 
 async function loadInstanceContext(silent = false): Promise<void> {
   const instanceId = props.instanceSummary.id
-  if (!instanceId) return
-
+  const context = captureContext()
+  if (!context()) return
   const requestId = ++latestRequestId
+  const current = () => context() && requestId === latestRequestId
+  const taskSequence = ++taskRequestId
+  statsRequestId++
 
   if (!silent) {
     loading.value = true
@@ -395,10 +428,14 @@ async function loadInstanceContext(silent = false): Promise<void> {
     api.instances.getActiveTask(instanceId)
   ])
 
-  if (requestId !== latestRequestId) return
+  if (!current()) return
 
   if (detailResult.status === 'fulfilled') {
     instance.value = normalizeInstanceResponse(detailResult.value)
+    if (instance.value?.id !== instanceId) {
+      instance.value = null
+      detailError.value = t('common.loadFailed')
+    }
     optimisticStatus.value = null
   } else {
     instance.value = null
@@ -406,13 +443,14 @@ async function loadInstanceContext(silent = false): Promise<void> {
   }
 
   detailConfig.value = configResult.status === 'fulfilled' ? configResult.value : null
-  activeTask.value = taskResult.status === 'fulfilled' ? taskResult.value.task : null
+  if (taskSequence === taskRequestId) activeTask.value = taskResult.status === 'fulfilled' ? taskResult.value.task : null
 
   if (instance.value && instance.value.status?.toLowerCase() === 'running') {
     await loadStats(true)
   } else {
     stats.value = null
   }
+  if (!current()) return
 
   if (activeTask.value && !['COMPLETED', 'FAILED'].includes(activeTask.value.status)) {
     startTaskPolling()
@@ -426,15 +464,18 @@ async function loadInstanceContext(silent = false): Promise<void> {
 }
 
 async function handleInstanceAction(action: 'start' | 'stop' | 'restart'): Promise<void> {
-  if (!instance.value) return
+  if (!instance.value || !(action === 'start' ? canStart.value : action === 'stop' ? canStop.value : canRestart.value)) return
+  const current = captureContext(), instanceId = instance.value.id
+  invalidateReads()
 
   actionLoading.value = action
   try {
     const response = action === 'start'
-      ? await api.instances.start(instance.value.id)
+      ? await api.instances.start(instanceId)
       : action === 'stop'
-        ? await api.instances.stop(instance.value.id)
-        : await api.instances.restart(instance.value.id)
+        ? await api.instances.stop(instanceId)
+        : await api.instances.restart(instanceId)
+    if (!current()) return
 
     optimisticStatus.value = action === 'start'
       ? 'starting'
@@ -444,12 +485,15 @@ async function handleInstanceAction(action: 'start' | 'stop' | 'restart'): Promi
 
     toast.success(t('instance.detail.actions.taskQueued'))
     await loadInstanceContext(true)
+    if (!current()) return
     startTaskPolling()
     void response.taskId
   } catch (error: any) {
+    if (!current()) return
     if (error?.code === 'TASK_IN_PROGRESS') {
       toast.warning(t('instance.detail.actions.taskInProgress'))
       await loadInstanceContext(true)
+      if (!current()) return
       startTaskPolling()
     } else {
       toast.error(`${t('instance.detail.actions.actionFailed')}: ${translateError(error)}`)
@@ -457,15 +501,19 @@ async function handleInstanceAction(action: 'start' | 'stop' | 'restart'): Promi
     optimisticStatus.value = null
   } finally {
     actionLoading.value = ''
+    refreshAfterAction(current)
   }
 }
 
 async function syncInstanceStatus(): Promise<void> {
-  if (!instance.value) return
+  if (!instance.value || !canSync.value) return
+  const current = captureContext(), instanceId = instance.value.id
+  invalidateReads()
 
   actionLoading.value = 'sync'
   try {
-    const result = await api.instances.syncStatus(instance.value.id)
+    const result = await api.instances.syncStatus(instanceId)
+    if (!current()) return
     if (result.statusChanged || result.ipv4Changed) {
       toast.success(t('admin.hosts.batchSyncSuccess', {
         synced: 1,
@@ -476,51 +524,63 @@ async function syncInstanceStatus(): Promise<void> {
     }
     await loadInstanceContext(true)
   } catch (error) {
-    toast.error(`${t('admin.hosts.batchSyncFailed')}: ${translateError(error)}`)
+    if (current()) toast.error(`${t('admin.hosts.batchSyncFailed')}: ${translateError(error)}`)
   } finally {
     actionLoading.value = ''
+    refreshAfterAction(current)
   }
 }
 
 async function suspendInstance(): Promise<void> {
-  if (!instance.value) return
+  if (!instance.value || !canSuspend.value) return
+  const current = captureContext(), instanceId = instance.value.id
   if (!window.confirm(t('instance.detail.actions.confirmSuspend', { name: mergedInstance.value.name }))) return
 
   const reason = window.prompt(t('instance.detail.actions.suspendReasonPlaceholder'), '')
   if (reason === null) return
+  if (!current() || !canSuspend.value) return
+  invalidateReads()
 
   actionLoading.value = 'suspend'
   try {
-    await api.instances.suspend(instance.value.id, reason.trim() || undefined)
+    await api.instances.suspend(instanceId, reason.trim() || undefined)
+    if (!current()) return
     toast.success(t('instance.detail.actions.suspendSuccess'))
     optimisticStatus.value = 'suspended'
     await loadInstanceContext(true)
   } catch (error) {
-    toast.error(translateError(error))
+    if (current()) toast.error(translateError(error))
   } finally {
     actionLoading.value = ''
+    refreshAfterAction(current)
   }
 }
 
 async function unsuspendInstance(): Promise<void> {
-  if (!instance.value) return
+  if (!instance.value || !canUnsuspend.value) return
+  const current = captureContext(), instanceId = instance.value.id
   if (!window.confirm(t('instance.detail.actions.confirmUnsuspend', { name: mergedInstance.value.name }))) return
+  if (!current() || !canUnsuspend.value) return
+  invalidateReads()
 
   actionLoading.value = 'unsuspend'
   try {
-    await api.instances.unsuspend(instance.value.id)
+    await api.instances.unsuspend(instanceId)
+    if (!current()) return
     toast.success(t('instance.detail.actions.unsuspendSuccess'))
     optimisticStatus.value = 'stopped'
     await loadInstanceContext(true)
   } catch (error) {
-    toast.error(translateError(error))
+    if (current()) toast.error(translateError(error))
   } finally {
     actionLoading.value = ''
+    refreshAfterAction(current)
   }
 }
 
 async function deleteInstanceWithRefund(): Promise<void> {
   if (!instance.value || !canDeleteWithRefund.value) return
+  const current = captureContext(), instanceId = instance.value.id
 
   const isPaidInstance = !!mergedInstance.value.packagePlanId
   const confirmMessage = isPaidInstance
@@ -537,53 +597,67 @@ async function deleteInstanceWithRefund(): Promise<void> {
     toast.warning(t('admin.billing.deleteRefundReasonRequired'))
     return
   }
+  if (!current() || !canDeleteWithRefund.value) return
+  invalidateReads()
 
   actionLoading.value = 'delete'
   try {
-    const result = await api.instances.delete(instance.value.id, reason || undefined)
+    const result = await api.instances.delete(instanceId, reason || undefined)
+    if (!current()) return
     optimisticStatus.value = 'deleted'
     toast.success(result.refundAmount && result.refundAmount > 0 ? t('admin.billing.deleteRefundSuccess') : t('common.deleteSuccess'))
     await loadInstanceContext(true)
   } catch (error) {
-    toast.error(`${t('instance.detail.actions.actionFailed')}: ${translateError(error)}`)
+    if (current()) toast.error(`${t('instance.detail.actions.actionFailed')}: ${translateError(error)}`)
   } finally {
     actionLoading.value = ''
+    refreshAfterAction(current)
   }
 }
 
 function openInstanceDetail(): void {
+  if (!captureContext()()) return
   void router.push(instanceDetailPath(props.instanceSummary.id))
 }
 
-watch(
-  () => props.instanceSummary.id,
-  () => {
-    latestRequestId += 1
-    clearRefreshInterval()
-    clearStatsInterval()
-    clearTaskPollingInterval()
-    instance.value = null
-    detailConfig.value = null
-    stats.value = null
-    activeTask.value = null
-    detailError.value = ''
-    actionLoading.value = ''
-    optimisticStatus.value = null
-    terminalForceDisconnect.value = false
-    showDetails.value = false
+function invalidateReads() {
+  latestRequestId++
+  statsRequestId++
+  taskRequestId++
+  loading.value = false
+}
 
-    if (props.instanceSummary.id) {
-      void loadInstanceContext()
-    }
-  },
-  { immediate: true }
-)
+function refreshAfterAction(current: () => boolean) {
+  if (!current() && captureContext()()) void loadInstanceContext()
+}
 
-onBeforeUnmount(() => {
+function resetContext() {
+  generation++
+  invalidateReads()
   clearRefreshInterval()
   clearStatsInterval()
   clearTaskPollingInterval()
-})
+  instance.value = null
+  detailConfig.value = null
+  stats.value = null
+  activeTask.value = null
+  detailError.value = ''
+  optimisticStatus.value = null
+  showTerminalModal.value = false
+  terminalForceDisconnect.value = false
+  terminalKey.value++
+  showDetails.value = false
+
+  if (captureContext()()) void loadInstanceContext()
+}
+
+function activate() { if (!pageActive.value) { pageActive.value = true; resetContext() } }
+function deactivate() { pageActive.value = false; resetContext() }
+watch([() => props.instanceSummary.id, sessionKey], resetContext, { flush: 'sync' })
+onMounted(activate)
+onActivated(activate)
+onDeactivated(deactivate)
+onBeforeUnmount(() => { alive = false; deactivate() })
 </script>
 
 <template>
@@ -862,6 +936,8 @@ onBeforeUnmount(() => {
     </div>
 
     <TerminalModal
+      v-if="pageActive && sessionKey"
+      :key="terminalKey"
       v-model:visible="showTerminalModal"
       v-model:force-disconnect="terminalForceDisconnect"
       :instance-id="instance?.id || null"
