@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-payment-locales', 'requires Chrome/Edge and local Vite; actual payment provider controls in three locales, read-only API fixture'],
   ['test:review-markdown-attributes', 'requires Chrome/Edge and local Vite; actual quote escaping, DOM sanitization, event probes and link targets'],
   ['test:review-markdown-browser', 'requires Chrome/Edge and local Vite; actual Markdown output rendered in the terms modal'],
   ['test:review-terms-lifecycle', 'requires Chrome/Edge and local Vite; actual terms modal close, KeepAlive, abort, delayed body and unmount ordering'],

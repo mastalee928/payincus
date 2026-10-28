@@ -295,7 +295,7 @@
 | R1-257 | 存在 | 源码已修；浏览器表格通过 | renderer.table使用header/rows的cell.tokens。jsdom及实际Chrome条款组件验证普通/仅表头/空单元格、加粗/链接/code、1440/390无整页横溢且截图已看（takeover-markdown-table-browser.log）；新专项接CI。仅补证据/测试，产品未改，R258/259继续。 |
 | R1-258 | 存在 | 已修；嵌套与任务浏览器通过 | 子tokens的链接/嵌套引用列表/任务/有序列表/字面code实际Chrome通过；截图发现勾选path.d丢失，浏览器/jsdom先红后修URI正则`.-:`意外数字范围，保留SVG几何及数字相对链接，危险/未知协议仍拒。3守卫/lint/最终完整双端types build/dist通过（takeover-markdown-tokens-*），手机截图已核勾选与外链图标。 |
 | R1-259 | 存在 | 源码已修；属性浏览器通过 | escapeHtml/DOMPurify实际Chrome验证引号/&/尖括号title和图片说明保持、格式化链接/外链rel、数字相对URL；危险标签/事件/协议移除，触发error/load/click后执行计数0，平台图标几何保留。桌面/手机截图及新CI专项通过本地检查（takeover-markdown-attributes-*）。非穷尽恶意HTML证明，法律内容不改。 |
-| R1-260 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
+| R1-260 | 部分存在；原完整缺键集合未提供 | 支付实际三语已验；全消息穷尽未验 | 实际PaymentProvidersView五种已实现渠道/三语控件无raw key、密码空/1440和390通过（takeover-payment-locales-browser.log），只list无写。Heleket占位符字面@精确runtime通过但当前页面已无该key引用；原目标namespace编译与i18n/route共3守卫通过。邀请码R308/315及TG R326仍单独待验，不把支付页面结果当全部三语完成。 |
 | R1-261 | 实现不同 | 保留初审结论 | 本库新矢量地图/球体采用当前目录与坐标实现，未发现对方旧datacenter地图文件；不据此替换现行地图编码。 |
 | R1-262 | 已有防护 | 保留初审结论 | update/delete/batch/usages使用ForHost约束且校验code归属host，旧跨节点缺口已有防护。 |
 | R1-263 | 已有防护 | 保留初审结论 | 当前仅数据库移除有保留远端/磁盘及暂停销售说明，不能当完整销毁或释放可售库存。 |

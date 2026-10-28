@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-260 支付三语与占位符运行证据
+
+- R259 6c9dfe5已push并核远端一致。`logs/takeover-payment-locales-browser.log`实际PaymentProvidersView/Chrome覆盖zh-CN/zh-TW/en与yipay/heleket/upaypro/antom/manual五种已实现渠道，当前控件标签/占位符无原始key，密码字段保持空；1440/390截图检查通过。API仅受控list一次，没有任何保存/支付请求。
+- 原Heleket示例key已修为i18n字面@并在三语实际runtime精确等于USDT@TRON等多行文本；当前页面已无此key的控件引用，明确是保留目录消息验证，不称现有textarea截图。原review-locale-messages的目标namespace编译和本项i18n/route共3守卫通过，manifest191常规86环境排除通过，Chrome专项接CI。产品与翻译无新增改动，沿用R258最终构建。
+- 原清单未提供全部缺失key集合，本项不宣称所有消息穷尽显示通过；邀请码R308/315与TG长Webhook R326仍需各自页面验证。接R264流量锁内权限竞态，route/DB/守卫及现有user-write authorization已读未改。327与完整灾备未完成。
+
 ## 2026-10-29 R1-259 Markdown属性与DOM过滤浏览器证据
 
 - R258 d8c8e33已push并核远端一致。本项补此前escapeHtml/DOMPurify源码的真实Chrome证据：`logs/takeover-markdown-attributes-browser.log`通过链接title及图片title/说明中的引号、&、尖括号、格式化链接、外链noopener/noreferrer和数字相对URL；脚本/iframe/object/事件属性与危险/未知协议移除。主动触发error/load/click后执行计数仍0，保留平台提示图标几何。

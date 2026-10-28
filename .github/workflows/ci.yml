@@ -217,6 +217,8 @@ jobs:
         run: |
           pnpm --filter server test:review-markdown-browser
           pnpm --filter server test:review-markdown-attributes
+      - name: Verify payment locales in Chrome
+        run: pnpm --filter server test:review-payment-locales
       - name: Verify package empty fields in PostgreSQL
         run: pnpm --filter server test:review-package-empty-fields
 
