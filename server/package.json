@@ -6,6 +6,7 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:review-badge-motion": "node ../scripts/test-badge-motion.mjs",
     "test:review-badge-styles": "node ../scripts/test-badge-styles.mjs",
     "test:review-badge-image": "node ../scripts/test-badge-image.mjs",
     "test:review-expiry-panel": "node ../scripts/test-expiry-panel.mjs",

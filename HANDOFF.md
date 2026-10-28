@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-228 徽章动画声明与减少动态
+
+- R229 `a93a007`已push且远端一致。tiger/goat/rooster两主题各修一处animation/transform-origin缺分号；aquarius/cancer/gemini/libra/pisces/scorpio两主题补原art旋转关键帧。178资产加入减少动态CSS，生成器共用幂等归一化，原几何/颜色/有效其它动画保持。
+- `logs/takeover-badge-motion-browser-verified.log`真实Chrome iframe读取实际SVG，178份声明均有解析关键帧，18修复目标在时间轴0与1/4周期的transform不同；切reduce后178文档无动画且所有元素animation-name为none。首轮未明确系统动态偏好/触发样式计算读不到动画，最终显式no-preference+layout flush并验证SVG文档类型；不以零动画误判成功。
+- `takeover-badge-motion-guards.log`2/2含实际生成器夹具、`takeover-badge-motion-build.log`双端vue-tsc/build、dist与190常规/67环境排除清单通过。浏览器专项接CI；采样变换与reduce通过不代表全动画性能/所有自然帧视觉验收。下一项R227的48资产缺渐变仍待，原HTML缺失已查Desktop/Downloads无匹配。327与完整灾备未完成。
+
 ## 2026-10-28 R1-229 SVG注入JSX样式文本
 
 - R230 `5ca08c0`与R226 `2567007`均已push且CI40711540441/40710740342最终success；R214 CI40708802507失败任务重跑后success。
