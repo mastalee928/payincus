@@ -20,10 +20,12 @@ The primary delivery object in PayIncus is an Incus-backed LXC / KVM instance. T
 | Instance detail | View CPU, memory, disk, network, IPv6, mappings and runtime status. |
 | Lifecycle actions | Start, stop, reboot and delete. |
 | Web terminal | Connect through `/api/ws`. |
-| Snapshots and backups | Use snapshot or backup features when configured. |
+| Snapshots | Instance details expose snapshots subject to quota; automatic snapshots follow enabled policies. |
 | Traffic | View usage, reset state and limit notifications. |
 
 ## Admin Features
+
+Backend instance backup, export, upload, and restore paths remain available, but the current instance detail page has no dedicated backup tab. An existing API is not evidence of a complete self-service page. The current automatic policy scheduler runs snapshots, not instance backup policies. Admin [OSS platform backup](/deployment/oss-backup) is a separate workflow for the database, configuration, and managed identities; it does not include customer VPS disks. Full disaster recovery requires separate validation.
 
 - View and manage all customer instances.
 - Create instances manually for delivery correction or migration.

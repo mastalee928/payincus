@@ -8,16 +8,70 @@ This page is generated from Git tags and commits to show system version history.
 
 ## Latest Release State / 最新发布状态
 
-- Latest Release Commit / 最新发布提交: `fb328e87c`
+- Latest Release Commit / 最新发布提交: `ef12578ea`
 - Commit date / 提交日期: 2026-10-27
-- Commit subject / 提交说明: fix: stabilize pool delivery and instance administration
-- Latest tag / 最新 tag: `v1.7.6`
+- Commit subject / 提交说明: feat: clarify gateway setup and preserve remote installation failures
+- Latest tag / 最新 tag: `v1.7.7`
 
 ## Unreleased Changes / 未发布变更
 
-- This tag points to the same commit as the adjacent tag, so there are no additional Git commits.
+### Other Changes / 其他变更
+
+- chore: remove retired public auth shell and styling composable `d1cf5d98a`
+- chore: remove unused legacy backup policy row types `f09033855`
+- chore: remove unused lazy image and virtual list components `77bb816f4`
+- chore: remove unreferenced database optimization wrappers `996d3db0e`
+- docs: record pushed checkpoints and passing CI evidence `92fe0b036`
+- docs: record verified v1.7.7 release and remaining gateway scope `0e8010371`
+
+### Fixes and Stability / 修复与稳定性
+
+- fix: serialize init command toggles and reject obsolete list results `85d2068b7`
+- fix: serialize init command form saves and isolate stale callbacks `0b35de615`
+- fix: bind init command details to target and session lifetime `eaf703fb3`
+- fix: isolate init command selector requests by distro and session `80f109e20`
+- fix: serialize public ticket close and reopen authorization `a77c89173`
+- fix: revalidate public ticket reply credentials before writing `97c929ee3`
+- fix: revalidate public ticket creation credentials in transaction `66f5a6694`
+- fix: classify ticket image failures and release upstream streams `3fd997196`
+- fix: constrain ticket identifiers to database integer bounds `bb35a0a9c`
+- fix: commit ticket notifications and audit atomically `57723738a`
+- fix: bind ticket object links to current ownership and administrator `510e903a7`
+- fix: authorize internal ticket notes in the write transaction `4ef8b029b`
+- fix: authorize ticket message deletion with its attachment manifest `23358c275`
+- fix: serialize ticket status changes with current authorization `fadec0462`
+- fix: recheck current ticket reply authorization `d29ca3a7f`
+- fix: recheck current web session when creating tickets `e244d8fab`
+- fix: revalidate ticket instance association in the write transaction `eaef6ea6a`
+- fix: bound ticket pagination and numeric search queries `84f8464c9`
+- fix: reject restore rollback without persisted copy identity `5e3d3a186`
+- fix: preserve restore identity and unresolved recovery copies `f6571c6df`
+- fix: require confirmed stop before restoring instance backups `f8dd60c9b`
+- fix: bind restore queue authorization and execution attempts `1299ce6eb`
+- docs: confirm passing CI for all backup repair checkpoints `fb5e14aa9`
+- docs: record pushed backup fixes and restore recovery requirements `f9e7e9fca`
+- fix: bound restore streams and preserve remote failure states `5e63e8e95`
+- fix: confirm backup deletion under current instance authorization `5a8f9e53c`
+- fix: persist isolated upload attempts and enforce retry backoff `8d73ab341`
+- fix: bind backup uploads to current authorization and target identity `eac0b0689`
+- fix: preserve Incus identity and bound backup export streams `7a38eca0c`
+- fix: isolate backup upload files by task identity `8465e9d60`
+- fix: declare Markdown guard runtime dependency `437ff0217`
+- fix: checkpoint review repairs and durable resource recovery `c277ba30a`
 
 ## Historical Versions / 历史版本
+
+## v1.7.7
+
+- Release commit / 发布提交: `ef12578ea`
+- Commit date / 提交日期: 2026-10-27
+- Commit subject / 提交说明: feat: clarify gateway setup and preserve remote installation failures
+
+- 管理员左侧网关位于机器池上方，首次选择本机/外部，实际活动路径与候选分开。
+- 外部/备用候选绑定DNS-only域名，自动至少/20和端口；固定核验地址与SSH身份。
+- 持久保留具体失败，重规划受次数和总时间预算约束，部分安装继续原任务并保留资源。
+- 主控/网关无IPv6不影响原认证通道对宿主及客户IPv6的核验。
+- 完整迁移、备用自动接管、切回、新IP主控OSS重连、千台真实应用及完整灾备未完成，不将候选安装解释为接管可用。
 
 ## v1.7.6
 

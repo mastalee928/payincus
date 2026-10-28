@@ -13,7 +13,9 @@ Backend: 127.0.0.1:3001
 
 ## Runtime Dependencies
 
-The server needs Node.js 22, pnpm 9.14.2, PostgreSQL 16, Redis, Nginx, and systemd. Redis 7 is recommended.
+The server needs Node.js 22, pnpm 9.14.2, PostgreSQL 16, Nginx, and systemd. The installer still installs Redis, although the backend has no Redis client. Existing installer-generated units may require Redis; inspect the actual systemd configuration before changing it. See [Database and Cache](/en/deployment/environment#database-and-cache).
+
+The private backend must run as exactly one Node.js process. Cluster mode, multiple workers, and multiple replicas are unsupported. Installing Redis does not share the process-local login locks, nonces, deduplication, or caches.
 
 ```bash
 corepack enable
@@ -97,14 +99,14 @@ Never set `RESET_DATABASE` in production. Enable payment, SMTP, Telegram, Turnst
 
 ## Database Migration
 
-Back up PostgreSQL first, then run:
+The application already uses Prisma + PostgreSQL; it is not waiting for a SQLite migration. New installations and upgrades still need the release's schema migrations. For an existing database, back it up and check its migration history first, then run:
 
 ```bash
-sudo -u incudal env HOME=/opt/incudal bash -lc \
+sudo -u incudal env HOME=/opt/incudal ENV_FILE=/opt/incudal/.env bash -lc \
   'cd /opt/incudal/current/server && pnpm exec prisma migrate deploy'
 ```
 
-Do not use development reset commands on production data.
+`ENV_FILE` explicitly selects the installation's environment file, avoiding an unintended database configuration from the atomic release directory. If migration fails, stop startup and resolve the cause; do not bypass it with reset, db push, or a fabricated baseline.
 
 ## Install systemd and Nginx
 

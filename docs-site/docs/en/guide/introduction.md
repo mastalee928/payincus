@@ -28,7 +28,8 @@ PayIncus is optimized for non-Docker split production deployment:
 - Backend runtime entry is `server/dist/app.js`.
 - Nginx serves both frontends and proxies only `/api` and `/api/ws` to the backend.
 - PostgreSQL is the primary persistence layer.
-- Redis is kept by the installer for deployment compatibility and future distributed state expansion.
+- The installer still installs Redis, but the current backend has no Redis client or shared Redis state. Review existing service dependencies before changing that installation.
+- The private backend must run as exactly one Node.js process. Login locks, some nonces and deduplication, and configuration caches remain process-local; cluster mode, multiple workers, and multiple replicas are unsupported.
 - The default install directory is `/opt/incudal`; this is the real path used by the current installer, systemd templates, OTA worker, and production release layout.
 
 ## Entry Points

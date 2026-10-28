@@ -245,7 +245,7 @@
 | R1-207 | 存在 | 退役残留已清理/双端类型构建通过 | 删除仅互引无消费者的PublicAuthShell/useM3Auth；PlanetScene原本不存在。takeover-retired-auth-references/guards/build/dist通过，2路由/i18n守卫，现行登录注册入口保留，无对应活体旧页面可验 |
 | R1-208 | 存在 | 源码已修/隔离PG验证通过 | getInstancesToSync下推due筛选后take，165 fresh running不挤掉old stopped。logs/review-queue-sync-integration-final.log；真实Linux周期sync仍待 |
 | R1-209 | 已有防护 | 保留初审结论 | onUnmounted已remove全局click handler，原累积监听问题不成立。 |
-| R1-210 | 部分存在 | 待精修/运行复核 | 部分备份/Redis/迁移描述过时；客机备份后端仍运行，不据对方退役描述删除功能。 |
+| R1-210 | 部分存在 | 文档已精修/构建通过 | README正式v1.7.7、实例快照/备份后端与无独立标签/自动调度缺口、OSS不含VPS磁盘；中英部署说明Redis实际安装但无后端client、单Node、每版迁移与ENV_FILE。初审纠正安装器Redis非虚假残留；takeover-docs-facts-guards/build通过，不代表实装验收 |
 | R1-211 | 存在 | 退役类型已清理/编译守卫通过 | 仅删除server兼容BackupPolicy/SnapshotPolicy及纠正SQLite文件头；Prisma模型/DB方法/client实际类型保留。takeover-retired-policy-references/build/guards通过，3备份/快照守卫，无数据库或运行行为改动 |
 | R1-212 | 部分存在 | 待精修/运行复核 | User仍留域名邮箱系统标题，token注释仍写refresh前缀/null用户级而实际身份演进；多数金额已明确元/Bytes等，不判全部价格单位缺失。仅维护文档项。 |
 | R1-213 | 存在 | 待精修/运行复核 | 旧composable/utils仅互引；现行TurnstileWidget使用独立实现。只判旧工具孤立，不删除现行验证。 |

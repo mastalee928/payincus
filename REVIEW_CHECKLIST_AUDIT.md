@@ -260,7 +260,7 @@
 | R1-207 | P3 | 旧 PublicAuthShell、专属 useM3Auth 与 PlanetScene 已无应用调用者 | 存在 | [client/src/components/public/PublicAuthShell.vue](<C:/payincus/client/src/components/public/PublicAuthShell.vue>)：PublicAuthShell/useM3Auth仅旧代码互引、无现行页面消费者；PlanetScene未找到，不能说三者均有同文件残留。 |
 | R1-208 | P2 | 状态调度器先截取近期记录再筛选到期实例，积压实例持续被遗漏 | 存在 | [server/src/services/status-scheduler.ts:125](<C:/payincus/server/src/services/status-scheduler.ts:125>)：先order status/updatedAt desc并take batchSize*3，再筛选due；近期非due候选能持续挤掉较旧待同步实例。 |
 | R1-209 | P3 | 镜像选择器卸载后保留全局点击监听，重复进入页面累积失效处理器 | 已有防护 | [client/src/components/instance/ImageSelector.vue:122](<C:/payincus/client/src/components/instance/ImageSelector.vue:122>)：onUnmounted已remove全局click handler，原累积监听问题不成立。 |
-| R1-210 | P3 | README实例备份能力和部署文档迁移状态描述已过时 | 部分存在 | [README.md](<C:/payincus/README.md>)：部分备份/Redis/迁移描述过时；客机备份后端仍运行，不据对方退役描述删除功能。 |
+| R1-210 | P3 | README实例备份能力和部署文档迁移状态描述已过时 | 部分存在 | 复审纠正：安装器确实仍安装启动Redis，不能把其部署依赖说明判成全部过时；后端无Redis client、仍要求单进程。Prisma/PostgreSQL已运行但每版仍需schema迁移。实例备份后端保留，当前详情仅快照、自动调度仅快照；与OSS平台备份分别说明。README正式版已落后v1.7.7。 |
 | R1-211 | P3 | 数据库兼容行类型残留无调用的旧BackupPolicy与SnapshotPolicy定义 | 存在 | [server/src/types/database.ts](<C:/payincus/server/src/types/database.ts>)：server兼容BackupPolicy/SnapshotPolicy定义无server调用者；client同名类型是独立实际定义，不能混为server使用。 |
 | R1-212 | P3 | Prisma注释仍描述旧域名邮箱、失效标记和全局AFF限制且价格单位不明确 | 部分存在 | [server/prisma/schema.prisma:515](<C:/payincus/server/prisma/schema.prisma:515>)：User仍留域名邮箱系统标题，token注释仍写refresh前缀/null用户级而实际身份演进；多数金额已明确元/Bytes等，不判全部价格单位缺失。仅维护文档项。 |
 | R1-213 | P3 | 旧隐式Turnstile工具和composable只互相引用，没有应用调用者 | 存在 | [client/src/composables/useTurnstile.ts](<C:/payincus/client/src/composables/useTurnstile.ts>)：旧composable/utils仅互引；现行TurnstileWidget使用独立实现。只判旧工具孤立，不删除现行验证。 |

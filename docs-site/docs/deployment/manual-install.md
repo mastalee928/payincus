@@ -28,7 +28,9 @@ description: 将 PayIncus 接入既有数据库、反向代理和发布体系
 
 ## 运行依赖
 
-服务器需要 Node.js 22、pnpm 9.14.2、PostgreSQL 16、Redis、Nginx 和 systemd。Redis 建议使用 7。
+服务器需要 Node.js 22、pnpm 9.14.2、PostgreSQL 16、Nginx 和 systemd。安装器仍安装 Redis，但后端没有 Redis 客户端；已有安装器生成的服务可能依赖 Redis，调整前须核对实际 systemd 配置。详见[数据库和缓存](/deployment/environment#数据库和缓存)。
+
+私有后端必须且只能运行一个 Node.js 进程，禁止 cluster、多 worker 或多副本。安装 Redis 不会使进程内登录锁、nonce/去重和缓存自动共享。
 
 ```bash
 corepack enable
@@ -112,14 +114,14 @@ PAYMENT_CALLBACK_BASE_URL=https://panel.example.com
 
 ## 数据库迁移
 
-先备份 PostgreSQL，再执行：
+当前使用 Prisma + PostgreSQL，不再等待从 SQLite 迁移。全新安装和升级仍需应用该发行版的 schema migrations；已有数据库先备份并核对迁移历史，再执行：
 
 ```bash
-sudo -u incudal env HOME=/opt/incudal bash -lc \
+sudo -u incudal env HOME=/opt/incudal ENV_FILE=/opt/incudal/.env bash -lc \
   'cd /opt/incudal/current/server && pnpm exec prisma migrate deploy'
 ```
 
-不要在生产使用开发 reset 命令。
+`ENV_FILE` 固定指向安装根的环境文件，避免原子 release 工作目录误读其它数据库配置。迁移失败应停止启动并修复原因，不用 reset、db push 或伪造 baseline 跳过。
 
 ## 安装 systemd 和 Nginx
 

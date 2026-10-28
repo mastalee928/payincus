@@ -20,7 +20,7 @@ PayIncus 是一套面向 hosting 业务的 Incus 商业化交付平台。它把�
 
 此仓库由 mastalee928 独立维护。源码、新安装、面板更新、Agent 和文档发布均使用 `mastalee928/payincus`。原有 BSD 3-Clause 许可证和版权声明保留在 [LICENSE](LICENSE) 中。
 
-当前稳定版：[v1.7.6](https://github.com/mastalee928/payincus/releases/tag/v1.7.6)（IPv4-only主控的IPv6交付核验、跨系统SSH密码初始化、异常销毁退款保护及管理员实例操作），配套 [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3)。一键安装默认获取本仓库最新正式版。使用边界见 [v1.7.6 发布说明](docs-site/release-notes/v1.7.6.md) 和 [OSS 部署说明](docs-site/docs/deployment/oss-backup.md)，生产部署证据以 [HANDOFF.md](HANDOFF.md) 为准。
+当前稳定版：[v1.7.7](https://github.com/mastalee928/payincus/releases/tag/v1.7.7)（独立网关页面、外部/备用候选检查安装和 IPv4-only 网关回归），配套 [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3)。一键安装默认获取本仓库最新正式版。使用边界见 [v1.7.7 发布说明](docs-site/release-notes/v1.7.7.md) 和 [OSS 部署说明](docs-site/docs/deployment/oss-backup.md)，生产部署证据以 [HANDOFF.md](HANDOFF.md) 为准。main 中后续源码修复尚未正式发行；完整灾备接管仍待验收。
 
 v1.7.0 的旧版本 OTA 归档所有权校验回归已在 v1.7.1 修复，新安装与更新使用最新正式版本。失败任务和数据库备份保留；发行完成不等于现有主控已升级，也不代表完整公网灾备场景已验收。
 
@@ -44,6 +44,8 @@ v1.7.0 的旧版本 OTA 归档所有权校验回归已在 v1.7.1 修复，新安
 - 宿主机 Agent：节点安装脚本、心跳、资源上报、实例状态、流量采集、Agent manifest 和二进制下载代理。
 - 后台 OTA：管理后台查看版本、检查 Release、下载 OTA artifact、校验 SHA256、运行更新任务、查看日志和回滚。
 
+备份能力分为实例数据与平台数据。实例详情提供受配额约束的快照；实例备份、导出、上传和恢复的后端路径仍保留，但当前详情页没有独立备份标签，不能据后端接口存在承诺完整自助入口。当前自动策略调度器执行实例快照，不执行实例自动备份策略。管理员 OSS 平台备份保护数据库、配置与受管身份，**不包含客户 VPS 磁盘**；恢复流程和未完成验收见 [OSS 部署说明](docs-site/docs/deployment/oss-backup.md) 与 [版本证据](HANDOFF.md)。
+
 ## 技术栈
 
 ```text
@@ -63,7 +65,7 @@ docs-site/              VitePress 文档站
 - Node.js 20+，生产推荐 Node.js 22
 - pnpm 9.14.2
 - PostgreSQL，生产推荐 PostgreSQL 16
-- Redis（建议 7；一键安装使用系统仓库版本），安装脚本会保留 `REDIS_URL` 兼容后续分布式状态扩展
+- 安装器仍安装、启动 Redis 并写入 `REDIS_URL`；当前后端没有 Redis 客户端，不用它共享会话锁、缓存或任务状态。已有安装器生成的 systemd 服务可能依赖 Redis，不能据此直接卸载该服务。
 - Nginx + systemd
 - Go 1.22+，仅开发或构建 Agent 时需要
 
@@ -95,6 +97,7 @@ PayIncus 生产环境推荐非 Docker split 部署：用户端、管理端和后
 - 生产必须设置 `SERVE_STATIC_CLIENT=false`，前端静态文件由 Nginx 托管。
 - 用户端构建目录是 `client/dist/user`，管理端构建目录是 `client/dist/admin`。
 - 后端默认监听 `HOST=127.0.0.1`、`PORT=3001`。
+- 后端必须且只能运行一个 Node.js 进程；禁止 cluster、多 worker 或多副本。PostgreSQL 协调已持久化任务，登录锁、部分 nonce/去重和配置缓存仍在进程内；安装 Redis 不会使多进程部署受支持。
 - 默认安装目录仍是 `/opt/incudal`，这是当前脚本、systemd、OTA 和线上 release 布局使用的真实路径。
 
 ## 一键安装
@@ -128,6 +131,8 @@ sudo bash install-panel.sh --uninstall
 完整安装说明见：[一键安装](docs-site/docs/deployment/one-click-install.md)。安装器从本仓库的正式 Release 下载匹配架构的包并验证 SHA-256。机器池网关配置时填写主控公网 IPv4 或域名，并在云厂商安全组放行所选 WireGuard UDP 端口（默认 51820）。
 
 ## 手动部署
+
+当前数据库使用 Prisma + PostgreSQL。技术栈迁移已完成不代表新版本数据库结构已应用：全新安装与升级仍须对目标库执行 `prisma migrate deploy`。已有库先备份并检查迁移历史；失败应修复原因，不使用 reset、db push 或伪造 baseline 绕过。
 
 安装依赖并构建：
 

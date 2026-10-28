@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：R207 d1cf5d9已push。R210文档按实际源码/正式Release修正，中英部署/介绍/实例能力及README、自动版本日志完成，部署文档守卫/VitePress build通过准备保存。接续R212 Prisma注释、R213旧Turnstile孤立工具、R214未用格式化/计费导出、R219–221套餐表单和R222 SW。另发现R215修复台账误写Cloud-init内容，实际formatBytes已支持PB/EB且core-boundaries有断言，需纠正文档映射。327仍未完整。
+
 > **最新接续**：R211 f090338已push；R207旧认证外壳和useM3Auth删除完成，无调用复查、2守卫/双端类型build/dist通过准备保存。所有本地build进程已结束。下一项R210文档精修，须纠正初审Redis“过时”推断：安装脚本确实安装启动Redis，但后端无client/URL引用。稳定版v1.7.7已read-only核实正式Release；未改生产。327继续。
 
 > **最新接续**：R204 77bb816已push，CI40699019799最后运行。R211旧server兼容策略类型已清，引用复查/build/3守卫通过单独保存；R207两旧前端文件删除仍待双端build收尾，session46205，不要丢改动。下一项R210文档，已查安装器确实仍安装Redis，不能机械删除依赖说明；后端无Redis client、仅PG持久+单进程内存态需说明。327持续。

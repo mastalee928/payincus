@@ -28,7 +28,8 @@ PayIncus 是非 Docker split 部署优先的生产系统：
 - 后端入口是 `server/dist/app.js`。
 - Nginx 托管两个前端，并只把 `/api` 和 `/api/ws` 反代到后端。
 - PostgreSQL 是核心持久化来源。
-- Redis 由安装脚本保留，用于部署兼容和后续分布式状态扩展。
+- 安装器仍安装 Redis，当前后端不使用 Redis 客户端或共享状态。已有服务依赖须核实后处理。
+- 私有后端必须且只能运行一个 Node.js 进程；登录锁、部分 nonce/去重和配置缓存仍在进程内，禁止 cluster、多 worker 或多副本。
 - 默认安装目录是 `/opt/incudal`，这是当前脚本、systemd、OTA 和线上 release 布局使用的真实路径。
 
 ## 入口

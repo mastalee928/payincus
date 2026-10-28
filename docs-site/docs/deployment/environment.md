@@ -47,7 +47,9 @@ DATABASE_URL=postgresql://incudal:change_me@127.0.0.1:5432/incudal
 REDIS_URL=redis://:change_me@127.0.0.1:6379
 ```
 
-PostgreSQL 是核心持久化来源。Redis 由安装脚本保留，用于部署兼容和后续分布式状态扩展。
+PostgreSQL 是核心持久化来源。安装器仍安装、启动 Redis 并生成 `REDIS_URL`，但当前后端没有 Redis 客户端，也不读取该变量来共享状态。已有安装器生成的 systemd 服务可能声明 Redis 依赖，不能直接据此卸载 Redis。
+
+私有后端必须且只能运行一个 Node.js 进程。登录失败锁、部分 nonce/去重和配置缓存仍是进程内状态；PostgreSQL 任务锁与 Redis 安装状态都不能替代这些状态的共享。禁止 cluster、多 worker 或多副本部署。
 
 ## Cookie
 

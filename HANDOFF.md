@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-210 备份、迁移与部署事实文档
+
+- README正式版更新为已核实的v1.7.7（非draft/非prerelease，2026-10-27发布），main后续修复与正式发行分开。中文/英文介绍、环境和手动部署说明明确：安装器仍安装启动Redis，但后端无Redis client/共享状态，已有systemd依赖不能直接移除；私有后端只能单Node进程。
+- 明确Prisma/PostgreSQL已运行与每版仍须migrate deploy的区别，手动命令显式ENV_FILE=/opt/incudal/.env。对照实际详情入口/自动调度/后端路由补充：实例快照受配额控制、实例备份后端仍在但当前无独立标签、自动调度只执行快照；OSS平台备份不包含客户VPS磁盘，完整灾备未验收。R210初审中笼统的Redis过时判断已纠正。
+- `logs/takeover-docs-facts-guards.log`部署文档守卫与`takeover-docs-facts-build.log`VitePress中英文完整构建通过；构建器生成的版本日志同步保存。仅文档，不改安装器/数据库/运行环境，不把文档验证当作实装验收。下一项R212等，327未完整。
+
 ## 2026-10-28 R1-207 退役认证外壳及样式
 
 - R211 `f090338554f3b079596b2e58988d6776edd050d3`已推送并核远端一致。R207删除只互相引用的`PublicAuthShell.vue`与`useM3Auth.ts`，当前登录/注册/管理员登录不使用它们，双端入口/Vite也无自动注册。PlanetScene在当前源码本就不存在，不虚构删除第三文件。

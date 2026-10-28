@@ -47,7 +47,9 @@ DATABASE_URL=postgresql://incudal:change_me@127.0.0.1:5432/incudal
 REDIS_URL=redis://:change_me@127.0.0.1:6379
 ```
 
-PostgreSQL is the primary persistence layer. Redis is kept by the installer for deployment compatibility and future distributed state expansion.
+PostgreSQL is the primary persistence layer. The installer still installs and starts Redis and generates `REDIS_URL`, but the current backend has no Redis client and does not use this variable to share state. Existing installer-generated systemd units may require Redis; do not remove it solely because the application has no Redis client.
+
+The private backend must run as exactly one Node.js process. Login failure locks, some nonces and deduplication, and configuration caches remain process-local. PostgreSQL task locks and an installed Redis service do not share those states. Cluster mode, multiple workers, and multiple backend replicas are unsupported.
 
 ## Cookies
 
