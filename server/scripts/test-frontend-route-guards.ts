@@ -1176,6 +1176,17 @@ assert.ok(
   'init command saves must reject duplicate/closing/loading submissions, snapshot the target/data and close before list refresh'
 )
 assert.ok(
+  extensionsViewSource.includes('api.initCommands.update(id, { enabled })') &&
+    extensionsViewSource.includes('currentCommand.enabled = enabled') &&
+    !extensionsViewSource.includes('cmd.enabled = !cmd.enabled') &&
+    extensionsViewSource.includes('pendingCommands.value.get(id) === operation') &&
+    extensionsViewSource.includes('sequence === listSequence') &&
+    extensionsViewSource.includes('session === sessionKey.value') &&
+    extensionsViewSource.includes('v-else-if="!loadFailed"') &&
+    extensionsViewSource.includes('onBeforeUnmount'),
+  'init command state changes must serialize per row, apply the captured state and discard obsolete list/session replies'
+)
+assert.ok(
   initCommandSelectorSource.includes("import { extensionsPath } from '@/utils/app-paths'") &&
     initCommandSelectorSource.includes('const manageExtensionsPath = extensionsPath()') &&
     initCommandSelectorSource.includes('v-if="manageExtensionsPath"') &&

@@ -5,13 +5,14 @@
  * TAB 结构：
  * - 初始化命令：用户自定义的实例初始化命令模板
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 
 import { useI18n } from 'vue-i18n'
 
 import api from '@/api'
 
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 
 import InitCommandModal from '@/components/extensions/InitCommandModal.vue'
 
@@ -21,6 +22,27 @@ import DistroIcon from '@/components/icons/DistroIcon.vue'
 
 const { t } = useI18n()
 const toast = useToast()
+const authStore = useAuthStore()
+// Only a UI response boundary; write authorization remains enforced by the backend.
+const sessionKey = computed(() => {
+  const token = authStore.token
+  if (!token) return ''
+  let identity = token
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user?.id ?? ''}:${authStore.user?.role ?? ''}:${identity}`
+})
+let disposed = false
+let listSequence = 0
+let listController: AbortController | undefined
+const pendingCommands = ref(new Map<number, symbol>())
+
+function invalidateList(): void {
+  listSequence++
+  listController?.abort()
+}
 
 // 命令列表
 interface InitCommand {
@@ -38,6 +60,7 @@ interface InitCommand {
 const commands = ref<InitCommand[]>([])
 
 const loading = ref(false)
+const loadFailed = ref(false)
 
 // 发行版图标映射
 const distroIcons: Record<string, string> = {
@@ -72,14 +95,24 @@ function goToNextPage(): void {
 
 // 加载命令列表
 async function loadCommands(): Promise<void> {
+  invalidateList()
+  const sequence = listSequence, session = sessionKey.value
+  if (!session || disposed) return
+  const controller = new AbortController()
+  listController = controller
+  const current = () => !disposed && sequence === listSequence && session === sessionKey.value
   loading.value = true
+  loadFailed.value = false
   try {
-    const response = await api.initCommands.list()
+    const response = await api.initCommands.list(controller.signal)
+    if (!current()) return
     commands.value = response.commands
-  } catch (error: any) {
-    toast.error(t('extensions.initCommands.loadFailed') + ': ' + (error?.message || String(error)))
+    currentPage.value = Math.min(currentPage.value, Math.max(1, totalPages.value))
+  } catch {
+    if (!current()) return
+    loadFailed.value = true
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
@@ -89,11 +122,13 @@ const showCommandModal = ref(false)
 const editingCommand = ref<InitCommand | null>(null)
 
 function openAddModal(): void {
+  if (!sessionKey.value || disposed) return
   editingCommand.value = null
   showCommandModal.value = true
 }
 
 function openEditModal(cmd: InitCommand): void {
+  if (pendingCommands.value.has(cmd.id) || !commands.value.includes(cmd) || !sessionKey.value || disposed) return
   editingCommand.value = cmd
   showCommandModal.value = true
 }
@@ -114,6 +149,7 @@ const showDetailModal = ref(false)
 const viewingCommand = ref<InitCommand | null>(null)
 
 function openDetailModal(cmd: InitCommand): void {
+  if (!commands.value.includes(cmd) || !sessionKey.value || disposed) return
   viewingCommand.value = cmd
   showDetailModal.value = true
 }
@@ -125,29 +161,45 @@ function closeDetailModal(): void {
 
 // 删除命令
 async function deleteCommand(cmd: InitCommand): Promise<void> {
+  if (pendingCommands.value.has(cmd.id) || !commands.value.includes(cmd) || !sessionKey.value || disposed) return
   if (!confirm(t('extensions.initCommands.confirmDelete', { name: cmd.name }))) return
-  
+  const session = sessionKey.value, operation = Symbol('delete'), id = cmd.id
+  pendingCommands.value.set(id, operation)
+  invalidateList()
+  loading.value = false
+  const current = () => !disposed && session === sessionKey.value && pendingCommands.value.get(id) === operation
   try {
-    await api.initCommands.delete(cmd.id)
+    await api.initCommands.delete(id)
+    if (!current()) return
+    commands.value = commands.value.filter(command => command.id !== id)
     toast.success(t('extensions.initCommands.deleteSuccess'))
     await loadCommands()
-    // 删除后如果当前页已无数据，返回上一页
-    if (paginatedCommands.value.length === 0 && currentPage.value > 1) {
-      currentPage.value--
-    }
-  } catch (error: any) {
-    toast.error(t('extensions.initCommands.deleteFailed') + ': ' + (error?.message || String(error)))
+  } catch (error: unknown) {
+    if (current()) toast.error(t('extensions.initCommands.deleteFailed') + ': ' + (error instanceof Error ? error.message : String(error)))
+  } finally {
+    if (current()) pendingCommands.value.delete(id)
   }
 }
 
 // 切换启用状态
 async function toggleEnabled(cmd: InitCommand): Promise<void> {
+  if (pendingCommands.value.has(cmd.id) || !commands.value.includes(cmd) || !sessionKey.value || disposed) return
+  const id = cmd.id, enabled = !cmd.enabled, session = sessionKey.value, operation = Symbol('toggle')
+  pendingCommands.value.set(id, operation)
+  invalidateList()
+  loading.value = false
+  const current = () => !disposed && session === sessionKey.value && pendingCommands.value.get(id) === operation
   try {
-    await api.initCommands.update(cmd.id, { enabled: !cmd.enabled })
-    cmd.enabled = !cmd.enabled
-    toast.success(cmd.enabled ? t('extensions.initCommands.enabled') : t('extensions.initCommands.disabled'))
-  } catch (error: any) {
-    toast.error(t('extensions.initCommands.toggleFailed') + ': ' + (error?.message || String(error)))
+    await api.initCommands.update(id, { enabled })
+    if (!current()) return
+    const currentCommand = commands.value.find(command => command.id === id)
+    if (currentCommand) currentCommand.enabled = enabled
+    toast.success(enabled ? t('extensions.initCommands.enabled') : t('extensions.initCommands.disabled'))
+    await loadCommands()
+  } catch (error: unknown) {
+    if (current()) toast.error(t('extensions.initCommands.toggleFailed') + ': ' + (error instanceof Error ? error.message : String(error)))
+  } finally {
+    if (current()) pendingCommands.value.delete(id)
   }
 }
 
@@ -158,7 +210,22 @@ function getDistroName(distro: string): string {
   return translated !== key ? translated : distro
 }
 
-loadCommands()
+watch(sessionKey, () => {
+  invalidateList()
+  pendingCommands.value.clear()
+  commands.value = []
+  loading.value = false
+  loadFailed.value = false
+  currentPage.value = 1
+  onModalClose()
+  closeDetailModal()
+  void loadCommands()
+}, { immediate: true, flush: 'sync' })
+onBeforeUnmount(() => {
+  disposed = true
+  invalidateList()
+  pendingCommands.value.clear()
+})
 </script>
 
 <template>
@@ -178,6 +245,11 @@ loadCommands()
           </svg>
           {{ $t('extensions.initCommands.add') }}
         </button>
+      </div>
+
+      <div v-if="loadFailed" role="alert" class="mb-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+        <p>{{ $t('extensions.initCommands.loadFailed') }}</p>
+        <button type="button" class="btn-ghost min-h-[44px]" @click="loadCommands">{{ $t('common.retry') }}</button>
       </div>
 
       <!-- 加载中 -->
@@ -245,8 +317,9 @@ loadCommands()
               </svg>
             </button>
             <button 
-              class="text-themed-faint hover:text-themed-secondary transition-colors"
+              class="text-themed-faint hover:text-themed-secondary transition-colors disabled:opacity-50"
               :title="$t('common.edit')"
+              :disabled="pendingCommands.has(cmd.id)"
               @click="openEditModal(cmd)"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -254,7 +327,10 @@ loadCommands()
               </svg>
             </button>
             <button 
-              class="transition-colors"
+              class="transition-colors disabled:opacity-50"
+              :disabled="pendingCommands.has(cmd.id)"
+              :aria-busy="pendingCommands.has(cmd.id)"
+              :aria-label="cmd.enabled ? $t('extensions.initCommands.clickToDisable') : $t('extensions.initCommands.clickToEnable')"
               :class="cmd.enabled ? 'text-green-500 hover:text-green-600' : 'text-themed-faint hover:text-green-500'"
               :title="cmd.enabled ? $t('extensions.initCommands.clickToDisable') : $t('extensions.initCommands.clickToEnable')"
               @click="toggleEnabled(cmd)"
@@ -265,8 +341,9 @@ loadCommands()
               </svg>
             </button>
             <button 
-              class="text-themed-faint hover:text-red-400 transition-colors"
+              class="text-themed-faint hover:text-red-400 transition-colors disabled:opacity-50"
               :title="$t('common.delete')"
+              :disabled="pendingCommands.has(cmd.id)"
               @click="deleteCommand(cmd)"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -278,7 +355,7 @@ loadCommands()
       </div>
 
       <!-- 空状态 -->
-      <div v-else class="text-center py-12 border border-dashed border-themed rounded-xl">
+      <div v-else-if="!loadFailed" class="text-center py-12 border border-dashed border-themed rounded-xl">
         <svg class="w-12 h-12 mx-auto mb-3 text-themed-faint opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>

@@ -2740,7 +2740,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
   // 用户自定义初始化命令
   initCommands: {
     // 获取用户的所有初始化命令模板
-    list: (): Promise<{
+    list: (signal?: AbortSignal): Promise<{
       commands: Array<{
         id: number
         name: string
@@ -2752,7 +2752,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
         createdAt: string
         updatedAt: string
       }>
-    }> => http.get('/init-commands'),
+    }> => http.get('/init-commands', { signal }),
 
     // 获取适配指定发行版的命令列表（创建/重装时使用）
     getAvailable: (distro: string, signal?: AbortSignal): Promise<{

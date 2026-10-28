@@ -9,5 +9,6 @@ export default {
     getDistros: signal => defer('distros', undefined, signal),
     create: data => defer('create', undefined, undefined, data),
     update: (id, data) => defer('update', id, undefined, data),
+    delete: id => defer('delete', id),
   },
 }
