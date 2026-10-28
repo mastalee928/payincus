@@ -58,6 +58,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-instance-quota', 'requires isolated local *_pool_test PostgreSQL; actual admin/host quota null, omission, zero and range behavior'],
   ['test:review-host-gift-days', 'requires isolated local *_pool_test PostgreSQL; actual gift-days authorization, expiry and suspension races with paid renewal and transactional audit rollback'],
   ['test:review-instance-detail-reads', 'requires Chrome/Edge and local Vite; actual detail route/session/read ordering, pending task/statistics and lifecycle timers'],
+  ['test:review-transfer-modal-lifecycle', 'requires Chrome/Edge and local Vite; actual transfer and sensitive verification modal request ordering, draft/session identity and lifecycle'],
   ['test:review-traffic-limit', 'requires isolated local *_pool_test PostgreSQL; actual user/instance traffic limit omission and bigint boundary validation'],
   ['test:review-traffic-reset-auth', 'requires isolated local *_pool_test PostgreSQL; actual traffic reset actor/target races, billing and baseline checks'],
   ['test:review-payment-locales', 'requires Chrome/Edge and local Vite; actual payment provider controls in three locales, read-only API fixture'],

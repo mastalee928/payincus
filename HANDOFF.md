@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-280 转移弹窗与二次验证回执
+
+- aab5bbc已push核远端一致，CI40776614927最后运行；05de4a5/a370299/a805dc4源码CI均success。TransferModal每次打开/实例/session独立代次，余额及搜索旧成功/失败/finally隔离，输入ABA搜索失效；当前搜索响应须匹配用户名。转移固定instanceId/username/remark及草稿版本，在途写跨重开保持busy到settle，旧结果不提示、不关闭新表单。原用户名绑定已有防护，未计作本轮新增。
+- 二次验证绑定本次提交的草稿和独立子组件key，旧verified不重试当前草稿；SensitiveVerificationModal本身也补show/resource/operation/session与卸载隔离、重复请求函数门禁、当前verified:true检查及倒计时清理。服务端明确success:true/required:false时仍经原转移API重试，由后端重新检查验证要求；未改后端验证、权限、收费或交割逻辑。
+- `takeover-transfer-modal-before.log`Chrome先红复现关闭重开旧余额999覆盖；`takeover-transfer-modal-final.log`真实Chrome通过余额/search ABA与旧finally、错误目标/封禁目标、同sid刷新/换session/换实例、固定写参数/重复点击/旧成功错误、新旧验证码交错、验证false/失败/当前成功重试、关闭重开/无需验证返回、logout/unmount无孤儿倒计时。1440中文浅色/390英文深色截图已核，无横向溢出，无运行时异常；API受控夹具，不等于真实转移/通知发送。
+- client types、4相关守卫、lint（无error，4模板排版warning）、最终双端build exit0、dist边界、manifest191/97通过，专项登记CI。初轮测试使用DOM Transition节点而非实际验证组件，已修测试定位；不记为产品缺陷。共享验证组件其它父页面完整业务流程未全部跑过；后端真实交割沿此前专项证据，本项无生产操作。
+- 下一项R281 ChangePlanModal已Chrome先红：选择3后加载新预览时，handle仍按旧预览发送change请求；新夹具四文件不混入本项提交。327、R269和完整灾备持续未完成。
+
 ## 2026-10-29 R1-279 实例详情读取与轮询隔离
 
 - 05de4a5已push。详情读取绑定路由名称/完整正整数ID、账号角色/session、页面代次和各类请求序号；切换实例、退出及重登立即清旧状态。主详情拒绝错误目标响应，套餐/配额/统计/流量/快照/转移/任务/cloud-init的迟到成功、失败和finally不再污染当前页面。操作开始前的旧状态读取失效；任务与刷新计时器按当前代次管理，避免快速切换重复建立。

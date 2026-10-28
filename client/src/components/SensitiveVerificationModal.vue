@@ -1,13 +1,24 @@
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import api from '@/api'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
 const toast = useToast()
+const authStore = useAuthStore()
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
 
 interface Props {
   show: boolean
@@ -33,6 +44,16 @@ const countdown = ref(0)
 const error = ref('')
 
 let countdownTimer: ReturnType<typeof setInterval> | null = null
+let alive = true
+let active = false
+let generation = 0
+function captureContext() {
+  const currentGeneration = generation, session = sessionKey.value
+  const operationType = props.operationType, resourceId = props.resourceId
+  return { operationType, resourceId, current: () => alive && active && props.show && !!session &&
+    session === sessionKey.value && currentGeneration === generation &&
+    operationType === props.operationType && resourceId === props.resourceId }
+}
 
 // 操作类型显示名称
 const operationName = computed(() => {
@@ -64,6 +85,8 @@ const channelName = computed(() => {
 
 // 重置状态
 function resetState() {
+  generation++
+  loading.value = false
   step.value = 'request'
   verificationCode.value = ''
   channel.value = null
@@ -78,19 +101,25 @@ function resetState() {
 }
 
 // 监听弹窗显示状态
-watch(() => props.show, (newVal) => {
-  if (newVal) {
-    resetState()
-  }
-})
+watch([() => props.show, () => props.operationType, () => props.resourceId, sessionKey], () => {
+  active = props.show
+  resetState()
+}, { immediate: true, flush: 'sync' })
 
 // 请求验证码
 async function requestCode() {
+  const context = captureContext()
+  if (!context.current() || loading.value || countdown.value > 0) return
   loading.value = true
   error.value = ''
   
   try {
-    const response = await api.verification.request(props.operationType, props.resourceId)
+    const response = await api.verification.request(context.operationType, context.resourceId)
+    if (!context.current()) return
+    if (response.success === true && response.required === false) {
+      emit('verified')
+      return
+    }
     channel.value = response.channel
     target.value = response.maskedTarget || response.target || null
     expiresAt.value = response.expiresAt ?? null
@@ -98,7 +127,9 @@ async function requestCode() {
     
     // 启动倒计时 (60秒后可重发)
     countdown.value = 60
+    if (countdownTimer) clearInterval(countdownTimer)
     countdownTimer = setInterval(() => {
+      if (!context.current()) return
       countdown.value--
       if (countdown.value <= 0) {
         if (countdownTimer) {
@@ -110,14 +141,17 @@ async function requestCode() {
     
     toast.success(t('sensitiveVerification.codeSent'))
   } catch (err: any) {
+    if (!context.current()) return
     error.value = err?.message || String(err)
   } finally {
-    loading.value = false
+    if (context.current()) loading.value = false
   }
 }
 
 // 验证
 async function verify() {
+  const context = captureContext()
+  if (!context.current() || loading.value || step.value !== 'verify') return
   if (verificationCode.value.length !== 6) {
     error.value = t('sensitiveVerification.invalidCode')
     return
@@ -127,28 +161,34 @@ async function verify() {
   error.value = ''
   
   try {
-    await api.verification.verify(props.operationType, verificationCode.value, props.resourceId)
+    const response = await api.verification.verify(context.operationType, verificationCode.value, context.resourceId)
+    if (!context.current()) return
+    if (response.verified !== true) {
+      error.value = t('sensitiveVerification.invalidCode')
+      return
+    }
     toast.success(t('sensitiveVerification.verifySuccess'))
     emit('verified')
   } catch (err: any) {
+    if (!context.current()) return
     error.value = err?.message || String(err)
   } finally {
-    loading.value = false
+    if (context.current()) loading.value = false
   }
 }
 
 // 关闭弹窗
 function close() {
+  active = false
   resetState()
   emit('close')
 }
 
 // 组件卸载时清理定时器
-onUnmounted(() => {
-  if (countdownTimer) {
-    clearInterval(countdownTimer)
-    countdownTimer = null
-  }
+onBeforeUnmount(() => {
+  alive = false
+  active = false
+  resetState()
 })
 </script>
 
@@ -214,6 +254,7 @@ onUnmounted(() => {
                   v-model="verificationCode"
                   type="text"
                   maxlength="6"
+                  :disabled="loading"
                   class="input text-center text-2xl tracking-widest font-mono"
                   :placeholder="t('sensitiveVerification.codePlaceholder')"
                   @keyup.enter="verify"

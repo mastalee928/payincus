@@ -33,6 +33,7 @@
     "test:review-instance-quota": "node --import tsx scripts/test-review-instance-quota.ts",
     "test:review-host-gift-days": "node --import tsx scripts/test-review-host-gift-days.ts",
     "test:review-instance-detail-reads": "node ../scripts/test-instance-detail-reads.mjs",
+    "test:review-transfer-modal-lifecycle": "node ../scripts/test-transfer-modal-lifecycle.mjs",
     "test:review-prize-editor": "node ../scripts/test-prize-editor.mjs",
     "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",

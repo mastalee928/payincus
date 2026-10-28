@@ -1149,6 +1149,19 @@ assert.ok(
   'instance-list PUSH must open the selected instance transfer form directly, rather than navigating to a transfer list or admin inbox'
 )
 const adminTransferModalSource = readRepoFile('client/src/components/instance/modals/AdminTransferModal.vue')
+const transferModalSource = readRepoFile('client/src/components/instance/modals/TransferModal.vue')
+const sensitiveVerificationSource = readRepoFile('client/src/components/SensitiveVerificationModal.vue')
+assert.ok(transferModalSource.includes('session === sessionKey.value') &&
+  transferModalSource.includes('currentGeneration === generation') && transferModalSource.includes('sequence === searchSequence') &&
+  transferModalSource.includes('await api.transfers.create(draft.instanceId, draft.username, draft.remark)') &&
+  transferModalSource.includes('pendingTransfers.value--') && transferModalSource.includes('verificationAttempt.value !== attempt') &&
+  transferModalSource.includes(':key="verificationAttempt.key"'),
+  'transfer responses and verification retry must stay on the submitted instance, session and draft')
+assert.ok(sensitiveVerificationSource.includes('currentGeneration === generation') &&
+  sensitiveVerificationSource.includes('session === sessionKey.value') && sensitiveVerificationSource.includes('onBeforeUnmount') &&
+  sensitiveVerificationSource.includes('if (!context.current()) return') &&
+  sensitiveVerificationSource.includes('response.verified !== true'),
+  'sensitive verification must reject stale modal/session responses and require confirmed verification')
 assert.ok(
   adminTransferModalSource.includes("from '@/api/admin'") &&
     adminTransferModalSource.includes('api.adminInstancePush.create') &&

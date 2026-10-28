@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, shallowRef, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
 import { useConfigStore } from '@/stores/config'
+import { useAuthStore } from '@/stores/auth'
 import { translateError } from '@/utils/errorHandler'
 import SensitiveVerificationModal from '@/components/SensitiveVerificationModal.vue'
 
@@ -29,13 +30,27 @@ const { t } = useI18n()
 const themeStore = useThemeStore()
 const toast = useToast()
 const configStore = useConfigStore()
+const authStore = useAuthStore()
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
 
 // 表单状态
 const targetUsername = ref('')
 const remark = ref('')
 const searchLoading = ref(false)
-const transferLoading = ref(false)
-const showVerification = ref(false)
+// Keep a submitted request busy until it settles, including after close/reopen.
+const pendingTransfers = ref(0)
+const transferLoading = computed(() => pendingTransfers.value > 0)
+const verificationAttempt = shallowRef<{
+  key: number; instanceId: number; verified: () => void; close: () => void
+} | null>(null)
 const searchError = ref('')
 
 // 用户余额
@@ -50,8 +65,16 @@ interface TargetUser {
 }
 const targetUser = ref<TargetUser | null>(null)
 
-
-
+let alive = true
+let generation = 0
+let searchSequence = 0
+let draftRevision = 0
+let verificationSequence = 0
+function captureContext() {
+  const currentGeneration = generation, session = sessionKey.value, instanceId = props.instance.id
+  return { instanceId, current: () => alive && props.show && !!session && session === sessionKey.value &&
+    currentGeneration === generation && instanceId === props.instance.id && Number.isSafeInteger(instanceId) && instanceId > 0 }
+}
 // 转移手续费（从配置获取）
 const transferFee = computed(() => configStore.transferFee || 0)
 
@@ -63,40 +86,61 @@ const hasEnoughBalance = computed(() => {
 
 // 用户状态检查（用户存在且未被封禁且余额足够）
 const canTransfer = computed(() => {
-  return !searchLoading.value && !loadingBalance.value && targetUser.value !== null && targetUser.value.username === targetUsername.value.trim() && targetUser.value.status === 'active' && hasEnoughBalance.value
+  return alive && props.show && !!sessionKey.value && Number.isSafeInteger(props.instance.id) && props.instance.id > 0 &&
+    !searchLoading.value && !loadingBalance.value && !transferLoading.value && !verificationAttempt.value &&
+    targetUser.value !== null && targetUser.value.username === targetUsername.value.trim() && targetUser.value.status === 'active' && hasEnoughBalance.value
 })
 
-watch(targetUsername, () => { targetUser.value = null; searchError.value = '' })
+watch(targetUsername, () => {
+  searchSequence++
+  searchLoading.value = false
+  targetUser.value = null
+  searchError.value = ''
+}, { flush: 'sync' })
+watch([targetUsername, remark, () => targetUser.value?.id, () => targetUser.value?.status, transferFee], () => {
+  draftRevision++
+  verificationAttempt.value = null
+}, { flush: 'sync' })
 
-// 弹窗打开时加载余额
-watch(() => props.show, async (show) => {
-  if (show) {
+// Each opening, instance and authenticated session owns its reads and draft.
+watch([() => props.show, () => props.instance.id, sessionKey], async () => {
+  generation++
+  searchSequence++
+  draftRevision++
+  targetUsername.value = ''
+  remark.value = ''
+  targetUser.value = null
+  searchError.value = ''
+  searchLoading.value = false
+  userBalance.value = 0
+  loadingBalance.value = false
+  verificationAttempt.value = null
+  const context = captureContext()
+  if (context.current()) {
     // 加载用户余额
     if (transferFee.value > 0) {
       loadingBalance.value = true
       try {
         const res = await api.billing.getUserBalance()
-        userBalance.value = res.balance.balance
+        if (context.current()) userBalance.value = Number.isFinite(res.balance.balance) ? res.balance.balance : 0
       } catch {
-        userBalance.value = 0
+        if (context.current()) userBalance.value = 0
       } finally {
-        loadingBalance.value = false
+        if (context.current()) loadingBalance.value = false
       }
     }
-  } else {
-    // 关闭时重置
-    targetUsername.value = ''
-    remark.value = ''
-    targetUser.value = null
-    searchError.value = ''
-    userBalance.value = 0
-    showVerification.value = false
   }
-}, { immediate: true })
+}, { immediate: true, flush: 'sync' })
+
+onBeforeUnmount(() => { alive = false; generation++; verificationAttempt.value = null })
 
 async function searchUser() {
   if (!targetUsername.value.trim() || searchLoading.value || transferLoading.value) return
+  const context = captureContext()
+  if (!context.current()) return
+  const sequence = ++searchSequence
   const searchedUsername = targetUsername.value.trim()
+  const current = () => context.current() && sequence === searchSequence && targetUsername.value.trim() === searchedUsername
   
   searchLoading.value = true
   searchError.value = ''
@@ -104,9 +148,9 @@ async function searchUser() {
   
   try {
     const response = await api.transfers.searchUser(searchedUsername)
-    if (targetUsername.value.trim() === searchedUsername) targetUser.value = response.user
+    if (current() && response.user?.username === searchedUsername) targetUser.value = response.user
   } catch (error: any) {
-    if (targetUsername.value.trim() !== searchedUsername) return
+    if (!current()) return
     if (error?.code === 'USER_NOT_FOUND') {
       searchError.value = t('transfer.modal.userNotFound')
     } else if (error?.code === 'TRANSFER_TO_SELF') {
@@ -117,30 +161,44 @@ async function searchUser() {
       searchError.value = error?.message || t('common.error')
     }
   } finally {
-    searchLoading.value = false
+    if (current()) searchLoading.value = false
   }
 }
 
 async function handleTransfer() {
   if (!targetUser.value || !canTransfer.value || transferLoading.value) return
-  
-  transferLoading.value = true
+  const context = captureContext(), revision = draftRevision
+  const draft = { instanceId: context.instanceId, username: targetUser.value.username, remark: remark.value || undefined,
+    current: () => context.current() && revision === draftRevision }
+  await submitTransfer(draft)
+}
+
+async function submitTransfer(draft: { instanceId: number; username: string; remark?: string; current: () => boolean }) {
+  if (!draft.current() || !canTransfer.value || transferLoading.value) return
+  pendingTransfers.value++
   try {
-    await api.transfers.create(props.instance.id, targetUser.value.username, remark.value || undefined)
+    await api.transfers.create(draft.instanceId, draft.username, draft.remark)
+    if (!draft.current()) return
     toast.success(t('transfer.messages.transferSuccess'))
     emit('success')
     emit('close')
   } catch (error: any) {
-    if (error?.code === 'VERIFICATION_REQUIRED') showVerification.value = true
+    if (!draft.current()) return
+    if (error?.code === 'VERIFICATION_REQUIRED') {
+      const attempt = { key: ++verificationSequence, instanceId: draft.instanceId,
+        close: () => { if (verificationAttempt.value === attempt) verificationAttempt.value = null },
+        verified: () => {
+          if (verificationAttempt.value !== attempt || !draft.current()) return
+          verificationAttempt.value = null
+          void submitTransfer(draft)
+        },
+      }
+      verificationAttempt.value = attempt
+    }
     else toast.error(translateError(error))
   } finally {
-    transferLoading.value = false
+    pendingTransfers.value--
   }
-}
-
-function onVerified() {
-  showVerification.value = false
-  void handleTransfer()
 }
 
 
@@ -318,6 +376,7 @@ function formatDisk(mb: number) {
       </div>
     </div>
   </div>
-  <SensitiveVerificationModal :show="showVerification" operation-type="transfer_instance" :resource-id="instance.id"
-    @close="showVerification = false" @verified="onVerified" />
+  <SensitiveVerificationModal v-if="verificationAttempt" :key="verificationAttempt.key" :show="true"
+    operation-type="transfer_instance" :resource-id="verificationAttempt.instanceId"
+    @close="verificationAttempt.close" @verified="verificationAttempt.verified" />
 </template>

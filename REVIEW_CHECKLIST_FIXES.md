@@ -319,7 +319,7 @@
 | R1-277 | 已有防护 | 保留初审结论 | 审计使用parseHostAuditHistoryPageSize严格parser，与其他宽松分页不能混同。 |
 | R1-278 | 已有防护 | 保留初审结论 | 销毁读取真实退款预览与已退款状态，无再次承诺全额；保持远端未删不释放资源。 |
 | R1-279 | 存在 | 部分精修/Chrome验证通过 | 详情及依赖读取绑定route/session/代次/请求序号，操作前旧读取失效、任务及刷新timer收尾；真实Chrome先红后绿覆盖ABA/旧success-error-finally/同sid刷新与logout/轮询及卸载，takeover-instance-detail-browser-final.log。types/route/i18n/lint/双端build/dist通过；写回执、密码和子组件完整生命周期仍待。 |
-| R1-280 | 部分存在 | 待精修/运行复核 | canTransfer核对输入用户名与targetUser，watch清目标且search核对searchedUsername，原失配已防；关闭重开代次另验。 |
+| R1-280 | 部分存在 | 源码已修/Chrome验证通过 | 原用户名绑定保持；新增modal/instance/session/草稿与搜索ABA隔离，固定写参数、在途busy、旧回执及验证重试隔离，共享验证组件关闭/卸载不留timer或迟到toast。takeover-transfer-modal-final.log真实Chrome/4守卫/types/lint/双端build/dist通过，受控API；真实交割及其它父页验证流程未据此宣称全验。 |
 | R1-281 | 存在 | 待精修/运行复核 | preview返回直接赋值、提交读取当前selectedPlanId，未绑定已预览套餐与当前选择。 |
 | R1-282 | 存在 | 待精修/运行复核 | keep-alive仅unmount清键盘监听；cloud-init/命令结果缺完整会话代次；保存后清当前草稿；页签button嵌套button。 |
 | R1-283 | 存在 | 待精修/运行复核 | keep-alive仅unmount清键盘监听；cloud-init/命令结果缺完整会话代次；保存后清当前草稿；页签button嵌套button。 |

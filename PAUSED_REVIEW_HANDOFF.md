@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：aab5bbc已push、CI40776614927最后运行；R280转移余额/搜索/写入及敏感验证代次/session/草稿固定已修，真实Chrome先红后绿、types/4守卫/lint/双端build最终exit0/dist/manifest191/97通过准备单项push。无待poll。下一项R281已Chrome先红（takeover-change-plan-before.log）：切新方案时旧preview仍可供函数提交，新预览旧回执无隔离；四个change-plan夹具尚未提交，产品未改。ChangePlanModal完整脚本、performPlanChange与路由/容量和ID守卫已读，须固定预览和提交目标、modal/session/选择代次及旧写回执/500ms提示；后台完整current授权与远端sync另有待项，不能把前端修复当整条交付通过。327/R269/灾备未完。
+
 > **最新接续**：05de4a5已push；R279详情读取route/session/generation/channel隔离与timer收尾通过真实Chrome先红后绿、types/route/i18n/lint/最终双端build exit0/dist/manifest191/96，准备单项push，无待poll。仅仅读取局部，写回执/密码/子组件仍待。下一项R280 TransferModal关闭重开旧余额覆盖及旧searchLoading阻挡新搜索已Chrome先红（takeover-transfer-modal-before.log），四个transfer-modal夹具文件未提交；产品尚未改，须固定余额/搜索/写入和验证重试的弹窗/实例/session/草稿身份。impeccable已使用，勿重跑context。327、R269及完整灾备未完。
 
 > **最新接续**：a370299已push；R271 backfill严格参数/成功后计数、dry-run独立planned已修。真实5CLI+5非法参数零探测/纯parser矩阵、2守卫、覆盖CLI和完整src的tsc exit0准备push，无待poll。先前临时tsconfig缺typeRoots失败已补后通过；无产品src变更沿用刚完成build。下一项R279 InstanceDetailView主详情/套餐/统计/traffic/transfer/task读取缺route+session generation，路由watch可重复建timer；相关源已读，尚无前端编辑。impeccable已使用过/context不要重跑，harden与craft-floor已读。R269/327/完整灾备未完。
