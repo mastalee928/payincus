@@ -1774,6 +1774,8 @@ model BackupUploadTask {
   actorSid        String?                @map("actor_sid")
   actorIat        Int?                   @map("actor_iat")
   identityHash    String?                @map("identity_hash")
+  attemptId       String?                @map("attempt_id") @db.Uuid
+  nextAttemptAt   DateTime?              @map("next_attempt_at")
 
   // 上传结果
   remoteFileName String? @map("remote_file_name")

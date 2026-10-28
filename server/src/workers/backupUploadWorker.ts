@@ -13,6 +13,7 @@ import { StorageFactory } from '../storage/factory.js'
 import { sendNotification } from '../lib/notifier.js'
 import { createLog } from '../db/logs.js'
 import { Readable } from 'stream'
+import { randomUUID } from 'node:crypto'
 import {
     HOST_TASK_CLAIM_LOCK_NAMESPACE,
     INSTANCE_OPERATION_LOCK_NAMESPACE,
@@ -45,15 +46,17 @@ const dbBackoff = createWorkerDbBackoff('UploadWorker')
  * 服务启动时清理僵尸任务
  */
 export async function cleanupStaleUploadTasks(): Promise<void> {
-    // 仅清理确实超时（超过 UPLOAD_TIMEOUT）的 PROCESSING 任务，避免多节点部署下误杀其他节点在跑的上传任务。
+    // Only one backend is supported. After a restart no old attempt can still
+    // be owned by this process. Preserve its remote filename for reconciliation.
     const result = await prisma.backupUploadTask.updateMany({
         where: {
             status: 'PROCESSING',
-            startedAt: { lt: new Date(Date.now() - UPLOAD_TIMEOUT) }
+            id: { notIn: [...runningUploadTaskIds] }
         },
         data: {
             status: 'FAILED',
-            error: '系统重启，任务中断',
+            progress: 'interrupted',
+            error: '系统重启，上传任务中断；如有远端文件记录，请核对文件完整性后处理',
             finishedAt: new Date()
         }
     })
@@ -65,16 +68,15 @@ export async function cleanupStaleUploadTasks(): Promise<void> {
 /**
  * 运行时检查并清理超时的任务
  */
-async function cleanupTimeoutUploadTasks(): Promise<void> {
+export async function cleanupTimeoutUploadTasks(): Promise<void> {
     if (dbBackoff.shouldSkip()) return
     const timeoutThreshold = new Date(Date.now() - UPLOAD_TIMEOUT)
     
     const timedOutTasks = await prisma.backupUploadTask.findMany({
         where: {
             status: 'PROCESSING',
-            startedAt: { lt: timeoutThreshold }
+            OR: [{ startedAt: { lt: timeoutThreshold } }, { startedAt: null }]
         },
-        select: { id: true }
     })
     const timedOutTaskIds = timedOutTasks
         .map(task => task.id)
@@ -87,11 +89,13 @@ async function cleanupTimeoutUploadTasks(): Promise<void> {
     const result = await prisma.backupUploadTask.updateMany({
         where: {
             id: { in: timedOutTaskIds },
-            status: 'PROCESSING'
+            status: 'PROCESSING',
+            OR: timedOutTasks.filter(task => timedOutTaskIds.includes(task.id)).map(uploadAttempt)
         },
         data: {
             status: 'FAILED',
-            error: '任务执行超时 (30 分钟)',
+            progress: 'interrupted',
+            error: '任务执行超时或执行时间缺失；如有远端文件记录，请核对文件完整性后处理',
             finishedAt: new Date()
         }
     })
@@ -163,7 +167,7 @@ export async function claimNextUploadTask(hostId: number) {
 
             // 4. 获取最早的 PENDING 任务
             const taskToRun = await tx.backupUploadTask.findFirst({
-                where: { hostId, status: 'PENDING' },
+                where: { hostId, status: 'PENDING', OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }] },
                 orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
             })
             if (!taskToRun) return null
@@ -172,8 +176,9 @@ export async function claimNextUploadTask(hostId: number) {
             if (!instanceOperationLocked) return null
             if (!await tryAdvisoryTransactionLock(tx, USER_BACKUP_UPLOAD_LOCK_NAMESPACE, taskToRun.userId)) return null
 
+            let current
             try {
-                const current = await loadAuthorizedUpload(tx, taskToRun, { sid: taskToRun.actorSid ?? undefined, iat: taskToRun.actorIat ?? undefined })
+                current = await loadAuthorizedUpload(tx, taskToRun, { sid: taskToRun.actorSid ?? undefined, iat: taskToRun.actorIat ?? undefined })
                 assertUploadBinding(taskToRun, current)
                 if (await uploadWorkflowBusy(tx, current.instance) || recoveryHeld()) return null
             } catch (error) {
@@ -183,10 +188,17 @@ export async function claimNextUploadTask(hostId: number) {
                 return null
             }
 
+            const attemptId = randomUUID()
+            const dateStr = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
+            const suffix = `-${taskToRun.id}-${attemptId}-${dateStr}.tar.gz`
+            const prefix = `${current.user.username}-${current.instance.incusId}-${current.backup.incusName}`
+                .replace(/[^a-zA-Z0-9\-_.]/g, '_').slice(0, 255 - suffix.length)
+            const remoteFileName = prefix + suffix
             // 5. 原子标记为 PROCESSING
             const claimedTask = await tx.backupUploadTask.updateMany({
                 where: { id: taskToRun.id, status: 'PENDING' },
-                data: { status: 'PROCESSING', startedAt: new Date(), error: null, finishedAt: null }
+                data: { status: 'PROCESSING', startedAt: new Date(), error: null, finishedAt: null,
+                    attemptId, remoteFileName, nextAttemptAt: null, progress: 'preparing', fileSize: null }
             })
 
             return claimedTask.count === 1 ? tx.backupUploadTask.findUnique({ where: { id: taskToRun.id } }) : null
@@ -210,11 +222,9 @@ function isRetryableError(error: Error): boolean {
     )
 }
 
-/**
- * 更新上传任务进度
- */
+/** The UUID distinguishes claims even when their timestamps are identical. */
 function uploadAttempt(task: BackupUploadTask) {
-    return { id: task.id, status: 'PROCESSING' as const, startedAt: task.startedAt, retryCount: task.retryCount }
+    return { id: task.id, status: 'PROCESSING' as const, startedAt: task.startedAt, retryCount: task.retryCount, attemptId: task.attemptId }
 }
 
 async function updateUploadProgress(task: BackupUploadTask, progress: string): Promise<void> {
@@ -252,8 +262,12 @@ export async function executeUploadTask(taskId: number): Promise<void> {
     let remoteFileName: string | null = null
     let provider: ReturnType<typeof StorageFactory.create> | null = null
     let client: IncusClient | null = null
+    let uploadStarted = false
 
     try {
+        if (!task.attemptId || !task.remoteFileName || !task.startedAt) {
+            throw new BackupUploadAuthorizationError('上传执行身份或文件记录缺失，请重新提交上传')
+        }
         // Recheck after claim, immediately before dispatch. Carry this exact
         // snapshot to both transports; the shared pool must not reselect a host.
         const authorized = await prisma.$transaction(async tx => {
@@ -270,7 +284,7 @@ export async function executeUploadTask(taskId: number): Promise<void> {
             await prisma.backupUploadTask.updateMany({ where: uploadAttempt(task), data: { status: 'PENDING', startedAt: null, progress: null } })
             return
         }
-        const { instance, backup, host, storageConfig, user } = authorized
+        const { instance, backup, host, storageConfig } = authorized
 
         // 更新进度: 准备中
         await updateUploadProgress(task, 'preparing')
@@ -288,17 +302,9 @@ export async function executeUploadTask(taskId: number): Promise<void> {
         // 4. 创建存储适配器
         provider = StorageFactory.create(storageConfig)
 
-        // 5. 生成远程文件名
-        const dateStr = new Date().toISOString()
-            .replace(/[-:]/g, '')
-            .replace('T', '-')
-            .slice(0, 15)
-        const userName = user?.username || 'unknown'
-        // 使用实例的 incusId 作为标识（保证是 ASCII），备份名通常也是 ASCII
-        // Different tasks may start within one second. A failed later upload
-        // must never overwrite or compensate an earlier task's backup.
-        remoteFileName = `${userName}-${instance.incusId}-${backup.incusName}-${task.id}-${dateStr}.tar.gz`
-            .replace(/[^a-zA-Z0-9\-_.]/g, '_')  // 清理特殊字符
+        // The claim committed this exact attempt filename before remote I/O.
+        // A retry gets a different UUID even within the same millisecond.
+        remoteFileName = task.remoteFileName
 
         console.log(`[UploadWorker] Task ${taskId}: 开始上传 ${remoteFileName} 到 ${storageConfig.name}`)
 
@@ -318,6 +324,7 @@ export async function executeUploadTask(taskId: number): Promise<void> {
         // 8. 流式上传到远程存储
         try {
             checkTimeout()
+            uploadStarted = true
             await provider.uploadStream(nodeStream, remoteFileName)
             checkTimeout()
         } finally {
@@ -340,7 +347,7 @@ export async function executeUploadTask(taskId: number): Promise<void> {
             }
         })
         if (completeResult.count === 0) {
-            console.warn(`[UploadWorker] Task ${taskId}: 已不处于 PROCESSING，跳过完成状态覆盖`)
+            console.warn(`[UploadWorker] Task ${taskId}: 执行批次已变化，跳过完成状态覆盖`)
             return
         }
 
@@ -368,18 +375,20 @@ export async function executeUploadTask(taskId: number): Promise<void> {
         const errorMessage = err instanceof Error ? err.message : String(err)
         console.error(`[UploadWorker] Task ${taskId} failed:`, errorMessage)
 
-        // 尝试清理已上传的文件
-        if (provider && remoteFileName) {
+        let cleanupFailed = false
+        // Each attempt can only compensate its own persisted filename.
+        if (uploadStarted && provider && remoteFileName) {
             try {
                 await provider.deleteFile(remoteFileName)
                 console.log(`[UploadWorker] Task ${taskId}: 已清理远程文件 ${remoteFileName}`)
             } catch (cleanupErr) {
+                cleanupFailed = true
                 console.warn(`[UploadWorker] Task ${taskId}: 清理远程文件失败:`, cleanupErr)
             }
         }
 
         // 检查是否可以重试
-        const canRetry = err instanceof Error && isRetryableError(err) && task.retryCount < MAX_RETRY_COUNT
+        const canRetry = !cleanupFailed && err instanceof Error && isRetryableError(err) && task.retryCount < MAX_RETRY_COUNT
         
         if (canRetry) {
             // 重试：增加重试计数，重置为 PENDING 等待下一轮执行
@@ -391,11 +400,14 @@ export async function executeUploadTask(taskId: number): Promise<void> {
                     status: 'PENDING',
                     retryCount: task.retryCount + 1,
                     progress: null,
-                    startedAt: null
+                    startedAt: null,
+                    nextAttemptAt: new Date(Date.now() + RETRY_DELAY),
+                    remoteFileName: null,
+                    error: errorMessage
                 }
             })
             if (retryResult.count === 0) {
-                console.warn(`[UploadWorker] Task ${taskId}: 已不处于 PROCESSING，跳过重试状态覆盖`)
+                console.warn(`[UploadWorker] Task ${taskId}: 执行批次已变化，跳过重试状态覆盖`)
                 return
             }
             
@@ -414,12 +426,13 @@ export async function executeUploadTask(taskId: number): Promise<void> {
                 where: uploadAttempt(task),
                 data: {
                     status: 'FAILED',
-                    error: errorMessage,
+                    error: cleanupFailed ? `${errorMessage}；远端文件清理未确认，请按任务文件名核对后处理` : errorMessage,
+                    progress: cleanupFailed ? 'cleanup_required' : undefined,
                     finishedAt: new Date()
                 }
             })
             if (failResult.count === 0) {
-                console.warn(`[UploadWorker] Task ${taskId}: 已不处于 PROCESSING，跳过失败状态覆盖`)
+                console.warn(`[UploadWorker] Task ${taskId}: 执行批次已变化，跳过失败状态覆盖`)
                 return
             }
 

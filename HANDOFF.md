@@ -2,6 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 上传执行批次隔离与重试状态
+
+- 前一授权/目标修复`eac0b068916b55e7af82347526b3d4ec91886046`已普通push main并核对远端；[CI 40648563020](https://github.com/mastalee928/payincus/actions/runs/40648563020)全部7/7 success，新增上传真实PG专项已在Linux执行。阶段推送继续，不是发版或生产更新。
+- 每次领取持久生成attempt UUID和远端文件名，再开始远端I/O；同task同毫秒的新attempt也不会覆盖旧文件，补偿只清理本次文件。进度/终态/重试/运行时超时清理CAS包含UUID、startedAt和retryCount。文件名最多255 ASCII字符，截短描述前缀而保留完整task/attempt/时间后缀。
+- 真正持久nextAttemptAt并由claim执行30秒重试等待；失败来源未开始上传时不误删，上传失败而远端清理不确认则FAILED/cleanup_required、保留filename和错误且不自动重试。单后端启动时将旧PROCESSING标interrupted，保留已持久文件名供核对；运行时null startedAt也能退出卡死，当前进程仍执行的任务不被清理。
+- `logs/takeover-upload-attempt-final.log`真实PG/Fastify/mTLS专项通过：完整前阶段回归、新旧attempt同startedAt/retryCount仍由UUID隔离、旧失败不删新文件、30秒等待/启动后仍等待、重试新文件、清理失败持久回执及零自动重试、当前运行保护、重启中断文件保留、null时间、长文件名。存储仍为内存替身；调用启动恢复helper不冒充SIGKILL/真实OSS恢复。
+- 后端type-check/build通过`logs/takeover-upload-attempt-typecheck.log`、`logs/takeover-upload-attempt-build.log`；最后文件名/日志改动后构建`logs/takeover-upload-attempt-final-build.log`。5/5相关守卫`logs/takeover-upload-attempt-guards.log`及加强后的备份守卫`logs/takeover-upload-attempt-final-guards.log`通过。第226条迁移在既有空库逐条迁移基础上升级成功`logs/takeover-upload-attempt-migration.log`。
+- 未完成：上传中断后的远端完整性/清理自动核对、强杀恢复及凭据变更后的原存储回执；真正传输期间授权变化/实例UUID及备份删除门禁、provider总截止；backup create/delete/restore持久工作流、327项及A失联→B真实OSS恢复仍待。旧任务没有attempt不补造远端授权，明确失败后重新提交。没有生产操作或正式发行。
+
 ## 2026-10-28 上传队列当前授权与固定目标
 
 - 上传入队在host/instance/user任务锁及目标行锁内重新核对当前账户、会话撤销、实例owner/host/Incus名、ready备份及存储归属；请求早期宿主身份和存储连接摘要在事务内比对。每宿主10个PENDING上限与入队同锁，快照/站点/转移/其他实例任务门禁生效。

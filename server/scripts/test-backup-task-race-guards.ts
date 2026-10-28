@@ -286,8 +286,9 @@ assert.ok(
   'upload execution must reject missing, non-processing and already running tasks before reserving in-process state'
 )
 assert.ok(
-  uploadExecuteSection.includes('${backup.incusName}-${task.id}-${dateStr}.tar.gz'),
-  'separate upload tasks in the same second must not overwrite or compensate each other’s files'
+  uploadWorkerSource.includes('${taskToRun.id}-${attemptId}-${dateStr}.tar.gz') && uploadWorkerSource.includes('255 - suffix.length') &&
+    uploadExecuteSection.includes('remoteFileName = task.remoteFileName'),
+  'each upload attempt must persist a unique filename before dispatch, including tasks in the same second'
 )
 assert.ok(
   uploadExecuteSection.includes('runningUploadTaskIds.add(taskId)') &&
@@ -296,7 +297,7 @@ assert.ok(
 )
 assert.ok(
   uploadExecuteSection.includes('where: uploadAttempt(task)') &&
-    uploadWorkerSource.includes("status: 'PROCESSING' as const, startedAt: task.startedAt, retryCount: task.retryCount") &&
+    uploadWorkerSource.includes("status: 'PROCESSING' as const, startedAt: task.startedAt, retryCount: task.retryCount, attemptId: task.attemptId") &&
     uploadExecuteSection.includes("status: 'COMPLETED'") &&
     uploadExecuteSection.includes("status: 'PENDING'") &&
     uploadExecuteSection.includes("status: 'FAILED'"),
@@ -309,6 +310,10 @@ assert.ok(createUploadSection.includes('loadAuthorizedUpload(tx, data, data.sess
 assert.ok(uploadExecuteSection.includes('assertUploadBinding(task, current)') && uploadExecuteSection.includes('new IncusClient(') &&
   uploadExecuteSection.includes('serverFingerprint: host.serverFingerprint'), 'dispatch must validate original target and use exactly that TLS identity')
 assert.ok(cancelUploadSection.includes('authorizeUserWrite(tx, actor.id, actor)'), 'cancellation must recheck current session')
+assert.ok(uploadWorkerSource.includes('nextAttemptAt: new Date(Date.now() + RETRY_DELAY)') &&
+  uploadWorkerSource.includes('nextAttemptAt: { lte: new Date() }'), 'retry delay must be persisted and enforced by claim')
+assert.ok(uploadWorkerSource.includes("progress: 'interrupted'") && uploadWorkerSource.includes('{ startedAt: null }') &&
+  uploadWorkerSource.includes("progress: cleanupFailed ? 'cleanup_required'"), 'interrupted/unknown cleanup tasks must retain actionable state')
 
 assert.ok(
   appSource.includes('cleanupStaleTasks: cleanupStaleRestoreTasks') &&

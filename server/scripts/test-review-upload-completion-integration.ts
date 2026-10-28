@@ -11,10 +11,11 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'),
   'Use isolated local *_pool_test PostgreSQL')
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { executeUploadTask, claimNextUploadTask } = await import('../src/workers/backupUploadWorker.js')
+const { executeUploadTask, claimNextUploadTask, cleanupStaleUploadTasks, cleanupTimeoutUploadTasks } = await import('../src/workers/backupUploadWorker.js')
 const { createBackupUploadTask, cancelBackupUploadTask } = await import('../src/db/backup-upload-tasks.js')
 const { uploadStorageIdentity } = await import('../src/db/backup-upload-authorization.js')
 const { transferHostIdentity } = await import('../src/lib/transfer-host-identity.js')
+const { normalizeStorageFilename } = await import('../src/storage/path.js')
 const { updateStorageConfig, deleteStorageConfig } = await import('../src/db/storage-configs.js')
 const { default: Fastify } = await import('fastify')
 const { default: backupRoutes } = await import('../src/routes/backups.js')
@@ -70,6 +71,7 @@ const queueUsers: number[] = []
 const originalFactory = StorageFactory.create
 const remote = new Map<string, Buffer>()
 let deletes = 0, uploads = 0, failUpload = false
+let failDelete = false, uploadFailure = 'fixture-storage-upload-failure'
 let afterUpload: (() => Promise<void>) | undefined
 StorageFactory.create = () => ({
   async uploadStream(stream, filename) {
@@ -78,9 +80,9 @@ StorageFactory.create = () => ({
     for await (const chunk of stream) chunks.push(Buffer.from(chunk))
     remote.set(filename, Buffer.concat(chunks))
     await afterUpload?.()
-    if (failUpload) throw new Error('fixture-storage-upload-failure')
+    if (failUpload) throw new Error(uploadFailure)
   },
-  async deleteFile(filename) { deletes++; remote.delete(filename) },
+  async deleteFile(filename) { deletes++; if (failDelete) throw new Error('fixture-delete-refused'); remote.delete(filename) },
   async downloadStream() { throw new Error('unused fixture') },
   async testConnection() {}
 })
@@ -315,16 +317,93 @@ try {
   for (const shouldFail of [false, true]) {
     const stale = await makeTask()
     let replacement: typeof stale | undefined
+    const replacementName = `replacement-${randomUUID()}.tar.gz`
+    const replacementBytes = Buffer.from('new attempt must survive old cleanup')
     failUpload = shouldFail
     afterUpload = async () => {
+      remote.set(replacementName, replacementBytes)
       replacement = await prisma.backupUploadTask.update({ where: { id: stale.id }, data: {
-        retryCount: stale.retryCount + 1, startedAt: new Date(stale.startedAt!.getTime() + 1000), progress: 'replacement' } })
+        attemptId: randomUUID(), remoteFileName: replacementName, progress: 'replacement' } })
     }
     await executeUploadTask(stale.id)
     assert.deepEqual(await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: stale.id } }), replacement)
+    assert.deepEqual(remote.get(replacementName), replacementBytes, 'old compensation cannot delete a replacement attempt file')
     await prisma.backupUploadTask.update({ where: { id: stale.id }, data: { status: 'FAILED' } })
     afterUpload = undefined
   }
+
+  // Retry delay survives restart because it is a persisted timestamp, while
+  // both attempts remain isolated even with Date frozen to the same second.
+  uploadFailure = 'fixture-network-timeout'
+  const retrying = await makeTask()
+  failUpload = true
+  await executeUploadTask(retrying.id)
+  const retryPending = await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: retrying.id } })
+  assert.equal(retryPending.status, 'PENDING')
+  assert.equal(retryPending.nextAttemptAt?.getTime(), Date.now() + 30000)
+  assert.equal(await claimNextUploadTask(host.id), null)
+  await cleanupStaleUploadTasks()
+  assert.equal(await claimNextUploadTask(host.id), null)
+  await prisma.backupUploadTask.update({ where: { id: retrying.id }, data: { nextAttemptAt: new Date(Date.now() - 1) } })
+  const retryClaim = await claimNextUploadTask(host.id)
+  assert.equal(retryClaim?.id, retrying.id)
+  assert.notEqual(retryClaim!.attemptId, retrying.attemptId)
+  assert.notEqual(retryClaim!.remoteFileName, retrying.remoteFileName)
+  failUpload = false
+  await executeUploadTask(retrying.id)
+  assert.equal((await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: retrying.id } })).status, 'COMPLETED')
+
+  const cleanupFailure = await makeTask()
+  failUpload = true
+  failDelete = true
+  await executeUploadTask(cleanupFailure.id)
+  const retained = await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: cleanupFailure.id } })
+  assert.equal(retained.status, 'FAILED')
+  assert.equal(retained.progress, 'cleanup_required')
+  assert.equal(retained.remoteFileName, cleanupFailure.remoteFileName)
+  assert.ok(remote.has(retained.remoteFileName!))
+  assert.match(retained.error!, /清理未确认/)
+  assert.equal(retained.nextAttemptAt, null)
+  assert.equal(await claimNextUploadTask(host.id), null, 'unknown remote cleanup must not auto retry')
+  failDelete = false
+  failUpload = false
+
+  const live = await makeTask()
+  afterUpload = async () => {
+    await cleanupStaleUploadTasks()
+    await cleanupTimeoutUploadTasks()
+    assert.equal((await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: live.id } })).status, 'PROCESSING')
+  }
+  await executeUploadTask(live.id)
+  afterUpload = undefined
+  assert.equal((await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: live.id } })).status, 'COMPLETED')
+  const restarted = await makeTask()
+  assert.ok(restarted.remoteFileName && restarted.attemptId, 'remote intent exists before the first network request')
+  const beforeRestart = { requests, exports, uploads, deletes }
+  await cleanupStaleUploadTasks()
+  const interrupted = await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: restarted.id } })
+  assert.equal(interrupted.status, 'FAILED')
+  assert.equal(interrupted.progress, 'interrupted')
+  assert.equal(interrupted.remoteFileName, restarted.remoteFileName)
+  await executeUploadTask(restarted.id)
+  assert.deepEqual({ requests, exports, uploads, deletes }, beforeRestart)
+  const missingTime = await makeTask()
+  await prisma.backupUploadTask.update({ where: { id: missingTime.id }, data: { startedAt: null } })
+  await cleanupTimeoutUploadTasks()
+  assert.equal((await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: missingTime.id } })).status, 'FAILED')
+  const longIncusName = 'i'.repeat(200), longBackupName = 'b'.repeat(200)
+  await prisma.instance.update({ where: { id: instance.id }, data: { incusId: longIncusName } })
+  await prisma.backup.update({ where: { id: backup.id }, data: { incusName: longBackupName } })
+  const longTask = await createBackupUploadTask({ userId: user.id, hostId: host.id, instanceId: instance.id,
+    backupId: backup.id, storageConfigId: storage.id, session: actor, expectedIncusId: longIncusName,
+    expectedBackupName: longBackupName, expectedHostIdentity: transferHostIdentity(host), expectedStorageIdentity: uploadStorageIdentity(changedConfig) })
+  assert.ok(longTask)
+  const longClaim = await claimNextUploadTask(host.id)
+  assert.equal(longClaim?.id, longTask.id)
+  assert.equal(normalizeStorageFilename(longClaim!.remoteFileName!).length, 255)
+  assert.ok(longClaim!.remoteFileName!.includes(longClaim!.attemptId!))
+  await cleanupStaleUploadTasks()
+  console.log('PASS persisted per-attempt filenames, exact UUID results/compensation, 30-second retry delay, cleanup failure receipt/no retry, startup interruption with remote filename retention, null-start cleanup, and live-attempt exclusion')
   console.log('PASS real PG/Fastify upload admission + claim + dispatch: 11 changed targets/session cases at each boundary, legacy rejection, owner-only history, cancellation/claim race, snapshot/proxy/transfer fencing, ten-job host limit and storage deletion race; mTLS export completion, audit failure, same-second files, replay, concurrent execution, instance preservation and compensation. Storage and authentication middleware are fixtures; database authorization and routes are real.')
 } finally {
   await app.close()
