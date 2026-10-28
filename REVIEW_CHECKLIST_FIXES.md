@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-28工单API关闭/重开追加（R186关联调用链）：current token/user/app/grant及当前ticket归属/status同事务，返回实际记录；累计160真实PG+bearer竞争、双类型正常/重放/错误动作与DB故障回滚通过takeover-ticket-public-status-final.log，7守卫/build/types通过。其它API与普通事件通知/外部持久投递、完整ABA和真机仍待，327未完成。
+
 2026-10-28工单API回复追加（R186关联调用链）：PAT/POA当前授权现保护消息与状态/响应时限同事务；累计68创建/回复真实PG+bearer竞争通过takeover-ticket-public-reply-r1.log，正常解决后回复重开、网站42回归、7守卫/build/types通过。关闭/重开入口及其它API仍待，327不记完成。
 
 2026-10-28工单API授权追加（R186关联调用链）：创建同事务复核当前PAT/POA及user/app/grant权限、身份、到期/撤销；34真实PG+bearer路由竞争及有效创建、撤销锁等待通过takeover-ticket-public-create-r1.log，网站42权限与关联目标回归、7守卫/build/types通过。回复/关闭及其它Public API写入尚未接此保护，不扩大为全API/327完成；详见HANDOFF。

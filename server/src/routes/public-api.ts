@@ -4,7 +4,7 @@ import { createLog, LogModule, LogResult } from '../db/logs.js'
 import { authenticatePublicApiRequest } from '../lib/public-api-auth.js'
 import { buildPublicApiOpenApiDocument, stringifyPublicApiOpenApiYaml } from '../lib/public-api-openapi.js'
 import { prisma } from '../db/prisma.js'
-import { addTicketMessage, createTicket, TicketMutationError, type CreateTicketMessageAttachmentData } from '../db/tickets.js'
+import { addTicketMessage, createTicket, updatePublicTicketStatus, TicketMutationError, type CreateTicketMessageAttachmentData } from '../db/tickets.js'
 import { createBalanceAdjustmentRequest } from '../db/balance.js'
 import { AffCodeEligibilityError, findUserById, getSystemConfigBoolean, performRenewal } from '../db/index.js'
 import { getAllAdminUserIds } from '../db/users.js'
@@ -2214,23 +2214,13 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
       return reply.code(409).send({ error: 'Only closed tickets can be reopened', code: 'TICKET_NOT_CLOSED' })
     }
 
-    const now = new Date()
     const nextStatus: TicketStatus = action === 'close' ? 'closed' : 'open'
-    const update = await prisma.ticket.updateMany({
-      where: {
-        id: ticket.id,
-        userId: apiToken.userId,
-        ...(action === 'close' ? { status: { not: 'closed' as TicketStatus } } : { status: 'closed' as TicketStatus })
-      },
-      data: {
-        status: nextStatus,
-        resolvedAt: action === 'close' ? now : null,
-        closedAt: action === 'close' ? now : null,
-        updatedAt: now
-      }
-    })
-    if (update.count === 0) {
-      return reply.code(409).send({ error: 'Ticket status changed concurrently', code: 'TICKET_STATUS_CONFLICT' })
+    let updated: Awaited<ReturnType<typeof updatePublicTicketStatus>>
+    try {
+      updated = await updatePublicTicketStatus(ticket.id, action, ticket.status, apiToken.writeAuthorization)
+    } catch (error) {
+      if (error instanceof TicketMutationError) return reply.code(error.statusCode).send({ error: error.message, code: error.code })
+      throw error
     }
 
 
@@ -2241,9 +2231,9 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
         id: ticket.id,
         status: nextStatus,
         previousStatus: ticket.status,
-        resolvedAt: action === 'close' ? now.toISOString() : null,
-        closedAt: action === 'close' ? now.toISOString() : null,
-        updatedAt: now.toISOString()
+        resolvedAt: updated.resolvedAt?.toISOString() ?? null,
+        closedAt: updated.closedAt?.toISOString() ?? null,
+        updatedAt: updated.updatedAt.toISOString()
       }
     }
   })

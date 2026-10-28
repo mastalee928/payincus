@@ -1276,6 +1276,37 @@ export async function updateTicketStatus(
   })
 }
 
+/** Public API customers may only close or reopen their own current ticket. */
+export async function updatePublicTicketStatus(
+  ticketId: number,
+  action: 'close' | 'reopen',
+  expectedStatus: TicketStatus,
+  authorization: PublicApiWriteAuthorization,
+) {
+  return prisma.$transaction(async tx => {
+    await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+    await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${ticketId} FOR UPDATE`
+    const ticket = await tx.ticket.findUnique({ where: { id: ticketId } })
+    if (!ticket || ticket.userId !== authorization.userId) {
+      throw new TicketMutationError('Ticket not found', 404, 'TICKET_NOT_FOUND')
+    }
+    if (!await authorizePublicApiWrite(tx, ticket.userId, authorization, 'tickets:write')) {
+      throw new TicketMutationError('API authorization is no longer valid', 403, 'TICKET_API_FORBIDDEN')
+    }
+    if (ticket.status !== expectedStatus || action !== 'close' && action !== 'reopen' ||
+      (action === 'close' ? ticket.status === 'closed' : ticket.status !== 'closed')) {
+      throw new TicketMutationError('Ticket status changed concurrently', 409, 'TICKET_STATUS_CONFLICT')
+    }
+    const now = new Date()
+    return tx.ticket.update({ where: { id: ticketId }, data: {
+      status: action === 'close' ? 'closed' : 'open',
+      resolvedAt: action === 'close' ? now : null,
+      closedAt: action === 'close' ? now : null,
+      updatedAt: now,
+    }, select: { id: true, status: true, resolvedAt: true, closedAt: true, updatedAt: true } })
+  })
+}
+
 /**
  * 检查用户是否可以创建工单（必须在该宿主机上有实例）
  */

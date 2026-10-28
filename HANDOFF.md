@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 工单Public API关闭与重开
+
+- 回复`97c929ee34de5b4e356fdae3f8463514d7d3fb7b`已push并核远端一致，CI40666069748检查时运行；创建66f5a66 CI40665664450最终success。
+- API关闭/重开改为事务锁当前工单、当前归属和PAT/POA完整授权，原status值相同才提交；用户仅close/reopen，不开放客服状态。返回时间使用实际提交记录，保留原关闭同时写resolvedAt/closedAt语义。归属变化或删除404、状态变化409、失效授权403。
+- `logs/takeover-ticket-public-status-final.log`累计160真实PG/helper/真实bearer路由竞争通过（136账户/令牌/应用/授权，24关闭重开时状态/归属/删除变化），双类型正常关闭/重开、重复409/无效动作400、故障trigger零状态与时间写入、创建回复回归。7/7守卫`takeover-ticket-public-status-guards.log`、server build `takeover-ticket-public-status-build.log`、专项类型`takeover-ticket-public-status-types.log`通过。
+- 只绑定status值，未提供跨请求幂等或完整ABA版本。工单API创建/回复/状态已接current credential事务保护，其它API写入、通知当前接收目标与持久外发、图床/浏览器/生产验收仍待。下段转R197初始化命令选择器，避免遗漏原清单前端；327仍未完成。
+
 ## 2026-10-28 工单Public API回复的当前授权
 
 - 创建`66f5a6694038dc4e5c238dd73de36bd9d7a4e80e`已push并核远端一致，CI40665664450检查时运行；图片3fd9971 CI40664740228最终success。

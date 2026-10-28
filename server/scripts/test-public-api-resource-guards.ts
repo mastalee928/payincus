@@ -448,6 +448,7 @@ assert.ok(
     route.includes("code: 'TICKET_ALREADY_CLOSED'") &&
     route.includes("code: 'TICKET_NOT_CLOSED'") &&
     route.includes("const nextStatus: TicketStatus = action === 'close' ? 'closed' : 'open'") &&
+    route.includes('updatePublicTicketStatus(ticket.id, action, ticket.status, apiToken.writeAuthorization)') &&
     route.includes("'public_api.ticket_status_update'") &&
     !route.includes('assigneeId') &&
     !route.includes('internalNotes'),

@@ -9,7 +9,7 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'),
   'Use isolated local *_pool_test PostgreSQL')
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { createTicket, addTicketMessage, TicketMutationError } = await import('../src/db/tickets.js')
+const { createTicket, addTicketMessage, updatePublicTicketStatus, TicketMutationError } = await import('../src/db/tickets.js')
 const { authorizePublicApiWrite } = await import('../src/db/public-api-write-authorization.js')
 const { authenticatePublicApiRequest, hashPublicApiToken, getPublicApiTokenPrefix } = await import('../src/lib/public-api-auth.js')
 const { default: publicRoutes } = await import('../src/routes/public-api.js')
@@ -64,13 +64,14 @@ const payload = { userId: user.id, hostId: host.id, instanceId: instance.id, sub
 try {
   await app.register(publicRoutes, { prefix: '/v1' })
   for (const source of ['api_token', 'oauth_access_token'] as const) {
-    for (const operationKind of ['create', 'reply']) {
+    for (const operationKind of ['create', 'reply', 'close', 'reopen'] as const) {
     for (const entry of ['helper', 'route']) {
       for (const mode of ['revoke', 'delete', 'expire', 'scope', 'identity', 'account',
         ...(source === 'oauth_access_token' ? ['app-disabled', 'app-scope', 'grant-revoked', 'grant-scope', 'grant-missing'] : [])]) {
         const { headers, binding } = await issue(source)
-        const replyTicket = operationKind === 'reply'
-          ? await prisma.ticket.create({ data: { userId: user.id, hostId: host.id, subject: tag } }) : null
+        const replyTicket = operationKind !== 'create'
+          ? await prisma.ticket.create({ data: { userId: user.id, hostId: host.id, subject: tag,
+            status: operationKind === 'reopen' ? 'closed' : 'open' } }) : null
         let release!: () => void, ready!: (pid: number) => void
         const held = new Promise<void>(resolve => { release = resolve })
         const entered = new Promise<number>(resolve => { ready = resolve })
@@ -82,10 +83,15 @@ try {
         }, { timeout: 15000 })
         const pid = await entered
         const operation = entry === 'helper'
-          ? (replyTicket ? addTicketMessage(replyTicket.id, user.id, 'isolated reply', false, [], undefined, binding)
+          ? (operationKind === 'close' || operationKind === 'reopen'
+            ? updatePublicTicketStatus(replyTicket!.id, operationKind, replyTicket!.status, binding)
+            : replyTicket ? addTicketMessage(replyTicket.id, user.id, 'isolated reply', false, [], undefined, binding)
             : createTicket({ ...payload, apiAuthorization: binding })).then(value => ({ value }), error => ({ error }))
-          : app.inject({ method: 'POST', url: replyTicket ? `/v1/tickets/${replyTicket.id}/replies` : '/v1/tickets',
-            headers, payload: replyTicket ? { content: 'isolated reply' } : payload }).then(value => ({ value }), error => ({ error }))
+          : app.inject({ method: operationKind === 'close' || operationKind === 'reopen' ? 'PATCH' : 'POST',
+            url: operationKind === 'close' || operationKind === 'reopen' ? `/v1/tickets/${replyTicket!.id}/status`
+              : replyTicket ? `/v1/tickets/${replyTicket.id}/replies` : '/v1/tickets',
+            headers, payload: operationKind === 'close' || operationKind === 'reopen' ? { action: operationKind }
+              : replyTicket ? { content: 'isolated reply' } : payload }).then(value => ({ value }), error => ({ error }))
         try {
           await waitBlocked(pid)
           if (mode === 'account') await prisma.user.update({ where: { id: user.id }, data: { status: 'banned' } })
@@ -113,7 +119,7 @@ try {
         assert.equal(await prisma.ticketMessage.count({ where: { senderId: user.id } }), 0)
         if (replyTicket) {
           const unchanged = await prisma.ticket.findUniqueOrThrow({ where: { id: replyTicket.id } })
-          assert.equal(unchanged.status, 'open')
+          assert.equal(unchanged.status, replyTicket.status)
           assert.equal(unchanged.updatedAt.getTime(), replyTicket.updatedAt.getTime())
           assert.equal(unchanged.firstRespondedAt, null)
           await prisma.ticket.delete({ where: { id: replyTicket.id } })
@@ -144,6 +150,73 @@ try {
     const reopened = await prisma.ticket.findUniqueOrThrow({ where: { id: createdTicketId } })
     assert.equal(reopened.status, 'in_progress')
     assert.equal(reopened.resolvedAt, null)
+    const patchStatus = (action: string) => app.inject({ method: 'PATCH', url: `/v1/tickets/${createdTicketId}/status`, headers, payload: { action } })
+    const closed = await patchStatus('close')
+    assert.equal(closed.statusCode, 200, closed.body)
+    assert.equal(closed.json().data.status, 'closed')
+    assert.equal(closed.json().data.previousStatus, 'in_progress')
+    const persistedClosed = await prisma.ticket.findUniqueOrThrow({ where: { id: createdTicketId } })
+    assert.equal(closed.json().data.closedAt, persistedClosed.closedAt?.toISOString())
+    assert.equal((await patchStatus('close')).statusCode, 409)
+    const open = await patchStatus('reopen')
+    assert.equal(open.statusCode, 200, open.body)
+    assert.equal(open.json().data.status, 'open')
+    assert.equal(open.json().data.closedAt, null)
+    assert.equal(open.json().data.resolvedAt, null)
+    assert.equal((await patchStatus('reopen')).statusCode, 409)
+    assert.equal((await patchStatus('resolved')).statusCode, 400)
+    for (const entry of ['helper', 'route']) {
+      for (const action of ['close', 'reopen'] as const) {
+        for (const mode of ['state', 'owner', 'deleted']) {
+          const originalStatus = action === 'close' ? 'open' : 'closed'
+          await prisma.ticket.update({ where: { id: createdTicketId }, data: { userId: user.id, status: originalStatus } })
+          let releaseTarget!: () => void, readyTarget!: (pid: number) => void
+          const heldTarget = new Promise<void>(resolve => { releaseTarget = resolve })
+          const enteredTarget = new Promise<number>(resolve => { readyTarget = resolve })
+          const blockerTarget = prisma.$transaction(async tx => {
+            await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${createdTicketId} FOR UPDATE`
+            const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+            readyTarget(row.pid); await heldTarget
+            if (mode === 'deleted') await tx.ticket.delete({ where: { id: createdTicketId } })
+            else await tx.ticket.update({ where: { id: createdTicketId }, data: mode === 'state' ? { status: 'resolved' } : { userId: support.id } })
+          }, { timeout: 15000 })
+          const pidTarget = await enteredTarget
+          const statusOperation = entry === 'helper'
+            ? updatePublicTicketStatus(createdTicketId, action, originalStatus, binding).then(value => ({ value }), error => ({ error }))
+            : patchStatus(action).then(value => ({ value }), error => ({ error }))
+          try { await waitBlocked(pidTarget) } finally { releaseTarget(); await blockerTarget }
+          const outcome = await statusOperation
+          const expectedCode = mode === 'state' ? 409 : 404
+          if (entry === 'helper') assert.ok('error' in outcome && outcome.error instanceof TicketMutationError && outcome.error.statusCode === expectedCode)
+          else {
+            assert.ok('value' in outcome && 'statusCode' in outcome.value)
+            assert.equal(outcome.value.statusCode, expectedCode, outcome.value.body)
+          }
+          const current = await prisma.ticket.findUnique({ where: { id: createdTicketId } })
+          if (mode === 'deleted') {
+            assert.equal(current, null)
+            await prisma.ticket.create({ data: { id: createdTicketId, userId: user.id, hostId: host.id, subject: tag } })
+          } else if (mode === 'state') assert.equal(current?.status, 'resolved')
+          else assert.equal(current?.userId, support.id)
+          races++
+        }
+      }
+    }
+    const trigger = `ticket_public_status_${user.id}`
+    await prisma.ticket.update({ where: { id: createdTicketId }, data: { userId: user.id, status: 'open' } })
+    const beforeFailure = await prisma.ticket.findUniqueOrThrow({ where: { id: createdTicketId } })
+    await prisma.$executeRawUnsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = ${createdTicketId} THEN RAISE EXCEPTION 'fixture-ticket-status-failure'; END IF; RETURN NEW; END $$`)
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER ${trigger} BEFORE UPDATE ON tickets FOR EACH ROW EXECUTE FUNCTION ${trigger}()`)
+    try {
+      await assert.rejects(updatePublicTicketStatus(createdTicketId, 'close', 'open', binding), /fixture-ticket-status-failure/)
+      const preserved = await prisma.ticket.findUniqueOrThrow({ where: { id: createdTicketId } })
+      assert.equal(preserved.status, beforeFailure.status)
+      assert.equal(preserved.updatedAt.getTime(), beforeFailure.updatedAt.getTime())
+      assert.equal(preserved.closedAt, null)
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${trigger} ON tickets`)
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${trigger}()`)
+    }
     await prisma.ticket.deleteMany({ where: { userId: user.id } })
     await prisma.inboxMessage.deleteMany({ where: { userId: support.id } })
 
@@ -165,7 +238,7 @@ try {
     await removeToken(binding)
   }
   assert.equal(await prisma.notificationChannel.count({ where: { userId: { in: [user.id, support.id] } } }), 0)
-  console.log(`PASS ${races} real PG/Fastify public ticket create/reply races across PAT/POA revoke/delete/expiry/scopes/identity/account and OAuth app/grant checks. Denied replies preserve status, SLA and messages; valid replies reopen resolved tickets. Bearer middleware is real, internal bindings are not exposed, and credential revocation waits for the write lock. No external channels or image service.`)
+  console.log(`PASS ${races} real PG/Fastify public ticket create/reply/close/reopen races across PAT/POA revoke/delete/expiry/scopes/identity/account and OAuth app/grant checks. Denied writes preserve state; valid reply/close/reopen and repeated/invalid action responses pass. Bearer middleware is real, internal bindings are not exposed, and credential revocation waits for the write lock. No external channels or image service.`)
 } finally {
   await app.close()
   await prisma.ticket.deleteMany({ where: { userId: user.id } })
