@@ -89,6 +89,14 @@ assert.ok(ticketsViewSource.includes('await api.tickets.close(ticketId)') && tic
   ticketsViewSource.includes('refreshAfterDetailWrite(ticketId, current)') && ticketsViewSource.includes('statusSubmitting || replying'),
   'ticket writes must fix their targets, preserve later drafts, guard pending actions and ignore old navigation results')
 const renewModalSource = readRepoFile('client/src/components/instance/modals/RenewModal.vue')
+for (const name of ['RebuildModal', 'RecreateModal']) {
+  const source = readRepoFile(`client/src/components/instance/modals/${name}.vue`)
+  assert.ok(source.includes('props.availableImages.some(image => image.incusAlias === selectedImage.value)') &&
+    source.includes('props.sshKeys.some(key => key.id === selectedSshKeyId.value)') &&
+    source.includes("deep: true, flush: 'sync'") && source.includes(':disabled="!canSubmit"') &&
+    source.includes('submitPending.value = true') && source.includes('[...customInitCommandIds.value]'),
+    `${name} must validate current image/key membership, prevent duplicate emits and copy the submitted command selection`)
+}
 const changePlanModalSource = readRepoFile('client/src/components/instance/modals/ChangePlanModal.vue')
 const terminalPageSource = readRepoFile('client/src/views/TerminalView.vue')
 const terminalCommandsSource = readRepoFile('client/src/components/terminal/TerminalSavedCommandsSidebar.vue')

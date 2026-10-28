@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-290 重装/重建镜像与密钥成员校验
+
+- bd068fe已push核远端一致；440a34c源码CI已success，8756778/bd068fe最后运行。两弹窗深监听当前镜像/密钥列表，失效选择清除并按原默认规则选择可用项，保仍有效选择；提交函数与按钮共用当前成员/visible/loading/session/激活门禁，即时锁防props回写前双emit，初始化命令数组复制，换镜像清旧命令。注销/换session关闭浮层，缓存离页隐藏并清输入。
+- 保持重装默认密码登录、SSH key可选；重建仍须有效key。`takeover-reinstall-selection-before.log`Chrome先红移除镜像仍emit旧alias；`takeover-reinstall-selection-final.log`两弹窗通过替换/原地修改/清空列表、有效选择保留、错误alias/key函数拒绝、密码only/必选key、复制命令、重复/在途关闭重开、session/cache/logout/unmount。夹具直接切换KeepAlive组件曾触发Vue deactivate错误，改为先卸载再分别挂载验证，最终无运行异常。
+- 1440中文/390英文两弹窗截图已核；API受控，只捕获submit事件，无实际重装/重建/数据删除。client types、5守卫（含dedicated-delivery/password与recreate-consistency）、lint零错警、manifest191/108、最终双端build exit0/dist通过；最后只去一处尾空格无语义改动，专项接Chrome CI。
+- 下一项R291四文件port-conflict夹具先红（`takeover-port-conflict-before.log`）：22x仍emit22；完整非法数值/重复/范围/冲突更新矩阵已写但未运行，产品未改，不混本提交。PortConflictModal、父重提交与批量ports后台/port-mapping-safety守卫已读。R292 TicketImageUploader disabled下remove与file-change未守卫也已读未改。父重装/端口写回执与原生流程、327/R269/完整灾备仍待。
+
 ## 2026-10-29 R1-289 实例日志搜索与页面生命周期
 
 - 8756778已push核远端一致；f31a86a源码CI已success，440a34c/8756778最后运行。InstanceLogsTab读取固定实例ID/名称、账号session与请求序号，旧success/error/finally静默；mount+activated仅加载一次，缓存离页/卸载清数据与回执，重新激活重读。改变搜索/页码/页长先清旧结果，失败明确错误和重试，拒错误实例响应、修正超出末页，展开状态仅保当前日志。

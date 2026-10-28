@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
+import { useAuthStore } from '@/stores/auth'
 import DistroIcon from '@/components/icons/DistroIcon.vue'
 import InitCommandSelector from '@/components/extensions/InitCommandSelector.vue'
 
@@ -34,12 +35,42 @@ interface Emits {
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 const themeStore = useThemeStore()
+const authStore = useAuthStore()
+const pageActive = ref(false)
+const submitPending = ref(false)
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+onMounted(() => { pageActive.value = true })
+onActivated(() => { pageActive.value = true })
+onDeactivated(() => { pageActive.value = false })
+onUnmounted(() => { pageActive.value = false })
 
 const selectedImage = ref<string>('')
 const selectedSshKeyId = ref<number | null>(null)
 const customInitCommandIds = ref<number[]>([])
 const isImageDropdownOpen = ref(false)
 const imageSearchQuery = ref('')
+const canSubmit = computed(() => pageActive.value && !!sessionKey.value && props.visible && !props.loading && !submitPending.value &&
+  !!selectedImage.value && props.availableImages.some(image => image.incusAlias === selectedImage.value) &&
+  (selectedSshKeyId.value === null || props.sshKeys.some(key => key.id === selectedSshKeyId.value)))
+
+watch(selectedImage, () => { customInitCommandIds.value = [] }, { flush: 'sync' })
+watch(sessionKey, () => {
+  emit('update:visible', false)
+  selectedImage.value = ''
+  selectedSshKeyId.value = null
+  customInitCommandIds.value = []
+  isImageDropdownOpen.value = false
+  imageSearchQuery.value = ''
+}, { flush: 'sync' })
+watch(() => props.loading, loading => { if (!loading) submitPending.value = false })
 
 // 当前选中的镜像数据
 const selectedImageData = computed(() => {
@@ -73,9 +104,10 @@ const groupedImages = computed(() => {
 
 // 当弹窗打开或数据变化时，初始化选中的值
 watch(
-  [() => props.visible, () => props.availableImages, () => props.sshKeys],
+  [() => props.visible, () => props.availableImages, () => props.sshKeys, pageActive, sessionKey],
   ([visible, images, keys]) => {
-    if (visible) {
+    if (visible && pageActive.value && sessionKey.value) {
+      if (selectedImage.value && !images.some(image => image.incusAlias === selectedImage.value)) selectedImage.value = ''
       // 设置默认镜像
       if (images.length > 0 && !selectedImage.value) {
         selectedImage.value = images[0].incusAlias
@@ -90,27 +122,31 @@ watch(
       imageSearchQuery.value = ''
     }
   },
-  { immediate: true }
+  { immediate: true, deep: true, flush: 'sync' }
 )
 
 function selectImage(alias: string) {
+  if (props.loading || !props.visible || !pageActive.value || !props.availableImages.some(image => image.incusAlias === alias)) return
   selectedImage.value = alias
   isImageDropdownOpen.value = false
   imageSearchQuery.value = ''
 }
 
 function toggleImageDropdown() {
+  if (props.loading || !props.visible || !pageActive.value) return
   isImageDropdownOpen.value = !isImageDropdownOpen.value
   if (!isImageDropdownOpen.value) imageSearchQuery.value = ''
 }
 
 function handleSubmit(): void {
-  if (selectedImage.value) {
+  if (canSubmit.value) {
+    submitPending.value = true
     emit('submit', { 
       image: selectedImage.value, 
       sshKeyId: selectedSshKeyId.value ?? undefined,
-      customInitCommandIds: customInitCommandIds.value.length > 0 ? customInitCommandIds.value : undefined
+      customInitCommandIds: customInitCommandIds.value.length > 0 ? [...customInitCommandIds.value] : undefined
     })
+    void nextTick(() => { if (!props.loading) submitPending.value = false })
   }
 }
 
@@ -121,7 +157,7 @@ function close(): void {
 
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div v-if="visible && pageActive && sessionKey" class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div 
         class="absolute inset-0 backdrop-blur-sm"
         :class="themeStore.isDark ? 'bg-black/60' : 'bg-black/30'"
@@ -339,7 +375,7 @@ function close(): void {
           <div class="flex justify-end gap-3 pt-2">
             <button type="button" class="btn-secondary" @click="close">{{ t('rebuildModal.cancel') }}</button>
             <button 
-              :disabled="loading || !selectedImage"
+              :disabled="!canSubmit"
               class="btn-danger" 
               @click="handleSubmit"
             >
