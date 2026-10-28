@@ -70,6 +70,12 @@ const packageFormViewSource = readRepoFile('client/src/views/resources/PackageFo
 const ticketsViewSource = readRepoFile('client/src/views/TicketsView.vue')
 const renewModalSource = readRepoFile('client/src/components/instance/modals/RenewModal.vue')
 const changePlanModalSource = readRepoFile('client/src/components/instance/modals/ChangePlanModal.vue')
+const terminalPageSource = readRepoFile('client/src/views/TerminalView.vue')
+assert.ok(terminalPageSource.includes('onActivated(activatePage)') && terminalPageSource.includes('onDeactivated(deactivatePage)') &&
+  terminalPageSource.includes("window.removeEventListener('keydown', handleKeydown)") &&
+  terminalPageSource.includes('generation === uiGeneration') && terminalPageSource.includes('tab.ws === socket') &&
+  terminalPageSource.includes("target.closest('.xterm')") && terminalPageSource.includes(':aria-pressed="activeTabId === tab.id"'),
+  'cached terminal must release global shortcuts and overlays, preserve current tab input and use independent tab buttons')
 assert.ok(changePlanModalSource.includes('session === sessionKey.value') &&
   changePlanModalSource.includes('currentGeneration === generation') && changePlanModalSource.includes('sequence === previewSequence') &&
   changePlanModalSource.includes('await api.billing.changePlan(approved.instanceId, approved.planId)') &&

@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：935dac5已push；R282终端KeepAlive全局监听/浮层/迟到剪贴板与标签button已修，真实Chrome先红后绿（含fresh mobile）、types/4守卫+route最终/lint/manifest191/99/最终双端build exit0/dist通过，准备push，无待poll。下一项R283 scripts/test-terminal-session.mjs独立先红：logout旧tab保留；不要混入R282提交。TerminalView完整list/cloud-init/ticket/ws/reconnect/close/disconnect、terminal-core与对应守卫已读；需current sid/账号代次、清旧tab与远端ticket/WS回执隔离，常规缓存继续保持会话。R284在TerminalSavedCommandsSidebar而非本页脚本，尚未改。327/完整灾备未完。
+
 > **最新接续**：090afa6已push，R281已修选择/预览/提交绑定及modal/session上下文、旧写回执，Chrome先红后绿+types/4守卫/lint/最终双端build exit0/dist/manifest191/98通过，准备单项push，无待poll。下一项R282已Chrome先红：KeepAlive离页仍拦快捷键，terminal-lifecycle四文件未提交，产品未改；源/守卫已读。测试计划活动/缓存/输入框快捷键、浮层清除、延迟剪贴板/标签ABA/session隔离、保留缓存连接、卸载断开；R283/cloud-init和R284 sidebar另待。327/完整灾备未完。
 
 > **最新接续**：aab5bbc已push、CI40776614927最后运行；R280转移余额/搜索/写入及敏感验证代次/session/草稿固定已修，真实Chrome先红后绿、types/4守卫/lint/双端build最终exit0/dist/manifest191/97通过准备单项push。无待poll。下一项R281已Chrome先红（takeover-change-plan-before.log）：切新方案时旧preview仍可供函数提交，新预览旧回执无隔离；四个change-plan夹具尚未提交，产品未改。ChangePlanModal完整脚本、performPlanChange与路由/容量和ID守卫已读，须固定预览和提交目标、modal/session/选择代次及旧写回执/500ms提示；后台完整current授权与远端sync另有待项，不能把前端修复当整条交付通过。327/R269/灾备未完。

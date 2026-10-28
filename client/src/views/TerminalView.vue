@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -66,6 +66,22 @@ const { t } = useI18n()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const terminalStore = useTerminalStore()
+const pageActive = ref(false)
+let uiGeneration = 0
+const sessionKey = computed(() => {
+    if (!authStore.token || !authStore.user) return ''
+    let identity = authStore.token
+    try {
+        const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+        if (typeof payload.sid === 'string') identity = payload.sid
+    } catch { /* Legacy tokens retain their full identity. */ }
+    return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+
+function captureUi() {
+    const generation = uiGeneration, session = sessionKey.value
+    return () => pageActive.value && !!session && session === sessionKey.value && generation === uiGeneration
+}
 
 // 实例列表
 const instances = ref<InstanceOption[]>([])
@@ -74,6 +90,7 @@ const loadingInstances = ref(false)
 // 标签管理
 const tabs = ref<TerminalTab[]>([])
 const activeTabId = ref<string>('')
+watch([activeTabId, sessionKey], () => { uiGeneration++ }, { flush: 'sync' })
 const containerRefs = ref<Map<string, HTMLElement>>(new Map())
 
 // 实例选择器弹窗
@@ -359,14 +376,14 @@ function initTabTerminal(tabId: string) {
         enableWebgl: false,
         onBell: () => terminalStore.playBell(),
         onSelectionCopy: (selection) => {
-            if (terminalStore.autoCopyOnSelect) {
+            if (pageActive.value && terminalStore.autoCopyOnSelect) {
                 navigator.clipboard.writeText(selection).catch(() => {
                     // ignore
                 })
             }
         },
         onLinkHover: (event, uri) => {
-            if (terminalStore.linkPreview) {
+            if (pageActive.value && terminalStore.linkPreview) {
                 linkTooltip.visible = true
                 linkTooltip.url = uri
                 linkTooltip.x = event.clientX + 10
@@ -689,7 +706,9 @@ function closeTab(tabId: string) {
     // 如果关闭的是当前标签，切换到其他标签
     if (activeTabId.value === tabId && tabs.value.length > 0) {
         activeTabId.value = tabs.value[Math.min(index, tabs.value.length - 1)].id
+        const current = captureUi()
         nextTick(() => {
+            if (!current()) return
             const newTab = activeTab.value
             if (newTab?.terminal && newTab.fitAddon) {
                 newTab.fitAddon.fit()
@@ -704,8 +723,10 @@ function closeTab(tabId: string) {
 function switchTab(tabId: string) {
     if (activeTabId.value === tabId) return
     activeTabId.value = tabId
+    const current = captureUi()
     
     nextTick(() => {
+        if (!current()) return
         const tab = activeTab.value
         if (tab?.terminal && tab.fitAddon) {
             tab.fitAddon.fit()
@@ -725,6 +746,7 @@ function clearTerminal() {
 
 // 处理右键菜单
 function handleContextMenu(event: MouseEvent) {
+    if (!pageActive.value) return
     event.preventDefault()
     contextMenu.x = event.clientX
     contextMenu.y = event.clientY
@@ -737,6 +759,8 @@ function closeContextMenu() {
 
 // 复制粘贴
 async function handleCopy() {
+    const current = captureUi()
+    if (!current()) return
     const tab = activeTab.value
     if (!tab?.terminal) {
         closeContextMenu()
@@ -752,6 +776,7 @@ async function handleCopy() {
     try {
         await navigator.clipboard.writeText(selection)
     } catch {
+        if (!current()) return
         // 回退方案
         const textarea = document.createElement('textarea')
         textarea.value = selection
@@ -762,21 +787,24 @@ async function handleCopy() {
         document.execCommand('copy')
         document.body.removeChild(textarea)
     }
-    closeContextMenu()
+    if (current()) closeContextMenu()
 }
 
 async function handlePaste() {
+    const current = captureUi()
+    if (!current()) return
     const tab = activeTab.value
     if (!tab?.ws || tab.ws.readyState !== WebSocket.OPEN) {
         closeContextMenu()
         return
     }
     
+    const socket = tab.ws
     try {
         const text = await navigator.clipboard.readText()
-        if (text) {
+        if (current() && activeTab.value === tab && tab.ws === socket && socket.readyState === WebSocket.OPEN && text) {
             try {
-                tab.ws.send(text)
+                socket.send(text)
             } catch {
                 // WebSocket may be closed during send, ignore
             }
@@ -784,10 +812,11 @@ async function handlePaste() {
     } catch {
         // Clipboard API may fail due to permissions
     }
-    closeContextMenu()
+    if (current()) closeContextMenu()
 }
 
 function sendToActiveTerminal(data: string): boolean {
+    if (!captureUi()()) return false
     const tab = activeTab.value
     if (!tab?.ws || tab.ws.readyState !== WebSocket.OPEN) return false
 
@@ -806,14 +835,17 @@ function handleAccessorySend(data: string) {
 
 // 移动端快捷工具栏 - 粘贴（不关闭右键菜单）
 async function handleAccessoryPaste() {
+    const current = captureUi()
+    if (!current()) return
     const tab = activeTab.value
     if (!tab?.ws || tab.ws.readyState !== WebSocket.OPEN) return
     
+    const socket = tab.ws
     try {
         const text = await navigator.clipboard.readText()
-        if (text) {
+        if (current() && activeTab.value === tab && tab.ws === socket && socket.readyState === WebSocket.OPEN && text) {
             try {
-                tab.ws.send(text)
+                socket.send(text)
             } catch {
                 // WebSocket may be closed during send, ignore
             }
@@ -832,13 +864,15 @@ function executeSavedCommand(command: string) {
 
 // 移动端快捷工具栏 - 收起键盘
 function handleHideKeyboard() {
+    const current = captureUi()
+    if (!current()) return
     // 尝试收起虚拟键盘
     if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur()
     }
     // 重新聚焦终端（但不弹出键盘）
     setTimeout(() => {
-        activeTab.value?.terminal?.focus()
+        if (current()) activeTab.value?.terminal?.focus()
     }, 100)
 }
 
@@ -852,8 +886,10 @@ function handleSelectAll() {
 
 // 搜索功能
 function openSearch() {
+    const current = captureUi()
+    if (!current()) return
     showSearch.value = true
-    nextTick(() => searchInputRef.value?.focus())
+    nextTick(() => { if (current()) searchInputRef.value?.focus() })
 }
 
 function closeSearch() {
@@ -950,6 +986,9 @@ function handleThemeChange(event: Event) {
 
 // 键盘快捷键
 function handleKeydown(event: KeyboardEvent) {
+    if (!pageActive.value || !sessionKey.value || event.defaultPrevented) return
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') && !target.closest('.xterm')) return
     // Ctrl+Shift+F 搜索
     if (event.ctrlKey && event.shiftKey && event.key === 'F') {
         event.preventDefault()
@@ -1041,6 +1080,7 @@ function getTouchDistance(touches: TouchList): number {
 
 // 窗口大小变化
 function handleResize() {
+    if (!pageActive.value) return
     const tab = activeTab.value
     if (tab?.fitAddon) {
         tab.fitAddon.fit()
@@ -1077,8 +1117,10 @@ function disconnectAll() {
     cloudInitChecking.value.clear()
 }
 
-onMounted(() => {
-    loadInstances()
+function activatePage() {
+    if (pageActive.value) return
+    pageActive.value = true
+    uiGeneration++
     window.addEventListener('resize', handleResize)
     window.addEventListener('keydown', handleKeydown)
     document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -1087,9 +1129,23 @@ onMounted(() => {
     if (isMobileDevice && window.visualViewport) {
         window.visualViewport.addEventListener('resize', handleViewportResize)
     }
-})
+    const current = captureUi()
+    nextTick(() => { if (current()) handleResize() })
+}
 
-onUnmounted(() => {
+function deactivatePage() {
+    pageActive.value = false
+    uiGeneration++
+    closeSearch()
+    showInstanceSelector.value = false
+    selectedInstanceId.value = null
+    showHelp.value = false
+    showSettings.value = false
+    showSavedCommandsMobile.value = false
+    contextMenu.visible = false
+    linkTooltip.visible = false
+    touchState.isZooming = false
+    activeTab.value?.terminal?.blur()
     window.removeEventListener('resize', handleResize)
     window.removeEventListener('keydown', handleKeydown)
     document.removeEventListener('visibilitychange', handleVisibilityChange)
@@ -1098,14 +1154,23 @@ onUnmounted(() => {
     if (isMobileDevice && window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleViewportResize)
     }
-    
+}
+
+onMounted(() => { void loadInstances(); activatePage() })
+onActivated(activatePage)
+onDeactivated(deactivatePage)
+onBeforeUnmount(() => {
+    deactivatePage()
     disconnectAll()
 })
 
 // 移动端 visualViewport 变化处理（软键盘弹出/收起）
 function handleViewportResize() {
+    const current = captureUi()
+    if (!current()) return
     // 延迟执行 fit，等待视口稳定
     setTimeout(() => {
+        if (!current()) return
         const tab = activeTab.value
         if (tab?.fitAddon && tab.terminal) {
             tab.fitAddon.fit()
@@ -1117,7 +1182,7 @@ function handleViewportResize() {
 
 // 页面可见性变化时自动重连
 function handleVisibilityChange() {
-    if (document.visibilityState === 'visible') {
+    if (pageActive.value && document.visibilityState === 'visible') {
         // 用户回来了，自动重连断开的连接
         tabs.value.forEach(tab => {
             if (tab.status === 'disconnected' || tab.status === 'error') {
@@ -1170,28 +1235,33 @@ function handleVisibilityChange() {
       >
         <!-- 左侧：标签栏 -->
         <div class="flex flex-1 flex-wrap items-center gap-1 min-w-0">
-          <button
+          <div
             v-for="tab in tabs"
             :key="tab.id"
             class="group flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
             :class="activeTabId === tab.id
               ? 'bg-themed-hover text-themed shadow-sm'
               : 'text-themed-muted hover:bg-themed-hover hover:text-themed'"
-            @click="switchTab(tab.id)"
           >
-            <!-- 状态指示点 -->
-            <span
-              class="h-1.5 w-1.5 flex-shrink-0 rounded-full"
-              :class="{
-                'bg-green-500': tab.status === 'connected',
-                'bg-amber-500 animate-pulse': tab.status === 'connecting' || tab.status === 'reconnecting',
-                'bg-rose-500': tab.status === 'error',
-                'bg-neutral-400 dark:bg-neutral-500': tab.status === 'disconnected'
-              }"
-            />
-            <span class="max-w-[120px] truncate font-mono">{{ tab.label }}</span>
+            <button
+              type="button" class="flex min-w-0 items-center gap-1.5" :aria-pressed="activeTabId === tab.id"
+              @click="switchTab(tab.id)"
+            >
+              <!-- 状态指示点 -->
+              <span
+                class="h-1.5 w-1.5 flex-shrink-0 rounded-full"
+                :class="{
+                  'bg-green-500': tab.status === 'connected',
+                  'bg-amber-500 animate-pulse': tab.status === 'connecting' || tab.status === 'reconnecting',
+                  'bg-rose-500': tab.status === 'error',
+                  'bg-neutral-400 dark:bg-neutral-500': tab.status === 'disconnected'
+                }"
+              />
+              <span class="max-w-[120px] truncate font-mono">{{ tab.label }}</span>
+            </button>
             <!-- 关闭按钮 -->
             <button
+              type="button" :aria-label="`${t('common.close')} ${tab.label}`"
               class="ml-1 rounded p-0.5 text-themed-muted opacity-0 transition-opacity hover:bg-themed-secondary hover:text-themed group-hover:opacity-100"
               @click.stop="closeTab(tab.id)"
             >
@@ -1199,7 +1269,7 @@ function handleVisibilityChange() {
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-          </button>
+          </div>
 
           <!-- 新建标签按钮（工具栏内） -->
           <button

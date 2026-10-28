@@ -60,6 +60,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-instance-detail-reads', 'requires Chrome/Edge and local Vite; actual detail route/session/read ordering, pending task/statistics and lifecycle timers'],
   ['test:review-transfer-modal-lifecycle', 'requires Chrome/Edge and local Vite; actual transfer and sensitive verification modal request ordering, draft/session identity and lifecycle'],
   ['test:review-change-plan-lifecycle', 'requires Chrome/Edge and local Vite; actual upgrade modal selection/preview binding, session identity, stale responses and submitted target'],
+  ['test:review-terminal-lifecycle', 'requires Chrome/Edge and local Vite; actual KeepAlive terminal keyboard and overlay lifecycle with controlled clipboard and socket boundaries'],
   ['test:review-traffic-limit', 'requires isolated local *_pool_test PostgreSQL; actual user/instance traffic limit omission and bigint boundary validation'],
   ['test:review-traffic-reset-auth', 'requires isolated local *_pool_test PostgreSQL; actual traffic reset actor/target races, billing and baseline checks'],
   ['test:review-payment-locales', 'requires Chrome/Edge and local Vite; actual payment provider controls in three locales, read-only API fixture'],

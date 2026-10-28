@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-282 终端缓存页快捷键与粘贴隔离
+
+- 935dac5已push核远端一致；aab5bbc源码CI40776614927已success，090afa6/935dac5最后运行。TerminalView激活/停用独立注册和移除页面监听，离页收起搜索/选择器/帮助/设置/移动命令菜单/右键/链接浮层并释放焦点；正常缓存保留已有终端连接，卸载才销毁。输入框自己的快捷键保持，xterm输入仍可使用终端快捷键。
+- 剪贴板读取及延迟聚焦/fit绑定页面代次、session、标签及当前socket，离页/标签ABA/session变更/连接替换后不发送旧粘贴；快捷命令发送入口也要求当前页面。标签激活和关闭由嵌套button改为独立button，增加各自可访问语义；保持原标签和会话操作。
+- `takeover-terminal-lifecycle-before.log`真实KeepAlive Chrome先红；`takeover-terminal-lifecycle-final.log`通过缓存离页不截键、3次重激活不重复监听、全部瞬态浮层清除、输入框不截键、旧粘贴静默/当前粘贴一次、标签ABA/session迟到粘贴拦截、缓存连接保持及卸载关闭。1440中文浅色/390英文深色与全新移动设备分支截图已核，零运行异常/横向溢出；WebSocket与clipboard为夹具，不宣称真实SSH会话验证。
+- client types、4守卫及最终route复跑、lint（1既有unused catch warning，无error）、manifest191/99、最终双端build exit0及dist边界通过；专项登记Chrome CI。R283实际session切换清旧tab/实例列表/cloud-init和票据全生命周期、R284快捷命令草稿仍待，不能把本段UI隔离当完整终端授权修复。
+- 下一项R283已另建test-terminal-session.mjs先红，logout后旧tab仍保留，源/相关守卫已读，测试不混进本项提交；327/R269/完整灾备仍未完成。
+
 ## 2026-10-29 R1-281 升级预览与提交目标一致
 
 - 090afa6已push核远端一致，CI40778093662最后运行；aab5bbc的CI40776614927最后仍运行。ChangePlanModal绑定打开代次/session/实例及套餐/现有方案信息，方案列表及预览各自序号；选择变化同步清预览，错误newPlan/oldPlan响应拒绝，失败后清旧列表和提交资格。确认按钮与函数共用canSubmit，要求当前有效可售升级方案、已完成且目标匹配的预览及余额。
