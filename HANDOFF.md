@@ -2,6 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 恢复传输截止与远端错误分类
+
+- 前一删除阶段`5a8f9e53ce6a79d3813257343687d0b907f88695`已普通push main并核对远端；CI40650075642已启动，记录时上传/删除PG集成、双架构组件、计费与网关候选成功，其余仍在运行，不提前记全绿。
+- `restoreFromStream`不再使用独立旧轮询：旧逻辑把`disk full`等真实Failure按文案误判为临时错误并循环。改用已有有截止/取消的waitForOperation，POST与等待共享总期限，默认5分钟；外部signal、失败响应64KiB上限、限定原/1.0/operations路径、拒未知响应类型。专用transport复用原CA/pin，finally关闭该连接与来源流，不关闭共享client。
+- `instanceExists`仅精确资源路径HTTP404返回false；403/断连等未知状态抛错，使恢复失败保护路径保留临时副本，不能把网络未知解释为不存在。实例查询/重命名路径编码；原副本UUID核验及持久阶段仍待。
+- 新`test:review-restore-transport`实际本机mTLS验证同步/异步完整字节、disk-full/cancel只轮询一次、拒绝错误/坏路径/坏类型/超限响应、上传停滞和轮询停滞总截止、外部及预取消、来源销毁、服务端换证书零HTTP拒绝、原API client仍可用，以及存在/404/403区分，通过`logs/takeover-restore-transport.log`。已登记测试入口/排除原因并接入原CI隔离job。
+- server类型/构建`logs/takeover-restore-transport-typecheck.log`、`logs/takeover-restore-transport-build.log`；3/3相关守卫与加强后备份守卫`logs/takeover-restore-transport-guards.log`、`logs/takeover-restore-transport-final-guard.log`通过，清单188项/52活体排除登记检查通过。本阶段没有完整restore worker实机或磁盘恢复证据，不能将传输专项当成主控OSS灾备验收。
+- 下一优先：restore任务创建/领取/执行及rollback固定actor/session、原host/instance/backup/UUID与持久阶段，删除旧原实例前验证临时恢复副本、失败保留唯一数据；backup create/delete及上传强杀恢复/真实存储回执、三台SSH身份、327/完整网关目标仍未完成。
+
 ## 2026-10-28 备份删除确认与共享操作锁
 
 - 上一批`8d73ab341b83d1f7b3b729a3fcf2659143e8e867`已普通push并核对origin；[CI 40649284830](https://github.com/mastalee928/payincus/actions/runs/40649284830)7/7 success。此前eac0b06也7/7。每段源码/测试/备忘及时推送，无积压到327整体完成。

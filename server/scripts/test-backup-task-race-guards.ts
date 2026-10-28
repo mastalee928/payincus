@@ -23,6 +23,11 @@ const restoreWorkerSource = readFileSync(resolve(__dirname, '../src/workers/rest
 const uploadWorkerSource = readFileSync(resolve(__dirname, '../src/workers/backupUploadWorker.ts'), 'utf8')
 const appSource = readFileSync(resolve(__dirname, '../src/app.ts'), 'utf8')
 const backupDeleteSource = readFileSync(resolve(__dirname, '../src/db/backup-deletion.ts'), 'utf8')
+const restoreTransportSource = readFileSync(resolve(__dirname, '../src/lib/incus/incus-restore.ts'), 'utf8')
+assert.ok(restoreTransportSource.includes('client.createTransport(') && restoreTransportSource.includes('AbortSignal.timeout(timeoutMs)') &&
+  restoreTransportSource.includes('waitForOperation(client, data.operation, remaining, signal)') &&
+  restoreTransportSource.includes('backupStream.destroy()'), 'restore transport must preserve identity and bound upload/wait with source cleanup')
+assert.ok(restoreTransportSource.includes('error.statusCode === 404 && error.path === path'), 'existence check must reject unknown remote states')
 assert.ok(backupDeleteSource.includes('withSnapshotMutation(expected, actor, false') &&
   backupDeleteSource.includes("error.statusCode === 404 && error.path === path") &&
   backupDeleteSource.includes("client.request('GET', path") && backupDeleteSource.includes('if (!missing)'),

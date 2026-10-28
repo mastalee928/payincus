@@ -160,6 +160,7 @@ jobs:
         run: |
           pnpm --filter server test:review-upload-completion-integration
           pnpm --filter server test:review-backup-export
+          pnpm --filter server test:review-restore-transport
 
   remote-gateway-setup-integration:
     name: Remote gateway setup journal integration

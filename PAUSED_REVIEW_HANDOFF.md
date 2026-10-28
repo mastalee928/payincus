@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **接续优先**：上传授权eac0b06与attempt8d73ab3已推且各CI7/7，删除5a8f9e5也已推。随后恢复传输总截止/原pin/终态失败/精确404与专项已通过，正在阶段保存。下一批restore worker原身份/UUID/授权/持久阶段与rollback尚未编辑；详见HANDOFF顶部。本轮无前端/生产/发行改动，旧暂停和“无全绿”条目不能覆盖新的实际分项证据。
+
 > **最新阶段**：eac0b06、8d73ab3均已推main且各自CI7/7。第三段备份删除失败保留/精确404确认/current身份与共享锁已验；接续看HANDOFF最顶部及Git实际HEAD。下一段backup create/delete远端持久回执、restore原身份/副本保护、上传在途/清理恢复；不重做已通过的三段。旧暂停文本仅历史，owner已持续授权分段commit/push。
 
 > **最新接续**：授权/身份阶段eac0b06已推main，CI40648563020为7/7；随后attempt UUID/持久filename、30秒nextAttemptAt、cleanup_required/interrupted和null时间清理阶段已验证并准备保存。接续以HANDOFF最顶部为准，运行PG仍55438；下一段远端回执/强杀恢复、传输在途与backup create/delete/restore边界仍未完成。无生产改动。
