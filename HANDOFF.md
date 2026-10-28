@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-186 客服通知原子记录与正文
+
+- 关联对象`510e903a77465bd8eba5bfeb67b27e563e189c7a`已push并核远端一致，CI40662708627检查时运行；备注4ef8b02 CI40662179580最终success。
+- 显式客服通知先锁工单、当前管理员/接收账户，核对接收人、active/admin及session，再同事务创建站内信和内部备注。任何一条写入失败均回滚，不外发；提交后仅发送外部渠道，不重复写站内信。共用模板现在保留管理员填写的正文和当前作者，普通通知默认行为保持。
+- `logs/takeover-ticket-notice-authorization-final.log`累计42真实PG/Fastify权限/归属/状态竞争通过，新增通知封禁/注销/降权三竞争、两表拒写trigger原子回滚、错误接收人拒绝、成功实际正文/作者且仅一条站内信；另验默认通知继续独立写站内信且原无正文格式不变。5/5守卫`takeover-ticket-notice-guards.log`、server build `takeover-ticket-notice-build.log`、类型`takeover-ticket-notice-types.log`通过。
+- 测试账户没有外部通知渠道；未实际外发/浏览器/生产验收。本批不提供外部投递持久outbox或请求幂等，普通创建/回复/关闭通知目标及PAT/POA在途撤销仍待，327仍未完成。下段继续原清单与这些明确缺口。
+
 ## 2026-10-28 R1-186 客服关联对象
 
 - 备注`4ef8b029b01ffa0158e4fe9aa67ac377ce235fde`已push并核远端一致，CI40662179580检查时运行；删除23358c2 CI40661681682最终success。

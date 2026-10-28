@@ -108,7 +108,7 @@ assert.ok(
 
 assert.ok(
   routeSource.includes("sendNotification(ticket.userId, 'ticket_replied'") &&
-    routeSource.includes('已向用户发送通知') &&
+    dbSource.includes('已向用户发送通知') &&
     !routeSource.includes('adjustBalance') &&
     !routeSource.includes('changeBalance') &&
     !routeSource.includes('createInstanceAsync') &&
@@ -116,6 +116,11 @@ assert.ok(
     !routeSource.includes('destroyInstance'),
   'Support quick actions must notify or record notes only, not bypass finance/resource approval flows'
 )
+assert.ok(routeSource.includes('commitTicketNotification(ticketId, ticket.userId, user, content)') &&
+  routeSource.includes("sendNotification(notice.userId, 'ticket_replied', notice.data, { inboxAlreadyCommitted: true })") &&
+  dbSource.includes('lockAdministrativeUserMutation(tx, ticket.userId, actor)') &&
+  dbSource.includes('content: formatTicketReplyNotice(data)') && dbSource.includes('await tx.ticketInternalNote.create('),
+  'explicit ticket notification must commit current-authorized inbox and audit before external dispatch without duplicate inbox writes')
 
 assert.ok(
   apiSource.includes('getSupportContext') &&

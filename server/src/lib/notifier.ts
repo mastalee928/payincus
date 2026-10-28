@@ -9,6 +9,7 @@ import { createInboxMessage } from '../db/inbox.js'
 import { prisma } from '../db/prisma.js'
 import { assertSafeWebhookUrl, safeFetch } from './outbound-security.js'
 import { sanitizeTokensInString } from './log-sanitizer.js'
+import { TICKET_REPLY_TITLE, formatTicketReplyNotice } from './ticket-notification.js'
 
 // 重试配置
 const MAX_RETRIES = 3
@@ -632,14 +633,8 @@ const EVENT_TEMPLATES: Record<EventType, EventTemplate> = {
     }
   },
   ticket_replied: {
-    title: '💬 工单有新回复',
-    message: (data) => {
-      let msg = `工单「${data.subject}」有新回复`
-      if (data.hostName) msg += `\n节点: ${data.hostName}`
-      if (data.replyFrom) msg += `\n来自: ${data.replyFrom}`
-      msg += `\n请前往工单页面查看详情`
-      return msg
-    }
+    title: TICKET_REPLY_TITLE,
+    message: formatTicketReplyNotice
   },
   ticket_status_changed: {
     title: '📋 工单状态已更新',
@@ -1062,7 +1057,8 @@ async function deliverSiteBotNotification(
 export async function sendNotification(
   userId: number,
   eventType: EventType,
-  data: EventData
+  data: EventData,
+  options: { inboxAlreadyCommitted?: boolean } = {}
 ): Promise<SendResult> {
   try {
     const template = EVENT_TEMPLATES[eventType]
@@ -1074,9 +1070,9 @@ export async function sendNotification(
     const title = template.title
     const message = template.message(data)
 
-    // 1. 创建站内信（始终创建）
+    // 1. 创建站内信；业务事务已持久化时复用，避免重复写入。
     try {
-      await createInboxMessage({
+      if (!options.inboxAlreadyCommitted) await createInboxMessage({
         userId,
         eventType,
         title,

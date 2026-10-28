@@ -7,7 +7,7 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'),
   'Use isolated local *_pool_test PostgreSQL')
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { createTicket, addTicketMessage, updateTicketStatus, deleteTicketMessage, createTicketInternalNote, createTicketObjectLink, TicketMutationError } = await import('../src/db/tickets.js')
+const { createTicket, addTicketMessage, updateTicketStatus, deleteTicketMessage, createTicketInternalNote, createTicketObjectLink, commitTicketNotification, TicketMutationError } = await import('../src/db/tickets.js')
 const { default: routes } = await import('../src/routes/tickets.js')
 const tag = `ticket-auth-${randomUUID()}`
 const user = await prisma.user.create({ data: { username: tag, passwordHash: 'unusable-fixture' } })
@@ -197,7 +197,7 @@ try {
   const attachment = await prisma.ticketMessageAttachment.create({ data: { ticketId: ticket.id, messageId: message.id,
     uploaderId: user.id, provider: 'fixture', providerVersion: 'v1', providerFileId: 'isolated-file', filename: 'fixture.png',
     originalName: 'fixture.png', mimeType: 'image/png', sizeBytes: 1, url: 'https://example.invalid/fixture.png' } })
-  for (const operationKind of ['delete', 'note', 'link']) {
+  for (const operationKind of ['delete', 'note', 'link', 'notify']) {
   for (const mode of ['banned', 'session', 'demoted']) {
     await prisma.user.update({ where: { id: support.id }, data: { status: 'active', role: 'admin' } })
     let release!: () => void, ready!: (pid: number) => void
@@ -216,7 +216,9 @@ try {
       ? app.inject({ method: 'DELETE', url: `/tickets/${ticket.id}/messages/${message.id}` })
       : operationKind === 'note'
         ? app.inject({ method: 'POST', url: `/tickets/${ticket.id}/internal-notes`, payload: { content: 'denied internal note' } })
-        : app.inject({ method: 'POST', url: `/tickets/${ticket.id}/links`, payload: { objectType: 'host', objectId: host.id } })
+        : operationKind === 'link'
+          ? app.inject({ method: 'POST', url: `/tickets/${ticket.id}/links`, payload: { objectType: 'host', objectId: host.id } })
+          : app.inject({ method: 'POST', url: `/tickets/${ticket.id}/notify`, payload: { content: 'denied notification' } })
     let blocked = false
     try {
       const deadline = Date.now() + 3000
@@ -233,6 +235,7 @@ try {
     assert.ok(await prisma.ticketMessageAttachment.findUnique({ where: { id: attachment.id } }))
     assert.equal(await prisma.ticketInternalNote.count({ where: { ticketId: ticket.id } }), 0)
     assert.equal(await prisma.ticketObjectLink.count({ where: { ticketId: ticket.id } }), 0)
+    assert.equal(await prisma.inboxMessage.count({ where: { userId: user.id } }), 0)
     await prisma.tokenInvalidation.deleteMany({ where: { userId: support.id } })
   }
   }
@@ -262,7 +265,36 @@ try {
   assert.equal(linked?.createdByUsername, support.username)
   assert.equal((await createTicketObjectLink(ticket.id, 'host', host.id, actor.id, 'old name', actor))?.id, linked?.id)
   await assert.rejects(createTicketObjectLink(ticket.id, 'host', host.id, actor.id, 'old name', { id: actor.id }), TicketMutationError)
-  console.log('PASS real PG/Fastify ticket authorization: creation 8, reply 12, status/close 10, administrator deletion 3, internal note 3 and object link 3 concurrent cases; denied mutations preserve all ticket records. Current note/link author, missing session, link dedupe and deletion manifest/DB rollback checked. No outbound notifications or attachment-service calls; notification and PAT revocation remain separate.')
+  const beforeNotes = await prisma.ticketInternalNote.count({ where: { ticketId: ticket.id } })
+  const notificationTrigger = `ticket_notice_${user.id}`
+  for (const table of ['ticket_internal_notes', 'inbox_messages']) {
+    const condition = table === 'ticket_internal_notes' ? `NEW.ticket_id = ${ticket.id}` : `NEW.user_id = ${user.id}`
+    await prisma.$executeRawUnsafe(`CREATE FUNCTION ${notificationTrigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF ${condition} THEN RAISE EXCEPTION 'fixture-ticket-notification-failure'; END IF; RETURN NEW; END $$`)
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER ${notificationTrigger} BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION ${notificationTrigger}()`)
+    try {
+      await assert.rejects(commitTicketNotification(ticket.id, user.id, actor, 'must roll back'), /fixture-ticket-notification-failure/)
+      assert.equal(await prisma.inboxMessage.count({ where: { userId: user.id } }), 0)
+      assert.equal(await prisma.ticketInternalNote.count({ where: { ticketId: ticket.id } }), beforeNotes)
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${notificationTrigger} ON ${table}`)
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${notificationTrigger}()`)
+    }
+  }
+  await assert.rejects(commitTicketNotification(ticket.id, support.id, actor, 'wrong recipient'), TicketMutationError)
+  const sent = await app.inject({ method: 'POST', url: `/tickets/${ticket.id}/notify`, payload: { content: 'visible specific notice' } })
+  assert.equal(sent.statusCode, 200, sent.body)
+  const inbox = await prisma.inboxMessage.findMany({ where: { userId: user.id } })
+  assert.equal(inbox.length, 1, 'post-commit channel dispatch must not create a duplicate inbox message')
+  assert.ok(inbox[0].content.includes('visible specific notice'))
+  assert.ok(inbox[0].content.includes(support.username))
+  assert.equal(await prisma.ticketInternalNote.count({ where: { ticketId: ticket.id } }), beforeNotes + 1)
+  const { sendNotification } = await import('../src/lib/notifier.js')
+  await sendNotification(user.id, 'ticket_replied', { subject: 'ordinary reply', replyFrom: support.username })
+  const ordinaryNotices = await prisma.inboxMessage.findMany({ where: { userId: user.id } })
+  assert.equal(ordinaryNotices.length, 2, 'default notification calls must still persist their own inbox message')
+  assert.ok(ordinaryNotices.some(row => row.content === `工单「ordinary reply」有新回复\n来自: ${support.username}\n请前往工单页面查看详情`))
+  assert.equal(await prisma.notificationLog.count({ where: { channel: { userId: user.id } } }), 0, 'no external channel configured or called')
+  console.log('PASS real PG/Fastify ticket authorization: 42 account/ownership/state races across create/reply/status/close/delete/note/link/notify; inbox and note failures roll back together, wrong recipient rejected, successful notice includes actual text and current author with exactly one inbox message. No external notification channels or attachment service; PAT revocation remains separate.')
 } finally {
   await app.close()
   await prisma.ticket.deleteMany({ where: { userId: user.id } })

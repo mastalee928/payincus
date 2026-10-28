@@ -569,13 +569,14 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
       return reply.code(404).send(apiError(ErrorCode.NOT_FOUND))
     }
 
-    await sendNotification(ticket.userId, 'ticket_replied', {
-      subject: ticket.subject,
-      hostName: ticket.host?.name || '系统',
-      message: content,
-      replyFrom: user.username
-    })
-    await ticketDb.createTicketInternalNote(ticketId, user.id, user.username, `已向用户发送通知：${content}`, user)
+    let notice: Awaited<ReturnType<typeof ticketDb.commitTicketNotification>>
+    try {
+      notice = await ticketDb.commitTicketNotification(ticketId, ticket.userId, user, content)
+    } catch (error) {
+      if (error instanceof ticketDb.TicketMutationError) return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+      throw error
+    }
+    await sendNotification(notice.userId, 'ticket_replied', notice.data, { inboxAlreadyCommitted: true })
 
     return reply.send({ message: 'Notification sent successfully' })
   })

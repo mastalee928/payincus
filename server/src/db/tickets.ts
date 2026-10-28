@@ -5,7 +5,8 @@
 
 import { prisma } from './prisma.js'
 import type { Prisma, TicketStatus, TicketPriority, TicketObjectLinkType } from '@prisma/client'
-import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
+import { authorizeUserWrite, lockAdministrativeUserMutation, type WriteActor } from './user-write-authorization.js'
+import { formatTicketReplyNotice, TICKET_REPLY_TITLE } from '../lib/ticket-notification.js'
 
 // ==================== 类型定义 ====================
 
@@ -1924,5 +1925,30 @@ export async function createTicketObjectLink(
       createdByUsername: link.createdByUsername,
       createdAt: link.createdAt.toISOString()
     }
+  })
+}
+
+/** Inbox and audit commit before any external channel dispatch. */
+export async function commitTicketNotification(ticketId: number, expectedUserId: number, actor: WriteActor, content: string) {
+  return prisma.$transaction(async tx => {
+    await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+    await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${ticketId} FOR UPDATE`
+    const ticket = await tx.ticket.findUnique({ where: { id: ticketId }, include: { host: { select: { name: true } } } })
+    if (!ticket) throw new TicketMutationError('工单已不存在，请刷新后重试', 404, 'TICKET_NOT_FOUND')
+    if (ticket.userId !== expectedUserId) throw new TicketMutationError('工单接收人已变化，请刷新后重试')
+    try { await lockAdministrativeUserMutation(tx, ticket.userId, actor) }
+    catch (error) {
+      if (error instanceof Error && ['ADMIN_ACTOR_FORBIDDEN', 'USER_NOT_FOUND'].includes(error.message)) {
+        throw new TicketMutationError('管理员权限、登录授权或接收账户已变化，请刷新后重试', 403, 'TICKET_ACTOR_FORBIDDEN')
+      }
+      throw error
+    }
+    const admin = await tx.user.findUniqueOrThrow({ where: { id: actor.id }, select: { username: true } })
+    const data = { ticketId, subject: ticket.subject, hostName: ticket.host?.name || '系统', message: content, replyFrom: admin.username }
+    const inbox = await tx.inboxMessage.create({ data: { userId: ticket.userId, eventType: 'ticket_replied',
+      title: TICKET_REPLY_TITLE, content: formatTicketReplyNotice(data), data } })
+    await tx.ticketInternalNote.create({ data: { ticketId, actorUserId: actor.id, actorUsername: admin.username,
+      content: `已向用户发送通知：${content}` } })
+    return { userId: ticket.userId, data, inboxMessageId: inbox.id }
   })
 }
