@@ -6,6 +6,15 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:https'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
+import { parseBackfillInstanceNetworkArgs } from './lib/backfill-instance-network-args.js'
+for (const value of ['', '0', '-1', '1.5', '1e2', '0x10', '01', ' 1', '1 ', 'NaN', 'Infinity', 'abc', '2147483648', '9007199254740992']) {
+  assert.throws(() => parseBackfillInstanceNetworkArgs([`--host-id=${value}`]), /Invalid/)
+}
+for (const args of [['--host-id'], ['--host-id=1', '--host-id=2'], ['--dryrun'], ['--dry-run', '--dry-run'], ['--host-id=1', '--unknown']]) {
+  assert.throws(() => parseBackfillInstanceNetworkArgs(args), /Unknown|duplicate/)
+}
+assert.deepEqual(parseBackfillInstanceNetworkArgs([]), { hostId: null, dryRun: false })
+assert.deepEqual(parseBackfillInstanceNetworkArgs(['--dry-run', '--host-id=2147483647']), { hostId: 2147483647, dryRun: true })
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'))
 process.env.JWT_SECRET ||= 'network-sync-fixture-only'
@@ -21,7 +30,9 @@ const certificate = await readFile(certPath, 'utf8')
 let beforeProbe: (() => Promise<void>) | undefined
 let target = ''
 const writes: string[] = []
+let remoteRequests = 0
 const remote = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
+  remoteRequests++
   const send = (metadata: unknown, status = 200) => { response.writeHead(status, { 'content-type': 'application/json' }); response.end(JSON.stringify({ type: status === 200 ? 'sync' : 'error', metadata })) }
   try {
     assert.ok((request.socket as any).authorized)
@@ -82,15 +93,35 @@ try {
       const url = entry === 'single' ? `/hosts/${host.id}/ops/instances/${instance.id}/sync` : `/hosts/${host.id}/ops/${entry === 'repair' ? 'network-repair' : 'baseline-sync'}`
       const response = entry === 'backfill' ? undefined : await app.inject({ method: 'POST', url })
       let cliCode = 0
+      let cliOutput = ''
       if (entry === 'backfill') {
+        if (mode === 'success') {
+          for (const args of [['--host-id=bad'], ['--host-id=0'], ['--host-id=2147483648'], [`--host-id=${host.id}`, '--dryrun'],
+            [`--host-id=${host.id}`, `--host-id=${replacement.id}`]]) {
+            const requestCount = remoteRequests
+            const invalid = await new Promise<{ code: number; output: string }>(resolve => execFile(process.execPath,
+              ['--import', 'tsx', 'scripts/backfill-instance-network-addresses.ts', ...args],
+              { timeout: 30000, windowsHide: true }, (error, stdout, stderr) => resolve({
+                code: error ? typeof error.code === 'number' ? error.code : -1 : 0, output: stdout + stderr
+              })))
+            assert.equal(invalid.code, 1, 'malformed CLI filters must fail')
+            assert.match(invalid.output, /Invalid --host-id|Unknown or duplicate argument/)
+            assert.doesNotMatch(invalid.output, /Starting|No matching online hosts/, 'invalid input rejected before host listing')
+            assert.equal(remoteRequests, requestCount, 'malformed CLI must not probe any hosts')
+          }
+        }
         cliCode = await new Promise<number>(resolve => execFile(process.execPath,
           ['--import', 'tsx', 'scripts/backfill-instance-network-addresses.ts', `--host-id=${host.id}`, ...(mode === 'dry_run' ? ['--dry-run'] : [])],
           { timeout: 30000, windowsHide: true }, (error, stdout, stderr) => {
+            cliOutput = stdout
             const code = error ? typeof error.code === 'number' ? error.code : -1 : 0
             if (code !== (mode === 'success' || mode === 'dry_run' ? 0 : 1)) console.error('Maintenance CLI diagnostics:', { code, stdout, stderr })
             resolve(code)
           }))
         assert.equal(cliCode, mode === 'success' || mode === 'dry_run' ? 0 : 1, 'actual maintenance CLI must finish and report failures')
+        assert.match(cliOutput, new RegExp(`scanned=1, changed=${mode === 'success' ? 1 : 0}, ipv4Changed=${mode === 'success' ? 1 : 0}, ipv6Changed=${mode === 'success' ? 1 : 0}, failed=${mode === 'success' || mode === 'dry_run' ? 0 : 1}`),
+          'only successfully committed changes count as changed')
+        if (mode === 'dry_run') assert.match(cliOutput, /planned=1, ipv4Planned=1, ipv6Planned=1/, 'dry-run reports only proposed changes')
       }
       const current = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
       const success = ['success', 'stable_suspended'].includes(mode)

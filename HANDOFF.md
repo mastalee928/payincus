@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-271 维护参数与真实成功计数
+
+- a370299已push，CI40774057115最后运行；a805dc4的CI40773184822也仍运行。backfill的--host-id现在只接受1至2147483647完整十进制整数，未知/重复参数直接失败，不将错误过滤器视作全库。写入完成后才计changed/ipv4Changed/ipv6Changed；dry-run单列planned/ipv4Planned/ipv6Planned，实际changed为0。
+- `takeover-backfill-count-before.log`真实CLI先红：数据库约束失败仍changed=1；`takeover-backfill-final.log`5真实PG+mTLS CLI通过身份/连接变更、SQL失败、成功、dry-run；`takeover-backfill-invalid-cli.log`5非法参数组合实际命令exit1、零宿主探测，另纯parser覆盖空/0/负/小数/科学计数/hex/前导0/空白/NaN/溢出/重复/未知与合法最大值。2守卫通过；scripts不在原server tsconfig，另用本地tsconfig包含本CLI和完整src，补正确typeRoots后tsc最终exit0（takeover-backfill-types-final.log/.exit）。本项没有运行时代码/前端变化，沿用a370299最终后端构建。
+- 原生Incus/生产未操作；R271 baseline宿主资源快照竞争与完整网络ABA仍待。下一项R279 InstanceDetailView迟到详情/套餐/统计和路由轮询，已读实际主加载与依赖读取，尚未编辑前端。327、R269和完整灾备持续。
+
 ## 2026-10-29 R1-274 赠送时长保留当前续费与封停
 
 - a805dc4已push，CI40773184822最后运行；ee98c6e/5b8b7ff/7f226ad CI均success。gift-days每实例共用withInstanceBillingMutation（续费与到期远端动作同lane），实例操作锁/行锁+宿主共享锁下核current owner/host/incusId/付费套餐、当前宿主所有者及session，拒创建/清理/转移和未完成任务/快照/站点操作。以锁内max(now,current expiry)增加天数并递增version，不按列表旧快照覆盖；仅当前expired封停清除，人工封停保持。

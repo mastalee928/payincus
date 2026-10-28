@@ -2,6 +2,7 @@ import * as db from '../src/db/index.js'
 import { closePrismaDatabase, prisma } from '../src/db/prisma.js'
 import { getIncusClient, getInstance, getInstanceState } from '../src/lib/incus/index.js'
 import { closeAllClients } from '../src/lib/incus/incus-pool.js'
+import { parseBackfillInstanceNetworkArgs } from './lib/backfill-instance-network-args.js'
 import {
   persistResolvedInstanceNetworkAddresses,
   instanceNetworkHostIdentity,
@@ -9,29 +10,8 @@ import {
   type IncusNetworkStateLike
 } from '../src/lib/instance-network-sync.js'
 
-function parseArgs(argv: string[]): { dryRun: boolean; hostId: number | null } {
-  let dryRun = false
-  let hostId: number | null = null
-
-  for (const arg of argv) {
-    if (arg === '--dry-run') {
-      dryRun = true
-      continue
-    }
-
-    if (arg.startsWith('--host-id=')) {
-      const value = Number(arg.slice('--host-id='.length))
-      if (!Number.isNaN(value)) {
-        hostId = value
-      }
-    }
-  }
-
-  return { dryRun, hostId }
-}
-
 async function main(): Promise<void> {
-  const { dryRun, hostId } = parseArgs(process.argv.slice(2))
+  const { dryRun, hostId } = parseBackfillInstanceNetworkArgs(process.argv.slice(2))
 
   const allHosts = await db.getAllHosts()
   const hosts = allHosts.filter(host => host.status !== 'offline' && (hostId === null || host.id === hostId))
@@ -46,6 +26,9 @@ async function main(): Promise<void> {
   let ipv4ChangedCount = 0
   let ipv6ChangedCount = 0
   let failed = 0
+  let plannedInstances = 0
+  let plannedIpv4 = 0
+  let plannedIpv6 = 0
 
   console.log(`[BackfillInstanceNetwork] Starting${dryRun ? ' dry-run' : ''} for ${hosts.length} host(s)`)
 
@@ -118,11 +101,10 @@ async function main(): Promise<void> {
           continue
         }
 
-        changedInstances++
-        if (ipv4WillChange) ipv4ChangedCount++
-        if (ipv6WillChange) ipv6ChangedCount++
-
         if (dryRun) {
+          plannedInstances++
+          if (ipv4WillChange) plannedIpv4++
+          if (ipv6WillChange) plannedIpv6++
           console.log(
             `[BackfillInstanceNetwork] DRY-RUN instance #${instance.id} ${instance.name}: `
             + `ipv4 ${instance.ipv4 ?? '-'} -> ${resolved.ipv4 ?? '-'}, `
@@ -149,6 +131,9 @@ async function main(): Promise<void> {
           { updateLastSyncedAt: true }
         )
 
+        changedInstances++
+        if (persisted.ipv4Changed) ipv4ChangedCount++
+        if (persisted.ipv6Changed) ipv6ChangedCount++
         console.log(
           `[BackfillInstanceNetwork] Updated instance #${instance.id} ${instance.name}: `
           + `ipv4 ${persisted.oldIpv4 ?? '-'} -> ${persisted.newIpv4 ?? '-'}, `
@@ -166,6 +151,7 @@ async function main(): Promise<void> {
     `[BackfillInstanceNetwork] Completed${dryRun ? ' dry-run' : ''}: `
     + `scanned=${scanned}, changed=${changedInstances}, `
     + `ipv4Changed=${ipv4ChangedCount}, ipv6Changed=${ipv6ChangedCount}, failed=${failed}`
+    + (dryRun ? `, planned=${plannedInstances}, ipv4Planned=${plannedIpv4}, ipv6Planned=${plannedIpv6}` : '')
   )
   if (failed > 0) process.exitCode = 1
 }
