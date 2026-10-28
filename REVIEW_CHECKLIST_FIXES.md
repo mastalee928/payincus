@@ -300,7 +300,7 @@
 | R1-262 | 已有防护 | 保留初审结论 | update/delete/batch/usages使用ForHost约束且校验code归属host，旧跨节点缺口已有防护。 |
 | R1-263 | 已有防护 | 保留初审结论 | 当前仅数据库移除有保留远端/磁盘及暂停销售说明，不能当完整销毁或释放可售库存。 |
 | R1-264 | 部分存在 | 手动重置已修；运行中Incus未验 | 三角色统一原流量锁/事务，实例行锁核当前归属/采样身份，host和排序user锁后复核状态/角色/session/host归属，拒绝不改账目基线。真实PG先红admin禁用仍200后，10账号失效组合/转让删除竞争/正常免费付费/余额不足/并发扣费日志通过（takeover-traffic-auth-*），后端types/build/4守卫通过。认证夹具+停止实例，不覆盖所有定时重置和线上带宽。 |
-| R1-265 | 部分存在 | 待精修/运行复核 | 流量parser拒负数/非数字/超过PG bigint；实例更新缺省明确保留原值，但nullable parser将空字符串视null，清空与显式无限语义仍需按各入口核对，不能判全部允许负数。 |
+| R1-265 | 部分存在 | 已修复并专项验证 | 专用用户/实例流量额度PUT缺monthlyLimit或null body现在400，避免缺字段清为无限；共享parser及其它表单缺省保留/null与空字符串显式清空不变。真实Fastify/PG先红后绿覆盖两入口缺省、非法类型/负数/小数/溢出、零/trim/最大值/显式清空及用量账目保持；2守卫/manifest/后端build含tsc最终exit0，见HANDOFF。认证hook夹具、无真实Incus或生产验收。 |
 | R1-266 | 已有防护 | 保留初审结论 | 地区official/market/zone有active/hidden/globalShared/owner角色及专区授权；好友地区限定getSharedToUser集合；所有者列表/admin scope有requireAdmin或isAdmin门禁。原无过滤泄露私有套餐问题的当前防护已定位。 |
 | R1-267 | 已有防护 | 保留初审结论 | normalizePackagePlanInput以整数范围校验CPU/内存/磁盘/配额/价格/周期，流量通过PG bigint parser；不是直接缺省写负数/溢出。 |
 | R1-268 | 已有防护 | 保留初审结论 | syncInstanceNetwork及removeInstanceIpv6向cloud-init传nicMacs，保留已有eth0/eth1 hwaddr或按实例生成；原完全忽略MAC匹配的代码已有防护，不拿此结论代替所有VM真机重启验收。 |

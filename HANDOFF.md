@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-265 流量额度缺字段不再清为无限
+
+- R264 1761a79已push并核远端一致。专用用户/实例traffic limit PUT要求body显式包含monthlyLimit，缺字段或null body返回400；共享bigint parser及其它配置表单的缺省保留、null/空字符串显式清空合同保持。
+- `logs/takeover-traffic-limit-before.log`真实Fastify/PG先复现空payload返回200并清额度；`takeover-traffic-limit-server.log`通过两个入口缺省/null body、负数/数字类型/小数/对象/数组/空白/溢出拒绝，零/trim字符串/PG bigint最大值/null/空字符串/正常额度兼容，用量和余额明细保持。认证hook为夹具、实例停止，无Incus或生产操作。
+- 两项流量守卫、manifest191常规88环境排除通过；后端build含tsc最终exit0（`takeover-traffic-limit-build.exit`），专项已接现有PG CI。无前端改动。继续R269旧托管创建失败补偿与R270宿主赠送提交后的错误处理；默认机器池一机一卖保持。327与完整灾备未完成。
+
 ## 2026-10-29 R1-264 流量重置提交时复核权限
 
 - R260 866d9f4已push并核远端一致；R257 f1cc7c7 CI40757170502最终success。用户手动reset的管理员/宿主/付费所有者统一走原实例与用户流量锁、事务；实例行锁后核当前owner/host及采样身份/状态，宿主共享行锁与排序用户行锁后检查当前账号/角色/sid撤销和宿主归属。失权403、目标变化409，拒绝不推进基线、不改用量/配额/余额。原免费与付费规则保持，锁等待后重读余额用于账本。

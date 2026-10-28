@@ -147,6 +147,9 @@ export default async function trafficRoutes(fastify: FastifyInstance): Promise<v
             return reply.code(400).send({ error: 'Invalid user ID' })
         }
 
+        if (!request.body || !Object.hasOwn(request.body, 'monthlyLimit')) {
+            return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Monthly traffic limit is required'))
+        }
         const { monthlyLimit } = request.body
         const limit = parseNullablePostgresBigIntInput(monthlyLimit)
         if (limit === undefined) {
@@ -314,6 +317,9 @@ export default async function trafficRoutes(fastify: FastifyInstance): Promise<v
             return reply.code(400).send({ error: 'Invalid instance ID' })
         }
 
+        if (!request.body || !Object.hasOwn(request.body, 'monthlyLimit')) {
+            return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Monthly traffic limit is required'))
+        }
         const { monthlyLimit } = request.body
         const limit = parseNullablePostgresBigIntInput(monthlyLimit)
         if (limit === undefined) {
