@@ -13,6 +13,7 @@
     "test:review-vip-benefit-hall": "node ../scripts/test-vip-benefit-hall.mjs",
     "test:review-vip-level-rules": "node ../scripts/test-vip-level-rules.mjs",
     "test:review-host-create-instance": "node ../scripts/test-host-create-instance.mjs",
+    "test:review-admin-pool-create": "node ../scripts/test-admin-pool-create.mjs",
     "test:review-prize-editor": "node ../scripts/test-prize-editor.mjs",
     "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",

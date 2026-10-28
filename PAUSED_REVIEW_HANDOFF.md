@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：R250 8c3c138已push，CI40749600296最后运行。管理员默认机器池写回执/父目标查询上下文保护已修，实际完整页面Chrome先红后绿/3守卫/lint/双端types build/dist/manifest通过准备push。下一项AdminPoolInstanceCreate refresh失败仍用旧库存镜像可提交已真实先红，scripts/test-admin-pool-create-load.mjs未提交、产品未改。机器池读取需ready、错误/成功空态分开、缓存/session旧读取隔离/返回等待写settle，注意保持原请求幂等。旧套餐R252/253单独待，327继续。
+
 > **最新接续**：R249 6053510已push且CI success。R250宿主详情初读身份/host/session/cache隔离、持久retry/辅助错误与重试保资源通过Chrome/4守卫/lint/最终双端types build/dist，准备单项push；无待poll。Owner提醒管理员默认机器池一机一卖，已核AdminPoolInstanceCreate→pool-orders route/service，后端预占/幂等/三种收费集成断言已读。下一项优先机器池旧success读当前username与离页导航；新scripts/fixtures/admin-pool-create三文件尚未提交、产品未改。旧套餐R252/253单独待，不混为机器池验收。327持续。
 
 > **最新接续**：R247 3a760c2已push，CI40745605752最后运行。R249创建上下文代次/旧成功错误静默/草稿快照保新输入与自用不导航已修，Chrome先红后绿及R247/248回归/3守卫/lint/双端types build/dist通过准备push，无待poll。接R250整页初读成功门禁/持久retry、host/session/cache清旧身份套餐密钥配额并重读，方案/镜像读取也绑定该上下文；当前仅onMounted loadData且异常toast后伪装空套餐。完整组件/后端/守卫已读，327持续。

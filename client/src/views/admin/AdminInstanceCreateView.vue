@@ -3,11 +3,12 @@
  * 管理员创建实例页面
  * 支持创建免费实例或付费实例
  */
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onActivated, onDeactivated, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
 import { useThemeStore } from '@/stores/theme'
+import { useAuthStore } from '@/stores/auth'
 import PackageSelector from '@/components/instance/PackageSelector.vue'
 import ResourceSliders from '@/components/instance/ResourceSliders.vue'
 import HostSelector from '@/components/instance/HostSelector.vue'
@@ -28,6 +29,17 @@ type PackageScope = 'official' | 'hosted'
 const { t } = useI18n()
 const toast = useToast()
 const themeStore = useThemeStore()
+const authStore = useAuthStore(), lookupActive = ref(true)
+let disposed = false
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user || authStore.user.role !== 'admin') return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${identity}`
+})
 
 // 数据加载状态
 const packages = ref<Package[]>([])
@@ -159,6 +171,7 @@ onMounted(async (): Promise<void> => {
 
 // 验证用户名
 async function checkUsername(): Promise<void> {
+  if (disposed || !lookupActive.value || !sessionKey.value) return
   const username = usernameInput.value.trim()
   const sequence = ++usernameRequestSeq
   if (!usernameInput.value.trim()) {
@@ -172,6 +185,10 @@ async function checkUsername(): Promise<void> {
     // 使用精确查找接口，按用户名绝对匹配
     const res = await api.admin.lookupUser(username) as any
     if (sequence !== usernameRequestSeq || usernameInput.value.trim() !== username) return
+    if (res.user?.username !== username || !Number.isSafeInteger(res.user.id) || res.user.id <= 0 || res.user.status !== 'active') {
+      usernameValid.value = false; targetUser.value = null
+      return
+    }
     usernameValid.value = true
     targetUser.value = { 
       id: res.user.id, 
@@ -186,7 +203,10 @@ async function checkUsername(): Promise<void> {
     if (sequence === usernameRequestSeq) usernameChecking.value = false
   }
 }
-watch(usernameInput, () => { usernameRequestSeq++; usernameValid.value = null; targetUser.value = null; usernameChecking.value = false })
+watch([usernameInput, sessionKey, lookupActive], () => { usernameRequestSeq++; usernameValid.value = null; targetUser.value = null; usernameChecking.value = false }, { flush: 'sync' })
+onActivated(() => { lookupActive.value = true })
+onDeactivated(() => { lookupActive.value = false })
+onUnmounted(() => { disposed = true; usernameRequestSeq++ })
 
 function sortPackagesForCreate(items: Package[]): Package[] {
   return [...items].sort((a, b) => {

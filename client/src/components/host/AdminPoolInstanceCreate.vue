@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import { architectureOfPreset, type PoolCatalogRegion } from '@/utils/poolCatalog'
 import { localizePoolRegionName } from '@/utils/poolRegionCatalog'
 import { translateError } from '@/utils/errorHandler'
@@ -11,6 +12,18 @@ import { validateName } from '@/utils/validation'
 import type { SystemImage } from '@/types/api'
 const props = defineProps<{ username: string | null; balance: number }>()
 const { t, locale } = useI18n(), toast = useToast(), router = useRouter()
+const auth = useAuthStore(), route = useRoute(), active = ref(true)
+let disposed = false, contextSequence = 0
+const sessionKey = computed(() => {
+  if (!auth.token || !auth.user || auth.user.role !== 'admin') return ''
+  let identity = auth.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${auth.user.id}:${identity}`
+})
+const writable = computed(() => active.value && !!sessionKey.value)
 const regions = ref<PoolCatalogRegion[]>([]), allImages = ref<SystemImage[]>([])
 const selectedId = ref<number | null>(null), image = ref(''), name = ref('')
 const billing = ref<'free' | 'paid'>('free'), chargeFirstMonth = ref(true)
@@ -22,10 +35,17 @@ const images = computed(() => selected.value ? allImages.value.filter(item =>
   item.architecture === architectureOfPreset(selected.value!.resourcePreset) && item.instanceType !== 'vm') : [])
 const total = computed(() => selected.value ? selected.value.monthlyPrice + selected.value.setupFee : 0)
 const charge = computed(() => billing.value === 'paid' && chargeFirstMonth.value ? total.value / 100 : 0)
-const canSubmit = computed(() => !!props.username && !!selected.value?.idle && !!image.value && !!name.value.trim() &&
+const canSubmit = computed(() => writable.value && !!props.username && !!selected.value?.idle && !!image.value && !!name.value.trim() &&
   props.balance >= charge.value && !loading.value && !submitting.value)
 watch([selectedId, images], () => { if (!images.value.some(item => item.remoteAlias === image.value)) image.value = images.value[0]?.remoteAlias || '' })
-watch([() => props.username, selectedId, image, name, billing, chargeFirstMonth], () => { requestId.value = crypto.randomUUID() })
+watch([() => props.username, selectedId, image, name, billing, chargeFirstMonth, sessionKey], () => { requestId.value = crypto.randomUUID() }, { flush: 'sync' })
+watch([() => props.username, sessionKey, active, () => route.fullPath], () => {
+  contextSequence++
+  error.value = ''
+}, { flush: 'sync' })
+onActivated(() => { active.value = true })
+onDeactivated(() => { active.value = false })
+onUnmounted(() => { disposed = true; contextSequence++ })
 async function refresh() {
   loading.value = true; error.value = ''
   try {
@@ -36,21 +56,26 @@ async function refresh() {
   finally { loading.value = false }
 }
 async function submit() {
-  if (!canSubmit.value || !selected.value || !props.username) return
+  if (disposed || !canSubmit.value || !selected.value || !props.username) return
   const validation = validateName(name.value)
   if (!validation.valid) { error.value = validation.message || t('admin.instanceCreate.createFailed'); return }
   submitting.value = true; error.value = ''
+  const context = contextSequence
+  const payload = { requestId: requestId.value, username: props.username, name: name.value.trim(),
+    poolPriceId: selected.value.id, image: image.value, expectedTotal: total.value, billing: billing.value, chargeFirstMonth: chargeFirstMonth.value }
+  const current = () => !disposed && writable.value && context === contextSequence && requestId.value === payload.requestId
   try {
-    const result = await api.hostPools.createForUser({ requestId: requestId.value, username: props.username, name: name.value.trim(),
-      poolPriceId: selected.value.id, image: image.value, expectedTotal: total.value, billing: billing.value, chargeFirstMonth: chargeFirstMonth.value })
+    const result = await api.hostPools.createForUser(payload)
+    if (!current()) return
     const instance = result.instances[0]
     if (!instance || instance.status === 'error') {
       if (instance && !instance.refundPending) requestId.value = crypto.randomUUID()
-      throw new Error(t('admin.instanceCreate.createFailed'))
+      error.value = t('admin.instanceCreate.createFailed')
+      return
     }
-    toast.success(t('admin.instanceCreate.createSuccess', { username: props.username }))
+    toast.success(t('admin.instanceCreate.createSuccess', { username: payload.username }))
     await router.push(`/admin/instances/${instance.id}`)
-  } catch (failure) { error.value = translateError(failure) }
+  } catch (failure) { if (current()) error.value = translateError(failure) }
   finally { submitting.value = false }
 }
 onMounted(refresh)

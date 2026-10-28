@@ -286,8 +286,8 @@
 | R1-248 | 存在 | 已修复；完整创建生命周期继续 | 目标输入同步清旧验证，提交匹配当前trim用户名；lookup按seq/host/session/模式/cache隔离，核返回身份与ID，保存提示用提交payload。Chrome先红后绿、直接submit/乱序/错误身份/状态/SSH/session/host/cache/精确收件人、4守卫/lint/最终双端types build/dist/manifest通过（takeover-host-gift-target-*）；R247/249/250另修，未真实交付。 |
 | R1-249 | 存在 | 已修复；真实创建未验 | 自用/赠送回执绑定host/session/route/cache代次，旧success/error不导航/toast/清空；提交快照相同才重置，改过草稿保留，init IDs复制。Chrome先红新输入被清→保留、缓存/host/session/卸载/自用导航及R247/248回归、3守卫/lint/双端types build/dist通过（takeover-host-create-save-*）。R250初读独立继续。 |
 | R1-250 | 存在 | 已修复；真实创建未验 | 宿主详情创建的初读绑定host/session/cache，身份核对、旧成功失败丢弃、持久错误/重试；套餐/密钥/配额清理与当前数据门禁，方案重试保资源输入。Chrome失败先红后绿及R247/248/249回归、4守卫/lint/最终双端types build/dist通过（takeover-host-create-load-*）。此入口不同于管理员默认机器池创建，后者继续单独验。 |
-| R1-251 | 已有防护 | 保留初审结论 | username查询有seq且输入变化清目标，提交核对当前身份；不按旧修法改赠送归属。 |
-| R1-252 | 存在；两入口分别核对 | 待精修/运行复核 | 旧套餐分支创建完成toast/凭据/重置draft无dispose。Owner提醒默认已是AdminPoolInstanceCreate→admin/pool-create；机器池同样缺旧回执隔离且提示读当前username，优先修该实际主流程，后端已有独占预占/幂等，不混为旧套餐流程。 |
+| R1-251 | 部分已有防护 | 关联主流程已补保护 | 原username有seq/输入清目标；复审补同步失效、session/cache/卸载与响应身份/状态校验，防旧身份重新启用机器池创建。实际管理员页面Chrome矩阵、3守卫/lint/双端types build/dist通过；后端目标归属/一机一卖保持。 |
+| R1-252 | 存在；两入口分别核对 | 机器池已修；旧套餐待 | 默认AdminPoolInstanceCreate→admin/pool-create写回执绑定target/session/route/cache/requestId，固定payload、旧成功失败静默，父查询上下文也保护；Chrome先红后绿/3守卫/lint/双端types build/dist（takeover-admin-pool-write-*）。后端预占/幂等不改，无真实创建。旧套餐toast/凭据/重置draft仍待，机器池refresh失败沿用旧数据已复现并继续。 |
 | R1-253 | 存在于旧套餐分支 | 待精修/运行复核 | AdminInstanceCreateView套餐分支canSubmit缺!imagesLoading，刷新中旧镜像仍可提交。默认机器池是另一组件，已有loading禁写与架构过滤，其读取/错误/生命周期另核；不能直接搬旧套餐修法宣称机器池已验。 |
 | R1-254 | 存在 | 源码已修/真实脚本执行通过 | init-env现去重实现5次真实Bash执行覆盖fresh/重复身份保持/空重复/有效含等号值/CRLF/不打印生成材料；logs/review-init-env-execution-final.log、相关2/2 logs/test-run-20261027-224403。Windows执行不代表Linux权限验收 |
 | R1-255 | 存在 | 待精修/运行复核 | 首次语言结果缓存，切语言和重开缺完整request generation，旧条款可能覆盖当前。 |

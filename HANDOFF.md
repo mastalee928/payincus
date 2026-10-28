@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-252 关联主流程：管理员机器池创建回执
+
+- R250 8c3c138已push并核远端一致，CI40749600296最后运行。按owner提醒优先核管理员默认机器池：父页面目标查询加入session/cache/卸载代次与响应身份/状态核验；AdminPoolInstanceCreate写入捕获payload，绑定username/session/route/cache/请求编号，旧成功失败不能改当前提示或导航。保留机器池一机一卖、请求幂等、免费/付费免首月/扣首月的既有后端与原字段冻结。
+- `logs/takeover-admin-pool-write-before.log`真实管理员页面先复现alice请求后换bob仍导航旧实例；`takeover-admin-pool-write-browser-final.log`通过当前默认pool、目标ABA/会话/SID/缓存/离页/切资源来源/卸载/退出、lookup错误身份/禁用用户、十连点单请求、固定payload、未知失败与退款未结重试同ID、已失败并结清后新ID、三种收费参数、当前正常成功导航，三语1440/390已截图检查。3守卫/lint/双端vue-tsc/build/dist/manifest191常规77环境排除通过；新实际页面Chrome专项接CI。
+- 后端pool-orders路由/service及hosts独占预占链已复审，既有集成覆盖目标归属、三种收费及重放返回原实例；本项未改后端，浏览器API受控，无真实生产开通或扣费。下一项机器池refresh失败后仍可用旧数据提交已Chrome先红（takeover-admin-pool-read-before.log），独立继续。旧套餐R252写回执/R253刷新门禁仍待；不能将主流程修复说成这两旧分支或327全部完成。
+
 ## 2026-10-29 R1-250 宿主创建初读失败与上下文隔离
 
 - R249 6053510已push且CI40746847268最终success；R247/R248 CI也最终success。HostCreateInstanceTab初读及方案/镜像绑定host/session/cache代次，核对auth.me身份，切换清旧套餐/密钥/配额与表单。当前初读成功才可创建；失败持久显示并重试，与成功无套餐分开；方案重试保留资源输入。在途创建返回缓存页先等写结束再重新读取。
