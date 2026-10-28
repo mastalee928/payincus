@@ -13,6 +13,10 @@ import type {
 import { waitForOperation } from './incus-utils.js'
 import { resolveCertificatePair } from './certificate-paths.js'
 
+export class IncusApiError extends Error {
+  constructor(message: string, readonly statusCode: number, readonly path: string) { super(message) }
+}
+
 export class IncusClient {
   private serverCertificate: string | null
   private serverFingerprint: string | null
@@ -161,18 +165,18 @@ export class IncusClient {
           error: text || `HTTP ${response.statusCode}`
         })
         // Incus returns plain text for some errors (like mTLS failures)
-        throw new Error(text || `HTTP ${response.statusCode}`)
+        throw new IncusApiError(text || `HTTP ${response.statusCode}`, response.statusCode, path)
       }
 
       // Incus API 返回格式: { type: "sync/async", status: "Success", metadata: {...} }
-      if (data.type === 'error') {
+      if (data.type === 'error' || response.statusCode >= 400) {
         // 记录错误日志
         console.error('[Incus API Error]', {
           method,
           url,
           error: data.error || 'Incus API 错误'
         })
-        throw new Error(data.error || 'Incus API 错误')
+        throw new IncusApiError(data.error || 'Incus API 错误', response.statusCode, path)
       }
 
       // 异步操作需要等待完成

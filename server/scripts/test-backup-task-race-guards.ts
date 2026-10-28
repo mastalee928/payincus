@@ -22,6 +22,12 @@ const routeSource = readFileSync(resolve(__dirname, '../src/routes/backups.ts'),
 const restoreWorkerSource = readFileSync(resolve(__dirname, '../src/workers/restoreTaskWorker.ts'), 'utf8')
 const uploadWorkerSource = readFileSync(resolve(__dirname, '../src/workers/backupUploadWorker.ts'), 'utf8')
 const appSource = readFileSync(resolve(__dirname, '../src/app.ts'), 'utf8')
+const backupDeleteSource = readFileSync(resolve(__dirname, '../src/db/backup-deletion.ts'), 'utf8')
+assert.ok(backupDeleteSource.includes('withSnapshotMutation(expected, actor, false') &&
+  backupDeleteSource.includes("error.statusCode === 404 && error.path === path") &&
+  backupDeleteSource.includes("client.request('GET', path") && backupDeleteSource.includes('if (!missing)'),
+  'backup deletion must fence current authorization/tasks and confirm exact remote absence')
+assert.ok(!routeSource.includes('not found in Incus, proceeding with DB deletion'), 'arbitrary Incus deletion failure must not hide the DB backup')
 
 const createRestoreSection = section(restoreSource, 'export async function createRestoreTask(', '/**\n * 获取恢复任务')
 assert.ok(createRestoreSection.includes('prisma.$transaction'), 'createRestoreTask must be transactional')

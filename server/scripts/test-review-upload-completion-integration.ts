@@ -16,6 +16,8 @@ const { createBackupUploadTask, cancelBackupUploadTask } = await import('../src/
 const { uploadStorageIdentity } = await import('../src/db/backup-upload-authorization.js')
 const { transferHostIdentity } = await import('../src/lib/transfer-host-identity.js')
 const { normalizeStorageFilename } = await import('../src/storage/path.js')
+const { deleteAuthorizedBackup } = await import('../src/db/backup-deletion.js')
+const { createRestoreTask } = await import('../src/db/restore-tasks.js')
 const { updateStorageConfig, deleteStorageConfig } = await import('../src/db/storage-configs.js')
 const { default: Fastify } = await import('fastify')
 const { default: backupRoutes } = await import('../src/routes/backups.js')
@@ -33,6 +35,9 @@ execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey'
 const certificate = await readFile(certPath, 'utf8')
 const payload = Buffer.from('isolated backup payload')
 let exports = 0, requests = 0
+let deleteMode: 'absent' | 'alreadyAbsent' | 'forbidden' | 'failure' | 'misleading' | 'present' | 'disconnect' = 'absent'
+let backupDeletes = 0, backupChecks = 0
+let deletionGate: Promise<void> | undefined, deletionEntered: (() => void) | undefined
 const server = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate,
   requestCert: true, rejectUnauthorized: true }, (request, response) => {
   assert.ok((request.socket as any).authorized)
@@ -44,6 +49,24 @@ const server = createServer({ key: await readFile(keyPath), cert: certificate, c
     exports++
     response.setHeader('content-length', payload.length)
     response.end(payload)
+  } else if (request.url === `/1.0/instances/${tag}/backups/saved`) {
+    if (request.method === 'DELETE') {
+      backupDeletes++
+      deletionEntered?.()
+      if (deleteMode === 'disconnect') { request.socket.destroy(); return }
+      const status = deleteMode === 'forbidden' ? 403 : deleteMode === 'failure' || deleteMode === 'misleading' ? 500 : deleteMode === 'alreadyAbsent' ? 404 : 200
+      const respond = () => {
+        response.writeHead(status, { 'content-type': 'application/json' })
+        response.end(JSON.stringify(status === 200 || deleteMode === 'misleading' ? { type: 'sync', metadata: {} } : { type: 'error', error: 'fixture-delete-failed' }))
+      }
+      if (deletionGate) void deletionGate.then(respond)
+      else respond()
+    } else {
+      backupChecks++
+      const status = deleteMode === 'present' ? 200 : 404
+      response.writeHead(status, { 'content-type': 'application/json' })
+      response.end(JSON.stringify(status === 200 ? { type: 'sync', metadata: { name: 'saved' } } : { type: 'error', error: 'not found' }))
+    }
   } else {
     response.statusCode = 404
     response.end()
@@ -88,6 +111,8 @@ StorageFactory.create = () => ({
 })
 const trigger = `upload_audit_${user.id}`
 let faultInstalled = false
+const deleteTrigger = `backup_delete_${user.id}`
+let deleteFaultInstalled = false
 async function makeTask(status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' = 'PROCESSING') {
   const currentStorage = await prisma.storageConfig.findUniqueOrThrow({ where: { id: storage.id } })
   const task = await createBackupUploadTask({ userId: user.id, hostId: host.id, instanceId: instance.id,
@@ -403,6 +428,67 @@ try {
   assert.equal(normalizeStorageFilename(longClaim!.remoteFileName!).length, 255)
   assert.ok(longClaim!.remoteFileName!.includes(longClaim!.attemptId!))
   await cleanupStaleUploadTasks()
+  await prisma.instance.update({ where: { id: instance.id }, data: { incusId: tag } })
+  await prisma.backup.update({ where: { id: backup.id }, data: { incusName: 'saved' } })
+  const deleteUrl = `/instances/${instance.id}/backups/${backup.id}`
+  for (const mode of ['forbidden', 'failure', 'misleading', 'present', 'disconnect'] as const) {
+    deleteMode = mode
+    const response = await app.inject({ method: 'DELETE', url: deleteUrl })
+    assert.ok(response.statusCode >= 400, `${mode}: ${response.body}`)
+    assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'ready')
+  }
+  const waitingUpload = await makeTask('PENDING')
+  const beforeBlockedDelete = backupDeletes
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 409)
+  assert.equal(backupDeletes, beforeBlockedDelete)
+  await cancelBackupUploadTask(waitingUpload.id, instance.id, actor)
+  const expectedInstance = { id: instance.id, user_id: user.id, host_id: host.id, incus_id: tag }
+  await prisma.instance.update({ where: { id: instance.id }, data: { userId: other.id } })
+  await assert.rejects(deleteAuthorizedBackup(expectedInstance, { id: backup.id, incus_name: 'saved' }, actor, transferHostIdentity(host)), /归属/)
+  await prisma.instance.update({ where: { id: instance.id }, data: { userId: user.id } })
+  await prisma.tokenInvalidation.create({ data: { userId: user.id, sessionId: actor.sid, invalidatedAt: actor.iat } })
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 403)
+  await prisma.tokenInvalidation.deleteMany({ where: { userId: user.id } })
+  assert.equal(backupDeletes, beforeBlockedDelete)
+  await prisma.host.update({ where: { id: host.id }, data: { url: 'https://127.0.0.1:1' } })
+  await assert.rejects(deleteAuthorizedBackup(expectedInstance, { id: backup.id, incus_name: 'saved' }, actor, transferHostIdentity(host)), /宿主身份/)
+  await prisma.host.update({ where: { id: host.id }, data: { url: host.url } })
+  assert.equal(backupDeletes, beforeBlockedDelete)
+  deleteMode = 'absent'
+  let releaseDelete!: () => void, signalDelete!: () => void
+  deletionGate = new Promise<void>(resolve => { releaseDelete = resolve })
+  const deleteEntered = new Promise<void>(resolve => { signalDelete = resolve })
+  deletionEntered = signalDelete
+  const deleting = app.inject({ method: 'DELETE', url: deleteUrl })
+  // Start injection immediately; LightMyRequest is thenable.
+  const deletingResponse = Promise.resolve(deleting)
+  await deleteEntered
+  try {
+    await assert.rejects(submit(), /正在处理/)
+    assert.equal(await createRestoreTask({ userId: user.id, hostId: host.id, instanceId: instance.id,
+      backupId: backup.id, tempInstanceName: 'fixture-restore', originalInstanceName: tag, originalIncusId: tag }), null)
+  } finally { releaseDelete() }
+  assert.equal((await deletingResponse).statusCode, 200)
+  deletionGate = undefined
+  deletionEntered = undefined
+  assert.ok(backupChecks >= 2)
+  assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'deleted')
+  const beforeReplay = { backupDeletes, backupChecks }
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 200)
+  assert.deepEqual({ backupDeletes, backupChecks }, beforeReplay)
+  await prisma.backup.update({ where: { id: backup.id }, data: { status: 'ready' } })
+  await prisma.$executeRawUnsafe(`CREATE FUNCTION ${deleteTrigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = ${backup.id} AND NEW.status = 'deleted' THEN RAISE EXCEPTION 'fixture-backup-delete-commit-failed'; END IF; RETURN NEW; END $$`)
+  await prisma.$executeRawUnsafe(`CREATE TRIGGER ${deleteTrigger} BEFORE UPDATE ON backups FOR EACH ROW EXECUTE FUNCTION ${deleteTrigger}()`)
+  deleteFaultInstalled = true
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 500)
+  assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'ready')
+  await prisma.$executeRawUnsafe(`DROP TRIGGER ${deleteTrigger} ON backups`)
+  await prisma.$executeRawUnsafe(`DROP FUNCTION ${deleteTrigger}()`)
+  deleteFaultInstalled = false
+  deleteMode = 'alreadyAbsent'
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 200)
+  assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'deleted')
+  console.log('PASS backup deletion: real mTLS 403/500/disconnect/present retain ready row, exact-resource absence required, old owner/revoked session/active upload blocked, deletion fences new upload and restore through remote confirmation, terminal replay performs no remote calls')
   console.log('PASS persisted per-attempt filenames, exact UUID results/compensation, 30-second retry delay, cleanup failure receipt/no retry, startup interruption with remote filename retention, null-start cleanup, and live-attempt exclusion')
   console.log('PASS real PG/Fastify upload admission + claim + dispatch: 11 changed targets/session cases at each boundary, legacy rejection, owner-only history, cancellation/claim race, snapshot/proxy/transfer fencing, ten-job host limit and storage deletion race; mTLS export completion, audit failure, same-second files, replay, concurrent execution, instance preservation and compensation. Storage and authentication middleware are fixtures; database authorization and routes are real.')
 } finally {
@@ -412,6 +498,10 @@ try {
   if (faultInstalled) {
     await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${trigger} ON logs`)
     await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${trigger}()`)
+  }
+  if (deleteFaultInstalled) {
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${deleteTrigger} ON backups`)
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${deleteTrigger}()`)
   }
   await prisma.backupUploadTask.deleteMany({ where: { hostId: host.id } })
   await prisma.autoSnapshotOperation.deleteMany({ where: { hostId: host.id } })

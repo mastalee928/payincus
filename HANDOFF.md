@@ -2,6 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 备份删除确认与共享操作锁
+
+- 上一批`8d73ab341b83d1f7b3b729a3fcf2659143e8e867`已普通push并核对origin；[CI 40649284830](https://github.com/mastalee928/payincus/actions/runs/40649284830)7/7 success。此前eac0b06也7/7。每段源码/测试/备忘及时推送，无积压到327整体完成。
+- 修复备份删除catch所有远端错误后仍软删数据库的问题。复用实例共享锁、current actor/session/归属、host行锁和未决snapshot/proxy/transfer/upload/restore门禁，锁保持至远端确认与本地提交。绑定请求早期host身份和备份原名称，固定原mTLS连接；创建中备份拒删，已deleted记录不再远端操作。
+- IncusApiError携带实际HTTP状态和原request path；只有该备份精确路径的404可视为不存在，async operation的404或连接/403/500不能冒充资源缺失。DELETE后再GET确认不存在，仍存在则保留ready。HTTP错误即使JSON伪装sync成功也拒绝。
+- `logs/takeover-backup-delete-final.log`真实PG/Fastify/mTLS专项通过：403/500/伪sync500/断连/删除后仍存在保留记录，旧owner/撤销session/变更host与活跃上传零删除请求；持锁远端等待时新upload/restore拒绝；确认缺失成功，terminal重复零远端；远端已删后PG trigger阻止落库保留ready，再以精确404重试完成。前两批上传回归同次通过，真实磁盘和存储仍是边界替身。
+- 4/4相关守卫（含Incus池）`logs/takeover-backup-delete-final-guards.log`，server类型/后端构建`logs/takeover-backup-delete-final-typecheck.log`和`logs/takeover-backup-delete-final-build.log`。本批不新增schema、不改前端；不把当前专项当整套188或生产验证。
+- 下一段仍需：手工backup create/delete的持久远端operation回执与SIGKILL、restore固定原身份/UUID/原副本保护、真正上传在途撤销/provider总截止和远端清理核对。同步事务锁仅保护当前进程操作，进程强杀后自动恢复仍未闭合；327和完整网关灾备继续，三台机身份核验另行保留。
+
 ## 2026-10-28 上传执行批次隔离与重试状态
 
 - 前一授权/目标修复`eac0b068916b55e7af82347526b3d4ec91886046`已普通push main并核对远端；[CI 40648563020](https://github.com/mastalee928/payincus/actions/runs/40648563020)全部7/7 success，新增上传真实PG专项已在Linux执行。阶段推送继续，不是发版或生产更新。

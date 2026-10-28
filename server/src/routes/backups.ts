@@ -12,12 +12,13 @@ import * as db from '../db/index.js'
 import { prisma } from '../db/prisma.js'
 import { BackupUploadAuthorizationError, uploadStorageIdentity } from '../db/backup-upload-authorization.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { deleteAuthorizedBackup } from '../db/backup-deletion.js'
+import { SnapshotMutationError } from '../db/snapshot-operation-guards.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { getIncusClient } from '../lib/incus/index.js'
 import {
   createBackup as createIncusBackup,
-  deleteBackup as deleteIncusBackup,
   getBackupExportStream
 } from '../lib/incus/incus-backups.js'
 import {
@@ -291,41 +292,30 @@ export default async function backupRoutes(fastify: FastifyInstance) {
     // 检查转移锁定
     if (await checkTransferLock(instanceIdNum, reply)) return
 
+    const deleteHost = await prisma.host.findUnique({ where: { id: instance.host_id } })
+    if (!deleteHost) return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
+
     if (!await requireVerifiedOperation(reply, request.user.id, backupIdNum)) return
 
     try {
-      // 获取宿主机信息并创建 Incus 客户端
-      const host = await db.getHostById(instance.host_id)
-      if (!host) {
-        return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
-      }
-      const client = await getIncusClient(host)
-
-      // 在 Incus 中删除备份
-      try {
-        await deleteIncusBackup(client, instance.incus_id, backup.incus_name)
-      } catch (incusErr) {
-        // 如果 Incus 中不存在，继续删除数据库记录
-        fastify.log.warn(`Backup ${backup.incus_name} not found in Incus, proceeding with DB deletion`)
-      }
-
-      // 从数据库删除（软删除）
-      await db.deleteBackup(backupIdNum)
+      const result = await deleteAuthorizedBackup(instance, backup, request.user, transferHostIdentity(deleteHost))
+      if (!result.deletedNow) return { message: 'Backup deleted' }
 
       // 发送通知
       await sendNotification(request.user.id, 'backup_deleted', {
-        instanceName: instance.name,
-        backupName: backup.name,
-        hostName: host.name
+        instanceName: result.instanceName,
+        backupName: result.backupName,
+        hostName: result.hostName
       })
 
-      await createLog(request.user.id, 'backup', 'backup.delete', `Deleted backup "${backup.name}" of instance "${instance.name}" [host: ${host.name}]`, 'success', { instanceId: instanceIdNum })
+      await createLog(request.user.id, 'backup', 'backup.delete', `Deleted backup "${result.backupName}" of instance "${result.instanceName}" [host: ${result.hostName}]`, 'success', { instanceId: instanceIdNum })
 
       return { message: 'Backup deleted' }
     } catch (err) {
       fastify.log.error(err)
       const errorMessage = err instanceof Error ? err.message : String(err)
       await createLog(request.user.id, 'backup', 'backup.delete', `Failed to delete backup: ${errorMessage}`, 'failed', { instanceId: instanceIdNum })
+      if (err instanceof SnapshotMutationError) return reply.code(err.statusCode).send(apiError(ErrorCode.BACKUP_DELETE_FAILED, errorMessage))
       return reply.code(500).send(apiError(ErrorCode.BACKUP_DELETE_FAILED, errorMessage))
     }
   })
