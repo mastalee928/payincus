@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import api from '@/api'
@@ -25,6 +25,20 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const authStore = useAuthStore()
 const toast = useToast()
+const mounted = ref(false), activated = ref(true)
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Keep full identity for legacy tokens. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const active = computed(() => mounted.value && activated.value && !!sessionKey.value)
+let disposed = false, contextSequence = 0, readSequence = 0
+let readController: AbortController | undefined
+function currentContext(context: number) { return !disposed && active.value && context === contextSequence }
 
 type BadgeRewardModalState = {
   visible: boolean
@@ -34,6 +48,7 @@ type BadgeRewardModalState = {
 }
 
 const loading = ref(true)
+const loadError = ref('')
 const actionLoading = ref(false)
 const activeTab = ref<'draw' | 'my'>(props.initialTab)
 const selectedBadgeId = ref<string | null>(null)
@@ -195,9 +210,16 @@ async function drawRandomBadgeFromRewardModal() {
 }
 
 async function loadOverview() {
+  if (disposed || !active.value) return
+  const context = contextSequence, request = ++readSequence
+  readController?.abort()
+  const controller = new AbortController(); readController = controller
   loading.value = true
+  loadError.value = ''
   try {
-    overview.value = await api.entertainment.getBadgeOverview()
+    const data = await api.entertainment.getBadgeOverview(controller.signal)
+    if (!currentContext(context) || request !== readSequence) return
+    overview.value = data
     if (authStore.user) {
       authStore.user.avatarBadgeId = overview.value.avatarBadgeId
     }
@@ -206,24 +228,36 @@ async function loadOverview() {
       selectedBadgeId.value = overview.value.catalog[0].id
     }
   } catch (error) {
-    toast.error(translateError(error))
+    if (currentContext(context) && request === readSequence) loadError.value = translateError(error)
   } finally {
-    loading.value = false
+    if (currentContext(context) && request === readSequence) { loading.value = false; readController = undefined }
   }
 }
 
-async function drawRandomBadge() {
-  if (!overview.value) return
+function beginAction(): number | null {
+  if (!active.value || disposed || loading.value || loadError.value || actionLoading.value || !overview.value) return null
   actionLoading.value = true
+  return contextSequence
+}
+function finishAction(context: number) {
+  if (disposed) return
+  actionLoading.value = false
+  if (!currentContext(context) && active.value) void loadOverview()
+}
+
+async function drawRandomBadge() {
+  const context = beginAction()
+  if (context === null) return
   try {
     const result = await api.entertainment.drawBadgeRandom()
+    if (!currentContext(context)) return
     openBadgeRewardModal('draw', result.ownership, result.currentPoints)
     await loadOverview()
-    emit('points-updated')
+    if (currentContext(context)) emit('points-updated')
   } catch (error) {
-    toast.error(translateError(error))
+    if (currentContext(context)) toast.error(translateError(error))
   } finally {
-    actionLoading.value = false
+    finishAction(context)
   }
 }
 
@@ -238,17 +272,19 @@ async function drawRandomBadgeMulti() {
     return
   }
 
-  actionLoading.value = true
+  const context = beginAction()
+  if (context === null) return
   try {
     const result = await api.entertainment.drawBadgeRandomMulti()
+    if (!currentContext(context)) return
     badgeMultiDrawRewards.value = result.ownerships || []
     showBadgeMultiDrawModal.value = badgeMultiDrawRewards.value.length > 0
     await loadOverview()
-    emit('points-updated')
+    if (currentContext(context)) emit('points-updated')
   } catch (error) {
-    toast.error(translateError(error))
+    if (currentContext(context)) toast.error(translateError(error))
   } finally {
-    actionLoading.value = false
+    finishAction(context)
   }
 }
 
@@ -258,29 +294,33 @@ async function selectBadge() {
     return
   }
 
-  actionLoading.value = true
+  const context = beginAction()
+  if (context === null) return
   try {
     const result = await api.entertainment.drawBadgeSelect(selectedBadgeId.value)
+    if (!currentContext(context)) return
     openBadgeRewardModal('select', result.ownership, result.currentPoints)
     await loadOverview()
-    emit('points-updated')
+    if (currentContext(context)) emit('points-updated')
   } catch (error) {
-    toast.error(translateError(error))
+    if (currentContext(context)) toast.error(translateError(error))
   } finally {
-    actionLoading.value = false
+    finishAction(context)
   }
 }
 
 async function applyToAvatar(ownershipId: number) {
-  actionLoading.value = true
+  const context = beginAction()
+  if (context === null) return
   try {
     await api.entertainment.applyBadgeToAvatar(ownershipId)
+    if (!currentContext(context)) return
     toast.success(t('entertainment.badges.applyAvatarSuccess'))
     await loadOverview()
   } catch (error) {
-    toast.error(translateError(error))
+    if (currentContext(context)) toast.error(translateError(error))
   } finally {
-    actionLoading.value = false
+    finishAction(context)
   }
 }
 
@@ -291,28 +331,32 @@ async function applyToInstance(ownershipId: number) {
     return
   }
 
-  actionLoading.value = true
+  const context = beginAction()
+  if (context === null) return
   try {
     await api.entertainment.applyBadgeToInstance(ownershipId, instanceId)
+    if (!currentContext(context)) return
     toast.success(t('entertainment.badges.applyInstanceSuccess'))
     await loadOverview()
   } catch (error) {
-    toast.error(translateError(error))
+    if (currentContext(context)) toast.error(translateError(error))
   } finally {
-    actionLoading.value = false
+    finishAction(context)
   }
 }
 
 async function unapplyOwnership(ownershipId: number) {
-  actionLoading.value = true
+  const context = beginAction()
+  if (context === null) return
   try {
     await api.entertainment.unapplyBadge(ownershipId)
+    if (!currentContext(context)) return
     toast.success(t('entertainment.badges.unapplySuccess'))
     await loadOverview()
   } catch (error) {
-    toast.error(translateError(error))
+    if (currentContext(context)) toast.error(translateError(error))
   } finally {
-    actionLoading.value = false
+    finishAction(context)
   }
 }
 
@@ -321,9 +365,18 @@ function closeBadgeMultiDrawModal() {
   badgeMultiDrawRewards.value = []
 }
 
-onMounted(() => {
-  loadOverview()
-})
+watch([active, sessionKey], () => {
+  contextSequence++; readSequence++; readController?.abort(); readController = undefined
+  loading.value = false; loadError.value = ''; overview.value = null
+  instanceSelectionMap.value = {}; selectedBadgeId.value = null
+  badgeRewardModal.value = { visible: false, mode: 'draw', ownership: null, remainingPoints: null }
+  closeBadgeMultiDrawModal()
+  if (active.value) void loadOverview()
+}, { flush: 'sync' })
+onMounted(() => { mounted.value = true })
+onActivated(() => { activated.value = true })
+onDeactivated(() => { activated.value = false })
+onUnmounted(() => { disposed = true; contextSequence++; readSequence++; readController?.abort() })
 
 watch(groupedCatalog, groups => {
   const visibleBadgeIds = groups.flatMap(group => group.items.map(item => item.id))
@@ -344,11 +397,15 @@ watch(() => props.initialTab, value => {
 
 <template>
   <div class="space-y-6">
+    <div v-if="loadError" role="alert" class="card p-4 space-y-3">
+      <p class="text-sm text-red-600 dark:text-red-400">{{ loadError }}</p>
+      <button type="button" class="btn btn-secondary" :disabled="loading || actionLoading" @click="loadOverview">{{ t('common.retry') }}</button>
+    </div>
     <div v-if="loading" class="card p-8 text-center text-themed-muted">
       {{ t('common.loading') }}...
     </div>
 
-    <template v-else-if="overview">
+    <template v-else-if="overview && !loadError">
       <div class="grid gap-4 md:grid-cols-4">
         <div class="card p-4">
           <div class="text-xs uppercase tracking-wide text-themed-muted">{{ t('entertainment.currentPoints') }}</div>

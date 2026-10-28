@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-231 徽章中心读取与动作生命周期
+
+- R227 `19a0ef8`已push并核远端一致；CI40715873444再次在Chrome启动20秒超时，已rerun失败任务，待最终。R228 CI40714895982最终success。
+- BadgeCenter概览绑定KeepAlive/session/请求代次，隐藏/卸载取消GET并拒迟到数据、avatar覆盖与finally；返回刷新，读取失败持久原地重试且错误状态不能继续写。随机/十连/自选/头像/实例佩戴/取消均同步门禁，旧动作不能toast/emit/弹奖励窗口；离页关窗口，未结束写请求保busy，回来后重新核状态。没有改服务器积分/归属语义或新增后端幂等。
+- `logs/takeover-badge-center-browser-verified.log`实际Vue/Pinia/Router/KeepAlive与延迟API，通过旧概览/头像、缓存/会话/同SID/卸载、retry、10连点、操作中离页/换会话、旧post-write刷新与emit、实例ID/ownership快照。首次测试十连按钮key写错，修为源码实际randomMultiButton后通过；三语1440/390截图与错误状态保留`logs/badge-center-browser/`，已看手机英文/桌面错误。API是夹具，非真实积分/实例写入。
+- `takeover-badge-center-guards.log`5/5、`takeover-badge-center-build.log`双端vue-tsc/build、dist及lint-final通过；专项接CI，190常规/68环境排除。下一项优先补Chrome启动诊断（重复超时只有笼统错误，不能猜定根因），然后R232/233实例徽章弹窗。327与完整灾备未完成。
+
 ## 2026-10-28 R1-227 星座生肖缺失背景渐变
 
 - R228 `fc9b1c6`已push并核远端一致，R229 CI40713907888最终success。原HTML源未找到，本次按已存在九组元素描边色重建18组深浅主题背景，不宣称还原原始色值。只补48份实际缺失的渐变定义，既有defs、几何/路径/动画不变；生成器使用同一helper、已有定义原样保留、未知缺项明确报错。

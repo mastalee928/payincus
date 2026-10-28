@@ -3421,7 +3421,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
       badges: BadgeCatalogItem[]
     }> => http.get('/entertainment/badges/catalog'),
 
-    getBadgeOverview: (): Promise<BadgeOverview> => http.get('/entertainment/badges/overview'),
+    getBadgeOverview: (signal?: AbortSignal): Promise<BadgeOverview> => http.get('/entertainment/badges/overview', { signal }),
 
     drawBadgeRandom: (): Promise<{
       success: boolean
