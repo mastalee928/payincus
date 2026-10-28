@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-271 三个运维同步入口拒绝旧观察
+
+- 5e86550已push，CI40768936185最后运行；c188aac的CI40766741756最终success。复核纠正：原用户sync-status/宿主批量sync已走带身份/版本/会话的事务保护；baseline-sync、network-repair、ops单实例sync仍先无条件改状态再写IP。三个入口现在复用syncObservedInstanceNetwork，提交时核host连接/归属、instance标识/owner/updatedAt/原地址、当前会话和任务门禁；状态与IP一起事务写入，保suspended，观察入口不触发Caddy外部写入。
+- `takeover-host-network-sync-before.log`真实API先复现探测中改挂宿主仍成功；`takeover-host-network-sync-server-complete.log`47真实Fastify/PG/mTLS场景exit0：3入口各15情形及2已封停正常同步，含迁移/标识/owner/版本/地址/宿主连接与归属变化、禁用/session撤销、cleanup/待任务、删除/封停、IP约束失败事务回滚、正常双栈。自定义IP保留，删除trigger清IP后不重建，失败不推进lastSyncedAt、不触碰Incus写入。初轮夹具重复IPv6与删除trigger断言已纠正，产品保护未放宽。
+- 原proxy-site-operations完整回归exit0（takeover-host-network-sync-proxy-regression.log），含IPv4替换、拒绝/重试/墓碑、真实SQL故障和进程强杀；3守卫、后端最终build含tsc exit0、manifest191/92通过，新专项接CI。无前端改动。
+- 底层instance-network-sync的直接写入口与维护backfill脚本仍缺完整版本保护，下一段继续；baseline宿主资源快照写本身、原生Incus、公网IPv6/客户验收不在本段。R271及327/灾备不作整体完成声明。
+
 ## 2026-10-29 R1-270 赠送创建准备补偿与通知隔离
 
 - 65b755c已push核远端一致，CI40767977505最后运行，c188aac的40766741756也仍运行。赠送落库后的IP预留/cloud-init/存储准备现在同一事务，锁实例核对本次user/host/incusId/资源/network/port/status/pending；必需NAT/routed IPv6失败立即拒绝。准备回滚后，仅本次creating归属可在一个事务置error及归还CPU/内存/磁盘/原端口预占；失权或补偿DB错误保留资源并返回已有instanceId。零金额赠送账单保留，不造退款。

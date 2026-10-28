@@ -79,12 +79,13 @@ function publicError(error: unknown, host?: Host): string {
   return message.slice(0, 2000)
 }
 
-/** Durable intent precedes remote writes. A later sync retries pending sites even
- * when the IPv4 no longer changes. This is not an independent background worker.
+/** Apply a sampled state/address snapshot only while its original identity and
+ * generation are current. Observation-only host tools do not write Caddy.
  */
-export async function syncInstanceNetworkAndProxySites(observed: ProxyNetworkSyncObservation,
-  resolved: ResolvedInstanceNetworkAddresses, incusStatus: InstanceStatus, actor: WriteActor, hostOwnerOnly = false) {
-  const saved = await prisma.$transaction(async tx => {
+export async function syncObservedInstanceNetwork(observed: ProxyNetworkSyncObservation,
+  resolved: ResolvedInstanceNetworkAddresses, incusStatus: InstanceStatus, actor: WriteActor,
+  hostOwnerOnly = false, markProxySitesPending = false) {
+  return prisma.$transaction(async tx => {
     const { instance } = await lockCurrentInstance(tx, observed, actor, hostOwnerOnly)
     const currentStatus = instance.status
     const statusChanged = currentStatus !== 'suspended' && currentStatus !== incusStatus
@@ -92,7 +93,7 @@ export async function syncInstanceNetworkAndProxySites(observed: ProxyNetworkSyn
     const network = await persistResolvedInstanceNetworkAddressesInTransaction(tx, {
       ...observed, ipv4: instance.ipv4, ipv6: instance.ipv6
     }, resolved, { updateLastSyncedAt: true })
-    if (network.ipv4Changed) {
+    if (markProxySitesPending && network.ipv4Changed) {
       await tx.proxySite.updateMany({ where: { instanceId: instance.id, hostId: instance.hostId, status: 'active', enabled: true },
         data: { ipv4SyncPending: true, error: 'IPv4 地址已同步，反代站点配置等待同步' } })
     }
@@ -104,6 +105,14 @@ export async function syncInstanceNetworkAndProxySites(observed: ProxyNetworkSyn
     return { ...network, statusChanged, previousStatus: currentStatus,
       currentStatus: statusChanged ? incusStatus : currentStatus, updatedAt: applied.updatedAt.toISOString() }
   }, { maxWait: 5000, timeout: 15000 })
+}
+
+/** Durable intent precedes remote writes. A later sync retries pending sites even
+ * when the IPv4 no longer changes. This is not an independent background worker.
+ */
+export async function syncInstanceNetworkAndProxySites(observed: ProxyNetworkSyncObservation,
+  resolved: ResolvedInstanceNetworkAddresses, incusStatus: InstanceStatus, actor: WriteActor, hostOwnerOnly = false) {
+  const saved = await syncObservedInstanceNetwork(observed, resolved, incusStatus, actor, hostOwnerOnly, true)
 
   const currentObservation = { ...observed, ipv4: saved.newIpv4, ipv6: saved.newIpv6, updatedAt: saved.updatedAt }
   const pending = await prisma.proxySite.findMany({ where: { instanceId: observed.id, ipv4SyncPending: true },

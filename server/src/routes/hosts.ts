@@ -58,11 +58,8 @@ import { checkHostCaddyCredentials, confirmHostCaddyCredentials, prepareHostCadd
 import { createCaddyScriptToken, verifyCaddyScriptToken } from '../lib/caddy-script-token.js'
 import { hostLiveStatus } from '../lib/host-live-status.js'
 import { HOST_OCCUPIED_INSTANCE_WHERE } from '../lib/host-resource-usage.js'
-import {
-  persistResolvedInstanceNetworkAddresses,
-  resolveInstanceNetworkAddresses
-} from '../lib/instance-network-sync.js'
-import { syncInstanceNetworkAndProxySites, readProxyNetworkSyncHostIdentity, ProxyNetworkSyncError } from '../lib/instance-proxy-network-sync.js'
+import { resolveInstanceNetworkAddresses } from '../lib/instance-network-sync.js'
+import { syncObservedInstanceNetwork, syncInstanceNetworkAndProxySites, readProxyNetworkSyncHostIdentity, ProxyNetworkSyncError } from '../lib/instance-proxy-network-sync.js'
 import { recordUnverifiedInstanceObservation } from '../lib/instance-sync-observation-error.js'
 import {
   HostAddressRegistryError,
@@ -7205,6 +7202,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     }
 
     try {
+      const hostConnectionIdentity = await readProxyNetworkSyncHostIdentity(host.id)
       const client = await getIncusClient(host)
 
       // 1. 同步宿主机资源信息（复用 sync 逻辑）
@@ -7254,21 +7252,19 @@ export default async function hostRoutes(fastify: FastifyInstance) {
               expanded_devices?: Record<string, Record<string, unknown>>
             }]
 
-            if (state.status) {
-              const newStatus = mapInstanceStatus(state.status)
-              if (newStatus !== 'unknown' && newStatus !== instance.status) {
-                await db.updateInstanceStatus(instance.id, newStatus as 'creating' | 'running' | 'stopped' | 'error')
-              }
-            }
+            const mappedStatus = state.status ? mapInstanceStatus(state.status) : 'unknown'
+            if (mappedStatus === 'unknown') throw new Error('无法获取有效实例状态')
 
-            const persistedNetwork = await persistResolvedInstanceNetworkAddresses(
-              { id: instance.id, name: instance.name, hostId: host.id, networkMode: instance.networkMode, ipv4: instance.ipv4, ipv6: instance.ipv6 },
+            const persistedNetwork = await syncObservedInstanceNetwork(
+              { id: instance.id, name: instance.name, hostId: host.id, networkMode: instance.networkMode, ipv4: instance.ipv4, ipv6: instance.ipv6,
+                incusId: instance.incusId, userId: instance.userId, updatedAt: instance.updatedAt.toISOString(),
+                hostOwnerId: host.user_id!, hostUrl: host.url, hostConnectionIdentity },
               resolveInstanceNetworkAddresses(
                 { id: instance.id, name: instance.name, hostId: host.id, networkMode: instance.networkMode, ipv4: instance.ipv4, ipv6: instance.ipv6 },
                 incusInstance,
                 state
               ),
-              { updateLastSyncedAt: true }
+              mappedStatus as InstanceStatus, user, true
             )
 
             if (persistedNetwork.ipv4Changed || persistedNetwork.ipv6Changed) {
@@ -7324,8 +7320,10 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
+    let hostConnectionIdentity: string
     let client: IncusClient
     try {
+      hostConnectionIdentity = await readProxyNetworkSyncHostIdentity(host.id)
       client = await getIncusClient(host)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
@@ -7372,29 +7370,23 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           expanded_devices?: Record<string, Record<string, unknown>>
         }]
 
-        let statusChanged = false
-        const oldStatus = instance.status
-        let newStatus: string = instance.status
+        const mappedStatus = state.status ? mapInstanceStatus(state.status) : 'unknown'
+        if (mappedStatus === 'unknown') throw new Error('无法获取有效实例状态')
 
-        if (state.status) {
-          const mapped = mapInstanceStatus(state.status)
-          if (mapped !== 'unknown' && mapped !== instance.status) {
-            await db.updateInstanceStatus(instance.id, mapped as 'creating' | 'running' | 'stopped' | 'error')
-            statusChanged = true
-            newStatus = mapped
-            changedCount++
-          }
-        }
-
-        const persistedNetwork = await persistResolvedInstanceNetworkAddresses(
-          { id: instance.id, name: instance.name, hostId: host.id, networkMode: instance.networkMode, ipv4: instance.ipv4, ipv6: instance.ipv6 },
+        const persistedNetwork = await syncObservedInstanceNetwork(
+          { id: instance.id, name: instance.name, hostId: host.id, networkMode: instance.networkMode, ipv4: instance.ipv4, ipv6: instance.ipv6,
+            incusId: instance.incusId, userId: instance.userId, updatedAt: instance.updatedAt.toISOString(),
+            hostOwnerId: host.user_id!, hostUrl: host.url, hostConnectionIdentity },
           resolveInstanceNetworkAddresses(
             { id: instance.id, name: instance.name, hostId: host.id, networkMode: instance.networkMode, ipv4: instance.ipv4, ipv6: instance.ipv6 },
             incusInstance,
             state
           ),
-          { updateLastSyncedAt: true }
+          mappedStatus as InstanceStatus, user, true
         )
+
+        const { statusChanged, previousStatus: oldStatus, currentStatus: newStatus } = persistedNetwork
+        if (statusChanged) changedCount++
 
         if (persistedNetwork.ipv4Changed || persistedNetwork.ipv6Changed) {
           changedCount++
@@ -8419,6 +8411,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     }
 
     try {
+      const hostConnectionIdentity = await readProxyNetworkSyncHostIdentity(host.id)
       const client = await getIncusClient(host as Host)
       const { getInstance, getInstanceState } = await import('../lib/incus/incus-instances.js')
       const { mapInstanceStatus } = await import('../lib/incus/incus-utils.js')
@@ -8443,23 +8436,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         return reply.code(500).send({ error: `未知状态: ${state.status}` })
       }
 
-      const currentStatus = instance.status
-      let statusChanged = false
-      let from: string | undefined
-      let to: string | undefined
-
-      if (currentStatus !== incusStatus) {
-        await db.updateInstanceStatus(instanceId, incusStatus as 'creating' | 'running' | 'stopped' | 'error')
-        statusChanged = true
-        from = currentStatus
-        to = incusStatus
-      }
-
-      const persistedNetwork = await persistResolvedInstanceNetworkAddresses(
+      const persistedNetwork = await syncObservedInstanceNetwork(
         {
           id: instanceId,
           name: instance.name,
           hostId: instance.host_id,
+          incusId: instance.incus_id, userId: instance.user_id,
+          hostOwnerId: host.user_id!, hostUrl: host.url, hostConnectionIdentity,
+          updatedAt: instance.updated_at,
           networkMode: instance.network_mode,
           ipv4: instance.ipv4,
           ipv6: instance.ipv6
@@ -8476,16 +8460,16 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           incusInstance,
           state
         ),
-        { updateLastSyncedAt: true }
+        incusStatus as InstanceStatus, user, true
       )
 
       return {
         success: true,
         message: '实例状态/IP 已同步',
-        statusChanged,
-        from,
-        to,
-        currentStatus: incusStatus,
+        statusChanged: persistedNetwork.statusChanged,
+        from: persistedNetwork.statusChanged ? persistedNetwork.previousStatus : undefined,
+        to: persistedNetwork.statusChanged ? persistedNetwork.currentStatus : undefined,
+        currentStatus: persistedNetwork.currentStatus,
         ipv4Changed: persistedNetwork.ipv4Changed,
         oldIpv4: persistedNetwork.ipv4Changed ? persistedNetwork.oldIpv4 : undefined,
         newIpv4: persistedNetwork.ipv4Changed ? persistedNetwork.newIpv4 : undefined,
@@ -8494,6 +8478,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         newIpv6: persistedNetwork.ipv6Changed ? persistedNetwork.newIpv6 : undefined
       }
     } catch (err) {
+      if (err instanceof ProxyNetworkSyncError) return reply.code(err.statusCode).send({ code: err.code, error: err.message })
       const errorMessage = err instanceof Error ? err.message : String(err)
       if (errorMessage.includes('not found') || errorMessage.includes('Instance not found')) {
         return reply.code(404).send({ error: '实例在节点上不存在' })
