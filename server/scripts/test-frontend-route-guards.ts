@@ -57,6 +57,13 @@ const publicIpv6AddressesSource = readRepoFile('client/src/components/PublicIpv6
 const instanceInfoTabSource = readRepoFile('client/src/components/instance/InstanceInfoTab.vue')
 const destroyInstanceModalSource = readRepoFile('client/src/components/instance/modals/DestroyInstanceModal.vue')
 const instanceCreateViewSource = readRepoFile('client/src/views/InstanceCreateView.vue')
+assert.ok(instanceCreateViewSource.includes("watch(promoContextKey, invalidatePromoCode, { flush: 'sync' })") &&
+  instanceCreateViewSource.includes('sequence === promoSequence && contextCurrent()') &&
+  instanceCreateViewSource.includes('await api.aff.validateCode(code, planId)') &&
+  instanceCreateViewSource.includes('if (!currentPromo()) return') &&
+  instanceCreateViewSource.includes('!promoCodeVerifying.value &&') &&
+  instanceCreateViewSource.includes('promoPageActive.value = false; invalidatePromoCode()'),
+  'legacy create coupon quotes must belong to the current code/plan/session and stop stale submit continuations')
 const instanceDetailViewSource = readRepoFile('client/src/views/InstanceDetailView.vue')
 for (const required of ['function captureDetailRead(', 'generation === detailReadGeneration', 'sequence === readSequences[channel]',
   'session === detailSessionKey.value', 'rawId === String(route.params.id', 'watch([() => route.params.id, () => route.name, detailSessionKey]',

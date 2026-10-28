@@ -3345,6 +3345,8 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
     validateCode: (code: string, packagePlanId: number): Promise<{
       valid: boolean
       discountRate?: number
+      commissionRate?: number
+      error?: string
     }> => http.post('/aff/validate', { code, packagePlanId }),
 
     // 创建转化申请

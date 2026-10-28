@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-288 旧套餐创建优惠码回执与报价绑定
+
+- 440a34c已push并核远端一致，源码CI40786941481最后运行。默认`/purchase`仍走PoolPurchaseWizard一机一卖；本项旧`/instances/create`的优惠码按code/plan/package/source/价格/可用状态/账号session/路由/激活代次隔离。输入或选择改变同步清旧折扣，校验序号拒旧success/error/finally及重复；校验中禁止提交，Turnstile await后再核上下文，失效不发创建请求。补API响应既有commissionRate/error类型，无后台计价或交付改动。
+- `takeover-create-promo-before.log`Chrome先红旧90%覆盖新20%；`takeover-create-promo-matrix.log`通过码ABA、改码/方案/价格/列表/重置立即失效、重复验证、无效折扣/返利率、失败重试、托管禁用、同sid刷新/换账号/注销、缓存/路由/卸载、验证中零create、Turnstile间换码零create及正常固定promo payload。1440中文/390英文截图已核；受控API不创建客户机器、不扣款。
+- 同次浏览器证实首次zone:7会先等专区列表再请求正确zone source，原清单该症状当前已有保护；未擅自改该初始化。client types、4守卫、lint零error/warning、manifest191/106及最终双端build exit0/dist通过，专项登记Chrome CI。正常创建其它读取/提交完整生命周期、后台预览价与实际价完整绑定另待，不能扩成机器池交付验收。
+- 下一项R289四文件instance-logs夹具已先红（`takeover-instance-logs-before.log`）：旧搜索覆盖新搜索。InstanceLogsTab完整代码、父页挂载、日志routes/DB身份过滤与两个日志守卫已读，产品未改，不混本提交。LogsView也有独立旧读风险；R290两弹窗初始化/提交已读但未动。327/R269/完整灾备未完成。
+
 ## 2026-10-29 R1-287 批量续费与销毁预览对象绑定
 
 - f31a86a已push核远端一致；d0b1c91与75a227e源码CI已success，f31a86a最后仍运行。续费/销毁确认固定已展示预览的可操作ID，数量显示同一目标集合；两种弹窗绑定账号/角色/session、路由、激活与打开代次，旧预览/写回执不污染新页面。请求在途保持busy防重复，后来勾选不被成功回执清空；预览需完整无重复匹配目标，续费余额/折扣金额有限有效，保持1个月与用户销毁零退款。

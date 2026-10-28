@@ -15,7 +15,7 @@ defineOptions({
   name: 'InstanceCreateView'
 })
 
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated, onUnmounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
@@ -166,6 +166,22 @@ const promoCodeValid = ref<boolean | null>(null)
 const promoCodeDiscount = ref<number>(0)
 const promoCodeCommissionRate = ref<number>(0)  // 返利率
 const promoCodeError = ref('')
+const promoPageActive = ref(false)
+let promoAlive = true
+let promoSequence = 0
+const promoSessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+onMounted(() => { promoPageActive.value = true })
+onActivated(() => { promoPageActive.value = true })
+onDeactivated(() => { promoPageActive.value = false; invalidatePromoCode() })
+onUnmounted(() => { promoAlive = false; promoPageActive.value = false; invalidatePromoCode() })
 
 // 托管者信息弹窗
 const showHostOwnerModal = ref(false)
@@ -387,6 +403,7 @@ const canSubmit = computed<boolean>(() => {
          quotaCheck.value.valid &&
          resourceLimitCheck.value.valid &&
          !submitting.value &&
+         !promoCodeVerifying.value &&
          !isOwnPaidPackage.value  // 不允许使用自己的付费套餐
   
   // 付费套餐需要选择方案
@@ -846,43 +863,66 @@ function selectPlan(plan: PackagePlan): void {
 /**
  * 重置优惠码状态
  */
-function resetPromoCode(): void {
-  form.value.promoCode = ''
+function invalidatePromoCode(): void {
+  promoSequence++
+  promoCodeVerifying.value = false
   promoCodeValid.value = null
   promoCodeDiscount.value = 0
   promoCodeCommissionRate.value = 0
   promoCodeError.value = ''
 }
 
+const promoContextKey = computed(() => JSON.stringify([
+  promoSessionKey.value, route.fullPath, packageSource.value, form.value.packageId, form.value.planId,
+  form.value.promoCode.trim(), selectedPackage.value?.sourceType, selectedPlan.value?.price,
+  selectedPlan.value?.isActive, selectedPlan.value?.isSoldOut
+]))
+watch(promoContextKey, invalidatePromoCode, { flush: 'sync' })
+
+function capturePromoContext() {
+  const key = promoContextKey.value
+  return () => promoAlive && promoPageActive.value && !!promoSessionKey.value && key === promoContextKey.value
+}
+
+function resetPromoCode(): void {
+  form.value.promoCode = ''
+  invalidatePromoCode()
+}
+
 /**
  * 验证优惠码
  */
 async function verifyPromoCode(): Promise<void> {
-  if (!form.value.promoCode.trim() || !form.value.planId) {
-    resetPromoCode()
+  if (!promoAlive || !promoPageActive.value || !promoSessionKey.value || submitting.value || promoCodeVerifying.value) return
+  const code = form.value.promoCode.trim(), planId = form.value.planId
+  if (!code || !planId || !selectedPackage.value || !selectedPlan.value?.isActive || selectedPlan.value.isSoldOut || isHostedMarketPackage.value) {
+    invalidatePromoCode()
     return
   }
-  
+
+  invalidatePromoCode()
+  const sequence = promoSequence, contextCurrent = capturePromoContext()
+  const current = () => sequence === promoSequence && contextCurrent()
   promoCodeVerifying.value = true
-  promoCodeError.value = ''
-  
+
   try {
-    const res = await api.aff.validateCode(form.value.promoCode.trim(), form.value.planId)
-    if ((res as any).valid) {
+    const res = await api.aff.validateCode(code, planId)
+    if (!current()) return
+    if (res.valid === true && Number.isFinite(res.discountRate) && res.discountRate! >= 0 && res.discountRate! <= 1 &&
+      Number.isFinite(res.commissionRate) && res.commissionRate! >= 0 && res.commissionRate! <= 1) {
       promoCodeValid.value = true
-      promoCodeDiscount.value = parseFloat((res as any).discountRate) || 0
-      // 从验证响应中获取返利率（如果有的话）
-      const commissionRate = parseFloat((res as any).commissionRate) || 0
-      promoCodeCommissionRate.value = commissionRate
+      promoCodeDiscount.value = res.discountRate!
+      promoCodeCommissionRate.value = res.commissionRate!
     } else {
       promoCodeValid.value = false
-      promoCodeError.value = (res as any).error || t('aff.promoCodeInvalid')
+      promoCodeError.value = res.error || t('aff.promoCodeInvalid')
     }
   } catch (err: any) {
+    if (!current()) return
     promoCodeValid.value = false
     promoCodeError.value = err.message || t('aff.promoCodeInvalid')
   } finally {
-    promoCodeVerifying.value = false
+    if (current()) promoCodeVerifying.value = false
   }
 }
 
@@ -1051,7 +1091,8 @@ async function loadAvailableImages(instanceType?: 'container' | 'vm', memory?: n
 }
 
 async function handleSubmit(): Promise<void> {
-  if (!canSubmit.value) return
+  if (!canSubmit.value || !promoAlive || !promoPageActive.value || !promoSessionKey.value) return
+  const currentPromo = capturePromoContext()
   
   error.value = ''
   submitting.value = true
@@ -1073,6 +1114,7 @@ async function handleSubmit(): Promise<void> {
 
     const verificationToken = await getCreateTurnstileToken()
     if (verificationToken === null) return
+    if (!currentPromo()) return
     if (isPaidPackage.value && !createIntentIdempotencyKey.value) {
       createIntentIdempotencyKey.value = crypto.randomUUID?.() || `instance-create-${Date.now()}-${Math.random().toString(36).slice(2)}`
     }
