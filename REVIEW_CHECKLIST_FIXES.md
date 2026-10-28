@@ -236,7 +236,7 @@
 | R1-198 | 存在 | 源码已修/真实浏览器夹具通过 | 保存前同步门禁/固定ID和表单快照/成功锁存、等待中禁所有关闭入口、失败保草稿；目标/session/卸载隔离旧读写及计时器，同SID刷新保草稿，父先关窗再刷列表。takeover-init-editor-browser-final.log真实组件+父页面竞争通过，3守卫/lint/双端类型构建/dist边界通过；实际后端联调/请求幂等未验 |
 | R1-199 | 存在 | 源码已修/真实浏览器夹具通过 | 详情ID/updatedAt/session代次、取消、清旧内容、标题正文一致；复制快照/回执及两计时器随关闭/卸载/复用失效，同SID刷新保留。takeover-init-detail-browser.log真实Chrome源码组件竞争、长内容三语/两尺寸通过，3守卫/lint/双端类型构建/dist边界通过；实际账户后端/系统剪贴板未验 |
 | R1-200 | 存在 | 源码已修/真实浏览器夹具通过 | 固定enabled、逐行操作门禁/唯一标识、列表序号/session/取消、失败保留确认状态并重试、删除成功才移除、换会话/卸载旧回调失效。takeover-init-toggle-browser.log真实Chrome页面10次点击/交错列表/新旧会话/删除竞争通过；3守卫/lint/双端类型构建/dist边界通过，真实后端及跨浏览器CAS未验 |
-| R1-201 | 存在 | 待精修/运行复核 | 批量/游标/轻查询导出仅在该包装模块定义，未发现运行入口import或业务调用，属维护残留；不做全库重构。 |
+| R1-201 | 存在 | 退役残留已清理/类型构建通过 | 完整读模块与DB入口后删除optimizations.ts及10个无调用导出；运行源码/脚本/部署无引用，takeover-retired-db-references/types/build/guards日志通过（2配额守卫），不改现行配额/实例逻辑或数据库。无活体入口可验，不计生产流程验收 |
 | R1-202 | 已有防护 | 保留初审结论 | Discord使用safeFetch连接时校验；Telegram/Discord均有15秒AbortSignal，覆盖响应body读取期限。 |
 | R1-203 | 已有防护 | 保留初审结论 | Discord使用safeFetch连接时校验；Telegram/Discord均有15秒AbortSignal，覆盖响应body读取期限。 |
 | R1-204 | 存在 | 待精修/运行复核 | LazyImage/VirtualList未发现应用导入或注册调用者，属维护残留，未执行组件删除。 |
