@@ -2,12 +2,17 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-210 README链接回归修正
+
+- R222 `87e1c69`已push并核对远端一致。R210的README误指向不存在的v1.7.7发布说明；本机Test-Path与git ls-files均确认不存在，前次部署文档守卫/VitePress构建没有覆盖README链接。上一节所写“本地生成文件造成漏检”是未核实推断，本节纠正。
+- README改为已跟踪的`docs/gateway-setup-v1.7.7.md`，保留真正Release链接；`logs/takeover-readme-link-guards.log`仓库来源/README全部本地链接/安装发行守卫通过。仅链接修复，无需重建未改的文档站或客户端；后续CI另验。
+
 ## 2026-10-28 R1-222 静态缓存后台写入与容量
 
 - 完整缓存写入/裁剪Promise在fetch事件内同步登记waitUntil；网络响应独立返回。缓存修改与手动清空串行，成功写入后裁剪至256条；存储失败记录固定警告且不污染队列。清空增加代次，旧下载不能在清空确认后回填。激活只删除本应用旧缓存，断网只读取当前版本，避免误取其它缓存。
 - `logs/takeover-sw-lifecycle.log`运行实际worker源码，受控慢写/280并发/打开、写入、删除故障/清空竞争/非200与排除路径通过。`takeover-sw-browser-final.log`真实Chrome在两个独立本地HTTP源注册原worker，网络断连命中/未命中、清空确认及280资源写入后的256条上限通过。首轮5秒夹具提前判容量失败，最终改为等最后排队写入回执后检查；无生产站点改动。
 - `takeover-sw-guards.log`2/2、`takeover-sw-build.log`双端vue-tsc/build、`takeover-sw-server-types.log`后端类型、`takeover-sw-dist.log`边界通过，JS语法与diff检查通过。新受控专项进入189条常规清单，真实浏览器专项登记62项环境排除并接CI。256仅限制条目数，不是总字节配额。
-- R215 `94ddcca`已push。R210 CI40701860321最终失败：README链接`docs-site/release-notes/v1.7.7.md`不在远端仓库（本地生成文件造成漏检）；日志`takeover-docs-ci-failure.log`。正在单独纠正链接/重验，不能记CI全绿。R212只改注释已完成本地编辑，分项验证保存；327与网关灾备仍未完成。
+- R215 `94ddcca`已push。R210 CI40701860321最终失败：README链接`docs-site/release-notes/v1.7.7.md`不存在，本轮所跑文档检查未覆盖README；日志`takeover-docs-ci-failure.log`。正在单独纠正链接/重验，不能记CI全绿。R212只改注释已完成本地编辑，分项验证保存；327与网关灾备仍未完成。
 
 ## 2026-10-28 R1-215 大流量单位证据纠正
 
