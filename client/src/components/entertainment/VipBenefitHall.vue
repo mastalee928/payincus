@@ -154,7 +154,7 @@ function claimButtonLabel(reward: VipBenefitReward): string {
 }
 
 function canClaim(reward: VipBenefitReward): boolean {
-  return active.value && !loading.value && !loadError.value && !!overview.value && reward.state === 'claimable' && !bulkClaiming.value && !isRewardClaiming(reward)
+  return active.value && !loading.value && !loadError.value && !!overview.value && reward.state === 'claimable' && !writing.value
 }
 
 function isRewardClaiming(reward: VipBenefitReward): boolean {
@@ -258,11 +258,9 @@ async function claimReward(reward: VipBenefitReward): Promise<void> {
 }
 
 async function claimAllRewards(): Promise<void> {
-  if (!active.value || loading.value || loadError.value || !overview.value) return
-  if (!hasClaimableRewards.value || bulkClaiming.value) {
-    if (!hasClaimableRewards.value) {
-      toast.info(t('vipBenefits.noClaimableReward'))
-    }
+  if (!active.value || loading.value || loadError.value || !overview.value || writing.value) return
+  if (!hasClaimableRewards.value) {
+    toast.info(t('vipBenefits.noClaimableReward'))
     return
   }
 
@@ -415,7 +413,7 @@ onUnmounted(() => { disposed = true; contextSequence++; readSequence++; readCont
               <button
                 class="btn w-full md:w-auto"
                 :class="hasClaimableRewards ? 'btn-primary' : 'btn-secondary'"
-                :disabled="!active || loading || !!loadError || !hasClaimableRewards || bulkClaiming"
+                :disabled="!active || loading || !!loadError || !hasClaimableRewards || writing"
                 @click="claimAllRewards"
               >
                 {{ bulkClaiming ? t('vipBenefits.claimingAll') : t('vipBenefits.claimAll') }}

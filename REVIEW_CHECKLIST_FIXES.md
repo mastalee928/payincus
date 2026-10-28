@@ -277,7 +277,7 @@
 | R1-239 | 存在 | 已修复；后端批量幂等未新增 | 同步保存门禁/快照/冻结，成功create记ID/delete出队，部分失败及重读失败持久阻断并要求读取实际结果；读取/session/KeepAlive/方案回执隔离。实际Chrome先红十连点10次→1次，部分失败恢复与生命周期矩阵/4守卫/双端types build/dist/lint通过（takeover-vip-save-*）。后端仍逐项非原子，无跨管理员或生产保证。 |
 | R1-240 | 存在 | 已修复；实际领取未验 | 前后端拒绝余额奖励舍入后为0与超界，保留0.005/12.345原舍入兼容。真实Fastify/PG先红后绿、新增/修改与失败保config、Chrome表单精确payload、4守卫/types/双端build/dist/lint/manifest通过（takeover-vip-amount-*）。R238说明已分项修复，R239部分保存继续。 |
 | R1-241 | 存在 | 已修复；实际发奖未验 | 父v-show传active，挂载/缓存/页签/session/GET取消与代次保护，失败持久retry并禁领取，在途写返回等settle再读，旧写回执/反馈timer隔离。真实Vue/Chrome先红后绿、4守卫/lint/双端types build/dist/manifest通过（takeover-vip-hall-*）。同上下文领取重叠R242及反馈snapshot R243继续。 |
-| R1-242 | 存在 | 待精修/运行复核 | claimAll只按bulkClaiming门禁，不拒已有claimingIds，单项与批量可重叠；load旧概览也无代次。 |
+| R1-242 | 存在 | 已修复；跨浏览器领取未验 | 单项/批量/不同奖励统一writing同步门禁，当前页领取串行防旧overview恢复按钮。Chrome先红后绿、十连点/双向互斥/正确ID与最终已领状态及R241回归、3守卫/lint/双端types build/dist通过（takeover-vip-claim-*）；后端锁/次数保持，未新增跨浏览器幂等。 |
 | R1-243 | 存在 | 待精修/运行复核 | 领取反馈优先旧reward卡片而非claim snapshot，setTimeout无卸载清理，可能跨页显示过时数额/反馈。 |
 | R1-244 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
 | R1-245 | 存在 | 待精修/运行复核 | 初读失败空表仍可保存，缺成功加载条件。 |

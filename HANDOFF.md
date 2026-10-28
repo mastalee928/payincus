@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-242 VIP领取互斥
+
+- R241 c468e21已push并核远端一致，CI40739551744最终success；R239 CI40737293969最终success。当前页面任一单项/批量领取在途时统一禁下一笔，两个入口同步检查writing；不同奖励也串行，避免旧overview覆盖较新领取结果。后端用户领取锁、次数、资金/积分锁与逐笔批量合同保持，未新增跨浏览器幂等。
+- `logs/takeover-vip-claim-before.log`真实Chrome先复现单项在途仍发1次bulk；`takeover-vip-claim-browser.log`修改后单项/批量十连点和双向互斥、不同奖励串行/正确ID/最终按钮保持已领，并完整回归R241矩阵通过。受控API，无实际余额/积分发放；PASS总结文案沿用生命周期文字，新增断言已实际执行。
+- `takeover-vip-claim-guards.log`3/3、相关Vue lint、双端vue-tsc/build与dist通过。剩余R243反馈仍优先旧卡片信息，随后单独修；327及完整灾备未完成。
+
 ## 2026-10-29 R1-241 VIP大厅读取与可见周期
 
 - R239 5b5d3ed已push并核远端一致，CI40737293969仍运行；R240 CI40735740894最终success。父Entertainment的v-show现在传active，组件按挂载/KeepAlive/页签/session建立上下文，GET可取消且迟到success/error/finally拒绝。初读/恢复读失败持久显示并提供重试，失败状态不允许领取；同SID token刷新不重载。
