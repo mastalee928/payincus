@@ -12,6 +12,7 @@ import * as db from '../db/index.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { prisma } from '../db/prisma.js'
+import { assertManagedCleanupIdentity, deletePendingManagedInstance, finalizeManagedCleanupForDeletion } from '../lib/managed-cleanup-identity.js'
 import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
 import { Prisma, type InstanceStatus } from '@prisma/client'
 import { getIncusClient } from '../lib/incus/index.js'
@@ -3999,6 +4000,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       let client = null
       try {
         client = await getIncusClient(host)
+        await assertManagedCleanupIdentity(client, instanceId)
       } catch (clientError) {
         const errorMessage = clientError instanceof Error ? clientError.message : String(clientError)
         await restoreClaimedInstanceForDelete(instanceId, instance.status as InstanceStatus)
@@ -4083,7 +4085,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
       // ===== 6. 停止并删除 Incus 实例 =====
       try {
-        await deleteIncusInstanceForDelete(client, instance, request.log)
+        if (!await deletePendingManagedInstance(client, instanceId)) await deleteIncusInstanceForDelete(client, instance, request.log)
       } catch (incusError) {
         await restoreClaimedInstanceForDelete(instanceId, instance.status as InstanceStatus)
         throw incusError
@@ -4226,6 +4228,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
         portCount: portMappingsCount
       })
 
+      await finalizeManagedCleanupForDeletion(instanceId)
       // 重新计算宿主机资源使用量（包括端口）
       const usedResources = await db.calculateHostResourcesFromInstances(instance.host_id)
       // 重新计算端口映射使用量

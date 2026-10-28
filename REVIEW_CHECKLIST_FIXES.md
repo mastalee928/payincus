@@ -306,8 +306,8 @@
 | R1-266 | 已有防护 | 保留初审结论 | 地区official/market/zone有active/hidden/globalShared/owner角色及专区授权；好友地区限定getSharedToUser集合；所有者列表/admin scope有requireAdmin或isAdmin门禁。原无过滤泄露私有套餐问题的当前防护已定位。 |
 | R1-267 | 已有防护 | 保留初审结论 | normalizePackagePlanInput以整数范围校验CPU/内存/磁盘/配额/价格/周期，流量通过PG bigint parser；不是直接缺省写负数/溢出。 |
 | R1-268 | 已有防护 | 保留初审结论 | syncInstanceNetwork及removeInstanceIpv6向cloud-init传nicMacs，保留已有eth0/eth1 hwaddr或按实例生成；原完全忽略MAC匹配的代码已有防护，不拿此结论代替所有VM真机重启验收。 |
-| R1-269 | 部分存在 | 自动失败回调已修，后续收尾待验 | managed当前目标/attempt/UUID与原mTLS连接、30秒清理截止、实例行锁、Stopped/精确404/无pending operation/转发移除后事务释放资源和IPv4；失败pending保占用、退款独立，迟到失权回调不删。真实PG+mTLS先红后绿20场景/重复回调/DB约束回滚、4守卫/build含tsc/manifest通过见HANDOFF。人工销毁pending及IPv4收尾、通用超时清理、强杀持久恢复和原生Incus仍待，整体不记完成。 |
-| R1-270 | 存在 | 待精修/运行复核 | 赠送DB提交后resolve storage可能失败无外层补偿；启动provision后日志/消息失败返回500误导重试。 |
+| R1-269 | 部分存在 | 自动失败回调及人工删除已修，超时/强杀待验 | managed原目标/attempt/UUID/mTLS与30秒清理核验、实例锁及事务释放，失败pending保资源退款独立；人工四删除入口核持久attempt/endpoint哈希，确认后清pending/IP，旧退款接口拒pending、record-only保占用。真实PG+mTLS20创建+16拒绝及正常/退款/重复矩阵、8守卫/build含tsc通过见HANDOFF。通用超时、进程强杀/事务退出续跑和原生Incus仍待，整体不记完成。 |
+| R1-270 | 部分存在 | 待精修/运行复核 | 赠送DB提交后resolve storage/IP/cloud-init可能失败无统一补偿；启动provision后createInboxMessage失败返回500误导重试。createLog自身已有catch吞错，原“日志失败”判定纠正。 |
 | R1-271 | 存在 | 待精修/运行复核 | 网络结果持久化仅not deleted，缺host/version CAS；旧Incus结果可覆盖迁移/任务后新状态。 |
 | R1-272 | 部分存在 | 待精修/运行复核 | quota API已有整数范围及显式0校验，null转undefined不能清空；缺current site count和实例锁，与创建不串行。 |
 | R1-273 | 已有防护 | 保留初审结论 | helper的设备/DB回滚在helper内完成，路由成功日志在helper返回之后，不再因路由审计异常进入设备回滚。 |

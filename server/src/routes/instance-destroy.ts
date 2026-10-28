@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import type { InstanceStatus, Prisma } from '@prisma/client'
 import * as db from '../db/index.js'
 import { prisma } from '../db/prisma.js'
+import { deletePendingManagedInstance, finalizeManagedCleanupForDeletion } from '../lib/managed-cleanup-identity.js'
 import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
@@ -296,6 +297,7 @@ async function deleteIncusInstanceForUserDestroy(
 
   const { getIncusClient, stopInstance, deleteInstance } = await import('../lib/incus/index.js')
   const client = await getIncusClient(host)
+  if (await deletePendingManagedInstance(client, instance.id)) return
 
   // A failed provision can be recorded as error while Incus is still Running.
   // stopInstance reads the actual remote state and is a no-op when stopped.
@@ -654,6 +656,7 @@ async function executeDestroyForUser(
       portCount: portMappingsCount
     })
 
+    await finalizeManagedCleanupForDeletion(instanceId)
     const usedResources = await db.calculateHostResourcesFromInstances(instance.hostId)
     const actualPortsUsed = await prisma.portMapping.count({
       where: {
@@ -1066,6 +1069,7 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
       })
 
       // 重新计算宿主机资源使用量
+      await finalizeManagedCleanupForDeletion(instanceId)
       const usedResources = await db.calculateHostResourcesFromInstances(instance.hostId)
       const actualPortsUsed = await prisma.portMapping.count({
         where: {

@@ -3,9 +3,8 @@ import { randomUUID } from 'node:crypto'
 import { prisma } from '../db/prisma.js'
 import * as db from '../db/index.js'
 import { buildInstanceConfig, createInstance, getIncusClient, getInstanceState, startInstance } from '../lib/incus/index.js'
-import { IncusApiError, type IncusClient } from './incus/incus-client.js'
-import type { IncusInstance } from '../types/incus.js'
-import { removeDedicatedForward } from './incus/dedicated-network.js'
+import type { IncusClient } from './incus/incus-client.js'
+import { cleanupManagedInstanceRemote, managedCleanupEndpointHash } from './managed-cleanup-identity.js'
 import type { Host } from '../types/database.js'
 import { networkModeAllowsPortMapping, networkModeNeedsPublicIpv4 } from './network-modes.js'
 import { provisionAutoRemotePort } from './instance-port-mapping.js'
@@ -58,65 +57,6 @@ export async function provisionManagedInstanceAsync(
   const attempt = randomUUID()
   let client: IncusClient | undefined
 
-  // Only this attempt's remote instance can be cleaned. Retain the original
-  // connection: a later host address change must not redirect cleanup.
-  const cleanupCreatedInstance = async () => {
-    if (!client) throw new Error('Original Incus connection unavailable; cleanup not confirmed')
-    const originalClient = client
-    const deadline = Date.now() + 30000, signal = AbortSignal.timeout(30000)
-    const boundedClient: Pick<IncusClient, 'request'> = {
-      request<T = unknown>(method: string, path: string, body: unknown = null): Promise<T> {
-        signal.throwIfAborted()
-        if (Date.now() >= deadline) throw new Error('Managed cleanup deadline exceeded')
-        return originalClient.request<T>(method, path, body, deadline - Date.now(), signal)
-      }
-    }
-    const path = `/1.0/instances/${encodeURIComponent(config.name)}`
-    try {
-      const remote = await boundedClient.request<IncusInstance>('GET', path)
-      if (remote.name !== config.name || remote.config?.['user.payincus.provisioning-attempt'] !== attempt) {
-        throw new Error('Remote instance does not belong to this creation attempt')
-      }
-      const uuid = remote.config?.['volatile.uuid']
-      if (!uuid || !/^[a-f0-9-]{36}$/i.test(uuid)) throw new Error('Remote instance UUID not confirmed')
-      if (remote.status !== 'Stopped') await boundedClient.request('PUT', `${path}/state`, { action: 'stop', force: true, timeout: 20 })
-      const stopped = await boundedClient.request<IncusInstance>('GET', path)
-      if (stopped.name !== config.name || stopped.config?.['user.payincus.provisioning-attempt'] !== attempt ||
-        stopped.config?.['volatile.uuid'] !== uuid || stopped.status !== 'Stopped') {
-        throw new Error('Remote identity or stopped state not confirmed')
-      }
-      await boundedClient.request('DELETE', path)
-    } catch (cleanupError) {
-      // An operation/network error mentioning "not found" is not absence.
-      if (!(cleanupError instanceof IncusApiError) || cleanupError.statusCode !== 404 || cleanupError.path !== path) throw cleanupError
-    }
-    let absent = false
-    try { await boundedClient.request('GET', path) }
-    catch (error) { if (error instanceof IncusApiError && error.statusCode === 404 && error.path === path) absent = true; else throw error }
-    if (!absent) throw new Error('Remote deletion not confirmed')
-    const operations = await boundedClient.request<unknown>('GET', '/1.0/operations?recursion=1')
-    const hasPendingCreation = (value: unknown): boolean => {
-      if (Array.isArray(value)) return value.some(hasPendingCreation)
-      if (!value || typeof value !== 'object') return false
-      const operation = value as { status?: string; status_code?: number; resources?: { instances?: string[] } }
-      if (operation.resources?.instances?.some(resource => new URL(resource, 'https://incus.invalid').pathname === path) &&
-        !['success', 'failure', 'cancelled', 'canceled'].includes(operation.status?.toLowerCase() || '') &&
-        (typeof operation.status_code !== 'number' || operation.status_code < 200)) return true
-      return Object.values(value).some(hasPendingCreation)
-    }
-    if (hasPendingCreation(operations)) throw new Error('Remote instance operation still pending; cleanup not confirmed')
-    await removeDedicatedForward(boundedClient, config.name)
-    let forwards: Array<{ description?: string }>
-    try { forwards = await boundedClient.request('GET', '/1.0/networks/incusbr0/forwards?recursion=1') }
-    catch (error) {
-      const networks = await boundedClient.request<string[]>('GET', '/1.0/networks')
-      if (networks.includes('/1.0/networks/incusbr0')) throw error
-      forwards = []
-    }
-    if (forwards.some(forward => forward.description === `payincus-dedicated:${config.name}`)) {
-      throw new Error('Remote address forward deletion not confirmed')
-    }
-  }
   try {
     console.log(`\n[Managed Provisioning] ===== start =====`)
     console.log(`[Managed Provisioning] instanceId=${instanceId}, name=${config.name}, host=${host.name}`)
@@ -328,9 +268,17 @@ export async function provisionManagedInstanceAsync(
   } catch (error) {
     console.error(`[Managed Provisioning] instance ${instanceId} failed:`, error)
 
-    const updateResult = await prisma.instance.updateMany({
-      where: { ...target, status: 'creating', provisioningCleanupPending: false },
-      data: { status: 'error', provisioningCleanupPending: true }
+    const updateResult = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+      const current = await tx.instance.findFirst({ where: { ...target, status: 'creating', provisioningCleanupPending: false } })
+      if (!current) return { count: 0 }
+      const specs = current.snapshottedSpecs && typeof current.snapshottedSpecs === 'object' && !Array.isArray(current.snapshottedSpecs)
+        ? current.snapshottedSpecs : {}
+      return tx.instance.updateMany({
+        where: { ...target, status: 'creating', provisioningCleanupPending: false },
+        data: { status: 'error', provisioningCleanupPending: true,
+          snapshottedSpecs: { ...specs, managedCleanup: { attempt, endpointHash: client ? managedCleanupEndpointHash(client) : null } } }
+      })
     })
     if (updateResult.count === 0) throw error
 
@@ -353,7 +301,8 @@ export async function provisionManagedInstanceAsync(
           current.networkMode !== instance.networkMode || current.portLimit !== instance.portLimit) {
           throw new Error('Instance allocation changed before cleanup')
         }
-        await cleanupCreatedInstance()
+        if (!client) throw new Error('Original Incus connection unavailable; cleanup not confirmed')
+        await cleanupManagedInstanceRemote(client, config.name, attempt)
         const released = await tx.instance.updateMany({
           where: { ...target, status: 'error', provisioningCleanupPending: true },
           data: { provisioningCleanupPending: false }

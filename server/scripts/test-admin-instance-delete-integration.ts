@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import Fastify from 'fastify'
-import { randomUUID, X509Certificate } from 'node:crypto'
+import { createHash, randomUUID, X509Certificate } from 'node:crypto'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep, basename } from 'node:path'
@@ -13,6 +13,7 @@ const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { default: hostRoutes } = await import('../src/routes/hosts.js')
 const { default: instanceRoutes } = await import('../src/routes/instances.js')
 const { default: destroyRoutes } = await import('../src/routes/instance-destroy.js')
+const { default: adminBillingRoutes } = await import('../src/routes/admin-billing.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const prefix = `delete-test-${randomUUID().slice(0, 8)}`
 const admin = await prisma.user.create({ data: { username: `${prefix}-admin`, passwordHash: 'unusable-fixture', role: 'admin' } })
@@ -45,6 +46,7 @@ app.decorate('authenticateUser', app.authenticate)
 await app.register(hostRoutes, { prefix: '/hosts' })
 await app.register(instanceRoutes, { prefix: '/instances' })
 await app.register(destroyRoutes, { prefix: '/instances' })
+await app.register(adminBillingRoutes)
 for (const actor of [admin, owner, buyer]) await prisma.notificationChannel.create({ data: { userId: actor.id, type: 'webhook', name: 'Verification fixture', enabled: true, config: { url: 'https://invalid.example.test' } } })
 const remove = (hostId: number, ids: number[], role: string, refund: boolean, databaseOnly = true) => app.inject({ method: 'DELETE',
   url: `/hosts/${hostId}/instances/batch`, headers: { 'x-test-role': role }, payload: { instanceIds: ids, refund, databaseOnly } })
@@ -106,7 +108,9 @@ try {
     '-keyout', keyPath, '-out', certificatePath], { stdio: 'pipe', windowsHide: true })
   const certificate = await readFile(certificatePath, 'utf8')
   const remoteStates = new Map<string, string>(), remoteCalls: string[] = []
+  const remoteConfig = new Map<string, Record<string, string>>()
   let rejectDeletion = false
+  let keepDeleted = false
   let beforeRemoteDelete: (() => Promise<void>) | undefined
   const server = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate,
     requestCert: true, rejectUnauthorized: true }, async (request, response) => {
@@ -125,14 +129,14 @@ try {
     if (!match || !remoteStates.has(match[1]!)) return send({}, 404)
     const name = match[1]!
     if (request.method === 'GET' && match[2]) return send({ status: remoteStates.get(name) })
-    if (request.method === 'GET') return send({ name, status: remoteStates.get(name), devices: {}, config: {} })
+    if (request.method === 'GET') return send({ name, status: remoteStates.get(name), devices: {}, config: remoteConfig.get(name) || {} })
     if (request.method === 'PUT' && match[2]) {
       assert.equal(JSON.parse(body).action, 'stop'); remoteStates.set(name, 'Stopped'); return send({})
     }
     if (request.method === 'DELETE') {
       if (rejectDeletion || remoteStates.get(name) !== 'Stopped') return send({}, 503)
       if (beforeRemoteDelete) { const hook = beforeRemoteDelete; beforeRemoteDelete = undefined; await hook() }
-      remoteStates.delete(name); return send({})
+      if (!keepDeleted) remoteStates.delete(name); return send({})
     }
     return send({}, 404)
   })
@@ -146,15 +150,25 @@ try {
     remoteStates.set(value.instance.incusId, 'Running')
     return value
   }
+  async function pendingCleanupFixture() {
+    const value = await runningErrorFixture()
+    const attempt = randomUUID()
+    remoteConfig.set(value.instance.incusId, { 'user.payincus.provisioning-attempt': attempt, 'volatile.uuid': randomUUID() })
+    await prisma.instance.update({ where: { id: value.instance.id }, data: { provisioningCleanupPending: true,
+      snapshottedSpecs: { managedCleanup: { attempt, endpointHash: createHash('sha256').update(`https://127.0.0.1:${endpoint!.port}`).digest('hex') } } } })
+    await prisma.publicIpv4Address.create({ data: { hostId: value.host.id, instanceId: value.instance.id,
+      address: '192.0.2.30', status: 'assigned', prefixLength: 24, gateway: '192.0.2.1' } })
+    return value
+  }
   try {
     const ledgerSnapshot = async () => ({
       buyer: (await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance.toFixed(2),
       hosting: (await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).hostingBalance.toFixed(2),
       aff: (await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).affBalance.toFixed(2),
-      balanceLogs: await prisma.balanceLog.count(),
-      billingRecords: await prisma.instanceBillingRecord.count(),
-      hostingLogs: await prisma.hostingBalanceLog.count(),
-      affLogs: await prisma.affLog.count()
+      balanceLogs: await prisma.balanceLog.count({ where: { userId: { in: [buyer.id, owner.id, admin.id] } } }),
+      billingRecords: await prisma.instanceBillingRecord.count({ where: { userId: { in: [buyer.id, owner.id, admin.id] } } }),
+      hostingLogs: await prisma.hostingBalanceLog.count({ where: { userId: { in: [buyer.id, owner.id, admin.id] } } }),
+      affLogs: await prisma.affLog.count({ where: { userId: { in: [buyer.id, owner.id, admin.id] } } })
     })
     const assertNoRefundPreview = (preview: any) => {
       assert.deepEqual(preview.refund, {
@@ -174,8 +188,54 @@ try {
         assert.equal(Number(audit.feeAmount), 0)
       }
     }
-    for (const mode of ['paid', 'error', 'error-waiver', 'free']) {
-      const value = await runningErrorFixture()
+    for (const entry of ['user', 'user_batch', 'admin', 'admin_batch']) {
+      for (const failure of ['missing_identity', 'wrong_attempt', 'wrong_endpoint', 'unconfirmed']) {
+        const value = await pendingCleanupFixture()
+        if (failure === 'missing_identity') await prisma.instance.update({ where: { id: value.instance.id }, data: { snapshottedSpecs: {} } })
+        if (failure === 'wrong_attempt') remoteConfig.get(value.instance.incusId)!['user.payincus.provisioning-attempt'] = randomUUID()
+        if (failure === 'wrong_endpoint') {
+          const row = await prisma.instance.findUniqueOrThrow({ where: { id: value.instance.id } })
+          const specs = row.snapshottedSpecs as any; specs.managedCleanup.endpointHash = 'different-endpoint'
+          await prisma.instance.update({ where: { id: value.instance.id }, data: { snapshottedSpecs: specs } })
+        }
+        keepDeleted = failure === 'unconfirmed'
+        const before = await ledgerSnapshot(), callCount = remoteCalls.length
+        const result = entry === 'user' ? await app.inject({ method: 'POST', url: `/instances/${value.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' } })
+          : entry === 'user_batch' ? await app.inject({ method: 'POST', url: '/instances/batch/destroy', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: [value.instance.id] } })
+          : entry === 'admin' ? await app.inject({ method: 'DELETE', url: `/instances/${value.instance.id}`, headers: { 'x-test-role': 'admin' }, payload: {} })
+          : await remove(value.host.id, [value.instance.id], 'admin', false, false)
+        if (entry.includes('batch')) assert.equal(result.json().successCount, 0, result.body)
+        else assert.ok(result.statusCode >= 400, result.body)
+        const current = await prisma.instance.findUniqueOrThrow({ where: { id: value.instance.id } })
+        assert.equal(current.status, 'error'); assert.equal(current.provisioningCleanupPending, true)
+        assert.equal((await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: value.host.id } })).status, 'assigned')
+        assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: value.host.id } })).cpuUsed, 100)
+        assert.deepEqual(await ledgerSnapshot(), before)
+        assert.equal(remoteStates.has(value.instance.incusId), true)
+        if (failure !== 'unconfirmed') assert.equal(remoteCalls.slice(callCount).filter(call => call.startsWith('PUT ') || call.startsWith('DELETE ')).length, 0)
+        keepDeleted = false
+      }
+    }
+    const legacyPending = await pendingCleanupFixture()
+    const beforeLegacy = await ledgerSnapshot(), legacyCalls = remoteCalls.length
+    for (const databaseOnly of [false, true]) {
+      const result = await app.inject({ method: 'POST', url: `/api/admin/instances/${legacyPending.instance.id}/delete-and-refund`,
+        headers: { 'x-test-role': 'admin' }, payload: { refundType: 'full', reason: 'fixture cleanup', databaseOnly } })
+      assert.equal(result.statusCode, 409, result.body)
+      assert.equal(result.json().code, 'PROVISIONING_CLEANUP_PENDING')
+    }
+    assert.deepEqual(await ledgerSnapshot(), beforeLegacy); assert.equal(remoteCalls.length, legacyCalls)
+    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: legacyPending.instance.id } })).status, 'error')
+    const recordOnly = await pendingCleanupFixture()
+    const recordOnlyCalls = remoteCalls.length
+    const recordOnlyResult = await remove(recordOnly.host.id, [recordOnly.instance.id], 'admin', false, true)
+    assert.equal(recordOnlyResult.json().successCount, 1, recordOnlyResult.body)
+    assert.equal(remoteCalls.length, recordOnlyCalls, 'record-only cleanup must not touch Incus')
+    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: recordOnly.instance.id } })).provisioningCleanupPending, true)
+    assert.equal((await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: recordOnly.host.id } })).status, 'assigned')
+    assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: recordOnly.host.id } })).poolFaulted, true)
+    for (const mode of ['pending', 'paid', 'error', 'error-waiver', 'free']) {
+      const value = mode === 'pending' ? await pendingCleanupFixture() : await runningErrorFixture()
       if (mode === 'paid' || mode === 'free') {
         await prisma.instance.update({ where: { id: value.instance.id }, data: {
           status: 'stopped', ...(mode === 'free' ? { packagePlanId: null } : {})
@@ -194,10 +254,14 @@ try {
       assert.equal(deleted.json().feeAmount, 0)
       assert.deepEqual(await ledgerSnapshot(), before, `${mode}: destroy must not write any money ledger`)
       await assertDeleted(value)
+      if (mode === 'pending') {
+        assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: value.instance.id } })).provisioningCleanupPending, false, 'confirmed manual deletion must finalize pending creation cleanup')
+        assert.equal((await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: value.host.id } })).status, 'free')
+      }
       assert.equal((await app.inject({ method: 'POST', url: `/instances/${value.instance.id}/destroy${query}`, headers: { 'x-test-role': 'buyer' } })).statusCode, 400)
       assert.deepEqual(await ledgerSnapshot(), before, 'duplicate destruction must not affect money')
     }
-    const userBatch = [await runningErrorFixture(), await runningErrorFixture()]
+    const userBatch = [await pendingCleanupFixture(), await runningErrorFixture()]
     await prisma.instance.update({ where: { id: userBatch[0]!.instance.id }, data: { status: 'stopped' } })
     remoteStates.set(userBatch[0]!.instance.incusId, 'Stopped')
     const ids = userBatch.map(value => value.instance.id)
@@ -212,17 +276,21 @@ try {
     for (const result of userBatchResponse.json().results) assert.deepEqual([result.refundAmount, result.feeAmount], [0, 0])
     assert.deepEqual(await ledgerSnapshot(), beforeUserBatch)
     for (const value of userBatch) await assertDeleted(value)
+    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: userBatch[0]!.instance.id } })).provisioningCleanupPending, false)
+    assert.equal((await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: userBatch[0]!.host.id } })).status, 'free')
 
-    const single = await runningErrorFixture()
+    const single = await pendingCleanupFixture()
     const beforeSingle = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
     const response = await app.inject({ method: 'DELETE', url: `/instances/${single.instance.id}`, headers: { 'x-test-role': 'admin' }, payload: {} })
     assert.equal(response.statusCode, 200, response.body)
     assert.equal(remoteStates.has(single.instance.incusId), false)
     assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), beforeSingle)
     assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: single.instance.id, type: 'refund' } }), 0)
+    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: single.instance.id } })).provisioningCleanupPending, false)
+    assert.equal((await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: single.host.id } })).status, 'free')
 
     for (const refund of [false, true]) {
-      const batch = await runningErrorFixture()
+      const batch = await pendingCleanupFixture()
       const beforeBatch = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
       const response = await remove(batch.host.id, [batch.instance.id], 'admin', refund, false)
       assert.equal(response.json().successCount, 1, response.body)
@@ -233,6 +301,8 @@ try {
         beforeBatch + records.reduce((sum, record) => sum + Math.abs(Number(record.amount)), 0))
       const finalHost = await prisma.host.findUniqueOrThrow({ where: { id: batch.host.id } })
       assert.deepEqual([finalHost.cpuUsed, finalHost.memoryUsed, finalHost.diskUsed], [0, 0, 0])
+      assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: batch.instance.id } })).provisioningCleanupPending, false)
+      assert.equal((await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: batch.host.id } })).status, 'free')
     }
 
     const refunded = await runningErrorFixture()

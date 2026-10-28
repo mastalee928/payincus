@@ -128,6 +128,12 @@ try {
     const otherOwner = ['lost_claim', 'success', 'success_lost_claim'].includes(mode)
     assert.equal(current.status, mode === 'success_lost_claim' ? 'stopped' : ['lost_claim', 'success'].includes(mode) ? 'running' : 'error')
     assert.equal(current.provisioningCleanupPending, !cleaned && !otherOwner)
+    if (!otherOwner) {
+      const identity = (current.snapshottedSpecs as any).managedCleanup
+      assert.match(identity.attempt, /^[a-f0-9-]{36}$/i)
+      assert.match(identity.endpointHash, /^[a-f0-9]{64}$/)
+      assert.equal('url' in identity, false, 'persist only an endpoint hash, not a management address')
+    }
     assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).balance), balance + (otherOwner ? 0 : 5), 'failure refund remains independent of unresolved remote cleanup')
     if (['existing', 'lost_claim', 'not_found_text', 'allocation_changed'].includes(mode)) assert.equal(actions.filter(action => action.startsWith('PUT ') || action === `DELETE /1.0/instances/${target}`).length, 0, 'unknown or no longer claimed instance must not be stopped/deleted')
     if (mode === 'confirmed') {

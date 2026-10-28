@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：5b68d13已push。R269人工删除四入口pending/IP收尾、原attempt/endpoint哈希身份、共用30秒stop/delete/absence/operation/forward核验已修；16拒绝+正常/账目/旧refund接口409/record-only保留真实PG+mTLS完整exit0，20创建回归/8守卫/最终后端build含tsc exit0，准备阶段push，无待poll。接R270 hosts.ts赠送提交后准备失败（IP/cloud-init/storage）与createInboxMessage失败202污染；createLog本身已吞错为误判，完整route及相关守卫/storage resolver/预占已读未编辑。R269通用超时与强杀/事务退出续跑仍待，327持续。
+
 > **最新接续**：d80aacb已push且CI success，R264/265 CI也success。R269 managed失败回调已先确认原连接/attempt/UUID/Stopped/精确404/无pending operation/转发移除后事务释放，20真实PG+mTLS场景、4守卫、后端build含tsc最终exit0/manifest191常规89排除，准备阶段push；无待poll。继续补人工销毁后的provisioningCleanupPending与publicIPv4收尾：instances.ts单删、instance-destroy.ts单/批、hosts.ts finalizeHostBatchDelete均未清此标记，通用删除当前也只看delete回执。对应delete/user-destroy守卫与admin-instance-delete-integration完整相关段已读未改。R270 storage提交后失败仍待，createLog本身已吞错，先前“日志失败返回500”须纠正。327未完整。
 
 > **最新接续**：R265 84430db已push。R258历史CI40759254570失败为terms lifecycle末尾读到退出动画旧DOM，新增waitClosed和新请求数断言后实际Chrome/语法/路由守卫通过准备单项push；R259/260 CI success。无待poll进程。R269完整managed helper/失败补偿与端口守卫、Incus delete/state/client、超时清理和宿主赠送后半段已读，未改产品；须同时防远端未确认便释放及迟到回调删除错误目标。默认机器池不混用，327持续。

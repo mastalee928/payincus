@@ -10,6 +10,7 @@ const __dirname = dirname(__filename)
 const instancesSource = readFileSync(resolve(__dirname, '../src/routes/instances.ts'), 'utf8')
 const adminBillingSource = readFileSync(resolve(__dirname, '../src/routes/admin-billing.ts'), 'utf8')
 const managedProvisionSource = readFileSync(resolve(__dirname, '../src/lib/managed-instance-provision.ts'), 'utf8')
+const managedCleanupSource = readFileSync(resolve(__dirname, '../src/lib/managed-cleanup-identity.ts'), 'utf8')
 const appSource = readFileSync(resolve(__dirname, '../src/app.ts'), 'utf8')
 const compensationSource = readFileSync(resolve(__dirname, '../src/db/instance-provisioning-compensation.ts'), 'utf8')
 
@@ -145,11 +146,11 @@ const managedAsyncSection = section(
 
 assert.ok(
   managedAsyncSection.includes("where: { ...target, status: 'creating', provisioningCleanupPending: false }") &&
-    managedAsyncSection.includes("data: { status: 'error', provisioningCleanupPending: true }") &&
+    managedAsyncSection.includes("data: { status: 'error', provisioningCleanupPending: true,") &&
     managedAsyncSection.includes('await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`') &&
     managedAsyncSection.includes('await db.releasePublicIpv4ForInstance(tx, instanceId)') &&
     managedAsyncSection.includes('await db.compensateFailedInstancePurchase(instanceId, instance.userId, instance.hostId)') &&
-    managedAsyncSection.indexOf('await cleanupCreatedInstance()') < managedAsyncSection.indexOf('UPDATE hosts SET cpu_used'),
+    managedAsyncSection.indexOf('await cleanupManagedInstanceRemote(client, config.name, attempt)') < managedAsyncSection.indexOf('UPDATE hosts SET cpu_used'),
   'managed failures must claim the same target, preserve pending resources until confirmed remote cleanup, and release resources/IP atomically under the instance lock; refunds remain independent'
 )
 
@@ -175,10 +176,10 @@ assert.ok(
 )
 
 assert.ok(
-  managedAsyncSection.includes("action: 'stop', force: true, timeout: 20") &&
-    managedAsyncSection.includes("await boundedClient.request('DELETE', path)") &&
-    managedAsyncSection.includes("if (!absent) throw new Error('Remote deletion not confirmed')") &&
-    managedAsyncSection.includes("remote.config?.['user.payincus.provisioning-attempt'] !== attempt") &&
+  managedCleanupSource.includes("action: 'stop', force: true, timeout: 20") &&
+    managedCleanupSource.includes("await boundedClient.request('DELETE', path)") &&
+    managedCleanupSource.includes("if (!absent) throw new Error('Remote deletion not confirmed')") &&
+    managedCleanupSource.includes("remote.config?.['user.payincus.provisioning-attempt'] !== attempt") &&
     managedAsyncSection.includes('if (updateResult.count === 0) throw error'),
   'managed cleanup must verify this attempt, stop/delete/absence and defer to the other owner when finalization was already claimed'
 )

@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-269 人工删除残留的身份与库存收尾
+
+- 自动回调5b68d13已push；失败时在原快照中合并本次attempt和endpoint SHA256，保其它字段且不存管理URL。自动与人工共用30秒清理核验；用户单/批destroy、管理员单删与宿主批删先核原身份，确认删除后清pending和释放公网IPv4，节点批删据此重算库存。旧delete-and-refund对pending明确409并指向现有核验入口；仅记录删除继续保pending/IP占用/宿主隔离。
+- `takeover-managed-cleanup-delete-before.log`真实API先复现销毁成功pending仍true；`takeover-managed-cleanup-delete-complete.log`最终exit0通过四入口成功、16个缺身份/错误attempt/错误endpoint/假删除回执拒绝场景、旧接口两模式409、仅记录零Incus及保占用、原用户零退款/零账目与管理员退款选择。真实PG+mTLS，认证hook夹具，未原生Incus或客户操作。
+- `takeover-managed-cleanup-identity-provision-final.log`20创建场景及持久身份哈希回归最终exit0；8守卫、后端最终build含tsc exit0通过。一次删除专项全库账目计数被并行创建专项干扰，现按本专项三账号计数，串行完整重跑；一次文件CRLF使静态section匹配失败已恢复LF并通过，一次错守卫名被runner拒绝不计执行。无前端改动。
+- R269通用超时清理/进程强杀、事务中途退出后的人工续跑仍待；缺旧身份的pending拒绝自动清理，需按真实身份核对，不能编造原标记。R270后续：存储/IP/cloud-init在提交后失败无统一补偿，站内信失败能干扰202；createLog自身已吞错，纠正旧“日志异常导致500”描述。327与完整灾备仍未完成。
+
 ## 2026-10-29 R1-269 旧托管失败先确认远端清理
 
 - d80aacb已push并核远端一致；R264/265及条款同步CI40761263661/40761931015/40762367663均success。managed创建绑定原user/host/incusId，远端加入本次随机标记，清理复用原mTLS连接并核标记/UUID。失去creating终结权的迟到成功/失败不再自行stop/delete；失败先置error及provisioningCleanupPending，保原失败退款独立执行。

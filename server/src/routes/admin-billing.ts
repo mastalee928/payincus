@@ -2129,6 +2129,10 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         return reply.status(400).send({ error: '实例已删除' })
       }
 
+      if (instance.provisioningCleanupPending) {
+        return reply.status(409).send({ error: '实例创建清理尚未完成，请使用实例删除或节点批量删除核验原实例后处理', code: 'PROVISIONING_CLEANUP_PENDING' })
+      }
+
       // 3. 计算可退款金额（仅用于全额退款模式）
       const { maxRefundable } = await getMaxRefundable(instanceId)
 

@@ -93,6 +93,7 @@ import {
   parseStartupItems
 } from '../lib/instance-audit.js'
 import { provisionManagedInstanceAsync } from '../lib/managed-instance-provision.js'
+import { assertManagedCleanupIdentity, deletePendingManagedInstance, finalizeManagedCleanupForDeletion } from '../lib/managed-cleanup-identity.js'
 import type { InstanceStatus } from '@prisma/client'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -381,6 +382,7 @@ async function restoreHostBatchDeleteClaim(instanceId: number, originalStatus: I
 }
 
 async function finalizeHostBatchDelete(instanceId: number, hostId: number, databaseOnly: boolean): Promise<void> {
+  if (!databaseOnly) await finalizeManagedCleanupForDeletion(instanceId)
   await prisma.$transaction(async tx => {
     await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
     await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
@@ -3038,6 +3040,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           continue
         }
         deleteClaimed = true
+        if (!databaseOnly && client) {
+          try { await assertManagedCleanupIdentity(client, instance.id) }
+          catch (error) {
+            await restoreHostBatchDeleteClaim(instance.id, instance.status as InstanceStatus)
+            deleteClaimed = false
+            throw error
+          }
+        }
 
         // ===== 1. 删除反代站点（完整删除清 Caddy，DB-only 只清数据库）=====
         const proxySites = await getProxySitesByInstanceId(instance.id)
@@ -3113,7 +3123,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         // ===== 5. 停止并删除 Incus 实例（完整删除模式专属）=====
         if (!databaseOnly && client && incusInstanceOperations) {
           try {
-            await deleteIncusInstanceForHostBatch(client, incusInstanceOperations, instance, fastify.log)
+            if (!await deletePendingManagedInstance(client, instance.id)) await deleteIncusInstanceForHostBatch(client, incusInstanceOperations, instance, fastify.log)
           } catch (incusError) {
             await restoreHostBatchDeleteClaim(instance.id, instance.status as InstanceStatus)
             deleteClaimed = false
