@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
@@ -32,6 +32,44 @@ const authStore = useAuthStore()
 const configStore = useConfigStore()
 const route = useRoute()
 const router = useRouter()
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const routeTicketId = computed(() => {
+  const value = route.query.ticket
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return null
+  const id = Number(value)
+  return Number.isSafeInteger(id) && id <= 2_147_483_647 ? id : null
+})
+const pageActive = ref(false)
+let alive = true
+let pageGeneration = 0
+let detailGeneration = 0
+let listSequence = 0
+let pendingSequence = 0
+let supportSequence = 0
+let instancesSequence = 0
+let messagesSequence = 0
+let attachmentGeneration = 0
+let refreshMessagesAfterLoad = false
+const requestedTicketId = ref<number | null>(null)
+function capturePage() {
+  const generation = pageGeneration, session = sessionKey.value, path = route.fullPath
+  return () => alive && pageActive.value && !!session && session === sessionKey.value &&
+    generation === pageGeneration && path === route.fullPath &&
+    (route.path === '/tickets' || route.path === '/admin/tickets')
+}
+function captureDetail(ticketId = selectedTicket.value?.id) {
+  const pageCurrent = capturePage(), generation = detailGeneration
+  return () => pageCurrent() && !!ticketId && routeTicketId.value === ticketId &&
+    requestedTicketId.value === ticketId && viewMode.value === 'detail' && generation === detailGeneration
+}
 
 const revealRoot = ref<HTMLElement | null>(null)
 useReveal(revealRoot)
@@ -97,8 +135,14 @@ const messagesLoadingMore = ref(false)
 
 // Reply
 const replyContent = ref('')
-const replying = ref(false)
+const pendingReplies = ref(0)
+const replying = computed(() => pendingReplies.value > 0)
 const replyAttachments = ref<File[]>([])
+let replyRevision = 0
+watch([replyContent, replyAttachments], () => { replyRevision++ }, { deep: true, flush: 'sync' })
+const canReply = computed(() => captureDetail()() && !messagesLoading.value && !replying.value &&
+  selectedTicket.value?.status !== 'closed' && (isOwner.value || isCreator.value) &&
+  (!!replyContent.value.trim() || replyAttachments.value.length > 0))
 
 // Create form
 const createForm = ref({
@@ -182,6 +226,7 @@ const lightboxImages = computed(() => {
 })
 
 function revokeAttachmentUrls(): void {
+  attachmentGeneration++
   for (const url of Object.values(attachmentObjectUrls.value)) {
     URL.revokeObjectURL(url)
   }
@@ -190,6 +235,11 @@ function revokeAttachmentUrls(): void {
 }
 
 async function ensureAttachmentObjectUrl(attachment: TicketMessageAttachment): Promise<void> {
+  const context = captureDetail(attachment.ticketId), generation = attachmentGeneration
+  const current = () => context() && generation === attachmentGeneration
+  const attached = () => current() && messages.value.some(message => message.id === attachment.messageId &&
+    message.attachments.some(item => item.id === attachment.id && item.ticketId === attachment.ticketId))
+  if (!attached()) return
   if (attachmentObjectUrls.value[attachment.id] || attachmentLoadingIds.value[attachment.id]) {
     return
   }
@@ -201,16 +251,19 @@ async function ensureAttachmentObjectUrl(attachment: TicketMessageAttachment): P
 
   try {
     const blob = await api.tickets.getAttachmentContent(attachment.id)
+    if (!attached()) return
     attachmentObjectUrls.value = {
       ...attachmentObjectUrls.value,
       [attachment.id]: URL.createObjectURL(blob)
     }
   } catch (error) {
-    console.error('Failed to load ticket attachment:', error)
+    if (current()) console.error('Failed to load ticket attachment:', error)
   } finally {
-    const nextLoadingIds = { ...attachmentLoadingIds.value }
-    delete nextLoadingIds[attachment.id]
-    attachmentLoadingIds.value = nextLoadingIds
+    if (current()) {
+      const nextLoadingIds = { ...attachmentLoadingIds.value }
+      delete nextLoadingIds[attachment.id]
+      attachmentLoadingIds.value = nextLoadingIds
+    }
   }
 }
 
@@ -219,15 +272,12 @@ async function ensureMessageAttachmentUrls(messageList: TicketMessage[]): Promis
 }
 
 function openAttachmentLightbox(attachmentId: number): void {
+  if (!captureDetail()()) return
   const index = lightboxImages.value.findIndex(image => image.id === attachmentId)
   if (index === -1) return
   lightboxStartIndex.value = index
   lightboxOpen.value = true
 }
-
-onBeforeUnmount(() => {
-  revokeAttachmentUrls()
-})
 
 // 管理员或拥有节点的用户可以查看收到的工单
 const isHostOwner = computed(() => authStore.isAdmin || pendingCount.value.isHostOwner)
@@ -271,8 +321,6 @@ const hostEmptyState = computed(() => {
   }
 })
 
-const routeStateReady = ref(false)
-
 function getDefaultTab(): TabType {
   return authStore.isAdmin ? 'host' : 'my'
 }
@@ -305,6 +353,13 @@ function buildTicketsQuery(options: {
 }
 
 function resetDetailState() {
+  refreshMessagesAfterLoad = false
+  detailGeneration++
+  supportSequence++
+  messagesSequence++
+  requestedTicketId.value = null
+  messagesLoading.value = false
+  messagesLoadingMore.value = false
   selectedTicket.value = null
   messages.value = []
   replyContent.value = ''
@@ -350,50 +405,70 @@ async function navigateToList(replace = false): Promise<void> {
 }
 
 async function openTicketDetail(ticketId: number): Promise<void> {
+  if (!capturePage()() || routeTicketId.value !== ticketId) return
+  resetDetailState()
+  requestedTicketId.value = ticketId
   viewMode.value = 'detail'
   messagesLoading.value = true
-  supportContext.value = null
-  messagesPage.value = 1
-  revokeAttachmentUrls()
-  messages.value = []
-  selectedTicket.value = selectedTicket.value?.id === ticketId ? selectedTicket.value : ({ id: ticketId } as Ticket)
+  const current = captureDetail(ticketId)
 
   try {
     const [detailRes, messagesRes] = await Promise.all([
       api.tickets.get(ticketId),
       api.tickets.getMessages(ticketId, { page: 1, pageSize: messagesPageSize.value })
     ])
+    if (!current()) return
+    if (detailRes.ticket.id !== ticketId || !messagesBelongToTicket(messagesRes.messages, ticketId)) throw new Error(t('common.error'))
     selectedTicket.value = detailRes.ticket
     isOwner.value = detailRes.isOwner
     isCreator.value = detailRes.isCreator
     messages.value = messagesRes.messages
     messagesTotal.value = messagesRes.total
-    await ensureMessageAttachmentUrls(messagesRes.messages)
+    void ensureMessageAttachmentUrls(messagesRes.messages)
     if (authStore.isAdmin) {
-      await loadSupportContext(ticketId)
+      void loadSupportContext(ticketId)
     }
   } catch (error: any) {
+    if (!current()) return
     toast.error(error?.message || t('common.error'))
     await navigateToList(true)
   } finally {
-    messagesLoading.value = false
+    if (current()) {
+      messagesLoading.value = false
+      if (selectedTicket.value && refreshMessagesAfterLoad) {
+        refreshMessagesAfterLoad = false
+        void refreshCurrentMessages(ticketId)
+      }
+    }
   }
 }
 
+function messagesBelongToTicket(items: TicketMessage[], ticketId: number) {
+  return items.every(message => message.ticketId === ticketId && message.attachments.every(attachment =>
+    attachment.ticketId === ticketId && attachment.messageId === message.id))
+}
+
 async function loadSupportContext(ticketId = selectedTicket.value?.id): Promise<void> {
-  if (!authStore.isAdmin || !ticketId) return
+  const context = captureDetail(ticketId), sequence = ++supportSequence
+  const current = () => context() && sequence === supportSequence && authStore.isAdmin
+  if (!ticketId || !current()) return
   supportContextLoading.value = true
   try {
-    supportContext.value = await api.tickets.getSupportContext(ticketId)
-    selectedTicket.value = supportContext.value.ticket
+    const response = await api.tickets.getSupportContext(ticketId)
+    if (!current()) return
+    if (response.ticket.id !== ticketId) throw new Error(t('common.error'))
+    supportContext.value = response
+    selectedTicket.value = response.ticket
   } catch (error: any) {
+    if (!current()) return
     toast.error(error?.message || t('common.error'))
   } finally {
-    supportContextLoading.value = false
+    if (current()) supportContextLoading.value = false
   }
 }
 
 async function openCreateView(): Promise<void> {
+  resetDetailState()
   viewMode.value = 'create'
   resetCreateForm()
   if (availableInstances.value.length === 0) {
@@ -402,18 +477,20 @@ async function openCreateView(): Promise<void> {
 }
 
 async function syncViewFromRoute(): Promise<void> {
+  const current = capturePage()
+  if (!current()) return
   const targetTab = normalizeTab(route.query.tab ?? getDefaultTab())
   if (activeTab.value !== targetTab) {
     activeTab.value = targetTab
     await loadTickets(true)
+    if (!current()) return
   }
 
-  const ticketIdParam = route.query.ticket
   const compose = route.query.compose === '1'
-  const ticketId = typeof ticketIdParam === 'string' ? Number(ticketIdParam) : NaN
+  const ticketId = routeTicketId.value
 
-  if (Number.isInteger(ticketId) && ticketId > 0) {
-    if (viewMode.value !== 'detail' || selectedTicket.value?.id !== ticketId) {
+  if (ticketId) {
+    if (viewMode.value !== 'detail' || requestedTicketId.value !== ticketId) {
       await openTicketDetail(ticketId)
     }
     return
@@ -432,24 +509,57 @@ async function syncViewFromRoute(): Promise<void> {
   }
 }
 
-// 管理员默认显示"收到的工单"标签，拥有节点的普通用户也显示但默认显示"我的工单"
-onMounted(async () => {
+async function initializePage() {
+  const current = capturePage()
+  if (!current()) return
   await loadPendingCount()
+  if (!current()) return
   activeTab.value = normalizeTab(route.query.tab ?? getDefaultTab())
-  await loadTickets()
-  routeStateReady.value = true
+  void loadTickets()
   await syncViewFromRoute()
-})
+}
+
+function resetPage() {
+  pageGeneration++
+  listSequence++
+  pendingSequence++
+  instancesSequence++
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = null
+  loading.value = false
+  refreshing.value = false
+  instancesLoading.value = false
+  tickets.value = []
+  total.value = 0
+  availableInstances.value = []
+  pendingCount.value = { userTickets: 0, hostTickets: 0, total: 0, isHostOwner: false }
+  resetDetailState()
+  resetCreateForm()
+  viewMode.value = 'list'
+  if (capturePage()()) { loading.value = true; void initializePage() }
+}
+
+function activatePage() {
+  if (pageActive.value) return
+  pageActive.value = true
+  resetPage()
+}
+function deactivatePage() { pageActive.value = false; resetPage() }
+onMounted(activatePage)
+onActivated(activatePage)
+onDeactivated(deactivatePage)
+onBeforeUnmount(() => { alive = false; deactivatePage() })
 
 watch(
-  () => [route.query.tab, route.query.ticket, route.query.compose],
-  async () => {
-    if (!routeStateReady.value) return
-    await syncViewFromRoute()
-  }
+  [() => route.fullPath, sessionKey], resetPage, { flush: 'sync' }
 )
+watch([page, pageSize, searchQuery, statusFilter, hostFilter, hostTicketSourceFilter, queueFilter, activeTab],
+  () => { listSequence++ }, { flush: 'sync' })
 
 async function loadTickets(silent = false) {
+  const context = capturePage(), sequence = ++listSequence
+  const current = () => context() && sequence === listSequence
+  if (!current()) return
   if (!silent) loading.value = true
   else refreshing.value = true
   
@@ -486,22 +596,26 @@ async function loadTickets(silent = false) {
       response = await api.tickets.getMyHostTickets(params as { status?: TicketStatus | 'active'; hostId?: number; search?: string; page?: number; pageSize?: number })
     }
     
+    if (!current()) return
     tickets.value = response.tickets
     total.value = response.total
   } catch (error: any) {
+    if (!current()) return
     toast.error(error?.message || t('common.error'))
   } finally {
-    loading.value = false
-    refreshing.value = false
+    if (current()) { loading.value = false; refreshing.value = false }
   }
 }
 
 // 搜索防抖处理
 function handleSearchInput() {
+  const current = capturePage()
+  if (!current()) return
   if (searchDebounceTimer) {
     clearTimeout(searchDebounceTimer)
   }
   searchDebounceTimer = setTimeout(() => {
+    if (!current()) return
     page.value = 1
     loadTickets(true)
   }, 300)
@@ -515,10 +629,14 @@ function handlePageSizeChange(newSize: number) {
 }
 
 async function loadPendingCount() {
+  const context = capturePage(), sequence = ++pendingSequence
+  const current = () => context() && sequence === pendingSequence
+  if (!current()) return
   try {
-    pendingCount.value = await api.tickets.getPendingCount()
+    const response = await api.tickets.getPendingCount()
+    if (current()) pendingCount.value = response
   } catch (error) {
-    console.error('Failed to load pending count:', error)
+    if (current()) console.error('Failed to load pending count:', error)
   }
 }
 
@@ -561,23 +679,51 @@ async function viewTicket(ticket: Ticket) {
 
 // Load more messages
 async function loadMoreMessages() {
-  if (!selectedTicket.value || messagesLoadingMore.value) return
+  const ticketId = selectedTicket.value?.id, context = captureDetail(ticketId)
+  if (!ticketId || !context() || messagesLoading.value || messagesLoadingMore.value) return
   if (messagesPage.value >= messagesTotalPages.value) return
-  
+  const sequence = ++messagesSequence
+  const current = () => context() && sequence === messagesSequence
+  const targetPage = messagesPage.value + 1
   messagesLoadingMore.value = true
   try {
-    messagesPage.value++
-    const res = await api.tickets.getMessages(selectedTicket.value.id, {
-      page: messagesPage.value,
+    const res = await api.tickets.getMessages(ticketId, {
+      page: targetPage,
       pageSize: messagesPageSize.value
     })
-    messages.value.push(...res.messages)
-    await ensureMessageAttachmentUrls(res.messages)
+    if (!current()) return
+    if (!messagesBelongToTicket(res.messages, ticketId)) throw new Error(t('common.error'))
+    messages.value.push(...res.messages.filter(message => !messages.value.some(item => item.id === message.id)))
+    messagesPage.value = targetPage
+    void ensureMessageAttachmentUrls(res.messages)
   } catch (error: any) {
+    if (!current()) return
     toast.error(error?.message || t('common.error'))
-    messagesPage.value--
   } finally {
-    messagesLoadingMore.value = false
+    if (current()) messagesLoadingMore.value = false
+  }
+}
+
+async function refreshCurrentMessages(ticketId: number) {
+  const context = captureDetail(ticketId), sequence = ++messagesSequence
+  const current = () => context() && sequence === messagesSequence
+  if (!current()) return
+  messagesLoading.value = true
+  messagesLoadingMore.value = false
+  try {
+    const response = await api.tickets.getMessages(ticketId, { page: 1, pageSize: messagesPageSize.value })
+    if (!current()) return
+    if (!messagesBelongToTicket(response.messages, ticketId)) throw new Error(t('common.error'))
+    revokeAttachmentUrls()
+    lightboxOpen.value = false
+    messages.value = response.messages
+    messagesTotal.value = response.total
+    messagesPage.value = 1
+    void ensureMessageAttachmentUrls(response.messages)
+  } catch (error: any) {
+    if (current()) toast.error(error?.message || t('common.error'))
+  } finally {
+    if (current()) messagesLoading.value = false
   }
 }
 
@@ -587,29 +733,46 @@ async function backToList() {
 
 // Reply
 async function handleReply() {
-  if (!selectedTicket.value) return
-  if (!replyContent.value.trim() && replyAttachments.value.length === 0) return
+  if (!canReply.value || !selectedTicket.value) return
+  const ticketId = selectedTicket.value.id, current = captureDetail(ticketId), revision = replyRevision
+  const content = replyContent.value.trim(), attachments = [...replyAttachments.value]
+  const draftCurrent = () => current() && revision === replyRevision
+  supportSequence++
+  supportContextLoading.value = false
   
-  replying.value = true
+  pendingReplies.value++
   try {
-    const res = await api.tickets.reply(selectedTicket.value.id, replyContent.value.trim(), replyAttachments.value)
-    messages.value.push(res.data)
-    messagesTotal.value++
-    await ensureMessageAttachmentUrls([res.data])
-    replyContent.value = ''
-    replyAttachments.value = []
+    const res = await api.tickets.reply(ticketId, content, attachments)
+    if (!current()) return
+    if (!messagesBelongToTicket([res.data], ticketId)) throw new Error(t('common.error'))
+    if (!messages.value.some(message => message.id === res.data.id)) {
+      messages.value.push(res.data)
+      messagesTotal.value++
+    }
+    if (draftCurrent()) {
+      replyContent.value = ''
+      replyAttachments.value = []
+    }
+    void ensureMessageAttachmentUrls([res.data])
     toast.success(t('tickets.replySuccess'))
     if (authStore.isAdmin) {
-      await loadSupportContext()
+      void loadSupportContext(ticketId)
     }
     // Scroll to bottom
     await nextTick()
+    if (!current()) return
     const container = document.getElementById('messages-container')
     if (container) container.scrollTop = container.scrollHeight
   } catch (error: any) {
+    if (!draftCurrent()) return
     toast.error(error?.message || t('common.error'))
   } finally {
-    replying.value = false
+    pendingReplies.value--
+    // Reopening the same ticket can load before its previous reply commits.
+    if (!current() && captureDetail(ticketId)()) {
+      if (selectedTicket.value?.id === ticketId) void refreshCurrentMessages(ticketId)
+      else refreshMessagesAfterLoad = true
+    }
   }
 }
 
@@ -757,14 +920,19 @@ function openCreateForm() {
 }
 
 async function loadAvailableInstances() {
+  const context = capturePage(), sequence = ++instancesSequence
+  const current = () => context() && sequence === instancesSequence && viewMode.value === 'create'
+  if (!current()) return
   instancesLoading.value = true
   try {
     const response = await api.instances.list({ pageSize: 100 }) as unknown as { instances: InstanceWithDetails[] }
+    if (!current()) return
     availableInstances.value = response.instances || []
   } catch (error: any) {
+    if (!current()) return
     toast.error(error?.message || t('common.error'))
   } finally {
-    instancesLoading.value = false
+    if (current()) instancesLoading.value = false
   }
 }
 
@@ -1116,6 +1284,9 @@ function formatDateShort(dateString: string) {
       </template>
       
       <!-- Detail View -->
+      <div v-else-if="viewMode === 'detail' && messagesLoading && !selectedTicket" class="card p-4 sm:p-6">
+        <SkeletonLoader type="list" :count="3" />
+      </div>
       <template v-else-if="viewMode === 'detail' && selectedTicket">
         <div class="card overflow-hidden">
           <!-- Header -->
@@ -1452,7 +1623,7 @@ function formatDateShort(dateString: string) {
                 <TicketImageUploader v-model="replyAttachments" :disabled="replying" />
               </div>
               <div class="flex justify-end mt-3">
-                <button :disabled="replying || (!replyContent.trim() && replyAttachments.length === 0)" class="btn btn-primary" @click="handleReply">
+                <button :disabled="!canReply" class="btn btn-primary" @click="handleReply">
                   {{ replying ? t('common.sending') : t('tickets.reply') }}
                 </button>
               </div>

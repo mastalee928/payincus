@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-285 工单详情、回复与附件回执隔离
+
+- c71d25c已push核远端一致，cc5fd54源码CI40780854170已success，c71d25c最后仍运行。工单页面按严格route ID、账号/角色/session、打开及缓存代次隔离；详情拒错目标，列表/未读/支持上下文/实例列表各自序号，旧success/error/finally不覆盖当前。离页取消搜索计时、清详情/草稿/附件和灯箱，同sid刷新保持。
+- 回复固定ticket/content/附件副本，函数和按钮同canReply、在途计数防重复；成功仅清原草稿，保后来文字/附件。离开重开同工单后旧回复settle触发当前消息重读，若初始详情仍在加载则延后重读，保新草稿。翻页成功才提交page且去重，失败不回退其它页；附件独立代次与当前消息成员检查，旧blob不创建URL，重读/离页释放已有URL；图片下载不再阻塞消息正文/回复。
+- `takeover-ticket-lifecycle-before.log`Chrome先红工单1覆盖2；`takeover-ticket-lifecycle-final.log`通过route ABA、旧error/finally、翻页重复/失败、固定回复/新文字附件、closed拦截、同工单重开在途回复与初始读取竞争、图片迟到/释放/灯箱、错目标、同sid/换session/logout、支持上下文乱序、缓存离页、列表旧读及卸载。1440中文/390英文截图已核，无横向溢出/运行异常；真实Chrome配受控API，未宣称实际邮件/通知或PG工单写入。
+- client types、5相关守卫及最终route/success复跑、lint零error/warning、manifest191/102、最终双端build exit0及dist边界通过；专项已登记Chrome CI。
+- 后续关联写入仍待：关闭/重开/状态、删消息、内部备注/通知/关联、创建。`takeover-ticket-actions-before.log`已Chrome先红：关闭1旧回执把2显示closed，新专项不混本次提交。R286实例卡已读，旧stats/任务/写回执和卸载后重建timer仍待；327/R269/完整灾备未完成。
+
 ## 2026-10-29 R1-284 快捷命令草稿与会话隔离
 
 - cc5fd54已push核远端一致；935dac5源码CI40779050593已success，e799c90/cc5fd54最后仍运行。快捷命令绑定账号/角色/session、KeepAlive与手机显隐代次，列表独立序号和ready门禁，失败清旧内容并保留重试。相同sid刷新保持，退出或切换清旧列表/选择/草稿，旧success/error/finally不污染新上下文。

@@ -68,6 +68,13 @@ for (const required of ['function captureDetailRead(', 'generation === detailRea
 const trafficStatsSource = readRepoFile('client/src/components/instance/TrafficStats.vue')
 const packageFormViewSource = readRepoFile('client/src/views/resources/PackageFormView.vue')
 const ticketsViewSource = readRepoFile('client/src/views/TicketsView.vue')
+assert.ok(ticketsViewSource.includes('generation === detailGeneration') && ticketsViewSource.includes('path === route.fullPath') &&
+  ticketsViewSource.includes('session === sessionKey.value') && ticketsViewSource.includes('onDeactivated(deactivatePage)') &&
+  ticketsViewSource.includes('await api.tickets.reply(ticketId, content, attachments)') &&
+  ticketsViewSource.includes('revision === replyRevision') && ticketsViewSource.includes('if (!attached()) return') &&
+  ticketsViewSource.includes('messagesPage.value = targetPage') && !ticketsViewSource.includes('messagesPage.value--') &&
+  ticketsViewSource.includes(':disabled="!canReply"'),
+  'ticket details, reply drafts, attachment URLs and pagination must stay with the current route/session/open attempt')
 const renewModalSource = readRepoFile('client/src/components/instance/modals/RenewModal.vue')
 const changePlanModalSource = readRepoFile('client/src/components/instance/modals/ChangePlanModal.vue')
 const terminalPageSource = readRepoFile('client/src/views/TerminalView.vue')
