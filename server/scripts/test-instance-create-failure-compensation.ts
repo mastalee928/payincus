@@ -144,12 +144,13 @@ const managedAsyncSection = section(
 )
 
 assert.ok(
-  managedAsyncSection.includes("where: { id: instanceId, status: 'creating' }") &&
-    managedAsyncSection.includes('await db.rollbackResources({') &&
-    managedAsyncSection.includes('await prisma.$transaction((tx) => db.releasePublicIpv4ForInstance(tx, instanceId))') &&
+  managedAsyncSection.includes("where: { ...target, status: 'creating', provisioningCleanupPending: false }") &&
+    managedAsyncSection.includes("data: { status: 'error', provisioningCleanupPending: true }") &&
+    managedAsyncSection.includes('await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`') &&
+    managedAsyncSection.includes('await db.releasePublicIpv4ForInstance(tx, instanceId)') &&
     managedAsyncSection.includes('await db.compensateFailedInstancePurchase(instanceId, instance.userId, instance.hostId)') &&
-    managedAsyncSection.includes('await deleteInstance(client, config.name)'),
-  'managed host-owner/admin gifted instance async failures must claim creating->error, release resources/public IPv4, compensate any paid ledger, and clean Incus leftovers'
+    managedAsyncSection.indexOf('await cleanupCreatedInstance()') < managedAsyncSection.indexOf('UPDATE hosts SET cpu_used'),
+  'managed failures must claim the same target, preserve pending resources until confirmed remote cleanup, and release resources/IP atomically under the instance lock; refunds remain independent'
 )
 
 assert.ok(
@@ -174,9 +175,12 @@ assert.ok(
 )
 
 assert.ok(
-  managedAsyncSection.includes('await stopInstance(client, config.name, true)') &&
-    managedAsyncSection.includes('await deleteInstance(client, config.name)'),
-  'managed async success must clean Incus if timeout cleanup won the creating status race'
+  managedAsyncSection.includes("action: 'stop', force: true, timeout: 20") &&
+    managedAsyncSection.includes("await boundedClient.request('DELETE', path)") &&
+    managedAsyncSection.includes("if (!absent) throw new Error('Remote deletion not confirmed')") &&
+    managedAsyncSection.includes("remote.config?.['user.payincus.provisioning-attempt'] !== attempt") &&
+    managedAsyncSection.includes('if (updateResult.count === 0) throw error'),
+  'managed cleanup must verify this attempt, stop/delete/absence and defer to the other owner when finalization was already claimed'
 )
 
 assert.ok(

@@ -59,7 +59,7 @@ export async function removeObsoleteDedicatedIpv6Forwards(client: Pick<IncusClie
 }
 
 /** Called only after instance deletion. Failure must keep the database host occupied. */
-export async function removeDedicatedForward(client: IncusClient, name: string): Promise<void> {
+export async function removeDedicatedForward(client: Pick<IncusClient, 'request'>, name: string): Promise<void> {
   let forwards: Forward[]
   try {
     forwards = await client.request<Forward[]>('GET', `${endpoint}?recursion=1`)

@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-managed-provision', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; actual managed provision cleanup, mTLS failures and resource/refund checks'],
   ['test:review-traffic-limit', 'requires isolated local *_pool_test PostgreSQL; actual user/instance traffic limit omission and bigint boundary validation'],
   ['test:review-traffic-reset-auth', 'requires isolated local *_pool_test PostgreSQL; actual traffic reset actor/target races, billing and baseline checks'],
   ['test:review-payment-locales', 'requires Chrome/Edge and local Vite; actual payment provider controls in three locales, read-only API fixture'],

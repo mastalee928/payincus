@@ -1,7 +1,11 @@
 import { prepareNewContainerCloudInit } from './new-container-cloud-init.js'
+import { randomUUID } from 'node:crypto'
 import { prisma } from '../db/prisma.js'
 import * as db from '../db/index.js'
-import { buildInstanceConfig, createInstance, deleteInstance, getIncusClient, getInstanceState, startInstance, stopInstance } from '../lib/incus/index.js'
+import { buildInstanceConfig, createInstance, getIncusClient, getInstanceState, startInstance } from '../lib/incus/index.js'
+import { IncusApiError, type IncusClient } from './incus/incus-client.js'
+import type { IncusInstance } from '../types/incus.js'
+import { removeDedicatedForward } from './incus/dedicated-network.js'
 import type { Host } from '../types/database.js'
 import { networkModeAllowsPortMapping, networkModeNeedsPublicIpv4 } from './network-modes.js'
 import { provisionAutoRemotePort } from './instance-port-mapping.js'
@@ -46,11 +50,78 @@ export async function provisionManagedInstanceAsync(
   host: Host,
   config: ManagedInstanceProvisionConfig
 ): Promise<void> {
+  const instance = await prisma.instance.findUnique({ where: { id: instanceId } })
+  if (!instance || instance.status !== 'creating' || instance.hostId !== host.id || instance.incusId !== config.name || instance.provisioningCleanupPending) {
+    throw new Error('Managed instance creation no longer owns the target')
+  }
+  const target = { id: instanceId, userId: instance.userId, hostId: host.id, incusId: config.name }
+  const attempt = randomUUID()
+  let client: IncusClient | undefined
+
+  // Only this attempt's remote instance can be cleaned. Retain the original
+  // connection: a later host address change must not redirect cleanup.
+  const cleanupCreatedInstance = async () => {
+    if (!client) throw new Error('Original Incus connection unavailable; cleanup not confirmed')
+    const originalClient = client
+    const deadline = Date.now() + 30000, signal = AbortSignal.timeout(30000)
+    const boundedClient: Pick<IncusClient, 'request'> = {
+      request<T = unknown>(method: string, path: string, body: unknown = null): Promise<T> {
+        signal.throwIfAborted()
+        if (Date.now() >= deadline) throw new Error('Managed cleanup deadline exceeded')
+        return originalClient.request<T>(method, path, body, deadline - Date.now(), signal)
+      }
+    }
+    const path = `/1.0/instances/${encodeURIComponent(config.name)}`
+    try {
+      const remote = await boundedClient.request<IncusInstance>('GET', path)
+      if (remote.name !== config.name || remote.config?.['user.payincus.provisioning-attempt'] !== attempt) {
+        throw new Error('Remote instance does not belong to this creation attempt')
+      }
+      const uuid = remote.config?.['volatile.uuid']
+      if (!uuid || !/^[a-f0-9-]{36}$/i.test(uuid)) throw new Error('Remote instance UUID not confirmed')
+      if (remote.status !== 'Stopped') await boundedClient.request('PUT', `${path}/state`, { action: 'stop', force: true, timeout: 20 })
+      const stopped = await boundedClient.request<IncusInstance>('GET', path)
+      if (stopped.name !== config.name || stopped.config?.['user.payincus.provisioning-attempt'] !== attempt ||
+        stopped.config?.['volatile.uuid'] !== uuid || stopped.status !== 'Stopped') {
+        throw new Error('Remote identity or stopped state not confirmed')
+      }
+      await boundedClient.request('DELETE', path)
+    } catch (cleanupError) {
+      // An operation/network error mentioning "not found" is not absence.
+      if (!(cleanupError instanceof IncusApiError) || cleanupError.statusCode !== 404 || cleanupError.path !== path) throw cleanupError
+    }
+    let absent = false
+    try { await boundedClient.request('GET', path) }
+    catch (error) { if (error instanceof IncusApiError && error.statusCode === 404 && error.path === path) absent = true; else throw error }
+    if (!absent) throw new Error('Remote deletion not confirmed')
+    const operations = await boundedClient.request<unknown>('GET', '/1.0/operations?recursion=1')
+    const hasPendingCreation = (value: unknown): boolean => {
+      if (Array.isArray(value)) return value.some(hasPendingCreation)
+      if (!value || typeof value !== 'object') return false
+      const operation = value as { status?: string; status_code?: number; resources?: { instances?: string[] } }
+      if (operation.resources?.instances?.some(resource => new URL(resource, 'https://incus.invalid').pathname === path) &&
+        !['success', 'failure', 'cancelled', 'canceled'].includes(operation.status?.toLowerCase() || '') &&
+        (typeof operation.status_code !== 'number' || operation.status_code < 200)) return true
+      return Object.values(value).some(hasPendingCreation)
+    }
+    if (hasPendingCreation(operations)) throw new Error('Remote instance operation still pending; cleanup not confirmed')
+    await removeDedicatedForward(boundedClient, config.name)
+    let forwards: Array<{ description?: string }>
+    try { forwards = await boundedClient.request('GET', '/1.0/networks/incusbr0/forwards?recursion=1') }
+    catch (error) {
+      const networks = await boundedClient.request<string[]>('GET', '/1.0/networks')
+      if (networks.includes('/1.0/networks/incusbr0')) throw error
+      forwards = []
+    }
+    if (forwards.some(forward => forward.description === `payincus-dedicated:${config.name}`)) {
+      throw new Error('Remote address forward deletion not confirmed')
+    }
+  }
   try {
     console.log(`\n[Managed Provisioning] ===== start =====`)
     console.log(`[Managed Provisioning] instanceId=${instanceId}, name=${config.name}, host=${host.name}`)
 
-    const client = await getIncusClient(host)
+    client = await getIncusClient(host)
     const ipv6Config = config.ipv6Address ? { primaryIp: config.ipv6Address } : null
 
     const incusConfig = buildInstanceConfig({
@@ -86,6 +157,7 @@ export async function provisionManagedInstanceAsync(
       bootHostShutdownTimeout: config.bootHostShutdownTimeout
     })
 
+    ;(incusConfig.config as Record<string, string>)['user.payincus.provisioning-attempt'] = attempt
     await createInstance(client, incusConfig)
     await prepareNewContainerCloudInit(client, config.name, config.cloudInitConfig, config.instanceType)
 
@@ -143,7 +215,7 @@ export async function provisionManagedInstanceAsync(
     }
 
     const updateResult = await prisma.instance.updateMany({
-      where: { id: instanceId, status: 'creating' },
+      where: { ...target, status: 'creating', provisioningCleanupPending: false },
       data: {
         status: 'running',
         ipv4,
@@ -153,14 +225,7 @@ export async function provisionManagedInstanceAsync(
     })
 
     if (updateResult.count === 0) {
-      console.log(`[Managed Provisioning] instance ${instanceId} was already finalized, cleaning created Incus instance`)
-      try {
-        await stopInstance(client, config.name, true)
-        await deleteInstance(client, config.name)
-      } catch (cleanupError) {
-        console.error(`[Managed Provisioning] failed to clean finalized instance ${config.name}:`, cleanupError)
-      }
-      return
+      throw new Error('Managed instance creation was finalized by another operation; cleanup deferred to its owner')
     }
 
     if (ipv4) {
@@ -264,58 +329,51 @@ export async function provisionManagedInstanceAsync(
     console.error(`[Managed Provisioning] instance ${instanceId} failed:`, error)
 
     const updateResult = await prisma.instance.updateMany({
-      where: { id: instanceId, status: 'creating' },
-      data: { status: 'error' }
-    }).catch(() => ({ count: 0 }))
+      where: { ...target, status: 'creating', provisioningCleanupPending: false },
+      data: { status: 'error', provisioningCleanupPending: true }
+    })
+    if (updateResult.count === 0) throw error
 
-    if (updateResult.count > 0) {
-      const instance = await prisma.instance.findUnique({
-        where: { id: instanceId },
-        select: {
-          userId: true,
-          hostId: true,
-          cpu: true,
-          memory: true,
-          disk: true,
-          networkMode: true,
-          portLimit: true
-        }
-      }).catch(() => null)
-
-      if (instance) {
-        try {
-          await db.rollbackResources({
-            hostId: instance.hostId,
-            cpu: instance.cpu,
-            memory: instance.memory,
-            disk: instance.disk,
-            portCount: networkModeAllowsPortMapping(instance.networkMode) ? (instance.portLimit || 0) : 0
-          })
-        } catch (rollbackError) {
-          console.error(`[Managed Provisioning] failed to roll back resources for instance ${instanceId}:`, rollbackError)
-        }
-
-        if (networkModeNeedsPublicIpv4(instance.networkMode)) {
-          try {
-            await prisma.$transaction((tx) => db.releasePublicIpv4ForInstance(tx, instanceId))
-          } catch (releaseError) {
-            console.error(`[Managed Provisioning] failed to release public IPv4 for instance ${instanceId}:`, releaseError)
-          }
-        }
-
-        try {
-          await db.compensateFailedInstancePurchase(instanceId, instance.userId, instance.hostId)
-        } catch (compensationError) {
-          console.error(`[Managed Provisioning] failed to compensate billing for instance ${instanceId}:`, compensationError)
-        }
-      }
+    // Customer failure refunds do not depend on host reachability. The resource
+    // claim and IPv4 remain occupied independently until cleanup is confirmed.
+    try {
+      await db.compensateFailedInstancePurchase(instanceId, instance.userId, instance.hostId)
+    } catch (compensationError) {
+      console.error(`[Managed Provisioning] failed to compensate billing for instance ${instanceId}:`, compensationError)
     }
 
     try {
-      const client = await getIncusClient(host)
-      await deleteInstance(client, config.name)
-    } catch {
-      // Instance may not exist or may already have been cleaned by timeout handling.
+      await prisma.$transaction(async tx => {
+        // Destroy/transfer must not take this instance between the cleanup
+        // ownership check and the remote mutations/resource settlement.
+        await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+        const current = await tx.instance.findFirst({ where: { ...target, status: 'error', provisioningCleanupPending: true } })
+        if (!current) return
+        if (current.cpu !== instance.cpu || current.memory !== instance.memory || current.disk !== instance.disk ||
+          current.networkMode !== instance.networkMode || current.portLimit !== instance.portLimit) {
+          throw new Error('Instance allocation changed before cleanup')
+        }
+        await cleanupCreatedInstance()
+        const released = await tx.instance.updateMany({
+          where: { ...target, status: 'error', provisioningCleanupPending: true },
+          data: { provisioningCleanupPending: false }
+        })
+        if (released.count === 0) return
+        const portCount = networkModeAllowsPortMapping(instance.networkMode) ? (instance.portLimit || 0) : 0
+        await tx.$executeRaw`
+          UPDATE hosts SET cpu_used = GREATEST(cpu_used - ${instance.cpu}, 0),
+            memory_used = GREATEST(memory_used - ${instance.memory}, 0),
+            disk_used = GREATEST(disk_used - ${instance.disk}, 0),
+            nat_ports_used_count = GREATEST(nat_ports_used_count - ${portCount}, 0)
+          WHERE id = ${instance.hostId}
+        `
+        if (networkModeNeedsPublicIpv4(instance.networkMode)) await db.releasePublicIpv4ForInstance(tx, instanceId)
+      }, { timeout: 45000 })
+    } catch (cleanupError) {
+      console.error(`[Managed Provisioning] cleanup pending for instance ${instanceId}; resources retained:`, cleanupError)
+      await db.createLog(instance.userId, 'instance', 'instance.create',
+        `宿主机 ${host.id} 实例 ${instanceId} 创建失败，远端清理未确认，资源和地址继续保留。请核查实例身份与停止/删除结果后重试清理。${cleanupError instanceof Error ? cleanupError.message : 'Unknown cleanup error'}`,
+        'failed', { instanceId }).catch(logError => console.error('[Managed Provisioning] failed to record pending cleanup:', logError))
     }
 
     throw error

@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-269 旧托管失败先确认远端清理
+
+- d80aacb已push并核远端一致；R264/265及条款同步CI40761263661/40761931015/40762367663均success。managed创建绑定原user/host/incusId，远端加入本次随机标记，清理复用原mTLS连接并核标记/UUID。失去creating终结权的迟到成功/失败不再自行stop/delete；失败先置error及provisioningCleanupPending，保原失败退款独立执行。
+- 清理在实例行锁下复核归属/资源，30秒共用远端截止，确认Stopped、精确GET404、无关联运行operation及转发实际移除，才同一事务清pending并扣宿主资源/释放公网IPv4。远端不确定或DB提交失败保留占用与持久失败日志；不以文本“not found”当确认，未知同名实例不删除。
+- `logs/takeover-managed-provision-before.log`真实PG+mTLS先复现delete拒绝仍CPU125→75；`takeover-managed-provision-server-final.log`最终exit0覆盖20场景：stop/delete拒绝/未确认、UUID变化、伪404/500、转发失败/未移除、既有同名、在途create、精确缺失/正常清理、失权、host URL变化、资源变更、行锁竞争、真实约束触发DB回滚、正常成功及成功CAS失权；每项重入均零重复I/O/退款/扣资源。OpenSSL初次不在PATH已指定本机Git版本。模拟Incus经真实双向TLS，无原生Incus交付/生产验证。
+- 后端build含tsc最终exit0、4守卫、manifest191常规89环境排除通过，新专项接PG CI。共享removeDedicatedForward只收窄所需类型，运行逻辑不变。当前仅完成R269自动失败回调这一段；人工销毁后的pending标记/公网IPv4收尾、通用超时清理及强杀持久恢复仍待继续，R269整体不记完整。默认机器池链路、327及完整灾备不作完成声明。
+
 ## 2026-10-29 条款浏览器测试退出动画同步
 
 - R265 84430db已push并核远端一致。补查R258 d8c8e33 CI40759254570失败在terms lifecycle末尾，读取到了正在离场的旧正文；R259 6c9dfe5 CI40759334826和R260 866d9f4 CI40759523451均success。专项隐藏弹窗后先等待原有退出动画移除DOM，再卸载/重建；加新组件首次显示只发一次新请求断言。

@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：d80aacb已push且CI success，R264/265 CI也success。R269 managed失败回调已先确认原连接/attempt/UUID/Stopped/精确404/无pending operation/转发移除后事务释放，20真实PG+mTLS场景、4守卫、后端build含tsc最终exit0/manifest191常规89排除，准备阶段push；无待poll。继续补人工销毁后的provisioningCleanupPending与publicIPv4收尾：instances.ts单删、instance-destroy.ts单/批、hosts.ts finalizeHostBatchDelete均未清此标记，通用删除当前也只看delete回执。对应delete/user-destroy守卫与admin-instance-delete-integration完整相关段已读未改。R270 storage提交后失败仍待，createLog本身已吞错，先前“日志失败返回500”须纠正。327未完整。
+
 > **最新接续**：R265 84430db已push。R258历史CI40759254570失败为terms lifecycle末尾读到退出动画旧DOM，新增waitClosed和新请求数断言后实际Chrome/语法/路由守卫通过准备单项push；R259/260 CI success。无待poll进程。R269完整managed helper/失败补偿与端口守卫、Incus delete/state/client、超时清理和宿主赠送后半段已读，未改产品；须同时防远端未确认便释放及迟到回调删除错误目标。默认机器池不混用，327持续。
 
 > **最新接续**：R264 1761a79已push。R265专用user/instance流量额度PUT缺monthlyLimit拒绝400，真实PG先红后绿、2守卫/manifest191常规88排除/后端build含tsc最终exit0，准备单项push；无待poll进程。接R269 managed-instance-provision.ts失败先释放资源/IPv4后远端delete吞错，完整helper已读，须读补偿/端口守卫和独占保护再实证最小修；R270赠送提交后storage解析与日志/消息异常随后。PG原隔离库仍运行，凭据只本地。327持续，默认机器池一机一卖不变。
