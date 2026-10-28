@@ -2,6 +2,11 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-257 Markdown表格浏览器证据
+
+- R256 98ad127已push并核远端一致。本项复核此前已改的renderer.table：使用token.header和token.rows按cell.tokens渲染，不再错误地将单元格当数组。`logs/takeover-markdown-table-browser.log`实际Chrome/TermsOfServiceModal通过普通表、仅表头、空单元格、加粗/链接/code及桌面1440/手机390无整页横溢，截图已看。
+- 只新增实际浏览器专项及CI入口、台账，未改产品或法律正文；现有Markdown runtime和刚完成的4守卫/双端types build/dist证据沿用，manifest191常规84环境排除通过。R258子tokens与R259引号/属性运行证据随后分项补，不能以表格通过覆盖全部Markdown安全性或327。
+
 ## 2026-10-29 R1-256 条款离页隐藏与取消读取
 
 - R255 b4e0ef8已push并核远端一致，R252 00de40e CI40754421823最终success。条款显隐绑定KeepAlive活跃状态，关闭/切语言/离页/卸载取消fetch并失效代次；迟到响应和body不回填。缓存页隐藏时不读取，返回按当前语言恢复，原同语言成功内容仍复用；法律内容与正常关闭行为保持。

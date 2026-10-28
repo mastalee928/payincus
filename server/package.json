@@ -20,6 +20,7 @@
     "test:review-admin-package-options": "node ../scripts/test-admin-package-options.mjs",
     "test:review-terms-language": "node ../scripts/test-terms-language.mjs",
     "test:review-terms-lifecycle": "node ../scripts/test-terms-lifecycle.mjs",
+    "test:review-markdown-browser": "node ../scripts/test-markdown-browser.mjs",
     "test:review-prize-editor": "node ../scripts/test-prize-editor.mjs",
     "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",

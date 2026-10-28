@@ -292,7 +292,7 @@
 | R1-254 | 存在 | 源码已修/真实脚本执行通过 | init-env现去重实现5次真实Bash执行覆盖fresh/重复身份保持/空重复/有效含等号值/CRLF/不打印生成材料；logs/review-init-env-execution-final.log、相关2/2 logs/test-run-20261027-224403。Windows执行不代表Linux权限验收 |
 | R1-255 | 存在 | 已修复；本地浏览器通过 | 当前语言/显隐同步读取，按zh/en源复用同语言成功缓存，切语言清旧正文；请求代次覆盖迟到响应和body。Chrome先红后绿：显隐切换/简繁共享/旧成功失败/finally/body/404重试/三语1440与390；4守卫/lint/双端types build/dist通过（takeover-terms-language-*）。法律原文保持，R256缓存页面生命周期另项继续。 |
 | R1-256 | 存在 | 已修复；本地浏览器通过 | 显隐绑定KeepAlive活跃，关闭/离页/切语言/卸载abort并失效请求，隐藏不读，旧响应/body不回填。实际Chrome先红Teleport遗留后绿，缓存复用/关闭重开/卸载重建及语言回归；4守卫/lint/双端types build/dist通过（takeover-terms-lifecycle-*）。按最多2秒等待原关闭动画完成判DOM移除，法律内容不改。 |
-| R1-257 | 存在 | 源码已改/验证范围见右栏 | Markdown tokens渲染及DOMPurify白名单；jsdom；浏览器待验 |
+| R1-257 | 存在 | 源码已修；浏览器表格通过 | renderer.table使用header/rows的cell.tokens。jsdom及实际Chrome条款组件验证普通/仅表头/空单元格、加粗/链接/code、1440/390无整页横溢且截图已看（takeover-markdown-table-browser.log）；新专项接CI。仅补证据/测试，产品未改，R258/259继续。 |
 | R1-258 | 存在 | 源码已改/验证范围见右栏 | Markdown tokens渲染及DOMPurify白名单；jsdom；浏览器待验 |
 | R1-259 | 存在 | 源码已改/验证范围见右栏 | Markdown tokens渲染及DOMPurify白名单；jsdom；浏览器待验 |
 | R1-260 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
