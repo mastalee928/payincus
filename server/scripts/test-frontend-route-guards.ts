@@ -64,6 +64,7 @@ const ticketsViewSource = readRepoFile('client/src/views/TicketsView.vue')
 const renewModalSource = readRepoFile('client/src/components/instance/modals/RenewModal.vue')
 const changePlanModalSource = readRepoFile('client/src/components/instance/modals/ChangePlanModal.vue')
 const initCommandSelectorSource = readRepoFile('client/src/components/extensions/InitCommandSelector.vue')
+const initCommandDetailSource = readRepoFile('client/src/components/extensions/InitCommandDetailModal.vue')
 const hostInstancesTabSource = readRepoFile('client/src/components/host/HostInstancesTab.vue')
 const hostCreateInstanceTabSource = readRepoFile('client/src/components/host/HostCreateInstanceTab.vue')
 const hostPublicIpv4TabSource = readRepoFile('client/src/components/host/HostPublicIpv4Tab.vue')
@@ -1148,6 +1149,18 @@ assert.ok(
     adminTransferModalSource.includes('SensitiveVerificationModal') &&
     !adminTransferModalSource.includes('api.transfers.'),
   'admin PUSH must use its dedicated admin API and confirm the source owner, fee and administrator verification'
+)
+assert.ok(
+  initCommandDetailSource.includes('sequence === requestSequence') &&
+    initCommandDetailSource.includes('id === props.command.id && session === sessionKey.value') &&
+    initCommandDetailSource.includes('if (!current()) return') &&
+    initCommandDetailSource.includes('clearTimeout(copyTimer)') &&
+    initCommandDetailSource.includes('clearTimeout(closeTimer)') &&
+    initCommandDetailSource.includes('requestController?.abort()') &&
+    initCommandDetailSource.includes("flush: 'sync'") &&
+    initCommandDetailSource.includes('onBeforeUnmount') &&
+    initCommandDetailSource.includes('detail?.name ?? command.name'),
+  'init command details, clipboard feedback and close callbacks must stay bound to their target/session lifetime'
 )
 assert.ok(
   initCommandSelectorSource.includes("import { extensionsPath } from '@/utils/app-paths'") &&

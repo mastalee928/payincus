@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-199 初始化命令详情生命周期
+
+- R197 `80f109e203ba3619dd0825133512aa0070ce0af2` 已推送并核远端一致，CI40668834430最终success。
+- 详情按命令ID/updatedAt与会话身份重新加载，立即清旧内容并取消旧请求；成功、失败、finally、复制回执和关闭回调均绑定原目标代次。关闭/卸载清理两个计时器，旧关闭不影响复用后的弹窗；同SID刷新保持内容，退出清除。标题优先使用同次详情名称，长名称/备注可换行，关闭按钮有可访问名称及44px目标。
+- `logs/takeover-init-detail-browser.log`真实Chrome/Vue组件与延迟API/clipboard夹具通过目标/会话切换、旧成功/失败/finally、取消、复制内容快照/旧成功与失败、反馈过期、关闭计时器复用/卸载、退出、当前失败及同SID刷新；三语/1440与390/深浅/长内容截图在`logs/init-command-modals/`，已检查桌面与手机。不是实际账户、后端或系统剪贴板验收。
+- 3/3守卫`takeover-init-detail-guards.log`、双端类型+构建`takeover-init-detail-build.log`、dist边界`takeover-init-detail-dist.log`、lint和清单校验通过。detector仅源码regex检查，无报告项，不覆盖元素对比度；未冒充完整可访问性验收。专项已登记CI（188常规/61排除）。保存后继续R198/R200；327仍未完整。
+
 ## 2026-10-28 R1-197 初始化命令选择器
 
 - API状态`a77c891734224ce310684991cc8f770a67f57ea9`已push并核远端一致，CI40666472803最终success；回复97c929e CI40666069748最终success。

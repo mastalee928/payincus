@@ -2766,7 +2766,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
     }> => http.get('/init-commands/available', { params: { distro }, signal }),
 
     // 获取单个命令详情
-    get: (id: number): Promise<{
+    get: (id: number, signal?: AbortSignal): Promise<{
       command: {
         id: number
         name: string
@@ -2777,7 +2777,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
         createdAt: string
         updatedAt: string
       }
-    }> => http.get(`/init-commands/${id}`),
+    }> => http.get(`/init-commands/${id}`, { signal }),
 
     // 创建初始化命令模板
     create: (data: {
