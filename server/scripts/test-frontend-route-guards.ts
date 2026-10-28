@@ -1155,6 +1155,11 @@ assert.ok(
     initCommandSelectorSource.includes('v-if="manageExtensionsPath"') &&
     initCommandSelectorSource.includes(':to="manageExtensionsPath"') &&
     !initCommandSelectorSource.includes('to="/extensions"') &&
+    initCommandSelectorSource.includes('sequence === requestSequence') &&
+    initCommandSelectorSource.includes('session === sessionKey.value') &&
+    initCommandSelectorSource.includes('if (!current()) return') &&
+    initCommandSelectorSource.includes('requestController?.abort()') &&
+    initCommandSelectorSource.includes('v-else-if="loadFailed"') &&
     viteConfigSource.includes('AdminTransferModal.vue') &&
     viteConfigSource.includes('RenewModalAdminStub.vue') &&
     viteConfigSource.includes('ApplyAffCodeModalAdminStub.vue') &&

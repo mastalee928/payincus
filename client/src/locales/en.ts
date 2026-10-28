@@ -7373,6 +7373,7 @@ pool: {
             selectTitle: 'Init Commands',
             optional: '(optional)',
             noAvailable: 'No init commands available',
+            availableLoadFailed: 'Could not load init commands. Please retry.',
             goToManage: 'Go to Extensions to create',
             selectHint: 'Selected commands will run after instance initialization completes',
             selectedCount: '{count} selected',

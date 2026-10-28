@@ -2755,7 +2755,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
     }> => http.get('/init-commands'),
 
     // 获取适配指定发行版的命令列表（创建/重装时使用）
-    getAvailable: (distro: string): Promise<{
+    getAvailable: (distro: string, signal?: AbortSignal): Promise<{
       commands: Array<{
         id: number
         name: string
@@ -2763,7 +2763,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
         distros: string[]
         description: string | null
       }>
-    }> => http.get('/init-commands/available', { params: { distro } }),
+    }> => http.get('/init-commands/available', { params: { distro }, signal }),
 
     // 获取单个命令详情
     get: (id: number): Promise<{

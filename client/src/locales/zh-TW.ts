@@ -7728,6 +7728,7 @@ pool: {
             selectTitle: '初始化指令',
             optional: '(可選)',
             noAvailable: '暫無可用的初始化指令',
+            availableLoadFailed: '載入初始化指令失敗，請重試。',
             goToManage: '前往擴充頁面建立',
             selectHint: '已選指令將在實例初始化完成後執行',
             selectedCount: '已選擇 {count} 個',

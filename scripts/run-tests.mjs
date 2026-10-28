@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-init-command-selector', 'requires installed Chrome/Edge and local Vite; renders real selector with delayed API fixture for distro/session/unmount races'],
   ['test:review-ticket-public-authorization', 'requires isolated local *_pool_test PostgreSQL; real bearer middleware and PAT/POA ticket write races with account/token/app/grant revocation'],
   ['test:review-ticket-image-proxy', 'requires isolated local *_pool_test PostgreSQL; real Fastify image proxy access, body timeout and cancellation with intercepted fetch transport'],
   ['test:review-ticket-authorization', 'requires isolated local *_pool_test PostgreSQL; real Fastify ticket creation actor/session revocation and account row-lock races'],

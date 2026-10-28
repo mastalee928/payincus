@@ -7435,6 +7435,7 @@ pool: {
             selectTitle: '初始化命令',
             optional: '(可选)',
             noAvailable: '暂无可用的初始化命令',
+            availableLoadFailed: '加载初始化命令失败，请重试。',
             goToManage: '前往扩展页面创建',
             selectHint: '已选命令将在实例初始化完成后执行',
             selectedCount: '已选择 {count} 个',

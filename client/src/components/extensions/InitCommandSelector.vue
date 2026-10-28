@@ -3,10 +3,11 @@
  * InitCommandSelector - 初始化命令选择器
  * 用于创建/重装实例时选择要应用的初始化命令
  */
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import { extensionsPath } from '@/utils/app-paths'
+import { useAuthStore } from '@/stores/auth'
 
 interface AvailableCommand {
   id: number
@@ -27,11 +28,27 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const manageExtensionsPath = extensionsPath()
+const authStore = useAuthStore()
 
 // 可用命令列表
 const commands = ref<AvailableCommand[]>([])
 const loading = ref(false)
 const loaded = ref(false)
+const loadFailed = ref(false)
+let requestSequence = 0
+let disposed = false
+let requestController: AbortController | undefined
+// This is only a stale-response boundary; server authorization remains authoritative.
+const sessionKey = computed(() => {
+  const token = authStore.token
+  if (!token) return ''
+  let identity = token
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy/non-JWT sessions retain token identity. */ }
+  return `${authStore.user?.id ?? ''}:${authStore.user?.role ?? ''}:${identity}`
+})
 
 // 展开状态
 const expanded = ref(false)
@@ -81,11 +98,20 @@ function getDistroName(distro: string): string {
 
 // 加载可用命令
 async function loadCommands(): Promise<void> {
-  if (!props.distro || loading.value) return
-  
+  const sequence = ++requestSequence, distro = props.distro, session = sessionKey.value
+  requestController?.abort()
+  commands.value = []
+  loaded.value = false
+  loadFailed.value = false
+  loading.value = false
+  if (!distro || !session || disposed) return
+  const controller = new AbortController()
+  requestController = controller
+  const current = () => !disposed && sequence === requestSequence && distro === props.distro && session === sessionKey.value
   loading.value = true
   try {
-    const response = await api.initCommands.getAvailable(props.distro)
+    const response = await api.initCommands.getAvailable(distro, controller.signal)
+    if (!current()) return
     commands.value = response.commands
     loaded.value = true
     
@@ -97,17 +123,19 @@ async function loadCommands(): Promise<void> {
         emit('update:modelValue', validIds)
       }
     }
-  } catch (error) {
-    console.error('Failed to load available commands:', error)
+  } catch {
+    if (!current()) return
     commands.value = []
-    loaded.value = true  // 确保显示空状态而非空白
+    loadFailed.value = true
+    emit('update:modelValue', [])
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 // 切换命令选择
 function toggleCommand(cmdId: number): void {
+  if (loading.value || !loaded.value || loadFailed.value || !commands.value.some(cmd => cmd.id === cmdId)) return
   const newValue = [...props.modelValue]
   const idx = newValue.indexOf(cmdId)
   if (idx >= 0) {
@@ -119,28 +147,27 @@ function toggleCommand(cmdId: number): void {
 }
 
 // 监听发行版变化，重新加载命令
-watch(() => props.distro, () => {
+watch([() => props.distro, sessionKey], (_current, previous) => {
   // 重置收纳状态
   isCollapsed.value = true
   
-  if (props.distro) {
-    loadCommands()
-  } else {
-    commands.value = []
-    loaded.value = false
-    emit('update:modelValue', [])
-  }
-}, { immediate: true })
+  // Never submit selections from the previous distro/session while the next list loads.
+  if (previous?.[0] !== undefined || !props.distro || !sessionKey.value) emit('update:modelValue', [])
+  void loadCommands()
+}, { immediate: true, flush: 'sync' })
+onBeforeUnmount(() => { disposed = true; requestSequence++; requestController?.abort() })
 </script>
 
 <template>
-  <div v-if="distro" class="space-y-2">
+  <div v-if="distro" class="init-command-selector space-y-2">
     <!-- 标题栏 -->
-    <div 
-      class="flex items-center justify-between p-3 bg-themed-tertiary border border-themed rounded-lg cursor-pointer hover:border-themed-secondary transition-colors"
+    <button
+      type="button"
+      :aria-expanded="expanded"
+      class="w-full text-left flex items-center justify-between p-3 bg-themed-tertiary border border-themed rounded-lg cursor-pointer hover:border-themed-secondary transition-colors"
       @click="expanded = !expanded"
     >
-      <div class="flex items-center gap-2">
+      <span class="flex items-center gap-2">
         <svg class="w-4 h-4 icon-themed" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
@@ -149,7 +176,7 @@ watch(() => props.distro, () => {
           {{ selectedCount }}
         </span>
         <span class="text-xs text-themed-faint">{{ $t('extensions.initCommands.optional') }}</span>
-      </div>
+      </span>
       <svg 
         class="w-4 h-4 text-themed-muted transition-transform" 
         :class="{ 'rotate-180': expanded }"
@@ -159,7 +186,7 @@ watch(() => props.distro, () => {
       >
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
       </svg>
-    </div>
+    </button>
 
     <!-- 命令列表 -->
     <Transition name="expand">
@@ -173,6 +200,13 @@ watch(() => props.distro, () => {
             </svg>
             <span>{{ $t('common.loading') }}</span>
           </div>
+        </div>
+
+        <div v-else-if="loadFailed" class="text-center py-4" role="alert">
+          <p class="text-sm text-themed-secondary">{{ $t('extensions.initCommands.availableLoadFailed') }}</p>
+          <button type="button" class="px-3 min-h-11 text-sm underline underline-offset-4" @click="loadCommands">
+            {{ $t('common.retry') }}
+          </button>
         </div>
 
         <!-- 命令列表 -->
@@ -215,7 +249,7 @@ watch(() => props.distro, () => {
           <button
             v-if="showExpandButton || (!isCollapsed && commands.length > collapsedLimit)"
             type="button"
-            class="w-full py-2 text-xs text-themed-muted hover:text-themed-secondary transition-colors flex items-center justify-center gap-1"
+            class="w-full min-h-11 py-2 text-xs text-themed-muted hover:text-themed-secondary transition-colors flex items-center justify-center gap-1"
             @click="isCollapsed = !isCollapsed"
           >
             <span v-if="isCollapsed">{{ $t('extensions.initCommands.showAll', { count: commands.length }) }}</span>
@@ -257,6 +291,10 @@ watch(() => props.distro, () => {
 </template>
 
 <style scoped>
+.init-command-selector :is(.text-themed-faint, .text-themed-muted) {
+  color: var(--kawaii-muted) !important;
+}
+
 .expand-enter-active,
 .expand-leave-active {
   transition: all 0.2s ease;
@@ -267,5 +305,12 @@ watch(() => props.distro, () => {
 .expand-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .expand-enter-active,
+  .expand-leave-active {
+    transition: none;
+  }
 }
 </style>

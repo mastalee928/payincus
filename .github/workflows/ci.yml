@@ -170,6 +170,8 @@ jobs:
           pnpm --filter server test:review-ticket-authorization
           pnpm --filter server test:review-ticket-image-proxy
           pnpm --filter server test:review-ticket-public-authorization
+      - name: Verify init command selector in Chrome
+        run: pnpm --filter server test:review-init-command-selector
 
   remote-gateway-setup-integration:
     name: Remote gateway setup journal integration

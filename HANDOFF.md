@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-197 初始化命令选择器
+
+- API状态`a77c891734224ce310684991cc8f770a67f57ea9`已push并核远端一致，CI40666472803最终success；回复97c929e CI40666069748最终success。
+- 选择器每次distro/session切换启动新请求、取消旧请求并立即清旧选择，响应/finally用序号和原distro/session复核；同SID正常刷新保留选择，换会话/卸载取消并拒迟到回写。失败独立显示三语错误与重试，不再假称无可用命令。折叠使用原生button/aria-expanded，辅助文本提高可读性，收纳操作44px高度，展开遵从减少动效。
+- `logs/takeover-init-selector-browser-final.log`真实Chrome/Vue源码+延迟API夹具通过快速切换、旧成功/失败/finally、选择清除、空distro、失败重试、新会话/同SID刷新、卸载、键盘展开，1440/390视口与三语/深浅主题截图在`logs/init-command-selector/`。测试传输是可控Promise，不是实际开通/重装或真实账户验收。前几轮夹具Tailwind加载、键盘事件和Vue Proxy序列化问题已修，最终日志才是通过证据。
+- 对应3/3守卫`takeover-init-selector-guards-final.log`、双端vue-tsc+build `takeover-init-selector-build-final.log`、dist边界`takeover-init-selector-dist-boundary-final2.log`、组件lint `takeover-init-selector-lint.log`通过；impeccable detector零项，截图检查后已一次修辅助对比度并确认。浏览器专项登记CI，常规188/60活体排除。R198/199编辑/详情和R200启停随后继续，327仍未完成。
+
 ## 2026-10-28 工单Public API关闭与重开
 
 - 回复`97c929ee34de5b4e356fdae3f8463514d7d3fb7b`已push并核远端一致，CI40666069748检查时运行；创建66f5a66 CI40665664450最终success。

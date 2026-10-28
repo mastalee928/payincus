@@ -232,7 +232,7 @@
 | R1-194 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-195 | 已有防护 | 保留初审结论 | 严格数字正ID及safe integer，已拒绝小数/溢出。 |
 | R1-196 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
-| R1-197 | 存在 | 待精修/运行复核 | loading时直接return，新distro变化请求被丢且可能显示旧命令。 |
+| R1-197 | 存在 | 源码已修/真实浏览器夹具通过 | distro/session序号与AbortController，切换清旧选择、迟到成功/失败/finally及卸载忽略，同SID刷新保留；三语失败重试、键盘/移动可用。真实Chrome源码组件延迟API矩阵takeover-init-selector-browser-final.log、3守卫/lint/双端build/dist边界通过；完整开通/重装未验 |
 | R1-198 | 存在 | 待精修/运行复核 | 保存/详情缺完整props目标及session生命周期；关闭、复用与迟到响应需要统一门禁（详情另见InitCommandDetailModal）。 |
 | R1-199 | 存在 | 待精修/运行复核 | 保存/详情缺完整props目标及session生命周期；关闭、复用与迟到响应需要统一门禁（详情另见InitCommandDetailModal）。 |
 | R1-200 | 存在 | 待精修/运行复核 | toggle await后cmd.enabled=!cmd.enabled；重复同动作会错误反转UI。 |
