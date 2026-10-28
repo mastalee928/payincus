@@ -1,6 +1,6 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
-> **最新保存点**：连续四批eac0b06/8d73ab3/5a8f9e5/5e63e8e都已push main，前三批CI7/7；5e63e8e的CI40650542350记录时6成功/Build运行中。新restore主流程只读复审与规格在`docs/restore-task-recovery-review.md`，核心尚未编辑。HANDOFF顶部列全部日志、迁移和待办；按owner授权继续分批保存，禁止据历史暂停停止工作。
+> **最新保存点**：连续四批eac0b06/8d73ab3/5a8f9e5/5e63e8e都已push main，各自CI最终7/7；5e63e8e对应CI40650542350。新restore主流程只读复审与规格在`docs/restore-task-recovery-review.md`，核心尚未编辑。HANDOFF顶部列全部日志、迁移和待办；按owner授权继续分批保存，禁止据历史暂停停止工作。
 
 > **接续优先**：上传授权eac0b06与attempt8d73ab3已推且各CI7/7，删除5a8f9e5也已推。随后恢复传输总截止/原pin/终态失败/精确404与专项已通过，正在阶段保存。下一批restore worker原身份/UUID/授权/持久阶段与rollback尚未编辑；详见HANDOFF顶部。本轮无前端/生产/发行改动，旧暂停和“无全绿”条目不能覆盖新的实际分项证据。
 

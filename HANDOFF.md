@@ -5,7 +5,7 @@
 ## 2026-10-28 连续四批保存与下一阶段规格
 
 - 本轮四个业务阶段均已推送main并分别核对远端：上传当前授权`eac0b068916b55e7af82347526b3d4ec91886046`、上传attempt与退避`8d73ab341b83d1f7b3b729a3fcf2659143e8e867`、备份删除确认`5a8f9e53ce6a79d3813257343687d0b907f88695`、恢复传输`5e63e8e951a6064e8f93b537652e13785b858ebc`。前三批源码CI分别40648563020/40649284830/40650075642，均7/7 success。
-- 最新[CI40650542350](https://github.com/mastalee928/payincus/actions/runs/40650542350)绑定5e63e8e，记录时6项成功、Build仍in_progress；Linux已实际执行新增恢复传输及扩展上传/删除专项。最终状态接续时查此run，不重跑同一输入、不把前三批全绿冒充最后一批。
+- 最新[CI40650542350](https://github.com/mastalee928/payincus/actions/runs/40650542350)绑定5e63e8e，最终7/7 success；Linux已实际执行新增恢复传输及扩展上传/删除专项。四批业务提交各自CI全部成功；后续docs-only提交的CI身份与业务提交分别记录，不混为同一head。
 - 当前业务源码已全部提交推送；恢复worker新一轮仅完成代码复审与[详细规格](docs/restore-task-recovery-review.md)，**未编辑**restoreTaskWorker/db restore/rollback核心。原UUID/临时UUID、原备份关系、失效授权和未决任务持久门禁、逐阶段远端确认及SIGKILL矩阵是下批重点。
 - 两个隔离PG库仍在127.0.0.1:55438：运行夹具takeover_20261028_pool_test（新列单独SQL应用），迁移证据库takeover_auto_final_20261028_pool_test（226条实际迁移历史）。本轮未重跑完整188；每批类型、相关守卫、后端build、mTLS/PG专项分别见下文。前端无改动，不把server缺ESLint配置说成lint通过。
 - 三台专用测试机资料/不限用途授权保持；SSH可信身份来源仍未闭合，本轮未新连远端或操作生产。327项、真实Incus/OSS和完整网关灾备仍未完成，继续逐段修复与提交推送。
