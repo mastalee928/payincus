@@ -58,6 +58,13 @@ const instanceInfoTabSource = readRepoFile('client/src/components/instance/Insta
 const destroyInstanceModalSource = readRepoFile('client/src/components/instance/modals/DestroyInstanceModal.vue')
 const instanceCreateViewSource = readRepoFile('client/src/views/InstanceCreateView.vue')
 const instanceDetailViewSource = readRepoFile('client/src/views/InstanceDetailView.vue')
+for (const required of ['function captureDetailRead(', 'generation === detailReadGeneration', 'sequence === readSequences[channel]',
+  'session === detailSessionKey.value', 'rawId === String(route.params.id', 'watch([() => route.params.id, () => route.name, detailSessionKey]',
+  'if (context.current() && !refreshInterval)', "captureDetailRead('instance', false)", "captureDetailRead('stats')",
+  "captureDetailRead('traffic')", "captureDetailRead('task')", "captureDetailRead('cloud-init')",
+  'if (read.current()) loading.value = false', 'if (received && received.id !== instanceId)']) {
+  assert.ok(instanceDetailViewSource.includes(required), `detail read lifecycle must include ${required}`)
+}
 const trafficStatsSource = readRepoFile('client/src/components/instance/TrafficStats.vue')
 const packageFormViewSource = readRepoFile('client/src/views/resources/PackageFormView.vue')
 const ticketsViewSource = readRepoFile('client/src/views/TicketsView.vue')

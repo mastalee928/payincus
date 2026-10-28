@@ -79,6 +79,15 @@ const toast = useToast()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const configStore = useConfigStore()
+const detailSessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens keep their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
 
 interface CustomerSelfServiceApi {
   billing: {
@@ -404,20 +413,40 @@ function endDrag() {
 let refreshInterval: ReturnType<typeof setInterval> | null = null
 let statsInterval: ReturnType<typeof setInterval> | null = null
 let isComponentMounted = ref<boolean>(true)  // 组件挂载状态标志
+let detailReadGeneration = 0
+const readSequences: Record<string, number> = {}
+function captureDetailRead(channel: string, requireInstance = true) {
+  const generation = detailReadGeneration, session = detailSessionKey.value
+  const rawId = String(route.params.id ?? ''), id = Number(rawId), name = route.name
+  const sequence = readSequences[channel] = (readSequences[channel] || 0) + 1
+  return { id, current: () => isComponentMounted.value && !!session && session === detailSessionKey.value &&
+    generation === detailReadGeneration && sequence === readSequences[channel] && name === route.name &&
+    isInstanceDetailRouteName(route.name) && rawId === String(route.params.id ?? '') && /^[1-9]\d*$/.test(rawId) &&
+    Number.isSafeInteger(id) && (!requireInstance || instance.value?.id === id) }
+}
+// A read started before an action must not overwrite that action's current status.
+watch(actionLoading, () => {
+  for (const channel of ['instance', 'stats', 'cloud-init']) readSequences[channel] = (readSequences[channel] || 0) + 1
+  statsLoading.value = false
+  cloudInitChecking.value = false
+}, { flush: 'sync' })
 
 onMounted(async (): Promise<void> => {
   isComponentMounted.value = true
+  const context = captureDetailRead('lifecycle', false)
   await configStore.loadPublicConfig()
+  if (!context.current()) return
   await loadInstance()
   // 注意：loadInstance() 内部已经处理了 loadStats() 和 loadTrafficData() 的调用
   // 不需要在这里重复调用
-  if (isComponentMounted.value) {
+  if (context.current() && !refreshInterval) {
     refreshInterval = setInterval(loadInstance, 5000)
   }
 })
 
 onUnmounted(() => {
   isComponentMounted.value = false
+  detailReadGeneration++
   // 关闭终端模态框（确保断开连接）
   showTerminalModal.value = false
   terminalConnected.value = false
@@ -552,10 +581,27 @@ const instanceHostName = computed<string>(() => {
 })
 
 // 监听路由参数变化，重新加载实例数据
-watch(() => route.params.id, async (newId, oldId) => {
-  if (newId !== oldId) {
+watch([() => route.params.id, () => route.name, detailSessionKey], async ([newId, newName, session]) => {
+    detailReadGeneration++
+    // Invalidate the old target even if navigation returns to the same ID (A -> B -> A).
+    const context = captureDetailRead('lifecycle', false)
+    statsLoading.value = false
+    trafficLoading.value = false
+    activeTask.value = null
+    instancePassword.value = {}
+    showPassword.value = {}
+    if (taskPollingInterval) { clearInterval(taskPollingInterval); taskPollingInterval = null }
+    if (cloudInitRetryTimer) { clearTimeout(cloudInitRetryTimer); cloudInitRetryTimer = null }
     // 如果路由参数从有效变为无效，或者路由名称变化，清除定时器
-    if (!newId || !isInstanceDetailRouteName(route.name)) {
+    if (!newId || !isInstanceDetailRouteName(newName) || !session) {
+      instance.value = null
+      instancePackage.value = null
+      userQuota.value = null
+      trafficData.value = null
+      snapshots.value = []
+      loading.value = false
+      loadError.value = ''
+      showTerminalModal.value = false
       if (refreshInterval) {
         clearInterval(refreshInterval)
         refreshInterval = null
@@ -640,12 +686,11 @@ watch(() => route.params.id, async (newId, oldId) => {
       await loadInstance()
 
       // 重新启动定时刷新
-      if (isComponentMounted.value) {
+      if (context.current() && !refreshInterval) {
         refreshInterval = setInterval(loadInstance, 5000)
       }
     }
-  }
-})
+}, { flush: 'sync' })
 
 // 监听实例状态变化，动态管理统计信息定时器
 // 注意：必须在 isRunning 定义之后
@@ -689,10 +734,13 @@ watch(isRunning, (running: boolean) => {
 async function checkCloudInitStatus(): Promise<void> {
   if (!instance.value?.id || !isComponentMounted.value) return
   if (cloudInitChecking.value) return
+  const read = captureDetailRead('cloud-init')
+  if (!read.current()) return
 
   cloudInitChecking.value = true
   try {
-    const result = await api.instances.checkCloudInitStatus(instance.value.id) as CloudInitStatusResponse
+    const result = await api.instances.checkCloudInitStatus(read.id) as CloudInitStatusResponse
+    if (!read.current() || !isRunning.value) return
     cloudInitReady.value = result.ready
     cloudInitState.value = result.state
 
@@ -710,18 +758,19 @@ async function checkCloudInitStatus(): Promise<void> {
       cloudInitRetryCount++
       console.log(`[CloudInit] 未就绪，${CLOUD_INIT_AUTO_RETRY_DELAY_MS / 1000}秒后重试 (${cloudInitRetryCount}/${CLOUD_INIT_MAX_AUTO_RETRIES})`)
       cloudInitRetryTimer = setTimeout(() => {
-        if (isComponentMounted.value && isRunning.value) {
+        if (read.current() && isRunning.value) {
           checkCloudInitStatus()
         }
       }, CLOUD_INIT_AUTO_RETRY_DELAY_MS)
     }
   } catch (err) {
+    if (!read.current()) return
     // 检查失败时显示未知状态，允许用户选择重试或手动结束检测
     console.error('Failed to check cloud-init status:', err)
     cloudInitReady.value = false
     cloudInitState.value = 'unknown'
   } finally {
-    cloudInitChecking.value = false
+    if (read.current()) cloudInitChecking.value = false
   }
 }
 
@@ -874,6 +923,7 @@ async function loadInstance(): Promise<void> {
   }
 
   if (actionLoading.value) return
+  const read = captureDetailRead('instance', false)
 
   loadError.value = ''
 
@@ -888,10 +938,10 @@ async function loadInstance(): Promise<void> {
       return
     }
 
-    const instanceId = parseInt(route.params.id as string)
+    const instanceId = read.id
 
     // 验证 ID 是否为有效数字
-    if (isNaN(instanceId) || instanceId <= 0) {
+    if (!/^[1-9]\d*$/.test(String(route.params.id)) || !Number.isSafeInteger(instanceId)) {
       // 如果组件仍然挂载，才显示错误并跳转
       if (isComponentMounted.value) {
         toast.error(t('instance.detail.invalidId'))
@@ -904,18 +954,24 @@ async function loadInstance(): Promise<void> {
       }
       return
     }
+    if (!read.current()) return
 
     if (!instance.value) loading.value = true
 
     const response = await api.instances.get(instanceId)
-    instance.value = (response as { instance?: Instance }).instance || null
+    if (!read.current()) return
+    const received = (response as { instance?: Instance }).instance
+    if (received && received.id !== instanceId) throw new Error(t('instance.detail.loadFailed'))
+    instance.value = received || null
     if (instance.value) {
       // 如果实例绑定了套餐，加载套餐信息以检查删除权限
       if (instance.value.package_id && instance.value.package_id > 0) {
         try {
           const pkgResponse = await api.packages.get(instance.value.package_id) as any
+          if (!read.current()) return
           instancePackage.value = pkgResponse.package || pkgResponse
         } catch (err) {
+          if (!read.current()) return
           console.error('Failed to load package:', err)
           instancePackage.value = null
         }
@@ -929,6 +985,7 @@ async function loadInstance(): Promise<void> {
       }
       // 计算剩余额度（使用后端返回的实时数据）
       await calculateRemainingQuota()
+      if (!read.current()) return
       // 检查是否有待处理的转移（只在首次加载时检查，避免频繁请求）
       // 转移状态变化不频繁，不需要每5秒检查一次
       if (loading.value) {
@@ -937,6 +994,7 @@ async function loadInstance(): Promise<void> {
           isAdminEntry ? Promise.resolve() : checkPendingTransfer(),
           checkActiveTask()
         ])
+        if (!read.current()) return
         // 实例加载成功后，并行加载统计信息和流量数据
         if (instance.value.id && isComponentMounted.value) {
           const loadPromises: Promise<void>[] = []
@@ -945,6 +1003,7 @@ async function loadInstance(): Promise<void> {
           }
           loadPromises.push(loadTrafficData())
           await Promise.all(loadPromises)
+          if (!read.current()) return
 
           // 启动统计信息定时刷新（只有运行时）
           if (!statsInterval && isRunning.value && isComponentMounted.value) {
@@ -963,6 +1022,7 @@ async function loadInstance(): Promise<void> {
       router.replace(getReturnPath())
     }
   } catch (error: any) {
+    if (!read.current()) return
     console.error('Failed to load instance:', error)
     // 处理 404 或其他错误，跳转到实例列表
     const errorMsg = error?.message || t('instance.detail.loadFailed')
@@ -973,7 +1033,7 @@ async function loadInstance(): Promise<void> {
       loadError.value = errorMsg
     }
   } finally {
-    loading.value = false
+    if (read.current()) loading.value = false
   }
 }
 
@@ -984,6 +1044,8 @@ async function loadStats(): Promise<void> {
   }
 
   if (!instance.value || statsLoading.value) return
+  const read = captureDetailRead('stats')
+  if (!read.current()) return
 
   // 只有在实例正在运行时才加载统计信息
   // 停止、重启、创建、启动、停止中等状态都不需要监控
@@ -1006,6 +1068,7 @@ async function loadStats(): Promise<void> {
 
   try {
     const response = await api.instances.getStats(instanceId)
+    if (!read.current() || !instance.value) return
     instance.value.serviceFault = (response as { serviceFault?: boolean }).serviceFault === true
     const newStats = (response as { stats?: ResourceStats; status?: string }).stats
     const newStatus = (response as { stats?: ResourceStats; status?: string }).status
@@ -1046,10 +1109,11 @@ async function loadStats(): Promise<void> {
       }
     }
   } catch (error) {
+    if (!read.current()) return
     console.error('Failed to load stats:', error)
     // 失败时保持上一次的值，不做任何改变
   } finally {
-    if (isInitialLoad) {
+    if (isInitialLoad && read.current()) {
       statsLoading.value = false
     }
   }
@@ -1057,6 +1121,8 @@ async function loadStats(): Promise<void> {
 
 async function loadTrafficData(): Promise<void> {
   if (!instance.value || trafficLoading.value) return
+  const read = captureDetailRead('traffic')
+  if (!read.current()) return
 
   const instanceId = instance.value.id
   if (!instanceId || instanceId <= 0) {
@@ -1071,12 +1137,14 @@ async function loadTrafficData(): Promise<void> {
 
   try {
     const data = await api.traffic.getInstanceTraffic(instanceId)
+    if (!read.current()) return
     trafficData.value = data
   } catch (error) {
+    if (!read.current()) return
     console.error('Failed to load traffic data:', error)
     // 失败时保持上一次的值，不重置为 null，避免闪烁
   } finally {
-    if (isInitialLoad) {
+    if (isInitialLoad && read.current()) {
       trafficLoading.value = false
     }
   }
@@ -1085,6 +1153,8 @@ async function loadTrafficData(): Promise<void> {
 // 仅为配额标签页加载快照
 async function loadSnapshotsForQuota(): Promise<void> {
   if (!instance.value) return
+  const read = captureDetailRead('snapshots')
+  if (!read.current()) return
   try {
     // 使用实例对象的 ID，而不是从路由参数获取（更可靠）
     const instanceId = instance.value.id
@@ -1092,8 +1162,10 @@ async function loadSnapshotsForQuota(): Promise<void> {
       return
     }
     const response = await api.instances.getSnapshots(instanceId)
+    if (!read.current()) return
     snapshots.value = Array.isArray(response) ? response : []
   } catch (error) {
+    if (!read.current()) return
     console.error('Failed to load snapshots:', error)
   }
 }
@@ -1413,19 +1485,24 @@ type InstanceAction = 'start' | 'stop' | 'restart' | 'delete' | 'clone'
 // 开始任务轮询
 // 注：_taskId 参数保留用于未来扩展（如按 taskId 指定轮询）
 function startTaskPolling(_taskId: number): void {
+  const context = captureDetailRead('task-poll')
+  if (!context.current()) return
   // 清除旧的轮询
   if (taskPollingInterval) {
     clearInterval(taskPollingInterval)
   }
 
   const pollTask = async (): Promise<void> => {
+    if (!context.current()) return
     if (!instance.value || !isComponentMounted.value) {
       stopTaskPolling()
       return
     }
+    const read = captureDetailRead('task')
 
     try {
-      const response = await api.instances.getActiveTask(instance.value.id)
+      const response = await api.instances.getActiveTask(read.id)
+      if (!context.current() || !read.current()) return
       activeTask.value = response.task
 
       // 如果任务已完成或失败，停止轮询并刷新实例
@@ -1437,6 +1514,7 @@ function startTaskPolling(_taskId: number): void {
         await loadInstance()
       }
     } catch (err) {
+      if (!context.current() || !read.current()) return
       console.error('Failed to poll task status:', err)
       // 出错时也停止轮询
       stopTaskPolling()
@@ -1450,6 +1528,8 @@ function startTaskPolling(_taskId: number): void {
 }
 
 function stopTaskPolling(): void {
+  readSequences['task-poll'] = (readSequences['task-poll'] || 0) + 1
+  readSequences.task = (readSequences.task || 0) + 1
   if (taskPollingInterval) {
     clearInterval(taskPollingInterval)
     taskPollingInterval = null
@@ -1768,14 +1848,15 @@ async function handleReassignIpv6(): Promise<void> {
 // 加载用户配额
 async function loadUserQuota(): Promise<void> {
   if (!instance.value) return
+  const read = captureDetailRead('user-quota')
+  if (!read.current()) return
+  const instanceUserId = (instance.value as any).userId || instance.value.user_id
 
   try {
     // 先尝试获取当前用户信息
     const meResponse = await api.auth.me()
+    if (!read.current()) return
     const currentUser = (meResponse as { user?: { id: number; role: string; quota?: UserQuota } }).user
-
-    // 获取实例的用户ID（可能是userId或user_id）
-    const instanceUserId = (instance.value as any).userId || instance.value.user_id
 
     // 如果是管理员或者是自己的实例，可以获取配额
     if (currentUser && (currentUser.role === 'admin' || currentUser.id === instanceUserId)) {
@@ -1785,6 +1866,7 @@ async function loadUserQuota(): Promise<void> {
       } else {
         // 管理员查看其他用户的实例，通过users API获取
         const userResponse = await api.users.get(instanceUserId)
+        if (!read.current()) return
         userQuota.value = ((userResponse as { user?: { quota?: UserQuota } }).user?.quota) || null
       }
 
@@ -1793,6 +1875,7 @@ async function loadUserQuota(): Promise<void> {
       }
     }
   } catch (err) {
+    if (!read.current()) return
     console.error('Failed to load user quota:', err)
   }
 }
@@ -1806,18 +1889,23 @@ async function checkPendingTransfer(): Promise<void> {
     return
   }
   if (!instance.value) return
+  const read = captureDetailRead('transfers')
+  if (!read.current()) return
 
   try {
     // 检查发送的转移
     const sentResponse = await customerSelfServiceApi.transfers.list('sent', { status: 'pending', pageSize: 100 })
-    const hasSentPending = sentResponse.transfers.some(t => t.instanceId === instance.value?.id)
+    if (!read.current()) return
+    const hasSentPending = sentResponse.transfers.some(t => t.instanceId === read.id)
 
     // 检查接收的转移
     const receivedResponse = await customerSelfServiceApi.transfers.list('received', { status: 'pending', pageSize: 100 })
-    const hasReceivedPending = receivedResponse.transfers.some(t => t.instanceId === instance.value?.id)
+    if (!read.current()) return
+    const hasReceivedPending = receivedResponse.transfers.some(t => t.instanceId === read.id)
 
     hasPendingTransfer.value = hasSentPending || hasReceivedPending
   } catch (err) {
+    if (!read.current()) return
     console.error('Failed to check pending transfer:', err)
     hasPendingTransfer.value = false
   }
@@ -1826,15 +1914,19 @@ async function checkPendingTransfer(): Promise<void> {
 // 检查是否有活跃的实例操作任务
 async function checkActiveTask(): Promise<void> {
   if (!instance.value) return
+  const read = captureDetailRead('task')
+  if (!read.current()) return
 
   try {
-    const response = await api.instances.getActiveTask(instance.value.id)
+    const response = await api.instances.getActiveTask(read.id)
+    if (!read.current()) return
     if (response.task && (response.task.status === 'PENDING' || response.task.status === 'PROCESSING')) {
       activeTask.value = response.task
       // 开始轮询
       startTaskPolling(response.task.id)
     }
   } catch (err) {
+    if (!read.current()) return
     console.error('Failed to check active task:', err)
   }
 }

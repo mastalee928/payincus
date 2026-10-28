@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-279 实例详情读取与轮询隔离
+
+- 05de4a5已push。详情读取绑定路由名称/完整正整数ID、账号角色/session、页面代次和各类请求序号；切换实例、退出及重登立即清旧状态。主详情拒绝错误目标响应，套餐/配额/统计/流量/快照/转移/任务/cloud-init的迟到成功、失败和finally不再污染当前页面。操作开始前的旧状态读取失效；任务与刷新计时器按当前代次管理，避免快速切换重复建立。
+- `takeover-instance-detail-before.log`真实Chrome先红；`takeover-instance-detail-browser-final.log`通过A→B→A、旧错误/finally/套餐、轮询乱序、操作前读取、session变更/同sid刷新/logout、统计/流量/快照/cloud-init/任务旧回执、错误目标及重试、单刷新timer与卸载5200ms无新请求。1440中文浅色/390英文深色截图已检查，无横向溢出、无运行时异常。API为受控夹具，不等于远端实例流程。
+- client types、route/i18n守卫、lint（48条既有格式warning，无error）、最终双端build exit0、dist边界及manifest191常规/96环境排除通过；专项已登记Chrome CI。日志为`takeover-instance-detail-*`，截图在`logs/instance-detail-reads/`。
+- 本段仅完成读取隔离；操作/改名/重建/删除等写回执、密码及子组件生命周期仍待。R280转移弹窗关闭重开旧余额覆盖已另用Chrome先红，测试夹具暂不混入本项提交。未操作生产/客户实例，327、R269及完整灾备未完成。
+
 ## 2026-10-29 R1-271 维护参数与真实成功计数
 
 - a370299已push，CI40774057115最后运行；a805dc4的CI40773184822也仍运行。backfill的--host-id现在只接受1至2147483647完整十进制整数，未知/重复参数直接失败，不将错误过滤器视作全库。写入完成后才计changed/ipv4Changed/ipv6Changed；dry-run单列planned/ipv4Planned/ipv6Planned，实际changed为0。
