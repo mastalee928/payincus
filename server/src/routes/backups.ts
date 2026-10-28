@@ -1000,8 +1000,8 @@ export default async function backupRoutes(fastify: FastifyInstance) {
         })
       }
 
-      if (!task.startedAt || ['authorization_failed', 'preparation_failed'].includes(task.progress ?? '')) {
-        return reply.code(409).send({ error: 'ROLLBACK_NOT_ALLOWED', message: '此任务未开始远端恢复，无需回滚，请刷新后重新提交' })
+      if (!task.startedAt || ['authorization_failed', 'preparation_failed', 'import_not_started'].includes(task.progress ?? '')) {
+        return reply.code(409).send({ error: 'ROLLBACK_NOT_ALLOWED', message: '此任务尚未导入备份，无需回滚副本，请检查原实例状态后重新提交' })
       }
 
       try {

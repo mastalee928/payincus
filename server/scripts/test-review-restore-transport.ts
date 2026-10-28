@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { IncusClient } from '../src/lib/incus/incus-client.js'
-import { restoreFromStream, instanceExists } from '../src/lib/incus/incus-restore.js'
+import { restoreFromStream, instanceExists, stopInstanceForRestore } from '../src/lib/incus/incus-restore.js'
 
 const root = await mkdtemp(join(tmpdir(), 'restore-transport-'))
 async function certificate(name: string) {
@@ -20,10 +20,27 @@ async function certificate(name: string) {
 const original = await certificate('original'), replacement = await certificate('replacement')
 const operation = '/1.0/operations/' + randomUUID()
 let mode = 'sync', uploads = 0, polls = 0, bytes = 0
+let stopReads = 0, stops = 0
 const server = createServer({ key: original.key, cert: original.cert, ca: original.cert, requestCert: true, rejectUnauthorized: true }, (request, response) => {
   assert.ok((request.socket as any).authorized)
   const json = (status: number, data: unknown) => { response.writeHead(status, { 'content-type': 'application/json' }); response.end(JSON.stringify(data)) }
   if (request.url === '/1.0') { json(200, { type: 'sync', metadata: { api_version: '1.0' } }); return }
+  if (request.url === '/1.0/instances/vm%3Fpart/state') {
+    if (request.method === 'PUT') {
+      stops++
+      if (mode === 'stop-hang') return
+      json(mode === 'stop-error' ? 500 : 200, mode === 'stop-error'
+        ? { type: 'error', error: 'fixture stop failed' } : { type: 'sync', metadata: {} })
+    } else {
+      stopReads++
+      if (mode === 'state-hang') return
+      if (mode === 'state-error') { json(403, { type: 'error', error: 'fixture state forbidden' }); return }
+      const status = mode === 'stopped' || mode === 'stop-success' && stopReads > 1 ? 'Stopped'
+        : mode === 'stop-unknown' ? undefined : 'Running'
+      json(200, { type: 'sync', metadata: { status } })
+    }
+    return
+  }
   if (request.url?.startsWith(operation + '/wait?')) {
     polls++
     if (mode === 'wait-hang') return
@@ -62,6 +79,14 @@ function restore(stream = Readable.from([Buffer.from('backup bytes')]), timeoutM
 }
 try {
   await client.connect()
+  for (const state of ['stopped', 'stop-success', 'state-error', 'stop-error', 'stop-unconfirmed', 'stop-unknown', 'stop-hang', 'state-hang']) {
+    mode = state; stops = 0; stopReads = 0
+    const stop = stopInstanceForRestore(client, 'vm?part', state.endsWith('hang') ? 100 : 1500)
+    if (['stopped', 'stop-success'].includes(state)) { await stop; assert.equal(stopReads, 2) }
+    else await assert.rejects(stop)
+    assert.equal(stops, ['stopped', 'state-error', 'state-hang', 'stop-unknown'].includes(state) ? 0 : 1)
+  }
+  assert.equal(uploads, 0, 'stopping alone never imports or deletes instances')
   for (const state of ['sync', 'async']) {
     mode = state
     const stream = Readable.from([Buffer.from('backup bytes')])
@@ -112,7 +137,7 @@ try {
   assert.equal(await instanceExists(client, 'vm?part'), false)
   mode = 'forbidden'
   await assert.rejects(instanceExists(client, 'vm?part'), /existence check/)
-  console.log('PASS actual mTLS restore: sync/async bytes, immediate disk-full/cancel/error, invalid operation path/type, bounded response, upload/poll total deadline, external/pre-abort, source cleanup, changed server pin rejected with zero HTTP, original client reusable, exact 404 existence versus 403')
+  console.log('PASS actual mTLS restore: stopped confirmation, stop/state failures and total deadline; sync/async bytes, immediate disk-full/cancel/error, invalid operation path/type, bounded response, upload/poll total deadline, external/pre-abort, source cleanup, changed server pin rejected with zero HTTP, original client reusable, exact 404 existence versus 403')
 } finally {
   await client.agent?.destroy()
   server.closeAllConnections()

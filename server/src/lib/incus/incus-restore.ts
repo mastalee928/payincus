@@ -9,6 +9,28 @@ import { IncusApiError, type IncusClient } from './incus-client.js'
 import type { IncusApiResponse } from '../../types/incus.js'
 import { waitForOperation } from './incus-utils.js'
 
+/** A stop acknowledgement is insufficient before importing a replacement. */
+export async function stopInstanceForRestore(client: IncusClient, name: string, timeoutMs = 90000): Promise<void> {
+    if (!name || name === '.' || name === '..') throw new Error('Invalid restore instance name')
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2147483647) throw new Error('Invalid restore stop timeout')
+    const path = `/1.0/instances/${encodeURIComponent(name)}/state`
+    const deadline = Date.now() + timeoutMs
+    const signal = AbortSignal.timeout(timeoutMs)
+    const remaining = () => {
+        signal.throwIfAborted()
+        return Math.max(1, deadline - Date.now())
+    }
+    const initial = await client.request<{ status?: string }>('GET', path, null, remaining(), signal)
+    if (!initial.status || !['Stopped', 'Running', 'Frozen', 'Starting', 'Stopping', 'Error'].includes(initial.status)) {
+        throw new Error('无法识别原实例运行状态，恢复未开始，请检查宿主返回结果')
+    }
+    if (initial.status !== 'Stopped') {
+        await client.request('PUT', path, { action: 'stop', timeout: 60, force: true }, remaining(), signal)
+    }
+    const confirmed = await client.request<{ status?: string }>('GET', path, null, remaining(), signal)
+    if (confirmed.status !== 'Stopped') throw new Error('原实例尚未确认停止，恢复未开始，请检查宿主状态后重试')
+}
+
 /**
  * 生成临时实例名称
  * 格式: {originalName}-restore-{timestamp}

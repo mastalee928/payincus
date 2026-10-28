@@ -13,11 +13,11 @@ import { IncusClient } from '../lib/incus/incus-client.js'
 import { getBackupExportStream } from '../lib/incus/incus-backups.js'
 import {
     restoreFromStream,
+    stopInstanceForRestore,
     renameInstance,
     instanceExists
 } from '../lib/incus/incus-restore.js'
 import {
-    stopInstance,
     startInstance,
     deleteInstance
 } from '../lib/incus/incus-instances.js'
@@ -235,6 +235,7 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
 
     let client: IncusClient | null = null
     let remoteStarted = false
+    let importStarted = false
     try {
         if (!task.attemptId || !task.startedAt) throw new RestoreAuthorizationError('恢复执行身份缺失，请重新提交')
         const authorized = await prisma.$transaction(async tx => {
@@ -270,11 +271,7 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
             console.warn(`[RestoreWorker] Task ${taskId}: 恢复前即时采集流量失败: ${collectResult.error}`)
         }
         remoteStarted = true
-        try {
-            await stopInstance(client, task.originalIncusId, true)
-        } catch (err) {
-            console.warn(`[RestoreWorker] Task ${taskId}: 停止实例警告: ${err}`)
-        }
+        await stopInstanceForRestore(client, task.originalIncusId)
         checkTimeout()
 
         // 4. 获取存储池配置
@@ -300,6 +297,7 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
         )
         const nodeStream = Readable.fromWeb(stream as import('stream/web').ReadableStream)
 
+        importStarted = true
         await restoreFromStream({
             client,
             backupStream: nodeStream,
@@ -429,7 +427,7 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
 
         // 只有确认 Incus 中的原实例仍存在，才允许清理临时副本。
         // 原实例已不存在或无法确认时，临时实例可能是唯一数据副本，必须保留供人工恢复。
-        if (remoteStarted && client && task.tempInstanceName && await prisma.restoreTask.findFirst({ where: restoreAttempt(task) })) {
+        if (importStarted && client && task.tempInstanceName && await prisma.restoreTask.findFirst({ where: restoreAttempt(task) })) {
             try {
                 const originalExists = await instanceExists(client, task.originalIncusId)
                 const tempExists = await instanceExists(client, task.tempInstanceName)
@@ -455,7 +453,8 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
                         progress: 'manual_intervention',
                         error: `${errorMessage}; ${manualInterventionReason}`
                     }
-                    : { error: errorMessage, ...(!remoteStarted ? { progress: 'preparation_failed' } : {}) }),
+                    : { error: errorMessage, ...(!remoteStarted ? { progress: 'preparation_failed' }
+                        : !importStarted ? { progress: 'import_not_started' } : {}) }),
                 finishedAt: new Date()
             }
         })

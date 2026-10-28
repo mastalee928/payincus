@@ -28,6 +28,8 @@ assert.ok(restoreTransportSource.includes('client.createTransport(') && restoreT
   restoreTransportSource.includes('waitForOperation(client, data.operation, remaining, signal)') &&
   restoreTransportSource.includes('backupStream.destroy()'), 'restore transport must preserve identity and bound upload/wait with source cleanup')
 assert.ok(restoreTransportSource.includes('error.statusCode === 404 && error.path === path'), 'existence check must reject unknown remote states')
+assert.ok(restoreTransportSource.includes("confirmed.status !== 'Stopped'") && restoreTransportSource.includes('AbortSignal.timeout(timeoutMs)'),
+  'restore must confirm actual stopped state with a total deadline')
 assert.ok(backupDeleteSource.includes('withSnapshotMutation(expected, actor, false') &&
   backupDeleteSource.includes("error.statusCode === 404 && error.path === path") &&
   backupDeleteSource.includes("client.request('GET', path") && backupDeleteSource.includes('if (!missing)'),
@@ -221,6 +223,9 @@ const restoreExecuteSection = section(
   'async function executeRestoreTask(',
   '/**\n * 启动恢复任务 Worker'
 )
+assert.ok(restoreExecuteSection.includes('await stopInstanceForRestore(client, task.originalIncusId)') &&
+  !restoreExecuteSection.includes('停止实例警告') && restoreExecuteSection.includes('if (importStarted && client'),
+  'stop failures must abort restore and pre-import failures must never delete a temporary instance')
 assert.ok(
   restoreExecuteSection.includes('runningRestoreTaskIds.add(taskId)') &&
     restoreExecuteSection.includes('runningRestoreTaskIds.delete(taskId)'),

@@ -25,11 +25,26 @@ execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey'
 { stdio: 'pipe', windowsHide: true })
 const cert = await readFile(certPath, 'utf8')
 let requests = 0, writes = 0
+let remoteMode = 'connect-refused', stopPuts = 0, stopChecks = 0
 let connectGate: Promise<void> | undefined, connectEntered: (() => void) | undefined
 const server = createServer({ cert, key: await readFile(keyPath), ca: cert, requestCert: true, rejectUnauthorized: true }, (req, res) => {
   assert.ok((req.socket as any).authorized)
   requests++
   if (req.method !== 'GET') writes++
+  if (remoteMode !== 'connect-refused') {
+    const json = (status: number, metadata: unknown) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(metadata)) }
+    if (req.url === '/1.0') { json(200, { type: 'sync', metadata: {} }); return }
+    assert.equal(req.url, `/1.0/instances/${tag}/state`, 'pre-import refusal must not export, create or delete a copy')
+    if (req.method === 'PUT') {
+      stopPuts++
+      json(remoteMode === 'stop-error' ? 500 : 200, remoteMode === 'stop-error'
+        ? { type: 'error', error: 'fixture-stop-failed' } : { type: 'sync', metadata: {} })
+    } else {
+      stopChecks++
+      json(200, { type: 'sync', metadata: { status: 'Running' } })
+    }
+    return
+  }
   assert.equal(req.url, '/1.0', 'this authorization fixture must never reach instance mutations')
   connectEntered?.()
   const respond = () => { res.writeHead(503, { 'content-type': 'application/json' }); res.end(JSON.stringify({ type: 'error', error: 'fixture-connect-refused' })) }
@@ -250,6 +265,19 @@ try {
     assert.equal((await prisma.restoreTask.findUniqueOrThrow({ where: { id: permitted.id } })).progress, 'preparation_failed')
   }
   assert.equal(writes, 0)
+  for (const mode of ['stop-error', 'stop-unconfirmed']) {
+    remoteMode = mode; stopPuts = 0; stopChecks = 0
+    const task = await makeTask('dispatch')
+    await executeRestoreTask(task.id)
+    const failed = await prisma.restoreTask.findUniqueOrThrow({ where: { id: task.id } })
+    assert.equal(failed.status, 'FAILED'); assert.equal(failed.progress, 'import_not_started')
+    assert.equal(stopPuts, 1); assert.equal(stopChecks, mode === 'stop-error' ? 1 : 2)
+    const beforeRollback = requests
+    assert.equal((await app.inject({ method: 'POST', url: `${url}/${task.id}/rollback` })).statusCode, 409)
+    assert.equal(requests, beforeRollback)
+    assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'ready')
+  }
+  console.log('PASS worker mTLS stop failure and success-but-running abort before backup export/import/cleanup; backup records retained and no pre-import rollback side effects')
   console.log('PASS real PG/Fastify restore authorization: owner/host-owner/admin, 14 target/session changes at admission/claim/dispatch, admin demotion, legacy tasks, workflow/recovery fences, cancellation races, ten-task host limit, rollback-safe rejection, enqueue DB fault and attempt CAS. Real mTLS only covers accepted dispatch and refusal; no real Incus disk restore or SIGKILL evidence.')
 } finally {
   if (triggerInstalled) {

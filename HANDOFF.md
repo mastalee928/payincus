@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 恢复前停止确认
+
+- 上批恢复授权`1299ce6ebe762f871ac9ae2fd25d8febc3e0bfc8`已普通push main并核对远端一致；[CI40653341209](https://github.com/mastalee928/payincus/actions/runs/40653341209)最终7/7 success，Linux已执行新增授权PG专项。额外恢复一致性守卫`logs/takeover-restore-auth-consistency-guard.log`通过；新增专项独立类型检查`logs/takeover-restore-auth-test-types-final.log`通过。
+- 移除恢复worker吞掉stop异常后继续导入/删除原实例的逻辑。恢复专用stop先读实际状态、必要时停止、再确认Stopped；未知状态拒绝，查询和PUT共用90秒截止。`importStarted`与远端停止分开：导入前失败不清理任何临时副本、标记import_not_started，也不能借rollback删除未知临时资源。此标记仍不是完整持久operation恢复。
+- `logs/takeover-restore-stop-transport.log`真实mTLS覆盖已Stopped、成功停止、未知状态、状态403、stop500、成功回执但仍Running、stop/查询挂起总截止，并回归原流传输矩阵。`logs/takeover-restore-stop-worker.log`真实PG/Fastify/mTLS实际worker验证stop500和成功但仍Running均FAILED/import_not_started，备份仍ready、零导出/导入/副本删除、回滚拒绝，前批授权/队列/attempt矩阵同次通过。5/5相关守卫`logs/takeover-restore-stop-guards.log`；真实Incus磁盘/网络和SIGKILL仍未验。
+- 后续复审新定位：`incus-instances.deleteInstance`会顺带`removeDedicatedForward`，当前恢复替换原实例调用它可能删除按原实例名归属的IPv4/IPv6转发，且恢复后没有对应重建。必须在原/临时UUID、原设备/双栈地址/存储完整性绑定之后，用仅替换客机的删除确认路径保留原转发；不能简单跳过删除确认或据名称存在认定副本安全。原清单、失败/重启持续门禁、rollback与完整灾备继续待修。
+- 本段server type-check和build通过`logs/takeover-restore-stop-typecheck.log`、`logs/takeover-restore-stop-build.log`。没有新增迁移或前端改动；本次业务及证据按owner授权再次阶段保存，不是发布或生产更新。
+
 ## 2026-10-28 恢复任务当前授权与入队绑定
 
 - 按owner要求继续分段提交推送。前一docs HEAD `fb5e14aa9bca52a537bfc052f3d4035dc6615d76`对应CI40651321886、f9e7e9f对应40651228111均success；此前四批业务各自7/7的证据保持。本节是新增源码阶段，不把前一CI当作当前改动验证。

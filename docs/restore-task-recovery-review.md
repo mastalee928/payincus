@@ -6,7 +6,11 @@
 
 入队/领取/执行准备已增加current actor/session、独立owner、原host/instance/backup摘要和ready备份核验；host队列上限同锁、其它工作流门禁、UUID临时名和attempt CAS、取消当前权限复核。准备失败零远端补偿，未开始的FAILED不允许rollback。14种变化/3个边界和PG/Fastify/mTLS拒绝专项通过；不等于下列远端步骤已经闭合。
 
-后续优先补远端原UUID/设备清单、stop确认及临时副本完整性。执行前事务之后、connect/流量补采期间仍有变更窗口；补采helper还会重新查询host，必须结合持久阶段修复，不能把单次摘要检查解释成整个操作期授权锁定。成功末尾清理DB和副本、失败/启动/超时、rollback仍沿用旧主逻辑；未知状态持续门禁与唯一副本保护尚未完成。
+后续优先补远端原UUID/设备清单及临时副本完整性。stop异常吞掉已在第二小段移除，查询/停止/确认共用90秒截止，未知状态与仍Running拒绝；导入前失败不清理临时副本、不执行副本rollback，实际mTLS及worker专项通过。执行前事务之后、connect/流量补采期间仍有变更窗口；补采helper还会重新查询host，必须结合持久阶段修复，不能把单次摘要检查解释成整个操作期授权锁定。成功末尾清理DB和副本、失败/启动/超时、真正rollback仍沿用旧主逻辑；未知状态持续门禁与唯一副本保护尚未完成。
+
+## 后续新增网络复审
+
+当前恢复删除旧原实例调用普通`incus-instances.deleteInstance`，该helper随后`removeDedicatedForward(client, name)`，会删除description为`payincus-dedicated:<原名>`的全部IPv4/IPv6网络forward。恢复主流程未重新配置这些规则，可能恢复磁盘后丢失客户公网连接。下阶段应在固定原设备、UUID、双栈目标地址、临时副本和池身份确认后，使用恢复专用的精确实例删除/缺失确认路径保留网络forward，并在重命名后核对原地址/设备及规则；不能仅改删API就声明双栈已验。临时清理同样不得误触原名绑定规则。普通客户销毁仍须原有转发清理和库存保护。
 
 ## 施工前缺口基线（已实现部分以顶部为准）
 
