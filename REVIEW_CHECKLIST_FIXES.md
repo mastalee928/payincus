@@ -250,7 +250,7 @@
 | R1-212 | 部分存在 | 待精修/运行复核 | User仍留域名邮箱系统标题，token注释仍写refresh前缀/null用户级而实际身份演进；多数金额已明确元/Bytes等，不判全部价格单位缺失。仅维护文档项。 |
 | R1-213 | 存在 | 待精修/运行复核 | 旧composable/utils仅互引；现行TurnstileWidget使用独立实现。只判旧工具孤立，不删除现行验证。 |
 | R1-214 | 部分存在 | 待精修/运行复核 | getTimeGreeting在Dashboard、calculateDailyPrice在ChangePlan、calculateDiscountedPrice在Billing实际使用；getCycleDays/calculatePriceDiff等部分无client调用，不照搬全部六项删除。 |
-| R1-215 | 存在 | 源码已改/验证范围见右栏 | Cloud-init阶段和最终结果；core boundaries；镜像终态待验 |
+| R1-215 | 存在 | 已修/既有行为复验 | formatBytes已支持PB/EB并钳制单位索引，非有限数/非正数返回0 B；本轮复跑core-boundaries的1024**5、1024**6与Infinity断言通过（logs/takeover-format-bytes-evidence.log）。纠正本行曾错填Cloud-init证据；未重复修改运行源码，不据此声称客户流量采集实测。 |
 | R1-216 | 实现不同 | 保留初审结论 | 本库无对方PackageDetailView；当前套餐页面生命周期按现有入口另核，不能声称旧详情修法适用。 |
 | R1-217 | 实现不同 | 保留初审结论 | 本库无对方PackageDetailView；当前套餐页面生命周期按现有入口另核，不能声称旧详情修法适用。 |
 | R1-218 | 实现不同 | 保留初审结论 | 本库无对方PackageDetailView；当前套餐页面生命周期按现有入口另核，不能声称旧详情修法适用。 |
