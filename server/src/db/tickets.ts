@@ -1488,11 +1488,22 @@ export async function autoCloseTickets(
 /**
  * 删除工单消息（仅管理员）
  */
-export async function deleteTicketMessage(messageId: number): Promise<boolean> {
-  const result = await prisma.ticketMessage.delete({
-    where: { id: messageId }
+export async function deleteTicketMessage(messageId: number, ticketId: number, actor: WriteActor) {
+  return prisma.$transaction(async tx => {
+    await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+    await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${ticketId} FOR UPDATE`
+    await tx.$queryRaw`SELECT id FROM ticket_messages WHERE id = ${messageId} FOR UPDATE`
+    const message = await tx.ticketMessage.findUnique({ where: { id: messageId }, select: { ticketId: true } })
+    if (!message || message.ticketId !== ticketId) throw new TicketMutationError('消息已不存在或不属于此工单', 404, 'TICKET_MESSAGE_NOT_FOUND')
+    if (!await authorizeUserWrite(tx, actor.id, actor) ||
+      (await tx.user.findUnique({ where: { id: actor.id }, select: { role: true } }))?.role !== 'admin') {
+      throw new TicketMutationError('管理员权限或登录授权已变化，请重新登录', 403, 'TICKET_ACTOR_FORBIDDEN')
+    }
+    const attachments = await tx.ticketMessageAttachment.findMany({ where: { messageId, ticketId },
+      select: { providerVersion: true, providerFileId: true } })
+    await tx.ticketMessage.delete({ where: { id: messageId } })
+    return attachments
   })
-  return !!result
 }
 
 export async function getTicketMessageAttachments(messageId: number): Promise<Array<{

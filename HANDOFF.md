@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-186 管理员删除工单消息
+
+- 状态/关闭`fadec046200eaac035c92bd47a44e469b174f6ba`已push并核远端一致；对应CI40661288207与前批回复CI40660948686的最终状态后续继续核验。
+- 删除消息事务锁ticket/message/current admin，复核消息所属工单、active/admin及SID/IAT撤销；只在DB删除提交后返回该消息的固定附件provider清单给既有清理器。降权/封禁/注销、错误工单、已删重放均不返回清理清单，避免旧权限删除与预读附件不一致。
+- `logs/takeover-ticket-delete-authorization-final.log`真实PG/Fastify累计33竞争通过（创建8/回复12/状态关闭10/删除3），删除失败trigger保留消息及附件，正确删除仅返回原固定清单，wrong ticket/replay拒绝。5/5守卫`takeover-ticket-delete-guards.log`、server build `takeover-ticket-delete-build.log`和专项类型`takeover-ticket-delete-types.log`通过；最后仅测试增加拒删trigger，无业务再次改动。
+- 远端附件服务未调用，DB提交后清理失败的持久重试不在本小项；备注/链接/通知授权与PAT仍待，327和完整实机验收不记完成。按owner要求继续逐项推送。
+
 ## 2026-10-28 R1-186 工单状态与关闭
 
 - 创建授权e244d8f的CI40660398704最终success；回复授权`d29ca3a7f76151b88b7ddcf1f29521ef71fa7072`已push、远端一致，CI40660948686检查时仍运行。

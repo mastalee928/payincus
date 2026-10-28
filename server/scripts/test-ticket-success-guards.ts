@@ -56,6 +56,14 @@ const addTicketMessageEnd = dbSource.indexOf('/**\n * 更新工单状态', addTi
 assert.notEqual(addTicketMessageStart, -1, 'addTicketMessage helper must exist')
 assert.notEqual(addTicketMessageEnd, -1, 'ticket status helper must follow addTicketMessage')
 const addTicketMessageSource = dbSource.slice(addTicketMessageStart, addTicketMessageEnd)
+const deleteMessageSource = dbSource.slice(dbSource.indexOf('export async function deleteTicketMessage('), dbSource.indexOf('export async function getTicketMessageAttachments('))
+assert.ok(deleteMessageSource.includes('message.ticketId !== ticketId') &&
+  deleteMessageSource.includes('authorizeUserWrite(tx, actor.id, actor)') &&
+  deleteMessageSource.includes("?.role !== 'admin'") &&
+  deleteMessageSource.includes('tx.ticketMessageAttachment.findMany({ where: { messageId, ticketId }') &&
+  deleteMessageSource.includes('return attachments') &&
+  routeSource.includes('attachments = await ticketDb.deleteTicketMessage(messageId, ticketId, request.user)'),
+  'message deletion must atomically authorize current admin and return only its committed attachment cleanup manifest')
 assert.ok(addTicketMessageSource.includes('SELECT id FROM tickets WHERE id = ${ticketId} FOR UPDATE') &&
   addTicketMessageSource.includes('authorizeUserWrite(tx, senderId, actor)') &&
   addTicketMessageSource.includes('currentTicket.userId !== senderId && !currentSupport') &&

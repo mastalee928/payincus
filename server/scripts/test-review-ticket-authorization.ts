@@ -7,7 +7,7 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'),
   'Use isolated local *_pool_test PostgreSQL')
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { createTicket, addTicketMessage, updateTicketStatus, TicketMutationError } = await import('../src/db/tickets.js')
+const { createTicket, addTicketMessage, updateTicketStatus, deleteTicketMessage, TicketMutationError } = await import('../src/db/tickets.js')
 const { default: routes } = await import('../src/routes/tickets.js')
 const tag = `ticket-auth-${randomUUID()}`
 const user = await prisma.user.create({ data: { username: tag, passwordHash: 'unusable-fixture' } })
@@ -17,7 +17,9 @@ const actor = { id: user.id, username: user.username, sid: randomUUID(), iat: Ma
 const payload = { userId: user.id, subject: tag, content: 'fixture message content' }
 const app = Fastify()
 app.decorate('authenticate', async (request: any) => { request.user = { ...actor } })
-app.decorate('requireAdmin', async (_request: any, reply: any) => reply.code(403).send({ error: 'FORBIDDEN' }))
+app.decorate('requireAdmin', async (request: any, reply: any) => {
+  if (request.user.role !== 'admin') return reply.code(403).send({ error: 'FORBIDDEN' })
+})
 try {
   await app.register(routes, { prefix: '/tickets' })
   for (const entry of ['helper', 'route']) {
@@ -190,7 +192,61 @@ try {
   await updateTicketStatus(ticket.id, 'resolved', { actor: supportActor, action: 'status', expectedStatus: 'open' })
   await assert.rejects(updateTicketStatus(ticket.id, 'closed', { actor: customerActor, action: 'close', expectedStatus: 'open' }), TicketMutationError)
   assert.equal((await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } })).status, 'resolved')
-  console.log('PASS real PG/Fastify ticket authorization: creation 8, reply 12 and status/close 10 concurrent revocation/ownership/state cases; no denied messages/SLA/status writes. Current support/customer replies, customer close/reopen and support resolve preserved. No outbound notification or attachment upload; notes/links/deletion/notification and PAT revocation remain separate.')
+  actor.id = support.id; actor.role = 'admin'
+  const message = await prisma.ticketMessage.create({ data: { ticketId: ticket.id, senderId: user.id, content: 'preserve unless authorized' } })
+  const attachment = await prisma.ticketMessageAttachment.create({ data: { ticketId: ticket.id, messageId: message.id,
+    uploaderId: user.id, provider: 'fixture', providerVersion: 'v1', providerFileId: 'isolated-file', filename: 'fixture.png',
+    originalName: 'fixture.png', mimeType: 'image/png', sizeBytes: 1, url: 'https://example.invalid/fixture.png' } })
+  for (const mode of ['banned', 'session', 'demoted']) {
+    await prisma.user.update({ where: { id: support.id }, data: { status: 'active', role: 'admin' } })
+    let release!: () => void, ready!: (pid: number) => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    const entered = new Promise<number>(resolve => { ready = resolve })
+    const blocker = prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${support.id} FOR UPDATE`
+      if (mode === 'banned') await tx.user.update({ where: { id: support.id }, data: { status: 'banned' } })
+      if (mode === 'demoted') await tx.user.update({ where: { id: support.id }, data: { role: 'user' } })
+      if (mode === 'session') await tx.tokenInvalidation.create({ data: { userId: support.id, sessionId: actor.sid, invalidatedAt: actor.iat } })
+      const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+      ready(row.pid); await held
+    }, { timeout: 15000 })
+    const pid = await entered
+    const pending = app.inject({ method: 'DELETE', url: `/tickets/${ticket.id}/messages/${message.id}` })
+    let blocked = false
+    try {
+      const deadline = Date.now() + 3000
+      while (Date.now() < deadline) {
+        const [row] = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM pg_stat_activity WHERE ${pid} = ANY(pg_blocking_pids(pid))`
+        if (Number(row.count) > 0) { blocked = true; break }
+        await delay(20)
+      }
+    } finally { release(); await blocker }
+    const result = await pending
+    assert.equal(blocked, true)
+    assert.equal(result.statusCode, 403, result.body)
+    assert.ok(await prisma.ticketMessage.findUnique({ where: { id: message.id } }))
+    assert.ok(await prisma.ticketMessageAttachment.findUnique({ where: { id: attachment.id } }))
+    await prisma.tokenInvalidation.deleteMany({ where: { userId: support.id } })
+  }
+  await prisma.user.update({ where: { id: support.id }, data: { status: 'active', role: 'admin' } })
+  await assert.rejects(deleteTicketMessage(message.id, ticket.id + 1, actor), TicketMutationError)
+  const deleteTrigger = `ticket_delete_${user.id}`
+  await prisma.$executeRawUnsafe(`CREATE FUNCTION ${deleteTrigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.id = ${message.id} THEN RAISE EXCEPTION 'fixture-ticket-delete-failure'; END IF; RETURN OLD; END $$`)
+  await prisma.$executeRawUnsafe(`CREATE TRIGGER ${deleteTrigger} BEFORE DELETE ON ticket_messages FOR EACH ROW EXECUTE FUNCTION ${deleteTrigger}()`)
+  try {
+    await assert.rejects(deleteTicketMessage(message.id, ticket.id, actor), /fixture-ticket-delete-failure/)
+    assert.ok(await prisma.ticketMessage.findUnique({ where: { id: message.id } }))
+    assert.ok(await prisma.ticketMessageAttachment.findUnique({ where: { id: attachment.id } }))
+  } finally {
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${deleteTrigger} ON ticket_messages`)
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${deleteTrigger}()`)
+  }
+  const manifest = await deleteTicketMessage(message.id, ticket.id, actor)
+  assert.deepEqual(manifest, [{ providerVersion: 'v1', providerFileId: 'isolated-file' }])
+  assert.equal(await prisma.ticketMessage.findUnique({ where: { id: message.id } }), null)
+  assert.equal(await prisma.ticketMessageAttachment.findUnique({ where: { id: attachment.id } }), null)
+  await assert.rejects(deleteTicketMessage(message.id, ticket.id, actor), TicketMutationError)
+  console.log('PASS real PG/Fastify ticket authorization: creation 8, reply 12, status/close 10 and administrator deletion 3 concurrent cases; denied mutations preserve messages/SLA/status/attachments. Authorized deletion returns exact committed attachment manifest; replay/wrong ticket rejected. No outbound notifications or attachment-service calls; notes/links/notification and PAT revocation remain separate.')
 } finally {
   await app.close()
   await prisma.ticket.deleteMany({ where: { userId: user.id } })

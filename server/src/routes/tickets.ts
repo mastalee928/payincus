@@ -756,10 +756,14 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
       return reply.code(404).send(apiError(ErrorCode.NOT_FOUND))
     }
 
-    const attachments = await ticketDb.getTicketMessageAttachments(messageId)
-
-    // 删除消息
-    await ticketDb.deleteTicketMessage(messageId)
+    // Return only the attachment manifest committed with this authorized deletion.
+    let attachments: Array<{ providerVersion: string; providerFileId: string | null }>
+    try {
+      attachments = await ticketDb.deleteTicketMessage(messageId, ticketId, request.user)
+    } catch (error) {
+      if (error instanceof ticketDb.TicketMutationError) return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+      throw error
+    }
 
     if (attachments.length > 0) {
       await cleanupUploadedTicketImages(attachments)
