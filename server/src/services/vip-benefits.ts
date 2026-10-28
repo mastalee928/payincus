@@ -455,7 +455,7 @@ async function normalizeRewardData(
     level: normalizeLevel(input.level ?? base?.level),
     type,
     title: normalizeTitle(input.title ?? base?.title),
-    description: normalizeDescription(input.description ?? base?.description),
+    description: normalizeDescription(input.description === undefined ? base?.description : input.description),
     claimLimit: normalizeOptionalPositiveInteger(input.claimLimit ?? base?.claimLimit, 1, 'Claim limit', MAX_CLAIM_LIMIT),
     sortOrder: normalizeSortOrder(input.sortOrder ?? base?.sortOrder ?? 0),
     enabled: input.enabled === undefined ? (base?.enabled ?? true) : input.enabled === true,

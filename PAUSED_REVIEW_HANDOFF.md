@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：R237 e0b14c6已push。R238说明null不回退旧值单行修复，真实Fastify/PG先红后绿（balance/points清空/省略/重读/金额保持）、后端types/2守卫/manifest通过准备push；无待poll。接R239管理员VipBenefitHallSettings逐条保存部分失败重复创建/缺snapshot与门禁，R240正小数归一化成0，R241用户领取列表生命周期。相关文件/服务/路由/VIP守卫已读，327持续。
+
 > **最新接续**：R234 ebafb0f已push，R235 CI最终success。R237无入口CheckinModal删除、兑换守卫转当前入口，3守卫/双端types build/dist/引用复核通过准备push。下一项R238 VIP null说明已真实PG先红；新server/scripts/test-review-vip-reward-description.ts尚未提交，服务normalizeRewardData第458行null??base是根因，读写路由/服务/对应VIP守卫已读。无待poll任务。R239/240/241后续，327持续。
 
 > **最新接续**：R235 81421ec已push，bdadd1c CI最终success。R234通知现取详情回填，读失败禁写/原地retry、旧上下文隔离/保存冻结已修，真实PG三种合同/Chrome与R235回归/4守卫/双端types build/dist/lint通过准备单项push；无待poll。下一项R237旧CheckinModal无入口，再R238–241 VipBenefitHallSettings/用户领取生命周期，按高危先读守卫。327持续。

@@ -273,7 +273,7 @@
 | R1-235 | 存在 | 已修复；生产验收待 | expectedRevision持久版本拒旧/重放，replenishAmount行锁内原子增加，抽奖同锁/原事务重试；前端详情读取、固定快照/冻结、失败禁重发需重读。真实Fastify/新PG全迁移+抽奖竞争/8并发重复/null/上限、Chrome、5守卫/types/双端build/dist/client lint通过（takeover-prize-stock-*）。多奖品仍非批量原子事务，活动概率并发/创建幂等/生产未验。 |
 | R1-236 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
 | R1-237 | 存在 | 已清理退役代码 | 删除无调用CheckinModal及局部样式，兑换守卫转当前Entertainment入口，保后端和三语文案守卫；3守卫/双端types build/dist及全引用复核通过（takeover-retired-checkin-*）。旧文件仅有分享规则展示，无独立分享辅助函数；死代码无活体入口，非线上签到验收。 |
-| R1-238 | 存在 | 待精修/运行复核 | description null??base恢复旧说明；逐条保存部分失败无成功id记录，重试重复；正小数舍入0后缺再次校验，后端同步核验。 |
+| R1-238 | 存在 | 已修复；真实领取未验 | description仅undefined继承旧值，null/空串/空白清空。真实Fastify/PG先红后绿、balance/points两类型回执/重读/省略/金额保持、server types/2守卫/manifest通过（takeover-vip-description-*）；无领取/余额/实例操作。R239/240独立继续。 |
 | R1-239 | 存在 | 待精修/运行复核 | description null??base恢复旧说明；逐条保存部分失败无成功id记录，重试重复；正小数舍入0后缺再次校验，后端同步核验。 |
 | R1-240 | 存在 | 待精修/运行复核 | description null??base恢复旧说明；逐条保存部分失败无成功id记录，重试重复；正小数舍入0后缺再次校验，后端同步核验。 |
 | R1-241 | 存在 | 待精修/运行复核 | loadBenefits缺sequence及activated生命周期，页面返回/旧请求的刷新与失败恢复缺口仍在。 |

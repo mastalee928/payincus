@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-238 VIP奖励说明显式清空
+
+- R237 e0b14c6已push并核远端一致。normalizeRewardData仅当description为undefined才取旧说明，显式null/空串/空白交给原normalizer清空；前端原本就把空输入传null，无需修改。奖励数值/类型/领取/资源交付保持。
+- `logs/takeover-vip-description-before.log`实际Fastify/PG先复现null仍返回Restore me；`takeover-vip-description-server.log`修改后balance/points两类型的null/空串/空白、回执与重新列表、缺省保原文、配置金额与disabled保持均通过，无领取或账目/实例写入。身份hook为夹具，测试只清自己新建且无claim的记录。
+- `takeover-vip-description-types.log`后端类型、`takeover-vip-description-guards.log`2/2 VIP路由/积分余额锁守卫、diff及清单191常规/72环境排除通过；真实PG专项接CI。仅server单行变更，不重复前端构建。不代表跨管理员保存竞争或真实奖励领取已验，R239/240/241继续。
+
 ## 2026-10-29 R1-237 无入口签到弹窗
 
 - R234 ebafb0f已push并核远端一致，R235 CI40727283504最终success。已核双端入口、Vite、组件标签及导入，CheckinModal没有应用调用/自动注册；删除整份旧礼盒弹窗及局部样式。当前Entertainment的签到/资源池/兑换及后端保持。原编号称分享辅助，但当前文件并无独立分享函数，仅分享规则展示；不虚构删掉额外函数。

@@ -192,6 +192,8 @@ jobs:
         run: |
           pnpm --filter server test:review-prize-stock
           pnpm --filter server test:review-prize-editor
+      - name: Verify VIP reward description clearing
+        run: pnpm --filter server test:review-vip-reward-description
       - name: Verify package empty fields in PostgreSQL
         run: pnpm --filter server test:review-package-empty-fields
 
