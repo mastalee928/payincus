@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 管理员默认机器池不等待旧套餐
+
+- 机器池读取dfae114已push并核远端一致，CI40752294978最后运行；回执47be7e3 CI40751161454最终success。管理员创建页默认立即显示机器池与目标输入，只有点击「原有套餐」时才加载旧套餐及其方案/宿主/镜像，成功结果页内缓存；旧请求慢或失败不能阻挡切回机器池，失败后重开原有套餐可重试。
+- `logs/takeover-admin-pool-entry-before.log`真实页面先复现默认pool仍调用并等待旧packages；`takeover-admin-pool-entry-browser-final.log`通过默认零旧请求、按需读取、旧请求慢/失败仍可切回、失败重试/成功空态缓存。read/write-regression两专项及三语桌面/手机回归、3守卫/lint/双端vue-tsc/build/dist/manifest191常规79环境排除通过。实际页面受控API，无开通/扣费/生产改动。
+- 旧套餐R252新草稿被成功回执清空已单独Chrome先红（takeover-admin-package-write-before.log），下一项修它的旧回执/凭据显示，R253旧镜像刷新门禁仍待。机器池一机一卖与原有套餐分支证据继续分开，327与完整灾备未完成。
+
 ## 2026-10-29 R1-253 关联主流程：机器池读取失败禁止旧数据创建
 
 - 机器池写回执47be7e3已push并核远端一致，CI40751161454最后仍运行；R250 CI40749600296最终success。AdminPoolInstanceCreate以ready隔离读取完成，失败持久显示并通过刷新重试；成功空库存与初读失败分开。目录/镜像绑定读取代次和session/cache活跃状态，旧成功失败/finally不回填，缓存返回若在途创建先等写结束再刷新。

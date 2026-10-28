@@ -3,7 +3,7 @@
  * 管理员创建实例页面
  * 支持创建免费实例或付费实例
  */
-import { ref, onActivated, onDeactivated, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, onActivated, onDeactivated, onUnmounted, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
@@ -47,7 +47,6 @@ const availableHosts = ref<AvailableHost[]>([])
 const availableImages = ref<ImageOption[]>([])
 const imagesLoading = ref<boolean>(false)
 const hostsLoading = ref<boolean>(false)
-const loading = ref<boolean>(true)
 const packagesLoading = ref<boolean>(false)
 const submitting = ref<boolean>(false)
 const error = ref<string>('')
@@ -158,14 +157,15 @@ const hostsInsufficient = computed<boolean>(() => {
          availableHosts.value.length === 0
 })
 
-onMounted(async (): Promise<void> => {
-  loading.value = true
+let packagesLoaded = false
+watch(resourceSource, async source => {
+  if (source !== 'package' || packagesLoaded || packagesLoading.value) return
+  error.value = ''
   try {
     await loadPackagesForScope(packageScope.value)
+    packagesLoaded = true
   } catch (err: any) {
     error.value = t('instance.createPage.loadFailed') + ': ' + (err?.message || String(err))
-  } finally {
-    loading.value = false
   }
 })
 
@@ -612,15 +612,7 @@ async function handleSubmit(): Promise<void> {
       </div>
     </div>
 
-    <div v-if="loading" class="card p-8 text-center text-themed-muted">
-      <svg class="w-8 h-8 mx-auto mb-2 animate-spin icon-themed-muted" fill="none" viewBox="0 0 24 24">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-      </svg>
-      {{ $t('common.loading') }}
-    </div>
-
-    <div v-else class="space-y-6">
+    <div class="space-y-6">
       <!-- 目标用户 -->
       <section class="card p-6">
         <div class="mb-4 flex items-center gap-2 border-b border-themed pb-4">

@@ -206,6 +206,7 @@ jobs:
         run: |
           pnpm --filter server test:review-admin-pool-create
           pnpm --filter server test:review-admin-pool-create-load
+          pnpm --filter server test:review-admin-pool-create-entry
       - name: Verify package empty fields in PostgreSQL
         run: pnpm --filter server test:review-package-empty-fields
 

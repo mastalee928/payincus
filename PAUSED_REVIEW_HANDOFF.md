@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：机器池读取dfae114已push，CI40752294978最后运行；47be7e3 CI success。默认pool不再等待旧套餐，按需加载/失败重开已Chrome先红后绿/读写两回归/3守卫/lint/双端types build/dist/manifest通过准备push。下一项旧套餐R252草稿清空已先红，scripts/test-admin-package-create.mjs待提交，后端admin-billing创建完整/守卫/HostSelector已读，产品尚未改；修旧回执/凭据，再R253镜像门禁。327持续。
+
 > **最新接续**：机器池回执47be7e3已push，CI40751161454最后运行；R250 CI success。机器池读取ready/持久错误/重试/代次/session/cache/在途写返回等待已修，Chrome先红后绿+完整写回归/3守卫/lint/双端types build/dist/manifest通过准备push，无待poll。下一项父AdminInstanceCreateView默认pool仍被onMounted旧套餐load阻挡，先解除主流程依赖，代码已读未改；再旧套餐R252/253，327继续。当前无真实开通/扣费。
 
 > **最新接续**：R250 8c3c138已push，CI40749600296最后运行。管理员默认机器池写回执/父目标查询上下文保护已修，实际完整页面Chrome先红后绿/3守卫/lint/双端types build/dist/manifest通过准备push。下一项AdminPoolInstanceCreate refresh失败仍用旧库存镜像可提交已真实先红，scripts/test-admin-pool-create-load.mjs未提交、产品未改。机器池读取需ready、错误/成功空态分开、缓存/session旧读取隔离/返回等待写settle，注意保持原请求幂等。旧套餐R252/253单独待，327继续。
