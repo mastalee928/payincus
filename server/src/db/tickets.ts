@@ -1212,38 +1212,56 @@ export async function addTicketMessage(
  */
 export async function updateTicketStatus(
   ticketId: number,
-  status: TicketStatus
+  status: TicketStatus,
+  authorization: { actor: WriteActor & { role: 'user' | 'admin' }; action: 'status' | 'close'; expectedStatus: TicketStatus }
 ): Promise<void> {
-  const updateData: {
-    status: TicketStatus
-    resolvedAt?: Date | null
-    closedAt?: Date | null
-    slaBreachedAt?: Date
-  } = { status }
-
-  if (status === 'resolved') {
-    const resolvedAt = new Date()
-    const ticket = await prisma.ticket.findUniqueOrThrow({
-      where: { id: ticketId },
-      select: {
-        resolutionDueAt: true,
-        slaBreachedAt: true
-      }
-    })
-    updateData.resolvedAt = resolvedAt
-    if (ticket.resolutionDueAt && resolvedAt.getTime() > ticket.resolutionDueAt.getTime() && !ticket.slaBreachedAt) {
-      updateData.slaBreachedAt = resolvedAt
+  await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+    await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${ticketId} FOR UPDATE`
+    const ticket = await tx.ticket.findUnique({ where: { id: ticketId } })
+    if (!ticket) throw new TicketMutationError('工单已不存在，请刷新后重试', 404, 'TICKET_NOT_FOUND')
+    let hostOwnerId: number | undefined
+    if (ticket.hostId !== null) {
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${ticket.hostId} FOR SHARE`
+      hostOwnerId = (await tx.host.findUnique({ where: { id: ticket.hostId }, select: { userId: true } }))?.userId
     }
-  } else if (status === 'closed') {
-    updateData.closedAt = new Date()
-  } else if (status === 'open' || status === 'in_progress') {
-    updateData.resolvedAt = null
-    updateData.closedAt = null
-  }
+    const { actor, action, expectedStatus } = authorization
+    if (!await authorizeUserWrite(tx, actor.id, actor)) {
+      throw new TicketMutationError('登录授权已失效，请重新登录', 403, 'TICKET_ACTOR_FORBIDDEN')
+    }
+    const currentRole = (await tx.user.findUnique({ where: { id: actor.id }, select: { role: true } }))?.role
+    const isSupport = currentRole === 'admin' || hostOwnerId === actor.id
+    const isCreator = ticket.userId === actor.id
+    if (currentRole !== actor.role || !isSupport && !(isCreator && (action === 'close' || ticket.status === 'closed' && status === 'open'))) {
+      throw new TicketMutationError('工单处理权限已变化，请刷新后重试', 403, 'TICKET_ACTOR_FORBIDDEN')
+    }
+    if (!TICKET_STATUSES.has(status) || ticket.status !== expectedStatus || action === 'close' && (status !== 'closed' || ticket.status === 'closed')) {
+      throw new TicketMutationError('工单状态已变化，请刷新后重试')
+    }
+    const updateData: {
+      status: TicketStatus
+      resolvedAt?: Date | null
+      closedAt?: Date | null
+      slaBreachedAt?: Date
+    } = { status }
 
-  await prisma.ticket.update({
-    where: { id: ticketId },
-    data: updateData
+    if (status === 'resolved') {
+      const resolvedAt = new Date()
+      updateData.resolvedAt = resolvedAt
+      if (ticket.resolutionDueAt && resolvedAt.getTime() > ticket.resolutionDueAt.getTime() && !ticket.slaBreachedAt) {
+        updateData.slaBreachedAt = resolvedAt
+      }
+    } else if (status === 'closed') {
+      updateData.closedAt = new Date()
+    } else if (status === 'open' || status === 'in_progress') {
+      updateData.resolvedAt = null
+      updateData.closedAt = null
+    }
+
+    await tx.ticket.update({
+      where: { id: ticketId },
+      data: updateData
+    })
   })
 }
 

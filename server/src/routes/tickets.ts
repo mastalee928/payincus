@@ -814,7 +814,12 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
     }
 
     // 更新状态
-    await ticketDb.updateTicketStatus(ticketId, status)
+    try {
+      await ticketDb.updateTicketStatus(ticketId, status, { actor: user, action: 'status', expectedStatus: ticket.status })
+    } catch (error) {
+      if (error instanceof ticketDb.TicketMutationError) return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+      throw error
+    }
 
     // 发送通知给用户
     try {
@@ -868,7 +873,12 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
     }
 
     // 更新状态
-    await ticketDb.updateTicketStatus(ticketId, 'closed')
+    try {
+      await ticketDb.updateTicketStatus(ticketId, 'closed', { actor: user, action: 'close', expectedStatus: ticket.status })
+    } catch (error) {
+      if (error instanceof ticketDb.TicketMutationError) return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+      throw error
+    }
 
     // 发送通知
     // 判断是否是托管实例的工单（宿主机有所有者且不是管理员账号）

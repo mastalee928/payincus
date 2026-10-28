@@ -7,7 +7,7 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'),
   'Use isolated local *_pool_test PostgreSQL')
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { createTicket, addTicketMessage, TicketMutationError } = await import('../src/db/tickets.js')
+const { createTicket, addTicketMessage, updateTicketStatus, TicketMutationError } = await import('../src/db/tickets.js')
 const { default: routes } = await import('../src/routes/tickets.js')
 const tag = `ticket-auth-${randomUUID()}`
 const user = await prisma.user.create({ data: { username: tag, passwordHash: 'unusable-fixture' } })
@@ -139,7 +139,58 @@ try {
   await assert.rejects(addTicketMessage(ticket.id, user.id, 'wrong identity', true, [], customerActor), TicketMutationError)
   await assert.rejects(addTicketMessage(ticket.id, support.id, 'no web session', true), TicketMutationError)
   assert.equal((await addTicketMessage(ticket.id, user.id, 'public API customer reply', false)).isFromOwner, false)
-  console.log('PASS real PG/Fastify creation and reply authorization: creation eight account races and reply twelve ban/session/user-level logout/demotion/host-transfer/closed races, no denied messages/SLA writes; current support/customer reply flags and resolved reopen preserved. No outbound notification or attachment upload performed; other ticket mutations and PAT revocation remain separate.')
+  for (const action of ['status', 'close'] as const) {
+    for (const mode of ['banned', 'session', 'demoted', 'host-transferred', 'stale-status']) {
+      actor.id = support.id; actor.role = mode === 'demoted' ? 'admin' : 'user'
+      await prisma.user.update({ where: { id: actor.id }, data: { status: 'active', role: actor.role } })
+      await prisma.ticket.update({ where: { id: ticket.id }, data: { status: 'open', resolvedAt: null, closedAt: null } })
+      let release!: () => void, ready!: (pid: number) => void
+      const held = new Promise<void>(resolve => { release = resolve })
+      const entered = new Promise<number>(resolve => { ready = resolve })
+      const blocker = prisma.$transaction(async tx => {
+        if (mode === 'host-transferred') await tx.host.update({ where: { id: host.id }, data: { userId: user.id } })
+        else if (mode === 'stale-status') await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'resolved' } })
+        else {
+          await tx.$queryRaw`SELECT id FROM users WHERE id = ${actor.id} FOR UPDATE`
+          if (mode === 'banned') await tx.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+          if (mode === 'demoted') await tx.user.update({ where: { id: actor.id }, data: { role: 'user' } })
+          if (mode === 'session') await tx.tokenInvalidation.create({ data: { userId: actor.id, sessionId: actor.sid, invalidatedAt: actor.iat } })
+        }
+        const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+        ready(row.pid); await held
+      }, { timeout: 15000 })
+      const pid = await entered
+      const pending = app.inject({ method: action === 'status' ? 'PATCH' : 'POST', url: `/tickets/${ticket.id}/${action}`,
+        ...(action === 'status' ? { payload: { status: 'in_progress' } } : {}) }).then(value => ({ value }), error => ({ error }))
+      let blocked = false
+      try {
+        const deadline = Date.now() + 3000
+        while (Date.now() < deadline) {
+          const [row] = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM pg_stat_activity WHERE ${pid} = ANY(pg_blocking_pids(pid))`
+          if (Number(row.count) > 0) { blocked = true; break }
+          await delay(20)
+        }
+      } finally { release(); await blocker }
+      const outcome = await pending
+      assert.equal(blocked, true, `${action}/${mode}: mutation must await current committed state`)
+      assert.ok('value' in outcome)
+      assert.equal(outcome.value.statusCode, mode === 'stale-status' ? 409 : 403, outcome.value.body)
+      const saved = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } })
+      assert.equal(saved.status, mode === 'stale-status' ? 'resolved' : 'open')
+      assert.equal(saved.closedAt, null)
+      await prisma.tokenInvalidation.deleteMany({ where: { userId: actor.id } })
+      await prisma.user.update({ where: { id: actor.id }, data: { status: 'active', role: 'user' } })
+      await prisma.host.update({ where: { id: host.id }, data: { userId: support.id } })
+    }
+  }
+  await prisma.ticket.update({ where: { id: ticket.id }, data: { status: 'open' } })
+  await assert.rejects(updateTicketStatus(ticket.id, 'resolved', { actor: customerActor, action: 'status', expectedStatus: 'open' }), TicketMutationError)
+  await updateTicketStatus(ticket.id, 'closed', { actor: customerActor, action: 'close', expectedStatus: 'open' })
+  await updateTicketStatus(ticket.id, 'open', { actor: customerActor, action: 'status', expectedStatus: 'closed' })
+  await updateTicketStatus(ticket.id, 'resolved', { actor: supportActor, action: 'status', expectedStatus: 'open' })
+  await assert.rejects(updateTicketStatus(ticket.id, 'closed', { actor: customerActor, action: 'close', expectedStatus: 'open' }), TicketMutationError)
+  assert.equal((await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } })).status, 'resolved')
+  console.log('PASS real PG/Fastify ticket authorization: creation 8, reply 12 and status/close 10 concurrent revocation/ownership/state cases; no denied messages/SLA/status writes. Current support/customer replies, customer close/reopen and support resolve preserved. No outbound notification or attachment upload; notes/links/deletion/notification and PAT revocation remain separate.')
 } finally {
   await app.close()
   await prisma.ticket.deleteMany({ where: { userId: user.id } })

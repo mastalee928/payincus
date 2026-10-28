@@ -220,9 +220,14 @@ assert.ok(
 assert.ok(
   statusRoute.includes("const isCreatorReopen = access.isCreator && ticket.status === 'closed' && status === 'open'") &&
     statusRoute.includes('if (!access.isOwner && !isCreatorReopen)') &&
-    statusRoute.includes('await ticketDb.updateTicketStatus(ticketId, status)'),
+    statusRoute.includes("await ticketDb.updateTicketStatus(ticketId, status, { actor: user, action: 'status', expectedStatus: ticket.status })"),
   'web ticket status route must let the ticket creator reopen only their own closed ticket'
 )
+const statusDb = sectionBetween(ticketsDbSource, 'export async function updateTicketStatus(', '/**\n * 检查用户是否可以创建工单')
+assert.ok(statusDb.includes('authorizeUserWrite(tx, actor.id, actor)') && statusDb.includes('currentRole !== actor.role') &&
+  statusDb.includes('ticket.status !== expectedStatus') && statusDb.includes("ticket.status === 'closed' && status === 'open'") &&
+  closeRoute.includes("action: 'close', expectedStatus: ticket.status"),
+  'status and close must bind current session, support/customer rights and the exact previous ticket status')
 
 assert.ok(
   userTicketsRoute.includes('page: parsePositiveInteger(page, 1)') &&

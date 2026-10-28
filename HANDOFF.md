@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-186 工单状态与关闭
+
+- 创建授权e244d8f的CI40660398704最终success；回复授权`d29ca3a7f76151b88b7ddcf1f29521ef71fa7072`已push、远端一致，CI40660948686检查时仍运行。
+- 状态/关闭两个网站入口把actor、操作类别及原status传入必需参数，事务锁ticket/host/current account后重核session、角色和当前处理资格。创建者仍仅可关闭或将已关闭工单重开open，客服可处理状态；原status改变返回409，不以旧页面动作覆盖新状态。SLA、resolved/closed时间使用锁内记录同事务写入。
+- `logs/takeover-ticket-status-authorization-r1.log`真实PG/Fastify通过新增两个入口十个封禁/注销/降权/host转移/原状态变化竞争，原创建8+回复12同次回归；正常客户关闭/重开、客服解决及客户越权/旧状态拒绝保持。5/5守卫`takeover-ticket-status-guards.log`、server build `takeover-ticket-status-build.log`和专项类型`takeover-ticket-status-types.log`通过。
+- 状态CAS目前绑定status值，未宣称解决所有ABA或客户端草稿代次问题。备注/关联对象/删消息/通知授权、PAT和附件完整流程继续待修，327整体与真机未完成；本段按授权保存推送后继续。
+
 ## 2026-10-28 R1-186 工单回复当前权限
 
 - R187的eaef6ea CI40659933408最终success；创建会话保护`e244d8fabe2b4200fc968e86cc997d95362f8f4a`已push并核远端一致，CI40660398704检查时仍运行。
