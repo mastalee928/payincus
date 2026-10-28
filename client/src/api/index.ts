@@ -2800,12 +2800,12 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
     delete: (id: number): Promise<{ message: string }> => http.delete(`/init-commands/${id}`),
 
     // 获取可用的发行版列表（名称由前端翻译）
-    getDistros: (): Promise<{
+    getDistros: (signal?: AbortSignal): Promise<{
       distros: Array<{
         id: string
         icon: string
       }>
-    }> => http.get('/init-commands/distros')
+    }> => http.get('/init-commands/distros', { signal })
   },
 
   // 计费相关

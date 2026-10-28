@@ -104,8 +104,8 @@ function onModalClose(): void {
 }
 
 async function onModalSave(): Promise<void> {
-  await loadCommands()
   onModalClose()
+  await loadCommands()
 }
 
 // 详情弹窗

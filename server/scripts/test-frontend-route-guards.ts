@@ -65,6 +65,7 @@ const renewModalSource = readRepoFile('client/src/components/instance/modals/Ren
 const changePlanModalSource = readRepoFile('client/src/components/instance/modals/ChangePlanModal.vue')
 const initCommandSelectorSource = readRepoFile('client/src/components/extensions/InitCommandSelector.vue')
 const initCommandDetailSource = readRepoFile('client/src/components/extensions/InitCommandDetailModal.vue')
+const initCommandEditorSource = readRepoFile('client/src/components/extensions/InitCommandModal.vue')
 const hostInstancesTabSource = readRepoFile('client/src/components/host/HostInstancesTab.vue')
 const hostCreateInstanceTabSource = readRepoFile('client/src/components/host/HostCreateInstanceTab.vue')
 const hostPublicIpv4TabSource = readRepoFile('client/src/components/host/HostPublicIpv4Tab.vue')
@@ -1161,6 +1162,18 @@ assert.ok(
     initCommandDetailSource.includes('onBeforeUnmount') &&
     initCommandDetailSource.includes('detail?.name ?? command.name'),
   'init command details, clipboard feedback and close callbacks must stay bound to their target/session lifetime'
+)
+assert.ok(
+  initCommandEditorSource.includes('sequence === requestSequence') &&
+    initCommandEditorSource.includes('session === sessionKey.value') &&
+    initCommandEditorSource.includes('if (!isValid.value || saving.value || saved.value || loadingDetail.value || loadingDistros.value') &&
+    initCommandEditorSource.includes('if (saving.value || !visible.value || disposed) return') &&
+    initCommandEditorSource.includes('distros: [...form.value.distros]') &&
+    initCommandEditorSource.includes('saved.value = true') &&
+    initCommandEditorSource.includes('clearTimeout(closeTimer)') &&
+    initCommandEditorSource.includes('onBeforeUnmount') &&
+    extensionsViewSource.includes('async function onModalSave(): Promise<void> {\n  onModalClose()\n  await loadCommands()'),
+  'init command saves must reject duplicate/closing/loading submissions, snapshot the target/data and close before list refresh'
 )
 assert.ok(
   initCommandSelectorSource.includes("import { extensionsPath } from '@/utils/app-paths'") &&

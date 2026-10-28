@@ -6,6 +6,7 @@ import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
 import Detail from '@/components/extensions/InitCommandDetailModal.vue'
 import Editor from '@/components/extensions/InitCommandModal.vue'
+import Extensions from '@/views/ExtensionsView.vue'
 import { pending } from './api.js'
 import '@/styles/main.css'
 
@@ -13,7 +14,7 @@ const jwt = (sid, generation = 1) => `fixture.${btoa(JSON.stringify({ sid, gener
 localStorage.removeItem('token')
 const record = id => ({ id, name: `List command ${id}`, distros: ['debian'], description: null, enabled: true, createdAt: '2026-10-28T00:00:00Z', updatedAt: '2026-10-28T00:00:00Z' })
 const app = createApp({
-  components: { Detail, Editor },
+  components: { Detail, Editor, Extensions },
   setup() {
     const auth = useAuthStore(), theme = useThemeStore(), toast = useToast()
     auth.user = { id: 1, username: 'isolated-ui', role: 'user' }; auth.token = jwt('session-a')
@@ -33,6 +34,6 @@ const app = createApp({
     }
     return { command, visible, mode, close, save }
   },
-  template: `<main class="p-6"><h1>初始化命令 · 本地隔离验收</h1><Detail v-if="visible && mode === 'detail'" :command="command" @close="close"/><Editor v-if="visible && mode === 'edit'" :command="command" @close="close" @save="save"/></main>`,
+  template: `<main class="p-6"><h1>初始化命令 · 本地隔离验收</h1><Detail v-if="visible && mode === 'detail'" :command="command" @close="close"/><Editor v-if="visible && mode === 'edit'" :command="command" @close="close" @save="save"/><Extensions v-if="visible && mode === 'page'"/></main>`,
 })
 app.use(createPinia()); app.use(i18n); app.mount('#app')

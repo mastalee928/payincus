@@ -2,10 +2,11 @@
 /**
  * InitCommandModal - 初始化命令新增/编辑弹窗
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import DistroIcon from '@/components/icons/DistroIcon.vue'
 
 interface InitCommand {
@@ -23,7 +24,6 @@ interface InitCommand {
 
 interface Distro {
   id: string
-  name: string
   icon: string
 }
 
@@ -38,6 +38,18 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useToast()
+const authStore = useAuthStore()
+// Stale-response identity only; the server rechecks authorization on writes.
+const sessionKey = computed(() => {
+  const token = authStore.token
+  if (!token) return ''
+  let identity = token
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user?.id ?? ''}:${authStore.user?.role ?? ''}:${identity}`
+})
 
 // 表单数据
 const form = ref({
@@ -48,12 +60,30 @@ const form = ref({
 })
 
 // 发行版选项
-const distroOptions = ref<Distro[]>([])
+const distros = ref<Distro[]>([])
+const distroOptions = computed(() => distros.value.map(d => ({ ...d, name: t(`extensions.initCommands.distroNames.${d.id}`) })))
 const loadingDistros = ref(false)
 
 // 表单状态
 const saving = ref(false)
 const loadingDetail = ref(false)
+const saved = ref(false)
+const visible = ref(true)
+let requestSequence = 0
+let disposed = false
+let requestController: AbortController | undefined
+let closeTimer: ReturnType<typeof setTimeout> | undefined
+
+function isCurrent(sequence: number, id: number | null, session: string): boolean {
+  return !disposed && visible.value && sequence === requestSequence
+    && id === (props.command?.id ?? null) && session === sessionKey.value
+}
+
+function invalidate(): void {
+  requestSequence++
+  requestController?.abort()
+  clearTimeout(closeTimer)
+}
 
 // 是否为编辑模式
 const isEdit = computed(() => props.command !== null)
@@ -66,55 +96,52 @@ const isValid = computed(() => {
 })
 
 // 加载发行版选项
-async function loadDistros(): Promise<void> {
+async function loadDistros(current: () => boolean, signal: AbortSignal): Promise<void> {
   loadingDistros.value = true
   try {
-    const response = await api.initCommands.getDistros()
-    // 后端只返回 id 和 icon，前端负责翻译 name
-    distroOptions.value = response.distros.map(d => ({
-      id: d.id,
-      name: t(`extensions.initCommands.distroNames.${d.id}`),
-      icon: d.icon
-    }))
-  } catch (error) {
-    console.error('Failed to load distros:', error)
-    // 使用翻译键生成默认列表
-    distroOptions.value = [
-      { id: 'ubuntu', name: t('extensions.initCommands.distroNames.ubuntu'), icon: 'ubuntu' },
-      { id: 'debian', name: t('extensions.initCommands.distroNames.debian'), icon: 'debian' },
-      { id: 'rhel', name: t('extensions.initCommands.distroNames.rhel'), icon: 'almalinux' },
-      { id: 'alpine', name: t('extensions.initCommands.distroNames.alpine'), icon: 'alpine' },
-      { id: 'arch', name: t('extensions.initCommands.distroNames.arch'), icon: 'arch' },
-      { id: 'suse', name: t('extensions.initCommands.distroNames.suse'), icon: 'opensuse' },
-      { id: 'all', name: t('extensions.initCommands.distroNames.all'), icon: 'linux' }
+    const response = await api.initCommands.getDistros(signal)
+    if (!current()) return
+    distros.value = response.distros
+  } catch {
+    if (!current()) return
+    distros.value = [
+      { id: 'ubuntu', icon: 'ubuntu' },
+      { id: 'debian', icon: 'debian' },
+      { id: 'rhel', icon: 'almalinux' },
+      { id: 'alpine', icon: 'alpine' },
+      { id: 'arch', icon: 'arch' },
+      { id: 'suse', icon: 'opensuse' },
+      { id: 'all', icon: 'linux' }
     ]
   } finally {
-    loadingDistros.value = false
+    if (current()) loadingDistros.value = false
   }
 }
 
 // 加载命令详情（编辑模式）
-async function loadCommandDetail(): Promise<void> {
-  if (!props.command) return
-  
+async function loadCommandDetail(id: number, current: () => boolean, signal: AbortSignal): Promise<void> {
   loadingDetail.value = true
   try {
-    const response = await api.initCommands.get(props.command.id)
+    const response = await api.initCommands.get(id, signal)
+    if (!current()) return
     const cmd = response.command
+    if (cmd.id !== id) throw new Error(t('extensions.initCommands.loadDetailFailed'))
     form.value.name = cmd.name
     form.value.command = cmd.command
     form.value.distros = [...cmd.distros]
     form.value.description = cmd.description || ''
-  } catch (error: any) {
-    toast.error(t('extensions.initCommands.loadDetailFailed') + ': ' + (error?.message || String(error)))
-    emit('close')
+  } catch (error: unknown) {
+    if (!current()) return
+    toast.error(t('extensions.initCommands.loadDetailFailed') + ': ' + (error instanceof Error ? error.message : String(error)))
+    close()
   } finally {
-    loadingDetail.value = false
+    if (current()) loadingDetail.value = false
   }
 }
 
 // 切换发行版选择
 function toggleDistro(distroId: string): void {
+  if (saving.value || saved.value || loadingDetail.value || loadingDistros.value || !visible.value || disposed) return
   const idx = form.value.distros.indexOf(distroId)
   if (idx >= 0) {
     form.value.distros.splice(idx, 1)
@@ -135,64 +162,77 @@ function toggleDistro(distroId: string): void {
 
 // 保存
 async function save(): Promise<void> {
-  if (!isValid.value) return
-  
+  if (!isValid.value || saving.value || saved.value || loadingDetail.value || loadingDistros.value || !visible.value || disposed || !sessionKey.value) return
+  const sequence = requestSequence, id = props.command?.id ?? null, session = sessionKey.value
+  const current = () => isCurrent(sequence, id, session)
+  const data = {
+    name: form.value.name.trim(),
+    command: form.value.command,
+    distros: [...form.value.distros],
+    description: form.value.description.trim()
+  }
   saving.value = true
   try {
-    if (isEdit.value && props.command) {
-      // 更新
-      await api.initCommands.update(props.command.id, {
-        name: form.value.name.trim(),
-        command: form.value.command,
-        distros: form.value.distros,
-        description: form.value.description.trim() || null
-      })
-      toast.success(t('extensions.initCommands.updateSuccess'))
+    if (id !== null) {
+      await api.initCommands.update(id, { ...data, description: data.description || null })
     } else {
-      // 新增
-      await api.initCommands.create({
-        name: form.value.name.trim(),
-        command: form.value.command,
-        distros: form.value.distros,
-        description: form.value.description.trim() || undefined
-      })
-      toast.success(t('extensions.initCommands.createSuccess'))
+      await api.initCommands.create({ ...data, description: data.description || undefined })
     }
+    if (!current()) return
+    saved.value = true
+    toast.success(t(id !== null ? 'extensions.initCommands.updateSuccess' : 'extensions.initCommands.createSuccess'))
     emit('save')
-  } catch (error: any) {
-    const msg = isEdit.value 
+  } catch (error: unknown) {
+    if (!current()) return
+    const msg = id !== null
       ? t('extensions.initCommands.updateFailed') 
       : t('extensions.initCommands.createFailed')
-    toast.error(msg + ': ' + (error?.message || String(error)))
+    toast.error(msg + ': ' + (error instanceof Error ? error.message : String(error)))
   } finally {
-    saving.value = false
+    if (current()) saving.value = false
   }
 }
-
-// 弹窗可见性（用于过渡动画）
-const visible = ref(true)
 
 // 关闭
 function close(): void {
+  if (saving.value || !visible.value || disposed) return
+  invalidate()
   visible.value = false
-  setTimeout(() => emit('close'), 200)
+  const sequence = requestSequence
+  closeTimer = setTimeout(() => {
+    if (!disposed && sequence === requestSequence && !visible.value) emit('close')
+  }, 200)
 }
 
-// 初始化
-onMounted(() => {
-  loadDistros()
-  if (props.command) {
-    loadCommandDetail()
-  }
+watch([() => props.command?.id ?? null, sessionKey], () => {
+  invalidate()
+  saving.value = false
+  saved.value = false
+  loadingDetail.value = false
+  loadingDistros.value = false
+  form.value = { name: '', command: '', distros: [], description: '' }
+  distros.value = []
+  visible.value = true
+  const sequence = requestSequence, id = props.command?.id ?? null, session = sessionKey.value
+  if (!session || disposed) { close(); return }
+  const controller = new AbortController()
+  requestController = controller
+  const current = () => isCurrent(sequence, id, session)
+  void loadDistros(current, controller.signal)
+  if (id !== null) void loadCommandDetail(id, current, controller.signal)
+}, { immediate: true, flush: 'sync' })
+onBeforeUnmount(() => {
+  disposed = true
+  invalidate()
 })
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="visible" class="modal-overlay">
+      <div v-if="visible" class="modal-overlay init-command-editor" @keydown.esc.stop="close">
         <div class="modal-backdrop" @click="close"></div>
-        <div class="modal-content max-w-2xl">
+        <div class="modal-content max-w-2xl" role="dialog" :aria-label="isEdit ? $t('extensions.initCommands.editTitle') : $t('extensions.initCommands.addTitle')" :aria-busy="saving || loadingDetail">
           <!-- 头部 -->
           <div class="modal-header">
             <div class="flex items-center gap-3">
@@ -210,7 +250,7 @@ onMounted(() => {
                 </p>
               </div>
             </div>
-            <button class="text-themed-muted hover:text-themed" @click="close">
+            <button type="button" :aria-label="$t('common.close')" :disabled="saving" class="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center text-themed-muted hover:text-themed disabled:opacity-50" @click="close">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -220,7 +260,7 @@ onMounted(() => {
           <!-- 内容 -->
           <div class="modal-body space-y-4">
             <!-- 加载中 -->
-            <div v-if="loadingDetail" class="text-center py-8">
+            <div v-if="loadingDetail" role="status" class="text-center py-8">
               <div class="inline-flex items-center gap-2 text-themed-muted">
                 <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -230,7 +270,7 @@ onMounted(() => {
               </div>
             </div>
 
-            <template v-else>
+            <fieldset v-else :disabled="saving || saved" class="space-y-4 min-w-0">
               <!-- 名称 -->
               <div>
                 <label class="block text-xs text-themed-muted mb-1.5">
@@ -238,6 +278,7 @@ onMounted(() => {
                 </label>
                 <input 
                   v-model="form.name" 
+                  :aria-label="$t('extensions.initCommands.name')"
                   type="text" 
                   class="input" 
                   maxlength="100"
@@ -252,6 +293,7 @@ onMounted(() => {
                 </label>
                 <textarea 
                   v-model="form.command" 
+                  :aria-label="$t('extensions.initCommands.command')"
                   class="input font-mono text-xs min-h-[200px] resize-y"
                   :placeholder="$t('extensions.initCommands.commandPlaceholder')"
                 ></textarea>
@@ -270,7 +312,9 @@ onMounted(() => {
                     v-for="distro in distroOptions"
                     :key="distro.id"
                     type="button"
-                    class="inline-flex items-center gap-2 px-3 py-2 text-xs rounded-lg border-2 transition-all font-medium"
+                    class="inline-flex min-h-[44px] items-center gap-2 px-3 py-2 text-xs rounded-lg border-2 transition-colors font-medium"
+                    :disabled="loadingDistros"
+                    :aria-pressed="form.distros.includes(distro.id)"
                     :class="form.distros.includes(distro.id) 
                       ? 'bg-gray-900 dark:bg-primary-500/20 border-gray-900 dark:border-primary-500 text-white dark:text-primary-300 shadow-md' 
                       : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500'"
@@ -292,30 +336,32 @@ onMounted(() => {
                 </label>
                 <input 
                   v-model="form.description" 
+                  :aria-label="$t('extensions.initCommands.remark')"
                   type="text" 
                   class="input" 
                   maxlength="500"
                   :placeholder="$t('extensions.initCommands.remarkPlaceholder')" 
                 />
               </div>
-            </template>
+            </fieldset>
           </div>
 
           <!-- 底部 -->
           <div class="modal-footer">
-            <button class="btn-ghost btn-sm" :disabled="saving" @click="close">
+            <button type="button" class="btn-ghost btn-sm min-h-[44px]" :disabled="saving" @click="close">
               {{ $t('common.cancel') }}
             </button>
             <button 
-              class="btn-primary btn-sm" 
-              :disabled="!isValid || saving || loadingDetail" 
+              type="button"
+              class="btn-primary btn-sm min-h-[44px]"
+              :disabled="!isValid || saving || saved || loadingDetail || loadingDistros"
               @click="save"
             >
               <svg v-if="saving" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              {{ isEdit ? $t('common.save') : $t('common.create') }}
+              {{ saving ? $t('common.saving') : (isEdit ? $t('common.save') : $t('common.create')) }}
             </button>
           </div>
         </div>
@@ -323,3 +369,14 @@ onMounted(() => {
     </Transition>
   </Teleport>
 </template>
+
+<style scoped>
+.init-command-editor :is(.text-themed-muted, .text-themed-faint) { color: var(--kawaii-muted); }
+.init-command-editor .input { font-size: 1rem; }
+@media (prefers-reduced-motion: reduce) {
+  .init-command-editor, .init-command-editor .modal-content, .init-command-editor .animate-spin {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+</style>

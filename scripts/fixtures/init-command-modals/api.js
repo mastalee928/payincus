@@ -3,6 +3,7 @@ const defer = (kind, id, signal, data) => new Promise((resolve, reject) => pendi
 export default {
   auth: { async me() { return { user: { id: 1, username: 'isolated-ui', role: 'user' } } } },
   initCommands: {
+    list: signal => defer('list', undefined, signal),
     // Deliberately resolve aborted reads too, to exercise the component's identity checks.
     get: (id, signal) => defer('get', id, signal),
     getDistros: signal => defer('distros', undefined, signal),
