@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-287 批量续费与销毁预览对象绑定
+
+- f31a86a已push核远端一致；d0b1c91与75a227e源码CI已success，f31a86a最后仍运行。续费/销毁确认固定已展示预览的可操作ID，数量显示同一目标集合；两种弹窗绑定账号/角色/session、路由、激活与打开代次，旧预览/写回执不污染新页面。请求在途保持busy防重复，后来勾选不被成功回执清空；预览需完整无重复匹配目标，续费余额/折扣金额有限有效，保持1个月与用户销毁零退款。
+- `takeover-batch-billing-before.log`真实Chrome先红预览1选2却提交2；`takeover-batch-billing-matrix.log`通过固定eligible集合、仅1月、预览中禁止提交、重复确认、不同目标ABA、错/缺/重复ID、无效金额/余额失败与不足、canRenew/canDestroy门禁、DESTROY、同sid刷新/换账号/权限/注销、cache/session旧写回执、当前失败重试/部分成功、新selection保护与卸载。1440中文与390英文两弹窗截图已核；API受控，无真实客户扣款/销毁。
+- client types、4相关守卫、manifest191/105、最终双端build exit0及dist边界通过，浏览器专项登记Chrome CI。lint使用client目录配置后0错误，12处既有模板缩进/换行warning保留，未作无关格式改动；根目录首次调用无eslint配置exit2已纠正。施工中watch提前读取isAdmin导致挂载失败已修，最终浏览器运行无异常。
+- 下一项R288四文件create-promo夹具已先红（`takeover-create-promo-before.log`）：SECOND的20%折扣被FIRST旧90%覆盖；同次浏览器证实首次专区7会等待zones并正确请求zone:7，非现存错误。产品未改，不混入本提交。该项是旧`/instances/create`，默认`/purchase`机器池一机一卖不变；后端AFF/create与对应守卫已读。列表自身旧读取/双timer、后台报价/权限完整事务、原生流程及327/R269/完整灾备仍待。
+
 ## 2026-10-29 R1-286 工单实例卡请求与轮询生命周期
 
 - 75a227e已push核远端一致；d0b1c91/75a227e源码CI最后仍运行。实例卡按账号/角色/session、props实例与激活代次隔离；详情/配置/任务组合读取及await stats后再核当前，stats/task各自序号，错详情ID拒绝。计时器只在当前激活实例创建；停用/卸载清全部timer，终端子组件按代次重新挂载/离页卸载，避免旧连接复用新实例。

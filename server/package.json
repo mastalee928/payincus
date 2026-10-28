@@ -41,6 +41,7 @@
     "test:review-ticket-lifecycle": "node ../scripts/test-ticket-lifecycle.mjs",
     "test:review-ticket-actions": "node ../scripts/test-ticket-actions.mjs",
     "test:review-ticket-instance-card": "node ../scripts/test-ticket-instance-card.mjs",
+    "test:review-instance-batch-billing": "node ../scripts/test-instance-batch-billing.mjs",
     "test:review-prize-editor": "node ../scripts/test-prize-editor.mjs",
     "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",

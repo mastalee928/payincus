@@ -64,6 +64,40 @@ const configStore = useConfigStore()
 const themeStore = useThemeStore()
 const toast = useToast()
 void configStore.loadPublicConfig()
+const billingSessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const billingPageActive = ref(false)
+let billingAlive = true
+let renewGeneration = 0
+let destroyGeneration = 0
+let selectionRevision = 0
+const renewTargetIds = ref<number[]>([])
+const destroyTargetIds = ref<number[]>([])
+const renewPreviewReady = ref(false)
+const destroyPreviewReady = ref(false)
+function captureBillingContext(kind: 'renew' | 'destroy') {
+  const generation = kind === 'renew' ? renewGeneration : destroyGeneration
+  const session = billingSessionKey.value, path = route.fullPath
+  return () => billingAlive && billingPageActive.value && !!session && session === billingSessionKey.value &&
+    path === route.fullPath && canUseCustomerBillingActions.value &&
+    (kind === 'renew' ? showBatchRenewModal.value && generation === renewGeneration : showBatchDestroyModal.value && generation === destroyGeneration)
+}
+
+function resetBillingDialogs() {
+  closeBatchRenewModal(true)
+  closeBatchDestroyModal(true)
+}
+onMounted(() => { billingPageActive.value = true })
+onActivated(() => { billingPageActive.value = true })
+onDeactivated(() => { billingPageActive.value = false; resetBillingDialogs() })
+onUnmounted(() => { billingAlive = false; billingPageActive.value = false; resetBillingDialogs() })
 
 const instances = ref<Instance[]>([])
 const loading = ref<boolean>(true)
@@ -88,6 +122,7 @@ const isDesktopViewport = ref<boolean>(true)
 
 // 批量选择
 const selectedIds = ref<Set<number>>(new Set())
+watch(selectedIds, () => { selectionRevision++ }, { deep: true, flush: 'sync' })
 
 // 批量续费
 const showBatchRenewModal = ref(false)
@@ -192,7 +227,7 @@ const batchRenewEligibleItems = computed(() => {
       ...item,
       selectedOption: item.options.find(option => option.months === batchRenewMonths.value) || null
     }))
-    .filter(item => item.selectedOption !== null)
+    .filter(item => item.canRenew && item.selectedOption !== null)
 })
 
 const batchRenewIneligibleItems = computed(() => {
@@ -206,8 +241,11 @@ const batchRenewTotal = computed(() => {
 const batchRenewInsufficientBalance = computed(() => batchRenewBalance.value.balance < batchRenewTotal.value)
 const batchRenewBalanceAfter = computed(() => batchRenewBalance.value.balance - batchRenewTotal.value)
 const batchRenewCanSubmit = computed(() => (
+  captureBillingContext('renew')() && renewPreviewReady.value && !batchRenewLoading.value &&
+  !batchDestroySubmitting.value && !batchActionLoading.value && batchRenewMonths.value === 1 &&
   batchRenewEligibleItems.value.length > 0 &&
   batchRenewMonthOptions.value.length > 0 &&
+  Number.isFinite(batchRenewTotal.value) &&
   !batchRenewInsufficientBalance.value &&
   !batchRenewSubmitting.value
 ))
@@ -216,7 +254,9 @@ const batchDestroyEligibleItems = computed(() => batchDestroyPreview.value.filte
 const batchDestroyIneligibleItems = computed(() => batchDestroyPreview.value.filter(item => !item.canDestroy))
 const batchDestroyTotalRefund = computed(() => batchDestroyEligibleItems.value.reduce((sum, item) => sum + item.refund.refundAmount, 0))
 const batchDestroyTotalFee = computed(() => batchDestroyEligibleItems.value.reduce((sum, item) => sum + item.refund.feeAmount, 0))
-const batchDestroyCanSubmit = computed(() => batchDestroyEligibleItems.value.length > 0 && batchDestroyConfirm.value === 'DESTROY' && !batchDestroySubmitting.value)
+const batchDestroyCanSubmit = computed(() => captureBillingContext('destroy')() && destroyPreviewReady.value && !batchDestroyLoading.value &&
+  batchDestroyEligibleItems.value.length > 0 && batchDestroyConfirm.value === 'DESTROY' && !batchDestroySubmitting.value &&
+  !batchRenewSubmitting.value && !batchActionLoading.value)
 const isInstanceOrderView = computed(() => search.value.trim() === '' && countryFilter.value === null)
 const canReorderInstances = computed(() => (
   isInstanceOrderView.value &&
@@ -270,6 +310,7 @@ watch(
 
 // 判断是否为管理员
 const isAdmin = computed<boolean>(() => authStore.user?.role === 'admin')
+watch([billingSessionKey, () => route.fullPath, canUseCustomerBillingActions], resetBillingDialogs, { flush: 'sync' })
 
 function updateViewportState(): void {
   if (typeof window === 'undefined') return
@@ -1254,12 +1295,18 @@ function openInstanceTransfer(instance: Instance): void {
 }
 
 async function openBatchRenewModal(): Promise<void> {
-  const instanceIds = selectedBillingActionIds.value
-  if (instanceIds.length === 0 || !canUseCustomerBillingActions.value) return
+  const instanceIds = [...selectedBillingActionIds.value]
+  if (instanceIds.length === 0 || instanceIds.length > 100 || !billingPageActive.value || !billingSessionKey.value ||
+    !canUseCustomerBillingActions.value || batchRenewSubmitting.value || batchDestroySubmitting.value || batchActionLoading.value) return
 
+  renewGeneration++
+  renewTargetIds.value = instanceIds
+  renewPreviewReady.value = false
   showBatchRenewModal.value = true
+  const current = captureBillingContext('renew')
   batchRenewLoading.value = true
   batchRenewPreview.value = []
+  batchRenewBalance.value = { balance: 0, frozen: 0, totalRecharge: 0, totalConsume: 0 }
   batchRenewMonths.value = 1
 
   try {
@@ -1267,21 +1314,33 @@ async function openBatchRenewModal(): Promise<void> {
       customerBillingApi.billing.previewBatchRenew(instanceIds),
       customerBillingApi.billing.getUserBalance()
     ])
+    if (!current()) return
+    if (!previewMatchesTargets(previewRes.items, instanceIds) || !Number.isFinite(balanceRes.balance?.balance) ||
+      !previewRes.items.every(item => typeof item.canRenew === 'boolean' && Array.isArray(item.options) &&
+        item.options.every(option => Number.isInteger(option.months) && Number.isFinite(option.discountedPrice) && option.discountedPrice >= 0))) {
+      throw new Error(t('instance.batch.previewFailed'))
+    }
     batchRenewPreview.value = previewRes.items
     batchRenewBalance.value = balanceRes.balance
     batchRenewMonths.value = batchRenewMonthOptions.value.includes(1)
       ? 1
       : (batchRenewMonthOptions.value[0] || 1)
+    renewPreviewReady.value = true
   } catch (error: any) {
+    if (!current()) return
     toast.error(t('instance.batch.previewFailed') + ': ' + translateError(error))
-    showBatchRenewModal.value = false
+    closeBatchRenewModal()
   } finally {
-    batchRenewLoading.value = false
+    if (current()) batchRenewLoading.value = false
   }
 }
 
 function closeBatchRenewModal(force = false): void {
   if (batchRenewSubmitting.value && !force) return
+  renewGeneration++
+  renewTargetIds.value = []
+  renewPreviewReady.value = false
+  batchRenewLoading.value = false
   showBatchRenewModal.value = false
   batchRenewPreview.value = []
   batchRenewMonths.value = 1
@@ -1289,12 +1348,14 @@ function closeBatchRenewModal(force = false): void {
 
 async function confirmBatchRenew(): Promise<void> {
   if (!batchRenewCanSubmit.value || !canUseCustomerBillingActions.value) return
-  const instanceIds = selectedBillingActionIds.value
-  if (instanceIds.length === 0) return
+  const instanceIds = batchRenewEligibleItems.value.map(item => item.id), months = batchRenewMonths.value
+  if (instanceIds.length === 0 || !previewMatchesTargets(batchRenewPreview.value, renewTargetIds.value)) return
+  const current = captureBillingContext('renew'), revision = selectionRevision
 
   batchRenewSubmitting.value = true
   try {
-    const result = await customerBillingApi.billing.renewInstancesBatch(instanceIds, batchRenewMonths.value)
+    const result = await customerBillingApi.billing.renewInstancesBatch(instanceIds, months)
+    if (!current()) return
     if (result.failedCount > 0) {
       toast.warning(t('instance.batch.partialResult', {
         success: result.successCount,
@@ -1305,36 +1366,52 @@ async function confirmBatchRenew(): Promise<void> {
       toast.success(t('instance.batch.successResult', { count: result.successCount }))
     }
     closeBatchRenewModal(true)
-    clearSelection()
+    if (revision === selectionRevision) clearSelection()
     await loadInstances(true)
   } catch (error: any) {
-    toast.error(t('instance.batch.actionFailed') + ': ' + translateError(error))
+    if (current()) toast.error(t('instance.batch.actionFailed') + ': ' + translateError(error))
   } finally {
     batchRenewSubmitting.value = false
   }
 }
 
 async function openBatchDestroyModal(): Promise<void> {
-  if (selectedCount.value === 0 || !canUseCustomerBillingActions.value) return
+  if (selectedCount.value === 0 || selectedCount.value > 100 || !billingPageActive.value || !billingSessionKey.value ||
+    !canUseCustomerBillingActions.value || batchRenewSubmitting.value || batchDestroySubmitting.value || batchActionLoading.value) return
 
+  const instanceIds = Array.from(selectedIds.value)
+  destroyGeneration++
+  destroyTargetIds.value = instanceIds
+  destroyPreviewReady.value = false
   showBatchDestroyModal.value = true
+  const current = captureBillingContext('destroy')
   batchDestroyLoading.value = true
   batchDestroyConfirm.value = ''
   batchDestroyPreview.value = []
 
   try {
-    const result = await customerBillingApi.billing.getBatchDestroyInfo(Array.from(selectedIds.value))
+    const result = await customerBillingApi.billing.getBatchDestroyInfo(instanceIds)
+    if (!current()) return
+    if (!previewMatchesTargets(result.items, instanceIds) || !result.items.every(item => typeof item.canDestroy === 'boolean')) {
+      throw new Error(t('instance.batch.previewFailed'))
+    }
     batchDestroyPreview.value = result.items
+    destroyPreviewReady.value = true
   } catch (error: any) {
+    if (!current()) return
     toast.error(t('instance.batch.previewFailed') + ': ' + translateError(error))
-    showBatchDestroyModal.value = false
+    closeBatchDestroyModal()
   } finally {
-    batchDestroyLoading.value = false
+    if (current()) batchDestroyLoading.value = false
   }
 }
 
 function closeBatchDestroyModal(force = false): void {
   if (batchDestroySubmitting.value && !force) return
+  destroyGeneration++
+  destroyTargetIds.value = []
+  destroyPreviewReady.value = false
+  batchDestroyLoading.value = false
   showBatchDestroyModal.value = false
   batchDestroyConfirm.value = ''
   batchDestroyPreview.value = []
@@ -1342,10 +1419,14 @@ function closeBatchDestroyModal(force = false): void {
 
 async function confirmBatchDestroy(): Promise<void> {
   if (!batchDestroyCanSubmit.value || !canUseCustomerBillingActions.value) return
+  const instanceIds = batchDestroyEligibleItems.value.map(item => item.id)
+  if (!previewMatchesTargets(batchDestroyPreview.value, destroyTargetIds.value)) return
+  const current = captureBillingContext('destroy'), revision = selectionRevision
 
   batchDestroySubmitting.value = true
   try {
-    const result = await customerBillingApi.billing.destroyInstancesBatch(Array.from(selectedIds.value))
+    const result = await customerBillingApi.billing.destroyInstancesBatch(instanceIds)
+    if (!current()) return
     if (result.failedCount > 0) {
       toast.warning(t('instance.batch.partialResult', {
         success: result.successCount,
@@ -1356,13 +1437,19 @@ async function confirmBatchDestroy(): Promise<void> {
       toast.success(t('instance.batch.successResult', { count: result.successCount }))
     }
     closeBatchDestroyModal(true)
-    clearSelection()
+    if (revision === selectionRevision) clearSelection()
     await loadInstances(true)
   } catch (error: any) {
-    toast.error(t('instance.batch.actionFailed') + ': ' + translateError(error))
+    if (current()) toast.error(t('instance.batch.actionFailed') + ': ' + translateError(error))
   } finally {
     batchDestroySubmitting.value = false
   }
+}
+
+function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]) {
+  return Array.isArray(items) && items.every(item => item && Number.isSafeInteger(item.id) && item.id > 0) &&
+    items.length === targetIds.length && new Set(items.map(item => item.id)).size === targetIds.length &&
+    items.every(item => targetIds.includes(item.id))
 }
 
 </script>
@@ -2526,8 +2613,8 @@ async function confirmBatchDestroy(): Promise<void> {
             <template v-else>
               <div class="grid gap-3 md:grid-cols-4">
                 <div class="rounded-xl border p-4" :class="'border-themed bg-themed-secondary'">
-                  <div class="text-xs uppercase tracking-wide text-themed-muted">{{ $t('instance.batch.selectedCount', { count: selectedCount }) }}</div>
-                  <div class="mt-2 text-2xl font-semibold font-mono tabular-nums" :class="'text-themed'">{{ selectedCount }}</div>
+                  <div class="text-xs uppercase tracking-wide text-themed-muted">{{ $t('instance.batch.selectedCount', { count: renewTargetIds.length }) }}</div>
+                  <div class="mt-2 text-2xl font-semibold font-mono tabular-nums" :class="'text-themed'">{{ renewTargetIds.length }}</div>
                 </div>
                 <div class="rounded-xl border p-4" :class="'border-themed bg-themed-secondary'">
                   <div class="text-xs uppercase tracking-wide text-themed-muted">{{ $t('instance.batch.eligibleCount') }}</div>
@@ -2708,8 +2795,8 @@ async function confirmBatchDestroy(): Promise<void> {
 
               <div class="grid gap-3 md:grid-cols-4">
                 <div class="rounded-xl border p-4" :class="'border-themed bg-themed-secondary'">
-                  <div class="text-xs uppercase tracking-wide text-themed-muted">{{ $t('instance.batch.selectedCount', { count: selectedCount }) }}</div>
-                  <div class="mt-2 text-2xl font-semibold font-mono tabular-nums" :class="'text-themed'">{{ selectedCount }}</div>
+                  <div class="text-xs uppercase tracking-wide text-themed-muted">{{ $t('instance.batch.selectedCount', { count: destroyTargetIds.length }) }}</div>
+                  <div class="mt-2 text-2xl font-semibold font-mono tabular-nums" :class="'text-themed'">{{ destroyTargetIds.length }}</div>
                 </div>
                 <div class="rounded-xl border p-4" :class="'border-themed bg-themed-secondary'">
                   <div class="text-xs uppercase tracking-wide text-themed-muted">{{ $t('instance.batch.eligibleCount') }}</div>

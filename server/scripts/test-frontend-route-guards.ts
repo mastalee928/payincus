@@ -1191,6 +1191,14 @@ assert.ok(
   'instance-list PUSH must open the selected instance transfer form directly, rather than navigating to a transfer list or admin inbox'
 )
 const adminTransferModalSource = readRepoFile('client/src/components/instance/modals/AdminTransferModal.vue')
+assert.ok(instancesViewSource.includes('const instanceIds = batchRenewEligibleItems.value.map(item => item.id)') &&
+  instancesViewSource.includes('const instanceIds = batchDestroyEligibleItems.value.map(item => item.id)') &&
+  instancesViewSource.includes('previewMatchesTargets(batchRenewPreview.value, renewTargetIds.value)') &&
+  instancesViewSource.includes('previewMatchesTargets(batchDestroyPreview.value, destroyTargetIds.value)') &&
+  instancesViewSource.includes('session === billingSessionKey.value') && instancesViewSource.includes('path === route.fullPath') &&
+  instancesViewSource.includes('revision === selectionRevision') && instancesViewSource.includes('renewPreviewReady.value && !batchRenewLoading.value') &&
+  instancesViewSource.includes('destroyPreviewReady.value && !batchDestroyLoading.value'),
+  'batch billing must bind confirmation to the ready preview target and isolate stale session/modal results and later selections')
 const transferModalSource = readRepoFile('client/src/components/instance/modals/TransferModal.vue')
 const sensitiveVerificationSource = readRepoFile('client/src/components/SensitiveVerificationModal.vue')
 assert.ok(transferModalSource.includes('session === sessionKey.value') &&
