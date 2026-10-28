@@ -330,7 +330,7 @@
 | R1-288 | 部分存在，优惠码已修 | 前端专项通过/专区症状纠正 | 旧套餐页coupon code/plan/price/source/session与代次绑定、同步失效、重复/submit门禁已修；Chrome先红后绿及types/4守卫/lint/双端build/dist通过。首次zone:7浏览器实证原本正确，默认机器池/purchase不变；后台完整报价/原生创建另待，见HANDOFF。 |
 | R1-289 | 存在，实例日志已修 | 前端专项通过 | InstanceLogsTab按请求/实例/名称/session/激活隔离，失败重试与旧页清理、分页末页修正；Chrome先红后绿/types/5守卫/双端build/dist通过。LogsView另有独立旧读风险，后端权限及真实日志验收不扩大范围，见HANDOFF。 |
 | R1-290 | 存在，弹窗已修 | 前端专项通过 | 两modal深监听清失效成员、同一canSubmit校验当前image/key/可见/在途/session/cache，命令复制及重复emit保护；保重装密码默认/可选key与重建必选key。Chrome先红后绿/types/5守卫/lint/双端build/dist通过；父写回执与原生任务另待，见HANDOFF。 |
-| R1-291 | 存在 | 待精修/运行复核 | parseInt接受22x/22.5且22/022字符串判重失效；handleConfirm缺allValid函数守卫。 |
+| R1-291 | 存在，弹窗已修 | 前端专项通过 | 完整数值/安全端口/数字重复/单边范围及冲突清单校验；canConfirm统一函数/按钮、即时重复锁、session/cache门禁。Chrome先红后绿、手机五位端口、types/3守卫/lint/双端build/dist通过；父写回执与原生下发另待，见HANDOFF。 |
 | R1-292 | 存在 | 待精修/运行复核 | removeFile及移除按钮未按disabled限制。 |
 | R1-293 | 已有防护 | 保留初审结论 | 单点length===1用50；HostInfoTab也Math.max(length-1,1)，不除零。 |
 | R1-294 | 实现不同 | 保留初审结论 | 安装默认hex16未满足通用复杂度，但实际init只校验12位/非占位符，不调用通用validatePassword；不能报告首装必失败。策略一致性另修。 |

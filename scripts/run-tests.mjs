@@ -70,6 +70,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-create-promo', 'requires Chrome/Edge and local Vite; legacy create coupon/plan/session isolation and initial hosting-zone source'],
   ['test:review-instance-logs', 'requires Chrome/Edge and local Vite; instance log query ordering, pagination, failure, session and cache lifecycle'],
   ['test:review-reinstall-selection', 'requires Chrome/Edge and local Vite; reinstall/recreate current image/key membership, submit and modal lifecycle'],
+  ['test:review-port-conflict', 'requires Chrome/Edge and local Vite; strict port parsing, numeric duplicates, range and conflict modal submission gates'],
   ['test:review-traffic-limit', 'requires isolated local *_pool_test PostgreSQL; actual user/instance traffic limit omission and bigint boundary validation'],
   ['test:review-traffic-reset-auth', 'requires isolated local *_pool_test PostgreSQL; actual traffic reset actor/target races, billing and baseline checks'],
   ['test:review-payment-locales', 'requires Chrome/Edge and local Vite; actual payment provider controls in three locales, read-only API fixture'],

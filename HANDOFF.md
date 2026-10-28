@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-291 端口冲突完整数值校验与提交保护
+
+- 95bf9e9已push核远端一致；8756778源码CI已success，bd068fe/95bf9e9最后运行。PortConflictModal拒绝部分整数、小数/指数和非安全端口，按数值识别22/022重复，支持单边范围并拒绝非法范围、空/重复原端口清单。深监听冲突更新建议值，确认按钮和函数共用当前可见/有效/session/激活/在途门禁，即时锁防同tick重复emit；在途使用建议不覆盖草稿。
+- `takeover-port-conflict-before.log`真实Chrome先红22x仍提交22；`takeover-port-conflict-final.log`通过非法字符串、边界、数值重复、范围、清单替换/原地更新、建议、重复提交、关闭/session/cache/logout/unmount。手机截图发现建议标签挤窄输入框，改为两列并把标签放至输入下方，最终1440中文/390英文截图及输入宽度断言通过，五位端口完整可编辑。
+- client types、3相关守卫及最终route复跑、lint零错警、manifest191/109、最终双端build exit0/dist通过，专项接Chrome CI。API受控只捕获确认事件，未下发真实端口；后台批量端口范围/协议/预留保持，父写回执与原生网络流程另待。
+- R292上传器四文件专项已先红（`takeover-ticket-uploader-before.log`）：disabled仍可removeFile；完整矩阵已写未运行，产品未改，不混本项提交。源与TicketsView disabled调用已读。327项、R269通用持久恢复和完整网关灾备未完成。
+
 ## 2026-10-29 R1-290 重装/重建镜像与密钥成员校验
 
 - bd068fe已push核远端一致；440a34c源码CI已success，8756778/bd068fe最后运行。两弹窗深监听当前镜像/密钥列表，失效选择清除并按原默认规则选择可用项，保仍有效选择；提交函数与按钮共用当前成员/visible/loading/session/激活门禁，即时锁防props回写前双emit，初始化命令数组复制，换镜像清旧命令。注销/换session关闭浮层，缓存离页隐藏并清输入。

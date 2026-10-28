@@ -89,6 +89,13 @@ assert.ok(ticketsViewSource.includes('await api.tickets.close(ticketId)') && tic
   ticketsViewSource.includes('refreshAfterDetailWrite(ticketId, current)') && ticketsViewSource.includes('statusSubmitting || replying'),
   'ticket writes must fix their targets, preserve later drafts, guard pending actions and ignore old navigation results')
 const renewModalSource = readRepoFile('client/src/components/instance/modals/RenewModal.vue')
+const portConflictModalSource = readRepoFile('client/src/components/instance/modals/PortConflictModal.vue')
+assert.ok(portConflictModalSource.includes('if (!/^\\d+$/.test(normalized)) return null') &&
+  portConflictModalSource.includes('const duplicates = new Set<number>()') &&
+  portConflictModalSource.includes('if (!canConfirm.value) return') &&
+  portConflictModalSource.includes('resolved: parsePort(resolvedPorts.value[c.publicPort])!') &&
+  portConflictModalSource.includes(':disabled="!canConfirm"') && !portConflictModalSource.includes('parseInt('),
+  'port conflict confirmation must validate whole numeric ports, normalized duplicates and current modal eligibility')
 for (const name of ['RebuildModal', 'RecreateModal']) {
   const source = readRepoFile(`client/src/components/instance/modals/${name}.vue`)
   assert.ok(source.includes('props.availableImages.some(image => image.incusAlias === selectedImage.value)') &&
