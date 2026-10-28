@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R270前置运行修复：公共IPv4分配LEFT JOIN未限定FOR UPDATE，真实PG报0A000；改OF a仅锁地址行，实际单独/有池/禁用/缺网关/并发最后地址/回滚释放全部通过，3守卫及后端build含tsc通过，见HANDOFF。赠送准备补偿与消息失败仍在施工，本项不记整体完成。
+
 2026-10-29 R256浏览器验证补强：历史CI条款生命周期末尾偶发读离场旧正文，测试等待退出DOM移除后才卸载重建，并核新请求只发一次；真实Chrome/语法/路由守卫通过，见HANDOFF。产品未改。
 
 2026-10-28工单API关闭/重开追加（R186关联调用链）：current token/user/app/grant及当前ticket归属/status同事务，返回实际记录；累计160真实PG+bearer竞争、双类型正常/重放/错误动作与DB故障回滚通过takeover-ticket-public-status-final.log，7守卫/build/types通过。其它API与普通事件通知/外部持久投递、完整ABA和真机仍待，327未完成。

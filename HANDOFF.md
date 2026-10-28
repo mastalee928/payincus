@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-270 前置：独立IPv4库存行锁
+
+- c188aac已push；其CI40766741756最后仍运行。实测赠送准备路径发现reservePublicIpv4ForInstance的LEFT JOIN使用未限定FOR UPDATE，PostgreSQL直接0A000拒绝。改为FOR UPDATE OF a，只锁地址库存行，保SKIP LOCKED/禁用池/网关回退合同。
+- `logs/takeover-public-ipv4-before.log`真实PG先红；`takeover-public-ipv4-server.log`通过无池与有池地址、DNS/网关回退、禁用池、缺网关自动禁用、并发最后一地址、事务回滚与释放。3守卫、后端build含tsc最终exit0、manifest191常规/90环境排除通过，专项接PG CI。没有原生Incus/生产操作。
+- R270准备补偿产品未改，新host-gift-preparation专项仍在施工未提交；继续存储/IP失败统一补偿及站内信不得污染202，默认机器池一机一卖保持，327未完成。
+
 ## 2026-10-29 R1-269 人工删除残留的身份与库存收尾
 
 - 自动回调5b68d13已push；失败时在原快照中合并本次attempt和endpoint SHA256，保其它字段且不存管理URL。自动与人工共用30秒清理核验；用户单/批destroy、管理员单删与宿主批删先核原身份，确认删除后清pending和释放公网IPv4，节点批删据此重算库存。旧delete-and-refund对pending明确409并指向现有核验入口；仅记录删除继续保pending/IP占用/宿主隔离。

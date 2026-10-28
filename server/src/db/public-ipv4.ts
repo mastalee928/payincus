@@ -66,7 +66,7 @@ export async function reservePublicIpv4ForInstance(
       AND a.status = 'free'
       AND (a.pool_id IS NULL OR p.enabled = true)
     ORDER BY a.id ASC
-    FOR UPDATE SKIP LOCKED
+    FOR UPDATE OF a SKIP LOCKED
     LIMIT 1
   `
 
