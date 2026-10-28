@@ -73,10 +73,11 @@ try {
   assert.equal(await aborted(unmountedRead), true); assert.equal(await visible(), false)
   await run(() => { window.termsHarness.state.mounted = true }); await accept('# New component English')
   await acceptAt(unmountedRead, '# Old component English'); assert.match(await text(), /New component English/)
-  const beforeHiddenMount = await count(); await show(false)
+  const beforeHiddenMount = await count(); await show(false); await waitClosed()
   await run(() => { window.termsHarness.state.mounted = false })
   await run(() => { window.termsHarness.state.mounted = true })
   assert.equal(await count(), beforeHiddenMount, 'hidden mount must not fetch')
-  await show(true); await accept('# Visible again'); assert.match(await text(), /Visible again/)
+  await show(true); assert.equal(await count(), beforeHiddenMount + 1, 'newly mounted component must fetch once when first shown')
+  await accept('# Visible again'); assert.match(await text(), /Visible again/)
   console.log('PASS terms lifecycle: KeepAlive teleport removal, hidden locale/no fetch, abort, close/reopen cache and in-flight races, delayed bodies, unmount/remount and initially hidden mount; actual Vue with controlled fetch.')
 } finally { if (browser) await browser.close(); await server.close() }

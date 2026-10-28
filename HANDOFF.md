@@ -2,6 +2,11 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 条款浏览器测试退出动画同步
+
+- R265 84430db已push并核远端一致。补查R258 d8c8e33 CI40759254570失败在terms lifecycle末尾，读取到了正在离场的旧正文；R259 6c9dfe5 CI40759334826和R260 866d9f4 CI40759523451均success。专项隐藏弹窗后先等待原有退出动画移除DOM，再卸载/重建；加新组件首次显示只发一次新请求断言。
+- `logs/takeover-terms-lifecycle-transition.log`实际Chrome专项最终exit0，语法检查和frontend-route-guards通过；两次误写守卫关键字被runner拒绝并未执行，最终正确守卫日志为`takeover-terms-lifecycle-transition-guards.log`。只改测试，产品及构建产物不变；不把后续偶然CI成功视作此次失败已自然消失。R269/270继续。
+
 ## 2026-10-29 R1-265 流量额度缺字段不再清为无限
 
 - R264 1761a79已push并核远端一致。专用用户/实例traffic limit PUT要求body显式包含monthlyLimit，缺字段或null body返回400；共享bigint parser及其它配置表单的缺省保留、null/空字符串显式清空合同保持。
