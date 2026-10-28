@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 用户左侧导航隐藏购物车
+
+- 按owner最新要求，仅移除`side-nav-items-user.ts`中的checkout菜单项；同一SideNav的桌面/折叠/手机抽屉同步生效。购物车路由、页面、顶部按钮和创建实例中的其他入口未修改，要求同步OWNER_REQUIREMENTS。
+- `logs/takeover-sidebar-cart-browser.log`实际SideNav/CartButton在Chrome三语/1440与390/折叠通过：侧栏无购物车，创建实例/我的实例仍在，顶部购物车点击进入`/checkout`。截图`logs/sidebar-cart-fixture/1440.png`及390.png已看；本地配置夹具，不是生产账号验收。初次本地夹具把Chrome profile放Vite watch目录造成EBUSY，改独立profile并禁watch后通过；一次性检查只留logs。
+- `takeover-sidebar-cart-guards.log`2/2、`takeover-sidebar-cart-build.log`双端vue-tsc/build、dist/lint/diff通过。未部署生产。本项单独commit/push；R233 f6bf2e0已push，R232 CI40720597481最终success，R233 CI40721596289仍运行。
+- R235库存修复仍在工作区未完成：已初改DB/路由/revision迁移，前端合同尚待同步，绝不夹入本提交。旧隔离库migrate因既有actor_sid列/迁移记录不符失败；全新`takeover_prize_20261029_pool_test`完整迁移通过，继续在新库专项验证。327持续。
+
 ## 2026-10-28 R1-233 实例徽章写后状态同步
 
 - R232 `773cd93`已push，CI40720597481仍运行。本项apply/remove后重新读取当前实例的iconBadgeId并同步父组件，null是有效清空；不再emit旧ownership或固定null。当前ownership同时匹配实例及实际徽章，避免概览并行读取时旧归属遮盖新图标。

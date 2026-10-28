@@ -13,7 +13,6 @@ export const navMenuItems: MenuItem[] = [
   { divider: true, label: 'nav.main' },
   { name: 'dashboard', path: '/dashboard', icon: 'home', label: 'nav.dashboard' },
   { name: 'pool-purchase', path: '/purchase', icon: 'package', label: 'nav.purchase' },
-  { name: 'checkout', path: '/checkout', icon: 'card', label: 'nav.cart' },
   { name: 'instances', path: '/instances', icon: 'server', label: 'nav.myInstances' },
   { name: 'mail', path: '/mail', icon: 'mail', label: 'nav.mail' },
   { name: 'terminal', path: '/terminal', icon: 'terminal', label: 'nav.terminal' },

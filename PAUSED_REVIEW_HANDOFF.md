@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：owner插入要求仅隐藏用户左侧购物车，已单行移除并同步OWNER要求；Chrome桌面/手机/折叠三语与顶部入口、2守卫/双端build/dist/lint通过准备单项push。R233 f6bf2e0已push。继续未提交R235：schema+revision迁移、DB/route/guard初改和新server/scripts/test-review-prize-stock.ts；client API为避免未完成合同污染侧栏build已恢复，须继续加expectedRevision/replenishAmount与前端。新隔离DB takeover_prize_20261029_pool_test已完整migrate通过，旧DB迁移记录不一致不要硬resolve。无待poll本地session。327持续。
+
 > **最新接续**：R232 773cd93已push，CI40720597481仍运行。R233徽章操作后从刷新实例iconBadgeId同步父组件（null有效）、失败retry补同步/缺目标不报成功已修，Chrome/4守卫/双端types build/dist/lint通过准备单项push。无待poll本地进程。继续R235管理员抽奖补货旧库存覆盖；R234已有通知回填，非待修缺陷。327持续。
 
 > **最新接续**：f300868/71c6038/19a0ef8的CI均success。R232 InstanceBadgeModal读取/操作跨上下文生命周期已修，Chrome/4守卫/双端types build/dist/lint通过准备push，无本地待poll。接着R233同上下文保存后emit应来自刷新实例iconBadgeId（null也有效），currentBadgeId不能回退旧prop；后端getBadgeOverview使用Promise.all非一致快照要保边界。R235补货旧remain覆盖已读定位。327持续。
