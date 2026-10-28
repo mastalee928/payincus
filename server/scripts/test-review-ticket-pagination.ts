@@ -12,9 +12,12 @@ const tag = `ticket-page-${randomUUID()}`
 const user = await prisma.user.create({ data: { username: tag, passwordHash: 'unusable-fixture' } })
 const host = await prisma.host.create({ data: { userId: user.id, name: tag, url: 'https://127.0.0.1:1', certPath: '', keyPath: '' } })
 const app = Fastify()
-app.decorate('authenticate', async (request: any) => { request.user = { id: user.id, role: 'user' } })
+let role = 'user'
+app.decorate('authenticate', async (request: any) => { request.user = { id: user.id, role } })
 app.decorate('authenticateAdmin', async (_request: any, reply: any) => reply.code(403).send({ error: 'FORBIDDEN' }))
-app.decorate('requireAdmin', async (_request: any, reply: any) => reply.code(403).send({ error: 'FORBIDDEN' }))
+app.decorate('requireAdmin', async (_request: any, reply: any) => {
+  if (role !== 'admin') return reply.code(403).send({ error: 'FORBIDDEN' })
+})
 try {
   await app.register(routes, { prefix: '/tickets' })
   for (let index = 0; index < 23; index++) {
@@ -79,6 +82,52 @@ try {
   }
   assert.equal(await prisma.ticket.count({ where: { userId: user.id } }), 23)
   assert.equal(await prisma.ticketMessage.count({ where: { senderId: user.id } }), 23)
+  role = 'admin'
+  let rejectedIds = 0
+  for (const id of ['2147483648', '9007199254740991', '9007199254740992', '1.5', '1e2', '0x10', '-1', '0', '1suffix']) {
+    const calls = [
+      { method: 'GET', url: `/tickets/${id}` },
+      { method: 'GET', url: `/tickets/${id}/support-context` },
+      { method: 'GET', url: `/tickets/${id}/messages` },
+      { method: 'GET', url: `/tickets/attachments/${id}/content` },
+      { method: 'GET', url: `/tickets/hosts/${id}` },
+      { method: 'GET', url: `/tickets/my-hosts?hostId=${id}` },
+      { method: 'POST', url: `/tickets/${id}/messages`, payload: { content: 'invalid target reply' } },
+      { method: 'POST', url: `/tickets/${id}/close` },
+      { method: 'PATCH', url: `/tickets/${id}/status`, payload: { status: 'open' } },
+      { method: 'DELETE', url: `/tickets/${id}/messages/1` },
+      { method: 'DELETE', url: `/tickets/${ticket.id}/messages/${id}` },
+      { method: 'POST', url: `/tickets/${id}/internal-notes`, payload: { content: 'invalid target note' } },
+      { method: 'POST', url: `/tickets/${id}/notify`, payload: { content: 'invalid target notification' } },
+      { method: 'POST', url: `/tickets/${id}/links`, payload: { objectType: 'host', objectId: host.id } },
+      { method: 'POST', url: `/tickets/${ticket.id}/links`, payload: { objectType: 'host', objectId: id } },
+      { method: 'POST', url: '/tickets/', payload: { subject: 'invalid target', content: 'must not create a ticket', instanceId: id } },
+    ] as const
+    for (const call of calls) {
+      const response = await app.inject(call)
+      assert.equal(response.statusCode, 400, `${call.method} ${call.url}: ${response.body}`)
+      rejectedIds++
+    }
+  }
+  for (const id of [2147483648, Number.MAX_SAFE_INTEGER, 1.5, -1, 0]) {
+    for (const call of [
+      { method: 'POST', url: `/tickets/${ticket.id}/links`, payload: { objectType: 'host', objectId: id } },
+      { method: 'POST', url: '/tickets/', payload: { subject: 'invalid target', content: 'must not create a ticket', instanceId: id } },
+    ] as const) {
+      const response = await app.inject(call)
+      assert.equal(response.statusCode, 400, `${call.method} ${call.url} numeric ID ${id}: ${response.body}`)
+      rejectedIds++
+    }
+  }
+  assert.equal((await app.inject({ method: 'GET', url: '/tickets/2147483647' })).statusCode, 404, 'maximum PostgreSQL Int ID is valid but absent')
+  role = 'user'
+  assert.equal((await app.inject({ method: 'GET', url: `/tickets/${ticket.id}` })).statusCode, 200)
+  assert.equal(await prisma.ticket.count({ where: { userId: user.id } }), 23)
+  assert.equal(await prisma.ticketMessage.count({ where: { senderId: user.id } }), 23)
+  assert.equal(await prisma.ticketInternalNote.count({ where: { ticketId: ticket.id } }), 0)
+  assert.equal(await prisma.ticketObjectLink.count({ where: { ticketId: ticket.id } }), 0)
+  assert.equal(await prisma.inboxMessage.count({ where: { userId: user.id } }), 0)
+  console.log(`PASS ${rejectedIds} invalid PostgreSQL ID path/query/body cases, maximum ID 404 and ordinary ticket 200; no writes`)
   console.log('PASS real PG/Fastify ticket pagination: four routes/helpers, malformed/unsafe/offset boundary/repeated query inputs, valid second/last pages, 100-item limit and literal large-number searches; records unchanged. Authentication middleware is a fixture; no browser or production evidence.')
 } finally {
   await app.close()

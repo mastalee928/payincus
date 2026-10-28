@@ -112,7 +112,8 @@ assert.ok(
 assert.ok(
   ticketsRouteSource.includes('function parsePositiveId(value: unknown): number | null') &&
     ticketsRouteSource.includes('const POSITIVE_INTEGER_ID_RE = /^[1-9]\\d*$/') &&
-    ticketsRouteSource.includes('Number.isSafeInteger(value) && value > 0') &&
+    ticketsRouteSource.includes('Number.isSafeInteger(value) && value > 0 && value <= 2_147_483_647') &&
+    ticketsRouteSource.includes('Number.isSafeInteger(parsed) && parsed <= 2_147_483_647 ? parsed : null') &&
     ticketsRouteSource.includes('function parseOptionalPositiveId(value: unknown): number | undefined | null') &&
     ticketsRouteSource.includes('function parsePositiveInteger(value: unknown, fallback: number, max?: number): number'),
   'ticket routes must define strict positive ID and pagination parsers'

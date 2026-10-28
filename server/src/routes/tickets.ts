@@ -71,7 +71,7 @@ function normalizeAllowedImageMimeType(value: string | null | undefined): string
 
 function parsePositiveId(value: unknown): number | null {
   if (typeof value === 'number') {
-    return Number.isSafeInteger(value) && value > 0 ? value : null
+    return Number.isSafeInteger(value) && value > 0 && value <= 2_147_483_647 ? value : null
   }
 
   if (typeof value !== 'string' || !POSITIVE_INTEGER_ID_RE.test(value)) {
@@ -79,7 +79,7 @@ function parsePositiveId(value: unknown): number | null {
   }
 
   const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
+  return Number.isSafeInteger(parsed) && parsed <= 2_147_483_647 ? parsed : null
 }
 
 function parseOptionalPositiveId(value: unknown): number | undefined | null {

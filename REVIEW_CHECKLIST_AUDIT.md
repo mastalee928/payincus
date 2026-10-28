@@ -234,8 +234,8 @@
 | R1-181 | P2 | 工单自动关闭使用旧解决时间和旧候选忽略最新回复 | 已有防护 | [server/src/db/tickets.ts:1348](<C:/payincus/server/src/db/tickets.ts:1348>)：逐项事务重新读resolved/最后回复，updateMany约束updatedAt；仅实际closedTickets发送通知日志。 |
 | R1-182 | P2 | 工单自动关闭未成功时仍发送关闭通知和成功日志 | 已有防护 | [server/src/db/tickets.ts:1348](<C:/payincus/server/src/db/tickets.ts:1348>)：逐项事务重新读resolved/最后回复，updateMany约束updatedAt；仅实际closedTickets发送通知日志。 |
 | R1-183 | P2 | 工单分页允许负数/小数与非有限输入并产生500和错误元数据 | 部分存在 | [server/src/routes/tickets.ts:93](<C:/payincus/server/src/routes/tickets.ts:93>)：正整数parser拒绝非整数/非有限但未safe integer；部分take有max，offset边界待独立DB验证。 |
-| R1-184 | P2 | 工单ID校验接受小数并截断为真实工单/消息ID，超范围返回500 | 已有防护 | [server/src/routes/tickets.ts:73](<C:/payincus/server/src/routes/tickets.ts:73>)：strict positive safe ID；无效optional返回null并报错，不静默截断。 |
-| R1-185 | P2 | 错误的可选实例ID被静默丢弃并创建错误关联工单 | 已有防护 | [server/src/routes/tickets.ts:73](<C:/payincus/server/src/routes/tickets.ts:73>)：strict positive safe ID；无效optional返回null并报错，不静默截断。 |
+| R1-184 | P2 | 工单ID校验接受小数并截断为真实工单/消息ID，超范围返回500 | 部分存在（2026-10-28复审纠正） | 原strict safe ID已拒小数，但2147483648实际PG/Fastify仍500，初审未覆盖PG Int上限；现已修且154边界请求通过，见修复台账。 |
+| R1-185 | P2 | 错误的可选实例ID被静默丢弃并创建错误关联工单 | 部分存在（2026-10-28复审纠正） | 原错误optional已返回null并报错、不静默丢弃；数据库Int范围仍漏限，本批与R184统一修复并验证，见修复台账。 |
 | R1-186 | P1 | 网站工单写入未在事务内复核当前账户与会话，封禁/登出/管理员降级仍可写入 | 存在 | [server/src/db/tickets.ts:297](<C:/payincus/server/src/db/tickets.ts:297>)：网站工单路由先授权，图片上传等await之后事务直接create；事务未接actor/session核验，认证后封禁/注销/降权窗口待DB实证。 |
 | R1-187 | P2 | 创建工单的实例归属/删除状态检查与写入分离，实例转移或删除后仍关联旧权限 | 存在 | [server/src/routes/tickets.ts](<C:/payincus/server/src/routes/tickets.ts>)：创建先查实例归属后await图片上传再db.createTicket，写入事务没有重新核对实例归属/删除状态。 |
 | R1-188 | P1 | 工单图片代理未校验目标或跳转，可读取图床返回的内网地址 | 已有防护 | [server/src/routes/tickets.ts:364](<C:/payincus/server/src/routes/tickets.ts:364>)：assertSafeHttpUrl+safeFetch连接校验，redirect manual；stream逐段限制MAX_TICKET_IMAGE_SIZE。 |

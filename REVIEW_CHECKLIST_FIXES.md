@@ -213,8 +213,8 @@
 | R1-181 | 已有防护 | 保留初审结论 | 逐项事务重新读resolved/最后回复，updateMany约束updatedAt；仅实际closedTickets发送通知日志。 |
 | R1-182 | 已有防护 | 保留初审结论 | 逐项事务重新读resolved/最后回复，updateMany约束updatedAt；仅实际closedTickets发送通知日志。 |
 | R1-183 | 部分存在 | 源码已修/隔离PG验证通过 | 完整十进制/safe integer与DB offset乘积限32位；四路由/helper非法及重复参数、有效二页/末页/100上限/偏移临界通过takeover-ticket-pagination-r3.log。数字搜索超PG整数范围按原文字匹配，重复search不500；4守卫、后端build与专项类型通过，浏览器/生产未验 |
-| R1-184 | 已有防护 | 保留初审结论 | strict positive safe ID；无效optional返回null并报错，不静默截断。 |
-| R1-185 | 已有防护 | 保留初审结论 | strict positive safe ID；无效optional返回null并报错，不静默截断。 |
+| R1-184 | 部分存在（复审纠正） | 源码已修/隔离PG验证通过 | 原safe integer仍越过PG Int上限；实际2147483648复现500后加入2147483647上限。154路径/查询/正文非法ID400、最大合法但不存在404、正常200且无写入，分页回归/4守卫/build/types通过takeover-ticket-id-final.log |
+| R1-185 | 部分存在（复审纠正） | 源码已修/隔离PG验证通过 | 错误可选ID原已拒绝而非静默丢弃，但PG范围未受限；可选instance/host及关联对象数字/字符串统一数据库整数范围，证据同R184。Public API其它资源边界单独待修 |
 | R1-186 | 存在 | 部分精修/隔离PG验证通过 | 创建8+回复12+状态关闭10+删除3+备注3+链接3+通知3竞争通过takeover-ticket-notice-authorization-final.log；当前actor/session/归属与删除清单保护。显式通知站内信+备注原子提交、正文和当前作者、无重复站内信、默认通知回归通过；5守卫/build/types通过。普通事件通知目标/PAT/外部投递及附件持久清理仍待 |
 | R1-187 | 存在 | 源码已修/隔离PG验证通过 | createTicket事务持instance/host行锁，重核owner/host/未删除，网站与Public API目标冲突409；实际PG/Fastify helper及网站6个行锁竞争、正常关联/无实例、首消息故障全回滚通过takeover-ticket-target-r1.log，4守卫与build/type通过。PAT/附件完整实跑及R186当前账户/通知仍待 |
 | R1-188 | 已有防护 | 保留初审结论 | assertSafeHttpUrl+safeFetch连接校验，redirect manual；stream逐段限制MAX_TICKET_IMAGE_SIZE。 |

@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-184/185 工单ID数据库上限复审
+
+- 通知`57723738a58f641d2e3e3d13b0aad6df0d9b7f1d`已push并核远端一致；关联对象510e903 CI40662708627最终success。
+- 纠正原R184/185“已有防护”：safe integer仍大于PostgreSQL Int可接受范围，实际Fastify `/tickets/2147483648`复现500，见`logs/takeover-ticket-id-before.log`。网站共用ID解析现限制1..2147483647，覆盖工单/消息/附件/host路径、可选实例与host查询、关联对象数字及字符串正文。未扩大到Public API其它资源解析，其同类边界单独待修。
+- `logs/takeover-ticket-id-final.log`实际PG/Fastify154无效ID路径/查询/正文全部400，数据库最大有效但不存在ID404、普通工单200，工单/消息/备注/关联/站内信无改动；原四路由分页和搜索专项同次回归通过。4/4守卫`takeover-ticket-id-guards.log`、server build `takeover-ticket-id-build.log`、专项类型`takeover-ticket-id-types.log`通过。没有生产或浏览器验收。
+- 下一小项R190图片读取超限与中断分类及上游释放，再继续API授权与原清单其它范围；327仍未完成。
+
 ## 2026-10-28 R1-186 客服通知原子记录与正文
 
 - 关联对象`510e903a77465bd8eba5bfeb67b27e563e189c7a`已push并核远端一致，CI40662708627检查时运行；备注4ef8b02 CI40662179580最终success。
