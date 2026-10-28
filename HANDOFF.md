@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-186 内部备注当前管理员
+
+- 删除消息`23358c2751d4b7ad652642f7aba5266a7ce24e9d`已push并核远端一致，CI40661681682检查时运行；回复d29ca3a CI40660948686、状态fadec04 CI40661288207最终success。
+- 内部备注创建事务锁工单和当前管理员，必需actor/session并核对active/admin与撤销，持久作者使用当前数据库用户名。显式备注路由返回403/404；通知入口记录备注也传完整actor，但通知本身仍先于备注执行，完整通知原子性是后续独立项。
+- `logs/takeover-ticket-note-authorization.log`真实PG/Fastify累计36竞争（新增备注3）通过，降权/封禁/注销不写备注，缺session/错工单拒绝、合法作者名称正确；前面创建/回复/状态/删除及拒删DB故障同测回归。5/5守卫`takeover-ticket-note-guards.log`、server build `takeover-ticket-note-build.log`、专项类型`takeover-ticket-note-types.log`通过。没有实际通知或附件服务调用，R186/327仍部分。
+
 ## 2026-10-28 R1-186 管理员删除工单消息
 
 - 状态/关闭`fadec046200eaac035c92bd47a44e469b174f6ba`已push并核远端一致；对应CI40661288207与前批回复CI40660948686的最终状态后续继续核验。

@@ -492,8 +492,13 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
       return reply.code(404).send(apiError(ErrorCode.NOT_FOUND))
     }
 
-    const note = await ticketDb.createTicketInternalNote(ticketId, user.id, user.username, content)
-    return reply.code(201).send({ note })
+    try {
+      const note = await ticketDb.createTicketInternalNote(ticketId, user.id, user.username, content, user)
+      return reply.code(201).send({ note })
+    } catch (error) {
+      if (error instanceof ticketDb.TicketMutationError) return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+      throw error
+    }
   })
 
   /**
@@ -564,7 +569,7 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
       message: content,
       replyFrom: user.username
     })
-    await ticketDb.createTicketInternalNote(ticketId, user.id, user.username, `已向用户发送通知：${content}`)
+    await ticketDb.createTicketInternalNote(ticketId, user.id, user.username, `已向用户发送通知：${content}`, user)
 
     return reply.send({ message: 'Notification sent successfully' })
   })

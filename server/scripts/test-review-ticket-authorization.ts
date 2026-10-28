@@ -7,7 +7,7 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'),
   'Use isolated local *_pool_test PostgreSQL')
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { createTicket, addTicketMessage, updateTicketStatus, deleteTicketMessage, TicketMutationError } = await import('../src/db/tickets.js')
+const { createTicket, addTicketMessage, updateTicketStatus, deleteTicketMessage, createTicketInternalNote, TicketMutationError } = await import('../src/db/tickets.js')
 const { default: routes } = await import('../src/routes/tickets.js')
 const tag = `ticket-auth-${randomUUID()}`
 const user = await prisma.user.create({ data: { username: tag, passwordHash: 'unusable-fixture' } })
@@ -197,6 +197,7 @@ try {
   const attachment = await prisma.ticketMessageAttachment.create({ data: { ticketId: ticket.id, messageId: message.id,
     uploaderId: user.id, provider: 'fixture', providerVersion: 'v1', providerFileId: 'isolated-file', filename: 'fixture.png',
     originalName: 'fixture.png', mimeType: 'image/png', sizeBytes: 1, url: 'https://example.invalid/fixture.png' } })
+  for (const operationKind of ['delete', 'note']) {
   for (const mode of ['banned', 'session', 'demoted']) {
     await prisma.user.update({ where: { id: support.id }, data: { status: 'active', role: 'admin' } })
     let release!: () => void, ready!: (pid: number) => void
@@ -211,7 +212,9 @@ try {
       ready(row.pid); await held
     }, { timeout: 15000 })
     const pid = await entered
-    const pending = app.inject({ method: 'DELETE', url: `/tickets/${ticket.id}/messages/${message.id}` })
+    const pending = operationKind === 'delete'
+      ? app.inject({ method: 'DELETE', url: `/tickets/${ticket.id}/messages/${message.id}` })
+      : app.inject({ method: 'POST', url: `/tickets/${ticket.id}/internal-notes`, payload: { content: 'denied internal note' } })
     let blocked = false
     try {
       const deadline = Date.now() + 3000
@@ -226,9 +229,15 @@ try {
     assert.equal(result.statusCode, 403, result.body)
     assert.ok(await prisma.ticketMessage.findUnique({ where: { id: message.id } }))
     assert.ok(await prisma.ticketMessageAttachment.findUnique({ where: { id: attachment.id } }))
+    assert.equal(await prisma.ticketInternalNote.count({ where: { ticketId: ticket.id } }), 0)
     await prisma.tokenInvalidation.deleteMany({ where: { userId: support.id } })
   }
+  }
   await prisma.user.update({ where: { id: support.id }, data: { status: 'active', role: 'admin' } })
+  const savedNote = await createTicketInternalNote(ticket.id, actor.id, 'old-session-name', 'actual internal note', actor)
+  assert.equal(savedNote.actorUsername, support.username)
+  await assert.rejects(createTicketInternalNote(ticket.id, actor.id, actor.username, 'invalid session', { id: actor.id }), TicketMutationError)
+  await assert.rejects(createTicketInternalNote(ticket.id + 1, actor.id, actor.username, 'wrong ticket', actor), TicketMutationError)
   await assert.rejects(deleteTicketMessage(message.id, ticket.id + 1, actor), TicketMutationError)
   const deleteTrigger = `ticket_delete_${user.id}`
   await prisma.$executeRawUnsafe(`CREATE FUNCTION ${deleteTrigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.id = ${message.id} THEN RAISE EXCEPTION 'fixture-ticket-delete-failure'; END IF; RETURN OLD; END $$`)
@@ -246,7 +255,7 @@ try {
   assert.equal(await prisma.ticketMessage.findUnique({ where: { id: message.id } }), null)
   assert.equal(await prisma.ticketMessageAttachment.findUnique({ where: { id: attachment.id } }), null)
   await assert.rejects(deleteTicketMessage(message.id, ticket.id, actor), TicketMutationError)
-  console.log('PASS real PG/Fastify ticket authorization: creation 8, reply 12, status/close 10 and administrator deletion 3 concurrent cases; denied mutations preserve messages/SLA/status/attachments. Authorized deletion returns exact committed attachment manifest; replay/wrong ticket rejected. No outbound notifications or attachment-service calls; notes/links/notification and PAT revocation remain separate.')
+  console.log('PASS real PG/Fastify ticket authorization: creation 8, reply 12, status/close 10, administrator deletion 3 and internal note 3 concurrent cases; denied mutations preserve messages/SLA/status/attachments/notes. Current note author, missing session and wrong target checked; deletion manifest/DB rollback preserved. No outbound notifications or attachment-service calls; links/notification and PAT revocation remain separate.')
 } finally {
   await app.close()
   await prisma.ticket.deleteMany({ where: { userId: user.id } })

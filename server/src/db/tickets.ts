@@ -1834,14 +1834,20 @@ export async function getAdminTicketSuccessContext(ticketId: number): Promise<an
   }
 }
 
-export async function createTicketInternalNote(ticketId: number, actorUserId: number, actorUsername: string, content: string): Promise<TicketInternalNote> {
-  const note = await prisma.ticketInternalNote.create({
-    data: {
-      ticketId,
-      actorUserId,
-      actorUsername,
-      content
+export async function createTicketInternalNote(ticketId: number, actorUserId: number, actorUsername: string, content: string, actor: WriteActor): Promise<TicketInternalNote> {
+  const note = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+    await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${ticketId} FOR UPDATE`
+    if (!await tx.ticket.findUnique({ where: { id: ticketId }, select: { id: true } })) {
+      throw new TicketMutationError('工单已不存在，请刷新后重试', 404, 'TICKET_NOT_FOUND')
     }
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${actorUserId} FOR UPDATE`
+    const admin = await tx.user.findUnique({ where: { id: actorUserId }, select: { status: true, role: true, username: true } })
+    if (admin?.status !== 'active' || admin.role !== 'admin' || actor.id !== actorUserId ||
+      !await authorizeUserWrite(tx, actorUserId, actor)) {
+      throw new TicketMutationError('管理员权限或登录授权已变化，请重新登录', 403, 'TICKET_ACTOR_FORBIDDEN')
+    }
+    return tx.ticketInternalNote.create({ data: { ticketId, actorUserId, actorUsername: admin.username || actorUsername, content } })
   })
   return {
     id: note.id,

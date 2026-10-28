@@ -57,6 +57,11 @@ assert.notEqual(addTicketMessageStart, -1, 'addTicketMessage helper must exist')
 assert.notEqual(addTicketMessageEnd, -1, 'ticket status helper must follow addTicketMessage')
 const addTicketMessageSource = dbSource.slice(addTicketMessageStart, addTicketMessageEnd)
 const deleteMessageSource = dbSource.slice(dbSource.indexOf('export async function deleteTicketMessage('), dbSource.indexOf('export async function getTicketMessageAttachments('))
+const internalNoteSource = dbSource.slice(dbSource.indexOf('export async function createTicketInternalNote('), dbSource.indexOf('export async function createTicketObjectLink('))
+assert.ok(internalNoteSource.includes('authorizeUserWrite(tx, actorUserId, actor)') &&
+  internalNoteSource.includes("admin.role !== 'admin'") && internalNoteSource.includes('actorUsername: admin.username') &&
+  routeSource.includes('createTicketInternalNote(ticketId, user.id, user.username, content, user)'),
+  'explicit internal note route must revalidate current administrator/session and use the committed author name')
 assert.ok(deleteMessageSource.includes('message.ticketId !== ticketId') &&
   deleteMessageSource.includes('authorizeUserWrite(tx, actor.id, actor)') &&
   deleteMessageSource.includes("?.role !== 'admin'") &&
