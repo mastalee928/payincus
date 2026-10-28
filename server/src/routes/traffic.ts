@@ -22,6 +22,8 @@ import {
 } from '../services/traffic-utils.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { parseNullablePostgresBigIntInput } from '../lib/bigint-input.js'
+import { Prisma } from '@prisma/client'
+import { authorizeUserWrite } from '../db/user-write-authorization.js'
 
 /**
  * BigInt 序列化为字符串
@@ -369,131 +371,150 @@ export default async function trafficRoutes(fastify: FastifyInstance): Promise<v
         let price = 0
         const shouldChargeOwner = isInstanceOwner && !isAdmin
 
-        if (shouldChargeOwner) {
-            try {
-                const result = await trafficDb.withInstanceTrafficResetLock(instanceId, async (tx, resetSample) => {
-                    const resetLocked = await tryAdvisoryTransactionLock(tx, INSTANCE_TRAFFIC_RESET_LOCK_NAMESPACE, instanceId)
-                    if (!resetLocked) {
-                        throw new Error('流量重置正在处理，请稍后重试')
-                    }
+        try {
+            const result = await trafficDb.withInstanceTrafficResetLock(instanceId, async (tx, resetSample) => {
+                const resetLocked = await tryAdvisoryTransactionLock(tx, INSTANCE_TRAFFIC_RESET_LOCK_NAMESPACE, instanceId)
+                if (!resetLocked) {
+                    throw new Error('流量重置正在处理，请稍后重试')
+                }
 
-                    const currentInstance = await tx.instance.findUnique({
-                        where: { id: instanceId },
-                        select: {
-                            id: true,
-                            name: true,
-                            userId: true,
-                            status: true,
-                            monthlyTrafficUsed: true,
-                            package: { select: { trafficResetPrice: true } },
-                            packagePlan: { select: { trafficResetPrice: true } },
-                            user: {
-                                select: {
-                                    balance: true,
-                                    quota: {
-                                        select: {
-                                            monthlyTrafficLimit: true,
-                                            monthlyTrafficUsed: true,
-                                            extraTrafficQuota: true
-                                        }
+                await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+                const currentInstance = await tx.instance.findUnique({
+                    where: { id: instanceId },
+                    select: {
+                        id: true,
+                        name: true,
+                        userId: true,
+                        hostId: true,
+                        incusId: true,
+                        status: true,
+                        monthlyTrafficUsed: true,
+                        package: { select: { trafficResetPrice: true } },
+                        packagePlan: { select: { trafficResetPrice: true } },
+                        user: {
+                            select: {
+                                balance: true,
+                                quota: {
+                                    select: {
+                                        monthlyTrafficLimit: true,
+                                        monthlyTrafficUsed: true,
+                                        extraTrafficQuota: true
                                     }
                                 }
                             }
                         }
-                    })
-
-                    if (!currentInstance || currentInstance.status === 'deleted') {
-                        throw new Error('Instance not found')
                     }
-                    if (currentInstance.userId !== request.user.id) {
-                        throw new Error('Access denied')
-                    }
-
-                    const priceYuan = resolveTrafficResetPriceYuan(currentInstance)
-
-                    if (priceYuan > 0) {
-                        const balanceLocked = await tryAdvisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, currentInstance.userId)
-                        if (!balanceLocked) {
-                            throw new Error('余额正在处理，请稍后重试')
-                        }
-
-                        const balanceBefore = Number(currentInstance.user.balance)
-                        const balanceAfter = normalizeMoney(balanceBefore - priceYuan)
-                        if (balanceAfter < 0) {
-                            throw new Error('余额不足')
-                        }
-
-                        const balanceUpdate = await tx.user.updateMany({
-                            where: {
-                                id: currentInstance.userId,
-                                balance: { gte: priceYuan }
-                            },
-                            data: { balance: { decrement: priceYuan } }
-                        })
-                        if (balanceUpdate.count === 0) {
-                            throw new Error('余额不足或并发冲突')
-                        }
-
-                        const updatedUser = await tx.user.findUnique({
-                            where: { id: currentInstance.userId },
-                            select: { balance: true }
-                        })
-                        if (!updatedUser) {
-                            throw new Error('用户不存在')
-                        }
-
-                        await tx.balanceLog.create({
-                            data: {
-                                userId: currentInstance.userId,
-                                type: 'consume',
-                                amount: -priceYuan,
-                                balanceBefore,
-                                balanceAfter: Number(updatedUser.balance),
-                                instanceId,
-                                remark: `重置实例 ${currentInstance.name} 月流量`
-                            }
-                        })
-                    }
-
-                    await advanceTrafficSnapshot(tx, instanceId, resetSample)
-                    await tx.instance.updateMany({
-                        where: {
-                            id: instanceId,
-                            status: { not: 'deleted' }
-                        },
-                        data: {
-                            monthlyTrafficUsed: 0n,
-                            trafficStatus: 'NORMAL'
-                        }
-                    })
-                    const userQuota = currentInstance.user.quota
-                    if (userQuota) {
-                        const monthlyTrafficUsed = userQuota.monthlyTrafficUsed > currentInstance.monthlyTrafficUsed
-                            ? userQuota.monthlyTrafficUsed - currentInstance.monthlyTrafficUsed
-                            : 0n
-                        const effectiveLimit = getEffectiveLimit(userQuota.monthlyTrafficLimit, 0n)
-
-                        await tx.userQuota.update({
-                            where: { userId: currentInstance.userId },
-                            data: {
-                                monthlyTrafficUsed,
-                                extraTrafficQuota: 0n,
-                                extraTrafficUsed: 0n,
-                                trafficStatus: calculateUserTrafficStatus(monthlyTrafficUsed, effectiveLimit)
-                            }
-                        })
-                    }
-
-                    return { price: priceYuan }
                 })
-                price = result.price
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error)
-                const statusCode = message.includes('余额不足') ? 400 : message.includes('正在处理') ? 409 : 400
-                return reply.code(statusCode).send({ error: message })
-            }
-        } else {
-            await trafficDb.resetInstanceMonthlyTraffic(instanceId)
+
+                if (!currentInstance || currentInstance.status === 'deleted') {
+                    throw new Error('Instance not found')
+                }
+                if (currentInstance.userId !== instance.userId || currentInstance.hostId !== instance.hostId ||
+                    resetSample.userId !== currentInstance.userId || resetSample.hostId !== currentInstance.hostId ||
+                    resetSample.incusId !== currentInstance.incusId || resetSample.status !== currentInstance.status) {
+                    throw new Error('TRAFFIC_RESET_TARGET_CHANGED')
+                }
+                await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${currentInstance.hostId} FOR SHARE`
+                const userIds = [...new Set([request.user.id, currentInstance.userId])].sort((a, b) => a - b)
+                await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id IN (${Prisma.join(userIds)}) ORDER BY id FOR UPDATE`)
+                if (!await authorizeUserWrite(tx, request.user.id, request.user)) {
+                    throw new Error('TRAFFIC_RESET_ACTOR_FORBIDDEN')
+                }
+                const currentActor = await tx.user.findUnique({ where: { id: request.user.id }, select: { role: true } })
+                const currentHost = await tx.host.findUnique({ where: { id: currentInstance.hostId }, select: { userId: true } })
+                if (currentActor?.role !== request.user.role ||
+                    !isAdmin && currentInstance.userId !== request.user.id && currentHost?.userId !== request.user.id) {
+                    throw new Error('TRAFFIC_RESET_ACTOR_FORBIDDEN')
+                }
+
+                // The account lock may have waited for another write; read the current balance after it.
+                const currentOwner = await tx.user.findUniqueOrThrow({ where: { id: currentInstance.userId }, select: { balance: true } })
+
+                const priceYuan = resolveTrafficResetPriceYuan(currentInstance)
+
+                if (shouldChargeOwner && priceYuan > 0) {
+                    const balanceLocked = await tryAdvisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, currentInstance.userId)
+                    if (!balanceLocked) {
+                        throw new Error('余额正在处理，请稍后重试')
+                    }
+
+                    const balanceBefore = Number(currentOwner.balance)
+                    const balanceAfter = normalizeMoney(balanceBefore - priceYuan)
+                    if (balanceAfter < 0) {
+                        throw new Error('余额不足')
+                    }
+
+                    const balanceUpdate = await tx.user.updateMany({
+                        where: {
+                            id: currentInstance.userId,
+                            balance: { gte: priceYuan }
+                        },
+                        data: { balance: { decrement: priceYuan } }
+                    })
+                    if (balanceUpdate.count === 0) {
+                        throw new Error('余额不足或并发冲突')
+                    }
+
+                    const updatedUser = await tx.user.findUnique({
+                        where: { id: currentInstance.userId },
+                        select: { balance: true }
+                    })
+                    if (!updatedUser) {
+                        throw new Error('用户不存在')
+                    }
+
+                    await tx.balanceLog.create({
+                        data: {
+                            userId: currentInstance.userId,
+                            type: 'consume',
+                            amount: -priceYuan,
+                            balanceBefore,
+                            balanceAfter: Number(updatedUser.balance),
+                            instanceId,
+                            remark: `重置实例 ${currentInstance.name} 月流量`
+                        }
+                    })
+                }
+
+                await advanceTrafficSnapshot(tx, instanceId, resetSample)
+                await tx.instance.updateMany({
+                    where: {
+                        id: instanceId,
+                        status: { not: 'deleted' }
+                    },
+                    data: {
+                        monthlyTrafficUsed: 0n,
+                        trafficStatus: 'NORMAL'
+                    }
+                })
+                const userQuota = currentInstance.user.quota
+                if (userQuota) {
+                    const monthlyTrafficUsed = userQuota.monthlyTrafficUsed > currentInstance.monthlyTrafficUsed
+                        ? userQuota.monthlyTrafficUsed - currentInstance.monthlyTrafficUsed
+                        : 0n
+                    const effectiveLimit = getEffectiveLimit(userQuota.monthlyTrafficLimit, 0n)
+
+                    await tx.userQuota.update({
+                        where: { userId: currentInstance.userId },
+                        data: {
+                            monthlyTrafficUsed,
+                            extraTrafficQuota: 0n,
+                            extraTrafficUsed: 0n,
+                            trafficStatus: calculateUserTrafficStatus(monthlyTrafficUsed, effectiveLimit)
+                        }
+                    })
+                }
+
+                return { price: shouldChargeOwner ? priceYuan : 0 }
+            })
+            price = result.price
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            if (message === 'TRAFFIC_RESET_ACTOR_FORBIDDEN') return reply.code(403).send({ error: message })
+            if (message === 'TRAFFIC_RESET_TARGET_CHANGED') return reply.code(409).send({ error: message })
+            if (message === 'Instance not found') return reply.code(404).send({ error: message })
+            const statusCode = message.includes('余额不足') ? 400 : message.includes('正在处理') ? 409 : 400
+            return reply.code(statusCode).send({ error: message })
         }
         const { reconcileTrafficStateForInstanceIds } = await import('../services/traffic-scheduler.js')
         await reconcileTrafficStateForInstanceIds([instanceId])

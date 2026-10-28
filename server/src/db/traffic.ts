@@ -58,11 +58,14 @@ function getTrafficUserLockKey(userId: number): string {
     return `traffic:user:${userId}`
 }
 
-async function getTrafficResetSample(instanceId: number): Promise<TrafficSnapshotSample & { userId: number }> {
+type TrafficResetSample = TrafficSnapshotSample & { userId: number; hostId: number; incusId: string; status: string }
+
+async function getTrafficResetSample(instanceId: number): Promise<TrafficResetSample> {
     const instance = await prisma.instance.findUnique({
         where: { id: instanceId },
         select: {
             userId: true,
+            hostId: true,
             status: true,
             incusId: true,
             trafficSnapshot: true,
@@ -95,6 +98,9 @@ async function getTrafficResetSample(instanceId: number): Promise<TrafficSnapsho
         const counters = await getTrafficCounters(client, instance.incusId)
         return {
             userId: instance.userId,
+            hostId: instance.hostId,
+            incusId: instance.incusId,
+            status: instance.status,
             rxRaw: counters.rxBytes,
             txRaw: counters.txBytes,
             rxPacketsRaw: counters.rxPackets,
@@ -107,6 +113,9 @@ async function getTrafficResetSample(instanceId: number): Promise<TrafficSnapsho
 
     return {
         userId: instance.userId,
+        hostId: instance.hostId,
+        incusId: instance.incusId,
+        status: instance.status,
         rxRaw: instance.trafficSnapshot?.rxRaw ?? 0n,
         txRaw: instance.trafficSnapshot?.txRaw ?? 0n,
         rxPacketsRaw: instance.trafficSnapshot?.rxPacketsRaw ?? 0n,
@@ -119,7 +128,7 @@ async function getTrafficResetSample(instanceId: number): Promise<TrafficSnapsho
 
 export async function withInstanceTrafficResetLock<T>(
     instanceId: number,
-    operation: (tx: Prisma.TransactionClient, sample: TrafficSnapshotSample) => Promise<T>
+    operation: (tx: Prisma.TransactionClient, sample: TrafficResetSample) => Promise<T>
 ): Promise<T> {
     const result = await withLock(getTrafficInstanceLockKey(instanceId), async () => {
         const sample = await getTrafficResetSample(instanceId)

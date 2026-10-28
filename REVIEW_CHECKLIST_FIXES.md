@@ -299,7 +299,7 @@
 | R1-261 | 实现不同 | 保留初审结论 | 本库新矢量地图/球体采用当前目录与坐标实现，未发现对方旧datacenter地图文件；不据此替换现行地图编码。 |
 | R1-262 | 已有防护 | 保留初审结论 | update/delete/batch/usages使用ForHost约束且校验code归属host，旧跨节点缺口已有防护。 |
 | R1-263 | 已有防护 | 保留初审结论 | 当前仅数据库移除有保留远端/磁盘及暂停销售说明，不能当完整销毁或释放可售库存。 |
-| R1-264 | 部分存在 | 待精修/运行复核 | 付费实例所有者在锁内重读userId/状态和当前package/plan价格，原全部沿用旧归属/价格不成立；管理员/宿主免费分支仍用请求旧授权直接reset，付费分支未复核当前actor状态。 |
+| R1-264 | 部分存在 | 手动重置已修；运行中Incus未验 | 三角色统一原流量锁/事务，实例行锁核当前归属/采样身份，host和排序user锁后复核状态/角色/session/host归属，拒绝不改账目基线。真实PG先红admin禁用仍200后，10账号失效组合/转让删除竞争/正常免费付费/余额不足/并发扣费日志通过（takeover-traffic-auth-*），后端types/build/4守卫通过。认证夹具+停止实例，不覆盖所有定时重置和线上带宽。 |
 | R1-265 | 部分存在 | 待精修/运行复核 | 流量parser拒负数/非数字/超过PG bigint；实例更新缺省明确保留原值，但nullable parser将空字符串视null，清空与显式无限语义仍需按各入口核对，不能判全部允许负数。 |
 | R1-266 | 已有防护 | 保留初审结论 | 地区official/market/zone有active/hidden/globalShared/owner角色及专区授权；好友地区限定getSharedToUser集合；所有者列表/admin scope有requireAdmin或isAdmin门禁。原无过滤泄露私有套餐问题的当前防护已定位。 |
 | R1-267 | 已有防护 | 保留初审结论 | normalizePackagePlanInput以整数范围校验CPU/内存/磁盘/配额/价格/周期，流量通过PG bigint parser；不是直接缺省写负数/溢出。 |

@@ -23,6 +23,7 @@
     "test:review-markdown-browser": "node ../scripts/test-markdown-browser.mjs",
     "test:review-markdown-attributes": "node ../scripts/test-markdown-attributes.mjs",
     "test:review-payment-locales": "node ../scripts/test-payment-locales.mjs",
+    "test:review-traffic-reset-auth": "node --import tsx scripts/test-review-traffic-reset-auth.ts",
     "test:review-prize-editor": "node ../scripts/test-prize-editor.mjs",
     "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",

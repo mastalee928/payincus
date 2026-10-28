@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-264 流量重置提交时复核权限
+
+- R260 866d9f4已push并核远端一致；R257 f1cc7c7 CI40757170502最终success。用户手动reset的管理员/宿主/付费所有者统一走原实例与用户流量锁、事务；实例行锁后核当前owner/host及采样身份/状态，宿主共享行锁与排序用户行锁后检查当前账号/角色/sid撤销和宿主归属。失权403、目标变化409，拒绝不推进基线、不改用量/配额/余额。原免费与付费规则保持，锁等待后重读余额用于账本。
+- `logs/takeover-traffic-auth-before-ready.log`真实PG先复现管理员被禁仍返回200并重置；`takeover-traffic-auth-server-complete.log`最终exit0通过admin/host/owner禁用/会话/全会话及降权、宿主/实例转让/删除竞争、免费/付费正常、陌生人/余额不足、2500−100用量、额外额度清理、原计数基线和并发扣费后balanceBefore=20的日志。实际Fastify/PG行锁，认证hook为固定身份夹具，实例均停止态，未连接Incus或真实支付。
+- 后端types/build exit0、4项流量守卫、manifest191常规87环境排除通过，新PG专项接CI。初次PG未启动/夹具缺authenticateAdmin已分别纠正；旧专项因security定时器未退出，在自己数据清理后终止两个残留测试进程，最终专项显式结束且退出0。原本地PG数据目录自动恢复后运行127.0.0.1:55438，凭据不记录；启动等待shell已退出，不关闭测试库。
+- 只改手动实例重置入口与采样携带身份，不把本项当所有定时重置、运行中Incus带宽、跨服务任务或生产验收完成。R265继续核专用流量额度API缺monthlyLimit是否意外清为无限，shared parser空字符串在其他UI中的显式清空语义须保留。327与完整灾备未完成。
+
 ## 2026-10-29 R1-260 支付三语与占位符运行证据
 
 - R259 6c9dfe5已push并核远端一致。`logs/takeover-payment-locales-browser.log`实际PaymentProvidersView/Chrome覆盖zh-CN/zh-TW/en与yipay/heleket/upaypro/antom/manual五种已实现渠道，当前控件标签/占位符无原始key，密码字段保持空；1440/390截图检查通过。API仅受控list一次，没有任何保存/支付请求。

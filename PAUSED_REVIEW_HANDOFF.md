@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：866d9f4已push。R264手动实例流量reset统一锁内actor/session/host/instance/sample校验已修，真实Fastify/PG先红后绿，禁用/撤销/转让/删除/收费/配额/基线及并发balance log通过；后端types/build、4流量守卫/manifest通过准备单项push。PG已恢复127.0.0.1:55438原logs/review-no-refund-pgdata，数据库takeover_prize_20261029_pool_test；仅测试库，凭据通过logs/run-traffic-auth.cjs本地读取不输出。无待poll构建，旧测试定时器残留已终止。下一项R265专用/user/instance traffic limit缺monthlyLimit目前parser返回null，完整路由/守卫已读，先PG复现再只在这两个入口要求字段；不要擅改其他表单空字符串语义。327持续。
+
 > **最新接续**：6c9dfe5已push。R260实际支付页面五渠道三语/无raw key/空密码/1440与390通过，@示例仅目录已无页面引用；3守卫/manifest通过，新夹具与专项接CI准备单项push。无待poll。下一项R264流量reset管理员/宿主旧授权及普通用户会话，已读traffic route/DB withInstanceTrafficResetLock/getTrafficResetSample/reset helper、test-traffic-reset-locks及user-write-authorization；须先真实PG先红再最小修，保收费/流量基线/一机一卖。327未完整。
 
 > **最新接续**：d8c8e33已push。R259引号/图片说明/危险标签协议事件/外链属性实际Chrome与主动事件探针通过、截图已看，新专项接CI、manifest通过准备单项push，产品无改沿用R258最终构建。接R260 scripts/test-payment-locales.mjs/fixtures/payment-locales，未登记未提交，读取实际页面五渠道三语，无支付配置写入。327持续。
