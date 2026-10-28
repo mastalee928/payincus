@@ -212,19 +212,18 @@ async function updateUploadProgress(taskId: number, progress: string): Promise<v
  * 执行单个上传任务
  * 注意：任务已在 claimNextUploadTask 中标记为 PROCESSING
  */
-async function executeUploadTask(taskId: number): Promise<void> {
+export async function executeUploadTask(taskId: number): Promise<void> {
     const startTime = Date.now()
-    runningUploadTaskIds.add(taskId)
     
     // 获取任务信息（已在事务中标记为 PROCESSING）
     const task = await prisma.backupUploadTask.findUnique({
         where: { id: taskId }
     })
 
-    if (!task) {
-        console.error(`[UploadWorker] Task ${taskId} not found`)
+    if (!task || task.status !== 'PROCESSING' || runningUploadTaskIds.has(taskId)) {
         return
     }
+    runningUploadTaskIds.add(taskId)
 
     console.log(`[UploadWorker] 开始执行任务 ${taskId}`)
     
@@ -274,7 +273,9 @@ async function executeUploadTask(taskId: number): Promise<void> {
             .slice(0, 15)
         const userName = user?.username || 'unknown'
         // 使用实例的 incusId 作为标识（保证是 ASCII），备份名通常也是 ASCII
-        remoteFileName = `${userName}-${instance.incusId}-${backup.incusName}-${dateStr}.tar.gz`
+        // Different tasks may start within one second. A failed later upload
+        // must never overwrite or compensate an earlier task's backup.
+        remoteFileName = `${userName}-${instance.incusId}-${backup.incusName}-${task.id}-${dateStr}.tar.gz`
             .replace(/[^a-zA-Z0-9\-_.]/g, '_')  // 清理特殊字符
 
         console.log(`[UploadWorker] Task ${taskId}: 开始上传 ${remoteFileName} 到 ${storageConfig.name}`)
@@ -317,7 +318,7 @@ async function executeUploadTask(taskId: number): Promise<void> {
 
         console.log(`[UploadWorker] Task ${taskId}: 上传完成`)
 
-        // 发送通知
+        // 发送通知（通知与日志helper各自在内部处理投递失败）
         await sendNotification(task.userId, 'backup_uploaded', {
             instanceName: instance.name,
             backupName: backup.name,

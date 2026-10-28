@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 备份上传文件隔离与阶段 CI
+
+- `437ff0217f72d31733a35a5a89811e00c491c5d4`已推送；[CI运行40639322152](https://github.com/mastalee928/payincus/actions/runs/40639322152)7/7成功，含双架构网关组件、计费到期、交付删除、远端候选、类型与双端构建。仅源码CI，不代表正式发行/全新安装/完整网关验收。
+- 追加代码复审：备份上传任务的远端名称只有秒级时间，同一用户/实例/备份在同一秒的不同任务可能互相覆盖，后一任务失败清理会删前一任务文件；现名称加入任务ID，保留原扩展名和可读字段。执行入口拒绝非PROCESSING/重复本进程执行，数据库读取失败或任务不存在不泄漏running集合。单进程限制保持。
+- 初步怀疑“上传后日志失败会触发补偿”经调用链和真实PG trigger推翻：`sendNotification`和`createLog`已有内部catch；未保留多余业务修改。专项真实注入日志失败，确认已成功文件与COMPLETED回执保留。冻结Date以确保相同秒，失败新任务只删自身文件，原成功文件不变；另含终态/取消/不存在零远端、同任务并发单执行及实例字段保持。真实PG+mTLS Incus导出、存储接口显式内存夹具，通过`logs/takeover-upload-completion-final.log`；未连接真实OSS/Incus磁盘。
+- server类型、后端构建通过`logs/takeover-upload-typecheck.log`与`logs/takeover-upload-final-build.log`；2项备份守卫`logs/takeover-upload-guards.log`，补充断言后的复验另见`logs/takeover-upload-final-guards.log`。新增专项登记并接入CI既有隔离PG job，无前端变更。
+- 后续仍须修任务创建/领取的当前归属与存储身份复核、固定远端意图/进程强杀恢复、Incus专用导出流证书绑定/背压及截止。当前getIncusClient池会从DB重读证书，因此调用者未传pin字段本身不是缺陷；另建export Agent的`rejectUnauthorized:false`才是需要继续处理的真实缺口。三台专用测试机用途授权已记录，系统域名解析正确，SSH身份来源未确认前不以扫描公钥替代可信记录。
+
 ## 2026-10-28 全部积压阶段保存与 Agent 代码复审
 
 - **阶段提交已推送并核对远端**：`c277ba30a2180606e14fe96a071e096359b2c832`，248文件，包含旧聊天与本聊天积压。推送后工作区干净，无本地领先提交。之后继续施工按阶段保存，不等全部目标完成。

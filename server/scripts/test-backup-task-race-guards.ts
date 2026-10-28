@@ -276,6 +276,15 @@ const uploadExecuteSection = section(
   '/**\n * 启动备份上传 Worker'
 )
 assert.ok(
+  uploadExecuteSection.includes("task.status !== 'PROCESSING' || runningUploadTaskIds.has(taskId)") &&
+    uploadExecuteSection.indexOf("task.status !== 'PROCESSING'") < uploadExecuteSection.indexOf('runningUploadTaskIds.add(taskId)'),
+  'upload execution must reject missing, non-processing and already running tasks before reserving in-process state'
+)
+assert.ok(
+  uploadExecuteSection.includes('${backup.incusName}-${task.id}-${dateStr}.tar.gz'),
+  'separate upload tasks in the same second must not overwrite or compensate each other’s files'
+)
+assert.ok(
   uploadExecuteSection.includes('runningUploadTaskIds.add(taskId)') &&
     uploadExecuteSection.includes('runningUploadTaskIds.delete(taskId)'),
   'upload worker must remove running task tracking in a finally block'

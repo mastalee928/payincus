@@ -74,6 +74,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-admin-account-integration', 'requires isolated local *_pool_test PostgreSQL; actual admin routes, actor/session rechecks, revocation fault rollback and account deletion race'],
   ['test:review-config-pagination-integration', 'requires isolated local *_pool_test PostgreSQL; actual notifications route pagination and prototype-key configuration/ledger boundaries'],
   ['test:review-task-claim-integration', 'requires isolated local *_pool_test PostgreSQL; tests claim concurrency, cancellation and host/instance/type exclusions'],
+  ['test:review-upload-completion-integration', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; post-completion audit failure through real mTLS export and explicit storage fixture'],
   ['test:review-command-integration', 'requires isolated local *_pool_test PostgreSQL; exercises command route limits, edits, deletion and revocation races'],
   ['test:review-ssh-keys-integration', 'requires isolated local *_pool_test PostgreSQL; exercises actual SSH key parser, duplicate/limit races, user state and asynchronous RSA generation'],
   ['test:review-verification-integration', 'requires isolated local *_pool_test PostgreSQL; tests email verification send/attempt/consumption/purpose and operation-grant expiry boundaries'],
