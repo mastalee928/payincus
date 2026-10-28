@@ -275,7 +275,7 @@
 | R1-237 | 存在 | 已清理退役代码 | 删除无调用CheckinModal及局部样式，兑换守卫转当前Entertainment入口，保后端和三语文案守卫；3守卫/双端types build/dist及全引用复核通过（takeover-retired-checkin-*）。旧文件仅有分享规则展示，无独立分享辅助函数；死代码无活体入口，非线上签到验收。 |
 | R1-238 | 存在 | 已修复；真实领取未验 | description仅undefined继承旧值，null/空串/空白清空。真实Fastify/PG先红后绿、balance/points两类型回执/重读/省略/金额保持、server types/2守卫/manifest通过（takeover-vip-description-*）；无领取/余额/实例操作。R239/240独立继续。 |
 | R1-239 | 存在 | 待精修/运行复核 | description null??base恢复旧说明；逐条保存部分失败无成功id记录，重试重复；正小数舍入0后缺再次校验，后端同步核验。 |
-| R1-240 | 存在 | 待精修/运行复核 | description null??base恢复旧说明；逐条保存部分失败无成功id记录，重试重复；正小数舍入0后缺再次校验，后端同步核验。 |
+| R1-240 | 存在 | 已修复；实际领取未验 | 前后端拒绝余额奖励舍入后为0与超界，保留0.005/12.345原舍入兼容。真实Fastify/PG先红后绿、新增/修改与失败保config、Chrome表单精确payload、4守卫/types/双端build/dist/lint/manifest通过（takeover-vip-amount-*）。R238说明已分项修复，R239部分保存继续。 |
 | R1-241 | 存在 | 待精修/运行复核 | loadBenefits缺sequence及activated生命周期，页面返回/旧请求的刷新与失败恢复缺口仍在。 |
 | R1-242 | 存在 | 待精修/运行复核 | claimAll只按bulkClaiming门禁，不拒已有claimingIds，单项与批量可重叠；load旧概览也无代次。 |
 | R1-243 | 存在 | 待精修/运行复核 | 领取反馈优先旧reward卡片而非claim snapshot，setTimeout无卸载清理，可能跨页显示过时数额/反馈。 |

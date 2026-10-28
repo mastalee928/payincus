@@ -326,10 +326,11 @@ function normalizeOptionalPositiveInteger(value: unknown, fallback: number, fiel
 
 function normalizeMoney(value: unknown, field: string): number {
   const parsed = requireFiniteNumber(value, field)
-  if (parsed <= 0 || parsed > MAX_MONEY_AMOUNT) {
+  const rounded = roundMoney(parsed)
+  if (parsed <= 0 || parsed > MAX_MONEY_AMOUNT || rounded <= 0) {
     throw new VipBenefitError('INVALID_AMOUNT', `${field} must be between 0.01 and ${MAX_MONEY_AMOUNT}`)
   }
-  return roundMoney(parsed)
+  return rounded
 }
 
 function normalizeSortOrder(value: unknown): number {

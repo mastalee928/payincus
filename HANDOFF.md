@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-240 VIP余额奖励归一化下界
+
+- R238 fe425fd已push且CI40732783340最终success。后端normalizeMoney在原有限数/上限校验基础上拒绝舍入后为0；管理员表单同样在发请求前拒绝舍入0与超界。0.005→0.01、12.345→12.35保持原兼容，不改领取/计费逻辑。
+- `logs/takeover-vip-amount-before.log`实际Fastify/隔离PG先复现极小正数返回200；`takeover-vip-amount-server.log`修改后新增/修改拒0、负数、舍入0与超界，失败保原config、正常舍入以及R238说明回归通过。`takeover-vip-amount-browser.log`实际Vue/Chrome验证请求前拦截与精确payload，三语1440/390截图已看；API为受控夹具，无真实奖励领取。
+- `takeover-vip-amount-guards.log`4/4、server types、双端vue-tsc/build、dist boundary、改动Vue lint零报告和清单191常规/73环境排除通过。浏览器专项已接CI；server测试最后仅调整PASS总结文案，断言已运行。未宣称全套/线上验收。R239逐条保存及R241领取生命周期继续，327与完整灾备未完成。
+
 ## 2026-10-29 R1-238 VIP奖励说明显式清空
 
 - R237 e0b14c6已push并核远端一致。normalizeRewardData仅当description为undefined才取旧说明，显式null/空串/空白交给原normalizer清空；前端原本就把空输入传null，无需修改。奖励数值/类型/领取/资源交付保持。

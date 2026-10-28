@@ -233,6 +233,10 @@ function validateRewards(): boolean {
       toast.error(t('admin.vipBenefits.amountInvalid', { level: reward.level }))
       return false
     }
+    if (reward.type === 'balance' && (Math.round(toNumber(reward.amount) * 100) <= 0 || toNumber(reward.amount) > 99999999.99)) {
+      toast.error(t('admin.vipBenefits.amountInvalid', { level: reward.level }))
+      return false
+    }
     if (reward.type === 'instance') {
       if (!reward.packageId || !reward.planId) {
         toast.error(t('admin.vipBenefits.instancePlanRequired', { level: reward.level }))

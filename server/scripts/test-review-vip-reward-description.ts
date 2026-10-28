@@ -35,8 +35,25 @@ try {
     assert.equal(omitted.statusCode, 200)
     assert.equal(omitted.json().reward.description, 'Keep this text', 'omitted description preserves existing value')
     assert.equal(await prisma.vipBenefitClaim.count({ where: { rewardId: id } }), 0)
+    if (type === 'balance') {
+      for (const amount of [Number.MIN_VALUE, 0.0001, 0.004, 0, -1, 100000000]) {
+        const updated = await put({ config: { amount } })
+        assert.equal(updated.statusCode, 400, `reject balance amount ${amount}`)
+        assert.deepEqual((await prisma.vipBenefitReward.findUniqueOrThrow({ where: { id } })).config, { amount: 12 })
+      }
+      for (const [amount, expected] of [[0.005, 0.01], [0.01, 0.01], [12.345, 12.35], [99999999.99, 99999999.99]]) {
+        const updated = await put({ config: { amount } })
+        assert.equal(updated.statusCode, 200)
+        assert.equal(updated.json().reward.config.amount, expected)
+      }
+      const createdZero = await app.inject({ method: 'POST', url: '/api/admin/vip-benefits/rewards', payload: {
+        level: 1, type, title: 'Zero normalization fixture', enabled: false, config: { amount: 0.004 }
+      } })
+      if (createdZero.statusCode === 200) rewardIds.push(createdZero.json().reward.id)
+      assert.equal(createdZero.statusCode, 400)
+    }
   }
-  console.log('PASS actual Fastify/PostgreSQL VIP descriptions: null/empty/whitespace clears, response and reload remain empty, omitted fields preserve text, reward config unchanged. No claim/payment/instance operations; auth identity is a fixture.')
+  console.log('PASS actual Fastify/PostgreSQL VIP descriptions and amounts: explicit clearing/omission, zero after rounding rejected on create/update, invalid updates preserve configuration and valid rounding stays compatible. No claim/payment/instance operations; auth identity is a fixture.')
 } finally {
   await app.close()
   await prisma.vipBenefitReward.deleteMany({ where: { id: { in: rewardIds } } })
