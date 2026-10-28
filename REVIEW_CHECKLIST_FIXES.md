@@ -248,7 +248,7 @@
 | R1-210 | 部分存在 | 文档已精修/构建通过 | README正式v1.7.7、实例快照/备份后端与无独立标签/自动调度缺口、OSS不含VPS磁盘；中英部署说明Redis实际安装但无后端client、单Node、每版迁移与ENV_FILE。初审纠正安装器Redis非虚假残留；takeover-docs-facts-guards/build通过，不代表实装验收 |
 | R1-211 | 存在 | 退役类型已清理/编译守卫通过 | 仅删除server兼容BackupPolicy/SnapshotPolicy及纠正SQLite文件头；Prisma模型/DB方法/client实际类型保留。takeover-retired-policy-references/build/guards通过，3备份/快照守卫，无数据库或运行行为改动 |
 | R1-212 | 部分存在 | 已精修/仅注释 | 核对实际消费者后注明JWT sid是refresh SHA-256前32位、用户级用__USER_LEVEL__、iat边界与PG null唯一语义；AFF允许多个全局码；PackagePlan分与Instance/MailPlan元分开。邮箱订阅模块仍使用，纠正“旧模块”暗示。4守卫、Prisma validate、类型及去注释前后相等验证通过；无schema/runtime变更与迁移。 |
-| R1-213 | 存在 | 待精修/运行复核 | 旧composable/utils仅互引；现行TurnstileWidget使用独立实现。只判旧工具孤立，不删除现行验证。 |
+| R1-213 | 存在 | 退役工具已清理/构建守卫通过 | 删除无调用useTurnstile及utils的getGlobalTurnstile/getTurnstileToken/withTurnstile；保留现行可见组件与readTurnstileToken/focusTurnstileSection，保留GiftCards独立同名函数。引用检查与保留函数逐字相等、4守卫、双端类型build/dist、lint通过；无旧入口可实跑，不声称Cloudflare实站验证。 |
 | R1-214 | 部分存在 | 待精修/运行复核 | getTimeGreeting在Dashboard、calculateDailyPrice在ChangePlan、calculateDiscountedPrice在Billing实际使用；getCycleDays/calculatePriceDiff等部分无client调用，不照搬全部六项删除。 |
 | R1-215 | 存在 | 已修/既有行为复验 | formatBytes已支持PB/EB并钳制单位索引，非有限数/非正数返回0 B；本轮复跑core-boundaries的1024**5、1024**6与Infinity断言通过（logs/takeover-format-bytes-evidence.log）。纠正本行曾错填Cloud-init证据；未重复修改运行源码，不据此声称客户流量采集实测。 |
 | R1-216 | 实现不同 | 保留初审结论 | 本库无对方PackageDetailView；当前套餐页面生命周期按现有入口另核，不能声称旧详情修法适用。 |

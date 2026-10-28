@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-213 退役隐式Turnstile工具
+
+- R212 `803df02`已push并核远端一致。逐个追踪导出与调用者后删除无入口的useTurnstile composable及utils中3个隐式验证导出；现行TurnstileWidget、登录/注册/找回密码的readTurnstileToken与focusTurnstileSection保留且逐字未变，GiftCards页面自己的getTurnstileToken不属于旧工具。没有移除现行验证码或后端验证。
+- `logs/takeover-retired-turnstile-final-references.log`源调用及保留函数比对、`takeover-retired-turnstile-guards.log`4/4路由/认证/实例验证码/礼品卡守卫、`takeover-retired-turnstile-build.log`双端类型build、`takeover-retired-turnstile-dist.log`边界及`takeover-retired-turnstile-lint.log`通过。没有旧隐式工具的活体入口，不冒充Cloudflare真实验证。
+- README修正CI40704237821已通过Lint/仓库守卫及各集成任务，最后Build仍运行。下一项R214初审需纠正：Dashboard的getTimeGreeting是本地函数，并未用共享导出；getCycleDays在calculateDailyPrice内部实际调用，仅去export。R219/220读请求/保存仍待修，R221的SLA位于MyPackagesView方案弹窗，不能误认为PackageForm有此字段。327继续。
+
 ## 2026-10-28 R1-212 Prisma注释与单位
 
 - README链接修正`484c06d`已push并核远端一致。R212读取真实会话生成/撤销、AFF创建、套餐开通换算和邮箱购买/续费后，只修正schema及security的相关注释。JWT sid是refresh token SHA-256摘要前32位，用户级失效使用__USER_LEVEL__而非null，iat等于截止时间也失效；PG普通唯一约束允许多个null，AFF现行代码明确允许多个全局码。

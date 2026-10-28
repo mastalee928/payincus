@@ -1,47 +1,10 @@
 /**
  * Turnstile 工具函数
- * 用于在 API 调用前执行隐式验证，以及从可见组件读取 token。
+ * 从现行可见验证组件读取 token，并将焦点移至验证区域。
  */
-import { useTurnstile } from '@/composables/useTurnstile'
-import i18n from '@/locales'
 
 interface TurnstileTokenReader {
   getToken?: () => string
-}
-
-let globalTurnstile: ReturnType<typeof useTurnstile> | null = null
-
-export function getGlobalTurnstile() {
-  if (!globalTurnstile) {
-    globalTurnstile = useTurnstile()
-  }
-  return globalTurnstile
-}
-
-export async function getTurnstileToken(_action?: string): Promise<string | undefined> {
-  const turnstile = getGlobalTurnstile()
-
-  if (!turnstile.isEnabled.value) {
-    return undefined
-  }
-
-  try {
-    return await turnstile.execute()
-  } catch (error) {
-    console.error('Turnstile verification failed:', error)
-    throw new Error(i18n.global.t('common.turnstileFailed'))
-  }
-}
-
-export async function withTurnstile<T extends Record<string, any>>(
-  data: T,
-  action?: string
-): Promise<T & { turnstileToken?: string }> {
-  const token = await getTurnstileToken(action)
-  return {
-    ...data,
-    turnstileToken: token
-  }
 }
 
 export function readTurnstileToken(

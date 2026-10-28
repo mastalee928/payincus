@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：R213隐式Turnstile退役工具已清，保留函数逐字未变，4守卫/双端类型build/dist/lint通过准备单项push。无待poll进程。R214 Dashboard同名问候实为局部函数，共享导出可删；getCycleDays仅去export保内部调用。R219/220 PackageForm仍未编辑，当前已排除KeepAlive但同名路由参数切换仍复用，需seq/session/保存回执；R221的SLA在MyPackagesView弹窗。327未完。
+
 > **最新接续**：README修正484c06d已push。R212会话标识/失效截止、AFF null唯一性及分元单位注释已核代码修正，4守卫/Prisma validate/类型/去注释无变化通过；准备单项保存。随后R213：只删useTurnstile旧composable及utils的3个隐式导出，保留readTurnstileToken与focusTurnstileSection（现行登录注册有调用）。327继续。
 
 > **最新接续**：R222 87e1c69已push。R210 README不存在链接改为已跟踪网关说明，仓库守卫通过单独保存；不存在“本地生成文件遮盖”证据，漏检是未跑README仓库守卫。随后保存R212仅注释修正，再继续R213等。无后台测试/build待poll；327未完成。
