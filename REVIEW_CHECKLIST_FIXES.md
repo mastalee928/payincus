@@ -260,8 +260,8 @@
 | R1-222 | 部分存在 | 已精修/本地Chrome通过 | 完整写入/裁剪同步登记waitUntil，写入与清空串行，新增256条上限；存储失败不丢成功网络响应，清空代次拒绝旧下载回填，限定本应用/当前版本缓存。受控延迟/280并发/故障恢复专项及真实Chrome双源注册、断网回退、清空、容量通过；路由守卫、双端类型build/dist通过。未生产部署；256是条目上限而非磁盘字节配额。 |
 | R1-223 | 实现不同 | 保留初审结论 | 未找到对方依赖退役邮件模块的旧AFF脚本；本库两个AFF守卫有清单且已在181项基线实际通过。 |
 | R1-224 | 实现不同 | 保留初审结论 | 未发现旧UserHistoryView；现行UsersView登录弹窗异步目标风险已列R305，不能虚构旧历史页面。 |
-| R1-225 | 已有防护 | 保留初审结论 | refresh/action已有sequence、disposed和busy门禁，原旧请求覆盖新运行并停轮询已有保护。 |
-| R1-226 | 部分存在 | 待精修/运行复核 | poll看document visibility，但缺组件v-show/KeepAlive激活门禁；Billing页面自身无同类timer。 |
+| R1-225 | 已有防护 | 原竞争已有保护/离页边界补强 | 原refresh/action互斥和disposed已有；不能据此推断隐藏/会话回执也安全。R226补充读写回执代次、失效GET取消、离页保留在途action门禁及返回后的状态核验；真实Vue/Chrome延迟API专项通过，不声明服务器写入幂等。 |
+| R1-226 | 部分存在 | 源码已修/浏览器隔离验证通过 | Billing传overview active，结合KeepAlive、document visibility、session、status/history标签控制单一串行定时器；隐藏即清计时器/旧读取消/旧回执无效，恢复立即刷新。历史保同会话筛选页码、换会话重置。takeover-expiry-panel-browser-final/guards-final/build-final/server-types/dist日志：真实Vue/可控API计时器可见性、4守卫、双端类型构建与边界通过；非真实后台巡检执行。 |
 | R1-227 | 存在 | 待精修/运行复核 | 无修改静态扫描178份SVG，48份含缺失url(#id)引用，如dark/aquarius的bg-a-air-d；未运行会重建目录的生成器。 |
 | R1-228 | 存在 | 待精修/运行复核 | 生肖样式含animation...alternate transform-origin缺分号；aquarius内animation:art而未找到@keyframes art。静态生成资产证据，实际动效仍需浏览器。 |
 | R1-229 | 存在 | 待精修/运行复核 | 全html正则收集<style>块并逐SVG注入，连JSX {`...`}原文也重复输出到178资产的相关系列；未运行会重建目录的生成器。 |

@@ -1,45 +1,81 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import type { ExpiryEnforcementStatus } from '@/types/expiry-enforcement'
 import ExpiryEnforcementHistory from './ExpiryEnforcementHistory.vue'
+import { useAuthStore } from '@/stores/auth'
+const props = withDefaults(defineProps<{ active?: boolean }>(), { active: true })
 const { t, te, locale } = useI18n()
+const auth = useAuthStore()
+// Callback identity only; the server remains responsible for authorization.
+const sessionKey = computed(() => {
+  if (!auth.token || !auth.isAdmin) return ''
+  let identity = auth.token
+  try {
+    const payload = JSON.parse(atob(auth.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Preserve the full identity of legacy tokens. */ }
+  return `${auth.user?.id}:${identity}`
+})
 const status = ref<ExpiryEnforcementStatus | null>(null), loading = ref(false), busy = ref(false), error = ref('')
 const showHistory = ref(false), historyOpened = ref(false)
+const mounted = ref(false), activated = ref(true), pageVisible = ref(document.visibilityState === 'visible')
+const panelVisible = computed(() => mounted.value && activated.value && props.active && pageVisible.value && !!sessionKey.value)
+const pollingActive = computed(() => panelVisible.value && !showHistory.value)
 function openHistory() { historyOpened.value = true; showHistory.value = true }
 let disposed = false, sequence = 0, timer: ReturnType<typeof setTimeout> | undefined
+let readController: AbortController | undefined
 const stateKey = computed(() => status.value?.recoveryHeld ? 'held' : status.value?.running ? 'running' : status.value?.enabled ? 'enabled' : 'disabled')
 const failureMessage = computed(() => {
   const key = `expiryEnforcement.errorCodes.${status.value?.lastError}`
   return status.value?.lastError ? t(te(key) ? key : 'expiryEnforcement.actionFailed') : ''
 })
 function date(value: string | null | undefined) { return value ? new Date(value).toLocaleString(locale.value) : t('expiryEnforcement.never') }
+function isCurrent(current: number) { return !disposed && pollingActive.value && current === sequence }
+function schedule() {
+  clearTimeout(timer)
+  if (!disposed && pollingActive.value) timer = setTimeout(() => void refresh(), status.value?.running ? 5000 : 15000)
+}
 async function refresh() {
-  if (loading.value || busy.value) return
+  if (disposed || !pollingActive.value || loading.value || busy.value) return
+  clearTimeout(timer)
   const current = ++sequence; loading.value = true
+  const controller = new AbortController(); readController = controller
   try {
-    const data = await api.admin.expiryEnforcementStatus()
-    if (!disposed && current === sequence) { status.value = data; error.value = '' }
-  } catch { if (!disposed && current === sequence) error.value = t('expiryEnforcement.loadFailed') }
-  finally { if (!disposed && current === sequence) loading.value = false }
+    const data = await api.admin.expiryEnforcementStatus(controller.signal)
+    if (isCurrent(current)) { status.value = data; error.value = '' }
+  } catch { if (isCurrent(current)) error.value = t('expiryEnforcement.loadFailed') }
+  finally { if (isCurrent(current)) { readController = undefined; loading.value = false; schedule() } }
 }
 async function action(kind: 'start' | 'run') {
-  if (busy.value || loading.value || !status.value || status.value.running || status.value.recoveryHeld) return
-  busy.value = true; error.value = ''; sequence++
+  if (disposed || !pollingActive.value || busy.value || loading.value || !status.value || status.value.running || status.value.recoveryHeld) return
+  clearTimeout(timer)
+  const current = ++sequence
+  busy.value = true; error.value = ''
   try {
     const data = await (kind === 'start' ? api.admin.startExpiryEnforcement() : api.admin.runExpiryEnforcement())
-    if (!disposed) status.value = data
-  } catch { if (!disposed) error.value = t('expiryEnforcement.actionFailed') }
-  finally { if (!disposed) busy.value = false }
+    if (isCurrent(current)) status.value = data
+  } catch { if (isCurrent(current)) error.value = t('expiryEnforcement.actionFailed') }
+  finally {
+    // Leaving the panel must not release an in-flight mutation's duplicate gate.
+    if (!disposed) {
+      busy.value = false
+      if (isCurrent(current)) schedule()
+      else if (pollingActive.value) void refresh()
+    }
+  }
 }
-async function poll() {
-  if (disposed) return
-  if (document.visibilityState === 'visible') await refresh()
-  if (!disposed) timer = setTimeout(() => void poll(), status.value?.running ? 5000 : 15000)
-}
-onMounted(() => { void poll() })
-onUnmounted(() => { disposed = true; sequence++; clearTimeout(timer) })
+watch([pollingActive, sessionKey], () => {
+  sequence++; clearTimeout(timer); readController?.abort(); readController = undefined
+  loading.value = false; status.value = null; error.value = ''
+  if (pollingActive.value) void refresh()
+}, { flush: 'sync' })
+function visibilityChanged() { pageVisible.value = document.visibilityState === 'visible' }
+onMounted(() => { document.addEventListener('visibilitychange', visibilityChanged); visibilityChanged(); mounted.value = true })
+onActivated(() => { activated.value = true })
+onDeactivated(() => { activated.value = false })
+onUnmounted(() => { disposed = true; sequence++; clearTimeout(timer); readController?.abort(); document.removeEventListener('visibilitychange', visibilityChanged) })
 </script>
 <template>
   <section class="expiry-enforcement card mb-6 p-5 space-y-4" data-ui :aria-busy="busy || loading" aria-labelledby="expiry-enforcement-title">
@@ -51,7 +87,7 @@ onUnmounted(() => { disposed = true; sequence++; clearTimeout(timer) })
       <button type="button" class="pb-2" :class="!showHistory ? 'border-b-2 border-current font-semibold text-themed' : 'text-themed-muted'" :aria-pressed="!showHistory" @click="showHistory = false">{{ t('expiryEnforcement.history.status') }}</button>
       <button type="button" class="pb-2" :class="showHistory ? 'border-b-2 border-current font-semibold text-themed' : 'text-themed-muted'" :aria-pressed="showHistory" @click="openHistory">{{ t('expiryEnforcement.history.query') }}</button>
     </div>
-    <ExpiryEnforcementHistory v-if="historyOpened" v-show="showHistory" />
+    <ExpiryEnforcementHistory v-if="historyOpened" v-show="showHistory" :key="sessionKey" :active="panelVisible && showHistory" />
     <div v-show="!showHistory" class="space-y-4">
       <p class="text-sm text-themed-muted">{{ t('expiryEnforcement.description') }}</p>
       <p v-if="error" role="alert" class="text-sm text-red-700 dark:text-red-300">{{ error }}</p>

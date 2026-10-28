@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-226 巡检面板隐藏与缓存生命周期
+
+- R214 `941cbdc`已push且远端一致；R221 CI40708054717最终success。R214 CI40708802507中6/7任务成功，Pool任务在init-command-selector的Chrome启动20秒超时，未进入断言，已仅重跑失败任务待最终结果；不记为代码断言失败或全绿。
+- Billing显式传overview active，巡检面板结合KeepAlive/窗口可见性/session/历史标签控制一个串行timer，隐藏清计时器并取消旧GET；迟到success/error/finally均拒绝，返回立即刷新。已提交start/run不因隐藏释放busy门禁，旧写回执不覆盖新状态，返回后重新读实际状态。历史查询同样绑定可见周期，保同会话筛选页码，换会话重建。
+- `logs/takeover-expiry-panel-browser-final.log`实际Vue组件/Pinia/Router/KeepAlive与延迟API，通过首次无双请求、15秒/5秒单timer、v-show/缓存/可见性/session/同SID/退出、旧成功失败与finally、10连点/操作中离页/返回/失败重试/恢复保护、历史筛选分页及卸载；GET取消后夹具故意仍回执检验防线。计时器和visibility是受控注入，非自然等待/真实后台巡检。
+- `takeover-expiry-panel-guards-final.log`4/4、`takeover-expiry-panel-build-final.log`双端vue-tsc/build、`takeover-expiry-panel-server-types.log`及dist通过。初轮build跨越接口签名编辑发生类型错误，最终完整重跑通过；首个pnpm test参数调用失败，随后直接调用总入口完整4项通过。新组件/API lint零报告，Billing既有9处缩进警告核对HEAD未改。三语1440/390截图保留`logs/expiry-panel-browser/`，已看桌面中文/手机英文，未做完整对比度量测。专项接CI、189常规/65环境排除清单通过。
+- 下一项R230已写浏览器夹具并复现目录迟到后仍占位（`takeover-badge-image-before-final.log`），源码尚未改；R227–229生成器引用的原HTML仓库缺失，先保已有资产核查，不运行递归重建目录。327与完整灾备未完成。
+
 ## 2026-10-28 R1-214 未用格式化与计费导出
 
 - R221 `2eb96b1`已push并核远端一致，R220 CI40707194072最终success。本项删除formatters中4个无调用导出及billing中的calculatePriceDiff；getCycleDays只去export，保留日价内部调用，现行日价/折扣及页面局部函数不变。纠正初审将Dashboard局部getTimeGreeting误认为共享导出的结论。

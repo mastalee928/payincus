@@ -6,6 +6,7 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:review-expiry-panel": "node ../scripts/test-expiry-panel.mjs",
     "test:review-package-form": "node ../scripts/test-package-form.mjs",
     "test:review-package-empty-fields": "node --import tsx scripts/test-review-package-empty-fields.ts",
     "test:review-service-worker": "node ../scripts/test-service-worker.mjs",

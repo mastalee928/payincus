@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import { formatLogContent } from '@/utils/log-format'
 import type { ExpiryHistoryItem, ExpiryHistoryQuery, ExpiryHistoryResponse } from '@/types/expiry-enforcement'
 const { t, te, locale } = useI18n()
+const props = defineProps<{ active: boolean }>()
 const form = ref({ startDate: '', endDate: '', username: '', email: '', search: '' })
 const expandedFilters = ref(false)
 const result = ref<ExpiryHistoryResponse | null>(null), loading = ref(false), error = ref('')
 let applied: ExpiryHistoryQuery = {}
+let disposed = false, sequence = 0, requestedPage = 1
+let readController: AbortController | undefined
+function isCurrent(current: number) { return !disposed && props.active && current === sequence }
 function date(value: string | null) { return value ? new Date(value).toLocaleString(locale.value) : '—' }
 function actionName(item: ExpiryHistoryItem) {
   const names: Record<string, string> = {
@@ -39,24 +43,35 @@ function description(item: ExpiryHistoryItem) {
 }
 function failure(code: string | null) { const key = `expiryEnforcement.errorCodes.${code}`; return code ? t(te(key) ? key : 'expiryEnforcement.history.checkDetails') : '' }
 async function load(page = 1) {
-  if (loading.value) return
+  if (disposed || !props.active || loading.value) return
+  const current = ++sequence
+  const controller = new AbortController(); readController = controller
+  requestedPage = page
   loading.value = true; error.value = ''
-  try { result.value = await api.admin.expiryEnforcementHistory({ ...applied, page, pageSize: 20 }) }
+  try {
+    const data = await api.admin.expiryEnforcementHistory({ ...applied, page, pageSize: 20 }, controller.signal)
+    if (isCurrent(current)) result.value = data
+  }
   catch (cause) {
     const code = (cause as { code?: string }).code
-    error.value = t(code === 'EXPIRY_LOG_RANGE_INVALID' ? 'expiryEnforcement.history.invalidRange' : 'expiryEnforcement.history.loadFailed')
-  } finally { loading.value = false }
+    if (isCurrent(current)) error.value = t(code === 'EXPIRY_LOG_RANGE_INVALID' ? 'expiryEnforcement.history.invalidRange' : 'expiryEnforcement.history.loadFailed')
+  } finally { if (isCurrent(current)) { readController = undefined; loading.value = false } }
 }
 function search() {
-  if (loading.value) return
+  if (disposed || !props.active || loading.value) return
   const from = form.value.startDate ? new Date(form.value.startDate) : null, to = form.value.endDate ? new Date(form.value.endDate) : null
   if ((from && !Number.isFinite(from.getTime())) || (to && !Number.isFinite(to.getTime())) || (from && to && from > to)) { error.value = t('expiryEnforcement.history.invalidRange'); return }
   applied = { startDate: from?.toISOString(), endDate: to?.toISOString(),
     username: form.value.username.trim() || undefined, email: form.value.email.trim() || undefined, search: form.value.search.trim() || undefined }
   void load()
 }
-function reset() { if (loading.value) return; form.value = { startDate: '', endDate: '', username: '', email: '', search: '' }; applied = {}; void load() }
-onMounted(() => { void load() })
+function reset() { if (disposed || !props.active || loading.value) return; form.value = { startDate: '', endDate: '', username: '', email: '', search: '' }; applied = {}; void load() }
+watch(() => props.active, active => {
+  sequence++; readController?.abort(); readController = undefined
+  loading.value = false; result.value = null; error.value = ''
+  if (active) void load(requestedPage)
+}, { immediate: true, flush: 'sync' })
+onUnmounted(() => { disposed = true; sequence++; readController?.abort() })
 </script>
 <template>
   <div class="expiry-history space-y-5" :aria-busy="loading">

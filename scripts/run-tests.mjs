@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-expiry-panel', 'requires installed Chrome/Edge and local Vite; actual patrol/history components with Vue KeepAlive and controlled API/timers/visibility for lifecycle races'],
   ['test:review-package-empty-fields', 'requires isolated local *_pool_test PostgreSQL; actual Fastify package/plan empty-field updates, omission semantics and owner authorization'],
   ['test:review-package-form', 'requires installed Chrome/Edge and local Vite; renders actual package form with Vue Router and delayed API fixture for route/session lifecycle'],
   ['test:review-service-worker-browser', 'requires installed Chrome/Edge; registers actual Service Worker on two isolated local HTTP origins and verifies CacheStorage/offline/clear/bounds'],

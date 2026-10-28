@@ -1302,7 +1302,7 @@ function copyToClipboard(text: string) {
 
     <!-- 概览 Tab -->
     <div v-show="activeTab === 'overview'">
-      <ExpiryEnforcementPanel />
+      <ExpiryEnforcementPanel :active="activeTab === 'overview'" />
       <div v-if="overviewLoading" class="space-y-5">
         <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <div v-for="i in 4" :key="`overview-kpi-${i}`" class="card h-36 animate-pulse p-5">

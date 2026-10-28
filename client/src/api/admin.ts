@@ -2866,8 +2866,8 @@ const api = {
       http.delete(`/admin/hosting/zones/${id}`),
 
     // ==================== 计费管理 ====================
-    expiryEnforcementStatus: (): Promise<ExpiryEnforcementStatus> => http.get('/admin/billing/expiry-enforcement'),
-    expiryEnforcementHistory: (params: ExpiryHistoryQuery = {}): Promise<ExpiryHistoryResponse> => http.get('/admin/billing/expiry-enforcement/logs', { params }),
+    expiryEnforcementStatus: (signal?: AbortSignal): Promise<ExpiryEnforcementStatus> => http.get('/admin/billing/expiry-enforcement', { signal }),
+    expiryEnforcementHistory: (params: ExpiryHistoryQuery = {}, signal?: AbortSignal): Promise<ExpiryHistoryResponse> => http.get('/admin/billing/expiry-enforcement/logs', { params, signal }),
     startExpiryEnforcement: (): Promise<ExpiryEnforcementStatus> => http.post('/admin/billing/expiry-enforcement/start', {}),
     runExpiryEnforcement: (): Promise<ExpiryEnforcementStatus> => http.post('/admin/billing/expiry-enforcement/run', {}),
 
