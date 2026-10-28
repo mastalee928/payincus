@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-host-create-instance', 'requires Chrome/Edge and local Vite; actual host gift target identity, lookup ordering and submit payload'],
   ['test:review-vip-level-rules', 'requires Chrome/Edge and local Vite; actual user/hosting VIP rule read gating, save and context isolation'],
   ['test:review-vip-benefit-hall', 'requires Chrome/Edge and local Vite; actual VIP hall visibility/session/read and claim lifecycle'],
   ['test:review-vip-reward-editor', 'requires Chrome/Edge and local Vite; actual VIP admin reward form normalization and save payloads'],

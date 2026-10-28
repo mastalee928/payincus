@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-248 宿主赠送目标验证一致性
+
+- R245 f6e0390已push且CI40742907887最终success；R243 CI40742141406及R242 CI40741048390也success。HostCreateInstanceTab输入用户名改变立即清旧targetUser/验证，提交要求当前trim用户名与已核身份一致。查询以序号/host/session/模式/缓存活跃状态检查，旧成功与失败、错误身份、无效ID不能回填；同SID刷新保留，换host/会话/缓存返回重新验证。
+- 新验证清空targetUser后，保存回执不可再从它读用户名，成功提示改用已提交payload.username，真实Chrome补保存期间改输入不抛空对象且提示原收件人。完整写后草稿/离页隔离留R249，初读身份/host更新留R250，方案/镜像乱序留R247；不把这一局部保护宣称全部创建生命周期完成。
+- `logs/takeover-host-gift-target-before.log`先复现alice已验证后输入bob按钮仍可提交；`takeover-host-gift-target-browser-final.log`实际Vue/Chrome通过立即禁写、直接form submit、查询成功失败乱序、错误身份/inactive/无SSH、SID/session/host/cache、trim精确目标、十连提交和在途改输入回执，以及三语1440/390。API受控，无真实创建/消息发送；截图已看。hosts lookup/create-for-user授权/套餐/镜像/资源预留与交付代码及对应守卫已读，后端不改。
+- `takeover-host-gift-target-guards-final.log`4/4、Vue lint、最终双端vue-tsc/build、dist和清单191常规/76环境排除通过，新Chrome专项接CI。首轮build跨越成功提示单行补改，已完整重跑最终源码build；不冒充生产归属/实例交付验收。327与完整灾备继续。
+
 ## 2026-10-29 R1-245 VIP等级读取失败禁空保存
 
 - R243 e3cd05a已push并核远端一致。VIP等级编辑器必须当前类型/session成功读取后才启用保存和字段，错误持久显示/retry；检查响应type和rules数组，原用户/托管十级规则、阈值、badge与固定表格保持。同步保存门禁/字段冻结/固定type与payload，当前失败保草稿，旧类型/session/KeepAlive/卸载回执不回填或提示，缓存返回等待在途写settle再读。

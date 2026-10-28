@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：R245 f6e0390已push且CI success，R243/R242 CI也success。R248目标输入失效/查询seq与host/session/cache/身份匹配、成功提示用已提交payload已修，Chrome先红后绿/4守卫/lint/最终双端types build/dist/manifest通过准备push；无待poll。继续R247套餐方案/镜像乱序，再R249写回执和草稿、R250初读/host生命周期。HostCreateInstanceTab完整组件/父v-if/API及hosts create-for-user资源预留交付段已读，后端保持。新host-create-instance夹具可复用扩展，327持续。
+
 > **最新接续**：R243 e3cd05a已push。R245等级初读ready/type校验/错误retry/同步保存与字段冻结/类型session缓存卸载隔离通过Chrome、共享reward回归、4守卫/lint/双端types build/dist/manifest准备push；无待poll本地进程。接R248 HostCreateInstanceTab赠送目标输入改变后仍用旧targetUser，先P1；再R247方案/镜像乱序、R249写回执/草稿及R250初读/host生命周期。组件/父v-if/API/hosts lookup和create-for-user校验/相关守卫已读未改，完整交付后段仍要继续读。R244旧汇总未全面验，327持续。
 
 > **最新接续**：R242 46593e1已push，CI40741048390最后运行。R243反馈优先claim.snapshot，legacy匹配类型回退，三类批量/自然过期/延迟清理与R241/242 Chrome回归、3守卫/lint/双端types build/dist通过准备push。R245初读失败空配置已真实Chrome先红（takeover-vip-rules-before.log）；新scripts/test-vip-level-rules.mjs及vip-reward-editor夹具扩展未提交，产品VipLevelRulesEditor未改。对应组件/父调用/路由/replaceVipRules/守卫已读。无待poll本地进程，327持续。

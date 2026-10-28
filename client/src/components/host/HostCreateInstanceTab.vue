@@ -4,7 +4,7 @@
  * - self mode: existing host-owner free instance flow
  * - gift mode: host owner creates free instance or paid instance with free gifted days for another user
  */
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onActivated, onDeactivated, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
@@ -90,6 +90,17 @@ const giftDays = ref(30)
 const targetUsername = ref('')
 const targetLookupState = ref<TargetLookupState>('idle')
 const targetUser = ref<{ id: number; username: string } | null>(null)
+const targetLookupActive = ref(true)
+let targetLookupSequence = 0, disposed = false
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
 
 const form = ref({
   name: '',
@@ -156,7 +167,8 @@ const canSubmitSelf = computed(() => {
 })
 
 const canSubmitGift = computed(() => {
-  const hasTarget = targetLookupState.value === 'found' && targetUser.value !== null
+  const hasTarget = targetLookupActive.value && !!sessionKey.value && targetLookupState.value === 'found' &&
+    targetUser.value !== null && targetUser.value.username === targetUsername.value.trim()
   const hasPlan = !isGiftPaid.value || (selectedPlanId.value !== null && !!selectedPlan.value && !selectedPlan.value.isSoldOut)
   return (
     form.value.name.trim().length >= 2 &&
@@ -298,7 +310,12 @@ async function loadData(): Promise<void> {
 }
 
 async function checkTargetUser(): Promise<void> {
+  if (disposed || !targetLookupActive.value || !sessionKey.value || !isGiftMode.value || submitting.value || targetLookupState.value === 'checking') return
   const username = targetUsername.value.trim()
+  const request = ++targetLookupSequence, hostId = props.hostId, session = sessionKey.value
+  const current = () => !disposed && targetLookupActive.value && isGiftMode.value &&
+    request === targetLookupSequence && hostId === props.hostId && session === sessionKey.value && username === targetUsername.value.trim()
+  targetUser.value = null
   if (!username) {
     targetLookupState.value = 'idle'
     targetUser.value = null
@@ -307,7 +324,12 @@ async function checkTargetUser(): Promise<void> {
 
   targetLookupState.value = 'checking'
   try {
-    const res = await api.hosts.lookupGiftTargetUser(props.hostId, username)
+    const res = await api.hosts.lookupGiftTargetUser(hostId, username)
+    if (!current()) return
+    if (res.user.username !== username || !Number.isSafeInteger(res.user.id) || res.user.id <= 0) {
+      targetLookupState.value = 'not_found'
+      return
+    }
     if (res.user.id === currentUserId.value && !isAdmin.value) {
       targetLookupState.value = 'self'
       targetUser.value = null
@@ -332,10 +354,20 @@ async function checkTargetUser(): Promise<void> {
       username: res.user.username
     }
   } catch {
+    if (!current()) return
     targetLookupState.value = 'not_found'
     targetUser.value = null
   }
 }
+
+watch([targetUsername, () => props.hostId, sessionKey, createMode, targetLookupActive], () => {
+  targetLookupSequence++
+  targetLookupState.value = 'idle'
+  targetUser.value = null
+}, { flush: 'sync' })
+onActivated(() => { targetLookupActive.value = true })
+onDeactivated(() => { targetLookupActive.value = false })
+onUnmounted(() => { disposed = true; targetLookupSequence++ })
 
 const targetLookupMessage = computed(() => {
   switch (targetLookupState.value) {
@@ -465,7 +497,7 @@ async function handleGiftSubmit(): Promise<void> {
 
   await api.hosts.createInstanceForUser(props.hostId, payload)
 
-  toast.success(t('host.createInstance.giftSuccess', { username: targetUser.value.username }))
+  toast.success(t('host.createInstance.giftSuccess', { username: payload.username }))
 
   targetUsername.value = ''
   targetLookupState.value = 'idle'
