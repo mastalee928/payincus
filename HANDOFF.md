@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-237 无入口签到弹窗
+
+- R234 ebafb0f已push并核远端一致，R235 CI40727283504最终success。已核双端入口、Vite、组件标签及导入，CheckinModal没有应用调用/自动注册；删除整份旧礼盒弹窗及局部样式。当前Entertainment的签到/资源池/兑换及后端保持。原编号称分享辅助，但当前文件并无独立分享函数，仅分享规则展示；不虚构删掉额外函数。
+- redeem-code-management守卫原先只读取退役弹窗的三条规则key，改检查当前Entertainment真实兑换调用/按钮；原三语兑换文案及后端管理/归属/库存/流量守卫保持。`logs/takeover-retired-checkin-references.log`运行和测试无旧引用，`takeover-retired-checkin-guards.log`3/3、双端vue-tsc/build、dist和diff通过。死代码无运行入口，不冒充签到生产验收。
+- R238真实Fastify/隔离PG专项已先复现null说明仍恢复旧文本（`takeover-vip-description-before.log`），新测试文件尚未提交，后端单行修复随后分项验证。327持续。
+
 ## 2026-10-29 R1-234 通知配置读取链路
 
 - R235 81421ec已push并核远端一致，CI40727283504仍运行；徽章测试修正bdadd1c CI40725732406最终success。纠正通知初审：列表从未返回notificationConfig，有回填代码不能证明表单收到配置。

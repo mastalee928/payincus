@@ -9,7 +9,7 @@ const __dirname = dirname(__filename)
 const routeSource = readFileSync(resolve(__dirname, '../src/routes/redeem-codes.ts'), 'utf8')
 const dbSource = readFileSync(resolve(__dirname, '../src/db/redeem-codes.ts'), 'utf8')
 const checkinRouteSource = readFileSync(resolve(__dirname, '../src/routes/checkin.ts'), 'utf8')
-const checkinModalSource = readFileSync(resolve(__dirname, '../../client/src/components/CheckinModal.vue'), 'utf8')
+const entertainmentViewSource = readFileSync(resolve(__dirname, '../../client/src/views/EntertainmentView.vue'), 'utf8')
 const redeemRuleLocaleSources = {
   en: readFileSync(resolve(__dirname, '../../client/src/locales/en.ts'), 'utf8'),
   zhCN: readFileSync(resolve(__dirname, '../../client/src/locales/zh-CN.ts'), 'utf8'),
@@ -184,12 +184,11 @@ assert.ok(
   'unsafe unscoped redeem-code management helpers must not remain exported'
 )
 
-for (const key of ['rulesRedeem1', 'rulesRedeem2', 'rulesRedeem3']) {
-  assert.ok(
-    checkinModalSource.includes(`t('checkin.${key}')`),
-    `customer h-code redemption rules must render checkin.${key}`
-  )
-}
+assert.ok(
+  entertainmentViewSource.includes('api.checkin.redeem(code, redeemSelectedInstance.value)') &&
+    entertainmentViewSource.includes('@click="redeemCode"'),
+  'the active entertainment page must retain customer h-code redemption'
+)
 
 const expectedRedeemRules = {
   en: [
