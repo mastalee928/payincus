@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-253 关联主流程：机器池读取失败禁止旧数据创建
+
+- 机器池写回执47be7e3已push并核远端一致，CI40751161454最后仍运行；R250 CI40749600296最终success。AdminPoolInstanceCreate以ready隔离读取完成，失败持久显示并通过刷新重试；成功空库存与初读失败分开。目录/镜像绑定读取代次和session/cache活跃状态，旧成功失败/finally不回填，缓存返回若在途创建先等写结束再刷新。
+- `logs/takeover-admin-pool-read-before.log`实际管理员页面先复现refresh失败仍可提交旧库存/镜像；`takeover-admin-pool-read-browser-final.log`通过初读/目录/镜像失败禁写、成功空态、重试保草稿和未知结果请求ID、E2/ARM容器镜像选择与VM排除、旧兄弟请求/会话/缓存隐藏/卸载、SID刷新和在途写返回等待。`takeover-admin-pool-read-write-regression.log`回归上一项完整写入矩阵及三语桌面/手机，错误截图已看。3守卫/lint/双端vue-tsc/build/dist/manifest191常规78环境排除通过，新读取Chrome专项接CI。
+- 受控API，没有真实开通/扣费/生产操作。原机器池一机一卖及后端价格/库存/权限核验不变。代码复审发现父页面仍在默认pool显示前等待旧套餐/方案请求，下一项先解除该主流程依赖；旧套餐R252/253与327剩余仍继续，不能记全量完成。
+
 ## 2026-10-29 R1-252 关联主流程：管理员机器池创建回执
 
 - R250 8c3c138已push并核远端一致，CI40749600296最后运行。按owner提醒优先核管理员默认机器池：父页面目标查询加入session/cache/卸载代次与响应身份/状态核验；AdminPoolInstanceCreate写入捕获payload，绑定username/session/route/cache/请求编号，旧成功失败不能改当前提示或导航。保留机器池一机一卖、请求幂等、免费/付费免首月/扣首月的既有后端与原字段冻结。

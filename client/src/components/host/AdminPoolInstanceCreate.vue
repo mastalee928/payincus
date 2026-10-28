@@ -12,8 +12,8 @@ import { validateName } from '@/utils/validation'
 import type { SystemImage } from '@/types/api'
 const props = defineProps<{ username: string | null; balance: number }>()
 const { t, locale } = useI18n(), toast = useToast(), router = useRouter()
-const auth = useAuthStore(), route = useRoute(), active = ref(true)
-let disposed = false, contextSequence = 0
+const auth = useAuthStore(), route = useRoute(), active = ref(true), mounted = ref(false)
+let disposed = false, contextSequence = 0, readSequence = 0
 const sessionKey = computed(() => {
   if (!auth.token || !auth.user || auth.user.role !== 'admin') return ''
   let identity = auth.token
@@ -24,10 +24,12 @@ const sessionKey = computed(() => {
   return `${auth.user.id}:${identity}`
 })
 const writable = computed(() => active.value && !!sessionKey.value)
+const readActive = computed(() => mounted.value && writable.value)
 const regions = ref<PoolCatalogRegion[]>([]), allImages = ref<SystemImage[]>([])
 const selectedId = ref<number | null>(null), image = ref(''), name = ref('')
 const billing = ref<'free' | 'paid'>('free'), chargeFirstMonth = ref(true)
 const loading = ref(true), submitting = ref(false), error = ref('')
+const ready = ref(false), readError = ref('')
 const requestId = ref(crypto.randomUUID())
 const products = computed(() => regions.value.flatMap(region => region.products.map(product => ({ ...product, region }))))
 const selected = computed(() => products.value.find(product => product.id === selectedId.value))
@@ -36,7 +38,8 @@ const images = computed(() => selected.value ? allImages.value.filter(item =>
 const total = computed(() => selected.value ? selected.value.monthlyPrice + selected.value.setupFee : 0)
 const charge = computed(() => billing.value === 'paid' && chargeFirstMonth.value ? total.value / 100 : 0)
 const canSubmit = computed(() => writable.value && !!props.username && !!selected.value?.idle && !!image.value && !!name.value.trim() &&
-  props.balance >= charge.value && !loading.value && !submitting.value)
+  props.balance >= charge.value && ready.value && !loading.value && !submitting.value &&
+  images.value.some(item => item.remoteAlias === image.value))
 watch([selectedId, images], () => { if (!images.value.some(item => item.remoteAlias === image.value)) image.value = images.value[0]?.remoteAlias || '' })
 watch([() => props.username, selectedId, image, name, billing, chargeFirstMonth, sessionKey], () => { requestId.value = crypto.randomUUID() }, { flush: 'sync' })
 watch([() => props.username, sessionKey, active, () => route.fullPath], () => {
@@ -45,16 +48,28 @@ watch([() => props.username, sessionKey, active, () => route.fullPath], () => {
 }, { flush: 'sync' })
 onActivated(() => { active.value = true })
 onDeactivated(() => { active.value = false })
-onUnmounted(() => { disposed = true; contextSequence++ })
+onUnmounted(() => { disposed = true; contextSequence++; readSequence++ })
 async function refresh() {
+  if (disposed || !readActive.value || loading.value || submitting.value) return
+  const sequence = ++readSequence
+  const current = () => !disposed && readActive.value && sequence === readSequence
+  ready.value = false; readError.value = ''
   loading.value = true; error.value = ''
   try {
     const [catalog, availableImages] = await Promise.all([api.hostPools.catalog(), api.images.getSystemImages('container')])
+    if (!current()) return
+    if (!Array.isArray(catalog.regions) || !Array.isArray(availableImages.images)) throw new Error(t('common.loadFailed'))
     regions.value = catalog.regions; allImages.value = availableImages.images
     if (!products.value.some(product => product.id === selectedId.value && product.idle > 0)) selectedId.value = products.value.find(product => product.idle > 0)?.id ?? null
-  } catch (failure) { error.value = translateError(failure) }
-  finally { loading.value = false }
+    ready.value = true
+  } catch (failure) { if (current()) readError.value = translateError(failure) }
+  finally { if (current()) loading.value = false }
 }
+watch([readActive, sessionKey], () => {
+  readSequence++
+  ready.value = false; loading.value = false; readError.value = ''
+  if (readActive.value && !submitting.value) void refresh()
+}, { flush: 'sync' })
 async function submit() {
   if (disposed || !canSubmit.value || !selected.value || !props.username) return
   const validation = validateName(name.value)
@@ -76,19 +91,23 @@ async function submit() {
     toast.success(t('admin.instanceCreate.createSuccess', { username: payload.username }))
     await router.push(`/admin/instances/${instance.id}`)
   } catch (failure) { if (current()) error.value = translateError(failure) }
-  finally { submitting.value = false }
+  finally {
+    submitting.value = false
+    if (!disposed && readActive.value && !ready.value) void refresh()
+  }
 }
-onMounted(refresh)
+onMounted(() => { mounted.value = true })
 </script>
 <template>
   <form class="card p-5 sm:p-6 space-y-5" :aria-busy="loading || submitting" @submit.prevent="submit">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <h2 class="text-base font-semibold text-themed">{{ t('admin.instanceCreate.poolSource') }}</h2>
-      <button type="button" class="btn-secondary" :disabled="loading || submitting" @click="refresh">{{ t('common.refresh') }}</button>
+      <button type="button" class="btn-secondary" :disabled="!readActive || loading || submitting" @click="refresh">{{ t('common.refresh') }}</button>
     </div>
     <p v-if="loading" role="status" class="text-sm text-themed-muted">{{ t('common.loading') }}</p>
-    <p v-else-if="!products.some(product => product.idle > 0)" role="status" class="text-sm text-themed-muted">{{ t('admin.instanceCreate.noPoolStock') }}</p>
-    <fieldset class="space-y-5" :disabled="loading || submitting">
+    <p v-else-if="readError" role="alert" class="text-sm text-error break-words">{{ readError }}</p>
+    <p v-else-if="ready && !products.some(product => product.idle > 0)" role="status" class="text-sm text-themed-muted">{{ t('admin.instanceCreate.noPoolStock') }}</p>
+    <fieldset class="space-y-5" :disabled="!ready || loading || submitting">
       <label class="block text-sm text-themed">{{ t('admin.instanceCreate.poolProduct') }}
         <select v-model="selectedId" class="input w-full mt-2" required>
           <option :value="null" disabled>{{ t('admin.instanceCreate.selectPlan') }}</option>

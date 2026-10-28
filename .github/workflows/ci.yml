@@ -203,7 +203,9 @@ jobs:
       - name: Verify host instance editor in Chrome
         run: pnpm --filter server test:review-host-create-instance
       - name: Verify administrator pool creation in Chrome
-        run: pnpm --filter server test:review-admin-pool-create
+        run: |
+          pnpm --filter server test:review-admin-pool-create
+          pnpm --filter server test:review-admin-pool-create-load
       - name: Verify package empty fields in PostgreSQL
         run: pnpm --filter server test:review-package-empty-fields
 
