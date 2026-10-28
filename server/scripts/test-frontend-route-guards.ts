@@ -71,6 +71,12 @@ const ticketsViewSource = readRepoFile('client/src/views/TicketsView.vue')
 const renewModalSource = readRepoFile('client/src/components/instance/modals/RenewModal.vue')
 const changePlanModalSource = readRepoFile('client/src/components/instance/modals/ChangePlanModal.vue')
 const terminalPageSource = readRepoFile('client/src/views/TerminalView.vue')
+const terminalCommandsSource = readRepoFile('client/src/components/terminal/TerminalSavedCommandsSidebar.vue')
+assert.ok(terminalCommandsSource.includes('revision === draftRevision') && terminalCommandsSource.includes('if (draftCurrent()) cancelEditor()') &&
+  terminalCommandsSource.includes('session === sessionKey.value') && terminalCommandsSource.includes('currentGeneration === generation') &&
+  terminalCommandsSource.includes('refreshAfterWrite(current)') && terminalCommandsSource.includes('onDeactivated(deactivate)') &&
+  terminalCommandsSource.includes('v-else-if="loadError"'),
+  'saved commands must preserve later drafts, isolate old account/cache responses and require refreshed command state')
 assert.ok(terminalPageSource.includes('onActivated(activatePage)') && terminalPageSource.includes('onDeactivated(deactivatePage)') &&
   terminalPageSource.includes("window.removeEventListener('keydown', handleKeydown)") &&
   terminalPageSource.includes('generation === uiGeneration') && terminalPageSource.includes('tab.ws === socket') &&

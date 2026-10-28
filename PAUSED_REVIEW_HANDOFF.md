@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：cc5fd54已push；R284快捷命令session/cache/mobile/list/草稿与CRUD旧回执已修，真实Chrome先红后绿/父R282回归/types/3守卫+最终route/lint/manifest191/101、双端build及手机样式后补最终user build exit0/dist通过，准备单项push，无待poll。下一项R285 ticket-lifecycle四文件已Chrome先红：工单2被工单1旧详情覆盖。TicketsView详情/回复/附件/分页/支持上下文与相关后端权限守卫已读；产品未改，先固定route/session/代次及草稿，状态/备注/创建等另明确范围。327/R269/完整灾备未完成。
+
 > **最新接续**：e799c90已push；R283终端session/list/cloud-init/ticket/WS/重连与关闭代次已修，实际Chrome先红后绿+R282完整回归、types/4守卫/lint/manifest191/100/最终双端build exit0/dist通过，准备单项push，无待poll。下一项R284四个terminal-commands夹具已先红保存清新草稿，产品未改；后端原事务授权/CRUD及守卫已读。注意keepalive/mobile visible/session、list旧读覆盖写、固定update/delete目标、保存新输入保留、隐藏/注销旧结果静默、待写落地后当前重新加载再执行命令；不要动实际命令执行协议。327/完整灾备未完。
 
 > **最新接续**：935dac5已push；R282终端KeepAlive全局监听/浮层/迟到剪贴板与标签button已修，真实Chrome先红后绿（含fresh mobile）、types/4守卫+route最终/lint/manifest191/99/最终双端build exit0/dist通过，准备push，无待poll。下一项R283 scripts/test-terminal-session.mjs独立先红：logout旧tab保留；不要混入R282提交。TerminalView完整list/cloud-init/ticket/ws/reconnect/close/disconnect、terminal-core与对应守卫已读；需current sid/账号代次、清旧tab与远端ticket/WS回执隔离，常规缓存继续保持会话。R284在TerminalSavedCommandsSidebar而非本页脚本，尚未改。327/完整灾备未完。

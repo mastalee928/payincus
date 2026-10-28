@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import type { TerminalSavedCommand } from '@/types/api'
 
 const props = withDefaults(defineProps<{
@@ -21,11 +22,26 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useToast()
+const authStore = useAuthStore()
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
 
 const expanded = ref(true)
 const loading = ref(false)
-const saving = ref(false)
-const deleting = ref(false)
+const loadError = ref('')
+const pendingSaves = ref(0)
+const pendingDeletes = ref(0)
+const saving = computed(() => pendingSaves.value > 0)
+const deleting = computed(() => pendingDeletes.value > 0)
+const ready = ref(false)
+const active = ref(false)
 const showEditor = ref(false)
 const editingId = ref<number | null>(null)
 const commands = ref<TerminalSavedCommand[]>([])
@@ -42,9 +58,39 @@ const selectedCommand = computed(() =>
 )
 
 const isEditing = computed(() => editingId.value !== null)
-const canSubmit = computed(() => form.value.name.trim().length > 0 && form.value.command.trim().length > 0)
+const canSubmit = computed(() => ready.value && active.value && !!sessionKey.value && shouldRender.value &&
+  !loading.value && !saving.value && !deleting.value && showEditor.value &&
+  form.value.name.trim().length > 0 && form.value.command.trim().length > 0)
 const commandCount = computed(() => commands.value.length)
 const shouldRender = computed(() => !props.mobile || props.visible)
+let alive = true
+let generation = 0
+let listSequence = 0
+let draftRevision = 0
+let reloadAfterWrite = false
+watch([form, editingId, showEditor], () => { draftRevision++ }, { deep: true, flush: 'sync' })
+function captureContext() {
+  const currentGeneration = generation, session = sessionKey.value
+  return () => alive && active.value && shouldRender.value && !!session && session === sessionKey.value && currentGeneration === generation
+}
+
+function resetContext() {
+  generation++
+  listSequence++
+  loading.value = false
+  loadError.value = ''
+  ready.value = false
+  commands.value = []
+  selectedId.value = null
+  cancelEditor()
+  if (captureContext()()) void loadCommands()
+}
+
+function refreshAfterWrite(current: () => boolean) {
+  if ((!current() || reloadAfterWrite) && !saving.value && !deleting.value && captureContext()()) {
+    void loadCommands()
+  }
+}
 
 function sortCommands(list: TerminalSavedCommand[]): TerminalSavedCommand[] {
   return [...list].sort((a, b) => {
@@ -83,25 +129,38 @@ function resetForm() {
 }
 
 async function loadCommands() {
+  const context = captureContext(), sequence = ++listSequence
+  const current = () => context() && sequence === listSequence
+  ready.value = false
+  if (!current()) return
+  if (saving.value || deleting.value) { reloadAfterWrite = true; loading.value = false; return }
+  reloadAfterWrite = false
   loading.value = true
+  loadError.value = ''
   try {
     const response = await api.terminalSavedCommands.list()
+    if (!current()) return
     commands.value = sortCommands(response.commands)
     ensureSelection()
+    ready.value = true
   } catch (error: any) {
-    toast.error(error?.message || t('terminal.savedCommands.loadFailed'))
+    if (!current()) return
+    commands.value = []
+    selectedId.value = null
+    loadError.value = error?.message || t('terminal.savedCommands.loadFailed')
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 function openCreateEditor() {
+  if (!captureContext()()) return
   resetForm()
   showEditor.value = true
 }
 
 function openEditEditor() {
-  if (!selectedCommand.value) return
+  if (!captureContext()() || !ready.value || !selectedCommand.value) return
 
   editingId.value = selectedCommand.value.id
   form.value = {
@@ -119,8 +178,11 @@ function cancelEditor() {
 
 async function saveCommand() {
   if (!canSubmit.value || saving.value) return
-
-  saving.value = true
+  const current = captureContext(), revision = draftRevision, targetId = editingId.value, selected = selectedId.value
+  if (!current() || (targetId !== null && !commands.value.some(command => command.id === targetId))) return
+  const draftCurrent = () => current() && revision === draftRevision
+  listSequence++
+  pendingSaves.value++
   try {
     const payload = {
       name: form.value.name.trim(),
@@ -128,68 +190,84 @@ async function saveCommand() {
       description: form.value.description.trim() || null
     }
 
-    if (editingId.value) {
-      const response = await api.terminalSavedCommands.update(editingId.value, payload)
+    if (targetId !== null) {
+      const response = await api.terminalSavedCommands.update(targetId, payload)
+      if (!current()) return
+      if (response.command.id !== targetId) throw new Error(t('terminal.savedCommands.saveFailed'))
       commands.value = sortCommands(commands.value.map(command =>
         command.id === response.command.id ? response.command : command
       ))
-      selectedId.value = response.command.id
+      if (draftCurrent() && selectedId.value === selected) selectedId.value = response.command.id
       toast.success(t('terminal.savedCommands.updateSuccess'))
     } else {
       const response = await api.terminalSavedCommands.create(payload)
-      commands.value = sortCommands([response.command, ...commands.value])
-      selectedId.value = response.command.id
+      if (!current()) return
+      commands.value = sortCommands([response.command, ...commands.value.filter(command => command.id !== response.command.id)])
+      if (draftCurrent() && selectedId.value === selected) selectedId.value = response.command.id
       toast.success(t('terminal.savedCommands.createSuccess'))
     }
 
-    cancelEditor()
+    listSequence++
+    if (draftCurrent()) cancelEditor()
   } catch (error: any) {
+    if (!draftCurrent()) return
     toast.error(error?.message || t('terminal.savedCommands.saveFailed'))
   } finally {
-    saving.value = false
+    pendingSaves.value--
+    refreshAfterWrite(current)
   }
 }
 
 async function deleteSelectedCommand() {
-  if (!selectedCommand.value || deleting.value) return
+  if (!captureContext()() || !ready.value || loading.value || !selectedCommand.value || deleting.value || saving.value) return
+  const current = captureContext(), targetId = selectedCommand.value.id, revision = draftRevision
 
   const confirmed = window.confirm(
     t('terminal.savedCommands.deleteConfirm', { name: selectedCommand.value.name })
   )
-  if (!confirmed) return
+  if (!confirmed || !current() || selectedCommand.value?.id !== targetId) return
 
-  deleting.value = true
+  listSequence++
+  pendingDeletes.value++
   try {
-    const targetId = selectedCommand.value.id
     await api.terminalSavedCommands.delete(targetId)
+    if (!current()) return
+    listSequence++
     commands.value = commands.value.filter(command => command.id !== targetId)
     ensureSelection()
+    if (editingId.value === targetId && revision === draftRevision) cancelEditor()
     toast.success(t('terminal.savedCommands.deleteSuccess'))
   } catch (error: any) {
+    if (!current()) return
     toast.error(error?.message || t('terminal.savedCommands.deleteFailed'))
   } finally {
-    deleting.value = false
+    pendingDeletes.value--
+    refreshAfterWrite(current)
   }
 }
 
 function executeSelectedCommand() {
-  if (!props.connected || !selectedCommand.value) return
+  if (!captureContext()() || !ready.value || loading.value || saving.value || deleting.value || !props.connected || !selectedCommand.value) return
   emit('execute', selectedCommand.value.command)
   if (props.mobile) {
     emit('close')
   }
 }
 
-onMounted(() => {
-  void loadCommands()
-})
+function activate() { if (!active.value) { active.value = true; resetContext() } }
+function deactivate() { active.value = false; resetContext() }
+watch([sessionKey, shouldRender], resetContext, { flush: 'sync' })
+onMounted(activate)
+onActivated(activate)
+onDeactivated(deactivate)
+onBeforeUnmount(() => { alive = false; deactivate() })
 </script>
 
 <template>
   <div
     v-if="shouldRender"
-    class="relative h-full flex-shrink-0 overflow-visible transition-[width] duration-300 ease-out"
-    :class="props.mobile ? 'fixed inset-0 z-[90] flex items-end justify-center p-0' : ''"
+    class="h-full flex-shrink-0 overflow-visible transition-[width] duration-300 ease-out"
+    :class="props.mobile ? 'fixed inset-0 z-[90] flex items-end justify-center p-0' : 'relative'"
     :style="props.mobile ? undefined : { width: expanded ? '22rem' : '0px' }"
   >
     <div
@@ -348,6 +426,10 @@ onMounted(() => {
             </div>
           </div>
 
+          <div v-else-if="loadError" class="space-y-3 rounded-xl border border-red-500/25 p-4 text-sm text-red-200" role="alert">
+            <p>{{ loadError }}</p>
+            <button type="button" class="btn-secondary" @click="loadCommands">{{ t('common.retry') }}</button>
+          </div>
           <div
             v-else-if="commands.length === 0"
             class="rounded-2xl border border-dashed border-neutral-800 bg-neutral-950/50 px-4 py-12 text-center"
@@ -362,32 +444,30 @@ onMounted(() => {
           </div>
 
           <div v-else class="space-y-2.5">
-            <button
+            <div
               v-for="command in commands"
               :key="command.id"
-              type="button"
               class="w-full rounded-2xl border p-3 text-left transition-all"
               :class="selectedId === command.id
                 ? 'border-sky-400/45 bg-sky-400/10'
                 : 'border-neutral-800 bg-neutral-950/60 hover:border-neutral-700 hover:bg-neutral-900/80'"
-              @click="selectedId = command.id"
             >
               <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0 flex-1">
+                <button type="button" class="min-w-0 flex-1 text-left" :aria-pressed="selectedId === command.id" @click="selectedId = command.id">
                   <div class="flex items-center gap-2">
                     <span class="h-2 w-2 flex-shrink-0 rounded-full" :class="selectedId === command.id ? 'bg-sky-300' : 'bg-neutral-600'" />
                     <span class="truncate text-sm font-medium text-white">{{ command.name }}</span>
                   </div>
-                  <p
+                  <span
                     v-if="command.description"
                     class="mt-2 line-clamp-2 text-xs leading-5 text-neutral-400"
                   >
                     {{ command.description }}
-                  </p>
+                  </span>
                   <div class="mt-2 overflow-hidden break-all rounded-xl border border-neutral-800 bg-black/30 px-2.5 py-2 font-mono text-[11px] leading-5 text-neutral-300">
                     {{ getCommandPreview(command.command) }}
                   </div>
-                </div>
+                </button>
                 <button
                   type="button"
                   class="rounded-lg p-1.5 text-neutral-500 transition-colors hover:bg-neutral-800 hover:text-neutral-200"
@@ -399,7 +479,7 @@ onMounted(() => {
                   </svg>
                 </button>
               </div>
-            </button>
+            </div>
           </div>
         </div>
 
@@ -417,7 +497,7 @@ onMounted(() => {
             <button
               type="button"
               class="inline-flex items-center justify-center gap-1 rounded-xl bg-white px-3 py-2.5 text-xs font-medium text-black transition-colors hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="!selectedCommand || !connected"
+              :disabled="!ready || loading || saving || deleting || !selectedCommand || !connected"
               @click="executeSelectedCommand"
             >
               <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -428,7 +508,7 @@ onMounted(() => {
             <button
               type="button"
               class="inline-flex items-center justify-center gap-1 rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2.5 text-xs font-medium text-red-200 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="!selectedCommand || deleting"
+              :disabled="!ready || loading || saving || !selectedCommand || deleting"
               @click="deleteSelectedCommand"
             >
               <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

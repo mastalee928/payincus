@@ -323,7 +323,7 @@
 | R1-281 | 存在 | 源码已修/Chrome验证通过 | 选择变化清预览，modal/session/实例与套餐现有方案/读取seq绑定，按钮与函数共用有效预览门禁，提交固定instanceId/planId且跨重开busy，旧写回执不干扰新表单，去迟到500ms提醒。takeover-change-plan-browser-final.log覆盖ABA/错误/身份/资格/重复提交与卸载；types/4守卫/lint及构建证据见HANDOFF。后台报价/授权/远端完整验收另待。 |
 | R1-282 | 存在 | 源码已修/Chrome验证通过 | KeepAlive激活停用注册/释放监听，离页清浮层但保连接；延迟剪贴板/聚焦绑定页面与session/标签/socket，输入框快捷键保留，标签button拆独立。takeover-terminal-lifecycle-final.log真实Chrome含fresh mobile/types/4守卫及route复跑/lint，构建证据见HANDOFF；WebSocket/clipboard受控，R283旧会话/票据与R284命令草稿仍待。 |
 | R1-283 | 存在 | 源码已修/Chrome验证通过 | 换session/logout销毁旧tab/连接/timer，list、cloud-init、ticket/attempt及WS事件/Blob/重连绑定原session+tab+socket；普通缓存保连接。takeover-terminal-session-final.log与R282回归/types/4守卫/lint通过，构建见HANDOFF；真实Chrome但API/socket替身，原生SSH/Incus未验。命令栏会话另见R284。 |
-| R1-284 | 存在 | 待精修/运行复核 | keep-alive仅unmount清键盘监听；cloud-init/命令结果缺完整会话代次；保存后清当前草稿；页签button嵌套button。 |
+| R1-284 | 存在 | 源码已修/Chrome验证通过 | 快捷命令按session/缓存/手机显隐隔离，list序号/ready/持久失败重试，固定写目标且保留新草稿/选择，在途写跨重开busy并重新加载；拆嵌套button并修手机定位。takeover-terminal-commands-final.log与父终端回归/types/3守卫+route复跑/lint/最终双端build及dist通过，API受控，真实命令落库/SSH未验。 |
 | R1-285 | 存在 | 待精修/运行复核 | openTicketDetail Promise.all后直接赋selectedTicket/messages；reply await后push当前messages并清当前draft，缺固定ticket代次。 |
 | R1-286 | 部分存在 | 待精修/运行复核 | 已有latestRequestId，但核对后await loadStats再建timer，卸载/目标改变仍可在间隙发生。 |
 | R1-287 | 存在 | 待精修/运行复核 | 预览捕获ID，确认却重新读selectedBillingActionIds，提交集合可与已预览付款对象不一致。 |

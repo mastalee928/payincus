@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-284 快捷命令草稿与会话隔离
+
+- cc5fd54已push核远端一致；935dac5源码CI40779050593已success，e799c90/cc5fd54最后仍运行。快捷命令绑定账号/角色/session、KeepAlive与手机显隐代次，列表独立序号和ready门禁，失败清旧内容并保留重试。相同sid刷新保持，退出或切换清旧列表/选择/草稿，旧success/error/finally不污染新上下文。
+- create/update固定提交参数和编辑目标，成功不清随后修改的草稿；delete固定原目标且保留后来选择。在途写跨重开保持busy，settle后重新加载当前会话再允许执行。选择和编辑拆独立button；修手机容器同时relative/fixed造成的文字左溢出。
+- `takeover-terminal-commands-before.log`Chrome先红保存清新草稿；`takeover-terminal-commands-final.log`通过新输入/切编辑保留、重复保存、固定目标、旧error/list/finally、失败重试、同sid/换session/logout、delete改选、缓存/手机在途写及卸载。1440中文/390英文截图已核，零运行异常/横向溢出，手机过渡结束标题位置非负。`takeover-terminal-commands-parent-regression.log`父终端R282回归通过，API受控，不等于真实命令落库或SSH执行。
+- client types、3相关守卫及最终route复跑、lint零error/warning、manifest191/101通过。双端build exit0后手机样式再变更，已补最终user build exit0（`takeover-terminal-commands-user-final-build.log`），最终dist边界通过；专项登记Chrome CI。
+- 下一项R285真实Chrome先红（`takeover-ticket-lifecycle-before.log`）：路由切到2后旧工单1响应覆盖当前详情；工单详情/回复/附件/支持上下文及后端相关授权守卫已读，产品未改，四个新夹具不混进本提交。327、R269和完整灾备未完成。
+
 ## 2026-10-29 R1-283 终端会话与连接回执隔离
 
 - e799c90已push核远端一致，090afa6源码CI40778093662已success；e799c90/935dac5最后仍运行。TerminalView换账号/角色/session及logout销毁旧标签、连接/重连timer、实例列表与浮层，同sid刷新保持。实例列表单独请求序号与缓存激活校验，清旧列表/选择；只允许当前运行实例建立新标签。
