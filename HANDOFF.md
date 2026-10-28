@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-241 VIP大厅读取与可见周期
+
+- R239 5b5d3ed已push并核远端一致，CI40737293969仍运行；R240 CI40735740894最终success。父Entertainment的v-show现在传active，组件按挂载/KeepAlive/页签/session建立上下文，GET可取消且迟到success/error/finally拒绝。初读/恢复读失败持久显示并提供重试，失败状态不允许领取；同SID token刷新不重载。
+- 已发领取不当作可取消动作：隐藏不释放其门禁，返回/换会话等最后在途写settle后读实际结果，旧回执不覆盖页面或弹提示。反馈两个timer记录并在隐藏/换会话/卸载清除；卸载旧读写不能影响新实例。单项与批量的同上下文重叠留R242，反馈snapshot优先级留R243，不宣称全部领取竞争已修。
+- `logs/takeover-vip-hall-before.log`真实Vue/Chrome先复现隐藏返回请求数仍1；`takeover-vip-hall-browser.log`最终通过v-show/KeepAlive/旧读取消后强制回执、读错误重试、token/session/退出、单项和批量在途写、失败恢复读、反馈清除/卸载和三语1440/390。API为受控夹具，无真实发奖或账目变化；截图已看桌面中文/手机英文。
+- `takeover-vip-hall-guards.log`4/4、相关前端lint零报告、双端vue-tsc/build、dist boundary及清单191常规/74环境排除通过，新Chrome专项接CI。后端领取锁/次数/资金/快照实现已读，未改；不能将前端夹具当成线上账目验收。327及完整灾备继续。
+
 ## 2026-10-29 R1-239 VIP奖励分步保存恢复
 
 - R240 c465d9a已push并核远端一致，CI40735740894仍运行。管理员保存加同步门禁、固定ID/草稿payload快照和fieldset冻结；成功create立即记回服务器ID，成功delete移出待删队列。部分失败/结果不确定/保存后重读失败持久提示，必须重新读取核对实际结果，未保存草稿明确会被替换，禁止盲目整批重发。

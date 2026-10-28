@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api, {
   type VipBenefitClaim,
@@ -10,14 +10,33 @@ import api, {
 } from '@/api'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import { translateError } from '@/utils/errorHandler'
 
+const props = withDefaults(defineProps<{ active?: boolean }>(), { active: true })
 const { t } = useI18n()
 const toast = useToast()
+const auth = useAuthStore()
+const mounted = ref(false), activated = ref(true)
+const sessionKey = computed(() => {
+  if (!auth.token || !auth.user) return ''
+  let identity = auth.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${auth.user.id}:${auth.user.role}:${identity}`
+})
+const active = computed(() => mounted.value && activated.value && props.active && !!sessionKey.value)
+let disposed = false, contextSequence = 0, readSequence = 0, refreshNeeded = false
+let readController: AbortController | undefined
+function currentContext(context: number) { return !disposed && active.value && context === contextSequence }
 
 const loading = ref(true)
+const loadError = ref('')
 const claimingIds = ref<number[]>([])
 const bulkClaiming = ref(false)
+const writing = computed(() => bulkClaiming.value || claimingIds.value.length > 0)
 const overview = ref<VipBenefitOverviewResponse | null>(null)
 
 interface ClaimFeedback {
@@ -31,6 +50,13 @@ interface ClaimFeedback {
 
 const claimFeedbacks = ref<ClaimFeedback[]>([])
 let nextFeedbackId = 0
+const feedbackTimers = new Set<number>()
+
+function clearFeedback(): void {
+  feedbackTimers.forEach(timer => window.clearTimeout(timer))
+  feedbackTimers.clear()
+  claimFeedbacks.value = []
+}
 
 const currentLevelLabel = computed(() => {
   const level = overview.value?.currentLevel || 0
@@ -128,7 +154,7 @@ function claimButtonLabel(reward: VipBenefitReward): string {
 }
 
 function canClaim(reward: VipBenefitReward): boolean {
-  return reward.state === 'claimable' && !bulkClaiming.value && !isRewardClaiming(reward)
+  return active.value && !loading.value && !loadError.value && !!overview.value && reward.state === 'claimable' && !bulkClaiming.value && !isRewardClaiming(reward)
 }
 
 function isRewardClaiming(reward: VipBenefitReward): boolean {
@@ -165,40 +191,74 @@ function removeClaimFeedback(id: number): void {
 }
 
 function showClaimFeedback(feedback: Omit<ClaimFeedback, 'id'>, delay = 0): void {
-  window.setTimeout(() => {
+  const context = contextSequence
+  const showTimer = window.setTimeout(() => {
+    feedbackTimers.delete(showTimer)
+    if (!currentContext(context)) return
     const id = ++nextFeedbackId
     claimFeedbacks.value = [{ id, ...feedback }, ...claimFeedbacks.value].slice(0, 8)
-    window.setTimeout(() => removeClaimFeedback(id), 4200)
+    const hideTimer = window.setTimeout(() => {
+      feedbackTimers.delete(hideTimer)
+      if (currentContext(context)) removeClaimFeedback(id)
+    }, 4200)
+    feedbackTimers.add(hideTimer)
   }, delay)
+  feedbackTimers.add(showTimer)
 }
 
 async function loadBenefits(): Promise<void> {
-  loading.value = true
-  try {
-    overview.value = await api.vipBenefits.getMyOverview()
-  } catch (error: any) {
-    toast.error(translateError(error))
-  } finally {
-    loading.value = false
+  if (disposed || !active.value) return
+  if (writing.value) {
+    refreshNeeded = true
+    loading.value = true
+    return
   }
+  refreshNeeded = false
+  const context = contextSequence, request = ++readSequence
+  readController?.abort()
+  const controller = new AbortController(); readController = controller
+  const current = () => currentContext(context) && request === readSequence
+  loading.value = true
+  loadError.value = ''
+  try {
+    const response = await api.vipBenefits.getMyOverview(controller.signal)
+    if (current()) overview.value = response
+  } catch (error: any) {
+    if (current()) loadError.value = translateError(error)
+  } finally {
+    if (current()) loading.value = false
+  }
+}
+
+function refreshAfterWrite(context: number): void {
+  if (!disposed && !writing.value && active.value && (refreshNeeded || !currentContext(context))) void loadBenefits()
+}
+
+function retryLoad(): void {
+  if (!loading.value && !writing.value) void loadBenefits()
 }
 
 async function claimReward(reward: VipBenefitReward): Promise<void> {
   if (!canClaim(reward)) return
+  const context = contextSequence
   setRewardClaiming(reward.id, true)
   try {
     const response = await api.vipBenefits.claim(reward.id)
+    if (!currentContext(context)) return
     overview.value = response.overview
     showClaimFeedback(claimFeedbackFromClaim(response.claim, reward))
   } catch (error: any) {
+    if (!currentContext(context)) return
     toast.error(translateError(error))
     await loadBenefits()
   } finally {
     setRewardClaiming(reward.id, false)
+    refreshAfterWrite(context)
   }
 }
 
 async function claimAllRewards(): Promise<void> {
+  if (!active.value || loading.value || loadError.value || !overview.value) return
   if (!hasClaimableRewards.value || bulkClaiming.value) {
     if (!hasClaimableRewards.value) {
       toast.info(t('vipBenefits.noClaimableReward'))
@@ -206,10 +266,12 @@ async function claimAllRewards(): Promise<void> {
     return
   }
 
+  const context = contextSequence
   const rewardLookup = new Map((overview.value?.rewards || []).map(reward => [reward.id, reward]))
   bulkClaiming.value = true
   try {
     const response = await api.vipBenefits.claimAll()
+    if (!currentContext(context)) return
     overview.value = response.overview
 
     if (response.claims.length === 0) {
@@ -222,17 +284,30 @@ async function claimAllRewards(): Promise<void> {
       showClaimFeedback(claimFeedbackFromClaim(claim, reward), index * 120)
     })
   } catch (error: any) {
+    if (!currentContext(context)) return
     toast.error(translateError(error))
     await loadBenefits()
   } finally {
     bulkClaiming.value = false
-    claimingIds.value = []
+    refreshAfterWrite(context)
   }
 }
 
-onMounted(() => {
-  void loadBenefits()
-})
+watch([active, sessionKey], () => {
+  contextSequence++
+  readSequence++
+  readController?.abort()
+  clearFeedback()
+  overview.value = null
+  loadError.value = ''
+  loading.value = active.value
+  refreshNeeded = active.value
+  if (active.value) void loadBenefits()
+}, { flush: 'sync' })
+onMounted(() => { mounted.value = true })
+onActivated(() => { activated.value = true })
+onDeactivated(() => { activated.value = false })
+onUnmounted(() => { disposed = true; contextSequence++; readSequence++; readController?.abort(); clearFeedback() })
 </script>
 
 <template>
@@ -268,6 +343,11 @@ onMounted(() => {
         </div>
       </article>
     </TransitionGroup>
+
+    <div v-if="loadError" class="card p-5" role="alert">
+      <p class="break-words text-sm text-red-600 dark:text-red-400">{{ loadError }}</p>
+      <button class="btn btn-secondary mt-3" type="button" :disabled="loading || writing" @click="retryLoad">{{ t('common.retry') }}</button>
+    </div>
 
     <div v-if="loading" class="card p-6">
       <SkeletonLoader type="card" :rows="4" />
@@ -335,7 +415,7 @@ onMounted(() => {
               <button
                 class="btn w-full md:w-auto"
                 :class="hasClaimableRewards ? 'btn-primary' : 'btn-secondary'"
-                :disabled="!hasClaimableRewards || bulkClaiming"
+                :disabled="!active || loading || !!loadError || !hasClaimableRewards || bulkClaiming"
                 @click="claimAllRewards"
               >
                 {{ bulkClaiming ? t('vipBenefits.claimingAll') : t('vipBenefits.claimAll') }}

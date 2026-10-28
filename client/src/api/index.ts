@@ -3730,7 +3730,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
 
   // ==================== VIP 福利 API ====================
   vipBenefits: {
-    getMyOverview: (): Promise<VipBenefitOverviewResponse> => http.get('/vip-benefits/me'),
+    getMyOverview: (signal?: AbortSignal): Promise<VipBenefitOverviewResponse> => http.get('/vip-benefits/me', { signal }),
     claim: (rewardId: number): Promise<{
       claim: VipBenefitClaim
       overview: VipBenefitOverviewResponse

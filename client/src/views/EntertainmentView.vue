@@ -925,7 +925,7 @@ function getWheelTextTransform(index: number, total: number): string {
     </nav>
 
     <div v-show="mainTab === 'vip'">
-      <VipBenefitHall />
+      <VipBenefitHall :active="mainTab === 'vip'" />
     </div>
 
     <!-- ==================== 抽奖功能区域 ==================== -->

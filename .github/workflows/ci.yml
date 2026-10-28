@@ -196,6 +196,8 @@ jobs:
         run: pnpm --filter server test:review-vip-reward-description
       - name: Verify VIP reward editor in Chrome
         run: pnpm --filter server test:review-vip-reward-editor
+      - name: Verify VIP benefit hall in Chrome
+        run: pnpm --filter server test:review-vip-benefit-hall
       - name: Verify package empty fields in PostgreSQL
         run: pnpm --filter server test:review-package-empty-fields
 

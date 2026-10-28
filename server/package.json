@@ -10,6 +10,7 @@
     "test:review-prize-stock": "node --import tsx scripts/test-review-prize-stock.ts",
     "test:review-vip-reward-description": "node --import tsx scripts/test-review-vip-reward-description.ts",
     "test:review-vip-reward-editor": "node ../scripts/test-vip-reward-editor.mjs",
+    "test:review-vip-benefit-hall": "node ../scripts/test-vip-benefit-hall.mjs",
     "test:review-prize-editor": "node ../scripts/test-prize-editor.mjs",
     "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",
