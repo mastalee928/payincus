@@ -168,6 +168,7 @@ jobs:
           pnpm --filter server test:review-ticket-pagination
           pnpm --filter server test:review-ticket-target
           pnpm --filter server test:review-ticket-authorization
+          pnpm --filter server test:review-ticket-image-proxy
 
   remote-gateway-setup-integration:
     name: Remote gateway setup journal integration

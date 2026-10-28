@@ -29,6 +29,13 @@ assert.ok(
   ticketsSource.includes("Attachment image type is not allowed"),
   'ticket attachment proxy must reject legacy/stored attachments with unsafe MIME types'
 )
+assert.ok(ticketsSource.includes('class RemoteImageTooLargeError extends Error') &&
+  ticketsSource.includes('error instanceof RemoteImageTooLargeError') &&
+  ticketsSource.includes("'Remote image request timed out'") &&
+  ticketsSource.includes('apiError(ErrorCode.UPSTREAM_ERROR, message)') &&
+  ticketsSource.includes('reader.releaseLock()') && ticketsSource.includes('controller.abort()') &&
+  ticketsSource.includes('await upstream.body.cancel().catch(() => undefined)'),
+  'proxy failures must distinguish bounded messages and release every rejected or interrupted upstream body')
 
 assert.ok(
   lskySource.includes('const ALLOWED_LSKY_IMAGE_MIME_TYPES = new Set'),

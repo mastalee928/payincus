@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-190 图片代理错误与上游释放
+
+- ID范围`bb35a0a9cb876bf14e9af9d53164a0aae8646f82`已push并核远端一致，CI40664055361记录时运行；通知5772373 CI40663666326最终success。
+- 图片代理保留URL/连接期私网校验、manual重定向和50MiB逐块上限；统一finally中断请求、释放reader并取消未读body，涵盖HTTP错误、重定向、非法MIME、头部超限及读取失败。超限/超时/读取失败只返回固定UPSTREAM_ERROR提示，不暴露异常正文。复审也纠正旧描述：原INTERNAL_ERROR实际会移除details，用户收到通用错误而不是可见的“过大”。
+- `logs/takeover-ticket-image-r1.log`15实际PG/Fastify场景通过：越权零外发、私网零fetch、302/503、HTML/SVG及无安全MIME、声明超限、伪短长度持续流超限、reset/fetch错误、真实15秒body超时、正常bytes/MIME回退/私有缓存/nosniff及释放。fetch传输被截获，没有实际图床/公网socket；不冒充外部集成。
+- 5/5守卫`takeover-ticket-image-guards-final.log`、server build `takeover-ticket-image-build.log`、专项类型`takeover-ticket-image-types-final.log`、188清单/58活体排除检查通过。新PG专项登记CI。初次守卫only错写无匹配名称及初次专项tsc闭包类型失败均已更正，不算通过证据。327及PAT/POA在途授权、普通事件通知/外部outbox等仍待。
+
 ## 2026-10-28 R1-184/185 工单ID数据库上限复审
 
 - 通知`57723738a58f641d2e3e3d13b0aad6df0d9b7f1d`已push并核远端一致；关联对象510e903 CI40662708627最终success。

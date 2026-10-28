@@ -219,7 +219,7 @@
 | R1-187 | 存在 | 源码已修/隔离PG验证通过 | createTicket事务持instance/host行锁，重核owner/host/未删除，网站与Public API目标冲突409；实际PG/Fastify helper及网站6个行锁竞争、正常关联/无实例、首消息故障全回滚通过takeover-ticket-target-r1.log，4守卫与build/type通过。PAT/附件完整实跑及R186当前账户/通知仍待 |
 | R1-188 | 已有防护 | 保留初审结论 | assertSafeHttpUrl+safeFetch连接校验，redirect manual；stream逐段限制MAX_TICKET_IMAGE_SIZE。 |
 | R1-189 | 已有防护 | 保留初审结论 | assertSafeHttpUrl+safeFetch连接校验，redirect manual；stream逐段限制MAX_TICKET_IMAGE_SIZE。 |
-| R1-190 | 部分存在 | 待精修/运行复核 | body异常已捕获返回502，原500问题已防；超时/reset统一说image too large，错误准确性仍差。 |
+| R1-190 | 部分存在 | 源码已修/隔离PG验证通过 | 原body异常已有502且INTERNAL_ERROR隐藏details；现固定区分超限/超时/读取失败。reader释放、请求abort及未读body取消覆盖HTTP/MIME/限长/中断；15实际PG/Fastify+截获fetch场景含真实15秒截止通过takeover-ticket-image-r1.log，5守卫/build/types通过，实际图床/浏览器未验 |
 | R1-191 | 实现不同 | 保留初审结论 | 当前Telegram路由未发现Bot工单回复入口，主要绑定/webhook/群组功能；现行网站工单写入风险另见R186/187，不据旧Bot清单虚构本库运行调用链。 |
 | R1-192 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-193 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |

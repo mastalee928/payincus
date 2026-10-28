@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-ticket-image-proxy', 'requires isolated local *_pool_test PostgreSQL; real Fastify image proxy access, body timeout and cancellation with intercepted fetch transport'],
   ['test:review-ticket-authorization', 'requires isolated local *_pool_test PostgreSQL; real Fastify ticket creation actor/session revocation and account row-lock races'],
   ['test:review-ticket-target', 'requires isolated local *_pool_test PostgreSQL; real ticket creation races with instance ownership/host/deletion changes and DB rollback'],
   ['test:review-ticket-pagination', 'requires isolated local *_pool_test PostgreSQL; real Fastify ticket list/message pagination and numeric search boundaries'],

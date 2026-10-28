@@ -115,16 +115,18 @@ function normalizeTicketStatusBody(body: unknown): TicketStatus | null {
     : null
 }
 
+class RemoteImageTooLargeError extends Error {}
+
 async function readRemoteImageBody(response: Response): Promise<Buffer> {
   const contentLength = Number(response.headers.get('content-length') || '0')
   if (Number.isFinite(contentLength) && contentLength > MAX_TICKET_IMAGE_SIZE) {
-    throw new Error('Remote image is too large')
+    throw new RemoteImageTooLargeError('Remote image is too large')
   }
 
   if (!response.body) {
     const buffer = Buffer.from(await response.arrayBuffer())
     if (buffer.length > MAX_TICKET_IMAGE_SIZE) {
-      throw new Error('Remote image is too large')
+      throw new RemoteImageTooLargeError('Remote image is too large')
     }
     return buffer
   }
@@ -140,13 +142,12 @@ async function readRemoteImageBody(response: Response): Promise<Buffer> {
       const chunk = Buffer.from(value)
       totalBytes += chunk.length
       if (totalBytes > MAX_TICKET_IMAGE_SIZE) {
-        throw new Error('Remote image is too large')
+        throw new RemoteImageTooLargeError('Remote image is too large')
       }
       chunks.push(chunk)
     }
-  } catch (error) {
-    await reader.cancel().catch(() => undefined)
-    throw error
+  } finally {
+    reader.releaseLock()
   }
 
   return Buffer.concat(chunks, totalBytes)
@@ -364,42 +365,46 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
       return reply.code(404).send(apiError(ErrorCode.NOT_FOUND))
     }
 
-    let upstream: Response
+    const controller = new AbortController()
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(TICKET_PROXY_FETCH_TIMEOUT_MS)])
+    let upstream: Response | undefined
     try {
       const safeImageUrl = await assertSafeHttpUrl(attachment.url, 'Ticket attachment image URL')
       upstream = await safeFetch(safeImageUrl.toString(), {
         redirect: 'manual',
-        signal: AbortSignal.timeout(TICKET_PROXY_FETCH_TIMEOUT_MS)
+        signal
       }, 'Ticket attachment image URL')
-    } catch {
-      return reply.code(502).send(apiError(ErrorCode.INTERNAL_ERROR, 'Failed to load remote image'))
-    }
 
-    if (!upstream.ok) {
-      return reply.code(502).send(apiError(ErrorCode.INTERNAL_ERROR, 'Failed to load remote image'))
-    }
+      if (!upstream.ok) {
+        return reply.code(502).send(apiError(ErrorCode.UPSTREAM_ERROR, 'Failed to load remote image'))
+      }
 
-    const upstreamMimeType = normalizeAllowedImageMimeType(upstream.headers.get('content-type'))
-    const storedMimeType = normalizeAllowedImageMimeType(attachment.mimeType)
-    if (upstream.headers.get('content-type') && !upstreamMimeType) {
-      return reply.code(502).send(apiError(ErrorCode.INTERNAL_ERROR, 'Remote file is not an allowed image type'))
-    }
-    const responseMimeType = upstreamMimeType ?? storedMimeType
-    if (!responseMimeType) {
-      return reply.code(502).send(apiError(ErrorCode.INTERNAL_ERROR, 'Attachment image type is not allowed'))
-    }
+      const upstreamMimeType = normalizeAllowedImageMimeType(upstream.headers.get('content-type'))
+      const storedMimeType = normalizeAllowedImageMimeType(attachment.mimeType)
+      if (upstream.headers.get('content-type') && !upstreamMimeType) {
+        return reply.code(502).send(apiError(ErrorCode.UPSTREAM_ERROR, 'Remote file is not an allowed image type'))
+      }
+      const responseMimeType = upstreamMimeType ?? storedMimeType
+      if (!responseMimeType) {
+        return reply.code(502).send(apiError(ErrorCode.UPSTREAM_ERROR, 'Attachment image type is not allowed'))
+      }
 
-    let imageBuffer: Buffer
-    try {
-      imageBuffer = await readRemoteImageBody(upstream)
-    } catch {
-      return reply.code(502).send(apiError(ErrorCode.INTERNAL_ERROR, 'Remote image is too large'))
-    }
+      const imageBuffer = await readRemoteImageBody(upstream)
 
-    reply.header('Cache-Control', 'private, max-age=300')
-    reply.header('X-Content-Type-Options', 'nosniff')
-    reply.header('Content-Type', responseMimeType)
-    return reply.send(imageBuffer)
+      reply.header('Cache-Control', 'private, max-age=300')
+      reply.header('X-Content-Type-Options', 'nosniff')
+      reply.header('Content-Type', responseMimeType)
+      return reply.send(imageBuffer)
+    } catch (error) {
+      const message = error instanceof RemoteImageTooLargeError ? 'Remote image is too large'
+        : signal.aborted || (error instanceof Error && error.name === 'TimeoutError') ? 'Remote image request timed out'
+          : 'Failed to load remote image'
+      return reply.code(502).send(apiError(ErrorCode.UPSTREAM_ERROR, message))
+    } finally {
+      // Stop unread HTTP/MIME/size-rejected bodies as well as timed-out streams.
+      controller.abort()
+      if (upstream?.body && !upstream.body.locked) await upstream.body.cancel().catch(() => undefined)
+    }
   })
 
     /**
