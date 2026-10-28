@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-243 VIP领取反馈使用实际快照
+
+- R242 46593e1已push并核远端一致，CI40741048390最后仍运行。反馈优先claim.snapshot的type/title/config，旧卡片仅用于缺失快照且类型相符的兼容回退；批量余额/积分/待发实例均按本次服务端领取快照展示。R241已清两级timer，本项补自然过期与批量延迟边界验证。
+- `logs/takeover-vip-feedback-before.log`真实Chrome先复现snapshot新名称仍显示旧卡片；`takeover-vip-feedback-browser.log`最终通过新名称/类型/数额、三类批量、legacy回退、真实4550ms自然过期、响应同任务隐藏后延迟反馈不出现，并回归R241/242。首轮计数错误取了正在move动画的两张卡，已改统计实际DOM提示卡，总数3未降低断言。API受控，非线上实际到账验证。
+- `takeover-vip-feedback-guards.log`3/3、Vue lint零报告、双端vue-tsc/build及dist通过。下一项R245真实Chrome已先红：初读失败后仍发空规则替换；后端空数组明确会delete该type规则，源码及守卫已读。新rules专项/夹具扩展尚未提交，327持续。
+
 ## 2026-10-29 R1-242 VIP领取互斥
 
 - R241 c468e21已push并核远端一致，CI40739551744最终success；R239 CI40737293969最终success。当前页面任一单项/批量领取在途时统一禁下一笔，两个入口同步检查writing；不同奖励也串行，避免旧overview覆盖较新领取结果。后端用户领取锁、次数、资金/积分锁与逐笔批量合同保持，未新增跨浏览器幂等。

@@ -173,9 +173,14 @@ function setRewardClaiming(rewardId: number, value: boolean): void {
 
 function claimFeedbackFromClaim(claim: VipBenefitClaim, reward?: VipBenefitReward): Omit<ClaimFeedback, 'id'> {
   const snapshot = claim.snapshot || {}
-  const type = reward?.type || (isRewardType(snapshot.type) ? snapshot.type : 'balance')
-  const title = reward?.title || (typeof snapshot.title === 'string' && snapshot.title.trim() ? snapshot.title : t('vipBenefits.rewardReceived'))
-  const detail = reward ? rewardValue(reward) : formatRewardValue(type, snapshotConfig(claim))
+  const type = isRewardType(snapshot.type) ? snapshot.type : (reward?.type || 'balance')
+  const title = typeof snapshot.title === 'string' && snapshot.title.trim()
+    ? snapshot.title
+    : (reward?.title || t('vipBenefits.rewardReceived'))
+  const config = snapshot.config && typeof snapshot.config === 'object' && !Array.isArray(snapshot.config)
+    ? snapshotConfig(claim)
+    : (reward?.type === type ? reward.config : {})
+  const detail = formatRewardValue(type, config)
 
   return {
     title,

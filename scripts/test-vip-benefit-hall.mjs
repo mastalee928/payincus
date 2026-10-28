@@ -45,7 +45,7 @@ try {
   const claim = { id: 11, rewardId: 1, level: 1, status: 'delivered', claimNo: 1, snapshot: { type: 'balance', title: reward.title, config: { amount: 12 } } }
   const titles = () => page.eval(() => [...document.querySelectorAll('h3')].map(el => el.textContent))
   const effects = () => page.eval(() => window.vipHallHarness.toastEvents.length)
-  const feedbacks = () => page.eval(() => document.querySelectorAll('.vip-claim-pop-move').length || document.querySelectorAll('.fixed article').length)
+  const feedbacks = () => page.eval(() => document.querySelectorAll('.fixed article').length)
   await accept('overview', overview())
   assert.equal(await count('overview'), 1, 'mounted and activated must not double load')
   const claimsBeforeBurst = await count('claim'), bulkBeforeSingle = await count('claimAll')
@@ -172,6 +172,43 @@ try {
   await run(() => { window.vipHallHarness.auth.token = ''; window.vipHallHarness.auth.user = null })
   assert.deepEqual(await titles(), [])
   await run(() => { window.vipHallHarness.auth.user = { id: 2, role: 'user' }; window.vipHallHarness.session('g') }); await accept('overview', overview())
+  await click('vipBenefits.claim')
+  const snapshotClaim = { ...claim, snapshot: { type: 'points', title: 'Actual delivered reward', config: { amount: 75 } } }
+  await accept('claim', { claim: snapshotClaim, overview: overview() })
+  assert.ok(await page.eval(() => document.querySelector('.fixed article')?.textContent.includes('Actual delivered reward')), 'feedback must use delivered snapshot title')
+  assert.ok(await page.eval(() => document.querySelector('.fixed article')?.textContent.includes('75')), 'feedback must use delivered snapshot amount')
+  assert.ok(await page.eval(() => !document.querySelector('.fixed article')?.textContent.includes('12.00')), 'old card amount must not leak into feedback')
+  await sleep(4550)
+  assert.equal(await feedbacks(), 0, 'feedback expires using the real timer')
+  await click('vipBenefits.claim')
+  await accept('claim', { claim: { ...claim, snapshot: {} }, overview: overview() })
+  assert.ok(await page.eval(() => document.querySelector('.fixed article')?.textContent.includes('Fixture balance reward')), 'legacy empty snapshot may use matching card')
+  assert.ok(await page.eval(() => document.querySelector('.fixed article')?.textContent.includes('12.00')))
+  await run(() => { window.vipHallHarness.state.active = false }); await sleep(320)
+  await run(() => { window.vipHallHarness.state.active = true }); await accept('overview', overview())
+  await click('vipBenefits.claimAll')
+  const batchClaims = [
+    { ...claim, snapshot: { type: 'balance', title: 'Snapshot balance', config: { amount: 42.5 } } },
+    { ...claim, id: 12, rewardId: 2, snapshot: { type: 'points', title: 'Snapshot points', config: { amount: 91 } } },
+    { ...claim, id: 13, rewardId: 3, status: 'pending', snapshot: { type: 'instance', title: 'Snapshot instance', config: { planName: 'Actual plan', days: 45, quantity: 2 } } }
+  ]
+  await accept('claimAll', { claims: batchClaims, overview: overview() }); await sleep(320)
+  assert.equal(await feedbacks(), 3)
+  assert.ok(await page.eval(() => {
+    const text = document.querySelector('.fixed').textContent
+    return text.includes('42.50') && text.includes('91') && text.includes('Actual plan') && text.includes('45') && text.includes(window.vipHallHarness.t('vipBenefits.feedback.pending'))
+  }))
+  await run(() => { window.vipHallHarness.state.active = false }); await sleep(320)
+  await run(() => { window.vipHallHarness.state.active = true }); await accept('overview', overview())
+  // Hide in the same task as the response: none of the delayed batch feedback may escape.
+  await click('vipBenefits.claimAll')
+  await run(data => {
+    window.vipHallHarness.pending.findLast(item => item.kind === 'claimAll').resolve(data)
+    queueMicrotask(() => { window.vipHallHarness.state.active = false })
+  }, { claims: batchClaims, overview: overview() })
+  await sleep(400)
+  await run(() => { window.vipHallHarness.state.active = true }); await accept('overview', overview())
+  assert.equal(await feedbacks(), 0, 'delayed bulk feedback cannot appear after returning')
 
   for (const locale of ['zh-CN', 'zh-TW', 'en-US']) for (const width of [1440, 390]) {
     await run(({ locale, width }) => { window.vipHallHarness.setLocale(locale); window.vipHallHarness.theme.setTheme(width === 390 ? 'dark' : 'light') }, { locale, width })
@@ -179,5 +216,5 @@ try {
     await page.screenshot({ path: resolve(output, `${locale}-${width}.png`) })
     assert.equal(await page.eval(() => document.documentElement.scrollWidth <= innerWidth), true)
   }
-  console.log('PASS actual VIP hall: v-show/KeepAlive/session lifecycle, read cancellation and stale results, initial/recovery retry, in-flight write settlement, old success/error isolation, feedback cleanup, logout and unmount; 3 locales desktop/mobile. Controlled API, no real claims.')
+  console.log('PASS actual VIP hall: lifecycle/read/write isolation and recovery; synchronous single/bulk/different-reward gates; snapshot title/type/amount for balance/points/pending instances, legacy fallback, natural expiry and hidden delayed batch cleanup; 3 locales desktop/mobile. Controlled API, no real claims.')
 } finally { if (browser) await browser.close(); await server.close() }
