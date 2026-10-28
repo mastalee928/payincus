@@ -164,7 +164,9 @@ jobs:
           pnpm --filter server test:review-restore-authorization
           pnpm --filter server test:review-restore-replacement
       - name: Verify ticket pagination against PostgreSQL
-        run: pnpm --filter server test:review-ticket-pagination
+        run: |
+          pnpm --filter server test:review-ticket-pagination
+          pnpm --filter server test:review-ticket-target
 
   remote-gateway-setup-integration:
     name: Remote gateway setup journal integration

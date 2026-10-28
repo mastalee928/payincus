@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-187 工单创建关联实例复核
+
+- R183提交`84f8464c95c67012b64dfbc178aad06d53c40d62`已push并核远端一致，[CI40658726890](https://github.com/mastalee928/payincus/actions/runs/40658726890)success。
+- 创建工单事务内持原实例/宿主行锁，核对实例当前owner、host与未删除状态后才写工单及首条消息；不允许无实例却任意关联host。网站和Public API共享此helper，目标变化均在附件清理后返回409。不会以旧路由快照决定提交关联。
+- `logs/takeover-ticket-target-r1.log`实际PG/Fastify验证helper和网站路由共六种竞争：事务先改owner/host/deleted并持锁，实际观察pg阻塞后提交变化，创建409/目标异常且零工单消息；正常关联/无实例创建及首条消息trigger故障全回滚通过。Public API共用helper与守卫已核，完整PAT认证/附件服务未实跑；R186当前账户/session和通知目标仍需后续修复，不能称工单权限全面完成。
+- server build/type-check `takeover-ticket-target-build.log`、包含两专项的独立类型检查`takeover-ticket-target-typecheck.log`与4/4工单/Public API守卫`takeover-ticket-target-guards.log`通过。新专项已接CI；无迁移/前端/生产操作，按owner授权保存后继续。
+
 ## 2026-10-28 R1-183 工单分页与数字搜索
 
 - 旧恢复无身份回滚修复`5e3d3a1860892d9b14ecbc702bbaa7db99c014ed`已推送main、远端一致，[CI40657754668](https://github.com/mastalee928/payincus/actions/runs/40657754668)success。

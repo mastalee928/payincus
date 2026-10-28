@@ -185,6 +185,13 @@ assert.ok(
   'ticket create route must reject malformed optional instanceId instead of silently creating an unscoped admin ticket'
 )
 
+const createTicketDb = sectionBetween(ticketsDbSource, 'export async function createTicket(', '/**\n * 获取工单详情')
+assert.ok(createTicketDb.includes('SELECT id FROM instances WHERE id = ${data.instanceId} FOR SHARE') &&
+  createTicketDb.includes("instance.status === 'deleted' || instance.userId !== data.userId || instance.hostId !== data.hostId") &&
+  createTicketDb.indexOf('throw new TicketMutationError(') < createTicketDb.indexOf('tx.ticket.create(') &&
+  createTicketRoute.includes('error instanceof ticketDb.TicketMutationError'),
+  'ticket creation must lock and recheck the current instance before writing, with a recoverable target conflict response')
+
 assert.ok(
   createTicketRoute.includes("getSystemConfigBoolean('ticket_enabled', true)") &&
     (ticketsRouteSource.match(/getSystemConfigBoolean\('ticket_enabled', true\)/g) ?? []).length === 1 &&

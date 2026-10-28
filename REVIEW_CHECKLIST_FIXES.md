@@ -216,7 +216,7 @@
 | R1-184 | 已有防护 | 保留初审结论 | strict positive safe ID；无效optional返回null并报错，不静默截断。 |
 | R1-185 | 已有防护 | 保留初审结论 | strict positive safe ID；无效optional返回null并报错，不静默截断。 |
 | R1-186 | 存在 | 待精修/运行复核 | 网站工单路由先授权，图片上传等await之后事务直接create；事务未接actor/session核验，认证后封禁/注销/降权窗口待DB实证。 |
-| R1-187 | 存在 | 待精修/运行复核 | 创建先查实例归属后await图片上传再db.createTicket，写入事务没有重新核对实例归属/删除状态。 |
+| R1-187 | 存在 | 源码已修/隔离PG验证通过 | createTicket事务持instance/host行锁，重核owner/host/未删除，网站与Public API目标冲突409；实际PG/Fastify helper及网站6个行锁竞争、正常关联/无实例、首消息故障全回滚通过takeover-ticket-target-r1.log，4守卫与build/type通过。PAT/附件完整实跑及R186当前账户/通知仍待 |
 | R1-188 | 已有防护 | 保留初审结论 | assertSafeHttpUrl+safeFetch连接校验，redirect manual；stream逐段限制MAX_TICKET_IMAGE_SIZE。 |
 | R1-189 | 已有防护 | 保留初审结论 | assertSafeHttpUrl+safeFetch连接校验，redirect manual；stream逐段限制MAX_TICKET_IMAGE_SIZE。 |
 | R1-190 | 部分存在 | 待精修/运行复核 | body异常已捕获返回502，原500问题已防；超时/reset统一说image too large，错误准确性仍差。 |

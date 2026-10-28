@@ -125,6 +125,10 @@ export interface CreateTicketData {
   attachments?: CreateTicketMessageAttachmentData[]
 }
 
+export class TicketMutationError extends Error {
+  constructor(message: string, readonly statusCode = 409, readonly code = 'TICKET_TARGET_CHANGED') { super(message) }
+}
+
 export interface CreateTicketMessageAttachmentData {
   provider: string
   providerVersion: string
@@ -298,6 +302,21 @@ function mapTicketMessageAttachment(attachment: {
  */
 export async function createTicket(data: CreateTicketData): Promise<{ ticketId: number; messageId: number }> {
   const result = await prisma.$transaction(async (tx) => {
+    if (data.instanceId != null) {
+      // Serialize with transfer/delete and use the current target, not the route's
+      // snapshot from before attachment upload or other asynchronous preparation.
+      await tx.$queryRaw`SELECT id FROM instances WHERE id = ${data.instanceId} FOR SHARE`
+      const instance = await tx.instance.findUnique({ where: { id: data.instanceId }, select: { userId: true, hostId: true, status: true } })
+      if (!instance || instance.status === 'deleted' || instance.userId !== data.userId || instance.hostId !== data.hostId) {
+        throw new TicketMutationError('关联实例已转移、删除或更换宿主，请刷新后重新创建工单')
+      }
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.hostId} FOR SHARE`
+      if (!await tx.host.findUnique({ where: { id: instance.hostId }, select: { id: true } })) {
+        throw new TicketMutationError('关联宿主已不存在，请刷新后重新创建工单')
+      }
+    } else if (data.hostId != null) {
+      throw new TicketMutationError('未选择实例的工单不能关联宿主')
+    }
     const createdAt = new Date()
     const priority = data.priority || 'normal'
     const sla = getSlaMinutes(priority)

@@ -4,7 +4,7 @@ import { createLog, LogModule, LogResult } from '../db/logs.js'
 import { authenticatePublicApiRequest } from '../lib/public-api-auth.js'
 import { buildPublicApiOpenApiDocument, stringifyPublicApiOpenApiYaml } from '../lib/public-api-openapi.js'
 import { prisma } from '../db/prisma.js'
-import { addTicketMessage, createTicket, type CreateTicketMessageAttachmentData } from '../db/tickets.js'
+import { addTicketMessage, createTicket, TicketMutationError, type CreateTicketMessageAttachmentData } from '../db/tickets.js'
 import { createBalanceAdjustmentRequest } from '../db/balance.js'
 import { AffCodeEligibilityError, findUserById, getSystemConfigBoolean, performRenewal } from '../db/index.js'
 import { getAllAdminUserIds } from '../db/users.js'
@@ -2117,6 +2117,9 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
     } catch (error) {
       if (uploadedAttachments.length > 0) {
         await cleanupUploadedTicketImages(uploadedAttachments)
+      }
+      if (error instanceof TicketMutationError) {
+        return reply.code(error.statusCode).send({ error: error.message, code: error.code })
       }
       if (!isHandledTicketPayloadError(error)) {
         throw error

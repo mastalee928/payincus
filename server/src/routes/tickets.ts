@@ -285,6 +285,9 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
       if (uploadedAttachments.length > 0) {
         await cleanupUploadedTicketImages(uploadedAttachments)
       }
+      if (error instanceof ticketDb.TicketMutationError) {
+        return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+      }
       if (!isHandledTicketPayloadError(error)) {
         throw error
       }
