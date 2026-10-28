@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-272 配额显式 null 保存
+
+- 5b8b7ff已push核远端一致；其CI40771202126及7f226ad的40769861511仍运行，5e86550/65b755c/c188aac已success。PATCH /instances/:id/quota原把null转为undefined，清空操作返回成功但未保存；现保留null，省略字段仍不改变，显式0与既有范围不变。旧守卫错误要求null转undefined，已纠正并接真实PG专项至CI。
+- `takeover-instance-quota-null-before.log`先红，`takeover-instance-quota-null-server.log`真实Fastify/PG接口覆盖管理员/宿主所有者四字段null、字段省略、0、1000、非法输入、客户越权与零财务写入；3守卫、后端build含tsc最终exit0、manifest191常规/94环境排除通过。无前端改动或远端I/O。
+- 仅null保存局部完成；用量检查、current actor/target与创建串行继续施工。站点真实语义为0不限、null继承套餐或默认10；端口只计非systemManaged，不能照旧注释误改业务。R269超时/强杀续跑、R274赠送时长及327/完整灾备仍未完成。
+
 ## 2026-10-29 R1-271 底层网络快照与维护脚本
 
 - 7f226ad已push。底层persist写入要求hostId/userId/incusId/updatedAt/原双栈地址和宿主身份，操作锁+实例行锁+宿主共享锁下复核，拒绝创建/清理/转移及活动任务。每次接受观察都单调推进版本，含地址没变；IP主记录与实例地址同事务。proxy包装调整状态更新顺序，原反代语义保持。

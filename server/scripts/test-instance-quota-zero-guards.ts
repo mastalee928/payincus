@@ -83,9 +83,8 @@ assert.ok(
 )
 
 assert.ok(
-  quotaRoute.includes('snapshotLimit !== undefined ? (snapshotLimit ?? undefined) : undefined') &&
-    quotaRoute.includes('backupLimit !== undefined ? (backupLimit ?? undefined) : undefined') &&
-    quotaRoute.includes('siteLimit !== undefined ? (siteLimit ?? undefined) : undefined'),
+  quotaRoute.includes('await db.updateInstanceQuota(instanceId, {\n      portLimit,\n      snapshotLimit,\n      backupLimit,\n      siteLimit\n    })') &&
+    !quotaRoute.includes('?? undefined'),
   'quota persistence must keep explicit zero while still allowing null to clear the override'
 )
 

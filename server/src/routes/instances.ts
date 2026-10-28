@@ -4978,10 +4978,10 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
     // 更新实例配额
     await db.updateInstanceQuota(instanceId, {
-      portLimit: portLimit !== undefined ? (portLimit ?? undefined) : undefined,
-      snapshotLimit: snapshotLimit !== undefined ? (snapshotLimit ?? undefined) : undefined,
-      backupLimit: backupLimit !== undefined ? (backupLimit ?? undefined) : undefined,
-      siteLimit: siteLimit !== undefined ? (siteLimit ?? undefined) : undefined
+      portLimit,
+      snapshotLimit,
+      backupLimit,
+      siteLimit
     })
 
     const quotaChanges: string[] = []

@@ -184,6 +184,8 @@ jobs:
         run: |
           pnpm --filter server test:review-host-network-sync
           pnpm --filter server test:review-network-persistence
+      - name: Instance quota override semantics
+        run: pnpm --filter server test:review-instance-quota
       - name: Verify init command selector in Chrome
         run: pnpm --filter server test:review-init-command-selector
       - name: Verify init command modals in Chrome
