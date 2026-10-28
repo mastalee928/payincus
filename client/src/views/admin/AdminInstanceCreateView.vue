@@ -148,10 +148,11 @@ function getDistroFromName(name: string): string {
 const canSubmit = computed<boolean>(() => {
   // 基本条件
   const basic = currentWriteContext(writeContextSequence) && !!form.value.name &&
-         form.value.packageId !== null &&
-         form.value.hostId !== null &&
+         !!selectedPackage.value &&
+         availableHosts.value.some(host => host.id === form.value.hostId) &&
          !!form.value.image &&
-         availableImages.value.length > 0 &&
+         availableImages.value.some(image => image.value === form.value.image) &&
+         !packagesLoading.value && !plansLoading.value && !hostsLoading.value && !imagesLoading.value &&
          usernameValid.value === true &&
          targetUser.value !== null &&
          targetUser.value.username === usernameInput.value.trim() &&
@@ -508,9 +509,10 @@ watch(selectedPlanId, (newPlanId) => {
 
 async function loadAvailableImages(pkgInstanceType?: 'container' | 'vm', memory?: number, hostId?: number): Promise<void> {
   const requestSeq = ++imagesRequestSeq
+  const previousImage = form.value.image
+  availableImages.value = []
+  form.value.image = ''
   if (!hostId) {
-    availableImages.value = []
-    form.value.image = ''
     imagesLoading.value = false
     return
   }
@@ -527,10 +529,8 @@ async function loadAvailableImages(pkgInstanceType?: 'container' | 'vm', memory?
     }))
 
     if (availableImages.value.length > 0) {
-      const currentExists = availableImages.value.some((img) => img.value === form.value.image)
-      if (!currentExists) {
-        form.value.image = availableImages.value[0].value
-      }
+      const currentExists = availableImages.value.some((img) => img.value === previousImage)
+      form.value.image = currentExists ? previousImage : availableImages.value[0].value
     } else {
       form.value.image = ''
     }

@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-admin-package-options', 'requires Chrome/Edge and local Vite; legacy admin image/host refresh ordering and current selection gates'],
   ['test:review-admin-package-create', 'requires Chrome/Edge and local Vite; legacy admin package create draft and credential receipt isolation'],
   ['test:review-admin-pool-create-entry', 'requires Chrome/Edge and local Vite; default pool independent of delayed or failed legacy package loading'],
   ['test:review-admin-pool-create-load', 'requires Chrome/Edge and local Vite; actual admin pool catalog/image failures, retry and lifecycle ordering'],
