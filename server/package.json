@@ -16,6 +16,7 @@
     "test:review-admin-pool-create": "node ../scripts/test-admin-pool-create.mjs",
     "test:review-admin-pool-create-load": "node ../scripts/test-admin-pool-create-load.mjs",
     "test:review-admin-pool-create-entry": "node ../scripts/test-admin-pool-create-entry.mjs",
+    "test:review-admin-package-create": "node ../scripts/test-admin-package-create.mjs",
     "test:review-prize-editor": "node ../scripts/test-prize-editor.mjs",
     "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",

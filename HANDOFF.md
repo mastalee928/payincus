@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-252 旧套餐创建回执与草稿隔离
+
+- 默认机器池入口18e5d85已push并核远端一致，CI40753458066最后仍运行。旧套餐创建绑定username/session/route/cache/资源来源代次及提交草稿快照；旧成功失败不能清空新输入、显示旧凭据或污染当前错误。正常成功提示、凭据展示和原重置保持，后端创建、计费和交付合同未改。
+- `logs/takeover-admin-package-write-before.log`真实Chrome先复现新名称被旧成功清空；`takeover-admin-package-write-browser.log`通过新草稿/目标保留、十连单请求、session/cache/route/source/unmount旧凭据隔离、当前失败保草稿及正常成功重置；三语1440/390截图已检查。机器池回归、4守卫、lint、双端vue-tsc/build（最终退出码0）、dist与manifest191常规/80环境排除通过。API受控，没有真实创建、收费或生产变更。
+- 新旧套餐Chrome专项已接CI。下一项R253镜像/宿主刷新期间仍可提交已先红（`takeover-admin-package-options-before.log`），专项未登记未提交，产品尚未改；327与完整灾备继续，实际资源交付不记已验。
+
 ## 2026-10-29 管理员默认机器池不等待旧套餐
 
 - 机器池读取dfae114已push并核远端一致，CI40752294978最后运行；回执47be7e3 CI40751161454最终success。管理员创建页默认立即显示机器池与目标输入，只有点击「原有套餐」时才加载旧套餐及其方案/宿主/镜像，成功结果页内缓存；旧请求慢或失败不能阻挡切回机器池，失败后重开原有套餐可重试。

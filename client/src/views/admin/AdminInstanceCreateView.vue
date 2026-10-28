@@ -5,6 +5,7 @@
  */
 import { ref, onActivated, onDeactivated, onUnmounted, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
 import { useThemeStore } from '@/stores/theme'
@@ -30,6 +31,7 @@ const { t } = useI18n()
 const toast = useToast()
 const themeStore = useThemeStore()
 const authStore = useAuthStore(), lookupActive = ref(true)
+const route = useRoute()
 let disposed = false
 const sessionKey = computed(() => {
   if (!authStore.token || !authStore.user || authStore.user.role !== 'admin') return ''
@@ -95,6 +97,18 @@ const form = ref<InstanceForm>({
   disk: 512
 })
 
+let writeContextSequence = 0
+watch([usernameInput, sessionKey, lookupActive, resourceSource, () => route.fullPath], () => {
+  writeContextSequence++
+}, { flush: 'sync' })
+function currentWriteContext(context: number): boolean {
+  return !disposed && lookupActive.value && !!sessionKey.value && resourceSource.value === 'package' && context === writeContextSequence
+}
+function draftSnapshot(): string {
+  return JSON.stringify({ form: form.value, username: usernameInput.value, target: targetUser.value?.id,
+    type: instanceType.value, scope: packageScope.value, planId: selectedPlanId.value, charge: chargeFirstMonth.value })
+}
+
 // 当前选中的套餐
 const selectedPackage = computed<Package | undefined>(() => packages.value.find(p => p.id === form.value.packageId))
 
@@ -133,13 +147,14 @@ function getDistroFromName(name: string): string {
 
 const canSubmit = computed<boolean>(() => {
   // 基本条件
-  const basic = !!form.value.name &&
+  const basic = currentWriteContext(writeContextSequence) && !!form.value.name &&
          form.value.packageId !== null &&
          form.value.hostId !== null &&
          !!form.value.image &&
          availableImages.value.length > 0 &&
          usernameValid.value === true &&
          targetUser.value !== null &&
+         targetUser.value.username === usernameInput.value.trim() &&
          !submitting.value
   
   // 付费实例需要选择方案且余额充足
@@ -536,6 +551,8 @@ async function handleSubmit(): Promise<void> {
 
   error.value = ''
   submitting.value = true
+  const context = writeContextSequence, draft = draftSnapshot()
+  const current = () => currentWriteContext(context) && draft === draftSnapshot()
 
   try {
     if (form.value.packageId === null) throw new Error(t('instance.createPage.selectPackage'))
@@ -568,6 +585,7 @@ async function handleSubmit(): Promise<void> {
     }
 
     const res = await api.admin.createInstance(params)
+    if (!current()) return
 
     toast.success(t('admin.instanceCreate.success'))
 
@@ -589,7 +607,7 @@ async function handleSubmit(): Promise<void> {
       await selectPackage(packages.value[0])
     }
   } catch (err: any) {
-    error.value = translateError(err)
+    if (current()) error.value = translateError(err)
   } finally {
     submitting.value = false
   }
