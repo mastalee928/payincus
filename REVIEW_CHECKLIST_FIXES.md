@@ -262,7 +262,7 @@
 | R1-224 | 实现不同 | 保留初审结论 | 未发现旧UserHistoryView；现行UsersView登录弹窗异步目标风险已列R305，不能虚构旧历史页面。 |
 | R1-225 | 已有防护 | 原竞争已有保护/离页边界补强 | 原refresh/action互斥和disposed已有；不能据此推断隐藏/会话回执也安全。R226补充读写回执代次、失效GET取消、离页保留在途action门禁及返回后的状态核验；真实Vue/Chrome延迟API专项通过，不声明服务器写入幂等。 |
 | R1-226 | 部分存在 | 源码已修/浏览器隔离验证通过 | Billing传overview active，结合KeepAlive、document visibility、session、status/history标签控制单一串行定时器；隐藏即清计时器/旧读取消/旧回执无效，恢复立即刷新。历史保同会话筛选页码、换会话重置。takeover-expiry-panel-browser-final/guards-final/build-final/server-types/dist日志：真实Vue/可控API计时器可见性、4守卫、双端类型构建与边界通过；非真实后台巡检执行。 |
-| R1-227 | 存在 | 待精修/运行复核 | 无修改静态扫描178份SVG，48份含缺失url(#id)引用，如dark/aquarius的bg-a-air-d；未运行会重建目录的生成器。 |
+| R1-227 | 存在 | 源码/48资产已修/浏览器验证通过 | 按现有九组描边配色重建18组深浅背景定义，仅补48份实际缺项，已有defs保留；原HTML缺失，非原始色值还原。生成器同一helper，未知引用报错；190清单/2守卫/双端types build/dist通过。Chrome48图均增加可见背景像素、几何不变、截图已看；178动画/reduce回归通过（takeover-badge-gradients-browser/motion日志）。 |
 | R1-228 | 存在 | 源码/资产已修/浏览器动画验证通过 | tiger/goat/rooster两主题各补分号，6星座两主题补art旋转关键帧；生成器同一归一化防复发，全部178徽章响应减少动态偏好。takeover-badge-motion-browser-verified：真实Chrome SVG文档全部无缺失keyframe，18目标时间轴采样变换不同，178减少动态全停；2守卫/双端types build/dist通过。保留原图形，不宣称所有动效性能测试。 |
 | R1-229 | 存在 | 源码/178资产已修/生成及浏览器核验通过 | 生成器仅收集脚本外文档style，组件局部CSS仍由JSX渲染；178 SVG清除9026段重复JSX原文约2.36MB，图形/defs及本地有效CSS逐字不变。隔离新目录实际运行生成器，190清单/2守卫/双端types build/dist通过；Chrome178图冻结动画像素前后一致（takeover-badge-styles-browser.log），非全部动态逐帧验收。原HTML缺失，未在正式资产目录执行重建。 |
 | R1-230 | 存在 | 源码已修/浏览器验证通过 | requestedUrl独立于失败状态并跟随真实目录URL，URL变化重试，同URL元数据更新不重复请求失败图；按URL重建img并核currentTarget，旧移除节点error不污染新图。takeover-badge-image-before-final复现；browser-final真实Vue/Pinia+HTTP图像通过迟到目录/主题/ID/修复URL/旧error/稳定fallback，双端types build/dist/2守卫/lint通过。非线上目录修改。 |

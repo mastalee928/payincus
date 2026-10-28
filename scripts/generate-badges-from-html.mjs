@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
 import { documentBadgeStyles, normalizeBadgeMotion } from './lib/badge-styles.mjs'
+import { completeBadgeGradients } from './lib/badge-gradients.mjs'
 
 import ts from '../node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib/typescript.js'
 
@@ -168,7 +169,7 @@ const defsMarkup = buildDefs()
 function injectDefs(svg, extraStyles = '') {
   const withXmlns = svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')
   const styleBlock = extraStyles ? `<style>${extraStyles}</style>` : ''
-  return normalizeBadgeMotion(withXmlns.replace(/^(<svg[^>]*>)/, `$1${styleBlock}${defsMarkup}`))
+  return completeBadgeGradients(normalizeBadgeMotion(withXmlns.replace(/^(<svg[^>]*>)/, `$1${styleBlock}${defsMarkup}`)))
 }
 
 function splitLabel(label) {

@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { documentBadgeStyles, normalizeBadgeMotion } from './lib/badge-styles.mjs'
+import { completeBadgeGradients } from './lib/badge-gradients.mjs'
 
 const shared = '.node { animation: pulse 1s infinite } @keyframes pulse { to { opacity: .5 } }'
 const local = '.ring { stroke: red }'
@@ -15,6 +16,15 @@ const normalized = normalizeBadgeMotion(motionFixture)
 assert.ok(normalized.includes('alternate;transform-origin:'))
 assert.ok(normalized.includes('@keyframes art'))
 assert.equal(normalizeBadgeMotion(normalized), normalized)
+for (const family of ['a-air', 'a-fire', 'a-water', 'a-earth', 'z-earth', 'z-fire', 'z-metal', 'z-water', 'z-wood']) for (const theme of ['d', 'l']) {
+  const id = `bg-${family}-${theme}`, svg = `<svg><circle fill="url(#${id})"/></svg>`
+  const completed = completeBadgeGradients(svg)
+  assert.ok(completed.includes(`<linearGradient id="${id}"`))
+  assert.equal(completeBadgeGradients(completed), completed)
+  const existing = `<svg><defs><radialGradient id="${id}"><stop stop-color="red"/></radialGradient></defs><circle fill="url(#${id})"/></svg>`
+  assert.equal(completeBadgeGradients(existing), existing, 'existing source definitions must retain their colors and type')
+}
+assert.throws(() => completeBadgeGradients('<svg><circle fill="url(#unknown)"/></svg>'), /Missing badge SVG definition/)
 const root = fileURLToPath(new URL('..', import.meta.url))
 const logs = path.join(root, 'logs'); mkdirSync(logs, { recursive: true })
 // The generator rebuilds its output directory. Run only in a new isolated log folder.
@@ -24,7 +34,7 @@ mkdirSync(path.join(fixture, 'server/src/config'), { recursive: true })
 for (const [index, name] of ['aaaa.html', 'bbbb.html'].entries()) {
   writeFileSync(path.join(fixture, name), `<html><style>${shared}</style><script type="text/babel">
 const SvgFilters = () => <svg />;
-const Badge = () => <svg viewBox="0 0 240 240"><style>{\`${local}\`}</style><circle r="5" className="ring"/></svg>;
+const Badge = ({d}) => <svg viewBox="0 0 240 240"><style>{\`${local}\`}</style><circle r="5" className="ring" fill={d ? 'url(#bg-a-air-d)' : 'url(#bg-a-air-l)'}/></svg>;
 const seriesData = [{title:'TEST Example',desc:'Fixture',icons:[{id:'badge-${index}',label:'Example',component:Badge}]}];
 const App = () => null;
 </script></html>`)
@@ -37,6 +47,7 @@ for (const theme of ['dark', 'light']) for (const index of [0, 1]) {
   assert.ok(svg.includes(`<style>${shared}</style>`))
   assert.ok(svg.includes(`<style>${local}</style>`))
   assert.ok(!svg.includes('{`'), 'real JSX generator must render local styles only once')
+  assert.ok(svg.includes(`<linearGradient id="bg-a-air-${theme === 'dark' ? 'd' : 'l'}"`))
 }
 let count = 0
 for (const theme of ['dark', 'light']) {
@@ -49,6 +60,9 @@ for (const theme of ['dark', 'light']) {
     }
     if (/animation:\s*art\b/.test(svg)) assert.match(svg, /@keyframes\s+art\b/)
     assert.ok(svg.includes('@media(prefers-reduced-motion:reduce)'))
+    const ids = [...svg.matchAll(/\bid="([^"]+)"/g)].map(match => match[1])
+    assert.equal(ids.length, new Set(ids).size, `${theme}/${file} has duplicate definitions`)
+    for (const match of svg.matchAll(/url\(#([^)]+)\)/g)) assert.ok(ids.includes(match[1]), `${theme}/${file} is missing ${match[1]}`)
     count++
   }
 }

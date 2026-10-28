@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-227 星座生肖缺失背景渐变
+
+- R228 `fc9b1c6`已push并核远端一致，R229 CI40713907888最终success。原HTML源未找到，本次按已存在九组元素描边色重建18组深浅主题背景，不宣称还原原始色值。只补48份实际缺失的渐变定义，既有defs、几何/路径/动画不变；生成器使用同一helper、已有定义原样保留、未知缺项明确报错。
+- `logs/takeover-badge-gradients-guards.log`2/2通过（全178文件引用齐全无重复ID，18组合/已有定义保留/未知拒绝、实际生成器夹具），`takeover-badge-gradients-build.log`双端vue-tsc/build、dist通过。`takeover-badge-gradients-browser.log`真实Chrome48份前后图片全部增加可见背景像素，新增defs以外内容逐字不变；`logs/badge-gradients-browser/repaired-48.png`已看深浅主题。`takeover-badge-gradients-motion.log`178文档关键帧/18变换/reduce回归通过。
+- 下一项R231 BadgeCenter概览缓存返回/旧回执与关联动作生命周期：已读源与娱乐路由/积分锁守卫尚未编辑。R232/233实际均是InstanceBadgeModal，继续保初始可见、instance/session代次及刷新后回传数据问题，不能把R230图片修复当作这些完成。327与完整灾备仍未完成。
+
 ## 2026-10-28 R1-228 徽章动画声明与减少动态
 
 - R229 `a93a007`已push且远端一致。tiger/goat/rooster两主题各修一处animation/transform-origin缺分号；aquarius/cancer/gemini/libra/pisces/scorpio两主题补原art旋转关键帧。178资产加入减少动态CSS，生成器共用幂等归一化，原几何/颜色/有效其它动画保持。
