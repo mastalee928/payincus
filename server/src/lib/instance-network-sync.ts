@@ -1,10 +1,13 @@
-import type { Prisma } from '@prisma/client'
+import type { Host, Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import type { IncusInstance } from '../types/incus.js'
 import {
   IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE,
+  INSTANCE_OPERATION_LOCK_NAMESPACE,
+  tryAdvisoryTransactionLock,
   advisoryTransactionLockString
 } from '../db/advisory-locks.js'
+import { hasActiveTransferWorkflow } from '../db/transfers.js'
 
 type InstanceNetworkMode =
   | 'nat'
@@ -37,6 +40,26 @@ export interface InstanceNetworkSyncTarget {
   networkMode: string | null | undefined
   ipv4: string | null | undefined
   ipv6: string | null | undefined
+}
+
+export interface InstanceNetworkObservation extends InstanceNetworkSyncTarget {
+  hostId: number
+  userId: number
+  incusId: string
+  updatedAt: string
+  hostOwnerId: number
+  hostConnectionIdentity: string
+}
+
+export function instanceNetworkHostIdentity(host: Pick<Host, 'url' | 'certPath' | 'keyPath' | 'serverCertificate' | 'serverFingerprint'>): string {
+  return JSON.stringify([host.url, host.certPath, host.keyPath, host.serverCertificate, host.serverFingerprint])
+}
+
+export async function readInstanceNetworkHostIdentity(hostId: number): Promise<string> {
+  const host = await prisma.host.findUniqueOrThrow({ where: { id: hostId }, select: {
+    url: true, certPath: true, keyPath: true, serverCertificate: true, serverFingerprint: true
+  } })
+  return instanceNetworkHostIdentity(host)
 }
 
 export interface ResolvedInstanceNetworkAddresses {
@@ -341,19 +364,39 @@ async function syncPrimaryIpAddress(
 }
 
 export async function persistResolvedInstanceNetworkAddresses(
-  instance: InstanceNetworkSyncTarget,
+  instance: InstanceNetworkObservation,
   resolved: ResolvedInstanceNetworkAddresses,
   options: { updateLastSyncedAt?: boolean } = {}
 ): Promise<PersistedInstanceNetworkAddresses> {
-  return prisma.$transaction(tx => persistResolvedInstanceNetworkAddressesInTransaction(tx, instance, resolved, options))
+  return prisma.$transaction(tx => persistResolvedInstanceNetworkAddressesInTransaction(tx, instance, resolved, options), { timeout: 15000 })
 }
 
 export async function persistResolvedInstanceNetworkAddressesInTransaction(
   tx: Prisma.TransactionClient,
-  instance: InstanceNetworkSyncTarget,
+  instance: InstanceNetworkObservation,
   resolved: ResolvedInstanceNetworkAddresses,
   options: { updateLastSyncedAt?: boolean } = {}
 ): Promise<PersistedInstanceNetworkAddresses> {
+  await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`
+  if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)) {
+    throw new Error('Instance network sync is busy; retry after the active operation finishes')
+  }
+  await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instance.id} FOR UPDATE`
+  const current = await tx.instance.findUnique({ where: { id: instance.id } })
+  if (!current || current.status === 'deleted' || current.hostId !== instance.hostId || current.userId !== instance.userId ||
+    current.incusId !== instance.incusId || current.updatedAt.toISOString() !== instance.updatedAt ||
+    current.networkMode !== instance.networkMode || current.ipv4 !== (instance.ipv4 ?? null) || current.ipv6 !== (instance.ipv6 ?? null)) {
+    throw new Error('Instance network observation changed; read the instance again before syncing')
+  }
+  await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${current.hostId} FOR SHARE`
+  const host = await tx.host.findUnique({ where: { id: current.hostId } })
+  if (!host || host.userId !== instance.hostOwnerId || instanceNetworkHostIdentity(host) !== instance.hostConnectionIdentity) {
+    throw new Error('Host network observation changed; reconnect before syncing')
+  }
+  if (current.status === 'creating' || current.provisioningCleanupPending || current.deletionBillingPending || await hasActiveTransferWorkflow(current.id, tx) ||
+    await tx.instanceTransfer.count({ where: { instanceId: current.id, status: { in: ['pending', 'processing'] } } })) {
+    throw new Error('Instance network sync is busy with delivery, cleanup or transfer')
+  }
   const oldIpv4 = instance.ipv4 ?? null
   const oldIpv6 = instance.ipv6 ?? null
   const newIpv4 = resolved.ipv4 ?? null
@@ -362,35 +405,19 @@ export async function persistResolvedInstanceNetworkAddressesInTransaction(
   const ipv4Changed = oldIpv4 !== newIpv4
   const ipv6Changed = oldIpv6 !== newIpv6
 
-  const persist = async () => {
-    const currentInstance = await tx.instance.findUnique({
-      where: { id: instance.id },
-      select: { status: true }
-    })
-    if (!currentInstance || currentInstance.status === 'deleted') {
-      return
-    }
-
-    const updateData: Record<string, unknown> = {}
-
-    if (ipv4Changed) updateData.ipv4 = newIpv4
-    if (ipv6Changed) updateData.ipv6 = newIpv6
-    if (options.updateLastSyncedAt) updateData.lastSyncedAt = new Date()
-
-    if (Object.keys(updateData).length > 0) {
-      await tx.instance.updateMany({
-        where: {
-          id: instance.id,
-          status: { not: 'deleted' }
-        },
-        data: updateData
-      })
-    }
-
-    await syncPrimaryIpAddress(tx, instance, 'inet4', newIpv4, resolved.ipv4Device)
-    await syncPrimaryIpAddress(tx, instance, 'inet6', newIpv6, resolved.ipv6Device)
+  // Consume every observation, including a no-change result, so a late peer
+  // cannot overwrite this accepted sample in the same millisecond.
+  const updateData: Prisma.InstanceUpdateManyMutationInput = {
+    updatedAt: new Date(Math.max(Date.now(), current.updatedAt.getTime() + 1))
   }
-  await persist()
+
+  if (ipv4Changed) updateData.ipv4 = newIpv4
+  if (ipv6Changed) updateData.ipv6 = newIpv6
+  if (options.updateLastSyncedAt) updateData.lastSyncedAt = new Date()
+
+  await tx.instance.update({ where: { id: current.id }, data: updateData })
+  await syncPrimaryIpAddress(tx, instance, 'inet4', newIpv4, resolved.ipv4Device)
+  await syncPrimaryIpAddress(tx, instance, 'inet6', newIpv6, resolved.ipv6Device)
 
   return {
     ipv4Changed,

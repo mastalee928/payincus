@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：7f226ad已push；R271底层网络持久化和backfill当前host/instance身份/版本/原IP/操作门禁、每次观察消费版本已修。14PG+47接口+5真实CLI/完整proxy回归、3守卫、后端最终build含tsc exit0、manifest191/93通过准备push，无待poll。维护CLI关闭连接并延后100ms退出解决security timer挂住及Windows同步exit断言；旧getAllHosts无user_id改另查完整宿主。临时gift目录已精确逐文件清理。下一项R272 instances.ts约4876–4995 quotas已定位，须读完整路由/db quota/create site/守卫再改；R269超时、R274赠送时长仍待，327持续。
+
 > **最新接续**：5e86550已push；R271三个运维同步复用身份/版本/当前会话/工作流门禁，状态和IP同事务，保封停且零Incus/Caddy写；47实际API/PG/mTLS、完整proxy-site-operations回归、3守卫/最终后端build含tsc exit0/manifest191/92通过准备push，无待poll。接续底层instance-network-sync直接写与backfill脚本host/版本保护（代码已全读未改）；R271整体仍待。c188aac CI success；65b755c/5e86550最后运行，327持续。
 
 > **最新接续**：65b755c已push，R270赠送准备IP/storage同事务、原身份/资源CAS补偿、必需IP失败拒绝、inbox失败保202已修；13真实Fastify/PG+mTLS场景与零账款/占用底数/失败日志、6守卫、最终后端build含tsc exit0、manifest191/91通过准备push，无待poll。R271 instance-network-sync.ts完整已读仅not-deleted、无host/CAS，相关调用点和守卫须继续读，尚未改。R269通用超时与强杀恢复/通知outbox待，327持续。初始3测试账号已清理，临时证书目录尚留本地不提交。

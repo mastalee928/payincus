@@ -181,7 +181,9 @@ jobs:
       - name: Host gift preparation and notification failures
         run: pnpm --filter server test:review-host-gift-preparation
       - name: Host network observation identity and generation
-        run: pnpm --filter server test:review-host-network-sync
+        run: |
+          pnpm --filter server test:review-host-network-sync
+          pnpm --filter server test:review-network-persistence
       - name: Verify init command selector in Chrome
         run: pnpm --filter server test:review-init-command-selector
       - name: Verify init command modals in Chrome

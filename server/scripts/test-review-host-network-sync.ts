@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import Fastify from 'fastify'
 import { randomUUID, X509Certificate } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:https'
 import { tmpdir } from 'node:os'
@@ -51,8 +51,9 @@ await app.register(hostRoutes, { prefix: '/hosts' })
 let constraint: string | undefined
 let failure: unknown
 try {
-  for (const entry of ['single', 'repair', 'baseline']) {
-    for (const mode of process.env.REVIEW_NETWORK_MODES?.split(',') || ['host_changed', 'instance_renamed', 'owner_changed', 'new_generation', 'address_changed', 'host_connection_changed', 'host_owner_changed', 'actor_banned', 'session_revoked', 'cleanup_pending', 'pending_task', 'deleted', 'suspended', 'database_failure', 'success', ...(entry !== 'baseline' ? ['stable_suspended'] : [])]) {
+  for (const entry of process.env.REVIEW_NETWORK_ENTRIES?.split(',') || ['single', 'repair', 'baseline', 'backfill']) {
+    const modes = entry === 'backfill' ? ['host_changed', 'host_connection_changed', 'database_failure', 'success', 'dry_run'] : ['host_changed', 'instance_renamed', 'owner_changed', 'new_generation', 'address_changed', 'host_connection_changed', 'host_owner_changed', 'actor_banned', 'session_revoked', 'cleanup_pending', 'pending_task', 'deleted', 'suspended', 'database_failure', 'success', ...(entry !== 'baseline' ? ['stable_suspended'] : [])]
+    for (const mode of process.env.REVIEW_NETWORK_MODES?.split(',') || modes) {
       const host = await prisma.host.create({ data: { userId: owner.id, name: `${prefix}-${entry}-${mode}`, url: `https://127.0.0.1:${(remote.address() as { port: number }).port}`,
         certPath, keyPath, serverCertificate: certificate, serverFingerprint: new X509Certificate(certificate).fingerprint256, status: 'online' } })
       const instance = await prisma.instance.create({ data: { userId: owner.id, hostId: host.id, name: host.name, incusId: host.name, image: 'fixture/debian',
@@ -79,12 +80,23 @@ try {
         await prisma.$executeRawUnsafe(`ALTER TABLE ip_addresses ADD CONSTRAINT ${constraint} CHECK (instance_id <> ${instance.id} OR address <> '10.10.1.20') NOT VALID`)
       }
       const url = entry === 'single' ? `/hosts/${host.id}/ops/instances/${instance.id}/sync` : `/hosts/${host.id}/ops/${entry === 'repair' ? 'network-repair' : 'baseline-sync'}`
-      const response = await app.inject({ method: 'POST', url })
+      const response = entry === 'backfill' ? undefined : await app.inject({ method: 'POST', url })
+      let cliCode = 0
+      if (entry === 'backfill') {
+        cliCode = await new Promise<number>(resolve => execFile(process.execPath,
+          ['--import', 'tsx', 'scripts/backfill-instance-network-addresses.ts', `--host-id=${host.id}`, ...(mode === 'dry_run' ? ['--dry-run'] : [])],
+          { timeout: 30000, windowsHide: true }, (error, stdout, stderr) => {
+            const code = error ? typeof error.code === 'number' ? error.code : -1 : 0
+            if (code !== (mode === 'success' || mode === 'dry_run' ? 0 : 1)) console.error('Maintenance CLI diagnostics:', { code, stdout, stderr })
+            resolve(code)
+          }))
+        assert.equal(cliCode, mode === 'success' || mode === 'dry_run' ? 0 : 1, 'actual maintenance CLI must finish and report failures')
+      }
       const current = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
       const success = ['success', 'stable_suspended'].includes(mode)
-      const acknowledged = entry === 'single' ? response.statusCode === 200 : entry === 'repair' ? response.json().summary.success === 1 : response.json().instanceSync.synced === 1
+      const acknowledged = entry === 'backfill' ? cliCode === 0 && mode !== 'dry_run' : entry === 'single' ? response!.statusCode === 200 : entry === 'repair' ? response!.json().summary.success === 1 : response!.json().instanceSync.synced === 1
       assert.equal(acknowledged, success, `${entry}/${mode}: obsolete or failed observation must not report applied`)
-      assert.equal(current.status, mode === 'stable_suspended' ? 'suspended' : success ? 'stopped' : mode === 'deleted' || mode === 'suspended' ? mode : 'running', `${entry}/${mode}: state changes must commit with addresses`)
+      assert.equal(current.status, mode === 'stable_suspended' ? 'suspended' : success && entry !== 'backfill' ? 'stopped' : mode === 'deleted' || mode === 'suspended' ? mode : 'running', `${entry}/${mode}: state changes must commit with addresses`)
       assert.equal(current.ipv4, success ? '10.10.1.20' : mode === 'address_changed' ? '10.10.1.30' : '10.10.1.10')
       assert.equal(current.ipv6, success ? '2001:db8::20' : '2001:db8::10')
       assert.equal(current.lastSyncedAt !== null, success)

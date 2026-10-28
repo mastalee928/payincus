@@ -1,8 +1,10 @@
 import * as db from '../src/db/index.js'
 import { closePrismaDatabase, prisma } from '../src/db/prisma.js'
 import { getIncusClient, getInstance, getInstanceState } from '../src/lib/incus/index.js'
+import { closeAllClients } from '../src/lib/incus/incus-pool.js'
 import {
   persistResolvedInstanceNetworkAddresses,
+  instanceNetworkHostIdentity,
   resolveInstanceNetworkAddresses,
   type IncusNetworkStateLike
 } from '../src/lib/instance-network-sync.js'
@@ -51,7 +53,12 @@ async function main(): Promise<void> {
     console.log(`[BackfillInstanceNetwork] Host #${host.id} ${host.name}`)
 
     let client: Awaited<ReturnType<typeof getIncusClient>>
+    let hostConnectionIdentity: string
+    let hostOwnerId: number
     try {
+      const currentHost = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
+      hostConnectionIdentity = instanceNetworkHostIdentity(currentHost)
+      hostOwnerId = currentHost.userId
       client = await getIncusClient(host)
     } catch (error) {
       failed++
@@ -70,6 +77,9 @@ async function main(): Promise<void> {
         id: true,
         name: true,
         incusId: true,
+        hostId: true,
+        userId: true,
+        updatedAt: true,
         networkMode: true,
         ipv4: true,
         ipv6: true
@@ -125,6 +135,12 @@ async function main(): Promise<void> {
           {
             id: instance.id,
             name: instance.name,
+            hostId: instance.hostId,
+            userId: instance.userId,
+            incusId: instance.incusId,
+            updatedAt: instance.updatedAt.toISOString(),
+            hostOwnerId,
+            hostConnectionIdentity,
             networkMode: instance.networkMode,
             ipv4: instance.ipv4,
             ipv6: instance.ipv6
@@ -151,6 +167,7 @@ async function main(): Promise<void> {
     + `scanned=${scanned}, changed=${changedInstances}, `
     + `ipv4Changed=${ipv4ChangedCount}, ipv6Changed=${ipv6ChangedCount}, failed=${failed}`
   )
+  if (failed > 0) process.exitCode = 1
 }
 
 main()
@@ -160,5 +177,8 @@ main()
     process.exitCode = 1
   })
   .finally(async () => {
+    await closeAllClients()
     await closePrismaDatabase()
+    // Let closed socket/adapter handles finish their callbacks before exiting.
+    setTimeout(() => process.exit(process.exitCode || 0), 100)
   })

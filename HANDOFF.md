@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-271 底层网络快照与维护脚本
+
+- 7f226ad已push。底层persist写入要求hostId/userId/incusId/updatedAt/原双栈地址和宿主身份，操作锁+实例行锁+宿主共享锁下复核，拒绝创建/清理/转移及活动任务。每次接受观察都单调推进版本，含地址没变；IP主记录与实例地址同事务。proxy包装调整状态更新顺序，原反代语义保持。
+- backfill脚本在远端读取前捕获完整宿主及实例身份；getAllHosts旧DTO不含user_id，另读真实记录，避免无条件拒绝正常维护。失败返回非零，关闭连接后等待句柄回调再显式退出，避免原后台定时器挂住；同步后立即exit在Windows引发libuv assertion，已在实际CLI修复并验证。
+- `takeover-network-persistence-before.log`先复现换宿主旧写仍成功；`takeover-network-persistence-server-final.log`14真实PG情形exit0（身份/版本/地址/任务/删除/创建/约束回滚、正常、无变化消费版本、并发仅一次成功）。`takeover-network-persistence-complete.log`47原API回归+5实际维护CLI（host/连接变化、DB失败、正常、dry-run）exit0；完整proxy回归、3守卫、后端最终build含tsc exit0、manifest191/93通过。临时gift-90a8413d账号及证书目录已完整清理，不提交私档或日志。
+- 原生Incus、公网/客户网络未验；host基线资源快照竞争、维护命令参数解析/统计口径等未在本项精修，R269超时/强杀续跑仍待。接R272 instances.ts /:id/quotas，schema已有0/null但写入null变undefined、少siteCount与创建串行检查；已定位未编辑。327/完整灾备未完成。
+
 ## 2026-10-29 R1-271 三个运维同步入口拒绝旧观察
 
 - 5e86550已push，CI40768936185最后运行；c188aac的CI40766741756最终success。复核纠正：原用户sync-status/宿主批量sync已走带身份/版本/会话的事务保护；baseline-sync、network-repair、ops单实例sync仍先无条件改状态再写IP。三个入口现在复用syncObservedInstanceNetwork，提交时核host连接/归属、instance标识/owner/updatedAt/原地址、当前会话和任务门禁；状态与IP一起事务写入，保suspended，观察入口不触发Caddy外部写入。

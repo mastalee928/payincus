@@ -310,7 +310,7 @@
 | R1-268 | 已有防护 | 保留初审结论 | syncInstanceNetwork及removeInstanceIpv6向cloud-init传nicMacs，保留已有eth0/eth1 hwaddr或按实例生成；原完全忽略MAC匹配的代码已有防护，不拿此结论代替所有VM真机重启验收。 |
 | R1-269 | 部分存在 | 自动失败回调及人工删除已修，超时/强杀待验 | managed原目标/attempt/UUID/mTLS与30秒清理核验、实例锁及事务释放，失败pending保资源退款独立；人工四删除入口核持久attempt/endpoint哈希，确认后清pending/IP，旧退款接口拒pending、record-only保占用。真实PG+mTLS20创建+16拒绝及正常/退款/重复矩阵、8守卫/build含tsc通过见HANDOFF。通用超时、进程强杀/事务退出续跑和原生Incus仍待，整体不记完成。 |
 | R1-270 | 部分存在 | 准备补偿/通知隔离已修；原生交付待验 | IP/cloud-init/storage同事务、当前创建身份/资源核验；失败回滚IP并原子置error/回收CPU内存磁盘端口，失权/补偿DB失败保占用。inbox失败保202及日志，createLog原有catch是误判。13真实Fastify/PG+mTLS场景、6守卫/最终build含tsc通过见HANDOFF；零金额赠送无退款，默认机器池未改。原生Incus/强杀恢复/outbox及请求幂等另待。 |
-| R1-271 | 部分存在 | 三运维入口已修；底层/维护脚本待 | 原用户sync-status/宿主批量sync已有保护；baseline/repair/ops单例改走现有身份/updatedAt/原地址/当前会话/任务门禁，状态IP同事务、封停保持，47实际PG/mTLS场景及完整proxy回归、3守卫/build含tsc通过。底层直接写和backfill、baseline宿主快照/真机仍待，见HANDOFF。 |
+| R1-271 | 部分存在 | 三入口/底层/维护脚本已修；原生网络待验 | 原用户sync-status/宿主批量sync已有保护；三运维入口与底层当前host/instance身份、版本/原IP/操作和任务门禁，状态IP同事务、封停保持、每次接受消费版本。14真实PG+47实际API/mTLS+5真实backfill CLI及完整proxy回归、3守卫/build含tsc通过，见HANDOFF。baseline宿主资源快照竞争、维护参数/统计与原生网络另待。 |
 | R1-272 | 部分存在 | 待精修/运行复核 | quota API已有整数范围及显式0校验，null转undefined不能清空；缺current site count和实例锁，与创建不串行。 |
 | R1-273 | 已有防护 | 保留初审结论 | helper的设备/DB回滚在helper内完成，路由成功日志在helper返回之后，不再因路由审计异常进入设备回滚。 |
 | R1-274 | 存在 | 待精修/运行复核 | giftDays按旧实例expires/status写，无version/实例锁，覆盖并发续费/销毁/迁移/封停风险。 |

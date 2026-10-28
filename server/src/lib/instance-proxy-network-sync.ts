@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { applyProxySiteOperation, prepareProxySiteOperationInTransaction, supersedeProxySiteIpv4Operation, type ProxySiteOperationRequest } from '../db/proxy-site-operations.js'
 import { PENDING_PROXY_SITE_OPERATION_STATES } from '../db/proxy-site-operation-guards.js'
 import { persistResolvedInstanceNetworkAddressesInTransaction,
+  instanceNetworkHostIdentity as hostConnectionIdentity, readInstanceNetworkHostIdentity,
   type InstanceNetworkSyncTarget, type ResolvedInstanceNetworkAddresses } from './instance-network-sync.js'
 
 export interface ProxyNetworkSyncObservation extends InstanceNetworkSyncTarget {
@@ -19,15 +20,8 @@ export interface ProxyNetworkSyncObservation extends InstanceNetworkSyncTarget {
   updatedAt: string
 }
 
-function hostConnectionIdentity(host: Pick<Host, 'url' | 'certPath' | 'keyPath' | 'serverCertificate' | 'serverFingerprint'>): string {
-  return JSON.stringify([host.url, host.certPath, host.keyPath, host.serverCertificate, host.serverFingerprint])
-}
-
 export async function readProxyNetworkSyncHostIdentity(hostId: number): Promise<string> {
-  const host = await prisma.host.findUniqueOrThrow({ where: { id: hostId }, select: {
-    url: true, certPath: true, keyPath: true, serverCertificate: true, serverFingerprint: true
-  } })
-  return hostConnectionIdentity(host)
+  return readInstanceNetworkHostIdentity(hostId)
 }
 
 export class ProxyNetworkSyncError extends Error {
@@ -89,10 +83,10 @@ export async function syncObservedInstanceNetwork(observed: ProxyNetworkSyncObse
     const { instance } = await lockCurrentInstance(tx, observed, actor, hostOwnerOnly)
     const currentStatus = instance.status
     const statusChanged = currentStatus !== 'suspended' && currentStatus !== incusStatus
-    if (statusChanged) await tx.instance.update({ where: { id: instance.id }, data: { status: incusStatus } })
     const network = await persistResolvedInstanceNetworkAddressesInTransaction(tx, {
       ...observed, ipv4: instance.ipv4, ipv6: instance.ipv6
     }, resolved, { updateLastSyncedAt: true })
+    if (statusChanged) await tx.instance.update({ where: { id: instance.id }, data: { status: incusStatus } })
     if (markProxySitesPending && network.ipv4Changed) {
       await tx.proxySite.updateMany({ where: { instanceId: instance.id, hostId: instance.hostId, status: 'active', enabled: true },
         data: { ipv4SyncPending: true, error: 'IPv4 地址已同步，反代站点配置等待同步' } })
