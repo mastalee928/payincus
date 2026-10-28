@@ -69,32 +69,36 @@ export class IncusClient {
   }
 
   /**
+   * Dedicated streams must retain the same registered TLS identity as API
+   * requests, even when they need their own connection and timeout settings.
+   */
+  createTransport(options: { connectTimeout?: number; headersTimeout?: number; bodyTimeout?: number } = {}): Agent {
+    if (!this.certPath || !this.keyPath) {
+      throw new Error('Certificate or key path is missing')
+    }
+    return new Agent({
+      connect: {
+        cert: readFileSync(this.certPath),
+        key: readFileSync(this.keyPath),
+        timeout: options.connectTimeout,
+        ...(this.serverCertificate ? {
+          ca: this.serverCertificate,
+          rejectUnauthorized: true,
+          checkServerIdentity: (_hostname: string, peer: { fingerprint256: string }) => peer.fingerprint256 === this.serverFingerprint
+            ? undefined : new Error('Incus TLS fingerprint changed')
+        } : { rejectUnauthorized: false }) // Preserve existing manually registered hosts.
+      },
+      headersTimeout: options.headersTimeout ?? 120000,
+      bodyTimeout: options.bodyTimeout ?? 300000
+    })
+  }
+
+  /**
    * 初始化 mTLS 连接
    */
   async connect(): Promise<unknown> {
     try {
-      if (!this.certPath || !this.keyPath) {
-        throw new Error('Certificate or key path is missing')
-      }
-
-      const cert = readFileSync(this.certPath)
-      const key = readFileSync(this.keyPath)
-
-      this.agent = new Agent({
-        connect: {
-          cert,
-          key,
-          ...(this.serverCertificate ? {
-            ca: this.serverCertificate,
-            rejectUnauthorized: true,
-            checkServerIdentity: (_hostname: string, peer: { fingerprint256: string }) => peer.fingerprint256 === this.serverFingerprint
-              ? undefined : new Error('Incus TLS fingerprint changed')
-          } : { rejectUnauthorized: false }) // Preserve existing manually registered hosts.
-        },
-        // 超时配置，防止 Headers Timeout Error
-        headersTimeout: 120000, // 2分钟
-        bodyTimeout: 300000     // 5分钟（对于大数据传输）
-      })
+      this.agent = this.createTransport()
 
       // 测试连接
       const info = await this.getServerInfo()

@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 备份导出身份与流控制
+
+- 前一阶段`8465e9d606588d540718d001b29a097cf91e8a27`已推送并核对远端；[CI运行40641931069](https://github.com/mastalee928/payincus/actions/runs/40641931069)7/7通过，新增上传集成已实际在Linux/PG执行。阶段推送习惯继续，无tag/Release/生产操作。
+- Incus常规API与独立导出连接统一从原client生成TLS transport，保留已登记CA与fingerprint；修正备份导出专用Agent无条件关闭服务端认证。旧手工登记无pin兼容行为未改，不能把它说成新身份验收。导出资源名逐段编码并拒绝dot segment。
+- 流由`pull`按需读一个chunk，避免`start`中循环无界enqueue；取消/读取失败直接销毁专用连接，总期限默认30分钟，外部AbortSignal可提前终止，无消费者也执行截止。错误响应最多读取约4KiB。上传provider提前失败时finally销毁来源Node流，避免导出连接挂起。
+- 实际mTLS验证正常内容/长度、常规API已连后换证书的新导出拒绝且零HTTP请求、256MiB慢消费者背压、取消远端关闭、停滞与无人消费超时、外部取消/预取消、错误体上限、后续正常导出及legacy兼容通过`logs/takeover-backup-export-final.log`。真实PG上传回归`logs/takeover-backup-export-upload-regression.log`通过，存储仍为接口替身；server类型/后端构建及4/4相关守卫见`logs/takeover-backup-export-typecheck.log`、`logs/takeover-backup-export-build.log`、`logs/takeover-backup-export-guards.log`。新增专项登记并接入CI原隔离job。
+- 未完范围保留：restore上传与其它专用连接逐一审查、备份任务固定原身份与持久恢复、真实OSS/Incus磁盘、三台SSH身份来源及327/完整网关目标。当前分项不等同于所有备份流程验收。
+
 ## 2026-10-28 备份上传文件隔离与阶段 CI
 
 - `437ff0217f72d31733a35a5a89811e00c491c5d4`已推送；[CI运行40639322152](https://github.com/mastalee928/payincus/actions/runs/40639322152)7/7成功，含双架构网关组件、计费到期、交付删除、远端候选、类型与双端构建。仅源码CI，不代表正式发行/全新安装/完整网关验收。

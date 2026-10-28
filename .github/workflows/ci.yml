@@ -157,7 +157,9 @@ jobs:
           pnpm --filter server test:host-public-ipv6-integration
           pnpm --filter server test:admin-instance-delete-integration
       - name: Verify backup upload file isolation and completion
-        run: pnpm --filter server test:review-upload-completion-integration
+        run: |
+          pnpm --filter server test:review-upload-completion-integration
+          pnpm --filter server test:review-backup-export
 
   remote-gateway-setup-integration:
     name: Remote gateway setup journal integration

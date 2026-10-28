@@ -294,9 +294,15 @@ export async function executeUploadTask(taskId: number): Promise<void> {
         const nodeStream = Readable.fromWeb(stream as import('stream/web').ReadableStream)
 
         // 8. 流式上传到远程存储
-        checkTimeout()
-        await provider.uploadStream(nodeStream, remoteFileName)
-        checkTimeout()
+        try {
+            checkTimeout()
+            await provider.uploadStream(nodeStream, remoteFileName)
+            checkTimeout()
+        } finally {
+            // A storage refusal may leave the source unread. Cancel its mTLS
+            // export immediately instead of keeping the host connection open.
+            nodeStream.destroy()
+        }
 
         // 更新进度: 完成中
         await updateUploadProgress(taskId, 'finalizing')

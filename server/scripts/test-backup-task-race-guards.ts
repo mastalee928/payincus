@@ -276,6 +276,11 @@ const uploadExecuteSection = section(
   '/**\n * 启动备份上传 Worker'
 )
 assert.ok(
+  uploadExecuteSection.includes('nodeStream.destroy()') &&
+    uploadExecuteSection.indexOf('nodeStream.destroy()') > uploadExecuteSection.indexOf('await provider.uploadStream(nodeStream, remoteFileName)'),
+  'upload completion or storage refusal must release the backup export source'
+)
+assert.ok(
   uploadExecuteSection.includes("task.status !== 'PROCESSING' || runningUploadTaskIds.has(taskId)") &&
     uploadExecuteSection.indexOf("task.status !== 'PROCESSING'") < uploadExecuteSection.indexOf('runningUploadTaskIds.add(taskId)'),
   'upload execution must reject missing, non-processing and already running tasks before reserving in-process state'

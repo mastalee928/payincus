@@ -63,7 +63,10 @@ export function getBackupExportUrl(
   instanceName: string,
   backupName: string
 ): string {
-  return `${client.baseUrl}/1.0/instances/${instanceName}/backups/${backupName}/export`
+  if ([instanceName, backupName].some(name => !name || name === '.' || name === '..')) {
+    throw new Error('Invalid backup export target')
+  }
+  return `${client.baseUrl}/1.0/instances/${encodeURIComponent(instanceName)}/backups/${encodeURIComponent(backupName)}/export`
 }
 
 /**
@@ -74,86 +77,75 @@ export function getBackupExportUrl(
 export async function getBackupExportStream(
   client: IncusClient,
   instanceName: string,
-  backupName: string
+  backupName: string,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<{ stream: ReadableStream<Uint8Array>; contentLength?: number }> {
-  if (!client.agent) {
-    throw new Error('Incus 客户端未连接')
-  }
-
-  const { Agent, request } = await import('undici')
-  const { readFileSync } = await import('fs')
-  const url = `${client.baseUrl}/1.0/instances/${instanceName}/backups/${backupName}/export`
-
-  // 为大文件传输创建专用 Agent，设置更长的超时
-  // 连接超时 60 秒，无 body 超时（流式传输）
-  let exportAgent: InstanceType<typeof Agent> | null = null
-
+  if (!client.agent) throw new Error('Incus 客户端未连接')
+  const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2147483647) throw new Error('Invalid backup export timeout')
+  const { request } = await import('undici')
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)])
+    : AbortSignal.timeout(timeoutMs)
+  const url = getBackupExportUrl(client, instanceName, backupName)
+  const exportAgent = client.createTransport({ connectTimeout: 60000, headersTimeout: 60000, bodyTimeout: 0 })
   try {
-    // 读取证书（从 client 获取路径）
-    if (!client.certPath || !client.keyPath) {
-      throw new Error('Certificate path not configured')
-    }
-
-    const cert = readFileSync(client.certPath)
-    const key = readFileSync(client.keyPath)
-
-    exportAgent = new Agent({
-      connect: {
-        cert,
-        key,
-        rejectUnauthorized: false,
-        timeout: 60000 // 连接超时 60 秒
-      },
-      bodyTimeout: 0, // 禁用 body 超时，允许长时间传输
-      headersTimeout: 60000 // headers 超时 60 秒
-    })
-
-    const response = await request(url, {
-      method: 'GET',
-      dispatcher: exportAgent
-    })
-
+    const response = await request(url, { method: 'GET', dispatcher: exportAgent, signal })
     if (response.statusCode !== 200) {
-      const text = await response.body.text()
-      await exportAgent.close()
-      throw new Error(`导出备份失败: ${text || response.statusCode}`)
+      // An error endpoint must not be allowed to stream an unbounded body.
+      let detail = ''
+      for await (const chunk of response.body) {
+        detail += Buffer.from(chunk).subarray(0, 4096 - Buffer.byteLength(detail)).toString('utf8')
+        if (Buffer.byteLength(detail) >= 4096) break
+      }
+      throw new Error('导出备份失败: ' + (detail || response.statusCode))
     }
-
-    // 获取 Content-Length（如果有）
-    const contentLengthHeader = response.headers['content-length']
-    const contentLength = contentLengthHeader ? parseInt(String(contentLengthHeader), 10) : undefined
-
-    // 保存 agent 引用以便在流结束时关闭
-    const agentToClose = exportAgent
-
-    // 将 undici 的 body 转换为 Web ReadableStream
-    const webStream = new ReadableStream<Uint8Array>({
-      async start(controller) {
+    const length = response.headers['content-length']
+    const parsedLength = length === undefined ? undefined : Number(length)
+    const contentLength = parsedLength !== undefined && Number.isSafeInteger(parsedLength) && parsedLength >= 0
+      ? parsedLength : undefined
+    const iterator = response.body[Symbol.asyncIterator]()
+    let closed = false
+    let removeAbortListener = () => {}
+    async function finish(abort: boolean) {
+      if (closed) return
+      closed = true
+      removeAbortListener()
+      if (abort) response.body.destroy()
+      await (abort ? exportAgent.destroy() : exportAgent.close()).catch(() => {})
+    }
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const onAbort = () => {
+          if (closed) return
+          controller.error(signal.reason)
+          void finish(true)
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        removeAbortListener = () => signal.removeEventListener('abort', onAbort)
+        if (signal.aborted) onAbort()
+      },
+      async pull(controller) {
         try {
-          for await (const chunk of response.body) {
-            controller.enqueue(chunk)
+          const result = await iterator.next()
+          if (closed) return
+          if (result.done) {
+            controller.close()
+            await finish(false)
+          } else {
+            controller.enqueue(result.value)
           }
-          controller.close()
-        } catch (err) {
-          controller.error(err)
-        } finally {
-          // 流结束后关闭专用 agent
-          await agentToClose.close().catch(() => { })
+        } catch (error) {
+          if (!closed) controller.error(error)
+          await finish(true)
         }
       },
-      cancel() {
-        // 流被取消时也要关闭 agent
-        agentToClose.close().catch(() => { })
-      }
+      async cancel() { await finish(true) }
     })
-
-    return { stream: webStream, contentLength }
-  } catch (err) {
-    // 出错时确保关闭 agent
-    if (exportAgent) {
-      await exportAgent.close().catch(() => { })
-    }
-    throw err
+    return { stream, contentLength }
+  } catch (error) {
+    await exportAgent.destroy().catch(() => {})
+    throw error
   }
 }
 

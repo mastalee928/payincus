@@ -33,6 +33,7 @@
     "test:review-config-pagination-integration": "node --import tsx scripts/test-review-config-pagination-integration.ts",
     "test:review-task-claim-integration": "node --import tsx scripts/test-review-task-claim-integration.ts",
     "test:review-upload-completion-integration": "node --import tsx scripts/test-review-upload-completion-integration.ts",
+    "test:review-backup-export": "node --import tsx scripts/test-review-backup-export.ts",
     "test:review-command-integration": "node --import tsx scripts/test-review-command-integration.ts",
     "test:review-ssh-keys-integration": "node --import tsx scripts/test-review-ssh-keys-integration.ts",
     "test:review-secondary-boundaries": "node --import tsx scripts/test-review-secondary-boundaries.ts",
