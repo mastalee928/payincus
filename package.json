@@ -45,6 +45,7 @@
     "test:demo-readonly-redaction-guards": "pnpm --filter server test:demo-readonly-redaction-guards"
   },
   "testGuards": [
+    "pnpm --filter server test:review-service-worker",
     "pnpm --filter server test:review-ipv6-route-recovery",
     "pnpm --filter server test:review-secondary-boundaries",
     "pnpm --filter server test:review-incus-pool",

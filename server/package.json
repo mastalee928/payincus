@@ -6,6 +6,8 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:review-service-worker": "node ../scripts/test-service-worker.mjs",
+    "test:review-service-worker-browser": "node ../scripts/test-service-worker-browser.mjs",
     "test:review-init-command-selector": "node ../scripts/test-init-command-selector.mjs",
     "test:review-init-command-modals": "node ../scripts/test-init-command-modals.mjs",
     "test:review-ticket-public-authorization": "node --import tsx scripts/test-review-ticket-public-authorization.ts",

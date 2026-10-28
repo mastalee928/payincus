@@ -13,6 +13,16 @@ const SW_VERSION = (() => {
   }
 })()
 const CACHE_NAME = `incudal-cache-v${SW_VERSION}`
+const MAX_CACHE_ENTRIES = 256
+let cacheGeneration = 0
+let cacheMutation = Promise.resolve()
+
+// 写入、裁剪和手动清除串行执行，失败不阻塞后续缓存操作。
+function mutateCache(operation) {
+  const pending = cacheMutation.then(operation)
+  cacheMutation = pending.catch(() => {})
+  return pending
+}
 
 // 需要缓存的静态资源类型
 const CACHEABLE_EXTENSIONS = ['.js', '.css', '.woff', '.woff2', '.ttf', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.ico']
@@ -42,7 +52,7 @@ self.addEventListener('activate', (event) => {
       caches.keys().then(cacheNames => {
         return Promise.all(
           cacheNames
-            .filter(cacheName => cacheName !== CACHE_NAME)
+            .filter(cacheName => cacheName.startsWith('incudal-cache-') && cacheName !== CACHE_NAME)
             .map(cacheName => {
               console.log('[SW] Deleting old cache:', cacheName)
               return caches.delete(cacheName)
@@ -92,22 +102,35 @@ self.addEventListener('fetch', (event) => {
   // 可缓存的静态资源 - 网络优先，缓存兜底。
   // OTA 后旧客户端可能还持有上一版 worker；网络优先可以避免继续使用旧 chunk/CSS。
   if (shouldCache(url)) {
-    event.respondWith(
-      fetch(event.request)
-        .then(networkResponse => {
-          if (networkResponse && networkResponse.status === 200) {
-            const responseToCache = networkResponse.clone()
-            event.waitUntil(
-              caches.open(CACHE_NAME).then(cache => {
-                cache.put(event.request, responseToCache)
-              })
-            )
+    const generation = cacheGeneration
+    const network = fetch(event.request)
+    // 同步登记完整后台任务；返回网络响应无需等待磁盘写入。
+    event.waitUntil(
+      network.then(networkResponse => {
+        if (networkResponse.status !== 200 || generation !== cacheGeneration) return
+        const responseToCache = networkResponse.clone()
+        return mutateCache(async () => {
+          if (generation !== cacheGeneration) return
+          const cache = await caches.open(CACHE_NAME)
+          await cache.put(event.request, responseToCache)
+          const keys = await cache.keys()
+          for (const key of keys.slice(0, Math.max(0, keys.length - MAX_CACHE_ENTRIES))) {
+            await cache.delete(key)
           }
-          return networkResponse
         })
-        .catch(() => {
-          return caches.match(event.request).then(cachedResponse => cachedResponse || Response.error())
-        })
+      }, () => {}).catch(() => {
+        console.warn('[SW] Static resource cache write failed')
+      })
+    )
+    event.respondWith(
+      network.catch(async () => {
+        try {
+          const cache = await caches.open(CACHE_NAME)
+          return await cache.match(event.request) || Response.error()
+        } catch {
+          return Response.error()
+        }
+      })
     )
     return
   }
@@ -118,8 +141,10 @@ self.addEventListener('fetch', (event) => {
 // 监听消息（用于手动清除缓存等操作）
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'CLEAR_CACHE') {
+    // 清除前已经发出的网络请求不能在清除确认后重新填充旧缓存。
+    cacheGeneration++
     event.waitUntil(
-      caches.delete(CACHE_NAME).then(() => {
+      mutateCache(() => caches.delete(CACHE_NAME)).then(() => {
         console.log('[SW] Cache cleared')
         // 通知客户端
         if (event.source && event.source.postMessage) {

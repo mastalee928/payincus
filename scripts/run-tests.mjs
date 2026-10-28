@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-service-worker-browser', 'requires installed Chrome/Edge; registers actual Service Worker on two isolated local HTTP origins and verifies CacheStorage/offline/clear/bounds'],
   ['test:review-init-command-selector', 'requires installed Chrome/Edge and local Vite; renders real selector with delayed API fixture for distro/session/unmount races'],
   ['test:review-init-command-modals', 'requires installed Chrome/Edge and local Vite; renders real init command modals with delayed API/clipboard fixture'],
   ['test:review-ticket-public-authorization', 'requires isolated local *_pool_test PostgreSQL; real bearer middleware and PAT/POA ticket write races with account/token/app/grant revocation'],

@@ -257,7 +257,7 @@
 | R1-219 | 存在 | 待精修/运行复核 | loadPackage无seq，保存用当前route；旧完成可导航离新页面；清description转undefined不能清已有值，SLA另验。 |
 | R1-220 | 存在 | 待精修/运行复核 | loadPackage无seq，保存用当前route；旧完成可导航离新页面；清description转undefined不能清已有值，SLA另验。 |
 | R1-221 | 存在 | 待精修/运行复核 | loadPackage无seq，保存用当前route；旧完成可导航离新页面；清description转undefined不能清已有值，SLA另验。 |
-| R1-222 | 部分存在 | 待精修/运行复核 | cache.put未返回给waitUntil，生命周期可能提早结束；本库无对方条目上限实现。 |
+| R1-222 | 部分存在 | 已精修/本地Chrome通过 | 完整写入/裁剪同步登记waitUntil，写入与清空串行，新增256条上限；存储失败不丢成功网络响应，清空代次拒绝旧下载回填，限定本应用/当前版本缓存。受控延迟/280并发/故障恢复专项及真实Chrome双源注册、断网回退、清空、容量通过；路由守卫、双端类型build/dist通过。未生产部署；256是条目上限而非磁盘字节配额。 |
 | R1-223 | 实现不同 | 保留初审结论 | 未找到对方依赖退役邮件模块的旧AFF脚本；本库两个AFF守卫有清单且已在181项基线实际通过。 |
 | R1-224 | 实现不同 | 保留初审结论 | 未发现旧UserHistoryView；现行UsersView登录弹窗异步目标风险已列R305，不能虚构旧历史页面。 |
 | R1-225 | 已有防护 | 保留初审结论 | refresh/action已有sequence、disposed和busy门禁，原旧请求覆盖新运行并停轮询已有保护。 |
