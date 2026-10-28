@@ -2028,6 +2028,14 @@ pool: {
         },
         // Sites management
         sites: {
+            operationSyncing: 'Syncing',
+            operationDeleting: 'Deleting',
+            operationRetry: 'Waiting to retry',
+            operationBlocked: 'Needs attention',
+            operationAccepted: 'Request accepted. The site will show the result.',
+            retryOperation: 'Retry operation',
+            nextRetry: 'Next retry: {time}',
+            operationUpdated: 'Site operation completed',
             title: 'Sites',
             addSite: 'Add Site',
             editSite: 'Edit Site',
@@ -2195,6 +2203,14 @@ pool: {
 
     // Snapshot management
     snapshot: {
+        recoveryTitle: "Automatic snapshot unfinished",
+        recoveryHint: "The original operation and rotation target are retained. Check the host connection and instance identity, then retry.",
+        retryRecovery: "Retry original operation",
+        retryingRecovery: "Recovering…",
+        recoveryPending: "Verifying the snapshot. Refresh shortly.",
+        recoveryComplete: "Automatic snapshot recovered",
+        loadFailed: "Unable to load snapshot status. Please refresh.",
+        refresh: "Refresh status",
         title: 'Snapshots',
         autoPolicy: 'Auto Snapshot Enabled',
         autoPolicyEnabled: 'Auto Snapshot Enabled',
@@ -3454,6 +3470,15 @@ pool: {
         },
         // System settings
         system: {
+            invitePricing: {
+                title: 'Invite Code Pricing',
+                description: 'Set the resources users spend to generate one invite code. Balance and points are supported as extensible cost options.',
+                balance: 'Generate with balance', points: 'Generate with points',
+                balanceHint: 'Deduct account balance for each invite code generated',
+                pointsHint: 'Deduct points for each invite code generated',
+                priceYuan: 'Price per code (CNY)', pricePoints: 'Price per code (points)',
+                expiry: 'Default validity', expiryHint: '0 means user-generated invite codes never expire.',
+            },
             title: 'System Settings',
             description: 'Configure system initial parameters and defaults',
             tabs: {

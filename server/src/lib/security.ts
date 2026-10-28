@@ -242,6 +242,7 @@ export interface InputValidationResult {
  * 检查字符串是否包含危险字符
  */
 export function containsDangerousChars(input: string): boolean {
+    DANGEROUS_CHARS_REGEX.lastIndex = 0
     return DANGEROUS_CHARS_REGEX.test(input)
 }
 
@@ -528,6 +529,7 @@ export { checkJwtConfig } from './security-config.js'
 // ==================== Refresh Token 管理 (数据库) ====================
 
 import { prisma } from '../db/prisma.js'
+import { Prisma } from '@prisma/client'
 
 interface RefreshTokenData {
     userId: number
@@ -627,7 +629,8 @@ export async function generateRefreshToken(
     username: string,
     role: 'admin' | 'user',
     ip?: string,
-    userAgent?: string
+    userAgent?: string,
+    transaction?: Prisma.TransactionClient
 ): Promise<string> {
     const token = `rt_${crypto.randomBytes(32).toString('base64url')}`
     const tokenHash = getRefreshTokenStorageKey(token)
@@ -635,7 +638,7 @@ export async function generateRefreshToken(
     const expiresAt = new Date(now.getTime() + REFRESH_TOKEN_CONFIG.expiresInSeconds * 1000)
 
     // 存储到数据库
-    await prisma.refreshToken.create({
+    await (transaction || prisma).refreshToken.create({
         data: {
             token: tokenHash,
             userId,
@@ -792,14 +795,10 @@ export async function verifyRefreshToken(
  * 撤销 Refresh Token (异步)
  */
 export async function revokeRefreshToken(token: string): Promise<boolean> {
-    try {
-        const result = await prisma.refreshToken.deleteMany({
-            where: { token: { in: getRefreshTokenLookupKeys(token) } }
-        })
-        return result.count > 0
-    } catch {
-        return false
-    }
+    const result = await prisma.refreshToken.deleteMany({
+        where: { token: { in: getRefreshTokenLookupKeys(token) } }
+    })
+    return result.count > 0
 }
 
 /**
@@ -899,31 +898,21 @@ export async function updateSessionActivity(token: string): Promise<{ expiresAt:
  * 通过记录一个时间戳，所有在此时间戳之前签发的 token 都将被视为无效
  */
 export async function invalidateUserAccessTokens(userId: number): Promise<void> {
-    try {
-        const now = Math.floor(Date.now() / 1000)  // 使用秒级时间戳，与 JWT iat 一致
-        const USER_LEVEL_SESSION_ID = '__USER_LEVEL__'  // 特殊标记表示用户级别失效
-        
-        // 使用 upsert 确保每个用户只有一条记录
-        await prisma.tokenInvalidation.upsert({
-            where: {
-                userId_sessionId: {
-                    userId,
-                    sessionId: USER_LEVEL_SESSION_ID
-                }
-            },
-            create: {
-                userId,
-                sessionId: USER_LEVEL_SESSION_ID,
-                invalidatedAt: now
-            },
-            update: {
-                invalidatedAt: now
-            }
+    await persistAccessTokenInvalidation(userId, '__USER_LEVEL__')
+}
+
+async function persistAccessTokenInvalidation(userId: number, sessionId: string): Promise<void> {
+    await prisma.$transaction(async tx => {
+        // Serialize with sensitive account changes. Failed revocation must
+        // propagate so callers cannot report a successful security operation.
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`)
+        const invalidatedAt = Math.floor(Date.now() / 1000)
+        await tx.tokenInvalidation.upsert({
+            where: { userId_sessionId: { userId, sessionId } },
+            create: { userId, sessionId, invalidatedAt },
+            update: { invalidatedAt }
         })
-    } catch (error) {
-        // 记录错误但不抛出，避免影响其他功能
-        console.error('Failed to invalidate user tokens:', error)
-    }
+    })
 }
 
 /**
@@ -932,28 +921,7 @@ export async function invalidateUserAccessTokens(userId: number): Promise<void> 
  * @param sessionId 会话标识（Refresh Token 的前缀）
  */
 export async function invalidateSessionAccessToken(userId: number, sessionId: string): Promise<void> {
-    try {
-        const now = Math.floor(Date.now() / 1000)
-        await prisma.tokenInvalidation.upsert({
-            where: {
-                userId_sessionId: {
-                    userId,
-                    sessionId: sessionId
-                }
-            },
-            create: {
-                userId,
-                sessionId: sessionId,
-                invalidatedAt: now
-            },
-            update: {
-                invalidatedAt: now
-            }
-        })
-    } catch (error) {
-        // 记录错误但不抛出，避免影响其他功能
-        console.error('Failed to invalidate session token:', error)
-    }
+    await persistAccessTokenInvalidation(userId, sessionId)
 }
 
 /**
@@ -963,7 +931,7 @@ export async function invalidateSessionAccessToken(userId: number, sessionId: st
  * @param sessionId 可选的会话标识
  * @returns true 表示 token 已失效，false 表示有效
  * 
- * 注意：如果数据库查询失败，返回 false（允许 token 通过），避免 Redis 不可用导致频繁登出
+ * 数据库查询失败时传播错误，不能在无法确认撤销状态时继续认证。
  */
 export async function isAccessTokenInvalidated(userId: number, tokenIssuedAt: number, sessionId?: string): Promise<boolean> {
     try {
@@ -1000,9 +968,8 @@ export async function isAccessTokenInvalidated(userId: number, tokenIssuedAt: nu
 
         return false
     } catch (error) {
-        // 数据库查询失败时，返回 false（允许 token 通过），避免 Redis 不可用导致频繁登出
-        console.error('Failed to check token invalidation, allowing token:', error)
-        return false
+        console.error('Failed to check token invalidation:', error)
+        throw error
     }
 }
 
@@ -1567,6 +1534,8 @@ export interface OAuthLoginCodeData {
     userId: number
     username: string
     role: string
+    binding?: { id: number; provider: 'github' | 'google'; providerUserId: string }
+    authenticatedAt?: number
     timestamp: number
     nonce: string
 }

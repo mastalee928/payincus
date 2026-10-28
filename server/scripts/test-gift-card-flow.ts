@@ -85,6 +85,8 @@ async function main(): Promise<void> {
     })
   ])
 
+  const fixtureSession = { sid: runId, iat: Math.floor(Date.now() / 1000) + 1 }
+
   const adminCard = await giftCards.createGiftCard({
     faceValue: 12.34,
     balanceValue: 12.34,
@@ -95,16 +97,16 @@ async function main(): Promise<void> {
 
   const disabled = await giftCards.disableGiftCard(adminCard.id)
   assert.equal(disabled.count, 1)
-  await expectError(() => giftCards.redeemGiftCard(adminCard.code, recipient.id), 'GIFT_CARD_DISABLED')
+  await expectError(() => giftCards.redeemGiftCard(adminCard.code, recipient.id, fixtureSession), 'GIFT_CARD_DISABLED')
 
   const enabled = await giftCards.enableGiftCard(adminCard.id)
   assert.equal(enabled.count, 1)
 
-  const redeemed = await giftCards.redeemGiftCard(adminCard.code, recipient.id)
+  const redeemed = await giftCards.redeemGiftCard(adminCard.code, recipient.id, fixtureSession)
   assert.equal(redeemed.balanceValue, 12.34)
   assert.equal(redeemed.balanceBefore, 0)
   assert.equal(redeemed.balanceAfter, 12.34)
-  await expectError(() => giftCards.redeemGiftCard(adminCard.code, recipient.id), 'GIFT_CARD_USED')
+  await expectError(() => giftCards.redeemGiftCard(adminCard.code, recipient.id, fixtureSession), 'GIFT_CARD_USED')
 
   const redeemedCard = await giftCards.findGiftCardByCode(adminCard.code)
   assert.equal(redeemedCard?.status, 'used')
@@ -117,7 +119,7 @@ async function main(): Promise<void> {
     'redeemed admin-created cards must be visible in the recipient gift card list'
   )
 
-  const userGenerated = await giftCards.generateGiftCardFromBalance({
+  const userGenerated = await giftCards.generateGiftCardFromBalance({ session: fixtureSession,
     userId: owner.id,
     faceValue: 20,
     remark: `${runId}:user-generated`
@@ -131,9 +133,9 @@ async function main(): Promise<void> {
   assert.equal(userGeneratedCard?.ownerId, owner.id)
   assert.equal(userGeneratedCard?.createdById, owner.id)
 
-  await expectError(() => giftCards.redeemGiftCard(userGenerated.giftCard.code, owner.id), 'GIFT_CARD_SELF_REDEEM')
+  await expectError(() => giftCards.redeemGiftCard(userGenerated.giftCard.code, owner.id, fixtureSession), 'GIFT_CARD_SELF_REDEEM')
 
-  const userGeneratedRedeem = await giftCards.redeemGiftCard(userGenerated.giftCard.code, recipient.id)
+  const userGeneratedRedeem = await giftCards.redeemGiftCard(userGenerated.giftCard.code, recipient.id, fixtureSession)
   assert.equal(userGeneratedRedeem.balanceValue, 20)
   assert.equal(userGeneratedRedeem.balanceBefore, 12.34)
   assert.equal(userGeneratedRedeem.balanceAfter, 32.34)
@@ -142,7 +144,7 @@ async function main(): Promise<void> {
   assert.ok(ownerCards.records.some(card => card.id === userGenerated.giftCard.id))
 
   await expectError(
-    () => giftCards.generateGiftCardFromBalance({ userId: owner.id, faceValue: 1000, remark: `${runId}:insufficient` }),
+    () => giftCards.generateGiftCardFromBalance({ session: fixtureSession, userId: owner.id, faceValue: 1000, remark: `${runId}:insufficient` }),
     'GIFT_CARD_INSUFFICIENT_BALANCE'
   )
 
@@ -172,7 +174,7 @@ async function main(): Promise<void> {
   assert.equal(statsWithLazyExpiredCard.active, statsBeforeExpiredCard.active)
   assert.equal(statsWithLazyExpiredCard.outstandingValue, statsBeforeExpiredCard.outstandingValue)
 
-  await expectError(() => giftCards.redeemGiftCard(expiredCard.code, recipient.id), 'GIFT_CARD_EXPIRED')
+  await expectError(() => giftCards.redeemGiftCard(expiredCard.code, recipient.id, fixtureSession), 'GIFT_CARD_EXPIRED')
   const expiredAfterRedeem = await giftCards.findGiftCardByCode(expiredCard.code)
   assert.equal(expiredAfterRedeem?.status, 'expired')
 

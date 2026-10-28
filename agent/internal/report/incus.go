@@ -14,12 +14,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const (
 	maxReportedIncusInstances = 500
 	incusStateConcurrency     = 3
+	incusCollectionTimeout    = 20 * time.Second
 )
 
 var externalGuestInterfacePattern = regexp.MustCompile(`^(eth[0-9]+|en(?:o|p|s|x)[a-z0-9]+)$`)
@@ -65,8 +67,13 @@ type trafficCounters struct {
 	tx uint64
 }
 
-func collectIncusInstanceReport() map[string]any {
+func collectIncusInstanceReport(ctx context.Context) map[string]any {
+	ctx, cancel := context.WithTimeout(ctx, incusCollectionTimeout)
+	defer cancel()
 	reportedAt := time.Now().UTC().Format(time.RFC3339)
+	if err := ctx.Err(); err != nil {
+		return failedIncusCollection(reportedAt, err)
+	}
 	socketPath, ok := detectIncusSocket()
 	if !ok {
 		return map[string]any{
@@ -79,15 +86,9 @@ func collectIncusInstanceReport() map[string]any {
 
 	// 只通过本机 Unix socket 做只读采集，不要求宿主机开放额外 Agent 端口。
 	client := newIncusUnixHTTPClient(socketPath)
-	instances, err := listIncusInstances(client)
+	instances, err := listIncusInstances(ctx, client)
 	if err != nil {
-		return map[string]any{
-			"available":  false,
-			"reportedAt": reportedAt,
-			"total":      0,
-			"items":      []any{},
-			"error":      truncateReportError(err),
-		}
+		return failedIncusCollection(reportedAt, err)
 	}
 
 	limitedInstances := instances
@@ -98,15 +99,28 @@ func collectIncusInstanceReport() map[string]any {
 	items := make([]map[string]any, len(limitedInstances))
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, incusStateConcurrency)
+	var incomplete atomic.Bool
 
 	for index, instance := range limitedInstances {
+		if ctx.Err() != nil {
+			break
+		}
 		wg.Add(1)
 		go func(index int, instance incusInstanceSummary) {
 			defer wg.Done()
-			semaphore <- struct{}{}
+			select {
+			case semaphore <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
 			defer func() { <-semaphore }()
-
-			items[index] = buildIncusInstanceReportItem(client, instance)
+			if ctx.Err() != nil {
+				return
+			}
+			items[index] = buildIncusInstanceReportItem(ctx, client, instance)
+			if _, failed := items[index]["error"]; failed {
+				incomplete.Store(true)
+			}
 		}(index, instance)
 	}
 	wg.Wait()
@@ -118,12 +132,28 @@ func collectIncusInstanceReport() map[string]any {
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return failedIncusCollection(reportedAt, err)
+	}
+	if incomplete.Load() {
+		return map[string]any{
+			"available": true, "reportedAt": reportedAt, "total": len(instances),
+			"truncated": true, "items": normalizedItems, "error": "some Incus instance states could not be collected",
+		}
+	}
 	return map[string]any{
 		"available":  true,
 		"reportedAt": reportedAt,
 		"total":      len(instances),
 		"truncated":  len(instances) > len(limitedInstances),
 		"items":      normalizedItems,
+	}
+}
+
+func failedIncusCollection(reportedAt string, err error) map[string]any {
+	return map[string]any{
+		"available": false, "reportedAt": reportedAt, "total": 0,
+		"truncated": true, "items": []any{}, "error": truncateReportError(err),
 	}
 }
 
@@ -143,17 +173,17 @@ func newIncusUnixHTTPClient(socketPath string) *http.Client {
 	}
 }
 
-func listIncusInstances(client *http.Client) ([]incusInstanceSummary, error) {
-	return incusRequest[[]incusInstanceSummary](client, "/1.0/instances?recursion=1")
+func listIncusInstances(ctx context.Context, client *http.Client) ([]incusInstanceSummary, error) {
+	return incusRequest[[]incusInstanceSummary](ctx, client, "/1.0/instances?recursion=1")
 }
 
-func getIncusInstanceState(client *http.Client, name string) (incusInstanceState, error) {
-	return incusRequest[incusInstanceState](client, "/1.0/instances/"+url.PathEscape(name)+"/state")
+func getIncusInstanceState(ctx context.Context, client *http.Client, name string) (incusInstanceState, error) {
+	return incusRequest[incusInstanceState](ctx, client, "/1.0/instances/"+url.PathEscape(name)+"/state")
 }
 
-func incusRequest[T any](client *http.Client, path string) (T, error) {
+func incusRequest[T any](ctx context.Context, client *http.Client, path string) (T, error) {
 	var zero T
-	request, err := http.NewRequest(http.MethodGet, "http://incus"+path, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://incus"+path, nil)
 	if err != nil {
 		return zero, err
 	}
@@ -189,7 +219,7 @@ func incusRequest[T any](client *http.Client, path string) (T, error) {
 	return zero, nil
 }
 
-func buildIncusInstanceReportItem(client *http.Client, instance incusInstanceSummary) map[string]any {
+func buildIncusInstanceReportItem(ctx context.Context, client *http.Client, instance incusInstanceSummary) map[string]any {
 	item := map[string]any{
 		"name":       instance.Name,
 		"status":     instance.Status,
@@ -201,7 +231,7 @@ func buildIncusInstanceReportItem(client *http.Client, instance incusInstanceSum
 		return item
 	}
 
-	state, err := getIncusInstanceState(client, instance.Name)
+	state, err := getIncusInstanceState(ctx, client, instance.Name)
 	if err != nil {
 		item["error"] = truncateReportError(err)
 		return item

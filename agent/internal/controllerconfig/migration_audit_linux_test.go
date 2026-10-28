@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -37,7 +38,7 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 			}
 			env = append(env, "INCUDAL_MIGRATION_PARENT_"+ns+"="+value)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 55*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 115*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, "/usr/bin/unshare", "--mount", "--net", "--pid", "--fork", "--mount-proc", binary, "-test.run=^TestMigrationAuditIsolatedHost$", "-test.v")
 		cmd.Env = env
@@ -71,7 +72,7 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 	if _, err = channelCommand(ctx, "/usr/sbin/ip", []string{"link", "set", "lo", "up"}, ""); err != nil {
 		t.Fatal(err)
@@ -144,7 +145,11 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 		}
 		defer log.Close()
 		cmd := exec.CommandContext(ctx, realDaemon, "--verbose")
-		cmd.Env = append(os.Environ(), "INCUS_DIR="+state, "LD_LIBRARY_PATH="+filepath.Join(realIncus, "rootfs/usr/lib/aarch64-linux-gnu"), "PATH="+filepath.Join(realIncus, "rootfs/usr/bin")+":"+filepath.Join(realIncus, "rootfs/usr/sbin")+":/usr/sbin:/usr/bin:/sbin:/bin")
+		library := "aarch64-linux-gnu"
+		if runtime.GOARCH == "amd64" {
+			library = "x86_64-linux-gnu"
+		}
+		cmd.Env = append(os.Environ(), "INCUS_DIR="+state, "LD_LIBRARY_PATH="+filepath.Join(realIncus, "rootfs/usr/lib", library), "PATH="+filepath.Join(realIncus, "rootfs/usr/bin")+":"+filepath.Join(realIncus, "rootfs/usr/sbin")+":/usr/sbin:/usr/bin:/sbin:/bin")
 		cmd.Stdout = log
 		cmd.Stderr = log
 		if err = cmd.Start(); err != nil {
@@ -220,6 +225,15 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 	payload := base64.StdEncoding.EncodeToString(raw)
 	id := SigningKeyID(witnessPub)
 	encoded, _ := canonical(envelope{1, id, payload, base64.StdEncoding.EncodeToString(ed25519.Sign(witness, []byte(preparePermitPrefix+id+"\n"+payload)))})
+	var remote *runtimeWitnessClient
+	if os.Getenv("INCUDAL_MIGRATION_REMOTE_WITNESS_DIR") != "" {
+		if realDaemon == "" {
+			t.Fatal("remote witness integration requires real isolated Incus")
+		}
+		remote = newRuntimeWitnessClient(ctx, t, config, candidate, trust, node.Public().(ed25519.PublicKey), holderPub)
+		keys, witnessID = remote.keys, remote.witnessID
+		encoded = remote.prepare(ctx, t, candidate)
+	}
 	state := filepath.Join(dir, "state")
 	os.Mkdir(state, 0700)
 	if _, err = ObservePrepareConfig(state, candidate, trust); err != nil {
@@ -258,7 +272,7 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 	}
 	result, err := runtime.Prepare(ctx, candidate, encoded, base64.StdEncoding.EncodeToString(holderPub))
 	if err != nil || result.Receipt == "" || result.GateProof == "" || result.CanWrite || len(result.Blockers) != 0 {
-		t.Fatalf("actual audit attestation: %+v %v", result, err)
+		t.Fatalf("actual audit attestation: blockers=%v receipt=%t gateProof=%t error=%v", result.Blockers, result.Receipt != "", result.GateProof != "", err)
 	}
 	// Test transport/runtime against the actual daemon. The witness signature
 	// here is a local test identity; remote authority issuance is a separate test.
@@ -276,6 +290,17 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 	leaseRaw, _ := canonical(lease)
 	leasePayload := base64.StdEncoding.EncodeToString(leaseRaw)
 	leaseEncoded, _ := canonical(envelope{1, id, leasePayload, base64.StdEncoding.EncodeToString(ed25519.Sign(witness, []byte(writeLeasePrefix+id+"\n"+leasePayload)))})
+	if remote != nil {
+		leaseEncoded = remote.activateAndLease(ctx, t, config.NodeID, result, SigningKeyID(holderPub))
+		var issued envelope
+		if decodeStrict(leaseEncoded, &issued) != nil {
+			t.Fatal("remote witness lease envelope")
+		}
+		issuedRaw, _ := base64.StdEncoding.Strict().DecodeString(issued.Payload)
+		if decodeStrict(issuedRaw, &lease) != nil {
+			t.Fatal("remote witness lease body")
+		}
+	}
 	if err = runtime.AcceptLease(ctx, leaseEncoded); err != nil {
 		t.Fatal("actual lease audit: ", err)
 	}
@@ -289,8 +314,28 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 	if _, err = runtime.Execute(ctx, body, proof, base64.StdEncoding.EncodeToString(holderPub)); err == nil {
 		t.Fatal("actual runtime request replay accepted")
 	}
+	if remote != nil {
+		// Use a fresh request signed by the wrong holder. Reusing the successful
+		// request would let replay protection hide a missing holder check.
+		wrongHolder := proof
+		wrongHolder.Timestamp = strconv.FormatInt(time.Now().UnixMilli(), 10)
+		wrongHolder.Nonce = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("w", 24)))
+		wrongHolder.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(witness, []byte(leaseRequestPrefix+strings.Join([]string{wrongHolder.LeaseSHA256, wrongHolder.Permission, wrongHolder.BodySHA256, wrongHolder.Timestamp, wrongHolder.Nonce}, "\n"))))
+		if _, err = runtime.Execute(ctx, body, wrongHolder, base64.StdEncoding.EncodeToString(witnessPub)); err == nil {
+			t.Fatal("remote lease accepted wrong holder")
+		}
+		wrongHolder.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(holderKey, []byte(leaseRequestPrefix+strings.Join([]string{wrongHolder.LeaseSHA256, wrongHolder.Permission, wrongHolder.BodySHA256, wrongHolder.Timestamp, wrongHolder.Nonce}, "\n"))))
+		if result, executeErr := runtime.Execute(ctx, body, wrongHolder, base64.StdEncoding.EncodeToString(holderPub)); executeErr != nil || !result.Accepted {
+			t.Fatal("valid holder rejected after invalid holder attempt: ", executeErr)
+		}
+		remote.assertInvalidScope(ctx, t, config.NodeID, result, SigningKeyID(holderPub))
+	}
 	for time.Now().UnixMilli() <= lease.ExpiresAt {
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			t.Fatal("lease expiry wait exceeded audit deadline")
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 	proof.Timestamp = strconv.FormatInt(time.Now().UnixMilli(), 10)
 	proof.Nonce = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("x", 24)))
@@ -304,5 +349,5 @@ func TestMigrationAuditIsolatedHost(t *testing.T) {
 	if err != nil || blocked.Receipt != "" || len(blocked.Blockers) == 0 {
 		t.Fatal("changed scheduler did not block", err)
 	}
-	t.Logf("actual isolated SSH/socket/procfs/scheduler/nft receipt and lease inspection/replay/expiry; real Incus=%v; scheduler change blocks activation", realDaemon != "")
+	t.Logf("actual isolated SSH/socket/procfs/scheduler/nft receipt and lease inspection/replay/expiry; real Incus=%v; remote mTLS witness=%v; scheduler change blocks activation", realDaemon != "", remote != nil)
 }

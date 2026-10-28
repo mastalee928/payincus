@@ -20,7 +20,10 @@ export async function waitForOperation(
 
   while (Date.now() - startTime < timeout) {
     signal?.throwIfAborted()
-    const op = await client.request<IncusOperation>('GET', `${operationUrl}/wait?timeout=10`, null, timeout, signal)
+    const remaining = timeout - (Date.now() - startTime)
+    if (remaining <= 0) break
+    const waitSeconds = Math.min(10, Math.max(1, Math.ceil(remaining / 1000)))
+    const op = await client.request<IncusOperation>('GET', `${operationUrl}/wait?timeout=${waitSeconds}`, null, remaining, signal)
 
     if (op.status === 'Success') {
       return op.metadata
@@ -29,9 +32,12 @@ export async function waitForOperation(
     if (op.status === 'Failure') {
       throw new Error(op.err || op.error || '操作失败')
     }
+    if (op.status?.toLowerCase() === 'cancelled' || op.status?.toLowerCase() === 'canceled') {
+      throw new Error(op.err || op.error || 'Incus operation cancelled')
+    }
   }
 
-  throw new Error('Operation timeout (5 minutes)')
+  throw new Error(`Incus operation timeout (${timeout} ms)`)
 }
 
 /**

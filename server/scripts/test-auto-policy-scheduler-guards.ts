@@ -1,77 +1,24 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
-const schedulerSource = readFileSync(resolve(__dirname, '../src/services/auto-policy-scheduler.ts'), 'utf8')
-
-function sectionBetween(source: string, startMarker: string, endMarker: string): string {
-  const start = source.indexOf(startMarker)
-  assert.notEqual(start, -1, `missing start marker: ${startMarker}`)
-  const end = source.indexOf(endMarker, start + startMarker.length)
-  assert.notEqual(end, -1, `missing end marker: ${endMarker}`)
-  return source.slice(start, end)
+const source = (path: string) => readFileSync(new URL('../src/' + path, import.meta.url), 'utf8')
+const scheduler = source('services/auto-policy-scheduler.ts')
+const operation = source('services/auto-snapshot-operations.ts')
+assert.ok(scheduler.includes('auto-policy:snapshot:') && scheduler.includes('await acquireLock(lockKey, {') &&
+  scheduler.includes('await releaseLock(lockKey, lockResult.ownerId)'), 'new operations share the manual snapshot lock')
+assert.ok(scheduler.indexOf('await acquireLock') < scheduler.indexOf('await prepareAutoSnapshotOperation') &&
+  scheduler.includes('!recoveringInstances.has(row.instanceId)'), 'prepare under snapshot lock; no duplicate creation during recovery scan')
+assert.ok(scheduler.includes('await prisma.autoSnapshotOperation.findMany') && scheduler.includes('applyAutoSnapshotOperation(row.id)'),
+  'recover durable operations independently of enabled policies and abandoned distributed leases')
+for (const required of ['tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)',
+  'FOR UPDATE', 'FOR SHARE', 'await tx.snapshotPolicy.findUnique', 'policy.nextRunAt > now', 'instance.expiresAt <= now',
+  'instance.snapshotLimit <= 0', 'await hasActiveTransferWorkflow(instanceId, tx)', 'await assertNoPendingProxySiteOperations(tx, instanceId)',
+  'serverCertificate: host.serverCertificate', 'serverFingerprint: host.serverFingerprint', 'await client.close()',
+  'operation.attemptId !== attemptId', 'transferHostIdentity(host) !== operation.identityHash', 'uuid !== operation.remoteUuid',
+  "state: 'succeeded'", "stage: 'created'", 'current.attempts >= 5']) assert.ok(operation.includes(required), required)
+assert.ok(operation.indexOf('remoteUuid: uuid') < operation.indexOf("client.request('POST'"), 'UUID saved before remote mutation')
+assert.ok(operation.indexOf("stage: 'created'") < operation.indexOf("client.request('DELETE'"), 'new snapshot confirmed before old deletion')
+for (const path of ['db/instance-tasks.ts', 'db/transfers.ts', 'routes/instances.ts', 'routes/hosts.ts',
+  'routes/instance-destroy.ts', 'routes/admin-billing.ts', 'services/host-replacement.ts', 'services/transfer-cleanup.ts']) {
+  assert.ok(source(path).includes('await assertNoPendingSnapshotOperations(tx,'), path + ' must fence unfinished automatic snapshots')
 }
-
-const lockedSnapshotSection = sectionBetween(
-  schedulerSource,
-  'async function executeLockedAutoSnapshot(',
-  '/**\n * 运行自动快照任务'
-)
-const jobSection = sectionBetween(
-  schedulerSource,
-  'export async function runAutoSnapshotJob(): Promise<void> {',
-  '/**\n * 启动自动策略调度器'
-)
-
-assert.ok(
-  schedulerSource.includes("import { acquireLock, releaseLock } from '../lib/distributed-lock.js'"),
-  'auto snapshot scheduler must import the distributed lock helpers'
-)
-assert.ok(
-  schedulerSource.includes('const AUTO_POLICY_LOCK_EXPIRE_MS = 30 * 60 * 1000') &&
-    schedulerSource.includes('const AUTO_POLICY_LOCK_WAIT_MS = 100'),
-  'auto snapshot scheduler must use explicit lock expiry and short wait constants'
-)
-assert.ok(
-  schedulerSource.includes('function getAutoSnapshotPolicyLockKey(instanceId: number): string') &&
-    schedulerSource.includes('return `auto-policy:snapshot:${instanceId}`'),
-  'auto snapshot scheduler must use per-instance policy lock keys'
-)
-
-const acquireIndex = lockedSnapshotSection.indexOf('const lockResult = await acquireLock(lockKey, {')
-const latestPolicyIndex = lockedSnapshotSection.indexOf('const policy = await prisma.snapshotPolicy.findUnique')
-const nextRunGuardIndex = lockedSnapshotSection.indexOf('policy.nextRunAt !== null && policy.nextRunAt > now')
-const eligibilityGuardIndex = lockedSnapshotSection.indexOf("!['running', 'stopped'].includes(policy.instance.status)")
-const executeIndex = lockedSnapshotSection.indexOf('await executeAutoSnapshot({')
-const releaseIndex = lockedSnapshotSection.indexOf('await releaseLock(lockKey, lockResult.ownerId)')
-
-assert.notEqual(acquireIndex, -1, 'auto snapshot scheduler must acquire a per-instance lock')
-assert.notEqual(latestPolicyIndex, -1, 'auto snapshot scheduler must re-read the policy after acquiring the lock')
-assert.notEqual(nextRunGuardIndex, -1, 'auto snapshot scheduler must re-check nextRunAt after acquiring the lock')
-assert.notEqual(eligibilityGuardIndex, -1, 'auto snapshot scheduler must re-check instance and host eligibility after acquiring the lock')
-assert.notEqual(executeIndex, -1, 'auto snapshot scheduler must call the snapshot side effect only after locked checks')
-assert.notEqual(releaseIndex, -1, 'auto snapshot scheduler must release the per-instance lock')
-assert.ok(acquireIndex < latestPolicyIndex, 'policy re-read must happen after acquiring the lock')
-assert.ok(latestPolicyIndex < nextRunGuardIndex, 'latest policy must be loaded before checking nextRunAt')
-assert.ok(nextRunGuardIndex < executeIndex, 'nextRunAt must be rechecked before snapshot side effects')
-assert.ok(eligibilityGuardIndex < executeIndex, 'instance and host eligibility must be rechecked before snapshot side effects')
-assert.ok(executeIndex < releaseIndex, 'lock release must happen after snapshot side effects finish')
-assert.ok(
-  lockedSnapshotSection.includes('if (!lockResult.success || !lockResult.ownerId)') &&
-    lockedSnapshotSection.includes('lock already held'),
-  'auto snapshot scheduler must skip when another worker owns the lock'
-)
-assert.ok(
-  jobSection.includes('limit(() => executeLockedAutoSnapshot(policy))'),
-  'auto snapshot job must execute candidates through the locked wrapper'
-)
-assert.ok(
-  !jobSection.includes('limit(() => executeAutoSnapshot({'),
-  'auto snapshot job must not call snapshot side effects directly from the stale candidate list'
-)
-
-console.log('auto policy scheduler guard tests passed')
+console.log('auto policy durable recovery guard tests passed')

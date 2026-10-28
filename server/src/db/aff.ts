@@ -4,13 +4,16 @@
  */
 
 import { prisma } from './prisma.js'
-import type { AffCode, AffLog, AffLogType, AffWithdrawal, AffWithdrawalStatus, Prisma, PrismaClient } from '@prisma/client'
+import type { AffCode, AffLog, AffLogType, AffWithdrawal, AffWithdrawalStatus, Prisma } from '@prisma/client'
 import { nanoid } from 'nanoid'
 import { getSystemConfigFloat } from './system-config.js'
+import { authorizeUserWrite, lockAdministrativeUserMutation, type WriteActor, type WriteSession } from './user-write-authorization.js'
 import {
+  INSTANCE_OPERATION_LOCK_NAMESPACE,
   USER_AFF_BALANCE_LOCK_NAMESPACE,
   USER_BALANCE_LOCK_NAMESPACE,
   advisoryTransactionLock,
+  tryAdvisoryTransactionLock,
 } from './advisory-locks.js'
 
 const AFF_LOG_TYPES = new Set<AffLogType>(['new_purchase', 'renew', 'convert'])
@@ -385,41 +388,44 @@ export async function deleteAffCode(
   codeId: number
 ): Promise<{ success: boolean; code?: string; error?: string }> {
   try {
-    // 1. 查找优惠码
-    const affCode = await prisma.affCode.findUnique({
-      where: { id: codeId },
-      select: { id: true, code: true, userId: true, usedCount: true }
+    return await prisma.$transaction(async tx => {
+      await lockAffCode(tx, codeId)
+      // 1. 查找优惠码
+      const affCode = await tx.affCode.findUnique({
+        where: { id: codeId },
+        select: { id: true, code: true, userId: true, usedCount: true }
+      })
+
+      if (!affCode) {
+        return { success: false, error: '优惠码不存在' }
+      }
+
+      // 2. 检查所有权
+      if (affCode.userId !== userId) {
+        return { success: false, error: '无权删除此优惠码' }
+      }
+
+      // 3. 检查使用次数和现有绑定
+      if (affCode.usedCount > 0) {
+        return { success: false, error: '该优惠码已被使用，无法删除' }
+      }
+
+      const [instanceBindingCount, mailBindingCount] = await Promise.all([
+        tx.affBinding.count({ where: { affCodeId: codeId } }),
+        tx.mailSubscriptionAffBinding.count({ where: { affCodeId: codeId } })
+      ])
+
+      if (instanceBindingCount > 0 || mailBindingCount > 0) {
+        return { success: false, error: '该优惠码已绑定订阅，无法删除' }
+      }
+
+      // 4. 删除优惠码
+      await tx.affCode.delete({
+        where: { id: codeId }
+      })
+
+      return { success: true, code: affCode.code }
     })
-
-    if (!affCode) {
-      return { success: false, error: '优惠码不存在' }
-    }
-
-    // 2. 检查所有权
-    if (affCode.userId !== userId) {
-      return { success: false, error: '无权删除此优惠码' }
-    }
-
-    // 3. 检查使用次数和现有绑定
-    if (affCode.usedCount > 0) {
-      return { success: false, error: '该优惠码已被使用，无法删除' }
-    }
-
-    const [instanceBindingCount, mailBindingCount] = await Promise.all([
-      prisma.affBinding.count({ where: { affCodeId: codeId } }),
-      prisma.mailSubscriptionAffBinding.count({ where: { affCodeId: codeId } })
-    ])
-
-    if (instanceBindingCount > 0 || mailBindingCount > 0) {
-      return { success: false, error: '该优惠码已绑定订阅，无法删除' }
-    }
-
-    // 4. 删除优惠码
-    await prisma.affCode.delete({
-      where: { id: codeId }
-    })
-
-    return { success: true, code: affCode.code }
   } catch (error) {
     return {
       success: false,
@@ -476,6 +482,57 @@ export async function validateAffCode(
 
 // ==================== AFF 绑定与返利 ====================
 
+export class AffCodeEligibilityError extends Error {
+  constructor(message: string, readonly statusCode = 400) {
+    super(message)
+    this.name = 'AffCodeEligibilityError'
+  }
+}
+
+export class AffCodeBusyError extends AffCodeEligibilityError {
+  constructor() {
+    super('优惠码正在结算，请稍后重试', 409)
+    this.name = 'AffCodeBusyError'
+  }
+}
+
+/** Keep eligibility and pricing stable until the purchase/renewal commits. */
+export async function lockAffCode(tx: Prisma.TransactionClient, affCodeId: number): Promise<AffCode | null> {
+  const snapshot = await tx.affCode.findUnique({ where: { id: affCodeId }, select: { userId: true } })
+  if (!snapshot) return null
+  // Refund/creation-compensation already lock AFF balance before code statistics.
+  // Use the same order so settlement cannot deadlock them by holding the code first.
+  // Callers may already hold host/account rows. Never wait here while a refund
+  // or AFF conversion holds this lock and needs one of those account rows.
+  if (!await tryAdvisoryTransactionLock(tx, USER_AFF_BALANCE_LOCK_NAMESPACE, snapshot.userId)) {
+    throw new AffCodeBusyError()
+  }
+  await tx.$queryRaw`SELECT id FROM aff_codes WHERE id = ${affCodeId} FOR UPDATE`
+  const current = await tx.affCode.findUnique({ where: { id: affCodeId } })
+  if (current && current.userId !== snapshot.userId) throw new AffCodeEligibilityError('优惠码归属已变更，请重试', 409)
+  return current
+}
+
+export async function requireAffCodeForPurchase(
+  tx: Prisma.TransactionClient,
+  affCodeId: number,
+  buyerId: number,
+  packagePlanId: number | null,
+  expectedDiscountRate?: number
+): Promise<AffCode> {
+  const code = await lockAffCode(tx, affCodeId)
+  if (!code) throw new AffCodeEligibilityError('优惠码不存在')
+  if (!code.enabled) throw new AffCodeEligibilityError('优惠码已禁用')
+  if (code.userId === buyerId) throw new AffCodeEligibilityError('不能使用自己的优惠码')
+  if (code.packagePlanId !== null && code.packagePlanId !== packagePlanId) {
+    throw new AffCodeEligibilityError('优惠码不适用于此方案')
+  }
+  if (expectedDiscountRate !== undefined && Number(code.discountRate) !== expectedDiscountRate) {
+    throw new AffCodeEligibilityError('优惠码折扣已变更，请刷新后重试', 409)
+  }
+  return code
+}
+
 /**
  * 创建实例与优惠码的绑定关系（开通时调用）
  */
@@ -484,9 +541,53 @@ export async function createAffBinding(
   affCodeId: number,
   tx?: Prisma.TransactionClient
 ): Promise<void> {
-  const client = tx || prisma
-  await client.affBinding.create({
-    data: { instanceId, affCodeId }
+  const create = async (transaction: Prisma.TransactionClient) => {
+    const instance = await transaction.instance.findUnique({ where: { id: instanceId } })
+    if (!instance || !instance.packagePlanId) throw new AffCodeEligibilityError('付费实例不存在')
+    await requireAffCodeForPurchase(transaction, affCodeId, instance.userId, instance.packagePlanId)
+    await transaction.affBinding.create({ data: { instanceId, affCodeId } })
+  }
+  return tx ? create(tx) : prisma.$transaction(create)
+}
+
+/** Migration preserves an existing permanent binding, including disabled codes. */
+export async function copyInstanceAffBinding(
+  sourceInstanceId: number, targetInstanceId: number, expectedAffCodeId: number, tx: Prisma.TransactionClient
+): Promise<void> {
+  const source = await tx.affBinding.findUnique({ where: { instanceId: sourceInstanceId } })
+  if (source?.affCodeId !== expectedAffCodeId) throw new AffCodeEligibilityError('原实例优惠码绑定已变更', 409)
+  await tx.affBinding.create({ data: { instanceId: targetInstanceId, affCodeId: source.affCodeId } })
+}
+
+export async function applyAffCodeToInstance(instanceId: number, code: string, actor: WriteActor) {
+  return prisma.$transaction(async tx => {
+    if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)) {
+      throw new AffCodeEligibilityError('实例正在处理，请稍后重试', 409)
+    }
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+    if (!await authorizeUserWrite(tx, actor.id, actor) ||
+      (await tx.user.findUnique({ where: { id: actor.id }, select: { role: true } }))?.role !== 'admin') {
+      throw new AffCodeEligibilityError('管理员权限已变更，请重新登录', 403)
+    }
+    const instance = await tx.instance.findUnique({ where: { id: instanceId }, include: {
+      user: { select: { id: true, username: true } }, affBinding: true
+    } })
+    if (!instance) throw new AffCodeEligibilityError('实例不存在', 404)
+    if (instance.status === 'deleted' || instance.provisioningCleanupPending || instance.deletionBillingPending) {
+      throw new AffCodeEligibilityError('实例状态不允许应用优惠码', 409)
+    }
+    if (!instance.packagePlanId) throw new AffCodeEligibilityError('免费实例不支持应用优惠码')
+    if (instance.affBinding) throw new AffCodeEligibilityError('该实例已绑定优惠码，无法重复应用')
+    if (await tx.instanceTransfer.count({ where: { instanceId, status: { in: ['pending', 'processing'] } } })) {
+      throw new AffCodeEligibilityError('实例正在转移，请稍后重试', 409)
+    }
+    const candidate = await tx.affCode.findUnique({ where: { code: code.trim().toUpperCase() }, select: { id: true } })
+    if (!candidate) throw new AffCodeEligibilityError('优惠码不存在')
+    await createAffBinding(instanceId, candidate.id, tx)
+    const affCode = await tx.affCode.findUniqueOrThrow({ where: { id: candidate.id }, include: {
+      user: { select: { id: true, username: true } }
+    } })
+    return { instance, affCode }
   })
 }
 
@@ -507,10 +608,8 @@ export async function getInstanceAffBinding(instanceId: number, tx?: Prisma.Tran
 
   if (!binding) return null
 
-  return {
-    affCode: binding.affCode,
-    userId: binding.affCode.userId
-  }
+  const affCode = tx ? await lockAffCode(tx, binding.affCodeId) : binding.affCode
+  return affCode ? { affCode, userId: affCode.userId } : null
 }
 
 /**
@@ -524,14 +623,10 @@ export async function processAffCommission(
   type: 'new_purchase' | 'renew',
   tx?: Prisma.TransactionClient
 ): Promise<void> {
-  const client = tx || prisma
-
-  // 1. 获取优惠码信息
-  const affCode = await client.affCode.findUnique({
-    where: { id: affCodeId }
-  })
-
-  if (!affCode) return
+  if (!tx) return prisma.$transaction(transaction => processAffCommission(affCodeId, instanceId, originalAmount, type, transaction))
+  const client = tx
+  const affCode = await lockAffCode(tx, affCodeId)
+  if (!affCode?.enabled) return
 
   // 2. 计算返利金额
   const commissionRate = Number(affCode.commissionRate)
@@ -540,7 +635,7 @@ export async function processAffCommission(
   if (commission <= 0) return
 
   // 3. 给优惠码创建者增加 AFF 余额
-  await changeAffBalance({
+  await changeAffBalanceInTransaction(tx, {
     userId: affCode.userId,
     type,
     amount: commission,
@@ -548,7 +643,7 @@ export async function processAffCommission(
     instanceId,
     originalAmount,
     remark: type === 'new_purchase' ? '新购返利' : '续费返利'
-  }, client as PrismaClient)
+  })
 
   // 4. 更新优惠码统计
   await client.affCode.update({
@@ -663,7 +758,8 @@ export async function getAffStats(userId: number): Promise<{
  */
 export async function createAffWithdrawal(
   userId: number,
-  amount: number
+  amount: number,
+  session: WriteSession
 ): Promise<{ success: boolean; withdrawal?: AffWithdrawal; error?: string }> {
   try {
     // 1. 检查最低转化金额（0.1 元起）
@@ -675,6 +771,7 @@ export async function createAffWithdrawal(
     const withdrawal = await prisma.$transaction(async (tx) => {
       await advisoryTransactionLock(tx, USER_AFF_BALANCE_LOCK_NAMESPACE, userId)
       await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, userId)
+      if (!await authorizeUserWrite(tx, userId, session)) throw new Error('AFF_ACTOR_FORBIDDEN')
 
       // 2.1 获取用户当前余额
       const user = await tx.user.findUnique({
@@ -852,7 +949,7 @@ export async function getPendingAffWithdrawals(options: {
  */
 export async function approveAffWithdrawal(
   withdrawalId: number,
-  adminId: number
+  actor: WriteActor
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await prisma.$transaction(async (tx) => {
@@ -871,6 +968,7 @@ export async function approveAffWithdrawal(
 
       await advisoryTransactionLock(tx, USER_AFF_BALANCE_LOCK_NAMESPACE, withdrawal.userId)
       await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, withdrawal.userId)
+      await lockAdministrativeUserMutation(tx, withdrawal.userId, actor)
 
       const pendingWithdrawal = await tx.affWithdrawal.findUnique({
         where: { id: withdrawalId },
@@ -905,7 +1003,7 @@ export async function approveAffWithdrawal(
         where: { id: withdrawalId, status: 'pending' },
         data: {
           status: 'approved',
-          reviewedBy: adminId,
+          reviewedBy: actor.id,
           reviewedAt: new Date()
         }
       })
@@ -965,30 +1063,33 @@ export async function approveAffWithdrawal(
  */
 export async function rejectAffWithdrawal(
   withdrawalId: number,
-  adminId: number,
+  actor: WriteActor,
   reason: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const updatedWithdrawal = await prisma.affWithdrawal.updateMany({
-      where: { id: withdrawalId, status: 'pending' },
-      data: {
-        status: 'rejected',
-        rejectReason: reason,
-        reviewedBy: adminId,
-        reviewedAt: new Date()
-      }
-    })
-
-    if (updatedWithdrawal.count !== 1) {
-      const withdrawal = await prisma.affWithdrawal.findUnique({
-        where: { id: withdrawalId },
-        select: { id: true }
+    return await prisma.$transaction(async (tx) => {
+      await lockAdministrativeUserMutation(tx, actor.id, actor)
+      const updatedWithdrawal = await tx.affWithdrawal.updateMany({
+        where: { id: withdrawalId, status: 'pending' },
+        data: {
+          status: 'rejected',
+          rejectReason: reason,
+          reviewedBy: actor.id,
+          reviewedAt: new Date()
+        }
       })
 
-      return { success: false, error: withdrawal ? '申请已处理' : '申请不存在' }
-    }
+      if (updatedWithdrawal.count !== 1) {
+        const withdrawal = await tx.affWithdrawal.findUnique({
+          where: { id: withdrawalId },
+          select: { id: true }
+        })
 
-    return { success: true }
+        return { success: false, error: withdrawal ? '申请已处理' : '申请不存在' }
+      }
+
+      return { success: true }
+    })
   } catch (error) {
     return {
       success: false,
@@ -1126,10 +1227,13 @@ export async function createMailAffBinding(
   affCodeId: number,
   tx?: Prisma.TransactionClient
 ): Promise<void> {
-  const client = tx || prisma
-  await client.mailSubscriptionAffBinding.create({
-    data: { mailSubscriptionId, affCodeId }
-  })
+  const create = async (transaction: Prisma.TransactionClient) => {
+    const subscription = await transaction.mailSubscription.findUnique({ where: { id: mailSubscriptionId } })
+    if (!subscription) throw new AffCodeEligibilityError('邮箱订阅不存在')
+    await requireAffCodeForPurchase(transaction, affCodeId, subscription.userId, null)
+    await transaction.mailSubscriptionAffBinding.create({ data: { mailSubscriptionId, affCodeId } })
+  }
+  return tx ? create(tx) : prisma.$transaction(create)
 }
 
 /**
@@ -1142,14 +1246,10 @@ export async function processMailAffCommission(
   type: 'new_purchase' | 'renew',
   tx?: Prisma.TransactionClient
 ): Promise<void> {
-  const client = tx || prisma
-
-  // 1. 获取优惠码信息
-  const affCode = await client.affCode.findUnique({
-    where: { id: affCodeId }
-  })
-
-  if (!affCode) return
+  if (!tx) return prisma.$transaction(transaction => processMailAffCommission(affCodeId, mailSubscriptionId, originalAmount, type, transaction))
+  const client = tx
+  const affCode = await lockAffCode(tx, affCodeId)
+  if (!affCode?.enabled) return
 
   // 2. 计算返利金额
   const commissionRate = Number(affCode.commissionRate)
@@ -1158,7 +1258,7 @@ export async function processMailAffCommission(
   if (commission <= 0) return
 
   // 3. 给优惠码创建者增加 AFF 余额
-  await changeAffBalance({
+  await changeAffBalanceInTransaction(tx, {
     userId: affCode.userId,
     type,
     amount: commission,
@@ -1166,7 +1266,7 @@ export async function processMailAffCommission(
     mailSubscriptionId,
     originalAmount,
     remark: type === 'new_purchase' ? '邮箱新购返利' : '邮箱续费返利'
-  }, client as PrismaClient)
+  })
 
   // 4. 更新优惠码统计
   await client.affCode.update({
@@ -1181,11 +1281,11 @@ export async function processMailAffCommission(
 /**
  * 获取邮箱订阅绑定的优惠码
  */
-export async function getMailSubscriptionAffBinding(mailSubscriptionId: number): Promise<{
+export async function getMailSubscriptionAffBinding(mailSubscriptionId: number, tx?: Prisma.TransactionClient): Promise<{
   affCode: AffCode
   userId: number
 } | null> {
-  const binding = await prisma.mailSubscriptionAffBinding.findUnique({
+  const binding = await (tx || prisma).mailSubscriptionAffBinding.findUnique({
     where: { mailSubscriptionId },
     include: {
       affCode: true
@@ -1194,8 +1294,6 @@ export async function getMailSubscriptionAffBinding(mailSubscriptionId: number):
 
   if (!binding) return null
 
-  return {
-    affCode: binding.affCode,
-    userId: binding.affCode.userId
-  }
+  const affCode = tx ? await lockAffCode(tx, binding.affCodeId) : binding.affCode
+  return affCode ? { affCode, userId: affCode.userId } : null
 }

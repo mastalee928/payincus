@@ -239,15 +239,17 @@ export function parseConnections(output: string, limit = 300): AuditConnection[]
     if (!raw) continue
     const fields = raw.split(/\s+/)
     if (fields.length < 5) continue
-
-    const processText = fields.length > 6 ? fields.slice(6).join(' ') : null
+    if (!/^(?:tcp|udp)/i.test(fields[0])) continue
+    const netstat = /^\d+$/.test(fields[1]) && /^\d+$/.test(fields[2])
+    const processText = (netstat ? fields.slice(/^tcp/i.test(fields[0]) ? 6 : 5) : fields.slice(6)).join(' ') || null
+    const netstatPid = processText?.match(/^(\d+)\//)?.[1]
     rows.push({
       protocol: fields[0] || '',
-      state: fields[1] || '',
-      local: fields[4] || '',
-      peer: fields[5] || '',
+      state: netstat ? (/^tcp/i.test(fields[0]) ? fields[5] || '' : '') : fields[1] || '',
+      local: fields[netstat ? 3 : 4] || '',
+      peer: fields[netstat ? 4 : 5] || '',
       process: processText,
-      pid: processText ? parsePidFromProcessColumn(processText) : null,
+      pid: netstatPid ? Number(netstatPid) : processText ? parsePidFromProcessColumn(processText) : null,
       raw
     })
     if (rows.length >= limit) break
@@ -381,7 +383,7 @@ export function analyzeAuditData(input: {
 }): { findings: AuditFinding[]; summary: AuditSummary } {
   const findings: AuditFinding[] = []
   const now = new Date()
-  const rules = (input.rules?.length ? input.rules : BUILTIN_AUDIT_RULES).filter(rule => rule.enabled)
+  const rules = (input.rules ?? BUILTIN_AUDIT_RULES).filter(rule => rule.enabled)
   const ignores = input.ignores || []
 
   input.processes.forEach((process, index) => {

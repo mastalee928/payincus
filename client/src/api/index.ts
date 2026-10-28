@@ -1,3 +1,4 @@
+import type { ProxySiteView, ProxySiteOperationRequest, ProxySiteMutationResult, ProxySiteDnsResult } from '@/types/proxy-sites'
 import type { PoolCheckoutResult } from '@/types/host-pool'
 import axios, { type AxiosInstance } from 'axios'
 import { useAuthStore } from '@/stores/auth'
@@ -770,7 +771,9 @@ const api = {
       http.post(`/instances/${id}/snapshots/${snapshotId}/restore`, {}, { timeout: TIMEOUT.SNAPSHOT }),
     getSnapshotPolicy: (id: number): Promise<SnapshotPolicy> =>
       http.get(`/instances/${id}/snapshot-policy`),
-    updateSnapshotPolicy: (id: number, data: UpdateSnapshotPolicyRequest): Promise<SnapshotPolicy> =>
+    retrySnapshotOperation: (id: number, operationId: string): Promise<{ operation: SnapshotPolicy['operation'] }> =>
+      http.post(`/instances/${id}/snapshot-policy/operations/${operationId}/retry`, {}, { timeout: TIMEOUT.SNAPSHOT }),
+    updateSnapshotPolicy: (id: number, data: UpdateSnapshotPolicyRequest): Promise<{ message: string }> =>
       http.put(`/instances/${id}/snapshot-policy`, data),
     // 备份
     getBackups: (id: number): Promise<Backup[]> => http.get(`/instances/${id}/backups`),
@@ -942,17 +945,7 @@ const api = {
       http.delete(`/instances/${id}/subnet/${subnetId}`, { timeout: TIMEOUT.MEDIUM }),
     // 站点管理
     getSites: (id: number): Promise<{
-      sites: Array<{
-        id: number
-        domain: string
-        targetPort: number
-        httpsEnabled: boolean
-        remark: string | null
-        status: 'pending' | 'active' | 'error'
-        enabled: boolean
-        error: string | null
-        createdAt: string
-      }>
+      sites: ProxySiteView[]
       caddyEnabled: boolean
       dnsRecordType: 'A' | 'AAAA' | 'CNAME' | null
       dnsRecordValue: string | null
@@ -971,26 +964,18 @@ const api = {
         value: string
       }
     }> => http.post(`/instances/${id}/sites`, data),
-    deleteSite: (id: number, siteId: number): Promise<{ success: boolean }> =>
-      http.delete(`/instances/${id}/sites/${siteId}`),
-    updateSite: (id: number, siteId: number, data: { targetPort?: number; httpsEnabled?: boolean; remark?: string }): Promise<{
-      message: string
-      site: { id: number; domain: string; targetPort: number; httpsEnabled: boolean; remark: string | null; status: string }
-    }> => http.patch(`/instances/${id}/sites/${siteId}`, data),
-    refreshSite: (id: number, siteId: number): Promise<{ success: boolean; status: string }> =>
-      http.post(`/instances/${id}/sites/${siteId}/refresh`),
-    checkDns: (id: number, siteId: number): Promise<{
-      dnsResolved: boolean
-      ipMatches?: boolean
-      expectedIp: string
-      resolvedIps: string[]
-      activated?: boolean
-      status: string
-      error?: string
-      message?: string
-    }> => http.post(`/instances/${id}/sites/${siteId}/check-dns`),
-    toggleSite: (id: number, siteId: number): Promise<{ message: string; enabled: boolean; status: string }> =>
-      http.post(`/instances/${id}/sites/${siteId}/toggle`),
+    deleteSite: (id: number, siteId: number, data: ProxySiteOperationRequest): Promise<ProxySiteMutationResult> =>
+      http.delete(`/instances/${id}/sites/${siteId}`, { data, timeout: TIMEOUT.LONG }),
+    updateSite: (id: number, siteId: number, data: ProxySiteOperationRequest & { targetPort?: number; httpsEnabled?: boolean; remark?: string }): Promise<ProxySiteMutationResult> =>
+      http.patch(`/instances/${id}/sites/${siteId}`, data, { timeout: TIMEOUT.LONG }),
+    refreshSite: (id: number, siteId: number, data: ProxySiteOperationRequest): Promise<ProxySiteMutationResult> =>
+      http.post(`/instances/${id}/sites/${siteId}/refresh`, data, { timeout: TIMEOUT.LONG }),
+    retrySite: (id: number, siteId: number, data: ProxySiteOperationRequest): Promise<ProxySiteMutationResult> =>
+      http.post(`/instances/${id}/sites/${siteId}/retry`, data, { timeout: TIMEOUT.LONG }),
+    checkDns: (id: number, siteId: number, data: ProxySiteOperationRequest): Promise<ProxySiteDnsResult> =>
+      http.post(`/instances/${id}/sites/${siteId}/check-dns`, data, { timeout: TIMEOUT.LONG }),
+    toggleSite: (id: number, siteId: number, data: ProxySiteOperationRequest & { enabled: boolean }): Promise<ProxySiteMutationResult> =>
+      http.post(`/instances/${id}/sites/${siteId}/toggle`, data, { timeout: TIMEOUT.LONG }),
     getCertificateStatus: (id: number, siteId: number): Promise<{
       httpsEnabled: boolean
       status: 'disabled' | 'valid' | 'pending' | 'dns_error' | 'connection_refused' | 'timeout' | 'cert_pending' | 'error'

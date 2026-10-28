@@ -189,10 +189,10 @@ assert(
   db.includes('async function disableGiftCardWithRefund') &&
     db.includes('async function deleteGiftCardWithRefund') &&
     db.includes('await refundUserFundedGiftCard(tx, giftCard)') &&
-    db.includes('return disableGiftCardWithRefund(id)') &&
-    db.includes('return deleteGiftCardWithRefund(id)') &&
-    db.includes('await disableGiftCardWithRefund(id)') &&
-    db.includes('await deleteGiftCardWithRefund(id)') &&
+    db.includes('return disableGiftCardWithRefund(id, actor)') &&
+    db.includes('return deleteGiftCardWithRefund(id, actor)') &&
+    db.includes('await disableGiftCardWithRefund(id, actor)') &&
+    db.includes('await deleteGiftCardWithRefund(id, actor)') &&
     db.includes('ownerId: null'),
   'admin disable/delete, including batch operations, must refund unredeemed user-funded cards and refunded cards must not be re-enabled'
 )

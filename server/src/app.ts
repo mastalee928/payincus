@@ -37,6 +37,7 @@ import { checkJwtConfig, isAccessTokenInvalidated } from './lib/security.js'
 
 // 导入日志敏感信息过滤器
 import { logSerializers } from './lib/log-sanitizer.js'
+import { closeCaddyClients } from './lib/caddy-client.js'
 import { networkModeAllowsPortMapping, networkModeNeedsPublicIpv4 } from './lib/network-modes.js'
 import { getTrustProxyConfig } from './lib/trust-proxy-config.js'
 import { getCorsOrigins } from './lib/origin-config.js'
@@ -541,6 +542,7 @@ fastify.addHook('onClose', async () => { await stopHostOnboardingWorker() })
 fastify.addHook('onClose', async () => { stopHostOfflineAlertWorker() })
 fastify.addHook('onClose', async () => { await stopHostPublicIpSync() })
 fastify.addHook('onClose', async () => { await stopHostPublicIpv6Sync() })
+fastify.addHook('onClose', async () => { await closeCaddyClients() })
 await fastify.register(packageRoutes, { prefix: '/api/packages' })
 await fastify.register(snapshotRoutes, { prefix: '/api/instances' })
 await fastify.register(backupRoutes, { prefix: '/api/instances' })
@@ -857,6 +859,10 @@ const start = async (): Promise<void> => {
     startHostNotificationEmailWorker()
     console.log('📧 宿主机通知邮件队列已启动')
 
+    const { startProxySiteOperationWorker, stopProxySiteOperationWorker } = await import('./workers/proxySiteOperationWorker.js')
+    startProxySiteOperationWorker()
+    console.log('反代站点持久操作队列已启动')
+
     // 启动终端会话清理任务
     const { startSessionCleanup, stopSessionCleanup } = await import('./lib/terminal-proxy.js')
     startSessionCleanup()
@@ -869,6 +875,7 @@ const start = async (): Promise<void> => {
       // 停止终端会话清理定时器
       stopSessionCleanup()
       stopHostNotificationEmailWorker()
+      await stopProxySiteOperationWorker()
       stopRestoreWorker()
       stopBackupUploadWorker()
       

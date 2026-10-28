@@ -6,18 +6,24 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { prisma } from '../db/prisma.js'
 import * as db from '../db/index.js'
-import { createLog } from '../db/logs.js'
-import { getActiveTaskForInstance } from '../db/instance-tasks.js'
+import { withBatchInstanceMutation, type BatchInstanceTarget } from '../db/batch-config-mutations.js'
+import type { WriteActor } from '../db/user-write-authorization.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { getIncusClient } from '../lib/incus/incus-pool.js'
 import { patchInstanceResources, getInstance, updateInstance } from '../lib/incus/incus-instances.js'
 import { resolveEffectiveSwapSize, resolveIncusSwapValue } from '../lib/instance-swap.js'
 import { parseNullablePostgresBigIntInput } from '../lib/bigint-input.js'
+import { redactAuditText } from '../lib/risk-audit.js'
 import pLimit from 'p-limit'
 
 // 每宿主机并发限制
 const BATCH_CONFIG_CONCURRENCY = 10
 const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\d*$/
+const ADMIN_ONLY_BATCH_FIELDS = [
+  'swapEnabled', 'swapSize', 'limitsRead', 'limitsWrite', 'limitsReadIops', 'limitsWriteIops',
+  'limitsIngress', 'limitsEgress', 'limitsProcesses', 'limitsCpuPriority',
+  'bootAutostart', 'bootAutostartPriority', 'bootAutostartDelay', 'bootHostShutdownTimeout'
+]
 
 // 可重试的错误类型
 const RETRYABLE_ERRORS = [
@@ -106,6 +112,23 @@ interface ResultItem {
   name: string
   success: boolean
   error?: string
+  requiresReview?: boolean
+}
+
+async function persistBatchConfigAudit(actorId: number, instanceId: number | null, action: string, content: string, result: string): Promise<void> {
+  const data = { userId: actorId, instanceId, module: 'instance', action,
+    content: redactAuditText(`Actor #${actorId}: ${content}`), result }
+  try {
+    // A competing operation can hold the target/account row. Its foreign-key
+    // lock must not turn an immediate busy result into a long audit wait.
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SET LOCAL lock_timeout = '250ms'`
+      await tx.log.create({ data })
+    }, { maxWait: 1000, timeout: 1500 })
+  } catch {
+    // Keep the numeric identities in content even if rows are locked or gone.
+    await prisma.log.create({ data: { ...data, userId: null, instanceId: null } })
+  }
 }
 
 export default async function batchConfigRoutes(fastify: FastifyInstance) {
@@ -175,11 +198,8 @@ export default async function batchConfigRoutes(fastify: FastifyInstance) {
     const { instanceIds, config } = request.body
 
     // The batch endpoint must not bypass the admin-only advanced configuration APIs.
-    if (user.role !== 'admin' && [
-      'swapEnabled', 'swapSize', 'limitsRead', 'limitsWrite', 'limitsReadIops', 'limitsWriteIops',
-      'limitsIngress', 'limitsEgress', 'limitsProcesses', 'limitsCpuPriority',
-      'bootAutostart', 'bootAutostartPriority', 'bootAutostartDelay', 'bootHostShutdownTimeout'
-    ].some(key => Object.prototype.hasOwnProperty.call(config, key))) {
+    const requiresAdmin = ADMIN_ONLY_BATCH_FIELDS.some(key => Object.prototype.hasOwnProperty.call(config, key))
+    if (user.role !== 'admin' && requiresAdmin) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
@@ -225,46 +245,17 @@ export default async function batchConfigRoutes(fastify: FastifyInstance) {
         hostId: hostId,
         status: { notIn: ['deleted', 'creating'] }
       },
-      include: {
-        package: {
-          select: {
-            instanceType: true
-          }
-        },
-        packagePlan: {
-          select: {
-            swapSize: true
-          }
-        }
-      }
+      select: { id: true, userId: true, hostId: true, incusId: true, name: true }
     })
 
     if (instances.length !== normalizedInstanceIds.length) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Some instances are not available on this host'))
     }
 
-    // 判断是否需要连接 Incus
-    const needsIncus = hasIncusConfig(config)
-    let client = null
-
-    if (needsIncus) {
-      try {
-        client = await getIncusClient(host)
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err)
-        return reply.code(503).send({ error: `无法连接到宿主机: ${errorMessage}` })
-      }
-    }
-
     // 使用并发控制处理实例
     const limit = pLimit(BATCH_CONFIG_CONCURRENCY)
     const results: ResultItem[] = []
     
-    // 跟踪资源变化量（用于批量完成后统一更新）
-    let totalCpuDelta = 0
-    let totalMemoryDelta = 0
-    let totalDiskDelta = 0
-
     await Promise.all(
       instances.map(instance =>
         limit(async () => {
@@ -272,35 +263,24 @@ export default async function batchConfigRoutes(fastify: FastifyInstance) {
             instance,
             config,
             parsedMonthlyTrafficLimit,
-            client
+            user,
+            requiresAdmin
           )
           results.push(result)
           
-          // 累计资源变化量
-          if (result.success) {
-            if (config.cpu !== undefined) totalCpuDelta += config.cpu - instance.cpu
-            if (config.memory !== undefined) totalMemoryDelta += config.memory - instance.memory
-            if (config.disk !== undefined) totalDiskDelta += Math.round(config.disk) - instance.disk
-          }
-
           // 如果是可重试错误，自动重试一次
-          if (!result.success && result.error && isRetryableError(result.error)) {
+          if (!result.success && !result.requiresReview && result.error && isRetryableError(result.error)) {
             console.log(`[BatchConfig] Retrying instance ${instance.name} due to: ${result.error}`)
             const retryResult = await updateSingleInstance(
               instance,
               config,
               parsedMonthlyTrafficLimit,
-              client
+              user,
+              requiresAdmin
             )
             // 更新结果
             const idx = results.findIndex(r => r.instanceId === instance.id)
             if (idx >= 0) {
-              // 如果重试成功，累计资源变化量
-              if (!results[idx].success && retryResult.success) {
-                if (config.cpu !== undefined) totalCpuDelta += config.cpu - instance.cpu
-                if (config.memory !== undefined) totalMemoryDelta += config.memory - instance.memory
-                if (config.disk !== undefined) totalDiskDelta += Math.round(config.disk) - instance.disk
-              }
               results[idx] = retryResult
             }
           }
@@ -308,27 +288,18 @@ export default async function batchConfigRoutes(fastify: FastifyInstance) {
       )
     )
     
-    // 批量完成后，原子增加宿主机资源使用量，避免并发批量互相覆盖
-    if (totalCpuDelta !== 0 || totalMemoryDelta !== 0 || totalDiskDelta !== 0) {
-      await db.incrementHostResourceUsage(hostId, {
-        cpuUsed: totalCpuDelta,
-        memoryUsed: totalMemoryDelta,
-        diskUsed: totalDiskDelta
-      })
-    }
-
     const successCount = results.filter(r => r.success).length
     const failedCount = results.filter(r => !r.success).length
     const failedItems = results.filter(r => !r.success)
 
     // 记录操作日志
-    await createLog(
+    await persistBatchConfigAudit(
       user.id,
-      'instance',
+      null,
       'instance.batch_config',
-      `Batch updated ${successCount} instances config on host "${host.name}", failed: ${failedCount}`,
+      `Batch updated ${successCount} instances config on host #${hostId} "${host.name}", failed: ${failedCount}`,
       failedCount > 0 ? 'partial' : 'success'
-    )
+    ).catch(error => console.error('[BatchConfig] Failed to persist batch summary:', redactAuditText(error instanceof Error ? error.message : String(error))))
 
     return {
       success: failedCount === 0,
@@ -337,8 +308,8 @@ export default async function batchConfigRoutes(fastify: FastifyInstance) {
       failedCount,
       failedItems,
       // 用于重试
-      retryPayload: failedCount > 0 ? {
-        instanceIds: failedItems.map(i => i.instanceId),
+      retryPayload: failedItems.some(i => !i.requiresReview) ? {
+        instanceIds: failedItems.filter(i => !i.requiresReview).map(i => i.instanceId),
         config
       } : undefined
     }
@@ -364,282 +335,273 @@ function hasIncusConfig(config: BatchConfigBody['config']): boolean {
  * 更新单个实例配置
  */
 async function updateSingleInstance(
-  instance: {
-    id: number
-    incusId: string
-    name: string
-    cpu: number
-    memory: number
-    disk: number
-    hostId: number
-    swapEnabled: boolean
-    swapSize: number | null
-    package: {
-      instanceType: string
-    } | null
-    packagePlan: {
-      swapSize: number
-    } | null
-  },
+  target: BatchInstanceTarget & { name: string },
   config: BatchConfigBody['config'],
   parsedMonthlyTrafficLimit: bigint | null | undefined,
-  client: Awaited<ReturnType<typeof getIncusClient>> | null
+  actor: WriteActor,
+  requiresAdmin: boolean
 ): Promise<ResultItem> {
+  let progress = 'authorization'
+  let remoteMayHaveChanged = false
   try {
-    const activeTask = await getActiveTaskForInstance(instance.id)
-    if (activeTask) {
-      throw new Error(`实例存在进行中的任务: ${activeTask.taskType}`)
-    }
+    return await withBatchInstanceMutation(target, actor, requiresAdmin, async ({ tx, instance, host, deadline }) => {
+      progress = 'validation'
+      const hasSwapConfig = config.swapEnabled !== undefined || config.swapSize !== undefined
+      const instanceKind = instance.package?.instanceType === 'vm' ? 'vm' : 'container'
+      const currentSwapSize = resolveEffectiveSwapSize(instance.swapSize, instance.packagePlan?.swapSize)
+      const nextSwapEnabled = config.swapEnabled ?? instance.swapEnabled
+      const nextSwapSize = config.swapSize !== undefined
+        ? Math.max(0, config.swapSize ?? 0)
+        : currentSwapSize
+      const storageOverrides = resolveStorageOverrides(config)
 
-    const hasSwapConfig = config.swapEnabled !== undefined || config.swapSize !== undefined
-    const instanceKind = instance.package?.instanceType === 'vm' ? 'vm' : 'container'
-    const currentSwapSize = resolveEffectiveSwapSize(instance.swapSize, instance.packagePlan?.swapSize)
-    const nextSwapEnabled = config.swapEnabled ?? instance.swapEnabled
-    const nextSwapSize = config.swapSize !== undefined
-      ? Math.max(0, config.swapSize ?? 0)
-      : currentSwapSize
-    const storageOverrides = resolveStorageOverrides(config)
-
-    if (hasSwapConfig && instanceKind === 'vm') {
-      throw new Error('虚拟机不支持批量 SWAP 配置')
-    }
-
-    if (nextSwapEnabled && nextSwapSize <= 0) {
-      throw new Error('启用 SWAP 前需要设置大于 0 的 SWAP 大小')
-    }
-
-    // 1. 更新资源配置（CPU、内存、磁盘）到 Incus
-    if (client && (config.cpu !== undefined || config.memory !== undefined || config.disk !== undefined)) {
-      await patchInstanceResources(client, instance.incusId, {
-        cpu: config.cpu,
-        memory: config.memory,
-        disk: config.disk !== undefined ? Math.round(config.disk) : undefined
-      })
-    }
-
-    // 2. 更新高级配置到 Incus
-    if (client && (hasAdvancedIncusConfig(config) || hasSwapConfig)) {
-      const incusConfig: Record<string, string | null> = {}
-      const needsDeviceConfig =
-        config.limitsRead !== undefined || config.limitsReadIops !== undefined ||
-        config.limitsWrite !== undefined || config.limitsWriteIops !== undefined ||
-        config.limitsIngress !== undefined || config.limitsEgress !== undefined
-      let incusDevices: Record<string, Record<string, string>> | null = null
-
-      if (hasSwapConfig) {
-        incusConfig['limits.memory.swap'] = resolveIncusSwapValue(nextSwapEnabled, nextSwapSize)
+      if (hasSwapConfig && instanceKind === 'vm') {
+        throw new Error('虚拟机不支持批量 SWAP 配置')
       }
 
-      // 容器权限
-      if (config.nested !== undefined) {
-        incusConfig['security.nesting'] = config.nested ? 'true' : 'false'
-      }
-      if (config.privileged !== undefined) {
-        incusConfig['security.privileged'] = config.privileged ? 'true' : 'false'
+      if (nextSwapEnabled && nextSwapSize <= 0) {
+        throw new Error('启用 SWAP 前需要设置大于 0 的 SWAP 大小')
       }
 
-      // 进程限制
-      if (config.limitsProcesses !== undefined && config.limitsProcesses !== null) {
-        incusConfig['limits.processes'] = String(config.limitsProcesses)
-      } else if (config.limitsProcesses !== undefined) {
-        incusConfig['limits.processes'] = null
+      progress = 'connect'
+      let client: Awaited<ReturnType<typeof getIncusClient>> | null = null
+      if (hasIncusConfig(config)) {
+        const pooledClient = await getIncusClient(host)
+        // A request-local facade bounds all requests before the DB transaction
+        // deadline, without changing the shared connection's methods or identity.
+        client = Object.create(pooledClient) as typeof pooledClient
+        client.request = ((method: string, path: string, body: unknown = null, timeout = 120000, signal?: AbortSignal) => {
+          const remaining = deadline - Date.now()
+          if (remaining <= 0) throw new Error('BATCH_CONFIG_TIMEOUT: 批量配置操作已超时')
+          if (!['GET', 'HEAD'].includes(method.toUpperCase())) remoteMayHaveChanged = true
+          return pooledClient.request(method, path, body, Math.min(timeout, remaining), signal)
+        }) as typeof pooledClient.request
       }
 
-      // CPU 优先级直接使用 Incus 原生 0-10 语义
-      if (config.limitsCpuPriority !== undefined && config.limitsCpuPriority !== null) {
-        incusConfig['limits.cpu.priority'] = String(config.limitsCpuPriority)
-      } else if (config.limitsCpuPriority !== undefined) {
-        incusConfig['limits.cpu.priority'] = null
+      // 1. 更新资源配置（CPU、内存、磁盘）到 Incus
+      progress = 'remote_resources'
+      if (client && (config.cpu !== undefined || config.memory !== undefined || config.disk !== undefined)) {
+        await patchInstanceResources(client, instance.incusId, {
+          cpu: config.cpu,
+          memory: config.memory,
+          disk: config.disk !== undefined ? Math.round(config.disk) : undefined
+        })
       }
 
-      // 启动设置
-      if (config.bootAutostart !== undefined && config.bootAutostart !== null) {
-        incusConfig['boot.autostart'] = config.bootAutostart ? 'true' : 'false'
-      } else if (config.bootAutostart !== undefined) {
-        incusConfig['boot.autostart'] = null
-      }
-      if (config.bootAutostartPriority !== undefined && config.bootAutostartPriority !== null) {
-        incusConfig['boot.autostart.priority'] = String(config.bootAutostartPriority)
-      } else if (config.bootAutostartPriority !== undefined) {
-        incusConfig['boot.autostart.priority'] = null
-      }
-      if (config.bootAutostartDelay !== undefined && config.bootAutostartDelay !== null) {
-        incusConfig['boot.autostart.delay'] = String(config.bootAutostartDelay)
-      } else if (config.bootAutostartDelay !== undefined) {
-        incusConfig['boot.autostart.delay'] = null
-      }
-      if (config.bootHostShutdownTimeout !== undefined && config.bootHostShutdownTimeout !== null) {
-        incusConfig['boot.host_shutdown_timeout'] = String(config.bootHostShutdownTimeout)
-      } else if (config.bootHostShutdownTimeout !== undefined) {
-        incusConfig['boot.host_shutdown_timeout'] = null
-      }
+      // 2. 更新高级配置到 Incus
+      progress = 'remote_advanced'
+      if (client && (hasAdvancedIncusConfig(config) || hasSwapConfig)) {
+        const incusConfig: Record<string, string | null> = {}
+        const needsDeviceConfig =
+          config.limitsRead !== undefined || config.limitsReadIops !== undefined ||
+          config.limitsWrite !== undefined || config.limitsWriteIops !== undefined ||
+          config.limitsIngress !== undefined || config.limitsEgress !== undefined
+        let incusDevices: Record<string, Record<string, string>> | null = null
 
-      if (needsDeviceConfig) {
-        // 复制完整的设备列表，然后修改需要修改的设备
-        const currentInstance = await getInstance(client, instance.incusId) as {
-          devices?: Record<string, Record<string, string>>
-        }
-        incusDevices = currentInstance.devices ? JSON.parse(JSON.stringify(currentInstance.devices)) : {}
-      }
-
-      // 存储 I/O 限制 (应用到 root 设备)
-      if (config.limitsRead !== undefined || config.limitsReadIops !== undefined ||
-        config.limitsWrite !== undefined || config.limitsWriteIops !== undefined) {
-        if (!incusDevices) {
-          incusDevices = {}
-        }
-        if (!incusDevices['root']) {
-          incusDevices['root'] = { path: '/', pool: 'default', type: 'disk' }
+        if (hasSwapConfig) {
+          incusConfig['limits.memory.swap'] = resolveIncusSwapValue(nextSwapEnabled, nextSwapSize)
         }
 
-        if (config.limitsRead !== undefined) {
-          if (config.limitsRead !== null) {
-            incusDevices['root']['limits.read'] = config.limitsRead
-          } else {
-            delete incusDevices['root']['limits.read']
+        // 容器权限
+        if (config.nested !== undefined) {
+          incusConfig['security.nesting'] = config.nested ? 'true' : 'false'
+        }
+        if (config.privileged !== undefined) {
+          incusConfig['security.privileged'] = config.privileged ? 'true' : 'false'
+        }
+
+        // 进程限制
+        if (config.limitsProcesses !== undefined && config.limitsProcesses !== null) {
+          incusConfig['limits.processes'] = String(config.limitsProcesses)
+        } else if (config.limitsProcesses !== undefined) {
+          incusConfig['limits.processes'] = null
+        }
+
+        // CPU 优先级直接使用 Incus 原生 0-10 语义
+        if (config.limitsCpuPriority !== undefined && config.limitsCpuPriority !== null) {
+          incusConfig['limits.cpu.priority'] = String(config.limitsCpuPriority)
+        } else if (config.limitsCpuPriority !== undefined) {
+          incusConfig['limits.cpu.priority'] = null
+        }
+
+        // 启动设置
+        if (config.bootAutostart !== undefined && config.bootAutostart !== null) {
+          incusConfig['boot.autostart'] = config.bootAutostart ? 'true' : 'false'
+        } else if (config.bootAutostart !== undefined) {
+          incusConfig['boot.autostart'] = null
+        }
+        if (config.bootAutostartPriority !== undefined && config.bootAutostartPriority !== null) {
+          incusConfig['boot.autostart.priority'] = String(config.bootAutostartPriority)
+        } else if (config.bootAutostartPriority !== undefined) {
+          incusConfig['boot.autostart.priority'] = null
+        }
+        if (config.bootAutostartDelay !== undefined && config.bootAutostartDelay !== null) {
+          incusConfig['boot.autostart.delay'] = String(config.bootAutostartDelay)
+        } else if (config.bootAutostartDelay !== undefined) {
+          incusConfig['boot.autostart.delay'] = null
+        }
+        if (config.bootHostShutdownTimeout !== undefined && config.bootHostShutdownTimeout !== null) {
+          incusConfig['boot.host_shutdown_timeout'] = String(config.bootHostShutdownTimeout)
+        } else if (config.bootHostShutdownTimeout !== undefined) {
+          incusConfig['boot.host_shutdown_timeout'] = null
+        }
+
+        if (needsDeviceConfig) {
+          // 复制完整的设备列表，然后修改需要修改的设备
+          const currentInstance = await getInstance(client, instance.incusId) as {
+            devices?: Record<string, Record<string, string>>
           }
-        } else if (config.limitsReadIops !== undefined) {
-          if (config.limitsReadIops !== null) {
-            incusDevices['root']['limits.read'] = `${config.limitsReadIops}iops`
-          } else {
-            delete incusDevices['root']['limits.read']
-          }
+          incusDevices = currentInstance.devices ? JSON.parse(JSON.stringify(currentInstance.devices)) : {}
         }
 
-        if (config.limitsWrite !== undefined) {
-          if (config.limitsWrite !== null) {
-            incusDevices['root']['limits.write'] = config.limitsWrite
-          } else {
-            delete incusDevices['root']['limits.write']
+        // 存储 I/O 限制 (应用到 root 设备)
+        if (config.limitsRead !== undefined || config.limitsReadIops !== undefined ||
+          config.limitsWrite !== undefined || config.limitsWriteIops !== undefined) {
+          if (!incusDevices) {
+            incusDevices = {}
           }
-        } else if (config.limitsWriteIops !== undefined) {
-          if (config.limitsWriteIops !== null) {
-            incusDevices['root']['limits.write'] = `${config.limitsWriteIops}iops`
-          } else {
-            delete incusDevices['root']['limits.write']
+          if (!incusDevices['root']) {
+            incusDevices['root'] = { path: '/', pool: 'default', type: 'disk' }
           }
-        }
-      }
 
-      // 网络限制 (应用到 eth0 设备)
-      if (config.limitsIngress !== undefined || config.limitsEgress !== undefined) {
-        // 确保 eth0 设备存在
-        if (!incusDevices) {
-          incusDevices = {}
-        }
-        if (!incusDevices['eth0']) {
-          incusDevices['eth0'] = {
-            type: 'nic',
-            name: 'eth0',
-            network: 'incusbr0'
+          if (config.limitsRead !== undefined) {
+            if (config.limitsRead !== null) {
+              incusDevices['root']['limits.read'] = config.limitsRead
+            } else {
+              delete incusDevices['root']['limits.read']
+            }
+          } else if (config.limitsReadIops !== undefined) {
+            if (config.limitsReadIops !== null) {
+              incusDevices['root']['limits.read'] = `${config.limitsReadIops}iops`
+            } else {
+              delete incusDevices['root']['limits.read']
+            }
           }
-        }
 
-        if (config.limitsIngress !== undefined) {
-          if (config.limitsIngress !== null) {
-            incusDevices['eth0']['limits.ingress'] = config.limitsIngress
-          } else {
-            delete incusDevices['eth0']['limits.ingress']
+          if (config.limitsWrite !== undefined) {
+            if (config.limitsWrite !== null) {
+              incusDevices['root']['limits.write'] = config.limitsWrite
+            } else {
+              delete incusDevices['root']['limits.write']
+            }
+          } else if (config.limitsWriteIops !== undefined) {
+            if (config.limitsWriteIops !== null) {
+              incusDevices['root']['limits.write'] = `${config.limitsWriteIops}iops`
+            } else {
+              delete incusDevices['root']['limits.write']
+            }
           }
         }
 
-        if (config.limitsEgress !== undefined) {
-          if (config.limitsEgress !== null) {
-            incusDevices['eth0']['limits.egress'] = config.limitsEgress
-          } else {
-            delete incusDevices['eth0']['limits.egress']
+        // 网络限制 (应用到 eth0 设备)
+        if (config.limitsIngress !== undefined || config.limitsEgress !== undefined) {
+          // 确保 eth0 设备存在
+          if (!incusDevices) {
+            incusDevices = {}
           }
+          if (!incusDevices['eth0']) {
+            incusDevices['eth0'] = {
+              type: 'nic',
+              name: 'eth0',
+              network: 'incusbr0'
+            }
+          }
+
+          if (config.limitsIngress !== undefined) {
+            if (config.limitsIngress !== null) {
+              incusDevices['eth0']['limits.ingress'] = config.limitsIngress
+            } else {
+              delete incusDevices['eth0']['limits.ingress']
+            }
+          }
+
+          if (config.limitsEgress !== undefined) {
+            if (config.limitsEgress !== null) {
+              incusDevices['eth0']['limits.egress'] = config.limitsEgress
+            } else {
+              delete incusDevices['eth0']['limits.egress']
+            }
+          }
+        }
+
+        // 应用更新到 Incus
+        const updates: Record<string, unknown> = {}
+        if (Object.keys(incusConfig).length > 0) {
+          updates.config = incusConfig
+        }
+        if (incusDevices && Object.keys(incusDevices).length > 0) {
+          updates.devices = incusDevices
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await updateInstance(client, instance.incusId, updates)
         }
       }
 
-      // 应用更新到 Incus
-      const updates: Record<string, unknown> = {}
-      if (Object.keys(incusConfig).length > 0) {
-        updates.config = incusConfig
-      }
-      if (incusDevices && Object.keys(incusDevices).length > 0) {
-        updates.devices = incusDevices
-      }
-
-      if (Object.keys(updates).length > 0) {
-        await updateInstance(client, instance.incusId, updates)
-      }
-    }
-
-    // 3. 更新数据库中的资源配置
-    if (config.cpu !== undefined || config.memory !== undefined || config.disk !== undefined || config.monthlyTrafficLimit !== undefined) {
-      await db.updateInstanceResources(instance.id, {
-        cpu: config.cpu,
-        memory: config.memory,
-        disk: config.disk !== undefined ? Math.round(config.disk) : undefined,
-        monthlyTrafficLimit: parsedMonthlyTrafficLimit
-      })
-      // 注意：宿主机资源使用量在批量处理完成后统一更新，避免并发问题
-    }
-
-    // 4. 更新数据库中的配额限制
-    if (config.portLimit !== undefined || config.snapshotLimit !== undefined ||
-        config.backupLimit !== undefined || config.siteLimit !== undefined) {
-      await db.updateInstanceQuota(instance.id, {
-        portLimit: config.portLimit,
-        snapshotLimit: config.snapshotLimit,
-        backupLimit: config.backupLimit,
-        siteLimit: config.siteLimit
-      })
-    }
-
-    // 5. 更新数据库中的 SWAP 配置
-    if (hasSwapConfig) {
-      const swapUpdate: {
-        swapEnabled?: boolean
-        swapSize?: number | null
-      } = {}
-
-      if (config.swapEnabled !== undefined) {
-        swapUpdate.swapEnabled = config.swapEnabled
-      }
-      if (config.swapSize !== undefined) {
-        swapUpdate.swapSize = config.swapSize
-      } else if (config.swapEnabled === true) {
-        swapUpdate.swapSize = nextSwapSize
+      // Every requested DB field and the current resource deltas commit together.
+      progress = 'database_commit'
+      await tx.instance.update({ where: { id: instance.id }, data: {
+          cpu: config.cpu,
+          memory: config.memory,
+          disk: config.disk !== undefined ? Math.round(config.disk) : undefined,
+          monthlyTrafficLimit: parsedMonthlyTrafficLimit,
+          portLimit: config.portLimit,
+          snapshotLimit: config.snapshotLimit,
+          backupLimit: config.backupLimit,
+          siteLimit: config.siteLimit,
+          swapEnabled: config.swapEnabled,
+          swapSize: config.swapSize !== undefined ? config.swapSize : config.swapEnabled === true ? nextSwapSize : undefined,
+          limitsRead: storageOverrides.limitsRead,
+          limitsWrite: storageOverrides.limitsWrite,
+          limitsReadIops: storageOverrides.limitsReadIops,
+          limitsWriteIops: storageOverrides.limitsWriteIops,
+          limitsIngress: config.limitsIngress,
+          limitsEgress: config.limitsEgress,
+          limitsProcesses: config.limitsProcesses,
+          limitsCpuPriority: config.limitsCpuPriority,
+          bootAutostart: config.bootAutostart,
+          bootAutostartPriority: config.bootAutostartPriority,
+          bootAutostartDelay: config.bootAutostartDelay,
+          bootHostShutdownTimeout: config.bootHostShutdownTimeout,
+          version: { increment: 1 }
+        } })
+      const cpuDelta = config.cpu === undefined ? 0 : config.cpu - instance.cpu
+      const memoryDelta = config.memory === undefined ? 0 : config.memory - instance.memory
+      const diskDelta = config.disk === undefined ? 0 : Math.round(config.disk) - instance.disk
+      if (cpuDelta !== 0 || memoryDelta !== 0 || diskDelta !== 0) {
+        await tx.host.update({ where: { id: host.id }, data: {
+          cpuUsed: { increment: cpuDelta },
+          memoryUsed: { increment: memoryDelta },
+          diskUsed: { increment: diskDelta }
+        } })
       }
 
-      await db.updateInstanceSwap(instance.id, swapUpdate)
-    }
-
-    // 6. 更新数据库中的高级配置
-    if (hasDbAdvancedConfig(config)) {
-      await db.updateInstanceConfig(instance.id, {
-        limitsRead: storageOverrides.limitsRead,
-        limitsWrite: storageOverrides.limitsWrite,
-        limitsReadIops: storageOverrides.limitsReadIops,
-        limitsWriteIops: storageOverrides.limitsWriteIops,
-        limitsIngress: config.limitsIngress,
-        limitsEgress: config.limitsEgress,
-        limitsProcesses: config.limitsProcesses,
-        limitsCpuPriority: config.limitsCpuPriority,
-        bootAutostart: config.bootAutostart,
-        bootAutostartPriority: config.bootAutostartPriority,
-        bootAutostartDelay: config.bootAutostartDelay,
-        bootHostShutdownTimeout: config.bootHostShutdownTimeout
-      })
-    }
-
-    return {
-      instanceId: instance.id,
-      incusId: instance.incusId,
-      name: instance.name,
-      success: true
-    }
+      return {
+        instanceId: instance.id,
+        incusId: instance.incusId,
+        name: instance.name,
+        success: true
+      }
+    })
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
-    console.error(`[BatchConfig] Failed to update instance ${instance.name}:`, errorMessage)
+    let errorMessage = redactAuditText(err instanceof Error ? err.message : String(err))
+    if (remoteMayHaveChanged) errorMessage = `远端配置可能已变更，数据库提交未确认；请核对后处理，未自动重试。步骤 ${progress}: ${errorMessage}`
+    else errorMessage = `步骤 ${progress}: ${errorMessage}`
+    try {
+      await persistBatchConfigAudit(actor.id, target.id, 'instance.batch_config_failed',
+        `Host #${target.hostId}, instance #${target.id} (${target.incusId}): ${errorMessage}`, 'failed')
+    } catch (logError) {
+      console.error('[BatchConfig] Failed to persist operation error:', redactAuditText(logError instanceof Error ? logError.message : String(logError)))
+      errorMessage += '；错误记录未能持久化，请保留本次错误并检查数据库'
+    }
+    console.error(`[BatchConfig] Failed to update instance ${target.id}:`, errorMessage)
     return {
-      instanceId: instance.id,
-      incusId: instance.incusId,
-      name: instance.name,
+      instanceId: target.id,
+      incusId: target.incusId,
+      name: target.name,
       success: false,
-      error: errorMessage
+      error: errorMessage,
+      requiresReview: remoteMayHaveChanged
     }
   }
 }
@@ -655,18 +617,6 @@ function hasAdvancedIncusConfig(config: BatchConfigBody['config']): boolean {
     'bootAutostart', 'bootAutostartPriority', 'bootAutostartDelay', 'bootHostShutdownTimeout'
   ]
   return advancedFields.some(field => config[field as keyof typeof config] !== undefined)
-}
-
-/**
- * 判断是否有需要存储到数据库的高级配置
- */
-function hasDbAdvancedConfig(config: BatchConfigBody['config']): boolean {
-  const dbFields = [
-    'limitsRead', 'limitsWrite', 'limitsReadIops', 'limitsWriteIops',
-    'limitsIngress', 'limitsEgress', 'limitsProcesses', 'limitsCpuPriority',
-    'bootAutostart', 'bootAutostartPriority', 'bootAutostartDelay', 'bootHostShutdownTimeout'
-  ]
-  return dbFields.some(field => config[field as keyof typeof config] !== undefined)
 }
 
 function resolveStorageOverrides(config: BatchConfigBody['config']): ResolvedStorageOverrides {

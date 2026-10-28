@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, watch, onBeforeUnmount, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import { useToast } from '@/stores/toast'
@@ -57,117 +57,141 @@ const canRestore = computed<boolean>(() => {
   return s === 'stopped'
 })
 
-onMounted(async () => {
-  await Promise.all([loadSnapshots(), loadPolicy()])
-})
-
 const instanceIdNum = computed<number>(() => Number(props.instanceId))
+const pageError = ref('')
+const retryLoading = ref(false)
+const actionLoading = ref(false)
+let generation = 0
+let snapshotSequence = 0
+let policySequence = 0
+let disposed = false
+const current = (id: number, version: number) => !disposed && id === instanceIdNum.value && version === generation
+const operationPending = computed(() => Boolean(policy.value?.operation))
+
+watch(instanceIdNum, () => {
+  generation++
+  snapshots.value = []
+  policy.value = null
+  pageError.value = ''
+  showCreateModal.value = false
+  showPolicyModal.value = false
+  createForm.value = { name: '', description: '' }
+  policyForm.value = { enabled: false, intervalMinutes: 360 }
+  createLoading.value = false
+  policyLoading.value = false
+  retryLoading.value = false
+  actionLoading.value = false
+  void refresh()
+}, { immediate: true })
+onBeforeUnmount(() => { disposed = true; generation++ })
+
+async function refresh(): Promise<void> {
+  pageError.value = ''
+  await Promise.all([loadSnapshots(), loadPolicy()])
+}
 
 async function loadSnapshots(): Promise<void> {
+  const id = instanceIdNum.value, version = generation, sequence = ++snapshotSequence
   loading.value = true
   try {
-    const res = await api.instances.getSnapshots(instanceIdNum.value)
-    snapshots.value = Array.isArray(res) ? res : []
-  } catch (err) {
-    console.error('Failed to load snapshots:', err)
+    const res = await api.instances.getSnapshots(id)
+    if (current(id, version) && sequence === snapshotSequence) snapshots.value = Array.isArray(res) ? res : []
+  } catch {
+    if (current(id, version) && sequence === snapshotSequence) pageError.value = t('snapshot.loadFailed')
   } finally {
-    loading.value = false
+    if (current(id, version) && sequence === snapshotSequence) loading.value = false
   }
 }
 
 async function loadPolicy(): Promise<void> {
+  const id = instanceIdNum.value, version = generation, sequence = ++policySequence
   try {
-    const res = await api.instances.getSnapshotPolicy(instanceIdNum.value)
+    const res = await api.instances.getSnapshotPolicy(id)
+    if (!current(id, version) || sequence !== policySequence) return
     policy.value = res
-    if (res) {
-      policyForm.value = {
-        enabled: res.enabled === 1,
-        intervalMinutes: res.interval_minutes
-      }
-    }
-  } catch (err) {
-    console.error('Failed to load policy:', err)
+    if (res && !showPolicyModal.value) policyForm.value = { enabled: Boolean(res.enabled), intervalMinutes: res.interval_minutes }
+  } catch {
+    if (current(id, version) && sequence === policySequence) pageError.value = t('snapshot.loadFailed')
   }
 }
 
-async function createSnapshot(): Promise<void> {
-  if (!createForm.value.name) return
-
-  createLoading.value = true
+async function retryOperation(): Promise<void> {
+  const operation = policy.value?.operation
+  if (!operation || retryLoading.value) return
+  const id = instanceIdNum.value, version = generation
+  retryLoading.value = true
+  pageError.value = ''
   try {
-    const payload: CreateSnapshotRequest = {
-      name: createForm.value.name,
-      description: createForm.value.description || undefined
-    }
-    await api.instances.createSnapshot(instanceIdNum.value, payload)
+    await api.instances.retrySnapshotOperation(id, operation.id)
+    if (!current(id, version)) return
+    await Promise.all([loadSnapshots(), loadPolicy()])
+    if (current(id, version) && !policy.value?.operation) toast.success(t('snapshot.recoveryComplete'))
+  } catch (err: any) {
+    if (current(id, version)) { pageError.value = err?.message || t('snapshot.loadFailed'); await loadPolicy() }
+  } finally { if (current(id, version)) retryLoading.value = false }
+}
+
+async function createSnapshot(): Promise<void> {
+  if (!createForm.value.name || createLoading.value || operationPending.value) return
+  const id = instanceIdNum.value, version = generation
+  createLoading.value = true
+  const payload: CreateSnapshotRequest = { name: createForm.value.name, description: createForm.value.description || undefined }
+  try {
+    await api.instances.createSnapshot(id, payload)
+    if (!current(id, version)) return
     toast.success(t('snapshot.messages.createSuccess'))
     showCreateModal.value = false
     createForm.value = { name: '', description: '' }
     await loadSnapshots()
   } catch (err: any) {
-    toast.error(t('snapshot.messages.createFailed') + ': ' + (err?.message || String(err)))
-  } finally {
-    createLoading.value = false
-  }
+    if (current(id, version)) { pageError.value = err?.message || String(err); toast.error(t('snapshot.messages.createFailed')); await loadPolicy() }
+  } finally { if (current(id, version)) createLoading.value = false }
 }
 
 async function deleteSnapshot(snapshot: Snapshot): Promise<void> {
-  if (!confirm(t('snapshot.messages.deleteConfirm', { name: snapshot.name }))) return
-
+  if (actionLoading.value || operationPending.value || !confirm(t('snapshot.messages.deleteConfirm', { name: snapshot.name }))) return
+  const id = instanceIdNum.value, version = generation
+  actionLoading.value = true
   try {
-    await api.instances.deleteSnapshot(instanceIdNum.value, snapshot.id)
+    await api.instances.deleteSnapshot(id, snapshot.id)
+    if (!current(id, version)) return
     snapshots.value = snapshots.value.filter(s => s.id !== snapshot.id)
     toast.success(t('snapshot.messages.deleteSuccess'))
   } catch (err: any) {
-    toast.error(t('snapshot.messages.deleteFailed') + ': ' + (err?.message || String(err)))
-    await loadSnapshots()
-  }
+    if (current(id, version)) { pageError.value = err?.message || String(err); await Promise.all([loadSnapshots(), loadPolicy()]) }
+  } finally { if (current(id, version)) actionLoading.value = false }
 }
-
 
 async function restoreSnapshot(snapshot: Snapshot): Promise<void> {
-  if (!canRestore.value) {
-    toast.warning(t('snapshot.messages.stopInstanceFirst'))
-    return
-  }
-
+  if (actionLoading.value || operationPending.value) return
+  if (!canRestore.value) { toast.warning(t('snapshot.messages.stopInstanceFirst')); return }
   if (!confirm(t('snapshot.messages.restoreConfirm', { name: snapshot.name }))) return
-
+  const id = instanceIdNum.value, version = generation
+  actionLoading.value = true
   try {
-    await api.instances.restoreSnapshot(instanceIdNum.value, snapshot.id)
-    toast.success(t('snapshot.messages.restoreSuccess'))
+    await api.instances.restoreSnapshot(id, snapshot.id)
+    if (current(id, version)) toast.success(t('snapshot.messages.restoreSuccess'))
   } catch (err: any) {
-    toast.error(t('snapshot.messages.restoreFailed') + ': ' + (err?.message || String(err)))
-  }
+    if (current(id, version)) { pageError.value = err?.message || String(err); await loadPolicy() }
+  } finally { if (current(id, version)) actionLoading.value = false }
 }
 
-async function savePolicy(): Promise<void> {
+async function updatePolicy(payload: UpdateSnapshotPolicyRequest): Promise<void> {
+  if (policyLoading.value) return
+  const id = instanceIdNum.value, version = generation
   policyLoading.value = true
   try {
-    await api.instances.updateSnapshotPolicy(instanceIdNum.value, policyForm.value)
-    toast.success(t('snapshot.messages.policySaved'))
+    await api.instances.updateSnapshotPolicy(id, payload)
+    if (!current(id, version)) return
+    toast.success(t(payload.enabled ? 'snapshot.messages.policySaved' : 'snapshot.messages.policyDisabled'))
     showPolicyModal.value = false
     await loadPolicy()
   } catch (err: any) {
-    toast.error(t('snapshot.messages.policySaveFailed') + ': ' + (err?.message || String(err)))
-  } finally {
-    policyLoading.value = false
-  }
+    if (current(id, version)) { pageError.value = err?.message || String(err); toast.error(t('snapshot.messages.policySaveFailed')) }
+  } finally { if (current(id, version)) policyLoading.value = false }
 }
-
-// 取消自动快照策略
-async function disableAutoPolicy(): Promise<void> {
-  policyLoading.value = true
-  try {
-    await api.instances.updateSnapshotPolicy(instanceIdNum.value, { enabled: false, intervalMinutes: policyForm.value.intervalMinutes })
-    toast.success(t('snapshot.messages.policyDisabled'))
-    await loadPolicy()
-  } catch (err: any) {
-    toast.error(t('snapshot.messages.policySaveFailed') + ': ' + (err?.message || String(err)))
-  } finally {
-    policyLoading.value = false
-  }
-}
+async function savePolicy(): Promise<void> { await updatePolicy({ ...policyForm.value }) }
+async function disableAutoPolicy(): Promise<void> { await updatePolicy({ enabled: false, intervalMinutes: policyForm.value.intervalMinutes }) }
 
 // 获取间隔时间的显示文本
 function getIntervalLabel(minutes: number): string {
@@ -207,7 +231,7 @@ function getIntervalLabel(minutes: number): string {
         </span>
         <button
           class="btn-ghost btn-sm"
-          :title="t('snapshot.autoSettings')"
+          :title="t('snapshot.autoSettings')" :aria-label="t('snapshot.autoSettings')"
           @click="showPolicyModal = true"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -215,7 +239,7 @@ function getIntervalLabel(minutes: number): string {
           </svg>
         </button>
         <button
-          :disabled="!hasQuota || isQuotaFull"
+          :disabled="!hasQuota || isQuotaFull || operationPending"
           :class="['btn-ghost btn-sm', (!hasQuota || isQuotaFull) && 'opacity-50 cursor-not-allowed']"
           :title="!hasQuota ? t('snapshot.noQuota') : isQuotaFull ? t('snapshot.quotaFull') : t('snapshot.createSnapshot')"
           @click="showCreateModal = true"
@@ -225,6 +249,19 @@ function getIntervalLabel(minutes: number): string {
           </svg>
           {{ t('snapshot.create') }}
         </button>
+      </div>
+    </div>
+
+    <div v-if="pageError" class="mx-4 mt-4 text-sm text-error" role="alert">{{ pageError }}</div>
+    <div v-if="policy?.operation" class="mx-4 mt-4 p-3 border border-amber-500/40 rounded-lg" aria-live="polite" :aria-busy="retryLoading">
+      <p class="font-medium text-sm">{{ t('snapshot.recoveryTitle') }}</p>
+      <p class="text-sm mt-1 break-words">{{ policy.operation.error || t('snapshot.recoveryPending') }}</p>
+      <p class="text-xs text-themed-muted mt-2">{{ t('snapshot.recoveryHint') }}</p>
+      <div class="flex flex-wrap gap-2 mt-2">
+        <button type="button" class="btn-secondary min-h-11" :disabled="retryLoading" @click="retryOperation">
+          {{ retryLoading ? t('snapshot.retryingRecovery') : t('snapshot.retryRecovery') }}
+        </button>
+        <button type="button" class="btn-ghost min-h-11" :disabled="retryLoading" @click="refresh">{{ t('snapshot.refresh') }}</button>
       </div>
     </div>
 
@@ -342,7 +379,7 @@ function getIntervalLabel(minutes: number): string {
         </div>
         <div class="flex items-center gap-2">
           <button
-            :disabled="!canRestore"
+            :disabled="!canRestore || operationPending || actionLoading"
             :class="['btn-ghost btn-sm', !canRestore && 'opacity-50 cursor-not-allowed']"
             :title="canRestore ? t('snapshot.restore') : t('snapshot.stopInstanceFirst')"
             @click="restoreSnapshot(snapshot)"
@@ -352,7 +389,7 @@ function getIntervalLabel(minutes: number): string {
           <button
             class="btn-ghost btn-sm text-error"
             :title="t('snapshot.delete')"
-            @click="deleteSnapshot(snapshot)"
+            :disabled="operationPending || actionLoading" @click="deleteSnapshot(snapshot)"
           >
             {{ t('snapshot.delete') }}
           </button>
@@ -386,7 +423,7 @@ function getIntervalLabel(minutes: number): string {
             </form>
             <div class="modal-footer">
               <button class="btn-secondary" @click="showCreateModal = false">{{ t('snapshot.createModal.cancel') }}</button>
-	              <button :disabled="createLoading || !createForm.name" class="btn-primary" @click="createSnapshot">
+              <button :disabled="createLoading || !createForm.name" class="btn-primary" @click="createSnapshot">
                 {{ createLoading ? t('snapshot.createModal.creating') : t('snapshot.createModal.create') }}
               </button>
             </div>
@@ -411,11 +448,11 @@ function getIntervalLabel(minutes: number): string {
             </div>
             <form class="modal-body" @submit.prevent="savePolicy">
               <label class="flex items-center gap-2 cursor-pointer">
-	                <input
-	                  v-model="policyForm.enabled"
-	                  type="checkbox"
-	                  class="w-4 h-4 rounded"
-	                  :class="themeStore.isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-300'"
+                <input
+                  v-model="policyForm.enabled"
+                  type="checkbox"
+                  class="w-4 h-4 rounded"
+                  :class="themeStore.isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-300'"
                 />
                 <span class="text-sm text-themed">{{ t('snapshot.policyModal.enable') }}</span>
               </label>
@@ -423,7 +460,7 @@ function getIntervalLabel(minutes: number): string {
               <div v-if="policyForm.enabled" class="space-y-4 pt-2">
                 <div>
                   <label class="block text-xs text-themed-muted mb-1.5">{{ t('snapshot.policyModal.interval') }}</label>
-	                  <select v-model="policyForm.intervalMinutes" class="input">
+                  <select v-model="policyForm.intervalMinutes" class="input">
                     <option :value="10">{{ t('snapshot.policyModal.intervalOptions.min10') }}</option>
                     <option :value="60">{{ t('snapshot.policyModal.intervalOptions.hour1') }}</option>
                     <option :value="360">{{ t('snapshot.policyModal.intervalOptions.hour6') }}</option>
@@ -437,7 +474,7 @@ function getIntervalLabel(minutes: number): string {
             </form>
             <div class="modal-footer">
               <button class="btn-secondary" @click="showPolicyModal = false">{{ t('snapshot.policyModal.cancel') }}</button>
-	              <button :disabled="policyLoading" class="btn-primary" @click="savePolicy">
+              <button :disabled="policyLoading" class="btn-primary" @click="savePolicy">
                 {{ policyLoading ? t('snapshot.policyModal.saving') : t('snapshot.policyModal.save') }}
               </button>
             </div>

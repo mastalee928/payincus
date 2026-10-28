@@ -57,6 +57,8 @@ import { sendRechargeSuccessEmail } from '../lib/mailer.js'
 import { notifyAdminRecharge } from '../lib/admin-alerts.js'
 import { sanitizeObject } from '../lib/log-sanitizer.js'
 import { isRechargeGatewayOrderNoMatch } from '../lib/recharge-order-guard.js'
+import { parsePositivePaymentMoney } from '../lib/payment-money.js'
+import { apiError, ErrorCode } from '../lib/errors.js'
 import { assertSafeHttpUrl, isIpPrivateOrReserved } from '../lib/outbound-security.js'
 
 // 金额一致性检查容差（分）
@@ -1729,10 +1731,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         tradeNo = queryResult.trade_no || ''
         tradeNoForIndex = getTradeNoForIndex(orderNo, tradeNo)
 
-        const paidAmount = queryResult.money ? parseFloat(queryResult.money) : 0
-        if (paidAmount > 0 && Math.abs(paidAmount - orderAmount) > AMOUNT_TOLERANCE_CENTS / 100) {
+        const paidAmount = parsePositivePaymentMoney(queryResult.money)
+        if (paidAmount === undefined || Math.abs(paidAmount - orderAmount) > AMOUNT_TOLERANCE_CENTS / 100) {
           request.log.warn(
-            { orderNo, orderAmount, paidAmount, diff: Math.abs(paidAmount - orderAmount) },
+            { orderNo, orderAmount, paidAmount },
             '支付金额与订单金额不匹配，拒绝处理'
           )
           return {
@@ -2537,7 +2539,8 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       const completion = await db.completeRecharge(orderNo, {
         tradeNo,
         actualAmount,
-        callbackData: { manual: true, operator: request.user!.username }
+        callbackData: { manual: true, operator: request.user!.username },
+        actor: request.user!
       })
 
       if (!completion.completedNow) {
@@ -2556,6 +2559,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       return { success: true, message: '订单已手动完成' }
     } catch (error) {
       request.log.error(error, '手动完成订单失败')
+      if (error instanceof Error && error.message === 'ADMIN_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
       return reply.status(500).send({ error: '手动完成订单失败' })
     }
   })
@@ -2586,7 +2590,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       await db.failRecharge(orderNo, failReason, {
         manual: true,
         operator: request.user!.username
-      })
+      }, undefined, request.user!)
 
       // 记录管理员操作日志
       await createLog(
@@ -2600,6 +2604,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       return { success: true, message: '订单已标记失败' }
     } catch (error) {
       request.log.error(error, '标记订单失败失败')
+      if (error instanceof Error && error.message === 'ADMIN_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
       return reply.status(500).send({ error: '标记订单失败' })
     }
   })
@@ -2762,7 +2767,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       // 易支付格式
       orderNo = callbackData.out_trade_no as string
       tradeNo = callbackData.trade_no as string
-      actualAmount = callbackData.money ? parseFloat(callbackData.money as string) : undefined
+      actualAmount = parsePositivePaymentMoney(callbackData.money)
     } else if (provider.type === 'heleket') {
       orderNo = callbackData.order_id as string
       tradeNo = (

@@ -9,6 +9,7 @@ const __dirname = dirname(__filename)
 const instancesSource = readFileSync(resolve(__dirname, '../src/routes/instances.ts'), 'utf8')
 const dbInstancesSource = readFileSync(resolve(__dirname, '../src/db/instances.ts'), 'utf8')
 const hostsSource = readFileSync(resolve(__dirname, '../src/routes/hosts.ts'), 'utf8')
+const statusSchedulerSource = readFileSync(resolve(__dirname, '../src/services/status-scheduler.ts'), 'utf8')
 
 function sectionBetween(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)
@@ -92,10 +93,31 @@ const syncStatusRoute = sectionBetween(
   "}>('/:id/sync-status'",
   "}>('/:id/change-host-options'"
 )
+const proxyNetworkSyncSource = readFileSync(resolve(__dirname, '../src/lib/instance-proxy-network-sync.ts'), 'utf8')
+const proxyOperationsSource = readFileSync(resolve(__dirname, '../src/db/proxy-site-operations.ts'), 'utf8')
 assert.ok(
-  syncStatusRoute.includes("currentStatus !== 'suspended' && currentStatus !== incusStatus") &&
-    syncStatusRoute.includes('await db.updateInstanceStatus('),
+  syncStatusRoute.includes('await syncInstanceNetworkAndProxySites(') &&
+    proxyNetworkSyncSource.includes("currentStatus !== 'suspended' && currentStatus !== incusStatus"),
   'sync-status route must preserve suspended while continuing normal running/stopped status sync'
+)
+assert.ok(
+  proxyNetworkSyncSource.includes('persistResolvedInstanceNetworkAddressesInTransaction(tx,') &&
+    proxyNetworkSyncSource.includes('data: { ipv4SyncPending: true,') &&
+    proxyNetworkSyncSource.includes('INSTANCE_OPERATION_LOCK_NAMESPACE') &&
+    proxyNetworkSyncSource.includes('instance.updatedAt.toISOString() !== observed.updatedAt') &&
+    proxyNetworkSyncSource.includes('Math.max(Date.now(), instance.updatedAt.getTime() + 1)') &&
+    proxyNetworkSyncSource.includes('updatedAt: saved.updatedAt') &&
+    proxyNetworkSyncSource.includes('hostConnectionIdentity(host) !== observed.hostConnectionIdentity') &&
+    proxyNetworkSyncSource.includes("if (!site.enabled || site.status !== 'active')") &&
+    proxyNetworkSyncSource.includes('await prepareProxySiteOperationInTransaction(') &&
+    proxyNetworkSyncSource.includes('await applyProxySiteOperation(outcome.operationId)') &&
+    proxyOperationsSource.includes('await client.reconcileManagedSite(') &&
+    proxyOperationsSource.includes('operation.attemptId !== attemptId') &&
+    proxyOperationsSource.includes("desired.targetIp !== (instance.ipv4 || '')") &&
+    proxyOperationsSource.includes('appliedRevision: operation.revision') &&
+    !proxyNetworkSyncSource.includes('.deleteSite(') &&
+    !syncStatusRoute.includes('.deleteSite('),
+  'address sync must persist retry intent with the IP, recheck identity and site state under the shared lock, and update Caddy without deleting first'
 )
 
 const updateInstanceStatus = sectionBetween(
@@ -108,5 +130,13 @@ assert.ok(
     updateInstanceStatus.includes('await prisma.instance.updateMany({'),
   'database status writes must not overwrite suspended with stopped or running'
 )
+
+const hostStatusSync = sectionBetween(hostsSource, "}>('/:id/instances/sync-status'", '// ==================== 资源校对')
+const scheduledStatusSync = sectionBetween(statusSchedulerSource, 'export async function syncInstanceStatus(', 'async function executeStatusSyncJob(')
+for (const [name, source] of [['host batch', hostStatusSync], ['scheduler', scheduledStatusSync]]) {
+  assert.ok(source.includes('recordUnverifiedInstanceObservation(') && !source.includes("updateInstanceStatus(instance.id, 'deleted')") &&
+    !source.includes("to: 'deleted'") && !source.includes('rollbackResources('),
+    `${name} observation failures must retain resources and report unverified state`)
+}
 
 console.log('instance operation conflict guard tests passed')

@@ -30,9 +30,9 @@ export function formatDisk(mb: number | null | undefined): string {
  * 格式化字节大小
  */
 export function formatBytes(bytes: number | null | undefined): string {
-    if (!bytes || bytes === 0) return '0 B'
-    const units = ['B', 'KB', 'MB', 'GB', 'TB']
-    const i = Math.floor(Math.log(bytes) / Math.log(1024))
+    if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB']
+    const i = Math.max(0, Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024))))
     return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i]
 }
 

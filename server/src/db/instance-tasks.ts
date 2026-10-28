@@ -1,3 +1,4 @@
+import { assertNoPendingSnapshotOperations, } from './snapshot-operation-guards.js'
 /**
  * 实例操作任务数据库操作
  */
@@ -5,6 +6,7 @@
 import { prisma } from './prisma.js'
 import type { InstanceTaskType, InstanceTaskStatus, Prisma } from '@prisma/client'
 import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from './advisory-locks.js'
+import { assertNoPendingProxySiteOperations } from './proxy-site-operation-guards.js'
 
 export interface CreateInstanceTaskData {
   instanceId: number
@@ -88,6 +90,9 @@ export async function createInstanceTask(data: CreateInstanceTaskData): Promise<
     if (!locked) {
       throw new InstanceTaskConflictError()
     }
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${data.instanceId} FOR UPDATE`
+    await assertNoPendingSnapshotOperations(tx, data.instanceId)
+    await assertNoPendingProxySiteOperations(tx, data.instanceId)
 
     const activeTask = await tx.instanceTask.findFirst({
       where: {

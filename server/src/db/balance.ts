@@ -13,6 +13,7 @@ import {
   type BalanceLogType
 } from '@prisma/client'
 import { USER_BALANCE_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from './advisory-locks.js'
+import { lockAdministrativeUserMutation, type WriteActor } from './user-write-authorization.js'
 
 type BalanceQueryClient = typeof prisma | Prisma.TransactionClient
 const BALANCE_LOG_TYPES = new Set<BalanceLogType>([
@@ -159,6 +160,7 @@ export async function getBalanceLogs(
 // ==================== 余额变动操作（事务安全） ====================
 
 export interface BalanceChangeInput {
+  actor?: WriteActor
   userId: number
   type: BalanceLogType
   amount: number // 正数=增加，负数=减少
@@ -182,6 +184,7 @@ export type BalanceAdjustmentRequestWithRelations = BalanceAdjustmentRequest & {
 }
 
 export interface BalanceAdjustmentRequestInput {
+  actor?: WriteActor
   userId: number
   requestedByUserId: number
   amount: number
@@ -210,6 +213,8 @@ export async function changeBalanceInTransaction(
   if (!locked) {
     throw new Error('余额正在处理，请稍后重试')
   }
+
+  if (input.actor) await lockAdministrativeUserMutation(tx, userId, input.actor)
 
   const user = await tx.user.findUnique({
     where: { id: userId },
@@ -307,7 +312,12 @@ export async function createBalanceAdjustmentRequest(
 ): Promise<BalanceAdjustmentRequestWithRelations> {
   const amount = normalizeBalanceAmount(input.amount)
 
-  return prisma.balanceAdjustmentRequest.create({
+  return prisma.$transaction(async tx => {
+    if (input.actor) {
+      if (input.actor.id !== input.requestedByUserId) throw new Error('ADMIN_ACTOR_FORBIDDEN')
+      await lockAdministrativeUserMutation(tx, input.userId, input.actor)
+    }
+    return tx.balanceAdjustmentRequest.create({
     data: {
       userId: input.userId,
       requestedByUserId: input.requestedByUserId,
@@ -319,7 +329,8 @@ export async function createBalanceAdjustmentRequest(
       orderNo: input.orderNo
     },
     include: includeBalanceAdjustmentRequestRelations()
-  }) as Promise<BalanceAdjustmentRequestWithRelations>
+    }) as Promise<BalanceAdjustmentRequestWithRelations>
+  })
 }
 
 export async function getBalanceAdjustmentRequests(
@@ -353,7 +364,7 @@ export async function getBalanceAdjustmentRequests(
 
 export async function approveBalanceAdjustmentRequest(
   requestId: number,
-  reviewerUserId: number,
+  actor: WriteActor,
   reviewRemark?: string
 ): Promise<{ request: BalanceAdjustmentRequestWithRelations; newBalance: number }> {
   return prisma.$transaction(async (tx) => {
@@ -369,11 +380,13 @@ export async function approveBalanceAdjustmentRequest(
       throw new Error('调账申请已处理')
     }
 
+    await lockAdministrativeUserMutation(tx, request.userId, actor)
+
     const claimed = await tx.balanceAdjustmentRequest.updateMany({
       where: { id: requestId, status: 'pending' },
       data: {
         status: 'approved',
-        reviewedByUserId: reviewerUserId,
+        reviewedByUserId: actor.id,
         reviewedAt: new Date(),
         reviewRemark
       }
@@ -420,15 +433,18 @@ export async function approveBalanceAdjustmentRequest(
 
 export async function rejectBalanceAdjustmentRequest(
   requestId: number,
-  reviewerUserId: number,
+  actor: WriteActor,
   reviewRemark: string
 ): Promise<BalanceAdjustmentRequestWithRelations> {
   return prisma.$transaction(async (tx) => {
+    const target = await tx.balanceAdjustmentRequest.findUnique({ where: { id: requestId }, select: { userId: true } })
+    if (!target) throw new Error('调账申请不存在')
+    await lockAdministrativeUserMutation(tx, target.userId, actor)
     const claimed = await tx.balanceAdjustmentRequest.updateMany({
       where: { id: requestId, status: 'pending' },
       data: {
         status: 'rejected',
-        reviewedByUserId: reviewerUserId,
+        reviewedByUserId: actor.id,
         reviewedAt: new Date(),
         reviewRemark
       }
@@ -511,11 +527,13 @@ export async function refundToBalance(
 export async function adminAdjustBalance(
   userId: number,
   amount: number,
-  remark: string
+  remark: string,
+  actor: WriteActor
 ): Promise<BalanceChangeResult> {
   return changeBalance({
     userId,
     type: 'admin_adjust',
+    actor,
     amount,
     remark
   })
@@ -527,11 +545,13 @@ export async function adminAdjustBalance(
 export async function giftBalance(
   userId: number,
   amount: number,
-  remark?: string
+  remark?: string,
+  actor?: WriteActor
 ): Promise<BalanceChangeResult> {
   return changeBalance({
     userId,
     type: 'gift',
+    actor,
     amount: Math.abs(amount), // 确保是正数
     remark
   })

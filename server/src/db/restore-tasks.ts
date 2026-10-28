@@ -1,3 +1,4 @@
+import { hasPendingSnapshotOperation } from './snapshot-operation-guards.js'
 /**
  * 恢复任务数据库操作
  */
@@ -25,6 +26,8 @@ export async function createRestoreTask(data: CreateRestoreTaskData): Promise<nu
             return null
         }
 
+        await tx.$queryRaw`SELECT id FROM instances WHERE id = ${data.instanceId} FOR UPDATE`
+        if (await hasPendingSnapshotOperation(data.instanceId, tx)) return null
         const activeTask = await tx.restoreTask.findFirst({
             where: {
                 instanceId: data.instanceId,

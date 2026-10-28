@@ -21,7 +21,7 @@ const expiryDeleteSection = sectionBetween(
 )
 
 const countIndex = expiryDeleteSection.indexOf('const portMappingsCount = await prisma.portMapping.count')
-const softDeleteIndex = expiryDeleteSection.indexOf('await prisma.instance.updateMany')
+const softDeleteIndex = expiryDeleteSection.indexOf('await tx.instance.updateMany')
 const portReleaseIndex = expiryDeleteSection.indexOf('await tx.portMapping.deleteMany')
 const ipReleaseIndex = expiryDeleteSection.indexOf('await tx.ipAddress.deleteMany')
 const ipv6ReleaseIndex = expiryDeleteSection.indexOf('await tx.ipv6Subnet.deleteMany')

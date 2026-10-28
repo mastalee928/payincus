@@ -16,6 +16,7 @@
 
 import { prisma } from './prisma.js'
 import { Prisma } from '@prisma/client'
+import { lockAdministrativeUserMutation, type WriteActor } from './user-write-authorization.js'
 
 // 事务隔离级别配置
 // 使用 Serializable 隔离级别确保配额操作的一致性
@@ -249,20 +250,20 @@ export async function rollbackResources(options: {
 /**
  * 计算用户配额使用量（新配额系统）
  */
-export async function calculateUserQuotaUsed(userId: number): Promise<{
+export async function calculateUserQuotaUsed(userId: number, client: Prisma.TransactionClient = prisma): Promise<{
   hostUsed: number
   friendUsed: number
   packageUsed: number
 }> {
   // 计算宿主机数量
-  const hostUsed = await prisma.host.count({
+  const hostUsed = await client.host.count({
     where: { userId }
   })
 
   // 注意：不再计算实例数量，因为不再限制用户的实例配额
 
   // 计算好友数量（已接受的好友关系）
-  const friendUsed = await prisma.friendship.count({
+  const friendUsed = await client.friendship.count({
     where: {
       OR: [
         { userId, status: 'accepted' },
@@ -272,7 +273,7 @@ export async function calculateUserQuotaUsed(userId: number): Promise<{
   })
 
   // 计算套餐数量
-  const packageUsed = await prisma.package.count({
+  const packageUsed = await client.package.count({
     where: { userId }
   })
 
@@ -281,6 +282,16 @@ export async function calculateUserQuotaUsed(userId: number): Promise<{
     friendUsed,
     packageUsed
   }
+}
+
+export async function recalculateUserQuotaByAdmin(userId: number, actor: WriteActor) {
+  return prisma.$transaction(async tx => {
+    await lockAdministrativeUserMutation(tx, userId, actor)
+    await tx.$queryRaw`SELECT id FROM user_quotas WHERE user_id = ${userId} FOR UPDATE`
+    const used = await calculateUserQuotaUsed(userId, tx)
+    await tx.userQuota.update({ where: { userId }, data: used })
+    return used
+  }, QUOTA_TRANSACTION_OPTIONS)
 }
 
 /**

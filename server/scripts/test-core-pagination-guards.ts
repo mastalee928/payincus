@@ -10,6 +10,7 @@ const paginationSource = readFileSync(resolve(__dirname, '../src/db/pagination.t
 const usersRouteSource = readFileSync(resolve(__dirname, '../src/routes/users.ts'), 'utf8')
 const hostsRouteSource = readFileSync(resolve(__dirname, '../src/routes/hosts.ts'), 'utf8')
 const instancesRouteSource = readFileSync(resolve(__dirname, '../src/routes/instances.ts'), 'utf8')
+const loginRecordSource = readFileSync(resolve(__dirname, '../src/db/login-records.ts'), 'utf8')
 
 function sectionBetween(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)
@@ -61,6 +62,18 @@ assert.ok(
     usersRouteSource.includes('pageSize: parseClampedPositiveIntegerQuery(pageSize, 20, 100)'),
   'admin user list route must pass strictly parsed pagination values before DB-level clamps'
 )
+
+const userList = sectionBetween(usersRouteSource, '// 获取用户列表 (管理员，支持分页和搜索)', '// 按用户名精确查找用户')
+assert.ok(!userList.includes('db.is2FAEnabled(') && !userList.includes('db.getInstancesByUserId(') &&
+  !userList.includes('db.hasOAuthBinding(') && !userList.includes('db.getUserBalance(') &&
+  userList.includes('prisma.instance.groupBy(') && userList.includes("status: { not: 'deleted' }") &&
+  userList.includes('select: { id: true, twoFactorEnabled: true, balance: true, hostingBalance: true }'),
+  'admin list must batch account fields and instance counts without per-user data queries')
+assert.ok(paginationSource.includes('avatar_badge_id: u.avatarBadgeId,'), 'user pagination must preserve avatar badges')
+const lastLogins = sectionBetween(loginRecordSource, 'export async function getLastLoginRecordsForUsers(', '/**\n * 获取被多个用户共享的IP组')
+assert.ok(lastLogins.includes('CROSS JOIN LATERAL') && lastLogins.includes('LIMIT 1') &&
+  lastLogins.includes('ORDER BY created_at DESC, id DESC') && !lastLogins.includes('prisma.loginRecord.findMany('),
+  'last-login lookup must fetch a single stable latest row per requested user in PostgreSQL')
 
 assert.ok(
   hostsRouteSource.includes('function parseOptionalPositiveQueryInteger(value: string | undefined): number | null | undefined') &&

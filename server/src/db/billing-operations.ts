@@ -4,10 +4,11 @@
  */
 
 import { prisma } from './prisma.js'
+import { authorizeUserWrite, type WriteSession } from './user-write-authorization.js'
 import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
 import { autoRenewEligibility } from '../lib/instance-auto-renew.js'
 import { recoveryHeld } from '../services/platform-backup-core.js'
-import type { Instance, PackagePlan, Prisma } from '@prisma/client'
+import { Prisma, type Instance, type PackagePlan } from '@prisma/client'
 import { getInstanceAffBinding, processAffCommission } from './aff.js'
 import { getInstanceBillingLineageIds } from './billing-records.js'
 import {
@@ -24,6 +25,7 @@ import { normalizePlanTrafficLimitSpeed } from '../services/traffic-bandwidth.js
 import { reservePlanUpgradeCapacityWithLock, type PlanUpgradeCapacityCheck } from './hosts.js'
 import {
   HOSTING_BALANCE_LOG_LOCK_NAMESPACE,
+  INSTANCE_OPERATION_LOCK_NAMESPACE,
   USER_BALANCE_LOCK_NAMESPACE,
   tryAdvisoryTransactionLock
 } from './advisory-locks.js'
@@ -47,6 +49,7 @@ export interface RenewBillingResult {
   months: number
   amount: number
   newExpiresAt: Date
+  periodStart: Date
 }
 
 export interface InstanceRefundResult {
@@ -348,7 +351,7 @@ export function calculateRenewBilling(
   months: number = 1
 ): RenewBillingResult {
   // 验证续费月数范围
-  if (months < 1 || months > 24) {
+  if (!Number.isSafeInteger(months) || months < 1 || months > 24) {
     throw new Error('续费月数必须在 1-24 之间')
   }
 
@@ -363,7 +366,7 @@ export function calculateRenewBilling(
 
   const newExpiresAt = addMonths(baseDate, months)
 
-  return { monthlyPrice, months, amount, newExpiresAt }
+  return { monthlyPrice, months, amount, newExpiresAt, periodStart: baseDate }
 }
 
 // 周期天数常量和 getCycleDays 函数已移至公共模块 billing-calc.ts
@@ -546,13 +549,14 @@ export async function performRenewal(
   userId: number,
   instance: Instance,
   months: number,
-  automatic?: { expiryThreshold: Date }
+  automatic?: { expiryThreshold: Date },
+  session?: WriteSession
 ): Promise<{ newExpiresAt: Date; amount: number; balanceLogId: number; discountAmount?: number; hostingIncomeResult?: { hostOwnerId: number; hostName: string } | null }> {
-  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months, automatic))
+  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months, automatic, session))
 }
 
 async function performRenewalMutation(
-  userId: number, instance: Instance, months: number, automatic?: { expiryThreshold: Date }
+  userId: number, instance: Instance, months: number, automatic?: { expiryThreshold: Date }, session?: WriteSession
 ): Promise<{ newExpiresAt: Date; amount: number; balanceLogId: number; discountAmount?: number; hostingIncomeResult?: { hostOwnerId: number; hostName: string } | null }> {
   if (automatic && recoveryHeld()) throw new Error('AUTO_RENEW_RECOVERY_HELD')
   if (instance.status === 'deleted') {
@@ -565,7 +569,7 @@ async function performRenewalMutation(
   }
 
   // 验证续费月数
-  if (months < 1 || months > 24) {
+  if (!Number.isSafeInteger(months) || months < 1 || months > 24) {
     throw new Error('续费月数必须在 1-24 之间')
   }
 
@@ -574,37 +578,50 @@ async function performRenewalMutation(
     throw new Error('实例已被手动封停，请联系宿主机所有者解封后再续费')
   }
 
-  const { amount: originalAmount, newExpiresAt } = calculateRenewBilling(instance, months)
-
-  // 检查 AFF 绑定，计算折扣
-  const affBinding = await getInstanceAffBinding(instance.id)
-  let discountAmount = 0
-  const vip = await getUserContinuousVipBenefit(userId)
-  const renewalPrice = arbitrateVipPrice({
-    basePrice: originalAmount,
-    affDiscountRate: affBinding?.affCode.enabled ? Number(affBinding.affCode.discountRate) : 0,
-    vipDiscountPercent: vip.benefit.orderDiscountPercent
-  })
-  const finalAmount = renewalPrice.finalPrice
-  const pricingSource: VipPriceSource = renewalPrice.source
-  discountAmount = renewalPrice.discountAmount
-
   // 执行事务（带乐观锁）
   const result = await prisma.$transaction(async (tx) => {
+    if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)) throw new Error('实例正在处理，请稍后重试')
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instance.id} FOR UPDATE`
+    const current = await tx.instance.findUnique({ where: { id: instance.id } })
+    if (!current || current.userId !== userId || current.userId !== instance.userId || current.hostId !== instance.hostId ||
+      current.version !== instance.version || current.status !== instance.status ||
+      current.packagePlanId !== instance.packagePlanId || current.expiresAt?.getTime() !== instance.expiresAt?.getTime() ||
+      current.suspendReason !== instance.suspendReason || current.deletionBillingPending || current.provisioningCleanupPending) throw new Error('实例状态已变更，请重试')
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${current.hostId} FOR SHARE`
+    const currentHost = await tx.host.findUnique({ where: { id: current.hostId }, select: { userId: true } })
+    if (!currentHost) throw new Error('宿主机不存在')
     const balanceLocked = await tryAdvisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, userId)
     if (!balanceLocked) {
       throw new Error('余额正在处理，请稍后重试')
     }
+    const accountIds = [...new Set([userId, currentHost.userId])].sort((a, b) => a - b)
+    await tx.$queryRaw`SELECT id FROM users WHERE id IN (${Prisma.join(accountIds)}) ORDER BY id FOR UPDATE`
+    if (session && !await authorizeUserWrite(tx, userId, session)) throw new Error('用户权限已变更，请重新登录')
+    const owner = await tx.user.findUnique({ where: { id: currentHost.userId }, select: { role: true } })
+    if (!automatic && owner?.role === 'user') {
+      if (months !== 1) throw new Error('用户托管节点的实例仅支持按月续费')
+      if (current.expiresAt && Math.ceil((current.expiresAt.getTime() - Date.now()) / 86400000) > 7) throw new Error('用户托管节点的实例仅可在到期前7天内续费')
+    }
+    const { amount: originalAmount, newExpiresAt, periodStart } = calculateRenewBilling(current, months)
+    const affBinding = await getInstanceAffBinding(current.id, tx)
+    const vip = await getUserContinuousVipBenefit(userId, tx)
+    const renewalPrice = arbitrateVipPrice({ basePrice: originalAmount,
+      affDiscountRate: affBinding?.affCode.enabled ? Number(affBinding.affCode.discountRate) : 0,
+      vipDiscountPercent: vip.benefit.orderDiscountPercent })
+    const finalAmount = renewalPrice.finalPrice
+    const pricingSource: VipPriceSource = renewalPrice.source
+    const discountAmount = renewalPrice.discountAmount
 
     // 获取用户当前余额
     const user = await tx.user.findUnique({
       where: { id: userId },
-      select: { balance: true }
+      select: { balance: true, status: true }
     })
 
     if (!user) {
       throw new Error('用户不存在')
     }
+    if (user.status !== 'active') throw new Error('用户权限已变更，请重新登录')
 
     const oldBalance = Number(user.balance)
     if (oldBalance < finalAmount) {
@@ -643,6 +660,8 @@ async function performRenewalMutation(
     const instanceUpdateResult = await tx.instance.updateMany({
       where: {
         id: instance.id,
+        userId,
+        hostId: current.hostId,
         status: { not: 'deleted' },
         version: instance.version,  // 确保版本号未变
         ...(automatic ? { AND: [autoRenewEligibility(new Date(), automatic.expiryThreshold), { expiresAt: instance.expiresAt }],
@@ -692,7 +711,7 @@ async function performRenewalMutation(
         type: 'renew',
         amount: finalAmount,
         months,
-        periodStart: instance.expiresAt || new Date(),
+        periodStart,
         periodEnd: newExpiresAt,
         balanceLogId: balanceLog.id,
         remark: discountAmount > 0
@@ -732,14 +751,14 @@ async function performRenewalMutation(
       hostingIncomeResult = { hostOwnerId: hostingOwner.userId, hostName: hostingOwner.hostName }
     }
 
-    return { balanceLogId: balanceLog.id, hostingIncomeResult }
+    return { balanceLogId: balanceLog.id, hostingIncomeResult, newExpiresAt, finalAmount, discountAmount }
   })
 
   return {
-    newExpiresAt,
-    amount: finalAmount,
+    newExpiresAt: result.newExpiresAt,
+    amount: result.finalAmount,
     balanceLogId: result.balanceLogId,
-    discountAmount: discountAmount > 0 ? discountAmount : undefined,
+    discountAmount: result.discountAmount > 0 ? result.discountAmount : undefined,
     hostingIncomeResult: result.hostingIncomeResult
   }
 }
@@ -1002,11 +1021,19 @@ export async function performPlanChange(
  */
 export async function updateAutoRenew(
   instanceId: number,
-  autoRenew: boolean
+  autoRenew: boolean,
+  userId: number,
+  session: WriteSession
 ): Promise<void> {
-  await prisma.instance.update({
-    where: { id: instanceId },
-    data: { autoRenew }
+  await prisma.$transaction(async tx => {
+    if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)) throw new Error('实例正在处理，请稍后重试')
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+    if (!await authorizeUserWrite(tx, userId, session, true)) throw new Error('用户权限已变更，请重新登录')
+    const result = await tx.instance.updateMany({ where: {
+      id: instanceId, userId, status: { not: 'deleted' }, packagePlanId: { not: null },
+      deletionBillingPending: false, provisioningCleanupPending: false
+    }, data: { autoRenew } })
+    if (!result.count) throw new Error('实例状态已变更，请重试')
   })
 }
 

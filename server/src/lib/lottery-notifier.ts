@@ -235,12 +235,13 @@ async function sendWebhook(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   }
+  const body = JSON.stringify({ ...payload, timestamp: new Date().toISOString() })
 
   // 如果有 secret，添加签名
   if (secret) {
     const crypto = await import('crypto')
     const signature = crypto.createHmac('sha256', secret)
-      .update(JSON.stringify(payload))
+      .update(body)
       .digest('hex')
     headers['X-Signature'] = signature
   }
@@ -250,10 +251,7 @@ async function sendWebhook(
     method: 'POST',
     signal: AbortSignal.timeout(LOTTERY_NOTIFICATION_FETCH_TIMEOUT_MS),
     headers,
-    body: JSON.stringify({
-      ...payload,
-      timestamp: new Date().toISOString()
-    }),
+    body,
     redirect: 'manual'
   }, 'Webhook URL')
 

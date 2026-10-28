@@ -9,18 +9,18 @@ import bcrypt from 'bcryptjs'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import * as db from '../db/index.js'
 import { prisma } from '../db/prisma.js'
+import { lockAdministrativeUserMutation } from '../db/user-write-authorization.js'
 import { createLog } from '../db/logs.js'
 import type { UpdateUserRequest } from '../types/api.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
-import { containsDangerousChars, revokeAllUserRefreshTokens, getUserSessions, logAdminAction, validatePassword, invalidateUserAccessTokens, validateIdentifier } from '../lib/security.js'
+import { containsDangerousChars, getUserSessions, logAdminAction, validatePassword, validateIdentifier } from '../lib/security.js'
 import {
-    isOperationVerified,
-    claimOperationVerificationRequirement
+    isOperationVerified
 } from '../lib/operation-verification.js'
 import { isSmtpEnabled, sendAdminCreatedUserEmail, sendBanNotificationEmail, sendVerificationEmail } from '../lib/mailer.js'
 import { sendNotification } from '../lib/notifier.js'
 import { closeUserSessions } from '../lib/terminal-proxy.js'
-import { createVerificationCode, verifyCode } from '../db/email-verification.js'
+import { createVerificationCode } from '../db/email-verification.js'
 import { validateEmailDomain } from '../lib/email-domain.js'
 import { HOSTING_BALANCE_LOG_LOCK_NAMESPACE, USER_ADMIN_ROLE_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '../db/advisory-locks.js'
 import {
@@ -35,70 +35,20 @@ const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\d*$/
 const MAX_HOSTING_BALANCE_ADJUST_AMOUNT = 99999999.99
 const MAX_HOSTING_BALANCE_ADJUST_REASON_LENGTH = 500
 const ADMIN_HOSTING_BALANCE_ADJUST_REMARK_PREFIX = '[Admin]'
+function handleAdminMutationError(error: unknown, reply: FastifyReply): boolean {
+  if (!(error instanceof Error)) return false
+  if (error.message === 'ADMIN_ACTOR_FORBIDDEN') {
+    reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+  } else if (error.message === 'USER_NOT_FOUND') {
+    reply.code(404).send(apiError(ErrorCode.USER_NOT_FOUND))
+  } else if (['CANNOT_MODIFY_SELF', 'CANNOT_DELETE_SELF', 'CANNOT_BAN_ADMIN', 'CANNOT_DELETE_ADMIN', 'TWO_FA_NOT_ENABLED'].includes(error.message)) {
+    reply.code(400).send(apiError(ErrorCode[error.message as keyof typeof ErrorCode]))
+  } else if (error.message === 'OAUTH_BINDING_NOT_FOUND') {
+    reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'User has not bound this OAuth provider'))
+  } else return false
+  return true
+}
 type UserSearchField = (typeof USER_SEARCH_FIELDS)[number]
-type UserDeletionBlockers = {
-  instances: number
-  hosts: number
-  packages: number
-  hostingZones: number
-  balanceNonZero: boolean
-  hostingBalanceNonZero: boolean
-  balanceLogs: number
-  rechargeRecords: number
-  hostingBalanceLogs: number
-  loginRecords: number
-  redeemCodeUsages: number
-}
-
-async function getUserDeletionBlockers(userId: number): Promise<UserDeletionBlockers> {
-  const [
-    balances,
-    instances,
-    hosts,
-    packages,
-    hostingZones,
-    balanceLogs,
-    rechargeRecords,
-    hostingBalanceLogs,
-    loginRecords,
-    redeemCodeUsages
-  ] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: { balance: true, hostingBalance: true }
-    }),
-    // Count every instance state, including deleted history, because the required User relation
-    // still blocks hard deletion and the history should not be orphaned by admin actions.
-    prisma.instance.count({ where: { userId } }),
-    prisma.host.count({ where: { userId } }),
-    prisma.package.count({ where: { userId } }),
-    prisma.hostingZone.count({ where: { ownerId: userId } }),
-    prisma.balanceLog.count({ where: { userId } }),
-    prisma.rechargeRecord.count({ where: { userId } }),
-    prisma.hostingBalanceLog.count({ where: { userId } }),
-    prisma.loginRecord.count({ where: { userId } }),
-    prisma.redeemCodeUsage.count({ where: { userId } })
-  ])
-
-  return {
-    instances,
-    hosts,
-    packages,
-    hostingZones,
-    balanceNonZero: balances?.balance.isZero() === false,
-    hostingBalanceNonZero: balances?.hostingBalance.isZero() === false,
-    balanceLogs,
-    rechargeRecords,
-    hostingBalanceLogs,
-    loginRecords,
-    redeemCodeUsages
-  }
-}
-
-function hasUserDeletionBlockers(blockers: UserDeletionBlockers): boolean {
-  return Object.values(blockers).some(value => value === true || (typeof value === 'number' && value > 0))
-}
-
 function parseUserSearchFields(rawValue?: string): UserSearchField[] {
   if (!rawValue) {
     return [...USER_SEARCH_FIELDS]
@@ -214,69 +164,41 @@ export default async function userRoutes(fastify: FastifyInstance) {
       exactMatch: parseBooleanQuery(exact)
     })
 
-    // 获取所有用户的 2FA 状态
-    const userIds = result.items.map((u: any) => u.id)
-    const twoFAStatuses = await Promise.all(
-      userIds.map(async (id: number) => ({
-        id,
-        enabled: await db.is2FAEnabled(id)
-      }))
-    )
-    const twoFAMap = new Map(twoFAStatuses.map(s => [s.id, s.enabled]))
-
-    // 获取所有用户的实例数量
-    const instanceCounts = await Promise.all(
-      userIds.map(async (id: number) => {
-        const instances = await db.getInstancesByUserId(id)
-        return { id, count: instances.length }
+    // 只批量查询本页用户的附加字段，不逐用户读取实例或登录历史。
+    const userIds = result.items.map(u => u.id)
+    const [userAccounts, instanceCounts, githubBindings, lastLoginMap, consumeMap, userPointsList, frozenHostingBalances] = await Promise.all([
+      prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, twoFactorEnabled: true, balance: true, hostingBalance: true }
+      }),
+      prisma.instance.groupBy({
+        by: ['userId'],
+        where: { userId: { in: userIds }, status: { not: 'deleted' } },
+        _count: { _all: true }
+      }),
+      prisma.userOAuthBinding.findMany({
+        where: { userId: { in: userIds }, provider: 'github' },
+        select: { userId: true }
+      }),
+      db.getLastLoginRecordsForUsers(userIds),
+      // 兼容历史 consume 日志 amount 正负号不一致的净消费口径。
+      db.getUsersTotalConsumeMap(userIds),
+      prisma.userPoints.findMany({
+        where: { userId: { in: userIds } },
+        select: { userId: true, points: true, totalEarned: true }
+      }),
+      prisma.hostingBalanceLog.groupBy({
+        by: ['userId'],
+        where: { userId: { in: userIds }, frozen: true },
+        _sum: { amount: true }
       })
-    )
-    const instanceCountMap = new Map(instanceCounts.map(ic => [ic.id, ic.count]))
-
-    // 获取所有用户的 GitHub 绑定状态
-    const githubBindings = await Promise.all(
-      userIds.map(async (id: number) => ({
-        id,
-        hasGithub: await db.hasOAuthBinding(id, 'github')
-      }))
-    )
-    const githubBindingMap = new Map(githubBindings.map(gb => [gb.id, gb.hasGithub]))
-
-    // 获取所有用户的最后登录记录
-    const lastLoginMap = await db.getLastLoginRecordsForUsers(userIds)
-
-    // 获取所有用户的余额
-    const userBalances = await Promise.all(
-      userIds.map(async (id: number) => ({
-        id,
-        balance: await db.getUserBalance(id)
-      }))
-    )
-    const balanceMap = new Map(userBalances.map(ub => [ub.id, ub.balance]))
-
-    // 获取所有用户的实际消费统计（兼容历史 consume 日志 amount 正负号不一致）
-    const consumeMap = await db.getUsersTotalConsumeMap(userIds)
-
-    // 获取所有用户的积分信息
-    const userPointsList = await prisma.userPoints.findMany({
-      where: { userId: { in: userIds } },
-      select: { userId: true, points: true, totalEarned: true }
-    })
+    ])
+    const twoFAMap = new Map(userAccounts.map(u => [u.id, u.twoFactorEnabled]))
+    const balanceMap = new Map(userAccounts.map(u => [u.id, Number(u.balance)]))
+    const hostingBalanceMap = new Map(userAccounts.map(u => [u.id, Number(u.hostingBalance)]))
+    const instanceCountMap = new Map(instanceCounts.map(ic => [ic.userId, ic._count._all]))
+    const githubBindingMap = new Map(githubBindings.map(gb => [gb.userId, true]))
     const pointsMap = new Map(userPointsList.map(up => [up.userId, { points: up.points, totalEarned: up.totalEarned }]))
-
-    // 获取所有用户的托管余额信息
-    const hostingBalances = await prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, hostingBalance: true }
-    })
-    const hostingBalanceMap = new Map(hostingBalances.map(u => [u.id, Number(u.hostingBalance || 0)]))
-
-    // 获取所有用户的冻结托管余额
-    const frozenHostingBalances = await prisma.hostingBalanceLog.groupBy({
-      by: ['userId'],
-      where: { userId: { in: userIds }, frozen: true },
-      _sum: { amount: true }
-    })
     const frozenHostingMap = new Map(frozenHostingBalances.map(f => [f.userId, Number(f._sum.amount || 0)]))
 
     return {
@@ -582,8 +504,10 @@ export default async function userRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN, DEMO_ACCOUNT_PROTECTED_MESSAGE))
     }
 
-    const shouldClaimPasswordVerification = request.user.id === userId && Boolean(password)
-    const shouldClaimEmailVerification = request.user.id === userId && email !== undefined && email !== user.email && Boolean(user.email)
+    const profileState = await db.get2FAMutationState(userId)
+    if (!profileState || profileState.passwordHash !== user.password_hash || profileState.email !== user.email) {
+      return reply.code(409).send(apiError(ErrorCode.INVALID_PARAMS, 'Authentication state changed; retry after signing in'))
+    }
 
     // 敏感操作二次验证：修改密码或邮箱时需要验证（管理员修改他人时跳过）
     if (request.user.id === userId) {
@@ -636,13 +560,6 @@ export default async function userRoutes(fastify: FastifyInstance) {
         return reply.code(400).send(validationResult.error)
       }
 
-      if (request.user.id === userId && email !== user.email) {
-        const verified = await verifyCode(validationResult.normalizedEmail, emailCode!, 'change_email')
-        if (!verified) {
-          return reply.code(400).send(apiError(ErrorCode.INVALID_EMAIL_CODE))
-        }
-      }
-
       updates.email = validationResult.normalizedEmail
     }
 
@@ -661,33 +578,23 @@ export default async function userRoutes(fastify: FastifyInstance) {
     }
 
     if (Object.keys(updates).length > 0) {
-      if (shouldClaimPasswordVerification) {
-        const verification = await claimOperationVerificationRequirement(request.user.id, 'change_password')
-        if (!verification.verified) {
-          return reply.code(403).send({
-            error: 'Sensitive operation requires verification',
-            code: 'VERIFICATION_REQUIRED',
-            operationType: 'change_password'
+      try {
+        if (!await db.updateUserProfileIfCurrent(profileState, updates, request.user, emailCode)) {
+          return reply.code(400).send(apiError(ErrorCode.INVALID_EMAIL_CODE))
+        }
+      } catch (error) {
+        if (error instanceof Error) {
+          if (error.message === 'AUTHENTICATION_STATE_CHANGED') return reply.code(409).send(apiError(ErrorCode.INVALID_PARAMS, 'Authentication state changed; retry after signing in'))
+          if (error.message === 'PROFILE_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+          if (error.message === 'EMAIL_ALREADY_REGISTERED') return reply.code(400).send(apiError(ErrorCode.EMAIL_ALREADY_REGISTERED))
+          if (error.message.startsWith('PROFILE_VERIFICATION_REQUIRED:')) return reply.code(403).send({
+            error: 'Sensitive operation requires verification', code: 'VERIFICATION_REQUIRED', operationType: error.message.split(':')[1]
           })
         }
+        throw error
       }
-
-      if (shouldClaimEmailVerification) {
-        const verification = await claimOperationVerificationRequirement(request.user.id, 'change_email')
-        if (!verification.verified) {
-          return reply.code(403).send({
-            error: 'Sensitive operation requires verification',
-            code: 'VERIFICATION_REQUIRED',
-            operationType: 'change_email'
-          })
-        }
-      }
-
-      await db.updateUser(userId, updates)
 
       if (password) {
-        await revokeAllUserRefreshTokens(userId)
-        await invalidateUserAccessTokens(userId)
         closeUserSessions(userId, 'Password updated')
       }
 
@@ -781,6 +688,8 @@ export default async function userRoutes(fastify: FastifyInstance) {
           throw new Error('USER_ADMIN_ROLE_LOCK_BUSY')
         }
 
+        await lockAdministrativeUserMutation(tx, userId, request.user)
+
         const targetUser = await tx.user.findUnique({
           where: { id: userId },
           select: {
@@ -856,6 +765,7 @@ export default async function userRoutes(fastify: FastifyInstance) {
         }
       })
     } catch (error) {
+      if (handleAdminMutationError(error, reply)) return
       if (error instanceof Error) {
         if (error.message === 'USER_NOT_FOUND') {
           return reply.code(404).send(apiError(ErrorCode.USER_NOT_FOUND))
@@ -940,13 +850,14 @@ export default async function userRoutes(fastify: FastifyInstance) {
 
     // 新配额系统：重新计算用户的资源使用量
     // 注意：不再计算实例配额使用量
-    const actualUsed = await db.calculateUserQuotaUsed(userId)
-
-    await db.updateUserQuotaUsed(userId, {
-      hostUsed: actualUsed.hostUsed,
-      friendUsed: actualUsed.friendUsed,
-      packageUsed: actualUsed.packageUsed
-    })
+    let actualUsed
+    try {
+      actualUsed = await db.recalculateUserQuotaByAdmin(userId, request.user)
+    } catch (error) {
+      if (handleAdminMutationError(error, reply)) return
+      if ((error as { code?: string }).code === 'P2034') return reply.code(409).send(apiError(ErrorCode.INVALID_PARAMS, 'Quota changed; retry'))
+      throw error
+    }
 
     return {
       message: 'Quota recalculated',
@@ -1032,10 +943,14 @@ export default async function userRoutes(fastify: FastifyInstance) {
     }
 
     // 更新配额
-    if (quotaType === 'host') {
-      await db.updateUserQuotaLimits(userId, { hostLimit })
-    } else if (quotaType === 'friend') {
-      await db.updateUserQuotaLimits(userId, { friendLimit })
+    try {
+      await db.increaseOwnQuota(userId, quotaType!, (quotaType === 'host' ? hostLimit : friendLimit)!, request.user)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'QUOTA_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+      if (error instanceof Error && ['QUOTA_INFO_NOT_FOUND', 'QUOTA_INCREASE_STEP_INVALID', 'QUOTA_USAGE_UNAVAILABLE', 'QUOTA_USAGE_TOO_LOW'].includes(error.message)) {
+        return reply.code(400).send(apiError(ErrorCode[error.message as keyof typeof ErrorCode]))
+      }
+      throw error
     }
 
     // 记录日志
@@ -1095,12 +1010,15 @@ export default async function userRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(apiError(ErrorCode.CANNOT_BAN_ADMIN))
     }
 
-    await db.updateUserStatus(userId, status, reason)
+    try {
+      await db.updateUserStatus(userId, status, reason, request.user)
+    } catch (error) {
+      if (handleAdminMutationError(error, reply)) return
+      throw error
+    }
 
     // 如果是封禁用户，关闭该用户的所有终端连接
     if (status === 'banned') {
-      await revokeAllUserRefreshTokens(userId)
-      await invalidateUserAccessTokens(userId)
       const closedSessions = closeUserSessions(userId, 'User account banned')
       if (closedSessions > 0) {
         console.log(`[Ban] Closed ${closedSessions} terminal session(s) for user ${userId}`)
@@ -1169,8 +1087,8 @@ export default async function userRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(apiError(ErrorCode.CANNOT_DELETE_ADMIN))
     }
 
-    const blockers = await getUserDeletionBlockers(userId)
-    if (hasUserDeletionBlockers(blockers)) {
+    const blockers = await db.getUserDeletionBlockers(userId)
+    if (db.hasUserDeletionBlockers(blockers)) {
       if (blockers.balanceNonZero || blockers.hostingBalanceNonZero) {
         return reply.code(400).send(apiError(
           ErrorCode.USER_HAS_RESOURCES,
@@ -1198,8 +1116,9 @@ export default async function userRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      await db.deleteUser(userId)
+      await db.deleteUser(userId, request.user)
     } catch (error) {
+      if (handleAdminMutationError(error, reply)) return
       if (error instanceof db.UserDeletionConflictError) {
         return reply.code(409).send(apiError(
           ErrorCode.USER_HAS_RESOURCES,
@@ -1262,8 +1181,13 @@ export default async function userRoutes(fastify: FastifyInstance) {
       return reply.code(404).send(apiError(ErrorCode.USER_NOT_FOUND))
     }
 
-    const count = await revokeAllUserRefreshTokens(userId)
-    await invalidateUserAccessTokens(userId)
+    let count: number
+    try {
+      count = await db.revokeUserSessionsByAdmin(userId, request.user)
+    } catch (error) {
+      if (handleAdminMutationError(error, reply)) return
+      throw error
+    }
 
     // 关闭该用户的所有终端连接
     const closedTerminals = closeUserSessions(userId, 'Sessions revoked by admin')
@@ -1335,11 +1259,15 @@ export default async function userRoutes(fastify: FastifyInstance) {
     }
 
     const passwordHash = await bcrypt.hash(request.body.password, 12)
-    await db.updateUser(userId, { passwordHash })
-
-    // 撤销用户所有会话，强制重新登录
-    await revokeAllUserRefreshTokens(userId)
-    await invalidateUserAccessTokens(userId)
+    const resetState = await db.get2FAMutationState(userId)
+    if (!resetState || resetState.passwordHash !== user.password_hash) return reply.code(409).send(apiError(ErrorCode.INVALID_PARAMS, 'Authentication state changed; retry'))
+    try {
+      await db.updateUserProfileIfCurrent(resetState, { passwordHash }, request.user)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'PROFILE_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+      if (error instanceof Error && error.message === 'AUTHENTICATION_STATE_CHANGED') return reply.code(409).send(apiError(ErrorCode.INVALID_PARAMS, 'Authentication state changed; retry'))
+      throw error
+    }
     closeUserSessions(userId, 'Password reset by admin')
 
     await createLog(
@@ -1391,10 +1319,12 @@ export default async function userRoutes(fastify: FastifyInstance) {
     }
 
     // 禁用 2FA（清除所有 2FA 数据）
-    await db.disable2FAComplete(userId)
-
-    await revokeAllUserRefreshTokens(userId)
-    await invalidateUserAccessTokens(userId)
+    try {
+      await db.disable2FAComplete(userId, request.user)
+    } catch (error) {
+      if (handleAdminMutationError(error, reply)) return
+      throw error
+    }
     closeUserSessions(userId, '2FA disabled by admin')
 
     await createLog(
@@ -1454,10 +1384,12 @@ export default async function userRoutes(fastify: FastifyInstance) {
     }
 
     // 删除 OAuth 绑定
-    await db.deleteOAuthBinding(userId, provider as 'github' | 'google')
-
-    await revokeAllUserRefreshTokens(userId)
-    await invalidateUserAccessTokens(userId)
+    try {
+      await db.deleteOAuthBinding(userId, provider as 'github' | 'google', request.user)
+    } catch (error) {
+      if (handleAdminMutationError(error, reply)) return
+      throw error
+    }
     closeUserSessions(userId, `${provider} OAuth unbound by admin`)
 
     await createLog(
@@ -1729,6 +1661,8 @@ export default async function userRoutes(fastify: FastifyInstance) {
             throw new Error('Hosting balance is being processed')
           }
 
+          await lockAdministrativeUserMutation(tx, userId, request.user)
+
           // 更新用户托管余额
           const updateResult = await tx.user.updateMany({
             where: {
@@ -1767,6 +1701,8 @@ export default async function userRoutes(fastify: FastifyInstance) {
               throw new Error('Hosting balance is being processed')
             }
 
+          await lockAdministrativeUserMutation(tx, userId, request.user)
+
             await tx.hostingBalanceLog.create({
               data: {
                 userId,
@@ -1785,6 +1721,8 @@ export default async function userRoutes(fastify: FastifyInstance) {
             if (!locked) {
               throw new Error('Hosting balance is being processed')
             }
+
+          await lockAdministrativeUserMutation(tx, userId, request.user)
 
             // 扣减冻结余额：从冻结记录中扣除
             const frozenLogs = await tx.hostingBalanceLog.findMany({
@@ -1830,6 +1768,7 @@ export default async function userRoutes(fastify: FastifyInstance) {
         }
       }
     } catch (error) {
+      if (handleAdminMutationError(error, reply)) return
       const message = error instanceof Error ? error.message : String(error)
       if (message === 'Hosting balance is being processed') {
         return reply.code(409).send(apiError(ErrorCode.HOSTING_BALANCE_BUSY))
@@ -1930,9 +1869,14 @@ export default async function userRoutes(fastify: FastifyInstance) {
 
     const initialPassword = generateInitialPassword()
     const passwordHash = await bcrypt.hash(initialPassword, 12)
-    const userId = await db.createUser(username, email, passwordHash, role)
-    if (status === 'banned') {
-      await db.updateUserStatus(userId, 'banned')
+    let userId: number
+    try {
+      userId = await db.createUser(username, email, passwordHash, role, { status, actor: request.user })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'PROFILE_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+      if (error instanceof Error && error.message === 'EMAIL_ALREADY_REGISTERED') return reply.code(400).send(apiError(ErrorCode.EMAIL_ALREADY_REGISTERED))
+      if ((error instanceof Error && error.message === 'USER_EXISTS') || (error as { code?: string }).code === 'P2002') return reply.code(400).send(apiError(ErrorCode.USER_EXISTS))
+      throw error
     }
 
     let emailSent: boolean | undefined

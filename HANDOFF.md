@@ -1,5 +1,108 @@
 # 版本与验证记录
 
+> 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
+
+## 2026-10-28 全部积压阶段保存与 Agent 代码复审
+
+- Owner明确将此前聊天与本聊天全部积压源码、测试、迁移、规格及交接资料一起分阶段提交推送，之后继续修；授权已写入OWNER_REQUIREMENTS。基线main与远端均为0e80103，提交前无本地领先commit，积压均为工作区。正式平台/Agent版本不变；本次不打tag、不发Release、不做生产OTA。
+- 暂存范围包含旧网关两份Linux测试与旧安装的design-taste-frontend技能及锁文件；两个恢复规格新增精确gitignore例外。日志、数据库、运行产物与仓库外私有连接资料不纳入。
+- 用户要求无法完整运行部分先做代码级审查。本次逐段核对升级下载/解压上限、flock的稳定inode与旧PID处理、systemd重启确认/超时、Incus采集取消/并发/部分结果、CPU统计、远端见证mTLS/租约与隔离测试。CPU累积计数倒退时无符号减法可能形成错误占用率，已补倒退拒绝及正常/异常样本测试；旧网关错误holder断言曾重用已消费nonce，已改新nonce+错误身份真实签名并补正确身份对照，租约过期等待补总截止取消。
+- `pnpm test:agent`已实际尝试，Windows因原有Linux专用`syscall.Statfs`不能构建report包；该调用在提交基线已存在，不为本批新回归。可运行的Windows升级/controllerconfig包通过，其余Linux部分以代码审查与amd64/arm64 vet、测试编译和Agent构建分别记录，不能称Linux测试已执行。日志：`logs/takeover-checkpoint-agent-final.log`、`logs/takeover-checkpoint-go-native-final.log`、`logs/takeover-checkpoint-agent-reviewed-cross.log`。
+- 三台专用测试机私有记录与域名均已找回。Owner已允许重新分配全部测试用途，后续先核对旧身份及操作记录再补Linux实跑；A/B旧pin矛盾、C缺可靠历史pin仍须查明，未将观察到的公钥静默转为已认证身份。327项、真实Incus/独立备用/完整OSS灾备仍未完成。提交和远端确认结果在下一条阶段记录补写。
+
+## 2026-10-28 自动快照持久恢复（源码与隔离验收）
+
+- 自动快照改为先提交固定实例/owner/host身份、Incus UUID、唯一快照名称和原轮换目标，确认新快照后才删除旧快照。原操作保存 pending/applying/retry/blocked 状态，五次自动尝试后停止自动执行；原用户、宿主所有者或管理员经当前会话复核可重试。重试不重选目标，Incus 在途操作未完成时不凭列表名称提前删除旧快照。
+- 调度器先恢复已有操作，禁用策略后仍核验不确定结果；不依赖崩溃遗留30分钟租约。未写远端的计划可取消；已有UUID的操作须检查在途任务和快照清单才决定结束或恢复。每阶段重新检查平台恢复保护，保护内零远端动作。不能据本批替代完整OSS/网关灾备。
+- 手工快照 create/delete/restore 和策略更新已补锁内 current instance/host/owner/session 复核，快照动作与转移/重建/恢复队列及未决自动快照互斥；实例删除、换机、转移、轻/重任务领取及到期删除claim补独立快照门禁。手工快照自身进程强杀后的持久回执、其它备份/端口/host批量迁移仍未全部闭合。
+- 原快照页补持久失败、原操作重试、刷新状态；修正enabled布尔合同，切换instanceId/卸载/异步乱序不串写。三语、三宽度、深浅色、键盘与44px热区及真实Vue→Fastify→PG→mTLS边界通过 `logs/takeover-auto-ui-browser.log`；截图与复现脚本 `logs/snapshot-ui/`，夹具已正常关闭。
+- **25个自动快照场景通过** `logs/takeover-auto-durable-recovery-hold.log`：包含创建/删除/最终提交故障、旧快照保护、假成功、UUID/pin/会话变化、并发、禁用/到期后恢复、fresh/stale attempt、真实子进程SIGKILL、五次失败、远端仍在执行和恢复保护。实际使用本机PG与mTLS Incus API替身；真实Linux/Incus磁盘快照尚未验收。
+- **全量188/188通过** `logs/takeover-auto-full-suite.log` / `logs/test-run-20261028-121614`（9m12s）。全量期间追加的恢复保护在专项25场景与最终server build覆盖，最终定向3/3 `logs/takeover-auto-final-guards.log`；双端/后端build和dist边界 `logs/takeover-auto-full-build.log`，最终server `logs/takeover-auto-server-final-build.log`。Lint 0 errors/658 warnings `logs/takeover-auto-lint.log`。
+- 新鲜独立库 `takeover_auto_final_20261028_pool_test` 实际224迁移全部成功 `logs/takeover-auto-empty-migration.log`；运行库增量见 `logs/takeover-auto-operation-migration.log`。转移15场景回归 `logs/takeover-auto-transfer-regression.log` 通过；删除首次缺OpenSSL路径，修正进程PATH后 `logs/takeover-auto-delete-regression-final.log` 通过，用户所有自毁类型零退款/零余额账单，管理员退款选择保持。
+- 轻/重任务claim追加未决快照阻断及终态后领取通过 `logs/takeover-auto-task-claim-regression.log`。站点页实际Vue→Fastify→PG→TLS Caddy边界浏览器通过 `logs/takeover-proxy-ui-backend-browser.log`：202不报完成、502持久失败/刷新、409冲突、同requestId重试、显式toggle与确认后延迟删除、三宽度/三语/深浅色。202场景在真实数据库注入fresh applying，再由真实service完成；不是完整worker调度或真实Caddy服务器证据。`logs/proxy-sites-ui-backend/`留存脚本/截图，夹具已关闭。
+- 未commit/push/tag/Release/生产OTA/DNS/客户操作。327项未整体完成；剩余优先继续手工资源操作持久恢复、其它生命周期、Linux与网关真机。上述分项通过不代表已达到发行条件。
+
+## 2026-10-28 接手恢复与转移清理（进行中）
+
+- 自动快照调用/类型恢复、实例操作锁与原宿主证书绑定已修；真实PG+mTLS边界7场景通过 `logs/takeover-auto-snapshot-integration-verified.log`。自动快照远端成功后DB失败/进程中断恢复仍未闭合，不能算完整完成。
+- 巡检成功观察CAS与本地冲突不误降级宿主，18场景通过 `logs/takeover-sync-success-cas-integration-verified.log`。真实Windows Caddy v3 tombstone零流量/旧代次拒绝通过 `logs/takeover-caddy-v3-runtime.log`；不是Debian/公网ACME证据。
+- IPv4 supersede保留原未决端口/HTTPS/备注，新IP新代次原子替代、旧receipt禁止执行，专项 `logs/takeover-proxy-ipv4-supersede-integration.log` 通过。schema新增superseded迁移；先前独立空库222迁移成功，随后增量223项，最终新鲜空库223项仍待重验。
+- 双端及后端build `logs/takeover-full-build.log` 通过；当时全量188执行186过2失败 `logs/takeover-full-suite.log`。两项失败守卫已按helper/outbox真实位置保留安全意图修正，定向2/2 `logs/takeover-updated-route-guards.log` 通过；尚未得到最终代码全量188/188。
+- 转移恢复原固定清单和目标名，逐阶段共享instance锁、host身份摘要/Incus UUID、会话与归属/工作流复核、进程内互斥与持久attempt、确认后清资源/重计端口、finalize拒绝清单外残余资源。空cleanupState禁止直接executeTransfer；失败不回滚pending从而开放原资源。
+- 接收/推送真实PG/Fastify边界 `logs/takeover-transfer-routes-integration.log` 通过，删除了旧测试中手工清空cleanupState和重设pending的绕行；夹具IPv6改为每宿主唯一以遵守完整迁移的真实约束。
+- 新转移专项 `logs/takeover-transfer-cleanup-integration.log` 14场景通过：共享双协议双栈、专属保护、rename/port/snapshot/backup远端成功DB失败、Caddy拒绝、文本404失败、虚假删除成功、宿主pin、UUID变更、会话撤销、并发和清单外资源。是真PG+mTLS Incus/TLS Caddy API边界替身，真实Incus磁盘/网络及进程强杀后续仍待验。页面重试入口、最终类型/守卫/构建及其它生命周期联动仍在继续。
+- 本轮仍未commit/push/tag/Release/生产OTA/DNS/客户实例或账目操作。327项、自动快照、独立备用网关与A完全失联→B OSS恢复目标继续保留；测试机SSH身份问题未绕过。
+- 转移追加进程强杀恢复后15场景通过 `logs/takeover-transfer-cleanup-final.log`：真正子进程在远端删除后被终止，后续按固定UUID/清单与持久阶段恢复。交割前再次核对远端残余快照/备份及DB残余资源。原接收/推送专项通过；不会把新主人的资源扩入删除清单。
+- 用户转移页已增加处理中原记录重试与持久错误，手机44px按钮、键盘可达；真实Vue源码→Fastify→PG→mTLS边界浏览器复验通过 `logs/takeover-transfer-ui-browser-final.log`，3宽度/3语/深浅色，刷新保留失败、发送/接收双方原路由重试完成。截图/脚本在 `logs/transfer-ui/`，本机服务器已关闭；头像使用本地空替身，未验证外部头像服务。无新增业务确认流程。
+- Caddy专项追加连续两次412后成功、fresh applying零远端、stale attempt替换、变pin/撤销会话拒supersede、applying supersede旧attempt禁执行、真实子进程远端提交后强杀并恢复读取回执（零重复POST），全部通过 `logs/takeover-proxy-restart-integration.log`。
+- **当前阶段全量188/188通过**（8m40s）`logs/takeover-transfer-full-suite.log` / `logs/test-run-20261028-110557`。双端/后端build及dist边界 `logs/takeover-transfer-full-build.log` 通过；手机按钮尺寸随后微调，双端构建追加结果见 `logs/takeover-transfer-touch-build.log`。新鲜空库实际223迁移全部通过 `logs/takeover-final-empty-migration.log`（`takeover_final_20261028_pool_test`）。Lint 0 errors/676 warnings `logs/takeover-transfer-lint.log`；本次TransfersView新增格式警告随后定向修正，见 `logs/takeover-transfer-view-lint.log`。
+- 后续明确待项：自动快照持久意图/失败回执和远端成功DB失败恢复；手工快照/备份等早期预检与转移并发窗口；其它到期/重建/改节点/host迁移生命周期；Caddy完整站点UI真后端合同；327适用项及Linux/网关真机。188全绿不能替代这些未覆盖流程。
+
+## 2026-10-27 接续精修：站内信、Caddy复审及初始化实跑（源码阶段）
+
+- R049/050/051：四个站内信发送入口锁内current sender/session/host/instance/recipients；管理员消息、宿主消息和公告history同事务，多收件人邮件排期也同事务。单邮件仍在提交后向已授权快照直接投递。真实PG/Fastify封禁/注销/降权/宿主变更、实例转移后当前收件人、操作锁冲突和history/queue trigger回滚通过logs/review-inbox-send-integration.log；fixture-inbox-write-failure为预期故障注入，没有SMTP发送。相关4/4 logs/test-run-20261027-224442，server类型review-typecheck-inbox-final.log通过。
+- 独立复审补Caddy LRU：每次请求重新取得存活Agent且刷新LRU，GET在途被淘汰后POST继续、旧client复用、关闭通过logs/review-caddy-lifecycle.log；Fastify实际请求/错误日志中的caddy-script路径token已脱敏。Nginx外层访问日志尚须处理，不能称全链路无泄露。
+- 证书入口补日期/hostname/TLS信任共同核验，只有全部通过为valid；公网DNS及固定IP/SNI保留。真实TLS正确链/自签/错域名/过期/未生效/缺中间CA通过logs/review-proxy-certificates.log；无前端修改。
+- R254已有init-env去重补丁经真实Bash五组临时ENV_FILE执行通过，fresh/重跑身份保持/空重复键/已有含等号值/CRLF/不打印敏感材料，logs/review-init-env-execution-final.log；相关2/2 logs/test-run-20261027-224403。Windows执行不替代Linux文件权限。
+- 纠正上一节范围：Caddy自身拒绝reload回滚不等于远端成功后DB故障可恢复，后者仍缺持久意图/恢复；共享instance锁也未覆盖transfers提交后全扫清理，R133/134/136/137/138仍需固定清单和持久门禁；hosts/instances地址同步旧snapshot delete/add也待修。台账R123/124/127/130/131降为部分，避免把分项通过写成端到端完成。
+- 中断后沙箱tsx os.userInfo ENOMEM及原PG停止阻碍执行，自动批准仅本机专项后已重启原127.0.0.1:55438隔离集群；没有生产连接/客户数据。新专项按清单登记，整批最终全量/构建/人工审视与发行仍未做。没有commit/push/tag/Release/OTA/DNS/客户操作。
+
+- 接续新增R019真实列表查询实证：1人页/100人页均11条SQL，2002登录历史只取1，徽章/计数/余额/空值/脱敏保持，logs/review-user-list-integration-final.log；type通过，4项守卫test-run-20261027-225458及demo修正过时提交标记后test-run-20261027-225746单项通过。R139完整private区间/空数组/配额/both/自动/冲突重提真实PG/Fastify+mTLS通过review-batch-port-range-integration.log；边界为Incus替身。
+- 管理员普通余额adjust/gift和审批创建/批准/驳回传current actor/session入事务，5入口降权拒绝、注销/封禁零写、5并发批准1入账、充值退款仍负向收回、ledger trigger故障回滚通过review-admin-balance-integration.log；相关4/4 test-run-20261027-231225。orders case及Public API资格并未因此完成，R026继续部分。
+- Caddy脚本路径Nginx侧新增独立location禁用access/error原始URL日志，保持proxy headers；真实生成配置检查与完整隔离installer guards通过review-installer-caddy-log-guards.log，未重新配置任何线上Nginx。外部CDN/自建proxy日志不在此次修改范围。
+- 一次本地清单去重脚本使用错误PowerShell通配模式造成scripts/run-tests.mjs误清空，已读取HEAD原执行器重建并补回全部本轮专项；没有重置Git/丢弃业务修改。node --check及manifest检查通过review-manifest-recovered.log/latest，188项守卫保留；不得将误清空时执行视为测试通过（没有以空文件通过结果作为证据）。
+
+- R032独立复审纠正：两个AFF返佣helper缺enabled，邮箱手动/自动续费能给已停用码返佣。现新绑定/资格/折扣/佣金同事务复核、历史迁移永久绑定保留；新增真实竞争验证后将新购锁顺序改为host/用户→AFF，admin先账户检查，AFF余额锁非阻塞竞争409；实例/邮箱自动续费竞争不消耗尝试预算、不关闭。review-aff-eligibility-integration.log与8/8 test-run-20261027-231442通过；真实Incus新购/迁移未验。
+- 此后统一server类型review-typecheck-progress-final.log通过；既有财务review-finance-after-admin-aff.log再验通过。用户自行销毁专项review-user-no-refund-after-finance.log已再次通过：paid/free/error/单批用户销毁账目变化0，管理员退款选项及拒删记录保护保持。日志中的invalid.example.test通知失败为隔离夹具，未操作真实客户。
+
+- R024/025批量配置锁内current actor/session/host/instance身份/任务/transfer，每次重试重读；字段与当前host资源差值一次事务、取消批末旧快照增量。真实PG/Fastify+Incus边界替身并发/旧归属/同值重放/部分远端失败/DB计数trigger回滚通过review-batch-config-integration-final.log；类型review-batch-config-typecheck-final.log、4/4 test-run-20261027-231808、最终目标投影后batch守卫232017通过。失败准确requiresReview，不自动盲重试；审计FK锁超时250ms后无FK保留标识。进程在远端写入后被杀仍缺持久操作计划/重启自动对账，此两项继续标部分。
+- R142/143新增ProxySite.ipv4SyncPending（migration 20261027010000_proxy_ipv4_sync_pending）：两处sync将状态/IP/主IP/待同步标记在共享操作锁事务保存；逐site锁内复核current owner/host/Incus身份及登记证书/站点开关再原子addSite，失败或远端成功DB失败保留标记，后续sync无IP变化仍重试。保留suspended，Caddy错误不进入missing-Incus删除路径。review-proxy-ipv4-sync-integration-final.log、type review-proxy-ipv4-typecheck-final.log与3/3 test-run-20261027-232329通过。无独立timer，其它network同步入口未全部接入。
+- 新列已实际SQL应用纯夹具库（review-proxy-ipv4-fixture-migration.log）；原夹具库无migration台账，完整deploy的P3005留存且未baseline。独立空库完整220项迁移验证另跑，结果须以其日志为准。当前全量188守卫运行中，不能引用旧基线宣布本批全绿。
+
+- 当前阶段全量188项实际跑完186过/2失败（test-run-20261027-232403，7m52s）；失败为security-config仍在hosts.ts找已迁出的Caddy签名helper、operation-verification仍要求users route直接claim而实际已移db/users.ts同事务消费。已按实际调用链增强定位而非删断言，5/5 follow-up test-run-20261027-233304通过；未把旧全量改写成188全绿。
+- 站内信复审补两管理员广播按ID统一锁发送者/实际接收人，避免父用户行与inbox FK互等；review-inbox-send-concurrency-final.log通过。调账超上限输入改400，review-admin-balance-final.log通过，包含真实并发/故障回滚。
+- 独立空库实际220项prisma migrate deploy全部通过review-current-stage-migration-deploy.log；库名仅记logs/review-current-stage-migration-db.txt。本机运行时没有createdb.exe，首次命令未创建库，后改使用已装pg客户端CREATE DATABASE；不影响原夹具库，也没有baseline旧库。
+- 当前双前端构建和dist边界结果见review-current-stage-client-build.log；Lint review-current-stage-lint.log为0 errors/664 warnings，不自动格式化无关UI。本批无新前端源码修改，早先UI审视待项仍保留。
+## 2026-10-27 外部清单精修：Agent凭据及Caddy站点（源码阶段）
+
+- Agent R091/092：身份/秘密/nonce与install token同事务，host锁内current actor/session/owner或host token；decrypt/hash成功后CAS消费。并发7签发仅最新、7消费1次、中途封禁/降权/注销/转移、trigger故障回滚通过logs/review-agent-credentials-integration.log；Go真安装/心跳未验。相关3/3 logs/test-run-20261027-211708。
+- Caddy R116–131适用项：v2无损域名ID、legacy exact host+ETag删除、实际HTTP404、HTTP-only skip/protocol；复制原http配置原子ETag写，412最多3次且90秒总预算，保留已有监听。六入口共享instance操作锁/current regular actor/session/owner/readiness/expiry/workflow，quota锁内重算；transfer等待提交，拒删/缺配置保留record/error，拒绝更新保留旧site。错误commit后返回、日志同事务。
+- generate/reset/confirm复核host当前owner/actor及probe前后credentials/address；安装脚本token绑定签发session/role/owner和exact credential digest，下载再次检查，旧命令需重生成。CA内容hash绑定pool key、LRU100淘汰close、app onClose已接。
+- logs/review-caddy-proxy-final.log通过真实PG/Fastify/HTTPS：6入口ban/注销/role/转移/未就绪/busy、quota并发只1、transfer锁等待、字段重试合并、拒删/缺配置重试、旧安装命令拒绝、disabled pending DNS匹配不启用、CA路径内容变化/淘汰close；DNS/Caddy API为边界夹具。
+- 官方Caddy2.11.7 Windows amd64按官方SHA512核验，原生进程实际TLS/Basic Auth/根ETag子路径更新、HTTP Host请求、无效handler原子reload回滚、IPv6 dial/legacy删除通过logs/review-caddy-runtime-validation-final.log。不是Debian13/14安装/ACME公网签发验收。
+- 首次夹具误写任务枚举/params及void返回、runtime校验算法/括号/Host与无效dial判断均已修，失败日志留存。首次runtime validate未隔离存储并自动加Java测试CA，已按唯一alias+SHA256删除该测试新增CA；后续validate/run均隔离存储且install_trust=false，没有持久系统信任变化。
+- 最终server类型logs/review-typecheck-caddy-final.log、相关6/6 logs/test-run-20261027-221326通过；test:check188/35专项合法。server无ESLint配置，两次命令失败未算通过；根pnpm lint仅client，最终另跑。未全量/最终双端build/327完整审视/预览，无commit/push/tag/Release/OTA/DNS/客户操作；R133和其余原编号继续。用户销毁不退款与一机一卖保留。
+
+## 2026-10-27 外部清单精修：账号、命令、连接池和任务（源码阶段）
+
+- 接续原327项初审，按原编号增量记录于REVIEW_CHECKLIST_FIXES.md。本阶段没有commit/push/tag/Release/生产OTA/DNS/客户账目操作；正式v1.7.7与旧181/181基线不代表当前候选完成。
+- 用户自行销毁无退款在新连接池上再跑真实PG/Fastify/mTLS集成通过，latest logs/review-user-no-refund-integration-latest.log；单台/批量/paid/free/error/已退/重放/并发其它退款/远端拒删保持财务表差量0及库存删除顺序。Incus进程/磁盘仍为边界替身。
+- 2FA CAS/恢复码/撤销故障回滚通过logs/review-2fa-integration-latest.log；邮箱发送/用途/attempt/consumption/profile/reset/register事务通过logs/review-verification-integration-profile.log。schema新增attempts/consumedAt；独立空PG实际migrate deploy应用全部219迁移，logs/review-migration-deploy.log；未生产迁移。
+- SSH真实公钥解析、异步RSA4096、duplicate/20上限、禁用/撤销写入通过logs/review-ssh-keys-integration-final.log。命令模板50/100上限、并发字段合并、delete/update及403门禁通过logs/review-command-integration-final.log。
+- 本次管理员账号真实Fastify/PG验证通过logs/review-admin-account-integration.log：邮箱大小写并发唯一分配、初始banned/配额同事务，reset/封禁/取消2FA/OAuth/role/撤销注入持久写失败全回滚、actor降权/注销及删除与目标角色提升/余额冲突保护。并未完成其余管理员余额/配额入口。
+- 邀请码handler与支付fee配置仅own-property、通知完整整数及PG offset限制：真实Fastify/PG边界通过logs/review-config-pagination-integration.log，对应5/5守卫logs/test-run-20261027-200553。类型检查logs/review-typecheck-admin2.log通过，后续OAuth/任务改动需新检查。
+- IPv6启动恢复实际设备identity及失败恢复行为/recreate/cancel守卫3/3通过logs/test-run-20261027-190006；Linux真实route恢复未验。任务领取5上限/instance互斥/host&type/status CAS真实PG通过logs/review-task-claim-integration.log；连接池配置/迟到代次行为通过review-incus-pool。执行尝试及timeout继续核查。
+- pnpm test:check清单188项、27活体/产物专项排除合法；尚未当前候选最终全量/最终构建/全部清单人工审视或发行。独立PG仅127.0.0.1:55438，无客户数据；测试凭据不进入台账。首要完整网关灾备/P0–P6继续未完成。
+
+- 后续OAuth绑定/回调/换码及自助解绑、续费服务期/归属/托管资格/会话和quota/托管调整真实PG验证分别通过review-oauth-integration-final.log、review-renewal-integration.log、review-quota-hosting-integration.log；provider fetch为边界夹具，未做生产OAuth/客户流程。
+- AFF转换/批准/拒绝、管理员充值complete/fail/sync、全部卡密变更提交内current actor/session；卡密allowlist从事务PG直接读取。中途封禁/降权/注销/移出allowlist不写账，重复结算/兑换及退款一次、账单trigger失败全回滚，通过logs/review-finance-authorization-integration.log；其中fixture-finance-ledger-failure为预期注入。管理员sync旧金额解析也补严，缺失/非法实付金额拒绝。
+- email/instance尝试finalizer及instance startup/runtime回收按startedAt/retryCount/type/status/到期复核，迟到扫描不覆盖new attempt；165 fresh不挤掉due stopped选择通过logs/review-queue-sync-integration-final.log。其余worker/财务/前端/Agent清单继续，不能称整个327项完成。
+- 清单188项/31专项重新check通过，新增finance专项后还需复查。早期两次筛选使用逗号失败已改重复--only；finance首次夹具遗漏authenticateAdmin注册失败，补齐后成功。无客户数据/生产操作，无发布。
+
+
+## 2026-10-27 用户自行销毁不退款（源码修复，未发布）
+
+- Owner实测弹窗显示无退款，但后端单台/批量仍结算剩余价值、增加余额并写退款账目。`instance-destroy.ts`已移除两个用户入口的财务结算，预览及结果金额固定0，复用既有非退款删除通知；页面文案未改。销毁审计单独保留0金额，不写余额/退款账单，不扣回托管及AFF。管理员退款选项与创建失败自动退款保持；未修改历史账目或生产客户。
+- 后端类型检查与销毁/管理员删除/充值守卫3/3通过，日志`logs/review-typecheck-no-refund.log`、`logs/test-run-20261027-163814/summary.txt`。独立本地PostgreSQL16.10新建schema库`review_no_refund_pool_test`，真实Fastify路由与mTLS Incus接口集成通过：未到期付费、免费、异常及免手续费参数、批量重复ID、已退实例、重复请求、并发既有退款、远端拒删全部检查余额与账目差量；管理员退款/不退款与删失败保护保持。日志`logs/review-user-no-refund-integration.log`。Incus进程/磁盘由隔离HTTP服务模拟，不能当作真实Incus主机或生产部署验收。
+- 外部327项精修仍在进行，前节初审为历史基线，不能据本小节宣称整份清单完成。没有本阶段commit/push/tag/Release/OTA/DNS/客户操作。
+
+## 2026-10-27 外部327项清单定向核查（未修复、未发布）
+
+- Owner要求按本地外部清单逐项核对，不进行无目标全库审查，也不照搬不同分支架构。[REVIEW_CHECKLIST_AUDIT.md](REVIEW_CHECKLIST_AUDIT.md)保存原327个编号、问题、优先级、当前证据及差异；基线HEAD为`0e8010371c8eb7a0eeaef9b9a1d0df6caf312092`。189项存在代码缺口、57项部分存在、53项已有防护、24项实现不同、4项待运行验证；包含重复根因和维护残留，不是246个独立漏洞，也不代表已影响生产。
+- 保留一机一卖、独占库存与交付/退款/删除保护、单后端、IPv4-only主控/网关与宿主/客户IPv6独立。明确纠正对方不适用项：本库客机备份后端仍注册运行、资源选择组件仍有消费者、改节点任务目标已有正确记录、默认管理员密码不能按通用校验推断首装必失败；不据清单删除OSS或放松远端删除确认。
+- 基线全套`pnpm test`181/181通过（`logs/test-run-20261027-125519/summary.txt`）；源码提取/transpile隔离复现R1-001/153/154/155/163/215/236/257/258/259及相关HTML清理缺口，金额源码判断另复现R1-036缺失/非法值通过门禁，PG bigint输入拒负数/小数/溢出。静态扫描178 SVG中48个文件缺引用ID。结果在忽略目录`logs/review-checklist-repro-results.json`、`review-boundary-probes.json`、`review-static-probes.json`；不是完整支付入账、浏览器攻击、真实Incus或生产影响证据。
+- 报告完整性检查327唯一编号、原问题/优先级逐字一致、证据路径存在及行号不越界，结果`logs/review-report-validation.json`。R1-084跨语言哈希、R1-260具体消息/占位符、R1-315三语实际控件、R1-326手机长Webhook仍待运行；其它已定位竞态也未全部DB/浏览器复现。没有本轮业务代码修改、commit/push/tag/Release/生产操作；原有Agent测试与技能安装工作区保持。
+
 ## 2026-10-27 v1.7.7 正式发行与再次代码复审
 
 - 修复提交`ef12578eaa99a943808a162b0548a2be868a40f2`已推送main；[源码CI40446366307](https://github.com/mastalee928/payincus/actions/runs/40446366307)所有job成功，包含独立PG远端设置、IPv6/删除集成、Linux安装执行器、Go全量/竞态及双架构组件验签。Agent构建40446366305成功，Publish预期skipped，仍沿用Agent v1.0.3。

@@ -329,9 +329,10 @@ export default async function affRoutes(fastify: FastifyInstance) {
     // 规范化金额（两位小数）
     const normalizedAmount = Math.round(amount * 100) / 100
 
-    const result = await db.createAffWithdrawal(user.id, normalizedAmount)
+    const result = await db.createAffWithdrawal(user.id, normalizedAmount, user)
 
     if (!result.success) {
+      if (result.error === 'AFF_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
       return reply.code(400).send({ error: result.error })
     }
 
@@ -461,9 +462,10 @@ export default async function affRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: '申请不存在' })
     }
 
-    const result = await db.approveAffWithdrawal(withdrawalId, user.id)
+    const result = await db.approveAffWithdrawal(withdrawalId, user)
 
     if (!result.success) {
+      if (result.error === 'ADMIN_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
       return reply.code(400).send({ error: result.error })
     }
 
@@ -514,9 +516,10 @@ export default async function affRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: '申请不存在' })
     }
 
-    const result = await db.rejectAffWithdrawal(withdrawalId, user.id, reason)
+    const result = await db.rejectAffWithdrawal(withdrawalId, user, reason)
 
     if (!result.success) {
+      if (result.error === 'ADMIN_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
       return reply.code(400).send({ error: result.error })
     }
 

@@ -22,7 +22,11 @@ mock.method(IncusClient.prototype, 'connect', async function (this: InstanceType
   this.connected = true
   return {}
 })
-const remoteRequests = mock.method(IncusClient.prototype, 'request', async () => {
+const remoteRequests = mock.method(IncusClient.prototype, 'request', async (method: string, path: string) => {
+  if (method === 'GET' && path === '/1.0/instances') return (await prisma.instance.findMany({ where: { id: { in: instanceIds } }, select: { incusId: true } }))
+    .map(row => `/1.0/instances/${row.incusId}`)
+  if (method === 'GET' && /\/(snapshots|backups)$/.test(path)) return []
+  if (method === 'GET' && path.startsWith('/1.0/instances/')) return { name: path.split('/')[3], status: 'Running', config: { 'volatile.uuid': path.split('/')[3] } }
   throw new Error('Dedicated transfers must not rename or change network forwards')
 })
 
@@ -35,12 +39,12 @@ const app = Fastify()
 app.decorate('authenticateAdmin', async (request: any, reply: any) => {
   const user = await prisma.user.findUnique({ where: { id: Number(request.headers['x-test-user']) || 0 } })
   if (!user || user.role !== 'admin' || user.status !== 'active') return reply.code(403).send({ code: 'FORBIDDEN' })
-  request.user = { id: user.id, username: user.username, role: user.role }
+  request.user = { id: user.id, username: user.username, role: user.role, sid: 'admin-push-fixture', iat: Math.floor(Date.now() / 1000) + 1 }
 })
 app.decorate('authenticateUser', async (request: any, reply: any) => {
   const user = await prisma.user.findUnique({ where: { id: Number(request.headers['x-test-user']) || 0 } })
   if (!user || user.role !== 'user' || user.status !== 'active') return reply.code(403).send({ code: 'FORBIDDEN' })
-  request.user = { id: user.id, username: user.username, role: user.role }
+  request.user = { id: user.id, username: user.username, role: user.role, sid: 'user-push-fixture', iat: Math.floor(Date.now() / 1000) + 1 }
 })
 await app.register(adminRoutes, { prefix: '/admin-push' })
 await app.register(userRoutes, { prefix: '/transfers' })
@@ -75,7 +79,7 @@ try {
     const targetHost = instanceIds.length === 0 ? host : await makeHost()
     const instance = await prisma.instance.create({ data: { userId: owner.id, hostId: targetHost.id, name: `${prefix}-${label}`,
       incusId: `${prefix}-${label}`, status: 'running', image: 'images:debian/13', cpu: 200, memory: 768, disk: 30720,
-      dedicatedIpv4, dedicatedNetworkReady: dedicatedIpv4, ipv4: '10.10.0.2', ipv6: '2001:db8::41', billingPrice: 3.5,
+      dedicatedIpv4, dedicatedNetworkReady: dedicatedIpv4, ipv4: '10.10.0.2', ipv6: `2001:db8::${targetHost.id.toString(16)}`, billingPrice: 3.5,
       expiresAt: new Date('2030-01-01T00:00:00Z'), autoRenew: true } })
     instanceIds.push(instance.id)
     return instance
@@ -168,22 +172,22 @@ try {
   assert.equal((await app.inject({ method: 'POST', url: `/transfers/${nextId}/accept`, headers: headers(stranger.id) })).statusCode, 403)
   connectionFails = true
   const offline = await app.inject({ method: 'POST', url: `/transfers/${nextId}/accept`, headers: headers(target.id) })
-  assert.equal(offline.json().code, 'HOST_UNAVAILABLE')
-  assert.equal((await prisma.instanceTransfer.findUniqueOrThrow({ where: { id: nextId } })).status, 'pending')
+  assert.equal(offline.json().code, 'TRANSFER_CLEANUP_PENDING')
+  const offlineTransfer = await prisma.instanceTransfer.findUniqueOrThrow({ where: { id: nextId } })
+  assert.equal(offlineTransfer.status, 'processing', 'a claimed transfer keeps the durable cleanup plan through host outage')
+  assert.equal((offlineTransfer.cleanupState as any).stage, 'claimed')
   assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).userId, owner.id)
   connectionFails = false
 
-  await prisma.instanceTransfer.update({ where: { id: nextId }, data: { status: 'processing' } })
   await assert.rejects(executeTransfer(nextId, instance.id, stranger.id, target.id, instance.name, instance.incusId, instance.incusId), /TRANSFER_SOURCE_CHANGED/)
-  await assert.rejects(executeTransfer(nextId, instance.id, owner.id, target.id, instance.name, `${instance.incusId}-wrong`, instance.incusId), /TRANSFER_INVALID_STATUS/)
+  await assert.rejects(executeTransfer(nextId, instance.id, owner.id, target.id, instance.name, `${instance.incusId}-wrong`, instance.incusId), /TRANSFER_CLEANUP_PENDING/)
   await prisma.user.update({ where: { id: target.id }, data: { status: 'banned' } })
-  await assert.rejects(executeTransfer(nextId, instance.id, owner.id, target.id, instance.name, instance.incusId, instance.incusId), /TRANSFER_TO_BANNED/)
+  assert.equal((await app.inject({ method: 'POST', url: `/transfers/${nextId}/accept`, headers: headers(target.id) })).statusCode, 403)
   await prisma.user.update({ where: { id: target.id }, data: { status: 'active' } })
   await prisma.restoreTask.update({ where: { id: restore.id }, data: { status: 'PROCESSING' } })
-  await assert.rejects(executeTransfer(nextId, instance.id, owner.id, target.id, instance.name, instance.incusId, instance.incusId), /TRANSFER_INSTANCE_BUSY/)
+  assert.equal((await app.inject({ method: 'POST', url: `/transfers/${nextId}/accept`, headers: headers(target.id) })).statusCode, 409)
   await prisma.restoreTask.update({ where: { id: restore.id }, data: { status: 'COMPLETED' } })
   assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: instance.id } }), 0, 'failed execution has no billing side effects')
-  await prisma.instanceTransfer.update({ where: { id: nextId }, data: { status: 'pending' } })
   const accepts = await Promise.all([0, 1].map(() => app.inject({ method: 'POST', url: `/transfers/${nextId}/accept`, headers: headers(target.id) })))
   assert.equal(accepts.filter(response => response.statusCode === 200).length, 1, accepts.map(response => response.body).join('\n'))
   const accepted = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
@@ -193,7 +197,7 @@ try {
     assert.deepEqual(accepted[key], instance[key], `${key} must remain unchanged on dedicated transfer`)
   }
   assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: instance.id, userId: owner.id, type: 'transfer_fee' } }), 1)
-  assert.equal(remoteRequests.mock.callCount(), 0, 'no dedicated network mutation or remote rename')
+  assert.ok(remoteRequests.mock.calls.every(call => call.arguments[0] === 'GET'), 'no dedicated network mutation or remote rename')
 
   const pushedInstance = await makeInstance('push')
   const userCreate = await app.inject({ method: 'POST', url: `/transfers/instances/${pushedInstance.id}/transfer`, headers: headers(owner.id), payload: { targetUsername: target.username } })
@@ -203,7 +207,7 @@ try {
   const pushResult = await prisma.instance.findUniqueOrThrow({ where: { id: pushedInstance.id } })
   assert.equal(pushResult.userId, target.id)
   assert.equal(pushResult.incusId, pushedInstance.incusId)
-  assert.equal(remoteRequests.mock.callCount(), 0)
+  assert.ok(remoteRequests.mock.calls.every(call => call.arguments[0] === 'GET'))
 
   const shared = await makeInstance('shared', false)
   const sharedCreate = await app.inject({ method: 'POST', url: `/transfers/instances/${shared.id}/transfer`, headers: headers(owner.id), payload: { targetUsername: target.username } })

@@ -9,6 +9,13 @@ WORK_DIR="$(mktemp -d)"
 HTTP_FIXTURE_PID=""
 trap '[[ -z "$HTTP_FIXTURE_PID" ]] || kill "$HTTP_FIXTURE_PID" 2>/dev/null || true; rm -rf "$WORK_DIR"' EXIT
 
+# Token-bearing script downloads retain forwarding but no proxy request logs.
+write_nginx_split_server_block panel.example.invalid /fixture/user > "$WORK_DIR/nginx-script-token.conf"
+sed -n '/location \^~ \/api\/hosts\/caddy-script\//,/^    }/p' "$WORK_DIR/nginx-script-token.conf" > "$WORK_DIR/nginx-script-token-location.conf"
+grep -Fq 'access_log off;' "$WORK_DIR/nginx-script-token-location.conf"
+grep -Fq 'error_log /dev/null;' "$WORK_DIR/nginx-script-token-location.conf"
+grep -Fq "proxy_pass http://127.0.0.1:${DEFAULT_PORT};" "$WORK_DIR/nginx-script-token-location.conf"
+grep -Fq 'proxy_set_header X-Forwarded-Host $incudal_forwarded_host;' "$WORK_DIR/nginx-script-token-location.conf"
 # A fresh file used to discard the supplied token even though upgrades populated
 # empty values. Exercise both paths without real credentials or system ownership.
 declare -f generate_env ensure_env_keys get_env_value set_env_if_missing set_env_value set_env_if_value gen_secret gen_password > "$WORK_DIR/env-functions.sh"
@@ -52,6 +59,24 @@ bash -s -- "$WORK_DIR" "$WORK_DIR/env-functions.sh" <<'ENV_GUARD'
     generate_env guard_db guard_redis guard_admin installer@example.invalid > /dev/null 2>&1
     [[ -z "$(get_env_value INCUDAL_AGENT_RELEASE_TOKEN)" ]]
 ENV_GUARD
+
+# Invalid existing credentials must fail before package/service changes and keep
+# every byte of the existing configuration. Run only unchanged installer code.
+declare -f do_install > "$WORK_DIR/install-function.sh"
+bash -s -- "$WORK_DIR" <<'EXISTING_ENV_GUARD'
+    set -euo pipefail
+    test_work="$1"
+    source "$test_work/install-function.sh"
+    INSTALL_DIR="$test_work/install"
+    ENV_FILE="$test_work/existing.env"
+    printf 'DATABASE_URL=invalid\nJWT_SECRET=fixture-identity\n' > "$ENV_FILE"
+    cp "$ENV_FILE" "$test_work/expected.env"
+    show_banner() { :; }; check_os() { :; }; check_existing() { return 0; }
+    warn() { :; }; info() { :; }; error() { :; }
+    gen_password() { echo 'installer must not generate replacement credentials' >&2; exit 99; }
+    if do_install > /dev/null; then echo 'installer accepted invalid existing credentials' >&2; exit 1; fi
+    cmp "$ENV_FILE" "$test_work/expected.env"
+EXISTING_ENV_GUARD
 
 mkdir -p "$WORK_DIR/payload"
 printf 'payincus installer guard\n' > "$WORK_DIR/payload/version.txt"

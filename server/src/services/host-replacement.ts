@@ -1,5 +1,7 @@
+import { assertNoPendingSnapshotOperations, } from '../db/snapshot-operation-guards.js'
 import { Prisma, type InstanceTask } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
+import { assertNoPendingProxySiteOperations } from '../db/proxy-site-operation-guards.js'
 import * as db from '../db/index.js'
 import { advisoryTransactionLock, INSTANCE_OPERATION_LOCK_NAMESPACE } from '../db/advisory-locks.js'
 import { lockHostGroups } from './host-groups.js'
@@ -50,6 +52,9 @@ export async function replacementCandidates(instanceId: number, allRegions = fal
 export async function requestHostReplacement(instanceId: number, targetHostId: number, adminId: number, backupUploadId?: number | null, allRegions = false) {
   return prisma.$transaction(async tx => {
     await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+    await assertNoPendingSnapshotOperations(tx, instanceId)
+    await assertNoPendingProxySiteOperations(tx, instanceId)
     await lockHostGroups(tx)
     const instance = await tx.instance.findUniqueOrThrow({ where: { id: instanceId }, include: { host: true } })
     if (!instance.dedicatedIpv4 || !['running', 'stopped', 'error'].includes(instance.status)) throw new Error('实例当前状态不允许换机')

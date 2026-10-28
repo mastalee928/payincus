@@ -2316,6 +2316,14 @@ pool: {
         },
         // 站點管理
         sites: {
+            operationSyncing: '正在同步',
+            operationDeleting: '正在刪除',
+            operationRetry: '等待重試',
+            operationBlocked: '需要處理',
+            operationAccepted: '操作已受理，結果將在站點中更新',
+            retryOperation: '重試此操作',
+            nextRetry: '下次重試：{time}',
+            operationUpdated: '站點操作已完成',
             title: '建站',
             addSite: '新增站點',
             editSite: '編輯站點',
@@ -2665,6 +2673,14 @@ pool: {
 
     // 快照管理
     snapshot: {
+        recoveryTitle: "自動快照尚未完成",
+        recoveryHint: "原操作與輪換目標已保留。確認宿主連線及實例身分後重試。",
+        retryRecovery: "重試原操作",
+        retryingRecovery: "正在恢復…",
+        recoveryPending: "正在核驗快照，請稍後重新整理。",
+        recoveryComplete: "自動快照已恢復完成",
+        loadFailed: "快照狀態載入失敗，請重新整理",
+        refresh: "重新整理狀態",
         title: '快照',
         autoPolicy: '自動快照已啟用',
         autoPolicyEnabled: '已啟用自動快照',
@@ -4432,6 +4448,15 @@ pool: {
         title: '管理後台',
         description: '系統管理',
         system: {
+            invitePricing: {
+                title: '邀請碼產生定價',
+                description: '設定一般使用者產生一個邀請碼所需的資源。目前支援餘額和積分，價格儲存為可擴充的成本項目清單。',
+                balance: '以餘額產生', points: '以積分產生',
+                balanceHint: '每產生 1 個邀請碼扣除使用者帳戶餘額',
+                pointsHint: '每產生 1 個邀請碼扣除使用者積分',
+                priceYuan: '單個價格（元）', pricePoints: '單個價格（積分）',
+                expiry: '預設有效期', expiryHint: '0 表示使用者產生的邀請碼永不過期。',
+            },
             title: '系統設定',
             description: '配置系統初始參數和預設值',
             tabs: {

@@ -113,6 +113,7 @@ assert.ok(
 assert.ok(
   claimOperationVerificationSource.includes('const result = await prisma.operationVerification.deleteMany({') &&
     claimOperationVerificationSource.includes('verified: true') &&
+    claimOperationVerificationSource.includes('expiresAt: { gt: new Date() }') &&
     claimOperationVerificationSource.includes('verifiedAt: { gt: tenMinutesAgo }') &&
     claimOperationVerificationSource.includes('verified: result.count > 0'),
   'operation verification claims must atomically consume a fresh verified record before sensitive side effects run'

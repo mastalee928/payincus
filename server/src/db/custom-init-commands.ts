@@ -4,6 +4,7 @@
  */
 
 import { prisma } from './prisma.js'
+import { authorizeUserWrite, type WriteSession } from './user-write-authorization.js'
 
 // 最大命令模板数量
 const MAX_COMMANDS_PER_USER = 50
@@ -141,26 +142,29 @@ export async function createCustomInitCommand(data: {
   command: string
   distros: string[]
   description?: string
+  session?: WriteSession
 }): Promise<{ success: true; id: number } | { success: false; error: string }> {
   // 验证命令内容大小
   if (Buffer.byteLength(data.command, 'utf-8') > MAX_COMMAND_SIZE) {
     return { success: false, error: 'COMMAND_TOO_LARGE' }
   }
 
-  // 检查用户命令数量是否已达上限
-  const count = await getCustomInitCommandCount(data.userId)
-  if (count >= MAX_COMMANDS_PER_USER) {
-    return { success: false, error: 'MAX_COMMANDS_REACHED' }
-  }
+  if (!data.name.trim()) return { success: false, error: 'INVALID_NAME' }
+  if (!data.command.trim()) return { success: false, error: 'INVALID_COMMAND' }
 
   // 验证发行版列表
   const validDistros = ['ubuntu', 'debian', 'rhel', 'alpine', 'arch', 'suse', 'all']
   const invalidDistros = data.distros.filter(d => !validDistros.includes(d))
-  if (invalidDistros.length > 0) {
+  if (!data.distros.length || invalidDistros.length > 0) {
     return { success: false, error: 'INVALID_DISTROS' }
   }
 
-  const cmd = await prisma.customInitCommand.create({
+  return prisma.$transaction(async tx => {
+    if (!await authorizeUserWrite(tx, data.userId, data.session, true)) return { success: false as const, error: 'WRITE_FORBIDDEN' }
+    if (await tx.customInitCommand.count({ where: { userId: data.userId } }) >= MAX_COMMANDS_PER_USER) {
+      return { success: false as const, error: 'MAX_COMMANDS_REACHED' }
+    }
+  const cmd = await tx.customInitCommand.create({
     data: {
       userId: data.userId,
       name: data.name.trim(),
@@ -170,7 +174,8 @@ export async function createCustomInitCommand(data: {
     }
   })
 
-  return { success: true, id: cmd.id }
+  return { success: true as const, id: cmd.id }
+  })
 }
 
 /**
@@ -185,16 +190,11 @@ export async function updateCustomInitCommand(
     distros?: string[]
     description?: string | null
     enabled?: boolean
-  }
+  },
+  session?: WriteSession
 ): Promise<{ success: true } | { success: false; error: string }> {
-  // 先验证命令属于该用户
-  const existing = await prisma.customInitCommand.findFirst({
-    where: { id, userId }
-  })
-
-  if (!existing) {
-    return { success: false, error: 'NOT_FOUND' }
-  }
+  if (data.name !== undefined && !data.name.trim()) return { success: false, error: 'INVALID_NAME' }
+  if (data.command !== undefined && !data.command.trim()) return { success: false, error: 'INVALID_COMMAND' }
 
   // 验证命令内容大小
   if (data.command && Buffer.byteLength(data.command, 'utf-8') > MAX_COMMAND_SIZE) {
@@ -205,7 +205,7 @@ export async function updateCustomInitCommand(
   if (data.distros) {
     const validDistros = ['ubuntu', 'debian', 'rhel', 'alpine', 'arch', 'suse', 'all']
     const invalidDistros = data.distros.filter(d => !validDistros.includes(d))
-    if (invalidDistros.length > 0) {
+    if (!data.distros.length || invalidDistros.length > 0) {
       return { success: false, error: 'INVALID_DISTROS' }
     }
   }
@@ -217,23 +217,29 @@ export async function updateCustomInitCommand(
   if (data.description !== undefined) updateData.description = data.description?.trim() || null
   if (data.enabled !== undefined) updateData.enabled = data.enabled
 
-  await prisma.customInitCommand.update({
-    where: { id },
+  return prisma.$transaction(async tx => {
+    if (!await authorizeUserWrite(tx, userId, session, true)) return { success: false as const, error: 'WRITE_FORBIDDEN' }
+  const changed = await tx.customInitCommand.updateMany({
+    where: { id, userId },
     data: updateData
   })
 
-  return { success: true }
+  return changed.count === 1 ? { success: true as const } : { success: false as const, error: 'NOT_FOUND' }
+  })
 }
 
 /**
  * 删除自定义初始化命令
  */
-export async function deleteCustomInitCommand(id: number, userId: number): Promise<boolean> {
-  const result = await prisma.customInitCommand.deleteMany({
+export async function deleteCustomInitCommand(id: number, userId: number, session?: WriteSession): Promise<boolean | 'WRITE_FORBIDDEN'> {
+  return prisma.$transaction(async tx => {
+    if (!await authorizeUserWrite(tx, userId, session, true)) return 'WRITE_FORBIDDEN' as const
+  const result = await tx.customInitCommand.deleteMany({
     where: { id, userId }
   })
 
   return result.count > 0
+  })
 }
 
 /**

@@ -189,8 +189,11 @@ try {
   )
 
   assert.ok(
-    hostRouteSource.includes("getJwtSigningSecret('Caddy script token signing')") &&
-      hostRouteSource.includes("getJwtSigningSecret('Caddy script token verification')"),
+    hostRouteSource.includes("from '../lib/caddy-script-token.js'") &&
+      hostRouteSource.includes('createCaddyScriptToken(prepared.scriptGrant)') &&
+      hostRouteSource.includes('verifyCaddyScriptToken(token)') &&
+      readFileSync(resolve(__dirname, '../src/lib/caddy-script-token.ts'), 'utf8').includes("getJwtSigningSecret('Caddy script token signing')") &&
+      readFileSync(resolve(__dirname, '../src/lib/caddy-script-token.ts'), 'utf8').includes("getJwtSigningSecret('Caddy script token verification')"),
     'Caddy script tokens must use the shared JWT signing secret helper'
   )
 

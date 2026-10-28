@@ -9,6 +9,19 @@ import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { validateName } from '../lib/security.js'
 import crypto from 'crypto'
+import ssh2 from 'ssh2'
+import { promisify } from 'node:util'
+
+const generateKeyPair = promisify(crypto.generateKeyPair)
+const MAX_SSH_KEYS = 20
+
+function replyToKeyWriteError(error: unknown, reply: FastifyReply) {
+  if (!(error instanceof Error)) throw error
+  if (error.message === 'SSH_KEY_EXISTS') return reply.code(400).send(apiError(ErrorCode.SSH_KEY_EXISTS))
+  if (error.message === 'SSH_KEY_LIMIT') return reply.code(400).send({ error: `Maximum ${MAX_SSH_KEYS} SSH keys allowed per user` })
+  if (error.message === 'SSH_KEY_USER_INACTIVE') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+  throw error
+}
 
 const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\d*$/
 const MAX_SSH_KEY_NAME_LENGTH = 50
@@ -41,8 +54,9 @@ function normalizeSshKeyCreateInput(input: unknown): { name: string; publicKey: 
     throw apiError(ErrorCode.INVALID_PARAMS, nameValidation.message)
   }
 
-  const publicKey = input.publicKey
-    .replace(/\r?\n/g, ' ')
+  const trimmedKey = input.publicKey.trim()
+  if (/[\r\n]/.test(trimmedKey)) throw apiError(ErrorCode.INVALID_SSH_KEY)
+  const publicKey = trimmedKey
     .replace(/\s+/g, ' ')
     .trim()
   if (
@@ -149,12 +163,10 @@ export default async function sshKeyRoutes(fastify: FastifyInstance) {
     }
 
     // 保存到数据库
-    const keyId = await db.createSSHKey({
-      userId: request.user.id,
-      name,
-      publicKey,
-      fingerprint
-    })
+    let keyId: number
+    try {
+      keyId = await db.createSSHKey({ userId: request.user.id, name, publicKey, fingerprint, session: request.user })
+    } catch (error) { return replyToKeyWriteError(error, reply) }
 
     await createLog(request.user.id, 'ssh_key', 'ssh_key.add', `Added SSH key "${name}" [fingerprint: ${fingerprint}]`, 'success')
 
@@ -170,20 +182,19 @@ export default async function sshKeyRoutes(fastify: FastifyInstance) {
   })
 
   // 生成 SSH 密钥对
-  // 使用 Node.js 原生 crypto 模块生成 Ed25519 密钥对
+  // 使用 Node.js 异步 crypto API 生成 RSA 密钥对
   // 返回私钥给用户保存，公钥自动保存到系统
   fastify.post('/generate', {
     onRequest: [fastify.authenticateUser]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     // 检查用户密钥数量限制，防止滥用
     const existingKeys = await db.getSSHKeysByUserId(request.user.id)
-    const MAX_SSH_KEYS = 20
     if (existingKeys.length >= MAX_SSH_KEYS) {
       return reply.code(400).send({ error: `Maximum ${MAX_SSH_KEYS} SSH keys allowed per user` })
     }
 
     // 生成 RSA 密钥对 (4096位)
-    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+    const { publicKey, privateKey } = await generateKeyPair('rsa', {
       modulusLength: 4096,
       publicKeyEncoding: { type: 'spki', format: 'pem' },
       privateKeyEncoding: { type: 'pkcs1', format: 'pem' }
@@ -214,12 +225,10 @@ export default async function sshKeyRoutes(fastify: FastifyInstance) {
     const keyName = `Incudal-${randomSuffix}`
 
     // 保存公钥到数据库
-    const keyId = await db.createSSHKey({
-      userId: request.user.id,
-      name: keyName,
-      publicKey: sshPublicKey,
-      fingerprint
-    })
+    let keyId: number
+    try {
+      keyId = await db.createSSHKey({ userId: request.user.id, name: keyName, publicKey: sshPublicKey, fingerprint, session: request.user })
+    } catch (error) { return replyToKeyWriteError(error, reply) }
 
     await createLog(request.user.id, 'ssh_key', 'ssh_key.generate', `Generated SSH key "${keyName}" [fingerprint: ${fingerprint}]`, 'success')
 
@@ -270,8 +279,8 @@ export default async function sshKeyRoutes(fastify: FastifyInstance) {
  * 支持 ssh-rsa, ssh-ed25519, ecdsa-sha2-nistp256 等格式
  */
 function parseSSHPublicKey(key: string): { type: string; keyData: string; comment: string } | null {
-  // 移除可能的换行和多余空格
-  const cleanKey = key.replace(/\r?\n/g, ' ').trim()
+  const cleanKey = key.trim()
+  if (/[\r\n]/.test(cleanKey)) return null
 
   // SSH 公钥格式: <type> <base64-data> [comment]
   const match = cleanKey.match(/^(ssh-rsa|ssh-ed25519|ecdsa-sha2-\S+)\s+([A-Za-z0-9+/=]+)(\s+.*)?$/)
@@ -279,6 +288,13 @@ function parseSSHPublicKey(key: string): { type: string; keyData: string; commen
   if (!match) {
     return null
   }
+  const decoded = Buffer.from(match[2], 'base64')
+  if (decoded.toString('base64').replace(/=+$/, '') !== match[2].replace(/=+$/, '')) return null
+  try {
+    const parsed = ssh2.utils.parseKey(cleanKey)
+    if (parsed instanceof Error || parsed.isPrivateKey() || parsed.type !== match[1] || !decoded.equals(parsed.getPublicSSH())) return null
+    crypto.createPublicKey(parsed.getPublicPEM())
+  } catch { return null }
 
   return {
     type: match[1],

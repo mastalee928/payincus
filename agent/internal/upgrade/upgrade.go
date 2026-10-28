@@ -27,11 +27,12 @@ import (
 const (
 	defaultServiceName      = "incudal-agent"
 	defaultMaxDownloadBytes = 64 * 1024 * 1024
+	serviceManagerTimeout   = 10 * time.Second
 )
 
 var ErrUpgradeInProgress = errors.New("agent upgrade already in progress")
 var openRCServiceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
-var systemdServiceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.@-]+$`)
+var systemdServiceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.@-]*$`)
 
 type RestartFunc func(ctx context.Context, serviceName string) error
 
@@ -112,7 +113,7 @@ func (runner *Runner) Apply(ctx context.Context, instruction panel.UpgradeInstru
 
 	binaryBytes := packageBytes
 	if instruction.Gzip {
-		binaryBytes, err = gunzip(packageBytes)
+		binaryBytes, err = gunzip(packageBytes, runner.sizeLimit())
 		if err != nil {
 			return err
 		}
@@ -173,18 +174,8 @@ func (runner *Runner) download(ctx context.Context, rawURL string) ([]byte, erro
 		return nil, fmt.Errorf("download upgrade failed: status=%d body=%s", response.StatusCode, string(body))
 	}
 
-	limit := runner.MaxDownloadBytes
-	if limit <= 0 {
-		limit = defaultMaxDownloadBytes
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(body)) > limit {
-		return nil, fmt.Errorf("upgrade package exceeds %d bytes", limit)
-	}
-	return body, nil
+	limit := runner.sizeLimit()
+	return readBoundedUpgradePayload(response.Body, limit, "package")
 }
 
 func (runner *Runner) writeTempBinary(binaryBytes []byte) (string, error) {
@@ -271,20 +262,11 @@ func defaultLockPath() string {
 	return filepath.Join(os.TempDir(), "incudal-agent-upgrade.lock")
 }
 
-func acquireLock(lockPath string) (func(), error) {
-	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return nil, ErrUpgradeInProgress
-		}
-		return nil, err
+func (runner *Runner) sizeLimit() int64 {
+	if runner.MaxDownloadBytes <= 0 {
+		return defaultMaxDownloadBytes
 	}
-	_, _ = fmt.Fprintf(file, "%d\n", os.Getpid())
-	_ = file.Close()
-
-	return func() {
-		_ = os.Remove(lockPath)
-	}, nil
+	return runner.MaxDownloadBytes
 }
 
 func verifySHA256(payload []byte, expected string) error {
@@ -296,13 +278,32 @@ func verifySHA256(payload []byte, expected string) error {
 	return nil
 }
 
-func gunzip(payload []byte) ([]byte, error) {
+func gunzip(payload []byte, limit int64) ([]byte, error) {
 	reader, err := gzip.NewReader(bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
 	defer reader.Close()
-	return io.ReadAll(reader)
+	return readBoundedUpgradePayload(reader, limit, "binary")
+}
+
+func readBoundedUpgradePayload(reader io.Reader, limit int64, kind string) ([]byte, error) {
+	if limit <= 0 {
+		return nil, errors.New("upgrade size limit must be positive")
+	}
+	// Read at most the limit, then probe one byte separately to avoid limit+1
+	// overflow and to enforce a total limit across concatenated gzip members.
+	body, err := io.ReadAll(io.LimitReader(reader, limit))
+	if err != nil {
+		return nil, err
+	}
+	var extra [1]byte
+	if n, err := io.ReadFull(reader, extra[:]); n != 0 {
+		return nil, fmt.Errorf("upgrade %s exceeds %d bytes", kind, limit)
+	} else if err != nil && err != io.EOF {
+		return nil, err
+	}
+	return body, nil
 }
 
 func copyFile(source string, target string) error {
@@ -366,12 +367,25 @@ func restartOpenRCService(ctx context.Context, serviceName string) error {
 }
 
 func restartSystemdService(ctx context.Context, serviceName string) error {
+	return restartSystemdServiceWithin(ctx, serviceName, serviceManagerTimeout)
+}
+
+func restartSystemdServiceWithin(ctx context.Context, serviceName string, timeout time.Duration) error {
 	if !systemdServiceNamePattern.MatchString(serviceName) {
 		return fmt.Errorf("invalid systemd service name: %s", serviceName)
 	}
 
-	if err := scheduleSystemdRestart(ctx, serviceName); err == nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	scheduleCtx, cancelSchedule := context.WithTimeout(ctx, timeout)
+	err := scheduleSystemdRestart(scheduleCtx, serviceName)
+	cancelSchedule()
+	if err == nil {
 		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	systemctlPath, err := exec.LookPath("systemctl")
@@ -379,10 +393,19 @@ func restartSystemdService(ctx context.Context, serviceName string) error {
 		return err
 	}
 
-	// 不等待 systemctl 完成。Agent 正在重启自身，等待子进程会在服务停止时
-	// 收到 SIGTERM，旧逻辑会误判失败并回滚已替换的新二进制。
-	command := exec.CommandContext(ctx, systemctlPath, "restart", serviceName)
-	return command.Start()
+	// Wait only for systemd to accept the job, not for our service to restart.
+	// The manager owns the queued job after this bounded command exits; Apply's
+	// deferred cancellation cannot kill an un-waited background systemctl process.
+	restartCtx, cancelRestart := context.WithTimeout(context.Background(), timeout)
+	defer cancelRestart()
+	command := exec.CommandContext(restartCtx, systemctlPath, "--no-block", "restart", serviceName)
+	if err := command.Run(); err != nil {
+		if restartCtx.Err() != nil {
+			return restartCtx.Err()
+		}
+		return err
+	}
+	return nil
 }
 
 func scheduleSystemdRestart(ctx context.Context, serviceName string) error {

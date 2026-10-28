@@ -68,8 +68,12 @@ assert.ok(
   'timeout cleanup must not mark tasks that are still executing in this worker as failed'
 )
 assert.ok(
-  timeoutSection.includes("where: {\n      id: { in: timedOutTaskIds },\n      status: 'PROCESSING'"),
-  'timeout cleanup must conditionally fail only still-processing tasks'
+  timeoutSection.includes("await failExpiredInstanceTaskAttempt(task, '任务执行超时')") &&
+    staleCleanupSection.includes("await failExpiredInstanceTaskAttempt(task, '系统启动清理超时任务')") &&
+    workerSource.includes("id: task.id, status: 'PROCESSING', taskType: task.taskType") &&
+    workerSource.includes('startedAt: task.startedAt, retryCount: task.retryCount') &&
+    workerSource.includes('OR: [{ startedAt: null }, { startedAt: { lt: threshold } }]'),
+  'both cleanup paths must CAS the exact current attempt and expiry before notifying failure'
 )
 
 const executeStart = workerSource.indexOf('async function executeTask(')
@@ -81,13 +85,13 @@ assert.ok(
   'executeTask must add and remove running task tracking in a finally block'
 )
 assert.ok(
-  executeSection.includes("where: { id: taskId, status: 'PROCESSING' }") &&
-    executeSection.includes("status: 'COMPLETED'"),
+  workerSource.includes("where: { id: taskId, status: 'PROCESSING', startedAt: attempt.startedAt, retryCount: attempt.retryCount }") &&
+    executeSection.includes("await finalizeInstanceTaskAttempt(taskId, attempt, 'COMPLETED')"),
   'executeTask completion must not overwrite non-processing task states'
 )
 assert.ok(
-  executeSection.includes("where: { id: taskId, status: 'PROCESSING' }") &&
-    executeSection.includes("status: 'FAILED'"),
+  workerSource.includes("where: { id: taskId, status: 'PROCESSING', startedAt: attempt.startedAt, retryCount: attempt.retryCount }") &&
+    executeSection.includes("await finalizeInstanceTaskAttempt(taskId, attempt, 'FAILED', errorMessage)"),
   'executeTask failure must not overwrite non-processing task states'
 )
 

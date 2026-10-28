@@ -7,6 +7,7 @@ import { type RechargeRecord, type RechargeStatus } from '@prisma/client'
 import { nanoid } from 'nanoid'
 import { getTodayRange } from '../lib/timezone.js'
 import { USER_BALANCE_LOCK_NAMESPACE, advisoryTransactionLock } from './advisory-locks.js'
+import { lockAdministrativeUserMutation, type WriteActor } from './user-write-authorization.js'
 
 // ==================== 类型定义 ====================
 
@@ -303,6 +304,7 @@ export async function completeRecharge(
     actualAmount?: number
     paymentDetails?: Record<string, unknown>
     expectedPaymentDetails?: Record<string, unknown>
+    actor?: WriteActor
   }
 ): Promise<CompleteRechargeResult> {
   const record = await prisma.rechargeRecord.findUnique({
@@ -331,6 +333,7 @@ export async function completeRecharge(
   // 使用事务确保原子性
   const result = await prisma.$transaction(async (tx) => {
     await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, record.userId)
+    if (data.actor) await lockAdministrativeUserMutation(tx, record.userId, data.actor)
 
     // 1. 使用条件更新确保并发安全（只有 pending 或 paid 状态可以变为 completed）
     const updateResult = await tx.rechargeRecord.updateMany({
@@ -424,29 +427,34 @@ export async function failRecharge(
   orderNo: string,
   failReason: string,
   callbackData?: Record<string, unknown>,
-  paymentDetails?: Record<string, unknown>
+  paymentDetails?: Record<string, unknown>,
+  actor?: WriteActor
 ): Promise<RechargeRecord> {
-  const updateResult = await prisma.rechargeRecord.updateMany({
-    where: {
-      orderNo,
-      status: { in: ['pending', 'paid'] }
-    },
-    data: {
-      status: 'failed',
-      failReason,
-      callbackData: callbackData as any,
-      callbackAt: new Date(),
-      paymentDetails: paymentDetails as any
+  const { updateResult, record } = await prisma.$transaction(async (tx) => {
+    if (actor) await lockAdministrativeUserMutation(tx, actor.id, actor)
+    const updateResult = await tx.rechargeRecord.updateMany({
+      where: {
+        orderNo,
+        status: { in: ['pending', 'paid'] }
+      },
+      data: {
+        status: 'failed',
+        failReason,
+        callbackData: callbackData as any,
+        callbackAt: new Date(),
+        paymentDetails: paymentDetails as any
+      }
+    })
+
+    const record = await tx.rechargeRecord.findUnique({
+      where: { orderNo }
+    })
+
+    if (!record) {
+      throw new Error('订单不存在')
     }
+    return { updateResult, record }
   })
-
-  const record = await prisma.rechargeRecord.findUnique({
-    where: { orderNo }
-  })
-
-  if (!record) {
-    throw new Error('订单不存在')
-  }
 
   if (updateResult.count > 0) {
     // 用户通知：充值支付失败（fire-and-forget，不阻塞状态流转；仅在本次真正转为 failed 时推送）

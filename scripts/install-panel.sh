@@ -1335,6 +1335,20 @@ server {
         proxy_buffering off;
     }
 
+    # The script URL is a bearer credential; do not retain it in proxy logs.
+    location ^~ /api/hosts/caddy-script/ {
+        access_log off;
+        error_log /dev/null;
+        proxy_pass http://127.0.0.1:${DEFAULT_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-Host \$incudal_forwarded_host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$incudal_forwarded_proto;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
     location /api/ {
         proxy_pass http://127.0.0.1:${DEFAULT_PORT};
         proxy_http_version 1.1;
@@ -2059,9 +2073,8 @@ do_install() {
         redis_password=$(grep -oP 'REDIS_URL=redis://:\K[^@]+' "$ENV_FILE" 2>/dev/null || echo "")
 
         if [[ -z "$db_password" ]]; then
-            warn "无法从 .env 提取数据库密码，将生成新密码并重写 .env"
-            db_password=$(gen_password 24)
-            rm -f "$ENV_FILE"
+            error "无法从现有 .env 提取数据库密码，已停止安装并保留原配置。请检查 DATABASE_URL 后重试。"
+            return 1
         fi
         if [[ -z "$redis_password" ]]; then
             redis_password=$(gen_password 24)

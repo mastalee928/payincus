@@ -4,8 +4,10 @@
  */
 
 import { prisma } from './prisma.js'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import type { User, UserQuota } from '../types/database.js'
+import { verifyCodeInTransaction } from './email-verification.js'
+import { authorizeUserWrite, lockAdministrativeUserMutation, revokeUserSessionsInTransaction, type WriteActor, type WriteSession } from './user-write-authorization.js'
 import {
   USER_BALANCE_LOCK_NAMESPACE,
   USER_EMAIL_REGISTRATION_LOCK_NAMESPACE,
@@ -190,7 +192,8 @@ export async function createUser(
   username: string,
   email: string | null,
   passwordHash: string,
-  role: 'admin' | 'user' = 'user'
+  role: 'admin' | 'user' = 'user',
+  options: { status?: 'active' | 'banned'; actor?: WriteSession & { id: number } } = {}
 ): Promise<number> {
   // 从系统配置获取默认配额
   const { getDefaultQuotaConfig } = await import('./system-config.js')
@@ -199,24 +202,37 @@ export async function createUser(
   // 随机选择头像风格
   const avatarStyle = AVATAR_STYLES[Math.floor(Math.random() * AVATAR_STYLES.length)]
 
-  const user = await prisma.user.create({
-    data: {
-      username,
-      email,
-      passwordHash,
-      role,
-      avatarStyle,
-      quota: {
-        create: {
-          hostLimit: defaultQuota.hostLimit,
-          friendLimit: defaultQuota.friendLimit,
-          packageLimit: defaultQuota.packageLimit
+  const normalizedEmail = email?.toLowerCase().trim() || null
+  return prisma.$transaction(async tx => {
+    if (normalizedEmail) await advisoryTransactionLockString(tx, USER_EMAIL_REGISTRATION_LOCK_NAMESPACE, normalizedEmail)
+    if (options.actor) {
+      if (!await authorizeUserWrite(tx, options.actor.id, options.actor) ||
+        (await tx.user.findUnique({ where: { id: options.actor.id }, select: { role: true } }))?.role !== 'admin') throw new Error('PROFILE_ACTOR_FORBIDDEN')
+    }
+    if (await tx.user.findUnique({ where: { username }, select: { id: true } })) throw new Error('USER_EXISTS')
+    if (normalizedEmail && await tx.user.findFirst({ where: { email: { equals: normalizedEmail, mode: 'insensitive' } }, select: { id: true } })) {
+      throw new Error('EMAIL_ALREADY_REGISTERED')
+    }
+    const user = await tx.user.create({
+      data: {
+        username,
+        email: normalizedEmail,
+        passwordHash,
+        role,
+        status: options.status || 'active',
+        avatarStyle,
+        quota: {
+          create: {
+            hostLimit: defaultQuota.hostLimit,
+            friendLimit: defaultQuota.friendLimit,
+            packageLimit: defaultQuota.packageLimit
+          }
         }
       }
-    }
-  })
+    })
 
-  return user.id
+    return user.id
+  })
 }
 
 async function getFreeSiteRegisterGiftConfig(): Promise<{
@@ -393,6 +409,7 @@ export async function createRegisteredUser(
     email: string | null
     passwordHash: string
     inviteCode?: string
+    emailCode?: string
   }
 ): Promise<CreateRegisteredUserResult> {
   const { getDefaultQuotaConfig } = await import('./system-config.js')
@@ -404,9 +421,12 @@ export async function createRegisteredUser(
   const normalizedEmail = input.email?.toLowerCase().trim() || null
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       if (normalizedEmail) {
         await advisoryTransactionLockString(tx, USER_EMAIL_REGISTRATION_LOCK_NAMESPACE, normalizedEmail)
+      }
+      if (input.emailCode !== undefined) {
+        if (!normalizedEmail || !await verifyCodeInTransaction(tx, normalizedEmail, input.emailCode, 'register')) return null
       }
 
       const existingUsername = await tx.user.findUnique({
@@ -479,6 +499,8 @@ export async function createRegisteredUser(
         registerGift
       }
     })
+    if (!result) throw new Error('INVALID_EMAIL_CODE')
+    return result
   } catch (error) {
     if (
       error &&
@@ -644,6 +666,23 @@ export async function updateUserQuotaLimits(userId: number, data: {
   })
 }
 
+export async function increaseOwnQuota(userId: number, type: 'host' | 'friend', desiredLimit: number, session: WriteSession): Promise<number> {
+  return prisma.$transaction(async tx => {
+    if (!await authorizeUserWrite(tx, userId, session, true)) throw new Error('QUOTA_ACTOR_FORBIDDEN')
+    await tx.$queryRaw`SELECT id FROM user_quotas WHERE user_id = ${userId} FOR UPDATE`
+    const quota = await tx.userQuota.findUnique({ where: { userId } })
+    if (!quota) throw new Error('QUOTA_INFO_NOT_FOUND')
+    const currentLimit = type === 'host' ? quota.hostLimit : quota.friendLimit
+    const currentUsed = type === 'host' ? quota.hostUsed : quota.friendUsed
+    const step = type === 'host' ? 5 : 10
+    if (!Number.isSafeInteger(desiredLimit) || desiredLimit > 2147483647 || desiredLimit - currentLimit !== step) throw new Error('QUOTA_INCREASE_STEP_INVALID')
+    if (!currentLimit) throw new Error('QUOTA_USAGE_UNAVAILABLE')
+    if (currentUsed / currentLimit < 0.5) throw new Error('QUOTA_USAGE_TOO_LOW')
+    await tx.userQuota.update({ where: { userId }, data: type === 'host' ? { hostLimit: desiredLimit } : { friendLimit: desiredLimit } })
+    return currentLimit
+  })
+}
+
 /**
  * 更新用户信息
  */
@@ -680,14 +719,24 @@ export async function updateUser(id: number, data: {
  * 更新用户状态
  * @param banReason 封禁原因（仅当 status='banned' 时有意义）
  */
-export async function updateUserStatus(id: number, status: 'active' | 'banned', banReason?: string): Promise<void> {
-  await prisma.user.update({
-    where: { id },
-    data: {
-      status,
-      // 封禁时保存原因，解封时清除原因
-      banReason: status === 'banned' ? (banReason || null) : null
+export async function updateUserStatus(id: number, status: 'active' | 'banned', banReason?: string, actor?: WriteActor): Promise<void> {
+  await prisma.$transaction(async tx => {
+    if (actor) {
+      const target = await lockAdministrativeUserMutation(tx, id, actor)
+      if (actor.id === id) throw new Error('CANNOT_MODIFY_SELF')
+      if (target.role === 'admin' && status === 'banned') throw new Error('CANNOT_BAN_ADMIN')
+    } else {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${id} FOR UPDATE`)
     }
+    await tx.user.update({ where: { id }, data: { status, banReason: status === 'banned' ? (banReason || null) : null } })
+    if (status === 'banned') await revokeUserSessionsInTransaction(tx, id)
+  })
+}
+
+export async function revokeUserSessionsByAdmin(userId: number, actor: WriteActor): Promise<number> {
+  return prisma.$transaction(async tx => {
+    await lockAdministrativeUserMutation(tx, userId, actor)
+    return revokeUserSessionsInTransaction(tx, userId)
   })
 }
 
@@ -703,10 +752,79 @@ export class UserDeletionConflictError extends Error {
   }
 }
 
-export async function deleteUser(id: number): Promise<void> {
+export type UserDeletionBlockers = {
+  instances: number
+  hosts: number
+  packages: number
+  hostingZones: number
+  balanceNonZero: boolean
+  hostingBalanceNonZero: boolean
+  balanceLogs: number
+  rechargeRecords: number
+  hostingBalanceLogs: number
+  loginRecords: number
+  redeemCodeUsages: number
+}
+
+export async function getUserDeletionBlockers(userId: number, client: Prisma.TransactionClient = prisma): Promise<UserDeletionBlockers> {
+  const [
+    balances,
+    instances,
+    hosts,
+    packages,
+    hostingZones,
+    balanceLogs,
+    rechargeRecords,
+    hostingBalanceLogs,
+    loginRecords,
+    redeemCodeUsages
+  ] = await Promise.all([
+    client.user.findUnique({
+      where: { id: userId },
+      select: { balance: true, hostingBalance: true }
+    }),
+    // Count every instance state, including deleted history, because the required User relation
+    // still blocks hard deletion and the history should not be orphaned by admin actions.
+    client.instance.count({ where: { userId } }),
+    client.host.count({ where: { userId } }),
+    client.package.count({ where: { userId } }),
+    client.hostingZone.count({ where: { ownerId: userId } }),
+    client.balanceLog.count({ where: { userId } }),
+    client.rechargeRecord.count({ where: { userId } }),
+    client.hostingBalanceLog.count({ where: { userId } }),
+    client.loginRecord.count({ where: { userId } }),
+    client.redeemCodeUsage.count({ where: { userId } })
+  ])
+
+  return {
+    instances,
+    hosts,
+    packages,
+    hostingZones,
+    balanceNonZero: balances?.balance.isZero() === false,
+    hostingBalanceNonZero: balances?.hostingBalance.isZero() === false,
+    balanceLogs,
+    rechargeRecords,
+    hostingBalanceLogs,
+    loginRecords,
+    redeemCodeUsages
+  }
+}
+
+export function hasUserDeletionBlockers(blockers: UserDeletionBlockers): boolean {
+  return Object.values(blockers).some(value => value === true || (typeof value === 'number' && value > 0))
+}
+
+export async function deleteUser(id: number, actor?: WriteActor): Promise<void> {
   try {
-    await prisma.user.delete({
-      where: { id }
+    await prisma.$transaction(async tx => {
+      if (actor) {
+        const target = await lockAdministrativeUserMutation(tx, id, actor)
+        if (actor.id === id) throw new Error('CANNOT_DELETE_SELF')
+        if (target.role === 'admin') throw new Error('CANNOT_DELETE_ADMIN')
+        if (hasUserDeletionBlockers(await getUserDeletionBlockers(id, tx))) throw new UserDeletionConflictError()
+      }
+      await tx.user.delete({ where: { id } })
     })
   } catch (error) {
     const prismaErrorCode = (error as { code?: string }).code
@@ -821,6 +939,131 @@ export async function get2FARecoveryCodes(userId: number): Promise<string | null
   return user?.twoFactorRecoveryCodes ?? null
 }
 
+export async function get2FAMutationState(userId: number) {
+  return prisma.user.findUnique({ where: { id: userId }, select: {
+    id: true, status: true, role: true, email: true, passwordHash: true, twoFactorEnabled: true, twoFactorSecret: true, twoFactorRecoveryCodes: true
+  } })
+}
+
+/** Keep verified credentials, email/grant consumption and session revocation in one commit. */
+export async function updateUserProfileIfCurrent(
+  expected: NonNullable<Awaited<ReturnType<typeof get2FAMutationState>>>,
+  data: { email?: string; passwordHash?: string; avatarStyle?: string },
+  actor: { id: number; sid?: string; iat?: number },
+  emailCode?: string
+): Promise<boolean> {
+  const self = actor.id === expected.id
+  return prisma.$transaction(async tx => {
+    const emailChanged = data.email !== undefined && data.email !== expected.email
+    if (emailChanged) {
+      await advisoryTransactionLockString(tx, USER_EMAIL_REGISTRATION_LOCK_NAMESPACE, data.email!)
+      if (self && !await verifyCodeInTransaction(tx, data.email!, emailCode || '', 'change_email')) return false
+    }
+    const ids = [...new Set([actor.id, expected.id])].sort((a, b) => a - b)
+    const locked = await tx.$queryRaw<Array<{ id: number; role: string; status: string }>>(Prisma.sql`SELECT id, role, status FROM users WHERE id IN (${Prisma.join(ids)}) ORDER BY id FOR UPDATE`)
+    const currentActor = locked.find(row => row.id === actor.id)
+    if (currentActor?.status !== 'active' || (!self && currentActor.role !== 'admin')) throw new Error('PROFILE_ACTOR_FORBIDDEN')
+    if (!actor.iat || !actor.sid) throw new Error('AUTHENTICATION_STATE_CHANGED')
+    const invalidations = await tx.tokenInvalidation.findMany({ where: {
+      userId: actor.id, sessionId: { in: [actor.sid, '__USER_LEVEL__'] }
+    } })
+    if (invalidations.some(row => actor.iat! <= row.invalidatedAt)) throw new Error('AUTHENTICATION_STATE_CHANGED')
+    if (emailChanged && await tx.user.findFirst({ where: {
+      id: { not: expected.id }, email: { equals: data.email!, mode: 'insensitive' }
+    }, select: { id: true } })) throw new Error('EMAIL_ALREADY_REGISTERED')
+    if (self) {
+      for (const operationType of [
+        ...(data.passwordHash !== undefined ? ['change_password' as const] : []),
+        ...(emailChanged && expected.email ? ['change_email' as const] : [])
+      ]) {
+        const now = new Date()
+        const grant = await tx.operationVerification.deleteMany({ where: {
+          userId: actor.id, operationType, resourceId: null, verified: true,
+          expiresAt: { gt: now }, verifiedAt: { gt: new Date(now.getTime() - 10 * 60000) }
+        } })
+        if (!grant.count) throw new Error(`PROFILE_VERIFICATION_REQUIRED:${operationType}`)
+      }
+    }
+    const updated = await tx.user.updateMany({ where: {
+      id: expected.id, status: self ? 'active' : expected.status, role: expected.role,
+      email: expected.email, passwordHash: expected.passwordHash, twoFactorEnabled: expected.twoFactorEnabled,
+      twoFactorSecret: expected.twoFactorSecret, twoFactorRecoveryCodes: expected.twoFactorRecoveryCodes
+    }, data })
+    if (updated.count !== 1) throw new Error('AUTHENTICATION_STATE_CHANGED')
+    if (data.passwordHash !== undefined) {
+      await tx.refreshToken.deleteMany({ where: { userId: expected.id } })
+      const invalidatedAt = Math.floor(Date.now() / 1000)
+      await tx.tokenInvalidation.upsert({
+        where: { userId_sessionId: { userId: expected.id, sessionId: '__USER_LEVEL__' } },
+        create: { userId: expected.id, sessionId: '__USER_LEVEL__', invalidatedAt }, update: { invalidatedAt }
+      })
+    }
+    return true
+  })
+}
+
+export async function resetPasswordWithEmailVerification(
+  expected: NonNullable<Awaited<ReturnType<typeof get2FAMutationState>>>,
+  code: string,
+  passwordHash: string
+): Promise<{ valid: boolean; twoFactorDisabled: boolean }> {
+  if (!expected.email) return { valid: false, twoFactorDisabled: false }
+  return prisma.$transaction(async tx => {
+    if (!await verifyCodeInTransaction(tx, expected.email!, code, 'password_reset')) {
+      return { valid: false, twoFactorDisabled: false }
+    }
+    const updated = await tx.user.updateMany({ where: {
+      id: expected.id, status: 'active', email: expected.email,
+      passwordHash: expected.passwordHash, twoFactorEnabled: expected.twoFactorEnabled,
+      twoFactorSecret: expected.twoFactorSecret, twoFactorRecoveryCodes: expected.twoFactorRecoveryCodes
+    }, data: { passwordHash, twoFactorEnabled: false, twoFactorSecret: null, twoFactorRecoveryCodes: null } })
+    if (updated.count !== 1) throw new Error('AUTHENTICATION_STATE_CHANGED')
+    await tx.refreshToken.deleteMany({ where: { userId: expected.id } })
+    const invalidatedAt = Math.floor(Date.now() / 1000)
+    await tx.tokenInvalidation.upsert({
+      where: { userId_sessionId: { userId: expected.id, sessionId: '__USER_LEVEL__' } },
+      create: { userId: expected.id, sessionId: '__USER_LEVEL__', invalidatedAt },
+      update: { invalidatedAt }
+    })
+    return { valid: true, twoFactorDisabled: expected.twoFactorEnabled }
+  })
+}
+
+/** Commit only the authentication state the caller actually verified. */
+export async function replace2FAStateIfCurrent(
+  expected: NonNullable<Awaited<ReturnType<typeof get2FAMutationState>>>,
+  data: Pick<Prisma.UserUpdateManyMutationInput, 'twoFactorEnabled' | 'twoFactorSecret' | 'twoFactorRecoveryCodes'>,
+  session?: { sid?: string; iat?: number },
+  revokeSessions = false
+): Promise<boolean> {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${expected.id} FOR UPDATE`)
+    if (session) {
+      if (!session.iat || !session.sid) return false
+      const invalidations = await tx.tokenInvalidation.findMany({ where: {
+        userId: expected.id, sessionId: { in: [session.sid, '__USER_LEVEL__'] }
+      } })
+      if (invalidations.some(row => session.iat! <= row.invalidatedAt)) return false
+    }
+    const changed = await tx.user.updateMany({ where: {
+      id: expected.id, status: 'active', passwordHash: expected.passwordHash,
+      twoFactorEnabled: expected.twoFactorEnabled, twoFactorSecret: expected.twoFactorSecret,
+      twoFactorRecoveryCodes: expected.twoFactorRecoveryCodes
+    }, data })
+    if (changed.count !== 1) return false
+    if (revokeSessions) {
+      await tx.refreshToken.deleteMany({ where: { userId: expected.id } })
+      const invalidatedAt = Math.floor(Date.now() / 1000)
+      await tx.tokenInvalidation.upsert({
+        where: { userId_sessionId: { userId: expected.id, sessionId: '__USER_LEVEL__' } },
+        create: { userId: expected.id, sessionId: '__USER_LEVEL__', invalidatedAt },
+        update: { invalidatedAt }
+      })
+    }
+    return true
+  })
+}
+
 /**
  * 启用 2FA 并保存恢复码
  */
@@ -837,14 +1080,15 @@ export async function enable2FAWithRecoveryCodes(userId: number, encryptedCodes:
 /**
  * 禁用 2FA (清除所有2FA数据)
  */
-export async function disable2FAComplete(userId: number): Promise<void> {
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      twoFactorEnabled: false,
-      twoFactorSecret: null,
-      twoFactorRecoveryCodes: null
-    }
+export async function disable2FAComplete(userId: number, actor: WriteActor): Promise<void> {
+  await prisma.$transaction(async tx => {
+    const target = await lockAdministrativeUserMutation(tx, userId, actor)
+    if (actor.id === userId) throw new Error('CANNOT_MODIFY_SELF')
+    if (!target.twoFactorEnabled) throw new Error('TWO_FA_NOT_ENABLED')
+    await tx.user.update({ where: { id: userId }, data: {
+      twoFactorEnabled: false, twoFactorSecret: null, twoFactorRecoveryCodes: null
+    } })
+    await revokeUserSessionsInTransaction(tx, userId)
   })
 }
 

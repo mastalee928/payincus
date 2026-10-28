@@ -44,7 +44,7 @@ const defaultInviteCostOptions: InviteCostOption[] = [
   { resource: 'points', amount: 0, enabled: false }
 ]
 
-const inviteCostResourceHandlers: Record<string, InviteCostResourceHandler> = {
+const inviteCostResourceHandlers: Record<string, InviteCostResourceHandler> = Object.assign(Object.create(null), {
   balance: {
     resource: 'balance',
     label: '余额',
@@ -55,7 +55,7 @@ const inviteCostResourceHandlers: Record<string, InviteCostResourceHandler> = {
     format(amount: number) {
       return `¥${amount.toFixed(2)}`
     },
-    async charge(tx, userId, amount, inviteCode) {
+    async charge(tx: Prisma.TransactionClient, userId: number, amount: number, inviteCode: string) {
       if (amount <= 0) return
 
       await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, userId)
@@ -103,7 +103,7 @@ const inviteCostResourceHandlers: Record<string, InviteCostResourceHandler> = {
     format(amount: number) {
       return `${Math.floor(amount)} 积分`
     },
-    async charge(tx, userId, amount, inviteCode) {
+    async charge(tx: Prisma.TransactionClient, userId: number, amount: number, inviteCode: string) {
       if (amount <= 0) return
 
       await advisoryTransactionLock(tx, USER_POINTS_LOCK_NAMESPACE, userId)
@@ -139,10 +139,10 @@ const inviteCostResourceHandlers: Record<string, InviteCostResourceHandler> = {
       })
     }
   }
-}
+})
 
 export function isSupportedInviteCostResource(resource: string): boolean {
-  return resource in inviteCostResourceHandlers
+  return Object.hasOwn(inviteCostResourceHandlers, resource)
 }
 
 function parseInviteCostConfig(raw: string | null): InviteCostOption[] {

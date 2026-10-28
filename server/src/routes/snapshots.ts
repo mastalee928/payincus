@@ -14,6 +14,8 @@ import { checkSnapshotQuota } from '../db/quota-operations.js'
 import { acquireLock, releaseLock } from '../lib/distributed-lock.js'
 import type { CreateSnapshotRequest } from '../types/api.js'
 import { checkInstancePermission } from '../lib/permission.js'
+import { withSnapshotMutation, SnapshotMutationError, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
+import { autoSnapshotOperationView, retryAutoSnapshotOperation } from '../services/auto-snapshot-operations.js'
 import {
   claimOperationVerificationRequirement
 } from '../lib/operation-verification.js'
@@ -175,40 +177,46 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      // 在实例级锁内重新检查配额，避免并发手动快照同时通过读前检查。
-      const quotaCheck = await checkSnapshotQuota(instance.user_id, instanceIdNum)
-      if (!quotaCheck.allowed) {
-        return reply.code(400).send(apiError(ErrorCode.QUOTA_SNAPSHOT_EXCEEDED, quotaCheck.message))
-      }
-
-      // 获取宿主机信息并创建 Incus 客户端
-      const host = await db.getHostById(instance.host_id)
-      if (!host) {
-        return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
-      }
-      const client = await getIncusClient(host)
-
-      // 在 Incus 中创建快照
-      await createSnapshot(client, instance.incus_id, incusName)
-
-      // 保存到数据库
-      let snapshotId: number
-      try {
-        snapshotId = await db.createSnapshot({
-          instanceId: instanceIdNum,
-          incusName,
-          name,
-          description,
-          stateful: false
-        })
-      } catch (dbErr) {
-        try {
-          await deleteSnapshot(client, instance.incus_id, incusName)
-        } catch (cleanupErr) {
-          fastify.log.error({ err: cleanupErr, instanceId: instanceIdNum, incusName }, 'Failed to clean up Incus snapshot after database create failure')
+      const result = await withSnapshotMutation(instance, request.user, false, async (tx, current) => {
+        if (!['running', 'stopped'].includes(current.status) || current.expiresAt && current.expiresAt <= new Date()) throw new SnapshotMutationError('实例状态或到期时间不允许创建快照')
+        // 在实例级锁内重新检查配额，避免并发手动快照同时通过读前检查。
+        const quotaCheck = await checkSnapshotQuota(instance.user_id, instanceIdNum)
+        if (!quotaCheck.allowed) {
+          throw new SnapshotMutationError(quotaCheck.message || '快照配额已满', 400)
         }
-        throw dbErr
-      }
+
+        // 获取宿主机信息并创建 Incus 客户端
+        const host = await db.getHostById(instance.host_id)
+        if (!host) {
+          throw new SnapshotMutationError('宿主机已不存在', 404)
+        }
+        const client = await getIncusClient(host)
+
+        // 在 Incus 中创建快照
+        await createSnapshot(client, instance.incus_id, incusName)
+
+        // 保存到数据库
+        let snapshotId: number
+        try {
+          snapshotId = (await tx.snapshot.create({ data: {
+            instanceId: instanceIdNum,
+            incusName,
+            name,
+            description,
+            stateful: false
+          } })).id
+        } catch (dbErr) {
+          try {
+            await deleteSnapshot(client, instance.incus_id, incusName)
+          } catch (cleanupErr) {
+            fastify.log.error({ err: cleanupErr, instanceId: instanceIdNum, incusName }, 'Failed to clean up Incus snapshot after database create failure')
+          }
+          throw dbErr
+        }
+        return { snapshotId, host }
+      })
+      if (!result) return
+      const { snapshotId, host } = result
 
       // 发送通知
       try {
@@ -234,6 +242,7 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
         }
       })
     } catch (err) {
+      if (err instanceof SnapshotMutationError || err instanceof SnapshotOperationPendingError) return reply.code(err.statusCode).send({ error: err.message, code: 'SNAPSHOT_OPERATION_PENDING' })
       fastify.log.error(err)
       const errorMessage = err instanceof Error ? err.message : String(err)
       await createLog(request.user.id, 'snapshot', 'snapshot.create', `Failed to create snapshot: ${errorMessage}`, 'failed', { instanceId: instanceIdNum })
@@ -278,18 +287,25 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
     if (!await requireVerifiedOperation(reply, request.user.id, snapshotIdNum)) return
 
     try {
-      // 获取宿主机信息并创建 Incus 客户端
-      const host = await db.getHostById(instance.host_id)
-      if (!host) {
-        return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
-      }
-      const client = await getIncusClient(host)
+      const result = await withSnapshotMutation(instance, request.user, false, async (tx) => {
+        const currentSnapshot = await tx.snapshot.findUnique({ where: { id: snapshotIdNum } })
+        if (!currentSnapshot || currentSnapshot.instanceId !== instanceIdNum || currentSnapshot.incusName !== snapshot.incus_name) throw new SnapshotMutationError('快照记录已变化，请刷新后重试')
+        // 获取宿主机信息并创建 Incus 客户端
+        const host = await db.getHostById(instance.host_id)
+        if (!host) {
+          throw new SnapshotMutationError('宿主机已不存在', 404)
+        }
+        const client = await getIncusClient(host)
 
-      // 在 Incus 中删除快照
-      await deleteSnapshot(client, instance.incus_id, snapshot.incus_name)
+        // 在 Incus 中删除快照
+        await deleteSnapshot(client, instance.incus_id, snapshot.incus_name)
 
-      // 从数据库删除
-      await db.deleteSnapshot(snapshotIdNum)
+        // 从数据库删除
+        await tx.snapshot.delete({ where: { id: snapshotIdNum } })
+        return { host }
+      })
+      if (!result) return
+      const { host } = result
 
       // 发送通知
       await sendNotification(request.user.id, 'snapshot_deleted', {
@@ -302,6 +318,7 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
 
       return { message: 'Snapshot deleted' }
     } catch (err) {
+      if (err instanceof SnapshotMutationError || err instanceof SnapshotOperationPendingError) return reply.code(err.statusCode).send({ error: err.message, code: 'SNAPSHOT_OPERATION_PENDING' })
       fastify.log.error(err)
       const errorMessage = err instanceof Error ? err.message : String(err)
       await createLog(request.user.id, 'snapshot', 'snapshot.delete', `Failed to delete snapshot: ${errorMessage}`, 'failed', { instanceId: instanceIdNum })
@@ -365,15 +382,23 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
     if (await checkTransferLock(instanceIdNum, reply)) return
 
     try {
-      // 获取宿主机信息并创建 Incus 客户端
-      const host = await db.getHostById(instance.host_id)
-      if (!host) {
-        return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
-      }
-      const client = await getIncusClient(host)
+      const result = await withSnapshotMutation(instance, request.user, false, async (tx, current) => {
+        if (current.status !== 'stopped') throw new SnapshotMutationError('实例必须停止才能恢复快照')
+        const currentSnapshot = await tx.snapshot.findUnique({ where: { id: snapshotIdNum } })
+        if (!currentSnapshot || currentSnapshot.instanceId !== instanceIdNum || currentSnapshot.incusName !== snapshot.incus_name) throw new SnapshotMutationError('快照记录已变化，请刷新后重试')
+        // 获取宿主机信息并创建 Incus 客户端
+        const host = await db.getHostById(instance.host_id)
+        if (!host) {
+          throw new SnapshotMutationError('宿主机已不存在', 404)
+        }
+        const client = await getIncusClient(host)
 
-      // 在 Incus 中恢复快照
-      await restoreSnapshot(client, instance.incus_id, snapshot.incus_name)
+        // 在 Incus 中恢复快照
+        await restoreSnapshot(client, instance.incus_id, snapshot.incus_name)
+        return { host }
+      })
+      if (!result) return
+      const { host } = result
 
       // 发送通知
       await sendNotification(request.user.id, 'snapshot_restored', {
@@ -386,6 +411,7 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
 
       return { message: 'Snapshot restored' }
     } catch (err) {
+      if (err instanceof SnapshotMutationError || err instanceof SnapshotOperationPendingError) return reply.code(err.statusCode).send({ error: err.message, code: 'SNAPSHOT_OPERATION_PENDING' })
       fastify.log.error(err)
       const errorMessage = err instanceof Error ? err.message : String(err)
       await createLog(request.user.id, 'snapshot', 'snapshot.restore', `Failed to restore snapshot: ${errorMessage}`, 'failed', { instanceId: instanceIdNum })
@@ -416,13 +442,16 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
     }
 
     const policy = await db.getSnapshotPolicy(instanceIdNum)
+    const operation = await autoSnapshotOperationView(instanceIdNum)
 
     return policy ? {
+      operation,
       enabled: Boolean((policy as { enabled?: number }).enabled),
       interval_minutes: (policy as { intervalMinutes?: number }).intervalMinutes || 360,
       last_run_at: (policy as { lastRunAt?: string | null }).lastRunAt || null,
       next_run_at: (policy as { nextRunAt?: string | null }).nextRunAt || null
     } : {
+      operation,
       enabled: false,
       interval_minutes: 360,
       last_run_at: null,
@@ -481,11 +510,22 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
       }
     }
 
-    await db.upsertSnapshotPolicy(instanceIdNum, {
-      enabled,
-      intervalMinutes
+    await withSnapshotMutation(instance, request.user, true, async (tx, current) => {
+      if (enabled && (!current.snapshotLimit || current.snapshotLimit <= 0)) throw new SnapshotMutationError('实例未分配快照配额', 400)
+      await tx.snapshotPolicy.upsert({ where: { instanceId: instanceIdNum },
+        create: { instanceId: instanceIdNum, enabled, intervalMinutes, nextRunAt: new Date(Date.now() + intervalMinutes * 60000) },
+        update: { enabled, intervalMinutes } })
     })
 
     return { message: 'Auto snapshot policy updated' }
+  })
+
+  fastify.post<{ Params: { instanceId: string; operationId: string } }>('/:instanceId/snapshot-policy/operations/:operationId/retry', {
+    onRequest: [fastify.authenticateUser]
+  }, async (request, reply) => {
+    const instanceIdNum = parsePositiveId(request.params.instanceId)
+    if (instanceIdNum === null || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(request.params.operationId)) return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
+    await retryAutoSnapshotOperation(instanceIdNum, request.params.operationId, request.user)
+    return { operation: await autoSnapshotOperationView(instanceIdNum) }
   })
 }

@@ -21,17 +21,20 @@ assert.ok(deleteRouteStart >= 0 && deleteRouteEnd > deleteRouteStart, 'admin use
 const deleteRouteSource = usersRoute.slice(deleteRouteStart, deleteRouteEnd)
 
 assert.ok(
-  usersRoute.includes('async function getUserDeletionBlockers(userId: number): Promise<UserDeletionBlockers>') &&
-    usersRoute.includes('select: { balance: true, hostingBalance: true }') &&
-    usersRoute.includes('prisma.instance.count({ where: { userId } })') &&
-    usersRoute.includes('prisma.host.count({ where: { userId } })') &&
-    usersRoute.includes('prisma.package.count({ where: { userId } })') &&
-    usersRoute.includes('prisma.hostingZone.count({ where: { ownerId: userId } })') &&
-    usersRoute.includes('prisma.balanceLog.count({ where: { userId } })') &&
-    usersRoute.includes('prisma.rechargeRecord.count({ where: { userId } })') &&
-    usersRoute.includes('prisma.hostingBalanceLog.count({ where: { userId } })') &&
-    usersRoute.includes('prisma.loginRecord.count({ where: { userId } })') &&
-    usersRoute.includes('prisma.redeemCodeUsage.count({ where: { userId } })'),
+  usersDb.includes('export async function getUserDeletionBlockers(userId: number, client: Prisma.TransactionClient = prisma)') &&
+    usersDb.includes('select: { balance: true, hostingBalance: true }') &&
+    usersDb.includes('client.instance.count({ where: { userId } })') &&
+    usersDb.includes('client.host.count({ where: { userId } })') &&
+    usersDb.includes('client.package.count({ where: { userId } })') &&
+    usersDb.includes('client.hostingZone.count({ where: { ownerId: userId } })') &&
+    usersDb.includes('client.balanceLog.count({ where: { userId } })') &&
+    usersDb.includes('client.rechargeRecord.count({ where: { userId } })') &&
+    usersDb.includes('client.hostingBalanceLog.count({ where: { userId } })') &&
+    usersDb.includes('client.loginRecord.count({ where: { userId } })') &&
+    usersDb.includes('client.redeemCodeUsage.count({ where: { userId } })') &&
+    usersDb.includes('hasUserDeletionBlockers(await getUserDeletionBlockers(id, tx))') &&
+    usersDb.includes('const target = await lockAdministrativeUserMutation(tx, id, actor)') &&
+    usersDb.includes("if (target.role === 'admin') throw new Error('CANNOT_DELETE_ADMIN')"),
   'admin user deletion must check balances, financial/audit history, and resource blockers before hard deleting a user'
 )
 
@@ -42,11 +45,11 @@ assert.ok(
 )
 
 assert.ok(
-  deleteRouteSource.includes('const blockers = await getUserDeletionBlockers(userId)') &&
-    deleteRouteSource.includes('if (hasUserDeletionBlockers(blockers))') &&
+  deleteRouteSource.includes('const blockers = await db.getUserDeletionBlockers(userId)') &&
+    deleteRouteSource.includes('if (db.hasUserDeletionBlockers(blockers))') &&
     deleteRouteSource.includes('ErrorCode.USER_HAS_RESOURCES') &&
-    deleteRouteSource.indexOf('const blockers = await getUserDeletionBlockers(userId)') <
-      deleteRouteSource.indexOf('await db.deleteUser(userId)'),
+    deleteRouteSource.indexOf('const blockers = await db.getUserDeletionBlockers(userId)') <
+      deleteRouteSource.indexOf('await db.deleteUser(userId, request.user)'),
   'admin user deletion must reject users with resource blockers before db.deleteUser'
 )
 

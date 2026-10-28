@@ -59,12 +59,14 @@ export default async function terminalSavedCommandRoutes(fastify: FastifyInstanc
       userId: request.user.id,
       name: request.body.name,
       command: request.body.command,
-      description: request.body.description
+      description: request.body.description,
+      session: request.user
     })
 
     if (!result.success) {
       const errorMap: Record<string, { status: number; message: string }> = {
         INVALID_NAME: { status: 400, message: 'Command name is required' },
+        WRITE_FORBIDDEN: { status: 403, message: 'Session or account no longer permits this operation' },
         INVALID_COMMAND: { status: 400, message: 'Command content is required' },
         COMMAND_TOO_LARGE: { status: 400, message: 'Command content too large (max 16KB)' },
         MAX_COMMANDS_REACHED: { status: 400, message: 'Maximum saved terminal commands reached (100)' }
@@ -120,10 +122,11 @@ export default async function terminalSavedCommandRoutes(fastify: FastifyInstanc
       return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
     }
 
-    const result = await updateTerminalSavedCommand(commandId, request.user.id, request.body)
+    const result = await updateTerminalSavedCommand(commandId, request.user.id, request.body, request.user)
     if (!result.success) {
       const errorMap: Record<string, { status: number; message: string }> = {
         NOT_FOUND: { status: 404, message: 'Saved command not found' },
+        WRITE_FORBIDDEN: { status: 403, message: 'Session or account no longer permits this operation' },
         INVALID_NAME: { status: 400, message: 'Command name is required' },
         INVALID_COMMAND: { status: 400, message: 'Command content is required' },
         COMMAND_TOO_LARGE: { status: 400, message: 'Command content too large (max 16KB)' }
@@ -156,7 +159,8 @@ export default async function terminalSavedCommandRoutes(fastify: FastifyInstanc
       return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
     }
 
-    const deleted = await deleteTerminalSavedCommand(commandId, request.user.id)
+    const deleted = await deleteTerminalSavedCommand(commandId, request.user.id, request.user)
+    if (deleted === 'WRITE_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     if (!deleted) {
       return reply.code(404).send(apiError(ErrorCode.NOT_FOUND))
     }

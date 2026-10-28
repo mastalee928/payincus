@@ -187,6 +187,9 @@ function normalizeAdminBalanceAdjustmentRequestInput(input: unknown): AdminBalan
   if (amount === 0) {
     throw { error: '调账金额不能为 0' }
   }
+  if (Math.abs(amount) > 99999999.99) {
+    throw { error: '调账金额超出系统允许范围' }
+  }
   if (!/^-?\d+(\.\d{1,2})?$/.test(String(amount))) {
     throw { error: '调账金额最多保留两位小数' }
   }
@@ -511,9 +514,12 @@ export default async function balanceRoutes(fastify: FastifyInstance) {
       return reply.code(404).send(apiError(ErrorCode.USER_NOT_FOUND))
     }
 
-    const adjustmentRequest = await db.createBalanceAdjustmentRequest({
+    let adjustmentRequest: Awaited<ReturnType<typeof db.createBalanceAdjustmentRequest>>
+    try {
+      adjustmentRequest = await db.createBalanceAdjustmentRequest({
       userId,
       requestedByUserId: request.user.id,
+      actor: request.user,
       amount: input.amount,
       requestType: input.requestType,
       reason: input.reason,
@@ -521,7 +527,10 @@ export default async function balanceRoutes(fastify: FastifyInstance) {
       sourceId: input.sourceId,
       orderNo: input.orderNo
     })
-
+    } catch (error) {
+      if (error instanceof Error && error.message === 'ADMIN_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+      throw error
+    }
     await createLog(
       request.user.id,
       'admin',
@@ -557,7 +566,7 @@ export default async function balanceRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await db.approveBalanceAdjustmentRequest(requestId, request.user.id, input.remark)
+      const result = await db.approveBalanceAdjustmentRequest(requestId, request.user, input.remark)
 
       await createLog(
         request.user.id,
@@ -587,7 +596,7 @@ export default async function balanceRoutes(fastify: FastifyInstance) {
         request: serializeBalanceAdjustmentRequest(result.request)
       }
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : '调账审批失败' })
+      return reply.code(error instanceof Error && error.message === 'ADMIN_ACTOR_FORBIDDEN' ? 403 : 400).send({ error: error instanceof Error ? error.message : '调账审批失败' })
     }
   })
 
@@ -612,7 +621,7 @@ export default async function balanceRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const adjustmentRequest = await db.rejectBalanceAdjustmentRequest(requestId, request.user.id, input.remark!)
+      const adjustmentRequest = await db.rejectBalanceAdjustmentRequest(requestId, request.user, input.remark!)
       await createLog(
         request.user.id,
         'admin',
@@ -626,7 +635,7 @@ export default async function balanceRoutes(fastify: FastifyInstance) {
         request: serializeBalanceAdjustmentRequest(adjustmentRequest)
       }
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : '调账申请驳回失败' })
+      return reply.code(error instanceof Error && error.message === 'ADMIN_ACTOR_FORBIDDEN' ? 403 : 400).send({ error: error instanceof Error ? error.message : '调账申请驳回失败' })
     }
   })
 
@@ -664,11 +673,12 @@ export default async function balanceRoutes(fastify: FastifyInstance) {
     const result = await db.adminAdjustBalance(
       userId,
       amount,
-      `[管理员 ${user.username}] ${remark}`
+      `[管理员 ${user.username}] ${remark}`,
+      user
     )
 
     if (!result.success) {
-      return reply.code(400).send({ error: result.error })
+      return reply.code(result.error === 'ADMIN_ACTOR_FORBIDDEN' ? 403 : 400).send({ error: result.error })
     }
 
     await createLog(
@@ -742,11 +752,12 @@ export default async function balanceRoutes(fastify: FastifyInstance) {
     const result = await db.giftBalance(
       userId,
       amount,
-      remark || `管理员 ${user.username} 赠送`
+      remark || `管理员 ${user.username} 赠送`,
+      user
     )
 
     if (!result.success) {
-      return reply.code(400).send({ error: result.error })
+      return reply.code(result.error === 'ADMIN_ACTOR_FORBIDDEN' ? 403 : 400).send({ error: result.error })
     }
 
     await createLog(

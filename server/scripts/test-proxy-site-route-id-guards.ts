@@ -8,6 +8,8 @@ const caddyClientPath = resolve(process.cwd(), 'src/lib/caddy-client.ts')
 const caddyClientSource = readFileSync(caddyClientPath, 'utf8')
 const outboundSecurityPath = resolve(process.cwd(), 'src/lib/outbound-security.ts')
 const outboundSecuritySource = readFileSync(outboundSecurityPath, 'utf8')
+const mutationSource = readFileSync(resolve(process.cwd(), 'src/db/proxy-site-mutations.ts'), 'utf8')
+const operationSource = readFileSync(resolve(process.cwd(), 'src/db/proxy-site-operations.ts'), 'utf8')
 
 assert.ok(
   source.includes('function parsePositiveRouteId(value: string): number | null') &&
@@ -18,13 +20,13 @@ assert.ok(
 
 assert.equal(
   source.match(/const instanceId = parsePositiveRouteId\(request\.params\.id\)/g)?.length ?? 0,
-  8,
+  9,
   'all proxy site instance path IDs must use the strict parser'
 )
 
 assert.equal(
   source.match(/const siteId = parsePositiveRouteId\(request\.params\.siteId\)/g)?.length ?? 0,
-  6,
+  7,
   'all proxy site path IDs must use the strict parser'
 )
 
@@ -38,6 +40,48 @@ const forbiddenPatterns = [
 for (const pattern of forbiddenPatterns) {
   assert.ok(!source.includes(pattern), `proxy site route ID guard must not use ${pattern}`)
 }
+
+assert.equal(source.match(/withProxySiteMutation\(instanceId,/g)?.length, 3,
+  'create, DNS and remark writes must share the current instance/actor/credential transaction')
+assert.equal(source.match(/prepareProxySiteOperation\(instanceId,/g)?.length, 3,
+  'delete, refresh and toggle must prepare durable operations through the shared mutation transaction')
+assert.ok(operationSource.includes('return withProxySiteMutation(instanceId, siteId, actor,') &&
+  source.includes('retryProxySiteOperation(instanceId, siteId, request.user') &&
+  operationSource.includes('async function authorizeOperation') && operationSource.includes('authorizeOperation(tx,'),
+  'durable operations and retries must recheck their current authority')
+assert.ok(mutationSource.includes('INSTANCE_OPERATION_LOCK_NAMESPACE') &&
+  mutationSource.includes('authorizeUserWrite(tx, actor.id, actor, true)') &&
+  mutationSource.includes('instance.userId !== actor.id') && mutationSource.includes('instance.provisioningCleanupPending') &&
+  mutationSource.includes('instance.deletionBillingPending') && mutationSource.includes('instance.expiresAt <= new Date()') &&
+  mutationSource.includes('tx.instanceTask.count({ where: workflow })') &&
+  mutationSource.includes('tx.restoreTask.count({ where: workflow })') &&
+  mutationSource.includes('tx.backupUploadTask.count({ where: workflow })') &&
+  mutationSource.includes("status: { in: ['pending', 'processing'] }"),
+  'site writes must serialize with transfer and recheck current owner, active session, expiry, readiness and workflows')
+assert.ok(source.includes('site.status === \'pending\' && site.enabled') &&
+  operationSource.includes("operation.action === 'delete'") &&
+  operationSource.includes("data: { state: blocked ? 'blocked' : 'retry'") && !source.includes('继续删除数据库记录') &&
+  source.includes('await tx.proxySite.count({ where: { instanceId } }) >= siteLimit') &&
+  source.includes('const result = await mutation()'),
+  'disabled sites cannot activate; deletion failures persist and quota/replies use the transaction')
+assert.equal(operationSource.match(/ipv4SyncPending: false/g)?.length, 1,
+  'only the confirmed durable executor clears pending IPv4 intent')
+assert.ok(operationSource.indexOf('await client.reconcileManagedSite') < operationSource.indexOf('ipv4SyncPending: false') &&
+  operationSource.includes('appliedRevision: operation.revision') &&
+  operationSource.includes("if (operation.action === 'delete') await tx.proxySite.delete"),
+  'site removal and applied fields must follow the confirmed remote reconciliation')
+assert.ok(source.includes('data: { remark: changes.remark }') &&
+  source.includes('if (configChanged)') && source.includes("action: 'upsert', requireEnabled: true, changes"),
+  'remark-only edits must preserve pending IPv4 sync intent')
+assert.ok(readFileSync(resolve(process.cwd(), 'src/app.ts'), 'utf8').includes("fastify.addHook('onClose', async () => { await closeCaddyClients() })"),
+  'Caddy TLS connections must close with the backend')
+const hostSource = readFileSync(resolve(process.cwd(), 'src/routes/hosts.ts'), 'utf8')
+const credentialSource = readFileSync(resolve(process.cwd(), 'src/db/host-caddy-credentials.ts'), 'utf8')
+assert.ok(hostSource.includes('createCaddyScriptToken(prepared.scriptGrant)') && hostSource.includes('loadCaddyScriptCredentials(grant)') &&
+  credentialSource.includes('lockCaddyHost(tx, grant.hostId, caddyGrantActor(grant))') &&
+  credentialSource.includes('host.userId !== grant.ownerId') && credentialSource.includes('currentRole !== grant.role') &&
+  credentialSource.includes('caddyCredentialDigest(host) !== grant.credentials'),
+  'Caddy script downloads must recheck issuing session, current role/owner and exact credentials')
 
 const certificateResolution = 'const [certificateAddress] = await resolvePublicHostname(site.domain)'
 const certificateConnection = 'host: certificateAddress.address'
@@ -72,48 +116,31 @@ assert.ok(
   'Caddy failures must preserve the HTTP status code for exact 404 handling'
 )
 
-assert.ok(
-  caddyClientSource.includes(
-    'if (!(postError instanceof CaddyApiError) || postError.statusCode !== 404)'
-  ) && caddyClientSource.includes('throw postError'),
-  'non-404 route POST failures must be rethrown instead of triggering server creation'
-)
+assert.ok(caddyClientSource.includes("return `site-v2-${Buffer.from(domain.toLowerCase()).toString('base64url')}`") &&
+  caddyClientSource.includes('routeMatchesOnlyDomain(legacy, domain)') &&
+  caddyClientSource.includes('{ ifMatch: etag }') &&
+  caddyClientSource.includes('error.statusCode !== 404') &&
+  !caddyClientSource.includes("error.message.includes('404')"),
+  'site IDs must preserve domain boundaries; legacy deletion needs exact host and ETag; only HTTP 404 is ignored')
 
 assert.ok(
-  caddyClientSource.includes("await this.request('POST', routesPath, route)") &&
-    caddyClientSource.includes(
-      "existingServer = await this.request<{ routes?: CaddyRoute[] }>('GET', serverPath)"
-    ) &&
-    caddyClientSource.includes('if (Array.isArray(existingServer.routes))') &&
-    caddyClientSource.includes("await this.request('PUT', routesPath, [route])"),
-  'route writes must use array append and re-read sites before any conditional creation'
+  caddyClientSource.includes("'GET', '/config/'") &&
+    caddyClientSource.includes("'POST', '/config/apps/http', http, { ifMatch: etag, deadline }") &&
+    caddyClientSource.includes('error.statusCode !== 412') &&
+    caddyClientSource.includes('attempt < 3') &&
+    caddyClientSource.includes('routeMatchesOnlyDomain(existing, domain)'),
+  'Caddy site updates must preserve the copied config, atomically replace the exact domain and retry bounded ETag conflicts'
 )
-
-assert.ok(
-  caddyClientSource.indexOf(
-    "existingServer = await this.request<{ routes?: CaddyRoute[] }>('GET', serverPath)"
-  ) <
-    caddyClientSource.indexOf("await this.request('PUT', serverPath, serverConfig)"),
-  'sites must be read and confirmed missing before its server config is created'
-)
-
-assert.ok(
-  caddyClientSource.includes("await this.request('GET', httpAppPath)") &&
-    caddyClientSource.indexOf("await this.request('GET', httpAppPath)") <
-      caddyClientSource.indexOf("await this.request('PUT', httpAppPath, {"),
-  'the HTTP app must be read and confirmed missing before conditional creation'
-)
-
-for (const forbiddenPattern of [
-  "this.request('PATCH', '/config/apps/http'",
-  "postErrorMsg.includes('404')",
-  'POST 失败，可能服务器不存在'
-]) {
-  assert.ok(
-    !caddyClientSource.includes(forbiddenPattern),
-    `Caddy route guard forbids unsafe fallback: ${forbiddenPattern}`
-  )
-}
+assert.ok(caddyClientSource.includes('server.automatic_https.skip.push(domain)') &&
+  caddyClientSource.includes("...(!httpsEnabled ? { protocol: 'http' } : {})"),
+  'HTTP-only sites must disable certificate issuance for that domain in the same atomic update')
+assert.ok(caddyClientSource.includes('MAX_CADDY_AGENT_CACHE = 100') &&
+  caddyClientSource.includes("createHash('sha256').update(ca).digest('hex')") &&
+  caddyClientSource.includes('void oldest.close()') && caddyClientSource.includes('export async function closeCaddyClients()'),
+  'Caddy TLS pool must bind actual CA contents, bound cache growth and close retired agents')
+assert.ok(!caddyClientSource.includes("this.request('PATCH', '/config/apps/http'") &&
+  !caddyClientSource.includes("postErrorMsg.includes('404')"),
+  'unversioned parent config replacement and textual 404 handling are forbidden')
 
 assert.doesNotMatch(
   caddyClientSource,

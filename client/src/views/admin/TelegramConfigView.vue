@@ -711,7 +711,7 @@ async function testChannel(id: number) {
 
         <div class="mt-5 rounded-xl border border-themed-border bg-themed-secondary/30 p-4">
           <p class="text-sm text-themed-muted">
-              {{ t('telegramConfig.webhook.address') }}<code class="rounded bg-themed-tertiary px-1.5 py-0.5 font-mono text-xs text-themed">{{ telegramWebhookUrl }}</code>
+              {{ t('telegramConfig.webhook.address') }}<code class="mt-1 block min-w-0 break-all rounded bg-themed-tertiary px-1.5 py-0.5 font-mono text-xs text-themed">{{ telegramWebhookUrl }}</code>
           </p>
           <p class="text-xs text-themed-muted mt-1">
               {{ t('telegramConfig.webhook.addressHint') }}
@@ -766,7 +766,7 @@ async function testChannel(id: number) {
             <p v-if="telegramWebhookInfo.allowed_updates?.length">
                 {{ t('telegramConfig.webhook.allowedUpdates', { updates: telegramWebhookInfo.allowed_updates.join(', ') }) }}
             </p>
-            <p v-if="telegramWebhookInfo.last_error_message" class="text-error">
+            <p v-if="telegramWebhookInfo.last_error_message" class="break-words text-error">
                 {{ t('telegramConfig.webhook.lastError', { error: telegramWebhookInfo.last_error_message }) }}
               <span v-if="telegramWebhookInfo.last_error_date">
                 （{{ formatTelegramWebhookDate(telegramWebhookInfo.last_error_date) }}）

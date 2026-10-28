@@ -51,7 +51,8 @@ assert.ok(
 
 assert.ok(
   dbSource.includes('function clampNotificationLogPagination(page: number | undefined, pageSize: number | undefined)') &&
-    dbSource.includes('page: Number.isInteger(page) && page !== undefined && page > 0 ? page : 1') &&
+    dbSource.includes('page: Number.isSafeInteger(page) && page !== undefined && page > 0 &&') &&
+    dbSource.includes('(page - 1) * safePageSize <= 2147483647 ? page : 1') &&
     dbSource.includes('Math.min(Math.max(pageSize, 1), 100)') &&
     dbSource.includes('function normalizeNotificationLogStatus(status: string | undefined)'),
   'notification log DB helper must defensively clamp pagination and normalize status'

@@ -54,8 +54,8 @@ set_env_if_missing() {
         tmp_file="$(mktemp)"
         awk -v key="$key" -v value="$value" '
             BEGIN { replaced = 0 }
-            $0 ~ "^" key "=" && replaced == 0 {
-                print key "=" value
+            $0 ~ "^" key "=" {
+                if (replaced == 0) print key "=" value
                 replaced = 1
                 next
             }

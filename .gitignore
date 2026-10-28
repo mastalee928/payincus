@@ -100,6 +100,8 @@ docs/*
 !docs/fork-release.md
 !docs/controller-dd-oss-recovery-v1.7.2.md
 !docs/controller-oss-recovery-v1.7.3.md
+!docs/auto-snapshot-recovery.md
+!docs/proxy-site-operation-recovery.md
 !docs-site/docs/
 !docs-site/docs/**
 !plugin-templates/ai-ticket-agent-plugin/docs/

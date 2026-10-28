@@ -5,6 +5,7 @@
 import crypto from 'crypto'
 import { Prisma, type GiftCardStatus } from '@prisma/client'
 import { prisma } from './prisma.js'
+import { authorizeUserWrite, lockAdministrativeUserMutation, type WriteActor, type WriteSession } from './user-write-authorization.js'
 import {
   GIFT_CARD_LOCK_NAMESPACE,
   USER_BALANCE_LOCK_NAMESPACE,
@@ -59,6 +60,17 @@ export interface GiftCardBalanceResult {
 }
 
 type GiftCardRedeemTransactionResult = GiftCardBalanceResult | { error: 'GIFT_CARD_EXPIRED' }
+
+async function authorizeGiftCardManager(tx: Prisma.TransactionClient, actor: WriteActor, targetId = actor.id) {
+  await lockAdministrativeUserMutation(tx, targetId, actor)
+  // Read the current allowlist directly inside the write transaction; the route cache
+  // may still contain the value from before an asynchronous operation.
+  const configs = await tx.$queryRaw<Array<{ value: string }>>`SELECT value FROM system_configs WHERE key = 'payincus_gift_card_admin_ids' FOR SHARE`
+  const values = [configs[0]?.value, process.env.PAYINCUS_GIFT_CARD_ADMIN_IDS?.trim()]
+    .filter((value): value is string => Boolean(value?.trim()))
+  const allowed = values.some(value => value.split(',').some(part => Number(part.trim()) === actor.id))
+  if ((values.length > 0 || process.env.NODE_ENV === 'production') && !allowed) throw new Error('GIFT_CARD_ACTOR_FORBIDDEN')
+}
 
 function generateGiftCardCode(): string {
   const encoded = crypto.randomBytes(18).toString('base64url')
@@ -145,10 +157,13 @@ async function createGiftCardInTransaction(
   })
 }
 
-export async function createGiftCard(input: GiftCardCreateInput) {
+export async function createGiftCard(input: GiftCardCreateInput, actor?: WriteActor) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const card = await prisma.$transaction((tx) => createGiftCardInTransaction(tx, input))
+      const card = await prisma.$transaction(async (tx) => {
+        if (actor) await authorizeGiftCardManager(tx, actor)
+        return createGiftCardInTransaction(tx, input)
+      })
       return serializeGiftCard(card, { revealCode: true })
     } catch (error) {
       if (!isUniqueConstraintError(error) || attempt === 2) throw error
@@ -159,7 +174,8 @@ export async function createGiftCard(input: GiftCardCreateInput) {
 
 export async function createGiftCardBatch(
   count: number,
-  input: Omit<GiftCardCreateInput, 'batchId'>
+  input: Omit<GiftCardCreateInput, 'batchId'>,
+  actor?: WriteActor
 ) {
   if (!Number.isSafeInteger(count) || count < 1 || count > MAX_GIFT_CARD_BATCH_COUNT) {
     throw new Error('GIFT_CARD_BATCH_TOO_LARGE')
@@ -171,6 +187,7 @@ export async function createGiftCardBatch(
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
+        if (actor) await authorizeGiftCardManager(tx, actor)
         const batchId = generateBatchId()
         const cards = []
         for (let i = 0; i < count; i++) {
@@ -193,11 +210,13 @@ export async function generateGiftCardFromBalance(input: {
   userId: number
   faceValue: number
   remark?: string
+  session: WriteSession
 }) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
         await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, input.userId)
+        if (!await authorizeUserWrite(tx, input.userId, input.session)) throw new Error('GIFT_CARD_ACTOR_FORBIDDEN')
 
         const user = await tx.user.findUnique({
           where: { id: input.userId },
@@ -304,7 +323,7 @@ export async function findGiftCardById(id: number, options: { revealCode?: boole
   return card ? serializeGiftCard(card, options) : null
 }
 
-export async function redeemGiftCard(code: string, userId: number): Promise<GiftCardBalanceResult> {
+export async function redeemGiftCard(code: string, userId: number, session: WriteSession): Promise<GiftCardBalanceResult> {
   const result = await prisma.$transaction(async (tx): Promise<GiftCardRedeemTransactionResult> => {
     const initialGiftCard = await tx.giftCard.findUnique({
       where: { code },
@@ -316,6 +335,7 @@ export async function redeemGiftCard(code: string, userId: number): Promise<Gift
 
     await advisoryTransactionLock(tx, GIFT_CARD_LOCK_NAMESPACE, initialGiftCard.id)
     await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, userId)
+    if (!await authorizeUserWrite(tx, userId, session)) throw new Error('GIFT_CARD_ACTOR_FORBIDDEN')
 
     const giftCard = await tx.giftCard.findUnique({
       where: { id: initialGiftCard.id },
@@ -444,7 +464,7 @@ async function refundUserFundedGiftCard(
   return balanceAfter
 }
 
-async function disableGiftCardWithRefund(id: number) {
+async function disableGiftCardWithRefund(id: number, actor?: WriteActor) {
   return prisma.$transaction(async (tx) => {
     const initial = await tx.giftCard.findUnique({ where: { id }, select: { id: true } })
     if (!initial) return { count: 0 }
@@ -456,6 +476,9 @@ async function disableGiftCardWithRefund(id: number) {
     })
     if (!giftCard || giftCard.status !== 'active') return { count: 0 }
 
+    if (giftCard.ownerId !== null) await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, giftCard.ownerId)
+    if (actor) await authorizeGiftCardManager(tx, actor, giftCard.ownerId ?? actor.id)
+
     await refundUserFundedGiftCard(tx, giftCard)
     const updated = await tx.giftCard.updateMany({
       where: { id, status: 'active' },
@@ -465,7 +488,7 @@ async function disableGiftCardWithRefund(id: number) {
   })
 }
 
-async function deleteGiftCardWithRefund(id: number) {
+async function deleteGiftCardWithRefund(id: number, actor?: WriteActor) {
   return prisma.$transaction(async (tx) => {
     const initial = await tx.giftCard.findUnique({ where: { id }, select: { id: true } })
     if (!initial) return { count: 0 }
@@ -477,6 +500,9 @@ async function deleteGiftCardWithRefund(id: number) {
     })
     if (!giftCard || giftCard.status === 'used') return { count: 0 }
 
+    if (giftCard.ownerId !== null) await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, giftCard.ownerId)
+    if (actor) await authorizeGiftCardManager(tx, actor, giftCard.ownerId ?? actor.id)
+
     await refundUserFundedGiftCard(tx, giftCard)
     const deleted = await tx.giftCard.deleteMany({
       where: { id, status: { in: ['active', 'disabled', 'expired'] } }
@@ -485,12 +511,14 @@ async function deleteGiftCardWithRefund(id: number) {
   })
 }
 
-export async function revokeGiftCard(id: number, issuerId: number) {
+export async function revokeGiftCard(id: number, issuerId: number, session: WriteSession) {
   return prisma.$transaction(async (tx) => {
     const initial = await tx.giftCard.findUnique({ where: { id }, select: { id: true } })
     if (!initial) throw new Error('GIFT_CARD_NOT_FOUND')
 
     await advisoryTransactionLock(tx, GIFT_CARD_LOCK_NAMESPACE, id)
+    await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, issuerId)
+    if (!await authorizeUserWrite(tx, issuerId, session)) throw new Error('GIFT_CARD_ACTOR_FORBIDDEN')
     const giftCard = await tx.giftCard.findUnique({
       where: { id },
       select: { id: true, status: true, faceValue: true, createdById: true, ownerId: true }
@@ -509,38 +537,42 @@ export async function revokeGiftCard(id: number, issuerId: number) {
   })
 }
 
-export async function disableGiftCard(id: number) {
-  return disableGiftCardWithRefund(id)
+export async function disableGiftCard(id: number, actor?: WriteActor) {
+  return disableGiftCardWithRefund(id, actor)
 }
 
-export async function enableGiftCard(id: number) {
-  return prisma.giftCard.updateMany({
-    where: {
-      id,
-      status: 'disabled',
-      ownerId: null,
-      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }]
-    },
-    data: { status: 'active' }
+export async function enableGiftCard(id: number, actor?: WriteActor) {
+  return prisma.$transaction(async (tx) => {
+    await advisoryTransactionLock(tx, GIFT_CARD_LOCK_NAMESPACE, id)
+    if (actor) await authorizeGiftCardManager(tx, actor)
+    return tx.giftCard.updateMany({
+      where: {
+        id,
+        status: 'disabled',
+        ownerId: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }]
+      },
+      data: { status: 'active' }
+    })
   })
 }
 
-export async function deleteGiftCard(id: number) {
-  return deleteGiftCardWithRefund(id)
+export async function deleteGiftCard(id: number, actor?: WriteActor) {
+  return deleteGiftCardWithRefund(id, actor)
 }
 
-export async function batchDisableGiftCards(ids: number[]) {
+export async function batchDisableGiftCards(ids: number[], actor?: WriteActor) {
   let count = 0
   for (const id of [...ids].sort((a, b) => a - b)) {
-    count += (await disableGiftCardWithRefund(id)).count
+    count += (await disableGiftCardWithRefund(id, actor)).count
   }
   return { count }
 }
 
-export async function batchDeleteGiftCards(ids: number[]) {
+export async function batchDeleteGiftCards(ids: number[], actor?: WriteActor) {
   let count = 0
   for (const id of [...ids].sort((a, b) => a - b)) {
-    count += (await deleteGiftCardWithRefund(id)).count
+    count += (await deleteGiftCardWithRefund(id, actor)).count
   }
   return { count }
 }

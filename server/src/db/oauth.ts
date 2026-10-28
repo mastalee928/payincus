@@ -4,8 +4,10 @@
  */
 
 import { prisma } from './prisma.js'
+import { authorizeUserWrite, lockAdministrativeUserMutation, revokeUserSessionsInTransaction, type WriteActor, type WriteSession } from './user-write-authorization.js'
 import type { OAuthConfig, UserOAuthBinding } from '../types/database.js'
-import { decryptSensitiveData, encryptSensitiveData, isEncrypted } from '../lib/security.js'
+import { decryptSensitiveData, encryptSensitiveData, generateRefreshToken, isEncrypted, type OAuthLoginCodeData } from '../lib/security.js'
+import { Prisma } from '@prisma/client'
 
 function decryptOAuthSecret(value: string): string {
   if (!value) return value
@@ -245,16 +247,89 @@ export async function updateOAuthBindingToken(
   })
 }
 
+/** Never update tokens on a different provider identity or recreate a deleted binding. */
+export async function bindOAuthAccountIfCurrent(
+  userId: number,
+  session: WriteSession,
+  expected: UserOAuthBinding | null,
+  data: { provider: 'github' | 'google'; providerUserId: string; providerUsername?: string | null;
+    providerEmail?: string | null; providerAvatar?: string | null; accessToken: string; refreshToken?: string | null }
+): Promise<void> {
+  await prisma.$transaction(async tx => {
+    if (!await authorizeUserWrite(tx, userId, session)) throw new Error('OAUTH_SESSION_CHANGED')
+    const current = await tx.userOAuthBinding.findUnique({ where: { userId_provider: { userId, provider: data.provider } } })
+    if (expected) {
+      if (current?.id !== expected.id || current.providerUserId !== expected.provider_user_id ||
+        current.providerUserId !== data.providerUserId || current.updatedAt.toISOString() !== expected.updated_at) throw new Error('OAUTH_BINDING_CHANGED')
+      await tx.userOAuthBinding.update({ where: { id: current.id }, data: {
+        accessToken: encryptSensitiveData(data.accessToken), refreshToken: data.refreshToken ? encryptSensitiveData(data.refreshToken) : undefined
+      } })
+    } else {
+      if (current) throw new Error('OAUTH_BINDING_CHANGED')
+      await tx.userOAuthBinding.create({ data: {
+        userId, provider: data.provider, providerUserId: data.providerUserId,
+        providerUsername: data.providerUsername ?? null, providerEmail: data.providerEmail ?? null,
+        providerAvatar: data.providerAvatar ?? null, accessToken: encryptSensitiveData(data.accessToken),
+        refreshToken: data.refreshToken ? encryptSensitiveData(data.refreshToken) : null
+      } })
+    }
+  })
+}
+
+export async function updateOAuthLoginBindingIfCurrent(expected: UserOAuthBinding, accessToken: string, refreshToken: string | null): Promise<boolean> {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${expected.user_id} FOR UPDATE`)
+    const user = await tx.user.findUnique({ where: { id: expected.user_id }, select: { status: true } })
+    if (user?.status !== 'active') return false
+    const changed = await tx.userOAuthBinding.updateMany({ where: {
+      id: expected.id, userId: expected.user_id, provider: expected.provider,
+      providerUserId: expected.provider_user_id, updatedAt: new Date(expected.updated_at)
+    }, data: { accessToken: encryptSensitiveData(accessToken), refreshToken: refreshToken ? encryptSensitiveData(refreshToken) : undefined } })
+    return changed.count === 1
+  })
+}
+
+/** Create the session under the same account lock used by unbind/ban/revocation. */
+export async function createOAuthLoginSession(login: OAuthLoginCodeData, ip?: string, userAgent?: string) {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${login.userId} FOR UPDATE`)
+    const user = await tx.user.findUnique({ where: { id: login.userId } })
+    if (user?.status !== 'active' || !login.binding) return null
+    const binding = await tx.userOAuthBinding.findFirst({ where: {
+      id: login.binding.id, userId: user.id, provider: login.binding.provider, providerUserId: login.binding.providerUserId
+    } })
+    if (!binding) return null
+    const invalidation = await tx.tokenInvalidation.findUnique({ where: {
+      userId_sessionId: { userId: user.id, sessionId: '__USER_LEVEL__' }
+    } })
+    if (invalidation && Math.floor((login.authenticatedAt ?? login.timestamp) / 1000) <= invalidation.invalidatedAt) return null
+    const refreshToken = await generateRefreshToken(user.id, user.username, user.role, ip, userAgent, tx)
+    return { refreshToken, user: { id: user.id, username: user.username, role: user.role } }
+  })
+}
+
+export async function unbindOwnOAuthAccount(userId: number, provider: 'github' | 'google', session: WriteSession): Promise<void> {
+  await prisma.$transaction(async tx => {
+    if (!await authorizeUserWrite(tx, userId, session)) throw new Error('OAUTH_SESSION_CHANGED')
+    const deleted = await tx.userOAuthBinding.deleteMany({ where: { userId, provider } })
+    if (!deleted.count) throw new Error('OAUTH_BINDING_NOT_FOUND')
+    await revokeUserSessionsInTransaction(tx, userId)
+  })
+}
+
 /**
  * 删除 OAuth 绑定
  */
-export async function deleteOAuthBinding(userId: number, provider: 'github' | 'google'): Promise<void> {
-  await prisma.userOAuthBinding.delete({
-    where: {
-      userId_provider: {
-        userId,
-        provider
-      }
-    }
+export async function deleteOAuthBinding(userId: number, provider: 'github' | 'google', actor?: WriteActor): Promise<void> {
+  if (!actor) {
+    await prisma.userOAuthBinding.delete({ where: { userId_provider: { userId, provider } } })
+    return
+  }
+  await prisma.$transaction(async tx => {
+    await lockAdministrativeUserMutation(tx, userId, actor)
+    if (actor.id === userId) throw new Error('CANNOT_MODIFY_SELF')
+    const deleted = await tx.userOAuthBinding.deleteMany({ where: { userId, provider } })
+    if (!deleted.count) throw new Error('OAUTH_BINDING_NOT_FOUND')
+    await revokeUserSessionsInTransaction(tx, userId)
   })
 }

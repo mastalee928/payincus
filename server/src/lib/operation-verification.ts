@@ -470,6 +470,7 @@ export async function isOperationVerified(
             operationType,
             resourceId: resourceId || null,
             verified: true,
+            expiresAt: { gt: new Date() },
             verifiedAt: { gt: tenMinutesAgo }
         }
     })
@@ -514,6 +515,7 @@ export async function claimOperationVerificationRequirement(
             operationType,
             resourceId: resourceId || null,
             verified: true,
+            expiresAt: { gt: new Date() },
             verifiedAt: { gt: tenMinutesAgo }
         }
     })

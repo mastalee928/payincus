@@ -6,7 +6,7 @@ import { buildPublicApiOpenApiDocument, stringifyPublicApiOpenApiYaml } from '..
 import { prisma } from '../db/prisma.js'
 import { addTicketMessage, createTicket, type CreateTicketMessageAttachmentData } from '../db/tickets.js'
 import { createBalanceAdjustmentRequest } from '../db/balance.js'
-import { findUserById, getSystemConfigBoolean, performRenewal } from '../db/index.js'
+import { AffCodeEligibilityError, findUserById, getSystemConfigBoolean, performRenewal } from '../db/index.js'
 import { getAllAdminUserIds } from '../db/users.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
 import { notifyAdminTicketCreated, notifyAdminTicketReplied } from '../lib/admin-alerts.js'
@@ -1838,7 +1838,7 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
         LogResult.FAILED,
         { instanceId: service.id }
       )
-      return reply.code(400).send({ error: message, code: 'SERVICE_RENEW_FAILED' })
+      return reply.code(error instanceof AffCodeEligibilityError ? error.statusCode : 400).send({ error: message, code: 'SERVICE_RENEW_FAILED' })
     }
   })
 

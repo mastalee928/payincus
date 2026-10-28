@@ -1,4 +1,5 @@
 import { prisma } from '../db/prisma.js'
+import { ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
 import { createTransferWithFee, hasActiveTransferWorkflow, type TransferSnapshot } from '../db/transfers.js'
 import { getSystemConfigFloat } from '../db/system-config.js'
 import { createLog } from '../db/logs.js'
@@ -86,6 +87,7 @@ export async function createAdminInstancePush(instanceId: number, actorId: numbe
       snapshot, fee: state.fee, instanceName: instance.name, remark: input.remark?.trim() || undefined, adminActorId: actorId })
     transferId = result.transferId
   } catch (error) {
+    if (error instanceof ProxySiteOperationPendingError) throw new AdminInstancePushError(error.code, error.message, 409)
     const code = error instanceof Error ? error.message : 'TRANSFER_UNAVAILABLE'
     throw new AdminInstancePushError(code, '实例、接收用户或余额状态已变化，请刷新后重试')
   }

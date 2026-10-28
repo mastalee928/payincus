@@ -1,23 +1,22 @@
+import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 /**
  * 实例销毁相关路由
- * 处理用户端实例销毁功能（带退款）
+ * 处理用户端实例销毁功能（不退款）
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import type { InstanceStatus, Prisma } from '@prisma/client'
 import * as db from '../db/index.js'
 import { prisma } from '../db/prisma.js'
-import { getMaxRefundable } from '../db/billing-operations.js'
+import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
-import { sendInstanceDestroyRefundEmail } from '../lib/mailer.js'
 import { sendReleaseNotification } from '../lib/release-notifier.js'
 import { collectTrafficForRunningInstance } from '../services/instance-traffic-collector.js'
 import {
   INSTANCE_OPERATION_LOCK_NAMESPACE,
   USER_AFF_BALANCE_LOCK_NAMESPACE,
-  USER_BALANCE_LOCK_NAMESPACE,
   USER_DESTROY_BILLING_LOCK_NAMESPACE,
   advisoryTransactionLock,
   tryAdvisoryTransactionLock
@@ -25,7 +24,6 @@ import {
 
 // 销毁业务规则常量
 const DESTROY_RULES = {
-  FEE_RATE: 0.10,                // 手续费率 10%（首次免手续费）
   MAX_PAID_DESTROY_MONTHLY_TRAFFIC: 5n * 1024n * 1024n * 1024n // 5 GiB
 }
 
@@ -86,24 +84,18 @@ function canUserDestroyExpiredSuspendedPaidInstance(instance: {
     && isExpiredAt(instance.expiresAt)
 }
 
-/**
- * 计算手续费率
- * 第1次：0%（首次免手续费）
- * 第2次及以后：10%
- */
-function calculateFeeRate(destroyCount: number): number {
-  if (destroyCount === 0) return 0 // 首次免手续费
-  return DESTROY_RULES.FEE_RATE
-}
-
 function exceedsPaidDestroyTrafficLimit(monthlyTrafficUsed: bigint): boolean {
   return monthlyTrafficUsed >= DESTROY_RULES.MAX_PAID_DESTROY_MONTHLY_TRAFFIC
 }
 
 async function getDestroyBlockingTask(instanceId: number, client: any = prisma): Promise<{
-  code: 'RESTORE_IN_PROGRESS' | 'UPLOAD_IN_PROGRESS' | 'TASK_IN_PROGRESS'
+  code: 'RESTORE_IN_PROGRESS' | 'UPLOAD_IN_PROGRESS' | 'TASK_IN_PROGRESS' | 'PROXY_SITE_OPERATION_PENDING' | 'SNAPSHOT_OPERATION_PENDING'
   reason: string
 } | null> {
+  if (await hasPendingSnapshotOperation(instanceId, client)) return { code: 'SNAPSHOT_OPERATION_PENDING', reason: new SnapshotOperationPendingError().message }
+  if (await hasPendingProxySiteOperations(instanceId, client)) {
+    return { code: 'PROXY_SITE_OPERATION_PENDING', reason: new ProxySiteOperationPendingError().message }
+  }
   const [activeRestoreTask, activeUploadTask, activeInstanceTask] = await Promise.all([
     client.restoreTask.findFirst({
       where: {
@@ -253,6 +245,9 @@ async function claimInstanceForUserDestroy(
   return prisma.$transaction(async (tx) => {
     const locked = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
     if (!locked) return false
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+    await assertNoPendingSnapshotOperations(tx, instanceId)
+    await assertNoPendingProxySiteOperations(tx, instanceId)
 
     const blockingTask = await getDestroyBlockingTask(instanceId, tx)
     if (blockingTask) return false
@@ -313,7 +308,7 @@ async function deleteIncusInstanceForUserDestroy(
   await deleteInstance(client, instance.incusId)
 }
 
-async function settleUserDestroyBilling(params: {
+async function recordUserDestroyAudit(params: {
   requestUserId: number
   instance: {
     id: number
@@ -321,85 +316,20 @@ async function settleUserDestroyBilling(params: {
     hostId: number
     name: string
   }
-  refundableValue: number
-  feeWaiver: boolean
 }): Promise<{ refundAmount: number; feeAmount: number; isFirstTime: boolean }> {
-  const { requestUserId, instance, feeWaiver } = params
+  const { requestUserId, instance } = params
   const instanceId = instance.id
 
   return await prisma.$transaction(async (tx) => {
     await advisoryTransactionLock(tx, USER_DESTROY_BILLING_LOCK_NAMESPACE, requestUserId)
-    await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, instance.userId)
-    // Remote deletion may outlast a concurrent failure refund. Quote again under
-    // the shared balance lock so settlement never credits an already refunded sum.
-    const { maxRefundable } = await getMaxRefundable(instanceId, tx)
-    const refundableValue = roundMoney(Math.max(0, Math.min(params.refundableValue, maxRefundable)))
-
     const destroyCount = await tx.userDestroyRecord.count({
       where: { userId: requestUserId }
     })
     const isFirstTime = destroyCount === 0
-    let feeAmount = 0
-    if (!feeWaiver && !isFirstTime) {
-      feeAmount = roundMoney(refundableValue * calculateFeeRate(destroyCount))
-    }
-    const refundAmount = roundMoney(Math.max(0, refundableValue - feeAmount))
-
-    if (refundAmount > 0) {
-      const currentUser = await tx.user.findUnique({
-        where: { id: instance.userId },
-        select: { balance: true }
-      })
-      const oldBalance = Number(currentUser?.balance || 0)
-
-      const updatedUser = await tx.user.update({
-        where: { id: instance.userId },
-        data: { balance: { increment: refundAmount } },
-        select: { balance: true }
-      })
-      const newBalance = Number(updatedUser.balance)
-
-      const balanceLog = await tx.balanceLog.create({
-        data: {
-          userId: instance.userId,
-          type: 'refund',
-          amount: refundAmount,
-          balanceBefore: oldBalance,
-          balanceAfter: newBalance,
-          instanceId,
-          remark: `用户销毁实例退款：${instance.name}${feeWaiver ? '（异常实例免手续费）' : feeAmount > 0 ? `（手续费 ¥${feeAmount.toFixed(2)}）` : '（首次销毁免手续费）'}`
-        }
-      })
-
-      await tx.instanceBillingRecord.create({
-        data: {
-          instanceId,
-          userId: instance.userId,
-          type: 'refund',
-          amount: -refundAmount,
-          months: 0,
-          periodStart: new Date(),
-          periodEnd: new Date(),
-          balanceLogId: balanceLog.id,
-          remark: `用户销毁实例退款${feeWaiver ? '（异常实例免手续费）' : feeAmount > 0 ? `（手续费 ¥${feeAmount.toFixed(2)}）` : '（首次销毁免手续费）'}`
-        }
-      })
-
-      await reverseInstanceAffCommissionForRefund({
-        tx,
-        instanceId,
-        refundAmount,
-        remark: `用户销毁实例返利冲正：${instance.name}`
-      })
-
-      await db.deductHostingBalance(
-        instance.hostId,
-        refundableValue,
-        instanceId,
-        `用户销毁托管实例退款扣除：${instance.name}`,
-        tx
-      )
-    }
+    // Keep the destruction audit separate from all money ledgers. User-initiated
+    // deletion never credits a balance or reverses hosting/AFF earnings.
+    const refundAmount = 0
+    const feeAmount = 0
 
     await tx.userDestroyRecord.create({
       data: {
@@ -562,45 +492,16 @@ async function buildBatchDestroyPreviewItem(userId: number, instanceId: number):
   }
 
   const isErrorState = instance.status === 'error'
-  const feeWaiver = isErrorState
   const isFreeInstance = !instance.packagePlanId
   const destroyRecords = await prisma.userDestroyRecord.findMany({
     where: { userId },
     orderBy: { destroyedAt: 'desc' }
   })
-  let isFirstTime = destroyRecords.length === 0
-
-  let remainingValue = 0
-  let feeAmount = 0
-  let refundAmount = 0
-  let remainingDays = 0
-  let maxRefundable = 0
-  let refundableValue = 0
-  let currentFeeRate = feeWaiver ? 0 : calculateFeeRate(destroyRecords.length)
+  const isFirstTime = destroyRecords.length === 0
   let canDestroy = true
   let cannotDestroyReason = ''
 
-  if (!isFreeInstance && instance.expiresAt && instance.billingPrice && instance.billingCycle) {
-    const refundQuote = await db.calculateInstanceRemainingRefundQuote({
-      id: instance.id,
-      billingPrice: instance.billingPrice,
-      billingCycle: instance.billingCycle,
-      expiresAt: instance.expiresAt,
-      packagePlanId: instance.packagePlanId
-    })
-
-    if (refundQuote.isPaid) {
-      remainingDays = refundQuote.remainingDays
-      remainingValue = refundQuote.remainingValue
-      refundableValue = refundQuote.refundableValue
-      maxRefundable = refundQuote.maxRefundable
-      currentFeeRate = feeWaiver ? 0 : calculateFeeRate(destroyRecords.length)
-      if (!isFirstTime && !feeWaiver) {
-        feeAmount = Number((refundableValue * currentFeeRate).toFixed(2))
-      }
-      refundAmount = Number((refundableValue - feeAmount).toFixed(2))
-    }
-
+  if (!isFreeInstance) {
     if (
       !canUserDestroyExpiredSuspendedPaidInstance(instance)
       && exceedsPaidDestroyTrafficLimit(instance.monthlyTrafficUsed)
@@ -619,13 +520,13 @@ async function buildBatchDestroyPreviewItem(userId: number, instanceId: number):
     isFirstTime,
     feeWaiverEligible: isErrorState,
     refund: {
-      remainingDays,
-      remainingValue,
-      feeRate: currentFeeRate,
-      feeAmount,
-      refundAmount,
+      remainingDays: 0,
+      remainingValue: 0,
+      feeRate: 0,
+      feeAmount: 0,
+      refundAmount: 0,
       destroyCount: destroyRecords.length,
-      maxRefundable
+      maxRefundable: 0
     },
     instance: {
       id: instance.id,
@@ -680,7 +581,6 @@ async function executeDestroyForUser(
     orderBy: { destroyedAt: 'desc' }
   })
   let isFirstTime = destroyRecords.length === 0
-  const feeWaiver = instance.status === 'error'
 
   let currentMonthlyTrafficUsed = instance.monthlyTrafficUsed
   if (!isFreeInstance && instance.status === 'running') {
@@ -700,30 +600,8 @@ async function executeDestroyForUser(
     return { id: instance.id, name: instance.name, success: false, skipped: true, reason: DESTROY_TRAFFIC_LIMIT_REASON }
   }
 
-  let feeAmount = 0
-  let refundAmount = 0
-  let refundableValue = 0
-
-  if (!isFreeInstance && instance.expiresAt && instance.billingPrice && instance.billingCycle) {
-    const refundQuote = await db.calculateInstanceRemainingRefundQuote({
-      id: instanceId,
-      billingPrice: instance.billingPrice,
-      billingCycle: instance.billingCycle,
-      expiresAt: instance.expiresAt,
-      packagePlanId: instance.packagePlanId
-    })
-
-    if (refundQuote.isPaid) {
-      refundableValue = refundQuote.refundableValue
-      if (!feeWaiver) {
-        const currentFeeRate = calculateFeeRate(destroyRecords.length)
-        if (!isFirstTime) {
-          feeAmount = roundMoney(refundableValue * currentFeeRate)
-        }
-      }
-      refundAmount = roundMoney(Math.max(0, refundableValue - feeAmount))
-    }
-  }
+  const feeAmount = 0
+  const refundAmount = 0
 
   const claimed = await claimInstanceForUserDestroy(instanceId, user.id, instance.status)
   if (!claimed) {
@@ -739,15 +617,11 @@ async function executeDestroyForUser(
     }
 
     if (!isFreeInstance) {
-      const billingResult = await settleUserDestroyBilling({
+      const auditResult = await recordUserDestroyAudit({
         requestUserId: user.id,
-        instance,
-        refundableValue,
-        feeWaiver
+        instance
       })
-      refundAmount = billingResult.refundAmount
-      feeAmount = billingResult.feeAmount
-      isFirstTime = billingResult.isFirstTime
+      isFirstTime = auditResult.isFirstTime
     }
 
     const portMappings = await prisma.portMapping.findMany({ where: { instanceId } })
@@ -807,27 +681,10 @@ async function executeDestroyForUser(
       'success'
     )
 
-    await sendNotification(user.id, 'instance_deleted_refunded', {
+    await sendNotification(user.id, 'instance_deleted', {
       instanceName: instance.name,
-      refundAmount,
-      feeAmount,
-      isFreeInstance
+      hostName: instance.host.name
     })
-
-    if (!isFreeInstance && instance.user?.email) {
-      try {
-        await sendInstanceDestroyRefundEmail(instance.user.email, {
-          username: instance.user.username,
-          instanceName: instance.name,
-          refundAmount,
-          feeAmount,
-          refundType: '余额退款',
-          isUserDestroy: true
-        })
-      } catch (emailErr) {
-        logger.warn(emailErr, '发送销毁退款邮件失败')
-      }
-    }
 
     sendHostManagedInstanceNotification(
       instance.hostId,
@@ -1004,9 +861,7 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: '实例已被封停，无法销毁，请先联系管理员解封', canDestroy: false })
     }
 
-    // 异常实例免手续费
     const isErrorState = instance.status === 'error'
-    const feeWaiver = request.query.feeWaiver === 'error' && isErrorState
 
     // 免费实例检查
     const isFreeInstance = !instance.packagePlanId
@@ -1018,42 +873,7 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
     })
 
     // 检查是否首次销毁
-    let isFirstTime = destroyRecords.length === 0
-
-    // 计算剩余价值和退款金额
-    let remainingValue = 0
-    let feeAmount = 0
-    let refundAmount = 0
-    let remainingDays = 0
-    let maxRefundable = 0
-    let refundableValue = 0
-    let currentFeeRate = feeWaiver ? 0 : calculateFeeRate(destroyRecords.length)
-
-    if (!isFreeInstance && instance.expiresAt && instance.billingPrice && instance.billingCycle) {
-      const refundQuote = await db.calculateInstanceRemainingRefundQuote({
-        id: instanceId,
-        billingPrice: instance.billingPrice,
-        billingCycle: instance.billingCycle,
-        expiresAt: instance.expiresAt,
-        packagePlanId: instance.packagePlanId
-      })
-
-      if (refundQuote.isPaid) {
-        remainingDays = refundQuote.remainingDays
-        remainingValue = refundQuote.remainingValue
-        refundableValue = refundQuote.refundableValue
-        maxRefundable = refundQuote.maxRefundable
-
-        // 计算手续费（首次免手续费，后续固定 10%；异常实例免手续费）
-        currentFeeRate = feeWaiver ? 0 : calculateFeeRate(destroyRecords.length)
-        if (!isFirstTime && !feeWaiver) {
-          feeAmount = Number((refundableValue * currentFeeRate).toFixed(2))
-        }
-
-        // 实际退款金额
-        refundAmount = Number((refundableValue - feeAmount).toFixed(2))
-      }
-    }
+    const isFirstTime = destroyRecords.length === 0
 
     // 判断是否可以销毁（已移除冷却期限制，付费实例随时可销毁）
     let canDestroy = true
@@ -1077,17 +897,17 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
       feeWaiverEligible: isErrorState,
       // 销毁规则
       rules: {
-        feeRate: feeWaiver ? 0 : DESTROY_RULES.FEE_RATE
+        feeRate: 0
       },
       // 退款预览
       refund: {
-        remainingDays,
-        remainingValue,
-        feeRate: currentFeeRate,
-        feeAmount,
-        refundAmount,
+        remainingDays: 0,
+        remainingValue: 0,
+        feeRate: 0,
+        feeAmount: 0,
+        refundAmount: 0,
         destroyCount: destroyRecords.length,  // 已销毁次数
-        maxRefundable  // 退款上限（基于历史账单）
+        maxRefundable: 0
       },
       // 实例信息
       instance: {
@@ -1163,10 +983,6 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
     let isFirstTime = destroyRecords.length === 0
     // 已移除冷却期限制，付费实例可随时销毁
 
-    // 异常实例免手续费
-    const isErrorState = instance.status === 'error'
-    const feeWaiver = request.query.feeWaiver === 'error' && isErrorState
-
     let currentMonthlyTrafficUsed = instance.monthlyTrafficUsed
 
     if (!isFreeInstance && instance.status === 'running') {
@@ -1189,34 +1005,8 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
       ))
     }
 
-    // 计算退款金额
-    let feeAmount = 0
-    let refundAmount = 0
-    let refundableValue = 0
-
-    if (!isFreeInstance && instance.expiresAt && instance.billingPrice && instance.billingCycle) {
-      const refundQuote = await db.calculateInstanceRemainingRefundQuote({
-        id: instanceId,
-        billingPrice: instance.billingPrice,
-        billingCycle: instance.billingCycle,
-        expiresAt: instance.expiresAt,
-        packagePlanId: instance.packagePlanId
-      })
-
-      if (refundQuote.isPaid) {
-        refundableValue = refundQuote.refundableValue
-
-        // 异常实例免手续费，否则按正常规则计算
-        if (!feeWaiver) {
-          const currentFeeRate = calculateFeeRate(destroyRecords.length)
-          if (!isFirstTime) {
-            feeAmount = roundMoney(refundableValue * currentFeeRate)
-          }
-        }
-
-        refundAmount = roundMoney(Math.max(0, refundableValue - feeAmount))
-      }
-    }
+    const feeAmount = 0
+    const refundAmount = 0
 
     const claimed = await claimInstanceForUserDestroy(instanceId, user.id, instance.status)
     if (!claimed) {
@@ -1235,15 +1025,11 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
       }
 
       if (!isFreeInstance) {
-        const billingResult = await settleUserDestroyBilling({
+        const auditResult = await recordUserDestroyAudit({
           requestUserId: user.id,
-          instance,
-          refundableValue,
-          feeWaiver
+          instance
         })
-        refundAmount = billingResult.refundAmount
-        feeAmount = billingResult.feeAmount
-        isFirstTime = billingResult.isFirstTime
+        isFirstTime = auditResult.isFirstTime
       }
 
       // 2. 获取端口映射数量（用于释放资源）
@@ -1309,27 +1095,10 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
       )
 
       // 9. 通知用户
-      await sendNotification(user.id, 'instance_deleted_refunded', {
+      await sendNotification(user.id, 'instance_deleted', {
         instanceName: instance.name,
-        refundAmount,
-        feeAmount,
-        isFreeInstance
+        hostName: instance.host.name
       })
-
-      if (!isFreeInstance && instance.user?.email) {
-        try {
-          await sendInstanceDestroyRefundEmail(instance.user.email, {
-            username: instance.user.username,
-            instanceName: instance.name,
-            refundAmount,
-            feeAmount,
-            refundType: '余额退款',
-            isUserDestroy: true
-          })
-        } catch (emailErr) {
-          request.log.warn(emailErr, '发送销毁退款邮件失败')
-        }
-      }
 
       sendHostManagedInstanceNotification(
         instance.hostId,

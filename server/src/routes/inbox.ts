@@ -5,10 +5,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import * as inboxDb from '../db/inbox.js'
 import * as db from '../db/index.js'
-import * as announcementsDb from '../db/announcements.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { isSmtpEnabled, sendHostAnnouncementEmail } from '../lib/mailer.js'
 import { redactDemoInboxMessage, shouldRedactDemoLoginRecords } from '../lib/demo-safety.js'
+import { sendAdministrativeInbox, sendHostInbox, InboxSendError } from '../db/inbox-send.js'
 
 const POSITIVE_INTEGER_PATTERN = /^[1-9]\d*$/
 
@@ -61,6 +61,15 @@ function normalizeInboxMessageInput(body: unknown): { title: string; content: st
   }
 
   return { title: trimmedTitle, content: trimmedContent }
+}
+
+async function runInboxSend<T>(reply: FastifyReply, operation: () => Promise<T>) {
+  try { return await operation() } catch (error) {
+    if (error instanceof InboxSendError) return reply.code(error.statusCode).send({ error: error.code })
+    if (error instanceof Error && error.message === 'INBOX_QUEUE_BUSY') return reply.code(409).send({ error: 'INBOX_QUEUE_BUSY' })
+    if (error instanceof Error && error.message === 'ADMIN_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+    throw error
+  }
 }
 
 export default async function inboxRoutes(fastify: FastifyInstance) {
@@ -210,32 +219,10 @@ export default async function inboxRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(messageInput.error)
     }
 
-    // 获取所有活跃用户
-    const userIds = await inboxDb.getAllActiveUserIds()
-    
-    if (userIds.length === 0) {
-      return { success: true, count: 0 }
-    }
-
-    // 批量发送
-    const count = await inboxDb.createBulkMessages({
-      userIds,
-      eventType: 'system_announcement',
-      title: messageInput.title,
-      content: messageInput.content,
-      data: { senderId: request.user.id }
+    return runInboxSend(reply, async () => {
+      const count = await sendAdministrativeInbox(request.user, messageInput)
+      return { success: true, count }
     })
-
-    // 保存公告记录
-    await announcementsDb.createAnnouncement({
-      type: 'system_broadcast',
-      senderId: request.user.id,
-      title: messageInput.title,
-      content: messageInput.content,
-      recipientCount: count,
-    })
-
-    return { success: true, count }
   })
 
   /**
@@ -307,123 +294,32 @@ export default async function inboxRoutes(fastify: FastifyInstance) {
     const trimmedTitle = messageInput.title
     const trimmedContent = messageInput.content
 
-    // 获取目标用户（去重）：如果指定了 instanceIds 则只通知这些实例的用户，否则通知全部
-    const recipients = await inboxDb.getUniqueRecipientsByHostId(hostId, normalizedInstanceIds)
-    const userIds = recipients.map(recipient => recipient.userId)
-    const emailRecipients = sendEmail
-      ? recipients.filter(recipient => typeof recipient.email === 'string' && recipient.email.trim().length > 0)
-      : []
-
-    if (sendEmail && emailRecipients.length > 0) {
-      const smtpEnabled = await isSmtpEnabled()
-      if (!smtpEnabled) {
-        return reply.code(400).send({
-          error: 'SMTP_NOT_CONFIGURED',
-          message: 'SMTP is not configured'
+    const smtpEnabled = sendEmail ? await isSmtpEnabled() : false
+    return runInboxSend(reply, async () => {
+      const delivery = await sendHostInbox(request.user, { hostId, instanceIds: normalizedInstanceIds,
+        title: trimmedTitle, content: trimmedContent, sendEmail, smtpEnabled })
+      const { count, recipients, emailRecipients, queuedCount, hostName } = delivery
+      if (!sendEmail) return { success: true, count }
+      const emailSummary = {
+        requested: true, mode: queuedCount ? 'queued' : 'none', sentCount: 0, queuedCount,
+        skippedCount: recipients.length - emailRecipients.length, failedCount: 0
+      }
+      // Only dispatch the recipient authorized by the committed message/history.
+      if (recipients.length === 1 && emailRecipients.length === 1) {
+        const recipient = emailRecipients[0]
+        emailSummary.mode = 'direct'
+        const sent = await sendHostAnnouncementEmail(recipient.email!.trim(), {
+          username: recipient.username, hostName, title: trimmedTitle, content: trimmedContent
         })
+        if (sent.success) emailSummary.sentCount = 1
+        else {
+          emailSummary.failedCount = 1
+          fastify.log.error(`[Inbox] Failed direct host announcement for user ${recipient.userId}: ${sent.error}`)
+        }
       }
-    }
-
-    if (userIds.length === 0) {
-      return {
-        success: true,
-        count: 0,
-        ...(sendEmail ? {
-          email: {
-            requested: true,
-            mode: 'none',
-            sentCount: 0,
-            queuedCount: 0,
-            skippedCount: 0,
-            failedCount: 0
-          }
-        } : {})
-      }
-    }
-
-    // 构建带节点署名的消息内容
-    const messageContent = `${trimmedContent}\n\n来自节点：${host.name}`
-
-    // 批量发送
-    const count = await inboxDb.createBulkMessages({
-      userIds,
-      eventType: 'host_announcement',
-      title: trimmedTitle,
-      content: messageContent,
-      data: { hostId, hostName: host.name, senderId: userId }
+      return { success: true, count, email: emailSummary }
     })
-
-    // 保存公告记录
-    await announcementsDb.createAnnouncement({
-      type: 'host_broadcast',
-      senderId: userId,
-      title: trimmedTitle,
-      content: trimmedContent,
-      recipientCount: count,
-      hostId,
-    })
-
-    if (!sendEmail) {
-      return { success: true, count }
-    }
-
-    const emailSummary = {
-      requested: true,
-      mode: 'none' as 'none' | 'direct' | 'queued',
-      sentCount: 0,
-      queuedCount: 0,
-      skippedCount: recipients.length - emailRecipients.length,
-      failedCount: 0
-    }
-
-    if (recipients.length === 1 && emailRecipients.length === 1) {
-      const recipient = emailRecipients[0]
-      emailSummary.mode = 'direct'
-
-      const directSendResult = await sendHostAnnouncementEmail(recipient.email!.trim(), {
-        username: recipient.username,
-        hostName: host.name,
-        title: trimmedTitle,
-        content: trimmedContent
-      })
-
-      if (directSendResult.success) {
-        emailSummary.sentCount = 1
-      } else {
-        emailSummary.failedCount = 1
-        fastify.log.error(
-          `[Inbox] Failed to send direct host announcement email to user ${recipient.userId}: ${directSendResult.error}`
-        )
-      }
-    } else if (emailRecipients.length > 0) {
-      emailSummary.mode = 'queued'
-
-      try {
-        emailSummary.queuedCount = await db.enqueueHostNotificationEmailTasks(
-          emailRecipients.map(recipient => ({
-            userId: recipient.userId,
-            hostId,
-            email: recipient.email!.trim(),
-            username: recipient.username,
-            hostName: host.name,
-            title: trimmedTitle,
-            content: trimmedContent
-          }))
-        )
-        emailSummary.failedCount = Math.max(0, emailRecipients.length - emailSummary.queuedCount)
-      } catch (error) {
-        emailSummary.failedCount = emailRecipients.length
-        fastify.log.error(`[Inbox] Failed to enqueue host announcement emails for host ${hostId}: ${error}`)
-      }
-    }
-
-    return {
-      success: true,
-      count,
-      email: emailSummary
-    }
   })
-
   /**
    * 管理员发送站内信给特定用户
    */
@@ -466,26 +362,10 @@ export default async function inboxRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(messageInput.error)
     }
 
-    // 创建消息
-    await inboxDb.createInboxMessage({
-      userId: targetUserId,
-      eventType: 'admin_message',
-      title: messageInput.title,
-      content: messageInput.content,
-      data: { senderId: request.user.id }
+    return runInboxSend(reply, async () => {
+      await sendAdministrativeInbox(request.user, { ...messageInput, targetUserId })
+      return { success: true }
     })
-
-    // 保存通知记录
-    await announcementsDb.createAnnouncement({
-      type: 'admin_message',
-      senderId: request.user.id,
-      title: messageInput.title,
-      content: messageInput.content,
-      recipientCount: 1,
-      targetUserId,
-    })
-
-    return { success: true }
   })
 
   /**
@@ -543,36 +423,9 @@ export default async function inboxRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(messageInput.error)
     }
 
-    // 构建带节点署名的消息内容
-    const messageContent = `${messageInput.content}\n\n来自节点：${host.name}`
-
-    // 创建消息给实例用户
-    await inboxDb.createInboxMessage({
-      userId: instance.user_id,
-      eventType: 'host_message',
-      title: messageInput.title,
-      content: messageContent,
-      data: {
-        hostId: host.id,
-        hostName: host.name,
-        instanceId: instance.id,
-        instanceName: instance.name,
-        senderId: userId
-      }
+    return runInboxSend(reply, async () => {
+      await sendHostInbox(request.user, { instanceId, ...messageInput })
+      return { success: true }
     })
-
-    // 保存通知记录
-    await announcementsDb.createAnnouncement({
-      type: 'host_message',
-      senderId: userId,
-      title: messageInput.title,
-      content: messageInput.content,
-      recipientCount: 1,
-      hostId: host.id,
-      targetUserId: instance.user_id,
-      instanceId: instance.id,
-    })
-
-    return { success: true }
   })
 }

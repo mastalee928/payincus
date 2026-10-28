@@ -1,9 +1,11 @@
+import { hasPendingSnapshotOperation, } from '../db/snapshot-operation-guards.js'
 /**
  * 恢复任务队列调度器
  * 确保同一台宿主机同一时间只有一个恢复任务在执行
  */
 
 import { prisma } from '../db/prisma.js'
+import { hasPendingProxySiteOperations } from '../db/proxy-site-operation-guards.js'
 import { resolveStoragePoolForExistingInstance } from '../db/storage-pools.js'
 import { getIncusClient } from '../lib/incus/index.js'
 import { getBackupExportStream } from '../lib/incus/incus-backups.js'
@@ -174,6 +176,8 @@ async function claimNextTask(hostId: number) {
 
             const instanceOperationLocked = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, taskToRun.instanceId)
             if (!instanceOperationLocked) return null
+            await tx.$queryRaw`SELECT id FROM instances WHERE id = ${taskToRun.instanceId} FOR UPDATE`
+            if (await hasPendingSnapshotOperation(taskToRun.instanceId, tx) || await hasPendingProxySiteOperations(taskToRun.instanceId, tx)) return null
 
             const instance = await tx.instance.findUnique({
                 where: { id: taskToRun.instanceId },

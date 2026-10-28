@@ -67,10 +67,24 @@ assert.ok(
 )
 
 for (const { file, source: routeSource } of sensitiveOperationRouteSources) {
-  assert.ok(
-    routeSource.includes('claimOperationVerificationRequirement'),
-    `${file} must atomically claim a verified operation record before sensitive side effects`
-  )
+  if (file === '../src/routes/users.ts') {
+    const userDb = readFileSync(resolve(__dirname, '../src/db/users.ts'), 'utf8')
+    const start = userDb.indexOf('export async function updateUserProfileIfCurrent(')
+    const end = userDb.indexOf('export async function resetPasswordWithEmailVerification(', start)
+    assert.ok(start >= 0 && end > start)
+    const profile = userDb.slice(start, end)
+    assert.ok(routeSource.includes('await db.updateUserProfileIfCurrent(profileState, updates, request.user, emailCode)') &&
+      profile.includes('return prisma.$transaction(async tx => {') &&
+      profile.includes('await tx.operationVerification.deleteMany') &&
+      profile.includes('userId: actor.id, operationType, resourceId: null, verified: true') &&
+      profile.includes('expiresAt: { gt: now }, verifiedAt: { gt: new Date(now.getTime() - 10 * 60000) }') &&
+      profile.includes('if (!grant.count) throw new Error(`PROFILE_VERIFICATION_REQUIRED:${operationType}`)') &&
+      profile.indexOf('await tx.operationVerification.deleteMany') < profile.indexOf('await tx.user.updateMany'),
+      'profile changes must consume a current verified account grant before the profile write in the same transaction')
+  } else {
+    assert.ok(routeSource.includes('claimOperationVerificationRequirement'),
+      `${file} must atomically claim a verified operation record before sensitive side effects`)
+  }
   assert.ok(
     !routeSource.includes('consumeOperationVerification'),
     `${file} must not consume operation verification records only after sensitive side effects`

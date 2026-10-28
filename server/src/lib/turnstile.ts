@@ -47,6 +47,7 @@ export async function verifyTurnstileToken(
 
         const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
             method: 'POST',
+            signal: AbortSignal.timeout(10_000),
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },

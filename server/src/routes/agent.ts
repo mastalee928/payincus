@@ -15,13 +15,13 @@ import { createLog, LogModule, LogResult } from '../db/logs.js'
 import { decryptSensitiveData } from '../lib/security.js'
 import {
   agentNonceTtlMs,
-  createAgentBodyHash,
   isAgentTimestampFresh,
   isValidAgentSecret,
   readAgentAuthHeaders,
   validateAgentHeaders,
   verifyAgentSignature
 } from '../lib/agent-auth.js'
+import { captureAgentBodyHash, matchesAgentBodyHash } from '../lib/agent-request-body.js'
 import {
   consumeHostAgentInstallToken,
   issueHostAgentInstallToken,
@@ -1022,8 +1022,8 @@ async function authenticateAgentRequest(
     return null
   }
 
-  const bodyHash = createAgentBodyHash(request.body ?? {})
-  if (bodyHash !== headers.bodyHash.toLowerCase()) {
+  const bodyHash = headers.bodyHash.toLowerCase()
+  if (!matchesAgentBodyHash(request, bodyHash)) {
     reply.code(401).send({ error: 'Agent body hash mismatch', code: 'AGENT_BODY_HASH_MISMATCH' })
     return null
   }
@@ -1083,6 +1083,7 @@ async function authenticateAgentRequest(
 }
 
 export default async function agentRoutes(fastify: FastifyInstance) {
+  fastify.decorateRequest('agentWireBodyHash', null)
   fastify.get('/install.sh', async (_request: FastifyRequest, reply: FastifyReply) => {
     const scriptPath = join(__dirname, '../../templates/agent-install.sh')
     const script = readFileSync(scriptPath, 'utf8')
@@ -1351,11 +1352,12 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     const panelUrl = derivePanelUrl(request)
     let result: Awaited<ReturnType<typeof issueHostAgentInstallToken>>
     try {
-      result = await issueHostAgentInstallToken(hostId, request.body?.enabled ?? true)
+      result = await issueHostAgentInstallToken(hostId, request.body?.enabled ?? true, { actor: request.user })
     } catch (error) {
       if (error instanceof Error && error.message === 'HOST_NOT_FOUND') {
         return reply.code(404).send({ error: 'Host not found', code: 'HOST_NOT_FOUND' })
       }
+      if (error instanceof Error && error.message === 'AGENT_ACTOR_FORBIDDEN') return reply.code(403).send({ error: 'Forbidden', code: 'FORBIDDEN' })
       throw error
     }
     const installCommand = buildAgentInstallCommand({
@@ -1430,11 +1432,12 @@ export default async function agentRoutes(fastify: FastifyInstance) {
 
     let result: Awaited<ReturnType<typeof rotateHostAgentCredentials>>
     try {
-      result = await rotateHostAgentCredentials(hostId, request.body?.enabled ?? true)
+      result = await rotateHostAgentCredentials(hostId, request.body?.enabled ?? true, { actor: request.user, adminOnly: true })
     } catch (error) {
       if (error instanceof Error && error.message === 'HOST_NOT_FOUND') {
         return reply.code(404).send({ error: 'Host not found', code: 'HOST_NOT_FOUND' })
       }
+      if (error instanceof Error && error.message === 'AGENT_ACTOR_FORBIDDEN') return reply.code(403).send({ error: 'Forbidden', code: 'FORBIDDEN' })
       throw error
     }
 
@@ -1505,11 +1508,12 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     const panelUrl = derivePanelUrl(request, request.body?.baseUrl)
     let result: Awaited<ReturnType<typeof issueHostAgentInstallToken>>
     try {
-      result = await issueHostAgentInstallToken(hostId, request.body?.enabled ?? true)
+      result = await issueHostAgentInstallToken(hostId, request.body?.enabled ?? true, { actor: request.user, adminOnly: true })
     } catch (error) {
       if (error instanceof Error && error.message === 'HOST_NOT_FOUND') {
         return reply.code(404).send({ error: 'Host not found', code: 'HOST_NOT_FOUND' })
       }
+      if (error instanceof Error && error.message === 'AGENT_ACTOR_FORBIDDEN') return reply.code(403).send({ error: 'Forbidden', code: 'FORBIDDEN' })
       throw error
     }
 
@@ -1540,6 +1544,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post<{ Body: AgentHeartbeatBody }>('/heartbeat', {
+    preParsing: captureAgentBodyHash,
     schema: {
       body: {
         type: 'object',

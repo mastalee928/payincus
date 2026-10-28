@@ -1042,15 +1042,21 @@ export interface CreateBackupRequest {
   description?: string
 }
 
+export interface SnapshotOperation {
+  id: string
+  state: 'pending' | 'applying' | 'retry' | 'blocked'
+  stage: string
+  error: string | null
+  nextRetryAt: string | null
+  snapshotName: string
+}
+
 export interface SnapshotPolicy {
-  id: number
-  instance_id: number
-  enabled: number
+  enabled: boolean
   interval_minutes: number
   last_run_at: string | null
   next_run_at: string | null
-  created_at: string
-  updated_at: string
+  operation: SnapshotOperation | null
 }
 
 export interface BackupPolicy {

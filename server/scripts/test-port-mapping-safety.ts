@@ -157,8 +157,16 @@ assert.ok(
 )
 assert.ok(
   batchPortSection.includes("const quotaNeeded = finalMappings.length * (protocol === 'both' ? 2 : 1)") &&
-    batchPortSection.indexOf('const quotaNeeded = finalMappings.length') > batchPortSection.indexOf('if (portMappings && portMappings.length > 0)'),
+    batchPortSection.indexOf('const quotaNeeded = finalMappings.length') > batchPortSection.indexOf('if (portMappings !== undefined)'),
   'batch port quota must be calculated from the final normalized mappings'
+)
+assert.ok(
+  batchPortSection.includes('minItems: 1') &&
+    batchPortSection.includes('if (portMappings !== undefined)') &&
+    batchPortSection.includes('portMappings.length !== privatePortCount') &&
+    batchPortSection.includes('mapping.privatePort < privatePortStart || mapping.privatePort > privatePortEnd') &&
+    batchPortSection.indexOf('portMappings.length !== privatePortCount') < batchPortSection.indexOf('await db.createPortMapping'),
+  'custom mappings must be nonempty and cover exactly the declared private range before any reservation or remote write'
 )
 
 console.log('port mapping safety tests passed')

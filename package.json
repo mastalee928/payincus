@@ -45,6 +45,13 @@
     "test:demo-readonly-redaction-guards": "pnpm --filter server test:demo-readonly-redaction-guards"
   },
   "testGuards": [
+    "pnpm --filter server test:review-ipv6-route-recovery",
+    "pnpm --filter server test:review-secondary-boundaries",
+    "pnpm --filter server test:review-incus-pool",
+    "pnpm --filter server test:review-markdown",
+    "pnpm --filter server test:review-core-boundaries",
+    "pnpm --filter server test:agent-wire-body",
+    "pnpm --filter server test:review-locale-messages",
     "pnpm --filter server test:onboarding-gateway-endpoint",
     "pnpm --filter server test:billing-expiry-enforcement",
     "pnpm --filter server test:gateway-management-route-guards",

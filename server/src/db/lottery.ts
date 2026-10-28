@@ -518,7 +518,7 @@ export function weightedRandomSelect(prizes: Array<{
       }
       // 库存已空，回退到"谢谢参与"
       if (nothingPrize) return nothingPrize
-      // 如果没有nothing奖品，继续检查下一个
+      throw new Error('LOTTERY_CONFIG_ERROR: 命中已耗尽奖品且缺少"谢谢参与"奖品')
     }
   }
 

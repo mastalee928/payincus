@@ -28,6 +28,13 @@ assert.ok(balanceDb.includes('export async function createBalanceAdjustmentReque
 assert.ok(balanceDb.includes('export async function getBalanceAdjustmentRequests('), 'missing approval request list db function')
 assert.ok(balanceDb.includes('export async function approveBalanceAdjustmentRequest('), 'missing approval execution db function')
 assert.ok(balanceDb.includes('export async function rejectBalanceAdjustmentRequest('), 'missing reject db function')
+assert.ok(balanceDb.includes('lockAdministrativeUserMutation(tx, request.userId, actor)') &&
+  balanceDb.includes('lockAdministrativeUserMutation(tx, target.userId, actor)') &&
+  balanceDb.includes('lockAdministrativeUserMutation(tx, input.userId, input.actor)') &&
+  balanceDb.includes('if (input.actor) await lockAdministrativeUserMutation(tx, userId, input.actor)') &&
+  balanceRoute.includes('db.approveBalanceAdjustmentRequest(requestId, request.user,') &&
+  balanceRoute.includes('db.rejectBalanceAdjustmentRequest(requestId, request.user,'),
+  'Web adjustment creation/execution/rejection and direct balance writes must recheck current administrator/session within the transaction')
 assert.ok(
   balanceDb.includes("where: { id: requestId, status: 'pending' }") &&
     balanceDb.includes("status: 'approved'") &&

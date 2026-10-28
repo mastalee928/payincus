@@ -1,3 +1,4 @@
+import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
 import { applyCustomerInstanceView } from '../lib/customer-instance-view.js'
 import { hostLiveStatus } from '../lib/host-live-status.js'
@@ -11,6 +12,7 @@ import * as db from '../db/index.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { prisma } from '../db/prisma.js'
+import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
 import { Prisma, type InstanceStatus } from '@prisma/client'
 import { getIncusClient } from '../lib/incus/index.js'
 import {
@@ -89,9 +91,9 @@ import {
   type NetworkMode
 } from '../lib/network-modes.js'
 import {
-  persistResolvedInstanceNetworkAddresses,
   resolveInstanceNetworkAddresses
 } from '../lib/instance-network-sync.js'
+import { syncInstanceNetworkAndProxySites, readProxyNetworkSyncHostIdentity, ProxyNetworkSyncError } from '../lib/instance-proxy-network-sync.js'
 import {
   INSTANCE_OPERATION_LOCK_NAMESPACE,
   USER_BALANCE_LOCK_NAMESPACE,
@@ -261,6 +263,16 @@ function sendActiveTaskConflict(reply: FastifyReply, activeTask?: Pick<InstanceT
 }
 
 async function rejectActiveInstanceWorkflowConflict(reply: FastifyReply, instanceId: number): Promise<boolean> {
+  if (await hasPendingSnapshotOperation(instanceId)) {
+    const error = new SnapshotOperationPendingError()
+    reply.code(409).send({ code: error.code, error: error.message })
+    return true
+  }
+  if (await hasPendingProxySiteOperations(instanceId)) {
+    const error = new ProxySiteOperationPendingError()
+    reply.code(409).send({ code: error.code, error: error.message })
+    return true
+  }
   const [activeRestoreTask, activeUploadTask, activeInstanceTask] = await Promise.all([
     prisma.restoreTask.findFirst({
       where: {
@@ -319,6 +331,10 @@ async function createInstanceTaskOrConflict(
     const task = await createInstanceTask(data)
     return task
   } catch (error) {
+    if ((error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError)) {
+      reply.code(409).send({ code: error.code, error: error.message })
+      return null
+    }
     if (error instanceof InstanceTaskConflictError) {
       sendActiveTaskConflict(reply, error.activeTask)
       return null
@@ -331,6 +347,9 @@ async function claimInstanceForDelete(instanceId: number, currentStatus: Instanc
   return prisma.$transaction(async (tx) => {
     const locked = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
     if (!locked) return false
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+    await assertNoPendingSnapshotOperations(tx, instanceId)
+    await assertNoPendingProxySiteOperations(tx, instanceId)
 
     const [activeRestoreTask, activeUploadTask, activeInstanceTask] = await Promise.all([
       tx.restoreTask.findFirst({
@@ -1796,12 +1815,19 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
             throw new Error('BALANCE_CONFLICT: 余额正在处理，请稍后重试')
           }
 
+          await tx.$queryRaw`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`
           const userRecord = await tx.user.findUnique({
             where: { id: user.id },
             select: { balance: true }
           })
           if (!userRecord) {
             throw new Error('USER_NOT_FOUND: 用户不存在')
+          }
+
+          // Match renewal's host/account -> AFF order. A changed code rolls back
+          // the reserved host and new instance before any payment is committed.
+          if (validatedAffCode) {
+            await db.requireAffCodeForPurchase(tx, validatedAffCode.id, user.id, selectedPlan.id, validatedAffCode.discountRate)
           }
 
           lockedBalanceBefore = Number(userRecord.balance)
@@ -1970,6 +1996,10 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       }
     } catch (err: any) {
       const errorMessage = err?.message || String(err)
+
+      if (err instanceof db.AffCodeEligibilityError) {
+        return reply.code(err.statusCode).send(apiError(ErrorCode.INVALID_PARAMS, err.message))
+      }
 
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && normalPaidIdempotencyKey) {
         const replay = await findNormalPaidCreateReplay(user.id, normalPaidIdempotencyKey)
@@ -3258,7 +3288,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
     // 获取 Incus 客户端
     let client
+    let hostConnectionIdentity: string
     try {
+      hostConnectionIdentity = await readProxyNetworkSyncHostIdentity(host.id)
       client = await getIncusClient(host as Host)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
@@ -3290,31 +3322,17 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
         return reply.code(500).send({ error: `未知状态: ${state.status}` })
       }
 
-      const currentStatus = instance.status
-      let statusChanged = false
-      let ipv4Changed = false
-      let ipv6Changed = false
-      let oldIpv4: string | null = null
-      let newIpv4: string | null = null
-      let oldIpv6: string | null = null
-      let newIpv6: string | null = null
-      let proxySitesUpdated = 0
-
-      // 更新数据库状态
-      if (currentStatus !== 'suspended' && currentStatus !== incusStatus) {
-        await db.updateInstanceStatus(
-          instanceId,
-          incusStatus as 'creating' | 'running' | 'stopped' | 'error'
-        )
-        statusChanged = true
-      }
-
-      // 同步内网 IPv4（仅当实例正在运行时才能获取）
-      const persistedNetwork = await persistResolvedInstanceNetworkAddresses(
+      const persistedNetwork = await syncInstanceNetworkAndProxySites(
         {
           id: instanceId,
           name: instance.name,
           hostId: instance.host_id,
+          incusId: instance.incus_id,
+          userId: instance.user_id,
+          hostOwnerId: host.user_id!,
+          hostUrl: host.url,
+          hostConnectionIdentity,
+          updatedAt: instance.updated_at,
           networkMode: instance.network_mode,
           ipv4: instance.ipv4,
           ipv6: instance.ipv6
@@ -3331,60 +3349,30 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           incusInstance,
           state
         ),
-        { updateLastSyncedAt: true }
+        incusStatus as InstanceStatus,
+        user
       )
-
-      ipv4Changed = persistedNetwork.ipv4Changed
-      oldIpv4 = persistedNetwork.oldIpv4
-      newIpv4 = persistedNetwork.newIpv4
-      ipv6Changed = persistedNetwork.ipv6Changed
-      oldIpv6 = persistedNetwork.oldIpv6
-      newIpv6 = persistedNetwork.newIpv6
-
-      if (ipv4Changed && newIpv4) {
-        console.log(`[SyncStatus] Instance ${instanceId} IPv4 changed: ${oldIpv4} -> ${newIpv4}`)
-
-        const proxySites = await getProxySitesByInstanceId(instanceId)
-        if (proxySites.length > 0 && host.caddy_enabled && host.caddy_username && host.caddy_password) {
-          const targetHost = host.nat_public_ip || host.ip_address
-          if (targetHost) {
-            const caddyClient = createCaddyClient({
-              host: targetHost,
-              port: host.caddy_port || 8444,
-              username: host.caddy_username,
-              password: host.caddy_password
-            })
-
-            for (const site of proxySites) {
-              if (site.status === 'active' && site.enabled) {
-                try {
-                  await caddyClient.deleteSite(site.domain)
-                  await caddyClient.addSite(site.domain, newIpv4, site.targetPort, site.httpsEnabled)
-                  proxySitesUpdated++
-                  console.log(`[SyncStatus] Updated proxy site "${site.domain}" to new IP ${newIpv4}`)
-                } catch (caddyErr) {
-                  console.error(`[SyncStatus] Failed to update proxy site "${site.domain}":`, caddyErr)
-                }
-              }
-            }
-          }
-        }
-      }
-      return reply.code(200).send({
-        success: true,
+      const { ipv4Changed, oldIpv4, newIpv4, ipv6Changed, oldIpv6, newIpv6, statusChanged,
+        previousStatus, currentStatus, proxySitesUpdated, proxySitesPending, proxySiteErrors } = persistedNetwork
+      return reply.code(proxySitesPending ? 502 : 200).send({
+        success: proxySitesPending === 0,
         statusChanged,
-        from: statusChanged ? currentStatus : undefined,
-        to: statusChanged ? incusStatus : undefined,
-        currentStatus: currentStatus === 'suspended' ? currentStatus : incusStatus,
+        from: statusChanged ? previousStatus : undefined,
+        to: statusChanged ? currentStatus : undefined,
+        currentStatus,
         ipv4Changed,
         oldIpv4: ipv4Changed ? oldIpv4 : undefined,
         newIpv4: ipv4Changed ? newIpv4 : undefined,
         ipv6Changed,
         oldIpv6: ipv6Changed ? oldIpv6 : undefined,
         newIpv6: ipv6Changed ? newIpv6 : undefined,
-        proxySitesUpdated: ipv4Changed ? proxySitesUpdated : undefined
+        proxySitesUpdated,
+        proxySitesPending,
+        proxySiteErrors,
+        ...(proxySitesPending ? { error: proxySiteErrors.map(item => `${item.domain}: ${item.error}`).join('；') || '反代站点配置仍待同步，请重试' } : {})
       })
     } catch (err) {
+      if (err instanceof ProxyNetworkSyncError) return reply.code(err.statusCode).send({ code: err.code, error: err.message })
       const errorMessage = err instanceof Error ? err.message : String(err)
 
       // 如果实例在 Incus 中不存在
@@ -3993,7 +3981,12 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
         })
       }
 
-      const claimed = await claimInstanceForDelete(instanceId, instance.status as InstanceStatus)
+      let claimed: boolean
+      try { claimed = await claimInstanceForDelete(instanceId, instance.status as InstanceStatus) }
+      catch (error) {
+        if ((error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError)) return reply.code(409).send({ code: error.code, error: error.message })
+        throw error
+      }
       if (!claimed) {
         return reply.code(409).send({
           error: '实例正在删除或已删除',
@@ -4526,6 +4519,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           remark: { type: 'string', maxLength: 100 },
           portMappings: {
             type: 'array',
+            minItems: 1,
             maxItems: MAX_BATCH_PORT_MAPPINGS,
             items: {
               type: 'object',
@@ -4607,8 +4601,13 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     // 3. 统一归一为最终映射列表
     let finalMappings: Array<{ privatePort: number; publicPort: number }> = []
 
-    if (portMappings && portMappings.length > 0) {
-      // 使用用户提供的映射（冲突解决后重新提交）
+    if (portMappings !== undefined) {
+      // 冲突重提交必须完整覆盖原内网区间，不能借自定义数组改变请求范围。
+      if (portMappings.length !== privatePortCount || portMappings.some(mapping =>
+        mapping.privatePort < privatePortStart || mapping.privatePort > privatePortEnd
+      )) {
+        return reply.code(400).send(apiError(ErrorCode.PORT_RANGE_MISMATCH, `内网端口必须完整对应 ${privatePortStart}-${privatePortEnd}`))
+      }
       finalMappings = portMappings
     } else if (publicPortStart !== undefined && publicPortEnd !== undefined) {
       // 用户指定了公网端口范围

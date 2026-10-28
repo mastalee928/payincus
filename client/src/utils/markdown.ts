@@ -1,4 +1,21 @@
 import { marked, Renderer } from 'marked'
+import DOMPurify from 'dompurify'
+
+DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+  if (['href', 'src'].includes(data.attrName) && /^\s*(?:data|javascript|vbscript):/i.test(data.attrValue)) {
+    data.keepAttr = false
+  }
+})
+DOMPurify.addHook('afterSanitizeAttributes', node => {
+  if (node instanceof Element && node.tagName.toLowerCase() === 'a' && node.getAttribute('target') === '_blank') {
+    node.setAttribute('rel', 'noopener noreferrer')
+  }
+})
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
 
 // 自定义 Alert 颜色配置
 const alertColors: Record<string, { bg: string; bgLight: string; border: string; text: string; textLight: string; icon: string }> = {
@@ -63,7 +80,8 @@ function parseCustomAlerts(content: string): string {
   const alertRegex = /\?\{(\w+)\}\[([\s\S]*?)\]/g
 
   return content.replace(alertRegex, (_, color: string, text: string) => {
-    const normalizedColor = colorAliases[color.toLowerCase()] || color.toLowerCase()
+    const candidate = colorAliases[color.toLowerCase()] || color.toLowerCase()
+    const normalizedColor = Object.hasOwn(alertColors, candidate) ? candidate : 'info'
     const colorConfig = alertColors[normalizedColor] || alertColors.info
 
     // 处理内容中的换行
@@ -84,45 +102,44 @@ function createCustomRenderer(): Renderer {
   const renderer = new Renderer()
 
   // 自定义链接渲染 - 外部链接新窗口打开
-  renderer.link = ({ href, title, text }) => {
+  renderer.link = ({ href, title, tokens }) => {
     const isExternal = href?.startsWith('http://') || href?.startsWith('https://')
-    const titleAttr = title ? ` title="${title}"` : ''
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
     const targetAttr = isExternal ? ' target="_blank" rel="noopener noreferrer"' : ''
     const externalIcon = isExternal
       ? ' <svg class="inline-block w-3.5 h-3.5 ml-0.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>'
       : ''
-    return `<a href="${href}"${titleAttr}${targetAttr}>${text}${externalIcon}</a>`
+    return `<a href="${escapeHtml(href)}"${titleAttr}${targetAttr}>${renderer.parser.parseInline(tokens)}${externalIcon}</a>`
   }
 
   // 自定义图片渲染 - 支持图片标题和懒加载
   renderer.image = ({ href, title, text }) => {
-    const titleAttr = title ? ` title="${title}"` : ''
-    const altAttr = text ? ` alt="${text}"` : ''
-    const figcaption = title ? `<figcaption class="text-center text-sm text-themed-muted mt-2">${title}</figcaption>` : ''
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
+    const altAttr = text ? ` alt="${escapeHtml(text)}"` : ''
+    const figcaption = title ? `<figcaption class="text-center text-sm text-themed-muted mt-2">${escapeHtml(title)}</figcaption>` : ''
     return `<figure class="my-4">
-      <img src="${href}"${altAttr}${titleAttr} loading="lazy" class="rounded-lg max-w-full mx-auto" />
+      <img src="${escapeHtml(href)}"${altAttr}${titleAttr} loading="lazy" class="rounded-lg max-w-full mx-auto" />
       ${figcaption}
     </figure>`
   }
 
   // 自定义代码块渲染
   renderer.code = ({ text, lang }) => {
-    const langLabel = lang ? `<span class="absolute top-2 right-2 text-xs text-themed-muted opacity-60">${lang}</span>` : ''
-    const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const language = lang?.split(/\s+/)[0] || 'plaintext'
+    const langLabel = lang ? `<span class="absolute top-2 right-2 text-xs text-themed-muted opacity-60">${escapeHtml(language)}</span>` : ''
+    const escapedText = escapeHtml(text)
 
     return `<div class="relative group">
-      <pre><code class="language-${lang || 'plaintext'}">${escapedText}</code></pre>
+      <pre><code class="language-${escapeHtml(language)}">${escapedText}</code></pre>
       ${langLabel}
     </div>`
   }
 
   // 自定义表格渲染 - 添加响应式包装
-  renderer.table = (token: any) => {
-    const headerRows = token.header.map((row: any[]) =>
-      `<tr>${row.map((cell: any) => `<th>${cell.text}</th>`).join('')}</tr>`
-    ).join('')
-    const bodyRows = token.rows.map((row: any[]) =>
-      `<tr>${row.map((cell: any) => `<td>${cell.text}</td>`).join('')}</tr>`
+  renderer.table = (token) => {
+    const headerRows = `<tr>${token.header.map(cell => `<th>${renderer.parser.parseInline(cell.tokens)}</th>`).join('')}</tr>`
+    const bodyRows = token.rows.map(row =>
+      `<tr>${row.map(cell => `<td>${renderer.parser.parseInline(cell.tokens)}</td>`).join('')}</tr>`
     ).join('')
     return `<div class="overflow-x-auto my-4">
       <table class="min-w-full">
@@ -133,8 +150,8 @@ function createCustomRenderer(): Renderer {
   }
 
   // 自定义引用块渲染
-  renderer.blockquote = ({ text }) => {
-    return `<blockquote class="border-l-4 border-accent/50 pl-4 my-4 italic text-themed-secondary">${text}</blockquote>`
+  renderer.blockquote = ({ tokens }) => {
+    return `<blockquote class="border-l-4 border-accent/50 pl-4 my-4 italic text-themed-secondary">${renderer.parser.parse(tokens)}</blockquote>`
   }
 
   // 自定义水平线
@@ -143,7 +160,8 @@ function createCustomRenderer(): Renderer {
   }
 
   // 自定义复选框列表项
-  renderer.listitem = ({ text, task, checked }) => {
+  renderer.listitem = ({ tokens, task, checked }) => {
+    const text = renderer.parser.parse(tokens)
     if (task) {
       const checkboxClass = checked
         ? 'text-green-500'
@@ -160,7 +178,7 @@ function createCustomRenderer(): Renderer {
 }
 
 /**
- * 基本的 HTML 清理函数，防止 XSS 攻击
+ * Parse HTML with the browser DOM, then allow only the platform's content tags.
  * 只允许安全的标签和属性
  */
 function sanitizeHtml(html: string): string {
@@ -172,41 +190,18 @@ function sanitizeHtml(html: string): string {
     'blockquote', 'pre', 'code',
     'table', 'thead', 'tbody', 'tr', 'th', 'td',
     'img', 'figure', 'figcaption',
-    'hr', 'kbd', 'sup', 'sub'
+    'hr', 'kbd', 'sup', 'sub', 'svg', 'path', 'circle'
   ]
 
   // 允许的安全属性
-  const allowedAttributes = ['href', 'title', 'alt', 'src', 'class', 'id', 'target', 'rel', 'loading']
-
-  // 移除 javascript: 和 data: URL
-  let sanitized = html.replace(/(href|src)\s*=\s*["']?\s*(javascript|data):/gi, '$1="about:blank#blocked-')
-
-  // 移除 on* 事件处理器
-  sanitized = sanitized.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, '')
-
-  // 移除不在白名单中的标签（将其转义而不是删除，保留内容）
-  const tagRegex = /<\/?(\w+)([^>]*)>/g
-  sanitized = sanitized.replace(tagRegex, (match, tagName, attributes) => {
-    if (!allowedTags.includes(tagName.toLowerCase())) {
-      // 转义危险标签
-      return match.replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    }
-
-    // 过滤属性
-    if (attributes) {
-      const filteredAttrs = attributes.replace(/(\w+)\s*=\s*["']([^"']*)["']/g, (attrMatch: string, attrName: string) => {
-        if (allowedAttributes.includes(attrName.toLowerCase())) {
-          return attrMatch
-        }
-        return ''
-      })
-      return `<${tagName}${filteredAttrs}>`
-    }
-
-    return match
+  const allowedAttributes = ['href', 'title', 'alt', 'src', 'class', 'id', 'target', 'rel', 'loading',
+    'viewBox', 'fill', 'stroke', 'd', 'cx', 'cy', 'r', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'fill-rule', 'clip-rule']
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: allowedTags, ALLOWED_ATTR: allowedAttributes,
+    ALLOW_DATA_ATTR: false, ALLOW_ARIA_ATTR: false,
+    ADD_DATA_URI_TAGS: [],
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
   })
-
-  return sanitized
 }
 
 /**

@@ -14,6 +14,7 @@ import * as craneMailService from '../services/cranemail.js'
 import * as smarterMailService from '../services/smartermail.js'
 import { MAIL_DOMAIN_LOCK_NAMESPACE, MAIL_SUBSCRIPTION_LOCK_NAMESPACE, USER_BALANCE_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '../db/advisory-locks.js'
 import { assertSafeHttpUrl } from '../lib/outbound-security.js'
+import { AffCodeEligibilityError, getMailSubscriptionAffBinding, requireAffCodeForPurchase } from '../db/aff.js'
 
 function normalizeBaseUrl(url: URL): string {
   return url.toString().replace(/\/+$/, '')
@@ -1268,14 +1269,17 @@ export default async function mailRoutes(fastify: FastifyInstance) {
     let validatedAffCode: { id: number; userId: number; discountRate: number } | null = null
 
     // 验证优惠码
-    if (existing?.affBinding?.affCode.enabled) {
-      validatedAffCode = {
-        id: existing.affBinding.affCode.id,
-        userId: existing.affBinding.affCode.userId,
-        discountRate: Number(existing.affBinding.affCode.discountRate)
+    if (existing?.affBinding) {
+      // A disabled permanent binding stays attached; another code cannot replace it.
+      if (existing.affBinding.affCode.enabled) {
+        validatedAffCode = {
+          id: existing.affBinding.affCode.id,
+          userId: existing.affBinding.affCode.userId,
+          discountRate: Number(existing.affBinding.affCode.discountRate)
+        }
+        discountAmount = calculateDiscountAmount(originalPrice, validatedAffCode.discountRate)
+        finalPrice = calculateDiscountedPrice(originalPrice, validatedAffCode.discountRate)
       }
-      discountAmount = calculateDiscountAmount(originalPrice, validatedAffCode.discountRate)
-      finalPrice = calculateDiscountedPrice(originalPrice, validatedAffCode.discountRate)
     } else if (affCodeInput) {
       const { validateMailAffCode } = await import('../db/aff.js')
       const validation = await validateMailAffCode(affCodeInput, userId)
@@ -1328,6 +1332,24 @@ export default async function mailRoutes(fastify: FastifyInstance) {
       const purchaseNow = new Date()
       if (existingInTx?.status === 'active' && existingInTx.expiresAt > purchaseNow) {
         return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, '您在该邮箱源已有有效订阅，请续费或等待过期后再购买') }
+      }
+
+      if ((existingInTx?.affBinding?.affCodeId ?? null) !== (existing?.affBinding?.affCode.id ?? null)) {
+        return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, '邮箱优惠码绑定已变更，请刷新后重试') }
+      }
+      if (existingInTx?.affBinding) {
+        const binding = await getMailSubscriptionAffBinding(existingInTx.id, tx)
+        if ((binding?.affCode.enabled ? binding.affCode.id : null) !== (validatedAffCode?.id ?? null) ||
+          (binding?.affCode.enabled ? Number(binding.affCode.discountRate) : 0) !== (validatedAffCode?.discountRate ?? 0)) {
+          return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, '优惠码状态或折扣已变更，请刷新后重试') }
+        }
+      } else if (validatedAffCode) {
+        try {
+          await requireAffCodeForPurchase(tx, validatedAffCode.id, userId, null, validatedAffCode.discountRate)
+        } catch (error) {
+          if (error instanceof AffCodeEligibilityError) return { error: apiError(ErrorCode.VALIDATION_ERROR, error.message), statusCode: error.statusCode }
+          throw error
+        }
       }
 
       const deductResult = await tx.user.updateMany({
@@ -1420,10 +1442,13 @@ export default async function mailRoutes(fastify: FastifyInstance) {
       }
 
       return { subscription: newSubscription, revived }
+    }).catch(error => {
+      if (error instanceof AffCodeEligibilityError) return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, error.message), statusCode: error.statusCode }
+      throw error
     })
 
     if ('error' in purchaseResult) {
-      return reply.code(400).send(purchaseResult.error)
+      return reply.code(('statusCode' in purchaseResult ? purchaseResult.statusCode : undefined) ?? 400).send(purchaseResult.error)
     }
 
     const subscription = purchaseResult.subscription
@@ -1491,7 +1516,7 @@ export default async function mailRoutes(fastify: FastifyInstance) {
     const originalPrice = Math.round(monthlyPrice * renewMonths * 100) / 100
 
     // 检查 AFF 绑定，计算折扣
-    const { getMailSubscriptionAffBinding, processMailAffCommission } = await import('../db/aff.js')
+    const { processMailAffCommission } = await import('../db/aff.js')
     const affBinding = await getMailSubscriptionAffBinding(subscription.id)
     let discountRate = 0
     let discountAmount = 0
@@ -1537,6 +1562,13 @@ export default async function mailRoutes(fastify: FastifyInstance) {
         validateMailRenewMonthsForBillingCycle(renewMonths, currentSubscription.plan.billingCycle)
       } catch (error) {
         return { error }
+      }
+
+      const currentAffBinding = await getMailSubscriptionAffBinding(currentSubscription.id, tx)
+      if ((currentAffBinding?.affCode.id ?? null) !== (affBinding?.affCode.id ?? null) ||
+        Boolean(currentAffBinding?.affCode.enabled) !== Boolean(affBinding?.affCode.enabled) ||
+        (currentAffBinding?.affCode.enabled ? Number(currentAffBinding.affCode.discountRate) : 0) !== discountRate) {
+        return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, '优惠码状态或折扣已变更，请刷新后重试') }
       }
 
       const deductResult = await tx.user.updateMany({
@@ -1589,9 +1621,9 @@ export default async function mailRoutes(fastify: FastifyInstance) {
       })
 
       // 如果有 AFF 绑定，给推荐人返利
-      if (affBinding) {
+      if (currentAffBinding?.affCode.enabled) {
         await processMailAffCommission(
-          affBinding.affCode.id,
+          currentAffBinding.affCode.id,
           subscription.id,
           originalPrice, // 基于原价计算返利
           'renew',
@@ -1600,10 +1632,13 @@ export default async function mailRoutes(fastify: FastifyInstance) {
       }
 
       return { subscription: result, revived }
+    }).catch(error => {
+      if (error instanceof AffCodeEligibilityError) return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, error.message), statusCode: error.statusCode }
+      throw error
     })
 
     if ('error' in renewResult) {
-      return reply.code(400).send(renewResult.error)
+      return reply.code(('statusCode' in renewResult ? renewResult.statusCode : undefined) ?? 400).send(renewResult.error)
     }
 
     const updated = renewResult.subscription

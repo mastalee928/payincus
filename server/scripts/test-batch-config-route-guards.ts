@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const routeSource = readFileSync(resolve(process.cwd(), 'src/routes/batch-config.ts'), 'utf8')
+const mutationSource = readFileSync(resolve(process.cwd(), 'src/db/batch-config-mutations.ts'), 'utf8')
 
 assert.ok(
   routeSource.includes('function parsePositiveRouteId(value: string): number | null') &&
@@ -39,12 +40,26 @@ assert.ok(
 )
 
 assert.ok(
-  routeSource.includes('await db.incrementHostResourceUsage(hostId, {') &&
-    routeSource.includes('cpuUsed: totalCpuDelta') &&
-    routeSource.includes('memoryUsed: totalMemoryDelta') &&
-    routeSource.includes('diskUsed: totalDiskDelta'),
-  'batch config route must apply CPU, memory, and disk usage as atomic deltas'
+  routeSource.includes('withBatchInstanceMutation(target, actor, requiresAdmin,') &&
+    routeSource.includes('await tx.instance.update(') && routeSource.includes('await tx.host.update(') &&
+    routeSource.includes('config.cpu - instance.cpu') && routeSource.includes('config.memory - instance.memory') &&
+    routeSource.includes('cpuUsed: { increment: cpuDelta }') &&
+    routeSource.includes('memoryUsed: { increment: memoryDelta }') &&
+    routeSource.includes('diskUsed: { increment: diskDelta }') &&
+    !routeSource.includes('totalCpuDelta') && !routeSource.includes('db.incrementHostResourceUsage('),
+  'each instance update and current resource delta must commit in the same transaction'
 )
+assert.ok(mutationSource.includes('INSTANCE_OPERATION_LOCK_NAMESPACE') && mutationSource.includes("SET LOCAL lock_timeout = '1s'") &&
+  mutationSource.includes('instance.userId !== target.userId') && mutationSource.includes('instance.incusId !== target.incusId') &&
+  mutationSource.includes('authorizeUserWrite(tx, actor.id, actor)') && mutationSource.includes("currentActor.role !== 'admin'") &&
+  mutationSource.includes('hasActiveTransferWorkflow(instance.id, tx)') && mutationSource.includes("status: { in: ['pending', 'processing'] }") &&
+  mutationSource.includes('instance.provisioningCleanupPending') && mutationSource.includes('instance.deletionBillingPending'),
+  'batch writes must serialize with transfer, re-read ownership/session/eligibility and bound row-lock waiting')
+assert.ok(routeSource.includes('requiresReview: remoteMayHaveChanged') && routeSource.includes("'instance.batch_config_failed'") &&
+  routeSource.includes('!result.requiresReview') && routeSource.includes('failedItems.filter(i => !i.requiresReview)') &&
+  routeSource.includes('Math.min(timeout, remaining)') && routeSource.includes("SET LOCAL lock_timeout = '250ms'") &&
+  routeSource.includes('userId: null, instanceId: null'),
+  'unknown remote outcomes must be recorded with an error and excluded from automatic retry before the transaction deadline')
 assert.ok(
   !routeSource.includes('cpuUsed: host.cpu_used + totalCpuDelta') &&
     !routeSource.includes('memoryUsed: host.memory_used + totalMemoryDelta') &&

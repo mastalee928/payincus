@@ -9,6 +9,7 @@ const __dirname = dirname(__filename)
 const routeSource = readFileSync(resolve(__dirname, '../src/routes/transfers.ts'), 'utf8')
 const dbSource = readFileSync(resolve(__dirname, '../src/db/transfers.ts'), 'utf8')
 const notifierSource = readFileSync(resolve(__dirname, '../src/lib/notifier.ts'), 'utf8')
+const cleanupSource = readFileSync(resolve(__dirname, '../src/services/transfer-cleanup.ts'), 'utf8')
 
 function sectionBetween(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)
@@ -28,6 +29,7 @@ const pushRoute = routeSource.slice(routeSource.indexOf('// 直接推送'))
 const sentHelper = sectionBetween(dbSource, '// 获取用户发起的转移列表', '// 获取用户收到的转移列表')
 const receivedHelper = sectionBetween(dbSource, '// 获取用户收到的转移列表', '// 获取用户待处理的接收数量')
 const executeTransferHelper = dbSource.slice(dbSource.indexOf('// 执行转移（事务操作）'))
+const completionHelper = sectionBetween(routeSource, 'async function completeClaimedTransfer', 'export default async function transferRoutes')
 
 assert.ok(
   dbSource.includes('const TRANSFER_LIST_MAX_PAGE_SIZE = 100') &&
@@ -123,9 +125,11 @@ assert.ok(
 )
 
 for (const [name, route] of [['accept', acceptRoute], ['push', pushRoute]] as const) {
-  assert.ok(route.includes('instance.dedicated_ipv4 ? oldIncusId :') &&
-    route.includes('if (newIncusId !== oldIncusId) await renameIncusInstance') &&
-    route.includes("if (!instance.dedicated_ipv4 && instance.status === 'running')"),
+  assert.ok(route.includes("await completeClaimedTransfer(transferId, '") &&
+    completionHelper.includes('instance.dedicated_ipv4 ? oldIncusId :') &&
+    completionHelper.includes("if (!instance.dedicated_ipv4 && instance.status === 'running')") &&
+    cleanupSource.includes('if (state.oldIncusId !== state.newIncusId)') &&
+    cleanupSource.includes('current.dedicatedIpv4 ? Promise.resolve([]) : tx.portMapping.findMany'),
   `${name} must preserve the Incus ID and full-port forwards for a running dedicated instance`)
 }
 assert.ok(executeTransferHelper.includes("transfer.status !== 'processing'") &&
@@ -133,10 +137,18 @@ assert.ok(executeTransferHelper.includes("transfer.status !== 'processing'") &&
   executeTransferHelper.includes('current.incusId !== expectedIncusId') &&
   executeTransferHelper.includes('hasActiveTransferWorkflow(instanceId, tx)'),
   'ownership execution must recheck the claimed request, owner, Incus ID and competing workflows in its transaction')
+assert.ok(cleanupSource.includes('activeTransfers.has(transferId)') && cleanupSource.includes('state.attemptId !== attemptId') &&
+  cleanupSource.includes('transferHostIdentity(host) !== state.hostIdentity') && cleanupSource.includes("['volatile.uuid']") &&
+  cleanupSource.includes('state.remoteUuid !== uuid') && cleanupSource.includes('TRANSFER_REMOTE_DELETE_UNCONFIRMED') &&
+  cleanupSource.includes('saved.count !== 1') && executeTransferHelper.includes('TRANSFER_CLEANUP_RESOURCES_CHANGED'),
+  'cleanup must fence duplicate attempts, bind original identities, confirm deletion and reject incomplete finalization')
+assert.ok(routeSource.includes("if (current.status === 'processing') return { count: 1 }") &&
+  routeSource.includes('cleanupError: transferCleanupError(t.cleanupState)') &&
+  !cleanupSource.includes("error.message.includes('404')"),
+  'processing transfers must be retryable with persisted errors and exact remote evidence')
 
 assert.ok(
-  acceptRoute.includes("sendNotification(user.id, 'transfer_ownership_received'") &&
-    pushRoute.includes("sendNotification(transfer.toUserId, 'transfer_ownership_received'") &&
+  completionHelper.includes("sendNotification(transfer.toUserId, 'transfer_ownership_received'") &&
     notifierSource.includes("| 'transfer_ownership_received'") &&
     notifierSource.includes('自动续费已关闭') &&
     notifierSource.includes('重置 SSH 密钥、登录密码等实例凭证'),

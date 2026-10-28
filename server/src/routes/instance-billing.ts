@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import * as db from '../db/index.js'
 import { prisma } from '../db/prisma.js'
+import type { WriteSession } from '../db/user-write-authorization.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
@@ -220,7 +221,7 @@ async function buildBatchRenewPreviewItem(userId: number, instanceId: number): P
 }
 
 async function executeRenewForUser(
-  user: { id: number; username: string },
+  user: { id: number; username: string } & WriteSession,
   instanceId: number,
   months: number
 ): Promise<BatchRenewResultItem> {
@@ -271,7 +272,7 @@ async function executeRenewForUser(
   }
 
   try {
-    const result = await db.performRenewal(user.id, instance, months)
+    const result = await db.performRenewal(user.id, instance, months, undefined, user)
 
     await sendNotification(user.id, 'instance_renewed', {
       instanceName: instance.name,
@@ -330,7 +331,7 @@ async function executeRenewForUser(
       id: preview.id,
       name: preview.name,
       success: false,
-      reason: '续费失败'
+      reason: error instanceof db.AffCodeEligibilityError ? error.message : '续费失败'
     }
   }
 }
@@ -509,7 +510,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await db.performRenewal(user.id, instance, months)
+      const result = await db.performRenewal(user.id, instance, months, undefined, user)
 
       // 发送续费成功通知
       await sendNotification(user.id, 'instance_renewed', {
@@ -576,7 +577,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '续费失败'
-      return reply.code(400).send({ error: errorMessage })
+      return reply.code(error instanceof db.AffCodeEligibilityError ? error.statusCode : 400).send({ error: errorMessage })
     }
   })
 
@@ -639,7 +640,9 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
 
     const userMeta = {
       id: request.user.id,
-      username: request.user.username
+      username: request.user.username,
+      sid: request.user.sid,
+      iat: request.user.iat
     }
 
     const results: BatchRenewResultItem[] = []
@@ -1016,7 +1019,11 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: '免费实例不支持自动续费', code: 'FREE_INSTANCE' })
     }
 
-    await db.updateAutoRenew(instanceId, autoRenew)
+    try {
+      await db.updateAutoRenew(instanceId, autoRenew, user.id, user)
+    } catch (error) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, error instanceof Error ? error.message : '自动续费设置失败'))
+    }
 
     await createLog(
       user.id,
@@ -1095,7 +1102,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
       }
 
       try {
-        await db.updateAutoRenew(instance.id, request.body.autoRenew)
+        await db.updateAutoRenew(instance.id, request.body.autoRenew, request.user.id, request.user)
         await createLog(
           request.user.id,
           'instance',

@@ -26,6 +26,7 @@ async function processQueue(): Promise<void> {
   try {
     currentTask = await claimNextHostNotificationEmailTask()
     if (!currentTask) return
+    if (!currentTask.startedAt) throw new Error('Claimed email task is missing its attempt timestamp')
 
     console.log(`[HostNotifyEmailWorker] Sending queued email task ${currentTask.id} to ${currentTask.email}`)
 
@@ -37,22 +38,22 @@ async function processQueue(): Promise<void> {
     })
 
     if (result.success) {
-      await markHostNotificationEmailTaskSent(currentTask.id)
-      console.log(`[HostNotifyEmailWorker] Task ${currentTask.id} sent successfully`)
+      const committed = await markHostNotificationEmailTaskSent(currentTask.id, currentTask.startedAt, currentTask.retryCount)
+      console.log(`[HostNotifyEmailWorker] Task ${currentTask.id} ${committed ? 'sent successfully' : 'attempt superseded; completion ignored'}`)
       return
     }
 
     const errorMessage = result.error || 'Unknown email error'
-    await retryOrFailHostNotificationEmailTask(currentTask.id, currentTask.retryCount, errorMessage)
+    await retryOrFailHostNotificationEmailTask(currentTask.id, currentTask.retryCount, errorMessage, currentTask.startedAt)
     console.error(`[HostNotifyEmailWorker] Task ${currentTask.id} failed: ${errorMessage}`)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     console.error('[HostNotifyEmailWorker] Queue processing error:', error)
     dbBackoff.arm(error)
 
-    if (currentTask) {
+    if (currentTask?.startedAt) {
       try {
-        await retryOrFailHostNotificationEmailTask(currentTask.id, currentTask.retryCount, errorMessage)
+        await retryOrFailHostNotificationEmailTask(currentTask.id, currentTask.retryCount, errorMessage, currentTask.startedAt)
       } catch (retryError) {
         console.error(`[HostNotifyEmailWorker] Failed to recover task ${currentTask.id}:`, retryError)
       }

@@ -1,6 +1,7 @@
 package report
 
 import (
+	"context"
 	"os"
 	"runtime"
 	"strconv"
@@ -15,7 +16,7 @@ var incusSocketCandidates = []string{
 	"/var/lib/lxd/unix.socket",
 }
 
-func HeartbeatPayload(version string, heartbeatIntervalSeconds int) map[string]any {
+func HeartbeatPayload(ctx context.Context, version string, heartbeatIntervalSeconds int) map[string]any {
 	return map[string]any{
 		"version":      version,
 		"capabilities": []any{"heartbeat", "report", "host-metrics", "instance-status", "traffic-counters", "ingress-port-protocol-v1", "dedicated-ipv6-v1"},
@@ -24,7 +25,7 @@ func HeartbeatPayload(version string, heartbeatIntervalSeconds int) map[string]a
 			"goarch": runtime.GOARCH,
 		},
 		"incus":     detectIncus(),
-		"instances": collectIncusInstanceReport(),
+		"instances": collectIncusInstanceReport(ctx),
 		"resources": collectResources(),
 		"metrics":   collectMetrics(heartbeatIntervalSeconds),
 	}
@@ -88,7 +89,7 @@ func detectIncus() map[string]any {
 
 func detectIncusSocket() (string, bool) {
 	for _, socketPath := range incusSocketCandidates {
-		if info, err := os.Stat(socketPath); err == nil && !info.IsDir() {
+		if info, err := os.Stat(socketPath); err == nil && info.Mode()&os.ModeSocket != 0 {
 			return socketPath, true
 		}
 	}
@@ -111,6 +112,15 @@ func readCPUUsagePercent() float64 {
 		return -1
 	}
 
+	return cpuUsagePercent(before, after)
+}
+
+func cpuUsagePercent(before, after cpuStat) float64 {
+	// Counters can move backwards after a reset or CPU hotplug. Do not let
+	// unsigned subtraction turn an invalid observation into plausible usage.
+	if after.total < before.total || after.idle < before.idle {
+		return -1
+	}
 	totalDelta := after.total - before.total
 	idleDelta := after.idle - before.idle
 	if totalDelta == 0 || idleDelta > totalDelta {
@@ -129,31 +139,45 @@ func readCPUStat() (cpuStat, bool) {
 		if !strings.HasPrefix(line, "cpu ") {
 			continue
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
-			return cpuStat{}, false
-		}
-
-		var values []uint64
-		for _, field := range fields[1:] {
-			value, err := strconv.ParseUint(field, 10, 64)
-			if err != nil {
-				return cpuStat{}, false
-			}
-			values = append(values, value)
-		}
-
-		var total uint64
-		for _, value := range values {
-			total += value
-		}
-		idle := values[3]
-		if len(values) > 4 {
-			idle += values[4]
-		}
-		return cpuStat{idle: idle, total: total}, true
+		return parseCPUStatLine(line)
 	}
 	return cpuStat{}, false
+}
+
+func parseCPUStatLine(line string) (cpuStat, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 5 || fields[0] != "cpu" {
+		return cpuStat{}, false
+	}
+	values := make([]uint64, 0, 8)
+	for _, field := range fields[1:] {
+		value, err := strconv.ParseUint(field, 10, 64)
+		if err != nil {
+			return cpuStat{}, false
+		}
+		values = append(values, value)
+	}
+	// /proc/stat guest and guest_nice are already included in user and nice.
+	// Include later unknown fields only when their accounting is understood.
+	var total uint64
+	count := len(values)
+	if count > 8 {
+		count = 8
+	}
+	for _, value := range values[:count] {
+		if total > ^uint64(0)-value {
+			return cpuStat{}, false
+		}
+		total += value
+	}
+	idle := values[3]
+	if len(values) > 4 {
+		if idle > ^uint64(0)-values[4] {
+			return cpuStat{}, false
+		}
+		idle += values[4]
+	}
+	return cpuStat{idle: idle, total: total}, true
 }
 
 func readMemoryStats() map[string]any {

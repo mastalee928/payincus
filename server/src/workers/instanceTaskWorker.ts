@@ -1,3 +1,4 @@
+import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, } from '../db/snapshot-operation-guards.js'
 import { executeHostReplacement } from '../services/host-replacement.js'
 import { prepareDedicatedDelivery } from '../services/dedicated-delivery.js'
 import { prepareDedicatedIpv6Delivery } from '../services/host-public-ipv6-sync.js'
@@ -13,6 +14,7 @@ import { prepareDedicatedIpv6Delivery } from '../services/host-public-ipv6-sync.
  */
 
 import { prisma } from '../db/prisma.js'
+import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations } from '../db/proxy-site-operation-guards.js'
 import { InstanceTaskType, Prisma } from '@prisma/client'
 import { getIncusClient, getInstance, updateInstance, deleteInstance, createInstance } from '../lib/incus/index.js'
 import {
@@ -41,10 +43,12 @@ import {
   HOST_TASK_CLAIM_LOCK_NAMESPACE,
   IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE,
   INSTANCE_OPERATION_LOCK_NAMESPACE,
+  advisoryTransactionLock,
   advisoryTransactionLockString,
   tryAdvisoryTransactionLock
 } from '../db/advisory-locks.js'
 import { createWorkerDbBackoff } from './db-failure-backoff.js'
+import { recoverIpv6RouteAndStart } from '../lib/incus/ipv6-route-recovery.js'
 
 import { resetInstanceCloudInitState } from '../lib/cloud-init-status.js'
 import { resolveIncusSwapValue } from '../lib/instance-swap.js'
@@ -137,6 +141,10 @@ function extractIPv6(state: { network?: Record<string, { addresses?: Array<{ fam
 
 async function cleanupRecreatedInstanceRecords(instanceId: number, hostId: number): Promise<{ deletedPortMappingsCount: number }> {
   return prisma.$transaction(async (tx) => {
+    await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+    await assertNoPendingSnapshotOperations(tx, instanceId)
+    await assertNoPendingProxySiteOperations(tx, instanceId)
     const deletedPortMappings = await tx.portMapping.deleteMany({ where: { instanceId } })
 
     if (deletedPortMappings.count > 0) {
@@ -196,6 +204,24 @@ async function notifyInstanceTaskFailure(task: InstanceTaskFailureNotice, errorM
 /**
  * 服务启动时清理僵尸任务
  */
+export async function failExpiredInstanceTaskAttempt(
+  task: { id: number; taskType: InstanceTaskType; startedAt: Date | null; retryCount: number },
+  error: string,
+  now = new Date()
+): Promise<boolean> {
+  if (runningTaskIds.has(task.id)) return false
+  const threshold = new Date(now.getTime() - (HEAVY_TASK_NAMES.has(task.taskType) ? HEAVY_TASK_TIMEOUT : LIGHT_TASK_TIMEOUT))
+  const result = await prisma.instanceTask.updateMany({
+    where: {
+      id: task.id, status: 'PROCESSING', taskType: task.taskType,
+      startedAt: task.startedAt, retryCount: task.retryCount,
+      OR: [{ startedAt: null }, { startedAt: { lt: threshold } }]
+    },
+    data: { status: 'FAILED', error, finishedAt: now }
+  })
+  return result.count === 1
+}
+
 export async function cleanupStaleTasks(): Promise<void> {
   const lightTimeoutThreshold = new Date(Date.now() - LIGHT_TASK_TIMEOUT)
   const heavyTimeoutThreshold = new Date(Date.now() - HEAVY_TASK_TIMEOUT)
@@ -217,26 +243,14 @@ export async function cleanupStaleTasks(): Promise<void> {
         }
       ]
     },
-    select: { id: true, userId: true, instanceId: true, hostId: true, taskType: true }
+    select: { id: true, userId: true, instanceId: true, hostId: true, taskType: true, startedAt: true, retryCount: true }
   })
 
-  const result = await prisma.instanceTask.updateMany({
-    where: {
-      id: { in: staleTasks.map(task => task.id) },
-      status: 'PROCESSING'
-    },
-    data: {
-      status: 'FAILED',
-      error: '系统启动清理超时任务',
-      finishedAt: new Date()
+  await Promise.allSettled(staleTasks.map(async task => {
+    if (await failExpiredInstanceTaskAttempt(task, '系统启动清理超时任务')) {
+      await notifyInstanceTaskFailure(task, '系统启动清理超时任务')
     }
-  })
-  if (result.count > 0) {
-    console.log(`[InstanceTaskWorker] 清理了 ${result.count} 个僵尸任务`)
-    await Promise.allSettled(
-      staleTasks.map(task => notifyInstanceTaskFailure(task, '系统启动清理超时任务'))
-    )
-  }
+  }))
 }
 
 /**
@@ -258,10 +272,11 @@ async function cleanupTimeoutTasks(): Promise<void> {
         {
           taskType: { notIn: HEAVY_TASK_TYPES },
           startedAt: { lt: lightTimeoutThreshold }
-        }
+        },
+        { startedAt: null }
       ]
     },
-    select: { id: true, userId: true, instanceId: true, hostId: true, taskType: true }
+    select: { id: true, userId: true, instanceId: true, hostId: true, taskType: true, startedAt: true, retryCount: true }
   })
   const timedOutTaskIds = timedOutTasks
     .map(task => task.id)
@@ -271,26 +286,11 @@ async function cleanupTimeoutTasks(): Promise<void> {
     return
   }
 
-  const result = await prisma.instanceTask.updateMany({
-    where: {
-      id: { in: timedOutTaskIds },
-      status: 'PROCESSING'
-    },
-    data: {
-      status: 'FAILED',
-      error: '任务执行超时',
-      finishedAt: new Date()
+  await Promise.allSettled(timedOutTasks.filter(task => timedOutTaskIds.includes(task.id)).map(async task => {
+    if (await failExpiredInstanceTaskAttempt(task, '任务执行超时')) {
+      await notifyInstanceTaskFailure(task, '任务执行超时')
     }
-  })
-
-  if (result.count > 0) {
-    console.log(`[InstanceTaskWorker] 清理了 ${result.count} 个超时任务`)
-    await Promise.allSettled(
-      timedOutTasks
-        .filter(task => timedOutTaskIds.includes(task.id))
-        .map(task => notifyInstanceTaskFailure(task, '任务执行超时'))
-    )
-  }
+  }))
 }
 
 /**
@@ -365,22 +365,22 @@ async function processHostTasks(
   // 优先处理轻量任务（并行）
   if (lightTasks.length > 0) {
     const limit = pLimit(LIGHT_TASK_CONCURRENCY)
-    const claimedLightTasks: number[] = []
+    const claimedLightTasks: Array<{ id: number; startedAt: Date | null; retryCount: number }> = []
 
     // 尝试获取多个轻量任务
     for (const task of lightTasks.slice(0, LIGHT_TASK_CONCURRENCY)) {
       const claimed = await claimLightTask(hostId, task.id)
       if (claimed) {
-        claimedLightTasks.push(claimed.id)
+        claimedLightTasks.push(claimed)
       }
     }
 
     // 并行执行轻量任务
     if (claimedLightTasks.length > 0) {
       await Promise.allSettled(
-        claimedLightTasks.map(taskId =>
-          limit(() => executeTask(taskId).catch(err => {
-            console.error(`[InstanceTaskWorker] Light task ${taskId} error:`, err)
+        claimedLightTasks.map(claimed =>
+          limit(() => executeTask(claimed.id, claimed).catch(err => {
+            console.error(`[InstanceTaskWorker] Light task ${claimed.id} error:`, err)
           }))
         )
       )
@@ -400,7 +400,7 @@ async function processHostTasks(
       const claimedTask = await claimNextTask(hostId)
       if (claimedTask) {
         // 重量任务异步执行
-        executeTask(claimedTask.id).catch(err => {
+        executeTask(claimedTask.id, claimedTask).catch(err => {
           console.error(`[InstanceTaskWorker] Heavy task ${claimedTask.id} error:`, err)
         })
       }
@@ -411,7 +411,7 @@ async function processHostTasks(
 /**
  * 获取轻量任务（简化版锁检查）
  */
-async function claimLightTask(hostId: number, taskId: number) {
+export async function claimLightTask(hostId: number, taskId: number) {
   return prisma.$transaction(async (tx) => {
     const locked = await tryAdvisoryTransactionLock(tx, HOST_TASK_CLAIM_LOCK_NAMESPACE, hostId)
     if (!locked) return null
@@ -425,6 +425,10 @@ async function claimLightTask(hostId: number, taskId: number) {
       }
     })
     if (runningHeavyTask) return null
+    const runningLightCount = await tx.instanceTask.count({ where: {
+      hostId, status: 'PROCESSING', taskType: { notIn: HEAVY_TASK_TYPES }
+    } })
+    if (runningLightCount >= LIGHT_TASK_CONCURRENCY) return null
 
     // 检查是否有正在执行的恢复任务（共享锁）
     const runningRestoreTask = await tx.restoreTask.findFirst({
@@ -442,10 +446,13 @@ async function claimLightTask(hostId: number, taskId: number) {
     const task = await tx.instanceTask.findUnique({
       where: { id: taskId }
     })
-    if (!task || task.status !== 'PENDING') return null
+    if (!task || task.status !== 'PENDING' || task.hostId !== hostId || !LIGHT_TASK_NAMES.has(task.taskType)) return null
 
     const instanceOperationLocked = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, task.instanceId)
     if (!instanceOperationLocked) return null
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${task.instanceId} FOR UPDATE`
+    if (await hasPendingSnapshotOperation(task.instanceId, tx) || await hasPendingProxySiteOperations(task.instanceId, tx)) return null
+    if (await tx.instanceTask.findFirst({ where: { instanceId: task.instanceId, status: 'PROCESSING' }, select: { id: true } })) return null
 
     const instance = await tx.instance.findUnique({
       where: { id: task.instanceId },
@@ -454,17 +461,18 @@ async function claimLightTask(hostId: number, taskId: number) {
     if (!instance || instance.status === 'deleted') return null
 
     // 标记为 PROCESSING
-    return await tx.instanceTask.update({
-      where: { id: taskId },
+    const claimed = await tx.instanceTask.updateMany({
+      where: { id: taskId, hostId, status: 'PENDING' },
       data: { status: 'PROCESSING', startedAt: new Date() }
     })
+    return claimed.count === 1 ? tx.instanceTask.findUnique({ where: { id: taskId } }) : null
   })
 }
 
 /**
  * 原子操作：获取并锁定下一个任务
  */
-async function claimNextTask(hostId: number) {
+export async function claimNextTask(hostId: number) {
   return prisma.$transaction(async (tx) => {
     const locked = await tryAdvisoryTransactionLock(tx, HOST_TASK_CLAIM_LOCK_NAMESPACE, hostId)
     if (!locked) return null
@@ -496,6 +504,8 @@ async function claimNextTask(hostId: number) {
 
     const instanceOperationLocked = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, taskToRun.instanceId)
     if (!instanceOperationLocked) return null
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${taskToRun.instanceId} FOR UPDATE`
+    if (await hasPendingSnapshotOperation(taskToRun.instanceId, tx) || await hasPendingProxySiteOperations(taskToRun.instanceId, tx)) return null
 
     const instance = await tx.instance.findUnique({
       where: { id: taskToRun.instanceId },
@@ -504,19 +514,31 @@ async function claimNextTask(hostId: number) {
     if (!instance || instance.status === 'deleted') return null
 
     // 原子标记为 PROCESSING
-    const claimedTask = await tx.instanceTask.update({
-      where: { id: taskToRun.id },
+    const claimedTask = await tx.instanceTask.updateMany({
+      where: { id: taskToRun.id, hostId, status: 'PENDING' },
       data: { status: 'PROCESSING', startedAt: new Date() }
     })
 
-    return claimedTask
+    return claimedTask.count === 1 ? tx.instanceTask.findUnique({ where: { id: taskToRun.id } }) : null
   })
 }
 
 /**
  * 执行单个任务（带性能监控）
  */
-async function executeTask(taskId: number): Promise<void> {
+type InstanceTaskAttempt = { startedAt: Date | null; retryCount: number }
+
+export async function finalizeInstanceTaskAttempt(taskId: number, attempt: InstanceTaskAttempt, status: 'COMPLETED' | 'FAILED', error?: string): Promise<boolean> {
+  if (!attempt.startedAt) return false
+  const result = await prisma.instanceTask.updateMany({
+    where: { id: taskId, status: 'PROCESSING', startedAt: attempt.startedAt, retryCount: attempt.retryCount },
+    data: { status, ...(error !== undefined ? { error } : {}), finishedAt: new Date() }
+  })
+  return result.count === 1
+}
+
+async function executeTask(taskId: number, attempt: InstanceTaskAttempt): Promise<void> {
+  if (runningTaskIds.has(taskId) || !attempt.startedAt) return
   const taskStartTime = Date.now()
   runningTaskIds.add(taskId)
   let task: Awaited<ReturnType<typeof prisma.instanceTask.findUnique>> = null
@@ -530,6 +552,7 @@ async function executeTask(taskId: number): Promise<void> {
       console.error(`[InstanceTaskWorker] Task ${taskId} not found`)
       return
     }
+    if (task.status !== 'PROCESSING' || task.startedAt?.getTime() !== attempt.startedAt.getTime() || task.retryCount !== attempt.retryCount) return
 
     console.log(`[InstanceTaskWorker] 开始执行任务 ${taskId} (${task.taskType})`)
 
@@ -598,14 +621,8 @@ async function executeTask(taskId: number): Promise<void> {
     }
 
     // 任务完成
-    const completeResult = await prisma.instanceTask.updateMany({
-      where: { id: taskId, status: 'PROCESSING' },
-      data: {
-        status: 'COMPLETED',
-        finishedAt: new Date()
-      }
-    })
-    if (completeResult.count === 0) {
+    const completed = await finalizeInstanceTaskAttempt(taskId, attempt, 'COMPLETED')
+    if (!completed) {
       console.warn(`[InstanceTaskWorker] 任务 ${taskId} 已不处于 PROCESSING，跳过完成状态覆盖`)
     }
 
@@ -616,16 +633,10 @@ async function executeTask(taskId: number): Promise<void> {
     const errorMessage = err instanceof Error ? err.message : String(err)
     console.error(`[InstanceTaskWorker] 任务 ${taskId} 失败:`, errorMessage)
 
-    const failResult = await prisma.instanceTask.updateMany({
-      where: { id: taskId, status: 'PROCESSING' },
-      data: {
-        status: 'FAILED',
-        error: errorMessage,
-        finishedAt: new Date()
-      }
-    })
-    if (failResult.count === 0) {
+    const failed = await finalizeInstanceTaskAttempt(taskId, attempt, 'FAILED', errorMessage)
+    if (!failed) {
       console.warn(`[InstanceTaskWorker] 任务 ${taskId} 已不处于 PROCESSING，跳过失败状态覆盖`)
+      return
     }
 
     if (!task) {
@@ -678,22 +689,8 @@ async function executeStartTask(
   try {
     await startInstance(client, instance.incus_id)
   } catch (err) {
-    if (err instanceof Error && err.message.includes('file exists')) {
-      const startDevices = (await getInstance(client, instance.incus_id) as any).devices
-      if (startDevices?.eth1) {
-        console.warn(`[Start] IPv6 路由残留，尝试暂移 eth1 后启动...`)
-        const savedEth1 = { ...startDevices.eth1 }
-        const devicesWithoutEth1 = { ...startDevices }
-        delete devicesWithoutEth1.eth1
-        await updateInstance(client, instance.incus_id, { devices: devicesWithoutEth1 })
-        await startInstance(client, instance.incus_id)
-        // 实例启动后恢复 eth1（Incus 会热插入并添加新的路由）
-        await new Promise(r => setTimeout(r, 3000))
-        await updateInstance(client, instance.incus_id, { devices: { ...devicesWithoutEth1, eth1: savedEth1 } })
-        console.log(`[Start] eth1 已恢复，IPv6 路由重新建立`)
-      }
-    }
-    if (err instanceof Error && isAlreadyInStateError(err, 'running')) {
+    const recovered = await recoverIpv6RouteAndStart(client, instance.incus_id, err)
+    if (!recovered && err instanceof Error && isAlreadyInStateError(err, 'running')) {
       console.log(`[Start] 实例 ${instance.incus_id} 已经是运行状态，自动修正数据库`)
       // 获取实际状态并更新数据库
       const state = await getInstanceState(client, instance.incus_id) as {
@@ -718,7 +715,7 @@ async function executeStartTask(
       await createLog(task.userId, 'instance', 'instance.start', `Instance "${instance.name}" already running, synced status [host: ${host.name}]`, 'success', { instanceId: task.instanceId })
       return // 任务成功完成
     }
-    throw err // 其他错误继续抛出
+    if (!recovered) throw err // 其他错误继续抛出
   }
 
   // 等待网络初始化
@@ -866,22 +863,9 @@ async function executeRestartTask(
           await startInstance(client, instance.incus_id)
           // 继续等待网络初始化的流程
         } catch (startErr) {
-          if (startErr instanceof Error && startErr.message.includes('file exists')) {
-            const restartDevices = (await getInstance(client, instance.incus_id) as any).devices
-            if (restartDevices?.eth1) {
-              console.warn(`[Restart] IPv6 路由残留，尝试暂移 eth1 后启动...`)
-              const savedEth1 = { ...restartDevices.eth1 }
-              const devicesWithoutEth1 = { ...restartDevices }
-              delete devicesWithoutEth1.eth1
-              await updateInstance(client, instance.incus_id, { devices: devicesWithoutEth1 })
-              await startInstance(client, instance.incus_id)
-              await new Promise(r => setTimeout(r, 3000))
-              await updateInstance(client, instance.incus_id, { devices: { ...devicesWithoutEth1, eth1: savedEth1 } })
-              console.log(`[Restart] eth1 已恢复，IPv6 路由重新建立`)
-            }
-          }
+          const recovered = await recoverIpv6RouteAndStart(client, instance.incus_id, startErr)
           // 如果启动时发现已经是运行状态（极端边界情况），也视为成功
-          if (startErr instanceof Error && isAlreadyInStateError(startErr, 'running')) {
+          if (recovered || (startErr instanceof Error && isAlreadyInStateError(startErr, 'running'))) {
             console.log(`[Restart] 实例 ${instance.incus_id} 已经是运行状态`)
             // 继续等待网络初始化的流程
           } else {
@@ -1213,22 +1197,7 @@ async function executeRebuildTask(
   try {
     await startInstance(client, instance.incus_id)
   } catch (startErr) {
-    // IPv6 routed 模式下，force stop 后内核 host route 可能残留
-    // 导致 startInstance 报 "file exists"，需暂移 eth1 再恢复
-    if (startErr instanceof Error && startErr.message.includes('file exists') && rebuildDevices?.eth1) {
-      console.warn(`[Rebuild] IPv6 路由残留，尝试暂移 eth1 后启动...`)
-      const savedEth1 = { ...rebuildDevices.eth1 }
-      const devicesWithoutEth1 = { ...rebuildDevices }
-      delete devicesWithoutEth1.eth1
-      await updateInstance(client, instance.incus_id, { devices: devicesWithoutEth1 })
-      await startInstance(client, instance.incus_id)
-      // 实例启动后恢复 eth1（Incus 会热插入并添加新的路由）
-      await new Promise(r => setTimeout(r, 3000))
-      await updateInstance(client, instance.incus_id, { devices: { ...devicesWithoutEth1, eth1: savedEth1 } })
-      console.log(`[Rebuild] eth1 已恢复，IPv6 路由重新建立`)
-    } else {
-      throw startErr
-    }
+    if (!await recoverIpv6RouteAndStart(client, instance.incus_id, startErr)) throw startErr
   }
 
   // 等待网络初始化

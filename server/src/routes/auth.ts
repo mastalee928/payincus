@@ -19,10 +19,8 @@ import {
   getRefreshTokenSessionId,
   verifyRefreshToken,
   revokeRefreshToken,
-  revokeAllUserRefreshTokens,
   updateSessionActivity,
   invalidateSessionAccessToken,
-  invalidateUserAccessTokens,
   generate2FASecret,
   generate2FAQRCode,
   verify2FAToken,
@@ -37,7 +35,7 @@ import type { LoginRequest, RegisterRequest } from '../types/api.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { turnstileVerifier } from '../lib/turnstile.js'
 import { isSmtpEnabled, sendVerificationEmail, sendLoginAlertEmail, sendFreeSiteRegisterGiftEmail } from '../lib/mailer.js'
-import { createVerificationCode, verifyCode } from '../db/email-verification.js'
+import { createVerificationCode } from '../db/email-verification.js'
 import { validateEmailDomain } from '../lib/email-domain.js'
 import {
     claimOperationVerificationRequirement
@@ -271,7 +269,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
       // 如果 TOTP 验证失败，尝试恢复码
       if (!verified && recoveryCode) {
-        const encryptedCodes = await db.get2FARecoveryCodes(user.id)
+        const recoveryState = await db.get2FAMutationState(user.id)
+        const encryptedCodes = recoveryState?.twoFactorRecoveryCodes
         if (encryptedCodes) {
           const decryptedCodesJson = decryptSensitiveData(encryptedCodes)
           if (decryptedCodesJson) {
@@ -282,10 +281,11 @@ export default async function authRoutes(fastify: FastifyInstance) {
                 // 恢复码有效，移除已使用的恢复码
                 codes.splice(codeIndex, 1)
                 const newEncryptedCodes = encryptSensitiveData(JSON.stringify(codes))
-                await db.save2FARecoveryCodes(user.id, newEncryptedCodes)
-                verified = true
+                verified = Boolean(recoveryState && recoveryState.twoFactorEnabled &&
+                  recoveryState.passwordHash === user.password_hash &&
+                  await db.replace2FAStateIfCurrent(recoveryState, { twoFactorRecoveryCodes: newEncryptedCodes }))
 
-                await logSecurityEvent(SecurityEventType.LOGIN_SUCCESS, user.id, {
+                if (verified) await logSecurityEvent(SecurityEventType.LOGIN_SUCCESS, user.id, {
                   ip: clientIp,
                   username,
                   reason: `Used recovery code, ${codes.length} remaining`
@@ -550,10 +550,6 @@ export default async function authRoutes(fastify: FastifyInstance) {
       if (!emailCode) {
         return reply.code(400).send(apiError(ErrorCode.EMAIL_CODE_REQUIRED))
       }
-      const isValid = await verifyCode(email, emailCode, 'register')
-      if (!isValid) {
-        return reply.code(400).send(apiError(ErrorCode.INVALID_EMAIL_CODE))
-      }
     }
 
     // 检查是否需要邀请码
@@ -608,12 +604,16 @@ export default async function authRoutes(fastify: FastifyInstance) {
         username,
         email: normalizedEmail,
         passwordHash,
-        inviteCode: invite && inviteCode ? inviteCode : undefined
+        inviteCode: invite && inviteCode ? inviteCode : undefined,
+        emailCode: smtpEnabled ? emailCode : undefined
       })
       userId = created.userId
       registerGift = created.registerGift
     } catch (createErr) {
       if (createErr instanceof Error) {
+        if (createErr.message === 'INVALID_EMAIL_CODE') {
+          return reply.code(400).send(apiError(ErrorCode.INVALID_EMAIL_CODE))
+        }
         if (createErr.message === 'INVITE_CODE_UNAVAILABLE') {
           return reply.code(400).send(apiError(ErrorCode.INVALID_INVITE_CODE))
         }
@@ -1013,8 +1013,9 @@ export default async function authRoutes(fastify: FastifyInstance) {
     onRequest: [fastify.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     // 检查是否已启用
-    const status = await db.getUser2FAStatus(request.user.id)
-    if (status.enabled) {
+    const setupState = await db.get2FAMutationState(request.user.id)
+    if (!setupState || setupState.status !== 'active') return reply.code(403).send(apiError(ErrorCode.ACCOUNT_BANNED))
+    if (setupState.twoFactorEnabled) {
       return reply.code(400).send(apiError(ErrorCode.TWO_FA_ALREADY_ENABLED))
     }
 
@@ -1023,7 +1024,6 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
     // 加密后保存密钥
     const encryptedSecret = encryptSensitiveData(secret)
-    await db.save2FASecret(request.user.id, encryptedSecret)
 
     // 生成二维码
     const qrCode = await generate2FAQRCode(request.user.username, secret)
@@ -1031,7 +1031,9 @@ export default async function authRoutes(fastify: FastifyInstance) {
     // 生成备用恢复码并加密保存（临时保存，启用时才生效）
     const recoveryCodes = generateRecoveryCodes()
     const encryptedCodes = encryptSensitiveData(JSON.stringify(recoveryCodes))
-    await db.save2FARecoveryCodes(request.user.id, encryptedCodes)
+    if (!await db.replace2FAStateIfCurrent(setupState, {
+      twoFactorSecret: encryptedSecret, twoFactorRecoveryCodes: encryptedCodes
+    }, request.user)) return reply.code(409).send({ error: 'Authentication state changed; retry setup' })
 
     await createLog(request.user.id, 'security', '2fa.setup', 'Started 2FA setup', 'success')
 
@@ -1058,7 +1060,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
     const { code } = request.body
 
     // 获取已保存的密钥
-    const encryptedSecret = await db.get2FASecret(request.user.id)
+    const enableState = await db.get2FAMutationState(request.user.id)
+    const encryptedSecret = enableState?.twoFactorSecret
     if (!encryptedSecret) {
       return reply.code(400).send(apiError(ErrorCode.TWO_FA_NOT_ENABLED))
     }
@@ -1070,10 +1073,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
 
     // 启用 2FA
-    await db.enable2FA(request.user.id)
+    if (!enableState || enableState.twoFactorEnabled || !await db.replace2FAStateIfCurrent(enableState, {
+      twoFactorEnabled: true
+    }, request.user, true)) return reply.code(409).send({ error: 'Authentication state changed; retry setup' })
 
-    await revokeAllUserRefreshTokens(request.user.id)
-    await invalidateUserAccessTokens(request.user.id)
     closeUserSessions(request.user.id, '2FA enabled')
 
     await createLog(request.user.id, 'security', '2fa.enable', 'Enabled two-factor authentication', 'success')
@@ -1115,12 +1118,14 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
 
     // 验证 2FA 码
-    const encryptedSecret = await db.get2FASecret(request.user.id)
-    if (encryptedSecret) {
-      const secret = decryptSensitiveData(encryptedSecret)
-      if (!secret || !verify2FAToken(code, secret)) {
-        return reply.code(400).send(apiError(ErrorCode.INVALID_2FA_CODE))
-      }
+    const disableState = await db.get2FAMutationState(request.user.id)
+    if (!disableState || !disableState.twoFactorEnabled || disableState.passwordHash !== user.password_hash) {
+      return reply.code(409).send({ error: 'Authentication state changed; retry verification' })
+    }
+    const encryptedSecret = disableState.twoFactorSecret
+    const secret = encryptedSecret ? decryptSensitiveData(encryptedSecret) : null
+    if (!secret || !verify2FAToken(code, secret)) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_2FA_CODE))
     }
 
     // 敏感操作二次验证：在密码和 TOTP 通过后原子领取，避免错误输入消耗验证码。
@@ -1134,10 +1139,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
 
     // 禁用 2FA（清除所有 2FA 数据包括恢复码）
-    await db.disable2FAComplete(request.user.id)
+    if (!await db.replace2FAStateIfCurrent(disableState, {
+      twoFactorEnabled: false, twoFactorSecret: null, twoFactorRecoveryCodes: null
+    }, request.user, true)) return reply.code(409).send({ error: 'Authentication state changed; retry verification' })
 
-    await revokeAllUserRefreshTokens(request.user.id)
-    await invalidateUserAccessTokens(request.user.id)
     closeUserSessions(request.user.id, '2FA disabled')
 
     await createLog(request.user.id, 'security', '2fa.disable', 'Disabled two-factor authentication', 'success')
@@ -1212,18 +1217,22 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
 
     // 验证 2FA 码
-    const encryptedSecret = await db.get2FASecret(request.user.id)
-    if (encryptedSecret) {
-      const secret = decryptSensitiveData(encryptedSecret)
-      if (!secret || !verify2FAToken(code, secret)) {
-        return reply.code(400).send(apiError(ErrorCode.INVALID_2FA_CODE))
-      }
+    const regenerateState = await db.get2FAMutationState(request.user.id)
+    if (!regenerateState || !regenerateState.twoFactorEnabled || regenerateState.passwordHash !== user.password_hash) {
+      return reply.code(409).send({ error: 'Authentication state changed; retry verification' })
+    }
+    const encryptedSecret = regenerateState.twoFactorSecret
+    const secret = encryptedSecret ? decryptSensitiveData(encryptedSecret) : null
+    if (!secret || !verify2FAToken(code, secret)) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_2FA_CODE))
     }
 
     // 生成新的恢复码
     const recoveryCodes = generateRecoveryCodes()
     const encryptedCodes = encryptSensitiveData(JSON.stringify(recoveryCodes))
-    await db.save2FARecoveryCodes(request.user.id, encryptedCodes)
+    if (!await db.replace2FAStateIfCurrent(regenerateState, { twoFactorRecoveryCodes: encryptedCodes }, request.user)) {
+      return reply.code(409).send({ error: 'Authentication state changed; retry verification' })
+    }
 
     await createLog(request.user.id, 'security', '2fa.recovery_reset', 'Regenerated 2FA recovery codes', 'success')
 
@@ -1353,9 +1362,21 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.ACCOUNT_BANNED))
     }
 
-    // 验证验证码
-    const isValid = await verifyCode(email, code, 'password_reset')
-    if (!isValid) {
+    const resetState = await db.get2FAMutationState(user.id)
+    if (!resetState || resetState.passwordHash !== user.password_hash || resetState.email?.toLowerCase() !== email.toLowerCase().trim()) {
+      return reply.code(409).send({ error: 'Authentication state changed; retry verification' })
+    }
+    const passwordHash = await bcrypt.hash(password, 12)
+    let resetResult: { valid: boolean; twoFactorDisabled: boolean }
+    try {
+      resetResult = await db.resetPasswordWithEmailVerification(resetState, code, passwordHash)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'AUTHENTICATION_STATE_CHANGED') {
+        return reply.code(409).send({ error: 'Authentication state changed; retry verification' })
+      }
+      throw error
+    }
+    if (!resetResult.valid) {
       // 记录验证码验证失败的安全事件（防止暴力破解）
       // 注意：不透露用户是否存在，统一返回错误
       await logSecurityEvent(SecurityEventType.SUSPICIOUS_ACTIVITY, null, {
@@ -1367,27 +1388,11 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_EMAIL_CODE))
     }
 
-    const passwordHash = await bcrypt.hash(password, 12)
-
-    // 检查用户是否启用了2FA
-    const is2FAEnabled = await db.is2FAEnabled(user.id)
-    let twoFactorDisabled = false
-
-    // 如果启用了2FA，则禁用
-    if (is2FAEnabled) {
-      await db.disable2FAComplete(user.id)
-      twoFactorDisabled = true
-      
-      // 记录日志
+    const twoFactorDisabled = resetResult.twoFactorDisabled
+    if (twoFactorDisabled) {
       await createLog(user.id, 'security', '2fa.disable', '2FA disabled due to password reset', 'success')
     }
 
-    // 更新密码
-    await db.updateUser(user.id, { passwordHash })
-
-    // 撤销用户所有会话，强制重新登录（安全措施）
-    await revokeAllUserRefreshTokens(user.id)
-    await invalidateUserAccessTokens(user.id)
     closeUserSessions(user.id, 'Password reset')
 
     // 记录安全事件

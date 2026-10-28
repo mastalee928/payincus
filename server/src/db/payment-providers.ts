@@ -475,7 +475,7 @@ export function getPaymentMethodFeeMap(provider: PaymentProvider): PaymentMethod
     return {}
   }
 
-  const result: PaymentMethodFeeMap = {}
+  const result: PaymentMethodFeeMap = Object.create(null)
   for (const [method, entry] of Object.entries(rawMethodFees as Record<string, unknown>)) {
     const normalizedMethod = method.trim()
     if (!normalizedMethod) continue
@@ -491,7 +491,8 @@ export function getPaymentFeeConfig(
 ): PaymentMethodFeeConfig {
   const method = provider.type === 'yipay' ? paymentMethod?.trim() : ''
   if (method) {
-    const methodFee = getPaymentMethodFeeMap(provider)[method]
+    const feeMap = getPaymentMethodFeeMap(provider)
+    const methodFee = Object.hasOwn(feeMap, method) ? feeMap[method] : undefined
     if (methodFee) {
       return methodFee
     }

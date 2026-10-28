@@ -116,62 +116,70 @@ export class IncusClient {
       throw new Error('Incus 客户端未连接')
     }
 
-    const url = `${this.baseUrl}${path}`
-    const options: {
-      method: string
-      dispatcher: Agent
-      headers: Record<string, string>
-      body?: string
-      signal?: AbortSignal
-    } = {
-      method,
-      dispatcher: this.agent,
-      signal,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    }
-
-    if (body) {
-      options.body = JSON.stringify(body)
-    }
-
-    const response = await request(url, options)
-    const text = await response.body.text()
-    
-    // Try to parse JSON, handle non-JSON responses (e.g., mTLS errors)
-    let data: IncusApiResponse<T>
+    const startedAt = Date.now()
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(new Error(`Incus request timeout (${timeout} ms)`)), Math.max(1, timeout))
+    const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
     try {
-      data = JSON.parse(text) as IncusApiResponse<T>
-    } catch (e) {
-      // 记录错误日志
-      console.error('[Incus API Error]', {
+      const url = `${this.baseUrl}${path}`
+      const options: {
+        method: string
+        dispatcher: Agent
+        headers: Record<string, string>
+        body?: string
+        signal?: AbortSignal
+      } = {
         method,
-        url,
-        statusCode: response.statusCode,
-        error: text || `HTTP ${response.statusCode}`
-      })
-      // Incus returns plain text for some errors (like mTLS failures)
-      throw new Error(text || `HTTP ${response.statusCode}`)
-    }
+        dispatcher: this.agent,
+        signal: requestSignal,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
 
-    // Incus API 返回格式: { type: "sync/async", status: "Success", metadata: {...} }
-    if (data.type === 'error') {
-      // 记录错误日志
-      console.error('[Incus API Error]', {
-        method,
-        url,
-        error: data.error || 'Incus API 错误'
-      })
-      throw new Error(data.error || 'Incus API 错误')
-    }
+      if (body) {
+        options.body = JSON.stringify(body)
+      }
 
-    // 异步操作需要等待完成
-    if (data.type === 'async' && data.operation) {
-      return await waitForOperation(this, data.operation, timeout, signal) as T
-    }
+      const response = await request(url, options)
+      const text = await response.body.text()
 
-    return (data.metadata || data) as T
+      // Try to parse JSON, handle non-JSON responses (e.g., mTLS errors)
+      let data: IncusApiResponse<T>
+      try {
+        data = JSON.parse(text) as IncusApiResponse<T>
+      } catch (e) {
+        // 记录错误日志
+        console.error('[Incus API Error]', {
+          method,
+          url,
+          statusCode: response.statusCode,
+          error: text || `HTTP ${response.statusCode}`
+        })
+        // Incus returns plain text for some errors (like mTLS failures)
+        throw new Error(text || `HTTP ${response.statusCode}`)
+      }
+
+      // Incus API 返回格式: { type: "sync/async", status: "Success", metadata: {...} }
+      if (data.type === 'error') {
+        // 记录错误日志
+        console.error('[Incus API Error]', {
+          method,
+          url,
+          error: data.error || 'Incus API 错误'
+        })
+        throw new Error(data.error || 'Incus API 错误')
+      }
+
+      // 异步操作需要等待完成
+      if (data.type === 'async' && data.operation) {
+        const remaining = timeout - (Date.now() - startedAt)
+        if (remaining <= 0) throw new Error(`Incus request timeout (${timeout} ms)`)
+        return await waitForOperation(this, data.operation, remaining, requestSignal) as T
+      }
+
+      return (data.metadata || data) as T
+    } finally { clearTimeout(timer) }
   }
 
   /**

@@ -48,8 +48,9 @@ function parsePositiveRouteId(value: string): number | null {
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
-  const parsed = parseInt(value || '', 10)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
+  if (!value || !/^[1-9]\d*$/.test(value)) return fallback
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed <= 2147483647 ? parsed : fallback
 }
 
 function parseNotificationLogStatus(value: string | undefined): 'pending' | 'sent' | 'failed' | undefined {

@@ -23,6 +23,7 @@ interface Host {
 }
 
 interface PooledClient {
+  configuration: string
   client: IncusClient
   lastUsed: number        // 最后使用时间戳
   lastResponseTime: number // 最后响应时间 (ms)
@@ -35,7 +36,12 @@ const clientPool = new Map<string, PooledClient>()
 const CONNECTION_EXPIRE_MS = 30 * 60 * 1000
 
 // 连接锁（防止并发重连）
-const connectingLocks = new Map<string, Promise<IncusClient>>()
+const connectingLocks = new Map<string, { configuration: string; promise: Promise<IncusClient> }>()
+const generations = new Map<string, number>()
+const invalidations = new Map<string, number>()
+const configurationLookups = new Map<string, { sequence: number; configuration: string }>()
+let lookupSequence = 0
+let poolGeneration = 0
 
 // 定期清理过期连接
 let cleanupInterval: ReturnType<typeof setInterval> | null = null
@@ -77,69 +83,63 @@ function ensureCleanupStarted(): void {
  */
 export async function getIncusClient(host: Host): Promise<IncusClient> {
   ensureCleanupStarted()
-  
   const key = `${host.id}`
-  const now = Date.now()
-  
-  // 检查是否有正在进行的连接操作
+  const invalidation = invalidations.get(key) ?? 0
+  const globalGeneration = poolGeneration
+  const sequence = ++lookupSequence
+  const options = await prisma.host.findUnique({ where: { id: host.id }, select: {
+    url: true, certPath: true, keyPath: true, serverCertificate: true, serverFingerprint: true
+  } })
+  if (!options) throw new Error('Incus host no longer exists')
+  if (invalidation !== (invalidations.get(key) ?? 0) || globalGeneration !== poolGeneration) {
+    throw new Error('Incus connection invalidated during configuration lookup')
+  }
+  const configuration = JSON.stringify(options)
+  const latestLookup = configurationLookups.get(key)
+  if (latestLookup && latestLookup.sequence > sequence && latestLookup.configuration !== configuration) {
+    throw new Error('Incus connection configuration lookup superseded')
+  }
+  if (!latestLookup || sequence > latestLookup.sequence) configurationLookups.set(key, { sequence, configuration })
   const existingLock = connectingLocks.get(key)
-  if (existingLock) {
-    return existingLock
-  }
-  
-  if (clientPool.has(key)) {
-    const pooled = clientPool.get(key)!
-    pooled.lastUsed = now
-    
-    if (pooled.client.connected) {
-      return pooled.client
-    }
-    
-    // 重新连接（带锁保护）
-    const reconnectPromise = (async () => {
-      try {
-        await pooled.client.connect()
-        pooled.errorCount = 0
-        return pooled.client
-      } catch (error) {
-        pooled.errorCount++
-        throw error
-      } finally {
-        connectingLocks.delete(key)
-      }
-    })()
-    
-    connectingLocks.set(key, reconnectPromise)
-    return reconnectPromise
+  if (existingLock?.configuration === configuration) return existingLock.promise
+  const pooled = clientPool.get(key)
+  if (pooled?.configuration === configuration && pooled.client.connected && !existingLock) {
+    pooled.lastUsed = Date.now()
+    return pooled.client
   }
 
-  // 创建新连接（带锁保护）
-  const connectPromise = (async () => {
+  // Invalidate before any await: an old connect/close cannot republish or erase
+  // a connection for a newer address, certificate or removal generation.
+  const nextGeneration = (generations.get(key) ?? 0) + 1
+  generations.set(key, nextGeneration)
+  clientPool.delete(key)
+  const current = () => (generations.get(key) ?? 0) === nextGeneration && poolGeneration === globalGeneration
+  let client: IncusClient | null = null
+  const connectPromise = Promise.resolve().then(async () => {
     try {
-      const pin = await prisma.host.findUnique({ where: { id: host.id }, select: { serverCertificate: true, serverFingerprint: true } })
-      const client = new Client({
-        ...pin,
-        url: host.url,
-        certPath: host.cert_path || host.certPath || null,
-        keyPath: host.key_path || host.keyPath || null
-      })
-
+      if (pooled) await pooled.client.close()
+      if (!current()) throw new Error('Incus connection configuration changed')
+      client = new Client(options)
       await client.connect()
-      
+      if (!current()) throw new Error('Incus connection invalidated while connecting')
+      const confirmed = await prisma.host.findUnique({ where: { id: host.id }, select: {
+        url: true, certPath: true, keyPath: true, serverCertificate: true, serverFingerprint: true
+      } })
+      if (!current() || JSON.stringify(confirmed) !== configuration) {
+        throw new Error('Incus connection configuration changed while connecting')
+      }
       clientPool.set(key, {
-        client,
-        lastUsed: now,
-        lastResponseTime: 0,
-        errorCount: 0
+        client, configuration, lastUsed: Date.now(), lastResponseTime: 0, errorCount: 0
       })
-      
       return client
+    } catch (error) {
+      if (client) await client.close().catch(() => {})
+      throw error
     } finally {
-      connectingLocks.delete(key)
+      if (connectingLocks.get(key)?.promise === connectPromise) connectingLocks.delete(key)
     }
-  })()
-  
-  connectingLocks.set(key, connectPromise)
+  })
+  connectingLocks.set(key, { configuration, promise: connectPromise })
   return connectPromise
 }
 
@@ -198,11 +198,13 @@ export function getPoolStatus(): Map<string, {
  */
 export async function removeIncusClient(hostId: number): Promise<void> {
   const key = `${hostId}`
-  if (clientPool.has(key)) {
-    const pooled = clientPool.get(key)!
-    await pooled.client.close()
-    clientPool.delete(key)
-  }
+  generations.set(key, (generations.get(key) ?? 0) + 1)
+  invalidations.set(key, (invalidations.get(key) ?? 0) + 1)
+  connectingLocks.delete(key)
+  configurationLookups.delete(key)
+  const pooled = clientPool.get(key)
+  clientPool.delete(key)
+  if (pooled) await pooled.client.close()
 }
 
 /**
@@ -219,12 +221,16 @@ export async function closeAllClients(): Promise<void> {
     cleanupInterval = null
   }
   
-  for (const pooled of clientPool.values()) {
+  poolGeneration++
+  connectingLocks.clear()
+  configurationLookups.clear()
+  const clients = [...clientPool.values()]
+  clientPool.clear()
+  for (const pooled of clients) {
     try {
       await pooled.client.close()
     } catch {
       // 忽略关闭错误
     }
   }
-  clientPool.clear()
 }

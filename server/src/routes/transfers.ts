@@ -1,3 +1,4 @@
+import { assertNoPendingSnapshotOperations, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 /**
  * 实例转移路由
  */
@@ -10,14 +11,12 @@ import { apiError, ErrorCode } from '../lib/errors.js'
 import type { TransferSnapshot } from '../db/transfers.js'
 import { createTransferWithFee, getTransferByIdWithFee, refundTransferFee } from '../db/transfers.js'
 import { sendNotification } from '../lib/notifier.js'
-import { getIncusClient } from '../lib/incus/incus-pool.js'
-import { removeDevice } from '../lib/incus/incus-instances.js'
-import { deleteSnapshot as deleteIncusSnapshot } from '../lib/incus/incus-snapshots.js'
-import { deleteBackup as deleteIncusBackup } from '../lib/incus/incus-backups.js'
-import { renameInstance as renameIncusInstance } from '../lib/incus/incus-restore.js'
-import { getProxySitesByInstanceId, deleteProxySite } from '../db/proxy-sites.js'
-import { createCaddyClient } from '../lib/caddy-client.js'
 import { prisma } from '../db/prisma.js'
+import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '../db/advisory-locks.js'
+import { assertNoPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
+import { prepareTransferCleanup, runTransferCleanup } from '../services/transfer-cleanup.js'
+import type { WriteActor } from '../db/user-write-authorization.js'
+import { redactAuditText } from '../lib/risk-audit.js'
 import {
     claimOperationVerificationRequirement
 } from '../lib/operation-verification.js'
@@ -92,6 +91,68 @@ function parsePositiveInteger(value: string | undefined, fallback?: number, max 
     }
 
     return parsed
+}
+
+async function claimTransferForProcessing(transferId: number, userId: number, party: 'fromUserId' | 'toUserId') {
+    return prisma.$transaction(async tx => {
+        const candidate = await tx.instanceTransfer.findFirst({ where: { id: transferId, status: { in: ['pending', 'processing'] }, [party]: userId }, select: { instanceId: true } })
+        if (!candidate) return { count: 0 }
+        if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, candidate.instanceId)) {
+            throw Object.assign(new Error('实例正在执行其他操作，请稍后重试'), { statusCode: 409, code: 'TRANSFER_INSTANCE_BUSY' })
+        }
+        await tx.$queryRaw`SELECT id FROM instances WHERE id = ${candidate.instanceId} FOR UPDATE`
+        const current = await tx.instanceTransfer.findUniqueOrThrow({ where: { id: transferId } })
+        if (current[party] !== userId) return { count: 0 }
+        // An existing claim resumes its fixed cleanup plan, including pending site deletes.
+        if (current.status === 'processing') return { count: 1 }
+        await assertNoPendingSnapshotOperations(tx, candidate.instanceId)
+        await assertNoPendingProxySiteOperations(tx, candidate.instanceId)
+        return tx.instanceTransfer.updateMany({ where: { id: transferId, status: 'pending', [party]: userId }, data: { status: 'processing' } })
+    })
+}
+
+function transferResultError(error: unknown): { code: string; error: string } {
+    const message = redactAuditText(error instanceof Error ? error.message : String(error))
+    return { code: 'TRANSFER_CLEANUP_PENDING', error: `实例转移尚未完成，原实例与库存继续保留：${message}` }
+}
+
+function transferCleanupError(state: unknown): string | null {
+    const error = isPlainRecord(state) && typeof state.error === 'string' ? state.error : null
+    return error ? redactAuditText(error).slice(0, 1500) : null
+}
+
+async function completeClaimedTransfer(transferId: number, party: 'accept' | 'push',
+    actor: WriteActor & { username: string }, transfer: NonNullable<Awaited<ReturnType<typeof db.getTransferById>>>) {
+    const instance = await db.getInstanceById(transfer.instanceId)
+    if (!instance || instance.status === 'deleted') return { error: apiError(ErrorCode.INSTANCE_NOT_FOUND), status: 400 as const }
+    if (!instance.dedicated_ipv4 && instance.status === 'running') {
+        return { error: { code: 'INSTANCE_MUST_BE_STOPPED', error: 'Instance must be stopped before transfer' }, status: 400 as const }
+    }
+    const oldIncusId = instance.incus_id
+    const newIncusId = instance.dedicated_ipv4 ? oldIncusId : `u${transfer.toUserId}-${nanoid()}`
+    const suffix = `（${party === 'accept' ? transfer.fromUser.username : actor.username}转）`
+    let newName = instance.name
+    if (!newName.endsWith(suffix)) {
+        newName = instance.name + suffix
+        if (newName.length > 64) newName = instance.name.substring(0, 64 - suffix.length) + suffix
+    }
+    try {
+        const prepared = await prepareTransferCleanup(transferId, newIncusId, newName, actor)
+        newName = prepared.newName
+        await runTransferCleanup(transferId, actor)
+    } catch (error) {
+        await createLog(actor.id, 'transfer', `transfer.${party}`, `Transfer #${transferId} needs cleanup: ${redactAuditText(error instanceof Error ? error.message : String(error))}`,
+            'failed', { instanceId: transfer.instanceId })
+        return { error: transferResultError(error), status: 409 as const }
+    }
+    await createLog(actor.id, 'transfer', `transfer.${party}`,
+        `${party === 'accept' ? 'Accepted' : 'Pushed'} transfer of instance "${instance.name}" to "${transfer.toUser.username}"`,
+        'success', { instanceId: transfer.instanceId })
+    if (party === 'accept') await sendNotification(transfer.fromUserId, 'transfer_accepted', {
+        instanceName: instance.name, receiverUsername: actor.username
+    })
+    await sendNotification(transfer.toUserId, 'transfer_ownership_received', { instanceName: newName })
+    return { message: party === 'accept' ? 'Transfer accepted' : 'Transfer pushed successfully' }
 }
 
 export default async function transferRoutes(fastify: FastifyInstance) {
@@ -277,6 +338,7 @@ export default async function transferRoutes(fastify: FastifyInstance) {
             })
             transferId = result.transferId
         } catch (error) {
+            if ((error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError)) return reply.code(409).send({ code: error.code, error: error.message })
             const errorMsg = error instanceof Error ? error.message : ''
             if (errorMsg === 'INSUFFICIENT_BALANCE') {
                 return reply.code(400).send(apiError(ErrorCode.TRANSFER_INSUFFICIENT_BALANCE))
@@ -365,6 +427,7 @@ export default async function transferRoutes(fastify: FastifyInstance) {
                     fromUser: t.fromUser ? { id: t.fromUser.id, username: t.fromUser.username, email: t.fromUser.email, avatarStyle: t.fromUser.avatarStyle, avatarBadgeId: t.fromUser.avatarBadgeId ?? null } : null,
                     toUser: t.toUser ? { id: t.toUser.id, username: t.toUser.username, email: t.toUser.email, avatarStyle: t.toUser.avatarStyle, avatarBadgeId: t.toUser.avatarBadgeId ?? null } : null,
                     status: t.status,
+                    cleanupError: transferCleanupError(t.cleanupState),
                     snapshot: t.snapshot,
                     remark: t.remark,
                     rejectReason: t.rejectReason,
@@ -423,6 +486,7 @@ export default async function transferRoutes(fastify: FastifyInstance) {
                 fromUser: { id: transfer.fromUser.id, username: transfer.fromUser.username, email: transfer.fromUser.email, avatarStyle: transfer.fromUser.avatarStyle, avatarBadgeId: transfer.fromUser.avatarBadgeId ?? null },
                 toUser: { id: transfer.toUser.id, username: transfer.toUser.username, email: transfer.toUser.email, avatarStyle: transfer.toUser.avatarStyle, avatarBadgeId: transfer.toUser.avatarBadgeId ?? null },
                 status: transfer.status,
+                cleanupError: transferCleanupError(transfer.cleanupState),
                 snapshot: transfer.snapshot,
                 remark: transfer.remark,
                 rejectReason: transfer.rejectReason,
@@ -447,16 +511,12 @@ export default async function transferRoutes(fastify: FastifyInstance) {
 
         // ===== 并发安全：使用乐观锁，原子性地检查并更新状态 =====
         // 使用 updateMany 原子操作，只有 status='pending' 时才更新为 'processing'
-        const lockResult = await prisma.instanceTransfer.updateMany({
-            where: {
-                id: transferId,
-                status: 'pending',
-                toUserId: user.id  // 同时验证权限
-            },
-            data: {
-                status: 'processing'  // 临时锁定状态
-            }
-        })
+        let lockResult: { count: number }
+        try { lockResult = await claimTransferForProcessing(transferId, user.id, 'toUserId') }
+        catch (error) {
+            if ((error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError)) return reply.code(409).send({ code: error.code, error: error.message })
+            throw error
+        }
 
         // 如果没有更新任何记录，说明状态已变化或权限不足
         if (lockResult.count === 0) {
@@ -478,251 +538,9 @@ export default async function transferRoutes(fastify: FastifyInstance) {
             return reply.code(404).send(apiError(ErrorCode.TRANSFER_NOT_FOUND))
         }
 
-        // ===== 失败时的回滚函数 =====
-        const rollbackToPending = async () => {
-            try {
-                await prisma.instanceTransfer.update({
-                    where: { id: transferId },
-                    data: { status: 'pending' }
-                })
-            } catch (err) {
-                console.error('[Transfer] Failed to rollback status:', err)
-            }
-        }
-
-        // 检查实例是否还存在
-        const instance = await db.getInstanceById(transfer.instanceId)
-        if (!instance || instance.status === 'deleted') {
-            await db.cancelTransfer(transferId)
-            return reply.code(400).send(apiError(ErrorCode.INSTANCE_NOT_FOUND))
-        }
-
-        // ===== 检查实例状态：必须是停止状态才能重命名 =====
-        if (!instance.dedicated_ipv4 && instance.status === 'running') {
-            await rollbackToPending()
-            return reply.code(400).send({
-                error: 'Instance must be stopped before transfer',
-                code: 'INSTANCE_MUST_BE_STOPPED'
-            })
-        }
-
-        // 注意：不再检查配额，只检查用户状态（已在搜索用户时检查）
-
-        // ===== 获取 Incus 客户端 =====
-        const host = await db.getHostById(instance.host_id)
-        let client = null
-        if (host) {
-            try {
-                client = await getIncusClient(host)
-            } catch (err) {
-                console.error('[Transfer] Failed to get Incus client:', err)
-            }
-        }
-
-        // 必须能连接到宿主机才能继续
-        if (!client) {
-            await rollbackToPending()
-            return reply.code(500).send({
-                error: 'Cannot connect to host',
-                code: 'HOST_UNAVAILABLE'
-            })
-        }
-
-        // ===== 1. 先重命名实例（最关键的操作，失败则不影响任何附属资源）=====
-        const oldIncusId = instance.incus_id
-        // Dedicated address forwards belong to the existing Incus ID. Keep that
-        // ID on an ownership transfer so full-port delivery stays intact.
-        const newIncusId = instance.dedicated_ipv4 ? oldIncusId : `u${user.id}-${nanoid()}`
-        
-        try {
-            if (newIncusId !== oldIncusId) await renameIncusInstance(client, oldIncusId, newIncusId)
-            console.log(`[Transfer] Renamed instance from ${oldIncusId} to ${newIncusId}`)
-        } catch (err) {
-            console.error('[Transfer] Failed to rename instance in Incus:', err)
-            await createLog(
-                user.id,
-                'transfer',
-                'transfer.accept',
-                `Failed to rename instance "${instance.name}" in Incus: ${err instanceof Error ? err.message : String(err)}`,
-                'failed',
-                { instanceId: instance.id }
-            )
-            await rollbackToPending()
-            return reply.code(500).send({
-                error: 'Failed to rename instance',
-                code: 'INCUS_RENAME_FAILED'
-            })
-        }
-
-        // ===== 2. 计算新名称并更新数据库（在删除附属资源之前！）=====
-        const suffix = `（${transfer.fromUser.username}转）`
-        let newName = instance.name
-        if (!newName.endsWith(suffix)) {
-            newName = instance.name + suffix
-            if (newName.length > 64) {
-                newName = instance.name.substring(0, 64 - suffix.length) + suffix
-            }
-        }
-
-        // 执行转移（更新所有者、名称和 Incus ID）
-        // 注意：如果数据库更新失败，需要尝试回滚 Incus 重命名
-        try {
-            await db.executeTransfer(
-                transferId,
-                transfer.instanceId,
-                transfer.fromUserId,
-                transfer.toUserId,
-                newName,
-                newIncusId,
-                oldIncusId
-            )
-        } catch (dbErr) {
-            console.error('[Transfer] Database update failed:', dbErr)
-            // 尝试回滚 Incus 重命名
-            try {
-                if (newIncusId !== oldIncusId) await renameIncusInstance(client, newIncusId, oldIncusId)
-                console.log(`[Transfer] Rolled back Incus rename from ${newIncusId} to ${oldIncusId}`)
-            } catch (rollbackErr) {
-                // 回滚失败，记录严重错误（需要人工干预）
-                console.error('[Transfer] CRITICAL: Failed to rollback Incus rename!', {
-                    oldIncusId,
-                    newIncusId,
-                    error: rollbackErr
-                })
-            }
-            await createLog(
-                user.id,
-                'transfer',
-                'transfer.accept',
-                `Failed to update database for instance "${instance.name}": ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`,
-                'failed',
-                { instanceId: instance.id }
-            )
-            await rollbackToPending()
-            return reply.code(500).send({
-                error: 'Failed to update database',
-                code: 'DATABASE_ERROR'
-            })
-        }
-
-        // ===== 3. 数据库更新成功后，删除附属资源（失败仅记录日志，不影响转移结果）=====
-        
-        // 3.1 删除反代站点（Caddy 远程 + 数据库）
-        const proxySites = await getProxySitesByInstanceId(transfer.instanceId)
-        if (proxySites.length > 0) {
-            if (host?.caddy_enabled && host.caddy_username && host.caddy_password) {
-                const targetHost = host.nat_public_ip || host.ip_address
-                if (targetHost) {
-                    const caddyClient = createCaddyClient({
-                        host: targetHost,
-                        port: host.caddy_port || 8444,
-                        username: host.caddy_username,
-                        password: host.caddy_password
-                    })
-                    for (const site of proxySites) {
-                        try {
-                            await caddyClient.deleteSite(site.domain)
-                        } catch (err) {
-                            console.error(`[Transfer] Failed to delete Caddy site (${site.domain}):`, err)
-                        }
-                    }
-                }
-            }
-            for (const site of proxySites) {
-                try {
-                    await deleteProxySite(site.id)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete proxy site DB record (${site.domain}):`, err)
-                }
-            }
-        }
-
-        // 3.2 删除端口映射（Incus 设备 + 数据库）
-        // 注意：实例已重命名，设备随实例迁移，所以使用新的 incus_id
-        const portMappings = await db.getPortMappings(transfer.instanceId)
-        if (portMappings.length > 0) {
-            for (const mapping of portMappings) {
-                const map = mapping as { id: number; protocol: string; public_port: number }
-                const deviceName = `proxy-${map.protocol}-${map.public_port}`
-                try {
-                    // 使用新的 incus_id 删除设备
-                    await removeDevice(client, newIncusId, deviceName)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to remove port mapping device (${deviceName}):`, err)
-                }
-                try {
-                    await db.deletePortMapping(map.id)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete port mapping DB record (${map.id}):`, err)
-                }
-            }
-        }
-
-        // 3.3 删除快照（Incus 远程 + 数据库）
-        const snapshots = await db.getSnapshotsByInstanceId(transfer.instanceId)
-        if (snapshots.length > 0) {
-            for (const snapshot of snapshots) {
-                try {
-                    // 使用新的 incus_id 删除快照
-                    await deleteIncusSnapshot(client, newIncusId, snapshot.incus_name)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete snapshot (${snapshot.name}):`, err)
-                }
-                try {
-                    await db.deleteSnapshot(snapshot.id)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete snapshot DB record (${snapshot.id}):`, err)
-                }
-            }
-        }
-
-        // 3.4 删除备份（Incus 远程 + 数据库软删除）
-        const backups = await db.getBackupsByInstanceId(transfer.instanceId)
-        if (backups.length > 0) {
-            for (const backup of backups) {
-                try {
-                    // 使用新的 incus_id 删除备份
-                    await deleteIncusBackup(client, newIncusId, backup.incus_name)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete backup (${backup.name}):`, err)
-                }
-                try {
-                    await db.deleteBackup(backup.id)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete backup DB record (${backup.id}):`, err)
-                }
-            }
-        }
-
-        // 3.5 删除快照策略和备份策略
-        try {
-            await prisma.snapshotPolicy.deleteMany({ where: { instanceId: transfer.instanceId } })
-            await prisma.backupPolicy.deleteMany({ where: { instanceId: transfer.instanceId } })
-        } catch (err) {
-            console.error('[Transfer] Failed to delete policies:', err)
-        }
-
-        await createLog(
-            user.id,
-            'transfer',
-            'transfer.accept',
-            `Accepted transfer of instance "${instance.name}" from "${transfer.fromUser.username}"`,
-            'success',
-            { instanceId: transfer.instanceId }
-        )
-
-        // 通知发起方转移已被接受
-        await sendNotification(transfer.fromUserId, 'transfer_accepted', {
-            instanceName: instance.name,
-            receiverUsername: user.username
-        })
-
-        // 提醒新所有者：普通转移不重装，需自行重置实例凭证并按需重开自动续费
-        await sendNotification(user.id, 'transfer_ownership_received', {
-            instanceName: newName
-        })
-
-        return { message: 'Transfer accepted' }
+        const result = await completeClaimedTransfer(transferId, 'accept', user, transfer)
+        if ('error' in result) return reply.code(result.status ?? 409).send(result.error)
+        return { message: result.message }
     })
 
     // 拒绝转移
@@ -910,16 +728,12 @@ export default async function transferRoutes(fastify: FastifyInstance) {
 
         // ===== 并发安全：使用乐观锁，原子性地检查并更新状态 =====
         // 使用 updateMany 原子操作，只有 status='pending' 且 fromUserId=user.id 时才更新为 'processing'
-        const lockResult = await prisma.instanceTransfer.updateMany({
-            where: {
-                id: transferId,
-                status: 'pending',
-                fromUserId: user.id  // 同时验证权限（只有发起方可以推送）
-            },
-            data: {
-                status: 'processing'  // 临时锁定状态
-            }
-        })
+        let lockResult: { count: number }
+        try { lockResult = await claimTransferForProcessing(transferId, user.id, 'fromUserId') }
+        catch (error) {
+            if ((error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError)) return reply.code(409).send({ code: error.code, error: error.message })
+            throw error
+        }
 
         // 如果没有更新任何记录，说明状态已变化或权限不足
         if (lockResult.count === 0) {
@@ -940,237 +754,8 @@ export default async function transferRoutes(fastify: FastifyInstance) {
             return reply.code(404).send(apiError(ErrorCode.TRANSFER_NOT_FOUND))
         }
 
-        // ===== 失败时的回滚函数 =====
-        const rollbackToPending = async () => {
-            try {
-                await prisma.instanceTransfer.update({
-                    where: { id: transferId },
-                    data: { status: 'pending' }
-                })
-            } catch (err) {
-                console.error('[Transfer] Failed to rollback status:', err)
-            }
-        }
-
-        // ===== 检查实例和宿主机 =====
-        const instance = await db.getInstanceById(transfer.instanceId)
-        if (!instance || instance.status === 'deleted') {
-            await db.cancelTransfer(transferId)
-            return reply.code(400).send(apiError(ErrorCode.INSTANCE_NOT_FOUND))
-        }
-
-        const host = await db.getHostById(instance.host_id)
-        if (!host) {
-            await rollbackToPending()
-            return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
-        }
-
-        // 权限检查：发起方可以直接推送（已在 lockResult 中通过 fromUserId 验证）
-
-        // ===== 检查实例状态：必须是停止状态才能重命名 =====
-        if (!instance.dedicated_ipv4 && instance.status === 'running') {
-            await rollbackToPending()
-            return reply.code(400).send({
-                error: 'Instance must be stopped before transfer',
-                code: 'INSTANCE_MUST_BE_STOPPED'
-            })
-        }
-
-        // ===== 获取 Incus 客户端 =====
-        let client = null
-        try {
-            client = await getIncusClient(host)
-        } catch (err) {
-            console.error('[Transfer] Failed to get Incus client:', err)
-        }
-
-        if (!client) {
-            await rollbackToPending()
-            return reply.code(500).send({
-                error: 'Cannot connect to host',
-                code: 'HOST_UNAVAILABLE'
-            })
-        }
-
-        // ===== 1. 先重命名实例 =====
-        const oldIncusId = instance.incus_id
-        const newIncusId = instance.dedicated_ipv4 ? oldIncusId : `u${transfer.toUserId}-${nanoid()}`
-        
-        try {
-            if (newIncusId !== oldIncusId) await renameIncusInstance(client, oldIncusId, newIncusId)
-            console.log(`[Transfer] Renamed instance from ${oldIncusId} to ${newIncusId}`)
-        } catch (err) {
-            console.error('[Transfer] Failed to rename instance in Incus:', err)
-            await createLog(
-                user.id,
-                'transfer',
-                'transfer.push',
-                `Failed to rename instance "${instance.name}" in Incus: ${err instanceof Error ? err.message : String(err)}`,
-                'failed',
-                { instanceId: instance.id }
-            )
-            await rollbackToPending()
-            return reply.code(500).send({
-                error: 'Failed to rename instance',
-                code: 'INCUS_RENAME_FAILED'
-            })
-        }
-
-        // ===== 2. 计算新名称并更新数据库 =====
-        const suffix = `（${user.username}转）`
-        let newName = instance.name
-        if (!newName.endsWith(suffix)) {
-            newName = instance.name + suffix
-            if (newName.length > 64) {
-                newName = instance.name.substring(0, 64 - suffix.length) + suffix
-            }
-        }
-
-        try {
-            await db.executeTransfer(
-                transferId,
-                transfer.instanceId,
-                transfer.fromUserId,
-                transfer.toUserId,
-                newName,
-                newIncusId,
-                oldIncusId
-            )
-        } catch (dbErr) {
-            console.error('[Transfer] Database update failed:', dbErr)
-            // 尝试回滚 Incus 重命名
-            try {
-                if (newIncusId !== oldIncusId) await renameIncusInstance(client, newIncusId, oldIncusId)
-                console.log(`[Transfer] Rolled back Incus rename from ${newIncusId} to ${oldIncusId}`)
-            } catch (rollbackErr) {
-                console.error('[Transfer] CRITICAL: Failed to rollback Incus rename!', {
-                    oldIncusId,
-                    newIncusId,
-                    error: rollbackErr
-                })
-            }
-            await createLog(
-                user.id,
-                'transfer',
-                'transfer.push',
-                `Failed to update database for instance "${instance.name}": ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`,
-                'failed',
-                { instanceId: instance.id }
-            )
-            await rollbackToPending()
-            return reply.code(500).send({
-                error: 'Failed to update database',
-                code: 'DATABASE_ERROR'
-            })
-        }
-
-        // ===== 3. 数据库更新成功后，删除附属资源 =====
-        
-        // 3.1 删除反代站点
-        const proxySites = await getProxySitesByInstanceId(transfer.instanceId)
-        if (proxySites.length > 0) {
-            if (host?.caddy_enabled && host.caddy_username && host.caddy_password) {
-                const targetHost = host.nat_public_ip || host.ip_address
-                if (targetHost) {
-                    const caddyClient = createCaddyClient({
-                        host: targetHost,
-                        port: host.caddy_port || 8444,
-                        username: host.caddy_username,
-                        password: host.caddy_password
-                    })
-                    for (const site of proxySites) {
-                        try {
-                            await caddyClient.deleteSite(site.domain)
-                        } catch (err) {
-                            console.error(`[Transfer] Failed to delete Caddy site (${site.domain}):`, err)
-                        }
-                    }
-                }
-            }
-            for (const site of proxySites) {
-                try {
-                    await deleteProxySite(site.id)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete proxy site DB record (${site.domain}):`, err)
-                }
-            }
-        }
-
-        // 3.2 删除端口映射
-        const portMappings = await db.getPortMappings(transfer.instanceId)
-        if (portMappings.length > 0) {
-            for (const mapping of portMappings) {
-                const map = mapping as { id: number; protocol: string; public_port: number }
-                const deviceName = `proxy-${map.protocol}-${map.public_port}`
-                try {
-                    await removeDevice(client, newIncusId, deviceName)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to remove port mapping device (${deviceName}):`, err)
-                }
-                try {
-                    await db.deletePortMapping(map.id)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete port mapping DB record (${map.id}):`, err)
-                }
-            }
-        }
-
-        // 3.3 删除快照
-        const snapshots = await db.getSnapshotsByInstanceId(transfer.instanceId)
-        if (snapshots.length > 0) {
-            for (const snapshot of snapshots) {
-                try {
-                    await deleteIncusSnapshot(client, newIncusId, snapshot.incus_name)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete snapshot (${snapshot.name}):`, err)
-                }
-                try {
-                    await db.deleteSnapshot(snapshot.id)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete snapshot DB record (${snapshot.id}):`, err)
-                }
-            }
-        }
-
-        // 3.4 删除备份
-        const backups = await db.getBackupsByInstanceId(transfer.instanceId)
-        if (backups.length > 0) {
-            for (const backup of backups) {
-                try {
-                    await deleteIncusBackup(client, newIncusId, backup.incus_name)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete backup (${backup.name}):`, err)
-                }
-                try {
-                    await db.deleteBackup(backup.id)
-                } catch (err) {
-                    console.error(`[Transfer] Failed to delete backup DB record (${backup.id}):`, err)
-                }
-            }
-        }
-
-        // 3.5 删除快照策略和备份策略
-        try {
-            await prisma.snapshotPolicy.deleteMany({ where: { instanceId: transfer.instanceId } })
-            await prisma.backupPolicy.deleteMany({ where: { instanceId: transfer.instanceId } })
-        } catch (err) {
-            console.error('[Transfer] Failed to delete policies:', err)
-        }
-
-        await createLog(
-            user.id,
-            'transfer',
-            'transfer.push',
-            `Pushed instance "${instance.name}" to user "${transfer.toUser.username}"`,
-            'success',
-            { instanceId: transfer.instanceId }
-        )
-
-        // 通知接收方实例已过户，并提醒重置既有凭证
-        await sendNotification(transfer.toUserId, 'transfer_ownership_received', {
-            instanceName: newName
-        })
-
-        return { message: 'Transfer pushed successfully' }
+        const result = await completeClaimedTransfer(transferId, 'push', user, transfer)
+        if ('error' in result) return reply.code(result.status ?? 409).send(result.error)
+        return { message: result.message }
     })
 }

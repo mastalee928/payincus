@@ -1,298 +1,236 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
+import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/stores/toast'
+import type { ProxySiteView as ProxySite, ProxySiteOperationRequest, ProxySiteMutationResult, ProxySiteDnsResult } from '@/types/proxy-sites'
 import api from '@/api'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
+const authStore = useAuthStore()
 const toast = useToast()
-
-interface ProxySite {
-  id: number
-  domain: string
-  targetPort: number
-  httpsEnabled: boolean
-  remark: string | null
-  status: 'pending' | 'active' | 'error'
-  enabled: boolean
-  error: string | null
-  createdAt: string
-}
-
-interface Props {
-  instanceId: number
-}
-
-const props = defineProps<Props>()
-
+const props = defineProps<{ instanceId: number }>()
 const loading = ref(true)
+const loadError = ref('')
 const adding = ref(false)
 const editing = ref(false)
+const editingRequest = ref<number | null>(null)
 const deleting = ref<number | null>(null)
 const refreshing = ref<number | null>(null)
 const toggling = ref<number | null>(null)
 const checkingCert = ref<number | null>(null)
 const checkingDns = ref<number | null>(null)
-
+const retrying = ref<number | null>(null)
 const sites = ref<ProxySite[]>([])
 const caddyEnabled = ref(false)
 const dnsRecordType = ref<string | null>(null)
 const dnsRecordValue = ref<string | null>(null)
 const siteQuota = ref<{ used: number; limit: number } | null>(null)
-const canManageSites = ref(true)
-const canMutateSites = computed<boolean>(() => canManageSites.value)
-
-// 添加表单
+const canManageSites = ref(false)
+const canMutateSites = computed(() => canManageSites.value && !loadError.value)
 const showAddModal = ref(false)
-const form = ref({
-  domain: '',
-  targetPort: 80,
-  httpsEnabled: true,
-  remark: ''
-})
-
-// 编辑表单
+const emptyForm = () => ({ domain: '', targetPort: 80, httpsEnabled: true, remark: '' })
+const form = ref(emptyForm())
 const showEditModal = ref(false)
-const editForm = ref({
-  id: 0,
-  domain: '',
-  targetPort: 80,
-  httpsEnabled: true,
-  remark: ''
-})
-
-// DNS 提示弹窗
+const editForm = ref({ id: 0, ...emptyForm(), revision: 0 })
 const showDnsHint = ref(false)
-const dnsHint = ref({
-  type: 'A',
-  host: '',
-  value: ''
-})
-
-// 证书状态弹窗
+const dnsHint = ref({ type: 'A', host: '', value: '' })
 const showCertModal = ref(false)
 const certStatus = ref<{
-  domain: string
-  httpsEnabled: boolean
-  status: string
-  message?: string
-  error?: string
-  hint?: string
-  certificate?: {
-    valid: boolean
-    issuer: string
-    subject: string
-    validFrom: string
-    validTo: string
-    daysRemaining: number
-  }
+  domain: string; httpsEnabled: boolean; status: string; message?: string; error?: string; hint?: string
+  certificate?: { valid: boolean; issuer: string; subject: string; validFrom: string; validTo: string; daysRemaining: number }
 } | null>(null)
 
-onMounted(() => {
-  loadSites()
-})
-
-async function loadSites() {
-  loading.value = true
+let scopeGeneration = 0
+let loadSequence = 0
+let disposed = false
+let pollTimer: ReturnType<typeof setTimeout> | undefined
+// The session ID survives a token refresh but changes on a new login. This is
+// only a stale-response guard; all authorization remains on the server.
+const sessionKey = computed(() => {
+  const token = authStore.token
+  if (!token) return ''
   try {
-    const res = await api.instances.getSites(props.instanceId)
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return `${authStore.user?.id ?? ''}:${typeof payload.sid === 'string' ? payload.sid : token}`
+  } catch { return `${authStore.user?.id ?? ''}:${token}` }
+})
+const current = (generation: number) => !disposed && generation === scopeGeneration
+const errorText = (error: unknown) => {
+  const value = error as { response?: { data?: { error?: string } }; error?: string; message?: string }
+  return value.response?.data?.error || value.error || value.message || String(error)
+}
+function clearPoll() { if (pollTimer) clearTimeout(pollTimer); pollTimer = undefined }
+function schedulePoll() {
+  clearPoll()
+  if (!disposed && sites.value.some(site => site.syncPending && site.operationState !== 'blocked')) {
+    pollTimer = setTimeout(() => { void loadSites(true) }, 3000)
+  }
+}
+watch([() => props.instanceId, sessionKey], () => {
+  scopeGeneration++
+  loadSequence++
+  clearPoll()
+  sites.value = []
+  loadError.value = ''
+  canManageSites.value = false
+  caddyEnabled.value = false
+  siteQuota.value = null
+  adding.value = editing.value = false
+  deleting.value = refreshing.value = toggling.value = checkingDns.value = checkingCert.value = retrying.value = null
+  editingRequest.value = null
+  showAddModal.value = showEditModal.value = showDnsHint.value = showCertModal.value = false
+  void loadSites()
+}, { immediate: true })
+onBeforeUnmount(() => { disposed = true; scopeGeneration++; clearPoll() })
+
+async function loadSites(background = false) {
+  const generation = scopeGeneration, sequence = ++loadSequence, instanceId = props.instanceId
+  if (!background) loading.value = true
+  try {
+    const res = await api.instances.getSites(instanceId)
+    if (!current(generation) || sequence !== loadSequence) return
     sites.value = res.sites || []
     caddyEnabled.value = res.caddyEnabled || false
     dnsRecordType.value = res.dnsRecordType
     dnsRecordValue.value = res.dnsRecordValue
     siteQuota.value = res.siteQuota || null
-    canManageSites.value = res.canManageSites ?? true
-  } catch (err: unknown) {
-    const error = err as { message?: string }
-    toast.error(t('instance.sites.loadFailed') + ': ' + (error?.message || String(err)))
+    canManageSites.value = res.canManageSites === true
+    loadError.value = ''
+  } catch (error) {
+    if (!current(generation) || sequence !== loadSequence) return
+    loadError.value = errorText(error)
   } finally {
-    loading.value = false
+    if (current(generation) && sequence === loadSequence) { loading.value = false; schedulePoll() }
   }
 }
-
+function rowBusy(siteId: number): boolean {
+  return [deleting.value, refreshing.value, toggling.value, checkingDns.value, retrying.value, editingRequest.value].includes(siteId) ||
+    (editing.value && editForm.value.id === siteId)
+}
+function cannotMutate(site: ProxySite): boolean { return !canMutateSites.value || rowBusy(site.id) || site.syncPending }
+function operationRequest(site: ProxySite): ProxySiteOperationRequest {
+  return { requestId: crypto.randomUUID(), expectedRevision: site.revision }
+}
+function operationLabel(site: ProxySite): string {
+  if (site.operationState === 'blocked') return t('instance.sites.operationBlocked')
+  if (site.operationState === 'retry') return t('instance.sites.operationRetry')
+  return t(site.operationAction === 'delete' ? 'instance.sites.operationDeleting' : 'instance.sites.operationSyncing')
+}
 function openAddModal() {
-  if (!canMutateSites.value) {
-    return
-  }
-  form.value = { domain: '', targetPort: 80, httpsEnabled: true, remark: '' }
+  if (!canMutateSites.value || adding.value) return
+  form.value = emptyForm()
   showAddModal.value = true
 }
-
+function closeAddModal() { if (!adding.value) showAddModal.value = false }
+function closeEditModal() { if (!editing.value) showEditModal.value = false }
 async function addSite() {
-  if (!canMutateSites.value) {
-    return
-  }
-  if (!form.value.domain) {
-    toast.error(t('instance.sites.domainRequired'))
-    return
-  }
-
-  // 验证域名格式（不允许泛域名）
-  if (form.value.domain.startsWith('*')) {
-    toast.error(t('instance.sites.wildcardNotAllowed'))
-    return
-  }
-
+  if (!canMutateSites.value || adding.value) return
+  if (!form.value.domain.trim()) return void toast.error(t('instance.sites.domainRequired'))
+  if (form.value.domain.startsWith('*')) return void toast.error(t('instance.sites.wildcardNotAllowed'))
+  const generation = scopeGeneration, instanceId = props.instanceId
+  const submitted = { ...form.value }
   adding.value = true
   try {
-    const res = await api.instances.addSite(props.instanceId, {
-      domain: form.value.domain.toLowerCase().trim(),
-      targetPort: form.value.targetPort,
-      httpsEnabled: form.value.httpsEnabled,
-      remark: form.value.remark.trim() || undefined
-    })
-
+    const res = await api.instances.addSite(instanceId, { domain: submitted.domain.toLowerCase().trim(), targetPort: submitted.targetPort,
+      httpsEnabled: submitted.httpsEnabled, remark: submitted.remark.trim() || undefined })
+    if (!current(generation)) return
     showAddModal.value = false
-    await loadSites()
-
-    // 显示 DNS 解析提示
-    if (res.dnsHint) {
-      dnsHint.value = res.dnsHint
-      showDnsHint.value = true
-    }
-
+    if (res.dnsHint) { dnsHint.value = res.dnsHint; showDnsHint.value = true }
     toast.success(t('instance.sites.addSuccess'))
-  } catch (err: unknown) {
-    const error = err as { response?: { data?: { error?: string } }, message?: string }
-    toast.error(error?.response?.data?.error || error?.message || t('instance.sites.addFailed'))
-  } finally {
-    adding.value = false
-  }
+    await loadSites(true)
+  } catch (error) { if (current(generation)) toast.error(errorText(error)) }
+  finally { if (current(generation)) adding.value = false }
 }
 
+async function submitSiteAction(siteId: number, busy: Ref<number | null>,
+  execute: (instanceId: number, site: ProxySite, request: ProxySiteOperationRequest) => Promise<ProxySiteMutationResult>,
+  successMessage: string, options: { retry?: boolean; accepted?: () => void; success?: (result: ProxySiteMutationResult) => void } = {}) {
+  const site = sites.value.find(value => value.id === siteId)
+  if (!site || !canMutateSites.value || rowBusy(siteId) || (site.syncPending && !options.retry)) return
+  const generation = scopeGeneration, instanceId = props.instanceId
+  busy.value = siteId
+  try {
+    const result = await execute(instanceId, { ...site }, operationRequest(site))
+    if (!current(generation)) return
+    options.accepted?.()
+    if (result.pending) toast.info(t('instance.sites.operationAccepted'))
+    else if (options.success) options.success(result)
+    else toast.success(result.message || successMessage)
+  } catch (error) {
+    if (!current(generation)) return
+    const data = (error as { response?: { data?: ProxySiteMutationResult } }).response?.data || error as ProxySiteMutationResult
+    if (data?.pending) options.accepted?.()
+    toast.error(errorText(error))
+  } finally {
+    if (current(generation)) {
+      busy.value = null
+      await loadSites(true)
+    }
+  }
+}
 async function deleteSite(siteId: number, domain: string) {
-  if (!canMutateSites.value) {
-    return
-  }
-  if (!confirm(t('instance.sites.deleteConfirm', { domain }))) {
-    return
-  }
-
-  deleting.value = siteId
-  try {
-    await api.instances.deleteSite(props.instanceId, siteId)
-    toast.success(t('instance.sites.deleteSuccess'))
-    await loadSites()
-  } catch (err: unknown) {
-    const error = err as { response?: { data?: { error?: string } }, message?: string }
-    toast.error(error?.response?.data?.error || error?.message || t('instance.sites.deleteFailed'))
-  } finally {
-    deleting.value = null
-  }
+  const site = sites.value.find(row => row.id === siteId)
+  if (!site || cannotMutate(site)) return
+  if (!confirm(t('instance.sites.deleteConfirm', { domain }))) return
+  await submitSiteAction(siteId, deleting, (instanceId, _site, request) => api.instances.deleteSite(instanceId, siteId, request), t('instance.sites.deleteSuccess'))
 }
-
 async function refreshSite(siteId: number) {
-  if (!canMutateSites.value) {
-    return
-  }
-  refreshing.value = siteId
-  try {
-    await api.instances.refreshSite(props.instanceId, siteId)
-    toast.success(t('instance.sites.refreshSuccess'))
-    await loadSites()
-  } catch (err: unknown) {
-    const error = err as { response?: { data?: { error?: string } }, message?: string }
-    toast.error(error?.response?.data?.error || error?.message || t('instance.sites.refreshFailed'))
-  } finally {
-    refreshing.value = null
-  }
+  await submitSiteAction(siteId, refreshing, (instanceId, _site, request) => api.instances.refreshSite(instanceId, siteId, request), t('instance.sites.refreshSuccess'))
 }
-
 async function toggleSite(siteId: number) {
-  if (!canMutateSites.value) {
-    return
-  }
-  toggling.value = siteId
-  try {
-    const res = await api.instances.toggleSite(props.instanceId, siteId)
-    toast.success(res.message)
-    await loadSites()
-  } catch (err: unknown) {
-    const error = err as { response?: { data?: { error?: string } }, message?: string }
-    toast.error(error?.response?.data?.error || error?.message || t('instance.sites.toggleFailed'))
-  } finally {
-    toggling.value = null
-  }
+  await submitSiteAction(siteId, toggling, (instanceId, site, request) => api.instances.toggleSite(instanceId, siteId, { ...request, enabled: !site.enabled }), t('instance.sites.updateSuccess'))
 }
-
+async function retrySite(siteId: number) {
+  const site = sites.value.find(row => row.id === siteId)
+  if (!site?.operationId || !site.syncPending || site.operationState === 'applying') return
+  await submitSiteAction(siteId, retrying, (instanceId, currentSite) => api.instances.retrySite(instanceId, siteId, {
+    requestId: currentSite.operationId!, expectedRevision: currentSite.revision
+  }), t('instance.sites.refreshSuccess'), { retry: true })
+}
 function openEditModal(site: ProxySite) {
-  if (!canMutateSites.value) {
-    return
-  }
-  editForm.value = {
-    id: site.id,
-    domain: site.domain,
-    targetPort: site.targetPort,
-    httpsEnabled: site.httpsEnabled,
-    remark: site.remark || ''
-  }
+  if (cannotMutate(site)) return
+  editForm.value = { id: site.id, domain: site.domain, targetPort: site.targetPort, httpsEnabled: site.httpsEnabled,
+    remark: site.remark || '', revision: site.revision }
   showEditModal.value = true
 }
-
 async function updateSite() {
-  if (!canMutateSites.value) {
-    return
-  }
-  editing.value = true
-  try {
-    const res = await api.instances.updateSite(props.instanceId, editForm.value.id, {
-      targetPort: editForm.value.targetPort,
-      httpsEnabled: editForm.value.httpsEnabled,
-      remark: editForm.value.remark.trim() || undefined
-    })
-    showEditModal.value = false
-    toast.success(res.message)
-    await loadSites()
-  } catch (err: unknown) {
-    const error = err as { response?: { data?: { error?: string } }, message?: string }
-    toast.error(error?.response?.data?.error || error?.message || t('instance.sites.updateFailed'))
-  } finally {
-    editing.value = false
-  }
+  if (!canMutateSites.value || editing.value) return
+  const submitted = { ...editForm.value }
+  const site = sites.value.find(row => row.id === submitted.id)
+  if (!site || cannotMutate(site)) return
+  const generation = scopeGeneration
+  await submitSiteAction(submitted.id, editingRequest, (instanceId, _site, request) => {
+    editing.value = true
+    return api.instances.updateSite(instanceId, submitted.id, { ...request, expectedRevision: submitted.revision,
+      targetPort: submitted.targetPort, httpsEnabled: submitted.httpsEnabled, remark: submitted.remark.trim() })
+  }, t('instance.sites.updateSuccess'), { accepted: () => { showEditModal.value = false } })
+  if (current(generation)) editing.value = false
 }
-
+async function checkDns(siteId: number) {
+  await submitSiteAction(siteId, checkingDns, (instanceId, _site, request) => api.instances.checkDns(instanceId, siteId, request), t('instance.sites.dnsResolved'), {
+    success: result => {
+      const dns = result as ProxySiteDnsResult
+      if (dns.activated) toast.success(t('instance.sites.dnsActivated'))
+      else if (dns.dnsResolved && dns.ipMatches) toast.info(dns.message || t('instance.sites.dnsResolved'))
+      else toast.error(dns.error || t('instance.sites.dnsCheckFailed'))
+    }
+  })
+}
 async function checkCertificate(site: ProxySite) {
+  if (checkingCert.value !== null) return
+  const generation = scopeGeneration, instanceId = props.instanceId
   checkingCert.value = site.id
   try {
-    const res = await api.instances.getCertificateStatus(props.instanceId, site.id)
-    certStatus.value = {
-      domain: site.domain,
-      ...res
-    }
+    const res = await api.instances.getCertificateStatus(instanceId, site.id)
+    if (!current(generation)) return
+    certStatus.value = { domain: site.domain, ...res }
     showCertModal.value = true
-  } catch (err: unknown) {
-    const error = err as { response?: { data?: { error?: string } }, message?: string }
-    toast.error(error?.response?.data?.error || error?.message || t('instance.sites.certCheckFailed'))
-  } finally {
-    checkingCert.value = null
-  }
+  } catch (error) { if (current(generation)) toast.error(errorText(error)) }
+  finally { if (current(generation)) checkingCert.value = null }
 }
-
-async function checkDns(siteId: number) {
-  if (!canMutateSites.value) {
-    return
-  }
-  checkingDns.value = siteId
-  try {
-    const res = await api.instances.checkDns(props.instanceId, siteId)
-    if (res.activated) {
-      toast.success(t('instance.sites.dnsActivated'))
-    } else if (res.dnsResolved && res.ipMatches) {
-      toast.success(res.message || t('instance.sites.dnsResolved'))
-    } else {
-      toast.error(res.error || t('instance.sites.dnsCheckFailed'))
-    }
-    await loadSites()
-  } catch (err: unknown) {
-    const error = err as { response?: { data?: { error?: string } }, message?: string }
-    toast.error(error?.response?.data?.error || error?.message || t('instance.sites.dnsCheckFailed'))
-  } finally {
-    checkingDns.value = null
-  }
-}
-
 function getCertStatusColor(status: string) {
   switch (status) {
     case 'valid':
@@ -337,6 +275,11 @@ function getCertStatusText(status: string) {
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString()
+}
+
+function formatRetryTime(value: string) {
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'
 }
 
 function getStatusColor(status: string) {
@@ -384,15 +327,15 @@ const quotaLimitDisplay = computed(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="proxy-sites space-y-6">
     <!-- 加载状态 -->
-    <div v-if="loading" class="flex justify-center py-12">
+    <div v-if="loading && !hasSites" class="flex justify-center py-12">
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
     </div>
 
     <!-- Caddy 未启用提示 -->
     <div
-      v-else-if="!caddyEnabled"
+      v-else-if="!caddyEnabled && !hasSites && !loadError"
       class="card p-6 text-center"
     >
       <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -408,13 +351,18 @@ const quotaLimitDisplay = computed(() => {
 
     <!-- 站点管理 -->
     <div v-else class="space-y-4">
+      <div v-if="loadError" role="alert" class="rounded-lg border border-red-200 p-4 text-sm dark:border-red-900">
+        <p class="break-words text-red-700 dark:text-red-400">{{ t('instance.sites.loadFailed') }}: {{ loadError }}</p>
+        <button class="btn-ghost mt-2 min-h-11" :disabled="loading" @click="loadSites()">{{ t('common.retry') }}</button>
+      </div>
+      <p v-if="!caddyEnabled && hasSites" role="status" class="text-sm text-amber-700 dark:text-amber-400">{{ t('instance.sites.caddyNotEnabledHint') }}</p>
       <!-- 头部 -->
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h3 class="text-lg font-medium" :class="themeStore.isDark ? 'text-white' : 'text-gray-900'">
             {{ t('instance.sites.title') }}
           </h3>
-          <p v-if="siteQuota" class="text-sm mt-1" :class="themeStore.isDark ? 'text-gray-400' : 'text-gray-500'">
+          <p v-if="siteQuota" class="text-sm mt-1" :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-600'">
             {{ t('instance.sites.quotaInfo', { used: siteQuota.used, limit: quotaLimitDisplay }) }}
             <span v-if="isQuotaFull" class="text-red-500 ml-1">
               ({{ t('instance.sites.quotaFull') }})
@@ -424,7 +372,7 @@ const quotaLimitDisplay = computed(() => {
 	        <button
 	          v-if="canManageSites"
 	          class="btn-primary w-full sm:w-auto"
-	          :disabled="isQuotaFull"
+	          :disabled="isQuotaFull || !canMutateSites || adding"
 	          @click="openAddModal"
 	        >
           <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -455,7 +403,7 @@ const quotaLimitDisplay = computed(() => {
                 <!-- HTTPS 标记 + 证书检查 -->
                 <button
                   v-if="site.httpsEnabled"
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 whitespace-nowrap hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
+                  class="inline-flex min-h-11 items-center gap-1 px-2 text-xs rounded text-gray-600 dark:text-gray-300 whitespace-nowrap hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                   :title="t('instance.sites.checkCert')"
                   :disabled="checkingCert === site.id"
                   @click="checkCertificate(site)"
@@ -476,8 +424,8 @@ const quotaLimitDisplay = computed(() => {
                 >
                   HTTP
                 </span>
-                <span :class="['px-2 py-0.5 text-xs rounded-full whitespace-nowrap', getStatusColor(site.status)]">
-                  {{ getStatusText(site.status) }}
+                <span :class="['px-2 py-0.5 text-xs rounded-full whitespace-nowrap', getStatusColor(site.syncPending ? (site.operationState === 'blocked' ? 'error' : 'pending') : site.status)]">
+                  {{ site.syncPending ? operationLabel(site) : getStatusText(site.status) }}
                 </span>
                 <span
                   v-if="!site.enabled"
@@ -491,15 +439,23 @@ const quotaLimitDisplay = computed(() => {
                 <span v-if="site.remark" class="truncate max-w-xs" :title="site.remark">
                   {{ site.remark }}
                 </span>
-                <span v-if="site.error" class="text-red-500 break-all">{{ site.error }}</span>
+                <span v-if="site.error" class="text-red-600 dark:text-red-400 break-words">{{ site.error }}</span>
+                <span v-if="site.syncPending && site.nextRetryAt" class="text-xs">{{ t('instance.sites.nextRetry', { time: formatRetryTime(site.nextRetryAt) }) }}</span>
               </div>
             </div>
 
-	            <div v-if="canMutateSites" class="flex items-center gap-2 self-end sm:self-auto">
+	            <div v-if="canMutateSites" class="flex items-center flex-wrap gap-2 self-end sm:self-auto">
+              <button
+                v-if="site.syncPending && site.operationId"
+                class="btn-ghost min-h-11 px-3"
+                :disabled="!canMutateSites || rowBusy(site.id) || site.operationState === 'applying'"
+                @click="retrySite(site.id)"
+              >{{ t('instance.sites.retryOperation') }}</button>
               <!-- 启用/禁用切换 -->
               <button
-                :disabled="toggling === site.id"
-                class="p-2 rounded transition-colors"
+                v-if="!site.syncPending"
+                :disabled="cannotMutate(site)"
+                class="min-h-11 min-w-11 p-2 rounded transition-colors"
                 :class="site.enabled
                   ? 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20'
                   : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'"
@@ -524,8 +480,9 @@ const quotaLimitDisplay = computed(() => {
 
               <!-- 编辑按钮 -->
               <button
-                v-if="site.enabled"
-                class="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                v-if="site.enabled && !site.syncPending"
+                :disabled="cannotMutate(site)"
+                class="min-h-11 min-w-11 p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 :class="themeStore.isDark ? 'text-gray-400' : 'text-gray-600'"
                 :title="t('common.edit')"
                 @click="openEditModal(site)"
@@ -537,9 +494,9 @@ const quotaLimitDisplay = computed(() => {
 
               <!-- 刷新按钮（仅错误状态显示） -->
               <button
-                v-if="site.status === 'error'"
-                :disabled="refreshing === site.id"
-                class="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                v-if="site.status === 'error' && !site.syncPending"
+                :disabled="cannotMutate(site)"
+                class="min-h-11 min-w-11 p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 :title="t('instance.sites.refresh')"
                 @click="refreshSite(site.id)"
               >
@@ -556,9 +513,9 @@ const quotaLimitDisplay = computed(() => {
 
               <!-- 检测 DNS 按钮（仅 pending 状态显示） -->
               <button
-                v-if="site.status === 'pending'"
-                :disabled="checkingDns === site.id"
-                class="p-2 rounded text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                v-if="site.status === 'pending' && !site.syncPending"
+                :disabled="cannotMutate(site)"
+                class="min-h-11 min-w-11 p-2 rounded text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                 :title="t('instance.sites.checkDns')"
                 @click="checkDns(site.id)"
               >
@@ -579,8 +536,9 @@ const quotaLimitDisplay = computed(() => {
 
               <!-- 删除按钮 -->
               <button
-                :disabled="deleting === site.id"
-                class="p-2 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                v-if="!site.syncPending"
+                :disabled="cannotMutate(site)"
+                class="min-h-11 min-w-11 p-2 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                 :title="t('common.delete')"
                 @click="deleteSite(site.id, site.domain)"
               >
@@ -618,7 +576,7 @@ const quotaLimitDisplay = computed(() => {
 	        <button
 	          v-if="canManageSites"
 	          class="btn-primary"
-	          :disabled="isQuotaFull"
+	          :disabled="isQuotaFull || !canMutateSites || adding"
 	          @click="openAddModal"
 	        >
           {{ t('instance.sites.addFirstSite') }}
@@ -630,7 +588,7 @@ const quotaLimitDisplay = computed(() => {
         <div
           v-if="showAddModal"
           class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-          @click.self="showAddModal = false"
+          @click.self="closeAddModal"
         >
           <div
             class="w-full max-w-md rounded-lg shadow-xl"
@@ -713,7 +671,7 @@ const quotaLimitDisplay = computed(() => {
               </div>
 
               <div class="flex justify-end gap-3 mt-6">
-                <button class="btn-ghost" @click="showAddModal = false">
+                <button class="btn-ghost" @click="closeAddModal" :disabled="adding">
                   {{ t('common.cancel') }}
                 </button>
 	                <button :disabled="adding" class="btn-primary" @click="addSite">
@@ -737,7 +695,7 @@ const quotaLimitDisplay = computed(() => {
         <div
           v-if="showEditModal"
           class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-          @click.self="showEditModal = false"
+          @click.self="closeEditModal"
         >
           <div
             class="w-full max-w-md rounded-lg shadow-xl"
@@ -817,7 +775,7 @@ const quotaLimitDisplay = computed(() => {
               </div>
 
               <div class="flex justify-end gap-3 mt-6">
-                <button class="btn-ghost" @click="showEditModal = false">
+                <button class="btn-ghost" @click="closeEditModal" :disabled="editing">
                   {{ t('common.cancel') }}
                 </button>
 	                <button :disabled="editing" class="btn-primary" @click="updateSite">
@@ -1012,3 +970,16 @@ const quotaLimitDisplay = computed(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.proxy-sites .btn-primary {
+  min-height: 44px;
+  background: var(--text-primary) !important;
+  color: var(--bg-primary) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.proxy-sites .btn-primary:hover { background: var(--text-primary) !important; transform: none !important; }
+.card { box-shadow: none !important; }
+button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+</style>

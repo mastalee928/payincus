@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js'
 import { decryptSensitiveData, encryptSensitiveData, isEncrypted } from '../lib/security.js'
 import { advisoryTransactionLock } from './advisory-locks.js'
+import { authorizeUserWrite, type WriteSession } from './user-write-authorization.js'
 
 const MAX_COMMANDS_PER_USER = 100
 const MAX_COMMAND_SIZE = 16 * 1024
@@ -132,6 +133,7 @@ export async function createTerminalSavedCommand(data: {
   name: string
   command: string
   description?: string | null
+  session?: WriteSession
 }): Promise<{ success: true; command: TerminalSavedCommandData } | { success: false; error: string }> {
   const name = normalizeCommandLabel(data.name)
   const command = data.command
@@ -151,6 +153,7 @@ export async function createTerminalSavedCommand(data: {
 
   return prisma.$transaction(async tx => {
     await advisoryTransactionLock(tx, TERMINAL_SAVED_COMMAND_LOCK_NAMESPACE, data.userId)
+    if (!await authorizeUserWrite(tx, data.userId, data.session)) return { success: false as const, error: 'WRITE_FORBIDDEN' }
 
     const countRows = await tx.$queryRawUnsafe<Array<{ count: number }>>(
       `
@@ -208,106 +211,116 @@ export async function updateTerminalSavedCommand(
     name?: string
     command?: string
     description?: string | null
-  }
+  },
+  session?: WriteSession
 ): Promise<{ success: true; command: TerminalSavedCommandData } | { success: false; error: string }> {
-  const existingRows = await prisma.$queryRawUnsafe<Array<{
-    id: number
-    userId: number
-    name: string
-    command: string
-    description: string | null
-    createdAt: Date
-    updatedAt: Date
-  }>>(
-    `
-      SELECT
-        id,
-        user_id AS "userId",
-        name,
-        command,
-        description,
-        created_at AS "createdAt",
-        updated_at AS "updatedAt"
-      FROM terminal_saved_commands
-      WHERE id = $1 AND user_id = $2
-      LIMIT 1
-    `,
-    id,
-    userId
-  )
-  const existing = existingRows[0] ? mapTerminalSavedCommand(existingRows[0]) : null
+  return prisma.$transaction(async tx => {
+    await advisoryTransactionLock(tx, TERMINAL_SAVED_COMMAND_LOCK_NAMESPACE, userId)
+    if (!await authorizeUserWrite(tx, userId, session)) return { success: false as const, error: 'WRITE_FORBIDDEN' }
+    const existingRows = await tx.$queryRawUnsafe<Array<{
+      id: number
+      userId: number
+      name: string
+      command: string
+      description: string | null
+      createdAt: Date
+      updatedAt: Date
+    }>>(
+      `
+        SELECT
+          id,
+          user_id AS "userId",
+          name,
+          command,
+          description,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM terminal_saved_commands
+        WHERE id = $1 AND user_id = $2
+        LIMIT 1
+      `,
+      id,
+      userId
+    )
+    const existing = existingRows[0] ? mapTerminalSavedCommand(existingRows[0]) : null
 
-  if (!existing) {
-    return { success: false, error: 'NOT_FOUND' }
-  }
+    if (!existing) {
+      return { success: false as const, error: 'NOT_FOUND' }
+    }
 
-  const nextName = data.name !== undefined ? normalizeCommandLabel(data.name) : existing.name
-  const nextCommand = data.command !== undefined ? data.command : existing.command
-  const nextDescription = data.description !== undefined
-    ? normalizeDescription(data.description)
-    : existing.description
+    const nextName = data.name !== undefined ? normalizeCommandLabel(data.name) : existing.name
+    const nextCommand = data.command !== undefined ? data.command : existing.command
+    const nextDescription = data.description !== undefined
+      ? normalizeDescription(data.description)
+      : existing.description
 
-  if (!nextName) {
-    return { success: false, error: 'INVALID_NAME' }
-  }
+    if (!nextName) {
+      return { success: false as const, error: 'INVALID_NAME' }
+    }
 
-  if (!nextCommand.trim()) {
-    return { success: false, error: 'INVALID_COMMAND' }
-  }
+    if (!nextCommand.trim()) {
+      return { success: false as const, error: 'INVALID_COMMAND' }
+    }
 
-  if (Buffer.byteLength(nextCommand, 'utf-8') > MAX_COMMAND_SIZE) {
-    return { success: false, error: 'COMMAND_TOO_LARGE' }
-  }
+    if (Buffer.byteLength(nextCommand, 'utf-8') > MAX_COMMAND_SIZE) {
+      return { success: false as const, error: 'COMMAND_TOO_LARGE' }
+    }
 
-  const updatedRows = await prisma.$queryRawUnsafe<Array<{
-    id: number
-    userId: number
-    name: string
-    command: string
-    description: string | null
-    createdAt: Date
-    updatedAt: Date
-  }>>(
-    `
-      UPDATE terminal_saved_commands
-      SET
-        name = $1,
-        command = $2,
-        description = $3,
-        updated_at = NOW()
-      WHERE id = $4 AND user_id = $5
-      RETURNING
-        id,
-        user_id AS "userId",
-        name,
-        command,
-        description,
-        created_at AS "createdAt",
-        updated_at AS "updatedAt"
-    `,
-    encryptSensitiveData(nextName),
-    encryptSensitiveData(nextCommand),
-    nextDescription ? encryptSensitiveData(nextDescription) : null,
-    id,
-    userId
-  )
-  const updated = updatedRows[0]
+    const updatedRows = await tx.$queryRawUnsafe<Array<{
+      id: number
+      userId: number
+      name: string
+      command: string
+      description: string | null
+      createdAt: Date
+      updatedAt: Date
+    }>>(
+      `
+        UPDATE terminal_saved_commands
+        SET
+          name = $1,
+          command = $2,
+          description = $3,
+          updated_at = NOW()
+        WHERE id = $4 AND user_id = $5
+        RETURNING
+          id,
+          user_id AS "userId",
+          name,
+          command,
+          description,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+      `,
+      encryptSensitiveData(nextName),
+      encryptSensitiveData(nextCommand),
+      nextDescription ? encryptSensitiveData(nextDescription) : null,
+      id,
+      userId
+    )
+    const updated = updatedRows[0]
+    if (!updated) return { success: false as const, error: 'NOT_FOUND' }
 
-  return {
-    success: true,
-    command: mapTerminalSavedCommand(updated)
-  }
+    return {
+      success: true as const,
+      command: mapTerminalSavedCommand(updated)
+    }
+  })
 }
 
-export async function deleteTerminalSavedCommand(id: number, userId: number): Promise<boolean> {
-  const result = await prisma.$executeRawUnsafe(
-    `
-      DELETE FROM terminal_saved_commands
-      WHERE id = $1 AND user_id = $2
-    `,
-    id,
-    userId
-  )
+export async function deleteTerminalSavedCommand(id: number, userId: number, session?: WriteSession): Promise<boolean | 'WRITE_FORBIDDEN'> {
+  return prisma.$transaction(async tx => {
+    await advisoryTransactionLock(tx, TERMINAL_SAVED_COMMAND_LOCK_NAMESPACE, userId)
+    if (!await authorizeUserWrite(tx, userId, session)) return 'WRITE_FORBIDDEN' as const
+    const result = await tx.$executeRawUnsafe(
+      `
+        DELETE FROM terminal_saved_commands
+        WHERE id = $1 AND user_id = $2
+      `,
+      id,
+      userId
+    )
 
-  return Number(result) > 0
+    return Number(result) > 0
+  })
 }

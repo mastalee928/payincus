@@ -98,6 +98,9 @@ async function requireGiftCardManager(request: FastifyRequest, reply: FastifyRep
 }
 
 function mapGiftCardError(reply: FastifyReply, message: string) {
+  if (message === 'GIFT_CARD_ACTOR_FORBIDDEN' || message === 'ADMIN_ACTOR_FORBIDDEN') {
+    return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+  }
   if (message === 'GIFT_CARD_NOT_FOUND') {
     return reply.code(404).send(apiError(ErrorCode.GIFT_CARD_NOT_FOUND))
   }
@@ -132,6 +135,14 @@ function mapGiftCardError(reply: FastifyReply, message: string) {
     return reply.code(403).send(apiError(ErrorCode.FORBIDDEN, 'Only the issuer can revoke this gift card'))
   }
   return null
+}
+
+async function runGiftCardMutation<T>(reply: FastifyReply, action: () => Promise<T>): Promise<T | null> {
+  try { return await action() } catch (error) {
+    const mapped = mapGiftCardError(reply, error instanceof Error ? error.message : '')
+    if (mapped) return null
+    throw error
+  }
 }
 
 export default async function giftCardsRoutes(fastify: FastifyInstance) {
@@ -191,7 +202,7 @@ export default async function giftCardsRoutes(fastify: FastifyInstance) {
         createdById: user.id,
         expiresAt,
         remark
-      })
+      }, user)
 
       await createLog(user.id, 'gift_card', 'admin_generate',
         `Generated gift card ${giftCard.code.substring(0, 10)}..., face=${faceValue} balance=${balanceValue ?? faceValue}`,
@@ -266,7 +277,7 @@ export default async function giftCardsRoutes(fastify: FastifyInstance) {
         createdById: user.id,
         expiresAt,
         remark
-      })
+      }, user)
 
       await createLog(user.id, 'gift_card', 'admin_batch_generate',
         `Batch generated ${result.count} gift cards (${result.batchId}), face=${faceValue}`,
@@ -332,7 +343,8 @@ export default async function giftCardsRoutes(fastify: FastifyInstance) {
     const id = parsePositiveId((request.params as { id: string }).id)
     if (id === null) return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
 
-    const result = await giftCardDb.enableGiftCard(id)
+    const result = await runGiftCardMutation(reply, () => giftCardDb.enableGiftCard(id, request.user))
+    if (!result) return
     if (result.count === 0) return reply.code(404).send(apiError(ErrorCode.GIFT_CARD_NOT_FOUND))
     return { success: true }
   })
@@ -345,7 +357,8 @@ export default async function giftCardsRoutes(fastify: FastifyInstance) {
     const id = parsePositiveId((request.params as { id: string }).id)
     if (id === null) return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
 
-    const result = await giftCardDb.disableGiftCard(id)
+    const result = await runGiftCardMutation(reply, () => giftCardDb.disableGiftCard(id, request.user))
+    if (!result) return
     if (result.count === 0) return reply.code(404).send(apiError(ErrorCode.GIFT_CARD_NOT_FOUND))
     return { success: true }
   })
@@ -358,7 +371,8 @@ export default async function giftCardsRoutes(fastify: FastifyInstance) {
     const id = parsePositiveId((request.params as { id: string }).id)
     if (id === null) return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
 
-    const result = await giftCardDb.deleteGiftCard(id)
+    const result = await runGiftCardMutation(reply, () => giftCardDb.deleteGiftCard(id, request.user))
+    if (!result) return
     if (result.count === 0) return reply.code(404).send(apiError(ErrorCode.GIFT_CARD_NOT_FOUND))
     return { success: true }
   })
@@ -382,7 +396,8 @@ export default async function giftCardsRoutes(fastify: FastifyInstance) {
     if (!ids) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Invalid ids'))
     }
-    const result = await giftCardDb.batchDisableGiftCards(ids)
+    const result = await runGiftCardMutation(reply, () => giftCardDb.batchDisableGiftCards(ids, request.user))
+    if (!result) return
     return { success: true, count: result.count }
   })
 
@@ -405,7 +420,8 @@ export default async function giftCardsRoutes(fastify: FastifyInstance) {
     if (!ids) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Invalid ids'))
     }
-    const result = await giftCardDb.batchDeleteGiftCards(ids)
+    const result = await runGiftCardMutation(reply, () => giftCardDb.batchDeleteGiftCards(ids, request.user))
+    if (!result) return
     return { success: true, count: result.count }
   })
 
@@ -436,7 +452,7 @@ export default async function giftCardsRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await giftCardDb.redeemGiftCard(code, user.id)
+      const result = await giftCardDb.redeemGiftCard(code, user.id, user)
 
       await createLog(user.id, 'gift_card', 'redeem',
         `Redeemed gift card ${code.substring(0, 10)}..., +${result.balanceValue}`,
@@ -489,6 +505,7 @@ export default async function giftCardsRoutes(fastify: FastifyInstance) {
     try {
       const result = await giftCardDb.generateGiftCardFromBalance({
         userId: user.id,
+        session: user,
         faceValue,
         remark
       })
@@ -523,7 +540,7 @@ export default async function giftCardsRoutes(fastify: FastifyInstance) {
     if (id === null) return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
 
     try {
-      const result = await giftCardDb.revokeGiftCard(id, user.id)
+      const result = await giftCardDb.revokeGiftCard(id, user.id, user)
       await createLog(user.id, 'gift_card', 'revoke', `Revoked gift card id=${id}`, 'success')
       return result
     } catch (err) {

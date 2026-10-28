@@ -1,3 +1,4 @@
+import { assertNoPendingSnapshotOperations, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
 /**
  * 管理员计费相关路由
@@ -6,6 +7,7 @@ import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js
 import type { FastifyInstance } from 'fastify'
 import { Prisma, type FinancialReconciliationItemType, type FinancialReconciliationStatus, type InstanceStatus } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
+import { assertNoPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
 import * as db from '../db/index.js'
 import { createLog } from '../db/logs.js'
 import { sendNotification } from '../lib/notifier.js'
@@ -29,6 +31,7 @@ import { getDateStringInTimezone, getTodayRange, getThisMonthStart, getLastMonth
 import { validateName, encryptSensitiveData } from '../lib/security.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
+import { parsePositivePaymentMoney } from '../lib/payment-money.js'
 import {
   getSystemImageAvailabilityForHost,
   isImageCompatibleWithInstanceType,
@@ -233,6 +236,9 @@ async function claimInstanceForAdminDelete(instanceId: number, currentStatus: In
   return prisma.$transaction(async (tx) => {
     const locked = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
     if (!locked) return false
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+    await assertNoPendingSnapshotOperations(tx, instanceId)
+    await assertNoPendingProxySiteOperations(tx, instanceId)
 
     const [activeRestoreTask, activeUploadTask, activeInstanceTask] = await Promise.all([
       tx.restoreTask.findFirst({
@@ -2349,6 +2355,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         return reply.status(409).send({ error: '用户余额正在处理，请稍后重试' })
       }
       request.log.error(error, '删除并退款失败')
+      if ((error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError)) return reply.status(409).send({ code: error.code, error: error.message })
       return reply.status(500).send({ error: '删除并退款失败' })
     }
   })
@@ -2362,64 +2369,19 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
   }, async (request, reply) => {
     const admin = request.user!
     const { id } = request.params as { id: string }
-    const { affCode: affCodeInput } = request.body as { affCode: string }
+    const affCodeInput = (request.body as { affCode?: unknown } | null)?.affCode
 
     const instanceId = parsePositiveRouteId(id)
     if (!instanceId) {
       return reply.status(400).send({ error: '无效的实例ID' })
     }
 
-    if (!affCodeInput || affCodeInput.trim().length < 3) {
+    if (typeof affCodeInput !== 'string' || affCodeInput.trim().length < 3 || affCodeInput.trim().length > 64) {
       return reply.status(400).send({ error: '请输入有效的AFF优惠码' })
     }
 
     try {
-      // 1. 获取实例信息
-      const instance = await prisma.instance.findUnique({
-        where: { id: instanceId },
-        include: {
-          user: { select: { id: true, username: true } },
-          affBinding: true
-        }
-      })
-
-      if (!instance) {
-        return reply.status(404).send({ error: '实例不存在' })
-      }
-
-      if (instance.status === 'deleted') {
-        return reply.status(400).send({ error: '实例已删除' })
-      }
-
-
-      if (!instance.packagePlanId) {
-        return reply.status(400).send({ error: '免费实例不支持应用优惠码' })
-      }
-
-      // 2. 检查是否已有AFF绑定
-      if (instance.affBinding) {
-        return reply.status(400).send({ error: '该实例已绑定优惠码，无法重复应用' })
-      }
-
-      // 3. 验证AFF码
-      const affCode = await prisma.affCode.findUnique({
-        where: { code: affCodeInput.trim().toUpperCase() },
-        include: {
-          user: { select: { id: true, username: true } }
-        }
-      })
-
-      if (!affCode) {
-        return reply.status(400).send({ error: '优惠码不存在' })
-      }
-
-      // 4. 检查AFF码创建者不能是实例所有者（防止自返利）
-      if (affCode.userId === instance.userId) {
-        return reply.status(400).send({ error: '不能为用户应用其自己的优惠码' })
-      }
-
-      // 5. 创建AFF绑定
-      await db.createAffBinding(instanceId, affCode.id)
+      const { instance, affCode } = await db.applyAffCodeToInstance(instanceId, affCodeInput, admin)
 
       // 6. 记录操作日志
       await createLog(
@@ -2443,6 +2405,9 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         discountRate: Number(affCode.discountRate)
       }
     } catch (error) {
+      if (error instanceof db.AffCodeEligibilityError) {
+        return reply.status(error.statusCode).send({ error: error.message })
+      }
       request.log.error(error, '应用AFF优惠码失败')
       return reply.status(500).send({ error: '应用AFF优惠码失败' })
     }
@@ -3350,8 +3315,8 @@ if (provider.type === 'yipay') {
         tradeNo = queryResult.trade_no || ''
         tradeNoForIdx = getTradeNoForIndex(record.orderNo, tradeNo)
 
-        const paidAmount = queryResult.money ? parseFloat(queryResult.money) : 0
-        if (paidAmount > 0 && Math.abs(paidAmount - orderAmount) > 0.01) {
+        const paidAmount = parsePositivePaymentMoney(queryResult.money)
+        if (paidAmount === undefined || Math.abs(paidAmount - orderAmount) > 0.01) {
           request.log.warn(
             { orderNo: record.orderNo, orderAmount, paidAmount },
             '管理员同步-支付金额不匹配'
@@ -3428,7 +3393,7 @@ if (provider.type === 'yipay') {
         }
 
         if (paymentState === 'failed') {
-          await db.failRecharge(record.orderNo, statusMessage, callbackPayload, paymentDetails)
+          await db.failRecharge(record.orderNo, statusMessage, callbackPayload, paymentDetails, admin)
           request.log.info({ orderNo: record.orderNo, status }, '管理员同步-Heleket 订单已失败')
           return {
             success: true,
@@ -3499,7 +3464,8 @@ if (provider.type === 'yipay') {
         tradeNo,
         actualAmount,
         callbackData: callbackPayload,
-        paymentDetails
+        paymentDetails,
+        actor: admin
       })
 
       // 记录已处理（防重放）
@@ -3558,6 +3524,7 @@ if (provider.type === 'yipay') {
       }
     } catch (error) {
       request.log.error(error, '同步充值订单失败')
+      if (error instanceof Error && error.message === 'ADMIN_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
       return reply.status(500).send({ error: '同步失败，请稍后重试' })
     }
   })

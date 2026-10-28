@@ -17,10 +17,10 @@ function sectionBetween(startMarker: string, endMarker: string): string {
 }
 
 function assertPendingPaidTransitionGuard(section: string, label: string): void {
-  assert.ok(section.includes('prisma.rechargeRecord.updateMany'), `${label}: must use conditional updateMany`)
+  assert.ok(/(?:prisma|tx)\.rechargeRecord\.updateMany/.test(section), `${label}: must use conditional updateMany`)
   assert.ok(section.includes("status: { in: ['pending', 'paid'] }"), `${label}: must only mutate pending/paid orders`)
   assert.ok(!section.includes('prisma.rechargeRecord.update({'), `${label}: must not use unconditional update`)
-  assert.ok(section.includes('prisma.rechargeRecord.findUnique'), `${label}: must return the current row after a stale transition`)
+  assert.ok(/(?:prisma|tx)\.rechargeRecord\.findUnique/.test(section), `${label}: must return the current row after a stale transition`)
 }
 
 function routeSectionBetween(startMarker: string, endMarker: string): string {

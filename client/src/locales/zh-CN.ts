@@ -2082,6 +2082,14 @@ pool: {
         },
         // 站点管理
         sites: {
+            operationSyncing: '正在同步',
+            operationDeleting: '正在删除',
+            operationRetry: '等待重试',
+            operationBlocked: '需要处理',
+            operationAccepted: '操作已受理，结果将在站点中更新',
+            retryOperation: '重试此操作',
+            nextRetry: '下次重试：{time}',
+            operationUpdated: '站点操作已完成',
             title: '建站',
             addSite: '添加站点',
             editSite: '编辑站点',
@@ -2249,6 +2257,14 @@ pool: {
 
     // 快照管理
     snapshot: {
+        recoveryTitle: "自动快照尚未完成",
+        recoveryHint: "原操作和轮换目标已保留。确认宿主连接及实例身份后重试。",
+        retryRecovery: "重试原操作",
+        retryingRecovery: "正在恢复…",
+        recoveryPending: "正在核验快照，请稍后刷新。",
+        recoveryComplete: "自动快照已恢复完成",
+        loadFailed: "快照状态加载失败，请刷新重试",
+        refresh: "刷新状态",
         title: '快照',
         autoPolicy: '自动快照已启用',
         autoPolicyEnabled: '已启用自动快照',
@@ -3508,6 +3524,15 @@ pool: {
         },
         // 系统设置
         system: {
+            invitePricing: {
+                title: '邀请码生成定价',
+                description: '配置普通用户生成一个邀请码需要消耗的资源。当前支持余额和积分，价格保存为可扩展的成本项列表。',
+                balance: '余额生成', points: '积分生成',
+                balanceHint: '用户每生成 1 个邀请码扣除账户余额',
+                pointsHint: '用户每生成 1 个邀请码扣除积分',
+                priceYuan: '单个价格（元）', pricePoints: '单个价格（积分）',
+                expiry: '默认有效期', expiryHint: '0 表示用户生成的邀请码永不过期。',
+            },
             title: '系统设置',
             description: '配置系统初始参数和默认值',
             tabs: {

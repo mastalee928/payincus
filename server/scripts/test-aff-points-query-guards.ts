@@ -87,7 +87,7 @@ assert.ok(
   'AFF withdrawal rejection must reject missing, non-string, blank, or oversized reasons before DB writes'
 )
 assert.ok(
-  rejectWithdrawalRoute.includes('db.rejectAffWithdrawal(withdrawalId, user.id, reason)') &&
+  rejectWithdrawalRoute.includes('db.rejectAffWithdrawal(withdrawalId, user, reason)') &&
     rejectWithdrawalRoute.includes('reason }') &&
     !rejectWithdrawalRoute.includes('reason.trim()'),
   'AFF withdrawal rejection must persist, notify, and log only the normalized reason'

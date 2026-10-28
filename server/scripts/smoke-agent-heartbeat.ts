@@ -121,7 +121,9 @@ async function main(): Promise<void> {
       location: 'smoke'
     })
 
-    const credentials = await rotateHostAgentCredentials(hostId, true)
+    const credentials = await rotateHostAgentCredentials(hostId, true, { actor: {
+      id: userId, sid: `smoke-${suffix}`, iat: Math.floor(Date.now() / 1000) + 1
+    } })
     agentId = credentials.agentId
 
     const heartbeatBody: JsonObject = {

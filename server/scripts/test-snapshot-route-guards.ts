@@ -26,7 +26,7 @@ assert.ok(
 
 assert.equal(
   (source.match(/parsePositiveId\(request\.params\.instanceId\)/g) ?? []).length,
-  6,
+  7,
   'all snapshot instanceId route parameters must use strict positive ID parsing'
 )
 
@@ -56,7 +56,7 @@ const createSnapshotRoute = section(
 const lockAcquireIndex = createSnapshotRoute.indexOf('const lockResult = await acquireLock(lockKey, {')
 const quotaCheckIndex = createSnapshotRoute.indexOf('const quotaCheck = await checkSnapshotQuota(instance.user_id, instanceIdNum)')
 const incusCreateIndex = createSnapshotRoute.indexOf('await createSnapshot(client, instance.incus_id, incusName)')
-const dbCreateIndex = createSnapshotRoute.indexOf('snapshotId = await db.createSnapshot({')
+const dbCreateIndex = createSnapshotRoute.indexOf('snapshotId = (await tx.snapshot.create({ data: {')
 assert.ok(
   source.includes("import { acquireLock, releaseLock } from '../lib/distributed-lock.js'") &&
     source.includes('const SNAPSHOT_CREATE_LOCK_EXPIRE_MS = 30 * 60 * 1000') &&
@@ -97,3 +97,5 @@ assert.ok(
 )
 
 console.log('snapshot route guard tests passed')
+
+assert.ok(source.includes('await withSnapshotMutation(instance, request.user, false,') && source.includes('await retryAutoSnapshotOperation'), 'manual actions use current instance fence and expose authorized durable retry')

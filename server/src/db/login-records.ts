@@ -3,6 +3,7 @@
  */
 
 import { prisma } from './prisma.js'
+import { Prisma } from '@prisma/client'
 
 const LINKED_ACCOUNT_DEFAULT_GROUP_LIMIT = 50
 const LINKED_ACCOUNT_MAX_GROUP_LIMIT = 100
@@ -143,27 +144,21 @@ export async function getLastLoginRecordsForUsers(
     return new Map()
   }
 
-  // 使用 Prisma 的 findMany + distinct，按用户分组获取最新记录
-  const records = await prisma.loginRecord.findMany({
-    where: {
-      userId: { in: userIds }
-    },
-    orderBy: {
-      createdAt: 'desc'
-    },
-    select: {
-      id: true,
-      userId: true,
-      ip: true,
-      country: true,
-      region: true,
-      city: true,
-      isp: true,
-      timezone: true,
-      userAgent: true,
-      createdAt: true
-    }
-  })
+  // 每位用户在数据库内按现有 (user_id, created_at DESC) 索引取一条，
+  // 避免把整页用户的全部登录历史加载到进程中。同一时刻按 ID 稳定排序。
+  const requestedIds = [...new Set(userIds)]
+  const records = await prisma.$queryRaw<Array<LoginRecordItem & { userId: number }>>(Prisma.sql`
+    SELECT latest.*
+    FROM unnest(ARRAY[${Prisma.join(requestedIds)}]::integer[]) AS requested(user_id)
+    CROSS JOIN LATERAL (
+      SELECT id, user_id AS "userId", ip, country, region, city, isp, timezone,
+        user_agent AS "userAgent", created_at AS "createdAt"
+      FROM login_records
+      WHERE user_id = requested.user_id
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    ) AS latest
+  `)
 
   // 按用户分组，只保留每个用户的最新记录
   const lastRecordMap = new Map<number, LoginRecordItem | null>()

@@ -14,7 +14,7 @@ import {
 } from '../db/advisory-locks.js'
 import { calculateDiscountAmount, calculateDiscountedPrice } from '../lib/billing-calc.js'
 import { sanitizeTokensInString } from '../lib/log-sanitizer.js'
-import { processMailAffCommission } from '../db/aff.js'
+import { AffCodeBusyError, getMailSubscriptionAffBinding, processMailAffCommission } from '../db/aff.js'
 
 const MAIL_AUTORENEW_CRON = '43 2 * * *'
 const MAIL_AUTORENEW_DAYS_AHEAD = 3
@@ -41,7 +41,7 @@ function buildPeriodKey(subscriptionId: number, expiresAt: Date): string {
   return `mail-auto-renew:${subscriptionId}:${expiresAt.toISOString()}`
 }
 
-async function processMailAutoRenew(candidate: {
+export async function processMailAutoRenew(candidate: {
   id: number
   userId: number
   expiresAt: Date
@@ -97,7 +97,7 @@ async function processMailAutoRenew(candidate: {
       ? Number(subscription.plan.price)
       : Number(subscription.plan.price) / 12
     const originalPrice = roundCurrency(monthlyPrice * MAIL_AUTORENEW_MONTHS)
-    const affCode = subscription.affBinding?.affCode
+    const affCode = (await getMailSubscriptionAffBinding(subscription.id, tx))?.affCode
     const discountAmount = affCode?.enabled
       ? calculateDiscountAmount(originalPrice, Number(affCode.discountRate))
       : 0
@@ -185,9 +185,9 @@ async function processMailAutoRenew(candidate: {
       tx
     )
 
-    if (subscription.affBinding) {
+    if (affCode?.enabled) {
       await processMailAffCommission(
-        subscription.affBinding.affCodeId,
+        affCode.id,
         subscription.id,
         originalPrice,
         'renew',
@@ -196,6 +196,9 @@ async function processMailAutoRenew(candidate: {
     }
 
     return { status: 'renewed' as const, amount: finalPrice, expiresAt: renewed.expiresAt }
+  }).catch(error => {
+    if (error instanceof AffCodeBusyError) return { status: 'busy' as const }
+    throw error
   })
 }
 

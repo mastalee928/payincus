@@ -12,11 +12,12 @@ function clampNotificationLogPagination(page: number | undefined, pageSize: numb
   page: number
   pageSize: number
 } {
+  const safePageSize = Number.isSafeInteger(pageSize) && pageSize !== undefined
+    ? Math.min(Math.max(pageSize, 1), 100) : 20
   return {
-    page: Number.isInteger(page) && page !== undefined && page > 0 ? page : 1,
-    pageSize: Number.isInteger(pageSize) && pageSize !== undefined
-      ? Math.min(Math.max(pageSize, 1), 100)
-      : 20
+    page: Number.isSafeInteger(page) && page !== undefined && page > 0 &&
+      (page - 1) * safePageSize <= 2147483647 ? page : 1,
+    pageSize: safePageSize
   }
 }
 

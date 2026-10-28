@@ -55,7 +55,10 @@ export default async function vipLevelRoutes(app: FastifyInstance): Promise<void
     const type = parseRuleType(request.params.type)
     if (!type) return sendInvalidType(reply)
 
-    const rules = Array.isArray(request.body?.rules) ? request.body.rules : []
+    if (!Array.isArray(request.body?.rules)) {
+      return reply.status(400).send({ error: 'VIP rules must be an array' })
+    }
+    const rules = request.body.rules
     let userMetric: UserVipMetric | undefined
     if (type === 'user') {
       const parsedUserMetric = parseUserVipMetric(request.body?.userMetric)

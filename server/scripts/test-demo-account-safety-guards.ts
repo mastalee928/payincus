@@ -88,9 +88,9 @@ assertBefore(
 )
 
 assertBefore(
-  usersSource,
+  usersSource.slice(usersSource.indexOf("}>('/:id/reset-password',")),
   'if (shouldProtectDemoAccount(request, user))',
-  'await db.updateUser(userId, { passwordHash })',
+  'await db.updateUserProfileIfCurrent(resetState, { passwordHash }, request.user)',
   'admin password resets must be blocked for demo accounts before DB update'
 )
 

@@ -8,6 +8,7 @@ const __dirname = dirname(__filename)
 
 const appSource = readFileSync(resolve(__dirname, '../src/app.ts'), 'utf8')
 const authRouteSource = readFileSync(resolve(__dirname, '../src/routes/auth.ts'), 'utf8')
+const usersDbSource = readFileSync(resolve(__dirname, '../src/db/users.ts'), 'utf8')
 const usersRouteSource = readFileSync(resolve(__dirname, '../src/routes/users.ts'), 'utf8')
 const oauthRouteSource = readFileSync(resolve(__dirname, '../src/routes/oauth.ts'), 'utf8')
 const loginRecordsDbSource = readFileSync(resolve(__dirname, '../src/db/login-records.ts'), 'utf8')
@@ -205,7 +206,7 @@ assert.ok(
 
 const forgotResetUserLookupIndex = forgotPasswordResetRoute.indexOf('const user = await db.findUserByEmail(email)')
 const forgotResetStatusCheckIndex = forgotPasswordResetRoute.indexOf("if (user.status === 'banned')")
-const forgotResetVerifyCodeIndex = forgotPasswordResetRoute.indexOf("const isValid = await verifyCode(email, code, 'password_reset')")
+const forgotResetVerifyCodeIndex = forgotPasswordResetRoute.indexOf('await db.resetPasswordWithEmailVerification(resetState, code, passwordHash)')
 assert.notEqual(forgotResetUserLookupIndex, -1, 'forgot-password reset must look up the user before consuming reset codes')
 assert.notEqual(forgotResetStatusCheckIndex, -1, 'forgot-password reset must check banned status')
 assert.notEqual(forgotResetVerifyCodeIndex, -1, 'forgot-password reset verification call not found')
@@ -213,17 +214,26 @@ assert.ok(
   forgotResetUserLookupIndex < forgotResetStatusCheckIndex && forgotResetStatusCheckIndex < forgotResetVerifyCodeIndex,
   'forgot-password reset must reject banned accounts before consuming reset codes'
 )
+assert.ok(
+  usersDbSource.includes("verifyCodeInTransaction(tx, expected.email!, code, 'password_reset')") &&
+    usersDbSource.includes('await tx.refreshToken.deleteMany({ where: { userId: expected.id } })') &&
+    usersDbSource.includes('await tx.tokenInvalidation.upsert({'),
+  'password reset must atomically consume the code, update verified credentials and revoke sessions'
+)
 
 assert.ok(
   usersRouteSource.includes("}>('/:id/status', {") &&
-    usersRouteSource.includes('await revokeAllUserRefreshTokens(userId)') &&
-    usersRouteSource.includes('await invalidateUserAccessTokens(userId)') &&
+    usersRouteSource.includes('await db.updateUserStatus(userId, status, reason, request.user)') &&
+    usersDbSource.includes("if (status === 'banned') await revokeUserSessionsInTransaction(tx, id)") &&
     usersRouteSource.includes("closeUserSessions(userId, 'User account banned')"),
   'banning a user must revoke refresh tokens, invalidate access tokens, and close terminal sessions'
 )
 
 assert.ok(
   usersRouteSource.includes('if (password) {') &&
+    usersRouteSource.includes('db.updateUserProfileIfCurrent(profileState, updates, request.user, emailCode)') &&
+    usersDbSource.includes('const grant = await tx.operationVerification.deleteMany({') &&
+    usersDbSource.includes('email: expected.email, passwordHash: expected.passwordHash') &&
     usersRouteSource.includes("closeUserSessions(userId, 'Password updated')"),
   'password updates must revoke refresh tokens, invalidate access tokens, and close terminal sessions'
 )
@@ -315,7 +325,7 @@ assert.ok(
     adminCreateUserRouteSource.includes('await db.findUserByUsername(username)') &&
     adminCreateUserRouteSource.includes('await db.findUserByEmail(email)') &&
     adminCreateUserRouteSource.includes('const passwordHash = await bcrypt.hash(initialPassword, 12)') &&
-    adminCreateUserRouteSource.includes('await db.createUser(username, email, passwordHash, role)') &&
+    adminCreateUserRouteSource.includes('await db.createUser(username, email, passwordHash, role, { status, actor: request.user })') &&
     adminCreateUserRouteSource.includes('...(verifyEmail ? { emailSent: emailSent === true } : { initialPassword })') &&
     !adminCreateUserRouteSource.includes('console.log(initialPassword') &&
     !adminCreateUserRouteSource.includes('console.error(initialPassword'),
@@ -343,37 +353,37 @@ for (const [name, route] of [
   )
 }
 
-for (const [name, route] of [
-  ['admin 2FA disable', adminDisable2FARoute],
-  ['admin OAuth unbind', adminUnbindOAuthRoute]
+for (const [name, route, mutation] of [
+  ['admin 2FA disable', adminDisable2FARoute, 'await db.disable2FAComplete(userId, request.user)'],
+  ['admin OAuth unbind', adminUnbindOAuthRoute, "await db.deleteOAuthBinding(userId, provider as 'github' | 'google', request.user)"]
 ] as const) {
   assert.ok(
-    route.includes('await revokeAllUserRefreshTokens(userId)') &&
-      route.includes('await invalidateUserAccessTokens(userId)') &&
+    route.includes(mutation) &&
       route.includes('closeUserSessions(userId,'),
     `${name} route must revoke refresh tokens, invalidate access tokens, and close terminal sessions`
   )
 }
 
 assert.ok(
-  selfUnbindOAuthRoute.includes('await db.deleteOAuthBinding(request.user.id, provider)') &&
-    selfUnbindOAuthRoute.includes('await revokeAllUserRefreshTokens(request.user.id)') &&
-    selfUnbindOAuthRoute.includes('await invalidateUserAccessTokens(request.user.id)') &&
+  selfUnbindOAuthRoute.includes('await db.unbindOwnOAuthAccount(request.user.id, provider, request.user)') &&
+    readFileSync(resolve(__dirname, '../src/db/oauth.ts'), 'utf8').includes('await revokeUserSessionsInTransaction(tx, userId)') &&
     selfUnbindOAuthRoute.includes('closeUserSessions(request.user.id,') &&
     selfUnbindOAuthRoute.includes("'oauth.unbind'"),
   'self-service OAuth unbind must revoke sessions and write a security log'
 )
 
-for (const [name, route, stateChange] of [
-  ['self-service 2FA enable', selfEnable2FARoute, 'await db.enable2FA(request.user.id)'],
-  ['self-service 2FA disable', selfDisable2FARoute, 'await db.disable2FAComplete(request.user.id)']
+for (const [name, route, expectedState, changedFields] of [
+  ['self-service 2FA enable', selfEnable2FARoute, 'enableState', 'twoFactorEnabled: true'],
+  ['self-service 2FA disable', selfDisable2FARoute, 'disableState', 'twoFactorEnabled: false, twoFactorSecret: null, twoFactorRecoveryCodes: null']
 ] as const) {
   assert.ok(
-    route.includes(stateChange) &&
-      route.includes('await revokeAllUserRefreshTokens(request.user.id)') &&
-      route.includes('await invalidateUserAccessTokens(request.user.id)') &&
+    route.includes(`await db.replace2FAStateIfCurrent(${expectedState}, {`) &&
+      route.includes(changedFields) &&
+      route.includes('}, request.user, true)') &&
+      usersDbSource.includes('await tx.refreshToken.deleteMany({ where: { userId: expected.id } })') &&
+      usersDbSource.includes('await tx.tokenInvalidation.upsert({') &&
       route.includes('closeUserSessions(request.user.id,'),
-    `${name} route must revoke refresh tokens, invalidate access tokens, and close terminal sessions`
+    `${name} route must conditionally commit verified state, revoke refresh tokens, invalidate access tokens, and close terminal sessions`
   )
 }
 

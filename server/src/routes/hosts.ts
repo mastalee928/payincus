@@ -1,3 +1,4 @@
+import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 /**
  * 宿主机管理路由 (管理员)
  */
@@ -12,6 +13,7 @@ import { Agent, request as undiciRequest } from 'undici'
 import * as db from '../db/index.js'
 import { discoverHostPublicIpv6, publicIpv6State } from '../lib/host-public-ipv6.js'
 import { prisma } from '../db/prisma.js'
+import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
 import { checkHostingAccess } from '../lib/hosting-access.js'
 import { createInboxMessage } from '../db/inbox.js'
 import { createLog } from '../db/logs.js'
@@ -32,7 +34,7 @@ import { selectBindableIpv4ListenAddress } from '../lib/network-address.js'
 import { listStoragePools, getStoragePoolResources, createStoragePool, deleteStoragePool, updateStoragePool } from '../lib/incus/incus-storage.js'
 import type { CreateHostRequest, UpdateHostRequest } from '../types/api.js'
 import type { Host } from '../types/database.js'
-import { validateName, validateUrl, validateIpAddress, validateIdentifier, validateIpOrDomain, encryptSensitiveData, getJwtSigningSecret } from '../lib/security.js'
+import { validateName, validateUrl, validateIpAddress, validateIdentifier, validateIpOrDomain, encryptSensitiveData } from '../lib/security.js'
 import { sendNotification } from '../lib/notifier.js'
 import { sendReleaseNotification } from '../lib/release-notifier.js'
 import { createCaddyClient } from '../lib/caddy-client.js'
@@ -52,12 +54,16 @@ import {
   normalizeNetworkMode
 } from '../lib/network-modes.js'
 import { issueHostAgentInstallToken } from '../lib/host-agent-credentials.js'
+import { checkHostCaddyCredentials, confirmHostCaddyCredentials, prepareHostCaddyCredentials, loadCaddyScriptCredentials } from '../db/host-caddy-credentials.js'
+import { createCaddyScriptToken, verifyCaddyScriptToken } from '../lib/caddy-script-token.js'
 import { hostLiveStatus } from '../lib/host-live-status.js'
 import { HOST_OCCUPIED_INSTANCE_WHERE } from '../lib/host-resource-usage.js'
 import {
   persistResolvedInstanceNetworkAddresses,
   resolveInstanceNetworkAddresses
 } from '../lib/instance-network-sync.js'
+import { syncInstanceNetworkAndProxySites, readProxyNetworkSyncHostIdentity, ProxyNetworkSyncError } from '../lib/instance-proxy-network-sync.js'
+import { recordUnverifiedInstanceObservation } from '../lib/instance-sync-observation-error.js'
 import {
   HostAddressRegistryError,
   logHostAddressResolutionFailure,
@@ -87,7 +93,6 @@ import {
   parseStartupItems
 } from '../lib/instance-audit.js'
 import { provisionManagedInstanceAsync } from '../lib/managed-instance-provision.js'
-import crypto from 'crypto'
 import type { InstanceStatus } from '@prisma/client'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -243,6 +248,9 @@ async function claimHostBatchInstanceForDelete(instanceId: number, currentStatus
   return prisma.$transaction(async (tx) => {
     const locked = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
     if (!locked) return false
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+    await assertNoPendingSnapshotOperations(tx, instanceId)
+    await assertNoPendingProxySiteOperations(tx, instanceId)
 
     const [activeRestoreTask, activeUploadTask, activeInstanceTask] = await Promise.all([
       tx.restoreTask.findFirst({
@@ -287,6 +295,16 @@ function sendHostActiveTaskConflict(reply: FastifyReply, activeTask?: Pick<Insta
 }
 
 async function rejectActiveHostInstanceWorkflowConflict(reply: FastifyReply, instanceId: number): Promise<boolean> {
+  if (await hasPendingSnapshotOperation(instanceId)) {
+    const error = new SnapshotOperationPendingError()
+    reply.code(409).send({ code: error.code, error: error.message })
+    return true
+  }
+  if (await hasPendingProxySiteOperations(instanceId)) {
+    const error = new ProxySiteOperationPendingError()
+    reply.code(409).send({ code: error.code, error: error.message })
+    return true
+  }
   const [activeRestoreTask, activeUploadTask, activeInstanceTask] = await Promise.all([
     prisma.restoreTask.findFirst({
       where: {
@@ -340,6 +358,10 @@ async function createHostInstanceTaskOrConflict(
   try {
     return await createInstanceTask(data)
   } catch (error) {
+    if ((error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError)) {
+      reply.code(409).send({ code: error.code, error: error.message })
+      return null
+    }
     if (error instanceof InstanceTaskConflictError) {
       sendHostActiveTaskConflict(reply, error.activeTask)
       return null
@@ -1462,7 +1484,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       }
 
       try {
-        const agentInstall = await issueHostAgentInstallToken(host.id, true)
+        const agentInstall = await issueHostAgentInstallToken(host.id, true, { hostInstallToken: token })
         script = injectInstallVariable(script, 'INJECT_AGENT_INSTALL_TOKEN', agentInstall.installToken)
         script = injectInstallVariable(script, 'INJECT_AGENT_ENABLED', 'true')
 
@@ -3868,67 +3890,13 @@ export default async function hostRoutes(fastify: FastifyInstance) {
 
   // ==================== Caddy 反代管理路由 ====================
 
-  /**
-   * 生成随机字符串
-   */
-  function generateRandomString(length: number): string {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-    let result = ''
-    const randomBytes = crypto.randomBytes(length)
-    for (let i = 0; i < length; i++) {
-      result += chars[randomBytes[i] % chars.length]
-    }
-    return result
-  }
-
-  /**
-   * 生成 Caddy 脚本下载 token（有效期 30 分钟）
-   * 使用 HMAC-SHA256 签名，包含 hostId 和过期时间
-   */
-  function generateCaddyScriptToken(hostId: number): string {
-    const secret = getJwtSigningSecret('Caddy script token signing')
-    const expireAt = Date.now() + 30 * 60 * 1000 // 30 分钟有效期
-    const payload = `${hostId}:${expireAt}`
-    const signature = crypto.createHmac('sha256', secret).update(payload).digest('hex')
-    // 返回 base64url 编码的 token: hostId:expireAt:signature
-    return Buffer.from(`${payload}:${signature}`).toString('base64url')
-  }
-
-  /**
-   * 验证 Caddy 脚本下载 token
-   * @returns hostId 如果验证成功，否则返回 null
-   */
-  function verifyCaddyScriptToken(token: string): number | null {
-    try {
-      const decoded = Buffer.from(token, 'base64url').toString('utf-8')
-      const parts = decoded.split(':')
-      if (parts.length !== 3) return null
-      
-      const [hostIdStr, expireAtStr, signature] = parts
-      const hostId = parseInt(hostIdStr, 10)
-      const expireAt = parseInt(expireAtStr, 10)
-      
-      if (isNaN(hostId) || isNaN(expireAt)) return null
-      if (hostId <= 0) return null // hostId 必须是正整数
-      
-      // 检查是否过期
-      if (Date.now() > expireAt) return null
-      
-      // 验证签名（使用常量时间比较防止时序攻击）
-      const secret = getJwtSigningSecret('Caddy script token verification')
-      const payload = `${hostId}:${expireAt}`
-      const expectedSignature = crypto.createHmac('sha256', secret).update(payload).digest('hex')
-      
-      // 使用 timingSafeEqual 防止时序攻击
-      const signatureBuffer = Buffer.from(signature, 'utf-8')
-      const expectedBuffer = Buffer.from(expectedSignature, 'utf-8')
-      if (signatureBuffer.length !== expectedBuffer.length) return null
-      if (!crypto.timingSafeEqual(signatureBuffer, expectedBuffer)) return null
-      
-      return hostId
-    } catch {
-      return null
-    }
+  function handleCaddyMutationError(error: unknown, reply: FastifyReply): boolean {
+    if (!(error instanceof Error)) return false
+    if (error.message === 'CADDY_ACTOR_FORBIDDEN') reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
+    else if (error.message === 'HOST_NOT_FOUND') reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
+    else if (error.message === 'CADDY_CONFIG_CHANGED') reply.code(409).send({ error: 'Caddy 配置已变化，请重新检查', code: 'CADDY_CONFIG_CHANGED' })
+    else return false
+    return true
   }
 
   /**
@@ -4140,36 +4108,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
-    // 如果已有凭据，复用现有的；否则生成新的
-    let username = host.caddy_username
-    let password = host.caddy_password
-    const port = host.caddy_port || 8444
-    let isNewCredentials = false
-
-    if (!username || !password) {
-      // 生成新凭据
-      username = 'caddy_' + generateRandomString(8)
-      password = generateRandomString(24)
-      isNewCredentials = true
-
-      // 更新数据库
-      await prisma.host.update({
-        where: { id: hostId },
-        data: {
-          caddyUsername: username,
-          caddyPassword: password,
-          caddyPort: port
-        }
-      })
-
-      await createLog(
-        user.id,
-        'host',
-        'caddy.generate',
-        `Generated Caddy credentials for host "${host.name}"`,
-        'success'
-      )
+    let prepared: Awaited<ReturnType<typeof prepareHostCaddyCredentials>>
+    try { prepared = await prepareHostCaddyCredentials(hostId, user) } catch (error) {
+      if (handleCaddyMutationError(error, reply)) return
+      throw error
     }
+    const { username, password, port, isNewCredentials } = prepared
+    if (isNewCredentials) await createLog(user.id, 'host', 'caddy.generate',
+      `Generated Caddy credentials for host "${prepared.host.name}"`, 'success')
 
     // 构建安装命令
     // 使用FRONTEND_URL，如果包含多个URL（逗号分隔），使用第一个
@@ -4177,7 +4123,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       ? process.env.FRONTEND_URL.split(',')[0].trim()
       : 'https://incudal.com'
     // 生成带鉴权 token 的脚本下载 URL
-    const scriptToken = generateCaddyScriptToken(hostId)
+    const scriptToken = createCaddyScriptToken(prepared.scriptGrant)
     const installCommand = `curl -fsSL "${panelUrl}/api/hosts/caddy-script/${scriptToken}" | sudo bash -s -- --username "${username}" --port ${port}`
 
     return {
@@ -4216,28 +4162,19 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
-    // 强制生成新凭据
-    const username = 'caddy_' + generateRandomString(8)
-    const password = generateRandomString(24)
-    const port = host.caddy_port || 8444
-
-    // 更新数据库，同时禁用 Caddy（需要重新安装）
-    await prisma.host.update({
-      where: { id: hostId },
-      data: {
-        caddyUsername: username,
-        caddyPassword: password,
-        caddyPort: port,
-        caddyEnabled: false
-      }
-    })
+    let prepared: Awaited<ReturnType<typeof prepareHostCaddyCredentials>>
+    try { prepared = await prepareHostCaddyCredentials(hostId, user, true) } catch (error) {
+      if (handleCaddyMutationError(error, reply)) return
+      throw error
+    }
+    const { username, password, port } = prepared
 
     // 使用FRONTEND_URL，如果包含多个URL（逗号分隔），使用第一个
     const panelUrl = process.env.FRONTEND_URL
       ? process.env.FRONTEND_URL.split(',')[0].trim()
       : 'https://incudal.com'
     // 生成带鉴权 token 的脚本下载 URL
-    const scriptToken = generateCaddyScriptToken(hostId)
+    const scriptToken = createCaddyScriptToken(prepared.scriptGrant)
     const installCommand = `curl -fsSL "${panelUrl}/api/hosts/caddy-script/${scriptToken}" | sudo bash -s -- --username "${username}" --port ${port}`
 
     await createLog(
@@ -4289,6 +4226,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: '请先生成安装命令' })
     }
 
+    const expected = { id: hostId, userId: host.user_id ?? -1, username: host.caddy_username,
+      password: host.caddy_password, port: host.caddy_port ?? null,
+      ipAddress: host.ip_address ?? null, natPublicIp: host.nat_public_ip ?? null }
+    try { await checkHostCaddyCredentials(expected, user) } catch (error) {
+      if (handleCaddyMutationError(error, reply)) return
+      throw error
+    }
+
     // 尝试连接测试
     const targetHost = host.nat_public_ip || host.ip_address
     if (!targetHost) {
@@ -4325,11 +4270,10 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: '无法连接到 Caddy，请确认已执行安装命令' })
     }
 
-    // 更新状态
-    await prisma.host.update({
-      where: { id: hostId },
-      data: { caddyEnabled: true }
-    })
+    try { await confirmHostCaddyCredentials(expected, user) } catch (error) {
+      if (handleCaddyMutationError(error, reply)) return
+      throw error
+    }
 
     await createLog(
       user.id,
@@ -4356,36 +4300,24 @@ export default async function hostRoutes(fastify: FastifyInstance) {
   }, async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
     const { token } = request.params
 
-    // 验证 token
-    const hostId = verifyCaddyScriptToken(token)
-    if (hostId === null) {
-      request.log.warn('Invalid or expired caddy script token')
-      return reply.code(403).send('# Error: Invalid or expired token')
+    const grant = verifyCaddyScriptToken(token)
+    if (!grant) return reply.code(403).send('# Error: Invalid or expired token')
+    let password: string
+    try { password = await loadCaddyScriptCredentials(grant) } catch (error) {
+      if (error instanceof Error && ['HOST_NOT_FOUND', 'CADDY_ACTOR_FORBIDDEN', 'CADDY_CONFIG_CHANGED'].includes(error.message)) {
+        return reply.code(403).send('# Error: Installation authorization changed; generate a new command')
+      }
+      throw error
     }
-
-    // 验证宿主机存在
-    const host = await prisma.host.findUnique({
-      where: { id: hostId },
-      select: { id: true, name: true, caddyPassword: true }
-    })
-    if (!host) {
-      request.log.warn(`Caddy script download failed: host ${hostId} not found`)
-      return reply.code(404).send('# Error: Host not found')
-    }
-    if (!host.caddyPassword) {
-      request.log.warn(`Caddy script download failed: host ${hostId} has no Caddy password`)
-      return reply.code(409).send('# Error: Caddy credentials are not configured')
-    }
-
     try {
       const scriptPath = join(__dirname, '../../templates/caddy.sh')
       const scriptContent = readFileSync(scriptPath, 'utf-8')
-      const passwordInjection = `INJECT_CADDY_PASSWORD_B64="${Buffer.from(host.caddyPassword, 'utf8').toString('base64')}"`
+      const passwordInjection = `INJECT_CADDY_PASSWORD_B64="${Buffer.from(password, 'utf8').toString('base64')}"`
       if (!scriptContent.includes('INJECT_CADDY_PASSWORD_B64=""')) {
         throw new Error('Caddy script password injection marker is missing')
       }
       const renderedScript = scriptContent.replace('INJECT_CADDY_PASSWORD_B64=""', passwordInjection)
-      request.log.info(`Caddy script downloaded for host ${host.name}`)
+      request.log.info(`Caddy script downloaded for host #${grant.hostId}`)
       reply.header('Cache-Control', 'no-store')
       reply.type('text/plain').send(renderedScript)
     } catch (err) {
@@ -4577,7 +4509,9 @@ export default async function hostRoutes(fastify: FastifyInstance) {
 
     // 获取 Incus 客户端
     let client: IncusClient | null = null
+    let hostConnectionIdentity: string
     try {
+      hostConnectionIdentity = await readProxyNetworkSyncHostIdentity(host.id)
       client = await getIncusClient(host)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
@@ -4587,11 +4521,10 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     // 导入状态同步相关函数
     const { getInstance, getInstanceState } = await import('../lib/incus/incus-instances.js')
     const { mapInstanceStatus } = await import('../lib/incus/incus-utils.js')
-    const { getProxySitesByInstanceId } = await import('../db/proxy-sites.js')
 
     // 从 Incus state.network 中提取 IPv4 地址
     // 优先选择 eth0 接口的 IP（这是我们配置的主网卡）
-    const results: { id: number; name: string; success: boolean; from?: string; to?: string; ipv4Changed?: boolean; oldIpv4?: string | null; newIpv4?: string | null; ipv6Changed?: boolean; oldIpv6?: string | null; newIpv6?: string | null; proxySitesUpdated?: number; error?: string }[] = []
+    const results: { id: number; name: string; success: boolean; from?: string; to?: string; ipv4Changed?: boolean; oldIpv4?: string | null; newIpv4?: string | null; ipv6Changed?: boolean; oldIpv6?: string | null; newIpv6?: string | null; proxySitesUpdated?: number; proxySitesPending?: number; error?: string }[] = []
     let syncedCount = 0
     let changedCount = 0
     let ipv4ChangedCount = 0
@@ -4633,32 +4566,17 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           continue
         }
 
-        // 更新数据库状态
-        const currentStatus = instance.status
-        let statusChanged = false
-        let ipv4Changed = false
-        let oldIpv4: string | null = null
-        let newIpv4: string | null = null
-        let ipv6Changed = false
-        let oldIpv6: string | null = null
-        let newIpv6: string | null = null
-        let proxySitesUpdated = 0
-
-        if (currentStatus !== incusStatus) {
-          await db.updateInstanceStatus(
-            instance.id,
-            incusStatus as 'creating' | 'running' | 'stopped' | 'error'
-          )
-          statusChanged = true
-          changedCount++
-        }
-
-        // 同步内网 IPv4（仅当实例正在运行时才能获取）
-        const persistedNetwork = await persistResolvedInstanceNetworkAddresses(
+        const persistedNetwork = await syncInstanceNetworkAndProxySites(
           {
             id: instance.id,
             name: instance.name,
             hostId: host.id,
+            incusId: instance.incusId,
+            userId: instance.userId,
+            hostOwnerId: host.user_id!,
+            hostUrl: host.url,
+            hostConnectionIdentity,
+            updatedAt: instance.updatedAt.toISOString(),
             networkMode: instance.networkMode,
             ipv4: instance.ipv4,
             ipv6: instance.ipv6
@@ -4675,15 +4593,13 @@ export default async function hostRoutes(fastify: FastifyInstance) {
             incusInstance,
             state
           ),
-          { updateLastSyncedAt: true }
+          incusStatus as InstanceStatus,
+          user,
+          true
         )
-
-        ipv4Changed = persistedNetwork.ipv4Changed
-        oldIpv4 = persistedNetwork.oldIpv4
-        newIpv4 = persistedNetwork.newIpv4
-        ipv6Changed = persistedNetwork.ipv6Changed
-        oldIpv6 = persistedNetwork.oldIpv6
-        newIpv6 = persistedNetwork.newIpv6
+        const { ipv4Changed, oldIpv4, newIpv4, ipv6Changed, oldIpv6, newIpv6, statusChanged,
+          previousStatus, currentStatus, proxySitesUpdated, proxySitesPending, proxySiteErrors } = persistedNetwork
+        if (statusChanged) changedCount++
 
         if (ipv4Changed) {
           ipv4ChangedCount++
@@ -4692,114 +4608,31 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           ipv6ChangedCount++
         }
 
-        if (ipv4Changed && newIpv4) {
-          console.log(`[BatchSyncStatus] Instance ${instance.id} IPv4 changed: ${oldIpv4} -> ${newIpv4}`)
-
-          const proxySites = await getProxySitesByInstanceId(instance.id)
-          if (proxySites.length > 0 && host.caddy_enabled && host.caddy_username && host.caddy_password) {
-            const targetHost = host.nat_public_ip || host.ip_address
-            if (targetHost) {
-              const caddyClient = createCaddyClient({
-                host: targetHost,
-                port: host.caddy_port || 8444,
-                username: host.caddy_username,
-                password: host.caddy_password
-              })
-
-              for (const site of proxySites) {
-                if (site.status === 'active' && site.enabled) {
-                  try {
-                    await caddyClient.deleteSite(site.domain)
-                    await caddyClient.addSite(site.domain, newIpv4, site.targetPort, site.httpsEnabled)
-                    proxySitesUpdated++
-                    console.log(`[BatchSyncStatus] Updated proxy site "${site.domain}" to new IP ${newIpv4}`)
-                  } catch (caddyErr) {
-                    console.error(`[BatchSyncStatus] Failed to update proxy site "${site.domain}":`, caddyErr)
-                  }
-                }
-              }
-            }
-          }
-        }
         results.push({
           id: instance.id,
           name: instance.name,
-          success: true,
-          from: statusChanged ? currentStatus : undefined,
-          to: statusChanged ? incusStatus : undefined,
+          success: proxySitesPending === 0,
+          from: statusChanged ? previousStatus : undefined,
+          to: statusChanged ? currentStatus : undefined,
           ipv4Changed: ipv4Changed || undefined,
           oldIpv4: ipv4Changed ? oldIpv4 : undefined,
           newIpv4: ipv4Changed ? newIpv4 : undefined,
           ipv6Changed: ipv6Changed || undefined,
           oldIpv6: ipv6Changed ? oldIpv6 : undefined,
           newIpv6: ipv6Changed ? newIpv6 : undefined,
-          proxySitesUpdated: ipv4Changed ? proxySitesUpdated : undefined
+          proxySitesUpdated,
+          proxySitesPending,
+          ...(proxySitesPending ? { error: proxySiteErrors.map(item => `${item.domain}: ${item.error}`).join('；') || '反代站点配置仍待同步，请重试' } : {})
         })
-        syncedCount++
+        if (!proxySitesPending) syncedCount++
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err)
-        
-        // 如果实例在 Incus 中不存在，标记为已删除并回滚资源
-        if (errorMessage.includes('not found') || errorMessage.includes('Instance not found')) {
-          // 1. 更新实例状态为已删除
-          await db.updateInstanceStatus(instance.id, 'deleted')
-          
-          // 2. 获取端口映射数量并回滚资源
-          const portMappings = await db.getPortMappings(instance.id)
-          const portMappingsCount = portMappings?.length || 0
-          await db.rollbackResources({
-            hostId: instance.hostId,
-            cpu: instance.cpu,
-            memory: instance.memory,
-            disk: instance.disk,
-            portCount: portMappingsCount
-          })
-          
-          changedCount++
-          results.push({
-            id: instance.id,
-            name: instance.name,
-            success: true,
-            from: instance.status,
-            to: 'deleted'
-          })
-        } else {
-          results.push({
-            id: instance.id,
-            name: instance.name,
-            success: false,
-            error: errorMessage
-          })
+        if (err instanceof ProxyNetworkSyncError) {
+          results.push({ id: instance.id, name: instance.name, success: false, error: err.message })
+          continue
         }
-      }
-    }
-
-    // 如果有实例被标记为删除，重新计算宿主机资源使用量以确保一致性
-    const hasDeletedInstances = results.some(r => r.to === 'deleted')
-    if (hasDeletedInstances) {
-      try {
-        const usedResources = await db.calculateHostResourcesFromInstances(hostId)
-        // 重新计算端口映射使用量
-        const actualPortsUsed = await prisma.portMapping.count({
-          where: {
-            instance: {
-              hostId: hostId,
-              status: { not: 'deleted' }
-            }
-          }
-        })
-        await db.updateHostResources(hostId, {
-          cpuUsed: usedResources.cpuUsed,
-          memoryUsed: usedResources.memoryUsed,
-          diskUsed: usedResources.diskUsed
-        })
-        // 更新端口使用量
-        await prisma.host.update({
-          where: { id: hostId },
-          data: { natPortsUsedCount: actualPortsUsed }
-        })
-      } catch (recalcError) {
-        fastify.log.error(`重新计算宿主机资源失败: ${recalcError}`)
+        const errorMessage = await recordUnverifiedInstanceObservation({ source: 'host_batch',
+          instanceId: instance.id, hostId: instance.hostId, incusId: instance.incusId, actorId: user.id, error: err })
+        results.push({ id: instance.id, name: instance.name, success: false, error: errorMessage })
       }
     }
 
@@ -4808,7 +4641,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       'host',
       'host.sync_instance_status',
       `Synced ${syncedCount} instances on host "${host.name}", ${changedCount} status changed, ${ipv4ChangedCount} IPv4 changed, ${ipv6ChangedCount} IPv6 changed`,
-      'success'
+      syncedCount === instances.length ? 'success' : 'partial'
     )
 
     return {
@@ -5687,7 +5520,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     const { generateVmConfig } = await import('../lib/incus-config-vm.js')
     const { generateRandomIPv6 } = await import('../lib/ip-calculator.js')
     const { decryptSensitiveData, encryptSensitiveData } = await import('../lib/security.js')
-    const { getInstanceAffBinding, createAffBinding } = await import('../db/aff.js')
+    const { getInstanceAffBinding, copyInstanceAffBinding } = await import('../db/aff.js')
     const { createInboxMessage } = await import('../db/inbox.js')
     const { customAlphabet } = await import('nanoid')
     // 自定义 nanoid，只使用小写字母和数字（Incus 不允许下划线）
@@ -5996,7 +5829,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
 
           const movedCount = await db.reassignInstanceBillingRecords(instance.id, createdInstance.id, tx)
           if (affBinding) {
-            await createAffBinding(createdInstance.id, affBinding.affCode.id, tx)
+            await copyInstanceAffBinding(instance.id, createdInstance.id, affBinding.affCode.id, tx)
           }
 
           const sourceUpdate = await tx.instance.updateMany({

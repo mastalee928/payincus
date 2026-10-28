@@ -85,6 +85,21 @@ enum ProxySiteStatus {
   error // 配置失败
 }
 
+enum ProxySiteOperationAction {
+  upsert
+  disable
+  delete
+}
+
+enum ProxySiteOperationState {
+  pending
+  applying
+  retry
+  blocked
+  succeeded
+  superseded
+}
+
 enum InstanceStatus {
   creating
   running
@@ -1375,6 +1390,32 @@ model SnapshotPolicy {
   @@map("snapshot_policies")
 }
 
+model AutoSnapshotOperation {
+  id String @id @db.Uuid
+  instanceId Int @map("instance_id")
+  ownerId Int @map("owner_id")
+  hostId Int @map("host_id")
+  incusId String @map("incus_id")
+  identityHash String @map("identity_hash")
+  remoteUuid String? @map("remote_uuid")
+  snapshotName String @unique @map("snapshot_name")
+  previousSnapshot Json? @map("previous_snapshot")
+  state String @default("pending")
+  stage String @default("prepared")
+  attemptId String? @map("attempt_id") @db.Uuid
+  attempts Int @default(0)
+  startedAt DateTime? @map("started_at")
+  nextRetryAt DateTime? @map("next_retry_at")
+  error String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  completedAt DateTime? @map("completed_at")
+
+  @@index([instanceId, state])
+  @@index([state, nextRetryAt])
+  @@map("auto_snapshot_operations")
+}
+
 // ==================== 通知相关模型 ====================
 
 model NotificationChannel {
@@ -1934,6 +1975,8 @@ model EmailVerificationCode {
   code      String
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
+  attempts  Int      @default(0)
+  consumedAt DateTime? @map("consumed_at")
 
   @@index([email, purpose, code])
   @@index([expiresAt])
@@ -1979,6 +2022,7 @@ model InstanceTransfer {
   toUserId     Int            @map("to_user_id")
   status       TransferStatus @default(pending)
   snapshot     Json // 转移时的实例快照信息
+  cleanupState Json?          @map("cleanup_state") // 持久转移阶段、固定旧资源清单及恢复回执
   remark       String? // 转移备注
   rejectReason String?        @map("reject_reason")
   fee          Decimal?       @db.Decimal(10, 2) // 转移手续费（元），拒绝时退还
@@ -2174,6 +2218,9 @@ model HostNotificationEmailTask {
 
 model ProxySite {
   id           Int             @id @default(autoincrement())
+  siteKey      String          @unique @default(dbgenerated("gen_random_uuid()")) @map("site_key") @db.Uuid
+  revision     Int             @default(0)
+  appliedRevision Int          @default(0) @map("applied_revision")
   instanceId   Int             @map("instance_id")
   hostId       Int             @map("host_id") // 冗余存储，方便查询
   domain       String // 域名（不允许泛域名）
@@ -2182,6 +2229,7 @@ model ProxySite {
   remark       String? // 站点备注
   status       ProxySiteStatus @default(pending)
   enabled      Boolean         @default(true)
+  ipv4SyncPending Boolean      @default(false) @map("ipv4_sync_pending")
   error        String? // 错误信息
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
@@ -2193,6 +2241,43 @@ model ProxySite {
   @@index([instanceId])
   @@index([hostId])
   @@map("proxy_sites")
+}
+
+// Durable receipts intentionally have no cascading resource/user foreign keys.
+// They must survive resource deletion or a restored/changed resource identity.
+model ProxySiteOperation {
+  id           String                  @id @db.Uuid
+  siteId       Int                     @map("site_id")
+  siteKey      String                  @map("site_key") @db.Uuid
+  instanceId   Int                     @map("instance_id")
+  hostId       Int                     @map("host_id")
+  ownerId      Int                     @map("owner_id")
+  actorId      Int                     @map("actor_id")
+  actorSid     String                  @map("actor_sid")
+  actorIat     Int                     @map("actor_iat")
+  authority    String
+  lifecycleClaim Json?                @map("lifecycle_claim")
+  identityHash String                  @map("identity_hash")
+  incusId      String                  @map("incus_id")
+  revision     Int
+  action       ProxySiteOperationAction
+  desiredConfig Json                  @map("desired_config")
+  requestHash  String                  @map("request_hash")
+  state        ProxySiteOperationState @default(pending)
+  attemptId    String?                 @map("attempt_id") @db.Uuid
+  startedAt    DateTime?               @map("started_at")
+  attempts     Int                     @default(0)
+  nextRetryAt  DateTime?               @map("next_retry_at")
+  error        String?
+  createdAt    DateTime                @default(now()) @map("created_at")
+  updatedAt    DateTime                @updatedAt @map("updated_at")
+  completedAt  DateTime?               @map("completed_at")
+
+  @@unique([siteKey, revision])
+  @@index([instanceId, state])
+  @@index([hostId, state])
+  @@index([state, nextRetryAt])
+  @@map("proxy_site_operations")
 }
 
 // ==================== 登录记录模型 ====================

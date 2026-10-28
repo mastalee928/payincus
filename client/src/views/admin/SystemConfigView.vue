@@ -1082,8 +1082,8 @@ async function sendTestEmail() {
         <div v-if="isAccessSection" class="card p-6">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6">
             <div>
-              <h3 class="text-themed font-semibold">邀请码生成定价</h3>
-              <p class="text-sm text-themed-muted mt-1">配置普通用户生成一个邀请码需要消耗的资源。当前支持余额和积分，价格保存为可扩展的成本项列表。</p>
+              <h3 class="text-themed font-semibold">{{ t('admin.system.invitePricing.title') }}</h3>
+              <p class="text-sm text-themed-muted mt-1">{{ t('admin.system.invitePricing.description') }}</p>
             </div>
             <button
               type="button"
@@ -1104,15 +1104,16 @@ async function sendTestEmail() {
               <div class="flex items-center justify-between gap-4">
                 <div>
                   <label class="text-sm font-medium text-themed">
-                    {{ option.resource === 'balance' ? '余额生成' : option.resource === 'points' ? '积分生成' : option.resource }}
+                    {{ option.resource === 'balance' ? t('admin.system.invitePricing.balance') : option.resource === 'points' ? t('admin.system.invitePricing.points') : option.resource }}
                   </label>
                   <p class="mt-1 text-xs text-themed-muted">
-                    {{ option.resource === 'balance' ? '用户每生成 1 个邀请码扣除账户余额' : '用户每生成 1 个邀请码扣除积分' }}
+                    {{ option.resource === 'balance' ? t('admin.system.invitePricing.balanceHint') : t('admin.system.invitePricing.pointsHint') }}
                   </p>
                 </div>
                 <button
                   type="button"
                   role="switch"
+                  :aria-label="option.resource === 'balance' ? t('admin.system.invitePricing.balance') : t('admin.system.invitePricing.points')"
                   :aria-checked="option.enabled"
                   class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2"
                   :class="option.enabled ? 'bg-accent focus:ring-accent' : 'bg-gray-400 dark:bg-gray-500 focus:ring-gray-400'"
@@ -1127,7 +1128,7 @@ async function sendTestEmail() {
 
               <div class="mt-4">
                 <label class="block text-xs text-themed-muted mb-1.5">
-                  {{ option.resource === 'balance' ? '单个价格（元）' : '单个价格（积分）' }}
+                  {{ option.resource === 'balance' ? t('admin.system.invitePricing.priceYuan') : t('admin.system.invitePricing.pricePoints') }}
                 </label>
                 <div class="relative max-w-xs">
                   <span v-if="option.resource === 'balance'" class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-themed-muted">¥</span>
@@ -1145,7 +1146,7 @@ async function sendTestEmail() {
           </div>
 
           <div class="mt-5 space-y-2">
-            <label class="block text-sm text-themed-secondary">默认有效期</label>
+            <label class="block text-sm text-themed-secondary">{{ t('admin.system.invitePricing.expiry') }}</label>
             <div class="relative max-w-xs">
               <input
                 v-model.number="form.invite_default_expire_days"
@@ -1155,9 +1156,9 @@ async function sendTestEmail() {
                 step="1"
                 class="input pr-12 tabular-nums"
               />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-themed-muted">天</span>
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-themed-muted">{{ t('common.days') }}</span>
             </div>
-            <p class="text-xs text-themed-muted">0 表示用户生成的邀请码永不过期。</p>
+            <p class="text-xs text-themed-muted">{{ t('admin.system.invitePricing.expiryHint') }}</p>
           </div>
         </div>
 

@@ -119,7 +119,7 @@ func reconcileIPv6(ctx context.Context) {
 }
 
 func sendHeartbeat(ctx context.Context, client *panel.Client, heartbeatIntervalSeconds int) (panel.HeartbeatResult, error) {
-	payload := report.HeartbeatPayload(version, heartbeatIntervalSeconds)
+	payload := report.HeartbeatPayload(ctx, version, heartbeatIntervalSeconds)
 	if lastPortProtocolStatus != nil {
 		payload["portProtocolStatus"] = *lastPortProtocolStatus
 	}

@@ -14,14 +14,11 @@ import {
   verifyAndConsumeOAuthState,
   logSecurityEvent,
   SecurityEventType,
-  generateRefreshToken,
   getRefreshTokenSessionId,
   detectNewLoginLocation,
   generateOAuthLoginCode,
   verifyAndConsumeOAuthLoginCode,
-  isAccessTokenInvalidated,
-  revokeAllUserRefreshTokens,
-  invalidateUserAccessTokens
+  isAccessTokenInvalidated
 } from '../lib/security.js'
 import { sendLoginAlertEmail } from '../lib/mailer.js'
 import { getRefreshTokenCookieOptions } from '../lib/cookie-config.js'
@@ -358,6 +355,7 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
   }>, reply: FastifyReply) => {
     const { provider } = request.params
     const { code, state, error } = request.query
+    const callbackStartedAt = Date.now()
 
     // 错误处理
     if (error) {
@@ -492,13 +490,11 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
         }
 
         // 检查当前用户是否已绑定该提供商
-        const hasBound = await db.hasOAuthBinding(userId, provider)
-        if (hasBound) {
-          // 更新 token
-          await db.updateOAuthBindingToken(userId, provider, tokenData.access_token, tokenData.refresh_token || null)
-        } else {
-          // 创建绑定
-          await db.createOAuthBinding(userId, {
+        const ownBinding = (await db.getUserOAuthBindings(userId)).find(binding => binding.provider === provider) || null
+        try {
+          await db.bindOAuthAccountIfCurrent(userId, {
+            iat: stateData.userIssuedAt, sid: stateData.userSessionId
+          }, ownBinding, {
             provider,
             providerUserId: oauthUser.id,
             providerUsername: oauthUser.username,
@@ -507,6 +503,11 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
             accessToken: tokenData.access_token,
             refreshToken: tokenData.refresh_token || null
           })
+        } catch (error) {
+          if (error instanceof Error && error.message === 'OAUTH_SESSION_CHANGED') return reply.redirect(redirectWithQuery(errorRedirectBase, { error: 'invalid_session' }))
+          if (error instanceof Error && error.message === 'OAUTH_BINDING_CHANGED') return reply.redirect(redirectWithQuery(errorRedirectBase, { error: 'already_bound_other' }))
+          if ((error as { code?: string }).code === 'P2002') return reply.redirect(redirectWithQuery(errorRedirectBase, { error: 'already_bound_other' }))
+          throw error
         }
 
         return reply.redirect(redirectWithQuery(redirectUrl, { success: `bound_${provider}` }))
@@ -530,7 +531,9 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
         }
 
         // 更新 OAuth token
-        await db.updateOAuthBindingToken(user.id, provider, tokenData.access_token, tokenData.refresh_token || null)
+        if (!await db.updateOAuthLoginBindingIfCurrent(binding, tokenData.access_token, tokenData.refresh_token || null)) {
+          return reply.redirect(redirectWithQuery(loginRedirectBase, { error: 'not_bound', provider }))
+        }
 
         // 在创建新会话之前检测异地登录（修复时序问题）
         const userAgent = request.headers['user-agent'] || 'OAuth Login'
@@ -568,7 +571,9 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
         const loginCode = generateOAuthLoginCode({
           userId: user.id,
           username: user.username,
-          role: user.role
+          role: user.role,
+          binding: { id: binding.id, provider, providerUserId: binding.provider_user_id },
+          authenticatedAt: callbackStartedAt
         })
 
         // 通过 URL 参数传递一次性登录码给前端
@@ -609,6 +614,7 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
     onRequest: [fastify.authenticate]
   }, async (request: FastifyRequest<{ Params: { provider: OAuthProvider } }>, reply: FastifyReply) => {
     const { provider } = request.params
+    if (provider !== 'github' && provider !== 'google') return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Invalid OAuth provider'))
 
     // 检查是否有绑定
     const hasBound = await db.hasOAuthBinding(request.user.id, provider)
@@ -616,9 +622,13 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: 'Account not bound', code: 'OAUTH_NOT_BOUND' })
     }
 
-    await db.deleteOAuthBinding(request.user.id, provider)
-    await revokeAllUserRefreshTokens(request.user.id)
-    await invalidateUserAccessTokens(request.user.id)
+    try {
+      await db.unbindOwnOAuthAccount(request.user.id, provider, request.user)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'OAUTH_SESSION_CHANGED') return reply.code(401).send(apiError(ErrorCode.UNAUTHORIZED))
+      if (error instanceof Error && error.message === 'OAUTH_BINDING_NOT_FOUND') return reply.code(400).send({ error: 'Account not bound', code: 'OAUTH_NOT_BOUND' })
+      throw error
+    }
     closeUserSessions(request.user.id, `${provider} OAuth unbound`)
 
     await createLog(
@@ -689,7 +699,9 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
 
     // 安全改进：在 exchange-code 时重新生成 refreshToken，而不是从登录码传递
     const userAgent = request.headers['user-agent'] || 'OAuth Login'
-    const refreshToken = await generateRefreshToken(user.id, user.username, user.role, request.ip, userAgent)
+    const session = await db.createOAuthLoginSession(loginData, request.ip, userAgent)
+    if (!session) return reply.code(401).send({ error: 'OAuth login state changed; sign in again', code: 'INVALID_LOGIN_CODE' })
+    const { refreshToken } = session
 
     // 设置 Refresh Token Cookie
     reply.setCookie('refreshToken', refreshToken, getRefreshTokenCookieOptions())
@@ -699,18 +711,18 @@ export default async function oauthRoutes(fastify: FastifyInstance) {
 
     // 生成 Access Token（简化版：7天有效期）
     const accessToken = fastify.jwt.sign({
-      id: loginData.userId,
-      username: loginData.username,
-      role: loginData.role as 'admin' | 'user',
+      id: session.user.id,
+      username: session.user.username,
+      role: session.user.role,
       sid: sessionId
     }, { expiresIn: '7d' })
 
     return {
       token: accessToken,
       user: {
-        id: loginData.userId,
-        username: loginData.username,
-        role: loginData.role
+        id: session.user.id,
+        username: session.user.username,
+        role: session.user.role
       }
     }
   })

@@ -29,14 +29,17 @@ function extractBusyOperationName(error: unknown): string | null {
 
 function normalizeOperationsPayload(payload: unknown): IncusOperation[] {
   if (Array.isArray(payload)) {
-    return payload.filter((entry): entry is IncusOperation => !!entry && typeof entry === 'object')
+    return payload.flatMap(entry => normalizeOperationsPayload(entry))
   }
 
   if (!payload || typeof payload !== 'object') {
     return []
   }
 
-  return Object.values(payload).filter((entry): entry is IncusOperation => !!entry && typeof entry === 'object')
+  if ('id' in payload && typeof payload.id === 'string') {
+    return [payload as IncusOperation]
+  }
+  return Object.values(payload).flatMap(entry => normalizeOperationsPayload(entry))
 }
 
 function isOperationRunning(operation: IncusOperation): boolean {
@@ -52,7 +55,12 @@ function operationTouchesInstance(resources: unknown, instanceName: string): boo
   const instancePath = `/1.0/instances/${instanceName}`
 
   if (typeof resources === 'string') {
-    return resources === instancePath || resources.startsWith(instancePath)
+    try {
+      const path = new URL(resources, 'https://incus.invalid').pathname
+      return path === instancePath || path.startsWith(`${instancePath}/`)
+    } catch {
+      return false
+    }
   }
 
   if (Array.isArray(resources)) {
@@ -103,7 +111,7 @@ function isUpdateOperation(operation: IncusOperation): boolean {
   const metadataAction = typeof operation.metadata?.action === 'string'
     ? operation.metadata.action.toLowerCase()
     : ''
-  return description.includes('update') || metadataAction === 'update'
+  return /\bupdat(?:e|ing)\b/.test(description) || metadataAction === 'update'
 }
 
 async function cancelStaleUpdateOperations(client: IncusClient, instanceName: string): Promise<number> {
@@ -890,14 +898,15 @@ export async function exec(
   instanceName: string,
   command: string | string[],
   options: Record<string, unknown> = {},
-  timeout: number = 120000
+  timeout: number = 120000,
+  signal?: AbortSignal
 ): Promise<unknown> {
   return client.request('POST', `/1.0/instances/${instanceName}/exec`, {
     command: Array.isArray(command) ? command : ['/bin/sh', '-c', command],
     'wait-for-websocket': false,
     interactive: false,
     ...options
-  }, timeout)
+  }, timeout, signal)
 }
 
 export interface IncusExecOutput {
@@ -921,20 +930,30 @@ export async function execWithOutput(
   options: Record<string, unknown> = {},
   timeout: number = 120000
 ): Promise<IncusExecOutput> {
-  const metadata = await exec(client, instanceName, command, {
-    'record-output': true,
-    ...options
-  }, timeout)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(new Error('Incus command output timeout')), Math.max(1, timeout))
+  try {
+    const metadata = await exec(client, instanceName, command, {
+      'record-output': true,
+      ...options
+    }, timeout, controller.signal)
 
-  const stdoutPath = extractOutputFilePath(metadata, '1')
-  const stderrPath = extractOutputFilePath(metadata, '2')
+    const stdoutPath = extractOutputFilePath(metadata, '1')
+    const stderrPath = extractOutputFilePath(metadata, '2')
 
-  const [stdout, stderr] = await Promise.all([
-    stdoutPath ? client.readFile(stdoutPath).then(result => result.content).catch(() => '') : Promise.resolve(''),
-    stderrPath ? client.readFile(stderrPath).then(result => result.content).catch(() => '') : Promise.resolve('')
-  ])
+    async function readOutput(path: string | null, label: string): Promise<string> {
+      if (!path) return ''
+      const result = await client.readFile(path, controller.signal)
+      if (result.statusCode !== 200) throw new Error(`Incus ${label} output read failed: HTTP ${result.statusCode}`)
+      return result.content
+    }
+    const [stdout, stderr] = await Promise.all([readOutput(stdoutPath, 'stdout'), readOutput(stderrPath, 'stderr')])
 
-  return { stdout, stderr, metadata }
+    return { stdout, stderr, metadata }
+  } finally {
+    clearTimeout(timer)
+    controller.abort()
+  }
 }
 
 /**

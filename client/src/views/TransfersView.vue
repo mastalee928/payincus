@@ -53,6 +53,7 @@ interface Transfer {
   rejectedAt: string | null
   cancelledAt: string | null
   canPush?: boolean
+  cleanupError?: string | null
 }
 
 const transfers = ref<Transfer[]>([])
@@ -166,7 +167,7 @@ watch(searchQuery, () => {
 })
 
 async function handleAccept(transfer: Transfer) {
-  if (!confirm(t('transfer.actions.accept') + '?')) return
+  if (!confirm(t(transfer.status === 'processing' ? 'common.retry' : 'transfer.actions.accept') + '?')) return
   
   actionLoading.value = transfer.id
   try {
@@ -175,6 +176,7 @@ async function handleAccept(transfer: Transfer) {
     await Promise.all([loadTransfers(true), loadPendingCount()])
   } catch (error: any) {
     toast.error(error?.message || t('common.error'))
+    await loadTransfers(true)
   } finally {
     actionLoading.value = null
   }
@@ -218,7 +220,7 @@ async function handleCancel(transfer: Transfer) {
 }
 
 async function handlePush(transfer: Transfer) {
-  if (!confirm(t('transfer.actions.push') + '?')) return
+  if (!confirm(t(transfer.status === 'processing' ? 'common.retry' : 'transfer.actions.push') + '?')) return
   
   pushLoading.value = transfer.id
   try {
@@ -227,6 +229,7 @@ async function handlePush(transfer: Transfer) {
     await Promise.all([loadTransfers(true), loadPendingCount()])
   } catch (error: any) {
     toast.error(error?.message || t('common.error'))
+    await loadTransfers(true)
   } finally {
     pushLoading.value = null
   }
@@ -439,8 +442,18 @@ function getNetworkModeText(mode: string | null | undefined) {
             </div>
           </div>
 
+          <p v-if="transfer.cleanupError" role="status" class="mt-3 break-words text-sm text-rose-600 dark:text-rose-400">
+            {{ transfer.cleanupError }}
+          </p>
           <div class="mt-4 flex flex-wrap items-center justify-end gap-2">
-            <template v-if="activeTab === 'sent'">
+            <button
+              v-if="transfer.status === 'processing'" type="button" class="btn btn-sm btn-secondary min-h-11"
+              :disabled="actionLoading === transfer.id || pushLoading === transfer.id"
+              @click="activeTab === 'sent' ? handlePush(transfer) : handleAccept(transfer)"
+            >
+              {{ actionLoading === transfer.id || pushLoading === transfer.id ? $t('common.processing') : $t('common.retry') }}
+            </button>
+            <template v-else-if="activeTab === 'sent'">
               <template v-if="transfer.status === 'pending'">
                 <button
                   v-if="transfer.canPush"
@@ -620,10 +633,13 @@ function getNetworkModeText(mode: string | null | undefined) {
                 </template>
                 <span v-else class="text-themed-muted">-</span>
               </td>
-              <td class="px-4 py-3 whitespace-nowrap">
+              <td class="px-4 py-3">
                 <span :class="['badge whitespace-nowrap', getStatusClass(transfer.status)]">
                   {{ $t(`transfer.status.${transfer.status}`) }}
                 </span>
+                <p v-if="transfer.cleanupError" role="status" class="mt-2 whitespace-normal break-words text-xs text-rose-600 dark:text-rose-400">
+                  {{ transfer.cleanupError }}
+                </p>
               </td>
               <td class="px-4 py-3 text-sm text-themed-muted whitespace-nowrap tabular-nums">
                 {{ formatDate(transfer.createdAt) }}
@@ -631,7 +647,14 @@ function getNetworkModeText(mode: string | null | undefined) {
               <td class="px-4 py-3 text-right whitespace-nowrap">
                 <div class="flex flex-wrap items-center justify-end gap-2">
                   <!-- Sent tab actions -->
-                  <template v-if="activeTab === 'sent'">
+                  <button
+                    v-if="transfer.status === 'processing'" type="button" class="btn btn-sm btn-secondary"
+                    :disabled="actionLoading === transfer.id || pushLoading === transfer.id"
+                    @click="activeTab === 'sent' ? handlePush(transfer) : handleAccept(transfer)"
+                  >
+                    {{ actionLoading === transfer.id || pushLoading === transfer.id ? $t('common.processing') : $t('common.retry') }}
+                  </button>
+                  <template v-else-if="activeTab === 'sent'">
                     <template v-if="transfer.status === 'pending'">
                       <!-- 直接推送按钮（仅当发起方是宿主机所有者时显示） -->
                       <button
@@ -725,8 +748,8 @@ function getNetworkModeText(mode: string | null | undefined) {
               {{ $t('instance.nextPage') }}
             </button>
           </div>
+        </div>
       </div>
-    </div>
     </template>
 
     <!-- Empty State -->

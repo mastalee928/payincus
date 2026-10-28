@@ -156,7 +156,8 @@ export default async function customInitCommandRoutes(fastify: FastifyInstance) 
       name,
       command,
       distros,
-      description
+      description,
+      session: request.user
     })
 
     if (!result.success) {
@@ -165,7 +166,7 @@ export default async function customInitCommandRoutes(fastify: FastifyInstance) 
         'MAX_COMMANDS_REACHED': { code: 400, message: 'Maximum command templates reached (50)' },
         'INVALID_DISTROS': { code: 400, message: 'Invalid distros' }
       }
-      const errInfo = errorMap[result.error] || { code: 400, message: result.error }
+      const errInfo = result.error === 'WRITE_FORBIDDEN' ? { code: 403, message: 'Session or account no longer permits this operation' } : errorMap[result.error] || { code: 400, message: result.error }
       return reply.code(errInfo.code).send({ error: errInfo.message })
     }
 
@@ -235,7 +236,7 @@ export default async function customInitCommandRoutes(fastify: FastifyInstance) 
       distros,
       description,
       enabled
-    })
+    }, request.user)
 
     if (!result.success) {
       const errorMap: Record<string, { code: number; message: string }> = {
@@ -243,7 +244,7 @@ export default async function customInitCommandRoutes(fastify: FastifyInstance) 
         'COMMAND_TOO_LARGE': { code: 400, message: 'Command content too large (max 64KB)' },
         'INVALID_DISTROS': { code: 400, message: 'Invalid distros' }
       }
-      const errInfo = errorMap[result.error] || { code: 400, message: result.error }
+      const errInfo = result.error === 'WRITE_FORBIDDEN' ? { code: 403, message: 'Session or account no longer permits this operation' } : errorMap[result.error] || { code: 400, message: result.error }
       return reply.code(errInfo.code).send({ error: errInfo.message })
     }
 
@@ -269,7 +270,8 @@ export default async function customInitCommandRoutes(fastify: FastifyInstance) 
       return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
     }
 
-    const deleted = await deleteCustomInitCommand(cmdId, request.user.id)
+    const deleted = await deleteCustomInitCommand(cmdId, request.user.id, request.user)
+    if (deleted === 'WRITE_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     if (!deleted) {
       return reply.code(404).send(apiError(ErrorCode.NOT_FOUND))
     }

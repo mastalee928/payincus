@@ -345,6 +345,15 @@ export async function persistResolvedInstanceNetworkAddresses(
   resolved: ResolvedInstanceNetworkAddresses,
   options: { updateLastSyncedAt?: boolean } = {}
 ): Promise<PersistedInstanceNetworkAddresses> {
+  return prisma.$transaction(tx => persistResolvedInstanceNetworkAddressesInTransaction(tx, instance, resolved, options))
+}
+
+export async function persistResolvedInstanceNetworkAddressesInTransaction(
+  tx: Prisma.TransactionClient,
+  instance: InstanceNetworkSyncTarget,
+  resolved: ResolvedInstanceNetworkAddresses,
+  options: { updateLastSyncedAt?: boolean } = {}
+): Promise<PersistedInstanceNetworkAddresses> {
   const oldIpv4 = instance.ipv4 ?? null
   const oldIpv6 = instance.ipv6 ?? null
   const newIpv4 = resolved.ipv4 ?? null
@@ -353,7 +362,7 @@ export async function persistResolvedInstanceNetworkAddresses(
   const ipv4Changed = oldIpv4 !== newIpv4
   const ipv6Changed = oldIpv6 !== newIpv6
 
-  await prisma.$transaction(async (tx) => {
+  const persist = async () => {
     const currentInstance = await tx.instance.findUnique({
       where: { id: instance.id },
       select: { status: true }
@@ -380,7 +389,8 @@ export async function persistResolvedInstanceNetworkAddresses(
 
     await syncPrimaryIpAddress(tx, instance, 'inet4', newIpv4, resolved.ipv4Device)
     await syncPrimaryIpAddress(tx, instance, 'inet6', newIpv6, resolved.ipv6Device)
-  })
+  }
+  await persist()
 
   return {
     ipv4Changed,

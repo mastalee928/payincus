@@ -23,7 +23,8 @@ assert.ok(
 assert.ok(
   routeSource.includes("typeof input.name !== 'string' || typeof input.publicKey !== 'string'") &&
     routeSource.includes("validateName(input.name, 'Key name', 1, MAX_SSH_KEY_NAME_LENGTH)") &&
-    routeSource.includes(".replace(/\\r?\\n/g, ' ')") &&
+    routeSource.includes('const trimmedKey = input.publicKey.trim()') &&
+    routeSource.includes('/[\\r\\n]/.test(trimmedKey)') &&
     routeSource.includes("publicKey.length > MAX_SSH_PUBLIC_KEY_LENGTH") &&
     routeSource.includes('/[\\u0000-\\u001F\\u007F]/.test(publicKey)'),
   'SSH key create route must validate name and public-key strings before parsing'

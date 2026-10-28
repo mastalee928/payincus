@@ -99,7 +99,7 @@ const processDelete = sectionBetween(
   '// ==================== 到期提醒任务 ===================='
 )
 
-const claimIndex = processDelete.indexOf('await prisma.instance.updateMany')
+const claimIndex = processDelete.indexOf('await tx.instance.updateMany')
 const incusDeleteIndex = processDelete.indexOf('await deleteIncusInstance')
 const networkReleaseIndex = processDelete.indexOf('await tx.portMapping.deleteMany')
 const pendingIndex = processDelete.indexOf('deletionBillingPending: true')

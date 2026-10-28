@@ -1,3 +1,5 @@
+import { hasPendingSnapshotOperation } from '../db/snapshot-operation-guards.js'
+import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '../db/advisory-locks.js'
 /**
  * 计费调度器
  * 负责定时执行自动续费、到期封停、到期删除、到期提醒等任务
@@ -20,7 +22,7 @@ import {
   performRenewal,
   calculateRenewBilling
 } from '../db/billing-operations.js'
-import { getInstanceAffBinding } from '../db/aff.js'
+import { AffCodeBusyError, getInstanceAffBinding } from '../db/aff.js'
 import { arbitrateVipPrice, getUserContinuousVipBenefit } from './vip-benefits.js'
 import {
   getAutoRenewInstances,
@@ -284,7 +286,7 @@ async function flushAutoRenewUserNotifications(): Promise<void> {
 /**
  * 处理单个实例的自动续费
  */
-async function processAutoRenew(instance: any): Promise<void> {
+export async function processAutoRenew(instance: any): Promise<void> {
   const now = new Date()
   const expiryThreshold = new Date(now.getTime() + AUTO_RENEW_HOURS_BEFORE * 60 * 60 * 1000)
   const latestInstance = await prisma.instance.findUnique({
@@ -431,6 +433,12 @@ async function processAutoRenew(instance: any): Promise<void> {
 
   } catch (error) {
     if (recoveryHeld()) return
+    if (error instanceof AffCodeBusyError) {
+      await createLog(instance.userId, 'instance', 'instance.auto_renew_deferred',
+        `Auto-renew deferred for instance "${instance.name}": ${error.message}; retry on the next inspection`,
+        'failed', { instanceId: instance.id })
+      return
+    }
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     console.error(`[Billing] Auto-renew failed for instance ${instance.id}:`, errorMessage)
     const attemptClaimed = await updateAutoRenewAttempt(instance.id, attempts, false, attemptGuard)
@@ -595,6 +603,7 @@ async function processExpirySuspend(instance: any): Promise<{ userId: number; in
 }
 
 async function stopCurrentExpiredInstance(instanceId: number) {
+  if (await hasPendingSnapshotOperation(instanceId)) return
   const pending = { instanceId, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
   if (await prisma.instanceTask.count({ where: pending }) || await prisma.restoreTask.count({ where: pending }) ||
     await prisma.backupUploadTask.count({ where: pending })) return
@@ -686,7 +695,11 @@ async function processExpiryDelete(instance: any): Promise<void> {
       if (present.includes('/1.0/instances/' + instance.incusId)) await stopCurrentExpiredInstance(instance.id)
     }
 
-    const claimResult = resumingCleanup ? { count: 1 } : await prisma.instance.updateMany({
+    const claimResult = await prisma.$transaction(async tx => {
+      if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)) return { count: 0 }
+      await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instance.id} FOR UPDATE`
+      if (await hasPendingSnapshotOperation(instance.id, tx)) return { count: 0 }
+      return resumingCleanup ? { count: 1 } : await tx.instance.updateMany({
       where: {
         id: instance.id,
         version: instance.version,
@@ -704,6 +717,8 @@ async function processExpiryDelete(instance: any): Promise<void> {
         deletionBillingPending: true,
         version: { increment: 1 }
       }
+    })
+
     })
 
     if (claimResult.count === 0) {

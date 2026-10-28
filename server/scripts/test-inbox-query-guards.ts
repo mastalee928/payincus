@@ -8,6 +8,7 @@ const __dirname = dirname(__filename)
 
 const routeSource = readFileSync(resolve(__dirname, '../src/routes/inbox.ts'), 'utf8')
 const dbSource = readFileSync(resolve(__dirname, '../src/db/inbox.ts'), 'utf8')
+const sendSource = readFileSync(resolve(__dirname, '../src/db/inbox-send.ts'), 'utf8')
 
 function sectionBetween(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)
@@ -117,9 +118,19 @@ assert.ok(
   routeSource.includes('const hostId = parsePositiveId(request.params.hostId)') &&
     routeSource.includes('const normalizedInstanceIds = parsePositiveIdArray(instanceIds)') &&
     routeSource.includes('if (normalizedInstanceIds === null)') &&
-    routeSource.includes('const recipients = await inboxDb.getUniqueRecipientsByHostId(hostId, normalizedInstanceIds)'),
+    routeSource.includes('sendHostInbox(request.user, { hostId, instanceIds: normalizedInstanceIds'),
   'host notification route must strictly validate host ID and optional instance IDs before recipient lookup'
 )
+
+assert.equal(routeSource.match(/sendAdministrativeInbox\(request.user,/g)?.length, 2,
+  'both administrator send routes must authorize and persist history in one transaction')
+assert.equal(routeSource.match(/sendHostInbox\(request.user,/g)?.length, 2,
+  'both host send routes must use current locked recipient ownership')
+assert.ok(sendSource.includes('lockAdministrativeUserMutation(tx, input.targetUserId, actor)') &&
+  sendSource.includes('authorizeUserWrite(tx, actor.id, actor)') && sendSource.includes('INSTANCE_OPERATION_LOCK_NAMESPACE') &&
+  sendSource.includes('await tx.announcement.create') && sendSource.includes('await tx.inboxMessage.createMany') &&
+  sendSource.includes('enqueueHostNotificationEmailTasks(emailRecipients.map') && sendSource.includes('})), tx)'),
+  'send helpers must lock current account/resources and atomically store inbox/history/queued emails')
 
 assert.ok(
   routeSource.includes('const targetUserId = parsePositiveId(request.params.userId)') &&

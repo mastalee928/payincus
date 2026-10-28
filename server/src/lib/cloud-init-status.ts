@@ -39,6 +39,7 @@ const STATUS_JSON_PATHS = [
 ]
 
 const BOOT_FINISHED_PATH = '/var/lib/cloud/instance/boot-finished'
+const RESULT_JSON_PATH = '/var/lib/cloud/data/result.json'
 
 const READY_STATES = new Set<CloudInitState>([
   'manual',
@@ -156,7 +157,9 @@ function parseStatusPayload(rawContent: string): { state: CloudInitState; messag
     return { state: 'disabled', message: 'Cloud-init is disabled for this instance' }
   }
 
-  if (rawStatus.includes('done') || rawStatus.includes('finished') || rawStatus.includes('final')) {
+  const finalEnd = getNestedValue(parsed, ['v1', 'modules-final', 'end'])
+  const finalComplete = !rawStatus && typeof finalEnd === 'number' && finalEnd > 0
+  if (rawStatus.includes('done') || rawStatus.includes('finished') || finalComplete) {
     if (hasErrors || rawStatus.includes('error') || rawStatus.includes('degraded')) {
       return { state: 'done_with_errors', message: 'Cloud-init completed with warnings' }
     }
@@ -255,6 +258,7 @@ export async function detectCloudInitStatus(
   }
 
   let sawAgentError = false
+  let completed: { state: CloudInitState; message: string } | null = null
 
   for (const filePath of STATUS_JSON_PATHS) {
     const result = await readInstanceFile(client, instance.incus_id, filePath)
@@ -262,7 +266,10 @@ export async function detectCloudInitStatus(
     if (result.statusCode === 200) {
       const parsed = parseStatusPayload(result.content)
       if (parsed) {
-        return buildResponse(parsed.state, 'status_json', parsed.message, detectedAt)
+        if (parsed.state !== 'done' && parsed.state !== 'done_with_errors') {
+          return buildResponse(parsed.state, 'status_json', parsed.message, detectedAt)
+        }
+        completed = parsed
       }
       break
     }
@@ -271,6 +278,21 @@ export async function detectCloudInitStatus(
       sawAgentError = true
     }
   }
+
+  const resultFile = await readInstanceFile(client, instance.incus_id, RESULT_JSON_PATH)
+  if (resultFile.statusCode === 200) {
+    try {
+      const resultPayload: unknown = JSON.parse(resultFile.content)
+      const errors = getNestedValue(resultPayload, ['v1', 'errors']) ?? getNestedValue(resultPayload, ['errors'])
+      if (Array.isArray(errors)) {
+        const warnings = hasIssues(resultPayload) || completed?.state === 'done_with_errors'
+        return buildResponse(warnings ? 'done_with_errors' : 'done', 'status_json',
+          warnings ? 'Cloud-init completed with warnings' : 'Cloud-init completed', detectedAt)
+      }
+    } catch { /* An incomplete JSON write is not completion evidence. */ }
+  }
+  if (completed) return buildResponse(completed.state, 'status_json', completed.message, detectedAt)
+  if (resultFile.statusCode >= 500 || resultFile.statusCode === 403) sawAgentError = true
 
   const bootFinishedResult = await readInstanceFile(client, instance.incus_id, BOOT_FINISHED_PATH)
   if (bootFinishedResult.statusCode === 200) {

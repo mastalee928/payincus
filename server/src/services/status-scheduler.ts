@@ -18,6 +18,9 @@ import { getInstanceState } from '../lib/incus/incus-instances.js'
 import { mapInstanceStatus } from '../lib/incus/incus-utils.js'
 import { sendNotification } from '../lib/notifier.js'
 import * as db from '../db/index.js'
+import { recordUnverifiedInstanceObservation } from '../lib/instance-sync-observation-error.js'
+import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '../db/advisory-locks.js'
+import { hasActiveTransferWorkflow } from '../db/transfers.js'
 
 // ==================== 配置常量 ====================
 
@@ -107,7 +110,7 @@ async function hasActiveInstanceOperation(instanceId: number): Promise<boolean> 
 /**
  * 获取需要同步的实例（优化版：增量 + 优先级）
  */
-async function getInstancesToSync(batchSize: number) {
+export async function getInstancesToSync(batchSize: number) {
     const now = Date.now()
 
     // 获取需要同步的实例，按优先级排序：
@@ -121,7 +124,17 @@ async function getInstancesToSync(batchSize: number) {
             },
             host: {
                 status: 'online'
-            }
+            },
+            OR: [
+                { status: 'running', OR: [
+                    { lastSyncedAt: { lt: new Date(now - SYNC_INTERVAL_RUNNING_MS) } },
+                    { lastSyncedAt: null, updatedAt: { lt: new Date(now - SYNC_INTERVAL_RUNNING_MS) } }
+                ] },
+                { status: 'stopped', OR: [
+                    { lastSyncedAt: { lt: new Date(now - SYNC_INTERVAL_STOPPED_MS) } },
+                    { lastSyncedAt: null, updatedAt: { lt: new Date(now - SYNC_INTERVAL_STOPPED_MS) } }
+                ] }
+            ]
         },
         include: {
             host: {
@@ -131,6 +144,9 @@ async function getInstancesToSync(batchSize: number) {
                     url: true,
                     certPath: true,
                     keyPath: true,
+                    userId: true,
+                    serverCertificate: true,
+                    serverFingerprint: true,
                     status: true
                 }
             },
@@ -141,12 +157,11 @@ async function getInstancesToSync(batchSize: number) {
             }
         },
         orderBy: [
-            // running 状态优先
-            { status: 'asc' },
-            // 最近更新的优先（可能有状态变化）
-            { updatedAt: 'desc' }
+            { lastSyncedAt: { sort: 'asc', nulls: 'first' } },
+            { updatedAt: 'asc' },
+            { id: 'asc' }
         ],
-        take: batchSize * 3  // 多取一些，后面会过滤
+        take: batchSize
     })
 
     // 根据上次同步时间过滤
@@ -168,18 +183,23 @@ async function getInstancesToSync(batchSize: number) {
 /**
  * 同步单个实例状态
  */
-async function syncInstanceStatus(
+export async function syncInstanceStatus(
     instance: {
         id: number
         incusId: string
         name: string
         status: string
+        updatedAt: Date
+        userId: number
         host: {
             id: number
             name: string
             url: string
             certPath: string | null
             keyPath: string | null
+            userId: number
+            serverCertificate: string | null
+            serverFingerprint: string | null
         }
         user: { id: number }
     }
@@ -218,78 +238,63 @@ async function syncInstanceStatus(
             return { changed: false }
         }
 
-        // 状态不一致，需要更新
-        if (instance.status !== incusStatus) {
-            await db.updateInstanceStatus(
-                instance.id,
-                incusStatus as 'creating' | 'running' | 'stopped' | 'error'
-            )
-            
-            // 同时更新 lastSyncedAt
-            await prisma.instance.updateMany({
-                where: {
-                    id: instance.id,
-                    status: { not: 'deleted' }
-                },
-                data: { lastSyncedAt: new Date() }
-            })
+        // A network observation is only evidence for the identity/version read
+        // before the remote request. Serialize its commit with transfers, tasks
+        // and newer observations; a late response must never resurrect status.
+        const committed = await prisma.$transaction(async tx => {
+            await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`
+            if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)) {
+                throw new Error('INSTANCE_SYNC_BUSY')
+            }
+            await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instance.id} FOR UPDATE`
+            const current = await tx.instance.findUnique({ where: { id: instance.id } })
+            if (!current || !['running', 'stopped'].includes(current.status) || current.status !== instance.status ||
+                current.updatedAt.getTime() !== instance.updatedAt.getTime() || current.incusId !== instance.incusId ||
+                current.hostId !== instance.host.id || current.userId !== instance.userId || current.userId !== instance.user.id) {
+                throw new Error('INSTANCE_SYNC_SOURCE_CHANGED')
+            }
+            await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.host.id} FOR SHARE`
+            const hostNow = await tx.host.findUnique({ where: { id: instance.host.id } })
+            if (!hostNow || hostNow.userId !== instance.host.userId || hostNow.url !== instance.host.url ||
+                hostNow.certPath !== instance.host.certPath || hostNow.keyPath !== instance.host.keyPath ||
+                hostNow.serverCertificate !== instance.host.serverCertificate || hostNow.serverFingerprint !== instance.host.serverFingerprint ||
+                await hasActiveTransferWorkflow(instance.id, tx) ||
+                await tx.instanceTransfer.count({ where: { instanceId: instance.id, status: { in: ['pending', 'processing'] } } })) {
+                throw new Error('INSTANCE_SYNC_SOURCE_CHANGED')
+            }
+            const now = new Date()
+            const changed = current.status !== incusStatus
+            await tx.instance.update({ where: { id: instance.id }, data: {
+                ...(changed ? { status: incusStatus as 'creating' | 'running' | 'stopped' | 'error' } : {}),
+                lastSyncedAt: now,
+                updatedAt: new Date(Math.max(now.getTime(), current.updatedAt.getTime() + 1))
+            } })
+            return { changed, previousStatus: current.status }
+        }, { maxWait: 5000, timeout: 12000 })
 
-            // 如果是从 running 变为 stopped，发送意外停机通知
-            // 但重建/迁移/恢复/备份上传等操作会主动停机，属正常过程，不应误报
-            if (instance.status === 'running' && incusStatus === 'stopped') {
-                if (await hasActiveInstanceOperation(instance.id)) {
-                    console.log(`[StatusSync] Instance ${instance.id} stopped during an active operation, skip unexpected-stop notification`)
-                } else {
-                    try {
-                        await sendNotification(instance.user.id, 'instance_unexpected_stop', {
-                            instanceName: instance.name,
-                            hostName: instance.host.name
-                        })
-                    } catch (notifyError) {
-                        console.error(`[StatusSync] Failed to send notification:`, notifyError)
-                    }
+        if (committed.changed && committed.previousStatus === 'running' && incusStatus === 'stopped') {
+            if (await hasActiveInstanceOperation(instance.id)) {
+                console.log(`[StatusSync] Instance ${instance.id} stopped during an active operation, skip unexpected-stop notification`)
+            } else {
+                try {
+                    await sendNotification(instance.user.id, 'instance_unexpected_stop', {
+                        instanceName: instance.name,
+                        hostName: instance.host.name
+                    })
+                } catch (notifyError) {
+                    console.error(`[StatusSync] Failed to send notification:`, notifyError)
                 }
             }
-
-            return {
-                changed: true,
-                from: instance.status,
-                to: incusStatus
-            }
         }
-
-        // 状态相同，更新 lastSyncedAt 记录同步时间
-        await prisma.instance.updateMany({
-            where: {
-                id: instance.id,
-                status: { not: 'deleted' }
-            },
-            data: { lastSyncedAt: new Date() }
-        })
-
-        return { changed: false }
+        return committed.changed ? { changed: true, from: committed.previousStatus, to: incusStatus } : { changed: false }
 
     } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        recordHostError(instance.host.id)
-
-        // 如果实例不存在于 Incus，标记为已删除
-        if (errorMessage.includes('not found') || errorMessage.includes('Instance not found')) {
-            // 重建/迁移/恢复等操作过程中，Incus 会短暂删除并重建实例，此时 incusId 查不到属正常，
-            // 不能据此误判为已删除，否则会导致 restore 终写被 status:'deleted' 拦截、实例记账错乱。
-            if (await hasActiveInstanceOperation(instance.id)) {
-                console.log(`[StatusSync] Instance ${instance.id} not found in Incus but has an active operation, skip deleted downgrade`)
-                return { changed: false, error: 'Active operation in progress, delete downgrade skipped' }
-            }
-            console.log(`[StatusSync] Instance ${instance.id} not found in Incus, marking as deleted`)
-            await db.updateInstanceStatus(instance.id, 'deleted')
-            return {
-                changed: true,
-                from: instance.status,
-                to: 'deleted'
-            }
-        }
-
+        const localConflict = error instanceof Error && /^INSTANCE_SYNC_(BUSY|SOURCE_CHANGED)$/.test(error.message)
+        if (!localConflict) recordHostError(instance.host.id)
+        // Status polling cannot authorize deletion, even for an actual 404.
+        // Keep allocations until an explicit delete/recovery flow verifies them.
+        const errorMessage = await recordUnverifiedInstanceObservation({ source: 'scheduler',
+            instanceId: instance.id, hostId: instance.host.id, incusId: instance.incusId, error })
         return { changed: false, error: errorMessage }
     }
 }

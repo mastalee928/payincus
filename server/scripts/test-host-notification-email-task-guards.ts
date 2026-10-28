@@ -45,6 +45,8 @@ assert.ok(
   markSentSection.includes('prisma.hostNotificationEmailTask.updateMany') &&
     markSentSection.includes('id: taskId') &&
     markSentSection.includes("status: 'PROCESSING'") &&
+    markSentSection.includes('startedAt,') &&
+    markSentSection.includes('retryCount') &&
     markSentSection.includes("status: 'SENT'"),
   'host notification sent marker must conditionally update only still-processing tasks'
 )
@@ -59,7 +61,8 @@ assert.ok(
   retrySection.includes('prisma.hostNotificationEmailTask.updateMany') &&
     retrySection.includes('id: taskId') &&
     retrySection.includes("status: 'PROCESSING'") &&
-    retrySection.includes('retryCount: currentRetryCount'),
+    retrySection.includes('retryCount: currentRetryCount,') &&
+    retrySection.includes('startedAt'),
   'host notification retry/fail updates must conditionally update the claimed processing task'
 )
 assert.ok(

@@ -5,6 +5,7 @@
 
 import { prisma } from './prisma.js'
 import type { SshKey } from '../types/database.js'
+import { authorizeUserWrite, type WriteSession } from './user-write-authorization.js'
 
 /**
  * 获取用户的所有 SSH 密钥
@@ -55,17 +56,18 @@ export async function createSSHKey(data: {
   name: string
   publicKey: string
   fingerprint: string
+  session?: WriteSession
 }): Promise<number> {
-  const sshKey = await prisma.sshKey.create({
-    data: {
-      userId: data.userId,
-      name: data.name,
-      publicKey: data.publicKey,
-      fingerprint: data.fingerprint
+  return prisma.$transaction(async tx => {
+    if (!await authorizeUserWrite(tx, data.userId, data.session, true)) throw new Error('SSH_KEY_USER_INACTIVE')
+    if (await tx.sshKey.findFirst({ where: { userId: data.userId, fingerprint: data.fingerprint }, select: { id: true } })) {
+      throw new Error('SSH_KEY_EXISTS')
     }
+    if (await tx.sshKey.count({ where: { userId: data.userId } }) >= 20) throw new Error('SSH_KEY_LIMIT')
+    const { session: _session, ...keyData } = data
+    const sshKey = await tx.sshKey.create({ data: keyData })
+    return sshKey.id
   })
-  
-  return sshKey.id
 }
 
 /**
