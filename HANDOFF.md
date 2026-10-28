@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 阶段远端确认（当前接续点）
+
+- 已按owner要求连续提交并推送：`c277ba3`保存旧聊天与当前积压248文件；`437ff02`补Markdown测试依赖；`8465e9d`隔离备份上传文件；`7a38eca0cdf97f88dcec551c1cd3028538af7536`修复备份导出身份与流控制。每次均普通push main，无强推，最新业务提交已核对`git ls-remote`相同；记录前工作区干净且无领先未推送commit。
+- 最新[CI 40644502640](https://github.com/mastalee928/payincus/actions/runs/40644502640)对应`7a38eca`，7个job全部success；Linux实际新增上传/导出集成及双架构组件、类型、构建、计费/交付删除/网关候选通过。此前`437ff02`、`8465e9d`的CI也全部成功，首次`c277ba3`锁清单失败原因和修复见下文，不隐去失败历史。
+- 这是一段落保存，不是327项或完整A失联→B真实OSS恢复验收。下批优先备份create/upload/restore锁内当前actor/session、实例归属与宿主/存储身份、未决操作门禁及持久恢复。已只读定位`db/backups.ts`、`db/backup-upload-tasks.ts`、`db/restore-tasks.ts`、`routes/backups.ts`和两worker，未开始这些授权/队列核心改动。
+- 三台专用测试机全部已找回私有资料，系统解析地址均正确；用途可重新分配，不受旧网关角色限制。只读SSH握手查证尚未完成可信身份闭合：A/B与旧可信pin不符，C目前只找到旧观察记录。详细记录在仓库外`takeover-connection-audit-20261028.private.json`；未发送密码/未改远端。继续独立源码与CI验证，不因该问题搁置项目、不要求owner重复给资料。
+
 ## 2026-10-28 备份导出身份与流控制
 
 - 前一阶段`8465e9d606588d540718d001b29a097cf91e8a27`已推送并核对远端；[CI运行40641931069](https://github.com/mastalee928/payincus/actions/runs/40641931069)7/7通过，新增上传集成已实际在Linux/PG执行。阶段推送习惯继续，无tag/Release/生产操作。
