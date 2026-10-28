@@ -17,6 +17,7 @@ const props = withDefaults(defineProps<{
 const themeStore = useThemeStore()
 const badgeStore = useBadgeStore()
 const imageErrored = ref(false)
+const imageElement = ref<HTMLImageElement | null>(null)
 
 onMounted(() => {
   badgeStore.ensureBadge(props.badgeId)
@@ -42,11 +43,7 @@ const roundedClass = computed(() => {
   return ''
 })
 
-const badgeUrl = computed(() => {
-  if (imageErrored.value) {
-    return `/badges/${themeStore.isDark ? 'dark' : 'light'}/ignition.svg`
-  }
-
+const requestedUrl = computed(() => {
   const badge = badgeStore.getBadge(props.badgeId)
   if (badge) {
     if (themeStore.isDark) {
@@ -57,16 +54,27 @@ const badgeUrl = computed(() => {
 
   return `/badges/${themeStore.isDark ? 'dark' : 'light'}/${props.badgeId}.svg`
 })
+
+watch(requestedUrl, () => { imageErrored.value = false }, { flush: 'sync' })
+const badgeUrl = computed(() => imageErrored.value
+  ? `/badges/${themeStore.isDark ? 'dark' : 'light'}/ignition.svg`
+  : requestedUrl.value)
+function onImageError(event: Event) {
+  // Vue can retain an event invoker on a removed node; only the current image may fail.
+  if (event.currentTarget === imageElement.value) imageErrored.value = true
+}
 </script>
 
 <template>
   <img
+    :key="badgeUrl"
+    ref="imageElement"
     :src="badgeUrl"
     :alt="alt || badgeId"
     loading="lazy"
     class="object-contain shrink-0"
     :class="roundedClass"
     :style="sizeStyle"
-    @error="imageErrored = true"
+    @error="onImageError"
   />
 </template>

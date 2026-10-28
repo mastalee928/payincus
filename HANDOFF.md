@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-230 徽章目录迟到后的图片恢复
+
+- R226 `2567007`已push并核远端一致。BadgeImage实际图片地址与失败状态分离，目录返回新地址自动重试，相同失败地址的元数据更新不反复请求；按最终URL重建img，并核事件currentTarget是当前img，防被移除旧节点error污染新图。未改徽章目录API/业务或图形样式。
+- `logs/takeover-badge-image-before-final.log`真实Vue/Pinia和HTTP图片复现目录已返回但仍占位；`takeover-badge-image-browser-final.log`通过迟到目录、深浅主题、ID/URL变化、旧节点error、稳定失败占位和新地址恢复。首次夹具middleware挂在Vite fallback之后造成图片响应错误，调整到configureServer后才取得上述复现；首版捕获URL的事件函数仍被Vue缓存invoker影响，最终currentTarget核验通过。
+- `takeover-badge-image-build.log`双端vue-tsc/build、`takeover-badge-image-dist.log`、`takeover-badge-image-guards-final.log`2/2及lint-final通过；新专项接CI，189常规/66环境排除清单校验通过。没有线上图像/目录变更。下一项R229生成器已改只收集文档style，专项先红；178份SVG混入JSX文本尚待清理，原HTML缺失，保留资产图形。327持续。
+
 ## 2026-10-28 R1-226 巡检面板隐藏与缓存生命周期
 
 - R214 `941cbdc`已push且远端一致；R221 CI40708054717最终success。R214 CI40708802507中6/7任务成功，Pool任务在init-command-selector的Chrome启动20秒超时，未进入断言，已仅重跑失败任务待最终结果；不记为代码断言失败或全绿。
