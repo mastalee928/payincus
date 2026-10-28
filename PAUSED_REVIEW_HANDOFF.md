@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：65b755c已push，R270赠送准备IP/storage同事务、原身份/资源CAS补偿、必需IP失败拒绝、inbox失败保202已修；13真实Fastify/PG+mTLS场景与零账款/占用底数/失败日志、6守卫、最终后端build含tsc exit0、manifest191/91通过准备push，无待poll。R271 instance-network-sync.ts完整已读仅not-deleted、无host/CAS，相关调用点和守卫须继续读，尚未改。R269通用超时与强杀恢复/通知outbox待，327持续。初始3测试账号已清理，临时证书目录尚留本地不提交。
+
 > **最新接续**：c188aac已push，CI40766741756最后运行。R270实测发现public-ipv4.ts LEFT JOIN全表FOR UPDATE在PG报0A000，改锁a地址行；专项真实PG先红后绿、3守卫/build含tsc exit0、manifest191/90通过准备单项push。host-gift-preparation新专项尚未提交，产品补偿未改；先完成提交再继续storage/IP/cloud-init同步补偿和inbox失败不污染202。初次夹具缺fingerprint创建的gift-90a8413d三本地测试账号待清理；无生产变更，327持续。
 
 > **最新接续**：5b68d13已push。R269人工删除四入口pending/IP收尾、原attempt/endpoint哈希身份、共用30秒stop/delete/absence/operation/forward核验已修；16拒绝+正常/账目/旧refund接口409/record-only保留真实PG+mTLS完整exit0，20创建回归/8守卫/最终后端build含tsc exit0，准备阶段push，无待poll。接R270 hosts.ts赠送提交后准备失败（IP/cloud-init/storage）与createInboxMessage失败202污染；createLog本身已吞错为误判，完整route及相关守卫/storage resolver/预占已读未编辑。R269通用超时与强杀/事务退出续跑仍待，327持续。

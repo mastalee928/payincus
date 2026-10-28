@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-270 赠送创建准备补偿与通知隔离
+
+- 65b755c已push核远端一致，CI40767977505最后运行，c188aac的40766741756也仍运行。赠送落库后的IP预留/cloud-init/存储准备现在同一事务，锁实例核对本次user/host/incusId/资源/network/port/status/pending；必需NAT/routed IPv6失败立即拒绝。准备回滚后，仅本次creating归属可在一个事务置error及归还CPU/内存/磁盘/原端口预占；失权或补偿DB错误保留资源并返回已有instanceId。零金额赠送账单保留，不造退款。
+- 交付调用后独立处理站内信失败，保202并持久失败日志。准备错误保宿主/实例/失败步骤和处理说明。createLog自身吞错原本已保护，本次不冒称修日志500。NAT分配器增加可选tx client，原调用默认行为保持；默认机器池一机一卖未改。
+- `takeover-host-gift-preparation-before.log`先复现storage失败500，`takeover-host-gift-inbox-before.log`先复现已运行仍500；`takeover-host-gift-preparation-server-final.log`真实Fastify/PG+mTLS夹具13场景exit0：NAT/公网存储丢失、两种地址耗尽、NAT写失败、IPv6错误、存储写失败、状态/资源变化、补偿约束失败、站内信失败和免费/付费正常；核零远端失败准备、原资源底数、IP回滚、零退款/余额保持与失败日志。6守卫、后端最终build含tsc exit0、manifest191/91通过，新专项接CI。初次夹具缺fingerprint的3本地账号已精确清理。
+- 原生Incus/真实OS、强杀持久恢复、通知重试/outbox和跨请求幂等未验；R269通用超时仍待。R271 network-sync仅not-deleted无host/版本条件已读，下一项继续。327与完整灾备未完成。
+
 ## 2026-10-29 R1-270 前置：独立IPv4库存行锁
 
 - c188aac已push；其CI40766741756最后仍运行。实测赠送准备路径发现reservePublicIpv4ForInstance的LEFT JOIN使用未限定FOR UPDATE，PostgreSQL直接0A000拒绝。改为FOR UPDATE OF a，只锁地址库存行，保SKIP LOCKED/禁用池/网关回退合同。

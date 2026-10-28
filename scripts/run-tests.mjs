@@ -52,6 +52,7 @@ environment:
 const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-managed-provision', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; actual managed provision cleanup, mTLS failures and resource/refund checks'],
   ['test:review-public-ipv4', 'requires isolated local *_pool_test PostgreSQL; public address allocation, outer join row locks and competing reservations'],
+  ['test:review-host-gift-preparation', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; actual gift preparation rollback, resource claims and inbox failure after delivery starts'],
   ['test:review-traffic-limit', 'requires isolated local *_pool_test PostgreSQL; actual user/instance traffic limit omission and bigint boundary validation'],
   ['test:review-traffic-reset-auth', 'requires isolated local *_pool_test PostgreSQL; actual traffic reset actor/target races, billing and baseline checks'],
   ['test:review-payment-locales', 'requires Chrome/Edge and local Vite; actual payment provider controls in three locales, read-only API fixture'],

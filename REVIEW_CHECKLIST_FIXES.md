@@ -309,7 +309,7 @@
 | R1-267 | 已有防护 | 保留初审结论 | normalizePackagePlanInput以整数范围校验CPU/内存/磁盘/配额/价格/周期，流量通过PG bigint parser；不是直接缺省写负数/溢出。 |
 | R1-268 | 已有防护 | 保留初审结论 | syncInstanceNetwork及removeInstanceIpv6向cloud-init传nicMacs，保留已有eth0/eth1 hwaddr或按实例生成；原完全忽略MAC匹配的代码已有防护，不拿此结论代替所有VM真机重启验收。 |
 | R1-269 | 部分存在 | 自动失败回调及人工删除已修，超时/强杀待验 | managed原目标/attempt/UUID/mTLS与30秒清理核验、实例锁及事务释放，失败pending保资源退款独立；人工四删除入口核持久attempt/endpoint哈希，确认后清pending/IP，旧退款接口拒pending、record-only保占用。真实PG+mTLS20创建+16拒绝及正常/退款/重复矩阵、8守卫/build含tsc通过见HANDOFF。通用超时、进程强杀/事务退出续跑和原生Incus仍待，整体不记完成。 |
-| R1-270 | 部分存在 | 待精修/运行复核 | 赠送DB提交后resolve storage/IP/cloud-init可能失败无统一补偿；启动provision后createInboxMessage失败返回500误导重试。createLog自身已有catch吞错，原“日志失败”判定纠正。 |
+| R1-270 | 部分存在 | 准备补偿/通知隔离已修；原生交付待验 | IP/cloud-init/storage同事务、当前创建身份/资源核验；失败回滚IP并原子置error/回收CPU内存磁盘端口，失权/补偿DB失败保占用。inbox失败保202及日志，createLog原有catch是误判。13真实Fastify/PG+mTLS场景、6守卫/最终build含tsc通过见HANDOFF；零金额赠送无退款，默认机器池未改。原生Incus/强杀恢复/outbox及请求幂等另待。 |
 | R1-271 | 存在 | 待精修/运行复核 | 网络结果持久化仅not deleted，缺host/version CAS；旧Incus结果可覆盖迁移/任务后新状态。 |
 | R1-272 | 部分存在 | 待精修/运行复核 | quota API已有整数范围及显式0校验，null转undefined不能清空；缺current site count和实例锁，与创建不串行。 |
 | R1-273 | 已有防护 | 保留初审结论 | helper的设备/DB回滚在helper内完成，路由成功日志在helper返回之后，不再因路由审计异常进入设备回滚。 |

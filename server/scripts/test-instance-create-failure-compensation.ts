@@ -170,9 +170,13 @@ assert.ok(
 const hostRoutesSource = readFileSync(resolve(__dirname, '../src/routes/hosts.ts'), 'utf8')
 assert.ok(
   hostRoutesSource.includes('宿主机 ${lockedHost!.name} 没有可用独立 IPv4 地址') &&
-    hostRoutesSource.includes('[Host Create For User] failed to rollback resources after public IPv4 allocation miss') &&
-    hostRoutesSource.includes('[Host Create For User] failed to compensate purchase after public IPv4 allocation miss'),
-  'host-owner instance creation must rollback resources and compensate purchase when public IPv4 allocation races to empty'
+    hostRoutesSource.includes('instanceId && lockedHost && !provisioningStarted') &&
+    hostRoutesSource.includes('where: { id: instanceId, ...creationTarget }') &&
+    hostRoutesSource.includes('if (claimed.count !== 1) return false') &&
+    hostRoutesSource.includes('nat_ports_used_count - ${reservedPortCount}') &&
+    hostRoutesSource.includes('db.allocateAndReserveNatIpv4(lockedHost!.id, instanceId, tx)') &&
+    hostRoutesSource.includes('packageId, client: tx'),
+  'host gift preparation must atomically roll back IP writes and release only its claimed resource reservation; zero-price gifts must not generate refunds'
 )
 
 assert.ok(

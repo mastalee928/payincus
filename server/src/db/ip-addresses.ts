@@ -377,9 +377,10 @@ const NAT_IPV4_RESERVATION_TTL_MS = 60 * 60 * 1000
 
 export async function allocateAndReserveNatIpv4(
     hostId: number,
-    instanceId?: number
+    instanceId?: number,
+    client?: Prisma.TransactionClient
 ): Promise<string | null> {
-    return await prisma.$transaction(async (tx) => {
+    const allocate = async (tx: Prisma.TransactionClient) => {
         // 每宿主机一把锁：内网 IP 只需在同一宿主机内唯一，不同宿主机之间互不影响。
         await advisoryTransactionLockString(
             tx,
@@ -445,5 +446,6 @@ export async function allocateAndReserveNatIpv4(
         }
 
         return candidate
-    })
+    }
+    return client ? allocate(client) : prisma.$transaction(allocate)
 }

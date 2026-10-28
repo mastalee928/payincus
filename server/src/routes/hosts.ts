@@ -6279,6 +6279,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     const incusId = `u${targetUser.id}-${randomUUID().replace(/-/g, '').slice(0, 8)}`
     const packageTrafficLimit = pkgWithExtras.monthly_traffic_limit ? BigInt(pkgWithExtras.monthly_traffic_limit) : null
 
+    const reservedPortCount = networkModeAllowsPortMapping(networkMode) ? (selectedPlan?.portLimit || pkgWithExtras.port_limit || 0) : 0
+    const creationTarget = {
+      userId: targetUser.id, hostId, incusId, cpu: requestedCpu, memory: requestedMemory, disk: requestedDisk,
+      networkMode, portLimit: selectedPlan ? selectedPlan.portLimit : (pkgWithExtras.port_limit ?? null),
+      status: 'creating' as const, provisioningCleanupPending: false
+    }
+    let provisioningStarted = false
+    let preparationStep = '检查实例创建状态'
     let instanceId = 0
     let lockedHost: Awaited<ReturnType<typeof db.selectAndReserveHostWithLock>> | null = null
 
@@ -6299,7 +6307,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           ownerId: pkg.user_id!,
           packageId,
           networkMode,
-          portCount: networkModeAllowsPortMapping(networkMode) ? (selectedPlan?.portLimit || pkgWithExtras.port_limit || 0) : 0
+          portCount: reservedPortCount
         })
 
         if (!reservedHost) {
@@ -6420,38 +6428,6 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         throw new Error('HOST_NOT_FOUND')
       }
 
-      let staticIPv4: string | null = null
-      let staticIPv6: string | null = null
-      let publicIpv4Assignment: any = null
-
-      if (networkModeNeedsNatIpv4(networkMode)) {
-        try {
-          staticIPv4 = await db.allocateAndReserveNatIpv4(lockedHost.id, instanceId)
-        } catch (error) {
-          fastify.log.warn(error, '[Host Create For User] failed to allocate IPv4')
-        }
-      } else if (networkModeNeedsPublicIpv4(networkMode)) {
-        publicIpv4Assignment = await prisma.$transaction((tx) => db.reservePublicIpv4ForInstance(tx, { hostId: lockedHost!.id, instanceId }))
-        if (!publicIpv4Assignment) {
-          await prisma.instance.updateMany({
-            where: { id: instanceId, status: 'creating' },
-            data: { status: 'error' }
-          }).catch((err) => fastify.log.error(err, '[Host Create For User] failed to mark instance error after public IPv4 allocation miss'))
-          await db.rollbackResources({
-            hostId: lockedHost!.id,
-            cpu: requestedCpu,
-            memory: requestedMemory,
-            disk: requestedDisk,
-            portCount: networkModeAllowsPortMapping(networkMode) ? (selectedPlan?.portLimit || pkgWithExtras.port_limit || 0) : 0
-          }).catch((err) => fastify.log.error(err, '[Host Create For User] failed to rollback resources after public IPv4 allocation miss'))
-          await db.compensateFailedInstancePurchase(instanceId, targetUser.id, lockedHost!.id).catch((err) => {
-            fastify.log.error(err, '[Host Create For User] failed to compensate purchase after public IPv4 allocation miss')
-          })
-          return reply.status(503).send({ error: `宿主机 ${lockedHost!.name} 没有可用独立 IPv4 地址` })
-        }
-        staticIPv4 = publicIpv4Assignment.address
-      }
-
       const lockedHostWithIpv6 = lockedHost as typeof lockedHost & {
         ipv6_mode?: number
         ipv6_subnet?: string | null
@@ -6459,77 +6435,99 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         ipv6_parent_interface?: string | null
       }
 
-      // 仅 Routed 模式（需要独立 IPv6 地址）才从子网分配
-      const needsRoutedIPv6 = networkModeNeedsRoutedIpv6(networkMode)
-      if (lockedHostWithIpv6.ipv6_subnet && needsRoutedIPv6) {
-        try {
-          let attempts = 0
-          while (attempts < 50) {
-            staticIPv6 = generateRandomIPv6(lockedHostWithIpv6.ipv6_subnet)
-            const exists = await db.isIpAddressExists(staticIPv6)
-            if (!exists) break
-            attempts++
-            staticIPv6 = null
-          }
-        } catch (error) {
-          fastify.log.warn(error, '[Host Create For User] failed to allocate IPv6')
+      const { staticIPv4, staticIPv6, finalConfigPayload, selectedStoragePool } = await prisma.$transaction(async tx => {
+        // Preparation has no remote side effects. Keep its IP reservations and
+        // storage choice together, and exclude a concurrent destroy/transfer.
+        await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+        if (!await tx.instance.findFirst({ where: { id: instanceId, ...creationTarget } })) {
+          throw new Error('INSTANCE_PREPARATION_OWNERSHIP_LOST')
         }
-      }
+        let staticIPv4: string | null = null
+        let staticIPv6: string | null = null
+        let publicIpv4Assignment: Awaited<ReturnType<typeof db.reservePublicIpv4ForInstance>> = null
 
-      let finalConfigPayload = configPayload
-      const ipv4Cidr = publicIpv4Assignment
-        ? `${publicIpv4Assignment.address}/${publicIpv4Assignment.prefixLength}`
-        : (staticIPv4 ? `${staticIPv4}/22` : null)
-      const ipv4Gateway = publicIpv4Assignment?.gateway || '10.10.0.1'
-      const ipv4Dns = publicIpv4Assignment?.dns || ['10.10.0.1']
-      if (pkgInstanceType === 'vm') {
-        const { generateVmConfig } = await import('../lib/incus-config-vm.js')
-        const vmResult = generateVmConfig({
-          instanceName: name,
-          instanceIdSeed: incusId,
-          imageAlias: image,
-          rootPassword: metaData.rootPassword,
-          sshKey,
-          network: staticIPv4 && ipv4Cidr ? {
-            ipAddress: ipv4Cidr,
-            gateway: ipv4Gateway,
-            dns: ipv4Dns,
-            ipv6Address: staticIPv6 || undefined,
-            ipv6Gateway: staticIPv6 ? (lockedHostWithIpv6.ipv6_gateway || undefined) : undefined
-          } : undefined
-        })
-        finalConfigPayload = vmResult.configPayload
-      } else if (staticIPv4 && ipv4Cidr) {
-        // 容器类型：重新生成包含静态 IP 的 cloud-init 配置
-        const containerResult = generateIncusConfig({
-          instanceName: name,
-          imageAlias: image,
-          rootPassword: metaData.rootPassword,
-          sshKey,
-          networkMode,
-          type: 'container',
-          network: {
-            ipAddress: ipv4Cidr,
-            gateway: ipv4Gateway,
-            dns: ipv4Dns,
-            ipv6Address: staticIPv6 ? `${staticIPv6}/128` : undefined,
-            ipv6Gateway: staticIPv6 ? 'fe80::1' : undefined
+        if (networkModeNeedsNatIpv4(networkMode)) {
+          preparationStep = '分配 NAT 内网 IPv4'
+          staticIPv4 = await db.allocateAndReserveNatIpv4(lockedHost!.id, instanceId, tx)
+          if (!staticIPv4) throw new Error('NAT 内网 IPv4 地址已用尽')
+        } else if (networkModeNeedsPublicIpv4(networkMode)) {
+          preparationStep = '分配独立 IPv4'
+          publicIpv4Assignment = await db.reservePublicIpv4ForInstance(tx, { hostId: lockedHost!.id, instanceId })
+          if (!publicIpv4Assignment) throw new Error(`宿主机 ${lockedHost!.name} 没有可用独立 IPv4 地址`)
+          staticIPv4 = publicIpv4Assignment.address
+        }
+
+        // 仅 Routed 模式（需要独立 IPv6 地址）才从子网分配
+        const needsRoutedIPv6 = networkModeNeedsRoutedIpv6(networkMode)
+        if (needsRoutedIPv6) {
+          preparationStep = '分配 routed IPv6'
+          if (!lockedHostWithIpv6.ipv6_subnet) throw new Error('宿主机未配置 routed IPv6 子网')
+          for (let attempts = 0; attempts < 50; attempts++) {
+            const candidate = generateRandomIPv6(lockedHostWithIpv6.ipv6_subnet)
+            if (!await db.isIpAddressExists(candidate)) { staticIPv6 = candidate; break }
+          }
+          if (!staticIPv6) throw new Error('routed IPv6 地址分配失败')
+        }
+
+        preparationStep = '生成实例初始化配置'
+        let finalConfigPayload = configPayload
+        const ipv4Cidr = publicIpv4Assignment
+          ? `${publicIpv4Assignment.address}/${publicIpv4Assignment.prefixLength}`
+          : (staticIPv4 ? `${staticIPv4}/22` : null)
+        const ipv4Gateway = publicIpv4Assignment?.gateway || '10.10.0.1'
+        const ipv4Dns = publicIpv4Assignment?.dns || ['10.10.0.1']
+        if (pkgInstanceType === 'vm') {
+          const { generateVmConfig } = await import('../lib/incus-config-vm.js')
+          const vmResult = generateVmConfig({
+            instanceName: name,
+            instanceIdSeed: incusId,
+            imageAlias: image,
+            rootPassword: metaData.rootPassword,
+            sshKey,
+            network: staticIPv4 && ipv4Cidr ? {
+              ipAddress: ipv4Cidr,
+              gateway: ipv4Gateway,
+              dns: ipv4Dns,
+              ipv6Address: staticIPv6 || undefined,
+              ipv6Gateway: staticIPv6 ? (lockedHostWithIpv6.ipv6_gateway || undefined) : undefined
+            } : undefined
+          })
+          finalConfigPayload = vmResult.configPayload
+        } else if (staticIPv4 && ipv4Cidr) {
+          // 容器类型：重新生成包含静态 IP 的 cloud-init 配置
+          const containerResult = generateIncusConfig({
+            instanceName: name,
+            imageAlias: image,
+            rootPassword: metaData.rootPassword,
+            sshKey,
+            networkMode,
+            type: 'container',
+            network: {
+              ipAddress: ipv4Cidr,
+              gateway: ipv4Gateway,
+              dns: ipv4Dns,
+              ipv6Address: staticIPv6 ? `${staticIPv6}/128` : undefined,
+              ipv6Gateway: staticIPv6 ? 'fe80::1' : undefined
+            }
+          })
+          finalConfigPayload = containerResult.configPayload
+        }
+
+        preparationStep = '选择系统盘存储池'
+        const selectedStoragePool = await db.resolveStoragePoolForNewInstance(lockedHost!.id, { packageId, client: tx })
+        if (!selectedStoragePool) {
+          throw new Error(`STORAGE_POOL_UNAVAILABLE: 宿主机 ${lockedHost!.name} 未配置可用于实例系统盘的存储池`)
+        }
+
+        preparationStep = '保存系统盘存储池'
+        await tx.instance.update({
+          where: { id: instanceId },
+          data: {
+            storagePoolName: selectedStoragePool
           }
         })
-        finalConfigPayload = containerResult.configPayload
-      }
-
-      let selectedStoragePool = await db.resolveStoragePoolForNewInstance(lockedHost.id, { packageId })
-      if (!selectedStoragePool) {
-        throw new Error(`STORAGE_POOL_UNAVAILABLE: 宿主机  未配置可用于实例系统盘的存储池`)
-      }
-
-      await prisma.instance.update({
-        where: { id: instanceId },
-        data: {
-          storagePoolName: selectedStoragePool
-        }
-      })
+        return { staticIPv4, staticIPv6, finalConfigPayload, selectedStoragePool }
+      }, { timeout: 15000 })
 
       const ioMode = pkgWithExtras.io_limit_mode || 'throughput'
 
@@ -6566,6 +6564,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       }).catch(error => {
         fastify.log.error(error, `[Host Create For User] instance ${instanceId} provisioning failed`)
       })
+
+      provisioningStarted = true
 
       const logDetail = selectedPlan
         ? `${isAdmin ? 'Admin' : 'Host owner'} created paid instance "${name}" for user ${targetUser.username} on host "${lockedHost.name}" (Package: ${pkg.name}, Plan: ${selectedPlan.name}, Gift: ${paidGiftDays} days free)`
@@ -6626,6 +6626,11 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           createdBy: operator.username,
           creatorType: isAdmin ? 'admin' : 'host_owner'
         }
+      }).catch(async error => {
+        fastify.log.error(error, `[Host Create For User] instance ${instanceId} inbox notification failed`)
+        await createLog(operator.id, 'host', 'host.instance_create_for_user',
+          `宿主机 ${lockedHost!.id} 实例 ${instanceId} 已受理创建，但站内信发送失败；请检查通知服务。`,
+          'failed', { instanceId })
       })
 
       if (targetUser.email) {
@@ -6672,6 +6677,37 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     } catch (error: any) {
       fastify.log.error(error, '[Host Create For User] failed')
 
+      if (instanceId && lockedHost && !provisioningStarted) {
+        let compensated = false
+        try {
+          compensated = await prisma.$transaction(async tx => {
+            const claimed = await tx.instance.updateMany({
+              where: { id: instanceId, ...creationTarget },
+              data: { status: 'error' }
+            })
+            if (claimed.count !== 1) return false
+            await tx.$executeRaw`
+              UPDATE hosts SET cpu_used = GREATEST(cpu_used - ${requestedCpu}, 0),
+                memory_used = GREATEST(memory_used - ${requestedMemory}, 0),
+                disk_used = GREATEST(disk_used - ${requestedDisk}, 0),
+                nat_ports_used_count = GREATEST(nat_ports_used_count - ${reservedPortCount}, 0)
+              WHERE id = ${lockedHost!.id}
+            `
+            // Preparation rolled back its IP writes. The gift's zero-amount
+            // purchase record stays as audit evidence; no money was charged.
+            return true
+          })
+        } catch (compensationError) {
+          fastify.log.error(compensationError, `[Host Create For User] instance ${instanceId} preparation compensation failed; reservation retained`)
+        }
+        await createLog(operator.id, 'host', 'host.instance_create_for_user',
+          `宿主机 ${lockedHost.id} 实例 ${instanceId} 在${preparationStep}时失败；${compensated ? '已回收本次资源预占，请检查节点地址和存储配置。' : '资源未释放，请核查当前实例状态与资源占用。'}`,
+          'failed', { instanceId })
+        return reply.status(compensated ? 503 : 409).send({
+          error: compensated ? `实例${preparationStep}失败，已回收资源，请检查节点地址和存储配置` : '实例创建准备未完成，请核查该实例状态和资源占用后处理',
+          instanceId
+        })
+      }
       if (error.message?.includes('HOST_RESOURCES_INSUFFICIENT')) {
         return reply.status(503).send({ error: '当前节点资源不足或已被占用' })
       }
