@@ -210,7 +210,9 @@ jobs:
           pnpm --filter server test:review-admin-package-create
           pnpm --filter server test:review-admin-package-options
       - name: Verify terms language in Chrome
-        run: pnpm --filter server test:review-terms-language
+        run: |
+          pnpm --filter server test:review-terms-language
+          pnpm --filter server test:review-terms-lifecycle
       - name: Verify package empty fields in PostgreSQL
         run: pnpm --filter server test:review-package-empty-fields
 

@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-256 条款离页隐藏与取消读取
+
+- R255 b4e0ef8已push并核远端一致，R252 00de40e CI40754421823最终success。条款显隐绑定KeepAlive活跃状态，关闭/切语言/离页/卸载取消fetch并失效代次；迟到响应和body不回填。缓存页隐藏时不读取，返回按当前语言恢复，原同语言成功内容仍复用；法律内容与正常关闭行为保持。
+- `logs/takeover-terms-lifecycle-before.log`实际Chrome先复现离页Teleport遗留；`takeover-terms-lifecycle-browser-final.log`通过隐藏移除/无请求、abort后强制旧回执、关闭重开/成功缓存、body迟到、卸载重建与初始隐藏。第一次关闭断言落在退出动画中，改为最多2秒等待DOM实际移除，未更改产品动画或放宽最终结果。语言完整回归与三语截图、4守卫/lint/双端vue-tsc/build最终exit0/dist和manifest191常规83环境排除通过，新专项接CI；split-deploy allowlist仍锁同源tos URL，仅增加signal。
+- R257表格真实Chrome专项已通过普通/仅表头/空单元格/inline tokens/1440与390，截图已看，scripts/test-markdown-browser.mjs未登记未提交，留下一项。随后R258/259及R260继续。流量R264路由与重置锁守卫已读，管理员/宿主旧授权仍需锁内复审。327与完整灾备未完成，无生产改动。
+
 ## 2026-10-29 R1-255 条款正文跟随当前语言
 
 - R253 2d12e6c已push并核远端一致；默认机器池18e5d85 CI40753458066最终success。条款监听当前语言及显示状态，以现有zh/en源选择正文；切换清旧文，已成功同语言内容可复用，迟到success/error/finally与response.text不覆盖新语言。简繁继续共享原zh文件，法律正文不改。

@@ -820,7 +820,7 @@ const allowedClientNetworkPrimitiveLines = new Map<string, string[]>([
   ['client/src/components/layout/AppLayout.vue', ["fetch(buildApiUrl('/health'), {"]],
   ['client/src/api/index.ts', ["fetch(buildApiUrl('/auth/refresh'), {"]],
   ['client/src/api/admin.ts', ["fetch(buildApiUrl('/auth/refresh'), {"]],
-  ['client/src/components/TermsOfServiceModal.vue', ['fetch(`/tos/${lang}.md`)']],
+  ['client/src/components/TermsOfServiceModal.vue', ['fetch(`/tos/${lang}.md`, { signal: controller.signal })']],
   // Bundled same-origin coastline JSON is a static asset, not a backend API request.
   ['client/src/components/public/MobileRegionGlobe.vue', ["fetch('/maps/mobile-globe-land.json', { signal: controller.signal })"]],
   ['client/src/components/instance/TerminalModal.vue', ['new WebSocket(wsUrl)']],

@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：b4e0ef8已push，00de40e CI success。R256条款KeepAlive显隐/abort/卸载/迟到正文保护已修，Chrome与语言回归/4守卫/lint/双端types build/dist/manifest通过准备单项push，无待poll。本地表格专项scripts/test-markdown-browser.mjs已通过、截图已看，留R257单项登记提交，接R258/259浏览器证据，再R260。R264流量route/DB sample/reset及锁守卫已读，后端未改。327持续。
+
 > **最新接续**：2d12e6c已push；18e5d85 CI success。R255条款当前语言/同语言成功缓存/旧回执和迟到正文隔离已修，Chrome先红后绿/三语截图/4守卫/lint/双端types build/dist/manifest通过准备单项push。无待poll。R256已Chrome先红离页Teleport遗留，scripts/test-terms-lifecycle.mjs未登记未提交，随后加KeepAlive/卸载/abort；scripts/test-markdown-browser.mjs也未登记未运行，留R257。法律内容保持，327持续。
 
 > **最新接续**：00de40e已push，CI40754421823最后运行。R253旧套餐刷新门禁/当前选项检查/镜像清旧已修，Chrome专项及旧套餐写/机器池两回归、4守卫/lint/双端types build/dist/manifest通过准备单项push。无待poll本地进程。R255条款语言切换已真实先红，新scripts/test-terms-language.mjs与fixtures/terms-modal未登记未提交，产品未改；先语言/缓存与迟到正文，再R256关闭/KeepAlive/卸载，再Markdown浏览器补验。327未完整。

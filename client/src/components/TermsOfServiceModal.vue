@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { parseMarkdown } from '@/utils/markdown'
@@ -18,20 +18,33 @@ const themeStore = useThemeStore()
 const content = ref('')
 const loading = ref(false)
 const error = ref('')
+const active = ref(true)
+const visible = computed(() => props.show && active.value)
 const termsLanguage = computed(() => locale.value.startsWith('zh') ? 'zh' : 'en')
 let loadedLanguage = ''
 let requestSequence = 0
+let disposed = false
+let controller: AbortController | null = null
+
+function invalidateRequest() {
+  requestSequence++
+  controller?.abort()
+  controller = null
+  loading.value = false
+}
 
 async function loadTerms() {
-  if (!props.show) return
+  if (!visible.value || disposed) return
+  controller?.abort()
+  controller = new AbortController()
   const sequence = ++requestSequence, lang = termsLanguage.value
-  const current = () => sequence === requestSequence && lang === termsLanguage.value
+  const current = () => !disposed && visible.value && sequence === requestSequence && lang === termsLanguage.value
   loading.value = true
   error.value = ''
   content.value = ''
   
   try {
-    const response = await fetch(`/tos/${lang}.md`)
+    const response = await fetch(`/tos/${lang}.md`, { signal: controller.signal })
     if (!current()) return
     
     if (!response.ok) {
@@ -47,24 +60,30 @@ async function loadTerms() {
     error.value = t('auth.tos.loadFailed')
     console.error('Failed to load terms:', err)
   } finally {
-    if (current()) loading.value = false
+    if (current()) {
+      loading.value = false
+      controller = null
+    }
   }
 }
 
-watch([() => props.show, termsLanguage], ([show, language]) => {
-  requestSequence++
-  loading.value = false
+watch([visible, termsLanguage], ([show, language]) => {
+  invalidateRequest()
   error.value = ''
   if (loadedLanguage !== language) content.value = ''
   if (show && !content.value) void loadTerms()
 }, { immediate: true, flush: 'sync' })
+
+onActivated(() => { active.value = true })
+onDeactivated(() => { active.value = false })
+onBeforeUnmount(() => { disposed = true; invalidateRequest() })
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="modal">
       <div
-        v-if="show"
+        v-if="visible"
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="emit('close')"
       >
