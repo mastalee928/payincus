@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-289 实例日志搜索与页面生命周期
+
+- 8756778已push核远端一致；f31a86a源码CI已success，440a34c/8756778最后运行。InstanceLogsTab读取固定实例ID/名称、账号session与请求序号，旧success/error/finally静默；mount+activated仅加载一次，缓存离页/卸载清数据与回执，重新激活重读。改变搜索/页码/页长先清旧结果，失败明确错误和重试，拒错误实例响应、修正超出末页，展开状态仅保当前日志。
+- `takeover-instance-logs-before.log`Chrome先红old覆盖new；`takeover-instance-logs-matrix.log`通过搜索ABA/旧失败、翻页反序/页长/reset、当前失败重试/末页收缩、展开去残留、实例/名称/session/账号切换、同sid刷新、缓存/注销/非法ID/错实例与卸载。1440中文/390英文截图已核，固定PC表格和手机卡片保持；真实Chrome配受控API，不访问客户日志。
+- client types、5相关守卫、manifest191/107、最终双端build exit0/dist通过，专项接Chrome CI。lint0错误，69处既有表格缩进warning保持，无无关格式整理。后端日志原有权限/脱敏保持；独立LogsView及其它读取生命周期不算本段完成。
+- 下一项R290四文件reinstall-selection夹具已先红（`takeover-reinstall-selection-before.log`）：可用镜像删除后仍emit旧debian/12。两modal完整代码、父open/doRebuild/doRecreate、后台镜像/密钥/验证与任务、recreate-consistency/image/dedicated-delivery相关守卫已读；产品未改，不混本提交。保持重装密码默认/可选key，重建要求key；父写回执与强杀/原生任务另待。327/R269/完整灾备未完。
+
 ## 2026-10-29 R1-288 旧套餐创建优惠码回执与报价绑定
 
 - 440a34c已push并核远端一致，源码CI40786941481最后运行。默认`/purchase`仍走PoolPurchaseWizard一机一卖；本项旧`/instances/create`的优惠码按code/plan/package/source/价格/可用状态/账号session/路由/激活代次隔离。输入或选择改变同步清旧折扣，校验序号拒旧success/error/finally及重复；校验中禁止提交，Turnstile await后再核上下文，失效不发创建请求。补API响应既有commissionRate/error类型，无后台计价或交付改动。

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { computed, ref, onMounted, onActivated, onDeactivated, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
+import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
 import { useToast } from '@/stores/toast'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
@@ -15,11 +16,26 @@ const props = defineProps<{
 const { t, locale } = useI18n()
 const toast = useToast()
 const themeStore = useThemeStore()
+const authStore = useAuthStore()
+const pageActive = ref(false)
+let alive = true
+let requestSequence = 0
+let displayedQuery = ''
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
 
 // 数据
 const logs = ref<Log[]>([])
 const loading = ref<boolean>(true)
 const refreshing = ref<boolean>(false)
+const loadError = ref('')
 
 // 分页
 const page = ref<number>(1)
@@ -35,29 +51,70 @@ const expandedRows = ref<Set<number>>(new Set())
 
 // 加载日志
 async function loadLogs(silent = false): Promise<void> {
-  if (!silent) loading.value = true
-  else refreshing.value = true
-  try {
-    const params: { page: number; pageSize: number; instanceId: number; search?: string } = {
-      page: page.value,
-      pageSize: pageSize.value,
-      instanceId: props.instanceId
-    }
-    if (searchQuery.value) {
-      params.search = searchQuery.value
-    }
-    
-    const response = await api.logs.list(params)
-    const data = response as { logs?: Log[]; total?: number; totalPages?: number }
-    logs.value = data.logs || []
-    total.value = data.total || 0
-    totalPages.value = data.totalPages || 0
-  } catch (err: any) {
-    toast.error(t('logs.loadFailed') + ': ' + (err?.message || String(err)))
-  } finally {
-    loading.value = false
-    refreshing.value = false
+  if (!alive || !pageActive.value || !sessionKey.value || !Number.isSafeInteger(props.instanceId) || props.instanceId <= 0) return
+  const sequence = ++requestSequence, session = sessionKey.value, instanceId = props.instanceId, instanceName = props.instanceName
+  const current = () => alive && pageActive.value && sequence === requestSequence && session === sessionKey.value &&
+    instanceId === props.instanceId && instanceName === props.instanceName
+  const params: { page: number; pageSize: number; instanceId: number; search?: string } = {
+    page: page.value, pageSize: pageSize.value, instanceId
   }
+  if (searchQuery.value) params.search = searchQuery.value
+  const query = JSON.stringify(params)
+  const changed = query !== displayedQuery
+  if (changed) clearLogData()
+  loading.value = !silent || changed
+  refreshing.value = silent
+  loadError.value = ''
+  try {
+    const response = await api.logs.list(params)
+    if (!current()) return
+    const data = response as { logs?: Log[]; total?: number; totalPages?: number }
+    if (!Array.isArray(data.logs) || !Number.isSafeInteger(data.total) || data.total! < 0 ||
+      !Number.isSafeInteger(data.totalPages) || data.totalPages! < 0 ||
+      data.logs.some(log => log.instance_id !== instanceId)) throw new Error(t('logs.loadFailed'))
+    if (params.page > Math.max(1, data.totalPages!)) {
+      page.value = Math.max(1, data.totalPages!)
+      return loadLogs(silent)
+    }
+    logs.value = data.logs
+    total.value = data.total!
+    totalPages.value = data.totalPages!
+    displayedQuery = query
+    expandedRows.value = new Set([...expandedRows.value].filter(id => data.logs!.some(log => log.id === id)))
+  } catch (err: any) {
+    if (!current()) return
+    clearLogData()
+    loadError.value = t('logs.loadFailed') + ': ' + (err?.message || String(err))
+    toast.error(loadError.value)
+  } finally {
+    if (current()) {
+      loading.value = false
+      refreshing.value = false
+    }
+  }
+}
+
+function clearLogData() {
+  logs.value = []
+  total.value = 0
+  totalPages.value = 0
+  expandedRows.value = new Set()
+  displayedQuery = ''
+}
+
+function resetLogContext() {
+  requestSequence++
+  clearLogData()
+  loadError.value = ''
+  loading.value = false
+  refreshing.value = false
+  page.value = 1
+}
+
+function activateLogs() {
+  if (pageActive.value || !alive) return
+  pageActive.value = true
+  void loadLogs()
 }
 
 // 搜索
@@ -143,14 +200,15 @@ function isContentLong(content: string): boolean {
 }
 
 // 监听实例变化或重命名
-watch(() => [props.instanceId, props.instanceName] as const, () => {
-  page.value = 1
-  loadLogs()
-})
+watch([() => props.instanceId, () => props.instanceName, sessionKey], () => {
+  resetLogContext()
+  if (pageActive.value) void loadLogs()
+}, { flush: 'sync' })
 
-onMounted(async () => {
-  await loadLogs()
-})
+onMounted(activateLogs)
+onActivated(activateLogs)
+onDeactivated(() => { pageActive.value = false; resetLogContext() })
+onUnmounted(() => { alive = false; pageActive.value = false; resetLogContext() })
 </script>
 
 <template>
@@ -188,6 +246,11 @@ onMounted(async () => {
 
     <!-- Logs Table -->
     <SkeletonLoader v-if="loading" type="table" />
+
+    <div v-else-if="loadError" role="alert" class="card p-4 space-y-3">
+      <p class="text-sm text-red-500 break-words">{{ loadError }}</p>
+      <button type="button" class="btn-secondary btn-sm" @click="loadLogs()">{{ $t('common.retry') }}</button>
+    </div>
 
     <!-- Desktop Table View -->
     <div v-else class="card overflow-hidden hidden sm:block">
@@ -331,7 +394,7 @@ onMounted(async () => {
     </div>
 
     <!-- Mobile Card View -->
-    <div v-if="!loading" class="space-y-3 sm:hidden">
+    <div v-if="!loading && !loadError" class="space-y-3 sm:hidden">
       <!-- Empty State -->
       <div v-if="logs.length === 0" class="card p-6 text-center text-themed-secondary">
         {{ $t('logs.noLogs') }}

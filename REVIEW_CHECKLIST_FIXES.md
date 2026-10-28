@@ -328,7 +328,7 @@
 | R1-286 | 部分存在 | 源码已修/Chrome验证通过 | 原latestRequestId保留并补session/props/active代次、await stats后再核、stats/task序号、停用卸载timer及终端子组件生命周期；操作固定ID与busy/旧回执。takeover-ticket-card-final.log真实Chrome含卸载3250ms零请求、types/5守卫/lint/双端build/dist通过，API受控，原生Incus/退款及共享TerminalModal完整异步另待。 |
 | R1-287 | 存在，前端已修 | 预览绑定与隔离专项通过 | 确认固定预览eligible ID，续费/销毁modal/session/route/cache代次、busy和新勾选保护；Chrome先红后绿覆盖ABA/金额/资格/重复/注销/卸载，types/4守卫/双端build/dist通过。后台完整当前报价及原生扣款/删除不扩大验收，见HANDOFF。 |
 | R1-288 | 部分存在，优惠码已修 | 前端专项通过/专区症状纠正 | 旧套餐页coupon code/plan/price/source/session与代次绑定、同步失效、重复/submit门禁已修；Chrome先红后绿及types/4守卫/lint/双端build/dist通过。首次zone:7浏览器实证原本正确，默认机器池/purchase不变；后台完整报价/原生创建另待，见HANDOFF。 |
-| R1-289 | 存在 | 待精修/运行复核 | loadLogs缺请求代次，搜索反序完成能覆盖当前条件。 |
+| R1-289 | 存在，实例日志已修 | 前端专项通过 | InstanceLogsTab按请求/实例/名称/session/激活隔离，失败重试与旧页清理、分页末页修正；Chrome先红后绿/types/5守卫/双端build/dist通过。LogsView另有独立旧读风险，后端权限及真实日志验收不扩大范围，见HANDOFF。 |
 | R1-290 | 存在 | 待精修/运行复核 | Rebuild watch清失效SSH key但不清失效image；Recreate两者都不清，submit只验证非空而未验证当前列表成员。 |
 | R1-291 | 存在 | 待精修/运行复核 | parseInt接受22x/22.5且22/022字符串判重失效；handleConfirm缺allValid函数守卫。 |
 | R1-292 | 存在 | 待精修/运行复核 | removeFile及移除按钮未按disabled限制。 |

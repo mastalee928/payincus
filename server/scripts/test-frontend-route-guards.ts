@@ -942,6 +942,11 @@ assert.ok(
     !instanceLogsTabSource.includes('class="w-full min-w-[600px]"'),
   'InstanceLogsTab must keep desktop logs in a fixed table without horizontal overflow while preserving search, reset, and expand actions'
 )
+assert.ok(instanceLogsTabSource.includes('sequence === requestSequence && session === sessionKey.value') &&
+  instanceLogsTabSource.includes('instanceId === props.instanceId && instanceName === props.instanceName') &&
+  instanceLogsTabSource.includes('if (!current()) return') && instanceLogsTabSource.includes('pageActive.value = false; resetLogContext()') &&
+  instanceLogsTabSource.includes('log.instance_id !== instanceId') && instanceLogsTabSource.includes('v-else-if="loadError" role="alert"'),
+  'instance logs must discard stale query/session/instance results and distinguish failed reads from empty results')
 assert.ok(
   configEditModalSource.includes('class="overflow-hidden"') &&
     configEditModalSource.includes('class="w-full table-fixed"') &&

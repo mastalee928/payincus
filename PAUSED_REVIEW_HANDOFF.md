@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：8756778已push核远端；R289实例日志request/instance/name/session/cache隔离、失败清旧数据+重试、末页修正与展开清理已修，Chrome先红后绿/types/5守卫/manifest191/107/最终双端build exit0/dist通过，lint0错69旧表格缩进warning，准备push，无待poll。R290四文件reinstall-selection已先红镜像移除后仍emit旧alias；两modal与父调用、后台rebuild/recreate的镜像/密钥/验证/任务及3相关守卫已读，产品未改。须当前列表成员校验/深watch清失效与loading/visible函数门禁，重装可选key密码默认、重建必选key保持。父写回执/LogsView/327/R269/完整灾备仍待。
+
 > **最新接续**：440a34c已push核远端；R288旧套餐优惠码code/plan/price/source/session/route/cache+seq、同步失效与Turnstile后检查已修，Chrome先红后绿/types/4守卫/lint零错警/manifest191/106/最终双端build exit0/dist通过，准备单项push，无待poll。首次zone:7原本正确已实证，默认机器池/purchase保持。下一项R289四文件instance-logs先红old覆盖new，产品未改；组件完整script/template、父挂载、logs route/DB及query/localization守卫已读。应固定请求上下文、instance/session/cache代次、旧error/finally和失败时旧页数据；LogsView另有旧读风险。R290两modal script已读未改，327/R269/完整灾备未完。
 
 > **最新接续**：f31a86a已push；R287固定预览可操作ID/数量、modal/session/route/cache代次、busy与新勾选保护已修，Chrome完整先红后绿/types/4守卫/manifest191/105/最终双端build exit0/dist通过，lint0错12原模板warning，准备单项push。无待poll。R288四文件create-promo夹具已先红旧优惠码90%覆盖当前20%，同次证实首次专区7正确；旧InstanceCreateView产品未改，默认/purchase机器池一机一卖保持。AFF validate/create与守卫已读；补coupon code/plan/package/source/session/page/request身份与成功后改码失效，不把旧套餐修复当机器池验收。列表旧读/双timer与327/R269/完整灾备仍待。

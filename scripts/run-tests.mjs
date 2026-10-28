@@ -68,6 +68,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-ticket-instance-card', 'requires Chrome/Edge and local Vite; ticket instance card response, polling, action, session and cache lifecycle'],
   ['test:review-instance-batch-billing', 'requires Chrome/Edge and local Vite; batch billing preview targets, eligibility and session/cache/write response isolation'],
   ['test:review-create-promo', 'requires Chrome/Edge and local Vite; legacy create coupon/plan/session isolation and initial hosting-zone source'],
+  ['test:review-instance-logs', 'requires Chrome/Edge and local Vite; instance log query ordering, pagination, failure, session and cache lifecycle'],
   ['test:review-traffic-limit', 'requires isolated local *_pool_test PostgreSQL; actual user/instance traffic limit omission and bigint boundary validation'],
   ['test:review-traffic-reset-auth', 'requires isolated local *_pool_test PostgreSQL; actual traffic reset actor/target races, billing and baseline checks'],
   ['test:review-payment-locales', 'requires Chrome/Edge and local Vite; actual payment provider controls in three locales, read-only API fixture'],
