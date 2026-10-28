@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-229 SVG注入JSX样式文本
+
+- R230 `5ca08c0`与R226 `2567007`均已push且CI40711540441/40710740342最终success；R214 CI40708802507失败任务重跑后success。
+- 生成器改为只收集脚本外文档style，组件局部CSS继续实际JSX渲染。178份已生成SVG仅移除9026段重复注入的JSX原文、减少2361642字节；有效局部CSS及全部非style图形/defs逐字不变。原文件备份在`logs/badge-styles-before/`，没有在仓库资产目录运行会清目录的生成器。
+- `logs/takeover-badge-styles-guards.log`2/2通过（新增常规专项实际在新建隔离logs目录运行原生成器、核共享/局部style各一份、检查178资产），总清单190/66排除。`takeover-badge-styles-build.log`双端vue-tsc/build与dist通过；`takeover-badge-styles-browser.log`Chrome对178份前后图像关闭动画后逐像素一致，图形/有效局部CSS比较一致，截图`logs/badge-styles-browser/all-badges.png`已看。冻结图像比较不代表全动态逐帧验证。
+- R227的48份缺渐变及R228的生肖缺分号/星座art关键帧仍独立待修；源aaaa/bbbb.html及对应git历史未找到，不能宣称完整目录从原源重建通过。327与完整灾备仍未完成。
+
 ## 2026-10-28 R1-230 徽章目录迟到后的图片恢复
 
 - R226 `2567007`已push并核远端一致。BadgeImage实际图片地址与失败状态分离，目录返回新地址自动重试，相同失败地址的元数据更新不反复请求；按最终URL重建img，并核事件currentTarget是当前img，防被移除旧节点error污染新图。未改徽章目录API/业务或图形样式。

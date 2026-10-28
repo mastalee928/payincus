@@ -264,7 +264,7 @@
 | R1-226 | 部分存在 | 源码已修/浏览器隔离验证通过 | Billing传overview active，结合KeepAlive、document visibility、session、status/history标签控制单一串行定时器；隐藏即清计时器/旧读取消/旧回执无效，恢复立即刷新。历史保同会话筛选页码、换会话重置。takeover-expiry-panel-browser-final/guards-final/build-final/server-types/dist日志：真实Vue/可控API计时器可见性、4守卫、双端类型构建与边界通过；非真实后台巡检执行。 |
 | R1-227 | 存在 | 待精修/运行复核 | 无修改静态扫描178份SVG，48份含缺失url(#id)引用，如dark/aquarius的bg-a-air-d；未运行会重建目录的生成器。 |
 | R1-228 | 存在 | 待精修/运行复核 | 生肖样式含animation...alternate transform-origin缺分号；aquarius内animation:art而未找到@keyframes art。静态生成资产证据，实际动效仍需浏览器。 |
-| R1-229 | 存在 | 待精修/运行复核 | 全html正则收集<style>块并逐SVG注入，连JSX {`...`}原文也重复输出到178资产的相关系列；未运行会重建目录的生成器。 |
+| R1-229 | 存在 | 源码/178资产已修/生成及浏览器核验通过 | 生成器仅收集脚本外文档style，组件局部CSS仍由JSX渲染；178 SVG清除9026段重复JSX原文约2.36MB，图形/defs及本地有效CSS逐字不变。隔离新目录实际运行生成器，190清单/2守卫/双端types build/dist通过；Chrome178图冻结动画像素前后一致（takeover-badge-styles-browser.log），非全部动态逐帧验收。原HTML缺失，未在正式资产目录执行重建。 |
 | R1-230 | 存在 | 源码已修/浏览器验证通过 | requestedUrl独立于失败状态并跟随真实目录URL，URL变化重试，同URL元数据更新不重复请求失败图；按URL重建img并核currentTarget，旧移除节点error不污染新图。takeover-badge-image-before-final复现；browser-final真实Vue/Pinia+HTTP图像通过迟到目录/主题/ID/修复URL/旧error/稳定fallback，双端types build/dist/2守卫/lint通过。非线上目录修改。 |
 | R1-231 | 存在 | 待精修/运行复核 | onMounted loadOverview，缺onActivated及请求代次/卸载保护；缓存返回不刷新、旧完成仍回写。 |
 | R1-232 | 存在 | 待精修/运行复核 | 仅watch visible无immediate；emit可沿用旧ownership结果，初始打开/关闭重开需要代次绑定。 |

@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
+import { documentBadgeStyles } from './lib/badge-styles.mjs'
 
 import ts from '../node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib/typescript.js'
 
@@ -227,11 +228,7 @@ const seenBadgeIds = new Set()
 for (const source of availableSourceFiles) {
   const sourcePath = path.join(rootDir, source.fileName)
   const html = fs.readFileSync(sourcePath, 'utf8')
-  const styleMatches = Array.from(html.matchAll(/<style>([\s\S]*?)<\/style>/g))
-  const extraStyles = styleMatches
-    .map(match => match[1].trim())
-    .filter(Boolean)
-    .join('\n')
+  const extraStyles = documentBadgeStyles(html)
 
   const scriptMatch = html.match(/<script type="text\/babel">([\s\S]*?)<\/script>/)
   if (!scriptMatch) {
