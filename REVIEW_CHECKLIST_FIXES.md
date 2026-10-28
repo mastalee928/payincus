@@ -294,7 +294,7 @@
 | R1-256 | 存在 | 已修复；本地浏览器通过 | 显隐绑定KeepAlive活跃，关闭/离页/切语言/卸载abort并失效请求，隐藏不读，旧响应/body不回填。实际Chrome先红Teleport遗留后绿，缓存复用/关闭重开/卸载重建及语言回归；4守卫/lint/双端types build/dist通过（takeover-terms-lifecycle-*）。按最多2秒等待原关闭动画完成判DOM移除，法律内容不改。 |
 | R1-257 | 存在 | 源码已修；浏览器表格通过 | renderer.table使用header/rows的cell.tokens。jsdom及实际Chrome条款组件验证普通/仅表头/空单元格、加粗/链接/code、1440/390无整页横溢且截图已看（takeover-markdown-table-browser.log）；新专项接CI。仅补证据/测试，产品未改，R258/259继续。 |
 | R1-258 | 存在 | 已修；嵌套与任务浏览器通过 | 子tokens的链接/嵌套引用列表/任务/有序列表/字面code实际Chrome通过；截图发现勾选path.d丢失，浏览器/jsdom先红后修URI正则`.-:`意外数字范围，保留SVG几何及数字相对链接，危险/未知协议仍拒。3守卫/lint/最终完整双端types build/dist通过（takeover-markdown-tokens-*），手机截图已核勾选与外链图标。 |
-| R1-259 | 存在 | 源码已改/验证范围见右栏 | Markdown tokens渲染及DOMPurify白名单；jsdom；浏览器待验 |
+| R1-259 | 存在 | 源码已修；属性浏览器通过 | escapeHtml/DOMPurify实际Chrome验证引号/&/尖括号title和图片说明保持、格式化链接/外链rel、数字相对URL；危险标签/事件/协议移除，触发error/load/click后执行计数0，平台图标几何保留。桌面/手机截图及新CI专项通过本地检查（takeover-markdown-attributes-*）。非穷尽恶意HTML证明，法律内容不改。 |
 | R1-260 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
 | R1-261 | 实现不同 | 保留初审结论 | 本库新矢量地图/球体采用当前目录与坐标实现，未发现对方旧datacenter地图文件；不据此替换现行地图编码。 |
 | R1-262 | 已有防护 | 保留初审结论 | update/delete/batch/usages使用ForHost约束且校验code归属host，旧跨节点缺口已有防护。 |

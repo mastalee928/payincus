@@ -214,7 +214,9 @@ jobs:
           pnpm --filter server test:review-terms-language
           pnpm --filter server test:review-terms-lifecycle
       - name: Verify Markdown rendering in Chrome
-        run: pnpm --filter server test:review-markdown-browser
+        run: |
+          pnpm --filter server test:review-markdown-browser
+          pnpm --filter server test:review-markdown-attributes
       - name: Verify package empty fields in PostgreSQL
         run: pnpm --filter server test:review-package-empty-fields
 

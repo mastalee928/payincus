@@ -2,6 +2,11 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-259 Markdown属性与DOM过滤浏览器证据
+
+- R258 d8c8e33已push并核远端一致。本项补此前escapeHtml/DOMPurify源码的真实Chrome证据：`logs/takeover-markdown-attributes-browser.log`通过链接title及图片title/说明中的引号、&、尖括号、格式化链接、外链noopener/noreferrer和数字相对URL；脚本/iframe/object/事件属性与危险/未知协议移除。主动触发error/load/click后执行计数仍0，保留平台提示图标几何。
+- 实际TermsOfServiceModal/受控内容、桌面手机截图已检查；故意失效图片用于onerror验证，不是生产图片丢失。仅新增专项、CI和台账，沿用上一项最终类型/守卫/双端build/dist，manifest191常规85环境排除通过。证明已列测试输入，不声称穷尽所有恶意HTML或完成327。下一项R260支付页面三语专项继续。
+
 ## 2026-10-29 R1-258 Markdown嵌套内容与可见图形
 
 - R257 f1cc7c7已push；R256 98ad127 CI40757078467、R255 b4e0ef8 CI40756107209最终success。实际Chrome子tokens验证覆盖格式化链接、嵌套引用/列表、勾选/未勾选任务、有序列表与字面代码；截图发现已勾图标缺失，进一步确认DOMPurify清掉path.d。浏览器及jsdom新增断言均先红（takeover-markdown-tokens-before.log、takeover-markdown-geometry-before.log）。
