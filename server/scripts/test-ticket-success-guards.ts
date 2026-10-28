@@ -157,7 +157,7 @@ assert.ok(
 
 assert.ok(
   ticketsViewSource.includes('async function reopenTicket()') &&
-    ticketsViewSource.includes("await api.tickets.updateStatus(selectedTicket.value.id, 'open')") &&
+    ticketsViewSource.includes("await api.tickets.updateStatus(ticketId, 'open')") &&
     ticketsViewSource.includes("isCreator && selectedTicket.status === 'closed'") &&
     ticketsViewSource.includes("t('tickets.reopenSuccess')") &&
     zhCnLocale.includes('reopenSuccess:') &&

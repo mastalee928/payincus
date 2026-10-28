@@ -75,6 +75,12 @@ assert.ok(ticketsViewSource.includes('generation === detailGeneration') && ticke
   ticketsViewSource.includes('messagesPage.value = targetPage') && !ticketsViewSource.includes('messagesPage.value--') &&
   ticketsViewSource.includes(':disabled="!canReply"'),
   'ticket details, reply drafts, attachment URLs and pagination must stay with the current route/session/open attempt')
+assert.ok(ticketsViewSource.includes('await api.tickets.close(ticketId)') && ticketsViewSource.includes("await api.tickets.updateStatus(ticketId, 'open')") &&
+  ticketsViewSource.includes('await api.tickets.deleteMessage(ticketId, messageId)') &&
+  ticketsViewSource.includes('revision === noteRevision') && ticketsViewSource.includes('revision === notifyRevision') &&
+  ticketsViewSource.includes('revision === linkRevision') && ticketsViewSource.includes('revision === createRevision') &&
+  ticketsViewSource.includes('refreshAfterDetailWrite(ticketId, current)') && ticketsViewSource.includes('statusSubmitting || replying'),
+  'ticket writes must fix their targets, preserve later drafts, guard pending actions and ignore old navigation results')
 const renewModalSource = readRepoFile('client/src/components/instance/modals/RenewModal.vue')
 const changePlanModalSource = readRepoFile('client/src/components/instance/modals/ChangePlanModal.vue')
 const terminalPageSource = readRepoFile('client/src/views/TerminalView.vue')

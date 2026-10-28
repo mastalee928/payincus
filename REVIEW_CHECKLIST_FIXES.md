@@ -324,7 +324,7 @@
 | R1-282 | 存在 | 源码已修/Chrome验证通过 | KeepAlive激活停用注册/释放监听，离页清浮层但保连接；延迟剪贴板/聚焦绑定页面与session/标签/socket，输入框快捷键保留，标签button拆独立。takeover-terminal-lifecycle-final.log真实Chrome含fresh mobile/types/4守卫及route复跑/lint，构建证据见HANDOFF；WebSocket/clipboard受控，R283旧会话/票据与R284命令草稿仍待。 |
 | R1-283 | 存在 | 源码已修/Chrome验证通过 | 换session/logout销毁旧tab/连接/timer，list、cloud-init、ticket/attempt及WS事件/Blob/重连绑定原session+tab+socket；普通缓存保连接。takeover-terminal-session-final.log与R282回归/types/4守卫/lint通过，构建见HANDOFF；真实Chrome但API/socket替身，原生SSH/Incus未验。命令栏会话另见R284。 |
 | R1-284 | 存在 | 源码已修/Chrome验证通过 | 快捷命令按session/缓存/手机显隐隔离，list序号/ready/持久失败重试，固定写目标且保留新草稿/选择，在途写跨重开busy并重新加载；拆嵌套button并修手机定位。takeover-terminal-commands-final.log与父终端回归/types/3守卫+route复跑/lint/最终双端build及dist通过，API受控，真实命令落库/SSH未验。 |
-| R1-285 | 存在 | 详情/回复已修，其余写入待 | route/session/cache及读序号隔离、固定回复与新草稿保护、重开后待回复settle重读、翻页成功推进、附件URL代次释放已修；takeover-ticket-lifecycle-final.log真实Chrome/5守卫+最终2复跑/types/lint/双端build/dist通过，API受控。关闭/状态/备注/通知/关联/创建等仍待，close旧回执已另先红。 |
+| R1-285 | 存在 | 源码已修/Chrome验证通过 | route/session/cache读取隔离、固定回复/新草稿、重开待写settle重读、翻页/附件URL已修；关闭重开/状态/删除/备注/通知/关联/创建也固定目标与busy/草稿代次。takeover-ticket-lifecycle-final及ticket-actions-final与详情完整回归、5守卫/types/lint/双端build/dist通过，真实Chrome配受控API；后端持久投递/原生端到端不因此计完成，详见HANDOFF。 |
 | R1-286 | 部分存在 | 待精修/运行复核 | 已有latestRequestId，但核对后await loadStats再建timer，卸载/目标改变仍可在间隙发生。 |
 | R1-287 | 存在 | 待精修/运行复核 | 预览捕获ID，确认却重新读selectedBillingActionIds，提交集合可与已预览付款对象不一致。 |
 | R1-288 | 部分存在 | 待精修/运行复核 | 优惠码校验缺request sequence，旧结果可污染当前报价；首次专区来源是否错误需另对路由初始化，不按此一症状判全部成立。 |

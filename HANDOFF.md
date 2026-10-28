@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-285 关联工单写入与新草稿保护
+
+- d0b1c91已push核远端一致，c71d25c源码CI40782179348已success，d0b1c91最后仍运行。关闭/重开/状态、删除消息固定ticket/message，函数与按钮busy门禁；旧结果不改新工单、不提示或导航。备注/通知/关联对象固定参数与各自草稿revision，成功仅清原输入，busy跨重开保持；创建固定附件副本，新输入或离页后不清草稿/不跳转，当前成功仍进入新工单。
+- 状态写入前后失效旧详情/支持读取；重开同工单早于旧写入落地时重新读当前状态，初始详情未到先延后刷新；删除失效旧翻页、去掉当前消息且释放附件URL，并核当前成员。后端权限、通知投递、计费和实例操作未改。
+- `takeover-ticket-actions-before.log`Chrome先红关闭1污染2；`takeover-ticket-actions-final.log`通过当前/旧关闭重开状态、重复门禁、固定admin目标/新草稿、当前失败与旧失败、严格关联ID、删除去重、同工单初读与旧close竞争、创建新草稿/当前跳转/离页、普通用户admin动作零调用、logout/unmount。管理员1440中文/390英文截图已核，无横向溢出/运行异常；通知调用仅受控API，不发送真实通知。
+- `takeover-ticket-actions-detail-regression.log`上一批完整详情/回复/附件回归通过；client types、5相关守卫、lint零error/warning、manifest191/103、最终双端build exit0及dist边界通过；新专项已登记CI。受控浏览器不代替后端PG/原生端到端验收，R285按已验证前端范围记录。
+- 下一项R286四文件ticket-instance-card夹具先红（`takeover-ticket-card-before.log`）：卸载后迟到stats恢复polling，3250ms后再次请求；组件完整读取/操作/生命周期、相关实例routes与任务守卫已读，产品未改，不混入本提交。共享TerminalModal独立生命周期、327/R269/完整灾备仍待。
+
 ## 2026-10-29 R1-285 工单详情、回复与附件回执隔离
 
 - c71d25c已push核远端一致，cc5fd54源码CI40780854170已success，c71d25c最后仍运行。工单页面按严格route ID、账号/角色/session、打开及缓存代次隔离；详情拒错目标，列表/未读/支持上下文/实例列表各自序号，旧success/error/finally不覆盖当前。离页取消搜索计时、清详情/草稿/附件和灯箱，同sid刷新保持。

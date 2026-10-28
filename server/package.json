@@ -39,6 +39,7 @@
     "test:review-terminal-session": "node ../scripts/test-terminal-session.mjs",
     "test:review-terminal-commands-lifecycle": "node ../scripts/test-terminal-commands-lifecycle.mjs",
     "test:review-ticket-lifecycle": "node ../scripts/test-ticket-lifecycle.mjs",
+    "test:review-ticket-actions": "node ../scripts/test-ticket-actions.mjs",
     "test:review-prize-editor": "node ../scripts/test-prize-editor.mjs",
     "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",

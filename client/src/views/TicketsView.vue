@@ -58,6 +58,8 @@ let instancesSequence = 0
 let messagesSequence = 0
 let attachmentGeneration = 0
 let refreshMessagesAfterLoad = false
+let refreshStateAfterLoad = false
+let ticketStateSequence = 0
 const requestedTicketId = ref<number | null>(null)
 function capturePage() {
   const generation = pageGeneration, session = sessionKey.value, path = route.fullPath
@@ -125,6 +127,14 @@ const linkForm = ref({
   objectId: ''
 })
 const linkSubmitting = ref(false)
+const statusSubmitting = ref(false)
+const messageDeleting = ref(false)
+let noteRevision = 0
+let notifyRevision = 0
+let linkRevision = 0
+watch(internalNoteContent, () => { noteRevision++ }, { flush: 'sync' })
+watch(notifyContent, () => { notifyRevision++ }, { flush: 'sync' })
+watch(linkForm, () => { linkRevision++ }, { deep: true, flush: 'sync' })
 
 // Messages pagination
 const messagesPage = ref(1)
@@ -141,6 +151,7 @@ const replyAttachments = ref<File[]>([])
 let replyRevision = 0
 watch([replyContent, replyAttachments], () => { replyRevision++ }, { deep: true, flush: 'sync' })
 const canReply = computed(() => captureDetail()() && !messagesLoading.value && !replying.value &&
+  !statusSubmitting.value && !messageDeleting.value &&
   selectedTicket.value?.status !== 'closed' && (isOwner.value || isCreator.value) &&
   (!!replyContent.value.trim() || replyAttachments.value.length > 0))
 
@@ -154,6 +165,8 @@ const createForm = ref({
 })
 const creating = ref(false)
 const createAttachments = ref<File[]>([])
+let createRevision = 0
+watch([createForm, createAttachments], () => { createRevision++ }, { deep: true, flush: 'sync' })
 const availableInstances = ref<InstanceWithDetails[]>([])
 const instancesLoading = ref(false)
 const attachmentObjectUrls = ref<Record<number, string>>({})
@@ -354,8 +367,10 @@ function buildTicketsQuery(options: {
 
 function resetDetailState() {
   refreshMessagesAfterLoad = false
+  refreshStateAfterLoad = false
   detailGeneration++
   supportSequence++
+  ticketStateSequence++
   messagesSequence++
   requestedTicketId.value = null
   messagesLoading.value = false
@@ -438,6 +453,11 @@ async function openTicketDetail(ticketId: number): Promise<void> {
       if (selectedTicket.value && refreshMessagesAfterLoad) {
         refreshMessagesAfterLoad = false
         void refreshCurrentMessages(ticketId)
+      }
+      if (selectedTicket.value && refreshStateAfterLoad) {
+        refreshStateAfterLoad = false
+        void refreshTicketState(ticketId)
+        if (authStore.isAdmin) void loadSupportContext(ticketId)
       }
     }
   }
@@ -680,7 +700,7 @@ async function viewTicket(ticket: Ticket) {
 // Load more messages
 async function loadMoreMessages() {
   const ticketId = selectedTicket.value?.id, context = captureDetail(ticketId)
-  if (!ticketId || !context() || messagesLoading.value || messagesLoadingMore.value) return
+  if (!ticketId || !context() || messagesLoading.value || messagesLoadingMore.value || messageDeleting.value) return
   if (messagesPage.value >= messagesTotalPages.value) return
   const sequence = ++messagesSequence
   const current = () => context() && sequence === messagesSequence
@@ -737,8 +757,7 @@ async function handleReply() {
   const ticketId = selectedTicket.value.id, current = captureDetail(ticketId), revision = replyRevision
   const content = replyContent.value.trim(), attachments = [...replyAttachments.value]
   const draftCurrent = () => current() && revision === replyRevision
-  supportSequence++
-  supportContextLoading.value = false
+  invalidateTicketReads()
   
   pendingReplies.value++
   try {
@@ -777,120 +796,208 @@ async function handleReply() {
 }
 
 // Status update
+function canWriteDetail() {
+  return !!selectedTicket.value && captureDetail()() && !messagesLoading.value
+}
+
+function invalidateTicketReads() {
+  supportSequence++
+  ticketStateSequence++
+  supportContextLoading.value = false
+}
+
+async function refreshTicketState(ticketId: number) {
+  const context = captureDetail(ticketId), sequence = ++ticketStateSequence
+  const current = () => context() && sequence === ticketStateSequence
+  if (!current()) return
+  try {
+    const response = await api.tickets.get(ticketId)
+    if (!current()) return
+    if (response.ticket.id !== ticketId) throw new Error(t('common.error'))
+    selectedTicket.value = response.ticket
+    isOwner.value = response.isOwner
+    isCreator.value = response.isCreator
+  } catch (error: any) {
+    if (current()) toast.error(error?.message || t('common.error'))
+  }
+}
+
+function refreshAfterDetailWrite(ticketId: number, current: () => boolean) {
+  if (!captureDetail(ticketId)()) return
+  if (!selectedTicket.value) { refreshStateAfterLoad = true; return }
+  if (!current()) void refreshTicketState(ticketId)
+  if (authStore.isAdmin) void loadSupportContext(ticketId)
+}
+
 async function updateStatus(status: TicketStatus) {
-  if (!selectedTicket.value) return
+  if (!canWriteDetail() || !selectedTicket.value || !isOwner.value || statusSubmitting.value || replying.value || !statuses.includes(status)) return
+  const ticketId = selectedTicket.value.id, current = captureDetail(ticketId)
+  statusSubmitting.value = true
+  invalidateTicketReads()
   
   try {
-    await api.tickets.updateStatus(selectedTicket.value.id, status)
-    selectedTicket.value.status = status
+    const response = await api.tickets.updateStatus(ticketId, status)
+    if (!current() || !selectedTicket.value) return
+    if (response.status !== status) throw new Error(t('common.error'))
+    invalidateTicketReads()
+    selectedTicket.value.status = response.status
     toast.success(t('tickets.statusUpdated'))
     loadPendingCount()
     loadTickets(true)
-    if (authStore.isAdmin) {
-      await loadSupportContext()
-    }
   } catch (error: any) {
-    toast.error(error?.message || t('common.error'))
+    if (current()) toast.error(error?.message || t('common.error'))
+  } finally {
+    statusSubmitting.value = false
+    refreshAfterDetailWrite(ticketId, current)
   }
 }
 
 // Close ticket
 async function closeTicket() {
-  if (!selectedTicket.value) return
+  if (!canWriteDetail() || !selectedTicket.value || !(isOwner.value || isCreator.value) || statusSubmitting.value || replying.value || selectedTicket.value.status === 'closed') return
+  const ticketId = selectedTicket.value.id, current = captureDetail(ticketId)
   if (!confirm(t('tickets.confirmCloseHint'))) return
+  if (!current()) return
+  statusSubmitting.value = true
+  invalidateTicketReads()
   
   try {
-    await api.tickets.close(selectedTicket.value.id)
+    await api.tickets.close(ticketId)
+    if (!current() || !selectedTicket.value) return
+    invalidateTicketReads()
     selectedTicket.value.status = 'closed'
     toast.success(t('tickets.closeSuccess'))
     loadPendingCount()
     loadTickets(true)
-    if (authStore.isAdmin) {
-      await loadSupportContext()
-    }
   } catch (error: any) {
-    toast.error(error?.message || t('common.error'))
+    if (current()) toast.error(error?.message || t('common.error'))
+  } finally {
+    statusSubmitting.value = false
+    refreshAfterDetailWrite(ticketId, current)
   }
 }
 
 // Reopen own closed ticket
 async function reopenTicket() {
-  if (!selectedTicket.value || !isCreator.value || selectedTicket.value.status !== 'closed') return
+  if (!canWriteDetail() || !selectedTicket.value || !isCreator.value || selectedTicket.value.status !== 'closed' || statusSubmitting.value || replying.value) return
+  const ticketId = selectedTicket.value.id, current = captureDetail(ticketId)
+  statusSubmitting.value = true
+  invalidateTicketReads()
 
   try {
-    await api.tickets.updateStatus(selectedTicket.value.id, 'open')
+    const response = await api.tickets.updateStatus(ticketId, 'open')
+    if (!current() || !selectedTicket.value) return
+    if (response.status !== 'open') throw new Error(t('common.error'))
+    invalidateTicketReads()
     selectedTicket.value.status = 'open'
     toast.success(t('tickets.reopenSuccess'))
     loadPendingCount()
     loadTickets(true)
   } catch (error: any) {
-    toast.error(error?.message || t('common.error'))
+    if (current()) toast.error(error?.message || t('common.error'))
+  } finally {
+    statusSubmitting.value = false
+    refreshAfterDetailWrite(ticketId, current)
   }
 }
 
 // Delete message (仅管理员)
 async function confirmDeleteMessage(message: TicketMessage) {
-  if (!selectedTicket.value) return
+  if (!canWriteDetail() || !selectedTicket.value || !authStore.isAdmin || messageDeleting.value || replying.value ||
+    message.ticketId !== selectedTicket.value.id || !messages.value.some(item => item.id === message.id)) return
+  const ticketId = selectedTicket.value.id, messageId = message.id, current = captureDetail(ticketId)
   if (!confirm(t('tickets.confirmDeleteMessage'))) return
+  if (!current()) return
+  messageDeleting.value = true
+  messagesSequence++
+  messagesLoadingMore.value = false
+  invalidateTicketReads()
   
   try {
-    await api.tickets.deleteMessage(selectedTicket.value.id, message.id)
+    await api.tickets.deleteMessage(ticketId, messageId)
+    if (!current()) return
+    messagesSequence++
+    messagesLoadingMore.value = false
     // 从列表中移除已删除的消息
-    messages.value = messages.value.filter(m => m.id !== message.id)
-    messagesTotal.value--
+    if (messages.value.some(item => item.id === messageId)) messagesTotal.value = Math.max(0, messagesTotal.value - 1)
+    messages.value = messages.value.filter(m => m.id !== messageId)
+    revokeAttachmentUrls()
+    lightboxOpen.value = false
+    void ensureMessageAttachmentUrls(messages.value)
     toast.success(t('tickets.deleteMessageSuccess'))
   } catch (error: any) {
-    toast.error(error?.message || t('common.error'))
+    if (current()) toast.error(error?.message || t('common.error'))
+  } finally {
+    messageDeleting.value = false
+    if (!current() && captureDetail(ticketId)()) {
+      if (selectedTicket.value) void refreshCurrentMessages(ticketId)
+      else refreshMessagesAfterLoad = true
+    }
+    refreshAfterDetailWrite(ticketId, current)
   }
 }
 
 async function submitInternalNote() {
-  if (!selectedTicket.value || !internalNoteContent.value.trim()) return
+  if (!canWriteDetail() || !selectedTicket.value || !authStore.isAdmin || internalNoteSubmitting.value || !internalNoteContent.value.trim()) return
+  const ticketId = selectedTicket.value.id, current = captureDetail(ticketId), revision = noteRevision
+  const content = internalNoteContent.value.trim(), draftCurrent = () => current() && revision === noteRevision
   internalNoteSubmitting.value = true
+  invalidateTicketReads()
   try {
-    await api.tickets.createInternalNote(selectedTicket.value.id, internalNoteContent.value.trim())
-    internalNoteContent.value = ''
+    const response = await api.tickets.createInternalNote(ticketId, content)
+    if (!current()) return
+    if (response.note.ticketId !== ticketId) throw new Error(t('common.error'))
+    if (draftCurrent()) internalNoteContent.value = ''
     toast.success(t('tickets.support.noteSaved'))
-    await loadSupportContext()
   } catch (error: any) {
-    toast.error(error?.message || t('common.error'))
+    if (draftCurrent()) toast.error(error?.message || t('common.error'))
   } finally {
     internalNoteSubmitting.value = false
+    refreshAfterDetailWrite(ticketId, current)
   }
 }
 
 async function submitNotifyUser() {
-  if (!selectedTicket.value || !notifyContent.value.trim()) return
+  if (!canWriteDetail() || !selectedTicket.value || !authStore.isAdmin || notifySubmitting.value || !notifyContent.value.trim()) return
+  const ticketId = selectedTicket.value.id, current = captureDetail(ticketId), revision = notifyRevision
+  const content = notifyContent.value.trim(), draftCurrent = () => current() && revision === notifyRevision
   notifySubmitting.value = true
+  invalidateTicketReads()
   try {
-    await api.tickets.notifyUser(selectedTicket.value.id, notifyContent.value.trim())
-    notifyContent.value = ''
+    await api.tickets.notifyUser(ticketId, content)
+    if (!current()) return
+    if (draftCurrent()) notifyContent.value = ''
     toast.success(t('tickets.support.noticeSent'))
-    await loadSupportContext()
   } catch (error: any) {
-    toast.error(error?.message || t('common.error'))
+    if (draftCurrent()) toast.error(error?.message || t('common.error'))
   } finally {
     notifySubmitting.value = false
+    refreshAfterDetailWrite(ticketId, current)
   }
 }
 
 async function submitLinkObject() {
-  if (!selectedTicket.value) return
+  if (!canWriteDetail() || !selectedTicket.value || !authStore.isAdmin || linkSubmitting.value) return
+  const ticketId = selectedTicket.value.id, current = captureDetail(ticketId), revision = linkRevision
+  const objectType = linkForm.value.objectType, draftCurrent = () => current() && revision === linkRevision
   const objectId = Number(linkForm.value.objectId)
-  if (!Number.isInteger(objectId) || objectId <= 0) {
+  if (!/^[1-9]\d*$/.test(linkForm.value.objectId) || !Number.isSafeInteger(objectId) || objectId > 2_147_483_647 || !ticketLinkTypes.includes(objectType)) {
     toast.error(t('tickets.support.invalidObjectId'))
     return
   }
   linkSubmitting.value = true
+  invalidateTicketReads()
   try {
-    await api.tickets.linkObject(selectedTicket.value.id, linkForm.value.objectType, objectId)
-    linkForm.value.objectId = ''
+    const response = await api.tickets.linkObject(ticketId, objectType, objectId)
+    if (!current()) return
+    if (response.link.ticketId !== ticketId) throw new Error(t('common.error'))
+    if (draftCurrent()) linkForm.value.objectId = ''
     toast.success(t('tickets.support.linkSaved'))
-    await loadSupportContext()
   } catch (error: any) {
-    toast.error(error?.message || t('common.error'))
+    if (draftCurrent()) toast.error(error?.message || t('common.error'))
   } finally {
     linkSubmitting.value = false
+    refreshAfterDetailWrite(ticketId, current)
   }
 }
 
@@ -937,7 +1044,10 @@ async function loadAvailableInstances() {
 }
 
 async function submitCreate() {
-  if (!configStore.ticketEnabled) return
+  const context = capturePage(), revision = createRevision
+  const current = () => context() && viewMode.value === 'create' && !authStore.isAdmin
+  const draftCurrent = () => current() && revision === createRevision
+  if (!configStore.ticketEnabled || !current() || creating.value || instancesLoading.value) return
   if (createForm.value.subject.trim().length < 2) {
     toast.error(t('tickets.subject') + ' ' + t('common.error'))
     return
@@ -955,17 +1065,20 @@ async function submitCreate() {
       category: createForm.value.category,
       priority: createForm.value.priority,
       content: createForm.value.content.trim(),
-      attachments: createAttachments.value
+      attachments: [...createAttachments.value]
     })
+    if (!current()) return
     toast.success(t('tickets.createSuccess'))
+    if (!draftCurrent()) return
     activeTab.value = 'my'
     await Promise.all([loadTickets(), loadPendingCount()])
+    if (!draftCurrent()) return
     await router.replace({
       path: ticketsPath(),
       query: buildTicketsQuery({ tab: 'my', ticketId: res.ticket.id })
     })
   } catch (error: any) {
-    toast.error(error?.message || t('common.error'))
+    if (draftCurrent()) toast.error(error?.message || t('common.error'))
   } finally {
     creating.value = false
   }
@@ -1353,23 +1466,23 @@ function formatDateShort(dateString: string) {
             
             <!-- Owner Actions -->
             <div v-if="isOwner && selectedTicket.status !== 'closed'" class="flex flex-wrap gap-2 mt-4">
-              <button v-if="selectedTicket.status === 'open'" class="btn btn-secondary btn-sm" @click="updateStatus('in_progress')">
+              <button v-if="selectedTicket.status === 'open'" :disabled="statusSubmitting || replying" class="btn btn-secondary btn-sm" @click="updateStatus('in_progress')">
                 {{ t('tickets.markInProgress') }}
               </button>
-              <button v-if="selectedTicket.status !== 'resolved'" class="btn btn-secondary btn-sm" @click="updateStatus('resolved')">
+              <button v-if="selectedTicket.status !== 'resolved'" :disabled="statusSubmitting || replying" class="btn btn-secondary btn-sm" @click="updateStatus('resolved')">
                 {{ t('tickets.markResolved') }}
               </button>
-              <button class="btn btn-secondary btn-sm" @click="closeTicket">
+              <button :disabled="statusSubmitting || replying" class="btn btn-secondary btn-sm" @click="closeTicket">
                 {{ t('tickets.close') }}
               </button>
             </div>
             <div v-else-if="isCreator && selectedTicket.status !== 'closed'" class="mt-4">
-              <button class="btn btn-secondary btn-sm" @click="closeTicket">
+              <button :disabled="statusSubmitting || replying" class="btn btn-secondary btn-sm" @click="closeTicket">
                 {{ t('tickets.close') }}
               </button>
             </div>
             <div v-else-if="isCreator && selectedTicket.status === 'closed'" class="mt-4">
-              <button class="btn btn-secondary btn-sm" @click="reopenTicket">
+              <button :disabled="statusSubmitting || replying" class="btn btn-secondary btn-sm" @click="reopenTicket">
                 {{ t('tickets.reopen') }}
               </button>
             </div>
@@ -1539,7 +1652,7 @@ function formatDateShort(dateString: string) {
           <div id="messages-container" class="max-h-96 overflow-y-auto p-4 sm:p-6 space-y-4">
             <!-- Load More Button (at top) -->
             <div v-if="messagesTotalPages > 1 && messagesPage < messagesTotalPages" class="flex justify-center">
-              <button :disabled="messagesLoadingMore" class="btn btn-secondary btn-sm" @click="loadMoreMessages">
+              <button :disabled="messagesLoadingMore || messageDeleting" class="btn btn-secondary btn-sm" @click="loadMoreMessages">
                 <span v-if="messagesLoadingMore" class="flex items-center gap-2">
                   <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
@@ -1571,6 +1684,7 @@ function formatDateShort(dateString: string) {
                     <!-- 管理员删除按钮 -->
                     <button
                       v-if="authStore.isAdmin"
+                      :disabled="messageDeleting || replying"
                       class="p-1 text-themed-faint hover:text-red-500 transition-colors"
                       :title="t('tickets.deleteMessage')"
                       @click="confirmDeleteMessage(message)"
@@ -1715,7 +1829,7 @@ function formatDateShort(dateString: string) {
               <button type="button" class="btn btn-ghost" @click="backToList">
                 {{ t('common.cancel') }}
               </button>
-              <button type="submit" :disabled="creating" class="btn btn-primary">
+              <button type="submit" :disabled="creating || instancesLoading" class="btn btn-primary">
                 {{ creating ? t('common.processing') : t('tickets.createTicket') }}
               </button>
             </div>
