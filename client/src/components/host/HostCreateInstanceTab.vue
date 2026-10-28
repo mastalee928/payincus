@@ -5,7 +5,7 @@
  * - gift mode: host owner creates free instance or paid instance with free gifted days for another user
  */
 import { ref, computed, onActivated, onDeactivated, onMounted, onUnmounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -63,6 +63,7 @@ type TargetLookupState = 'idle' | 'checking' | 'found' | 'not_found' | 'inactive
 const props = defineProps<Props>()
 
 const router = useRouter()
+const route = useRoute()
 const { t } = useI18n()
 const authStore = useAuthStore()
 const toast = useToast()
@@ -102,6 +103,18 @@ const sessionKey = computed(() => {
   } catch { /* Legacy tokens retain their full identity. */ }
   return `${authStore.user.id}:${authStore.user.role}:${identity}`
 })
+let writeContextSequence = 0
+watch([() => props.hostId, sessionKey, targetLookupActive, () => route.fullPath], () => {
+  writeContextSequence++
+}, { flush: 'sync' })
+function currentWriteContext(context: number): boolean {
+  return !disposed && targetLookupActive.value && !!sessionKey.value && context === writeContextSequence
+}
+
+function draftSnapshot(): string {
+  return JSON.stringify({ form: form.value, mode: createMode.value, target: targetUsername.value,
+    giftType: giftInstanceType.value, days: giftDays.value, planId: selectedPlanId.value })
+}
 
 const form = ref({
   name: '',
@@ -443,7 +456,7 @@ onMounted(async () => {
   await loadData()
 })
 
-async function handleSelfSubmit(): Promise<void> {
+async function handleSelfSubmit(context: number): Promise<void> {
   if (!canSubmitSelf.value) return
 
   const nameValidation = validateInstanceName(form.value.name, t('instance.name'), 2, 64)
@@ -462,6 +475,7 @@ async function handleSelfSubmit(): Promise<void> {
     return
   }
 
+  const draft = draftSnapshot()
   const result = await api.instances.create({
     name: form.value.name.trim(),
     packageId: form.value.packageId,
@@ -471,17 +485,18 @@ async function handleSelfSubmit(): Promise<void> {
     memory: form.value.memory,
     disk: form.value.disk,
     sshKeyId: form.value.sshKeyId,
-    customInitCommandIds: form.value.customInitCommandIds
+    customInitCommandIds: [...form.value.customInitCommandIds]
   })
 
+  if (!currentWriteContext(context)) return
   toast.success(t('host.createInstance.success'))
 
-  if (result.instance?.id) {
+  if (result.instance?.id && draft === draftSnapshot()) {
     router.push(instanceDetailPath(result.instance.id))
   }
 }
 
-async function handleGiftSubmit(): Promise<void> {
+async function handleGiftSubmit(context: number): Promise<void> {
   if (!canSubmitGift.value || !targetUser.value || form.value.packageId === null) return
 
   const nameValidation = validateInstanceName(form.value.name, t('instance.name'), 2, 64)
@@ -516,10 +531,13 @@ async function handleGiftSubmit(): Promise<void> {
     payload.disk = form.value.disk
   }
 
+  const draft = draftSnapshot()
   await api.hosts.createInstanceForUser(props.hostId, payload)
 
+  if (!currentWriteContext(context)) return
   toast.success(t('host.createInstance.giftSuccess', { username: payload.username }))
 
+  if (draft !== draftSnapshot()) return
   targetUsername.value = ''
   targetLookupState.value = 'idle'
   targetUser.value = null
@@ -529,17 +547,18 @@ async function handleGiftSubmit(): Promise<void> {
 }
 
 async function handleSubmit(): Promise<void> {
-  if (submitting.value || !canSubmit.value) return
+  if (!currentWriteContext(writeContextSequence) || submitting.value || !canSubmit.value) return
 
+  const context = writeContextSequence
   submitting.value = true
   try {
     if (createMode.value === 'self') {
-      await handleSelfSubmit()
+      await handleSelfSubmit(context)
     } else {
-      await handleGiftSubmit()
+      await handleGiftSubmit(context)
     }
   } catch (err: any) {
-    toast.error(translateError(err))
+    if (currentWriteContext(context)) toast.error(translateError(err))
   } finally {
     submitting.value = false
   }

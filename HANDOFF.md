@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-249 宿主创建旧回执与新草稿
+
+- R247 3a760c2已push并核远端一致，CI40745605752最后运行。自用/赠送创建捕获页面host/session/route/cache代次，旧success/error不能toast、导航或清草稿；请求开始保留草稿快照，仅草稿不变时执行原重置/导航，初始化命令ID数组也复制到提交payload。R248已将赠送成功名称固定到请求payload，本项继续保护整个写回执。
+- `logs/takeover-host-create-save-before.log`真实Chrome先复现等待期间的新目标被成功回执清空；`takeover-host-create-save-browser.log`通过赠送新草稿保留、缓存离开返回/换host/session/卸载旧成功失败静默、当前失败保输入、自用新草稿不导航/离页回执不导航，以及R247/248完整回归。3守卫/lint/双端vue-tsc/build/dist通过。实际Vue+受控API，无真实创建/客户网络/凭据显示。
+- 本项保留单组件在途门禁；不声称重载浏览器后的后端create幂等。R250初读失败重试与host/session整体刷新仍未修，327与完整灾备继续。
+
 ## 2026-10-29 R1-247 宿主创建方案与镜像乱序
 
 - R248 c7e8f28已push并核远端一致，CI40744550016最后仍运行。方案/镜像分别维护请求序号，并绑定请求时host/session/package；套餐选择自身也有代次，旧方案完成不能继续发起新图像读取。开始读取清旧方案/镜像，成功/失败/finally仅当前请求可回填，创建要求辅助读取结束且镜像属于当前列表。
