@@ -1077,9 +1077,27 @@ export async function addTicketMessage(
   senderId: number,
   content: string,
   isFromOwner: boolean,
-  attachments: CreateTicketMessageAttachmentData[] = []
+  attachments: CreateTicketMessageAttachmentData[] = [],
+  actor?: WriteActor & { role: 'user' | 'admin' }
 ): Promise<TicketMessage> {
   const message = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+    await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${ticketId} FOR UPDATE`
+    const currentTicket = await tx.ticket.findUnique({ where: { id: ticketId }, select: { userId: true, hostId: true } })
+    if (!currentTicket) throw new TicketMutationError('工单已不存在，请刷新后重试', 404, 'TICKET_NOT_FOUND')
+    let hostOwnerId: number | undefined
+    if (currentTicket.hostId !== null) {
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${currentTicket.hostId} FOR SHARE`
+      hostOwnerId = (await tx.host.findUnique({ where: { id: currentTicket.hostId }, select: { userId: true } }))?.userId
+    }
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${senderId} FOR UPDATE`
+    const sender = await tx.user.findUnique({ where: { id: senderId }, select: { status: true, role: true } })
+    const currentSupport = actor !== undefined && (sender?.role === 'admin' || hostOwnerId === senderId)
+    if (sender?.status !== 'active' || currentTicket.userId !== senderId && !currentSupport ||
+      isFromOwner !== currentSupport || actor && (actor.id !== senderId || actor.role !== sender.role ||
+        !await authorizeUserWrite(tx, senderId, actor))) {
+      throw new TicketMutationError('账户、登录授权或工单处理权限已变化，请刷新后重试', 403, 'TICKET_ACTOR_FORBIDDEN')
+    }
     const repliedAt = new Date()
     const ticketUpdate = await tx.ticket.updateMany({
       where: {

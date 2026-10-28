@@ -2353,6 +2353,9 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
       if (uploadedAttachments.length > 0) {
         await cleanupUploadedTicketImages(uploadedAttachments)
       }
+      if (error instanceof TicketMutationError) {
+        return reply.code(error.statusCode).send({ error: error.message, code: error.code })
+      }
       if (!isHandledTicketPayloadError(error)) {
         throw error
       }

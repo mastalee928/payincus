@@ -56,6 +56,12 @@ const addTicketMessageEnd = dbSource.indexOf('/**\n * 更新工单状态', addTi
 assert.notEqual(addTicketMessageStart, -1, 'addTicketMessage helper must exist')
 assert.notEqual(addTicketMessageEnd, -1, 'ticket status helper must follow addTicketMessage')
 const addTicketMessageSource = dbSource.slice(addTicketMessageStart, addTicketMessageEnd)
+assert.ok(addTicketMessageSource.includes('SELECT id FROM tickets WHERE id = ${ticketId} FOR UPDATE') &&
+  addTicketMessageSource.includes('authorizeUserWrite(tx, senderId, actor)') &&
+  addTicketMessageSource.includes('currentTicket.userId !== senderId && !currentSupport') &&
+  addTicketMessageSource.includes('isFromOwner !== currentSupport') &&
+  addTicketMessageSource.indexOf('authorizeUserWrite(tx, senderId, actor)') < addTicketMessageSource.indexOf('tx.ticketMessage.create('),
+  'ticket replies must recheck current session, customer/support identity and host ownership before creating messages')
 assert.ok(
   addTicketMessageSource.includes('if (isFromOwner)') &&
     addTicketMessageSource.includes('firstRespondedAt: repliedAt') &&

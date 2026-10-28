@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-186 工单回复当前权限
+
+- R187的eaef6ea CI40659933408最终success；创建会话保护`e244d8fabe2b4200fc968e86cc997d95362f8f4a`已push并核远端一致，CI40660398704检查时仍运行。
+- 回复事务锁工单→host→发送人，重核当前active、完整web actor/session/角色、工单创建者或当前host owner/admin。`isFromOwner`必须与当前权限匹配，不能以旧客服标记写入；Public API无web actor只允许当前创建者且不能冒充客服。工单闭合门禁和首响应/SLA变更在同事务，网站/Public API授权异常正常403/404并保留附件失败清理。
+- `logs/takeover-ticket-reply-authorization-r1.log`真实PG/Fastify：原创建八竞争加回复十二竞争（helper/网站封禁、单/全session撤销、降权、host转移、closed），拒绝零消息与首响应写入；正常host客服、客户回复/已解决重开、错误客服标记和非web创建者路径通过。5/5工单/Public API守卫`takeover-ticket-reply-guards.log`、server build `takeover-ticket-reply-build.log`、专项类型`takeover-ticket-reply-types.log`通过。
+- 其它状态/关闭/备注/链接/删除消息、通知授权和PAT在途撤销仍未完成；未真实附件服务、浏览器或生产验收。按owner要求此项先保存推送，继续下一入口。
+
 ## 2026-10-28 R1-186 创建工单当前账户与会话
 
 - R187提交`eaef6ea6a36fbb11d6dd0e90648ea4c99a289461`已push并核远端一致，CI40659933408检查时仍在运行。
