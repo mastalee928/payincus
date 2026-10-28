@@ -34,6 +34,11 @@ const server = createServer({ cert, key: await readFile(keyPath), ca: cert, requ
   if (remoteMode !== 'connect-refused') {
     const json = (status: number, metadata: unknown) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(metadata)) }
     if (req.url === '/1.0') { json(200, { type: 'sync', metadata: {} }); return }
+    if (req.url === `/1.0/instances/${tag}`) {
+      json(200, { type: 'sync', metadata: { name: tag, type: 'container', status: 'Running',
+        config: { 'volatile.uuid': '00000000-0000-4000-8000-000000000001' }, devices: { root: { type: 'disk', path: '/', pool: 'default' } } } }); return
+    }
+    if (req.url?.startsWith('/1.0/instances/restore-') && !req.url.endsWith('/state')) { json(404, { type: 'error', error: 'not found' }); return }
     assert.equal(req.url, `/1.0/instances/${tag}/state`, 'pre-import refusal must not export, create or delete a copy')
     if (req.method === 'PUT') {
       stopPuts++
@@ -270,12 +275,13 @@ try {
     const task = await makeTask('dispatch')
     await executeRestoreTask(task.id)
     const failed = await prisma.restoreTask.findUniqueOrThrow({ where: { id: task.id } })
-    assert.equal(failed.status, 'FAILED'); assert.equal(failed.progress, 'import_not_started')
+    assert.equal(failed.status, 'PROCESSING'); assert.equal(failed.progress, 'manual_intervention')
     assert.equal(stopPuts, 1); assert.equal(stopChecks, mode === 'stop-error' ? 1 : 2)
     const beforeRollback = requests
-    assert.equal((await app.inject({ method: 'POST', url: `${url}/${task.id}/rollback` })).statusCode, 409)
+    assert.equal((await app.inject({ method: 'POST', url: `${url}/${task.id}/rollback` })).statusCode, 400)
     assert.equal(requests, beforeRollback)
     assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'ready')
+    await finish(task.id)
   }
   console.log('PASS worker mTLS stop failure and success-but-running abort before backup export/import/cleanup; backup records retained and no pre-import rollback side effects')
   console.log('PASS real PG/Fastify restore authorization: owner/host-owner/admin, 14 target/session changes at admission/claim/dispatch, admin demotion, legacy tasks, workflow/recovery fences, cancellation races, ten-task host limit, rollback-safe rejection, enqueue DB fault and attempt CAS. Real mTLS only covers accepted dispatch and refusal; no real Incus disk restore or SIGKILL evidence.')

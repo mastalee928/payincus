@@ -2,6 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 恢复替换身份与未决副本保护
+
+- 前批停止确认`f8dd60c9b7b5d4c86f05ffbdb7778456b614e571`已推送main；[CI40654013875](https://github.com/mastalee928/payincus/actions/runs/40654013875)最终success。Owner再次明确每个可核验小项完成即提交推送并继续，已同步OWNER_REQUIREMENTS；327项仍未全部完成。
+- 新增持久`recovery_state`：原/临时UUID、类型、根盘池、设备与受保护配置摘要、原备份/快照ID和名称、阶段与导入operation。先提交意图再远端操作；补采复用固定连接。stop/delete/rename/start持实例和当前授权锁，阶段间重核原归属、host身份、备份、账户/session与attempt。导入使用原实际根盘池；停止状态、设备/地址及UUID不符时保留两份。
+- 替换删除只调用原实例精确API并确认该路径404，不调用会删除独占转发的普通deleteInstance；重命名后核验原名绑定临时UUID，启动后确认Running。失败不按名称清理副本；异常、重启、超时保留PROCESSING/manual_intervention及操作门禁。新建备份锁内拒未决恢复。末尾只清原固定清单，实例更新与COMPLETED同事务；终态写失败整段DB回滚。
+- 实际PG/mTLS15场景`logs/takeover-restore-replacement-final.log`通过：错误IPv6/池/UUID、原名复用、封禁、后增备份、导入/删除/断连/重命名/启动/最后DB失败；至少保留一份，所有场景零网络转发API请求，原双栈/归属字段保留。授权`takeover-restore-replacement-auth-final.log`、停止与传输`takeover-restore-replacement-transport.log`、上传/删除回归`takeover-restore-replacement-upload.log`通过；磁盘内容和客户连接仍为Incus边界替身，未真实Incus或SIGKILL验收。
+- 后端build/type-check `takeover-restore-replacement-build.log`、`takeover-restore-identity-typecheck-r3.log`及两个专项脚本独立类型检查`takeover-restore-replacement-test-types.log`通过；5/5相关守卫`takeover-restore-replacement-guards-final.log`通过。旧终态字符串守卫失败后按PROCESSING保护分支更新；两次筛选参数错误没有运行测试，不计通过。既有227迁移隔离库实际应用第228条成功，`takeover-restore-replacement-migration.log`；无生产迁移。
+- 本段是阶段保护，未形成恢复闭环：持久续跑/安全人工rollback、旧FAILED回滚和查询展示仍需补齐；PROCESSING保护会占宿主恢复/上传队列。真实磁盘/网络、完整网关灾备和327清单仍待。本段无前端改动，未重复全量或双端构建，没有发布、OTA、DNS或客户操作。
+
 ## 2026-10-28 恢复前停止确认
 
 - 上批恢复授权`1299ce6ebe762f871ac9ae2fd25d8febc3e0bfc8`已普通push main并核对远端一致；[CI40653341209](https://github.com/mastalee928/payincus/actions/runs/40653341209)最终7/7 success，Linux已执行新增授权PG专项。额外恢复一致性守卫`logs/takeover-restore-auth-consistency-guard.log`通过；新增专项独立类型检查`logs/takeover-restore-auth-test-types-final.log`通过。

@@ -47,6 +47,7 @@ interface RestoreFromStreamParams {
     poolName?: string
     signal?: AbortSignal
     timeoutMs?: number
+    onOperation?: (operation: string) => Promise<void>
 }
 
 /**
@@ -59,7 +60,8 @@ export async function restoreFromStream({
     targetName,
     poolName,
     signal: callerSignal,
-    timeoutMs = 300000
+    timeoutMs = 300000,
+    onOperation
 }: RestoreFromStreamParams): Promise<void> {
     let restoreAgent: Agent | undefined
     try {
@@ -115,6 +117,7 @@ export async function restoreFromStream({
         // 异步操作，等待完成
         if (data.type === 'async') {
             if (!data.operation || !/^\/1\.0\/operations\/[a-f0-9-]{36}$/i.test(data.operation)) throw new Error('Invalid restore operation path')
+            await onOperation?.(data.operation)
             const remaining = timeoutMs - (Date.now() - started)
             if (remaining <= 0) throw new Error('Restore operation timeout')
             await waitForOperation(client, data.operation, remaining, signal)

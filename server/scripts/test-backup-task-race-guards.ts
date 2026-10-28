@@ -223,8 +223,8 @@ const restoreExecuteSection = section(
   'async function executeRestoreTask(',
   '/**\n * 启动恢复任务 Worker'
 )
-assert.ok(restoreExecuteSection.includes('await stopInstanceForRestore(client, task.originalIncusId)') &&
-  !restoreExecuteSection.includes('停止实例警告') && restoreExecuteSection.includes('if (importStarted && client'),
+assert.ok(restoreExecuteSection.includes('await stopInstanceForRestore(client!, task.originalIncusId)') &&
+  !restoreExecuteSection.includes('停止实例警告') && !restoreExecuteSection.includes('await deleteInstance('),
   'stop failures must abort restore and pre-import failures must never delete a temporary instance')
 assert.ok(
   restoreExecuteSection.includes('runningRestoreTaskIds.add(taskId)') &&
@@ -234,7 +234,7 @@ assert.ok(
 assert.ok(
   restoreExecuteSection.includes('where: restoreAttempt(task)') &&
     restoreExecuteSection.includes("status: 'COMPLETED'") &&
-    restoreExecuteSection.includes("status: 'FAILED'"),
+    restoreExecuteSection.includes("status: manualInterventionReason ? 'PROCESSING' : 'FAILED'"),
   'restore worker final status writes must bind the original processing attempt'
 )
 assert.ok(restoreExecuteSection.includes("task.status !== 'PROCESSING' || runningRestoreTaskIds.has(taskId)") &&
@@ -245,8 +245,8 @@ assert.ok(createRestoreSection.includes('loadAuthorizedRestore(tx, data, data.se
   restoreExecuteSection.includes('assertRestoreBinding(task, current)') && restoreExecuteSection.includes('new IncusClient(host)') &&
   cancelRestoreSection.includes('loadRestoreInstance(tx, instanceId, actor)'), 'restore admission, dispatch and cancellation must recheck current authorization')
 assert.ok(
-  restoreExecuteSection.includes('await prisma.backup.updateMany({') &&
-    restoreExecuteSection.includes('where: {\n                instanceId: task.instanceId\n            }') &&
+  restoreExecuteSection.includes('await tx.backup.updateMany({') &&
+    restoreExecuteSection.includes('OR: state!.backups') &&
     restoreExecuteSection.includes("data: { status: 'deleted' }"),
   'restore worker must mark every old DB backup deleted after deleting the original Incus instance and its backups'
 )
@@ -257,17 +257,14 @@ assert.ok(
 const restoreCatchIndex = restoreExecuteSection.indexOf('    } catch (err) {')
 assert.notEqual(restoreCatchIndex, -1, 'restore worker must retain explicit failure cleanup')
 const restoreCatchSection = restoreExecuteSection.slice(restoreCatchIndex)
-const originalExistsIndex = restoreCatchSection.indexOf('const originalExists = await instanceExists(client, task.originalIncusId)')
-const preserveTempIndex = restoreCatchSection.indexOf('if (!originalExists)')
-const deleteTempIndex = restoreCatchSection.indexOf('await deleteInstance(client, task.tempInstanceName)')
 assert.ok(
-  originalExistsIndex !== -1 &&
-    preserveTempIndex !== -1 &&
-    deleteTempIndex !== -1 &&
-    originalExistsIndex < preserveTempIndex &&
-    preserveTempIndex < deleteTempIndex,
-  'restore cleanup must verify the original in Incus and preserve the only temporary copy after original deletion'
+  !restoreCatchSection.includes('deleteInstance(') && restoreCatchSection.includes("status: manualInterventionReason ? 'PROCESSING' : 'FAILED'"),
+  'restore errors must keep every copy and retain workflow fences for unknown remote state'
 )
+const restoreIdentitySource = readFileSync(resolve(__dirname, '../src/lib/incus/restore-identity.ts'), 'utf8')
+assert.ok(restoreIdentitySource.includes('identity.uuid !== expected.uuid') && restoreIdentitySource.includes('configurationHash !== expected.configurationHash') &&
+  restoreIdentitySource.includes('await requireRestoreTargetAbsent(client, originalName)') && !restoreIdentitySource.includes('removeDedicatedForward('),
+  'restore replacement must verify UUID/devices, confirm exact absence and preserve original network forwards')
 assert.ok(
   restoreCatchSection.includes("progress: 'manual_intervention'") &&
     restoreCatchSection.includes('已保留临时实例') &&

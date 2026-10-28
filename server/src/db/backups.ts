@@ -100,6 +100,9 @@ export async function createBackupWithQuotaReservation(data: {
 }): Promise<BackupQuotaReservationResult> {
   return prisma.$transaction(async tx => {
     await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, data.instanceId)
+    if (await tx.restoreTask.count({ where: { instanceId: data.instanceId, status: { in: ['PENDING', 'PROCESSING'] } } })) {
+      return { allowed: false, current: 0, limit: 0, message: '实例恢复仍有未完成操作，请先核对恢复任务' }
+    }
 
     const instance = await tx.instance.findUnique({
       where: { id: data.instanceId },

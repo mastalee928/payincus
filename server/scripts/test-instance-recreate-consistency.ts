@@ -133,25 +133,9 @@ const restoreCatchSection = section(
   '    } catch (err) {',
   '    } finally {'
 )
-const checkOriginalIndex = indexOfOrThrow(
-  restoreCatchSection,
-  'const originalExists = await instanceExists(client, task.originalIncusId)',
-  'original Incus existence check before restore temp cleanup'
-)
-const preserveUniqueTempIndex = indexOfOrThrow(
-  restoreCatchSection,
-  'if (!originalExists)',
-  'unique restored temp preservation branch'
-)
-const deleteRestoreTempIndex = indexOfOrThrow(
-  restoreCatchSection,
-  'await deleteInstance(client, task.tempInstanceName)',
-  'restore temp delete'
-)
-
 assert.ok(
-  checkOriginalIndex < preserveUniqueTempIndex && preserveUniqueTempIndex < deleteRestoreTempIndex,
-  'restore failure cleanup must check actual Incus original existence and preserve temp before any delete path'
+  !restoreCatchSection.includes('deleteInstance(') && restoreCatchSection.includes("status: manualInterventionReason ? 'PROCESSING' : 'FAILED'"),
+  'restore failure must preserve every copy and retain the lifecycle fence until remote recovery is confirmed'
 )
 assert.ok(
   restoreCatchSection.includes("progress: 'manual_intervention'") &&

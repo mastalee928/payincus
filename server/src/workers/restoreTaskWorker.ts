@@ -5,27 +5,21 @@
 
 import { prisma } from '../db/prisma.js'
 import { randomUUID } from 'node:crypto'
-import type { RestoreTask } from '@prisma/client'
 import { RestoreAuthorizationError, loadAuthorizedRestore, assertRestoreBinding, restoreWorkflowBusy, restoreAttempt } from '../db/restore-task-authorization.js'
+import { restoreStep, saveRestoreState, assertRestoreManifest, type RestoreRecoveryState } from '../db/restore-task-steps.js'
+import { readRestoreIdentity, verifyRestoredCopy, requireRestoreTargetAbsent, deleteOriginalForRestore, restoreInstancePath } from '../lib/incus/restore-identity.js'
 import { recoveryHeld } from '../services/platform-backup-core.js'
-import { resolveStoragePoolForExistingInstance } from '../db/storage-pools.js'
 import { IncusClient } from '../lib/incus/incus-client.js'
 import { getBackupExportStream } from '../lib/incus/incus-backups.js'
 import {
     restoreFromStream,
     stopInstanceForRestore,
-    renameInstance,
-    instanceExists
+    renameInstance
 } from '../lib/incus/incus-restore.js'
-import {
-    startInstance,
-    deleteInstance
-} from '../lib/incus/incus-instances.js'
-import { listBackups, deleteBackup as deleteIncusBackup } from '../lib/incus/incus-backups.js'
-import { listSnapshots, deleteSnapshot as deleteIncusSnapshot } from '../lib/incus/incus-snapshots.js'
+import { startInstance } from '../lib/incus/incus-instances.js'
 import { sendNotification } from '../lib/notifier.js'
 import { createLog } from '../db/logs.js'
-import { collectTrafficForRunningInstance } from '../services/instance-traffic-collector.js'
+import { collectTrafficForInstanceWithClient } from '../services/instance-traffic-collector.js'
 import { Readable } from 'stream'
 import {
     HOST_TASK_CLAIM_LOCK_NAMESPACE,
@@ -50,20 +44,20 @@ const dbBackoff = createWorkerDbBackoff('RestoreWorker')
 
 /**
  * 服务启动时清理僵尸任务
- * 把所有 PROCESSING 状态的任务标记为 FAILED
+ * 保留未决任务的 PROCESSING 门禁，等待核对远端状态
  */
 export async function cleanupStaleTasks(): Promise<void> {
-    // 仅清理确实超时（超过 RESTORE_TIMEOUT）的 PROCESSING 任务，而不是无条件把所有 PROCESSING 置为 FAILED。
-    // 多节点部署下，无条件清理会误杀其他节点上正在执行的任务；按启动时间阈值判断可避免。
+    // Single backend: a restart loses execution, not the pending remote intent.
+    // Keep PROCESSING so every existing lifecycle fence continues to block.
     const result = await prisma.restoreTask.updateMany({
         where: {
             status: 'PROCESSING',
-            startedAt: { lt: new Date(Date.now() - RESTORE_TIMEOUT) }
+            id: { notIn: [...runningRestoreTaskIds] }
         },
         data: {
-            status: 'FAILED',
-            error: '系统重启，任务中断',
-            finishedAt: new Date()
+            progress: 'manual_intervention',
+            error: '系统重启，远端恢复状态待核对；已保留原实例、临时副本及操作门禁',
+            finishedAt: null
         }
     })
     if (result.count > 0) {
@@ -73,16 +67,16 @@ export async function cleanupStaleTasks(): Promise<void> {
 
 /**
  * 运行时检查并清理超时的任务
- * 每分钟检查一次，将超过超时时间的 PROCESSING 任务标记为 FAILED
+ * 每分钟检查一次，将中断的超时任务标记为需核对，保留 PROCESSING 门禁
  */
-async function cleanupTimeoutTasks(): Promise<void> {
+export async function cleanupTimeoutTasks(): Promise<void> {
     if (dbBackoff.shouldSkip()) return
     const timeoutThreshold = new Date(Date.now() - RESTORE_TIMEOUT)
-    
+
     const timedOutTasks = await prisma.restoreTask.findMany({
         where: {
             status: 'PROCESSING',
-            startedAt: { lt: timeoutThreshold }
+            OR: [{ startedAt: { lt: timeoutThreshold } }, { startedAt: null }]
         },
         select: { id: true }
     })
@@ -100,12 +94,12 @@ async function cleanupTimeoutTasks(): Promise<void> {
             status: 'PROCESSING'
         },
         data: {
-            status: 'FAILED',
-            error: '任务执行超时 (10 分钟)',
-            finishedAt: new Date()
+            progress: 'manual_intervention',
+            error: '任务执行中断，远端状态待核对；已保留副本及操作门禁',
+            finishedAt: null
         }
     })
-    
+
     if (result.count > 0) {
         console.log(`[RestoreWorker] 清理了 ${result.count} 个超时任务`)
     }
@@ -128,7 +122,7 @@ async function processQueue(): Promise<void> {
 
             // 使用事务原子操作：检查锁 + 获取任务 + 标记为 PROCESSING
             const claimedTask = await claimNextTask(hostId)
-            
+
             if (claimedTask) {
                 // 执行任务 (不 await，让它异步跑)
                 executeRestoreTask(claimedTask.id).catch(err => {
@@ -204,18 +198,6 @@ export async function claimNextTask(hostId: number) {
 
 
 /**
- * 更新任务进度
- */
-async function updateProgress(task: RestoreTask, progress: string): Promise<void> {
-    const result = await prisma.restoreTask.updateMany({
-        where: restoreAttempt(task),
-        data: { progress }
-    })
-    if (result.count !== 1) throw new RestoreAuthorizationError('恢复执行批次已变化，停止后续操作')
-}
-
-
-/**
  * 执行单个恢复任务
  * 工作流: 停止原实例 -> 恢复到临时实例 -> 删除原实例 -> 重命名 -> 启动
  * 注意：任务已在 claimNextTask 中标记为 PROCESSING
@@ -229,13 +211,13 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
     })
 
     if (!task || task.status !== 'PROCESSING' || runningRestoreTaskIds.has(taskId)) return
+    if (task.recoveryState || task.progress === 'manual_intervention') return
     runningRestoreTaskIds.add(taskId)
 
     console.log(`[RestoreWorker] 开始执行任务 ${taskId}`)
 
     let client: IncusClient | null = null
-    let remoteStarted = false
-    let importStarted = false
+    let state: RestoreRecoveryState | undefined
     try {
         if (!task.attemptId || !task.startedAt) throw new RestoreAuthorizationError('恢复执行身份缺失，请重新提交')
         const authorized = await prisma.$transaction(async tx => {
@@ -263,144 +245,134 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
             }
         }
 
-        // 3. 停止原实例
-        await updateProgress(task, 'stopping')
+        const original = await readRestoreIdentity(client, task.originalIncusId)
+        await requireRestoreTargetAbsent(client, task.tempInstanceName!)
+        const resources = await restoreStep(task, async tx => ({
+            backups: await tx.backup.findMany({ where: { instanceId: task.instanceId, status: { not: 'deleted' } }, select: { id: true, incusName: true } }),
+            snapshots: await tx.snapshot.findMany({ where: { instanceId: task.instanceId }, select: { id: true, incusName: true } })
+        }))
+        state = { version: 1, stage: 'stopping', original, ...resources }
+        await saveRestoreState(task, state)
+        // 3. 停止原实例。原UUID/设备清单已持久保存；补采复用同一固定连接。
         console.log(`[RestoreWorker] Task ${taskId}: 停止原实例 ${task.originalIncusId}`)
-        const collectResult = await collectTrafficForRunningInstance(task.instanceId)
-        if (!collectResult.success) {
-            console.warn(`[RestoreWorker] Task ${taskId}: 恢复前即时采集流量失败: ${collectResult.error}`)
+        if (instance.status === 'running') {
+            const collectResult = await collectTrafficForInstanceWithClient({ instanceId: instance.id, userId: instance.userId,
+                incusId: task.originalIncusId, client, currentUsage: instance.monthlyTrafficUsed })
+            if (!collectResult.success) throw new Error(`恢复前流量采集失败: ${collectResult.error}`)
         }
-        remoteStarted = true
-        await stopInstanceForRestore(client, task.originalIncusId)
+        await readRestoreIdentity(client, task.originalIncusId, original)
+        await saveRestoreState(task, state)
+        await restoreStep(task, async () => {
+            await readRestoreIdentity(client!, task.originalIncusId, original)
+            await stopInstanceForRestore(client!, task.originalIncusId)
+        }, 150000)
         checkTimeout()
-
-        // 4. 获取存储池配置
-        // 使用宿主机的系统盘存储池，确保恢复的实例使用正确的存储池
-        const storagePool = await resolveStoragePoolForExistingInstance(task.instanceId, task.hostId, {
-            packageId: instance.packageId
-        })
-        if (!storagePool) {
-            throw new Error('宿主机未配置系统盘存储池，无法恢复实例')
-        }
+        await readRestoreIdentity(client, task.originalIncusId, original, true)
+        // Restore on the original remote root pool, never today's package default.
+        const storagePool = original.pool
         console.log(`[RestoreWorker] Task ${taskId}: 使用存储池 ${storagePool}`)
 
         // 5. 获取备份流并恢复到临时实例
-        await updateProgress(task, 'restoring')
-        if (!backup) {
-            throw new Error('备份记录不存在')
-        }
+        state.stage = 'importing'
+        await requireRestoreTargetAbsent(client, task.tempInstanceName!)
+        await saveRestoreState(task, state)
         console.log(`[RestoreWorker] Task ${taskId}: 恢复到临时实例 ${task.tempInstanceName}`)
         const { stream } = await getBackupExportStream(
             client,
             task.originalIncusId,
-            backup.incusName
+            backup.incusName,
+            { timeoutMs: Math.max(1, RESTORE_TIMEOUT - (Date.now() - startTime)) }
         )
         const nodeStream = Readable.fromWeb(stream as import('stream/web').ReadableStream)
 
-        importStarted = true
         await restoreFromStream({
             client,
             backupStream: nodeStream,
             targetName: task.tempInstanceName!,
-            poolName: storagePool
+            poolName: storagePool,
+            timeoutMs: Math.max(1, RESTORE_TIMEOUT - (Date.now() - startTime)),
+            onOperation: async operation => {
+                state!.operation = operation
+                await saveRestoreState(task, state!)
+            }
         })
         checkTimeout()
 
-        // 6. 删除原实例在 Incus 中的所有备份和快照
-        await updateProgress(task, 'cleaning')
-        console.log(`[RestoreWorker] Task ${taskId}: 清理原实例的备份和快照`)
-        try {
-            // 删除 Incus 中的备份
-            const incusBackups = await listBackups(client, task.originalIncusId)
-            for (const b of incusBackups) {
-                const backupName = b.name
-                if (backupName) {
-                    try {
-                        await deleteIncusBackup(client, task.originalIncusId, backupName)
-                        console.log(`[RestoreWorker] Task ${taskId}: 已删除 Incus 备份 ${backupName}`)
-                    } catch (e) {
-                        console.warn(`[RestoreWorker] Task ${taskId}: 删除 Incus 备份失败: ${e}`)
-                    }
-                }
-            }
-            // 删除 Incus 中的快照
-            const incusSnapshots = await listSnapshots(client, task.originalIncusId)
-            for (const s of incusSnapshots) {
-                const snapshotName = s.name
-                if (snapshotName) {
-                    try {
-                        await deleteIncusSnapshot(client, task.originalIncusId, snapshotName)
-                        console.log(`[RestoreWorker] Task ${taskId}: 已删除 Incus 快照 ${snapshotName}`)
-                    } catch (e) {
-                        console.warn(`[RestoreWorker] Task ${taskId}: 删除 Incus 快照失败: ${e}`)
-                    }
-                }
-            }
-        } catch (e) {
-            console.warn(`[RestoreWorker] Task ${taskId}: 清理备份/快照时出错: ${e}`)
-        }
-
-        // 7. 删除原实例
-        await updateProgress(task, 'replacing')
+        // Keep original backups until the stopped replacement passes identity/device checks.
+        state.restored = await verifyRestoredCopy(client, task.tempInstanceName!, original)
+        state.stage = 'replacing'
+        await saveRestoreState(task, state)
+        // 7. 删除原实例本体，保留按原名称绑定的独占IPv4/IPv6转发。
         console.log(`[RestoreWorker] Task ${taskId}: 删除原实例 ${task.originalIncusId}`)
-        await deleteInstance(client, task.originalIncusId)
+        await restoreStep(task, async tx => {
+            await assertRestoreManifest(tx, task, state!)
+            await deleteOriginalForRestore(client!, task.originalIncusId, original, task.tempInstanceName!, state!.restored!)
+        }, 270000)
         checkTimeout()
 
         // 8. 重命名临时实例为原名
+        state.stage = 'renaming'
+        await saveRestoreState(task, state)
         console.log(`[RestoreWorker] Task ${taskId}: 重命名 ${task.tempInstanceName} -> ${task.originalIncusId}`)
-        await renameInstance(client, task.tempInstanceName!, task.originalIncusId)
-
-        await prisma.trafficSnapshot.deleteMany({ where: { instanceId: task.instanceId } })
+        await restoreStep(task, async () => {
+            await requireRestoreTargetAbsent(client!, task.originalIncusId)
+            await readRestoreIdentity(client!, task.tempInstanceName!, state!.restored!, true)
+            await renameInstance(client!, task.tempInstanceName!, task.originalIncusId)
+            await readRestoreIdentity(client!, task.originalIncusId, state!.restored!, true)
+            await requireRestoreTargetAbsent(client!, task.tempInstanceName!)
+        }, 270000)
 
         // 9. 启动恢复后的实例
-        await updateProgress(task, 'starting')
+        state.stage = 'starting'
+        await saveRestoreState(task, state)
         console.log(`[RestoreWorker] Task ${taskId}: 启动实例`)
-        await startInstance(client, task.originalIncusId)
+        await restoreStep(task, async () => {
+            await readRestoreIdentity(client!, task.originalIncusId, state!.restored!, true)
+            await startInstance(client!, task.originalIncusId)
+            await readRestoreIdentity(client!, task.originalIncusId, state!.restored!)
+            const started = await client!.request<{ status?: string }>('GET', `${restoreInstancePath(task.originalIncusId)}/state`, null, 30000)
+            if (started.status !== 'Running') throw new Error('恢复后实例未确认运行，已保留副本及操作门禁')
+        }, 240000)
 
         // 10. 删除数据库中原实例的备份和快照记录
         // Incus 原实例及其所有备份已被删除，恢复后的新实例没有这些旧备份。
         console.log(`[RestoreWorker] Task ${taskId}: 清理数据库中的备份和快照记录`)
-        await prisma.backup.updateMany({
-            where: {
-                instanceId: task.instanceId
-            },
-            data: { status: 'deleted' }
-        })
-        await prisma.snapshot.deleteMany({
-            where: { instanceId: task.instanceId }
-        })
-
         // 11. 更新实例名称和恢复来源信息（在标记成功之前，确保原子性）
         // 名称格式: 原名 | restored:备份名
         const newInstanceName = `${task.originalInstanceName} | restored:${backup?.name || 'unknown'}`
-        const instanceUpdateResult = await prisma.instance.updateMany({
-            where: {
-                id: task.instanceId,
-                status: { not: 'deleted' }
-            },
-            data: {
-                name: newInstanceName,
-                storagePoolName: storagePool,
-                restoredFrom: {
-                    backupId: task.backupId,
-                    backupName: backup?.name,
-                    restoredAt: new Date().toISOString()
+        await restoreStep(task, async tx => {
+            await assertRestoreManifest(tx, task, state!)
+            await tx.trafficSnapshot.deleteMany({ where: { instanceId: task.instanceId } })
+            await tx.backup.updateMany({ where: { instanceId: task.instanceId, OR: state!.backups }, data: { status: 'deleted' } })
+            await tx.snapshot.deleteMany({ where: { instanceId: task.instanceId, OR: state!.snapshots } })
+            const instanceUpdateResult = await tx.instance.updateMany({
+                where: {
+                    id: task.instanceId,
+                    status: { not: 'deleted' }
+                },
+                data: {
+                    name: newInstanceName,
+                    storagePoolName: storagePool,
+                    restoredFrom: {
+                        backupId: task.backupId,
+                        backupName: backup?.name,
+                        restoredAt: new Date().toISOString()
+                    }
                 }
+            })
+            if (instanceUpdateResult.count === 0) {
+                throw new Error('实例已删除，恢复结果不再写入')
             }
-        })
-        if (instanceUpdateResult.count === 0) {
-            throw new Error('实例已删除，恢复结果不再写入')
-        }
 
-        // 12. 标记成功
-        const completeResult = await prisma.restoreTask.updateMany({
-            where: restoreAttempt(task),
-            data: { status: 'COMPLETED', finishedAt: new Date() }
-        })
-        if (completeResult.count === 0) {
-            console.warn(`[RestoreWorker] Task ${taskId}: 已不处于 PROCESSING，跳过完成状态覆盖`)
-            return
-        }
+            // 12. 标记成功
+            const completeResult = await tx.restoreTask.updateMany({
+                where: restoreAttempt(task),
+                data: { status: 'COMPLETED', progress: 'completed', finishedAt: new Date() }
+            })
+            if (completeResult.count === 0) {
+                throw new RestoreAuthorizationError('恢复批次已变化，结果事务回滚')
+            }
+            })
 
         console.log(`[RestoreWorker] Task ${taskId}: 恢复完成`)
 
@@ -423,39 +395,23 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err)
         console.error(`[RestoreWorker] Task ${taskId} failed:`, errorMessage)
-        let manualInterventionReason: string | null = null
-
-        // 只有确认 Incus 中的原实例仍存在，才允许清理临时副本。
-        // 原实例已不存在或无法确认时，临时实例可能是唯一数据副本，必须保留供人工恢复。
-        if (importStarted && client && task.tempInstanceName && await prisma.restoreTask.findFirst({ where: restoreAttempt(task) })) {
-            try {
-                const originalExists = await instanceExists(client, task.originalIncusId)
-                const tempExists = await instanceExists(client, task.tempInstanceName)
-                if (!originalExists) {
-                    manualInterventionReason = `Incus 原实例 ${task.originalIncusId} 已不存在或无法确认，已保留临时实例 ${task.tempInstanceName}，需要人工介入恢复`
-                    console.error(`[RestoreWorker] Task ${taskId}: ${manualInterventionReason}`)
-                } else if (tempExists) {
-                    await deleteInstance(client, task.tempInstanceName)
-                    console.log(`[RestoreWorker] Task ${taskId}: 已清理临时实例 ${task.tempInstanceName}`)
-                }
-            } catch (cleanupErr) {
-                manualInterventionReason = `无法安全确认 Incus 原实例 ${task.originalIncusId} 仍存在，已保留临时实例 ${task.tempInstanceName}，需要人工介入核查`
-                console.warn(`[RestoreWorker] Task ${taskId}: 清理临时实例失败:`, cleanupErr)
-            }
-        }
+        // Unknown or incomplete operations never delete a copy by name. Preserve
+        // PROCESSING so deletion/transfer/rebuild/automatic policies stay fenced.
+        const saved = await prisma.restoreTask.findFirst({ where: restoreAttempt(task) })
+        const manualInterventionReason = saved?.recoveryState
+            ? `已保留临时实例 ${task.tempInstanceName} 及现有副本，需要人工介入核对恢复步骤；操作门禁保持` : null
 
         const failResult = await prisma.restoreTask.updateMany({
             where: restoreAttempt(task),
             data: {
-                status: 'FAILED',
+                status: manualInterventionReason ? 'PROCESSING' : 'FAILED',
                 ...(manualInterventionReason
                     ? {
                         progress: 'manual_intervention',
                         error: `${errorMessage}; ${manualInterventionReason}`
                     }
-                    : { error: errorMessage, ...(!remoteStarted ? { progress: 'preparation_failed' }
-                        : !importStarted ? { progress: 'import_not_started' } : {}) }),
-                finishedAt: new Date()
+                    : { error: errorMessage, progress: 'preparation_failed' }),
+                finishedAt: manualInterventionReason ? null : new Date()
             }
         })
         if (failResult.count === 0) {
@@ -491,7 +447,7 @@ export function startRestoreWorker(): void {
             dbBackoff.arm(err)
         })
     }, POLL_INTERVAL)
-    
+
     // 启动超时检查定时器
     if (!timeoutCheckInterval) {
         timeoutCheckInterval = setInterval(() => {

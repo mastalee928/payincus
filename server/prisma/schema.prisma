@@ -198,6 +198,7 @@ model RestoreTask {
   actorIat             Int?              @map("actor_iat")
   identityHash         String?           @map("identity_hash")
   attemptId            String?           @db.Uuid @map("attempt_id")
+  recoveryState        Json?             @map("recovery_state")
   error                String?
   createdAt            DateTime          @default(now()) @map("created_at")
   startedAt            DateTime?         @map("started_at")
