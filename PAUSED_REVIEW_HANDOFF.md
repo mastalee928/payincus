@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：66f5a66创建已推；API回复current PAT/POA事务核验已修，累计68真实PG+bearer竞争、网站42回归、7守卫/build/types通过。保存后API关闭/重开事务授权与状态绑定，当前仍旧直接updateMany。图片CI40664740228已success；创建CI40665664450最后运行。327仍未完整。
+
 > **最新接续**：3fd9971图片修复已推；工单API创建PAT/POA current token/user/app/grant锁内授权已修，34 PG+真实bearer竞争、网站42/目标回归、7守卫/build/types通过。保存后继续回复、状态关闭/重开入口，当前新helper尚未保护这些或其它API写入。bb35a0a CI40664055361已success，图片CI40664740228最后运行。327继续。
 
 > **最新接续**：bb35a0a ID修复已推，5772373 CI40663666326已success。R190图片代理固定错误分类、reader/未读body/请求释放已修；15 PG/Fastify+截获fetch（真实15秒body截止）、5守卫/build/types通过，新专项接CI。保存后继续PAT/POA工单在途授权及原清单；327/真图床/外部通知持久性未完成。

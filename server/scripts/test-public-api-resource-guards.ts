@@ -414,7 +414,7 @@ assert.ok(
     route.includes('const payload = await readTicketPayload(request)') &&
     route.includes('payload.images.length === 0') &&
     route.includes('uploadedAttachments = await uploadTicketImages(payload.images)') &&
-    route.includes('addTicketMessage(ticket.id, apiToken.userId, content, false, uploadedAttachments)') &&
+    route.includes('addTicketMessage(ticket.id, apiToken.userId, content, false, uploadedAttachments, undefined, apiToken.writeAuthorization)') &&
     route.includes('attachments.map(serializePublicTicketAttachment)') &&
     route.includes('cleanupUploadedTicketImages(uploadedAttachments)') &&
     route.includes('getAllAdminUserIds') &&

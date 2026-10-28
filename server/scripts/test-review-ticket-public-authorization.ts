@@ -9,7 +9,7 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'),
   'Use isolated local *_pool_test PostgreSQL')
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { createTicket, TicketMutationError } = await import('../src/db/tickets.js')
+const { createTicket, addTicketMessage, TicketMutationError } = await import('../src/db/tickets.js')
 const { authorizePublicApiWrite } = await import('../src/db/public-api-write-authorization.js')
 const { authenticatePublicApiRequest, hashPublicApiToken, getPublicApiTokenPrefix } = await import('../src/lib/public-api-auth.js')
 const { default: publicRoutes } = await import('../src/routes/public-api.js')
@@ -64,22 +64,28 @@ const payload = { userId: user.id, hostId: host.id, instanceId: instance.id, sub
 try {
   await app.register(publicRoutes, { prefix: '/v1' })
   for (const source of ['api_token', 'oauth_access_token'] as const) {
+    for (const operationKind of ['create', 'reply']) {
     for (const entry of ['helper', 'route']) {
       for (const mode of ['revoke', 'delete', 'expire', 'scope', 'identity', 'account',
         ...(source === 'oauth_access_token' ? ['app-disabled', 'app-scope', 'grant-revoked', 'grant-scope', 'grant-missing'] : [])]) {
         const { headers, binding } = await issue(source)
+        const replyTicket = operationKind === 'reply'
+          ? await prisma.ticket.create({ data: { userId: user.id, hostId: host.id, subject: tag } }) : null
         let release!: () => void, ready!: (pid: number) => void
         const held = new Promise<void>(resolve => { release = resolve })
         const entered = new Promise<number>(resolve => { ready = resolve })
         const blocker = prisma.$transaction(async tx => {
-          await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instance.id} FOR UPDATE`
+          if (replyTicket) await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${replyTicket.id} FOR UPDATE`
+          else await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instance.id} FOR UPDATE`
           const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
           ready(row.pid); await held
         }, { timeout: 15000 })
         const pid = await entered
         const operation = entry === 'helper'
-          ? createTicket({ ...payload, apiAuthorization: binding }).then(value => ({ value }), error => ({ error }))
-          : app.inject({ method: 'POST', url: '/v1/tickets', headers, payload }).then(value => ({ value }), error => ({ error }))
+          ? (replyTicket ? addTicketMessage(replyTicket.id, user.id, 'isolated reply', false, [], undefined, binding)
+            : createTicket({ ...payload, apiAuthorization: binding })).then(value => ({ value }), error => ({ error }))
+          : app.inject({ method: 'POST', url: replyTicket ? `/v1/tickets/${replyTicket.id}/replies` : '/v1/tickets',
+            headers, payload: replyTicket ? { content: 'isolated reply' } : payload }).then(value => ({ value }), error => ({ error }))
         try {
           await waitBlocked(pid)
           if (mode === 'account') await prisma.user.update({ where: { id: user.id }, data: { status: 'banned' } })
@@ -103,12 +109,20 @@ try {
           assert.equal(outcome.value.statusCode, 403, `${source}/${mode}: ${outcome.value.body}`)
           assert.ok(['TICKET_API_FORBIDDEN', 'TICKET_ACTOR_FORBIDDEN'].includes(outcome.value.json().code))
         }
-        assert.equal(await prisma.ticket.count({ where: { userId: user.id } }), 0)
+        assert.equal(await prisma.ticket.count({ where: { userId: user.id } }), replyTicket ? 1 : 0)
         assert.equal(await prisma.ticketMessage.count({ where: { senderId: user.id } }), 0)
+        if (replyTicket) {
+          const unchanged = await prisma.ticket.findUniqueOrThrow({ where: { id: replyTicket.id } })
+          assert.equal(unchanged.status, 'open')
+          assert.equal(unchanged.updatedAt.getTime(), replyTicket.updatedAt.getTime())
+          assert.equal(unchanged.firstRespondedAt, null)
+          await prisma.ticket.delete({ where: { id: replyTicket.id } })
+        }
         assert.equal(await prisma.inboxMessage.count({ where: { userId: support.id } }), 0)
         await removeToken(binding)
         races++
       }
+    }
     }
     const { headers, binding } = await issue(source)
     await assert.rejects(createTicket({ ...payload, apiAuthorization: { ...binding, userId: support.id } }), TicketMutationError)
@@ -121,6 +135,15 @@ try {
     assert.equal(allowed.body.includes('writeAuthorization'), false)
     assert.equal(await prisma.ticket.count({ where: { userId: user.id } }), 1)
     assert.equal(await prisma.ticketMessage.count({ where: { senderId: user.id } }), 1)
+    const createdTicketId = allowed.json().data.id as number
+    await prisma.ticket.update({ where: { id: createdTicketId }, data: { status: 'resolved', resolvedAt: new Date() } })
+    const replied = await app.inject({ method: 'POST', url: `/v1/tickets/${createdTicketId}/replies`, headers, payload: { content: 'valid public reply' } })
+    assert.equal(replied.statusCode, 201, replied.body)
+    assert.equal(replied.json().data.isFromOwner, false)
+    assert.equal(await prisma.ticketMessage.count({ where: { senderId: user.id } }), 2)
+    const reopened = await prisma.ticket.findUniqueOrThrow({ where: { id: createdTicketId } })
+    assert.equal(reopened.status, 'in_progress')
+    assert.equal(reopened.resolvedAt, null)
     await prisma.ticket.deleteMany({ where: { userId: user.id } })
     await prisma.inboxMessage.deleteMany({ where: { userId: support.id } })
 
@@ -142,7 +165,7 @@ try {
     await removeToken(binding)
   }
   assert.equal(await prisma.notificationChannel.count({ where: { userId: { in: [user.id, support.id] } } }), 0)
-  console.log(`PASS ${races} real PG/Fastify public ticket create races across PAT/POA revoke/delete/expiry/scopes/identity/account and OAuth app/grant checks. Bearer middleware is real; both valid routes create exactly one ticket, internal bindings are not exposed, and credential revocation waits for the write lock. No external channels or image service.`)
+  console.log(`PASS ${races} real PG/Fastify public ticket create/reply races across PAT/POA revoke/delete/expiry/scopes/identity/account and OAuth app/grant checks. Denied replies preserve status, SLA and messages; valid replies reopen resolved tickets. Bearer middleware is real, internal bindings are not exposed, and credential revocation waits for the write lock. No external channels or image service.`)
 } finally {
   await app.close()
   await prisma.ticket.deleteMany({ where: { userId: user.id } })

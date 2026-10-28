@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-28工单API回复追加（R186关联调用链）：PAT/POA当前授权现保护消息与状态/响应时限同事务；累计68创建/回复真实PG+bearer竞争通过takeover-ticket-public-reply-r1.log，正常解决后回复重开、网站42回归、7守卫/build/types通过。关闭/重开入口及其它API仍待，327不记完成。
+
 2026-10-28工单API授权追加（R186关联调用链）：创建同事务复核当前PAT/POA及user/app/grant权限、身份、到期/撤销；34真实PG+bearer路由竞争及有效创建、撤销锁等待通过takeover-ticket-public-create-r1.log，网站42权限与关联目标回归、7守卫/build/types通过。回复/关闭及其它Public API写入尚未接此保护，不扩大为全API/327完成；详见HANDOFF。
 
 2026-10-28旧恢复回滚追加：缺失持久副本身份的FAILED任务在连接宿主前拒绝409，owner/host owner/admin实际PG/Fastify均零远端I/O；原授权/stop矩阵、3守卫和server build/type-check通过。f6571c6已推且CI40656767813成功；完整恢复续跑/人工回滚仍待，随后继续R1-183。

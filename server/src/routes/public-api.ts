@@ -2290,7 +2290,7 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
         uploadedAttachments = await uploadTicketImages(payload.images)
       }
 
-      const message = await addTicketMessage(ticket.id, apiToken.userId, content, false, uploadedAttachments)
+      const message = await addTicketMessage(ticket.id, apiToken.userId, content, false, uploadedAttachments, undefined, apiToken.writeAuthorization)
       const attachments = uploadedAttachments.length > 0
         ? await prisma.ticketMessageAttachment.findMany({
           where: { ticketId: ticket.id, messageId: message.id },

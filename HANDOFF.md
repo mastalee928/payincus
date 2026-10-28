@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 工单Public API回复的当前授权
+
+- 创建`66f5a6694038dc4e5c238dd73de36bd9d7a4e80e`已push并核远端一致，CI40665664450检查时运行；图片3fd9971 CI40664740228最终success。
+- API回复将bearer原绑定传入消息事务，当前ticket/host/发送账户核验后持PAT或OAuth app/grant/token锁复核权限，消息、状态重开和响应时限更新只在成功授权后同事务提交。API继续仅代表创建者公开回复，无客服身份。
+- `logs/takeover-ticket-public-reply-r1.log`累计68实际PG/helper/真实bearer路由创建及回复竞争通过，失效回复零消息并保持updatedAt/首响应/状态；正常PAT/POA回复已解决工单重开in_progress且清resolvedAt。网站42权限场景`takeover-ticket-public-reply-web.log`、7/7守卫`takeover-ticket-public-reply-guards.log`、server build `takeover-ticket-public-reply-build.log`、类型`takeover-ticket-public-reply-types.log`通过。
+- 未图床/浏览器/生产；API关闭/重开仍是旧snapshot更新逻辑，下一段接事务授权与状态绑定。其它API写入、普通通知及外部持久投递继续待；327未完整。
+
 ## 2026-10-28 工单Public API创建的当前授权
 
 - 图片代理`3fd9971968912123b784991383e9d3e372afeed0`已push并核远端一致，CI40664740228记录时运行；ID bb35a0a CI40664055361最终success。

@@ -1085,7 +1085,8 @@ export async function addTicketMessage(
   content: string,
   isFromOwner: boolean,
   attachments: CreateTicketMessageAttachmentData[] = [],
-  actor?: WriteActor & { role: 'user' | 'admin' }
+  actor?: WriteActor & { role: 'user' | 'admin' },
+  apiAuthorization?: PublicApiWriteAuthorization
 ): Promise<TicketMessage> {
   const message = await prisma.$transaction(async tx => {
     await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
@@ -1104,6 +1105,9 @@ export async function addTicketMessage(
       isFromOwner !== currentSupport || actor && (actor.id !== senderId || actor.role !== sender.role ||
         !await authorizeUserWrite(tx, senderId, actor))) {
       throw new TicketMutationError('账户、登录授权或工单处理权限已变化，请刷新后重试', 403, 'TICKET_ACTOR_FORBIDDEN')
+    }
+    if (apiAuthorization && !await authorizePublicApiWrite(tx, senderId, apiAuthorization, 'tickets:write')) {
+      throw new TicketMutationError('API授权已失效，请重新授权后回复工单', 403, 'TICKET_API_FORBIDDEN')
     }
     const repliedAt = new Date()
     const ticketUpdate = await tx.ticket.updateMany({
