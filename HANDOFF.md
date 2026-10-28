@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 工单Public API创建的当前授权
+
+- 图片代理`3fd9971968912123b784991383e9d3e372afeed0`已push并核远端一致，CI40664740228记录时运行；ID bb35a0a CI40664055361最终success。
+- 新内部API授权绑定在bearer核验后捕获令牌身份，创建事务在instance/host/current user核验后持PAT行共享锁；OAuth按app→grant→token锁，检查当前active、完整用户/令牌/应用/授权绑定、撤销、到期和各层tickets:write。持锁直到工单/首消息/附件同事务提交，锁等待限制3秒；不会把摘要或内部绑定返回API。缺原grant的旧OAuth写入拒绝，需重新授权。
+- `logs/takeover-ticket-public-create-r1.log`34实际PG/Fastify helper/真实bearer路由竞争通过，覆盖PAT/POA撤销/删除/过期/缩权/身份变化/封禁及OAuth app停用/缩权/grant撤销/缩权/失去关联；实例锁确保鉴权后状态才变化。有效PAT/POA各只创建一工单及首消息、错误user/grant拒绝、撤销等待已取得的事务锁；无外部渠道。网站42权限矩阵`takeover-ticket-public-create-web.log`、关联转移/回滚`takeover-ticket-public-create-target.log`回归通过。
+- 7/7守卫`takeover-ticket-public-create-guards.log`、server build `takeover-ticket-public-create-build.log`、专项类型`takeover-ticket-public-create-types.log`通过；新增专项登记CI。未实际图床/浏览器/生产，本段只覆盖创建，回复/状态/Public API其它写入尚未接此事务门禁。327仍未完成，下一段回复，再关闭/重开。
+
 ## 2026-10-28 R1-190 图片代理错误与上游释放
 
 - ID范围`bb35a0a9cb876bf14e9af9d53164a0aae8646f82`已push并核远端一致，CI40664055361记录时运行；通知5772373 CI40663666326最终success。

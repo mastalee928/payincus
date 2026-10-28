@@ -7,6 +7,7 @@ import { prisma } from './prisma.js'
 import type { Prisma, TicketStatus, TicketPriority, TicketObjectLinkType } from '@prisma/client'
 import { authorizeUserWrite, lockAdministrativeUserMutation, type WriteActor } from './user-write-authorization.js'
 import { formatTicketReplyNotice, TICKET_REPLY_TITLE } from '../lib/ticket-notification.js'
+import { authorizePublicApiWrite, type PublicApiWriteAuthorization } from './public-api-write-authorization.js'
 
 // ==================== 类型定义 ====================
 
@@ -119,6 +120,7 @@ export function normalizeTicketObjectLinkType(type: string | undefined): TicketO
 export interface CreateTicketData {
   userId: number
   actor?: WriteActor & { role: 'user' | 'admin' }
+  apiAuthorization?: PublicApiWriteAuthorization
   hostId?: number | null  // 可选：不选实例时为 null，工单直接发给管理员
   instanceId?: number | null
   subject: string
@@ -305,6 +307,7 @@ function mapTicketMessageAttachment(attachment: {
  */
 export async function createTicket(data: CreateTicketData): Promise<{ ticketId: number; messageId: number }> {
   const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
     if (data.instanceId != null) {
       // Serialize with transfer/delete and use the current target, not the route's
       // snapshot from before attachment upload or other asynchronous preparation.
@@ -325,6 +328,9 @@ export async function createTicket(data: CreateTicketData): Promise<{ ticketId: 
     if (creator?.status !== 'active' || data.actor && (data.actor.id !== data.userId || creator.role !== data.actor.role ||
       !await authorizeUserWrite(tx, data.userId, data.actor))) {
       throw new TicketMutationError('账户或登录授权已变化，请重新登录后创建工单', 403, 'TICKET_ACTOR_FORBIDDEN')
+    }
+    if (data.apiAuthorization && !await authorizePublicApiWrite(tx, data.userId, data.apiAuthorization, 'tickets:write')) {
+      throw new TicketMutationError('API授权已失效，请重新授权后创建工单', 403, 'TICKET_API_FORBIDDEN')
     }
     const createdAt = new Date()
     const priority = data.priority || 'normal'

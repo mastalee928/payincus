@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { PublicApiToken, User } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { createLog, LogModule, LogResult } from '../db/logs.js'
+import type { PublicApiWriteAuthorization } from '../db/public-api-write-authorization.js'
 
 export const PUBLIC_API_TOKEN_PREFIX = 'pat_'
 export const OAUTH_ACCESS_TOKEN_PREFIX = 'poa_'
@@ -188,6 +189,7 @@ export function listPublicApiScopeMetadata(scopes: readonly PublicApiScope[] = P
 }
 
 export interface AuthenticatedPublicApiToken {
+  writeAuthorization: PublicApiWriteAuthorization
   id: number
   source: 'api_token' | 'oauth_access_token'
   userId: number
@@ -272,6 +274,7 @@ function serializeScopes(value: unknown): PublicApiScope[] {
 
 function serializeAuthenticatedToken(token: PublicApiTokenWithUser): AuthenticatedPublicApiToken {
   return {
+    writeAuthorization: { tokenId: token.id, source: 'api_token', userId: token.userId, tokenHash: token.tokenHash },
     id: token.id,
     source: 'api_token',
     userId: token.userId,
@@ -292,6 +295,8 @@ function serializeAuthenticatedToken(token: PublicApiTokenWithUser): Authenticat
 
 function serializeAuthenticatedOAuthToken(token: OAuthAccessTokenWithUserAndApp): AuthenticatedPublicApiToken {
   return {
+    writeAuthorization: { tokenId: token.id, source: 'oauth_access_token', userId: token.userId,
+      tokenHash: token.tokenHash, appId: token.appId, grantId: token.grantId },
     id: token.id,
     source: 'oauth_access_token',
     userId: token.userId,

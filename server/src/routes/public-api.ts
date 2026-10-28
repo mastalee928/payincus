@@ -2039,6 +2039,7 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
 
       const result = await createTicket({
         userId: apiToken.userId,
+        apiAuthorization: apiToken.writeAuthorization,
         hostId,
         instanceId: instanceId ?? null,
         subject,

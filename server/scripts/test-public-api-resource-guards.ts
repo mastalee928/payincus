@@ -392,6 +392,7 @@ assert.ok(
     route.includes('where: { id: instanceId, userId: apiToken.userId }') &&
     route.includes('uploadedAttachments = await uploadTicketImages(payload.images)') &&
     route.includes('createTicket({') &&
+    route.includes('apiAuthorization: apiToken.writeAuthorization') &&
     route.includes('attachments: uploadedAttachments') &&
     route.includes('attachments.map(serializePublicTicketAttachment)') &&
     route.includes('cleanupUploadedTicketImages(uploadedAttachments)') &&

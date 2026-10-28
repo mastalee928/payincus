@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-28工单API授权追加（R186关联调用链）：创建同事务复核当前PAT/POA及user/app/grant权限、身份、到期/撤销；34真实PG+bearer路由竞争及有效创建、撤销锁等待通过takeover-ticket-public-create-r1.log，网站42权限与关联目标回归、7守卫/build/types通过。回复/关闭及其它Public API写入尚未接此保护，不扩大为全API/327完成；详见HANDOFF。
+
 2026-10-28旧恢复回滚追加：缺失持久副本身份的FAILED任务在连接宿主前拒绝409，owner/host owner/admin实际PG/Fastify均零远端I/O；原授权/stop矩阵、3守卫和server build/type-check通过。f6571c6已推且CI40656767813成功；完整恢复续跑/人工回滚仍待，随后继续R1-183。
 
 2026-10-28恢复替换追加（R069实际运行后端、R137关联边界）：原/临时UUID和设备/原池、固定资源清单、阶段/operation已持久；替换不动原双栈forward，异常/重启/超时保留副本及PROCESSING门禁，末尾DB清理与完成同事务。真实PG/mTLS15故障场景、授权/传输/上传删除回归、5/5守卫、后端构建/类型与第228迁移升级通过，见HANDOFF。持久续跑、安全人工rollback、真实Incus磁盘/网络和SIGKILL仍待，327整体不改为完成。
