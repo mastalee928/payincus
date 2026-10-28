@@ -80,6 +80,10 @@ const availableImages = ref<ImageOption[]>([])
 const plans = ref<GiftPlan[]>([])
 
 const loading = ref(true)
+const ready = ref(false)
+const loadError = ref('')
+const plansError = ref('')
+const imagesError = ref('')
 const imagesLoading = ref(false)
 const plansLoading = ref(false)
 const submitting = ref(false)
@@ -93,6 +97,7 @@ const targetUsername = ref('')
 const targetLookupState = ref<TargetLookupState>('idle')
 const targetUser = ref<{ id: number; username: string } | null>(null)
 const targetLookupActive = ref(true)
+const mounted = ref(false)
 let targetLookupSequence = 0, disposed = false
 const sessionKey = computed(() => {
   if (!authStore.token || !authStore.user) return ''
@@ -103,6 +108,8 @@ const sessionKey = computed(() => {
   } catch { /* Legacy tokens retain their full identity. */ }
   return `${authStore.user.id}:${authStore.user.role}:${identity}`
 })
+const readActive = computed(() => mounted.value && targetLookupActive.value && !!sessionKey.value && Number.isSafeInteger(props.hostId) && props.hostId > 0)
+let dataSequence = 0
 let writeContextSequence = 0
 watch([() => props.hostId, sessionKey, targetLookupActive, () => route.fullPath], () => {
   writeContextSequence++
@@ -173,11 +180,11 @@ const currentDistro = computed(() => {
 
 const canSubmitSelf = computed(() => {
   return (
-    !loading.value && !imagesLoading.value && !plansLoading.value &&
+    readActive.value && ready.value && !loading.value && !imagesLoading.value && !plansLoading.value && !plansError.value && !imagesError.value &&
     form.value.name.trim().length >= 2 &&
     !!selectedPackage.value &&
     availableImages.value.some(image => image.value === form.value.image) &&
-    form.value.sshKeyId !== null
+    sshKeys.value.some(key => key.id === form.value.sshKeyId)
   )
 })
 
@@ -186,7 +193,7 @@ const canSubmitGift = computed(() => {
     targetUser.value !== null && targetUser.value.username === targetUsername.value.trim()
   const hasPlan = !isGiftPaid.value || (selectedPlanId.value !== null && !!selectedPlan.value && !selectedPlan.value.isSoldOut)
   return (
-    !loading.value && !imagesLoading.value && !plansLoading.value &&
+    readActive.value && ready.value && !loading.value && !imagesLoading.value && !plansLoading.value && !plansError.value && !imagesError.value &&
     form.value.name.trim().length >= 2 &&
     !!selectedPackage.value &&
     availableImages.value.some(image => image.value === form.value.image) &&
@@ -216,10 +223,13 @@ function getDistroFromName(name: string): string {
 }
 
 async function loadPlans(packageId: number): Promise<void> {
+  if (!readActive.value || disposed) return
+  const data = dataSequence
   const request = ++planSequence, hostId = props.hostId, session = sessionKey.value
-  const current = () => !disposed && request === planSequence && hostId === props.hostId &&
+  const current = () => !disposed && readActive.value && data === dataSequence && request === planSequence && hostId === props.hostId &&
     session === sessionKey.value && packageId === form.value.packageId
   plansLoading.value = true
+  plansError.value = ''
   plans.value = []
   selectedPlanId.value = null
   try {
@@ -227,18 +237,20 @@ async function loadPlans(packageId: number): Promise<void> {
     if (!current()) return
     plans.value = (res.plans || []).filter(plan => plan.isActive)
     selectedPlanId.value = plans.value.find(plan => !plan.isSoldOut)?.id ?? null
-  } catch {
-    if (current()) plans.value = []
+  } catch (error) {
+    if (current()) { plans.value = []; plansError.value = translateError(error) }
   } finally {
     if (current()) plansLoading.value = false
   }
 }
 
 async function loadAvailableImages(memory?: number): Promise<void> {
+  if (!readActive.value || disposed) return
+  const data = dataSequence
   const request = ++imageSequence
   const packageId = form.value.packageId, hostId = props.hostId, session = sessionKey.value
   const instanceType = selectedPackage.value?.instance_type as 'container' | 'vm' | undefined
-  const current = () => !disposed && request === imageSequence && hostId === props.hostId &&
+  const current = () => !disposed && readActive.value && data === dataSequence && request === imageSequence && hostId === props.hostId &&
     session === sessionKey.value && packageId === form.value.packageId
   if (!selectedPackage.value) {
     availableImages.value = []
@@ -248,6 +260,7 @@ async function loadAvailableImages(memory?: number): Promise<void> {
   }
 
   imagesLoading.value = true
+  imagesError.value = ''
   const previousImage = form.value.image
   availableImages.value = []
   form.value.image = ''
@@ -273,10 +286,11 @@ async function loadAvailableImages(memory?: number): Promise<void> {
     form.value.image = availableImages.value.some(item => item.value === previousImage)
       ? previousImage
       : availableImages.value[0].value
-  } catch {
+  } catch (error) {
     if (!current()) return
     availableImages.value = []
     form.value.image = ''
+    imagesError.value = translateError(error)
   } finally {
     if (current()) imagesLoading.value = false
   }
@@ -296,24 +310,32 @@ function resetResourceDefaults(pkg: Package): void {
   form.value.disk = Math.max(512, Math.min(Math.floor(diskHalf / 102) * 102, diskMax))
 }
 
-async function handlePackageSelect(pkg: Package): Promise<void> {
+async function handlePackageSelect(pkg: Package, resetResources = true): Promise<void> {
+  if (!readActive.value || !packages.value.some(item => item.id === pkg.id)) return
   const request = ++selectionSequence, hostId = props.hostId, session = sessionKey.value
   imageSequence++
   form.value.packageId = pkg.id
   form.value.image = ''
   selectedPlanId.value = null
   plans.value = []
-  resetResourceDefaults(pkg)
+  if (resetResources) resetResourceDefaults(pkg)
   await loadPlans(pkg.id)
   if (disposed || request !== selectionSequence || hostId !== props.hostId || session !== sessionKey.value) return
   await loadAvailableImages(currentMemoryForImages.value)
 }
 
 async function loadData(): Promise<void> {
+  if (disposed || !readActive.value || submitting.value) return
+  const request = ++dataSequence, hostId = props.hostId, session = sessionKey.value
+  const current = () => !disposed && readActive.value && request === dataSequence && hostId === props.hostId && session === sessionKey.value
   loading.value = true
+  ready.value = false
+  loadError.value = ''
   try {
     const meRes = await api.auth.me()
+    if (!current()) return
     const currentUser = (meRes as { user?: { id?: number; role?: string; quota?: UserQuota } }).user
+    if (!currentUser || currentUser.id !== authStore.user?.id || currentUser.role !== authStore.user?.role) throw new Error(t('common.loadFailed'))
     loadedUserId.value = currentUser?.id ?? null
     loadedUserRole.value = currentUser?.role ?? null
     const currentIsAdmin = currentUser?.role === 'admin'
@@ -321,10 +343,11 @@ async function loadData(): Promise<void> {
       api.packages.list(),
       currentIsAdmin ? Promise.resolve({ keys: [] }) : api.sshKeys.list()
     ])
+    if (!current()) return
 
     packages.value = (packagesRes.packages || []).filter((pkg: Package) => {
       const isUsablePackage = currentIsAdmin || pkg.isOwn === true
-      return isUsablePackage && pkg.host_ids?.includes(props.hostId)
+      return isUsablePackage && pkg.host_ids?.includes(hostId)
     })
 
     sshKeys.value = keysRes.keys || []
@@ -336,15 +359,16 @@ async function loadData(): Promise<void> {
       }
       await handlePackageSelect(packages.value[0])
     }
+    if (current()) ready.value = true
   } catch (err: any) {
-    toast.error(t('common.loadFailed') + ': ' + (err?.message || String(err)))
+    if (current()) loadError.value = t('common.loadFailed') + ': ' + (err?.message || String(err))
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 async function checkTargetUser(): Promise<void> {
-  if (disposed || !targetLookupActive.value || !sessionKey.value || !isGiftMode.value || submitting.value || targetLookupState.value === 'checking') return
+  if (disposed || !ready.value || loading.value || !targetLookupActive.value || !sessionKey.value || !isGiftMode.value || submitting.value || targetLookupState.value === 'checking') return
   const username = targetUsername.value.trim()
   const request = ++targetLookupSequence, hostId = props.hostId, session = sessionKey.value
   const current = () => !disposed && targetLookupActive.value && isGiftMode.value &&
@@ -401,7 +425,7 @@ watch([targetUsername, () => props.hostId, sessionKey, createMode, targetLookupA
 }, { flush: 'sync' })
 onActivated(() => { targetLookupActive.value = true })
 onDeactivated(() => { targetLookupActive.value = false })
-onUnmounted(() => { disposed = true; targetLookupSequence++ })
+onUnmounted(() => { disposed = true; targetLookupSequence++; dataSequence++; planSequence++; imageSequence++; selectionSequence++ })
 
 const targetLookupMessage = computed(() => {
   switch (targetLookupState.value) {
@@ -452,9 +476,36 @@ watch([createMode, giftInstanceType, selectedPlanId], () => {
   void loadAvailableImages(currentMemoryForImages.value)
 })
 
-onMounted(async () => {
-  await loadData()
-})
+watch([readActive, sessionKey, () => props.hostId], () => {
+  dataSequence++
+  planSequence++
+  imageSequence++
+  selectionSequence++
+  ready.value = false
+  loadError.value = ''; plansError.value = ''; imagesError.value = ''
+  packages.value = []; sshKeys.value = []; userQuota.value = null
+  plans.value = []; availableImages.value = []
+  loadedUserId.value = null; loadedUserRole.value = null
+  form.value = { name: '', packageId: null, image: '', cpu: 15, memory: 128, disk: 512, sshKeyId: null, customInitCommandIds: [] }
+  selectedPlanId.value = null
+  targetUsername.value = ''
+  createMode.value = authStore.user?.role === 'admin' ? 'gift' : 'self'
+  giftInstanceType.value = 'free'; giftDays.value = 30
+  plansLoading.value = false; imagesLoading.value = false
+  loading.value = readActive.value
+  if (readActive.value && !submitting.value) void loadData()
+}, { flush: 'sync' })
+onMounted(() => { mounted.value = true })
+
+function retryData() {
+  if (!loading.value && !submitting.value) void loadData()
+}
+function retryPlans() {
+  if (!plansLoading.value && !submitting.value && selectedPackage.value) void handlePackageSelect(selectedPackage.value, false)
+}
+function retryImages() {
+  if (!imagesLoading.value && !submitting.value) void loadAvailableImages(currentMemoryForImages.value)
+}
 
 async function handleSelfSubmit(context: number): Promise<void> {
   if (!canSubmitSelf.value) return
@@ -561,6 +612,7 @@ async function handleSubmit(): Promise<void> {
     if (currentWriteContext(context)) toast.error(translateError(err))
   } finally {
     submitting.value = false
+    if (!disposed && readActive.value && !ready.value) void loadData()
   }
 }
 </script>
@@ -572,7 +624,12 @@ async function handleSubmit(): Promise<void> {
         <div class="animate-spin rounded-full h-8 w-8 border-b-2" :class="themeStore.isDark ? 'border-white' : 'border-gray-900'"></div>
       </div>
 
-      <div v-else-if="packages.length === 0" class="text-center py-12">
+      <div v-else-if="loadError" role="alert" class="space-y-3">
+        <p class="break-words text-sm text-red-600 dark:text-red-400">{{ loadError }}</p>
+        <button class="btn btn-secondary" type="button" @click="retryData">{{ t('common.retry') }}</button>
+      </div>
+
+      <div v-else-if="ready && packages.length === 0" class="text-center py-12">
         <div class="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center" :class="themeStore.isDark ? 'bg-gray-800' : 'bg-gray-100'">
           <svg class="w-8 h-8" :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
@@ -582,7 +639,17 @@ async function handleSubmit(): Promise<void> {
         <p class="text-sm text-themed-muted">{{ t('host.createInstance.noPackagesHint') }}</p>
       </div>
 
-      <form v-else class="space-y-6" @submit.prevent="handleSubmit">
+      <form v-else-if="ready" class="space-y-6" @submit.prevent="handleSubmit">
+        <div v-if="plansError || imagesError" role="alert" class="space-y-3">
+          <template v-if="plansError">
+            <p class="break-words text-sm text-red-600 dark:text-red-400">{{ plansError }}</p>
+            <button class="btn btn-secondary" type="button" :disabled="plansLoading || submitting" @click="retryPlans">{{ t('common.retry') }}</button>
+          </template>
+          <template v-if="imagesError">
+            <p class="break-words text-sm text-red-600 dark:text-red-400">{{ imagesError }}</p>
+            <button class="btn btn-secondary" type="button" :disabled="imagesLoading || submitting" @click="retryImages">{{ t('common.retry') }}</button>
+          </template>
+        </div>
         <div class="space-y-2">
           <h3 class="text-sm font-medium text-themed">{{ t('host.createInstance.title') }}</h3>
           <div class="flex flex-wrap gap-4">

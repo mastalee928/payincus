@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-250 宿主创建初读失败与上下文隔离
+
+- R249 6053510已push且CI40746847268最终success；R247/R248 CI也最终success。HostCreateInstanceTab初读及方案/镜像绑定host/session/cache代次，核对auth.me身份，切换清旧套餐/密钥/配额与表单。当前初读成功才可创建；失败持久显示并重试，与成功无套餐分开；方案重试保留资源输入。在途创建返回缓存页先等写结束再重新读取。
+- `logs/takeover-host-create-load-before.log`先复现初读失败伪装空套餐；`takeover-host-create-load-browser-final.log`实际Chrome/Vue通过me/packages/keys失败重试及旧成功失败、身份不符、host/session/cache/隐藏/卸载/退出/无效host、辅助错误重试保草稿，完整回归R247/248/249和三语1440/390。错误与正常截图已检查。4守卫、lint、最终双端vue-tsc/build及dist通过；日志前缀`takeover-host-create-load-*`。首轮构建随对话中断且无最终退出码，另完整运行`build-final.log`并核最终退出码0。
+- API为受控夹具，无真实创建或生产部署。Owner再次提醒管理员默认已走机器池：AdminInstanceCreateView默认pool→AdminPoolInstanceCreate→/instances/admin/pool-create→placePoolOrder，后端独占预占/目标归属/请求幂等已有实现及集成断言。R250仅宿主详情分支；接续优先修机器池旧写回执，再单独处理R252/253旧套餐分支。327与完整灾备仍未完成。
+
 ## 2026-10-29 R1-249 宿主创建旧回执与新草稿
 
 - R247 3a760c2已push并核远端一致，CI40745605752最后运行。自用/赠送创建捕获页面host/session/route/cache代次，旧success/error不能toast、导航或清草稿；请求开始保留草稿快照，仅草稿不变时执行原重置/导航，初始化命令ID数组也复制到提交payload。R248已将赠送成功名称固定到请求payload，本项继续保护整个写回执。
