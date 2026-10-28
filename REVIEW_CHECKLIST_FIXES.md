@@ -311,7 +311,7 @@
 | R1-269 | 部分存在 | 自动失败回调及人工删除已修，超时/强杀待验 | managed原目标/attempt/UUID/mTLS与30秒清理核验、实例锁及事务释放，失败pending保资源退款独立；人工四删除入口核持久attempt/endpoint哈希，确认后清pending/IP，旧退款接口拒pending、record-only保占用。真实PG+mTLS20创建+16拒绝及正常/退款/重复矩阵、8守卫/build含tsc通过见HANDOFF。通用超时、进程强杀/事务退出续跑和原生Incus仍待，整体不记完成。 |
 | R1-270 | 部分存在 | 准备补偿/通知隔离已修；原生交付待验 | IP/cloud-init/storage同事务、当前创建身份/资源核验；失败回滚IP并原子置error/回收CPU内存磁盘端口，失权/补偿DB失败保占用。inbox失败保202及日志，createLog原有catch是误判。13真实Fastify/PG+mTLS场景、6守卫/最终build含tsc通过见HANDOFF；零金额赠送无退款，默认机器池未改。原生Incus/强杀恢复/outbox及请求幂等另待。 |
 | R1-271 | 部分存在 | 三入口/底层/维护脚本已修；原生网络待验 | 原用户sync-status/宿主批量sync已有保护；三运维入口与底层当前host/instance身份、版本/原IP/操作和任务门禁，状态IP同事务、封停保持、每次接受消费版本。14真实PG+47实际API/mTLS+5真实backfill CLI及完整proxy回归、3守卫/build含tsc通过，见HANDOFF。baseline宿主资源快照竞争、维护参数/统计与原生网络另待。 |
-| R1-272 | 部分存在 | null保存已修；用量/并发继续施工 | quota API原整数范围及显式0已有；null转undefined已修，真实Fastify/PG admin/host owner四字段null/省略/0/边界/越权/零财务及3守卫/build含tsc通过见HANDOFF。站点0不限、null继承套餐或默认10，非systemManaged端口计额；当前站点用量与实例锁/创建串行仍待。 |
+| R1-272 | 部分存在 | 本接口null/用量/当前授权已修；扩展并发待验 | quota事务内当前actor/session/instance/host身份、实例锁及手工端口锁、有效用量检查；站点0不限/null继承或默认10，非systemManaged端口与creating/ready备份计额。真实Fastify/PG授权/目标竞争、站点/备份/快照事务创建竞争、端口等待重计及SQL回滚通过；7守卫/最终build含tsc见HANDOFF。原端口租期耗尽/其它配额写入口/ABA及原生Incus仍待。 |
 | R1-273 | 已有防护 | 保留初审结论 | helper的设备/DB回滚在helper内完成，路由成功日志在helper返回之后，不再因路由审计异常进入设备回滚。 |
 | R1-274 | 存在 | 待精修/运行复核 | giftDays按旧实例expires/status写，无version/实例锁，覆盖并发续费/销毁/迁移/封停风险。 |
 | R1-275 | 已有防护 | 保留初审结论 | 远端失败回滚previousProcesses并返回500，回滚失败PARTIAL_FAILURE；原假成功阻重试问题不成立。 |

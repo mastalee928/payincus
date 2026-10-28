@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-272 配额用量与当前授权事务
+
+- ee98c6e已push；7f226ad的CI40769861511已success，5b8b7ff/ee98c6e最后仍运行。quota提交现共用实例操作锁/行锁、宿主共享锁和当前账号/session，核原instance owner/host/incusId及host owner，拒创建/清理/转移/任务和未收尾快照/站点操作。手工端口修改与quota共用原port-mappings锁，锁后统计并同事务写全部已提交字段。
+- 对齐真实消费口径：端口排除systemManaged；备份只计creating/ready；站点全部计数，0不限、null继承套餐或默认10。端口/快照/备份null按有效0检查，不再绕过现有用量；未提交字段保持，不因其它历史超额阻止本次独立字段调整。封停实例仍可管理配额，状态不变；审计站点0改为unlimited。
+- `takeover-instance-quota-usage-before.log`先红复现2站点仍能调成1；`takeover-instance-quota-atomic-server-final.log`真实Fastify/PG通过用量/null/省略、7账号禁用/降权/session竞争、5实例/宿主身份竞争、创建/清理/任务/转移及持久操作拒绝、手工端口锁等待后重计、站点真实POST与backup预留/snapshot事务并发、不同字段并发保存、SQL失败全部回滚及零账款。快照并发使用真实withSnapshotMutation与计数/插入callback，不声称远端快照流程；无Incus/Caddy外部写。
+- 7相关守卫通过，最终quota守卫重跑通过，manifest191/94；首次build发现Host DTO的user_id可选类型，修正为接受可选快照但身份不匹配拒绝后最终build含tsc exit0。守卫曾把host身份比较中的undefined误当配额转换，已去掉不必要转换并通过。无前端变更。
+- 原端口锁120秒租期耗尽时的在途写、其它配额写入口、全局ABA/强杀及原生Incus未在本段验收；R272不扩大为全系统配额验收。接R274赠送时长，原完整路由/续费事务/expiry守卫已读。R269及327/完整灾备仍待。
+
 ## 2026-10-29 R1-272 配额显式 null 保存
 
 - 5b8b7ff已push核远端一致；其CI40771202126及7f226ad的40769861511仍运行，5e86550/65b755c/c188aac已success。PATCH /instances/:id/quota原把null转为undefined，清空操作返回成功但未保存；现保留null，省略字段仍不改变，显式0与既有范围不变。旧守卫错误要求null转undefined，已纠正并接真实PG专项至CI。

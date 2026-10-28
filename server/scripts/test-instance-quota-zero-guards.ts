@@ -36,16 +36,12 @@ assert.notEqual(routeStart, -1, 'missing instance quota update route')
 const routeEnd = source.indexOf('// ==================== 修改实例资源配置 ====================', routeStart)
 assert.notEqual(routeEnd, -1, 'missing instance quota update route end marker')
 const quotaRoute = source.slice(routeStart, routeEnd)
+const quotaMutation = readFileSync(resolve(__dirname, '../src/db/instance-quota-mutations.ts'), 'utf8')
 
-for (const [field, existingColumn] of [
-  ['portLimit', 'port_limit'],
-  ['snapshotLimit', 'snapshot_limit'],
-  ['backupLimit', 'backup_limit'],
-  ['siteLimit', 'site_limit']
-] as const) {
+for (const field of ['portLimit', 'snapshotLimit', 'backupLimit', 'siteLimit']) {
   assert.ok(
-    quotaRoute.includes(`const new${field[0].toUpperCase()}${field.slice(1)} = ${field} !== undefined ? ${field} : instance.${existingColumn}`),
-    `quota route must preserve explicit ${field}=0/null instead of using truthy fallback`
+    quotaMutation.includes(`if (patch.${field} !== undefined)`),
+    `quota mutation must validate submitted ${field}=0/null and preserve omitted fields`
   )
 }
 
@@ -57,7 +53,7 @@ for (const unsafePattern of [
   'siteLimit === 0 ? 0 :'
 ] as const) {
   assert.ok(
-    !quotaRoute.includes(unsafePattern),
+    !quotaRoute.includes(unsafePattern) && !quotaMutation.includes(unsafePattern),
     `quota route must not collapse explicit zero through ${unsafePattern}`
   )
 }
@@ -66,26 +62,40 @@ assert.ok(
   quotaRoute.includes("snapshotLimit: { type: ['integer', 'null'], minimum: 0, maximum: 1000 }") &&
     quotaRoute.includes("backupLimit: { type: ['integer', 'null'], minimum: 0, maximum: 1000 }") &&
     quotaRoute.includes("siteLimit: { type: ['integer', 'null'], minimum: 0, maximum: 1000 }"),
-  'snapshot, backup, and site quota schemas must allow explicit zero as no quota'
+  'quota schemas must allow explicit zero (no snapshot/backup quota; unlimited sites)'
 )
 
 assert.ok(
-  quotaRoute.includes('if (newSnapshotLimit !== null && newSnapshotLimit < currentSnapshotUsed)') &&
-    quotaRoute.includes('if (newBackupLimit !== null && newBackupLimit < currentBackupUsed)'),
-  'snapshot and backup explicit zero must participate in below-used validation'
+  quotaMutation.includes('(patch.snapshotLimit ?? 0) < used') &&
+    quotaMutation.includes('(patch.backupLimit ?? 0) < used') &&
+    quotaMutation.includes('(patch.portLimit ?? 0) < used'),
+  'null and explicit zero must not bypass effective below-used validation'
 )
 
 assert.ok(
-  quotaRoute.includes('newSnapshotLimit !== null && (newSnapshotLimit < 0 || newSnapshotLimit > 1000)') &&
-    quotaRoute.includes('newBackupLimit !== null && (newBackupLimit < 0 || newBackupLimit > 1000)') &&
-    quotaRoute.includes('newSiteLimit !== null && (newSiteLimit < 0 || newSiteLimit > 1000)'),
-  'snapshot, backup, and site range checks must allow zero but cap values at 1000'
+  quotaMutation.includes("[['portLimit', 1], ['snapshotLimit', 0], ['backupLimit', 0], ['siteLimit', 0]]") &&
+    quotaMutation.includes('!Number.isInteger(value) || value < minimum || value > 1000'),
+  'mutation must enforce integer ranges even outside route schema validation'
 )
 
 assert.ok(
-  quotaRoute.includes('await db.updateInstanceQuota(instanceId, {\n      portLimit,\n      snapshotLimit,\n      backupLimit,\n      siteLimit\n    })') &&
-    !quotaRoute.includes('?? undefined'),
+  quotaRoute.includes('await updateInstanceQuotaAuthorized(instance, host.user_id, user, { portLimit, snapshotLimit, backupLimit, siteLimit })') &&
+    quotaMutation.includes('await tx.instance.update({ where: { id: instanceId }, data: patch })') &&
+    !quotaMutation.includes('?? undefined'),
   'quota persistence must keep explicit zero while still allowing null to clear the override'
 )
+
+for (const required of ['tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, expected.id)',
+  'FOR UPDATE', 'FOR SHARE', 'authorizeUserWrite(tx, actor.id, actor)', 'instance.userId !== expected.user_id',
+  'instance.hostId !== expected.host_id', 'instance.incusId !== expected.incus_id', 'host.userId !== hostOwnerId',
+  'hasActiveTransferWorkflow(instance.id, tx)', 'hasPendingSnapshotOperation(instance.id, tx)',
+  'hasPendingProxySiteOperations(instance.id, tx)', 'provisioningCleanupPending', 'deletionBillingPending',
+  'systemManaged: false', "status: { in: ['creating', 'ready'] }", 'await tx.proxySite.count',
+  'limit !== 0 && limit < used', 'limit ??= 10']) {
+  assert.ok(quotaMutation.includes(required), `missing atomic quota guard: ${required}`)
+}
+assert.ok(quotaRoute.includes('getInstancePortMappingLockKey(instanceId)') &&
+  quotaRoute.includes('acquireLock(portLockKey, PORT_MAPPING_LOCK_OPTIONS)') &&
+  quotaRoute.includes('await releaseLock(portLockKey, portLock.ownerId)'), 'quota changes serialize with manual port mutations')
 
 console.log('instance quota zero guard tests passed')

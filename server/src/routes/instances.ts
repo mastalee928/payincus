@@ -10,6 +10,7 @@ import { prepareDedicatedDelivery } from '../services/dedicated-delivery.js'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import * as db from '../db/index.js'
 import { createLog } from '../db/logs.js'
+import { updateInstanceQuotaAuthorized, InstanceQuotaMutationError } from '../db/instance-quota-mutations.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { prisma } from '../db/prisma.js'
 import { assertManagedCleanupIdentity, deletePendingManagedInstance, finalizeManagedCleanupForDeletion } from '../lib/managed-cleanup-identity.js'
@@ -4921,74 +4922,29 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
-    if (await checkTransferLock(instanceId, reply)) return
-
-    // 新配额系统：实例级别的端口/快照/备份/站点限制独立存储，不再与用户配额关联。
-    // 这里必须保留显式 0：0 表示无配额，null 表示继承/未单独设置。
-    const newPortLimit = portLimit !== undefined ? portLimit : instance.port_limit
-    const newSnapshotLimit = snapshotLimit !== undefined ? snapshotLimit : instance.snapshot_limit
-    const newBackupLimit = backupLimit !== undefined ? backupLimit : instance.backup_limit
-    const newSiteLimit = siteLimit !== undefined ? siteLimit : instance.site_limit
-
-    const portMappings = await db.getPortMappings(instanceId)
-    const currentPortUsed = portMappings.length
-
-    // 使用 Prisma 查询快照和备份数量
-    const currentSnapshotUsed = await prisma.snapshot.count({
-      where: { instanceId }
-    })
-
-    const currentBackupUsed = await prisma.backup.count({
-      where: {
-        instanceId,
-        status: { not: 'deleted' }
+    const portLockKey = getInstancePortMappingLockKey(instanceId)
+    const portLock = await acquireLock(portLockKey, PORT_MAPPING_LOCK_OPTIONS)
+    if (!portLock.success || !portLock.ownerId) {
+      return reply.code(409).send(apiError(ErrorCode.PORT_CONFLICT, '端口映射正在修改，请稍后重试'))
+    }
+    try {
+      await updateInstanceQuotaAuthorized(instance, host.user_id, user, { portLimit, snapshotLimit, backupLimit, siteLimit })
+    } catch (error) {
+      if (error instanceof InstanceQuotaMutationError) return reply.code(error.statusCode).send(apiError(error.code, error.message))
+      if (error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === 'P2034' || error.code === 'P2028' || error.code === 'P2010' && ['55P03', '40P01'].includes(String(error.meta?.code)))) {
+        return reply.code(409).send(apiError(ErrorCode.INVALID_PARAMS, '配额修改与其他操作冲突，请刷新后重试'))
       }
-    })
-
-    // 验证新限制不小于当前使用量
-    if (newPortLimit !== null && newPortLimit < currentPortUsed) {
-      return reply.code(400).send(apiError(ErrorCode.QUOTA_PORT_BELOW_USED, `used: ${currentPortUsed}, set: ${newPortLimit}`))
+      throw error
+    } finally {
+      await releaseLock(portLockKey, portLock.ownerId)
     }
-
-    if (newSnapshotLimit !== null && newSnapshotLimit < currentSnapshotUsed) {
-      return reply.code(400).send(apiError(ErrorCode.QUOTA_SNAPSHOT_BELOW_USED, `used: ${currentSnapshotUsed}, set: ${newSnapshotLimit}`))
-    }
-
-    if (newBackupLimit !== null && newBackupLimit < currentBackupUsed) {
-      return reply.code(400).send(apiError(ErrorCode.QUOTA_BACKUP_BELOW_USED, `used: ${currentBackupUsed}, set: ${newBackupLimit}`))
-    }
-
-    // 验证：端口必须在 1-1000 范围内；快照/备份/站点允许 0 表示无配额。
-    if (newPortLimit !== null && (newPortLimit < 1 || newPortLimit > 1000)) {
-      return reply.code(400).send(apiError(ErrorCode.CONFIG_INVALID_VALUE, 'Port limit must be between 1 and 1000'))
-    }
-
-    if (newSnapshotLimit !== null && (newSnapshotLimit < 0 || newSnapshotLimit > 1000)) {
-      return reply.code(400).send(apiError(ErrorCode.CONFIG_INVALID_VALUE, 'Snapshot limit must be between 0 and 1000 (0 = no quota)'))
-    }
-
-    if (newBackupLimit !== null && (newBackupLimit < 0 || newBackupLimit > 1000)) {
-      return reply.code(400).send(apiError(ErrorCode.CONFIG_INVALID_VALUE, 'Backup limit must be between 0 and 1000 (0 = no quota)'))
-    }
-
-    // 验证站点限制：0 表示无配额，null 表示继承套餐
-    if (newSiteLimit !== null && (newSiteLimit < 0 || newSiteLimit > 1000)) {
-      return reply.code(400).send(apiError(ErrorCode.CONFIG_INVALID_VALUE, 'Site limit must be between 0 and 1000 (0 = no quota)'))
-    }
-
-    // 更新实例配额
-    await db.updateInstanceQuota(instanceId, {
-      portLimit,
-      snapshotLimit,
-      backupLimit,
-      siteLimit
-    })
 
     const quotaChanges: string[] = []
     if (portLimit !== undefined) quotaChanges.push(`port: ${portLimit}`)
     if (snapshotLimit !== undefined) quotaChanges.push(`snapshot: ${snapshotLimit === 0 ? 'no quota' : snapshotLimit}`)
     if (backupLimit !== undefined) quotaChanges.push(`backup: ${backupLimit === 0 ? 'no quota' : backupLimit}`)
-    if (siteLimit !== undefined) quotaChanges.push(`site: ${siteLimit === 0 ? 'no quota' : (siteLimit || 'inherit')}`)
+    if (siteLimit !== undefined) quotaChanges.push(`site: ${siteLimit === 0 ? 'unlimited' : (siteLimit ?? 'inherit')}`)
 
     await createLog(
       user.id,

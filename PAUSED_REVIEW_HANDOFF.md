@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：ee98c6e已push；R272 quota事务current actor/session/instance/host身份与共享实例/端口锁、实际用量/site0不限/null语义已修。真实Fastify/PG先红后绿、7守卫+最终quota重跑、最终后端build含tsc exit0/manifest191/94准备push，无待poll。端口原120秒租期耗尽的在途写/其它写入口/原生Incus未验。下一项R274 hosts.ts约6719 gift-days，完整route、performRenewal和withInstanceBillingMutation、expiry守卫已读，尚未编辑。须current expiry/归属/封停和原shared billing lane+实例锁防覆盖；免费赠送零账款。327持续，7f226ad CI success。
+
 > **最新接续**：5b8b7ff已push；R272 quota显式null不再转undefined，真实Fastify/PG先红后绿（admin/host owner四字段、省略/0/边界/越权/零财务），3守卫/最终后端build含tsc exit0/manifest191/94通过准备单项push，无待poll。下一段quota锁内current actor/host/instance、用量与创建串行；备份createBackupWithQuotaReservation须继续读，siteLimit=0不限/null继承套餐或默认10，端口只计非systemManaged。R269超时/强杀、R274仍待。5e86550/65b755c/c188aac CI success；两个R271 CI仍运行。327持续。
 
 > **最新接续**：7f226ad已push；R271底层网络持久化和backfill当前host/instance身份/版本/原IP/操作门禁、每次观察消费版本已修。14PG+47接口+5真实CLI/完整proxy回归、3守卫、后端最终build含tsc exit0、manifest191/93通过准备push，无待poll。维护CLI关闭连接并延后100ms退出解决security timer挂住及Windows同步exit断言；旧getAllHosts无user_id改另查完整宿主。临时gift目录已精确逐文件清理。下一项R272 instances.ts约4876–4995 quotas已定位，须读完整路由/db quota/create site/守卫再改；R269超时、R274赠送时长仍待，327持续。
