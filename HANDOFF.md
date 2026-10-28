@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-283 终端会话与连接回执隔离
+
+- e799c90已push核远端一致，090afa6源码CI40778093662已success；e799c90/935dac5最后仍运行。TerminalView换账号/角色/session及logout销毁旧标签、连接/重连timer、实例列表与浮层，同sid刷新保持。实例列表单独请求序号与缓存激活校验，清旧列表/选择；只允许当前运行实例建立新标签。
+- cloud-init绑定原tab对象/instance/session与请求序号，关闭/被新检查替代/skip后旧响应不写状态或连接；当前失败继续原允许连接规则。ticket绑定tab/实例/会话与连接attempt；WebSocket消息/错误/关闭/重连及异步Blob读取均核当前socket，旧连接不写到新tab。关闭先失效attempt与socket，再实际close；同会话普通KeepAlive保留连接。
+- `takeover-terminal-session-before.log`Chrome先红logout仍1标签；`takeover-terminal-session-final.log`通过logout/同sid刷新、列表重叠/旧finally/缓存、关闭/并行/skip/session旧cloud-init、旧ticket/attempt与当前ticket、旧socket事件零重连、当前错误重试/异常关闭新ticket和卸载后票据不建连接。`takeover-terminal-session-lifecycle-regression.log`上一批完整缓存/剪贴板/fresh-mobile回归通过。真实Chrome配受控API/WebSocket，未宣称原生SSH/Incus连接实证；初次socket替身被Vue代理导致身份断言失败，修为native等效markRaw后通过，非产品回退。
+- client types、4守卫、lint零error/warning、manifest191/100、最终双端build exit0和dist边界通过。R284命令栏独立账户/草稿生命周期仍待，不把终端父页修复扩大为所有子组件。
+- 下一项R284四文件夹具已先红（takeover-terminal-commands-before.log）：save完成无条件cancelEditor清新草稿。源、后端create/update/delete及current user/session事务/原守卫已读，产品尚未改；这些测试不混入本项提交。327、R269和完整灾备未完成。
+
 ## 2026-10-29 R1-282 终端缓存页快捷键与粘贴隔离
 
 - 935dac5已push核远端一致；aab5bbc源码CI40776614927已success，090afa6/935dac5最后运行。TerminalView激活/停用独立注册和移除页面监听，离页收起搜索/选择器/帮助/设置/移动命令菜单/右键/链接浮层并释放焦点；正常缓存保留已有终端连接，卸载才销毁。输入框自己的快捷键保持，xterm输入仍可使用终端快捷键。

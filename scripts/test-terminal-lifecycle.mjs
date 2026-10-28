@@ -63,6 +63,8 @@ try {
   await run(() => { void window.terminalHarness.view().handleAccessoryPaste() })
   await run(() => { window.terminalHarness.auth.token = `fixture.${btoa(JSON.stringify({ sid: 'b' }))}.fixture`; window.terminalHarness.pendingClipboard[3]('obsolete session clipboard') })
   assert.deepEqual(await page.eval(() => window.terminalHarness.sent), ['current clipboard'])
+  assert.deepEqual(await page.eval(() => window.terminalHarness.closed), ['close'], 'session change disposes the old connection')
+  await run(() => window.terminalHarness.seedTab())
   for (let iteration = 0; iteration < 3; iteration++) {
     await run(() => { window.terminalHarness.state.active = false }); await run(() => { window.terminalHarness.state.active = true })
     assert.equal(await key('F'), true); assert.equal(await page.eval(() => window.terminalHarness.view().showSearch), true)
@@ -75,7 +77,7 @@ try {
   }
   await run(() => { window.terminalHarness.state.mounted = false })
   assert.equal(await key('F'), false)
-  assert.deepEqual(await page.eval(() => window.terminalHarness.closed), ['close'])
+  assert.deepEqual(await page.eval(() => window.terminalHarness.closed), ['close', 'close'])
   assert.equal(page.consoleErrors.length, 0, page.consoleErrors.join('\n'))
   const mobile = await browser.newPage({ width: 390, height: 850, mobile: true, reducedMotion: true })
   await mobile.setViewport({ width: 390, height: 850, mobile: true })

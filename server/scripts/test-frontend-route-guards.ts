@@ -76,6 +76,11 @@ assert.ok(terminalPageSource.includes('onActivated(activatePage)') && terminalPa
   terminalPageSource.includes('generation === uiGeneration') && terminalPageSource.includes('tab.ws === socket') &&
   terminalPageSource.includes("target.closest('.xterm')") && terminalPageSource.includes(':aria-pressed="activeTabId === tab.id"'),
   'cached terminal must release global shortcuts and overlays, preserve current tab input and use independent tab buttons')
+assert.ok(terminalPageSource.includes('generation === sessionGeneration') &&
+  terminalPageSource.includes('cloudSequences.get(tabId) === sequence') && terminalPageSource.includes('watch(sessionKey, () => {') &&
+  terminalPageSource.includes('if (!currentSocket()) return') && terminalPageSource.includes('onBeforeUnmount(() => {') &&
+  terminalPageSource.includes('currentSocket() ? tab.terminal : null'),
+  'terminal lists, cloud-init, tickets and socket callbacks must remain bound to the current authenticated session and tab')
 assert.ok(changePlanModalSource.includes('session === sessionKey.value') &&
   changePlanModalSource.includes('currentGeneration === generation') && changePlanModalSource.includes('sequence === previewSequence') &&
   changePlanModalSource.includes('await api.billing.changePlan(approved.instanceId, approved.planId)') &&

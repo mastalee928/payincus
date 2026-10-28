@@ -36,6 +36,7 @@
     "test:review-transfer-modal-lifecycle": "node ../scripts/test-transfer-modal-lifecycle.mjs",
     "test:review-change-plan-lifecycle": "node ../scripts/test-change-plan-lifecycle.mjs",
     "test:review-terminal-lifecycle": "node ../scripts/test-terminal-lifecycle.mjs",
+    "test:review-terminal-session": "node ../scripts/test-terminal-session.mjs",
     "test:review-prize-editor": "node ../scripts/test-prize-editor.mjs",
     "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",

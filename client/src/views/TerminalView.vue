@@ -67,6 +67,10 @@ const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const terminalStore = useTerminalStore()
 const pageActive = ref(false)
+let alive = true
+let sessionGeneration = 0
+let instancesSequence = 0
+const cloudSequences = new Map<string, number>()
 let uiGeneration = 0
 const sessionKey = computed(() => {
     if (!authStore.token || !authStore.user) return ''
@@ -81,6 +85,16 @@ const sessionKey = computed(() => {
 function captureUi() {
     const generation = uiGeneration, session = sessionKey.value
     return () => pageActive.value && !!session && session === sessionKey.value && generation === uiGeneration
+}
+
+function captureSession() {
+    const generation = sessionGeneration, session = sessionKey.value
+    return () => alive && !!session && session === sessionKey.value && generation === sessionGeneration
+}
+
+function captureTab(tab: TerminalTab) {
+    const currentSession = captureSession(), instanceId = tab.instanceId
+    return () => currentSession() && tabs.value.find(item => item.id === tab.id) === tab && tab.instanceId === instanceId
 }
 
 // 实例列表
@@ -226,9 +240,15 @@ const statusText = computed(() => {
 
 // 加载用户实例列表
 async function loadInstances() {
+    const currentSession = captureSession(), sequence = ++instancesSequence
+    const current = () => currentSession() && pageActive.value && sequence === instancesSequence
+    instances.value = []
+    selectedInstanceId.value = null
+    if (!current()) return
     loadingInstances.value = true
     try {
         const response = await api.instances.list({ limit: 100 })
+        if (!current()) return
         const data = response as { instances?: Array<InstanceWithDetails & { imageName?: string; hostCountryCode?: string }>; total?: number }
         instances.value = (data.instances || []).map((i) => ({
             id: i.id,
@@ -240,9 +260,10 @@ async function loadInstances() {
             packageName: i.package?.name
         }))
     } catch (err) {
+        if (!current()) return
         console.error('Failed to load instances:', err)
     } finally {
-        loadingInstances.value = false
+        if (current()) loadingInstances.value = false
     }
 }
 
@@ -313,9 +334,9 @@ function handleInstanceSearch(query: string) {
 
 // 确认添加实例终端
 function confirmAddInstance() {
-    if (!selectedInstanceId.value) return
+    if (!pageActive.value || loadingInstances.value || !selectedInstanceId.value) return
     const instance = instances.value.find(i => i.id === selectedInstanceId.value)
-    if (!instance) return
+    if (!instance || instance.status.toLowerCase() !== 'running') return
     
     showInstanceSelector.value = false
     addInstanceTab(instance.id, instance.name)
@@ -323,7 +344,7 @@ function confirmAddInstance() {
 
 // 添加实例终端标签
 function addInstanceTab(instanceId: number, instanceName: string) {
-    if (tabs.value.length >= MAX_TABS) return
+    if (!pageActive.value || !captureSession()() || tabs.value.length >= MAX_TABS) return
     
     const id = generateTabId()
     const tab: TerminalTab = {
@@ -415,6 +436,10 @@ function initTabTerminal(tabId: string) {
 async function checkCloudInitAndConnect(tabId: string) {
     const tab = tabs.value.find(t => t.id === tabId)
     if (!tab) return
+    const currentTab = captureTab(tab), sequence = (cloudSequences.get(tabId) || 0) + 1
+    cloudSequences.set(tabId, sequence)
+    const current = () => currentTab() && cloudSequences.get(tabId) === sequence
+    if (!current()) return
     
     // 如果已经检查过且结果是 ready 或 skipped，直接连接
     const status = cloudInitStatus.value.get(tabId)
@@ -428,6 +453,7 @@ async function checkCloudInitAndConnect(tabId: string) {
     
     try {
         const result = await api.instances.checkCloudInitStatus(tab.instanceId)
+        if (!current()) return
         if (result.ready) {
             cloudInitStatus.value.set(tabId, 'ready')
             connectTab(tabId)
@@ -442,12 +468,13 @@ async function checkCloudInitAndConnect(tabId: string) {
             }
         }
     } catch (err) {
+        if (!current()) return
         console.error('[CloudInit] Check failed:', err)
         // 检查失败时允许继续连接
         cloudInitStatus.value.set(tabId, 'ready')
         connectTab(tabId)
     } finally {
-        cloudInitChecking.value.set(tabId, false)
+        if (current()) cloudInitChecking.value.set(tabId, false)
     }
 }
 
@@ -458,6 +485,10 @@ async function retryCloudInitCheck(tabId: string) {
 
 // 跳过 Cloud-init 检查并连接
 function skipCloudInitAndConnect(tabId: string) {
+    const tab = tabs.value.find(item => item.id === tabId)
+    if (!tab || !captureTab(tab)()) return
+    cloudSequences.set(tabId, (cloudSequences.get(tabId) || 0) + 1)
+    cloudInitChecking.value.set(tabId, false)
     cloudInitStatus.value.set(tabId, 'skipped')
     connectTab(tabId)
 }
@@ -466,6 +497,8 @@ function skipCloudInitAndConnect(tabId: string) {
 async function connectTab(tabId: string) {
     const tab = tabs.value.find(t => t.id === tabId)
     if (!tab) return
+    const currentTabContext = captureTab(tab)
+    if (!currentTabContext()) return
     
     const token = authStore.token
     if (!token) {
@@ -482,11 +515,12 @@ async function connectTab(tabId: string) {
     tab.error = null
     tab.connectAttempt += 1
     const connectAttempt = tab.connectAttempt
+    const current = () => currentTabContext() && tab.connectAttempt === connectAttempt
     
     try {
         const ticketResponse = await api.instances.createTerminalTicket(tab.instanceId)
         const currentTab = tabs.value.find(t => t.id === tabId)
-        if (!currentTab || currentTab.connectAttempt !== connectAttempt) {
+        if (!current() || !currentTab) {
             return
         }
 
@@ -495,23 +529,27 @@ async function connectTab(tabId: string) {
         // 使用 arraybuffer 确保二进制数据按顺序处理（避免 Blob 异步导致的乱序）
         ws.binaryType = 'arraybuffer'
         currentTab.ws = ws
+        const currentSocket = () => current() && currentTab.ws === ws
         
         ws.onopen = () => {
+            if (!currentSocket()) return
             console.log(`[Terminal Tab ${tabId}] WebSocket connected`)
         }
         
         ws.onmessage = (event) => {
-            handleTerminalSocketPayload(event.data, () => tab.terminal, (message) => {
-                handleControlMessage(tabId, message)
+            if (!currentSocket()) return
+            handleTerminalSocketPayload(event.data, () => currentSocket() ? tab.terminal : null, (message) => {
+                if (currentSocket()) handleControlMessage(tabId, message)
             })
         }
         
         ws.onerror = () => {
+            if (!currentSocket()) return
             currentTab.error = t('terminal.connectionError')
         }
         
         ws.onclose = (event) => {
-            if (currentTab.ws !== ws) return
+            if (!currentSocket()) return
 
             console.log(`[Terminal Tab ${tabId}] WebSocket closed:`, event.code)
 
@@ -529,6 +567,7 @@ async function connectTab(tabId: string) {
                         clearTimeout(existingTimer)
                     }
                     const timer = setTimeout(() => {
+                        if (!currentSocket()) return
                         reconnectTimers.value.delete(tabId)
                         if (currentTab.terminal) {
                             printReconnectMessage(currentTab.terminal)
@@ -551,7 +590,7 @@ async function connectTab(tabId: string) {
             currentTab.eventsBound = true
             
             currentTab.terminal.onData((data) => {
-                if (currentTab.ws && currentTab.ws.readyState === WebSocket.OPEN) {
+                if (pageActive.value && currentTabContext() && currentTab.ws && currentTab.ws.readyState === WebSocket.OPEN) {
                     try {
                         currentTab.ws.send(data)
                     } catch {
@@ -562,14 +601,14 @@ async function connectTab(tabId: string) {
             
             currentTab.terminal.onResize(({ cols, rows }) => {
                 // 检查标签是否仍然存在，防止在异步操作期间被销毁
-                if (tabs.value.find(t => t.id === tabId)) {
+                if (currentTabContext()) {
                     sendResize(tabId, cols, rows)
                 }
             })
         }
-    } catch (err) {
+    } catch {
         const currentTab = tabs.value.find(t => t.id === tabId)
-        if (!currentTab || currentTab.connectAttempt !== connectAttempt) {
+        if (!current() || !currentTab) {
             return
         }
 
@@ -677,6 +716,8 @@ function closeTab(tabId: string) {
     if (index === -1) return
     
     const tab = tabs.value[index]
+    tab.connectAttempt++
+    cloudSequences.delete(tabId)
     
     // 清理重连定时器
     const timer = reconnectTimers.value.get(tabId)
@@ -689,8 +730,9 @@ function closeTab(tabId: string) {
     // 清理资源（按顺序：WebSocket -> GPU Addons -> Terminal）
     // 1. 先关闭 WebSocket 连接
     if (tab.ws) {
-        tab.ws.close(1000, 'Tab closed')
+        const socket = tab.ws
         tab.ws = null
+        socket.close(1000, 'Tab closed')
     }
     // 2. 清理终端资源
     disposeTerminalRuntime(tab)
@@ -1096,6 +1138,7 @@ function setContainerRef(tabId: string, el: HTMLElement | null) {
 
 // 断开所有连接
 function disconnectAll() {
+    cloudSequences.clear()
     showSavedCommandsMobile.value = false
     // 清理所有重连定时器
     reconnectTimers.value.forEach(timer => clearTimeout(timer))
@@ -1103,13 +1146,16 @@ function disconnectAll() {
     reconnectAttempts.value.clear()
     
     tabs.value.forEach(tab => {
+        tab.connectAttempt++
         if (tab.ws) {
-            tab.ws.close(1000, 'User disconnect')
+            const socket = tab.ws
             tab.ws = null
+            socket.close(1000, 'User disconnect')
         }
         disposeTerminalRuntime(tab)
     })
     tabs.value = []
+    activeTabId.value = ''
     containerRefs.value.clear()
     
     // 清理 Cloud-init 状态
@@ -1131,11 +1177,14 @@ function activatePage() {
     }
     const current = captureUi()
     nextTick(() => { if (current()) handleResize() })
+    void loadInstances()
 }
 
 function deactivatePage() {
     pageActive.value = false
     uiGeneration++
+    instancesSequence++
+    loadingInstances.value = false
     closeSearch()
     showInstanceSelector.value = false
     selectedInstanceId.value = null
@@ -1156,10 +1205,22 @@ function deactivatePage() {
     }
 }
 
-onMounted(() => { void loadInstances(); activatePage() })
+watch(sessionKey, () => {
+    sessionGeneration++
+    instancesSequence++
+    const wasActive = pageActive.value
+    deactivatePage()
+    disconnectAll()
+    instances.value = []
+    if (wasActive) activatePage()
+}, { flush: 'sync' })
+
+onMounted(activatePage)
 onActivated(activatePage)
 onDeactivated(deactivatePage)
 onBeforeUnmount(() => {
+    alive = false
+    sessionGeneration++
     deactivatePage()
     disconnectAll()
 })
