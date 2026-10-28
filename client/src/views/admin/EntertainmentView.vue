@@ -104,7 +104,7 @@ const deleting = ref(false)
 // 通知配置弹窗
 const showNotificationModal = ref(false)
 const editingNotification = ref<any>(null)
-const notificationForm = ref({
+const defaultNotificationForm = () => ({
   enabled: true,
   type: 'telegram' as 'telegram' | 'discord' | 'webhook',
   notifyBalance: true,
@@ -118,7 +118,23 @@ const notificationForm = ref({
   webhookUrl: '',
   webhookSecret: ''
 })
+const notificationForm = ref(defaultNotificationForm())
 const savingNotification = ref(false)
+const loadingNotification = ref(false)
+const notificationLoaded = ref(false)
+const notificationError = ref('')
+let notificationContext = 0
+function currentNotificationContext(context: number) {
+  return !prizesDisposed && prizesActive && showNotificationModal.value && !!prizeSession.value && context === notificationContext
+}
+function invalidateNotification() {
+  notificationContext++; showNotificationModal.value = false; editingNotification.value = null
+  notificationForm.value = defaultNotificationForm(); notificationLoaded.value = false
+  loadingNotification.value = false; notificationError.value = ''
+}
+watch(prizeSession, invalidateNotification, { flush: 'sync' })
+onDeactivated(invalidateNotification)
+onUnmounted(invalidateNotification)
 
 // 徽章目录
 const badgeSeries = ref<BadgeSeriesItem[]>([])
@@ -530,40 +546,57 @@ const usersTotalPages = computed(() => Math.ceil(usersTotal.value / usersPageSiz
 const checkinLogsTotalPages = computed(() => Math.ceil(checkinLogsTotal.value / checkinLogsPageSize.value))
 
 // 打开通知配置弹窗
-function openNotificationModal(lottery: any) {
-  editingNotification.value = lottery
-  const config = lottery.notificationConfig
-  if (config) {
-    notificationForm.value = {
-      enabled: config.enabled,
-      type: config.type || 'telegram',
-      notifyBalance: config.notifyBalance,
-      notifyInstance: config.notifyInstance,
-      telegramBotToken: config.config?.botToken || '',
-      telegramChatId: config.config?.chatId || '',
-      discordWebhookUrl: config.config?.webhookUrl || '',
-      webhookUrl: config.config?.url || '',
-      webhookSecret: config.config?.secret || ''
-    }
-  } else {
-    notificationForm.value = {
-      enabled: true,
-      type: 'telegram',
-      notifyBalance: true,
-      notifyInstance: true,
-      telegramBotToken: '',
-      telegramChatId: '',
-      discordWebhookUrl: '',
-      webhookUrl: '',
-      webhookSecret: ''
-    }
-  }
+async function openNotificationModal(lottery: any) {
+  if (savingNotification.value || !prizesActive || !prizeSession.value) return
+  invalidateNotification()
+  editingNotification.value = { id: lottery.id, name: lottery.name }
   showNotificationModal.value = true
+  await loadNotification()
+}
+
+async function loadNotification() {
+  if (loadingNotification.value || savingNotification.value || !currentNotificationContext(notificationContext)) return
+  const context = notificationContext, id = editingNotification.value.id
+  loadingNotification.value = true; notificationLoaded.value = false; notificationError.value = ''
+  try {
+    const { lottery } = await api.entertainment.adminGetLottery(id)
+    if (!currentNotificationContext(context)) return
+    if (lottery.id !== id) throw new Error(t('entertainment.admin.loadLotteriesFailed'))
+    const config = lottery.notificationConfig
+    if (config) {
+      if (!['telegram', 'discord', 'webhook'].includes(config.type)) throw new Error(t('entertainment.admin.loadLotteriesFailed'))
+      const text = (value: unknown) => typeof value === 'string' ? value : ''
+      notificationForm.value = {
+        enabled: config.enabled,
+        type: config.type as 'telegram' | 'discord' | 'webhook',
+        notifyBalance: config.notifyBalance,
+        notifyInstance: config.notifyInstance,
+        telegramBotToken: text(config.config?.botToken),
+        telegramChatId: text(config.config?.chatId),
+        discordWebhookUrl: config.type === 'discord' ? text(config.config?.webhookUrl) : '',
+        webhookUrl: config.type === 'webhook' ? text(config.config?.url) : '',
+        webhookSecret: config.type === 'webhook' ? text(config.config?.secret) : ''
+      }
+    } else {
+      notificationForm.value = defaultNotificationForm()
+    }
+    notificationLoaded.value = true
+  } catch (err: any) {
+    if (currentNotificationContext(context)) notificationError.value = err.message
+  } finally {
+    if (currentNotificationContext(context)) loadingNotification.value = false
+  }
+}
+
+function closeNotificationModal() {
+  if (!savingNotification.value) invalidateNotification()
 }
 
 // 保存通知配置
 async function saveNotification() {
-  const form = notificationForm.value
+  if (savingNotification.value || !notificationLoaded.value || loadingNotification.value || !currentNotificationContext(notificationContext)) return
+  const context = notificationContext, id = editingNotification.value.id
+  const form = { ...notificationForm.value }
   
   // 根据类型构建配置
   let config: Record<string, string> = {}
@@ -588,19 +621,21 @@ async function saveNotification() {
   }
   
   savingNotification.value = true
+  notificationError.value = ''
   try {
-    await api.entertainment.adminUpdateNotification(editingNotification.value.id, {
+    await api.entertainment.adminUpdateNotification(id, {
       enabled: form.enabled,
       type: form.type,
       config,
       notifyBalance: form.notifyBalance,
       notifyInstance: form.notifyInstance
     })
+    if (!currentNotificationContext(context)) return
     toast.success(t('entertainment.admin.notification.saveSuccess'))
-    showNotificationModal.value = false
+    invalidateNotification()
     loadLotteries()
   } catch (err: any) {
-    toast.error(t('entertainment.admin.notification.saveFailed') + ': ' + err.message)
+    if (currentNotificationContext(context)) notificationError.value = t('entertainment.admin.notification.saveFailed') + ': ' + err.message
   } finally {
     savingNotification.value = false
   }
@@ -1830,20 +1865,25 @@ function getSeriesTitle(seriesId: string): string {
       >
         <div 
           v-if="showNotificationModal" 
-          class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          @click.self="showNotificationModal = false"
+          class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto"
+          @click.self="closeNotificationModal"
         >
-          <div class="card p-6 w-full max-w-md">
+          <div class="card p-6 w-full max-w-md my-auto">
             <h3 class="text-lg font-medium text-themed mb-4">
               {{ $t('entertainment.admin.notification.title') }} - {{ editingNotification?.name }}
             </h3>
             
-            <div class="space-y-4">
+            <div v-if="loadingNotification || notificationError" class="mb-4 text-sm text-themed-secondary">
+              <p v-if="loadingNotification" role="status">{{ $t('common.loading') }}</p>
+              <p v-if="notificationError" role="alert" class="text-red-500 break-words">{{ notificationError }}</p>
+              <button v-if="!loadingNotification && !notificationLoaded" class="btn btn-sm btn-secondary mt-2" @click="loadNotification">{{ $t('common.retry') }}</button>
+            </div>
+            <fieldset :disabled="!notificationLoaded || loadingNotification || savingNotification" class="space-y-4 min-w-0">
               <!-- 启用开关 -->
               <div class="flex items-center justify-between">
                 <label class="text-sm font-medium text-themed">{{ $t('entertainment.admin.notification.enabled') }}</label>
                 <label class="relative inline-flex items-center cursor-pointer">
-                  <input v-model="notificationForm.enabled" type="checkbox" class="sr-only peer">
+                  <input v-model="notificationForm.enabled" type="checkbox" :aria-label="$t('entertainment.admin.notification.enabled')" class="sr-only peer">
                   <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent"></div>
                 </label>
               </div>
@@ -1851,7 +1891,7 @@ function getSeriesTitle(seriesId: string): string {
               <!-- 通知方式选择 -->
               <div>
                 <label class="block text-sm font-medium text-themed mb-1">{{ $t('entertainment.admin.notification.type') }}</label>
-                <select v-model="notificationForm.type" class="input w-full">
+                <select v-model="notificationForm.type" :aria-label="$t('entertainment.admin.notification.type')" class="input w-full">
                   <option value="telegram">Telegram</option>
                   <option value="discord">Discord</option>
                   <option value="webhook">Webhook</option>
@@ -1864,7 +1904,8 @@ function getSeriesTitle(seriesId: string): string {
                   <label class="block text-sm font-medium text-themed mb-1">Bot Token</label>
                   <input 
                     v-model="notificationForm.telegramBotToken"
-                    type="text" 
+                    type="password"
+                    aria-label="Bot Token"
                     class="input w-full"
                     placeholder="123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                   />
@@ -1874,6 +1915,7 @@ function getSeriesTitle(seriesId: string): string {
                   <input 
                     v-model="notificationForm.telegramChatId"
                     type="text" 
+                    aria-label="Chat ID"
                     class="input w-full"
                     placeholder="-1001234567890"
                   />
@@ -1886,7 +1928,8 @@ function getSeriesTitle(seriesId: string): string {
                   <label class="block text-sm font-medium text-themed mb-1">Webhook URL</label>
                   <input 
                     v-model="notificationForm.discordWebhookUrl"
-                    type="text" 
+                    type="password"
+                    aria-label="Webhook URL"
                     class="input w-full"
                     placeholder="https://discord.com/api/webhooks/..."
                   />
@@ -1900,6 +1943,7 @@ function getSeriesTitle(seriesId: string): string {
                   <input 
                     v-model="notificationForm.webhookUrl"
                     type="text" 
+                    aria-label="Webhook URL"
                     class="input w-full"
                     placeholder="https://your-server.com/webhook"
                   />
@@ -1908,7 +1952,8 @@ function getSeriesTitle(seriesId: string): string {
                   <label class="block text-sm font-medium text-themed mb-1">{{ $t('entertainment.admin.notification.secret') }}</label>
                   <input 
                     v-model="notificationForm.webhookSecret"
-                    type="text" 
+                    type="password"
+                    :aria-label="$t('entertainment.admin.notification.secret')"
                     class="input w-full"
                     :placeholder="$t('entertainment.admin.notification.secretPlaceholder')"
                   />
@@ -1939,11 +1984,11 @@ function getSeriesTitle(seriesId: string): string {
                   </div>
                 </div>
               </div>
-            </div>
+            </fieldset>
             
             <div class="flex justify-end gap-2 mt-6">
-              <button class="btn btn-ghost" @click="showNotificationModal = false">{{ $t('common.cancel') }}</button>
-              <button class="btn btn-primary" :disabled="savingNotification" @click="saveNotification">
+              <button class="btn btn-ghost" :disabled="savingNotification" @click="closeNotificationModal">{{ $t('common.cancel') }}</button>
+              <button class="btn btn-primary" :disabled="savingNotification || !notificationLoaded || loadingNotification" @click="saveNotification">
                 {{ savingNotification ? $t('common.saving') : $t('common.save') }}
               </button>
             </div>

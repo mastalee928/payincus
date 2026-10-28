@@ -7,4 +7,5 @@ export default { entertainment: {
   adminUpdatePrize: (id, data) => request('update', { id, data }),
   adminCreatePrize: (id, data) => request('create', { id, data }),
   adminDeletePrize: id => request('delete', { id }),
+  adminUpdateNotification: (id, data) => request('notification', { id, data }),
 } }

@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-234 通知配置读取链路
+
+- R235 81421ec已push并核远端一致，CI40727283504仍运行；徽章测试修正bdadd1c CI40725732406最终success。纠正通知初审：列表从未返回notificationConfig，有回填代码不能证明表单收到配置。
+- 通知弹窗现在按ID读取详情后回填，读取失败/目标不匹配/未知通知类型时禁保存并持久retry。关闭/重开/会话/缓存/卸载清旧配置并拒旧回执；保存固定ID/快照、同步禁重复与冻结，旧保存不关闭新上下文，当前错误保留草稿。token/Discord地址/secret输入隐藏显示，字段增加可访问名称，手机长表单允许滚动。不改通知发送器/后端接口或实际账号配置。
+- `logs/takeover-lottery-notification-server.log`真实Fastify/PG验证三种配置保存后详情完整返回、列表仍不含凭据；所有值均为inert示例，无消息发送。`takeover-lottery-notification-browser-final.log`真实Vue/Chrome通过三种回填及精确payload、十连点、字段冻结、读取失败禁覆盖/重试、旧请求/会话/缓存及null默认值，并完整回归R235。首轮退出DOM仍处200ms过渡，等待后最终通过。三语1440/390截图已看，示例token遮蔽。
+- `takeover-lottery-notification-guards.log`4/4、build双端vue-tsc/build、server types、dist及lint零报告通过；复用已接CI专项。未提供通知跨管理员版本冲突解决或真实外部发送验收。下一项R237无入口旧CheckinModal，再R238–241 VIP奖励空说明/重复保存/数值/读取生命周期；327与完整灾备仍未完成。
+
 ## 2026-10-29 R1-235 抽奖库存增量与编辑版本
 
 - 徽章测试修正bdadd1c已push并核远端一致。奖品PUT改为expectedRevision+replenishAmount，拒绝旧客户端绝对remainQuantity及缺失/旧版本；revision持久递增，抽奖扣库不改变编辑版本。迁移`20261029001000_lottery_prize_revision`只加默认0列，上线前仍须正常migrate。

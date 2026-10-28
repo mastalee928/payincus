@@ -82,6 +82,19 @@ try {
     assert.equal((await put(payload)).statusCode, 409)
   }
   assert.equal((await read()).remainQuantity, 2_147_483_647)
+  // List responses intentionally omit notification credentials; the editor must load detail.
+  for (const type of ['telegram', 'discord', 'webhook']) {
+    const data = { enabled: false, type, notifyBalance: false, notifyInstance: true, config:
+      type === 'telegram' ? { botToken: 'inert-fixture-value', chatId: '-1000' } :
+      type === 'discord' ? { webhookUrl: 'https://example.invalid/inert-discord' } : { url: 'https://example.invalid/inert-webhook', secret: 'inert-fixture-value' } }
+    const saved = await app.inject({ method: 'PUT', url: `/entertainment/lotteries/${lottery.id}/notification`, payload: data })
+    assert.equal(saved.statusCode, 200)
+    const detail = await app.inject(`/entertainment/lotteries/${lottery.id}`)
+    assert.deepEqual(detail.json().lottery.notificationConfig, data)
+    const listing = await app.inject('/entertainment/lotteries')
+    assert.equal('notificationConfig' in listing.json().lotteries.find((item: any) => item.id === lottery.id), false)
+  }
+  console.log('PASS actual notification save/detail contract for 3 types; list omits credentials. Inert configuration only, no messages sent.')
   console.log('PASS actual Fastify/PostgreSQL: consumed stock preserved, atomic replenishment, concurrent duplicate/replayed revision rejection, actual draw race, null/limited/type transitions and integer limits. Authentication identity is a fixture; no customer data.')
 } finally {
   await app.close()
