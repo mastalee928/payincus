@@ -282,7 +282,7 @@
 | R1-244 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
 | R1-245 | 存在 | 已修复；真实规则替换未验 | 当前type/session成功读取才可编辑保存，初读失败持久retry；同步保存/冻结/快照及类型session缓存卸载回执隔离。真实Chrome先红空规则请求→禁写，完整交互/共享奖励回归、4守卫/lint/双端types build/dist/manifest通过（takeover-vip-rules-*）；后端空数组合法替换与跨管理员竞争保持。 |
 | R1-246 | 已有防护 | 保留初审结论 | ResourceSlider/ResourceSliders/PackageSelector仍由InstanceCreateView、AdminInstanceCreateView、HostCreateInstanceTab维护代码导入使用；原全退役结论不成立，保留。 |
-| R1-247 | 存在 | 待精修/运行复核 | 套餐/镜像加载无seq；canSubmitGift未匹配当前targetUsername；完成反馈和初读缺目标/生命周期保护。 |
+| R1-247 | 存在 | 已修复；真实镜像交付未验 | 方案/镜像请求各自seq+host/session/package，selection代次阻旧链；刷新清旧选择并禁创建，提交镜像须在当前列表。Chrome先红后绿、方案/镜像旧成功失败/finally、刷新禁写/精确planId与image及R248回归、3守卫/lint/双端types build/dist通过（takeover-host-create-options-*）。R249/250另修。 |
 | R1-248 | 存在 | 已修复；完整创建生命周期继续 | 目标输入同步清旧验证，提交匹配当前trim用户名；lookup按seq/host/session/模式/cache隔离，核返回身份与ID，保存提示用提交payload。Chrome先红后绿、直接submit/乱序/错误身份/状态/SSH/session/host/cache/精确收件人、4守卫/lint/最终双端types build/dist/manifest通过（takeover-host-gift-target-*）；R247/249/250另修，未真实交付。 |
 | R1-249 | 存在 | 待精修/运行复核 | 套餐/镜像加载无seq；canSubmitGift未匹配当前targetUsername；完成反馈和初读缺目标/生命周期保护。 |
 | R1-250 | 存在 | 待精修/运行复核 | 套餐/镜像加载无seq；canSubmitGift未匹配当前targetUsername；完成反馈和初读缺目标/生命周期保护。 |

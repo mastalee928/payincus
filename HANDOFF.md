@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-247 宿主创建方案与镜像乱序
+
+- R248 c7e8f28已push并核远端一致，CI40744550016最后仍运行。方案/镜像分别维护请求序号，并绑定请求时host/session/package；套餐选择自身也有代次，旧方案完成不能继续发起新图像读取。开始读取清旧方案/镜像，成功/失败/finally仅当前请求可回填，创建要求辅助读取结束且镜像属于当前列表。
+- `logs/takeover-host-create-options-before.log`真实Chrome先复现快速切换后旧方案覆盖当前选择；`takeover-host-create-options-browser.log`通过方案旧成功、镜像旧成功/失败/finally、刷新禁创建、最终planId和image精确匹配，并回归R248矩阵/三语1440/390。受控API，无实际实例交付。只按现有内存阈值触发图像刷新，未改变可用镜像后端策略。
+- `takeover-host-create-options-guards.log`3/3、Vue lint、双端vue-tsc/build与dist通过。R249写入旧回执/新草稿、R250初读/host整体生命周期仍未修；327与完整灾备未完成。
+
 ## 2026-10-29 R1-248 宿主赠送目标验证一致性
 
 - R245 f6e0390已push且CI40742907887最终success；R243 CI40742141406及R242 CI40741048390也success。HostCreateInstanceTab输入用户名改变立即清旧targetUser/验证，提交要求当前trim用户名与已核身份一致。查询以序号/host/session/模式/缓存活跃状态检查，旧成功与失败、错误身份、无效ID不能回填；同SID刷新保留，换host/会话/缓存返回重新验证。

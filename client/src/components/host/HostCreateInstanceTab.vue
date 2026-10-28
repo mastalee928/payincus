@@ -82,6 +82,7 @@ const loading = ref(true)
 const imagesLoading = ref(false)
 const plansLoading = ref(false)
 const submitting = ref(false)
+let planSequence = 0, imageSequence = 0, selectionSequence = 0
 
 const createMode = ref<CreateMode>(isAdmin.value ? 'gift' : 'self')
 const giftInstanceType = ref<GiftInstanceType>('free')
@@ -159,9 +160,10 @@ const currentDistro = computed(() => {
 
 const canSubmitSelf = computed(() => {
   return (
+    !loading.value && !imagesLoading.value && !plansLoading.value &&
     form.value.name.trim().length >= 2 &&
-    form.value.packageId !== null &&
-    !!form.value.image &&
+    !!selectedPackage.value &&
+    availableImages.value.some(image => image.value === form.value.image) &&
     form.value.sshKeyId !== null
   )
 })
@@ -171,9 +173,10 @@ const canSubmitGift = computed(() => {
     targetUser.value !== null && targetUser.value.username === targetUsername.value.trim()
   const hasPlan = !isGiftPaid.value || (selectedPlanId.value !== null && !!selectedPlan.value && !selectedPlan.value.isSoldOut)
   return (
+    !loading.value && !imagesLoading.value && !plansLoading.value &&
     form.value.name.trim().length >= 2 &&
-    form.value.packageId !== null &&
-    !!form.value.image &&
+    !!selectedPackage.value &&
+    availableImages.value.some(image => image.value === form.value.image) &&
     hasTarget &&
     hasPlan &&
     isGiftDaysValid.value
@@ -200,33 +203,48 @@ function getDistroFromName(name: string): string {
 }
 
 async function loadPlans(packageId: number): Promise<void> {
+  const request = ++planSequence, hostId = props.hostId, session = sessionKey.value
+  const current = () => !disposed && request === planSequence && hostId === props.hostId &&
+    session === sessionKey.value && packageId === form.value.packageId
   plansLoading.value = true
+  plans.value = []
   selectedPlanId.value = null
   try {
     const res = await api.packages.getPlans(packageId)
+    if (!current()) return
     plans.value = (res.plans || []).filter(plan => plan.isActive)
     selectedPlanId.value = plans.value.find(plan => !plan.isSoldOut)?.id ?? null
   } catch {
-    plans.value = []
+    if (current()) plans.value = []
   } finally {
-    plansLoading.value = false
+    if (current()) plansLoading.value = false
   }
 }
 
 async function loadAvailableImages(memory?: number): Promise<void> {
+  const request = ++imageSequence
+  const packageId = form.value.packageId, hostId = props.hostId, session = sessionKey.value
+  const instanceType = selectedPackage.value?.instance_type as 'container' | 'vm' | undefined
+  const current = () => !disposed && request === imageSequence && hostId === props.hostId &&
+    session === sessionKey.value && packageId === form.value.packageId
   if (!selectedPackage.value) {
     availableImages.value = []
     form.value.image = ''
+    imagesLoading.value = false
     return
   }
 
   imagesLoading.value = true
+  const previousImage = form.value.image
+  availableImages.value = []
+  form.value.image = ''
   try {
     const res = await api.images.getSystemImages(
-      selectedPackage.value.instance_type as 'container' | 'vm' | undefined,
+      instanceType,
       memory,
-      props.hostId
+      hostId
     )
+    if (!current()) return
 
     availableImages.value = (res.images || []).map(img => ({
       value: img.remoteAlias,
@@ -239,15 +257,15 @@ async function loadAvailableImages(memory?: number): Promise<void> {
       return
     }
 
-    const exists = availableImages.value.some(item => item.value === form.value.image)
-    if (!exists) {
-      form.value.image = availableImages.value[0].value
-    }
+    form.value.image = availableImages.value.some(item => item.value === previousImage)
+      ? previousImage
+      : availableImages.value[0].value
   } catch {
+    if (!current()) return
     availableImages.value = []
     form.value.image = ''
   } finally {
-    imagesLoading.value = false
+    if (current()) imagesLoading.value = false
   }
 }
 
@@ -266,12 +284,15 @@ function resetResourceDefaults(pkg: Package): void {
 }
 
 async function handlePackageSelect(pkg: Package): Promise<void> {
+  const request = ++selectionSequence, hostId = props.hostId, session = sessionKey.value
+  imageSequence++
   form.value.packageId = pkg.id
   form.value.image = ''
   selectedPlanId.value = null
   plans.value = []
   resetResourceDefaults(pkg)
   await loadPlans(pkg.id)
+  if (disposed || request !== selectionSequence || hostId !== props.hostId || session !== sessionKey.value) return
   await loadAvailableImages(currentMemoryForImages.value)
 }
 
