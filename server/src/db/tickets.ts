@@ -4,7 +4,7 @@
  */
 
 import { prisma } from './prisma.js'
-import type { TicketStatus, TicketPriority, TicketObjectLinkType } from '@prisma/client'
+import type { Prisma, TicketStatus, TicketPriority, TicketObjectLinkType } from '@prisma/client'
 import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
 
 // ==================== 类型定义 ====================
@@ -1601,37 +1601,42 @@ function getKnowledgeSuggestions(category: string): Array<{ title: string; steps
   return suggestions[category] ?? suggestions.general
 }
 
-async function validateTicketObjectLink(ticket: { userId: number; hostId: number | null; instanceId: number | null }, objectType: TicketObjectLinkType, objectId: number): Promise<string | null> {
+async function validateTicketObjectLink(tx: Prisma.TransactionClient, ticket: { userId: number; hostId: number | null; instanceId: number | null }, objectType: TicketObjectLinkType, objectId: number): Promise<string | null> {
   switch (objectType) {
     case 'recharge_record': {
-      const record = await prisma.rechargeRecord.findFirst({
+      await tx.$queryRaw`SELECT id FROM recharge_records WHERE id = ${objectId} FOR SHARE`
+      const record = await tx.rechargeRecord.findFirst({
         where: { id: objectId, userId: ticket.userId },
         select: { orderNo: true, status: true, amount: true }
       })
       return record ? `充值 ${record.orderNo} · ${record.status} · ¥${decimalToString(record.amount)}` : null
     }
     case 'order_operation_case': {
-      const item = await prisma.orderOperationCase.findFirst({
+      await tx.$queryRaw`SELECT id FROM order_operation_cases WHERE id = ${objectId} FOR SHARE`
+      const item = await tx.orderOperationCase.findFirst({
         where: { id: objectId, userId: ticket.userId },
         select: { orderNo: true, status: true, reason: true }
       })
       return item ? `订单处理 ${item.orderNo ?? `#${objectId}`} · ${item.status}` : null
     }
     case 'instance': {
-      const instance = await prisma.instance.findFirst({
+      await tx.$queryRaw`SELECT id FROM instances WHERE id = ${objectId} FOR SHARE`
+      const instance = await tx.instance.findFirst({
         where: { id: objectId, userId: ticket.userId },
         select: { name: true, status: true }
       })
       return instance ? `实例 ${instance.name} · ${instance.status}` : null
     }
     case 'host': {
+      await tx.$queryRaw`SELECT id FROM instances WHERE host_id = ${objectId} AND user_id = ${ticket.userId} ORDER BY id FOR SHARE`
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${objectId} FOR SHARE`
       const hostOr: Array<Record<string, unknown>> = [
         { instances: { some: { userId: ticket.userId } } }
       ]
       if (ticket.hostId) {
         hostOr.unshift({ id: ticket.hostId })
       }
-      const host = await prisma.host.findFirst({
+      const host = await tx.host.findFirst({
         where: {
           id: objectId,
           OR: hostOr
@@ -1864,46 +1869,60 @@ export async function createTicketObjectLink(
   objectType: TicketObjectLinkType,
   objectId: number,
   createdByUserId: number,
-  createdByUsername: string
+  createdByUsername: string,
+  actor: WriteActor
 ): Promise<TicketObjectLink | null> {
-  const ticket = await prisma.ticket.findUnique({
-    where: { id: ticketId },
-    select: { userId: true, hostId: true, instanceId: true }
-  })
-  if (!ticket) return null
+  return prisma.$transaction(async tx => {
+    await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+    if (!TICKET_LINK_TYPES.has(objectType) || !Number.isSafeInteger(objectId) || objectId < 1 || objectId > 2_147_483_647) return null
+    const ticket = await tx.ticket.findUnique({
+      where: { id: ticketId },
+      select: { userId: true, hostId: true, instanceId: true }
+    })
+    if (!ticket) return null
 
-  const objectLabel = await validateTicketObjectLink(ticket, objectType, objectId)
-  if (!objectLabel) return null
-
-  const link = await prisma.ticketObjectLink.upsert({
-    where: {
-      ticketId_objectType_objectId: {
+    const objectLabel = await validateTicketObjectLink(tx, ticket, objectType, objectId)
+    if (!objectLabel) return null
+    await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${ticketId} FOR UPDATE`
+    const current = await tx.ticket.findUnique({ where: { id: ticketId }, select: { userId: true, hostId: true, instanceId: true } })
+    if (!current || current.userId !== ticket.userId || current.hostId !== ticket.hostId || current.instanceId !== ticket.instanceId) {
+      throw new TicketMutationError('工单关联目标已变化，请刷新后重试')
+    }
+    if (actor.id !== createdByUserId || !await authorizeUserWrite(tx, actor.id, actor) ||
+      (await tx.user.findUnique({ where: { id: actor.id }, select: { role: true } }))?.role !== 'admin') {
+      throw new TicketMutationError('管理员权限或登录授权已变化，请重新登录', 403, 'TICKET_ACTOR_FORBIDDEN')
+    }
+    const author = await tx.user.findUniqueOrThrow({ where: { id: actor.id }, select: { username: true } })
+    const link = await tx.ticketObjectLink.upsert({
+      where: {
+        ticketId_objectType_objectId: {
+          ticketId,
+          objectType,
+          objectId
+        }
+      },
+      create: {
         ticketId,
         objectType,
-        objectId
+        objectId,
+        objectLabel,
+        createdByUserId,
+        createdByUsername: author.username || createdByUsername
+      },
+      update: {
+        objectLabel
       }
-    },
-    create: {
-      ticketId,
-      objectType,
-      objectId,
-      objectLabel,
-      createdByUserId,
-      createdByUsername
-    },
-    update: {
-      objectLabel
+    })
+
+    return {
+      id: link.id,
+      ticketId: link.ticketId,
+      objectType: link.objectType,
+      objectId: link.objectId,
+      objectLabel: link.objectLabel,
+      createdByUserId: link.createdByUserId,
+      createdByUsername: link.createdByUsername,
+      createdAt: link.createdAt.toISOString()
     }
   })
-
-  return {
-    id: link.id,
-    ticketId: link.ticketId,
-    objectType: link.objectType,
-    objectId: link.objectId,
-    objectLabel: link.objectLabel,
-    createdByUserId: link.createdByUserId,
-    createdByUsername: link.createdByUsername,
-    createdAt: link.createdAt.toISOString()
-  }
 }

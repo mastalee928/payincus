@@ -215,7 +215,7 @@
 | R1-183 | 部分存在 | 源码已修/隔离PG验证通过 | 完整十进制/safe integer与DB offset乘积限32位；四路由/helper非法及重复参数、有效二页/末页/100上限/偏移临界通过takeover-ticket-pagination-r3.log。数字搜索超PG整数范围按原文字匹配，重复search不500；4守卫、后端build与专项类型通过，浏览器/生产未验 |
 | R1-184 | 已有防护 | 保留初审结论 | strict positive safe ID；无效optional返回null并报错，不静默截断。 |
 | R1-185 | 已有防护 | 保留初审结论 | strict positive safe ID；无效optional返回null并报错，不静默截断。 |
-| R1-186 | 存在 | 部分精修/隔离PG验证通过 | 创建8+回复12+状态关闭10+删除3+备注3个真实PG/Fastify竞争通过takeover-ticket-note-authorization.log：当前actor/session/ticket/host/原status复核，删除固定清单、DB故障保护、备注当前作者保持。5守卫/build/types通过；链接/通知/PAT及附件持久清理仍待 |
+| R1-186 | 存在 | 部分精修/隔离PG验证通过 | 创建8+回复12+状态关闭10+删除3+备注3+链接3竞争通过takeover-ticket-link-authorization.log；关联对象实际行锁/转移拒绝及四类型正常匹配通过takeover-ticket-link-target.log。当前actor/session/ticket/host、删除清单与作者正确；5守卫/build/types通过。通知/PAT及附件持久清理仍待 |
 | R1-187 | 存在 | 源码已修/隔离PG验证通过 | createTicket事务持instance/host行锁，重核owner/host/未删除，网站与Public API目标冲突409；实际PG/Fastify helper及网站6个行锁竞争、正常关联/无实例、首消息故障全回滚通过takeover-ticket-target-r1.log，4守卫与build/type通过。PAT/附件完整实跑及R186当前账户/通知仍待 |
 | R1-188 | 已有防护 | 保留初审结论 | assertSafeHttpUrl+safeFetch连接校验，redirect manual；stream逐段限制MAX_TICKET_IMAGE_SIZE。 |
 | R1-189 | 已有防护 | 保留初审结论 | assertSafeHttpUrl+safeFetch连接校验，redirect manual；stream逐段限制MAX_TICKET_IMAGE_SIZE。 |

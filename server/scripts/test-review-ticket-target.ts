@@ -7,7 +7,7 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'),
   'Use isolated local *_pool_test PostgreSQL')
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { createTicket, TicketMutationError } = await import('../src/db/tickets.js')
+const { createTicket, createTicketObjectLink, TicketMutationError } = await import('../src/db/tickets.js')
 const { default: routes } = await import('../src/routes/tickets.js')
 const tag = `ticket-target-${randomUUID()}`
 const user = await prisma.user.create({ data: { username: tag, passwordHash: 'unusable-fixture' } })
@@ -76,6 +76,54 @@ try {
   triggerInstalled = true
   await assert.rejects(createTicket(payload), /fixture-ticket-message-failure/)
   assert.equal(await prisma.ticket.count({ where: { userId: user.id } }), 0, 'first message failure rolls back ticket and association')
+  await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${trigger} ON ticket_messages`)
+  await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${trigger}()`)
+  triggerInstalled = false
+  await prisma.user.update({ where: { id: other.id }, data: { role: 'admin' } })
+  const actor = { id: other.id, sid: randomUUID(), iat: Math.floor(Date.now() / 1000) }
+  const linkTicket = await prisma.ticket.create({ data: { userId: user.id, subject: tag } })
+  for (const objectType of ['instance', 'host'] as const) {
+    const objectId = objectType === 'instance' ? instance.id : host.id
+    let release!: () => void, ready!: (pid: number) => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    const entered = new Promise<number>(resolve => { ready = resolve })
+    const blocker = prisma.$transaction(async tx => {
+      await tx.instance.update({ where: { id: instance.id }, data: { userId: other.id } })
+      const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+      ready(row.pid); await held
+    }, { timeout: 15000 })
+    const pid = await entered
+    const pending = createTicketObjectLink(linkTicket.id, objectType, objectId, other.id, other.username, actor)
+    let blocked = false
+    try {
+      const deadline = Date.now() + 3000
+      while (Date.now() < deadline) {
+        const [row] = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM pg_stat_activity WHERE ${pid} = ANY(pg_blocking_pids(pid))`
+        if (Number(row.count) > 0) { blocked = true; break }
+        await delay(20)
+      }
+    } finally { release(); await blocker }
+    assert.equal(await pending, null, 'transferred object is no longer linkable by the old ticket owner')
+    assert.equal(blocked, true)
+    assert.equal(await prisma.ticketObjectLink.count({ where: { ticketId: linkTicket.id } }), 0)
+    await prisma.instance.update({ where: { id: instance.id }, data: { userId: user.id } })
+  }
+  const provider = await prisma.paymentProvider.create({ data: { name: tag, type: 'yipay', config: {} } })
+  const recharge = await prisma.rechargeRecord.create({ data: { userId: user.id, providerId: provider.id, orderNo: tag, amount: 1 } })
+  const orderCase = await prisma.orderOperationCase.create({ data: { sourceType: tag, sourceId: 1, userId: user.id, createdByUserId: other.id, reason: tag } })
+  try {
+    for (const [type, id] of [['instance', instance.id], ['host', host.id], ['recharge_record', recharge.id], ['order_operation_case', orderCase.id]] as const) {
+      const linked = await createTicketObjectLink(linkTicket.id, type, id, actor.id, 'old name', actor)
+      assert.ok(linked?.objectLabel)
+      assert.equal(linked.createdByUsername, other.username)
+    }
+    assert.equal(await createTicketObjectLink(linkTicket.id, 'instance', 2147483648, actor.id, other.username, actor), null)
+  } finally {
+    await prisma.rechargeRecord.delete({ where: { id: recharge.id } })
+    await prisma.paymentProvider.delete({ where: { id: provider.id } })
+    await prisma.orderOperationCase.delete({ where: { id: orderCase.id } })
+  }
+  console.log('PASS object linking: concurrent instance transfer blocks and removes instance/host eligibility; all four object types resolve under transaction locks with current author, invalid database IDs rejected.')
   console.log('PASS real PG/Fastify ticket target: helper and web route block on concurrent owner/host/deletion changes then reject without ticket/message writes; valid linked/unscoped creation and first-message DB rollback. Public API uses the same helper; token authentication and attachment services not exercised.')
 } finally {
   if (triggerInstalled) {

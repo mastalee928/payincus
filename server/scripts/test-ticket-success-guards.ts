@@ -58,6 +58,12 @@ assert.notEqual(addTicketMessageEnd, -1, 'ticket status helper must follow addTi
 const addTicketMessageSource = dbSource.slice(addTicketMessageStart, addTicketMessageEnd)
 const deleteMessageSource = dbSource.slice(dbSource.indexOf('export async function deleteTicketMessage('), dbSource.indexOf('export async function getTicketMessageAttachments('))
 const internalNoteSource = dbSource.slice(dbSource.indexOf('export async function createTicketInternalNote('), dbSource.indexOf('export async function createTicketObjectLink('))
+const linkSource = dbSource.slice(dbSource.indexOf('export async function createTicketObjectLink('))
+assert.ok(linkSource.includes('validateTicketObjectLink(tx, ticket, objectType, objectId)') &&
+  linkSource.includes('authorizeUserWrite(tx, actor.id, actor)') && linkSource.includes('current.userId !== ticket.userId') &&
+  linkSource.includes('tx.ticketObjectLink.upsert(') &&
+  routeSource.includes('createTicketObjectLink(ticketId, objectType, objectId, user.id, user.username, user)'),
+  'object links must verify current administrator and locked object/ticket ownership in the same transaction')
 assert.ok(internalNoteSource.includes('authorizeUserWrite(tx, actorUserId, actor)') &&
   internalNoteSource.includes("admin.role !== 'admin'") && internalNoteSource.includes('actorUsername: admin.username') &&
   routeSource.includes('createTicketInternalNote(ticketId, user.id, user.username, content, user)'),

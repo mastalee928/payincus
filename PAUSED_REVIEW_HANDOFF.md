@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：R186关联对象当前admin/session及实例/host/充值/订单对象归属事务锁已修；累计39权限竞争和instance/host转移拒绝、四类型正常关联、5守卫/build/types通过。保存后修客服通知原子记录与正文展示，再PAT在途撤销。4ef8b02已push，CI40662179580运行；23358c2 CI已success。327仍未完整。
+
 > **最新接续**：R186内部备注管理员/session事务复核和当前作者已修，累计36实际PG/Fastify竞争、5守卫/build/types通过；保存后继续关联对象和通知原子提交。23358c2已push，CI40661681682最后运行；d29ca3a/fadec04 CI已success。当前通知仍先发送后记录，不能当作已修。327仍未完成。
 
 > **最新接续**：R186管理员删除工单消息current admin/session/归属事务复核+固定附件清单已修，累计33真实PG/Fastify竞争、拒删trigger、5守卫/build/types通过。保存后继续内部备注/关联对象/通知及PAT。fadec04已push，CI40661288207与d29ca3a CI40660948686继续核最终结果；证据见HANDOFF。无需owner再次授权commit/push。

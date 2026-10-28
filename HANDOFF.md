@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-186 客服关联对象
+
+- 备注`4ef8b029b01ffa0158e4fe9aa67ac377ce235fde`已push并核远端一致，CI40662179580检查时运行；删除23358c2 CI40661681682最终success。
+- 关联对象在事务内锁实际实例/host/充值记录/订单处理记录并验证当前归属，再锁工单核对原关联身份，最后current admin/session核验与upsert同事务。大于PG整数范围对象ID拒绝；作者用当前用户名，重复关联仍幂等。
+- `logs/takeover-ticket-link-authorization.log`累计39真实PG/Fastify竞争（关联新增封禁/注销/降权3）通过；`takeover-ticket-link-target.log`原创建关联回归、实例转移后的instance/host关联拒绝与全部四类正常关联通过。5/5守卫`takeover-ticket-link-guards.log`、server build `takeover-ticket-link-build.log`和专项类型`takeover-ticket-link-types.log`通过。未生产/浏览器/外发操作。
+- R186剩余通知发送的授权/原子记录与PAT在途撤销继续；通知模板另发现未展示管理员输入正文，下一小项处理。327仍未完成。
+
 ## 2026-10-28 R1-186 内部备注当前管理员
 
 - 删除消息`23358c2751d4b7ad652642f7aba5266a7ce24e9d`已push并核远端一致，CI40661681682检查时运行；回复d29ca3a CI40660948686、状态fadec04 CI40661288207最终success。

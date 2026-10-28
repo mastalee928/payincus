@@ -526,7 +526,13 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Invalid object type'))
     }
 
-    const link = await ticketDb.createTicketObjectLink(ticketId, objectType, objectId, user.id, user.username)
+    let link: Awaited<ReturnType<typeof ticketDb.createTicketObjectLink>>
+    try {
+      link = await ticketDb.createTicketObjectLink(ticketId, objectType, objectId, user.id, user.username, user)
+    } catch (error) {
+      if (error instanceof ticketDb.TicketMutationError) return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+      throw error
+    }
     if (!link) {
       return reply.code(404).send(apiError(ErrorCode.NOT_FOUND))
     }
