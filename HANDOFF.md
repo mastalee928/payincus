@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-274 赠送时长保留当前续费与封停
+
+- a805dc4已push，CI40773184822最后运行；ee98c6e/5b8b7ff/7f226ad CI均success。gift-days每实例共用withInstanceBillingMutation（续费与到期远端动作同lane），实例操作锁/行锁+宿主共享锁下核current owner/host/incusId/付费套餐、当前宿主所有者及session，拒创建/清理/转移和未完成任务/快照/站点操作。以锁内max(now,current expiry)增加天数并递增version，不按列表旧快照覆盖；仅当前expired封停清除，人工封停保持。
+- 赠送与instance.gift_days持久审计同事务，审计失败全部回滚；不写余额/退款/收费账单，不启动或停止远端实例。批量保持逐项成功失败和免费跳过；未拥有宿主的管理员无额外越权通道。DB错误给可重试说明、服务日志保原错误和目标ID。
+- `takeover-host-gift-days-before.log`先红：并发延长30天被旧赠送覆盖。`takeover-host-gift-days-server-final.log`真实Fastify/PG通过9身份/账号/session竞争、当前人工/expired封停、过期/无到期起点、7工作流拒绝、共享实例锁、6并发赠送累计/version/审计与零账款、实际performRenewal后赠送保持付费末期与仅一扣款、旧续费拒重复扣款、审计触发器失败回滚、边界/非owner、普通宿主owner与成功/失败/免费混合批量。原renewal专项完整回归也通过；原生Incus与真实expiry远端停止未验。
+- 4相关守卫、最终后端build含tsc exit0、manifest191/95通过，新专项接PG CI。初次fixture因两个宿主同名触发唯一约束，已修命名/失败传播，3账号及关联夹具按确切ID/名称/本机URL核对后完整清理。
+- 不含跨请求幂等键、全局ABA与多进程（架构仍单后端）验收。继续R271 backfill严格参数与成功计数（已读原代码/真实CLI夹具），以及327其它待项；R269超时/强杀、完整灾备未完成。
+
 ## 2026-10-29 R1-272 配额用量与当前授权事务
 
 - ee98c6e已push；7f226ad的CI40769861511已success，5b8b7ff/ee98c6e最后仍运行。quota提交现共用实例操作锁/行锁、宿主共享锁和当前账号/session，核原instance owner/host/incusId及host owner，拒创建/清理/转移/任务和未收尾快照/站点操作。手工端口修改与quota共用原port-mappings锁，锁后统计并同事务写全部已提交字段。

@@ -122,6 +122,20 @@ assert.ok(
   'host gift-days must strictly validate instanceIds and days body values'
 )
 
+const giftSource = readFileSync(resolve(__dirname, '../src/db/instance-gift-days.ts'), 'utf8')
+const giftRoute = source.slice(source.indexOf('// POST /api/hosts/:id/instances/gift-days'),
+  source.indexOf('// PATCH /api/hosts/:id/instances/:instanceId/renewal-price'))
+assert.ok(giftRoute.includes('await giftInstanceDays(instance, user, days)') &&
+  !giftRoute.includes('await prisma.instance.update'), 'gift route must delegate to current-state transaction')
+for (const required of ['withInstanceBillingMutation(expected.id', 'INSTANCE_OPERATION_LOCK_NAMESPACE', 'FOR UPDATE', 'FOR SHARE',
+  'current.userId !== expected.userId', 'current.hostId !== expected.hostId', 'current.incusId !== expected.incusId',
+  'current.packagePlanId !== expected.packagePlanId', 'authorizeUserWrite(tx, actor.id, actor)', 'host?.userId !== actor.id',
+  'current.provisioningCleanupPending', 'current.deletionBillingPending', 'hasActiveTransferWorkflow(current.id, tx)',
+  'Math.max(Date.now(), current.expiresAt?.getTime() ?? 0)', 'version: { increment: 1 }',
+  "current.status === 'suspended' && current.suspendReason === 'expired'", 'await tx.log.create']) {
+  assert.ok(giftSource.includes(required), `gift days must preserve ${required}`)
+}
+
 assert.ok(
   source.includes('const HOST_RENEWAL_PRICE_MAX = 99999') &&
     source.includes('const newPrice = parseFiniteNumberBody(request.body.newPrice, 0, HOST_RENEWAL_PRICE_MAX)') &&

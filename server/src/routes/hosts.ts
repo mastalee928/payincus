@@ -17,6 +17,7 @@ import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations, Prox
 import { checkHostingAccess } from '../lib/hosting-access.js'
 import { createInboxMessage } from '../db/inbox.js'
 import { createLog } from '../db/logs.js'
+import { giftInstanceDays, InstanceGiftDaysError } from '../db/instance-gift-days.js'
 import { apiError, ErrorCode, type ErrorCodeType } from '../lib/errors.js'
 import { createInstanceTask, getActiveTaskForInstance, InstanceTaskConflictError } from '../db/instance-tasks.js'
 import type { CreateInstanceTaskData, InstanceTaskWithDetails } from '../db/instance-tasks.js'
@@ -6777,34 +6778,9 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     }
 
     const results: { instanceId: number; instanceName: string; success: boolean; error?: string; newExpiresAt?: string }[] = []
-    const now = new Date()
-    const msPerDay = 24 * 60 * 60 * 1000
-
     for (const instance of instances) {
       try {
-        // 计算新的到期时间
-        let baseDate: Date
-        if (instance.expiresAt && instance.expiresAt > now) {
-          // 未过期：从当前到期时间延长
-          baseDate = instance.expiresAt
-        } else {
-          // 已过期或无到期时间：从当前时间开始
-          baseDate = now
-        }
-        const newExpiresAt = new Date(baseDate.getTime() + days * msPerDay)
-
-        // 更新实例到期时间
-        await prisma.instance.update({
-          where: { id: instance.id },
-          data: {
-            expiresAt: newExpiresAt,
-            // 如果实例是因过期被封停的，自动解封
-            status: instance.status === 'suspended' && instance.suspendReason === 'expired' ? 'stopped' : instance.status,
-            suspendedAt: instance.status === 'suspended' && instance.suspendReason === 'expired' ? null : instance.suspendedAt,
-            suspendedBy: instance.status === 'suspended' && instance.suspendReason === 'expired' ? null : instance.suspendedBy,
-            suspendReason: instance.status === 'suspended' && instance.suspendReason === 'expired' ? null : instance.suspendReason
-          }
-        })
+        const newExpiresAt = await giftInstanceDays(instance, user, days)
 
         results.push({
           instanceId: instance.id,
@@ -6816,14 +6792,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         // 记录日志
         fastify.log.info(`[GiftDays] Host owner ${user.username} gifted ${days} days to instance ${instance.name} (ID: ${instance.id}), new expires_at: ${newExpiresAt.toISOString()}`)
       } catch (err: any) {
-        const errorMessage = err?.message || String(err)
+        const errorMessage = err instanceof InstanceGiftDaysError ? err.message : '赠送时长失败，请稍后重试'
         results.push({
           instanceId: instance.id,
           instanceName: instance.name,
           success: false,
           error: errorMessage
         })
-        fastify.log.error(`[GiftDays] Failed to gift days to instance ${instance.name}: ${errorMessage}`)
+        fastify.log.error({ err, instanceId: instance.id }, `[GiftDays] Failed to gift days: ${errorMessage}`)
       }
     }
 

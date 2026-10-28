@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：a805dc4已push；R274 gift-days共用billing lane/实例操作锁、当前身份/session/任务与当前expiry/status计算、version递增、免费持久审计同事务已修。真实PG/Fastify先红后绿、9身份/账号竞争与封停/并发6次/真实续费/混合批量/审计失败、原续费完整回归、4守卫/最终后端build含tsc exit0、manifest191/95通过准备push，无待poll。初轮同名fixture3账号与关联记录已精确清理。下一段R271维护backfill严格--host-id/未知参数拒绝与成功计数（原代码/真实CLI夹具已读）；327、R269超时/强杀/原生Incus与完整灾备仍待。ee98c6e/5b8b7ff/7f226ad CI success。
+
 > **最新接续**：ee98c6e已push；R272 quota事务current actor/session/instance/host身份与共享实例/端口锁、实际用量/site0不限/null语义已修。真实Fastify/PG先红后绿、7守卫+最终quota重跑、最终后端build含tsc exit0/manifest191/94准备push，无待poll。端口原120秒租期耗尽的在途写/其它写入口/原生Incus未验。下一项R274 hosts.ts约6719 gift-days，完整route、performRenewal和withInstanceBillingMutation、expiry守卫已读，尚未编辑。须current expiry/归属/封停和原shared billing lane+实例锁防覆盖；免费赠送零账款。327持续，7f226ad CI success。
 
 > **最新接续**：5b8b7ff已push；R272 quota显式null不再转undefined，真实Fastify/PG先红后绿（admin/host owner四字段、省略/0/边界/越权/零财务），3守卫/最终后端build含tsc exit0/manifest191/94通过准备单项push，无待poll。下一段quota锁内current actor/host/instance、用量与创建串行；备份createBackupWithQuotaReservation须继续读，siteLimit=0不限/null继承套餐或默认10，端口只计非systemManaged。R269超时/强杀、R274仍待。5e86550/65b755c/c188aac CI success；两个R271 CI仍运行。327持续。

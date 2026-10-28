@@ -313,7 +313,7 @@
 | R1-271 | 部分存在 | 三入口/底层/维护脚本已修；原生网络待验 | 原用户sync-status/宿主批量sync已有保护；三运维入口与底层当前host/instance身份、版本/原IP/操作和任务门禁，状态IP同事务、封停保持、每次接受消费版本。14真实PG+47实际API/mTLS+5真实backfill CLI及完整proxy回归、3守卫/build含tsc通过，见HANDOFF。baseline宿主资源快照竞争、维护参数/统计与原生网络另待。 |
 | R1-272 | 部分存在 | 本接口null/用量/当前授权已修；扩展并发待验 | quota事务内当前actor/session/instance/host身份、实例锁及手工端口锁、有效用量检查；站点0不限/null继承或默认10，非systemManaged端口与creating/ready备份计额。真实Fastify/PG授权/目标竞争、站点/备份/快照事务创建竞争、端口等待重计及SQL回滚通过；7守卫/最终build含tsc见HANDOFF。原端口租期耗尽/其它配额写入口/ABA及原生Incus仍待。 |
 | R1-273 | 已有防护 | 保留初审结论 | helper的设备/DB回滚在helper内完成，路由成功日志在helper返回之后，不再因路由审计异常进入设备回滚。 |
-| R1-274 | 存在 | 待精修/运行复核 | giftDays按旧实例expires/status写，无version/实例锁，覆盖并发续费/销毁/迁移/封停风险。 |
+| R1-274 | 存在 | 当前身份/时长事务已修；原生到期并发待验 | gift-days共用billing lane/实例锁、current actor/session/host/instance/plan与任务门禁，按当前expiry递增并version+1，仅expired封停清除，赠送/持久审计原子且零账款。真实Fastify/PG9身份/账号竞争、当前封停/6并发、真实续费后赠送/旧续费拒扣、混合批量/审计失败回滚、4守卫/最终build通过见HANDOFF。原生expiry远端动作、请求幂等/全局ABA另待。 |
 | R1-275 | 已有防护 | 保留初审结论 | 远端失败回滚previousProcesses并返回500，回滚失败PARTIAL_FAILURE；原假成功阻重试问题不成立。 |
 | R1-276 | 已有防护 | 保留初审结论 | requiresIpv6ParentInterface仅当前或旧subnet有值时要求接口，IPv6全部留空可保存；清空已有值仍见R1-111。 |
 | R1-277 | 已有防护 | 保留初审结论 | 审计使用parseHostAuditHistoryPageSize严格parser，与其他宽松分页不能混同。 |
