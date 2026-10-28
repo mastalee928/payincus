@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：f300868/71c6038/19a0ef8的CI均success。R232 InstanceBadgeModal读取/操作跨上下文生命周期已修，Chrome/4守卫/双端types build/dist/lint通过准备push，无本地待poll。接着R233同上下文保存后emit应来自刷新实例iconBadgeId（null也有效），currentBadgeId不能回退旧prop；后端getBadgeOverview使用Promise.all非一致快照要保边界。R235补货旧remain覆盖已读定位。327持续。
+
 > **最新接续**：R231 71c6038已push。Chrome启动器增加自己端口文件+stderr双就绪、45秒截止和诊断/清理，受控专项及真实selector/image通过准备独立push；Linux真实超时根因仍未知，后续CI核验。无本地待poll。下一项R232/233 InstanceBadgeModal初始可见/关闭重开/ID/session回执与刷新后emit。327持续。
 
 > **最新接续**：R227 19a0ef8已push、CI40715873444 Chrome启动超时已rerun。R231 BadgeCenter概览/六操作生命周期已修，真实Vue/API夹具、5守卫/双端types build/dist/lint通过准备push。无本地待poll。下一项先补Chrome启动诊断与有限启动恢复，再R232/233 InstanceBadgeModal；327持续，源截图/夹具在logs/badge-center-browser。

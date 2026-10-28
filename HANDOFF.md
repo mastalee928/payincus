@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-232 实例徽章弹窗读取生命周期
+
+- 启动器`f300868` CI40718065602、R231 `71c6038` CI40717505609、R227重跑CI40715873444均最终success。
+- InstanceBadgeModal初次visible即读；关闭/重开、instanceId/session、KeepAlive切换与卸载取消GET、清旧overview/error并失效所有回执。apply/remove固定目标与周期，旧完成不toast/emit，未结束写保门禁。读取失败原地重试，缺当前可管理实例/读取失败时禁写，失活不显示Teleport。
+- `logs/takeover-instance-badge-browser.log`实际Vue/Pinia/KeepAlive、延迟API通过初始打开一次、ID/重开/会话/同SID/缓存/卸载、旧成功失败、取消/retry、apply/remove 10连点及在途跨上下文回执；三语1440/390截图已看桌面中文/手机英文。`takeover-instance-badge-guards.log`4/4、`takeover-instance-badge-build.log`双端vue-tsc/build、dist/lint通过；191常规/69环境排除清单通过，新专项接CI。
+- R233同一上下文保存后emit旧ownership/null以及currentBadgeId回退旧prop仍独立待修；不要把R232视为整个弹窗已完成。无真实账户徽章/积分写入，327持续。
+
 ## 2026-10-28 浏览器专项启动诊断补强
 
 - R231 `71c6038`已push且远端一致。941cbdc/19a0ef8的CI都曾在同一个init-command-selector步骤出现Chrome启动20秒超时，前者rerun成功，后者仍待；原helper只等stderr且超时不输出已收集诊断，现有日志不足以判定Linux真实根因。

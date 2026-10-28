@@ -267,7 +267,7 @@
 | R1-229 | 存在 | 源码/178资产已修/生成及浏览器核验通过 | 生成器仅收集脚本外文档style，组件局部CSS仍由JSX渲染；178 SVG清除9026段重复JSX原文约2.36MB，图形/defs及本地有效CSS逐字不变。隔离新目录实际运行生成器，190清单/2守卫/双端types build/dist通过；Chrome178图冻结动画像素前后一致（takeover-badge-styles-browser.log），非全部动态逐帧验收。原HTML缺失，未在正式资产目录执行重建。 |
 | R1-230 | 存在 | 源码已修/浏览器验证通过 | requestedUrl独立于失败状态并跟随真实目录URL，URL变化重试，同URL元数据更新不重复请求失败图；按URL重建img并核currentTarget，旧移除节点error不污染新图。takeover-badge-image-before-final复现；browser-final真实Vue/Pinia+HTTP图像通过迟到目录/主题/ID/修复URL/旧error/稳定fallback，双端types build/dist/2守卫/lint通过。非线上目录修改。 |
 | R1-231 | 存在 | 源码已修/浏览器隔离验证通过 | 概览绑定KeepAlive/session/请求代次，GET取消、旧avatar/结果/finally拒绝；返回刷新、失败原地重试、错误状态禁写。同SID刷新保状态；六种抽取/领取/佩戴/取消操作同周期门禁、离页关奖励弹窗、旧回执不toast/emit，写入在途门禁保留。takeover-badge-center-browser-verified真实Vue/API夹具通过，5守卫/双端types build/dist/lint通过；不声明后端幂等/真实积分写入验收。 |
-| R1-232 | 存在 | 待精修/运行复核 | 仅watch visible无immediate；emit可沿用旧ownership结果，初始打开/关闭重开需要代次绑定。 |
+| R1-232 | 存在 | 生命周期已修/浏览器验证通过 | 初始visible立即读，关闭重开/instanceId/session/KeepAlive均失效旧GET并取消；旧回执不toast/emit或覆盖loading，失败原地retry。apply/remove固定ID和周期，离页保在途门禁。takeover-instance-badge-browser实际Vue矩阵、4守卫/双端types build/dist/lint通过；R233同周期保存后仍emit旧值另项修，不因本项宣称整个弹窗完成。 |
 | R1-233 | 存在 | 待精修/运行复核 | 仅watch visible无immediate；emit可沿用旧ownership结果，初始打开/关闭重开需要代次绑定。 |
 | R1-234 | 已有防护 | 保留初审结论 | openNotificationModal先读取已保存notificationConfig回填表单，原未加载问题不成立。 |
 | R1-235 | 存在 | 待精修/运行复核 | 保存补货以旧remainQuantity+replenishAmount提交adminUpdatePrize，可覆盖期间抽奖减少的库存。 |

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import api from '@/api'
 import BadgeImage from '@/components/BadgeImage.vue'
 import InstanceDisplayIcon from '@/components/InstanceDisplayIcon.vue'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import type { BadgeCatalogItem, BadgeOverview, BadgeOwnership } from '@/types/api'
 import { translateError } from '@/utils/errorHandler'
 
@@ -27,6 +28,21 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useToast()
+const auth = useAuthStore()
+const activated = ref(true)
+const sessionKey = computed(() => {
+  if (!auth.token || !auth.user) return ''
+  let identity = auth.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Use the full legacy token identity. */ }
+  return `${auth.user.id}:${auth.user.role}:${identity}`
+})
+const active = computed(() => props.visible && activated.value && !!sessionKey.value)
+let disposed = false, contextSequence = 0, readSequence = 0
+let readController: AbortController | undefined
+function currentContext(context: number) { return !disposed && active.value && context === contextSequence }
 
 type BadgeModalTab = 'details' | 'owned'
 
@@ -40,7 +56,7 @@ const currentInstanceOption = computed(() =>
   overview.value?.instances.find(item => item.id === props.instanceId) ?? null
 )
 
-const canManageCurrentInstance = computed(() => !!currentInstanceOption.value)
+const canManageCurrentInstance = computed(() => active.value && !loading.value && !loadError.value && !!currentInstanceOption.value)
 
 const currentOwnership = computed(() =>
   overview.value?.ownerships.find(item => item.appliedInstanceId === props.instanceId) ?? null
@@ -149,67 +165,90 @@ function getApplyButtonLabel(ownership: BadgeOwnership): string {
 }
 
 async function loadOverview() {
+  if (disposed || !active.value) return
+  const context = contextSequence, request = ++readSequence
+  readController?.abort()
+  const controller = new AbortController(); readController = controller
   loading.value = true
   loadError.value = ''
 
   try {
-    overview.value = await api.entertainment.getBadgeOverview()
+    const data = await api.entertainment.getBadgeOverview(controller.signal)
+    if (currentContext(context) && request === readSequence) overview.value = data
   } catch (error) {
-    loadError.value = translateError(error)
-    toast.error(loadError.value)
+    if (currentContext(context) && request === readSequence) { overview.value = null; loadError.value = translateError(error) }
   } finally {
-    loading.value = false
+    if (currentContext(context) && request === readSequence) { loading.value = false; readController = undefined }
   }
 }
 
 async function handleApplyOwnership(ownership: BadgeOwnership) {
   if (!canManageCurrentInstance.value || ownership.appliedInstanceId === props.instanceId || actionLoading.value) return
 
+  const context = contextSequence, instanceId = props.instanceId
   actionLoading.value = true
   try {
-    await api.entertainment.applyBadgeToInstance(ownership.id, props.instanceId)
+    await api.entertainment.applyBadgeToInstance(ownership.id, instanceId)
+    if (!currentContext(context)) return
     await loadOverview()
+    if (!currentContext(context)) return
     emit('updated', ownership.badgeId)
     toast.success(t('instance.badgeModal.updateSuccess'))
   } catch (error) {
+    if (!currentContext(context)) return
     await loadOverview().catch(() => {})
-    toast.error(translateError(error))
+    if (currentContext(context)) toast.error(translateError(error))
   } finally {
-    actionLoading.value = false
+    finishAction(context)
   }
 }
 
 async function handleRemoveCurrentBadge() {
-  if (!currentOwnership.value || actionLoading.value) return
+  if (!canManageCurrentInstance.value || !currentOwnership.value || actionLoading.value) return
 
+  const context = contextSequence, ownershipId = currentOwnership.value.id
   actionLoading.value = true
   try {
-    await api.entertainment.unapplyBadge(currentOwnership.value.id)
+    await api.entertainment.unapplyBadge(ownershipId)
+    if (!currentContext(context)) return
     await loadOverview()
+    if (!currentContext(context)) return
     emit('updated', null)
     toast.success(t('instance.badgeModal.removeSuccess'))
   } catch (error) {
+    if (!currentContext(context)) return
     await loadOverview().catch(() => {})
-    toast.error(translateError(error))
+    if (currentContext(context)) toast.error(translateError(error))
   } finally {
-    actionLoading.value = false
+    finishAction(context)
   }
 }
 
+function finishAction(context: number) {
+  if (disposed) return
+  actionLoading.value = false
+  if (!currentContext(context) && active.value) void loadOverview()
+}
+
 watch(
-  () => props.visible,
-  visible => {
-    if (!visible) return
+  () => [active.value, props.instanceId, sessionKey.value],
+  () => {
+    contextSequence++; readSequence++; readController?.abort(); readController = undefined
+    overview.value = null; loadError.value = ''; loading.value = false
     activeTab.value = 'details'
-    void loadOverview()
-  }
+    if (active.value) void loadOverview()
+  },
+  { immediate: true, flush: 'sync' }
 )
+onActivated(() => { activated.value = true })
+onDeactivated(() => { activated.value = false })
+onUnmounted(() => { disposed = true; contextSequence++; readSequence++; readController?.abort() })
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="props.visible" class="modal-overlay">
+      <div v-if="active" class="modal-overlay">
         <div class="modal-backdrop" @click="emit('close')" />
 
         <div class="modal-content !max-w-5xl w-full max-h-[88vh] flex flex-col overflow-hidden">
@@ -263,8 +302,9 @@ watch(
               {{ t('common.loading') }}...
             </div>
 
-            <div v-else-if="loadError && !overview" class="rounded-3xl border border-red-500/20 bg-red-500/5 p-6 text-sm text-red-500">
-              {{ loadError }}
+            <div v-else-if="loadError" role="alert" class="rounded-3xl border border-red-500/20 bg-red-500/5 p-6 text-sm text-red-500 space-y-3">
+              <p>{{ loadError }}</p>
+              <button type="button" class="btn btn-secondary" :disabled="actionLoading" @click="loadOverview">{{ t('common.retry') }}</button>
             </div>
 
             <template v-else>

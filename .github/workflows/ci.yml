@@ -186,6 +186,8 @@ jobs:
         run: pnpm --filter server test:review-badge-motion
       - name: Verify badge center lifecycle in Chrome
         run: pnpm --filter server test:review-badge-center
+      - name: Verify instance badge modal in Chrome
+        run: pnpm --filter server test:review-instance-badge
       - name: Verify package empty fields in PostgreSQL
         run: pnpm --filter server test:review-package-empty-fields
 
