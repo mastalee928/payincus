@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-281 升级预览与提交目标一致
+
+- 090afa6已push核远端一致，CI40778093662最后运行；aab5bbc的CI40776614927最后仍运行。ChangePlanModal绑定打开代次/session/实例及套餐/现有方案信息，方案列表及预览各自序号；选择变化同步清预览，错误newPlan/oldPlan响应拒绝，失败后清旧列表和提交资格。确认按钮与函数共用canSubmit，要求当前有效可售升级方案、已完成且目标匹配的预览及余额。
+- 提交固定已预览instanceId/planId，在途写跨关闭重开保持busy；旧成功/失败不关闭、不覆盖新状态。当前重启提醒在当前成功回执立即显示，移除可能落到新页面的500ms定时提醒。未更改后台计费、资源预留或Incus同步。
+- `takeover-change-plan-before.log`真实Chrome先红：切到3且新预览尚未返回时仍可发送change；`takeover-change-plan-browser-final.log`通过选择ABA、旧success/error/finally、错目标预览、同sid刷新/新session/instance/package/currentPlan变化、列表失败重试、余额/不可售/不可升级拦截、固定提交/重复点击/重开busy、旧写回执、当前失败重试/KVM提醒及logout/unmount。1440中文浅色/390英文深色截图已核，零横向溢出和运行异常，API为受控夹具。
+- client types、4相关守卫、lint无error/warning、最终双端build exit0、dist边界及manifest191/98通过，专项已登记CI。本段不宣称后台完整当前授权/报价锁定/远端配置失败恢复通过；这些仍沿原清单继续，327及完整灾备未完。
+- 下一项R282终端KeepAlive离页仍截获快捷键已Chrome先红（takeover-terminal-lifecycle-before.log），缓存页/剪贴板测试夹具暂不混入本提交；TerminalView生命周期/输入/连接及相关守卫已读，产品尚未改。R283 cloud-init/session与R284命令草稿单独继续。
+
 ## 2026-10-29 R1-280 转移弹窗与二次验证回执
 
 - aab5bbc已push核远端一致，CI40776614927最后运行；05de4a5/a370299/a805dc4源码CI均success。TransferModal每次打开/实例/session独立代次，余额及搜索旧成功/失败/finally隔离，输入ABA搜索失效；当前搜索响应须匹配用户名。转移固定instanceId/username/remark及草稿版本，在途写跨重开保持busy到settle，旧结果不提示、不关闭新表单。原用户名绑定已有防护，未计作本轮新增。

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, shallowRef, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
 import { useConfigStore } from '@/stores/config'
+import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
 import type { ChangePlanPreview } from '@/types/api'
 import { calculateDailyPrice } from '@/utils/billing'
@@ -14,6 +15,16 @@ const { t } = useI18n()
 const themeStore = useThemeStore()
 const toast = useToast()
 const configStore = useConfigStore()
+const authStore = useAuthStore()
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
 
 interface PackagePlanOption {
   id: number
@@ -54,13 +65,36 @@ const emit = defineEmits<{
 // State
 const loading = ref(false)
 const loadingPreview = ref(false)
-const changing = ref(false)
+const pendingChanges = ref(0)
+const changing = computed(() => pendingChanges.value > 0)
+const plansReady = ref(false)
 const plans = ref<PackagePlanOption[]>([])
 const selectedPlanId = ref<number | null>(null)
 const preview = ref<ChangePlanPreview | null>(null)
 const userBalance = ref<number>(0)
 const error = ref<string>('')
 const showRules = ref(false)
+let alive = true
+let generation = 0
+let plansSequence = 0
+let previewSequence = 0
+const previewBinding = shallowRef<{ instanceId: number; planId: number; current: () => boolean } | null>(null)
+const instanceContext = computed(() => JSON.stringify([props.instanceId, props.packageId, props.currentPlanId,
+  props.currentBillingPrice, props.currentBillingCycle, props.instanceType]))
+function captureContext() {
+  const currentGeneration = generation, session = sessionKey.value, identity = instanceContext.value
+  const instanceId = props.instanceId, packageId = props.packageId
+  return { instanceId, packageId, current: () => alive && props.show && !!session && session === sessionKey.value &&
+    currentGeneration === generation && identity === instanceContext.value && Number.isSafeInteger(instanceId) && instanceId > 0 &&
+    Number.isSafeInteger(packageId) && packageId > 0 }
+}
+
+function clearPreview() {
+  previewSequence++
+  previewBinding.value = null
+  preview.value = null
+  loadingPreview.value = false
+}
 
 // 获取当前方案的日价（用于筛选升级方案）
 const currentPlanDailyPrice = computed(() => {
@@ -92,6 +126,14 @@ const isHighestPlan = computed(() => {
 const insufficientBalance = computed(() => {
   if (!preview.value || !preview.value.isUpgrade) return false
   return userBalance.value < preview.value.priceDiff
+})
+const canSubmit = computed(() => {
+  const selected = availablePlans.value.find(plan => plan.id === selectedPlanId.value)
+  return plansReady.value && !loading.value && !loadingPreview.value && !changing.value &&
+    !!selected?.isActive && !selected.isSoldOut && !!previewBinding.value?.current() &&
+    previewBinding.value.planId === selectedPlanId.value && preview.value?.newPlan.id === selectedPlanId.value &&
+    preview.value.canChange && preview.value.isUpgrade && Number.isFinite(preview.value.priceDiff) &&
+    preview.value.newPlan.isActive && !preview.value.newPlan.isSoldOut && !insufficientBalance.value
 })
 
 // 不能变更的原因文本
@@ -170,106 +212,117 @@ function getBillingCycleText(months: number): string {
 
 // 加载方案列表
 async function loadPlans() {
+  const context = captureContext(), sequence = ++plansSequence
+  const current = () => context.current() && sequence === plansSequence
+  plansReady.value = false
+  plans.value = []
+  selectedPlanId.value = null
+  userBalance.value = 0
+  clearPreview()
+  if (!current()) return
   loading.value = true
   error.value = ''
   
   try {
     const [plansRes, balanceRes] = await Promise.all([
-      api.billing.getPackagePlans(props.packageId),
+      api.billing.getPackagePlans(context.packageId),
       api.billing.getUserBalance()
     ])
     
+    if (!current()) return
     plans.value = plansRes.plans as PackagePlanOption[]
-    userBalance.value = balanceRes.balance.balance
+    userBalance.value = Number.isFinite(balanceRes.balance.balance) ? balanceRes.balance.balance : 0
+    plansReady.value = true
   } catch (err: any) {
+    if (!current()) return
     error.value = err.message || t('common.loadFailed')
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 // 加载升降级预览
 async function loadPreview() {
-  if (!selectedPlanId.value) {
-    preview.value = null
-    return
-  }
-
-  const selectedPlan = plans.value.find(plan => plan.id === selectedPlanId.value)
-  if (!selectedPlan || !selectedPlan.isActive || selectedPlan.isSoldOut) {
-    preview.value = null
-    return
-  }
+  clearPreview()
+  const context = captureContext(), sequence = previewSequence, planId = selectedPlanId.value
+  const current = () => context.current() && sequence === previewSequence && planId === selectedPlanId.value
+  if (!current() || !plansReady.value || loading.value || changing.value || !planId) return
+  const selectedPlan = availablePlans.value.find(plan => plan.id === planId)
+  if (!selectedPlan?.isActive || selectedPlan.isSoldOut) return
   
   loadingPreview.value = true
   error.value = ''
   
   try {
-    const res = await api.billing.getChangePlanPreview(props.instanceId, selectedPlanId.value)
-    preview.value = res.preview as ChangePlanPreview
+    const res = await api.billing.getChangePlanPreview(context.instanceId, planId)
+    if (!current()) return
+    const received = res.preview as ChangePlanPreview
+    if (received.newPlan.id !== planId || received.oldPlan.id !== props.currentPlanId) throw new Error(t('common.loadFailed'))
+    preview.value = received
+    previewBinding.value = { instanceId: context.instanceId, planId, current }
   } catch (err: any) {
+    if (!current()) return
     error.value = err.message || t('common.loadFailed')
     preview.value = null
   } finally {
-    loadingPreview.value = false
+    if (current()) loadingPreview.value = false
   }
 }
 
 // 执行升级
 async function handleChangePlan() {
-  if (!selectedPlanId.value || !preview.value) return
-  if (!preview.value.canChange) return
-  if (insufficientBalance.value) return
-  
-  changing.value = true
+  const approved = previewBinding.value
+  if (!canSubmit.value || !approved) return
+  pendingChanges.value++
   error.value = ''
   
   try {
-    const result = await api.billing.changePlan(props.instanceId, selectedPlanId.value)
+    const result = await api.billing.changePlan(approved.instanceId, approved.planId)
+    if (!approved.current()) return
     
     // 检查是否需要重启实例以应用配置
     if (result.needRestart && result.restartMessage) {
       // 先发出成功事件，然后显示警告 toast
       emit('success')
-      // 使用 setTimeout 确保成功 toast 先显示，再显示重启警告
-      setTimeout(() => {
-        // KVM_RESTART_REQUIRED 是特殊标记，需要显示本地化文本
-        const message = result.restartMessage === 'KVM_RESTART_REQUIRED'
-          ? t('billing.kvmRestartRequired')
-          : result.restartMessage
-        toast.warning(message!, 8000) // 警告显示 8 秒
-      }, 500)
+      // Publish the current receipt before closing; no delayed warning can reach a new form.
+      const message = result.restartMessage === 'KVM_RESTART_REQUIRED'
+        ? t('billing.kvmRestartRequired')
+        : result.restartMessage
+      toast.warning(message, 8000)
     } else {
       emit('success')
     }
     
     emit('update:show', false)
   } catch (err: any) {
+    if (!approved.current()) return
     error.value = err.message || t('billing.changePlanFailed')
   } finally {
-    changing.value = false
+    pendingChanges.value--
   }
 }
 
 // 监听选择变化
 watch(() => selectedPlanId.value, () => {
-  loadPreview()
-})
+  void loadPreview()
+}, { flush: 'sync' })
 
 // 监听显示状态
-watch(() => props.show, (newVal) => {
-  if (newVal) {
-    loadPlans()
-  } else {
-    // 重置状态
-    plans.value = []
-    selectedPlanId.value = null
-    preview.value = null
-    userBalance.value = 0
-    error.value = ''
-    showRules.value = false
-  }
-})
+watch([() => props.show, instanceContext, sessionKey], () => {
+  generation++
+  plansSequence++
+  loading.value = false
+  plansReady.value = false
+  plans.value = []
+  selectedPlanId.value = null
+  clearPreview()
+  userBalance.value = 0
+  error.value = ''
+  showRules.value = false
+  if (captureContext().current()) void loadPlans()
+}, { immediate: true, flush: 'sync' })
+
+onBeforeUnmount(() => { alive = false; generation++; clearPreview() })
 
 function handleClose() {
   emit('update:show', false)
@@ -426,7 +479,7 @@ function handleClose() {
                   <button
                     v-for="plan in availablePlans"
                     :key="plan.id"
-                    :disabled="!plan.isActive || plan.isSoldOut"
+                    :disabled="changing || loading || !plan.isActive || plan.isSoldOut"
                     class="w-full p-3 rounded-lg border text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     :class="[
                       selectedPlanId === plan.id && !plan.isSoldOut
@@ -439,7 +492,7 @@ function handleClose() {
                             ? 'border-gray-700 hover:border-gray-600'
                             : 'border-gray-200 hover:border-gray-300'
                     ]"
-                    @click="!plan.isSoldOut && plan.isActive && (selectedPlanId = plan.id)"
+                    @click="!changing && !loading && !plan.isSoldOut && plan.isActive && (selectedPlanId = plan.id)"
                   >
                     <div class="flex justify-between items-start">
                       <div>
@@ -673,9 +726,7 @@ function handleClose() {
               {{ t('common.cancel') }}
             </button>
             <button
-              :disabled="loading || loadingPreview || changing || !preview || 
-                !preview.canChange ||
-                insufficientBalance"
+              :disabled="!canSubmit"
               class="px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-accent text-white dark:text-black hover:opacity-90"
               @click="handleChangePlan"
             >

@@ -70,6 +70,12 @@ const packageFormViewSource = readRepoFile('client/src/views/resources/PackageFo
 const ticketsViewSource = readRepoFile('client/src/views/TicketsView.vue')
 const renewModalSource = readRepoFile('client/src/components/instance/modals/RenewModal.vue')
 const changePlanModalSource = readRepoFile('client/src/components/instance/modals/ChangePlanModal.vue')
+assert.ok(changePlanModalSource.includes('session === sessionKey.value') &&
+  changePlanModalSource.includes('currentGeneration === generation') && changePlanModalSource.includes('sequence === previewSequence') &&
+  changePlanModalSource.includes('await api.billing.changePlan(approved.instanceId, approved.planId)') &&
+  changePlanModalSource.includes('if (!canSubmit.value || !approved) return') && changePlanModalSource.includes(':disabled="!canSubmit"') &&
+  !changePlanModalSource.includes('setTimeout('),
+  'plan upgrade confirmation must bind the current modal/session/selection to its preview and ignore obsolete replies')
 const initCommandSelectorSource = readRepoFile('client/src/components/extensions/InitCommandSelector.vue')
 const initCommandDetailSource = readRepoFile('client/src/components/extensions/InitCommandDetailModal.vue')
 const initCommandEditorSource = readRepoFile('client/src/components/extensions/InitCommandModal.vue')
