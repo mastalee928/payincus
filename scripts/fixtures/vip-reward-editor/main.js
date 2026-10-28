@@ -6,11 +6,12 @@ import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/stores/toast'
 import VipBenefitHallSettings from '@/components/admin/VipBenefitHallSettings.vue'
+import VipLevelRulesEditor from '@/components/admin/VipLevelRulesEditor.vue'
 import { pending } from './api.js'
 import '@/styles/main.css'
-const state = reactive({ editorVisible: true })
+const state = reactive({ editorVisible: true, rules: new URLSearchParams(location.search).has('rules'), ruleType: 'user' })
 const router = createRouter({ history: createMemoryHistory(), routes: [
-  { path: '/rewards', name: 'rewards', component: { components: { VipBenefitHallSettings }, setup: () => ({ state }), template: '<VipBenefitHallSettings v-if="state.editorVisible"/>' } },
+  { path: '/rewards', name: 'rewards', component: { components: { VipBenefitHallSettings, VipLevelRulesEditor }, setup: () => ({ state }), template: '<template v-if="state.editorVisible"><VipLevelRulesEditor v-if="state.rules" :type="state.ruleType"/><VipBenefitHallSettings v-else/></template>' } },
   { path: '/other', name: 'other', component: { template: '<p>Other page</p>' } }
 ] })
 const jwt = sid => `fixture.${btoa(JSON.stringify({ sid }))}.fixture`

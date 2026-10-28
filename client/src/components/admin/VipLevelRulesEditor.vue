@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api, { type UserVipMetric, type VipConditionMode, type VipLevelRule, type VipRuleType } from '@/api/admin'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import { getDefaultVipBadgeStyle, getVipBadgeInlineStyle, normalizeVipBadgeStyle, type VipBadgeStyle } from '@/utils/vipBadge'
 
 interface EditableVipRule {
@@ -24,9 +25,27 @@ const props = defineProps<{
 
 const { t } = useI18n()
 const toast = useToast()
+const auth = useAuthStore()
+const mounted = ref(false), activated = ref(true)
+const sessionKey = computed(() => {
+  if (!auth.token || !auth.user || auth.user.role !== 'admin') return ''
+  let identity = auth.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${auth.user.id}:${auth.user.role}:${identity}`
+})
+const active = computed(() => mounted.value && activated.value && !!sessionKey.value)
+let disposed = false, contextSequence = 0, readSequence = 0
+function currentContext(context: number) { return !disposed && active.value && context === contextSequence }
 
 const loading = ref(true)
 const saving = ref(false)
+const ready = ref(false)
+const loadError = ref('')
+const saveError = ref('')
+const editorDisabled = computed(() => !active.value || loading.value || saving.value || !ready.value)
 const maxLevel = ref(10)
 const rules = ref<EditableVipRule[]>([])
 const userMetric = ref<UserVipMetric>('totalRecharge')
@@ -137,22 +156,31 @@ function hydrateRules(apiRules: VipLevelRule[]) {
 }
 
 async function loadRules() {
+  if (disposed || !active.value || saving.value) return
+  const context = contextSequence, request = ++readSequence, type = props.type
+  const current = () => currentContext(context) && request === readSequence
   loading.value = true
+  ready.value = false
+  loadError.value = ''
   try {
-    const response = await api.admin.getVipLevelRules(props.type)
+    const response = await api.admin.getVipLevelRules(type)
+    if (!current()) return
+    if (response.type !== type || !Array.isArray(response.rules)) throw new Error(t('admin.vipRules.unknownError'))
     maxLevel.value = response.maxLevel || 10
     if (isUserRules.value) {
       userMetric.value = response.userMetric === 'totalConsume' ? 'totalConsume' : 'totalRecharge'
     }
     hydrateRules(response.rules || [])
+    ready.value = true
   } catch (error: any) {
-    toast.error(t('admin.vipRules.loadFailed', { message: error?.message || t('admin.vipRules.unknownError') }))
+    if (current()) loadError.value = t('admin.vipRules.loadFailed', { message: error?.message || t('admin.vipRules.unknownError') })
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 async function saveRules() {
+  if (editorDisabled.value) return
   for (const rule of rules.value) {
     if (isUserRules.value) {
       const thresholdValue = userMetric.value === 'totalRecharge' ? rule.minRecharge : rule.minConsume
@@ -179,28 +207,52 @@ async function saveRules() {
     }
   }
 
+  const context = contextSequence, type = props.type
+  const payload = buildPayload()
+  const options = isUserRules.value ? { userMetric: userMetric.value } : undefined
   saving.value = true
+  saveError.value = ''
   try {
     const response = await api.admin.updateVipLevelRules(
-      props.type,
-      buildPayload(),
-      isUserRules.value ? { userMetric: userMetric.value } : undefined
+      type,
+      payload,
+      options
     )
+    if (!currentContext(context)) return
+    if (response.type !== type || !Array.isArray(response.rules)) throw new Error(t('admin.vipRules.unknownError'))
     if (isUserRules.value) {
       userMetric.value = response.userMetric === 'totalConsume' ? 'totalConsume' : 'totalRecharge'
     }
     hydrateRules(response.rules || [])
     toast.success(t('admin.vipRules.saveSuccess'))
   } catch (error: any) {
-    toast.error(error?.message || t('admin.vipRules.saveFailed'))
+    if (currentContext(context)) saveError.value = error?.message || t('admin.vipRules.saveFailed')
   } finally {
     saving.value = false
+    if (!disposed && active.value && !currentContext(context)) void loadRules()
   }
 }
 
-onMounted(() => {
-  void loadRules()
-})
+function retryLoad() {
+  if (!loading.value && !saving.value) void loadRules()
+}
+
+watch([active, sessionKey, () => props.type], () => {
+  contextSequence++
+  readSequence++
+  ready.value = false
+  rules.value = []
+  maxLevel.value = 10
+  userMetric.value = 'totalRecharge'
+  loadError.value = ''
+  saveError.value = ''
+  loading.value = active.value
+  if (active.value && !saving.value) void loadRules()
+}, { flush: 'sync' })
+onMounted(() => { mounted.value = true })
+onActivated(() => { activated.value = true })
+onDeactivated(() => { activated.value = false })
+onUnmounted(() => { disposed = true; contextSequence++; readSequence++ })
 </script>
 
 <template>
@@ -211,14 +263,15 @@ onMounted(() => {
           <h2 class="text-lg font-semibold text-themed">{{ title }}</h2>
           <p class="mt-1 text-sm text-themed-muted">{{ description }}</p>
         </div>
-        <button class="btn btn-primary self-start lg:self-auto" :disabled="loading || saving" @click="saveRules">
+        <button class="btn btn-primary self-start lg:self-auto" :disabled="editorDisabled" @click="saveRules">
           {{ saving ? t('common.saving') : t('admin.vipRules.save') }}
         </button>
       </div>
 
-      <div
+      <fieldset
         v-if="isUserRules"
         class="mt-5 rounded-lg border border-themed bg-themed-secondary/30 p-4"
+        :disabled="editorDisabled"
       >
         <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -244,14 +297,19 @@ onMounted(() => {
             </button>
           </div>
         </div>
-      </div>
+      </fieldset>
+    </div>
+
+    <div v-if="loadError || saveError" class="card p-5" role="alert">
+      <p class="break-words text-sm text-red-600 dark:text-red-400">{{ loadError || saveError }}</p>
+      <button v-if="loadError" class="btn btn-secondary mt-3" type="button" :disabled="loading || saving" @click="retryLoad">{{ t('common.retry') }}</button>
     </div>
 
     <div v-if="loading" class="card p-6">
       <SkeletonLoader type="table" :rows="6" />
     </div>
 
-    <div v-else class="card overflow-hidden">
+    <fieldset v-else-if="ready" class="card min-w-0 overflow-hidden" :disabled="editorDisabled">
       <div class="space-y-3 p-4 lg:hidden">
         <div
           v-for="rule in rules"
@@ -504,6 +562,6 @@ onMounted(() => {
           </tbody>
         </table>
       </div>
-    </div>
+    </fieldset>
   </div>
 </template>

@@ -280,7 +280,7 @@
 | R1-242 | 存在 | 已修复；跨浏览器领取未验 | 单项/批量/不同奖励统一writing同步门禁，当前页领取串行防旧overview恢复按钮。Chrome先红后绿、十连点/双向互斥/正确ID与最终已领状态及R241回归、3守卫/lint/双端types build/dist通过（takeover-vip-claim-*）；后端锁/次数保持，未新增跨浏览器幂等。 |
 | R1-243 | 存在 | 已修复；实际到账未验 | 反馈优先本次claim.snapshot的type/title/config，旧卡片只作缺省且类型一致回退；两级timer已由R241清理。Chrome先红后绿、余额/积分/待发实例批量、legacy回退、自然过期/隐藏延迟及R241/242回归、3守卫/lint/双端types build/dist通过（takeover-vip-feedback-*）。 |
 | R1-244 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
-| R1-245 | 存在 | 待精修/运行复核 | 初读失败空表仍可保存，缺成功加载条件。 |
+| R1-245 | 存在 | 已修复；真实规则替换未验 | 当前type/session成功读取才可编辑保存，初读失败持久retry；同步保存/冻结/快照及类型session缓存卸载回执隔离。真实Chrome先红空规则请求→禁写，完整交互/共享奖励回归、4守卫/lint/双端types build/dist/manifest通过（takeover-vip-rules-*）；后端空数组合法替换与跨管理员竞争保持。 |
 | R1-246 | 已有防护 | 保留初审结论 | ResourceSlider/ResourceSliders/PackageSelector仍由InstanceCreateView、AdminInstanceCreateView、HostCreateInstanceTab维护代码导入使用；原全退役结论不成立，保留。 |
 | R1-247 | 存在 | 待精修/运行复核 | 套餐/镜像加载无seq；canSubmitGift未匹配当前targetUsername；完成反馈和初读缺目标/生命周期保护。 |
 | R1-248 | 存在 | 待精修/运行复核 | 套餐/镜像加载无seq；canSubmitGift未匹配当前targetUsername；完成反馈和初读缺目标/生命周期保护。 |
