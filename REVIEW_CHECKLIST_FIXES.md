@@ -242,7 +242,7 @@
 | R1-204 | 存在 | 退役残留已清理/双端类型构建通过 | 删除LazyImage/VirtualList；双端入口/Vite无自动注册，源码/标签/脚本零调用。takeover-retired-components-references/guards/build/dist通过；无对应活体页面，现有业务图片/列表入口保留 |
 | R1-205 | 实现不同 | 保留初审结论 | 未找到对方InstanceBillingTab账单面板；当前续费modal及独立Orders/Billing实现不同，不虚构相同关闭重开入口。 |
 | R1-206 | 实现不同 | 保留初审结论 | 未找到对方实例账单面板分页实现；当前订单页另有分页，不能直接套用旧面板越界修法。 |
-| R1-207 | 存在 | 待精修/运行复核 | PublicAuthShell/useM3Auth仅旧代码互引、无现行页面消费者；PlanetScene未找到，不能说三者均有同文件残留。 |
+| R1-207 | 存在 | 退役残留已清理/双端类型构建通过 | 删除仅互引无消费者的PublicAuthShell/useM3Auth；PlanetScene原本不存在。takeover-retired-auth-references/guards/build/dist通过，2路由/i18n守卫，现行登录注册入口保留，无对应活体旧页面可验 |
 | R1-208 | 存在 | 源码已修/隔离PG验证通过 | getInstancesToSync下推due筛选后take，165 fresh running不挤掉old stopped。logs/review-queue-sync-integration-final.log；真实Linux周期sync仍待 |
 | R1-209 | 已有防护 | 保留初审结论 | onUnmounted已remove全局click handler，原累积监听问题不成立。 |
 | R1-210 | 部分存在 | 待精修/运行复核 | 部分备份/Redis/迁移描述过时；客机备份后端仍运行，不据对方退役描述删除功能。 |

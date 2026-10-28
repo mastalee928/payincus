@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-207 退役认证外壳及样式
+
+- R211 `f090338554f3b079596b2e58988d6776edd050d3`已推送并核远端一致。R207删除只互相引用的`PublicAuthShell.vue`与`useM3Auth.ts`，当前登录/注册/管理员登录不使用它们，双端入口/Vite也无自动注册。PlanetScene在当前源码本就不存在，不虚构删除第三文件。
+- `logs/takeover-retired-auth-references.log`无引用、`takeover-retired-auth-guards.log`2/2路由/i18n守卫、`takeover-retired-auth-build.log`双端类型+构建、`takeover-retired-auth-dist.log`边界检查通过。无对应运行页面可验，现行认证行为不改。
+- 下一项R210当前说明与部署事实：安装器仍安装/启动Redis、后端并未使用Redis持久化状态，应分别解释；Prisma/PostgreSQL早已运行，正常部署仍须migrate deploy，实例备份与OSS平台备份能力边界分开。327未完整。
+
 ## 2026-10-28 R1-211 旧备份策略兼容类型
 
 - 删除`server/src/types/database.ts`内无调用的旧`BackupPolicy`/`SnapshotPolicy`接口（旧小时/保留数字段），修正文件头为Prisma/PostgreSQL适配层的snake_case兼容行类型。实际Prisma策略模型、现行DB方法和client同名API类型继续保留，未删除备份/快照能力。
