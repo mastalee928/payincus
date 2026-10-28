@@ -132,3 +132,12 @@ assert.ok(
     packageFormSource.includes('@click="reloadContext"'),
   'package editor auxiliary requests must not mutate new contexts and detail failures must offer an in-place retry'
 )
+assert.ok(
+  packageFormSource.includes('saving.value || saved.value || loading.value || !detailReady.value') &&
+    packageFormSource.includes('hostIds: [...form.value.hostIds]') &&
+    packageFormSource.includes('await api.packages.update(context.id, data as UpdatePackageRequest)') &&
+    packageFormSource.includes('if (!isCurrent(context)) return\n  saved.value = true') &&
+    packageFormSource.includes('if (isCurrent(context)) saving.value = false') &&
+    packageFormSource.includes(':disabled="saving || saved"'),
+  'package saves must reject duplicate submissions, snapshot the target/host IDs, freeze inputs and ignore obsolete completions'
+)

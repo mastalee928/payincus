@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-220 套餐保存回执与重复提交
+
+- R219 `5c9ab36`已push并核远端一致。保存同步拒重复/未就绪/存储池未完成请求，固定提交时ID和hostIds数组；表单在saving/saved禁用，离页仍可操作。旧成功、失败、finally按原上下文核验，不影响新目标、账号或页面。成功锁存与导航错误分开，已保存但导航被拒时不重发写入。
+- `logs/takeover-package-save-browser.log`实际Chrome/Vue Router与延迟API通过10次提交一次请求、字段冻结、ID/hostIds快照、失败保草稿重试、旧成功/失败/finally与新保存竞争、离页/会话切换、同SID刷新、导航被拒后的成功锁存和正常创建/编辑。三语/桌面手机截图检查通过；API为夹具，非真实账户保存。
+- `takeover-package-save-guards.log`3/3、`takeover-package-save-build.log`双端类型build、`takeover-package-save-dist.log`边界通过；新增fieldset导致的缩进已全部整理，`takeover-package-save-lint-final.log`零报告。没有服务器幂等/断网结果协调，不把UI请求门禁当作后端当前权限原子核验。
+- 下一项R221已先在真实隔离PG/Fastify核验已有空值合同（`takeover-package-empty-server.log`）：空描述/null SLA可清、缺省保值、错误SLA拒绝、无权403及价格保持；前端仍待改，独立测试脚本尚未提交。327与完整灾备仍未完成。
+
 ## 2026-10-28 R1-219 套餐编辑读取上下文
 
 - R213 `48a05c9`已push且CI40705117888最终success；R212 CI40704378740及README修正CI40704237821均success。R222所在87e1c69的CI40703832945仍受修正前README断链失败，后续成功CI已包含该源码和真实Chrome专项。
