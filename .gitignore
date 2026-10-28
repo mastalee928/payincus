@@ -101,6 +101,7 @@ docs/*
 !docs/controller-dd-oss-recovery-v1.7.2.md
 !docs/controller-oss-recovery-v1.7.3.md
 !docs/auto-snapshot-recovery.md
+!docs/restore-task-recovery-review.md
 !docs/proxy-site-operation-recovery.md
 !docs-site/docs/
 !docs-site/docs/**
