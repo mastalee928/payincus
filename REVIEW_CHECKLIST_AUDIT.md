@@ -284,7 +284,7 @@
 | R1-231 | P2 | 徽章中心缓存返回不刷新且离开后仍处理请求结果 | 存在 | [client/src/components/entertainment/BadgeCenter.vue](<C:/payincus/client/src/components/entertainment/BadgeCenter.vue>)：onMounted loadOverview，缺onActivated及请求代次/卸载保护；缓存返回不刷新、旧完成仍回写。 |
 | R1-232 | P2 | 实例徽章弹窗初始显示和关闭重开时读取状态不完整 | 存在 | [client/src/components/instance/InstanceBadgeModal.vue](<C:/payincus/client/src/components/instance/InstanceBadgeModal.vue>)：仅watch visible无immediate；emit可沿用旧ownership结果，初始打开/关闭重开需要代次绑定。 |
 | R1-233 | P2 | 实例徽章弹窗刷新后仍向父组件回传旧请求徽章 | 存在 | [client/src/components/instance/InstanceBadgeModal.vue](<C:/payincus/client/src/components/instance/InstanceBadgeModal.vue>)：仅watch visible无immediate；emit可沿用旧ownership结果，初始打开/关闭重开需要代次绑定。 |
-| R1-234 | P2 | 抽奖通知配置编辑未加载已保存的配置 | 已有防护 | [client/src/views/admin/EntertainmentView.vue:471](<C:/payincus/client/src/views/admin/EntertainmentView.vue:471>)：openNotificationModal先读取已保存notificationConfig回填表单，原未加载问题不成立。 |
+| R1-234 | P2 | 抽奖通知配置编辑未加载已保存的配置 | 存在；纠正初审 | 2026-10-29核完整链路：openNotificationModal有回填分支，但传入列表API缺notificationConfig，无法收到已保存值。详情API有配置，须先读取并防失败覆盖；旧“已有防护”结论不完整。 |
 | R1-235 | P2 | 管理端保存奖品将过期剩余库存写回数据库 | 存在 | [client/src/views/admin/EntertainmentView.vue:411](<C:/payincus/client/src/views/admin/EntertainmentView.vue:411>)：保存补货以旧remainQuantity+replenishAmount提交adminUpdatePrize，可覆盖期间抽奖减少的库存。 |
 | R1-236 | P2 | 缺少谢谢参与奖品时耗尽概率区间被分给后续奖品 | 存在 | [server/src/db/lottery.ts:508](<C:/payincus/server/src/db/lottery.ts:508>)：固定random=0.1命中已耗尽50%区间、无nothing，实际返回后续奖品2；已隔离复现。 |
 | R1-237 | P3 | 旧签到礼盒弹窗及分享辅助逻辑成为无入口残留 | 存在 | [client/src/components/CheckinModal.vue](<C:/payincus/client/src/components/CheckinModal.vue>)：旧CheckinModal无应用导入/注册调用者；当前签到入口走Entertainment实现，旧弹窗内分享辅助为孤立代码，未删除现行签到后端。 |

@@ -223,19 +223,51 @@ export async function createPrize(data: {
 /**
  * 更新奖品
  */
+export class LotteryPrizeUpdateError extends Error {
+  constructor(public code: string, message: string, public statusCode = 400) { super(message) }
+}
+
 export async function updatePrize(id: number, data: {
   name?: string
   type?: LotteryPrizeType
   value?: number
   probability?: number
   totalQuantity?: number | null
-  remainQuantity?: number | null
+  replenishAmount?: number
+  expectedRevision: number
   displayOrder?: number
   instanceDesc?: string | null
 }) {
-  return prisma.lotteryPrize.update({
-    where: { id },
-    data
+  return prisma.$transaction(async tx => {
+    // Draws and inventory edits take the same row lock. Read stock only after acquiring it.
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM lottery_prizes WHERE id = ${id} FOR UPDATE`)
+    const current = await tx.lotteryPrize.findUnique({ where: { id } })
+    if (!current) throw new LotteryPrizeUpdateError('NOT_FOUND', 'Prize not found', 404)
+    const { expectedRevision, replenishAmount = 0, ...fields } = data
+    if (!Number.isInteger(expectedRevision) || current.revision !== expectedRevision || current.revision === 2_147_483_647) {
+      throw new LotteryPrizeUpdateError('PRIZE_CHANGED', 'Prize changed or was already saved. Reload before editing again.', 409)
+    }
+    const type = fields.type ?? current.type
+    const unlimitedType = type === 'points' || type === 'nothing'
+    const total = unlimitedType ? null : fields.totalQuantity === undefined ? current.totalQuantity : fields.totalQuantity
+    if ((total !== null && (!Number.isInteger(total) || total < 1 || total > 2_147_483_647)) ||
+        !Number.isInteger(replenishAmount) || replenishAmount < 0 || replenishAmount > 2_147_483_647 ||
+        (unlimitedType && fields.totalQuantity != null)) {
+      throw new LotteryPrizeUpdateError('INVALID_QUANTITY', 'Quantity must be within the supported integer range')
+    }
+    if (replenishAmount > 0 && (total === null || current.remainQuantity === null)) {
+      throw new LotteryPrizeUpdateError('INVALID_QUANTITY', 'Only an existing limited prize can be replenished')
+    }
+    const remaining = total === null ? null : current.remainQuantity ?? total
+    if (remaining !== null && remaining + replenishAmount > 2_147_483_647) {
+      throw new LotteryPrizeUpdateError('INVALID_QUANTITY', 'Remaining quantity exceeds the supported limit')
+    }
+    return tx.lotteryPrize.update({ where: { id }, data: {
+      ...fields,
+      totalQuantity: total,
+      remainQuantity: total === null ? null : current.remainQuantity === null ? total : { increment: replenishAmount },
+      revision: { increment: 1 }
+    } })
   })
 }
 
@@ -609,6 +641,9 @@ export async function performDraw(userId: number, lotteryId: number): Promise<{
 
     let prize = lottery.prizes.find(p => p.id === selectedPrize.id)!
 
+    // Serialize even unlimited draws with an admin changing inventory mode. RepeatableRead
+    // rejects a row changed since selection; the existing route retries the whole transaction.
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM lottery_prizes WHERE id = ${prize.id} FOR UPDATE`)
     // 5. 使用乐观锁扣减库存（防止超发）
     if (prize.remainQuantity !== null) {
       const updateResult = await tx.lotteryPrize.updateMany({

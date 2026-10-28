@@ -7,6 +7,8 @@
   "types": "dist/app.d.ts",
   "scripts": {
     "test:review-instance-badge": "node ../scripts/test-instance-badge.mjs",
+    "test:review-prize-stock": "node --import tsx scripts/test-review-prize-stock.ts",
+    "test:review-prize-editor": "node ../scripts/test-prize-editor.mjs",
     "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",
     "test:review-badge-motion": "node ../scripts/test-badge-motion.mjs",

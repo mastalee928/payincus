@@ -2,6 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-235 抽奖库存增量与编辑版本
+
+- 徽章测试修正bdadd1c已push并核远端一致。奖品PUT改为expectedRevision+replenishAmount，拒绝旧客户端绝对remainQuantity及缺失/旧版本；revision持久递增，抽奖扣库不改变编辑版本。迁移`20261029001000_lottery_prize_revision`只加默认0列，上线前仍须正常migrate。
+- 管理修改取得奖品行锁后读当前库存并原子increment，保留期间消耗；普通有限数量编辑不重置剩余。null明确无限、无限转有限初始化数量，points/nothing清限量，有限补货及最终值均核PG Int上限。抽奖在选中奖品后也取行锁，旧RepeatableRead快照变更交由原路由整体重试，保留积分/余额锁和发奖语义。
+- 前端打开先取详情，提交固定草稿/版本；保存同步禁重复、冻结字段/关闭，失败持久提示并禁重发，必须重读实际保存结果，清已提交补货与未保存草稿。旧会话/缓存/关闭读取或写入回执不继续批次、不弹成功。多奖品仍逐个API请求，不是原子批量事务；整活动并发概率校验、创建幂等、生产奖品验收仍不属本项完成范围。
+- `logs/takeover-prize-stock-server-final.log`真实Fastify/全新本地PG通过实际抽奖后编辑、8并发同版本仅1次补货、重复旧请求、行锁等待期间扣库、实际抽奖竞争重试、null/类型转换/上下界/旧客户端拒绝。日志40001是刻意制造并发后按原路由合同重试成功；身份中间件为夹具。`takeover-prize-stock-fresh-migrate.log`全新库全迁移通过，旧隔离库actor_sid迁移记录不一致保留，不硬标已执行。
+- `takeover-prize-stock-browser-final.log`实际Vue/Chrome通过详情门禁、增量payload、十连点/冻结、部分失败阻断/重读、清空/非法值、关闭/会话/缓存及三语1440/390；截图已看。早期fixture仅按按钮文字找桌面图标及200ms退出DOM/并行挂载就绪导致误判，最终匹配实际title、等待退出/15秒有界挂载后通过；toast累计事件保持。`takeover-prize-stock-guards.log`5/5、前后端types、双端build、dist、client lint零报告、manifest191常规/71环境排除通过，两专项接CI。server未配置独立ESLint（手动调用退出2），以后端类型/守卫/真实PG及代码审查验证，不记server lint通过。
+- 下一项R234已纠正初审：列表不含notificationConfig，虽然弹窗有回填分支也无法收到已保存值；待修详情读取及覆盖风险。327、完整网关灾备未完成，无生产更新。
+
 ## 2026-10-29 徽章浏览器提示计数修正
 
 - R233 f6bf2e0的CI40721596289最终失败：6/7任务success，instance-badge最后卸载断言中可见toast从3自然过期成2，错误日志`logs/takeover-r233-ci-failure.log`。不是Chrome启动超时，不以重跑掩盖断言问题。

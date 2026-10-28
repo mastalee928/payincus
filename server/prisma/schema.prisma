@@ -3281,6 +3281,7 @@ model LotteryPrize {
   probability     Decimal          @db.Decimal(5, 2)                 // 中奖概率（百分比，如 30.00 表示 30%）
   totalQuantity   Int?             @map("total_quantity")            // 总数量（null表示无限）
   remainQuantity  Int?             @map("remain_quantity")           // 剩余数量
+  revision        Int              @default(0)                      // 管理编辑版本；抽奖扣库不改变，防止旧保存重复补货
   displayOrder    Int              @default(0) @map("display_order") // 显示顺序
   createdAt       DateTime         @default(now()) @map("created_at")
 

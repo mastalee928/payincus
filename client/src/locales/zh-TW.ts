@@ -8364,6 +8364,8 @@ pool: {
             invalidQuantity: '數量必須是正整數，或留空表示無限',
             savePrizesSuccess: '獎品儲存成功',
             savePrizesFailed: '獎品儲存失敗',
+            invalidPrizeQuantity: '限量數量須為 1–2147483647 的整數，補充數量須為 0–2147483647 的整數',
+            reloadPrizesHint: '請重新讀取已儲存的獎品再編輯；未儲存的修改會清除。部分修改可能已儲存，請先核對庫存。',
             // 中獎記錄
             user: '用戶',
             searchUser: '搜尋用戶名',

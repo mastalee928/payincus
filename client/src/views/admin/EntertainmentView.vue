@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, onUnmounted, onDeactivated, onActivated, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
 import { useBadgeStore } from '@/stores/badges'
+import { useAuthStore } from '@/stores/auth'
 import type { BadgeCatalogItem, BadgeSeriesItem } from '@/types/api'
 
 const { t } = useI18n()
 const toast = useToast()
 const badgeStore = useBadgeStore()
+const auth = useAuthStore()
 
 // 当前 TAB
 const activeTab = ref<'lotteries' | 'records' | 'users' | 'badges' | 'checkin'>('lotteries')
@@ -70,6 +72,30 @@ const showPrizesModal = ref(false)
 const editingPrizes = ref<any>(null)
 const prizes = ref<any[]>([])
 const savingPrizes = ref(false)
+const loadingPrizes = ref(false)
+const prizesNeedReload = ref(false)
+const prizesError = ref('')
+let prizesContext = 0, prizesDisposed = false, prizesActive = true
+const prizeSession = computed(() => {
+  if (!auth.token || !auth.user) return ''
+  let identity = auth.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Use the full legacy token identity. */ }
+  return `${auth.user.id}:${auth.user.role}:${identity}`
+})
+function currentPrizesContext(context: number) {
+  return !prizesDisposed && prizesActive && showPrizesModal.value && !!prizeSession.value && context === prizesContext
+}
+function invalidatePrizes() {
+  prizesContext++; showPrizesModal.value = false; prizes.value = []; editingPrizes.value = null
+  loadingPrizes.value = false; prizesNeedReload.value = false; prizesError.value = ''
+}
+watch(prizeSession, invalidatePrizes, { flush: 'sync' })
+onDeactivated(() => { prizesActive = false; invalidatePrizes() })
+onActivated(() => { prizesActive = true })
+onUnmounted(() => { prizesDisposed = true; invalidatePrizes() })
 
 // 删除确认
 const deleteConfirmId = ref<number | null>(null)
@@ -352,13 +378,39 @@ async function deleteLottery(id: number) {
 
 // 打开奖品管理弹窗
 async function openPrizesModal(lottery: any) {
-  editingPrizes.value = lottery
-  prizes.value = lottery.prizes?.map((p: any) => ({ ...p, replenishAmount: 0 })) || []
+  if (savingPrizes.value || !prizesActive || !prizeSession.value) return
+  prizesContext++
+  editingPrizes.value = { id: lottery.id, name: lottery.name }
+  prizes.value = []
   showPrizesModal.value = true
+  await reloadPrizes()
+}
+
+async function reloadPrizes() {
+  if (savingPrizes.value || loadingPrizes.value || !currentPrizesContext(prizesContext)) return
+  const context = prizesContext, id = editingPrizes.value.id
+  loadingPrizes.value = true; prizesNeedReload.value = true; prizesError.value = ''
+  try {
+    const { lottery } = await api.entertainment.adminGetLottery(id)
+    if (!currentPrizesContext(context)) return
+    if (lottery.id !== id) throw new Error(t('entertainment.admin.loadLotteriesFailed'))
+    editingPrizes.value = lottery
+    prizes.value = lottery.prizes.map(prize => ({ ...prize, replenishAmount: 0 }))
+    prizesNeedReload.value = false
+  } catch (err: any) {
+    if (currentPrizesContext(context)) prizesError.value = err.message
+  } finally {
+    if (currentPrizesContext(context)) loadingPrizes.value = false
+  }
+}
+
+function closePrizesModal() {
+  if (!savingPrizes.value) invalidatePrizes()
 }
 
 // 添加奖品
 function addPrize() {
+  if (savingPrizes.value || loadingPrizes.value || prizesNeedReload.value) return
   prizes.value.push({
     id: 0, // 0 表示新奖品
     name: '',
@@ -373,13 +425,17 @@ function addPrize() {
 
 // 删除奖品
 function removePrize(index: number) {
+  if (savingPrizes.value || loadingPrizes.value || prizesNeedReload.value) return
   prizes.value.splice(index, 1)
 }
 
 // 保存奖品
 async function savePrizes() {
+  if (savingPrizes.value || loadingPrizes.value || prizesNeedReload.value || !currentPrizesContext(prizesContext)) return
+  const context = prizesContext, lotteryId = editingPrizes.value.id
+  const drafts = prizes.value.map(prize => ({ ...prize }))
   // 验证
-  for (const prize of prizes.value) {
+  for (const prize of drafts) {
     if (!prize.name.trim()) {
       toast.warning(t('entertainment.admin.enterPrizeName'))
       return
@@ -388,56 +444,62 @@ async function savePrizes() {
       toast.warning(t('entertainment.admin.invalidProbability'))
       return
     }
+    const limited = prize.type !== 'points' && prize.type !== 'nothing'
+    prize.totalQuantity = !limited || prize.totalQuantity === '' || prize.totalQuantity == null ? null : prize.totalQuantity
+    prize.replenishAmount = prize.id && prize.totalQuantity !== null ? prize.replenishAmount || 0 : 0
+    if ((prize.totalQuantity !== null && (!Number.isInteger(prize.totalQuantity) || prize.totalQuantity < 1 || prize.totalQuantity > 2_147_483_647)) ||
+        !Number.isInteger(prize.replenishAmount) || prize.replenishAmount < 0 || prize.replenishAmount > 2_147_483_647) {
+      toast.warning(t('entertainment.admin.invalidPrizeQuantity')); return
+    }
   }
 
   savingPrizes.value = true
   try {
-    const lotteryId = editingPrizes.value.id
     const existingPrizes = editingPrizes.value.prizes || []
     const existingIds = existingPrizes.map((p: any) => p.id)
-    const newPrizeIds = prizes.value.filter(p => p.id).map(p => p.id)
+    const newPrizeIds = drafts.filter(p => p.id).map(p => p.id)
     
     // 删除不在新列表中的奖品
     for (const existingId of existingIds) {
+      if (!currentPrizesContext(context)) return
       if (!newPrizeIds.includes(existingId)) {
         await api.entertainment.adminDeletePrize(existingId)
       }
     }
     
     // 更新或创建奖品
-    for (let i = 0; i < prizes.value.length; i++) {
-      const prize = prizes.value[i]
-      // 计算新的剩余数量（如果有补充）
-      let newRemainQuantity = prize.remainQuantity
-      if (prize.replenishAmount && prize.replenishAmount > 0) {
-        newRemainQuantity = (prize.remainQuantity || 0) + prize.replenishAmount
-      }
+    for (let i = 0; i < drafts.length; i++) {
+      if (!currentPrizesContext(context)) return
+      const prize = drafts[i]
       
       const prizeData = {
         name: prize.name.trim(),
         type: prize.type,
         value: prize.value || 0,
         probability: prize.probability,
-        totalQuantity: prize.totalQuantity || undefined,
-        remainQuantity: newRemainQuantity,
         displayOrder: i,
         instanceDesc: prize.type === 'instance' ? prize.instanceDesc : undefined
       }
       
       if (prize.id && existingIds.includes(prize.id)) {
         // 更新现有奖品
-        await api.entertainment.adminUpdatePrize(prize.id, prizeData)
+        await api.entertainment.adminUpdatePrize(prize.id, { ...prizeData, totalQuantity: prize.totalQuantity,
+          expectedRevision: prize.revision, replenishAmount: prize.replenishAmount || undefined })
       } else {
         // 创建新奖品
-        await api.entertainment.adminCreatePrize(lotteryId, prizeData)
+        await api.entertainment.adminCreatePrize(lotteryId, { ...prizeData, totalQuantity: prize.totalQuantity ?? undefined })
       }
     }
     
+    if (!currentPrizesContext(context)) return
     toast.success(t('entertainment.admin.savePrizesSuccess'))
-    showPrizesModal.value = false
+    invalidatePrizes()
     loadLotteries()
   } catch (err: any) {
-    toast.error(t('entertainment.admin.savePrizesFailed') + ': ' + err.message)
+    if (currentPrizesContext(context)) {
+      prizesNeedReload.value = true
+      prizesError.value = t('entertainment.admin.savePrizesFailed') + ': ' + err.message
+    }
   } finally {
     savingPrizes.value = false
   }
@@ -1631,14 +1693,14 @@ function getSeriesTitle(seriesId: string): string {
         <div 
           v-if="showPrizesModal" 
           class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto"
-          @click.self="showPrizesModal = false"
+          @click.self="closePrizesModal"
         >
           <div class="card p-6 w-full max-w-2xl my-8">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-lg font-medium text-themed">
                 {{ $t('entertainment.admin.managePrizes') }} - {{ editingPrizes?.name }}
               </h3>
-              <button class="btn btn-sm btn-primary" @click="addPrize">
+              <button class="btn btn-sm btn-primary" :disabled="savingPrizes || loadingPrizes || prizesNeedReload" @click="addPrize">
                 <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
@@ -1646,7 +1708,12 @@ function getSeriesTitle(seriesId: string): string {
               </button>
             </div>
             
-            <div class="space-y-3 max-h-96 overflow-y-auto">
+            <div v-if="prizesNeedReload" class="mb-4 text-sm text-themed-secondary" role="status">
+              <p v-if="prizesError" role="alert" class="text-red-500 break-words">{{ prizesError }}</p>
+              <p>{{ loadingPrizes ? $t('common.loading') : $t('entertainment.admin.reloadPrizesHint') }}</p>
+              <button v-if="!loadingPrizes" class="btn btn-sm btn-secondary mt-2" @click="reloadPrizes">{{ $t('common.retry') }}</button>
+            </div>
+            <fieldset :disabled="savingPrizes || loadingPrizes || prizesNeedReload" class="space-y-3 max-h-96 overflow-y-auto min-w-0">
               <div 
                 v-for="(prize, index) in prizes" 
                 :key="index"
@@ -1700,6 +1767,9 @@ function getSeriesTitle(seriesId: string): string {
                     <input 
                       v-model.number="prize.totalQuantity" 
                       type="number" 
+                      min="1"
+                      max="2147483647"
+                      step="1"
                       class="input input-sm w-full" 
                       :placeholder="$t('entertainment.admin.unlimited')"
                       :disabled="prize.type === 'points' || prize.type === 'nothing'"
@@ -1707,7 +1777,7 @@ function getSeriesTitle(seriesId: string): string {
                     />
                   </div>
                   <!-- 补充库存（仅对有数量限制的非 points/nothing 奖品显示） -->
-                  <div v-if="prize.id && prize.type !== 'points' && prize.type !== 'nothing' && prize.totalQuantity">
+                  <div v-if="prize.id && prize.remainQuantity !== null && prize.type !== 'points' && prize.type !== 'nothing' && prize.totalQuantity">
                     <label class="block text-xs text-themed-muted mb-1">
                       {{ $t('entertainment.admin.replenish') }}
                       <span class="text-themed-muted">({{ $t('entertainment.admin.remaining') }}: {{ prize.remainQuantity ?? 0 }})</span>
@@ -1717,6 +1787,8 @@ function getSeriesTitle(seriesId: string): string {
                       type="number" 
                       class="input input-sm w-full" 
                       min="0"
+                      max="2147483647"
+                      step="1"
                       :placeholder="$t('entertainment.admin.replenishPlaceholder')"
                     />
                   </div>
@@ -1735,11 +1807,11 @@ function getSeriesTitle(seriesId: string): string {
               <div v-if="prizes.length === 0" class="text-center text-themed-muted py-4">
                 {{ $t('entertainment.admin.noPrizes') }}
               </div>
-            </div>
+            </fieldset>
             
             <div class="flex justify-end gap-2 mt-6">
-              <button class="btn btn-ghost" @click="showPrizesModal = false">{{ $t('common.cancel') }}</button>
-              <button class="btn btn-primary" :disabled="savingPrizes" @click="savePrizes">
+              <button class="btn btn-ghost" :disabled="savingPrizes" @click="closePrizesModal">{{ $t('common.cancel') }}</button>
+              <button class="btn btn-primary" :disabled="savingPrizes || loadingPrizes || prizesNeedReload" @click="savePrizes">
                 {{ savingPrizes ? $t('common.saving') : $t('common.save') }}
               </button>
             </div>

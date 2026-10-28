@@ -3580,6 +3580,7 @@ const api = {
           probability: number
           totalQuantity: number | null
           remainQuantity: number | null
+          revision: number
           displayOrder: number
           instanceDesc: string | null
         }>
@@ -3635,6 +3636,7 @@ const api = {
           probability: number
           totalQuantity: number | null
           remainQuantity: number | null
+          revision: number
           displayOrder: number
           instanceDesc: string | null
         }>
@@ -3671,7 +3673,8 @@ const api = {
       value?: number
       probability?: number
       totalQuantity?: number | null
-      remainQuantity?: number | null
+      replenishAmount?: number
+      expectedRevision: number
       displayOrder?: number
       instanceDesc?: string | null
     }): Promise<{ success: boolean }> =>

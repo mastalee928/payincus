@@ -8019,6 +8019,8 @@ pool: {
             invalidQuantity: 'Quantity must be a positive integer, or leave empty for unlimited',
             savePrizesSuccess: 'Prizes saved successfully',
             savePrizesFailed: 'Failed to save prizes',
+            invalidPrizeQuantity: 'Limited quantity must be an integer from 1 to 2147483647; replenishment must be an integer from 0 to 2147483647',
+            reloadPrizesHint: 'Reload saved prizes before editing again. Unsaved changes will be discarded. Some changes may already be saved; check the stock first.',
             // Win records
             user: 'User',
             searchUser: 'Search username',

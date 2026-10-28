@@ -83,7 +83,10 @@ assert.ok(
 
 assert.ok(
   routeSource.includes('parseOptionalPositiveBodyId(totalQuantity)') &&
-    routeSource.includes('parseOptionalNonNegativeIntegerBody(remainQuantity)') &&
+    routeSource.includes('parseOptionalNonNegativeIntegerBody(replenishAmount)') &&
+    routeSource.includes("'remainQuantity' in request.body") &&
+    lotteryDbSource.includes('current.revision !== expectedRevision') &&
+    lotteryDbSource.includes('{ increment: replenishAmount }') &&
     routeSource.includes("return reply.code(400).send({ error: 'INVALID_VALUE', message: 'Prize value must be a non-negative integer' })"),
   'admin prize mutation routes must validate inventory and prize values'
 )

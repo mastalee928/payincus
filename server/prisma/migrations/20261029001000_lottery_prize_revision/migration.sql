@@ -1,0 +1,1 @@
+ALTER TABLE "lottery_prizes" ADD COLUMN "revision" INTEGER NOT NULL DEFAULT 0;

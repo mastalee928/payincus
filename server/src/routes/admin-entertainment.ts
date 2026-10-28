@@ -231,6 +231,7 @@ export default async function adminEntertainmentRoutes(fastify: FastifyInstance)
           probability: Number(prize.probability),
           totalQuantity: prize.totalQuantity,
           remainQuantity: prize.remainQuantity,
+          revision: prize.revision,
           displayOrder: prize.displayOrder,
           instanceDesc: prize.instanceDesc
         }))
@@ -442,6 +443,7 @@ export default async function adminEntertainmentRoutes(fastify: FastifyInstance)
           probability: Number(prize.probability),
           totalQuantity: prize.totalQuantity,
           remainQuantity: prize.remainQuantity,
+          revision: prize.revision,
           displayOrder: prize.displayOrder,
           instanceDesc: prize.instanceDesc
         })),
@@ -525,7 +527,7 @@ export default async function adminEntertainmentRoutes(fastify: FastifyInstance)
       })
     }
 
-    if (parsedTotalQuantity === null) {
+    if (parsedTotalQuantity === null || (parsedTotalQuantity !== undefined && parsedTotalQuantity > 2_147_483_647)) {
       return reply.code(400).send({ error: 'INVALID_QUANTITY', message: 'Quantity must be a positive integer' })
     }
 
@@ -580,7 +582,9 @@ export default async function adminEntertainmentRoutes(fastify: FastifyInstance)
       value?: number
       probability?: number
       totalQuantity?: number | null
-      remainQuantity?: number | null
+      replenishAmount?: number
+      expectedRevision: number
+      remainQuantity?: unknown // Older clients must reload; never accept absolute stock writes.
       displayOrder?: number
       instanceDesc?: string | null
     }
@@ -594,7 +598,9 @@ export default async function adminEntertainmentRoutes(fastify: FastifyInstance)
       value?: number
       probability?: number
       totalQuantity?: number | null
-      remainQuantity?: number | null
+      replenishAmount?: number
+      expectedRevision: number
+      remainQuantity?: unknown
       displayOrder?: number
       instanceDesc?: string | null
     }
@@ -610,13 +616,21 @@ export default async function adminEntertainmentRoutes(fastify: FastifyInstance)
       return reply.code(404).send({ error: 'NOT_FOUND', message: 'Prize not found' })
     }
 
-    const { name, type, value, probability, totalQuantity, remainQuantity, displayOrder, instanceDesc } = request.body
+    const { name, type, value, probability, totalQuantity, replenishAmount, expectedRevision, displayOrder, instanceDesc } = request.body
     const parsedType = type === undefined ? undefined : parseLotteryPrizeType(type)
     const parsedProbability = parseOptionalFiniteNumber(probability)
     const parsedValue = value === undefined ? undefined : parseIntegerBody(value)
     const parsedTotalQuantity = totalQuantity === undefined || totalQuantity === null ? totalQuantity : parseOptionalPositiveBodyId(totalQuantity)
-    const parsedRemainQuantity = remainQuantity === undefined || remainQuantity === null ? remainQuantity : parseOptionalNonNegativeIntegerBody(remainQuantity)
+    const parsedReplenishAmount = replenishAmount === undefined ? 0 : parseOptionalNonNegativeIntegerBody(replenishAmount)
+    const parsedRevision = parseIntegerBody(expectedRevision)
     const parsedDisplayOrder = displayOrder === undefined ? undefined : parseIntegerBody(displayOrder)
+
+    if ('remainQuantity' in request.body || parsedRevision === null || parsedRevision < 0 || parsedRevision > 2_147_483_647) {
+      return reply.code(409).send({ error: 'PRIZE_CHANGED', message: 'Reload the prize before saving; absolute remaining quantity is no longer accepted' })
+    }
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) {
+      return reply.code(400).send({ error: 'NAME_REQUIRED', message: 'Prize name is required' })
+    }
 
     if (parsedType === null) {
       return reply.code(400).send({ error: 'INVALID_PRIZE_TYPE', message: 'Invalid prize type' })
@@ -636,7 +650,9 @@ export default async function adminEntertainmentRoutes(fastify: FastifyInstance)
       })
     }
 
-    if (parsedTotalQuantity === null || parsedRemainQuantity === null) {
+    if ((totalQuantity !== null && parsedTotalQuantity === null) ||
+        (parsedTotalQuantity != null && parsedTotalQuantity > 2_147_483_647) ||
+        parsedReplenishAmount == null || parsedReplenishAmount > 2_147_483_647) {
       return reply.code(400).send({ error: 'INVALID_QUANTITY', message: 'Quantity must be a positive integer or null' })
     }
 
@@ -662,16 +678,24 @@ export default async function adminEntertainmentRoutes(fastify: FastifyInstance)
     })))
     if (configError) return reply.code(400).send(configError)
 
-    await db.updatePrize(prizeId, {
-      name: name?.trim(),
-      type: parsedType ?? undefined,
-      value: prizeType === 'badge' || prizeType === 'nothing' ? 0 : parsedValue ?? undefined,
-      probability: parsedProbability ?? undefined,
-      totalQuantity: parsedTotalQuantity,
-      remainQuantity: parsedRemainQuantity,
-      displayOrder: parsedDisplayOrder ?? undefined,
-      instanceDesc
-    })
+    try {
+      await db.updatePrize(prizeId, {
+        name: name?.trim(),
+        type: parsedType ?? undefined,
+        value: prizeType === 'badge' || prizeType === 'nothing' ? 0 : parsedValue ?? undefined,
+        probability: parsedProbability ?? undefined,
+        totalQuantity: parsedTotalQuantity,
+        replenishAmount: parsedReplenishAmount,
+        expectedRevision: parsedRevision,
+        displayOrder: parsedDisplayOrder ?? undefined,
+        instanceDesc
+      })
+    } catch (error) {
+      if (error instanceof db.LotteryPrizeUpdateError) {
+        return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+      }
+      throw error
+    }
 
     await createLog(
       request.user.id,

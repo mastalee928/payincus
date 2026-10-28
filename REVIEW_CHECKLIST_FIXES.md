@@ -269,8 +269,8 @@
 | R1-231 | 存在 | 源码已修/浏览器隔离验证通过 | 概览绑定KeepAlive/session/请求代次，GET取消、旧avatar/结果/finally拒绝；返回刷新、失败原地重试、错误状态禁写。同SID刷新保状态；六种抽取/领取/佩戴/取消操作同周期门禁、离页关奖励弹窗、旧回执不toast/emit，写入在途门禁保留。takeover-badge-center-browser-verified真实Vue/API夹具通过，5守卫/双端types build/dist/lint通过；不声明后端幂等/真实积分写入验收。 |
 | R1-232 | 存在 | 生命周期已修/浏览器验证通过 | 初始visible立即读，关闭重开/instanceId/session/KeepAlive均失效旧GET并取消；旧回执不toast/emit或覆盖loading，失败原地retry。apply/remove固定ID和周期，离页保在途门禁。takeover-instance-badge-browser实际Vue矩阵、4守卫/双端types build/dist/lint通过；R233同周期保存后仍emit旧值另项修，不因本项宣称整个弹窗完成。 |
 | R1-233 | 存在 | 已修复；真实后端写入待验 | R232已独立修生命周期；本项操作后同步刷新实例iconBadgeId，null有效，不回填旧ownership/prop。刷新失败retry补同步、缺目标不报成功；Chrome受控API矩阵/4守卫/双端types build/dist/lint通过（takeover-instance-badge-result-*）。后端概览非一致事务快照，无生产徽章写入证据。 |
-| R1-234 | 已有防护 | 保留初审结论 | openNotificationModal先读取已保存notificationConfig回填表单，原未加载问题不成立。 |
-| R1-235 | 存在 | 待精修/运行复核 | 保存补货以旧remainQuantity+replenishAmount提交adminUpdatePrize，可覆盖期间抽奖减少的库存。 |
+| R1-234 | 存在；纠正初审 | 待精修/运行复核 | 2026-10-29追完整调用链确认：openNotificationModal有回填分支，但列表API/DB未带notificationConfig，分支没有实际已保存值。须取详情并防读取失败覆盖；旧“已有防护”结论不完整。 |
+| R1-235 | 存在 | 已修复；生产验收待 | expectedRevision持久版本拒旧/重放，replenishAmount行锁内原子增加，抽奖同锁/原事务重试；前端详情读取、固定快照/冻结、失败禁重发需重读。真实Fastify/新PG全迁移+抽奖竞争/8并发重复/null/上限、Chrome、5守卫/types/双端build/dist/client lint通过（takeover-prize-stock-*）。多奖品仍非批量原子事务，活动概率并发/创建幂等/生产未验。 |
 | R1-236 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
 | R1-237 | 存在 | 待精修/运行复核 | 旧CheckinModal无应用导入/注册调用者；当前签到入口走Entertainment实现，旧弹窗内分享辅助为孤立代码，未删除现行签到后端。 |
 | R1-238 | 存在 | 待精修/运行复核 | description null??base恢复旧说明；逐条保存部分失败无成功id记录，重试重复；正小数舍入0后缺再次校验，后端同步核验。 |
