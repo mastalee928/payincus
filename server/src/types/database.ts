@@ -1,6 +1,6 @@
 /**
- * 数据库行类型定义
- * 对应 SQLite 数据库中的表结构
+ * 现行数据库适配层返回的兼容行类型（snake_case 字段）
+ * 持久化使用 Prisma + PostgreSQL；这些类型不等同于 Prisma 模型。
  */
 
 // ==================== 用户相关 ====================
@@ -288,30 +288,6 @@ export interface Backup {
   status: 'creating' | 'ready' | 'error' | 'deleted'
   created_at: string
   expires_at: string | null
-}
-
-export interface BackupPolicy {
-  id: number
-  instance_id: number
-  enabled: number
-  interval_hours: number
-  retention_count: number
-  last_run_at: string | null
-  next_run_at: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface SnapshotPolicy {
-  id: number
-  instance_id: number
-  enabled: number
-  interval_hours: number
-  retention_count: number
-  last_run_at: string | null
-  next_run_at: string | null
-  created_at: string
-  updated_at: string
 }
 
 // ==================== 通知相关 ====================

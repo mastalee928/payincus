@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-211 旧备份策略兼容类型
+
+- 删除`server/src/types/database.ts`内无调用的旧`BackupPolicy`/`SnapshotPolicy`接口（旧小时/保留数字段），修正文件头为Prisma/PostgreSQL适配层的snake_case兼容行类型。实际Prisma策略模型、现行DB方法和client同名API类型继续保留，未删除备份/快照能力。
+- 已读兼容类型所有import及当前备份/快照策略方法和相关守卫。`logs/takeover-retired-policy-references.log`server源码/脚本无引用，`takeover-retired-policy-build.log`server类型编译+build、`takeover-retired-policy-guards.log`3/3自动策略/备份ID/快照路由守卫通过。无运行行为/数据库变更；不冒充真实备份恢复验收。
+- R204 `77bb816f44e6bdebd5cab8eb4e304b9c792708ce`已推送，CI40699019799最后运行。R207独立前端清理仍在完成双端构建，分开提交；327未完整。
+
 ## 2026-10-28 R1-204 无调用图片与虚拟列表组件
 
 - R201 `996d3db0e7c605758f202fb0edffaa020fb22229` 已推送并核远端一致，CI40690320503最终success。
