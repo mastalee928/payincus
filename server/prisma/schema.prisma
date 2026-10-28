@@ -533,7 +533,7 @@ model User {
   hostingBlocksReceived HostingUserBlock[] @relation("HostingBlockedUser")
   hostingZone         HostingZone?         @relation("HostingZoneOwner")
 
-  // 域名邮箱系统
+  // 邮箱服务订阅；域名和账号经 MailSubscription 关联，当前模块仍在使用
   mailSubscriptions   MailSubscription[]
 
   // 抽奖系统
@@ -649,13 +649,13 @@ model RefreshToken {
 model TokenInvalidation {
   id            Int      @id @default(autoincrement())
   userId        Int      @map("user_id")
-  sessionId     String?  @map("session_id") // 会话ID（Refresh Token 前缀），null 表示用户级别的失效
-  invalidatedAt Int      @map("invalidated_at") // 失效时间戳（秒级，与 JWT iat 一致）
+  sessionId     String?  @map("session_id") // JWT sid：refresh token SHA-256 摘要前32位；__USER_LEVEL__表示用户级失效，null仅为旧数据兼容
+  invalidatedAt Int      @map("invalidated_at") // 秒级截止时间，JWT iat <= 此值时失效
   createdAt     DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, sessionId]) // 每个用户每个会话只能有一条失效记录（sessionId 为 null 时表示用户级别）
+  @@unique([userId, sessionId]) // 每个非null会话标识（含__USER_LEVEL__）唯一；PG普通唯一约束不合并null
   @@index([userId])
   @@index([sessionId])
   @@index([invalidatedAt]) // 用于清理过期记录
@@ -1107,7 +1107,7 @@ model Instance {
   suspendedBy      Int?      @map("suspended_by")      // 封停操作者（null=系统自动，有值=用户ID）
   suspendReason    String?   @map("suspend_reason")    // 封停原因（expired=到期封停，其他=手动封停原因）
   // 计费价格（从方案复制，支持后续调整）
-  billingPrice     Decimal?  @map("billing_price") @db.Decimal(10, 2)  // 单周期价格
+  billingPrice     Decimal?  @map("billing_price") @db.Decimal(10, 2)  // 单周期价格（元），区别于PackagePlan.price的分
   billingCycle     Int?      @map("billing_cycle")  // 计费周期（月）
   // 自动续费
   autoRenew        Boolean   @default(false) @map("auto_renew")
@@ -2949,7 +2949,7 @@ model PackagePlan {
   trafficLimitSpeed String @default("1Mbit") @map("traffic_limit_speed") // 流量超限后的限速值
 
   // ========== 计费配置 ==========
-  price        Decimal @db.Decimal(10, 2)                             // 价格
+  price        Decimal @db.Decimal(10, 2)                             // 整个billingCycle周期价格（分）；开通计费除以100转为元
   billingCycle Int     @default(1) @map("billing_cycle")              // 计费周期（月）
   setupFee     Decimal @default(0) @map("setup_fee") @db.Decimal(10, 2) // 开通费
   trafficResetPrice Decimal? @map("traffic_reset_price") @db.Decimal(10, 2) // 用户自助重置月流量价格覆盖（元），null=继承套餐
@@ -3026,7 +3026,7 @@ model AffCode {
   mailSubscriptionBindings MailSubscriptionAffBinding[]
   logs        AffLog[]
 
-  @@unique([userId, packagePlanId]) // 每用户每方案仅一个优惠码（包括全局码：packagePlanId=null时每用户最多一个）
+  @@unique([userId, packagePlanId]) // 每用户每个非null方案仅一个码；PG允许多个null，当前业务允许多个全局码
   @@index([userId])
   @@index([packagePlanId])
   @@map("aff_codes")
@@ -3496,7 +3496,7 @@ model MailPlan {
   domainLimit   Int              @map("domain_limit")  // 主域名数量限制
   diskLimitGb   Int              @map("disk_limit_gb") // 存储空间 GB
   billingCycle  MailBillingCycle @map("billing_cycle") // 计费周期
-  price         Decimal          @db.Decimal(10, 2)    // 价格
+  price         Decimal          @db.Decimal(10, 2)    // billingCycle整周期价格（元），区别于PackagePlan.price的分
   enabled       Boolean          @default(true)
   sortOrder     Int              @default(0) @map("sort_order")
   createdAt     DateTime         @default(now()) @map("created_at")

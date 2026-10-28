@@ -918,7 +918,7 @@ async function persistAccessTokenInvalidation(userId: number, sessionId: string)
 /**
  * 标记特定会话的 Access Token 失效
  * @param userId 用户ID
- * @param sessionId 会话标识（Refresh Token 的前缀）
+ * @param sessionId JWT sid（Refresh Token SHA-256 摘要的前32位）
  */
 export async function invalidateSessionAccessToken(userId: number, sessionId: string): Promise<void> {
     await persistAccessTokenInvalidation(userId, sessionId)

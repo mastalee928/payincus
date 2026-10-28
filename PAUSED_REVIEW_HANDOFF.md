@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：README修正484c06d已push。R212会话标识/失效截止、AFF null唯一性及分元单位注释已核代码修正，4守卫/Prisma validate/类型/去注释无变化通过；准备单项保存。随后R213：只删useTurnstile旧composable及utils的3个隐式导出，保留readTurnstileToken与focusTurnstileSection（现行登录注册有调用）。327继续。
+
 > **最新接续**：R222 87e1c69已push。R210 README不存在链接改为已跟踪网关说明，仓库守卫通过单独保存；不存在“本地生成文件遮盖”证据，漏检是未跑README仓库守卫。随后保存R212仅注释修正，再继续R213等。无后台测试/build待poll；327未完成。
 
 > **最新接续**：R215 94ddcca已push。R222后台写入/256条界限/清空竞争/应用缓存隔离已修，实际Chrome双源及受控专项、双端类型build/dist与路由守卫通过，准备单独保存。R210 CI40701860321失败是README指向未跟踪v1.7.7.md，随后立即修链接。R212 schema/security注释已编辑，4守卫/Prisma validate通过待独立保存。327未完整。

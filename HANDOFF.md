@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-212 Prisma注释与单位
+
+- README链接修正`484c06d`已push并核远端一致。R212读取真实会话生成/撤销、AFF创建、套餐开通换算和邮箱购买/续费后，只修正schema及security的相关注释。JWT sid是refresh token SHA-256摘要前32位，用户级失效使用__USER_LEVEL__而非null，iat等于截止时间也失效；PG普通唯一约束允许多个null，AFF现行代码明确允许多个全局码。
+- PackagePlan.price为分，Instance.billingPrice与MailPlan.price为元，均说明按各自billingCycle整周期。User邮箱订阅模块仍使用，不应按清单措辞当作已退役。没有改金额、鉴权、唯一约束或数据库内容。
+- `logs/takeover-schema-comments-guards.log`4/4鉴权/推荐/套餐/邮箱相关守卫、`takeover-schema-comments-validate.log`Prisma validate、`takeover-sw-server-types.log`后端类型通过；`takeover-schema-comments-only.log`对比HEAD去除注释后的schema/security内容完全相等，无需migration。仅维护注释，不声称新的线上业务验收。继续R213等，327未完成。
+
 ## 2026-10-28 R1-210 README链接回归修正
 
 - R222 `87e1c69`已push并核对远端一致。R210的README误指向不存在的v1.7.7发布说明；本机Test-Path与git ls-files均确认不存在，前次部署文档守卫/VitePress构建没有覆盖README链接。上一节所写“本地生成文件造成漏检”是未核实推断，本节纠正。
