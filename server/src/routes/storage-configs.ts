@@ -274,7 +274,7 @@ export default async function storageConfigRoutes(fastify: FastifyInstance) {
                 updateData.extra = normalizedExtraPatch
             }
 
-            const config = await db.updateStorageConfig(id, updateData as Parameters<typeof db.updateStorageConfig>[1])
+            const config = await db.updateStorageConfig(id, updateData as Parameters<typeof db.updateStorageConfig>[1], request.user, existing.updatedAt)
 
             await createLog(
                 request.user.id,
@@ -299,6 +299,7 @@ export default async function storageConfigRoutes(fastify: FastifyInstance) {
         } catch (err) {
             fastify.log.error(err)
             const errorMessage = err instanceof Error ? err.message : String(err)
+            if (err instanceof db.StorageConfigMutationError) return reply.code(err.statusCode).send({ error: err.code, message: err.message })
             return reply.code(500).send(apiError(ErrorCode.STORAGE_CONFIG_UPDATE_FAILED, errorMessage))
         }
     })
@@ -332,7 +333,7 @@ export default async function storageConfigRoutes(fastify: FastifyInstance) {
         }
 
         try {
-            await db.deleteStorageConfig(id)
+            await db.deleteStorageConfig(id, request.user)
 
             await createLog(
                 request.user.id,
@@ -346,6 +347,7 @@ export default async function storageConfigRoutes(fastify: FastifyInstance) {
         } catch (err) {
             fastify.log.error(err)
             const errorMessage = err instanceof Error ? err.message : String(err)
+            if (err instanceof db.StorageConfigMutationError) return reply.code(err.statusCode).send({ error: err.code, message: err.message })
             return reply.code(500).send(apiError(ErrorCode.STORAGE_CONFIG_DELETE_FAILED, errorMessage))
         }
     })

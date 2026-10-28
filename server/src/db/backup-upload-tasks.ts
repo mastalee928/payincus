@@ -4,7 +4,12 @@
 
 import { prisma } from './prisma.js'
 import type { BackupUploadTask, BackupUploadTaskStatus } from '@prisma/client'
+import { authorizeUserWrite, type WriteActor, type WriteSession } from './user-write-authorization.js'
+import { BackupUploadAuthorizationError, loadAuthorizedUpload, uploadStorageIdentity, uploadWorkflowBusy } from './backup-upload-authorization.js'
+import { recoveryHeld } from '../services/platform-backup-core.js'
+import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import {
+    HOST_TASK_CLAIM_LOCK_NAMESPACE,
     INSTANCE_OPERATION_LOCK_NAMESPACE,
     USER_BACKUP_UPLOAD_LOCK_NAMESPACE,
     tryAdvisoryTransactionLock
@@ -36,8 +41,19 @@ export async function createBackupUploadTask(data: {
     backupId: number
     hostId: number
     storageConfigId: number
+    session: WriteSession
+    expectedIncusId: string
+    expectedBackupName: string
+    expectedStorageIdentity: string
+    expectedHostIdentity: string
 }): Promise<BackupUploadTask | null> {
     return prisma.$transaction(async tx => {
+        await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+        if (recoveryHeld()) throw new BackupUploadAuthorizationError('平台恢复保护中，暂不能创建上传任务')
+        if (!await tryAdvisoryTransactionLock(tx, HOST_TASK_CLAIM_LOCK_NAMESPACE, data.hostId) ||
+            !await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, data.instanceId)) {
+            throw new BackupUploadAuthorizationError('宿主或实例正在处理其他请求，请稍后重试', 409, 'INSTANCE_BUSY')
+        }
         const locked = await tryAdvisoryTransactionLock(tx, USER_BACKUP_UPLOAD_LOCK_NAMESPACE, data.userId)
         if (!locked) {
             return null
@@ -54,6 +70,21 @@ export async function createBackupUploadTask(data: {
             return null
         }
 
+        const current = await loadAuthorizedUpload(tx, data, data.session)
+        if (current.instance.incusId !== data.expectedIncusId || current.backup.incusName !== data.expectedBackupName ||
+            uploadStorageIdentity(current.storageConfig) !== data.expectedStorageIdentity ||
+            transferHostIdentity(current.host) !== data.expectedHostIdentity) {
+            throw new BackupUploadAuthorizationError('上传目标在提交期间已变化，请刷新后重试')
+        }
+        if (await uploadWorkflowBusy(tx, current.instance) ||
+            await tx.instanceTask.count({ where: { instanceId: data.instanceId, status: { in: ['PENDING', 'PROCESSING'] } } }) ||
+            await tx.restoreTask.count({ where: { instanceId: data.instanceId, status: { in: ['PENDING', 'PROCESSING'] } } })) {
+            throw new BackupUploadAuthorizationError('实例正在执行其他操作，请等待完成后重试', 409, 'INSTANCE_BUSY')
+        }
+        if (await tx.backupUploadTask.count({ where: { hostId: data.hostId, status: 'PENDING' } }) >= 10) {
+            throw new BackupUploadAuthorizationError('该宿主上传队列已满，请稍后再试', 429, 'QUEUE_TOO_LONG')
+        }
+
         return tx.backupUploadTask.create({
             data: {
                 userId: data.userId,
@@ -61,6 +92,9 @@ export async function createBackupUploadTask(data: {
                 backupId: data.backupId,
                 hostId: data.hostId,
                 storageConfigId: data.storageConfigId,
+                actorSid: data.session.sid,
+                actorIat: data.session.iat,
+                identityHash: current.identityHash,
                 status: 'PENDING'
             }
         })
@@ -224,7 +258,7 @@ export async function getUploadTaskQueuePosition(taskId: number): Promise<number
 /**
  * 取消任务（仅 PENDING 状态）
  */
-export async function cancelBackupUploadTask(id: number): Promise<BackupUploadTask | null> {
+export async function cancelBackupUploadTask(id: number, instanceId: number, actor: WriteActor): Promise<BackupUploadTask | null> {
     const task = await prisma.backupUploadTask.findUnique({
         where: { id }
     })
@@ -234,14 +268,24 @@ export async function cancelBackupUploadTask(id: number): Promise<BackupUploadTa
     }
 
     return prisma.$transaction(async tx => {
+        await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
         const locked = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, task.instanceId)
         if (!locked) {
             return null
         }
 
+        await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+        const instance = await tx.instance.findUnique({ where: { id: instanceId } })
+        if (task.instanceId !== instanceId || task.userId !== actor.id || instance?.userId !== actor.id ||
+            !await authorizeUserWrite(tx, actor.id, actor)) {
+            throw new BackupUploadAuthorizationError('无权取消此上传任务', 403, 'FORBIDDEN')
+        }
+
         const updateResult = await tx.backupUploadTask.updateMany({
             where: {
                 id,
+                instanceId,
+                userId: actor.id,
                 status: 'PENDING'
             },
             data: {

@@ -2,6 +2,16 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 上传队列当前授权与固定目标
+
+- 上传入队在host/instance/user任务锁及目标行锁内重新核对当前账户、会话撤销、实例owner/host/Incus名、ready备份及存储归属；请求早期宿主身份和存储连接摘要在事务内比对。每宿主10个PENDING上限与入队同锁，快照/站点/转移/其他实例任务门禁生效。
+- 新迁移仅新增actorSid/actorIat/identityHash，不复制存储凭据。领取与执行准备阶段再次校验原任务身份；旧无绑定任务明确失败，不用当前记录伪造授权。使用本次已核对的Incus客户端/CA/pin与存储配置，避免连接池重读后改投新host。恢复保护期间不入队/领取/执行；取消任务复核current actor/session，历史状态仅原任务用户可见。
+- 存储更新/删除与入队共享user锁和storage行锁，活跃任务期间拒绝修改/删除，避免FK级联删除新任务；更新核对原updatedAt。worker进度/成功/失败/重试写入增加startedAt/retryCount条件，旧执行结果不能覆盖新attempt的数据库状态。
+- `logs/takeover-upload-auth-final.log`真实本机PG+Fastify路由+mTLS导出通过：11种身份/授权变化分别在入队、领取、执行前核验，旧任务、取消竞争、快照/站点/转移、恢复保护、并发队列上限、存储删除竞争、旧owner历史隔离、旧attempt数据库结果隔离；原正常上传/日志失败/同秒文件/失败清理/实例字段保持回归通过。认证中间件与存储传输为明确替身，不等于真实Incus磁盘/OSS。
+- 相关5/5守卫`logs/takeover-upload-auth-final-guards.log`；server类型/构建见`logs/takeover-upload-auth-final-typecheck.log`、`logs/takeover-upload-auth-final-build.log`。225迁移清单在此前空库224条基础上实际升级成功`logs/takeover-upload-auth-migration.log`。原CI隔离PG专项已直接覆盖扩展测试；前一docs提交92fe0b0的CI 40645797730 success，不冒充本批CI。
+- 首轮夹具PUT/PATCH与不可解析地址错误、旧日志计数断言错误已修，失败日志r1–r3保留；r4真实发现入队宿主旧身份未绑定，补expectedHostIdentity后通过r5与final。直接server ESLint因仓库没有server/root配置无法运行；根lint实际只校验client，不将其当server lint通过。
+- **下一段仍需修**：上传每次attempt远端文件身份与持久恢复/30秒退避、null startedAt僵尸、存储失败清理回执、开始传输后的身份/会话变化与手工备份删除共享门禁；本批只完成入队/领取/执行准备及数据库结果隔离。备份create/delete/restore和327/完整网关仍未完成。未动生产、tag或Release；按owner授权先保存本段再继续。
+
 ## 2026-10-28 阶段远端确认（当前接续点）
 
 - 已按owner要求连续提交并推送：`c277ba3`保存旧聊天与当前积压248文件；`437ff02`补Markdown测试依赖；`8465e9d`隔离备份上传文件；`7a38eca0cdf97f88dcec551c1cd3028538af7536`修复备份导出身份与流控制。每次均普通push main，无强推，最新业务提交已核对`git ls-remote`相同；记录前工作区干净且无领先未推送commit。

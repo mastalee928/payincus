@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID, X509Certificate } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile, unlink } from 'node:fs/promises'
 import { createServer } from 'node:https'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,21 +11,31 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'),
   'Use isolated local *_pool_test PostgreSQL')
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { executeUploadTask } = await import('../src/workers/backupUploadWorker.js')
+const { executeUploadTask, claimNextUploadTask } = await import('../src/workers/backupUploadWorker.js')
+const { createBackupUploadTask, cancelBackupUploadTask } = await import('../src/db/backup-upload-tasks.js')
+const { uploadStorageIdentity } = await import('../src/db/backup-upload-authorization.js')
+const { transferHostIdentity } = await import('../src/lib/transfer-host-identity.js')
+const { updateStorageConfig, deleteStorageConfig } = await import('../src/db/storage-configs.js')
+const { default: Fastify } = await import('fastify')
+const { default: backupRoutes } = await import('../src/routes/backups.js')
+const { default: storageConfigRoutes } = await import('../src/routes/storage-configs.js')
 const { StorageFactory } = await import('../src/storage/factory.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const tag = `upload-finalize-${randomUUID()}`
 const root = await mkdtemp(join(tmpdir(), tag))
+const previousBackupStateDir = process.env.PLATFORM_BACKUP_STATE_DIR
+process.env.PLATFORM_BACKUP_STATE_DIR = root
 const keyPath = join(root, 'key.pem'), certPath = join(root, 'cert.pem')
 execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
   '-subj', '/CN=incus-fixture', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', keyPath, '-out', certPath],
 { stdio: 'pipe', windowsHide: true })
 const certificate = await readFile(certPath, 'utf8')
 const payload = Buffer.from('isolated backup payload')
-let exports = 0
+let exports = 0, requests = 0
 const server = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate,
   requestCert: true, rejectUnauthorized: true }, (request, response) => {
   assert.ok((request.socket as any).authorized)
+  requests++
   if (request.url === '/1.0') {
     response.setHeader('content-type', 'application/json')
     response.end(JSON.stringify({ type: 'sync', metadata: { api_version: '1.0' } }))
@@ -46,16 +56,28 @@ const host = await prisma.host.create({ data: { userId: user.id, name: tag, stat
 const instance = await prisma.instance.create({ data: { userId: user.id, hostId: host.id, name: tag, incusId: tag,
   image: 'fixture/debian', status: 'stopped', cpu: 100, memory: 512, disk: 1024 } })
 const backup = await prisma.backup.create({ data: { instanceId: instance.id, incusName: 'saved', name: 'saved', status: 'ready' } })
-const storage = await prisma.storageConfig.create({ data: { userId: user.id, name: tag, type: 'WEBDAV', host: 'https://invalid.example.test' } })
+// Public literal passes target validation; every storage transport below is replaced, so no request reaches it.
+const storage = await prisma.storageConfig.create({ data: { userId: user.id, name: tag, type: 'WEBDAV', host: 'https://1.1.1.1' } })
+const actor = { id: user.id, sid: randomUUID(), iat: Math.floor(Date.now() / 1000) }
+const app = Fastify()
+let requestActor = { ...actor, role: 'user' as const }
+app.decorate('authenticateUser', async (request: any) => { request.user = requestActor })
+app.decorate('authenticate', async (request: any) => { request.user = requestActor })
+await app.register(backupRoutes, { prefix: '/instances' })
+await app.register(storageConfigRoutes, { prefix: '/storage' })
+const uploadUrl = `/instances/${instance.id}/backups/${backup.id}/upload-remote`
+const queueUsers: number[] = []
 const originalFactory = StorageFactory.create
 const remote = new Map<string, Buffer>()
 let deletes = 0, uploads = 0, failUpload = false
+let afterUpload: (() => Promise<void>) | undefined
 StorageFactory.create = () => ({
   async uploadStream(stream, filename) {
     uploads++
     const chunks: Buffer[] = []
     for await (const chunk of stream) chunks.push(Buffer.from(chunk))
     remote.set(filename, Buffer.concat(chunks))
+    await afterUpload?.()
     if (failUpload) throw new Error('fixture-storage-upload-failure')
   },
   async deleteFile(filename) { deletes++; remote.delete(filename) },
@@ -65,12 +87,182 @@ StorageFactory.create = () => ({
 const trigger = `upload_audit_${user.id}`
 let faultInstalled = false
 async function makeTask(status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' = 'PROCESSING') {
-  return prisma.backupUploadTask.create({ data: { userId: user.id, hostId: host.id, instanceId: instance.id,
-    backupId: backup.id, storageConfigId: storage.id, status, startedAt: new Date() } })
+  const currentStorage = await prisma.storageConfig.findUniqueOrThrow({ where: { id: storage.id } })
+  const task = await createBackupUploadTask({ userId: user.id, hostId: host.id, instanceId: instance.id,
+    backupId: backup.id, storageConfigId: storage.id, session: actor, expectedIncusId: tag,
+    expectedBackupName: 'saved', expectedStorageIdentity: uploadStorageIdentity(currentStorage), expectedHostIdentity: transferHostIdentity(host) })
+  assert.ok(task)
+  if (status === 'PROCESSING') { const claimed = await claimNextUploadTask(host.id); assert.equal(claimed?.id, task.id); return claimed! }
+  if (status !== 'PENDING') return prisma.backupUploadTask.update({ where: { id: task.id }, data: { status } })
+  return task
 }
 try {
+  const invalidId = await app.inject({ method: 'POST', url: uploadUrl, payload: { storageConfigId: -1 } })
+  assert.equal(invalidId.statusCode, 400)
+  const enqueue = await app.inject({ method: 'POST', url: uploadUrl, payload: { storageConfigId: storage.id } })
+  assert.equal(enqueue.statusCode, 200, enqueue.body)
+  const queuedId = enqueue.json().taskId
+  assert.equal((await app.inject({ method: 'DELETE', url: `/storage/${storage.id}` })).statusCode, 409)
+  assert.equal((await app.inject({ method: 'PATCH', url: `/storage/${storage.id}`, payload: { name: 'busy' } })).statusCode, 409)
+  await prisma.user.update({ where: { id: user.id }, data: { status: 'banned' } })
+  assert.equal((await app.inject({ method: 'DELETE', url: `/instances/${instance.id}/upload-tasks/${queuedId}` })).statusCode, 403)
+  assert.equal(await claimNextUploadTask(host.id), null)
+  assert.equal((await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: queuedId } })).status, 'FAILED')
+  await prisma.user.update({ where: { id: user.id }, data: { status: 'active' } })
+
+  const other = await prisma.user.create({ data: { username: tag + '-other', passwordHash: 'unusable-fixture' } })
+  queueUsers.push(other.id)
+  const changes: Array<[string, () => Promise<unknown>, () => Promise<unknown>]> = [
+    ['owner', () => prisma.instance.update({ where: { id: instance.id }, data: { userId: other.id } }), () => prisma.instance.update({ where: { id: instance.id }, data: { userId: user.id } })],
+    ['incus name', () => prisma.instance.update({ where: { id: instance.id }, data: { incusId: tag + '-changed' } }), () => prisma.instance.update({ where: { id: instance.id }, data: { incusId: tag } })],
+    ['backup name', () => prisma.backup.update({ where: { id: backup.id }, data: { incusName: 'changed' } }), () => prisma.backup.update({ where: { id: backup.id }, data: { incusName: 'saved' } })],
+    ['backup state', () => prisma.backup.update({ where: { id: backup.id }, data: { status: 'deleted' } }), () => prisma.backup.update({ where: { id: backup.id }, data: { status: 'ready' } })],
+    ['host identity', () => prisma.host.update({ where: { id: host.id }, data: { url: 'https://127.0.0.1:1' } }), () => prisma.host.update({ where: { id: host.id }, data: { url: host.url } })],
+    ['storage owner', () => prisma.storageConfig.update({ where: { id: storage.id }, data: { userId: other.id } }), () => prisma.storageConfig.update({ where: { id: storage.id }, data: { userId: user.id } })],
+    ['storage destination', () => prisma.storageConfig.update({ where: { id: storage.id }, data: { basePath: '/changed' } }), () => prisma.storageConfig.update({ where: { id: storage.id }, data: { basePath: null } })],
+    ['storage credential', () => prisma.storageConfig.update({ where: { id: storage.id }, data: { password: 'changed-fixture-ciphertext' } }), () => prisma.storageConfig.update({ where: { id: storage.id }, data: { password: null } })],
+    ['ban', () => prisma.user.update({ where: { id: user.id }, data: { status: 'banned' } }), () => prisma.user.update({ where: { id: user.id }, data: { status: 'active' } })],
+    ['logout', () => prisma.tokenInvalidation.create({ data: { userId: user.id, sessionId: actor.sid, invalidatedAt: actor.iat } }), () => prisma.tokenInvalidation.deleteMany({ where: { userId: user.id } })],
+    ['all sessions revoked', () => prisma.tokenInvalidation.create({ data: { userId: user.id, sessionId: '__USER_LEVEL__', invalidatedAt: actor.iat } }), () => prisma.tokenInvalidation.deleteMany({ where: { userId: user.id } })]
+  ]
+  for (const stage of ['claim', 'dispatch']) for (const [name, change, restore] of changes) {
+    const task = await makeTask(stage === 'claim' ? 'PENDING' : 'PROCESSING')
+    const before = { requests, exports, uploads, deletes }
+    await change()
+    if (stage === 'claim') assert.equal(await claimNextUploadTask(host.id), null, name)
+    else await executeUploadTask(task.id)
+    const result = await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: task.id } })
+    assert.equal(result.status, 'FAILED', `${stage}: ${name}`)
+    assert.ok(result.error)
+    assert.deepEqual({ requests, exports, uploads, deletes }, before, `${stage}: ${name} must cause zero remote work`)
+    await restore()
+  }
+  const legacy = await makeTask('PENDING')
+  await prisma.backupUploadTask.update({ where: { id: legacy.id }, data: { identityHash: null } })
+  assert.equal(await claimNextUploadTask(host.id), null)
+  assert.match((await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: legacy.id } })).error!, /身份缺失/)
+
+  const cancelled = await makeTask('PENDING')
+  await Promise.all([cancelBackupUploadTask(cancelled.id, instance.id, actor), claimNextUploadTask(host.id)])
+  const raced = await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: cancelled.id } })
+  assert.ok(['FAILED', 'PROCESSING'].includes(raced.status))
+  if (raced.status === 'PROCESSING') {
+    assert.equal(await cancelBackupUploadTask(cancelled.id, instance.id, actor), null)
+    await prisma.backupUploadTask.update({ where: { id: cancelled.id }, data: { status: 'FAILED' } })
+  }
+  for (const stage of ['claim', 'dispatch']) {
+    const busy = await makeTask(stage === 'claim' ? 'PENDING' : 'PROCESSING')
+    const operation = await prisma.autoSnapshotOperation.create({ data: { id: randomUUID(), instanceId: instance.id,
+      ownerId: user.id, hostId: host.id, incusId: tag, identityHash: 'fixture', snapshotName: 'auto-' + randomUUID() } })
+    if (stage === 'claim') assert.equal(await claimNextUploadTask(host.id), null)
+    else await executeUploadTask(busy.id)
+    assert.equal((await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: busy.id } })).status, 'PENDING')
+    await prisma.autoSnapshotOperation.delete({ where: { id: operation.id } })
+    assert.ok(await cancelBackupUploadTask(busy.id, instance.id, actor))
+  }
+  await prisma.instance.update({ where: { id: instance.id }, data: { userId: other.id } })
+  requestActor = { id: other.id, sid: randomUUID(), iat: actor.iat, role: 'user' }
+  assert.equal((await app.inject({ method: 'GET', url: `/instances/${instance.id}/upload-tasks/${queuedId}` })).statusCode, 404)
+  requestActor = { ...actor, role: 'user' }
+  await prisma.instance.update({ where: { id: instance.id }, data: { userId: user.id } })
+  const changedConfig = await updateStorageConfig(storage.id, { name: tag + '-renamed' }, actor,
+    (await prisma.storageConfig.findUniqueOrThrow({ where: { id: storage.id } })).updatedAt)
+  await assert.rejects(updateStorageConfig(storage.id, { name: 'stale' }, actor, storage.updatedAt), /已变化/)
+  const removable = await prisma.storageConfig.create({ data: { userId: user.id, name: tag, type: 'WEBDAV', host: storage.host } })
+  await deleteStorageConfig(removable.id, actor)
+  assert.equal(await prisma.storageConfig.findUnique({ where: { id: removable.id } }), null)
+  assert.equal(changedConfig.name, tag + '-renamed')
+
+  // Submit with stale route snapshots, bypassing the early route prechecks.
+  const submit = () => createBackupUploadTask({ userId: user.id, hostId: host.id, instanceId: instance.id,
+    backupId: backup.id, storageConfigId: storage.id, session: actor, expectedIncusId: tag,
+    expectedBackupName: 'saved', expectedStorageIdentity: uploadStorageIdentity(changedConfig), expectedHostIdentity: transferHostIdentity(host) })
+  for (const [name, change, restore] of changes) {
+    await change()
+    await assert.rejects(submit(), undefined, `admission: ${name}`)
+    assert.equal(await prisma.backupUploadTask.count({ where: { userId: user.id, status: { in: ['PENDING', 'PROCESSING'] } } }), 0)
+    await restore()
+  }
+  const transferred = await prisma.instanceTransfer.create({ data: { instanceId: instance.id,
+    fromUserId: user.id, toUserId: other.id, snapshot: {} } })
+  await assert.rejects(submit(), /正在执行/)
+  await prisma.instanceTransfer.delete({ where: { id: transferred.id } })
+  const pendingSnapshot = await prisma.autoSnapshotOperation.create({ data: { id: randomUUID(), instanceId: instance.id,
+    ownerId: user.id, hostId: host.id, incusId: tag, identityHash: 'fixture', snapshotName: 'auto-' + randomUUID() } })
+  await assert.rejects(submit(), /正在执行/)
+  await prisma.autoSnapshotOperation.delete({ where: { id: pendingSnapshot.id } })
+  for (const stage of ['admission', 'claim', 'dispatch']) {
+    const held = stage === 'admission' ? null : await makeTask(stage === 'claim' ? 'PENDING' : 'PROCESSING')
+    const before = requests
+    await writeFile(join(root, 'recovery-hold.json'), '{}')
+    try {
+      if (stage === 'admission') await assert.rejects(submit(), /恢复保护/)
+      else if (stage === 'claim') assert.equal(await claimNextUploadTask(host.id), null)
+      else await executeUploadTask(held!.id)
+      if (held) assert.equal((await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: held.id } })).status, 'PENDING')
+      assert.equal(requests, before)
+    } finally { await unlink(join(root, 'recovery-hold.json')) }
+    if (held) assert.ok(await cancelBackupUploadTask(held.id, instance.id, actor))
+  }
+
+  for (const stage of ['admission', 'claim', 'dispatch']) {
+    const task = stage === 'admission' ? null : await makeTask(stage === 'claim' ? 'PENDING' : 'PROCESSING')
+    const operation = await prisma.proxySiteOperation.create({ data: { id: randomUUID(), siteId: -1, siteKey: randomUUID(),
+      instanceId: instance.id, hostId: host.id, ownerId: user.id, actorId: user.id, actorSid: actor.sid, actorIat: actor.iat,
+      authority: 'user', identityHash: 'fixture', incusId: tag, revision: 1, action: 'upsert', desiredConfig: {}, requestHash: 'fixture' } })
+    if (stage === 'admission') await assert.rejects(submit(), /正在执行/)
+    else if (stage === 'claim') assert.equal(await claimNextUploadTask(host.id), null)
+    else await executeUploadTask(task!.id)
+    if (task) assert.equal((await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: task.id } })).status, 'PENDING')
+    await prisma.proxySiteOperation.delete({ where: { id: operation.id } })
+    if (task) assert.ok(await cancelBackupUploadTask(task.id, instance.id, actor))
+  }
+
+  // Nine existing users queued on this host; parallel submissions compete for
+  // the final slot using the same host lock. No transaction may exceed ten.
+  const candidates = []
+  for (let index = 0; index < 13; index++) {
+    const candidate = await prisma.user.create({ data: { username: tag + '-q-' + index, passwordHash: 'unusable-fixture' } })
+    queueUsers.push(candidate.id)
+    const target = await prisma.instance.create({ data: { userId: candidate.id, hostId: host.id, name: tag, incusId: tag + index,
+      image: 'fixture/debian', cpu: 100, memory: 512, disk: 1024, status: 'stopped' } })
+    const savedBackup = await prisma.backup.create({ data: { instanceId: target.id, incusName: 'saved', name: 'saved', status: 'ready' } })
+    const destination = await prisma.storageConfig.create({ data: { userId: candidate.id, name: tag, type: 'WEBDAV', host: storage.host } })
+    candidates.push({ userId: candidate.id, hostId: host.id, instanceId: target.id, backupId: savedBackup.id, storageConfigId: destination.id,
+      session: { sid: randomUUID(), iat: actor.iat }, expectedIncusId: target.incusId, expectedBackupName: 'saved',
+      expectedStorageIdentity: uploadStorageIdentity(destination), expectedHostIdentity: transferHostIdentity(host) })
+  }
+  for (const candidate of candidates.slice(0, 9)) assert.ok(await createBackupUploadTask(candidate))
+  const lastSlot = await Promise.allSettled(candidates.slice(9).map(candidate => createBackupUploadTask(candidate)))
+  assert.equal(lastSlot.filter(result => result.status === 'fulfilled' && result.value).length, 1)
+  assert.equal(await prisma.backupUploadTask.count({ where: { hostId: host.id, status: 'PENDING' } }), 10)
+  await assert.rejects(submit(), /队列已满/)
+  await prisma.backupUploadTask.deleteMany({ where: { userId: { in: queueUsers } } })
+
+  // The row lock is held by an actual transaction, so deletion cannot pass
+  // its early empty-queue check and erase a just-enqueued task via FK cascade.
+  let releaseStorage!: () => void, storageLocked!: () => void
+  const lockedStorage = new Promise<void>(resolve => { storageLocked = resolve })
+  const release = new Promise<void>(resolve => { releaseStorage = resolve })
+  const holding = prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM storage_configs WHERE id = ${storage.id} FOR SHARE`
+    storageLocked()
+    await release
+    await tx.backupUploadTask.create({ data: { userId: user.id, hostId: host.id, instanceId: instance.id,
+      backupId: backup.id, storageConfigId: storage.id } })
+  })
+  await lockedStorage
+  const deletion = deleteStorageConfig(storage.id, actor)
+  const deletionAssertion = assert.rejects(deletion, /仍有上传任务/)
+  releaseStorage()
+  await holding
+  await deletionAssertion
+  assert.equal(await prisma.backupUploadTask.count({ where: { userId: user.id, status: 'PENDING' } }), 1)
+  await prisma.backupUploadTask.updateMany({ where: { userId: user.id, status: 'PENDING' }, data: { status: 'FAILED' } })
+
   mock.timers.enable({ apis: ['Date'], now: Date.now() })
   const originalInstance = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
+  const previousAuditCount = await prisma.log.count({ where: { userId: user.id, action: 'backup.upload' } })
   // Real PostgreSQL rejects the post-completion audit insert. The remote
   // storage is an explicit in-memory boundary; Incus export uses actual mTLS.
   await prisma.$executeRawUnsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.user_id = ${user.id} AND NEW.action = 'backup.upload' THEN RAISE EXCEPTION 'fixture-upload-audit-failure'; END IF; RETURN NEW; END $$`)
@@ -85,14 +277,18 @@ try {
   assert.ok(completed.remoteFileName?.includes(`-saved-${saved.id}-`))
   assert.deepEqual(remote.get(completed.remoteFileName!), payload, 'audit failure must preserve the successfully uploaded file')
   assert.equal(deletes, 0, 'post-completion effects must never enter upload compensation')
-  assert.equal(await prisma.log.count({ where: { userId: user.id, action: 'backup.upload' } }), 0, 'fault was actually exercised')
+  assert.equal(await prisma.log.count({ where: { userId: user.id, action: 'backup.upload' } }), previousAuditCount, 'fault was actually exercised')
   assert.equal(await prisma.inboxMessage.count({ where: { userId: user.id } }), 1)
   await prisma.$executeRawUnsafe(`DROP TRIGGER ${trigger} ON logs`)
   await prisma.$executeRawUnsafe(`DROP FUNCTION ${trigger}()`)
   faultInstalled = false
   const before = { exports, uploads, deletes }
   await executeUploadTask(saved.id)
-  for (const status of ['PENDING', 'FAILED'] as const) await executeUploadTask((await makeTask(status)).id)
+  for (const status of ['PENDING', 'FAILED'] as const) {
+    const ignored = await makeTask(status)
+    await executeUploadTask(ignored.id)
+    if (status === 'PENDING') assert.ok(await cancelBackupUploadTask(ignored.id, instance.id, actor))
+  }
   await executeUploadTask(-1)
   assert.deepEqual({ exports, uploads, deletes }, before, 'missing and non-processing tasks cause no remote work')
   assert.deepEqual(await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: saved.id } }), completed)
@@ -114,8 +310,24 @@ try {
   assert.equal(uploads, countBeforeConcurrent + 1, 'one live attempt per task in the supported single backend')
   assert.equal((await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: concurrent.id } })).status, 'COMPLETED')
   assert.deepEqual(await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } }), originalInstance)
-  console.log('PASS upload completion: real PG audit failure, mTLS export, same-second task filenames, completed backup preservation, replay/no-task rejection, concurrent execution and failed-upload compensation; storage is a fixture')
+
+  // A delayed result from an old attempt cannot finalize or fail a replacement.
+  for (const shouldFail of [false, true]) {
+    const stale = await makeTask()
+    let replacement: typeof stale | undefined
+    failUpload = shouldFail
+    afterUpload = async () => {
+      replacement = await prisma.backupUploadTask.update({ where: { id: stale.id }, data: {
+        retryCount: stale.retryCount + 1, startedAt: new Date(stale.startedAt!.getTime() + 1000), progress: 'replacement' } })
+    }
+    await executeUploadTask(stale.id)
+    assert.deepEqual(await prisma.backupUploadTask.findUniqueOrThrow({ where: { id: stale.id } }), replacement)
+    await prisma.backupUploadTask.update({ where: { id: stale.id }, data: { status: 'FAILED' } })
+    afterUpload = undefined
+  }
+  console.log('PASS real PG/Fastify upload admission + claim + dispatch: 11 changed targets/session cases at each boundary, legacy rejection, owner-only history, cancellation/claim race, snapshot/proxy/transfer fencing, ten-job host limit and storage deletion race; mTLS export completion, audit failure, same-second files, replay, concurrent execution, instance preservation and compensation. Storage and authentication middleware are fixtures; database authorization and routes are real.')
 } finally {
+  await app.close()
   mock.timers.reset()
   StorageFactory.create = originalFactory
   if (faultInstalled) {
@@ -123,15 +335,21 @@ try {
     await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${trigger}()`)
   }
   await prisma.backupUploadTask.deleteMany({ where: { hostId: host.id } })
+  await prisma.autoSnapshotOperation.deleteMany({ where: { hostId: host.id } })
+  await prisma.proxySiteOperation.deleteMany({ where: { hostId: host.id } })
+  await prisma.tokenInvalidation.deleteMany({ where: { userId: user.id } })
   await prisma.storageConfig.delete({ where: { id: storage.id } })
   await prisma.log.deleteMany({ where: { userId: user.id } })
   await prisma.inboxMessage.deleteMany({ where: { userId: user.id } })
-  await prisma.instance.delete({ where: { id: instance.id } })
+  await prisma.instance.deleteMany({ where: { hostId: host.id } })
   await prisma.host.delete({ where: { id: host.id } })
   await prisma.user.delete({ where: { id: user.id } })
+  await prisma.user.deleteMany({ where: { id: { in: queueUsers } } })
   await closeAllClients()
   await closePrismaDatabase()
   await new Promise<void>(resolve => server.close(() => resolve()))
   await rm(root, { recursive: true, force: true })
+  if (previousBackupStateDir === undefined) delete process.env.PLATFORM_BACKUP_STATE_DIR
+  else process.env.PLATFORM_BACKUP_STATE_DIR = previousBackupStateDir
 }
 process.exit(0)

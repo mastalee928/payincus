@@ -4,7 +4,10 @@
  */
 
 import { prisma } from '../db/prisma.js'
-import { getIncusClient } from '../lib/incus/index.js'
+import { IncusClient } from '../lib/incus/incus-client.js'
+import type { BackupUploadTask } from '@prisma/client'
+import { assertUploadBinding, BackupUploadAuthorizationError, loadAuthorizedUpload, uploadWorkflowBusy } from '../db/backup-upload-authorization.js'
+import { recoveryHeld } from '../services/platform-backup-core.js'
 import { getBackupExportStream } from '../lib/incus/incus-backups.js'
 import { StorageFactory } from '../storage/factory.js'
 import { sendNotification } from '../lib/notifier.js'
@@ -13,6 +16,7 @@ import { Readable } from 'stream'
 import {
     HOST_TASK_CLAIM_LOCK_NAMESPACE,
     INSTANCE_OPERATION_LOCK_NAMESPACE,
+    USER_BACKUP_UPLOAD_LOCK_NAMESPACE,
     tryAdvisoryTransactionLock
 } from '../db/advisory-locks.js'
 import { createWorkerDbBackoff } from './db-failure-backoff.js'
@@ -101,7 +105,7 @@ async function cleanupTimeoutUploadTasks(): Promise<void> {
  * 检查队列并执行任务
  */
 async function processQueue(): Promise<void> {
-    if (dbBackoff.shouldSkip()) return
+    if (dbBackoff.shouldSkip() || recoveryHeld()) return
     try {
         // 1. 获取所有有 PENDING 任务的宿主机 ID (去重)
         const hostsWithPendingTasks = await prisma.backupUploadTask.groupBy({
@@ -132,8 +136,10 @@ async function processQueue(): Promise<void> {
  * 原子操作：获取并锁定下一个上传任务
  * 使用事务确保检查锁和获取任务是原子的，防止竞态条件
  */
-async function claimNextUploadTask(hostId: number) {
+export async function claimNextUploadTask(hostId: number) {
+        if (recoveryHeld()) return null
         return await prisma.$transaction(async (tx) => {
+            await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
             const locked = await tryAdvisoryTransactionLock(tx, HOST_TASK_CLAIM_LOCK_NAMESPACE, hostId)
             if (!locked) return null
 
@@ -158,26 +164,32 @@ async function claimNextUploadTask(hostId: number) {
             // 4. 获取最早的 PENDING 任务
             const taskToRun = await tx.backupUploadTask.findFirst({
                 where: { hostId, status: 'PENDING' },
-                orderBy: { createdAt: 'asc' }
+                orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
             })
             if (!taskToRun) return null
 
             const instanceOperationLocked = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, taskToRun.instanceId)
             if (!instanceOperationLocked) return null
+            if (!await tryAdvisoryTransactionLock(tx, USER_BACKUP_UPLOAD_LOCK_NAMESPACE, taskToRun.userId)) return null
 
-            const instance = await tx.instance.findUnique({
-                where: { id: taskToRun.instanceId },
-                select: { status: true }
-            })
-            if (!instance || instance.status === 'deleted') return null
+            try {
+                const current = await loadAuthorizedUpload(tx, taskToRun, { sid: taskToRun.actorSid ?? undefined, iat: taskToRun.actorIat ?? undefined })
+                assertUploadBinding(taskToRun, current)
+                if (await uploadWorkflowBusy(tx, current.instance) || recoveryHeld()) return null
+            } catch (error) {
+                if (!(error instanceof BackupUploadAuthorizationError)) throw error
+                await tx.backupUploadTask.updateMany({ where: { id: taskToRun.id, status: 'PENDING' },
+                    data: { status: 'FAILED', error: error.message, finishedAt: new Date() } })
+                return null
+            }
 
             // 5. 原子标记为 PROCESSING
-            const claimedTask = await tx.backupUploadTask.update({
-                where: { id: taskToRun.id },
-                data: { status: 'PROCESSING', startedAt: new Date() }
+            const claimedTask = await tx.backupUploadTask.updateMany({
+                where: { id: taskToRun.id, status: 'PENDING' },
+                data: { status: 'PROCESSING', startedAt: new Date(), error: null, finishedAt: null }
             })
 
-            return claimedTask
+            return claimedTask.count === 1 ? tx.backupUploadTask.findUnique({ where: { id: taskToRun.id } }) : null
         })
 }
 
@@ -201,9 +213,13 @@ function isRetryableError(error: Error): boolean {
 /**
  * 更新上传任务进度
  */
-async function updateUploadProgress(taskId: number, progress: string): Promise<void> {
+function uploadAttempt(task: BackupUploadTask) {
+    return { id: task.id, status: 'PROCESSING' as const, startedAt: task.startedAt, retryCount: task.retryCount }
+}
+
+async function updateUploadProgress(task: BackupUploadTask, progress: string): Promise<void> {
     await prisma.backupUploadTask.updateMany({
-        where: { id: taskId, status: 'PROCESSING' },
+        where: uploadAttempt(task),
         data: { progress }
     })
 }
@@ -235,33 +251,39 @@ export async function executeUploadTask(taskId: number): Promise<void> {
 
     let remoteFileName: string | null = null
     let provider: ReturnType<typeof StorageFactory.create> | null = null
+    let client: IncusClient | null = null
 
     try {
-        // 2. 获取相关数据
-        const [instance, backup, host, storageConfig, user] = await Promise.all([
-            prisma.instance.findUnique({ where: { id: task.instanceId } }),
-            prisma.backup.findUnique({ where: { id: task.backupId } }),
-            prisma.host.findUnique({ where: { id: task.hostId } }),
-            prisma.storageConfig.findUnique({ where: { id: task.storageConfigId } }),
-            prisma.user.findUnique({ where: { id: task.userId }, select: { username: true } })
-        ])
-
-        if (!instance) throw new Error('实例不存在')
-        if (instance.status === 'deleted') throw new Error('实例已删除，任务取消')
-        if (!backup) throw new Error('备份不存在')
-        if (!host) throw new Error('宿主机不存在')
-        if (!storageConfig) throw new Error('存储配置不存在')
+        // Recheck after claim, immediately before dispatch. Carry this exact
+        // snapshot to both transports; the shared pool must not reselect a host.
+        const authorized = await prisma.$transaction(async tx => {
+            await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+            if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, task.instanceId)) return null
+            if (!await tryAdvisoryTransactionLock(tx, USER_BACKUP_UPLOAD_LOCK_NAMESPACE, task.userId)) return null
+            if (!await tx.backupUploadTask.findFirst({ where: uploadAttempt(task) })) return null
+            const current = await loadAuthorizedUpload(tx, task, { sid: task.actorSid ?? undefined, iat: task.actorIat ?? undefined })
+            assertUploadBinding(task, current)
+            if (await uploadWorkflowBusy(tx, current.instance) || recoveryHeld()) return null
+            return current
+        })
+        if (!authorized) {
+            await prisma.backupUploadTask.updateMany({ where: uploadAttempt(task), data: { status: 'PENDING', startedAt: null, progress: null } })
+            return
+        }
+        const { instance, backup, host, storageConfig, user } = authorized
 
         // 更新进度: 准备中
-        await updateUploadProgress(taskId, 'preparing')
+        await updateUploadProgress(task, 'preparing')
 
         // 3. 创建 Incus 客户端
-        const client = await getIncusClient({
-            id: host.id,
+        client = new IncusClient({
             url: host.url,
             certPath: host.certPath,
-            keyPath: host.keyPath
+            keyPath: host.keyPath,
+            serverCertificate: host.serverCertificate,
+            serverFingerprint: host.serverFingerprint
         })
+        await client.connect()
 
         // 4. 创建存储适配器
         provider = StorageFactory.create(storageConfig)
@@ -281,7 +303,7 @@ export async function executeUploadTask(taskId: number): Promise<void> {
         console.log(`[UploadWorker] Task ${taskId}: 开始上传 ${remoteFileName} 到 ${storageConfig.name}`)
 
         // 更新进度: 上传中
-        await updateUploadProgress(taskId, 'uploading')
+        await updateUploadProgress(task, 'uploading')
 
         // 6. 获取备份导出流
         const { stream, contentLength } = await getBackupExportStream(
@@ -305,11 +327,11 @@ export async function executeUploadTask(taskId: number): Promise<void> {
         }
 
         // 更新进度: 完成中
-        await updateUploadProgress(taskId, 'finalizing')
+        await updateUploadProgress(task, 'finalizing')
 
         // 9. 标记成功
         const completeResult = await prisma.backupUploadTask.updateMany({
-            where: { id: taskId, status: 'PROCESSING' },
+            where: uploadAttempt(task),
             data: {
                 status: 'COMPLETED',
                 remoteFileName,
@@ -364,7 +386,7 @@ export async function executeUploadTask(taskId: number): Promise<void> {
             console.log(`[UploadWorker] Task ${taskId}: 可重试错误，将在 ${RETRY_DELAY / 1000} 秒后重试 (第 ${task.retryCount + 1}/${MAX_RETRY_COUNT} 次)`)
             
             const retryResult = await prisma.backupUploadTask.updateMany({
-                where: { id: taskId, status: 'PROCESSING' },
+                where: uploadAttempt(task),
                 data: {
                     status: 'PENDING',
                     retryCount: task.retryCount + 1,
@@ -389,7 +411,7 @@ export async function executeUploadTask(taskId: number): Promise<void> {
         } else {
             // 最终失败
             const failResult = await prisma.backupUploadTask.updateMany({
-                where: { id: taskId, status: 'PROCESSING' },
+                where: uploadAttempt(task),
                 data: {
                     status: 'FAILED',
                     error: errorMessage,
@@ -411,6 +433,7 @@ export async function executeUploadTask(taskId: number): Promise<void> {
             )
         }
     } finally {
+        await client?.agent?.destroy().catch(() => {})
         runningUploadTaskIds.delete(taskId)
     }
 }

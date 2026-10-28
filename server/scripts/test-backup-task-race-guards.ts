@@ -295,12 +295,20 @@ assert.ok(
   'upload worker must remove running task tracking in a finally block'
 )
 assert.ok(
-  uploadExecuteSection.includes("where: { id: taskId, status: 'PROCESSING' }") &&
+  uploadExecuteSection.includes('where: uploadAttempt(task)') &&
+    uploadWorkerSource.includes("status: 'PROCESSING' as const, startedAt: task.startedAt, retryCount: task.retryCount") &&
     uploadExecuteSection.includes("status: 'COMPLETED'") &&
     uploadExecuteSection.includes("status: 'PENDING'") &&
     uploadExecuteSection.includes("status: 'FAILED'"),
-  'upload worker final/retry status writes must not overwrite non-processing task states'
+  'upload worker final/retry status writes must bind the exact processing attempt'
 )
+
+assert.ok(createUploadSection.includes('loadAuthorizedUpload(tx, data, data.session)') &&
+  createUploadSection.includes('HOST_TASK_CLAIM_LOCK_NAMESPACE') && createUploadSection.includes('INSTANCE_OPERATION_LOCK_NAMESPACE') &&
+  createUploadSection.includes('identityHash: current.identityHash'), 'upload admission must lock and bind current actor and target')
+assert.ok(uploadExecuteSection.includes('assertUploadBinding(task, current)') && uploadExecuteSection.includes('new IncusClient(') &&
+  uploadExecuteSection.includes('serverFingerprint: host.serverFingerprint'), 'dispatch must validate original target and use exactly that TLS identity')
+assert.ok(cancelUploadSection.includes('authorizeUserWrite(tx, actor.id, actor)'), 'cancellation must recheck current session')
 
 assert.ok(
   appSource.includes('cleanupStaleTasks: cleanupStaleRestoreTasks') &&

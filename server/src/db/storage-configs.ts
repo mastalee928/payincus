@@ -3,7 +3,31 @@
  */
 
 import { prisma } from './prisma.js'
-import type { StorageConfig, StorageType } from '@prisma/client'
+import type { Prisma, StorageConfig, StorageType } from '@prisma/client'
+import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
+import { USER_BACKUP_UPLOAD_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from './advisory-locks.js'
+
+export class StorageConfigMutationError extends Error {
+    constructor(message: string, readonly statusCode = 409, readonly code = 'STORAGE_CONFIG_CHANGED') { super(message) }
+}
+
+async function lockStorageMutation(tx: Prisma.TransactionClient, id: number, actor: WriteActor) {
+    await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+    if (!await tryAdvisoryTransactionLock(tx, USER_BACKUP_UPLOAD_LOCK_NAMESPACE, actor.id)) {
+        throw new StorageConfigMutationError('存储配置正在使用，请稍后重试')
+    }
+    // Same storage -> user order as upload creation. FOR UPDATE also blocks
+    // a concurrent upload's FOR SHARE until the active-task check commits.
+    await tx.$queryRaw`SELECT id FROM storage_configs WHERE id = ${id} FOR UPDATE`
+    const config = await tx.storageConfig.findUnique({ where: { id } })
+    if (!config || config.userId !== actor.id || !await authorizeUserWrite(tx, actor.id, actor)) {
+        throw new StorageConfigMutationError('无权修改此存储配置', 403, 'FORBIDDEN')
+    }
+    if (await tx.backupUploadTask.count({ where: { storageConfigId: id, status: { in: ['PENDING', 'PROCESSING'] } } })) {
+        throw new StorageConfigMutationError('该存储配置仍有上传任务，请等待完成或取消后重试', 409, 'STORAGE_HAS_ACTIVE_TASKS')
+    }
+    return config
+}
 
 /**
  * 获取用户的存储配置列表
@@ -90,37 +114,44 @@ export async function updateStorageConfig(
         basePath?: string | null
         extra?: Record<string, unknown> | null
         isDefault?: boolean
-    }
+    },
+    actor: WriteActor,
+    expectedUpdatedAt: Date
 ): Promise<StorageConfig> {
-    const config = await prisma.storageConfig.findUnique({ where: { id } })
-    if (!config) throw new Error('存储配置不存在')
+    return prisma.$transaction(async tx => {
+        const config = await lockStorageMutation(tx, id, actor)
+        if (config.updatedAt.getTime() !== expectedUpdatedAt.getTime()) throw new StorageConfigMutationError('存储配置已变化，请刷新后重试')
 
-    // 如果设为默认，先取消其他默认
-    if (data.isDefault) {
-        await prisma.storageConfig.updateMany({
-            where: { userId: config.userId, isDefault: true, id: { not: id } },
-            data: { isDefault: false }
+        // 如果设为默认，先取消其他默认
+        if (data.isDefault) {
+            await tx.storageConfig.updateMany({
+                where: { userId: config.userId, isDefault: true, id: { not: id } },
+                data: { isDefault: false }
+            })
+        }
+
+        // 处理 extra 字段的 null 值
+        const updateData = { ...data }
+        if (updateData.extra === null) {
+            updateData.extra = undefined
+        }
+
+        return tx.storageConfig.update({
+            where: { id },
+            data: updateData as Parameters<typeof prisma.storageConfig.update>[0]['data']
         })
-    }
-
-    // 处理 extra 字段的 null 值
-    const updateData = { ...data }
-    if (updateData.extra === null) {
-        updateData.extra = undefined
-    }
-
-    return prisma.storageConfig.update({
-        where: { id },
-        data: updateData as Parameters<typeof prisma.storageConfig.update>[0]['data']
     })
 }
 
 /**
  * 删除存储配置
  */
-export async function deleteStorageConfig(id: number): Promise<void> {
-    await prisma.storageConfig.delete({
-        where: { id }
+export async function deleteStorageConfig(id: number, actor: WriteActor): Promise<void> {
+    await prisma.$transaction(async tx => {
+        await lockStorageMutation(tx, id, actor)
+        await tx.storageConfig.delete({
+            where: { id }
+        })
     })
 }
 

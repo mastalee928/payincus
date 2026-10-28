@@ -1771,6 +1771,9 @@ model BackupUploadTask {
   status          BackupUploadTaskStatus @default(PENDING)
   progress        String? // 当前执行步骤: preparing, uploading, finalizing
   retryCount      Int                    @default(0) @map("retry_count") // 重试次数
+  actorSid        String?                @map("actor_sid")
+  actorIat        Int?                   @map("actor_iat")
+  identityHash    String?                @map("identity_hash")
 
   // 上传结果
   remoteFileName String? @map("remote_file_name")

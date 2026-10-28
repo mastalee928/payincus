@@ -156,7 +156,7 @@ jobs:
           pnpm --filter server test:host-pool-integration
           pnpm --filter server test:host-public-ipv6-integration
           pnpm --filter server test:admin-instance-delete-integration
-      - name: Verify backup upload file isolation and completion
+      - name: Verify backup upload authorization, queue races and export completion
         run: |
           pnpm --filter server test:review-upload-completion-integration
           pnpm --filter server test:review-backup-export

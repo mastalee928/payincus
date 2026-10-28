@@ -10,6 +10,8 @@ import { randomUUID } from 'crypto'
 import { Readable } from 'stream'
 import * as db from '../db/index.js'
 import { prisma } from '../db/prisma.js'
+import { BackupUploadAuthorizationError, uploadStorageIdentity } from '../db/backup-upload-authorization.js'
+import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { getIncusClient } from '../lib/incus/index.js'
@@ -1163,7 +1165,7 @@ export default async function backupRoutes(fastify: FastifyInstance) {
         body: {
           type: 'object',
           properties: {
-            storageConfigId: { type: 'integer' }
+            storageConfigId: { type: 'integer', minimum: 1, maximum: 2147483647 }
           }
         }
       }
@@ -1189,6 +1191,8 @@ export default async function backupRoutes(fastify: FastifyInstance) {
       }
 
       // 获取备份信息
+      const uploadHost = await prisma.host.findUnique({ where: { id: instance.host_id } })
+      if (!uploadHost) return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
       const backup = await db.getBackupById(backupIdNum)
       if (!backup || backup.instance_id !== instanceIdNum) {
         return reply.code(404).send(apiError(ErrorCode.BACKUP_NOT_FOUND))
@@ -1244,13 +1248,24 @@ export default async function backupRoutes(fastify: FastifyInstance) {
       }
 
       // 创建上传任务
-      const task = await db.createBackupUploadTask({
-        userId: request.user.id,
-        instanceId: instanceIdNum,
-        backupId: backupIdNum,
-        hostId: instance.host_id,
-        storageConfigId: storageConfig.id
-      })
+      let task
+      try {
+        task = await db.createBackupUploadTask({
+          userId: request.user.id,
+          instanceId: instanceIdNum,
+          backupId: backupIdNum,
+          hostId: instance.host_id,
+          storageConfigId: storageConfig.id,
+          session: request.user,
+          expectedIncusId: instance.incus_id,
+          expectedBackupName: backup.incus_name,
+          expectedStorageIdentity: uploadStorageIdentity(storageConfig),
+          expectedHostIdentity: transferHostIdentity(uploadHost)
+        })
+      } catch (error) {
+        if (error instanceof BackupUploadAuthorizationError) return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+        throw error
+      }
       if (!task) {
         return reply.code(409).send({
           error: ErrorCode.BACKUP_UPLOAD_IN_PROGRESS,
@@ -1307,7 +1322,7 @@ export default async function backupRoutes(fastify: FastifyInstance) {
       }
 
       const task = await db.getBackupUploadTaskWithDetails(taskIdNum)
-      if (!task || task.instanceId !== instanceIdNum) {
+      if (!task || task.instanceId !== instanceIdNum || task.userId !== request.user.id) {
         return reply.code(404).send(apiError(ErrorCode.BACKUP_UPLOAD_TASK_NOT_FOUND))
       }
 
@@ -1367,7 +1382,7 @@ export default async function backupRoutes(fastify: FastifyInstance) {
       }
 
       const task = await db.getBackupUploadTaskById(taskIdNum)
-      if (!task || task.instanceId !== instanceIdNum) {
+      if (!task || task.instanceId !== instanceIdNum || task.userId !== request.user.id) {
         return reply.code(404).send(apiError(ErrorCode.BACKUP_UPLOAD_TASK_NOT_FOUND))
       }
 
@@ -1379,7 +1394,13 @@ export default async function backupRoutes(fastify: FastifyInstance) {
         })
       }
 
-      const cancelledTask = await db.cancelBackupUploadTask(taskIdNum)
+      let cancelledTask
+      try {
+        cancelledTask = await db.cancelBackupUploadTask(taskIdNum, instanceIdNum, request.user)
+      } catch (error) {
+        if (error instanceof BackupUploadAuthorizationError) return reply.code(error.statusCode).send({ error: error.code, message: error.message })
+        throw error
+      }
       if (!cancelledTask) {
         return reply.code(400).send({
           error: 'CANCEL_FAILED',
@@ -1427,7 +1448,7 @@ export default async function backupRoutes(fastify: FastifyInstance) {
       }
 
       const task = await db.getActiveUploadTaskForInstance(instanceIdNum)
-      if (!task) {
+      if (!task || task.userId !== request.user.id) {
         return { task: null }
       }
 
