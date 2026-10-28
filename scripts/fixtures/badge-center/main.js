@@ -1,4 +1,4 @@
-import { createApp, ref } from 'vue'
+import { createApp, ref, watch } from 'vue'
 import { createPinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import i18n, { setLocale } from '@/locales/index'
@@ -24,9 +24,13 @@ const router = createRouter({ history: createMemoryHistory(), routes: [
 const jwt = (sid, generation = 1) => `fixture.${btoa(JSON.stringify({ sid, generation }))}.fixture`
 const app = createApp({ setup() {
   const auth = useAuthStore(), theme = useThemeStore(), toast = useToast()
+  const toastEvents = [], seenToasts = new Set()
+  watch(() => toast.toasts.value.map(item => ({ id: item.id, type: item.type, message: item.message })), items => {
+    for (const item of items) if (!seenToasts.has(item.id)) { seenToasts.add(item.id); toastEvents.push(item) }
+  }, { flush: 'sync' })
   auth.user = { id: 1, username: 'fixture', role: 'user', avatarBadgeId: null }; auth.token = jwt('a')
   setLocale('zh-CN'); theme.setTheme('light')
-  window.badgeCenterHarness = { pending, shown, initialTab, updates, router, auth, toast, theme, setLocale, modalVisible, instanceId, modalMounted, badgeUpdates, parentBadge,
+  window.badgeCenterHarness = { pending, shown, initialTab, updates, router, auth, toast, toastEvents, theme, setLocale, modalVisible, instanceId, modalMounted, badgeUpdates, parentBadge,
     session(sid, generation) { auth.token = jwt(sid, generation) }, t: (...args) => i18n.global.t(...args) }
 }, template: '<main class="p-4 sm:p-6"><RouterView v-slot="{ Component, route }"><KeepAlive><component :is="Component" :key="route.name"/></KeepAlive></RouterView></main>' })
 app.use(createPinia()); app.use(i18n); app.use(router)

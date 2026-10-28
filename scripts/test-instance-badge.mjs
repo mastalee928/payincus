@@ -39,7 +39,7 @@ try {
   const owned = (appliedInstanceId = null) => ({ id: 1, badgeId: 'ignition', badgeName: 'Modal badge', badgeNameEn: 'Modal badge', badgeLabel: 'Modal badge', seriesId: 'fixture', seriesTitle: 'Fixture series', assetUrl: catalog.assetUrl, source: 'draw', applicationTarget: appliedInstanceId ? 'instance' : null, appliedInstanceId, appliedInstanceName: appliedInstanceId ? `Instance ${appliedInstanceId}` : null, appliedAt: null, createdAt: '2026-10-28T00:00:00Z' })
   const overview = (id, applied = null) => ({ costs: { randomDraw: 10, select: 20 }, currentPoints: 100, avatarBadgeId: null, catalog: [catalog], ownerships: [owned(applied)], instances: [{ id, name: `Instance ${id}`, iconBadgeId: applied === id ? 'ignition' : null, status: 'running', packagePlanId: 1, instanceType: 'container', host: { id: 1, name: 'Fixture host', location: 'Fixture', countryCode: 'US' } }] })
   const acceptOverview = async (id, applied = null) => accept(await latest('overview'), overview(id, applied))
-  const effects = () => page.eval(() => ({ updates: window.badgeCenterHarness.badgeUpdates.value, toasts: window.badgeCenterHarness.toast.toasts.value.length }))
+  const effects = () => page.eval(() => ({ updates: JSON.parse(JSON.stringify(window.badgeCenterHarness.badgeUpdates.value)), toasts: window.badgeCenterHarness.toastEvents.length }))
   const alerts = () => page.eval(() => [...document.querySelectorAll('[role=alert]')].filter(el => el.checkVisibility()).length)
   assert.equal(await count('overview'), 1, 'initially visible modal must load once')
   const first = await latest('overview'); await setId(2); const second = await latest('overview')
@@ -111,5 +111,8 @@ try {
   const beforeUnmount = await effects()
   await run(() => { window.badgeCenterHarness.modalMounted.value = false }); await reject(unmounted)
   assert.deepEqual(await effects(), beforeUnmount)
+  await sleep(3400) // Real toast expiration must not alter the cumulative side-effect assertions.
+  assert.deepEqual(await effects(), beforeUnmount)
+  assert.equal(await page.eval(() => window.badgeCenterHarness.toast.toasts.value.length), 0)
   console.log('InstanceBadgeModal passed actual Vue: initially open, close/reopen, instance/session/cache/unmount changes, cancellation, old read/action effects, retry and pending-action duplicate gates. API is controlled; no live badge writes.')
 } finally { if (browser) await browser.close(); await server.close() }

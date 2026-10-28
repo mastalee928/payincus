@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 徽章浏览器提示计数修正
+
+- R233 f6bf2e0的CI40721596289最终失败：6/7任务success，instance-badge最后卸载断言中可见toast从3自然过期成2，错误日志`logs/takeover-r233-ci-failure.log`。不是Chrome启动超时，不以重跑掩盖断言问题。
+- 测试夹具现在同步观察实际toast新增ID，累计记录发生的提示，比较调用次数不比较正在显示的数量；badgeUpdates显式JSON序列化避免CDP返回Vue代理空对象。原产品toast及过期计时器完全保留，新增真实等待3400ms后可见toast为0而累计效果不变断言。
+- `takeover-toast-evidence-instance.log`及`takeover-toast-evidence-center.log`两个实际Vue/Chrome专项通过。仅改测试，不改产品、不需要重复产品build。用户侧栏d4822de已push并核远端一致；R235继续未提交，前后端types/5守卫/双端build/dist/PG和前端初轮矩阵已通过，新toast事件计数回归需等浏览器夹具真正挂载再运行。
+
 ## 2026-10-29 用户左侧导航隐藏购物车
 
 - 按owner最新要求，仅移除`side-nav-items-user.ts`中的checkout菜单项；同一SideNav的桌面/折叠/手机抽屉同步生效。购物车路由、页面、顶部按钮和创建实例中的其他入口未修改，要求同步OWNER_REQUIREMENTS。

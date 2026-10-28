@@ -39,7 +39,7 @@ try {
   const acceptOverview = async avatar => accept(await latest('overview'), overview(avatar))
   const alerts = () => page.eval(() => [...document.querySelectorAll('[role=alert]')].filter(el => el.checkVisibility()).length)
   const avatar = () => page.eval(() => window.badgeCenterHarness.auth.user.avatarBadgeId)
-  const effects = () => page.eval(() => ({ updates: window.badgeCenterHarness.updates.value, toasts: window.badgeCenterHarness.toast.toasts.value.length }))
+  const effects = () => page.eval(() => ({ updates: window.badgeCenterHarness.updates.value, toasts: window.badgeCenterHarness.toastEvents.length }))
   assert.equal(await count('overview'), 1)
   const first = await latest('overview'); await route('/other')
   assert.equal(await page.eval(index => window.badgeCenterHarness.pending[index].signal.aborted, first), true)
