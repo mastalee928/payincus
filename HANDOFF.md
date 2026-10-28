@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-233 实例徽章写后状态同步
+
+- R232 `773cd93`已push，CI40720597481仍运行。本项apply/remove后重新读取当前实例的iconBadgeId并同步父组件，null是有效清空；不再emit旧ownership或固定null。当前ownership同时匹配实例及实际徽章，避免概览并行读取时旧归属遮盖新图标。
+- 写入结果不确定时也重新读取；刷新失败不emit、不报成功，持久retry成功后补同步。当前实例已不可访问时不冒充核验成功。关闭、换实例/会话等清同步标记，原生命周期门禁保持。后端getBadgeOverview仍为多表Promise.all，不是事务一致快照或服务器幂等。
+- `logs/takeover-instance-badge-result-browser-final.log`实际Vue/Pinia/父组件与受控API通过保存后变更/清空、移除后被替换、刷新失败及重试、写入失败后核状态、目标消失和R232全回归；`takeover-instance-badge-result-guards.log`4/4、`takeover-instance-badge-result-build.log`双端类型/build、dist/lint/diff通过。无真实账户徽章写入，证据不扩大为生产验收。
+- 下一项R235抽奖补货仍用旧remainQuantity覆盖期间消耗，继续核数据库原子更新、整数/无限库存边界与重复保存。R234通知设置已有回填，保留误判结论；327及完整网关灾备未完成。
+
 ## 2026-10-28 R1-232 实例徽章弹窗读取生命周期
 
 - 启动器`f300868` CI40718065602、R231 `71c6038` CI40717505609、R227重跑CI40715873444均最终success。

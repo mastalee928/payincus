@@ -42,6 +42,7 @@ const sessionKey = computed(() => {
 const active = computed(() => props.visible && activated.value && !!sessionKey.value)
 let disposed = false, contextSequence = 0, readSequence = 0
 let readController: AbortController | undefined
+let syncAfterAction = false
 function currentContext(context: number) { return !disposed && active.value && context === contextSequence }
 
 type BadgeModalTab = 'details' | 'owned'
@@ -59,10 +60,10 @@ const currentInstanceOption = computed(() =>
 const canManageCurrentInstance = computed(() => active.value && !loading.value && !loadError.value && !!currentInstanceOption.value)
 
 const currentOwnership = computed(() =>
-  overview.value?.ownerships.find(item => item.appliedInstanceId === props.instanceId) ?? null
+  overview.value?.ownerships.find(item => item.appliedInstanceId === props.instanceId && item.badgeId === currentInstanceOption.value?.iconBadgeId) ?? null
 )
 
-const currentBadgeId = computed(() => currentOwnership.value?.badgeId ?? props.badgeId ?? null)
+const currentBadgeId = computed(() => overview.value ? currentInstanceOption.value?.iconBadgeId ?? null : props.badgeId ?? null)
 
 const currentBadgeCatalog = computed<BadgeCatalogItem | null>(() => {
   if (!currentBadgeId.value) return null
@@ -174,7 +175,14 @@ async function loadOverview() {
 
   try {
     const data = await api.entertainment.getBadgeOverview(controller.signal)
-    if (currentContext(context) && request === readSequence) overview.value = data
+    if (!currentContext(context) || request !== readSequence) return
+    overview.value = data
+    const instance = data.instances.find(item => item.id === props.instanceId)
+    if (syncAfterAction && instance) {
+      emit('updated', instance.iconBadgeId)
+      syncAfterAction = false
+    }
+    return data
   } catch (error) {
     if (currentContext(context) && request === readSequence) { overview.value = null; loadError.value = translateError(error) }
   } finally {
@@ -190,12 +198,13 @@ async function handleApplyOwnership(ownership: BadgeOwnership) {
   try {
     await api.entertainment.applyBadgeToInstance(ownership.id, instanceId)
     if (!currentContext(context)) return
-    await loadOverview()
-    if (!currentContext(context)) return
-    emit('updated', ownership.badgeId)
+    syncAfterAction = true
+    const data = await loadOverview()
+    if (!currentContext(context) || !data?.instances.some(item => item.id === instanceId)) return
     toast.success(t('instance.badgeModal.updateSuccess'))
   } catch (error) {
     if (!currentContext(context)) return
+    syncAfterAction = true
     await loadOverview().catch(() => {})
     if (currentContext(context)) toast.error(translateError(error))
   } finally {
@@ -206,17 +215,18 @@ async function handleApplyOwnership(ownership: BadgeOwnership) {
 async function handleRemoveCurrentBadge() {
   if (!canManageCurrentInstance.value || !currentOwnership.value || actionLoading.value) return
 
-  const context = contextSequence, ownershipId = currentOwnership.value.id
+  const context = contextSequence, instanceId = props.instanceId, ownershipId = currentOwnership.value.id
   actionLoading.value = true
   try {
     await api.entertainment.unapplyBadge(ownershipId)
     if (!currentContext(context)) return
-    await loadOverview()
-    if (!currentContext(context)) return
-    emit('updated', null)
+    syncAfterAction = true
+    const data = await loadOverview()
+    if (!currentContext(context) || !data?.instances.some(item => item.id === instanceId)) return
     toast.success(t('instance.badgeModal.removeSuccess'))
   } catch (error) {
     if (!currentContext(context)) return
+    syncAfterAction = true
     await loadOverview().catch(() => {})
     if (currentContext(context)) toast.error(translateError(error))
   } finally {
@@ -234,6 +244,7 @@ watch(
   () => [active.value, props.instanceId, sessionKey.value],
   () => {
     contextSequence++; readSequence++; readController?.abort(); readController = undefined
+    syncAfterAction = false
     overview.value = null; loadError.value = ''; loading.value = false
     activeTab.value = 'details'
     if (active.value) void loadOverview()
