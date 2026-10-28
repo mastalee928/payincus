@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-204 无调用图片与虚拟列表组件
+
+- R201 `996d3db0e7c605758f202fb0edffaa020fb22229` 已推送并核远端一致，CI40690320503最终success。
+- 完整读取`LazyImage.vue`/`VirtualList.vue`及双端入口/Vite组件加载方式后，删除两个无调用残留。全源码、标签大小写/短横写法、运行脚本与组件注册均无引用；当前应用无自动扫描注册机制。保留实际图片与列表页面，不把死代码维护清理记作运行缺陷修复。
+- `logs/takeover-retired-components-references.log`无引用、`takeover-retired-components-guards.log`路由守卫、`takeover-retired-components-build.log`双端类型+构建、`takeover-retired-components-dist.log`边界检查通过。没有对应活体页面可验。随后R207旧认证外壳/专属样式，327仍未完整。
+- Owner询问首页亮点地区缺文字：已查明`HomeRegionAtlas.vue`409行仅对San Jose/Ashburn/Frankfurt及当前选中地区渲染常驻标签，亮点独立依据真实库存；首尔/悉尼地名数据存在。已解释原因，本项尚未修改地图。
+
 ## 2026-10-28 R1-201 退役数据库优化包装
 
 - R200 `85d2068b70a735d65294d71e0d5a1553dc0180d4` 已推送并核远端一致，CI40684971583最终success。

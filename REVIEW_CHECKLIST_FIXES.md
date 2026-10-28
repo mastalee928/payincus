@@ -239,7 +239,7 @@
 | R1-201 | 存在 | 退役残留已清理/类型构建通过 | 完整读模块与DB入口后删除optimizations.ts及10个无调用导出；运行源码/脚本/部署无引用，takeover-retired-db-references/types/build/guards日志通过（2配额守卫），不改现行配额/实例逻辑或数据库。无活体入口可验，不计生产流程验收 |
 | R1-202 | 已有防护 | 保留初审结论 | Discord使用safeFetch连接时校验；Telegram/Discord均有15秒AbortSignal，覆盖响应body读取期限。 |
 | R1-203 | 已有防护 | 保留初审结论 | Discord使用safeFetch连接时校验；Telegram/Discord均有15秒AbortSignal，覆盖响应body读取期限。 |
-| R1-204 | 存在 | 待精修/运行复核 | LazyImage/VirtualList未发现应用导入或注册调用者，属维护残留，未执行组件删除。 |
+| R1-204 | 存在 | 退役残留已清理/双端类型构建通过 | 删除LazyImage/VirtualList；双端入口/Vite无自动注册，源码/标签/脚本零调用。takeover-retired-components-references/guards/build/dist通过；无对应活体页面，现有业务图片/列表入口保留 |
 | R1-205 | 实现不同 | 保留初审结论 | 未找到对方InstanceBillingTab账单面板；当前续费modal及独立Orders/Billing实现不同，不虚构相同关闭重开入口。 |
 | R1-206 | 实现不同 | 保留初审结论 | 未找到对方实例账单面板分页实现；当前订单页另有分页，不能直接套用旧面板越界修法。 |
 | R1-207 | 存在 | 待精修/运行复核 | PublicAuthShell/useM3Auth仅旧代码互引、无现行页面消费者；PlanetScene未找到，不能说三者均有同文件残留。 |
