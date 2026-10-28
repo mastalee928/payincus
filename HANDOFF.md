@@ -4,6 +4,9 @@
 
 ## 2026-10-28 全部积压阶段保存与 Agent 代码复审
 
+- **阶段提交已推送并核对远端**：`c277ba30a2180606e14fe96a071e096359b2c832`，248文件，包含旧聊天与本聊天积压。推送后工作区干净，无本地领先提交。之后继续施工按阶段保存，不等全部目标完成。
+- 同提交[Agent运行40638325677](https://github.com/mastalee928/payincus/actions/runs/40638325677)成功，实际Linux `go test ./...`（含report、upgrade与常规controllerconfig）及IPv6 namespace包测试通过；发行步骤skipped，Agent未发行。需显式root/远端条件的网关迁移审计不据此声称已运行。日志`logs/takeover-checkpoint-agent-actions.log`，此证据补足下方“待Linux实跑”中的常规Agent测试，不能替代真实systemd服务或Incus宿主流程。
+- 同提交[CI运行40638325831](https://github.com/mastalee928/payincus/actions/runs/40638325831)在依赖安装失败：锁文件已有jsdom，server/package.json漏devDependency，而Markdown安全测试实际require它。已补`jsdom:^26.1.0`，离线锁文件再生成与原锁完全一致、frozen-lockfile校验及实际Markdown运行测试通过（`logs/takeover-checkpoint-frozen-lockfile.log`、`logs/takeover-checkpoint-markdown-final.log`）；保持CI frozen校验，后续提交重新验证。
 - Owner明确将此前聊天与本聊天全部积压源码、测试、迁移、规格及交接资料一起分阶段提交推送，之后继续修；授权已写入OWNER_REQUIREMENTS。基线main与远端均为0e80103，提交前无本地领先commit，积压均为工作区。正式平台/Agent版本不变；本次不打tag、不发Release、不做生产OTA。
 - 暂存范围包含旧网关两份Linux测试与旧安装的design-taste-frontend技能及锁文件；两个恢复规格新增精确gitignore例外。日志、数据库、运行产物与仓库外私有连接资料不纳入。
 - 用户要求无法完整运行部分先做代码级审查。本次逐段核对升级下载/解压上限、flock的稳定inode与旧PID处理、systemd重启确认/超时、Incus采集取消/并发/部分结果、CPU统计、远端见证mTLS/租约与隔离测试。CPU累积计数倒退时无符号减法可能形成错误占用率，已补倒退拒绝及正常/异常样本测试；旧网关错误holder断言曾重用已消费nonce，已改新nonce+错误身份真实签名并补正确身份对照，租约过期等待补总截止取消。
