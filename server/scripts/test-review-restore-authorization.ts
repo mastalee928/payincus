@@ -107,6 +107,22 @@ try {
     assert.equal(requests, before, 'cancelled task cannot become a rollback mutation')
   }
   requestActor = { ...actor, role: 'user' }
+  // Legacy failures used only instance names. Reused names must not authorize
+  // starting an unrelated guest or deleting the only recoverable temporary copy.
+  const legacyRollback = await makeTask('dispatch')
+  await prisma.restoreTask.update({ where: { id: legacyRollback.id }, data: { status: 'FAILED', progress: 'restoring',
+    tempInstanceName: tag + '-untrusted-copy' } })
+  const legacyBefore = requests
+  for (const person of [owner, operator, admin]) {
+    requestActor = { ...actor, id: person.id, role: person.role as 'user' | 'admin' }
+    const rejected = await app.inject({ method: 'POST', url: `${url}/${legacyRollback.id}/rollback` })
+    assert.equal(rejected.statusCode, 409, rejected.body)
+    assert.equal(rejected.json().error, 'ROLLBACK_UNSAFE')
+    assert.equal(requests, legacyBefore, 'unbound legacy rollback performs zero remote reads or mutations')
+  }
+  assert.equal((await prisma.restoreTask.findUniqueOrThrow({ where: { id: legacyRollback.id } })).progress, 'restoring')
+  requestActor = { ...actor, role: 'user' }
+  console.log('PASS owner/host-owner/admin legacy rollback without persisted copy identities rejected before any remote I/O')
   const changes: Array<[string, () => Promise<unknown>, () => Promise<unknown>]> = [
     ['owner', () => prisma.instance.update({ where: { id: instance.id }, data: { userId: other.id } }), () => prisma.instance.update({ where: { id: instance.id }, data: { userId: owner.id } })],
     ['host', () => prisma.instance.update({ where: { id: instance.id }, data: { hostId: secondHost.id } }), () => prisma.instance.update({ where: { id: instance.id }, data: { hostId: host.id } })],

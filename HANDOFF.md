@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 旧恢复任务拒绝无身份回滚
+
+- 上批`f6571c6dfaf8ef6c0f5d78677d3da845a36766c3`已推送main并核远端一致，[CI40656767813](https://github.com/mastalee928/payincus/actions/runs/40656767813)success。
+- 旧FAILED任务没有持久副本UUID，不能仅凭原名存在就启动同名实例、删除临时副本。回滚入口新增缺失recoveryState立即409，所有副本和记录保持；拒绝发生在创建Incus连接前。实例owner/host owner/admin三权限真实PG/Fastify回归均零远端I/O，`logs/takeover-restore-legacy-authorization.log`通过；原授权及stop矩阵同次通过。3/3守卫`takeover-restore-legacy-guards.log`和server build/type-check `takeover-restore-legacy-build.log`通过。
+- 本小项只封住旧记录的无身份误删路径，不是人工恢复已完成；已有持久状态的续跑、回滚操作、查询和真实Incus恢复继续待验。接续原清单R1-183工单分页/数字搜索边界，不因恢复模块阶段保存停止327项精修。
+
 ## 2026-10-28 恢复替换身份与未决副本保护
 
 - 前批停止确认`f8dd60c9b7b5d4c86f05ffbdb7778456b614e571`已推送main；[CI40654013875](https://github.com/mastalee928/payincus/actions/runs/40654013875)最终success。Owner再次明确每个可核验小项完成即提交推送并继续，已同步OWNER_REQUIREMENTS；327项仍未全部完成。

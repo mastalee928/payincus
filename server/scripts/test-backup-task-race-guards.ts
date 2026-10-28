@@ -180,6 +180,10 @@ const rollbackUnsafeIndex = restoreRollbackRouteSection.indexOf("error: 'ROLLBAC
 const rollbackStartIndex = restoreRollbackRouteSection.indexOf('await startInstance(client, task.originalIncusId)')
 const rollbackTempCheckIndex = restoreRollbackRouteSection.indexOf('if (task.tempInstanceName)')
 const rollbackDeleteTempIndex = restoreRollbackRouteSection.indexOf('await deleteInstance(client, task.tempInstanceName)')
+const rollbackLegacyCheckIndex = restoreRollbackRouteSection.indexOf('if (!task.recoveryState)')
+assert.ok(rollbackLegacyCheckIndex !== -1 && rollbackLegacyCheckIndex < rollbackOriginalCheckIndex &&
+  rollbackLegacyCheckIndex < restoreRollbackRouteSection.indexOf('await getIncusClient(host)'),
+  'legacy rollback must reject missing persisted copy identity before connecting or modifying any instance')
 assert.ok(
   rollbackOriginalCheckIndex !== -1 &&
     rollbackUnsafeIndex !== -1 &&

@@ -1004,6 +1004,13 @@ export default async function backupRoutes(fastify: FastifyInstance) {
         return reply.code(409).send({ error: 'ROLLBACK_NOT_ALLOWED', message: '此任务尚未导入备份，无需回滚副本，请检查原实例状态后重新提交' })
       }
 
+      // Legacy failed tasks never saved either copy's UUID. A same-name instance
+      // may be unrelated, so even starting it cannot authorize deleting a copy.
+      if (!task.recoveryState) {
+        return reply.code(409).send({ error: 'ROLLBACK_UNSAFE',
+          message: '此旧恢复任务没有保存原实例和临时副本身份，无法安全自动回滚；已保留所有副本，请管理员核对宿主上的恢复结果' })
+      }
+
       try {
         const host = await db.getHostById(instance.host_id)
         if (!host) {
