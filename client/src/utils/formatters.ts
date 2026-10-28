@@ -44,37 +44,6 @@ export function formatDate(dateStr: string | null | undefined): string {
     return new Date(dateStr).toLocaleString('zh-CN')
 }
 
-/**
- * 格式化日期（简短格式）
- */
-export function formatDateShort(dateStr: string | null | undefined): string {
-    if (!dateStr) return '-'
-    const date = new Date(dateStr)
-    return date.toLocaleDateString('zh-CN', {
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    })
-}
-
-/**
- * 计算百分比
- */
-export function getPercent(used: number | null | undefined, limit: number | null | undefined): number {
-    if (!limit || !used) return 0
-    return Math.min(100, Math.round((used / limit) * 100))
-}
-
-/**
- * 根据百分比获取进度条颜色
- */
-export function getProgressColor(percent: number): string {
-    if (percent >= 90) return 'bg-red-500'
-    if (percent >= 70) return 'bg-yellow-500'
-    return 'bg-green-500'
-}
-
 export interface StatusInfo {
     label: string
     class: string
@@ -109,17 +78,6 @@ export function getStatusInfo(status: string, t?: TranslateFunction): StatusInfo
         class: info.class,
         dot: info.dot
     }
-}
-
-/**
- * 获取时间问候语
- */
-export function getTimeGreeting(): string {
-    const hour = new Date().getHours()
-    if (hour < 6) return '夜深了'
-    if (hour < 12) return '早上好'
-    if (hour < 18) return '下午好'
-    return '晚上好'
 }
 
 /**

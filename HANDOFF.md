@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-214 未用格式化与计费导出
+
+- R221 `2eb96b1`已push并核远端一致，R220 CI40707194072最终success。本项删除formatters中4个无调用导出及billing中的calculatePriceDiff；getCycleDays只去export，保留日价内部调用，现行日价/折扣及页面局部函数不变。纠正初审将Dashboard局部getTimeGreeting误认为共享导出的结论。
+- `logs/takeover-retired-utils-guards.log`3/3、`takeover-retired-utils-build.log`双端vue-tsc/build、`takeover-retired-utils-dist.log`和lint通过，references/after日志核实导入与局部同名函数。被删工具无现行运行入口；此项为代码/类型/构建验证，不声明线上计费验收。
+- 下一项R226：账单overview的v-show与KeepAlive离页缺轮询门禁，已读组件/相关守卫，尚未编辑。327与完整灾备仍未完成。
+
 ## 2026-10-28 R1-221 套餐与方案空字段保存
 
 - R220 `fa3174d`已push并核远端一致。PackageForm描述清空保留空字符串，MyPackages方案描述trim后仍提交空串，SLA数字输入清空时Vue产生的空字符串转为null；实际后端早已支持，不改服务器合同或价格单位。SLA属于MyPackages方案弹窗，不是PackageForm字段，纠正原台账混写。
