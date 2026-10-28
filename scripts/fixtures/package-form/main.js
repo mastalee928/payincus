@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
 import PackageForm from '@/views/resources/PackageFormView.vue'
+import MyPackages from '@/views/resources/MyPackagesView.vue'
 import { pending } from './api.js'
 import '@/styles/main.css'
 
@@ -16,6 +17,7 @@ const router = createRouter({ history: createMemoryHistory(), routes: [
   { path: '/resources/packages/create', name: 'my-package-create', component: PackageForm },
   { path: '/resources/packages', name: 'my-packages', component: { template: '<p>Package list fixture</p>' } },
   { path: '/other', name: 'other', component: { template: '<p>Other page fixture</p>' } },
+  { path: '/plans', name: 'plans-fixture', component: MyPackages },
 ] })
 const app = createApp({
   setup() {

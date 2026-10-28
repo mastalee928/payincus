@@ -424,7 +424,7 @@ const planForm = ref({
   billingCycle: 1,  // 计费周期（月），默认月付
   status: 'active' as PackagePlanStatus,
   sortOrder: 0,
-  slaGuarantee: null as number | null
+  slaGuarantee: null as number | null | ''
 })
 
 const planStatusOptions = computed(() => [
@@ -653,7 +653,7 @@ async function savePlan(): Promise<void> {
   try {
     const data = {
       name: planForm.value.name.trim(),
-      description: planForm.value.description.trim() || undefined,
+      description: planForm.value.description.trim(),
       cpu: planForm.value.cpu,
       memory: planForm.value.memory,
       disk: planForm.value.disk,
@@ -670,7 +670,7 @@ async function savePlan(): Promise<void> {
       isActive: planForm.value.status !== 'inactive',
       isSoldOut: planForm.value.status === 'soldOut',
       sortOrder: planForm.value.sortOrder,
-      slaGuarantee: planForm.value.slaGuarantee ?? undefined
+      slaGuarantee: planForm.value.slaGuarantee === '' ? null : planForm.value.slaGuarantee
     }
 
     if (editingPlan.value) {

@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-221 套餐与方案空字段保存
+
+- R220 `fa3174d`已push并核远端一致。PackageForm描述清空保留空字符串，MyPackages方案描述trim后仍提交空串，SLA数字输入清空时Vue产生的空字符串转为null；实际后端早已支持，不改服务器合同或价格单位。SLA属于MyPackages方案弹窗，不是PackageForm字段，纠正原台账混写。
+- `logs/takeover-package-empty-browser-final.log`实际Vue组件/路由及方案弹窗通过空描述/null SLA payload、保存后列表返回空值再打开仍空、1234分价格不变，同时回归读写生命周期。初轮重开命中过渡期已退出DOM，最终等待实际关闭/新输入挂载后通过；截图`logs/package-form-browser/plan-cleared.png`已看。接口为可控夹具。
+- `takeover-package-empty-server.log`真实Fastify+隔离PostgreSQL通过所有者/管理员更新空字段、恢复、省略保原值、SLA异常拒绝、无权用户403及价格保持；身份中间件是测试替身，fixture无宿主/客户实例。专项已接CI并登记64环境排除，常规189条清单校验通过。
+- `takeover-package-empty-guards.log`4/4、`takeover-package-empty-build.log`双端vue-tsc/build、`takeover-package-empty-server-types.log`、`takeover-package-empty-dist.log`和lint通过；detector仅源码regex非元素检查。MyPackages其它列表/弹窗生命周期和后端授权竞争仍需独立精修，不把空值修复当作套餐全流程已完成。327持续。
+
 ## 2026-10-28 R1-220 套餐保存回执与重复提交
 
 - R219 `5c9ab36`已push并核远端一致。保存同步拒重复/未就绪/存储池未完成请求，固定提交时ID和hostIds数组；表单在saving/saved禁用，离页仍可操作。旧成功、失败、finally按原上下文核验，不影响新目标、账号或页面。成功锁存与导航错误分开，已保存但导航被拒时不重发写入。

@@ -81,3 +81,10 @@ includes('updateData.billingCycle = planInput.billingCycle', 'normalized billing
 includes('updateData.slaGuarantee = planInput.slaGuarantee', 'normalized SLA update')
 
 console.log('package plan input guard tests passed')
+
+const form = readFileSync(resolve(__dirname, '../../client/src/views/resources/PackageFormView.vue'), 'utf8')
+const plans = readFileSync(resolve(__dirname, '../../client/src/views/resources/MyPackagesView.vue'), 'utf8')
+assert.ok(form.includes('description: form.value.description,'), 'package description clearing must survive JSON serialization')
+assert.ok(plans.includes('description: planForm.value.description.trim(),') &&
+  plans.includes("slaGuarantee: planForm.value.slaGuarantee === '' ? null : planForm.value.slaGuarantee"),
+  'plan form must send an empty description and explicit null for a cleared numeric SLA input')

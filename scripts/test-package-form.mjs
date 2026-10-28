@@ -179,13 +179,50 @@ try {
   await ready(26)
   await resolveRequest(await latest('hosts'), { hosts: [] })
   await resolveRequest(await latest('list'), { packages: [] })
+  await run(() => { const el = document.querySelector('form input[type=text]:not([required])'); el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })) })
+  await submit()
+  assert.equal(await page.eval(index => window.packageHarness.pending[index].data.description, await latest('update')), '')
+  await resolveRequest(await latest('update'), {})
+  await routeTo('/plans')
+  await resolveRequest(await latest('hosts'), { hosts: [] })
+  await resolveRequest(await latest('list'), { packages: [{ ...record(40).package, cpu_max: 100, memory_max: 512, disk_max: 5120, isOwn: true, network_mode: 'nat' }] })
+  await run(() => [...document.querySelectorAll('button[title]')].find(el => el.title === '方案管理' || el.title === '管理方案')?.click())
+  await check(() => window.packageHarness.pending.some(item => item.kind === 'plans'), 'plan list opened')
+  const plan = { id: 41, name: 'Clearable plan', description: 'Previous plan description', cpu: 100, memory: 512, disk: 5120, portLimit: 3, snapshotLimit: 3, backupLimit: 0, siteLimit: 1, swapSize: 0, trafficLimit: '1073741824', trafficLimitSpeed: '10485760', price: 1234, trafficResetPrice: null, billingCycle: 1, monthlyPrice: 1234, isActive: true, isSoldOut: false, sortOrder: 0, slaGuarantee: 99.9 }
+  await resolveRequest(await latest('plans'), { plans: [plan] })
+  await click('.modal-overlay button[title="编辑"]')
+  await run(() => {
+    const modal = [...document.querySelectorAll('.modal-overlay')].at(-1)
+    const description = modal.querySelector('input[placeholder="可选，用于向用户展示方案特点"]')
+    const sla = modal.querySelector('input[placeholder="如 99.9"]')
+    for (const input of [description, sla]) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })) }
+  })
+  await run(() => [...document.querySelectorAll('.modal-overlay')].at(-1).querySelector('.modal-footer .btn-primary').click())
+  const clearPlan = await latest('updatePlan')
+  assert.deepEqual(await page.eval(index => {
+    const { description, slaGuarantee, price } = window.packageHarness.pending[index].data
+    return { description, slaGuarantee, price }
+  }, clearPlan), { description: '', slaGuarantee: null, price: 1234 })
+  await resolveRequest(clearPlan, {})
+  await resolveRequest(await latest('plans'), { plans: [{ ...plan, description: '', slaGuarantee: null }] })
+  await check(() => document.querySelectorAll('.modal-overlay').length === 1, 'saved editor finishes closing before reopening')
+  await click('.modal-overlay button[title="编辑"]')
+  await check(() => [...document.querySelectorAll('.modal-overlay')].at(-1)?.querySelector('input[placeholder="如 99.9"]'), 'reopened editor mounted')
+  assert.deepEqual(await page.eval(() => {
+    const modal = [...document.querySelectorAll('.modal-overlay')].at(-1)
+    return { description: modal.querySelector('input[placeholder="可选，用于向用户展示方案特点"]').value, sla: modal.querySelector('input[placeholder="如 99.9"]').value }
+  }), { description: '', sla: '' })
+  await page.screenshot({ path: resolve(output, 'plan-cleared.png'), format: 'png' })
+  await ready(27)
+  await resolveRequest(await latest('hosts'), { hosts: [] })
+  await resolveRequest(await latest('list'), { packages: [] })
   for (const [locale, width, dark] of [['zh-CN', 1440, false], ['zh-TW', 390, true], ['en', 390, false]]) {
     await page.setViewport({ width, height: 900 })
     await run(({ locale, dark }) => { window.packageHarness.setLocale(locale); window.packageHarness.theme.setTheme(dark ? 'dark' : 'light') }, { locale, dark })
     assert.equal(await page.eval(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'form fits viewport')
     await page.screenshot({ path: resolve(output, `${locale}-${width}.png`), format: 'png' })
   }
-  console.log('PASS real Chrome/Vue Router package form: read lifecycle matrix plus 10-submit gate, frozen inputs, target/host snapshot, failed-save retry, old success/error/finally vs new saves, leave/session changes, same-SID refresh, confirmed-save latch and normal create/edit navigation; three locales and desktop/mobile. API transport is a deferred fixture; no real host/package writes.')
+  console.log('PASS real Chrome/Vue Router package form: read/save lifecycle matrix, package description clear, actual plan modal empty description/null SLA payload and reopened empty fields with unchanged price; three locales and desktop/mobile. API transport is a deferred fixture; no real host/package writes.')
 } finally {
   if (browser) await browser.close()
   await server.close()

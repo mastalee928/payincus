@@ -808,7 +808,7 @@ async function savePackage(): Promise<void> {
     
     const data: CreatePackageRequest | UpdatePackageRequest = {
       name: form.value.name,
-      description: form.value.description || undefined,
+      description: form.value.description,
       cpuMax: form.value.cpuMax,
       memoryMax: form.value.memoryMax,
       diskMax: form.value.diskMax,

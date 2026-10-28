@@ -11,5 +11,8 @@ export default {
     get: (id, signal) => defer('get', id, signal),
     create: data => defer('create', undefined, undefined, data),
     update: (id, data) => defer('update', id, undefined, data),
+    getPlans: id => defer('plans', id),
+    updatePlan: (packageId, id, data) => defer('updatePlan', id, undefined, { ...data, packageId }),
+    createPlan: (packageId, data) => defer('createPlan', packageId, undefined, data),
   },
 }
