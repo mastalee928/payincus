@@ -200,7 +200,8 @@ function sanitizeHtml(html: string): string {
     ALLOWED_TAGS: allowedTags, ALLOWED_ATTR: allowedAttributes,
     ALLOW_DATA_ATTR: false, ALLOW_ARIA_ATTR: false,
     ADD_DATA_URI_TAGS: [],
-    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
+    // Keep '-' last: a '.-:' range also matches digits, rejecting SVG paths and relative filenames.
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z0-9+.-]+(?:[^a-z0-9+.:-]|$))/i
   })
 }
 

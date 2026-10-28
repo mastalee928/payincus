@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：f1cc7c7已push，98ad127/b4e0ef8 CI success。R258子tokens浏览器补验时发现task path.d丢失，已修URI regex错误字符范围及未知数字协议，Chrome+jsdom先红后绿、3守卫/lint/最终完整双端types build/dist通过准备单项push。R259 scripts/test-markdown-attributes.mjs已通过未登记未提交；R260支付locale夹具+专项正在运行session18931，尚未登记。无其他本地进程，327持续。
+
 > **最新接续**：98ad127已push。R257此前表格源码修复已补实际Chrome：普通/仅表头/空单元格及inline tokens、1440/390截图通过，新增专项接CI与manifest通过准备单项push。产品无改，沿用刚完成的构建。接R258扩展嵌套/任务/引用tokens，再R259引号与DOM属性实际浏览器；无待poll本地进程，327持续。
 
 > **最新接续**：b4e0ef8已push，00de40e CI success。R256条款KeepAlive显隐/abort/卸载/迟到正文保护已修，Chrome与语言回归/4守卫/lint/双端types build/dist/manifest通过准备单项push，无待poll。本地表格专项scripts/test-markdown-browser.mjs已通过、截图已看，留R257单项登记提交，接R258/259浏览器证据，再R260。R264流量route/DB sample/reset及锁守卫已读，后端未改。327持续。

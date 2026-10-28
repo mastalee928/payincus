@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-258 Markdown嵌套内容与可见图形
+
+- R257 f1cc7c7已push；R256 98ad127 CI40757078467、R255 b4e0ef8 CI40756107209最终success。实际Chrome子tokens验证覆盖格式化链接、嵌套引用/列表、勾选/未勾选任务、有序列表与字面代码；截图发现已勾图标缺失，进一步确认DOMPurify清掉path.d。浏览器及jsdom新增断言均先红（takeover-markdown-tokens-before.log、takeover-markdown-geometry-before.log）。
+- 根因是URI正则否定字符集的`.-:`意外包含数字，导致以M数字开头的SVG路径及数字相对链接被过滤。连字符移至尾部、完整识别协议中的数字，保留HTTP/HTTPS/mailto/tel及相对URL，拒绝脚本/data/未知协议；标签与属性白名单不放宽。仅修一行正则并加解释。
+- `takeover-markdown-tokens-browser-final.log`实际任务checkmark非空几何及嵌套矩阵通过，手机勾选/外链图标截图已看；3守卫通过，整理等价正则以满足lint后再跑Markdown runtime，lint通过。为覆盖最终源码完整重跑双端vue-tsc/build（build-final.exit=0），dist通过。旧首轮构建不作为最终源码证据。R259引号/属性独立浏览器已通过未提交，下一项登记；327和完整灾备未完成。
+
 ## 2026-10-29 R1-257 Markdown表格浏览器证据
 
 - R256 98ad127已push并核远端一致。本项复核此前已改的renderer.table：使用token.header和token.rows按cell.tokens渲染，不再错误地将单元格当数组。`logs/takeover-markdown-table-browser.log`实际Chrome/TermsOfServiceModal通过普通表、仅表头、空单元格、加粗/链接/code及桌面1440/手机390无整页横溢，截图已看。

@@ -17,6 +17,11 @@ assert.equal(inline.querySelector('a strong')?.textContent, 'bold')
 assert.equal(inline.querySelector('blockquote em')?.textContent, 'quote')
 assert.ok(inline.querySelector('li li em'))
 assert.equal(inline.querySelector('li strong')?.textContent, 'done')
+assert.ok(inline.querySelector('li svg path')?.getAttribute('d'), 'completed task icon must retain its path data')
+assert.equal(parsed('[relative](guide1.md)').querySelector('a')?.getAttribute('href'), 'guide1.md')
+for (const href of ['javascript:alert(1)', 'vbscript:msgbox(1)', 'data:text/html,x', 'custom1:payload']) {
+  assert.equal(parsed(`<a href="${href}">bad</a>`).querySelector('a')?.getAttribute('href'), null)
+}
 const image = parsed('![alt](https://example.test/image.png \'title "quote" & value\')')
 assert.equal(image.querySelector('img')?.getAttribute('title'), 'title "quote" & value')
 assert.equal(image.querySelector('figcaption')?.textContent, 'title "quote" & value')
