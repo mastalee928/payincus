@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-255 条款正文跟随当前语言
+
+- R253 2d12e6c已push并核远端一致；默认机器池18e5d85 CI40753458066最终success。条款监听当前语言及显示状态，以现有zh/en源选择正文；切换清旧文，已成功同语言内容可复用，迟到success/error/finally与response.text不覆盖新语言。简繁继续共享原zh文件，法律正文不改。
+- `logs/takeover-terms-language-before.log`实际Chrome先复现切英文仅标题变而正文不重读；`takeover-terms-language-browser.log`通过显隐切换语言、简繁共享、乱序/迟到正文、404重试及三语1440/390。截图已检查；同源fetch为受控夹具。4守卫（含split-deploy静态资源合同与Markdown runtime）、lint、双端vue-tsc/build最终exit0、dist/manifest191常规82环境排除通过，新专项接CI。最终仅变量名与原静态资源allowlist对齐，URL行为相同。
+- R256已单独先红：KeepAlive离页后Teleport仍覆盖其他页（`takeover-terms-lifecycle-before.log`），专项未登记未提交；随后补缓存活跃/卸载与取消读取。Markdown浏览器表格专项也仅准备未验。327与完整灾备继续，无生产改动。
+
 ## 2026-10-29 R1-253 旧套餐刷新期间禁用旧选择
 
 - R252 00de40e已push并核远端一致，CI40754421823最后仍运行。旧套餐创建要求套餐/方案/宿主/镜像读取结束，并核当前套餐、宿主和镜像属于已加载选项。镜像读取开始即清旧选项，成功后仅当原选择仍兼容才恢复；保留原128MB阈值与计费/交付合同。

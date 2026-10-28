@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { parseMarkdown } from '@/utils/markdown'
-import { getLocale } from '@/locales'
 
 const props = defineProps<{
   show: boolean
@@ -13,47 +12,52 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const themeStore = useThemeStore()
 
 const content = ref('')
 const loading = ref(false)
 const error = ref('')
+const termsLanguage = computed(() => locale.value.startsWith('zh') ? 'zh' : 'en')
+let loadedLanguage = ''
+let requestSequence = 0
 
 async function loadTerms() {
+  if (!props.show) return
+  const sequence = ++requestSequence, lang = termsLanguage.value
+  const current = () => sequence === requestSequence && lang === termsLanguage.value
   loading.value = true
   error.value = ''
+  content.value = ''
   
   try {
-    const locale = getLocale()
-    const lang = locale.startsWith('zh') ? 'zh' : 'en'
     const response = await fetch(`/tos/${lang}.md`)
+    if (!current()) return
     
     if (!response.ok) {
       throw new Error('Failed to load terms')
     }
     
     const markdown = await response.text()
+    if (!current()) return
     content.value = parseMarkdown(markdown)
+    loadedLanguage = lang
   } catch (err) {
+    if (!current()) return
     error.value = t('auth.tos.loadFailed')
     console.error('Failed to load terms:', err)
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
-watch(() => props.show, (newVal) => {
-  if (newVal && !content.value) {
-    loadTerms()
-  }
-})
-
-onMounted(() => {
-  if (props.show) {
-    loadTerms()
-  }
-})
+watch([() => props.show, termsLanguage], ([show, language]) => {
+  requestSequence++
+  loading.value = false
+  error.value = ''
+  if (loadedLanguage !== language) content.value = ''
+  if (show && !content.value) void loadTerms()
+}, { immediate: true, flush: 'sync' })
 </script>
 
 <template>

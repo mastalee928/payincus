@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：2d12e6c已push；18e5d85 CI success。R255条款当前语言/同语言成功缓存/旧回执和迟到正文隔离已修，Chrome先红后绿/三语截图/4守卫/lint/双端types build/dist/manifest通过准备单项push。无待poll。R256已Chrome先红离页Teleport遗留，scripts/test-terms-lifecycle.mjs未登记未提交，随后加KeepAlive/卸载/abort；scripts/test-markdown-browser.mjs也未登记未运行，留R257。法律内容保持，327持续。
+
 > **最新接续**：00de40e已push，CI40754421823最后运行。R253旧套餐刷新门禁/当前选项检查/镜像清旧已修，Chrome专项及旧套餐写/机器池两回归、4守卫/lint/双端types build/dist/manifest通过准备单项push。无待poll本地进程。R255条款语言切换已真实先红，新scripts/test-terms-language.mjs与fixtures/terms-modal未登记未提交，产品未改；先语言/缓存与迟到正文，再R256关闭/KeepAlive/卸载，再Markdown浏览器补验。327未完整。
 
 > **最新接续**：18e5d85已push，CI40753458066最后仍运行。R252旧套餐写回执/新草稿/旧凭据隔离已修，Chrome先红后绿与机器池回归、4守卫/lint/双端types build（最终exit0）/dist/manifest通过准备单项push。无待poll本地进程。下一项R253旧套餐镜像/宿主刷新中仍可提交，`scripts/test-admin-package-options.mjs`已先红，未登记未提交，产品尚未改；补读取门禁/清旧镜像/当前选择核验，复用旧套餐和机器池回归。327与完整灾备未完成。

@@ -290,7 +290,7 @@
 | R1-252 | 存在；两入口分别核对 | 两入口回执已修；真实创建未验 | 默认机器池回执绑定target/session/route/cache/requestId，固定payload、旧成功失败静默及父查询保护（takeover-admin-pool-write-*）。旧套餐回执绑定资源来源/身份/页面代次和草稿快照，不清新草稿或显示旧凭据；Chrome先红后绿、十连单请求/正常成功/旧错误及机器池回归、4守卫/lint/双端types build/dist通过（takeover-admin-package-write-*）。后端预占/幂等/计费未改，API受控；旧套餐读取R253继续。 |
 | R1-253 | 两入口分别核对 | 两入口刷新门禁已修；真实交付未验 | 机器池ready/当前镜像门禁、错误/成功空态、session/cache代次/等待写结束重读与默认入口解耦已验（takeover-admin-pool-read/entry-*）。旧套餐补四类loading和当前选项核验，镜像先清旧后恢复兼容选择；Chrome先红后绿、失败/乱序/同阈值/精确payload及旧套餐写和机器池回归、4守卫/lint/双端types build/dist通过（takeover-admin-package-options-*）。API受控，旧套餐其他读取生命周期不在本项保证内。 |
 | R1-254 | 存在 | 源码已修/真实脚本执行通过 | init-env现去重实现5次真实Bash执行覆盖fresh/重复身份保持/空重复/有效含等号值/CRLF/不打印生成材料；logs/review-init-env-execution-final.log、相关2/2 logs/test-run-20261027-224403。Windows执行不代表Linux权限验收 |
-| R1-255 | 存在 | 待精修/运行复核 | 首次语言结果缓存，切语言和重开缺完整request generation，旧条款可能覆盖当前。 |
+| R1-255 | 存在 | 已修复；本地浏览器通过 | 当前语言/显隐同步读取，按zh/en源复用同语言成功缓存，切语言清旧正文；请求代次覆盖迟到响应和body。Chrome先红后绿：显隐切换/简繁共享/旧成功失败/finally/body/404重试/三语1440与390；4守卫/lint/双端types build/dist通过（takeover-terms-language-*）。法律原文保持，R256缓存页面生命周期另项继续。 |
 | R1-256 | 存在 | 待精修/运行复核 | 首次语言结果缓存，切语言和重开缺完整request generation，旧条款可能覆盖当前。 |
 | R1-257 | 存在 | 源码已改/验证范围见右栏 | Markdown tokens渲染及DOMPurify白名单；jsdom；浏览器待验 |
 | R1-258 | 存在 | 源码已改/验证范围见右栏 | Markdown tokens渲染及DOMPurify白名单；jsdom；浏览器待验 |
