@@ -227,6 +227,7 @@ export default async function ticketsRoutes(fastify: FastifyInstance) {
       // 创建工单（instanceId 和 hostId 可以为 null，表示直接发给管理员）
       const result = await ticketDb.createTicket({
         userId: user.id,
+        actor: user,
         hostId,
         instanceId: instanceId ?? null,
         subject,

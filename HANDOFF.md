@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-186 创建工单当前账户与会话
+
+- R187提交`eaef6ea6a36fbb11d6dd0e90648ea4c99a289461`已push并核远端一致，CI40659933408检查时仍在运行。
+- 网站创建工单将完整actor/session传入DB，实例/host核验后锁当前账户，在同事务检查active、原角色、SID/IAT与用户级/会话级撤销，成功后才创建工单和首消息。缺会话、错actor、封禁/注销/降权返回403，附件仍走既有失败清理。非网站创建也检查当前active，但PAT/POA在途撤销本段尚未覆盖。
+- `logs/takeover-ticket-authorization-r1.log`真实PG/Fastify helper/网站八个封禁/单会话撤销/全会话撤销/降权行锁竞争均拒绝且零工单消息；合法user/admin、缺SID/错actor与非网站banned同测通过。`takeover-ticket-authorization-target-regression.log`原R187六场景及原子回滚回归通过。4/4守卫`takeover-ticket-authorization-guards.log`、server build `takeover-ticket-authorization-build.log`和含三个工单专项的独立类型`takeover-ticket-authorization-types.log`通过，专项已接CI。
+- R186仍部分：回复/状态/备注/链接/删消息及通知目标仍需逐个补，附件上传、真实PAT全流程、浏览器未验；没有SMTP/外发消息、前端/生产/迁移操作。按owner每小项保存后继续。
+
 ## 2026-10-28 R1-187 工单创建关联实例复核
 
 - R183提交`84f8464c95c67012b64dfbc178aad06d53c40d62`已push并核远端一致，[CI40658726890](https://github.com/mastalee928/payincus/actions/runs/40658726890)success。

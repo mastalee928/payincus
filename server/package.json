@@ -6,6 +6,7 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:review-ticket-authorization": "node --import tsx scripts/test-review-ticket-authorization.ts",
     "test:review-ticket-target": "node --import tsx scripts/test-review-ticket-target.ts",
     "test:review-ticket-pagination": "node --import tsx scripts/test-review-ticket-pagination.ts",
     "test:review-transfer-cleanup-integration": "node --import tsx scripts/test-review-transfer-cleanup-integration.ts",

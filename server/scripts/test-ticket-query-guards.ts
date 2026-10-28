@@ -191,6 +191,10 @@ assert.ok(createTicketDb.includes('SELECT id FROM instances WHERE id = ${data.in
   createTicketDb.indexOf('throw new TicketMutationError(') < createTicketDb.indexOf('tx.ticket.create(') &&
   createTicketRoute.includes('error instanceof ticketDb.TicketMutationError'),
   'ticket creation must lock and recheck the current instance before writing, with a recoverable target conflict response')
+assert.ok(createTicketDb.includes('authorizeUserWrite(tx, data.userId, data.actor)') &&
+  createTicketDb.includes('creator.role !== data.actor.role') && createTicketDb.includes("creator?.status !== 'active'") &&
+  createTicketDb.indexOf('authorizeUserWrite(tx, data.userId, data.actor)') < createTicketDb.indexOf('tx.ticket.create(') &&
+  createTicketRoute.includes('actor: user'), 'web ticket creation must revalidate the current actor/session inside the write transaction')
 
 assert.ok(
   createTicketRoute.includes("getSystemConfigBoolean('ticket_enabled', true)") &&

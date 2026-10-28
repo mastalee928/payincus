@@ -5,6 +5,7 @@
 
 import { prisma } from './prisma.js'
 import type { TicketStatus, TicketPriority, TicketObjectLinkType } from '@prisma/client'
+import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
 
 // ==================== 类型定义 ====================
 
@@ -116,6 +117,7 @@ export function normalizeTicketObjectLinkType(type: string | undefined): TicketO
 
 export interface CreateTicketData {
   userId: number
+  actor?: WriteActor & { role: 'user' | 'admin' }
   hostId?: number | null  // 可选：不选实例时为 null，工单直接发给管理员
   instanceId?: number | null
   subject: string
@@ -316,6 +318,12 @@ export async function createTicket(data: CreateTicketData): Promise<{ ticketId: 
       }
     } else if (data.hostId != null) {
       throw new TicketMutationError('未选择实例的工单不能关联宿主')
+    }
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${data.userId} FOR UPDATE`
+    const creator = await tx.user.findUnique({ where: { id: data.userId }, select: { status: true, role: true } })
+    if (creator?.status !== 'active' || data.actor && (data.actor.id !== data.userId || creator.role !== data.actor.role ||
+      !await authorizeUserWrite(tx, data.userId, data.actor))) {
+      throw new TicketMutationError('账户或登录授权已变化，请重新登录后创建工单', 403, 'TICKET_ACTOR_FORBIDDEN')
     }
     const createdAt = new Date()
     const priority = data.priority || 'normal'
