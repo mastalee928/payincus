@@ -1716,7 +1716,7 @@ poolOrder: (data: {
     // 管理员专用：获取托管套餐列表
     listHosted: (params: { userId?: number } = {}): Promise<{ packages: Package[] }> =>
       http.get('/packages', { params: { ...params, scope: 'hosted' } }),
-    get: (id: number): Promise<Package> => http.get(`/packages/${id}`),
+    get: (id: number, signal?: AbortSignal): Promise<Package> => http.get(`/packages/${id}`, { signal }),
     create: (data: CreatePackageRequest): Promise<Package> => http.post('/packages', data),
     update: (id: number, data: UpdatePackageRequest): Promise<Package> =>
       http.patch(`/packages/${id}`, data),

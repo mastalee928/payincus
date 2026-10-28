@@ -112,3 +112,23 @@ assert.ok(
 )
 
 console.log('package input guard tests passed')
+
+assert.ok(
+  packageFormSource.includes("watch(() => [route.name, route.params.id, sessionKey.value], reloadContext, { immediate: true, flush: 'sync' })") &&
+    packageFormSource.includes('context.sequence === contextSequence') &&
+    packageFormSource.includes('context.id === packageId.value') &&
+    packageFormSource.includes('context.session === sessionKey.value') &&
+    packageFormSource.includes('api.packages.get(id, controller.signal)') &&
+    packageFormSource.includes('if (pkg.id !== id) throw new Error') &&
+    packageFormSource.includes('!detailReady.value') &&
+    packageFormSource.includes('onBeforeUnmount(() =>'),
+  'package editor must bind reads and editable data to the active route/session, reject mismatched IDs and invalidate on unmount'
+)
+assert.ok(
+  packageFormSource.includes('await Promise.all(requestedHostIds.map(hostId => loadHostStoragePools(hostId, context)))') &&
+    packageFormSource.includes('sequence !== selectionSequence') &&
+    packageFormSource.includes('sequence !== hostsSequence') &&
+    packageFormSource.includes('v-else-if="loadError" role="alert"') &&
+    packageFormSource.includes('@click="reloadContext"'),
+  'package editor auxiliary requests must not mutate new contexts and detail failures must offer an in-place retry'
+)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import api from '@/api'
@@ -27,6 +27,35 @@ const authStore = useAuthStore()
 // Mode: create or edit
 const isEditMode = computed(() => !!route.params.id)
 const packageId = computed(() => route.params.id ? Number(route.params.id) : null)
+const formRouteNames = new Set(['my-package-create', 'my-package-edit', 'admin-my-package-create', 'admin-my-package-edit'])
+// Only identifies stale browser callbacks; backend authorization remains authoritative.
+const sessionKey = computed(() => {
+  const token = authStore.token
+  if (!token) return ''
+  let identity = token
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user?.id ?? ''}:${authStore.user?.role ?? ''}:${identity}`
+})
+let contextSequence = 0
+let disposed = false
+let detailController: AbortController | undefined
+let hostsSequence = 0
+let selectionSequence = 0
+const poolRequests = new Map<number, Promise<void>>()
+const detailReady = ref(false)
+const loadError = ref('')
+function captureContext() {
+  return { sequence: contextSequence, name: route.name, id: packageId.value, session: sessionKey.value }
+}
+type FormContext = ReturnType<typeof captureContext>
+function isCurrent(context: FormContext): boolean {
+  return !disposed && context.sequence === contextSequence && context.name === route.name
+    && formRouteNames.has(String(route.name)) && context.id === packageId.value
+    && !!context.session && context.session === sessionKey.value
+}
 type PackageCreationMode = 'free' | 'paid'
 const packageCreationMode = ref<PackageCreationMode>('free')
 const showPackageLevelInstanceDefaults = computed(() => isEditMode.value || packageCreationMode.value === 'free')
@@ -431,39 +460,48 @@ async function switchHostScope(scope: HostScope): Promise<void> {
   await loadHosts()
 }
 
-async function loadHostStoragePools(hostId: number): Promise<void> {
-  if (storagePoolsByHost.value[hostId] || storagePoolsLoadingByHost.value[hostId]) {
-    return
-  }
+async function loadHostStoragePools(hostId: number, context: FormContext): Promise<void> {
+  if (!isCurrent(context) || storagePoolsByHost.value[hostId]) return
+  if (poolRequests.has(hostId)) return poolRequests.get(hostId)
 
   storagePoolsLoadingByHost.value = {
     ...storagePoolsLoadingByHost.value,
     [hostId]: true
   }
 
-  try {
+  const pending = (async () => { try {
     const response = await api.hosts.getStoragePools(hostId)
+    if (!isCurrent(context)) return
     storagePoolsByHost.value = {
       ...storagePoolsByHost.value,
       [hostId]: response.pools || []
     }
   } catch (err) {
+    if (!isCurrent(context)) return
     console.error(`Failed to load storage pools for host ${hostId}:`, err)
     storagePoolsByHost.value = {
       ...storagePoolsByHost.value,
       [hostId]: []
     }
   } finally {
-    storagePoolsLoadingByHost.value = {
-      ...storagePoolsLoadingByHost.value,
-      [hostId]: false
+    if (isCurrent(context)) {
+      poolRequests.delete(hostId)
+      storagePoolsLoadingByHost.value = {
+        ...storagePoolsLoadingByHost.value,
+        [hostId]: false
+      }
     }
-  }
+  } })()
+  poolRequests.set(hostId, pending)
+  await pending
 }
 
 async function syncHostStoragePoolSelections(hostIds: number[]): Promise<void> {
+  const context = captureContext()
+  const sequence = ++selectionSequence
   const requestedHostIds = [...new Set(hostIds)]
-  await Promise.all(requestedHostIds.map(hostId => loadHostStoragePools(hostId)))
+  await Promise.all(requestedHostIds.map(hostId => loadHostStoragePools(hostId, context)))
+  if (!isCurrent(context) || sequence !== selectionSequence) return
 
   const uniqueHostIds = [...new Set(form.value.hostIds)]
   const nextSelections: Record<string, string> = {}
@@ -498,42 +536,56 @@ async function syncHostStoragePoolSelections(hostIds: number[]): Promise<void> {
   form.value.hostTrafficMultipliers = nextMultipliers
 }
 
-onMounted(async () => {
-  await Promise.all([
-    loadHosts(),
-    loadPrerequisitePackages()
-  ])
-  if (isEditMode.value && packageId.value) {
-    await loadPackage(packageId.value)
+function reloadContext(): void {
+  contextSequence++
+  hostsSequence++
+  selectionSequence++
+  detailController?.abort()
+  poolRequests.clear()
+  form.value = getDefaultForm()
+  formError.value = ''
+  loadError.value = ''
+  loading.value = false
+  saving.value = false
+  detailReady.value = false
+  hosts.value = []
+  allKnownHosts.value = []
+  hostsLoading.value = false
+  prerequisitePackages.value = []
+  storagePoolsByHost.value = {}
+  storagePoolsLoadingByHost.value = {}
+  packageCreationMode.value = 'free'
+  currentPackageOwnerId.value = authStore.user?.id ?? null
+  hostScope.value = 'official'
+  clearHostSearch()
+  const context = captureContext()
+  if (!isCurrent(context)) return
+  if (isEditMode.value && (!/^[1-9]\d*$/.test(String(route.params.id)) || !Number.isSafeInteger(context.id) || context.id! > 2147483647)) {
+    loadError.value = t('admin.packages.loadFailed')
+    return
   }
-})
+  void loadHosts(context)
+  void loadPrerequisitePackages(context)
+  if (context.id !== null) void loadPackage(context.id, context)
+  else detailReady.value = true
+}
 
-// 监听路由参数变化，重新加载套餐数据
-watch(() => route.params.id, async (newId, oldId) => {
-  if (newId !== oldId) {
-    // 重置状态
-    formError.value = ''
-    saving.value = false
-    if (newId) {
-      loading.value = true
-      form.value = getDefaultForm()
-      await loadPrerequisitePackages()
-      await loadPackage(Number(newId))
-    } else {
-      // 切换到创建模式
-      form.value = getDefaultForm()
-      packageCreationMode.value = 'free'
-      currentPackageOwnerId.value = authStore.user?.id ?? null
-      await loadPrerequisitePackages()
-    }
-  }
+watch(() => [route.name, route.params.id, sessionKey.value], reloadContext, { immediate: true, flush: 'sync' })
+onBeforeUnmount(() => {
+  disposed = true
+  contextSequence++
+  detailController?.abort()
+  poolRequests.clear()
 })
 
 watch(() => form.value.hostIds.slice(), (hostIds) => {
   void syncHostStoragePoolSelections(hostIds)
 })
 
-async function loadHosts(): Promise<void> {
+async function loadHosts(context = captureContext()): Promise<void> {
+  if (!isCurrent(context)) return
+  const sequence = ++hostsSequence
+  const scope = hostScope.value
   hostsLoading.value = true
   try {
     // 管理员可以看到所有节点并绑定任意节点
@@ -544,31 +596,40 @@ async function loadHosts(): Promise<void> {
       ? { pageSize: '1000', scope: hostScope.value }
       : { mine: 'true', pageSize: '1000' }
     const response = await api.hosts.list(params)
+    if (!isCurrent(context) || sequence !== hostsSequence || scope !== hostScope.value) return
     hosts.value = ((response as { hosts?: PackageHostOption[] }).hosts || [])
     rememberHosts(hosts.value)
   } catch (err) {
+    if (!isCurrent(context) || sequence !== hostsSequence) return
     console.error('Failed to load hosts:', err)
   } finally {
-    hostsLoading.value = false
+    if (isCurrent(context) && sequence === hostsSequence) hostsLoading.value = false
   }
 }
 
-async function loadPrerequisitePackages(): Promise<void> {
+async function loadPrerequisitePackages(context: FormContext): Promise<void> {
   try {
     const response = await api.packages.list({ all: true })
+    if (!isCurrent(context)) return
     prerequisitePackages.value = (response as { packages?: Package[] }).packages || []
   } catch (err) {
+    if (!isCurrent(context)) return
     console.error('Failed to load prerequisite packages:', err)
     prerequisitePackages.value = []
   }
 }
 
-async function loadPackage(id: number): Promise<void> {
+async function loadPackage(id: number, context: FormContext): Promise<void> {
+  if (!isCurrent(context)) return
   loading.value = true
+  const controller = new AbortController()
+  detailController = controller
   try {
-    const response = await api.packages.get(id) as any
+    const response = await api.packages.get(id, controller.signal) as any
+    if (!isCurrent(context)) return
     // API 返回 { package: {...} } 格式
     const pkg = response.package || response
+    if (pkg.id !== id) throw new Error('Package response target mismatch')
     currentPackageOwnerId.value = pkg.ownerId ?? pkg.user_id ?? authStore.user?.id ?? null
     
     // Parse storage I/O values
@@ -630,15 +691,17 @@ async function loadPackage(id: number): Promise<void> {
       globalMaxInstances: Number.isInteger(Number(pkg.global_max_instances)) && Number(pkg.global_max_instances) >= 1 && Number(pkg.global_max_instances) <= 5 ? Number(pkg.global_max_instances) : 1,
       requiredPackageId: pkg.required_package_id ?? null
     }
+    detailReady.value = true
   } catch (_err: any) {
-    toast.error(t('admin.packages.loadFailed') || 'Failed to load package')
-    router.push(packagesPath())
+    if (!isCurrent(context)) return
+    loadError.value = t('admin.packages.loadFailed')
   } finally {
-    loading.value = false
+    if (isCurrent(context)) loading.value = false
   }
 }
 
 async function savePackage(): Promise<void> {
+  if (saving.value || loading.value || !detailReady.value || !isCurrent(captureContext())) return
   formError.value = ''
   
   // Validation
@@ -833,7 +896,11 @@ function goBack(): void {
     </div>
 
     <!-- Form -->
-    <form v-else class="space-y-5" novalidate @submit.prevent="savePackage">
+    <div v-else-if="loadError" role="alert" class="card p-6 space-y-4">
+      <p class="text-themed">{{ loadError }}</p>
+      <button type="button" class="btn-secondary min-h-[44px]" @click="reloadContext">{{ t('common.retry') }}</button>
+    </div>
+    <form v-else-if="detailReady" class="space-y-5" novalidate @submit.prevent="savePackage">
       <!-- Error message -->
       <div v-if="formError" class="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-600 dark:text-rose-400">
         <svg class="mt-0.5 h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

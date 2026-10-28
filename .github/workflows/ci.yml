@@ -176,6 +176,8 @@ jobs:
         run: pnpm --filter server test:review-init-command-modals
       - name: Verify static caching in Chrome
         run: pnpm --filter server test:review-service-worker-browser
+      - name: Verify package form in Chrome
+        run: pnpm --filter server test:review-package-form
 
   remote-gateway-setup-integration:
     name: Remote gateway setup journal integration

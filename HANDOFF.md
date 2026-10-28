@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-219 套餐编辑读取上下文
+
+- R213 `48a05c9`已push且CI40705117888最终success；R212 CI40704378740及README修正CI40704237821均success。R222所在87e1c69的CI40703832945仍受修正前README断链失败，后续成功CI已包含该源码和真实Chrome专项。
+- 当前App早已排除PackageForm的KeepAlive，原“缓存”描述不完全对应，但同名路由切换会复用组件。详情与辅助请求现绑定路由名/ID/session代次，立即清旧表单，取消旧详情并拒不匹配响应ID；旧成功/失败/finally、宿主范围和存储池不能覆盖新目标。未取得本次详情禁保存，失败留当前页提供重试，同SID令牌刷新保草稿，卸载/退出失效。
+- `logs/takeover-package-context-browser-final.log`实际Vue Router/KeepAlive排除及源码组件、可控延迟API通过快速切换/旧错误/错误ID/原地重试/辅助迟到/换会话/退出/同SID刷新/创建编辑/离开再进入。三语1440/390深浅截图和错误状态在`logs/package-form-browser/`已检查；纯API夹具，不是账户/宿主/套餐写入真后端验收。
+- `takeover-package-context-guards-final.log`3/3、`takeover-package-context-build.log`双端类型build、`takeover-package-context-server-types.log`、`takeover-package-context-dist.log`、lint/diff通过。detector仅.vue regex且无报告，不算完整元素/视觉检查。浏览器专项接CI并列63环境排除；189常规清单。下一项R220保存迟到导航/快照/重复提交，R221空描述与SLA仍未完成；327持续。
+
 ## 2026-10-28 R1-213 退役隐式Turnstile工具
 
 - R212 `803df02`已push并核远端一致。逐个追踪导出与调用者后删除无入口的useTurnstile composable及utils中3个隐式验证导出；现行TurnstileWidget、登录/注册/找回密码的readTurnstileToken与focusTurnstileSection保留且逐字未变，GiftCards页面自己的getTurnstileToken不属于旧工具。没有移除现行验证码或后端验证。
