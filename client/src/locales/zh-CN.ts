@@ -3324,6 +3324,8 @@ pool: {
             save: '保存福利设置',
             saveSuccess: '会员福利设置已保存',
             saveFailed: '保存会员福利设置失败',
+            reloadRequired: '部分修改可能已经保存。请重新读取并核对已保存的结果，再继续编辑；尚未保存的草稿会被替换。',
+            reloadSaved: '重新读取已保存结果',
             loadFailed: '加载会员福利设置失败',
             loadPlansFailed: '加载套餐方案失败',
             noEnabledLevels: '暂无已启用的用户 VIP 等级，请先在用户 VIP 等级中启用等级。',

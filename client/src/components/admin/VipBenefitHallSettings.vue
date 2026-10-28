@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api, {
   type VipBenefitReward,
@@ -10,6 +10,7 @@ import api, {
 } from '@/api/admin'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import type { Package } from '@/types/api'
 import { normalizeVipBadgeStyle, getVipBadgeInlineStyle } from '@/utils/vipBadge'
 
@@ -43,9 +44,28 @@ interface EditableReward {
 
 const { t } = useI18n()
 const toast = useToast()
+const auth = useAuthStore()
+const mounted = ref(false), activated = ref(true)
+const sessionKey = computed(() => {
+  if (!auth.token || !auth.user || auth.user.role !== 'admin') return ''
+  let identity = auth.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${auth.user.id}:${auth.user.role}:${identity}`
+})
+const active = computed(() => mounted.value && activated.value && !!sessionKey.value)
+let disposed = false, contextSequence = 0, readSequence = 0
+function currentContext(context: number) { return !disposed && active.value && context === contextSequence }
 
 const loading = ref(true)
 const saving = ref(false)
+const ready = ref(false)
+const loadError = ref('')
+const saveError = ref('')
+const reloadRequired = ref(false)
+const editorDisabled = computed(() => !active.value || !ready.value || loading.value || saving.value || reloadRequired.value)
 const rules = ref<VipLevelRule[]>([])
 const userMetric = ref<UserVipMetric>('totalRecharge')
 const rewards = ref<EditableReward[]>([])
@@ -138,10 +158,12 @@ function newReward(level: number): EditableReward {
 }
 
 function addReward(level: number): void {
+  if (editorDisabled.value) return
   rewards.value.push(newReward(level))
 }
 
 function removeReward(reward: EditableReward): void {
+  if (editorDisabled.value) return
   if (reward.id) {
     deletedRewardIds.value.push(reward.id)
   }
@@ -149,22 +171,27 @@ function removeReward(reward: EditableReward): void {
 }
 
 async function ensurePlans(packageId: number | null | undefined): Promise<void> {
-  if (!packageId || packagePlans.value[packageId] || plansLoading.value[packageId]) return
+  if (!active.value || !packageId || packagePlans.value[packageId] || plansLoading.value[packageId]) return
+  const context = contextSequence, request = readSequence
+  const current = () => currentContext(context) && request === readSequence
   plansLoading.value = { ...plansLoading.value, [packageId]: true }
   try {
     const response = await api.packages.getPlans(packageId, { activeOnly: true })
+    if (!current()) return
     packagePlans.value = {
       ...packagePlans.value,
       [packageId]: response.plans || []
     }
   } catch (error: any) {
+    if (!current()) return
     toast.error(error?.message || t('admin.vipBenefits.loadPlansFailed'))
   } finally {
-    plansLoading.value = { ...plansLoading.value, [packageId]: false }
+    if (current()) plansLoading.value = { ...plansLoading.value, [packageId]: false }
   }
 }
 
 async function handlePackageChange(reward: EditableReward): Promise<void> {
+  if (editorDisabled.value) return
   reward.packageId = reward.packageId ? Number(reward.packageId) : null
   reward.packageName = getPackageName(reward.packageId)
   reward.planId = null
@@ -173,6 +200,7 @@ async function handlePackageChange(reward: EditableReward): Promise<void> {
 }
 
 function handlePlanChange(reward: EditableReward): void {
+  if (editorDisabled.value) return
   reward.planId = reward.planId ? Number(reward.planId) : null
   reward.packageName = getPackageName(reward.packageId)
   reward.planName = getPlanName(reward.packageId, reward.planId)
@@ -251,14 +279,22 @@ function validateRewards(): boolean {
   return true
 }
 
-async function loadData(): Promise<void> {
+async function loadData(): Promise<boolean> {
+  if (!active.value) return false
+  const context = contextSequence, request = ++readSequence
+  const current = () => currentContext(context) && request === readSequence
   loading.value = true
+  ready.value = false
+  loadError.value = ''
+  packagePlans.value = {}
+  plansLoading.value = {}
   try {
     const [rulesResponse, rewardsResponse, packagesResponse] = await Promise.all([
       api.admin.getVipLevelRules('user'),
       api.admin.getVipBenefitRewards(),
       api.packages.list({ all: true, scope: 'official' })
     ])
+    if (!current()) return false
     userMetric.value = rulesResponse.userMetric === 'totalConsume' ? 'totalConsume' : 'totalRecharge'
     rules.value = rulesResponse.rules || []
     rewards.value = (rewardsResponse.rewards || []).map(mapReward)
@@ -270,37 +306,63 @@ async function loadData(): Promise<void> {
       if (reward.packageId) packageIds.add(reward.packageId)
     }
     await Promise.all(Array.from(packageIds).map(id => ensurePlans(id)))
+    if (!current()) return false
+    ready.value = true
+    reloadRequired.value = false
+    saveError.value = ''
+    return true
   } catch (error: any) {
-    toast.error(error?.message || t('admin.vipBenefits.loadFailed'))
+    if (current()) loadError.value = error?.message || t('admin.vipBenefits.loadFailed')
+    return false
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 async function saveRewards(): Promise<void> {
-  if (!validateRewards()) return
+  if (editorDisabled.value || !validateRewards()) return
+  const context = contextSequence
+  const removals = [...deletedRewardIds.value]
+  const updates = rewards.value.map(reward => ({ localId: reward.localId, id: reward.id, payload: normalizeRewardPayload(reward) }))
   saving.value = true
+  saveError.value = ''
   try {
-    for (const id of deletedRewardIds.value) {
+    for (const id of removals) {
       await api.admin.deleteVipBenefitReward(id)
+      if (!currentContext(context)) return
+      deletedRewardIds.value = deletedRewardIds.value.filter(value => value !== id)
     }
 
-    for (const reward of rewards.value) {
-      const payload = normalizeRewardPayload(reward)
+    for (const reward of updates) {
       if (reward.id) {
-        await api.admin.updateVipBenefitReward(reward.id, payload)
+        await api.admin.updateVipBenefitReward(reward.id, reward.payload)
       } else {
-        await api.admin.createVipBenefitReward(payload)
+        const response = await api.admin.createVipBenefitReward(reward.payload)
+        if (!currentContext(context)) return
+        if (!Number.isSafeInteger(response.reward?.id) || response.reward.id <= 0) throw new Error(t('admin.vipBenefits.saveFailed'))
+        const draft = rewards.value.find(item => item.localId === reward.localId)
+        if (draft) draft.id = response.reward.id
       }
+      if (!currentContext(context)) return
     }
 
-    toast.success(t('admin.vipBenefits.saveSuccess'))
-    await loadData()
+    reloadRequired.value = true
+    const refreshed = await loadData()
+    if (currentContext(context) && refreshed) toast.success(t('admin.vipBenefits.saveSuccess'))
   } catch (error: any) {
-    toast.error(error?.message || t('admin.vipBenefits.saveFailed'))
+    if (!currentContext(context)) return
+    reloadRequired.value = true
+    saveError.value = error?.message || t('admin.vipBenefits.saveFailed')
   } finally {
     saving.value = false
+    // Returning to a cached page during a write waits for its outcome before reading again.
+    if (!currentContext(context) && active.value && !disposed) void loadData()
   }
+}
+
+function retryLoad(): void {
+  if (!active.value || saving.value || loading.value) return
+  void loadData()
 }
 
 function rewardPreview(reward: EditableReward): string {
@@ -314,9 +376,26 @@ function rewardPreview(reward: EditableReward): string {
   return t('admin.vipBenefits.instancePreviewWithPlan', { plan: planName, days: reward.days, quantity: reward.quantity })
 }
 
-onMounted(() => {
-  void loadData()
-})
+watch([active, sessionKey], () => {
+  contextSequence++
+  readSequence++
+  ready.value = false
+  loadError.value = ''
+  saveError.value = ''
+  reloadRequired.value = false
+  rules.value = []
+  rewards.value = []
+  deletedRewardIds.value = []
+  packages.value = []
+  packagePlans.value = {}
+  plansLoading.value = {}
+  loading.value = active.value
+  if (active.value && !saving.value) void loadData()
+}, { flush: 'sync' })
+onMounted(() => { mounted.value = true })
+onActivated(() => { activated.value = true })
+onDeactivated(() => { activated.value = false })
+onUnmounted(() => { disposed = true; contextSequence++; readSequence++ })
 </script>
 
 <template>
@@ -327,7 +406,7 @@ onMounted(() => {
           <h2 class="text-lg font-semibold text-themed">{{ t('admin.vipBenefits.title') }}</h2>
           <p class="mt-1 text-sm text-themed-muted">{{ t('admin.vipBenefits.description') }}</p>
         </div>
-        <button class="btn btn-primary self-start lg:self-auto" :disabled="loading || saving" @click="saveRewards">
+        <button class="btn btn-primary self-start lg:self-auto" :disabled="editorDisabled" @click="saveRewards">
           {{ saving ? t('common.saving') : t('admin.vipBenefits.save') }}
         </button>
       </div>
@@ -348,15 +427,23 @@ onMounted(() => {
       </div>
     </div>
 
+    <div v-if="loadError || reloadRequired" class="card p-5" role="alert">
+      <p class="break-words text-sm text-red-600 dark:text-red-400">{{ loadError || saveError }}</p>
+      <p v-if="reloadRequired" class="mt-2 text-sm text-themed-muted">{{ t('admin.vipBenefits.reloadRequired') }}</p>
+      <button class="btn btn-secondary mt-3" type="button" :disabled="loading || saving" @click="retryLoad">
+        {{ reloadRequired ? t('admin.vipBenefits.reloadSaved') : t('common.retry') }}
+      </button>
+    </div>
+
     <div v-if="loading" class="card p-6">
       <SkeletonLoader type="table" :rows="5" />
     </div>
 
-    <div v-else-if="enabledRules.length === 0" class="card p-8 text-center text-sm text-themed-muted">
+    <div v-else-if="ready && enabledRules.length === 0" class="card p-8 text-center text-sm text-themed-muted">
       {{ t('admin.vipBenefits.noEnabledLevels') }}
     </div>
 
-    <div v-else class="space-y-4">
+    <fieldset v-else-if="ready" class="min-w-0 space-y-4" :disabled="editorDisabled">
       <section v-for="rule in enabledRules" :key="rule.level" class="card overflow-hidden">
         <div class="flex flex-col gap-3 border-b border-themed px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div class="flex items-center gap-3">
@@ -481,10 +568,10 @@ onMounted(() => {
       </section>
 
       <div class="flex justify-end">
-        <button class="btn btn-primary" :disabled="saving" @click="saveRewards">
+        <button class="btn btn-primary" :disabled="editorDisabled" @click="saveRewards">
           {{ saving ? t('common.saving') : t('admin.vipBenefits.save') }}
         </button>
       </div>
-    </div>
+    </fieldset>
   </div>
 </template>

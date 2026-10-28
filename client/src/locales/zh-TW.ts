@@ -4398,6 +4398,8 @@ pool: {
             save: '儲存福利設定',
             saveSuccess: '會員福利設定已儲存',
             saveFailed: '儲存會員福利設定失敗',
+            reloadRequired: '部分修改可能已經儲存。請重新讀取並核對已儲存的結果，再繼續編輯；尚未儲存的草稿會被取代。',
+            reloadSaved: '重新讀取已儲存結果',
             loadFailed: '載入會員福利設定失敗',
             loadPlansFailed: '載入套餐方案失敗',
             noEnabledLevels: '暫無已啟用的使用者 VIP 等級，請先在使用者 VIP 等級中啟用等級。',

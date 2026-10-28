@@ -3270,6 +3270,8 @@ pool: {
             save: 'Save Benefits',
             saveSuccess: 'Membership benefits saved',
             saveFailed: 'Failed to save membership benefits',
+            reloadRequired: 'Some changes may already be saved. Reload and review the saved results before editing again. Unsaved drafts will be replaced.',
+            reloadSaved: 'Reload saved results',
             loadFailed: 'Failed to load membership benefits',
             loadPlansFailed: 'Failed to load package plans',
             noEnabledLevels: 'No user VIP levels are enabled yet. Enable levels in User VIP Levels first.',
