@@ -6,6 +6,7 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",
     "test:review-badge-motion": "node ../scripts/test-badge-motion.mjs",
     "test:review-badge-styles": "node ../scripts/test-badge-styles.mjs",

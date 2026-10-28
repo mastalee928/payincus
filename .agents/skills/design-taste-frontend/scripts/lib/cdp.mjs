@@ -61,6 +61,39 @@ export function sweepProfiles(base) {
   }
 }
 
+export function waitForChromeEndpoint(proc, profileDir, { timeoutMs = 45000, pollMs = 100 } = {}) {
+  return new Promise((resolve, reject) => {
+    let stderr = '', settled = false;
+    const finish = (error, url) => {
+      if (settled) return;
+      settled = true; clearTimeout(deadline); clearInterval(poll);
+      proc.stderr.off('data', onData); proc.off('error', onError); proc.off('exit', onExit);
+      if (error) reject(new Error(error + (stderr ? '\nChrome stderr: ' + stderr.slice(-2000) : '\nChrome emitted no startup diagnostics.')));
+      else resolve(url);
+    };
+    const readPort = () => {
+      try {
+        const [port, endpoint] = readFileSync(join(profileDir, 'DevToolsActivePort'), 'utf8').trim().split(/\r?\n/);
+        if (/^[0-9]+$/.test(port) && Number(port) > 0 && Number(port) <= 65535 && /^\/devtools\/browser\/[a-zA-Z0-9-]+$/.test(endpoint)) {
+          finish(null, `ws://127.0.0.1:${port}${endpoint}`);
+        }
+      } catch { /* Chrome can publish the port file before or without its stderr line. */ }
+    };
+    const onData = data => {
+      stderr = (stderr + data.toString()).slice(-8192);
+      const match = stderr.match(/DevTools listening on (ws:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d+\/devtools\/browser\/[a-zA-Z0-9-]+)/);
+      if (match) finish(null, match[1]);
+    };
+    const onError = error => finish('Chrome spawn failed: ' + error.message);
+    const onExit = (code, signal) => finish(`Chrome exited before becoming ready (code ${code}, signal ${signal || 'none'}).`);
+    const deadline = setTimeout(() => { readPort(); if (!settled) finish(`Chrome did not become ready within ${timeoutMs}ms.`); }, timeoutMs);
+    const poll = setInterval(readPort, pollMs);
+    proc.stderr.on('data', onData); proc.once('error', onError); proc.once('exit', onExit);
+    if (proc.exitCode !== null && proc.exitCode !== undefined) onExit(proc.exitCode, proc.signalCode);
+    else readPort();
+  });
+}
+
 export class Browser {
   static async launch({ width = 1440, height = 900, extraArgs = [] } = {}) {
     if (typeof WebSocket === 'undefined') {
@@ -96,19 +129,13 @@ export class Browser {
       '--force-color-profile=srgb', '--autoplay-policy=no-user-gesture-required',
       '--enable-unsafe-swiftshader', `--window-size=${width},${height}`, ...extraArgs, 'about:blank',
     ];
-    const proc = spawn(exe, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const proc = spawn(exe, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
     pid = proc.pid;
     claim(pid);
-    const wsUrl = await new Promise((resolve, reject) => {
-      let buf = '';
-      const t = setTimeout(() => reject(new Error('Chrome did not start within 20s')), 20000);
-      proc.stderr.on('data', (d) => {
-        buf += d.toString();
-        const m = buf.match(/DevTools listening on (ws:\/\/[^\s]+)/);
-        if (m) { clearTimeout(t); resolve(m[1]); }
-      });
-      proc.on('exit', (code) => { clearTimeout(t); reject(new Error('Chrome exited early, code ' + code + '\n' + buf.slice(-600))); });
-    });
+    let wsUrl;
+    try { wsUrl = await waitForChromeEndpoint(proc, dir); }
+    catch (error) { drop(); throw error; }
+    proc.stderr.resume();
     const b = new Browser();
     b.proc = proc; b.dir = dir; b.nextId = 1; b.pending = new Map(); b.listeners = new Map();
     b.ws = new WebSocket(wsUrl);

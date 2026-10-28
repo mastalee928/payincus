@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 浏览器专项启动诊断补强
+
+- R231 `71c6038`已push且远端一致。941cbdc/19a0ef8的CI都曾在同一个init-command-selector步骤出现Chrome启动20秒超时，前者rerun成功，后者仍待；原helper只等stderr且超时不输出已收集诊断，现有日志不足以判定Linux真实根因。
+- `.agents/skills/design-taste-frontend/scripts/lib/cdp.mjs`启动同时检查自己的DevToolsActivePort和分段stderr、只接收本机调试地址；45秒有界截止、spawn/退出错误与限长stderr回报，失败清自身Chrome/临时profile，成功后继续排空stderr，Windows后台窗口隐藏。没有重试或跳过任何测试断言。
+- `logs/takeover-browser-startup-guards-final.log`分段日志/仅端口文件/非法端口/spawn/退出/超时/限长及监听清理通过；`takeover-browser-startup-chrome.log`真实Chrome完整命令选择器通过，`takeover-browser-startup-image.log`真实图片恢复通过，node --check与191常规/68排除清单校验通过。本项仅测试工具，不改产品构建；Linux失败是否消失须看后续CI，不提前记根治。
+- 接着R232/233实例徽章弹窗，已读源；327持续。
+
 ## 2026-10-28 R1-231 徽章中心读取与动作生命周期
 
 - R227 `19a0ef8`已push并核远端一致；CI40715873444再次在Chrome启动20秒超时，已rerun失败任务，待最终。R228 CI40714895982最终success。
