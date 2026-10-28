@@ -24,11 +24,14 @@ function clampPagination(
   fallbackPageSize: number,
   maxPageSize: number = 100
 ): { page: number; pageSize: number } {
+  const safePageSize = Number.isSafeInteger(pageSize) && pageSize !== undefined
+    ? Math.min(Math.max(pageSize, 1), maxPageSize)
+    : fallbackPageSize
+  const candidatePage = Number.isSafeInteger(page) && page !== undefined && page > 0 ? page : 1
+  const offset = (candidatePage - 1) * safePageSize
   return {
-    page: Number.isInteger(page) && page !== undefined && page > 0 ? page : 1,
-    pageSize: Number.isInteger(pageSize) && pageSize !== undefined
-      ? Math.min(Math.max(pageSize, 1), maxPageSize)
-      : fallbackPageSize
+    page: Number.isSafeInteger(offset) && offset <= 2_147_483_647 ? candidatePage : 1,
+    pageSize: safePageSize
   }
 }
 
@@ -38,12 +41,13 @@ function normalizeTicketStatus(status: TicketStatus | 'active' | undefined): Tic
 }
 
 function normalizeSearchTerm(search: string | undefined): string {
-  return search?.trim().slice(0, 128) ?? ''
+  return typeof search === 'string' ? search.trim().slice(0, 128) : ''
 }
 
 function getSearchId(searchTerm: string): number | null {
+  if (!/^\d+$/.test(searchTerm)) return null
   const parsed = Number(searchTerm)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 2_147_483_647 ? parsed : null
 }
 
 function addMinutes(date: Date, minutes: number): Date {

@@ -6,6 +6,7 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:review-ticket-pagination": "node --import tsx scripts/test-review-ticket-pagination.ts",
     "test:review-transfer-cleanup-integration": "node --import tsx scripts/test-review-transfer-cleanup-integration.ts",
     "test:review-auto-snapshot-integration": "node --import tsx scripts/test-review-auto-snapshot-integration.ts",
     "test:review-proxy-site-operations": "node --import tsx scripts/test-review-proxy-site-operations.ts",

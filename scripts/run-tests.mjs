@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-ticket-pagination', 'requires isolated local *_pool_test PostgreSQL; real Fastify ticket list/message pagination and numeric search boundaries'],
   ['test:review-restore-transport', 'requires OpenSSL; actual local mTLS stream restore, total deadlines and exact existence errors'],
   ['test:review-restore-authorization', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; real restore admission/claim/dispatch and current authorization with mTLS refusal boundary'],
   ['test:review-restore-replacement', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; real worker replacement, persisted UUID/device identity, failure fences and mTLS Incus fixture'],

@@ -21,11 +21,13 @@ function sectionBetween(source: string, startMarker: string, endMarker: string):
 
 assert.ok(
   ticketsDbSource.includes('function clampPagination(') &&
-    ticketsDbSource.includes('page: Number.isInteger(page) && page !== undefined && page > 0 ? page : 1') &&
+    ticketsDbSource.includes('const candidatePage = Number.isSafeInteger(page) && page !== undefined && page > 0 ? page : 1') &&
+    ticketsDbSource.includes('Number.isSafeInteger(offset) && offset <= 2_147_483_647 ? candidatePage : 1') &&
     ticketsDbSource.includes('Math.min(Math.max(pageSize, 1), maxPageSize)') &&
     ticketsDbSource.includes("function normalizeTicketStatus(status: TicketStatus | 'active' | undefined)") &&
     ticketsDbSource.includes('function normalizeSearchTerm(search: string | undefined): string') &&
-    ticketsDbSource.includes("return search?.trim().slice(0, 128) ?? ''") &&
+    ticketsDbSource.includes("return typeof search === 'string' ? search.trim().slice(0, 128) : ''") &&
+    ticketsDbSource.includes('Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 2_147_483_647 ? parsed : null') &&
     ticketsDbSource.includes('function getSearchId(searchTerm: string): number | null'),
   'ticket DB helpers must define shared pagination, status, search, and numeric-search guards'
 )

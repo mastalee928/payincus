@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-28 R1-183 工单分页与数字搜索
+
+- 旧恢复无身份回滚修复`5e3d3a1860892d9b14ecbc702bbaa7db99c014ed`已推送main、远端一致，[CI40657754668](https://github.com/mastalee928/payincus/actions/runs/40657754668)success。
+- 四个工单列表/消息入口拒绝非完整十进制与不安全整数，DB共享分页再次限制乘积offset到有符号32位范围；超界回首页且响应元数据一致，正常pageSize仍最多100。数字搜索只将可表示的正整数ID加入PG条件，大数/科学记数/十六进制继续作为原文字匹配；重复search参数不再调用数组trim报500。
+- `logs/takeover-ticket-pagination-r3.log`真实PG/Fastify通过四路由与四DB helper异常值/重复参数/偏移临界/有效二页及末页/100上限/大数字主题搜索，原工单消息未改。前两次fixture漏注册requireAdmin导致路由注册失败，补全后实际运行通过，不当作业务失败；第一轮孤立测试用户/host无客户数据。
+- 后端build/type-check `takeover-ticket-pagination-build.log`、专项类型检查`takeover-ticket-pagination-test-types-final.log`、4/4工单守卫`takeover-ticket-pagination-guards.log`通过；清单188项/55专项合法`takeover-ticket-pagination-manifest.log`，新专项已接入CI。未前端/浏览器/生产验收，不重复无关构建。R186/187工单写入授权与关联目标是后续独立小项，327未全部完成。
+
 ## 2026-10-28 旧恢复任务拒绝无身份回滚
 
 - 上批`f6571c6dfaf8ef6c0f5d78677d3da845a36766c3`已推送main并核远端一致，[CI40656767813](https://github.com/mastalee928/payincus/actions/runs/40656767813)success。

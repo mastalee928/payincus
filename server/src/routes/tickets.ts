@@ -91,8 +91,9 @@ function parseOptionalPositiveId(value: unknown): number | undefined | null {
 }
 
 function parsePositiveInteger(value: unknown, fallback: number, max?: number): number {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !POSITIVE_INTEGER_ID_RE.test(value))) return fallback
   const parsed = Number(value)
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     return fallback
   }
 

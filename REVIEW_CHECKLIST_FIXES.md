@@ -212,7 +212,7 @@
 | R1-180 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-181 | 已有防护 | 保留初审结论 | 逐项事务重新读resolved/最后回复，updateMany约束updatedAt；仅实际closedTickets发送通知日志。 |
 | R1-182 | 已有防护 | 保留初审结论 | 逐项事务重新读resolved/最后回复，updateMany约束updatedAt；仅实际closedTickets发送通知日志。 |
-| R1-183 | 部分存在 | 待精修/运行复核 | 正整数parser拒绝非整数/非有限但未safe integer；部分take有max，offset边界待独立DB验证。 |
+| R1-183 | 部分存在 | 源码已修/隔离PG验证通过 | 完整十进制/safe integer与DB offset乘积限32位；四路由/helper非法及重复参数、有效二页/末页/100上限/偏移临界通过takeover-ticket-pagination-r3.log。数字搜索超PG整数范围按原文字匹配，重复search不500；4守卫、后端build与专项类型通过，浏览器/生产未验 |
 | R1-184 | 已有防护 | 保留初审结论 | strict positive safe ID；无效optional返回null并报错，不静默截断。 |
 | R1-185 | 已有防护 | 保留初审结论 | strict positive safe ID；无效optional返回null并报错，不静默截断。 |
 | R1-186 | 存在 | 待精修/运行复核 | 网站工单路由先授权，图片上传等await之后事务直接create；事务未接actor/session核验，认证后封禁/注销/降权窗口待DB实证。 |
