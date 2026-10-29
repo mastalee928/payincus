@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R317登录重复阶段：两handleLogin函数第一行拒loading、演示不覆在途输入、OAuth函数/按钮同gate、管理员等待原safe push完成；真实Chrome先红2次→final-r3两端重复/重试/console/challenge输入/TOTP恢复码原分支、3守卫/lint/双端types build最终exit0/dist见HANDOFF。唯一203有修复复验（含部分）/68已有防护或实现不同/56待精修，登录离页/其它全流程和完整灾备另待。
+
 2026-10-29 R316渠道保存阶段：字段/关闭busy、固定payload/id/session/draft、旧回执与真实message/create channel确认、原掩码省略/编辑含省略号仍后端验证已修；Chrome36旧回执/十非法/掩码与正常、editor20读/bindings18回执回归、4守卫/lint/最终双端types build exit0/dist见HANDOFF。202/68/57含部分不变，其它配置/写入/真实TG和后台审计权限另续；此前六批CI到cdd11a2a已success。
 
 2026-10-29 R316渠道详情读取阶段：current ID/seq/session/show/缓存/卸载及ready门禁、严格masked详情、持久error#ID/DOM retry和关闭秘密清理已修；实际Chrome20旧读取/八非法/同sid/false/三语retry及bindings18回执回归、4守卫/lint/双端types build最终exit0/dist见HANDOFF。202/68/57含部分不加编号，保存字段/回执及后台真实渠道另续。
@@ -422,7 +424,7 @@
 | R1-314 | 存在，部分已修 | 当前抽奖Chrome及构建守卫通过 | 单/十连函数与按钮即时互斥，固定活动/奖品快照/account/role/sid/page/tab，旧写回执及单动画timer随离页/缓存/卸载撤销；辅助积分/活动读取独立代次。真实Chrome40旧回执、same sid、合法0、禁选择/动画busy/徽章结果/失败重试及3守卫/lint/双端types build/dist通过，日志误计已纠正见HANDOFF；真实积分扣除/奖励全流程、后台授权与断网幂等仍待。 |
 | R1-315 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
 | R1-316 | 存在，部分已修 | 绑定/渠道读取与保存Chrome及构建守卫通过 | bindings搜索分页18旧回执/九非法及error retry/0；editor20旧读取/八非法/ready门禁/三语retry/关闭秘密；create/update固定payload/session/draft与busy/36旧回执/十非法/真实确认/掩码保持均通过，4守卫/lint/双端types build/dist。其它配置/删测试解绑写入、后台权限审计和真实TG仍待，见HANDOFF。 |
-| R1-317 | 存在 | 待精修/运行复核 | Login/AdminLogin handleLogin缺函数入口loading guard；按钮disabled仅阻常规鼠标，不能防重复事件/函数调用。 |
+| R1-317 | 存在，部分已修 | 重复提交Chrome及构建守卫通过 | 两端handleLogin第一行拒loading，演示/OAuth同gate，管理员等安全push完成。实际Chrome重复零额外写、失败重试/正确console/缺输入challenge与TOTP恢复码payload，3守卫/lint/双端types build/dist通过；离页/跨页及真实认证全流程另验，见HANDOFF。 |
 | R1-318 | 已有防护 | 保留初审结论 | manualStartHint已描述重装后自动启动。 |
 | R1-319 | 存在 | 待精修/运行复核 | rechargeNotice仍写PUSH免费，而transferFee可非0；zh-CN/en均见原文。 |
 | R1-320 | 存在 | 待精修/运行复核 | 前端提示/校验6位与后端8位加复杂度不一致。 |

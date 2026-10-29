@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-317 两端登录即时重复提交门禁
+
+- 4da9fdf2已push。login-before实际Chrome连续handleLogin发2次先红。Login/AdminLogin函数第一行现在拒loading，演示登录先拒在途以免覆盖当前输入；OAuth函数和按钮也拒在途。管理端await原安全router.push到完成再解锁。仅补入口互斥，不改authStore、后端登录/2FA/恢复码/Turnstile规则或双端账号驱离。
+- login-final-r3实际Vue/Chrome两端重复函数/演示/在途OAuth、失败重试、正常各自console路由、缺输入/缺challenge零写、TOTP和恢复码原payload分支通过exit0；专项使用实际authStore和两页面，Turnstile组件仅受控token夹具，不是外部挑战验收。第一轮脚本check误引用浏览器闭包admin已修后重跑，首截图本地logo路径缺失已用client/public后最终三宽三语截图确认。3守卫（route/auth-session/i18n）、lint最终零错警/route-final、manifest194常规172专项及双端build含vue-tsc最终exit0/dist通过，无待poll，专项接CI。
+- R317进入部分修复，327唯一编号203有修复/复验（含部分）/68已有防护或实现不同/56待精修；203内其它认证/登录离页旧回执、跨页面/跨标签/后台幂等仍另验。未创建真实账号会话、调用外部OAuth/Turnstile或改生产。下一R319已核Wallet rechargeNotice及transfer_fee扣费、用户销毁零退款守卫，三语仍错误承诺销毁退款/PUSH免费，尚未改。完整327/灾备仍未完成。
+
 ## 2026-10-29 R1-316 Telegram 渠道保存草稿与真实确认
 
 - cdd11a2a已push。submit-before真实Chrome先红：保存期间四字段仍未冻结。create/update现函数即时busy，禁字段/取消/新建/另编辑；固定payload/id/read/session/draft代次，旧成功失败不关窗、不提示、不刷新，新草稿ABA亦隔离。同sid正常刷新保持；合法失败保草稿。原未改掩码Token才省略，编辑成其它含省略号字符串仍发后台严格验证，避免静默成功不生效。

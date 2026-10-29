@@ -89,6 +89,7 @@ function checkOAuthErrors(): void {
 }
 
 async function handleLogin(): Promise<void> {
+  if (loading.value) return
   if (!username.value || !password.value) {
     error.value = t('auth.enterUsernameOrEmailPassword')
     return
@@ -121,7 +122,7 @@ async function handleLogin(): Promise<void> {
 
     // 安全改进：验证 redirect 参数防止开放重定向漏洞
     const safeRedirect = getSafeRedirectUrl(route.query.redirect as string, '/admin/users')
-    router.push(safeRedirect)
+    await router.push(safeRedirect)
   } catch (err: any) {
     error.value = err?.message || String(err)
     // 如果验证码错误，清空验证码让用户重新输入
@@ -141,6 +142,7 @@ async function handleLogin(): Promise<void> {
 }
 
 async function loginWithDemoAccount(): Promise<void> {
+  if (loading.value) return
   const account = demoAccount.value
   if (!account) return
   username.value = account.username
@@ -152,6 +154,7 @@ async function loginWithDemoAccount(): Promise<void> {
 }
 
 function loginWithOAuth(provider: string): void {
+  if (loading.value) return
   // 安全改进：验证 redirect 参数防止开放重定向漏洞
   const safeRedirect = getSafeRedirectUrl(route.query.redirect as string, '/admin/users')
   window.location.href = buildApiUrl(`/oauth/authorize/${provider}?mode=login&redirect=${encodeURIComponent(safeRedirect)}`)
@@ -341,6 +344,7 @@ function getProviderInfo(provider: string): ProviderInfo {
                 getProviderInfo(provider).bgClass,
                 getProviderInfo(provider).textClass
               ]"
+              :disabled="loading"
               @click="loginWithOAuth(provider)"
             >
               <span v-html="getProviderInfo(provider).icon"></span>

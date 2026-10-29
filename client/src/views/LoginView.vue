@@ -117,6 +117,7 @@ function checkOAuthErrors(): void {
 }
 
 async function handleLogin(): Promise<void> {
+  if (loading.value) return
   if (!username.value || !password.value) {
     error.value = t('auth.enterUsernameOrEmailPassword')
     return
@@ -167,6 +168,7 @@ async function handleLogin(): Promise<void> {
 }
 
 async function loginWithDemoAccount(): Promise<void> {
+  if (loading.value) return
   const account = demoAccount.value
   if (!account) return
   username.value = account.username
@@ -178,6 +180,7 @@ async function loginWithDemoAccount(): Promise<void> {
 }
 
 function loginWithOAuth(provider: string): void {
+  if (loading.value) return
   // 安全改进：验证 redirect 参数防止开放重定向漏洞
   const safeRedirect = getSafeRedirectUrl(route.query.redirect as string, '/dashboard')
   window.location.href = buildApiUrl(`/oauth/authorize/${provider}?mode=login&redirect=${encodeURIComponent(safeRedirect)}`)
@@ -213,7 +216,6 @@ function getProviderInfo(provider: string): ProviderInfo {
   <div ref="revealRoot" class="nimbus-auth kawaii-public-shell kawaii-auth-shell kawaii-user-auth min-h-screen flex items-center justify-center p-4 sm:p-6">
     <div class="nimbus-aurora" aria-hidden="true"></div>
     <div class="relative z-10 w-full max-w-md">
-
       <!-- Logo lockup -->
       <div class="nimbus-lockup" data-reveal>
         <div class="nimbus-logo-tile">
@@ -361,6 +363,7 @@ function getProviderInfo(provider: string): ProviderInfo {
                 getProviderInfo(provider).bgClass,
                 getProviderInfo(provider).textClass
               ]"
+              :disabled="loading"
               @click="loginWithOAuth(provider)"
             >
               <span v-html="getProviderInfo(provider).icon"></span>
