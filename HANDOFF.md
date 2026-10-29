@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-305 用户余额与登录弹窗读取隔离
+
+- 29225dd已push。UsersView余额概览/明细/充值及登录记录独立请求序号，绑定当前用户、会话、弹窗代次、tab/page/filter；变化同步清数据/错误/loading，缓存离页/卸载取消接受旧回执，同sid刷新保持。接口失败持久留在对应弹窗并提供retry，不显示成功空表；验证回执金额、分页及实际用户身份（接口有userId时）。登录每页50对齐后台限幅，页数按实际pageSize计算。
+- takeover-user-dialog-reads-before.log真实Chrome先红：用户2当前20被用户1晚回执改成10；final-r2.log四类完整目标/ABA/session/account/role/logout/close/tab/cache/page/filter、旧finally不能关新loading、错误retry/非法回执、金额0/空列表/跨用户数据、同sid/卸载通过。1440/768/390中英浅深及手机四类正常数据截图已检查，修手机四标签裁切为2×2；type-check、三守卫、单文件lint零错警、manifest194/145通过。takeover-user-dialog-reads-build.log双端build含vue-tsc exit0，dist.log边界通过，专项接CI。夹具为真实Vue组件/受控API，不是客户账户数据；余额调整写回执/重复与金额输入仍下一项，宿主余额/积分/其它用户操作未扩大。
+- R305由待修进入部分修复，327现193项已有修复/复验记录（含部分）、68项已有防护/实现不同、66项待精修；剩余还包括193内未完成范围，完整327/网关灾备未完成。
+
 ## 2026-10-29 R1-304 改价请求拒绝隐式结算和版本转换
 
 - 3d90abd已push。四个单/批预览及提交入口要求settleBalance真实布尔；批量实例ID及版本快照仅接受安全整数、拒绝重复目标/快照，不再Number转换null/false/字符串。单台可选expectedVersion保留，但提供时必须为非负安全整数。已核本仓库调用仅BillingView，原页面发送数值/布尔与唯一选择；不改计费公式或旧数据。

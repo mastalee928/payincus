@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
@@ -98,7 +98,7 @@ const loginRecordsUser = ref(null)
 const loginRecords = ref([])
 const loginRecordsLoading = ref(false)
 const loginRecordsPage = ref(1)
-const loginRecordsPageSize = ref(100)
+const loginRecordsPageSize = ref(50)
 const loginRecordsTotal = ref(0)
 const loginRecordsTotalPages = ref(1)
 
@@ -133,6 +133,62 @@ const adjustBalanceForm = ref({
   reason: ''
 })
 const adjustBalanceLoading = ref(false)
+
+const dialogsActive = ref(false)
+const dialogSession = computed(() => {
+  if (!authStore.token || !authStore.isAdmin) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their complete identity. */ }
+  return `${authStore.user?.id}:${identity}`
+})
+const dialogsAvailable = computed(() => dialogsActive.value && activeTab.value === 'users' && !!dialogSession.value)
+const balanceDialogGeneration = ref(0), loginDialogGeneration = ref(0)
+const balanceContext = computed(() => [dialogsAvailable.value, dialogSession.value, showBalanceModal.value, balanceDialogGeneration.value, balanceUser.value?.id, balanceTab.value])
+const loginContext = computed(() => [dialogsAvailable.value, dialogSession.value, showLoginRecordsModal.value, loginDialogGeneration.value, loginRecordsUser.value?.id, loginRecordsPage.value, loginRecordsPageSize.value])
+onMounted(() => { dialogsActive.value = true })
+onActivated(() => { dialogsActive.value = true })
+onDeactivated(() => { dialogsActive.value = false })
+onUnmounted(() => { dialogsActive.value = false; clearTimeout(searchTimer) })
+watch([dialogsAvailable, dialogSession], () => { showBalanceModal.value = false; showLoginRecordsModal.value = false }, { flush: 'sync' })
+
+// Every read owns its request sequence and current dialog context, including ABA changes.
+function dialogReadState(context, loading, reset) {
+  let requestId = 0
+  const error = ref('')
+  const key = computed(() => JSON.stringify(context()))
+  watch(key, () => { requestId += 1; loading.value = false; error.value = ''; reset() }, { flush: 'sync' })
+  return { error, async run(available, fetch, apply) {
+    if (!available()) return
+    const id = ++requestId, snapshot = key.value
+    const current = () => available() && id === requestId && snapshot === key.value
+    loading.value = true; error.value = ''
+    try {
+      const result = await fetch()
+      if (current()) apply(result)
+    } catch (err) {
+      if (current()) error.value = err?.message || t('admin.users.loadFailed')
+    } finally { if (current()) loading.value = false }
+  } }
+}
+const balanceRead = dialogReadState(() => balanceContext.value, balanceInfoLoading, () => { balanceInfo.value = { balance: 0, totalRecharge: 0, totalConsume: 0 } })
+const logsRead = dialogReadState(() => [...balanceContext.value, balanceLogsPage.value, balanceLogsPageSize.value, balanceLogsShowLotteryGiftOnly.value], balanceLogsLoading,
+  () => { balanceLogs.value = []; balanceLogsTotal.value = 0; balanceLogsTotalPages.value = 1 })
+const rechargeRead = dialogReadState(() => [...balanceContext.value, rechargeRecordsPage.value, rechargeRecordsPageSize.value], rechargeRecordsLoading,
+  () => { rechargeRecords.value = []; rechargeRecordsTotal.value = 0; rechargeRecordsTotalPages.value = 1 })
+const loginRead = dialogReadState(() => loginContext.value, loginRecordsLoading,
+  () => { loginRecords.value = []; loginRecordsTotal.value = 0; loginRecordsTotalPages.value = 1 })
+const balanceInfoError = balanceRead.error, balanceLogsError = logsRead.error, rechargeRecordsError = rechargeRead.error, loginRecordsError = loginRead.error
+const validDialogUser = user => Number.isSafeInteger(user?.id) && user.id > 0
+const balanceReadable = tab => dialogsAvailable.value && showBalanceModal.value && validDialogUser(balanceUser.value) && balanceTab.value === tab
+const loginReadable = () => dialogsAvailable.value && showLoginRecordsModal.value && validDialogUser(loginRecordsUser.value)
+function validDialogList(result, field, errorKey) {
+  if (!result || !Array.isArray(result[field]) || !Number.isSafeInteger(result.total) || result.total < 0 ||
+    !Number.isSafeInteger(result.page) || result.page < 1 || !Number.isSafeInteger(result.pageSize) || result.pageSize < 1 ||
+    result[field].some(item => !Number.isSafeInteger(item?.id) || item.id <= 0)) throw new Error(t(errorKey))
+}
 
 // 用户积分调整弹窗
 const showPointsModal = ref(false)
@@ -525,6 +581,8 @@ async function unbindGitHub() {
 
 // 打开登录记录弹窗
 async function openLoginRecordsModal(user) {
+  if (!dialogsAvailable.value || !validDialogUser(user)) return
+  loginDialogGeneration.value += 1
   loginRecordsUser.value = user
   loginRecordsPage.value = 1
   loginRecords.value = []
@@ -534,22 +592,14 @@ async function openLoginRecordsModal(user) {
 
 // 加载登录记录
 async function loadLoginRecords() {
-  if (!loginRecordsUser.value) return
-  
-  loginRecordsLoading.value = true
-  try {
-    const response = await api.users.getLoginRecords(loginRecordsUser.value.id, {
-      page: loginRecordsPage.value,
-      pageSize: loginRecordsPageSize.value
-    })
-    loginRecords.value = response.records || []
-    loginRecordsTotal.value = response.total || 0
-    loginRecordsTotalPages.value = response.totalPages || 1
-  } catch (err) {
-    toast.error(t('admin.users.loadLoginRecordsFailed') + ': ' + err.message)
-  } finally {
-    loginRecordsLoading.value = false
-  }
+  return loginRead.run(loginReadable, () => api.users.getLoginRecords(loginRecordsUser.value.id, {
+    page: loginRecordsPage.value, pageSize: loginRecordsPageSize.value
+  }), response => {
+    validDialogList(response, 'records', 'admin.users.loadLoginRecordsFailed')
+    loginRecords.value = response.records
+    loginRecordsTotal.value = response.total
+    loginRecordsTotalPages.value = Math.max(1, Math.ceil(response.total / response.pageSize))
+  })
 }
 
 // 加载关联账号检测数据
@@ -635,6 +685,8 @@ async function sendMessage() {
 
 // 打开用户余额详情弹窗
 async function openBalanceModal(user) {
+  if (!dialogsAvailable.value || !validDialogUser(user)) return
+  balanceDialogGeneration.value += 1
   balanceUser.value = user
   balanceTab.value = 'overview'
   balanceInfo.value = { balance: user.balance || 0, totalRecharge: 0, totalConsume: 0 }
@@ -650,66 +702,54 @@ async function openBalanceModal(user) {
 
 // 加载用户余额信息
 async function loadBalanceInfo() {
-  if (!balanceUser.value) return
-  balanceInfoLoading.value = true
-  try {
-    const res = await api.admin.getUserBalance(balanceUser.value.id)
+  return balanceRead.run(() => balanceReadable('overview'), () => api.admin.getUserBalance(balanceUser.value.id), res => {
+    if (res?.userId !== balanceUser.value.id || !['balance', 'totalRecharge', 'totalConsume'].every(key => typeof res[key] === 'number' && Number.isFinite(res[key]))) {
+      throw new Error(t('admin.users.loadBalanceFailed'))
+    }
     balanceInfo.value = {
       balance: res.balance,
       totalRecharge: res.totalRecharge,
       totalConsume: res.totalConsume
     }
-  } catch (err) {
-    toast.error(t('admin.users.loadBalanceFailed') + ': ' + err.message)
-  } finally {
-    balanceInfoLoading.value = false
-  }
+  })
 }
 
 // 加载余额明细
 async function loadBalanceLogs() {
-  if (!balanceUser.value) return
-  balanceLogsLoading.value = true
-  try {
-    const res = await api.admin.getUserBalanceLogs(balanceUser.value.id, {
+  return logsRead.run(() => balanceReadable('logs'), () => api.admin.getUserBalanceLogs(balanceUser.value.id, {
       page: balanceLogsPage.value,
       pageSize: balanceLogsPageSize.value,
       lotteryGift: balanceLogsShowLotteryGiftOnly.value ? 'only' : 'exclude'
-    })
-    balanceLogs.value = res.logs || []
-    balanceLogsTotal.value = res.total || 0
-    balanceLogsTotalPages.value = Math.ceil(res.total / balanceLogsPageSize.value) || 1
-  } catch (err) {
-    toast.error(t('admin.users.loadBalanceLogsFailed') + ': ' + err.message)
-  } finally {
-    balanceLogsLoading.value = false
-  }
+    }), res => {
+    validDialogList(res, 'logs', 'admin.users.loadBalanceLogsFailed')
+    if (res.logs.some(item => !['amount', 'balanceBefore', 'balanceAfter'].every(key => typeof item[key] === 'number' && Number.isFinite(item[key])))) throw new Error(t('admin.users.loadBalanceLogsFailed'))
+    balanceLogs.value = res.logs
+    balanceLogsTotal.value = res.total
+    balanceLogsTotalPages.value = Math.max(1, Math.ceil(res.total / res.pageSize))
+  })
 }
 
 // 加载充值记录
 async function loadRechargeRecords() {
-  if (!balanceUser.value) return
-  rechargeRecordsLoading.value = true
-  try {
-    const res = await api.admin.getRechargeOrders({
+  return rechargeRead.run(() => balanceReadable('recharge'), () => api.admin.getRechargeOrders({
       page: rechargeRecordsPage.value,
       pageSize: rechargeRecordsPageSize.value,
       userId: balanceUser.value.id
-    })
-    rechargeRecords.value = res.records || []
-    rechargeRecordsTotal.value = res.total || 0
-    rechargeRecordsTotalPages.value = Math.ceil(res.total / rechargeRecordsPageSize.value) || 1
-  } catch (err) {
-    toast.error(t('admin.users.loadRechargeRecordsFailed') + ': ' + err.message)
-  } finally {
-    rechargeRecordsLoading.value = false
-  }
+    }), res => {
+    validDialogList(res, 'records', 'admin.users.loadRechargeRecordsFailed')
+    if (res.records.some(item => item.userId !== balanceUser.value.id || typeof item.amount !== 'number' || !Number.isFinite(item.amount))) throw new Error(t('admin.users.loadRechargeRecordsFailed'))
+    rechargeRecords.value = res.records
+    rechargeRecordsTotal.value = res.total
+    rechargeRecordsTotalPages.value = Math.max(1, Math.ceil(res.total / res.pageSize))
+  })
 }
 
 // 切换余额弹窗TAB
 function switchBalanceTab(tab) {
+  if (!['overview', 'logs', 'recharge', 'adjust'].includes(tab)) return
   balanceTab.value = tab
-  if (tab === 'logs' && balanceLogs.value.length === 0) {
+  if (tab === 'overview') loadBalanceInfo()
+  else if (tab === 'logs' && balanceLogs.value.length === 0) {
     loadBalanceLogs()
   } else if (tab === 'recharge' && rechargeRecords.value.length === 0) {
     loadRechargeRecords()
@@ -743,6 +783,7 @@ async function submitAdjustBalance() {
     )
     toast.success(t('admin.users.balanceAdjusted'))
     adjustBalanceForm.value = { type: 'add', amount: '', reason: '' }
+    balanceTab.value = 'overview'
     // 刷新余额信息和明细
     await loadBalanceInfo()
     if (balanceLogs.value.length > 0) {
@@ -750,8 +791,6 @@ async function submitAdjustBalance() {
     }
     // 刷新用户列表
     await loadUsers()
-    // 切换到概览TAB
-    balanceTab.value = 'overview'
   } catch (err) {
     toast.error(t('admin.users.balanceAdjustFailed') + ': ' + err.message)
   } finally {
@@ -2478,7 +2517,7 @@ function _getQuotaPercent(used, limit) {
     <!-- 登录记录弹窗 -->
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showLoginRecordsModal" class="modal-overlay">
+        <div v-if="showLoginRecordsModal" data-user-dialog="login" class="modal-overlay">
           <div class="modal-backdrop" @click="showLoginRecordsModal = false"></div>
           <div class="modal-content max-w-2xl">
             <div class="modal-header">
@@ -2496,6 +2535,9 @@ function _getQuotaPercent(used, limit) {
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
+              </div>
+              <div v-else-if="loginRecordsError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">
+                {{ loginRecordsError }} <button type="button" class="underline ml-2" @click="loadLoginRecords">{{ t('common.retry') }}</button>
               </div>
               <!-- 无记录 -->
               <div v-else-if="loginRecords.length === 0" class="text-center py-8 text-themed-muted text-sm">
@@ -2614,7 +2656,7 @@ function _getQuotaPercent(used, limit) {
     <!-- 用户余额详情弹窗 -->
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showBalanceModal" class="modal-overlay">
+        <div v-if="showBalanceModal" data-user-dialog="balance" class="modal-overlay">
           <div class="modal-backdrop" @click="showBalanceModal = false"></div>
           <div class="modal-content max-w-2xl">
             <div class="modal-header">
@@ -2626,7 +2668,7 @@ function _getQuotaPercent(used, limit) {
               </button>
             </div>
             <!-- TAB 切换 -->
-            <div class="flex gap-1 border-b border-themed px-4">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-1 border-b border-themed px-4">
               <button
                 class="px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px"
                 :class="balanceTab === 'overview' ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400' : 'border-transparent text-themed-muted hover:text-themed'"
@@ -2664,6 +2706,9 @@ function _getQuotaPercent(used, limit) {
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
+                </div>
+                <div v-else-if="balanceInfoError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">
+                  {{ balanceInfoError }} <button type="button" class="underline ml-2" @click="loadBalanceInfo">{{ t('common.retry') }}</button>
                 </div>
                 <div v-else class="grid grid-cols-3 gap-4">
                   <div class="bg-themed-tertiary rounded-lg p-4 text-center">
@@ -2707,6 +2752,9 @@ function _getQuotaPercent(used, limit) {
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
+                </div>
+                <div v-else-if="balanceLogsError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">
+                  {{ balanceLogsError }} <button type="button" class="underline ml-2" @click="loadBalanceLogs">{{ t('common.retry') }}</button>
                 </div>
                 <div v-else-if="balanceLogs.length === 0" class="text-center py-8 text-themed-muted text-sm">
                   {{ t('admin.users.noBalanceLogs') }}
@@ -2763,6 +2811,9 @@ function _getQuotaPercent(used, limit) {
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
+                </div>
+                <div v-else-if="rechargeRecordsError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">
+                  {{ rechargeRecordsError }} <button type="button" class="underline ml-2" @click="loadRechargeRecords">{{ t('common.retry') }}</button>
                 </div>
                 <div v-else-if="rechargeRecords.length === 0" class="text-center py-8 text-themed-muted text-sm">
                   {{ t('admin.users.noRechargeRecords') }}

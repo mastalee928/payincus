@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：29225dd已push。R305 UsersView四类余额/登录读取session/user/dialog/tab/page/filter隔离、error/retry、非法/0/空、login页50及手机标签2×2已修；Chrome before先红→final-r2全矩阵，types/3守卫/lint0错警/manifest194/145及三宽截图通过。双端build含vue-tsc exit0/dist通过，无待poll，准备单项push。下一项余额adjust写回执/忙/关闭/金额；相关函数API、后台balance route及adjust审批守卫已读，继续读changeBalance金额规则后实施。193/68/66含部分，R304余额锁/归属/通知、R303/R269/Go proc/完整灾备仍待。PG55438正常，不停库。
+
 > **最新接续**：3d90abd已push。R304单/批preview/save真布尔settle、batch数字安全ID/version及重复拒绝已修；PG input-before字符串false先红200→input-final67反例400零写及原结算/审计/权限竞争全回归通过，3守卫/manifest194/144/diff及后端build含tsc exit0，准备单项push。前端未改，原调用已核保持兼容。继续原编号R305用户弹窗读取/写入生命周期，R304余额锁/归属/通知及其它部分未完成范围保留；192/68/67、327/完整灾备未完成。c6be378 CI40820987374 success，后续4提交仍running。PG55438正常；启动wrapper9943工具句柄未结束，pg_ctl已退出，不停库。
 
 > **最新接续**：91e8e57已push。R304事务内当前admin/status/session/撤销与实例行锁已修，价格不变也核验；PG auth-before封禁旧请求200先红→auth-final真实八竞争/16身份+不变/较新iat对照/deleted-free四竞争及原审计结算回归通过，3守卫/manifest194/144/diff及后端build含tsc exit0，准备单项push。代码复核实际余额日志已从更新后余额反推before，不误报旧快照日志。继续参数settleBalance真布尔及ID/version宽松转换、余额锁顺序/归属及支付记录变化、通知持久化；R304仍部分。PG55438正常，启动wrapper9943仅工具句柄未结束，pg_ctl已退出，不停库。192/68/67、R303/R269/Go proc/完整灾备未完成。

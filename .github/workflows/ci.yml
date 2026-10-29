@@ -277,6 +277,8 @@ jobs:
         run: pnpm --filter server test:review-billing-price-preview
       - name: Admin price writes keep their draft and session through completion
         run: pnpm --filter server test:review-billing-price-submit
+      - name: User balance and login dialogs keep their current target and read scope
+        run: pnpm --filter server test:review-user-dialog-reads
       - name: Host redeem reads stay with the current host and code
         run: pnpm --filter server test:review-host-redeem-reads
       - name: Host redeem writes retain their selected target and result
