@@ -348,6 +348,8 @@ jobs:
         run: pnpm --filter server test:review-ssh-key-list
       - name: SSH key writes reject conflicts and isolate private display results
         run: pnpm --filter server test:review-ssh-key-submit
+      - name: Login history recognizes mobile devices and specific browsers
+        run: pnpm --filter server test:review-login-history-devices
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

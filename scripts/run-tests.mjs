@@ -128,6 +128,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-ssh-key-dates', 'requires Chrome/Edge and local Vite; actual SSH key creation dates from server camelCase response and three-language responsive display without key mutations'],
   ['test:review-ssh-key-list', 'requires Chrome/Edge and local Vite; actual SSH inventory read ordering, page contraction, strict reads and session/cache/unmount isolation with a controlled API'],
   ['test:review-ssh-key-submit', 'requires Chrome/Edge and local Vite; real SSH mutation duplicates, conflicts, submitted drafts and session/private-result clipboard/download isolation using display-only markers'],
+  ['test:review-login-history-devices', 'requires Chrome/Edge and local Vite; actual login-history device/browser classification and three-language responsive DOM using controlled read-only records'],
   ['test:snapshot-policy-schedule-integration', 'requires isolated local *_pool_test PostgreSQL; actual snapshot policy route changed/unchanged interval schedules, disable/re-enable and current account authorization without Incus writes'],
   ['test:snapshot-mutation-authorization', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; real snapshot route observed account/owner/transfer races, current source/state and restore/delete exclusion through authenticated Incus fixture'],
   ['test:review-login-submit', 'requires Chrome/Edge and local Vite; actual user/admin login duplicate and demo busy gates, retry, safe console routing and missing credential/challenge checks with deferred auth API'],

@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-079 登录历史移动设备与浏览器识别
+
+- 实际Chrome调用原组件先红Android被Linux抢先匹配；iPhone/iPad与Opera同类顺序问题修为移动设备优先、Opera/Edge/Firefox/Chrome先于Safari，补CriOS/FxiOS。不改变后端登录记录、IP隐藏规则、鉴权或分页，R078列表生命周期单独继续。
+- read-only实际Vue/Chrome11个UA样本含Android/iPhone/iPad、Opera、桌面与iOS Chrome/Firefox/Edge通过exit0，三语三宽DOM与截图已看。5对应frontend/auth-session/demo守卫、lint/语法/diff/manifest194常规186专项接CI有效；双端types build55992及最后dist最终exit0，无待poll。仅设备识别精修，原深色低对比/整页UI与真实账户另验。
+- b3ac8a57已push核远端，217含部分/68已有不同/42待；R078实际第3页先回、第2页后回覆盖已先红，新test-login-history-reads未完成留工作区，未加入本阶段。
+
 ## 2026-10-29 R1-075 SSH写操作与私钥展示生命周期
 
 - 真实Chrome重复create先红2请求；三写现共用busy函数门禁，固定提交草稿/当前delete ID，严格确认message及create/generate key回执。旧account/role/sid/ABA/cache/unmount回执不得发通知、刷新新账户或展示私钥，旧在途锁在缓存返回后仍保持至完成；生成结果窗口未关闭前禁止再次生成覆盖。输入长度/当前库存/字段取消在途保护与三语持久失败提示已补。

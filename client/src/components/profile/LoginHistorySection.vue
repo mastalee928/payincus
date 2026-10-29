@@ -98,11 +98,11 @@ function formatDevice(userAgent: string | null): string {
   if (!userAgent) return '-'
   
   // 简单解析 User-Agent
+  if (userAgent.includes('Android')) return 'Android'
+  if (userAgent.includes('iPhone') || userAgent.includes('iPad')) return 'iOS'
   if (userAgent.includes('Windows')) return 'Windows'
   if (userAgent.includes('Mac OS')) return 'macOS'
   if (userAgent.includes('Linux')) return 'Linux'
-  if (userAgent.includes('Android')) return 'Android'
-  if (userAgent.includes('iPhone') || userAgent.includes('iPad')) return 'iOS'
   
   return userAgent.substring(0, 30) + (userAgent.length > 30 ? '...' : '')
 }
@@ -110,11 +110,11 @@ function formatDevice(userAgent: string | null): string {
 function formatBrowser(userAgent: string | null): string {
   if (!userAgent) return '-'
   
-  if (userAgent.includes('Chrome') && !userAgent.includes('Edg')) return 'Chrome'
-  if (userAgent.includes('Firefox')) return 'Firefox'
-  if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) return 'Safari'
-  if (userAgent.includes('Edg')) return 'Edge'
   if (userAgent.includes('Opera') || userAgent.includes('OPR')) return 'Opera'
+  if (userAgent.includes('Edg')) return 'Edge'
+  if (userAgent.includes('Firefox') || userAgent.includes('FxiOS')) return 'Firefox'
+  if (userAgent.includes('Chrome') || userAgent.includes('CriOS')) return 'Chrome'
+  if (userAgent.includes('Safari')) return 'Safari'
   
   return '-'
 }
