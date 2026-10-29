@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-098 宿主信息读取与轮询绑定当前页面
+
+- 真实Chrome先红旧读2覆盖新读3。实例配额、流量历史、Agent状态现各自使用读取序号，并绑定宿主ID、账户/role/sid、同步代次及页面活动状态；切宿主、账户、缓存离页和卸载立即清旧数据及安装命令、停止轮询。已排队旧轮询拒读；当前自动轮询不与未完成读取重叠。同sid正常刷新token保持当前请求。
+- takeover-host-info-reads-final-complete真实Vue/Chrome覆盖三类反序、18组宿主/账户/ABA/cache/unmount旧成功失败回执与旧排队轮询、缓存返回三读、18种非法响应与实际retry、失败refresh保留最后成功值；session70734已确认最终exit0。三块错误持久显示、不以读取失败假报零资源/空历史或未安装；重试按钮手机44px、focus和长错误换行保留。
+- client type-check、frontend route/i18n、host-pool守卫、ESLint无错警、脚本语法及manifest分类通过；双端最终build含vue-tsc（session93189）最终exit0，最终dist守卫exit0，无待poll。此前final-2夹具ABA失败和初轮TS接口instances缺声明错误已修，未计初轮通过。R101异常metric回归已通过。
+- taste沿R101 Achromatic ledger seed242843060，未重抽方向；最终浅深1440/768/390全部12图已看，0 FAIL/1 WARN：初读失败时资源卡与基本信息卡保持同排高度，空白用于避免状态切换移动邻块，未隐藏数据或豁免检测。浅色错误文字4.4:1已改为较深红通过；static仍32既有WARN，同R101，不声称整体UI零警告。
+- af7d42e1已push核远端。本项阶段保存后225有修复/复验含部分、68已有不同、34待；R099写回执、R100复制和真实宿主/完整327/网关灾备仍待。仅源码与隔离组件受控读取证据，未发行/生产/客户操作；PG55438保留。
+
 ## 2026-10-30 R1-101 宿主监控异常指标安全渲染
 
 - 实际Vue/Chrome先红value.toFixed is not a function；后端HMAC报告保留原始resources/metrics，旧记录字段并非TS保证。仅在HostInfoTab显示前检查object容器与数值类型/有限/非负，未测量为-、进度空；真实0%/0负载/0m/0核心保持零，合法超过100%的标值保留、bar限定100%，不改后端上报/客户行为。

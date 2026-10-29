@@ -25,7 +25,7 @@ try {
   await run(agent => {
     const h = window.hostInfoHarness
     h.pending.find(p => p.kind === 'instances').resolve({ instances: [], total: 0 })
-    h.pending.find(p => p.kind === 'traffic').resolve({ data: [], summary: { totalUsedFormatted: '0', totalLimitFormatted: '0' }, periodStart: '2026-10-01', periodEnd: '2026-10-31' })
+    h.pending.find(p => p.kind === 'traffic').resolve({ data: [], summary: { totalUsed: '0', totalUsedFormatted: '0', totalLimit: '0', totalLimitFormatted: '0' }, periodStart: '2026-10-01', periodEnd: '2026-10-31' })
     h.pending.find(p => p.kind === 'agent').resolve({ host: { id: 11, name: h.host.value.name }, agent })
     h.view().stopAgentStatusAutoRefresh()
   }, agent)

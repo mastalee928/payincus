@@ -207,6 +207,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-agent-upgrade-deadline', 'requires isolated local *_pool_test PostgreSQL; actual HMAC heartbeat response deadlines with controlled external metadata/header/checksum stalls and later checksum-verified upgrades'],
   ['test:review-agent-release-concurrency', 'requires isolated local *_pool_test PostgreSQL; actual Fastify/HMAC manifest and binary cache-miss concurrency, shared refresh/download failures and retries with controlled upstream metadata/streams'],
   ['test:review-host-info-metrics', 'requires Chrome/Edge and local Vite; actual host info Agent metric rendering with malformed stored containers/scalars, honest missing and zero values and responsive locales'],
+  ['test:review-host-info-reads', 'requires Chrome/Edge and local Vite; actual host info independent read ordering, host/session/ABA/cache/unmount lifecycle, obsolete queued polling and current malformed/error retries'],
   ['test:review-finance-authorization-integration', 'requires isolated local *_pool_test PostgreSQL; real AFF, manual recharge/sync and gift-card routes with authorization races and ledger rollback; provider fetch fixture'],
   ['test:review-quota-hosting-integration', 'requires isolated local *_pool_test PostgreSQL; actual quota and hosting adjustment routes with actor/session and concurrency guards'],
   ['test:review-renewal-integration', 'requires isolated local *_pool_test PostgreSQL; renewal period/actor/ownership and atomic ledger rollback with auto-renew routes'],

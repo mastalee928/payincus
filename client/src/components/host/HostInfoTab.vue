@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onMounted, onActivated, onDeactivated, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
@@ -104,6 +104,23 @@ const agentInstallCommandLoading = ref(false)
 const agentInstallCommand = ref('')
 const agentInstallTokenExpiresAt = ref('')
 const agentStatusError = ref('')
+const statsError = ref(false), statsReady = ref(false), statsLoading = ref(false)
+const trafficError = ref(false), trafficReady = ref(false), active = ref(false)
+let alive = true, generation = 0, statsSequence = 0, trafficSequence = 0, agentSequence = 0
+const session = computed(() => {
+  if (!authStore.user || !authStore.token || !Number.isSafeInteger(authStore.user.id) || authStore.user.id < 1) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string' && payload.sid) identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const available = computed(() => alive && active.value && !!session.value && Number.isSafeInteger(props.host.id) && props.host.id > 0)
+function readContext() {
+  const hostId = props.host.id, identity = session.value, version = generation
+  return { hostId, current: () => available.value && hostId === props.host.id && identity === session.value && version === generation }
+}
 let agentStatusRefreshTimer: ReturnType<typeof setInterval> | null = null
 let agentStatusRefreshIntervalMs = 0
 
@@ -112,45 +129,79 @@ const minAgentRefreshSeconds = 5
 const maxAgentRefreshSeconds = 3600
 
 async function loadInstanceStats() {
+  if (!available.value) return
+  const context = readContext(), sequence = ++statsSequence
+  const current = () => context.current() && sequence === statsSequence
+  statsLoading.value = true; statsError.value = false
   try {
     const res = await api.instances.list({
-      hostId: props.host.id,
+      hostId: context.hostId,
       pageSize: 1000 // 获取所有实�?
-    })
-    const instances = (res as any).instances || []
-    instanceStats.value = {
-      count: (res as any).total || instances.length,
-      cpuUsed: instances.reduce((sum: number, i: any) => sum + (i.cpu || 0), 0),
-      memoryUsed: instances.reduce((sum: number, i: any) => sum + (i.memory || 0), 0),
-      diskUsed: instances.reduce((sum: number, i: any) => sum + (i.disk || 0), 0)
+    }) as unknown as { instances: Array<{ cpu?: number; memory?: number; disk?: number }>; total: number }
+    if (!current()) return
+    const instances = res.instances
+    if (!Array.isArray(instances) || !Number.isSafeInteger(res.total) || res.total < instances.length ||
+      !instances.every(instance => instance && ['cpu', 'memory', 'disk'].every(key => {
+        const value = instance[key as 'cpu' | 'memory' | 'disk']
+        return value === undefined || value === null || metricNumber(value) !== undefined
+      }))) throw new Error('Invalid host instance statistics')
+    const stats = {
+      count: res.total,
+      cpuUsed: instances.reduce((sum, instance) => sum + (instance.cpu || 0), 0),
+      memoryUsed: instances.reduce((sum, instance) => sum + (instance.memory || 0), 0),
+      diskUsed: instances.reduce((sum, instance) => sum + (instance.disk || 0), 0)
     }
-  } catch (err) {
-    console.error('Failed to load instance stats:', err)
+    if (![stats.cpuUsed, stats.memoryUsed, stats.diskUsed].every(value => metricNumber(value) !== undefined)) throw new Error('Invalid host resource totals')
+    instanceStats.value = stats
+    statsReady.value = true
+  } catch {
+    if (current()) statsError.value = true
+  } finally {
+    if (current()) statsLoading.value = false
   }
 }
 
 async function loadTrafficHistory() {
-  trafficLoading.value = true
+  if (!available.value) return
+  const context = readContext(), sequence = ++trafficSequence
+  const current = () => context.current() && sequence === trafficSequence
+  trafficLoading.value = !trafficReady.value; trafficError.value = false
   try {
-    const response = await api.traffic.getHostTrafficHistory(props.host.id)
+    const response = await api.traffic.getHostTrafficHistory(context.hostId)
+    if (!current()) return
+    if (!response || !Array.isArray(response.data) || !response.data.every(item => item &&
+      ['date', 'rxTotal', 'txTotal', 'rxFormatted', 'txFormatted', 'total', 'totalFormatted'].every(key => typeof item[key as keyof TrafficHistoryItem] === 'string') &&
+      /^\d{4}-\d{2}-\d{2}$/.test(item.date) && metricNumber(Number(item.total)) !== undefined) ||
+      !response.summary || !['totalUsed', 'totalUsedFormatted', 'totalLimit', 'totalLimitFormatted'].every(key => typeof response.summary[key as keyof TrafficSummary] === 'string') ||
+      typeof response.periodStart !== 'string' || typeof response.periodEnd !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(response.periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(response.periodEnd)) throw new Error('Invalid host traffic response')
     trafficHistory.value = response.data
     trafficSummary.value = response.summary
     trafficPeriod.value = {
       periodStart: response.periodStart,
       periodEnd: response.periodEnd
     }
-  } catch (error) {
-    console.error('Failed to load traffic history:', error)
+    trafficReady.value = true
+  } catch {
+    if (current()) trafficError.value = true
   } finally {
-    trafficLoading.value = false
+    if (current()) trafficLoading.value = false
   }
 }
 
 async function loadAgentStatus(showToast = false) {
+  if (!available.value) return
+  const context = readContext(), sequence = ++agentSequence
+  const current = () => context.current() && sequence === agentSequence
   agentStatusLoading.value = !agentStatus.value
   agentStatusRefreshing.value = true
   try {
-    const response = await api.hosts.getAgentStatus(props.host.id)
+    const response = await api.hosts.getAgentStatus(context.hostId)
+    if (!current()) return
+    if (!response || response.host?.id !== context.hostId || (response.agent !== null &&
+      (!response.agent || response.agent.hostId !== context.hostId || !Number.isSafeInteger(response.agent.id) || response.agent.id < 1 ||
+      typeof response.agent.enabled !== 'boolean' || typeof response.agent.status !== 'string' || !Array.isArray(response.agent.capabilities) ||
+      !response.agent.capabilities.every(value => typeof value === 'string')))) throw new Error(t('admin.hosts.agentStatusLoadFailed'))
     agentStatus.value = response.agent
     agentStatusError.value = ''
     startAgentStatusAutoRefresh()
@@ -158,13 +209,13 @@ async function loadAgentStatus(showToast = false) {
       toast.success(t('admin.hosts.agentStatusRefreshSuccess'))
     }
   } catch (err: any) {
+    if (!current()) return
     agentStatusError.value = err?.message || String(err)
     if (showToast) {
       toast.error(t('admin.hosts.agentStatusLoadFailed') + ': ' + agentStatusError.value)
     }
   } finally {
-    agentStatusLoading.value = false
-    agentStatusRefreshing.value = false
+    if (current()) { agentStatusLoading.value = false; agentStatusRefreshing.value = false }
   }
 }
 
@@ -177,6 +228,8 @@ function stopAgentStatusAutoRefresh() {
 }
 
 function startAgentStatusAutoRefresh() {
+  if (!available.value) return
+  const context = readContext()
   const refreshIntervalMs = agentHeartbeatIntervalSeconds.value * 1000
   if (agentStatusRefreshTimer && agentStatusRefreshIntervalMs === refreshIntervalMs) {
     return
@@ -185,7 +238,7 @@ function startAgentStatusAutoRefresh() {
   stopAgentStatusAutoRefresh()
   agentStatusRefreshIntervalMs = refreshIntervalMs
   agentStatusRefreshTimer = setInterval(() => {
-    loadAgentStatus()
+    if (context.current() && !agentStatusRefreshing.value) void loadAgentStatus()
   }, refreshIntervalMs)
 }
 
@@ -311,18 +364,29 @@ const agentVersionInfo = computed(() => {
 
 const canRequestAgentUpgrade = computed(() => agentStatus.value?.versionStatus === 'outdated')
 
-watch(() => props.host.id, () => {
+function invalidateReads(): void {
+  generation++; statsSequence++; trafficSequence++; agentSequence++
+  stopAgentStatusAutoRefresh()
+  instanceStats.value = { count: 0, cpuUsed: 0, memoryUsed: 0, diskUsed: 0 }
+  trafficHistory.value = []; trafficSummary.value = null; trafficPeriod.value = null
+  agentStatus.value = null; agentStatusError.value = ''
+  statsReady.value = false; statsLoading.value = false; statsError.value = false
+  trafficReady.value = false; trafficLoading.value = false; trafficError.value = false
+  agentStatusLoading.value = false; agentStatusRefreshing.value = false
   agentInstallCommand.value = ''
   agentInstallTokenExpiresAt.value = ''
-  loadInstanceStats()
-  loadTrafficHistory()
-  loadAgentStatus()
+}
+function loadCurrentReads(): void {
+  if (!available.value) return
+  void loadInstanceStats(); void loadTrafficHistory(); void loadAgentStatus()
   startAgentStatusAutoRefresh()
-}, { immediate: true })
-
-onBeforeUnmount(() => {
-  stopAgentStatusAutoRefresh()
-})
+}
+watch([() => props.host, () => props.host.id, session], () => { invalidateReads(); loadCurrentReads() }, { flush: 'sync' })
+function activate(): void { if (!alive || active.value) return; active.value = true; loadCurrentReads() }
+onMounted(activate)
+onActivated(activate)
+onDeactivated(() => { active.value = false; invalidateReads() })
+onBeforeUnmount(() => { alive = false; active.value = false; invalidateReads() })
 
 const agentIncusStatus = computed(() => {
   const incus = agentReport.value.incus
@@ -563,7 +627,7 @@ const xAxisLabels = computed(() => {
         <div class="flex justify-between items-center">
           <dt class="text-gray-500">{{ t('admin.hosts.instances') }}</dt>
           <dd :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-700'">
-            {{ instanceStats.count }}
+            {{ statsReady ? instanceStats.count : '-' }}
           </dd>
         </div>
         <div class="flex justify-between items-center">
@@ -611,7 +675,11 @@ const xAxisLabels = computed(() => {
           <span class="hidden sm:inline">{{ t('admin.hosts.recalculateResources') }}</span>
         </button>
       </div>
-      <div class="space-y-4">
+      <p v-if="statsError" data-host-stats-error class="text-sm text-themed-secondary flex items-center justify-between gap-3 mb-3" role="status">
+        {{ t('common.loadFailed') }} · {{ t('admin.hosts.resources') }}
+        <button type="button" class="btn-secondary btn-xs shrink-0" :disabled="statsLoading" @click="loadInstanceStats">{{ t('common.retry') }}</button>
+      </p>
+      <div v-if="statsReady" class="space-y-4">
         <!-- CPU -->
         <div>
           <div class="flex justify-between text-sm mb-1">
@@ -661,6 +729,7 @@ const xAxisLabels = computed(() => {
           </div>
         </div>
       </div>
+      <p v-else-if="!statsError" class="text-sm text-themed-secondary" role="status">{{ t(statsLoading ? 'common.loading' : 'common.notSet') }}</p>
 
       <!-- NAT 配置 -->
       <div
@@ -785,6 +854,10 @@ const xAxisLabels = computed(() => {
       <pre class="rounded-md p-3 overflow-x-auto text-xs font-mono whitespace-pre-wrap break-all" :class="themeStore.isDark ? 'bg-black/40 text-green-300' : 'bg-gray-900 text-green-300'">{{ agentInstallCommand }}</pre>
     </div>
 
+    <div v-if="agentStatusError" data-host-agent-error class="rounded-lg p-3 mb-3 text-sm flex items-center justify-between gap-3" :class="themeStore.isDark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-700'" role="status">
+      <span class="min-w-0 break-words">{{ t('admin.hosts.agentStatusLoadFailed') }}: {{ agentStatusError }}</span>
+      <button type="button" class="btn-secondary btn-xs shrink-0" :disabled="agentStatusRefreshing" @click="refreshAgentStatus">{{ t('common.retry') }}</button>
+    </div>
     <div v-if="agentStatusLoading" class="animate-pulse grid grid-cols-1 sm:grid-cols-2 gap-3">
       <div
         v-for="i in 6"
@@ -794,15 +867,7 @@ const xAxisLabels = computed(() => {
       ></div>
     </div>
 
-    <div
-      v-else-if="agentStatusError"
-      class="rounded-lg p-3 text-sm"
-      :class="themeStore.isDark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-600'"
-    >
-      {{ t('admin.hosts.agentStatusLoadFailed') }}: {{ agentStatusError }}
-    </div>
-
-    <div v-else-if="!agentStatus" class="flex items-start gap-3 rounded-lg p-4" :class="themeStore.isDark ? 'bg-gray-800/60' : 'bg-gray-50'">
+    <div v-else-if="!agentStatus && !agentStatusError" class="flex items-start gap-3 rounded-lg p-4" :class="themeStore.isDark ? 'bg-gray-800/60' : 'bg-gray-50'">
       <span :class="['w-2.5 h-2.5 rounded-full mt-1.5', agentStatusInfo.dot]"></span>
       <div>
         <p class="text-sm font-medium" :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-700'">
@@ -814,7 +879,7 @@ const xAxisLabels = computed(() => {
       </div>
     </div>
 
-    <template v-else>
+    <template v-else-if="agentStatus">
       <div
         class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-4 mb-4 border-b"
         :class="themeStore.isDark ? 'border-gray-800' : 'border-gray-100'"
@@ -1017,6 +1082,10 @@ const xAxisLabels = computed(() => {
     </div>
 
     <!-- 加载状�?-->
+    <p v-if="trafficError" data-host-traffic-error class="text-sm text-themed-secondary flex items-center justify-between gap-3 mb-3" role="status">
+      {{ t('common.loadFailed') }} · {{ t('admin.hosts.trafficStats') }}
+      <button type="button" class="btn-secondary btn-xs shrink-0" :disabled="trafficLoading" @click="loadTrafficHistory">{{ t('common.retry') }}</button>
+    </p>
     <div v-if="trafficLoading" class="animate-pulse">
       <div class="flex items-end gap-1 h-32">
         <div 
@@ -1104,7 +1173,7 @@ const xAxisLabels = computed(() => {
     </template>
 
     <!-- 无数据状�?-->
-    <div v-else class="text-center py-8">
+    <div v-else-if="trafficReady" class="text-center py-8" data-host-traffic-empty>
       <span :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-400'">
         {{ t('traffic.noHistoryData') }}
       </span>
