@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R323三语启动提示阶段：按原Incus映射及官方文档改高priority先启动、启动后等待下一实例；真实Chrome全priority回归和三宽三语截图、3守卫/lint/双端types build最终exit0/dist见HANDOFF。唯一200有修复复验（含部分）/68已有防护或实现不同/59待精修；原生自动开机及200内部未完范围继续保留，R314另批。
+
 2026-10-29 R312零优先级阶段：CPU/启动优先级合法0读取/提交保持，null/缺省读取默认与整数范围门禁；真实Chrome先红后零值/默认/四边界/十非法输入及原完整表单回归exit0，4守卫/lint/双端types build最终exit0/dist/manifest194常规167专项与三宽三语截图见HANDOFF。唯一199有修复复验（含部分）/68已有防护或实现不同/60待精修；实际Incus交付与199内部未完仍保留，R323三语提示另批继续。
 
 2026-10-29 R310分组草稿阶段：真实Chrome先红→19组保存/刷新新草稿/ABA/嵌套JSON、分组和初读反序、busy/失败保基线/密码掩码全部通过；4守卫/lint零错警/双端types build exit0/dist/manifest194常规163专项与三宽截图见HANDOFF。唯一198有修复复验（含部分）/68已有防护实现不同/61待精修；198内部未完，会话/cache/unmount/严格回执下一段继续，完整327与灾备仍未完成。
@@ -418,7 +420,7 @@
 | R1-320 | 存在 | 待精修/运行复核 | 前端提示/校验6位与后端8位加复杂度不一致。 |
 | R1-321 | 存在，已修 | 文案/浏览器及相关守卫通过 | 三语resetTrafficWarning错误要求手动恢复1Mbps，已按实际route/running查询/scheduler/带宽仲裁改为自动检查并保留账户超限、离线和停止条件。Chrome完整reset/截图、types/4守卫/lint/双端build/dist通过；原生恢复与生产部署另验，不修改原恢复逻辑，见HANDOFF。 |
 | R1-322 | 已有防护 | 保留初审结论 | 管理员创建description已免费或付费；freeGiftHint只在免费赠送分支，不是整页都说免费。 |
-| R1-323 | 存在 | 待精修/运行复核 | bootPriority写越小越先，与Incus高priority优先相反；startupDelay写启动前等待，与启动后延时语义不同。 |
+| R1-323 | 存在，已修 | 文案/浏览器及相关守卫通过 | 三语bootPriority改高值先启动，startupDelay改本实例启动后、下一实例前等待；已核Incus原映射与官方instance_options定义。takeover-package-boot-hints-browser实际Vue/Chrome矩阵及三宽截图、route/i18n/input守卫、locale lint/双端types build/dist通过；不改默认范围/交付，原生宿主自动开机另验。 |
 | R1-324 | 存在 | 沿用R302配额编辑专项 | 已随6c8b219/0444f64修复真实snake_case字段读取、0/null保留、实际用量和剩余额度、轮询保草稿及提交回执。核当前getQuotaFormValues/calculateRemainingQuota与takeover-quota-editor-final.log、takeover-quota-submit-final-r4.log，Chrome通过真实字段、0/null、用量、换目标/会话与草稿矩阵；类型/守卫/双端构建及专属用户无转发入口证据见HANDOFF的R302章节。原生交付另验。补登记，不重复计算产品修复。 |
 | R1-325 | 实现不同 | 保留初审结论 | managed失败保留error，与独占pool交付/退款/隔离库存不同；不能为了释放库存将远端未确认删除直接标deleted，先保留并核查实际残留。 |
 | R1-326 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |

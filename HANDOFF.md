@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-323 套餐启动提示符合 Incus 语义
+
+- R312提交5c8e925b已push并核远端一致。本批仅改简体/繁体/英文六条packageForm.hints：高priority先启动；delay为本实例启动后、下一个实例启动前的等待时间。已核server/src/lib/incus/incus-instances.ts原值直传字段，并读取Incus官方instance_options文档的priority最高先启动、delay启动后等待下一实例定义（https://linuxcontainers.org/incus/docs/main/reference/instance_options/）。不改字段范围、默认值、后端映射或交付行为。
+- takeover-package-boot-hints-browser实际Vue/Chrome沿用R312全矩阵exit0，三宽三语截图均已查看，英文390长提示正常两行且无水平溢出；对应route/i18n/package-input三守卫及locale lint零错警通过。build双端含vue-tsc最终exit0、dist通过；日志前缀takeover-package-boot-hints。此项为文案验证，不声称真实宿主自动开机顺序验收。
+- 按327唯一编号现200有修复/复验记录（含部分）/68已有防护或实现不同/59待精修，200内部未完范围仍需继续。下一R314已读实际spin/multiDraw、KeepAlive及娱乐守卫，单抽遗漏十连互斥、结果/解锁timer未清理和旧回执仍存在；独立浏览器夹具开始准备，产品尚未改。完整327与网关灾备仍未完成。
+
 ## 2026-10-29 R1-312 套餐合法零优先级保留
 
 - 上批9730aa27已push。本批修PackageFormView读取及提交CPU/启动优先级0被默认10/20覆盖；仅null/缺省读取使用默认，提交要求原范围整数，空白、非数字、小数及越界拒写。CPU范围0–10、启动优先级0–100不变；启动延迟5–600和关机超时30–600不扩大为允许0。PackageSelector当前只展示props.packages，没有对方嵌入packageId读取路径，保留实现不同结论。

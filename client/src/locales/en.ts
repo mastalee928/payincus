@@ -6380,8 +6380,8 @@ pool: {
         hints: {
             ioLimitMode: 'Incus only supports one IO limit mode at a time, please select one',
             cpuPriority: '0 is lowest priority, 10 is highest priority',
-            bootPriority: 'Lower values start first',
-            startupDelay: 'Seconds to wait before starting instance (5-600)',
+            bootPriority: 'Higher values start first',
+            startupDelay: 'Seconds to wait after this instance starts, before starting the next one (5-600)',
             shutdownTimeout: 'Seconds to wait for instance shutdown when host shuts down (30-600)',
             instanceQuota: 'Limit the number of resources a user can create on instances using this package',
             portLimit: 'Maximum port mappings per instance',

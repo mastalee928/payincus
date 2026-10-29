@@ -6436,8 +6436,8 @@ pool: {
         hints: {
             ioLimitMode: 'Incus 仅支持其中一种 IO 限制模式，请选择一种',
             cpuPriority: '0 为最低优先级，10 为最高优先级',
-            bootPriority: '数值越小越先启动',
-            startupDelay: '实例启动前等待的秒数 (5-600)',
+            bootPriority: '数值越大越先启动',
+            startupDelay: '本实例启动后、启动下一个实例前等待的秒数 (5-600)',
             shutdownTimeout: '宿主机关机时等待实例关闭的秒数 (30-600)',
             instanceQuota: '限制用户在此套餐实例上可创建的资源数量',
             portLimit: '每个实例可创建的端口映射数量上限',

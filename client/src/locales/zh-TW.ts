@@ -7020,8 +7020,8 @@ pool: {
         hints: {
             ioLimitMode: 'Incus 僅支援其中一種 IO 限制模式，請選擇一種',
             cpuPriority: '0 為最低優先級，10 為最高優先級',
-            bootPriority: '數值越小越先啟動',
-            startupDelay: '實例啟動前等待的秒數 (5-600)',
+            bootPriority: '數值越大越先啟動',
+            startupDelay: '本實例啟動後、啟動下一個實例前等待的秒數 (5-600)',
             shutdownTimeout: '主機關機時等待實例關閉的秒數 (30-600)',
             instanceQuota: '限制使用者在此方案實例上可建立的資源數量',
             portLimit: '每個實例可建立的連接埠映射數量上限',

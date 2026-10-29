@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：R312 5c8e925b已push核远端。R323三语高优先级先启动/本实例启动后等待下一实例文案已修，原映射及Incus官方文档已核；实际Chrome priorities全矩阵与三宽三语截图、route/i18n/input守卫/lint零错警、双端build含vue-tsc最终exit0/dist通过，无待poll，准备单项push。唯一200有修复复验（含部分）/68已有防护或实现不同/59待精修，200内部未完；不是原生开机交付验收。下一R314真实spin/multiDraw与KeepAlive/守卫已读，单抽缺十连互斥及timer/旧回执仍存在，scripts/fixtures/lottery-draw独立夹具未提交、产品未改；不把下一项混入本批。327/完整灾备继续。
+
 > **最新接续**：9730aa27已push；R312优先级0读取/提交被10/20覆盖已修，真实Chrome先红→数字/字符串0、null/缺省默认、四边界及十非法输入final exit0，原完整package-form回归exit0。4守卫/lint零错警/manifest194常规167专项、双端build含vue-tsc和dist最终exit0，三宽三语截图均已看，无待poll，准备单项push。唯一327现199有修复复验（含部分）/68已有防护或实现不同/60待精修，199内部仍未完；仅真实Vue/受控API，真实Incus交付/完整灾备仍待。下一R323已核三语提示与Incus映射：高启动优先级先启动，delay在启动后等下一实例；尚未改。下方旧接续为历史。
 
 > **最新接续**：6e643b4a已push，R310 SMTP实际Chrome重复send先红→final-r3两操作共32旧回执（各16）/busy/交叉/四卸载/实际回执counts/邮箱/same sid/持久error通过exit0；drafts19组exit0。4守卫/lint零错警/双端build含vue-tsc exit0/dist/manifest194常规166专项、三宽三语截图已看，无待poll，准备阶段push。下一R312 PackageForm零优先级已读route/守卫：CPU0-10/boot0-100合法，delay5-600/shutdown30-600，不把后两0改合法；产品尚未改。198/68/61含部分不变，R310完整真实后台/外部SMTP/灾备仍未验。
