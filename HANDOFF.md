@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-316 Telegram 绑定搜索与分页读取
+
+- R314 4675ea2d已push核远端。bindings-before实际Chrome先红：旧search反序覆盖Current user为Obsolete user。现固定search/page/pageSize、独立read sequence和admin account/role/sid、页面激活；同步草稿/ABA/session/cache/unmount撤销旧回执，旧finally不结束新loader，同sid刷新不重读。会话/缓存清私密绑定及门槛，激活重读；page先固定当前请求，回执必须同页和pageSize。
+- 列表/total/page/group/每条binding身份、stats和eligibility先整体核验，异常不部分落入列表；错误持久显示role alert与DOM retry，保持搜索草稿，合法空列表total0不算失败。未知门槛不再显示无限loading。三语invalidBindings文案新增；原页面11个html-indent警告只修缩进，最终lint零错警。
+- final-r3实际Chrome搜索/分页反序、旧finally、18旧回执、same sid、九类无效回执及实际retry/0全部exit0；三宽三语错误截图已看，无水平溢出。4守卫（route/i18n/admin-notification/user-telegram）、最终route、lint、manifest194常规169专项分类通过；build双端含vue-tsc最终exit0/dist，专项接CI，无待poll。真实Vue/受控API，没有调用Telegram、解绑真实账户或写渠道；channel editor及同页其它写入/配置读取仍下一段，后台未改。
+- R316进入部分修复，327唯一编号202有修复/复验记录（含部分）/68已有防护或实现不同/57待精修，202内部仍未完。6e643b4a与f696eb76 CI已success；9730aa27/5c8e925b/8f759572/4675ea2d查询时仍in_progress，不能算已通过。完整327与网关灾备仍未完成。
+
 ## 2026-10-29 R1-314 单抽与十连互斥及迟到结果隔离
 
 - 上批8f759572已push。实际Chrome before先红：十连pending时spin仍发1次draw。两函数入口现在共用即时busy门禁，转盘单抽/活动选择/再次抽按钮同步禁止交错；固定活动ID、奖品数组快照、account/role/sid与页面/主子tab代次。旧成功/失败不写结果、提示或辅助刷新；同sid正常token刷新保持。单抽成功仅一个可清理timer覆盖动画到结果/解锁，失败立即释放；离页/缓存/卸载取消timer与灯泡。原HTTP在途保持busy至finally，不因切页允许同组件再写。

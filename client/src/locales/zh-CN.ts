@@ -233,6 +233,7 @@ export default {
       botFatherHint: '在 BotFather 创建机器人后，将 Bot Token 与接收消息的会话 Chat ID 填入对应类别即可。'
     },
     telegramConfig: {
+        invalidBindings: '服务器返回的 Telegram 绑定数据无效，请重试加载列表。',
         title: 'Telegram 设置', description: '集中管理网站专用机器人、Webhook、入群申请和全局通知渠道。', enabled: '启用', minutes: '分钟',
         secretInvalid: 'Webhook Secret 只能包含字母、数字、下划线和连字符，长度 1-256。', userNumber: '用户 #{id}',
         eligibility: { eligible: '已达标', ineligible: '未达标', disabled: '未启用', unconfigured: '未配置', unknown: '未知' },

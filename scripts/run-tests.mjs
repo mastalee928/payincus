@@ -114,6 +114,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-system-settings-smtp', 'requires Chrome/Edge and local Vite; SMTP tests retain fixed recipient/session/drafts, reject duplicate/cross operations and stale receipts, validate real acceptance counts and keep persistent result'],
   ['test:review-package-priorities', 'requires Chrome/Edge and local Vite; package CPU and boot priorities preserve zero at read and submit, null/absent defaults and strict legal integer boundaries'],
   ['test:review-lottery-draw', 'requires Chrome/Edge and local Vite; real single/ten-draw mutual exclusion, fixed lottery/session/page receipts, cancelled result animation and safe retries without real rewards'],
+  ['test:review-telegram-bindings', 'requires Chrome/Edge and local Vite; real Telegram bindings search order, session/cache/draft read isolation, strict response shape and persistent DOM retry without external Telegram'],
   ['test:review-user-balance-submit', 'requires Chrome/Edge and local Vite; balance adjustment strict amount inputs, immediate busy lock, current session/draft receipts and scoped auxiliary reads'],
   ['test:review-user-points-submit', 'requires Chrome/Edge and local Vite; points adjustment integer/reason gates, busy fields, current targets/session/draft receipts and scoped list refresh'],
   ['test:review-user-balance-audit', 'requires isolated local *_pool_test PostgreSQL; balance and ledger/audit atomic rollback, exact receipts and administrator revocation row-lock races'],

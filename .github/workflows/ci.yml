@@ -321,6 +321,8 @@ jobs:
         run: pnpm --filter server test:review-package-priorities
       - name: Lottery single and ten draws retain their target and reject stale results
         run: pnpm --filter server test:review-lottery-draw
+      - name: Telegram binding searches retain their current target and retry errors
+        run: pnpm --filter server test:review-telegram-bindings
       - name: Balance adjustments keep their target, draft and confirmed receipt
         run: pnpm --filter server test:review-user-balance-submit
       - name: Points adjustments reject stale receipts and repeated submissions

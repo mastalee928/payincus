@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import type { TelegramAdminBinding, TelegramAdminBindingsResponse } from '@/types/api'
 import { systemSettingsNavigationItems } from '@/constants/adminSettings'
 import { buildPublicApiUrl, getFrontendOrigin } from '@/utils/api-url'
@@ -11,6 +12,19 @@ import { buildPublicApiUrl, getFrontendOrigin } from '@/utils/api-url'
 const route = useRoute()
 const toast = useToast()
 const { t } = useI18n()
+const authStore = useAuthStore()
+const pageActive = ref(true)
+let disposed = false, bindingSequence = 0
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user || authStore.user.role !== 'admin') return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Preserve legacy token identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const bindingsActive = () => !disposed && pageActive.value && !!sessionKey.value
 
 const loading = ref(true)
 const savingTelegramBot = ref(false)
@@ -59,6 +73,7 @@ const editingChannel = ref<{ id: number; name: string; botToken: string; chatId:
 const channelFormError = ref('')
 const channelForm = ref({ name: '', botToken: '', chatId: '', enabled: true })
 const bindingLoading = ref(false)
+const bindingError = ref('')
 const bindingSearch = ref('')
 const telegramBindings = ref<TelegramAdminBinding[]>([])
 const telegramBindingsTotal = ref(0)
@@ -164,6 +179,22 @@ const telegramBindingsTotalPages = computed(() => {
 onMounted(async () => {
   await Promise.all([loadConfigs(), loadChannels(), loadTelegramBindings()])
 })
+onActivated(() => { pageActive.value = true })
+onDeactivated(() => { pageActive.value = false })
+onUnmounted(() => { disposed = true; invalidateBindings() })
+
+function invalidateBindings(): void {
+  bindingSequence++
+  bindingLoading.value = false; bindingError.value = ''
+  telegramBindings.value = []; telegramBindingsTotal.value = 0
+  telegramBindingGroup.value = null; telegramBindingVipGroup.value = null
+}
+watch(bindingSearch, invalidateBindings, { flush: 'sync' })
+watch([sessionKey, pageActive], () => {
+  invalidateBindings()
+  bindingSearch.value = ''; telegramBindingsPage.value = 1
+  if (bindingsActive()) void loadTelegramBindings(1)
+}, { flush: 'sync' })
 
 async function loadConfigs() {
   loading.value = true
@@ -375,13 +406,21 @@ async function deleteTelegramWebhook() {
 }
 
 async function loadTelegramBindings(page = telegramBindingsPage.value) {
+  if (!bindingsActive() || !Number.isSafeInteger(page) || page < 1) return
+  const sequence = ++bindingSequence, session = sessionKey.value
+  const search = bindingSearch.value.trim(), pageSize = telegramBindingsPageSize.value
+  const current = () => bindingsActive() && sequence === bindingSequence && session === sessionKey.value && search === bindingSearch.value.trim()
+  telegramBindingsPage.value = page
+  bindingError.value = ''
   bindingLoading.value = true
   try {
     const response = await api.telegram.listBindings({
       page,
-      pageSize: telegramBindingsPageSize.value,
-      search: bindingSearch.value.trim() || undefined
+      pageSize,
+      search: search || undefined
     })
+    if (!current()) return
+    if (!validBindingsResponse(response, page, pageSize)) throw new Error(t('telegramConfig.invalidBindings'))
     telegramBindings.value = response.bindings
     telegramBindingsTotal.value = response.total
     telegramBindingsPage.value = response.page
@@ -389,14 +428,32 @@ async function loadTelegramBindings(page = telegramBindingsPage.value) {
     telegramBindingGroup.value = response.group
     telegramBindingVipGroup.value = response.vipGroup
   } catch (err: any) {
-    toast.error(t('telegramConfig.messages.bindingsLoadFailed', { error: err?.message || String(err) }))
+    if (!current()) return
+    bindingError.value = t('telegramConfig.messages.bindingsLoadFailed', { error: err?.message || String(err) })
     telegramBindings.value = []
     telegramBindingsTotal.value = 0
     telegramBindingGroup.value = null
     telegramBindingVipGroup.value = null
   } finally {
-    bindingLoading.value = false
+    if (current()) bindingLoading.value = false
   }
+}
+
+function validBindingsResponse(value: unknown, page: number, pageSize: number): value is TelegramAdminBindingsResponse {
+  const object = (item: unknown): item is Record<string, any> => !!item && typeof item === 'object' && !Array.isArray(item)
+  const positive = (item: unknown) => typeof item === 'number' && Number.isSafeInteger(item) && item > 0
+  const money = (item: unknown) => typeof item === 'number' && Number.isFinite(item) && item >= 0
+  const nullableString = (item: unknown) => item === null || typeof item === 'string'
+  const group = (item: unknown) => object(item) && typeof item.enabled === 'boolean' && typeof item.configured === 'boolean' && ['any', 'all'].includes(item.joinMode) && money(item.minRecharge) && money(item.minConsume)
+  const eligibility = (item: unknown) => object(item) && typeof item.eligible === 'boolean' && ['eligible', 'ineligible', 'disabled', 'unconfigured'].includes(item.status) && typeof item.message === 'string' && ['any', 'all'].includes(item.joinMode) && money(item.minRecharge) && money(item.minConsume)
+  if (!object(value) || !Array.isArray(value.bindings) || !Number.isSafeInteger(value.total) || value.total < value.bindings.length || value.page !== page || value.pageSize !== pageSize || !group(value.group) || !group(value.vipGroup)) return false
+  const ids = new Set<number>()
+  return value.bindings.length <= pageSize && value.bindings.every((item: unknown) => {
+    if (!object(item) || !positive(item.id) || ids.has(item.id) || !positive(item.userId) || typeof item.telegramUserId !== 'string' || !nullableString(item.telegramUsername) || !nullableString(item.firstName) || !nullableString(item.lastName) || typeof item.boundAt !== 'string' || typeof item.updatedAt !== 'string') return false
+    ids.add(item.id)
+    if (item.user !== null && (!object(item.user) || item.user.id !== item.userId || typeof item.user.username !== 'string' || !nullableString(item.user.email) || typeof item.user.status !== 'string')) return false
+    return object(item.stats) && ['totalRecharge', 'totalConsume', 'totalRefund', 'totalDestroyedValue'].every(key => money(item.stats[key])) && eligibility(item.eligibility) && eligibility(item.vipEligibility)
+  })
 }
 
 async function searchTelegramBindings() {
@@ -599,7 +656,7 @@ async function testChannel(id: number) {
             placeholder="https://t.me/your_group"
           />
           <p class="text-xs text-themed-muted">
-          {{ t('telegramConfig.footer.hint') }}
+            {{ t('telegramConfig.footer.hint') }}
           </p>
         </div>
       </div>
@@ -624,9 +681,9 @@ async function testChannel(id: number) {
 
         <div class="mb-6 flex items-center justify-between gap-4 rounded-xl border border-themed-border bg-themed-secondary/30 p-4">
           <div class="flex-1">
-              <label class="text-sm font-medium text-themed">{{ t('telegramConfig.bot.enableBinding') }}</label>
+            <label class="text-sm font-medium text-themed">{{ t('telegramConfig.bot.enableBinding') }}</label>
             <p class="text-xs text-themed-muted mt-1">
-                {{ t('telegramConfig.bot.disabledHint') }}
+              {{ t('telegramConfig.bot.disabledHint') }}
             </p>
           </div>
           <div class="flex items-center gap-3 ml-4">
@@ -711,10 +768,10 @@ async function testChannel(id: number) {
 
         <div class="mt-5 rounded-xl border border-themed-border bg-themed-secondary/30 p-4">
           <p class="text-sm text-themed-muted">
-              {{ t('telegramConfig.webhook.address') }}<code class="mt-1 block min-w-0 break-all rounded bg-themed-tertiary px-1.5 py-0.5 font-mono text-xs text-themed">{{ telegramWebhookUrl }}</code>
+            {{ t('telegramConfig.webhook.address') }}<code class="mt-1 block min-w-0 break-all rounded bg-themed-tertiary px-1.5 py-0.5 font-mono text-xs text-themed">{{ telegramWebhookUrl }}</code>
           </p>
           <p class="text-xs text-themed-muted mt-1">
-              {{ t('telegramConfig.webhook.addressHint') }}
+            {{ t('telegramConfig.webhook.addressHint') }}
           </p>
         </div>
 
@@ -756,18 +813,18 @@ async function testChannel(id: number) {
 
           <div v-if="telegramWebhookInfo" class="space-y-2 text-xs text-themed-muted">
             <p>
-                {{ t('telegramConfig.webhook.currentAddress') }}
-                <span class="text-themed break-all font-mono">{{ telegramWebhookInfo.url || t('common.notSet') }}</span>
+              {{ t('telegramConfig.webhook.currentAddress') }}
+              <span class="text-themed break-all font-mono">{{ telegramWebhookInfo.url || t('common.notSet') }}</span>
             </p>
-              <p>{{ t('telegramConfig.webhook.pendingUpdates', { count: telegramWebhookInfo.pending_update_count ?? 0 }) }}</p>
+            <p>{{ t('telegramConfig.webhook.pendingUpdates', { count: telegramWebhookInfo.pending_update_count ?? 0 }) }}</p>
             <p v-if="telegramWebhookInfo.max_connections">
-                {{ t('telegramConfig.webhook.maxConnections', { count: telegramWebhookInfo.max_connections }) }}
+              {{ t('telegramConfig.webhook.maxConnections', { count: telegramWebhookInfo.max_connections }) }}
             </p>
             <p v-if="telegramWebhookInfo.allowed_updates?.length">
-                {{ t('telegramConfig.webhook.allowedUpdates', { updates: telegramWebhookInfo.allowed_updates.join(', ') }) }}
+              {{ t('telegramConfig.webhook.allowedUpdates', { updates: telegramWebhookInfo.allowed_updates.join(', ') }) }}
             </p>
             <p v-if="telegramWebhookInfo.last_error_message" class="break-words text-error">
-                {{ t('telegramConfig.webhook.lastError', { error: telegramWebhookInfo.last_error_message }) }}
+              {{ t('telegramConfig.webhook.lastError', { error: telegramWebhookInfo.last_error_message }) }}
               <span v-if="telegramWebhookInfo.last_error_date">
                 （{{ formatTelegramWebhookDate(telegramWebhookInfo.last_error_date) }}）
               </span>
@@ -1058,7 +1115,7 @@ async function testChannel(id: number) {
           </button>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-3 text-xs">
+        <div v-if="telegramBindingGroup && telegramBindingVipGroup" class="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-3 text-xs">
           <div class="p-3 rounded-lg bg-themed-secondary/30 border border-themed-border">
             <div class="text-themed font-medium">{{ t('telegramConfig.bindings.groupThreshold') }}</div>
             <div class="text-themed-muted mt-1">{{ formatGroupRule(telegramBindingGroup) }}</div>
@@ -1071,6 +1128,10 @@ async function testChannel(id: number) {
 
         <div v-if="bindingLoading" class="text-sm text-themed-muted p-3 rounded-lg bg-themed-secondary/30">
           {{ t('common.loading') }}
+        </div>
+        <div v-else-if="bindingError" role="alert" class="rounded-lg border border-rose-500/30 p-3 text-sm space-y-2">
+          <p class="text-rose-600 dark:text-rose-400 break-words">{{ bindingError }}</p>
+          <button data-binding-retry type="button" class="btn-secondary btn-sm" @click="() => loadTelegramBindings()">{{ t('common.retry') }}</button>
         </div>
         <div v-else-if="telegramBindings.length === 0" class="flex flex-col items-center gap-2 rounded-lg bg-themed-secondary/30 px-4 py-8 text-center">
           <span class="flex h-10 w-10 items-center justify-center rounded-full bg-themed-tertiary text-themed-muted">

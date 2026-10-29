@@ -225,6 +225,7 @@ export default {
       botFatherHint: 'Create a bot with BotFather, then fill in its Bot Token and the Chat ID of the target conversation for this category.'
     },
     telegramConfig: {
+        invalidBindings: 'The server returned invalid Telegram binding data. Retry loading the list.',
         title: 'Telegram Settings', description: 'Manage the site bot, webhook, group access, and global notification channels.', enabled: 'Enabled', minutes: 'minutes',
         secretInvalid: 'Webhook Secret may contain only letters, numbers, underscores, and hyphens, and must be 1-256 characters.', userNumber: 'User #{id}',
         eligibility: { eligible: 'Eligible', ineligible: 'Not eligible', disabled: 'Disabled', unconfigured: 'Not configured', unknown: 'Unknown' },
