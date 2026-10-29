@@ -291,6 +291,8 @@ jobs:
         run: pnpm --filter server test:review-user-hosting-submit
       - name: Two-factor setup and settings prevent concurrent submissions
         run: pnpm --filter server test:review-two-factor-busy
+      - name: Two-factor status failures remain actionable without allowing setup
+        run: pnpm --filter server test:review-two-factor-reads
       - name: Balance adjustments keep their target, draft and confirmed receipt
         run: pnpm --filter server test:review-user-balance-submit
       - name: Points adjustments reject stale receipts and repeated submissions

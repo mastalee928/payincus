@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 
@@ -30,29 +30,68 @@ const newRecoveryCodes = ref<string[]>([])
 
 const error = ref('')
 const success = ref('')
+const statusLoading = ref(false)
+const statusReady = ref(false)
+const statusError = ref('')
+const recoveryStatusLoading = ref(false)
+const recoveryStatusError = ref('')
+let statusRequest = 0, recoveryStatusRequest = 0
+function invalidateRecoveryStatus() {
+  recoveryStatusRequest += 1
+  recoveryStatusLoading.value = false
+  recoveryStatusError.value = ''
+  recoveryCodesStatus.value = null
+}
+watch(enabled, invalidateRecoveryStatus, { flush: 'sync' })
 
 async function loadStatus() {
+  if (loading.value) return
+  const request = ++statusRequest
+  recoveryStatusRequest += 1
+  statusReady.value = false
+  statusLoading.value = true
+  statusError.value = ''
+  error.value = ''
+  success.value = ''
+  enabled.value = false
+  recoveryCodesStatus.value = null
+  recoveryStatusLoading.value = false
+  recoveryStatusError.value = ''
   try {
     const res = await api.auth.get2FAStatus()
+    if (request !== statusRequest) return
+    if (typeof res?.enabled !== 'boolean') throw new Error(t('profile.twoFactorAuth.getStatusFailed'))
     enabled.value = res.enabled
-    if (res.enabled) {
-      await loadRecoveryCodesStatus()
-    }
+    statusReady.value = true
+    if (res.enabled) void loadRecoveryCodesStatus()
   } catch (e: any) {
-    error.value = e.message || t('profile.twoFactorAuth.getStatusFailed')
+    if (request === statusRequest) statusError.value = e.message || t('profile.twoFactorAuth.getStatusFailed')
+  } finally {
+    if (request === statusRequest) statusLoading.value = false
   }
 }
 
 async function loadRecoveryCodesStatus() {
+  if (!statusReady.value || !enabled.value) return
+  const request = ++recoveryStatusRequest
+  recoveryStatusLoading.value = true
+  recoveryStatusError.value = ''
+  recoveryCodesStatus.value = null
   try {
-    recoveryCodesStatus.value = await api.auth.getRecoveryCodes()
-  } catch {
-    // 静默失败
+    const res = await api.auth.getRecoveryCodes()
+    if (request !== recoveryStatusRequest) return
+    if (!res || ![res.total, res.remaining, res.used].every(value => Number.isSafeInteger(value) && value >= 0) || res.remaining + res.used !== res.total) throw new Error(t('profile.twoFactorAuth.getStatusFailed'))
+    recoveryCodesStatus.value = res
+  } catch (e: any) {
+    if (request === recoveryStatusRequest) recoveryStatusError.value = e.message || t('profile.twoFactorAuth.getStatusFailed')
+  } finally {
+    if (request === recoveryStatusRequest) recoveryStatusLoading.value = false
   }
 }
 
 async function startSetup() {
-  if (loading.value) return
+  if (loading.value || !statusReady.value || statusLoading.value) return
+  invalidateRecoveryStatus()
   loading.value = true
   error.value = ''
   try {
@@ -69,12 +108,13 @@ async function startSetup() {
 }
 
 async function confirmEnable() {
-  if (loading.value) return
+  if (loading.value || !statusReady.value || statusLoading.value) return
   if (!verifyCode.value || verifyCode.value.length !== 6) {
     error.value = t('profile.twoFactorAuth.enterCodeError')
     return
   }
   loading.value = true
+  invalidateRecoveryStatus()
   error.value = ''
   try {
     await api.auth.enable2FA(verifyCode.value)
@@ -90,12 +130,13 @@ async function confirmEnable() {
 }
 
 async function confirmDisable() {
-  if (loading.value) return
+  if (loading.value || !statusReady.value || statusLoading.value) return
   if (!disablePassword.value || !disableCode.value) {
     error.value = t('profile.twoFactorAuth.fillPasswordAndCode')
     return
   }
   loading.value = true
+  invalidateRecoveryStatus()
   error.value = ''
   try {
     await api.auth.disable2FA(disablePassword.value, disableCode.value)
@@ -114,12 +155,13 @@ async function confirmDisable() {
 }
 
 async function confirmRegenerate() {
-  if (loading.value) return
+  if (loading.value || !statusReady.value || statusLoading.value) return
   if (!regeneratePassword.value || !regenerateCode.value) {
     error.value = t('profile.twoFactorAuth.fillPasswordAndCode')
     return
   }
   loading.value = true
+  invalidateRecoveryStatus()
   error.value = ''
   try {
     const res = await api.auth.regenerateRecoveryCodes(regeneratePassword.value, regenerateCode.value)
@@ -162,11 +204,11 @@ function cancelDisable() {
 }
 
 function openDisable() {
-  if (!loading.value) disableMode.value = true
+  if (!loading.value && statusReady.value && !statusLoading.value) disableMode.value = true
 }
 
 function openRegenerate() {
-  if (!loading.value) regenerateMode.value = true
+  if (!loading.value && statusReady.value && !statusLoading.value) regenerateMode.value = true
 }
 
 onMounted(loadStatus)
@@ -176,8 +218,12 @@ onMounted(loadStatus)
   <div class="card nimbus-section">
     <h2 class="nimbus-section-title mb-5">{{ $t('profile.twoFactorAuth.title') }}</h2>
 
+    <p v-if="statusLoading" class="text-sm text-themed-muted">{{ $t('common.loading') }}</p>
+    <div v-else-if="statusError" role="alert" class="text-sm text-red-400 break-words">
+      {{ statusError }} <button :disabled="loading" class="underline ml-2" @click="loadStatus">{{ $t('common.retry') }}</button>
+    </div>
     <!-- Status display -->
-    <div v-if="!setupMode && !disableMode && !regenerateMode" class="space-y-4">
+    <div v-else-if="statusReady && !setupMode && !disableMode && !regenerateMode" class="space-y-4">
       <div class="flex items-center justify-between">
         <div>
           <span class="text-sm text-themed-primary">{{ $t('profile.twoFactorAuth.status') }}：</span>
@@ -207,6 +253,10 @@ onMounted(loadStatus)
       </p>
 
       <!-- Recovery codes status -->
+      <p v-if="recoveryStatusLoading" class="text-sm text-themed-muted">{{ $t('common.loading') }}</p>
+      <div v-else-if="recoveryStatusError" role="alert" class="text-sm text-red-400 break-words">
+        {{ recoveryStatusError }} <button :disabled="loading" class="underline ml-2" @click="loadRecoveryCodesStatus">{{ $t('common.retry') }}</button>
+      </div>
       <div v-if="enabled && recoveryCodesStatus" class="mt-4 p-3 bg-themed-tertiary rounded">
         <div class="flex items-center justify-between mb-2">
           <span class="text-sm text-themed-primary">{{ $t('profile.twoFactorAuth.recoveryCodesStatus') }}</span>

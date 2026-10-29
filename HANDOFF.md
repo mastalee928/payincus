@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-307 双重验证状态读取就绪与重试
+
+- 41ada0d8已push。原status失败显示未启用并能setup，reads-before实际Chrome先红；现statusReady/loading/error区分未知与实际禁用，写函数和切模式要求已成功读取。状态/恢复码计数独立seq，同步清旧值/错误/loading；严格真实boolean、非负安全整数且计数相加一致，0剩余有效。失败持久retry，旧finally不关闭新loading；mutation与enabled变化取消旧恢复码计数，禁用成功不被旧计数回填，刷新不留旧成功/错误。
+- takeover-two-factor-reads-final-r3.log实际Chrome初失败setup零请求、重试/乱序/旧finally/非法状态与计数/0/写后旧计数矩阵通过，busy-regression完整回归exit0；三宽三语截图已看，截图发现的旧成功已清。三守卫、lint零错警、reads-build双端build含vue-tsc exit0、user-final-build最新两行变更复构exit0、dist通过，manifest194/154，读专项接CI。响应式对象夹具断言错误已修，不记产品根因。
+- 下一段session-before.log实际Chrome已先红：替换session后旧status仍enabled=true；session/cache/unmount/write receipts/timer产品尚未改，新的session专项不混此读阶段提交。194/68/65含部分、R013敏感验证和完整流程仍待。
+
 ## 2026-10-29 R1-307 双重验证设置即时提交门禁
 
 - 95ea1508已push。TwoFactorSection开始设置/启用/禁用/重新生成恢复码四函数在首个await之前统一loading门禁，忙时拒其它写操作；取消和另开模式同步门禁，输入/取消/确认/Done按钮在途禁用。失败后保草稿并重新可提交，原后端TOTP/敏感验证与会话撤销不变。
