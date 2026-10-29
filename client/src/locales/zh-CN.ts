@@ -4546,6 +4546,7 @@ pool: {
                 nameRequired: '请输入存储池名称',
                 sourceRequired: '请输入存储源（设备路径）',
                 sizeRequired: '请输入存储大小',
+                sizeInvalid: '容量须至少为 1 当前单位、小于 8 EiB，且能精确换算为整数字节',
                 pathRequired: '请输入目录路径',
                 poolName: '存储池名称',
                 driver: '驱动类型',

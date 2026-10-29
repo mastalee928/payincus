@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：b97fff5已push；存储容量create/edit完整数字/单位/精确上限/零与省略、手机表单内部滚动错误按钮可见已修。Chrome final-r4/读写回归/types/3守卫/lint-final零错警/manifest194/136通过，最终双端build-r2含vue-tsc exit0与dist通过，准备单项push。server/scripts/test-review-storage-size.ts下一项未提交，真实PG/Fastify负容量应400实际500已先红，后台未改。327统计189已有修复/复验含部分，68已有防護/实现不同，70待精修；R303分项不重复计数。后台容量/扩容/原子性、R269/Go proc/灾备仍待。
+
 > **最新接续**：03450cf已push；兑换码复制序号/session/旧回执/计时器/失败、批量结果弹窗焦点/键盘/手机已修。Chrome copy完整矩阵、读写回归、types/3守卫/lint零错警/manifest194/135通过，最终双端build含vue-tsc exit0，dist收尾后单项push。test-host-storage-inputs.mjs下一项未提交，负容量先红、产品未改，需数字/单位/扩容门禁与后端校验；后台原子性/327/R269/Go proc/灾备未完成。
 
 > **最新接续**：09c6c77已push；迁移写target/session/代次/busy/完整回执、父入口同步快照/current身份/专属拒绝、辅助读失败保成功结果与键盘已修，Chrome写/父矩阵及读/batch回归、types/3守卫/lint零错警/manifest194/134通过。最终双端build含vue-tsc exit0，dist收尾后单项push。兑换复制test-host-redeem-copy.mjs下一项未提交，产品未改；后台迁移并发补偿、兑换后台事务、Go proc/327/R269/灾备仍待。

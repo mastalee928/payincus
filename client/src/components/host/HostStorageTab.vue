@@ -107,6 +107,21 @@ const editForm = ref({
 
 // 单位选项
 const sizeUnits = ['GiB', 'TiB']
+function storageSize(value: unknown, unit: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null
+  const raw = String(value).trim()
+  if (raw.length > 40 || !/^\d+(?:\.\d+)?$/.test(raw) || (unit !== 'GiB' && unit !== 'TiB')) return null
+  const [whole, fraction = ''] = raw.split('.')
+  const scale = 10n ** BigInt(fraction.length)
+  const amount = BigInt(whole) * scale + BigInt(fraction || '0')
+  const multiplier = unit === 'GiB' ? 1073741824n : 1099511627776n
+  // Incus sizes ultimately become signed 64-bit byte counts. Compare exactly,
+  // without rounding a large decimal into an apparently valid allocation.
+  const numerator = amount * multiplier
+  if (amount < scale || numerator > 9223372036854775807n * scale || numerator % scale !== 0n) return null
+  // Incus accepts integer quantities only; preserve decimal UI sizes as exact bytes.
+  return fraction ? `${numerator / scale}B` : `${BigInt(whole)}${unit}`
+}
 
 // 创建模式：create = 创建新存储池，import = 导入已有存储池
 const createMode = ref<'create' | 'import'>('create')
@@ -266,7 +281,7 @@ async function createPool() {
         createError.value = t('admin.hosts.storage.importSourceRequired')
         return
       }
-      
+
       const result = await api.hosts.createStoragePool(context.hostId, {
         name: form.value.name,
         driver: importDriver.value,
@@ -296,8 +311,8 @@ async function createPool() {
         createError.value = t('admin.hosts.storage.sourceRequired')
         return
       }
-      if (useLoop.value && !form.value.sizeValue) {
-        createError.value = t('admin.hosts.storage.sizeRequired')
+      if (useLoop.value && !storageSize(form.value.sizeValue, form.value.sizeUnit)) {
+        createError.value = t('admin.hosts.storage.sizeInvalid')
         return
       }
     } else if (form.value.driver === 'dir') {
@@ -308,8 +323,8 @@ async function createPool() {
     }
 
     // 组合大小字符串
-    const sizeStr = (supportsLoop && useLoop.value && form.value.sizeValue)
-      ? `${form.value.sizeValue}${form.value.sizeUnit}`
+    const sizeStr = (supportsLoop && useLoop.value)
+      ? storageSize(form.value.sizeValue, form.value.sizeUnit)!
       : undefined
 
     const result = await api.hosts.createStoragePool(context.hostId, {
@@ -408,10 +423,12 @@ async function submitEdit() {
   const context = captureWrite('edit'), poolName = editingPoolName
   editError.value = ''
   const data: { size?: string; description?: string; purpose?: 'instance_data' | 'instance_storage' } = {}
-  
+
   // 只有填写了新大小才提交
-  if (editForm.value.newSizeValue) {
-    data.size = `${editForm.value.newSizeValue}${editForm.value.newSizeUnit}`
+  if (editForm.value.newSizeValue !== '') {
+    const size = storageSize(editForm.value.newSizeValue, editForm.value.newSizeUnit)
+    if (!size) { editError.value = t('admin.hosts.storage.sizeInvalid'); return }
+    data.size = size
   }
   // 描述可以为空，也提交
   data.description = editForm.value.description
@@ -510,7 +527,7 @@ async function submitEdit() {
               ></span>
             </div>
             <p v-if="pool.description" class="text-sm text-themed-secondary mt-1 break-words">{{ pool.description }}</p>
-            
+
             <!-- 使用量 -->
             <div v-if="hasValidSpaceInfo(pool)" class="mt-3">
               <div class="flex items-center justify-between text-xs text-themed-muted mb-1">
@@ -586,8 +603,8 @@ async function submitEdit() {
       <Transition name="modal">
         <div v-if="showCreateModal" class="modal-overlay">
           <div class="modal-backdrop" @click="closeCreateModal"></div>
-          <div ref="createDialog" class="modal-content max-w-lg max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.storage.createTitle')" tabindex="-1" @keydown="handleDialogKey($event, 'create')">
-            <div class="modal-header">
+          <div ref="createDialog" class="modal-content max-w-lg max-h-[90vh] flex flex-col overflow-hidden" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.storage.createTitle')" tabindex="-1" @keydown="handleDialogKey($event, 'create')">
+            <div class="modal-header shrink-0">
               <h3 class="modal-title">{{ t('admin.hosts.storage.createTitle') }}</h3>
               <button class="text-themed-muted hover:text-themed" :disabled="creating" :aria-label="t('common.close')" @click="closeCreateModal">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -596,242 +613,253 @@ async function submitEdit() {
               </button>
             </div>
 
-            <fieldset class="modal-body space-y-4 min-w-0" :disabled="creating">
-              <!-- 模式切换 - 分段按钮组样式 -->
-              <div class="inline-flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg w-full">
-                <button
-                  type="button"
-                  :class="[
-                    'flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition-all',
-                    createMode === 'create'
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                  ]"
-                  @click="createMode = 'create'"
-                >
-                  {{ t('admin.hosts.storage.modeCreate') }}
-                </button>
-                <button
-                  type="button"
-                  :class="[
-                    'flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition-all',
-                    createMode === 'import'
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                  ]"
-                  @click="createMode = 'import'"
-                >
-                  {{ t('admin.hosts.storage.modeImport') }}
-                </button>
-              </div>
-
-              <!-- 模式说明 -->
-              <p class="text-xs text-themed-muted">
-                {{ createMode === 'create' ? t('admin.hosts.storage.modeCreateHint') : t('admin.hosts.storage.modeImportHint') }}
-              </p>
-
-              <!-- 名称 -->
-              <div>
-                <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.poolName') }}</label>
-                <input
-                  v-model="form.name"
-                  type="text"
-                  class="input"
-                  placeholder="default"
-                  pattern="^[a-zA-Z0-9_-]+$"
-                  @input="form.name = form.name.replace(/[^a-zA-Z0-9_-]/g, '')"
-                />
-              </div>
-
-              <!-- 导入模式的配置 -->
-              <template v-if="createMode === 'import'">
-                <!-- 驱动类型 -->
-                <div>
-                  <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.driver') }}</label>
-                  <select v-model="importDriver" class="input">
-                    <option v-for="opt in driverOptions" :key="opt.value" :value="opt.value">
-                      {{ opt.label }}
-                    </option>
-                  </select>
+            <div class="modal-body min-h-0 overflow-y-auto">
+              <fieldset class="space-y-4 min-w-0" :disabled="creating">
+                <!-- 模式切换 - 分段按钮组样式 -->
+                <div class="inline-flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg w-full">
+                  <button
+                    type="button"
+                    :class="[
+                      'flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition-all',
+                      createMode === 'create'
+                        ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                    ]"
+                    @click="createMode = 'create'"
+                  >
+                    {{ t('admin.hosts.storage.modeCreate') }}
+                  </button>
+                  <button
+                    type="button"
+                    :class="[
+                      'flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition-all',
+                      createMode === 'import'
+                        ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                    ]"
+                    @click="createMode = 'import'"
+                  >
+                    {{ t('admin.hosts.storage.modeImport') }}
+                  </button>
                 </div>
 
-                <!-- 底层存储源 -->
+                <!-- 模式说明 -->
+                <p class="text-xs text-themed-muted">
+                  {{ createMode === 'create' ? t('admin.hosts.storage.modeCreateHint') : t('admin.hosts.storage.modeImportHint') }}
+                </p>
+
+                <!-- 名称 -->
                 <div>
-                  <label class="block text-xs text-themed-muted mb-1.5">
-                    {{ importDriver === 'zfs' ? t('admin.hosts.storage.importZfsSource') :
-                      importDriver === 'lvm' ? t('admin.hosts.storage.importLvmSource') :
-                      importDriver === 'btrfs' ? t('admin.hosts.storage.importBtrfsSource') :
-                      t('admin.hosts.storage.importDirSource') }}
-                    <span v-if="importDriver === 'btrfs' || importDriver === 'dir'" class="text-red-500">*</span>
-                  </label>
+                  <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.poolName') }}</label>
                   <input
-                    v-model="importSource"
+                    v-model="form.name"
                     type="text"
                     class="input"
-                    :placeholder="importDriver === 'zfs' ? 'incus-pool' :
-                      importDriver === 'lvm' ? 'incus-vg' :
-                      importDriver === 'btrfs' ? '/dev/sdb' :
-                      '/mnt/storage'"
+                    placeholder="default"
+                    pattern="^[a-zA-Z0-9_-]+$"
+                    @input="form.name = form.name.replace(/[^a-zA-Z0-9_-]/g, '')"
                   />
-                  <p class="text-xs text-themed-muted mt-1">
-                    {{ importDriver === 'zfs' ? t('admin.hosts.storage.importZfsHint') :
-                      importDriver === 'lvm' ? t('admin.hosts.storage.importLvmHint') :
-                      importDriver === 'btrfs' ? t('admin.hosts.storage.importBtrfsHint') :
-                      t('admin.hosts.storage.importDirHint') }}
-                  </p>
                 </div>
-              </template>
 
-              <!-- 创建新池模式的配置 -->
-              <template v-if="createMode === 'create'">
-                <!-- 驱动类型 -->
+                <!-- 导入模式的配置 -->
+                <template v-if="createMode === 'import'">
+                  <!-- 驱动类型 -->
+                  <div>
+                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.driver') }}</label>
+                    <select v-model="importDriver" class="input">
+                      <option v-for="opt in driverOptions" :key="opt.value" :value="opt.value">
+                        {{ opt.label }}
+                      </option>
+                    </select>
+                  </div>
+
+                  <!-- 底层存储源 -->
+                  <div>
+                    <label class="block text-xs text-themed-muted mb-1.5">
+                      {{ importDriver === 'zfs' ? t('admin.hosts.storage.importZfsSource') :
+                        importDriver === 'lvm' ? t('admin.hosts.storage.importLvmSource') :
+                        importDriver === 'btrfs' ? t('admin.hosts.storage.importBtrfsSource') :
+                        t('admin.hosts.storage.importDirSource') }}
+                      <span v-if="importDriver === 'btrfs' || importDriver === 'dir'" class="text-red-500">*</span>
+                    </label>
+                    <input
+                      v-model="importSource"
+                      type="text"
+                      class="input"
+                      :placeholder="importDriver === 'zfs' ? 'incus-pool' :
+                        importDriver === 'lvm' ? 'incus-vg' :
+                        importDriver === 'btrfs' ? '/dev/sdb' :
+                        '/mnt/storage'"
+                    />
+                    <p class="text-xs text-themed-muted mt-1">
+                      {{ importDriver === 'zfs' ? t('admin.hosts.storage.importZfsHint') :
+                        importDriver === 'lvm' ? t('admin.hosts.storage.importLvmHint') :
+                        importDriver === 'btrfs' ? t('admin.hosts.storage.importBtrfsHint') :
+                        t('admin.hosts.storage.importDirHint') }}
+                    </p>
+                  </div>
+                </template>
+
+                <!-- 创建新池模式的配置 -->
+                <template v-if="createMode === 'create'">
+                  <!-- 驱动类型 -->
+                  <div>
+                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.driver') }}</label>
+                    <select v-model="form.driver" class="input">
+                      <option v-for="opt in driverOptions" :key="opt.value" :value="opt.value">
+                        {{ opt.label }}
+                      </option>
+                    </select>
+                    <p class="text-xs text-themed-muted mt-1">{{ selectedDriverDesc }}</p>
+                  </div>
+
+                  <!-- ZFS 配置 -->
+                  <template v-if="form.driver === 'zfs'">
+                    <div class="flex items-center gap-2">
+                      <input id="useLoop" v-model="useLoop" type="checkbox" class="checkbox" />
+                      <label for="useLoop" class="text-sm text-themed">{{ t('admin.hosts.storage.useLoop') }}</label>
+                    </div>
+                    <div v-if="!useLoop">
+                      <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.source') }}</label>
+                      <input v-model="form.source" type="text" class="input" placeholder="/dev/disk/by-id/nvme-xxx" />
+                      <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.zfsSourceHint') }}</p>
+                    </div>
+                    <div v-else>
+                      <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.size') }}</label>
+                      <div class="flex gap-2">
+                        <input
+                          v-model="form.sizeValue"
+                          type="text"
+                          inputmode="decimal"
+                          maxlength="40"
+                          :aria-label="t('admin.hosts.storage.size')"
+                          data-storage-size
+                          class="input flex-1"
+                          placeholder="50"
+                        />
+                        <select v-model="form.sizeUnit" class="input w-24">
+                          <option v-for="unit in sizeUnits" :key="unit" :value="unit">{{ unit }}</option>
+                        </select>
+                      </div>
+                      <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.loopSizeHint') }}</p>
+                    </div>
+                    <div>
+                      <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.zfsPoolName') }}</label>
+                      <input v-model="form.zfsPoolName" type="text" class="input" placeholder="incus-pool" />
+                      <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.zfsPoolNameHint') }}</p>
+                    </div>
+                  </template>
+
+                  <!-- LVM 配置 -->
+                  <template v-if="form.driver === 'lvm'">
+                    <div class="flex items-center gap-2">
+                      <input id="useLoopLvm" v-model="useLoop" type="checkbox" class="checkbox" />
+                      <label for="useLoopLvm" class="text-sm text-themed">{{ t('admin.hosts.storage.useLoop') }}</label>
+                    </div>
+                    <div v-if="!useLoop">
+                      <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.source') }}</label>
+                      <input v-model="form.source" type="text" class="input" placeholder="/dev/sdb" />
+                      <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.lvmSourceHint') }}</p>
+                    </div>
+                    <div v-else>
+                      <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.size') }}</label>
+                      <div class="flex gap-2">
+                        <input
+                          v-model="form.sizeValue"
+                          type="text"
+                          inputmode="decimal"
+                          maxlength="40"
+                          :aria-label="t('admin.hosts.storage.size')"
+                          data-storage-size
+                          class="input flex-1"
+                          placeholder="50"
+                        />
+                        <select v-model="form.sizeUnit" class="input w-24">
+                          <option v-for="unit in sizeUnits" :key="unit" :value="unit">{{ unit }}</option>
+                        </select>
+                      </div>
+                      <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.loopSizeHint') }}</p>
+                    </div>
+                    <div>
+                      <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.lvmVgName') }}</label>
+                      <input v-model="form.lvmVgName" type="text" class="input" placeholder="incus-vg" />
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <input id="lvmUseThinpool" v-model="form.lvmUseThinpool" type="checkbox" class="checkbox" />
+                      <label for="lvmUseThinpool" class="text-sm text-themed">{{ t('admin.hosts.storage.lvmUseThinpool') }}</label>
+                    </div>
+                    <p class="text-xs text-themed-muted">{{ t('admin.hosts.storage.lvmThinpoolHint') }}</p>
+                  </template>
+
+                  <!-- Btrfs 配置 -->
+                  <template v-if="form.driver === 'btrfs'">
+                    <div class="flex items-center gap-2">
+                      <input id="useLoopBtrfs" v-model="useLoop" type="checkbox" class="checkbox" />
+                      <label for="useLoopBtrfs" class="text-sm text-themed">{{ t('admin.hosts.storage.useLoop') }}</label>
+                    </div>
+                    <div v-if="!useLoop">
+                      <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.source') }}</label>
+                      <input v-model="form.source" type="text" class="input" placeholder="/dev/sdb" />
+                      <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.btrfsSourceHint') }}</p>
+                    </div>
+                    <div v-else>
+                      <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.size') }}</label>
+                      <div class="flex gap-2">
+                        <input
+                          v-model="form.sizeValue"
+                          type="text"
+                          inputmode="decimal"
+                          maxlength="40"
+                          :aria-label="t('admin.hosts.storage.size')"
+                          data-storage-size
+                          class="input flex-1"
+                          placeholder="50"
+                        />
+                        <select v-model="form.sizeUnit" class="input w-24">
+                          <option v-for="unit in sizeUnits" :key="unit" :value="unit">{{ unit }}</option>
+                        </select>
+                      </div>
+                      <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.loopSizeHint') }}</p>
+                    </div>
+                  </template>
+
+                  <!-- DIR 配置 -->
+                  <template v-if="form.driver === 'dir'">
+                    <div>
+                      <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.dirPath') }}</label>
+                      <input v-model="form.source" type="text" class="input" placeholder="/mnt/data/incus-storage" />
+                      <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.dirPathHint') }}</p>
+                    </div>
+                  </template>
+                </template> <!-- end of createMode === 'create' -->
+
+                <!-- 存储用途 -->
+                <div class="border-t border-themed pt-4">
+                  <label class="block text-xs text-themed-muted mb-2">{{ t('admin.hosts.storage.purpose') }}</label>
+                  <div class="space-y-2">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input v-model="form.purpose" type="radio" value="instance_data" class="radio" />
+                      <span class="text-sm text-themed">{{ t('admin.hosts.storage.forInstances') }}</span>
+                    </label>
+                    <p class="text-xs text-themed-muted ml-5">{{ t('admin.hosts.storage.forInstancesHint') }}</p>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input v-model="form.purpose" type="radio" value="instance_storage" class="radio" />
+                      <span class="text-sm text-themed">{{ t('admin.hosts.storage.forVolumes') }}</span>
+                    </label>
+                    <p class="text-xs text-themed-muted ml-5">{{ t('admin.hosts.storage.forVolumesHint') }}</p>
+                  </div>
+                </div>
+
+                <!-- 描述 -->
                 <div>
-                  <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.driver') }}</label>
-                  <select v-model="form.driver" class="input">
-                    <option v-for="opt in driverOptions" :key="opt.value" :value="opt.value">
-                      {{ opt.label }}
-                    </option>
-                  </select>
-                  <p class="text-xs text-themed-muted mt-1">{{ selectedDriverDesc }}</p>
+                  <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.description') }}</label>
+                  <input v-model="form.description" type="text" class="input" :placeholder="t('common.notSet')" />
                 </div>
+              </fieldset>
+            </div>
 
-                <!-- ZFS 配置 -->
-                <template v-if="form.driver === 'zfs'">
-                  <div class="flex items-center gap-2">
-                    <input id="useLoop" v-model="useLoop" type="checkbox" class="checkbox" />
-                    <label for="useLoop" class="text-sm text-themed">{{ t('admin.hosts.storage.useLoop') }}</label>
-                  </div>
-                  <div v-if="!useLoop">
-                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.source') }}</label>
-                    <input v-model="form.source" type="text" class="input" placeholder="/dev/disk/by-id/nvme-xxx" />
-                    <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.zfsSourceHint') }}</p>
-                  </div>
-                  <div v-else>
-                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.size') }}</label>
-                    <div class="flex gap-2">
-                      <input
-                        v-model="form.sizeValue"
-                        type="number"
-                        min="1"
-                        class="input flex-1"
-                        placeholder="50"
-                      />
-                      <select v-model="form.sizeUnit" class="input w-24">
-                        <option v-for="unit in sizeUnits" :key="unit" :value="unit">{{ unit }}</option>
-                      </select>
-                    </div>
-                    <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.loopSizeHint') }}</p>
-                  </div>
-                  <div>
-                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.zfsPoolName') }}</label>
-                    <input v-model="form.zfsPoolName" type="text" class="input" placeholder="incus-pool" />
-                    <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.zfsPoolNameHint') }}</p>
-                  </div>
-                </template>
-
-                <!-- LVM 配置 -->
-                <template v-if="form.driver === 'lvm'">
-                  <div class="flex items-center gap-2">
-                    <input id="useLoopLvm" v-model="useLoop" type="checkbox" class="checkbox" />
-                    <label for="useLoopLvm" class="text-sm text-themed">{{ t('admin.hosts.storage.useLoop') }}</label>
-                  </div>
-                  <div v-if="!useLoop">
-                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.source') }}</label>
-                    <input v-model="form.source" type="text" class="input" placeholder="/dev/sdb" />
-                    <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.lvmSourceHint') }}</p>
-                  </div>
-                  <div v-else>
-                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.size') }}</label>
-                    <div class="flex gap-2">
-                      <input
-                        v-model="form.sizeValue"
-                        type="number"
-                        min="1"
-                        class="input flex-1"
-                        placeholder="50"
-                      />
-                      <select v-model="form.sizeUnit" class="input w-24">
-                        <option v-for="unit in sizeUnits" :key="unit" :value="unit">{{ unit }}</option>
-                      </select>
-                    </div>
-                    <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.loopSizeHint') }}</p>
-                  </div>
-                  <div>
-                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.lvmVgName') }}</label>
-                    <input v-model="form.lvmVgName" type="text" class="input" placeholder="incus-vg" />
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <input id="lvmUseThinpool" v-model="form.lvmUseThinpool" type="checkbox" class="checkbox" />
-                    <label for="lvmUseThinpool" class="text-sm text-themed">{{ t('admin.hosts.storage.lvmUseThinpool') }}</label>
-                  </div>
-                  <p class="text-xs text-themed-muted">{{ t('admin.hosts.storage.lvmThinpoolHint') }}</p>
-                </template>
-
-                <!-- Btrfs 配置 -->
-                <template v-if="form.driver === 'btrfs'">
-                  <div class="flex items-center gap-2">
-                    <input id="useLoopBtrfs" v-model="useLoop" type="checkbox" class="checkbox" />
-                    <label for="useLoopBtrfs" class="text-sm text-themed">{{ t('admin.hosts.storage.useLoop') }}</label>
-                  </div>
-                  <div v-if="!useLoop">
-                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.source') }}</label>
-                    <input v-model="form.source" type="text" class="input" placeholder="/dev/sdb" />
-                    <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.btrfsSourceHint') }}</p>
-                  </div>
-                  <div v-else>
-                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.size') }}</label>
-                    <div class="flex gap-2">
-                      <input
-                        v-model="form.sizeValue"
-                        type="number"
-                        min="1"
-                        class="input flex-1"
-                        placeholder="50"
-                      />
-                      <select v-model="form.sizeUnit" class="input w-24">
-                        <option v-for="unit in sizeUnits" :key="unit" :value="unit">{{ unit }}</option>
-                      </select>
-                    </div>
-                    <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.loopSizeHint') }}</p>
-                  </div>
-                </template>
-
-                <!-- DIR 配置 -->
-                <template v-if="form.driver === 'dir'">
-                  <div>
-                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.dirPath') }}</label>
-                    <input v-model="form.source" type="text" class="input" placeholder="/mnt/data/incus-storage" />
-                    <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.dirPathHint') }}</p>
-                  </div>
-                </template>
-              </template> <!-- end of createMode === 'create' -->
-
-              <!-- 存储用途 -->
-              <div class="border-t border-themed pt-4">
-                <label class="block text-xs text-themed-muted mb-2">{{ t('admin.hosts.storage.purpose') }}</label>
-                <div class="space-y-2">
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="form.purpose" type="radio" value="instance_data" class="radio" />
-                    <span class="text-sm text-themed">{{ t('admin.hosts.storage.forInstances') }}</span>
-                  </label>
-                  <p class="text-xs text-themed-muted ml-5">{{ t('admin.hosts.storage.forInstancesHint') }}</p>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="form.purpose" type="radio" value="instance_storage" class="radio" />
-                    <span class="text-sm text-themed">{{ t('admin.hosts.storage.forVolumes') }}</span>
-                  </label>
-                  <p class="text-xs text-themed-muted ml-5">{{ t('admin.hosts.storage.forVolumesHint') }}</p>
-                </div>
-              </div>
-
-              <!-- 描述 -->
-              <div>
-                <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.description') }}</label>
-                <input v-model="form.description" type="text" class="input" :placeholder="t('common.notSet')" />
-              </div>
-            </fieldset>
-
-            <p v-if="createError" role="alert" class="px-5 pb-3 text-sm text-red-500 break-words">{{ createError }}</p>
-            <div class="modal-footer">
+            <p v-if="createError" role="alert" class="shrink-0 px-5 pb-3 text-sm text-red-500 break-words">{{ createError }}</p>
+            <div class="modal-footer shrink-0">
               <button class="btn-secondary" :disabled="creating" @click="closeCreateModal">{{ t('common.cancel') }}</button>
               <button class="btn-primary" :disabled="!canStartWrite || !form.name" @click="createPool">
                 <svg v-if="creating" class="w-4 h-4 animate-spin mr-1.5" fill="none" viewBox="0 0 24 24">
@@ -851,8 +879,8 @@ async function submitEdit() {
       <Transition name="modal">
         <div v-if="showEditModal" class="modal-overlay">
           <div class="modal-backdrop" @click="closeEditModal"></div>
-          <div ref="editDialog" class="modal-content max-w-md max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.storage.editTitle')" tabindex="-1" @keydown="handleDialogKey($event, 'edit')">
-            <div class="modal-header">
+          <div ref="editDialog" class="modal-content max-w-md max-h-[90vh] flex flex-col overflow-hidden" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.storage.editTitle')" tabindex="-1" @keydown="handleDialogKey($event, 'edit')">
+            <div class="modal-header shrink-0">
               <h3 class="modal-title">{{ t('admin.hosts.storage.editTitle') }}</h3>
               <button class="text-themed-muted hover:text-themed" :disabled="editing" :aria-label="t('common.close')" @click="closeEditModal">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -861,69 +889,74 @@ async function submitEdit() {
               </button>
             </div>
 
-            <fieldset class="modal-body space-y-4 min-w-0" :disabled="editing">
-              <!-- 存储池名称（只读） -->
-              <div>
-                <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.poolName') }}</label>
-                <input :value="editForm.name" type="text" class="input" disabled />
-              </div>
-
-              <!-- 驱动类型（只读） -->
-              <div>
-                <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.driver') }}</label>
-                <input :value="editForm.driver.toUpperCase()" type="text" class="input" disabled />
-              </div>
-
-              <!-- 当前大小 -->
-              <div v-if="editForm.currentSize">
-                <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.currentSize') }}</label>
-                <input :value="editForm.currentSize" type="text" class="input" disabled />
-              </div>
-
-              <!-- 新大小（扩容） -->
-              <div>
-                <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.newSize') }}</label>
-                <div class="flex gap-2">
-                  <input
-                    v-model="editForm.newSizeValue"
-                    type="number"
-                    min="1"
-                    class="input flex-1"
-                    placeholder="100"
-                  />
-                  <select v-model="editForm.newSizeUnit" class="input w-24">
-                    <option v-for="unit in sizeUnits" :key="unit" :value="unit">{{ unit }}</option>
-                  </select>
+            <div class="modal-body min-h-0 overflow-y-auto">
+              <fieldset class="space-y-4 min-w-0" :disabled="editing">
+                <!-- 存储池名称（只读） -->
+                <div>
+                  <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.poolName') }}</label>
+                  <input :value="editForm.name" type="text" class="input" disabled />
                 </div>
-                <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.newSizeHint') }}</p>
-              </div>
 
-              <!-- 描述 -->
-              <div>
-                <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.description') }}</label>
-                <input v-model="editForm.description" type="text" class="input" :placeholder="t('common.notSet')" />
-              </div>
-              
-              <!-- 存储用途 -->
-              <div class="border-t border-themed pt-4">
-                <label class="block text-xs text-themed-muted mb-2">{{ t('admin.hosts.storage.purpose') }}</label>
-                <div class="space-y-2">
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="editForm.purpose" type="radio" value="instance_data" class="radio" />
-                    <span class="text-sm text-themed">{{ t('admin.hosts.storage.forInstances') }}</span>
-                  </label>
-                  <p class="text-xs text-themed-muted ml-5">{{ t('admin.hosts.storage.forInstancesHint') }}</p>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="editForm.purpose" type="radio" value="instance_storage" class="radio" />
-                    <span class="text-sm text-themed">{{ t('admin.hosts.storage.forVolumes') }}</span>
-                  </label>
-                  <p class="text-xs text-themed-muted ml-5">{{ t('admin.hosts.storage.forVolumesHint') }}</p>
+                <!-- 驱动类型（只读） -->
+                <div>
+                  <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.driver') }}</label>
+                  <input :value="editForm.driver.toUpperCase()" type="text" class="input" disabled />
                 </div>
-              </div>
-            </fieldset>
 
-            <p v-if="editError" role="alert" class="px-5 pb-3 text-sm text-red-500 break-words">{{ editError }}</p>
-            <div class="modal-footer">
+                <!-- 当前大小 -->
+                <div v-if="editForm.currentSize">
+                  <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.currentSize') }}</label>
+                  <input :value="editForm.currentSize" type="text" class="input" disabled />
+                </div>
+
+                <!-- 新大小（扩容） -->
+                <div>
+                  <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.newSize') }}</label>
+                  <div class="flex gap-2">
+                    <input
+                      v-model="editForm.newSizeValue"
+                      type="text"
+                      inputmode="decimal"
+                      maxlength="40"
+                      :aria-label="t('admin.hosts.storage.size')"
+                      data-storage-size
+                      class="input flex-1"
+                      placeholder="100"
+                    />
+                    <select v-model="editForm.newSizeUnit" class="input w-24">
+                      <option v-for="unit in sizeUnits" :key="unit" :value="unit">{{ unit }}</option>
+                    </select>
+                  </div>
+                  <p class="text-xs text-themed-muted mt-1">{{ t('admin.hosts.storage.newSizeHint') }}</p>
+                </div>
+
+                <!-- 描述 -->
+                <div>
+                  <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.description') }}</label>
+                  <input v-model="editForm.description" type="text" class="input" :placeholder="t('common.notSet')" />
+                </div>
+
+                <!-- 存储用途 -->
+                <div class="border-t border-themed pt-4">
+                  <label class="block text-xs text-themed-muted mb-2">{{ t('admin.hosts.storage.purpose') }}</label>
+                  <div class="space-y-2">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input v-model="editForm.purpose" type="radio" value="instance_data" class="radio" />
+                      <span class="text-sm text-themed">{{ t('admin.hosts.storage.forInstances') }}</span>
+                    </label>
+                    <p class="text-xs text-themed-muted ml-5">{{ t('admin.hosts.storage.forInstancesHint') }}</p>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input v-model="editForm.purpose" type="radio" value="instance_storage" class="radio" />
+                      <span class="text-sm text-themed">{{ t('admin.hosts.storage.forVolumes') }}</span>
+                    </label>
+                    <p class="text-xs text-themed-muted ml-5">{{ t('admin.hosts.storage.forVolumesHint') }}</p>
+                  </div>
+                </div>
+              </fieldset>
+            </div>
+
+            <p v-if="editError" role="alert" class="shrink-0 px-5 pb-3 text-sm text-red-500 break-words">{{ editError }}</p>
+            <div class="modal-footer shrink-0">
               <button class="btn-secondary" :disabled="editing" @click="closeEditModal">{{ t('common.cancel') }}</button>
               <button class="btn-primary" :disabled="!canStartWrite" @click="submitEdit">
                 <svg v-if="editing" class="w-4 h-4 animate-spin mr-1.5" fill="none" viewBox="0 0 24 24">

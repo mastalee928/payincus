@@ -91,6 +91,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-host-migrate-dedicated', 'requires isolated local *_pool_test PostgreSQL; dedicated instance/host boundary before legacy migration mutations'],
   ['test:review-host-storage-reads', 'requires Chrome/Edge and local Vite; storage list host/session/cache lifecycle, response validation and fallback warning'],
   ['test:review-host-storage-writes', 'requires Chrome/Edge and local Vite; storage create/import/edit/delete targets, duplicate requests, old receipts and retry'],
+  ['test:review-host-storage-inputs', 'requires Chrome/Edge and local Vite; storage size syntax, units, exact bounds, zero versus omission and mobile errors'],
   ['test:review-host-redeem-reads', 'requires Chrome/Edge and local Vite; redeem list/options/usages host/session lifecycle, pagination, retries and draft preservation'],
   ['test:review-host-redeem-writes', 'requires Chrome/Edge and local Vite; redeem create/toggle/delete target, duplicate, session, dialog and partial-result lifecycle'],
   ['test:review-host-redeem-copy', 'requires Chrome/Edge and local Vite; clipboard ordering, rejection, timers, session and batch result dialog lifecycle'],

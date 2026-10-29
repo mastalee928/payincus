@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 存储容量输入与弹窗滚动
+
+- b97fff5已push核远端。创建/编辑容量按完整十进制格式与GiB/TiB单位校验，BigInt精确比较至少1当前单位及有符号64位字节上限，合法小数精确转为整数字节（Incus原生只解析整数+单位），不能整字节表示者拒绝；拒绝负数、零、指数/垃圾后缀和超范围，编辑空字符串保持只改描述，数字0不再静默省略。文本数字输入保留原始值交由校验，不让Vue number隐式转换掩盖非法格式；错误三语齐全。
+- takeover-storage-inputs-before.log真实Chrome先红-1GiB发出请求；final-r4完整矩阵exit0，含create/edit零与省略、单位/格式/范围、小数、真实输入及1440/390两视口。原读取/写入回归通过；最终route/i18n/host-route-id三守卫通过；新增滚动wrapper引起289项缩进warn，纯缩进修正后lint-final零错警，逐行lstrip核对无语义改动，types通过。截图发现fieldset内部滚动溢出，改外层div滚动，错误/按钮固定可见且不与表单重叠，第三次截图及几何断言核验。最终双端build含vue-tsc exit0（takeover-storage-inputs-build-final-r2.log）、dist通过（takeover-storage-inputs-dist.log），manifest194/136，专项接CI。
+- Incus上游shared/units/units.go固定blob afbce5283a07e8fb4d616c9a5415b8ac53091423代码核对只接收整数+单位，因此小数精确转换B；本机Go shim目标缺失，原生解析试跑未执行，未把该日志算通过。真实Incus扩容仍待。
+- 后台test-review-storage-size.ts已真实PG/Fastify先红：-1GiB未在远端连接前拒绝400，而进入Incus准备并500；见takeover-storage-size-api-before.log；扩展mTLS夹具before-r2还先红空容量连接宿主，原后台尚未修改，专项不随此批提交。下一步独立修API格式/上限/单位边界；驱动真实扩容能力、禁止缩容、当前授权及远端/DB原子性继续待验，本批不操作真实宿主磁盘。
+- 按327原编号去重统计：189项已有修复或复验记录（含部分完成/欠真机），68项保留已有防护/实现不同结论，70项待精修或运行复核。189不能全算完成，剩余包括70及189中的未完成范围；R303分项提交不重复增加编号数量。327/R269/Go proc与完整灾备未完成。
+
 ## 2026-10-29 R1-303 兑换码复制回执与批量结果弹窗
 
 - 03450cf已push并核远端；8e9e15d CI已success，4cde9e6/09c6c77/03450cf最后运行。单码/批量复制增加请求序号、host/session/页面及结果弹窗代次，校验当前码值/批次；旧回执及旧定时器不覆盖新反馈，切换/卸载清理定时器，剪贴板拒绝或不可用持久显示失败。实际剪贴板写入是受控fixture，未读取或覆盖owner系统剪贴板。

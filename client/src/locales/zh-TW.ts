@@ -5303,6 +5303,7 @@ pool: {
                 nameRequired: '請輸入儲存池名稱',
                 sourceRequired: '請輸入儲存源（裝置路徑）',
                 sizeRequired: '請輸入儲存大小',
+                sizeInvalid: '容量須至少為 1 目前單位、小於 8 EiB，且能精確換算為整數位元組',
                 pathRequired: '請輸入目錄路徑',
                 poolName: '儲存池名稱',
                 driver: '驅動類型',

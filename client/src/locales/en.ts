@@ -4492,6 +4492,7 @@ pool: {
                 nameRequired: 'Please enter storage pool name',
                 sourceRequired: 'Please enter storage source (device path)',
                 sizeRequired: 'Please enter storage size',
+                sizeInvalid: 'Size must be at least 1 selected unit, below 8 EiB, and an exact whole number of bytes',
                 pathRequired: 'Please enter directory path',
                 poolName: 'Pool Name',
                 driver: 'Driver Type',
