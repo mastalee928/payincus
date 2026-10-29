@@ -36,6 +36,7 @@
     "test:review-host-images": "node ../scripts/test-host-images.mjs",
     "test:review-host-caddy-reads": "node ../scripts/test-host-caddy-reads.mjs",
     "test:review-host-caddy-actions": "node ../scripts/test-host-caddy-actions.mjs",
+    "test:review-host-caddy-touch": "node ../scripts/test-host-caddy-actions.mjs --touch-only",
     "test:review-host-config-endpoint": "node ../scripts/test-host-config-endpoint.mjs",
     "test:review-host-config-clear": "node ../scripts/test-host-config-clear.mjs",
     "test:review-host-config-submit": "node ../scripts/test-host-config-submit.mjs",

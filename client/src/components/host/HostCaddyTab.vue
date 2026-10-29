@@ -609,8 +609,8 @@ const isEnabled = computed(() => caddyStatus.value.enabled)
         @keydown.esc.stop.prevent="closeInstallModal"
       >
         <div 
-          class="caddy-install-modal modal-content w-full max-w-2xl"
-          ref="installDialog" tabindex="-1"
+          ref="installDialog"
+          class="caddy-install-modal modal-content w-full max-w-2xl" tabindex="-1"
           role="dialog" aria-modal="true" aria-labelledby="caddy-install-title" :aria-busy="actionBusy"
         >
           <div class="p-6">
@@ -726,6 +726,8 @@ const isEnabled = computed(() => caddyStatus.value.enabled)
 .caddy-install-modal button { transform: none !important; }
 .caddy-install-overlay { background: rgb(0 0 0 / 45%); }
 .caddy-install-modal {
+  animation: none;
+  transform: none;
   background: var(--bg-primary) !important;
   background-image: none !important;
   backdrop-filter: none;

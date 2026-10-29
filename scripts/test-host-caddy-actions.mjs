@@ -34,6 +34,31 @@ try {
   const launch = kind => run(method => { void window.hostCaddyHarness.view()[method]() }, methods[kind])
   const snapshot = () => page.eval(() => JSON.stringify({ info: { ...oldCaddy.installInfo }, modal: oldCaddy.showInstallModal, error: oldCaddy.actionError,
     test: { ...oldCaddy.testResult }, status: { ...oldCaddy.caddyStatus }, sites: [...oldCaddy.sites], toasts: window.hostCaddyHarness.toast.toasts.value.map(t => t.message) }))
+  if (process.argv.includes('--touch-only')) {
+    await page.send('Animation.enable')
+    await page.send('Animation.setPlaybackRate', { playbackRate: 0 })
+    for (const motion of ['reduce', 'no-preference']) for (const theme of ['light', 'dark']) for (const locale of ['zh-CN', 'zh-TW', 'en']) for (const width of [1440, 768, 390]) {
+      await page.setViewport({ width, height: 1000 })
+      await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: motion }] })
+      await fresh(); await settle(0, status(false))
+      await run(({ theme, locale }) => { const h = window.hostCaddyHarness; h.theme.setTheme(theme); h.setLocale(locale) }, { theme, locale })
+      await launch('generate'); await settle(1, credentials()); await settle(2, status()); await settle(3, sites())
+      const geometry = await page.eval(() => {
+        const dialog = document.querySelector('[role="dialog"]'), style = getComputedStyle(dialog)
+        return { transform: style.transform, animationName: style.animationName, buttons: [...dialog.querySelectorAll('button')].map(button => {
+          const rect = button.getBoundingClientRect()
+          return { name: button.getAttribute('aria-label') || button.textContent.trim(), width: rect.width, height: rect.height }
+        }) }
+      })
+      console.log(JSON.stringify({ motion, theme, locale, width, geometry }))
+      if (width === 390) assert.ok(geometry.buttons.every(button => button.width >= 44 && button.height >= 44), 'phone dialog targets stay 44px even at the first animation frame')
+      assert.equal(geometry.transform, 'none', 'dialog entrance never shrinks its controls')
+      assert.equal(geometry.animationName, 'none', 'dialog itself remains still in both motion preferences')
+      assert.ok(await page.eval(() => document.querySelector('[role="dialog"]').contains(document.activeElement)), 'initial focus remains in the dialog')
+      await page.screenshot({ path: resolve(output, `touch-${motion}-${theme}-${locale}-${width}.jpg`), fullPage: true })
+    }
+    console.log('PASS first-frame target geometry in both motion preferences, themes, three locales and three widths')
+  } else {
   for (const kind of Object.keys(methods)) {
     await initialize(kind); await launch(kind)
     const count = await page.eval(() => window.hostCaddyHarness.pending.length)
@@ -179,4 +204,5 @@ try {
   assert.equal(page.consoleErrors.length, 0, page.consoleErrors.join('\n'))
   console.log('PASS actual generate/confirm controls, modal focus, persistent failures and three languages/widths')
   if (process.argv.includes('--serve')) { console.log('Caddy actions fixture ready http://127.0.0.1:19746/?inspect&modal'); await new Promise(() => {}) }
+  }
 } finally { if (browser) await browser.close(); await server.close() }

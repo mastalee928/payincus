@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 纠正停工与CI漏查，修复Caddy弹窗首帧触控尺寸
+
+- 执行错误已写入OWNER_REQUIREMENTS §5：在未完修复的进度回复后停止、未跟进in_progress CI终态。以后阶段汇报后继续；每次推送记完整commit/运行ID、跟踪具体job终态，失败先读原日志，不将本地绿或阶段提交当完成。原327仍241有修复/复验（含部分）、68已有防护/不同实现、18待精修，已记录项内部缺口继续保留。
+- 已读取CI40962294025、40963306413、40964780673失败原日志，均在Host Caddy operations手机44px断言。真实Chrome冻结动画复现modal-content继承scale-in首帧scale(0.95)，按钮实际约41.8px，reduce模式也缩小；仅等待动画后测量导致漏查。只在HostCaddyTab弹窗取消animation/transform，保留其它组件和44px严格断言，未改后端/凭据/客户网络。
+- 新增test:review-host-caddy-touch并登记server脚本、专项分类与CI。真实Chrome冻结动画两偏好×两主题×三语×三宽36组全部通过；完整四操作/72旧操作/24旧复制及三语三宽真实控件、键盘回归通过，日志takeover-ci-caddy-touch-frozen-final.log与takeover-ci-caddy-actions-final.log。浅色中文与深色英文手机末截图复看，沿既有Achromatic ledger；本次局部尺寸修复不充当完整父页或Linux Caddy安装验收。
+- client类型、组件有效ESLint、语法/manifest检查、五相关守卫（test-run-20261030-072652）通过；最终双端build含两次vue-tsc完成、之后末route与dist守卫通过，日志takeover-ci-caddy-build.log、takeover-ci-caddy-route-final.log、takeover-ci-caddy-dist-final.log。未重复完整套或生产/发行。
+- 40968364762/40969838036/40970307707/40970700657最新仍in_progress，各其它六job成功；旧源码不含本次修复，不能计7/7或声称已修其运行。历史失败通知另外查到40799210505原生Go进程审计IO与40817435630容量可见性；已读原日志，是否在后续提交解决须按同文件历史和新运行证据核对。历史失败保留原failure，不靠重跑抹去。此阶段按已授权提交推送，登记新完整SHA及运行ID后继续原清单和CI终态。
+
 ## 2026-10-30 R1-156 保留重装镜像读取，清理无调用写入与旧长轮询
 
 - R165已commit/push08a2b9ca核远端干净。完整符号与动态import复核纠正初审：instanceTaskWorker重装属性同步确实使用getImageAlias/getImage，因此保留两读取及IncusImage/IncusImageAlias。仅移除其它9个无调用镜像列表/拉取/别名写/删除/存在性函数、无人消费的barrel镜像导出、PullImageOptions和仅旧拉取调用的waitForOperationLong；现行waitForOperation/mapInstanceStatus保持。四文件净减267行，无worker/路由/前端/DB修改。

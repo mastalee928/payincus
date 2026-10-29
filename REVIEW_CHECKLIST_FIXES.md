@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
+
 当前进度（2026-10-30，R156收尾后）：原327个编号中，241项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，18项仍为「待精修/运行复核」。241并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以18项表示。
 
 2026-10-30 R156纠正实际动态调用：重装使用getImageAlias/getImage，保留两函数与类型；仅清9个无调用导出、barrel、PullImageOptions与旧waitForOperationLong，净减267行。两读取/现行wait-status逐字保持、worker SHA保持，真实保留读取受控request回归和五守卫53343/后端含tsc build70086最终正常exit0、目标lint/diff通过。241含部分/68已有不同/18待，真实重装/外部镜像/完整327仍待，见HANDOFF。

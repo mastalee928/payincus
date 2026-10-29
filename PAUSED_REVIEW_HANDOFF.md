@@ -1,5 +1,9 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **2026-10-30本次错误与修复已落地**：首帧Chrome冻结动画确证scale(0.95)把44px缩为约41.8px，reduce同样受影响。HostCaddyTab弹窗局部animation/transform取消，严格44px保留；新增两动态偏好/深浅/三语/三宽36组专项接CI并全部通过，完整Caddy四操作/72旧操作/24旧复制/键盘与实际三语控件、client types/lint/五守卫/双端含types build/末route-dist全过。日志takeover-ci-caddy-*-final及build；本次错误写OWNER_REQUIREMENTS §5与HANDOFF，不再以阶段汇报停工或放置in_progress不查。最新四CI40968364762/40969838036/40970307707/40970700657仍在pool job，无新失败；历史40799210505进程审计IO及40817435630容量可见性已读原失败日志，需核后续提交/运行是否覆盖。此已验证段落提交推送后登记SHA/新CI运行，再接原清单241含部分/68已有不同/18待及内部缺口。无测试serve、未动生产/客户/发行。
+
+> **2026-10-30 owner纠正与当前优先事项**：agent在进度回复后结束未完修复，并漏跟进先前in_progress CI终态，这是执行错误；已同步OWNER_REQUIREMENTS §5，状态询问只简短回答后继续，提交/本地通过不结束授权工作。已查CI40962294025/40963306413/40964780673全部失败，均在Host Caddy operations专项scripts/test-host-caddy-actions.mjs:170手机dialog按钮44px断言；六组功能/72旧操作/24旧copy检查此前均通过，其它六job成功。读取原运行失败日志存logs/takeover-ci-notifications-*-failed.log，正在定位真实几何尺寸，不跳过断言。91681263/c174586c/08a2b9ca/91fa21c3的CI40968364762/40969838036/40970307707/40970700657仍in_progress且各非pool六job已成功；必须后续跟到终态，不宣称7/7。不生产/发行；修CI后继续原241含部分/68已有不同/18待及各项内部缺口。
+
 > **最新接续**：R16508a2b9ca已commit/push核远端干净。R156纠正旧初审，保留实际worker重装动态getImageAlias/getImage及类型，仅清9无调用函数/barrel/PullImageOptions/旧长轮询净减267行；两read与现行wait-status逐字保持、worker SHA保持。保留函数真实受控request回归正常exit0，server含tsc build70086与五守卫53343（logs/test-run-20261030-070353）最终正常exit0，四文件lint/diff/最终引用检查过，无待poll。241含部分/68已有不同/18待；本项即commit/push后继续。未改前端/DB/worker，真实重装、部分项内缺口和完整327/网关灾备仍未完成，不生产/发行；PG55438保留，无测试serve。
 
 > **最新接续**：R113c174586c已commit/push核HEAD=origin/main干净。R165完整实际引用搜索确认网络适配器仅定义/导出/孤立类型，清理31行；八现行网络实现字节保持、后无旧引用及产物导出。server含tsc build84536与4/4守卫85974（logs/test-run-20261030-070028）最终正常exit0，目标lint/diff通过，无待poll。240含部分/68已有不同/19待，立即单项commit/push；接R156时已查到instanceTaskWorker重装动态调用getImageAlias/getImage，纠正旧「整个模块无调用」判断，必须保留两读取/类型与属性同步，只清真正无调用导出/旧长轮询，尚未改R156。PG55438保留，无测试serve；完整327、部分项内缺口、真实客户及网关灾备未完，不生产/发行。
