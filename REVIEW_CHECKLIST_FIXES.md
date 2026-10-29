@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R063/R064补当前授权与锁证据：原四快照路由已有事务重读，实际Fastify/PG20组观测写锁等待后封禁/sid撤销/降权/归属/转移拒旧且零mTLS写，源替换/state/恢复期间delete409和四合法对照通过；3守卫/独立test types/diff/manifest194常规178专项有效。210有修复复验含部分/68已有不同/49待，R062前端另续；a088/c23 CI已success，完整327/原生磁盘/灾备未完。
+
 2026-10-29 R067补失败排程证据：旧finalizer无消费者、现failure只写操作回执；auto集成追加新1440未来排程/关闭null后旧操作失败，policy全字段不变、零额外远端写及原同操作恢复，真实PG/mTLS完整28条PASS最终exit0；两守卫/test types过，同产品原types/build保持。208有修复复验含部分/68已有不同/51待，原生磁盘/成功恢复语义/完整327与灾备未完。
 
 2026-10-29 R065快照排程：真实路由间隔变化保留旧nextRunAt先红，原事务实例/账户锁内改间隔重排、原样保留、关闭null、重新启用重排；Fastify/PG final2与原auto快照26条PG/mTLS回归、3守卫/server类型/独立测试类型/build及manifest194常规177专项全部exit0。207有修复复验含部分/68已有不同/52待，Incus替身不等于Linux客户磁盘验收，完整327/灾备继续。
@@ -182,8 +184,8 @@
 | R1-060 | 实现不同 | 保留初审结论 | 前端疑似无当前页面消费者；不代表后端或平台OSS备份已退役，不据此删除整栈。 |
 | R1-061 | 原症状已修 | 实际Chrome原样保存复验通过 | 当前c277ba30 SnapshotManager已Boolean(res.enabled)，真实GET/PUT布尔合同核对；true/false×10/60/360/1440实际编辑按钮/checkbox/原样save精确payload通过takeover-snapshot-policy-ui-final，三宽三语截图与3守卫过。未改真实策略或操作Incus；整体UI/其它生命周期另验。 |
 | R1-062 | 存在 | 待精修/运行复核 | 快照变更缺session/target generation及完整busy门禁，旧完成可能覆盖草稿或卸载后继续。 |
-| R1-063 | 部分存在 | 待精修/运行复核 | 请求authenticateUser已有认证，快照权限依赖先读的user/instance/hostOwner；写入前缺统一最新actor资格核验，封禁/降权在途边界待DB复现。 |
-| R1-064 | 存在 | 待精修/运行复核 | 删除/恢复/策略先校验快照与实例后异步远端操作，删除未与恢复统一锁；转移后仍可能作用旧目标。 |
+| R1-063 | 原症状已修 | 当前授权真实Fastify/PG复验通过 | 四操作现withSnapshotMutation重读status/sid/role；20组实际写锁等待包括封禁/撤销/降权后403、零mTLS远端写，takeover-snapshot-mutation-authorization exit0；对应守卫/test types过，真实网页登录/Linux另验。 |
+| R1-064 | 原症状已修 | 目标/source/state/互斥真实Fastify/PG复验通过 | 原事务锁覆盖四effect，归属/转移与快照源替换/running等待后409、零mTLS写；恢复真实PUT悬挂期间同源delete409且源保留，合法对照通过takeover-snapshot-mutation-authorization，守卫/types过；原生磁盘另验。 |
 | R1-065 | 存在 | 已修；真实Fastify/PG通过 | 原实例锁内按当前策略重新排程：改间隔/重启/缺值重排，原样保留，关闭null，lastRunAt不变；schedule-before先红→final2间隔/账户门禁/实例字段保持与原auto-regression26条PG/mTLS回归全部exit0，3守卫/server types/build通过。真实Linux Incus另验。 |
 | R1-066 | 已有防护 | 保留初审结论 | parsePositiveId严格正整数及safe integer；不接受小数ID。 |
 | R1-067 | 原症状已修 | 当前失败分支真实PG/mTLS复验通过 | 旧updateSnapshotPolicyLastRun无消费者；failure仅attempt约束操作回执。new_schedule_failure/disabled_schedule_failure完整policy保持/零远端写并原同操作恢复，takeover-snapshot-failure-schedule-final完整28条PASS exit0，两守卫/独立types过；成功恢复排程语义与原生磁盘另验。 |

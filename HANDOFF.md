@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-063/R1-064 快照变更当前授权与恢复锁复验
+
+- 当前四条快照写路由已走withSnapshotMutation，事务中重读实例归属/位置、账户status/sid/当前管理员role及转移/在途工作；删除/恢复重读源快照、恢复重核stopped，锁覆盖远端effect。原静态待核结论过时，本阶段不重复改产品。
+- 新snapshot-mutation-authorization真实Fastify/PG四操作(create/delete/restore/policy)×封禁/撤销sid/管理员降权/归属变化/进行中转移共20竞态：以pg_blocking_pids确认请求真正等待对应写锁，之后旧请求403/409、零认证TLS远端写，快照及策略保持。另两源快照incusName替换及恢复前running拒旧目标；真实PUT恢复在TLS边界悬挂时，DELETE同源409且源快照存在。合法四操作对照实际执行通过，完整专项exit0。
+- takeover-snapshot-mutation-authorization及3对应snapshot/auth-session/auto-policy守卫、独立测试TS检查exit0，diff/manifest194常规178专项有效并接CI，无待poll。仅新增测试，沿同产品2153阶段server types/build与前端已有构建；测试机证书/数据自行清理，未操作原生客户磁盘。HTTP鉴权只用隔离header建立actor，写入实际数据库授权/锁没有替换；不是全链真实网页登录或Linux快照验收。
+- 唯一210有修复/复验记录（含部分）/68已有防护或实现不同/49待精修，R063/R064指定后端症状补实证；R062前端会话/草稿/busy/卸载仍待，不混计。75ebd77f已push核远端，a08895d1/c23c6a7e CI现全部success，之后仍in_progress。阶段提交推送后继续R062，完整327/原生宿主及网关灾备未完。
+
 ## 2026-10-29 R1-067 失败恢复保留新排程复验
 
 - 旧updateSnapshotPolicyLastRun只有定义，没有当前scheduler或其它源码消费者。当前auto-snapshot-operations失败只写attemptId约束的操作error/nextRetryAt及审计，不写snapshotPolicy，成功finalize才在实例/策略锁内读取当前间隔更新。本阶段按实际路径补验证，不机械改无调用旧函数。
