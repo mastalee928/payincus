@@ -307,6 +307,8 @@ jobs:
         run: pnpm --filter server test:review-help-editor-writes
       - name: Password change retries retain their submitted credentials and session
         run: pnpm --filter server test:review-password-scope
+      - name: Password changes require confirmed receipts and current verification callbacks
+        run: pnpm --filter server test:review-password-receipts
       - name: Balance adjustments keep their target, draft and confirmed receipt
         run: pnpm --filter server test:review-user-balance-submit
       - name: Points adjustments reject stale receipts and repeated submissions

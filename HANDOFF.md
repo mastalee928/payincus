@@ -2,17 +2,23 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-309 密码成功确认与敏感验证组件联动
+
+- 4888de63已push。receipts-before实际Chrome先红空回执仍passwordSuccess=true；初次及验证重试现在核实际非空message与reauthRequired=true，非法回执保草稿/持久error且不成功、不登出。个人密码更新实际必撤销session，删不再合法的reauth=false成功timer分支，统一当前session/generation延迟清登录，保持旧session隔离。
+- receipts-final实际Chrome12初次/verified非法回执、原实际SensitiveVerification request→verify→父组件仅原payload retry→确认→clearLocalAuth+/login路径，以及新密码草稿改变时旧子verify不再发写请求通过exit0。scope-regression原32旧回执/busy/取消/计时器回归exit0，4守卫、lint零错警、receipts-build双端build含vue-tsc exit0/dist、manifest194常规162专项通过，三宽错误截图已看，专项接CI。仅真实Vue和受控API，外部SMTP/TOTP/客户真实密码修改仍待。
+- 本批核正R311写入及R309scope两专项循环：各2路径×8变化×2结果=32旧回执，旧台账64已纠正；2FA24读/56写和邮箱80保持。R309仍部分，197/68/62不变，完整327和灾备未完。下一R310已读SystemConfigView，旧loadAll实际为loadConfigs，保存组后它仍覆全form；组内/组外草稿保护、read/session回执下一段继续。
+
 ## 2026-10-29 R1-309 密码验证重试的固定草稿与会话
 
 - 874f4ef7已push。scope-before真实Chrome先红旧VERIFICATION_REQUIRED捕获replacement-password；初次及验证后重试现固定用户/currentPassword/newPassword和session/draft代次，pending绑定原上下文。账号/角色/sid/草稿ABA/cache/unmount变化清密码/待验证/timer/提示，取消验证清pending，重复verified仅一请求；在途busy保留直到原finally，字段及验证弹窗打开时阻新提交，结束重试清pending。
-- 成功清草稿/原timer；成功提示和延迟清登录计时器绑定原session/generation，换会话/离页/卸载撤销，same sid刷新保留。scope-final-r3实际Chrome64初次/verified旧成功失败、busy/字段、四旧验证回调、取消/重试与三宽截图通过exit0；旧成功timer不能清新通知、旧reauth不能登出新session、正常same sid实际clearLocalAuth及/login跳转均通过。四相关守卫、lint零错警、scope-build双端含vue-tsc exit0，最后清pending两行的最终user build/dist以收尾日志记录；manifest194常规161专项通过，专项接CI。真实Vue/受控API和合成密码不等于实际客户密码变更。
+- 成功清草稿/原timer；成功提示和延迟清登录计时器绑定原session/generation，换会话/离页/卸载撤销，same sid刷新保留。scope-final-r3实际Chrome32初次/verified旧成功失败、busy/字段、四旧验证回调、取消/重试与三宽截图通过exit0；旧成功timer不能清新通知、旧reauth不能登出新session、正常same sid实际clearLocalAuth及/login跳转均通过。四相关守卫、lint零错警、scope-build双端含vue-tsc exit0，最后清pending两行的最终user build/dist以收尾日志记录；manifest194常规161专项通过，专项接CI。真实Vue/受控API和合成密码不等于实际客户密码变更。
 - R309进入部分精修，唯一197有修复复验（含部分）/68已有防护实现不同/62待精修，197内部仍未完。成功回执严格校验和真实SensitiveVerification联动下段继续；后台current会话/验证grant/密码变更及撤销事务已有，不重复误报。完整327及网关灾备未完成。
 - 最终user build日志takeover-password-scope-final-user-build.log含vue-tsc exit0、scope-dist.log通过；无待poll，最后两行清pending已在用户产物验证，管理端沿双端完整build。准备保存后继续成功回执与组件联动。
 
 ## 2026-10-29 R1-311 帮助文章保存的固定草稿与回执
 
 - 41b694a4已push。writes-before真实Chrome先红旧session保存仍toast成功；创建/编辑现固定mode/id/完整payload及session/read/draft代次，草稿ABA、关闭、账号/角色/sid/卸载失效拒旧成功和错误。在途busy阻重复与另开目标，字段/取消/关闭冻结；正常同sid刷新保留。创建校验真实message及新article id/title/slug，更新校验实际message（后端不返回article），非法回执持久error保草稿，成功后原列表刷新保持。
-- writes-final-r2实际Chrome64旧成功失败回执、两busy/DOM字段关闭/失败重试、八非法回执/合法及same sid/unmount通过exit0，reads-regression原读取矩阵exit0。三宽busy/error截图已看；3守卫/lint零错警/writes-build双端build含vue-tsc exit0/dist/manifest194常规160专项通过，专项接CI。后台审计/列表/分类并发和实际生产文章流程未验，本段不改后台。只读核54901d15/a83d28dd CI已success，三后续批仍in_progress；196/68/63含部分不变。
+- writes-final-r2实际Chrome32旧成功失败回执、两busy/DOM字段关闭/失败重试、八非法回执/合法及same sid/unmount通过exit0，reads-regression原读取矩阵exit0。三宽busy/error截图已看；3守卫/lint零错警/writes-build双端build含vue-tsc exit0/dist/manifest194常规160专项通过，专项接CI。后台审计/列表/分类并发和实际生产文章流程未验，本段不改后台。只读核54901d15/a83d28dd CI已success，三后续批仍in_progress；196/68/63含部分不变。
 - 下一R309 PasswordSection完整及敏感验证组件、users PATCH/事务和守卫已读：catch读取变化后的草稿、旧timer及无busy仍待修；authStore.clearLocalAuth已确认存在，调用名称没有问题，不误报缺方法。完整327与灾备继续未完。
 
 ## 2026-10-29 R1-311 帮助编辑器当前目标读取

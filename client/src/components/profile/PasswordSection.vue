@@ -45,12 +45,9 @@ const session = computed(() => {
 const available = computed(() => alive && active.value && !!session.value)
 const reauthPending = ref(false)
 const busy = computed(() => passwordLoading.value || showVerificationModal.value || reauthPending.value)
-let successTimer: ReturnType<typeof setTimeout> | null = null
 let reauthTimer: ReturnType<typeof setTimeout> | null = null
 function clearTimers(): void {
-  if (successTimer) clearTimeout(successTimer)
   if (reauthTimer) clearTimeout(reauthTimer)
-  successTimer = null
   reauthTimer = null
   reauthPending.value = false
 }
@@ -80,24 +77,20 @@ onUnmounted(() => { alive = false; invalidateContext() })
 function closeVerification(): void {
   clearPending()
 }
-function confirmPasswordUpdate(reauthRequired: boolean): void {
+function confirmPasswordUpdate(): void {
   clearPending()
   clearTimers()
   passwordForm.value = { currentPassword: '', newPassword: '', confirmPassword: '' }
   passwordSuccess.value = true
   const currentGeneration = generation, currentSession = session.value
   const current = () => available.value && generation === currentGeneration && session.value === currentSession
-  if (reauthRequired) {
-    reauthPending.value = true
-    reauthTimer = setTimeout(() => {
-      reauthTimer = null
-      if (!current()) return
-      authStore.clearLocalAuth()
-      window.location.href = reauthLoginPath
-    }, 1000)
-  } else {
-    successTimer = setTimeout(() => { successTimer = null; if (current()) passwordSuccess.value = false }, 3000)
-  }
+  reauthPending.value = true
+  reauthTimer = setTimeout(() => {
+    reauthTimer = null
+    if (!current()) return
+    authStore.clearLocalAuth()
+    window.location.href = reauthLoginPath
+  }, 1000)
 }
 
 async function updatePassword(): Promise<void> {
@@ -129,7 +122,8 @@ async function updatePassword(): Promise<void> {
       currentPassword: submitted.currentPassword
     })
     if (!context.current()) return
-    confirmPasswordUpdate(response.reauthRequired === true)
+    if (typeof response?.message !== 'string' || !response.message.trim() || response.reauthRequired !== true) throw new Error(t('profile.password.updateFailed'))
+    confirmPasswordUpdate()
   } catch (error: any) {
     if (!context.current()) return
     // 检查是否需要验证
@@ -159,7 +153,8 @@ async function onVerificationSuccess(): Promise<void> {
     try {
       const response = await api.users.update(userId, { password, currentPassword })
       if (!context.current()) return
-      confirmPasswordUpdate(response.reauthRequired === true)
+      if (typeof response?.message !== 'string' || !response.message.trim() || response.reauthRequired !== true) throw new Error(t('profile.password.updateFailed'))
+      confirmPasswordUpdate()
     } catch (error: any) {
       if (!context.current()) return
       passwordError.value = error?.message || t('profile.password.updateFailed')
