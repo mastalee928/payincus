@@ -81,6 +81,23 @@ for (const mode of process.argv.includes('--detail') ? ['detail'] : ['ticket', '
       assert.equal(await page.eval(() => document.body.innerText.includes('Fixture quota instance')), true)
       await page.screenshot({ path: resolve(output, `${mode}-${locale}-${width}.png`), format: 'png' })
     }
+    if (mode === 'detail') {
+      await run(data => {
+        window.quotaHarness.view().instance = { ...data, dedicatedIpv4: true, dedicatedNetworkReady: true,
+          nat_public_ip: '203.0.113.8', isHostOwner: false, isInstanceOwner: true, port_limit: 0, port_mappings: [] }
+        window.quotaHarness.view().activeTab = 'network'
+      }, data)
+      assert.equal(await page.eval(() => window.quotaHarness.view().visibleTabs.some(tab => tab.key === 'quota')), false, 'dedicated customer does not see host quota settings')
+      for (const [locale, width] of [['zh-CN', 1440], ['en', 390]]) {
+        await page.setViewport({ width, height: 1000, mobile: width < 500 })
+        await run(locale => window.quotaHarness.setLocale(locale), locale)
+        assert.equal(await page.eval(() => document.body.innerText.includes('203.0.113.8')), true)
+        assert.equal(await page.eval(() => /端口映射|端口转发|Port Mappings|Add Port/i.test(document.body.innerText)), false, 'dedicated customer network hides manual forwarding')
+        assert.equal(await page.eval(() => document.documentElement.scrollWidth <= innerWidth), true)
+        await page.screenshot({ path: resolve(output, `dedicated-${locale}-${width}.png`), format: 'png' })
+      }
+      console.log('PASS dedicated customer network retains public IP and hides manual port forwarding and quota settings')
+    }
     assert.equal(page.consoleErrors.length, 0, page.consoleErrors.join('\n'))
     console.log(`PASS ${mode} resource-specific zero/null/finite quota, unknown usage and both viewports`)
   } finally { if (browser) await browser.close(); await server.close() }

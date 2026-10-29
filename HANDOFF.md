@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-302 配额编辑载入与草稿保护
+
+- 8218018已push核远端。详情配额表单优先读取真实snake_case并保留兼容字段，0/null不折叠；以每字段原值判断是否有编辑，轮询只更新未改字段，不冲掉草稿。子表单双向同步带相等门禁，父刷新与新实例切换正确跟随；用真实quota_usage/remaining_quota显示用户使用量，系统端口不混入，快照最低值按0及实际用量。
+- `takeover-quota-editor-before.log`Chrome先红真实5/3显示null/null；`takeover-quota-editor-final.log`通过真实字段/用量、子表单刷新、原生输入与轮询保草稿、换实例0/null及1440中文/390英文截图。client types、3守卫、lint0error/48既有模板warning、manifest194/125、完整详情及配额显示两Chrome回归、双端build exit0/dist通过，专项接CI。
+- Owner再次确认全端口和用户不显示端口转发，已写OWNER_REQUIREMENTS。复核pool-orders专属标记、dedicated-network整IPv4地址与IPv6 TCP/UDP 1–65535交付、InstanceNetworkTab专属门禁均保持。新增`takeover-dedicated-customer-port-ui.log`真实Chrome专属用户桌面/手机显示公网地址且零端口转发/配额入口，截图已核；host-pool与dedicated-delivery两守卫通过。没有改交付、客户网络或生产。
+- 下一项`test-instance-quota-submit.mjs`与API夹具扩展未提交：`takeover-quota-submit-before.log`已先红无快照时0被拒，矩阵继续；本批未修提交。需校验完整整数/空值按null、snapshot0、按钮/函数busy与当前资格、固定对象/session/旧回执、成功刷新不误报和新草稿保护，并纠正“空或0自动补额度”文案。R302整体/327/R269/完整灾备未完成，3fd4488实际/proc CI失败仍待。
+
 ## 2026-10-29 R1-302 配额显示与实际执行对齐
 
 - e488cb8已push核远端；80cadce/5c9b825源码CI已success。宿主列表和工单实例卡的端口/快照/备份0显示有限额度，站点0仍无限；缺使用量保持未知，不从0剩余伪造用量。详情保留无限站点入口，快照缺额度按实际0处理。后台详情端口/快照/备份空值默认改为实际执行的0，备份计数仅含creating/ready，排除error/deleted，系统端口继续不占用配额。

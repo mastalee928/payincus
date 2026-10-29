@@ -249,6 +249,8 @@ jobs:
         run: |
           pnpm --filter server test:review-host-quota-display
           pnpm --filter server test:review-quota-views
+      - name: Instance quota editor retains current values and drafts
+        run: pnpm --filter server test:review-instance-quota-editor
       - name: Verify init command selector in Chrome
         run: pnpm --filter server test:review-init-command-selector
       - name: Verify init command modals in Chrome

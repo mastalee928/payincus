@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { Instance, Snapshot } from '@/types/api'
+import type { Instance, InstanceWithDetails, Snapshot } from '@/types/api'
 
 const { t } = useI18n()
 
@@ -32,11 +32,15 @@ const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const localForm = ref({ ...props.quotaForm })
+const snapshotCount = computed(() => (props.instance as InstanceWithDetails).quota_usage?.snapshot ?? props.snapshots.length)
+watch(() => props.quotaForm, value => {
+  if (localForm.value.portLimit !== value.portLimit || localForm.value.snapshotLimit !== value.snapshotLimit) localForm.value = { ...value }
+}, { deep: true, flush: 'sync' })
 
 // 监听表单变化，同步到父组件
 watch(localForm, (newVal) => {
-  emit('update:quota-form', { ...newVal })
-}, { deep: true })
+  if (newVal.portLimit !== props.quotaForm.portLimit || newVal.snapshotLimit !== props.quotaForm.snapshotLimit) emit('update:quota-form', { ...newVal })
+}, { deep: true, flush: 'sync' })
 </script>
 
 <template>
@@ -83,17 +87,17 @@ watch(localForm, (newVal) => {
               v-model.number="localForm.snapshotLimit"
               type="number"
               class="input flex-1"
-              :min="Math.max(1, snapshots.length)"
+              :min="Math.max(0, snapshotCount)"
               :max="1000"
               :placeholder="t('instance.detail.quotaTab.placeholder')"
             />
           </div>
           <div class="mt-2 text-xs text-themed-muted">
-            <div>{{ t('instance.detail.quotaTab.currentUsage') }}: {{ snapshots.length }} {{ t('instance.detail.quotaTab.snapshots') }}</div>
+            <div>{{ t('instance.detail.quotaTab.currentUsage') }}: {{ snapshotCount }} {{ t('instance.detail.quotaTab.snapshots') }}</div>
             <div v-if="instance.snapshot_limit !== null && instance.snapshot_limit !== undefined">
               {{ t('instance.detail.quotaTab.quotaLimit') }}: {{ instance.snapshot_limit }} {{ t('instance.detail.quotaTab.unit') }}
-              <span :class="snapshots.length >= instance.snapshot_limit ? 'text-red-500' : 'text-green-500'">
-                ({{ snapshots.length >= instance.snapshot_limit ? t('instance.detail.quotaTab.full') : `${t('instance.detail.quotaTab.remaining')} ${instance.snapshot_limit - snapshots.length}` }})
+              <span :class="snapshotCount >= instance.snapshot_limit ? 'text-red-500' : 'text-green-500'">
+                ({{ snapshotCount >= instance.snapshot_limit ? t('instance.detail.quotaTab.full') : `${t('instance.detail.quotaTab.remaining')} ${instance.snapshot_limit - snapshotCount}` }})
               </span>
             </div>
           </div>

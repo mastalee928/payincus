@@ -294,6 +294,21 @@ const instanceQuotaForm = ref<InstanceQuotaForm>({
   portLimit: null,
   snapshotLimit: null
 })
+let quotaFormBaseline: InstanceQuotaForm | null = null
+function getQuotaFormValues(value: Instance): InstanceQuotaForm {
+  const record = value as Instance & { portLimit?: number | null; snapshotLimit?: number | null }
+  return {
+    portLimit: record.port_limit !== undefined ? record.port_limit : record.portLimit ?? null,
+    snapshotLimit: record.snapshot_limit !== undefined ? record.snapshot_limit : record.snapshotLimit ?? null
+  }
+}
+function syncQuotaForm(value: Instance): void {
+  const next = getQuotaFormValues(value)
+  for (const field of ['portLimit', 'snapshotLimit'] as const) {
+    if (!quotaFormBaseline || instanceQuotaForm.value[field] === quotaFormBaseline[field]) instanceQuotaForm.value[field] = next[field]
+  }
+  quotaFormBaseline = next
+}
 const quotaSaving = ref<boolean>(false)
 const quotaError = ref<string>('')
 const userQuota = ref<UserQuota | null>(null) // 用户配额信息
@@ -583,6 +598,7 @@ const instanceHostName = computed<string>(() => {
 // 监听路由参数变化，重新加载实例数据
 watch([() => route.params.id, () => route.name, detailSessionKey], async ([newId, newName, session]) => {
     detailReadGeneration++
+    quotaFormBaseline = null
     // Invalidate the old target even if navigation returns to the same ID (A -> B -> A).
     const context = captureDetailRead('lifecycle', false)
     statsLoading.value = false
@@ -852,7 +868,7 @@ function handleTerminalCloudInitManualComplete(): void {
 }
 
 // 分页数据 - 已移至子组件
-const portMappingsCount = computed<number>(() => (instance.value as any)?.port_mappings?.length || 0)
+const portMappingsCount = computed<number>(() => (instance.value as InstanceWithDetails | null)?.quota_usage?.port ?? instance.value?.port_mappings?.length ?? 0)
 
 // Advanced configuration belongs to the admin entry; quota visibility is checked separately.
 interface DetailTab {
@@ -977,10 +993,7 @@ async function loadInstance(): Promise<void> {
         instancePackage.value = null
       }
       // 初始化配额表单
-      instanceQuotaForm.value = {
-        portLimit: (instance.value as any).portLimit ?? null,
-        snapshotLimit: (instance.value as any).snapshotLimit ?? null
-      }
+      syncQuotaForm(instance.value)
       // 计算剩余额度（使用后端返回的实时数据）
       await calculateRemainingQuota()
       if (!read.current()) return
@@ -1955,23 +1968,23 @@ async function calculateRemainingQuota(): Promise<void> {
 
   try {
     // 优先使用后端返回的实时剩余额度
-    if ((instance.value as any).remainingQuota) {
+    const detail = instance.value as InstanceWithDetails & { remainingQuota?: RemainingQuota }
+    const remaining = detail.remaining_quota ?? detail.remainingQuota
+    if (remaining) {
       remainingQuota.value = {
-        port: (instance.value as any).remainingQuota.port || 0,
-        snapshot: (instance.value as any).remainingQuota.snapshot || 0
+        port: remaining.port ?? 0,
+        snapshot: remaining.snapshot ?? 0
       }
       return
     }
 
     // 新配额系统：端口/快照配额是实例级别的（从套餐包继承）
     // 直接从实例数据获取配额和使用量
-    const portLimit = (instance.value as any).portLimit || 0
-    const portMappings = (instance.value as any).port_mappings || []
-    const portUsed = portMappings.length
-
-    const snapshotLimit = (instance.value as any).snapshotLimit || 0
-    const snapshots = (instance.value as any).snapshots || []
-    const snapshotUsed = snapshots.length
+    const limits = getQuotaFormValues(instance.value)
+    const portLimit = limits.portLimit ?? 0
+    const portUsed = portMappingsCount.value
+    const snapshotLimit = limits.snapshotLimit ?? 0
+    const snapshotUsed = detail.quota_usage?.snapshot ?? snapshots.value.length
 
     remainingQuota.value = {
       port: Math.max(0, portLimit - portUsed),
