@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：4c95b8b已push。R303 useExisting任意错误导入已修为精确IncusApiError404/path；getStoragePool核name/driver/config和编码。真实PG/Fastify/mTLS先红403仍POST→final错误零写/已有/正常/重复/创建及确认失败通过，server build含tsc/3守卫/manifest194/140，专项接CI，准备push，无待poll。继续平台元数据当前权限及零匹配成功；create/delete/remote update的持久恢复另续，191/68/68/R269/Go proc/灾备未完成。
+
 > **最新接续**：ba82a01已push；R303容量预检查已补BigInt真实值/缩容拒绝/dir与未知容量/等量单位不写，mTLS及实际PG/API完整矩阵、build含tsc/3守卫/manifest194/139通过，准备push，无待poll。固定Incus backend.go:295已有防缩容，明确纠正只看driver Truncate的初判，不称原生漏洞。下一段useExisting catch任意读失败都转导入，需只接受精确IncusApiError404；getStoragePool路径也需编码。相关route/helper/guard已读，未修改。当前授权/远端DB恢复、R269/Go proc/327/灾备仍待。
 
 > **最新接续**：088165e已push。R303存储PATCH省略描述会清空已按固定Incus源码复现，现读取当前描述/ETag并If-Match，空远端payload跳过，412 API409不改DB/成功日志。新mTLS专项与PG/API容量用途回归、恢复传输全矩阵、server build含tsc/4守卫/manifest194/139通过，准备push，无待poll。继续容量缩减与驱动规则，需先核固定上游backend公共Update是否已防缩容，不能只按driver的Truncate判缺；之后当前授权/远端DB恢复。191/68/68、R269/Go proc/完整灾备仍待。

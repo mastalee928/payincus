@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 存储导入必须确认不存在
+
+- 4c95b8b已push。useExisting原先吞掉getStoragePool全部异常，403仍发送POST导入，实际PG/Fastify/mTLS先红见takeover-storage-import-before.log。现只接受该编码池路径的IncusApiError404进入导入；鉴权、网络、服务端错误保留，getStoragePool核实际name/非空driver/config字典且编码路径，不能把错误对象登记成已有池。
+- takeover-storage-import-final.log通过403/500/断开/错池名/数组配置/缺driver零POST、零DB与成功日志，已有真实池只关联并保实际驱动配置、重复关联不再读取、确切404导入并核后续详情、导入/核验失败不登记成功。远端是隔离mTLS协议夹具，不是真实VG/文件系统导入；远端导入成功但确认失败的恢复/幂等仍后续。
+- 后端build含tsc、host-route-id/host-migration-consistency/incus-certificate-paths三守卫、manifest194/140和diff通过，证据takeover-storage-import-{build,guards,manifest}.log，专项登记CI。无前端文件变更。下一段继续平台用途/元数据的当前权限与零匹配假成功；远端变更持久恢复及完整R303/327/R269/Go proc/灾备未完成。
+
 ## 2026-10-29 R1-303 容量更新预检查与误判纠正
 
 - ba82a01已push核远端。固定Incus1806849的backend.go:295已有统一Pool cannot be shrunk，三驱动Truncate前受此保护，不能报告上游必然缩容损坏。平台此前只校验正数，现按本次ETag读取的真实当前容量做BigInt比较，在远端PATCH前明确拒缩容、未知/非法/max当前容量和dir容量更新；空容量仍允许描述/用途，等量不同单位移除size避免触发无效扩容。其它驱动实际支持与物理设备限制仍由Incus检查，本项不写死安装路径或推断Loop身份。

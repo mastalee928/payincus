@@ -58,7 +58,13 @@ export async function listStoragePools(client: IncusClient): Promise<IncusStorag
  * 获取存储池详情
  */
 export async function getStoragePool(client: IncusClient, name: string): Promise<IncusStoragePool> {
-  return client.request<IncusStoragePool>('GET', `/1.0/storage-pools/${name}`)
+  const pool = await client.request<IncusStoragePool>('GET', `/1.0/storage-pools/${encodeURIComponent(name)}`)
+  if (!pool || pool.name !== name || typeof pool.driver !== 'string' || !pool.driver.trim() ||
+    pool.config !== undefined && (!pool.config || Array.isArray(pool.config) || typeof pool.config !== 'object' ||
+      Object.values(pool.config).some(value => typeof value !== 'string'))) {
+    throw new Error('无法核验存储池信息，请检查宿主的存储状态后重试')
+  }
+  return pool
 }
 
 /**

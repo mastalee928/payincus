@@ -3585,8 +3585,10 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         let poolInfo
         try {
           poolInfo = await getStoragePool(client, name)
-        } catch {
-          // Incus 不知道这个存储池，尝试导入底层已有的存储池
+        } catch (error) {
+          // Only a confirmed absence permits importing; failed reads are not absence.
+          if (!(error instanceof IncusApiError) || error.statusCode !== 404 ||
+            error.path !== `/1.0/storage-pools/${encodeURIComponent(name)}`) throw error
           poolInfo = null
         }
 
