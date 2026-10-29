@@ -35,6 +35,7 @@
     "test:review-host-extend-all": "node --import tsx scripts/test-review-host-extend-all.ts",
     "test:review-host-images": "node ../scripts/test-host-images.mjs",
     "test:review-host-caddy-reads": "node ../scripts/test-host-caddy-reads.mjs",
+    "test:review-host-caddy-actions": "node ../scripts/test-host-caddy-actions.mjs",
     "test:review-instance-detail-reads": "node ../scripts/test-instance-detail-reads.mjs",
     "test:review-transfer-modal-lifecycle": "node ../scripts/test-transfer-modal-lifecycle.mjs",
     "test:review-change-plan-lifecycle": "node ../scripts/test-change-plan-lifecycle.mjs",

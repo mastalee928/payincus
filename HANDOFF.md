@@ -2,6 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-109 Caddy 操作、凭据弹窗与复制（源码段落）
+
+- R108/109读取已commit/push6a36ce98核远端一致。真实Chrome操作先红：连续generate发两次请求。四操作现统一在途门禁、固定host/account/role/sid/同步代次及命令/弹窗代次，当前操作期间不允许读/重复/交叉提交；切换目标和缓存返回可读当前状态，旧操作锁保持至原请求结束。旧成功/失败不得展示凭据、通知、关新弹窗或刷新新host。reset原生确认后复核context；confirm必须当前命令弹窗及凭据，test要求已启用。
+- strict generate/reset凭据和port、generate的isNewCredentials、confirm非空message、test的bool/count/DNS；合法connected=false/0显示持久失败，不伪装成功。失败当前入口可retry、confirm失败保留弹窗。敏感命令/password换host/session/cache/unmount/关闭清空；copy等待实际Promise、共享在途锁/持久失败与真实按钮retry，旧弹窗/凭据ABA和旧account回执不通知。只改前端，不改Caddy后端鉴权、脚本及客户网络。
+- final-r4与读取回归合并session99800最终正常exit0：72旧四操作回执、cache锁/原生确认context/弹窗ABA/same sid/读写隔离、非法回执/失败重试/合法disconnected零、复制24旧回执/拒绝/不支持/同步throw、三语1440/768/390真实generate/confirm/copy、dialog聚焦/Tab/Shift-Tab/Escape与44px通过；R108全部36旧读/9坏status/14坏sites/分页缩页回归通过。首轮焦点/点击缩放44px/Escape失败均已修，不计失败轮为通过；定向停止inspect-only10232不计自然完成，无测试服务需保留。
+- taste沿Achromatic ledger seed242843060无重抽，原玻璃/蓝色提示改局部实色黑白，遮罩隔开背景，按钮缩放禁用、copy44px/focus与dialog标注、关闭清凭据；终浅深三宽0FAIL/WARN12图及真实三语错误截图9图已全部查看，critique7.4见logs/host-caddy-actions-critique.md。无真实密码/token，fixture仅display-only文案及example.test/文档地址。完整父页与真实Linux/Caddy/系统剪贴板仍另验。
+- client type-check20491、最后五相关守卫62004（logs/test-run-20261030-055210）、组件lint85921、脚本syntax/manifest194常规203专项分类与CI登记/diff通过；最终双端build49208含两端vue-tsc正常exit0，末dist守卫最终exit0；两端实际末CSS有黑白主按钮/取消transform及不透明弹窗声明，构建完成后核产物。先前pnpm --only参数错误轮未计通过。上一6a36ce98 CI查询仍in_progress，不能计CI绿。
+- 累计仍235有修复复验含部分/68已有防护不同/24待，不重复计R109。真实Caddy流程、完整327与原网关灾备仍未完成；本段保存后接MyHostConfigTab R110–113，R113后端已在写前拒绝类型不兼容而非返回warning，应纠正退役分支；R112原协议/路径/默认端口丢失、R111清空字段和R110重复/父刷新边界继续。不发行/生产/客户操作。
+
 ## 2026-10-30 R1-108 与 R1-109 读取段落：Caddy 状态和站点分页
 
 - 实际Chrome先红：启用status后watcher与reader重复请求sites两次。现仅当前status成功触发一次；status/sites独立序号、固定host/account/role/sid/同步代次、KeepAlive/卸载隔离。换页同步清旧页及invalidate，缩页自动重读最后合法页；合法total=0/totalPages=0保持空态，显示页数归一到1。strict结构/行/页与persistent实际retry、refresh失败保当前确认内容，不把未知/失败冒充未启用或空列表，初读未确认禁止四操作。

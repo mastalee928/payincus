@@ -60,6 +60,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-host-extend-all', 'requires isolated local *_pool_test PostgreSQL; actual atomic host extension, current administrator and expiry races, audit/inbox rollback, billing lane and failed external delivery; no real customer instances'],
   ['test:review-host-images', 'requires Chrome/Edge and local Vite; actual host image policy current reads, failures and malformed replies, fixed drafts, pending save and obsolete session/host/cache receipts; controlled API only'],
   ['test:review-host-caddy-reads', 'requires Chrome/Edge and local Vite; actual host Caddy status/site current requests, obsolete session/cache replies, strict policies, error retry and shrinking pagination; controlled read-only API'],
+  ['test:review-host-caddy-actions', 'requires Chrome/Edge and local Vite; actual Caddy operation/copy current host-session-dialog replies, pending locks, strict receipts, failures and sensitive display cleanup; controlled API and clipboard only'],
   ['test:review-instance-detail-reads', 'requires Chrome/Edge and local Vite; actual detail route/session/read ordering, pending task/statistics and lifecycle timers'],
   ['test:review-transfer-modal-lifecycle', 'requires Chrome/Edge and local Vite; actual transfer and sensitive verification modal request ordering, draft/session identity and lifecycle'],
   ['test:review-change-plan-lifecycle', 'requires Chrome/Edge and local Vite; actual upgrade modal selection/preview binding, session identity, stale responses and submitted target'],

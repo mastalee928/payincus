@@ -22,8 +22,16 @@ createApp({ setup() {
         request.settled = true
         if (request.kind === 'status') new URLSearchParams(location.search).has('error') ? request.reject(Error('测试读取失败')) : request.resolve(status())
         if (request.kind === 'sites') request.resolve(sites(request.data.page))
+        if (request.kind === 'generate' || request.kind === 'reset') request.resolve({ installCommand: 'echo fixture-display-only-command', username: 'fixture-display-only', password: 'fixture-display-only', port: 8444, isNewCredentials: false })
+        if (request.kind === 'confirm') request.reject(Error('测试Caddy连接失败'))
+        if (request.kind === 'test') request.resolve({ connected: false, sitesCount: 0, dnsRecordType: 'A', dnsRecordValue: '192.0.2.11' })
       }
     }, 50)
+    if (new URLSearchParams(location.search).has('modal')) {
+      let opening = false
+      const modalTimer = setInterval(() => { const v = component.value?.$?.setupState; if (v?.statusReady && !opening) { opening = true; void v.generateInstallCommand(); clearInterval(modalTimer) } }, 50)
+      window.addEventListener('beforeunload', () => clearInterval(modalTimer), { once: true })
+    }
     window.addEventListener('beforeunload', () => clearInterval(timer), { once: true })
   }
   window.hostCaddyHarness = { pending, theme, auth, toast, active, mounted, host, session, setLocale, t: (...args) => i18n.global.t(...args), view: () => component.value?.$?.setupState }

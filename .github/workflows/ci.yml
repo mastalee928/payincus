@@ -382,6 +382,8 @@ jobs:
         run: pnpm --filter server test:review-host-images
       - name: Host Caddy status and sites retain current session and pagination
         run: pnpm --filter server test:review-host-caddy-reads
+      - name: Host Caddy operations and credentials retain their current target
+        run: pnpm --filter server test:review-host-caddy-actions
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R109操作段落：统一pending锁/固定host-session-dialog/strict回执/持久失败、敏感命令清理与copy await/旧回执24组已修；final-r4与R108回归session99800最终exit0，72旧操作/三语三宽actual控件/键盘/44px通过。最终build及末dist记录见HANDOFF；235含部分/68已有不同/24待不重计，真实Caddy及完整327继续。
+
 2026-10-30 R108/R109读取段落：status/sites当前host-session/seq/同步代次/cache卸载、strict结果/持久retry、单次首读和反序分页/缩页/合法零已修。final-exit95846真实Chrome36旧回执/9坏status/14坏sites/三语三宽actual prev-next通过exit0；最后双端build62979/types/三守卫/lint/dist与浅深0FAIL/WARN12图通过。235含部分/68已有不同/24待，R109四操作/copy与真实Caddy未完，见HANDOFF。
 
 2026-10-30 R106/107实际镜像策略：初读失败零保存、strict目标和集合/read代次/current session/cache卸载、保存固定draft/payload及在途门禁/旧回执/实际retry已修。final-no-hmr20553真实Chrome36旧回执/14坏读及三语三宽实际控件，末build/types/3守卫/lint/dist通过；233有修复复验含部分/68已有防护不同/26待。后端白名单写授权/并发审计另待，见HANDOFF。
@@ -282,7 +284,7 @@
 | R1-106 | 存在 | 前端精修/浏览器验证通过 | HostImagesTab已加初读成功/错误禁写、strict集合和目标/read代次/当前session/cache卸载、失败持久retry及last-good；真实Chrome先红失败后PUT→final-no-hmr36旧回执/14坏读/三语三宽过，types/build/3守卫/lint/dist过。后端资格/授权写另待，不冒充全链路。 |
 | R1-107 | 存在 | 前端精修/浏览器验证通过 | 保存固定host-session/draft同步ABA/payload、原在途锁/current read门禁/输入disabled与严格PUT策略回执，去保存后覆草稿GET；失败持久真实retry。final-no-hmr36旧回执与repeat/cache/draft/坏结果/三语三宽实际控件过，types/build/守卫/lint/dist过；后端并发/审计原子另待。 |
 | R1-108 | 存在 | 读取已修/浏览器隔离验证通过 | 站点当前host/session/page/seq/cache代次、严格行数结构/last-good与失败retry、同步换页及缩页重读已修；final-exit36旧读/14坏sites/三语三宽分页过，末build/types/三守卫/lint/dist过。真实Caddy与操作仍见R109。 |
-| R1-109 | 存在 | 部分精修/操作继续 | status当前host/session/seq/cache读取、strict结果与持久retry、未知态四操作零写和初始sites单读已修；final-exit36旧读/9坏status及build/types/三守卫过。四操作与copy回执/锁/凭据弹窗仍待，不算整体完成。 |
+| R1-109 | 存在 | 源码已修/隔离浏览器通过 | status与四操作/copy绑定当前host/session/同步及命令弹窗代次，共用pending锁/读写隔离/strict回执/持久失败retry、敏感凭据关闭清理和键盘已修；final-r4正常exit0，72旧操作/24旧copy/三语三宽actual控件及R108回归过。types/五守卫/lint及最后build/dist见HANDOFF；真实Linux Caddy/安装流程仍另验。 |
 | R1-110 | 存在 | 待精修/运行复核 | watch整个host重置draft；save函数缺busy guard，父刷新和重复提交边界不足。 |
 | R1-111 | 存在 | 待精修/运行复核 | 清空location/IPv6转undefined，不传字段无法清空已有配置。 |
 | R1-112 | 存在 | 待精修/运行复核 | 统一buildHostApiUrl重建连接地址，可能丢原协议、路径及默认443，改无关字段也变化。 |

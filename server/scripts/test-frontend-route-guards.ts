@@ -36,6 +36,11 @@ assert.ok(hostCaddySource.includes('sequence === statusSequence') && hostCaddySo
   hostCaddySource.includes('validSites(res, page)') && hostCaddySource.includes('actionsDisabled.value') &&
   !hostCaddySource.includes('watch(() => caddyStatus.value.enabled'),
   'Caddy reads must isolate status/page/session lifecycles, keep errors distinct from empty and load sites once')
+assert.ok(hostCaddySource.includes('revision === commandGeneration') && hostCaddySource.includes('await navigator.clipboard.writeText(command)') &&
+  hostCaddySource.includes('runCaddyAction') && hostCaddySource.includes('currentOperation?.()') && hostCaddySource.includes('data-caddy-action-error') &&
+  hostCaddySource.includes('data-caddy-copy-error') && hostCaddySource.includes('clearInstallInfo()') && hostCaddySource.includes('trapInstallFocus') &&
+  hostCaddySource.includes(':disabled="actionsDisabled || !installInfo.command"'),
+  'Caddy operations must share pending locks, isolate credential/dialog receipts, await copy and keep failures available for retry')
 assert.ok(hostImagesSource.includes('!policyReady.value') && hostImagesSource.includes('!!policyError.value') &&
   hostImagesSource.includes('sequence === readSequence') && hostImagesSource.includes('draft === draftGeneration') &&
   hostImagesSource.includes('validPolicy(response, target.hostId)') && hostImagesSource.includes('onDeactivated') &&
