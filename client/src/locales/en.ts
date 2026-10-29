@@ -6576,6 +6576,7 @@ pool: {
         },
         // Batch Configuration
         batchConfig: {
+            invalidField: '{field}: enter a valid value within the allowed range or select an option',
             title: 'Batch Config',
             button: 'Batch Config',
             targetAll: 'Apply to: All {count} instances on host',

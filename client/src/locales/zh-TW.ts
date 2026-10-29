@@ -3032,6 +3032,7 @@ pool: {
         },
         // 批量修改配置
         batchConfig: {
+            invalidField: '{field}：請輸入範圍內的有效數值或選擇有效選項',
             title: '批量修改配置',
             button: '批量配置',
             targetAll: '應用範圍：主機全部 {count} 個實例',

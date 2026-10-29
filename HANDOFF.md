@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-301 批量配置数字与零值
+
+- 80cadce已push核远端。批量配置按完整数值语法和后端范围验证，按钮与函数都拒绝截断/非有限/超范围输入；CPU/内存blur不再静默取整。区分原生number输入0与空值，保留各字段原有null语义；流量按十进制系数和BigInt精确换算字节并限制PG bigint，正数舍入成0拒绝，存储带宽单位规范化且保留原有整数iops。
+- `takeover-host-batch-inputs-before.log`Chrome先红CPU1e2变1；`takeover-host-batch-inputs-final.log`通过数值/范围/0/null/精确流量、原生输入与IOPS。复核发现本批正则误拦原有100iops，专项先红后补回并最终重跑通过；1440中文/390英文截图已核。受控API无客户配置写入，后台schema/锁/资源规则保持。
+- client types、3守卫（route/i18n/batch-config）、批量配置完整生命周期回归、最终lint零错警、manifest194/121通过；IOPS兼容修正后最终双端build（`takeover-host-batch-inputs-final-build.log`）exit0/dist通过，专项登记Chrome CI。
+- 后续角色专项`takeover-host-batch-roles-before.log`已先红普通host owner仍发swapSize请求，扩矩阵已写未跑，角色产品未改。R302配额显示先红0端口/快照显示无限，后台详情默认与实际执行也需继续对齐；两项未完成脚本不混此提交。R301/327/R269及完整灾备未完成。
+
 ## 2026-10-29 R1-301 批量配置目标与重试回执
 
 - 5c9b825已push核远端。父入口固定已选实例，空选择不再走未在UI开放的全部实例路径；子弹窗按host/session/激活/打开代次隔离，提交复制目标和配置，busy覆盖重开。旧回执不显示或刷新新页；当前错误持久显示，在途禁改表单。Done先保留成功判断再通知父列表，重试仅用服务器允许的失败ID与原配置，累计成功及requiresReview失败继续保留。

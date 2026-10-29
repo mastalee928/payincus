@@ -122,7 +122,11 @@ const validTargets = computed(() => targets.value.length > 0 && targets.value.le
   new Set(targets.value).size === targets.value.length && targets.value.every(id => Number.isSafeInteger(id) && id > 0))
 const canAct = computed(() => alive && pageActive.value && !!sessionKey.value && props.visible &&
   Number.isSafeInteger(props.hostId) && props.hostId > 0 && !isSubmitting.value && validTargets.value)
-const canSubmit = computed(() => canAct.value && !showResult.value && hasEnabledFields.value)
+const canSubmit = computed(() => canAct.value && !showResult.value && hasEnabledFields.value && !configValidation.value.error)
+const configValidation = computed(() => {
+  try { return { config: buildConfig(), error: '' } }
+  catch (error) { return { config: null, error: error instanceof Error ? error.message : String(error) } }
+})
 const canRetry = computed(() => canAct.value && showResult.value && !!result.value?.retryPayload?.instanceIds.length)
 function captureContext() {
   const currentGeneration = generation, hostId = props.hostId, session = sessionKey.value
@@ -166,86 +170,78 @@ function toggleSection(section: keyof typeof expandedSections.value) {
 // 构建配置对象
 function buildConfig(): Record<string, unknown> {
   const config: Record<string, unknown> = {}
-
-  if (enabledFields.value.cpu && form.value.cpu) {
-    config.cpu = parseInt(form.value.cpu, 10)
+  const integerFields = {
+    cpu: [1, 2147483647, false], memory: [1, 2147483647, false], swapSize: [0, 1048576, false],
+    portLimit: [1, 1000, true], snapshotLimit: [0, 1000, true], siteLimit: [0, 1000, true],
+    limitsProcesses: [0, 2147483647, true], limitsCpuPriority: [0, 10, true], bootAutostartPriority: [0, 100, true],
+    bootAutostartDelay: [5, 600, true], bootHostShutdownTimeout: [30, 600, true]
+  } as const
+  for (const field of Object.keys(integerFields) as Array<keyof typeof integerFields>) {
+    if (!enabledFields.value[field]) continue
+    const [min, max, nullable] = integerFields[field]
+    config[field] = readNumber(form.value[field], field, min, max, nullable, true)
   }
-  if (enabledFields.value.memory && form.value.memory) {
-    config.memory = parseInt(form.value.memory, 10)
+  if (enabledFields.value.disk) config.disk = readNumber(form.value.disk, 'disk', 1 / 1024, 2147483647 / 1024, false, false)! * 1024
+  if (enabledFields.value.monthlyTrafficLimit) config.monthlyTrafficLimit = readTrafficBytes(form.value.monthlyTrafficLimit)
+  for (const field of ['swapEnabled', 'nested', 'privileged', 'bootAutostart'] as const) {
+    if (!enabledFields.value[field]) continue
+    const value = form.value[field]
+    if (typeof value !== 'boolean' && !(field === 'bootAutostart' && value === null)) invalidField(field)
+    config[field] = value
   }
-  if (enabledFields.value.disk && form.value.disk) {
-    // disk 以 GB 为单位输入，转换为 MB（1024进制）
-    config.disk = parseFloat(form.value.disk) * 1024
+  for (const field of ['limitsRead', 'limitsWrite'] as const) {
+    if (enabledFields.value[field]) config[field] = normalizeStorageLimit(form.value[field], field)
   }
-  if (enabledFields.value.monthlyTrafficLimit) {
-    if (form.value.monthlyTrafficLimit === '' || form.value.monthlyTrafficLimit === '0') {
-      config.monthlyTrafficLimit = null
-    } else {
-      // 以 GB 为单位输入，转换为字节
-      const gb = parseFloat(form.value.monthlyTrafficLimit)
-      config.monthlyTrafficLimit = String(Math.round(gb * 1024 * 1024 * 1024))
-    }
+  for (const field of ['limitsIngress', 'limitsEgress'] as const) {
+    if (!enabledFields.value[field]) continue
+    const value = readNumber(form.value[field], field, 0, Number.MAX_SAFE_INTEGER, true, false)
+    config[field] = value ? `${value}Mbit` : null
   }
-  if (enabledFields.value.swapEnabled && form.value.swapEnabled !== null) {
-    config.swapEnabled = form.value.swapEnabled
-  }
-  if (enabledFields.value.swapSize && form.value.swapSize !== '') {
-    config.swapSize = Math.max(0, parseInt(form.value.swapSize, 10))
-  }
-  if (enabledFields.value.portLimit) {
-    config.portLimit = form.value.portLimit ? parseInt(form.value.portLimit, 10) : null
-  }
-  if (enabledFields.value.snapshotLimit) {
-    config.snapshotLimit = form.value.snapshotLimit ? parseInt(form.value.snapshotLimit, 10) : null
-  }
-  if (enabledFields.value.siteLimit) {
-    config.siteLimit = form.value.siteLimit ? parseInt(form.value.siteLimit, 10) : null
-  }
-  if (enabledFields.value.nested) {
-    config.nested = form.value.nested
-  }
-  if (enabledFields.value.privileged) {
-    config.privileged = form.value.privileged
-  }
-  if (enabledFields.value.limitsRead) {
-    config.limitsRead = normalizeStorageLimit(form.value.limitsRead)
-  }
-  if (enabledFields.value.limitsWrite) {
-    config.limitsWrite = normalizeStorageLimit(form.value.limitsWrite)
-  }
-  if (enabledFields.value.limitsIngress) {
-    config.limitsIngress = form.value.limitsIngress ? `${form.value.limitsIngress}Mbit` : null
-  }
-  if (enabledFields.value.limitsEgress) {
-    config.limitsEgress = form.value.limitsEgress ? `${form.value.limitsEgress}Mbit` : null
-  }
-  if (enabledFields.value.limitsProcesses) {
-    config.limitsProcesses = form.value.limitsProcesses ? parseInt(form.value.limitsProcesses, 10) : null
-  }
-  if (enabledFields.value.limitsCpuPriority) {
-    config.limitsCpuPriority = form.value.limitsCpuPriority ? parseInt(form.value.limitsCpuPriority, 10) : null
-  }
-  if (enabledFields.value.bootAutostart) {
-    config.bootAutostart = form.value.bootAutostart
-  }
-  if (enabledFields.value.bootAutostartPriority) {
-    config.bootAutostartPriority = form.value.bootAutostartPriority ? parseInt(form.value.bootAutostartPriority, 10) : null
-  }
-  if (enabledFields.value.bootAutostartDelay) {
-    config.bootAutostartDelay = form.value.bootAutostartDelay ? parseInt(form.value.bootAutostartDelay, 10) : null
-  }
-  if (enabledFields.value.bootHostShutdownTimeout) {
-    config.bootHostShutdownTimeout = form.value.bootHostShutdownTimeout ? parseInt(form.value.bootHostShutdownTimeout, 10) : null
-  }
-
   return config
+}
+
+function invalidField(field: string): never {
+  const label = ({ monthlyTrafficLimit: 'host.batchConfig.traffic',
+    bootAutostartPriority: 'host.batchConfig.bootPriority', bootAutostartDelay: 'host.batchConfig.bootDelay',
+    bootHostShutdownTimeout: 'host.batchConfig.shutdownTimeout' } as Record<string, string>)[field] ?? `host.batchConfig.${field}`
+  throw new Error(t('host.batchConfig.invalidField', { field: field === 'cpu' ? 'CPU (%)' : t(label) }))
+}
+function readNumber(value: unknown, field: string, min: number, max: number, nullable: boolean, integer: boolean): number | null {
+  const text = String(value ?? '').trim()
+  if (!text && nullable) return null
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(text)) invalidField(field)
+  const number = Number(text)
+  if (!Number.isFinite(number) || number < min || number > max || (integer && !Number.isSafeInteger(number))) invalidField(field)
+  return number
+}
+function readTrafficBytes(value: unknown): string | null {
+  const text = String(value ?? '').trim()
+  if (!text) return null
+  const match = text.match(/^\+?(\d+(?:\.\d*)?|\.\d+)(?:e([+-]?\d+))?$/i)
+  if (!match || text.length > 128) invalidField('monthlyTrafficLimit')
+  const [whole, fraction = ''] = match[1].split('.')
+  const exponent = Number(match[2] || 0) - fraction.length
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 128) invalidField('monthlyTrafficLimit')
+  const coefficient = BigInt(`${whole || '0'}${fraction}`)
+  if (coefficient === BigInt(0)) return null
+  const raw = coefficient * BigInt(1073741824)
+  const divisor = exponent < 0 ? BigInt(10) ** BigInt(-exponent) : BigInt(1)
+  const maximum = BigInt('9223372036854775807')
+  if (exponent < 0 ? raw > maximum * divisor : raw * BigInt(10) ** BigInt(exponent) > maximum) invalidField('monthlyTrafficLimit')
+  const bytes = exponent < 0 ? (raw + divisor / BigInt(2)) / divisor : raw * BigInt(10) ** BigInt(exponent)
+  if (bytes === BigInt(0)) invalidField('monthlyTrafficLimit')
+  return bytes.toString()
 }
 
 // 提交批量修改
 async function handleSubmit() {
+  if (canAct.value && !showResult.value && configValidation.value.error) {
+    submitError.value = configValidation.value.error
+    return
+  }
   if (!canSubmit.value) return
 
-  const config = buildConfig()
+  const config = configValidation.value.config!
   if (Object.keys(config).length === 0) {
     toast.error(t('host.batchConfig.noChanges'))
     return
@@ -370,41 +366,23 @@ function handleDialogKey(event: KeyboardEvent) {
   }
 }
 
-// CPU/内存 blur 时格式化为整数
+// Normalize complete valid integers; do not silently change invalid input.
 function handleCpuBlur() {
-  if (!form.value.cpu) return
-  const num = parseFloat(form.value.cpu)
-  if (isNaN(num) || num <= 0) {
-    form.value.cpu = '1'
-    return
-  }
-  form.value.cpu = Math.round(num).toString()
+  try { form.value.cpu = String(readNumber(form.value.cpu, 'cpu', 1, 2147483647, false, true)) } catch { /* Keep the entered value for correction. */ }
 }
 
 function handleMemoryBlur() {
-  if (!form.value.memory) return
-  const num = parseFloat(form.value.memory)
-  if (isNaN(num) || num <= 0) {
-    form.value.memory = '1'
-    return
-  }
-  form.value.memory = Math.round(num).toString()
+  try { form.value.memory = String(readNumber(form.value.memory, 'memory', 1, 2147483647, false, true)) } catch { /* Keep the entered value for correction. */ }
 }
 
-function normalizeStorageLimit(value: string): string | null {
+function normalizeStorageLimit(value: string, field: string): string | null {
   const trimmed = value.trim()
   if (!trimmed) return null
-
-  if (/^\d+(?:\.\d+)?$/i.test(trimmed)) {
-    return `${trimmed}MB`
-  }
-
-  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*(B|kB|MB|GB|TB|PB)$/i)
-  if (match) {
-    return `${match[1]}${match[2]}`
-  }
-
-  return trimmed
+  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*(B|kB|MB|GB|TB|PB|iops)?$/i)
+  if (!match || !Number.isFinite(Number(match[1]))) invalidField(field)
+  if (match[2]?.toLowerCase() === 'iops' && !Number.isSafeInteger(Number(match[1]))) invalidField(field)
+  const units: Record<string, string> = { b: 'B', kb: 'kB', mb: 'MB', gb: 'GB', tb: 'TB', pb: 'PB', iops: 'iops' }
+  return `${match[1]}${units[match[2]?.toLowerCase() ?? 'mb']}`
 }
 </script>
 
@@ -426,7 +404,7 @@ function normalizeStorageLimit(value: string): string | null {
 
           <!-- 内容区域 -->
           <div class="modal-body overflow-y-auto flex-1">
-            <p v-if="submitError" role="alert" class="text-sm text-red-500 break-words mb-4">{{ submitError }}</p>
+            <p v-if="submitError || (!showResult && configValidation.error)" role="alert" class="text-sm text-red-500 break-words mb-4">{{ !showResult && configValidation.error ? configValidation.error : submitError }}</p>
             <!-- 结果展示 -->
             <template v-if="showResult && result">
               <div class="space-y-4">
