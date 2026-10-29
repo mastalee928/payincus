@@ -106,6 +106,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-change-email-receipts', 'requires Chrome/Edge and local Vite; strict email verification codes, real four-operation receipt contracts, failed receipt retry and expired verification cleanup'],
   ['test:review-help-editor-reads', 'requires Chrome/Edge and local Vite; help article editor current target/session/ABA read receipts, loading gates, matching ID, persistent error and retry'],
   ['test:review-help-editor-writes', 'requires Chrome/Edge and local Vite; help create/update current target/session/draft/ABA receipts, immediate write busy, fields/close and confirmed API results'],
+  ['test:review-password-scope', 'requires Chrome/Edge and local Vite; password initial/verified fixed drafts, session/ABA/cache receipts, immediate busy and pending verification/timer cleanup'],
   ['test:review-user-balance-submit', 'requires Chrome/Edge and local Vite; balance adjustment strict amount inputs, immediate busy lock, current session/draft receipts and scoped auxiliary reads'],
   ['test:review-user-points-submit', 'requires Chrome/Edge and local Vite; points adjustment integer/reason gates, busy fields, current targets/session/draft receipts and scoped list refresh'],
   ['test:review-user-balance-audit', 'requires isolated local *_pool_test PostgreSQL; balance and ledger/audit atomic rollback, exact receipts and administrator revocation row-lock races'],

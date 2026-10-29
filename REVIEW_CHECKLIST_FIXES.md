@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R309目标会话阶段：密码初次/verified固定user/current/new与session/draft pending、busy/字段门禁、取消及旧验证回调、草稿ABA/cache/unmount/timer/秘密清理已修。Chrome64旧回执和正常same sid实际清登录跳转/旧timer/重试/三宽截图、四守卫/lint/双端types build见HANDOFF；最后user复构/dist收尾，严格回执及完整联动另待。唯一197有修复复验（含部分）/68已有防护实现不同/62待精修，197内部未完继续。
+
 2026-10-29 R311写入阶段：创建/编辑固定payload/mode/id及session/read/draft代次、旧成功失败静默、busy/字段取消关闭/另开保护、真实message及create新article回执已修。Chrome64旧回执+busy/8非法回执/失败重试/same sid/unmount、reads回归/3守卫/lint/最终双端types build/dist与三宽截图见HANDOFF。列表/分类并发与后台审计另待，196/68/63含部分不新增编号。
 
 2026-10-29 R311读取阶段：帮助编辑target/seq/ABA/mode/show/admin/session/unmount回执、同步清旧表单/ready、same sid、loading/保存门禁及持久error按钮retry已修。Chrome16旧回执和当前loading/retry/id/refresh/unmount/三宽控件通过，3守卫/lint/双端types build及最终admin复构/dist见HANDOFF。390表单单列/开关wrap；写回执/列表/分类另待。唯一196有修复复验（含部分）/68已有防护实现不同/63待精修，196内部未完范围仍继续。
@@ -396,7 +398,7 @@
 | R1-306 | 已有防护 | 保留初审结论 | requiresIpv6ParentInterface仅当前或旧subnet有值时要求接口，IPv6全部留空可保存；清空已有值仍见R1-111。 |
 | R1-307 | 部分存在，部分已修 | 2FA与邮箱状态/回执实际Chrome及构建守卫通过 | 2FA busy/取消/初读ready/session/cache/unmount/draft/秘密timer、TOTP/设置材料与真实回执已修；邮箱busy和目标/session/输入回执见R313。真实认证全流程及R013敏感验证接线仍待，不把局部矩阵当作完整验收。 |
 | R1-308 | 部分存在 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
-| R1-309 | 存在 | 待精修/运行复核 | catch用当时当前draft存pending，验证重试可用新草稿；旧成功timer清新会话。 |
+| R1-309 | 存在，部分已修 | 固定密码重试/session/timer真实Chrome通过 | 初次/verified固定提交和session/draft pending、busy/字段取消/草稿ABA/cache/unmount及旧timer清理已修，Chrome64旧回执和same sid实际清登录跳转通过。严格成功回执及真实敏感验证两组件完整联动继续。 |
 | R1-310 | 存在 | 待精修/运行复核 | 保存一个设置组后loadAll重置全组，其他组及等待期间新草稿丢失。 |
 | R1-311 | 存在，部分已修 | 当前编辑读取Chrome及构建守卫通过 | 编辑target/seq/ABA/mode/show/admin/account/session/unmount隔离、ready/loading/保存门禁、失败持久retry及匹配id已修，真实Chrome16旧回执及正常/失败/刷新/卸载通过。手机开关出界已单列/wrap；保存回执、列表与分类并发另待。 |
 | R1-312 | 部分存在 | 待精修/运行复核 | 当前PackageSelector只展示props.packages，无对方嵌入packageId加载；priority 0用／／20确被默认覆盖。 |

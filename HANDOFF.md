@@ -2,11 +2,18 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-309 密码验证重试的固定草稿与会话
+
+- 874f4ef7已push。scope-before真实Chrome先红旧VERIFICATION_REQUIRED捕获replacement-password；初次及验证后重试现固定用户/currentPassword/newPassword和session/draft代次，pending绑定原上下文。账号/角色/sid/草稿ABA/cache/unmount变化清密码/待验证/timer/提示，取消验证清pending，重复verified仅一请求；在途busy保留直到原finally，字段及验证弹窗打开时阻新提交，结束重试清pending。
+- 成功清草稿/原timer；成功提示和延迟清登录计时器绑定原session/generation，换会话/离页/卸载撤销，same sid刷新保留。scope-final-r3实际Chrome64初次/verified旧成功失败、busy/字段、四旧验证回调、取消/重试与三宽截图通过exit0；旧成功timer不能清新通知、旧reauth不能登出新session、正常same sid实际clearLocalAuth及/login跳转均通过。四相关守卫、lint零错警、scope-build双端含vue-tsc exit0，最后清pending两行的最终user build/dist以收尾日志记录；manifest194常规161专项通过，专项接CI。真实Vue/受控API和合成密码不等于实际客户密码变更。
+- R309进入部分精修，唯一197有修复复验（含部分）/68已有防护实现不同/62待精修，197内部仍未完。成功回执严格校验和真实SensitiveVerification联动下段继续；后台current会话/验证grant/密码变更及撤销事务已有，不重复误报。完整327及网关灾备未完成。
+- 最终user build日志takeover-password-scope-final-user-build.log含vue-tsc exit0、scope-dist.log通过；无待poll，最后两行清pending已在用户产物验证，管理端沿双端完整build。准备保存后继续成功回执与组件联动。
+
 ## 2026-10-29 R1-311 帮助文章保存的固定草稿与回执
 
 - 41b694a4已push。writes-before真实Chrome先红旧session保存仍toast成功；创建/编辑现固定mode/id/完整payload及session/read/draft代次，草稿ABA、关闭、账号/角色/sid/卸载失效拒旧成功和错误。在途busy阻重复与另开目标，字段/取消/关闭冻结；正常同sid刷新保留。创建校验真实message及新article id/title/slug，更新校验实际message（后端不返回article），非法回执持久error保草稿，成功后原列表刷新保持。
 - writes-final-r2实际Chrome64旧成功失败回执、两busy/DOM字段关闭/失败重试、八非法回执/合法及same sid/unmount通过exit0，reads-regression原读取矩阵exit0。三宽busy/error截图已看；3守卫/lint零错警/writes-build双端build含vue-tsc exit0/dist/manifest194常规160专项通过，专项接CI。后台审计/列表/分类并发和实际生产文章流程未验，本段不改后台。只读核54901d15/a83d28dd CI已success，三后续批仍in_progress；196/68/63含部分不变。
-- 下一R309 PasswordSection完整及敏感验证组件、users PATCH/事务和守卫已读：catch读取变化后的草稿、旧timer及无busy；还发现authStore只导出clearLocalAuth，原timer调用clearLocalAuth拼为clearLocalAuth以外的clearLocalAuth？实际源码调用clearLocalAuth之外的clearLocalAuth需按代码核对，不能仅据摘要。完整327与灾备继续未完。
+- 下一R309 PasswordSection完整及敏感验证组件、users PATCH/事务和守卫已读：catch读取变化后的草稿、旧timer及无busy仍待修；authStore.clearLocalAuth已确认存在，调用名称没有问题，不误报缺方法。完整327与灾备继续未完。
 
 ## 2026-10-29 R1-311 帮助编辑器当前目标读取
 

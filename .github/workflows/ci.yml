@@ -305,6 +305,8 @@ jobs:
         run: pnpm --filter server test:review-help-editor-reads
       - name: Help article saves retain their current draft and confirmed receipt
         run: pnpm --filter server test:review-help-editor-writes
+      - name: Password change retries retain their submitted credentials and session
+        run: pnpm --filter server test:review-password-scope
       - name: Balance adjustments keep their target, draft and confirmed receipt
         run: pnpm --filter server test:review-user-balance-submit
       - name: Points adjustments reject stale receipts and repeated submissions
