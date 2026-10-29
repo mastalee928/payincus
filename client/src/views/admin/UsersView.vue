@@ -251,6 +251,32 @@ const adjustHostingBalanceForm = ref({
   reason: ''
 })
 const adjustHostingBalanceLoading = ref(false)
+const adjustHostingBalanceError = ref('')
+const hostingDialogGeneration = ref(0)
+const hostingReadContext = computed(() => [dialogsAvailable.value, dialogSession.value, showHostingBalanceModal.value, hostingDialogGeneration.value, hostingBalanceUser.value?.id, hostingBalanceTab.value])
+const hostingReadable = () => dialogsAvailable.value && showHostingBalanceModal.value && validDialogUser(hostingBalanceUser.value)
+const hostingInfoRead = dialogReadState(() => hostingReadContext.value, hostingBalanceInfoLoading, () => { hostingBalanceInfo.value = { available: 0, frozen: 0 } })
+const hostingLogsRead = dialogReadState(() => [...hostingReadContext.value, hostingBalanceLogsPage.value, hostingBalanceLogsPageSize.value], hostingBalanceLogsLoading,
+  () => { hostingBalanceLogs.value = []; hostingBalanceLogsTotal.value = 0; hostingBalanceLogsTotalPages.value = 1 })
+const hostingBalanceInfoError = hostingInfoRead.error, hostingBalanceLogsError = hostingLogsRead.error
+watch([dialogsAvailable, dialogSession], () => { showHostingBalanceModal.value = false }, { flush: 'sync' })
+function validateHostingRead(res) {
+  if (res?.user?.id !== hostingBalanceUser.value.id || !['available', 'frozen'].every(key => typeof res[key] === 'number' && Number.isFinite(res[key])) || res.frozen < 0) throw new Error(t('admin.users.loadHostingLogsFailed'))
+}
+const hostingWriteScope = computed(() => JSON.stringify([dialogsAvailable.value, dialogSession.value, showHostingBalanceModal.value, hostingDialogGeneration.value, hostingBalanceUser.value?.id]))
+let hostingWriteGeneration = 0, hostingDraftGeneration = 0
+watch(hostingWriteScope, () => { hostingWriteGeneration += 1; adjustHostingBalanceError.value = '' }, { flush: 'sync' })
+watch(() => [hostingBalanceTab.value, adjustHostingBalanceForm.value.type, adjustHostingBalanceForm.value.operation, adjustHostingBalanceForm.value.amount, adjustHostingBalanceForm.value.reason], () => {
+  hostingDraftGeneration += 1; adjustHostingBalanceError.value = ''
+}, { flush: 'sync' })
+const hostingAdjustment = computed(() => {
+  const { type, operation, amount, reason } = adjustHostingBalanceForm.value
+  const text = typeof amount === 'string' ? amount.trim() : typeof amount === 'number' ? String(amount) : ''
+  const value = Number(text)
+  if (!['available', 'frozen'].includes(type) || !['add', 'deduct'].includes(operation) || !/^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(text) || !Number.isFinite(value) || value < 0.01 || value > 99999999.99 || typeof reason !== 'string' || !reason.trim() || reason.trim().length > 200) return null
+  return { type, amount: operation === 'add' ? value : -value, reason: reason.trim() }
+})
+const canAdjustHostingBalance = computed(() => hostingReadable() && hostingBalanceTab.value === 'adjust' && !adjustHostingBalanceLoading.value && !!hostingAdjustment.value)
 
 // 关联账号检测
 const linkedAccountsData = ref(null)
@@ -873,6 +899,8 @@ async function submitAdjustPoints() {
 
 // 打开托管余额弹窗
 async function openHostingBalanceModal(user) {
+  if (adjustHostingBalanceLoading.value || !dialogsAvailable.value || !validDialogUser(user)) return
+  hostingDialogGeneration.value += 1
   hostingBalanceUser.value = user
   hostingBalanceTab.value = 'overview'
   hostingBalanceInfo.value = { 
@@ -880,6 +908,7 @@ async function openHostingBalanceModal(user) {
     frozen: user.hostingBalanceFrozen || 0 
   }
   hostingBalanceLogs.value = []
+  hostingBalanceLogsPage.value = 1
   adjustHostingBalanceForm.value = { type: 'available', operation: 'add', amount: '', reason: '' }
   showHostingBalanceModal.value = true
   // 加载详细信息
@@ -888,87 +917,73 @@ async function openHostingBalanceModal(user) {
 
 // 加载托管余额详情
 async function loadHostingBalanceInfo() {
-  if (!hostingBalanceUser.value) return
-  hostingBalanceInfoLoading.value = true
-  try {
-    const res = await api.admin.getHostingBalanceLogs(hostingBalanceUser.value.id, { page: 1, pageSize: 1 })
+  return hostingInfoRead.run(() => hostingReadable() && ['overview', 'adjust'].includes(hostingBalanceTab.value),
+    () => api.admin.getHostingBalanceLogs(hostingBalanceUser.value.id, { page: 1, pageSize: 1 }), res => {
+    validateHostingRead(res)
     hostingBalanceInfo.value = {
       available: res.available,
       frozen: res.frozen
     }
-  } catch (err) {
-    console.error('Failed to load hosting balance info:', err)
-  } finally {
-    hostingBalanceInfoLoading.value = false
-  }
+  })
 }
 
 // 加载托管余额明细
 async function loadHostingBalanceLogs() {
-  if (!hostingBalanceUser.value) return
-  hostingBalanceLogsLoading.value = true
-  try {
-    const res = await api.admin.getHostingBalanceLogs(hostingBalanceUser.value.id, {
+  return hostingLogsRead.run(() => hostingReadable() && hostingBalanceTab.value === 'logs',
+    () => api.admin.getHostingBalanceLogs(hostingBalanceUser.value.id, {
       page: hostingBalanceLogsPage.value,
       pageSize: hostingBalanceLogsPageSize.value
-    })
+    }), res => {
+    validateHostingRead(res)
+    validDialogList(res, 'logs', 'admin.users.loadHostingLogsFailed')
+    if (res.logs.some(log => typeof log.amount !== 'number' || !Number.isFinite(log.amount) || typeof log.frozen !== 'boolean')) throw new Error(t('admin.users.loadHostingLogsFailed'))
     hostingBalanceLogs.value = res.logs
     hostingBalanceLogsTotal.value = res.total
-    hostingBalanceLogsTotalPages.value = res.totalPages
+    hostingBalanceLogsTotalPages.value = Math.max(1, Math.ceil(res.total / res.pageSize))
     // 同步更新余额信息
     hostingBalanceInfo.value = {
       available: res.available,
       frozen: res.frozen
     }
-  } catch (err) {
-    toast.error(t('admin.users.loadHostingLogsFailed') + ': ' + err.message)
-  } finally {
-    hostingBalanceLogsLoading.value = false
-  }
+  })
 }
 
 // 切换托管余额弹窗TAB
 function switchHostingBalanceTab(tab) {
+  if (adjustHostingBalanceLoading.value || !['overview', 'logs', 'adjust'].includes(tab)) return
   hostingBalanceTab.value = tab
   if (tab === 'logs' && hostingBalanceLogs.value.length === 0) {
     hostingBalanceLogsPage.value = 1
     loadHostingBalanceLogs()
-  }
+  } else if (tab === 'overview' || tab === 'adjust') loadHostingBalanceInfo()
+}
+
+function closeHostingBalanceModal() {
+  if (!adjustHostingBalanceLoading.value) showHostingBalanceModal.value = false
 }
 
 // 托管余额明细翻页
 function changeHostingBalanceLogsPage(page) {
+  if (!hostingReadable() || hostingBalanceTab.value !== 'logs' || !Number.isSafeInteger(page) || page < 1 || page > hostingBalanceLogsTotalPages.value) return
   hostingBalanceLogsPage.value = page
   loadHostingBalanceLogs()
 }
 
 // 提交调整托管余额
 async function submitAdjustHostingBalance() {
-  if (!hostingBalanceUser.value) return
-
-  const amount = parseFloat(adjustHostingBalanceForm.value.amount)
-  if (isNaN(amount) || amount <= 0) {
-    toast.error(t('admin.users.invalidAmount'))
-    return
-  }
-
-  if (!adjustHostingBalanceForm.value.reason.trim()) {
-    toast.error(t('admin.users.reasonRequired'))
-    return
-  }
-
-  // 根据操作类型计算实际金额
-  const finalAmount = adjustHostingBalanceForm.value.operation === 'add' ? amount : -amount
-
+  if (!canAdjustHostingBalance.value) return
+  const userId = hostingBalanceUser.value.id, input = { ...hostingAdjustment.value }
+  const generation = hostingWriteGeneration, draft = hostingDraftGeneration, scope = hostingWriteScope.value
+  const currentScope = () => generation === hostingWriteGeneration && scope === hostingWriteScope.value && dialogsAvailable.value
+  const current = () => currentScope() && draft === hostingDraftGeneration && hostingBalanceTab.value === 'adjust'
   adjustHostingBalanceLoading.value = true
+  adjustHostingBalanceError.value = ''
   try {
-    const res = await api.admin.adjustHostingBalance(
-      hostingBalanceUser.value.id,
-      adjustHostingBalanceForm.value.type,
-      finalAmount,
-      adjustHostingBalanceForm.value.reason.trim()
-    )
+    const res = await api.admin.adjustHostingBalance(userId, input.type, input.amount, input.reason)
+    if (!current()) return
+    if (res?.success !== true || !['available', 'frozen'].every(key => typeof res[key] === 'number' && Number.isFinite(res[key])) || res.frozen < 0) throw new Error(t('admin.users.hostingBalanceAdjustFailed'))
     toast.success(t('admin.users.hostingBalanceAdjusted'))
+    hostingBalanceTab.value = 'overview'
     // 更新显示
     hostingBalanceInfo.value = {
       available: res.available,
@@ -976,18 +991,12 @@ async function submitAdjustHostingBalance() {
     }
     // 重置表单
     adjustHostingBalanceForm.value = { type: 'available', operation: 'add', amount: '', reason: '' }
-    // 刷新明细
-    if (hostingBalanceLogs.value.length > 0) {
-      await loadHostingBalanceLogs()
-    }
-    // 刷新用户列表
-    await loadUsers()
-    // 切换到概览TAB
-    hostingBalanceTab.value = 'overview'
+    void loadUsers(currentScope)
   } catch (err) {
-    const errorCode = err?.code
-    const errorMessage = errorCode ? t(`errors.${errorCode}`) : err.message
-    toast.error(t('admin.users.hostingBalanceAdjustFailed') + ': ' + errorMessage)
+    if (current()) {
+      const errorMessage = err?.code ? t(`errors.${err.code}`) : err?.message
+      adjustHostingBalanceError.value = errorMessage || t('admin.users.hostingBalanceAdjustFailed')
+    }
   } finally {
     adjustHostingBalanceLoading.value = false
   }
@@ -3056,37 +3065,37 @@ function _getQuotaPercent(used, limit) {
     <!-- 托管余额弹窗 -->
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showHostingBalanceModal" class="modal-overlay">
-          <div class="modal-backdrop" @click="showHostingBalanceModal = false"></div>
+        <div v-if="showHostingBalanceModal" data-user-dialog="hosting" class="modal-overlay">
+          <div class="modal-backdrop" @click="closeHostingBalanceModal"></div>
           <div class="modal-content max-w-2xl">
             <div class="modal-header">
               <h3 class="modal-title">{{ t('admin.users.hostingBalanceDetails') }} - {{ hostingBalanceUser?.username }}</h3>
-              <button class="text-themed-muted hover:text-themed" @click="showHostingBalanceModal = false">
+              <button :disabled="adjustHostingBalanceLoading" :aria-label="t('common.close')" class="text-themed-muted hover:text-themed" @click="closeHostingBalanceModal">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
             <!-- TAB 切换 -->
-            <div class="flex gap-1 border-b border-themed px-4">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-1 border-b border-themed px-4">
               <button
                 class="px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px"
                 :class="hostingBalanceTab === 'overview' ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400' : 'border-transparent text-themed-muted hover:text-themed'"
-                @click="switchHostingBalanceTab('overview')"
+                :disabled="adjustHostingBalanceLoading" @click="switchHostingBalanceTab('overview')"
               >
                 {{ t('admin.users.hostingBalanceOverview') }}
               </button>
               <button
                 class="px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px"
                 :class="hostingBalanceTab === 'logs' ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400' : 'border-transparent text-themed-muted hover:text-themed'"
-                @click="switchHostingBalanceTab('logs')"
+                :disabled="adjustHostingBalanceLoading" @click="switchHostingBalanceTab('logs')"
               >
                 {{ t('admin.users.hostingBalanceLogs') }}
               </button>
               <button
                 class="px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px"
                 :class="hostingBalanceTab === 'adjust' ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400' : 'border-transparent text-themed-muted hover:text-themed'"
-                @click="switchHostingBalanceTab('adjust')"
+                :disabled="adjustHostingBalanceLoading" @click="switchHostingBalanceTab('adjust')"
               >
                 {{ t('admin.users.adjustHostingBalance') }}
               </button>
@@ -3099,6 +3108,9 @@ function _getQuotaPercent(used, limit) {
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
+                </div>
+                <div v-else-if="hostingBalanceInfoError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">
+                  {{ hostingBalanceInfoError }} <button type="button" class="underline ml-2" @click="loadHostingBalanceInfo">{{ t('common.retry') }}</button>
                 </div>
                 <div v-else class="grid grid-cols-2 gap-4">
                   <div class="bg-themed-tertiary rounded-lg p-4 text-center">
@@ -3123,6 +3135,9 @@ function _getQuotaPercent(used, limit) {
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
                 </div>
+                <div v-else-if="hostingBalanceLogsError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">
+                  {{ hostingBalanceLogsError }} <button type="button" class="underline ml-2" @click="loadHostingBalanceLogs">{{ t('common.retry') }}</button>
+                </div>
                 <div v-else-if="hostingBalanceLogs.length === 0" class="text-center py-8 text-themed-muted">
                   {{ t('common.noData') }}
                 </div>
@@ -3142,7 +3157,7 @@ function _getQuotaPercent(used, limit) {
                           class="shrink-0 text-right font-mono text-sm font-semibold tabular-nums"
                           :class="log.type === 'income' || log.type === 'unfreeze' ? 'text-success' : 'text-error'"
                         >
-                          {{ log.type === 'income' || log.type === 'unfreeze' ? '+' : '-' }}¥{{ log.amount.toFixed(2) }}
+                          {{ log.type === 'income' || log.type === 'unfreeze' ? '+' : '-' }}¥{{ Math.abs(log.amount).toFixed(2) }}
                         </div>
                       </div>
                       <div class="mt-3 flex items-center justify-between gap-3">
@@ -3173,7 +3188,7 @@ function _getQuotaPercent(used, limit) {
                             <span class="badge badge-default">{{ getHostingLogTypeLabel(log.type, log.actionType) }}</span>
                           </td>
                           <td class="py-2 px-2 text-right whitespace-nowrap font-mono tabular-nums" :class="log.type === 'income' || log.type === 'unfreeze' ? 'text-success' : 'text-error'">
-                            {{ log.type === 'income' || log.type === 'unfreeze' ? '+' : '-' }}¥{{ log.amount.toFixed(2) }}
+                            {{ log.type === 'income' || log.type === 'unfreeze' ? '+' : '-' }}¥{{ Math.abs(log.amount).toFixed(2) }}
                           </td>
                           <td class="py-2 px-2 whitespace-nowrap">
                             <span v-if="log.frozen" class="badge badge-warning">{{ t('admin.users.frozen') }}</span>
@@ -3209,9 +3224,13 @@ function _getQuotaPercent(used, limit) {
                 </div>
               </div>
               <!-- 调整 TAB -->
-              <div v-else-if="hostingBalanceTab === 'adjust'" class="space-y-4">
+              <fieldset v-else-if="hostingBalanceTab === 'adjust'" :disabled="adjustHostingBalanceLoading" class="space-y-4">
                 <!-- 当前余额 -->
-                <div class="grid grid-cols-2 gap-4 py-2 px-3 bg-themed-tertiary rounded-lg">
+                <p v-if="hostingBalanceInfoLoading" class="text-sm text-themed-muted">{{ t('common.loading') }}</p>
+                <div v-else-if="hostingBalanceInfoError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">
+                  {{ hostingBalanceInfoError }} <button type="button" class="underline ml-2" @click="loadHostingBalanceInfo">{{ t('common.retry') }}</button>
+                </div>
+                <div v-else class="grid grid-cols-2 gap-4 py-2 px-3 bg-themed-tertiary rounded-lg">
                   <div class="text-center">
                     <div class="font-mono text-lg font-semibold tabular-nums text-success">¥{{ hostingBalanceInfo.available.toFixed(2) }}</div>
                     <div class="text-xs text-themed-muted">{{ t('admin.users.availableBalance') }}</div>
@@ -3256,7 +3275,7 @@ function _getQuotaPercent(used, limit) {
                     v-model="adjustHostingBalanceForm.amount" 
                     type="number" 
                     step="0.01"
-                    min="0"
+                    min="0.01" max="99999999.99"
                     class="input" 
                     :placeholder="t('admin.users.amountPlaceholder')"
                   />
@@ -3272,12 +3291,13 @@ function _getQuotaPercent(used, limit) {
                   ></textarea>
                   <p class="mt-1 text-xs text-themed-muted">{{ adjustHostingBalanceForm.reason.length }}/200</p>
                 </div>
+                <p v-if="adjustHostingBalanceError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">{{ adjustHostingBalanceError }}</p>
                 <!-- 按钮 -->
                 <div class="flex justify-end gap-2 pt-2">
-                  <button class="btn btn-ghost" @click="hostingBalanceTab = 'overview'">{{ t('common.cancel') }}</button>
+                  <button class="btn btn-ghost" @click="switchHostingBalanceTab('overview')">{{ t('common.cancel') }}</button>
                   <button 
                     class="btn btn-primary" 
-                    :disabled="adjustHostingBalanceLoading || !adjustHostingBalanceForm.amount || !adjustHostingBalanceForm.reason.trim()"
+                    :disabled="!canAdjustHostingBalance"
                     @click="submitAdjustHostingBalance"
                   >
                     <svg v-if="adjustHostingBalanceLoading" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -3287,10 +3307,10 @@ function _getQuotaPercent(used, limit) {
                     {{ adjustHostingBalanceLoading ? t('common.submitting') : t('common.confirm') }}
                   </button>
                 </div>
-              </div>
+              </fieldset>
             </div>
             <div class="modal-footer">
-              <button class="btn-secondary" @click="showHostingBalanceModal = false">{{ t('common.close') }}</button>
+              <button :disabled="adjustHostingBalanceLoading" class="btn-secondary" @click="closeHostingBalanceModal">{{ t('common.close') }}</button>
             </div>
           </div>
         </div>

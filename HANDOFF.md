@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-305 托管余额读取与调整回执
+
+- 基于已push的373ad333，托管余额概览/明细/调整页独立read序号，绑定当前user/session/modal/tab/page和打开代次；同步清数据/loading/error，旧目标/ABA/cache/卸载回执拒绝。校验真实user.id、有限金额、非负冻结与明细/分页；允许业务实际欠款与负金额销毁明细，显示不重复负号。错误持久retry，标签切回重取，明细按实际pageSize算页数，手机三标签完整显示。
+- 调整严格两位十进制0.01–99999999.99、type/operation和200字理由；函数即时busy、保存中字段/标签/关闭/另开目标保护。固定userId/参数及session/目标/弹窗/草稿代次，旧成功失败静默；回执要求真实success与有限金额，接受0及既有欠款。失败保草稿和持久error，成功先切overview再赋实际余额，辅助列表scope隔离，旧读取不覆盖已确认余额。
+- reads-before.log真实Chrome先红20被旧10覆盖；submit-before.log先红跨session仍toast/刷新。takeover-user-hosting-reads-current.log与submit-current.log真实Chrome全矩阵exit0，包含读写用户/session/ABA/cache/草稿/卸载、busy/字段/关闭、retry/非法回执/0/欠款、金额边界和辅助读取；三宽三语浅深截图已检查。最终双端build含vue-tsc日志takeover-user-hosting-final-build-r2.log exit0；4同源守卫由Node原生TS运行通过（final-native-route/hosting/user-id/i18n.log），dist边界final-native-dist.log通过，lint零错警，manifest194/151通过，两专项登记CI。tsx环境ENOMEM与自动审批503阻止的旧执行不计通过；owner开启完全权限后本地Chrome恢复。后台托管审计原子/事务回执与断网幂等仍待，真实客户完整流程未完成。
+- R305仍部分，193/68/66不变；完整327及网关灾备未完成。
+
 ## 2026-10-29 R1-305 用户积分调整当前权限与审计事务
 
 - 50239a0d已push。原已鉴权的封禁管理员仍可积分写入，takeover-user-points-write-before.log真实PG先红200。adminAdjustPoints现在必传actor，积分锁后复用lockAdministrativeUserMutation，在upsert/变更前锁当前目标及管理员并核status/role/sid/iat撤销；权限变化403、目标消失404。积分、累计计数、pointsLog与lottery.points.adjust审计同事务，审计读取已锁姓名、原日志本地化；route移除事务外createLog。
