@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 用途专用提交当前权限与审计事务
+
+- 060b8c0已push。只传purpose的PATCH现在完全本地提交，不连接Incus；检查实际登记池，不再对零匹配返回成功。事务内按host/share→pool/update→actor/update锁顺序复核当前宿主归属、池身份/时间/实际字段及active/session/current role；用途与原storage.update审计同提交，失败均回滚。混合description/size变更仍走原远端路径，其授权/持久恢复不能算已覆盖。
+- test-review-storage-purpose.ts真实PG/Fastify先红离线宿主500；takeover-storage-purpose-auth-final-r2.log通过离线保存、missing404、owner/admin、非owner/无sid、8组真实锁竞争（封禁、单session/全session撤销、host owner、pool描述/name、同时间戳config、admin降权），全部旧请求拒写且零成功审计；真实审计trigger失败回滚用途。原容量/用途/ETag/错误矩阵auth-regression.log通过。
+- 后端最终build含tsc、host-route-id/host-pool/auth-session-status三守卫、manifest194/141、diff通过，专项登记CI。无前端改动；发现当前UI总发description，因此普通页面只改用途仍会走混合路径，下一段需按打开时基线只提交改过字段并浏览器验证。本项是后端专用路径阶段，不能扩成全部存储权限修复。
+
 ## 2026-10-29 R1-303 存储导入必须确认不存在
 
 - 4c95b8b已push。useExisting原先吞掉getStoragePool全部异常，403仍发送POST导入，实际PG/Fastify/mTLS先红见takeover-storage-import-before.log。现只接受该编码池路径的IncusApiError404进入导入；鉴权、网络、服务端错误保留，getStoragePool核实际name/非空driver/config字典且编码路径，不能把错误对象登记成已有池。

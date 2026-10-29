@@ -197,6 +197,8 @@ jobs:
         run: pnpm --filter server test:review-storage-update
       - name: Storage import requires confirmed absence and valid existing pool metadata
         run: pnpm --filter server test:review-storage-import
+      - name: Storage purpose updates verify current access and commit with their audit
+        run: pnpm --filter server test:review-storage-purpose
       - name: Host lists preserve architecture, network state and stable cross-owner pagination
         run: pnpm --filter server test:review-host-pagination
       - name: Gifted days preserve current ownership and paid expiry

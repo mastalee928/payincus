@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：060b8c0已push；用途-only PATCH本地事务/current host+pool+actor/session、缺池404、审计回滚已修；PG先红后8竞争final-r2、容量等原回归、最终build含tsc/3守卫/manifest194/141通过，准备push无待poll。下一段前端HostStorageTab总发description/purpose，需要打开时基线，仅传变化字段，空变化零API，原0/null/size/草稿/session行为保留。已读组件及写/容量Chrome夹具，design skill主体已读，app-screens需读；混合远端路径权限/恢复另续，327/R269/Go proc/灾备未完成。
+
 > **最新接续**：4c95b8b已push。R303 useExisting任意错误导入已修为精确IncusApiError404/path；getStoragePool核name/driver/config和编码。真实PG/Fastify/mTLS先红403仍POST→final错误零写/已有/正常/重复/创建及确认失败通过，server build含tsc/3守卫/manifest194/140，专项接CI，准备push，无待poll。继续平台元数据当前权限及零匹配成功；create/delete/remote update的持久恢复另续，191/68/68/R269/Go proc/灾备未完成。
 
 > **最新接续**：ba82a01已push；R303容量预检查已补BigInt真实值/缩容拒绝/dir与未知容量/等量单位不写，mTLS及实际PG/API完整矩阵、build含tsc/3守卫/manifest194/139通过，准备push，无待poll。固定Incus backend.go:295已有防缩容，明确纠正只看driver Truncate的初判，不称原生漏洞。下一段useExisting catch任意读失败都转导入，需只接受精确IncusApiError404；getStoragePool路径也需编码。相关route/helper/guard已读，未修改。当前授权/远端DB恢复、R269/Go proc/327/灾备仍待。

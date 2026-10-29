@@ -95,6 +95,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-storage-size', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; actual storage create/update capacity boundaries over mTLS'],
   ['test:review-storage-update', 'requires OpenSSL; pinned mTLS storage updates, ETag conflicts and description/config preservation'],
   ['test:review-storage-import', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; exact missing pool checks, import failures and existing pool metadata over mTLS'],
+  ['test:review-storage-purpose', 'requires isolated local *_pool_test PostgreSQL; offline platform purpose changes, current authorization, concurrent metadata and atomic audit'],
   ['test:review-host-pagination', 'requires isolated local *_pool_test PostgreSQL; host architecture/network projection, cross-owner pagination and access boundaries'],
   ['test:review-host-redeem-reads', 'requires Chrome/Edge and local Vite; redeem list/options/usages host/session lifecycle, pagination, retries and draft preservation'],
   ['test:review-host-redeem-writes', 'requires Chrome/Edge and local Vite; redeem create/toggle/delete target, duplicate, session, dialog and partial-result lifecycle'],

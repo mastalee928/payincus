@@ -3869,6 +3869,10 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     if (normalizedSize === null) return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Invalid storage size: use a positive integer with a supported byte unit, within the signed 64-bit limit'))
 
     try {
+      if (size === undefined && description === undefined && purpose !== undefined) {
+        await db.updateStoragePoolPurpose(host, poolName, purpose, user)
+        return { message: '存储池修改成功' }
+      }
       const client = await getIncusClient(host)
       
       // 构建更新配置
@@ -3905,7 +3909,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       if (err instanceof IncusApiError && err.statusCode === 412) {
         return reply.code(409).send({ code: 'STORAGE_POOL_CONFIG_CHANGED', error: '存储池配置已被其他操作修改，请刷新后重新确认' })
       }
-      if (err instanceof StoragePoolUpdateError) {
+      if (err instanceof StoragePoolUpdateError || err instanceof db.StoragePoolPurposeError) {
         return reply.code(err.statusCode).send({ code: err.code, error: err.message })
       }
       return reply.code(500).send({ error: `修改存储池失败: ${errorMessage}` })

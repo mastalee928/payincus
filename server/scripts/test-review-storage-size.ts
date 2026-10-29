@@ -55,7 +55,7 @@ await new Promise<void>(done => remote.listen(0, '127.0.0.1', done))
 const owner = await prisma.user.create({ data: { username: prefix, passwordHash: 'unusable-fixture', role: 'admin' } })
 const host = await prisma.host.create({ data: { userId: owner.id, name: prefix, url: `https://127.0.0.1:${(remote.address() as { port: number }).port}`, status: 'online', certPath, keyPath, serverCertificate: certificate, serverFingerprint: new X509Certificate(certificate).fingerprint256 } })
 const app = Fastify()
-app.decorate('authenticate', async (request: any) => { request.user = { id: owner.id, role: 'admin', username: prefix } })
+app.decorate('authenticate', async (request: any) => { request.user = { id: owner.id, role: 'admin', username: prefix, sid: prefix, iat: Math.floor(Date.now() / 1000) } })
 app.decorate('authenticateUser', app.authenticate); app.decorate('authenticateAdmin', app.authenticate); app.decorate('requireAdmin', async () => {})
 await app.register(routes, { prefix: '/hosts' }); await app.ready()
 let failure: unknown
