@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 宿主兑换码读取与分页
+
+- 27cb569已push核远端；其CI类型/构建/双架构组件及部分集成通过，交付集成最后仍运行。兑换码列表/options/usages分别绑定host/session/请求序号/激活状态，旧回执不回写，切host/账号/角色/logout/cache/unmount清列表、选中与弹窗；同sid刷新保留。错误持久重试，非法回执拒绝，同页保有效选择、翻页/筛选清选择，删除末页回退合法页。
+- options必须成功读取才创建，刷新不覆盖新草稿，默认值按重置后的CPU类型；使用记录支持真实limit/offset翻页和最后页修正，绑定code与弹窗代次。手机原表格裁掉右侧操作，已改桌面定宽表/手机卡片，分页显示实际页数和条数；使用记录dialog/键盘焦点/Tab/Escape补齐。历史p码只读兼容保留，创建仍仅c/r/d/t；后端资源兑换及专属机器交付未改。
+- takeover-redeem-reads-before.log旧host覆盖先红；takeover-redeem-reads-final-r5.log真实Chrome完整矩阵通过，含反序/ABA/筛选/分页/选择/错误retry/options草稿/usage重开/各生命周期、退役p码、两视口所有按钮可见及键盘。初轮测试直接序列化Vue Proxy失败，改提取JSON；截图发现裁切、i18n守卫发现缺key、焦点专项发现误绑相邻弹窗，均修复后重跑。p码兼容专项先红后通过，未恢复创建。
+- client types及最终双端build含vue-tsc exit0（takeover-redeem-reads-build-final.log）、3守卫（route/i18n/redeem-code-management，takeover-redeem-reads-guards-r4.log）、lint零错警、manifest194/130通过；dist另记takeover-redeem-reads-dist.log。新读取专项已接Chrome CI，受控API没有真实兑换码写入。
+- 下一项test-host-redeem-writes.mjs已先红旧create刷新另一host（takeover-redeem-writes-before.log），扩展create/toggle/delete/目标/重复/关闭/session/新选择/部分删除矩阵已写未跑，产品写回执未改；前后端route/DB/管理守卫已读。需固定写目标与代次、busy/关闭/旧回执、真实启停方向、使用过的码删除409后实际禁用刷新，后端授权/批量事务及日志失败一致性另待。327/R269/Go proc/完整灾备未完成。
+
 ## 2026-10-29 R1-303 宿主存储写操作目标与回执
 
 - a27e991已push核远端；0444f64/794e336/a27e991源码CI最后仍运行。Storage创建/导入/编辑/删除共用busy门禁，写入固定host/session/激活与弹窗代次；旧回执不刷新新宿主、不关闭新弹窗，跨切换保留在途busy。编辑名称固定，创建名完整校验；当前错误持久展示，辅助列表失败不误报写失败，成功失效较早读取。使用中、非Created及数据库fallback存储池禁止从页面删除。

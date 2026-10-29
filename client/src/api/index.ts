@@ -1385,7 +1385,7 @@ poolOrder: (data: {
       codes: Array<{
         id: number
         code: string
-        codeType: 'c' | 'r' | 'd' | 't'
+        codeType: 'c' | 'r' | 'd' | 't' | 'p'
         codeValue: number
         maxUses: number
         usedCount: number

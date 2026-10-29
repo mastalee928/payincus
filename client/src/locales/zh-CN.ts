@@ -7318,6 +7318,7 @@ pool: {
 
     // 兑换码管理
     redeemCodes: {
+        selectAll: '选择本页所有兑换码',
         title: '兑换码管理',
         create: '创建兑换码',
         createTitle: '创建兑换码',

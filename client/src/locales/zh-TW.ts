@@ -7613,6 +7613,7 @@ pool: {
 
     // 兌換碼管理
     redeemCodes: {
+        selectAll: '選擇本頁所有兌換碼',
         title: '兌換碼管理',
         create: '建立兌換碼',
         createTitle: '建立兌換碼',

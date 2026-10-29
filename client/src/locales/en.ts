@@ -7256,6 +7256,7 @@ pool: {
 
     // Redeem codes management
     redeemCodes: {
+        selectAll: 'Select all codes on this page',
         title: 'Redeem Codes',
         create: 'Create Code',
         createTitle: 'Create Redeem Code',

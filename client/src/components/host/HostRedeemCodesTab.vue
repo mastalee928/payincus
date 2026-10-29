@@ -1,26 +1,43 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import { translateError } from '@/utils/errorHandler'
 import api from '@/api'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
 const toast = useToast()
+const authStore = useAuthStore()
 
 interface Props {
   hostId: number
 }
 
 const props = defineProps<Props>()
+let alive = true
+const pageActive = ref(false)
+let listSequence = 0
+let optionsSequence = 0
+let usagesSequence = 0
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their complete identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const canRead = computed(() => alive && pageActive.value && !!sessionKey.value && Number.isSafeInteger(props.hostId) && props.hostId > 0)
 
 // 兑换码类型
 interface RedeemCode {
   id: number
   code: string
-  codeType: 'c' | 'r' | 'd' | 't'
+  codeType: 'c' | 'r' | 'd' | 't' | 'p'
   codeValue: number
   maxUses: number
   usedCount: number
@@ -33,6 +50,10 @@ interface RedeemCode {
 
 // 状态
 const loading = ref(true)
+const loadError = ref('')
+const optionsError = ref('')
+const optionsLoading = ref(false)
+const optionsReady = ref(false)
 const codes = ref<RedeemCode[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -87,6 +108,26 @@ const usages = ref<Array<{
   usedAt: string
 }>>([])
 const usagesTotal = ref(0)
+const usagesPage = ref(1)
+const usagesError = ref('')
+const usagesDialog = ref<HTMLElement | null>(null)
+let usagesReturnFocus: HTMLElement | null = null
+watch(showUsagesModal, async open => {
+  if (open) usagesReturnFocus = document.activeElement as HTMLElement | null
+  await nextTick()
+  if (open && showUsagesModal.value) usagesDialog.value?.focus()
+  else if (!showUsagesModal.value && usagesReturnFocus?.isConnected) usagesReturnFocus.focus()
+})
+function handleUsagesKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); showUsagesModal.value = false; return }
+  if (event.key !== 'Tab') return
+  const controls = [...(usagesDialog.value?.querySelectorAll<HTMLElement>('button,[tabindex="0"]') ?? [])]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const first = controls[0], last = controls.at(-1)
+  if (!first) { event.preventDefault(); usagesDialog.value?.focus(); return }
+  if (event.shiftKey && (document.activeElement === first || document.activeElement === usagesDialog.value)) { event.preventDefault(); last?.focus() }
+  else if (!event.shiftKey && (document.activeElement === last || document.activeElement === usagesDialog.value)) { event.preventDefault(); first.focus() }
+}
 
 // 选择和删除
 const selectedIds = ref<Set<number>>(new Set())
@@ -96,21 +137,57 @@ const deleting = ref(false)
 // 复制状态
 const copiedCode = ref<number | null>(null)
 
-onMounted(() => {
-  loadCodes()
-  loadOptions()
-})
-
-watch(() => props.hostId, () => {
+function resetUsages() {
+  usagesSequence++
+  usages.value = []
+  usagesTotal.value = 0
+  usagesPage.value = 1
+  usagesLoading.value = false
+  usagesError.value = ''
+}
+watch([showUsagesModal, () => selectedCode.value?.id], resetUsages, { flush: 'sync' })
+function resetReadContext() {
+  listSequence++
+  optionsSequence++
+  codes.value = []
+  total.value = 0
   page.value = 1
   selectedIds.value.clear()
-  loadCodes()
-})
+  loading.value = false
+  loadError.value = ''
+  optionsLoading.value = false
+  optionsReady.value = false
+  optionsError.value = ''
+  showCreateModal.value = false
+  showBatchResultModal.value = false
+  batchCreatedCodes.value = []
+  batchCreatedBatchId.value = null
+  copiedBatch.value = false
+  copiedCode.value = null
+  showDeleteModal.value = false
+  showUsagesModal.value = false
+  selectedCode.value = null
+  resetUsages()
+}
+watch([() => props.hostId, sessionKey], () => { resetReadContext(); void loadCodes(); void loadOptions() }, { flush: 'sync' })
+function activateReads() {
+  if (!alive || pageActive.value) return
+  pageActive.value = true
+  void loadCodes()
+  void loadOptions()
+}
+onMounted(activateReads)
+onActivated(activateReads)
+onDeactivated(() => { pageActive.value = false; resetReadContext() })
+onUnmounted(() => { alive = false; pageActive.value = false; resetReadContext() })
 
 watch(enabledFilter, () => {
   page.value = 1
-  loadCodes()
-})
+  selectedIds.value.clear()
+  showDeleteModal.value = false
+  showUsagesModal.value = false
+  void loadCodes()
+}, { flush: 'sync' })
 
 // 计算选中所有
 const allSelected = computed(() => {
@@ -123,43 +200,85 @@ const currentRange = computed(() => {
 })
 
 async function loadCodes() {
+  if (!canRead.value || !Number.isSafeInteger(page.value) || page.value < 1 || !['all', 'true', 'false'].includes(enabledFilter.value)) return
+  const sequence = ++listSequence, hostId = props.hostId, session = sessionKey.value
+  const requestedPage = page.value, filter = enabledFilter.value
+  const current = () => canRead.value && sequence === listSequence && hostId === props.hostId && session === sessionKey.value &&
+    requestedPage === page.value && filter === enabledFilter.value
   loading.value = true
+  loadError.value = ''
   try {
     const params: { limit: number; offset: number; enabled?: boolean } = {
       limit: pageSize,
-      offset: (page.value - 1) * pageSize
+      offset: (requestedPage - 1) * pageSize
     }
     if (enabledFilter.value !== 'all') {
       params.enabled = enabledFilter.value === 'true'
     }
-    const res = await api.hosts.getRedeemCodes(props.hostId, params)
+    const res = await api.hosts.getRedeemCodes(hostId, params)
+    if (!current()) return
+    if (!Array.isArray(res?.codes) || !Number.isSafeInteger(res.total) || res.total < 0 || res.codes.length > pageSize ||
+      res.codes.some(code => !code || !Number.isSafeInteger(code.id) || code.id <= 0 || typeof code.code !== 'string' || !code.code ||
+        !['c', 'r', 'd', 't', 'p'].includes(code.codeType) || !Number.isSafeInteger(code.codeValue) || code.codeValue <= 0 ||
+        !Number.isSafeInteger(code.maxUses) || code.maxUses < 1 || !Number.isSafeInteger(code.usedCount) || code.usedCount < 0 ||
+        typeof code.enabled !== 'boolean' || (filter !== 'all' && code.enabled !== (filter === 'true')) ||
+        typeof code.createdAt !== 'string' || !Number.isFinite(Date.parse(code.createdAt)) ||
+        (code.expiresAt !== null && (typeof code.expiresAt !== 'string' || !Number.isFinite(Date.parse(code.expiresAt)))) ||
+        (code.remark !== null && typeof code.remark !== 'string') || (code.batchId !== null && typeof code.batchId !== 'string')) ||
+      new Set(res.codes.map(code => code.id)).size !== res.codes.length) throw new Error(t('redeemCodes.loadFailed'))
+    const lastPage = Math.max(1, Math.ceil(res.total / pageSize))
+    if (requestedPage > lastPage) {
+      page.value = lastPage
+      selectedIds.value.clear()
+      await loadCodes()
+      return
+    }
     codes.value = res.codes
     total.value = res.total
-  } catch (err) {
-    console.error('Failed to load redeem codes:', err)
-    toast.error(t('redeemCodes.loadFailed'))
+    selectedIds.value = new Set([...selectedIds.value].filter(id => res.codes.some(code => code.id === id)))
+  } catch (err: unknown) {
+    if (!current()) return
+    codes.value = []
+    total.value = 0
+    selectedIds.value.clear()
+    loadError.value = t('redeemCodes.loadFailed') + ': ' + translateError(err)
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 async function loadOptions() {
+  if (!canRead.value) return
+  const sequence = ++optionsSequence, hostId = props.hostId, session = sessionKey.value
+  const current = () => canRead.value && sequence === optionsSequence && hostId === props.hostId && session === sessionKey.value
+  optionsLoading.value = true
+  optionsReady.value = false
+  optionsError.value = ''
   try {
     const res = await api.hosts.getRedeemCodeOptions()
-    codeOptions.value = res
-    // 设置默认值为范围的最小值
-    if (currentRange.value) {
-      createForm.value.codeValue = currentRange.value.min
+    if (!current()) return
+    const types = ['c', 'r', 'd', 't']
+    if (!Array.isArray(res?.types) || res.types.length !== types.length || !res.ranges ||
+      types.some(type => res.types.filter(item => item?.value === type && typeof item.label === 'string' && typeof item.unit === 'string').length !== 1 ||
+        !res.ranges[type] || !Number.isSafeInteger(res.ranges[type].min) || res.ranges[type].min < 1 ||
+        !Number.isSafeInteger(res.ranges[type].max) || res.ranges[type].max < res.ranges[type].min || typeof res.ranges[type].unit !== 'string')) {
+      throw new Error(t('redeemCodes.loadFailed'))
     }
-  } catch (err) {
-    console.error('Failed to load options:', err)
+    codeOptions.value = res
+    optionsReady.value = true
+  } catch (err: unknown) {
+    if (!current()) return
+    optionsError.value = t('redeemCodes.loadFailed') + ': ' + translateError(err)
+  } finally {
+    if (current()) optionsLoading.value = false
   }
 }
 
 function openCreateModal() {
+  if (!canRead.value || !optionsReady.value || creating.value) return
   createForm.value = {
     codeType: 'c',
-    codeValue: currentRange.value?.min || 1,
+    codeValue: codeOptions.value.ranges.c.min,
     maxUses: 1,
     expiresAt: '',
     remark: '',
@@ -174,9 +293,10 @@ watch(() => createForm.value.codeType, () => {
   if (range) {
     createForm.value.codeValue = range.min
   }
-})
+}, { flush: 'sync' })
 
 async function handleCreate() {
+  if (!canRead.value || !optionsReady.value || !showCreateModal.value || creating.value) return
   if (!createForm.value.codeValue) {
     toast.error(t('redeemCodes.selectValue'))
     return
@@ -249,6 +369,8 @@ async function toggleEnabled(code: RedeemCode) {
 }
 
 function openUsages(code: RedeemCode) {
+  if (!canRead.value || loading.value || !codes.value.includes(code)) return
+  resetUsages()
   selectedCode.value = code
   usages.value = []
   usagesTotal.value = 0
@@ -257,20 +379,43 @@ function openUsages(code: RedeemCode) {
 }
 
 async function loadUsages() {
-  if (!selectedCode.value) return
+  if (!canRead.value || !showUsagesModal.value || !selectedCode.value || !Number.isSafeInteger(selectedCode.value.id) || selectedCode.value.id <= 0) return
+  const sequence = ++usagesSequence, hostId = props.hostId, session = sessionKey.value, codeId = selectedCode.value.id, requestedPage = usagesPage.value
+  const current = () => canRead.value && sequence === usagesSequence && showUsagesModal.value && hostId === props.hostId &&
+    session === sessionKey.value && selectedCode.value?.id === codeId && requestedPage === usagesPage.value
   usagesLoading.value = true
+  usagesError.value = ''
   try {
-    const res = await api.hosts.getRedeemCodeUsages(props.hostId, selectedCode.value.id)
+    const res = await api.hosts.getRedeemCodeUsages(hostId, codeId, { limit: pageSize, offset: (requestedPage - 1) * pageSize })
+    if (!current()) return
+    if (!Array.isArray(res?.usages) || !Number.isSafeInteger(res.total) || res.total < 0 || res.usages.length > pageSize ||
+      res.usages.some(usage => !usage || !Number.isSafeInteger(usage.id) || usage.id <= 0 ||
+        !usage.user || !Number.isSafeInteger(usage.user.id) || usage.user.id <= 0 || typeof usage.user.username !== 'string' ||
+        !usage.instance || !Number.isSafeInteger(usage.instance.id) || usage.instance.id <= 0 || typeof usage.instance.name !== 'string' ||
+        typeof usage.usedAt !== 'string' || !Number.isFinite(Date.parse(usage.usedAt))) ||
+      new Set(res.usages.map(usage => usage.id)).size !== res.usages.length) throw new Error(t('redeemCodes.loadFailed'))
+    const lastPage = Math.max(1, Math.ceil(res.total / pageSize))
+    if (requestedPage > lastPage) { usagesPage.value = lastPage; await loadUsages(); return }
     usages.value = res.usages
     usagesTotal.value = res.total
   } catch (err: unknown) {
-    toast.error(translateError(err))
+    if (!current()) return
+    usages.value = []
+    usagesTotal.value = 0
+    usagesError.value = t('redeemCodes.loadFailed') + ': ' + translateError(err)
   } finally {
-    usagesLoading.value = false
+    if (current()) usagesLoading.value = false
   }
+}
+function changeUsagesPage(direction: number) {
+  const nextPage = usagesPage.value + direction
+  if (!canRead.value || usagesLoading.value || !Number.isSafeInteger(nextPage) || nextPage < 1 || nextPage > Math.ceil(usagesTotal.value / pageSize)) return
+  usagesPage.value = nextPage
+  void loadUsages()
 }
 
 function toggleSelect(id: number) {
+  if (!canRead.value || loading.value || !codes.value.some(code => code.id === id)) return
   if (selectedIds.value.has(id)) {
     selectedIds.value.delete(id)
   } else {
@@ -279,6 +424,7 @@ function toggleSelect(id: number) {
 }
 
 function toggleSelectAll() {
+  if (!canRead.value || loading.value) return
   if (allSelected.value) {
     selectedIds.value.clear()
   } else {
@@ -356,15 +502,21 @@ function isExpired(expiresAt: string | null): boolean {
 }
 
 function goToPrevPage() {
-  if (page.value > 1) {
+  if (canRead.value && !loading.value && page.value > 1) {
     page.value--
+    selectedIds.value.clear()
+    showDeleteModal.value = false
+    showUsagesModal.value = false
     loadCodes()
   }
 }
 
 function goToNextPage() {
-  if (page.value * pageSize < total.value) {
+  if (canRead.value && !loading.value && page.value * pageSize < total.value) {
     page.value++
+    selectedIds.value.clear()
+    showDeleteModal.value = false
+    showUsagesModal.value = false
     loadCodes()
   }
 }
@@ -378,6 +530,8 @@ function goToNextPage() {
         <!-- 筛选器 -->
         <select
           v-model="enabledFilter"
+          :aria-label="t('redeemCodes.filterAll')"
+          :disabled="!canRead"
           :class="[
             'px-3 py-1.5 text-sm rounded-lg border focus:outline-none focus:ring-1',
             themeStore.isDark
@@ -410,6 +564,7 @@ function goToNextPage() {
 
       <!-- 创建按钮 -->
       <button
+        :disabled="!canRead || !optionsReady || creating"
         :class="[
           'flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg transition-colors',
           themeStore.isDark
@@ -425,6 +580,11 @@ function goToNextPage() {
       </button>
     </div>
 
+    <div v-if="optionsError" role="alert" data-options-error class="text-sm text-red-500 break-words">
+      {{ optionsError }}
+      <button class="btn-secondary ml-2" :disabled="!canRead || optionsLoading" @click="loadOptions">{{ t('common.retry') }}</button>
+    </div>
+
     <!-- 列表 -->
     <div
       :class="[
@@ -437,6 +597,11 @@ function goToNextPage() {
         <div class="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
 
+      <div v-else-if="loadError" role="alert" data-list-error class="p-6 text-sm text-red-500 break-words">
+        {{ loadError }}
+        <button class="btn-secondary ml-2" :disabled="!canRead" @click="loadCodes">{{ t('common.retry') }}</button>
+      </div>
+
       <!-- 空状态 -->
       <div v-else-if="codes.length === 0" class="p-8 text-center">
         <svg class="w-12 h-12 mx-auto mb-3" :class="themeStore.isDark ? 'text-gray-600' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -447,13 +612,15 @@ function goToNextPage() {
 
       <!-- 列表内容 -->
       <template v-else>
-        <table class="w-full">
+        <table class="redeem-table w-full table-fixed">
+          <colgroup><col style="width: 6%"><col style="width: 34%"><col style="width: 16%"><col style="width: 12%"><col style="width: 20%"><col style="width: 12%"></colgroup>
           <thead :class="themeStore.isDark ? 'bg-gray-800/50' : 'bg-gray-50'">
             <tr>
               <th class="px-4 py-3 text-left">
                 <input
                   type="checkbox"
                   :checked="allSelected"
+                  :aria-label="t('redeemCodes.selectAll')"
                   class="rounded"
                   @change="toggleSelectAll"
                 />
@@ -481,16 +648,17 @@ function goToNextPage() {
                 <input
                   type="checkbox"
                   :checked="selectedIds.has(code.id)"
+                  :aria-label="code.code"
                   class="rounded"
                   @change="toggleSelect(code.id)"
                 />
               </td>
               <td class="px-4 py-3">
-                <div class="flex items-center gap-2">
-                  <code :class="['text-sm font-mono', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ code.code }}</code>
+                <div class="flex items-center gap-2 min-w-0">
+                  <code :class="['text-sm font-mono break-all min-w-0', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ code.code }}</code>
                   <button
                     :class="[
-                      'p-1 rounded transition-colors',
+                      'p-1 rounded transition-colors shrink-0',
                       themeStore.isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-200 text-gray-500'
                     ]"
                     :title="t('common.copy')"
@@ -509,12 +677,12 @@ function goToNextPage() {
                   {{ t('redeemCodes.batch') }}: {{ code.batchId.slice(0, 8) }}
                 </p>
               </td>
-              <td class="px-4 py-3">
+              <td class="px-4 py-3" :data-label="t('redeemCodes.type')">
                 <span :class="['inline-flex items-center px-2 py-0.5 rounded text-xs font-medium', themeStore.isDark ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-100 text-blue-800']">
                   {{ getTypeLabel(code.codeType) }} +{{ formatValue(code.codeType, code.codeValue) }}
                 </span>
               </td>
-              <td class="px-4 py-3">
+              <td class="px-4 py-3" :data-label="t('redeemCodes.usage')">
                 <button
                   :class="[
                     'text-sm hover:underline',
@@ -525,7 +693,7 @@ function goToNextPage() {
                   {{ code.usedCount }} / {{ code.maxUses }}
                 </button>
               </td>
-              <td class="px-4 py-3">
+              <td class="px-4 py-3" :data-label="t('redeemCodes.status')">
                 <div class="flex flex-col gap-1">
                   <span
                     v-if="isExpired(code.expiresAt)"
@@ -556,7 +724,7 @@ function goToNextPage() {
                   </span>
                 </div>
               </td>
-              <td class="px-4 py-3 text-right">
+              <td class="px-4 py-3 text-right" :data-label="t('redeemCodes.actions')">
                 <button
                   :class="[
                     'px-2 py-1 text-xs font-medium rounded transition-colors',
@@ -576,11 +744,11 @@ function goToNextPage() {
         <!-- 分页 -->
         <div v-if="total > pageSize" :class="['flex items-center justify-between px-4 py-3 border-t', themeStore.isDark ? 'border-gray-800' : 'border-gray-200']">
           <span :class="['text-sm', themeStore.isDark ? 'text-gray-400' : 'text-gray-500']">
-            {{ t('common.pagination', { current: page, total: Math.ceil(total / pageSize) }) }}
+            {{ t('common.pageInfo', { current: page, total: Math.ceil(total / pageSize), count: total }) }}
           </span>
           <div class="flex gap-2">
             <button
-              :disabled="page <= 1"
+              :disabled="!canRead || loading || page <= 1"
               :class="[
                 'px-3 py-1 text-sm rounded-lg transition-colors',
                 page <= 1
@@ -593,7 +761,7 @@ function goToNextPage() {
               {{ t('common.previous') }}
             </button>
             <button
-              :disabled="page * pageSize >= total"
+              :disabled="!canRead || loading || page * pageSize >= total"
               :class="[
                 'px-3 py-1 text-sm rounded-lg transition-colors',
                 page * pageSize >= total
@@ -750,7 +918,7 @@ function goToNextPage() {
                 {{ t('common.cancel') }}
               </button>
               <button
-                :disabled="creating"
+                :disabled="creating || !canRead || !optionsReady"
                 :class="[
                   'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
                   creating ? 'opacity-50 cursor-not-allowed' : '',
@@ -830,10 +998,10 @@ function goToNextPage() {
     <Teleport to="body">
       <Transition name="modal">
         <div v-if="showUsagesModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="showUsagesModal = false">
-          <div :class="['w-full max-w-lg rounded-xl shadow-xl', themeStore.isDark ? 'bg-gray-900' : 'bg-white']">
+          <div ref="usagesDialog" role="dialog" aria-modal="true" :aria-label="t('redeemCodes.usageRecords')" tabindex="-1" :class="['w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl shadow-xl', themeStore.isDark ? 'bg-gray-900' : 'bg-white']" @keydown="handleUsagesKey">
             <div :class="['flex items-center justify-between px-6 py-4 border-b', themeStore.isDark ? 'border-gray-800' : 'border-gray-200']">
               <h3 :class="['text-lg font-semibold', themeStore.isDark ? 'text-white' : 'text-gray-900']">{{ t('redeemCodes.usageRecords') }}</h3>
-              <button :class="themeStore.isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'" @click="showUsagesModal = false">
+              <button :aria-label="t('common.close')" :class="themeStore.isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'" @click="showUsagesModal = false">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -844,6 +1012,10 @@ function goToNextPage() {
               <div v-if="usagesLoading" class="py-8 text-center">
                 <div class="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
               </div>
+              <div v-else-if="usagesError" role="alert" data-usages-error class="py-4 text-sm text-red-500 break-words">
+                {{ usagesError }}
+                <button class="btn-secondary ml-2" :disabled="!canRead" @click="loadUsages">{{ t('common.retry') }}</button>
+              </div>
               <div v-else-if="usages.length === 0" class="py-8 text-center">
                 <p :class="themeStore.isDark ? 'text-gray-400' : 'text-gray-500'">{{ t('redeemCodes.noUsages') }}</p>
               </div>
@@ -851,13 +1023,20 @@ function goToNextPage() {
                 <div
                   v-for="usage in usages"
                   :key="usage.id"
-                  :class="['flex items-center justify-between p-3 rounded-lg', themeStore.isDark ? 'bg-gray-800' : 'bg-gray-100']"
+                  :class="['flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg break-words', themeStore.isDark ? 'bg-gray-800' : 'bg-gray-100']"
                 >
-                  <div>
+                  <div class="min-w-0">
                     <p :class="['font-medium', themeStore.isDark ? 'text-white' : 'text-gray-900']">{{ usage.user.username }}</p>
                     <p :class="['text-sm', themeStore.isDark ? 'text-gray-400' : 'text-gray-500']">{{ usage.instance.name }}</p>
                   </div>
                   <span :class="['text-sm', themeStore.isDark ? 'text-gray-500' : 'text-gray-400']">{{ formatDate(usage.usedAt) }}</span>
+                </div>
+              </div>
+              <div v-if="usagesTotal > pageSize" class="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-themed-secondary">
+                <span>{{ t('common.pageInfo', { current: usagesPage, total: Math.ceil(usagesTotal / pageSize), count: usagesTotal }) }}</span>
+                <div class="flex gap-2">
+                  <button class="btn-secondary btn-sm" :disabled="!canRead || usagesLoading || usagesPage <= 1" @click="changeUsagesPage(-1)">{{ t('common.previous') }}</button>
+                  <button class="btn-secondary btn-sm" :disabled="!canRead || usagesLoading || usagesPage * pageSize >= usagesTotal" @click="changeUsagesPage(1)">{{ t('common.next') }}</button>
                 </div>
               </div>
             </div>
@@ -916,6 +1095,17 @@ function goToNextPage() {
 </template>
 
 <style scoped>
+.redeem-table td { overflow-wrap: anywhere; }
+@media (max-width: 767px) {
+  .redeem-table colgroup,
+  .redeem-table thead { display: none; }
+  .redeem-table,
+  .redeem-table tbody { display: block; }
+  .redeem-table tr { display: grid; grid-template-columns: 2rem minmax(0, 1fr); padding: 0.75rem; }
+  .redeem-table td { display: block; min-width: 0; padding: 0.5rem 0; }
+  .redeem-table td:nth-child(n + 3) { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; text-align: start; }
+  .redeem-table td[data-label]::before { content: attr(data-label); color: var(--text-secondary); font-size: 0.75rem; }
+}
 .modal-enter-active,
 .modal-leave-active {
   transition: opacity 0.2s ease;
