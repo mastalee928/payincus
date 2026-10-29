@@ -244,6 +244,51 @@ const isSuspending = ref(false)
 const isUnsuspending = ref(false)
 const showSuspendModal = ref(false)
 const suspendReason = ref('')
+const suspendTargets = ref<number[]>([])
+let suspendDialogGeneration = 0
+const suspendDialog = ref<HTMLElement | null>(null)
+let suspendReturnFocus: HTMLElement | null = null
+const batchActionError = ref('')
+const batchActionFailures = ref<Array<{ id: number; name: string; error?: string }>>([])
+const batchStatusBusy = computed(() => isSuspending.value || isUnsuspending.value || isSyncing.value)
+function validBatchTargets(ids: number[]): boolean {
+  return ids.length > 0 && ids.length <= 100 && new Set(ids).size === ids.length &&
+    ids.every(id => instances.value.some(instance => instance.id === id))
+}
+const canStartBatchStatus = computed(() => alive && pageActive.value && !!sessionKey.value && !loading.value &&
+  !batchStatusBusy.value && validBatchTargets([...selectedIds.value]))
+const canConfirmSuspend = computed(() => alive && pageActive.value && !!sessionKey.value && !loading.value &&
+  !batchStatusBusy.value && showSuspendModal.value && validBatchTargets(suspendTargets.value) && suspendReason.value.length <= 500)
+watch(showSuspendModal, async (open) => {
+  const generation = ++suspendDialogGeneration
+  if (open) {
+    suspendReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    await nextTick()
+    if (showSuspendModal.value && generation === suspendDialogGeneration) suspendDialog.value?.querySelector<HTMLButtonElement>('button')?.focus()
+  } else {
+    suspendTargets.value = []
+    if (suspendReturnFocus?.isConnected) suspendReturnFocus.focus()
+  }
+}, { flush: 'sync' })
+function handleSuspendDialogKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); if (!isSuspending.value) showSuspendModal.value = false; return }
+  if (event.key !== 'Tab' || !suspendDialog.value) return
+  const controls = [...suspendDialog.value.querySelectorAll<HTMLElement>('button, textarea')]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const target = event.shiftKey ? controls.at(-1) : controls[0]
+  if (!controls.length || (event.shiftKey ? document.activeElement === controls[0] : document.activeElement === controls.at(-1))) {
+    event.preventDefault(); target?.focus()
+  }
+}
+
+function applyBatchStatusResults(results: Array<{ id: number; name: string; success: boolean; error?: string }>, ids: number[]) {
+  // The server may skip targets that already have the requested state.
+  if (!Array.isArray(results) || new Set(results.map(item => item.id)).size !== results.length ||
+    results.some(item => !ids.includes(item.id) || typeof item.success !== 'boolean')) throw new Error(t('common.operationFailed'))
+  batchActionFailures.value = results.filter(item => !item.success)
+  const succeeded = new Set(results.filter(item => item.success).map(item => item.id))
+  selectedIds.value = new Set([...selectedIds.value].filter(id => !succeeded.has(id)))
+}
 
 // 通知节点下实例所属用户
 const showNotifyModal = ref(false)
@@ -548,22 +593,28 @@ async function confirmBatchDelete(databaseOnly: boolean = false) {
 }
 
 function openBatchSuspendModal() {
-  if (selectedIds.value.size === 0) return
+  if (!canStartBatchStatus.value || showSuspendModal.value) return
+  suspendTargets.value = [...selectedIds.value]
   suspendReason.value = ''
+  batchActionError.value = ''
   showSuspendModal.value = true
 }
 
 async function confirmBatchSuspend() {
-  if (selectedIds.value.size === 0) return
-  
+  if (!canConfirmSuspend.value) return
+  const context = captureReadContext(), generation = suspendDialogGeneration
+  const current = () => context() && showSuspendModal.value && generation === suspendDialogGeneration
+  const hostId = props.hostId, ids = [...suspendTargets.value], reason = suspendReason.value.trim() || undefined
   isSuspending.value = true
+  batchActionError.value = ''
   try {
     const result = await api.hosts.batchSuspendInstances(
-      props.hostId,
-      Array.from(selectedIds.value),
-      suspendReason.value.trim() || undefined
+      hostId,
+      ids,
+      reason
     )
-    
+    if (!current()) return
+    applyBatchStatusResults(result.results, ids)
     if (result.failedCount > 0) {
       toast.warning(t('admin.hosts.batchSuspendPartial', {
         success: result.successCount,
@@ -573,27 +624,30 @@ async function confirmBatchSuspend() {
       toast.success(t('admin.hosts.batchSuspendSuccess', { count: result.successCount }))
     }
     
-    selectedIds.value.clear()
     suspendReason.value = ''
     showSuspendModal.value = false
     await loadInstances()
   } catch (err: any) {
-    toast.error(t('admin.hosts.batchSuspendFailed') + ': ' + (err?.message || String(err)))
+    if (!current()) return
+    batchActionError.value = t('admin.hosts.batchSuspendFailed') + ': ' + translateError(err)
+    toast.error(batchActionError.value)
   } finally {
     isSuspending.value = false
   }
 }
 
 async function confirmBatchUnsuspend() {
-  if (selectedIds.value.size === 0) return
-  
+  if (!canStartBatchStatus.value || showSuspendModal.value) return
+  const current = captureReadContext(), hostId = props.hostId, ids = [...selectedIds.value]
   isUnsuspending.value = true
+  batchActionError.value = ''
   try {
     const result = await api.hosts.batchUnsuspendInstances(
-      props.hostId,
-      Array.from(selectedIds.value)
+      hostId,
+      ids
     )
-    
+    if (!current()) return
+    applyBatchStatusResults(result.results, ids)
     if (result.failedCount > 0) {
       toast.warning(t('admin.hosts.batchUnsuspendPartial', {
         success: result.successCount,
@@ -605,25 +659,28 @@ async function confirmBatchUnsuspend() {
       toast.success(t('admin.hosts.batchUnsuspendSuccess', { count: result.successCount }))
     }
     
-    selectedIds.value.clear()
     await loadInstances()
   } catch (err: any) {
-    toast.error(t('admin.hosts.batchUnsuspendFailed') + ': ' + (err?.message || String(err)))
+    if (!current()) return
+    batchActionError.value = t('admin.hosts.batchUnsuspendFailed') + ': ' + translateError(err)
+    toast.error(batchActionError.value)
   } finally {
     isUnsuspending.value = false
   }
 }
 
 async function batchSyncStatus() {
-  if (selectedIds.value.size === 0) return
-  
+  if (!canStartBatchStatus.value || showSuspendModal.value) return
+  const current = captureReadContext(), hostId = props.hostId, ids = [...selectedIds.value]
   isSyncing.value = true
+  batchActionError.value = ''
   try {
     const result = await api.hosts.batchSyncInstanceStatus(
-      props.hostId,
-      Array.from(selectedIds.value)
+      hostId,
+      ids
     )
-    
+    if (!current()) return
+    applyBatchStatusResults(result.results, ids)
     if (result.failedCount > 0) {
       toast.warning(t('admin.hosts.batchSyncPartial', {
         synced: result.syncedCount,
@@ -648,10 +705,11 @@ async function batchSyncStatus() {
       toast.info(t('admin.hosts.batchSyncNoChange', { synced: result.syncedCount }))
     }
     
-    selectedIds.value.clear()
     await loadInstances()
   } catch (err: any) {
-    toast.error(t('admin.hosts.batchSyncFailed') + ': ' + (err?.message || String(err)))
+    if (!current()) return
+    batchActionError.value = t('admin.hosts.batchSyncFailed') + ': ' + translateError(err)
+    toast.error(batchActionError.value)
   } finally {
     isSyncing.value = false
   }
@@ -1047,6 +1105,9 @@ function handlePageSizeChange() {
 }
 
 function closeReadContextModals() {
+  batchActionError.value = ''
+  batchActionFailures.value = []
+  suspendReason.value = ''
   showDeleteModal.value = false
   showSuspendModal.value = false
   showNotifyModal.value = false
@@ -1542,7 +1603,7 @@ function goToInstance(id: number) {
           </button>
           <button
             class="btn-secondary btn-sm"
-            :disabled="isSyncing || selectedCount === 0"
+            :disabled="!canStartBatchStatus || showSuspendModal"
             @click="batchSyncStatus"
           >
             <svg v-if="isSyncing" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -1556,10 +1617,10 @@ function goToInstance(id: number) {
           </button>
           <button
             class="btn-sm inline-flex items-center rounded-lg"
-            :class="selectedCount === 0 || isSuspending
+            :class="!canStartBatchStatus
               ? (themeStore.isDark ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-200 text-gray-400 cursor-not-allowed')
               : (themeStore.isDark ? 'bg-orange-600 hover:bg-orange-700 text-white' : 'bg-orange-500 hover:bg-orange-600 text-white')"
-            :disabled="isSuspending || selectedCount === 0"
+            :disabled="!canStartBatchStatus || showSuspendModal"
             @click="openBatchSuspendModal"
           >
             <svg v-if="isSuspending" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -1573,10 +1634,10 @@ function goToInstance(id: number) {
           </button>
           <button
             class="btn-sm inline-flex items-center rounded-lg"
-            :class="selectedCount === 0 || isUnsuspending
+            :class="!canStartBatchStatus
               ? (themeStore.isDark ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-200 text-gray-400 cursor-not-allowed')
               : (themeStore.isDark ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-green-500 hover:bg-green-600 text-white')"
-            :disabled="isUnsuspending || selectedCount === 0"
+            :disabled="!canStartBatchStatus || showSuspendModal"
             @click="confirmBatchUnsuspend"
           >
             <svg v-if="isUnsuspending" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -1656,6 +1717,13 @@ function goToInstance(id: number) {
             {{ t('admin.hosts.batchDelete') }}
           </button>
         </div>
+      </div>
+
+      <div v-if="batchActionError || batchActionFailures.length" role="alert" class="px-4 py-3 text-sm text-red-500 break-words">
+        <p v-if="batchActionError">{{ batchActionError }}</p>
+        <ul v-if="batchActionFailures.length" class="space-y-1">
+          <li v-for="failure in batchActionFailures" :key="failure.id">{{ failure.name }}: {{ failure.error || t('common.operationFailed') }}</li>
+        </ul>
       </div>
 
       <HostInstancesList
@@ -1916,11 +1984,11 @@ function goToInstance(id: number) {
       <Teleport to="body">
         <Transition name="modal">
           <div v-if="showSuspendModal" class="modal-overlay">
-            <div class="modal-backdrop" @click="showSuspendModal = false"></div>
-            <div class="modal-content max-w-md">
+            <div class="modal-backdrop" @click="!isSuspending && (showSuspendModal = false)"></div>
+            <div ref="suspendDialog" class="modal-content max-w-md" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.batchSuspendTitle')" @keydown="handleSuspendDialogKey">
               <div class="modal-header">
                 <h3 class="modal-title text-orange-500">{{ t('admin.hosts.batchSuspendTitle') }}</h3>
-                <button class="text-themed-muted hover:text-themed" @click="showSuspendModal = false">
+                <button class="text-themed-muted hover:text-themed" :disabled="isSuspending" :aria-label="t('common.close')" @click="showSuspendModal = false">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -1931,13 +1999,14 @@ function goToInstance(id: number) {
                   <p class="text-sm" :class="themeStore.isDark ? 'text-orange-400' : 'text-orange-600'">{{ t('admin.hosts.batchSuspendWarning') }}</p>
                 </div>
                 <p class="text-sm text-themed-secondary">
-                  {{ t('admin.hosts.batchSuspendConfirm', { count: selectedCount }) }}
+                  {{ t('admin.hosts.batchSuspendConfirm', { count: suspendTargets.length }) }}
                 </p>
                 <!-- 封停原因输入框 -->
                 <div>
                   <label class="block text-sm font-medium text-themed-secondary mb-1">{{ t('admin.hosts.suspendReason') }}</label>
                   <textarea
                     v-model="suspendReason"
+                    :disabled="isSuspending"
                     rows="3"
                     maxlength="500"
                     :placeholder="t('admin.hosts.suspendReasonPlaceholder')"
@@ -1945,13 +2014,14 @@ function goToInstance(id: number) {
                   />
                   <p class="mt-1 text-xs text-themed-muted">{{ suspendReason.length }}/500</p>
                 </div>
+                <p v-if="batchActionError" role="alert" class="text-sm text-red-500 break-words">{{ batchActionError }}</p>
               </div>
               <div class="modal-footer">
                 <button class="btn-secondary" :disabled="isSuspending" @click="showSuspendModal = false">
                   {{ t('common.cancel') }}
                 </button>
                 <button
-                  :disabled="isSuspending"
+                  :disabled="!canConfirmSuspend"
                   class="text-white"
                   :class="themeStore.isDark ? 'bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded-lg' : 'bg-orange-500 hover:bg-orange-600 px-4 py-2 rounded-lg'"
                   @click="confirmBatchSuspend"

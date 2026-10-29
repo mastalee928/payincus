@@ -225,6 +225,8 @@ jobs:
         run: pnpm --filter server test:review-host-instance-reads
       - name: Host deletion keeps reviewed targets and current results
         run: pnpm --filter server test:review-host-delete-lifecycle
+      - name: Host batch state actions keep targets and current results
+        run: pnpm --filter server test:review-host-batch-actions
       - name: Verify init command selector in Chrome
         run: pnpm --filter server test:review-init-command-selector
       - name: Verify init command modals in Chrome

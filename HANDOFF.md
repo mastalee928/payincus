@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-301 宿主批量封停、解封与状态同步
+
+- d855f91已push核远端；39073c6/bf645b1源码CI已success，9c3c320/d855f91最后仍运行。封停固定弹窗目标/原因与打开代次，三种操作捕获原host/ids及列表/session上下文；按钮和函数共享资格/在途门禁，三种状态写之间防重复并发。旧成功/失败不刷新或清新选择，成功只移除返回成功ID，失败及服务器跳过目标继续保留，明细和请求错误持久显示。
+- `takeover-host-batch-before.log`Chrome先红弹窗1改勾2却提交2；`takeover-host-batch-matrix.log`通过固定目标/原因、重复/关闭门禁、部分失败及服务端跳过、错误重试/非法回执、查询/host/session/cache/logout/unmount、同sid刷新、键盘焦点循环与Escape。1440中文/390英文截图已核，受控API无真实封停/解封或Incus/客户网络写入。
+- client types、3守卫（route/i18n/host-route-id）、lint零错警、删除及列表两个完整浏览器回归、manifest194/113及最终双端build exit0通过，专项接Chrome CI；dist边界检查另有同阶段日志。后台封停实际停止失败仍记录封停、解封当前状态/授权原子性等不由此次UI修复宣称解决，继续代码级复核。
+- 下一段赠送时长已Chrome先红（`takeover-host-gift-before.log`）：弹窗1改勾2提交2；四文件夹具与扩展矩阵未提交，产品赠送尚未改。已读gift-days完整route/事务与原R274守卫，前端需固定付费目标、严格1–365整数、busy/旧回执/部分失败；保持原后台零计费与当前归属事务。R301整体、327/R269及完整网关灾备未完成。
+
 ## 2026-10-29 R1-301 宿主批量删除目标与回执隔离
 
 - 9c3c320已push核远端；fb874b9源码CI已success，39073c6/bf645b1/9c3c320最后仍运行。删除弹窗固定打开时的目标，预览严格核对ID集合和有限非负退款金额；确认按钮/函数共同核当前激活、session、列表、目标和退款预览。提交固定host/ids/reason/refund/databaseOnly，在途跨切换保持busy；旧预览/写回执静默，成功保后来勾选，部分失败保明细及失败目标，刷新后重取预览。
