@@ -1,3 +1,4 @@
+import { recoveryCodes, qrCode } from './fixtures/two-factor/responses.mjs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { mkdirSync } from 'node:fs'
@@ -50,7 +51,7 @@ try {
     assert.equal(await read('enabled'),false,value+' does not accept stale status');assert.equal(await read('recoveryCodesStatus'),null);assert.equal(await read('statusError'),'');assert.equal(await read('recoveryStatusError'),'')
   }
   const methods={setup:'startSetup',enable:'confirmEnable',disable:'confirmDisable',regenerate:'confirmRegenerate'}
-  const response=action=>action==='setup'?{secret:'fixture secret only',qrCode:'',recoveryCodes:['fixture-a','fixture-b']}:action==='regenerate'?{recoveryCodes:['fixture-a','fixture-b']}:{message:'fixture success'}
+  const response=action=>action==='setup'?{secret:'fixture secret only',qrCode,recoveryCodes}:action==='regenerate'?{recoveryCodes}:{message:'fixture success'}
   for(const[action,method]of Object.entries(methods))for(const value of ['session','session-aba','account','role','logout','cache','draft'])for(const failed of [false,true]){
     await fresh(['disable','regenerate'].includes(action))
     await run(({action,method})=>{const v=window.twoFactorHarness.view();v.setupMode=action==='enable';v.disableMode=action==='disable';v.regenerateMode=action==='regenerate';v.verifyCode='123456';v.disableCode='123456';v.regenerateCode='123456';v.disablePassword='fixture unusable';v.regeneratePassword='fixture unusable';void v[method]()},{action,method})

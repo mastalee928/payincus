@@ -54,6 +54,13 @@ const recoveryCodesStatus = ref<{ total: number; remaining: number; used: number
 const regeneratePassword = ref('')
 const regenerateCode = ref('')
 const newRecoveryCodes = ref<string[]>([])
+const validVerificationCode = (value: unknown) => typeof value === 'string' && /^\d{6}$/.test(value)
+function validRecoveryCodes(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length === 8 && value.every(code => typeof code === 'string' && /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code)) && new Set(value).size === value.length
+}
+const canEnable = computed(() => !loading.value && available.value && statusReady.value && !statusLoading.value && validVerificationCode(verifyCode.value))
+const canDisable = computed(() => !loading.value && available.value && statusReady.value && !statusLoading.value && !!disablePassword.value && validVerificationCode(disableCode.value))
+const canRegenerate = computed(() => !loading.value && available.value && statusReady.value && !statusLoading.value && !!regeneratePassword.value && validVerificationCode(regenerateCode.value))
 
 const error = ref('')
 const success = ref('')
@@ -155,6 +162,7 @@ async function startSetup() {
   try {
     const res = await api.auth.setup2FA()
     if (!context.current()) return
+    if (typeof res?.secret !== 'string' || !res.secret.trim() || typeof res.qrCode !== 'string' || !res.qrCode.startsWith('data:image/png;base64,') || !validRecoveryCodes(res.recoveryCodes)) throw new Error(t('profile.twoFactorAuth.initFailed'))
     qrCode.value = res.qrCode
     secret.value = res.secret
     recoveryCodes.value = res.recoveryCodes
@@ -168,7 +176,7 @@ async function startSetup() {
 
 async function confirmEnable() {
   if (!available.value || loading.value || !statusReady.value || statusLoading.value) return
-  if (!verifyCode.value || verifyCode.value.length !== 6) {
+  if (!validVerificationCode(verifyCode.value)) {
     error.value = t('profile.twoFactorAuth.enterCodeError')
     return
   }
@@ -177,8 +185,9 @@ async function confirmEnable() {
   invalidateRecoveryStatus()
   error.value = ''
   try {
-    await api.auth.enable2FA(code)
+    const res = await api.auth.enable2FA(code)
     if (!context.current()) return
+    if (typeof res?.message !== 'string' || !res.message.trim()) throw new Error(t('profile.twoFactorAuth.verifyFailed'))
     enabled.value = true
     setupMode.value = false
     qrCode.value = ''; secret.value = ''; recoveryCodes.value = []; verifyCode.value = ''
@@ -192,7 +201,7 @@ async function confirmEnable() {
 
 async function confirmDisable() {
   if (!available.value || loading.value || !statusReady.value || statusLoading.value) return
-  if (!disablePassword.value || !disableCode.value) {
+  if (!disablePassword.value || !validVerificationCode(disableCode.value)) {
     error.value = t('profile.twoFactorAuth.fillPasswordAndCode')
     return
   }
@@ -201,8 +210,9 @@ async function confirmDisable() {
   invalidateRecoveryStatus()
   error.value = ''
   try {
-    await api.auth.disable2FA(password, code)
+    const res = await api.auth.disable2FA(password, code)
     if (!context.current()) return
+    if (typeof res?.message !== 'string' || !res.message.trim()) throw new Error(t('profile.twoFactorAuth.disableFailed'))
     enabled.value = false
     disableMode.value = false
     disablePassword.value = ''
@@ -218,7 +228,7 @@ async function confirmDisable() {
 
 async function confirmRegenerate() {
   if (!available.value || loading.value || !statusReady.value || statusLoading.value) return
-  if (!regeneratePassword.value || !regenerateCode.value) {
+  if (!regeneratePassword.value || !validVerificationCode(regenerateCode.value)) {
     error.value = t('profile.twoFactorAuth.fillPasswordAndCode')
     return
   }
@@ -229,7 +239,9 @@ async function confirmRegenerate() {
   try {
     const res = await api.auth.regenerateRecoveryCodes(password, code)
     if (!context.current()) return
+    if (!validRecoveryCodes(res?.recoveryCodes)) throw new Error(t('profile.twoFactorAuth.regenerateFailed'))
     newRecoveryCodes.value = res.recoveryCodes
+    regeneratePassword.value = ''; regenerateCode.value = ''
     void loadRecoveryCodesStatus()
     showSuccess(t('profile.twoFactorAuth.codesRegenerated'), 5000)
   } catch (e: any) {
@@ -384,7 +396,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
       </div>
 
       <div class="flex space-x-3">
-        <button :disabled="loading" class="btn-primary" @click="confirmEnable">
+        <button :disabled="!canEnable" class="btn-primary" @click="confirmEnable">
           {{ loading ? $t('profile.twoFactorAuth.verifying') : $t('profile.twoFactorAuth.confirmEnable') }}
         </button>
         <button :disabled="loading" class="btn-secondary" @click="cancelSetup">{{ $t('profile.twoFactorAuth.cancel') }}</button>
@@ -419,7 +431,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
       </div>
 
       <div class="flex space-x-3">
-        <button :disabled="loading" class="btn-danger" @click="confirmDisable">
+        <button :disabled="!canDisable" class="btn-danger" @click="confirmDisable">
           {{ loading ? $t('profile.twoFactorAuth.processing') : $t('profile.twoFactorAuth.confirmDisable') }}
         </button>
         <button :disabled="loading" class="btn-secondary" @click="cancelDisable">{{ $t('profile.twoFactorAuth.cancel') }}</button>
@@ -467,7 +479,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
         </div>
 
         <div class="flex space-x-3">
-          <button :disabled="loading" class="btn-primary" @click="confirmRegenerate">
+          <button :disabled="!canRegenerate" class="btn-primary" @click="confirmRegenerate">
             {{ loading ? $t('profile.twoFactorAuth.generating') : $t('profile.twoFactorAuth.confirmGenerate') }}
           </button>
           <button :disabled="loading" class="btn-secondary" @click="cancelRegenerate">{{ $t('profile.twoFactorAuth.cancel') }}</button>

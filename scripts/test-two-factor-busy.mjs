@@ -1,3 +1,4 @@
+import { recoveryCodes, qrCode } from './fixtures/two-factor/responses.mjs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { mkdirSync } from 'node:fs'
@@ -47,7 +48,7 @@ try {
     }
     await reject(index); assert.equal(await page.eval(() => window.twoFactorHarness.view().loading), false); assert.match(await page.eval(() => window.twoFactorHarness.view().error), /fixture operation unavailable/)
     await run(method => { void window.twoFactorHarness.view()[method]() }, method)
-    const response = action === 'setup' ? { secret: 'fixture setup text', qrCode: '', recoveryCodes: ['fixture-code-a', 'fixture-code-b'] } : action === 'regenerate' ? { recoveryCodes: ['fixture-code-a', 'fixture-code-b'] } : { message: 'fixture success' }
+    const response = action === 'setup' ? { secret: 'fixture setup text', qrCode, recoveryCodes } : action === 'regenerate' ? { recoveryCodes } : { message: 'fixture success' }
     await accept(await last(action), response)
     if (action === 'regenerate') await accept(await last('codes-status'), { total: 8, remaining: 8, used: 0 })
     assert.equal(await page.eval(() => window.twoFactorHarness.view().loading), false)

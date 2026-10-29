@@ -2,6 +2,11 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-307 双重验证输入与真实回执
+
+- 54901d15已push。非数字六字符原仍提交，receipts-before实际Chrome先红abcdef请求1次。启用/禁用/恢复码重生成函数与按钮要求六位数字；设置回执核非空secret、PNG data QR、八个唯一格式恢复码，启用/禁用核非空message，重生成核真实恢复码集合。非法回执持久error保模式不显示成功；成功重生成清密码/验证码，辅助计数失败不改写已确认成功。
+- receipts-final.log实际Chrome21验证码反例、五设置回执反例、12三类写回执反例、四合法重试/辅助计数失败通过；busy/session完整回归exit0。3守卫/lint零错警/receipts-build双端build含vue-tsc exit0/dist/manifest194/156通过，专项接CI。三宽UI沿busy回归截图，fixture材料为明确不可用合成数据。R013敏感验证接线与真实TOTP流程未完；新ChangeEmail专项真实先红旧邮箱返回标新地址，产品未改，下一段继续，194/68/65含部分。
+
 ## 2026-10-29 R1-307 双重验证会话与敏感状态隔离
 
 - a0c33846已push。实际Chrome session-before旧status跨session enabled=true先红；现绑定active/account/role/sid（正常同sid token刷新保留），scope同步撤销读取并清密钥/恢复码/密码/验证码/模式/提示。写固定输入和context/draft代次，旧成功失败静默，在途busy保留至原请求结束，再重读当前身份。缓存离页/卸载显式失效，成功timer统一管理和清理，启用后清设置秘密；恢复码辅助读取不占写busy。
