@@ -360,7 +360,7 @@
 | R1-318 | 已有防护 | 保留初审结论 | manualStartHint已描述重装后自动启动。 |
 | R1-319 | 存在 | 待精修/运行复核 | rechargeNotice仍写PUSH免费，而transferFee可非0；zh-CN/en均见原文。 |
 | R1-320 | 存在 | 待精修/运行复核 | 前端提示/校验6位与后端8位加复杂度不一致。 |
-| R1-321 | 部分存在 | 待精修/运行复核 | reset后已有reconcileTrafficStateForInstanceIds；用户文案仍须逐处对照，不能删除正常恢复逻辑。 |
+| R1-321 | 存在，已修 | 文案/浏览器及相关守卫通过 | 三语resetTrafficWarning错误要求手动恢复1Mbps，已按实际route/running查询/scheduler/带宽仲裁改为自动检查并保留账户超限、离线和停止条件。Chrome完整reset/截图、types/4守卫/lint/双端build/dist通过；原生恢复与生产部署另验，不修改原恢复逻辑，见HANDOFF。 |
 | R1-322 | 已有防护 | 保留初审结论 | 管理员创建description已免费或付费；freeGiftHint只在免费赠送分支，不是整页都说免费。 |
 | R1-323 | 存在 | 待精修/运行复核 | bootPriority写越小越先，与Incus高priority优先相反；startupDelay写启动前等待，与启动后延时语义不同。 |
 | R1-324 | 存在 | 待精修/运行复核 | 初始quotaForm读取camelCase portLimit/snapshotLimit，API返回snake_case；calculateRemainingQuota也camelCase加／／0，真实配额字段/零值被误读。 |

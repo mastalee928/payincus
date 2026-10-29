@@ -4418,7 +4418,7 @@ pool: {
             trafficResetSuccess: 'Traffic reset successfully',
             trafficResetFailed: 'Failed to reset traffic',
             resetTrafficTitle: 'Reset Instance Traffic',
-            resetTrafficWarning: 'If the instance has exceeded its quota, resetting traffic will not automatically restore the bandwidth throttling (1Mbps). Please manually restore the bandwidth rate for this instance.',
+            resetTrafficWarning: 'After reset, traffic limits are checked automatically and bandwidth is updated for online, running instances. Throttling remains if the account or instance is still over quota. Offline or stopped instances are checked when running again.',
             resetTrafficDesc: 'Are you sure you want to reset traffic for instance "{instance}"?',
             // Host traffic statistics
             trafficStats: 'Traffic Statistics',

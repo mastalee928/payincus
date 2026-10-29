@@ -4472,7 +4472,7 @@ pool: {
             trafficResetSuccess: '流量已重置',
             trafficResetFailed: '重置流量失败',
             resetTrafficTitle: '重置实例流量',
-            resetTrafficWarning: '如果是已超额的实例，重置流量不会自动恢复实例的带宽限速（1Mbps），请手动为该实例恢复带宽速率。',
+            resetTrafficWarning: '重置后会自动检查流量限额，并为在线运行的实例更新带宽。账户或实例仍超额时继续限速；离线或已停止的实例待恢复运行后再检查。',
             resetTrafficDesc: '确定要重置实例 "{instance}" 的流量吗？',
             // 节点流量统计
             trafficStats: '流量统计',

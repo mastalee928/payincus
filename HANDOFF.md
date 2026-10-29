@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-321 流量重置后的带宽提示
+
+- 98ca675已push核远端。三语resetTrafficWarning移除“不会自动恢复/手动恢复固定1Mbps”的错误提示，改为重置后自动检查额度并更新在线运行实例的带宽；账户/实例仍超额继续限速，离线/停止待恢复运行后检查。已逐层核对traffic reset route→running实例查询→scheduler checkAndThrottle/checkAndRestore→带宽仲裁，未改原恢复逻辑或声称网络不可达仍即时恢复。
+- `takeover-r321-browser.log`完整reset Chrome回归、1440中文/390英文新文案截图已核无溢出；client types、4守卫（route/i18n/traffic-reset-locks/plan-bandwidth-limit-guards）、三locale lint零错警、最终双端build exit0/dist通过。仅文案变更，实际Incus带宽恢复沿既有专项/原生验收范围，不据此新增生产验证。
+- 下一段R301通知四文件先红保持未提交，产品notify未改，目标/新草稿/重复/失败/host/session/cache扩展矩阵已写未跑；完整inbox route及受锁接收人事务/守卫已读。重建父入口仍有迟到images/keys重开与写回执待修，子RecreateModal自身已有当前选项和session门禁，勿重复重写子组件。327/R269/完整灾备未完成。
+
 ## 2026-10-29 R1-301 流量重置回执与辅助读取隔离
 
 - a021f9a已push核远端；9c3c320/d855f91源码CI已success，5f2085b/28a1565/a021f9a最后仍运行。reset固定实例/host/session/弹窗代次，按钮与函数门禁、在途禁重开；成功立即关闭确认，独立刷新traffic并复用读取序号，后续读取失败不再把已提交重置报失败。旧回执静默，当前失败持久显示；同页当前列表更新目标，在途旧列表由新查询失效，键盘与关闭保护补齐。
