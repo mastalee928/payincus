@@ -262,7 +262,7 @@ defineExpose({ loadSSHKeys })
           </div>
         </div>
         <div class="flex items-center gap-3 flex-shrink-0">
-          <span class="text-xs text-themed-faint hidden sm:inline tabular-nums">{{ key.created_at }}</span>
+          <span class="text-xs text-themed-faint hidden sm:inline tabular-nums">{{ key.createdAt || '—' }}</span>
           <button 
             class="text-themed-faint hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100 transition-all" 
             @click="deleteKey(key.id)"

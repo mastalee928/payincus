@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-077 SSH 公钥创建日期字段
+
+- 当前GET list/detail已明确返回createdAt，SSHKeysSection却读created_at；ssh-key-dates-before实际Vue/Chrome两条合法服务端日期都缺失先红。产品只改该span为createdAt || '—'，保持原ISO显示格式及sm以下隐藏日期的既有布局，不改真实密钥/list/生成/添加/删除和权限。
+- ssh-key-dates-final两真实camelCase受控列表日期、三语1440/768/390零横溢且零key mutation通过exit0，最终截图全部已看；不是当前账户密钥验收。route/i18n/ssh-key-route-id三守卫、lint零错警/语法/diff、manifest194常规183专项接CI过；双端build含types最终exit0，接续已poll session21535确认结束，最终dist边界守卫exit0，无待poll。原整体UI紫色shadow/深色灰字/删除键触摸面积仍另待，不用小字段修复声明整页UI完成。
+- 08ce5c2f已push核远端main一致，214有修复/复验（含部分）/68已有不同/45待；R075/76同组件session/busy/生成私钥生命周期继续，完整327/原生客户及网关灾备未完。阶段提交推送后继续。
+
 ## 2026-10-29 R1-071 头像保存保留本次提交与账户生命周期
 
 - avatar-submit-before实际Chrome提交identicon、等待期间草稿改rings，旧实现把rings标已保存先红。现固定submittedStyle/userId/session代次；同turn重复/未登录/缓存停用/非法style拒写，选择字段与邮箱/折叠在途禁用。回执只更新该次style，不把后来的选择标保存；空message/旧session或卸载回执不写authStore，不假成功，失败持久avatarError保留重试。默认空style不误判修改。

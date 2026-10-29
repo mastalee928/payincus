@@ -127,6 +127,7 @@
     "test:review-snapshot-submit": "node ../scripts/test-snapshot-submit.mjs",
     "test:review-snapshot-receipts": "node ../scripts/test-snapshot-receipts.mjs",
     "test:review-avatar-submit": "node ../scripts/test-avatar-submit.mjs",
+    "test:review-ssh-key-dates": "node ../scripts/test-ssh-key-dates.mjs",
     "test:snapshot-policy-schedule-integration": "node --import tsx scripts/test-snapshot-policy-schedule-integration.ts",
     "test:snapshot-mutation-authorization": "node --import tsx scripts/test-snapshot-mutation-authorization.ts",
     "test:review-login-submit": "node ../scripts/test-login-submit.mjs",
