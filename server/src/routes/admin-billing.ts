@@ -429,13 +429,11 @@ function parseBatchPriceUpdateBody(body: unknown): { instanceIds: number[]; newP
 
   const ids: number[] = []
   for (const rawId of instanceIds) {
-    const id = typeof rawId === 'number' ? rawId : Number(rawId)
-    if (!Number.isInteger(id) || id <= 0) {
+    const id = rawId
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0 || ids.includes(id)) {
       throw new BatchPriceUpdateError('实例ID列表包含无效值')
     }
-    if (!ids.includes(id)) {
-      ids.push(id)
-    }
+    ids.push(id)
   }
 
   if (ids.length === 0) {
@@ -445,6 +443,7 @@ function parseBatchPriceUpdateBody(body: unknown): { instanceIds: number[]; newP
   if (typeof newPrice !== 'number' || !Number.isFinite(newPrice) || newPrice < 0 || newPrice > 100000) {
     throw new BatchPriceUpdateError('价格必须是 0-100000 之间的数字')
   }
+  if (typeof settleBalance !== 'boolean') throw new BatchPriceUpdateError('结算差价参数必须是布尔值')
 
   const parsedExpectations: BatchPriceUpdateExpectation[] = []
   if (expectations !== undefined) {
@@ -459,27 +458,22 @@ function parseBatchPriceUpdateBody(body: unknown): { instanceIds: number[]; newP
       }
 
       const expectation = rawExpectation as { instanceId?: unknown; version?: unknown }
-      const instanceId = typeof expectation.instanceId === 'number'
-        ? expectation.instanceId
-        : Number(expectation.instanceId)
-      const version = typeof expectation.version === 'number'
-        ? expectation.version
-        : Number(expectation.version)
+      const instanceId = expectation.instanceId
+      const version = expectation.version
 
-      if (!Number.isInteger(instanceId) || !expectedIdSet.has(instanceId) || !Number.isInteger(version) || version < 0) {
+      if (typeof instanceId !== 'number' || !Number.isSafeInteger(instanceId) || !expectedIdSet.has(instanceId) ||
+        typeof version !== 'number' || !Number.isSafeInteger(version) || version < 0 || parsedExpectations.some(item => item.instanceId === instanceId)) {
         throw new BatchPriceUpdateError('预览版本参数无效')
       }
 
-      if (!parsedExpectations.some(item => item.instanceId === instanceId)) {
-        parsedExpectations.push({ instanceId, version })
-      }
+      parsedExpectations.push({ instanceId, version })
     }
   }
 
   return {
     instanceIds: ids,
     newPrice: roundMoney(newPrice),
-    settleBalance: settleBalance !== false,
+    settleBalance,
     expectations: parsedExpectations
   }
 }
@@ -2456,7 +2450,9 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       return reply.status(400).send({ error: '价格必须是 0-100000 之间的数字' })
     }
 
-    if (expectedVersion !== undefined && (!Number.isInteger(expectedVersion) || expectedVersion < 0)) {
+    if (typeof settleBalance !== 'boolean') return reply.status(400).send({ error: '结算差价参数必须是布尔值' })
+
+    if (expectedVersion !== undefined && (typeof expectedVersion !== 'number' || !Number.isSafeInteger(expectedVersion) || expectedVersion < 0)) {
       return reply.status(400).send({ error: '预览版本参数无效' })
     }
 
@@ -2691,6 +2687,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       newPrice: number
       settleBalance: boolean
     }
+    if (typeof settleBalance !== 'boolean') return reply.status(400).send({ error: '结算差价参数必须是布尔值' })
 
     const instanceId = parsePositiveRouteId(id)
     if (!instanceId) {

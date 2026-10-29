@@ -166,6 +166,31 @@ try {
     assert.equal((await submit(kind, false)).statusCode, 200, 'a token issued after the recorded revocation remains valid')
   }
   console.log('PASS current admin status/role/session and real lock races reject stale writes, including unchanged-price requests')
+  await reset()
+  const unchanged = await snapshot()
+  const invalidSettlement = ['false', 'true', 0, 1, null, {}, [], undefined]
+  for (const kind of ['single', 'batch']) for (const preview of [false, true]) {
+    const base = kind === 'single' ? `/api/admin/instances/${ids[0]}/update-price` : '/api/admin/instances/batch-update-price'
+    const valid = kind === 'single' ? { newPrice: 20, settleBalance: true, expectedVersion: 0 } : {
+      instanceIds: ids, newPrice: 20, settleBalance: true, expectations: ids.map(instanceId => ({ instanceId, version: 0 })),
+    }
+    const variants: Record<string, unknown>[] = invalidSettlement.map(settleBalance => ({ ...valid, settleBalance }))
+    if (kind === 'single') {
+      if (!preview) for (const version of ['0', null, false, {}, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) variants.push({ ...valid, expectedVersion: version })
+    } else {
+      for (const instanceIds of [[String(ids[0])], [ids[0], ids[0]], [ids[0], false], [ids[0], null], [Number.MAX_SAFE_INTEGER + 1]]) variants.push({ ...valid, instanceIds })
+      for (const version of ['0', null, false, {}, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) variants.push({ ...valid, expectations: [{ instanceId: ids[0], version }] })
+      variants.push({ ...valid, expectations: [{ instanceId: String(ids[0]), version: 0 }] })
+      variants.push({ ...valid, expectations: [{ instanceId: ids[0], version: 0 }, { instanceId: ids[0], version: 0 }] })
+    }
+    for (const payload of variants) {
+      const result = await app.inject({ method: 'POST', url: base + (preview ? '/preview' : ''), payload })
+      assert.equal(result.statusCode, 400, `${kind}/${preview}: malformed settlement/target/version ${JSON.stringify(payload)}`)
+      assert.deepEqual(await snapshot(), unchanged)
+      assert.equal(await prisma.log.count({ where: { userId: admin.id } }), 0)
+    }
+  }
+  console.log('PASS strict settlement booleans and safe numeric unique batch targets/version snapshots across preview and write APIs')
 } catch (error) { failure = error } finally {
   await app.close()
   await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${trigger} ON logs`)

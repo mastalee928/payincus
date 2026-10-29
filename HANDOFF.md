@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-304 改价请求拒绝隐式结算和版本转换
+
+- 3d90abd已push。四个单/批预览及提交入口要求settleBalance真实布尔；批量实例ID及版本快照仅接受安全整数、拒绝重复目标/快照，不再Number转换null/false/字符串。单台可选expectedVersion保留，但提供时必须为非负安全整数。已核本仓库调用仅BillingView，原页面发送数值/布尔与唯一选择；不改计费公式或旧数据。
+- takeover-billing-price-input-before.log真实PG/Fastify先红：settleBalance字符串false被当真执行并返回200；input-final.log四入口共67组非法结算、ID和version明确400且零价格/账目/日志改动。正常0/涨价、结算true/false、version0、审计回滚与当前权限/资格锁竞争全部回归通过。三个相关守卫、manifest194/144与diff通过，takeover-billing-price-input-build.log后端build含tsc exit0；原PG测试与外部/生产分别记录。只读核CI：c6be378运行40820987374成功，863914d/e8cb278/91e8e57/3d90abd仍运行。
+- R304仍部分修复：余额锁顺序/归属及支付记录并发、通知持久化与完整真实计费流程继续核查；327维持192/68/67，不能把已记录192视为全部完成。
+
 ## 2026-10-29 R1-304 改价事务复核当前管理员与会话
 
 - 91e8e57已push。单/批写入在锁定目标实例后复用authorizeUserWrite锁管理员账号、检查active、当前admin角色与sid/iat撤销记录；实例行锁按ID排序。单台价格不变分支也进入同一锁和当前身份核验，再返回原不变结果，避免提前成功。该阶段仅写路由，预览读取与其它后台操作未扩大。
