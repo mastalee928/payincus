@@ -2932,14 +2932,16 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
     }> => http.get(`/instances/${instanceId}/destroy-info${options?.feeWaiver ? `?feeWaiver=${encodeURIComponent(options.feeWaiver)}` : ''}`),
 
     // 执行销毁
-    destroyInstance: (instanceId: number, options?: { feeWaiver?: string }): Promise<{
+    requestDestroyVerification: (instanceIds: number[]): Promise<{ success: boolean; channel?: string; maskedTarget: string; resendAfter: number }> => http.post('/instances/destroy-verification', { instanceIds }),
+
+    destroyInstance: (instanceId: number, options?: { feeWaiver?: string; emailCode?: string }): Promise<{
       success: boolean
       message: string
       refundAmount: number
       feeAmount: number
       isFirstTime: boolean
       isFreeInstance: boolean
-    }> => http.post(`/instances/${instanceId}/destroy${options?.feeWaiver ? `?feeWaiver=${options.feeWaiver}` : ''}`),
+    }> => http.post(`/instances/${instanceId}/destroy${options?.feeWaiver ? `?feeWaiver=${options.feeWaiver}` : ''}`, { emailCode: options?.emailCode }),
 
     getBatchDestroyInfo: (instanceIds: number[]): Promise<{
       items: Array<{
@@ -2968,7 +2970,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
       }>
     }> => http.post('/instances/batch/destroy-info', { instanceIds }, { timeout: TIMEOUT.BATCH }),
 
-    destroyInstancesBatch: (instanceIds: number[]): Promise<{
+    destroyInstancesBatch: (instanceIds: number[], emailCode?: string): Promise<{
       message: string
       successCount: number
       skippedCount: number
@@ -2984,7 +2986,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
         isFirstTime?: boolean
         isFreeInstance?: boolean
       }>
-    }> => http.post('/instances/batch/destroy', { instanceIds }, { timeout: TIMEOUT.BATCH }),
+    }> => http.post('/instances/batch/destroy', { instanceIds, emailCode }, { timeout: TIMEOUT.BATCH }),
 
     // 切换自动续费
     setAutoRenew: (instanceId: number, autoRenew: boolean): Promise<{

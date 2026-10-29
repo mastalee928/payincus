@@ -38,6 +38,7 @@ import { encryptSensitiveData, decryptSensitiveData, validateName } from '../lib
 import {
   claimOperationVerificationRequirement
 } from '../lib/operation-verification.js'
+import { claimDestroyEmailVerification } from '../lib/instance-destroy-verification.js'
 import {
   detectCloudInitStatus,
   getCachedCloudInitStatus,
@@ -3852,17 +3853,18 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
   })
 
   // 删除实例
-  fastify.delete<{ Params: { id: string }; Body: { reason?: string } }>('/:id', {
+  fastify.delete<{ Params: { id: string }; Body: { reason?: string; emailCode?: string } }>('/:id', {
     onRequest: [fastify.authenticate],
     schema: {
       body: {
         type: 'object',
         properties: {
-          reason: { type: 'string', maxLength: 500 }
+          reason: { type: 'string', maxLength: 500 },
+          emailCode: { type: 'string', pattern: '^\\d{6}$' }
         }
       }
     }
-  }, async (request: FastifyRequest<{ Params: { id: string }; Body: { reason?: string } }>, reply: FastifyReply) => {
+  }, async (request: FastifyRequest<{ Params: { id: string }; Body: { reason?: string; emailCode?: string } }>, reply: FastifyReply) => {
     const { id } = request.params
     const { reason } = request.body || {}
     const instanceId = parsePositiveRouteId(id)
@@ -3925,7 +3927,12 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
 
 
-    if (!isAdmin && !await requireVerifiedOperation(reply, user.id, 'delete_instance', instanceId)) return
+    if (!isAdmin) {
+      if (instance.user_id === user.id) {
+        const verification = await claimDestroyEmailVerification(user, [instanceId], request.body?.emailCode)
+        if (!verification.success) return reply.code(403).send(verification)
+      } else if (!await requireVerifiedOperation(reply, user.id, 'delete_instance', instanceId)) return
+    }
 
     try {
       // 复用上面已获取的host

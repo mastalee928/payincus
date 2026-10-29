@@ -17,6 +17,8 @@ import DistroIcon from '@/components/icons/DistroIcon.vue'
 import InstanceDisplayIcon from '@/components/InstanceDisplayIcon.vue'
 import InstanceOrderMenu from '@/components/instance/InstanceOrderMenu.vue'
 import TransferModal from '@/components/instance/modals/TransferModal.vue'
+import DestroyEmailVerificationFields from '@/components/instance/DestroyEmailVerificationFields.vue'
+import { useDialogFocus } from '@/composables/useDialogFocus'
 import { freeSiteCopy, getFreeSiteBillingCycleLabel } from '@/utils/freeSiteFun'
 import { instanceCreatePath, instanceDetailPath, isAdminEntry, walletPath } from '@/utils/app-paths'
 import { ociMachineShape } from '@/utils/poolCatalog'
@@ -45,7 +47,7 @@ interface CustomerBillingApi {
       failedCount: number
     }>
     getBatchDestroyInfo: (instanceIds: number[]) => Promise<{ items: typeof batchDestroyPreview.value }>
-    destroyInstancesBatch: (instanceIds: number[]) => Promise<{
+    destroyInstancesBatch: (instanceIds: number[], emailCode?: string) => Promise<{
       message: string
       successCount: number
       skippedCount: number
@@ -82,6 +84,9 @@ const renewTargetIds = ref<number[]>([])
 const destroyTargetIds = ref<number[]>([])
 const renewPreviewReady = ref(false)
 const destroyPreviewReady = ref(false)
+const batchDestroyEmailCode = ref('')
+const batchDestroyError = ref('')
+const batchDestroyDialogRoot = ref<HTMLElement | null>(null)
 function captureBillingContext(kind: 'renew' | 'destroy') {
   const generation = kind === 'renew' ? renewGeneration : destroyGeneration
   const session = billingSessionKey.value, path = route.fullPath
@@ -148,9 +153,10 @@ const batchRenewPreview = ref<Array<{
 
 // 批量销毁
 const showBatchDestroyModal = ref(false)
+useDialogFocus(batchDestroyDialogRoot, () => showBatchDestroyModal.value, closeBatchDestroyModal)
 const batchDestroyLoading = ref(false)
 const batchDestroySubmitting = ref(false)
-const batchDestroyConfirm = ref('')
+const destroyTargetRegions = ref<Record<number, string>>({})
 const batchDestroyPreview = ref<Array<{
   id: number
   name: string
@@ -255,7 +261,7 @@ const batchDestroyIneligibleItems = computed(() => batchDestroyPreview.value.fil
 const batchDestroyTotalRefund = computed(() => batchDestroyEligibleItems.value.reduce((sum, item) => sum + item.refund.refundAmount, 0))
 const batchDestroyTotalFee = computed(() => batchDestroyEligibleItems.value.reduce((sum, item) => sum + item.refund.feeAmount, 0))
 const batchDestroyCanSubmit = computed(() => captureBillingContext('destroy')() && destroyPreviewReady.value && !batchDestroyLoading.value &&
-  batchDestroyEligibleItems.value.length > 0 && batchDestroyConfirm.value === 'DESTROY' && !batchDestroySubmitting.value &&
+  batchDestroyEligibleItems.value.length > 0 && /^\d{6}$/.test(batchDestroyEmailCode.value) && !batchDestroySubmitting.value &&
   !batchRenewSubmitting.value && !batchActionLoading.value)
 const isInstanceOrderView = computed(() => search.value.trim() === '' && countryFilter.value === null)
 const canReorderInstances = computed(() => (
@@ -1040,6 +1046,11 @@ async function reorderInstance(instance: Instance, action: InstanceOrderAction):
 }
 
 async function handleAction(instance: Instance, action: InstanceAction): Promise<void> {
+  if (action === 'delete' && !isAdmin.value && instance.user_id === authStore.user?.id) {
+    selectedIds.value = new Set([instance.id])
+    await openBatchDestroyModal()
+    return
+  }
   actionLoading.value[instance.id] = action
   
   try {
@@ -1386,7 +1397,15 @@ async function openBatchDestroyModal(): Promise<void> {
   showBatchDestroyModal.value = true
   const current = captureBillingContext('destroy')
   batchDestroyLoading.value = true
-  batchDestroyConfirm.value = ''
+  destroyTargetRegions.value = Object.fromEntries(instanceIds.map(id => {
+    const value = instances.value.find(item => item.id === id)
+    const host = (value as any)?.host
+    const region = host?.regionGroupName
+    const country = host?.country_code || (value as any)?.hostCountryCode
+    return [id, region ? localizePoolRegionName(region, country || null, locale.value) : country ? getCountryLabel(country) : '—']
+  }))
+  batchDestroyEmailCode.value = ''
+  batchDestroyError.value = ''
   batchDestroyPreview.value = []
 
   try {
@@ -1413,7 +1432,9 @@ function closeBatchDestroyModal(force = false): void {
   destroyPreviewReady.value = false
   batchDestroyLoading.value = false
   showBatchDestroyModal.value = false
-  batchDestroyConfirm.value = ''
+  destroyTargetRegions.value = {}
+  batchDestroyEmailCode.value = ''
+  batchDestroyError.value = ''
   batchDestroyPreview.value = []
 }
 
@@ -1424,8 +1445,9 @@ async function confirmBatchDestroy(): Promise<void> {
   const current = captureBillingContext('destroy'), revision = selectionRevision
 
   batchDestroySubmitting.value = true
+  batchDestroyError.value = ''
   try {
-    const result = await customerBillingApi.billing.destroyInstancesBatch(instanceIds)
+    const result = await customerBillingApi.billing.destroyInstancesBatch(instanceIds, batchDestroyEmailCode.value)
     if (!current()) return
     if (result.failedCount > 0) {
       toast.warning(t('instance.batch.partialResult', {
@@ -1440,7 +1462,7 @@ async function confirmBatchDestroy(): Promise<void> {
     if (revision === selectionRevision) clearSelection()
     await loadInstances(true)
   } catch (error: any) {
-    if (current()) toast.error(t('instance.batch.actionFailed') + ': ' + translateError(error))
+    if (current()) batchDestroyError.value = t('instance.batch.actionFailed') + ': ' + translateError(error)
   } finally {
     batchDestroySubmitting.value = false
   }
@@ -1900,9 +1922,9 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                     >
                       {{ formatImageName(instance.image, (instance as any).imageName) }}
                     </div>
-	                  </div>
-	                </div>
-	              </td>
+                  </div>
+                </div>
+              </td>
               <td class="px-3 py-3">
                 <span :class="['inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-mono text-[11px] tabular-nums', getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).class]">
                   <span :class="['w-1.5 h-1.5 rounded-full', getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).dot]"></span>
@@ -1930,7 +1952,8 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
               </td>
               <td class="px-3 py-3">
                 <div class="flex items-center gap-1.5">
-                  <span v-if="isAdminEntry"
+                  <span
+                    v-if="isAdminEntry"
                     class="text-xs px-1.5 py-0.5 rounded"
                     :class="getInstanceTypeBadgeClass(instance)"
                   >
@@ -2121,7 +2144,8 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                     {{ formatImageName(instance.image, (instance as any).imageName) }}
                   </div>
                   <div class="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span v-if="isAdminEntry"
+                    <span
+                      v-if="isAdminEntry"
                       class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium"
                       :class="getInstanceTypeBadgeClass(instance)"
                     >
@@ -2338,7 +2362,8 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                     </svg>
                     <span class="truncate font-mono">{{ getPrimaryIp(instance) }}</span>
                   </span>
-                  <span v-if="isAdminEntry"
+                  <span
+                    v-if="isAdminEntry"
                     class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium"
                     :class="getInstanceTypeBadgeClass(instance)"
                   >
@@ -2756,17 +2781,18 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
       >
         <div class="absolute inset-0 bg-black/60" @click="closeBatchDestroyModal()"></div>
         <div
+          ref="batchDestroyDialogRoot" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="batch-destroy-title"
           class="relative w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl shadow-2xl flex flex-col"
           :class="'bg-themed-surface border border-themed'"
         >
           <div class="flex items-center justify-between px-5 py-4 border-b" :class="'border-themed'">
             <div>
               <h3 class="text-lg font-semibold" :class="'text-themed'">
-                {{ $t('instance.batch.destroyTitle') }}
+                <span id="batch-destroy-title">{{ $t('instance.batch.destroyTitle') }}</span>
               </h3>
               <p class="text-sm text-themed-muted mt-1">{{ $t('instance.batch.destroyDescription') }}</p>
             </div>
-            <button class="p-1 rounded hover:bg-gray-500/20" @click="closeBatchDestroyModal()">
+            <button type="button" class="min-h-11 min-w-11 rounded hover:bg-gray-500/20" :aria-label="$t('common.close')" :disabled="batchDestroySubmitting" @click="closeBatchDestroyModal()">
               <svg class="w-5 h-5" :class="'text-themed-muted'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -2824,45 +2850,21 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                 <h4 class="text-sm font-medium mb-3" :class="'text-themed'">
                   {{ $t('instance.batch.eligibleList', { count: batchDestroyEligibleItems.length }) }}
                 </h4>
-                <div v-if="batchDestroyEligibleItems.length > 0" class="space-y-3 max-h-64 overflow-y-auto pr-1">
-                  <div
-                    v-for="item in batchDestroyEligibleItems"
-                    :key="item.id"
-                    class="rounded-xl border px-3 py-3"
-                    :class="'border-themed bg-themed-secondary'"
-                  >
-                    <div class="flex items-start justify-between gap-3">
-                      <div class="min-w-0">
-                        <div class="text-sm font-medium truncate" :class="'text-themed'">{{ item.name }}</div>
-                        <div class="mt-1 text-xs text-themed-muted">
-                          {{ item.instance.hostName }} · {{ item.instance.planName || $t('billing.freeInstance') }}
-                        </div>
-                        <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                          <span class="inline-flex items-center rounded-full px-2 py-0.5" :class="'bg-themed-secondary text-themed'">
-                            {{ item.isFreeInstance ? $t('billing.freeInstance') : $t('billing.paidInstance') }}
-                          </span>
-                          <span
-                            v-if="!item.isFreeInstance && item.isFirstTime"
-                            class="inline-flex items-center rounded-full px-2 py-0.5"
-                            :class="themeStore.isDark ? 'bg-emerald-500/10 text-emerald-300' : 'bg-emerald-50 text-emerald-700'"
-                          >
-                            {{ $t('instance.destroy.firstTimeFree') }}
-                          </span>
-                          <span
-                            v-else-if="!item.isFreeInstance && item.feeWaiverEligible"
-                            class="inline-flex items-center rounded-full px-2 py-0.5"
-                            :class="themeStore.isDark ? 'bg-emerald-500/10 text-emerald-300' : 'bg-emerald-50 text-emerald-700'"
-                          >
-                            {{ $t('instance.batch.feeWaived') }}
-                          </span>
-                        </div>
-                      </div>
-                      <div class="text-right shrink-0">
-                        <div class="text-sm font-semibold font-mono tabular-nums text-emerald-500">{{ formatCurrency(item.refund.refundAmount) }}</div>
-                        <div class="text-xs text-themed-muted">{{ $t('instance.destroy.feeAmount') }} {{ formatCurrency(item.refund.feeAmount) }}</div>
-                      </div>
-                    </div>
-                  </div>
+                <div v-if="batchDestroyEligibleItems.length > 0" class="max-h-64 overflow-y-auto">
+                  <table class="w-full table-fixed text-sm text-left">
+                    <thead class="sticky top-0 bg-themed-surface text-themed-muted">
+                      <tr>
+                        <th class="w-1/2 pb-3 font-medium">{{ $t('instance.destroy.instanceName') }}</th>
+                        <th class="w-1/2 pb-3 font-medium">{{ $t('instance.card.region') }}</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-themed text-themed">
+                      <tr v-for="item in batchDestroyEligibleItems" :key="item.id">
+                        <td class="py-3 pr-3 align-top break-words">{{ item.name }}<span class="block text-xs text-themed-muted">#{{ item.id }}</span></td>
+                        <td class="py-3 align-top break-words">{{ destroyTargetRegions[item.id] || '—' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
                 <div v-else class="text-sm text-themed-muted">{{ $t('instance.batch.destroyEmpty') }}</div>
               </div>
@@ -2890,17 +2892,8 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                 </div>
               </div>
 
-              <div class="rounded-xl border p-4" :class="'border-themed bg-themed-secondary'">
-                <label class="block text-sm font-medium mb-2" :class="'text-themed'">
-                  {{ $t('instance.batch.confirmHint') }}
-                </label>
-                <input
-                  v-model="batchDestroyConfirm"
-                  type="text"
-                  class="input w-full"
-                  :placeholder="$t('instance.batch.confirmPlaceholder')"
-                />
-              </div>
+              <DestroyEmailVerificationFields v-model="batchDestroyEmailCode" :instance-ids="batchDestroyEligibleItems.map(item => item.id)" :disabled="batchDestroySubmitting" />
+              <p v-if="batchDestroyError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ batchDestroyError }}</p>
             </template>
           </div>
 

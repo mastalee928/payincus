@@ -96,7 +96,7 @@ interface CustomerSelfServiceApi {
       autoRenew: boolean
     }>
     getDestroyInfo: (instanceId: number, options?: { feeWaiver?: string }) => Promise<unknown>
-    destroyInstance: (instanceId: number, options?: { feeWaiver?: string }) => Promise<{
+    destroyInstance: (instanceId: number, options?: { feeWaiver?: string; emailCode?: string }) => Promise<{
       success: boolean
       message: string
       refundAmount: number
@@ -250,6 +250,7 @@ const showChangePlanModal = ref<boolean>(false)
 
 // 销毁弹窗
 const showDestroyModal = ref<boolean>(false)
+const destroyError = ref('')
 const destroyLoading = ref<boolean>(false)
 const errorDestroyLoading = ref<boolean>(false)
 const destroyInfo = ref<{
@@ -603,6 +604,9 @@ const instanceHostName = computed<string>(() => {
 // 监听路由参数变化，重新加载实例数据
 watch([() => route.params.id, () => route.name, detailSessionKey], async ([newId, newName, session]) => {
     detailReadGeneration++
+    showDestroyModal.value = false
+    destroyInfo.value = null
+    destroyError.value = ''
     quotaFormBaseline = null
     // Invalidate the old target even if navigation returns to the same ID (A -> B -> A).
     const context = captureDetailRead('lifecycle', false)
@@ -1381,21 +1385,27 @@ async function handleSetAutoRenew(autoRenew: boolean): Promise<void> {
 // 加载销毁信息
 async function loadDestroyInfo(): Promise<void> {
   if (isAdminEntry || !instance.value) return
+  const context = captureDetailRead('destroy-preview')
   destroyInfo.value = null
   try {
-    destroyInfo.value = await customerSelfServiceApi.billing.getDestroyInfo(instance.value.id) as any
+    const info = await customerSelfServiceApi.billing.getDestroyInfo(context.id) as any
+    if (context.current() && showDestroyModal.value && info?.instance?.id === context.id) destroyInfo.value = info
   } catch {
+    if (!context.current()) return
     toast.error(t('instance.destroy.loadFailed'))
     showDestroyModal.value = false
   }
 }
 
 // 执行销毁
-async function handleDestroy(): Promise<void> {
-  if (isAdminEntry || !instance.value || !destroyInfo.value?.canDestroy) return
+async function handleDestroy(emailCode: string): Promise<void> {
+  if (isAdminEntry || !instance.value || !showDestroyModal.value || !destroyInfo.value?.canDestroy || destroyLoading.value || !/^\d{6}$/.test(emailCode)) return
+  const context = captureDetailRead('destroy-submit')
+  destroyError.value = ''
   destroyLoading.value = true
   try {
-    const result = await customerSelfServiceApi.billing.destroyInstance(instance.value.id)
+    const result = await customerSelfServiceApi.billing.destroyInstance(context.id, { emailCode })
+    if (!context.current()) return
     if (result.isFreeInstance) {
       toast.success(t('instance.destroy.success'))
     } else {
@@ -1405,6 +1415,8 @@ async function handleDestroy(): Promise<void> {
     // 跳转到实例列表
     router.push(instancesPath())
   } catch (err) {
+    if (!context.current()) return
+    destroyError.value = translateError(err)
     const apiErr = err as { code?: string }
     if (apiErr.code === 'INSTANCE_DESTROY_TRAFFIC_LIMIT_EXCEEDED') {
       await loadDestroyInfo()
@@ -1440,39 +1452,20 @@ async function handleResetPassword(): Promise<void> {
 
 // 监听销毁弹窗打开，加载销毁信息
 watch(showDestroyModal, async (visible) => {
+  destroyError.value = ''
   if (visible) {
     await loadDestroyInfo()
   } else {
+    readSequences['destroy-preview'] = (readSequences['destroy-preview'] || 0) + 1
+    readSequences['destroy-submit'] = (readSequences['destroy-submit'] || 0) + 1
     destroyInfo.value = null
   }
 })
 
 // 异常实例快速销毁（免手续费）
 async function handleErrorDestroy(): Promise<void> {
-  if (isAdminEntry || !instance.value || errorDestroyLoading.value) return
-  errorDestroyLoading.value = true
-  try {
-    const info = await customerSelfServiceApi.billing.getDestroyInfo(instance.value.id, { feeWaiver: 'error' }) as NonNullable<typeof destroyInfo.value>
-    if (!info.canDestroy) {
-      toast.error(info.cannotDestroyReason)
-      return
-    }
-    const confirmation = info.refund.refundAmount > 0
-      ? t('instance.errorBanner.confirmDestroy', { amount: info.refund.refundAmount.toFixed(2) })
-      : t('instance.errorBanner.confirmDestroyNoRefund')
-    if (!confirm(confirmation)) return
-    const result = await customerSelfServiceApi.billing.destroyInstance(instance.value.id, { feeWaiver: 'error' })
-    if (result.isFreeInstance || result.refundAmount <= 0) {
-      toast.success(t('instance.destroy.success'))
-    } else {
-      toast.success(t('instance.destroy.successWithRefund', { amount: result.refundAmount.toFixed(2) }))
-    }
-    router.push(instancesPath())
-  } catch (err) {
-    toast.error(translateError(err))
-  } finally {
-    errorDestroyLoading.value = false
-  }
+  if (isAdminEntry || !instance.value || errorDestroyLoading.value || destroyLoading.value) return
+  showDestroyModal.value = true
 }
 
 // 任务状态轮询
@@ -1558,6 +1551,7 @@ function stopTaskPolling(): void {
 }
 
 async function handleAction(action: InstanceAction): Promise<void> {
+  if (action === 'delete' && !isAdminEntry && instance.value?.user_id === authStore.user?.id) { showDestroyModal.value = true; return }
   if (!instance.value) return
   actionLoading.value = action
   try {
@@ -2754,7 +2748,9 @@ function formatShortDate(dateStr: string | null | undefined): string {
             :disabled="isOperationDisabled || !['running', 'stopped', 'error'].includes(instance.status)"
             class="btn-secondary btn-sm sm:btn"
             @click="showHostReplacement = true"
-          >{{ $t('dedicated.replacement.manageTitle') }}</button>
+          >
+            {{ $t('dedicated.replacement.manageTitle') }}
+          </button>
           <!-- 重建按钮（始终可点击，运行时提示需要先关机） -->
           <button
             v-if="canRebuild"
@@ -3146,33 +3142,33 @@ function formatShortDate(dateStr: string | null | undefined): string {
                 >
                   <div class="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
                     <div class="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-	                      <button
-	                        class="btn-secondary btn-sm w-full justify-center sm:w-auto sm:min-w-[110px]"
-	                        :disabled="isOperationDisabled"
-	                        :class="isOperationDisabled ? 'opacity-50 cursor-not-allowed' : ''"
-	                        @click="showRenewModal = true"
-	                      >
-	                        {{ $t('instance.subscription.renew') }}
-	                      </button>
+                      <button
+                        class="btn-secondary btn-sm w-full justify-center sm:w-auto sm:min-w-[110px]"
+                        :disabled="isOperationDisabled"
+                        :class="isOperationDisabled ? 'opacity-50 cursor-not-allowed' : ''"
+                        @click="showRenewModal = true"
+                      >
+                        {{ $t('instance.subscription.renew') }}
+                      </button>
 
-	                      <button
-	                        class="btn-secondary btn-sm w-full justify-center sm:w-auto sm:min-w-[110px]"
-	                        :disabled="isOperationDisabled"
-	                        :class="isOperationDisabled ? 'opacity-50 cursor-not-allowed' : ''"
-	                        @click="showAutoRenewModal = true"
-	                      >
-	                        {{ $t('instance.subscription.autoRenew') }}
-	                      </button>
+                      <button
+                        class="btn-secondary btn-sm w-full justify-center sm:w-auto sm:min-w-[110px]"
+                        :disabled="isOperationDisabled"
+                        :class="isOperationDisabled ? 'opacity-50 cursor-not-allowed' : ''"
+                        @click="showAutoRenewModal = true"
+                      >
+                        {{ $t('instance.subscription.autoRenew') }}
+                      </button>
 
-	                      <button
-	                        v-if="instance.package_id && (instance as any).planId"
-	                        class="btn-secondary btn-sm w-full justify-center sm:w-auto sm:min-w-[110px]"
-	                        :disabled="isOperationDisabled"
-	                        :class="isOperationDisabled ? 'opacity-50 cursor-not-allowed' : ''"
-	                        @click="openResetPasswordModal"
-	                      >
-	                        {{ $t('instance.detail.resetPassword.button') }}
-	                      </button>
+                      <button
+                        v-if="instance.package_id && (instance as any).planId"
+                        class="btn-secondary btn-sm w-full justify-center sm:w-auto sm:min-w-[110px]"
+                        :disabled="isOperationDisabled"
+                        :class="isOperationDisabled ? 'opacity-50 cursor-not-allowed' : ''"
+                        @click="openResetPasswordModal"
+                      >
+                        {{ $t('instance.detail.resetPassword.button') }}
+                      </button>
 
                       <button
                         v-if="!isAdminEntry && canTransfer"
@@ -3184,12 +3180,12 @@ function formatShortDate(dateStr: string | null | undefined): string {
                       </button>
                     </div>
 
-	                    <button
-	                      :disabled="destroyButtonDisabled || isOperationDisabled"
-	                      class="btn-danger btn-sm w-full lg:w-auto lg:min-w-[110px]"
-	                      :class="(destroyButtonDisabled || isOperationDisabled) ? 'opacity-50 cursor-not-allowed' : ''"
-	                      @click="showDestroyModal = true"
-	                    >
+                    <button
+                      :disabled="destroyButtonDisabled || isOperationDisabled"
+                      class="btn-danger btn-sm w-full lg:w-auto lg:min-w-[110px]"
+                      :class="(destroyButtonDisabled || isOperationDisabled) ? 'opacity-50 cursor-not-allowed' : ''"
+                      @click="showDestroyModal = true"
+                    >
                       {{ $t('instance.destroy.button') }}
                     </button>
                   </div>
@@ -3224,19 +3220,19 @@ function formatShortDate(dateStr: string | null | undefined): string {
             :is-instance-owner="!isHostOwnerOnly"
             :reassign-ipv6-loading="reassignIpv6Loading"
             :last-ipv6-reassign-at="(instance as any).last_ipv6_reassign_at"
-	            :delete-ports-loading="deletePortsLoading"
-	            @copy="copyToClipboard"
-	            @add-port="requestAddPort"
-	            @delete-port="deletePort"
-	            @delete-ports="deletePorts"
-	            @reassign-ipv6="requestReassignIpv6"
-	          />
+            :delete-ports-loading="deletePortsLoading"
+            @copy="copyToClipboard"
+            @add-port="requestAddPort"
+            @delete-port="deletePort"
+            @delete-ports="deletePorts"
+            @reassign-ipv6="requestReassignIpv6"
+          />
 
           <!-- Sites Tab -->
-	          <InstanceSitesTab
-	            v-if="activeTab === 'sites' && instance"
-	            :instance-id="instance.id"
-	          />
+          <InstanceSitesTab
+            v-if="activeTab === 'sites' && instance"
+            :instance-id="instance.id"
+          />
 
           <!-- Traffic Tab -->
           <TrafficStats
@@ -3248,10 +3244,10 @@ function formatShortDate(dateStr: string | null | undefined): string {
           <SnapshotManager
             v-if="activeTab === 'snapshots' && instance"
             :instance-id="instance.id"
-	            :instance-name="instance.name"
-	            :instance-status="instance.status"
-	            :snapshot-limit="(instance as any).snapshot_limit"
-	          />
+            :instance-name="instance.name"
+            :instance-status="instance.status"
+            :snapshot-limit="(instance as any).snapshot_limit"
+          />
 
           <!-- Quota Tab -->
           <InstanceQuotaTab
@@ -3475,7 +3471,9 @@ function formatShortDate(dateStr: string | null | undefined): string {
       v-model:visible="showDestroyModal"
       :loading="destroyLoading"
       :destroy-info="destroyInfo"
+      :error="destroyError"
       :machine-shape="machineShapeLabel"
+      :region-label="planRegionLabel"
       @destroy="handleDestroy"
     />
 

@@ -52,7 +52,7 @@ assert.ok(
 )
 
 assert.ok(
-  source.includes('where: { userId, operationType, code: prepared.codeHash }'),
+  source.includes('where: { userId, operationType, code: prepared.codeHash, ...GENERIC_VERIFICATIONS }'),
   'send-failure cleanup must delete the hashed verification record'
 )
 

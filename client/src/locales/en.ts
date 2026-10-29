@@ -985,7 +985,7 @@ pool: {
         repayFailed: 'Failed to repay order',
         orderCancelled: 'Order cancelled',
         noRefundNotice: 'Recharge refunds are credited to your account balance.',
-        rechargeNotice: 'I understand that unusable instances can be destroyed and returned to panel balance, transferable instance PUSH is free, and the email can be changed by myself.',
+        rechargeNotice: 'I understand that destroying my instances does not issue a refund; instance transfer (PUSH) fees are shown on the transfer page; my email can be changed in Settings.',
         cancelFailed: 'Failed to cancel order',
         orderExpired: 'Order expired',
         rechargeSuccess: 'Recharge successful! Balance has been credited',
@@ -1681,6 +1681,11 @@ pool: {
         },
         // Instance destroy
         destroy: {
+            emailCodeLabel: 'Account email verification code',
+            emailCodeHint: 'Verify your account email {email} before destroying. This code applies only to the selected instances.',
+            emailMissing: 'Add an account email in Settings before destroying instances.',
+            emailSent: 'Code sent to {email}, valid for 10 minutes. If email is unavailable, submit a support ticket.',
+            emailSendFailed: 'The verification email could not be sent. Retry or submit a support ticket.',
             button: 'Destroy',
             title: 'Destroy Instance',
             warning: 'This action will permanently delete the instance and all its data, including snapshots and backups, with no refund. This cannot be undone.',

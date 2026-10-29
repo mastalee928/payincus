@@ -1149,12 +1149,8 @@ assert.ok(
 )
 const errorDestroyHandler = instanceDetailViewSource.slice(instanceDetailViewSource.indexOf('async function handleErrorDestroy()'),
   instanceDetailViewSource.indexOf('// 任务状态轮询', instanceDetailViewSource.indexOf('async function handleErrorDestroy()')))
-assert.ok(errorDestroyHandler.indexOf('billing.getDestroyInfo') < errorDestroyHandler.indexOf('confirm(confirmation)') &&
-  errorDestroyHandler.indexOf('confirm(confirmation)') < errorDestroyHandler.indexOf('billing.destroyInstance') &&
-  errorDestroyHandler.includes('if (!info.canDestroy)') && errorDestroyHandler.includes('info.refund.refundAmount > 0') &&
-  errorDestroyHandler.includes('instance.errorBanner.confirmDestroyNoRefund') &&
-  errorDestroyHandler.includes('result.refundAmount <= 0'),
-  'error-state destruction must preview actual refundable balance before confirmation and avoid promising a second refund')
+assert.ok(errorDestroyHandler.includes('showDestroyModal.value = true') && !errorDestroyHandler.includes('billing.destroyInstance'),
+  'error-state destruction must use the same preview, irreversible confirmation and required email-code dialog')
 assert.ok(
   instanceDetailViewSource.includes('localizePoolRegionName') &&
     instanceDetailViewSource.includes('ociMachineShape') &&

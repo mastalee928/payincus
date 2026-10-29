@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：用户邮箱销毁/R319阶段最终验证结束，按Owner阶段提交推送授权保存。单/批/异常/本人DELETE强制邮箱，管理员免邮箱；绑定account/sid/email/set、去同码、一次消费、10分钟有效、五错、同账户60秒/每小时5次，通用验证隔离预算。UI仅邮箱输入，名称/地区/#ID表格，三语发工单。pg-60s/delete-final2、ui-final11浅深色三宽0 FAIL/WARN、batch-no-name-final、5守卫+最终2UI守卫、build-final-complete双端含types/server-build-60s、test-types-final3与lint-complete全部exit0，无待poll。长名称附加回归long-names与最终dist守卫均exit0，截图已看，无待poll。manifest194常规174专项接CI，27c05/4da9 CI success。本阶段CI与外部邮件/真实Linux另核；327为204含部分/68不同或已有/55待，灾备未完。下一R320 PasswordSection仍6位，后台8–128含大小写/数字；相关源码/既有scope/receipts夹具已读、未改。PG55438保留，不停止；下面接续为历史。
+
 > **最新接续**：4da9fdf2已push。R317两登录入口loading gate及演示/OAuth在途拒绝、管理员等待安全router.push已修；实际authStore/两Vue Chrome先红重复2次→final-r3两端busy/重试/正确console/缺输入challenge/原TOTP恢复码payload通过exit0。3守卫/lint最终零错警/manifest194常规172专项、双端build含vue-tsc最终exit0/dist与三宽三语截图通过，无待poll，准备push。203有修复复验含部分/68已有防护不同/56待精修；不是外部challenge/真实认证及全部327验收。下一R319三语充值确认仍销毁退款/PUSH免费，已核Wallet/实际transfer_fee扣费及用户销毁零退款守卫，尚未改；登录离页旧回执和完整灾备另待。
 
 > **最新接续**：cdd11a2a已push。R316 create/update字段/取消/新建禁在途、固定payload/目标/session/draft/旧回执、真实message/create channel确认、掩码Token仅原值省略、channels辅助读隔离已修。Chrome submit-final-r2 36旧回执/十非法/原与编辑掩码及正常/失败全部exit0，editor20读/bindings18回执回归exit0；4守卫/lint零错警/manifest194常规171专项，types-final及最终build-final双端含vue-tsc/dist-final2全exit0，无待poll，三宽三语截图已看，准备push。202/68/57含部分不变；真实TG/后台当前授权审计与其它写配置仍待。此前六批到cdd11a2a CI均success。下一R317 Login/AdminLogin/authStore与完整login route/守卫已读，login-submit实际Chrome重复2次先红，scripts/fixtures/login-submit与test-login-submit.mjs未提交、产品未改。327/灾备未完。

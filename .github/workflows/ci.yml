@@ -159,6 +159,7 @@ jobs:
           pnpm --filter server test:host-pool-integration
           pnpm --filter server test:host-public-ipv6-integration
           pnpm --filter server test:admin-instance-delete-integration
+          pnpm --filter server test:destroy-email-verification
       - name: Verify backup upload authorization, queue races and export completion
         run: |
           pnpm --filter server test:review-upload-completion-integration
@@ -231,6 +232,8 @@ jobs:
         run: pnpm --filter server test:review-ticket-instance-card
       - name: Batch renewal and destruction submit only the approved preview targets
         run: pnpm --filter server test:review-instance-batch-billing
+      - name: Destroy email confirmation keeps the current account and instance set
+        run: pnpm --filter server test:destroy-email-ui
       - name: Legacy create coupons preserve the current quote and hosting source
         run: pnpm --filter server test:review-create-promo
       - name: Instance logs preserve current search and instance context

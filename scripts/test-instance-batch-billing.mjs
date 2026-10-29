@@ -57,7 +57,7 @@ try {
     }
     const close = () => run(cap => window.batchHarness.view()[`closeBatch${cap}Modal`](), cap)
     const confirm = () => run(cap => { void window.batchHarness.view()[`confirmBatch${cap}`]() }, cap)
-    const phrase = () => run(() => { window.batchHarness.view().batchDestroyConfirm = 'DESTROY' })
+    const phrase = () => run(() => { window.batchHarness.view().batchDestroyEmailCode = '654321' })
     let request = await open([1, 2]); await phrase(); const beforeLoading = await count(kind); await confirm()
     assert.equal(await count(kind), beforeLoading, `${kind} cannot submit during preview`)
     const blocked = { ...item(2), [kind === 'renew' ? 'canRenew' : 'canDestroy']: false }
@@ -107,7 +107,7 @@ try {
     } else {
       request = await open(); await ready(request)
       assert.equal(await view(canSubmit), false)
-      await run(() => { window.batchHarness.view().batchDestroyConfirm = 'destroy' }); assert.equal(await view(canSubmit), false)
+      await run(() => { window.batchHarness.view().batchDestroyEmailCode = '12345' }); assert.equal(await view(canSubmit), false)
       await phrase(); assert.equal(await view(canSubmit), true); assert.equal(await view('batchDestroyTotalRefund'), 0); assert.equal(await view('batchDestroyTotalFee'), 0); await close()
     }
     console.log(`PASS ${kind}: target/eligibility binding, current success, repeated submit, preview ABA, invalid IDs and billing gates`)
@@ -127,7 +127,9 @@ try {
     assert.equal(await view(modal), false); assert.equal(await toasts(), sessionReads)
 
     request = await open(); await ready(request); await phrase(); await confirm(); const failedWrite = await last(kind), currentMessages = await toasts()
-    await reject(failedWrite); assert.equal(await view(modal), true); assert.equal(await view(canSubmit), true); assert.equal(await toasts(), currentMessages + 1)
+    await reject(failedWrite); assert.equal(await view(modal), true); assert.equal(await view(canSubmit), true)
+    if (kind === 'destroy') { assert.equal(await toasts(), currentMessages); assert.ok(await view('batchDestroyError')) }
+    else assert.equal(await toasts(), currentMessages + 1)
     await confirm(); await accept(await last(kind), { ...result, failedCount: 1 }); assert.equal(await view(modal), false); assert.deepEqual(await selection(), [])
     request = await open(); await ready(request); await phrase()
     await run(() => window.batchHarness.router.push('/instances?changed=1')); assert.equal(await view(modal), false)

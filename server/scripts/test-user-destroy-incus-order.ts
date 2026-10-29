@@ -45,7 +45,7 @@ assert.ok(
 )
 
 const routeSection = section(
-  "fastify.post<{ Params: { id: string }; Querystring: { feeWaiver?: string } }>('/:id/destroy'"
+  "fastify.post<{ Params: { id: string }; Querystring: { feeWaiver?: string }; Body: { emailCode: string } }>('/:id/destroy'"
 )
 const routeDeleteIndex = routeSection.indexOf('await deleteIncusInstanceForUserDestroy(instance, request.log)')
 const routeBillingIndex = routeSection.indexOf('await recordUserDestroyAudit({')

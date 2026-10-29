@@ -2,6 +2,16 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 用户销毁邮箱保护与 R1-319 充值确认
+
+- Owner追加：用户单台、批量、异常及本人通用DELETE必须账户邮箱验证码；管理员替用户删除免邮箱。新服务绑定账户、有效sid、当前邮箱和排序实例集合，10分钟有效、一次消费、5次错码、同账户60秒限发及每小时5次发送预算；发送失败和已消费记录保留预算。邮件走原mailer，不依赖通知渠道。PG全局分配锁与随机碰撞重试避免有效期内A/B同码；只存SHA256，不返数字或完整邮箱。发送在途不能消费；通用验证隔离销毁专用记录，不得晋升grant或清除预算。
+- 单台/异常与批量统一邮箱字段。按Owner最新要求删除名称输入/DESTROY短语，表格列名称、实际地区与实例记录编号（未知为—）；保留不可恢复说明、持久错误、44px控件、键盘焦点及目标/会话隔离。前端60秒倒计时；邮件失败三语引导「发工单」。用已安装taste-skill沿用原纯黑白体系小范围精修，未draw新方向；浅深色1440/768/390检查0 FAIL/0 WARN且截图已看，放行仅针对实际浮层遮挡/阴影/居中留白。Osaka/example.test为隔离夹具。
+- `takeover-destroy-email-pg-60s.log`真实PG+本地SMTP exit0：强制A/B同随机数仍发不同码、互换/换sid/邮箱/集合拒绝、8并发一次消费、重放/过期/五错/撤销/封禁/归属变化/发送失败拒绝；换目标/会话、消费和失败不能绕过60秒，通用验证不能变更专用记录。`takeover-destroy-email-delete-final2.log`真实PG/Fastify及TLS Incus边界替身单/批付费/免费/异常零退款零余额账目、管理员选择退款/免邮箱与失败库存保护exit0；不是真实客户邮箱收件箱或Linux Incus验收。
+- `takeover-destroy-email-ui-final11.log`实际Vue/Chrome唯一邮箱输入/名称地区表格、发送/失败/重试/倒计时、8旧邮件回执、无邮箱/busy/焦点；实际详情异常入口经dialog、精确payload/重复/重试及4旧写结果、Wallet三语勾选门禁（零充值请求）exit0。`takeover-destroy-email-batch-no-name-final.log`原批量目标/权限/session/cache/卸载与失败回归exit0。开发自动重载中断已复跑；对比度/重复attribute/缺i18n key均修后最终过。
+- 5相关守卫过，最后UI变更后`takeover-destroy-email-ui-guards-complete.log`route/i18n再过；server-build-60s、client `takeover-destroy-email-build-final-complete.log`双端含vue-tsc exit0，lint-complete零错警，独立TS test-types-final3 exit0（ES2023/node types/Fastify声明）；manifest194常规174专项，两新专项接CI。27c05f79/4da9fdf2 CI已核success；本阶段CI推送后另核。
+- R319三语充值确认不再承诺销毁退余额/PUSH免费，手续费以转移页为准，未改计费。327唯一编号204有修复/复验（含部分）/68已有防护或实现不同/55待精修；新增邮箱独立记录不重复计数。完整327、外部邮件/真实宿主与灾备仍未完成。按Owner授权阶段提交推送，不发行、不生产OTA/DNS或操作客户。下一R320已读PasswordSection、users PATCH、validatePassword及既有密码回归：前端6位、后台8–128含大小写/数字，继续。
+- Owner询问#1含义：这是实例记录id，不是宿主/机器池编号。同一名称下用于区分对象。追加`takeover-destroy-email-long-names.log`真实Chrome长中文/连续英文完整文字及390px表格/弹窗/page宽度检查exit0，截图已看；高度过长沿现有弹窗内部滚动，未截断名称。最终dist边界守卫exit0，无待poll。
+
 ## 2026-10-29 R1-317 两端登录即时重复提交门禁
 
 - 4da9fdf2已push。login-before实际Chrome连续handleLogin发2次先红。Login/AdminLogin函数第一行现在拒loading，演示登录先拒在途以免覆盖当前输入；OAuth函数和按钮也拒在途。管理端await原安全router.push到完成再解锁。仅补入口互斥，不改authStore、后端登录/2FA/恢复码/Turnstile规则或双端账号驱离。

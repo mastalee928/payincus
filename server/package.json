@@ -42,6 +42,8 @@
     "test:review-ticket-actions": "node ../scripts/test-ticket-actions.mjs",
     "test:review-ticket-instance-card": "node ../scripts/test-ticket-instance-card.mjs",
     "test:review-instance-batch-billing": "node ../scripts/test-instance-batch-billing.mjs",
+    "test:destroy-email-ui": "node ../scripts/test-destroy-email-ui.mjs",
+    "test:destroy-email-verification": "node --import tsx scripts/test-destroy-email-verification.ts",
     "test:review-create-promo": "node ../scripts/test-create-promo.mjs",
     "test:review-instance-logs": "node ../scripts/test-instance-logs.mjs",
     "test:review-reinstall-selection": "node ../scripts/test-reinstall-selection.mjs",

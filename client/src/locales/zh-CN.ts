@@ -1040,7 +1040,7 @@ pool: {
         repayFailed: '重新支付失败',
         orderCancelled: '订单已取消',
         noRefundNotice: '充值退款统一退到余额。',
-        rechargeNotice: '我知道不好用的实例可以销毁退至面板余额，可转移实例 PUSH 是免费的，邮箱可自行修改。',
+        rechargeNotice: '我了解自行销毁实例不退款；实例转移（PUSH）手续费以转移页面显示为准；邮箱可在个人设置修改。',
         cancelFailed: '取消订单失败',
         orderExpired: '订单已过期',
         rechargeSuccess: '充值成功！余额已到账',
@@ -1735,6 +1735,11 @@ pool: {
         },
         // 实例销毁
         destroy: {
+            emailCodeLabel: '账户邮箱验证码',
+            emailCodeHint: '销毁前必须验证账户邮箱 {email}。验证码仅用于本次选中的实例。',
+            emailMissing: '请先在个人设置绑定账户邮箱，再销毁实例。',
+            emailSent: '验证码已发送至 {email}，10分钟内有效。邮件不可用时无法销毁，请发工单。',
+            emailSendFailed: '验证码邮件发送失败，请重试或发工单。',
             button: '销毁',
             title: '销毁实例',
             warning: '此操作将永久删除实例及其所有数据，包括快照、备份等，无退款且不可恢复。',

@@ -67,6 +67,8 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-ticket-actions', 'requires Chrome/Edge and local Vite; current ticket status, admin actions and create draft/navigation isolation'],
   ['test:review-ticket-instance-card', 'requires Chrome/Edge and local Vite; ticket instance card response, polling, action, session and cache lifecycle'],
   ['test:review-instance-batch-billing', 'requires Chrome/Edge and local Vite; batch billing preview targets, eligibility and session/cache/write response isolation'],
+  ['test:destroy-email-ui', 'requires Chrome/Edge and local Vite; actual destroy dialog email gates, lifecycle, keyboard and recharge copy'],
+  ['test:destroy-email-verification', 'requires an isolated local *_pool_test PostgreSQL database and local SMTP; destroy code allocation, scope, replay and route gates'],
   ['test:review-create-promo', 'requires Chrome/Edge and local Vite; legacy create coupon/plan/session isolation and initial hosting-zone source'],
   ['test:review-instance-logs', 'requires Chrome/Edge and local Vite; instance log query ordering, pagination, failure, session and cache lifecycle'],
   ['test:review-reinstall-selection', 'requires Chrome/Edge and local Vite; reinstall/recreate current image/key membership, submit and modal lifecycle'],

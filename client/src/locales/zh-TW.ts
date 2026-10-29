@@ -990,7 +990,7 @@ pool: {
         repayFailed: '重新支付失敗',
         orderCancelled: '訂單已取消',
         noRefundNotice: '充值退款統一退到餘額。',
-        rechargeNotice: '我知道不好用的實例可以銷毀退至面板餘額，可轉移實例 PUSH 是免費的，郵箱可自行修改。',
+        rechargeNotice: '我了解自行銷毀實例不退款；實例轉移（PUSH）手續費以轉移頁面顯示為準；郵箱可在個人設定修改。',
         cancelFailed: '取消訂單失敗',
         orderExpired: '訂單已過期',
         rechargeSuccess: '充值成功！餘額已到帳',
@@ -1799,6 +1799,11 @@ pool: {
         },
         // 實例銷毀
         destroy: {
+            emailCodeLabel: '帳戶郵箱驗證碼',
+            emailCodeHint: '銷毀前必須驗證帳戶郵箱 {email}。驗證碼僅用於本次選中的實例。',
+            emailMissing: '請先在個人設定綁定帳戶郵箱，再銷毀實例。',
+            emailSent: '驗證碼已發送至 {email}，10分鐘內有效。郵件不可用時無法銷毀，請發工單。',
+            emailSendFailed: '驗證碼郵件發送失敗，請重試或發工單。',
             button: '銷毀',
             title: '銷毀實例',
             warning: '此操作將永久刪除實例及其所有資料，包括快照、備份等，無退款且不可恢復。',

@@ -8,7 +8,8 @@ export default {
   billing: {
     previewBatchRenew: ids => defer('renew-preview', { ids }), getUserBalance: () => defer('balance'),
     renewInstancesBatch: (ids, months) => defer('renew', { ids, months }),
-    getBatchDestroyInfo: ids => defer('destroy-preview', { ids }), destroyInstancesBatch: ids => defer('destroy', { ids }),
+    getBatchDestroyInfo: ids => defer('destroy-preview', { ids }), destroyInstancesBatch: (ids, emailCode) => defer('destroy', { ids, emailCode }),
+    requestDestroyVerification: ids => defer('destroy-code', { ids }),
     setAutoRenewBatch: (ids, autoRenew) => defer('auto-renew', { ids, autoRenew }),
   },
 }

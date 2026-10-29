@@ -18,7 +18,7 @@ const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const prefix = `delete-test-${randomUUID().slice(0, 8)}`
 const admin = await prisma.user.create({ data: { username: `${prefix}-admin`, passwordHash: 'unusable-fixture', role: 'admin' } })
 const owner = await prisma.user.create({ data: { username: `${prefix}-owner`, passwordHash: 'unusable-fixture', hostingBalance: 100 } })
-const buyer = await prisma.user.create({ data: { username: `${prefix}-buyer`, passwordHash: 'unusable-fixture', balance: 100 } })
+const buyer = await prisma.user.create({ data: { username: `${prefix}-buyer`, passwordHash: 'unusable-fixture', balance: 100, email: `${prefix}@example.test` } })
 const pkg = await prisma.package.create({ data: { userId: owner.id, name: prefix, cpuMax: 100, memoryMax: 1024, diskMax: 2048 } })
 const plan = await prisma.packagePlan.create({ data: { packageId: pkg.id, name: prefix, cpu: 100, memory: 1024, disk: 2048, trafficLimit: 1000000n, price: 1000,
   portLimit: 0, snapshotLimit: 0, backupLimit: 0, siteLimit: 0 } })
@@ -38,7 +38,7 @@ app.decorate('authenticate', async (request: any, reply: any) => {
   const role = request.headers['x-test-role']
   if (!role) return reply.code(401).send({ code: 'UNAUTHORIZED' })
   const actor = role === 'admin' ? admin : role === 'owner' ? owner : buyer
-  request.user = { id: actor.id, username: actor.username, role: actor.role }
+  request.user = { id: actor.id, username: actor.username, role: actor.role, sid: `${prefix}-session`, iat: Math.floor(Date.now() / 1000) + 1 }
 })
 app.decorate('requireAdmin', async (request: any, reply: any) => { if (request.user.role !== 'admin') return reply.code(403).send({ code: 'FORBIDDEN' }) })
 app.decorate('authenticateAdmin', async (request: any, reply: any) => { await app.authenticate(request, reply); if (!reply.sent) await app.requireAdmin(request, reply) })
@@ -50,6 +50,16 @@ await app.register(adminBillingRoutes)
 for (const actor of [admin, owner, buyer]) await prisma.notificationChannel.create({ data: { userId: actor.id, type: 'webhook', name: 'Verification fixture', enabled: true, config: { url: 'https://invalid.example.test' } } })
 const remove = (hostId: number, ids: number[], role: string, refund: boolean, databaseOnly = true) => app.inject({ method: 'DELETE',
   url: `/hosts/${hostId}/instances/batch`, headers: { 'x-test-role': role }, payload: { instanceIds: ids, refund, databaseOnly } })
+// This existing deletion/ledger matrix seeds only its own isolated grant. The
+// actual email send/claim path is separately exercised by destroy-email-verification.
+async function destroyPayload(ids: number[]) {
+  const normalized = [...ids].sort((a, b) => a - b)
+  const resourceType = 'destroy-email:v1:' + createHash('sha256').update(JSON.stringify([buyer.id, `${prefix}-session`, buyer.email, normalized])).digest('hex')
+  await prisma.operationVerification.deleteMany({ where: { userId: buyer.id, resourceType } })
+  await prisma.operationVerification.create({ data: { userId: buyer.id, operationType: 'delete_instance', channel: 'email', resourceType,
+    resourceId: ids.length === 1 ? ids[0] : null, code: 'sha256:' + createHash('sha256').update('654321').digest('hex'), expiresAt: new Date(Date.now() + 60_000) } })
+  return { emailCode: '654321' }
+}
 try {
   const direct = await fixture()
   const directBefore = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
@@ -64,7 +74,7 @@ try {
   await prisma.instance.update({ where: { id: direct.instance.id }, data: { packagePlanId: null } })
   const customerDelete = await app.inject({ method: 'DELETE', url: `/instances/${direct.instance.id}`, headers: { 'x-test-role': 'buyer' }, payload: {} })
   assert.equal(customerDelete.statusCode, 403, 'customer secondary verification remains required')
-  assert.equal(customerDelete.json().code, 'VERIFICATION_REQUIRED')
+  assert.equal(customerDelete.json().code, 'DESTROY_EMAIL_VERIFICATION_REQUIRED')
   const denied = await fixture()
   assert.equal((await remove(denied.host.id, [denied.instance.id], 'buyer', false)).statusCode, 403)
   assert.equal((await remove(denied.host.id, [denied.instance.id], 'owner', false)).statusCode, 403, 'a hosted owner cannot waive customer refunds')
@@ -104,7 +114,7 @@ try {
   // Real HTTP/TLS and PostgreSQL, with only the Incus process/disk boundary simulated.
   const tlsRoot = await mkdtemp(join(tmpdir(), 'payincus-delete-https-'))
   const certificatePath = join(tlsRoot, 'client.crt'), keyPath = join(tlsRoot, 'client.key')
-  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
+  execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
     '-keyout', keyPath, '-out', certificatePath], { stdio: 'pipe', windowsHide: true })
   const certificate = await readFile(certificatePath, 'utf8')
   const remoteStates = new Map<string, string>(), remoteCalls: string[] = []
@@ -142,9 +152,10 @@ try {
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const endpoint = server.address(); assert.ok(endpoint && typeof endpoint === 'object')
+  const endpointPort = endpoint.port
   async function runningErrorFixture() {
     const value = await fixture()
-    await prisma.host.update({ where: { id: value.host.id }, data: { url: `https://127.0.0.1:${endpoint!.port}`,
+    await prisma.host.update({ where: { id: value.host.id }, data: { url: `https://127.0.0.1:${endpointPort}`,
       certPath: certificatePath, keyPath, serverCertificate: certificate, serverFingerprint: new X509Certificate(certificate).fingerprint256 } })
     await prisma.instance.update({ where: { id: value.instance.id }, data: { status: 'error' } })
     remoteStates.set(value.instance.incusId, 'Running')
@@ -155,7 +166,7 @@ try {
     const attempt = randomUUID()
     remoteConfig.set(value.instance.incusId, { 'user.payincus.provisioning-attempt': attempt, 'volatile.uuid': randomUUID() })
     await prisma.instance.update({ where: { id: value.instance.id }, data: { provisioningCleanupPending: true,
-      snapshottedSpecs: { managedCleanup: { attempt, endpointHash: createHash('sha256').update(`https://127.0.0.1:${endpoint!.port}`).digest('hex') } } } })
+      snapshottedSpecs: { managedCleanup: { attempt, endpointHash: createHash('sha256').update(`https://127.0.0.1:${endpointPort}`).digest('hex') } } } })
     await prisma.publicIpv4Address.create({ data: { hostId: value.host.id, instanceId: value.instance.id,
       address: '192.0.2.30', status: 'assigned', prefixLength: 24, gateway: '192.0.2.1' } })
     return value
@@ -200,8 +211,8 @@ try {
         }
         keepDeleted = failure === 'unconfirmed'
         const before = await ledgerSnapshot(), callCount = remoteCalls.length
-        const result = entry === 'user' ? await app.inject({ method: 'POST', url: `/instances/${value.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' } })
-          : entry === 'user_batch' ? await app.inject({ method: 'POST', url: '/instances/batch/destroy', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: [value.instance.id] } })
+        const result = entry === 'user' ? await app.inject({ method: 'POST', url: `/instances/${value.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' }, payload: await destroyPayload([value.instance.id]) })
+          : entry === 'user_batch' ? await app.inject({ method: 'POST', url: '/instances/batch/destroy', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: [value.instance.id], ...await destroyPayload([value.instance.id]) } })
           : entry === 'admin' ? await app.inject({ method: 'DELETE', url: `/instances/${value.instance.id}`, headers: { 'x-test-role': 'admin' }, payload: {} })
           : await remove(value.host.id, [value.instance.id], 'admin', false, false)
         if (entry.includes('batch')) assert.equal(result.json().successCount, 0, result.body)
@@ -248,7 +259,7 @@ try {
       const preview = await app.inject({ method: 'GET', url: `/instances/${value.instance.id}/destroy-info${query}`, headers: { 'x-test-role': 'buyer' } })
       assert.equal(preview.statusCode, 200, preview.body)
       assertNoRefundPreview(preview.json())
-      const deleted = await app.inject({ method: 'POST', url: `/instances/${value.instance.id}/destroy${query}`, headers: { 'x-test-role': 'buyer' } })
+      const deleted = await app.inject({ method: 'POST', url: `/instances/${value.instance.id}/destroy${query}`, headers: { 'x-test-role': 'buyer' }, payload: await destroyPayload([value.instance.id]) })
       assert.equal(deleted.statusCode, 200, deleted.body)
       assert.equal(deleted.json().refundAmount, 0)
       assert.equal(deleted.json().feeAmount, 0)
@@ -258,7 +269,7 @@ try {
         assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: value.instance.id } })).provisioningCleanupPending, false, 'confirmed manual deletion must finalize pending creation cleanup')
         assert.equal((await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: value.host.id } })).status, 'free')
       }
-      assert.equal((await app.inject({ method: 'POST', url: `/instances/${value.instance.id}/destroy${query}`, headers: { 'x-test-role': 'buyer' } })).statusCode, 400)
+      assert.equal((await app.inject({ method: 'POST', url: `/instances/${value.instance.id}/destroy${query}`, headers: { 'x-test-role': 'buyer' }, payload: await destroyPayload([value.instance.id]) })).statusCode, 400)
       assert.deepEqual(await ledgerSnapshot(), before, 'duplicate destruction must not affect money')
     }
     const userBatch = [await pendingCleanupFixture(), await runningErrorFixture()]
@@ -269,7 +280,7 @@ try {
     const batchPreview = await app.inject({ method: 'POST', url: '/instances/batch/destroy-info', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: ids } })
     assert.equal(batchPreview.statusCode, 200, batchPreview.body)
     batchPreview.json().items.forEach(assertNoRefundPreview)
-    const userBatchResponse = await app.inject({ method: 'POST', url: '/instances/batch/destroy', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: [...ids, ids[0]] } })
+    const userBatchResponse = await app.inject({ method: 'POST', url: '/instances/batch/destroy', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: ids, ...await destroyPayload(ids) } })
     assert.equal(userBatchResponse.statusCode, 200, userBatchResponse.body)
     assert.equal(userBatchResponse.json().successCount, 2, userBatchResponse.body)
     assert.equal(userBatchResponse.json().results.length, 2, 'duplicate IDs must not run twice')
@@ -311,12 +322,12 @@ try {
     const beforeRefunded = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
     const quote = await app.inject({ method: 'GET', url: `/instances/${refunded.instance.id}/destroy-info?feeWaiver=error`, headers: { 'x-test-role': 'buyer' } })
     assert.equal(quote.json().refund.refundAmount, 0)
-    const destroyed = await app.inject({ method: 'POST', url: `/instances/${refunded.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' } })
+    const destroyed = await app.inject({ method: 'POST', url: `/instances/${refunded.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' }, payload: await destroyPayload([refunded.instance.id]) })
     assert.equal(destroyed.statusCode, 200, destroyed.body)
     assert.equal(destroyed.json().refundAmount, 0)
     assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), beforeRefunded)
     assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: refunded.instance.id, type: 'refund' } }), 1)
-    assert.equal((await app.inject({ method: 'POST', url: `/instances/${refunded.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' } })).statusCode, 400)
+    assert.equal((await app.inject({ method: 'POST', url: `/instances/${refunded.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' }, payload: await destroyPayload([refunded.instance.id]) })).statusCode, 400)
 
     const interleaved = await runningErrorFixture()
     const beforeInterleaved = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
@@ -332,7 +343,7 @@ try {
           type: 'refund', amount: -10, months: 0, periodStart: new Date(), periodEnd: new Date(), remark: 'In-flight refund completed after quote' } })
       })
     }
-    const interleavedDestroy = await app.inject({ method: 'POST', url: `/instances/${interleaved.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' } })
+    const interleavedDestroy = await app.inject({ method: 'POST', url: `/instances/${interleaved.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' }, payload: await destroyPayload([interleaved.instance.id]) })
     assert.equal(interleavedDestroy.statusCode, 200, interleavedDestroy.body)
     assert.equal(interleavedDestroy.json().refundAmount, 0, 'user destroy never refunds even when another refund finishes concurrently')
     assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), beforeInterleaved + 10)
@@ -348,9 +359,9 @@ try {
     assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: failed.instance.id, type: 'refund' } }), 0)
     const failedLedgers = await ledgerSnapshot()
     const failedAuditCount = await prisma.userDestroyRecord.count({ where: { instanceId: failed.instance.id } })
-    const userFailed = await app.inject({ method: 'POST', url: `/instances/${failed.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' } })
+    const userFailed = await app.inject({ method: 'POST', url: `/instances/${failed.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' }, payload: await destroyPayload([failed.instance.id]) })
     assert.equal(userFailed.statusCode, 500, userFailed.body)
-    const batchFailed = await app.inject({ method: 'POST', url: '/instances/batch/destroy', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: [failed.instance.id] } })
+    const batchFailed = await app.inject({ method: 'POST', url: '/instances/batch/destroy', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: [failed.instance.id], ...await destroyPayload([failed.instance.id]) } })
     assert.equal(batchFailed.json().successCount, 0, batchFailed.body)
     assert.equal(remoteStates.has(failed.instance.incusId), true)
     assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: failed.instance.id } })).status, 'error')

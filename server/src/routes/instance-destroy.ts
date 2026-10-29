@@ -15,6 +15,7 @@ import { apiError, ErrorCode } from '../lib/errors.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
 import { sendReleaseNotification } from '../lib/release-notifier.js'
 import { collectTrafficForRunningInstance } from '../services/instance-traffic-collector.js'
+import { claimDestroyEmailVerification, normalizeDestroyVerificationIds, requestDestroyEmailVerification } from '../lib/instance-destroy-verification.js'
 import {
   INSTANCE_OPERATION_LOCK_NAMESPACE,
   USER_AFF_BALANCE_LOCK_NAMESPACE,
@@ -732,6 +733,17 @@ async function executeDestroyForUser(
 }
 
 export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
+  fastify.post<{ Body: { instanceIds: number[] } }>('/destroy-verification', {
+    onRequest: [fastify.authenticateUser],
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    schema: { body: { type: 'object', required: ['instanceIds'], additionalProperties: false,
+      properties: { instanceIds: { type: 'array', minItems: 1, maxItems: 100, uniqueItems: true,
+        items: { type: 'integer', minimum: 1, maximum: 2147483647 } } } } }
+  }, async (request, reply) => {
+    const result = await requestDestroyEmailVerification(request.user, request.body.instanceIds)
+    if (!result.success) return reply.code(result.code === 'AUTHENTICATION_STATE_CHANGED' ? 401 : 400).send(result)
+    return result
+  })
 
   fastify.post<{
     Body: { instanceIds: number[] }
@@ -764,18 +776,20 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post<{
-    Body: { instanceIds: number[] }
+    Body: { instanceIds: number[]; emailCode: string }
   }>('/batch/destroy', {
     onRequest: [fastify.authenticateUser],
     config: { rateLimit: { max: 3, timeWindow: '1 minute' } },
     schema: {
       body: {
         type: 'object',
-        required: ['instanceIds'],
+        required: ['instanceIds', 'emailCode'],
         properties: {
+          emailCode: { type: 'string', pattern: '^\\d{6}$' },
           instanceIds: {
             type: 'array',
-            items: { type: 'integer' },
+            items: { type: 'integer', minimum: 1, maximum: 2147483647 },
+            uniqueItems: true,
             minItems: 1,
             maxItems: 100
           }
@@ -784,10 +798,13 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
       }
     }
   }, async (request, reply) => {
-    const uniqueIds = Array.from(new Set(request.body.instanceIds)).filter(id => Number.isInteger(id))
-    if (uniqueIds.length === 0) {
+    const uniqueIds = normalizeDestroyVerificationIds(request.body.instanceIds)
+    if (!uniqueIds) {
       return reply.code(400).send({ error: '请选择至少一个实例' })
     }
+
+    const verification = await claimDestroyEmailVerification(request.user, uniqueIds, request.body.emailCode)
+    if (!verification.success) return reply.code(403).send(verification)
 
     const userMeta = {
       id: request.user.id,
@@ -924,14 +941,16 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
 
   // ==================== 执行销毁 ====================
   // POST /api/instances/:id/destroy
-  fastify.post<{ Params: { id: string }; Querystring: { feeWaiver?: string } }>('/:id/destroy', {
+  fastify.post<{ Params: { id: string }; Querystring: { feeWaiver?: string }; Body: { emailCode: string } }>('/:id/destroy', {
     onRequest: [fastify.authenticate],
-    config: { rateLimit: { max: 5, timeWindow: '1 minute' } }
-  }, async (request: FastifyRequest<{ Params: { id: string }; Querystring: { feeWaiver?: string } }>, reply: FastifyReply) => {
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    schema: { body: { type: 'object', required: ['emailCode'], additionalProperties: false,
+      properties: { emailCode: { type: 'string', pattern: '^\\d{6}$' } } } }
+  }, async (request, reply) => {
     const { user } = request
     const instanceId = Number(request.params.id)
 
-    if (isNaN(instanceId)) {
+    if (!/^[1-9]\d*$/.test(request.params.id) || !Number.isSafeInteger(instanceId) || instanceId > 2147483647) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
     }
 
@@ -1010,6 +1029,9 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
 
     const feeAmount = 0
     const refundAmount = 0
+
+    const verification = await claimDestroyEmailVerification(user, [instanceId], request.body.emailCode)
+    if (!verification.success) return reply.code(403).send(verification)
 
     const claimed = await claimInstanceForUserDestroy(instanceId, user.id, instance.status)
     if (!claimed) {

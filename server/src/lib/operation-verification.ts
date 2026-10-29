@@ -6,7 +6,7 @@
  */
 
 import { prisma } from '../db/prisma.js'
-import { OperationType, VerificationChannel } from '@prisma/client'
+import { OperationType, VerificationChannel, type Prisma } from '@prisma/client'
 import { sendOperationVerificationEmail } from './mailer.js'
 import { sendVerificationNotification } from './notifier.js'
 import {
@@ -14,6 +14,12 @@ import {
     advisoryTransactionLockString
 } from '../db/advisory-locks.js'
 import crypto from 'crypto'
+
+// Destroy-email records have their own session/set binding, lifetime and send
+// budget. Generic verification must neither authorize nor remove those records.
+const GENERIC_VERIFICATIONS: Prisma.OperationVerificationWhereInput = {
+    OR: [{ resourceType: null }, { resourceType: { not: { startsWith: 'destroy-email:v1:' } } }]
+}
 
 // 操作类型分类
 const ACCOUNT_OPERATIONS: OperationType[] = [
@@ -171,6 +177,9 @@ export async function requestOperationVerification(
     resourceId?: number,
     resourceType?: string
 ): Promise<RequestVerificationResult> {
+    if (resourceType?.startsWith('destroy-email:v1:')) {
+        return { success: false, error: 'Use the instance destroy email verification flow', errorCode: 'INVALID_OPERATION' }
+    }
     // 1. 获取用户信息
     const user = await prisma.user.findUnique({
         where: { id: userId },
@@ -223,6 +232,7 @@ export async function requestOperationVerification(
         await tx.operationVerification.deleteMany({
             where: {
                 userId,
+                ...GENERIC_VERIFICATIONS,
                 expiresAt: { lt: now }
             }
         })
@@ -233,6 +243,7 @@ export async function requestOperationVerification(
                 userId,
                 operationType,
                 resourceId: normalizedResourceId,
+                ...GENERIC_VERIFICATIONS,
                 verified: false,
                 expiresAt: { gt: now }
             },
@@ -248,6 +259,7 @@ export async function requestOperationVerification(
                         userId,
                         operationType,
                         resourceId: normalizedResourceId,
+                        ...GENERIC_VERIFICATIONS,
                         verified: false,
                         expiresAt: { gt: now },
                         id: { not: existingVerification.id }
@@ -267,6 +279,7 @@ export async function requestOperationVerification(
                     userId,
                     operationType,
                     resourceId: normalizedResourceId,
+                    ...GENERIC_VERIFICATIONS,
                     verified: false,
                     expiresAt: { gt: now }
                 }
@@ -318,7 +331,7 @@ export async function requestOperationVerification(
         if (!result.success) {
             // 删除刚创建的验证码
             await prisma.operationVerification.deleteMany({
-                where: { userId, operationType, code: prepared.codeHash }
+                where: { userId, operationType, code: prepared.codeHash, ...GENERIC_VERIFICATIONS }
             })
             return { success: false, error: result.error, errorCode: 'SEND_FAILED' }
         }
@@ -331,7 +344,7 @@ export async function requestOperationVerification(
         })
         if (!result.success) {
             await prisma.operationVerification.deleteMany({
-                where: { userId, operationType, code: prepared.codeHash }
+                where: { userId, operationType, code: prepared.codeHash, ...GENERIC_VERIFICATIONS }
             })
             return { success: false, error: result.error, errorCode: 'SEND_FAILED' }
         }
@@ -391,6 +404,7 @@ export async function verifyOperationCode(
             userId,
             operationType,
             resourceId: resourceId || null,
+            ...GENERIC_VERIFICATIONS,
             verified: false,
             expiresAt: { gt: now },
             attempts: { lt: VERIFICATION_CONFIG.maxAttempts }
@@ -431,6 +445,7 @@ export async function verifyOperationCode(
             userId,
             operationType,
             resourceId: resourceId || null,
+            ...GENERIC_VERIFICATIONS,
             verified: false,
             expiresAt: { gt: verifiedAt },
             attempts: { lt: VERIFICATION_CONFIG.maxAttempts }
@@ -469,6 +484,7 @@ export async function isOperationVerified(
             userId,
             operationType,
             resourceId: resourceId || null,
+            ...GENERIC_VERIFICATIONS,
             verified: true,
             expiresAt: { gt: new Date() },
             verifiedAt: { gt: tenMinutesAgo }
@@ -514,6 +530,7 @@ export async function claimOperationVerificationRequirement(
             userId,
             operationType,
             resourceId: resourceId || null,
+            ...GENERIC_VERIFICATIONS,
             verified: true,
             expiresAt: { gt: new Date() },
             verifiedAt: { gt: tenMinutesAgo }
@@ -539,6 +556,7 @@ export async function consumeOperationVerification(
             userId,
             operationType,
             resourceId: resourceId || null,
+            ...GENERIC_VERIFICATIONS,
             verified: true
         }
     })

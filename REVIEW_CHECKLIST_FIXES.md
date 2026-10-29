@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R319与Owner邮箱销毁保护：充值确认三语不承诺销毁退款/PUSH免费；用户单/批/异常/本人DELETE强制邮箱、管理员免邮箱，绑定account/sid/email/set、全局去同码、一次消费、60秒限发且换目标/会话/消费/失败不可绕过，通用验证隔离预算。UI仅邮箱、名称地区编号表格，浅深色三宽taste检查0 FAIL/WARN；真实PG+SMTP/Incus边界替身及Vue/Chrome证据详见HANDOFF。本阶段相关types/守卫/双端build/lint过，204有修复复验含部分/68已有或不同/55待，完整327/外部邮件/原生宿主/灾备未完。
+
 2026-10-29 R317登录重复阶段：两handleLogin函数第一行拒loading、演示不覆在途输入、OAuth函数/按钮同gate、管理员等待原safe push完成；真实Chrome先红2次→final-r3两端重复/重试/console/challenge输入/TOTP恢复码原分支、3守卫/lint/双端types build最终exit0/dist见HANDOFF。唯一203有修复复验（含部分）/68已有防护或实现不同/56待精修，登录离页/其它全流程和完整灾备另待。
 
 2026-10-29 R316渠道保存阶段：字段/关闭busy、固定payload/id/session/draft、旧回执与真实message/create channel确认、原掩码省略/编辑含省略号仍后端验证已修；Chrome36旧回执/十非法/掩码与正常、editor20读/bindings18回执回归、4守卫/lint/最终双端types build exit0/dist见HANDOFF。202/68/57含部分不变，其它配置/写入/真实TG和后台审计权限另续；此前六批CI到cdd11a2a已success。
@@ -426,7 +428,7 @@
 | R1-316 | 存在，部分已修 | 绑定/渠道读取与保存Chrome及构建守卫通过 | bindings搜索分页18旧回执/九非法及error retry/0；editor20旧读取/八非法/ready门禁/三语retry/关闭秘密；create/update固定payload/session/draft与busy/36旧回执/十非法/真实确认/掩码保持均通过，4守卫/lint/双端types build/dist。其它配置/删测试解绑写入、后台权限审计和真实TG仍待，见HANDOFF。 |
 | R1-317 | 存在，部分已修 | 重复提交Chrome及构建守卫通过 | 两端handleLogin第一行拒loading，演示/OAuth同gate，管理员等安全push完成。实际Chrome重复零额外写、失败重试/正确console/缺输入challenge与TOTP恢复码payload，3守卫/lint/双端types build/dist通过；离页/跨页及真实认证全流程另验，见HANDOFF。 |
 | R1-318 | 已有防护 | 保留初审结论 | manualStartHint已描述重装后自动启动。 |
-| R1-319 | 存在 | 待精修/运行复核 | rechargeNotice仍写PUSH免费，而transferFee可非0；zh-CN/en均见原文。 |
+| R1-319 | 存在，已修本项文案 | 三语实际Wallet与门禁复验 | rechargeNotice改自行销毁不退款、PUSH手续费以实际转移页为准、邮箱在个人设置修改。三语真实Vue勾选门禁零充值订单、i18n/route与双端build过；未改真实计费规则，见HANDOFF。 |
 | R1-320 | 存在 | 待精修/运行复核 | 前端提示/校验6位与后端8位加复杂度不一致。 |
 | R1-321 | 存在，已修 | 文案/浏览器及相关守卫通过 | 三语resetTrafficWarning错误要求手动恢复1Mbps，已按实际route/running查询/scheduler/带宽仲裁改为自动检查并保留账户超限、离线和停止条件。Chrome完整reset/截图、types/4守卫/lint/双端build/dist通过；原生恢复与生产部署另验，不修改原恢复逻辑，见HANDOFF。 |
 | R1-322 | 已有防护 | 保留初审结论 | 管理员创建description已免费或付费；freeGiftHint只在免费赠送分支，不是整页都说免费。 |
