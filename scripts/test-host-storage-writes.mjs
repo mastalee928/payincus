@@ -62,6 +62,69 @@ try {
     }, kind)
     return last(kind)
   }
+  const editPayload = () => page.eval(() => window.storageHarness.pending.findLast(item => item.kind === 'edit').data)
+  await fresh(60)
+  await run(() => { const v = window.storageHarness.view(); v.openEditModal(v.pools[0]) })
+  await run(() => {
+    document.querySelectorAll('[role="dialog"]').item(document.querySelectorAll('[role="dialog"]').length - 1).querySelector('input[value="instance_storage"]').click()
+  })
+  await run(() => { [...document.querySelectorAll('[role="dialog"]')].at(-1).querySelector('.modal-footer .btn-primary').click() })
+  assert.deepEqual(await editPayload(), { purpose: 'instance_storage' }, 'purpose-only save reaches the local transaction without unchanged remote fields')
+  await accept(await last('edit'), { message: 'saved' })
+  await accept(await last('list'), { pools: [{ ...pool('fixture-pool'), purpose: 'instance_storage' }] })
+  assert.equal(await read('showEditModal'), false)
+  await run(() => {
+    const v = window.storageHarness.view(); v.openEditModal(v.pools[0]); v.editForm.purpose = 'instance_data'; void v.submitEdit()
+  })
+  assert.deepEqual(await editPayload(), { purpose: 'instance_data' }, 'reopened editor captures the newly saved baseline')
+  await reject(await last('edit'))
+  await run(() => { void window.storageHarness.view().submitEdit() })
+  assert.deepEqual(await editPayload(), { purpose: 'instance_data' }, 'failed writes retain the original change for retry')
+  await reject(await last('edit'))
+  const noOp = async change => {
+    const pending = await page.eval(() => window.storageHarness.pending.length)
+    const toasts = await page.eval(() => window.storageHarness.toastEvents.length)
+    await run(change => { const v = window.storageHarness.view(); Object.assign(v.editForm, change); void v.submitEdit() }, change)
+    assert.equal(await page.eval(() => window.storageHarness.pending.length), pending, 'unchanged form neither writes nor refreshes')
+    assert.equal(await page.eval(() => window.storageHarness.toastEvents.length), toasts, 'no write means no saved notification')
+    assert.equal(await read('showEditModal'), false, 'saving an unchanged form closes the settled editor')
+  }
+  await noOp({ purpose: 'instance_storage' })
+  for (const [initial, change, expected] of [
+    [{}, { description: '' }, { description: '' }],
+    [{}, { description: 'new description' }, { description: 'new description' }],
+    [{}, { newSizeValue: '20' }, { size: '20GiB' }],
+    [{}, { newSizeValue: '2.5', newSizeUnit: 'TiB' }, { size: '2748779069440B' }],
+    [{}, { description: '', purpose: 'instance_storage', newSizeValue: '20' }, { description: '', purpose: 'instance_storage', size: '20GiB' }],
+    [{ purpose: null }, { description: 'new description' }, { description: 'new description' }],
+    [{ purpose: null }, { purpose: 'instance_storage' }, { purpose: 'instance_storage' }],
+  ]) {
+    await fresh(61)
+    await run(({ initial, change }) => {
+      const v = window.storageHarness.view(); Object.assign(v.pools[0], initial); v.openEditModal(v.pools[0]); Object.assign(v.editForm, change); void v.submitEdit()
+    }, { initial, change })
+    assert.deepEqual(await editPayload(), expected, 'send exactly the edited fields, including explicit empty description')
+    await reject(await last('edit'))
+    assert.equal(await read('showEditModal'), true, 'failed save retains the draft')
+  }
+  for (const initial of [{}, { purpose: null }, { description: null }]) {
+    await fresh(62)
+    await run(initial => { const v = window.storageHarness.view(); Object.assign(v.pools[0], initial); v.openEditModal(v.pools[0]) }, initial)
+    await noOp({})
+  }
+  // An asynchronous list refresh must not change what the user actually edited.
+  for (const change of [{ purpose: 'instance_storage' }, { description: 'new description' }, {}]) {
+    await fresh(63)
+    await run(change => {
+      const v = window.storageHarness.view(); v.openEditModal(v.pools[0]); Object.assign(v.editForm, change); void v.loadPools()
+    }, change)
+    await accept(await last('list'), { pools: [{ ...pool('fixture-pool'), description: 'new description', purpose: 'instance_storage' }] })
+    if (!Object.keys(change).length) { await noOp({}); continue }
+    await run(() => { void window.storageHarness.view().submitEdit() })
+    assert.deepEqual(await editPayload(), change, 'compare against the opened snapshot, never a refreshed list')
+    await reject(await last('edit'))
+  }
+  console.log('PASS storage edit changed-fields, local-purpose, explicit-clear, resize, no-op, retry and refreshed-baseline matrix')
   for (const kind of ['create', 'edit', 'delete']) {
     await fresh(10 + ['create', 'edit', 'delete'].indexOf(kind))
     const request = await start(kind), before = await count(kind)
@@ -121,7 +184,7 @@ try {
   assert.notEqual(await page.eval(() => window.storageHarness.pending.at(-1).kind), 'edit', 'edit identity cannot be changed through draft')
   await run(() => { const h = window.storageHarness; h.view().editForm.name = 'fixture-pool'; h.view().editForm.description = 'retry text'; void h.view().submitEdit() })
   await reject(await last('edit'))
-  for (const [locale, width, dark, mobile] of [['zh-CN', 1440, false, false], ['en', 390, true, true]]) {
+  for (const [locale, width, dark, mobile] of [['zh-CN', 1440, false, false], ['zh-CN', 768, false, false], ['en', 390, true, true]]) {
     await page.setViewport({ width, height: 1000, mobile })
     await run(({ locale, dark }) => { window.storageHarness.setLocale(locale); window.storageHarness.theme.setTheme(dark ? 'dark' : 'light') }, { locale, dark })
     assert.equal(await page.eval(() => document.documentElement.scrollWidth <= innerWidth), true)

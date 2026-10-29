@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 存储编辑只提交实际改动字段
+
+- 35dd8ba已push。HostStorageTab编辑弹窗固定打开时描述/用途基线；只改用途发送purpose-only进入既有本地事务，扩容不附带旧描述/用途，明确清空描述仍传空字符串；未登记用途的显示默认不自动落库。无修改或恢复原值保存直接关闭，不写API、不刷新、不报保存成功；失败重试保留原基线，列表异步刷新不改变用户实际改动字段。
+- 真实Chrome先红：takeover-storage-edit-payload-before-r2.log确认用途操作夹带旧描述；final.log通过DOM用途选择/保存、两种用途、描述清空、容量、组合、null、无修改、失败重试及列表刷新矩阵，原目标/session/cache/busy/旧回执完整回归通过。inputs.log容量边界回归通过；1440/768/390截图已检查，既有布局无变更。夹具验证的是实际Vue组件与请求参数，不是宿主磁盘操作。
+- client type-check、frontend-route/frontend-i18n/host-route-id三守卫、单文件eslint零错警、manifest194/141及diff通过；takeover-storage-edit-payload-build.log双端构建含vue-tsc exit0，dist.log边界守卫通过。原writes专项已在CI，无新增常规测试计数。只完成R303的前端接线，不新增原编号；混合远端操作权限/持久恢复仍待。
+- 顺带核CI：be0ba6c的Go步骤已通过，但storage-inputs可见性断言失败（takeover-ci-be0ba6c-failure.log）；旧3fd4488的/proc IO错误不能据一次后续通过宣称根因已修。35dd8ba等后续CI仍运行，完整327/网关灾备未完成。
+
 ## 2026-10-29 R1-303 用途专用提交当前权限与审计事务
 
 - 060b8c0已push。只传purpose的PATCH现在完全本地提交，不连接Incus；检查实际登记池，不再对零匹配返回成功。事务内按host/share→pool/update→actor/update锁顺序复核当前宿主归属、池身份/时间/实际字段及active/session/current role；用途与原storage.update审计同提交，失败均回滚。混合description/size变更仍走原远端路径，其授权/持久恢复不能算已覆盖。

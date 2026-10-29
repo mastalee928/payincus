@@ -83,8 +83,9 @@ function handleDialogKey(event: KeyboardEvent, kind: 'create' | 'edit') {
 const writeBusy = computed(() => creating.value || editing.value || deleting.value !== null)
 const canStartWrite = computed(() => canRead.value && !loading.value && !writeBusy.value)
 let editingPoolName: string | null = null
+let editBaseline: { description: string; purpose: 'instance_data' | 'instance_storage' } | null = null
 watch(showCreateModal, () => { createGeneration++ }, { flush: 'sync' })
-watch(showEditModal, () => { editGeneration++ }, { flush: 'sync' })
+watch(showEditModal, open => { editGeneration++; if (!open) editBaseline = null }, { flush: 'sync' })
 function captureWrite(kind: 'create' | 'edit' | 'delete') {
   const hostId = props.hostId, session = sessionKey.value, generation = contextGeneration
   const dialogGeneration = kind === 'create' ? createGeneration : editGeneration
@@ -204,6 +205,7 @@ function resetReadContext() {
   editError.value = ''
   deleteError.value = ''
   editingPoolName = null
+  editBaseline = null
 }
 watch([() => props.hostId, sessionKey], () => { resetReadContext(); void loadPools() }, { flush: 'sync' })
 function activateReads() {
@@ -413,12 +415,14 @@ function openEditModal(pool: StoragePool) {
     description: pool.description || '',
     purpose: pool.purpose || 'instance_data'
   }
+  // Keep the opened values independent of later list refreshes and form edits.
+  editBaseline = { description: editForm.value.description, purpose: editForm.value.purpose }
   showEditModal.value = true
 }
 
 // 提交编辑
 async function submitEdit() {
-  if (!canStartWrite.value || !showEditModal.value || !editingPoolName || editForm.value.name !== editingPoolName ||
+  if (!canStartWrite.value || !showEditModal.value || !editingPoolName || !editBaseline || editForm.value.name !== editingPoolName ||
     !pools.value.some(pool => pool.name === editingPoolName)) return
   const context = captureWrite('edit'), poolName = editingPoolName
   editError.value = ''
@@ -430,10 +434,11 @@ async function submitEdit() {
     if (!size) { editError.value = t('admin.hosts.storage.sizeInvalid'); return }
     data.size = size
   }
-  // 描述可以为空，也提交
-  data.description = editForm.value.description
-  // 存储用途
-  data.purpose = editForm.value.purpose
+  // Preserve explicit clearing, but omit unchanged remote fields so purpose-only
+  // edits can use the local transaction even when the host is unavailable.
+  if (editForm.value.description !== editBaseline.description) data.description = editForm.value.description
+  if (editForm.value.purpose !== editBaseline.purpose) data.purpose = editForm.value.purpose
+  if (Object.keys(data).length === 0) { closeEditModal(); return }
 
   editing.value = true
   try {
