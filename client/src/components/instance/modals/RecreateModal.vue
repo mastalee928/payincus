@@ -23,6 +23,8 @@ interface SshKeyOption {
 interface Props {
   visible: boolean
   loading: boolean
+  error?: string
+  disabled?: boolean
   availableImages: ImageOption[]
   sshKeys: SshKeyOption[]
 }
@@ -57,7 +59,7 @@ const selectedSshKeyId = ref<number | null>(null)
 const customInitCommandIds = ref<number[]>([])
 const isImageDropdownOpen = ref(false)
 const imageSearchQuery = ref('')
-const canSubmit = computed(() => pageActive.value && !!sessionKey.value && props.visible && !props.loading && !submitPending.value &&
+const canSubmit = computed(() => pageActive.value && !!sessionKey.value && props.visible && !props.loading && !props.disabled && !submitPending.value &&
   !!selectedImage.value && props.availableImages.some(image => image.incusAlias === selectedImage.value) &&
   selectedSshKeyId.value !== null && props.sshKeys.some(key => key.id === selectedSshKeyId.value))
 
@@ -373,6 +375,7 @@ function close(): void {
           </div>
 
           <!-- Action buttons -->
+          <p v-if="error" role="alert" class="text-sm text-red-500 break-words">{{ error }}</p>
           <div class="flex justify-end gap-3 pt-2">
             <button type="button" class="btn-secondary" @click="close">{{ t('recreateModal.cancel') }}</button>
             <button 

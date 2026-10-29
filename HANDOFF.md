@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-301 重建入口准备数据与固定目标
+
+- d54246a已push核远端；28a1565/a021f9a源码CI已success，98ca675/daaf349/d54246a最后运行。重建父入口固定实例/host/session/打开代次，镜像与SSH公钥列表一起通过当前校验后展示，旧成功/失败不能重开或覆盖其它目标；准备与写入重复门禁。提交核当前本人归属、非封停、内存/类型未变、当前镜像/key选项和命令ID，复制参数，旧回执静默；有效task回执成功后独立刷新，失败持久显示。子弹窗仅增加可选error/disabled，沿用已有选项/session规则；后台重建与机器池一机一卖未改。
+- `takeover-host-recreate-before.log`Chrome先红切host旧images/keys重开；`takeover-host-recreate-final.log`通过准备ABA/关闭/失败后重试、空key与非法输入、固定写入/命令副本/重复、当前及旧回执、列表并发、归属/封停、host/query/session/cache/logout/unmount与真实按钮点击。1440中文/390英文截图已核；受控API不执行真实重建或客户磁盘操作。补点击初轮选择器误选列表删除按钮，收紧至弹窗后通过，产品未因此改动。
+- client types、4守卫（route/i18n/recreate-consistency/task-query）、lint零错警、通知及读取两个Chrome回归、manifest194/118、最终双端build exit0/dist通过；专项已接Chrome CI。首次guard筛选误用正则，runner拒绝后改重复--only四项，最终4/4通过。
+- 下一项host-single-actions四文件已Chrome先红（`takeover-host-single-before.log`）：旧single sync回执刷新新host。sync/swap前后端与operation-conflict/route-ID守卫已读；产品尚未改，矩阵已写未跑。需写回执身份、Swap读配置前busy与新鲜配置、当前目标回写、后台admin-only对应前端门禁。Swap后台当前授权/远端与DB原子性、重建后台锁内当前身份等仍待；R301/327/R269/完整灾备未完成。
+
 ## 2026-10-29 R1-301 通知目标、草稿与回执隔离
 
 - daaf349已push核远端；5f2085b源码CI已success，28a1565/a021f9a/98ca675/daaf349最后仍运行。通知固定打开弹窗时的实例集合，数量与提交一致；函数/按钮共同核当前列表、会话、目标和trim后标题1–200/正文1–5000。在途禁重开/重复提交，host/query/session/cache旧回执静默；当前成功保留后来标题、正文及email选择，当前失败持久显示。回执success/count/email计数校验，键盘焦点和关闭门禁补齐。

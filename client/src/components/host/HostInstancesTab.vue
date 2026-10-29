@@ -418,6 +418,22 @@ const recreateLoading = ref(false)
 const recreateTarget = ref<Instance | null>(null)
 const availableImages = ref<ImageOption[]>([])
 const sshKeys = ref<SshKeyOption[]>([])
+const recreatePreparing = ref(false)
+const recreateError = ref('')
+let recreateGeneration = 0
+function resetRecreateDialog() {
+  recreateGeneration++
+  showRecreateModal.value = false
+  recreateTarget.value = null
+  availableImages.value = []
+  sshKeys.value = []
+  recreatePreparing.value = false
+  recreateError.value = ''
+}
+function recreateTargetIsCurrent(target: Instance): boolean {
+  const instance = instances.value.find(item => item.id === target.id)
+  return !!instance && canRecreateInstance(instance) && instance.memory === target.memory && instance.instanceType === target.instanceType
+}
 
 // 批量赠送时长
 const showGiftDaysModal = ref(false)
@@ -1060,73 +1076,80 @@ async function confirmResetTraffic() {
 function canRecreateInstance(instance: Instance): boolean {
   const currentUserId = authStore.user?.id
   const ownerId = instance.userId ?? instance.user_id
-  return !!currentUserId && ownerId === currentUserId && instance.status.toLowerCase() !== 'suspended'
+  return alive && pageActive.value && !!sessionKey.value && !loading.value &&
+    Number.isSafeInteger(instance.id) && instance.id > 0 && instances.value.some(item => item.id === instance.id) &&
+    !!currentUserId && ownerId === currentUserId && typeof instance.status === 'string' && instance.status.toLowerCase() !== 'suspended'
 }
 
-async function loadAvailableImagesForInstance(instance: Instance): Promise<void> {
+async function openRecreateModal(instance: Instance): Promise<void> {
+  const target = instances.value.find(item => item.id === instance.id)
+  if (!target || !canRecreateInstance(target) || recreateLoading.value || showRecreateModal.value ||
+    (recreatePreparing.value && recreateTarget.value?.id === target.id)) return
+  resetRecreateDialog()
+  recreateTarget.value = { ...target }
+  recreatePreparing.value = true
+  const generation = recreateGeneration, hostId = props.hostId, session = sessionKey.value
+  const current = () => alive && pageActive.value && !!session && session === sessionKey.value &&
+    hostId === props.hostId && generation === recreateGeneration
   try {
-    const imageType: 'container' | 'vm' = instance.instanceType === 'vm' ? 'vm' : 'container'
-    const res = await api.images.getSystemImages(imageType, instance.memory, props.hostId)
-    const images = res.images || []
-
-    availableImages.value = images.map((img: any) => ({
+    const imageType = target.instanceType === 'vm' ? 'vm' : 'container'
+    const [imageResponse, keyResponse] = await Promise.all([
+      api.images.getSystemImages(imageType, target.memory, hostId),
+      api.sshKeys.list()
+    ])
+    if (!current()) return
+    if (!recreateTarget.value || !recreateTargetIsCurrent(recreateTarget.value)) { resetRecreateDialog(); return }
+    if (imageResponse.success !== true || !Array.isArray(imageResponse.images) ||
+      imageResponse.images.some(img => typeof img.remoteAlias !== 'string' || !img.remoteAlias.trim() || typeof img.name !== 'string') ||
+      !Array.isArray(keyResponse.keys) || keyResponse.keys.some(key => !Number.isSafeInteger(key.id) || key.id <= 0 || typeof key.name !== 'string')) {
+      throw new Error(t('common.operationFailed'))
+    }
+    availableImages.value = imageResponse.images.map(img => ({
       incusAlias: img.remoteAlias,
       name: img.name,
       description: null,
       icon: img.icon || null
     }))
-  } catch (err: any) {
-    console.error('Failed to load available images:', err)
-    toast.error(t('instance.detail.rebuild.loadImagesFailed') + ': ' + (err?.message || String(err)))
-    throw err
-  }
-}
-
-async function loadSshKeys(): Promise<void> {
-  try {
-    const response = await api.sshKeys.list()
-    const keys = response.keys || []
-    sshKeys.value = keys.map((key) => ({ id: key.id, name: key.name }))
-  } catch (err) {
-    console.error('Failed to load SSH keys:', err)
-    toast.error(t('instance.detail.rebuild.loadKeysFailed'))
-    throw err
-  }
-}
-
-async function openRecreateModal(instance: Instance): Promise<void> {
-  recreateTarget.value = instance
-  try {
-    await Promise.all([loadAvailableImagesForInstance(instance), loadSshKeys()])
+    sshKeys.value = keyResponse.keys.map(key => ({ id: key.id, name: key.name }))
     showRecreateModal.value = true
-  } catch {
+  } catch (err: any) {
+    if (!current()) return
+    recreateError.value = t('common.operationFailed') + ': ' + translateError(err)
     recreateTarget.value = null
+    toast.error(recreateError.value)
+  } finally {
+    if (current()) recreatePreparing.value = false
   }
 }
 
 function handleRecreateModalVisibleChange(value: boolean): void {
-  showRecreateModal.value = value
-  if (!value && !recreateLoading.value) {
-    recreateTarget.value = null
-  }
+  if (!value) resetRecreateDialog()
 }
 
 async function doRecreate(data: { image: string; sshKeyId: number; customInitCommandIds?: number[] }): Promise<void> {
-  if (!recreateTarget.value) return
-
+  if (!showRecreateModal.value || recreateLoading.value || recreatePreparing.value || !recreateTarget.value ||
+    !recreateTargetIsCurrent(recreateTarget.value) || !availableImages.value.some(image => image.incusAlias === data.image) ||
+    !Number.isSafeInteger(data.sshKeyId) || !sshKeys.value.some(key => key.id === data.sshKeyId) ||
+    (data.customInitCommandIds !== undefined && (!Array.isArray(data.customInitCommandIds) || data.customInitCommandIds.length > 20 ||
+      data.customInitCommandIds.some(id => !Number.isSafeInteger(id) || id <= 0)))) return
+  const instanceId = recreateTarget.value.id, hostId = props.hostId, session = sessionKey.value, generation = recreateGeneration
+  const payload = { image: data.image, sshKeyId: data.sshKeyId, customInitCommandIds: data.customInitCommandIds ? [...data.customInitCommandIds] : undefined }
+  const current = () => alive && pageActive.value && !!session && session === sessionKey.value && hostId === props.hostId &&
+    showRecreateModal.value && generation === recreateGeneration && recreateTarget.value?.id === instanceId
   recreateLoading.value = true
+  recreateError.value = ''
   try {
-    await api.instances.recreate(recreateTarget.value.id, {
-      image: data.image,
-      sshKeyId: data.sshKeyId,
-      customInitCommandIds: data.customInitCommandIds
-    })
+    const result = await api.instances.recreate(instanceId, payload)
+    if (!current()) return
+    if (!Number.isSafeInteger(result.taskId) || result.taskId <= 0 ||
+      !['PENDING', 'PROCESSING', 'COMPLETED'].includes(result.status)) throw new Error(t('common.operationFailed'))
     toast.success(t('instance.detail.actions.taskQueued'))
-    showRecreateModal.value = false
-    recreateTarget.value = null
-    await loadInstances()
+    resetRecreateDialog()
+    void loadInstances()
   } catch (err: any) {
-    toast.error(translateError(err))
+    if (!current()) return
+    recreateError.value = translateError(err)
+    toast.error(recreateError.value)
   } finally {
     recreateLoading.value = false
   }
@@ -1264,6 +1287,7 @@ function handlePageSizeChange() {
 }
 
 function closeReadContextModals() {
+  resetRecreateDialog()
   notifyError.value = ''
   notifyTitle.value = ''
   notifyContent.value = ''
@@ -1282,7 +1306,6 @@ function closeReadContextModals() {
   showPriceModal.value = false
   showBatchConfigModal.value = false
   showMigrateModal.value = false
-  showRecreateModal.value = false
   showGiftDaysModal.value = false
   deletePreviewSequence++
   deletePreview.value = null
@@ -1670,6 +1693,7 @@ function goToInstance(id: number) {
       <p class="text-sm text-red-600 dark:text-red-400 break-words">{{ loadError }}</p>
       <button type="button" class="btn-secondary btn-sm" @click="loadInstances">{{ t('common.retry') }}</button>
     </div>
+    <p v-if="recreateError && !showRecreateModal" role="alert" class="text-sm text-red-500 break-words">{{ recreateError }}</p>
 
     <!-- 搜索栏 - 始终显示 -->
     <div v-if="!loading" class="flex items-center gap-2 flex-wrap">
@@ -1905,7 +1929,7 @@ function goToInstance(id: number) {
         :syncing-instance-ids="syncingInstanceIds"
         :swap-action-loading-ids="swapActionLoadingIds"
         :resetting-traffic-id="resettingTrafficId"
-        :recreate-loading="recreateLoading"
+        :recreate-loading="recreateLoading || recreatePreparing"
         :recreate-target-id="recreateTarget?.id ?? null"
         :is-dark="themeStore.isDark"
         :get-paid-icon-type="getPaidIconType"
@@ -2486,6 +2510,8 @@ function goToInstance(id: number) {
   <RecreateModal
     :visible="showRecreateModal"
     :loading="recreateLoading"
+    :error="recreateError"
+    :disabled="!recreateTarget || !recreateTargetIsCurrent(recreateTarget)"
     :available-images="availableImages"
     :ssh-keys="sshKeys"
     @update:visible="handleRecreateModalVisibleChange"
