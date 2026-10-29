@@ -95,15 +95,28 @@ export interface UpdateStoragePoolOptions {
   description?: string
 }
 
+export class StoragePoolUpdateError extends Error {
+  constructor(message: string, readonly code: string, readonly statusCode: number) { super(message) }
+}
+
 export async function updateStoragePool(client: IncusClient, name: string, options: UpdateStoragePoolOptions): Promise<void> {
-  const payload: Record<string, unknown> = {}
-  
-  if (options.config) {
-    payload.config = options.config
+  const config = options.config ? { ...options.config } : undefined
+  const description = options.description
+  if (!config || Object.keys(config).length === 0) {
+    if (description === undefined) return
   }
-  if (options.description !== undefined) {
-    payload.description = options.description
+
+  const path = `/1.0/storage-pools/${encodeURIComponent(name)}`
+  const deadline = Date.now() + 120000
+  let etag: string | undefined
+  const current = await client.request<IncusStoragePool>('GET', path, null, deadline - Date.now(), undefined,
+    { onEtag: value => { etag = value } })
+  if (!etag || current?.name !== name || current.description !== undefined && typeof current.description !== 'string') {
+    throw new StoragePoolUpdateError('无法核验存储池当前配置或版本，请重新读取存储池后重试', 'STORAGE_POOL_STATE_UNVERIFIED', 502)
   }
-  
-  await client.request('PATCH', `/1.0/storage-pools/${name}`, payload)
+  const remaining = deadline - Date.now()
+  if (remaining <= 0) throw new Error('读取存储池配置超时，请重新读取后重试')
+  // Incus PATCH merges config keys, but an omitted description becomes empty.
+  // If-Match binds the preserved description to the same version as the update.
+  await client.request('PATCH', path, { config, description: description ?? current.description ?? '' }, remaining, undefined, { ifMatch: etag })
 }

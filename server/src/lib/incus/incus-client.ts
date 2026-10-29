@@ -17,6 +17,11 @@ export class IncusApiError extends Error {
   constructor(message: string, readonly statusCode: number, readonly path: string) { super(message) }
 }
 
+export interface IncusRequestConditions {
+  ifMatch?: string
+  onEtag?: (etag: string | undefined) => void
+}
+
 export class IncusClient {
   private serverCertificate: string | null
   private serverFingerprint: string | null
@@ -119,7 +124,7 @@ export class IncusClient {
    * 发送 API 请求
    * @param timeout 异步操作的超时时间（毫秒），默认 120 秒。对于长时间操作（如复制实例），建议使用 300000（5分钟）
    */
-  async request<T = unknown>(method: string, path: string, body: unknown = null, timeout: number = 120000, signal?: AbortSignal): Promise<T> {
+  async request<T = unknown>(method: string, path: string, body: unknown = null, timeout: number = 120000, signal?: AbortSignal, conditions?: IncusRequestConditions): Promise<T> {
     if (!this.agent) {
       throw new Error('Incus 客户端未连接')
     }
@@ -141,7 +146,8 @@ export class IncusClient {
         dispatcher: this.agent,
         signal: requestSignal,
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(conditions?.ifMatch ? { 'If-Match': conditions.ifMatch } : {})
         }
       }
 
@@ -178,6 +184,9 @@ export class IncusClient {
         })
         throw new IncusApiError(data.error || 'Incus API 错误', response.statusCode, path)
       }
+
+      const etag = response.headers.etag
+      conditions?.onEtag?.(typeof etag === 'string' ? etag : undefined)
 
       // 异步操作需要等待完成
       if (data.type === 'async' && data.operation) {

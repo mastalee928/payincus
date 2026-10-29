@@ -32,7 +32,8 @@ import {
 import { IncusClient, getIncusClient, removeIncusClient } from '../lib/incus/index.js'
 import { getInstance, updateInstance } from '../lib/incus/incus-instances.js'
 import { selectBindableIpv4ListenAddress } from '../lib/network-address.js'
-import { listStoragePools, getStoragePoolResources, createStoragePool, deleteStoragePool, updateStoragePool } from '../lib/incus/incus-storage.js'
+import { listStoragePools, getStoragePoolResources, createStoragePool, deleteStoragePool, updateStoragePool, StoragePoolUpdateError } from '../lib/incus/incus-storage.js'
+import { IncusApiError } from '../lib/incus/incus-client.js'
 import { normalizeStorageSize } from '../lib/storage-size.js'
 import type { CreateHostRequest, UpdateHostRequest } from '../types/api.js'
 import type { Host } from '../types/database.js'
@@ -3899,6 +3900,12 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       request.log.error(err, 'Failed to update storage pool')
+      if (err instanceof IncusApiError && err.statusCode === 412) {
+        return reply.code(409).send({ code: 'STORAGE_POOL_CONFIG_CHANGED', error: '存储池配置已被其他操作修改，请刷新后重新确认' })
+      }
+      if (err instanceof StoragePoolUpdateError) {
+        return reply.code(err.statusCode).send({ code: err.code, error: err.message })
+      }
       return reply.code(500).send({ error: `修改存储池失败: ${errorMessage}` })
     }
   })

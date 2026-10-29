@@ -21,14 +21,34 @@ execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey'
   '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', keyPath, '-out', certPath], { stdio: 'pipe', windowsHide: true })
 const certificate = await readFile(certPath, 'utf8')
 const requests: Array<{ method: string; url: string; body?: any }> = []
+const remotePools = new Map<string, { name: string; driver: string; description: string; config: Record<string, string> }>()
+let remoteMode = 'normal'
 const remote = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
   try {
     assert.ok((request.socket as any).authorized)
     const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(chunk)
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined
     requests.push({ method: request.method!, url: request.url!, body })
-    response.writeHead(200, { 'content-type': 'application/json' })
-    response.end(JSON.stringify({ type: 'sync', metadata: request.url === '/1.0' ? { api_version: '1.0' } : {} }))
+    const send = (status: number, metadata: unknown, error?: string) => {
+      response.writeHead(status, { 'content-type': 'application/json', ...(remoteMode === 'no-etag' ? {} : { etag: '"fixture-version"' }) })
+      response.end(JSON.stringify({ type: error ? 'error' : 'sync', metadata, error }))
+    }
+    if (request.url === '/1.0') { send(200, { api_version: '1.0' }); return }
+    if (request.method === 'POST') {
+      remotePools.set(body.name, { ...body, description: body.description ?? '' }); send(200, {}); return
+    }
+    const name = decodeURIComponent(request.url!.split('/').at(-1)!)
+    const pool = remotePools.get(name)
+    if (!pool) { send(404, {}, 'fixture pool not found'); return }
+    if (request.method === 'GET') {
+      if (remoteMode === 'read-error') { send(403, {}, 'fixture read denied'); return }
+      send(200, pool); return
+    }
+    if (remoteMode === 'conflict') { send(412, {}, 'fixture config changed'); return }
+    if (remoteMode === 'write-error') { send(500, {}, 'fixture update failed'); return }
+    assert.equal(request.headers['if-match'], '"fixture-version"')
+    remotePools.set(name, { ...pool, description: body.description ?? '', config: { ...pool.config, ...body.config } })
+    send(200, {})
   } catch { response.writeHead(500); response.end('{}') }
 })
 await new Promise<void>(done => remote.listen(0, '127.0.0.1', done))
@@ -55,6 +75,10 @@ try {
   for (const method of ['POST', 'PATCH'] as const) {
     for (const size of valid) {
       const name = `fixture-${method.toLowerCase()}-${valid.indexOf(size)}`
+      if (method === 'PATCH') {
+        const prepare = await app.inject({ method: 'POST', url: `/hosts/${host.id}/storage-pools`, payload: { name, driver: 'lvm', useLoop: true, size: '1B' } })
+        assert.equal(prepare.statusCode, 201)
+      }
       const response = await app.inject({ method, url: `/hosts/${host.id}/storage-pools${method === 'PATCH' ? `/${name}` : ''}`,
         payload: method === 'POST' ? { name, driver: 'lvm', useLoop: true, size } : { size } })
       assert.equal(response.statusCode, method === 'POST' ? 201 : 200, `${method} valid capacity: ${response.body}`)
@@ -68,6 +92,7 @@ try {
   const otherBefore = await prisma.storagePool.findMany({ where: { hostId: host.id, name: { not: 'fixture-post-0' } }, orderBy: { id: 'asc' } })
   const poolBefore = await prisma.storagePool.findUniqueOrThrow({ where: poolKey })
   for (const purpose of ['instance_storage', 'instance_data'] as const) {
+    const remoteBefore = requests.length
     const response = await app.inject({ method: 'PATCH', url: `/hosts/${host.id}/storage-pools/fixture-post-0`, payload: { purpose } })
     assert.equal(response.statusCode, 200)
     const pool = await prisma.storagePool.findUniqueOrThrow({ where: poolKey })
@@ -76,6 +101,7 @@ try {
     assert.deepEqual(pool.config, poolBefore.config, 'purpose does not change the existing pool configuration')
     assert.equal(pool.description, '')
     assert.equal(requests.at(-1)?.body?.purpose, undefined, 'purpose is platform metadata, not an Incus setting')
+    assert.equal(requests.length, remoteBefore, 'purpose alone does not clear the remote description through an empty PATCH')
   }
   const combined = await app.inject({ method: 'PATCH', url: `/hosts/${host.id}/storage-pools/fixture-post-0`,
     payload: { purpose: 'instance_storage', description: 'storage-only fixture' } })
@@ -89,6 +115,19 @@ try {
   const beforeInvalidPurpose = requests.length
   const invalidPurpose = await app.inject({ method: 'PATCH', url: `/hosts/${host.id}/storage-pools/fixture-post-0`, payload: { purpose: 'invalid' } })
   assert.equal(invalidPurpose.statusCode, 400); assert.equal(requests.length, beforeInvalidPurpose)
+  for (const [mode, expectedStatus] of [['conflict', 409], ['no-etag', 502], ['read-error', 500], ['write-error', 500]] as const) {
+    remoteMode = mode
+    const databaseBefore = await prisma.storagePool.findUniqueOrThrow({ where: poolKey })
+    const logCount = await prisma.log.count({ where: { userId: owner.id } })
+    const response = await app.inject({ method: 'PATCH', url: `/hosts/${host.id}/storage-pools/fixture-post-0`,
+      payload: { description: 'must not persist', purpose: 'instance_data' } })
+    assert.equal(response.statusCode, expectedStatus, `${mode}: ${response.body}`)
+    if (mode === 'conflict') assert.equal(response.json().code, 'STORAGE_POOL_CONFIG_CHANGED')
+    assert.deepEqual(await prisma.storagePool.findUniqueOrThrow({ where: poolKey }), databaseBefore, `${mode} preserves database metadata`)
+    assert.equal(await prisma.log.count({ where: { userId: owner.id } }), logCount, `${mode} does not record success`)
+  }
+  remoteMode = 'normal'
+  console.log('PASS storage update API conflict/error responses preserve local metadata and success logs')
   console.log('PASS storage purpose persists in both directions, controls new system disk eligibility and preserves omitted fields/other pools')
   console.log('PASS storage size create/update API syntax, unit, signed-byte boundary and omission matrix over mTLS')
 } catch (error) { failure = error } finally {

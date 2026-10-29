@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：088165e已push。R303存储PATCH省略描述会清空已按固定Incus源码复现，现读取当前描述/ETag并If-Match，空远端payload跳过，412 API409不改DB/成功日志。新mTLS专项与PG/API容量用途回归、恢复传输全矩阵、server build含tsc/4守卫/manifest194/139通过，准备push，无待poll。继续容量缩减与驱动规则，需先核固定上游backend公共Update是否已防缩容，不能只按driver的Truncate判缺；之后当前授权/远端DB恢复。191/68/68、R269/Go proc/完整灾备仍待。
+
 > **最新接续**：be0ba6c已push。R303存储用途PATCH返回200但db丢字段，真实PG先红后修purpose映射与route类型；双向用途/系统盘资格/描述组合/省略与其他池保持、原容量矩阵、server build含tsc/3守卫/manifest194/138通过，准备单项push，无待poll。下一段核Incus驱动容量与更新并发、当前授权/原子性；上游Incus main只读SHA 18068492788d26b3aad307b1331703c0d69c27db待拉固定文件。不操作客户磁盘，191/68/68及剩余验收口径保持，R269/Go proc/完整灾备仍待。
 
 > **最新接续**：97eafe3已push核远端。宿主分页ARM误报x86、IPv6/绑定地址/同步状态漏取与跨owner同名排序已修；真实PG/Fastify final-r2两页105条及权限/空值矩阵exit0，server build含tsc/3守卫/manifest194/138通过，专项接CI，准备单项push，无待poll。R021/R324已随R301/R302修好而漏登记，本次核源码及既有日志补交叉引用；327现191已有修复复验含部分、68保留结论、68待精修，191不等于完整验收。当前无其它未提交产品工作。下一段R303后台存储驱动/禁止缩容及授权、兑换事务日志、旧迁移并发补偿；分页并发变化、R269/Go proc/完整灾备仍待。

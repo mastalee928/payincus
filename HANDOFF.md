@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 存储更新保留描述与配置版本
+
+- 088165e用途修复已push核远端。上游Incus固定18068492788d26b3aad307b1331703c0d69c27db的storage_pools.go确认PATCH只合并config，省略description仍以空字符串更新。现在更新前读取真实池名/描述及ETag，复制本次提交，省略描述时保当前值，明确空字符串仍清空；PATCH携带If-Match并共用120秒期限。仅平台用途的空远端更新直接跳过，冲突不盲重试，API以409持久提示刷新重新确认。
+- 新test-review-storage-update.ts真实固定证书mTLS先红描述被清空；takeover-storage-update-final.log通过描述/配置保留、明确清空、空操作、缺ETag/错池名/读失败零写、412旧写保新配置、更新失败及证书变化零HTTP。先红后的Node24/Windows清理附加UV_HANDLE_CLOSING断言不作为产品根因，最终正常exit0。
+- 实际PG/Fastify扩展takeover-storage-update-api-final.log通过409/502/读写失败时不改本地用途描述、不记成功日志，以及用途和原容量矩阵；底层mTLS fixture现在维护真实池状态并验证If-Match，PATCH用例先建立已有池。takeover-storage-update-transport-regression.log原恢复传输的sync/async/总截止/取消/固定TLS/404语义回归通过。后端build含tsc、4相关守卫、manifest194/139、diff通过，专项接CI；无前端产品改动。
+- ETag保护远端读取与本次配置写入，不代替当前账号/宿主授权、远端成功但本地提交失败的恢复，以及真实Linux存储驱动验收。容量缩减/驱动限制继续核查固定上游公共层及实际调用；327/R303/R269/Go proc/完整灾备仍未完成。
+
 ## 2026-10-29 R1-303 存储池用途保存
 
 - be0ba6c已push核远端。实际PATCH传purpose但db.updateStoragePool的类型及字段映射均遗漏用途，接口200而仍按原用途选系统盘。新增StoragePurpose字段及条件更新，route采用明确UpdateStoragePoolData避免any掩盖丢字段；省略用途仍保原值，配置及其他池不改。
