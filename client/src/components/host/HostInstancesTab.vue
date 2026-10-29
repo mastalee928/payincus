@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed, nextTick } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -29,6 +29,25 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const pageActive = ref(false)
+let alive = true
+let listSequence = 0
+let trafficSequence = 0
+let displayedQuery = ''
+const detailSequences = new Map<number, number>()
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+function captureReadContext() {
+  const sequence = listSequence, session = sessionKey.value, hostId = props.hostId
+  return () => alive && pageActive.value && !!session && session === sessionKey.value && hostId === props.hostId && sequence === listSequence
+}
 
 // 获取付费实例的图标类型（根据实例类型判断）
 // 返回 'pro' | 'prime' | null
@@ -42,6 +61,8 @@ function getPaidIconType(instance: Instance): 'pro' | 'prime' | null {
 
 interface Instance {
   id: number
+  hostId?: number
+  host_id?: number
   name: string
   incusId?: string
   incus_id?: string
@@ -139,6 +160,7 @@ interface SshKeyOption {
 
 const instances = ref<Instance[]>([])
 const loading = ref(true)
+const loadError = ref('')
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
@@ -286,6 +308,7 @@ const selectedPaidCount = computed(() => {
 })
 
 function toggleSelectAll() {
+  if (loading.value || !pageActive.value || !sessionKey.value) return
   if (isAllSelected.value) {
     selectedIds.value.clear()
   } else {
@@ -294,6 +317,7 @@ function toggleSelectAll() {
 }
 
 function toggleSelect(id: number) {
+  if (loading.value || !pageActive.value || !sessionKey.value || !instances.value.some(instance => instance.id === id)) return
   if (selectedIds.value.has(id)) {
     selectedIds.value.delete(id)
   } else {
@@ -335,16 +359,22 @@ function getDetailConfig(id: number): InstanceConfigResponse | null {
 
 async function loadInstanceDetailConfig(instanceId: number, force: boolean = false): Promise<void> {
   const currentInstance = instances.value.find(instance => instance.id === instanceId)
+  if (!currentInstance || !pageActive.value || !sessionKey.value) return
   const hasQuotaDetail = !!currentInstance?.quota_usage && !!currentInstance?.effective_quota_limit
   if (!force && detailLoadingIds.value.has(instanceId)) return
   if (!force && detailConfigs.value[instanceId] && hasQuotaDetail) return
 
+  const contextCurrent = captureReadContext()
+  const sequence = (detailSequences.get(instanceId) || 0) + 1
+  detailSequences.set(instanceId, sequence)
+  const current = () => contextCurrent() && sequence === detailSequences.get(instanceId) && instances.value.some(instance => instance.id === instanceId)
   setLoadingState(detailLoadingIds, instanceId, true)
   try {
     const [configResult, detailResult] = await Promise.allSettled([
       api.instances.getConfig(instanceId),
       api.instances.get(instanceId)
     ])
+    if (!current()) return
 
     if (configResult.status === 'fulfilled') {
       detailConfigs.value = {
@@ -363,6 +393,9 @@ async function loadInstanceDetailConfig(instanceId: number, force: boolean = fal
     }
 
     if (detailResult.status === 'fulfilled') {
+      const detail = detailResult.value as Partial<Instance>
+      if (detail.id !== instanceId || (detail.hostId != null && detail.hostId !== props.hostId) ||
+        (detail.host_id != null && detail.host_id !== props.hostId)) return
       instances.value = instances.value.map(instance =>
         instance.id === instanceId
           ? { ...instance, ...(detailResult.value as Partial<Instance>) }
@@ -370,12 +403,13 @@ async function loadInstanceDetailConfig(instanceId: number, force: boolean = fal
       )
     }
   } catch (err: any) {
+    if (!current()) return
     detailConfigErrors.value = {
       ...detailConfigErrors.value,
       [instanceId]: err?.message || String(err)
     }
   } finally {
-    setLoadingState(detailLoadingIds, instanceId, false)
+    if (current()) setLoadingState(detailLoadingIds, instanceId, false)
   }
 }
 
@@ -857,51 +891,81 @@ async function doRecreate(data: { image: string; sshKeyId: number; customInitCom
 }
 
 async function loadInstances() {
+  if (!alive || !pageActive.value || !sessionKey.value || !Number.isSafeInteger(props.hostId) || props.hostId <= 0) return
+  listSequence++
+  const current = captureReadContext()
+  const params = {
+    hostId: props.hostId, page: page.value, pageSize: pageSize.value,
+    search: searchQuery.value.trim() || undefined, status: statusFilter.value || undefined,
+    sortBy: sortBy.value, sortOrder: sortOrder.value
+  }
+  const query = JSON.stringify(params)
+  const changed = query !== displayedQuery
+  const selection = !changed ? new Set(selectedIds.value) : new Set<number>()
+  clearInstanceReads()
+  if (changed) closeReadContextModals()
+  else if (showDeleteModal.value) {
+    deletePreviewSequence++
+    deletePreview.value = null
+    deletePreviewLoading.value = true
+  }
   loading.value = true
+  loadError.value = ''
   try {
-    const res = await api.instances.list({
-      hostId: props.hostId,
-      page: page.value,
-      pageSize: pageSize.value,
-      search: searchQuery.value.trim() || undefined,
-      status: statusFilter.value || undefined,
-      sortBy: sortBy.value,
-      sortOrder: sortOrder.value
-    })
-    instances.value = (res as any).instances || []
-    total.value = (res as any).total || 0
-    totalPages.value = (res as any).totalPages || 1
-
-    if (expandedInstanceId.value !== null && !instances.value.some(instance => instance.id === expandedInstanceId.value)) {
-      expandedInstanceId.value = null
+    const res = await api.instances.list(params) as unknown as { instances: Instance[]; total: number; totalPages: number }
+    if (!current()) return
+    if (!Array.isArray(res.instances) || !Number.isSafeInteger(res.total) || res.total < 0 ||
+      !Number.isSafeInteger(res.totalPages) || res.totalPages < 0 ||
+      new Set(res.instances.map(instance => instance.id)).size !== res.instances.length ||
+      res.instances.some(instance => !Number.isSafeInteger(instance.id) || instance.id <= 0 ||
+        (instance.hostId != null && instance.hostId !== params.hostId) || (instance.host_id != null && instance.host_id !== params.hostId))) {
+      throw new Error(t('instance.detail.loadFailed'))
     }
-
-    // 批量加载实例流量数据
-    await loadInstancesTraffic()
-  } catch (err) {
-    console.error('Failed to load instances:', err)
+    if (params.page > Math.max(1, res.totalPages)) {
+      page.value = Math.max(1, res.totalPages)
+      return loadInstances()
+    }
+    instances.value = res.instances
+    total.value = res.total
+    totalPages.value = Math.max(1, res.totalPages)
+    displayedQuery = query
+    selectedIds.value = new Set([...selection].filter(id => res.instances.some(instance => instance.id === id)))
+    if (showDeleteModal.value) {
+      if (deleteSelectionOverride.value) deleteSelectionOverride.value = deleteSelectionOverride.value.filter(id => res.instances.some(instance => instance.id === id))
+      if (effectiveDeleteSelection.value.length) void loadDeletePreview()
+      else showDeleteModal.value = false
+    }
+    void loadInstancesTraffic()
+  } catch (err: any) {
+    if (!current()) return
+    clearInstanceReads()
+    closeReadContextModals()
+    loadError.value = t('instance.detail.loadFailed') + ': ' + translateError(err)
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 // 批量加载实例流量数据
 async function loadInstancesTraffic() {
-  if (instances.value.length === 0) return
+  if (!alive || !pageActive.value || !sessionKey.value || instances.value.length === 0) return
+  const contextCurrent = captureReadContext(), sequence = ++trafficSequence
+  const targets = [...instances.value]
+  const current = () => contextCurrent() && sequence === trafficSequence
 
   try {
     // 并发请求所有实例的流量数据
-    const trafficPromises = instances.value.map(async (instance) => {
+    const trafficPromises = targets.map(async (instance) => {
       try {
         const trafficData = await api.traffic.getInstanceTraffic(instance.id)
         return { instanceId: instance.id, trafficData }
-      } catch (err) {
-        console.error(`Failed to load traffic for instance ${instance.id}:`, err)
+      } catch {
         return { instanceId: instance.id, trafficData: null }
       }
     })
 
     const trafficResults = await Promise.all(trafficPromises)
+    if (!current()) return
 
     // 更新实例的流量数据
     trafficResults.forEach(({ instanceId, trafficData }) => {
@@ -910,8 +974,8 @@ async function loadInstancesTraffic() {
         instance.trafficData = trafficData
       }
     })
-  } catch (err) {
-    console.error('Failed to load instances traffic:', err)
+  } catch {
+    // Traffic is optional; a failed auxiliary read must not replace the list.
   }
 }
 
@@ -942,18 +1006,53 @@ function handlePageSizeChange() {
   loadInstances()
 }
 
-watch(() => props.hostId, () => {
+function closeReadContextModals() {
+  showDeleteModal.value = false
+  showSuspendModal.value = false
+  showNotifyModal.value = false
+  showResetTrafficModal.value = false
+  showPriceModal.value = false
+  showBatchConfigModal.value = false
+  showMigrateModal.value = false
+  showRecreateModal.value = false
+  showGiftDaysModal.value = false
+  deletePreviewSequence++
+  deletePreview.value = null
+  deletePreviewLoading.value = false
+  deleteSelectionOverride.value = null
+  batchConfigSelectionOverride.value = null
+  lastBatchConfigSelection.value = []
+}
+
+function clearInstanceReads() {
+  trafficSequence++
+  instances.value = []
+  total.value = 0
+  totalPages.value = 1
+  selectedIds.value = new Set()
+  expandedInstanceId.value = null
+  detailConfigs.value = {}
+  detailConfigErrors.value = {}
+  detailLoadingIds.value = new Set()
+  detailSequences.clear()
+}
+
+function resetReadContext() {
+  listSequence++
+  displayedQuery = ''
+  clearInstanceReads()
+  closeReadContextModals()
+  loadError.value = ''
+  loading.value = false
   page.value = 1
   searchQuery.value = ''
   statusFilter.value = ''
   sortOrder.value = 'desc'
-  selectedIds.value.clear()
-  batchConfigSelectionOverride.value = null
-  expandedInstanceId.value = null
-  detailConfigs.value = {}
-  detailConfigErrors.value = {}
-  loadInstances()
-})
+}
+watch([() => props.hostId, sessionKey], () => {
+  resetReadContext()
+  void loadInstances()
+}, { flush: 'sync' })
 
 watch(showBatchConfigModal, (visible) => {
   if (visible) {
@@ -969,9 +1068,15 @@ watch(showDeleteModal, (visible) => {
   }
 })
 
-onMounted(() => {
-  loadInstances()
-})
+function activateReads() {
+  if (!alive || pageActive.value) return
+  pageActive.value = true
+  void loadInstances()
+}
+onMounted(activateReads)
+onActivated(activateReads)
+onDeactivated(() => { pageActive.value = false; resetReadContext() })
+onUnmounted(() => { alive = false; pageActive.value = false; resetReadContext() })
 
 function getStatusInfo(status: string) {
   const map: Record<string, { label: string; class: string; dot: string }> = {
@@ -1289,6 +1394,10 @@ function goToInstance(id: number) {
 <template>
   <div class="space-y-4">
     <SkeletonLoader v-if="loading" type="table" />
+    <div v-if="loadError && !loading" role="alert" class="rounded-lg border border-red-300 dark:border-red-800 p-4 space-y-3">
+      <p class="text-sm text-red-600 dark:text-red-400 break-words">{{ loadError }}</p>
+      <button type="button" class="btn-secondary btn-sm" @click="loadInstances">{{ t('common.retry') }}</button>
+    </div>
 
     <!-- 搜索栏 - 始终显示 -->
     <div v-if="!loading" class="flex items-center gap-2 flex-wrap">
@@ -1363,7 +1472,7 @@ function goToInstance(id: number) {
 
     <template v-if="!loading">
       <!-- 空状态 -->
-      <div v-if="instances.length === 0" class="card p-12 text-center">
+      <div v-if="!loadError && instances.length === 0" class="card p-12 text-center">
         <svg
           class="w-12 h-12 mx-auto mb-4"
           :class="themeStore.isDark ? 'text-gray-700' : 'text-gray-300'"

@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-301 宿主实例列表与辅助读取隔离
+
+- bf645b1已push核远端；e0d71d0源码CI已success。HostInstancesTab列表按序号/host/session/激活绑定，mount/activated仅初读一次，流量与详情各自序号隔离。新查询清旧列表/展开/选择，同查询保仍存在勾选；失败持久错误重试、分页末页纠正、重复/非法/错host响应拒绝。离页/注销/卸载清数据和浮层，同sid刷新不重置。
+- `takeover-host-reads-before.log`Chrome先红old覆盖new；`takeover-host-reads-final-r2.log`通过搜索ABA/分页/页长/选择、失败重试/末页、错host/重复、流量与详情反序、宿主/账号/session/cache/logout/unmount。追加同页删除失败刷新保明细并重取当前预览、目标移除清选择。1440中文/390英文截图已核；受控API无实际客户读取或写操作。
+- client最终types、3守卫、lint零错警、manifest194/111、最终双端build exit0/dist通过；专项接Chrome CI。初次guard筛选不存在instance-query直接拒绝，改真实名称后通过；原API列表类型缺instances字段使断言不重叠，经unknown边界及运行时校验修正，最终类型/构建通过。
+- 下一段R301删除已独立Chrome先红（`takeover-host-delete-before.log`）：预览1改勾2后提交2。host-delete-lifecycle四文件及扩展矩阵未提交，产品删除函数未改；相关前后端preview/delete、管理员/宿主退款边界和原生删除守卫已读。先固定删除目标和modal/session/旧写回执，后续封停/赠送/价格/通知另修。R301整体、327/R269/完整灾备未完成。
+
 ## 2026-10-29 R1-298 节点脚本非交互参数与确认
 
 - 39073c6已push核远端一致；95bf9e9源码CI已success。原面板注入值本来已优先合并，保留该行为。Ubuntu/Debian模板新增--yes/-y明确确认；非交互缺mode/token/确认、非法mode/port与卸载/Agent菜单在detect_system之前退出，未传port采用8443，Agent心跳仍60。交互流程与普通确认保留；帮助及docs/host-install-noninteractive.md说明参数。

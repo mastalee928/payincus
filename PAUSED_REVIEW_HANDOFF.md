@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：bf645b1已push；R301列表/traffic/detail序号+host/session/cache隔离、选择清理/同页保留、错误retry/分页修正已修，Chrome先红后绿+保删除失败明细专项/types/3守卫/lint零错警/manifest194/111/最终双端build exit0/dist通过，准备push，无待poll。下一段host-delete-lifecycle四文件先红预览1改勾2提交2，扩展矩阵已写未跑，删除产品未改；preview/delete后台完整、refund权限及原生删除守卫已读。固定弹窗目标/session代次，busy跨切换、旧写回执静默/保新勾选、部分失败明细及同页重取preview；其它gift/price/notify等另续。327/R269/完整灾备仍待。
+
 > **最新接续**：39073c6已push；R298非交互yes/default8443/缺参数及菜单早拒绝已修，19Bash实际函数先红后绿/语法/3守卫/manifest194/110/后端build含tsc exit0，准备push，无待poll。交互TTY/Linux原生安装另验；docs/host-install-noninteractive.md需显式加入。R299与R282–284交叉登记已有修复。下一项R301 HostInstancesTab列表、流量、展开详情无seq/session/host身份，全部相关读取/选择/模板和instances list权限已读，产品未改；先读后固定列表上下文、失败retry、selection与展开数据清理，批量预览/写操作另续。327/R269/完整灾备仍待。
 
 > **最新接续**：fb874b9已push；R297两seed加载DB前精确环境/URL/专库门禁与旧force移除已修，实际两脚本各23拒绝零DB初始化+4有效替身边界通过。新增scripts专用tsconfig包含完整src，清既有死声明/变量并收紧inet6类型后types exit0；2守卫/manifest193/110通过，准备单项push，无待poll。docs/sample-data.md需显式加入（docs默认忽略）。R298 scripts/test-host-install-inputs.mjs未提交，先红缺confirm仍read，夹具改文件绕过Windows长-c；main/confirm/heartbeat/is_valid_port及host-install守卫已读，产品未改。需非交互显式yes、默认端口、缺参数检测先于探测、菜单禁用及文档，保交互安装/默认机器池。R299与R282–284重复须交叉登记；327/R269/完整灾备仍待。
