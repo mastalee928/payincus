@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-065 快照策略更新重新排程
+
+- 实际PUT路由upsert的update分支只写enabled/intervalMinutes，保留旧nextRunAt；snapshot-policy-schedule-before真实Fastify/PG从10改1440先红。现仅在原withSnapshotMutation实例/账户事务锁内读取当前策略：启用且间隔未变、已有排程时保留；改间隔/重新启用/缺排程从当前成功更新时间加新间隔；关闭清空nextRunAt，lastRunAt不变。创建与更新同规则，不改快照远端/退款/库存/全端口或调度器。
+- takeover-snapshot-policy-schedule-final2真实Fastify/PG增减三种间隔、原样保排程、关闭null/重新启用、非法interval/他人/撤销sid拒绝且排程不变、实例全字段及零snapshot保持exit0。专项已清自身夹具后显式exit，与仓库既有集成一致；第一轮PASS后全库import遗留句柄的进程只停精确该测试，最终重跑exit0。未停止本地PG或操作生产。
+- snapshot-route/auth-session与auto-policy-scheduler三对应守卫、server类型、独立测试TS（node/ES2023/Fastify声明）、server build全exit0；manifest194常规177专项有效，新专项接CI。takeover-snapshot-policy-schedule-auto-regression原完整真实PG/mTLS回归26条PASS最终exit0，包括远端拒绝/身份变化/禁用/过期/事务失败/杀进程重试/限次及恢复保护；Incus边界仍测试替身，不是原生客户磁盘或Linux验收。前端无改，既有双端build保持。
+- 207有修复/复验记录（含部分）/68已有防护或实现不同/52待精修。a1716d42已push核远端，四上批CI查询仍in_progress。完整327/原生快照/网关灾备未完成；下一R067旧failure finalizer函数当前无消费者，继续按实际调用链复核，不机械修改退役代码。
+
 ## 2026-10-29 R1-061 快照策略布尔读取与原样保存复验
 
 - 原清单是SnapshotManager快照策略，不是防火墙。当前产品已在c277ba30改为Boolean(res.enabled)，GET实际返回boolean，PUT接受boolean与10/60/360/1440间隔；本阶段不重复修改产品或扩大到客机备份。

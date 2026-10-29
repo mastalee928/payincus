@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R065快照排程：真实路由间隔变化保留旧nextRunAt先红，原事务实例/账户锁内改间隔重排、原样保留、关闭null、重新启用重排；Fastify/PG final2与原auto快照26条PG/mTLS回归、3守卫/server类型/独立测试类型/build及manifest194常规177专项全部exit0。207有修复复验含部分/68已有不同/52待，Incus替身不等于Linux客户磁盘验收，完整327/灾备继续。
+
 2026-10-29 R061快照布尔策略：当前c277ba30产品已Boolean读取；补真实Chrome true/false×四间隔、实际编辑/checkbox/原样保存精确payload及三宽三语截图，snapshot-policy-ui-final与3守卫/语法/manifest194常规176专项通过，同产品原build/types/dist保持。原生快照/整体UI及其它会话生命周期另验；206有修复复验含部分/68已有不同/53待，完整327/灾备继续。
 
 2026-10-29 R315/R326补运行证据：原源码三语Telegram/管理员邀请码价格实际Vue/Chrome、长当前origin的配置URL与300字符current URL三语1440/768/390完整换行无横溢且零写，18最终截图已看，原bindings/settings-receipts回归exit0；守卫/manifest194常规175专项及同产品代码已有types build/dist见HANDOFF。taste原整页gradient/阴影/glass等FAIL保留，UI整体未验收。205有修复复验含部分/68已有不同/54待不重复计数，完整327/灾备继续。
@@ -180,7 +182,7 @@
 | R1-062 | 存在 | 待精修/运行复核 | 快照变更缺session/target generation及完整busy门禁，旧完成可能覆盖草稿或卸载后继续。 |
 | R1-063 | 部分存在 | 待精修/运行复核 | 请求authenticateUser已有认证，快照权限依赖先读的user/instance/hostOwner；写入前缺统一最新actor资格核验，封禁/降权在途边界待DB复现。 |
 | R1-064 | 存在 | 待精修/运行复核 | 删除/恢复/策略先校验快照与实例后异步远端操作，删除未与恢复统一锁；转移后仍可能作用旧目标。 |
-| R1-065 | 存在 | 待精修/运行复核 | upsert create有nextRunAt而update只有enabled/intervalMinutes，修改间隔保留旧下次执行时间。 |
+| R1-065 | 存在 | 已修；真实Fastify/PG通过 | 原实例锁内按当前策略重新排程：改间隔/重启/缺值重排，原样保留，关闭null，lastRunAt不变；schedule-before先红→final2间隔/账户门禁/实例字段保持与原auto-regression26条PG/mTLS回归全部exit0，3守卫/server types/build通过。真实Linux Incus另验。 |
 | R1-066 | 已有防护 | 保留初审结论 | parsePositiveId严格正整数及safe integer；不接受小数ID。 |
 | R1-067 | 存在 | 待精修/运行复核 | scheduler失败后updateSnapshotPolicyLastRun重新读interval却不核对enabled/原schedule再写，旧失败可覆盖新排程。 |
 | R1-068 | 部分存在 | 待精修/运行复核 | 锁后重读policy/instance/host eligibility，旧排队资格已有保护；执行后异步通知仍沿用该次快照的名称/归属。 |

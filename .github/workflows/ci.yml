@@ -334,6 +334,8 @@ jobs:
         run: pnpm --filter server test:review-telegram-pricing-locales
       - name: Snapshot policy editors preserve Boolean state on unchanged saves
         run: pnpm --filter server test:review-snapshot-policy-ui
+      - name: Snapshot policy changes schedule their next execution from the current update
+        run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: User and administrator logins reject repeated in-flight submissions
         run: pnpm --filter server test:review-login-submit
       - name: Balance adjustments keep their target, draft and confirmed receipt

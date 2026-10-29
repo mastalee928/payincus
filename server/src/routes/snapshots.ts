@@ -512,9 +512,12 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
 
     await withSnapshotMutation(instance, request.user, true, async (tx, current) => {
       if (enabled && (!current.snapshotLimit || current.snapshotLimit <= 0)) throw new SnapshotMutationError('实例未分配快照配额', 400)
+      const previous = await tx.snapshotPolicy.findUnique({ where: { instanceId: instanceIdNum } })
+      const nextRunAt = !enabled ? null : previous?.enabled && previous.intervalMinutes === intervalMinutes && previous.nextRunAt
+        ? previous.nextRunAt : new Date(Date.now() + intervalMinutes * 60000)
       await tx.snapshotPolicy.upsert({ where: { instanceId: instanceIdNum },
-        create: { instanceId: instanceIdNum, enabled, intervalMinutes, nextRunAt: new Date(Date.now() + intervalMinutes * 60000) },
-        update: { enabled, intervalMinutes } })
+        create: { instanceId: instanceIdNum, enabled, intervalMinutes, nextRunAt },
+        update: { enabled, intervalMinutes, nextRunAt } })
     })
 
     return { message: 'Auto snapshot policy updated' }

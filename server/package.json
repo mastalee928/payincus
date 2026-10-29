@@ -123,6 +123,7 @@
     "test:review-telegram-channel-submit": "node ../scripts/test-telegram-channel-submit.mjs",
     "test:review-telegram-pricing-locales": "node ../scripts/test-telegram-pricing-locales.mjs",
     "test:review-snapshot-policy-ui": "node ../scripts/test-snapshot-policy-ui.mjs",
+    "test:snapshot-policy-schedule-integration": "node --import tsx scripts/test-snapshot-policy-schedule-integration.ts",
     "test:review-login-submit": "node ../scripts/test-login-submit.mjs",
     "test:review-package-empty-fields": "node --import tsx scripts/test-review-package-empty-fields.ts",
     "test:review-service-worker": "node ../scripts/test-service-worker.mjs",
