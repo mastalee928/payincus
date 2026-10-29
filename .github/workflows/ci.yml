@@ -332,6 +332,8 @@ jobs:
         run: pnpm --filter server test:review-telegram-channel-submit
       - name: Telegram and invite pricing translations fit long addresses on phones
         run: pnpm --filter server test:review-telegram-pricing-locales
+      - name: Snapshot policy editors preserve Boolean state on unchanged saves
+        run: pnpm --filter server test:review-snapshot-policy-ui
       - name: User and administrator logins reject repeated in-flight submissions
         run: pnpm --filter server test:review-login-submit
       - name: Balance adjustments keep their target, draft and confirmed receipt

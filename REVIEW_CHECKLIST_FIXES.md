@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R061快照布尔策略：当前c277ba30产品已Boolean读取；补真实Chrome true/false×四间隔、实际编辑/checkbox/原样保存精确payload及三宽三语截图，snapshot-policy-ui-final与3守卫/语法/manifest194常规176专项通过，同产品原build/types/dist保持。原生快照/整体UI及其它会话生命周期另验；206有修复复验含部分/68已有不同/53待，完整327/灾备继续。
+
 2026-10-29 R315/R326补运行证据：原源码三语Telegram/管理员邀请码价格实际Vue/Chrome、长当前origin的配置URL与300字符current URL三语1440/768/390完整换行无横溢且零写，18最终截图已看，原bindings/settings-receipts回归exit0；守卫/manifest194常规175专项及同产品代码已有types build/dist见HANDOFF。taste原整页gradient/阴影/glass等FAIL保留，UI整体未验收。205有修复复验含部分/68已有不同/54待不重复计数，完整327/灾备继续。
 
 2026-10-29 R320密码规则：前端与后台8–128位/大小写/数字一致，三语持久规则hint、input限制和非法零请求已修。实际Chrome三语策略/8与128边界及原真实敏感验证、scope32旧回执，3对应守卫/lint/最终双端types build/dist全部exit0，证据见HANDOFF；未改真实账户。唯一205有修复复验（含部分）/68已有防护或不同/54待精修，完整327/灾备未完。下一R315/R326运行验证继续。
@@ -174,7 +176,7 @@
 | R1-058 | 存在 | 待精修/运行复核 | mount await后建立timer，卸载清理先发生仍会重建轮询。 |
 | R1-059 | 部分存在 | 待精修/运行复核 | startRestore未在首个await前占busy，全局activeTask在轮询完成后被直接回写，缺账户/任务代次。BackupManager当前消费者可达性与后端实际备份栈不同，不能据此删平台OSS。 |
 | R1-060 | 实现不同 | 保留初审结论 | 前端疑似无当前页面消费者；不代表后端或平台OSS备份已退役，不据此删除整栈。 |
-| R1-061 | 存在 | 待精修/运行复核 | 策略API返回Boolean，编辑读取enabled===1导致已启用策略显示关闭。 |
+| R1-061 | 原症状已修 | 实际Chrome原样保存复验通过 | 当前c277ba30 SnapshotManager已Boolean(res.enabled)，真实GET/PUT布尔合同核对；true/false×10/60/360/1440实际编辑按钮/checkbox/原样save精确payload通过takeover-snapshot-policy-ui-final，三宽三语截图与3守卫过。未改真实策略或操作Incus；整体UI/其它生命周期另验。 |
 | R1-062 | 存在 | 待精修/运行复核 | 快照变更缺session/target generation及完整busy门禁，旧完成可能覆盖草稿或卸载后继续。 |
 | R1-063 | 部分存在 | 待精修/运行复核 | 请求authenticateUser已有认证，快照权限依赖先读的user/instance/hostOwner；写入前缺统一最新actor资格核验，封禁/降权在途边界待DB复现。 |
 | R1-064 | 存在 | 待精修/运行复核 | 删除/恢复/策略先校验快照与实例后异步远端操作，删除未与恢复统一锁；转移后仍可能作用旧目标。 |

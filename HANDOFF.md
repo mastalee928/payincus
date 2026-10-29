@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-061 快照策略布尔读取与原样保存复验
+
+- 原清单是SnapshotManager快照策略，不是防火墙。当前产品已在c277ba30改为Boolean(res.enabled)，GET实际返回boolean，PUT接受boolean与10/60/360/1440间隔；本阶段不重复修改产品或扩大到客机备份。
+- 新snapshot-policy-ui真实Vue/Chrome通过true/false×四间隔读取→点实际aria-label编辑按钮→核checkbox→点实际保存→核精确instanceId/boolean/intervalMinutes payload→当前回执刷新。原样保存不会将true变false。三语1440/768/390弹窗截图已查看、无水平溢出；受控API未改真实策略/快照或操作Incus。首轮夹具错误以文字找纯图标按钮，改按真实aria-label后takeover-snapshot-policy-ui-final exit0。
+- snapshot-route/frontend-route/i18n三守卫exit0、脚本语法与diff check、manifest194常规176专项分类有效并接CI，无待poll。产品未改，沿用同产品最终双端types build/dist证据。此次只补R061运行证据；弹窗原样式/深色灰字与完整会话生命周期没有整体UI验收，不能以此代表自动调度或真实宿主快照通过。
+- 唯一206有修复/复验记录（含部分）/68已有防护或实现不同/53待精修，原待修R061本次关闭指定症状；完整327/原生宿主及灾备未完成。6e31eaa9已push核远端；上三批CI仍in_progress。下一R065快照间隔更新后的nextRunAt与相关PG调度证据继续核查。
+
 ## 2026-10-29 R1-315/R1-326 三语与手机长 Webhook 运行复验
 
 - 两项原产品修复已在当前源码，本阶段不重复改Telegram或定价行为。新增test-telegram-pricing-locales实际Vue/Chrome专项并接CI/manifest：三语Telegram控件、管理员邀请码定价标题/资源/价格/有效期及switch可访问名均实际渲染；语言切换不发请求，原余额0.01/积分1步长、min0、合法零及开关状态保持。
