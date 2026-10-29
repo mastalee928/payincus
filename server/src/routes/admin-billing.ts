@@ -11,6 +11,7 @@ import { assertNoPendingProxySiteOperations, ProxySiteOperationPendingError } fr
 import * as db from '../db/index.js'
 import { createLog } from '../db/logs.js'
 import { normalizeLogContentForStorage } from '../lib/log-localization.js'
+import { authorizeUserWrite, type WriteActor } from '../db/user-write-authorization.js'
 import { sendNotification } from '../lib/notifier.js'
 import { createEpayClient, type EpayConfig, type EpayConfigV1, type EpayConfigV2, type EpayVersion } from '../lib/epay.js'
 import {
@@ -396,6 +397,13 @@ class BatchPriceUpdateError extends Error {
     this.name = 'BatchPriceUpdateError'
     this.statusCode = statusCode
     this.preview = preview
+  }
+}
+
+async function authorizePriceWrite(tx: Prisma.TransactionClient, actor: WriteActor) {
+  if (!await authorizeUserWrite(tx, actor.id, actor) ||
+    (await tx.user.findUnique({ where: { id: actor.id }, select: { role: true } }))?.role !== 'admin') {
+    throw new BatchPriceUpdateError('账号权限或登录会话已变化，请重新登录', 403)
   }
 }
 
@@ -2487,17 +2495,14 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         return reply.status(409).send({ error: '实例计费信息已变化，请刷新后重试' })
       }
 
-      // 如果价格没有变化，直接返回
-      if (oldPrice === roundedNewPrice) {
-        return { success: true, message: '价格未变更', priceDiff: 0 }
-      }
-
       let priceDiff = 0
       let remainingDays = 0
       let billingCycle = instance.billingCycle || 1
 
       // 2. 执行事务：重新读取、重新报价、并发检查、价格更新和余额结算
       await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+        await authorizePriceWrite(tx, admin)
         const currentInstance = await tx.instance.findUnique({
           where: { id: instanceId },
           include: {
@@ -2522,6 +2527,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         if (currentOldPrice !== oldPrice || currentInstance.version !== comparisonVersion) {
           throw new BatchPriceUpdateError('实例计费信息已变化，请刷新后重试', 409)
         }
+        if (currentOldPrice === roundedNewPrice) return
 
         // 共享报价按实付账单计算剩余价值并封顶，执行时在同一事务内重算。
         const quote = await db.calculateInstancePriceAdjustmentQuote(currentInstance, roundedNewPrice, settleBalance, tx)
@@ -2631,6 +2637,10 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
           result: 'success'
         } })
       })
+
+      if (oldPrice === roundedNewPrice) {
+        return { success: true, message: '价格未变更', priceDiff: 0 }
+      }
 
       // 6. 通知用户（如果有余额变动）
       if (settleBalance && priceDiff !== 0) {
@@ -2765,6 +2775,8 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       let notificationItems: BatchPriceUpdateItem[] = []
 
       const preview = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM instances WHERE id IN (${Prisma.join([...instanceIds].sort((a, b) => a - b))}) ORDER BY id FOR UPDATE`)
+        await authorizePriceWrite(tx, admin)
         const currentPreview = await buildBatchPriceUpdatePreview(tx, instanceIds, newPrice, settleBalance)
 
         const versionedPreviewItems = currentPreview.items.filter(item => item.status !== 'failed')

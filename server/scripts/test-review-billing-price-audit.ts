@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
+import type { Prisma } from '@prisma/client'
 import Fastify from 'fastify'
 
 const database = new URL(process.env.DATABASE_URL || '')
@@ -23,13 +25,17 @@ const instances = await Promise.all([1, 2].map(number => prisma.instance.create(
   dedicatedIpv4: true, dedicatedNetworkReady: true,
 } })))
 const ids = instances.map(item => item.id), actors = [owner.id, admin.id]
+let actor = { id: admin.id, role: 'admin', username: admin.username, sid: prefix, iat: Math.floor(now / 1000) }
 const app = Fastify()
-app.decorate('authenticate', async (request: any) => { request.user = { id: admin.id, role: 'admin', username: admin.username, sid: prefix, iat: Math.floor(now / 1000) } })
+app.decorate('authenticate', async (request: any) => { request.user = { ...actor } })
 app.decorate('requireAdmin', async () => {})
 app.decorate('authenticateAdmin', app.authenticate)
 const trigger = 'price_audit_' + randomUUID().replaceAll('-', '')
 const reset = async () => {
-  await prisma.instance.updateMany({ where: { id: { in: ids } }, data: { billingPrice: 10, version: 0, expiresAt: expires } })
+  actor = { id: admin.id, role: 'admin', username: admin.username, sid: prefix, iat: Math.floor(now / 1000) }
+  await prisma.user.update({ where: { id: admin.id }, data: { status: 'active', role: 'admin' } })
+  await prisma.tokenInvalidation.deleteMany({ where: { userId: admin.id } })
+  await prisma.instance.updateMany({ where: { id: { in: ids } }, data: { billingPrice: 10, version: 0, expiresAt: expires, status: 'running', packagePlanId: plan.id } })
   await prisma.user.update({ where: { id: owner.id }, data: { balance: 1000 } })
   await prisma.balanceLog.deleteMany({ where: { userId: owner.id } })
   await prisma.instanceBillingRecord.deleteMany({ where: { instanceId: { in: ids } } })
@@ -43,6 +49,31 @@ const snapshot = async () => ({
   balanceLogs: await prisma.balanceLog.count({ where: { userId: owner.id } }),
   billingRecords: await prisma.instanceBillingRecord.count({ where: { instanceId: { in: ids } } }),
 })
+async function race(kind: string, mutate: (tx: Prisma.TransactionClient) => Promise<unknown>, target = 'admin') {
+  let release!: () => void, entered!: (pid: number) => void, rejectReady!: (error: unknown) => void
+  const hold = new Promise<void>(resolve => { release = resolve })
+  const ready = new Promise<number>((resolve, reject) => { entered = resolve; rejectReady = reject })
+  const blocker = prisma.$transaction(async tx => {
+    if (target === 'admin') await tx.$queryRaw`SELECT id FROM users WHERE id = ${admin.id} FOR UPDATE`
+    else await tx.$queryRaw`SELECT id FROM instances WHERE id = ${ids[0]} FOR UPDATE`
+    await mutate(tx)
+    const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+    entered(row.pid); await hold
+  }, { timeout: 15000 })
+  void blocker.catch(rejectReady)
+  const pid = await ready
+  let settled = false, blocked = false
+  const operation = submit(kind, true).then(response => { settled = true; return response })
+  try {
+    const end = Date.now() + 3500
+    while (!settled && Date.now() < end) {
+      const [row] = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM pg_stat_activity WHERE ${pid} = ANY(pg_blocking_pids(pid))`
+      if (Number(row.count)) { blocked = true; break }
+      await delay(20)
+    }
+  } finally { release(); await blocker }
+  return { response: await operation, blocked }
+}
 const submit = (kind: string, settleBalance: boolean, newPrice = 20) => app.inject({ method: 'POST',
   url: kind === 'single' ? `/api/admin/instances/${ids[0]}/update-price` : '/api/admin/instances/batch-update-price',
   payload: kind === 'single' ? { newPrice, settleBalance, expectedVersion: 0 } : {
@@ -91,12 +122,50 @@ try {
     assert.deepEqual(await snapshot(), saved)
   }
   for (const kind of ['single', 'batch']) {
+    for (const state of ['deleted', 'free']) {
+      await reset(); const before = await snapshot()
+      const result = await race(kind, tx => tx.instance.update({ where: { id: ids[0] }, data: state === 'deleted' ? { status: 'deleted' } : { packagePlanId: null } }), 'instance')
+      assert.equal(result.response.statusCode, 400, `${kind}/${state} changed instance cannot be billed`)
+      assert.ok(result.blocked, `${kind}/${state} instance lock serializes validation`)
+      assert.deepEqual(await snapshot(), before)
+      assert.equal(await prisma.log.count({ where: { userId: admin.id } }), 0)
+    }
     await reset(); const before = await snapshot(), result = await submit(kind, true, 10)
     assert.equal(result.statusCode, 200, result.body); assert.equal(result.json().success, true)
     assert.deepEqual(await snapshot(), before, 'unchanged price cannot touch price version, balance or billing records')
     assert.equal(await prisma.log.count({ where: { userId: admin.id } }), kind === 'single' ? 0 : 1)
   }
   console.log('PASS real PG/Fastify single/batch price audit atomic rollback, zero/increase, no-settle/settle, ledger continuity and stale version matrix')
+  for (const kind of ['single', 'batch']) {
+    for (const state of ['banned', 'demoted', 'session', 'all-sessions']) {
+      await reset(); const before = await snapshot()
+      const result = await race(kind, async tx => {
+        if (state === 'banned') await tx.user.update({ where: { id: admin.id }, data: { status: 'banned' } })
+        else if (state === 'demoted') await tx.user.update({ where: { id: admin.id }, data: { role: 'user' } })
+        else await tx.tokenInvalidation.create({ data: { userId: admin.id, sessionId: state === 'session' ? prefix : '__USER_LEVEL__', invalidatedAt: actor.iat } })
+      })
+      assert.equal(result.response.statusCode, 403, `${kind}/${state}: stale authenticated admin must not write`)
+      assert.ok(result.blocked, `${kind}/${state}: actual revocation lock must serialize the write`)
+      assert.deepEqual(await snapshot(), before)
+      assert.equal(await prisma.log.count({ where: { userId: admin.id } }), 0)
+    }
+    for (const state of ['missing-sid', 'missing-iat', 'demoted', 'banned']) {
+      for (const price of [10, 20]) {
+        await reset(); const before = await snapshot()
+        if (state === 'missing-sid') actor.sid = ''
+        if (state === 'missing-iat') actor.iat = 0
+        if (state === 'demoted') await prisma.user.update({ where: { id: admin.id }, data: { role: 'user' } })
+        if (state === 'banned') await prisma.user.update({ where: { id: admin.id }, data: { status: 'banned' } })
+        assert.equal((await submit(kind, false, price)).statusCode, 403, `${kind}/${state}/${price} current identity is required even for an unchanged price`)
+        assert.deepEqual(await snapshot(), before)
+        assert.equal(await prisma.log.count({ where: { userId: admin.id } }), 0)
+      }
+    }
+    await reset()
+    await prisma.tokenInvalidation.create({ data: { userId: admin.id, sessionId: prefix, invalidatedAt: actor.iat - 1 } })
+    assert.equal((await submit(kind, false)).statusCode, 200, 'a token issued after the recorded revocation remains valid')
+  }
+  console.log('PASS current admin status/role/session and real lock races reject stale writes, including unchanged-price requests')
 } catch (error) { failure = error } finally {
   await app.close()
   await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${trigger} ON logs`)

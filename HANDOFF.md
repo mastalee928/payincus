@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-304 改价事务复核当前管理员与会话
+
+- 91e8e57已push。单/批写入在锁定目标实例后复用authorizeUserWrite锁管理员账号、检查active、当前admin角色与sid/iat撤销记录；实例行锁按ID排序。单台价格不变分支也进入同一锁和当前身份核验，再返回原不变结果，避免提前成功。该阶段仅写路由，预览读取与其它后台操作未扩大。
+- takeover-billing-price-auth-before.log实际PG/Fastify先红：封禁事务持有管理员行锁期间旧请求仍200；auth-final.log通过单/批封禁/降权/session/全session八组真实等待竞争，16组缺sid/iat/降权/封禁含不变请求、两个较新iat可用对照、目标变deleted/free四组行锁竞争；旧请求均零计费/零成功日志。原审计失败与完整正常结算矩阵同时回归通过。实例锁稳定事务内资格检查，不代表归属变化、续费/转移/删除全链路并发已全部验收。
+- admin-billing-route-id/log-localization/auth-session-status三守卫、manifest194/144与diff通过；takeover-billing-price-auth-build.log后端build含tsc exit0。原PG仅本地隔离库、无外部通知渠道/Incus，前端沿e8cb278验证。代码复核确认现有单/批余额明细已从实际更新余额反推before，不因旧读取便断言明细错误；用户余额锁顺序、归属/支付记录变化与通知持久性仍待后续；R304仍部分，327维持192/68/67。
+
 ## 2026-10-29 R1-304 改价操作审计与计费同事务
 
 - e8cb278已push。单台和批量原createLog在计费事务外且吞掉写入失败，现使用各自tx.log.create，操作码/模块/结果与原中文化入口保持；单台日志使用事务内实际实例名并绑定instanceId。审计失败与价格、version、余额、余额明细及计费记录一起回滚，不修改全局createLog的其他调用。

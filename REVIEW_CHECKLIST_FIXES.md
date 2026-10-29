@@ -361,7 +361,7 @@
 | R1-301 | 存在，多阶段已修 | 读取/删除/批量状态/gift/price/reset/notify/recreate/single/batch-config与数字/角色专项通过；其它待续 | 读取/目标与回执隔离、gift失败重试、price/notify新草稿、reset辅助读、重建准备、single当前配置。批量配置固定targets/回执、Done刷新、retry原配置与累计明细；数字完整解析/0/null/精确流量；普通owner隐藏高级分区且构建/发送/retry拒绝admin-only已修。Chrome先红后绿/两回归/types/3守卫/lint/双端build/dist通过。迁移及后台完整状态写另续，不记整体完成，见HANDOFF。 |
 | R1-302 | 部分存在，多阶段精修 | 显示/默认/编辑读取与提交已修 | 资源0语义/未知用量、后台默认及有效备份计数、读取/草稿、0/null/整数/使用量提交、当前角色及目标/session/ABA回执均已修。真实PG详情/竞争、Chrome矩阵、types/守卫/双端build见HANDOFF；专属全端口及用户无转发入口保持，原生交付与整体327不由局部证据代替。 |
 | R1-303 | 存在，多阶段精修 | 专属迁移门禁、Storage/Redeem读写及迁移前端读写已修 | 旧迁移专属/singleTenant整批拒绝已PG验证；Storage/Redeem读写Chrome矩阵通过；迁移分页及读取、固定写target/旧回执/重复/部分结果，父同步选择/current身份/辅助读失败保结果Chrome/types/守卫通过。兑换复制/结果弹窗完整Chrome已修；存储容量输入与手机错误已修，后台容量API格式/单位/上限PG+mTLS已修；宿主分页补真实架构/IPv6及绑定地址/同步状态，按name+id固定跨owner同名顺序，真实PG/Fastify 105宿主两页及权限回归通过。驱动扩容/授权原子性、兑换事务日志、分页期间并发新增删除及旧迁移并发补偿另待。 |
-| R1-304 | 存在，部分已修 | 单/批预览与写回执Chrome、审计事务PG通过 | 150ms旧预览同步失效、session/ABA/缓存、当前版本/余额与合法0及提交门禁；busy/关闭/草稿、失败后显式新预览、旧写回执/辅助读取隔离已修。后台日志失败PG先红后单/批价格/版本/余额/账单同事务回滚及正常结算矩阵通过。当前授权/计费对象并发锁、通知持久化及完整真实计费流程仍待，见HANDOFF。 |
+| R1-304 | 存在，部分已修 | 单/批预览与写回执Chrome、审计和当前管理员PG通过 | 150ms旧预览同步失效、session/ABA/缓存、当前版本/余额与合法0及提交门禁；busy/关闭/草稿、失败后显式新预览、旧写回执/辅助读取隔离已修。后台审计原子回滚与正常结算、事务内当前管理员status/role/sid撤销及不变请求、实例资格行锁PG竞争通过。余额锁顺序/归属及支付记录并发、通知持久化及完整计费流程仍待，见HANDOFF。 |
 | R1-305 | 存在 | 待精修/运行复核 | 余额/登录弹窗异步未绑定当前user；submitAdjustBalance缺函数busy guard，可串用户/重复提交。 |
 | R1-306 | 已有防护 | 保留初审结论 | requiresIpv6ParentInterface仅当前或旧subnet有值时要求接口，IPv6全部留空可保存；清空已有值仍见R1-111。 |
 | R1-307 | 部分存在 | 待精修/运行复核 | 2FA startSetup/enable等缺函数busy门禁；ChangeEmail已有busy与卸载清理但邮箱await未绑定目标，细项另见R313，不能笼统说所有保护都无。 |
