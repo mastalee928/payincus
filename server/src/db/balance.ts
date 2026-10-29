@@ -14,6 +14,7 @@ import {
 } from '@prisma/client'
 import { USER_BALANCE_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from './advisory-locks.js'
 import { lockAdministrativeUserMutation, type WriteActor } from './user-write-authorization.js'
+import { normalizeLogContentForStorage } from '../lib/log-localization.js'
 
 type BalanceQueryClient = typeof prisma | Prisma.TransactionClient
 const BALANCE_LOG_TYPES = new Set<BalanceLogType>([
@@ -530,13 +531,25 @@ export async function adminAdjustBalance(
   remark: string,
   actor: WriteActor
 ): Promise<BalanceChangeResult> {
-  return changeBalance({
-    userId,
-    type: 'admin_adjust',
-    actor,
-    amount,
-    remark
-  })
+  try {
+    const result = await prisma.$transaction(async tx => {
+      const changed = await changeBalanceInTransaction(tx, { userId, type: 'admin_adjust', actor, amount, remark })
+      // These accounts remain locked by the administrative balance mutation.
+      const target = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { username: true } })
+      const actualAmount = Number(changed.balanceLog.amount)
+      await tx.log.create({ data: {
+        userId: actor.id,
+        module: 'admin',
+        action: 'balance.adjust',
+        content: normalizeLogContentForStorage(`Adjusted balance for user ${target.username}: ${actualAmount > 0 ? '+' : ''}${actualAmount}, reason: ${remark}`),
+        result: 'success'
+      } })
+      return changed
+    })
+    return { success: true, balanceLog: result.balanceLog, newBalance: result.newBalance }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '余额变动失败' }
+  }
 }
 
 /**

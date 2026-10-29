@@ -681,14 +681,6 @@ export default async function balanceRoutes(fastify: FastifyInstance) {
       return reply.code(result.error === 'ADMIN_ACTOR_FORBIDDEN' ? 403 : 400).send({ error: result.error })
     }
 
-    await createLog(
-      user.id,
-      'admin',
-      'balance.adjust',
-      `Adjusted balance for user ${targetUser.username}: ${amount > 0 ? '+' : ''}${amount}, reason: ${remark}`,
-      'success'
-    )
-
     // 发送余额调整邮件通知
     try {
       if (targetUser.email) {

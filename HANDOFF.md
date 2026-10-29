@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-305 用户余额调整审计原子提交
+
+- b5d2621已push。原balance route事务外createLog吞审计写错，真实PG trigger先红仍200并已调账。现adminAdjustBalance复用原changeBalanceInTransaction，余额/账目/当前admin与session行锁核验/管理员操作审计同事务；任一落库失败全回滚。审计读取已锁目标姓名与实际两位小数金额，沿用日志本地化；route不再事务外追加重复审计。未改gift/审批/历史账目。
+- takeover-user-balance-audit-final.log真实PG/Fastify四组审计失败、两组账目失败全回滚，六组加减/扣到0/分币/上限正常精确回执；四非法/不足余额零写、四当前管理员权限/撤销反例及四实际行锁竞争均通过。4守卫通过，takeover-user-balance-audit-build.log后端build含tsc exit0；独立scripts类型检查exit0、manifest194/147通过，PG专项接CI。server目录无ESLint配置，本段以tsc/守卫/实际PG及代码审查验证。只使用local *_pool_test隔离数据库，不是生产调账；邮件持久投递和断网后重试幂等仍待。
+- R305保持部分，193/68/66统计不变；完整327、真实客户完整流程和网关灾备仍未完成。
+
 ## 2026-10-29 R1-305 用户余额调整写回执与输入
 
 - 6509acd已push。余额调整固定userId/金额/理由，统一canAdjustBalance与函数即时busy；保存期间锁字段、tab、关闭和另开用户，锁跨session变化直到原请求退出。严格十进制两位小数、0.01–99999999.99、明确add/deduct与500字理由；错误留草稿并持久显示。回执核实际newBalance、admin_adjust账目ID/金额/前后余额连续性；目标/session/ABA/cache/草稿变化后旧成功失败静默，同sid刷新保留。
