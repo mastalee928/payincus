@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-301 续费价格弹窗与新草稿保护
+
+- 28a1565已push核远端。价格弹窗固定当前付费实例，严格有限0–99999及变化值，按钮/函数共用门禁；提交固定host/instance/price和modal/session代次，旧回执静默，在途禁止重开。当前成功更新现有列表对象并保后来输入；同页已返回列表仍正确落价，在途旧列表通过重取当前列表失效。错误持久显示，金额输入窄屏可缩，月份复用三语，增加键盘焦点/关闭保护。
+- `takeover-host-price-before.log`Chrome先红host1旧15污染host2原10；`takeover-host-price-final.log`通过重复/关闭、非法/相同/零/99999、保新草稿、失败重试、错误ID/金额回执、刷新已返回与仍在途、付费资格、host/session/cache/logout/unmount，1440中文/390英文截图和键盘已核。受控API，无实际客户改价或发送通知。
+- client types、3守卫（route/i18n/host-route-id）、lint零错警、gift及读取两个完整Chrome回归、manifest194/115、最终双端build exit0/dist通过；专项接Chrome CI。后台原续费价格非原子当前授权/计价与通知事务仍待，不以本前端修复代替后台验收。
+- 下一段host-reset-lifecycle四文件已先红（`takeover-host-reset-before.log`）：切host后旧reset仍继续发原实例traffic读取；扩展矩阵已写未跑，产品reset未改。已读完整traffic reset route、事务/当前授权、traffic-reset-locks与R271后端专项；前端须隔离旧write/traffic，成功后立即结束确认，辅助读取失败不能把已完成reset报失败。R301/327/R269及完整灾备未完成。
+
 ## 2026-10-29 R1-301 赠送时长确认与部分失败重试
 
 - 5f2085b已push核远端一致；9c3c320/d855f91/5f2085b源码CI最后仍运行。赠送弹窗固定已选付费ID，显示数量和提交集合一致；按钮/函数共同要求当前列表、session/激活、合法付费目标及1–365安全整数。原host/ids/days固定，在途跨切换保持busy，旧回执不清新选择；当前成功只移除成功ID，部分失败留明细并仅保失败重试目标，服务器skipped明确接受且不重送成功对象。

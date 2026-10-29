@@ -311,6 +311,37 @@ const showPriceModal = ref(false)
 const priceModalTarget = ref<Instance | null>(null)
 const newPriceInput = ref<number>(0)
 const isUpdatingPrice = ref(false)
+const priceError = ref('')
+let priceDialogGeneration = 0
+let priceDraftRevision = 0
+const priceDialog = ref<HTMLElement | null>(null)
+let priceReturnFocus: HTMLElement | null = null
+const canUpdatePrice = computed(() => alive && pageActive.value && !!sessionKey.value && !loading.value && !isUpdatingPrice.value &&
+  showPriceModal.value && priceModalTarget.value && instances.value.some(instance => instance.id === priceModalTarget.value?.id && instance.packagePlanId) &&
+  typeof newPriceInput.value === 'number' && Number.isFinite(newPriceInput.value) && newPriceInput.value >= 0 && newPriceInput.value <= 99999 &&
+  Math.abs(Number(priceModalTarget.value.billingPrice ?? 0) - newPriceInput.value) >= 0.001)
+watch(newPriceInput, () => { priceDraftRevision++ }, { flush: 'sync' })
+watch(showPriceModal, async (open) => {
+  const generation = ++priceDialogGeneration
+  if (open) {
+    priceReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    await nextTick()
+    if (showPriceModal.value && generation === priceDialogGeneration) priceDialog.value?.querySelector<HTMLButtonElement>('button')?.focus()
+  } else {
+    priceModalTarget.value = null
+    if (priceReturnFocus?.isConnected) priceReturnFocus.focus()
+  }
+}, { flush: 'sync' })
+function handlePriceDialogKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); if (!isUpdatingPrice.value) showPriceModal.value = false; return }
+  if (event.key !== 'Tab' || !priceDialog.value) return
+  const controls = [...priceDialog.value.querySelectorAll<HTMLElement>('button, input')]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const target = event.shiftKey ? controls.at(-1) : controls[0]
+  if (!controls.length || (event.shiftKey ? document.activeElement === controls[0] : document.activeElement === controls.at(-1))) {
+    event.preventDefault(); target?.focus()
+  }
+}
 
 // 批量修改配置
 const showBatchConfigModal = ref(false)
@@ -887,43 +918,44 @@ async function sendNotify() {
 
 // 打开修改续费价格弹窗
 function openPriceModal(instance: Instance) {
-  priceModalTarget.value = instance
-  newPriceInput.value = instance.billingPrice ? Number(instance.billingPrice) : 0
+  if (!alive || !pageActive.value || !sessionKey.value || loading.value || isUpdatingPrice.value || showPriceModal.value) return
+  const current = instances.value.find(item => item.id === instance.id && item.packagePlanId && item.status !== 'deleted')
+  if (!current) return
+  priceModalTarget.value = current
+  newPriceInput.value = Number(current.billingPrice ?? 0)
+  priceError.value = ''
   showPriceModal.value = true
 }
 
 // 更新续费价格
 async function updateRenewalPrice() {
-  if (!priceModalTarget.value) return
-  
-  if (newPriceInput.value < 0) {
-    toast.error(t('host.price.minPriceError'))
-    return
-  }
-
-  // 检查价格是否有变化
-  const currentPrice = priceModalTarget.value.billingPrice ? Number(priceModalTarget.value.billingPrice) : 0
-  if (Math.abs(currentPrice - newPriceInput.value) < 0.001) {
-    toast.error(t('host.price.samePriceError'))
-    return
-  }
-
+  if (!canUpdatePrice.value || !priceModalTarget.value) return
+  const hostId = props.hostId, instanceId = priceModalTarget.value.id, newPrice = newPriceInput.value
+  const session = sessionKey.value, generation = priceDialogGeneration, revision = priceDraftRevision
+  const current = () => alive && pageActive.value && !!session && session === sessionKey.value && hostId === props.hostId &&
+    showPriceModal.value && generation === priceDialogGeneration && priceModalTarget.value?.id === instanceId
   isUpdatingPrice.value = true
+  priceError.value = ''
   try {
     const result = await api.hosts.updateInstanceRenewalPrice(
-      props.hostId,
-      priceModalTarget.value.id,
-      newPriceInput.value
+      hostId,
+      instanceId,
+      newPrice
     )
+    if (!current()) return
+    if (result.instanceId !== instanceId || typeof result.newPrice !== 'number' || !Number.isFinite(result.newPrice) ||
+      result.newPrice < 0 || result.newPrice > 99999 || result.newPrice !== newPrice) throw new Error(t('common.operationFailed'))
     toast.success(t('host.price.updateSuccess'))
-    // 更新本地数据
-    if (priceModalTarget.value) {
-      priceModalTarget.value.billingPrice = result.newPrice
-    }
-    showPriceModal.value = false
-    priceModalTarget.value = null
+    const target = instances.value.find(instance => instance.id === instanceId)
+    if (target) target.billingPrice = result.newPrice
+    if (priceModalTarget.value?.id === instanceId) priceModalTarget.value.billingPrice = result.newPrice
+    if (revision === priceDraftRevision) showPriceModal.value = false
+    // A list request started before this write may still carry the previous price.
+    if (loading.value) await loadInstances()
   } catch (err: any) {
-    toast.error(t('host.price.updateFailed') + ': ' + (err?.message || String(err)))
+    if (!current()) return
+    priceError.value = t('host.price.updateFailed') + ': ' + translateError(err)
+    toast.error(priceError.value)
   } finally {
     isUpdatingPrice.value = false
   }
@@ -1071,6 +1103,10 @@ async function loadInstances() {
     totalPages.value = Math.max(1, res.totalPages)
     displayedQuery = query
     selectedIds.value = new Set([...selection].filter(id => res.instances.some(instance => instance.id === id)))
+    if (showPriceModal.value) {
+      priceModalTarget.value = res.instances.find(instance => instance.id === priceModalTarget.value?.id && instance.packagePlanId && instance.status !== 'deleted') ?? null
+      if (!priceModalTarget.value) showPriceModal.value = false
+    }
     if (showGiftDaysModal.value) {
       giftTargets.value = giftTargets.value.filter(id => res.instances.some(instance => instance.id === id && instance.packagePlanId))
       if (!giftTargets.value.length) showGiftDaysModal.value = false
@@ -1155,6 +1191,7 @@ function handlePageSizeChange() {
 }
 
 function closeReadContextModals() {
+  priceError.value = ''
   giftError.value = ''
   giftFailures.value = []
   batchActionError.value = ''
@@ -2240,11 +2277,11 @@ function goToInstance(id: number) {
       <Teleport to="body">
         <Transition name="modal">
           <div v-if="showPriceModal" class="modal-overlay">
-            <div class="modal-backdrop" @click="showPriceModal = false"></div>
-            <div class="modal-content max-w-md">
+            <div class="modal-backdrop" @click="!isUpdatingPrice && (showPriceModal = false)"></div>
+            <div ref="priceDialog" class="modal-content max-w-md" role="dialog" aria-modal="true" :aria-label="t('host.price.modalTitle')" @keydown="handlePriceDialogKey">
               <div class="modal-header">
                 <h3 class="modal-title">{{ t('host.price.modalTitle') }}</h3>
-                <button class="text-themed-muted hover:text-themed" @click="showPriceModal = false">
+                <button class="text-themed-muted hover:text-themed" :disabled="isUpdatingPrice" :aria-label="t('common.close')" @click="showPriceModal = false">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -2258,7 +2295,7 @@ function goToInstance(id: number) {
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-themed-secondary mb-1">{{ t('host.price.currentPrice') }}</label>
-                  <p class="text-lg font-semibold text-themed">¥{{ priceModalTarget?.billingPrice ? Number(priceModalTarget.billingPrice).toFixed(2) : '0.00' }}/月</p>
+                  <p class="text-lg font-semibold text-themed">¥{{ priceModalTarget?.billingPrice ? Number(priceModalTarget.billingPrice).toFixed(2) : '0.00' }}/{{ t('billing.month') }}</p>
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-themed-secondary mb-1">{{ t('host.price.newPrice') }}</label>
@@ -2268,14 +2305,16 @@ function goToInstance(id: number) {
                       v-model.number="newPriceInput"
                       type="number"
                       min="0"
+                      max="99999"
                       step="0.01"
-                      class="input flex-1"
+                      class="input flex-1 min-w-0"
                       :placeholder="t('host.price.placeholder')"
                     />
-                    <span class="text-themed-muted">/月</span>
+                    <span class="text-themed-muted shrink-0">/{{ t('billing.month') }}</span>
                   </div>
                   <p class="mt-1 text-xs text-themed-muted">{{ t('host.price.effectHint') }}</p>
                 </div>
+                <p v-if="priceError" role="alert" class="text-sm text-red-500 break-words">{{ priceError }}</p>
               </div>
               <div class="modal-footer">
                 <button class="btn-secondary" :disabled="isUpdatingPrice" @click="showPriceModal = false">
@@ -2283,7 +2322,7 @@ function goToInstance(id: number) {
                 </button>
                 <button
                   class="btn-primary"
-                  :disabled="isUpdatingPrice || newPriceInput < 0"
+                  :disabled="!canUpdatePrice"
                   @click="updateRenewalPrice"
                 >
                   <svg v-if="isUpdatingPrice" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
