@@ -2,6 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-106/107 宿主镜像策略初读与保存回执
+
+- R104后端40923e7d已push核远端一致。清单106/107实际为HostImagesTab镜像策略，纠正初续“自动快照策略”的误认。真实Chrome先红：初读失败后savePolicy仍发出默认策略PUT；现policyReady/错误状态门禁，读取序号、固定host/account/role/sid/同步代次、KeepAlive/卸载隔离、初读失败持久retry与refresh失败保最后确认内容。未确认架构/类型不显示默认x86或container，strict policy检查合法集合/类型/目标。
+- 保存固定提交useDefault/镜像集合及draft同步代次，全局原在途锁保到finally，当前保存拒refresh/模式/镜像变化/重复写；换host及缓存返回可读新目标但原写锁保留。save使用真实PUT返回的完整策略，不再追加会覆新草稿的GET；严格成功/目标/集合/message，旧成功失败/draft ABA不toast/改新内容。保存失败保原草稿与持久错误，实际保存按钮可retry；合法default空镜像集合保持可保存。不改后端白名单资格/创建交付/管理员权限逻辑。
+- final-no-hmr20553最终exit0：真实Vue/Chrome两读反序、36旧read/write host/session/ABA/cache/unmount回执、14非法policy和DOM retry/last-good、保存锁/固定payload/实际失败retry/四坏write/draft ABA、缓存返回锁、same sid/default空、三语三宽实际模式/镜像/搜索/save及44px/零横溢通过。host ABA夹具改为两个实际渲染目标；同tick父值未渲染的变化不冒充已切页面。最初CDP代理数组序列化断言改为展开，HMR打断轮/port冲突/终止serve不计通过。
+- client types5080、最后三守卫81712（logs/test-run-20261030-051503）、组件ESLint零错警、清单194常规201专项/语法/diff通过；最后双端build32077含两端vue-tsc最终exit0，末dist守卫exit0，两端末btn-primary黑白!important产物验证通过（首次CSS断言误期待父scope，已据实际Vue产物纠正）。专项登记server/EXCLUDED/CI，当前CI另核，未全套/真实账户或宿主写。
+- taste沿Achromatic ledger seed242843060，无重抽；局部去全局重阴影、13px辅助字/对比、选中黑白与保存按钮真实黑白、44px/focus/aria-pressed/busy及减少动效。终浅深1440/768/3900 FAIL/1 WARN，全部12图已看，critique7.4见logs/host-images-critique.md；WARN短夹具3镜像的desktop页尾留白，不为填空添加假镜像、不当完整父页密度通过；静态0FAIL/1WARN为主动shadow:none声明。before2FAIL/3WARN及中途紫色保存按钮已修。
+- 原后端saveHostAllowedImages并发写/当前授权及独立审计原子性另待代码级精修；不能把受控前端回执说成后端权限和生产验收。两编号分别新增修复复验记录，累计233有修复复验（含部分）/68已有防护不同/26待，233内部仍未完成；完整327/网关灾备继续。阶段提交推送后接R108/109 Caddy读取及操作生命周期，未生产/发行/客户操作。
+
 ## 2026-10-30 R1-104 宿主批量延期事务与当前授权（后端段落）
 
 - 真实Fastify/PG先红：第二实例到期写失败后第一实例已延期。现按实例ID顺序持有billing lane、操作advisory与行锁，宿主共享锁和账户统一排序锁内复核当前管理员/会话、实例归属/宿主/Incus身份/套餐及清理、转移、快照和反代任务；重读最新到期时间后统一事务延期、version递增、批次审计和每位用户一条站内信。保留原expiry+days语义、手动/到期封停及全部无关字段，不新增收费、退款或余额记录。

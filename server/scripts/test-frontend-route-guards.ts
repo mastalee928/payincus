@@ -28,6 +28,13 @@ const adminRouterSource = readRepoFile('client/src/router/admin.ts')
 const appSource = readRepoFile('client/src/App.vue')
 const adminAppSource = readRepoFile('client/src/admin/AdminApp.vue')
 const authStoreSource = readRepoFile('client/src/stores/auth.ts')
+const hostImagesSource = readRepoFile('client/src/components/host/HostImagesTab.vue')
+assert.ok(hostImagesSource.includes('!policyReady.value') && hostImagesSource.includes('!!policyError.value') &&
+  hostImagesSource.includes('sequence === readSequence') && hostImagesSource.includes('draft === draftGeneration') &&
+  hostImagesSource.includes('validPolicy(response, target.hostId)') && hostImagesSource.includes('onDeactivated') &&
+  hostImagesSource.includes('data-host-policy-error') && hostImagesSource.includes('data-host-policy-save-error') &&
+  hostImagesSource.includes(':disabled="editingDisabled"') && !hostImagesSource.includes('await loadPolicy()'),
+  'host image policy must gate unknown reads, retain target/draft ownership, show persistent retry and disable changes during writes')
 const appLayoutSource = readRepoFile('client/src/components/layout/AppLayout.vue')
 const notificationBellSource = readRepoFile('client/src/components/NotificationBell.vue')
 const mainSource = readRepoFile('client/src/main.ts')

@@ -1,0 +1,2 @@
+export const policy = (id = 11, selected = [1]) => ({ success: true, host: { id, name: '东京测试宿主', architecture: 'x86_64', instanceType: 'both' }, useDefault: false, allowedImageIds: selected,
+  images: [1, 2, 3].map((id, index) => ({ id, name: ['Debian 13', 'Ubuntu 24.04', 'Alpine 3.22'][index], osType: ['debian', 'ubuntu', 'alpine'][index], remoteAlias: ['debian/13/cloud', 'ubuntu/24.04/cloud', 'alpine/3.22'][index], architecture: 'x86_64', instanceType: 'container', icon: ['debian', 'ubuntu', 'alpine'][index] })) })

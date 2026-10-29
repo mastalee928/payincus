@@ -378,6 +378,8 @@ jobs:
         run: pnpm --filter server test:review-host-detail-actions
       - name: Host extensions submit integer days with current targets and handle retry
         run: pnpm --filter server test:review-host-detail-extend
+      - name: Host image policies reject unknown reads and obsolete save completions
+        run: pnpm --filter server test:review-host-images
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

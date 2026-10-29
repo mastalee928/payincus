@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R106/107实际镜像策略：初读失败零保存、strict目标和集合/read代次/current session/cache卸载、保存固定draft/payload及在途门禁/旧回执/实际retry已修。final-no-hmr20553真实Chrome36旧回执/14坏读及三语三宽实际控件，末build/types/3守卫/lint/dist通过；233有修复复验含部分/68已有防护不同/26待。后端白名单写授权/并发审计另待，见HANDOFF。
+
 2026-10-30 R104后端原子延期段落：真实第二写故障先红后，整批expiry/version/审计/站内信同事务，当前管理员与实例身份/任务、billing lane和续费竞争已修。final-r4真实PG故障/等待竞争/六并发/真实续费单扣/通知failed成功回执/零财务和边界、原gift回归/types/build/4守卫及新增文件lint通过；旧文件既有lint问题和跨请求幂等未完见HANDOFF。不重复计数，231含部分/68已有不同/28待。
 
 2026-10-30 R104前端部分精修：整数days/固定host-session-days及表单同步ABA、共享原锁/持久失败retry/strict回执、三语纠正虚假0计数说明。Chrome24旧回执及七坏days/三语三宽实际输入按钮已通过，最终build/回归详见HANDOFF；231含部分/68已有不同/28待，后端部分执行与通知失败及真实延期仍未完。
@@ -275,8 +277,8 @@
 | R1-103 | 存在 | 源码已修/浏览器隔离验证通过 | 六类操作固定host-route-account-role-sid/同步代次与弹窗草稿ABA/cache/unmount，共享原在途锁，读写隔离、strict total/回执及失败持久实际retry。Chrome132旧回执、两端/同sid、三语三宽实际按钮通过；types/守卫/build/dist/taste见HANDOFF，真实宿主/后端幂等另验，延期R104另续。 |
 | R1-104 | 存在 | 部分精修/继续核查 | 前端整数/固定host-route-session-days及表单ABA/在途门禁/strict回执和失败retry已修，Chrome24旧回执/七坏days/三语三宽过。后端整批expiry/version/audit/inbox同事务、current admin/身份任务与billing lane、通知failed成功回执已修；final-r4真实PG三故障回滚/等待竞争/六并发/真续费单扣与零财务、gift回归/build/types/4守卫过。结果丢失跨请求幂等、外部通知可靠投递及真实宿主运行另待，不能算整体完成。 |
 | R1-105 | 存在 | 源码已修/浏览器隔离验证通过 | 实际重装复制await、失败持久原按钮retry、重复锁与原host/route/account/session/命令弹窗同步代次/cache/unmount隔离，敏感命令离页清空；Chrome30旧回执/两端入口/same sid/三语三宽通过，最终构建/守卫/taste证据见HANDOFF。R102读/R103写仍待，未真实剪贴板/宿主执行。 |
-| R1-106 | 存在 | 待精修/运行复核 | canSave未限制loading/初读成功；失败可保存默认策略，保存后loadPolicy覆盖新草稿。 |
-| R1-107 | 存在 | 待精修/运行复核 | canSave未限制loading/初读成功；失败可保存默认策略，保存后loadPolicy覆盖新草稿。 |
+| R1-106 | 存在 | 前端精修/浏览器验证通过 | HostImagesTab已加初读成功/错误禁写、strict集合和目标/read代次/当前session/cache卸载、失败持久retry及last-good；真实Chrome先红失败后PUT→final-no-hmr36旧回执/14坏读/三语三宽过，types/build/3守卫/lint/dist过。后端资格/授权写另待，不冒充全链路。 |
+| R1-107 | 存在 | 前端精修/浏览器验证通过 | 保存固定host-session/draft同步ABA/payload、原在途锁/current read门禁/输入disabled与严格PUT策略回执，去保存后覆草稿GET；失败持久真实retry。final-no-hmr36旧回执与repeat/cache/draft/坏结果/三语三宽实际控件过，types/build/守卫/lint/dist过；后端并发/审计原子另待。 |
 | R1-108 | 存在 | 待精修/运行复核 | list/status/action缺host和request generation，失败残留旧数据，迟到结果可作用当前视图。 |
 | R1-109 | 存在 | 待精修/运行复核 | list/status/action缺host和request generation，失败残留旧数据，迟到结果可作用当前视图。 |
 | R1-110 | 存在 | 待精修/运行复核 | watch整个host重置draft；save函数缺busy guard，父刷新和重复提交边界不足。 |
