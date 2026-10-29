@@ -40,6 +40,7 @@ jobs:
           pnpm --filter server test:sample-seed-safety
           pnpm --filter server type-check:sample-seed
           node scripts/test-repository-source-guards.mjs
+          pnpm --filter server test:host-install-inputs
           bash scripts/test-install-panel-guards.sh
           python3 scripts/test-onboarding-control.py
           python3 scripts/test-onboarding-gateway.py

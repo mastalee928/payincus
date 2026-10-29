@@ -45,6 +45,7 @@
     "test:demo-readonly-redaction-guards": "pnpm --filter server test:demo-readonly-redaction-guards"
   },
   "testGuards": [
+    "pnpm --filter server test:host-install-inputs",
     "pnpm --filter server test:sample-seed-safety",
     "pnpm --filter server type-check:sample-seed",
     "pnpm --filter server test:review-service-worker",

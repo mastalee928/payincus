@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：39073c6已push；R298非交互yes/default8443/缺参数及菜单早拒绝已修，19Bash实际函数先红后绿/语法/3守卫/manifest194/110/后端build含tsc exit0，准备push，无待poll。交互TTY/Linux原生安装另验；docs/host-install-noninteractive.md需显式加入。R299与R282–284交叉登记已有修复。下一项R301 HostInstancesTab列表、流量、展开详情无seq/session/host身份，全部相关读取/选择/模板和instances list权限已读，产品未改；先读后固定列表上下文、失败retry、selection与展开数据清理，批量预览/写操作另续。327/R269/完整灾备仍待。
+
 > **最新接续**：fb874b9已push；R297两seed加载DB前精确环境/URL/专库门禁与旧force移除已修，实际两脚本各23拒绝零DB初始化+4有效替身边界通过。新增scripts专用tsconfig包含完整src，清既有死声明/变量并收紧inet6类型后types exit0；2守卫/manifest193/110通过，准备单项push，无待poll。docs/sample-data.md需显式加入（docs默认忽略）。R298 scripts/test-host-install-inputs.mjs未提交，先红缺confirm仍read，夹具改文件绕过Windows长-c；main/confirm/heartbeat/is_valid_port及host-install守卫已读，产品未改。需非交互显式yes、默认端口、缺参数检测先于探测、菜单禁用及文档，保交互安装/默认机器池。R299与R282–284重复须交叉登记；327/R269/完整灾备仍待。
 
 > **最新接续**：e0d71d0已push；R292禁用/卸载附件修改、非法索引、迟到file event、预览URL与键盘/手机控制已修，Chrome先红后绿/types/3守卫/lint零错警/manifest191/110/最终双端build exit0/dist通过，准备push，无待poll。R293/294/296现有保护与实际init链复核无所述错误；R295已有无效env保留完整installer guard本机Bash exit0。R297 scripts/test-seed-safety.mjs及两个loader/db夹具未提交，初次production拒绝断言先红，须确认数据库替身边界被命中再改产品；两seed源、env/Prisma导入与security-config守卫已读，产品未改。327/R269/完整灾备仍待。

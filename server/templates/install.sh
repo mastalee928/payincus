@@ -5,7 +5,7 @@
 #
 # 用法:
 #   交互式: sudo bash Incudal.sh
-#   命令行: sudo bash Incudal.sh --mode nat --token <TOKEN>
+#   非交互: sudo bash Incudal.sh --mode nat --token <TOKEN> --yes
 #   卸载:   sudo bash Incudal.sh --uninstall
 #
 # 项目地址: https://incudal.com
@@ -671,6 +671,13 @@ confirm_install() {
     
     divider
     echo ""
+    if [[ "${ASSUME_YES:-false}" == "true" ]]; then
+        return 0
+    fi
+    if [[ ! -t 0 ]]; then
+        error "非交互安装必须通过 --yes 明确确认，已停止安装"
+        exit 1
+    fi
     echo -ne "  ${YELLOW}确认开始安装？${NC}[y/N]: "
     read -r confirm
     if [[ ! "$confirm" =~ ^[yY]$ ]]; then
@@ -3186,6 +3193,7 @@ main() {
 
     # ---- 解析命令行参数（兼容非交互模式）----
     local ACTION="install"   # 默认动作为安装
+    local ASSUME_YES=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --mode)
@@ -3203,6 +3211,8 @@ main() {
             --port|-p)
                 if [[ $# -lt 2 ]]; then error "$1 缺少参数值"; exit 1; fi
                 LISTEN_PORT="$2"; shift 2 ;;
+            --yes|-y)
+                ASSUME_YES=true; shift ;;
             --uninstall)
                 ACTION="uninstall"; shift ;;
             --agent|--agent-menu)
@@ -3216,12 +3226,13 @@ main() {
                 echo "  --ipv6-subnet <CIDR>    IPv6 子网段（例如 2001:db8::/64）"
                 echo "  --ipv6-iface <IFACE>    IPv6 路由父网卡（例如 eth0）"
                 echo "  --port <PORT>           自定义 Incus 运行端口 (默认 8443)"
+                echo "  --yes, -y               确认安装（非交互执行时必填）"
                 echo "  --uninstall             卸载 Incus 节点并还原系统"
                 echo "  --agent                 打开 Agent 安装 / 更新菜单"
                 echo "  --help, -h              显示帮助信息"
                 echo ""
                 echo "交互模式: sudo bash $0"
-                echo "命令行:   sudo bash $0 --mode nat --token <YOUR_TOKEN> --port 10001"
+                echo "非交互:   sudo bash $0 --mode nat --token <YOUR_TOKEN> --port 10001 --yes"
                 echo "卸载:     sudo bash $0 --uninstall"
                 exit 0
                 ;;
@@ -3247,6 +3258,22 @@ main() {
         exit 1
     fi
 
+    if [[ ! -t 0 ]]; then
+        if [[ "$ACTION" != "install" ]]; then
+            error "卸载和 Agent 管理菜单需要交互终端，已停止执行"
+            exit 1
+        fi
+        if [[ -z "$MODE" || -z "$TOKEN" ]]; then
+            error "非交互安装必须提供 --mode 和 --token，或使用面板注入值"
+            exit 1
+        fi
+        if [[ "$ASSUME_YES" != "true" ]]; then
+            error "非交互安装必须通过 --yes 明确确认，已停止安装"
+            exit 1
+        fi
+        LISTEN_PORT="${LISTEN_PORT:-8443}"
+    fi
+
     # 检测系统环境（只读探测；所有 CLI 入参已在此之前校验完毕）
     detect_system
 
@@ -3261,15 +3288,6 @@ main() {
     fi
 
     # ---- 交互式流程 ----
-
-    # 如果 stdin 不是终端且缺少参数，给出提示
-    if [[ ! -t 0 ]]; then
-        if [[ -z "$MODE" || -z "$TOKEN" ]]; then
-            error "通过管道执行时，必须提供 --mode 和 --token 参数"
-            echo -e "  ${DIM}示例: curl -sL <URL> | sudo bash -s -- --mode nat --token <TOKEN>${NC}"
-            exit 1
-        fi
-    fi
 
     # 模式选择（未通过 CLI 或面板注入指定时进入菜单）
     if [[ -z "$MODE" ]]; then

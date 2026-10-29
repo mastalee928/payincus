@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-298 节点脚本非交互参数与确认
+
+- 39073c6已push核远端一致；95bf9e9源码CI已success。原面板注入值本来已优先合并，保留该行为。Ubuntu/Debian模板新增--yes/-y明确确认；非交互缺mode/token/确认、非法mode/port与卸载/Agent菜单在detect_system之前退出，未传port采用8443，Agent心跳仍60。交互流程与普通确认保留；帮助及docs/host-install-noninteractive.md说明参数。
+- `takeover-host-inputs-before.log`Bash真实抽取函数先红已有port但缺确认仍read；`takeover-host-inputs-final.log`19组合通过（默认/明确/短参数/注入IPv6/缺确认/环境不隐式确认/缺值/非法值/菜单），read替身均未被调用。仅测试副本绕root检查并将系统安装替换为边界探针，未安装实际宿主；首次夹具长-c被Windows截断，改临时脚本文件后复现与验证。
+- Bash语法、3相关守卫、manifest194/110、最终后端build含tsc exit0；专项登记总清单/CI。无前端变更。完整Linux首装、交互TTY与各网络原生流程仍按已有发行实证分别验收。
+- R299原终端按钮嵌套与生命周期已由R282/R283/R284的935dac5/cc5fd54/c71d25c处理，复核当前结构并交叉登记，避免同缺陷重复计数。下一项R301 HostInstancesTab列表/流量/展开详情尚缺请求和宿主/session身份，源码与相关route/guard已读，产品未改；其批量预览/写操作独立续修。327/R269/完整灾备未完成。
+
 ## 2026-10-29 R1-297 样例数据脚本限制为本地专库
 
 - fb874b9已push核远端；bd068fe源码CI已success。两seed最先导入共同环境门禁：仅test/development且显式ALLOW_LOCAL_SAMPLE_SEED=1、精确loopback主机、合法*_seed_test库名、PostgreSQL协议/端口、无URL参数/片段才能加载数据库模块。删除bulk的密码子串判定及FORCE绕过、停止输出共享测试密码；操作边界见docs/sample-data.md。

@@ -337,8 +337,8 @@
 | R1-295 | 存在，已修 | installer专项通过 | 无效旧env拒绝并逐字节保留；2026-10-29完整Bash installer guard exit0（takeover-installer-review.log），无系统安装操作，不扩大为Linux真机首装。 |
 | R1-296 | 已有防护 | 代码复核通过 | 2026-10-29再核do_upgrade内local version默认unknown并读version.json，summary前已有定义；未定义退出问题不成立。 |
 | R1-297 | 存在，门禁已修 | 实际脚本隔离专项通过 | 两脚本最先校验显式test/dev+开关+精确本地专库/URL，旧force不可绕；各23拒绝零DB模块初始化/4有效目标到达替身、完整src+seed types/2守卫通过，入manifest/CI。未运行真实seed写库，见HANDOFF。 |
-| R1-298 | 部分存在 | 待精修/运行复核 | 注入参数已先合并，旧拒绝问题已防；未给port与confirm仍read，非交互可等待终端。 |
-| R1-299 | 存在 | 待精修/运行复核 | keep-alive仅unmount清键盘监听；cloud-init/命令结果缺完整会话代次；保存后清当前草稿；页签button嵌套button。 |
+| R1-298 | 部分存在，已修 | Bash入口专项通过 | 注入优先原本正确；非交互显式yes/默认8443、缺值及菜单在探测前拒绝。19真实函数组合零read/系统写探针、语法/3守卫/后端build含tsc通过；Linux原生安装和TTY另验，见HANDOFF。 |
+| R1-299 | 与R282–284重复，已修 | 沿用已验终端专项 | 935dac5改平级页签button和KeepAlive监听/浮层；cc5fd54隔离session/cloud-init/ticket/socket；c71d25c隔离保存命令草稿/CRUD。三段Chrome先红后绿/types/守卫/双端build已记录，不重复计新增修复。 |
 | R1-300 | 实现不同 | 保留初审结论 | 未发现对方余额转账/预览功能入口，不能误指现有实例PUSH或AFF兑换；新增同类功能时才适用。 |
 | R1-301 | 部分存在 | 待精修/运行复核 | HostInventoryPanel列表有sequence/disposed且过滤selection；HostInstancesTab列表无seq，deletePreview有seq/selection而gift/pricing等缺，按具体操作分别修。 |
 | R1-302 | 部分存在 | 待精修/运行复核 | getQuotaLimit用??保留0，getQuotaUsage(0)返回null；其它前端默认及代理后端siteLimit0按无限仍不一致，不能说所有0均被默认20/5覆盖。 |
