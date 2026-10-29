@@ -79,6 +79,9 @@ const hostLoadError = ref('')
 let hostReadGeneration = 0, hostReadSequence = 0
 let pendingHostRead: (() => boolean) | null = null
 const actionLoading = ref('')
+const actionError = ref('')
+let hostActionGeneration = 0
+let pendingHostAction: { current: () => boolean } | null = null
 
 // 删除确认弹窗
 const showDeleteModal = ref(false)
@@ -131,6 +134,7 @@ const HOST_DETAIL_ROUTE_NAMES = ['my-host-detail', 'admin-my-host-detail']
 const isOnHostDetailRoute = () => HOST_DETAIL_ROUTE_NAMES.includes(String(route.name ?? ''))
 
 function invalidateHostReads() {
+  hostActionGeneration++; actionError.value = ''
   hostReadGeneration++; hostReadSequence++; pendingHostRead = null
   host.value = null; loading.value = false; hostLoadError.value = ''; activeTab.value = 'info'
   showDeleteModal.value = false; deleteConfirmName.value = ''
@@ -148,6 +152,7 @@ onBeforeUnmount(invalidateHostReads)
 
 async function loadHost() {
   if (!copyViewAlive || !copyViewActive.value || !isOnHostDetailRoute()) return
+  if (pendingHostAction?.current()) return
   const rawId = String(route.params.id ?? ''), hostId = Number(rawId), session = copySession.value
   if (!/^[1-9]\d*$/.test(rawId) || !Number.isSafeInteger(hostId)) { hostLoadError.value = t('admin.hosts.invalidId'); loading.value = false; return }
   if (!session) { hostLoadError.value = t('admin.hosts.loadFailed'); loading.value = false; return }
@@ -182,84 +187,89 @@ async function retryLoadHost() {
 }
 
 async function testConnection() {
-  if (!host.value) return
-  actionLoading.value = 'test'
-  try {
-    const res = await api.hosts.test(host.value.id)
-    if (res.success) {
-      toast.success(t('admin.hosts.testSuccess'))
-    }
-    await loadHost()
-  } catch (err: any) {
-    toast.error(t('admin.hosts.testFailed') + ': ' + (err?.message || String(err)))
-  } finally {
-    actionLoading.value = ''
-  }
+  await runHostAction('test', 'admin.hosts.testFailed', async (id, current) => {
+    const res: unknown = await api.hosts.test(id)
+    if (!current()) return
+    requireHostSuccess(res)
+    toast.success(t('admin.hosts.testSuccess'))
+    return true
+  })
 }
 
 // 验证并连接宿主机（用于未完成安装的宿主机）
 async function verifyHost() {
-  if (!host.value) return
-  actionLoading.value = 'verify'
-  try {
-    const res = await api.hosts.verify(host.value.id)
-    if (res.success) {
-      toast.success(t('admin.hosts.verifySuccess'))
+  await runHostAction('verify', 'admin.hosts.verifyFailed', async (id, current) => {
+    const res: unknown = await api.hosts.verify(id)
+    if (!current()) return
+    requireHostSuccess(res)
+    toast.success(t('admin.hosts.verifySuccess'))
+    return true
+  })
+}
+
+watch(() => host.value?.id, () => { hostActionGeneration++; actionError.value = '' }, { flush: 'sync' })
+let deleteDialogGeneration = 0
+watch([showDeleteModal, deleteConfirmName], () => { deleteDialogGeneration++ }, { flush: 'sync' })
+
+function requireHostSuccess(value: unknown): asserts value is { success: true; installCommand?: unknown } {
+  if (!value || typeof value !== 'object' || !('success' in value) || value.success !== true) throw Error(t('common.operationFailed'))
+}
+
+// Retain the gate until the original request settles, including cached navigation.
+async function runHostAction(kind: string, failureKey: string, execute: (id: number, current: () => boolean) => Promise<boolean | void>, dialogCurrent = () => true) {
+  const id = host.value?.id, session = copySession.value, path = route.fullPath, generation = hostActionGeneration
+  const current = () => copyViewAlive && copyViewActive.value && isOnHostDetailRoute() && !!session && session === copySession.value &&
+    path === route.fullPath && generation === hostActionGeneration && host.value?.id === id && String(route.params.id) === String(id) && dialogCurrent()
+  if (actionLoading.value || !Number.isSafeInteger(id) || (id ?? 0) < 1 || !current()) return
+  const operation = { current }; pendingHostAction = operation; actionLoading.value = kind; actionError.value = ''
+  hostReadSequence++; pendingHostRead = null; loading.value = false
+  let refresh = false
+  try { refresh = (await execute(id!, current)) === true }
+  catch (err: unknown) {
+    if (current()) {
+      actionError.value = t(failureKey) + ': ' + (err instanceof Error ? err.message : String(err))
+      if (kind === 'verify-reinstall') { reinstallStatus.value = 'error'; reinstallError.value = actionError.value }
+      toast.error(actionError.value)
     }
-    await loadHost()
-  } catch (err: any) {
-    toast.error(t('admin.hosts.verifyFailed') + ': ' + (err?.message || String(err)))
   } finally {
-    actionLoading.value = ''
+    if (pendingHostAction === operation) { pendingHostAction = null; actionLoading.value = '' }
   }
+  if (refresh && current()) void loadHost()
 }
 
 // 是否需要验证（证书路径未配置）
 const needsVerification = computed(() => !host.value?.certPath)
 
 async function openDeleteModal() {
-  if (!host.value) return
-  
-  actionLoading.value = 'delete'
-  try {
-    const res = await api.instances.list({
-      hostId: host.value.id,
-      pageSize: 1
-    })
-    const instanceCount = (res as any).total || 0
-    
+  await runHostAction('delete', 'admin.hosts.checkFailed', async (id, current) => {
+    const res: unknown = await api.instances.list({ hostId: id, pageSize: 1 })
+    if (!current()) return
+    const instanceCount = res && typeof res === 'object' && 'total' in res ? res.total : undefined
+    if (typeof instanceCount !== 'number' || !Number.isSafeInteger(instanceCount) || instanceCount < 0) throw Error(t('admin.hosts.checkFailed'))
     if (instanceCount > 0) {
-      toast.error(t('admin.hosts.hasInstances', { count: instanceCount }))
-      return
+      throw Error(t('admin.hosts.hasInstances', { count: instanceCount }))
     }
-    
     deleteConfirmName.value = ''
     showDeleteModal.value = true
-  } catch (err: any) {
-    toast.error(t('admin.hosts.checkFailed') + ': ' + (err?.message || String(err)))
-  } finally {
-    actionLoading.value = ''
-  }
+  })
 }
 
 async function confirmDeleteHost() {
-  if (!host.value) return
+  if (actionLoading.value || !host.value || !showDeleteModal.value) return
   if (deleteConfirmName.value !== host.value.name) {
     toast.error(t('admin.hosts.deleteNameMismatch'))
     return
   }
 
-  actionLoading.value = 'delete'
-  showDeleteModal.value = false
-  try {
-    await api.hosts.delete(host.value.id)
+  const dialog = deleteDialogGeneration
+  await runHostAction('delete', 'admin.hosts.deleteFailed', async (id, current) => {
+    const res: unknown = await api.hosts.delete(id)
+    if (!current()) return
+    if (!res || typeof res !== 'object' || !('message' in res) || typeof res.message !== 'string' || !res.message.trim()) throw Error(t('admin.hosts.deleteFailed'))
+    showDeleteModal.value = false
     toast.success(t('admin.hosts.hostDeleted'))
-    router.push(hostsPath())
-  } catch (err: any) {
-    toast.error(t('admin.hosts.deleteFailed') + ': ' + (err?.message || String(err)))
-  } finally {
-    actionLoading.value = ''
-  }
+    void router.push(hostsPath())
+  }, () => showDeleteModal.value && dialog === deleteDialogGeneration)
 }
 
 const canDelete = computed(() => {
@@ -272,7 +282,7 @@ function onConfigSaved() {
 
 // 打开批量延期弹窗（仅管理员）
 async function openExtendModal() {
-  if (!host.value || !isAdmin.value) return
+  if (actionLoading.value || !host.value || !isAdmin.value) return
 
   paidInstanceCount.value = 0
   extendDays.value = undefined
@@ -281,6 +291,7 @@ async function openExtendModal() {
 
 // 确认批量延期
 async function confirmExtendAll() {
+  if (actionLoading.value) return
   if (!host.value || !extendDays.value || extendDays.value < 1 || extendDays.value > 365) {
     toast.error(t('admin.hosts.extendDaysInvalid'))
     return
@@ -304,40 +315,34 @@ async function confirmExtendAll() {
 
 // 重新安装：生成新的安装命令
 async function regenerateInstall() {
-  if (!host.value) return
-  
-  actionLoading.value = 'reinstall'
-  try {
-    const res = await api.hosts.regenerateInstall(host.value.id)
+  if (actionLoading.value) return
+  clearReinstallCommand()
+  const dialog = reinstallCopyGeneration
+  await runHostAction('reinstall', 'admin.hosts.reinstallFailed', async (id, current) => {
+    const res: unknown = await api.hosts.regenerateInstall(id)
+    if (!current()) return
+    requireHostSuccess(res)
+    if (typeof res.installCommand !== 'string' || !res.installCommand.trim() || res.installCommand.length > 32768) throw Error(t('admin.hosts.reinstallFailed'))
     reinstallCommand.value = res.installCommand
     reinstallStatus.value = 'waiting'
     reinstallError.value = ''
     showReinstallModal.value = true
-  } catch (err: any) {
-    toast.error(t('admin.hosts.reinstallFailed') + ': ' + (err?.message || String(err)))
-  } finally {
-    actionLoading.value = ''
-  }
+  }, () => dialog === reinstallCopyGeneration)
 }
 
 // 重新安装后验证
 async function verifyAfterReinstall() {
-  if (!host.value) return
-  reinstallStatus.value = 'verifying'
-  reinstallError.value = ''
-  
-  try {
-    const res = await api.hosts.verify(host.value.id)
-    if (res.success) {
-      reinstallStatus.value = 'success'
-      toast.success(t('admin.hosts.verifySuccess'))
-      await loadHost()
-    }
-  } catch (err: any) {
-    reinstallStatus.value = 'error'
-    reinstallError.value = err?.message || String(err)
-    toast.error(t('admin.hosts.verifyFailed') + ': ' + reinstallError.value)
-  }
+  if (actionLoading.value || !showReinstallModal.value || !reinstallCommand.value || reinstallStatus.value === 'success') return
+  const dialog = reinstallCopyGeneration, command = reinstallCommand.value
+  await runHostAction('verify-reinstall', 'admin.hosts.verifyFailed', async (id, current) => {
+    reinstallStatus.value = 'verifying'; reinstallError.value = ''
+    const res: unknown = await api.hosts.verify(id)
+    if (!current()) return
+    requireHostSuccess(res)
+    reinstallStatus.value = 'success'
+    toast.success(t('admin.hosts.verifySuccess'))
+    return true
+  }, () => showReinstallModal.value && dialog === reinstallCopyGeneration && command === reinstallCommand.value)
 }
 
 // 复制重新安装命令
@@ -361,9 +366,12 @@ async function copyReinstallCommand() {
 
 // 关闭重新安装弹窗
 function closeReinstallModal() {
+  if (actionLoading.value) return
   clearReinstallCommand()
   loadHost()
 }
+
+function closeDeleteModal() { if (!actionLoading.value) showDeleteModal.value = false }
 
 const tabs = [
   { key: 'info', labelKey: 'admin.hosts.tabInfo', icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
@@ -480,6 +488,8 @@ const tabs = [
         </div>
       </div>
 
+      <p v-if="actionError && !showDeleteModal && !showReinstallModal" data-host-detail-action-error class="rounded-lg bg-themed-secondary p-4 text-sm break-words" role="status">{{ actionError }}</p>
+
       <!-- Tab Navigation -->
       <div class="border-b border-themed">
         <div class="flex gap-1 overflow-x-auto scrollbar-hide scroll-smooth -mb-px">
@@ -569,12 +579,12 @@ const tabs = [
       <!-- 删除确认弹窗 -->
       <Teleport to="body">
         <Transition name="modal">
-          <div v-if="showDeleteModal" class="modal-overlay">
-            <div class="modal-backdrop" @click="showDeleteModal = false"></div>
-            <div class="modal-content max-w-md">
+          <div v-if="showDeleteModal" class="modal-overlay host-delete-overlay">
+            <div class="modal-backdrop" @click="closeDeleteModal"></div>
+            <div class="modal-content max-w-md host-delete-dialog" :class="{ 'host-delete-dark': themeStore.isDark }" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.deleteHost')">
               <div class="modal-header">
                 <h3 class="modal-title text-error">{{ t('admin.hosts.deleteHost') }}</h3>
-                <button class="text-themed-muted hover:text-themed" @click="showDeleteModal = false">
+                <button type="button" class="text-themed-muted hover:text-themed" :disabled="!!actionLoading" :aria-label="t('common.close')" @click="closeDeleteModal">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -591,18 +601,22 @@ const tabs = [
                   <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.enterHostName') }}</label>
                   <input
                     v-model="deleteConfirmName"
+                    :disabled="!!actionLoading"
+                    :aria-label="t('admin.hosts.enterHostName')"
                     type="text"
                     class="input"
                     :placeholder="host.name"
                     autocomplete="off"
                   />
                 </div>
+                <p v-if="actionError" data-host-detail-action-error class="text-sm text-themed-secondary break-words" role="status">{{ actionError }}</p>
               </div>
               <div class="modal-footer">
-                <button class="btn-secondary" @click="showDeleteModal = false">{{ t('common.cancel') }}</button>
+                <button class="btn-secondary" :disabled="!!actionLoading" @click="closeDeleteModal">{{ t('common.cancel') }}</button>
                 <button
                   class="btn-danger"
-                  :disabled="!canDelete"
+                  :disabled="!canDelete || !!actionLoading"
+                  :aria-busy="actionLoading === 'delete'"
                   @click="confirmDeleteHost"
                 >
                   {{ t('admin.hosts.confirmDeleteBtn') }}
@@ -621,7 +635,7 @@ const tabs = [
             <div class="modal-content reinstall-dialog" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.reinstallScript')" style="max-width: 72rem; width: 95%;">
               <div class="modal-header">
                 <h3 class="modal-title">{{ t('admin.hosts.reinstallScript') }}</h3>
-                <button type="button" class="text-themed-muted hover:text-themed" :aria-label="t('common.close')" @click="closeReinstallModal">
+                <button type="button" class="text-themed-muted hover:text-themed" :disabled="!!actionLoading" :aria-label="t('common.close')" @click="closeReinstallModal">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -656,7 +670,9 @@ const tabs = [
                   <div class="ml-8 flex items-center gap-3">
                     <button 
                       class="btn-secondary btn-sm" 
-                      :disabled="reinstallStatus === 'verifying' || reinstallStatus === 'success'"
+                      :disabled="!!actionLoading || reinstallStatus === 'success'"
+                      :aria-busy="reinstallStatus === 'verifying'"
+                      data-host-detail-reinstall-verify
                       @click="verifyAfterReinstall"
                     >
                       <svg v-if="reinstallStatus === 'verifying'" class="w-4 h-4 animate-spin mr-1" fill="none" viewBox="0 0 24 24">
@@ -676,13 +692,13 @@ const tabs = [
                   </div>
                 
                   <!-- 错误提示 -->
-                  <div v-if="reinstallStatus === 'error' && reinstallError" class="ml-8 p-3 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 text-sm">
-                    {{ reinstallError }}
+                  <div v-if="actionError" data-host-detail-action-error class="ml-8 p-3 rounded-lg bg-themed-secondary text-themed-secondary text-sm break-words" role="status">
+                    {{ actionError }}
                   </div>
                 </div>
               </div>
               <div class="modal-footer">
-                <button class="btn-secondary" @click="closeReinstallModal">{{ t('common.close') }}</button>
+                <button class="btn-secondary" :disabled="!!actionLoading" @click="closeReinstallModal">{{ t('common.close') }}</button>
                 <button v-if="reinstallStatus === 'success'" class="btn-primary" @click="closeReinstallModal">{{ t('common.done') }}</button>
               </div>
             </div>
@@ -710,6 +726,9 @@ const tabs = [
 </template>
 
 <style scoped>
+.host-detail { animation: none !important; }
+.host-detail .page-header .btn-primary { background: var(--kawaii-text) !important; color: var(--kawaii-surface) !important; }
+.host-detail .nimbus-tab.border-primary-500 { border-color: currentColor; }
 .reinstall-dialog {
   background: var(--kawaii-surface) !important;
   box-shadow: none !important;
@@ -717,18 +736,30 @@ const tabs = [
 }
 .reinstall-overlay .modal-backdrop { backdrop-filter: none; }
 .reinstall-dialog button,
+.host-delete-dialog button,
 .host-detail button { box-shadow: none !important; }
+.host-delete-dialog { box-shadow: none !important; background: var(--kawaii-surface) !important; }
+.host-delete-dialog button::before { display: none; }
+.host-delete-dialog .text-themed-muted { color: var(--kawaii-text) !important; }
+.host-delete-dialog .text-error,
+.host-delete-dialog .btn-danger { color: #b91c1c !important; }
+.host-delete-dialog.host-delete-dark .text-error,
+.host-delete-dialog.host-delete-dark .btn-danger { color: #fca5a5 !important; }
+.host-delete-overlay .modal-backdrop { backdrop-filter: none; }
 .reinstall-dialog button { transition-property: color, background-color, border-color, opacity; }
+.reinstall-dialog .bg-accent { background: var(--kawaii-text) !important; color: var(--kawaii-surface) !important; }
 .reinstall-dialog button::before,
 .host-detail button::before { display: none; }
 .reinstall-dialog .text-themed-muted,
 .host-detail .text-themed-muted { color: var(--kawaii-text) !important; }
 @media (max-width: 639px) {
   [data-host-detail-read-retry] { min-height: 44px !important; }
+  .host-detail .page-header button, .host-delete-dialog button, .host-delete-dialog input { min-height: 44px !important; }
+  .host-detail .page-header button, .host-detail .nimbus-tab, .host-detail .page-header p, .host-detail .page-header span { font-size: 13px; }
   .reinstall-dialog button { min-height: 44px !important; font-size: 13px; }
   .reinstall-dialog p { font-size: 13px; }
 }
-/* Nimbus in-page tabs: indigo underline, smooth colour/underline transition */
+/* Neutral tabs keep their existing selection and keyboard behavior. */
 .nimbus-tab {
   transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
 }

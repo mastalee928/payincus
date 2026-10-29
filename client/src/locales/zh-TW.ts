@@ -255,6 +255,7 @@ const zhTW = {
 
     // 通用
     common: {
+        operationFailed: '操作失敗',
         defaultBrandSubtitle: '基於 Incus 的平價 NAT VPS', adminPanel: '管理後台',
         confirm: '確認',
         cancel: '取消',

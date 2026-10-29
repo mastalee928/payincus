@@ -27,7 +27,11 @@ const app = createApp({ components: { HostDetail }, setup() {
     else read?.resolve({ host: { id: 11, name: '测试宿主', countryCode: 'JP', status: 'online', certPath: '/fixture/cert', url: 'https://host.example.test' } })
     await nextTick()
     const v = component.value?.$?.setupState
-    if (!new URLSearchParams(location.search).has('read-error')) { v.reinstallCommand = 'DISPLAY-ONLY reinstall command'; v.showReinstallModal = true }
+    const params = new URLSearchParams(location.search)
+    if (params.has('action-error')) { void v.testConnection(); pending.at(-1)?.reject(Error('fixture action failed')) }
+    else if (params.has('delete-error')) { v.showDeleteModal = true; v.deleteConfirmName = v.host.name; void v.confirmDeleteHost(); pending.at(-1)?.reject(Error('fixture deletion failed')) }
+    else if (!params.has('read-error')) { v.reinstallCommand = 'DISPLAY-ONLY reinstall command'; v.showReinstallModal = true }
+    if (params.has('verify-error')) { void v.verifyAfterReinstall(); pending.at(-1)?.resolve({ success: false }) }
     if (new URLSearchParams(location.search).has('error')) v.reinstallCopyError = true
   })
   return { component, active, mounted }

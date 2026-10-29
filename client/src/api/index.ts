@@ -1109,7 +1109,7 @@ poolOrder: (data: {
     create: (data: CreateHostRequest): Promise<Host> => http.post('/hosts', data),
     update: (id: number, data: UpdateHostRequest): Promise<Host> =>
       http.patch(`/hosts/${id}`, data),
-    delete: (id: number): Promise<void> => http.delete(`/hosts/${id}`),
+    delete: (id: number): Promise<{ message: string }> => http.delete(`/hosts/${id}`),
     test: (id: number): Promise<{ success: boolean; message?: string }> =>
       http.post(`/hosts/${id}/test`, {}, { timeout: TIMEOUT.MEDIUM }),
     takeoverOfficial: (id: number): Promise<{

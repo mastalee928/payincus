@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R103六类详情操作固定host/route/account/role/sid/同步代次、共用在途锁、弹窗草稿ABA/缓存卸载旧回执及读写隔离已修；删除计数/成功回执严格、失败持久实际retry。final-all-locale69744实际Chrome132旧回执/三语三宽两端入口及真实删除按钮通过exit0，R102/R105回归及types/守卫/lint通过；最终构建证据见HANDOFF。230有修复复验含部分/68已有不同/29待，R104、真实宿主与完整327/灾备另续。
+
 2026-10-30 R102详情route/session/seq/同步代次/cache/unmount读取及严格target/ID、失败持久实际retry已修；final-verified12423实际Chrome20旧回执/10坏读/五坏ID/同sid/cache/三语三宽通过，复制回归与双端build29414/末dist/types守卫lint全exit0。浅深0FAIL/1WARN终12图见HANDOFF；229有修复/复验含部分/68已有不同/30待，R103写/真实宿主/完整327/灾备继续。
 
 2026-10-30 R105重装命令复制await/失败retry/当前host-route-session-command-dialog同步代次与缓存卸载已修；final-verified79993实际Chrome30旧回执/管理员入口/三语三宽/44px通过exit0。最后双端build34915/末dist最终exit0，守卫及浅深0FAIL/1WARN终12图见HANDOFF；228含部分/68已有不同/31待，R102/R103与真实宿主/完整327/灾备另续。
@@ -266,7 +268,7 @@
 | R1-100 | 存在 | 源码已修/隔离浏览器验证通过 | await真实clipboard完成才成功，失败持久三语提示/实际retry；在途重复拒绝、host/session及command/expiry同步代次拒旧回执含ABA。Chrome24旧回执/延迟成功/权限拒绝/不支持/同步throw/三语三宽通过；仅DISPLAY-ONLY受控写，无系统剪贴板或真实token操作。 |
 | R1-101 | 存在 | 源码已修/本地Chrome通过 | Agent资源/metric容器与类型有限非负检查，缺失为-、真实零保留。logs/takeover-host-info-metrics-final-6.log实际12非法标量/坏容器/合法零数值/三语三宽通过；仅显示归一化不改原报告，真实宿主另验。 |
 | R1-102 | 存在 | 源码已修/浏览器隔离验证通过 | get独立seq/route-account-role-sid同步代次/ABA/cache/unmount，坏ID零GET、旧回执/finally不覆盖当前，失败持久DOM retry，refresh保原host。Chrome20旧回执/10坏读/五坏ID/same sid/cache/三语三宽及复制回归通过，双端build/types/守卫/dist/taste见HANDOFF；R103写与真实宿主另待。 |
-| R1-103 | 存在 | 待精修/运行复核 | 宿主读取与操作无route generation；批量延期仅范围不integer并隐藏失败数；copy未等待clipboard。 |
+| R1-103 | 存在 | 源码已修/浏览器隔离验证通过 | 六类操作固定host-route-account-role-sid/同步代次与弹窗草稿ABA/cache/unmount，共享原在途锁，读写隔离、strict total/回执及失败持久实际retry。Chrome132旧回执、两端/同sid、三语三宽实际按钮通过；types/守卫/build/dist/taste见HANDOFF，真实宿主/后端幂等另验，延期R104另续。 |
 | R1-104 | 存在 | 待精修/运行复核 | 宿主读取与操作无route generation；批量延期仅范围不integer并隐藏失败数；copy未等待clipboard。 |
 | R1-105 | 存在 | 源码已修/浏览器隔离验证通过 | 实际重装复制await、失败持久原按钮retry、重复锁与原host/route/account/session/命令弹窗同步代次/cache/unmount隔离，敏感命令离页清空；Chrome30旧回执/两端入口/same sid/三语三宽通过，最终构建/守卫/taste证据见HANDOFF。R102读/R103写仍待，未真实剪贴板/宿主执行。 |
 | R1-106 | 存在 | 待精修/运行复核 | canSave未限制loading/初读成功；失败可保存默认策略，保存后loadPolicy覆盖新草稿。 |

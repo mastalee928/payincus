@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-103 宿主详情操作与删除准备绑定当前页面
+
+- test/verify/删除前实例计数/确认删除/regenerate/verifyAfter共用在途门禁，固定host、route fullPath、account/role/sid与同步代次。切宿主/会话ABA、缓存离页、卸载及弹窗/草稿ABA后旧success/catch不通知、不导航、不写当前命令/验证态、不触发当前读；原锁保留至原请求finally结束。当前写使旧读失效，当前写期间暂停读取，旧目标写不阻止新目标/缓存返回读取。正常同sid刷新与两端详情入口保持。
+- 删除准备拒缺失/非法total，不把失败当0；test/verify仅严格success:true，生成命令严格类型/非空/长度，delete按真实后端message核验，修正两端API的void声明。失败就地持久显示，删除失败保留确认及原按钮重试，在途关闭/字段/重复点击锁住；重装false退出验证中可重试。沿taste黑白/13px手机辅助文字/44px按钮、深浅红对比/无blur，繁体补真实「操作失敗」。没有后端业务、客户实例/全端口/IPv6规则修改。
+- before实际Chrome重复test=2先红；final-all-locale session69744最终exit0：132旧回执、六写交叉/重复门禁、合法false/坏回执、计数与名称确认、cache锁/同sid/管理员入口、读写反序，三语三宽实际测试与重装/删除按钮/失败retry通过。末脚本误await未释放loadHost和同tick input+disabled button点击的失败轮均已修正，不算通过。R102读取20旧回执37547、R105复制30旧回执74101最终exit0。
+- client类型45973、最后三守卫/ESLint、194常规198专项清单与脚本语法/diff通过；专项登记server/EXCLUDED/CI。最终双端build-final-translation33532含两端vue-tsc最终exit0，末dist-final及两端CSS/繁体产物检查exit0，无待poll。早先在样式编辑中开始构建使user漏末CSS标记，已重建并最后核对，不算失败轮产物通过。taste沿Achromatic ledger seed242843060，无重抽；浅深三宽12终图全部看0 FAIL/1 WARN，hero-void为父页面空子标签夹具；删除两主题手机与深色重装末图0 FAIL/WARN，末三语九图已看，critique7.2见logs/host-detail-actions-critique.md。静态0 FAIL/7 WARN为真实URL mono与主动none声明，不当整页零警告证据。
+- R102666e6089远端一致；阶段保存后230有修复/复验（含部分）/68已有防护不同/29待。仍含部分未完、跨浏览器/后端请求幂等、真实宿主执行/完整327及网关灾备未验，不发行/生产/客户操作。R104前端整数与固定输入/操作回执、后端extend-all逐条成功后中断通用错误仍待；实际route/计费lane、gift-days授权及相应守卫已读，不机械宣称原回执存在failedCount。
+
 ## 2026-10-30 R1-102 宿主详情读取不能覆盖当前路由
 
 - 实际Chrome先红A旧读取覆盖已返回的B。详情get现独立序号并固定route fullPath/account/role/sid/同步代次，切路由/账户ABA、缓存离页与卸载立即清旧host/弹窗/命令；旧success/catch/finally不写当前数据、不跳走、不释放当前loader。初读/缓存返回避免重复，same sid正常刷新保持当前读取；严格正safe integer路由和返回host目标/必需字段，坏回执可实际重试。
