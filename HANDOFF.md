@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-078 登录历史当前页与账户隔离
+
+- 真实Chrome第3页先回、第2页后回覆盖先红；读现绑定account/role/sid/同步代次/独立序号/选中页/cache/unmount。切页清旧页记录，同页失败保留当前已读记录；切账户离页清IP/设备/总数。分页缩减自动读当前有效末页，严格验证响应字段与记录，失败提供三语持久retry，不以空历史伪装读取失败。
+- history-reads最终反序分页/同页refresh/缩页、14旧回执、十非法读/实际retry、same sid、演示记录隐藏/真实零空态/实际next按钮exit0；初末尾按钮断言硬写中文而locale被保留，测试改现三语key后final通过，产品未做特殊绕过。原11UA/devices回归exit0。五守卫/lint/语法/diff/manifest194常规187专项接CI有效、双端types build92523与末dist最终exit0，无待poll，三语三宽截图已看。
+- 71f81c93已push核远端，218有修复/复验含部分/68已有不同/41待。原整体UI及真实账户另验；下一R080 TelegramBindingSection已读route/types/notify守卫，未改。客户/完整327/网关灾备未完成。
+
 ## 2026-10-29 R1-079 登录历史移动设备与浏览器识别
 
 - 实际Chrome调用原组件先红Android被Linux抢先匹配；iPhone/iPad与Opera同类顺序问题修为移动设备优先、Opera/Edge/Firefox/Chrome先于Safari，补CriOS/FxiOS。不改变后端登录记录、IP隐藏规则、鉴权或分页，R078列表生命周期单独继续。

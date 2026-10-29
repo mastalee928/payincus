@@ -3,13 +3,15 @@
  * LoginHistorySection - 登录历史记录组件
  * 显示用户的登录历史，包括 IP、地理位置、设备信息等
  */
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import FlagIcon from '@/components/FlagIcon.vue'
 import { normalizeCountryName } from '@/utils/countryDisplay'
+import { useAuthStore } from '@/stores/auth'
 
 const { t, locale } = useI18n()
+const auth = useAuthStore()
 
 interface LoginRecord {
   id: number
@@ -29,6 +31,39 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = 3
 const totalPages = computed(() => Math.ceil(total.value / pageSize))
+const loadError = ref(false), ready = ref(false), active = ref(false)
+let alive = true, generation = 0, readSequence = 0
+const session = computed(() => {
+  if (!auth.user || !auth.token || !Number.isSafeInteger(auth.user.id) || auth.user.id < 1) return ''
+  let identity = auth.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string' && payload.sid) identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${auth.user.id}:${auth.user.role}:${identity}`
+})
+const available = computed(() => alive && active.value && !!session.value)
+function invalidateContext(): void {
+  generation++
+  readSequence++
+  records.value = []
+  total.value = 0
+  page.value = 1
+  loading.value = false
+  ready.value = false
+  loadError.value = false
+}
+watch(session, () => { invalidateContext(); if (available.value) void loadRecords() }, { flush: 'sync' })
+watch(page, () => { readSequence++; records.value = []; ready.value = false; loadError.value = false }, { flush: 'sync' })
+function activate(): void {
+  if (!alive || active.value) return
+  active.value = true
+  void loadRecords()
+}
+onMounted(activate)
+onActivated(activate)
+onDeactivated(() => { active.value = false; invalidateContext() })
+onBeforeUnmount(() => { alive = false; active.value = false; invalidateContext() })
 const HIDDEN_LOGIN_VALUE = '已隐藏'
 const normalizedCountryLabels = computed(() => ({
   mainlandChina: t('common.countries.cn'),
@@ -62,16 +97,43 @@ const countryCodeMap: Record<string, string> = {
 }
 
 async function loadRecords() {
+  if (!available.value || !Number.isSafeInteger(page.value) || page.value < 1) return
+  const selectedPage = page.value, identity = session.value, version = generation, sequence = ++readSequence
+  const current = () => available.value && identity === session.value && version === generation && sequence === readSequence && selectedPage === page.value
   loading.value = true
+  loadError.value = false
   try {
-    const result = await api.auth.getLoginHistory({ page: page.value, pageSize })
+    const result = await api.auth.getLoginHistory({ page: selectedPage, pageSize })
+    if (!current()) return
+    if (!result || !Array.isArray(result.records) || result.records.length > pageSize || !result.records.every(validRecord) ||
+      new Set(result.records.map(record => record.id)).size !== result.records.length ||
+      !Number.isSafeInteger(result.total) || result.total < 0 || result.page !== selectedPage || result.pageSize !== pageSize ||
+      result.totalPages !== Math.ceil(result.total / pageSize) || (result.total === 0 && result.records.length > 0)) throw new Error('Invalid login history response')
+    if (selectedPage > Math.max(1, result.totalPages)) {
+      total.value = result.total
+      page.value = Math.max(1, result.totalPages)
+      await loadRecords()
+      return
+    }
     records.value = result.records
     total.value = result.total
-  } catch (err) {
-    console.error('Failed to load login history:', err)
+    ready.value = true
+  } catch {
+    if (current()) loadError.value = true
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
+}
+
+function validRecord(value: unknown): value is LoginRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const record = value as LoginRecord
+  return Number.isSafeInteger(record.id) && record.id > 0 && typeof record.ip === 'string' && !!record.ip.trim() &&
+    typeof record.createdAt === 'string' && !!record.createdAt.trim() && Number.isFinite(Date.parse(record.createdAt)) &&
+    ['country', 'region', 'city', 'isp', 'timezone', 'userAgent'].every(field => {
+      const entry = record[field as keyof LoginRecord]
+      return entry === null || typeof entry === 'string'
+    })
 }
 
 function getCountryCode(country: string | null): string | null {
@@ -138,13 +200,12 @@ function formatTime(dateStr: string): string {
 }
 
 function goToPage(newPage: number) {
-  if (newPage >= 1 && newPage <= totalPages.value) {
+  if (available.value && Number.isSafeInteger(newPage) && newPage >= 1 && newPage <= totalPages.value && newPage !== page.value) {
     page.value = newPage
     loadRecords()
   }
 }
 
-onMounted(loadRecords)
 </script>
 
 <template>
@@ -163,13 +224,18 @@ onMounted(loadRecords)
       </button>
     </div>
 
+    <p v-if="loadError" role="alert" data-history-error class="mb-3 text-sm text-red-600 dark:text-red-400">
+      {{ t('common.loadFailed') }}
+      <button type="button" class="btn-ghost btn-sm ml-2" :disabled="loading" @click="loadRecords">{{ t('common.retry') }}</button>
+    </p>
+
     <!-- 加载中 -->
     <div v-if="loading && records.length === 0" class="py-6 text-center">
       <div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-primary-500"></div>
     </div>
 
     <!-- 空状态 -->
-    <div v-else-if="records.length === 0" class="text-sm text-themed-muted text-center py-6 border border-dashed border-themed rounded-lg">
+    <div v-else-if="ready && !loadError && records.length === 0" data-history-empty class="text-sm text-themed-muted text-center py-6 border border-dashed border-themed rounded-lg">
       <svg class="w-8 h-8 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
@@ -177,7 +243,7 @@ onMounted(loadRecords)
     </div>
 
     <!-- 登录记录列表 -->
-    <div v-else class="space-y-2">
+    <div v-else-if="records.length > 0 || totalPages > 1" class="space-y-2">
       <div
         v-for="record in records"
         :key="record.id"

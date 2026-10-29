@@ -131,6 +131,7 @@
     "test:review-ssh-key-list": "node ../scripts/test-ssh-key-list.mjs",
     "test:review-ssh-key-submit": "node ../scripts/test-ssh-key-submit.mjs",
     "test:review-login-history-devices": "node ../scripts/test-login-history-devices.mjs",
+    "test:review-login-history-reads": "node ../scripts/test-login-history-reads.mjs",
     "test:snapshot-policy-schedule-integration": "node --import tsx scripts/test-snapshot-policy-schedule-integration.ts",
     "test:snapshot-mutation-authorization": "node --import tsx scripts/test-snapshot-mutation-authorization.ts",
     "test:review-login-submit": "node ../scripts/test-login-submit.mjs",

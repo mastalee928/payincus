@@ -13,6 +13,6 @@ createApp({ setup() {
     auth.token = 'fixture.' + btoa(JSON.stringify({ sid })) + '.fixture'
   }
   session(); setLocale('zh-CN'); theme.setTheme('light')
-  window.historyHarness = { pending, theme, auth, active, mounted, session, setLocale, view: () => component.value?.$?.setupState }
+  window.historyHarness = { pending, theme, auth, active, mounted, session, setLocale, t: (...args) => i18n.global.t(...args), view: () => component.value?.$?.setupState }
   return { component, active, mounted }
 }, components: { LoginHistorySection }, template: '<main class="max-w-3xl mx-auto p-4"><KeepAlive v-if="mounted"><LoginHistorySection v-if="active" ref="component"/></KeepAlive></main>' }).use(createPinia()).use(i18n).mount('#app')
