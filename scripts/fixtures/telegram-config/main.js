@@ -20,7 +20,7 @@ const app = createApp({ setup() {
   watch(() => toast.toasts.value, items => { for (const item of items) if (!seen.has(item.id)) { seen.add(item.id); events.push(item.message) } }, { deep: true, flush: 'sync' })
   auth.user = { id: 1, username: 'isolated-ui', role: 'admin' }; auth.token = jwt('a')
   setLocale('zh-CN'); theme.setTheme('light')
-  window.telegramHarness = { pending, router, auth, theme, toast, events, shown, nextTick, setLocale,
+  window.telegramHarness = { pending, router, auth, theme, toast, events, shown, nextTick, setLocale, t: (...args) => i18n.global.t(...args),
     session(sid, generation = 1) { auth.token = jwt(sid, generation) }, view() { return component.value?.$?.setupState },
   }
   return { component, shown }

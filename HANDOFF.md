@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-315/R1-326 三语与手机长 Webhook 运行复验
+
+- 两项原产品修复已在当前源码，本阶段不重复改Telegram或定价行为。新增test-telegram-pricing-locales实际Vue/Chrome专项并接CI/manifest：三语Telegram控件、管理员邀请码定价标题/资源/价格/有效期及switch可访问名均实际渲染；语言切换不发请求，原余额0.01/积分1步长、min0、合法零及开关状态保持。
+- 浏览器用仅测试进程的host-resolver-rules将三段63字符的example.test长域名映射127.0.0.1，没有修改系统DNS/hosts。配置地址由实际buildPublicApiUrl沿当前长origin生成；当前地址另含300字符测试query。1440/768/390三语完整文字、换行及元素/全页宽度通过；不是外部Telegram或HTTPS回调验收，零配置/渠道/邮箱写入。takeover-telegram-pricing-locales-final3 exit0，18张最终截图全部查看。首两轮检查脚本集合API/英文末尾空格比较及整页无关中文范围修后复跑，不计产品失败。
+- 原bindings18旧回执及settings-receipts读取/保存/真实retry回归分别takeover-telegram-pricing-bindings-regression/settings-regression exit0；route/i18n守卫、脚本语法、diff check通过，manifest194常规175专项分类有效。产品源码未变，沿用c23c6a7e前最终双端含vue-tsc构建及password-policy-dist已过的同产品代码，不重复构建。
+- taste实浏览器测量已保存logs/telegram-pricing-locales/measurements.json，**整页视觉未通过**：Telegram各宽3 FAIL、2–4 WARN；设置各宽3 FAIL（390为4）、0–1 WARN，集中原有gradient/button-fx/heavy-shadow/glass，另灰字对比/小字。没有放行或修改全局样式来掩盖。截图评审：名称/地址和定价字段无横溢，浅色开关和深色禁用/说明可读性仍需单独精修；当前设计5.5/可用6/内容8，整体按FAIL上限不超过6。此为R315/R326功能与布局范围复验，不是整页UI验收；无新设计draw/图片素材。
+- c23c6a7e已push且远端核一致，a08895d1/c23c6a7e CI仍in_progress。唯一205有修复/复验记录（含部分）/68已有防护或实现不同/54待精修不变，两原已改编号不重复计数；完整327/真实宿主/灾备未完。按Owner阶段提交推送后继续原清单。
+
 ## 2026-10-29 R1-320 修改密码提示与后台规则一致
 
 - PasswordSection 的6位提示/门禁与后台 validatePassword 的8–128位、大小写字母和数字不一致。现前端按相同规则拒绝非法值且零API请求，新密码输入限制8–128，三语规则放在输入框下持久显示并用aria-describedby关联；不改后端、旧密码验证、二次验证、会话/草稿隔离及成功后重新登录流程。

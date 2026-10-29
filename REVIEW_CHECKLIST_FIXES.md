@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R315/R326补运行证据：原源码三语Telegram/管理员邀请码价格实际Vue/Chrome、长当前origin的配置URL与300字符current URL三语1440/768/390完整换行无横溢且零写，18最终截图已看，原bindings/settings-receipts回归exit0；守卫/manifest194常规175专项及同产品代码已有types build/dist见HANDOFF。taste原整页gradient/阴影/glass等FAIL保留，UI整体未验收。205有修复复验含部分/68已有不同/54待不重复计数，完整327/灾备继续。
+
 2026-10-29 R320密码规则：前端与后台8–128位/大小写/数字一致，三语持久规则hint、input限制和非法零请求已修。实际Chrome三语策略/8与128边界及原真实敏感验证、scope32旧回执，3对应守卫/lint/最终双端types build/dist全部exit0，证据见HANDOFF；未改真实账户。唯一205有修复复验（含部分）/68已有防护或不同/54待精修，完整327/灾备未完。下一R315/R326运行验证继续。
 
 2026-10-29 R319与Owner邮箱销毁保护：充值确认三语不承诺销毁退款/PUSH免费；用户单/批/异常/本人DELETE强制邮箱、管理员免邮箱，绑定account/sid/email/set、全局去同码、一次消费、60秒限发且换目标/会话/消费/失败不可绕过，通用验证隔离预算。UI仅邮箱、名称地区编号表格，浅深色三宽taste检查0 FAIL/WARN；真实PG+SMTP/Incus边界替身及Vue/Chrome证据详见HANDOFF。本阶段相关types/守卫/双端build/lint过，204有修复复验含部分/68已有或不同/55待，完整327/外部邮件/原生宿主/灾备未完。
@@ -426,7 +428,7 @@
 | R1-312 | 部分存在 | 源码已修/真实浏览器夹具通过 | PackageSelector只展示props.packages，无对方嵌入packageId加载；套餐CPU/启动priority合法0读取和提交保持，null/缺省默认及原整数范围、四边界与十非法输入通过takeover-package-priorities-final.log，原package-form全回归/4守卫/lint/双端types build/dist通过；实际Incus交付未验。 |
 | R1-313 | 部分存在，部分已修 | 目标/session及输入回执实际Chrome与构建守卫通过 | 四操作固定目标/session/draft/ABA、busy/关闭/卸载/timer已修；两数字输入、四真实成功回执/有效期与过期敏感验证清理已修。80旧回执及输入回执反例/重试通过；实际邮件和客户完整变更另续。 |
 | R1-314 | 存在，部分已修 | 当前抽奖Chrome及构建守卫通过 | 单/十连函数与按钮即时互斥，固定活动/奖品快照/account/role/sid/page/tab，旧写回执及单动画timer随离页/缓存/卸载撤销；辅助积分/活动读取独立代次。真实Chrome40旧回执、same sid、合法0、禁选择/动画busy/徽章结果/失败重试及3守卫/lint/双端types build/dist通过，日志误计已纠正见HANDOFF；真实积分扣除/奖励全流程、后台授权与断网幂等仍待。 |
-| R1-315 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
+| R1-315 | 已确认存在 | 功能三语实际Chrome复验通过；整页UI待 | 当前Telegram三语控件和管理员邀请码定价真实渲染、switch可访问名/价格步长及合法0/语言切换零请求，takeover-telegram-pricing-locales-final3；18截图/原两专项回归及守卫通过。原整页样式taste FAIL保留，未声称UI整体验收；未改真实配置。 |
 | R1-316 | 存在，部分已修 | 绑定/渠道读取与保存Chrome及构建守卫通过 | bindings搜索分页18旧回执/九非法及error retry/0；editor20旧读取/八非法/ready门禁/三语retry/关闭秘密；create/update固定payload/session/draft与busy/36旧回执/十非法/真实确认/掩码保持均通过，4守卫/lint/双端types build/dist。其它配置/删测试解绑写入、后台权限审计和真实TG仍待，见HANDOFF。 |
 | R1-317 | 存在，部分已修 | 重复提交Chrome及构建守卫通过 | 两端handleLogin第一行拒loading，演示/OAuth同gate，管理员等安全push完成。实际Chrome重复零额外写、失败重试/正确console/缺输入challenge与TOTP恢复码payload，3守卫/lint/双端types build/dist通过；离页/跨页及真实认证全流程另验，见HANDOFF。 |
 | R1-318 | 已有防护 | 保留初审结论 | manualStartHint已描述重装后自动启动。 |
@@ -437,5 +439,5 @@
 | R1-323 | 存在，已修 | 文案/浏览器及相关守卫通过 | 三语bootPriority改高值先启动，startupDelay改本实例启动后、下一实例前等待；已核Incus原映射与官方instance_options定义。takeover-package-boot-hints-browser实际Vue/Chrome矩阵及三宽截图、route/i18n/input守卫、locale lint/双端types build/dist通过；不改默认范围/交付，原生宿主自动开机另验。 |
 | R1-324 | 存在 | 沿用R302配额编辑专项 | 已随6c8b219/0444f64修复真实snake_case字段读取、0/null保留、实际用量和剩余额度、轮询保草稿及提交回执。核当前getQuotaFormValues/calculateRemainingQuota与takeover-quota-editor-final.log、takeover-quota-submit-final-r4.log，Chrome通过真实字段、0/null、用量、换目标/会话与草稿矩阵；类型/守卫/双端构建及专属用户无转发入口证据见HANDOFF的R302章节。原生交付另验。补登记，不重复计算产品修复。 |
 | R1-325 | 实现不同 | 保留初审结论 | managed失败保留error，与独占pool交付/退款/隔离库存不同；不能为了释放库存将远端未确认删除直接标deleted，先保留并核查实际残留。 |
-| R1-326 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
+| R1-326 | 已确认存在 | 长地址换行实际Chrome复验通过；整页UI待 | 本地长真实origin生成配置Webhook、当前URL含300字符query，三语1440/768/390完整文本/多行/元素与全页无横溢，takeover-telegram-pricing-locales-final3；无DNS修改/外部Telegram/写入，原整页taste FAIL另待精修。 |
 | R1-327 | 实现不同 | 保留初审结论 | 本库管理员删除集成是TS脚本、测试finally在整套结束清理；未发现对方共享证书提前删除的同类脚本，不照搬旧修法。 |

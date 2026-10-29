@@ -330,6 +330,8 @@ jobs:
         run: pnpm --filter server test:review-telegram-channel-editor
       - name: Telegram channel saves retain their draft and confirmed result
         run: pnpm --filter server test:review-telegram-channel-submit
+      - name: Telegram and invite pricing translations fit long addresses on phones
+        run: pnpm --filter server test:review-telegram-pricing-locales
       - name: User and administrator logins reject repeated in-flight submissions
         run: pnpm --filter server test:review-login-submit
       - name: Balance adjustments keep their target, draft and confirmed receipt
