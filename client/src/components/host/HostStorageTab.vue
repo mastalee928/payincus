@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onActivated, onDeactivated, onUnmounted, computed, watch } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
@@ -31,6 +31,9 @@ const props = defineProps<Props>()
 let alive = true
 const pageActive = ref(false)
 let readSequence = 0
+let contextGeneration = 0
+let createGeneration = 0
+let editGeneration = 0
 const sessionKey = computed(() => {
   if (!authStore.token || !authStore.user) return ''
   let identity = authStore.token
@@ -53,6 +56,45 @@ const deleting = ref<string | null>(null)
 // 编辑模态框状态
 const showEditModal = ref(false)
 const editing = ref(false)
+const createError = ref('')
+const editError = ref('')
+const deleteError = ref('')
+const createDialog = ref<HTMLElement | null>(null)
+const editDialog = ref<HTMLElement | null>(null)
+let returnFocus: HTMLElement | null = null
+watch([showCreateModal, showEditModal], async ([createOpen, editOpen], [wasCreateOpen, wasEditOpen]) => {
+  if ((createOpen || editOpen) && !wasCreateOpen && !wasEditOpen) returnFocus = document.activeElement as HTMLElement | null
+  await nextTick()
+  if (createOpen && showCreateModal.value) createDialog.value?.focus()
+  else if (editOpen && showEditModal.value) editDialog.value?.focus()
+  else if (!showCreateModal.value && !showEditModal.value && returnFocus?.isConnected) returnFocus.focus()
+})
+function handleDialogKey(event: KeyboardEvent, kind: 'create' | 'edit') {
+  if (event.key === 'Escape') { event.preventDefault(); kind === 'create' ? closeCreateModal() : closeEditModal(); return }
+  if (event.key !== 'Tab') return
+  const dialog = kind === 'create' ? createDialog.value : editDialog.value
+  const controls = [...(dialog?.querySelectorAll<HTMLElement>('button,input,select,textarea,[tabindex="0"]') ?? [])]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const first = controls[0], last = controls.at(-1)
+  if (!first) { event.preventDefault(); dialog?.focus(); return }
+  if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) { event.preventDefault(); last?.focus() }
+  else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) { event.preventDefault(); first.focus() }
+}
+const writeBusy = computed(() => creating.value || editing.value || deleting.value !== null)
+const canStartWrite = computed(() => canRead.value && !loading.value && !writeBusy.value)
+let editingPoolName: string | null = null
+watch(showCreateModal, () => { createGeneration++ }, { flush: 'sync' })
+watch(showEditModal, () => { editGeneration++ }, { flush: 'sync' })
+function captureWrite(kind: 'create' | 'edit' | 'delete') {
+  const hostId = props.hostId, session = sessionKey.value, generation = contextGeneration
+  const dialogGeneration = kind === 'create' ? createGeneration : editGeneration
+  return { hostId, current: () => canRead.value && generation === contextGeneration && hostId === props.hostId && session === sessionKey.value &&
+    (kind === 'delete' || kind === 'create' && showCreateModal.value && dialogGeneration === createGeneration ||
+      kind === 'edit' && showEditModal.value && dialogGeneration === editGeneration) }
+}
+function closeCreateModal() { if (!creating.value) showCreateModal.value = false }
+function closeEditModal() { if (!editing.value) showEditModal.value = false }
+function invalidateEarlierReads() { readSequence++; loading.value = false }
 const editForm = ref({
   name: '',
   driver: '',
@@ -135,6 +177,7 @@ watch(createMode, () => {
 })
 
 function resetReadContext() {
+  contextGeneration++
   readSequence++
   pools.value = []
   loading.value = false
@@ -142,6 +185,10 @@ function resetReadContext() {
   loadWarning.value = ''
   showCreateModal.value = false
   showEditModal.value = false
+  createError.value = ''
+  editError.value = ''
+  deleteError.value = ''
+  editingPoolName = null
 }
 watch([() => props.hostId, sessionKey], () => { resetReadContext(); void loadPools() }, { flush: 'sync' })
 function activateReads() {
@@ -180,7 +227,8 @@ async function loadPools() {
 }
 
 function openCreateModal() {
-  if (!canRead.value || loading.value) return
+  if (!canStartWrite.value || showEditModal.value || showCreateModal.value) return
+  createError.value = ''
   createMode.value = 'create'
   form.value = {
     name: '',
@@ -201,8 +249,11 @@ function openCreateModal() {
 }
 
 async function createPool() {
-  if (!form.value.name) {
-    toast.error(t('admin.hosts.storage.nameRequired'))
+  if (!canStartWrite.value || !showCreateModal.value) return
+  const context = captureWrite('create')
+  createError.value = ''
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(form.value.name)) {
+    createError.value = t('admin.hosts.storage.nameRequired')
     return
   }
 
@@ -212,11 +263,11 @@ async function createPool() {
     if (createMode.value === 'import') {
       // Btrfs 和 DIR 类型必须提供底层存储源
       if ((importDriver.value === 'btrfs' || importDriver.value === 'dir') && !importSource.value) {
-        toast.error(t('admin.hosts.storage.importSourceRequired'))
+        createError.value = t('admin.hosts.storage.importSourceRequired')
         return
       }
       
-      const result = await api.hosts.createStoragePool(props.hostId, {
+      const result = await api.hosts.createStoragePool(context.hostId, {
         name: form.value.name,
         driver: importDriver.value,
         existingSource: importSource.value || undefined,
@@ -224,6 +275,9 @@ async function createPool() {
         purpose: form.value.purpose,
         useExisting: true
       })
+      if (!context.current()) return
+      if (!result || typeof result.message !== 'string' || !result.message) throw new Error(t('admin.hosts.storage.createFailed'))
+      invalidateEarlierReads()
       if (result.imported) {
         toast.success(t('admin.hosts.storage.importSuccess'))
       } else {
@@ -239,16 +293,16 @@ async function createPool() {
     const supportsLoop = ['zfs', 'lvm', 'btrfs'].includes(form.value.driver)
     if (supportsLoop) {
       if (!useLoop.value && !form.value.source) {
-        toast.error(t('admin.hosts.storage.sourceRequired'))
+        createError.value = t('admin.hosts.storage.sourceRequired')
         return
       }
       if (useLoop.value && !form.value.sizeValue) {
-        toast.error(t('admin.hosts.storage.sizeRequired'))
+        createError.value = t('admin.hosts.storage.sizeRequired')
         return
       }
     } else if (form.value.driver === 'dir') {
       if (!form.value.source) {
-        toast.error(t('admin.hosts.storage.pathRequired'))
+        createError.value = t('admin.hosts.storage.pathRequired')
         return
       }
     }
@@ -258,7 +312,7 @@ async function createPool() {
       ? `${form.value.sizeValue}${form.value.sizeUnit}`
       : undefined
 
-    await api.hosts.createStoragePool(props.hostId, {
+    const result = await api.hosts.createStoragePool(context.hostId, {
       name: form.value.name,
       driver: form.value.driver,
       source: supportsLoop && useLoop.value ? undefined : form.value.source || undefined,
@@ -270,28 +324,41 @@ async function createPool() {
       description: form.value.description || undefined,
       purpose: form.value.purpose
     })
+    if (!context.current()) return
+    if (!result || typeof result.message !== 'string' || !result.message) throw new Error(t('admin.hosts.storage.createFailed'))
+    invalidateEarlierReads()
     toast.success(t('admin.hosts.storage.createSuccess'))
     showCreateModal.value = false
     await loadPools()
-  } catch (err: any) {
-    toast.error(t('admin.hosts.storage.createFailed') + ': ' + (err?.message || String(err)))
+  } catch (err: unknown) {
+    if (!context.current()) return
+    createError.value = t('admin.hosts.storage.createFailed') + ': ' + translateError(err)
   } finally {
     creating.value = false
   }
 }
 
 async function deletePool(poolName: string) {
+  const pool = pools.value.find(pool => pool.name === poolName)
+  if (!canStartWrite.value || showCreateModal.value || showEditModal.value || !pool || pool.usedBy > 0 || pool.status !== 'Created' || loadWarning.value) return
+  const context = captureWrite('delete')
   if (!confirm(t('admin.hosts.storage.deleteConfirm', { name: poolName }))) {
     return
   }
 
   deleting.value = poolName
+  deleteError.value = ''
   try {
-    await api.hosts.deleteStoragePool(props.hostId, poolName)
+    const result = await api.hosts.deleteStoragePool(context.hostId, poolName)
+    if (!context.current()) return
+    if (!result || typeof result.message !== 'string' || !result.message) throw new Error(t('admin.hosts.storage.deleteFailed'))
+    invalidateEarlierReads()
+    pools.value = pools.value.filter(pool => pool.name !== poolName)
     toast.success(t('admin.hosts.storage.deleteSuccess'))
     await loadPools()
-  } catch (err: any) {
-    toast.error(t('admin.hosts.storage.deleteFailed') + ': ' + (err?.message || String(err)))
+  } catch (err: unknown) {
+    if (!context.current()) return
+    deleteError.value = t('admin.hosts.storage.deleteFailed') + ': ' + translateError(err)
   } finally {
     deleting.value = null
   }
@@ -319,7 +386,9 @@ function getUsagePercent(pool: StoragePool): number {
 
 // 打开编辑模态框
 function openEditModal(pool: StoragePool) {
-  if (!canRead.value || loading.value || !pools.value.includes(pool)) return
+  if (!canStartWrite.value || showCreateModal.value || showEditModal.value || !pools.value.includes(pool)) return
+  editingPoolName = pool.name
+  editError.value = ''
   editForm.value = {
     name: pool.name,
     driver: pool.driver,
@@ -334,6 +403,10 @@ function openEditModal(pool: StoragePool) {
 
 // 提交编辑
 async function submitEdit() {
+  if (!canStartWrite.value || !showEditModal.value || !editingPoolName || editForm.value.name !== editingPoolName ||
+    !pools.value.some(pool => pool.name === editingPoolName)) return
+  const context = captureWrite('edit'), poolName = editingPoolName
+  editError.value = ''
   const data: { size?: string; description?: string; purpose?: 'instance_data' | 'instance_storage' } = {}
   
   // 只有填写了新大小才提交
@@ -347,12 +420,16 @@ async function submitEdit() {
 
   editing.value = true
   try {
-    await api.hosts.updateStoragePool(props.hostId, editForm.value.name, data)
+    const result = await api.hosts.updateStoragePool(context.hostId, poolName, data)
+    if (!context.current()) return
+    if (!result || typeof result.message !== 'string' || !result.message) throw new Error(t('admin.hosts.storage.updateFailed'))
+    invalidateEarlierReads()
     toast.success(t('admin.hosts.storage.updateSuccess'))
     showEditModal.value = false
     await loadPools()
-  } catch (err: any) {
-    toast.error(t('admin.hosts.storage.updateFailed') + ': ' + (err?.message || String(err)))
+  } catch (err: unknown) {
+    if (!context.current()) return
+    editError.value = t('admin.hosts.storage.updateFailed') + ': ' + translateError(err)
   } finally {
     editing.value = false
   }
@@ -367,13 +444,15 @@ async function submitEdit() {
         <h3 class="text-lg font-medium text-themed">{{ t('admin.hosts.storage.title') }}</h3>
         <p class="text-sm text-themed-secondary mt-1">{{ t('admin.hosts.storage.subtitle') }}</p>
       </div>
-      <button class="btn-primary" :disabled="!canRead || loading" @click="openCreateModal">
+      <button class="btn-primary" :disabled="!canStartWrite || showCreateModal || showEditModal" @click="openCreateModal">
         <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
         </svg>
         {{ t('admin.hosts.storage.create') }}
       </button>
     </div>
+
+    <p v-if="deleteError" role="alert" class="text-sm text-red-500 break-words">{{ deleteError }}</p>
 
     <!-- Loading -->
     <div v-if="loading" class="card p-8 text-center">
@@ -396,7 +475,7 @@ async function submitEdit() {
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
       </svg>
       <p class="text-themed-secondary">{{ t('admin.hosts.storage.empty') }}</p>
-      <button class="btn-primary mt-4" :disabled="!canRead" @click="openCreateModal">
+      <button class="btn-primary mt-4" :disabled="!canStartWrite || showCreateModal || showEditModal" @click="openCreateModal">
         {{ t('admin.hosts.storage.create') }}
       </button>
     </div>
@@ -474,6 +553,8 @@ async function submitEdit() {
             <!-- 编辑按钮 -->
             <button
               class="btn-secondary btn-sm"
+              :disabled="!canStartWrite || showCreateModal || showEditModal"
+              :aria-label="t('common.edit')"
               @click="openEditModal(pool)"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -483,7 +564,8 @@ async function submitEdit() {
             <!-- 删除按钮 -->
             <button
               class="btn-danger btn-sm"
-              :disabled="deleting === pool.name || pool.usedBy > 0"
+              :disabled="!canStartWrite || showCreateModal || showEditModal || pool.usedBy > 0 || pool.status !== 'Created' || !!loadWarning"
+              :aria-label="t('common.delete')"
               @click="deletePool(pool.name)"
             >
               <svg v-if="deleting === pool.name" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -503,18 +585,18 @@ async function submitEdit() {
     <Teleport to="body">
       <Transition name="modal">
         <div v-if="showCreateModal" class="modal-overlay">
-          <div class="modal-backdrop" @click="showCreateModal = false"></div>
-          <div class="modal-content max-w-lg">
+          <div class="modal-backdrop" @click="closeCreateModal"></div>
+          <div ref="createDialog" class="modal-content max-w-lg max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.storage.createTitle')" tabindex="-1" @keydown="handleDialogKey($event, 'create')">
             <div class="modal-header">
               <h3 class="modal-title">{{ t('admin.hosts.storage.createTitle') }}</h3>
-              <button class="text-themed-muted hover:text-themed" @click="showCreateModal = false">
+              <button class="text-themed-muted hover:text-themed" :disabled="creating" :aria-label="t('common.close')" @click="closeCreateModal">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            <div class="modal-body space-y-4">
+            <fieldset class="modal-body space-y-4 min-w-0" :disabled="creating">
               <!-- 模式切换 - 分段按钮组样式 -->
               <div class="inline-flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg w-full">
                 <button
@@ -746,11 +828,12 @@ async function submitEdit() {
                 <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.description') }}</label>
                 <input v-model="form.description" type="text" class="input" :placeholder="t('common.notSet')" />
               </div>
-            </div>
+            </fieldset>
 
+            <p v-if="createError" role="alert" class="px-5 pb-3 text-sm text-red-500 break-words">{{ createError }}</p>
             <div class="modal-footer">
-              <button class="btn-secondary" @click="showCreateModal = false">{{ t('common.cancel') }}</button>
-              <button class="btn-primary" :disabled="creating || !form.name" @click="createPool">
+              <button class="btn-secondary" :disabled="creating" @click="closeCreateModal">{{ t('common.cancel') }}</button>
+              <button class="btn-primary" :disabled="!canStartWrite || !form.name" @click="createPool">
                 <svg v-if="creating" class="w-4 h-4 animate-spin mr-1.5" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
@@ -767,18 +850,18 @@ async function submitEdit() {
     <Teleport to="body">
       <Transition name="modal">
         <div v-if="showEditModal" class="modal-overlay">
-          <div class="modal-backdrop" @click="showEditModal = false"></div>
-          <div class="modal-content max-w-md">
+          <div class="modal-backdrop" @click="closeEditModal"></div>
+          <div ref="editDialog" class="modal-content max-w-md max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.storage.editTitle')" tabindex="-1" @keydown="handleDialogKey($event, 'edit')">
             <div class="modal-header">
               <h3 class="modal-title">{{ t('admin.hosts.storage.editTitle') }}</h3>
-              <button class="text-themed-muted hover:text-themed" @click="showEditModal = false">
+              <button class="text-themed-muted hover:text-themed" :disabled="editing" :aria-label="t('common.close')" @click="closeEditModal">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            <div class="modal-body space-y-4">
+            <fieldset class="modal-body space-y-4 min-w-0" :disabled="editing">
               <!-- 存储池名称（只读） -->
               <div>
                 <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.storage.poolName') }}</label>
@@ -837,11 +920,12 @@ async function submitEdit() {
                   <p class="text-xs text-themed-muted ml-5">{{ t('admin.hosts.storage.forVolumesHint') }}</p>
                 </div>
               </div>
-            </div>
+            </fieldset>
 
+            <p v-if="editError" role="alert" class="px-5 pb-3 text-sm text-red-500 break-words">{{ editError }}</p>
             <div class="modal-footer">
-              <button class="btn-secondary" @click="showEditModal = false">{{ t('common.cancel') }}</button>
-              <button class="btn-primary" :disabled="editing" @click="submitEdit">
+              <button class="btn-secondary" :disabled="editing" @click="closeEditModal">{{ t('common.cancel') }}</button>
+              <button class="btn-primary" :disabled="!canStartWrite" @click="submitEdit">
                 <svg v-if="editing" class="w-4 h-4 animate-spin mr-1.5" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>

@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 宿主存储写操作目标与回执
+
+- a27e991已push核远端；0444f64/794e336/a27e991源码CI最后仍运行。Storage创建/导入/编辑/删除共用busy门禁，写入固定host/session/激活与弹窗代次；旧回执不刷新新宿主、不关闭新弹窗，跨切换保留在途busy。编辑名称固定，创建名完整校验；当前错误持久展示，辅助列表失败不误报写失败，成功失效较早读取。使用中、非Created及数据库fallback存储池禁止从页面删除。
+- 弹窗提交期间禁改/禁关闭，键盘Escape/Tab与焦点恢复补齐，手机限高滚动。takeover-storage-writes-before.log先红旧create刷新另一host；takeover-storage-writes-final-r2.log真实Chrome通过四类操作、重复/互斥/关闭、错误重试、辅助失败、host/session/account/role/logout/cache/unmount、旧读取及强制重开等矩阵。读取完整回归与两视口截图通过；受控API未执行真实Incus存储写入。
+- client types、route/i18n/host-route-id三守卫、lint零错警、manifest194/129通过；takeover-storage-writes-build.log最终双端build exit0，takeover-storage-writes-dist.log通过。专项已接Chrome CI。后台存储授权/远端与DB原子性、数字大小完整校验另待，不能视为存储全流程完成。
+- 下一项兑换码读取夹具已先红host1迟到覆盖host2（takeover-redeem-reads-before.log），产品尚未改；列表/options/usages目标、session与请求序号需继续，写操作另分批。机器池一机一卖全端口及用户隐藏转发入口保持，未操作客户网络。327/R269/Go proc CI/完整灾备未完成。
+
 ## 2026-10-29 R1-303 宿主存储列表读取隔离
 
 - 794e336已push核远端；6c8b219源码CI已success，0444f64/794e336最后仍运行。Storage列表按host/session/请求序号和激活状态绑定，mount/activated只初读一次；换host/账号/logout/cache/unmount清列表和旧弹窗。旧成功、失败与finally不覆盖当前列表/loading，非法ID不发请求，非法/重复条目拒绝；错误持久显示且可重试，Incus不可达的数据库fallback警告在有/无列表时均展示。
