@@ -15,3 +15,10 @@ export function normalizeStorageSize(value: unknown): string | null {
   if (amount < 1n || amount * multiplier > 9223372036854775807n) return null
   return text
 }
+
+export function storageSizeBytes(value: unknown): bigint | null {
+  const text = normalizeStorageSize(value)
+  if (text === null) return null
+  const quantity = /^\d+/.exec(text)![0]
+  return BigInt(quantity) * multipliers[text.slice(quantity.length)]
+}

@@ -4,6 +4,7 @@
 
 import type { IncusClient } from './incus-client.js'
 import type { IncusStoragePool } from '../../types/incus.js'
+import { storageSizeBytes } from '../storage-size.js'
 
 export interface CreateStoragePoolOptions {
   name: string
@@ -113,6 +114,25 @@ export async function updateStoragePool(client: IncusClient, name: string, optio
     { onEtag: value => { etag = value } })
   if (!etag || current?.name !== name || current.description !== undefined && typeof current.description !== 'string') {
     throw new StoragePoolUpdateError('无法核验存储池当前配置或版本，请重新读取存储池后重试', 'STORAGE_POOL_STATE_UNVERIFIED', 502)
+  }
+  if (config && Object.hasOwn(config, 'size')) {
+    const requestedSize = storageSizeBytes(config.size)
+    if (requestedSize === null) {
+      throw new StoragePoolUpdateError('存储池容量格式无效，请使用有效的正整数字节容量', 'STORAGE_POOL_SIZE_INVALID', 400)
+    }
+    if (current.driver === 'dir') {
+      throw new StoragePoolUpdateError('目录存储池使用所在文件系统容量，不支持在这里调整大小；请留空容量后保存其他设置', 'STORAGE_POOL_RESIZE_UNSUPPORTED', 400)
+    }
+    const currentSize = storageSizeBytes(current.config?.size)
+    if (currentSize === null) {
+      throw new StoragePoolUpdateError('无法核验存储池当前容量，请先检查宿主存储状态；留空容量可保存其他设置', 'STORAGE_POOL_SIZE_UNVERIFIED', 409)
+    }
+    if (requestedSize < currentSize) {
+      throw new StoragePoolUpdateError('存储池只支持扩容，新容量不能小于当前容量', 'STORAGE_POOL_SHRINK_REJECTED', 400)
+    }
+    // Changing only the unit must not make Incus resize an unchanged disk.
+    if (requestedSize === currentSize) delete config.size
+    if (Object.keys(config).length === 0 && description === undefined) return
   }
   const remaining = deadline - Date.now()
   if (remaining <= 0) throw new Error('读取存储池配置超时，请重新读取后重试')

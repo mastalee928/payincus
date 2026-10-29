@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { normalizeStorageSize } from '../src/lib/storage-size.js'
+import { normalizeStorageSize, storageSizeBytes } from '../src/lib/storage-size.js'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -217,6 +217,10 @@ for (const unit of ['', 'B', ' bytes', 'kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'KiB'
 }
 assert.equal(normalizeStorageSize(' 1649267441664B '), '1649267441664B')
 assert.equal(normalizeStorageSize('9223372036854775807B'), '9223372036854775807B')
+assert.equal(storageSizeBytes('2GiB'), storageSizeBytes('2048MiB'))
+assert.equal(storageSizeBytes('9007199254740993B'), 9007199254740993n)
+assert.equal(storageSizeBytes('9223372036854775807B'), 9223372036854775807n)
+assert.equal(storageSizeBytes('max'), null)
 assert.equal(source.match(/const normalizedSize = size === undefined \? undefined : normalizeStorageSize\(size\)/g)?.length, 2,
   'storage create and update both validate supplied capacity before connecting')
 

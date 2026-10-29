@@ -127,6 +127,23 @@ try {
     assert.equal(await prisma.log.count({ where: { userId: owner.id } }), logCount, `${mode} does not record success`)
   }
   remoteMode = 'normal'
+  for (const [driver, oldSize, size, expectedStatus, code] of [
+    ['lvm', '20GiB', '19GiB', 400, 'STORAGE_POOL_SHRINK_REJECTED'],
+    ['zfs', '2GiB', '2000MB', 400, 'STORAGE_POOL_SHRINK_REJECTED'],
+    ['lvm', '', '20GiB', 409, 'STORAGE_POOL_SIZE_UNVERIFIED'],
+    ['dir', '', '20GiB', 400, 'STORAGE_POOL_RESIZE_UNSUPPORTED']
+  ] as const) {
+    const remotePool = remotePools.get('fixture-post-0')!
+    remotePool.driver = driver; remotePool.config.size = oldSize
+    const localBefore = await prisma.storagePool.findUniqueOrThrow({ where: poolKey })
+    const before = requests.filter(request => request.method === 'PATCH').length
+    const response = await app.inject({ method: 'PATCH', url: `/hosts/${host.id}/storage-pools/fixture-post-0`,
+      payload: { size, description: 'must not persist', purpose: 'instance_data' } })
+    assert.equal(response.statusCode, expectedStatus, response.body); assert.equal(response.json().code, code)
+    assert.equal(requests.filter(request => request.method === 'PATCH').length, before)
+    assert.deepEqual(await prisma.storagePool.findUniqueOrThrow({ where: poolKey }), localBefore)
+  }
+  console.log('PASS resize API returns specific errors before mutation and preserves local metadata')
   console.log('PASS storage update API conflict/error responses preserve local metadata and success logs')
   console.log('PASS storage purpose persists in both directions, controls new system disk eligibility and preserves omitted fields/other pools')
   console.log('PASS storage size create/update API syntax, unit, signed-byte boundary and omission matrix over mTLS')

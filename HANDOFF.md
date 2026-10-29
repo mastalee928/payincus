@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 容量更新预检查与误判纠正
+
+- ba82a01已push核远端。固定Incus1806849的backend.go:295已有统一Pool cannot be shrunk，三驱动Truncate前受此保护，不能报告上游必然缩容损坏。平台此前只校验正数，现按本次ETag读取的真实当前容量做BigInt比较，在远端PATCH前明确拒缩容、未知/非法/max当前容量和dir容量更新；空容量仍允许描述/用途，等量不同单位移除size避免触发无效扩容。其它驱动实际支持与物理设备限制仍由Incus检查，本项不写死安装路径或推断Loop身份。
+- takeover-storage-resize-before.log隔离mTLS显示平台会发送缩容，表示前置校验缺失，不当作原生Incus允许缩容。final.log验证lvm/zfs/btrfs、大于2^53字节、GiB/MB/相同单位、dir与描述-only；api-final.log真实PG/Fastify通过400/409具体code、零PATCH、用途描述不变，先前容量/用途/ETag错误矩阵全部回归。后端build含tsc、3守卫、manifest194/139、diff通过，沿原CI专项。无原生Linux磁盘调整/生产操作。
+- R303下一段发现useExisting在任何getStoragePool错误后都当作不存在并可能导入，需仅精确404进入导入，其它鉴权/网络/服务器错误保留；尚未修改。当前授权、远端DB恢复、原生存储验收、R269/Go proc/327及完整灾备未完成。
+
 ## 2026-10-29 R1-303 存储更新保留描述与配置版本
 
 - 088165e用途修复已push核远端。上游Incus固定18068492788d26b3aad307b1331703c0d69c27db的storage_pools.go确认PATCH只合并config，省略description仍以空字符串更新。现在更新前读取真实池名/描述及ETag，复制本次提交，省略描述时保当前值，明确空字符串仍清空；PATCH携带If-Match并共用120秒期限。仅平台用途的空远端更新直接跳过，冲突不盲重试，API以409持久提示刷新重新确认。

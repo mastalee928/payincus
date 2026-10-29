@@ -6,7 +6,7 @@ import { createServer } from 'node:https'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { IncusClient, IncusApiError } from '../src/lib/incus/incus-client.js'
-import { updateStoragePool } from '../src/lib/incus/incus-storage.js'
+import { updateStoragePool, StoragePoolUpdateError } from '../src/lib/incus/incus-storage.js'
 
 const directory = await mkdtemp(join(tmpdir(), 'storage-update-'))
 async function certificate(name: string) {
@@ -86,6 +86,35 @@ try {
   mode = 'normal'
   await updateStoragePool(client, name, { description: 'intentional description', config: { size: '30GiB' } })
   assert.equal(pool.description, 'intentional description'); assert.equal(pool.config.size, '30GiB')
+  for (const [driver, currentSize, requested, expectedCode] of [
+    ['lvm', '30GiB', '29GiB', 'STORAGE_POOL_SHRINK_REJECTED'],
+    ['zfs', '2GiB', '2000MB', 'STORAGE_POOL_SHRINK_REJECTED'],
+    ['btrfs', '9007199254740993B', '9007199254740992B', 'STORAGE_POOL_SHRINK_REJECTED'],
+    ['lvm', '', '1GiB', 'STORAGE_POOL_SIZE_UNVERIFIED'],
+    ['lvm', 'max', '1GiB', 'STORAGE_POOL_SIZE_UNVERIFIED'],
+    ['lvm', '10GiBjunk', '20GiB', 'STORAGE_POOL_SIZE_UNVERIFIED'],
+    ['dir', '', '20GiB', 'STORAGE_POOL_RESIZE_UNSUPPORTED'],
+  ]) {
+    pool.driver = driver; pool.config.size = currentSize
+    const before = writes
+    await assert.rejects(updateStoragePool(client, name, { config: { size: requested } }),
+      error => error instanceof StoragePoolUpdateError && error.code === expectedCode)
+    assert.equal(writes, before, `${expectedCode} must not send a mutation`)
+  }
+  pool.driver = 'lvm'; pool.config.size = '9007199254740992B'
+  await updateStoragePool(client, name, { config: { size: '9007199254740993B' } })
+  assert.equal(pool.config.size, '9007199254740993B', 'large byte values compare without Number rounding')
+  pool.config.size = '2GiB'
+  const sameBefore = writes
+  await updateStoragePool(client, name, { config: { size: '2048MiB' } })
+  assert.equal(writes, sameBefore, 'equivalent units do not trigger the storage resize operation')
+  await updateStoragePool(client, name, { description: 'same size, new description', config: { size: '2147483648B' } })
+  assert.equal(pool.description, 'same size, new description'); assert.equal(pool.config.size, '2GiB')
+  assert.equal(Object.hasOwn(lastPayload.config, 'size'), false)
+  pool.driver = 'dir'; pool.config.size = ''
+  await updateStoragePool(client, name, { description: 'directory metadata remains editable' })
+  assert.equal(pool.description, 'directory metadata remains editable')
+  console.log('PASS resize preflight rejects shrinking, unknown current capacity and directory pools; exact bytes and equivalent units; description-only updates remain available')
   await client.agent?.destroy(); client.agent = client.createTransport()
   server.setSecureContext({ key: replacement.key, cert: replacement.cert, ca: original.cert })
   const beforeIdentity = [reads, writes]
