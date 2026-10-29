@@ -66,7 +66,23 @@ try {
   await reject(await last('edit'))
   await run(() => window.storageHarness.view().closeEditModal())
   await run(() => { const v = window.storageHarness.view(); v.openCreateModal(); v.form.name = 'fixture-new'; v.useLoop = true })
-  for (const [locale, width, dark, mobile] of [['zh-CN', 1440, false, false], ['en', 390, true, true]]) {
+  const layout = () => page.eval(async () => {
+    await document.fonts.ready
+    const dialog = [...document.querySelectorAll('[role="dialog"]')].at(-1)
+    // The modal has a finite scale animation even with reduced motion enabled.
+    await Promise.allSettled(dialog.getAnimations({ subtree: true })
+      .filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime)).map(animation => animation.finished))
+    return { footer: dialog.querySelector('.modal-footer').getBoundingClientRect().toJSON(),
+      error: dialog.querySelector('[role="alert"]').getBoundingClientRect().toJSON(),
+      body: dialog.querySelector('.modal-body').getBoundingClientRect().toJSON(), height: innerHeight }
+  })
+  const controlsVisible = ({ footer, error, body, height }) => {
+    // DOMRect top+height and the next top differ by ~0.00003px under scale().
+    const epsilon = 0.001
+    return footer.height > 0 && error.height > 0 && footer.top >= -epsilon && footer.bottom <= height + epsilon &&
+      error.top >= body.bottom - epsilon && error.bottom <= footer.top + epsilon
+  }
+  for (const [locale, width, dark, mobile] of [['zh-CN', 1440, false, false], ['zh-CN', 768, false, false], ['en', 390, true, true]]) {
     await page.setViewport({ width, height: 1000, mobile }); await run(({ locale, dark }) => { window.storageHarness.setLocale(locale); window.storageHarness.theme.setTheme(dark ? 'dark' : 'light') }, { locale, dark })
     const before = await count('create')
     await run(() => {
@@ -75,12 +91,17 @@ try {
     })
     assert.equal(await count('create'), before, 'native input preserves invalid notation for validation')
     assert.equal(await page.eval(() => document.documentElement.scrollWidth <= innerWidth), true)
-    assert.equal(await page.eval(() => {
-      const dialog = document.querySelector('[role="dialog"]'), footer = dialog.querySelector('.modal-footer').getBoundingClientRect(), error = dialog.querySelector('[role="alert"]').getBoundingClientRect()
-      const body = dialog.querySelector('.modal-body').getBoundingClientRect()
-      return footer.top >= 0 && footer.bottom <= innerHeight && error.top >= body.bottom && error.bottom <= footer.top
-    }), true, 'capacity error and submit controls stay visible')
+    const bounds = await layout()
     await page.screenshot({ path: resolve(output, `${locale}-${width}.png`), format: 'png' })
+    assert.equal(controlsVisible(bounds), true, 'capacity error and submit controls stay visible: ' + JSON.stringify(bounds))
+    // Reproduce an actual intermediate animation transform deterministically.
+    await page.eval(() => { [...document.querySelectorAll('[role="dialog"]')].at(-1).style.transform = 'scale(0.955)' })
+    const scaled = await layout()
+    assert.equal(controlsVisible(scaled), true, 'fractional pixel rounding is not an overlap: ' + JSON.stringify(scaled))
+    await page.eval(() => { [...document.querySelectorAll('[role="dialog"]')].at(-1).style.removeProperty('transform') })
+    await page.eval(() => { [...document.querySelectorAll('[role="dialog"]')].at(-1).querySelector('[role="alert"]').style.transform = 'translateY(-1px)' })
+    assert.equal(controlsVisible(await layout()), false, 'a real one-pixel overlap still fails the guard')
+    await page.eval(() => { [...document.querySelectorAll('[role="dialog"]')].at(-1).querySelector('[role="alert"]').style.removeProperty('transform') })
   }
   assert.equal(page.consoleErrors.length, 0, page.consoleErrors.join('\n'))
   console.log('PASS storage numeric syntax, units, zero versus omission and real browser input matrix')

@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：3b033ce已push。storage-inputs的CI可见性断言已补真实动画/字体等待、0.001px几何误差、实际scale与1px遮挡反向测试；final-r2/语法/route通过，产品未改，无待poll，准备单项push。继续R304 BillingView价格预览150ms窗口旧preview可提交，单/批提交无函数门禁；已读相关UI与类型，后台/guard需继续读并建实际组件Chrome夹具。R303远端授权/恢复、R269、Go proc偶发根因、完整灾备仍待；191/68/68。
+
 > **最新接续**：35dd8ba已push。HostStorageTab仅提交变化字段、固定打开基线、null默认不写、无变化零API、保重试/清空/扩容已修，Chrome before-r2先红→final及inputs回归通过，三宽截图已看，types/3守卫/lint/manifest194/141及双端build含vue-tsc/dist通过，准备单项push，无待poll。新查be0ba6c CI仅storage-inputs错误/按钮可见性失败，Go已过但旧/proc偶发根因未解；下一段查浏览器时序/实际布局再继续混合远端授权及持久恢复。191/68/68、327/R269/完整灾备未完成。
 
 > **最新接续**：060b8c0已push；用途-only PATCH本地事务/current host+pool+actor/session、缺池404、审计回滚已修；PG先红后8竞争final-r2、容量等原回归、最终build含tsc/3守卫/manifest194/141通过，准备push无待poll。下一段前端HostStorageTab总发description/purpose，需要打开时基线，仅传变化字段，空变化零API，原0/null/size/草稿/session行为保留。已读组件及写/容量Chrome夹具，design skill主体已读，app-screens需读；混合远端路径权限/恢复另续，327/R269/Go proc/灾备未完成。
