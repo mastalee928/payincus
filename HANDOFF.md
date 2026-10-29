@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-301 流量重置回执与辅助读取隔离
+
+- a021f9a已push核远端；9c3c320/d855f91源码CI已success，5f2085b/28a1565/a021f9a最后仍运行。reset固定实例/host/session/弹窗代次，按钮与函数门禁、在途禁重开；成功立即关闭确认，独立刷新traffic并复用读取序号，后续读取失败不再把已提交重置报失败。旧回执静默，当前失败持久显示；同页当前列表更新目标，在途旧列表由新查询失效，键盘与关闭保护补齐。
+- `takeover-host-reset-before.log`Chrome先红换host旧reset仍继续traffic读；`takeover-host-reset-final.log`通过固定目标/重复/关闭、success:false/失败重试、成功后traffic失败、旧traffic反序、列表已返回/仍在途、host/query/session/cache/logout/unmount。1440中文/390英文截图及键盘已核。受控API没有真实流量清零、客户扣款或带宽写入；后台R271当前授权与计费/基线保持。
+- client types、3守卫（route/i18n/traffic-reset-locks）、lint零错警、price及读取完整Chrome回归、manifest194/116、最终双端build exit0/dist通过；专项接Chrome CI。全套与原生带宽恢复不能据此视为完成。
+- R321三语resetTrafficWarning仍错误要求手动恢复带宽，已定位并读scheduler及带宽仲裁：重置后对在线运行实例自动核对账户/实例限额再恢复配置带宽，离线/停止或仍超账户额度不会即时恢复，下一项修文案。另host-notify-lifecycle四文件已先红弹窗1改勾2发送2，扩矩阵已写未跑，产品通知未改；完整inbox route/current recipient事务与guard已读。R301/327/R269/完整灾备未完成。
+
 ## 2026-10-29 R1-301 续费价格弹窗与新草稿保护
 
 - 28a1565已push核远端。价格弹窗固定当前付费实例，严格有限0–99999及变化值，按钮/函数共用门禁；提交固定host/instance/price和modal/session代次，旧回执静默，在途禁止重开。当前成功更新现有列表对象并保后来输入；同页已返回列表仍正确落价，在途旧列表通过重取当前列表失效。错误持久显示，金额输入窄屏可缩，月份复用三语，增加键盘焦点/关闭保护。

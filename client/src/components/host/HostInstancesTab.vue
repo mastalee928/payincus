@@ -305,6 +305,33 @@ const resettingTrafficId = ref<number | null>(null)
 // 重置流量确认弹窗
 const showResetTrafficModal = ref(false)
 const resetTrafficTarget = ref<Instance | null>(null)
+const resetTrafficError = ref('')
+let resetTrafficDialogGeneration = 0
+const resetTrafficDialog = ref<HTMLElement | null>(null)
+let resetTrafficReturnFocus: HTMLElement | null = null
+const canResetTraffic = computed(() => alive && pageActive.value && !!sessionKey.value && !loading.value && resettingTrafficId.value === null &&
+  showResetTrafficModal.value && resetTrafficTarget.value && instances.value.some(instance => instance.id === resetTrafficTarget.value?.id && instance.status !== 'deleted'))
+watch(showResetTrafficModal, async (open) => {
+  const generation = ++resetTrafficDialogGeneration
+  if (open) {
+    resetTrafficReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    await nextTick()
+    if (showResetTrafficModal.value && generation === resetTrafficDialogGeneration) resetTrafficDialog.value?.querySelector<HTMLButtonElement>('button')?.focus()
+  } else {
+    resetTrafficTarget.value = null
+    if (resetTrafficReturnFocus?.isConnected) resetTrafficReturnFocus.focus()
+  }
+}, { flush: 'sync' })
+function handleResetTrafficDialogKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); if (resettingTrafficId.value === null) showResetTrafficModal.value = false; return }
+  if (event.key !== 'Tab' || !resetTrafficDialog.value) return
+  const controls = [...resetTrafficDialog.value.querySelectorAll<HTMLElement>('button')]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const target = event.shiftKey ? controls.at(-1) : controls[0]
+  if (!controls.length || (event.shiftKey ? document.activeElement === controls[0] : document.activeElement === controls.at(-1))) {
+    event.preventDefault(); target?.focus()
+  }
+}
 
 // 修改续费价格
 const showPriceModal = ref(false)
@@ -963,26 +990,35 @@ async function updateRenewalPrice() {
 
 // 打开重置流量确认弹窗
 function openResetTrafficModal(instance: Instance) {
-  resetTrafficTarget.value = instance
+  if (!alive || !pageActive.value || !sessionKey.value || loading.value || resettingTrafficId.value !== null || showResetTrafficModal.value) return
+  const current = instances.value.find(item => item.id === instance.id && item.status !== 'deleted')
+  if (!current) return
+  resetTrafficTarget.value = current
+  resetTrafficError.value = ''
   showResetTrafficModal.value = true
 }
 
 // 确认重置实例流量
 async function confirmResetTraffic() {
-  if (!resetTrafficTarget.value || resettingTrafficId.value) return
-  
-  const instance = resetTrafficTarget.value
-  resettingTrafficId.value = instance.id
+  if (!canResetTraffic.value || !resetTrafficTarget.value) return
+  const instanceId = resetTrafficTarget.value.id, hostId = props.hostId, session = sessionKey.value, generation = resetTrafficDialogGeneration
+  const current = () => alive && pageActive.value && !!session && session === sessionKey.value && hostId === props.hostId &&
+    showResetTrafficModal.value && generation === resetTrafficDialogGeneration && resetTrafficTarget.value?.id === instanceId
+  resettingTrafficId.value = instanceId
+  resetTrafficError.value = ''
   try {
-    await api.traffic.resetInstanceTraffic(instance.id)
+    const result = await api.traffic.resetInstanceTraffic(instanceId)
+    if (!current()) return
+    if (result.success !== true) throw new Error(t('common.operationFailed'))
     toast.success(t('admin.hosts.trafficResetSuccess'))
-    // 重新加载流量数据
-    const trafficData = await api.traffic.getInstanceTraffic(instance.id)
-    instance.trafficData = trafficData
     showResetTrafficModal.value = false
-    resetTrafficTarget.value = null
+    // Reset is already committed. Optional display reads must not turn it into a retryable failure.
+    if (loading.value) void loadInstances()
+    else void loadInstancesTraffic()
   } catch (err: any) {
-    toast.error(t('admin.hosts.trafficResetFailed') + ': ' + (err?.message || String(err)))
+    if (!current()) return
+    resetTrafficError.value = t('admin.hosts.trafficResetFailed') + ': ' + translateError(err)
+    toast.error(resetTrafficError.value)
   } finally {
     resettingTrafficId.value = null
   }
@@ -1103,6 +1139,10 @@ async function loadInstances() {
     totalPages.value = Math.max(1, res.totalPages)
     displayedQuery = query
     selectedIds.value = new Set([...selection].filter(id => res.instances.some(instance => instance.id === id)))
+    if (showResetTrafficModal.value) {
+      resetTrafficTarget.value = res.instances.find(instance => instance.id === resetTrafficTarget.value?.id && instance.status !== 'deleted') ?? null
+      if (!resetTrafficTarget.value) showResetTrafficModal.value = false
+    }
     if (showPriceModal.value) {
       priceModalTarget.value = res.instances.find(instance => instance.id === priceModalTarget.value?.id && instance.packagePlanId && instance.status !== 'deleted') ?? null
       if (!priceModalTarget.value) showPriceModal.value = false
@@ -1191,6 +1231,7 @@ function handlePageSizeChange() {
 }
 
 function closeReadContextModals() {
+  resetTrafficError.value = ''
   priceError.value = ''
   giftError.value = ''
   giftFailures.value = []
@@ -2341,11 +2382,11 @@ function goToInstance(id: number) {
       <Teleport to="body">
         <Transition name="modal">
           <div v-if="showResetTrafficModal" class="modal-overlay">
-            <div class="modal-backdrop" @click="showResetTrafficModal = false"></div>
-            <div class="modal-content max-w-md">
+            <div class="modal-backdrop" @click="resettingTrafficId === null && (showResetTrafficModal = false)"></div>
+            <div ref="resetTrafficDialog" class="modal-content max-w-md" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.resetTrafficTitle')" @keydown="handleResetTrafficDialogKey">
               <div class="modal-header">
                 <h3 class="modal-title">{{ t('admin.hosts.resetTrafficTitle') }}</h3>
-                <button class="text-themed-muted hover:text-themed" @click="showResetTrafficModal = false">
+                <button class="text-themed-muted hover:text-themed" :disabled="resettingTrafficId !== null" :aria-label="t('common.close')" @click="showResetTrafficModal = false">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -2360,6 +2401,7 @@ function goToInstance(id: number) {
                 <p class="text-sm text-themed-secondary">
                   {{ t('admin.hosts.resetTrafficDesc', { instance: resetTrafficTarget?.name }) }}
                 </p>
+                <p v-if="resetTrafficError" role="alert" class="text-sm text-red-500 break-words">{{ resetTrafficError }}</p>
               </div>
               <div class="modal-footer">
                 <button class="btn-secondary" :disabled="resettingTrafficId !== null" @click="showResetTrafficModal = false">
@@ -2367,7 +2409,7 @@ function goToInstance(id: number) {
                 </button>
                 <button
                   class="btn-primary"
-                  :disabled="resettingTrafficId !== null"
+                  :disabled="!canResetTraffic"
                   @click="confirmResetTraffic"
                 >
                   <svg v-if="resettingTrafficId !== null" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">

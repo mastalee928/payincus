@@ -52,6 +52,7 @@
     "test:review-host-batch-actions": "node ../scripts/test-host-batch-actions.mjs",
     "test:review-host-gift-lifecycle": "node ../scripts/test-host-gift-lifecycle.mjs",
     "test:review-host-price-lifecycle": "node ../scripts/test-host-price-lifecycle.mjs",
+    "test:review-host-reset-lifecycle": "node ../scripts/test-host-reset-lifecycle.mjs",
     "test:sample-seed-safety": "node ../scripts/test-seed-safety.mjs",
     "test:host-install-inputs": "node ../scripts/test-host-install-inputs.mjs",
     "type-check:sample-seed": "tsc --project tsconfig.scripts-seed.json",
