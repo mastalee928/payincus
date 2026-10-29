@@ -1799,6 +1799,7 @@ pool: {
         },
         // 實例銷毀
         destroy: {
+            instanceNumber: '實例編號：{id}',
             emailCodeLabel: '帳戶郵箱驗證碼',
             emailCodeHint: '銷毀前必須驗證帳戶郵箱 {email}。驗證碼僅用於本次選中的實例。',
             emailMissing: '請先在個人設定綁定帳戶郵箱，再銷毀實例。',

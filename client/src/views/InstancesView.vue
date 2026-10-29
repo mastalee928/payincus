@@ -2860,7 +2860,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                     </thead>
                     <tbody class="divide-y divide-themed text-themed">
                       <tr v-for="item in batchDestroyEligibleItems" :key="item.id">
-                        <td class="py-3 pr-3 align-top break-words">{{ item.name }}<span class="block text-xs text-themed-muted">#{{ item.id }}</span></td>
+                        <td class="py-3 pr-3 align-top break-words">{{ item.name }}<span class="block text-xs text-themed-muted">{{ $t('instance.destroy.instanceNumber', { id: item.id }) }}</span></td>
                         <td class="py-3 align-top break-words">{{ destroyTargetRegions[item.id] || '—' }}</td>
                       </tr>
                     </tbody>

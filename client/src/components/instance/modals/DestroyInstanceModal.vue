@@ -176,7 +176,7 @@ function handleDestroy() {
               </p>
               <table class="w-full table-fixed text-sm text-left">
                 <thead class="text-themed-muted"><tr><th class="w-1/2 pb-2 font-medium">{{ t('instance.destroy.instanceName') }}</th><th class="w-1/2 pb-2 font-medium">{{ t('instance.card.region') }}</th></tr></thead>
-                <tbody class="text-themed"><tr><td class="align-top break-words pr-3">{{ destroyInfo.instance.name }}<span class="block text-xs text-themed-muted">#{{ destroyInfo.instance.id }}</span></td><td class="align-top break-words">{{ regionLabel || '—' }}</td></tr></tbody>
+                <tbody class="text-themed"><tr><td class="align-top break-words pr-3">{{ destroyInfo.instance.name }}<span class="block text-xs text-themed-muted">{{ t('instance.destroy.instanceNumber', { id: destroyInfo.instance.id }) }}</span></td><td class="align-top break-words">{{ regionLabel || '—' }}</td></tr></tbody>
               </table>
             </div>
 

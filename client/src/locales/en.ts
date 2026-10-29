@@ -1681,6 +1681,7 @@ pool: {
         },
         // Instance destroy
         destroy: {
+            instanceNumber: 'Instance ID: {id}',
             emailCodeLabel: 'Account email verification code',
             emailCodeHint: 'Verify your account email {email} before destroying. This code applies only to the selected instances.',
             emailMissing: 'Add an account email in Settings before destroying instances.',

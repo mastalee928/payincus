@@ -1735,6 +1735,7 @@ pool: {
         },
         // 实例销毁
         destroy: {
+            instanceNumber: '实例编号：{id}',
             emailCodeLabel: '账户邮箱验证码',
             emailCodeHint: '销毁前必须验证账户邮箱 {email}。验证码仅用于本次选中的实例。',
             emailMissing: '请先在个人设置绑定账户邮箱，再销毁实例。',

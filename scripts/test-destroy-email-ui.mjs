@@ -79,7 +79,7 @@ try {
   assert.equal(await page.eval(() => document.querySelector('[role="dialog"]').contains(document.activeElement)), true)
   await run(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
   assert.equal(await page.eval(() => document.activeElement.id), 'opener', 'Escape closes and restores opener focus')
-  for (const name of ['客户的很长实例名称'.repeat(10), 'LongInstanceNameWithoutSpaces'.repeat(8)]) {
+  for (const name of ['客户的很长实例名称'.repeat(10), 'LongInstanceNameWithoutSpaces'.repeat(8), '1234567890'.repeat(10)]) {
     await fresh(); await page.setViewport({ width: 390, height: 900, mobile: true })
     await run(name => { const h = window.destroyHarness; h.state.info = { ...h.state.info, instance: { ...h.state.info.instance, name } } }, name)
     assert.ok(await page.eval(name => document.querySelector('[role="dialog"] tbody td').textContent.includes(name), name), 'long name is fully retained')
@@ -87,11 +87,13 @@ try {
       const dialog = document.querySelector('[role="dialog"]'), table = dialog.querySelector('table')
       return dialog.scrollWidth <= dialog.clientWidth && table.scrollWidth <= table.clientWidth && document.documentElement.scrollWidth <= innerWidth
     }), true, 'long Chinese and unbroken English names wrap without widening the mobile dialog')
-    await page.screenshot({ path: resolve(output, name.startsWith('客户') ? 'long-name-chinese.png' : 'long-name-english.png'), format: 'png' })
+    await page.screenshot({ path: resolve(output, name.startsWith('客户') ? 'long-name-chinese.png' : /^\d/.test(name) ? 'long-name-numeric.png' : 'long-name-english.png'), format: 'png' })
   }
   for (const [locale, width, dark] of [['zh-CN', 1440, false], ['zh-TW', 768, true], ['en', 390, false]]) {
     await fresh(); await page.setViewport({ width, height: 900, mobile: width === 390 })
     await run(({ locale, dark }) => { window.destroyHarness.setLocale(locale); window.destroyHarness.theme.setTheme(dark ? 'dark' : 'light') }, { locale, dark })
+    const numberLabel = await page.eval(() => document.querySelector('[role="dialog"] tbody td span').textContent.trim())
+    assert.equal(numberLabel, { 'zh-CN': '实例编号：1', 'zh-TW': '實例編號：1', en: 'Instance ID: 1' }[locale], 'identify the instance record explicitly in each language')
     await invokeSend(); await settle(null, true)
     assert.equal(await page.eval(() => document.documentElement.scrollWidth <= innerWidth), true)
     await page.screenshot({ path: resolve(output, `${locale}-${width}.png`), format: 'png' })

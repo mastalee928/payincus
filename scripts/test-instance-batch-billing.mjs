@@ -146,7 +146,15 @@ try {
     for (const [locale, width, dark, mobile] of [['zh-CN', 1440, false, false], ['en', 390, true, true]]) {
       await page.setViewport({ width, height: 1000, mobile })
       await run(({ locale, dark }) => { window.batchHarness.setLocale(locale); window.batchHarness.theme.setTheme(dark ? 'dark' : 'light') }, { locale, dark })
-      request = await open([1, 2]); await ready(request, [item(1), blocked]); await phrase()
+      request = await open([1, 2]); await ready(request, [{ ...item(1), ...(kind === 'destroy' ? { name: '1234567890'.repeat(10) } : {}) }, blocked]); await phrase()
+      if (kind === 'destroy') {
+        assert.equal(await page.eval(() => {
+          const dialog = document.querySelector('[role="dialog"]'), table = dialog.querySelector('table')
+          return dialog.scrollWidth <= dialog.clientWidth && table.scrollWidth <= table.clientWidth &&
+            table.textContent.includes('1234567890'.repeat(10))
+        }), true, 'batch destruction retains a long unbroken name without hiding the region or widening the dialog')
+        assert.ok(await page.eval(locale => document.querySelector('[role="dialog"] table').textContent.includes(locale === 'zh-CN' ? '实例编号：1' : 'Instance ID: 1'), locale))
+      }
       assert.equal(await page.eval(() => document.documentElement.scrollWidth <= innerWidth), true)
       await page.screenshot({ path: resolve(output, `${kind}-${locale}-${width}.png`), format: 'png' }); await close()
     }

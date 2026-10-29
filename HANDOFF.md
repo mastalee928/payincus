@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 销毁表格实例编号释义与长名称复验
+
+- Owner追问名称下#1是否内部机器编号；实际destroy-info返回instance.id，与宿主host_id及Incus名称不同。单台与批量改为三语明确「实例编号：{id}」，保持原名称完整break-words换行/定宽区域列。机器池创建前缀API限制60字符，后续rename显示名称限制100；本次未改名称规则或销毁/验证接口。
+- destroy-email-ui最终三语编号断言、中文/无空格英文/100位连续数字完整保留且弹窗/表格零横溢、原邮箱门禁/8旧发送回执/四旧销毁回执/重试/键盘通过exit0。batch-billing实际Chrome原续费/销毁生命周期与中文桌面/英文390长数字名称和明确编号全部exit0，未操作真实账户或实例。
+- 对应route/i18n及额外public-callback三个守卫、26762条三语message compile、五个前端文件lint、两脚本语法/diff/manifest有效通过；双端build含vue-tsc最终exit0（99958已poll）及最后dist守卫exit0，无待poll。taste沿原黑白组件方向，浅/深三宽0 FAIL/0 WARN，全部截图及本地critique已看/留存；批量原统计布局等不属本次整体UI验收。
+- R077已提交并推送2794bb58，远端main一致。此编号补充不重复计入原327清单，仍214有修复/复验（含部分）/68已有不同/45待；原R075/076、真实外部邮件/客户流程与完整网关灾备继续。
+
 ## 2026-10-29 R1-077 SSH 公钥创建日期字段
 
 - 当前GET list/detail已明确返回createdAt，SSHKeysSection却读created_at；ssh-key-dates-before实际Vue/Chrome两条合法服务端日期都缺失先红。产品只改该span为createdAt || '—'，保持原ISO显示格式及sm以下隐藏日期的既有布局，不改真实密钥/list/生成/添加/删除和权限。
