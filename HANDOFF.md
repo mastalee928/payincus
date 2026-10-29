@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-313 邮箱验证码与实际成功回执
+
+- 67815d7b已push。非数字六字符当前验证码原仍发送，receipts-before实际Chrome先红；现在当前/新邮箱两函数与按钮要求六位数字，输入提供numeric/one-time-code提示。当前发送核真实success/email/目标/有效expiresIn（首次成功不保证message），验证核success/verified/message，新邮箱发送核message/未来expiresAt，更新核message/reauthRequired=false；按实际users响应契约固定提交邮箱，不要求不存在的user/email字段。无效回执持久错误、保步骤/草稿且不假报成功，合法重试通过。
+- 当前重发等待不超过原120秒或实际剩余有效期，新邮箱不超过60秒或剩余有效期；VERIFICATION_REQUIRED重新进入当前验证并清两组验证码/目标/发送标记/timer，保新邮箱地址；未绑定邮箱的异常明确显示错误。receipts-final-r2实际Chrome16输入/23回执反例、四合法重试、短期重发、两种过期清理/重新验证及绑定异常通过exit0；scope-regression原80旧回执全回归exit0。3守卫、lint零错警、receipts-build双端build含vue-tsc exit0/dist、manifest194常规158专项通过，三宽三语浅深截图已看，专项登记CI。
+- 只读核ce044cd6/95ea1508/41ada0d8 CI已success，a0c33846/54901d15/a83d28dd/67815d7b最后仍运行，不冒称全绿。R313仍部分，195/68/64含部分，实际邮件和客户完整变更未验，R013等及完整327/灾备仍未完。下一R311帮助编辑器已建实际Chrome先红A晚回把B表单变为Article1，产品尚未改。
+
 ## 2026-10-29 R1-313 邮箱变更固定目标与会话隔离
 
 - a83d28dd已push。旧邮箱发送晚回标记新邮箱已发送的Chrome先红已复现；四操作现在固定用户、邮箱、验证码及session/draft代次，账号/角色/sid/邮箱/步骤/草稿/弹窗/卸载变化撤销旧成功和错误。正常同sid刷新保留；同步清草稿及计时器，旧请求busy保留至finally结束。四函数首个await前共享busy和步骤门禁，发送受倒计时保护，输入/关闭/取消/确认在途禁用，保存与updated使用提交时邮箱。

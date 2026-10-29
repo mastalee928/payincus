@@ -46,6 +46,8 @@ let newCountdownTimer: ReturnType<typeof setInterval> | null = null
 
 const hasCurrentEmail = computed(() => !!authStore.user?.email)
 const normalizedNewEmail = computed(() => newEmail.value.trim().toLowerCase())
+const validCurrentCode = computed(() => /^\d{6}$/.test(currentEmailCode.value))
+const validNewCode = computed(() => /^\d{6}$/.test(newEmailCode.value))
 const modalTitle = computed(() => (
   hasCurrentEmail.value
     ? t('profile.account.emailDialog.titleChange')
@@ -163,29 +165,35 @@ function handleVerificationExpired(error: unknown): boolean {
     return false
   }
 
-  if (hasCurrentEmail.value) {
-    step.value = 'verifyCurrent'
-    currentStepError.value = t('profile.account.emailDialog.currentVerificationExpired')
-    currentCodeSent.value = false
-    currentEmailCode.value = ''
-    clearCurrentCountdown()
-  }
+  if (!hasCurrentEmail.value) return false
+
+  step.value = 'verifyCurrent'
+  currentStepError.value = t('profile.account.emailDialog.currentVerificationExpired')
+  currentTarget.value = ''
+  currentCodeSent.value = false
+  currentEmailCode.value = ''
+  clearCurrentCountdown()
+  newCodeSent.value = false
+  newEmailCode.value = ''
+  newStepError.value = ''
+  clearNewCountdown()
 
   return true
 }
 
 async function sendCurrentCode(): Promise<void> {
   if (!available.value || busy.value || step.value !== 'verifyCurrent' || currentCountdown.value > 0) return
-  const current = requestContext(), originalEmail = maskedCurrentEmail.value
+  const current = requestContext()
   currentStepError.value = ''
   sendingCurrentCode.value = true
 
   try {
     const response = await api.verification.request('change_email')
     if (!current()) return
-    currentTarget.value = response.maskedTarget || response.target || originalEmail
+    if (response?.success !== true || response.required === false || response.channel !== 'email' || typeof response.maskedTarget !== 'string' || !response.maskedTarget.trim() || !Number.isSafeInteger(response.expiresIn) || response.expiresIn! <= 0 || response.expiresIn! > 600) throw new Error(t('profile.account.emailDialog.responseInvalid'))
+    currentTarget.value = response.maskedTarget
     currentCodeSent.value = true
-    startCurrentCountdown(120)
+    startCurrentCountdown(Math.min(120, response.expiresIn!))
     toast.success(t('profile.account.emailDialog.currentCodeSent'))
   } catch (error) {
     if (current()) currentStepError.value = translateError(error)
@@ -196,7 +204,7 @@ async function sendCurrentCode(): Promise<void> {
 
 async function verifyCurrentCode(): Promise<void> {
   if (!available.value || busy.value || step.value !== 'verifyCurrent') return
-  if (currentEmailCode.value.length !== 6) {
+  if (!validCurrentCode.value) {
     currentStepError.value = t('profile.account.emailDialog.currentCodeRequired')
     return
   }
@@ -206,8 +214,9 @@ async function verifyCurrentCode(): Promise<void> {
   verifyingCurrentCode.value = true
 
   try {
-    await api.verification.verify('change_email', code)
+    const response = await api.verification.verify('change_email', code)
     if (!current()) return
+    if (response?.success !== true || response.verified !== true || typeof response.message !== 'string' || !response.message.trim()) throw new Error(t('profile.account.emailDialog.responseInvalid'))
     step.value = 'verifyNew'
     currentStepError.value = ''
     toast.success(t('profile.account.emailDialog.currentVerifiedSuccess'))
@@ -231,10 +240,12 @@ async function sendNewEmailCode(): Promise<void> {
   sendingNewCode.value = true
 
   try {
-    await api.users.sendChangeEmailCode(userId, email)
+    const response = await api.users.sendChangeEmailCode(userId, email)
     if (!current()) return
+    const expiresAt = typeof response?.expiresAt === 'string' ? Date.parse(response.expiresAt) : NaN
+    if (typeof response?.message !== 'string' || !response.message.trim() || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error(t('profile.account.emailDialog.responseInvalid'))
     newCodeSent.value = true
-    startNewCountdown(60)
+    startNewCountdown(Math.min(60, Math.ceil((expiresAt - Date.now()) / 1000)))
     toast.success(t('profile.account.emailDialog.newCodeSent'))
   } catch (error) {
     if (!current()) return
@@ -253,9 +264,9 @@ async function submitEmailChange(): Promise<void> {
     newStepError.value = validationError
     return
   }
-  const current = requestContext(), userId = authStore.user!.id, email = normalizedNewEmail.value, code = newEmailCode.value.trim()
+  const current = requestContext(), userId = authStore.user!.id, email = normalizedNewEmail.value, code = newEmailCode.value
 
-  if (!newEmailCode.value.trim()) {
+  if (!validNewCode.value) {
     newStepError.value = t('profile.account.emailDialog.newCodeRequired')
     return
   }
@@ -264,11 +275,12 @@ async function submitEmailChange(): Promise<void> {
   submitting.value = true
 
   try {
-    await api.users.update(userId, {
+    const response = await api.users.update(userId, {
       email,
       emailCode: code
     })
     if (!current()) return
+    if (typeof response?.message !== 'string' || !response.message.trim() || response.reauthRequired !== false) throw new Error(t('profile.account.emailDialog.responseInvalid'))
 
     if (authStore.user) {
       authStore.user.email = email
@@ -384,6 +396,8 @@ onUnmounted(() => {
                   <input
                     v-model="currentEmailCode"
                     type="text"
+                    inputmode="numeric"
+                    autocomplete="one-time-code"
                     maxlength="6"
                     class="input w-full"
                     :placeholder="t('profile.account.emailDialog.currentCodePlaceholder')"
@@ -445,6 +459,8 @@ onUnmounted(() => {
                   <input
                     v-model="newEmailCode"
                     type="text"
+                    inputmode="numeric"
+                    autocomplete="one-time-code"
                     maxlength="6"
                     class="input w-full"
                     :placeholder="t('profile.account.emailDialog.newCodePlaceholder')"
@@ -473,7 +489,7 @@ onUnmounted(() => {
             <button
               v-if="step === 'verifyCurrent'"
               class="btn-primary"
-              :disabled="busy || currentEmailCode.length !== 6"
+              :disabled="busy || !validCurrentCode"
               @click="verifyCurrentCode"
             >
               {{ verifyingCurrentCode ? t('profile.account.emailDialog.verifying') : t('profile.account.emailDialog.verifyCurrentAction') }}
@@ -481,7 +497,7 @@ onUnmounted(() => {
             <button
               v-else
               class="btn-primary"
-              :disabled="busy || !normalizedNewEmail || newEmailCode.length !== 6"
+              :disabled="busy || !normalizedNewEmail || !validNewCode"
               @click="submitEmailChange"
             >
               {{ submitting ? t('profile.account.emailDialog.submitting') : t('profile.account.emailDialog.confirmAction') }}

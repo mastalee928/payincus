@@ -2346,6 +2346,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
     // 验证码校验
     verify: (operationType: string, code: string, resourceId?: number): Promise<{
       message: string
+      success: boolean
       verified: boolean
     }> => http.post('/verification/verify', { operationType, code, resourceId }),
 

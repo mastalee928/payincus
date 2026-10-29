@@ -34,7 +34,7 @@ try {
   const count = kind => page.eval(kind=>window.emailHarness.pending.filter(x=>x.kind===kind).length,kind)
   const methods={'current-send':'sendCurrentCode','current-verify':'verifyCurrentCode','new-send':'sendNewEmailCode',update:'submitEmailChange'}
   const prepare = action => run(action=>{const h=window.emailHarness,v=h.view();h.auth.user={id:1,username:'fixture',role:'user',email:'original@example.test'};h.session('a');h.state.show=false;h.state.show=true;v.step=action.startsWith('current')?'verifyCurrent':'verifyNew';v.currentEmailCode='123456';v.newEmail='first@example.test';v.newEmailCode='123456'},action)
-  const response = action => action==='current-send'?{maskedTarget:'or***@example.test',message:'fixture sent'}:action==='current-verify'?{verified:true,message:'fixture verified'}:{message:'fixture success',expiresAt:'2099-01-01T00:00:00Z'}
+  const response = action => action==='current-send'?{success:true,required:true,channel:'email',maskedTarget:'or***@example.test',expiresIn:600}:action==='current-verify'?{success:true,verified:true,message:'fixture verified'}:action==='update'?{message:'User info updated',reauthRequired:false}:{message:'fixture success',expiresAt:new Date(Date.now()+600000).toISOString()}
   for(const[action,method]of Object.entries(methods)){
     await prepare(action);await run(method=>{void window.emailHarness.view()[method]()},method);const old=await last(action),before=await page.eval(()=>window.emailHarness.pending.length)
     await run(()=>{const v=window.emailHarness.view();void v.sendCurrentCode();void v.verifyCurrentCode();void v.sendNewEmailCode();void v.submitEmailChange();v.closeModal()})

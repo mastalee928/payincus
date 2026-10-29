@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R313输入回执阶段：两类六位数字输入和按钮、四操作真实API成功回执/有效期、无效回执保草稿与重试、过期敏感验证清两code/target/sent/timer已修。Chrome16输入23回执反例/合法重试与过期绑定、scope80旧回执回归/3守卫/lint/最终双端types build/dist见HANDOFF。实际邮件和客户完整变更仍待；195/68/64含部分不新增编号。
+
 2026-10-29 R313目标会话阶段：四操作固定用户/邮箱/code、session/draft/ABA旧回执隔离及同步草稿/timer/卸载清理、即时共享busy/步骤/倒计时/字段与关闭门禁已修。真实Chrome80旧回执和busy/retry/正常目标/same sid通过；3守卫/lint/最终双端types build/dist/manifest及三宽截图见HANDOFF。严格输入/回执与完整真实邮件流程仍待。按唯一编号195有修复复验（含部分）/68已有防护实现不同/64待精修；195内部未完范围仍继续。
 
 2026-10-29 R307输入回执阶段：TOTP严格数字，setup密钥/QR/恢复码、三写回执与error重试已修，重生成成功清验证输入。实际Chrome反例/合法及busy/session回归、3守卫/lint/双端types build/dist见HANDOFF。R013接线和真实认证流程未完，194/68/65含部分。
@@ -388,13 +390,13 @@
 | R1-304 | 存在，部分已修 | 单/批预览与写回执Chrome、审计和当前管理员PG通过 | 150ms旧预览同步失效、session/ABA/缓存、当前版本/余额与合法0及提交门禁；busy/关闭/草稿、失败后显式新预览、旧写回执/辅助读取隔离已修。后台审计原子回滚与正常结算、事务内当前管理员status/role/sid撤销及不变请求、实例资格行锁PG竞争通过。余额锁顺序/归属及支付记录并发、通知持久化及完整计费流程仍待，见HANDOFF。 |
 | R1-305 | 存在，部分已修 | 余额/登录/托管读取与三调整Chrome、三后台PG通过 | 读取当前session/目标/页与error/retry；三调整严格输入/busy/字段关闭/固定目标草稿回执与辅助刷新已修，欠款和负金额有效。三后台当前权限及账目审计原子事务，托管回执读取故障回滚/精确分币/超精度拒绝与积分溢出并发不足通过。冻结历史、断网幂等、邮件持久性及完整真实流程仍待，见HANDOFF。 |
 | R1-306 | 已有防护 | 保留初审结论 | requiresIpv6ParentInterface仅当前或旧subnet有值时要求接口，IPv6全部留空可保存；清空已有值仍见R1-111。 |
-| R1-307 | 部分存在，部分已修 | 2FA busy/字段/取消Chrome及构建守卫通过 | 四类写函数即时busy/交叉互斥、取消与模式门禁、保存中字段按钮保护已修，真实Chrome矩阵及双端types build通过。2FA初读/session/缓存旧回执和timer、ChangeEmail邮箱await绑定仍待；后者已有busy与卸载清理，细见R313。 |
+| R1-307 | 部分存在，部分已修 | 2FA与邮箱状态/回执实际Chrome及构建守卫通过 | 2FA busy/取消/初读ready/session/cache/unmount/draft/秘密timer、TOTP/设置材料与真实回执已修；邮箱busy和目标/session/输入回执见R313。真实认证全流程及R013敏感验证接线仍待，不把局部矩阵当作完整验收。 |
 | R1-308 | 部分存在 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
 | R1-309 | 存在 | 待精修/运行复核 | catch用当时当前draft存pending，验证重试可用新草稿；旧成功timer清新会话。 |
 | R1-310 | 存在 | 待精修/运行复核 | 保存一个设置组后loadAll重置全组，其他组及等待期间新草稿丢失。 |
 | R1-311 | 存在 | 待精修/运行复核 | openEdit先改id后await回写内容，无seq，A响应可写进B编辑目标。 |
 | R1-312 | 部分存在 | 待精修/运行复核 | 当前PackageSelector只展示props.packages，无对方嵌入packageId加载；priority 0用／／20确被默认覆盖。 |
-| R1-313 | 部分存在，部分已修 | 固定目标/session及busy实际Chrome与构建守卫通过 | 四操作邮箱/用户/code及session/draft/ABA回执隔离、同步清timer/草稿与卸载失效、共享busy/字段关闭/步骤倒计时保护已修。80旧回执矩阵及正常/retry/same sid通过；严格输入/回执和实际邮件全流程另续。 |
+| R1-313 | 部分存在，部分已修 | 目标/session及输入回执实际Chrome与构建守卫通过 | 四操作固定目标/session/draft/ABA、busy/关闭/卸载/timer已修；两数字输入、四真实成功回执/有效期与过期敏感验证清理已修。80旧回执及输入回执反例/重试通过；实际邮件和客户完整变更另续。 |
 | R1-314 | 存在 | 待精修/运行复核 | multiDraw拒isSpinning，但spin不拒isMultiDrawing；结果setTimeout未随卸载清理，可与十连交错或离页后弹窗。 |
 | R1-315 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
 | R1-316 | 存在 | 待精修/运行复核 | bindings搜索/editor读取缺请求和当前目标代次，反序结果可显示旧对象。 |
