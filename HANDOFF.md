@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-067 失败恢复保留新排程复验
+
+- 旧updateSnapshotPolicyLastRun只有定义，没有当前scheduler或其它源码消费者。当前auto-snapshot-operations失败只写attemptId约束的操作error/nextRetryAt及审计，不写snapshotPolicy，成功finalize才在实例/策略锁内读取当前间隔更新。本阶段按实际路径补验证，不机械改无调用旧函数。
+- 原真实PG/mTLS集成追加new_schedule_failure/disabled_schedule_failure：旧排队操作已发生远端create，随后改成1440分钟未来新排程或关闭且nextRunAt=null，远端报告仍在处理导致当前attempt失败。完整policy（enabled/interval/last/next时间）保持逐字段相同，零追加远端写；之后原身份恢复仅重试同一操作。takeover-snapshot-failure-schedule-final完整28条PASS且exit0，覆盖原杀进程/禁用/过期/失败/锁与新增两反例。
+- 两对应auto-policy/snapshot守卫与独立集成TS类型检查exit0，diff通过；只改已登记专项测试，无产品变更，沿用2153阶段server类型/build及前端已过构建，不重复编译或新加manifest项。Incus为认证TLS边界替身，原生磁盘/真实宿主及成功恢复时禁用策略排程的语义另验；不宣称完整调度验收。
+- 唯一208有修复/复验记录（含部分）/68已有防护或实现不同/51待精修，原R067失败覆盖新排程指定症状已复验。2153e7c1已push核远端，a08895d1 CI全部success，其后仍in_progress。按Owner阶段提交推送继续R063/R064当前认证与实例事务锁运行证据；完整327/灾备未完成。
+
 ## 2026-10-29 R1-065 快照策略更新重新排程
 
 - 实际PUT路由upsert的update分支只写enabled/intervalMinutes，保留旧nextRunAt；snapshot-policy-schedule-before真实Fastify/PG从10改1440先红。现仅在原withSnapshotMutation实例/账户事务锁内读取当前策略：启用且间隔未变、已有排程时保留；改间隔/重新启用/缺排程从当前成功更新时间加新间隔；关闭清空nextRunAt，lastRunAt不变。创建与更新同规则，不改快照远端/退款/库存/全端口或调度器。

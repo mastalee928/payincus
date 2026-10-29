@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R067补失败排程证据：旧finalizer无消费者、现failure只写操作回执；auto集成追加新1440未来排程/关闭null后旧操作失败，policy全字段不变、零额外远端写及原同操作恢复，真实PG/mTLS完整28条PASS最终exit0；两守卫/test types过，同产品原types/build保持。208有修复复验含部分/68已有不同/51待，原生磁盘/成功恢复语义/完整327与灾备未完。
+
 2026-10-29 R065快照排程：真实路由间隔变化保留旧nextRunAt先红，原事务实例/账户锁内改间隔重排、原样保留、关闭null、重新启用重排；Fastify/PG final2与原auto快照26条PG/mTLS回归、3守卫/server类型/独立测试类型/build及manifest194常规177专项全部exit0。207有修复复验含部分/68已有不同/52待，Incus替身不等于Linux客户磁盘验收，完整327/灾备继续。
 
 2026-10-29 R061快照布尔策略：当前c277ba30产品已Boolean读取；补真实Chrome true/false×四间隔、实际编辑/checkbox/原样保存精确payload及三宽三语截图，snapshot-policy-ui-final与3守卫/语法/manifest194常规176专项通过，同产品原build/types/dist保持。原生快照/整体UI及其它会话生命周期另验；206有修复复验含部分/68已有不同/53待，完整327/灾备继续。
@@ -184,7 +186,7 @@
 | R1-064 | 存在 | 待精修/运行复核 | 删除/恢复/策略先校验快照与实例后异步远端操作，删除未与恢复统一锁；转移后仍可能作用旧目标。 |
 | R1-065 | 存在 | 已修；真实Fastify/PG通过 | 原实例锁内按当前策略重新排程：改间隔/重启/缺值重排，原样保留，关闭null，lastRunAt不变；schedule-before先红→final2间隔/账户门禁/实例字段保持与原auto-regression26条PG/mTLS回归全部exit0，3守卫/server types/build通过。真实Linux Incus另验。 |
 | R1-066 | 已有防护 | 保留初审结论 | parsePositiveId严格正整数及safe integer；不接受小数ID。 |
-| R1-067 | 存在 | 待精修/运行复核 | scheduler失败后updateSnapshotPolicyLastRun重新读interval却不核对enabled/原schedule再写，旧失败可覆盖新排程。 |
+| R1-067 | 原症状已修 | 当前失败分支真实PG/mTLS复验通过 | 旧updateSnapshotPolicyLastRun无消费者；failure仅attempt约束操作回执。new_schedule_failure/disabled_schedule_failure完整policy保持/零远端写并原同操作恢复，takeover-snapshot-failure-schedule-final完整28条PASS exit0，两守卫/独立types过；成功恢复排程语义与原生磁盘另验。 |
 | R1-068 | 部分存在 | 待精修/运行复核 | 锁后重读policy/instance/host eligibility，旧排队资格已有保护；执行后异步通知仍沿用该次快照的名称/归属。 |
 | R1-069 | 实现不同 | 保留初审结论 | backupRoutes/storageConfig和restoreTaskWorker/backupUploadWorker实际注册启动；本库客机备份后端未退役。 |
 | R1-070 | 实现不同 | 保留初审结论 | storage配置与provider栈仍有后端消费者，不能因前端孤立按对方方案删掉。 |

@@ -148,7 +148,7 @@ try {
   const actor = { id: owner.id, sid: randomUUID(), iat: Math.floor(Date.now() / 1000) + 10 }
   for (const kind of ['create_commit', 'delete_commit', 'finalize_commit', 'remote_refused_keeps_old',
     'unconfirmed_create', 'unconfirmed_delete', 'uuid_changed', 'host_changed', 'session_revoked',
-    'concurrent', 'disabled_recovery', 'expired_recovery', 'fresh_applying', 'stale_applying', 'process_killed', 'bounded_retries', 'remote_still_running', 'recovery_hold'] as const) {
+    'concurrent', 'disabled_recovery', 'expired_recovery', 'fresh_applying', 'stale_applying', 'process_killed', 'bounded_retries', 'remote_still_running', 'recovery_hold', 'new_schedule_failure', 'disabled_schedule_failure'] as const) {
     const name = tag + '-' + kind
     const instance = await prisma.instance.create({ data: { userId: owner.id, hostId: host.id, name, incusId: name,
       image: 'fixture/debian', status: 'running', cpu: 100, memory: 512, disk: 1024, snapshotLimit: 1,
@@ -186,12 +186,19 @@ try {
     try {
       rejectCreate = kind === 'remote_refused_keeps_old' || kind === 'bounded_retries'
       hideCreate = kind === 'unconfirmed_create'; keepDeleted = kind === 'unconfirmed_delete'
-      if (['uuid_changed', 'host_changed', 'session_revoked', 'disabled_recovery', 'expired_recovery', 'remote_still_running'].includes(kind)) {
+      if (['uuid_changed', 'host_changed', 'session_revoked', 'disabled_recovery', 'expired_recovery', 'remote_still_running', 'new_schedule_failure', 'disabled_schedule_failure'].includes(kind)) {
         // A prior remote create happened, but its transaction receipt was lost.
         remoteSnapshots.get(name)!.add(plan.snapshotName)
         await prisma.autoSnapshotOperation.update({ where: { id: plan.id }, data: { remoteUuid: name } })
       }
-      if (kind === 'remote_still_running') runningRemoteName = name
+      let protectedPolicy: Awaited<ReturnType<typeof prisma.snapshotPolicy.findUniqueOrThrow>> | undefined
+      if (kind === 'new_schedule_failure' || kind === 'disabled_schedule_failure') {
+        await prisma.snapshotPolicy.update({ where: { instanceId: instance.id }, data: {
+          enabled: kind === 'new_schedule_failure', intervalMinutes: 1440, lastRunAt: new Date(0),
+          nextRunAt: kind === 'new_schedule_failure' ? new Date(Date.now() + 86400000) : null } })
+        protectedPolicy = await prisma.snapshotPolicy.findUniqueOrThrow({ where: { instanceId: instance.id } })
+      }
+      if (['remote_still_running', 'new_schedule_failure', 'disabled_schedule_failure'].includes(kind)) runningRemoteName = name
       if (kind === 'uuid_changed') uuidSuffix = '-replaced'
       if (kind === 'host_changed') await prisma.host.update({ where: { id: host.id }, data: { serverFingerprint: 'changed-pin' } })
       if (kind === 'session_revoked') {
@@ -220,7 +227,9 @@ try {
       else await applyAutoSnapshotOperation(plan.id)
       let result = await prisma.autoSnapshotOperation.findUniqueOrThrow({ where: { id: plan.id } })
       if (triggerStage) assert.equal(result.state, 'retry')
-      if (kind === 'remote_still_running') { assert.equal(result.state, 'retry'); assert.equal(calls().length, 0) }
+      if (['remote_still_running', 'new_schedule_failure', 'disabled_schedule_failure'].includes(kind)) { assert.equal(result.state, 'retry'); assert.equal(calls().length, 0) }
+      if (protectedPolicy) assert.deepEqual(await prisma.snapshotPolicy.findUniqueOrThrow({ where: { instanceId: instance.id } }), protectedPolicy,
+        'failed recovery of an old queued operation preserves the complete newer or disabled policy schedule')
       runningRemoteName = ''
       if (['remote_refused_keeps_old','unconfirmed_create'].includes(kind)) {
         assert.ok(remoteSnapshots.get(name)!.has('auto-old')); assert.equal(calls().filter(call => call.method === 'DELETE').length, 0)
