@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-292 工单附件禁用状态与预览生命周期
+
+- e0d71d0已push核远端一致。TicketImageUploader在禁用/卸载后拒绝remove/openPicker/file change，非法索引不误删末项；清空文件输入允许重选，类型/容量拒绝不再发空更新，数组原地变化同步更新并回收预览URL。删除按钮增加disabled/可访问名称与键盘显现，手机44px热区，添加按钮不压缩。
+- `takeover-ticket-uploader-before.log`Chrome先红disabled仍删文件；`takeover-ticket-uploader-final.log`通过按钮/函数/迟到选择零更新、正常增删、非法索引/容量/MIME、原地数组与卸载URL回收、桌面/手机。键盘显现检查首次读到80ms过渡中间透明度，改等动画结束后断言，最终通过；1440中文/390英文截图已核。真实Chrome与本地File，不上传附件或发送工单。
+- client types、3守卫（route/i18n/ticket-image-security）、lint零错警、manifest191/110、最终双端build exit0/dist通过；专项接Chrome CI。父工单提交与后端附件安全保持。
+- 后续只读复核：R293两流量图已有单点防护；R294生产init只校验12位/非占位符，16位hex默认密码不会被拒；R296升级version已有定义。R295现有无效env保留测试随`takeover-installer-review.log`完整installer守卫exit0，Windows Bash不冒充Linux首装。R297数据库替身专项初次先红，产品尚未改，下一段精确复现并补样例脚本本地专库门禁。327/R269/完整灾备未完成。
+
 ## 2026-10-29 R1-291 端口冲突完整数值校验与提交保护
 
 - 95bf9e9已push核远端一致；8756778源码CI已success，bd068fe/95bf9e9最后运行。PortConflictModal拒绝部分整数、小数/指数和非安全端口，按数值识别22/022重复，支持单边范围并拒绝非法范围、空/重复原端口清单。深监听冲突更新建议值，确认按钮和函数共用当前可见/有效/session/激活/在途门禁，即时锁防同tick重复emit；在途使用建议不覆盖草稿。

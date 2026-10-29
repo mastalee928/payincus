@@ -331,7 +331,7 @@
 | R1-289 | 存在，实例日志已修 | 前端专项通过 | InstanceLogsTab按请求/实例/名称/session/激活隔离，失败重试与旧页清理、分页末页修正；Chrome先红后绿/types/5守卫/双端build/dist通过。LogsView另有独立旧读风险，后端权限及真实日志验收不扩大范围，见HANDOFF。 |
 | R1-290 | 存在，弹窗已修 | 前端专项通过 | 两modal深监听清失效成员、同一canSubmit校验当前image/key/可见/在途/session/cache，命令复制及重复emit保护；保重装密码默认/可选key与重建必选key。Chrome先红后绿/types/5守卫/lint/双端build/dist通过；父写回执与原生任务另待，见HANDOFF。 |
 | R1-291 | 存在，弹窗已修 | 前端专项通过 | 完整数值/安全端口/数字重复/单边范围及冲突清单校验；canConfirm统一函数/按钮、即时重复锁、session/cache门禁。Chrome先红后绿、手机五位端口、types/3守卫/lint/双端build/dist通过；父写回执与原生下发另待，见HANDOFF。 |
-| R1-292 | 存在 | 待精修/运行复核 | removeFile及移除按钮未按disabled限制。 |
+| R1-292 | 存在，已修 | 前端专项通过 | disabled/alive保护函数和删除按钮，晚file change清input且零更新，非法索引拒绝，深watch与卸载回收URL，键盘/手机控件可用；Chrome先红后绿/types/3守卫/lint/双端build/dist通过，见HANDOFF。 |
 | R1-293 | 已有防护 | 保留初审结论 | 单点length===1用50；HostInfoTab也Math.max(length-1,1)，不除零。 |
 | R1-294 | 实现不同 | 保留初审结论 | 安装默认hex16未满足通用复杂度，但实际init只校验12位/非占位符，不调用通用validatePassword；不能报告首装必失败。策略一致性另修。 |
 | R1-295 | 存在 | 源码已改/验证范围见右栏 | 旧env解析失败保留原文件；installer guard |

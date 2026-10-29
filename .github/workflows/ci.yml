@@ -216,6 +216,8 @@ jobs:
         run: pnpm --filter server test:review-reinstall-selection
       - name: Port conflicts reject malformed and duplicate ports
         run: pnpm --filter server test:review-port-conflict
+      - name: Ticket attachment controls honor disabled state
+        run: pnpm --filter server test:review-ticket-uploader
       - name: Verify init command selector in Chrome
         run: pnpm --filter server test:review-init-command-selector
       - name: Verify init command modals in Chrome

@@ -20,6 +20,7 @@ const { t } = useI18n()
 const toast = useToast()
 const inputRef = ref<HTMLInputElement | null>(null)
 const previewUrls = ref<string[]>([])
+let alive = true
 
 const ACCEPTED_IMAGE_TYPES = new Set([
   'image/jpeg',
@@ -40,15 +41,17 @@ function revokePreviewUrls(): void {
 watch(() => props.modelValue, files => {
   revokePreviewUrls()
   previewUrls.value = files.map(file => URL.createObjectURL(file))
-}, { immediate: true })
+}, { immediate: true, deep: true })
 
 onBeforeUnmount(() => {
+  alive = false
   revokePreviewUrls()
 })
 
 const remainingSlots = computed(() => Math.max(props.maxFiles - props.modelValue.length, 0))
 
 function openPicker(): void {
+  if (!alive || props.disabled || remainingSlots.value === 0) return
   inputRef.value?.click()
 }
 
@@ -60,6 +63,7 @@ function formatFileSize(size: number): string {
 }
 
 function removeFile(index: number): void {
+  if (!alive || props.disabled || !Number.isInteger(index) || index < 0 || index >= props.modelValue.length) return
   const nextFiles = [...props.modelValue]
   nextFiles.splice(index, 1)
   emit('update:modelValue', nextFiles)
@@ -68,7 +72,8 @@ function removeFile(index: number): void {
 function handleFileChange(event: Event): void {
   const target = event.target as HTMLInputElement
   const selectedFiles = Array.from(target.files || [])
-  if (selectedFiles.length === 0) {
+  target.value = ''
+  if (!alive || props.disabled || selectedFiles.length === 0) {
     return
   }
 
@@ -90,8 +95,7 @@ function handleFileChange(event: Event): void {
     nextFiles.push(file)
   }
 
-  emit('update:modelValue', nextFiles)
-  target.value = ''
+  if (nextFiles.length > props.modelValue.length) emit('update:modelValue', nextFiles)
 }
 </script>
 
@@ -108,7 +112,7 @@ function handleFileChange(event: Event): void {
       </div>
       <button
         type="button"
-        class="px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        class="shrink-0 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         :disabled="props.disabled || remainingSlots === 0"
         @click="openPicker"
       >
@@ -138,8 +142,10 @@ function handleFileChange(event: Event): void {
         >
         <button
           type="button"
-          class="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-white opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
+          class="absolute right-2 top-2 inline-flex h-11 w-11 sm:h-7 sm:w-7 items-center justify-center rounded-full bg-black/70 text-white opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:cursor-not-allowed disabled:bg-black/40"
           :title="t('tickets.images.remove')"
+          :aria-label="t('tickets.images.remove')"
+          :disabled="props.disabled"
           @click="removeFile(index)"
         >
           <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
