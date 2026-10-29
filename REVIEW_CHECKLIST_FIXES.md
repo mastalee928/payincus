@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R062会话生命周期部分精修：实际Chrome先红→final36旧读90旧写拒旧、同步账户/role/sid/目标两ABA/cache/unmount清数据弹窗草稿，同sid/在途busy/返回重读和原bool回归exit0；4守卫/lint/语法/diff、双端build含types/dist最终exit0，无待poll，manifest194常规179专项接CI后阶段保存。211有修复复验含部分/68已有不同/48待，草稿ABA/全局busy/严格回执另续，整体UI/真实宿主/完整327/灾备未完。
+
 2026-10-29 R063/R064补当前授权与锁证据：原四快照路由已有事务重读，实际Fastify/PG20组观测写锁等待后封禁/sid撤销/降权/归属/转移拒旧且零mTLS写，源替换/state/恢复期间delete409和四合法对照通过；3守卫/独立test types/diff/manifest194常规178专项有效。210有修复复验含部分/68已有不同/49待，R062前端另续；a088/c23 CI已success，完整327/原生磁盘/灾备未完。
 
 2026-10-29 R067补失败排程证据：旧finalizer无消费者、现failure只写操作回执；auto集成追加新1440未来排程/关闭null后旧操作失败，policy全字段不变、零额外远端写及原同操作恢复，真实PG/mTLS完整28条PASS最终exit0；两守卫/test types过，同产品原types/build保持。208有修复复验含部分/68已有不同/51待，原生磁盘/成功恢复语义/完整327与灾备未完。
@@ -183,7 +185,7 @@
 | R1-059 | 部分存在 | 待精修/运行复核 | startRestore未在首个await前占busy，全局activeTask在轮询完成后被直接回写，缺账户/任务代次。BackupManager当前消费者可达性与后端实际备份栈不同，不能据此删平台OSS。 |
 | R1-060 | 实现不同 | 保留初审结论 | 前端疑似无当前页面消费者；不代表后端或平台OSS备份已退役，不据此删除整栈。 |
 | R1-061 | 原症状已修 | 实际Chrome原样保存复验通过 | 当前c277ba30 SnapshotManager已Boolean(res.enabled)，真实GET/PUT布尔合同核对；true/false×10/60/360/1440实际编辑按钮/checkbox/原样save精确payload通过takeover-snapshot-policy-ui-final，三宽三语截图与3守卫过。未改真实策略或操作Incus；整体UI/其它生命周期另验。 |
-| R1-062 | 存在 | 待精修/运行复核 | 快照变更缺session/target generation及完整busy门禁，旧完成可能覆盖草稿或卸载后继续。 |
+| R1-062 | 存在 | 部分精修；草稿/互斥/回执继续 | 当前account/role/sid与同步target代次、两ABA/cache/unmount清私密草稿数据已修，Chrome36旧读90旧写/在途busy/same sid/重入及原bool回归exit0，4守卫/lint/双端build含types/dist全部exit0。草稿编辑/弹窗ABA、全局互斥及严格回执下一段，不称完整验收。 |
 | R1-063 | 原症状已修 | 当前授权真实Fastify/PG复验通过 | 四操作现withSnapshotMutation重读status/sid/role；20组实际写锁等待包括封禁/撤销/降权后403、零mTLS远端写，takeover-snapshot-mutation-authorization exit0；对应守卫/test types过，真实网页登录/Linux另验。 |
 | R1-064 | 原症状已修 | 目标/source/state/互斥真实Fastify/PG复验通过 | 原事务锁覆盖四effect，归属/转移与快照源替换/running等待后409、零mTLS写；恢复真实PUT悬挂期间同源delete409且源保留，合法对照通过takeover-snapshot-mutation-authorization，守卫/types过；原生磁盘另验。 |
 | R1-065 | 存在 | 已修；真实Fastify/PG通过 | 原实例锁内按当前策略重新排程：改间隔/重启/缺值重排，原样保留，关闭null，lastRunAt不变；schedule-before先红→final2间隔/账户门禁/实例字段保持与原auto-regression26条PG/mTLS回归全部exit0，3守卫/server types/build通过。真实Linux Incus另验。 |

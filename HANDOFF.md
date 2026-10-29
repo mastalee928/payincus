@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-062 快照会话与缓存生命周期隔离（部分）
+
+- snapshot-session-before实际Chrome更换sid后仍保留旧私密草稿先红。SnapshotManager现以账户/role/有效sid（旧token用完整身份）及实例代次判定当前回执；同sid正常token刷新保留。同步context变化、KeepAlive停用及卸载清列表/策略/错误/两弹窗和草稿，返回只重新读取一次两资源；无会话、非法实例及未激活不读写。已发出的每类写请求不在context切换时提前解busy，原finally只释放该类在途操作。
+- takeover-snapshot-session-final实际Vue/Chrome36旧读取与90旧写入成功/失败回执覆盖sid/account/role/logout/target及两种ABA/cache/unmount，无旧数据/错误/提示/草稿污染；五类在途跨实例保持busy直到settle可重试，同sid合法保存与缓存返回重读通过exit0。布尔策略原完整回归takeover-snapshot-session-bool-regression exit0，三宽三语截图已看、无水平溢出。受控API没有真实Incus/策略写入；只是生命周期修复，草稿编辑/开关ABA、各写操作全局互斥、严格读取与成功回执下一段继续，不声称R062完整完成。
+- snapshot-route/frontend-route/i18n/auth-session四守卫、lint零错警、脚本语法/diff通过，专项已分类到manifest194常规179专项与接CI。takeover-snapshot-session-build双端build含vue-tsc与dist边界最终exit0，无待poll；截图保留原渐变/紫色按钮/深色低对比问题，未做样式变更或整体taste验收。没有新增设计方向/素材；真实宿主与完整327/灾备另验。
+- 唯一211有修复/复验记录（含部分）/68已有防护或实现不同/48待精修，R062只新增一次记录。3a248d7a已push核远端；a088/c23 CI success，后续几批仍in_progress。阶段完成对应检查后按Owner授权提交推送并继续R062下一段，不发行或操作生产。
+
 ## 2026-10-29 R1-063/R1-064 快照变更当前授权与恢复锁复验
 
 - 当前四条快照写路由已走withSnapshotMutation，事务中重读实例归属/位置、账户status/sid/当前管理员role及转移/在途工作；删除/恢复重读源快照、恢复重核stopped，锁覆盖远端effect。原静态待核结论过时，本阶段不重复改产品。

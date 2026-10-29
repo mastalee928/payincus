@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount, computed } from 'vue'
+import { ref, watch, onBeforeUnmount, onMounted, onActivated, onDeactivated, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import { useToast } from '@/stores/toast'
 import { useThemeStore } from '@/stores/theme'
+import { useAuthStore } from '@/stores/auth'
 import { formatDate } from '@/utils/formatters'
 import type { Snapshot, SnapshotPolicy, CreateSnapshotRequest, UpdateSnapshotPolicyRequest } from '@/types/api'
 
@@ -30,6 +31,7 @@ const isQuotaFull = computed<boolean>(() => hasQuota.value && quotaRemaining.val
 
 const toast = useToast()
 const themeStore = useThemeStore()
+const authStore = useAuthStore()
 
 // 快照列表
 const snapshots = ref<Snapshot[]>([])
@@ -65,11 +67,24 @@ let generation = 0
 let snapshotSequence = 0
 let policySequence = 0
 let disposed = false
-const current = (id: number, version: number) => !disposed && id === instanceIdNum.value && version === generation
+const active = ref(false)
+const session = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their complete identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const available = computed(() => !disposed && active.value && !!session.value && Number.isSafeInteger(instanceIdNum.value) && instanceIdNum.value > 0)
+const current = (id: number, version: number) => available.value && id === instanceIdNum.value && version === generation
 const operationPending = computed(() => Boolean(policy.value?.operation))
 
-watch(instanceIdNum, () => {
+function invalidateContext(): void {
   generation++
+  snapshotSequence++
+  policySequence++
   snapshots.value = []
   policy.value = null
   pageError.value = ''
@@ -77,20 +92,31 @@ watch(instanceIdNum, () => {
   showPolicyModal.value = false
   createForm.value = { name: '', description: '' }
   policyForm.value = { enabled: false, intervalMinutes: 360 }
-  createLoading.value = false
-  policyLoading.value = false
-  retryLoading.value = false
-  actionLoading.value = false
+  loading.value = false
+  // In-flight mutations retain their busy flag until their own finally settles.
+}
+watch([instanceIdNum, session], () => {
+  invalidateContext()
+  if (available.value) void refresh()
+}, { immediate: true, flush: 'sync' })
+function activate(): void {
+  if (disposed || active.value) return
+  active.value = true
   void refresh()
-}, { immediate: true })
-onBeforeUnmount(() => { disposed = true; generation++ })
+}
+onMounted(activate)
+onActivated(activate)
+onDeactivated(() => { active.value = false; invalidateContext() })
+onBeforeUnmount(() => { disposed = true; active.value = false; invalidateContext() })
 
 async function refresh(): Promise<void> {
+  if (!available.value) return
   pageError.value = ''
   await Promise.all([loadSnapshots(), loadPolicy()])
 }
 
 async function loadSnapshots(): Promise<void> {
+  if (!available.value) return
   const id = instanceIdNum.value, version = generation, sequence = ++snapshotSequence
   loading.value = true
   try {
@@ -104,6 +130,7 @@ async function loadSnapshots(): Promise<void> {
 }
 
 async function loadPolicy(): Promise<void> {
+  if (!available.value) return
   const id = instanceIdNum.value, version = generation, sequence = ++policySequence
   try {
     const res = await api.instances.getSnapshotPolicy(id)
@@ -117,7 +144,7 @@ async function loadPolicy(): Promise<void> {
 
 async function retryOperation(): Promise<void> {
   const operation = policy.value?.operation
-  if (!operation || retryLoading.value) return
+  if (!available.value || !operation || retryLoading.value) return
   const id = instanceIdNum.value, version = generation
   retryLoading.value = true
   pageError.value = ''
@@ -128,11 +155,11 @@ async function retryOperation(): Promise<void> {
     if (current(id, version) && !policy.value?.operation) toast.success(t('snapshot.recoveryComplete'))
   } catch (err: any) {
     if (current(id, version)) { pageError.value = err?.message || t('snapshot.loadFailed'); await loadPolicy() }
-  } finally { if (current(id, version)) retryLoading.value = false }
+  } finally { retryLoading.value = false }
 }
 
 async function createSnapshot(): Promise<void> {
-  if (!createForm.value.name || createLoading.value || operationPending.value) return
+  if (!available.value || !createForm.value.name || createLoading.value || operationPending.value) return
   const id = instanceIdNum.value, version = generation
   createLoading.value = true
   const payload: CreateSnapshotRequest = { name: createForm.value.name, description: createForm.value.description || undefined }
@@ -145,11 +172,11 @@ async function createSnapshot(): Promise<void> {
     await loadSnapshots()
   } catch (err: any) {
     if (current(id, version)) { pageError.value = err?.message || String(err); toast.error(t('snapshot.messages.createFailed')); await loadPolicy() }
-  } finally { if (current(id, version)) createLoading.value = false }
+  } finally { createLoading.value = false }
 }
 
 async function deleteSnapshot(snapshot: Snapshot): Promise<void> {
-  if (actionLoading.value || operationPending.value || !confirm(t('snapshot.messages.deleteConfirm', { name: snapshot.name }))) return
+  if (!available.value || actionLoading.value || operationPending.value || !confirm(t('snapshot.messages.deleteConfirm', { name: snapshot.name }))) return
   const id = instanceIdNum.value, version = generation
   actionLoading.value = true
   try {
@@ -159,11 +186,11 @@ async function deleteSnapshot(snapshot: Snapshot): Promise<void> {
     toast.success(t('snapshot.messages.deleteSuccess'))
   } catch (err: any) {
     if (current(id, version)) { pageError.value = err?.message || String(err); await Promise.all([loadSnapshots(), loadPolicy()]) }
-  } finally { if (current(id, version)) actionLoading.value = false }
+  } finally { actionLoading.value = false }
 }
 
 async function restoreSnapshot(snapshot: Snapshot): Promise<void> {
-  if (actionLoading.value || operationPending.value) return
+  if (!available.value || actionLoading.value || operationPending.value) return
   if (!canRestore.value) { toast.warning(t('snapshot.messages.stopInstanceFirst')); return }
   if (!confirm(t('snapshot.messages.restoreConfirm', { name: snapshot.name }))) return
   const id = instanceIdNum.value, version = generation
@@ -173,11 +200,11 @@ async function restoreSnapshot(snapshot: Snapshot): Promise<void> {
     if (current(id, version)) toast.success(t('snapshot.messages.restoreSuccess'))
   } catch (err: any) {
     if (current(id, version)) { pageError.value = err?.message || String(err); await loadPolicy() }
-  } finally { if (current(id, version)) actionLoading.value = false }
+  } finally { actionLoading.value = false }
 }
 
 async function updatePolicy(payload: UpdateSnapshotPolicyRequest): Promise<void> {
-  if (policyLoading.value) return
+  if (!available.value || policyLoading.value) return
   const id = instanceIdNum.value, version = generation
   policyLoading.value = true
   try {
@@ -188,7 +215,7 @@ async function updatePolicy(payload: UpdateSnapshotPolicyRequest): Promise<void>
     await loadPolicy()
   } catch (err: any) {
     if (current(id, version)) { pageError.value = err?.message || String(err); toast.error(t('snapshot.messages.policySaveFailed')) }
-  } finally { if (current(id, version)) policyLoading.value = false }
+  } finally { policyLoading.value = false }
 }
 async function savePolicy(): Promise<void> { await updatePolicy({ ...policyForm.value }) }
 async function disableAutoPolicy(): Promise<void> { await updatePolicy({ enabled: false, intervalMinutes: policyForm.value.intervalMinutes }) }
@@ -232,6 +259,7 @@ function getIntervalLabel(minutes: number): string {
         <button
           class="btn-ghost btn-sm"
           :title="t('snapshot.autoSettings')" :aria-label="t('snapshot.autoSettings')"
+          :disabled="!available"
           @click="showPolicyModal = true"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -239,7 +267,7 @@ function getIntervalLabel(minutes: number): string {
           </svg>
         </button>
         <button
-          :disabled="!hasQuota || isQuotaFull || operationPending"
+          :disabled="!available || !hasQuota || isQuotaFull || operationPending"
           :class="['btn-ghost btn-sm', (!hasQuota || isQuotaFull) && 'opacity-50 cursor-not-allowed']"
           :title="!hasQuota ? t('snapshot.noQuota') : isQuotaFull ? t('snapshot.quotaFull') : t('snapshot.createSnapshot')"
           @click="showCreateModal = true"
@@ -258,10 +286,10 @@ function getIntervalLabel(minutes: number): string {
       <p class="text-sm mt-1 break-words">{{ policy.operation.error || t('snapshot.recoveryPending') }}</p>
       <p class="text-xs text-themed-muted mt-2">{{ t('snapshot.recoveryHint') }}</p>
       <div class="flex flex-wrap gap-2 mt-2">
-        <button type="button" class="btn-secondary min-h-11" :disabled="retryLoading" @click="retryOperation">
+        <button type="button" class="btn-secondary min-h-11" :disabled="!available || retryLoading" @click="retryOperation">
           {{ retryLoading ? t('snapshot.retryingRecovery') : t('snapshot.retryRecovery') }}
         </button>
-        <button type="button" class="btn-ghost min-h-11" :disabled="retryLoading" @click="refresh">{{ t('snapshot.refresh') }}</button>
+        <button type="button" class="btn-ghost min-h-11" :disabled="!available || retryLoading" @click="refresh">{{ t('snapshot.refresh') }}</button>
       </div>
     </div>
 
@@ -292,7 +320,7 @@ function getIntervalLabel(minutes: number): string {
       <button
         class="btn-ghost btn-sm flex-shrink-0"
         :class="themeStore.isDark ? 'text-green-400 hover:bg-green-500/20' : 'text-green-600 hover:bg-green-100'"
-        :disabled="policyLoading"
+        :disabled="!available || policyLoading"
         @click="disableAutoPolicy"
       >
         <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -379,7 +407,7 @@ function getIntervalLabel(minutes: number): string {
         </div>
         <div class="flex items-center gap-2">
           <button
-            :disabled="!canRestore || operationPending || actionLoading"
+            :disabled="!available || !canRestore || operationPending || actionLoading"
             :class="['btn-ghost btn-sm', !canRestore && 'opacity-50 cursor-not-allowed']"
             :title="canRestore ? t('snapshot.restore') : t('snapshot.stopInstanceFirst')"
             @click="restoreSnapshot(snapshot)"
@@ -389,7 +417,7 @@ function getIntervalLabel(minutes: number): string {
           <button
             class="btn-ghost btn-sm text-error"
             :title="t('snapshot.delete')"
-            :disabled="operationPending || actionLoading" @click="deleteSnapshot(snapshot)"
+            :disabled="!available || operationPending || actionLoading" @click="deleteSnapshot(snapshot)"
           >
             {{ t('snapshot.delete') }}
           </button>
@@ -423,7 +451,7 @@ function getIntervalLabel(minutes: number): string {
             </form>
             <div class="modal-footer">
               <button class="btn-secondary" @click="showCreateModal = false">{{ t('snapshot.createModal.cancel') }}</button>
-              <button :disabled="createLoading || !createForm.name" class="btn-primary" @click="createSnapshot">
+              <button :disabled="!available || createLoading || !createForm.name" class="btn-primary" @click="createSnapshot">
                 {{ createLoading ? t('snapshot.createModal.creating') : t('snapshot.createModal.create') }}
               </button>
             </div>
@@ -474,7 +502,7 @@ function getIntervalLabel(minutes: number): string {
             </form>
             <div class="modal-footer">
               <button class="btn-secondary" @click="showPolicyModal = false">{{ t('snapshot.policyModal.cancel') }}</button>
-              <button :disabled="policyLoading" class="btn-primary" @click="savePolicy">
+              <button :disabled="!available || policyLoading" class="btn-primary" @click="savePolicy">
                 {{ policyLoading ? t('snapshot.policyModal.saving') : t('snapshot.policyModal.save') }}
               </button>
             </div>
