@@ -358,6 +358,8 @@ jobs:
         run: pnpm --filter server test:review-agent-heartbeat-current
       - name: Optional upgrade lookups stay within the heartbeat response deadline
         run: pnpm --filter server test:review-agent-upgrade-deadline
+      - name: Concurrent Agent release misses share metadata and verified binary downloads
+        run: pnpm --filter server test:review-agent-release-concurrency
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

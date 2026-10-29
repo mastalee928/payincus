@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-097 合并并发 Agent 发行缓存空缺
+
+- 实际Fastify/HMAC/PG受控并发先红：20个public manifest请求发出20次相同metadata查询。现未完成的manifest刷新由同一Promise共享；二进制按version/name/小写SHA共享在途下载，成功/失败/null均finally释放对应任务，SHA验证后才进入原缓存。保留可信URL、64MiB限制、双架构完整性、原5分钟缓存与stale/限流重试。
+- takeover-agent-release-concurrency-final-2本地真实路由：20 manifest＋7 HMAC心跳共用响应头/正文卡顿查询、两架构各hash一次；连续心跳1秒截止后共用后台刷新、后来升级SHA正确。metadata/checksum失败、缺架构、过期stale60秒再刷新、429共享重试通过。24 binary exact/latest/大写SHA共享header/body下载；五类失败（HTTP/错误hash/无body/网络/正文中断）16等待者拒绝并共享后续重试；5组version/name/hash各8并发保持隔离，错误query零上游请求。
+- final-2专项、types-final、7 Agent守卫、server build含tsc及R096三stall回归均已poll最终exit0，无待poll。初专项TS四个隐式any已通过明确FastifyInstance修正，未计初轮TS通过。manifest194常规191专项、CI登记、diff审查通过；前端未改沿R080双端build/dist。后台去重依赖项目唯一后端不变量，不支持多进程缓存协同。
+- 743ff1a0已push核远端；本项阶段保存后223有修复/复验含部分、68已有不同、36待。真实Go/Linux宿主、真实GitHub故障与完整327/灾备尚未全面验收，未发行/生产/客户操作。下一R098–101宿主信息页read/poll、操作回执/复制及非法metric边界，源码已读，PG55438保留。
+
 ## 2026-10-30 R1-096 心跳可选升级查询等待上限
 
 - 外部升级metadata响应头、metadata正文或二进制checksum正文卡住时，原心跳会等待15秒外部截止及重试，超过Go默认10秒请求期限。现仅为可选升级信息等待最多1秒，超时/查询失败返回available:false；后台查询保留原截止、重试和SHA校验，后续心跳仍可获得完整升级信息。

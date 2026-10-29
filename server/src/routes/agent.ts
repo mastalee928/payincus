@@ -108,6 +108,12 @@ interface AgentUpgradeInstruction {
   size?: number
 }
 
+interface AgentReleaseBinaryInput {
+  name: string
+  version: string
+  expectedSha256: string
+}
+
 const agentModel = prisma.hostAgent
 const nonceModel = prisma.hostAgentNonce
 const __filename = fileURLToPath(import.meta.url)
@@ -133,6 +139,8 @@ const minAgentOfflineThresholdSeconds = 120
 let agentReleaseManifestCache: { expiresAt: number; manifest: AgentUpgradeManifest } | null = null
 let agentReleaseAssetCache: { expiresAt: number; assets: Map<string, GitHubReleaseAsset> } | null = null
 let agentReleaseBinaryCache: { expiresAt: number; binaries: Map<string, Buffer> } | null = null
+let agentReleaseManifestRefresh: Promise<AgentUpgradeManifest | null> | null = null
+const agentReleaseBinaryDownloads = new Map<string, Promise<Buffer | null>>()
 const positiveRouteIdPattern = /^[1-9]\d*$/
 
 function parsePositiveId(value: string): number | null {
@@ -679,6 +687,17 @@ async function readAgentUpgradeManifest(): Promise<AgentUpgradeManifest | null> 
     return agentReleaseManifestCache.manifest
   }
 
+  if (agentReleaseManifestRefresh) {
+    return agentReleaseManifestRefresh
+  }
+  const refresh = refreshAgentUpgradeManifest().finally(() => {
+    if (agentReleaseManifestRefresh === refresh) agentReleaseManifestRefresh = null
+  })
+  agentReleaseManifestRefresh = refresh
+  return refresh
+}
+
+async function refreshAgentUpgradeManifest(): Promise<AgentUpgradeManifest | null> {
   const localManifest = await readLocalAgentUpgradeManifest()
   if (localManifest) {
     agentReleaseManifestCache = {
@@ -781,11 +800,7 @@ async function getAgentReleaseAsset(name: string, version: string): Promise<GitH
   }
 }
 
-async function downloadAgentReleaseBinary(input: {
-  name: string
-  version: string
-  expectedSha256: string
-}): Promise<Buffer | null> {
+async function downloadAgentReleaseBinary(input: AgentReleaseBinaryInput): Promise<Buffer | null> {
   const cacheKey = `${input.version}:${input.name}:${input.expectedSha256.toLowerCase()}`
   const cachedBinary = agentReleaseBinaryCache?.expiresAt && agentReleaseBinaryCache.expiresAt > Date.now()
     ? agentReleaseBinaryCache.binaries.get(cacheKey)
@@ -794,6 +809,16 @@ async function downloadAgentReleaseBinary(input: {
     return cachedBinary
   }
 
+  const pending = agentReleaseBinaryDownloads.get(cacheKey)
+  if (pending) return pending
+  const download = loadAgentReleaseBinary(input, cacheKey).finally(() => {
+    if (agentReleaseBinaryDownloads.get(cacheKey) === download) agentReleaseBinaryDownloads.delete(cacheKey)
+  })
+  agentReleaseBinaryDownloads.set(cacheKey, download)
+  return download
+}
+
+async function loadAgentReleaseBinary(input: AgentReleaseBinaryInput, cacheKey: string): Promise<Buffer | null> {
   const localReleaseDir = getLocalAgentReleaseDir()
   if (localReleaseDir && agentBinaryNamePattern.test(input.name)) {
     const localPath = join(localReleaseDir, input.name)
