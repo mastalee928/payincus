@@ -346,6 +346,8 @@ jobs:
         run: pnpm --filter server test:review-ssh-key-dates
       - name: SSH key inventory reads retain the current session and page
         run: pnpm --filter server test:review-ssh-key-list
+      - name: SSH key writes reject conflicts and isolate private display results
+        run: pnpm --filter server test:review-ssh-key-submit
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

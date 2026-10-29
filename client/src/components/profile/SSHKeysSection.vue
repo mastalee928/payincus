@@ -50,6 +50,14 @@ const showPrivateKeyModal = ref<boolean>(false)
 const generatedPrivateKey = ref<string>('')
 const privateKeyCopied = ref<boolean>(false)
 const listLoading = ref(false), listReady = ref(false), listError = ref(false), active = ref(false)
+const deletingId = ref<number | null>(null)
+const mutationFailure = ref<'addFailed' | 'deleteFailed' | 'generateFailed' | ''>('')
+const mutationError = computed(() => mutationFailure.value ? t(`profile.sshKeys.${mutationFailure.value}`) : '')
+const mutationBusy = computed(() => keyLoading.value || generating.value || deletingId.value !== null)
+const canMutate = computed(() => available.value && listReady.value && !listError.value && !listLoading.value && !mutationBusy.value)
+let privateGeneration = 0
+let copyTimer: ReturnType<typeof setTimeout> | null = null
+const downloads = new Set<() => void>()
 let alive = true, generation = 0, listSequence = 0
 const session = computed(() => {
   if (!auth.user || !auth.token || !Number.isSafeInteger(auth.user.id) || auth.user.id < 1) return ''
@@ -69,6 +77,7 @@ function invalidateContext(): void {
   listLoading.value = false
   listReady.value = false
   listError.value = false
+  mutationFailure.value = ''
   showAddKey.value = false
   newKey.value = { name: '', content: '' }
   closePrivateKeyModal()
@@ -116,59 +125,91 @@ async function loadSSHKeys(): Promise<void> {
 }
 
 async function addKey(): Promise<void> {
-  if (!newKey.value.name || !newKey.value.content) return
+  if (!canMutate.value || typeof newKey.value.name !== 'string' || typeof newKey.value.content !== 'string') return
+  const draft = { ...newKey.value }
   
   // 验证密钥名称（防止危险字符）
-  const nameValidation = validateName(newKey.value.name, t('profile.sshKeys.name'), 1, 50)
+  const nameValidation = validateName(draft.name, t('profile.sshKeys.name'), 1, 50)
   if (!nameValidation.valid) {
     toast.error(nameValidation.message || t('profile.sshKeys.invalidName'))
     return
   }
+  const trimmedKey = draft.content.trim()
+  const publicKey = trimmedKey.replace(/\s+/g, ' ')
+  if (/[\r\n]/.test(trimmedKey) || publicKey.length < 20 || publicKey.length > 8192 ||
+    [...publicKey].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
+    mutationFailure.value = 'addFailed'
+    return
+  }
+  const version = generation, identity = session.value
+  const current = () => available.value && version === generation && identity === session.value
   
   keyLoading.value = true
+  mutationFailure.value = ''
+  listSequence++
   try {
-    await api.sshKeys.create({
-      name: newKey.value.name,
-      publicKey: newKey.value.content
-    })
+    const response = await api.sshKeys.create({ name: nameValidation.sanitized!, publicKey })
+    if (!current()) return
+    if (!validWriteMessage(response) || !isListKey(response.key)) throw new Error('Unconfirmed SSH key create')
     toast.success(t('profile.sshKeys.addSuccess'))
-    newKey.value = { name: '', content: '' }
-    showAddKey.value = false
+    if (newKey.value.name === draft.name && newKey.value.content === draft.content) {
+      newKey.value = { name: '', content: '' }
+      showAddKey.value = false
+    }
     await loadSSHKeys()
-  } catch (error: any) {
-    toast.error(t('profile.sshKeys.addFailed') + ': ' + (error?.message || String(error)))
+  } catch {
+    if (current()) { mutationFailure.value = 'addFailed'; toast.error(mutationError.value) }
   } finally {
     keyLoading.value = false
   }
 }
 
 async function deleteKey(keyId: number): Promise<void> {
+  if (!canMutate.value || !Number.isSafeInteger(keyId) || keyId < 1 || !sshKeys.value.some(key => key.id === keyId)) return
+  const version = generation, identity = session.value
+  const current = () => available.value && version === generation && identity === session.value
   if (!confirm(t('profile.sshKeys.confirmDelete'))) return
+  if (!current() || !canMutate.value || !sshKeys.value.some(key => key.id === keyId)) return
   
+  deletingId.value = keyId
+  mutationFailure.value = ''
+  listSequence++
   try {
-    await api.sshKeys.delete(keyId)
+    const response = await api.sshKeys.delete(keyId)
+    if (!current()) return
+    if (!validWriteMessage(response)) throw new Error('Unconfirmed SSH key delete')
     toast.success(t('profile.sshKeys.deleteSuccess'))
     await loadSSHKeys()
-    // 删除后如果当前页已无数据，返回上一页
-    if (paginatedKeys.value.length === 0 && currentPage.value > 1) {
-      currentPage.value--
-    }
-  } catch (error: any) {
-    toast.error(t('profile.sshKeys.deleteFailed') + ': ' + (error?.message || String(error)))
+  } catch {
+    if (current()) { mutationFailure.value = 'deleteFailed'; toast.error(mutationError.value) }
+  } finally {
+    deletingId.value = null
   }
+}
+
+function validWriteMessage(response: unknown): response is { message: string } {
+  return !!response && typeof response === 'object' && !Array.isArray(response) &&
+    typeof (response as { message?: unknown }).message === 'string' && !!(response as { message: string }).message.trim()
 }
 
 // 生成 SSH 密钥对
 async function generateKey(): Promise<void> {
+  if (!canMutate.value || showPrivateKeyModal.value || generatedPrivateKey.value) return
+  const version = generation, identity = session.value, privateVersion = privateGeneration
+  const current = () => available.value && version === generation && identity === session.value && privateVersion === privateGeneration
   generating.value = true
+  mutationFailure.value = ''
+  listSequence++
   try {
     const result = await api.sshKeys.generate()
+    if (!current()) return
+    if (!validWriteMessage(result) || !isListKey(result.key) || typeof result.privateKey !== 'string' || !result.privateKey.trim()) throw new Error('Unconfirmed SSH key generation')
     generatedPrivateKey.value = result.privateKey
     showPrivateKeyModal.value = true
-    await loadSSHKeys()
     toast.success(t('profile.sshKeys.generateSuccess'))
-  } catch (error: any) {
-    toast.error(t('profile.sshKeys.generateFailed') + ': ' + (error?.message || String(error)))
+    await loadSSHKeys()
+  } catch {
+    if (current()) { mutationFailure.value = 'generateFailed'; toast.error(mutationError.value) }
   } finally {
     generating.value = false
   }
@@ -176,25 +217,54 @@ async function generateKey(): Promise<void> {
 
 // 复制私钥到剪贴板
 async function copyPrivateKey(): Promise<void> {
+  if (!available.value || !showPrivateKeyModal.value || !generatedPrivateKey.value) return
+  const version = generation, privateVersion = privateGeneration, content = generatedPrivateKey.value
+  const current = () => available.value && version === generation && privateVersion === privateGeneration && showPrivateKeyModal.value && generatedPrivateKey.value === content
   try {
-    await navigator.clipboard.writeText(generatedPrivateKey.value)
+    await navigator.clipboard.writeText(content)
+    if (!current()) return
     privateKeyCopied.value = true
-    setTimeout(() => privateKeyCopied.value = false, 2000)
+    if (copyTimer) clearTimeout(copyTimer)
+    copyTimer = setTimeout(() => { if (current()) privateKeyCopied.value = false; copyTimer = null }, 2000)
   } catch {
-    toast.error(t('profile.sshKeys.copyFailed'))
+    if (current()) toast.error(t('profile.sshKeys.copyFailed'))
   }
 }
 
 // 下载私钥文件
 // 使用更可靠的下载方式，兼容各种浏览器
 function downloadPrivateKey(): void {
-  if (!generatedPrivateKey.value) {
+  if (!available.value || !showPrivateKeyModal.value || !generatedPrivateKey.value) {
     toast.error(t('profile.sshKeys.noPrivateKey'))
     return
   }
   
   const content = generatedPrivateKey.value
   const filename = 'id_rsa'
+  const version = generation, privateVersion = privateGeneration
+  const current = () => available.value && version === generation && privateVersion === privateGeneration && showPrivateKeyModal.value && generatedPrivateKey.value === content
+  const save = (href: string, release = () => {}) => {
+    const anchor = document.createElement('a')
+    anchor.href = href
+    anchor.download = filename
+    anchor.style.cssText = 'position:fixed;left:-9999px;top:-9999px;'
+    let clickTimer: ReturnType<typeof setTimeout> | null = null, releaseTimer: ReturnType<typeof setTimeout> | null = null
+    const cleanup = () => {
+      if (clickTimer) clearTimeout(clickTimer)
+      if (releaseTimer) clearTimeout(releaseTimer)
+      anchor.remove()
+      release()
+      downloads.delete(cleanup)
+    }
+    downloads.add(cleanup)
+    try { document.body.appendChild(anchor) } catch (error) { cleanup(); throw error }
+    clickTimer = setTimeout(() => {
+      clickTimer = null
+      if (!current()) { cleanup(); return }
+      try { anchor.click(); releaseTimer = setTimeout(cleanup, 1500) }
+      catch { cleanup(); if (current()) toast.error(t('profile.sshKeys.downloadFailed')) }
+    }, 0)
+  }
   
   // 方法1: 尝试使用 Blob URL（大多数现代浏览器支持）
   try {
@@ -207,37 +277,12 @@ function downloadPrivateKey(): void {
     }
     
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.style.cssText = 'position:fixed;left:-9999px;top:-9999px;'
-    document.body.appendChild(a)
-    
-    // 使用 setTimeout 确保 DOM 更新完成后再触发点击
-    setTimeout(() => {
-      a.click()
-      // 延长释放时间，确保下载完成
-      setTimeout(() => {
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-      }, 1500)
-    }, 0)
+    save(url, () => URL.revokeObjectURL(url))
   } catch {
     // 方法2: 降级使用 Data URL（更广泛的兼容性）
     try {
       const dataUrl = 'data:application/x-pem-file;charset=utf-8,' + encodeURIComponent(content)
-      const a = document.createElement('a')
-      a.href = dataUrl
-      a.download = filename
-      a.style.cssText = 'position:fixed;left:-9999px;top:-9999px;'
-      document.body.appendChild(a)
-      
-      setTimeout(() => {
-        a.click()
-        setTimeout(() => {
-          document.body.removeChild(a)
-        }, 1500)
-      }, 0)
+      save(dataUrl)
     } catch {
       // 方法3: 最终降级 - 提示用户手动复制
       toast.error(t('profile.sshKeys.downloadFailed'))
@@ -247,6 +292,10 @@ function downloadPrivateKey(): void {
 
 // 关闭私钥弹窗
 function closePrivateKeyModal(): void {
+  privateGeneration++
+  if (copyTimer) clearTimeout(copyTimer)
+  copyTimer = null
+  for (const cleanup of [...downloads]) cleanup()
   showPrivateKeyModal.value = false
   generatedPrivateKey.value = ''
   privateKeyCopied.value = false
@@ -263,7 +312,7 @@ defineExpose({ loadSSHKeys })
         <p class="nimbus-section-desc">{{ $t('profile.sshKeys.description') }}</p>
       </div>
       <div class="flex items-center gap-2">
-        <button class="btn-primary btn-sm flex-1 sm:flex-none" :disabled="generating" @click="generateKey">
+        <button class="btn-primary btn-sm flex-1 sm:flex-none" :disabled="!canMutate || showPrivateKeyModal" @click="generateKey">
           <svg v-if="generating" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -273,7 +322,7 @@ defineExpose({ loadSSHKeys })
           </svg>
           {{ $t('profile.sshKeys.generate') }}
         </button>
-        <button class="btn-ghost btn-sm flex-1 sm:flex-none" @click="showAddKey = true">
+        <button class="btn-ghost btn-sm flex-1 sm:flex-none" :disabled="!canMutate" @click="showAddKey = true">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
@@ -286,19 +335,20 @@ defineExpose({ loadSSHKeys })
     <div v-if="showAddKey" class="mb-4 p-4 bg-themed-tertiary border border-themed rounded-xl space-y-3">
       <div>
         <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.sshKeys.name') }}</label>
-        <input v-model="newKey.name" type="text" class="input" :placeholder="$t('profile.sshKeys.namePlaceholder')" />
+        <input v-model="newKey.name" :disabled="mutationBusy" maxlength="50" type="text" class="input" :placeholder="$t('profile.sshKeys.namePlaceholder')" />
       </div>
       <div>
         <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.sshKeys.publicKey') }}</label>
         <textarea 
           v-model="newKey.content" 
+          :disabled="mutationBusy" maxlength="8192"
           class="input min-h-[80px] font-mono text-xs resize-none" 
           :placeholder="$t('profile.sshKeys.publicKeyPlaceholder')"
         ></textarea>
       </div>
       <div class="flex gap-2">
-        <button :disabled="!newKey.name || !newKey.content" class="btn-primary btn-sm" @click="addKey">{{ $t('profile.sshKeys.save') }}</button>
-        <button class="btn-ghost btn-sm" @click="showAddKey = false; newKey = { name: '', content: '' }">{{ $t('profile.sshKeys.cancel') }}</button>
+        <button :disabled="!canMutate || !newKey.name || !newKey.content" class="btn-primary btn-sm" @click="addKey">{{ $t('profile.sshKeys.save') }}</button>
+        <button class="btn-ghost btn-sm" :disabled="mutationBusy" @click="showAddKey = false; newKey = { name: '', content: '' }">{{ $t('profile.sshKeys.cancel') }}</button>
       </div>
     </div>
 
@@ -307,6 +357,7 @@ defineExpose({ loadSSHKeys })
       <button type="button" class="btn-ghost btn-sm ml-2" :disabled="listLoading" @click="loadSSHKeys">{{ $t('common.retry') }}</button>
     </p>
     <p v-else-if="listLoading && !listReady" role="status" class="text-sm text-themed-muted py-6">{{ $t('common.loading') }}</p>
+    <p v-if="mutationError" role="alert" data-ssh-mutation-error class="mb-3 text-sm text-red-600 dark:text-red-400">{{ mutationError }}</p>
 
     <!-- SSH 密钥列表 -->
     <div v-if="sshKeys.length" class="space-y-2">
@@ -325,6 +376,7 @@ defineExpose({ loadSSHKeys })
         <div class="flex items-center gap-3 flex-shrink-0">
           <span class="text-xs text-themed-faint hidden sm:inline tabular-nums">{{ key.createdAt || '—' }}</span>
           <button 
+            :disabled="!canMutate"
             class="text-themed-faint hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100 transition-all" 
             @click="deleteKey(key.id)"
           >

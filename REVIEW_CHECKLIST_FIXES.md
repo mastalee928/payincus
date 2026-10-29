@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R075三写busy/当前草稿ID/严格回执/会话与私钥展示复制下载生命周期已修，实际Chrome先红2次→final42旧写/冲突/非法回执/retry/same sid/草稿/缓存锁/Blob及data取消exit0，原list/dates回归和4守卫/lint/双端types build末dist过。216含部分/68已有不同/43待；真实账户/整体UI另验。
+
 2026-10-29 R076列表反序/会话/缓存/卸载/缩页/失败retry已修，真实Chrome先红→final14旧读/七非法读/分页/same sid/三语三宽exit0，4守卫/lint/双端types build及最后user补构建/dist通过，无待poll。215含部分/68已有不同/44待，R075重复create实际先红尚未改。
 
 2026-10-29 R077 SSH日期字段createdAt已修，真实Chrome先红→两服务端日期/三语三宽零写final exit0，3守卫/lint/语法/diff/manifest194常规183专项过，双端build最终exit0（接续poll21535确认）/dist守卫exit0，无待poll。214含部分/68已有不同/45待，R075/76同组件生命周期继续，整体UI/真实密钥/完整327/灾备另验。
@@ -210,7 +212,7 @@
 | R1-072 | 存在 | 待精修/运行复核 | 应用页面未导入该孤立组件，仍重复Wallet界面实现；只属维护残留，不据此删除正在使用的Wallet或账务后端。 |
 | R1-073 | 存在 | 待精修/运行复核 | 读列表/变更完成缺目标和请求代次绑定；过滤改变、替换草稿与重复行操作有竞态窗口。 |
 | R1-074 | 存在 | 待精修/运行复核 | 读列表/变更完成缺目标和请求代次绑定；过滤改变、替换草稿与重复行操作有竞态窗口。 |
-| R1-075 | 存在 | 待精修/运行复核 | 列表和生成/保存缺完整session/请求代次与busy函数门禁，旧响应和分页收缩未统一防护。 |
+| R1-075 | 存在 | 已修；真实账户/整体UI另验 | 三写共享busy/current account/session、固定草稿/ID/严格回执；私钥open禁止覆盖，close/cache/unmount清展示、复制完成隔离与Blob/data延迟download取消。实际Chrome先红→final42旧写/冲突/retry/草稿/缓存锁/两下载路径exit0，4守卫/lint/双端types build末dist过。 |
 | R1-076 | 存在 | 已修；真实账户/整体UI另验 | 列表account/role/sid/seq/ABA/cache/unmount保护与同步缩页，严格读失败保留/三语retry。Chrome先红→final14旧读/七坏读/缩页/same sid零写exit0，4守卫/lint/双端types build末dist过；写回执保护继续R075。 |
 | R1-077 | 存在 | 已修；真实账户/整体UI另验 | GET list/detail真实createdAt，日期span改单字段及缺失—，实际Chrome先红→两个API日期/三语三宽零写exit0，3守卫/lint/双端types build末dist过。保持原手机日期隐藏，生成/保存保护继续R075。 |
 | R1-078 | 存在 | 待精修/运行复核 | 列表无反序响应保护；UA先Linux/MacOS/Chrome再Android/iPhone/Opera导致误分类。 |
