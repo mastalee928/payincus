@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, defineAsyncComponent } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated, onUnmounted, computed, watch, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api, {
@@ -9,6 +9,7 @@ import api, {
   type FinancialReconciliationStatus
 } from '@/api/admin'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
@@ -65,6 +66,17 @@ const route = useRoute()
 
 const { t } = useI18n()
 const toast = useToast()
+const auth = useAuthStore()
+const pricingActive = ref(false)
+const pricingSession = computed(() => {
+  if (!auth.token || !auth.isAdmin) return ''
+  let identity = auth.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy sessions retain the complete token identity. */ }
+  return `${auth.user?.id}:${identity}`
+})
 
 // Tab 切换
 type BillingTab = 'overview' | 'instances' | 'records' | 'rechargeRecords' | 'reconciliation' | 'affConversions' | 'paymentProviders'
@@ -240,10 +252,43 @@ const batchPriceForm = ref({
   newPrice: 0,
   settleBalance: true
 })
+const pricingAvailable = computed(() => pricingActive.value && activeTab.value === 'instances' && !!pricingSession.value)
+const pricePreviewKey = ref(''), batchPricePreviewKey = ref('')
+const pricePreviewError = ref(''), batchPricePreviewError = ref('')
+const priceContextKey = computed(() => JSON.stringify([pricingSession.value, priceTarget.value?.id, priceForm.value.newPrice, priceForm.value.settleBalance]))
+const batchPriceContextKey = computed(() => JSON.stringify([pricingSession.value, selectedInstanceIds.value, batchPriceForm.value.newPrice, batchPriceForm.value.settleBalance]))
 
 function isValidPriceInput(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100000
 }
+function validPriceVersion(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0 }
+function validPricePreview(value: NonNullable<typeof pricePreview.value>, price: number) {
+  return value && ['oldPrice', 'newPrice', 'billingCycle', 'remainingDays', 'priceDiff', 'discountRate', 'userBalance']
+    .every(key => typeof value[key as keyof typeof value] === 'number' && Number.isFinite(value[key as keyof typeof value])) &&
+    value.newPrice === Number(price.toFixed(2)) && validPriceVersion(value.instanceVersion)
+}
+function validBatchPricePreview(value: BatchPriceUpdatePreview, ids: number[], price: number) {
+  return value && typeof value.canSubmit === 'boolean' && value.summary && Array.isArray(value.items) && Array.isArray(value.userImpacts) &&
+    value.items.length === ids.length && new Set(value.items.map(item => item?.id)).size === ids.length &&
+    value.items.every(item => item && ids.includes(item.id) && item.newPrice === Number(price.toFixed(2)) &&
+      (item.status === 'failed' || ['ready', 'unchanged'].includes(item.status) && validPriceVersion(item.instanceVersion)))
+}
+const canSubmitPrice = computed(() => pricingAvailable.value && showPriceModal.value && !priceLoading.value && !batchPriceLoading.value &&
+  !pricePreviewLoading.value && isValidPriceInput(priceForm.value.newPrice) && pricePreviewKey.value === priceContextKey.value &&
+  !!pricePreview.value && validPricePreview(pricePreview.value, priceForm.value.newPrice) &&
+  (!priceForm.value.settleBalance || pricePreview.value.priceDiff <= 0 || pricePreview.value.priceDiff <= pricePreview.value.userBalance))
+const canSubmitBatchPrice = computed(() => pricingAvailable.value && showBatchPriceModal.value && !priceLoading.value && !batchPriceLoading.value &&
+  !batchPricePreviewLoading.value && isValidPriceInput(batchPriceForm.value.newPrice) && batchPricePreviewKey.value === batchPriceContextKey.value &&
+  selectedInstanceIds.value.length > 0 && !!batchPricePreview.value?.canSubmit && batchPricePreviewHasVersionSnapshot.value &&
+  validBatchPricePreview(batchPricePreview.value, selectedInstanceIds.value, batchPriceForm.value.newPrice))
+onMounted(() => { pricingActive.value = true })
+onActivated(() => { pricingActive.value = true })
+onDeactivated(() => { pricingActive.value = false })
+onUnmounted(() => { pricingActive.value = false; clearTimeout(pricePreviewTimer ?? undefined); clearTimeout(batchPricePreviewTimer ?? undefined) })
+watch([pricingAvailable, pricingSession], () => {
+  showPriceModal.value = false
+  showBatchPriceModal.value = false
+}, { flush: 'sync' })
 
 // 计算实际续费价格（应用 AFF 折扣后）
 const actualRenewPrice = computed(() => {
@@ -827,6 +872,7 @@ async function executeAction() {
 
 // 打开修改价格弹窗
 function openPriceModal(instance: any) {
+  if (!pricingAvailable.value || priceLoading.value || batchPriceLoading.value || !Number.isSafeInteger(instance?.id) || instance.id <= 0) return
   priceTarget.value = instance
   pricePreviewRequestId += 1
   priceForm.value = {
@@ -841,7 +887,12 @@ let pricePreviewTimer: ReturnType<typeof setTimeout> | null = null
 let pricePreviewRequestId = 0
 
 async function loadPricePreview() {
-  if (!showPriceModal.value || !priceTarget.value) return
+  if (pricePreviewTimer) { clearTimeout(pricePreviewTimer); pricePreviewTimer = null }
+  pricePreviewRequestId += 1
+  pricePreview.value = null
+  pricePreviewKey.value = ''
+  pricePreviewError.value = ''
+  if (!pricingAvailable.value || !showPriceModal.value || !priceTarget.value) return
   if (!isValidPriceInput(priceForm.value.newPrice)) {
     pricePreviewRequestId += 1
     pricePreview.value = null
@@ -850,6 +901,8 @@ async function loadPricePreview() {
   }
 
   const requestId = ++pricePreviewRequestId
+  const contextKey = priceContextKey.value, price = priceForm.value.newPrice
+  const current = () => pricingAvailable.value && showPriceModal.value && requestId === pricePreviewRequestId && contextKey === priceContextKey.value
   pricePreviewLoading.value = true
   try {
     const res = await api.admin.previewInstancePriceUpdate(
@@ -857,42 +910,41 @@ async function loadPricePreview() {
       priceForm.value.newPrice,
       priceForm.value.settleBalance
     )
-    if (requestId !== pricePreviewRequestId) return
+    if (!current()) return
+    if (!validPricePreview(res, price)) throw new Error(t('admin.billing.loadFailed'))
     pricePreview.value = res
+    pricePreviewKey.value = contextKey
   } catch (err: any) {
-    if (requestId !== pricePreviewRequestId) return
+    if (!current()) return
     pricePreview.value = null
-    toast.error(err.message)
+    pricePreviewError.value = err?.message || t('admin.billing.loadFailed')
   } finally {
-    if (requestId === pricePreviewRequestId) {
+    if (current()) {
       pricePreviewLoading.value = false
     }
   }
 }
 
 watch(
-  () => [showPriceModal.value, priceTarget.value?.id, priceForm.value.newPrice, priceForm.value.settleBalance],
+  () => [showPriceModal.value, pricingAvailable.value, priceContextKey.value],
   ([visible]) => {
     if (pricePreviewTimer) {
       clearTimeout(pricePreviewTimer)
       pricePreviewTimer = null
     }
 
-    if (!visible || !priceTarget.value) {
-      if (!visible) {
-        pricePreviewRequestId += 1
-        pricePreviewLoading.value = false
-      }
-      if (!visible) {
-        pricePreview.value = null
-      }
-      return
-    }
+    pricePreviewRequestId += 1
+    pricePreview.value = null
+    pricePreviewKey.value = ''
+    pricePreviewError.value = ''
+    pricePreviewLoading.value = false
+    if (!visible || !pricingAvailable.value || !priceTarget.value || !isValidPriceInput(priceForm.value.newPrice)) return
 
+    pricePreviewLoading.value = true
     pricePreviewTimer = setTimeout(() => {
       loadPricePreview()
     }, 150)
-  }
+  }, { flush: 'sync' }
 )
 
 function toggleSelectAllCurrentPage() {
@@ -910,6 +962,7 @@ function toggleSelectAllCurrentPage() {
 }
 
 function openBatchPriceModal() {
+  if (!pricingAvailable.value || priceLoading.value || batchPriceLoading.value) return
   if (selectedInstanceIds.value.length === 0) {
     toast.warning(t('admin.billing.batchPriceNoSelection'))
     return
@@ -928,7 +981,12 @@ let batchPricePreviewTimer: ReturnType<typeof setTimeout> | null = null
 let batchPricePreviewRequestId = 0
 
 async function loadBatchPricePreview() {
-  if (!showBatchPriceModal.value || selectedInstanceIds.value.length === 0) return
+  if (batchPricePreviewTimer) { clearTimeout(batchPricePreviewTimer); batchPricePreviewTimer = null }
+  batchPricePreviewRequestId += 1
+  batchPricePreview.value = null
+  batchPricePreviewKey.value = ''
+  batchPricePreviewError.value = ''
+  if (!pricingAvailable.value || !showBatchPriceModal.value || selectedInstanceIds.value.length === 0) return
   if (!isValidPriceInput(batchPriceForm.value.newPrice)) {
     batchPricePreviewRequestId += 1
     batchPricePreview.value = null
@@ -937,53 +995,54 @@ async function loadBatchPricePreview() {
   }
 
   const requestId = ++batchPricePreviewRequestId
+  const contextKey = batchPriceContextKey.value, ids = [...selectedInstanceIds.value], price = batchPriceForm.value.newPrice
+  const current = () => pricingAvailable.value && showBatchPriceModal.value && requestId === batchPricePreviewRequestId && contextKey === batchPriceContextKey.value
   batchPricePreviewLoading.value = true
   try {
     const res = await api.admin.previewBatchInstancePriceUpdate(
-      selectedInstanceIds.value,
+      ids,
       batchPriceForm.value.newPrice,
       batchPriceForm.value.settleBalance
     )
-    if (requestId !== batchPricePreviewRequestId) return
+    if (!current()) return
+    if (!validBatchPricePreview(res, ids, price)) throw new Error(t('admin.billing.loadFailed'))
     batchPricePreview.value = res
+    batchPricePreviewKey.value = contextKey
   } catch (err: any) {
-    if (requestId !== batchPricePreviewRequestId) return
-    batchPricePreview.value = err?.preview || null
-    toast.error(err.message)
+    if (!current()) return
+    batchPricePreview.value = null
+    batchPricePreviewError.value = err?.message || t('admin.billing.loadFailed')
   } finally {
-    if (requestId === batchPricePreviewRequestId) {
+    if (current()) {
       batchPricePreviewLoading.value = false
     }
   }
 }
 
 watch(
-  () => [showBatchPriceModal.value, selectedInstanceIds.value.join(','), batchPriceForm.value.newPrice, batchPriceForm.value.settleBalance],
+  () => [showBatchPriceModal.value, pricingAvailable.value, batchPriceContextKey.value],
   ([visible]) => {
     if (batchPricePreviewTimer) {
       clearTimeout(batchPricePreviewTimer)
       batchPricePreviewTimer = null
     }
 
-    if (!visible || selectedInstanceIds.value.length === 0) {
-      if (!visible) {
-        batchPricePreviewRequestId += 1
-        batchPricePreviewLoading.value = false
-      }
-      if (!visible) {
-        batchPricePreview.value = null
-      }
-      return
-    }
+    batchPricePreviewRequestId += 1
+    batchPricePreview.value = null
+    batchPricePreviewKey.value = ''
+    batchPricePreviewError.value = ''
+    batchPricePreviewLoading.value = false
+    if (!visible || !pricingAvailable.value || selectedInstanceIds.value.length === 0 || !isValidPriceInput(batchPriceForm.value.newPrice)) return
 
+    batchPricePreviewLoading.value = true
     batchPricePreviewTimer = setTimeout(() => {
       loadBatchPricePreview()
     }, 150)
-  }
+  }, { flush: 'sync' }
 )
 
 async function submitBatchUpdatePrice() {
-  if (selectedInstanceIds.value.length === 0) return
+  if (!canSubmitBatchPrice.value) return
 
   batchPriceLoading.value = true
   try {
@@ -1008,7 +1067,7 @@ async function submitBatchUpdatePrice() {
 
 // 提交修改价格
 async function submitUpdatePrice() {
-  if (!priceTarget.value) return
+  if (!canSubmitPrice.value) return
   
   priceLoading.value = true
   try {
@@ -2659,7 +2718,7 @@ function copyToClipboard(text: string) {
 
     <!-- 批量修改价格弹窗 -->
     <Teleport to="body">
-      <div v-if="showBatchPriceModal" class="modal-overlay" @click.self="showBatchPriceModal = false">
+      <div v-if="showBatchPriceModal" data-billing-price="batch" class="modal-overlay" @click.self="showBatchPriceModal = false">
         <div class="modal-content max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
           <div class="modal-header">
             <h3 class="modal-title">{{ $t('admin.billing.batchUpdatePrice') }}</h3>
@@ -2697,6 +2756,7 @@ function copyToClipboard(text: string) {
                   type="number"
                   step="0.01"
                   min="0"
+                  max="100000"
                   class="input input-bordered w-full pl-7"
                   :placeholder="$t('admin.billing.enterNewPrice')"
                 />
@@ -2718,6 +2778,10 @@ function copyToClipboard(text: string) {
 
             <div v-if="batchPricePreviewLoading" class="p-3 rounded-lg border bg-gray-50 dark:bg-gray-800 border-themed text-sm text-themed-muted">
               {{ $t('common.loading') }}
+            </div>
+            <div v-else-if="batchPricePreviewError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">
+              {{ batchPricePreviewError }}
+              <button type="button" class="underline ml-2" :disabled="batchPriceLoading || batchPricePreviewLoading" @click="loadBatchPricePreview">{{ $t('common.retry') }}</button>
             </div>
 
             <template v-else-if="batchPricePreview">
@@ -2855,7 +2919,7 @@ function copyToClipboard(text: string) {
             <button class="btn btn-ghost" :disabled="batchPriceLoading" @click="showBatchPriceModal = false">{{ $t('common.cancel') }}</button>
             <button
               class="btn btn-primary"
-              :disabled="batchPriceLoading || batchPricePreviewLoading || !isValidPriceInput(batchPriceForm.newPrice) || !batchPricePreview?.canSubmit || !batchPricePreviewHasVersionSnapshot"
+              :disabled="!canSubmitBatchPrice"
               @click="submitBatchUpdatePrice"
             >
               {{ batchPriceLoading ? $t('common.processing') : $t('common.confirm') }}
@@ -2867,7 +2931,7 @@ function copyToClipboard(text: string) {
 
     <!-- 修改价格弹窗 -->
     <Teleport to="body">
-      <div v-if="showPriceModal" class="modal-overlay" @click.self="showPriceModal = false">
+      <div v-if="showPriceModal" data-billing-price="single" class="modal-overlay" @click.self="showPriceModal = false">
         <div class="modal-content max-w-md">
           <div class="modal-header">
             <h3 class="modal-title">{{ $t('admin.billing.updatePrice') }}</h3>
@@ -2910,12 +2974,12 @@ function copyToClipboard(text: string) {
               <div class="flex justify-between text-sm">
                 <span class="text-themed-muted">{{ $t('admin.billing.remainingDays') }}:</span>
                 <span :class="priceTarget?.remainingDays <= 7 ? 'text-yellow-500' : ''">
-                  {{ Math.ceil(pricePreview?.remainingDays || priceTarget?.remainingDays || 0) }} {{ $t('admin.billing.days') }}
+                  {{ Math.ceil(pricePreview?.remainingDays ?? priceTarget?.remainingDays ?? 0) }} {{ $t('admin.billing.days') }}
                 </span>
               </div>
               <div class="flex justify-between text-sm">
                 <span class="text-themed-muted">{{ $t('admin.billing.userBalance') }}:</span>
-                <span>¥{{ (priceTarget?.user?.balance || 0).toFixed(2) }}</span>
+                <span>¥{{ (pricePreview?.userBalance ?? priceTarget?.user?.balance ?? 0).toFixed(2) }}</span>
               </div>
             </div>
             
@@ -2936,6 +3000,7 @@ function copyToClipboard(text: string) {
                   type="number" 
                   step="0.01"
                   min="0"
+                  max="100000"
                   class="input input-bordered w-full pl-7"
                   :placeholder="$t('admin.billing.enterNewPrice')"
                 />
@@ -2964,20 +3029,24 @@ function copyToClipboard(text: string) {
             <div v-if="pricePreviewLoading" class="p-3 rounded-lg border bg-gray-50 dark:bg-gray-800 border-themed text-sm text-themed-muted">
               {{ $t('common.loading') }}
             </div>
+            <div v-else-if="pricePreviewError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">
+              {{ pricePreviewError }}
+              <button type="button" class="underline ml-2" :disabled="priceLoading || pricePreviewLoading" @click="loadPricePreview">{{ $t('common.retry') }}</button>
+            </div>
 
-            <div v-else-if="priceForm.settleBalance && (pricePreview?.remainingDays || 0) > 0 && priceForm.newPrice !== priceTarget?.billingPrice" class="p-3 rounded-lg border" :class="priceDiff > 0 && priceDiff > (pricePreview?.userBalance || priceTarget?.user?.balance || 0) ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'">
+            <div v-else-if="priceForm.settleBalance && (pricePreview?.remainingDays || 0) > 0 && priceForm.newPrice !== priceTarget?.billingPrice" class="p-3 rounded-lg border" :class="priceDiff > 0 && priceDiff > (pricePreview?.userBalance ?? priceTarget?.user?.balance ?? 0) ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'">
               <div class="flex justify-between items-center">
-                <span class="text-sm" :class="priceDiff > 0 && priceDiff > (pricePreview?.userBalance || priceTarget?.user?.balance || 0) ? 'text-rose-700 dark:text-rose-300' : 'text-blue-700 dark:text-blue-300'">
+                <span class="text-sm" :class="priceDiff > 0 && priceDiff > (pricePreview?.userBalance ?? priceTarget?.user?.balance ?? 0) ? 'text-rose-700 dark:text-rose-300' : 'text-blue-700 dark:text-blue-300'">
                   {{ priceDiff > 0 ? $t('admin.billing.needPay') : $t('admin.billing.willRefund') }}:
                 </span>
-                <span class="text-xl font-bold" :class="priceDiff > 0 && priceDiff > (pricePreview?.userBalance || priceTarget?.user?.balance || 0) ? 'text-rose-600 dark:text-rose-400' : 'text-blue-600 dark:text-blue-400'">
+                <span class="text-xl font-bold" :class="priceDiff > 0 && priceDiff > (pricePreview?.userBalance ?? priceTarget?.user?.balance ?? 0) ? 'text-rose-600 dark:text-rose-400' : 'text-blue-600 dark:text-blue-400'">
                   ¥{{ Math.abs(priceDiff).toFixed(2) }}
                 </span>
               </div>
-              <p v-if="priceDiff > 0 && priceDiff > (pricePreview?.userBalance || priceTarget?.user?.balance || 0)" class="text-xs text-rose-600 dark:text-rose-400 mt-2 font-medium">
+              <p v-if="priceDiff > 0 && priceDiff > (pricePreview?.userBalance ?? priceTarget?.user?.balance ?? 0)" class="text-xs text-rose-600 dark:text-rose-400 mt-2 font-medium">
                 {{ $t('admin.billing.insufficientBalance') }}
               </p>
-              <p v-else class="text-xs mt-1" :class="priceDiff > 0 && priceDiff > (pricePreview?.userBalance || priceTarget?.user?.balance || 0) ? 'text-rose-600 dark:text-rose-400' : 'text-blue-600 dark:text-blue-400'">
+              <p v-else class="text-xs mt-1" :class="priceDiff > 0 && priceDiff > (pricePreview?.userBalance ?? priceTarget?.user?.balance ?? 0) ? 'text-rose-600 dark:text-rose-400' : 'text-blue-600 dark:text-blue-400'">
                 {{ $t('admin.billing.priceDiffHint', { days: Math.ceil(pricePreview?.remainingDays || 0) }) }}
               </p>
             </div>
@@ -2994,7 +3063,7 @@ function copyToClipboard(text: string) {
             <button class="btn btn-ghost" @click="showPriceModal = false">{{ $t('common.cancel') }}</button>
             <button
               class="btn btn-primary"
-              :disabled="priceLoading || pricePreviewLoading || !isValidPriceInput(priceForm.newPrice) || (priceForm.settleBalance && priceDiff > 0 && priceDiff > (pricePreview?.userBalance || priceTarget?.user?.balance || 0))"
+              :disabled="!canSubmitPrice"
               @click="submitUpdatePrice"
             >
               {{ priceLoading ? $t('common.processing') : $t('common.confirm') }}
