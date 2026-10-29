@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-062 快照写入互斥与草稿回执（部分）
+
+- snapshot-submit-before实际Chrome创建在途仍能删除，2次请求先红。五类变更create/delete/restore/policy/retry现共享同步busy；模板字段、开关、取消/关闭及另开表单在途禁用，函数也拒绝冲突。提交固定policy对象副本与snapshot/operation原始ID，回执绑定同步草稿与两弹窗版本（含编辑/开关ABA），旧成功失败不清新草稿、不关新弹窗、不提示或启动后续读取；失败保留可重试。loadPolicy在写入busy期间不覆盖form或使当前提交失效，之后重新打开策略用实际policy回填。
+- takeover-snapshot-submit-final3实际Vue/Chrome25冲突组合、16旧草稿成功失败/编辑ABA/弹窗ABA/另开弹窗、调用者改policy对象、源快照ID变化、后台策略读取与当前失败成功重试通过exit0；包含最后retry刷新后owns检查收紧。原snapshot-session36旧读90旧写回归exit0，原bool读取四间隔回归exit0，三宽三语busy截图已看/无水平溢出；受控API无原生快照写入。4守卫及最后route/i18n两回归、lint零错警/语法/diff/manifest194常规180专项接CI通过；takeover-snapshot-submit-build双端含vue-tsc与dist最终exit0，无待poll，核user构建包含最终owns逻辑。
+- 5382dfad已push且核远端main一致。唯一211含部分/68已有不同/48待不变；严格GET/成功回执、ready加载门禁、原样式整体UI与真实Linux快照另续，当前不称全部R062验收，完整327/灾备未完。按Owner授权本阶段独立commit/push后继续。
+
 ## 2026-10-29 R1-062 快照会话与缓存生命周期隔离（部分）
 
 - snapshot-session-before实际Chrome更换sid后仍保留旧私密草稿先红。SnapshotManager现以账户/role/有效sid（旧token用完整身份）及实例代次判定当前回执；同sid正常token刷新保留。同步context变化、KeepAlive停用及卸载清列表/策略/错误/两弹窗和草稿，返回只重新读取一次两资源；无会话、非法实例及未激活不读写。已发出的每类写请求不在context切换时提前解busy，原finally只释放该类在途操作。

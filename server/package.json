@@ -124,6 +124,7 @@
     "test:review-telegram-pricing-locales": "node ../scripts/test-telegram-pricing-locales.mjs",
     "test:review-snapshot-policy-ui": "node ../scripts/test-snapshot-policy-ui.mjs",
     "test:review-snapshot-session": "node ../scripts/test-snapshot-session.mjs",
+    "test:review-snapshot-submit": "node ../scripts/test-snapshot-submit.mjs",
     "test:snapshot-policy-schedule-integration": "node --import tsx scripts/test-snapshot-policy-schedule-integration.ts",
     "test:snapshot-mutation-authorization": "node --import tsx scripts/test-snapshot-mutation-authorization.ts",
     "test:review-login-submit": "node ../scripts/test-login-submit.mjs",
