@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-301 宿主批量删除目标与回执隔离
+
+- 9c3c320已push核远端；fb874b9源码CI已success，39073c6/bf645b1/9c3c320最后仍运行。删除弹窗固定打开时的目标，预览严格核对ID集合和有限非负退款金额；确认按钮/函数共同核当前激活、session、列表、目标和退款预览。提交固定host/ids/reason/refund/databaseOnly，在途跨切换保持busy；旧预览/写回执静默，成功保后来勾选，部分失败保明细及失败目标，刷新后重取预览。
+- `takeover-host-delete-before.log`真实Chrome先红预览1改勾2却提交2；`takeover-host-delete-matrix.log`通过固定目标、重复/关闭函数门禁、旧预览、两种删除及退款参数、错误重试、换host旧成功、在途禁重开、错/缺/重复ID和非法金额、部分失败、session旧失败、cache/unmount。管理员不退款时预览失败仍允许删除的既有规则保留。1440中文/390英文截图已核，API受控，无真实客户删除/退款或库存写入。
+- client types、4守卫（route/i18n/user-destroy-incus-order/instance-delete-incus-order）、R301列表完整回归、lint零错警、manifest194/112及最终双端build exit0/dist通过，删除专项已接Chrome CI。后端权限、退款/远端删除与库存释放规则未改，本项前端验证不代替原生删除验收。
+- R301后续封停/解封/同步/赠送、价格、流量重置、重建、通知仍待；批量封停仍使用确认时可变勾选且无函数busy门禁，已读完整相关前后端和host route守卫，下一段继续。327/R269/完整网关灾备未完成。
+
 ## 2026-10-29 R1-301 宿主实例列表与辅助读取隔离
 
 - bf645b1已push核远端；e0d71d0源码CI已success。HostInstancesTab列表按序号/host/session/激活绑定，mount/activated仅初读一次，流量与详情各自序号隔离。新查询清旧列表/展开/选择，同查询保仍存在勾选；失败持久错误重试、分页末页纠正、重复/非法/错host响应拒绝。离页/注销/卸载清数据和浮层，同sid刷新不重置。

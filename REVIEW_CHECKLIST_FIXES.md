@@ -340,7 +340,7 @@
 | R1-298 | 部分存在，已修 | Bash入口专项通过 | 注入优先原本正确；非交互显式yes/默认8443、缺值及菜单在探测前拒绝。19真实函数组合零read/系统写探针、语法/3守卫/后端build含tsc通过；Linux原生安装和TTY另验，见HANDOFF。 |
 | R1-299 | 与R282–284重复，已修 | 沿用已验终端专项 | 935dac5改平级页签button和KeepAlive监听/浮层；cc5fd54隔离session/cloud-init/ticket/socket；c71d25c隔离保存命令草稿/CRUD。三段Chrome先红后绿/types/守卫/双端build已记录，不重复计新增修复。 |
 | R1-300 | 实现不同 | 保留初审结论 | 未发现对方余额转账/预览功能入口，不能误指现有实例PUSH或AFF兑换；新增同类功能时才适用。 |
-| R1-301 | 存在，读取已修 | 列表专项通过；写操作待续 | HostInstancesTab列表/流量/详情按host/session/序号/cache隔离，错误重试/分页修正/选择过滤，同页失败删除明细保留；Chrome先红后绿/types/3守卫/lint/双端build/dist通过。删除预览1改勾2提交2已独立先红，写回执/赠送/价格等继续，不记整体完成，见HANDOFF。 |
+| R1-301 | 存在，读取及删除已修 | 两专项通过；其它写操作待续 | HostInstancesTab列表/流量/详情隔离；删除固定预览目标、ID/金额校验、modal/host/session旧回执门禁、保后来勾选与部分失败明细。真实Chrome先红后绿、列表回归/types/4守卫/lint/双端build/dist通过。封停/解封/同步/赠送/价格/流量/重建/通知继续，不记整体完成，见HANDOFF。 |
 | R1-302 | 部分存在 | 待精修/运行复核 | getQuotaLimit用??保留0，getQuotaUsage(0)返回null；其它前端默认及代理后端siteLimit0按无限仍不一致，不能说所有0均被默认20/5覆盖。 |
 | R1-303 | 存在 | 待精修/运行复核 | Storage/Redeem列表虽watch hostId，却await后直接回写无seq；迁移镜像同样无目标代次，handleSubmit缺isSubmitting入口门禁，close的300ms清理能影响重开草稿。 |
 | R1-304 | 存在 | 待精修/运行复核 | 预览有requestId，但150ms防抖期间未立即清旧preview/id，变价后旧预览仍可提交。 |

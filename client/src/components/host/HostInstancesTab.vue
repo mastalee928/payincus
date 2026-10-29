@@ -195,15 +195,21 @@ const deleteRefund = ref(false)
 const deletePreviewError = ref('')
 const deleteRequestError = ref('')
 let deletePreviewSequence = 0
+let deleteDialogGeneration = 0
+let selectionRevision = 0
+let deleteSelectionRevision = 0
+watch(selectedIds, () => { selectionRevision++ }, { deep: true, flush: 'sync' })
 const deleteDialog = ref<HTMLElement | null>(null)
 let deleteReturnFocus: HTMLElement | null = null
 watch(showDeleteModal, async (open) => {
+  const generation = ++deleteDialogGeneration
   if (open) {
     deleteReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     await nextTick()
+    if (!showDeleteModal.value || generation !== deleteDialogGeneration) return
     deleteDialog.value?.querySelector<HTMLButtonElement>('button')?.focus()
   } else { deletePreviewSequence++; if (deleteReturnFocus?.isConnected) deleteReturnFocus.focus() }
-})
+}, { flush: 'sync' })
 function handleDeleteDialogKey(event: KeyboardEvent) {
   if (event.key === 'Escape') { event.preventDefault(); if (!isDeleting.value) showDeleteModal.value = false; return }
   if (event.key !== 'Tab' || !deleteDialog.value) return
@@ -301,6 +307,16 @@ const selectedCount = computed(() => selectedIds.value.size)
 const effectiveBatchConfigSelection = computed(() => batchConfigSelectionOverride.value ?? Array.from(selectedIds.value))
 const effectiveDeleteSelection = computed(() => deleteSelectionOverride.value ?? Array.from(selectedIds.value))
 const effectiveDeleteCount = computed(() => effectiveDeleteSelection.value.length)
+const validDeleteTargets = computed(() => effectiveDeleteSelection.value.length > 0 && effectiveDeleteSelection.value.length <= 100 &&
+  new Set(effectiveDeleteSelection.value).size === effectiveDeleteSelection.value.length &&
+  effectiveDeleteSelection.value.every(id => instances.value.some(instance => instance.id === id)))
+const canDelete = computed(() => alive && pageActive.value && !!sessionKey.value && showDeleteModal.value && !loading.value &&
+  !isDeleting.value && validDeleteTargets.value && (!deleteRefund.value || (!!deletePreview.value && !deletePreviewLoading.value)))
+function captureDeleteContext() {
+  const generation = deleteDialogGeneration, session = sessionKey.value, hostId = props.hostId
+  return () => alive && pageActive.value && !!session && session === sessionKey.value && hostId === props.hostId &&
+    showDeleteModal.value && generation === deleteDialogGeneration
+}
 
 // 计算选中的付费实例数量
 const selectedPaidCount = computed(() => {
@@ -435,12 +451,15 @@ function openBatchConfigForSelection(): void {
 }
 
 function openSingleDeleteModal(instanceId: number): void {
+  if (!alive || !pageActive.value || !sessionKey.value || isDeleting.value || loading.value || !instances.value.some(instance => instance.id === instanceId)) return
   deleteSelectionOverride.value = [instanceId]
   void openBatchDeleteModal()
 }
 
 async function openBatchDeleteModal() {
-  if (effectiveDeleteSelection.value.length === 0) return
+  if (!alive || !pageActive.value || !sessionKey.value || isDeleting.value || loading.value || !validDeleteTargets.value) return
+  deleteSelectionOverride.value = [...effectiveDeleteSelection.value]
+  deleteSelectionRevision = selectionRevision
   deleteReason.value = ''
   deleteRefund.value = authStore.user?.role !== 'admin'
   deletePreviewError.value = ''
@@ -452,6 +471,8 @@ async function openBatchDeleteModal() {
 }
 
 async function loadDeletePreview() {
+  if (!alive || !pageActive.value || !sessionKey.value || !showDeleteModal.value || !validDeleteTargets.value || loading.value) return
+  const current = captureDeleteContext()
   const sequence = ++deletePreviewSequence
   const ids = [...effectiveDeleteSelection.value]
   const selection = ids.join(',')
@@ -463,29 +484,42 @@ async function loadDeletePreview() {
       props.hostId,
       ids
     )
-    if (sequence === deletePreviewSequence && showDeleteModal.value && effectiveDeleteSelection.value.join(',') === selection) deletePreview.value = preview
+    if (!current() || sequence !== deletePreviewSequence || effectiveDeleteSelection.value.join(',') !== selection) return
+    if (!Array.isArray(preview.instances) || preview.instances.length !== ids.length ||
+      new Set(preview.instances.map(item => item.id)).size !== ids.length ||
+      preview.instances.some(item => !ids.includes(item.id) || typeof item.refundAmount !== 'number' || !Number.isFinite(item.refundAmount) || item.refundAmount < 0) ||
+      typeof preview.totalRefundAmount !== 'number' || !Number.isFinite(preview.totalRefundAmount) || preview.totalRefundAmount < 0) {
+      throw new Error(t('admin.hosts.batchDeleteFailed'))
+    }
+    deletePreview.value = preview
   } catch (err: any) {
-    if (sequence === deletePreviewSequence && showDeleteModal.value && effectiveDeleteSelection.value.join(',') === selection) deletePreviewError.value = translateError(err)
+    if (current() && sequence === deletePreviewSequence && effectiveDeleteSelection.value.join(',') === selection) deletePreviewError.value = translateError(err)
   } finally {
-    if (sequence === deletePreviewSequence) deletePreviewLoading.value = false
+    if (current() && sequence === deletePreviewSequence) deletePreviewLoading.value = false
   }
 }
 
 async function confirmBatchDelete(databaseOnly: boolean = false) {
-  if (isDeleting.value || effectiveDeleteSelection.value.length === 0 || (deleteRefund.value && (!deletePreview.value || deletePreviewLoading.value))) return
-  
+  if (!canDelete.value) return
+  const current = captureDeleteContext(), hostId = props.hostId, ids = [...effectiveDeleteSelection.value]
+  const revision = deleteSelectionRevision
+  const reason = deleteReason.value.trim() || undefined, refund = deleteRefund.value
   isDeleting.value = true
   deleteRequestError.value = ''
   deletingMode.value = databaseOnly ? 'database' : 'full'
   try {
     const result = await api.hosts.batchDeleteInstances(
-      props.hostId,
-      effectiveDeleteSelection.value,
-      deleteReason.value.trim() || undefined,
+      hostId,
+      ids,
+      reason,
       databaseOnly,
-      deleteRefund.value
+      refund
     )
-    
+    if (!current()) return
+    if (!Array.isArray(result.results) || result.results.length !== ids.length ||
+      new Set(result.results.map(item => item.id)).size !== ids.length || result.results.some(item => !ids.includes(item.id))) {
+      throw new Error(t('admin.hosts.batchDeleteFailed'))
+    }
     if (result.failedCount > 0) {
       toast.warning(t('admin.hosts.batchDeletePartial', {
         success: result.successCount,
@@ -496,12 +530,15 @@ async function confirmBatchDelete(databaseOnly: boolean = false) {
     }
     
     deleteFailures.value = result.results.filter(item => !item.success)
-    selectedIds.value = new Set(deleteFailures.value.map(item => item.id))
+    const succeeded = new Set(result.results.filter(item => item.success).map(item => item.id))
+    selectedIds.value = revision === selectionRevision
+      ? new Set(deleteFailures.value.map(item => item.id))
+      : new Set([...selectedIds.value].filter(id => !succeeded.has(id)))
     deleteSelectionOverride.value = deleteFailures.value.length ? deleteFailures.value.map(item => item.id) : null
     if (!deleteFailures.value.length) { deleteReason.value = ''; showDeleteModal.value = false }
-    else await loadDeletePreview()
     await loadInstances()
   } catch (err: any) {
+    if (!current()) return
     deleteRequestError.value = translateError(err)
     toast.error(t('admin.hosts.batchDeleteFailed') + ': ' + deleteRequestError.value)
   } finally {
@@ -932,7 +969,10 @@ async function loadInstances() {
     selectedIds.value = new Set([...selection].filter(id => res.instances.some(instance => instance.id === id)))
     if (showDeleteModal.value) {
       if (deleteSelectionOverride.value) deleteSelectionOverride.value = deleteSelectionOverride.value.filter(id => res.instances.some(instance => instance.id === id))
-      if (effectiveDeleteSelection.value.length) void loadDeletePreview()
+      if (effectiveDeleteSelection.value.length) {
+        loading.value = false
+        void loadDeletePreview()
+      }
       else showDeleteModal.value = false
     }
     void loadInstancesTraffic()
@@ -1042,6 +1082,10 @@ function resetReadContext() {
   displayedQuery = ''
   clearInstanceReads()
   closeReadContextModals()
+  deleteRequestError.value = ''
+  deletePreviewError.value = ''
+  deleteFailures.value = []
+  deleteReason.value = ''
   loadError.value = ''
   loading.value = false
   page.value = 1
@@ -1842,7 +1886,7 @@ function goToInstance(id: number) {
                 </button>
                 <button
                   class="btn-warning"
-                  :disabled="isDeleting || (deleteRefund && (!deletePreview || deletePreviewLoading))"
+                  :disabled="!canDelete"
                   @click="confirmBatchDelete(true)"
                 >
                   <svg v-if="deletingMode === 'database'" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -1853,7 +1897,7 @@ function goToInstance(id: number) {
                 </button>
                 <button
                   class="btn-danger"
-                  :disabled="isDeleting || (deleteRefund && (!deletePreview || deletePreviewLoading))"
+                  :disabled="!canDelete"
                   @click="confirmBatchDelete(false)"
                 >
                   <svg v-if="deletingMode === 'full'" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">

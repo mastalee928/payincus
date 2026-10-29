@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：9c3c320已push；R301删除固定目标/预览ID金额校验/modal+host+session代次/旧写回执静默/busy跨切换/保新选择/部分失败重取preview已修。Chrome先红后绿、列表完整回归、types/4守卫/lint零错警/manifest194/112/最终双端build exit0/dist通过，准备独立push，无待poll。fb874b9 CI success，其后3个仍运行。下一段封停/解封/同步无函数busy和旧回执保护，完整前后端/对应守卫已读；赠送/价格/流量/重建/通知另续。327/R269/完整灾备未完成。
+
 > **最新接续**：bf645b1已push；R301列表/traffic/detail序号+host/session/cache隔离、选择清理/同页保留、错误retry/分页修正已修，Chrome先红后绿+保删除失败明细专项/types/3守卫/lint零错警/manifest194/111/最终双端build exit0/dist通过，准备push，无待poll。下一段host-delete-lifecycle四文件先红预览1改勾2提交2，扩展矩阵已写未跑，删除产品未改；preview/delete后台完整、refund权限及原生删除守卫已读。固定弹窗目标/session代次，busy跨切换、旧写回执静默/保新勾选、部分失败明细及同页重取preview；其它gift/price/notify等另续。327/R269/完整灾备仍待。
 
 > **最新接续**：39073c6已push；R298非交互yes/default8443/缺参数及菜单早拒绝已修，19Bash实际函数先红后绿/语法/3守卫/manifest194/110/后端build含tsc exit0，准备push，无待poll。交互TTY/Linux原生安装另验；docs/host-install-noninteractive.md需显式加入。R299与R282–284交叉登记已有修复。下一项R301 HostInstancesTab列表、流量、展开详情无seq/session/host身份，全部相关读取/选择/模板和instances list权限已读，产品未改；先读后固定列表上下文、失败retry、selection与展开数据清理，批量预览/写操作另续。327/R269/完整灾备仍待。
