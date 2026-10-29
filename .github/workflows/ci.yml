@@ -189,6 +189,8 @@ jobs:
           pnpm --filter server test:review-network-persistence
       - name: Instance quota override semantics
         run: pnpm --filter server test:review-instance-quota
+      - name: Dedicated machines cannot enter legacy package migration
+        run: pnpm --filter server test:review-host-migrate-dedicated
       - name: Gifted days preserve current ownership and paid expiry
         run: pnpm --filter server test:review-host-gift-days
       - name: Instance detail reads stay on the current route and session

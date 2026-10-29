@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 旧批量迁移的专属机器入口隔离
+
+- 0444f64已push核远端；8218018源码CI已success，0444f64/6c8b219最后仍运行。旧批量迁移为套餐新建后删源，增加专属实例及singleTenant源/目标宿主的整批拒绝，沿现有DEDICATED_HOST_CHANGE_MANAGED提示使用机器池故障换机，在Incus连接/资源预占前返回409；普通套餐迁移既有权限及路径保留。没有改动专属交付、全端口或实际客户数据。
+- takeover-migrate-dedicated-before-r2.log真实Fastify/PG先红：专属实例进入源Incus连接并因测试未配置证书失败。最终takeover-migrate-dedicated-final-r3.log通过admin/host owner×专属实例/源宿主/目标宿主/混合选择、非owner拒绝、普通套餐保留原连接阶段；逐次比对实例/宿主/地址/到期/余额/账单不变。端点仅闭合回环，未执行原生Incus迁移。夹具首轮错用billingRecord、随后单租户约束拒绝两实例/规格不足，改合法夹具并保留DB约束后通过。
+- 后端build含tsc exit0、host-migration-consistency/host-route-id/host-pool/dedicated-delivery四守卫通过、manifest194/127和diff检查通过。专项登记CI。server无ESLint配置/脚本，直接调用失败如实保留，不借用前端规则伪装通过；本次采用类型、相关守卫及代码审查。没有前端改动。
+- 此项只补现存专属目标入口隔离，不代表旧批量迁移并发事务/资源补偿已安全，也不代替机器池换机实证；中途身份和host角色竞态随旧迁移事务继续修。R303下一步Storage/Redeem列表读代次、迁移弹窗目标/读取/写回执；Go实际/proc CI、R269、327和完整灾备仍未完成。
+
 ## 2026-10-29 R1-302 配额提交校验与回执隔离
 
 - 6c8b219已push核远端；6cacb0a/e488cb8源码CI已success，8218018/6c8b219最后仍运行。配额提交仅管理员/宿主owner当前页面可用，函数与按钮共享busy门禁；固定实例/宿主/归属/Incus身份与session代次，切换后及ABA旧回执不提示、不刷新。跨切换保留在途busy，成功只归一化未再编辑字段，较早轮询失效，新草稿保留；辅助读取失败不改写已成功结果。

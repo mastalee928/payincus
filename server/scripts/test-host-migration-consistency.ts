@@ -40,6 +40,13 @@ assert(
 )
 
 const reserveTarget = indexOfOrThrow(migrationSection, 'await db.reserveResources({', 'target resource reservation')
+const dedicatedBoundary = indexOfOrThrow(migrationSection, "code: 'DEDICATED_HOST_CHANGE_MANAGED'", 'dedicated migration boundary')
+const sourceConnection = indexOfOrThrow(migrationSection, 'sourceClient = await getIncusClient(sourceHost)', 'source connection')
+assert(dedicatedBoundary < sourceConnection && dedicatedBoundary < reserveTarget,
+  'legacy migration must reject dedicated machines before remote work or reservation')
+assert(migrationSection.includes('id: { in: [sourceHostId, targetHostId] }, singleTenant: true') &&
+  migrationSection.includes('instances.some(instance => instance.dedicatedIpv4)'),
+  'legacy migration must reject both dedicated hosts and every dedicated selected instance')
 const createTarget = indexOfOrThrow(migrationSection, 'await createInstance(targetClient, incusConfig)', 'target Incus create')
 const startTarget = indexOfOrThrow(migrationSection, 'await startInstance(targetClient, newIncusId)', 'target Incus start')
 const createDb = indexOfOrThrow(migrationSection, 'const { createdInstance: newInstance, migratedBillingRecordCount } = await prisma.$transaction', 'new DB instance transaction')

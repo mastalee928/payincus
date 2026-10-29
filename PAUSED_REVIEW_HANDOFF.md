@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：0444f64已push；R303旧批量迁移专属实例/singleTenant源目标整批409门禁已修，先红PG→final-r3矩阵/4守卫/server build含tsc/manifest194/127通过，准备独立push，无待poll。真实机器池交付/用户全端口未改；旧迁移中途并发/补偿另待。下一项Storage/Redeem列表以及迁移弹窗生命周期。8218018 CI success，6c8b219/0444f64最后运行，Go proc失败仍未修；327/R269/完整灾备未完。
+
 > **最新接续**：6c8b219已push；R302配额提交0/null/完整整数/真实用量、仅变化字段、普通客户门禁、busy与目标/session/ABA旧回执、新草稿/辅助失败已修。最终Chrome r4/两回归/types/3守卫/lint0error48旧warn/manifest194/126/双端build exit0/dist通过，准备单项push。R303完整route已读，旧迁移没有显式专属/singleTenant隔离，先补机器池门禁；其UI/storage/redeem及迁移补偿另待。Go proc CI失败与327/R269/灾备未完成。
 
 > **最新接续**：8218018已push；R302配额编辑snake_case读取/使用量、子表单同步、轮询逐字段保草稿/换实例已修，Chrome先红后绿/两回归/types/3守卫/lint0error48旧warn/manifest194/125/双端build exit0/dist通过，准备单项push，无待poll。Owner全端口要求已记，专属用户无转发/配额入口Chrome与两个交付守卫通过，未改专属交付。下一段test-instance-quota-submit.mjs及fixture api新增quota-save保持未提交，已先红snapshot0拒绝；前后端quota与守卫已读，继续0/null/整数/门禁/旧回执及文案，产品提交未改。R303与Go proc CI失败另待，327/灾备未完。

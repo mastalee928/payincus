@@ -342,7 +342,7 @@
 | R1-300 | 实现不同 | 保留初审结论 | 未发现对方余额转账/预览功能入口，不能误指现有实例PUSH或AFF兑换；新增同类功能时才适用。 |
 | R1-301 | 存在，多阶段已修 | 读取/删除/批量状态/gift/price/reset/notify/recreate/single/batch-config与数字/角色专项通过；其它待续 | 读取/目标与回执隔离、gift失败重试、price/notify新草稿、reset辅助读、重建准备、single当前配置。批量配置固定targets/回执、Done刷新、retry原配置与累计明细；数字完整解析/0/null/精确流量；普通owner隐藏高级分区且构建/发送/retry拒绝admin-only已修。Chrome先红后绿/两回归/types/3守卫/lint/双端build/dist通过。迁移及后台完整状态写另续，不记整体完成，见HANDOFF。 |
 | R1-302 | 部分存在，多阶段精修 | 显示/默认/编辑读取与提交已修 | 资源0语义/未知用量、后台默认及有效备份计数、读取/草稿、0/null/整数/使用量提交、当前角色及目标/session/ABA回执均已修。真实PG详情/竞争、Chrome矩阵、types/守卫/双端build见HANDOFF；专属全端口及用户无转发入口保持，原生交付与整体327不由局部证据代替。 |
-| R1-303 | 存在 | 待精修/运行复核 | Storage/Redeem列表虽watch hostId，却await后直接回写无seq；迁移镜像同样无目标代次，handleSubmit缺isSubmitting入口门禁，close的300ms清理能影响重开草稿。 |
+| R1-303 | 存在，多阶段精修 | 专属迁移入口隔离已修；UI与事务另待 | 旧迁移在Incus前拒绝专属实例及singleTenant源/目标宿主，真实PG角色/混合批次与数据不变、4守卫/server build通过。Storage/Redeem列表无seq，迁移镜像/目标/提交与close timer待修；旧迁移并发锁及失败补偿仍未完成，不把入口门禁说成完整迁移验收。 |
 | R1-304 | 存在 | 待精修/运行复核 | 预览有requestId，但150ms防抖期间未立即清旧preview/id，变价后旧预览仍可提交。 |
 | R1-305 | 存在 | 待精修/运行复核 | 余额/登录弹窗异步未绑定当前user；submitAdjustBalance缺函数busy guard，可串用户/重复提交。 |
 | R1-306 | 已有防护 | 保留初审结论 | requiresIpv6ParentInterface仅当前或旧subnet有值时要求接口，IPv6全部留空可保存；清空已有值仍见R1-111。 |

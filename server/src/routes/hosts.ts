@@ -5461,6 +5461,17 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Some instances are not available on this host'))
     }
 
+    // This legacy operation recreates package instances and deletes the source.
+    // Pool machines must use managed replacement, retaining dedicated networking
+    // and exclusive inventory. Reject the entire selection before any Incus work.
+    const dedicatedMigrationHost = await prisma.host.findFirst({
+      where: { id: { in: [sourceHostId, targetHostId] }, singleTenant: true },
+      select: { id: true }
+    })
+    if (dedicatedMigrationHost || instances.some(instance => instance.dedicatedIpv4)) {
+      return reply.code(409).send({ code: 'DEDICATED_HOST_CHANGE_MANAGED', error: '独占实例和机器池节点请在机器池中使用故障换机，不能使用旧套餐批量迁移' })
+    }
+
     // 检查是否有付费实例
     const paidInstances = instances.filter(i => i.packagePlanId !== null)
     

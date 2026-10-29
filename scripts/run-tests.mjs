@@ -88,6 +88,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-quota-views', 'requires Chrome/Edge and local Vite; ticket quota cards and instance detail site/snapshot tabs'],
   ['test:review-instance-quota-editor', 'requires Chrome/Edge and local Vite; quota editor fields, resource usage, refresh and draft preservation'],
   ['test:review-instance-quota-submit', 'requires Chrome/Edge and local Vite; quota input validation, role/target/session boundaries and save/refresh lifecycle'],
+  ['test:review-host-migrate-dedicated', 'requires isolated local *_pool_test PostgreSQL; dedicated instance/host boundary before legacy migration mutations'],
   ['test:review-traffic-limit', 'requires isolated local *_pool_test PostgreSQL; actual user/instance traffic limit omission and bigint boundary validation'],
   ['test:review-traffic-reset-auth', 'requires isolated local *_pool_test PostgreSQL; actual traffic reset actor/target races, billing and baseline checks'],
   ['test:review-payment-locales', 'requires Chrome/Edge and local Vite; actual payment provider controls in three locales, read-only API fixture'],
