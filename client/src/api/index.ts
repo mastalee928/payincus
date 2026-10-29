@@ -1143,7 +1143,7 @@ poolOrder: (data: {
     setMaintenance: (id: number, enabled: boolean): Promise<Host> =>
       http.post(`/hosts/${id}/maintenance`, { enabled }),
     // 存储池管理
-    getStoragePools: (id: number): Promise<{ pools: Array<{ name: string; driver: string; description: string; status: string; purpose?: 'instance_data' | 'instance_storage' | null; config: Record<string, string>; usedBy: number; space?: { used: number; total: number } | null }> }> =>
+    getStoragePools: (id: number): Promise<{ warning?: string; pools: Array<{ name: string; driver: string; description: string; status: string; purpose?: 'instance_data' | 'instance_storage' | null; config: Record<string, string>; usedBy: number; space?: { used: number; total: number } | null }> }> =>
       http.get(`/hosts/${id}/storage-pools`),
     createStoragePool: (id: number, data: {
       name: string

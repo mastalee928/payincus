@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 宿主存储列表读取隔离
+
+- 794e336已push核远端；6c8b219源码CI已success，0444f64/794e336最后仍运行。Storage列表按host/session/请求序号和激活状态绑定，mount/activated只初读一次；换host/账号/logout/cache/unmount清列表和旧弹窗。旧成功、失败与finally不覆盖当前列表/loading，非法ID不发请求，非法/重复条目拒绝；错误持久显示且可重试，Incus不可达的数据库fallback警告在有/无列表时均展示。
+- takeover-storage-reads-before.log Chrome先红host1迟到覆盖host2；takeover-storage-reads-final-r2.log通过同host反序、host ABA、错误retry、非法回执/ID、session/role/account/logout/cache/unmount、同sid刷新和fallback警告。1440中文/390英文截图已核，前端受控API无真实存储写入；列表名称/配置换行以适应手机。
+- client types、route/i18n/host-route-id三守卫、lint零错警、manifest194/128均通过；最终双端build exit0与dist检查通过，新专项已接CI。
+- 下一项test-host-storage-writes.mjs已先红旧create刷新另一host并关闭新弹窗，完整create/import/edit/delete、重复、旧回执、retry矩阵已写未跑；产品写函数未改。相关route/Incus调用/DB/守卫已读，下一步固定目标/草稿与操作代次、busy/关闭门禁、持久错误、成功与辅助读取分离，后台授权/远端与DB原子性仍另待。327/R269/Go proc CI/完整灾备未完成。
+
 ## 2026-10-29 R1-303 旧批量迁移的专属机器入口隔离
 
 - 0444f64已push核远端；8218018源码CI已success，0444f64/6c8b219最后仍运行。旧批量迁移为套餐新建后删源，增加专属实例及singleTenant源/目标宿主的整批拒绝，沿现有DEDICATED_HOST_CHANGE_MANAGED提示使用机器池故障换机，在Incus连接/资源预占前返回409；普通套餐迁移既有权限及路径保留。没有改动专属交付、全端口或实际客户数据。

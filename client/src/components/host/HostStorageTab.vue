@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated, onUnmounted, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
+import { translateError } from '@/utils/errorHandler'
 import api from '@/api'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
 const toast = useToast()
+const authStore = useAuthStore()
 
 interface StoragePool {
   name: string
@@ -25,8 +28,23 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+let alive = true
+const pageActive = ref(false)
+let readSequence = 0
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their complete identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const canRead = computed(() => alive && pageActive.value && !!sessionKey.value && Number.isSafeInteger(props.hostId) && props.hostId > 0)
 
 const loading = ref(true)
+const loadError = ref('')
+const loadWarning = ref('')
 const pools = ref<StoragePool[]>([])
 const showCreateModal = ref(false)
 const creating = ref(false)
@@ -116,33 +134,53 @@ watch(createMode, () => {
   importDriver.value = 'zfs'
 })
 
-onMounted(() => {
-  loadPools()
-})
-
-// 当 hostId 变化时，重置状态并重新加载数据
-watch(() => props.hostId, () => {
-  // 重置状态
+function resetReadContext() {
+  readSequence++
   pools.value = []
+  loading.value = false
+  loadError.value = ''
+  loadWarning.value = ''
   showCreateModal.value = false
   showEditModal.value = false
-  // 重新加载数据
-  loadPools()
-})
+}
+watch([() => props.hostId, sessionKey], () => { resetReadContext(); void loadPools() }, { flush: 'sync' })
+function activateReads() {
+  if (!alive || pageActive.value) return
+  pageActive.value = true
+  void loadPools()
+}
+onMounted(activateReads)
+onActivated(activateReads)
+onDeactivated(() => { pageActive.value = false; resetReadContext() })
+onUnmounted(() => { alive = false; pageActive.value = false; resetReadContext() })
 
 async function loadPools() {
+  if (!canRead.value) return
+  const sequence = ++readSequence, hostId = props.hostId, session = sessionKey.value
+  const current = () => canRead.value && sequence === readSequence && hostId === props.hostId && session === sessionKey.value
   loading.value = true
+  loadError.value = ''
+  loadWarning.value = ''
   try {
-    const res = await api.hosts.getStoragePools(props.hostId)
-    pools.value = res.pools || []
-  } catch (err: any) {
-    toast.error(t('admin.hosts.storage.loadFailed') + ': ' + (err?.message || String(err)))
+    const res = await api.hosts.getStoragePools(hostId)
+    if (!current()) return
+    if (!Array.isArray(res?.pools) || res.pools.some(pool => !pool || typeof pool.name !== 'string' || !pool.name ||
+      typeof pool.driver !== 'string' || typeof pool.status !== 'string' || !pool.config || typeof pool.config !== 'object' ||
+      Array.isArray(pool.config) || !Number.isSafeInteger(pool.usedBy) || pool.usedBy < 0) ||
+      new Set(res.pools.map(pool => pool.name)).size !== res.pools.length) throw new Error(t('admin.hosts.storage.loadFailed'))
+    pools.value = res.pools
+    loadWarning.value = typeof res.warning === 'string' ? res.warning : ''
+  } catch (err: unknown) {
+    if (!current()) return
+    pools.value = []
+    loadError.value = t('admin.hosts.storage.loadFailed') + ': ' + translateError(err)
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 function openCreateModal() {
+  if (!canRead.value || loading.value) return
   createMode.value = 'create'
   form.value = {
     name: '',
@@ -281,6 +319,7 @@ function getUsagePercent(pool: StoragePool): number {
 
 // 打开编辑模态框
 function openEditModal(pool: StoragePool) {
+  if (!canRead.value || loading.value || !pools.value.includes(pool)) return
   editForm.value = {
     name: pool.name,
     driver: pool.driver,
@@ -328,7 +367,7 @@ async function submitEdit() {
         <h3 class="text-lg font-medium text-themed">{{ t('admin.hosts.storage.title') }}</h3>
         <p class="text-sm text-themed-secondary mt-1">{{ t('admin.hosts.storage.subtitle') }}</p>
       </div>
-      <button class="btn-primary" @click="openCreateModal">
+      <button class="btn-primary" :disabled="!canRead || loading" @click="openCreateModal">
         <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
         </svg>
@@ -346,18 +385,25 @@ async function submitEdit() {
     </div>
 
     <!-- Empty State -->
+    <div v-else-if="loadError" role="alert" class="card p-5 space-y-3">
+      <p class="text-sm text-red-500 break-words">{{ loadError }}</p>
+      <button class="btn-secondary" :disabled="!canRead" @click="loadPools">{{ t('common.retry') }}</button>
+    </div>
+
     <div v-else-if="pools.length === 0" class="card p-8 text-center">
+      <p v-if="loadWarning" role="status" class="mb-4 text-sm text-amber-600 dark:text-amber-400 break-words">{{ loadWarning }}</p>
       <svg class="w-12 h-12 mx-auto text-themed-muted mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
       </svg>
       <p class="text-themed-secondary">{{ t('admin.hosts.storage.empty') }}</p>
-      <button class="btn-primary mt-4" @click="openCreateModal">
+      <button class="btn-primary mt-4" :disabled="!canRead" @click="openCreateModal">
         {{ t('admin.hosts.storage.create') }}
       </button>
     </div>
 
     <!-- Pool List -->
     <div v-else class="space-y-4">
+      <p v-if="loadWarning" role="status" class="text-sm text-amber-600 dark:text-amber-400 break-words">{{ loadWarning }}</p>
       <div
         v-for="pool in pools"
         :key="pool.name"
@@ -365,8 +411,8 @@ async function submitEdit() {
       >
         <div class="flex items-start justify-between">
           <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="font-medium text-themed">{{ pool.name }}</span>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-medium text-themed break-all">{{ pool.name }}</span>
               <span class="badge badge-default text-xs uppercase">{{ pool.driver }}</span>
               <span
                 v-if="pool.purpose"
@@ -384,7 +430,7 @@ async function submitEdit() {
                 ]"
               ></span>
             </div>
-            <p v-if="pool.description" class="text-sm text-themed-secondary mt-1">{{ pool.description }}</p>
+            <p v-if="pool.description" class="text-sm text-themed-secondary mt-1 break-words">{{ pool.description }}</p>
             
             <!-- 使用量 -->
             <div v-if="hasValidSpaceInfo(pool)" class="mt-3">
@@ -402,7 +448,7 @@ async function submitEdit() {
             </div>
 
             <!-- 配置信息 -->
-            <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-themed-muted">
+            <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-themed-muted break-all">
               <span v-if="pool.config.source">
                 <span class="text-themed-secondary">Source:</span> {{ pool.config.source }}
               </span>
