@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { normalizeStorageSize } from '../src/lib/storage-size.js'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -207,5 +208,16 @@ for (const forbiddenPattern of [
     `host routes must not use loose path ID parsing: ${forbiddenPattern}`
   )
 }
+
+for (const input of ['', '0', '0B', '-1GiB', '1.5TiB', '1e2GiB', '1giB', '1 GiB', 'NaN', '8388608TiB', '9223372036854775808B', null, {}, 10]) {
+  assert.equal(normalizeStorageSize(input), null, `invalid storage capacity: ${String(input)}`)
+}
+for (const unit of ['', 'B', ' bytes', 'kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB']) {
+  assert.equal(normalizeStorageSize(`1${unit}`), `1${unit}`)
+}
+assert.equal(normalizeStorageSize(' 1649267441664B '), '1649267441664B')
+assert.equal(normalizeStorageSize('9223372036854775807B'), '9223372036854775807B')
+assert.equal(source.match(/const normalizedSize = size === undefined \? undefined : normalizeStorageSize\(size\)/g)?.length, 2,
+  'storage create and update both validate supplied capacity before connecting')
 
 console.log('host route ID guard tests passed')

@@ -33,6 +33,7 @@ import { IncusClient, getIncusClient, removeIncusClient } from '../lib/incus/ind
 import { getInstance, updateInstance } from '../lib/incus/incus-instances.js'
 import { selectBindableIpv4ListenAddress } from '../lib/network-address.js'
 import { listStoragePools, getStoragePoolResources, createStoragePool, deleteStoragePool, updateStoragePool } from '../lib/incus/incus-storage.js'
+import { normalizeStorageSize } from '../lib/storage-size.js'
 import type { CreateHostRequest, UpdateHostRequest } from '../types/api.js'
 import type { Host } from '../types/database.js'
 import { validateName, validateUrl, validateIpAddress, validateIdentifier, validateIpOrDomain, encryptSensitiveData } from '../lib/security.js'
@@ -3562,6 +3563,9 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
+    const normalizedSize = size === undefined ? undefined : normalizeStorageSize(size)
+    if (normalizedSize === null) return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Invalid storage size: use a positive integer with a supported byte unit, within the signed 64-bit limit'))
+
     try {
       const client = await getIncusClient(host)
 
@@ -3684,7 +3688,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       }
 
       const trimmedSource = typeof source === 'string' ? source.trim() : ''
-      const trimmedSize = typeof size === 'string' ? size.trim() : ''
+      const trimmedSize = normalizedSize ?? ''
       const supportsLoop = driver ? ['zfs', 'lvm', 'btrfs'].includes(driver) : false
       if (supportsLoop && trimmedSource && trimmedSize) {
         return reply.code(400).send({ error: '不能同时指定 source 和 size，请明确选择物理路径或 Loop 文件模式' })
@@ -3858,13 +3862,16 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: '请提供要修改的内容' })
     }
 
+    const normalizedSize = size === undefined ? undefined : normalizeStorageSize(size)
+    if (normalizedSize === null) return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Invalid storage size: use a positive integer with a supported byte unit, within the signed 64-bit limit'))
+
     try {
       const client = await getIncusClient(host)
       
       // 构建更新配置
       const config: Record<string, string> = {}
-      if (size) {
-        config['size'] = size
+      if (normalizedSize !== undefined) {
+        config['size'] = normalizedSize
       }
 
       await updateStoragePool(client, poolName, {

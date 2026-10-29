@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 存储容量API边界
+
+- f440d33已push核远端。创建和修改存储池接口在Incus连接前校验显式容量：正整数、Incus支持的大小写敏感字节单位、有符号64位总字节上限；保留合法历史单位和首尾空白规范化，省略容量仍允许描述清空/用途修改，显式空/零/负数/非法单位/小数后缀/溢出拒绝400。页面可精确的小数此前已转换整数字节，后台不隐式取整。
+- test-review-storage-size.ts原回环先红-1GiB到Incus准备500，扩展真实PG/Fastify+mTLS先红非法空容量仍发连接；takeover-storage-size-api-final.log完整exit0，30组非法创建/修改检查零远端请求与零池记录，14组合法单位/上限/字节有效写payload和省略size描述修改通过。mTLS为隔离传输fixture，不是真实Incus磁盘调整；只清理该夹具记录/临时证书，凭据未提交。
+- 后端build含tsc exit0（takeover-storage-size-api-build.log）；host-route-id新增实际解析边界、host-migration-consistency、incus-certificate-paths共3守卫通过（takeover-storage-size-api-guards-r3.log），manifest194/137，专项接CI。首轮only不存在直接拒跑；随后迁移守卫因编辑工具写CRLF导致严格LF片段失配，恢复LF后全部通过，未放松断言。
+- 当前授权、远端/DB/日志原子性、驱动支持/仅扩容、同名分页和旧迁移补偿仍待；327编号统计仍189有修复/复验（含部分）、68保留防护/不同实现、70待精修。Go proc/R269/完整灾备未完成。
+
 ## 2026-10-29 R1-303 存储容量输入与弹窗滚动
 
 - b97fff5已push核远端。创建/编辑容量按完整十进制格式与GiB/TiB单位校验，BigInt精确比较至少1当前单位及有符号64位字节上限，合法小数精确转为整数字节（Incus原生只解析整数+单位），不能整字节表示者拒绝；拒绝负数、零、指数/垃圾后缀和超范围，编辑空字符串保持只改描述，数字0不再静默省略。文本数字输入保留原始值交由校验，不让Vue number隐式转换掩盖非法格式；错误三语齐全。

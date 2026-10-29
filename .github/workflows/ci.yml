@@ -191,6 +191,8 @@ jobs:
         run: pnpm --filter server test:review-instance-quota
       - name: Dedicated machines cannot enter legacy package migration
         run: pnpm --filter server test:review-host-migrate-dedicated
+      - name: Storage capacity API validates before connecting to hosts
+        run: pnpm --filter server test:review-storage-size
       - name: Gifted days preserve current ownership and paid expiry
         run: pnpm --filter server test:review-host-gift-days
       - name: Instance detail reads stay on the current route and session
