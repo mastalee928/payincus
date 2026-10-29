@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-305 托管调账审计与回执事务
+
+- a065fd7b已push。原托管route三分支已有当前admin/session/目标事务锁，不误报缺权限；问题是管理员createLog事务外吞错，实际PG审计trigger先红仍200且已写账。现三分支共享原用户/hosting锁事务，available或frozen变更、账目、管理员审计与实际余额/冻结回执同事务；任一写入或回执读取失败全回滚。原金额、冻结最早扣减、30天解冻及运营收入排除管理员赠款保持。
+- takeover-user-hosting-write-before-r3.log真实PG先红；final-r2.log八审计失败/四账目失败恢复全部源冻结记录、四回执读取故障（实际PG事务+限定代理注入）全回滚，14正常加减/分币/扣到0/跨冻结记录与欠款回执、五非法/不足零写、八实际封禁/降权/单及全session撤销锁竞争通过。hosting/user-route-id/auth-session-status/log-localization四守卫，write-build.log后端build含tsc exit0、script-types.log独立专项类型exit0、manifest194/152通过，PG专项登记CI。PG55438在环境切换后已停止，先确认无server再恢复原数据目录；初失联和fixture缺hook不计产品先红，不停止此数据库。
+- CI只读核373ad333/50239a0d/c5eb8e98/b5d26214/6509acde/29225dde/3d90abd3已success；a065fd7b仍运行。未生产部署。托管小数精度、冻结扣减历史审计及断网后幂等继续，193/68/66含部分、完整327及网关灾备未完成。
+
 ## 2026-10-29 R1-305 托管余额读取与调整回执
 
 - 基于已push的373ad333，托管余额概览/明细/调整页独立read序号，绑定当前user/session/modal/tab/page和打开代次；同步清数据/loading/error，旧目标/ABA/cache/卸载回执拒绝。校验真实user.id、有限金额、非负冻结与明细/分页；允许业务实际欠款与负金额销毁明细，显示不重复负号。错误持久retry，标签切回重取，明细按实际pageSize算页数，手机三标签完整显示。

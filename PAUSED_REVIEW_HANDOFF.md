@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：a065fd7b前端已push。托管调账后台原current admin锁保留，available/frozen变更+账目+操作审计+实际回执同事务已修；write-before-r3真实PG审计失败200先红→final-r2审计8/账目4/回执4故障全回滚、正常14/欠款/非法5/实际权限竞争8通过。4守卫/后端build含tsc/scripts独立类型/manifest194/152通过，准备阶段push。PG55438原目录已恢复并正常，不停库；无待poll本地进程。继续冻结小数求和/减法、合法精度输入与历史审计、断网幂等；R304/R303/R269/Go proc/完整灾备未完成，193/68/66含部分。a065fd7b CI40835884558仍running，此前余额积分7提交CI success。
+
 > **最新接续**：373ad333已push。R305托管余额读取及写回执/严格金额/busy/字段关闭/旧session与草稿/辅助读取隔离已修，合法欠款和负金额销毁明细保留且显示不重复负号。reads-current与submit-current真实Chrome全矩阵exit0，三宽三语截图已看；final-build-r2双端含vue-tsc exit0，4同源native守卫/dist/lint0错警/manifest194/151通过，准备阶段push。自动审批503后owner开启完全权限，Chrome正常。下一项server/scripts/test-review-user-hosting-write.ts未提交，不混UI阶段；初跑PG55438失联，不算产品先红。PG已确认无server，pg_ctl start session70628待检查；后台当前admin锁已有，继续审计事务外吞错及事务后重读。193/68/66含部分，断网幂等/R304/R303/R269/Go proc/完整灾备未完。
 
 > **最新接续**：50239a0d已push。R305积分后台必actor/current admin/session/target事务锁、积分累计+账目+操作审计原子已修，真实PG before banned200先红→final-r2权限4/实际竞争4、审计账目4失败全回滚、正常5/非法4/溢出3/并发扣减/缺sid iat及未建积分封禁通过；4守卫/后端build含tsc exit0/manifest194/149通过，scripts独立类型检查exit0，无待poll，准备单项push。前端未改。托管余额读取/写仍旧回执与parseFloat/busy问题，函数/hosting守卫已读，后台Users route需读后建实际Chrome先红；断网幂等/持久投递/其它用户写及R304/R303/R269/Go proc/完整灾备仍待，193/68/66含部分。

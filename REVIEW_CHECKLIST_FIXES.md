@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R305托管后台事务阶段：原current admin/session/目标锁保持，available/frozen变更、明细、操作审计与实际回执同事务。真实PG审计失败200先红后八审计/四账目/四回执读取失败全回滚、正常14/欠款/非法5/八实际权限撤销竞争通过；4守卫/build/scripts类型/manifest194/152见HANDOFF。小数精度、冻结历史、断网幂等和完整流程继续，193/68/66不变。
+
 2026-10-29 R305托管余额前端阶段：三tab读取当前user/session/page/弹窗隔离、error/retry/0/欠款及真实明细；写严格金额/type/reason、busy/字段关闭、固定target/session/draft回执与辅助刷新已修，负金额明细显示不重复负号。真实Chrome先红后读写全矩阵、4同源守卫/lint/manifest194/151/三宽截图/最终双端build通过，build/dist见HANDOFF。后台审计/事务回执与断网幂等继续，193/68/66不变。
 
 2026-10-29 R305积分后台阶段：当前admin/session/目标事务锁及积分/累计/明细/管理员审计原子已修，实际PG封禁写200先红→权限与真实竞争/审计账目全回滚/正常0和上限/非法与溢出/并发不足全部通过，4守卫/build/scripts类型/manifest见HANDOFF。托管余额、断网幂等与完整流程继续，193/68/66不变。

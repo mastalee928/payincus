@@ -11,6 +11,7 @@ import * as db from '../db/index.js'
 import { prisma } from '../db/prisma.js'
 import { lockAdministrativeUserMutation } from '../db/user-write-authorization.js'
 import { createLog } from '../db/logs.js'
+import { normalizeLogContentForStorage } from '../lib/log-localization.js'
 import type { UpdateUserRequest } from '../types/api.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { containsDangerousChars, getUserSessions, logAdminAction, validatePassword, validateIdentifier } from '../lib/security.js'
@@ -1654,15 +1655,11 @@ export default async function userRoutes(fastify: FastifyInstance) {
     const absAmount = Math.abs(amount)
 
     try {
-      if (type === 'available') {
-        await prisma.$transaction(async (tx) => {
-          const locked = await tryAdvisoryTransactionLock(tx, HOSTING_BALANCE_LOG_LOCK_NAMESPACE, userId)
-          if (!locked) {
-            throw new Error('Hosting balance is being processed')
-          }
-
-          await lockAdministrativeUserMutation(tx, userId, request.user)
-
+      return await prisma.$transaction(async (tx) => {
+        const locked = await tryAdvisoryTransactionLock(tx, HOSTING_BALANCE_LOG_LOCK_NAMESPACE, userId)
+        if (!locked) throw new Error('Hosting balance is being processed')
+        await lockAdministrativeUserMutation(tx, userId, request.user)
+        if (type === 'available') {
           // 更新用户托管余额
           const updateResult = await tx.user.updateMany({
             where: {
@@ -1690,19 +1687,10 @@ export default async function userRoutes(fastify: FastifyInstance) {
               remark: `${ADMIN_HOSTING_BALANCE_ADJUST_REMARK_PREFIX} ${normalizedReason}`
             }
           })
-        })
-      } else {
-        // 调整冻结余额
-        if (isAdd) {
-          // 增加冻结余额：创建一条冻结记录
-          await prisma.$transaction(async (tx) => {
-            const locked = await tryAdvisoryTransactionLock(tx, HOSTING_BALANCE_LOG_LOCK_NAMESPACE, userId)
-            if (!locked) {
-              throw new Error('Hosting balance is being processed')
-            }
-
-          await lockAdministrativeUserMutation(tx, userId, request.user)
-
+        } else {
+          // 调整冻结余额
+          if (isAdd) {
+            // 增加冻结余额：创建一条冻结记录
             await tx.hostingBalanceLog.create({
               data: {
                 userId,
@@ -1714,16 +1702,7 @@ export default async function userRoutes(fastify: FastifyInstance) {
                 remark: `[Admin Frozen] ${normalizedReason}`
               }
             })
-          })
-        } else {
-          await prisma.$transaction(async (tx) => {
-            const locked = await tryAdvisoryTransactionLock(tx, HOSTING_BALANCE_LOG_LOCK_NAMESPACE, userId)
-            if (!locked) {
-              throw new Error('Hosting balance is being processed')
-            }
-
-          await lockAdministrativeUserMutation(tx, userId, request.user)
-
+          } else {
             // 扣减冻结余额：从冻结记录中扣除
             const frozenLogs = await tx.hostingBalanceLog.findMany({
               where: { userId, frozen: true, amount: { gt: 0 } },
@@ -1764,9 +1743,20 @@ export default async function userRoutes(fastify: FastifyInstance) {
                 remark: `[Admin Frozen Deduct] ${normalizedReason} (¥${absAmount.toFixed(2)})`
               }
             })
-          })
+          }
         }
-      }
+        await tx.log.create({ data: {
+          userId: request.user.id,
+          module: 'user',
+          action: 'admin.adjust_hosting_balance',
+          content: normalizeLogContentForStorage(`Admin adjusted user #${userId} hosting balance: type=${type}, amount=${amount}, reason=${normalizedReason}`),
+          result: 'success'
+        } })
+        // Read the receipt under the same user and hosting locks; any failure rolls back the adjustment.
+        const updatedUser = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { hostingBalance: true } })
+        const frozenResult = await tx.hostingBalanceLog.aggregate({ where: { userId, frozen: true }, _sum: { amount: true } })
+        return { success: true, available: Number(updatedUser.hostingBalance), frozen: Number(frozenResult._sum.amount || 0) }
+      })
     } catch (error) {
       if (handleAdminMutationError(error, reply)) return
       const message = error instanceof Error ? error.message : String(error)
@@ -1780,31 +1770,6 @@ export default async function userRoutes(fastify: FastifyInstance) {
         return reply.code(400).send(apiError(ErrorCode.BALANCE_INSUFFICIENT, 'Insufficient frozen hosting balance'))
       }
       throw error
-    }
-
-    // 记录管理员操作日志
-    await createLog(
-      request.user.id,
-      'user',
-      'admin.adjust_hosting_balance',
-      `Admin adjusted user #${userId} hosting balance: type=${type}, amount=${amount}, reason=${normalizedReason}`,
-      'success'
-    )
-
-    // 返回更新后的托管余额信息
-    const updatedUser = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { hostingBalance: true }
-    })
-    const frozenResult = await prisma.hostingBalanceLog.aggregate({
-      where: { userId, frozen: true },
-      _sum: { amount: true }
-    })
-
-    return {
-      success: true,
-      available: Number(updatedUser?.hostingBalance || 0),
-      frozen: Number(frozenResult._sum.amount || 0)
     }
   })
 
