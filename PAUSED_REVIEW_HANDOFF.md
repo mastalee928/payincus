@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：3fd4488已push；R301单sync/swap固定target/session/host/query/激活回执、配置读取前busy/失败缓存拒绝、admin与状态门禁、当前对象回写与旧list/config失效、持久逐实例错误已修。Chrome先红后绿+两回归/types/4守卫/lint零错警/manifest194/119/最终双端build exit0/dist通过，准备单项push，无待poll。下一项host-batch-config四文件已先红弹窗1随后选2提交2，扩矩阵写完未跑，产品未改。父入口/子脚本完整、route前半与mutation/guard已读；固定targets、在途跨重开busy、session/cache旧回执、Done保成功refresh、失败retry固定原config，数字parseInt/角色字段另续。98ca675 CI success，其后3项最后运行。后台Swap原子性、R301/327/R269/灾备未完成。
+
 > **最新接续**：d54246a已push；R301重建父入口固定准备/选项与提交目标、session/modal/host回执、输入和busy、持久error、task有效回执及成功独立刷新已修。Chrome先红后绿+两回归/types/4守卫/lint零错警/manifest194/118/最终双端build exit0/dist通过，准备单项push，无待poll。下一项host-single-actions四文件已先红old sync刷新new host，扩矩阵已写未跑，产品未改；sync/swap完整前后端与guard已读。Swap须配置读取前busy、拒绝旧/失败缓存、当前对象回写，前端仅admin与running/stopped容器，后台授权/Incus与DB原子性仍待。其余R301/R302–327/R269/完整灾备未完成。28a1565/a021f9a CI success，其后3项最后运行。
 
 > **最新接续**：daaf349已push；R301notify固定实例集合/输入界限/重复门禁/旧回执/保新草稿/持久错误已修，Chrome先红后绿、两回归/types/3守卫/lint零错警/manifest194/117/最终双端build exit0/dist通过，准备独立push，无待poll。下一段host-recreate-lifecycle四文件已先红（takeover-host-recreate-before.log）：切host旧images/keys仍打开弹窗；完整父入口、子弹窗、后端recreate及consistency/route守卫已读，产品重建未改。固定准备与写目标、当前选项及modal/session/host代次；其余single sync/swap、R302–327、R269/完整灾备仍待。5f2085b CI success，其后4项最后运行。

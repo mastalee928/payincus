@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-301 单实例同步与Swap回执
+
+- 3fd4488已push核远端；98ca675源码CI已success，daaf349/d54246a/3fd4488最后运行。sync/swap固定实例与host/query/session/激活代次，互相覆盖同实例在途门禁，旧回执不提示或刷新新页面；当前sync成功要求success:true。Swap在读取前置busy，强制读当前配置并核序号，失败不得用旧缓存继续；按当前admin-only、running/stopped容器资格确认固定开关方向。成功更新当前列表对象、失效旧配置/在途列表，辅助读失败不误报已提交操作失败；逐实例错误持久保留。
+- `takeover-host-single-before.log`Chrome先红旧sync刷新新host；`takeover-host-single-final.log`通过固定sync/swap、重复/准备读门禁、配置失败与取消、非法回执/失败重试、同页已返回/在途列表、旧config、session/同sid/cache/query/host/logout/unmount及两视口。1440中文/390英文截图已核，无溢出或运行异常。初次并发构建时夹具未及时挂载，增加有界等待真实list后最终通过；非产品失败。受控API无真实客户Swap/Incus写入。
+- client types、4守卫（route/i18n/operation-conflict/instance-route-id）、lint零错警、读取及重建完整Chrome回归、manifest194/119、最终双端build exit0/dist通过；专项接Chrome CI。后台Swap原当前授权与Incus/DB原子性仍待，R271后台同步保护保持。
+- 下一项host-batch-config四文件Chrome先红（`takeover-host-batch-config-before.log`）：开弹窗选1，下一DOM更新改勾2后提交2。扩展矩阵已写未跑，产品批量配置未改；父入口/子完整脚本、batch-config route前半/事务/对应守卫已读。需固定目标、session/回执和busy、成功后Done先清结果导致漏refresh、仅失败重试保原config；数字parseInt与角色字段另需继续。R301/327/R269及完整灾备未完成。
+
 ## 2026-10-29 R1-301 重建入口准备数据与固定目标
 
 - d54246a已push核远端；28a1565/a021f9a源码CI已success，98ca675/daaf349/d54246a最后运行。重建父入口固定实例/host/session/打开代次，镜像与SSH公钥列表一起通过当前校验后展示，旧成功/失败不能重开或覆盖其它目标；准备与写入重复门禁。提交核当前本人归属、非封停、内存/类型未变、当前镜像/key选项和命令ID，复制参数，旧回执静默；有效task回执成功后独立刷新，失败持久显示。子弹窗仅增加可选error/disabled，沿用已有选项/session规则；后台重建与机器池一机一卖未改。

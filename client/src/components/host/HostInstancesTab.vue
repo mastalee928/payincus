@@ -480,6 +480,18 @@ const detailConfigErrors = ref<Record<number, string>>({})
 const detailLoadingIds = ref<Set<number>>(new Set())
 const syncingInstanceIds = ref<Set<number>>(new Set())
 const swapActionLoadingIds = ref<Set<number>>(new Set())
+const singleActionErrors = ref<Record<number, string>>({})
+let singleActionGeneration = 0
+function captureSingleActionContext() {
+  const generation = singleActionGeneration, session = sessionKey.value, hostId = props.hostId
+  return () => alive && pageActive.value && !!session && session === sessionKey.value &&
+    hostId === props.hostId && generation === singleActionGeneration
+}
+function canStartSingleAction(instanceId: number): boolean {
+  return alive && pageActive.value && !!sessionKey.value && !loading.value &&
+    Number.isSafeInteger(instanceId) && instanceId > 0 && instances.value.some(instance => instance.id === instanceId) &&
+    !syncingInstanceIds.value.has(instanceId) && !swapActionLoadingIds.value.has(instanceId)
+}
 
 const isAllSelected = computed(() => {
   return instances.value.length > 0 && selectedIds.value.size === instances.value.length
@@ -1287,6 +1299,8 @@ function handlePageSizeChange() {
 }
 
 function closeReadContextModals() {
+  singleActionGeneration++
+  singleActionErrors.value = {}
   resetRecreateDialog()
   notifyError.value = ''
   notifyTitle.value = ''
@@ -1554,9 +1568,8 @@ function formatQuotaValue(value: string | number | null | undefined): string {
 }
 
 function canToggleSwap(instance: Instance): boolean {
-  const currentUserId = authStore.user?.id
-  const ownerId = instance.userId ?? instance.user_id
-  return authStore.user?.role === 'admin' || (!!currentUserId && ownerId === currentUserId)
+  return alive && pageActive.value && !!sessionKey.value && authStore.user?.role === 'admin' &&
+    ['running', 'stopped'].includes(instance.status) && instance.instanceType !== 'vm'
 }
 
 function getSwapDisplay(instance: Instance): string {
@@ -1602,11 +1615,15 @@ async function handleBatchConfigSuccess(): Promise<void> {
 }
 
 async function syncSingleInstance(instance: Instance): Promise<void> {
-  if (isInstanceSyncing(instance.id)) return
-
-  setLoadingState(syncingInstanceIds, instance.id, true)
+  if (!canStartSingleAction(instance.id)) return
+  const instanceId = instance.id, instanceName = instances.value.find(item => item.id === instanceId)!.name
+  const current = captureSingleActionContext()
+  setLoadingState(syncingInstanceIds, instanceId, true)
+  delete singleActionErrors.value[instanceId]
   try {
-    const result = await api.instances.syncStatus(instance.id)
+    const result = await api.instances.syncStatus(instanceId)
+    if (!current()) return
+    if (result.success !== true || typeof result.statusChanged !== 'boolean') throw new Error(t('common.operationFailed'))
     if (result.statusChanged || result.ipv4Changed) {
       toast.success(t('admin.hosts.batchSyncSuccess', {
         synced: 1,
@@ -1615,45 +1632,59 @@ async function syncSingleInstance(instance: Instance): Promise<void> {
     } else {
       toast.info(t('admin.hosts.batchSyncNoChange', { synced: 1 }))
     }
-    await loadInstances()
-    if (expandedInstanceId.value === instance.id) {
-      await loadInstanceDetailConfig(instance.id, true)
-    }
+    void loadInstances()
   } catch (err: any) {
-    toast.error(t('admin.hosts.batchSyncFailed') + ': ' + (err?.message || String(err)))
+    if (!current()) return
+    singleActionErrors.value[instanceId] = `${instanceName}: ${t('admin.hosts.batchSyncFailed')}: ${translateError(err)}`
+    toast.error(singleActionErrors.value[instanceId])
   } finally {
-    setLoadingState(syncingInstanceIds, instance.id, false)
+    setLoadingState(syncingInstanceIds, instanceId, false)
   }
 }
 
 async function toggleInstanceSwap(instance: Instance): Promise<void> {
-  if (isSwapActionLoading(instance.id)) return
-
-  await loadInstanceDetailConfig(instance.id)
-  const detail = getDetailConfig(instance.id)
-  if (!detail || !detail.swap.available) return
-
-  const confirmText = detail.swap.enabled
-    ? t('instanceConfig.swap.disableConfirmText')
-    : t('instanceConfig.swap.enableConfirmText', { size: formatSwapSize(detail.swap.sizeMb) })
-
-  if (!window.confirm(confirmText)) return
-
-  setLoadingState(swapActionLoadingIds, instance.id, true)
+  const target = instances.value.find(item => item.id === instance.id)
+  if (!target || !canStartSingleAction(target.id) || !canToggleSwap(target)) return
+  const instanceId = target.id, instanceName = target.name
+  const current = captureSingleActionContext(), readCurrent = captureReadContext()
+  // Cover the preparatory read too, so rapid clicks cannot queue multiple confirmations.
+  setLoadingState(swapActionLoadingIds, instanceId, true)
+  delete singleActionErrors.value[instanceId]
   try {
-    const result = detail.swap.enabled
-      ? await api.instances.disableSwap(instance.id)
-      : await api.instances.enableSwap(instance.id)
-
-    instance.swapEnabled = result.swapEnabled
-    instance.swapSize = result.swapSize
-
-    toast.success(detail.swap.enabled ? t('instanceConfig.swap.disableSuccess') : t('instanceConfig.swap.enableSuccess'))
-    await loadInstanceDetailConfig(instance.id, true)
+    const sequence = (detailSequences.get(instanceId) || 0) + 1
+    await loadInstanceDetailConfig(instanceId, true)
+    if (!current() || !readCurrent() || sequence !== detailSequences.get(instanceId)) return
+    const currentInstance = instances.value.find(item => item.id === instanceId)
+    const detail = getDetailConfig(instanceId)
+    if (detailConfigErrors.value[instanceId]) throw new Error(detailConfigErrors.value[instanceId])
+    if (!currentInstance || !canToggleSwap(currentInstance) || !detail?.swap.available ||
+      typeof detail.swap.enabled !== 'boolean' || !Number.isFinite(detail.swap.sizeMb) || detail.swap.sizeMb < 0) return
+    const enable = !detail.swap.enabled
+    if (enable && detail.swap.sizeMb <= 0) return
+    const confirmText = enable
+      ? t('instanceConfig.swap.enableConfirmText', { size: formatSwapSize(detail.swap.sizeMb) })
+      : t('instanceConfig.swap.disableConfirmText')
+    if (!window.confirm(confirmText) || !current() || !readCurrent()) return
+    const result = enable ? await api.instances.enableSwap(instanceId) : await api.instances.disableSwap(instanceId)
+    if (!current()) return
+    if (result.swapEnabled !== enable || !Number.isFinite(result.swapSize) || result.swapSize < 0) throw new Error(t('common.operationFailed'))
+    const displayedInstance = instances.value.find(item => item.id === instanceId)
+    if (displayedInstance) {
+      displayedInstance.swapEnabled = result.swapEnabled
+      displayedInstance.swapSize = result.swapSize
+    }
+    // Retire older config reads before displaying this committed result.
+    detailSequences.set(instanceId, (detailSequences.get(instanceId) || 0) + 1)
+    delete detailConfigs.value[instanceId]
+    toast.success(enable ? t('instanceConfig.swap.enableSuccess') : t('instanceConfig.swap.disableSuccess'))
+    if (loading.value) void loadInstances()
+    else void loadInstanceDetailConfig(instanceId, true)
   } catch (err: any) {
-    toast.error(translateError(err))
+    if (!current()) return
+    singleActionErrors.value[instanceId] = `${instanceName}: ${translateError(err)}`
+    toast.error(singleActionErrors.value[instanceId])
   } finally {
-    setLoadingState(swapActionLoadingIds, instance.id, false)
+    setLoadingState(swapActionLoadingIds, instanceId, false)
   }
 }
 
@@ -1694,6 +1725,7 @@ function goToInstance(id: number) {
       <button type="button" class="btn-secondary btn-sm" @click="loadInstances">{{ t('common.retry') }}</button>
     </div>
     <p v-if="recreateError && !showRecreateModal" role="alert" class="text-sm text-red-500 break-words">{{ recreateError }}</p>
+    <p v-for="(error, id) in singleActionErrors" :key="id" role="alert" class="text-sm text-red-500 break-words">{{ error }}</p>
 
     <!-- 搜索栏 - 始终显示 -->
     <div v-if="!loading" class="flex items-center gap-2 flex-wrap">
@@ -1940,8 +1972,8 @@ function goToInstance(id: number) {
         :can-recreate-instance="canRecreateInstance"
         :is-instance-expanded="isInstanceExpanded"
         :is-detail-loading="isDetailLoading"
-        :is-instance-syncing="isInstanceSyncing"
-        :is-swap-action-loading="isSwapActionLoading"
+        :is-instance-syncing="(id) => isInstanceSyncing(id) || isSwapActionLoading(id)"
+        :is-swap-action-loading="(id) => isSwapActionLoading(id) || isInstanceSyncing(id)"
         :get-detail-config="getDetailConfig"
         :format-money="formatMoney"
         :format-date-time="formatDateTime"
