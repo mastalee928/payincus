@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-310 系统设置管理员会话与读取隔离
+
+- a77e7c80 已push。scope-before 实际Chrome先红旧管理员读取把当前brand填成Old session brand。读取/分组保存现绑定account/role/sid与页面代次，session ABA/cache/unmount撤销旧成功、失败和刷新；同步清form秘密/配置/测试邮箱/候选，重入或新admin重新读取，同sid正常token刷新保留。旧在途组busy直到原finally，首次加载期间函数门禁阻写；全量loader独立seq，旧finally不结束新loader。
+- popup候选读取同样绑定当前session/seq，旧候选不能覆盖新列表或结束新loading。七个公共配置辅助刷新入口仅在当前成功保存后执行；旧写回执不能再触发配置store刷新。scope-final-r4 实际Chrome12旧读+12旧写、四卸载成功失败、同sid、busy/current loading、候选反序与publicReads计数通过exit0，drafts-final19组全回归exit0。首轮回归中编辑共享夹具触发Vite reload的失败已顺序重跑，不计产品根因；截图前最后fresh避免只截到loading，三宽三语已看。
+- scope-build双端含vue-tsc exit0、dist通过、4相关守卫及lint零错警通过，manifest194常规/164专项分类通过，scope专项登记CI。scope/drafts/构建进程均已exit0，无待poll。仅真实Vue/受控API，真实管理员系统写入、初读ready/持久错误retry、严格成功回执/数据形状和SMTP测试当前目标仍待；后台权限/审计未修改。R310仍部分、198/68/61含部分不变，完整327和灾备未完，本批阶段保存继续。
+
 ## 2026-10-29 R1-310 系统设置分组保存保留草稿
 
 - 上批密码确认与验证联动 a77d2e74 已核远端 main。系统设置 drafts-before 实际 Chrome 先红：保存注册设置后品牌草稿由 Unsaved brand 变为 Incudal。现在 saveConfigGroup 固定提交字段的编辑代次，loadConfigs 只合并该分组；逐字段同步 deep watcher 保留其它组、保存及刷新期间的新输入、改回原值和 JSON 嵌套草稿。读取代次按字段独立，两个分组反序回执不互相覆盖基线；保存开始拒较早初读，同组函数入口 busy 拒重复。

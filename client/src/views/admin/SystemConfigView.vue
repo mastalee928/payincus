@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated, onUnmounted, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import api from '@/api/admin'
 import { useConfigStore } from '@/stores/config'
+import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/stores/toast'
 import type { Package } from '@/types/api'
 import { translateError } from '@/utils/errorHandler'
@@ -17,6 +18,24 @@ const { t } = useI18n()
 const toast = useToast()
 const route = useRoute()
 const configStore = useConfigStore()
+const authStore = useAuthStore()
+let alive = true
+const active = ref(true)
+let contextGeneration = 0
+const session = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their complete identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const available = computed(() => alive && active.value && authStore.isAdmin && !!session.value)
+function requestContext() {
+  const generation = contextGeneration, identity = session.value
+  return { current: () => available.value && contextGeneration === generation && session.value === identity }
+}
 
 const loading = ref(true)
 // 每个卡片独立的 saving 状态
@@ -147,11 +166,14 @@ const form = ref({
 })
 
 type ConfigFormKey = keyof typeof form.value
+const defaultForm = JSON.stringify(form.value)
 const formKeys = Object.keys(form.value) as ConfigFormKey[]
 const draftRevisions = new Map<ConfigFormKey, number>()
 const readRevisions = new Map<ConfigFormKey, number>()
 let applyingConfigs = false
 let nextReadRevision = 0
+let initialReadRevision = 0
+let promoReadRevision = 0
 for (const key of formKeys) {
   draftRevisions.set(key, 0)
   watch(() => form.value[key], () => {
@@ -162,6 +184,30 @@ for (const key of formKeys) {
 function captureDraftRevisions(keys: string[]): Map<ConfigFormKey, number> {
   return new Map(keys.map(key => [key as ConfigFormKey, draftRevisions.get(key as ConfigFormKey) || 0]))
 }
+
+function invalidateContext(): void {
+  contextGeneration += 1
+  initialReadRevision += 1
+  promoReadRevision += 1
+  readRevisions.clear()
+  configs.value = []
+  applyingConfigs = true
+  try { form.value = JSON.parse(defaultForm) } finally { applyingConfigs = false }
+  loading.value = false
+  testEmailTo.value = ''
+  popupPromoPackages.value = []
+  popupPromoPackagesLoaded.value = false
+  popupPromoPackagesLoading.value = false
+}
+function reloadCurrentSettings(): void {
+  if (!available.value) return
+  void loadConfigs()
+  if (isPopupAnnouncementTab.value) void loadPopupPromoPackages()
+}
+watch(session, () => { invalidateContext(); reloadCurrentSettings() }, { flush: 'sync' })
+onActivated(() => { if (!active.value) { active.value = true; reloadCurrentSettings() } })
+onDeactivated(() => { active.value = false; invalidateContext() })
+onUnmounted(() => { alive = false; active.value = false; invalidateContext() })
 
 // Config metadata - computed to support i18n
 // 注意：好友配额已禁用，不再显示 default_quota_friend
@@ -265,12 +311,16 @@ watch(isPopupAnnouncementTab, (active) => {
 })
 
 async function loadConfigs(savedDrafts?: Map<ConfigFormKey, number>) {
+  if (!available.value) return
+  const context = requestContext()
   const drafts = savedDrafts || captureDraftRevisions(formKeys)
   const readRevision = ++nextReadRevision
   for (const key of drafts.keys()) readRevisions.set(key, readRevision)
+  const initialRevision = savedDrafts ? initialReadRevision : ++initialReadRevision
   if (!savedDrafts) loading.value = true
   try {
     const response = await api.systemConfig.list()
+    if (!context.current()) return
 
     if (!response || !Array.isArray(response.configs)) {
       throw new Error(t('admin.system.loadFailed'))
@@ -313,6 +363,7 @@ async function loadConfigs(savedDrafts?: Map<ConfigFormKey, number>) {
       applyingConfigs = false
     }
   } catch (err: any) {
+    if (!context.current() || ![...drafts.keys()].some(key => readRevisions.get(key) === readRevision)) return
     console.error('[SystemConfigView] Error loading configs:', err)
     try {
       toast.error((t('admin.system.loadFailed') || '加载配置失败') + ': ' + (err?.message || String(err)))
@@ -320,36 +371,40 @@ async function loadConfigs(savedDrafts?: Map<ConfigFormKey, number>) {
       console.error('[SystemConfigView] Failed to show toast:', toastErr)
     }
   } finally {
-    if (!savedDrafts) loading.value = false
+    if (!savedDrafts && context.current() && initialReadRevision === initialRevision) loading.value = false
   }
 }
 
 async function loadPopupPromoPackages() {
-  if (popupPromoPackagesLoading.value || popupPromoPackagesLoaded.value) {
+  if (!available.value || popupPromoPackagesLoading.value || popupPromoPackagesLoaded.value) {
     return
   }
   popupPromoPackagesLoading.value = true
+  const context = requestContext(), revision = ++promoReadRevision
   try {
     const [officialResponse, marketResponse] = await Promise.all([
       api.packages.list({ source: 'official' }),
       api.packages.list({ source: 'market' })
     ])
+    if (!context.current() || promoReadRevision !== revision) return
     popupPromoPackages.value = [
       ...(officialResponse.packages || []),
       ...(marketResponse.packages || [])
     ].filter(pkg => pkg.active === 1)
     popupPromoPackagesLoaded.value = true
   } catch (err) {
+    if (!context.current() || promoReadRevision !== revision) return
     console.error('[SystemConfigView] Failed to load promo packages:', err)
     popupPromoPackages.value = []
   } finally {
-    popupPromoPackagesLoading.value = false
+    if (context.current() && promoReadRevision === revision) popupPromoPackagesLoading.value = false
   }
 }
 
 // 通用保存函数
-async function saveConfigGroup(keys: string[], savingRef: { value: boolean }) {
-  if (savingRef.value) return
+async function saveConfigGroup(keys: string[], savingRef: { value: boolean }): Promise<boolean> {
+  if (!available.value || loading.value || savingRef.value) return false
+  const context = requestContext()
   savingRef.value = true
   try {
     const configsToUpdate = keys.map(key => ({
@@ -365,10 +420,14 @@ async function saveConfigGroup(keys: string[], savingRef: { value: boolean }) {
     for (const key of savedDrafts.keys()) readRevisions.delete(key)
 
     await api.systemConfig.update(configsToUpdate)
+    if (!context.current()) return false
     toast.success(t('admin.system.saveSuccess'))
     await loadConfigs(savedDrafts)
+    return context.current()
   } catch (err: any) {
+    if (!context.current()) return false
     toast.error(t('admin.system.saveFailed') + ': ' + getConfigSaveErrorMessage(err))
+    return false
   } finally {
     savingRef.value = false
   }
@@ -470,8 +529,7 @@ const hasVipBenefitsChanges = computed(() => {
 
 const popupAnnouncementKeys = ['popup_announcement']
 async function savePopupAnnouncement() {
-  await saveConfigGroup(popupAnnouncementKeys, savingPopupAnnouncement)
-  await configStore.loadPublicConfig(true)
+  if (await saveConfigGroup(popupAnnouncementKeys, savingPopupAnnouncement)) await configStore.loadPublicConfig(true)
 }
 const hasPopupAnnouncementChanges = computed(() => {
   return popupAnnouncementKeys.some(key => {
@@ -483,8 +541,7 @@ const hasPopupAnnouncementChanges = computed(() => {
 
 const popupPromoKeys = ['popup_promo_image_url', 'popup_promo_package_id']
 async function savePopupPromo() {
-  await saveConfigGroup(popupPromoKeys, savingPopupPromo)
-  await configStore.loadPublicConfig(true)
+  if (await saveConfigGroup(popupPromoKeys, savingPopupPromo)) await configStore.loadPublicConfig(true)
 }
 const hasPopupPromoChanges = computed(() => {
   return popupPromoKeys.some(key => {
@@ -508,8 +565,7 @@ async function saveTransfer() {
     return
   }
   form.value.transfer_fee = Math.round(fee * 100) / 100
-  await saveConfigGroup(transferKeys, savingTransfer)
-  await configStore.loadPublicConfig(true)
+  if (await saveConfigGroup(transferKeys, savingTransfer)) await configStore.loadPublicConfig(true)
 }
 const hasTransferChanges = computed(() => {
   return transferKeys.some(key => {
@@ -521,8 +577,7 @@ const hasTransferChanges = computed(() => {
 
 const hostingFeatureKeys = ['hosting_feature_enabled', 'hosting_market_entry_enabled', 'hosting_notice']
 async function saveHostingFeature() {
-  await saveConfigGroup(hostingFeatureKeys, savingHostingFeature)
-  await configStore.loadPublicConfig(true)
+  if (await saveConfigGroup(hostingFeatureKeys, savingHostingFeature)) await configStore.loadPublicConfig(true)
 }
 const hasHostingFeatureChanges = computed(() => {
   return hostingFeatureKeys.some(key => {
@@ -546,8 +601,7 @@ const hasFooterLinkChanges = computed(() => {
 
 const brandKeys = ['brand_name', 'brand_subtitle', 'brand_logo_url']
 async function saveBrand() {
-  await saveConfigGroup(brandKeys, savingBrand)
-  await configStore.loadPublicConfig(true)
+  if (await saveConfigGroup(brandKeys, savingBrand)) await configStore.loadPublicConfig(true)
 }
 const hasBrandChanges = computed(() => {
   return brandKeys.some(key => {
@@ -559,8 +613,7 @@ const hasBrandChanges = computed(() => {
 
 const ticketKeys = ['ticket_enabled', 'ticket_auto_close_enabled', 'ticket_auto_close_hours']
 async function saveTicket() {
-  await saveConfigGroup(ticketKeys, savingTicket)
-  await configStore.loadPublicConfig(true)
+  if (await saveConfigGroup(ticketKeys, savingTicket)) await configStore.loadPublicConfig(true)
 }
 const hasTicketChanges = computed(() => {
   return ticketKeys.some(key => {
@@ -572,8 +625,7 @@ const hasTicketChanges = computed(() => {
 
 const freeSiteKeys = ['free_site_mode', 'free_site_register_gift_enabled', 'free_site_register_gift_balance', 'free_site_register_gift_points']
 async function saveFreeSite() {
-  await saveConfigGroup(freeSiteKeys, savingFreeSite)
-  await configStore.loadPublicConfig(true)
+  if (await saveConfigGroup(freeSiteKeys, savingFreeSite)) await configStore.loadPublicConfig(true)
 }
 function toggleFreeSiteMode() {
   form.value.free_site_mode = !form.value.free_site_mode
