@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-311 帮助文章保存的固定草稿与回执
+
+- 41b694a4已push。writes-before真实Chrome先红旧session保存仍toast成功；创建/编辑现固定mode/id/完整payload及session/read/draft代次，草稿ABA、关闭、账号/角色/sid/卸载失效拒旧成功和错误。在途busy阻重复与另开目标，字段/取消/关闭冻结；正常同sid刷新保留。创建校验真实message及新article id/title/slug，更新校验实际message（后端不返回article），非法回执持久error保草稿，成功后原列表刷新保持。
+- writes-final-r2实际Chrome64旧成功失败回执、两busy/DOM字段关闭/失败重试、八非法回执/合法及same sid/unmount通过exit0，reads-regression原读取矩阵exit0。三宽busy/error截图已看；3守卫/lint零错警/writes-build双端build含vue-tsc exit0/dist/manifest194常规160专项通过，专项接CI。后台审计/列表/分类并发和实际生产文章流程未验，本段不改后台。只读核54901d15/a83d28dd CI已success，三后续批仍in_progress；196/68/63含部分不变。
+- 下一R309 PasswordSection完整及敏感验证组件、users PATCH/事务和守卫已读：catch读取变化后的草稿、旧timer及无busy；还发现authStore只导出clearLocalAuth，原timer调用clearLocalAuth拼为clearLocalAuth以外的clearLocalAuth？实际源码调用clearLocalAuth之外的clearLocalAuth需按代码核对，不能仅据摘要。完整327与灾备继续未完。
+
 ## 2026-10-29 R1-311 帮助编辑器当前目标读取
 
 - 285f355e已push。reads-before实际Chrome先红A晚回令B编辑表单变为Article1；读取现绑定请求序号、文章id、编辑/创建模式、弹窗、admin/account/sid及卸载，同步清旧表单/ready，same sid刷新保留。加载与保存状态分开，旧finally不解除当前加载；失败持久留在弹窗并提供实际重试按钮，响应id必须匹配，未ready禁止保存。此段未闭合写回执、列表或分类并发。

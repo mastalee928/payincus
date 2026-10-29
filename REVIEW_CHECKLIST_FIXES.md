@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R311写入阶段：创建/编辑固定payload/mode/id及session/read/draft代次、旧成功失败静默、busy/字段取消关闭/另开保护、真实message及create新article回执已修。Chrome64旧回执+busy/8非法回执/失败重试/same sid/unmount、reads回归/3守卫/lint/最终双端types build/dist与三宽截图见HANDOFF。列表/分类并发与后台审计另待，196/68/63含部分不新增编号。
+
 2026-10-29 R311读取阶段：帮助编辑target/seq/ABA/mode/show/admin/session/unmount回执、同步清旧表单/ready、same sid、loading/保存门禁及持久error按钮retry已修。Chrome16旧回执和当前loading/retry/id/refresh/unmount/三宽控件通过，3守卫/lint/双端types build及最终admin复构/dist见HANDOFF。390表单单列/开关wrap；写回执/列表/分类另待。唯一196有修复复验（含部分）/68已有防护实现不同/63待精修，196内部未完范围仍继续。
 
 2026-10-29 R313输入回执阶段：两类六位数字输入和按钮、四操作真实API成功回执/有效期、无效回执保草稿与重试、过期敏感验证清两code/target/sent/timer已修。Chrome16输入23回执反例/合法重试与过期绑定、scope80旧回执回归/3守卫/lint/最终双端types build/dist见HANDOFF。实际邮件和客户完整变更仍待；195/68/64含部分不新增编号。

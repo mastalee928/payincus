@@ -63,6 +63,7 @@ const formError = ref<string>('')
 const previewMode = ref<boolean>(false)
 const showMarkdownHelp = ref<boolean>(false)
 let editorReadRequest = 0
+let editorDraft = 0
 const mounted = ref(true)
 const editorSession = computed(() => {
   if (!authStore.token || !authStore.user || authStore.user.role !== 'admin') return ''
@@ -93,6 +94,10 @@ watch(editorSession, () => {
   formError.value = ''
 }, { flush: 'sync' })
 onUnmounted(() => { mounted.value = false; invalidateEditorRead(); clearEditorForm() })
+watch(form, () => { editorDraft += 1 }, { flush: 'sync', deep: true })
+function closeEditor(): void {
+  if (!formSaving.value) showEditor.value = false
+}
 
 // Tab
 type TabType = 'articles' | 'categories'
@@ -314,36 +319,28 @@ async function saveArticle(): Promise<void> {
   
   formSaving.value = true
   formError.value = ''
+  const request = editorReadRequest, draft = editorDraft, session = editorSession.value, mode = editorMode.value, id = editingId.value
+  const submitted = { ...form.value }
+  const current = () => mounted.value && showEditor.value && editorReadRequest === request && editorDraft === draft && editorSession.value === session && editorMode.value === mode && editingId.value === id
+  const payload = { title: submitted.title, slug: submitted.slug, content: submitted.content, category: submitted.category, sortOrder: submitted.sortOrder, published: submitted.published, pinned: submitted.pinned }
   
   try {
-    if (editorMode.value === 'create') {
-      await api.help.create({
-        title: form.value.title,
-        slug: form.value.slug,
-        content: form.value.content,
-        category: form.value.category,
-        sortOrder: form.value.sortOrder,
-        published: form.value.published,
-        pinned: form.value.pinned
-      })
+    if (mode === 'create') {
+      const response = await api.help.create(payload) as unknown as { message?: string; article?: { id?: number; title?: string; slug?: string } }
+      if (!current()) return
+      if (typeof response?.message !== 'string' || !response.message.trim() || !Number.isSafeInteger(response.article?.id) || response.article!.id! <= 0 || response.article?.title !== submitted.title.trim() || response.article?.slug !== submitted.slug.trim()) throw new Error(t('admin.helpManage.saveFailed'))
       toast.success(t('admin.helpManage.articleCreated'))
     } else {
-      if (editingId.value === null) throw new Error('Invalid article ID')
-      await api.help.update(editingId.value, {
-        title: form.value.title,
-        slug: form.value.slug,
-        content: form.value.content,
-        category: form.value.category,
-        sortOrder: form.value.sortOrder,
-        published: form.value.published,
-        pinned: form.value.pinned
-      })
+      if (id === null) throw new Error('Invalid article ID')
+      const response = await api.help.update(id, payload) as unknown as { message?: string }
+      if (!current()) return
+      if (typeof response?.message !== 'string' || !response.message.trim()) throw new Error(t('admin.helpManage.saveFailed'))
       toast.success(t('admin.helpManage.articleUpdated'))
     }
     showEditor.value = false
     await loadArticles()
   } catch (err: any) {
-    formError.value = err?.message || String(err)
+    if (current()) formError.value = err?.message || String(err)
   } finally {
     formSaving.value = false
   }
@@ -601,7 +598,7 @@ function formatDate(dateStr: string | null | undefined): string {
     <!-- Editor Modal -->
     <Teleport to="body">
       <div v-if="showEditor" class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showEditor = false"></div>
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeEditor"></div>
 
         <div class="relative flex h-[90vh] w-full max-w-5xl flex-col rounded-xl border border-themed bg-themed-surface shadow-2xl animate-fade-in">
           <!-- Header -->
@@ -616,7 +613,7 @@ function formatDate(dateStr: string | null | undefined): string {
               >
                 {{ previewMode ? t('common.edit') : t('admin.helpManage.preview') }}
               </button>
-              <button class="btn-ghost btn-sm -mr-2 p-1.5" @click="showEditor = false">
+              <button :disabled="formSaving" class="btn-ghost btn-sm -mr-2 p-1.5" @click="closeEditor">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -634,7 +631,7 @@ function formatDate(dateStr: string | null | undefined): string {
               </template>
             </div>
             <!-- Left: Form -->
-            <div v-else-if="!previewMode" class="flex-1 space-y-5 overflow-y-auto p-6">
+            <fieldset v-else-if="!previewMode" :disabled="formSaving" class="flex-1 space-y-5 overflow-y-auto p-6">
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label class="mb-1.5 block text-sm text-themed-secondary">{{ t('admin.helpManage.articleTitle') }} *</label>
@@ -762,7 +759,7 @@ function formatDate(dateStr: string | null | undefined): string {
               </div>
 
               <div v-if="formError" class="text-sm text-error">{{ formError }}</div>
-            </div>
+            </fieldset>
 
             <!-- Right: Preview -->
             <div v-else class="flex-1 overflow-y-auto p-6">
@@ -775,7 +772,7 @@ function formatDate(dateStr: string | null | undefined): string {
 
           <!-- Footer -->
           <div class="flex justify-end gap-3 border-t border-themed px-6 py-4">
-            <button class="btn-secondary" @click="showEditor = false">{{ t('common.cancel') }}</button>
+            <button :disabled="formSaving" class="btn-secondary" @click="closeEditor">{{ t('common.cancel') }}</button>
             <button :disabled="formLoading || !editorReady" class="btn-primary" @click="saveArticle">
               {{ formLoading ? t('common.loading') : t('common.save') }}
             </button>
