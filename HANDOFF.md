@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-165 无调用者网络适配器残留
+
+- R113已commit/pushc174586c且HEAD与origin/main一致、工作区干净。重新搜索server源码/脚本、client、deploy、scripts和docs-site，listNetworks/getNetwork仅定义在incus-network，IncusNetwork只被该模块引用，index仅导出，没有运行调用者。移除21行适配器、3行barrel导出及7行孤立类型，无数据库/前端修改。先前搜索不存在模板目录的轮不作为最终证据，最终日志takeover-retired-incus-network-before-references-final.log搜索无错误。
+- 八个现行网络实现修改前后SHA256一致：专属全端口、IPv6、实例桥接、网络同步、清理、宿主公网发现及机器池恢复均保持。清理后运行目录无旧符号或导入，server/dist入口及类型无旧导出。退役模块无活体流程可验，不以本段代替原生网络或客户实例验收。
+- server build84536最终正常exit0，含tsc与gateway UI复制；四守卫85974正常exit0（logs/test-run-20261030-070028）：core-boundaries/incus-pool/host-pool/incus-certificate-paths，14秒4/4。根显式config目标lint零错警与diff通过；未改前端，不重跑双端build，未跑完整套/生产/发行。
+- 新增R165记录后240项有修复/复验（含部分）/68保留已有防护或不同初审/19待精修。下一R156复核发现instanceTaskWorker重装仍动态导入getImageAlias/getImage，旧「整个镜像适配器无调用」结论有误；保留两个实际读取及类型，仅处理真正无调用导出和旧长轮询，不删除重装属性同步。当前R156尚未修改，不提前计完成；完整327/真实宿主/网关灾备继续。
+
 ## 2026-10-30 R1-113 实际宿主类型拒绝三语与写前保护复验
 
 - R110已commit/push91681263。纠正旧清单「写后warning正文硬编码」：现后端PATCH在写前返回400及HOST_INSTANCE_TYPE_MISMATCH/packages，不再返回warnings。实际Chrome先红显示errors.HOST_INSTANCE_TYPE_MISMATCH；补简体/繁体/英文说明与下一步，组件te确认有翻译才t，未知code回退原message。api.hosts.update从错误Host类型改真实{message:string}，唯一使用者保留运行时message检查；不改变后端类型规则、客户网络和交付。

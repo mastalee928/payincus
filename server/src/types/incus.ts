@@ -100,13 +100,6 @@ export interface IncusBackup {
   compression_algorithm: string
 }
 
-export interface IncusNetwork {
-  name: string
-  type: string
-  used_by?: string[]
-  config?: Record<string, string>
-}
-
 export interface IncusStoragePool {
   name: string
   driver: string
