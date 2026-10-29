@@ -133,6 +133,7 @@ const adjustBalanceForm = ref({
   reason: ''
 })
 const adjustBalanceLoading = ref(false)
+const adjustBalanceError = ref('')
 
 const dialogsActive = ref(false)
 const dialogSession = computed(() => {
@@ -183,6 +184,21 @@ const loginRead = dialogReadState(() => loginContext.value, loginRecordsLoading,
 const balanceInfoError = balanceRead.error, balanceLogsError = logsRead.error, rechargeRecordsError = rechargeRead.error, loginRecordsError = loginRead.error
 const validDialogUser = user => Number.isSafeInteger(user?.id) && user.id > 0
 const balanceReadable = tab => dialogsAvailable.value && showBalanceModal.value && validDialogUser(balanceUser.value) && balanceTab.value === tab
+const balanceWriteScope = computed(() => JSON.stringify([dialogsAvailable.value, dialogSession.value, showBalanceModal.value, balanceDialogGeneration.value, balanceUser.value?.id]))
+let balanceWriteGeneration = 0, balanceDraftGeneration = 0
+watch(balanceWriteScope, () => { balanceWriteGeneration += 1; adjustBalanceError.value = '' }, { flush: 'sync' })
+watch(() => [balanceTab.value, adjustBalanceForm.value.type, adjustBalanceForm.value.amount, adjustBalanceForm.value.reason], () => {
+  balanceDraftGeneration += 1; adjustBalanceError.value = ''
+}, { flush: 'sync' })
+const balanceAdjustment = computed(() => {
+  const { type, amount, reason } = adjustBalanceForm.value
+  const text = typeof amount === 'string' ? amount.trim() : typeof amount === 'number' ? String(amount) : ''
+  const value = Number(text)
+  if (!['add', 'deduct'].includes(type) || !/^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(text) || !Number.isFinite(value) || value < 0.01 || value > 99999999.99) return null
+  if (typeof reason !== 'string' || !reason.trim() || reason.trim().length > 500) return null
+  return { amount: type === 'add' ? value : -value, remark: reason.trim() }
+})
+const canAdjustBalance = computed(() => balanceReadable('adjust') && !adjustBalanceLoading.value && !!balanceAdjustment.value)
 const loginReadable = () => dialogsAvailable.value && showLoginRecordsModal.value && validDialogUser(loginRecordsUser.value)
 function validDialogList(result, field, errorKey) {
   if (!result || !Array.isArray(result[field]) || !Number.isSafeInteger(result.total) || result.total < 0 ||
@@ -239,6 +255,9 @@ const registerLink = computed(() => {
 const normalizedUserSearchFields = computed(() => {
   return USER_SEARCH_FIELDS.filter(field => userSearchFields.value.includes(field))
 })
+const userReadContext = computed(() => JSON.stringify([dialogsAvailable.value, dialogSession.value, userPage.value, userPageSize.value, userSearch.value, normalizedUserSearchFields.value, userSearchExact.value]))
+let userReadSequence = 0
+watch(userReadContext, () => { userReadSequence += 1; usersLoading.value = false }, { flush: 'sync' })
 
 onMounted(async () => {
   await loadUsers()
@@ -254,7 +273,12 @@ watch([userSearch, userSearchExact, () => normalizedUserSearchFields.value.join(
   }, 300)
 })
 
-async function loadUsers() {
+async function loadUsers(acceptReceipt = () => true) {
+  if (!dialogsAvailable.value) return
+  // Template handlers may pass their click event instead of an explicit receipt guard.
+  const accept = typeof acceptReceipt === 'function' ? acceptReceipt : () => true
+  const sequence = ++userReadSequence, context = userReadContext.value
+  const current = () => dialogsAvailable.value && sequence === userReadSequence && context === userReadContext.value && accept()
   usersLoading.value = true
   try {
     const response = await api.users.list({
@@ -264,13 +288,14 @@ async function loadUsers() {
       searchFields: normalizedUserSearchFields.value.join(','),
       exact: userSearchExact.value
     })
+    if (!current()) return
     users.value = response.users || []
     userTotal.value = response.total || 0
     userTotalPages.value = response.totalPages || 1
   } catch (err) {
-    toast.error(t('admin.users.loadFailed') + ': ' + err.message)
+    if (current()) toast.error(t('admin.users.loadFailed') + ': ' + err.message)
   } finally {
-    usersLoading.value = false
+    if (sequence === userReadSequence) usersLoading.value = false
   }
 }
 
@@ -685,7 +710,7 @@ async function sendMessage() {
 
 // 打开用户余额详情弹窗
 async function openBalanceModal(user) {
-  if (!dialogsAvailable.value || !validDialogUser(user)) return
+  if (adjustBalanceLoading.value || !dialogsAvailable.value || !validDialogUser(user)) return
   balanceDialogGeneration.value += 1
   balanceUser.value = user
   balanceTab.value = 'overview'
@@ -746,7 +771,7 @@ async function loadRechargeRecords() {
 
 // 切换余额弹窗TAB
 function switchBalanceTab(tab) {
-  if (!['overview', 'logs', 'recharge', 'adjust'].includes(tab)) return
+  if (adjustBalanceLoading.value || !['overview', 'logs', 'recharge', 'adjust'].includes(tab)) return
   balanceTab.value = tab
   if (tab === 'overview') loadBalanceInfo()
   else if (tab === 'logs' && balanceLogs.value.length === 0) {
@@ -756,44 +781,39 @@ function switchBalanceTab(tab) {
   }
 }
 
+function closeBalanceModal() {
+  if (!adjustBalanceLoading.value) showBalanceModal.value = false
+}
+
 // 提交调整余额
 async function submitAdjustBalance() {
-  if (!balanceUser.value) return
-
-  const amount = parseFloat(adjustBalanceForm.value.amount)
-  if (isNaN(amount) || amount <= 0) {
-    toast.error(t('admin.users.invalidAmount'))
-    return
-  }
-
-  if (!adjustBalanceForm.value.reason.trim()) {
-    toast.error(t('admin.users.reasonRequired'))
-    return
-  }
-
-  // 根据类型计算实际金额
-  const finalAmount = adjustBalanceForm.value.type === 'add' ? amount : -amount
-
+  if (!canAdjustBalance.value) return
+  const userId = balanceUser.value.id, input = { ...balanceAdjustment.value }
+  const generation = balanceWriteGeneration, draft = balanceDraftGeneration, scope = balanceWriteScope.value
+  const currentScope = () => generation === balanceWriteGeneration && scope === balanceWriteScope.value && dialogsAvailable.value
+  const current = () => currentScope() && draft === balanceDraftGeneration && balanceReadable('adjust')
   adjustBalanceLoading.value = true
+  adjustBalanceError.value = ''
   try {
-    await api.admin.adjustUserBalance(
-      balanceUser.value.id,
-      finalAmount,
-      adjustBalanceForm.value.reason.trim()
-    )
+    const result = await api.admin.adjustUserBalance(userId, input.amount, input.remark)
+    if (!current()) return
+    const log = result?.balanceLog
+    const money = value => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 99999999.99
+    if (!money(result?.newBalance) || result.newBalance < 0 || !Number.isSafeInteger(log?.id) || log.id <= 0 || log.type !== 'admin_adjust' ||
+      !['amount', 'balanceBefore', 'balanceAfter'].every(key => money(log[key])) || log.amount !== input.amount || log.balanceAfter !== result.newBalance ||
+      Math.round(log.balanceAfter * 100) - Math.round(log.balanceBefore * 100) !== Math.round(input.amount * 100)) {
+      throw new Error(t('admin.users.balanceReceiptInvalid'))
+    }
     toast.success(t('admin.users.balanceAdjusted'))
     adjustBalanceForm.value = { type: 'add', amount: '', reason: '' }
     balanceTab.value = 'overview'
-    // 刷新余额信息和明细
-    await loadBalanceInfo()
-    if (balanceLogs.value.length > 0) {
-      await loadBalanceLogs()
-    }
-    // 刷新用户列表
-    await loadUsers()
+    // The write is confirmed. Auxiliary read errors retain their own result and cannot reclassify it.
+    void loadBalanceInfo()
+    void loadUsers(currentScope)
   } catch (err) {
-    toast.error(t('admin.users.balanceAdjustFailed') + ': ' + err.message)
+    if (current()) adjustBalanceError.value = err?.message || t('admin.users.balanceAdjustFailed')
   } finally {
+    // Keep the in-flight lock across session/dialog changes until this actual request finishes.
     adjustBalanceLoading.value = false
   }
 }
@@ -2657,11 +2677,11 @@ function _getQuotaPercent(used, limit) {
     <Teleport to="body">
       <Transition name="modal">
         <div v-if="showBalanceModal" data-user-dialog="balance" class="modal-overlay">
-          <div class="modal-backdrop" @click="showBalanceModal = false"></div>
+          <div class="modal-backdrop" @click="closeBalanceModal"></div>
           <div class="modal-content max-w-2xl">
             <div class="modal-header">
               <h3 class="modal-title">{{ t('admin.users.balanceDetails') }} - {{ balanceUser?.username }}</h3>
-              <button class="text-themed-muted hover:text-themed" @click="showBalanceModal = false">
+              <button :disabled="adjustBalanceLoading" :aria-label="t('common.close')" class="text-themed-muted hover:text-themed" @click="closeBalanceModal">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -2672,6 +2692,7 @@ function _getQuotaPercent(used, limit) {
               <button
                 class="px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px"
                 :class="balanceTab === 'overview' ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400' : 'border-transparent text-themed-muted hover:text-themed'"
+                :disabled="adjustBalanceLoading"
                 @click="switchBalanceTab('overview')"
               >
                 {{ t('admin.users.balanceOverview') }}
@@ -2679,6 +2700,7 @@ function _getQuotaPercent(used, limit) {
               <button
                 class="px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px"
                 :class="balanceTab === 'logs' ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400' : 'border-transparent text-themed-muted hover:text-themed'"
+                :disabled="adjustBalanceLoading"
                 @click="switchBalanceTab('logs')"
               >
                 {{ t('admin.users.balanceLogs') }}
@@ -2686,6 +2708,7 @@ function _getQuotaPercent(used, limit) {
               <button
                 class="px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px"
                 :class="balanceTab === 'recharge' ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400' : 'border-transparent text-themed-muted hover:text-themed'"
+                :disabled="adjustBalanceLoading"
                 @click="switchBalanceTab('recharge')"
               >
                 {{ t('admin.users.rechargeRecords') }}
@@ -2693,6 +2716,7 @@ function _getQuotaPercent(used, limit) {
               <button
                 class="px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px"
                 :class="balanceTab === 'adjust' ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400' : 'border-transparent text-themed-muted hover:text-themed'"
+                :disabled="adjustBalanceLoading"
                 @click="switchBalanceTab('adjust')"
               >
                 {{ t('admin.users.adjustBalance') }}
@@ -2865,7 +2889,7 @@ function _getQuotaPercent(used, limit) {
               </div>
 
               <!-- 调整余额 TAB -->
-              <div v-if="balanceTab === 'adjust'" class="space-y-4">
+              <fieldset v-if="balanceTab === 'adjust'" :disabled="adjustBalanceLoading" class="space-y-4">
                 <!-- 调整类型 -->
                 <div>
                   <label class="block text-sm text-themed-secondary mb-2">{{ t('admin.users.adjustType') }}</label>
@@ -2900,6 +2924,7 @@ function _getQuotaPercent(used, limit) {
                       type="number" 
                       step="0.01"
                       min="0.01"
+                      max="99999999.99"
                       class="input pl-8" 
                       :placeholder="t('admin.users.amountPlaceholder')"
                     />
@@ -2916,11 +2941,12 @@ function _getQuotaPercent(used, limit) {
                   ></textarea>
                   <p class="mt-1 text-xs text-themed-muted">{{ adjustBalanceForm.reason.length }}/500</p>
                 </div>
+                <p v-if="adjustBalanceError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">{{ adjustBalanceError }}</p>
                 <!-- 提交按钮 -->
                 <div class="pt-2">
                   <button 
                     class="btn-primary w-full" 
-                    :disabled="adjustBalanceLoading || !adjustBalanceForm.amount || !adjustBalanceForm.reason.trim()"
+                    :disabled="!canAdjustBalance"
                     @click="submitAdjustBalance"
                   >
                     <svg v-if="adjustBalanceLoading" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -2930,10 +2956,10 @@ function _getQuotaPercent(used, limit) {
                     {{ adjustBalanceLoading ? t('common.submitting') : t('common.confirm') }}
                   </button>
                 </div>
-              </div>
+              </fieldset>
             </div>
             <div class="modal-footer">
-              <button class="btn-secondary" @click="showBalanceModal = false">{{ t('common.close') }}</button>
+              <button :disabled="adjustBalanceLoading" class="btn-secondary" @click="closeBalanceModal">{{ t('common.close') }}</button>
             </div>
           </div>
         </div>

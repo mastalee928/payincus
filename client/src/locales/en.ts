@@ -3962,6 +3962,7 @@ pool: {
             reasonRequired: 'Please enter a reason',
             balanceAdjusted: 'Balance adjusted successfully',
             balanceAdjustFailed: 'Failed to adjust balance',
+            balanceReceiptInvalid: 'The balance adjustment receipt could not be verified. Check the balance ledger before submitting again.',
             // Points
             points: 'Points',
             earned: 'Total',

@@ -279,6 +279,8 @@ jobs:
         run: pnpm --filter server test:review-billing-price-submit
       - name: User balance and login dialogs keep their current target and read scope
         run: pnpm --filter server test:review-user-dialog-reads
+      - name: Balance adjustments keep their target, draft and confirmed receipt
+        run: pnpm --filter server test:review-user-balance-submit
       - name: Host redeem reads stay with the current host and code
         run: pnpm --filter server test:review-host-redeem-reads
       - name: Host redeem writes retain their selected target and result

@@ -96,6 +96,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-billing-price-submit', 'requires Chrome/Edge and local Vite; admin single/batch price write receipts, busy drafts, explicit fresh retry and scoped auxiliary refresh'],
   ['test:review-billing-price-audit', 'requires isolated local *_pool_test PostgreSQL; actual single/batch price audit failure rolls back price, version, balance and billing ledger'],
   ['test:review-user-dialog-reads', 'requires Chrome/Edge and local Vite; actual user balance, ledger, recharge and login dialogs reject old targets/session/page responses and retain retry errors'],
+  ['test:review-user-balance-submit', 'requires Chrome/Edge and local Vite; balance adjustment strict amount inputs, immediate busy lock, current session/draft receipts and scoped auxiliary reads'],
   ['test:review-storage-size', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; actual storage create/update capacity boundaries over mTLS'],
   ['test:review-storage-update', 'requires OpenSSL; pinned mTLS storage updates, ETag conflicts and description/config preservation'],
   ['test:review-storage-import', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; exact missing pool checks, import failures and existing pool metadata over mTLS'],

@@ -5534,6 +5534,7 @@ pool: {
             reasonRequired: '請輸入調整理由',
             balanceAdjusted: '餘額調整成功',
             balanceAdjustFailed: '餘額調整失敗',
+            balanceReceiptInvalid: '無法確認餘額調整回執。請先核對餘額明細，再決定是否重新提交。',
             // 積分相關
             points: '積分',
             earned: '累計',

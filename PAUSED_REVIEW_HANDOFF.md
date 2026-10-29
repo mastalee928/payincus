@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：6509acd已push。R305余额写严格输入、函数busy/关闭/字段、固定目标/session/draft回执、错误保草稿、实际账目回执/辅助读取隔离已修；Chrome before先红→final/types/4守卫/lint零错警/manifest194/146及三宽截图通过，读取回归exit0，双端build含vue-tsc exit0/dist通过，无待poll，准备单项push。test-review-user-balance-audit.ts是下一项未提交PG审计夹具，不混本次UI提交，before真实PG已先红日志trigger失败仍200；balance route/DB/createLog和审批守卫已读，后台产品未改。193/68/66含部分，R304/R303/R269/Go proc/完整灾备仍待，PG55438不停库。
+
 > **最新接续**：29225dd已push。R305 UsersView四类余额/登录读取session/user/dialog/tab/page/filter隔离、error/retry、非法/0/空、login页50及手机标签2×2已修；Chrome before先红→final-r2全矩阵，types/3守卫/lint0错警/manifest194/145及三宽截图通过。双端build含vue-tsc exit0/dist通过，无待poll，准备单项push。下一项余额adjust写回执/忙/关闭/金额；相关函数API、后台balance route及adjust审批守卫已读，继续读changeBalance金额规则后实施。193/68/66含部分，R304余额锁/归属/通知、R303/R269/Go proc/完整灾备仍待。PG55438正常，不停库。
 
 > **最新接续**：3d90abd已push。R304单/批preview/save真布尔settle、batch数字安全ID/version及重复拒绝已修；PG input-before字符串false先红200→input-final67反例400零写及原结算/审计/权限竞争全回归通过，3守卫/manifest194/144/diff及后端build含tsc exit0，准备单项push。前端未改，原调用已核保持兼容。继续原编号R305用户弹窗读取/写入生命周期，R304余额锁/归属/通知及其它部分未完成范围保留；192/68/67、327/完整灾备未完成。c6be378 CI40820987374 success，后续4提交仍running。PG55438正常；启动wrapper9943工具句柄未结束，pg_ctl已退出，不停库。

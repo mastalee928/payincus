@@ -4016,6 +4016,7 @@ pool: {
             reasonRequired: '请输入调整理由',
             balanceAdjusted: '余额调整成功',
             balanceAdjustFailed: '余额调整失败',
+            balanceReceiptInvalid: '无法确认余额调整回执。请先核对余额明细，再决定是否重新提交。',
             // 积分相关
             points: '积分',
             earned: '累计',

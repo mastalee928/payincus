@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-305 用户余额调整写回执与输入
+
+- 6509acd已push。余额调整固定userId/金额/理由，统一canAdjustBalance与函数即时busy；保存期间锁字段、tab、关闭和另开用户，锁跨session变化直到原请求退出。严格十进制两位小数、0.01–99999999.99、明确add/deduct与500字理由；错误留草稿并持久显示。回执核实际newBalance、admin_adjust账目ID/金额/前后余额连续性；目标/session/ABA/cache/草稿变化后旧成功失败静默，同sid刷新保留。
+- takeover-user-balance-submit-before.log真实Chrome先红旧写跨session仍通知；final.log完整金额/type/reason、立即重复、忙字段/关闭、22组旧回执、失败重试、非法回执、0余额/上限/分、同sid/卸载及辅助刷新隔离通过。用户列表补请求序号和查询/session范围，写入后辅助刷新绑定原scope；已确认成功不因读取失败误报调账失败。types、4守卫、lint零错警、manifest194/146、三宽三语截图已检查；takeover-user-balance-submit-build.log双端build含vue-tsc exit0、dist.log边界通过，专项接CI。真实Vue组件/受控API证据；后台审计原子性、断网后调账幂等和完整真实账户流程仍待，积分/托管余额另续。
+- 统计维持193/68/66且193含部分；R305不重复计数。只读核863914d/e8cb278 CI success，91e8e57/3d90abd/29225dd/6509acd仍运行；完整327及网关灾备未完成。
+
 ## 2026-10-29 R1-305 用户余额与登录弹窗读取隔离
 
 - 29225dd已push。UsersView余额概览/明细/充值及登录记录独立请求序号，绑定当前用户、会话、弹窗代次、tab/page/filter；变化同步清数据/错误/loading，缓存离页/卸载取消接受旧回执，同sid刷新保持。接口失败持久留在对应弹窗并提供retry，不显示成功空表；验证回执金额、分页及实际用户身份（接口有userId时）。登录每页50对齐后台限幅，页数按实际pageSize计算。
