@@ -100,7 +100,7 @@ assert(
   'Agent status writes must re-check the current database state to avoid resurrecting suspended/error instances'
 )
 assert(
-  reportProcessor.includes('applyReportedTrafficCounters(trafficInstance, item, now, sampledAt)'),
+  reportProcessor.includes('applyReportedTrafficCounters(trafficInstance, item, now, sampledAt, agent)'),
   'Agent traffic processing must use the post-sync status guard input'
 )
 

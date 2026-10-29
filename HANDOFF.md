@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-094 心跳提交复核当前 Agent 身份
+
+- 实际HMAC/nonce通过后禁用Agent，旧heartbeat仍200并标online先红。现协议确认、实例状态、流量事务及最后heartbeat逐次复核当前Agent id/host/secret/enabled/status并持行锁；锁序host→Agent与凭据轮换一致，写目标预先用UPDATE避免并发锁升级死锁。仅数据库监控报告，不改客户转发/全端口/实例运行状态业务或重建身份。
+- takeover-agent-heartbeat-current-final-5实际Fastify/HMAC/PG：disabled/status-disabled/轮换/同ID换secret四种旧认证拒绝且记录保持；五个pg_blocking_pids实测等待（协议/实例/流量/心跳host锁及直接Agent锁）禁用先提交后拒旧写。已先合法提交的报告保留，后续拒写不伪装整包回滚；7并发完整报告、正常protocol/status/snapshot和nonce重放通过exit0。首次夹具nonce代理未触发、BigInt序列化错误均已修，不计产品先红。
+- 7对应Agent常规守卫全部通过；原credential/权限/7并发/token/nonce回滚及R093格式重试回归exit0。server build-final含tsc与专项types最终exit0，diff/manifest194常规189专项分类与CI登记通过。前端没变沿R080最终双端build/dist；真实Go/Linux宿主及生产另验，未发行或操作客户。
+- 160b90ed已push核远端；本项阶段保存后221有修复/复验含部分、68已有不同、38待。下一R096/R097元数据/二进制cache miss与心跳截止已读源码/版本守卫，尚未修改。PG55438保留。
+
 ## 2026-10-30 R1-093 安装令牌拒绝无效 Agent 密钥
 
 - R092已先完成解密/hash与消费同事务，本项仍缺格式验证。追加真实Fastify/PG安装配置接口先红：格式无效但hash匹配仍200且消费token。现消费前复用Agent secret格式校验并拒前后空白，失败403、完整Agent记录与token保持；不放宽现有格式或替换原管理身份。

@@ -25,6 +25,7 @@ import { captureAgentBodyHash, matchesAgentBodyHash } from '../lib/agent-request
 import {
   consumeHostAgentInstallToken,
   issueHostAgentInstallToken,
+  lockCurrentHostAgent,
   rotateHostAgentCredentials,
   type HostAgentRecord
 } from '../lib/host-agent-credentials.js'
@@ -1032,7 +1033,7 @@ async function authenticateAgentRequest(
     where: { agentId: headers.agentId }
   })
 
-  if (!agent || !agent.enabled) {
+  if (!agent || !agent.enabled || agent.status === 'disabled') {
     reply.code(401).send({ error: 'Agent is not enabled', code: 'AGENT_DISABLED' })
     return null
   }
@@ -1571,28 +1572,48 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     }
 
     const now = new Date()
-    await acceptPortProtocolReport(agent.hostId, request.body.portProtocolStatus)
+    try {
+      await acceptPortProtocolReport(agent.hostId, request.body.portProtocolStatus, agent)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'AGENT_DISABLED') {
+        return reply.code(401).send({ error: 'Agent is not enabled', code: 'AGENT_DISABLED' })
+      }
+      throw error
+    }
     let instanceReport: Awaited<ReturnType<typeof processAgentInstanceReport>> | null = null
     try {
-      instanceReport = await processAgentInstanceReport(agent.hostId, request.body.instances)
+      instanceReport = await processAgentInstanceReport(agent.hostId, request.body.instances, agent)
     } catch (error) {
+      if (error instanceof Error && error.message === 'AGENT_DISABLED') {
+        return reply.code(401).send({ error: 'Agent is not enabled', code: 'AGENT_DISABLED' })
+      }
       request.log.warn(
         { agentId: agent.agentId, hostId: agent.hostId, error },
         'Failed to process Agent instance report'
       )
     }
 
-    await agentModel.update({
-      where: { agentId: agent.agentId },
-      data: {
-        status: 'online',
-        version: sanitizeShortString(request.body.version, 128),
-        capabilities: normalizeCapabilities(request.body.capabilities) as Prisma.InputJsonValue,
-        lastReport: buildHeartbeatReport(request.body) as Prisma.InputJsonObject,
-        lastSeenAt: now,
-        lastHeartbeatIp: sanitizeShortString(getAgentHeartbeatIp(request), 128)
+    try {
+      await prisma.$transaction(async tx => {
+        await lockCurrentHostAgent(tx, agent, 'agent')
+        await tx.hostAgent.update({
+          where: { id: agent.id },
+          data: {
+            status: 'online',
+            version: sanitizeShortString(request.body.version, 128),
+            capabilities: normalizeCapabilities(request.body.capabilities) as Prisma.InputJsonValue,
+            lastReport: buildHeartbeatReport(request.body) as Prisma.InputJsonObject,
+            lastSeenAt: now,
+            lastHeartbeatIp: sanitizeShortString(getAgentHeartbeatIp(request), 128)
+          }
+        })
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'AGENT_DISABLED') {
+        return reply.code(401).send({ error: 'Agent is not enabled', code: 'AGENT_DISABLED' })
       }
-    })
+      throw error
+    }
 
     const hostProtocol = await prisma.host.findUniqueOrThrow({ where: { id: agent.hostId }, select: { portProtocol: true, portProtocolRevision: true } })
     return {

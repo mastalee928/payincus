@@ -1,4 +1,5 @@
 import { prisma } from '../db/prisma.js'
+import { lockCurrentHostAgent, type HostAgentRecord } from '../lib/host-agent-credentials.js'
 
 export const PORT_PROTOCOL_CAPABILITY = 'ingress-port-protocol-v1'
 export const portProtocolSelect = {
@@ -39,19 +40,22 @@ export async function permitsUdpMapping(hostId: number): Promise<boolean> {
   return Boolean(host && host.portProtocol === 'tcp_udp' && host.portProtocolApplied === 'tcp_udp' && portProtocolView(host).status === 'applied')
 }
 
-export async function acceptPortProtocolReport(hostId: number, value: unknown) {
+export async function acceptPortProtocolReport(hostId: number, value: unknown, agent: HostAgentRecord) {
   if (!value || typeof value !== 'object') return
   const report = value as Record<string, unknown>
   if (typeof report.mode !== 'string' || !['tcp', 'tcp_udp'].includes(report.mode) || !Number.isSafeInteger(report.revision) || Number(report.revision) < 1 || Number(report.revision) > 2147483647 || typeof report.applied !== 'boolean') return
   // A delayed acknowledgement must never overwrite a newer operator choice.
-  await prisma.host.updateMany({
-    where: { id: hostId, portProtocol: String(report.mode), portProtocolRevision: Number(report.revision) },
-    data: report.applied === true ? {
-      portProtocolApplied: String(report.mode),
-      portProtocolAppliedRevision: Number(report.revision),
-      portProtocolError: null
-    } : {
-      portProtocolError: 'Agent could not apply the ingress protocol rule; check the host Agent log.'
-    }
+  await prisma.$transaction(async tx => {
+    await lockCurrentHostAgent(tx, agent, 'host')
+    await tx.host.updateMany({
+      where: { id: hostId, portProtocol: String(report.mode), portProtocolRevision: Number(report.revision) },
+      data: report.applied === true ? {
+        portProtocolApplied: String(report.mode),
+        portProtocolAppliedRevision: Number(report.revision),
+        portProtocolError: null
+      } : {
+        portProtocolError: 'Agent could not apply the ingress protocol rule; check the host Agent log.'
+      }
+    })
   })
 }

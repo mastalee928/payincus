@@ -354,6 +354,8 @@ jobs:
         run: pnpm --filter server test:review-login-history-reads
       - name: Telegram profile rejects obsolete binding results and restores failed notification controls
         run: pnpm --filter server test:review-telegram-profile
+      - name: Heartbeat writes require the current enabled Agent identity after authentication
+        run: pnpm --filter server test:review-agent-heartbeat-current
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

@@ -203,6 +203,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-proxy-certificates', 'requires OpenSSL and isolated TLS listeners; actual date/hostname/trust verification including expired, self-signed and incomplete chains'],
   ['test:review-aff-eligibility-integration', 'requires isolated local *_pool_test PostgreSQL; AFF current eligibility, row-lock disable races, mail renewals, actor checks and ledger rollback'],
   ['test:review-agent-credentials-integration', 'requires isolated local *_pool_test PostgreSQL; actual Agent credential/token routes and atomic rotation/consumption races with release fetch fixture'],
+  ['test:review-agent-heartbeat-current', 'requires isolated local *_pool_test PostgreSQL; actual HMAC/nonce heartbeat, current Agent authority at protocol/instance/traffic/heartbeat writes and real row-lock disable races; release fetch fixture'],
   ['test:review-finance-authorization-integration', 'requires isolated local *_pool_test PostgreSQL; real AFF, manual recharge/sync and gift-card routes with authorization races and ledger rollback; provider fetch fixture'],
   ['test:review-quota-hosting-integration', 'requires isolated local *_pool_test PostgreSQL; actual quota and hosting adjustment routes with actor/session and concurrency guards'],
   ['test:review-renewal-integration', 'requires isolated local *_pool_test PostgreSQL; renewal period/actor/ownership and atomic ledger rollback with auto-renew routes'],

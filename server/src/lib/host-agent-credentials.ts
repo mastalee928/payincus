@@ -29,6 +29,20 @@ const agentModel = prisma.hostAgent
 const agentInstallTokenPrefix = 'ait_'
 const agentInstallTokenTtlMs = 30 * 60 * 1000
 
+export async function lockCurrentHostAgent(tx: Prisma.TransactionClient, agent: HostAgentRecord, writing: 'report' | 'host' | 'agent' = 'report'): Promise<void> {
+  // Match the credential-rotation lock order. Hold authority through each report write.
+  if (writing === 'host') await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${agent.hostId} FOR UPDATE`
+  else await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${agent.hostId} FOR SHARE`
+  if (writing === 'agent') await tx.$queryRaw`SELECT id FROM host_agents WHERE id = ${agent.id} FOR UPDATE`
+  else await tx.$queryRaw`SELECT id FROM host_agents WHERE id = ${agent.id} FOR SHARE`
+  const current = await tx.hostAgent.findFirst({ where: {
+    id: agent.id, hostId: agent.hostId, agentId: agent.agentId,
+    secretHash: agent.secretHash, secretEncrypted: agent.secretEncrypted,
+    enabled: true, status: { not: 'disabled' }
+  }, select: { id: true } })
+  if (!current) throw new Error('AGENT_DISABLED')
+}
+
 async function generateUniqueAgentId(tx: Prisma.TransactionClient): Promise<string> {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const agentId = generateAgentId()

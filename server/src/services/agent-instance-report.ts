@@ -14,6 +14,7 @@ import { prisma } from '../db/prisma.js'
 import { withLock } from '../lib/distributed-lock.js'
 import { mapInstanceStatus } from '../lib/incus/incus-utils.js'
 import { advanceTrafficSnapshot, calculateIncrement } from './traffic-utils.js'
+import { lockCurrentHostAgent, type HostAgentRecord } from '../lib/host-agent-credentials.js'
 
 interface NormalizedAgentInstanceItem {
   name: string
@@ -215,7 +216,8 @@ async function applyReportedTrafficCounters(
   instance: ReportedDbInstance,
   item: NormalizedAgentInstanceItem,
   now: Date,
-  sampledAt: Date
+  sampledAt: Date,
+  agent: HostAgentRecord
 ): Promise<{ updated: boolean; delta: bigint }> {
   if (!shouldApplyTraffic(instance.status, item)) {
     return { updated: false, delta: 0n }
@@ -226,6 +228,7 @@ async function applyReportedTrafficCounters(
     const normalizedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
     const userLockResult = await withLock(getUserTrafficLockKey(instance.userId), async () => prisma.$transaction(async (tx) => {
+      await lockCurrentHostAgent(tx, agent)
       const currentInstance = await tx.instance.findUnique({
         where: { id: instance.id },
         select: { status: true }
@@ -319,7 +322,8 @@ async function processOneAgentInstanceReport(
   instance: ReportedDbInstance,
   item: NormalizedAgentInstanceItem,
   now: Date,
-  sampledAt: Date
+  sampledAt: Date,
+  agent: HostAgentRecord
 ): Promise<Pick<AgentInstanceReportResult, 'statusUpdated' | 'trafficUpdated' | 'trafficDeltaBytes' | 'skipped' | 'errors'>> {
   let statusUpdated = 0
   let trafficUpdated = 0
@@ -332,12 +336,16 @@ async function processOneAgentInstanceReport(
     if (shouldSyncStatus(instance.status, item.status)) {
       const updateData = buildStatusUpdateData(item, now)
       if (updateData) {
-        const updateResult = await prisma.instance.updateMany({
-          where: {
-            id: instance.id,
-            status: { in: ['running', 'stopped'] }
-          },
-          data: updateData
+        const updateResult = await prisma.$transaction(async tx => {
+          await lockCurrentHostAgent(tx, agent)
+          return tx.instance.updateMany({
+            where: {
+              id: instance.id,
+              hostId: agent.hostId,
+              status: { in: ['running', 'stopped'] }
+            },
+            data: updateData
+          })
         })
         statusUpdated = updateResult.count
         if (statusUpdated > 0) {
@@ -351,12 +359,13 @@ async function processOneAgentInstanceReport(
       skipped += 1
     }
 
-    const trafficResult = await applyReportedTrafficCounters(trafficInstance, item, now, sampledAt)
+    const trafficResult = await applyReportedTrafficCounters(trafficInstance, item, now, sampledAt, agent)
     if (trafficResult.updated) {
       trafficUpdated = 1
       trafficDelta = trafficResult.delta
     }
   } catch (error) {
+    if (error instanceof Error && error.message === 'AGENT_DISABLED') throw error
     errors += 1
     console.warn('[AgentReport] Failed to process reported instance', {
       instanceId: instance.id,
@@ -374,7 +383,7 @@ async function processOneAgentInstanceReport(
   }
 }
 
-export async function processAgentInstanceReport(hostId: number, payload: unknown): Promise<AgentInstanceReportResult> {
+export async function processAgentInstanceReport(hostId: number, payload: unknown, agent: HostAgentRecord): Promise<AgentInstanceReportResult> {
   const receivedAt = new Date()
   const sampledAt = normalizeReportSampledAt(payload, receivedAt)
   const items = normalizeAgentInstanceItems(payload)
@@ -422,7 +431,7 @@ export async function processAgentInstanceReport(hostId: number, payload: unknow
       }
     }
 
-    const itemResult = await processOneAgentInstanceReport(instance, item, receivedAt, sampledAt)
+    const itemResult = await processOneAgentInstanceReport(instance, item, receivedAt, sampledAt, agent)
     return {
       matched: 1,
       ...itemResult

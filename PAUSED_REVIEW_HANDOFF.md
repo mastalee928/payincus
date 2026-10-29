@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：R093已push160b90ed核远端。R094 actual HMAC/nonce后禁用仍200先红，协议/实例/流量/最终heartbeat锁内current Agent/host/secret/enabled/status已修，host→Agent/预先UPDATE避免锁升级；final-5四旧认证/五pg_blocking_pids真实等待/7并发正常reports/nonceexit0，7守卫/credential全回归/server build-final80708与testtypes88162通过。最后追加testtypes-final-5已poll13241 exit0，无待poll，manifest194常规189专项接CI，221含部分/68已有不同/38待。阶段commit/push后R096/R097已读metadata/retry/cache/version守卫尚未改；真实Go/Linux/客户/完整327/灾备未完，PG55438保留。
+
 > **最新接续**：ea539e25 R080已commit/push核远端，最终三宽浅深图全看、taste0 FAIL/WARN/双端build6744和末dist均exit0。R093补consume前secret格式/空白校验，真实PG/Fastify先红200→六非法保完整Agent/token403、修复原密文后重试/两合法格式边界和原7并发/权限/回滚exit0；3守卫/server build/types/专项types/diff过，无待poll，backend无eslint.config未计lint通过。220含部分/68已有不同/39待；阶段单独提交推送后继续R094。其Agent route/auth/report守卫已读尚未改，PG55438保留，真实TG/Go安装/客户/完整327/灾备未完。
 
 > **最新接续**：R080当前session/目标ABA/读取seq/缓存离页、三写busy/严格回执与链接expiry/复制隔离已修；实际checkbox失败保原值和保存后旧读覆盖两新先红→final56旧读写/目标ABA/cache锁/实际按钮和retry通过。taste局部黑白/13px/44px/focus浅深三宽0 FAIL/WARN、图已看，5守卫/lint/语法/manifest194常规188专项接CI过。最终双端build6744已poll exit0、最后dist守卫exit0，无待poll，219含部分/68已有不同/40待；b7697523已push。下一R093坏格式且hash匹配先红200已修，六非法token保留重试/两合法边界和原PG回归exit0、server build/types和专项types通过，源码/测试暂留工作区不纳入R080提交。PG55438保持；真实账户/外部TG/Go安装/完整327/灾备未完。
