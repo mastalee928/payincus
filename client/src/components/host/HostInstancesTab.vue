@@ -296,6 +296,40 @@ const notifyTitle = ref('')
 const notifyContent = ref('')
 const notifySendEmail = ref(false)
 const isSendingNotify = ref(false)
+const notifyTargets = ref<number[]>([])
+const notifyError = ref('')
+let notifyDialogGeneration = 0
+let notifyDraftRevision = 0
+const notifyDialog = ref<HTMLElement | null>(null)
+let notifyReturnFocus: HTMLElement | null = null
+const canOpenNotify = computed(() => alive && pageActive.value && !!sessionKey.value && !loading.value && !isSendingNotify.value &&
+  validBatchTargets([...selectedIds.value]))
+const canSendNotify = computed(() => alive && pageActive.value && !!sessionKey.value && !loading.value && !isSendingNotify.value &&
+  showNotifyModal.value && validBatchTargets(notifyTargets.value) &&
+  notifyTitle.value.trim().length > 0 && notifyTitle.value.trim().length <= 200 &&
+  notifyContent.value.trim().length > 0 && notifyContent.value.trim().length <= 5000)
+watch([notifyTitle, notifyContent, notifySendEmail], () => { notifyDraftRevision++ }, { flush: 'sync' })
+watch(showNotifyModal, async (open) => {
+  const generation = ++notifyDialogGeneration
+  if (open) {
+    notifyReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    await nextTick()
+    if (showNotifyModal.value && generation === notifyDialogGeneration) notifyDialog.value?.querySelector<HTMLButtonElement>('button')?.focus()
+  } else {
+    notifyTargets.value = []
+    if (notifyReturnFocus?.isConnected) notifyReturnFocus.focus()
+  }
+}, { flush: 'sync' })
+function handleNotifyDialogKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); closeNotifyModal(); return }
+  if (event.key !== 'Tab' || !notifyDialog.value) return
+  const controls = [...notifyDialog.value.querySelectorAll<HTMLElement>('button, input, textarea')]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const target = event.shiftKey ? controls.at(-1) : controls[0]
+  if (!controls.length || (event.shiftKey ? document.activeElement === controls[0] : document.activeElement === controls.at(-1))) {
+    event.preventDefault(); target?.focus()
+  }
+}
 
 
 
@@ -865,7 +899,9 @@ async function confirmGiftDays() {
 
 // 发送通知给选中实例的用户
 function openNotifyModal() {
-  if (selectedIds.value.size === 0) return
+  if (!canOpenNotify.value || showNotifyModal.value) return
+  notifyTargets.value = [...selectedIds.value]
+  notifyError.value = ''
   notifyTitle.value = ''
   notifyContent.value = ''
   notifySendEmail.value = false
@@ -908,24 +944,19 @@ function buildNotifyResultMessage(result: Awaited<ReturnType<typeof api.inbox.no
 }
 
 async function sendNotify() {
-  if (!notifyTitle.value.trim()) {
-    toast.error(t('host.notify.titleRequired'))
-    return
-  }
-  if (!notifyContent.value.trim()) {
-    toast.error(t('host.notify.contentRequired'))
-    return
-  }
-
+  if (!canSendNotify.value) return
+  const hostId = props.hostId, instanceIds = [...notifyTargets.value], title = notifyTitle.value.trim(), content = notifyContent.value.trim(), sendEmail = notifySendEmail.value
+  const session = sessionKey.value, generation = notifyDialogGeneration, revision = notifyDraftRevision
+  const current = () => alive && pageActive.value && !!session && session === sessionKey.value && hostId === props.hostId &&
+    showNotifyModal.value && generation === notifyDialogGeneration
   isSendingNotify.value = true
+  notifyError.value = ''
   try {
-    const result = await api.inbox.notifyHostUsers(props.hostId, {
-      title: notifyTitle.value.trim(),
-      content: notifyContent.value.trim(),
-      instanceIds: Array.from(selectedIds.value),
-      sendEmail: notifySendEmail.value
-    })
-
+    const result = await api.inbox.notifyHostUsers(hostId, { title, content, instanceIds, sendEmail })
+    if (!current()) return
+    if (result.success !== true || !Number.isSafeInteger(result.count) || result.count < 0 || result.count > instanceIds.length ||
+      (result.email && [result.email.sentCount, result.email.queuedCount, result.email.skippedCount, result.email.failedCount]
+        .some(count => !Number.isSafeInteger(count) || count < 0))) throw new Error(t('common.operationFailed'))
     const message = buildNotifyResultMessage(result)
     if (result.email?.failedCount) {
       toast.warning(message)
@@ -933,9 +964,11 @@ async function sendNotify() {
       toast.success(message)
     }
 
-    closeNotifyModal(true)
+    if (revision === notifyDraftRevision) closeNotifyModal(true)
   } catch (err: any) {
-    toast.error(t('host.notify.sendFailed') + ': ' + (err?.message || String(err)))
+    if (!current()) return
+    notifyError.value = t('host.notify.sendFailed') + ': ' + translateError(err)
+    toast.error(notifyError.value)
   } finally {
     isSendingNotify.value = false
   }
@@ -1231,6 +1264,10 @@ function handlePageSizeChange() {
 }
 
 function closeReadContextModals() {
+  notifyError.value = ''
+  notifyTitle.value = ''
+  notifyContent.value = ''
+  notifySendEmail.value = false
   resetTrafficError.value = ''
   priceError.value = ''
   giftError.value = ''
@@ -1828,7 +1865,7 @@ function goToInstance(id: number) {
           </button>
           <button
             class="btn-secondary btn-sm"
-            :disabled="selectedCount === 0"
+            :disabled="!canOpenNotify || showNotifyModal"
             @click="openNotifyModal"
           >
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2234,10 +2271,10 @@ function goToInstance(id: number) {
         <Transition name="modal">
           <div v-if="showNotifyModal" class="modal-overlay">
             <div class="modal-backdrop" @click="handleCloseNotifyModal"></div>
-            <div class="modal-content max-w-lg">
+            <div ref="notifyDialog" class="modal-content max-w-lg" role="dialog" aria-modal="true" :aria-label="t('host.notify.title')" @keydown="handleNotifyDialogKey">
               <div class="modal-header">
                 <h3 class="modal-title">{{ t('host.notify.title') }}</h3>
-                <button class="text-themed-muted hover:text-themed" @click="handleCloseNotifyModal">
+                <button class="text-themed-muted hover:text-themed" :disabled="isSendingNotify" :aria-label="t('common.close')" @click="handleCloseNotifyModal">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -2246,7 +2283,7 @@ function goToInstance(id: number) {
               <div class="modal-body space-y-4">
                 <div class="rounded-xl border px-4 py-3" :class="themeStore.isDark ? 'border-blue-500/30 bg-blue-500/10' : 'border-blue-200 bg-blue-50'">
                   <p class="text-sm font-medium" :class="themeStore.isDark ? 'text-blue-200' : 'text-blue-800'">
-                    {{ t('host.notify.hintSelected', { count: selectedCount }) }}
+                    {{ t('host.notify.hintSelected', { count: notifyTargets.length }) }}
                   </p>
                   <p class="mt-1 text-xs leading-5" :class="themeStore.isDark ? 'text-blue-300/80' : 'text-blue-700/80'">
                     {{ t('host.notify.deliveryHint') }}
@@ -2290,6 +2327,7 @@ function goToInstance(id: number) {
                     <p class="mt-1 text-xs leading-5 text-themed-muted">{{ t('host.notify.sendEmailHint') }}</p>
                   </div>
                 </label>
+                <p v-if="notifyError" role="alert" class="text-sm text-red-500 break-words">{{ notifyError }}</p>
               </div>
               <div class="modal-footer">
                 <button class="btn-secondary" :disabled="isSendingNotify" @click="handleCloseNotifyModal">
@@ -2297,7 +2335,7 @@ function goToInstance(id: number) {
                 </button>
                 <button
                   class="btn-primary"
-                  :disabled="isSendingNotify || !notifyTitle.trim() || !notifyContent.trim()"
+                  :disabled="!canSendNotify"
                   @click="sendNotify"
                 >
                   <svg v-if="isSendingNotify" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">

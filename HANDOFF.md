@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-301 通知目标、草稿与回执隔离
+
+- daaf349已push核远端；5f2085b源码CI已success，28a1565/a021f9a/98ca675/daaf349最后仍运行。通知固定打开弹窗时的实例集合，数量与提交一致；函数/按钮共同核当前列表、会话、目标和trim后标题1–200/正文1–5000。在途禁重开/重复提交，host/query/session/cache旧回执静默；当前成功保留后来标题、正文及email选择，当前失败持久显示。回执success/count/email计数校验，键盘焦点和关闭门禁补齐。
+- `takeover-host-notify-before.log`Chrome先红弹窗1改勾2发2；`takeover-host-notify-matrix.log`通过固定收件实例、重复、新草稿、边界/trim、失败及旧回执、同查询刷新/同sid刷新、host/session/cache/logout/unmount。1440中文/390英文截图与焦点循环已核。受控API未发送真实站内信或邮件；原后端接收人锁与投递事务保持，后台投递不据此新增验收。
+- client types、3守卫（route/i18n/inbox-query）、lint零错警、reset及读取两个完整Chrome回归、manifest194/117、最终双端build exit0/dist通过；专项接Chrome CI。
+- 下一项重建父入口四文件已Chrome先红（`takeover-host-recreate-before.log`）：切host后旧images/keys仍重新打开弹窗。相关前后端与recreate consistency/route守卫已读，产品重建未改，新夹具不混本提交。须固定准备目标与选项、会话/弹窗及写回执；子RecreateModal已有当前选项/session保护，机器池一机一卖保持。R301/327/R269及完整灾备未完成。
+
 ## 2026-10-29 R1-321 流量重置后的带宽提示
 
 - 98ca675已push核远端。三语resetTrafficWarning移除“不会自动恢复/手动恢复固定1Mbps”的错误提示，改为重置后自动检查额度并更新在线运行实例的带宽；账户/实例仍超额继续限速，离线/停止待恢复运行后检查。已逐层核对traffic reset route→running实例查询→scheduler checkAndThrottle/checkAndRestore→带宽仲裁，未改原恢复逻辑或声称网络不可达仍即时恢复。

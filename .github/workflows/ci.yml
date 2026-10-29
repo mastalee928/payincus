@@ -233,6 +233,8 @@ jobs:
         run: pnpm --filter server test:review-host-price-lifecycle
       - name: Host traffic resets keep targets and committed success
         run: pnpm --filter server test:review-host-reset-lifecycle
+      - name: Host notifications keep recipients and newer drafts
+        run: pnpm --filter server test:review-host-notify-lifecycle
       - name: Verify init command selector in Chrome
         run: pnpm --filter server test:review-init-command-selector
       - name: Verify init command modals in Chrome
