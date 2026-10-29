@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R093安装token消费补secret格式与空白校验，真实PG/Fastify先红200→六非法格式403且完整记录token保持、恢复原密文重试/两合法边界与原权限/并发/回滚exit0。三守卫/server build/types及专项types通过；220含部分/68已有不同/39待，Go真安装与生产另验。
+
 2026-10-30 R080 TG绑定read/account/session/target ABA/cache/unmount、三写busy/严格回执、checkbox失败恢复与旧读不覆保存、链接期限/复制隔离已修。实际Chrome56旧回执及控件/重试回归通过，浅深三宽局部taste最终0 FAIL/WARN；types/守卫/双端build与末dist终态详见HANDOFF。219含部分/68已有不同/40待，外部TG与真实账户另验。
 
 2026-10-30 R078读页/反序/账户sid/cache/卸载/缩页/严格回执和三语retry已修，实际Chrome先红→final14旧读/十坏读/真实next/演示隐藏与零空态exit0，原11UA回归、5守卫/lint/双端types build末dist通过。218含部分/68已有不同/41待，R080 TG绑定下一。
@@ -236,7 +238,7 @@
 | R1-090 | 已有防护 | 保留初审结论 | 已有目录准备、preflight/staging及dry-run凭据处理；不照搬旧覆盖安装修法，Linux真实安装另验。 |
 | R1-091 | 存在 | 源码已修/隔离PG验证通过 | Agent凭据发行锁内复核current owner/actor/role/status/session或current host安装token；转移/封禁/注销/降权拒绝。logs/review-agent-credentials-integration.log；Go真安装未验 |
 | R1-092 | 存在 | 源码已修/隔离PG验证通过 | identity/secret/nonce和install token同事务轮换，消费先decrypt/hash核验再CAS；7并发发行仅最新token，消费仅1次，故障回滚及坏密文不消费。logs/review-agent-credentials-integration.log |
-| R1-093 | 存在 | 待精修/运行复核 | rotate与install token非原子；consume先写tokenUsed再decryptSecret，解密失败也消耗token。 |
+| R1-093 | 存在 | 源码已修/隔离PG验证通过 | R092先完成解密/hash与消费原子性，本项补格式/空白拒绝。logs/takeover-agent-secret-final.log六坏格式保token/修复重试/两合法边界及原并发权限回归通过；真实Go安装另验 |
 | R1-094 | 存在 | 待精修/运行复核 | heartbeat认证后多个await，最终写入未约束enabled/status；禁用到写入窗口仍可上报。 |
 | R1-095 | 已有防护 | 保留初审结论 | hostId使用parsePositiveId及safe integer，严格拒绝数字后缀。 |
 | R1-096 | 存在 | 待精修/运行复核 | 升级metadata查询无singleflight且可超过Agent10秒请求期限，缓存miss重复拉取。 |

@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { createHash, randomBytes } from 'crypto'
 import { prisma } from '../db/prisma.js'
-import { generateAgentId, generateAgentSecret, hashAgentSecret } from './agent-auth.js'
+import { generateAgentId, generateAgentSecret, hashAgentSecret, isValidAgentSecret } from './agent-auth.js'
 import { decryptSensitiveData, encryptSensitiveData } from './security.js'
 import { authorizeUserWrite, type WriteActor } from '../db/user-write-authorization.js'
 
@@ -169,7 +169,8 @@ export async function consumeHostAgentInstallToken(token: string): Promise<{
 
     let agentSecret: string | null
     try { agentSecret = decryptSensitiveData(agent.secretEncrypted) } catch { throw new Error('AGENT_SECRET_INVALID') }
-    if (!agentSecret || hashAgentSecret(agentSecret) !== agent.secretHash) throw new Error('AGENT_SECRET_INVALID')
+    if (!agentSecret || !isValidAgentSecret(agentSecret) || agentSecret.trim() !== agentSecret ||
+      hashAgentSecret(agentSecret) !== agent.secretHash) throw new Error('AGENT_SECRET_INVALID')
 
     const updated = await tx.hostAgent.updateMany({
       where: {

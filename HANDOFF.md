@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-093 安装令牌拒绝无效 Agent 密钥
+
+- R092已先完成解密/hash与消费同事务，本项仍缺格式验证。追加真实Fastify/PG安装配置接口先红：格式无效但hash匹配仍200且消费token。现消费前复用Agent secret格式校验并拒前后空白，失败403、完整Agent记录与token保持；不放宽现有格式或替换原管理身份。
+- takeover-agent-secret-final真实本地PG六非法格式（空/短/越界/非法字符/尾换行）、恢复原密文后同token合法重试、no-store/重复403、32/96合法边界及原7并发签发/一次消费/权限撤销/nonce和token回滚全部exit0。Agent认证/install-command/redaction三守卫exit0，server build含tsc、独立server type-check、专项TS/diff通过，无待poll。尝试server ESLint无eslint.config，未计通过；已有types/守卫/代码审查覆盖本次3行变更。
+- 仅源码与隔离API/PG证据，不是Go安装、真实宿主或生产验收；前端未改，沿R080最终双端build/dist。ea539e25已push核远端，本项保存后220有修复/复验含部分、68已有不同、39待；继续R094心跳认证后禁用窗口。没有发行/生产/真实账户或通知操作。
+
 ## 2026-10-30 R1-080 Telegram 绑定页当前状态与操作隔离
 
 - 真实Chrome重复生成先红2请求；本轮追加实际checkbox失败后显示反向、保存后旧刷新覆盖两个先红回归。读取绑定account/role/sid/同步代次/序号及cache/unmount，三写共享busy、固定绑定目标和独立目标代次，A→B→A也不得重新接受旧回执；同sid刷新保持当前请求。通知仅在确认回执后显示新值，失败保留原值和三语持久错误/重试。

@@ -92,6 +92,28 @@ try {
   assert.equal((await snapshot()).installTokenUsedAt, null, 'secret/hash mismatch does not consume token')
   await prisma.hostAgent.update({ where: { hostId: host.id }, data: { secretEncrypted: saved.secretEncrypted } })
   assert.equal((await credentials.consumeHostAgentInstallToken(corrupted.installToken)).agentSecret, decryptSensitiveData(saved.secretEncrypted))
+  for (const invalidSecret of ['', 'fixture-too-short', 'ias_' + 'A'.repeat(31), 'ias_' + 'A'.repeat(97), 'ias_' + '!'.repeat(43), 'ias_' + 'A'.repeat(43) + '\n']) {
+    const issued = await issue()
+    const validState = await snapshot()
+    await prisma.hostAgent.update({ where: { hostId: host.id }, data: { secretEncrypted: encryptSensitiveData(invalidSecret), secretHash: hashAgentSecret(invalidSecret) } })
+    const beforeInvalid = await snapshot()
+    const response = await app.inject({ method: 'GET', url: `/agent/install-config/${issued.installToken}` })
+    assert.equal(response.statusCode, 403, 'invalid stored secret cannot be issued as install configuration')
+    assert.ok(JSON.stringify(await snapshot()) === JSON.stringify(beforeInvalid), 'invalid secret leaves the one-time token and Agent record unchanged')
+    await prisma.hostAgent.update({ where: { hostId: host.id }, data: { secretEncrypted: validState.secretEncrypted, secretHash: validState.secretHash } })
+    const repaired = await app.inject({ method: 'GET', url: `/agent/install-config/${issued.installToken}` })
+    assert.equal(repaired.statusCode, 200)
+    assert.equal(repaired.headers['cache-control'], 'no-store')
+    assert.equal((await snapshot()).installTokenHash, null)
+    assert.equal((await app.inject({ method: 'GET', url: `/agent/install-config/${issued.installToken}` })).statusCode, 403)
+  }
+  for (const length of [32, 96]) {
+    const issued = await issue(), boundarySecret = 'ias_' + 'A'.repeat(length)
+    await prisma.hostAgent.update({ where: { hostId: host.id }, data: { secretEncrypted: encryptSensitiveData(boundarySecret), secretHash: hashAgentSecret(boundarySecret) } })
+    const response = await app.inject({ method: 'GET', url: `/agent/install-config/${issued.installToken}` })
+    assert.equal(response.statusCode, 200, 'valid format boundaries remain usable')
+    assert.equal((await snapshot()).installTokenHash, null)
+  }
   const expired = await issue()
   await prisma.hostAgent.update({ where: { hostId: host.id }, data: { installTokenExpiresAt: new Date(Date.now() - 1000) } })
   await assert.rejects(credentials.consumeHostAgentInstallToken(expired.installToken), /AGENT_INSTALL_TOKEN_EXPIRED/)
@@ -102,7 +124,7 @@ try {
   assert.ok(hostInstall.installToken)
   await prisma.host.update({ where: { id: host.id }, data: { isInstalled: true } })
   await assert.rejects(credentials.issueHostAgentInstallToken(host.id, true, { hostInstallToken: `host-${tag}` }), /AGENT_INSTALL_TOKEN_INVALID/)
-  console.log('PASS real PostgreSQL/Fastify Agent credentials: current host ownership, ban/revoke/admin demotion, identity+nonce+token atomic rollback, concurrent issuance/one-time consumption, corrupt decrypt/hash preservation and legacy host-token authority; release lookup is a fetch fixture')
+  console.log('PASS real PostgreSQL/Fastify Agent credentials: current host ownership, ban/revoke/admin demotion, identity+nonce+token atomic rollback, concurrent issuance/one-time consumption, corrupt decrypt/hash and six invalid-format token preservation/repaired retries/two valid boundaries, legacy host-token authority; release lookup is a fetch fixture')
 } finally {
   globalThis.fetch = originalFetch
   await app.close()
