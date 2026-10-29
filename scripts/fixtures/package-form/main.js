@@ -1,4 +1,4 @@
-import { createApp, nextTick } from 'vue'
+import { createApp, nextTick, ref } from 'vue'
 import { createPinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import i18n, { setLocale } from '@/locales/index'
@@ -21,15 +21,18 @@ const router = createRouter({ history: createMemoryHistory(), routes: [
 ] })
 const app = createApp({
   setup() {
+    const component = ref()
     const auth = useAuthStore(), theme = useThemeStore(), toast = useToast()
     auth.user = { id: 1, username: 'isolated-ui', role: 'admin' }; auth.token = jwt('session-a')
     setLocale('zh-CN'); theme.setTheme('light')
     window.packageHarness = { pending, router, auth, theme, toast, nextTick, setLocale,
       newSession(sid) { auth.token = jwt(sid) }, refreshSession(sid) { auth.token = jwt(sid, 2) },
+      view() { return component.value?.$?.setupState },
     }
+    return { component }
   },
   // Same route-name key and KeepAlive exclusion as the actual App shell.
-  template: `<main class="p-4 sm:p-6"><RouterView v-slot="{ Component, route }"><KeepAlive :exclude="['PackageFormView']"><component :is="Component" :key="route.name"/></KeepAlive></RouterView></main>`,
+  template: `<main class="p-4 sm:p-6"><RouterView v-slot="{ Component, route }"><KeepAlive :exclude="['PackageFormView']"><component :is="Component" :key="route.name" ref="component"/></KeepAlive></RouterView></main>`,
 })
 app.use(createPinia()); app.use(i18n); app.use(router)
 await router.push('/resources/packages/1/edit')

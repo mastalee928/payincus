@@ -682,10 +682,10 @@ async function loadPackage(id: number, context: FormContext): Promise<void> {
       limitsEgressUnit: egressParsed.unit || 'Mbit',
       // Process/CPU
       limitsProcesses: Number(pkg.limits_processes) || 500,
-      limitsCpuPriority: Number(pkg.limits_cpu_priority) || 10,
+      limitsCpuPriority: Number(pkg.limits_cpu_priority ?? 10),
       // Boot settings
       bootAutostart: pkg.boot_autostart === 1 || pkg.boot_autostart === true || pkg.boot_autostart == null,
-      bootAutostartPriority: Number(pkg.boot_autostart_priority) || 20,
+      bootAutostartPriority: Number(pkg.boot_autostart_priority ?? 20),
       bootAutostartDelay: Number(pkg.boot_autostart_delay) || 15,
       bootHostShutdownTimeout: Number(pkg.boot_host_shutdown_timeout) || 30,
       // Global sharing
@@ -734,19 +734,19 @@ async function savePackage(): Promise<void> {
   }
 
   // 确保数值字段有有效值（处理空字符串或 NaN 的情况）
-  const cpuPriority = Number(form.value.limitsCpuPriority) || 10
-  const bootPriority = Number(form.value.bootAutostartPriority) || 20
+  const cpuPriority = String(form.value.limitsCpuPriority).trim() === '' ? NaN : Number(form.value.limitsCpuPriority)
+  const bootPriority = String(form.value.bootAutostartPriority).trim() === '' ? NaN : Number(form.value.bootAutostartPriority)
   const startupDelay = Number(form.value.bootAutostartDelay) || 15
   const shutdownTimeout = Number(form.value.bootHostShutdownTimeout) || 30
 
   // Validate CPU priority (0-10)
-  if (cpuPriority < 0 || cpuPriority > 10) {
+  if (!Number.isInteger(cpuPriority) || cpuPriority < 0 || cpuPriority > 10) {
     formError.value = t('packageForm.validation.cpuPriorityRange')
     return
   }
 
   // Validate boot priority (0-100)
-  if (bootPriority < 0 || bootPriority > 100) {
+  if (!Number.isInteger(bootPriority) || bootPriority < 0 || bootPriority > 100) {
     formError.value = t('packageForm.validation.bootPriorityRange')
     return
   }

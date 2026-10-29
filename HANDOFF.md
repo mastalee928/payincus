@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-312 套餐合法零优先级保留
+
+- 上批9730aa27已push。本批修PackageFormView读取及提交CPU/启动优先级0被默认10/20覆盖；仅null/缺省读取使用默认，提交要求原范围整数，空白、非数字、小数及越界拒写。CPU范围0–10、启动优先级0–100不变；启动延迟5–600和关机超时30–600不扩大为允许0。PackageSelector当前只展示props.packages，没有对方嵌入packageId读取路径，保留实现不同结论。
+- takeover-package-priorities-before真实Chrome加载0得到10先红；final读/提交数字和字符串0、null/缺省默认、四合法边界与十非法输入通过exit0，原完整package-form读取/保存/session/description/plan modal回归exit0。三宽三语截图均已查看，无水平溢出。4守卫（frontend-route/package-input/package-route-id/package-host-type）、lint零错警及manifest194常规/167专项分类通过；build双端含vue-tsc与dist最终进程exit0，专项接CI。日志前缀takeover-package-priorities，截图logs/package-priorities；无待poll。
+- 仅真实Vue与受控API，未写真实套餐/数据库、操作宿主或交付客户实例；后端及一机一卖全端口逻辑未改，实际Incus交付验收仍待。按唯一327编号现199有修复/复验记录（含部分）/68已有防护或实现不同/60待精修；199内部未完范围继续保留。下一R323三语启动提示语义已核现有Incus字段映射，尚未改。完整327和网关灾备仍未完成，本批阶段提交推送继续。
+
 ## 2026-10-29 R1-310 SMTP 测试固定收件人与确认回执
 
 - 6e643b4a已push。smtp-before实际Chrome先红连续send两次请求。两测试函数共享即时busy（含SMTP保存），固定session/页面/SMTP草稿/收件人代次，旧成功失败静默；scope变更清测试邮箱及提示，在途busy保持到finally。输入变化清旧提示，新地址不被旧回执清除；当前同sid成功使用提交时email。连接测试核真实success/message，发送另核accepted=1/rejected=0/pending=0及有效邮箱；只显示邮件服务接受，不声明收件箱已收到。

@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R312零优先级阶段：CPU/启动优先级合法0读取/提交保持，null/缺省读取默认与整数范围门禁；真实Chrome先红后零值/默认/四边界/十非法输入及原完整表单回归exit0，4守卫/lint/双端types build最终exit0/dist/manifest194常规167专项与三宽三语截图见HANDOFF。唯一199有修复复验（含部分）/68已有防护或实现不同/60待精修；实际Incus交付与199内部未完仍保留，R323三语提示另批继续。
+
 2026-10-29 R310分组草稿阶段：真实Chrome先红→19组保存/刷新新草稿/ABA/嵌套JSON、分组和初读反序、busy/失败保基线/密码掩码全部通过；4守卫/lint零错警/双端types build exit0/dist/manifest194常规163专项与三宽截图见HANDOFF。唯一198有修复复验（含部分）/68已有防护实现不同/61待精修；198内部未完，会话/cache/unmount/严格回执下一段继续，完整327与灾备仍未完成。
 
 2026-10-29 R309回执联动阶段：密码初次/verified核真实message+reauthRequired=true，非法回执保草稿error，删非法false成功timer；实际敏感验证两组件request/verify/原payload重试/清登录跳转与旧child草稿隔离通过。Chrome12反例+scope32回执/4守卫/lint/双端types build/dist和三宽截图见HANDOFF。R311与R309两旧回执数量各32已纠正；197/68/62含部分不重复计数，外部SMTP/真实客户密码全流程仍待。
@@ -405,7 +407,7 @@
 | R1-309 | 存在，部分已修 | 固定密码/回执/验证联动真实Chrome通过 | 固定提交/session/draft pending、busy/取消/cache/unmount/旧timer、真实message/reauthRequired确认已修；Chrome32旧回执、实际SensitiveVerification request/verify/原payload retry/清登录跳转及旧child草稿隔离通过。外部SMTP/真实客户密码完整变更仍待。 |
 | R1-310 | 存在，部分已修 | 草稿/会话/回执/SMTP Chrome与双端构建通过 | 19组草稿/ABA/独立read、session/cache/unmount、ready/严格list/缺key/message与持久error retry已修；SMTP即时busy/固定收件人与草稿/session/实际接受计数、32旧回执与四卸载通过。后台完整真实管理员配置/外部SMTP及灾备另续，证据见HANDOFF。 |
 | R1-311 | 存在，部分已修 | 当前编辑读取Chrome及构建守卫通过 | 编辑target/seq/ABA/mode/show/admin/account/session/unmount隔离、ready/loading/保存门禁、失败持久retry及匹配id已修，真实Chrome16旧回执及正常/失败/刷新/卸载通过。手机开关出界已单列/wrap；保存回执、列表与分类并发另待。 |
-| R1-312 | 部分存在 | 待精修/运行复核 | 当前PackageSelector只展示props.packages，无对方嵌入packageId加载；priority 0用／／20确被默认覆盖。 |
+| R1-312 | 部分存在 | 源码已修/真实浏览器夹具通过 | PackageSelector只展示props.packages，无对方嵌入packageId加载；套餐CPU/启动priority合法0读取和提交保持，null/缺省默认及原整数范围、四边界与十非法输入通过takeover-package-priorities-final.log，原package-form全回归/4守卫/lint/双端types build/dist通过；实际Incus交付未验。 |
 | R1-313 | 部分存在，部分已修 | 目标/session及输入回执实际Chrome与构建守卫通过 | 四操作固定目标/session/draft/ABA、busy/关闭/卸载/timer已修；两数字输入、四真实成功回执/有效期与过期敏感验证清理已修。80旧回执及输入回执反例/重试通过；实际邮件和客户完整变更另续。 |
 | R1-314 | 存在 | 待精修/运行复核 | multiDraw拒isSpinning，但spin不拒isMultiDrawing；结果setTimeout未随卸载清理，可与十连交错或离页后弹窗。 |
 | R1-315 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
