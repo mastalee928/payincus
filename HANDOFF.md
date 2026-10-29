@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-068 自动快照通知当前归属与名称复验
+
+- 当前phase每阶段重读实例/宿主/策略、归属改变拒绝，最终事务日志与completed通知使用当前instance/host，原清单旧快照症状不再存在。本阶段不重复改产品；原auto-snapshot集成新增renamed_queued/owner_changed，真实PG与认证TLS远端边界检验。
+- 排队后改实例/宿主名称：实际站内信data与content使用当前两名称、原snapshotName，唯一原owner通知，成功审计用当前实例名称。排队后改owner：blocked、零远端effect、双方零成功站内信/成功审计；恢复原owner后同一操作完成一次/仅原owner通知，原客户字段保持。第一轮因测试改owner的updatedAt未重建基线失败，修测试基线后takeover-snapshot-notification-current-final完整30条PASS且exit0；两守卫/独立test types/diff全部过，只改既有已分类专项，产品未变沿同源码build/types，不重复构建。
+- 真实PG/站内信与mTLS替身不是外部Telegram/邮件或Linux磁盘验收，通知发送期间再次变化的边界另评。c31eebbe已push核远端，6e31/a171/2153 CI现success，其后三阶段仍in_progress。唯一212有修复/复验（含部分）/68已有不同/47待；整体327、原生快照及完整网关灾备未完。阶段提交推送后继续R071账户头像草稿，源码/用户route及守卫已读、尚未改。
+
 ## 2026-10-29 R1-062 快照有效读取与成功回执（部分）
 
 - snapshot-receipts-before实际Chrome初读尚未完成已发创建先红。现两资源独立ready/error与读代次，valid GET列表/Boolean policy后才允许五类写；严格正整数/去重snapshot ID、实际incusName/Boolean stateful/时间/大小及四种间隔/持久operation回执。GET失败持久显示实际刷新按钮，未知配额/策略显示—且不误报暂无快照；原成功数据读取可达。按当前写receipt核非空message、create ID/name/description/Incus名、retry原UUID及operation shape，空错回执保草稿/error，不清列表或假成功；恢复retry必须两确认读取成功且无原operation才报恢复完成。

@@ -74,6 +74,7 @@ const server = createServer({ key: await readFile(keyPath), cert: certificate, c
 await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
 const port = (server.address() as { port: number }).port
 const owner = await prisma.user.create({ data: { username: tag, passwordHash: 'unusable-fixture' } })
+const alternateOwner = await prisma.user.create({ data: { username: tag + '-other-owner', passwordHash: 'unusable-fixture' } })
 const host = await prisma.host.create({ data: { userId: owner.id, name: tag, status: 'online', url: `https://127.0.0.1:${port}`,
   certPath, keyPath, serverCertificate: certificate, serverFingerprint: fingerprint } })
 const instanceIds: number[] = []
@@ -148,7 +149,7 @@ try {
   const actor = { id: owner.id, sid: randomUUID(), iat: Math.floor(Date.now() / 1000) + 10 }
   for (const kind of ['create_commit', 'delete_commit', 'finalize_commit', 'remote_refused_keeps_old',
     'unconfirmed_create', 'unconfirmed_delete', 'uuid_changed', 'host_changed', 'session_revoked',
-    'concurrent', 'disabled_recovery', 'expired_recovery', 'fresh_applying', 'stale_applying', 'process_killed', 'bounded_retries', 'remote_still_running', 'recovery_hold', 'new_schedule_failure', 'disabled_schedule_failure'] as const) {
+    'concurrent', 'disabled_recovery', 'expired_recovery', 'fresh_applying', 'stale_applying', 'process_killed', 'bounded_retries', 'remote_still_running', 'recovery_hold', 'new_schedule_failure', 'disabled_schedule_failure', 'renamed_queued', 'owner_changed'] as const) {
     const name = tag + '-' + kind
     const instance = await prisma.instance.create({ data: { userId: owner.id, hostId: host.id, name, incusId: name,
       image: 'fixture/debian', status: 'running', cpu: 100, memory: 512, disk: 1024, snapshotLimit: 1,
@@ -173,7 +174,7 @@ try {
       }
     }
     const calls = () => requests.filter(call => call.name === name && call.method !== 'GET')
-    const frozen = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
+    let frozen = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
     await assert.rejects(createInstanceTask({ instanceId: instance.id, hostId: host.id, userId: owner.id, taskType: 'stop' }), /自动快照/)
     await assert.rejects(withSnapshotMutation({ id: instance.id, user_id: owner.id, host_id: host.id, incus_id: name }, actor, false,
       async () => { throw new Error('must not execute') }), /自动快照/)
@@ -184,6 +185,13 @@ try {
       await prisma.$executeRawUnsafe('CREATE TRIGGER fixture_auto_failure BEFORE UPDATE ON auto_snapshot_operations FOR EACH ROW EXECUTE FUNCTION fixture_auto_failure()')
     }
     try {
+      const renamedInstance = `${name}-current-name`, renamedHost = `${tag}-current-host`
+      if (kind === 'renamed_queued') {
+        await prisma.instance.update({ where: { id: instance.id }, data: { name: renamedInstance } })
+        await prisma.host.update({ where: { id: host.id }, data: { name: renamedHost } })
+        frozen = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
+      }
+      if (kind === 'owner_changed') await prisma.instance.update({ where: { id: instance.id }, data: { userId: alternateOwner.id } })
       rejectCreate = kind === 'remote_refused_keeps_old' || kind === 'bounded_retries'
       hideCreate = kind === 'unconfirmed_create'; keepDeleted = kind === 'unconfirmed_delete'
       if (['uuid_changed', 'host_changed', 'session_revoked', 'disabled_recovery', 'expired_recovery', 'remote_still_running', 'new_schedule_failure', 'disabled_schedule_failure'].includes(kind)) {
@@ -226,6 +234,15 @@ try {
       if (kind === 'concurrent') await Promise.all([applyAutoSnapshotOperation(plan.id), applyAutoSnapshotOperation(plan.id)])
       else await applyAutoSnapshotOperation(plan.id)
       let result = await prisma.autoSnapshotOperation.findUniqueOrThrow({ where: { id: plan.id } })
+      if (kind === 'owner_changed') {
+        assert.equal(result.state, 'blocked', 'queued operation cannot run for a different current owner')
+        assert.equal(calls().length, 0, 'changed owner causes no remote snapshot write')
+        assert.equal(await prisma.inboxMessage.count({ where: { userId: { in: [owner.id, alternateOwner.id] },
+          data: { path: ['snapshotName'], equals: plan.snapshotName } } }), 0, 'changed owner gets no success notification')
+        assert.equal(await prisma.log.count({ where: { instanceId: instance.id, action: 'snapshot.auto_create' } }), 0)
+        await prisma.instance.update({ where: { id: instance.id }, data: { userId: owner.id } })
+        frozen = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
+      }
       if (triggerStage) assert.equal(result.state, 'retry')
       if (['remote_still_running', 'new_schedule_failure', 'disabled_schedule_failure'].includes(kind)) { assert.equal(result.state, 'retry'); assert.equal(calls().length, 0) }
       if (protectedPolicy) assert.deepEqual(await prisma.snapshotPolicy.findUniqueOrThrow({ where: { instanceId: instance.id } }), protectedPolicy,
@@ -256,6 +273,20 @@ try {
       assert.deepEqual([...remoteSnapshots.get(name)!], [plan.snapshotName])
       assert.equal(await prisma.snapshot.count({ where: { instanceId: instance.id } }), 1)
       assert.equal(await prisma.log.count({ where: { instanceId: instance.id, action: 'snapshot.auto_create' } }), 1)
+      if (kind === 'renamed_queued' || kind === 'owner_changed') {
+        const notifications = await prisma.inboxMessage.findMany({ where: { userId: { in: [owner.id, alternateOwner.id] },
+          data: { path: ['snapshotName'], equals: plan.snapshotName } } })
+        assert.equal(notifications.length, 1, 'successful recovery sends one current owner notification')
+        assert.equal(notifications[0].userId, owner.id)
+        const data = notifications[0].data as { instanceName: string; hostName: string; snapshotName: string }
+        assert.equal(data.instanceName, kind === 'renamed_queued' ? renamedInstance : name)
+        assert.equal(data.hostName, kind === 'renamed_queued' ? renamedHost : tag)
+        assert.equal(data.snapshotName, plan.snapshotName)
+        assert.ok(notifications[0].content.includes(data.instanceName))
+        assert.ok(notifications[0].content.includes(data.hostName))
+        const audit = await prisma.log.findFirstOrThrow({ where: { instanceId: instance.id, action: 'snapshot.auto_create' } })
+        assert.equal(audit.userId, owner.id); assert.ok(audit.content.includes(data.instanceName))
+      }
       if (kind !== 'bounded_retries' && kind !== 'remote_refused_keeps_old' && kind !== 'unconfirmed_create') assert.ok(calls().filter(call => call.method === 'POST').length <= 1)
       if (kind !== 'unconfirmed_delete') assert.equal(calls().filter(call => call.method === 'DELETE').length, 1)
       if (kind !== 'expired_recovery') assert.deepEqual(await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } }), frozen)
@@ -264,16 +295,18 @@ try {
       if (triggerStage) { await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS fixture_auto_failure ON auto_snapshot_operations'); await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS fixture_auto_failure()') }
       rejectCreate = false; hideCreate = false; keepDeleted = false; uuidSuffix = ''; holdResponse = false; mutationReached = undefined
       await prisma.host.update({ where: { id: host.id }, data: { serverFingerprint: fingerprint } })
+      await prisma.host.update({ where: { id: host.id }, data: { name: tag } })
     }
   }
   console.log('PASS real PostgreSQL and mTLS automatic snapshot execution; Incus API is a fixture, process-kill recovery verified; actual Incus disk and Linux remain separate acceptance')
 } finally {
-  await prisma.log.deleteMany({ where: { OR: [{ userId: owner.id }, { instanceId: { in: instanceIds } }] } })
-  await prisma.inboxMessage.deleteMany({ where: { userId: owner.id } })
+  await prisma.log.deleteMany({ where: { OR: [{ userId: { in: [owner.id, alternateOwner.id] } }, { instanceId: { in: instanceIds } }] } })
+  await prisma.inboxMessage.deleteMany({ where: { userId: { in: [owner.id, alternateOwner.id] } } })
   await prisma.autoSnapshotOperation.deleteMany({ where: { instanceId: { in: instanceIds } } })
   await prisma.instance.deleteMany({ where: { id: { in: instanceIds } } })
   await prisma.host.delete({ where: { id: host.id } })
   await prisma.user.delete({ where: { id: owner.id } })
+  await prisma.user.delete({ where: { id: alternateOwner.id } })
   await closePrismaDatabase()
   await new Promise<void>(resolve => server.close(() => resolve()))
   await rm(root, { recursive: true, force: true })

@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R068按当前路径复验：最终事务/通知已有current owner/instance/host；原auto集成追加排队改两名称通知/审计正确，owner变化blocked零远端写/双方零成功通知、恢复原owner同operation唯一通知。current-final完整30条PASS exit0，两守卫/独立types/diff过，仅测试未变产品；212含部分/68已有不同/47待，外部通知/真实Linux/完整327/灾备另验。
+
 2026-10-29 R062第三段ready/严格回执：初读可create先红→独立GET ready/error/shape、成功message/create目标/retry原UUID与确认读取、失败实际retry/未知空态及Snapshot真实Boolean/camelCase类型已修。receipts-final2 16坏读22坏写/合法retry/失败不假空exit0，原36读90写/submit25冲突16旧草稿/bool回归exit0。4守卫/最后route+i18n/lint/语法/diff/manifest194常规181专项、双端build含types/dist最终exit0，无待poll，截图已看。c0a20070已push核远端；211含部分/68已有不同/48待不变，真实Linux/整体UI/完整327/灾备未完。
 
 2026-10-29 R062第二段全局busy与草稿回执：创建在途删除2请求先红→五写共享busy/字段关闭/固定policy和源ID/草稿弹窗ABA拒旧，final3实际Chrome25冲突16旧草稿/目标/后台读/retry与最后owns exit0，原36读90写及bool回归exit0。4守卫/最后route+i18n/lint/语法/diff/manifest194常规180专项已过，双端build含types/dist最终exit0，无待poll。5382dfad已push核远端；211含部分/68已有不同/48待不变，严格回执/ready/整体UI/真实宿主/完整327/灾备另续。
@@ -195,7 +197,7 @@
 | R1-065 | 存在 | 已修；真实Fastify/PG通过 | 原实例锁内按当前策略重新排程：改间隔/重启/缺值重排，原样保留，关闭null，lastRunAt不变；schedule-before先红→final2间隔/账户门禁/实例字段保持与原auto-regression26条PG/mTLS回归全部exit0，3守卫/server types/build通过。真实Linux Incus另验。 |
 | R1-066 | 已有防护 | 保留初审结论 | parsePositiveId严格正整数及safe integer；不接受小数ID。 |
 | R1-067 | 原症状已修 | 当前失败分支真实PG/mTLS复验通过 | 旧updateSnapshotPolicyLastRun无消费者；failure仅attempt约束操作回执。new_schedule_failure/disabled_schedule_failure完整policy保持/零远端写并原同操作恢复，takeover-snapshot-failure-schedule-final完整28条PASS exit0，两守卫/独立types过；成功恢复排程语义与原生磁盘另验。 |
-| R1-068 | 部分存在 | 待精修/运行复核 | 锁后重读policy/instance/host eligibility，旧排队资格已有保护；执行后异步通知仍沿用该次快照的名称/归属。 |
+| R1-068 | 原症状已修 | 当前通知/审计真实PG复验通过 | 当前phase/最终事务重读owner/实例/宿主，renamed_queued实际站内信data/content及日志用当前名称；owner_changed blocked零mTLS写/双方零成功通知，恢复原owner同operation唯一通知。current-final完整30条PASS exit0，两守卫/test types过；外部通知与发送中再次变化另评，原生磁盘/整体灾备另验。 |
 | R1-069 | 实现不同 | 保留初审结论 | backupRoutes/storageConfig和restoreTaskWorker/backupUploadWorker实际注册启动；本库客机备份后端未退役。 |
 | R1-070 | 实现不同 | 保留初审结论 | storage配置与provider栈仍有后端消费者，不能因前端孤立按对方方案删掉。 |
 | R1-071 | 存在 | 待精修/运行复核 | 提交selectedAvatarStyle，await后使用当时当前选择更新authStore，后来未提交的选择误标已保存。 |
