@@ -61,6 +61,7 @@ function getPaidIconType(instance: Instance): 'pro' | 'prime' | null {
 
 interface Instance {
   id: number
+  dedicatedIpv4?: boolean
   hostId?: number
   host_id?: number
   name: string
@@ -414,6 +415,30 @@ const canOpenBatchConfig = computed(() => alive && pageActive.value && !!session
 
 // 批量迁移实例
 const showMigrateModal = ref(false)
+const migrateBusy = ref(false)
+const migrateTargets = ref<Instance[]>([])
+const migrateTargetIds = computed(() => migrateTargets.value.map(instance => instance.id))
+const migrateCompleted = ref(false)
+const canOpenMigrate = computed(() => alive && pageActive.value && !!sessionKey.value && !loading.value &&
+  !migrateBusy.value && !showMigrateModal.value && Number.isSafeInteger(props.hostId) && props.hostId > 0 &&
+  selectedIds.value.size <= 30 && validBatchTargets([...selectedIds.value]) &&
+  instances.value.filter(instance => selectedIds.value.has(instance.id)).every(instance => !instance.dedicatedIpv4 && instance.status !== 'deleted'))
+
+function openMigrateForSelection() {
+  if (!canOpenMigrate.value) return
+  migrateTargets.value = instances.value.filter(instance => selectedIds.value.has(instance.id)).map(instance => ({ ...instance }))
+  migrateCompleted.value = false
+  showMigrateModal.value = true
+}
+
+function handleMigrateSuccess() {
+  migrateCompleted.value = true
+  void loadInstances()
+}
+
+watch(showMigrateModal, visible => {
+  if (!visible) { migrateTargets.value = []; migrateCompleted.value = false }
+}, { flush: 'sync' })
 
 // 重建实例
 const showRecreateModal = ref(false)
@@ -1238,7 +1263,7 @@ async function loadInstances() {
   } catch (err: any) {
     if (!current()) return
     clearInstanceReads()
-    closeReadContextModals()
+    closeReadContextModals(!changed && migrateCompleted.value)
     loadError.value = t('instance.detail.loadFailed') + ': ' + translateError(err)
   } finally {
     if (current()) loading.value = false
@@ -1305,7 +1330,7 @@ function handlePageSizeChange() {
   loadInstances()
 }
 
-function closeReadContextModals() {
+function closeReadContextModals(preserveMigrateResult = false) {
   singleActionGeneration++
   singleActionErrors.value = {}
   resetRecreateDialog()
@@ -1326,7 +1351,7 @@ function closeReadContextModals() {
   showResetTrafficModal.value = false
   showPriceModal.value = false
   showBatchConfigModal.value = false
-  showMigrateModal.value = false
+  if (!preserveMigrateResult) showMigrateModal.value = false
   showGiftDaysModal.value = false
   deletePreviewSequence++
   deletePreview.value = null
@@ -1894,9 +1919,10 @@ function goToInstance(id: number) {
                 ? (themeStore.isDark ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-200 text-gray-400 cursor-not-allowed')
                 : (themeStore.isDark ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-indigo-500 hover:bg-indigo-600 text-white')
             ]"
-            :disabled="selectedCount === 0"
+            :disabled="!canOpenMigrate"
             :title="selectedCount === 0 ? t('host.migrate.noInstancesSelected') : ''"
-            @click="selectedCount > 0 && (showMigrateModal = true)"
+            data-migrate-open
+            @click="openMigrateForSelection"
           >
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -2539,9 +2565,12 @@ function goToInstance(id: number) {
     v-model:visible="showMigrateModal"
     :host-id="hostId"
     :host-name="hostName"
-    :selected-ids="Array.from(selectedIds)"
-    :instances="instances"
-    @success="loadInstances"
+    :selected-ids="migrateTargetIds"
+    :instances="migrateTargets"
+    :current-instances="instances"
+    :disabled="loading || !!loadError"
+    @busy="migrateBusy = $event"
+    @success="handleMigrateSuccess"
   />
 
   <RecreateModal

@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 旧迁移写目标、父入口与结果
+
+- 09c6c77已push核远端。迁移提交复制源/目标/实例ID/镜像/套餐，绑定session及页面/弹窗代次；重复和在途关闭拒绝，跨切换保留busy，旧成功/失败不刷新新源或改写新弹窗。回执校验全部ID唯一性及成功/失败计数，部分成功结果页不可重放整批；当前失败持久展示。
+- 父入口真实Chrome复现点击同tick勾选从1变2导致迁移2（takeover-migrate-parent-before-r3.log）；现在点击同步复制实例及ID，提交前复核当前归属/Incus/宿主/套餐/类型，缺失、deleted或专属实例拒绝。父子busy联动，列表刷新失败保留已完成迁移结果，键盘焦点/Tab/Escape完善。专属机器仍走机器池换机，全端口交付及用户隐藏端口转发保持，未执行客户或原生Incus迁移。
+- takeover-migrate-writes-final.log与takeover-migrate-parent-final.log完整Chrome矩阵exit0，含目标/source ABA/session/role/account/logout/cache/unmount/reopen、回执、当前身份、同页刷新、辅助失败、真实点击、键盘及两视口截图；读取与batch-config完整回归分别见takeover-migrate-writes-read-regression.log/parent-regression.log。Chrome清理稍慢；检查时测试进程已退出，未实际终止任何进程，全部自然exit0。
+- client types、route/i18n/host-migration-consistency三守卫、lint零错警、manifest194/134通过，两个新专项接Chrome CI。最终双端build含vue-tsc exit0（takeover-migrate-writes-build.log），dist单独守卫见takeover-migrate-writes-dist.log。首轮父夹具按钮翻译名错误及一次Python缺UTF-8均修正，第三次准确复现目标错选；不把夹具错误当产品证据。
+- 迁移后台当前授权/并发/补偿、宿主分页同名排序/并发变化仍待。下一项兑换复制已建test-host-redeem-copy.mjs独立先红，产品未改；旧clipboard回执/拒绝处理、批量结果弹窗需继续。327/R269/Go proc与完整灾备均未完成。
+
 ## 2026-10-29 R1-303 旧迁移目标读取与选择
 
 - 4cde9e6已push核远端；27cb569源码CI已success，8e9e15d/4cde9e6最后仍运行。旧迁移host/images/plans读取分别绑定请求序号、源/目标、session、visible及cache生命周期；旧回执不覆盖当前选择。错误持久显示并可重试，失败/未知选项禁止提交。删除原300ms关闭回调，重开不再被旧回调清空。

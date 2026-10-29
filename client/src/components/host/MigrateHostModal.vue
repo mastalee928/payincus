@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onActivated, onDeactivated, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onActivated, onDeactivated, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
-import { useToast } from '@/stores/toast'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import DistroIcon from '@/components/icons/DistroIcon.vue'
@@ -11,13 +10,21 @@ import { translateError } from '@/utils/errorHandler'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
-const toast = useToast()
 const authStore = useAuthStore()
 
 interface InstanceInfo {
   id: number
   name: string
   packagePlanId?: number | null
+  incusId?: string
+  incus_id?: string
+  userId?: number
+  user_id?: number
+  hostId?: number
+  host_id?: number
+  instanceType?: string
+  status?: string
+  dedicatedIpv4?: boolean
 }
 
 interface Props {
@@ -26,6 +33,8 @@ interface Props {
   hostName?: string
   selectedIds: number[]
   instances?: InstanceInfo[]  // 实例信息，用于判断是否有付费实例
+  currentInstances?: InstanceInfo[]
+  disabled?: boolean
 }
 
 interface Host {
@@ -50,12 +59,14 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
   (e: 'success'): void
+  (e: 'busy', value: boolean): void
 }>()
 let alive = true
 const pageActive = ref(false)
 let hostsSequence = 0
 let plansSequence = 0
 let imagesSequence = 0
+let contextGeneration = 0
 const sessionKey = computed(() => {
   if (!authStore.token || !authStore.user) return ''
   let identity = authStore.token
@@ -95,6 +106,26 @@ const targetPlanId = ref<number | null>(null)
 
 // 提交状态
 const isSubmitting = ref(false)
+const submitError = ref('')
+watch(isSubmitting, value => emit('busy', value), { flush: 'sync' })
+const dialog = ref<HTMLElement | null>(null)
+let returnFocus: HTMLElement | null = null
+watch(() => props.visible, async visible => {
+  if (visible) returnFocus = document.activeElement as HTMLElement | null
+  await nextTick()
+  if (visible && props.visible) dialog.value?.focus()
+  else if (!props.visible && returnFocus?.isConnected) returnFocus.focus()
+})
+function handleDialogKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); closeModal(); return }
+  if (event.key !== 'Tab') return
+  const controls = [...(dialog.value?.querySelectorAll<HTMLElement>('button,input,select,[tabindex="0"]') ?? [])]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const first = controls[0], last = controls.at(-1)
+  if (!first) { event.preventDefault(); dialog.value?.focus(); return }
+  if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.value)) { event.preventDefault(); last?.focus() }
+  else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.value)) { event.preventDefault(); first.focus() }
+}
 
 // 结果状态
 const showResult = ref(false)
@@ -118,14 +149,26 @@ const hasPaidInstances = computed(() => {
 
 // 是否可以提交
 const canSubmit = computed(() => {
-  if (!canRead.value || !selectionValid.value || isSubmitting.value || loadingHosts.value || loadingPlans.value || loadingImages.value ||
+  if (!canRead.value || props.disabled || showResult.value || !selectionValid.value || !targetsStillCurrent() || isSubmitting.value || loadingHosts.value || loadingPlans.value || loadingImages.value ||
     hostsError.value || imagesError.value || (hasPaidInstances.value && plansError.value)) return false
   if (!availableHosts.value.some(host => host.id === targetHostId.value)) return false
   if (!images.value.some(image => image.remoteAlias === targetImage.value)) return false
   if (hasPaidInstances.value && !plans.value.some(plan => plan.id === targetPlanId.value)) return false
   return true
 })
+function targetsStillCurrent() {
+  return selectedSnapshot.value.every(target => {
+    const current = (props.currentInstances ?? props.instances ?? []).find(instance => instance.id === target.id)
+    if (!current || current.dedicatedIpv4 || current.status === 'deleted') return false
+    return (current.incusId ?? current.incus_id) === (target.incusId ?? target.incus_id) &&
+      (current.userId ?? current.user_id) === (target.userId ?? target.user_id) &&
+      (current.hostId ?? current.host_id ?? props.hostId) === (target.hostId ?? target.host_id ?? props.hostId) &&
+      current.packagePlanId === target.packagePlanId && current.instanceType === target.instanceType
+  })
+}
 function resetReadContext() {
+  contextGeneration++
+  submitError.value = ''
   hostsSequence++
   plansSequence++
   imagesSequence++
@@ -151,7 +194,7 @@ function beginReads() {
   const ids = [...props.selectedIds]
   const validIds = ids.length > 0 && ids.length <= 30 && ids.every(id => Number.isSafeInteger(id) && id > 0) && new Set(ids).size === ids.length
   selectedSnapshot.value = (props.instances ?? []).filter(instance => ids.includes(instance.id)).map(instance => ({ ...instance }))
-  selectionValid.value = validIds && selectedSnapshot.value.length === ids.length
+  selectionValid.value = validIds && selectedSnapshot.value.length === ids.length && !selectedSnapshot.value.some(instance => instance.dedicatedIpv4)
   void loadHosts()
 }
 watch([() => props.visible, () => props.hostId, sessionKey], () => { resetReadContext(); beginReads() }, { flush: 'sync' })
@@ -163,7 +206,7 @@ function activateReads() {
 onMounted(activateReads)
 onActivated(activateReads)
 onDeactivated(() => { pageActive.value = false; resetReadContext() })
-onUnmounted(() => { alive = false; pageActive.value = false; resetReadContext() })
+onUnmounted(() => { alive = false; pageActive.value = false; resetReadContext(); emit('busy', false) })
 function canReadDestination(hostId: number) {
   return canRead.value && !loadingHosts.value && !hostsError.value && Number.isSafeInteger(hostId) && hostId > 0 &&
     targetHostId.value === hostId && availableHosts.value.some(host => host.id === hostId)
@@ -171,7 +214,7 @@ function canReadDestination(hostId: number) {
 
 // 加载节点列表
 async function loadHosts() {
-  if (!canRead.value) return
+  if (!canRead.value || isSubmitting.value) return
   const sequence = ++hostsSequence, sourceHostId = props.hostId, session = sessionKey.value
   const current = () => canRead.value && sequence === hostsSequence && sourceHostId === props.hostId && session === sessionKey.value
   loadingHosts.value = true
@@ -217,7 +260,7 @@ async function loadHosts() {
 
 // 加载目标节点的方案列表
 async function loadPlans(hostId: number) {
-  if (!canReadDestination(hostId) || !hasPaidInstances.value) return
+  if (!canReadDestination(hostId) || isSubmitting.value || !hasPaidInstances.value) return
   const sequence = ++plansSequence, session = sessionKey.value, previousSelection = targetPlanId.value
   const current = () => canRead.value && sequence === plansSequence && hostId === targetHostId.value && session === sessionKey.value
   loadingPlans.value = true
@@ -243,7 +286,7 @@ async function loadPlans(hostId: number) {
 
 // 加载目标节点可用的系统镜像
 async function loadImages(hostId: number) {
-  if (!canReadDestination(hostId)) return
+  if (!canReadDestination(hostId) || isSubmitting.value) return
   const sequence = ++imagesSequence, session = sessionKey.value, previousSelection = targetImage.value
   const current = () => canRead.value && sequence === imagesSequence && hostId === targetHostId.value && session === sessionKey.value
   loadingImages.value = true
@@ -269,35 +312,30 @@ async function loadImages(hostId: number) {
 // 提交迁移
 async function handleSubmit() {
   if (!canSubmit.value) return
-  if (!targetHostId.value) {
-    toast.error(t('host.migrate.selectTargetRequired'))
-    return
-  }
-
-  if (!targetImage.value) {
-    toast.error(t('host.migrate.selectImageRequired'))
-    return
-  }
-
-  if (hasPaidInstances.value && !targetPlanId.value) {
-    toast.error(t('host.migrate.selectPlanRequired'))
-    return
-  }
-
-  if (selectedSnapshot.value.length === 0) {
-    toast.error(t('host.migrate.noInstancesSelected'))
-    return
-  }
-
+  const sourceHostId = props.hostId, session = sessionKey.value, generation = contextGeneration
+  const ids = selectedSnapshot.value.map(instance => instance.id), destination = targetHostId.value!, image = targetImage.value
+  const planId = hasPaidInstances.value ? targetPlanId.value ?? undefined : undefined
+  const current = () => canRead.value && sourceHostId === props.hostId && session === sessionKey.value && generation === contextGeneration
+  submitError.value = ''
   isSubmitting.value = true
   try {
     const res = await api.hosts.migrateInstances(
-      props.hostId,
-      selectedSnapshot.value.map(instance => instance.id),
-      targetHostId.value,
-      targetImage.value,
-      hasPaidInstances.value ? targetPlanId.value ?? undefined : undefined
+      sourceHostId, ids, destination, image, planId
     )
+    if (!current()) return
+    if (!res || typeof res.message !== 'string' || !res.message || !Number.isSafeInteger(res.successCount) || res.successCount < 0 ||
+      !Number.isSafeInteger(res.failedCount) || res.failedCount < 0 || res.successCount + res.failedCount !== ids.length ||
+      !Array.isArray(res.results) || res.results.length !== ids.length || res.results.some(item => !item || !ids.includes(item.id) ||
+        typeof item.name !== 'string' || typeof item.success !== 'boolean' || (item.error !== undefined && typeof item.error !== 'string')) ||
+      new Set(res.results.map(item => item.id)).size !== ids.length || res.results.filter(item => item.success).length !== res.successCount) {
+      throw new Error(t('common.operationFailed'))
+    }
+    hostsSequence++
+    imagesSequence++
+    plansSequence++
+    loadingHosts.value = false
+    loadingImages.value = false
+    loadingPlans.value = false
     result.value = {
       success: res.failedCount === 0,
       message: res.message,
@@ -310,8 +348,8 @@ async function handleSubmit() {
     if (res.successCount > 0) {
       emit('success')
     }
-  } catch (err: any) {
-    toast.error(t('host.migrate.failed') + ': ' + (err?.message || String(err)))
+  } catch (err: unknown) {
+    if (current()) submitError.value = t('host.migrate.failed') + ': ' + translateError(err)
   } finally {
     isSubmitting.value = false
   }
@@ -357,11 +395,11 @@ watch(targetHostId, (newHostId) => {
     <Transition name="modal">
       <div v-if="visible" class="modal-overlay">
         <div class="modal-backdrop" @click="closeModal"></div>
-        <div class="modal-content max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+        <div ref="dialog" class="modal-content max-w-lg max-h-[90vh] overflow-hidden flex flex-col" role="dialog" aria-modal="true" :aria-label="t('host.migrate.title')" tabindex="-1" @keydown="handleDialogKey">
           <!-- 标题栏 -->
           <div class="modal-header">
             <h3 class="modal-title">{{ t('host.migrate.title') }}</h3>
-            <button class="text-themed-muted hover:text-themed" :disabled="isSubmitting" @click="closeModal">
+            <button class="text-themed-muted hover:text-themed" :disabled="isSubmitting" :aria-label="t('common.close')" @click="closeModal">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -560,6 +598,7 @@ watch(targetHostId, (newHostId) => {
           </div>
 
           <!-- 底部按钮 -->
+          <p v-if="submitError" role="alert" class="px-5 pb-3 text-sm text-red-500 break-words">{{ submitError }}</p>
           <div class="modal-footer">
             <template v-if="showResult">
               <button class="btn-secondary" @click="closeModal">

@@ -94,6 +94,8 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-host-redeem-reads', 'requires Chrome/Edge and local Vite; redeem list/options/usages host/session lifecycle, pagination, retries and draft preservation'],
   ['test:review-host-redeem-writes', 'requires Chrome/Edge and local Vite; redeem create/toggle/delete target, duplicate, session, dialog and partial-result lifecycle'],
   ['test:review-host-migrate-reads', 'requires Chrome/Edge and local Vite; migration host pagination, destination images/plans, session and dialog lifecycle'],
+  ['test:review-host-migrate-writes', 'requires Chrome/Edge and local Vite; fixed migration writes, stale completions, response validation and partial results'],
+  ['test:review-host-migrate-parent', 'requires Chrome/Edge and local Vite; synchronous parent selection, current identities, dedicated boundary and result preservation'],
   ['test:review-traffic-limit', 'requires isolated local *_pool_test PostgreSQL; actual user/instance traffic limit omission and bigint boundary validation'],
   ['test:review-traffic-reset-auth', 'requires isolated local *_pool_test PostgreSQL; actual traffic reset actor/target races, billing and baseline checks'],
   ['test:review-payment-locales', 'requires Chrome/Edge and local Vite; actual payment provider controls in three locales, read-only API fixture'],

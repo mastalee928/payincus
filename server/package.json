@@ -69,6 +69,8 @@
     "test:review-host-redeem-reads": "node ../scripts/test-host-redeem-reads.mjs",
     "test:review-host-redeem-writes": "node ../scripts/test-host-redeem-writes.mjs",
     "test:review-host-migrate-reads": "node ../scripts/test-host-migrate-reads.mjs",
+    "test:review-host-migrate-writes": "node ../scripts/test-host-migrate-writes.mjs",
+    "test:review-host-migrate-parent": "node ../scripts/test-host-migrate-parent.mjs",
     "test:sample-seed-safety": "node ../scripts/test-seed-safety.mjs",
     "test:host-install-inputs": "node ../scripts/test-host-install-inputs.mjs",
     "type-check:sample-seed": "tsc --project tsconfig.scripts-seed.json",
