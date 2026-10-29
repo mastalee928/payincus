@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：6cacb0a已push；R301 batch角色字段隐藏与构建/发送/retry门禁完成，12表单/14直接字段Chrome、角色切换/基础合法、两回归/types/3守卫/lint零错警/manifest194/122/双端build exit0/dist通过，准备独立push，无待poll。3fd4488 CI40799210505 Go实际/proc审计IO失败须追，日志takeover-ci-3fd4488-failure.log；代码及测试已读未改。测试机两固定身份握手拒绝/第三未核身份，未远端运行。R302已有host quota先红：0端口/快照误∞，TicketInstanceOwnerCard同错误；InstanceDetailView hasSiteQuota!==0误隐藏无限站点。后台详情默认20/5/3与执行0、备份count not-deleted与真实creating/ready不符，继续先红/修复；R301/327/灾备未完成。
+
 > **最新接续**：80cadce已push；R301批量数字完整解析/范围、0与null、blur不取整、BigInt流量、IOPS兼容已修。最终Chrome/生命周期回归/types/3守卫/lint零错警/manifest194/121及最终双端build exit0/dist通过，准备独立push，无待poll。接host-batch-config-roles：普通owner传swapSize先红，完整矩阵写完未跑，后台admin-only清单/锁内门禁已有，前端需隐藏高级分区并拒直接提交；产品角色未改。R302端口/快照0显示无限先红，详情默认20/5/3与执行0不一致，须资源分别对齐，site0仍无限。327/R269/完整灾备仍未完成。
 
 > **最新接续**：5c9b825已push；R301批量配置固定targets/session/cache/回执与busy、Done成功刷新、retry原config及允许失败ID/累计成功和requiresReview明细已修。Chrome先红后绿+两回归/types/3守卫+最终route/lint零错警/manifest194/120/最终双端build exit0/dist通过准备单项push，无待poll。接test-host-batch-config-inputs.mjs独立先红CPU1e2变1，扩矩阵已写未跑，产品数字未改；完整数字而非parseInt、Vue数值0/null、blur不悄悄取整、流量字节精度与PG bigint范围、高级字段admin-only仍待。batch-config后端schema/事务/守卫已读，正常修改不触后台。327/R269/灾备仍未完成。

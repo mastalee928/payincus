@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-301 批量配置角色字段
+
+- 6cacb0a已push核远端。普通宿主所有者不再显示SWAP与IO/网络/进程/启动高级分区；构建配置、实际发送和重试均核管理员字段清单，直接传入也拒绝并持久提示。管理员保留原12表单字段与原分区，基础资源/配额正常使用。后端已有请求前及锁内当前角色门禁保持，一机一卖不变。
+- `takeover-host-batch-roles-before.log`Chrome先红owner可发swapSize；`takeover-host-batch-roles-final.log`通过12字段表单拒绝、14字段直接调用拒绝、普通CPU/site0有效、管理员全部有效、切角色旧回执与两视口。1440中文/390英文截图已核；受控API无真实客户配置修改。
+- client types、3守卫（route/i18n/batch-config）、lint零错警、manifest194/122、完整生命周期及数字两Chrome回归、最终双端build exit0/dist通过，专项登记Chrome CI。
+- 3fd4488源码CI40799210505失败于Go `TestReadActualProcAuditAndCancellation`，错误`CONTROLLER_PROCESS_AUDIT_IO`，已保存`takeover-ci-3fd4488-failure.log`并读实际/proc审计与守卫，未修或冒称CI绿。专用测试机资料已重新读取；两个固定指纹连接在握手阶段拒绝，第三无已核固定身份（`takeover-test-machine-runtime.log`），未绕过身份或运行远端命令。后续继续排查；R302宿主/工单配额0与默认、详情站点0隐藏、后台默认及备份计数一致性均需续修。R301/327/R269及完整灾备未完成。
+
 ## 2026-10-29 R1-301 批量配置数字与零值
 
 - 80cadce已push核远端。批量配置按完整数值语法和后端范围验证，按钮与函数都拒绝截断/非有限/超范围输入；CPU/内存blur不再静默取整。区分原生number输入0与空值，保留各字段原有null语义；流量按十进制系数和BigInt精确换算字节并限制PG bigint，正数舍入成0拒绝，存储带宽单位规范化且保留原有整数iops。

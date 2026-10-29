@@ -58,6 +58,7 @@
     "test:review-host-single-actions": "node ../scripts/test-host-single-actions.mjs",
     "test:review-host-batch-config": "node ../scripts/test-host-batch-config.mjs",
     "test:review-host-batch-config-inputs": "node ../scripts/test-host-batch-config-inputs.mjs",
+    "test:review-host-batch-config-roles": "node ../scripts/test-host-batch-config-roles.mjs",
     "test:sample-seed-safety": "node ../scripts/test-seed-safety.mjs",
     "test:host-install-inputs": "node ../scripts/test-host-install-inputs.mjs",
     "type-check:sample-seed": "tsc --project tsconfig.scripts-seed.json",

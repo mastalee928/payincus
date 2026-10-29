@@ -11,6 +11,15 @@ const { t } = useI18n()
 const themeStore = useThemeStore()
 const toast = useToast()
 const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.user?.role === 'admin')
+const adminOnlyFields = new Set([
+  'swapEnabled', 'swapSize', 'limitsRead', 'limitsWrite', 'limitsReadIops', 'limitsWriteIops',
+  'limitsIngress', 'limitsEgress', 'limitsProcesses', 'limitsCpuPriority',
+  'bootAutostart', 'bootAutostartPriority', 'bootAutostartDelay', 'bootHostShutdownTimeout'
+])
+function canEditConfig(config: Record<string, unknown>): boolean {
+  return isAdmin.value || !Object.keys(config).some(field => adminOnlyFields.has(field))
+}
 const pageActive = ref(false)
 let alive = true
 let generation = 0
@@ -127,7 +136,7 @@ const configValidation = computed(() => {
   try { return { config: buildConfig(), error: '' } }
   catch (error) { return { config: null, error: error instanceof Error ? error.message : String(error) } }
 })
-const canRetry = computed(() => canAct.value && showResult.value && !!result.value?.retryPayload?.instanceIds.length)
+const canRetry = computed(() => canAct.value && showResult.value && !!result.value?.retryPayload?.instanceIds.length && canEditConfig(submittedConfig.value))
 function captureContext() {
   const currentGeneration = generation, hostId = props.hostId, session = sessionKey.value
   return () => alive && pageActive.value && props.visible && !!session && session === sessionKey.value &&
@@ -169,6 +178,9 @@ function toggleSection(section: keyof typeof expandedSections.value) {
 
 // 构建配置对象
 function buildConfig(): Record<string, unknown> {
+  if (!isAdmin.value && Object.entries(enabledFields.value).some(([field, enabled]) => enabled && adminOnlyFields.has(field))) {
+    throw new Error(t('host.batchConfig.adminOnly'))
+  }
   const config: Record<string, unknown> = {}
   const integerFields = {
     cpu: [1, 2147483647, false], memory: [1, 2147483647, false], swapSize: [0, 1048576, false],
@@ -258,6 +270,11 @@ async function handleRetry() {
 }
 
 async function submitBatch(instanceIds: number[], config: Record<string, unknown>, retry: boolean) {
+  if (!canAct.value) return
+  if (!canEditConfig(config)) {
+    submitError.value = t('host.batchConfig.adminOnly')
+    return
+  }
   const hostId = props.hostId, current = captureContext(), previous = retry ? result.value : null
   isSubmitting.value = true
   emit('busy', true)
@@ -526,7 +543,7 @@ function normalizeStorageLimit(value: string, field: string): string | null {
                       />
                     </div>
                     <!-- SWAP 开关 -->
-                    <div class="flex items-center gap-3">
+                    <div v-if="isAdmin" class="flex items-center gap-3">
                       <input v-model="enabledFields.swapEnabled" type="checkbox" class="rounded" />
                       <label class="w-24 text-sm text-themed-secondary">{{ t('host.batchConfig.swapEnabled') }}</label>
                       <select v-model="form.swapEnabled" :disabled="!enabledFields.swapEnabled" class="input flex-1">
@@ -536,7 +553,7 @@ function normalizeStorageLimit(value: string, field: string): string | null {
                       </select>
                     </div>
                     <!-- SWAP 大小 -->
-                    <div class="flex items-center gap-3">
+                    <div v-if="isAdmin" class="flex items-center gap-3">
                       <input v-model="enabledFields.swapSize" type="checkbox" class="rounded" />
                       <label class="w-24 text-sm text-themed-secondary">{{ t('host.batchConfig.swapSize') }} (MB)</label>
                       <input 
@@ -619,7 +636,7 @@ function normalizeStorageLimit(value: string, field: string): string | null {
                 </div>
 
                 <!-- 存储IO限制 -->
-                <div class="border rounded-lg" :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'">
+                <div v-if="isAdmin" class="border rounded-lg" :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'">
                   <button 
                     class="w-full flex items-center justify-between px-4 py-3 text-left"
                     :class="themeStore.isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-50'"
@@ -645,7 +662,7 @@ function normalizeStorageLimit(value: string, field: string): string | null {
                 </div>
 
                 <!-- 网络限制 -->
-                <div class="border rounded-lg" :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'">
+                <div v-if="isAdmin" class="border rounded-lg" :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'">
                   <button 
                     class="w-full flex items-center justify-between px-4 py-3 text-left"
                     :class="themeStore.isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-50'"
@@ -677,7 +694,7 @@ function normalizeStorageLimit(value: string, field: string): string | null {
                 </div>
 
                 <!-- 进程与调度 -->
-                <div class="border rounded-lg" :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'">
+                <div v-if="isAdmin" class="border rounded-lg" :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'">
                   <button 
                     class="w-full flex items-center justify-between px-4 py-3 text-left"
                     :class="themeStore.isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-50'"
@@ -703,7 +720,7 @@ function normalizeStorageLimit(value: string, field: string): string | null {
                 </div>
 
                 <!-- 启动设置 -->
-                <div class="border rounded-lg" :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'">
+                <div v-if="isAdmin" class="border rounded-lg" :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'">
                   <button 
                     class="w-full flex items-center justify-between px-4 py-3 text-left"
                     :class="themeStore.isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-50'"

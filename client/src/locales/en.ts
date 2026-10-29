@@ -6576,6 +6576,7 @@ pool: {
         },
         // Batch Configuration
         batchConfig: {
+            adminOnly: 'Only administrators can change the selected advanced settings. Deselect them and try again.',
             invalidField: '{field}: enter a valid value within the allowed range or select an option',
             title: 'Batch Config',
             button: 'Batch Config',

@@ -3032,6 +3032,7 @@ pool: {
         },
         // 批量修改配置
         batchConfig: {
+            adminOnly: '所選進階設定僅管理員可修改，請取消這些設定項後重試',
             invalidField: '{field}：請輸入範圍內的有效數值或選擇有效選項',
             title: '批量修改配置',
             button: '批量配置',
