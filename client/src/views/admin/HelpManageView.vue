@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
 import { useThemeStore } from '@/stores/theme'
+import { useAuthStore } from '@/stores/auth'
 import { parseMarkdown } from '@/utils/markdown'
 
 const { t } = useI18n()
 const toast = useToast()
 const themeStore = useThemeStore()
+const authStore = useAuthStore()
 
 // Article list
 interface HelpArticle {
@@ -53,10 +55,44 @@ const form = ref<ArticleForm>({
   published: true,
   pinned: false
 })
-const formLoading = ref<boolean>(false)
+const formSaving = ref(false)
+const editorReadLoading = ref(false)
+const formLoading = computed(() => formSaving.value || editorReadLoading.value)
+const editorReady = ref(false)
 const formError = ref<string>('')
 const previewMode = ref<boolean>(false)
 const showMarkdownHelp = ref<boolean>(false)
+let editorReadRequest = 0
+const mounted = ref(true)
+const editorSession = computed(() => {
+  if (!authStore.token || !authStore.user || authStore.user.role !== 'admin') return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their complete identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+function clearEditorForm(): void {
+  form.value = { title: '', slug: '', content: '', category: 'general', sortOrder: 0, published: true, pinned: false }
+}
+function invalidateEditorRead(): void {
+  editorReadRequest += 1
+  editorReadLoading.value = false
+  editorReady.value = false
+}
+watch([showEditor, editorMode, editingId], () => {
+  invalidateEditorRead()
+  if (!showEditor.value) { clearEditorForm(); formError.value = '' }
+}, { flush: 'sync' })
+watch(editorSession, () => {
+  invalidateEditorRead()
+  showEditor.value = false
+  editingId.value = null
+  clearEditorForm()
+  formError.value = ''
+}, { flush: 'sync' })
+onUnmounted(() => { mounted.value = false; invalidateEditorRead(); clearEditorForm() })
 
 // Tab
 type TabType = 'articles' | 'categories'
@@ -208,6 +244,8 @@ async function loadArticles(): Promise<void> {
 }
 
 function openCreate(): void {
+  if (!mounted.value || !editorSession.value || formSaving.value) return
+  invalidateEditorRead()
   editorMode.value = 'create'
   editingId.value = null
   form.value = {
@@ -222,21 +260,28 @@ function openCreate(): void {
   formError.value = ''
   previewMode.value = false
   showEditor.value = true
+  editorReady.value = true
 }
 
 async function openEdit(article: HelpArticle): Promise<void> {
+  if (!mounted.value || !editorSession.value || formSaving.value || !Number.isSafeInteger(article.id) || article.id <= 0) return
+  invalidateEditorRead()
   editorMode.value = 'edit'
   editingId.value = article.id
-  formLoading.value = true
+  clearEditorForm()
   formError.value = ''
   previewMode.value = false
   showEditor.value = true
+  editorReadLoading.value = true
+  const request = ++editorReadRequest, id = article.id, session = editorSession.value
+  const current = () => mounted.value && showEditor.value && editorMode.value === 'edit' && editingId.value === id && editorSession.value === session && request === editorReadRequest
   
   try {
-    const response = await api.help.adminGet(article.id)
+    const response = await api.help.adminGet(id)
+    if (!current()) return
     const data = response as { article?: HelpArticle }
     const a = data.article
-    if (!a) throw new Error('Article not found')
+    if (!a || a.id !== id || ![a.title, a.slug, a.content].every(value => typeof value === 'string')) throw new Error(t('admin.helpManage.loadFailed'))
     form.value = {
       title: a.title,
       slug: a.slug,
@@ -246,15 +291,16 @@ async function openEdit(article: HelpArticle): Promise<void> {
       published: a.published === 1,
       pinned: a.pinned === 1
     }
+    editorReady.value = true
   } catch (err: any) {
-    toast.error(t('admin.helpManage.loadFailed') + ': ' + (err?.message || String(err)))
-    showEditor.value = false
+    if (current()) formError.value = t('admin.helpManage.loadFailed') + ': ' + (err?.message || String(err))
   } finally {
-    formLoading.value = false
+    if (current()) editorReadLoading.value = false
   }
 }
 
 async function saveArticle(): Promise<void> {
+  if (!mounted.value || !editorSession.value || !showEditor.value || formLoading.value || !editorReady.value) return
   if (!form.value.title || !form.value.slug || !form.value.content) {
     formError.value = t('admin.helpManage.fillRequired')
     return
@@ -266,7 +312,7 @@ async function saveArticle(): Promise<void> {
     return
   }
   
-  formLoading.value = true
+  formSaving.value = true
   formError.value = ''
   
   try {
@@ -299,7 +345,7 @@ async function saveArticle(): Promise<void> {
   } catch (err: any) {
     formError.value = err?.message || String(err)
   } finally {
-    formLoading.value = false
+    formSaving.value = false
   }
 }
 
@@ -580,9 +626,16 @@ function formatDate(dateStr: string | null | undefined): string {
 
           <!-- Content -->
           <div class="flex flex-1 overflow-hidden">
+            <div v-if="editorReadLoading || !editorReady" class="flex-1 space-y-3 overflow-y-auto p-6">
+              <p v-if="editorReadLoading" class="text-themed-muted">{{ t('common.loading') }}</p>
+              <template v-else>
+                <p v-if="formError" class="text-sm text-error">{{ formError }}</p>
+                <button v-if="editorMode === 'edit' && editingId !== null" class="btn-secondary" @click="openEdit({ id: editingId } as HelpArticle)">{{ t('common.retry') }}</button>
+              </template>
+            </div>
             <!-- Left: Form -->
-            <div v-if="!previewMode" class="flex-1 space-y-5 overflow-y-auto p-6">
-              <div class="grid grid-cols-2 gap-4">
+            <div v-else-if="!previewMode" class="flex-1 space-y-5 overflow-y-auto p-6">
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label class="mb-1.5 block text-sm text-themed-secondary">{{ t('admin.helpManage.articleTitle') }} *</label>
                   <input
@@ -605,7 +658,7 @@ function formatDate(dateStr: string | null | undefined): string {
                 </div>
               </div>
 
-              <div class="grid grid-cols-3 gap-4">
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                   <label class="mb-1.5 block text-sm text-themed-secondary">{{ t('admin.helpManage.category') }}</label>
                   <select v-model="form.category" class="input">
@@ -616,7 +669,7 @@ function formatDate(dateStr: string | null | undefined): string {
                   <label class="mb-1.5 block text-sm text-themed-secondary">{{ t('admin.helpManage.sortOrder') }}</label>
                   <input v-model.number="form.sortOrder" type="number" class="input font-mono" min="0" />
                 </div>
-                <div class="flex items-end">
+                <div class="flex flex-wrap items-end gap-x-4 gap-y-3">
                   <label class="flex cursor-pointer select-none items-center gap-3">
                     <div class="relative">
                       <input
@@ -638,7 +691,7 @@ function formatDate(dateStr: string | null | undefined): string {
                   </label>
 
                   <!-- 置顶开关 -->
-                  <label class="ml-4 flex cursor-pointer select-none items-center gap-3">
+                  <label class="flex cursor-pointer select-none items-center gap-3">
                     <div class="relative">
                       <input
                         v-model="form.pinned"
@@ -723,7 +776,7 @@ function formatDate(dateStr: string | null | undefined): string {
           <!-- Footer -->
           <div class="flex justify-end gap-3 border-t border-themed px-6 py-4">
             <button class="btn-secondary" @click="showEditor = false">{{ t('common.cancel') }}</button>
-            <button :disabled="formLoading" class="btn-primary" @click="saveArticle">
+            <button :disabled="formLoading || !editorReady" class="btn-primary" @click="saveArticle">
               {{ formLoading ? t('common.loading') : t('common.save') }}
             </button>
           </div>

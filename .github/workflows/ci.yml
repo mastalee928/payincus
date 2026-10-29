@@ -301,6 +301,8 @@ jobs:
         run: pnpm --filter server test:review-change-email-scope
       - name: Email changes validate codes and confirmed API results
         run: pnpm --filter server test:review-change-email-receipts
+      - name: Help article editor reads retain their current target and session
+        run: pnpm --filter server test:review-help-editor-reads
       - name: Balance adjustments keep their target, draft and confirmed receipt
         run: pnpm --filter server test:review-user-balance-submit
       - name: Points adjustments reject stale receipts and repeated submissions

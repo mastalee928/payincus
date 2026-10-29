@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R311读取阶段：帮助编辑target/seq/ABA/mode/show/admin/session/unmount回执、同步清旧表单/ready、same sid、loading/保存门禁及持久error按钮retry已修。Chrome16旧回执和当前loading/retry/id/refresh/unmount/三宽控件通过，3守卫/lint/双端types build及最终admin复构/dist见HANDOFF。390表单单列/开关wrap；写回执/列表/分类另待。唯一196有修复复验（含部分）/68已有防护实现不同/63待精修，196内部未完范围仍继续。
+
 2026-10-29 R313输入回执阶段：两类六位数字输入和按钮、四操作真实API成功回执/有效期、无效回执保草稿与重试、过期敏感验证清两code/target/sent/timer已修。Chrome16输入23回执反例/合法重试与过期绑定、scope80旧回执回归/3守卫/lint/最终双端types build/dist见HANDOFF。实际邮件和客户完整变更仍待；195/68/64含部分不新增编号。
 
 2026-10-29 R313目标会话阶段：四操作固定用户/邮箱/code、session/draft/ABA旧回执隔离及同步草稿/timer/卸载清理、即时共享busy/步骤/倒计时/字段与关闭门禁已修。真实Chrome80旧回执和busy/retry/正常目标/same sid通过；3守卫/lint/最终双端types build/dist/manifest及三宽截图见HANDOFF。严格输入/回执与完整真实邮件流程仍待。按唯一编号195有修复复验（含部分）/68已有防护实现不同/64待精修；195内部未完范围仍继续。
@@ -394,7 +396,7 @@
 | R1-308 | 部分存在 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
 | R1-309 | 存在 | 待精修/运行复核 | catch用当时当前draft存pending，验证重试可用新草稿；旧成功timer清新会话。 |
 | R1-310 | 存在 | 待精修/运行复核 | 保存一个设置组后loadAll重置全组，其他组及等待期间新草稿丢失。 |
-| R1-311 | 存在 | 待精修/运行复核 | openEdit先改id后await回写内容，无seq，A响应可写进B编辑目标。 |
+| R1-311 | 存在，部分已修 | 当前编辑读取Chrome及构建守卫通过 | 编辑target/seq/ABA/mode/show/admin/account/session/unmount隔离、ready/loading/保存门禁、失败持久retry及匹配id已修，真实Chrome16旧回执及正常/失败/刷新/卸载通过。手机开关出界已单列/wrap；保存回执、列表与分类并发另待。 |
 | R1-312 | 部分存在 | 待精修/运行复核 | 当前PackageSelector只展示props.packages，无对方嵌入packageId加载；priority 0用／／20确被默认覆盖。 |
 | R1-313 | 部分存在，部分已修 | 目标/session及输入回执实际Chrome与构建守卫通过 | 四操作固定目标/session/draft/ABA、busy/关闭/卸载/timer已修；两数字输入、四真实成功回执/有效期与过期敏感验证清理已修。80旧回执及输入回执反例/重试通过；实际邮件和客户完整变更另续。 |
 | R1-314 | 存在 | 待精修/运行复核 | multiDraw拒isSpinning，但spin不拒isMultiDrawing；结果setTimeout未随卸载清理，可与十连交错或离页后弹窗。 |

@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-311 帮助编辑器当前目标读取
+
+- 285f355e已push。reads-before实际Chrome先红A晚回令B编辑表单变为Article1；读取现绑定请求序号、文章id、编辑/创建模式、弹窗、admin/account/sid及卸载，同步清旧表单/ready，same sid刷新保留。加载与保存状态分开，旧finally不解除当前加载；失败持久留在弹窗并提供实际重试按钮，响应id必须匹配，未ready禁止保存。此段未闭合写回执、列表或分类并发。
+- help-editor-reads-final-r3实际Chrome16旧成功失败目标/ABA/create/close/session/account/role/logout案例、反序loading、读取中零保存、当前失败/按钮重试、错id、same sid和卸载通过exit0。三宽截图发现390发布/置顶出界，表单窄屏改单列、开关wrap后真实DOM边界和截图通过。frontend-route/i18n/admin-route三个守卫、lint零错警、reads-build双端build含vue-tsc exit0、最终手机变更final-admin-build含vue-tsc exit0/dist、manifest194常规159专项通过，专项接CI。仅真实Vue/受控API，不是生产文章编辑验收。
+- R311进入部分精修，唯一196有修复复验记录（含部分）/68已有防护实现不同/63待精修，196内部仍有未完范围。a0c33846 CI最新已success，其后数批最后仍in_progress；完整327及灾备未完。下一段编辑保存busy/字段关闭、固定输入/session/draft旧回执与真实message校验继续；后台help create/update及实际回执已读，未修改。
+
 ## 2026-10-29 R1-313 邮箱验证码与实际成功回执
 
 - 67815d7b已push。非数字六字符当前验证码原仍发送，receipts-before实际Chrome先红；现在当前/新邮箱两函数与按钮要求六位数字，输入提供numeric/one-time-code提示。当前发送核真实success/email/目标/有效expiresIn（首次成功不保证message），验证核success/verified/message，新邮箱发送核message/未来expiresAt，更新核message/reauthRequired=false；按实际users响应契约固定提交邮箱，不要求不存在的user/email字段。无效回执持久错误、保步骤/草稿且不假报成功，合法重试通过。
