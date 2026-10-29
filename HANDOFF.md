@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-071 头像保存保留本次提交与账户生命周期
+
+- avatar-submit-before实际Chrome提交identicon、等待期间草稿改rings，旧实现把rings标已保存先红。现固定submittedStyle/userId/session代次；同turn重复/未登录/缓存停用/非法style拒写，选择字段与邮箱/折叠在途禁用。回执只更新该次style，不把后来的选择标保存；空message/旧session或卸载回执不写authStore，不假成功，失败持久avatarError保留重试。默认空style不误判修改。
+- AccountSection详情读以session/seq/cache/unmount隔离并验证返回user.id，失败持久实际retry，返回只重读一次；session变化关闭邮箱弹窗/清详情及草稿，原ChangeEmailModal自身保护继续。avatar-submit-final3实际Vue/Chrome提交style后改草稿、重复/字段busy、14旧write与14旧read、same sid、非法写回执/详情、反序detail及实际DOM retry最终exit0；首轮测试把未释放模拟Promise返回给CDP造成timeout已修，产品未以延时绕过。
+- 4对应route/i18n/auth-session/user-id守卫、lint零错警/语法/diff/manifest194常规182专项接CI已过；takeover-avatar-submit-build双端build含vue-tsc与dist最终exit0，无待poll，三宽三语截图已看/无横溢。真实UserAvatar保留，仅测试fixture将图片边界换本地SVG字母，无外部DiceBear/真实头像账户写入；整体原UI低对比/紫色shadow仍另验，不做全局改造。
+- 5bd53976已push核远端；213有修复/复验（含部分）/68已有不同/46待，完整327/真实用户写入与网关灾备未完，阶段提交推送后继续原编号。
+
 ## 2026-10-29 R1-068 自动快照通知当前归属与名称复验
 
 - 当前phase每阶段重读实例/宿主/策略、归属改变拒绝，最终事务日志与completed通知使用当前instance/host，原清单旧快照症状不再存在。本阶段不重复改产品；原auto-snapshot集成新增renamed_queued/owner_changed，真实PG与认证TLS远端边界检验。

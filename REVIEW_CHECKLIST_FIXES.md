@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R071头像style先红→固定submitted/account/session/重复busy/字段与详情seq/目标/cache/retry保护，final3实际Chrome14旧写14旧读、反序/非法回执与same sid最终exit0，4守卫/lint/语法/diff/manifest194常规182专项及双端build含types/dist全过，无待poll。213含部分/68已有不同/46待，整体UI/真实账户/完整327/灾备另验。
+
 2026-10-29 R068按当前路径复验：最终事务/通知已有current owner/instance/host；原auto集成追加排队改两名称通知/审计正确，owner变化blocked零远端写/双方零成功通知、恢复原owner同operation唯一通知。current-final完整30条PASS exit0，两守卫/独立types/diff过，仅测试未变产品；212含部分/68已有不同/47待，外部通知/真实Linux/完整327/灾备另验。
 
 2026-10-29 R062第三段ready/严格回执：初读可create先红→独立GET ready/error/shape、成功message/create目标/retry原UUID与确认读取、失败实际retry/未知空态及Snapshot真实Boolean/camelCase类型已修。receipts-final2 16坏读22坏写/合法retry/失败不假空exit0，原36读90写/submit25冲突16旧草稿/bool回归exit0。4守卫/最后route+i18n/lint/语法/diff/manifest194常规181专项、双端build含types/dist最终exit0，无待poll，截图已看。c0a20070已push核远端；211含部分/68已有不同/48待不变，真实Linux/整体UI/完整327/灾备未完。
@@ -200,7 +202,7 @@
 | R1-068 | 原症状已修 | 当前通知/审计真实PG复验通过 | 当前phase/最终事务重读owner/实例/宿主，renamed_queued实际站内信data/content及日志用当前名称；owner_changed blocked零mTLS写/双方零成功通知，恢复原owner同operation唯一通知。current-final完整30条PASS exit0，两守卫/test types过；外部通知与发送中再次变化另评，原生磁盘/整体灾备另验。 |
 | R1-069 | 实现不同 | 保留初审结论 | backupRoutes/storageConfig和restoreTaskWorker/backupUploadWorker实际注册启动；本库客机备份后端未退役。 |
 | R1-070 | 实现不同 | 保留初审结论 | storage配置与provider栈仍有后端消费者，不能因前端孤立按对方方案删掉。 |
-| R1-071 | 存在 | 待精修/运行复核 | 提交selectedAvatarStyle，await后使用当时当前选择更新authStore，后来未提交的选择误标已保存。 |
+| R1-071 | 存在 | 已修；真实账户/整体UI另验 | 固定submittedStyle/account/session、共享saving与字段门禁，回执只标本次style，非法/旧会话/cache/unmount不写新用户；详情seq/ID与retry同步保护。Chrome先红→final3提交草稿/14旧写14旧读/反序detail/非法回执/same sid exit0，4守卫/lint/双端build含types/dist全过；真实账户与整体UI另验。 |
 | R1-072 | 存在 | 待精修/运行复核 | 应用页面未导入该孤立组件，仍重复Wallet界面实现；只属维护残留，不据此删除正在使用的Wallet或账务后端。 |
 | R1-073 | 存在 | 待精修/运行复核 | 读列表/变更完成缺目标和请求代次绑定；过滤改变、替换草稿与重复行操作有竞态窗口。 |
 | R1-074 | 存在 | 待精修/运行复核 | 读列表/变更完成缺目标和请求代次绑定；过滤改变、替换草稿与重复行操作有竞态窗口。 |
