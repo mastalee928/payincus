@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
@@ -7,6 +7,7 @@ import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import DistroIcon from '@/components/icons/DistroIcon.vue'
 import type { SystemImage } from '@/types/api'
+import { translateError } from '@/utils/errorHandler'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
@@ -50,6 +51,26 @@ const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
   (e: 'success'): void
 }>()
+let alive = true
+const pageActive = ref(false)
+let hostsSequence = 0
+let plansSequence = 0
+let imagesSequence = 0
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their complete identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const canRead = computed(() => alive && pageActive.value && props.visible && !!sessionKey.value && Number.isSafeInteger(props.hostId) && props.hostId > 0)
+const selectedSnapshot = ref<InstanceInfo[]>([])
+const selectionValid = ref(false)
+const hostsError = ref('')
+const plansError = ref('')
+const imagesError = ref('')
 
 // 目标节点列表
 const hosts = ref<Host[]>([])
@@ -92,72 +113,162 @@ const availableHosts = computed(() => {
 
 // 计算是否有付费实例需要迁移
 const hasPaidInstances = computed(() => {
-  if (!props.instances) return false
-  const selectedInstances = props.instances.filter(i => props.selectedIds.includes(i.id))
-  return selectedInstances.some(i => i.packagePlanId !== null && i.packagePlanId !== undefined)
+  return selectedSnapshot.value.some(i => i.packagePlanId !== null && i.packagePlanId !== undefined)
 })
 
 // 是否可以提交
 const canSubmit = computed(() => {
-  if (!targetHostId.value) return false
-  if (!targetImage.value) return false
-  if (hasPaidInstances.value && !targetPlanId.value) return false
+  if (!canRead.value || !selectionValid.value || isSubmitting.value || loadingHosts.value || loadingPlans.value || loadingImages.value ||
+    hostsError.value || imagesError.value || (hasPaidInstances.value && plansError.value)) return false
+  if (!availableHosts.value.some(host => host.id === targetHostId.value)) return false
+  if (!images.value.some(image => image.remoteAlias === targetImage.value)) return false
+  if (hasPaidInstances.value && !plans.value.some(plan => plan.id === targetPlanId.value)) return false
   return true
 })
+function resetReadContext() {
+  hostsSequence++
+  plansSequence++
+  imagesSequence++
+  hosts.value = []
+  plans.value = []
+  images.value = []
+  loadingHosts.value = false
+  loadingPlans.value = false
+  loadingImages.value = false
+  hostsError.value = ''
+  plansError.value = ''
+  imagesError.value = ''
+  targetHostId.value = null
+  targetImage.value = ''
+  targetPlanId.value = null
+  selectedSnapshot.value = []
+  selectionValid.value = false
+  showResult.value = false
+  result.value = null
+}
+function beginReads() {
+  if (!canRead.value) return
+  const ids = [...props.selectedIds]
+  const validIds = ids.length > 0 && ids.length <= 30 && ids.every(id => Number.isSafeInteger(id) && id > 0) && new Set(ids).size === ids.length
+  selectedSnapshot.value = (props.instances ?? []).filter(instance => ids.includes(instance.id)).map(instance => ({ ...instance }))
+  selectionValid.value = validIds && selectedSnapshot.value.length === ids.length
+  void loadHosts()
+}
+watch([() => props.visible, () => props.hostId, sessionKey], () => { resetReadContext(); beginReads() }, { flush: 'sync' })
+function activateReads() {
+  if (!alive || pageActive.value) return
+  pageActive.value = true
+  beginReads()
+}
+onMounted(activateReads)
+onActivated(activateReads)
+onDeactivated(() => { pageActive.value = false; resetReadContext() })
+onUnmounted(() => { alive = false; pageActive.value = false; resetReadContext() })
+function canReadDestination(hostId: number) {
+  return canRead.value && !loadingHosts.value && !hostsError.value && Number.isSafeInteger(hostId) && hostId > 0 &&
+    targetHostId.value === hostId && availableHosts.value.some(host => host.id === hostId)
+}
 
 // 加载节点列表
 async function loadHosts() {
+  if (!canRead.value) return
+  const sequence = ++hostsSequence, sourceHostId = props.hostId, session = sessionKey.value
+  const current = () => canRead.value && sequence === hostsSequence && sourceHostId === props.hostId && session === sessionKey.value
   loadingHosts.value = true
+  hostsError.value = ''
   try {
     // 管理员只加载官方自营节点；非管理员只加载自己的节点
-    const params: any = { pageSize: 200 }
+    const params: Record<string, unknown> = { pageSize: 100 }
     if (authStore.isAdmin) {
       params.scope = 'official'
     } else {
       params.mine = 'true'
     }
-    const res = await api.hosts.list(params) as any
-    hosts.value = res.hosts || res.items || []
-  } catch (err: any) {
-    toast.error(t('host.migrate.loadHostsFailed') + ': ' + (err?.message || String(err)))
+    const loaded: Host[] = [], seen = new Set<number>()
+    let nextPage = 1
+    while (current()) {
+      const res = await api.hosts.list({ ...params, page: nextPage })
+      if (!current()) return
+      if (!Array.isArray(res?.hosts) || res.page !== nextPage || res.pageSize !== 100 || !Number.isSafeInteger(res.total) || res.total < 0 ||
+        !Number.isSafeInteger(res.totalPages) || res.totalPages < 0 || res.totalPages !== Math.ceil(res.total / 100) || res.hosts.length > 100 ||
+        res.hosts.some(host => !host || !Number.isSafeInteger(host.id) || host.id <= 0 || typeof host.name !== 'string' ||
+          typeof host.status !== 'string' || (host.location != null && typeof host.location !== 'string'))) throw new Error(t('host.migrate.loadHostsFailed'))
+      for (const host of res.hosts) {
+        if (seen.has(host.id)) throw new Error(t('host.migrate.loadHostsFailed'))
+        seen.add(host.id)
+        loaded.push(host)
+      }
+      if (nextPage >= res.totalPages) break
+      if (res.hosts.length !== 100 || nextPage >= 1000) throw new Error(t('host.migrate.loadHostsFailed'))
+      nextPage++
+    }
+    if (!current()) return
+    hosts.value = loaded
+    if (!availableHosts.value.some(host => host.id === targetHostId.value)) targetHostId.value = null
+  } catch (err: unknown) {
+    if (!current()) return
+    hosts.value = []
+    targetHostId.value = null
+    hostsError.value = t('host.migrate.loadHostsFailed') + ': ' + translateError(err)
   } finally {
-    loadingHosts.value = false
+    if (current()) loadingHosts.value = false
   }
 }
 
 // 加载目标节点的方案列表
 async function loadPlans(hostId: number) {
+  if (!canReadDestination(hostId) || !hasPaidInstances.value) return
+  const sequence = ++plansSequence, session = sessionKey.value, previousSelection = targetPlanId.value
+  const current = () => canRead.value && sequence === plansSequence && hostId === targetHostId.value && session === sessionKey.value
   loadingPlans.value = true
-  plans.value = []
-  targetPlanId.value = null
+  plansError.value = ''
   try {
     const res = await api.hosts.getHostPlans(hostId)
-    plans.value = res.plans || []
-  } catch (err: any) {
-    toast.error(t('host.migrate.loadPlansFailed') + ': ' + (err?.message || String(err)))
+    if (!current()) return
+    if (!Array.isArray(res?.plans) || res.plans.some(plan => !plan || !Number.isSafeInteger(plan.id) || plan.id <= 0 ||
+      !Number.isSafeInteger(plan.packageId) || plan.packageId <= 0 || typeof plan.name !== 'string' || typeof plan.packageName !== 'string' ||
+      !Number.isSafeInteger(plan.price) || plan.price < 0 || !Number.isSafeInteger(plan.billingCycle) || plan.billingCycle < 1) ||
+      new Set(res.plans.map(plan => plan.id)).size !== res.plans.length) throw new Error(t('host.migrate.loadPlansFailed'))
+    plans.value = res.plans
+    if (targetPlanId.value === previousSelection && !res.plans.some(plan => plan.id === previousSelection)) targetPlanId.value = null
+  } catch (err: unknown) {
+    if (!current()) return
+    plans.value = []
+    targetPlanId.value = null
+    plansError.value = t('host.migrate.loadPlansFailed') + ': ' + translateError(err)
   } finally {
-    loadingPlans.value = false
+    if (current()) loadingPlans.value = false
   }
 }
 
 // 加载目标节点可用的系统镜像
 async function loadImages(hostId: number) {
+  if (!canReadDestination(hostId)) return
+  const sequence = ++imagesSequence, session = sessionKey.value, previousSelection = targetImage.value
+  const current = () => canRead.value && sequence === imagesSequence && hostId === targetHostId.value && session === sessionKey.value
   loadingImages.value = true
-  images.value = []
-  targetImage.value = ''
+  imagesError.value = ''
   try {
     const res = await api.images.getSystemImages(undefined, undefined, hostId)
-    images.value = res.images || []
-    targetImage.value = images.value[0]?.remoteAlias || ''
-  } catch (err: any) {
-    toast.error(t('host.migrate.loadImagesFailed') + ': ' + (err?.message || String(err)))
+    if (!current()) return
+    if (res?.success !== true || !Array.isArray(res.images) || res.images.some(image => !image || !Number.isSafeInteger(image.id) || image.id <= 0 ||
+      typeof image.name !== 'string' || typeof image.remoteAlias !== 'string' || !image.remoteAlias || !['x86_64', 'aarch64'].includes(image.architecture)) ||
+      new Set(res.images.map(image => image.id)).size !== res.images.length) throw new Error(t('host.migrate.loadImagesFailed'))
+    images.value = res.images
+    if (targetImage.value === previousSelection && !res.images.some(image => image.remoteAlias === previousSelection)) targetImage.value = images.value[0]?.remoteAlias || ''
+  } catch (err: unknown) {
+    if (!current()) return
+    images.value = []
+    targetImage.value = ''
+    imagesError.value = t('host.migrate.loadImagesFailed') + ': ' + translateError(err)
   } finally {
-    loadingImages.value = false
+    if (current()) loadingImages.value = false
   }
 }
 
 // 提交迁移
 async function handleSubmit() {
+  if (!canSubmit.value) return
   if (!targetHostId.value) {
     toast.error(t('host.migrate.selectTargetRequired'))
     return
@@ -173,7 +284,7 @@ async function handleSubmit() {
     return
   }
 
-  if (props.selectedIds.length === 0) {
+  if (selectedSnapshot.value.length === 0) {
     toast.error(t('host.migrate.noInstancesSelected'))
     return
   }
@@ -182,7 +293,7 @@ async function handleSubmit() {
   try {
     const res = await api.hosts.migrateInstances(
       props.hostId,
-      props.selectedIds,
+      selectedSnapshot.value.map(instance => instance.id),
       targetHostId.value,
       targetImage.value,
       hasPaidInstances.value ? targetPlanId.value ?? undefined : undefined
@@ -208,21 +319,23 @@ async function handleSubmit() {
 
 // 关闭弹窗
 function closeModal() {
+  if (isSubmitting.value) return
   emit('update:visible', false)
-  // 重置状态
-  setTimeout(() => {
-    showResult.value = false
-    result.value = null
-    targetHostId.value = null
-    targetImage.value = ''
-    targetPlanId.value = null
-    plans.value = []
-    images.value = []
-  }, 300)
+  resetReadContext()
 }
 
 // 监听目标节点变化，加载方案列表
 watch(targetHostId, (newHostId) => {
+  plansSequence++
+  imagesSequence++
+  plans.value = []
+  images.value = []
+  targetPlanId.value = null
+  targetImage.value = ''
+  loadingPlans.value = false
+  loadingImages.value = false
+  plansError.value = ''
+  imagesError.value = ''
   if (newHostId) {
     loadImages(newHostId)
   } else {
@@ -236,21 +349,7 @@ watch(targetHostId, (newHostId) => {
     plans.value = []
     targetPlanId.value = null
   }
-})
-
-// 监听显示状态，显示时加载节点列表
-watch(() => props.visible, (val) => {
-  if (val) {
-    loadHosts()
-    showResult.value = false
-    result.value = null
-    targetHostId.value = null
-    targetImage.value = ''
-    targetPlanId.value = null
-    plans.value = []
-    images.value = []
-  }
-})
+}, { flush: 'sync' })
 </script>
 
 <template>
@@ -328,19 +427,20 @@ watch(() => props.visible, (val) => {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                 </svg>
                 <span class="text-sm text-themed">
-                  {{ t('host.migrate.selectedCount', { count: selectedIds.length }) }}
+                  {{ t('host.migrate.selectedCount', { count: selectedSnapshot.length }) }}
                 </span>
               </div>
 
               <!-- 目标节点选择 -->
               <div>
-                <label class="block text-sm font-medium text-themed-secondary mb-2">
+                <label for="migrate-target-host" class="block text-sm font-medium text-themed-secondary mb-2">
                   {{ t('host.migrate.targetNode') }}
                 </label>
                 <select
+                  id="migrate-target-host"
                   v-model="targetHostId"
                   class="input w-full"
-                  :disabled="loadingHosts"
+                  :disabled="!canRead || loadingHosts || isSubmitting"
                 >
                   <option :value="null" disabled>{{ t('host.migrate.selectTarget') }}</option>
                   <option
@@ -355,17 +455,22 @@ watch(() => props.visible, (val) => {
                 <p v-if="loadingHosts" class="text-xs text-themed-muted mt-1">
                   {{ t('common.loading') }}...
                 </p>
+                <div v-if="hostsError" role="alert" data-hosts-error class="mt-2 text-sm text-red-500 break-words">
+                  {{ hostsError }}
+                  <button class="btn-secondary mt-2" :disabled="loadingHosts || !canRead || isSubmitting" @click="loadHosts">{{ t('common.retry') }}</button>
+                </div>
               </div>
 
               <!-- 目标系统选择 -->
               <div v-if="targetHostId">
-                <label class="block text-sm font-medium text-themed-secondary mb-2">
+                <label for="migrate-target-image" class="block text-sm font-medium text-themed-secondary mb-2">
                   {{ t('host.migrate.targetImage') }} <span class="text-red-500">*</span>
                 </label>
                 <select
+                  id="migrate-target-image"
                   v-model="targetImage"
                   class="input w-full"
-                  :disabled="loadingImages || images.length === 0"
+                  :disabled="!canRead || isSubmitting || loadingHosts || loadingImages || images.length === 0"
                 >
                   <option value="" disabled>{{ t('host.migrate.selectImage') }}</option>
                   <option
@@ -387,6 +492,10 @@ watch(() => props.visible, (val) => {
                 <p v-if="loadingImages" class="text-xs text-themed-muted mt-1">
                   {{ t('common.loading') }}...
                 </p>
+                <div v-else-if="imagesError" role="alert" data-images-error class="mt-2 text-sm text-red-500 break-words">
+                  {{ imagesError }}
+                  <button class="btn-secondary mt-2" :disabled="!canRead || isSubmitting" @click="loadImages(targetHostId)">{{ t('common.retry') }}</button>
+                </div>
                 <p v-else-if="images.length === 0" class="text-xs text-red-500 mt-1">
                   {{ t('host.migrate.noImageAvailable') }}
                 </p>
@@ -394,13 +503,14 @@ watch(() => props.visible, (val) => {
 
               <!-- 目标方案选择（付费实例必选） -->
               <div v-if="hasPaidInstances && targetHostId">
-                <label class="block text-sm font-medium text-themed-secondary mb-2">
+                <label for="migrate-target-plan" class="block text-sm font-medium text-themed-secondary mb-2">
                   {{ t('host.migrate.targetPlan') }} <span class="text-red-500">*</span>
                 </label>
                 <select
+                  id="migrate-target-plan"
                   v-model="targetPlanId"
                   class="input w-full"
-                  :disabled="loadingPlans || plans.length === 0"
+                  :disabled="!canRead || isSubmitting || loadingHosts || loadingPlans || plans.length === 0"
                 >
                   <option :value="null" disabled>{{ t('host.migrate.selectPlan') }}</option>
                   <option
@@ -414,6 +524,10 @@ watch(() => props.visible, (val) => {
                 <p v-if="loadingPlans" class="text-xs text-themed-muted mt-1">
                   {{ t('common.loading') }}...
                 </p>
+                <div v-else-if="plansError" role="alert" data-plans-error class="mt-2 text-sm text-red-500 break-words">
+                  {{ plansError }}
+                  <button class="btn-secondary mt-2" :disabled="!canRead || isSubmitting" @click="loadPlans(targetHostId)">{{ t('common.retry') }}</button>
+                </div>
                 <p v-else-if="plans.length === 0" class="text-xs text-red-500 mt-1">
                   {{ t('host.migrate.noPlanAvailable') }}
                 </p>

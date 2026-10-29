@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 旧迁移目标读取与选择
+
+- 4cde9e6已push核远端；27cb569源码CI已success，8e9e15d/4cde9e6最后仍运行。旧迁移host/images/plans读取分别绑定请求序号、源/目标、session、visible及cache生命周期；旧回执不覆盖当前选择。错误持久显示并可重试，失败/未知选项禁止提交。删除原300ms关闭回调，重开不再被旧回调清空。
+- 宿主原pageSize200被后端限制100且只读一页，现按100逐页读取完成后展示，校验真实分页/条目/重复ID；同目标刷新保仍有效镜像/套餐。待迁移实例在打开时复制，付费要求/计数和提交ID统一此快照，非法/缺失/超过30项不提交；机器池专属迁移409门禁及旧后端流程保持。该阶段未操作真实客户或Incus迁移。
+- takeover-migrate-reads-before.log真实Chrome先红旧images覆盖目标；takeover-migrate-reads-final.log通过多页宿主、目标ABA、同目标反序、刷新保选项、错误retry、非法回执、源/session/role/account/logout/cache/unmount/close、固定选择/非法提交和两视口。types、route/i18n/host-migration-consistency三守卫、lint零错警、manifest194/132通过，新专项接Chrome CI。最终双端build含vue-tsc exit0与dist通过，分别见takeover-migrate-reads-build.log/takeover-migrate-reads-dist.log。
+- 下一项test-host-migrate-writes.mjs已先红旧source写回执触发新source的success刷新（takeover-migrate-writes-before.log）；扩展固定目标/重复/关闭/session/非法回执/部分成功不可重放矩阵已写未跑，写产品未修。父入口同步固定与current实例复核、写回执隔离及后台并发/补偿仍待，宿主分页同名排序/并发列表变化需后端另核；327/R269/Go proc/完整灾备未完成。
+
 ## 2026-10-29 R1-303 宿主兑换码写目标与结果
 
 - 8e9e15d已push核远端；0444f64/794e336/a27e991源码CI已success，27cb569/8e9e15d最后仍运行。创建/启停/批量删除共用busy门禁，绑定host/session/页面及弹窗代次；切换/重开旧回执不刷新或关闭当前页，跨切换保留在途busy。删除固定开框时ID/码值并保后来新选择，启停固定方向且更新同页刷新后的对象，成功失效旧列表；辅助读失败不改写已提交结果。
