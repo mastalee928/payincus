@@ -11,6 +11,7 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'))
 process.env.JWT_SECRET ||= 'storage-size-fixture-only'
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
+const { isSystemDiskPool } = await import('../src/db/storage-pools.js')
 const { default: routes } = await import('../src/routes/hosts.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const prefix = `storage-size-${randomUUID().slice(0, 8)}`
@@ -63,6 +64,32 @@ try {
   const description = await app.inject({ method: 'PATCH', url: `/hosts/${host.id}/storage-pools/fixture-post-0`, payload: { description: '' } })
   assert.equal(description.statusCode, 200); assert.equal(requests.at(-1)?.body?.description, '')
   assert.equal(requests.at(-1)?.body?.config, undefined, 'omitted size remains absent')
+  const poolKey = { hostId_name: { hostId: host.id, name: 'fixture-post-0' } }
+  const otherBefore = await prisma.storagePool.findMany({ where: { hostId: host.id, name: { not: 'fixture-post-0' } }, orderBy: { id: 'asc' } })
+  const poolBefore = await prisma.storagePool.findUniqueOrThrow({ where: poolKey })
+  for (const purpose of ['instance_storage', 'instance_data'] as const) {
+    const response = await app.inject({ method: 'PATCH', url: `/hosts/${host.id}/storage-pools/fixture-post-0`, payload: { purpose } })
+    assert.equal(response.statusCode, 200)
+    const pool = await prisma.storagePool.findUniqueOrThrow({ where: poolKey })
+    assert.equal(pool.purpose, purpose, 'successful update must persist the selected purpose')
+    assert.equal(await isSystemDiskPool(host.id, pool.name), purpose === 'instance_data', 'new system disk selection follows the saved purpose')
+    assert.deepEqual(pool.config, poolBefore.config, 'purpose does not change the existing pool configuration')
+    assert.equal(pool.description, '')
+    assert.equal(requests.at(-1)?.body?.purpose, undefined, 'purpose is platform metadata, not an Incus setting')
+  }
+  const combined = await app.inject({ method: 'PATCH', url: `/hosts/${host.id}/storage-pools/fixture-post-0`,
+    payload: { purpose: 'instance_storage', description: 'storage-only fixture' } })
+  assert.equal(combined.statusCode, 200)
+  assert.equal((await prisma.storagePool.findUniqueOrThrow({ where: poolKey })).purpose, 'instance_storage')
+  assert.equal((await prisma.storagePool.findUniqueOrThrow({ where: poolKey })).description, 'storage-only fixture')
+  const omitted = await app.inject({ method: 'PATCH', url: `/hosts/${host.id}/storage-pools/fixture-post-0`, payload: { description: '' } })
+  assert.equal(omitted.statusCode, 200)
+  assert.equal((await prisma.storagePool.findUniqueOrThrow({ where: poolKey })).purpose, 'instance_storage', 'omission preserves the selected purpose')
+  assert.deepEqual(await prisma.storagePool.findMany({ where: { hostId: host.id, name: { not: 'fixture-post-0' } }, orderBy: { id: 'asc' } }), otherBefore)
+  const beforeInvalidPurpose = requests.length
+  const invalidPurpose = await app.inject({ method: 'PATCH', url: `/hosts/${host.id}/storage-pools/fixture-post-0`, payload: { purpose: 'invalid' } })
+  assert.equal(invalidPurpose.statusCode, 400); assert.equal(requests.length, beforeInvalidPurpose)
+  console.log('PASS storage purpose persists in both directions, controls new system disk eligibility and preserves omitted fields/other pools')
   console.log('PASS storage size create/update API syntax, unit, signed-byte boundary and omission matrix over mTLS')
 } catch (error) { failure = error } finally {
   await app.close()

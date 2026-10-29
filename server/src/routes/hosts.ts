@@ -3881,7 +3881,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
 
       // 更新数据库中的描述和用途（如果有）
       if (description !== undefined || purpose !== undefined) {
-        const updateData: any = {}
+        const updateData: db.UpdateStoragePoolData = {}
         if (description !== undefined) updateData.description = description
         if (purpose !== undefined) updateData.purpose = purpose
         await db.updateStoragePool(hostId, poolName, updateData)

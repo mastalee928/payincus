@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 存储池用途保存
+
+- be0ba6c已push核远端。实际PATCH传purpose但db.updateStoragePool的类型及字段映射均遗漏用途，接口200而仍按原用途选系统盘。新增StoragePurpose字段及条件更新，route采用明确UpdateStoragePoolData避免any掩盖丢字段；省略用途仍保原值，配置及其他池不改。
+- 扩展现有真实PG/Fastify/mTLS专项，takeover-storage-purpose-before.log先红200后仍instance_data；takeover-storage-purpose-final.log通过双向切换、系统盘资格跟随、组合描述与用途、空描述/省略用途保留、其他池不变、非法用途400零远端，原容量30非法/14合法及省略矩阵回归通过。mTLS端为协议夹具；没有真实Incus磁盘或客户实例写入。
+- 后端build含tsc、host-route-id/host-pool/dedicated-delivery三守卫、manifest194/138与diff检查通过，证据takeover-storage-purpose-{build,guards,manifest}.log；扩展专项沿原CI入口，无前端文件改动。存储变更当前授权、远端/DB原子性、驱动容量能力、并发创建/更新仍继续，未以此小项声明R303/327或完整灾备完成。
+
 ## 2026-10-29 宿主分页真实字段与修复统计复核
 
 - 97eafe3已push并核远端一致。接续草稿的getHostsPaginated漏select architecture，ARM在实际GET /hosts被默认显示x86；同时漏IPv6公网/绑定地址、IPv4绑定地址及IPv6同步状态。现补选取与映射，两条带/不带owner查询均按name、id排序，跨owner同名分页顺序明确。仅列表读取，未改一机一卖或客户网络交付。

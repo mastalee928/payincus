@@ -257,6 +257,7 @@ export async function getStoragePool(hostId: number, name: string) {
  */
 export interface UpdateStoragePoolData {
   description?: string
+  purpose?: StoragePurpose
   config?: Record<string, string>
 }
 
@@ -265,6 +266,9 @@ export async function updateStoragePool(hostId: number, name: string, data: Upda
   
   if (data.description !== undefined) {
     updateData.description = data.description
+  }
+  if (data.purpose !== undefined) {
+    updateData.purpose = data.purpose
   }
   if (data.config !== undefined) {
     updateData.config = data.config
