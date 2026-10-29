@@ -72,10 +72,11 @@ const showChannelForm = ref(false)
 const channelDetailLoading = ref(false)
 const channelFormReady = ref(false)
 const channelTargetId = ref<number | null>(null)
-let channelReadSequence = 0
+let channelReadSequence = 0, channelDraftSequence = 0, channelsSequence = 0
 const editingChannel = ref<{ id: number; name: string; botToken: string; chatId: string; enabled: boolean } | null>(null)
 const channelFormError = ref('')
 const channelForm = ref({ name: '', botToken: '', chatId: '', enabled: true })
+watch(channelForm, () => { channelDraftSequence++ }, { deep: true, flush: 'sync' })
 const bindingLoading = ref(false)
 const bindingError = ref('')
 const bindingSearch = ref('')
@@ -199,7 +200,11 @@ watch([sessionKey, pageActive], () => {
   bindingSearch.value = ''; telegramBindingsPage.value = 1
   if (bindingsActive()) void loadTelegramBindings(1)
 }, { flush: 'sync' })
-watch([sessionKey, pageActive], () => { clearChannelForm() }, { flush: 'sync' })
+watch([sessionKey, pageActive], () => {
+  clearChannelForm()
+  channelsSequence++; globalChannels.value = []; channelLoading.value = false
+  if (bindingsActive()) void loadChannels()
+}, { flush: 'sync' })
 onUnmounted(clearChannelForm)
 
 async function loadConfigs() {
@@ -495,14 +500,18 @@ async function unlinkTelegramBinding(binding: TelegramAdminBinding) {
 }
 
 async function loadChannels() {
+  if (!bindingsActive()) return
+  const sequence = ++channelsSequence, session = sessionKey.value
+  const current = () => bindingsActive() && sequence === channelsSequence && session === sessionKey.value
   channelLoading.value = true
   try {
     const response = await api.adminNotificationChannels.list()
+    if (!current()) return
     globalChannels.value = response.channels || []
   } catch {
-    globalChannels.value = []
+    if (current()) globalChannels.value = []
   } finally {
-    channelLoading.value = false
+    if (current()) channelLoading.value = false
   }
 }
 
@@ -573,33 +582,37 @@ async function openEditChannelForm(ch: GlobalChannel) {
 async function saveChannel() {
   if (!bindingsActive() || !showChannelForm.value || !channelFormReady.value || channelDetailLoading.value || savingChannel.value) return
   channelFormError.value = ''
-  if (!channelForm.value.name || !channelForm.value.chatId) {
+  const id = channelTargetId.value
+  if (id !== null && editingChannel.value?.id !== id) return
+  const data = { ...channelForm.value, name: channelForm.value.name.trim(), chatId: channelForm.value.chatId.trim(), botToken: channelForm.value.botToken.trim() }
+  if (!data.name || !data.chatId) {
     channelFormError.value = t('telegramConfig.messages.channelFieldsRequired')
     return
   }
-  if (!editingChannel.value && !channelForm.value.botToken) {
+  if (id === null && !data.botToken) {
     channelFormError.value = t('telegramConfig.messages.botTokenRequired')
     return
   }
 
+  const sequence = channelReadSequence, draft = channelDraftSequence, session = sessionKey.value
+  const current = () => bindingsActive() && showChannelForm.value && channelFormReady.value && sequence === channelReadSequence && draft === channelDraftSequence && session === sessionKey.value && id === channelTargetId.value
+  const unchangedMaskedToken = id !== null && data.botToken === editingChannel.value?.botToken && /^.{1,20}\.\.\..{1,20}$/.test(data.botToken)
   savingChannel.value = true
   try {
-    if (editingChannel.value) {
-      await api.adminNotificationChannels.update(editingChannel.value.id, {
-        name: channelForm.value.name,
-        chatId: channelForm.value.chatId,
-        enabled: channelForm.value.enabled,
-        ...(channelForm.value.botToken && !channelForm.value.botToken.includes('...') ? { botToken: channelForm.value.botToken } : {})
-      })
-      toast.success(t('telegramConfig.messages.channelUpdated'))
-    } else {
-      await api.adminNotificationChannels.create(channelForm.value)
-      toast.success(t('telegramConfig.messages.channelCreated'))
+    const response = id !== null
+      ? await api.adminNotificationChannels.update(id, { name: data.name, chatId: data.chatId, enabled: data.enabled, ...(data.botToken && !unchangedMaskedToken ? { botToken: data.botToken } : {}) })
+      : await api.adminNotificationChannels.create(data)
+    if (!current()) return
+    if (!response || typeof response.message !== 'string' || !response.message.trim()) throw new Error(t('telegramConfig.invalidChannelSave'))
+    if (id === null) {
+      const channel = ('channel' in response ? response.channel : null) as Record<string, unknown> | null
+      if (!channel || !Number.isSafeInteger(channel.id) || Number(channel.id) <= 0 || channel.name !== data.name || channel.type !== 'telegram' || channel.enabled !== data.enabled) throw new Error(t('telegramConfig.invalidChannelSave'))
     }
-    showChannelForm.value = false
+    toast.success(t(id !== null ? 'telegramConfig.messages.channelUpdated' : 'telegramConfig.messages.channelCreated'))
+    clearChannelForm()
     await loadChannels()
   } catch (err: any) {
-    channelFormError.value = err?.message || t('telegramConfig.messages.saveFailedShort')
+    if (current()) channelFormError.value = err?.message || t('telegramConfig.messages.saveFailedShort')
   } finally {
     savingChannel.value = false
   }
@@ -1267,7 +1280,7 @@ async function testChannel(id: number) {
             <h3 class="text-sm font-semibold text-themed">{{ t('telegramConfig.channels.title') }}</h3>
             <p class="mt-1 text-sm text-themed-muted">{{ t('telegramConfig.channels.description') }}</p>
           </div>
-          <button type="button" class="btn-primary btn-sm shrink-0" @click="openCreateChannelForm">{{ t('telegramConfig.channels.add') }}</button>
+          <button type="button" class="btn-primary btn-sm shrink-0" :disabled="savingChannel" @click="openCreateChannelForm">{{ t('telegramConfig.channels.add') }}</button>
         </div>
 
         <div v-if="channelLoading" class="text-sm text-themed-muted">{{ t('common.loading') }}</div>
@@ -1307,7 +1320,7 @@ async function testChannel(id: number) {
               >
                 {{ testingChannelId === ch.id ? t('common.sending') : t('telegramConfig.channels.test') }}
               </button>
-              <button type="button" class="text-xs text-themed-muted hover:text-themed" @click="openEditChannelForm(ch)">{{ t('common.edit') }}</button>
+              <button type="button" class="text-xs text-themed-muted hover:text-themed" :disabled="savingChannel" @click="openEditChannelForm(ch)">{{ t('common.edit') }}</button>
               <button
                 type="button"
                 class="text-xs text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
@@ -1327,22 +1340,22 @@ async function testChannel(id: number) {
             <p>{{ channelFormError }}</p>
             <button v-if="!channelFormReady && !channelDetailLoading" data-channel-retry type="button" class="btn-secondary btn-sm" @click="retryChannelDetail">{{ t('common.retry') }}</button>
           </div>
-          <div v-if="channelFormReady" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div v-if="channelFormReady" data-channel-fields class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div class="space-y-1">
               <label class="block text-xs text-themed-muted">{{ t('telegramConfig.channels.name') }} *</label>
-              <input v-model="channelForm.name" type="text" class="input" :placeholder="t('telegramConfig.channels.namePlaceholder')" />
+              <input v-model="channelForm.name" :disabled="savingChannel" type="text" class="input" :placeholder="t('telegramConfig.channels.namePlaceholder')" />
             </div>
             <div class="space-y-1">
               <label class="block text-xs text-themed-muted">Chat ID *</label>
-              <input v-model="channelForm.chatId" type="text" class="input font-mono" :placeholder="t('telegramConfig.channels.chatIdPlaceholder')" />
+              <input v-model="channelForm.chatId" :disabled="savingChannel" type="text" class="input font-mono" :placeholder="t('telegramConfig.channels.chatIdPlaceholder')" />
               <p class="text-xs text-themed-muted">{{ t('telegramConfig.channels.chatIdHint') }}</p>
             </div>
             <div class="md:col-span-2 space-y-1">
               <label class="block text-xs text-themed-muted">Bot Token {{ editingChannel ? t('telegramConfig.channels.keepUnchanged') : '*' }}</label>
-              <input v-model="channelForm.botToken" type="password" class="input font-mono" :placeholder="t('telegramConfig.channels.tokenPlaceholder')" />
+              <input v-model="channelForm.botToken" :disabled="savingChannel" type="password" class="input font-mono" :placeholder="t('telegramConfig.channels.tokenPlaceholder')" />
             </div>
             <div class="md:col-span-2 flex items-center gap-2">
-              <input id="telegramChannelEnabled" v-model="channelForm.enabled" type="checkbox" class="w-4 h-4 rounded" />
+              <input id="telegramChannelEnabled" v-model="channelForm.enabled" :disabled="savingChannel" type="checkbox" class="w-4 h-4 rounded" />
               <label for="telegramChannelEnabled" class="text-sm text-themed-secondary">{{ t('telegramConfig.channels.enable') }}</label>
             </div>
           </div>

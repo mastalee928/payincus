@@ -227,6 +227,7 @@ export default {
     telegramConfig: {
         invalidBindings: 'The server returned invalid Telegram binding data. Retry loading the list.',
         invalidChannel: 'The server returned invalid Telegram channel details. Retry loading the channel.',
+        invalidChannelSave: 'The server did not confirm that the Telegram channel was saved. Reload the list to check before retrying.',
         title: 'Telegram Settings', description: 'Manage the site bot, webhook, group access, and global notification channels.', enabled: 'Enabled', minutes: 'minutes',
         secretInvalid: 'Webhook Secret may contain only letters, numbers, underscores, and hyphens, and must be 1-256 characters.', userNumber: 'User #{id}',
         eligibility: { eligible: 'Eligible', ineligible: 'Not eligible', disabled: 'Disabled', unconfigured: 'Not configured', unknown: 'Unknown' },

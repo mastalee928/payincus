@@ -116,6 +116,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-lottery-draw', 'requires Chrome/Edge and local Vite; real single/ten-draw mutual exclusion, fixed lottery/session/page receipts, cancelled result animation and safe retries without real rewards'],
   ['test:review-telegram-bindings', 'requires Chrome/Edge and local Vite; real Telegram bindings search order, session/cache/draft read isolation, strict response shape and persistent DOM retry without external Telegram'],
   ['test:review-telegram-channel-editor', 'requires Chrome/Edge and local Vite; current channel target/session/cache reads, ready gate, strict masked detail response, persistent retry and close secret cleanup'],
+  ['test:review-telegram-channel-submit', 'requires Chrome/Edge and local Vite; frozen create/update fields, current target/session/draft receipts, busy gates, confirmed message/channel and masked token preservation'],
   ['test:review-user-balance-submit', 'requires Chrome/Edge and local Vite; balance adjustment strict amount inputs, immediate busy lock, current session/draft receipts and scoped auxiliary reads'],
   ['test:review-user-points-submit', 'requires Chrome/Edge and local Vite; points adjustment integer/reason gates, busy fields, current targets/session/draft receipts and scoped list refresh'],
   ['test:review-user-balance-audit', 'requires isolated local *_pool_test PostgreSQL; balance and ledger/audit atomic rollback, exact receipts and administrator revocation row-lock races'],

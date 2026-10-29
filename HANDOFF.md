@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-316 Telegram 渠道保存草稿与真实确认
+
+- cdd11a2a已push。submit-before真实Chrome先红：保存期间四字段仍未冻结。create/update现函数即时busy，禁字段/取消/新建/另编辑；固定payload/id/read/session/draft代次，旧成功失败不关窗、不提示、不刷新，新草稿ABA亦隔离。同sid正常刷新保持；合法失败保草稿。原未改掩码Token才省略，编辑成其它含省略号字符串仍发后台严格验证，避免静默成功不生效。
+- update核非空message，create另核实际新channel正整数ID/name/type/enabled；无效回执不成功/刷新，持久提示先刷新列表核对再重试。成功同步关窗清秘密后刷新列表，channels辅助读也独立seq/session/激活，旧finally不覆当前loader。后台/API行为未改。
+- submit-final-r2实际Chrome36旧回执（2模式×9变化×2结果）、busy/关闭/失败重试/same sid/十非法回执/原与编辑掩码、channels旧读及三宽三语截图通过exit0；editor20旧读取与bindings18旧回执完整回归exit0。4守卫/lint零错警/manifest194常规171专项通过。首次类型检查联合返回值channel推断失败，修为unknown记录收窄后types-final exit0；最终build-final双端含vue-tsc进程exit0/dist-final2通过，无待poll。仅真实Vue/受控API，未TG/实际写渠道。
+- 202/68/57含部分不重复加编号，R316其它配置读取、删/测试/解绑写入和后台当前授权/审计原子性仍待。此前9730aa27、5c8e925b、8f759572、4675ea2d、1a306d92、cdd11a2a的CI现均success。下一R317已读两登录页、authStore/真实login route与守卫；真实Chrome login-before连续handleLogin发2次先红，login-submit夹具未提交且产品未改。完整327和网关灾备仍未完成。
+
 ## 2026-10-29 R1-316 Telegram 渠道详情目标与就绪门禁
 
 - 绑定阶段1a306d92已push。editor-before实际Chrome先红：先点1再点2，旧1详情将当前editor改回1。现打开即清旧表单并固定ID/read sequence/admin session/show/page；换目标、关闭/新建、session ABA/cache/unmount撤销旧回执，same sid正常刷新保持。加载与错误保持当前渠道#ID，ready前函数/按钮均拒写，严格详情id/name/type/enabled/config及掩码字段类型核验；失败持久role alert/DOM retry，关闭清秘密草稿，新建独立ready。

@@ -232,6 +232,7 @@ const zhTW = {
     telegramConfig: {
         invalidBindings: '伺服器傳回的 Telegram 綁定資料無效，請重試載入清單。',
         invalidChannel: '伺服器傳回的 Telegram 頻道詳細資料無效，請重試載入該頻道。',
+        invalidChannelSave: '伺服器未確認 Telegram 頻道儲存成功，請先重新整理清單核對，再決定是否重試。',
         title: 'Telegram 設定', description: '集中管理網站專用機器人、Webhook、入群申請和全域通知頻道。', enabled: '啟用', minutes: '分鐘',
         secretInvalid: 'Webhook Secret 只能包含字母、數字、底線和連字號，長度 1-256。', userNumber: '使用者 #{id}',
         eligibility: { eligible: '已達標', ineligible: '未達標', disabled: '未啟用', unconfigured: '未設定', unknown: '未知' },
