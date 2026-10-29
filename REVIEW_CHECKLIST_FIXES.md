@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R316渠道详情读取阶段：current ID/seq/session/show/缓存/卸载及ready门禁、严格masked详情、持久error#ID/DOM retry和关闭秘密清理已修；实际Chrome20旧读取/八非法/同sid/false/三语retry及bindings18回执回归、4守卫/lint/双端types build最终exit0/dist见HANDOFF。202/68/57含部分不加编号，保存字段/回执及后台真实渠道另续。
+
 2026-10-29 R316绑定读取阶段：search/page/pageSize/seq与当前admin/session/draft/ABA/cache/unmount隔离、旧finally保当前loader、严格回执及持久error DOM retry已修。真实Chrome先红→final-r3反序/18旧回执/same sid/九非法/实际retry/0、4守卫/lint/最终双端types build exit0/dist见HANDOFF。唯一202有修复复验（含部分）/68已有防护或实现不同/57待精修；渠道editor、其它写入/配置读取和实际Telegram仍待。
 
 2026-10-29 R314抽奖阶段：spin/multi即时互斥、活动快照/session/page/tab旧回执隔离，单结果timer覆盖动画busy并随离页取消；辅助points/lotteries读取current门禁已修。真实Chrome先红后40旧回执、same sid/读取及current徽章/动画/禁选择/重试，3守卫/lint/双端types build最终exit0/dist见HANDOFF。旧日志48/80误计已改真实循环计数；唯一201有修复复验（含部分）/68已有防护或实现不同/58待精修，真实奖励与后台/幂等另验，327/灾备未完。
@@ -417,7 +419,7 @@
 | R1-313 | 部分存在，部分已修 | 目标/session及输入回执实际Chrome与构建守卫通过 | 四操作固定目标/session/draft/ABA、busy/关闭/卸载/timer已修；两数字输入、四真实成功回执/有效期与过期敏感验证清理已修。80旧回执及输入回执反例/重试通过；实际邮件和客户完整变更另续。 |
 | R1-314 | 存在，部分已修 | 当前抽奖Chrome及构建守卫通过 | 单/十连函数与按钮即时互斥，固定活动/奖品快照/account/role/sid/page/tab，旧写回执及单动画timer随离页/缓存/卸载撤销；辅助积分/活动读取独立代次。真实Chrome40旧回执、same sid、合法0、禁选择/动画busy/徽章结果/失败重试及3守卫/lint/双端types build/dist通过，日志误计已纠正见HANDOFF；真实积分扣除/奖励全流程、后台授权与断网幂等仍待。 |
 | R1-315 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
-| R1-316 | 存在，部分已修 | 绑定搜索读取Chrome及构建守卫通过 | bindings搜索/分页固定search/page/pageSize与seq/admin/session/draft/ABA/cache/unmount，旧finally保新loader；严格列表回执及持久error DOM retry、合法0已修。实际Chrome18旧回执/反序/九非法/重试与4守卫/lint/双端types build/dist通过；channel editor与其它配置/写入、真实TG/解绑仍待，见HANDOFF。 |
+| R1-316 | 存在，部分已修 | 绑定和渠道读取Chrome及构建守卫通过 | bindings搜索分页固定search/page/pageSize/seq/admin/session/draft/cache，18旧回执/九非法及error retry/0通过；渠道editor固定ID/read/show/session/cache/unmount，20旧读取/八非法/ready门禁/三语retry/关闭秘密清理通过，4守卫/lint/双端types build/dist。保存字段/回执、其它配置/写入/后台权限审计和真实TG/解绑仍待，见HANDOFF。 |
 | R1-317 | 存在 | 待精修/运行复核 | Login/AdminLogin handleLogin缺函数入口loading guard；按钮disabled仅阻常规鼠标，不能防重复事件/函数调用。 |
 | R1-318 | 已有防护 | 保留初审结论 | manualStartHint已描述重装后自动启动。 |
 | R1-319 | 存在 | 待精修/运行复核 | rechargeNotice仍写PUSH免费，而transferFee可非0；zh-CN/en均见原文。 |

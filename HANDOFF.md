@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-316 Telegram 渠道详情目标与就绪门禁
+
+- 绑定阶段1a306d92已push。editor-before实际Chrome先红：先点1再点2，旧1详情将当前editor改回1。现打开即清旧表单并固定ID/read sequence/admin session/show/page；换目标、关闭/新建、session ABA/cache/unmount撤销旧回执，same sid正常刷新保持。加载与错误保持当前渠道#ID，ready前函数/按钮均拒写，严格详情id/name/type/enabled/config及掩码字段类型核验；失败持久role alert/DOM retry，关闭清秘密草稿，新建独立ready。
+- editor-final实际Chrome目标反序/旧finally、20旧读取、八非法详情/ready门禁、same sid/false enabled/关闭清秘密、三语实际retry全部exit0；bindings-regression原18旧回执与搜索/分页/非法/重试/0回归exit0。三宽三语错误截图均已查看，无水平溢出；4守卫/lint零错警/manifest194常规170专项、双端build含vue-tsc最终exit0/dist通过，无待poll，专项接CI。仅真实Vue/受控API，未实际TG或渠道写。
+- R316仍部分，202/68/57含部分不重复加编号。下一保存字段冻结/固定payload/draft/session回执及成功确认已核后台create返回message+channel、update返回message；scripts/test-telegram-channel-submit.mjs下一阶段夹具尚未提交，不混入本批。其它配置/写入、后台审计/权限与完整真实渠道仍待。完整327/灾备未完成。
+
 ## 2026-10-29 R1-316 Telegram 绑定搜索与分页读取
 
 - R314 4675ea2d已push核远端。bindings-before实际Chrome先红：旧search反序覆盖Current user为Obsolete user。现固定search/page/pageSize、独立read sequence和admin account/role/sid、页面激活；同步草稿/ABA/session/cache/unmount撤销旧回执，旧finally不结束新loader，同sid刷新不重读。会话/缓存清私密绑定及门槛，激活重读；page先固定当前请求，回执必须同页和pageSize。

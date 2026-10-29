@@ -69,6 +69,10 @@ const savingChannel = ref(false)
 const deletingChannelId = ref<number | null>(null)
 const testingChannelId = ref<number | null>(null)
 const showChannelForm = ref(false)
+const channelDetailLoading = ref(false)
+const channelFormReady = ref(false)
+const channelTargetId = ref<number | null>(null)
+let channelReadSequence = 0
 const editingChannel = ref<{ id: number; name: string; botToken: string; chatId: string; enabled: boolean } | null>(null)
 const channelFormError = ref('')
 const channelForm = ref({ name: '', botToken: '', chatId: '', enabled: true })
@@ -195,6 +199,8 @@ watch([sessionKey, pageActive], () => {
   bindingSearch.value = ''; telegramBindingsPage.value = 1
   if (bindingsActive()) void loadTelegramBindings(1)
 }, { flush: 'sync' })
+watch([sessionKey, pageActive], () => { clearChannelForm() }, { flush: 'sync' })
+onUnmounted(clearChannelForm)
 
 async function loadConfigs() {
   loading.value = true
@@ -501,18 +507,45 @@ async function loadChannels() {
 }
 
 function openCreateChannelForm() {
+  if (!bindingsActive() || savingChannel.value) return
+  clearChannelForm()
   editingChannel.value = null
   channelForm.value = { name: '', botToken: '', chatId: '', enabled: true }
   channelFormError.value = ''
   showChannelForm.value = true
+  channelFormReady.value = true
+}
+
+function clearChannelForm(): void {
+  channelReadSequence++
+  channelTargetId.value = null; channelDetailLoading.value = false; channelFormReady.value = false
+  editingChannel.value = null; channelFormError.value = ''; showChannelForm.value = false
+  channelForm.value = { name: '', botToken: '', chatId: '', enabled: true }
+}
+function closeChannelForm(): void {
+  if (savingChannel.value) return
+  clearChannelForm()
+}
+function retryChannelDetail(): void {
+  if (channelTargetId.value !== null) void openEditChannelForm({ id: channelTargetId.value } as GlobalChannel)
 }
 
 async function openEditChannelForm(ch: GlobalChannel) {
+  if (!bindingsActive() || savingChannel.value || !Number.isSafeInteger(ch.id) || ch.id <= 0) return
+  clearChannelForm()
+  channelTargetId.value = ch.id
+  const sequence = ++channelReadSequence, session = sessionKey.value, id = ch.id
+  const current = () => bindingsActive() && showChannelForm.value && sequence === channelReadSequence && session === sessionKey.value && id === channelTargetId.value
+  showChannelForm.value = true
+  channelDetailLoading.value = true
   channelFormError.value = ''
   try {
-    const response = await api.adminNotificationChannels.get(ch.id)
-    const channel = response.channel as any
-    const config = channel.config || {}
+    const response = await api.adminNotificationChannels.get(id)
+    if (!current()) return
+    const channel = response?.channel as any
+    if (!channel || typeof channel !== 'object' || channel.id !== id || typeof channel.name !== 'string' || !channel.name.trim() || channel.type !== 'telegram' || typeof channel.enabled !== 'boolean' || !channel.config || typeof channel.config !== 'object' || Array.isArray(channel.config)) throw new Error(t('telegramConfig.invalidChannel'))
+    const config = channel.config
+    if ((config.botToken != null && typeof config.botToken !== 'string') || (config.chatId != null && typeof config.chatId !== 'string')) throw new Error(t('telegramConfig.invalidChannel'))
     const botToken = typeof config.botToken === 'string' ? config.botToken : ''
     const chatId = typeof config.chatId === 'string' ? config.chatId : ''
 
@@ -529,13 +562,16 @@ async function openEditChannelForm(ch: GlobalChannel) {
       chatId,
       enabled: channel.enabled
     }
-    showChannelForm.value = true
-  } catch {
-    toast.error(t('telegramConfig.messages.channelLoadFailed'))
+    channelFormReady.value = true
+  } catch (error) {
+    if (current()) channelFormError.value = `${t('telegramConfig.messages.channelLoadFailed')} (#${id}): ${error instanceof Error ? error.message : String(error)}`
+  } finally {
+    if (current()) channelDetailLoading.value = false
   }
 }
 
 async function saveChannel() {
+  if (!bindingsActive() || !showChannelForm.value || !channelFormReady.value || channelDetailLoading.value || savingChannel.value) return
   channelFormError.value = ''
   if (!channelForm.value.name || !channelForm.value.chatId) {
     channelFormError.value = t('telegramConfig.messages.channelFieldsRequired')
@@ -1285,9 +1321,13 @@ async function testChannel(id: number) {
         </div>
 
         <div v-if="showChannelForm" class="mt-4 p-4 rounded-lg border border-themed-border bg-themed-secondary/20 space-y-3">
-          <h4 class="font-medium text-sm text-themed">{{ editingChannel ? t('telegramConfig.channels.edit') : t('telegramConfig.channels.new') }}</h4>
-          <div v-if="channelFormError" class="text-xs text-rose-600 dark:text-rose-400">{{ channelFormError }}</div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <h4 class="font-medium text-sm text-themed">{{ channelTargetId !== null ? t('telegramConfig.channels.edit') : t('telegramConfig.channels.new') }}<span v-if="channelTargetId !== null" class="ml-2 text-themed-muted">#{{ channelTargetId }}</span></h4>
+          <div v-if="channelDetailLoading" role="status" class="text-sm text-themed-muted">{{ t('common.loading') }}</div>
+          <div v-if="channelFormError" role="alert" class="text-xs text-rose-600 dark:text-rose-400 break-words space-y-2">
+            <p>{{ channelFormError }}</p>
+            <button v-if="!channelFormReady && !channelDetailLoading" data-channel-retry type="button" class="btn-secondary btn-sm" @click="retryChannelDetail">{{ t('common.retry') }}</button>
+          </div>
+          <div v-if="channelFormReady" class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div class="space-y-1">
               <label class="block text-xs text-themed-muted">{{ t('telegramConfig.channels.name') }} *</label>
               <input v-model="channelForm.name" type="text" class="input" :placeholder="t('telegramConfig.channels.namePlaceholder')" />
@@ -1307,8 +1347,8 @@ async function testChannel(id: number) {
             </div>
           </div>
           <div class="flex gap-2 justify-end">
-            <button type="button" class="btn-secondary text-sm" @click="showChannelForm = false">{{ t('common.cancel') }}</button>
-            <button type="button" class="btn-primary text-sm" :disabled="savingChannel" @click="saveChannel">
+            <button type="button" class="btn-secondary text-sm" :disabled="savingChannel" @click="closeChannelForm">{{ t('common.cancel') }}</button>
+            <button type="button" class="btn-primary text-sm" :disabled="savingChannel || !channelFormReady || channelDetailLoading" @click="saveChannel">
               {{ savingChannel ? t('common.saving') : t('common.save') }}
             </button>
           </div>

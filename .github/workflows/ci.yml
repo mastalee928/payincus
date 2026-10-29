@@ -323,6 +323,8 @@ jobs:
         run: pnpm --filter server test:review-lottery-draw
       - name: Telegram binding searches retain their current target and retry errors
         run: pnpm --filter server test:review-telegram-bindings
+      - name: Telegram channel editors load their current target before allowing saves
+        run: pnpm --filter server test:review-telegram-channel-editor
       - name: Balance adjustments keep their target, draft and confirmed receipt
         run: pnpm --filter server test:review-user-balance-submit
       - name: Points adjustments reject stale receipts and repeated submissions
