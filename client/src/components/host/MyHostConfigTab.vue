@@ -33,6 +33,7 @@ interface Host {
   instanceType?: 'container' | 'vm' | 'both'
   ipv6ParentInterface?: string
   ipv6Subnet?: string
+  ipv6Mode?: number
   transferEnabled?: boolean
   trafficResetDay?: number
   notifyPurchase?: boolean
@@ -145,7 +146,8 @@ function selectCountry(code: string) {
 }
 
 const requiresIpv6ParentInterface = computed(() => {
-  return Boolean(form.value.ipv6Subnet.trim() || props.host.ipv6Subnet?.trim())
+  return Boolean(form.value.ipv6Subnet.trim() || props.host.ipv6Mode === 1 ||
+    props.host.ipv6Mode === undefined && props.host.ipv6Subnet?.trim())
 })
 
 let formEndpoint = ''
@@ -289,13 +291,13 @@ async function saveConfig() {
     const result = await api.hosts.update(props.host.id, {
       name: fullName,
       ...(url === undefined ? {} : { url }),
-      location: form.value.location || undefined,
+      location: form.value.location,
       countryCode: form.value.countryCode,
       cpuAllowanceMax: form.value.cpuAllowanceMax || undefined,
       memoryMax: form.value.memoryMax || undefined,
       instanceType: form.value.instanceType,
-      ipv6ParentInterface: form.value.ipv6ParentInterface.trim() || undefined,
-      ipv6Subnet: form.value.ipv6Subnet.trim() || undefined,
+      ipv6ParentInterface: form.value.ipv6ParentInterface.trim(),
+      ipv6Subnet: form.value.ipv6Subnet.trim(),
       transferEnabled: form.value.transferEnabled,
       trafficResetDay: form.value.trafficResetDay,
       notifyPurchase: form.value.notifyPurchase,

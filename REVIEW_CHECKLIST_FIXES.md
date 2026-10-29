@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R111显式清空description/IPv6父接口-subnet已修：真实Chrome13138 mode2/3八组合/trim/门禁/三语实际输入save与R112回归正常exit0；真实PATCH/PG清空落库、省略保持/foreign拒绝/mode1三类拒绝且零写通过。最后build/types/守卫见HANDOFF。237含部分/68已有不同/22待，R110及真实宿主继续。
+
 2026-10-30 R112连接地址：实际描述改URL先红→保留原HTTP(S)协议/端口/路径/query/hash、无关编辑完全省略URL；68686真实Chrome8原URL/24修改组合/IPv6/6坏port/三语三宽actual input/save正常exit0。types/lint/四守卫通过，最后build/dist见HANDOFF。236含部分/68已有不同/23待，R110/111及真实宿主继续。
 
 2026-10-30 R109操作段落：统一pending锁/固定host-session-dialog/strict回执/持久失败、敏感命令清理与copy await/旧回执24组已修；final-r4与R108回归session99800最终exit0，72旧操作/三语三宽actual控件/键盘/44px通过。最终build及末dist记录见HANDOFF；235含部分/68已有不同/24待不重计，真实Caddy及完整327继续。
@@ -288,7 +290,7 @@
 | R1-108 | 存在 | 读取已修/浏览器隔离验证通过 | 站点当前host/session/page/seq/cache代次、严格行数结构/last-good与失败retry、同步换页及缩页重读已修；final-exit36旧读/14坏sites/三语三宽分页过，末build/types/三守卫/lint/dist过。真实Caddy与操作仍见R109。 |
 | R1-109 | 存在 | 源码已修/隔离浏览器通过 | status与四操作/copy绑定当前host/session/同步及命令弹窗代次，共用pending锁/读写隔离/strict回执/持久失败retry、敏感凭据关闭清理和键盘已修；final-r4正常exit0，72旧操作/24旧copy/三语三宽actual控件及R108回归过。types/五守卫/lint及最后build/dist见HANDOFF；真实Linux Caddy/安装流程仍另验。 |
 | R1-110 | 存在 | 待精修/运行复核 | watch整个host重置draft；save函数缺busy guard，父刷新和重复提交边界不足。 |
-| R1-111 | 存在 | 待精修/运行复核 | 清空location/IPv6转undefined，不传字段无法清空已有配置。 |
+| R1-111 | 存在 | 源码已修/浏览器及本地PG通过 | 描述显式空字符串、IPv6 trim空字段传PATCH，mode2/3可清理旧配置，mode1及剩余subnet继续必需parent。真实Chrome八组合/三语输入save、实际Fastify-PG落null/省略保持/foreign403/mode1零写拒绝过，R112回归过；最后types/build/守卫见HANDOFF，真实宿主另验。 |
 | R1-112 | 存在 | 源码已修/浏览器隔离验证通过 | 无关编辑省略url，默认HTTP80/HTTPS443正确；地址或端口变化只替换原URL相应字段保协议/path/query/hash，IPv6方括号及非法port拒写。68686真实Chrome八原URL/24修改组合/六坏port/三语三宽actual input-save过；types/lint/四守卫及build/dist见HANDOFF，真实宿主仍另验。 |
 | R1-113 | 存在 | 待精修/运行复核 | 节点类型警告虽前缀调用t，但正文warning.message及“套餐:”硬编码，繁体/英文不能完整本地化。 |
 | R1-114 | 实现不同 | 保留初审结论 | 没有对方快速多租户库存数量编辑器；本库独占规格/库存枚举，saveSpec有busy及固定磁盘档。不得迁入对方库存数量模型。 |

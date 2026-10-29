@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-111 明确提交描述与 IPv6 字段清空
+
+- R112141c5f7a已push核远端一致。真实Chrome先红清空description/subnet payload仍undefined。location现保留显式空字符串，IPv6父接口/subnet发送trim后空字符串，沿现有PATCH normalize→null，不以undefined遗漏。明确mode2/3允许清空已退用subnet和parent；剩余subnet及mode1保父接口门禁，mode缺失沿原谨慎规则，不改后端必要路由配置拒绝或客户IPv6/全端口。
+- clear-final13138正常exit0：mode2/3八组合/空白trim、保留subnet缺接口与mode1双清空拒写、后端拒绝不发saved且保草稿、三语三宽实际清输入/save过。R112endpoint回归8268正常exit0，原八URL/24修改组合/六坏port及三语真实控件过；本段UI布局不改，沿R112已查看三语9截图，不声称原长配置页完成。
+- 真实本地Fastify/PG final-exit：mode2/3空description落空字符串、subnet/parent落null，原mode/URL保持；字段省略保原值、foreign actor403、route-mode三类清空400且所有字段保持，最终正常exit0。首根目录tsx缺失轮/初import维护timer未自然退出均不计通过；初轮已完成清理，定向停止后补cleanup后退出并重跑成功。只本机已迁移隔离库，不请求真实Incus。
+- client types65105、server types61862、组件lint33568和五守卫76006（logs/test-run-20261030-061305）正常exit0；manifest194常规206专项/语法diff接CI有效。新PG专项独立TS56390及最终双端build99750含两端vue-tsc/末dist正常exit0，无待poll；专项配置首次typeRoots路径错误保留不计过。只有4行payload及mode门禁改动；旧PATCH audit独立提交等非本项验收范围。
+- 新增R111记录后237有修复复验含部分/68已有防护不同/22待。真实宿主/完整327及网关灾备未完，不发行/生产/客户操作。补最后证据即提交推送，再接R110同host父refresh草稿/current session/cache/重复保存和R113退役warning分支纠正。
+
 ## 2026-10-30 R1-112 宿主配置保留原连接地址
 
 - R109操作27000e3a已push核远端一致。真实Vue/Chrome先红：仅改描述，原http/path地址被重建https:8443。新增小型host-config-endpoint helper：URL.port为空时按HTTP80/HTTPS443解释，保留显式非标准端口；无关编辑或改后恢复原值完全不传url，避免重登记连接。实际地址/端口改变用原URL只替换hostname/port，保留协议/path/query/hash；IPv6方括号正确，非法safe integer端口拒写。不改后端地址安全校验、管理身份、网络或实例。

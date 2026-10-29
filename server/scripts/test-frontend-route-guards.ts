@@ -34,6 +34,9 @@ const hostConfigSource = readRepoFile('client/src/components/host/MyHostConfigTa
 assert.ok(hostConfigSource.includes('hostApiPort(newHost.url') && hostConfigSource.includes('editedHostEndpoint(formEndpoint,') &&
   hostConfigSource.includes('url === undefined ? {} : { url }') && !hostConfigSource.includes('buildHostApiUrl(form.value'),
   'unrelated host edits must omit the URL and changed endpoints must preserve the original protocol and path')
+assert.ok(hostConfigSource.includes('location: form.value.location,') && hostConfigSource.includes('ipv6Subnet: form.value.ipv6Subnet.trim(),') &&
+  hostConfigSource.includes('ipv6ParentInterface: form.value.ipv6ParentInterface.trim(),') && hostConfigSource.includes('props.host.ipv6Mode === 1'),
+  'host config must send explicit clears and preserve required parent-interface gates for routed IPv6')
 assert.ok(hostCaddySource.includes('sequence === statusSequence') && hostCaddySource.includes('sequence === sitesSequence') &&
   hostCaddySource.includes('page === sitesPage.value') && hostCaddySource.includes('onDeactivated') &&
   hostCaddySource.includes('data-caddy-status-error') && hostCaddySource.includes('data-caddy-sites-error') &&

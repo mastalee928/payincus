@@ -386,6 +386,10 @@ jobs:
         run: pnpm --filter server test:review-host-caddy-actions
       - name: Host config preserves the registered connection endpoint
         run: pnpm --filter server test:review-host-config-endpoint
+      - name: Host config sends explicit clears and keeps IPv6 mode gates
+        run: pnpm --filter server test:review-host-config-clear
+      - name: Host config clear values persist and route mode stays protected
+        run: pnpm --filter server test:review-host-config-clear-pg
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks
