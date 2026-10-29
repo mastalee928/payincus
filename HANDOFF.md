@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-072 清理无调用的旧个人账单组件
+
+- 已完整读取667行BillingSection及其调用/路由/对应守卫，当前ProfileView明确余额移至WalletView，应用/路由/自动组件导入均无BillingSection消费者；最终搜索仅余两条翻译注释。只删除孤立组件，保留翻译兼容、实际Wallet/Profile/user router/API与充值后端。实际页面无此组件的运行流程可验，不将清理残留当作余额/支付生命周期修复。
+- 3/3相关守卫route/i18n/balance-change-amount正常exit0（test-run-20261030-074148）；第一次把--only当正则未匹配，不计通过，已按repeatable substring正确重跑。双端build含各自vue-tsc最终exit0，user47.78秒/admin49.38秒，末dist守卫过。删除无样式或交互变化，沿现有UI；受保护Wallet/Profile/router/recharge源码SHA256修改前后保持。日志takeover-r072-dual-build、guards-final、dist-final及references-before/after；未跑完整套或客户充值。
+- 上阶段Caddy修复与错误记录已提交推送b8b88f02de22b9bc003a6d7203bdce0d08f7ed76，远端main核一致；对应CI40974379396仍in_progress，不能计通过。旧四CI40968364762/40969838036/40970307707/40970700657仍pool job运行，其它job已成功。历史Go进程审计IO尚未修；三台测试机资料已读，固定Ed25519再试A/B仍身份不匹配、C无已核pin，未接受新身份或发远端命令，继续代码级审查。容量可见性旧失败已有c6be3789准确测量及真实1px遮挡负对照；新CI终态继续核验。
+- 原327编号更新为242有修复/复验（含部分）、68已有防护/不同初审、17待精修。242不是全验收数，真实宿主、外部服务、部分项内部缺口及完整网关灾备继续。此项验证完成即按授权提交推送，再接R048站内信当前读取/未读过滤/删末页回退，不因本次错误记录完成停工。
+
 ## 2026-10-30 纠正停工与CI漏查，修复Caddy弹窗首帧触控尺寸
 
 - 执行错误已写入OWNER_REQUIREMENTS §5：在未完修复的进度回复后停止、未跟进in_progress CI终态。以后阶段汇报后继续；每次推送记完整commit/运行ID、跟踪具体job终态，失败先读原日志，不将本地绿或阶段提交当完成。原327仍241有修复/复验（含部分）、68已有防护/不同实现、18待精修，已记录项内部缺口继续保留。

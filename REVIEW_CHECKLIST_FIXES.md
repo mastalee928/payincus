@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R156收尾后）：原327个编号中，241项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，18项仍为「待精修/运行复核」。241并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以18项表示。
+当前进度（2026-10-30，R072收尾后）：原327个编号中，242项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，17项仍为「待精修/运行复核」。242并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以17项表示。
+
+2026-10-30 R072无调用组件完整复核后删除BillingSection667行，保留实际Wallet/Profile/user router/充值API后端及翻译；受保护源码哈希保持，3守卫与双端含types build/末dist通过。无可运行的孤立组件入口，不能据此称真实支付已验；242含部分/68已有不同/17待，按授权保存后接R048并跟CI，详见HANDOFF。
 
 2026-10-30 R156纠正实际动态调用：重装使用getImageAlias/getImage，保留两函数与类型；仅清9个无调用导出、barrel、PullImageOptions与旧waitForOperationLong，净减267行。两读取/现行wait-status逐字保持、worker SHA保持，真实保留读取受控request回归和五守卫53343/后端含tsc build70086最终正常exit0、目标lint/diff通过。241含部分/68已有不同/18待，真实重装/外部镜像/完整327仍待，见HANDOFF。
 
@@ -263,7 +265,7 @@
 | R1-069 | 实现不同 | 保留初审结论 | backupRoutes/storageConfig和restoreTaskWorker/backupUploadWorker实际注册启动；本库客机备份后端未退役。 |
 | R1-070 | 实现不同 | 保留初审结论 | storage配置与provider栈仍有后端消费者，不能因前端孤立按对方方案删掉。 |
 | R1-071 | 存在 | 已修；真实账户/整体UI另验 | 固定submittedStyle/account/session、共享saving与字段门禁，回执只标本次style，非法/旧会话/cache/unmount不写新用户；详情seq/ID与retry同步保护。Chrome先红→final3提交草稿/14旧写14旧读/反序detail/非法回执/same sid exit0，4守卫/lint/双端build含types/dist全过；真实账户与整体UI另验。 |
-| R1-072 | 存在 | 待精修/运行复核 | 应用页面未导入该孤立组件，仍重复Wallet界面实现；只属维护残留，不据此删除正在使用的Wallet或账务后端。 |
+| R1-072 | 存在 | 无调用残留已清理/相关构建守卫通过 | 完整调用及自动导入复核，仅翻译注释余引用；删除BillingSection667行，保留实际Wallet/Profile/router/API及充值后端，受保护源码哈希保持。3守卫、双端含types build与末dist正常exit0，证据见HANDOFF；孤立组件无活体流程，不充当支付功能验收。 |
 | R1-073 | 存在 | 待精修/运行复核 | 读列表/变更完成缺目标和请求代次绑定；过滤改变、替换草稿与重复行操作有竞态窗口。 |
 | R1-074 | 存在 | 待精修/运行复核 | 读列表/变更完成缺目标和请求代次绑定；过滤改变、替换草稿与重复行操作有竞态窗口。 |
 | R1-075 | 存在 | 已修；真实账户/整体UI另验 | 三写共享busy/current account/session、固定草稿/ID/严格回执；私钥open禁止覆盖，close/cache/unmount清展示、复制完成隔离与Blob/data延迟download取消。实际Chrome先红→final42旧写/冲突/retry/草稿/缓存锁/两下载路径exit0，4守卫/lint/双端types build末dist过。 |
