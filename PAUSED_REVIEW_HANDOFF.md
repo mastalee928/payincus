@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：5c9b825已push；R301批量配置固定targets/session/cache/回执与busy、Done成功刷新、retry原config及允许失败ID/累计成功和requiresReview明细已修。Chrome先红后绿+两回归/types/3守卫+最终route/lint零错警/manifest194/120/最终双端build exit0/dist通过准备单项push，无待poll。接test-host-batch-config-inputs.mjs独立先红CPU1e2变1，扩矩阵已写未跑，产品数字未改；完整数字而非parseInt、Vue数值0/null、blur不悄悄取整、流量字节精度与PG bigint范围、高级字段admin-only仍待。batch-config后端schema/事务/守卫已读，正常修改不触后台。327/R269/灾备仍未完成。
+
 > **最新接续**：3fd4488已push；R301单sync/swap固定target/session/host/query/激活回执、配置读取前busy/失败缓存拒绝、admin与状态门禁、当前对象回写与旧list/config失效、持久逐实例错误已修。Chrome先红后绿+两回归/types/4守卫/lint零错警/manifest194/119/最终双端build exit0/dist通过，准备单项push，无待poll。下一项host-batch-config四文件已先红弹窗1随后选2提交2，扩矩阵写完未跑，产品未改。父入口/子脚本完整、route前半与mutation/guard已读；固定targets、在途跨重开busy、session/cache旧回执、Done保成功refresh、失败retry固定原config，数字parseInt/角色字段另续。98ca675 CI success，其后3项最后运行。后台Swap原子性、R301/327/R269/灾备未完成。
 
 > **最新接续**：d54246a已push；R301重建父入口固定准备/选项与提交目标、session/modal/host回执、输入和busy、持久error、task有效回执及成功独立刷新已修。Chrome先红后绿+两回归/types/4守卫/lint零错警/manifest194/118/最终双端build exit0/dist通过，准备单项push，无待poll。下一项host-single-actions四文件已先红old sync刷新new host，扩矩阵已写未跑，产品未改；sync/swap完整前后端与guard已读。Swap须配置读取前busy、拒绝旧/失败缓存、当前对象回写，前端仅admin与running/stopped容器，后台授权/Incus与DB原子性仍待。其余R301/R302–327/R269/完整灾备未完成。28a1565/a021f9a CI success，其后3项最后运行。

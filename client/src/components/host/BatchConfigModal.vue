@@ -1,13 +1,32 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
+import { translateError } from '@/utils/errorHandler'
 import api from '@/api'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
 const toast = useToast()
+const authStore = useAuthStore()
+const pageActive = ref(false)
+let alive = true
+let generation = 0
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+onMounted(() => { pageActive.value = true })
+onActivated(() => { pageActive.value = true })
+onDeactivated(() => { pageActive.value = false })
+onUnmounted(() => { alive = false; pageActive.value = false })
 
 interface Props {
   visible: boolean
@@ -20,6 +39,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
   (e: 'success'): void
+  (e: 'busy', value: boolean): void
 }>()
 
 // 表单数据
@@ -93,6 +113,22 @@ const expandedSections = ref({
 // 提交状态
 const isSubmitting = ref(false)
 const progress = ref({ current: 0, total: 0 })
+const targets = ref<number[]>([])
+const submitError = ref('')
+const submittedConfig = ref<Record<string, unknown>>({})
+const dialog = ref<HTMLElement | null>(null)
+let returnFocus: HTMLElement | null = null
+const validTargets = computed(() => targets.value.length > 0 && targets.value.length <= 1000 &&
+  new Set(targets.value).size === targets.value.length && targets.value.every(id => Number.isSafeInteger(id) && id > 0))
+const canAct = computed(() => alive && pageActive.value && !!sessionKey.value && props.visible &&
+  Number.isSafeInteger(props.hostId) && props.hostId > 0 && !isSubmitting.value && validTargets.value)
+const canSubmit = computed(() => canAct.value && !showResult.value && hasEnabledFields.value)
+const canRetry = computed(() => canAct.value && showResult.value && !!result.value?.retryPayload?.instanceIds.length)
+function captureContext() {
+  const currentGeneration = generation, hostId = props.hostId, session = sessionKey.value
+  return () => alive && pageActive.value && props.visible && !!session && session === sessionKey.value &&
+    hostId === props.hostId && currentGeneration === generation
+}
 
 // 结果状态
 const showResult = ref(false)
@@ -106,6 +142,7 @@ const result = ref<{
     incusId: string
     name: string
     error?: string
+    requiresReview?: boolean
   }>
   retryPayload?: {
     instanceIds: number[]
@@ -114,9 +151,7 @@ const result = ref<{
 } | null>(null)
 
 // 计算目标实例数量
-const targetCount = computed(() => {
-  return props.selectedIds.length > 0 ? props.selectedIds.length : props.totalInstanceCount
-})
+const targetCount = computed(() => targets.value.length)
 
 // 计算是否有任何启用的字段
 const hasEnabledFields = computed(() => {
@@ -208,10 +243,7 @@ function buildConfig(): Record<string, unknown> {
 
 // 提交批量修改
 async function handleSubmit() {
-  if (!hasEnabledFields.value) {
-    toast.error(t('host.batchConfig.noFieldsEnabled'))
-    return
-  }
+  if (!canSubmit.value) return
 
   const config = buildConfig()
   if (Object.keys(config).length === 0) {
@@ -219,103 +251,85 @@ async function handleSubmit() {
     return
   }
 
-  isSubmitting.value = true
-  progress.value = { current: 0, total: targetCount.value }
-
-  try {
-    // 确定目标实例 ID
-    let instanceIds: number[]
-    if (props.selectedIds.length > 0) {
-      instanceIds = props.selectedIds
-    } else {
-      // 获取宿主机下所有实例 ID
-      const res = await api.instances.list({
-        hostId: props.hostId,
-        pageSize: 1000 // 获取足够多
-      }) as unknown as { instances: Array<{ id: number }> }
-      instanceIds = res.instances.map((i: { id: number }) => i.id)
-    }
-
-    progress.value.total = instanceIds.length
-
-    const res = await api.hosts.batchUpdateConfig(props.hostId, {
-      instanceIds,
-      config
-    })
-
-    result.value = res
-    showResult.value = true
-
-    if (res.failedCount === 0) {
-      toast.success(t('host.batchConfig.successAll', { count: res.successCount }))
-    } else if (res.successCount > 0) {
-      toast.warning(t('host.batchConfig.partial', { success: res.successCount, failed: res.failedCount }))
-    } else {
-      toast.error(t('host.batchConfig.allFailed'))
-    }
-  } catch (err: unknown) {
-    const error = err as { message?: string }
-    toast.error(t('host.batchConfig.submitFailed') + ': ' + (error?.message || String(err)))
-  } finally {
-    isSubmitting.value = false
-  }
+  submittedConfig.value = { ...config }
+  await submitBatch([...targets.value], config, false)
 }
 
 // 重试失败项
 async function handleRetry() {
-  if (!result.value?.retryPayload) return
+  if (!canRetry.value || !result.value?.retryPayload) return
+  await submitBatch([...result.value.retryPayload.instanceIds], { ...submittedConfig.value }, true)
+}
 
+async function submitBatch(instanceIds: number[], config: Record<string, unknown>, retry: boolean) {
+  const hostId = props.hostId, current = captureContext(), previous = retry ? result.value : null
   isSubmitting.value = true
+  emit('busy', true)
+  submitError.value = ''
+  progress.value = { current: 0, total: instanceIds.length }
   try {
-    const res = await api.hosts.batchUpdateConfig(props.hostId, {
-      instanceIds: result.value.retryPayload.instanceIds,
-      config: result.value.retryPayload.config
-    })
-
-    result.value = res
-    
-    if (res.failedCount === 0) {
-      toast.success(t('host.batchConfig.retrySuccess', { count: res.successCount }))
+    const res = await api.hosts.batchUpdateConfig(hostId, { instanceIds, config: { ...config } })
+    if (!current()) return
+    const failedItems = res.failedItems as NonNullable<typeof result.value>['failedItems']
+    const retryIds = res.retryPayload?.instanceIds ?? []
+    if (typeof res.success !== 'boolean' || [res.totalCount, res.successCount, res.failedCount].some(count => !Number.isSafeInteger(count) || count < 0) ||
+      res.totalCount !== instanceIds.length || res.successCount + res.failedCount !== res.totalCount || res.success !== (res.failedCount === 0) ||
+      !Array.isArray(failedItems) || failedItems.length !== res.failedCount || new Set(failedItems.map(item => item.instanceId)).size !== failedItems.length ||
+      failedItems.some(item => !instanceIds.includes(item.instanceId)) || !Array.isArray(retryIds) || new Set(retryIds).size !== retryIds.length ||
+      retryIds.some(id => !failedItems.some(item => item.instanceId === id && !item.requiresReview))) throw new Error(t('common.operationFailed'))
+    const retained = previous?.failedItems.filter(item => !instanceIds.includes(item.instanceId)) ?? []
+    const failures = [...retained, ...failedItems]
+    const retryTargets = [...(previous?.retryPayload?.instanceIds.filter(id => !instanceIds.includes(id)) ?? []), ...retryIds]
+    result.value = { success: failures.length === 0, totalCount: previous?.totalCount ?? res.totalCount,
+      successCount: (previous?.successCount ?? 0) + res.successCount, failedCount: failures.length, failedItems: failures,
+      retryPayload: retryTargets.length ? { instanceIds: retryTargets, config: { ...submittedConfig.value } } : undefined }
+    showResult.value = true
+    if (result.value.failedCount === 0) {
+      toast.success(t(retry ? 'host.batchConfig.retrySuccess' : 'host.batchConfig.successAll', { count: res.successCount }))
+    } else if (result.value.successCount > 0) {
+      toast.warning(t('host.batchConfig.partial', { success: result.value.successCount, failed: result.value.failedCount }))
     } else {
-      toast.warning(t('host.batchConfig.retryPartial', { success: res.successCount, failed: res.failedCount }))
+      toast.error(t('host.batchConfig.allFailed'))
     }
   } catch (err: unknown) {
-    const error = err as { message?: string }
-    toast.error(t('host.batchConfig.retryFailed') + ': ' + (error?.message || String(err)))
+    if (!current()) return
+    submitError.value = t(retry ? 'host.batchConfig.retryFailed' : 'host.batchConfig.submitFailed') + ': ' + translateError(err)
+    toast.error(submitError.value)
   } finally {
     isSubmitting.value = false
+    emit('busy', false)
   }
 }
 
 // 复制失败的 Incus ID
 function copyFailedIncusIds() {
-  if (!result.value?.failedItems) return
+  if (!canAct.value || !result.value?.failedItems.length) return
+  const current = captureContext(), count = result.value.failedItems.length
   const ids = result.value.failedItems.map(item => item.incusId).join('\n')
   navigator.clipboard.writeText(ids).then(() => {
-    toast.success(t('host.batchConfig.copiedIncusIds', { count: result.value!.failedItems.length }))
+    if (current()) toast.success(t('host.batchConfig.copiedIncusIds', { count }))
   }).catch(() => {
-    toast.error(t('common.copyFailed'))
+    if (current()) toast.error(t('common.copyFailed'))
   })
 }
 
 // 关闭弹窗
 function handleClose() {
-  if (isSubmitting.value) return
+  if (!alive || !pageActive.value || !props.visible || !sessionKey.value || isSubmitting.value) return
+  const changed = !!result.value?.successCount
+  if (changed) emit('success')
   emit('update:visible', false)
-  if (result.value && result.value.successCount > 0) {
-    emit('success')
-  }
 }
 
 // 完成并关闭
 function handleDone() {
-  showResult.value = false
-  result.value = null
   handleClose()
 }
 
 // 重置表单
 function resetForm() {
+  submitError.value = ''
+  submittedConfig.value = {}
   Object.keys(form.value).forEach(key => {
     const k = key as keyof typeof form.value
     if (typeof form.value[k] === 'boolean' || form.value[k] === null) {
@@ -332,11 +346,29 @@ function resetForm() {
 }
 
 // 监听弹窗关闭时重置
-watch(() => props.visible, (newVal) => {
-  if (!newVal) {
-    resetForm()
+watch([() => props.visible, () => props.hostId, sessionKey, pageActive], () => {
+  generation++
+  resetForm()
+  targets.value = props.visible && pageActive.value && sessionKey.value ? [...props.selectedIds] : []
+}, { immediate: true, flush: 'sync' })
+watch(() => props.visible, async visible => {
+  if (visible) {
+    const current = captureContext()
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    await nextTick()
+    if (current()) dialog.value?.querySelector<HTMLButtonElement>('button')?.focus()
+  } else if (returnFocus?.isConnected) returnFocus.focus()
+}, { flush: 'post' })
+function handleDialogKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); handleClose(); return }
+  if (event.key !== 'Tab' || !dialog.value) return
+  const controls = [...dialog.value.querySelectorAll<HTMLElement>('button, input, select')]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const target = event.shiftKey ? controls.at(-1) : controls[0]
+  if (!controls.length || (event.shiftKey ? document.activeElement === controls[0] : document.activeElement === controls.at(-1))) {
+    event.preventDefault(); target?.focus()
   }
-})
+}
 
 // CPU/内存 blur 时格式化为整数
 function handleCpuBlur() {
@@ -379,13 +411,13 @@ function normalizeStorageLimit(value: string): string | null {
 <template>
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="visible" class="modal-overlay">
+      <div v-if="visible && pageActive && sessionKey" class="modal-overlay">
         <div class="modal-backdrop" @click="handleClose"></div>
-        <div class="modal-content max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div ref="dialog" class="modal-content max-w-2xl max-h-[90vh] overflow-hidden flex flex-col" role="dialog" aria-modal="true" :aria-label="t('host.batchConfig.title')" @keydown="handleDialogKey">
           <!-- 标题栏 -->
           <div class="modal-header">
             <h3 class="modal-title">{{ t('host.batchConfig.title') }}</h3>
-            <button class="text-themed-muted hover:text-themed" :disabled="isSubmitting" @click="handleClose">
+            <button class="text-themed-muted hover:text-themed" :aria-label="t('common.close')" :disabled="isSubmitting" @click="handleClose">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -394,6 +426,7 @@ function normalizeStorageLimit(value: string): string | null {
 
           <!-- 内容区域 -->
           <div class="modal-body overflow-y-auto flex-1">
+            <p v-if="submitError" role="alert" class="text-sm text-red-500 break-words mb-4">{{ submitError }}</p>
             <!-- 结果展示 -->
             <template v-if="showResult && result">
               <div class="space-y-4">
@@ -436,14 +469,11 @@ function normalizeStorageLimit(value: string): string | null {
             </template>
 
             <!-- 配置表单 -->
-            <template v-else>
+            <fieldset v-else :disabled="isSubmitting" class="min-w-0">
               <!-- 目标提示 -->
               <div class="p-3 mb-4 rounded-lg" :class="themeStore.isDark ? 'bg-blue-500/10' : 'bg-blue-50'">
                 <p class="text-sm" :class="themeStore.isDark ? 'text-blue-400' : 'text-blue-600'">
-                  {{ selectedIds.length > 0 
-                    ? t('host.batchConfig.targetSelected', { count: selectedIds.length })
-                    : t('host.batchConfig.targetAll', { count: totalInstanceCount })
-                  }}
+                  {{ t('host.batchConfig.targetSelected', { count: targetCount }) }}
                 </p>
               </div>
 
@@ -734,7 +764,7 @@ function normalizeStorageLimit(value: string): string | null {
                   </div>
                 </div>
               </div>
-            </template>
+            </fieldset>
           </div>
 
           <!-- 底部操作栏 -->
@@ -753,7 +783,7 @@ function normalizeStorageLimit(value: string): string | null {
               <button 
                 v-if="result.retryPayload && result.failedCount > 0"
                 class="btn-secondary"
-                :disabled="isSubmitting"
+                :disabled="!canRetry"
                 @click="handleRetry"
               >
                 <svg v-if="isSubmitting" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -765,7 +795,7 @@ function normalizeStorageLimit(value: string): string | null {
                 </svg>
                 {{ t('host.batchConfig.retryFailed') }}
               </button>
-              <button class="btn-primary" @click="handleDone">
+              <button class="btn-primary" :disabled="isSubmitting" @click="handleDone">
                 {{ t('common.done') }}
               </button>
             </template>
@@ -775,7 +805,7 @@ function normalizeStorageLimit(value: string): string | null {
               </button>
               <button 
                 class="btn-primary" 
-                :disabled="isSubmitting || !hasEnabledFields"
+                :disabled="!canSubmit"
                 @click="handleSubmit"
               >
                 <svg v-if="isSubmitting" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">

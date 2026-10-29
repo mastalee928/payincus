@@ -408,6 +408,9 @@ function handlePriceDialogKey(event: KeyboardEvent) {
 const showBatchConfigModal = ref(false)
 const batchConfigSelectionOverride = ref<number[] | null>(null)
 const lastBatchConfigSelection = ref<number[]>([])
+const batchConfigBusy = ref(false)
+const canOpenBatchConfig = computed(() => alive && pageActive.value && !!sessionKey.value && !loading.value &&
+  !batchConfigBusy.value && !showBatchConfigModal.value && validBatchTargets([...selectedIds.value]))
 
 // 批量迁移实例
 const showMigrateModal = ref(false)
@@ -638,12 +641,16 @@ async function toggleExpandInstance(instance: Instance): Promise<void> {
 }
 
 function openSingleConfigModal(instanceId: number): void {
+  if (!alive || !pageActive.value || !sessionKey.value || loading.value || batchConfigBusy.value || showBatchConfigModal.value ||
+    !instances.value.some(instance => instance.id === instanceId)) return
   batchConfigSelectionOverride.value = [instanceId]
   lastBatchConfigSelection.value = [instanceId]
   showBatchConfigModal.value = true
 }
 
 function openBatchConfigForSelection(): void {
+  if (!canOpenBatchConfig.value) return
+  batchConfigSelectionOverride.value = [...selectedIds.value]
   lastBatchConfigSelection.value = [...effectiveBatchConfigSelection.value]
   showBatchConfigModal.value = true
 }
@@ -1608,10 +1615,7 @@ function getExpirySummary(instance: Instance): string {
 }
 
 async function handleBatchConfigSuccess(): Promise<void> {
-  await loadInstances()
-  if (expandedInstanceId.value !== null && lastBatchConfigSelection.value.includes(expandedInstanceId.value)) {
-    await loadInstanceDetailConfig(expandedInstanceId.value, true)
-  }
+  if (alive && pageActive.value && sessionKey.value) await loadInstances()
 }
 
 async function syncSingleInstance(instance: Instance): Promise<void> {
@@ -1874,7 +1878,7 @@ function goToInstance(id: number) {
           </button>
           <button
             class="btn-secondary btn-sm"
-            :disabled="selectedCount === 0"
+            :disabled="!canOpenBatchConfig"
             @click="openBatchConfigForSelection"
           >
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2526,6 +2530,7 @@ function goToInstance(id: number) {
     :host-id="hostId"
     :selected-ids="effectiveBatchConfigSelection"
     :total-instance-count="total"
+    @busy="batchConfigBusy = $event"
     @success="handleBatchConfigSuccess"
   />
 

@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-301 批量配置目标与重试回执
+
+- 5c9b825已push核远端。父入口固定已选实例，空选择不再走未在UI开放的全部实例路径；子弹窗按host/session/激活/打开代次隔离，提交复制目标和配置，busy覆盖重开。旧回执不显示或刷新新页；当前错误持久显示，在途禁改表单。Done先保留成功判断再通知父列表，重试仅用服务器允许的失败ID与原配置，累计成功及requiresReview失败继续保留。
+- `takeover-host-batch-config-before.log`Chrome先红弹窗选1改勾2发2；`takeover-host-batch-config-final.log`通过固定目标/空选择/重复、Done刷新、仅失败重试/原配置/保人工核查失败、非法及失败回执、host/query/session/cache/logout/unmount。1440中文/390英文截图、Tab焦点循环已核。受控API无客户资源写入，原后台锁/当前身份/资源计数与requiresReview规则保持。首个补验并发加载未挂载，后续完整重跑exit0，未更改产品以绕过错误。
+- client types、3守卫（route/i18n/batch-config）及最终route重跑、最终lint零错警、读取及单实例完整Chrome回归、manifest194/120、最终双端build exit0/dist通过；专项接Chrome CI。
+- 下一项独立`test-host-batch-config-inputs.mjs`已Chrome先红（`takeover-host-batch-inputs-before.log`）：CPU输入1e2提交1。扩展边界/0/null/流量矩阵已写未跑，数字产品未改，不混此提交。parseInt/parseFloat截断、Vue number输入0被truthy改null、blur静默取整、角色高级字段继续；后端schema与原UI范围已读。R301/327/R269及完整灾备未完成。
+
 ## 2026-10-29 R1-301 单实例同步与Swap回执
 
 - 3fd4488已push核远端；98ca675源码CI已success，daaf349/d54246a/3fd4488最后运行。sync/swap固定实例与host/query/session/激活代次，互相覆盖同实例在途门禁，旧回执不提示或刷新新页面；当前sync成功要求success:true。Swap在读取前置busy，强制读当前配置并核序号，失败不得用旧缓存继续；按当前admin-only、running/stopped容器资格确认固定开关方向。成功更新当前列表对象、失效旧配置/在途列表，辅助读失败不误报已提交操作失败；逐实例错误持久保留。

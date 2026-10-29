@@ -239,6 +239,8 @@ jobs:
         run: pnpm --filter server test:review-host-recreate-lifecycle
       - name: Host single actions guard preparation and old receipts
         run: pnpm --filter server test:review-host-single-actions
+      - name: Host batch config keeps reviewed targets and failed-only retries
+        run: pnpm --filter server test:review-host-batch-config
       - name: Verify init command selector in Chrome
         run: pnpm --filter server test:review-init-command-selector
       - name: Verify init command modals in Chrome

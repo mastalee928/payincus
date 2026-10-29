@@ -81,6 +81,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-host-notify-lifecycle', 'requires Chrome/Edge and local Vite; host notification target snapshot, draft preservation and session/cache lifecycle'],
   ['test:review-host-recreate-lifecycle', 'requires Chrome/Edge and local Vite; host recreate image/key preparation, fixed target and session/cache lifecycle'],
   ['test:review-host-single-actions', 'requires Chrome/Edge and local Vite; single host instance sync/swap, fresh config and session/cache lifecycle'],
+  ['test:review-host-batch-config', 'requires Chrome/Edge and local Vite; host batch config fixed targets, retry accounting and session/cache lifecycle'],
   ['test:review-traffic-limit', 'requires isolated local *_pool_test PostgreSQL; actual user/instance traffic limit omission and bigint boundary validation'],
   ['test:review-traffic-reset-auth', 'requires isolated local *_pool_test PostgreSQL; actual traffic reset actor/target races, billing and baseline checks'],
   ['test:review-payment-locales', 'requires Chrome/Edge and local Vite; actual payment provider controls in three locales, read-only API fixture'],
