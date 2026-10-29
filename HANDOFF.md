@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-310 系统设置读取就绪与真实保存确认
+
+- f696eb76已push。receipts-before真实Chrome先红初读失败仍1次默认写。现在首次全量读取ready门禁与持久configLoadError/实际reload按钮；读取失败/无效时不展示可写默认表单，函数也拒写。全列表先核条目/重复key/基础字段、boolean/有限整数小数及JSON数组/五级VIP结构再更新；不要求全库固定key齐全，但保存组缺已读取key拒写。完整读移除此次缺失旧基线，保仍由另一个当前读控制的字段与全部草稿。
+- 分组写只接受真实非空message；非法回执无成功toast/辅助刷新，保固定草稿和持久分组error，合法重试清本组错误。错误标明现有三语分组标题；修正Error.message为不可枚举时被spread丢失。receipts-final-r3实际Chrome初失败/DOM retry、12类非法列表、缺key、5类写回执与合法/失败重试全部exit0；scope12读12写/卸载候选和drafts19组回归均exit0。三宽三语错误截图已看，设计检测只报原导航border-b-2误判。
+- receipts-build双端含vue-tsc exit0及dist通过；最后缺key两行后client types-final与lint-current零错警通过，4对应守卫通过，manifest194常规165专项分类，receipts专项接CI。所有进程exit0，无待poll。仅真实Vue/受控API，不是生产配置或外部SMTP；后端权限/配置逐行写入及审计不改，本页SMTP测试current目标/busy/回执下一段继续。198/68/61含部分不变，R310尚部分，完整327与灾备未完成。
+
 ## 2026-10-29 R1-310 系统设置管理员会话与读取隔离
 
 - a77e7c80 已push。scope-before 实际Chrome先红旧管理员读取把当前brand填成Old session brand。读取/分组保存现绑定account/role/sid与页面代次，session ABA/cache/unmount撤销旧成功、失败和刷新；同步清form秘密/配置/测试邮箱/候选，重入或新admin重新读取，同sid正常token刷新保留。旧在途组busy直到原finally，首次加载期间函数门禁阻写；全量loader独立seq，旧finally不结束新loader。

@@ -313,6 +313,8 @@ jobs:
         run: pnpm --filter server test:review-system-settings-drafts
       - name: System settings responses retain their current administrator and session
         run: pnpm --filter server test:review-system-settings-scope
+      - name: System settings require valid reads and confirmed saves
+        run: pnpm --filter server test:review-system-settings-receipts
       - name: Balance adjustments keep their target, draft and confirmed receipt
         run: pnpm --filter server test:review-user-balance-submit
       - name: Points adjustments reject stale receipts and repeated submissions

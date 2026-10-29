@@ -38,6 +38,9 @@ function requestContext() {
 }
 
 const loading = ref(true)
+const configsReady = ref(false)
+const configLoadError = ref('')
+const configSaveErrors = ref<Record<string, string>>({})
 // 每个卡片独立的 saving 状态
 const savingRegistration = ref(false)
 const savingInvitePricing = ref(false)
@@ -191,6 +194,9 @@ function invalidateContext(): void {
   promoReadRevision += 1
   readRevisions.clear()
   configs.value = []
+  configsReady.value = false
+  configLoadError.value = ''
+  configSaveErrors.value = {}
   applyingConfigs = true
   try { form.value = JSON.parse(defaultForm) } finally { applyingConfigs = false }
   loading.value = false
@@ -252,6 +258,46 @@ stringConfigKeys.push('system_update_allowed_admin_ids', 'payincus_gift_card_adm
 
 const jsonConfigKeys = ['invite_generation_costs', 'vip_benefits_config']
 
+function validateConfigList(value: unknown): ConfigItem[] {
+  if (!Array.isArray(value) || value.length === 0) throw new Error(t('admin.system.invalidConfigResponse'))
+  const seen = new Set<string>()
+  let known = false
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || typeof item.key !== 'string' || !item.key ||
+      typeof item.value !== 'string' || !Number.isSafeInteger(item.id) || item.id < 0 ||
+      typeof item.type !== 'string' || !(item.label === null || typeof item.label === 'string') ||
+      !(item.description === null || typeof item.description === 'string') || seen.has(item.key)) {
+      throw new Error(t('admin.system.invalidConfigResponse'))
+    }
+    seen.add(item.key)
+    if (!Object.prototype.hasOwnProperty.call(form.value, item.key)) continue
+    known = true
+    if (booleanConfigKeys.includes(item.key) && !['true', 'false'].includes(item.value)) throw new Error(t('admin.system.invalidConfigResponse'))
+    if (numericConfigKeys.includes(item.key) && (!/^\d+$/.test(item.value) || !Number.isSafeInteger(Number(item.value)))) throw new Error(t('admin.system.invalidConfigResponse'))
+    if (floatConfigKeys.includes(item.key) && (!/^\d+(?:\.\d+)?$/.test(item.value) || !Number.isFinite(Number(item.value)))) throw new Error(t('admin.system.invalidConfigResponse'))
+    if (jsonConfigKeys.includes(item.key)) {
+      let parsed: any
+      try { parsed = JSON.parse(item.value) } catch { throw new Error(t('admin.system.invalidConfigResponse')) }
+      if (item.key === 'invite_generation_costs') {
+        if (!Array.isArray(parsed) || parsed.some(option => !option || typeof option.resource !== 'string' ||
+          typeof option.enabled !== 'boolean' || typeof option.amount !== 'number' || !Number.isFinite(option.amount) || option.amount < 0)) {
+          throw new Error(t('admin.system.invalidConfigResponse'))
+        }
+      } else {
+        for (let level = 1; level <= 5; level++) {
+          const benefit = parsed?.levels?.[String(level)]
+          if (!benefit || ['orderDiscountPercent', 'extraTrafficPercent', 'resourcePoolBonusPercent'].some(key =>
+            typeof benefit[key] !== 'number' || !Number.isFinite(benefit[key]) || benefit[key] < 0 || benefit[key] > 100)) {
+            throw new Error(t('admin.system.invalidConfigResponse'))
+          }
+        }
+      }
+    }
+  }
+  if (!known) throw new Error(t('admin.system.invalidConfigResponse'))
+  return value as ConfigItem[]
+}
+
 const currentSectionKey = computed<SystemSettingsSectionKey>(() => {
   return systemSettingsSections.find(section => section.path === route.path)?.key || 'access'
 })
@@ -279,7 +325,32 @@ function getConfigSaveErrorMessage(err: any): string {
   if (details && !Object.prototype.hasOwnProperty.call(form.value, details)) {
     return details
   }
-  return translateError({ ...err, details: null })
+  return translateError({ ...err, message: err?.message, details: null })
+}
+
+function configGroupLabel(key: string): string {
+  const labels: Record<string, string> = {
+    registration_enabled: 'admin.system.registration',
+    invite_generation_costs: 'admin.system.invitePricing.title',
+    aff_commission_rate: 'admin.system.affRates.title',
+    vip_benefits_config: 'admin.system.vipBenefits.title',
+    popup_announcement: 'admin.system.popupAnnouncement.title',
+    popup_promo_image_url: 'admin.system.popupAnnouncement.promoTitle',
+    hosting_feature_enabled: 'admin.system.hostingFeature.title',
+    default_quota_host: 'admin.system.defaultQuota',
+    turnstile_enabled: 'admin.system.turnstile.title',
+    avatar_api_base: 'admin.system.avatar.title',
+    smtp_enabled: 'admin.system.smtp.title',
+    email_domain_whitelist_enabled: 'admin.system.emailDomain.title',
+    transfer_fee: 'admin.system.transfer.title',
+    footer_contact_email: 'admin.system.footerLinks.title',
+    brand_name: 'admin.system.brand.title',
+    ticket_enabled: 'admin.system.ticket.title',
+    free_site_mode: 'admin.system.freeSite.title',
+    ticket_image_lsky_base_url: 'admin.system.ticketImages.title',
+    system_update_allowed_admin_ids: 'admin.system.sections.operations.title'
+  }
+  return t(labels[key] || 'admin.system.title')
 }
 
 onMounted(async () => {
@@ -317,19 +388,23 @@ async function loadConfigs(savedDrafts?: Map<ConfigFormKey, number>) {
   const readRevision = ++nextReadRevision
   for (const key of drafts.keys()) readRevisions.set(key, readRevision)
   const initialRevision = savedDrafts ? initialReadRevision : ++initialReadRevision
-  if (!savedDrafts) loading.value = true
+  if (!savedDrafts) { loading.value = true; configsReady.value = false }
+  configLoadError.value = ''
   try {
     const response = await api.systemConfig.list()
     if (!context.current()) return
 
-    if (!response || !Array.isArray(response.configs)) {
-      throw new Error(t('admin.system.loadFailed'))
+    const validated = validateConfigList(response?.configs)
+    if (!savedDrafts) {
+      const returnedKeys = new Set(validated.map(config => config.key))
+      configs.value = configs.value.filter(config => returnedKeys.has(config.key) ||
+        readRevisions.get(config.key as ConfigFormKey) !== readRevision)
     }
 
     // 保存后的全量回执只合并本次分组，独立分组的反序读取互不覆盖。
     applyingConfigs = true
     try {
-      for (const config of response.configs) {
+      for (const config of validated) {
         const key = config?.key as ConfigFormKey
         if (config && Object.prototype.hasOwnProperty.call(form.value, key) &&
           drafts.has(key) && readRevisions.get(key) === readRevision) {
@@ -362,14 +437,10 @@ async function loadConfigs(savedDrafts?: Map<ConfigFormKey, number>) {
     } finally {
       applyingConfigs = false
     }
+    if (!savedDrafts && initialReadRevision === initialRevision) configsReady.value = true
   } catch (err: any) {
     if (!context.current() || ![...drafts.keys()].some(key => readRevisions.get(key) === readRevision)) return
-    console.error('[SystemConfigView] Error loading configs:', err)
-    try {
-      toast.error((t('admin.system.loadFailed') || '加载配置失败') + ': ' + (err?.message || String(err)))
-    } catch (toastErr) {
-      console.error('[SystemConfigView] Failed to show toast:', toastErr)
-    }
+    configLoadError.value = t('admin.system.loadFailed') + ': ' + getConfigSaveErrorMessage(err)
   } finally {
     if (!savedDrafts && context.current() && initialReadRevision === initialRevision) loading.value = false
   }
@@ -403,8 +474,14 @@ async function loadPopupPromoPackages() {
 
 // 通用保存函数
 async function saveConfigGroup(keys: string[], savingRef: { value: boolean }): Promise<boolean> {
-  if (!available.value || loading.value || savingRef.value) return false
+  if (!available.value || loading.value || !configsReady.value || savingRef.value) return false
   const context = requestContext()
+  const errorKey = keys[0]
+  delete configSaveErrors.value[errorKey]
+  if (keys.some(key => !configs.value.some(config => config.key === key))) {
+    configSaveErrors.value[errorKey] = t('admin.system.invalidConfigResponse')
+    return false
+  }
   savingRef.value = true
   try {
     const configsToUpdate = keys.map(key => ({
@@ -419,14 +496,15 @@ async function saveConfigGroup(keys: string[], savingRef: { value: boolean }): P
     // 已开始保存的字段不能再接受较早的初始读取。
     for (const key of savedDrafts.keys()) readRevisions.delete(key)
 
-    await api.systemConfig.update(configsToUpdate)
+    const response = await api.systemConfig.update(configsToUpdate)
     if (!context.current()) return false
+    if (typeof response?.message !== 'string' || !response.message.trim()) throw new Error(t('admin.system.invalidSaveResponse'))
     toast.success(t('admin.system.saveSuccess'))
     await loadConfigs(savedDrafts)
     return context.current()
   } catch (err: any) {
     if (!context.current()) return false
-    toast.error(t('admin.system.saveFailed') + ': ' + getConfigSaveErrorMessage(err))
+    configSaveErrors.value[errorKey] = t('admin.system.saveFailed') + ': ' + getConfigSaveErrorMessage(err)
     return false
   } finally {
     savingRef.value = false
@@ -807,6 +885,17 @@ async function sendTestEmail() {
       </router-link>
     </div>
 
+    <div v-if="configLoadError" role="alert" class="rounded-xl border border-rose-500/30 p-4 text-sm text-rose-600 dark:text-rose-400">
+      <p class="break-words">{{ configLoadError }}</p>
+      <button data-settings-load-retry type="button" class="btn-secondary mt-3 min-h-11" :disabled="loading || !available" @click="loadConfigs()">
+        {{ t('admin.system.reloadConfig') }}
+      </button>
+    </div>
+    <div v-for="(message, key) in configSaveErrors" :key="key" role="alert" class="rounded-xl border border-rose-500/30 p-4 text-sm text-rose-600 dark:text-rose-400">
+      <p class="mb-1 font-medium">{{ configGroupLabel(key) }}</p>
+      <p class="break-words">{{ message }}</p>
+    </div>
+
     <!-- Loading -->
     <div v-if="loading" class="card p-6 animate-pulse">
       <div class="h-6 bg-themed-secondary rounded w-1/4 mb-6"></div>
@@ -816,7 +905,7 @@ async function sendTestEmail() {
     </div>
 
     <!-- Config Form -->
-    <div v-else class="space-y-6">
+    <div v-else-if="configsReady" class="space-y-6">
       <div v-if="isPopupAnnouncementTab" class="card p-6">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-2">
           <div>
