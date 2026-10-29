@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29统计复核：按327个唯一原编号，191项已有修复或复验记录（包含部分修复、代码审查与待真实运行的范围），68项保留已有防护/实现不同结论，68项待精修/运行复核。R021与R324分别已随R301、R302修复，本次补交叉引用，纠正原189/68/70的漏登记；不是新增两次产品修复。191不能作为完整验收数量，实际剩余还包括其中明确未完成的范围；同一编号的分阶段提交不重复计数。
+
 2026-10-29 R270前置运行修复：公共IPv4分配LEFT JOIN未限定FOR UPDATE，真实PG报0A000；改OF a仅锁地址行，实际单独/有池/禁用/缺网关/并发最后地址/回滚释放全部通过，3守卫及后端build含tsc通过，见HANDOFF。赠送准备补偿与消息失败仍在施工，本项不记整体完成。
 
 2026-10-29 R256浏览器验证补强：历史CI条款生命周期末尾偶发读离场旧正文，测试等待退出DOM移除后才卸载重建，并核新请求只发一次；真实Chrome/语法/路由守卫通过，见HANDOFF。产品未改。
@@ -60,7 +62,7 @@
 | R1-018 | 部分存在 | 源码已修/隔离PG验证通过 | 邀请码handler/支付fee own-property访问拒继承；通知完整正整数及PG offset上限；真实Fastify/PG非法后缀、小数、溢出、有效筛选分页与账目无写入通过 logs/review-config-pagination-integration.log；相关5/5 logs/test-run-20261027-200553 |
 | R1-019 | 部分存在 | 源码已修/隔离PG验证通过 | 初审纠正：N+1、单页用户全部登录历史读取、avatar_badge_id漏映射三项均存在；固定批量列表1人/100人均11SQL，2002历史仅返回1，徽章/统计/演示脱敏正确。logs/review-user-list-integration-final.log；type与相关5项通过 |
 | R1-020 | 部分存在 | 待精修/运行复核 | 用户页和登录记录已有限幅正整数parser，实例页也有专用parser；完整选择器的客户端单页读取另见R301，不能报告所有分页均NaN/无上限。 |
-| R1-021 | 存在 | 待精修/运行复核 | handleDone清result后handleClose不再触发success；失败重试结果替换会遗失已成功计数。 |
+| R1-021 | 存在 | 沿用R301批量配置专项 | 已随80cadce修复：Done在清理前发success，失败重试保留之前成功数及不可重试明细；本次核源码及takeover-host-batch-config-final.log，真实Chrome覆盖Done刷新、仅失败目标重试和累计结果。类型/守卫/双端构建证据见HANDOFF的R301批量配置章节；原生远端配置/强杀恢复不在前端专项证据内。补登记，不重复计算产品修复。 |
 | R1-022 | 已有防护 | 保留初审结论 | 目标完整性及流量BigInt安全输入已有校验，不能移植旧负值修法。 |
 | R1-023 | 已有防护 | 保留初审结论 | 目标完整性及流量BigInt安全输入已有校验，不能移植旧负值修法。 |
 | R1-024 | 存在 | 部分精修/隔离PG验证通过 | 每实例共享操作锁、current actor/session/host/target/readiness/tasks/transfer门禁，队列只留目标身份，重试重新核验；review-batch-config-integration-final.log、4项相关守卫及最终batch守卫通过。进程远端写后崩溃仍缺持久计划/恢复 |
@@ -342,7 +344,7 @@
 | R1-300 | 实现不同 | 保留初审结论 | 未发现对方余额转账/预览功能入口，不能误指现有实例PUSH或AFF兑换；新增同类功能时才适用。 |
 | R1-301 | 存在，多阶段已修 | 读取/删除/批量状态/gift/price/reset/notify/recreate/single/batch-config与数字/角色专项通过；其它待续 | 读取/目标与回执隔离、gift失败重试、price/notify新草稿、reset辅助读、重建准备、single当前配置。批量配置固定targets/回执、Done刷新、retry原配置与累计明细；数字完整解析/0/null/精确流量；普通owner隐藏高级分区且构建/发送/retry拒绝admin-only已修。Chrome先红后绿/两回归/types/3守卫/lint/双端build/dist通过。迁移及后台完整状态写另续，不记整体完成，见HANDOFF。 |
 | R1-302 | 部分存在，多阶段精修 | 显示/默认/编辑读取与提交已修 | 资源0语义/未知用量、后台默认及有效备份计数、读取/草稿、0/null/整数/使用量提交、当前角色及目标/session/ABA回执均已修。真实PG详情/竞争、Chrome矩阵、types/守卫/双端build见HANDOFF；专属全端口及用户无转发入口保持，原生交付与整体327不由局部证据代替。 |
-| R1-303 | 存在，多阶段精修 | 专属迁移门禁、Storage/Redeem读写及迁移前端读写已修 | 旧迁移专属/singleTenant整批拒绝已PG验证；Storage/Redeem读写Chrome矩阵通过；迁移分页及读取、固定写target/旧回执/重复/部分结果，父同步选择/current身份/辅助读失败保结果Chrome/types/守卫通过。兑换复制/结果弹窗完整Chrome已修；存储容量输入与手机错误已修，后台容量API格式/单位/上限PG+mTLS已修；驱动扩容/授权原子性、兑换事务日志、宿主同名分页排序及旧迁移并发补偿另待。 |
+| R1-303 | 存在，多阶段精修 | 专属迁移门禁、Storage/Redeem读写及迁移前端读写已修 | 旧迁移专属/singleTenant整批拒绝已PG验证；Storage/Redeem读写Chrome矩阵通过；迁移分页及读取、固定写target/旧回执/重复/部分结果，父同步选择/current身份/辅助读失败保结果Chrome/types/守卫通过。兑换复制/结果弹窗完整Chrome已修；存储容量输入与手机错误已修，后台容量API格式/单位/上限PG+mTLS已修；宿主分页补真实架构/IPv6及绑定地址/同步状态，按name+id固定跨owner同名顺序，真实PG/Fastify 105宿主两页及权限回归通过。驱动扩容/授权原子性、兑换事务日志、分页期间并发新增删除及旧迁移并发补偿另待。 |
 | R1-304 | 存在 | 待精修/运行复核 | 预览有requestId，但150ms防抖期间未立即清旧preview/id，变价后旧预览仍可提交。 |
 | R1-305 | 存在 | 待精修/运行复核 | 余额/登录弹窗异步未绑定当前user；submitAdjustBalance缺函数busy guard，可串用户/重复提交。 |
 | R1-306 | 已有防护 | 保留初审结论 | requiresIpv6ParentInterface仅当前或旧subnet有值时要求接口，IPv6全部留空可保存；清空已有值仍见R1-111。 |
@@ -363,7 +365,7 @@
 | R1-321 | 存在，已修 | 文案/浏览器及相关守卫通过 | 三语resetTrafficWarning错误要求手动恢复1Mbps，已按实际route/running查询/scheduler/带宽仲裁改为自动检查并保留账户超限、离线和停止条件。Chrome完整reset/截图、types/4守卫/lint/双端build/dist通过；原生恢复与生产部署另验，不修改原恢复逻辑，见HANDOFF。 |
 | R1-322 | 已有防护 | 保留初审结论 | 管理员创建description已免费或付费；freeGiftHint只在免费赠送分支，不是整页都说免费。 |
 | R1-323 | 存在 | 待精修/运行复核 | bootPriority写越小越先，与Incus高priority优先相反；startupDelay写启动前等待，与启动后延时语义不同。 |
-| R1-324 | 存在 | 待精修/运行复核 | 初始quotaForm读取camelCase portLimit/snapshotLimit，API返回snake_case；calculateRemainingQuota也camelCase加／／0，真实配额字段/零值被误读。 |
+| R1-324 | 存在 | 沿用R302配额编辑专项 | 已随6c8b219/0444f64修复真实snake_case字段读取、0/null保留、实际用量和剩余额度、轮询保草稿及提交回执。核当前getQuotaFormValues/calculateRemainingQuota与takeover-quota-editor-final.log、takeover-quota-submit-final-r4.log，Chrome通过真实字段、0/null、用量、换目标/会话与草稿矩阵；类型/守卫/双端构建及专属用户无转发入口证据见HANDOFF的R302章节。原生交付另验。补登记，不重复计算产品修复。 |
 | R1-325 | 实现不同 | 保留初审结论 | managed失败保留error，与独占pool交付/退款/隔离库存不同；不能为了释放库存将远端未确认删除直接标deleted，先保留并核查实际残留。 |
 | R1-326 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
 | R1-327 | 实现不同 | 保留初审结论 | 本库管理员删除集成是TS脚本、测试finally在整套结束清理；未发现对方共享证书提前删除的同类脚本，不照搬旧修法。 |

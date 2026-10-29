@@ -272,10 +272,15 @@ export async function getHostsPaginated(options: PaginationOptions = {}): Promis
     url: true,
     location: true,
     countryCode: true,
+    architecture: true,
     status: true,
     certPath: true,
     keyPath: true,
     natPublicIp: true,
+    natPublicIpv6: true,
+    natBindIp: true,
+    natBindIpv6: true,
+    publicIpv6Sync: true,
     natPortStart: true,
     natPortEnd: true,
     natPortsUsedCount: true,
@@ -308,14 +313,14 @@ export async function getHostsPaginated(options: PaginationOptions = {}): Promis
             }
           }
         },
-        orderBy: { name: 'asc' },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize
       })
     : await prisma.host.findMany({
         where,
         select: selectFields,
-        orderBy: { name: 'asc' },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize
       })
@@ -332,6 +337,10 @@ export async function getHostsPaginated(options: PaginationOptions = {}): Promis
       cert_path: h.certPath,
       key_path: h.keyPath,
       nat_public_ip: h.natPublicIp,
+      nat_public_ipv6: h.natPublicIpv6,
+      nat_bind_ip: h.natBindIp,
+      nat_bind_ipv6: h.natBindIpv6,
+      public_ipv6_sync: h.publicIpv6Sync,
       nat_port_start: h.natPortStart,
       nat_port_end: h.natPortEnd,
       nat_ports_used_count: h.natPortsUsedCount,

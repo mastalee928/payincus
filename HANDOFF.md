@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 宿主分页真实字段与修复统计复核
+
+- 97eafe3已push并核远端一致。接续草稿的getHostsPaginated漏select architecture，ARM在实际GET /hosts被默认显示x86；同时漏IPv6公网/绑定地址、IPv4绑定地址及IPv6同步状态。现补选取与映射，两条带/不带owner查询均按name、id排序，跨owner同名分页顺序明确。仅列表读取，未改一机一卖或客户网络交付。
+- takeover-host-pagination-before.log真实PG/Fastify复现aarch64返回x86_64；早期final夹具把同owner的104台都命同名，被已有user_id+name唯一约束拒绝，未记通过。本次改为104个独立测试owner的同名节点，保留DB约束；takeover-host-pagination-final-r2.log exit0，105条两页无重复/遗漏、includeOwner两分支、hosted列表/用户筛选、IPv4-only空值、ARM网络状态、证书路径不出API及普通用户不能越权均通过。只创建/清理本次随机前缀的隔离库记录，未连接真实宿主。
+- 后端build含tsc exit0（takeover-host-pagination-build.log），host-route-id/host-migration-consistency/host-public-ipv6三守卫通过（takeover-host-pagination-guards-final.log），manifest194/138及diff检查通过。专项登记CI；首轮误以正则组合传--only，清单拒跑，改重复--only后实际3/3通过。本项无前端变更，未重跑无变化双端构建；分页期间并发新增/删除的一致快照与真实宿主/生产验收仍待。
+- 重新按327原编号统计，发现R021已随80cadce的R301批量配置修复，R324已随6c8b219/0444f64的R302配额编辑/提交修复，旧行漏登记。本次核当前源码及已有Chrome成功日志并补交叉引用：现191项已有修复/复验（含部分及待运行）、68项保留已有防护/实现不同、68项待精修。不是本次多修两项；191不是完整验收数，剩余还包括其未完成范围。R303分段不重复加数。
+- 下一段继续R303存储驱动/禁止缩容与当前授权、兑换事务日志及旧迁移并发补偿；R269通用持久恢复、Go实际/proc CI失败、完整网关灾备继续未完成。本项不是发行或部署证据。
+
 ## 2026-10-29 R1-303 存储容量API边界
 
 - f440d33已push核远端。创建和修改存储池接口在Incus连接前校验显式容量：正整数、Incus支持的大小写敏感字节单位、有符号64位总字节上限；保留合法历史单位和首尾空白规范化，省略容量仍允许描述清空/用途修改，显式空/零/负数/非法单位/小数后缀/溢出拒绝400。页面可精确的小数此前已转换整数字节，后台不隐式取整。

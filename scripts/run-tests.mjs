@@ -93,6 +93,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-host-storage-writes', 'requires Chrome/Edge and local Vite; storage create/import/edit/delete targets, duplicate requests, old receipts and retry'],
   ['test:review-host-storage-inputs', 'requires Chrome/Edge and local Vite; storage size syntax, units, exact bounds, zero versus omission and mobile errors'],
   ['test:review-storage-size', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; actual storage create/update capacity boundaries over mTLS'],
+  ['test:review-host-pagination', 'requires isolated local *_pool_test PostgreSQL; host architecture/network projection, cross-owner pagination and access boundaries'],
   ['test:review-host-redeem-reads', 'requires Chrome/Edge and local Vite; redeem list/options/usages host/session lifecycle, pagination, retries and draft preservation'],
   ['test:review-host-redeem-writes', 'requires Chrome/Edge and local Vite; redeem create/toggle/delete target, duplicate, session, dialog and partial-result lifecycle'],
   ['test:review-host-redeem-copy', 'requires Chrome/Edge and local Vite; clipboard ordering, rejection, timers, session and batch result dialog lifecycle'],
