@@ -5654,6 +5654,7 @@ pool: {
         INSTANCE_DESTROY_TRAFFIC_LIMIT_EXCEEDED: '当前月流量周期无法销毁，已用流量达到或超过 5G',
         // 节点错误
         HOST_NOT_FOUND: '宿主机不存在',
+        HOST_INSTANCE_TYPE_MISMATCH: '实例类型与宿主支持范围不兼容。请调整套餐类型或宿主绑定后重试。',
         HOST_OFFLINE: '宿主机离线',
         HOST_HAS_INSTANCES: '宿主机上有实例，请先删除',
         HOST_ALREADY_OFFICIAL: '该节点已经是自营节点',

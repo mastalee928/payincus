@@ -12,7 +12,7 @@ import { useToast } from '@/stores/toast'
 import FlagIcon from '@/components/FlagIcon.vue'
 import type { HostPublicIpv6Sync } from '@/types/host-pool'
 
-const { t, locale } = useI18n()
+const { t, te, locale } = useI18n()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const toast = useToast()
@@ -357,7 +357,7 @@ async function saveConfig() {
     })
 
     if (!current()) return
-    const response = result as unknown as { message?: unknown }
+    const response = result as { message?: unknown }
     if (!response || typeof response.message !== 'string' || !response.message.trim()) throw Error(t('common.operationFailed'))
     cleanDraft.value = submittedDraft
     toast.success(t('admin.hosts.hostUpdated'))
@@ -365,7 +365,7 @@ async function saveConfig() {
   } catch (err: any) {
     if (!current()) return
     const errorCode = err?.code
-    const errorMessage = errorCode ? t(`errors.${errorCode}`) : (err?.message || String(err))
+    const errorMessage = errorCode && te(`errors.${errorCode}`) ? t(`errors.${errorCode}`) : (err?.message || String(err))
     const details = err?.details ? ` (${err.details})` : ''
     saveError.value = errorMessage + details
     toast.error(saveError.value)

@@ -22,6 +22,24 @@ try {
     while (!await page.eval(() => !!window.hostConfigHarness?.view())) { if (Date.now() > deadline) throw Error('Host config fixture did not mount'); await sleep(70) }
   }
   const settle = async (index, value={message:'Fixture saved'}, fail=false) => run(({index,value,fail}) => {const h=window.hostConfigHarness;fail?h.pending[index].reject(Error('Fixture save failed')):h.pending[index].resolve(value)},{index,value,fail})
+  if (process.argv.includes('--type-error-only')) {
+    const expected={'zh-CN':'实例类型与宿主支持范围不兼容。请调整套餐类型或宿主绑定后重试。','zh-TW':'實例類型與宿主支援範圍不相容。請調整套餐類型或宿主綁定後重試。','en':'The instance type is incompatible with the host. Adjust the package type or host bindings, then try again.'}
+    for(const locale of ['zh-CN','zh-TW','en'])for(const width of [1440,768,390]) {
+      await page.setViewport({width,height:1000});await fresh();await run(locale=>window.hostConfigHarness.setLocale(locale),locale)
+      await run(()=>{const h=window.hostConfigHarness,v=h.view();v.form.instanceType='vm';document.querySelector('button[type="submit"]').click();h.pending[0].reject({code:'HOST_INSTANCE_TYPE_MISMATCH',message:'Host instance type is incompatible with bound packages',details:null})})
+      assert.equal(await page.eval(()=>document.querySelector('[data-host-config-error]').textContent.trim()),expected[locale],'current type refusal must use configured locale')
+      assert.equal(await page.eval(()=>window.hostConfigHarness.saved.value),0)
+      assert.equal(await page.eval(()=>window.hostConfigHarness.view().form.instanceType),'vm')
+      assert.ok(await page.eval(()=>document.documentElement.scrollWidth<=innerWidth+1))
+      await page.screenshot({path:resolve(output,`type-error-${locale}-${width}.jpg`),fullPage:true})
+      await run(()=>document.querySelector('button[type="submit"]').click());await settle(1)
+      assert.equal(await page.eval(()=>window.hostConfigHarness.saved.value),1)
+    }
+    await fresh();await run(()=>{const h=window.hostConfigHarness;void h.view().saveConfig();h.pending[0].reject({code:'FIXTURE_UNKNOWN_CODE',message:'Fixture unknown refusal'})})
+    assert.equal(await page.eval(()=>document.querySelector('[data-host-config-error]').textContent.trim()),'Fixture unknown refusal')
+    assert.equal(page.consoleErrors.length,0,page.consoleErrors.join('\n'))
+    console.log('PASS real type error response shape in three locales/widths, persistent refusal, draft retention, retry and unknown-code fallback')
+  } else {
   await fresh();await run(()=>{window.hostConfigHarness.view().form.location='unsaved description'})
   await run(()=>{const h=window.hostConfigHarness;h.host.value={...h.host.value,location:'refreshed description'}})
   assert.equal(await page.eval(()=>window.hostConfigHarness.view().form.location),'unsaved description','dirty parent refresh preserves draft')
@@ -101,4 +119,5 @@ try {
   }
   assert.equal(page.consoleErrors.length,0,page.consoleErrors.join('\n'))
   console.log('PASS three-language actual save/failure/retry and pending controls/44px')
+  }
 } finally { if (browser) await browser.close(); await server.close() }

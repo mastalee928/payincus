@@ -6172,6 +6172,7 @@ pool: {
         INSTANCE_DESTROY_TRAFFIC_LIMIT_EXCEEDED: '當前月流量週期無法銷毀，已用流量達到或超過 5G',
         // 主機錯誤
         HOST_NOT_FOUND: '主機不存在',
+        HOST_INSTANCE_TYPE_MISMATCH: '實例類型與宿主支援範圍不相容。請調整套餐類型或宿主綁定後重試。',
         HOST_OFFLINE: '主機離線',
         HOST_HAS_INSTANCES: '主機上有實例，請先刪除',
         HOST_ALREADY_OFFICIAL: '此節點已經是自營節點',

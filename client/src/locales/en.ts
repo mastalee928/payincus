@@ -5594,6 +5594,7 @@ pool: {
         INSTANCE_DESTROY_TRAFFIC_LIMIT_EXCEEDED: 'Destroy is unavailable in the current monthly traffic cycle because usage has reached 5G',
         // Host errors
         HOST_NOT_FOUND: 'Host not found',
+        HOST_INSTANCE_TYPE_MISMATCH: 'The instance type is incompatible with the host. Adjust the package type or host bindings, then try again.',
         HOST_OFFLINE: 'Host is offline',
         HOST_HAS_INSTANCES: 'Host has instances, please delete them first',
         HOST_ALREADY_OFFICIAL: 'Host is already official',

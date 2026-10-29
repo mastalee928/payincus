@@ -63,5 +63,12 @@ assert.ok(hostWriteIndex >= 0, 'host update route must include expected DB write
 assert.ok(hostGuardIndex < hostWriteIndex, 'host update route must reject incompatible bound packages before DB write')
 
 excludes(hostsSource, "code: 'INCOMPATIBLE_PACKAGES'", 'post-write incompatible package warning')
+const hostConfigSource = readFileSync(resolve(__dirname, '../../client/src/components/host/MyHostConfigTab.vue'), 'utf8')
+excludes(hostConfigSource, "warning.code === 'INCOMPATIBLE_PACKAGES'", 'retired post-write warning UI')
+includes(hostConfigSource, 'te(`errors.${errorCode}`)', 'unknown error code fallback')
+for (const locale of ['zh-CN', 'zh-TW', 'en']) {
+  includes(readFileSync(resolve(__dirname, `../../client/src/locales/${locale}.ts`), 'utf8'),
+    'HOST_INSTANCE_TYPE_MISMATCH:', `${locale} host instance type refusal`)
+}
 
 console.log('package host type guard tests passed')

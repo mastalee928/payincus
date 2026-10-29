@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-113 实际宿主类型拒绝三语与写前保护复验
+
+- R110已commit/push91681263。纠正旧清单「写后warning正文硬编码」：现后端PATCH在写前返回400及HOST_INSTANCE_TYPE_MISMATCH/packages，不再返回warnings。实际Chrome先红显示errors.HOST_INSTANCE_TYPE_MISMATCH；补简体/繁体/英文说明与下一步，组件te确认有翻译才t，未知code回退原message。api.hosts.update从错误Host类型改真实{message:string}，唯一使用者保留运行时message检查；不改变后端类型规则、客户网络和交付。
+- Chrome34044最终正常exit0，三语1440/768/390真实save/拒绝/持久错误/草稿保留/重试与未知code回退通过，9张实际截图已全部查看；R110完整submit回归40895正常exit0含22旧回执和同步五开关门禁。真实隔离Fastify/PG logs/takeover-host-config-type-pg.log正常exit0：container套餐拒vm、vm套餐拒container时全部host字段保持、零成功audit，核packages且无warnings；foreign403、compatible及both200与精确message通过。只本机隔离PG，无Incus请求；不将此项当作当前权限或并发类型绑定窗口已全验。
+- client types74125/server types25767、两TS专项types54391、client目标lint91956均正常exit0；四守卫74069（logs/test-run-20261030-064836）route/i18n/package-host-type/host-pool通过。server目录无eslint配置和client基准路径ignored轮均不计通过，最终从根目录调用client ESLint并显式配置，两TS有效检查零错警（logs/takeover-host-config-type-server-lint-root.log）。manifest194常规/209专项分类与脚本语法/diff通过，两个新专项已接CI。
+- 最终双端含vue-tsc build88829正常exit0，user54.64秒/admin51.41秒；末dist边界守卫c17cad正常exit0。本项仅错误文案/类型合同，无布局改动，沿R110局部taste结果，不把9截图当整张配置页UI验收。未重跑完整套；外部邮件、真实Linux宿主、后端配置并发、生产及发行另验。
+- 原327编号：239项已有修复或复验记录（含部分），68项保留已有防护/实现不同等初审结论，20项待精修/运行复核。239不是完整验收通过数，剩余全部工作还包括已记录项内的未完范围。按owner授权本项提交推送后继续；原网关完整灾备未完成，不操作生产/客户/OTA或发行。
+
 ## 2026-10-30 R1-110 配置草稿与当前保存回执
 
 - R111596ee48a已push核远端。真实Chrome先红：同host父刷新覆盖未保存描述。现在cleanDraft为ref、dirty/pending保留表单，clean状态才接父刷新；host/account/role/sid/同步代次、草稿代次/ABA、KeepAlive/unmount固定保存目标和payload。原写锁保留至finally；全fieldset禁用，国家与五个开关另加同步门禁，旧成功/失败不通知/emit/改新草稿。严格实际PATCH非空message，当前失败持久保留且原save retry；删除已退役post-write warning，实际类型拒绝三语R113另续。

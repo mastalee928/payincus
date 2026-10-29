@@ -1107,7 +1107,7 @@ poolOrder: (data: {
     updateImagePolicy: (id: number, data: { useDefault: boolean; imageIds?: number[] }): Promise<HostImagePolicy & { message: string }> =>
       http.put(`/hosts/${id}/images`, data),
     create: (data: CreateHostRequest): Promise<Host> => http.post('/hosts', data),
-    update: (id: number, data: UpdateHostRequest): Promise<Host> =>
+    update: (id: number, data: UpdateHostRequest): Promise<{ message: string }> =>
       http.patch(`/hosts/${id}`, data),
     delete: (id: number): Promise<{ message: string }> => http.delete(`/hosts/${id}`),
     test: (id: number): Promise<{ success: boolean; message?: string }> =>

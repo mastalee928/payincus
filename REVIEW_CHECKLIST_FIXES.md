@@ -1,5 +1,9 @@
 # 外部审查清单修复台账
 
+当前进度（2026-10-30，R113收尾后）：原327个编号中，239项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，20项仍为「待精修/运行复核」。239并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以20项表示。
+
+2026-10-30 R113类型拒绝三语：原post-write warning已退役，实际PATCH写前400 HOST_INSTANCE_TYPE_MISMATCH，缺翻译时UI显示原始key已先红。补三语与未知code原message回退，API update类型改实际message合同；Chrome34044三语三宽保草稿/持久错误/retry与真实Fastify-PG两类拒绝零字段写入/零成功audit、foreign403、compatible/both回执通过。client74125/server25767/专项TS54391、四守卫74069/双端含types build88829/末dist通过；R110完整回归40895正常exit0。根目录显式config lint332d6a两server文件有效通过，先前outside-base ignored轮不计通过。239含部分/68已有不同/20待；真实宿主、后端类型并发窗口、完整327/网关灾备另验，见HANDOFF。
+
 2026-10-30 R110配置保存：真实父刷新丢草稿先红→dirty/pending保草稿、固定host/session/draft ABA/cache/unmount回执、原在途锁与同步五开关门禁、严格message/持久失败retry已修。final-last90956真实Chrome22旧回执/三语三宽save/44px正常exit0；R112回归39369/R111最后53040与types/五守卫/双端含types build27707/末样式补构68621/dist正常exit0，浅深0FAIL/WARN12图见HANDOFF。238含部分/68已有不同/21待，R113真实类型拒绝三语、真实宿主与完整327继续。
 
 2026-10-30 R111显式清空description/IPv6父接口-subnet已修：真实Chrome13138 mode2/3八组合/trim/门禁/三语实际输入save与R112回归正常exit0；真实PATCH/PG清空落库、省略保持/foreign拒绝/mode1三类拒绝且零写通过。最后build/types/守卫见HANDOFF。237含部分/68已有不同/22待，R110及真实宿主继续。
@@ -294,7 +298,7 @@
 | R1-110 | 存在 | 前端精修/实际Chrome验证通过 | dirty/pending保父刷新草稿、clean接受刷新，固定host/account/role/sid/同步与draft ABA/cache/unmount回执和payload，原锁/fieldset及开关同步禁写；strict message/持久失败retry。final-last90956含22旧回执/三语三宽44px过，相关types/守卫/双端build/dist及浅深终12图过，真实宿主/PATCH并发审计另验。 |
 | R1-111 | 存在 | 源码已修/浏览器及本地PG通过 | 描述显式空字符串、IPv6 trim空字段传PATCH，mode2/3可清理旧配置，mode1及剩余subnet继续必需parent。真实Chrome八组合/三语输入save、实际Fastify-PG落null/省略保持/foreign403/mode1零写拒绝过，R112回归过；最后types/build/守卫见HANDOFF，真实宿主另验。 |
 | R1-112 | 存在 | 源码已修/浏览器隔离验证通过 | 无关编辑省略url，默认HTTP80/HTTPS443正确；地址或端口变化只替换原URL相应字段保协议/path/query/hash，IPv6方括号及非法port拒写。68686真实Chrome八原URL/24修改组合/六坏port/三语三宽actual input-save过；types/lint/四守卫及build/dist见HANDOFF，真实宿主仍另验。 |
-| R1-113 | 存在 | 待精修/运行复核 | 节点类型警告虽前缀调用t，但正文warning.message及“套餐:”硬编码，繁体/英文不能完整本地化。 |
+| R1-113 | 存在，旧描述已纠正 | 三语错误/Chrome与PG写前拒绝复验通过 | 旧post-write warning已退役；真实HOST_INSTANCE_TYPE_MISMATCH缺三语翻译导致原key显示，已补三语并按te回退未知code原message，api.hosts.update改实际message合同。Chrome三语三宽持久错误/保草稿/retry，Fastify-PG container与VM拒绝全部host字段保持/无成功audit，foreign403和compatible/both精确回执通过；types/四守卫/lint/双端build/末dist见HANDOFF。后端并发绑定/类型检查窗口及真实宿主不在本项复验范围。 |
 | R1-114 | 实现不同 | 保留初审结论 | 没有对方快速多租户库存数量编辑器；本库独占规格/库存枚举，saveSpec有busy及固定磁盘档。不得迁入对方库存数量模型。 |
 | R1-115 | 实现不同 | 保留初审结论 | 本库通过独占规格和枚举机器管理库存，无对方必填stock输入清空为0的同类入口；保持一机一卖。 |
 | R1-116 | 存在 | 源码已修/真实Caddy API验证通过 | v2域名无损ID；legacy exact host+ETag删除，避免label碰撞；HTTP-only protocol及automatic_https.skip同次提交。logs/review-caddy-proxy-final.log、review-caddy-runtime-validation-final.log；Windows原生Caddy2.11.7，Linux安装未验 |
