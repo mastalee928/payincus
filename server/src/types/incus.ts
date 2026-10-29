@@ -217,13 +217,6 @@ export interface BuildInstanceConfigOptions {
   bootHostShutdownTimeout?: number | null // 30-600 seconds
 }
 
-export interface PullImageOptions {
-  server?: string
-  protocol?: string
-  autoUpdate?: boolean
-  isPublic?: boolean
-}
-
 export interface CreateBackupOptions {
   instanceOnly?: boolean
   optimizedStorage?: boolean

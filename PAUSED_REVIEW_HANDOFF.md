@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：R16508a2b9ca已commit/push核远端干净。R156纠正旧初审，保留实际worker重装动态getImageAlias/getImage及类型，仅清9无调用函数/barrel/PullImageOptions/旧长轮询净减267行；两read与现行wait-status逐字保持、worker SHA保持。保留函数真实受控request回归正常exit0，server含tsc build70086与五守卫53343（logs/test-run-20261030-070353）最终正常exit0，四文件lint/diff/最终引用检查过，无待poll。241含部分/68已有不同/18待；本项即commit/push后继续。未改前端/DB/worker，真实重装、部分项内缺口和完整327/网关灾备仍未完成，不生产/发行；PG55438保留，无测试serve。
+
 > **最新接续**：R113c174586c已commit/push核HEAD=origin/main干净。R165完整实际引用搜索确认网络适配器仅定义/导出/孤立类型，清理31行；八现行网络实现字节保持、后无旧引用及产物导出。server含tsc build84536与4/4守卫85974（logs/test-run-20261030-070028）最终正常exit0，目标lint/diff通过，无待poll。240含部分/68已有不同/19待，立即单项commit/push；接R156时已查到instanceTaskWorker重装动态调用getImageAlias/getImage，纠正旧「整个模块无调用」判断，必须保留两读取/类型与属性同步，只清真正无调用导出/旧长轮询，尚未改R156。PG55438保留，无测试serve；完整327、部分项内缺口、真实客户及网关灾备未完，不生产/发行。
 
 > **最新接续**：R11091681263已commit/push核远端。R113旧post-write warning初审已纠正，实际写前400缺三语key先红→补三语/te未知code回退与api.update真实message合同；Chrome34044三语三宽保草稿/持久错误/retry、R110完整40895回归及真实Fastify-PG拒container/vm零host写/零成功audit、foreign403/compatible/both回执全部正常exit0。client74125/server25767/专项TS54391、目标client lint91956/四守卫74069/最终双端含types build88829/末distc17cad通过；根目录显式config两server文件lint332d6a有效零错警，前outside-base ignored轮不计过。manifest194常规209专项接CI有效，9实际截图已全看。本阶段239含部分/68已有不同/20待；立即commit/push后继续待精修及部分未完，R106/107后端授权并发audit/R104跨请求幂等/R123-124远端成功DB失败恢复/R144-145旧路由清理仍待。PG55438保留，无待poll/测试serve，真实宿主/生产/完整327/网关灾备未完；不把239当完整验收数。

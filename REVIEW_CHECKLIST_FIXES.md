@@ -1,6 +1,8 @@
 # 外部审查清单修复台账
 
-当前进度（2026-10-30，R165收尾后）：原327个编号中，240项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，19项仍为「待精修/运行复核」。240并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以19项表示。
+当前进度（2026-10-30，R156收尾后）：原327个编号中，241项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，18项仍为「待精修/运行复核」。241并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以18项表示。
+
+2026-10-30 R156纠正实际动态调用：重装使用getImageAlias/getImage，保留两函数与类型；仅清9个无调用导出、barrel、PullImageOptions与旧waitForOperationLong，净减267行。两读取/现行wait-status逐字保持、worker SHA保持，真实保留读取受控request回归和五守卫53343/后端含tsc build70086最终正常exit0、目标lint/diff通过。241含部分/68已有不同/18待，真实重装/外部镜像/完整327仍待，见HANDOFF。
 
 2026-10-30 R165无调用网络适配器：运行源码/脚本完整搜索后仅定义/导出/孤立类型，清理31行；八个现行网络实现字节保持、后无旧引用/产物导出。后端含tsc build84536与四守卫85974最终正常exit0，目标lint/diff通过；退役模块无活体流程，不冒充真实网络验收。240含部分/68已有不同/19待，R156实际两个镜像读取用于重装须保留，详见HANDOFF。
 
@@ -343,7 +345,7 @@
 | R1-153 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
 | R1-154 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
 | R1-155 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
-| R1-156 | 存在 | 待精修/运行复核 | 旧镜像适配器经index导出，但相关list/get/pull/alias函数未发现运行调用者；长轮询waitForOperationLong只被该孤立适配器使用，属于维护残留，不代表正在使用的镜像交付退役。 |
+| R1-156 | 存在，初审范围已纠正 | 无调用镜像导出/旧轮询已清理，构建守卫通过 | 实际worker重装动态调用getImageAlias/getImage，保留两读取/类型；仅清其它9个无调用函数、barrel导出、PullImageOptions及旧长轮询，净减267行。两读取与现行wait/status逐字保持、worker SHA保持；受控request alias/image属性/失败回归、五守卫/server含tsc build/lint/diff通过见HANDOFF。不删除真实镜像交付，不冒充原生重装验收。 |
 | R1-157 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
 | R1-158 | 存在 | 源码已修/行为与mTLS集成通过 | DB最新url/cert/key/fingerprint配置、singleflight/代次/lookup迟到保护，先失效后close；12并发/lookup/connect/close行为通过review-incus-pool守卫，删除真实PG+mTLS latest logs/review-user-no-refund-integration-latest.log |
 | R1-159 | 存在 | 源码已修/行为与mTLS集成通过 | DB最新url/cert/key/fingerprint配置、singleflight/代次/lookup迟到保护，先失效后close；12并发/lookup/connect/close行为通过review-incus-pool守卫，删除真实PG+mTLS latest logs/review-user-no-refund-integration-latest.log |

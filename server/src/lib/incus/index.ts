@@ -9,9 +9,6 @@ export { IncusClient } from './incus-client.js'
 // 实例管理
 export * from './incus-instances.js'
 
-// 镜像管理
-export * from './incus-images.js'
-
 // 快照管理
 export * from './incus-snapshots.js'
 

@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-156 保留重装镜像读取，清理无调用写入与旧长轮询
+
+- R165已commit/push08a2b9ca核远端干净。完整符号与动态import复核纠正初审：instanceTaskWorker重装属性同步确实使用getImageAlias/getImage，因此保留两读取及IncusImage/IncusImageAlias。仅移除其它9个无调用镜像列表/拉取/别名写/删除/存在性函数、无人消费的barrel镜像导出、PullImageOptions和仅旧拉取调用的waitForOperationLong；现行waitForOperation/mapInstanceStatus保持。四文件净减267行，无worker/路由/前端/DB修改。
+- 修改前后两个读取、现行wait/status函数逐字相同，重装worker SHA相同；最终运行目录无被移除符号，实际动态import及属性同步仍在。受控request专项真实执行保留两函数的alias→fingerprint→properties、准确路径和失败传播（logs/takeover-retired-incus-images-read-regression.log正常exit0）。此证据不等于实际重装客机/公网镜像拉取验收；没有无调用旧函数的活体流程可验。
+- server build70086最终正常exit0含tsc/复制gateway UI；五守卫53343正常exit0（logs/test-run-20261030-070353）core-boundaries/image-route/instance-operation-conflict/dedicated-delivery/incus-certificate-paths，5/5共14秒。根显式config四文件lint零错警、最终引用/保留函数比对/diff通过。未改前端，不重复双端build，未跑完整套/生产/客户/发行。
+- 原327编号：241有修复或复验记录（含部分）/68保留已有防护或不同初审/18待精修。241不是全部验收通过数；后端并发/真实宿主/外部服务及整页UI仍按各条未完范围保留。按owner授权本项提交推送，然后继续，不以维护残留清理冒充完整重装或网关灾备验收。
+
 ## 2026-10-30 R1-165 无调用者网络适配器残留
 
 - R113已commit/pushc174586c且HEAD与origin/main一致、工作区干净。重新搜索server源码/脚本、client、deploy、scripts和docs-site，listNetworks/getNetwork仅定义在incus-network，IncusNetwork只被该模块引用，index仅导出，没有运行调用者。移除21行适配器、3行barrel导出及7行孤立类型，无数据库/前端修改。先前搜索不存在模板目录的轮不作为最终证据，最终日志takeover-retired-incus-network-before-references-final.log搜索无错误。
