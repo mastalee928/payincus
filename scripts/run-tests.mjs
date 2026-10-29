@@ -100,6 +100,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-user-hosting-submit', 'requires Chrome/Edge and local Vite; hosting adjustments validate decimals/type/reason, lock busy fields and scope current target/session/draft receipts'],
   ['test:review-two-factor-busy', 'requires Chrome/Edge and local Vite; actual two-factor setup/enable/disable/regeneration immediate mutation gates, fields/cancel protection and retry'],
   ['test:review-two-factor-reads', 'requires Chrome/Edge and local Vite; two-factor status/count read readiness, strict receipts, latest loading, persistent errors and mutation invalidation'],
+  ['test:review-two-factor-session', 'requires Chrome/Edge and local Vite; two-factor read/write account/session/role/ABA/cache/draft isolation, secret cleanup and success timer lifecycle'],
   ['test:review-user-balance-submit', 'requires Chrome/Edge and local Vite; balance adjustment strict amount inputs, immediate busy lock, current session/draft receipts and scoped auxiliary reads'],
   ['test:review-user-points-submit', 'requires Chrome/Edge and local Vite; points adjustment integer/reason gates, busy fields, current targets/session/draft receipts and scoped list refresh'],
   ['test:review-user-balance-audit', 'requires isolated local *_pool_test PostgreSQL; balance and ledger/audit atomic rollback, exact receipts and administrator revocation row-lock races'],

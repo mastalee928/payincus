@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R307会话阶段：2FA active/account/role/sid和读写代次、草稿/缓存/卸载旧回执、敏感状态与timer清理、same sid刷新/在途busy已修。实际Chrome48读56写及正常/秘密/timer/卸载通过，busy/read回归/3守卫/lint/最终双端types build/dist见HANDOFF；R013敏感验证与完整流程未完，194/68/65含部分。
+
 2026-10-29 R307读取阶段：status ready/loading/error与写门禁、严格状态/计数、独立seq/旧finally/retry/0/写后旧计数失效已修，实际Chrome先红后全矩阵及busy回归通过，3守卫/lint/双端types build/dist见HANDOFF。下一session已先红仍待修，194/68/65含部分不变。
 
 2026-10-29 R307第一段：2FA四类写函数即时busy/交叉互斥、取消和切换门禁、保存期间字段与按钮冻结已修，实际Chrome setup重复2次先红后四类矩阵通过，3守卫/lint/双端types build/dist/三宽截图见HANDOFF。R307仍部分；唯一编号194有修复复验（含部分）/68已有防护实现不同/65待精修，194不能当作完整验收数量。初读/session/旧回执/敏感验证接线继续。

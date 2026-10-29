@@ -2,6 +2,11 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-307 双重验证会话与敏感状态隔离
+
+- a0c33846已push。实际Chrome session-before旧status跨session enabled=true先红；现绑定active/account/role/sid（正常同sid token刷新保留），scope同步撤销读取并清密钥/恢复码/密码/验证码/模式/提示。写固定输入和context/draft代次，旧成功失败静默，在途busy保留至原请求结束，再重读当前身份。缓存离页/卸载显式失效，成功timer统一管理和清理，启用后清设置秘密；恢复码辅助读取不占写busy。
+- takeover-two-factor-session-final-r2.log真实Chrome48读取及56写旧成功失败session/account/role/logout/ABA/cache/draft、当前busy、same sid四类正常、秘密即时清除、旧timer不能清新通知与卸载通过；卸载watcher已停止导致旧读取仍写的首轮失败已修为显式invalidateContext。busy/read两完整回归exit0，3守卫及最终route、lint零错警、session-final-build双端build含vue-tsc exit0/dist通过，manifest194/155，专项接CI。无生产2FA操作。回执内容严格校验、TOTP输入与R013敏感验证接线/完整流程仍待，194/68/65含部分。
+
 ## 2026-10-29 R1-307 双重验证状态读取就绪与重试
 
 - 41ada0d8已push。原status失败显示未启用并能setup，reads-before实际Chrome先红；现statusReady/loading/error区分未知与实际禁用，写函数和切模式要求已成功读取。状态/恢复码计数独立seq，同步清旧值/错误/loading；严格真实boolean、非负安全整数且计数相加一致，0剩余有效。失败持久retry，旧finally不关闭新loading；mutation与enabled变化取消旧恢复码计数，禁用成功不被旧计数回填，刷新不留旧成功/错误。

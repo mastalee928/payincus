@@ -1,9 +1,36 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { computed, ref, onMounted, onActivated, onDeactivated, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
+import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
+const active = ref(false)
+const session = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const available = computed(() => active.value && !!session.value)
+const scope = computed(() => `${active.value}:${session.value}`)
+let generation = 0, draftGeneration = 0
+let successTimer: ReturnType<typeof setTimeout> | undefined
+function clearSuccess() {
+  clearTimeout(successTimer)
+  successTimer = undefined
+  success.value = ''
+}
+function showSuccess(message: string, duration: number) {
+  clearSuccess()
+  success.value = message
+  const current = generation
+  successTimer = setTimeout(() => { if (current === generation) success.value = ''; successTimer = undefined }, duration)
+}
 const loading = ref(false)
 const enabled = ref(false)
 const setupMode = ref(false)
@@ -43,16 +70,46 @@ function invalidateRecoveryStatus() {
   recoveryCodesStatus.value = null
 }
 watch(enabled, invalidateRecoveryStatus, { flush: 'sync' })
+function invalidateContext(reload = true) {
+  generation += 1
+  statusRequest += 1
+  statusReady.value = false
+  statusLoading.value = false
+  statusError.value = ''
+  enabled.value = false
+  invalidateRecoveryStatus()
+  setupMode.value = false; disableMode.value = false; regenerateMode.value = false
+  qrCode.value = ''; secret.value = ''; recoveryCodes.value = []; newRecoveryCodes.value = []
+  verifyCode.value = ''; disablePassword.value = ''; disableCode.value = ''; regeneratePassword.value = ''; regenerateCode.value = ''
+  error.value = ''; clearSuccess()
+  if (reload && available.value) void loadStatus()
+}
+watch(scope, () => invalidateContext(), { flush: 'sync' })
+watch([setupMode, disableMode, regenerateMode, verifyCode, disablePassword, disableCode, regeneratePassword, regenerateCode], () => {
+  draftGeneration += 1
+  error.value = ''
+}, { flush: 'sync' })
+function writeContext() {
+  const currentGeneration = generation, currentDraft = draftGeneration, currentScope = scope.value
+  clearSuccess()
+  return {
+    current: () => available.value && currentGeneration === generation && currentDraft === draftGeneration && currentScope === scope.value,
+    finish: () => {
+      loading.value = false
+      if (currentGeneration !== generation && available.value) void loadStatus()
+    }
+  }
+}
 
 async function loadStatus() {
-  if (loading.value) return
+  if (loading.value || !available.value) return
   const request = ++statusRequest
   recoveryStatusRequest += 1
   statusReady.value = false
   statusLoading.value = true
   statusError.value = ''
   error.value = ''
-  success.value = ''
+  clearSuccess()
   enabled.value = false
   recoveryCodesStatus.value = null
   recoveryStatusLoading.value = false
@@ -72,7 +129,7 @@ async function loadStatus() {
 }
 
 async function loadRecoveryCodesStatus() {
-  if (!statusReady.value || !enabled.value) return
+  if (!available.value || !statusReady.value || !enabled.value) return
   const request = ++recoveryStatusRequest
   recoveryStatusLoading.value = true
   recoveryStatusError.value = ''
@@ -90,89 +147,95 @@ async function loadRecoveryCodesStatus() {
 }
 
 async function startSetup() {
-  if (loading.value || !statusReady.value || statusLoading.value) return
+  if (!available.value || loading.value || !statusReady.value || statusLoading.value) return
+  const context = writeContext()
   invalidateRecoveryStatus()
   loading.value = true
   error.value = ''
   try {
     const res = await api.auth.setup2FA()
+    if (!context.current()) return
     qrCode.value = res.qrCode
     secret.value = res.secret
     recoveryCodes.value = res.recoveryCodes
     setupMode.value = true
   } catch (e: any) {
-    error.value = e.message || t('profile.twoFactorAuth.initFailed')
+    if (context.current()) error.value = e.message || t('profile.twoFactorAuth.initFailed')
   } finally {
-    loading.value = false
+    context.finish()
   }
 }
 
 async function confirmEnable() {
-  if (loading.value || !statusReady.value || statusLoading.value) return
+  if (!available.value || loading.value || !statusReady.value || statusLoading.value) return
   if (!verifyCode.value || verifyCode.value.length !== 6) {
     error.value = t('profile.twoFactorAuth.enterCodeError')
     return
   }
+  const context = writeContext(), code = verifyCode.value
   loading.value = true
   invalidateRecoveryStatus()
   error.value = ''
   try {
-    await api.auth.enable2FA(verifyCode.value)
+    await api.auth.enable2FA(code)
+    if (!context.current()) return
     enabled.value = true
     setupMode.value = false
-    success.value = t('profile.twoFactorAuth.enabledSuccess')
-    setTimeout(() => success.value = '', 3000)
+    qrCode.value = ''; secret.value = ''; recoveryCodes.value = []; verifyCode.value = ''
+    showSuccess(t('profile.twoFactorAuth.enabledSuccess'), 3000)
   } catch (e: any) {
-    error.value = e.message || t('profile.twoFactorAuth.verifyFailed')
+    if (context.current()) error.value = e.message || t('profile.twoFactorAuth.verifyFailed')
   } finally {
-    loading.value = false
+    context.finish()
   }
 }
 
 async function confirmDisable() {
-  if (loading.value || !statusReady.value || statusLoading.value) return
+  if (!available.value || loading.value || !statusReady.value || statusLoading.value) return
   if (!disablePassword.value || !disableCode.value) {
     error.value = t('profile.twoFactorAuth.fillPasswordAndCode')
     return
   }
+  const context = writeContext(), password = disablePassword.value, code = disableCode.value
   loading.value = true
   invalidateRecoveryStatus()
   error.value = ''
   try {
-    await api.auth.disable2FA(disablePassword.value, disableCode.value)
+    await api.auth.disable2FA(password, code)
+    if (!context.current()) return
     enabled.value = false
     disableMode.value = false
     disablePassword.value = ''
     disableCode.value = ''
     recoveryCodesStatus.value = null
-    success.value = t('profile.twoFactorAuth.disabledSuccess')
-    setTimeout(() => success.value = '', 3000)
+    showSuccess(t('profile.twoFactorAuth.disabledSuccess'), 3000)
   } catch (e: any) {
-    error.value = e.message || t('profile.twoFactorAuth.disableFailed')
+    if (context.current()) error.value = e.message || t('profile.twoFactorAuth.disableFailed')
   } finally {
-    loading.value = false
+    context.finish()
   }
 }
 
 async function confirmRegenerate() {
-  if (loading.value || !statusReady.value || statusLoading.value) return
+  if (!available.value || loading.value || !statusReady.value || statusLoading.value) return
   if (!regeneratePassword.value || !regenerateCode.value) {
     error.value = t('profile.twoFactorAuth.fillPasswordAndCode')
     return
   }
+  const context = writeContext(), password = regeneratePassword.value, code = regenerateCode.value
   loading.value = true
   invalidateRecoveryStatus()
   error.value = ''
   try {
-    const res = await api.auth.regenerateRecoveryCodes(regeneratePassword.value, regenerateCode.value)
+    const res = await api.auth.regenerateRecoveryCodes(password, code)
+    if (!context.current()) return
     newRecoveryCodes.value = res.recoveryCodes
-    await loadRecoveryCodesStatus()
-    success.value = t('profile.twoFactorAuth.codesRegenerated')
-    setTimeout(() => success.value = '', 5000)
+    void loadRecoveryCodesStatus()
+    showSuccess(t('profile.twoFactorAuth.codesRegenerated'), 5000)
   } catch (e: any) {
-    error.value = e.message || t('profile.twoFactorAuth.regenerateFailed')
+    if (context.current()) error.value = e.message || t('profile.twoFactorAuth.regenerateFailed')
   } finally {
-    loading.value = false
+    context.finish()
   }
 }
 
@@ -211,7 +274,10 @@ function openRegenerate() {
   if (!loading.value && statusReady.value && !statusLoading.value) regenerateMode.value = true
 }
 
-onMounted(loadStatus)
+onMounted(() => { active.value = true })
+onActivated(() => { active.value = true })
+onDeactivated(() => { active.value = false })
+onUnmounted(() => { active.value = false; invalidateContext(false) })
 </script>
 
 <template>
