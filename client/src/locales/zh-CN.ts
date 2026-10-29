@@ -3754,7 +3754,7 @@ pool: {
                 sending: '发送中...',
                 send: '发送',
                 invalidEmail: '请输入有效的邮箱地址',
-                testEmailSent: '测试邮件已发送至 {email}',
+                testEmailSent: '邮件服务已接收发往 {email} 的测试邮件，请检查收件箱。',
                 testEmailFailed: '测试邮件发送失败',
                 helpText: '请确保 SMTP 服务器地址、端口、用户名和密码正确。常见邮箱服务商需要使用授权码而非登录密码。',
             },

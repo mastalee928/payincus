@@ -4678,7 +4678,7 @@ pool: {
                 sending: '發送中...',
                 send: '發送',
                 invalidEmail: '請輸入有效的信箱地址',
-                testEmailSent: '測試郵件已發送至 {email}',
+                testEmailSent: '郵件服務已接收發往 {email} 的測試郵件，請檢查收件匣。',
                 testEmailFailed: '測試郵件發送失敗',
                 helpText: '請確認 SMTP 伺服器位址、連接埠、使用者名稱與密碼正確。常見郵件服務商需要使用授權碼而不是登入密碼。',
             },

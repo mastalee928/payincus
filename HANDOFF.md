@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-310 SMTP 测试固定收件人与确认回执
+
+- 6e643b4a已push。smtp-before实际Chrome先红连续send两次请求。两测试函数共享即时busy（含SMTP保存），固定session/页面/SMTP草稿/收件人代次，旧成功失败静默；scope变更清测试邮箱及提示，在途busy保持到finally。输入变化清旧提示，新地址不被旧回执清除；当前同sid成功使用提交时email。连接测试核真实success/message，发送另核accepted=1/rejected=0/pending=0及有效邮箱；只显示邮件服务接受，不声明收件箱已收到。
+- smtp-final-r3实际Chrome两操作×8变化×2结果=32旧回执（各16，前一日志文案32每操作已纠正），重复/交叉、四卸载、八基础非法回执/四acceptance反例/四邮箱、same sid与失败重试通过exit0；drafts19组回归exit0。测试提示持久显示role alert/status，发送输入窄屏改单列；三宽三语错误截图已看。4守卫（route/i18n/smtp-proof/admin）、lint零错警、smtp-build双端含vue-tsc exit0/dist、manifest194常规166专项分类通过，专项接CI，全进程exit0。
+- 仅真实Vue与合成API，没有调用外部SMTP或发送真实邮件；后台原SMTP审计与提供商回执保持，保存SMTP业务不改。R310仍部分，198/68/61不变，完整327/灾备未完。下一R312套餐零优先级已核PackageForm与守卫/route，CPU和启动优先级0合法，启动延迟最小5、关机超时最小30不把0误判合法；尚未改。
+
 ## 2026-10-29 R1-310 系统设置读取就绪与真实保存确认
 
 - f696eb76已push。receipts-before真实Chrome先红初读失败仍1次默认写。现在首次全量读取ready门禁与持久configLoadError/实际reload按钮；读取失败/无效时不展示可写默认表单，函数也拒写。全列表先核条目/重复key/基础字段、boolean/有限整数小数及JSON数组/五级VIP结构再更新；不要求全库固定key齐全，但保存组缺已读取key拒写。完整读移除此次缺失旧基线，保仍由另一个当前读控制的字段与全部草稿。

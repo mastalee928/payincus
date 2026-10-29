@@ -111,6 +111,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-system-settings-drafts', 'requires Chrome/Edge and local Vite; all 19 system settings groups preserve unrelated drafts, in-flight edits and ABA, independent refresh order, saved baselines and secret masks'],
   ['test:review-system-settings-scope', 'requires Chrome/Edge and local Vite; settings admin/session/ABA/cache/unmount read and write isolation, secret draft cleanup, current loading and same sid refresh'],
   ['test:review-system-settings-receipts', 'requires Chrome/Edge and local Vite; failed initial settings reads block default writes, strict configuration/JSON shape and confirmed save receipts, persistent errors and DOM retry'],
+  ['test:review-system-settings-smtp', 'requires Chrome/Edge and local Vite; SMTP tests retain fixed recipient/session/drafts, reject duplicate/cross operations and stale receipts, validate real acceptance counts and keep persistent result'],
   ['test:review-user-balance-submit', 'requires Chrome/Edge and local Vite; balance adjustment strict amount inputs, immediate busy lock, current session/draft receipts and scoped auxiliary reads'],
   ['test:review-user-points-submit', 'requires Chrome/Edge and local Vite; points adjustment integer/reason gates, busy fields, current targets/session/draft receipts and scoped list refresh'],
   ['test:review-user-balance-audit', 'requires isolated local *_pool_test PostgreSQL; balance and ledger/audit atomic rollback, exact receipts and administrator revocation row-lock races'],

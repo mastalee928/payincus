@@ -64,6 +64,10 @@ const savingPlatformPermissions = ref(false)
 const testingSmtp = ref(false)
 const sendingTestEmail = ref(false)
 const testEmailTo = ref('')
+const smtpTestError = ref('')
+const smtpTestSuccess = ref('')
+const smtpTestBusy = computed(() => testingSmtp.value || sendingTestEmail.value || savingSmtp.value)
+let smtpTestDraft = 0
 const popupPromoPackages = ref<Package[]>([])
 const popupPromoPackagesLoading = ref(false)
 const popupPromoPackagesLoaded = ref(false)
@@ -201,6 +205,8 @@ function invalidateContext(): void {
   try { form.value = JSON.parse(defaultForm) } finally { applyingConfigs = false }
   loading.value = false
   testEmailTo.value = ''
+  smtpTestError.value = ''
+  smtpTestSuccess.value = ''
   popupPromoPackages.value = []
   popupPromoPackagesLoaded.value = false
   popupPromoPackagesLoading.value = false
@@ -800,8 +806,14 @@ const hasAvatarChanges = computed(() => {
 // SMTP 保存
 const smtpKeys = ['smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_username', 'smtp_password', 'smtp_from_email', 'smtp_from_name']
 async function saveSmtp() {
+  if (smtpTestBusy.value) return
   await saveConfigGroup(smtpKeys, savingSmtp)
 }
+watch(() => [testEmailTo.value, ...smtpKeys.map(key => (form.value as any)[key])], () => {
+  smtpTestDraft += 1
+  smtpTestError.value = ''
+  smtpTestSuccess.value = ''
+}, { flush: 'sync', deep: true })
 const hasSmtpChanges = computed(() => {
   return smtpKeys.some(key => {
     const config = configs.value.find(c => c.key === key)
@@ -824,38 +836,48 @@ const hasEmailDomainChanges = computed(() => {
 })
 
 async function testSmtpConnection() {
+  if (!available.value || !configsReady.value || loading.value || smtpTestBusy.value) return
+  const context = requestContext(), draft = smtpTestDraft
+  const current = () => context.current() && draft === smtpTestDraft
+  smtpTestError.value = ''
+  smtpTestSuccess.value = ''
   testingSmtp.value = true
   try {
     const result = await api.systemConfig.testSmtp()
-    if (result.success) {
-      toast.success(t('admin.system.smtp.testSuccess'))
-    } else {
-      toast.error(t('admin.system.smtp.testFailed') + ': ' + (result.error || 'Unknown error'))
-    }
+    if (!current()) return
+    if (result?.success !== true || typeof result.message !== 'string' || !result.message.trim()) throw new Error(result?.error || t('admin.system.invalidSaveResponse'))
+    smtpTestSuccess.value = t('admin.system.smtp.testSuccess')
   } catch (err: any) {
-    toast.error(t('admin.system.smtp.testFailed') + ': ' + (err?.message || String(err)))
+    if (current()) smtpTestError.value = t('admin.system.smtp.testFailed') + ': ' + getConfigSaveErrorMessage(err)
   } finally {
     testingSmtp.value = false
   }
 }
 
 async function sendTestEmail() {
-  if (!testEmailTo.value || !testEmailTo.value.includes('@')) {
-    toast.error(t('admin.system.smtp.invalidEmail'))
+  if (!available.value || !configsReady.value || loading.value || smtpTestBusy.value) return
+  const email = testEmailTo.value.trim()
+  smtpTestError.value = ''
+  smtpTestSuccess.value = ''
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    smtpTestError.value = t('admin.system.smtp.invalidEmail')
     return
   }
 
+  const context = requestContext(), draft = smtpTestDraft
+  const current = () => context.current() && draft === smtpTestDraft
   sendingTestEmail.value = true
   try {
-    const result = await api.systemConfig.sendTestEmail(testEmailTo.value)
-    if (result.success) {
-      toast.success(t('admin.system.smtp.testEmailSent', { email: testEmailTo.value }))
-      testEmailTo.value = ''
-    } else {
-      toast.error(t('admin.system.smtp.testEmailFailed') + ': ' + (result.error || 'Unknown error'))
+    const result = await api.systemConfig.sendTestEmail(email)
+    if (!current()) return
+    if (result?.success !== true || typeof result.message !== 'string' || !result.message.trim() ||
+      result.acceptedRecipientCount !== 1 || result.rejectedRecipientCount !== 0 || result.pendingRecipientCount !== 0) {
+      throw new Error(result?.error || t('admin.system.invalidSaveResponse'))
     }
+    testEmailTo.value = ''
+    smtpTestSuccess.value = t('admin.system.smtp.testEmailSent', { email })
   } catch (err: any) {
-    toast.error(t('admin.system.smtp.testEmailFailed') + ': ' + (err?.message || String(err)))
+    if (current()) smtpTestError.value = t('admin.system.smtp.testEmailFailed') + ': ' + getConfigSaveErrorMessage(err)
   } finally {
     sendingTestEmail.value = false
   }
@@ -2028,7 +2050,7 @@ async function sendTestEmail() {
             <button
               type="button"
               class="btn-primary text-sm px-4 py-1.5 shrink-0"
-              :disabled="!hasSmtpChanges || savingSmtp"
+              :disabled="!hasSmtpChanges || smtpTestBusy"
               @click="saveSmtp"
             >
               {{ savingSmtp ? t('admin.system.saving') : t('admin.system.save') }}
@@ -2162,12 +2184,14 @@ async function sendTestEmail() {
 
           <!-- Test Connection & Send Test Email -->
           <div class="space-y-4">
+            <p v-if="smtpTestError" role="alert" class="break-words text-sm text-rose-600 dark:text-rose-400">{{ smtpTestError }}</p>
+            <p v-if="smtpTestSuccess" role="status" class="break-words text-sm text-emerald-600 dark:text-emerald-400">{{ smtpTestSuccess }}</p>
             <!-- Test Connection Button -->
             <div class="flex justify-end">
               <button
                 type="button"
                 class="btn-secondary"
-                :disabled="testingSmtp || !form.smtp_host || !form.smtp_username"
+                :disabled="smtpTestBusy || !available || !configsReady || !form.smtp_host || !form.smtp_username"
                 @click="testSmtpConnection"
               >
                 {{ testingSmtp ? t('admin.system.smtp.testing') : t('admin.system.smtp.testConnection') }}
@@ -2182,18 +2206,18 @@ async function sendTestEmail() {
               <p class="text-xs text-themed-muted mb-3">
                 {{ t('admin.system.smtp.sendTestEmailDesc') }}
               </p>
-              <div class="flex gap-2">
+              <div class="flex flex-col gap-2 sm:flex-row">
                 <input
                   v-model="testEmailTo"
                   type="email"
-                  class="input flex-1"
+                  class="input min-w-0 flex-1"
                   :placeholder="t('admin.system.smtp.testEmailPlaceholder')"
-                  :disabled="sendingTestEmail"
+                  :disabled="smtpTestBusy"
                 />
                 <button
                   type="button"
                   class="btn-secondary whitespace-nowrap"
-                  :disabled="sendingTestEmail || !testEmailTo || !form.smtp_host || !form.smtp_username"
+                  :disabled="smtpTestBusy || !testEmailTo || !available || !configsReady || !form.smtp_host || !form.smtp_username"
                   @click="sendTestEmail"
                 >
                   {{ sendingTestEmail ? t('admin.system.smtp.sending') : t('admin.system.smtp.send') }}

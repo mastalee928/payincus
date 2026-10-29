@@ -86,6 +86,7 @@
     "test:review-system-settings-drafts": "node ../scripts/test-system-settings-drafts.mjs",
     "test:review-system-settings-scope": "node ../scripts/test-system-settings-scope.mjs",
     "test:review-system-settings-receipts": "node ../scripts/test-system-settings-receipts.mjs",
+    "test:review-system-settings-smtp": "node ../scripts/test-system-settings-smtp.mjs",
     "test:review-user-balance-submit": "node ../scripts/test-user-balance-submit.mjs",
     "test:review-user-points-submit": "node ../scripts/test-user-points-submit.mjs",
     "test:review-user-balance-audit": "node --import tsx scripts/test-review-user-balance-audit.ts",

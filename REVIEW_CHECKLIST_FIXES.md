@@ -403,7 +403,7 @@
 | R1-307 | 部分存在，部分已修 | 2FA与邮箱状态/回执实际Chrome及构建守卫通过 | 2FA busy/取消/初读ready/session/cache/unmount/draft/秘密timer、TOTP/设置材料与真实回执已修；邮箱busy和目标/session/输入回执见R313。真实认证全流程及R013敏感验证接线仍待，不把局部矩阵当作完整验收。 |
 | R1-308 | 部分存在 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
 | R1-309 | 存在，部分已修 | 固定密码/回执/验证联动真实Chrome通过 | 固定提交/session/draft pending、busy/取消/cache/unmount/旧timer、真实message/reauthRequired确认已修；Chrome32旧回执、实际SensitiveVerification request/verify/原payload retry/清登录跳转及旧child草稿隔离通过。外部SMTP/真实客户密码完整变更仍待。 |
-| R1-310 | 存在，部分已修 | 草稿/会话/回执Chrome与双端构建通过 | 19组草稿/ABA/独立read基线、当前admin/session/cache/unmount和候选/辅助刷新隔离已修；初读ready拒默认写、严格list/JSON及分组缺key门禁、真实message/分组持久error和DOM retry已验。SMTP当前目标与后台完整真实管理员配置另续，证据见HANDOFF。 |
+| R1-310 | 存在，部分已修 | 草稿/会话/回执/SMTP Chrome与双端构建通过 | 19组草稿/ABA/独立read、session/cache/unmount、ready/严格list/缺key/message与持久error retry已修；SMTP即时busy/固定收件人与草稿/session/实际接受计数、32旧回执与四卸载通过。后台完整真实管理员配置/外部SMTP及灾备另续，证据见HANDOFF。 |
 | R1-311 | 存在，部分已修 | 当前编辑读取Chrome及构建守卫通过 | 编辑target/seq/ABA/mode/show/admin/account/session/unmount隔离、ready/loading/保存门禁、失败持久retry及匹配id已修，真实Chrome16旧回执及正常/失败/刷新/卸载通过。手机开关出界已单列/wrap；保存回执、列表与分类并发另待。 |
 | R1-312 | 部分存在 | 待精修/运行复核 | 当前PackageSelector只展示props.packages，无对方嵌入packageId加载；priority 0用／／20确被默认覆盖。 |
 | R1-313 | 部分存在，部分已修 | 目标/session及输入回执实际Chrome与构建守卫通过 | 四操作固定目标/session/draft/ABA、busy/关闭/卸载/timer已修；两数字输入、四真实成功回执/有效期与过期敏感验证清理已修。80旧回执及输入回执反例/重试通过；实际邮件和客户完整变更另续。 |

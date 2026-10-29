@@ -315,6 +315,8 @@ jobs:
         run: pnpm --filter server test:review-system-settings-scope
       - name: System settings require valid reads and confirmed saves
         run: pnpm --filter server test:review-system-settings-receipts
+      - name: SMTP tests retain their recipient and confirmed provider result
+        run: pnpm --filter server test:review-system-settings-smtp
       - name: Balance adjustments keep their target, draft and confirmed receipt
         run: pnpm --filter server test:review-user-balance-submit
       - name: Points adjustments reject stale receipts and repeated submissions

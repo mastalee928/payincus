@@ -3700,7 +3700,7 @@ pool: {
                 sending: 'Sending...',
                 send: 'Send',
                 invalidEmail: 'Please enter a valid email address',
-                testEmailSent: 'Test email sent to {email}',
+                testEmailSent: 'The mail service accepted the test email for {email}. Check your inbox.',
                 testEmailFailed: 'Failed to send test email',
                 helpText: 'Make sure the SMTP server address, port, username and password are correct. Most email providers require an app password instead of your login password.',
             },
