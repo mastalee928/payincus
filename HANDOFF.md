@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-105 重装命令复制等待与当前弹窗回执
+
+- 实际Chrome先红：剪贴板Promise未完成已有成功toast。现await完成才成功，在途锁、disabled/aria-busy，权限拒绝/不支持/同步throw就地三语错误、实际按钮可重试；绑定原宿主、两端详情路由、account/role/sid、命令/弹窗同步代次、KeepAlive与卸载。host/route/session/command/dialog ABA拒旧成功和失败，同sid刷新保当前复制。
+- 离开宿主、换账户、缓存离页、卸载及显式关闭清空敏感命令/关闭弹窗；原在途复制锁保到原请求finally结束，避免缓存返回重复提交。这里只修复制与命令清理，生成安装/验证回执及宿主详情读取仍归R102/R103；未执行重装、DD或真实宿主写。
+- final-verified session79993最终exit0：真实MyHostDetailView实际按钮、30组旧回执、重复/失败retry、三语三宽、缓存锁/敏感命令清空、管理员路由与same sid通过，零系统剪贴板写，DISPLAY-ONLY文案。--serve11104已核命令定向停止，终止不计通过；早期缺44px和动画过渡中间态已修，失败轮不计通过。
+- taste沿Achromatic ledger seed242843060，局部平实弹窗、去渐变/blur/按钮阴影、44px控件/13px手机文字/可访问名称及dialog语义；浅深三宽最后0 FAIL/1 WARN，共12终图全部查看。hero-void来自背后未挂子标签的父页面夹具，不当整页密度证据，无allow；评审logs/host-detail-copy-critique.md，局部7.2。静态0 FAIL/1 WARN为原真实URL mono；整页UI与真实重装流程另验。
+- frontend route/i18n、host-pool守卫、client type-check86416、末lint99784、语法/diff/manifest194常规196专项有效；最终双端build-verified34915含两端vue-tsc与末dist均最终exit0，无待poll，产物含最后局部控件样式/命令清理。新专项已登记server/EXCLUDED_FROM_SUITE/CI。R09968807cb6已push且核远端，当前CI仍另核；阶段保存后228有修复/复验（含部分）、68已有防护/实现不同、31待精修，部分项真实运行/完整327/灾备仍未完成。PG55438保留，未发行/生产/客户操作；下一R104延期整数与部分失败统计，当前extend-all后端未返回failedCount，不机械套入旧清单描述，需沿实际部分执行失败链路审查。
+
 ## 2026-10-30 R1-099 宿主四类操作绑定当前目标
 
 - 升级、生成安装命令、资源校对及IPv6同步固定原host/account/role/sid/同步代次与生命周期；切宿主、会话ABA、缓存离页和卸载后旧成功/失败不通知、不刷新、不写当前Agent或安装命令。四写共享在途门禁，缓存返回保留原锁至原请求结束；当前失败就地持久显示并支持原按钮重试。

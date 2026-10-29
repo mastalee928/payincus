@@ -368,6 +368,8 @@ jobs:
         run: pnpm --filter server test:review-host-info-copy
       - name: Host mutations confirm the current target and serialize pending operations
         run: pnpm --filter server test:review-host-info-mutations
+      - name: Reinstall command copying waits and keeps feedback in the current host dialog
+        run: pnpm --filter server test:review-host-detail-copy
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

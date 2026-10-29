@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R105重装命令复制await/失败retry/当前host-route-session-command-dialog同步代次与缓存卸载已修；final-verified79993实际Chrome30旧回执/管理员入口/三语三宽/44px通过exit0。最后双端build34915/末dist最终exit0，守卫及浅深0FAIL/1WARN终12图见HANDOFF；228含部分/68已有不同/31待，R102/R103与真实宿主/完整327/灾备另续。
+
 2026-10-30 R099四写当前host/account/role/sid/同步代次/cache/unmount回执、共享在途锁/失败原按钮重试/合法回执及安装旧读隔离已修；实际Chrome72组旧回执与三语三宽通过，final-verified51058最终exit0。types/守卫/双端build/dist/lint及浅深三宽0FAIL/WARN/12图见HANDOFF。227有修复/复验（含部分）/68已有防护或实现不同/32待；真实宿主/部分项未完与完整327/灾备继续。
 
 2026-10-30 R100复制安装命令先红剪贴板未完成就提示成功；现await、当前host/session/command代次、重复锁及持久三语失败/实际retry。真实Chrome24旧回执/权限拒绝/不支持/同步throw/三语三宽通过，226含部分/68已有不同/33待；R099写回执继续。
@@ -264,7 +266,7 @@
 | R1-102 | 存在 | 待精修/运行复核 | 宿主读取与操作无route generation；批量延期仅范围不integer并隐藏失败数；copy未等待clipboard。 |
 | R1-103 | 存在 | 待精修/运行复核 | 宿主读取与操作无route generation；批量延期仅范围不integer并隐藏失败数；copy未等待clipboard。 |
 | R1-104 | 存在 | 待精修/运行复核 | 宿主读取与操作无route generation；批量延期仅范围不integer并隐藏失败数；copy未等待clipboard。 |
-| R1-105 | 存在 | 待精修/运行复核 | 宿主读取与操作无route generation；批量延期仅范围不integer并隐藏失败数；copy未等待clipboard。 |
+| R1-105 | 存在 | 源码已修/浏览器隔离验证通过 | 实际重装复制await、失败持久原按钮retry、重复锁与原host/route/account/session/命令弹窗同步代次/cache/unmount隔离，敏感命令离页清空；Chrome30旧回执/两端入口/same sid/三语三宽通过，最终构建/守卫/taste证据见HANDOFF。R102读/R103写仍待，未真实剪贴板/宿主执行。 |
 | R1-106 | 存在 | 待精修/运行复核 | canSave未限制loading/初读成功；失败可保存默认策略，保存后loadPolicy覆盖新草稿。 |
 | R1-107 | 存在 | 待精修/运行复核 | canSave未限制loading/初读成功；失败可保存默认策略，保存后loadPolicy覆盖新草稿。 |
 | R1-108 | 存在 | 待精修/运行复核 | list/status/action缺host和request generation，失败残留旧数据，迟到结果可作用当前视图。 |

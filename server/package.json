@@ -170,6 +170,7 @@
     "test:review-host-info-reads": "node ../scripts/test-host-info-reads.mjs",
     "test:review-host-info-copy": "node ../scripts/test-host-info-copy.mjs",
     "test:review-host-info-mutations": "node ../scripts/test-host-info-mutations.mjs",
+    "test:review-host-detail-copy": "node ../scripts/test-host-detail-copy.mjs",
     "test:review-finance-authorization-integration": "node --import tsx scripts/test-review-finance-authorization-integration.ts",
     "test:review-ipv6-route-recovery": "node --import tsx scripts/test-review-ipv6-route-recovery.ts",
     "test:review-quota-hosting-integration": "node --import tsx scripts/test-review-quota-hosting-integration.ts",

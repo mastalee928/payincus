@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onActivated, computed, watch } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated, onBeforeUnmount, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
@@ -89,6 +89,24 @@ const paidInstanceCount = ref(0)
 // 重新安装弹窗
 const showReinstallModal = ref(false)
 const reinstallCommand = ref('')
+const reinstallCopying = ref(false), reinstallCopyError = ref(false), copyViewActive = ref(true)
+let copyViewAlive = true, reinstallCopyGeneration = 0
+const copySession = computed(() => {
+  if (!authStore.user || !authStore.token || !Number.isSafeInteger(authStore.user.id) || authStore.user.id < 1) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string' && payload.sid) identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+function invalidateReinstallCopy() { reinstallCopyGeneration++; reinstallCopyError.value = false }
+watch([() => route.fullPath, copySession, () => host.value?.id, reinstallCommand, showReinstallModal], invalidateReinstallCopy, { flush: 'sync' })
+function clearReinstallCommand() { reinstallCommand.value = ''; showReinstallModal.value = false; invalidateReinstallCopy() }
+watch([() => route.fullPath, copySession, () => host.value?.id], clearReinstallCommand, { flush: 'sync' })
+onActivated(() => { copyViewActive.value = true })
+onDeactivated(() => { copyViewActive.value = false; clearReinstallCommand() })
+onBeforeUnmount(() => { copyViewAlive = false; clearReinstallCommand() })
 
 const reinstallStatus = ref<'waiting' | 'verifying' | 'success' | 'error'>('waiting')
 const reinstallError = ref('')
@@ -343,16 +361,27 @@ async function verifyAfterReinstall() {
 }
 
 // 复制重新安装命令
-function copyReinstallCommand() {
-  navigator.clipboard.writeText(reinstallCommand.value)
-  toast.success(t('common.copied'))
+async function copyReinstallCommand() {
+  const hostId = host.value?.id, command = reinstallCommand.value, session = copySession.value, generation = reinstallCopyGeneration
+  const current = () => copyViewAlive && copyViewActive.value && !!session && session === copySession.value &&
+    generation === reinstallCopyGeneration && showReinstallModal.value && isOnHostDetailRoute() &&
+    String(route.params.id) === String(hostId) && Number.isSafeInteger(hostId) && (hostId ?? 0) > 0 &&
+    host.value?.id === hostId && reinstallCommand.value === command
+  if (reinstallCopying.value || !current() || !command.trim() || command.length > 32768) return
+  reinstallCopying.value = true; reinstallCopyError.value = false
+  try {
+    await navigator.clipboard.writeText(command)
+    if (current()) toast.success(t('common.copied'))
+  } catch {
+    if (current()) { reinstallCopyError.value = true; toast.error(t('common.copyFailed')) }
+  } finally { reinstallCopying.value = false }
 }
 
 
 
 // 关闭重新安装弹窗
 function closeReinstallModal() {
-  showReinstallModal.value = false
+  clearReinstallCommand()
   loadHost()
 }
 
@@ -371,7 +400,7 @@ const tabs = [
 </script>
 
 <template>
-  <div class="kawaii-page space-y-6 animate-fade-in">
+  <div class="host-detail kawaii-page space-y-6 animate-fade-in">
     <div v-if="loading">
       <SkeletonLoader type="detail" />
     </div>
@@ -603,12 +632,12 @@ const tabs = [
       <!-- 重新安装弹窗 -->
       <Teleport to="body">
         <Transition name="modal">
-          <div v-if="showReinstallModal" class="modal-overlay">
+          <div v-if="showReinstallModal" class="modal-overlay reinstall-overlay">
             <div class="modal-backdrop" @click="closeReinstallModal"></div>
-            <div class="modal-content" style="max-width: 72rem; width: 95%;">
+            <div class="modal-content reinstall-dialog" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.reinstallScript')" style="max-width: 72rem; width: 95%;">
               <div class="modal-header">
                 <h3 class="modal-title">{{ t('admin.hosts.reinstallScript') }}</h3>
-                <button class="text-themed-muted hover:text-themed" @click="closeReinstallModal">
+                <button type="button" class="text-themed-muted hover:text-themed" :aria-label="t('common.close')" @click="closeReinstallModal">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -626,7 +655,8 @@ const tabs = [
                     <code class="text-green-400 text-sm break-all whitespace-pre-wrap font-mono">{{ reinstallCommand }}</code>
                   </div>
                   <div class="ml-8 mb-4">
-                    <button class="btn-secondary btn-sm" @click="copyReinstallCommand">{{ t('admin.hosts.copyCommand') }}</button>
+                    <button type="button" data-host-reinstall-copy class="btn-secondary btn-sm min-h-11 sm:min-h-0" :disabled="reinstallCopying || !reinstallCommand" :aria-busy="reinstallCopying" @click="copyReinstallCommand">{{ t('admin.hosts.copyCommand') }}</button>
+                    <p v-if="reinstallCopyError" data-host-reinstall-copy-error class="text-sm text-themed-secondary break-words mt-2" role="status">{{ t('common.copyFailed') }}</p>
                   </div>
                 </div>
 
@@ -695,12 +725,30 @@ const tabs = [
 </template>
 
 <style scoped>
+.reinstall-dialog {
+  background: var(--kawaii-surface) !important;
+  box-shadow: none !important;
+  backdrop-filter: none;
+}
+.reinstall-overlay .modal-backdrop { backdrop-filter: none; }
+.reinstall-dialog button,
+.host-detail button { box-shadow: none !important; }
+.reinstall-dialog button { transition-property: color, background-color, border-color, opacity; }
+.reinstall-dialog button::before,
+.host-detail button::before { display: none; }
+.reinstall-dialog .text-themed-muted,
+.host-detail .text-themed-muted { color: var(--kawaii-text) !important; }
+@media (max-width: 639px) {
+  .reinstall-dialog button { min-height: 44px !important; font-size: 13px; }
+  .reinstall-dialog p { font-size: 13px; }
+}
 /* Nimbus in-page tabs: indigo underline, smooth colour/underline transition */
 .nimbus-tab {
   transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .reinstall-dialog { animation: none !important; transition: none !important; transform: none !important; }
   .nimbus-tab {
     transition: none;
   }
