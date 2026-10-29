@@ -366,6 +366,8 @@ jobs:
         run: pnpm --filter server test:review-host-info-reads
       - name: Host Agent command copy confirms current clipboard completion and handles retry
         run: pnpm --filter server test:review-host-info-copy
+      - name: Host mutations confirm the current target and serialize pending operations
+        run: pnpm --filter server test:review-host-info-mutations
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

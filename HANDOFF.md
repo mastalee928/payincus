@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-099 宿主四类操作绑定当前目标
+
+- 升级、生成安装命令、资源校对及IPv6同步固定原host/account/role/sid/同步代次与生命周期；切宿主、会话ABA、缓存离页和卸载后旧成功/失败不通知、不刷新、不写当前Agent或安装命令。四写共享在途门禁，缓存返回保留原锁至原请求结束；当前失败就地持久显示并支持原按钮重试。
+- 严格检查四类回执的目标、类型及合法值，保留合法false结果。安装开始清旧命令并使旧Agent读取失效，成功安装结果不被旧读取覆盖；当前安装期间暂停该目标读取，旧目标安装不阻止新宿主或缓存返回读取。未改后端权限、执行/资源校对/客户IPv6、一机一卖与配额规则。
+- mutations-before实际Chrome先红：A升级后切B仍显示旧成功。final-verified session51058最终exit0：四写72组旧成功/失败回执、冲突重复锁、非法回执/失败重试/合法false、确认时换账号、安装旧读覆盖、缓存返回锁及同sid通过；三语1440/768/390实际资源校对按钮/错误文字无横溢。--serve11624已核命令定向停止，其终止不作专项通过证据。
+- R098读取回归18667、R100复制回归37912、client类型21927、ESLint39706、最终双端build含vue-tsc97899均最终exit0；frontend route/i18n、Agent auth/version/route-id/install-command/redaction与host-pool守卫、末dist、语法/diff/manifest分类通过。日志takeover-host-info-mutations-*；新专项已登记server/EXCLUDED_FROM_SUITE/CI，当前提交CI另核，不提前声称通过。
+- taste沿Achromatic ledger seed242843060；浅深三宽最终各0 FAIL/0 WARN，12终图全部查看，评审logs/host-info-mutations-critique.md，局部评分7.2。仅受控API、DISPLAY-ONLY命令与文档网段，无真实宿主写或真实token。阶段保存后227有修复/复验（含部分）、68已有防护/实现不同、32待精修；真实宿主执行、其中部分项完整验收、完整327与网关灾备仍未完成。未发行/生产/客户操作，PG55438保留。下一R105重新安装命令复制，再续R102–104宿主详情。
+
 ## 2026-10-30 R1-100 安装命令复制确认真实完成
 
 - 实际Chrome先红：clipboard Promise未完成已显示成功。现await完成，捕捉拒绝、不支持及同步throw；在途重复门禁，按钮disabled/aria-busy，失败三语持久提示并可实际按钮重试。绑定原host/session/生命周期及command/expiry同步代次，命令或账户ABA拒旧成功/失败，缓存离页清原命令；同sid刷新保当前复制。

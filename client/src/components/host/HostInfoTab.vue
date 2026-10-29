@@ -58,10 +58,20 @@ const ipv6Sync = computed(() => props.host.natConfig?.publicIpv6Sync)
 const ipv6Error = computed(() => ipv6Sync.value?.error && te('ipv6Delivery.errors.' + ipv6Sync.value.error)
   ? t('ipv6Delivery.errors.' + ipv6Sync.value.error) : '')
 async function syncIpv6() {
-  if (syncingIpv6.value) return
+  if (!available.value || authStore.user?.role !== 'admin' || hostMutating.value) return
+  const context = readContext()
   syncingIpv6.value = true
-  try { await api.hosts.syncIpv6(props.host.id); emit('refresh') }
-  catch { toast.error(t('ipv6Delivery.status.failed')) }
+  ipv6MutationError.value = ''
+  try {
+    const result = await api.hosts.syncIpv6(context.hostId)
+    if (!context.current()) return
+    if (!result || !['idle', 'synced', 'pending', 'failed'].includes(result.status) || !Array.isArray(result.addresses) ||
+      !result.addresses.every(address => typeof address === 'string') || (result.primary !== null && typeof result.primary !== 'string')) throw Error('Invalid IPv6 sync response')
+    emit('refresh')
+  }
+  catch {
+    if (context.current()) { ipv6MutationError.value = t('ipv6Delivery.status.failed'); toast.error(ipv6MutationError.value) }
+  }
   finally { syncingIpv6.value = false }
 }
 
@@ -103,6 +113,10 @@ const agentUpgradeRequesting = ref(false)
 const agentInstallCommandLoading = ref(false)
 const agentInstallCommand = ref('')
 const agentInstallTokenExpiresAt = ref('')
+const recalculating = ref(false)
+const recalculateError = ref(''), ipv6MutationError = ref(''), agentMutationError = ref('')
+const hostMutating = computed(() => syncingIpv6.value || recalculating.value || agentUpgradeRequesting.value || agentInstallCommandLoading.value)
+let installingCurrentHost: (() => boolean) | null = null
 const agentCommandCopying = ref(false)
 const agentCommandCopyError = ref(false)
 let commandGeneration = 0
@@ -194,7 +208,7 @@ async function loadTrafficHistory() {
 }
 
 async function loadAgentStatus(showToast = false) {
-  if (!available.value) return
+  if (!available.value || installingCurrentHost?.()) return
   const context = readContext(), sequence = ++agentSequence
   const current = () => context.current() && sequence === agentSequence
   agentStatusLoading.value = !agentStatus.value
@@ -379,6 +393,7 @@ function invalidateReads(): void {
   agentStatusLoading.value = false; agentStatusRefreshing.value = false
   agentInstallCommand.value = ''
   agentInstallTokenExpiresAt.value = ''
+  recalculateError.value = ''; ipv6MutationError.value = ''; agentMutationError.value = ''
 }
 function loadCurrentReads(): void {
   if (!available.value) return
@@ -465,35 +480,56 @@ function refreshAgentStatus() {
 }
 
 async function requestAgentUpgrade() {
-  if (!canRequestAgentUpgrade.value || agentUpgradeRequesting.value) return
+  if (!available.value || !canRequestAgentUpgrade.value || hostMutating.value) return
+  const context = readContext()
   agentUpgradeRequesting.value = true
+  agentMutationError.value = ''
   try {
-    const result = await api.hosts.requestAgentUpgrade(props.host.id)
+    const result = await api.hosts.requestAgentUpgrade(context.hostId)
+    if (!context.current()) return
+    if (!result || typeof result.requested !== 'boolean' || typeof result.message !== 'string' || !result.message.trim() ||
+      !Number.isSafeInteger(result.nextHeartbeatSeconds) || result.nextHeartbeatSeconds < minAgentRefreshSeconds ||
+      result.nextHeartbeatSeconds > maxAgentRefreshSeconds || !['latest', 'outdated'].includes(result.versionStatus)) throw Error(t('admin.hosts.agentUpgradeRequestFailed'))
     const message = result.requested
       ? t('admin.hosts.agentUpgradeRequestSuccess', { seconds: result.nextHeartbeatSeconds })
       : t('admin.hosts.agentAlreadyLatest')
     toast.success(message)
     await loadAgentStatus()
   } catch (err: any) {
-    toast.error(t('admin.hosts.agentUpgradeRequestFailed') + ': ' + (err?.message || String(err)))
+    if (context.current()) { agentMutationError.value = t('admin.hosts.agentUpgradeRequestFailed') + ': ' + (err?.message || String(err)); toast.error(agentMutationError.value) }
   } finally {
     agentUpgradeRequesting.value = false
   }
 }
 
 async function generateAgentInstallCommand() {
-  if (agentInstallCommandLoading.value) return
+  if (!available.value || hostMutating.value) return
+  const context = readContext()
   if (!window.confirm(t('admin.hosts.agentInstallCommandConfirm'))) return
+  if (!context.current() || hostMutating.value) return
   agentInstallCommandLoading.value = true
+  installingCurrentHost = context.current
+  agentMutationError.value = ''
+  agentInstallCommand.value = ''; agentInstallTokenExpiresAt.value = ''
+  agentSequence++; agentStatusRefreshing.value = false; agentStatusLoading.value = false
   try {
-    const result = await api.hosts.generateAgentInstallCommand(props.host.id)
+    const result = await api.hosts.generateAgentInstallCommand(context.hostId)
+    if (!context.current()) return
+    if (!result || result.host?.id !== context.hostId || result.agent?.hostId !== context.hostId ||
+      !Number.isSafeInteger(result.agent.id) || result.agent.id < 1 || typeof result.agent.enabled !== 'boolean' ||
+      typeof result.agent.status !== 'string' || !Array.isArray(result.agent.capabilities) || !result.agent.capabilities.every(value => typeof value === 'string') ||
+      typeof result.installCommand !== 'string' || !result.installCommand.trim() || result.installCommand.length > 32768 ||
+      typeof result.installTokenExpiresAt !== 'string' || !Number.isFinite(Date.parse(result.installTokenExpiresAt)) || Date.parse(result.installTokenExpiresAt) <= Date.now()) throw Error(t('admin.hosts.agentInstallCommandFailed'))
+    agentSequence++
     agentInstallCommand.value = result.installCommand
     agentInstallTokenExpiresAt.value = result.installTokenExpiresAt
     agentStatus.value = result.agent
+    startAgentStatusAutoRefresh()
     toast.success(t('admin.hosts.agentInstallCommandSuccess'))
   } catch (err: any) {
-    toast.error(t('admin.hosts.agentInstallCommandFailed') + ': ' + (err?.message || String(err)))
+    if (context.current()) { agentMutationError.value = t('admin.hosts.agentInstallCommandFailed') + ': ' + (err?.message || String(err)); toast.error(agentMutationError.value) }
   } finally {
+    installingCurrentHost = null
     agentInstallCommandLoading.value = false
   }
 }
@@ -515,13 +551,15 @@ async function copyAgentInstallCommand() {
 }
 
 // 资源校对
-const recalculating = ref(false)
-
 async function recalculateResources() {
-  if (recalculating.value) return
+  if (!available.value || hostMutating.value) return
+  const context = readContext()
   recalculating.value = true
+  recalculateError.value = ''
   try {
-    const result = await api.hosts.recalculateResources(props.host.id)
+    const result = await api.hosts.recalculateResources(context.hostId)
+    if (!context.current()) return
+    if (!result || typeof result.hasChanges !== 'boolean' || typeof result.message !== 'string' || !result.message.trim()) throw Error(t('admin.hosts.recalculateFailed'))
     if (result.hasChanges) {
       toast.success(t('admin.hosts.recalculateSuccess'))
       // 刷新父组件数�?
@@ -530,7 +568,7 @@ async function recalculateResources() {
       toast.info(t('admin.hosts.recalculateNoChanges'))
     }
   } catch (err: any) {
-    toast.error(t('admin.hosts.recalculateFailed') + ': ' + (err?.message || String(err)))
+    if (context.current()) { recalculateError.value = t('admin.hosts.recalculateFailed') + ': ' + (err?.message || String(err)); toast.error(recalculateError.value) }
   } finally {
     recalculating.value = false
   }
@@ -673,7 +711,7 @@ const xAxisLabels = computed(() => {
         </h2>
         <button
           class="btn-ghost btn-xs flex items-center gap-1"
-          :disabled="recalculating"
+          :disabled="hostMutating"
           :title="t('admin.hosts.recalculateResourcesTip')"
           @click="recalculateResources"
         >
@@ -689,6 +727,7 @@ const xAxisLabels = computed(() => {
           <span class="hidden sm:inline">{{ t('admin.hosts.recalculateResources') }}</span>
         </button>
       </div>
+      <p v-if="recalculateError" data-host-mutation-error class="text-sm text-themed-secondary break-words mb-3" role="status">{{ recalculateError }}</p>
       <p v-if="statsError" data-host-stats-error class="text-sm text-themed-secondary flex items-center justify-between gap-3 mb-3" role="status">
         {{ t('common.loadFailed') }} · {{ t('admin.hosts.resources') }}
         <button type="button" class="btn-secondary btn-xs shrink-0" :disabled="statsLoading" @click="loadInstanceStats">{{ t('common.retry') }}</button>
@@ -760,9 +799,10 @@ const xAxisLabels = computed(() => {
           <div v-if="ipv6Sync" class="space-y-2 pt-2">
             <dt class="flex flex-wrap items-center justify-between gap-2">
               <span class="text-gray-500">{{ t('ipv6Delivery.title') }}</span>
-              <button v-if="authStore.user?.role === 'admin'" type="button" class="btn-secondary text-xs" :disabled="syncingIpv6" @click="syncIpv6">{{ t(syncingIpv6 ? 'ipv6Delivery.checking' : 'ipv6Delivery.sync') }}</button>
+              <button v-if="authStore.user?.role === 'admin'" type="button" class="btn-secondary text-xs" :disabled="hostMutating" @click="syncIpv6">{{ t(syncingIpv6 ? 'ipv6Delivery.checking' : 'ipv6Delivery.sync') }}</button>
             </dt>
             <dd class="space-y-2">
+              <p v-if="ipv6MutationError" data-host-mutation-error class="text-sm text-themed-secondary break-words" role="status">{{ ipv6MutationError }}</p>
               <PublicIpv6Addresses :addresses="ipv6Sync.addresses" show-empty />
               <p class="text-xs" :class="ipv6Sync.status === 'failed' ? 'text-red-600 dark:text-red-400' : ipv6Sync.status === 'pending' ? 'text-amber-700 dark:text-amber-300' : 'text-themed-muted'" role="status">{{ t('ipv6Delivery.status.' + ipv6Sync.status) }}</p>
               <p v-if="ipv6Error" class="text-xs text-amber-700 dark:text-amber-300">{{ ipv6Error }}</p>
@@ -811,7 +851,7 @@ const xAxisLabels = computed(() => {
       <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
         <button
           class="btn-secondary btn-xs flex items-center gap-1"
-          :disabled="agentInstallCommandLoading"
+          :disabled="hostMutating"
           @click="generateAgentInstallCommand"
         >
           <svg
@@ -827,7 +867,7 @@ const xAxisLabels = computed(() => {
         </button>
         <button
           class="btn-ghost btn-xs flex items-center gap-1"
-          :disabled="agentStatusRefreshing"
+          :disabled="agentStatusRefreshing || agentInstallCommandLoading"
           @click="refreshAgentStatus"
         >
           <svg
@@ -869,6 +909,7 @@ const xAxisLabels = computed(() => {
       <pre class="rounded-md p-3 overflow-x-auto text-xs font-mono whitespace-pre-wrap break-all" :class="themeStore.isDark ? 'bg-black/40 text-green-300' : 'bg-gray-900 text-green-300'">{{ agentInstallCommand }}</pre>
     </div>
 
+    <p v-if="agentMutationError" data-host-mutation-error class="text-sm text-themed-secondary break-words mb-3" role="status">{{ agentMutationError }}</p>
     <div v-if="agentStatusError" data-host-agent-error class="rounded-lg p-3 mb-3 text-sm flex items-center justify-between gap-3" :class="themeStore.isDark ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-700'" role="status">
       <span class="min-w-0 break-words">{{ t('admin.hosts.agentStatusLoadFailed') }}: {{ agentStatusError }}</span>
       <button type="button" class="btn-secondary btn-xs shrink-0" :disabled="agentStatusRefreshing" @click="refreshAgentStatus">{{ t('common.retry') }}</button>
@@ -910,7 +951,7 @@ const xAxisLabels = computed(() => {
             class="text-xs px-2 py-1 rounded-full font-mono inline-flex items-center gap-1.5 transition hover:brightness-105 disabled:cursor-wait disabled:opacity-70"
             :class="agentVersionInfo.class"
             :title="agentStatus.latestVersion ? t('admin.hosts.agentUpgradeClickHint', { version: agentStatus.latestVersion }) : agentVersionInfo.title"
-            :disabled="agentUpgradeRequesting"
+            :disabled="hostMutating"
             @click="requestAgentUpgrade"
           >
             <svg
