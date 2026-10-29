@@ -28,7 +28,8 @@ const app = createApp({ components: { HostDetail }, setup() {
     await nextTick()
     const v = component.value?.$?.setupState
     const params = new URLSearchParams(location.search)
-    if (params.has('action-error')) { void v.testConnection(); pending.at(-1)?.reject(Error('fixture action failed')) }
+    if (params.has('extend-error')) { await v.openExtendModal(); v.extendDays = 2; void v.confirmExtendAll(); pending.at(-1)?.reject(Error('fixture extension failed')) }
+    else if (params.has('action-error')) { void v.testConnection(); pending.at(-1)?.reject(Error('fixture action failed')) }
     else if (params.has('delete-error')) { v.showDeleteModal = true; v.deleteConfirmName = v.host.name; void v.confirmDeleteHost(); pending.at(-1)?.reject(Error('fixture deletion failed')) }
     else if (!params.has('read-error')) { v.reinstallCommand = 'DISPLAY-ONLY reinstall command'; v.showReinstallModal = true }
     if (params.has('verify-error')) { void v.verifyAfterReinstall(); pending.at(-1)?.resolve({ success: false }) }

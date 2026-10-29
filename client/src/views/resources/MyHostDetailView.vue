@@ -91,6 +91,9 @@ const deleteConfirmName = ref('')
 const showExtendModal = ref(false)
 const extendDays = ref<number | undefined>(undefined)
 const paidInstanceCount = ref(0)
+const validExtendDays = computed(() => typeof extendDays.value === 'number' && Number.isSafeInteger(extendDays.value) && extendDays.value >= 1 && extendDays.value <= 365)
+let extendDialogGeneration = 0
+watch([showExtendModal, extendDays], () => { extendDialogGeneration++ }, { flush: 'sync' })
 
 // 重新安装弹窗
 const showReinstallModal = ref(false)
@@ -291,26 +294,22 @@ async function openExtendModal() {
 
 // 确认批量延期
 async function confirmExtendAll() {
-  if (actionLoading.value) return
-  if (!host.value || !extendDays.value || extendDays.value < 1 || extendDays.value > 365) {
+  if (actionLoading.value || !showExtendModal.value || !isAdmin.value) return
+  if (!host.value || !validExtendDays.value) {
     toast.error(t('admin.hosts.extendDaysInvalid'))
     return
   }
   
-  actionLoading.value = 'extend'
-  showExtendModal.value = false
-  try {
-    const res = await api.hosts.batchExtendAll(host.value.id, extendDays.value)
-    if (res.success) {
-      toast.success(t('admin.hosts.extendSuccess', { count: res.extendedCount, days: extendDays.value }))
-    } else {
-      toast.info(res.message)
-    }
-  } catch (err: any) {
-    toast.error(t('admin.hosts.extendFailed') + ': ' + (err?.message || String(err)))
-  } finally {
-    actionLoading.value = ''
-  }
+  const days = extendDays.value!, dialog = extendDialogGeneration
+  await runHostAction('extend', 'admin.hosts.extendFailed', async (id, current) => {
+    const res: unknown = await api.hosts.batchExtendAll(id, days)
+    if (!current()) return
+    requireHostSuccess(res)
+    if (!('extendedCount' in res) || typeof res.extendedCount !== 'number' || !Number.isSafeInteger(res.extendedCount) || res.extendedCount < 0 ||
+      !('message' in res) || typeof res.message !== 'string' || !res.message.trim()) throw Error(t('common.operationFailed'))
+    toast.success(t('admin.hosts.extendSuccess', { count: res.extendedCount, days }))
+    showExtendModal.value = false
+  }, () => showExtendModal.value && dialog === extendDialogGeneration && days === extendDays.value)
 }
 
 // 重新安装：生成新的安装命令
@@ -372,6 +371,7 @@ function closeReinstallModal() {
 }
 
 function closeDeleteModal() { if (!actionLoading.value) showDeleteModal.value = false }
+function closeExtendModal() { if (!actionLoading.value) showExtendModal.value = false }
 
 const tabs = [
   { key: 'info', labelKey: 'admin.hosts.tabInfo', icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
@@ -488,7 +488,7 @@ const tabs = [
         </div>
       </div>
 
-      <p v-if="actionError && !showDeleteModal && !showReinstallModal" data-host-detail-action-error class="rounded-lg bg-themed-secondary p-4 text-sm break-words" role="status">{{ actionError }}</p>
+      <p v-if="actionError && !showDeleteModal && !showReinstallModal && !showExtendModal" data-host-detail-action-error class="rounded-lg bg-themed-secondary p-4 text-sm break-words" role="status">{{ actionError }}</p>
 
       <!-- Tab Navigation -->
       <div class="border-b border-themed">
@@ -529,12 +529,12 @@ const tabs = [
       <!-- 批量延期弹窗 -->
       <Teleport to="body">
         <Transition name="modal">
-          <div v-if="showExtendModal" class="modal-overlay">
-            <div class="modal-backdrop" @click="showExtendModal = false"></div>
-            <div class="modal-content max-w-md">
+          <div v-if="showExtendModal" class="modal-overlay host-extend-overlay">
+            <div class="modal-backdrop" @click="closeExtendModal"></div>
+            <div class="modal-content max-w-md host-extend-dialog" role="dialog" aria-modal="true" :aria-label="t('admin.hosts.batchExtend')">
               <div class="modal-header">
                 <h3 class="modal-title">{{ t('admin.hosts.batchExtend') }}</h3>
-                <button class="text-themed-muted hover:text-themed" @click="showExtendModal = false">
+                <button type="button" class="text-themed-muted hover:text-themed" :disabled="!!actionLoading" :aria-label="t('common.close')" @click="closeExtendModal">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -546,26 +546,33 @@ const tabs = [
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <p class="text-sm text-themed-secondary">
-                    {{ t('admin.hosts.extendHint', { count: paidInstanceCount }) }}
+                    {{ t('admin.hosts.extendAllHint') }}
                   </p>
                 </div>
                 <div>
-                  <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.extendDaysLabel') }}</label>
+                  <label for="host-extend-days" class="block text-sm text-themed-muted mb-1.5">{{ t('admin.hosts.extendDaysLabel') }}</label>
                   <input
+                    id="host-extend-days"
                     v-model.number="extendDays"
+                    data-host-extend-days
+                    :disabled="!!actionLoading"
                     type="number"
                     min="1"
                     max="365"
+                    step="1"
                     class="input"
                     :placeholder="t('admin.hosts.extendDaysPlaceholder')"
                   />
                 </div>
+                <p v-if="actionError" data-host-detail-action-error class="text-sm text-themed-secondary break-words" role="status">{{ actionError }}</p>
               </div>
               <div class="modal-footer">
-                <button class="btn-secondary" @click="showExtendModal = false">{{ t('common.cancel') }}</button>
+                <button class="btn-secondary" :disabled="!!actionLoading" @click="closeExtendModal">{{ t('common.cancel') }}</button>
                 <button
                   class="btn-primary"
-                  :disabled="!extendDays || extendDays < 1 || extendDays > 365"
+                  data-host-extend-confirm
+                  :disabled="!validExtendDays || !!actionLoading"
+                  :aria-busy="actionLoading === 'extend'"
                   @click="confirmExtendAll"
                 >
                   {{ t('admin.hosts.confirmExtendBtn') }}
@@ -729,6 +736,12 @@ const tabs = [
 .host-detail { animation: none !important; }
 .host-detail .page-header .btn-primary { background: var(--kawaii-text) !important; color: var(--kawaii-surface) !important; }
 .host-detail .nimbus-tab.border-primary-500 { border-color: currentColor; }
+.host-extend-dialog { background: var(--kawaii-surface) !important; box-shadow: none !important; }
+.host-extend-overlay .modal-backdrop { backdrop-filter: none; }
+.host-extend-dialog button { box-shadow: none !important; }
+.host-extend-dialog button::before { display: none; }
+.host-extend-dialog .btn-primary { background: var(--kawaii-text) !important; color: var(--kawaii-surface) !important; }
+.host-extend-dialog .text-themed-muted { color: var(--kawaii-text) !important; }
 .reinstall-dialog {
   background: var(--kawaii-surface) !important;
   box-shadow: none !important;
@@ -755,6 +768,7 @@ const tabs = [
 @media (max-width: 639px) {
   [data-host-detail-read-retry] { min-height: 44px !important; }
   .host-detail .page-header button, .host-delete-dialog button, .host-delete-dialog input { min-height: 44px !important; }
+  .host-extend-dialog button, .host-extend-dialog input { min-height: 44px !important; }
   .host-detail .page-header button, .host-detail .nimbus-tab, .host-detail .page-header p, .host-detail .page-header span { font-size: 13px; }
   .reinstall-dialog button { min-height: 44px !important; font-size: 13px; }
   .reinstall-dialog p { font-size: 13px; }

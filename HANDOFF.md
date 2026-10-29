@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-104 延期整数与当前表单（部分精修）
+
+- R103已commit/push `ad28746a47a358cab3e8727f4ed600f59845afa9`核远端一致。R104前端只允许1–365 safe integer，固定提交host/days/route/session及表单同步代次，复用六操作原在途门禁/读写隔离，旧route/session/dialog/draft ABA/cache/unmount回执不通知或关新表单。输入/关闭/重复确认在途锁住，失败持久保留弹窗与实际retry；success/count/message严格，合法零保持零。
+- 原paidInstanceCount永远0却显示会延期0台，改三语说明只声明实际有到期时间的付费实例；没有伪造预检数量，不改后端筛选、续费/客户网络或退款。黑白平实表单/44px控件、真实label、dialog与aria-busy，无新增确认词。现有后端逐条写/中途失败通用错误、通知提交后失败仍待下一段，前端严格回执不能替代后端幂等和部分结果。
+- before95643实际Chrome小数1.5仍发请求先红exit1；final-verified62401最终exit0：七坏days零写、24旧回执、交叉操作原锁、严格坏回执/正常same sid及三语三宽DOM输入/确认/失败retry。R103回归19495最终exit0，132旧回执与实际按钮通过。双端build87502含两端vue-tsc最终exit0，最后dist-final和两端CSS/翻译markerexit0，无待poll；末三守卫55374、ESLint17288、语法/diff/清单通过。初lint属性顺序warn已纠正，未计初轮零警告。
+- taste沿Achromatic ledger seed242843060，无重抽；浅深1440/768/390全部12图已查看，0FAIL/WARN，局部critique7.2见logs/host-detail-extend-critique.md；静态0FAIL/10WARN为原URL mono及主动none声明。不当真实宿主或正常子标签密度证据。新专项已登记server/EXCLUDED/CI，194常规199专项合法。阶段计231有修复/复验（含部分）/68已有不同/28待，231内部仍有未完成范围；R104后端/完整327/网关灾备持续未完，无发行/生产/客户写。
+
 ## 2026-10-30 R1-103 宿主详情操作与删除准备绑定当前页面
 
 - test/verify/删除前实例计数/确认删除/regenerate/verifyAfter共用在途门禁，固定host、route fullPath、account/role/sid与同步代次。切宿主/会话ABA、缓存离页、卸载及弹窗/草稿ABA后旧success/catch不通知、不导航、不写当前命令/验证态、不触发当前读；原锁保留至原请求finally结束。当前写使旧读失效，当前写期间暂停读取，旧目标写不阻止新目标/缓存返回读取。正常同sid刷新与两端详情入口保持。

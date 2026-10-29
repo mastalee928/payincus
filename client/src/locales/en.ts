@@ -4373,6 +4373,7 @@ pool: {
             // Batch extend
             batchExtend: 'Gift Time',
             extendHint: '{count} paid instance(s) on this host will be extended',
+            extendAllHint: 'Extend paid instances on this host that have an expiry date, free of charge.',
             extendDaysLabel: 'Days to extend',
             extendDaysPlaceholder: 'Enter a number between 1-365',
             extendDaysInvalid: 'Please enter a valid number of days (1-365)',

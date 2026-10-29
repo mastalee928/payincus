@@ -5184,6 +5184,7 @@ pool: {
             // 批次延期
             batchExtend: '贈送時長',
             extendHint: '該節點下共有 {count} 個付費實例將被延期',
+            extendAllHint: '為該節點下有到期時間的付費實例免費延期。',
             extendDaysLabel: '延期天數',
             extendDaysPlaceholder: '請輸入 1-365 的整數',
             extendDaysInvalid: '請輸入有效的延期天數（1-365）',
