@@ -18,6 +18,7 @@ import { checkHostingAccess } from '../lib/hosting-access.js'
 import { createInboxMessage } from '../db/inbox.js'
 import { createLog } from '../db/logs.js'
 import { giftInstanceDays, InstanceGiftDaysError } from '../db/instance-gift-days.js'
+import { extendHostPaidInstances, HostExtensionError } from '../db/host-instance-extensions.js'
 import { apiError, ErrorCode, type ErrorCodeType } from '../lib/errors.js'
 import { createInstanceTask, getActiveTaskForInstance, InstanceTaskConflictError } from '../db/instance-tasks.js'
 import type { CreateInstanceTaskData, InstanceTaskWithDetails } from '../db/instance-tasks.js'
@@ -5040,71 +5041,23 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
     }
 
-    // 查询该节点下所有付费实例（packagePlanId 不为 null 且未删除）
-    const paidInstances = await prisma.instance.findMany({
-      where: {
-        hostId,
-        packagePlanId: { not: null },
-        status: { not: 'deleted' },
-        expiresAt: { not: null }  // 必须有到期时间才能延期
-      },
-      select: {
-        id: true,
-        name: true,
-        expiresAt: true,
-        userId: true
+    let result: Awaited<ReturnType<typeof extendHostPaidInstances>>
+    try { result = await extendHostPaidInstances(hostId, user, days) }
+    catch (error) {
+      if (error instanceof HostExtensionError) return reply.code(error.statusCode).send({ error: error.message })
+      request.log.error({ err: error, hostId }, 'Host extension batch could not be confirmed')
+      return reply.code(500).send({ error: '未能确认批量延期结果，请先核对实例到期时间和操作日志，再决定是否重试' })
+    }
+    // A notification failure cannot turn a committed extension into a failed write.
+    for (const userId of result.affectedUserIds) {
+      try {
+        const delivery = await sendNotification(userId, 'instances_batch_extended', { hostName: result.hostName, days }, { inboxAlreadyCommitted: true })
+        if (delivery.failed) request.log.warn({ hostId, userId, failed: delivery.failed }, 'Host extension succeeded but external notifications failed')
       }
-    })
-
-    if (paidInstances.length === 0) {
-      return {
-        success: true,
-        message: '该节点下没有可延期的付费实例',
-        extendedCount: 0
-      }
+      catch (error) { request.log.error({ err: error, hostId, userId }, 'Host extension succeeded but notification failed') }
     }
-
-    // 批量更新 expiresAt
-    const daysMs = days * 24 * 60 * 60 * 1000
-    let extendedCount = 0
-    const affectedUserIds = new Set<number>()
-
-    for (const instance of paidInstances) {
-      if (!instance.expiresAt) continue
-
-      const newExpiresAt = new Date(instance.expiresAt.getTime() + daysMs)
-      
-      await prisma.instance.update({
-        where: { id: instance.id },
-        data: { expiresAt: newExpiresAt }
-      })
-
-      affectedUserIds.add(instance.userId)
-      extendedCount++
-    }
-
-    // 记录操作日志
-    await createLog(
-      user.id,
-      'host',
-      'host.batch_extend',
-      `Batch extended ${extendedCount} paid instances on host "${host.name}" by ${days} days`,
-      'success'
-    )
-
-    // 给受影响的用户发送通知
-    for (const userId of affectedUserIds) {
-      await sendNotification(userId, 'instances_batch_extended', {
-        hostName: host.name || '',
-        days: days
-      })
-    }
-
-    return {
-      success: true,
-      message: `成功为 ${extendedCount} 个付费实例延期 ${days} 天`,
-      extendedCount
-    }
+    return { success: true, extendedCount: result.extendedCount,
+      message: result.extendedCount ? `成功为 ${result.extendedCount} 个付费实例延期 ${days} 天` : '该节点下没有可延期的付费实例' }
   })
 
   // 接管托管节点为自营（仅管理员）

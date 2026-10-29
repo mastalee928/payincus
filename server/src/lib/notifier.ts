@@ -1054,6 +1054,11 @@ async function deliverSiteBotNotification(
  * 发送通知到用户的所有启用渠道
  * 同时创建站内信
  */
+export function getNotificationContent(eventType: EventType, data: EventData): { title: string; message: string } {
+  const template = EVENT_TEMPLATES[eventType]
+  return { title: template.title, message: template.message(data) }
+}
+
 export async function sendNotification(
   userId: number,
   eventType: EventType,

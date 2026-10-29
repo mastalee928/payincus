@@ -8,10 +8,18 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 const source = readFileSync(resolve(__dirname, '../src/routes/hosts.ts'), 'utf8')
+const extensionSource = readFileSync(resolve(__dirname, '../src/db/host-instance-extensions.ts'), 'utf8')
 const storageTabSource = readFileSync(resolve(__dirname, '../../client/src/components/host/HostStorageTab.vue'), 'utf8')
 const hostOpsTabSource = readFileSync(resolve(__dirname, '../../client/src/components/host/HostOpsTab.vue'), 'utf8')
 const zhCnLocaleSource = readFileSync(resolve(__dirname, '../../client/src/locales/zh-CN.ts'), 'utf8')
 const enLocaleSource = readFileSync(resolve(__dirname, '../../client/src/locales/en.ts'), 'utf8')
+
+assert.ok(source.includes('extendHostPaidInstances(hostId, user, days)') &&
+  source.includes('inboxAlreadyCommitted: true') && source.includes('delivery.failed') &&
+  extensionSource.includes('authorizeUserWrite(tx, actor.id, actor)') &&
+  extensionSource.includes('version: { increment: 1 }') && extensionSource.includes('tx.log.create') &&
+  extensionSource.includes('tx.inboxMessage.create') && extensionSource.includes('withInstanceBillingMutation'),
+  'host extension batches must use current authorization and the billing lane, commit expiry/audit/inbox atomically and inspect delivery failures')
 
 assert.ok(
   source.includes('const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\\d*$/') &&

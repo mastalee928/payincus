@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-104 宿主批量延期事务与当前授权（后端段落）
+
+- 真实Fastify/PG先红：第二实例到期写失败后第一实例已延期。现按实例ID顺序持有billing lane、操作advisory与行锁，宿主共享锁和账户统一排序锁内复核当前管理员/会话、实例归属/宿主/Incus身份/套餐及清理、转移、快照和反代任务；重读最新到期时间后统一事务延期、version递增、批次审计和每位用户一条站内信。保留原expiry+days语义、手动/到期封停及全部无关字段，不新增收费、退款或余额记录。
+- 外部通知复用已提交站内信，并检查真实failed返回值；外部发送失败有日志而延期仍成功。未知数据库错误不承诺没有变更，提示先核对到期时间与操作日志再决定重试。批次目标固定为读取时的付费实例集合；请求结果丢失后的跨请求幂等及外部Bot投递可靠性仍待，不能把事务回滚解释为所有重试都安全。
+- takeover-host-extend-all-before真实故障先红，final-r4 session28564最终exit0：第二expiry/审计/第二inbox故障全部回滚及故障移除后仅延期一次、真实pg_blocking_pids到期竞争、九类身份/管理员降权封禁注销等待竞争、七类任务就绪前后竞争、第二实例advisory冲突、原封停/过期基准、六并发整批累加、真实付费续费lane/单次扣款与旧version拒绝、外部email失败零网络且已提交结果/站内信去重、365/八非法输入/零目标及免费删除无到期筛选通过。管理员仍可给其他owner的宿主延期。
+- 原gift-days完整真实PG回归69268最终exit0；server build53341含tsc/独立专项types40538均最终exit0；四相关守卫46039最终4/4通过（logs/test-run-20261030-045636），清单194常规200专项分类有效。新helper/专项/守卫ESLint68047零错警。扩展至两个旧文件lint发现原有notifier1504无用转义及hosts九未用catch警告，已核HEAD存在，不计全文件lint通过；根lint只检查client。首次运行旧PG缺auto_snapshot_operations、错误--only分隔方式及错误lint配置的失败轮均保留且不算通过。
+- 新建独立本地数据库并应用全部仓库迁移；旧PG及旧库保留，不触及生产或三台远端机器。新专项登记server/EXCLUDED/CI；本段无前端变更沿fcf775e4双端构建，CI另核，未全套/生产/Incus交付验证。R104分阶段不重复计数，仍231有修复复验（含部分）/68已有防护不同/28待；完整327、其中部分项和网关灾备未完成。阶段验证完成后按owner授权立即commit/push，再接R106/R107策略初读与保存竞争。
+
 ## 2026-10-30 R1-104 延期整数与当前表单（部分精修）
 
 - R103已commit/push `ad28746a47a358cab3e8727f4ed600f59845afa9`核远端一致。R104前端只允许1–365 safe integer，固定提交host/days/route/session及表单同步代次，复用六操作原在途门禁/读写隔离，旧route/session/dialog/draft ABA/cache/unmount回执不通知或关新表单。输入/关闭/重复确认在途锁住，失败持久保留弹窗与实际retry；success/count/message严格，合法零保持零。

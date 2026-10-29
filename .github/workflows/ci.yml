@@ -212,6 +212,8 @@ jobs:
         run: pnpm --filter server test:review-host-pagination
       - name: Gifted days preserve current ownership and paid expiry
         run: pnpm --filter server test:review-host-gift-days
+      - name: Host extensions commit all expiries and their audit together
+        run: pnpm --filter server test:review-host-extend-all
       - name: Instance detail reads stay on the current route and session
         run: pnpm --filter server test:review-instance-detail-reads
       - name: Transfer and verification modals keep the current draft and session
