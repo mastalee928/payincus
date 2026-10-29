@@ -73,6 +73,7 @@
     "test:review-user-dialog-reads": "node ../scripts/test-user-dialog-reads.mjs",
     "test:review-user-hosting-reads": "node ../scripts/test-user-hosting-reads.mjs",
     "test:review-user-hosting-submit": "node ../scripts/test-user-hosting-submit.mjs",
+    "test:review-two-factor-busy": "node ../scripts/test-two-factor-busy.mjs",
     "test:review-user-balance-submit": "node ../scripts/test-user-balance-submit.mjs",
     "test:review-user-points-submit": "node ../scripts/test-user-points-submit.mjs",
     "test:review-user-balance-audit": "node --import tsx scripts/test-review-user-balance-audit.ts",

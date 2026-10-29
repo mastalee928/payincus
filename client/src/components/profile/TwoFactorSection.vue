@@ -52,6 +52,7 @@ async function loadRecoveryCodesStatus() {
 }
 
 async function startSetup() {
+  if (loading.value) return
   loading.value = true
   error.value = ''
   try {
@@ -68,6 +69,7 @@ async function startSetup() {
 }
 
 async function confirmEnable() {
+  if (loading.value) return
   if (!verifyCode.value || verifyCode.value.length !== 6) {
     error.value = t('profile.twoFactorAuth.enterCodeError')
     return
@@ -88,6 +90,7 @@ async function confirmEnable() {
 }
 
 async function confirmDisable() {
+  if (loading.value) return
   if (!disablePassword.value || !disableCode.value) {
     error.value = t('profile.twoFactorAuth.fillPasswordAndCode')
     return
@@ -111,6 +114,7 @@ async function confirmDisable() {
 }
 
 async function confirmRegenerate() {
+  if (loading.value) return
   if (!regeneratePassword.value || !regenerateCode.value) {
     error.value = t('profile.twoFactorAuth.fillPasswordAndCode')
     return
@@ -131,6 +135,7 @@ async function confirmRegenerate() {
 }
 
 function cancelRegenerate() {
+  if (loading.value) return
   regenerateMode.value = false
   regeneratePassword.value = ''
   regenerateCode.value = ''
@@ -139,6 +144,7 @@ function cancelRegenerate() {
 }
 
 function cancelSetup() {
+  if (loading.value) return
   setupMode.value = false
   qrCode.value = ''
   secret.value = ''
@@ -148,10 +154,19 @@ function cancelSetup() {
 }
 
 function cancelDisable() {
+  if (loading.value) return
   disableMode.value = false
   disablePassword.value = ''
   disableCode.value = ''
   error.value = ''
+}
+
+function openDisable() {
+  if (!loading.value) disableMode.value = true
+}
+
+function openRegenerate() {
+  if (!loading.value) regenerateMode.value = true
 }
 
 onMounted(loadStatus)
@@ -180,8 +195,9 @@ onMounted(loadStatus)
         </button>
         <button 
           v-else
+          :disabled="loading"
           class="btn-secondary text-sm"
-          @click="disableMode = true"
+          @click="openDisable"
         >
           {{ $t('profile.twoFactorAuth.disable') }}
         </button>
@@ -195,8 +211,9 @@ onMounted(loadStatus)
         <div class="flex items-center justify-between mb-2">
           <span class="text-sm text-themed-primary">{{ $t('profile.twoFactorAuth.recoveryCodesStatus') }}</span>
           <button
+            :disabled="loading"
             class="text-xs text-primary-500 hover:text-primary-400 transition-colors"
-            @click="regenerateMode = true"
+            @click="openRegenerate"
           >
             {{ $t('profile.twoFactorAuth.regenerate') }}
           </button>
@@ -242,6 +259,7 @@ onMounted(loadStatus)
         <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.twoFactorAuth.enterCode') }}</label>
         <input 
           v-model="verifyCode"
+          :disabled="loading"
           type="text"
           maxlength="6"
           class="input"
@@ -253,7 +271,7 @@ onMounted(loadStatus)
         <button :disabled="loading" class="btn-primary" @click="confirmEnable">
           {{ loading ? $t('profile.twoFactorAuth.verifying') : $t('profile.twoFactorAuth.confirmEnable') }}
         </button>
-        <button class="btn-secondary" @click="cancelSetup">{{ $t('profile.twoFactorAuth.cancel') }}</button>
+        <button :disabled="loading" class="btn-secondary" @click="cancelSetup">{{ $t('profile.twoFactorAuth.cancel') }}</button>
       </div>
     </div>
 
@@ -266,6 +284,7 @@ onMounted(loadStatus)
         <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.twoFactorAuth.password') }}</label>
         <input 
           v-model="disablePassword"
+          :disabled="loading"
           type="password"
           class="input"
           :placeholder="$t('profile.twoFactorAuth.passwordPlaceholder')"
@@ -275,6 +294,7 @@ onMounted(loadStatus)
         <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.twoFactorAuth.verificationCode') }}</label>
         <input 
           v-model="disableCode"
+          :disabled="loading"
           type="text"
           maxlength="6"
           class="input"
@@ -286,7 +306,7 @@ onMounted(loadStatus)
         <button :disabled="loading" class="btn-danger" @click="confirmDisable">
           {{ loading ? $t('profile.twoFactorAuth.processing') : $t('profile.twoFactorAuth.confirmDisable') }}
         </button>
-        <button class="btn-secondary" @click="cancelDisable">{{ $t('profile.twoFactorAuth.cancel') }}</button>
+        <button :disabled="loading" class="btn-secondary" @click="cancelDisable">{{ $t('profile.twoFactorAuth.cancel') }}</button>
       </div>
     </div>
 
@@ -303,7 +323,7 @@ onMounted(loadStatus)
             {{ code }}
           </code>
         </div>
-        <button class="btn-primary text-sm mt-3" @click="cancelRegenerate">{{ $t('profile.twoFactorAuth.done') }}</button>
+        <button :disabled="loading" class="btn-primary text-sm mt-3" @click="cancelRegenerate">{{ $t('profile.twoFactorAuth.done') }}</button>
       </div>
 
       <!-- Input form -->
@@ -312,6 +332,7 @@ onMounted(loadStatus)
           <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.twoFactorAuth.password') }}</label>
           <input 
             v-model="regeneratePassword"
+            :disabled="loading"
             type="password"
             class="input"
             :placeholder="$t('profile.twoFactorAuth.passwordPlaceholder')"
@@ -321,6 +342,7 @@ onMounted(loadStatus)
           <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.twoFactorAuth.verificationCode') }}</label>
           <input 
             v-model="regenerateCode"
+            :disabled="loading"
             type="text"
             maxlength="6"
             class="input"
@@ -332,7 +354,7 @@ onMounted(loadStatus)
           <button :disabled="loading" class="btn-primary" @click="confirmRegenerate">
             {{ loading ? $t('profile.twoFactorAuth.generating') : $t('profile.twoFactorAuth.confirmGenerate') }}
           </button>
-          <button class="btn-secondary" @click="cancelRegenerate">{{ $t('profile.twoFactorAuth.cancel') }}</button>
+          <button :disabled="loading" class="btn-secondary" @click="cancelRegenerate">{{ $t('profile.twoFactorAuth.cancel') }}</button>
         </div>
       </template>
     </div>

@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-307 双重验证设置即时提交门禁
+
+- 95ea1508已push。TwoFactorSection开始设置/启用/禁用/重新生成恢复码四函数在首个await之前统一loading门禁，忙时拒其它写操作；取消和另开模式同步门禁，输入/取消/确认/Done按钮在途禁用。失败后保草稿并重新可提交，原后端TOTP/敏感验证与会话撤销不变。
+- takeover-two-factor-busy-before.log实际Chrome连续setup先红2次请求；final.log四类重复和交叉提交零新增请求、取消不改变模式、真实DOM字段按钮disabled、失败重试及四正常回执通过，三宽三语浅深截图已看。route/i18n/auth-session三个守卫、lint零错警、busy-build.log双端build含vue-tsc exit0/dist通过、manifest194/153通过，专项登记CI。仅真实Vue/受控API，不是实际账户启停2FA；初读ready/session/cache与写回执/定时器隔离、R013敏感验证接线另续。
+- R307进入部分修复，按唯一原编号现194项有修复/复验记录（含部分）、68已有防护/实现不同、65待精修，剩余仍含194组中未完成范围。完整327与网关灾备未完成。
+
 ## 2026-10-29 R1-305 托管冻结金额精确计算
 
 - ce044cd6已push。实际PG先红0.10+0.70冻结记录扣0.80返回400不足，原JS求和为0.7999999999999999；现冻结求和、比较、逐条剩余扣减使用Prisma.Decimal，保持最早来源扣减与原锁/审计事务。route拒绝多于两位小数，防0.001等写成零金额或隐式四舍五入。
