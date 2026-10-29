@@ -214,6 +214,23 @@ const adjustPointsForm = ref({
   reason: ''
 })
 const adjustPointsLoading = ref(false)
+const adjustPointsError = ref('')
+const pointsDialogGeneration = ref(0)
+const pointsWriteScope = computed(() => JSON.stringify([dialogsAvailable.value, dialogSession.value, showPointsModal.value, pointsDialogGeneration.value, pointsUser.value?.id]))
+let pointsWriteGeneration = 0, pointsDraftGeneration = 0
+watch(pointsWriteScope, () => { pointsWriteGeneration += 1; adjustPointsError.value = '' }, { flush: 'sync' })
+watch(() => [adjustPointsForm.value.amount, adjustPointsForm.value.reason], () => {
+  pointsDraftGeneration += 1; adjustPointsError.value = ''
+}, { flush: 'sync' })
+watch([dialogsAvailable, dialogSession], () => { showPointsModal.value = false }, { flush: 'sync' })
+const pointsAdjustment = computed(() => {
+  const { amount, reason } = adjustPointsForm.value
+  const text = typeof amount === 'string' ? amount.trim() : typeof amount === 'number' ? String(amount) : ''
+  const value = Number(text)
+  if (!/^-?\d+$/.test(text) || !Number.isSafeInteger(value) || value === 0 || Math.abs(value) > 1000000 || typeof reason !== 'string' || !reason.trim() || reason.trim().length > 200) return null
+  return { amount: value, remark: reason.trim() }
+})
+const canAdjustPoints = computed(() => dialogsAvailable.value && showPointsModal.value && validDialogUser(pointsUser.value) && !adjustPointsLoading.value && !!pointsAdjustment.value)
 
 // 托管余额弹窗
 const showHostingBalanceModal = ref(false)
@@ -820,39 +837,35 @@ async function submitAdjustBalance() {
 
 // 打开积分调整弹窗
 function openPointsModal(user) {
+  if (adjustPointsLoading.value || !dialogsAvailable.value || !validDialogUser(user)) return
+  pointsDialogGeneration.value += 1
   pointsUser.value = user
   adjustPointsForm.value = { amount: '', reason: '' }
   showPointsModal.value = true
 }
 
+function closePointsModal() {
+  if (!adjustPointsLoading.value) showPointsModal.value = false
+}
+
 // 提交调整积分
 async function submitAdjustPoints() {
-  if (!pointsUser.value) return
-
-  const amount = parseInt(adjustPointsForm.value.amount)
-  if (isNaN(amount) || amount === 0) {
-    toast.error(t('admin.users.invalidPointsAmount'))
-    return
-  }
-
-  if (!adjustPointsForm.value.reason.trim()) {
-    toast.error(t('admin.users.reasonRequired'))
-    return
-  }
-
+  if (!canAdjustPoints.value) return
+  const userId = pointsUser.value.id, input = { ...pointsAdjustment.value }
+  const generation = pointsWriteGeneration, draft = pointsDraftGeneration, scope = pointsWriteScope.value
+  const current = () => generation === pointsWriteGeneration && draft === pointsDraftGeneration && scope === pointsWriteScope.value && dialogsAvailable.value
   adjustPointsLoading.value = true
+  adjustPointsError.value = ''
   try {
-    await api.entertainment.adminAdjustPoints(
-      pointsUser.value.id,
-      amount,
-      adjustPointsForm.value.reason.trim()
-    )
+    const result = await api.entertainment.adminAdjustPoints(userId, input.amount, input.remark)
+    if (!current()) return
+    if (result?.success !== true || !Number.isSafeInteger(result.newPoints) || result.newPoints < 0 || result.newPoints > 2147483647) throw new Error(t('admin.users.pointsAdjustFailed'))
     toast.success(t('admin.users.pointsAdjusted'))
     showPointsModal.value = false
-    // 刷新用户列表
-    await loadUsers()
+    const refreshGeneration = pointsWriteGeneration, refreshScope = pointsWriteScope.value
+    void loadUsers(() => refreshGeneration === pointsWriteGeneration && refreshScope === pointsWriteScope.value)
   } catch (err) {
-    toast.error(t('admin.users.pointsAdjustFailed') + ': ' + err.message)
+    if (current()) adjustPointsError.value = err?.message || t('admin.users.pointsAdjustFailed')
   } finally {
     adjustPointsLoading.value = false
   }
@@ -2975,15 +2988,16 @@ function _getQuotaPercent(used, limit) {
         leave-to-class="opacity-0"
       >
         <div 
-          v-if="showPointsModal" 
+          v-if="showPointsModal"
+          data-user-dialog="points"
           class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          @click.self="showPointsModal = false"
+          @click.self="closePointsModal"
         >
           <div class="card p-6 w-full max-w-md">
             <h3 class="text-lg font-semibold text-themed mb-4">
               {{ t('admin.users.adjustPoints') }} - {{ pointsUser?.username }}
             </h3>
-            <div class="space-y-4">
+            <fieldset :disabled="adjustPointsLoading" class="space-y-4">
               <!-- 当前积分 -->
               <div class="flex items-center justify-between py-2 px-3 bg-themed-tertiary rounded-lg">
                 <span class="text-sm text-themed-muted">{{ t('admin.users.currentPoints') }}</span>
@@ -2997,7 +3011,10 @@ function _getQuotaPercent(used, limit) {
                 </label>
                 <input 
                   v-model="adjustPointsForm.amount" 
-                  type="number" 
+                  type="number"
+                  step="1"
+                  min="-1000000"
+                  max="1000000"
                   class="input" 
                   :placeholder="t('admin.users.pointsAmountPlaceholder')"
                 />
@@ -3014,12 +3031,13 @@ function _getQuotaPercent(used, limit) {
                   maxlength="200"
                 ></textarea>
               </div>
+              <p v-if="adjustPointsError" role="alert" class="text-sm text-rose-600 dark:text-rose-400 break-words">{{ adjustPointsError }}</p>
               <!-- 按钮 -->
               <div class="flex justify-end gap-2 pt-2">
-                <button class="btn btn-ghost" @click="showPointsModal = false">{{ t('common.cancel') }}</button>
+                <button class="btn btn-ghost" @click="closePointsModal">{{ t('common.cancel') }}</button>
                 <button 
                   class="btn btn-primary" 
-                  :disabled="adjustPointsLoading || !adjustPointsForm.amount || !adjustPointsForm.reason.trim()"
+                  :disabled="!canAdjustPoints"
                   @click="submitAdjustPoints"
                 >
                   <svg v-if="adjustPointsLoading" class="w-4 h-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -3029,7 +3047,7 @@ function _getQuotaPercent(used, limit) {
                   {{ adjustPointsLoading ? t('common.submitting') : t('common.confirm') }}
                 </button>
               </div>
-            </div>
+            </fieldset>
           </div>
         </div>
       </Transition>

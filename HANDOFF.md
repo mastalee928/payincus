@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-305 用户积分调整输入与写回执
+
+- c5eb8e9已push。UsersView积分写入严格非零整数±1000000（对齐真实Web route）、200字理由，不再parseInt截断小数/坏字符串；统一canAdjustPoints与函数即时busy，保存中fieldset/取消/背景/另开目标受保护。固定userId/参数及session/目标/弹窗/草稿代次，旧成功失败静默；成功必须真实success及Int范围newPoints，合法0接受，失败留草稿与持久error；辅助列表读取绑定成功后的scope，不覆盖后来新开弹窗。
+- takeover-user-points-submit-before.log真实Chrome先红旧会话回执仍toast+刷新；final.log22组目标/session/ABA/close/tab/draft/cache旧成功失败、立即重复/字段关闭、严格整数理由、正负及上限/0、六组非法回执、retry/同sid/卸载/旧辅助列表全部通过。types/4守卫/lint零错警/manifest194/148、三宽三语浅深截图已检查；余额写完整回归exit0，takeover-user-points-submit-build.log双端build含vue-tsc exit0/dist通过，专项接CI。真实Vue组件/受控API；后台积分当前admin/session核验与审计事务、托管余额及完整真实流程仍待，不扩大本段。
+- R305仍部分，193/68/66不变，完整327及网关灾备未完成。
+
 ## 2026-10-29 R1-305 用户余额调整审计原子提交
 
 - b5d2621已push。原balance route事务外createLog吞审计写错，真实PG trigger先红仍200并已调账。现adminAdjustBalance复用原changeBalanceInTransaction，余额/账目/当前admin与session行锁核验/管理员操作审计同事务；任一落库失败全回滚。审计读取已锁目标姓名与实际两位小数金额，沿用日志本地化；route不再事务外追加重复审计。未改gift/审批/历史账目。

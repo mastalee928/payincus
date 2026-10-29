@@ -283,6 +283,8 @@ jobs:
         run: pnpm --filter server test:review-user-dialog-reads
       - name: Balance adjustments keep their target, draft and confirmed receipt
         run: pnpm --filter server test:review-user-balance-submit
+      - name: Points adjustments reject stale receipts and repeated submissions
+        run: pnpm --filter server test:review-user-points-submit
       - name: Host redeem reads stay with the current host and code
         run: pnpm --filter server test:review-host-redeem-reads
       - name: Host redeem writes retain their selected target and result

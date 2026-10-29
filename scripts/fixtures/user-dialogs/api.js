@@ -8,4 +8,6 @@ export default { users: {
   getUserBalanceLogs: (id, params) => defer('logs', { id, ...params }),
   getRechargeOrders: params => defer('recharge', params),
   adjustUserBalance: (id, amount, remark) => defer('adjust', { id, amount, remark }),
+}, entertainment: {
+  adminAdjustPoints: (id, amount, remark) => defer('points-adjust', { id, amount, remark }),
 } }
