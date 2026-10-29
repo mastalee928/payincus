@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-302 配额显示与实际执行对齐
+
+- e488cb8已push核远端；80cadce/5c9b825源码CI已success。宿主列表和工单实例卡的端口/快照/备份0显示有限额度，站点0仍无限；缺使用量保持未知，不从0剩余伪造用量。详情保留无限站点入口，快照缺额度按实际0处理。后台详情端口/快照/备份空值默认改为实际执行的0，备份计数仅含creating/ready，排除error/deleted，系统端口继续不占用配额。
+- Chrome先红见`takeover-host-quota-before.log`、`takeover-quota-ticket-before.log`、`takeover-quota-tabs-before.log`；最终`takeover-quota-host-final-r2.log`与`takeover-quota-views-final-r4.log`通过0/有限/null/未知、继承入口与桌面手机。截图已核，详情夹具补齐task/traffic等待，避免在骨架页截图；独立Vite缓存避免并发夹具冲突。受控API没有客户写操作。
+- 旧本地库缺新表，未当业务先红；新建专用takeover_quota_20261029_pool_test并229正式迁移成功后，`takeover-quota-detail-before-r2.log`真实Fastify/PG先红默认20/5/3。`takeover-quota-detail-final-r2.log`完整通过admin/owner/buyer、0/null/默认/站点继承、端口/快照/备份使用量以及原并发授权/预占/回滚矩阵。夹具曾误给非空套餐siteLimit传null，已改合法矩阵并恢复原套餐值后完整重跑。
+- client types、后端build含tsc、5守卫（route/i18n/instance-quota-zero/port-mapping-safety/instance-route-id）、manifest194/124、最终双端build exit0/dist通过。lint零错误，48处既有详情模板warning未扩改；完整详情/工单卡Chrome生命周期回归通过，详情首轮并发未挂载后独立重跑成功。两新Chrome专项接CI，真实配额专项沿原CI扩展。
+- R302详情配额编辑仍读camelCase而真实响应为snake_case，端口用量还把系统端口算入；空值/0提交、子表单同步及写回执另待，未提前记完整。R303迁移/存储/兑换读取及后台迁移保护继续，3fd4488进程审计CI失败仍待Linux实证，327/R269/完整灾备未完成。
+
 ## 2026-10-29 R1-301 批量配置角色字段
 
 - 6cacb0a已push核远端。普通宿主所有者不再显示SWAP与IO/网络/进程/启动高级分区；构建配置、实际发送和重试均核管理员字段清单，直接传入也拒绝并持久提示。管理员保留原12表单字段与原分区，基础资源/配额正常使用。后端已有请求前及锁内当前角色门禁保持，一机一卖不变。

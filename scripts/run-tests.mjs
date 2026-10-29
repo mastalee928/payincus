@@ -84,6 +84,8 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-host-batch-config', 'requires Chrome/Edge and local Vite; host batch config fixed targets, retry accounting and session/cache lifecycle'],
   ['test:review-host-batch-config-inputs', 'requires Chrome/Edge and local Vite; batch config numeric syntax/ranges, native zero values and exact traffic bytes'],
   ['test:review-host-batch-config-roles', 'requires Chrome/Edge and local Vite; batch config host owner/admin fields and role changes'],
+  ['test:review-host-quota-display', 'requires Chrome/Edge and local Vite; host instance zero, finite and unknown quotas by resource'],
+  ['test:review-quota-views', 'requires Chrome/Edge and local Vite; ticket quota cards and instance detail site/snapshot tabs'],
   ['test:review-traffic-limit', 'requires isolated local *_pool_test PostgreSQL; actual user/instance traffic limit omission and bigint boundary validation'],
   ['test:review-traffic-reset-auth', 'requires isolated local *_pool_test PostgreSQL; actual traffic reset actor/target races, billing and baseline checks'],
   ['test:review-payment-locales', 'requires Chrome/Edge and local Vite; actual payment provider controls in three locales, read-only API fixture'],

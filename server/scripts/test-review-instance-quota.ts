@@ -10,6 +10,7 @@ const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { default: routes } = await import('../src/routes/instances.js')
 const { default: siteRoutes } = await import('../src/routes/proxy-sites.js')
 const { createBackupWithQuotaReservation } = await import('../src/db/backups.js')
+const { checkPortQuota, checkSnapshotQuota, checkBackupQuota } = await import('../src/db/quota-operations.js')
 const { withSnapshotMutation } = await import('../src/db/snapshot-operation-guards.js')
 const { advisoryTransactionLock, INSTANCE_OPERATION_LOCK_NAMESPACE } = await import('../src/db/advisory-locks.js')
 const { acquireLock, releaseLock } = await import('../src/lib/distributed-lock.js')
@@ -80,6 +81,45 @@ let failure: unknown
 try {
   await app.register(routes, { prefix: '/instances' })
   await app.register(siteRoutes)
+  for (const role of ['admin', 'owner', 'buyer']) {
+    for (const value of [null, 0, 5]) {
+      await reset()
+      await prisma.instance.update({ where: { id: instance.id }, data: { portLimit: value, snapshotLimit: value, backupLimit: value, siteLimit: value } })
+      const response = await app.inject({ method: 'GET', url: `/instances/${instance.id}`, headers: { 'x-test-role': role } })
+      assert.equal(response.statusCode, 200, response.body)
+      const detail = response.json().instance
+      assert.deepEqual(detail.effective_quota_limit, { port: value ?? 0, snapshot: value ?? 0, backup: value ?? 0, site: value ?? 10 }, 'detail must report the quotas enforced on resource creation')
+      assert.deepEqual(detail.quota_usage, { port: 0, snapshot: 0, backup: 0, site: 0 })
+      assert.deepEqual(detail.remaining_quota, { port: value ?? 0, snapshot: value ?? 0, backup: value ?? 0, site: value ?? 10 })
+      for (const [key, check] of [['port', checkPortQuota], ['snapshot', checkSnapshotQuota], ['backup', checkBackupQuota]] as const) {
+        const quota = await check(buyer.id, instance.id)
+        assert.equal(detail.effective_quota_limit[key], quota.limit)
+        assert.equal(quota.allowed, value === 5)
+      }
+    }
+  }
+  await reset()
+  await prisma.portMapping.createMany({ data: [false, true].map((systemManaged, n) => ({ instanceId: instance.id, hostId: host.id,
+    protocol: 'tcp' as const, publicPort: 21500 + n, privatePort: 21500 + n, systemManaged })) })
+  await prisma.snapshot.create({ data: { instanceId: instance.id, name: 'quota-detail', incusName: 'quota-detail' } })
+  await prisma.backup.createMany({ data: ['creating', 'ready', 'error', 'deleted'].map((status, n) => ({ instanceId: instance.id,
+    name: `quota-detail-${n}`, incusName: `quota-detail-${n}`, status: status as 'creating' | 'ready' | 'error' | 'deleted' })) })
+  await createSites(2)
+  for (const packageLimit of [0, 3]) {
+    await prisma.package.update({ where: { id: pkg.id }, data: { siteLimit: packageLimit } })
+    await prisma.instance.update({ where: { id: instance.id }, data: { packageId: pkg.id, siteLimit: null } })
+    const response = await app.inject({ method: 'GET', url: `/instances/${instance.id}` })
+    assert.equal(response.statusCode, 200, response.body)
+    const detail = response.json().instance
+    assert.deepEqual(detail.quota_usage, { port: 1, snapshot: 1, backup: 2, site: 2 }, 'detail excludes automatic ports and failed/deleted backups')
+    assert.equal(detail.effective_quota_limit.site, packageLimit ?? 10)
+    assert.deepEqual(detail.remaining_quota, { port: 4, snapshot: 4, backup: 3, site: packageLimit === 0 ? 0 : (packageLimit ?? 10) - 2 })
+    assert.equal(detail.quota_usage.backup, (await checkBackupQuota(buyer.id, instance.id)).current)
+  }
+  await prisma.portMapping.deleteMany({ where: { instanceId: instance.id } })
+  await reset()
+  await prisma.package.update({ where: { id: pkg.id }, data: { siteLimit: 1 } })
+  console.log('PASS detail quota matches actual enforcement for all roles, zero/null/default, inherited sites and resource usage')
   for (const role of ['admin', 'owner']) {
     for (const field of fields) {
       await prisma.instance.update({ where: { id: instance.id }, data: { portLimit: 5, snapshotLimit: 5, backupLimit: 5, siteLimit: 5 } })

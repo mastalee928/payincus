@@ -1519,8 +1519,8 @@ function getQuotaLimit(instance: Instance, key: 'port' | 'snapshot' | 'site'): n
     return detailLimit
   }
 
-  if (key === 'port') return instance.port_limit ?? 20
-  if (key === 'snapshot') return instance.snapshot_limit ?? 5
+  if (key === 'port') return instance.port_limit ?? 0
+  if (key === 'snapshot') return instance.snapshot_limit ?? 0
   return instance.site_limit ?? null
 }
 
@@ -1541,11 +1541,11 @@ function getQuotaUsage(instance: Instance, key: 'port' | 'snapshot' | 'site'): n
   return Math.max(0, limit - remaining)
 }
 
-function formatQuotaPair(used: number | null, limit: number | null): string {
+function formatQuotaPair(used: number | null, limit: number | null, zeroIsUnlimited = false): string {
   if (used === null || used === undefined || limit === null || limit === undefined) {
     return '-'
   }
-  if (limit === 0) {
+  if (limit === 0 && zeroIsUnlimited) {
     return `${used} / ∞`
   }
   return `${used} / ${limit}`
@@ -1563,7 +1563,7 @@ function getQuotaItems(instance: Instance): Array<{ label: string; value: string
     },
     {
       label: t('host.batchConfig.siteLimit'),
-      value: formatQuotaPair(getQuotaUsage(instance, 'site'), getQuotaLimit(instance, 'site'))
+      value: formatQuotaPair(getQuotaUsage(instance, 'site'), getQuotaLimit(instance, 'site'), true)
     }
   ]
 }

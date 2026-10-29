@@ -2390,7 +2390,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     // 否则用户一条都没加就看到 1/20。
     const currentPortCount = portMappings.filter(mapping => !mapping.system_managed).length
     const currentSnapshotCount = await prisma.snapshot.count({ where: { instanceId } })
-    const currentBackupCount = await prisma.backup.count({ where: { instanceId, status: { not: 'deleted' } } })
+    const currentBackupCount = await prisma.backup.count({ where: { instanceId, status: { in: ['creating', 'ready'] } } })
     const currentSiteCount = await prisma.proxySite.count({ where: { instanceId } })
 
     // 获取站点限制（实例优先，否则从套餐继承）
@@ -2430,9 +2430,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
     isHostedInstance = Boolean(host?.name.toLowerCase().startsWith('peer'))
 
-    const effectivePortLimit = instance.port_limit ?? 20
-    const effectiveSnapshotLimit = instance.snapshot_limit ?? 5
-    const effectiveBackupLimit = instance.backup_limit ?? 3
+    const effectivePortLimit = instance.port_limit ?? 0
+    const effectiveSnapshotLimit = instance.snapshot_limit ?? 0
+    const effectiveBackupLimit = instance.backup_limit ?? 0
     const quotaUsage = {
       port: currentPortCount,
       snapshot: currentSnapshotCount,

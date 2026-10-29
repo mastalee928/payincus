@@ -59,6 +59,8 @@
     "test:review-host-batch-config": "node ../scripts/test-host-batch-config.mjs",
     "test:review-host-batch-config-inputs": "node ../scripts/test-host-batch-config-inputs.mjs",
     "test:review-host-batch-config-roles": "node ../scripts/test-host-batch-config-roles.mjs",
+    "test:review-host-quota-display": "node ../scripts/test-host-quota-display.mjs",
+    "test:review-quota-views": "node ../scripts/test-quota-views.mjs",
     "test:sample-seed-safety": "node ../scripts/test-seed-safety.mjs",
     "test:host-install-inputs": "node ../scripts/test-host-install-inputs.mjs",
     "type-check:sample-seed": "tsc --project tsconfig.scripts-seed.json",

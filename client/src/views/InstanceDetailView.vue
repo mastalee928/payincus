@@ -892,13 +892,11 @@ function getInstanceQuotaLimit(type: 'site' | 'snapshot'): number | null {
   return normalizeQuotaLimit(inst.snapshot_limit ?? inst.snapshotLimit)
 }
 
-const hasSiteQuota = computed<boolean>(() => getInstanceQuotaLimit('site') !== 0)
-const hasSnapshotQuota = computed<boolean>(() => getInstanceQuotaLimit('snapshot') !== 0)
+const hasSnapshotQuota = computed<boolean>(() => (getInstanceQuotaLimit('snapshot') ?? 0) > 0)
 
 const visibleTabs = computed(() => {
   const tabs = allTabs.filter(tab => {
     if (tab.key === 'config') return isAdminEntry
-    if (tab.key === 'sites') return hasSiteQuota.value
     if (tab.key === 'snapshots') return hasSnapshotQuota.value
     return true
   })
