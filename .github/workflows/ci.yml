@@ -273,6 +273,8 @@ jobs:
         run: pnpm --filter server test:review-host-storage-inputs
       - name: Admin price changes require the current settlement preview
         run: pnpm --filter server test:review-billing-price-preview
+      - name: Admin price writes keep their draft and session through completion
+        run: pnpm --filter server test:review-billing-price-submit
       - name: Host redeem reads stay with the current host and code
         run: pnpm --filter server test:review-host-redeem-reads
       - name: Host redeem writes retain their selected target and result

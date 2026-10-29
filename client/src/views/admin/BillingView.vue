@@ -257,6 +257,24 @@ const pricePreviewKey = ref(''), batchPricePreviewKey = ref('')
 const pricePreviewError = ref(''), batchPricePreviewError = ref('')
 const priceContextKey = computed(() => JSON.stringify([pricingSession.value, priceTarget.value?.id, priceForm.value.newPrice, priceForm.value.settleBalance]))
 const batchPriceContextKey = computed(() => JSON.stringify([pricingSession.value, selectedInstanceIds.value, batchPriceForm.value.newPrice, batchPriceForm.value.settleBalance]))
+let pricingScopeGeneration = 0, priceDraftGeneration = 0, batchPriceDraftGeneration = 0
+watch([pricingAvailable, pricingSession], () => { pricingScopeGeneration += 1 }, { flush: 'sync' })
+watch([showPriceModal, priceContextKey], () => { priceDraftGeneration += 1 }, { flush: 'sync' })
+watch([showBatchPriceModal, batchPriceContextKey], () => { batchPriceDraftGeneration += 1 }, { flush: 'sync' })
+
+function closePriceModal() {
+  if (!priceLoading.value && !batchPriceLoading.value) showPriceModal.value = false
+}
+function closeBatchPriceModal() {
+  if (!priceLoading.value && !batchPriceLoading.value) showBatchPriceModal.value = false
+}
+
+function refreshPriceData(scope: number) {
+  const singleDraft = priceDraftGeneration, batchDraft = batchPriceDraftGeneration
+  const current = () => pricingAvailable.value && scope === pricingScopeGeneration &&
+    singleDraft === priceDraftGeneration && batchDraft === batchPriceDraftGeneration
+  void Promise.all([loadInstances(current), loadOverview(current)])
+}
 
 function isValidPriceInput(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100000
@@ -594,19 +612,26 @@ onMounted(() => {
   loadTabData(activeTab.value)
 })
 
-async function loadOverview() {
+let overviewRequestId = 0, instancesRequestId = 0
+async function loadOverview(canApply: () => boolean = () => true) {
+  const requestId = ++overviewRequestId
+  const current = () => requestId === overviewRequestId && canApply()
   overviewLoading.value = true
   try {
     const res = await api.admin.getBillingOverview()
+    if (!current()) return
     overview.value = res.overview
   } catch (err: any) {
+    if (!current()) return
     toast.error(t('admin.billing.loadFailed') + ': ' + err.message)
   } finally {
-    overviewLoading.value = false
+    if (requestId === overviewRequestId) overviewLoading.value = false
   }
 }
 
-async function loadInstances() {
+async function loadInstances(canApply: () => boolean = () => true) {
+  const requestId = ++instancesRequestId
+  const current = () => requestId === instancesRequestId && canApply()
   instancesLoading.value = true
   try {
     const res = await api.admin.getBillingInstances({
@@ -617,6 +642,7 @@ async function loadInstances() {
       hostId: instancesHostFilter.value || undefined,
       search: instancesSearch.value.trim() || undefined
     })
+    if (!current()) return
     instances.value = res.instances || []
     instancesTotal.value = res.total
     const currentPageSelectableIds = new Set(instances.value.filter(inst => inst.status !== 'deleted').map(inst => inst.id))
@@ -626,9 +652,10 @@ async function loadInstances() {
       hosts.value = res.hosts
     }
   } catch (err: any) {
+    if (!current()) return
     toast.error(t('admin.billing.loadInstancesFailed') + ': ' + err.message)
   } finally {
-    instancesLoading.value = false
+    if (requestId === instancesRequestId) instancesLoading.value = false
   }
 }
 
@@ -887,6 +914,7 @@ let pricePreviewTimer: ReturnType<typeof setTimeout> | null = null
 let pricePreviewRequestId = 0
 
 async function loadPricePreview() {
+  if (priceLoading.value || batchPriceLoading.value) return
   if (pricePreviewTimer) { clearTimeout(pricePreviewTimer); pricePreviewTimer = null }
   pricePreviewRequestId += 1
   pricePreview.value = null
@@ -981,6 +1009,7 @@ let batchPricePreviewTimer: ReturnType<typeof setTimeout> | null = null
 let batchPricePreviewRequestId = 0
 
 async function loadBatchPricePreview() {
+  if (priceLoading.value || batchPriceLoading.value) return
   if (batchPricePreviewTimer) { clearTimeout(batchPricePreviewTimer); batchPricePreviewTimer = null }
   batchPricePreviewRequestId += 1
   batchPricePreview.value = null
@@ -1043,23 +1072,27 @@ watch(
 
 async function submitBatchUpdatePrice() {
   if (!canSubmitBatchPrice.value) return
-
+  const scope = pricingScopeGeneration, draft = batchPriceDraftGeneration
+  const ids = [...selectedInstanceIds.value], { newPrice, settleBalance } = batchPriceForm.value
+  const expectations = batchPriceExpectations.value.map(item => ({ ...item }))
+  const current = () => pricingAvailable.value && showBatchPriceModal.value && scope === pricingScopeGeneration && draft === batchPriceDraftGeneration
   batchPriceLoading.value = true
   try {
     const res = await api.admin.updateBatchInstancePrice(
-      selectedInstanceIds.value,
-      batchPriceForm.value.newPrice,
-      batchPriceForm.value.settleBalance,
-      batchPriceExpectations.value
+      ids, newPrice, settleBalance, expectations
     )
+    if (!current()) return
+    if (res?.success !== true || typeof res.message !== 'string' || !res.message.trim()) throw new Error(t('admin.billing.loadFailed'))
     toast.success(res.message)
-    batchPricePreview.value = res.preview
     showBatchPriceModal.value = false
     selectedInstanceIds.value = []
-    await Promise.all([loadInstances(), loadOverview()])
+    refreshPriceData(scope)
   } catch (err: any) {
-    batchPricePreview.value = err?.preview || batchPricePreview.value
-    toast.error(err.message)
+    if (!current()) return
+    batchPricePreviewRequestId += 1
+    batchPricePreview.value = null
+    batchPricePreviewKey.value = ''
+    batchPricePreviewError.value = err?.message || t('admin.billing.loadFailed')
   } finally {
     batchPriceLoading.value = false
   }
@@ -1068,21 +1101,26 @@ async function submitBatchUpdatePrice() {
 // 提交修改价格
 async function submitUpdatePrice() {
   if (!canSubmitPrice.value) return
-  
+  const scope = pricingScopeGeneration, draft = priceDraftGeneration
+  const id = priceTarget.value.id, { newPrice, settleBalance } = priceForm.value
+  const version = pricePreview.value!.instanceVersion
+  const current = () => pricingAvailable.value && showPriceModal.value && scope === pricingScopeGeneration && draft === priceDraftGeneration
   priceLoading.value = true
   try {
     const res = await api.admin.updateInstancePrice(
-      priceTarget.value.id,
-      priceForm.value.newPrice,
-      priceForm.value.settleBalance,
-      pricePreview.value?.instanceVersion
+      id, newPrice, settleBalance, version
     )
+    if (!current()) return
+    if (res?.success !== true || typeof res.message !== 'string' || !res.message.trim()) throw new Error(t('admin.billing.loadFailed'))
     toast.success(res.message)
     showPriceModal.value = false
-    // 并行刷新实例列表和概览
-    await Promise.all([loadInstances(), loadOverview()])
+    refreshPriceData(scope)
   } catch (err: any) {
-    toast.error(err.message)
+    if (!current()) return
+    pricePreviewRequestId += 1
+    pricePreview.value = null
+    pricePreviewKey.value = ''
+    pricePreviewError.value = err?.message || t('admin.billing.loadFailed')
   } finally {
     priceLoading.value = false
   }
@@ -2718,11 +2756,11 @@ function copyToClipboard(text: string) {
 
     <!-- 批量修改价格弹窗 -->
     <Teleport to="body">
-      <div v-if="showBatchPriceModal" data-billing-price="batch" class="modal-overlay" @click.self="showBatchPriceModal = false">
+      <div v-if="showBatchPriceModal" data-billing-price="batch" class="modal-overlay" @click.self="closeBatchPriceModal">
         <div class="modal-content max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
           <div class="modal-header">
             <h3 class="modal-title">{{ $t('admin.billing.batchUpdatePrice') }}</h3>
-            <button class="btn btn-ghost btn-sm" @click="showBatchPriceModal = false">
+            <button class="btn btn-ghost btn-sm" :disabled="batchPriceLoading" :aria-label="$t('common.close')" @click="closeBatchPriceModal">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -2753,6 +2791,7 @@ function copyToClipboard(text: string) {
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-themed-muted">¥</span>
                 <input
                   v-model.number="batchPriceForm.newPrice"
+                  :disabled="batchPriceLoading"
                   type="number"
                   step="0.01"
                   min="0"
@@ -2768,6 +2807,7 @@ function copyToClipboard(text: string) {
               <input
                 id="batchSettleBalance"
                 v-model="batchPriceForm.settleBalance"
+                :disabled="batchPriceLoading"
                 type="checkbox"
                 class="checkbox"
               />
@@ -2916,7 +2956,7 @@ function copyToClipboard(text: string) {
           </div>
 
           <div class="modal-footer">
-            <button class="btn btn-ghost" :disabled="batchPriceLoading" @click="showBatchPriceModal = false">{{ $t('common.cancel') }}</button>
+            <button class="btn btn-ghost" :disabled="batchPriceLoading" @click="closeBatchPriceModal">{{ $t('common.cancel') }}</button>
             <button
               class="btn btn-primary"
               :disabled="!canSubmitBatchPrice"
@@ -2931,11 +2971,11 @@ function copyToClipboard(text: string) {
 
     <!-- 修改价格弹窗 -->
     <Teleport to="body">
-      <div v-if="showPriceModal" data-billing-price="single" class="modal-overlay" @click.self="showPriceModal = false">
+      <div v-if="showPriceModal" data-billing-price="single" class="modal-overlay" @click.self="closePriceModal">
         <div class="modal-content max-w-md">
           <div class="modal-header">
             <h3 class="modal-title">{{ $t('admin.billing.updatePrice') }}</h3>
-            <button class="btn btn-ghost btn-sm" @click="showPriceModal = false">
+            <button class="btn btn-ghost btn-sm" :disabled="priceLoading" :aria-label="$t('common.close')" @click="closePriceModal">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -2996,7 +3036,8 @@ function copyToClipboard(text: string) {
               <div class="relative">
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-themed-muted">¥</span>
                 <input 
-                  v-model.number="priceForm.newPrice" 
+                  v-model.number="priceForm.newPrice"
+                  :disabled="priceLoading"
                   type="number" 
                   step="0.01"
                   min="0"
@@ -3016,7 +3057,8 @@ function copyToClipboard(text: string) {
             <div class="flex items-center gap-3">
               <input 
                 id="settleBalance" 
-                v-model="priceForm.settleBalance" 
+                v-model="priceForm.settleBalance"
+                :disabled="priceLoading"
                 type="checkbox"
                 class="checkbox"
               />
@@ -3060,7 +3102,7 @@ function copyToClipboard(text: string) {
           </div>
           
           <div class="modal-footer">
-            <button class="btn btn-ghost" @click="showPriceModal = false">{{ $t('common.cancel') }}</button>
+            <button class="btn btn-ghost" :disabled="priceLoading" @click="closePriceModal">{{ $t('common.cancel') }}</button>
             <button
               class="btn btn-primary"
               :disabled="!canSubmitPrice"
