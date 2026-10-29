@@ -331,6 +331,39 @@ const sshKeys = ref<SshKeyOption[]>([])
 const showGiftDaysModal = ref(false)
 const giftDays = ref(7)
 const isGifting = ref(false)
+const giftTargets = ref<number[]>([])
+const giftError = ref('')
+const giftFailures = ref<Array<{ instanceId: number; instanceName: string; error?: string }>>([])
+let giftDialogGeneration = 0
+const giftDialog = ref<HTMLElement | null>(null)
+let giftReturnFocus: HTMLElement | null = null
+const canOpenGift = computed(() => alive && pageActive.value && !!sessionKey.value && !loading.value && !isGifting.value &&
+  validBatchTargets([...selectedIds.value]) && instances.value.some(instance => selectedIds.value.has(instance.id) && instance.packagePlanId))
+const canConfirmGift = computed(() => alive && pageActive.value && !!sessionKey.value && !loading.value && !isGifting.value &&
+  showGiftDaysModal.value && validBatchTargets(giftTargets.value) &&
+  giftTargets.value.every(id => instances.value.some(instance => instance.id === id && instance.packagePlanId)) &&
+  Number.isSafeInteger(giftDays.value) && giftDays.value >= 1 && giftDays.value <= 365)
+watch(showGiftDaysModal, async (open) => {
+  const generation = ++giftDialogGeneration
+  if (open) {
+    giftReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    await nextTick()
+    if (showGiftDaysModal.value && generation === giftDialogGeneration) giftDialog.value?.querySelector<HTMLButtonElement>('button')?.focus()
+  } else {
+    giftTargets.value = []
+    if (giftReturnFocus?.isConnected) giftReturnFocus.focus()
+  }
+}, { flush: 'sync' })
+function handleGiftDialogKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); if (!isGifting.value) showGiftDaysModal.value = false; return }
+  if (event.key !== 'Tab' || !giftDialog.value) return
+  const controls = [...giftDialog.value.querySelectorAll<HTMLElement>('button, input')]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const target = event.shiftKey ? controls.at(-1) : controls[0]
+  if (!controls.length || (event.shiftKey ? document.activeElement === controls[0] : document.activeElement === controls.at(-1))) {
+    event.preventDefault(); target?.focus()
+  }
+}
 
 // 展开详情
 const expandedInstanceId = ref<number | null>(null)
@@ -717,43 +750,56 @@ async function batchSyncStatus() {
 
 // 批量赠送时长
 function openGiftDaysModal() {
-  if (selectedPaidCount.value === 0) {
-    toast.warning(t('host.giftDays.noPaidInstances'))
-    return
-  }
+  if (!canOpenGift.value || showGiftDaysModal.value) return
+  giftTargets.value = instances.value.filter(instance => selectedIds.value.has(instance.id) && instance.packagePlanId).map(instance => instance.id)
   giftDays.value = 7
+  giftError.value = ''
+  giftFailures.value = []
   showGiftDaysModal.value = true
 }
 
 async function confirmGiftDays() {
-  if (selectedPaidCount.value === 0) return
-  
+  if (!canConfirmGift.value) return
+  const generation = giftDialogGeneration, session = sessionKey.value
+  const hostId = props.hostId, ids = [...giftTargets.value], days = giftDays.value
+  const current = () => alive && pageActive.value && !!session && session === sessionKey.value && hostId === props.hostId &&
+    showGiftDaysModal.value && generation === giftDialogGeneration
   isGifting.value = true
+  giftError.value = ''
   try {
     const result = await api.hosts.giftDays(
-      props.hostId,
-      Array.from(selectedIds.value),
-      giftDays.value
+      hostId,
+      ids,
+      days
     )
-    
+    if (!current()) return
+    if (!Array.isArray(result.results) || !Number.isSafeInteger(result.skippedCount) || result.skippedCount < 0 ||
+      result.results.length + result.skippedCount !== ids.length ||
+      new Set(result.results.map(item => item.instanceId)).size !== result.results.length ||
+      result.results.some(item => !ids.includes(item.instanceId) || typeof item.success !== 'boolean')) throw new Error(t('common.operationFailed'))
     if (result.failedCount > 0) {
       toast.warning(t('host.giftDays.partial', {
         success: result.successCount,
         failed: result.failedCount
       }))
     } else {
-      toast.success(t('host.giftDays.success', { count: result.successCount, days: giftDays.value }))
+      toast.success(t('host.giftDays.success', { count: result.successCount, days }))
     }
     
     if (result.skippedCount > 0) {
       toast.info(t('host.giftDays.skipped', { count: result.skippedCount }))
     }
     
-    selectedIds.value.clear()
-    showGiftDaysModal.value = false
+    giftFailures.value = result.results.filter(item => !item.success)
+    const succeeded = new Set(result.results.filter(item => item.success).map(item => item.instanceId))
+    selectedIds.value = new Set([...selectedIds.value].filter(id => !succeeded.has(id)))
+    giftTargets.value = giftFailures.value.map(item => item.instanceId)
+    if (!giftFailures.value.length) showGiftDaysModal.value = false
     await loadInstances()
   } catch (err: any) {
-    toast.error(t('host.giftDays.failed') + ': ' + (err?.message || String(err)))
+    if (!current()) return
+    giftError.value = t('host.giftDays.failed') + ': ' + translateError(err)
+    toast.error(giftError.value)
   } finally {
     isGifting.value = false
   }
@@ -1025,6 +1071,10 @@ async function loadInstances() {
     totalPages.value = Math.max(1, res.totalPages)
     displayedQuery = query
     selectedIds.value = new Set([...selection].filter(id => res.instances.some(instance => instance.id === id)))
+    if (showGiftDaysModal.value) {
+      giftTargets.value = giftTargets.value.filter(id => res.instances.some(instance => instance.id === id && instance.packagePlanId))
+      if (!giftTargets.value.length) showGiftDaysModal.value = false
+    }
     if (showDeleteModal.value) {
       if (deleteSelectionOverride.value) deleteSelectionOverride.value = deleteSelectionOverride.value.filter(id => res.instances.some(instance => instance.id === id))
       if (effectiveDeleteSelection.value.length) {
@@ -1105,6 +1155,8 @@ function handlePageSizeChange() {
 }
 
 function closeReadContextModals() {
+  giftError.value = ''
+  giftFailures.value = []
   batchActionError.value = ''
   batchActionFailures.value = []
   suspendReason.value = ''
@@ -1679,11 +1731,11 @@ function goToInstance(id: number) {
           <button
             class="btn-sm inline-flex items-center rounded-lg"
             :class="[
-              selectedPaidCount === 0
+              !canOpenGift
                 ? (themeStore.isDark ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-200 text-gray-400 cursor-not-allowed')
                 : (themeStore.isDark ? 'bg-teal-600 hover:bg-teal-700 text-white' : 'bg-teal-500 hover:bg-teal-600 text-white')
             ]"
-            :disabled="isGifting || selectedPaidCount === 0"
+            :disabled="!canOpenGift || showGiftDaysModal"
             :title="selectedPaidCount === 0 ? t('host.giftDays.noPaidInstances') : ''"
             @click="openGiftDaysModal"
           >
@@ -2042,11 +2094,11 @@ function goToInstance(id: number) {
       <Teleport to="body">
         <Transition name="modal">
           <div v-if="showGiftDaysModal" class="modal-overlay">
-            <div class="modal-backdrop" @click="showGiftDaysModal = false"></div>
-            <div class="modal-content max-w-md">
+            <div class="modal-backdrop" @click="!isGifting && (showGiftDaysModal = false)"></div>
+            <div ref="giftDialog" class="modal-content max-w-md" role="dialog" aria-modal="true" :aria-label="t('host.giftDays.title')" @keydown="handleGiftDialogKey">
               <div class="modal-header">
                 <h3 class="modal-title text-teal-500">{{ t('host.giftDays.title') }}</h3>
-                <button class="text-themed-muted hover:text-themed" @click="showGiftDaysModal = false">
+                <button class="text-themed-muted hover:text-themed" :disabled="isGifting" :aria-label="t('common.close')" @click="showGiftDaysModal = false">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -2057,26 +2109,32 @@ function goToInstance(id: number) {
                   <p class="text-sm" :class="themeStore.isDark ? 'text-teal-400' : 'text-teal-600'">{{ t('host.giftDays.hint') }}</p>
                 </div>
                 <p class="text-sm text-themed-secondary">
-                  {{ t('host.giftDays.confirm', { count: selectedPaidCount }) }}
+                  {{ t('host.giftDays.confirm', { count: giftTargets.length }) }}
                 </p>
                 <div>
                   <label class="block text-sm font-medium text-themed-secondary mb-1">{{ t('host.giftDays.daysLabel') }}</label>
                   <input
                     v-model.number="giftDays"
+                    :disabled="isGifting"
                     type="number"
+                    step="1"
                     min="1"
                     max="365"
                     class="input w-full"
                   />
                   <p class="mt-1 text-xs text-themed-muted">{{ t('host.giftDays.daysRange') }}</p>
                 </div>
+                <p v-if="giftError" role="alert" class="text-sm text-red-500 break-words">{{ giftError }}</p>
+                <ul v-if="giftFailures.length" role="alert" class="text-sm text-red-500 break-words space-y-1">
+                  <li v-for="failure in giftFailures" :key="failure.instanceId">{{ failure.instanceName }}: {{ failure.error || t('common.operationFailed') }}</li>
+                </ul>
               </div>
               <div class="modal-footer">
                 <button class="btn-secondary" :disabled="isGifting" @click="showGiftDaysModal = false">
                   {{ t('common.cancel') }}
                 </button>
                 <button
-                  :disabled="isGifting || giftDays < 1 || giftDays > 365"
+                  :disabled="!canConfirmGift"
                   class="text-white"
                   :class="themeStore.isDark ? 'bg-teal-600 hover:bg-teal-700 px-4 py-2 rounded-lg' : 'bg-teal-500 hover:bg-teal-600 px-4 py-2 rounded-lg'"
                   @click="confirmGiftDays"
