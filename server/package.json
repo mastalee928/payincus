@@ -69,6 +69,7 @@
     "test:review-host-storage-inputs": "node ../scripts/test-host-storage-inputs.mjs",
     "test:review-billing-price-preview": "node ../scripts/test-billing-price-preview.mjs",
     "test:review-billing-price-submit": "node ../scripts/test-billing-price-submit.mjs",
+    "test:review-billing-price-audit": "node --import tsx scripts/test-review-billing-price-audit.ts",
     "test:review-storage-size": "node --import tsx scripts/test-review-storage-size.ts",
     "test:review-storage-update": "node --import tsx scripts/test-review-storage-update.ts",
     "test:review-storage-import": "node --import tsx scripts/test-review-storage-import.ts",

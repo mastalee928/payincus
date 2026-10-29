@@ -10,6 +10,7 @@ import { prisma } from '../db/prisma.js'
 import { assertNoPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
 import * as db from '../db/index.js'
 import { createLog } from '../db/logs.js'
+import { normalizeLogContentForStorage } from '../lib/log-localization.js'
 import { sendNotification } from '../lib/notifier.js'
 import { createEpayClient, type EpayConfig, type EpayConfigV1, type EpayConfigV2, type EpayVersion } from '../lib/epay.js'
 import {
@@ -2620,17 +2621,16 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
             }
           })
         }
+        // 审计与价格、余额及账单同提交；审计失败必须回滚，不能吞错。
+        await tx.log.create({ data: {
+          userId: admin.id,
+          instanceId,
+          module: 'admin',
+          action: 'instance.admin_update_price',
+          content: normalizeLogContentForStorage(`Admin updated instance "${currentInstance.name}" price: ¥${currentOldPrice.toFixed(2)} → ¥${roundedNewPrice.toFixed(2)}, settle: ${settleBalance}, diff: ¥${priceDiff.toFixed(2)}`),
+          result: 'success'
+        } })
       })
-
-      // 5. 记录操作日志
-      await createLog(
-        admin.id,
-        'admin',
-        'instance.admin_update_price',
-        `Admin updated instance "${instance.name}" price: ¥${oldPrice.toFixed(2)} → ¥${roundedNewPrice.toFixed(2)}, settle: ${settleBalance}, diff: ¥${priceDiff.toFixed(2)}`,
-        'success',
-        { instanceId }
-      )
 
       // 6. 通知用户（如果有余额变动）
       if (settleBalance && priceDiff !== 0) {
@@ -2898,16 +2898,15 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         }
 
         notificationItems = changedItems.filter(item => item.user && item.priceDiff !== 0)
+        await tx.log.create({ data: {
+          userId: admin.id,
+          module: 'admin',
+          action: 'instance.admin_batch_update_price',
+          content: normalizeLogContentForStorage(`Admin batch updated ${currentPreview.summary.changedCount} instance prices to ¥${newPrice.toFixed(2)}, settle: ${settleBalance}, charge: ¥${currentPreview.summary.totalCharge.toFixed(2)}, refund: ¥${currentPreview.summary.totalRefund.toFixed(2)}`),
+          result: 'success'
+        } })
         return currentPreview
       })
-
-      await createLog(
-        admin.id,
-        'admin',
-        'instance.admin_batch_update_price',
-        `Admin batch updated ${preview.summary.changedCount} instance prices to ¥${newPrice.toFixed(2)}, settle: ${settleBalance}, charge: ¥${preview.summary.totalCharge.toFixed(2)}, refund: ¥${preview.summary.totalRefund.toFixed(2)}`,
-        'success'
-      )
 
       const notificationResults = await Promise.allSettled(notificationItems.map(item => sendNotification(item.user!.id, 'instance_price_changed', {
         instanceName: item.name || `#${item.id}`,

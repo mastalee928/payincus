@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-304 改价操作审计与计费同事务
+
+- e8cb278已push。单台和批量原createLog在计费事务外且吞掉写入失败，现使用各自tx.log.create，操作码/模块/结果与原中文化入口保持；单台日志使用事务内实际实例名并绑定instanceId。审计失败与价格、version、余额、余额明细及计费记录一起回滚，不修改全局createLog的其他调用。
+- test-review-billing-price-audit.ts真实PG/Fastify以限定admin/action的临时日志trigger注入失败，before-r5.log先红：单台不结算改为0仍返回200（预期500）；final.log单/批×0/涨价×结算/不结算8组失败全回滚，8组正常写及余额连续/方向、版本防重结算、价格不变2组通过。保留专属IPv4标志和已付到期，不连接Incus或外部通知渠道。初跑PG停止/恢复中及夹具hook/枚举错误不是产品先红；原隔离PG55438已自动恢复。
+- admin-billing-route-id/log-localization/auth-session-status三守卫、manifest194/144与diff通过；takeover-billing-price-audit-build.log后端build含tsc exit0，专项已接CI。前端没有改动，沿e8cb278双端构建与浏览器证据。此项补齐审计原子性，当前管理员权限/撤销与计费对象并发锁仍待精修，通知持久性另验；R304仍部分，327维持192/68/67。
+
 ## 2026-10-29 R1-304 改价写回执与失败后重新预览
 
 - 863914d已push。单/批改价固定请求目标、价格、结算与版本；保存时阻止重复提交、另开改价、关闭/取消/背景及编辑输入。会话/账号/权限、离页缓存、弹窗/草稿变化的独立代次拒收旧成功/失败，包括变化后恢复原值；同sid刷新仍接受当前成功。
