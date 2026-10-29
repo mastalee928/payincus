@@ -102,6 +102,33 @@ const showBatchResultModal = ref(false)
 const batchCreatedCodes = ref<string[]>([])
 const batchCreatedBatchId = ref<string | null>(null)
 const copiedBatch = ref(false)
+const batchCopyError = ref('')
+let batchCopySequence = 0
+let batchDialogGeneration = 0
+let batchCopyTimer: ReturnType<typeof setTimeout> | undefined
+const batchResultDialog = ref<HTMLElement | null>(null)
+let batchReturnFocus: HTMLElement | null = null
+watch(showBatchResultModal, async open => {
+  batchDialogGeneration++
+  batchCopySequence++
+  clearTimeout(batchCopyTimer)
+  copiedBatch.value = false
+  batchCopyError.value = ''
+  if (open) batchReturnFocus = writeReturnFocus ?? document.activeElement as HTMLElement | null
+  await nextTick()
+  if (open && showBatchResultModal.value) batchResultDialog.value?.focus()
+  else if (!showBatchResultModal.value && batchReturnFocus?.isConnected) batchReturnFocus.focus()
+}, { flush: 'sync' })
+function handleBatchResultKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); showBatchResultModal.value = false; return }
+  if (event.key !== 'Tab') return
+  const controls = [...(batchResultDialog.value?.querySelectorAll<HTMLElement>('button,[tabindex="0"]') ?? [])]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const first = controls[0], last = controls.at(-1)
+  if (!first) { event.preventDefault(); batchResultDialog.value?.focus(); return }
+  if (event.shiftKey && (document.activeElement === first || document.activeElement === batchResultDialog.value)) { event.preventDefault(); last?.focus() }
+  else if (!event.shiftKey && (document.activeElement === last || document.activeElement === batchResultDialog.value)) { event.preventDefault(); first.focus() }
+}
 
 // 使用记录
 const showUsagesModal = ref(false)
@@ -162,7 +189,7 @@ watch([showCreateModal, showDeleteModal], async ([createOpen, deleteOpen], [wasC
   await nextTick()
   if (createOpen && showCreateModal.value) createDialog.value?.focus()
   else if (deleteOpen && showDeleteModal.value) deleteDialog.value?.focus()
-  else if (!showCreateModal.value && !showDeleteModal.value && writeReturnFocus?.isConnected) writeReturnFocus.focus()
+  else if (!showCreateModal.value && !showDeleteModal.value && !showBatchResultModal.value && writeReturnFocus?.isConnected) writeReturnFocus.focus()
 })
 function handleWriteDialogKey(event: KeyboardEvent, kind: 'create' | 'delete') {
   if (event.key === 'Escape') { event.preventDefault(); kind === 'create' ? closeCreateModal() : closeDeleteModal(); return }
@@ -178,6 +205,19 @@ function handleWriteDialogKey(event: KeyboardEvent, kind: 'create' | 'delete') {
 
 // 复制状态
 const copiedCode = ref<number | null>(null)
+const copyError = ref('')
+let copySequence = 0
+let copyTimer: ReturnType<typeof setTimeout> | undefined
+function resetCopyFeedback() {
+  copySequence++
+  batchCopySequence++
+  clearTimeout(copyTimer)
+  clearTimeout(batchCopyTimer)
+  copiedCode.value = null
+  copiedBatch.value = false
+  copyError.value = ''
+  batchCopyError.value = ''
+}
 
 function resetUsages() {
   usagesSequence++
@@ -190,6 +230,7 @@ function resetUsages() {
 watch([showUsagesModal, () => selectedCode.value?.id], resetUsages, { flush: 'sync' })
 function resetReadContext() {
   contextGeneration++
+  resetCopyFeedback()
   listSequence++
   optionsSequence++
   codes.value = []
@@ -229,6 +270,7 @@ onUnmounted(() => { alive = false; pageActive.value = false; resetReadContext() 
 
 watch(enabledFilter, () => {
   contextGeneration++
+  resetCopyFeedback()
   page.value = 1
   selectedIds.value.clear()
   showDeleteModal.value = false
@@ -546,22 +588,42 @@ async function confirmDelete() {
   }
 }
 
-function copyCode(code: string, id: number) {
-  navigator.clipboard.writeText(code).then(() => {
+async function copyCode(code: string, id: number) {
+  if (!canRead.value || loading.value || !codes.value.some(item => item.id === id && item.code === code)) return
+  const sequence = ++copySequence, generation = contextGeneration, hostId = props.hostId, session = sessionKey.value
+  const current = () => canRead.value && sequence === copySequence && generation === contextGeneration && hostId === props.hostId &&
+    session === sessionKey.value && codes.value.some(item => item.id === id && item.code === code)
+  clearTimeout(copyTimer)
+  copiedCode.value = null
+  copyError.value = ''
+  try {
+    await navigator.clipboard.writeText(code)
+    if (!current()) return
     copiedCode.value = id
-    setTimeout(() => {
-      copiedCode.value = null
-    }, 2000)
-  })
+    copyTimer = setTimeout(() => { if (current()) copiedCode.value = null }, 2000)
+  } catch {
+    if (current()) copyError.value = t('common.copyFailed')
+  }
 }
 
-function copyBatchCodes() {
-  navigator.clipboard.writeText(batchCreatedCodes.value.join('\n')).then(() => {
+async function copyBatchCodes() {
+  if (!canRead.value || !showBatchResultModal.value || !batchCreatedCodes.value.length) return
+  const sequence = ++batchCopySequence, generation = contextGeneration, dialogGeneration = batchDialogGeneration
+  const hostId = props.hostId, session = sessionKey.value, text = batchCreatedCodes.value.join('\n'), batchId = batchCreatedBatchId.value
+  const current = () => canRead.value && showBatchResultModal.value && sequence === batchCopySequence && generation === contextGeneration &&
+    dialogGeneration === batchDialogGeneration && hostId === props.hostId && session === sessionKey.value &&
+    batchId === batchCreatedBatchId.value && text === batchCreatedCodes.value.join('\n')
+  clearTimeout(batchCopyTimer)
+  copiedBatch.value = false
+  batchCopyError.value = ''
+  try {
+    await navigator.clipboard.writeText(text)
+    if (!current()) return
     copiedBatch.value = true
-    setTimeout(() => {
-      copiedBatch.value = false
-    }, 2000)
-  })
+    batchCopyTimer = setTimeout(() => { if (current()) copiedBatch.value = false }, 2000)
+  } catch {
+    if (current()) batchCopyError.value = t('common.copyFailed')
+  }
 }
 
 function getTypeLabel(type: string): string {
@@ -597,6 +659,7 @@ function isExpired(expiresAt: string | null): boolean {
 function goToPrevPage() {
   if (canRead.value && !loading.value && page.value > 1) {
     contextGeneration++
+    resetCopyFeedback()
     page.value--
     selectedIds.value.clear()
     showDeleteModal.value = false
@@ -608,6 +671,7 @@ function goToPrevPage() {
 function goToNextPage() {
   if (canRead.value && !loading.value && page.value * pageSize < total.value) {
     contextGeneration++
+    resetCopyFeedback()
     page.value++
     selectedIds.value.clear()
     showDeleteModal.value = false
@@ -619,6 +683,7 @@ function goToNextPage() {
 
 <template>
   <div class="space-y-4">
+    <p v-if="copyError" role="alert" class="text-sm text-red-500 break-words">{{ copyError }}</p>
     <!-- 工具栏 -->
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex flex-wrap items-center gap-3">
@@ -1055,33 +1120,34 @@ function goToNextPage() {
     <Teleport to="body">
       <Transition name="modal">
         <div v-if="showBatchResultModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="showBatchResultModal = false">
-          <div :class="['w-full max-w-lg rounded-xl shadow-xl', themeStore.isDark ? 'bg-gray-900' : 'bg-white']">
-            <div :class="['flex items-center justify-between px-6 py-4 border-b', themeStore.isDark ? 'border-gray-800' : 'border-gray-200']">
+          <div ref="batchResultDialog" data-batch-result role="dialog" aria-modal="true" :aria-label="t('redeemCodes.batchResult')" tabindex="-1" :class="['w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden rounded-xl shadow-xl', themeStore.isDark ? 'bg-gray-900' : 'bg-white']" @keydown="handleBatchResultKey">
+            <div :class="['flex shrink-0 items-center justify-between px-6 py-4 border-b', themeStore.isDark ? 'border-gray-800' : 'border-gray-200']">
               <h3 :class="['text-lg font-semibold', themeStore.isDark ? 'text-white' : 'text-gray-900']">{{ t('redeemCodes.batchResult') }}</h3>
-              <button :class="themeStore.isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'" @click="showBatchResultModal = false">
+              <button :aria-label="t('common.close')" :class="themeStore.isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'" @click="showBatchResultModal = false">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            <div class="px-6 py-4">
+            <div class="px-6 py-4 min-h-0 overflow-y-auto">
               <!-- 批次 ID -->
               <div v-if="batchCreatedBatchId" :class="['mb-4 p-3 rounded-lg', themeStore.isDark ? 'bg-blue-900/30' : 'bg-blue-50']">
                 <p :class="['text-sm', themeStore.isDark ? 'text-blue-400' : 'text-blue-600']">
                   <span class="font-medium">{{ t('redeemCodes.batchId') }}:</span>
-                  <code :class="['ml-2 px-2 py-0.5 rounded', themeStore.isDark ? 'bg-blue-900/50' : 'bg-blue-100']">{{ batchCreatedBatchId }}</code>
+                  <code :class="['ml-2 px-2 py-0.5 rounded break-all', themeStore.isDark ? 'bg-blue-900/50' : 'bg-blue-100']">{{ batchCreatedBatchId }}</code>
                 </p>
                 <p :class="['text-xs mt-1', themeStore.isDark ? 'text-blue-500' : 'text-blue-500']">
                   {{ t('redeemCodes.batchLimitHint') }}
                 </p>
               </div>
               <div :class="['p-4 rounded-lg font-mono text-sm max-h-80 overflow-y-auto', themeStore.isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700']">
-                <div v-for="(code, index) in batchCreatedCodes" :key="index" class="py-0.5">{{ code }}</div>
+                <div v-for="(code, index) in batchCreatedCodes" :key="index" class="py-0.5 break-all">{{ code }}</div>
               </div>
             </div>
 
-            <div :class="['flex justify-end gap-3 px-6 py-4 border-t', themeStore.isDark ? 'border-gray-800' : 'border-gray-200']">
+            <p v-if="batchCopyError" role="alert" class="shrink-0 px-6 pb-3 text-sm text-red-500 break-words">{{ batchCopyError }}</p>
+            <div :class="['flex shrink-0 justify-end gap-3 px-6 py-4 border-t', themeStore.isDark ? 'border-gray-800' : 'border-gray-200']">
               <button
                 :class="[
                   'flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors',

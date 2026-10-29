@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 兑换码复制回执与批量结果弹窗
+
+- 03450cf已push并核远端；8e9e15d CI已success，4cde9e6/09c6c77/03450cf最后运行。单码/批量复制增加请求序号、host/session/页面及结果弹窗代次，校验当前码值/批次；旧回执及旧定时器不覆盖新反馈，切换/卸载清理定时器，剪贴板拒绝或不可用持久显示失败。实际剪贴板写入是受控fixture，未读取或覆盖owner系统剪贴板。
+- 批量结果弹窗补role/aria、初始焦点、Tab/Escape与返回焦点，创建弹窗关闭不会抢走结果焦点；限高滚动、长批次/码值换行、固定可见关闭和复制按钮。底层兑换码创建/兑换/库存/账目未改。
+- takeover-redeem-copy-before.log真实Chrome先红旧host复制回执误标记；takeover-redeem-copy-final.log完整exit0，含反序/拒绝/retry/旧计时器、未知码值、host ABA/session/role/account/logout/filter/cache/unmount、同sid、同ID码值变化、真实创建后批量复制/关闭重开、两视口100码列表与键盘。读取/写入完整回归各exit0；types、route/i18n/redeem-code-management三守卫、lint零错警、manifest194/135通过。最终双端build含vue-tsc exit0（takeover-redeem-copy-build.log），dist另见takeover-redeem-copy-dist.log；专项已接CI。
+- 下一项存储容量test-host-storage-inputs.mjs未提交，Chrome先红负容量发送到host，产品未改；需完整数字/单位/0与省略区分、扩容/驱动能力和后端参数校验，原生Incus容量调整与后端授权/原子性仍待。327/R269/Go proc与完整灾备未完成。
+
 ## 2026-10-29 R1-303 旧迁移写目标、父入口与结果
 
 - 09c6c77已push核远端。迁移提交复制源/目标/实例ID/镜像/套餐，绑定session及页面/弹窗代次；重复和在途关闭拒绝，跨切换保留busy，旧成功/失败不刷新新源或改写新弹窗。回执校验全部ID唯一性及成功/失败计数，部分成功结果页不可重放整批；当前失败持久展示。

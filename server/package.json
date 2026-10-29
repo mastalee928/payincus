@@ -68,6 +68,7 @@
     "test:review-host-storage-writes": "node ../scripts/test-host-storage-writes.mjs",
     "test:review-host-redeem-reads": "node ../scripts/test-host-redeem-reads.mjs",
     "test:review-host-redeem-writes": "node ../scripts/test-host-redeem-writes.mjs",
+    "test:review-host-redeem-copy": "node ../scripts/test-host-redeem-copy.mjs",
     "test:review-host-migrate-reads": "node ../scripts/test-host-migrate-reads.mjs",
     "test:review-host-migrate-writes": "node ../scripts/test-host-migrate-writes.mjs",
     "test:review-host-migrate-parent": "node ../scripts/test-host-migrate-parent.mjs",

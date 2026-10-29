@@ -263,6 +263,8 @@ jobs:
         run: pnpm --filter server test:review-host-redeem-reads
       - name: Host redeem writes retain their selected target and result
         run: pnpm --filter server test:review-host-redeem-writes
+      - name: Host redeem copies and batch dialogs stay with the current context
+        run: pnpm --filter server test:review-host-redeem-copy
       - name: Host migration reads stay with the selected destination
         run: pnpm --filter server test:review-host-migrate-reads
       - name: Host migration writes retain their selected targets and results
