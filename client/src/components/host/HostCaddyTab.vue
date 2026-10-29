@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onActivated, onDeactivated, onBeforeUnmount, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
 const toast = useToast()
+const authStore = useAuthStore()
 
 interface Props {
   hostId: number
@@ -86,76 +88,134 @@ const sitesPage = ref(1)
 const sitesPageSize = 5
 const sitesTotal = ref(0)
 const sitesTotalPages = ref(1)
-
-onMounted(() => {
-  loadCaddyStatus()
+const statusReady = ref(false), statusError = ref(''), sitesReady = ref(false), sitesError = ref(''), active = ref(false)
+let alive = true, generation = 0, statusSequence = 0, sitesSequence = 0
+const session = computed(() => {
+  if (!authStore.user || !authStore.token || !Number.isSafeInteger(authStore.user.id) || authStore.user.id < 1) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string' && payload.sid) identity = payload.sid
+  } catch { /* Legacy tokens keep their complete identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
 })
-
-// 当 Caddy 启用状态变化时，加载站点列表
-watch(() => caddyStatus.value.enabled, (enabled) => {
-  if (enabled) {
-    loadSites()
-  }
-})
-
-// 当 hostId 变化时，重置状态并重新加载数据
-watch(() => props.hostId, () => {
-  // 重置分页状态
+const available = computed(() => alive && active.value && !!session.value && Number.isSafeInteger(props.hostId) && props.hostId > 0)
+const actionsDisabled = computed(() => !available.value || loading.value || !statusReady.value || !!statusError.value)
+function context() {
+  const hostId = props.hostId, identity = session.value, version = generation
+  return { hostId, current: () => available.value && hostId === props.hostId && identity === session.value && version === generation }
+}
+function invalidateReads() {
+  generation++; statusSequence++; sitesSequence++
   sitesPage.value = 1
   sites.value = []
   sitesTotal.value = 0
   sitesTotalPages.value = 1
-  // 重置其他状态
+  statusReady.value = false; sitesReady.value = false; statusError.value = ''; sitesError.value = ''
+  loading.value = false; sitesLoading.value = false
+  caddyStatus.value = { enabled: false, username: null, port: 8444, hasPassword: false, natPublicIp: null, sitesCount: 0 }
   showInstallModal.value = false
+  installInfo.value = { command: '', username: '', password: '', port: 8444 }; copied.value = false
   testResult.value = { connected: false, sitesCount: 0, dnsRecordType: 'A', dnsRecordValue: '' }
-  // 重新加载数据
-  loadCaddyStatus()
-})
+}
+watch([() => props.hostId, session], () => { invalidateReads(); if (available.value) void loadCaddyStatus() }, { flush: 'sync' })
+watch(sitesPage, () => {
+  sitesSequence++; sitesLoading.value = false
+  sites.value = []; sitesReady.value = false; sitesError.value = ''
+}, { flush: 'sync' })
+function activate() {
+  if (!alive || active.value) return
+  active.value = true
+  if (available.value) void loadCaddyStatus()
+}
+onMounted(activate)
+onActivated(activate)
+onDeactivated(() => { active.value = false; invalidateReads() })
+onBeforeUnmount(() => { alive = false; active.value = false; invalidateReads() })
+
+function validStatus(value: unknown): value is typeof caddyStatus.value {
+  if (!value || typeof value !== 'object') return false
+  const row = value as typeof caddyStatus.value
+  return typeof row.enabled === 'boolean' && typeof row.hasPassword === 'boolean' &&
+    (row.username === null || typeof row.username === 'string') && (row.natPublicIp === null || typeof row.natPublicIp === 'string') &&
+    Number.isSafeInteger(row.port) && row.port > 0 && row.port <= 65535 && Number.isSafeInteger(row.sitesCount) && row.sitesCount >= 0
+}
+function validSites(value: unknown, page: number): value is Awaited<ReturnType<typeof api.hosts.getCaddySites>> {
+  if (!value || typeof value !== 'object') return false
+  const row = value as Awaited<ReturnType<typeof api.hosts.getCaddySites>>
+  return row.page === page && row.pageSize === sitesPageSize && Number.isSafeInteger(row.total) && row.total >= 0 &&
+    row.totalPages === Math.ceil(row.total / sitesPageSize) && Array.isArray(row.sites) && row.sites.length <= sitesPageSize &&
+    row.sites.every(site => site && Number.isSafeInteger(site.id) && site.id > 0 && typeof site.domain === 'string' &&
+      Number.isSafeInteger(site.targetPort) && site.targetPort > 0 && site.targetPort <= 65535 && typeof site.httpsEnabled === 'boolean' &&
+      ['pending', 'active', 'error'].includes(site.status) && typeof site.enabled === 'boolean' && (site.error === null || typeof site.error === 'string') &&
+      typeof site.createdAt === 'string' && Number.isFinite(Date.parse(site.createdAt)) && (site.instance === null || site.instance &&
+        Number.isSafeInteger(site.instance.id) && site.instance.id > 0 && typeof site.instance.name === 'string' &&
+        (site.instance.ipv4 === null || typeof site.instance.ipv4 === 'string') && typeof site.instance.status === 'string')) &&
+    new Set(row.sites.map(site => site.id)).size === row.sites.length &&
+    row.sites.length === Math.max(0, Math.min(sitesPageSize, row.total - (page - 1) * sitesPageSize))
+}
 
 async function loadCaddyStatus() {
+  if (!available.value) return
+  const target = context(), sequence = ++statusSequence
+  const owns = () => target.current() && sequence === statusSequence
   loading.value = true
+  sitesSequence++; sitesLoading.value = false
+  statusError.value = ''
   try {
-    const res = await api.hosts.getCaddy(props.hostId)
-    caddyStatus.value = res
-    // 如果 Caddy 已启用，加载站点列表
-    if (res.enabled) {
-      await loadSites()
+    const res = await api.hosts.getCaddy(target.hostId)
+    if (!owns()) return
+    if (!validStatus(res)) throw Error(t('host.caddy.loadFailed'))
+    caddyStatus.value = { ...res }; statusReady.value = true
+    if (res.enabled) void loadSites()
+    else {
+      sitesSequence++; sites.value = []; sitesTotal.value = 0; sitesTotalPages.value = 1; sitesPage.value = 1
+      sitesError.value = ''; sitesReady.value = false; sitesLoading.value = false
     }
   } catch (err: unknown) {
     const error = err as { message?: string }
-    toast.error(t('host.caddy.loadFailed') + ': ' + (error?.message || String(err)))
+    if (owns()) statusError.value = t('host.caddy.loadFailed') + ': ' + (error?.message || String(err))
   } finally {
-    loading.value = false
+    if (owns()) loading.value = false
   }
 }
 
 async function loadSites() {
+  if (!available.value || !statusReady.value || !caddyStatus.value.enabled || statusError.value ||
+    !Number.isSafeInteger(sitesPage.value) || sitesPage.value < 1) return
+  const target = context(), page = sitesPage.value, sequence = ++sitesSequence
+  const owns = () => target.current() && page === sitesPage.value && sequence === sitesSequence && caddyStatus.value.enabled
   sitesLoading.value = true
+  sitesError.value = ''
   try {
-    const res = await api.hosts.getCaddySites(props.hostId, {
-      page: sitesPage.value,
+    const res = await api.hosts.getCaddySites(target.hostId, {
+      page,
       pageSize: sitesPageSize
     })
-    sites.value = res.sites
+    if (!owns()) return
+    if (!validSites(res, page)) throw Error(t('host.caddy.loadSitesFailed'))
+    const totalPages = Math.max(1, res.totalPages)
+    if (page > totalPages) { sitesPage.value = totalPages; void loadSites(); return }
+    sites.value = res.sites.map(site => ({ ...site, instance: site.instance ? { ...site.instance } : null }))
     sitesTotal.value = res.total
-    sitesTotalPages.value = res.totalPages
+    sitesTotalPages.value = totalPages; sitesReady.value = true
   } catch (err: unknown) {
     const error = err as { message?: string }
-    toast.error(t('host.caddy.loadSitesFailed') + ': ' + (error?.message || String(err)))
+    if (owns()) sitesError.value = t('host.caddy.loadSitesFailed') + ': ' + (error?.message || String(err))
   } finally {
-    sitesLoading.value = false
+    if (owns()) sitesLoading.value = false
   }
 }
 
 function goToPrevSitesPage(): void {
-  if (sitesPage.value > 1) {
+  if (!actionsDisabled.value && !sitesLoading.value && sitesPage.value > 1) {
     sitesPage.value--
     loadSites()
   }
 }
 
 function goToNextSitesPage(): void {
-  if (sitesPage.value < sitesTotalPages.value) {
+  if (!actionsDisabled.value && !sitesLoading.value && sitesPage.value < sitesTotalPages.value) {
     sitesPage.value++
     loadSites()
   }
@@ -178,6 +238,7 @@ function getSiteStatusBadge(site: ProxySite) {
 }
 
 async function generateInstallCommand() {
+  if (actionsDisabled.value) return
   generating.value = true
   try {
     const res = await api.hosts.generateCaddyCommand(props.hostId)
@@ -199,6 +260,7 @@ async function generateInstallCommand() {
 }
 
 async function resetCredentials() {
+  if (actionsDisabled.value) return
   if (!confirm(t('host.caddy.resetConfirm'))) {
     return
   }
@@ -225,6 +287,7 @@ async function resetCredentials() {
 }
 
 async function confirmInstallation() {
+  if (actionsDisabled.value) return
   confirming.value = true
   try {
     await api.hosts.confirmCaddyInstalled(props.hostId)
@@ -240,6 +303,7 @@ async function confirmInstallation() {
 }
 
 async function testConnection() {
+  if (actionsDisabled.value) return
   testing.value = true
   try {
     const res = await api.hosts.testCaddyConnection(props.hostId)
@@ -268,14 +332,18 @@ const isEnabled = computed(() => caddyStatus.value.enabled)
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="host-caddy space-y-6">
+    <div v-if="statusError" data-caddy-status-error class="card p-5 space-y-3" role="alert">
+      <p class="text-sm text-themed break-words">{{ statusError }}</p>
+      <button class="btn-secondary" :disabled="loading || !available" @click="loadCaddyStatus">{{ t('common.retry') }}</button>
+    </div>
     <!-- 加载状态 -->
-    <div v-if="loading" class="flex justify-center py-12">
+    <div v-if="loading && !statusReady" class="flex justify-center py-12" role="status" :aria-label="t('common.loading')">
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
     </div>
 
     <!-- Caddy 状态卡片 -->
-    <div v-else class="card p-6">
+    <div v-else-if="statusReady" class="card p-6">
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-lg font-medium" :class="themeStore.isDark ? 'text-white' : 'text-gray-900'">
           {{ t('host.caddy.title') }}
@@ -307,7 +375,7 @@ const isEnabled = computed(() => caddyStatus.value.enabled)
             {{ t('host.caddy.notInstalled') }}
           </p>
           <button
-            :disabled="generating"
+            :disabled="actionsDisabled || generating"
             class="btn-primary"
             @click="generateInstallCommand"
           >
@@ -354,7 +422,7 @@ const isEnabled = computed(() => caddyStatus.value.enabled)
 
         <div class="flex gap-3 pt-2">
           <button
-            :disabled="testing"
+            :disabled="actionsDisabled || testing"
             class="btn-ghost"
             @click="testConnection"
           >
@@ -368,14 +436,14 @@ const isEnabled = computed(() => caddyStatus.value.enabled)
             <span v-else>{{ t('host.caddy.testConnection') }}</span>
           </button>
           <button
-            :disabled="generating"
+            :disabled="actionsDisabled || generating"
             class="btn-ghost"
             @click="generateInstallCommand"
           >
             {{ t('host.caddy.viewCommand') }}
           </button>
           <button
-            :disabled="resetting"
+            :disabled="actionsDisabled || resetting"
             class="btn-ghost text-amber-600 hover:text-amber-700"
             @click="resetCredentials"
           >
@@ -393,21 +461,25 @@ const isEnabled = computed(() => caddyStatus.value.enabled)
     </div>
 
     <!-- 反代站点列表 -->
-    <div v-if="!loading && isEnabled" class="card p-6">
+    <div v-if="statusReady && isEnabled" class="card p-6">
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-lg font-medium" :class="themeStore.isDark ? 'text-white' : 'text-gray-900'">
           {{ t('host.caddy.sitesList') }}
         </h3>
-        <span class="text-sm text-gray-500">{{ t('host.caddy.sitesTotalCount', { count: sitesTotal }) }}</span>
+        <span v-if="sitesReady" class="text-sm text-gray-500">{{ t('host.caddy.sitesTotalCount', { count: sitesTotal }) }}</span>
+      </div>
+      <div v-if="sitesError" data-caddy-sites-error class="space-y-3" role="alert">
+        <p class="text-sm text-themed break-words">{{ sitesError }}</p>
+        <button class="btn-secondary" :disabled="sitesLoading || actionsDisabled" @click="loadSites">{{ t('common.retry') }}</button>
       </div>
 
       <!-- 加载状态 -->
-      <div v-if="sitesLoading" class="flex justify-center py-8">
+      <div v-if="sitesLoading && !sitesReady" class="flex justify-center py-8" role="status" :aria-label="t('common.loading')">
         <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
       </div>
 
       <!-- 空状态 -->
-      <div v-else-if="sites.length === 0" class="text-center py-8">
+      <div v-else-if="sitesReady && !sitesError && sites.length === 0" data-caddy-sites-empty class="text-center py-8">
         <svg class="w-12 h-12 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
         </svg>
@@ -417,7 +489,7 @@ const isEnabled = computed(() => caddyStatus.value.enabled)
       </div>
 
       <!-- 站点列表 -->
-      <div v-else class="space-y-3">
+      <div v-else-if="sitesReady" class="space-y-3">
         <div 
           v-for="site in sites" 
           :key="site.id"
@@ -463,7 +535,7 @@ const isEnabled = computed(() => caddyStatus.value.enabled)
           <div class="flex items-center gap-2">
             <button 
               class="btn-ghost btn-sm" 
-              :disabled="sitesPage <= 1" 
+              :disabled="actionsDisabled || sitesLoading || sitesPage <= 1"
               @click="goToPrevSitesPage"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -473,7 +545,7 @@ const isEnabled = computed(() => caddyStatus.value.enabled)
             </button>
             <button 
               class="btn-ghost btn-sm" 
-              :disabled="sitesPage >= sitesTotalPages" 
+              :disabled="actionsDisabled || sitesLoading || sitesPage >= sitesTotalPages"
               @click="goToNextSitesPage"
             >
               {{ t('host.caddy.nextPage') }}
@@ -592,3 +664,20 @@ const isEnabled = computed(() => caddyStatus.value.enabled)
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.host-caddy .card, .host-caddy button {
+  box-shadow: none !important;
+  background-image: none !important;
+}
+.host-caddy button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.host-caddy .text-xs { font-size: 13px; }
+.host-caddy .text-gray-500, .host-caddy .text-gray-400 { color: var(--text-secondary); }
+@media (max-width: 640px) {
+  .host-caddy button { min-height: 44px; }
+  .host-caddy dl { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .host-caddy *, .host-caddy .animate-spin { transition: none; animation: none; }
+}
+</style>

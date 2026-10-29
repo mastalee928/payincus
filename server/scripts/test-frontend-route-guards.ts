@@ -29,6 +29,13 @@ const appSource = readRepoFile('client/src/App.vue')
 const adminAppSource = readRepoFile('client/src/admin/AdminApp.vue')
 const authStoreSource = readRepoFile('client/src/stores/auth.ts')
 const hostImagesSource = readRepoFile('client/src/components/host/HostImagesTab.vue')
+const hostCaddySource = readRepoFile('client/src/components/host/HostCaddyTab.vue')
+assert.ok(hostCaddySource.includes('sequence === statusSequence') && hostCaddySource.includes('sequence === sitesSequence') &&
+  hostCaddySource.includes('page === sitesPage.value') && hostCaddySource.includes('onDeactivated') &&
+  hostCaddySource.includes('data-caddy-status-error') && hostCaddySource.includes('data-caddy-sites-error') &&
+  hostCaddySource.includes('validSites(res, page)') && hostCaddySource.includes('actionsDisabled.value') &&
+  !hostCaddySource.includes('watch(() => caddyStatus.value.enabled'),
+  'Caddy reads must isolate status/page/session lifecycles, keep errors distinct from empty and load sites once')
 assert.ok(hostImagesSource.includes('!policyReady.value') && hostImagesSource.includes('!!policyError.value') &&
   hostImagesSource.includes('sequence === readSequence') && hostImagesSource.includes('draft === draftGeneration') &&
   hostImagesSource.includes('validPolicy(response, target.hostId)') && hostImagesSource.includes('onDeactivated') &&

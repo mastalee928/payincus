@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R108/R109读取段落：status/sites当前host-session/seq/同步代次/cache卸载、strict结果/持久retry、单次首读和反序分页/缩页/合法零已修。final-exit95846真实Chrome36旧回执/9坏status/14坏sites/三语三宽actual prev-next通过exit0；最后双端build62979/types/三守卫/lint/dist与浅深0FAIL/WARN12图通过。235含部分/68已有不同/24待，R109四操作/copy与真实Caddy未完，见HANDOFF。
+
 2026-10-30 R106/107实际镜像策略：初读失败零保存、strict目标和集合/read代次/current session/cache卸载、保存固定draft/payload及在途门禁/旧回执/实际retry已修。final-no-hmr20553真实Chrome36旧回执/14坏读及三语三宽实际控件，末build/types/3守卫/lint/dist通过；233有修复复验含部分/68已有防护不同/26待。后端白名单写授权/并发审计另待，见HANDOFF。
 
 2026-10-30 R104后端原子延期段落：真实第二写故障先红后，整批expiry/version/审计/站内信同事务，当前管理员与实例身份/任务、billing lane和续费竞争已修。final-r4真实PG故障/等待竞争/六并发/真实续费单扣/通知failed成功回执/零财务和边界、原gift回归/types/build/4守卫及新增文件lint通过；旧文件既有lint问题和跨请求幂等未完见HANDOFF。不重复计数，231含部分/68已有不同/28待。
@@ -279,8 +281,8 @@
 | R1-105 | 存在 | 源码已修/浏览器隔离验证通过 | 实际重装复制await、失败持久原按钮retry、重复锁与原host/route/account/session/命令弹窗同步代次/cache/unmount隔离，敏感命令离页清空；Chrome30旧回执/两端入口/same sid/三语三宽通过，最终构建/守卫/taste证据见HANDOFF。R102读/R103写仍待，未真实剪贴板/宿主执行。 |
 | R1-106 | 存在 | 前端精修/浏览器验证通过 | HostImagesTab已加初读成功/错误禁写、strict集合和目标/read代次/当前session/cache卸载、失败持久retry及last-good；真实Chrome先红失败后PUT→final-no-hmr36旧回执/14坏读/三语三宽过，types/build/3守卫/lint/dist过。后端资格/授权写另待，不冒充全链路。 |
 | R1-107 | 存在 | 前端精修/浏览器验证通过 | 保存固定host-session/draft同步ABA/payload、原在途锁/current read门禁/输入disabled与严格PUT策略回执，去保存后覆草稿GET；失败持久真实retry。final-no-hmr36旧回执与repeat/cache/draft/坏结果/三语三宽实际控件过，types/build/守卫/lint/dist过；后端并发/审计原子另待。 |
-| R1-108 | 存在 | 待精修/运行复核 | list/status/action缺host和request generation，失败残留旧数据，迟到结果可作用当前视图。 |
-| R1-109 | 存在 | 待精修/运行复核 | list/status/action缺host和request generation，失败残留旧数据，迟到结果可作用当前视图。 |
+| R1-108 | 存在 | 读取已修/浏览器隔离验证通过 | 站点当前host/session/page/seq/cache代次、严格行数结构/last-good与失败retry、同步换页及缩页重读已修；final-exit36旧读/14坏sites/三语三宽分页过，末build/types/三守卫/lint/dist过。真实Caddy与操作仍见R109。 |
+| R1-109 | 存在 | 部分精修/操作继续 | status当前host/session/seq/cache读取、strict结果与持久retry、未知态四操作零写和初始sites单读已修；final-exit36旧读/9坏status及build/types/三守卫过。四操作与copy回执/锁/凭据弹窗仍待，不算整体完成。 |
 | R1-110 | 存在 | 待精修/运行复核 | watch整个host重置draft；save函数缺busy guard，父刷新和重复提交边界不足。 |
 | R1-111 | 存在 | 待精修/运行复核 | 清空location/IPv6转undefined，不传字段无法清空已有配置。 |
 | R1-112 | 存在 | 待精修/运行复核 | 统一buildHostApiUrl重建连接地址，可能丢原协议、路径及默认443，改无关字段也变化。 |

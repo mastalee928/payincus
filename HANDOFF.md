@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-108 与 R1-109 读取段落：Caddy 状态和站点分页
+
+- 实际Chrome先红：启用status后watcher与reader重复请求sites两次。现仅当前status成功触发一次；status/sites独立序号、固定host/account/role/sid/同步代次、KeepAlive/卸载隔离。换页同步清旧页及invalidate，缩页自动重读最后合法页；合法total=0/totalPages=0保持空态，显示页数归一到1。strict结构/行/页与persistent实际retry、refresh失败保当前确认内容，不把未知/失败冒充未启用或空列表，初读未确认禁止四操作。
+- final-clean52087受控真实Vue/Chrome完整通过后供inspect；定向停止自己的serve后，final-exit95846正常exit0：36旧status/sites回执、9坏status/14坏sites、实际retry/零写/反序/disable/last-good/page ABA/缩页/合法零/same sid、三语1440/768/390真实prev-next与44px全部通过。HMR旧轮、端口冲突和停止serve均不计自然通过。
+- build62979双端含两端vue-tsc最终exit0，末dist守卫exit0；末route/i18n/host-route-id三守卫16413（logs/test-run-20261030-052536）exit0。client目录最后组件ESLint零错警/脚本syntax/diff和manifest194常规202专项有效，CI登记。根目录lint配置错误和错误输出路径轮不计通过；已按client目录重跑。
+- taste沿Achromatic ledger seed242843060，无重抽；局部none阴影/13px辅助文字/对比/手机44px及focus/减少动效。终浅深三宽0FAIL/0WARN，12图已全看，critique7.2记录logs/host-caddy-reads-critique.md。允许no-title/no-hero/unused-canvas仅隔离子组件测试壳，不声称父页或命令弹窗整体完成；构造8站点、文档IP和example.test独立夹具，无真实凭据。
+- 四操作generate/reset/confirm/test及copy旧回执、共用锁/命令展示代次仍下一段；原Caddy后端保持，未实际Linux安装/客户/生产/完整套验证。本次两编号新增读取记录，累计235有修复复验（含部分）/68已有防护不同/24待；235含未完项，完整327和网关灾备继续。按owner授权阶段commit/push后接R109操作，不发行/OTA。
+
 ## 2026-10-30 R1-106/107 宿主镜像策略初读与保存回执
 
 - R104后端40923e7d已push核远端一致。清单106/107实际为HostImagesTab镜像策略，纠正初续“自动快照策略”的误认。真实Chrome先红：初读失败后savePolicy仍发出默认策略PUT；现policyReady/错误状态门禁，读取序号、固定host/account/role/sid/同步代次、KeepAlive/卸载隔离、初读失败持久retry与refresh失败保最后确认内容。未确认架构/类型不显示默认x86或container，strict policy检查合法集合/类型/目标。
