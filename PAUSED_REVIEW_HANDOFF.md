@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：fb874b9已push；R297两seed加载DB前精确环境/URL/专库门禁与旧force移除已修，实际两脚本各23拒绝零DB初始化+4有效替身边界通过。新增scripts专用tsconfig包含完整src，清既有死声明/变量并收紧inet6类型后types exit0；2守卫/manifest193/110通过，准备单项push，无待poll。docs/sample-data.md需显式加入（docs默认忽略）。R298 scripts/test-host-install-inputs.mjs未提交，先红缺confirm仍read，夹具改文件绕过Windows长-c；main/confirm/heartbeat/is_valid_port及host-install守卫已读，产品未改。需非交互显式yes、默认端口、缺参数检测先于探测、菜单禁用及文档，保交互安装/默认机器池。R299与R282–284重复须交叉登记；327/R269/完整灾备仍待。
+
 > **最新接续**：e0d71d0已push；R292禁用/卸载附件修改、非法索引、迟到file event、预览URL与键盘/手机控制已修，Chrome先红后绿/types/3守卫/lint零错警/manifest191/110/最终双端build exit0/dist通过，准备push，无待poll。R293/294/296现有保护与实际init链复核无所述错误；R295已有无效env保留完整installer guard本机Bash exit0。R297 scripts/test-seed-safety.mjs及两个loader/db夹具未提交，初次production拒绝断言先红，须确认数据库替身边界被命中再改产品；两seed源、env/Prisma导入与security-config守卫已读，产品未改。327/R269/完整灾备仍待。
 
 > **最新接续**：95bf9e9已push核远端；R291完整端口语法/数值重复/单边范围/冲突清单深更新、同一canConfirm和即时重复锁/session/cache已修。Chrome先红后绿+手机布局最终截图/types/3守卫+最终route/lint零错警/manifest191/109/最终双端build exit0/dist通过，准备单项push，无待poll。R292四文件ticket-uploader先红disabled仍remove，扩展矩阵已写未跑、产品未改，源及父disabled调用已读；修函数/按钮disabled、晚file change与预览URL生命周期。R293已有单点保护、R294首装必失败不成立、R295已有installer运行守卫待复核；327/R269/完整灾备仍待。

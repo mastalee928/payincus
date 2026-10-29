@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-297 样例数据脚本限制为本地专库
+
+- fb874b9已push核远端；bd068fe源码CI已success。两seed最先导入共同环境门禁：仅test/development且显式ALLOW_LOCAL_SAMPLE_SEED=1、精确loopback主机、合法*_seed_test库名、PostgreSQL协议/端口、无URL参数/片段才能加载数据库模块。删除bulk的密码子串判定及FORCE绕过、停止输出共享测试密码；操作边界见docs/sample-data.md。
+- `takeover-seed-safety-before.log`真实Node脚本配数据库loader替身先红production仍触达DB；`takeover-seed-safety-final.log`两脚本各23拒绝（含生产/未启用/普通库/远程/URL覆盖/旧force）均零DB模块初始化，4本地有效配置各到达替身边界。未执行真实seed写库，不把门禁测试扩大成完整样例数据构建验收。
+- 原server tsconfig不含scripts；新增tsconfig.scripts-seed.json将两脚本与完整src纳入检查，暴露既有死声明/未用变量与IPv6字面量类型推宽，最小删除死代码并收紧字面量后`takeover-seed-safety-types-registered.log`exit0。2相关守卫、manifest193/110通过，门禁专项与类型检查均入总清单及CI。无server/src/前端产物变更，沿用前项已完成双端build。
+- R293单点、R294实际init、R296升级变量只读结论仍成立；R295已随完整installer guard复核。下一项R298本地Bash抽取main/端口/心跳/确认函数、替换系统写操作后先红：已有port但缺确认仍读终端；脚本夹具首次过长-c被Windows截断已改写文件，最终先红为实际read。产品未改，下一项独立修复。327/R269/完整灾备未完成。
+
 ## 2026-10-29 R1-292 工单附件禁用状态与预览生命周期
 
 - e0d71d0已push核远端一致。TicketImageUploader在禁用/卸载后拒绝remove/openPicker/file change，非法索引不误删末项；清空文件输入允许重选，类型/容量拒绝不再发空更新，数组原地变化同步更新并回收预览URL。删除按钮增加disabled/可访问名称与键盘显现，手机44px热区，添加按钮不压缩。

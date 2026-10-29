@@ -47,6 +47,8 @@
     "test:review-reinstall-selection": "node ../scripts/test-reinstall-selection.mjs",
     "test:review-port-conflict": "node ../scripts/test-port-conflict.mjs",
     "test:review-ticket-uploader": "node ../scripts/test-ticket-uploader.mjs",
+    "test:sample-seed-safety": "node ../scripts/test-seed-safety.mjs",
+    "type-check:sample-seed": "tsc --project tsconfig.scripts-seed.json",
     "test:review-prize-editor": "node ../scripts/test-prize-editor.mjs",
     "test:review-browser-startup": "node ../scripts/test-browser-startup.mjs",
     "test:review-badge-center": "node ../scripts/test-badge-center.mjs",

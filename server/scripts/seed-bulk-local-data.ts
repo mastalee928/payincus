@@ -1,4 +1,4 @@
-import '../src/config/env.js'
+import './lib/sample-seed-safety.js'
 
 // @ts-ignore - bcryptjs ships its own types in this repo setup
 import bcrypt from 'bcryptjs'
@@ -19,13 +19,6 @@ type SeedBackupStatus = 'ready' | 'error'
 type SeedTicketPriority = 'low' | 'normal' | 'high' | 'urgent'
 type SeedTicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed'
 type SeedBalanceLogType = 'recharge' | 'consume' | 'gift' | 'admin_adjust'
-type SeedNotificationChannelType = 'telegram' | 'discord' | 'email' | 'webhook'
-type SeedAnnouncementType = 'system_broadcast' | 'host_broadcast' | 'admin_message' | 'host_message'
-type SeedPaymentProviderType = 'yipay' | 'stripe' | 'alipay_direct' | 'wechat_direct' | 'manual'
-type SeedRechargeStatus = 'pending' | 'paid' | 'completed' | 'failed' | 'cancelled' | 'refunded'
-type SeedAffLogType = 'new_purchase' | 'renew' | 'convert'
-type SeedAffWithdrawalStatus = 'pending' | 'approved' | 'rejected'
-type SeedRedeemCodeType = 'c' | 'r' | 'd' | 't' | 'p'
 
 type SeedQuota = {
   hostLimit: number
@@ -190,22 +183,8 @@ type GeneratedInstanceRecord = {
   plan: SeedPlanSpec
 }
 
-type CreatedNotificationChannel = {
-  id: number
-  userId: number
-  type: SeedNotificationChannelType
-}
-
-type CreatedAffCode = {
-  id: number
-  userId: number
-  packagePlanId: number | null
-  code: string
-}
-
 const SEED_PREFIX = 'bulkseed'
 const SEED_MARK = `[${SEED_PREFIX}]`
-const SEED_CODE_PREFIX = SEED_PREFIX.toUpperCase()
 const SHARED_PASSWORD = 'BulkSeed123!'
 const LOCAL_PASSWORD_SALT = '$2a$10$1234567890123456789012'
 const TODAY = new Date()
@@ -224,7 +203,6 @@ const vmImages = [
   'images:debian/12/cloud',
   'images:almalinux/9/cloud'
 ]
-const redeemCodeTypes: SeedRedeemCodeType[] = ['c', 'r', 'd', 't', 'p']
 
 const ownerUsers: SeedUserSpec[] = [
   createOwnerUser(1, 'admin', 'admin', 24, 40),
@@ -387,16 +365,6 @@ function getGiftAmount(user: SeedUserSpec, index: number): number {
 
 function getSeedOrderNo(index: number): string {
   return `${SEED_PREFIX}-recharge-${pad(index + 1, 3)}`
-}
-
-function buildDemoPublicKey(username: string, index: number): string {
-  const body = Buffer.from(`${SEED_PREFIX}:${username}:${index}`).toString('base64')
-  return `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI${body.slice(0, 40)} ${username}@seed.local`
-}
-
-function buildDemoFingerprint(username: string, index: number): string {
-  const body = Buffer.from(`${username}:${index}:${SEED_PREFIX}`).toString('base64')
-  return `SHA256:${body.slice(0, 32)}`
 }
 
 function getOwnerHosts(ownerUsername: string): SeedHostSpec[] {
@@ -676,16 +644,6 @@ function pickInstanceStatus(index: number): SeedInstanceStatus {
   return 'running'
 }
 
-async function ensureLocalDevGuard(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL || ''
-  const isDevDb = databaseUrl.includes('incudal_dev_password@db:5432/incudal')
-  if (!isDevDb && process.env.FORCE_BULK_SEED !== '1') {
-    throw new Error(
-      `Refusing to run ${SEED_PREFIX} seed outside the local dev database. Set FORCE_BULK_SEED=1 to override.`
-    )
-  }
-}
-
 async function buildPasswordHash(password: string): Promise<string> {
   return bcrypt.hash(password, LOCAL_PASSWORD_SALT)
 }
@@ -693,7 +651,7 @@ async function buildPasswordHash(password: string): Promise<string> {
 async function syncUsers(passwordHash: string): Promise<Map<string, number>> {
   const userIds = new Map<string, number>()
 
-  for (const [index, user] of allSeedUsers.entries()) {
+  for (const user of allSeedUsers) {
     const saved = await prisma.user.upsert({
       where: { username: user.username },
       create: {
@@ -1360,7 +1318,7 @@ async function syncInstanceChildren(
                 hostId,
                 instanceId,
                 address: `${spec.ipv6.split('::')[0]}::${400 + index}`,
-                type: 'inet6',
+                type: 'inet6' as const,
                 isPrimary: false,
                 isCustom: true,
                 device: 'eth1'
@@ -1616,7 +1574,7 @@ async function refreshHostAndQuotaUsage(
     }
   }
 
-  for (const [hostName, hostId] of hostIds.entries()) {
+  for (const hostId of hostIds.values()) {
     const stats = hostStats.get(hostId)!
     await prisma.host.update({
       where: { id: hostId },
@@ -1666,11 +1624,9 @@ async function printSummary(): Promise<void> {
   console.log(`${SEED_MARK} completed`)
   console.log(`${SEED_MARK} users=${users}, hosts=${hosts}, packages=${packages}, plans=${plans}, instances=${instances}`)
   console.log(`${SEED_MARK} portMappings=${ports}, snapshots=${snapshots}, backups=${backups}, proxySites=${sites}, tickets=${tickets}`)
-  console.log(`${SEED_MARK} shared password for generated users: ${SHARED_PASSWORD}`)
 }
 
 async function main(): Promise<void> {
-  await ensureLocalDevGuard()
   const passwordHash = await buildPasswordHash(SHARED_PASSWORD)
   const userIds = await syncUsers(passwordHash)
   const hostIds = await syncHosts(userIds)

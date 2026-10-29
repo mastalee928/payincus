@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*",
+    "scripts/seed-test-data.ts",
+    "scripts/seed-bulk-local-data.ts",
+    "scripts/lib/sample-seed-safety.ts"
+  ]
+}

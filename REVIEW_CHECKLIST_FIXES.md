@@ -332,11 +332,11 @@
 | R1-290 | 存在，弹窗已修 | 前端专项通过 | 两modal深监听清失效成员、同一canSubmit校验当前image/key/可见/在途/session/cache，命令复制及重复emit保护；保重装密码默认/可选key与重建必选key。Chrome先红后绿/types/5守卫/lint/双端build/dist通过；父写回执与原生任务另待，见HANDOFF。 |
 | R1-291 | 存在，弹窗已修 | 前端专项通过 | 完整数值/安全端口/数字重复/单边范围及冲突清单校验；canConfirm统一函数/按钮、即时重复锁、session/cache门禁。Chrome先红后绿、手机五位端口、types/3守卫/lint/双端build/dist通过；父写回执与原生下发另待，见HANDOFF。 |
 | R1-292 | 存在，已修 | 前端专项通过 | disabled/alive保护函数和删除按钮，晚file change清input且零更新，非法索引拒绝，深watch与卸载回收URL，键盘/手机控件可用；Chrome先红后绿/types/3守卫/lint/双端build/dist通过，见HANDOFF。 |
-| R1-293 | 已有防护 | 保留初审结论 | 单点length===1用50；HostInfoTab也Math.max(length-1,1)，不除零。 |
-| R1-294 | 实现不同 | 保留初审结论 | 安装默认hex16未满足通用复杂度，但实际init只校验12位/非占位符，不调用通用validatePassword；不能报告首装必失败。策略一致性另修。 |
-| R1-295 | 存在 | 源码已改/验证范围见右栏 | 旧env解析失败保留原文件；installer guard |
-| R1-296 | 已有防护 | 保留初审结论 | 升级summary版本变量已有定义，原未定义退出问题不成立。 |
-| R1-297 | 部分存在 | 待精修/运行复核 | test seed无环境门禁；bulk seed用URL字符串includes和FORCE_BULK_SEED=1可覆盖，保护不足。未运行任何seed。 |
+| R1-293 | 已有防护 | 代码复核通过 | 2026-10-29再核TrafficStats单点用50；HostInfoTab用Math.max(length-1,1)，无所述除零，未虚构源码修改。 |
+| R1-294 | 实现不同 | 代码复核通过 | 2026-10-29再核gen_password(16)与init-prisma真实调用；生产仅12位/非占位符，不调用通用validatePassword，首装必失败不成立。策略一致性另评估。 |
+| R1-295 | 存在，已修 | installer专项通过 | 无效旧env拒绝并逐字节保留；2026-10-29完整Bash installer guard exit0（takeover-installer-review.log），无系统安装操作，不扩大为Linux真机首装。 |
+| R1-296 | 已有防护 | 代码复核通过 | 2026-10-29再核do_upgrade内local version默认unknown并读version.json，summary前已有定义；未定义退出问题不成立。 |
+| R1-297 | 存在，门禁已修 | 实际脚本隔离专项通过 | 两脚本最先校验显式test/dev+开关+精确本地专库/URL，旧force不可绕；各23拒绝零DB模块初始化/4有效目标到达替身、完整src+seed types/2守卫通过，入manifest/CI。未运行真实seed写库，见HANDOFF。 |
 | R1-298 | 部分存在 | 待精修/运行复核 | 注入参数已先合并，旧拒绝问题已防；未给port与confirm仍read，非交互可等待终端。 |
 | R1-299 | 存在 | 待精修/运行复核 | keep-alive仅unmount清键盘监听；cloud-init/命令结果缺完整会话代次；保存后清当前草稿；页签button嵌套button。 |
 | R1-300 | 实现不同 | 保留初审结论 | 未发现对方余额转账/预览功能入口，不能误指现有实例PUSH或AFF兑换；新增同类功能时才适用。 |

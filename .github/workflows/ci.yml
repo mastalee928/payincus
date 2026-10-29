@@ -37,6 +37,8 @@ jobs:
 
       - name: Repository and installer guards
         run: |
+          pnpm --filter server test:sample-seed-safety
+          pnpm --filter server type-check:sample-seed
           node scripts/test-repository-source-guards.mjs
           bash scripts/test-install-panel-guards.sh
           python3 scripts/test-onboarding-control.py

@@ -1,4 +1,4 @@
-import '../src/config/env.js'
+import './lib/sample-seed-safety.js'
 
 // @ts-ignore - bcryptjs has its own types
 import bcrypt from 'bcryptjs'
