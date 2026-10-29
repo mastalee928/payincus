@@ -146,6 +146,23 @@ const form = ref({
   payincus_gift_card_admin_ids: ''
 })
 
+type ConfigFormKey = keyof typeof form.value
+const formKeys = Object.keys(form.value) as ConfigFormKey[]
+const draftRevisions = new Map<ConfigFormKey, number>()
+const readRevisions = new Map<ConfigFormKey, number>()
+let applyingConfigs = false
+let nextReadRevision = 0
+for (const key of formKeys) {
+  draftRevisions.set(key, 0)
+  watch(() => form.value[key], () => {
+    if (!applyingConfigs) draftRevisions.set(key, (draftRevisions.get(key) || 0) + 1)
+  }, { deep: true, flush: 'sync' })
+}
+
+function captureDraftRevisions(keys: string[]): Map<ConfigFormKey, number> {
+  return new Map(keys.map(key => [key as ConfigFormKey, draftRevisions.get(key as ConfigFormKey) || 0]))
+}
+
 // Config metadata - computed to support i18n
 // 注意：好友配额已禁用，不再显示 default_quota_friend
 const configMeta = computed(() => {
@@ -247,23 +264,30 @@ watch(isPopupAnnouncementTab, (active) => {
   }
 })
 
-async function loadConfigs() {
-  loading.value = true
+async function loadConfigs(savedDrafts?: Map<ConfigFormKey, number>) {
+  const drafts = savedDrafts || captureDraftRevisions(formKeys)
+  const readRevision = ++nextReadRevision
+  for (const key of drafts.keys()) readRevisions.set(key, readRevision)
+  if (!savedDrafts) loading.value = true
   try {
     const response = await api.systemConfig.list()
 
-    if (!response || typeof response !== 'object') {
-      console.warn('[SystemConfigView] Invalid response format:', response)
-      configs.value = []
-      return
+    if (!response || !Array.isArray(response.configs)) {
+      throw new Error(t('admin.system.loadFailed'))
     }
 
-    configs.value = Array.isArray(response.configs) ? response.configs : []
-
-    // 填充表单
-    if (Array.isArray(response.configs)) {
+    // 保存后的全量回执只合并本次分组，独立分组的反序读取互不覆盖。
+    applyingConfigs = true
+    try {
       for (const config of response.configs) {
-        if (config && typeof config === 'object' && config.key && config.key in form.value) {
+        const key = config?.key as ConfigFormKey
+        if (config && Object.prototype.hasOwnProperty.call(form.value, key) &&
+          drafts.has(key) && readRevisions.get(key) === readRevision) {
+          const index = configs.value.findIndex(item => item.key === key)
+          if (index === -1) configs.value.push(config)
+          else configs.value[index] = config
+          // 即使输入改回原值，也保留提交后编辑过的草稿。
+          if (draftRevisions.get(key) !== drafts.get(key)) continue
           try {
             if (numericConfigKeys.includes(config.key)) {
               (form.value as any)[config.key] = parseInt(config.value, 10) || 0
@@ -285,6 +309,8 @@ async function loadConfigs() {
           }
         }
       }
+    } finally {
+      applyingConfigs = false
     }
   } catch (err: any) {
     console.error('[SystemConfigView] Error loading configs:', err)
@@ -293,10 +319,8 @@ async function loadConfigs() {
     } catch (toastErr) {
       console.error('[SystemConfigView] Failed to show toast:', toastErr)
     }
-    // 确保configs是一个空数组，避免后续代码出错
-    configs.value = []
   } finally {
-    loading.value = false
+    if (!savedDrafts) loading.value = false
   }
 }
 
@@ -325,6 +349,7 @@ async function loadPopupPromoPackages() {
 
 // 通用保存函数
 async function saveConfigGroup(keys: string[], savingRef: { value: boolean }) {
+  if (savingRef.value) return
   savingRef.value = true
   try {
     const configsToUpdate = keys.map(key => ({
@@ -335,10 +360,13 @@ async function saveConfigGroup(keys: string[], savingRef: { value: boolean }) {
           ? ((form.value as any)[key] ? 'true' : 'false')
           : String((form.value as any)[key])
     }))
+    const savedDrafts = captureDraftRevisions(keys)
+    // 已开始保存的字段不能再接受较早的初始读取。
+    for (const key of savedDrafts.keys()) readRevisions.delete(key)
 
     await api.systemConfig.update(configsToUpdate)
     toast.success(t('admin.system.saveSuccess'))
-    await loadConfigs()
+    await loadConfigs(savedDrafts)
   } catch (err: any) {
     toast.error(t('admin.system.saveFailed') + ': ' + getConfigSaveErrorMessage(err))
   } finally {
@@ -971,7 +999,6 @@ async function sendTestEmail() {
               </span>
             </div>
           </div>
-
         </div>
 
         <div v-if="isAccessSection" class="card p-6">

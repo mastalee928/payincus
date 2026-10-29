@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R310分组草稿阶段：真实Chrome先红→19组保存/刷新新草稿/ABA/嵌套JSON、分组和初读反序、busy/失败保基线/密码掩码全部通过；4守卫/lint零错警/双端types build exit0/dist/manifest194常规163专项与三宽截图见HANDOFF。唯一198有修复复验（含部分）/68已有防护实现不同/61待精修；198内部未完，会话/cache/unmount/严格回执下一段继续，完整327与灾备仍未完成。
+
 2026-10-29 R309回执联动阶段：密码初次/verified核真实message+reauthRequired=true，非法回执保草稿error，删非法false成功timer；实际敏感验证两组件request/verify/原payload重试/清登录跳转与旧child草稿隔离通过。Chrome12反例+scope32回执/4守卫/lint/双端types build/dist和三宽截图见HANDOFF。R311与R309两旧回执数量各32已纠正；197/68/62含部分不重复计数，外部SMTP/真实客户密码全流程仍待。
 
 2026-10-29 R309目标会话阶段：密码初次/verified固定user/current/new与session/draft pending、busy/字段门禁、取消及旧验证回调、草稿ABA/cache/unmount/timer/秘密清理已修。Chrome32旧回执和正常same sid实际清登录跳转/旧timer/重试/三宽截图、四守卫/lint/双端types build见HANDOFF；最后user复构/dist收尾，严格回执及完整联动另待。唯一197有修复复验（含部分）/68已有防护实现不同/62待精修，197内部未完继续。
@@ -401,7 +403,7 @@
 | R1-307 | 部分存在，部分已修 | 2FA与邮箱状态/回执实际Chrome及构建守卫通过 | 2FA busy/取消/初读ready/session/cache/unmount/draft/秘密timer、TOTP/设置材料与真实回执已修；邮箱busy和目标/session/输入回执见R313。真实认证全流程及R013敏感验证接线仍待，不把局部矩阵当作完整验收。 |
 | R1-308 | 部分存在 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
 | R1-309 | 存在，部分已修 | 固定密码/回执/验证联动真实Chrome通过 | 固定提交/session/draft pending、busy/取消/cache/unmount/旧timer、真实message/reauthRequired确认已修；Chrome32旧回执、实际SensitiveVerification request/verify/原payload retry/清登录跳转及旧child草稿隔离通过。外部SMTP/真实客户密码完整变更仍待。 |
-| R1-310 | 存在 | 待精修/运行复核 | 保存一个设置组后loadAll重置全组，其他组及等待期间新草稿丢失。 |
+| R1-310 | 存在，部分已修 | 分组草稿Chrome/守卫/双端构建通过 | 19组保存后loadConfigs仅合并本组；同步逐字段编辑代次保其它组/在途编辑/ABA和JSON嵌套草稿，独立read代次保反序分组基线。后台刷新不隐藏整表，失败保已有基线及草稿；同组函数busy与后端密码掩码已验。会话/缓存/卸载及完整真实管理员配置另续，证据见HANDOFF。 |
 | R1-311 | 存在，部分已修 | 当前编辑读取Chrome及构建守卫通过 | 编辑target/seq/ABA/mode/show/admin/account/session/unmount隔离、ready/loading/保存门禁、失败持久retry及匹配id已修，真实Chrome16旧回执及正常/失败/刷新/卸载通过。手机开关出界已单列/wrap；保存回执、列表与分类并发另待。 |
 | R1-312 | 部分存在 | 待精修/运行复核 | 当前PackageSelector只展示props.packages，无对方嵌入packageId加载；priority 0用／／20确被默认覆盖。 |
 | R1-313 | 部分存在，部分已修 | 目标/session及输入回执实际Chrome与构建守卫通过 | 四操作固定目标/session/draft/ABA、busy/关闭/卸载/timer已修；两数字输入、四真实成功回执/有效期与过期敏感验证清理已修。80旧回执及输入回执反例/重试通过；实际邮件和客户完整变更另续。 |

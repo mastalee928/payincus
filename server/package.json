@@ -83,6 +83,7 @@
     "test:review-help-editor-writes": "node ../scripts/test-help-editor-writes.mjs",
     "test:review-password-scope": "node ../scripts/test-password-scope.mjs",
     "test:review-password-receipts": "node ../scripts/test-password-receipts.mjs",
+    "test:review-system-settings-drafts": "node ../scripts/test-system-settings-drafts.mjs",
     "test:review-user-balance-submit": "node ../scripts/test-user-balance-submit.mjs",
     "test:review-user-points-submit": "node ../scripts/test-user-points-submit.mjs",
     "test:review-user-balance-audit": "node --import tsx scripts/test-review-user-balance-audit.ts",

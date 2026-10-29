@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-310 系统设置分组保存保留草稿
+
+- 上批密码确认与验证联动 a77d2e74 已核远端 main。系统设置 drafts-before 实际 Chrome 先红：保存注册设置后品牌草稿由 Unsaved brand 变为 Incudal。现在 saveConfigGroup 固定提交字段的编辑代次，loadConfigs 只合并该分组；逐字段同步 deep watcher 保留其它组、保存及刷新期间的新输入、改回原值和 JSON 嵌套草稿。读取代次按字段独立，两个分组反序回执不互相覆盖基线；保存开始拒较早初读，同组函数入口 busy 拒重复。
+- 后台刷新不切整页 loading，失败保留既有基线与草稿；未继续编辑的密码使用真实读取回执掩码。drafts-final-r3 实际 Chrome 19 分组、两分组反序、同组重复、初读反序/新草稿、刷新失败和掩码通过 exit0；首轮夹具误造缺失 VIP 等级引起渲染错误已改为合法五等级嵌套编辑，不记产品失败。三宽三语浅深截图已看；既有导航 border-b-2 被设计检测误报为卡片厚边，不改既有导航。
+- client type-check、4 守卫（frontend-route/i18n/ticket-auto-close/admin-route，最后去空行再跑 route）、修改文件 lint 零错警通过；drafts-build 双端构建含 vue-tsc exit0，drafts-dist 通过，manifest194常规/163专项分类通过。浏览器专项登记 server 脚本、EXCLUDED_FROM_SUITE 原因与 CI。源码真实 Vue/受控 API 验收，不是生产配置写入；会话/缓存/卸载、严格回执和完整真实管理员流程下一段继续。
+- R310 进入部分精修，唯一原编号198有修复/复验记录（含部分）/68已有防护或实现不同/61待精修，198内部仍有未完成范围。完整327和网关灾备未完成；本批仅阶段提交推送，不发版或操作生产。
+
 ## 2026-10-29 R1-309 密码成功确认与敏感验证组件联动
 
 - 4888de63已push。receipts-before实际Chrome先红空回执仍passwordSuccess=true；初次及验证重试现在核实际非空message与reauthRequired=true，非法回执保草稿/持久error且不成功、不登出。个人密码更新实际必撤销session，删不再合法的reauth=false成功timer分支，统一当前session/generation延迟清登录，保持旧session隔离。
