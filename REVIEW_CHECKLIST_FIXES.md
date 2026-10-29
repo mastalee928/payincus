@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R080 TG绑定read/account/session/target ABA/cache/unmount、三写busy/严格回执、checkbox失败恢复与旧读不覆保存、链接期限/复制隔离已修。实际Chrome56旧回执及控件/重试回归通过，浅深三宽局部taste最终0 FAIL/WARN；types/守卫/双端build与末dist终态详见HANDOFF。219含部分/68已有不同/40待，外部TG与真实账户另验。
+
 2026-10-30 R078读页/反序/账户sid/cache/卸载/缩页/严格回执和三语retry已修，实际Chrome先红→final14旧读/十坏读/真实next/演示隐藏与零空态exit0，原11UA回归、5守卫/lint/双端types build末dist通过。218含部分/68已有不同/41待，R080 TG绑定下一。
 
 2026-10-29 R079 Android/iPhone/iPad/Opera UA优先与CriOS/FxiOS已修，实际Chrome先红→11UA/三语三宽exit0，5守卫/lint/双端types build末dist通过。217含部分/68已有不同/42待；R078反序分页已先红未改。
@@ -221,7 +223,7 @@
 | R1-077 | 存在 | 已修；真实账户/整体UI另验 | GET list/detail真实createdAt，日期span改单字段及缺失—，实际Chrome先红→两个API日期/三语三宽零写exit0，3守卫/lint/双端types build末dist过。保持原手机日期隐藏，生成/保存保护继续R075。 |
 | R1-078 | 存在 | 已修；真实账户/整体UI另验 | 当前account/role/sid/seq/页与cache/unmount隔离，切页清旧记录、同页失败保留/三语retry、缩页读有效末页及严格记录。真实Chrome先红→final14旧读/十坏读/分页/演示隐藏exit0，5守卫/lint/双端types build末dist过。 |
 | R1-079 | 存在 | 已修；真实账户/整体UI另验 | 移动设备先于Linux/macOS，Opera/Edge/Firefox/Chrome先于Safari，补CriOS/FxiOS。实际Vue Chrome先红→11UA/三语三宽exit0，5守卫/lint/双端types build末dist过，R078反序读另续。 |
-| R1-080 | 存在 | 待精修/运行复核 | 绑定读取与操作结果未完整绑定目标/会话代次，旧链接/状态可回写。 |
+| R1-080 | 存在 | 源码已修/隔离Chrome验证通过 | 当前account/sid/目标代次及cache/unmount读写隔离，三写busy/严格回执/链接过期；实际checkbox失败恢复与保存后旧读覆盖回归、56旧回执/ABA/实际控件通过。logs/takeover-telegram-profile-final-ui-2.log；真实外部TG/账户另验 |
 | R1-081 | 存在 | 源码已修/代码复审/待Linux实跑 | Linux稳定inode flock、确认死亡旧PID可恢复，活PID/歧义/软链拒绝，不删除锁路径；owner强杀测试已写，Linux双架构vet/测试编译通过，Windows升级包通过；实际Linux故障注入待补 |
 | R1-082 | 存在 | 源码已修/本机升级包通过 | 下载及gzip全部成员展开均限总大小，边界/损坏/超限不改旧文件；Windows升级包实际通过，Linux双架构vet/测试编译通过；正式Agent未发布 |
 | R1-083 | 存在 | 源码已修/代码复审/待Linux实跑 | systemd定时任务优先，fallback有界等待--no-block确认，不遗留随defer cancel被杀的子进程；取消与deadline测试已写并双架构编译，真实systemd待补 |

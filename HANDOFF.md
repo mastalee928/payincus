@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-080 Telegram 绑定页当前状态与操作隔离
+
+- 真实Chrome重复生成先红2请求；本轮追加实际checkbox失败后显示反向、保存后旧刷新覆盖两个先红回归。读取绑定account/role/sid/同步代次/序号及cache/unmount，三写共享busy、固定绑定目标和独立目标代次，A→B→A也不得重新接受旧回执；同sid刷新保持当前请求。通知仅在确认回执后显示新值，失败保留原值和三语持久错误/重试。
+- 严格核验绑定状态、写message/通知bool及HTTPS当前bot唯一start参数和期限；链接过期/账户/目标/离页清理，旧复制完成不通知。telegram-profile最终56旧读写、三个目标ABA、读写反序/缓存返回锁/交叉提交/非法回执/实际三个控件和retry/过期均exit0。所有显示链接只用固定测试标记，无外部Telegram请求/通知或真实账户操作。
+- taste沿现有黑白方向局部修按钮/阴影/文字对比/刷新防挤压/13px提示/手机44px与focus；浅深1440/768/390最终0 FAIL、0 WARN，全部实际截图已看。仅isolated组件允许no-title/no-hero/unused-canvas/hero-void（无整页壳、下方空白），不代表账户整页UI或外部Telegram绑定验收。
+- 对应frontend三守卫、user-telegram-notify、auth-session-status、lint/脚本语法/diff/manifest194常规188专项分类与接CI通过；takeover-telegram-profile-build-final-2双端含vue-tsc最终exit0（6744已poll），最后dist守卫exit0，无待poll。b7697523已push核远端；本项阶段保存后219有修复/复验含部分、68已有不同、40待。下一R093无效Agent secret格式先红200已修，六非法/修复原token重试/两合法边界及原PG回归通过，独立提交；其修改不纳入R080。
+
 ## 2026-10-30 R1-078 登录历史当前页与账户隔离
 
 - 真实Chrome第3页先回、第2页后回覆盖先红；读现绑定account/role/sid/同步代次/独立序号/选中页/cache/unmount。切页清旧页记录，同页失败保留当前已读记录；切账户离页清IP/设备/总数。分页缩减自动读当前有效末页，严格验证响应字段与记录，失败提供三语持久retry，不以空历史伪装读取失败。
