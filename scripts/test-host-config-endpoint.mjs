@@ -31,7 +31,7 @@ try {
     assert.equal(await page.eval(()=>window.hostConfigHarness.view().form.apiPort),port,'display the saved effective HTTP(S) port')
     await run(()=>{const v=window.hostConfigHarness.view();v.form.location='changed description';void v.saveConfig()})
     assert.equal(await page.eval(()=>Object.hasOwn(window.hostConfigHarness.pending[0].data,'url')),false,'unrelated edits omit URL completely')
-    await run(()=>{const h=window.hostConfigHarness;h.pending[0].resolve({...h.host.value,location:'changed description'})})
+    await run(()=>{const h=window.hostConfigHarness;h.pending[0].resolve({message:'Fixture saved'})})
     assert.equal(await page.eval(()=>window.hostConfigHarness.saved.value),1)
   }
   console.log('PASS eight unchanged protocols/default and explicit ports/path/query/fragment/IPv6 endpoints omitted')

@@ -390,6 +390,8 @@ jobs:
         run: pnpm --filter server test:review-host-config-clear
       - name: Host config clear values persist and route mode stays protected
         run: pnpm --filter server test:review-host-config-clear-pg
+      - name: Host config drafts and save receipts stay with the current view
+        run: pnpm --filter server test:review-host-config-submit
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

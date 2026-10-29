@@ -31,6 +31,11 @@ const authStoreSource = readRepoFile('client/src/stores/auth.ts')
 const hostImagesSource = readRepoFile('client/src/components/host/HostImagesTab.vue')
 const hostCaddySource = readRepoFile('client/src/components/host/HostCaddyTab.vue')
 const hostConfigSource = readRepoFile('client/src/components/host/MyHostConfigTab.vue')
+assert.ok(hostConfigSource.includes('!saving.value && !dirty.value') && hostConfigSource.includes('const cleanDraft = ref(') &&
+  hostConfigSource.includes('if (editingDisabled.value) return') && hostConfigSource.includes(':disabled="editingDisabled"') &&
+  hostConfigSource.includes('identity === session.value') && hostConfigSource.includes('revision === draftGeneration') &&
+  hostConfigSource.includes('onDeactivated(') && hostConfigSource.includes('data-host-config-error'),
+  'Host config must preserve dirty drafts and isolate pending saves, obsolete receipts and persistent failures')
 assert.ok(hostConfigSource.includes('hostApiPort(newHost.url') && hostConfigSource.includes('editedHostEndpoint(formEndpoint,') &&
   hostConfigSource.includes('url === undefined ? {} : { url }') && !hostConfigSource.includes('buildHostApiUrl(form.value'),
   'unrelated host edits must omit the URL and changed endpoints must preserve the original protocol and path')

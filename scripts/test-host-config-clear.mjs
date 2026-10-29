@@ -29,7 +29,7 @@ try {
     const payload=await page.eval(()=>window.hostConfigHarness.pending[0].data)
     for(const field of fields)assert.equal(payload[field],'',`${field} clearing must survive JSON serialization`)
     assert.equal(payload.url,undefined)
-    await run(()=>{const h=window.hostConfigHarness;h.pending[0].resolve({...h.host.value,...h.pending[0].data})})
+    await run(()=>{const h=window.hostConfigHarness;h.pending[0].resolve({message:'Fixture saved'})})
     assert.equal(await page.eval(()=>window.hostConfigHarness.saved.value),1)
   }
   await load(2);await run(()=>{const v=window.hostConfigHarness.view();v.form.ipv6ParentInterface='  ';v.form.ipv6Subnet='  ';void v.saveConfig()})

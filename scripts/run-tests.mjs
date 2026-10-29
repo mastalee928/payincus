@@ -63,6 +63,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-host-caddy-actions', 'requires Chrome/Edge and local Vite; actual Caddy operation/copy current host-session-dialog replies, pending locks, strict receipts, failures and sensitive display cleanup; controlled API and clipboard only'],
   ['test:review-host-config-endpoint', 'requires Chrome/Edge and local Vite; actual host config preserves unchanged connection URLs and HTTP(S) protocol/default ports/path/query/IPv6 on edits; controlled API only'],
   ['test:review-host-config-clear', 'requires Chrome/Edge and local Vite; actual explicit description/IPv6 clears, mode/subnet gates and errors with controlled API'],
+  ['test:review-host-config-submit', 'requires Chrome/Edge and local Vite; actual dirty parent refresh, host/session/draft ABA and cache/unmount save receipts, shared pending lock and malformed/current failure retry with controlled API'],
   ['test:review-host-config-clear-pg', 'requires isolated local *_pool_test PostgreSQL; actual PATCH explicit description/IPv6 clearing, omitted values, foreign ownership and required route-mode rejection; no Incus requests'],
   ['test:review-instance-detail-reads', 'requires Chrome/Edge and local Vite; actual detail route/session/read ordering, pending task/statistics and lifecycle timers'],
   ['test:review-transfer-modal-lifecycle', 'requires Chrome/Edge and local Vite; actual transfer and sensitive verification modal request ordering, draft/session identity and lifecycle'],
