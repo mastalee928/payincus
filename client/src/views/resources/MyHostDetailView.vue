@@ -75,6 +75,9 @@ interface Host {
 
 const host = ref<Host | null>(null)
 const loading = ref(true)
+const hostLoadError = ref('')
+let hostReadGeneration = 0, hostReadSequence = 0
+let pendingHostRead: (() => boolean) | null = null
 const actionLoading = ref('')
 
 // 删除确认弹窗
@@ -127,77 +130,54 @@ const statusInfo = computed(() => {
 const HOST_DETAIL_ROUTE_NAMES = ['my-host-detail', 'admin-my-host-detail']
 const isOnHostDetailRoute = () => HOST_DETAIL_ROUTE_NAMES.includes(String(route.name ?? ''))
 
-onMounted(async () => {
-  await loadHost()
-})
-
-// 组件可能被外层 <KeepAlive> 缓存后复用 —— 这种情况下再次进入本页时 onMounted 不会执行。
-// 若此时缓存里 host 为空（或路由 id 已变），页面会停在「既不 loading、host 又为 null」的
-// 状态，模板两个分支都不成立 → 整页白屏（刷新后因为是全新挂载才恢复正常）。
-// 因此在 activated 时按需重新加载。
-onActivated(async () => {
-  if (!isOnHostDetailRoute()) return
-  const currentId = Number.parseInt(String(route.params.id ?? ''), 10)
-  if (!Number.isFinite(currentId) || currentId <= 0) return
-  if (!host.value || (host.value as any).id !== currentId) {
-    loading.value = true
-    host.value = null
-    await loadHost()
-  }
-})
-
-// 监听路由参数变化，重新加载数据
-watch(() => route.params.id, async (newId, oldId) => {
-  // 检查是否仍在节点详情页，防止路由切换到其他页面时误触发（需同时认用户端/管理端两个路由名）
-  if (!isOnHostDetailRoute()) return
-
-  if (newId && newId !== oldId) {
-    // 重置所有状态
-    loading.value = true
-    activeTab.value = 'info'
-    host.value = null
-    actionLoading.value = ''
-    
-    // 关闭所有弹窗并重置其状态
-    showDeleteModal.value = false
-    deleteConfirmName.value = ''
-    
-    showExtendModal.value = false
-    extendDays.value = undefined
-    paidInstanceCount.value = 0
-    
-    showReinstallModal.value = false
-    reinstallCommand.value = ''
-    reinstallStatus.value = 'waiting'
-    reinstallError.value = ''
-    
-    await loadHost()
-  }
-})
+function invalidateHostReads() {
+  hostReadGeneration++; hostReadSequence++; pendingHostRead = null
+  host.value = null; loading.value = false; hostLoadError.value = ''; activeTab.value = 'info'
+  showDeleteModal.value = false; deleteConfirmName.value = ''
+  showExtendModal.value = false; extendDays.value = undefined; paidInstanceCount.value = 0
+  clearReinstallCommand(); reinstallStatus.value = 'waiting'; reinstallError.value = ''
+}
+watch([() => route.fullPath, copySession], () => {
+  invalidateHostReads()
+  if (copyViewAlive && copyViewActive.value && isOnHostDetailRoute()) void loadHost()
+}, { flush: 'sync' })
+onMounted(() => { if (!pendingHostRead?.()) void loadHost() })
+onActivated(() => { if (isOnHostDetailRoute() && !host.value && !pendingHostRead?.()) void loadHost() })
+onDeactivated(invalidateHostReads)
+onBeforeUnmount(invalidateHostReads)
 
 async function loadHost() {
-  const hostId = parseInt(route.params.id as string)
-  if (isNaN(hostId) || hostId <= 0) {
-    toast.error(t('admin.hosts.invalidId'))
-    router.replace(hostsPath())
-    return
-  }
-
+  if (!copyViewAlive || !copyViewActive.value || !isOnHostDetailRoute()) return
+  const rawId = String(route.params.id ?? ''), hostId = Number(rawId), session = copySession.value
+  if (!/^[1-9]\d*$/.test(rawId) || !Number.isSafeInteger(hostId)) { hostLoadError.value = t('admin.hosts.invalidId'); loading.value = false; return }
+  if (!session) { hostLoadError.value = t('admin.hosts.loadFailed'); loading.value = false; return }
+  const path = route.fullPath, generation = hostReadGeneration, sequence = ++hostReadSequence
+  const current = () => copyViewAlive && copyViewActive.value && isOnHostDetailRoute() && path === route.fullPath &&
+    session === copySession.value && generation === hostReadGeneration && sequence === hostReadSequence
+  pendingHostRead = current; loading.value = !host.value; hostLoadError.value = ''
   try {
-    const res = await api.hosts.get(hostId)
-    host.value = (res as any).host || res
+    const res: unknown = await api.hosts.get(hostId)
+    if (!current()) return
+    const detail = res && typeof res === 'object' && 'host' in res ? res.host : res
+    if (!isHostDetail(detail, hostId)) throw Error(t('admin.hosts.loadFailed'))
+    host.value = detail
   } catch (err: any) {
-    toast.error(t('admin.hosts.loadFailed') + ': ' + (err?.message || String(err)))
-    router.replace(hostsPath())
+    if (current()) hostLoadError.value = t('admin.hosts.loadFailed') + ': ' + (err?.message || String(err))
   } finally {
-    loading.value = false
+    if (current()) { loading.value = false; pendingHostRead = null }
   }
+}
+
+function isHostDetail(value: unknown, hostId: number): value is Host {
+  if (!value || typeof value !== 'object') return false
+  const detail = value as Partial<Host>
+  return detail.id === hostId && typeof detail.name === 'string' && typeof detail.url === 'string' &&
+    typeof detail.countryCode === 'string' && typeof detail.status === 'string' && ['online', 'offline', 'maintenance'].includes(detail.status)
 }
 
 // 兜底态里的「重试」：重新拉一次节点详情
 async function retryLoadHost() {
-  loading.value = true
-  host.value = null
+  if (pendingHostRead?.()) return
   await loadHost()
 }
 
@@ -401,6 +381,10 @@ const tabs = [
 
 <template>
   <div class="host-detail kawaii-page space-y-6 animate-fade-in">
+    <div v-if="hostLoadError" data-host-detail-read-error class="rounded-lg bg-themed-secondary p-4 flex items-center justify-between gap-3 text-sm" role="status">
+      <span class="min-w-0 break-words">{{ hostLoadError }}</span>
+      <button type="button" data-host-detail-read-retry class="btn-secondary btn-sm shrink-0" @click="retryLoadHost">{{ t('common.retry') }}</button>
+    </div>
     <div v-if="loading">
       <SkeletonLoader type="detail" />
     </div>
@@ -710,10 +694,11 @@ const tabs = [
     <!-- 兜底态：既不在 loading、host 又为空时必须给出明确状态。
          此前这里没有 v-else，两个分支都不成立就什么都不渲染 —— 表现为整页白屏，
          用户完全无从判断发生了什么，只能靠刷新。 -->
-    <div v-else class="card flex flex-col items-center justify-center gap-3 p-10 text-center">
-      <p class="text-themed-muted">{{ t('admin.hosts.loadFailed') }}</p>
+    <div v-else class="host-read-empty rounded-lg bg-themed-secondary p-6 space-y-4">
+      <h1 class="text-xl font-semibold">{{ t('admin.hosts.tabInfo') }}</h1>
+      <p v-if="!hostLoadError" class="text-themed-muted">{{ t('admin.hosts.loadFailed') }}</p>
       <div class="flex gap-2">
-        <button type="button" class="btn-primary btn-sm" @click="retryLoadHost">
+        <button v-if="!hostLoadError" type="button" class="btn-secondary btn-sm" @click="retryLoadHost">
           {{ t('common.retry') }}
         </button>
         <button type="button" class="btn-secondary btn-sm" @click="router.replace(hostsPath())">
@@ -739,6 +724,7 @@ const tabs = [
 .reinstall-dialog .text-themed-muted,
 .host-detail .text-themed-muted { color: var(--kawaii-text) !important; }
 @media (max-width: 639px) {
+  [data-host-detail-read-retry] { min-height: 44px !important; }
   .reinstall-dialog button { min-height: 44px !important; font-size: 13px; }
   .reinstall-dialog p { font-size: 13px; }
 }
@@ -748,6 +734,7 @@ const tabs = [
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .host-detail { animation: none !important; }
   .reinstall-dialog { animation: none !important; transition: none !important; transform: none !important; }
   .nimbus-tab {
     transition: none;

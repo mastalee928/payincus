@@ -22,10 +22,12 @@ const app = createApp({ components: { HostDetail }, setup() {
   session(); setLocale('zh-CN'); theme.setTheme(new URLSearchParams(location.search).has('dark') ? 'dark' : 'light')
   window.hostDetailHarness = { pending, router, auth, theme, session, active, mounted, setLocale, toast: useToast(), t: (...args) => i18n.global.t(...args), view: () => component.value?.$?.setupState }
   if (new URLSearchParams(location.search).has('inspect')) queueMicrotask(async () => {
-    pending.forEach(p => p.resolve({ host: { id: 11, name: '测试宿主', countryCode: 'JP', status: 'online', certPath: '/fixture/cert', url: 'https://host.example.test' } }))
+    const read = pending.at(-1)
+    if (new URLSearchParams(location.search).has('read-error')) read?.reject(Error('fixture read failed'))
+    else read?.resolve({ host: { id: 11, name: '测试宿主', countryCode: 'JP', status: 'online', certPath: '/fixture/cert', url: 'https://host.example.test' } })
     await nextTick()
     const v = component.value?.$?.setupState
-    v.reinstallCommand = 'DISPLAY-ONLY reinstall command'; v.showReinstallModal = true
+    if (!new URLSearchParams(location.search).has('read-error')) { v.reinstallCommand = 'DISPLAY-ONLY reinstall command'; v.showReinstallModal = true }
     if (new URLSearchParams(location.search).has('error')) v.reinstallCopyError = true
   })
   return { component, active, mounted }

@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-102 宿主详情读取不能覆盖当前路由
+
+- 实际Chrome先红A旧读取覆盖已返回的B。详情get现独立序号并固定route fullPath/account/role/sid/同步代次，切路由/账户ABA、缓存离页与卸载立即清旧host/弹窗/命令；旧success/catch/finally不写当前数据、不跳走、不释放当前loader。初读/缓存返回避免重复，same sid正常刷新保持当前读取；严格正safe integer路由和返回host目标/必需字段，坏回执可实际重试。
+- 初读失败持久留在页面、不router.replace；同目标refresh失败保最后成功host。错误状态平实黑白，提供标题/唯一实际重试/返回，手机retry44px，减少动态效果时停止壳入口动画。后端get权限与客户实例/IPv6/一机一卖保持。R103操作回执仍待，不将本次读取修复说成整页全部操作已验收。
+- reads-before旧11覆盖12先红。final-verified12423最终exit0：真实父页面20旧成功/失败回执、同页反序/旧finally、10坏回执及DOM retry、五坏ID零GET、same sid/cache重读/三语三宽通过。R105复制完整30旧回执回归2729最终exit0，缓存/管理员入口夹具补等待当前read完成；先前夹具未回新读取引发resolve undefined已纠正。最初TS union错误已改unknown与实际类型守卫，不计失败轮通过。
+- 最终双端build29414含两端vue-tsc与末dist均exit0、最终route/i18n与lint42037通过、脚本语法/diff/manifest194常规197专项有效，产物两端包含host-read-empty及错误重试。专项已登记server/EXCLUDED_FROM_SUITE/CI。taste沿Achromatic ledger seed242843060，终浅深三宽0 FAIL/1 WARN，12图全部看/critique7.2；hero-void为未加载数据后的空白，不填假数据，不宣称完整正常详情密度通过。
+- b71fd666已push核远端；R0980c39fb6e CI现success，后续CI另核。阶段保存后229有修复/复验（含部分）/68已有防护或不同/30待；其中部分项/真实宿主写/完整327/灾备仍未完成。未发行/生产/客户操作，PG55438保留。下一R103宿主test/verify/delete/regenerate/verifyAfter回执与在途操作，再R104延期整数/真实部分执行链路。
+
 ## 2026-10-30 R1-105 重装命令复制等待与当前弹窗回执
 
 - 实际Chrome先红：剪贴板Promise未完成已有成功toast。现await完成才成功，在途锁、disabled/aria-busy，权限拒绝/不支持/同步throw就地三语错误、实际按钮可重试；绑定原宿主、两端详情路由、account/role/sid、命令/弹窗同步代次、KeepAlive与卸载。host/route/session/command/dialog ABA拒旧成功和失败，同sid刷新保当前复制。

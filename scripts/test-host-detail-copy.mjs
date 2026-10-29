@@ -72,11 +72,14 @@ try {
   await fresh(); await run(() => { hostDetailHarness.view().reinstallCommand = ''; copyReinstall() }); assert.equal(await page.eval(() => clipboardRequests.length), 0)
   await fresh(); await run(() => { copyReinstall(); hostDetailHarness.active.value = false }); await run(() => { hostDetailHarness.active.value = true });
   assert.equal(await page.eval(() => hostDetailHarness.view().reinstallCommand), '', 'cached leave clears the sensitive command')
+  await run(host => hostDetailHarness.pending.forEach(p => p.resolve({ host })), host())
   await run(() => { const v = hostDetailHarness.view(); v.reinstallCommand = 'DISPLAY-ONLY reinstall command'; v.showReinstallModal = true; copyReinstall() })
   assert.equal(await page.eval(() => clipboardRequests.length), 1, 'cached return keeps pending copy gate')
   await finish(); assert.equal(await page.eval(() => hostDetailHarness.toast.toasts.value.length), 0)
   await run(() => copyReinstall()); await finish(1)
-  await fresh(); await run(async () => { await hostDetailHarness.router.push('/admin/hosts/11'); const v = hostDetailHarness.view(); v.reinstallCommand = 'DISPLAY-ONLY reinstall command'; v.showReinstallModal = true; copyReinstall() }); await finish()
+  await fresh(); await run(async () => { await hostDetailHarness.router.push('/admin/hosts/11') })
+  await run(host => hostDetailHarness.pending.forEach(p => p.resolve({ host })), host())
+  await run(() => { const v = hostDetailHarness.view(); v.reinstallCommand = 'DISPLAY-ONLY reinstall command'; v.showReinstallModal = true; copyReinstall() }); await finish()
   assert.equal(await page.eval(() => hostDetailHarness.toast.toasts.value.at(-1).message), await page.eval(() => hostDetailHarness.t('common.copied')), 'administrator detail route retains copy')
   for (const locale of ['zh-CN', 'zh-TW', 'en']) for (const width of [1440, 768, 390]) {
     await fresh(); await page.setViewport({ width, height: 900, mobile: width === 390 })

@@ -370,6 +370,8 @@ jobs:
         run: pnpm --filter server test:review-host-info-mutations
       - name: Reinstall command copying waits and keeps feedback in the current host dialog
         run: pnpm --filter server test:review-host-detail-copy
+      - name: Host detail reads cannot replace the current route or account
+        run: pnpm --filter server test:review-host-detail-reads
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks
