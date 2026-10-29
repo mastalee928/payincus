@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：fc154113已push核远端。R101 HostInfoTab异常指标toFixed真实Chrome先红→容器/类型/有限非负归一化、真实0与缺失分别显示；final-6十二坏scalar/容器/正常/零/间隔/三语三宽exit0。ESLint最后无错警、route/i18n/pool守卫通过、taste浅深三宽final-2全12图已看0FAIL/WARN（static无FAIL但32既有WARN已记critique）；双端build-final-295557已poll exit0、末dist exit0，无待poll。224含部分/68已有不同/35待；阶段单独commit/push后R098三读反序/生命周期与poll：新test-host-info-reads.mjs真实旧2覆盖新3先红exit1，尚未登记/产品未改，单独留工作区。host-info fixture已共用，PG55438保留；整页UI/真实宿主/完整327/灾备未完。
+
 > **最新接续**：743ff1a0已push核远端。R097 metadata pending Promise/二进制version-name-lowerSHA Map/finally释放已修；实际HMAC/PG先红20请求20query→final-2 shared header/body、两架构/连续心跳截止后台/429/stale60秒/metadata和5类binary失败重试/5组key隔离exit0。7守卫71675、build84816、types-final48725、deadline回归85747、final-250157均poll exit0，无待poll，manifest194常规191专项接CI，223含部分/68已有不同/36待。阶段commit/push后继续HostInfoTab R098–101 read/poll/write/copy/metrics；已读源码尚未改，taste skill入口已读，app-screens全读和对应守卫待续。PG55438保留；真实Go/Linux/GitHub/客户/完整327/灾备未完。
 
 > **最新接续**：136eb897已push核远端。R096仅可选upgrade最多等1秒/超时false，后台保原query截止重试SHA；实际HMAC/PG三类stall先红→final心跳200/online与后续SHA升级exit0。7守卫/专项types及server build48375与R094全回归43414已poll最终exit0，无待poll，manifest194常规190专项接CI。222含部分/68已有不同/37待；阶段commit/push后继续R097并发metadata/相同version/name/hash下载合并与失败释放重试，源码和install/version守卫已读。PG55438保留；真实Go/Linux/客户/完整327/灾备未完。

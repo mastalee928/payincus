@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-101 宿主监控异常指标安全渲染
+
+- 实际Vue/Chrome先红value.toFixed is not a function；后端HMAC报告保留原始resources/metrics，旧记录字段并非TS保证。仅在HostInfoTab显示前检查object容器与数值类型/有限/非负，未测量为-、进度空；真实0%/0负载/0m/0核心保持零，合法超过100%的标值保留、bar限定100%，不改后端上报/客户行为。
+- host-info-metrics-final-6真实组件：12非法标量、坏容器、零/缺失/正常数值、心跳间隔默认与120秒、三语三宽/零业务写通过。frontend route/i18n及host-pool守卫通过；最终ESLint无错警，早期新增wrapper缩进警告已移除并保留原三root。显式resources/metrics声明修复初轮type错误；最后双端build-final-2含vue-tsc已poll95557 exit0、末dist守卫exit0，无待poll。
+- taste Achromatic ledger seed242843060沿现有品牌字体，局部文字对比/13px、44px触摸/focus、tabular figures、去静态阴影/紫色/渐变。浅深1440/768/390 final-2各fold/page全部12图已看，0 FAIL/0 WARN，无allow；静态taste lint无FAIL、32既有mono/过渡/loading/scoped-shadow与tooltip WARN单独记录，不声称零警告。夹具使用虚构测试宿主与计算合计4096B流量，不是账户整页或真实宿主验收。
+- fc154113已push核远端；本项阶段保存后224有修复/复验含部分、68已有不同、35待。下一R098三读/轮询反序实际先红2覆盖3，专项暂留未登记不纳本项；R099/100操作和复制待后续。未发行/生产/客户操作，PG55438保留。
+
 ## 2026-10-30 R1-097 合并并发 Agent 发行缓存空缺
 
 - 实际Fastify/HMAC/PG受控并发先红：20个public manifest请求发出20次相同metadata查询。现未完成的manifest刷新由同一Promise共享；二进制按version/name/小写SHA共享在途下载，成功/失败/null均finally释放对应任务，SHA验证后才进入原缓存。保留可信URL、64MiB限制、双架构完整性、原5分钟缓存与stale/限流重试。

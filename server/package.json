@@ -166,6 +166,7 @@
     "test:review-agent-heartbeat-current": "node --import tsx scripts/test-agent-heartbeat-current.ts",
     "test:review-agent-upgrade-deadline": "node --import tsx scripts/test-agent-heartbeat-upgrade-deadline.ts",
     "test:review-agent-release-concurrency": "node --import tsx scripts/test-agent-release-concurrency.ts",
+    "test:review-host-info-metrics": "node ../scripts/test-host-info-metrics.mjs",
     "test:review-finance-authorization-integration": "node --import tsx scripts/test-review-finance-authorization-integration.ts",
     "test:review-ipv6-route-recovery": "node --import tsx scripts/test-review-ipv6-route-recovery.ts",
     "test:review-quota-hosting-integration": "node --import tsx scripts/test-review-quota-hosting-integration.ts",

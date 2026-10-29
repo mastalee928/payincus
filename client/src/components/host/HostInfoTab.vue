@@ -212,9 +212,57 @@ const agentStatusInfo = computed(() => {
   return map[agentStatus.value.status] || { label: t('admin.hosts.agentUnknown'), class: 'badge-default', dot: 'bg-gray-500' }
 })
 
-const agentReport = computed(() => agentStatus.value?.lastReport ?? {})
-const hostResources = computed(() => agentReport.value.resources ?? {})
-const hostMetrics = computed(() => agentReport.value.metrics ?? {})
+function reportObject(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function metricNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+}
+
+const agentReport = computed(() => {
+  const report = reportObject(agentStatus.value?.lastReport)
+  const incus = reportObject(report.incus)
+  return {
+    ...report,
+    resources: report.resources,
+    metrics: report.metrics,
+    incus: {
+      available: typeof incus.available === 'boolean' ? incus.available : undefined,
+      socket: typeof incus.socket === 'string' ? incus.socket : undefined
+    }
+  }
+})
+const hostResources = computed(() => {
+  const resources = reportObject(agentReport.value.resources)
+  return {
+    cpuTotal: metricNumber(resources.cpuTotal),
+    cpuUsagePercent: metricNumber(resources.cpuUsagePercent),
+    memoryTotalMb: metricNumber(resources.memoryTotalMb),
+    memoryUsedMb: metricNumber(resources.memoryUsedMb),
+    memoryAvailableMb: metricNumber(resources.memoryAvailableMb),
+    memoryUsagePercent: metricNumber(resources.memoryUsagePercent),
+    swapTotalMb: metricNumber(resources.swapTotalMb),
+    swapUsedMb: metricNumber(resources.swapUsedMb),
+    swapUsagePercent: metricNumber(resources.swapUsagePercent),
+    diskMountpoint: typeof resources.diskMountpoint === 'string' ? resources.diskMountpoint : undefined,
+    diskTotalBytes: metricNumber(resources.diskTotalBytes),
+    diskUsedBytes: metricNumber(resources.diskUsedBytes),
+    diskAvailableBytes: metricNumber(resources.diskAvailableBytes),
+    diskUsagePercent: metricNumber(resources.diskUsagePercent),
+    processCount: metricNumber(resources.processCount)
+  }
+})
+const hostMetrics = computed(() => {
+  const metrics = reportObject(agentReport.value.metrics)
+  return {
+    heartbeatIntervalSeconds: metricNumber(metrics.heartbeatIntervalSeconds),
+    uptimeSeconds: metricNumber(metrics.uptimeSeconds),
+    load1: metricNumber(metrics.load1),
+    load5: metricNumber(metrics.load5),
+    load15: metricNumber(metrics.load15)
+  }
+})
 const agentHeartbeatIntervalSeconds = computed(() => {
   const value = hostMetrics.value.heartbeatIntervalSeconds
   if (
@@ -278,7 +326,7 @@ onBeforeUnmount(() => {
 
 const agentIncusStatus = computed(() => {
   const incus = agentReport.value.incus
-  if (!incus) return '-'
+  if (incus.available === undefined) return '-'
   return incus.available ? t('admin.hosts.agentIncusAvailable') : t('admin.hosts.agentIncusUnavailable')
 })
 
@@ -300,20 +348,21 @@ function formatDate(dateStr: string | undefined): string {
   return new Date(dateStr).toLocaleString()
 }
 
-function formatPercent(value: number | undefined): string {
-  if (value === undefined || value === null || Number.isNaN(value)) return '-'
-  return `${value.toFixed(1)}%`
+function formatPercent(value: unknown): string {
+  const number = metricNumber(value)
+  return number === undefined ? '-' : `${number.toFixed(1)}%`
 }
 
-function percentWidth(value: number | undefined): string {
-  if (value === undefined || value === null || Number.isNaN(value)) return '0%'
-  return `${Math.max(0, Math.min(100, value))}%`
+function percentWidth(value: unknown): string {
+  const number = metricNumber(value)
+  return number === undefined ? '0%' : `${Math.min(100, number)}%`
 }
 
-function progressColor(value: number | undefined, fallback = 'bg-blue-500'): string {
-  if (value === undefined || value === null || Number.isNaN(value)) return fallback
-  if (value >= 90) return 'bg-red-500'
-  if (value >= 75) return 'bg-yellow-500'
+function progressColor(value: unknown, fallback = 'bg-blue-500'): string {
+  const number = metricNumber(value)
+  if (number === undefined) return fallback
+  if (number >= 90) return 'bg-red-500'
+  if (number >= 75) return 'bg-yellow-500'
   return fallback
 }
 
@@ -333,10 +382,11 @@ function formatLoadAverage(load1: number | undefined, load5: number | undefined,
 }
 
 function formatUptime(seconds: number | undefined): string {
-  if (!seconds || seconds < 0) return '-'
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
+  const value = metricNumber(seconds)
+  if (value === undefined) return '-'
+  const days = Math.floor(value / 86400)
+  const hours = Math.floor((value % 86400) / 3600)
+  const minutes = Math.floor((value % 3600) / 60)
   if (days > 0) return `${days}d ${hours}h`
   if (hours > 0) return `${hours}h ${minutes}m`
   return `${minutes}m`
@@ -481,7 +531,7 @@ const xAxisLabels = computed(() => {
 </script>
 
 <template>
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <div class="host-info grid grid-cols-1 md:grid-cols-2 gap-4">
     <!-- 基本信息 -->
     <div class="card p-5">
       <h2 class="text-sm font-medium mb-4" :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-700'">
@@ -605,7 +655,7 @@ const xAxisLabels = computed(() => {
           <div class="h-2 rounded-full overflow-hidden" :class="themeStore.isDark ? 'bg-gray-800' : 'bg-gray-200'">
             <div
               class="h-full rounded-full transition-all duration-500"
-              :class="diskUsagePercent > 80 ? 'bg-red-500' : diskUsagePercent > 60 ? 'bg-yellow-500' : 'bg-purple-500'"
+              :class="diskUsagePercent > 80 ? 'bg-red-500' : diskUsagePercent > 60 ? 'bg-yellow-500' : 'host-meter'"
               :style="{ width: diskUsagePercent + '%' }"
             ></div>
           </div>
@@ -665,7 +715,7 @@ const xAxisLabels = computed(() => {
   </div>
 
   <!-- 宿主机状态 -->
-  <div class="card p-5 mt-4">
+  <div class="host-info card p-5 mt-4">
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
       <div>
         <h2 class="text-sm font-medium" :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-700'">
@@ -848,7 +898,7 @@ const xAxisLabels = computed(() => {
             <div>
               <p class="text-xs font-medium" :class="themeStore.isDark ? 'text-gray-400' : 'text-gray-600'">{{ t('admin.hosts.agentCpuUsage') }}</p>
               <p class="text-xs mt-0.5" :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-500'">
-                {{ hostResources.cpuTotal || '-' }} {{ t('admin.hosts.agentCpuCores') }}
+                {{ hostResources.cpuTotal ?? '-' }} {{ t('admin.hosts.agentCpuCores') }}
               </p>
             </div>
             <p class="text-lg font-semibold" :class="themeStore.isDark ? 'text-gray-200' : 'text-gray-900'">
@@ -924,7 +974,7 @@ const xAxisLabels = computed(() => {
           <div class="h-2 rounded-full overflow-hidden" :class="themeStore.isDark ? 'bg-gray-900' : 'bg-gray-200'">
             <div
               class="h-full rounded-full transition-all duration-500"
-              :class="progressColor(hostResources.diskUsagePercent, 'bg-purple-500')"
+              :class="progressColor(hostResources.diskUsagePercent, 'host-meter')"
               :style="{ width: percentWidth(hostResources.diskUsagePercent) }"
             ></div>
           </div>
@@ -949,7 +999,7 @@ const xAxisLabels = computed(() => {
   </div>
 
   <!-- 流量统计 -->
-  <div class="card p-5 mt-4">
+  <div class="host-info card p-5 mt-4">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-sm font-medium" :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-700'">
         {{ t('admin.hosts.trafficStats') }}
@@ -1006,12 +1056,7 @@ const xAxisLabels = computed(() => {
               <div 
                 v-for="(item, index) in trafficHistory" 
                 :key="item.date"
-                class="flex-1 min-w-0.5 rounded-t transition-all duration-200 cursor-pointer group relative"
-                :class="[
-                  themeStore.isDark 
-                    ? 'bg-gradient-to-t from-blue-600 to-blue-400 hover:from-blue-500 hover:to-blue-300' 
-                    : 'bg-gradient-to-t from-blue-500 to-blue-400 hover:from-blue-400 hover:to-blue-300'
-                ]"
+                class="host-traffic-bar flex-1 min-w-0.5 rounded-t transition-all duration-200 cursor-pointer group relative"
                 :style="{ height: `${Math.max((Number(item.total) / chartMaxValue) * 100, 1)}%` }"
               >
                 <!-- Tooltip -->
@@ -1066,3 +1111,57 @@ const xAxisLabels = computed(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.host-info {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.host-info.card,
+.host-info .card {
+  box-shadow: none !important;
+}
+.host-info [class*="text-gray-400"],
+.host-info [class*="text-gray-500"] {
+  color: var(--text-secondary) !important;
+}
+.host-info .text-xs {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.host-info .py-8 {
+  padding-block: 16px;
+}
+.host-info .shadow-sm {
+  box-shadow: none;
+}
+.host-info .host-traffic-bar {
+  background-color: var(--text-primary);
+}
+.host-info .bg-blue-500,
+.host-info .host-meter,
+.host-info .bg-cyan-500 {
+  background-color: var(--text-primary) !important;
+}
+.host-info [class*="bg-blue-500/10"],
+.host-info .bg-blue-50 {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-secondary) !important;
+}
+.host-info button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+@media (max-width: 640px) {
+  .host-info button {
+    min-height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .host-info [class*="transition"],
+  .host-info [class*="animate"] {
+    transition: none;
+    animation: none;
+  }
+}
+</style>

@@ -360,6 +360,8 @@ jobs:
         run: pnpm --filter server test:review-agent-upgrade-deadline
       - name: Concurrent Agent release misses share metadata and verified binary downloads
         run: pnpm --filter server test:review-agent-release-concurrency
+      - name: Host Agent metrics tolerate malformed stored values and preserve real zeros
+        run: pnpm --filter server test:review-host-info-metrics
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

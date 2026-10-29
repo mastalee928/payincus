@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R101宿主Agent异常metric先红toFixed崩溃→显示归一化/真零保持，Chrome12非法类型/容器/三语三宽通过，局部taste浅深三宽0FAIL/WARN；types/build与守卫最终证据见HANDOFF。224含部分/68已有不同/35待，R098实际读反序先红待修。
+
 2026-10-30 R097并发metadata/二进制在途合并及失败释放已修，实际Fastify/HMAC/PG先红20查询→final共享refresh、心跳截止后台共用、双架构/限流/stale/失败重试、version/name/hash隔离exit0；7守卫/R096回归/types/build通过。223含部分/68已有不同/36待；真实GitHub与Go宿主另验。
 
 2026-10-30 R096可选升级等待最多1秒，外部query继续原截止/重试/校验；实际HMAC/PG三类卡顿先红→心跳200/online及后续SHA升级exit0，7守卫/R094全回归/server build/专项types均最终exit0。222含部分/68已有不同/37待；真实Go宿主与生产另验。
@@ -252,7 +254,7 @@
 | R1-098 | 存在 | 待精修/运行复核 | 轮询/操作缺目标代次绑定；clipboard未await；formatPercent对非法类型缺保护。各项浏览器动态复核未做。 |
 | R1-099 | 存在 | 待精修/运行复核 | 轮询/操作缺目标代次绑定；clipboard未await；formatPercent对非法类型缺保护。各项浏览器动态复核未做。 |
 | R1-100 | 存在 | 待精修/运行复核 | 轮询/操作缺目标代次绑定；clipboard未await；formatPercent对非法类型缺保护。各项浏览器动态复核未做。 |
-| R1-101 | 存在 | 待精修/运行复核 | 轮询/操作缺目标代次绑定；clipboard未await；formatPercent对非法类型缺保护。各项浏览器动态复核未做。 |
+| R1-101 | 存在 | 源码已修/本地Chrome通过 | Agent资源/metric容器与类型有限非负检查，缺失为-、真实零保留。logs/takeover-host-info-metrics-final-6.log实际12非法标量/坏容器/合法零数值/三语三宽通过；仅显示归一化不改原报告，真实宿主另验。 |
 | R1-102 | 存在 | 待精修/运行复核 | 宿主读取与操作无route generation；批量延期仅范围不integer并隐藏失败数；copy未等待clipboard。 |
 | R1-103 | 存在 | 待精修/运行复核 | 宿主读取与操作无route generation；批量延期仅范围不integer并隐藏失败数；copy未等待clipboard。 |
 | R1-104 | 存在 | 待精修/运行复核 | 宿主读取与操作无route generation；批量延期仅范围不integer并隐藏失败数；copy未等待clipboard。 |
