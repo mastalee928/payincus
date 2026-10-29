@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-112 宿主配置保留原连接地址
+
+- R109操作27000e3a已push核远端一致。真实Vue/Chrome先红：仅改描述，原http/path地址被重建https:8443。新增小型host-config-endpoint helper：URL.port为空时按HTTP80/HTTPS443解释，保留显式非标准端口；无关编辑或改后恢复原值完全不传url，避免重登记连接。实际地址/端口改变用原URL只替换hostname/port，保留协议/path/query/hash；IPv6方括号正确，非法safe integer端口拒写。不改后端地址安全校验、管理身份、网络或实例。
+- endpoint-final68686正常exit0：八原URL默认/显式port、HTTP/HTTPS/path/query/hash/IPv6、24地址-port组合及IPv6替换、六坏port和恢复原值、三语三宽实际port-input/save零横溢通过。全部9实际截图已看；只字段逻辑，现有长配置页UI/紫色控件与父refresh/draft/session、清空字段、类型不兼容分支另待，未借本段声称整页完成。
+- client types84499与lint30139零错警、四守卫39732（logs/test-run-20261030-060303）正常exit0，专项登记server/EXCLUDED/CI，manifest194常规204专项/语法/diff有效。双端build56976含两端vue-tsc正常exit0，末dist守卫正常exit0；两端产物含新的默认端口及原URL路径保留helper，不计中途transform为通过。
+- 新增R112记录后累计236有修复复验（含部分）/68已有防护不同/23待。不是真实宿主重连接验收；未运行完整套/生产/客户/发行。阶段保存后接R110草稿/session/重复与R111清空，R113后端现已写前拒绝不兼容，不照搬旧warning分支。原全端口/IPv6/网关灾备目标保留。
+
 ## 2026-10-30 R1-109 Caddy 操作、凭据弹窗与复制（源码段落）
 
 - R108/109读取已commit/push6a36ce98核远端一致。真实Chrome操作先红：连续generate发两次请求。四操作现统一在途门禁、固定host/account/role/sid/同步代次及命令/弹窗代次，当前操作期间不允许读/重复/交叉提交；切换目标和缓存返回可读当前状态，旧操作锁保持至原请求结束。旧成功/失败不得展示凭据、通知、关新弹窗或刷新新host。reset原生确认后复核context；confirm必须当前命令弹窗及凭据，test要求已启用。

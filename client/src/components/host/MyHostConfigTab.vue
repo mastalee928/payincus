@@ -5,7 +5,8 @@ import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import { onClickOutside } from '@vueuse/core'
 import { availableFlagCountryCodes, getLocalizedCountryName } from '@/utils/countryDisplay'
-import { buildHostApiUrl, extractHostAddressFromUrl, validateIdentifier, validateName, validateHostAddress, validateIpAddress } from '@/utils/validation'
+import { extractHostAddressFromUrl, validateIdentifier, validateName, validateHostAddress, validateIpAddress } from '@/utils/validation'
+import { editedHostEndpoint, hostApiPort } from '@/utils/host-config-endpoint'
 import api from '@/api'
 import { useToast } from '@/stores/toast'
 import FlagIcon from '@/components/FlagIcon.vue'
@@ -147,18 +148,11 @@ const requiresIpv6ParentInterface = computed(() => {
   return Boolean(form.value.ipv6Subnet.trim() || props.host.ipv6Subnet?.trim())
 })
 
-// 从 URL 提取端口
-function extractPortFromUrl(url: string): number {
-  try {
-    const port = new URL(url).port
-    return port ? parseInt(port, 10) : 8443
-  } catch {
-    return 8443
-  }
-}
+let formEndpoint = ''
 
 watch(() => props.host, (newHost) => {
   if (newHost) {
+    formEndpoint = newHost.url || ''
     const hostName = newHost.name || ''
     // 从节点名称中提取后缀
     let nameSuffix = ''
@@ -170,7 +164,7 @@ watch(() => props.host, (newHost) => {
       name: hostName,
       nameSuffix: nameSuffix,
       hostAddress: extractHostAddressFromUrl(newHost.url || ''),
-      apiPort: extractPortFromUrl(newHost.url || ''),
+      apiPort: hostApiPort(newHost.url || ''),
       location: newHost.location || '',
       countryCode: newHost.countryCode || 'us',
       cpuAllowanceMax: newHost.cpuAllowanceMax || 0,
@@ -290,11 +284,11 @@ async function saveConfig() {
 
   saving.value = true
   try {
-    const url = buildHostApiUrl(form.value.hostAddress, form.value.apiPort || 8443)
+    const url = editedHostEndpoint(formEndpoint, form.value.hostAddress, form.value.apiPort)
     
     const result = await api.hosts.update(props.host.id, {
       name: fullName,
-      url: url,
+      ...(url === undefined ? {} : { url }),
       location: form.value.location || undefined,
       countryCode: form.value.countryCode,
       cpuAllowanceMax: form.value.cpuAllowanceMax || undefined,

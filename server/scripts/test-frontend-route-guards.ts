@@ -30,6 +30,10 @@ const adminAppSource = readRepoFile('client/src/admin/AdminApp.vue')
 const authStoreSource = readRepoFile('client/src/stores/auth.ts')
 const hostImagesSource = readRepoFile('client/src/components/host/HostImagesTab.vue')
 const hostCaddySource = readRepoFile('client/src/components/host/HostCaddyTab.vue')
+const hostConfigSource = readRepoFile('client/src/components/host/MyHostConfigTab.vue')
+assert.ok(hostConfigSource.includes('hostApiPort(newHost.url') && hostConfigSource.includes('editedHostEndpoint(formEndpoint,') &&
+  hostConfigSource.includes('url === undefined ? {} : { url }') && !hostConfigSource.includes('buildHostApiUrl(form.value'),
+  'unrelated host edits must omit the URL and changed endpoints must preserve the original protocol and path')
 assert.ok(hostCaddySource.includes('sequence === statusSequence') && hostCaddySource.includes('sequence === sitesSequence') &&
   hostCaddySource.includes('page === sitesPage.value') && hostCaddySource.includes('onDeactivated') &&
   hostCaddySource.includes('data-caddy-status-error') && hostCaddySource.includes('data-caddy-sites-error') &&
