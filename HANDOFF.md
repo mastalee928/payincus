@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-313 邮箱变更固定目标与会话隔离
+
+- a83d28dd已push。旧邮箱发送晚回标记新邮箱已发送的Chrome先红已复现；四操作现在固定用户、邮箱、验证码及session/draft代次，账号/角色/sid/邮箱/步骤/草稿/弹窗/卸载变化撤销旧成功和错误。正常同sid刷新保留；同步清草稿及计时器，旧请求busy保留至finally结束。四函数首个await前共享busy和步骤门禁，发送受倒计时保护，输入/关闭/取消/确认在途禁用，保存与updated使用提交时邮箱。
+- logs/takeover-change-email-scope-final-r2.log实际Chrome通过四类即时重复/交叉操作、失败重试/正常目标、80个旧成功失败回执及same sid/卸载矩阵，进程exit0。scope-build.log双端build含vue-tsc exit0；route/i18n/operation-verification三个守卫、scope-dist.log产物边界、lint零错警、manifest194常规/157排除专项通过。三宽三语浅深截图已检查，专项接CI；真实Vue/受控API证据不等于实际邮件发送或客户账号变更。
+- R313进入部分精修，唯一原编号现195有修复复验记录（含部分）/68已有防护或实现不同/64待精修；195内部仍有未完成范围。邮箱严格输入、实际回执/倒计时及敏感验证过期处理下段继续；完整327和网关灾备未完成。纠正旧2FA session台账计数：实际为24个旧读取案例及56个旧写回执案例。
+
 ## 2026-10-29 R1-307 双重验证输入与真实回执
 
 - 54901d15已push。非数字六字符原仍提交，receipts-before实际Chrome先红abcdef请求1次。启用/禁用/恢复码重生成函数与按钮要求六位数字；设置回执核非空secret、PNG data QR、八个唯一格式恢复码，启用/禁用核非空message，重生成核真实恢复码集合。非法回执持久error保模式不显示成功；成功重生成清密码/验证码，辅助计数失败不改写已确认成功。
@@ -10,7 +16,7 @@
 ## 2026-10-29 R1-307 双重验证会话与敏感状态隔离
 
 - a0c33846已push。实际Chrome session-before旧status跨session enabled=true先红；现绑定active/account/role/sid（正常同sid token刷新保留），scope同步撤销读取并清密钥/恢复码/密码/验证码/模式/提示。写固定输入和context/draft代次，旧成功失败静默，在途busy保留至原请求结束，再重读当前身份。缓存离页/卸载显式失效，成功timer统一管理和清理，启用后清设置秘密；恢复码辅助读取不占写busy。
-- takeover-two-factor-session-final-r2.log真实Chrome48读取及56写旧成功失败session/account/role/logout/ABA/cache/draft、当前busy、same sid四类正常、秘密即时清除、旧timer不能清新通知与卸载通过；卸载watcher已停止导致旧读取仍写的首轮失败已修为显式invalidateContext。busy/read两完整回归exit0，3守卫及最终route、lint零错警、session-final-build双端build含vue-tsc exit0/dist通过，manifest194/155，专项接CI。无生产2FA操作。回执内容严格校验、TOTP输入与R013敏感验证接线/完整流程仍待，194/68/65含部分。
+- takeover-two-factor-session-final-r2.log真实Chrome24读取及56写旧成功失败session/account/role/logout/ABA/cache/draft、当前busy、same sid四类正常、秘密即时清除、旧timer不能清新通知与卸载通过；卸载watcher已停止导致旧读取仍写的首轮失败已修为显式invalidateContext。busy/read两完整回归exit0，3守卫及最终route、lint零错警、session-final-build双端build含vue-tsc exit0/dist通过，manifest194/155，专项接CI。无生产2FA操作。回执内容严格校验、TOTP输入与R013敏感验证接线/完整流程仍待，194/68/65含部分。
 
 ## 2026-10-29 R1-307 双重验证状态读取就绪与重试
 

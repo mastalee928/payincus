@@ -52,6 +52,25 @@ const modalTitle = computed(() => (
     : t('profile.account.emailDialog.titleBind')
 ))
 const maskedCurrentEmail = computed(() => maskEmail(authStore.user?.email || ''))
+const mounted = ref(true)
+const session = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Legacy tokens retain their complete identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${authStore.user.email || ''}:${identity}`
+})
+const available = computed(() => mounted.value && props.show && !!session.value)
+const busy = computed(() => sendingCurrentCode.value || verifyingCurrentCode.value || sendingNewCode.value || submitting.value)
+let contextGeneration = 0, draftGeneration = 0
+function requestContext() {
+  const context = contextGeneration, draft = draftGeneration
+  return () => available.value && context === contextGeneration && draft === draftGeneration
+}
+watch([() => props.show, session], () => { contextGeneration += 1; resetState() }, { flush: 'sync' })
+watch([step, normalizedNewEmail, currentEmailCode, newEmailCode], () => { draftGeneration += 1 }, { flush: 'sync' })
 
 function maskEmail(email: string): string {
   if (!email || !email.includes('@')) return email
@@ -104,16 +123,12 @@ function resetState(): void {
   currentTarget.value = ''
   currentStepError.value = ''
   currentCodeSent.value = false
-  sendingCurrentCode.value = false
-  verifyingCurrentCode.value = false
   clearCurrentCountdown()
 
   newEmail.value = ''
   newEmailCode.value = ''
   newStepError.value = ''
   newCodeSent.value = false
-  sendingNewCode.value = false
-  submitting.value = false
   clearNewCountdown()
 }
 
@@ -160,59 +175,69 @@ function handleVerificationExpired(error: unknown): boolean {
 }
 
 async function sendCurrentCode(): Promise<void> {
+  if (!available.value || busy.value || step.value !== 'verifyCurrent' || currentCountdown.value > 0) return
+  const current = requestContext(), originalEmail = maskedCurrentEmail.value
   currentStepError.value = ''
   sendingCurrentCode.value = true
 
   try {
     const response = await api.verification.request('change_email')
-    currentTarget.value = response.maskedTarget || response.target || maskedCurrentEmail.value
+    if (!current()) return
+    currentTarget.value = response.maskedTarget || response.target || originalEmail
     currentCodeSent.value = true
     startCurrentCountdown(120)
     toast.success(t('profile.account.emailDialog.currentCodeSent'))
   } catch (error) {
-    currentStepError.value = translateError(error)
+    if (current()) currentStepError.value = translateError(error)
   } finally {
     sendingCurrentCode.value = false
   }
 }
 
 async function verifyCurrentCode(): Promise<void> {
+  if (!available.value || busy.value || step.value !== 'verifyCurrent') return
   if (currentEmailCode.value.length !== 6) {
     currentStepError.value = t('profile.account.emailDialog.currentCodeRequired')
     return
   }
+  const current = requestContext(), code = currentEmailCode.value
 
   currentStepError.value = ''
   verifyingCurrentCode.value = true
 
   try {
-    await api.verification.verify('change_email', currentEmailCode.value)
+    await api.verification.verify('change_email', code)
+    if (!current()) return
     step.value = 'verifyNew'
     currentStepError.value = ''
     toast.success(t('profile.account.emailDialog.currentVerifiedSuccess'))
   } catch (error) {
-    currentStepError.value = translateError(error)
+    if (current()) currentStepError.value = translateError(error)
   } finally {
     verifyingCurrentCode.value = false
   }
 }
 
 async function sendNewEmailCode(): Promise<void> {
+  if (!available.value || busy.value || step.value !== 'verifyNew' || newCountdown.value > 0) return
   const validationError = validateNewEmailInput()
   if (validationError) {
     newStepError.value = validationError
     return
   }
+  const current = requestContext(), userId = authStore.user!.id, email = normalizedNewEmail.value
 
   newStepError.value = ''
   sendingNewCode.value = true
 
   try {
-    await api.users.sendChangeEmailCode(authStore.user!.id, normalizedNewEmail.value)
+    await api.users.sendChangeEmailCode(userId, email)
+    if (!current()) return
     newCodeSent.value = true
     startNewCountdown(60)
     toast.success(t('profile.account.emailDialog.newCodeSent'))
   } catch (error) {
+    if (!current()) return
     if (!handleVerificationExpired(error)) {
       newStepError.value = translateError(error)
     }
@@ -222,11 +247,13 @@ async function sendNewEmailCode(): Promise<void> {
 }
 
 async function submitEmailChange(): Promise<void> {
+  if (!available.value || busy.value || step.value !== 'verifyNew') return
   const validationError = validateNewEmailInput()
   if (validationError) {
     newStepError.value = validationError
     return
   }
+  const current = requestContext(), userId = authStore.user!.id, email = normalizedNewEmail.value, code = newEmailCode.value.trim()
 
   if (!newEmailCode.value.trim()) {
     newStepError.value = t('profile.account.emailDialog.newCodeRequired')
@@ -237,20 +264,22 @@ async function submitEmailChange(): Promise<void> {
   submitting.value = true
 
   try {
-    await api.users.update(authStore.user!.id, {
-      email: normalizedNewEmail.value,
-      emailCode: newEmailCode.value.trim()
+    await api.users.update(userId, {
+      email,
+      emailCode: code
     })
+    if (!current()) return
 
     if (authStore.user) {
-      authStore.user.email = normalizedNewEmail.value
+      authStore.user.email = email
     }
 
     toast.success(t('profile.account.emailDialog.updateSuccess'))
-    emit('updated', normalizedNewEmail.value)
+    emit('updated', email)
     resetState()
     emit('close')
   } catch (error) {
+    if (!current()) return
     if (!handleVerificationExpired(error)) {
       newStepError.value = translateError(error)
     }
@@ -259,21 +288,17 @@ async function submitEmailChange(): Promise<void> {
   }
 }
 
-watch(() => props.show, (show) => {
-  if (show) {
-    resetState()
-  }
-})
-
 watch(normalizedNewEmail, (value, oldValue) => {
   if (value === oldValue) return
   newEmailCode.value = ''
   newCodeSent.value = false
   clearNewCountdown()
   newStepError.value = ''
-})
+}, { flush: 'sync' })
 
 onUnmounted(() => {
+  mounted.value = false
+  contextGeneration += 1
   clearCurrentCountdown()
   clearNewCountdown()
 })
@@ -289,6 +314,7 @@ onUnmounted(() => {
             <h3 class="modal-title">{{ modalTitle }}</h3>
             <button
               type="button"
+              :disabled="busy"
               class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               @click="closeModal"
             >
@@ -298,7 +324,7 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <div class="modal-body space-y-5">
+          <fieldset :disabled="busy" class="modal-body space-y-5">
             <div class="grid gap-3 sm:grid-cols-2">
               <div
                 class="rounded-xl border px-4 py-3"
@@ -366,7 +392,7 @@ onUnmounted(() => {
                 <button
                   type="button"
                   class="btn-secondary whitespace-nowrap"
-                  :disabled="sendingCurrentCode || currentCountdown > 0"
+                  :disabled="busy || currentCountdown > 0"
                   @click="sendCurrentCode"
                 >
                   {{
@@ -427,7 +453,7 @@ onUnmounted(() => {
                 <button
                   type="button"
                   class="btn-secondary whitespace-nowrap"
-                  :disabled="sendingNewCode || newCountdown > 0"
+                  :disabled="busy || newCountdown > 0"
                   @click="sendNewEmailCode"
                 >
                   {{
@@ -440,14 +466,14 @@ onUnmounted(() => {
 
               <div v-if="newStepError" class="text-sm text-red-500">{{ newStepError }}</div>
             </div>
-          </div>
+          </fieldset>
 
           <div class="modal-footer">
-            <button class="btn-secondary" @click="closeModal">{{ t('common.cancel') }}</button>
+            <button :disabled="busy" class="btn-secondary" @click="closeModal">{{ t('common.cancel') }}</button>
             <button
               v-if="step === 'verifyCurrent'"
               class="btn-primary"
-              :disabled="verifyingCurrentCode || currentEmailCode.length !== 6"
+              :disabled="busy || currentEmailCode.length !== 6"
               @click="verifyCurrentCode"
             >
               {{ verifyingCurrentCode ? t('profile.account.emailDialog.verifying') : t('profile.account.emailDialog.verifyCurrentAction') }}
@@ -455,7 +481,7 @@ onUnmounted(() => {
             <button
               v-else
               class="btn-primary"
-              :disabled="submitting || !normalizedNewEmail || newEmailCode.length !== 6"
+              :disabled="busy || !normalizedNewEmail || newEmailCode.length !== 6"
               @click="submitEmailChange"
             >
               {{ submitting ? t('profile.account.emailDialog.submitting') : t('profile.account.emailDialog.confirmAction') }}

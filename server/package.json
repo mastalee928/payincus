@@ -77,6 +77,7 @@
     "test:review-two-factor-reads": "node ../scripts/test-two-factor-scope.mjs",
     "test:review-two-factor-session": "node ../scripts/test-two-factor-session.mjs",
     "test:review-two-factor-receipts": "node ../scripts/test-two-factor-receipts.mjs",
+    "test:review-change-email-scope": "node ../scripts/test-change-email-scope.mjs",
     "test:review-user-balance-submit": "node ../scripts/test-user-balance-submit.mjs",
     "test:review-user-points-submit": "node ../scripts/test-user-points-submit.mjs",
     "test:review-user-balance-audit": "node --import tsx scripts/test-review-user-balance-audit.ts",

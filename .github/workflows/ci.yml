@@ -297,6 +297,8 @@ jobs:
         run: pnpm --filter server test:review-two-factor-session
       - name: Two-factor setup validates its code material and confirmed result
         run: pnpm --filter server test:review-two-factor-receipts
+      - name: Email verification and updates retain their submitted address and session
+        run: pnpm --filter server test:review-change-email-scope
       - name: Balance adjustments keep their target, draft and confirmed receipt
         run: pnpm --filter server test:review-user-balance-submit
       - name: Points adjustments reject stale receipts and repeated submissions

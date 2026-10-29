@@ -1,8 +1,10 @@
 # 外部审查清单修复台账
 
+2026-10-29 R313目标会话阶段：四操作固定用户/邮箱/code、session/draft/ABA旧回执隔离及同步草稿/timer/卸载清理、即时共享busy/步骤/倒计时/字段与关闭门禁已修。真实Chrome80旧回执和busy/retry/正常目标/same sid通过；3守卫/lint/最终双端types build/dist/manifest及三宽截图见HANDOFF。严格输入/回执与完整真实邮件流程仍待。按唯一编号195有修复复验（含部分）/68已有防护实现不同/64待精修；195内部未完范围仍继续。
+
 2026-10-29 R307输入回执阶段：TOTP严格数字，setup密钥/QR/恢复码、三写回执与error重试已修，重生成成功清验证输入。实际Chrome反例/合法及busy/session回归、3守卫/lint/双端types build/dist见HANDOFF。R013接线和真实认证流程未完，194/68/65含部分。
 
-2026-10-29 R307会话阶段：2FA active/account/role/sid和读写代次、草稿/缓存/卸载旧回执、敏感状态与timer清理、same sid刷新/在途busy已修。实际Chrome48读56写及正常/秘密/timer/卸载通过，busy/read回归/3守卫/lint/最终双端types build/dist见HANDOFF；R013敏感验证与完整流程未完，194/68/65含部分。
+2026-10-29 R307会话阶段：2FA active/account/role/sid和读写代次、草稿/缓存/卸载旧回执、敏感状态与timer清理、same sid刷新/在途busy已修。实际Chrome24读56写及正常/秘密/timer/卸载通过，busy/read回归/3守卫/lint/最终双端types build/dist见HANDOFF；R013敏感验证与完整流程未完，194/68/65含部分。
 
 2026-10-29 R307读取阶段：status ready/loading/error与写门禁、严格状态/计数、独立seq/旧finally/retry/0/写后旧计数失效已修，实际Chrome先红后全矩阵及busy回归通过，3守卫/lint/双端types build/dist见HANDOFF。下一session已先红仍待修，194/68/65含部分不变。
 
@@ -392,7 +394,7 @@
 | R1-310 | 存在 | 待精修/运行复核 | 保存一个设置组后loadAll重置全组，其他组及等待期间新草稿丢失。 |
 | R1-311 | 存在 | 待精修/运行复核 | openEdit先改id后await回写内容，无seq，A响应可写进B编辑目标。 |
 | R1-312 | 部分存在 | 待精修/运行复核 | 当前PackageSelector只展示props.packages，无对方嵌入packageId加载；priority 0用／／20确被默认覆盖。 |
-| R1-313 | 部分存在 | 待精修/运行复核 | 已有close busy/watch/unmount清timer；sendNewEmailCode await后未绑定邮箱/session，旧邮箱结果仍可标记新邮箱。 |
+| R1-313 | 部分存在，部分已修 | 固定目标/session及busy实际Chrome与构建守卫通过 | 四操作邮箱/用户/code及session/draft/ABA回执隔离、同步清timer/草稿与卸载失效、共享busy/字段关闭/步骤倒计时保护已修。80旧回执矩阵及正常/retry/same sid通过；严格输入/回执和实际邮件全流程另续。 |
 | R1-314 | 存在 | 待精修/运行复核 | multiDraw拒isSpinning，但spin不拒isMultiDrawing；结果setTimeout未随卸载清理，可与十连交错或离页后弹窗。 |
 | R1-315 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
 | R1-316 | 存在 | 待精修/运行复核 | bindings搜索/editor读取缺请求和当前目标代次，反序结果可显示旧对象。 |
