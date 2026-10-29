@@ -933,6 +933,13 @@ export interface CreateInstanceResponse {
   }
 }
 
+export interface UpdateInstanceQuotaRequest {
+  portLimit?: number | null
+  snapshotLimit?: number | null
+  backupLimit?: number | null
+  siteLimit?: number | null
+}
+
 export interface UpdateInstanceRequest {
   name?: string
   cpu?: number

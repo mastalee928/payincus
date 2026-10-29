@@ -341,7 +341,7 @@
 | R1-299 | 与R282–284重复，已修 | 沿用已验终端专项 | 935dac5改平级页签button和KeepAlive监听/浮层；cc5fd54隔离session/cloud-init/ticket/socket；c71d25c隔离保存命令草稿/CRUD。三段Chrome先红后绿/types/守卫/双端build已记录，不重复计新增修复。 |
 | R1-300 | 实现不同 | 保留初审结论 | 未发现对方余额转账/预览功能入口，不能误指现有实例PUSH或AFF兑换；新增同类功能时才适用。 |
 | R1-301 | 存在，多阶段已修 | 读取/删除/批量状态/gift/price/reset/notify/recreate/single/batch-config与数字/角色专项通过；其它待续 | 读取/目标与回执隔离、gift失败重试、price/notify新草稿、reset辅助读、重建准备、single当前配置。批量配置固定targets/回执、Done刷新、retry原配置与累计明细；数字完整解析/0/null/精确流量；普通owner隐藏高级分区且构建/发送/retry拒绝admin-only已修。Chrome先红后绿/两回归/types/3守卫/lint/双端build/dist通过。迁移及后台完整状态写另续，不记整体完成，见HANDOFF。 |
-| R1-302 | 部分存在，多阶段精修 | 资源显示/站点入口、后台默认计数、编辑读取草稿已修；提交另待 | 资源0语义/未知用量、后台空值默认0和有效备份计数对齐执行，实际PG详情+原配额竞争通过；编辑真实字段/用量、子表单同步及轮询保草稿Chrome通过。types/对应守卫/双端及server build见HANDOFF。专属全端口和用户无转发入口保持并Chrome复核；编辑提交0/null已先红，完整输入、busy/旧回执另续，不记整体完成。 |
+| R1-302 | 部分存在，多阶段精修 | 显示/默认/编辑读取与提交已修 | 资源0语义/未知用量、后台默认及有效备份计数、读取/草稿、0/null/整数/使用量提交、当前角色及目标/session/ABA回执均已修。真实PG详情/竞争、Chrome矩阵、types/守卫/双端build见HANDOFF；专属全端口及用户无转发入口保持，原生交付与整体327不由局部证据代替。 |
 | R1-303 | 存在 | 待精修/运行复核 | Storage/Redeem列表虽watch hostId，却await后直接回写无seq；迁移镜像同样无目标代次，handleSubmit缺isSubmitting入口门禁，close的300ms清理能影响重开草稿。 |
 | R1-304 | 存在 | 待精修/运行复核 | 预览有requestId，但150ms防抖期间未立即清旧preview/id，变价后旧预览仍可提交。 |
 | R1-305 | 存在 | 待精修/运行复核 | 余额/登录弹窗异步未绑定当前user；submitAdjustBalance缺函数busy guard，可串用户/重复提交。 |

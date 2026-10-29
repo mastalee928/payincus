@@ -62,6 +62,7 @@
     "test:review-host-quota-display": "node ../scripts/test-host-quota-display.mjs",
     "test:review-quota-views": "node ../scripts/test-quota-views.mjs",
     "test:review-instance-quota-editor": "node ../scripts/test-instance-quota-editor.mjs",
+    "test:review-instance-quota-submit": "node ../scripts/test-instance-quota-submit.mjs",
     "test:sample-seed-safety": "node ../scripts/test-seed-safety.mjs",
     "test:host-install-inputs": "node ../scripts/test-host-install-inputs.mjs",
     "type-check:sample-seed": "tsc --project tsconfig.scripts-seed.json",

@@ -15,16 +15,17 @@ interface Props {
   portMappingsCount: number
   snapshots: Snapshot[]
   quotaForm: {
-    portLimit: number | null
-    snapshotLimit: number | null
+    portLimit: number | string | null
+    snapshotLimit: number | string | null
   }
   quotaSaving: boolean
+  canSave: boolean
   quotaError: string
   remainingQuota: RemainingQuota // 用户账户剩余额度
 }
 
 interface Emits {
-  (e: 'update:quota-form', form: { portLimit: number | null; snapshotLimit: number | null }): void
+  (e: 'update:quota-form', form: { portLimit: number | string | null; snapshotLimit: number | string | null }): void
   (e: 'save'): void
 }
 
@@ -33,13 +34,17 @@ const emit = defineEmits<Emits>()
 
 const localForm = ref({ ...props.quotaForm })
 const snapshotCount = computed(() => (props.instance as InstanceWithDetails).quota_usage?.snapshot ?? props.snapshots.length)
+function updateQuotaInput(field: 'portLimit' | 'snapshotLimit', event: Event): void {
+  const input = event.target as HTMLInputElement
+  localForm.value[field] = input.validity.badInput ? NaN : input.value === '' ? null : input.valueAsNumber
+}
 watch(() => props.quotaForm, value => {
-  if (localForm.value.portLimit !== value.portLimit || localForm.value.snapshotLimit !== value.snapshotLimit) localForm.value = { ...value }
+  if (!Object.is(localForm.value.portLimit, value.portLimit) || !Object.is(localForm.value.snapshotLimit, value.snapshotLimit)) localForm.value = { ...value }
 }, { deep: true, flush: 'sync' })
 
 // 监听表单变化，同步到父组件
 watch(localForm, (newVal) => {
-  if (newVal.portLimit !== props.quotaForm.portLimit || newVal.snapshotLimit !== props.quotaForm.snapshotLimit) emit('update:quota-form', { ...newVal })
+  if (!Object.is(newVal.portLimit, props.quotaForm.portLimit) || !Object.is(newVal.snapshotLimit, props.quotaForm.snapshotLimit)) emit('update:quota-form', { ...newVal })
 }, { deep: true, flush: 'sync' })
 </script>
 
@@ -53,17 +58,21 @@ watch(localForm, (newVal) => {
       <div class="space-y-4">
         <!-- NAT 端口配额 -->
         <div>
-          <label class="block text-sm text-themed-muted mb-2">
+          <label for="instance-quota-port" class="block text-sm text-themed-muted mb-2">
             {{ t('instance.detail.quotaTab.portLimit') }}
           </label>
           <div class="flex items-center gap-2">
             <input
-              v-model.number="localForm.portLimit"
+              id="instance-quota-port"
+              :value="localForm.portLimit"
               type="number"
               class="input flex-1"
               :min="Math.max(1, portMappingsCount)"
               :max="1000"
+              step="1"
+              aria-describedby="instance-quota-help instance-quota-error"
               :placeholder="t('instance.detail.quotaTab.placeholder')"
+              @input="updateQuotaInput('portLimit', $event)"
             />
           </div>
           <div class="mt-2 text-xs text-themed-muted">
@@ -79,17 +88,21 @@ watch(localForm, (newVal) => {
 
         <!-- 快照配额 -->
         <div>
-          <label class="block text-sm text-themed-muted mb-2">
+          <label for="instance-quota-snapshot" class="block text-sm text-themed-muted mb-2">
             {{ t('instance.detail.quotaTab.snapshotLimit') }}
           </label>
           <div class="flex items-center gap-2">
             <input
-              v-model.number="localForm.snapshotLimit"
+              id="instance-quota-snapshot"
+              :value="localForm.snapshotLimit"
               type="number"
               class="input flex-1"
               :min="Math.max(0, snapshotCount)"
               :max="1000"
+              step="1"
+              aria-describedby="instance-quota-help instance-quota-error"
               :placeholder="t('instance.detail.quotaTab.placeholder')"
+              @input="updateQuotaInput('snapshotLimit', $event)"
             />
           </div>
           <div class="mt-2 text-xs text-themed-muted">
@@ -104,18 +117,20 @@ watch(localForm, (newVal) => {
         </div>
       </div>
 
+      <p id="instance-quota-help" class="mt-4 text-xs text-themed-muted">{{ t('instance.detail.quotaTab.placeholder') }}</p>
+
       <!-- 统一保存按钮 -->
       <div class="mt-6 flex justify-end">
         <button
-          :disabled="quotaSaving"
+          :disabled="!canSave || quotaSaving"
           class="btn-primary"
-          @click="emit('save')"
+          @click="canSave && !quotaSaving && emit('save')"
         >
           {{ quotaSaving ? t('instance.detail.quotaTab.saving') : t('instance.detail.quotaTab.save') }}
         </button>
       </div>
 
-      <div v-if="quotaError" class="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-500">
+      <div v-if="quotaError" id="instance-quota-error" role="alert" class="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-500">
         {{ quotaError }}
       </div>
     </div>

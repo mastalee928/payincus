@@ -40,7 +40,7 @@ import AnnouncementIcon from '@/components/icons/AnnouncementIcon.vue'
 import { getStatusInfo } from '@/utils/formatters'
 import { translateError } from '@/utils/errorHandler'
 import { freeSiteCopy, getFreeSiteBillingCycleLabel, getFreeSiteBillingCycleShort } from '@/utils/freeSiteFun'
-import type { Instance, InstanceWithDetails, Snapshot, UserQuota, UpdateInstanceRequest, Package, CloudInitState, CloudInitStatusResponse } from '@/types/api'
+import type { Instance, InstanceWithDetails, Snapshot, UserQuota, UpdateInstanceQuotaRequest, Package, CloudInitState, CloudInitStatusResponse } from '@/types/api'
 
 // Do not include the advanced configuration UI in the customer entry.
 const InstanceConfigTab = isAdminEntry
@@ -287,15 +287,16 @@ const sshKeys = ref<SshKeyOption[]>([])
 
 // 实例配额
 interface InstanceQuotaForm {
-  portLimit: number | null
-  snapshotLimit: number | null
+  portLimit: number | string | null
+  snapshotLimit: number | string | null
 }
 const instanceQuotaForm = ref<InstanceQuotaForm>({
   portLimit: null,
   snapshotLimit: null
 })
-let quotaFormBaseline: InstanceQuotaForm | null = null
-function getQuotaFormValues(value: Instance): InstanceQuotaForm {
+type InstanceQuotaValues = { portLimit: number | null; snapshotLimit: number | null }
+let quotaFormBaseline: InstanceQuotaValues | null = null
+function getQuotaFormValues(value: Instance): InstanceQuotaValues {
   const record = value as Instance & { portLimit?: number | null; snapshotLimit?: number | null }
   return {
     portLimit: record.port_limit !== undefined ? record.port_limit : record.portLimit ?? null,
@@ -311,6 +312,10 @@ function syncQuotaForm(value: Instance): void {
 }
 const quotaSaving = ref<boolean>(false)
 const quotaError = ref<string>('')
+let quotaTargetGeneration = 0
+watch([() => instance.value?.host_id, () => instance.value?.user_id, () => instance.value?.incus_id, () => instance.value?.isHostOwner], () => {
+  quotaTargetGeneration++
+}, { flush: 'sync' })
 const userQuota = ref<UserQuota | null>(null) // 用户配额信息
 interface RemainingQuota {
   port: number
@@ -869,6 +874,10 @@ function handleTerminalCloudInitManualComplete(): void {
 
 // 分页数据 - 已移至子组件
 const portMappingsCount = computed<number>(() => (instance.value as InstanceWithDetails | null)?.quota_usage?.port ?? instance.value?.port_mappings?.length ?? 0)
+const canManageInstanceQuota = computed(() => !!instance.value && (instance.value.isHostOwner === true || authStore.isAdmin))
+const canSaveInstanceQuota = computed(() => canManageInstanceQuota.value && !quotaSaving.value && !loading.value && !actionLoading.value &&
+  isComponentMounted.value && !!detailSessionKey.value && activeTab.value === 'quota' && isInstanceDetailRouteName(route.name) &&
+  /^[1-9]\d*$/.test(String(route.params.id ?? '')) && Number.isSafeInteger(Number(route.params.id)) && instance.value?.id === Number(route.params.id))
 
 // Advanced configuration belongs to the admin entry; quota visibility is checked separately.
 interface DetailTab {
@@ -918,7 +927,7 @@ const visibleTabs = computed(() => {
   })
 
   // Quota tab visible to host owners or admins
-  if (instance.value?.isHostOwner || authStore.isAdmin) {
+  if (canManageInstanceQuota.value) {
     return tabs
   }
   return tabs.filter(tab => tab.key !== 'quota')
@@ -1997,75 +2006,66 @@ async function calculateRemainingQuota(): Promise<void> {
 
 // 实例配额
 async function saveInstanceQuota(): Promise<void> {
-  if (!instance.value) return
-  quotaSaving.value = true
+  if (!canSaveInstanceQuota.value || !instance.value) return
+  const target = instance.value
+  const generation = quotaTargetGeneration
+  const context = captureDetailRead('quota-write')
+  const current = () => generation === quotaTargetGeneration && context.current() && canManageInstanceQuota.value && instance.value?.host_id === target.host_id &&
+    instance.value?.user_id === target.user_id && instance.value?.incus_id === target.incus_id
+  if (!current()) return
+  const draft = { ...instanceQuotaForm.value }
+  const previous = getQuotaFormValues(target)
+  const payload: UpdateInstanceQuotaRequest = {}
+  const used = { portLimit: portMappingsCount.value, snapshotLimit: (target as InstanceWithDetails).quota_usage?.snapshot ?? snapshots.value.length }
   quotaError.value = ''
-
+  for (const field of ['portLimit', 'snapshotLimit'] as const) {
+    const input: unknown = draft[field]
+    const value = input === null || typeof input === 'string' && input.trim() === '' ? null
+      : typeof input === 'number' ? input
+        : typeof input === 'string' && /^\d+$/.test(input.trim()) ? Number(input.trim()) : NaN
+    // Preserve unchanged fields, including legacy portLimit=0 (the PATCH accepts 1–1000/null).
+    if (value === previous[field]) continue
+    const isPort = field === 'portLimit'
+    if (value !== null && (!Number.isSafeInteger(value) || value < (isPort ? 1 : 0) || value > 1000)) {
+      quotaError.value = t(`instance.detail.quota.${isPort ? 'port' : 'snapshot'}OutOfRange`)
+      return
+    }
+    if ((value ?? 0) < used[field]) {
+      quotaError.value = t(`instance.detail.quota.${isPort ? 'port' : 'snapshot'}ExceedUsed`, { used: used[field], input: value ?? 0 })
+      return
+    }
+    payload[field] = value
+  }
+  if (!Object.keys(payload).length) return
+  quotaSaving.value = true
   try {
-    // 处理输入值：null、undefined、NaN都转为null
-    const portLimit = (instanceQuotaForm.value.portLimit === null ||
-                       instanceQuotaForm.value.portLimit === undefined ||
-                       isNaN(Number(instanceQuotaForm.value.portLimit)))
-                      ? null
-                      : Number(instanceQuotaForm.value.portLimit)
-
-    const snapshotLimit = (instanceQuotaForm.value.snapshotLimit === null ||
-                           instanceQuotaForm.value.snapshotLimit === undefined ||
-                           isNaN(Number(instanceQuotaForm.value.snapshotLimit)))
-                          ? null
-                          : Number(instanceQuotaForm.value.snapshotLimit)
-
-    // 验证：不能小于当前已使用量
-    if (portLimit !== null && portLimit < portMappingsCount.value) {
-      quotaError.value = t('instance.detail.quota.portExceedUsed', { used: portMappingsCount.value, input: portLimit })
-      quotaSaving.value = false
-      return
+    const response = await api.instances.updateQuota(context.id, payload)
+    if (!current()) return
+    if (!response || typeof response.message !== 'string' || !response.message) throw new Error(t('instance.detail.quota.saveFailed'))
+    // Fence earlier polls and record the accepted values before refreshing auxiliary data.
+    readSequences.instance = (readSequences.instance || 0) + 1
+    const detail = instance.value as InstanceWithDetails
+    for (const field of ['portLimit', 'snapshotLimit'] as const) {
+      const value = payload[field]
+      if (value === undefined) continue
+      const key = field === 'portLimit' ? 'port_limit' : 'snapshot_limit'
+      detail[key] = value
+      if (instanceQuotaForm.value[field] === draft[field]) instanceQuotaForm.value[field] = value
+      if (detail.remaining_quota) detail.remaining_quota[field === 'portLimit' ? 'port' : 'snapshot'] = Math.max(0, (value ?? 0) - used[field])
+      if (detail.effective_quota_limit) detail.effective_quota_limit[field === 'portLimit' ? 'port' : 'snapshot'] = value ?? 0
     }
-
-    if (snapshotLimit !== null && snapshotLimit < snapshots.value.length) {
-      quotaError.value = t('instance.detail.quota.snapshotExceedUsed', { used: snapshots.value.length, input: snapshotLimit })
-      quotaSaving.value = false
-      return
-    }
-
-    // 验证：端口数、快照数必须在 1-1000 范围内（null 表示不限制）
-    if (portLimit !== null && (portLimit < 1 || portLimit > 1000)) {
-      quotaError.value = t('instance.detail.quota.portOutOfRange')
-      quotaSaving.value = false
-      return
-    }
-
-    if (snapshotLimit !== null && (snapshotLimit < 1 || snapshotLimit > 1000)) {
-      quotaError.value = t('instance.detail.quota.snapshotOutOfRange')
-      quotaSaving.value = false
-      return
-    }
-
-    const payload: UpdateInstanceRequest = {
-      portLimit: portLimit ?? undefined,
-      snapshotLimit: snapshotLimit ?? undefined
-    }
-
-    // 使用实例对象的 ID，而不是从路由参数获取（更可靠）
-    if (!instance.value || !instance.value.id) {
-      quotaError.value = t('instance.detail.invalidId')
-      quotaSaving.value = false
-      return
-    }
-    const instanceId = instance.value.id
-    await api.instances.updateQuota(instanceId, payload)
+    quotaFormBaseline = getQuotaFormValues(detail)
+    await calculateRemainingQuota()
+    if (!current()) return
     toast.success(t('instance.detail.quota.saved'))
-
-    // 清除错误信息
     quotaError.value = ''
-
-    // 并行重新加载所有相关数据
-    await Promise.all([
+    await Promise.allSettled([
       loadInstance(),
       loadSnapshotsForQuota(),
       loadUserQuota()
     ])
-  } catch (err: any) {
+  } catch (err: unknown) {
+    if (!current()) return
     quotaError.value = translateError(err)
     toast.error(t('instance.detail.quota.saveFailed') + ': ' + translateError(err))
   } finally {
@@ -3255,12 +3255,13 @@ function formatShortDate(dateStr: string | null | undefined): string {
 
           <!-- Quota Tab -->
           <InstanceQuotaTab
-            v-if="activeTab === 'quota' && instance"
+            v-if="activeTab === 'quota' && instance && canManageInstanceQuota"
             :instance="instance"
             :port-mappings-count="portMappingsCount"
             :snapshots="snapshots"
             :quota-form="instanceQuotaForm"
             :quota-saving="quotaSaving"
+            :can-save="canSaveInstanceQuota"
             :quota-error="quotaError"
             :remaining-quota="remainingQuota"
             @update:quota-form="instanceQuotaForm = $event"
