@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：ce044cd6后台事务已push。托管冻结精确求和/比较/剩余扣减Prisma.Decimal与超过两位小数拒绝已修，cents-before实际PG 0.1+0.7扣0.8误报400先红→final四组多源分币扣0无残行/十超精度400零写及原事务权限全回归通过，3守卫/后端build含tsc/专项类型exit0，准备阶段push。无待poll；PG55438保持运行。下一项原R307 TwoFactorSection已读（startSetup/confirmEnable/Disable/Regenerate缺函数busy），API与auth-session守卫已定位待完整读；R305历史/幂等、R304/R303/R269/Go proc/完整灾备仍未完，193/68/66含部分。
+
 > **最新接续**：a065fd7b前端已push。托管调账后台原current admin锁保留，available/frozen变更+账目+操作审计+实际回执同事务已修；write-before-r3真实PG审计失败200先红→final-r2审计8/账目4/回执4故障全回滚、正常14/欠款/非法5/实际权限竞争8通过。4守卫/后端build含tsc/scripts独立类型/manifest194/152通过，准备阶段push。PG55438原目录已恢复并正常，不停库；无待poll本地进程。继续冻结小数求和/减法、合法精度输入与历史审计、断网幂等；R304/R303/R269/Go proc/完整灾备未完成，193/68/66含部分。a065fd7b CI40835884558仍running，此前余额积分7提交CI success。
 
 > **最新接续**：373ad333已push。R305托管余额读取及写回执/严格金额/busy/字段关闭/旧session与草稿/辅助读取隔离已修，合法欠款和负金额销毁明细保留且显示不重复负号。reads-current与submit-current真实Chrome全矩阵exit0，三宽三语截图已看；final-build-r2双端含vue-tsc exit0，4同源native守卫/dist/lint0错警/manifest194/151通过，准备阶段push。自动审批503后owner开启完全权限，Chrome正常。下一项server/scripts/test-review-user-hosting-write.ts未提交，不混UI阶段；初跑PG55438失联，不算产品先红。PG已确认无server，pg_ctl start session70628待检查；后台当前admin锁已有，继续审计事务外吞错及事务后重读。193/68/66含部分，断网幂等/R304/R303/R269/Go proc/完整灾备未完。

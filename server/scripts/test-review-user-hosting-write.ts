@@ -89,6 +89,18 @@ try {
   await reset(); await prisma.user.update({ where: { id: owner.id }, data: { hostingBalance: -3 } })
   assert.deepEqual((await submit('frozen', 1)).json(), { success: true, available: -3, frozen: 11 })
   assert.deepEqual((await submit('available', 1)).json(), { success: true, available: -2, frozen: 11 })
+  for (const parts of [[0.1, 0.7], [0.1, 0.2], [0.29, 0.71], [0.01, 0.01, 0.01]]) {
+    await reset(); await prisma.hostingBalanceLog.deleteMany({ where: { userId: owner.id } })
+    for (const amount of parts) await prisma.hostingBalanceLog.create({ data: { userId: owner.id, type: 'income', amount, frozen: true, remark: 'fixture decimal source' } })
+    const total = Number(parts.reduce((sum, part) => sum + part, 0).toFixed(2)), response = await submit('frozen', -total)
+    assert.equal(response.statusCode, 200, 'all cents of multiple frozen entries can be deducted without floating-point insufficiency')
+    assert.equal(response.json().frozen, 0); assert.equal(await prisma.hostingBalanceLog.count({ where: { userId: owner.id, frozen: true } }), 0)
+  }
+  for (const type of ['available', 'frozen']) for (const amount of [0.001, -0.001, 0.009, 1.234, -1.234]) {
+    await reset(); const before = await snapshot(), response = await submit(type, amount)
+    assert.equal(response.statusCode, 400, 'hosting adjustments reject sub-cent and extra decimal inputs instead of silently rounding them')
+    assert.deepEqual(await snapshot(), before)
+  }
   for (const [type, amount] of [['available', 0], ['available', -11], ['frozen', -11], ['available', 100000000], ['invalid', 1]] as const) {
     await reset(); const before = await snapshot(), response = await submit(type, amount); assert.equal(response.statusCode, 400); assert.deepEqual(await snapshot(), before)
   }

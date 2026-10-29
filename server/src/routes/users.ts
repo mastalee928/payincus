@@ -3,6 +3,7 @@
  */
 
 import { randomInt } from 'node:crypto'
+import { Prisma } from '@prisma/client'
 
 // @ts-ignore - bcryptjs has its own types
 import bcrypt from 'bcryptjs'
@@ -1634,6 +1635,9 @@ export default async function userRoutes(fastify: FastifyInstance) {
     if (Math.abs(amount) > MAX_HOSTING_BALANCE_ADJUST_AMOUNT) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, `Amount cannot exceed ${MAX_HOSTING_BALANCE_ADJUST_AMOUNT}`))
     }
+    if (new Prisma.Decimal(amount).decimalPlaces() > 2) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Amount must have at most two decimal places'))
+    }
     const normalizedReason = typeof reason === 'string' ? reason.trim() : ''
     if (!normalizedReason) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Reason is required'))
@@ -1708,27 +1712,27 @@ export default async function userRoutes(fastify: FastifyInstance) {
               where: { userId, frozen: true, amount: { gt: 0 } },
               orderBy: { createdAt: 'asc' }
             })
-            const frozenTotal = frozenLogs.reduce((sum, log) => sum + Number(log.amount), 0)
-            if (frozenTotal < absAmount) {
+            const frozenTotal = frozenLogs.reduce((sum, log) => sum.plus(log.amount), new Prisma.Decimal(0))
+            if (frozenTotal.lt(absAmount)) {
               throw new Error('Insufficient frozen hosting balance')
             }
 
             // 从最早的冻结记录开始扣减
-            let remaining = absAmount
+            let remaining = new Prisma.Decimal(absAmount)
             for (const log of frozenLogs) {
-              if (remaining <= 0) break
-              const logAmount = Number(log.amount)
-              if (logAmount <= remaining) {
+              if (remaining.lte(0)) break
+              const logAmount = new Prisma.Decimal(log.amount)
+              if (logAmount.lte(remaining)) {
                 // 完全扣除这条记录
                 await tx.hostingBalanceLog.delete({ where: { id: log.id } })
-                remaining -= logAmount
+                remaining = remaining.minus(logAmount)
               } else {
                 // 部分扣除
                 await tx.hostingBalanceLog.update({
                   where: { id: log.id },
                   data: { amount: { decrement: remaining } }
                 })
-                remaining = 0
+                remaining = new Prisma.Decimal(0)
               }
             }
 
