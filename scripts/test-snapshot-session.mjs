@@ -28,7 +28,7 @@ try {
   const settleReads = () => run(() => {
     const h = window.snapshotHarness
     for (const x of h.pending) if (!x.done && ['snapshots', 'policy'].includes(x.kind)) {
-      x.done = true; x.resolve(x.kind === 'snapshots' ? [] : { enabled: false, interval_minutes: 360, operation: null })
+      x.done = true; x.resolve(x.kind === 'snapshots' ? [] : { enabled: false, interval_minutes: 360, operation: null, last_run_at: null, next_run_at: null })
     }
   })
   const change = mode => run(async mode => {
@@ -47,13 +47,13 @@ try {
     const h = window.snapshotHarness, v = h.view()
     return { snapshots: JSON.stringify(v.snapshots), policy: JSON.stringify(v.policy), error: v.pageError,
       create: JSON.stringify(v.createForm), form: JSON.stringify(v.policyForm), showCreate: v.showCreateModal, showPolicy: v.showPolicyModal,
-      loading: v.loading, toastCount: h.toast.toasts.value.length }
+      loading: v.loading, snapshotsReady: v.snapshotsReady, policyReady: v.policyReady, readError: v.readError, toastCount: h.toast.toasts.value.length }
   })
   for (const kind of ['snapshots', 'policy']) for (const mode of ['sid', 'account', 'role', 'logout', 'target', 'target-aba', 'session-aba', 'cache', 'unmount']) for (const reject of [false, true]) {
     await fresh()
     await run(kind => {
       const h = window.snapshotHarness; h.held = h.pending.findLast(x => x.kind === kind)
-      h.pending.forEach(x => { if (x !== h.held) { x.done = true; x.resolve(x.kind === 'snapshots' ? [] : { enabled: false, interval_minutes: 360, operation: null }) } })
+      h.pending.forEach(x => { if (x !== h.held) { x.done = true; x.resolve(x.kind === 'snapshots' ? [] : { enabled: false, interval_minutes: 360, operation: null, last_run_at: null, next_run_at: null }) } })
       h.view().createForm = { name: 'private draft', description: 'private description' }; h.view().showCreateModal = true; h.view().showPolicyModal = true
     }, kind)
     await change(mode)

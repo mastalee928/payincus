@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-062 快照有效读取与成功回执（部分）
+
+- snapshot-receipts-before实际Chrome初读尚未完成已发创建先红。现两资源独立ready/error与读代次，valid GET列表/Boolean policy后才允许五类写；严格正整数/去重snapshot ID、实际incusName/Boolean stateful/时间/大小及四种间隔/持久operation回执。GET失败持久显示实际刷新按钮，未知配额/策略显示—且不误报暂无快照；原成功数据读取可达。按当前写receipt核非空message、create ID/name/description/Incus名、retry原UUID及operation shape，空错回执保草稿/error，不清列表或假成功；恢复retry必须两确认读取成功且无原operation才报恢复完成。
+- client Snapshot类型与两API声明校正为现服务器实际camelCase/Boolean与create {message,snapshot}/delete/restore {message}，只改类型及消费检查，后端接口未改。第一次独立vue-tsc指出hasMessage类型谓词使交叉字段窄化，已改普通boolean并继续实际双端构建；不把第一次类型失败说成通过。
+- receipts-final2实际Chrome16非法GET/22非法write与合法重试、ready门禁、持久DOM retry、失败未知空态及确认读失败零恢复success通过exit0。原session36旧读90旧写、submit25冲突16旧草稿、bool四间隔回归最终exit0。4守卫及最后route/i18n、lint零错警/语法/diff和manifest194常规181专项接CI有效；takeover-snapshot-receipts-build双端含vue-tsc最终exit0，user产物已核未知状态逻辑，dist边界最终exit0，无待poll。三宽三语最终error截图已看、无横溢；原阴影/低对比仍整体UI未验，不扩大样式重做。
+- c0a20070已push核远端main一致；211含部分/68已有不同/48待不变，R062已覆盖本轮具体生命周期/互斥/草稿/回执，真实Linux流程与整体UI验收另待，不称全部327或网关灾备完成。阶段验证后独立commit/push并继续清单。
+
 ## 2026-10-29 R1-062 快照写入互斥与草稿回执（部分）
 
 - snapshot-submit-before实际Chrome创建在途仍能删除，2次请求先红。五类变更create/delete/restore/policy/retry现共享同步busy；模板字段、开关、取消/关闭及另开表单在途禁用，函数也拒绝冲突。提交固定policy对象副本与snapshot/operation原始ID，回执绑定同步草稿与两弹窗版本（含编辑/开关ABA），旧成功失败不清新草稿、不关新弹窗、不提示或启动后续读取；失败保留可重试。loadPolicy在写入busy期间不覆盖form或使当前提交失效，之后重新打开策略用实际policy回填。

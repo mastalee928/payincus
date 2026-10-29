@@ -338,6 +338,8 @@ jobs:
         run: pnpm --filter server test:review-snapshot-session
       - name: Snapshot mutations reject conflicts and preserve current drafts
         run: pnpm --filter server test:review-snapshot-submit
+      - name: Snapshot mutations require valid data and confirmed current receipts
+        run: pnpm --filter server test:review-snapshot-receipts
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

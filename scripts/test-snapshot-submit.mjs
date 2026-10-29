@@ -27,7 +27,7 @@ try {
     await run(() => {
       const h = window.snapshotHarness; window.confirm = () => true
       h.settleReads = () => { for (const x of h.pending) if (!x.done && ['snapshots', 'policy'].includes(x.kind)) {
-        x.done = true; x.resolve(x.kind === 'snapshots' ? [] : { enabled: false, interval_minutes: 360, operation: null })
+        x.done = true; x.resolve(x.kind === 'snapshots' ? [] : { enabled: false, interval_minutes: 360, operation: null, last_run_at: null, next_run_at: null })
       } }; h.settleReads()
       h.source = { id: 11, name: 'source snapshot' }
       h.start = kind => {
@@ -42,7 +42,7 @@ try {
   const settle = reject => run(reject => {
     const h = window.snapshotHarness, x = h.pending.findLast(x => !['snapshots', 'policy'].includes(x.kind))
     if (reject) x.reject(Error('Current snapshot write failed'))
-    else x.resolve({ message: 'Snapshot operation complete' })
+    else x.resolve(x.kind === 'retry' ? { operation: null } : x.kind === 'create' ? { message: 'Snapshot created', snapshot: { id: 11, name: x.data.name, description: x.data.description, incusName: 'fixture-snapshot', stateful: false } } : { message: 'Snapshot operation complete' })
   }, reject)
   const state = () => page.eval(() => {
     const h = window.snapshotHarness, v = h.view()
@@ -97,7 +97,7 @@ try {
   await run(() => {
     const h = window.snapshotHarness
     h.view().showCreateModal = true; h.start('create'); void h.view().loadPolicy()
-    h.pending.findLast(x => x.kind === 'policy').resolve({ enabled: true, interval_minutes: 1440, operation: null })
+    h.pending.findLast(x => x.kind === 'policy').resolve({ enabled: true, interval_minutes: 1440, operation: null, last_run_at: null, next_run_at: null })
   })
   assert.deepEqual(await page.eval(() => ({ ...window.snapshotHarness.view().policyForm })), { enabled: false, intervalMinutes: 360 }, 'background policy read keeps busy draft untouched')
   await settle(false); await run(() => window.snapshotHarness.settleReads())

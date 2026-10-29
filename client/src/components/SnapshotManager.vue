@@ -36,6 +36,8 @@ const authStore = useAuthStore()
 // 快照列表
 const snapshots = ref<Snapshot[]>([])
 const loading = ref<boolean>(true)
+const snapshotsReady = ref(false)
+const snapshotReadError = ref('')
 
 // 创建快照弹窗
 const showCreateModal = ref<boolean>(false)
@@ -51,6 +53,8 @@ const policy = ref<SnapshotPolicy | null>(null)
 const showPolicyModal = ref<boolean>(false)
 const policyForm = ref<UpdateSnapshotPolicyRequest>({ enabled: false, intervalMinutes: 360 })
 const policyLoading = ref<boolean>(false)
+const policyReady = ref(false)
+const policyReadError = ref('')
 
 
 
@@ -81,6 +85,35 @@ const available = computed(() => !disposed && active.value && !!session.value &&
 const current = (id: number, version: number) => available.value && id === instanceIdNum.value && version === generation
 const operationPending = computed(() => Boolean(policy.value?.operation))
 const busy = computed(() => createLoading.value || policyLoading.value || retryLoading.value || actionLoading.value)
+const ready = computed(() => available.value && snapshotsReady.value && policyReady.value)
+const readError = computed(() => snapshotReadError.value || policyReadError.value)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+function record(value: unknown): value is Record<string, any> { return !!value && typeof value === 'object' && !Array.isArray(value) }
+function validDate(value: unknown): boolean { return typeof value === 'string' && !!value && Number.isFinite(Date.parse(value)) }
+function validOperation(value: unknown): boolean {
+  return value === null || record(value) && typeof value.id === 'string' && UUID_RE.test(value.id) &&
+    ['pending', 'applying', 'retry', 'blocked'].includes(value.state) && typeof value.stage === 'string' &&
+    typeof value.snapshotName === 'string' && (value.error === null || typeof value.error === 'string') &&
+    (value.nextRetryAt === null || validDate(value.nextRetryAt))
+}
+function validPolicy(value: unknown): value is SnapshotPolicy {
+  return record(value) && typeof value.enabled === 'boolean' && [10, 60, 360, 1440].includes(value.interval_minutes) &&
+    (value.last_run_at === null || validDate(value.last_run_at)) && (value.next_run_at === null || validDate(value.next_run_at)) &&
+    validOperation(value.operation)
+}
+function validSnapshots(value: unknown): value is Snapshot[] {
+  return Array.isArray(value) && value.every(snapshot => record(snapshot) && Number.isSafeInteger(snapshot.id) && snapshot.id > 0 &&
+    typeof snapshot.name === 'string' && !!snapshot.name && typeof snapshot.incusName === 'string' && !!snapshot.incusName &&
+    (snapshot.description === null || typeof snapshot.description === 'string') && typeof snapshot.stateful === 'boolean' &&
+    typeof snapshot.size === 'number' && Number.isFinite(snapshot.size) && snapshot.size >= 0 && validDate(snapshot.created_at)) &&
+    new Set(value.map(snapshot => snapshot.id)).size === value.length
+}
+function hasMessage(value: unknown): boolean { return record(value) && typeof value.message === 'string' && !!value.message.trim() }
+function validCreateReceipt(value: unknown, payload: CreateSnapshotRequest): boolean {
+  return hasMessage(value) && record(value) && record(value.snapshot) && Number.isSafeInteger(value.snapshot.id) && value.snapshot.id > 0 &&
+    value.snapshot.name === payload.name && typeof value.snapshot.incusName === 'string' && !!value.snapshot.incusName &&
+    value.snapshot.stateful === false && value.snapshot.description === payload.description
+}
 let draftVersion = 0
 watch([createForm, policyForm, showCreateModal, showPolicyModal], () => { draftVersion++ }, { deep: true, flush: 'sync' })
 function mutationContext(id: number, version: number) {
@@ -88,12 +121,12 @@ function mutationContext(id: number, version: number) {
   return () => current(id, version) && draft === draftVersion
 }
 function openCreateModal(): void {
-  if (!available.value || busy.value || operationPending.value || !hasQuota.value || isQuotaFull.value) return
+  if (!ready.value || busy.value || operationPending.value || !hasQuota.value || isQuotaFull.value) return
   showCreateModal.value = true
 }
 function closeCreateModal(): void { if (!busy.value) showCreateModal.value = false }
 function openPolicyModal(): void {
-  if (!available.value || busy.value) return
+  if (!ready.value || busy.value) return
   if (policy.value) policyForm.value = { enabled: Boolean(policy.value.enabled), intervalMinutes: policy.value.interval_minutes }
   showPolicyModal.value = true
 }
@@ -105,6 +138,10 @@ function invalidateContext(): void {
   policySequence++
   snapshots.value = []
   policy.value = null
+  snapshotsReady.value = false
+  policyReady.value = false
+  snapshotReadError.value = ''
+  policyReadError.value = ''
   pageError.value = ''
   showCreateModal.value = false
   showPolicyModal.value = false
@@ -137,11 +174,16 @@ async function loadSnapshots(): Promise<void> {
   if (!available.value) return
   const id = instanceIdNum.value, version = generation, sequence = ++snapshotSequence
   loading.value = true
+  snapshotsReady.value = false
+  snapshotReadError.value = ''
   try {
     const res = await api.instances.getSnapshots(id)
-    if (current(id, version) && sequence === snapshotSequence) snapshots.value = Array.isArray(res) ? res : []
+    if (!current(id, version) || sequence !== snapshotSequence) return
+    if (!validSnapshots(res)) throw new Error(t('snapshot.loadFailed'))
+    snapshots.value = res
+    snapshotsReady.value = true
   } catch {
-    if (current(id, version) && sequence === snapshotSequence) pageError.value = t('snapshot.loadFailed')
+    if (current(id, version) && sequence === snapshotSequence) { snapshots.value = []; snapshotReadError.value = t('snapshot.loadFailed') }
   } finally {
     if (current(id, version) && sequence === snapshotSequence) loading.value = false
   }
@@ -150,42 +192,48 @@ async function loadSnapshots(): Promise<void> {
 async function loadPolicy(): Promise<void> {
   if (!available.value) return
   const id = instanceIdNum.value, version = generation, sequence = ++policySequence
+  policyReady.value = false
+  policyReadError.value = ''
   try {
     const res = await api.instances.getSnapshotPolicy(id)
     if (!current(id, version) || sequence !== policySequence) return
+    if (!validPolicy(res)) throw new Error(t('snapshot.loadFailed'))
     policy.value = res
+    policyReady.value = true
     if (res && !showPolicyModal.value && !busy.value) policyForm.value = { enabled: Boolean(res.enabled), intervalMinutes: res.interval_minutes }
   } catch {
-    if (current(id, version) && sequence === policySequence) pageError.value = t('snapshot.loadFailed')
+    if (current(id, version) && sequence === policySequence) { policy.value = null; policyReadError.value = t('snapshot.loadFailed') }
   }
 }
 
 async function retryOperation(): Promise<void> {
   const operation = policy.value?.operation
-  if (!available.value || !operation || busy.value) return
+  if (!ready.value || !operation || busy.value) return
   const id = instanceIdNum.value, version = generation
   const owns = mutationContext(id, version), operationId = operation.id
   retryLoading.value = true
   pageError.value = ''
   try {
-    await api.instances.retrySnapshotOperation(id, operationId)
+    const response = await api.instances.retrySnapshotOperation(id, operationId)
     if (!owns()) return
+    if (!record(response) || !validOperation(response.operation) || response.operation && response.operation.id !== operationId) throw new Error(t('snapshot.loadFailed'))
     await Promise.all([loadSnapshots(), loadPolicy()])
-    if (owns() && !policy.value?.operation) toast.success(t('snapshot.recoveryComplete'))
+    if (owns() && ready.value && !policy.value?.operation) toast.success(t('snapshot.recoveryComplete'))
   } catch (err: any) {
     if (owns()) { pageError.value = err?.message || t('snapshot.loadFailed'); await loadPolicy() }
   } finally { retryLoading.value = false }
 }
 
 async function createSnapshot(): Promise<void> {
-  if (!available.value || !createForm.value.name || busy.value || operationPending.value) return
+  if (!ready.value || !createForm.value.name || busy.value || operationPending.value) return
   const id = instanceIdNum.value, version = generation
   const owns = mutationContext(id, version)
   createLoading.value = true
   const payload: CreateSnapshotRequest = { name: createForm.value.name, description: createForm.value.description || undefined }
   try {
-    await api.instances.createSnapshot(id, payload)
+    const response = await api.instances.createSnapshot(id, payload)
     if (!owns()) return
+    if (!validCreateReceipt(response, payload)) throw new Error(t('snapshot.messages.createFailed'))
     toast.success(t('snapshot.messages.createSuccess'))
     showCreateModal.value = false
     createForm.value = { name: '', description: '' }
@@ -196,13 +244,14 @@ async function createSnapshot(): Promise<void> {
 }
 
 async function deleteSnapshot(snapshot: Snapshot): Promise<void> {
-  if (!available.value || busy.value || operationPending.value || !confirm(t('snapshot.messages.deleteConfirm', { name: snapshot.name }))) return
+  if (!ready.value || busy.value || operationPending.value || !confirm(t('snapshot.messages.deleteConfirm', { name: snapshot.name }))) return
   const id = instanceIdNum.value, version = generation
   const snapshotId = snapshot.id, owns = mutationContext(id, version)
   actionLoading.value = true
   try {
-    await api.instances.deleteSnapshot(id, snapshotId)
+    const response = await api.instances.deleteSnapshot(id, snapshotId)
     if (!owns()) return
+    if (!hasMessage(response)) throw new Error(t('snapshot.loadFailed'))
     snapshots.value = snapshots.value.filter(s => s.id !== snapshotId)
     toast.success(t('snapshot.messages.deleteSuccess'))
   } catch (err: any) {
@@ -211,14 +260,16 @@ async function deleteSnapshot(snapshot: Snapshot): Promise<void> {
 }
 
 async function restoreSnapshot(snapshot: Snapshot): Promise<void> {
-  if (!available.value || busy.value || operationPending.value) return
+  if (!ready.value || busy.value || operationPending.value) return
   if (!canRestore.value) { toast.warning(t('snapshot.messages.stopInstanceFirst')); return }
   if (!confirm(t('snapshot.messages.restoreConfirm', { name: snapshot.name }))) return
   const id = instanceIdNum.value, version = generation
   const snapshotId = snapshot.id, owns = mutationContext(id, version)
   actionLoading.value = true
   try {
-    await api.instances.restoreSnapshot(id, snapshotId)
+    const response = await api.instances.restoreSnapshot(id, snapshotId)
+    if (!owns()) return
+    if (!hasMessage(response)) throw new Error(t('snapshot.loadFailed'))
     if (owns()) toast.success(t('snapshot.messages.restoreSuccess'))
   } catch (err: any) {
     if (owns()) { pageError.value = err?.message || String(err); await loadPolicy() }
@@ -226,13 +277,14 @@ async function restoreSnapshot(snapshot: Snapshot): Promise<void> {
 }
 
 async function updatePolicy(payload: UpdateSnapshotPolicyRequest): Promise<void> {
-  if (!available.value || busy.value) return
+  if (!ready.value || busy.value) return
   const id = instanceIdNum.value, version = generation
   const submitted = { ...payload }, owns = mutationContext(id, version)
   policyLoading.value = true
   try {
-    await api.instances.updateSnapshotPolicy(id, submitted)
+    const response = await api.instances.updateSnapshotPolicy(id, submitted)
     if (!owns()) return
+    if (!hasMessage(response)) throw new Error(t('snapshot.messages.policySaveFailed'))
     toast.success(t(submitted.enabled ? 'snapshot.messages.policySaved' : 'snapshot.messages.policyDisabled'))
     showPolicyModal.value = false
     await loadPolicy()
@@ -272,17 +324,17 @@ function getIntervalLabel(minutes: number): string {
           class="text-xs mt-0.5"
           :class="themeStore.isDark ? 'text-gray-600' : 'text-gray-500'"
         >
-          {{ policy?.enabled ? t('snapshot.autoPolicy') : t('snapshot.manual') }}
+          {{ policyReady ? policy?.enabled ? t('snapshot.autoPolicy') : t('snapshot.manual') : '—' }}
         </p>
       </div>
       <div class="flex items-center gap-2">
         <span v-if="hasQuota" class="text-xs text-themed-muted">
-          {{ quotaUsed }}/{{ snapshotLimit }}
+          {{ snapshotsReady ? quotaUsed : '—' }}/{{ snapshotLimit }}
         </span>
         <button
           class="btn-ghost btn-sm"
           :title="t('snapshot.autoSettings')" :aria-label="t('snapshot.autoSettings')"
-          :disabled="!available || busy"
+          :disabled="!ready || busy"
           @click="openPolicyModal"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -290,7 +342,7 @@ function getIntervalLabel(minutes: number): string {
           </svg>
         </button>
         <button
-          :disabled="!available || busy || !hasQuota || isQuotaFull || operationPending"
+          :disabled="!ready || busy || !hasQuota || isQuotaFull || operationPending"
           :class="['btn-ghost btn-sm', (!hasQuota || isQuotaFull) && 'opacity-50 cursor-not-allowed']"
           :title="!hasQuota ? t('snapshot.noQuota') : isQuotaFull ? t('snapshot.quotaFull') : t('snapshot.createSnapshot')"
           @click="openCreateModal"
@@ -303,13 +355,16 @@ function getIntervalLabel(minutes: number): string {
       </div>
     </div>
 
-    <div v-if="pageError" class="mx-4 mt-4 text-sm text-error" role="alert">{{ pageError }}</div>
+    <div v-if="pageError || readError" class="mx-4 mt-4 text-sm text-error" role="alert">
+      <p>{{ pageError || readError }}</p>
+      <button type="button" class="btn-secondary min-h-11 mt-2" :disabled="!available || busy || loading" @click="refresh">{{ t('snapshot.refresh') }}</button>
+    </div>
     <div v-if="policy?.operation" class="mx-4 mt-4 p-3 border border-amber-500/40 rounded-lg" aria-live="polite" :aria-busy="retryLoading">
       <p class="font-medium text-sm">{{ t('snapshot.recoveryTitle') }}</p>
       <p class="text-sm mt-1 break-words">{{ policy.operation.error || t('snapshot.recoveryPending') }}</p>
       <p class="text-xs text-themed-muted mt-2">{{ t('snapshot.recoveryHint') }}</p>
       <div class="flex flex-wrap gap-2 mt-2">
-        <button type="button" class="btn-secondary min-h-11" :disabled="!available || busy" @click="retryOperation">
+        <button type="button" class="btn-secondary min-h-11" :disabled="!ready || busy" @click="retryOperation">
           {{ retryLoading ? t('snapshot.retryingRecovery') : t('snapshot.retryRecovery') }}
         </button>
         <button type="button" class="btn-ghost min-h-11" :disabled="!available || busy" @click="refresh">{{ t('snapshot.refresh') }}</button>
@@ -343,7 +398,7 @@ function getIntervalLabel(minutes: number): string {
       <button
         class="btn-ghost btn-sm flex-shrink-0"
         :class="themeStore.isDark ? 'text-green-400 hover:bg-green-500/20' : 'text-green-600 hover:bg-green-100'"
-        :disabled="!available || busy"
+        :disabled="!ready || busy"
         @click="disableAutoPolicy"
       >
         <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -373,7 +428,7 @@ function getIntervalLabel(minutes: number): string {
     </div>
 
     <div
-      v-else-if="snapshots.length === 0"
+      v-else-if="snapshotsReady && snapshots.length === 0"
       class="p-8 text-center text-sm"
       :class="themeStore.isDark ? 'text-gray-600' : 'text-gray-500'"
     >
@@ -393,7 +448,7 @@ function getIntervalLabel(minutes: number): string {
     </div>
 
     <div
-      v-else
+      v-else-if="snapshotsReady"
       class="divide-y"
       :class="themeStore.isDark ? 'divide-gray-800' : 'divide-gray-100'"
     >
@@ -430,7 +485,7 @@ function getIntervalLabel(minutes: number): string {
         </div>
         <div class="flex items-center gap-2">
           <button
-            :disabled="!available || busy || !canRestore || operationPending"
+            :disabled="!ready || busy || !canRestore || operationPending"
             :class="['btn-ghost btn-sm', !canRestore && 'opacity-50 cursor-not-allowed']"
             :title="canRestore ? t('snapshot.restore') : t('snapshot.stopInstanceFirst')"
             @click="restoreSnapshot(snapshot)"
@@ -440,7 +495,7 @@ function getIntervalLabel(minutes: number): string {
           <button
             class="btn-ghost btn-sm text-error"
             :title="t('snapshot.delete')"
-            :disabled="!available || busy || operationPending" @click="deleteSnapshot(snapshot)"
+            :disabled="!ready || busy || operationPending" @click="deleteSnapshot(snapshot)"
           >
             {{ t('snapshot.delete') }}
           </button>
@@ -474,7 +529,7 @@ function getIntervalLabel(minutes: number): string {
             </form>
             <div class="modal-footer">
               <button class="btn-secondary" :disabled="busy" @click="closeCreateModal">{{ t('snapshot.createModal.cancel') }}</button>
-              <button :disabled="!available || busy || !createForm.name" class="btn-primary" @click="createSnapshot">
+              <button :disabled="!ready || busy || !createForm.name" class="btn-primary" @click="createSnapshot">
                 {{ createLoading ? t('snapshot.createModal.creating') : t('snapshot.createModal.create') }}
               </button>
             </div>
@@ -526,7 +581,7 @@ function getIntervalLabel(minutes: number): string {
             </form>
             <div class="modal-footer">
               <button class="btn-secondary" :disabled="busy" @click="closePolicyModal">{{ t('snapshot.policyModal.cancel') }}</button>
-              <button :disabled="!available || busy" class="btn-primary" @click="savePolicy">
+              <button :disabled="!ready || busy" class="btn-primary" @click="savePolicy">
                 {{ policyLoading ? t('snapshot.policyModal.saving') : t('snapshot.policyModal.save') }}
               </button>
             </div>

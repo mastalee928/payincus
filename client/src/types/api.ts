@@ -1018,11 +1018,10 @@ export interface Ipv6Subnet {
 
 export interface Snapshot {
   id: number
-  instance_id: number
-  incus_name: string
+  incusName: string
   name: string
   description: string | null
-  stateful: number
+  stateful: boolean
   size: number
   created_at: string
 }

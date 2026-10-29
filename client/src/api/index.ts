@@ -763,11 +763,11 @@ const api = {
       http.delete(`/instances/${id}/ports/${portId}`),
     // 快照
     getSnapshots: (id: number): Promise<Snapshot[]> => http.get(`/instances/${id}/snapshots`),
-    createSnapshot: (id: number, data: CreateSnapshotRequest): Promise<Snapshot> =>
+    createSnapshot: (id: number, data: CreateSnapshotRequest): Promise<{ message: string; snapshot: { id: number; name: string; incusName: string; description?: string; stateful: boolean } }> =>
       http.post(`/instances/${id}/snapshots`, data, { timeout: TIMEOUT.SNAPSHOT }),
-    deleteSnapshot: (id: number, snapshotId: number): Promise<void> =>
+    deleteSnapshot: (id: number, snapshotId: number): Promise<{ message: string }> =>
       http.delete(`/instances/${id}/snapshots/${snapshotId}`, { timeout: TIMEOUT.MEDIUM }),
-    restoreSnapshot: (id: number, snapshotId: number): Promise<void> =>
+    restoreSnapshot: (id: number, snapshotId: number): Promise<{ message: string }> =>
       http.post(`/instances/${id}/snapshots/${snapshotId}/restore`, {}, { timeout: TIMEOUT.SNAPSHOT }),
     getSnapshotPolicy: (id: number): Promise<SnapshotPolicy> =>
       http.get(`/instances/${id}/snapshot-policy`),
