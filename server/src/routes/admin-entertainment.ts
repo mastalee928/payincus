@@ -1059,23 +1059,24 @@ export default async function adminEntertainmentRoutes(fastify: FastifyInstance)
       return reply.code(404).send({ error: 'USER_NOT_FOUND', message: 'User not found' })
     }
 
-    const result = await db.adminAdjustPoints(
-      userId,
-      parsedAmount,
-      `[管理员${request.user.username}] ${remark.trim()}`
-    )
+    let result: Awaited<ReturnType<typeof db.adminAdjustPoints>>
+    try {
+      result = await db.adminAdjustPoints(
+        userId,
+        parsedAmount,
+        `[管理员${request.user.username}] ${remark.trim()}`,
+        request.user
+      )
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      if (code === 'ADMIN_ACTOR_FORBIDDEN') return reply.code(403).send({ error: code })
+      if (code === 'USER_NOT_FOUND') return reply.code(404).send({ error: code })
+      throw error
+    }
 
     if (!result.success) {
       return reply.code(400).send({ error: 'ADJUST_FAILED', message: result.message })
     }
-
-    await createLog(
-      request.user.id,
-      'admin',
-      'lottery.points.adjust',
-      `Adjusted user "${user.username}" points by ${parsedAmount} (New: ${result.newPoints}): ${remark}`,
-      'success'
-    )
 
     return { success: true, newPoints: result.newPoints }
   })

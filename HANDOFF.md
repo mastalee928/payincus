@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-305 用户积分调整当前权限与审计事务
+
+- 50239a0d已push。原已鉴权的封禁管理员仍可积分写入，takeover-user-points-write-before.log真实PG先红200。adminAdjustPoints现在必传actor，积分锁后复用lockAdministrativeUserMutation，在upsert/变更前锁当前目标及管理员并核status/role/sid/iat撤销；权限变化403、目标消失404。积分、累计计数、pointsLog与lottery.points.adjust审计同事务，审计读取已锁姓名、原日志本地化；route移除事务外createLog。
+- takeover-user-points-write-final-r2.log真实PG：四当前身份反例/四实际封禁降权单会话全会话撤销竞争；正负两审计失败+两账目失败全回滚，五正常正负/扣到0/1000000精确计数和一条账目审计，四非法/不足及三计数溢出零写，两并发扣7仅一成功并保3，缺sid/iat和无积分记录封禁零upsert全部通过。4守卫、后端build含tsc exit0、manifest194/149通过；专项scripts独立类型检查exit0，CI登记。原后台路线/其它积分消费保持；网络失败重试幂等、托管余额与完整真实客户流程仍待。
+- R305仍部分，193/68/66不变；完整327及网关灾备未完成。
+
 ## 2026-10-29 R1-305 用户积分调整输入与写回执
 
 - c5eb8e9已push。UsersView积分写入严格非零整数±1000000（对齐真实Web route）、200字理由，不再parseInt截断小数/坏字符串；统一canAdjustPoints与函数即时busy，保存中fieldset/取消/背景/另开目标受保护。固定userId/参数及session/目标/弹窗/草稿代次，旧成功失败静默；成功必须真实success及Int范围newPoints，合法0接受，失败留草稿与持久error；辅助列表读取绑定成功后的scope，不覆盖后来新开弹窗。

@@ -6,6 +6,8 @@ import { Prisma } from '@prisma/client'
 import type { PointsLogType } from '@prisma/client'
 import { getUserTotalConsume } from './balance.js'
 import { USER_POINTS_LOCK_NAMESPACE, advisoryTransactionLock } from './advisory-locks.js'
+import { lockAdministrativeUserMutation, type WriteActor } from './user-write-authorization.js'
+import { normalizeLogContentForStorage } from '../lib/log-localization.js'
 
 // ==================== 用户积分 ====================
 
@@ -320,7 +322,8 @@ export async function addPoints(
 export async function adminAdjustPoints(
   userId: number,
   amount: number,
-  remark: string
+  remark: string,
+  actor: WriteActor
 ): Promise<{ success: boolean; newPoints: number; message?: string }> {
   if (!isSafePointsAdjustment(amount)) {
     return { success: false, newPoints: 0, message: '调整积分数量无效' }
@@ -328,6 +331,7 @@ export async function adminAdjustPoints(
 
   return prisma.$transaction(async (tx) => {
     await advisoryTransactionLock(tx, USER_POINTS_LOCK_NAMESPACE, userId)
+    const target = await lockAdministrativeUserMutation(tx, userId, actor)
 
     // 使用 upsert 避免并发时的唯一约束冲突
     const userPoints = await tx.userPoints.upsert({
@@ -369,6 +373,14 @@ export async function adminAdjustPoints(
         remark
       }
     })
+
+    await tx.log.create({ data: {
+      userId: actor.id,
+      module: 'admin',
+      action: 'lottery.points.adjust',
+      content: normalizeLogContentForStorage(`Adjusted user "${target.username}" points by ${amount} (New: ${updatedPoints.points}): ${remark}`),
+      result: 'success'
+    } })
 
     return { success: true, newPoints: updatedPoints.points }
   })

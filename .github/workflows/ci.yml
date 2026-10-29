@@ -203,6 +203,8 @@ jobs:
         run: pnpm --filter server test:review-billing-price-audit
       - name: Direct balance adjustments commit their ledger and audit atomically
         run: pnpm --filter server test:review-user-balance-audit
+      - name: Points adjustments recheck current administrators and retain atomic audit
+        run: pnpm --filter server test:review-user-points-write
       - name: Host lists preserve architecture, network state and stable cross-owner pagination
         run: pnpm --filter server test:review-host-pagination
       - name: Gifted days preserve current ownership and paid expiry

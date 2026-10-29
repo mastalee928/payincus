@@ -99,6 +99,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-user-balance-submit', 'requires Chrome/Edge and local Vite; balance adjustment strict amount inputs, immediate busy lock, current session/draft receipts and scoped auxiliary reads'],
   ['test:review-user-points-submit', 'requires Chrome/Edge and local Vite; points adjustment integer/reason gates, busy fields, current targets/session/draft receipts and scoped list refresh'],
   ['test:review-user-balance-audit', 'requires isolated local *_pool_test PostgreSQL; balance and ledger/audit atomic rollback, exact receipts and administrator revocation row-lock races'],
+  ['test:review-user-points-write', 'requires isolated local *_pool_test PostgreSQL; actual points admin/session row-lock races, audit/ledger rollback, counters and concurrent insufficient deductions'],
   ['test:review-storage-size', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; actual storage create/update capacity boundaries over mTLS'],
   ['test:review-storage-update', 'requires OpenSSL; pinned mTLS storage updates, ETag conflicts and description/config preservation'],
   ['test:review-storage-import', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; exact missing pool checks, import failures and existing pool metadata over mTLS'],
