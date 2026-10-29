@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R320密码规则：前端与后台8–128位/大小写/数字一致，三语持久规则hint、input限制和非法零请求已修。实际Chrome三语策略/8与128边界及原真实敏感验证、scope32旧回执，3对应守卫/lint/最终双端types build/dist全部exit0，证据见HANDOFF；未改真实账户。唯一205有修复复验（含部分）/68已有防护或不同/54待精修，完整327/灾备未完。下一R315/R326运行验证继续。
+
 2026-10-29 R319与Owner邮箱销毁保护：充值确认三语不承诺销毁退款/PUSH免费；用户单/批/异常/本人DELETE强制邮箱、管理员免邮箱，绑定account/sid/email/set、全局去同码、一次消费、60秒限发且换目标/会话/消费/失败不可绕过，通用验证隔离预算。UI仅邮箱、名称地区编号表格，浅深色三宽taste检查0 FAIL/WARN；真实PG+SMTP/Incus边界替身及Vue/Chrome证据详见HANDOFF。本阶段相关types/守卫/双端build/lint过，204有修复复验含部分/68已有或不同/55待，完整327/外部邮件/原生宿主/灾备未完。
 
 2026-10-29 R317登录重复阶段：两handleLogin函数第一行拒loading、演示不覆在途输入、OAuth函数/按钮同gate、管理员等待原safe push完成；真实Chrome先红2次→final-r3两端重复/重试/console/challenge输入/TOTP恢复码原分支、3守卫/lint/双端types build最终exit0/dist见HANDOFF。唯一203有修复复验（含部分）/68已有防护或实现不同/56待精修，登录离页/其它全流程和完整灾备另待。
@@ -429,7 +431,7 @@
 | R1-317 | 存在，部分已修 | 重复提交Chrome及构建守卫通过 | 两端handleLogin第一行拒loading，演示/OAuth同gate，管理员等安全push完成。实际Chrome重复零额外写、失败重试/正确console/缺输入challenge与TOTP恢复码payload，3守卫/lint/双端types build/dist通过；离页/跨页及真实认证全流程另验，见HANDOFF。 |
 | R1-318 | 已有防护 | 保留初审结论 | manualStartHint已描述重装后自动启动。 |
 | R1-319 | 存在，已修本项文案 | 三语实际Wallet与门禁复验 | rechargeNotice改自行销毁不退款、PUSH手续费以实际转移页为准、邮箱在个人设置修改。三语真实Vue勾选门禁零充值订单、i18n/route与双端build过；未改真实计费规则，见HANDOFF。 |
-| R1-320 | 存在 | 待精修/运行复核 | 前端提示/校验6位与后端8位加复杂度不一致。 |
+| R1-320 | 存在 | 已修复；本地浏览器通过 | 前端8–128位/大小写/数字规则与后台一致；三语持久hint及非法零API、合法边界精确payload/原敏感验证/重试/重新登录与scope32旧回执通过，takeover-password-policy-*；对应3守卫/lint/双端types build/dist通过，未改真实账户。 |
 | R1-321 | 存在，已修 | 文案/浏览器及相关守卫通过 | 三语resetTrafficWarning错误要求手动恢复1Mbps，已按实际route/running查询/scheduler/带宽仲裁改为自动检查并保留账户超限、离线和停止条件。Chrome完整reset/截图、types/4守卫/lint/双端build/dist通过；原生恢复与生产部署另验，不修改原恢复逻辑，见HANDOFF。 |
 | R1-322 | 已有防护 | 保留初审结论 | 管理员创建description已免费或付费；freeGiftHint只在免费赠送分支，不是整页都说免费。 |
 | R1-323 | 存在，已修 | 文案/浏览器及相关守卫通过 | 三语bootPriority改高值先启动，startupDelay改本实例启动后、下一实例前等待；已核Incus原映射与官方instance_options定义。takeover-package-boot-hints-browser实际Vue/Chrome矩阵及三宽截图、route/i18n/input守卫、locale lint/双端types build/dist通过；不改默认范围/交付，原生宿主自动开机另验。 |

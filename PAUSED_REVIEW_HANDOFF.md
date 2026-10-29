@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：R320密码前端规则已与后台8–128/大小写/数字一致，三语持久hint及input限制/关联已修。password-policy-receipts实际Chrome三语5类非法零请求、8/128边界及原真实验证/重试/清登录回归、scope32旧回执均exit0；route/i18n/auth-session守卫、lint零错警、最终双端build含vue-tsc/dist及manifest194常规174专项有效，无待poll。三宽三语截图已看；未改真实账户。327为205含部分/68已有不同/54待，完整验收/灾备未完，阶段提交推送后继续R315/R326实际三语与长Webhook390px验证。上批a08895d1已核远端，CI查询仍in_progress；PG55438保留不停止。下方为历史接续。
+
 > **最新接续**：用户邮箱销毁/R319阶段最终验证结束，按Owner阶段提交推送授权保存。单/批/异常/本人DELETE强制邮箱，管理员免邮箱；绑定account/sid/email/set、去同码、一次消费、10分钟有效、五错、同账户60秒/每小时5次，通用验证隔离预算。UI仅邮箱输入，名称/地区/#ID表格，三语发工单。pg-60s/delete-final2、ui-final11浅深色三宽0 FAIL/WARN、batch-no-name-final、5守卫+最终2UI守卫、build-final-complete双端含types/server-build-60s、test-types-final3与lint-complete全部exit0，无待poll。长名称附加回归long-names与最终dist守卫均exit0，截图已看，无待poll。manifest194常规174专项接CI，27c05/4da9 CI success。本阶段CI与外部邮件/真实Linux另核；327为204含部分/68不同或已有/55待，灾备未完。下一R320 PasswordSection仍6位，后台8–128含大小写/数字；相关源码/既有scope/receipts夹具已读、未改。PG55438保留，不停止；下面接续为历史。
 
 > **最新接续**：4da9fdf2已push。R317两登录入口loading gate及演示/OAuth在途拒绝、管理员等待安全router.push已修；实际authStore/两Vue Chrome先红重复2次→final-r3两端busy/重试/正确console/缺输入challenge/原TOTP恢复码payload通过exit0。3守卫/lint最终零错警/manifest194常规172专项、双端build含vue-tsc最终exit0/dist与三宽三语截图通过，无待poll，准备push。203有修复复验含部分/68已有防护不同/56待精修；不是外部challenge/真实认证及全部327验收。下一R319三语充值确认仍销毁退款/PUSH免费，已核Wallet/实际transfer_fee扣费及用户销毁零退款守卫，尚未改；登录离页旧回执和完整灾备另待。

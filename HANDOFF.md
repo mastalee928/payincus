@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-320 修改密码提示与后台规则一致
+
+- PasswordSection 的6位提示/门禁与后台 validatePassword 的8–128位、大小写字母和数字不一致。现前端按相同规则拒绝非法值且零API请求，新密码输入限制8–128，三语规则放在输入框下持久显示并用aria-describedby关联；不改后端、旧密码验证、二次验证、会话/草稿隔离及成功后重新登录流程。
+- takeover-password-policy-receipts 实际Vue/Chrome三语各5类非法输入零请求、合法8/128边界精确payload及原非法回执/真实SensitiveVerification request→verify→重试→清登录跳转通过exit0；scope原32旧session/account/role/logout/draft/ABA/cache回执、busy/卸载与取消grant回归exit0。三语1440/768/390截图已查看，规则完整可读，无水平溢出；仅受控API，未修改真实账户密码或外部邮箱。
+- 对应route/i18n/auth-session-status守卫、lint零错警、最终双端build含vue-tsc及takeover-password-policy-dist构建边界全部exit0；manifest194常规174专项分类有效，无待poll。上批a08895d1已核远端main，查询CI仍in_progress，不能算通过。本阶段按Owner授权单独提交推送，不发行或操作生产。
+- 327唯一编号205有修复/复验记录（含部分）/68已有防护或实现不同/54待精修，205内部未完范围仍继续。下一R315三语与R326长Webhook原源码已有修改，补实际手机浏览器验证；完整327、真实宿主及灾备仍未完成。
+
 ## 2026-10-29 用户销毁邮箱保护与 R1-319 充值确认
 
 - Owner追加：用户单台、批量、异常及本人通用DELETE必须账户邮箱验证码；管理员替用户删除免邮箱。新服务绑定账户、有效sid、当前邮箱和排序实例集合，10分钟有效、一次消费、5次错码、同账户60秒限发及每小时5次发送预算；发送失败和已消费记录保留预算。邮件走原mailer，不依赖通知渠道。PG全局分配锁与随机碰撞重试避免有效期内A/B同码；只存SHA256，不返数字或完整邮箱。发送在途不能消费；通用验证隔离销毁专用记录，不得晋升grant或清除预算。

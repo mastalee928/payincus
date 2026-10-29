@@ -15,19 +15,38 @@ try{
   for(let attempt=0;attempt<200;attempt++){if(await page.eval(()=>!!window.passwordHarness?.view()))break;if(attempt===199)throw Error(page.consoleErrors.join('\n'));await sleep(100)}
   const run=async(fn,arg)=>{const result=await page.eval(fn,arg);await sleep(70);return result},last=kind=>page.eval(kind=>window.passwordHarness.pending.findLastIndex(x=>x.kind===kind),kind)
   const read=key=>page.eval(key=>JSON.parse(JSON.stringify(window.passwordHarness.view()[key])),key)
-  const prepare=()=>run(()=>{const h=window.passwordHarness,v=h.view();h.auth.user={id:1,username:'fixture',role:'user',email:'fixture@example.test'};h.session('a');v.passwordForm={currentPassword:'fixture-current',newPassword:'fixture-new',confirmPassword:'fixture-new'}})
+  const prepare=()=>run(()=>{const h=window.passwordHarness,v=h.view();h.auth.user={id:1,username:'fixture',role:'user',email:'fixture@example.test'};h.session('a');v.passwordForm={currentPassword:'fixture-current',newPassword:'Fixture-new1',confirmPassword:'Fixture-new1'}})
   const start=()=>run(()=>{void window.passwordHarness.view().updatePassword()}),accept=(kind,response)=>run(({kind,response})=>window.passwordHarness.pending.findLast(x=>x.kind===kind).resolve(response),{kind,response})
+  for (const locale of ['zh-CN', 'zh-TW', 'en']) {
+    await run(locale => window.passwordHarness.setLocale(locale), locale)
+    for (const password of ['Abc1234', 'abcdefgh1', 'ABCDEFGH1', 'Abcdefgh', 'Ab1' + 'x'.repeat(126)]) {
+      await prepare(); await run(password => { const v = window.passwordHarness.view(); v.passwordForm.newPassword = password; v.passwordForm.confirmPassword = password }, password)
+      const before = await page.eval(() => window.passwordHarness.pending.length)
+      await start()
+      assert.equal(await page.eval(() => window.passwordHarness.pending.length), before, 'invalid password causes no API request')
+      assert.ok(await read('passwordError'), 'policy rejection has translated feedback')
+      assert.equal(await read('showVerificationModal'), false)
+    }
+    const hint = await page.eval(() => document.querySelector('#profile-new-password-hint').textContent)
+    assert.ok(hint.includes('8') && hint.includes('128'), 'persistent hint states current server limits')
+  }
+  for (const password of ['Abcdefg1', 'Ab1' + 'x'.repeat(125)]) {
+    await prepare(); await run(password => { const v = window.passwordHarness.view(); v.passwordForm.newPassword = password; v.passwordForm.confirmPassword = password }, password)
+    await start()
+    assert.equal(await page.eval(() => window.passwordHarness.pending.at(-1).data.password), password, 'valid boundary password retains exact content')
+    await run(() => window.passwordHarness.pending.at(-1).reject({ code: 'INVALID_CREDENTIALS' }))
+  }
   await prepare();await start();await accept('update',{});assert.equal(await read('passwordSuccess'),false,'missing password confirmation never claims success');assert.ok(await read('passwordError'))
   for(const verified of [false,true])for(const response of [null,{}, {message:' '}, {message:'fixture'}, {message:'User info updated',reauthRequired:false}, {message:'User info updated',reauthRequired:'true'}]){
     await prepare();await start();if(verified){await run(index=>window.passwordHarness.pending[index].reject({code:'VERIFICATION_REQUIRED'}),await last('update'));await run(()=>{void window.passwordHarness.view().onVerificationSuccess()})}
-    await accept('update',response);assert.equal(await read('passwordSuccess'),false);assert.equal(await read('reauthPending'),false);assert.ok(await read('passwordError'));assert.equal((await read('passwordForm')).newPassword,'fixture-new');assert.equal(await read('passwordLoading'),false);assert.equal(await read('pendingPassword'),'')
+    await accept('update',response);assert.equal(await read('passwordSuccess'),false);assert.equal(await read('reauthPending'),false);assert.ok(await read('passwordError'));assert.equal((await read('passwordForm')).newPassword,'Fixture-new1');assert.equal(await read('passwordLoading'),false);assert.equal(await read('pendingPassword'),'')
   }
   // Exercise the actual verification modal and its emitted verified callback, not a synthetic parent callback.
   await prepare();await start();await run(index=>window.passwordHarness.pending[index].reject({code:'VERIFICATION_REQUIRED'}),await last('update'));assert.equal(await read('showVerificationModal'),true)
   await run(()=>{void window.passwordHarness.verification().requestCode()});await accept('request',{success:true,required:true,channel:'email',maskedTarget:'fi***@example.test',expiresIn:600})
   assert.equal(await page.eval(()=>window.passwordHarness.verification().step),'verify')
   await run(()=>{const v=window.passwordHarness.verification();v.verificationCode='012345';void v.verify()});await accept('verify',{success:true,verified:true,message:'Verification successful'})
-  const retry=await last('update');assert.deepEqual(await page.eval(index=>window.passwordHarness.pending[index].data,retry),{id:1,password:'fixture-new',currentPassword:'fixture-current'});assert.equal(await read('showVerificationModal'),false)
+  const retry=await last('update');assert.deepEqual(await page.eval(index=>window.passwordHarness.pending[index].data,retry),{id:1,password:'Fixture-new1',currentPassword:'fixture-current'});assert.equal(await read('showVerificationModal'),false)
   await accept('update',{message:'User info updated',reauthRequired:true});assert.equal(await read('passwordSuccess'),true);assert.equal(await read('reauthPending'),true);assert.equal((await read('passwordForm')).newPassword,'');assert.equal(await read('pendingPassword'),'')
   await sleep(1200);assert.equal(await page.eval(()=>location.pathname),'/login');assert.ok(await page.eval(()=>Number(sessionStorage.getItem('fixture-password-clear-count')||0))>=1)
   await page.goto('http://127.0.0.1:19723',{settleMs:900});for(let attempt=0;attempt<100;attempt++){if(await page.eval(()=>!!window.passwordHarness?.view()))break;await sleep(100)}

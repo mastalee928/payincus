@@ -103,8 +103,16 @@ async function updatePassword(): Promise<void> {
     return
   }
 
-  if (passwordForm.value.newPassword.length < 6) {
+  if (passwordForm.value.newPassword.length < 8) {
     passwordError.value = t('profile.password.tooShort')
+    return
+  }
+  if (passwordForm.value.newPassword.length > 128) {
+    passwordError.value = t('profile.password.tooLong')
+    return
+  }
+  if (!/[A-Z]/.test(passwordForm.value.newPassword) || !/[a-z]/.test(passwordForm.value.newPassword) || !/[0-9]/.test(passwordForm.value.newPassword)) {
+    passwordError.value = t('profile.password.tooWeak')
     return
   }
   if (!passwordForm.value.currentPassword) {
@@ -190,10 +198,12 @@ async function onVerificationSuccess(): Promise<void> {
           <input
             v-model="passwordForm.newPassword"
             type="password"
+            minlength="8" maxlength="128" aria-describedby="profile-new-password-hint"
             class="input"
-            :placeholder="$t('profile.password.newPlaceholder')"
+            :placeholder="$t('profile.password.new')"
             autocomplete="new-password"
           />
+          <p id="profile-new-password-hint" class="mt-2 text-sm text-themed-muted">{{ $t('profile.password.newPlaceholder') }}</p>
         </div>
         <div>
           <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.password.confirm') }}</label>
