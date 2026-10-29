@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R076列表反序/会话/缓存/卸载/缩页/失败retry已修，真实Chrome先红→final14旧读/七非法读/分页/same sid/三语三宽exit0，4守卫/lint/双端types build及最后user补构建/dist通过，无待poll。215含部分/68已有不同/44待，R075重复create实际先红尚未改。
+
 2026-10-29 R077 SSH日期字段createdAt已修，真实Chrome先红→两服务端日期/三语三宽零写final exit0，3守卫/lint/语法/diff/manifest194常规183专项过，双端build最终exit0（接续poll21535确认）/dist守卫exit0，无待poll。214含部分/68已有不同/45待，R075/76同组件生命周期继续，整体UI/真实密钥/完整327/灾备另验。
 
 2026-10-29 R071头像style先红→固定submitted/account/session/重复busy/字段与详情seq/目标/cache/retry保护，final3实际Chrome14旧写14旧读、反序/非法回执与same sid最终exit0，4守卫/lint/语法/diff/manifest194常规182专项及双端build含types/dist全过，无待poll。213含部分/68已有不同/46待，整体UI/真实账户/完整327/灾备另验。
@@ -209,8 +211,8 @@
 | R1-073 | 存在 | 待精修/运行复核 | 读列表/变更完成缺目标和请求代次绑定；过滤改变、替换草稿与重复行操作有竞态窗口。 |
 | R1-074 | 存在 | 待精修/运行复核 | 读列表/变更完成缺目标和请求代次绑定；过滤改变、替换草稿与重复行操作有竞态窗口。 |
 | R1-075 | 存在 | 待精修/运行复核 | 列表和生成/保存缺完整session/请求代次与busy函数门禁，旧响应和分页收缩未统一防护。 |
-| R1-076 | 存在 | 待精修/运行复核 | 列表和生成/保存缺完整session/请求代次与busy函数门禁，旧响应和分页收缩未统一防护。 |
-| R1-077 | 存在 | 已修；最终双端验证中 | GET list/detail真实createdAt，日期span改单字段及缺失—，实际Chrome先红→两个API日期/三语三宽零写exit0，3守卫/lint过，双端types build待最终dist。保持原手机日期隐藏、其它密钥操作未改，整体UI/真实密钥另验。 |
+| R1-076 | 存在 | 已修；真实账户/整体UI另验 | 列表account/role/sid/seq/ABA/cache/unmount保护与同步缩页，严格读失败保留/三语retry。Chrome先红→final14旧读/七坏读/缩页/same sid零写exit0，4守卫/lint/双端types build末dist过；写回执保护继续R075。 |
+| R1-077 | 存在 | 已修；真实账户/整体UI另验 | GET list/detail真实createdAt，日期span改单字段及缺失—，实际Chrome先红→两个API日期/三语三宽零写exit0，3守卫/lint/双端types build末dist过。保持原手机日期隐藏，生成/保存保护继续R075。 |
 | R1-078 | 存在 | 待精修/运行复核 | 列表无反序响应保护；UA先Linux/MacOS/Chrome再Android/iPhone/Opera导致误分类。 |
 | R1-079 | 存在 | 待精修/运行复核 | 列表无反序响应保护；UA先Linux/MacOS/Chrome再Android/iPhone/Opera导致误分类。 |
 | R1-080 | 存在 | 待精修/运行复核 | 绑定读取与操作结果未完整绑定目标/会话代次，旧链接/状态可回写。 |

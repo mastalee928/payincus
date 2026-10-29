@@ -4,6 +4,12 @@
 
 ## 2026-10-29 销毁表格实例编号释义与长名称复验
 
+## 2026-10-29 R1-076 SSH列表当前会话与分页缩减
+
+- 真实Chrome反序读先红：新请求返回key2后旧首读将其覆盖key1。现以账户/role/sid、同步代次、独立读取序号与KeepAlive/unmount活动状态保护；切换清列表/页码/草稿/已显示私钥，同sid刷新保留。合法列表缩减同步夹紧currentPage，非法/失败列表持久错误、失败refresh保留当前已验证列表，实际重试按钮与三语提示可操作。
+- ssh-key-list最终反序、11→1分页、14旧回执/七非法读/实际retry/same sid/cache返回唯一读/三宽三语零写exit0，R077 dates回归exit0；实际最终截图均已看。四对应frontend/ssh-route守卫、lint/语法/diff/manifest194常规184专项及最终双端types build通过；初user包早于语言提示调整，15220补构建user最终exit0，核两包当前bool/inline三语提示，末dist守卫exit0，无待poll。
+- 原样式紫色/阴影、深色低对比/删除触摸面积不属于本阶段整体UI验收。计数215含部分/68已有不同/44待。0afd7b22已push核远端；下一R075实际重复create已先红2次，脚本test-ssh-key-submit未完成只留工作区，不加入本阶段。真实账户、生成及外部私钥保存另验。
+
 - Owner追问名称下#1是否内部机器编号；实际destroy-info返回instance.id，与宿主host_id及Incus名称不同。单台与批量改为三语明确「实例编号：{id}」，保持原名称完整break-words换行/定宽区域列。机器池创建前缀API限制60字符，后续rename显示名称限制100；本次未改名称规则或销毁/验证接口。
 - destroy-email-ui最终三语编号断言、中文/无空格英文/100位连续数字完整保留且弹窗/表格零横溢、原邮箱门禁/8旧发送回执/四旧销毁回执/重试/键盘通过exit0。batch-billing实际Chrome原续费/销毁生命周期与中文桌面/英文390长数字名称和明确编号全部exit0，未操作真实账户或实例。
 - 对应route/i18n及额外public-callback三个守卫、26762条三语message compile、五个前端文件lint、两脚本语法/diff/manifest有效通过；双端build含vue-tsc最终exit0（99958已poll）及最后dist守卫exit0，无待poll。taste沿原黑白组件方向，浅/深三宽0 FAIL/0 WARN，全部截图及本地critique已看/留存；批量原统计布局等不属本次整体UI验收。

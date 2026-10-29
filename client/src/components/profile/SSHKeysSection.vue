@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import type { SshKey } from '@/types/api'
 import { validateName } from '@/utils/validation'
 
 const { t } = useI18n()
 const toast = useToast()
+const auth = useAuthStore()
 
 const sshKeys = ref<SshKey[]>([])
 const showAddKey = ref<boolean>(false)
@@ -47,13 +49,69 @@ const generating = ref<boolean>(false)
 const showPrivateKeyModal = ref<boolean>(false)
 const generatedPrivateKey = ref<string>('')
 const privateKeyCopied = ref<boolean>(false)
+const listLoading = ref(false), listReady = ref(false), listError = ref(false), active = ref(false)
+let alive = true, generation = 0, listSequence = 0
+const session = computed(() => {
+  if (!auth.user || !auth.token || !Number.isSafeInteger(auth.user.id) || auth.user.id < 1) return ''
+  let identity = auth.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string' && payload.sid) identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${auth.user.id}:${auth.user.role}:${identity}`
+})
+const available = computed(() => alive && active.value && !!session.value && auth.user?.role === 'user')
+function invalidateContext(): void {
+  generation++
+  listSequence++
+  sshKeys.value = []
+  currentPage.value = 1
+  listLoading.value = false
+  listReady.value = false
+  listError.value = false
+  showAddKey.value = false
+  newKey.value = { name: '', content: '' }
+  closePrivateKeyModal()
+}
+watch(session, () => { invalidateContext(); if (available.value) void loadSSHKeys() }, { flush: 'sync' })
+function activate(): void {
+  if (!alive || active.value) return
+  active.value = true
+  void loadSSHKeys()
+}
+onMounted(activate)
+onActivated(activate)
+onDeactivated(() => { active.value = false; invalidateContext() })
+onBeforeUnmount(() => { alive = false; active.value = false; invalidateContext() })
+watch(totalPages, total => { currentPage.value = Math.max(1, Math.min(currentPage.value, total || 1)) }, { flush: 'sync' })
+
+function isListKey(value: unknown): value is SshKey {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const key = value as SshKey
+  return Number.isSafeInteger(key.id) && key.id > 0 && typeof key.name === 'string' && !!key.name.trim() &&
+    typeof key.fingerprint === 'string' && !!key.fingerprint.trim() &&
+    (key.user_id === undefined || key.user_id === auth.user?.id) &&
+    (key.createdAt === undefined || typeof key.createdAt === 'string') &&
+    (key.publicKeyPreview === undefined || typeof key.publicKeyPreview === 'string')
+}
 
 async function loadSSHKeys(): Promise<void> {
+  if (!available.value) return
+  const version = generation, identity = session.value, sequence = ++listSequence
+  const current = () => available.value && version === generation && identity === session.value && sequence === listSequence
+  listLoading.value = true
+  listError.value = false
   try {
     const response = await api.sshKeys.list()
-    sshKeys.value = Array.isArray(response.keys) ? response.keys : []
-  } catch (error) {
-    console.error('Failed to load SSH keys:', error)
+    if (!current()) return
+    if (!response || !Array.isArray(response.keys) || !response.keys.every(isListKey) ||
+      new Set(response.keys.map(key => key.id)).size !== response.keys.length) throw new Error(t('common.loadFailed'))
+    sshKeys.value = response.keys
+    listReady.value = true
+  } catch {
+    if (current()) listError.value = true
+  } finally {
+    if (current()) listLoading.value = false
   }
 }
 
@@ -194,9 +252,6 @@ function closePrivateKeyModal(): void {
   privateKeyCopied.value = false
 }
 
-// 挂载时加载
-loadSSHKeys()
-
 defineExpose({ loadSSHKeys })
 </script>
 
@@ -246,6 +301,12 @@ defineExpose({ loadSSHKeys })
         <button class="btn-ghost btn-sm" @click="showAddKey = false; newKey = { name: '', content: '' }">{{ $t('profile.sshKeys.cancel') }}</button>
       </div>
     </div>
+
+    <p v-if="listError" role="alert" data-ssh-list-error class="mb-3 text-sm text-red-600 dark:text-red-400">
+      {{ $t('common.loadFailed') }}
+      <button type="button" class="btn-ghost btn-sm ml-2" :disabled="listLoading" @click="loadSSHKeys">{{ $t('common.retry') }}</button>
+    </p>
+    <p v-else-if="listLoading && !listReady" role="status" class="text-sm text-themed-muted py-6">{{ $t('common.loading') }}</p>
 
     <!-- SSH 密钥列表 -->
     <div v-if="sshKeys.length" class="space-y-2">
@@ -304,7 +365,7 @@ defineExpose({ loadSSHKeys })
       </div>
     </div>
 
-    <div v-else-if="!showAddKey && !sshKeys.length" class="text-sm text-themed-muted text-center py-6 border border-dashed border-themed rounded-lg">
+    <div v-else-if="listReady && !listError && !showAddKey && !sshKeys.length" class="text-sm text-themed-muted text-center py-6 border border-dashed border-themed rounded-lg">
       <svg class="w-8 h-8 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
       </svg>
