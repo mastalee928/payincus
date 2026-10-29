@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-29 R314抽奖阶段：spin/multi即时互斥、活动快照/session/page/tab旧回执隔离，单结果timer覆盖动画busy并随离页取消；辅助points/lotteries读取current门禁已修。真实Chrome先红后40旧回执、same sid/读取及current徽章/动画/禁选择/重试，3守卫/lint/双端types build最终exit0/dist见HANDOFF。旧日志48/80误计已改真实循环计数；唯一201有修复复验（含部分）/68已有防护或实现不同/58待精修，真实奖励与后台/幂等另验，327/灾备未完。
+
 2026-10-29 R323三语启动提示阶段：按原Incus映射及官方文档改高priority先启动、启动后等待下一实例；真实Chrome全priority回归和三宽三语截图、3守卫/lint/双端types build最终exit0/dist见HANDOFF。唯一200有修复复验（含部分）/68已有防护或实现不同/59待精修；原生自动开机及200内部未完范围继续保留，R314另批。
 
 2026-10-29 R312零优先级阶段：CPU/启动优先级合法0读取/提交保持，null/缺省读取默认与整数范围门禁；真实Chrome先红后零值/默认/四边界/十非法输入及原完整表单回归exit0，4守卫/lint/双端types build最终exit0/dist/manifest194常规167专项与三宽三语截图见HANDOFF。唯一199有修复复验（含部分）/68已有防护或实现不同/60待精修；实际Incus交付与199内部未完仍保留，R323三语提示另批继续。
@@ -411,7 +413,7 @@
 | R1-311 | 存在，部分已修 | 当前编辑读取Chrome及构建守卫通过 | 编辑target/seq/ABA/mode/show/admin/account/session/unmount隔离、ready/loading/保存门禁、失败持久retry及匹配id已修，真实Chrome16旧回执及正常/失败/刷新/卸载通过。手机开关出界已单列/wrap；保存回执、列表与分类并发另待。 |
 | R1-312 | 部分存在 | 源码已修/真实浏览器夹具通过 | PackageSelector只展示props.packages，无对方嵌入packageId加载；套餐CPU/启动priority合法0读取和提交保持，null/缺省默认及原整数范围、四边界与十非法输入通过takeover-package-priorities-final.log，原package-form全回归/4守卫/lint/双端types build/dist通过；实际Incus交付未验。 |
 | R1-313 | 部分存在，部分已修 | 目标/session及输入回执实际Chrome与构建守卫通过 | 四操作固定目标/session/draft/ABA、busy/关闭/卸载/timer已修；两数字输入、四真实成功回执/有效期与过期敏感验证清理已修。80旧回执及输入回执反例/重试通过；实际邮件和客户完整变更另续。 |
-| R1-314 | 存在 | 待精修/运行复核 | multiDraw拒isSpinning，但spin不拒isMultiDrawing；结果setTimeout未随卸载清理，可与十连交错或离页后弹窗。 |
+| R1-314 | 存在，部分已修 | 当前抽奖Chrome及构建守卫通过 | 单/十连函数与按钮即时互斥，固定活动/奖品快照/account/role/sid/page/tab，旧写回执及单动画timer随离页/缓存/卸载撤销；辅助积分/活动读取独立代次。真实Chrome40旧回执、same sid、合法0、禁选择/动画busy/徽章结果/失败重试及3守卫/lint/双端types build/dist通过，日志误计已纠正见HANDOFF；真实积分扣除/奖励全流程、后台授权与断网幂等仍待。 |
 | R1-315 | 待运行验证 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
 | R1-316 | 存在 | 待精修/运行复核 | bindings搜索/editor读取缺请求和当前目标代次，反序结果可显示旧对象。 |
 | R1-317 | 存在 | 待精修/运行复核 | Login/AdminLogin handleLogin缺函数入口loading guard；按钮disabled仅阻常规鼠标，不能防重复事件/函数调用。 |

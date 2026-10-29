@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-314 单抽与十连互斥及迟到结果隔离
+
+- 上批8f759572已push。实际Chrome before先红：十连pending时spin仍发1次draw。两函数入口现在共用即时busy门禁，转盘单抽/活动选择/再次抽按钮同步禁止交错；固定活动ID、奖品数组快照、account/role/sid与页面/主子tab代次。旧成功/失败不写结果、提示或辅助刷新；同sid正常token刷新保持。单抽成功仅一个可清理timer覆盖动画到结果/解锁，失败立即释放；离页/缓存/卸载取消timer与灯泡。原HTTP在途保持busy至finally，不因切页允许同组件再写。
+- points/lotteries辅助读增加session/独立sequence与激活门禁，反序/旧finally不覆盖当前数据及loader；会话/缓存切换清私密积分和活动，激活重读。真实Chrome final原48文案与final-r2原80文案均为误计；实际最终2操作×10变化×2结果=40旧回执（每操作20），全部exit0，脚本改用实际循环计数。current-final另通过互斥/失败重试/禁选择、动画busy、实际徽章分支remainingPoints、same sid及旧读取/合法0（跳过重复旧写矩阵，日志0是本次未跑该矩阵）。三宽三语截图已查看；fixture只替换无关VIP/BadgeCenter，实际抽奖页及奖励弹窗运行。
+- route/entertainment/i18n三守卫、lint零错警、双端build含vue-tsc最终exit0/dist及manifest194常规168专项分类通过，专项登记CI；日志前缀takeover-lottery-draw，无待poll。仅真实Vue与受控API，未发真实抽奖、扣积分/发奖或TG通知；后端performDraw/事务与一机一卖保持，真实奖励/断网幂等及整条认证验收仍待。
+- R314进入部分修复，327唯一编号201有修复/复验记录（含部分）/68已有防护或实现不同/58待精修，201内部仍有未完范围。下一R316 Telegram bindings与channel编辑读取已读源及通知守卫：缺target/read代次，产品尚未改。完整327和网关灾备仍未完成。
+
 ## 2026-10-29 R1-323 套餐启动提示符合 Incus 语义
 
 - R312提交5c8e925b已push并核远端一致。本批仅改简体/繁体/英文六条packageForm.hints：高priority先启动；delay为本实例启动后、下一个实例启动前的等待时间。已核server/src/lib/incus/incus-instances.ts原值直传字段，并读取Incus官方instance_options文档的priority最高先启动、delay启动后等待下一实例定义（https://linuxcontainers.org/incus/docs/main/reference/instance_options/）。不改字段范围、默认值、后端映射或交付行为。

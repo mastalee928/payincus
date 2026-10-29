@@ -319,6 +319,8 @@ jobs:
         run: pnpm --filter server test:review-system-settings-smtp
       - name: Package priorities preserve legal zero values
         run: pnpm --filter server test:review-package-priorities
+      - name: Lottery single and ten draws retain their target and reject stale results
+        run: pnpm --filter server test:review-lottery-draw
       - name: Balance adjustments keep their target, draft and confirmed receipt
         run: pnpm --filter server test:review-user-balance-submit
       - name: Points adjustments reject stale receipts and repeated submissions

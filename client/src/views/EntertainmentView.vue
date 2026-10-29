@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted, nextTick, watch } from 'vue'
+import { ref, onMounted, computed, onUnmounted, onActivated, onDeactivated, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import api from '@/api'
 import BadgeBatchRewardModal from '@/components/entertainment/BadgeBatchRewardModal.vue'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import { translateError } from '@/utils/errorHandler'
 import InstanceSelector from '@/components/InstanceSelector.vue'
 import BadgeCenter from '@/components/entertainment/BadgeCenter.vue'
@@ -15,6 +16,20 @@ import type { BadgeOwnership } from '@/types/api'
 const { t } = useI18n()
 const toast = useToast()
 const route = useRoute()
+const authStore = useAuthStore()
+const pageActive = ref(true)
+let disposed = false, drawSequence = 0, pointsReadSequence = 0, lotteriesReadSequence = 0
+let singleDrawPending = false
+let spinResultTimer: ReturnType<typeof setTimeout> | null = null
+const sessionKey = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string') identity = payload.sid
+  } catch { /* Preserve legacy token identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
 
 type LotteryBadgeRewardModalState = {
   visible: boolean
@@ -168,12 +183,41 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  // 清理灯泡闪烁定时器
-  if (bulbTimer) {
-    clearInterval(bulbTimer)
-    bulbTimer = null
-  }
+  disposed = true
+  pageActive.value = false
+  invalidateLotteryDraw()
+  pointsReadSequence++; lotteriesReadSequence++
 })
+onActivated(() => { pageActive.value = true })
+onDeactivated(() => { pageActive.value = false })
+
+function drawActive(): boolean {
+  return !disposed && pageActive.value && !!sessionKey.value && mainTab.value === 'lottery' && activeTab.value === 'lottery'
+}
+type DrawContext = { sequence: number; session: string; lotteryId: number }
+function currentDraw(context: DrawContext): boolean {
+  return drawActive() && context.sequence === drawSequence && context.session === sessionKey.value && context.lotteryId === selectedLottery.value?.id
+}
+function invalidateLotteryDraw(): void {
+  drawSequence++
+  if (spinResultTimer !== null) clearTimeout(spinResultTimer)
+  spinResultTimer = null
+  stopBulbBlink()
+  if (!singleDrawPending) isSpinning.value = false
+  closeResultModal()
+  closeLotteryBadgeRewardModal()
+  closeMultiDrawModal()
+}
+watch([sessionKey, pageActive, mainTab, activeTab, () => selectedLottery.value?.id], invalidateLotteryDraw, { flush: 'sync' })
+watch([sessionKey, pageActive], () => {
+  pointsReadSequence++; lotteriesReadSequence++
+  pointsLoading.value = false; lotteriesLoading.value = false
+  points.value = { points: 0, totalEarned: 0, totalSpent: 0, convertiblePoints: 0 }
+  lotteries.value = []; selectedLottery.value = null
+  if (!disposed && pageActive.value && sessionKey.value) {
+    void loadPoints(); void loadLotteries()
+  }
+}, { flush: 'sync' })
 
 // 监听主选项卡切换
 watch(mainTab, (newTab) => {
@@ -405,9 +449,13 @@ function stopBulbBlink() {
 }
 
 async function loadPoints() {
+  if (disposed || !pageActive.value || !sessionKey.value) return
+  const sequence = ++pointsReadSequence, session = sessionKey.value
+  const current = () => !disposed && pageActive.value && sequence === pointsReadSequence && session === sessionKey.value
   pointsLoading.value = true
   try {
     const res = await api.entertainment.getPoints()
+    if (!current()) return
     points.value = {
       points: res.points,
       totalEarned: res.totalEarned,
@@ -415,16 +463,20 @@ async function loadPoints() {
       convertiblePoints: res.convertiblePoints
     }
   } catch (err: any) {
-    console.error('Failed to load points:', err)
+    if (current()) console.error('Failed to load points:', err)
   } finally {
-    pointsLoading.value = false
+    if (current()) pointsLoading.value = false
   }
 }
 
 async function loadLotteries() {
+  if (disposed || !pageActive.value || !sessionKey.value) return
+  const sequence = ++lotteriesReadSequence, session = sessionKey.value
+  const current = () => !disposed && pageActive.value && sequence === lotteriesReadSequence && session === sessionKey.value
   lotteriesLoading.value = true
   try {
     const res = await api.entertainment.getLotteries()
+    if (!current()) return
     lotteries.value = res.lotteries || []
     // 如果当前有选中的活动，更新其引用以获取最新数据（如库存）
     if (selectedLottery.value) {
@@ -438,9 +490,9 @@ async function loadLotteries() {
       selectedLottery.value = lotteries.value[0]
     }
   } catch (err: any) {
-    toast.error(t('entertainment.loadLotteriesFailed') + ': ' + err.message)
+    if (current()) toast.error(t('entertainment.loadLotteriesFailed') + ': ' + err.message)
   } finally {
-    lotteriesLoading.value = false
+    if (current()) lotteriesLoading.value = false
   }
 }
 
@@ -531,7 +583,7 @@ function jumpToMyBadgesFromLotteryReward() {
 const canSpinAgainFromLotteryBadgeReward = computed(() => {
   if (!selectedLottery.value) return false
   const remainingPoints = lotteryBadgeRewardModal.value.remainingPoints ?? points.value.points
-  return !isSpinning.value && remainingPoints >= selectedLottery.value.costPoints
+  return drawActive() && !isSpinning.value && !isMultiDrawing.value && remainingPoints >= selectedLottery.value.costPoints
 })
 
 async function spinAgainFromLotteryBadgeReward() {
@@ -542,6 +594,7 @@ async function spinAgainFromLotteryBadgeReward() {
 
 // 抽奖
 async function spin() {
+  if (!drawActive() || isSpinning.value || isMultiDrawing.value) return
   if (!selectedLottery.value) {
     toast.warning(t('entertainment.selectLottery'))
     return
@@ -550,19 +603,21 @@ async function spin() {
     toast.warning(t('entertainment.notEnoughPoints'))
     return
   }
-  if (isSpinning.value) return
-
+  const context: DrawContext = { sequence: drawSequence, session: sessionKey.value, lotteryId: selectedLottery.value.id }
   isSpinning.value = true
+  singleDrawPending = true
+  let animationScheduled = false
   spinResult.value = null
   startBulbBlink() // 开始灯泡闪烁
   
   // 开始旋转动画
-  const prizes = selectedLottery.value.prizes || []
+  const prizes = (selectedLottery.value.prizes || []).map((prize: any) => ({ ...prize }))
   const prizeCount = prizes.length || 8
   const baseRotation = wheelRotation.value
   
   try {
-    const res = await api.entertainment.draw(selectedLottery.value.id)
+    const res = await api.entertainment.draw(context.lotteryId)
+    if (!currentDraw(context)) return
     spinResult.value = {
       prizeType: res.record.prizeType,
       prizeName: res.record.prizeName,
@@ -623,7 +678,9 @@ async function spin() {
     wheelRotation.value = targetAngle
     
     // 等待动画完成后显示结果
-    setTimeout(() => {
+    spinResultTimer = setTimeout(() => {
+      spinResultTimer = null
+      if (!currentDraw(context)) return
       if (res.record.badgeOwnership) {
         openLotteryBadgeRewardModal(res.record.badgeOwnership, res.currentPoints)
       } else {
@@ -631,15 +688,18 @@ async function spin() {
       }
       loadPoints() // 刷新积分
       loadLotteries() // 刷新奖品库存
-    }, 2000)
-  } catch (err: any) {
-    toast.error(t('entertainment.spinFailed') + ': ' + err.message)
-    stopBulbBlink()
-  } finally {
-    setTimeout(() => {
       isSpinning.value = false
-      stopBulbBlink() // 停止灯泡闪烁
+      stopBulbBlink()
     }, 2000)
+    animationScheduled = true
+  } catch (err: any) {
+    if (currentDraw(context)) toast.error(t('entertainment.spinFailed') + ': ' + err.message)
+  } finally {
+    singleDrawPending = false
+    if (!animationScheduled || !currentDraw(context)) {
+      isSpinning.value = false
+      stopBulbBlink()
+    }
   }
 }
 
@@ -653,6 +713,7 @@ function switchTab(tab: 'lottery' | 'records' | 'points') {
 }
 
 function selectLottery(lottery: any) {
+  if (isSpinning.value || isMultiDrawing.value) return
   selectedLottery.value = lottery
   wheelRotation.value = 0
 }
@@ -664,6 +725,7 @@ function closeResultModal() {
 
 // 十连抽
 async function multiDraw() {
+  if (!drawActive() || isMultiDrawing.value || isSpinning.value) return
   if (!selectedLottery.value) {
     toast.warning(t('entertainment.selectLottery'))
     return
@@ -673,14 +735,14 @@ async function multiDraw() {
     toast.warning(t('entertainment.notEnoughPointsForMulti', { required: totalCost, current: points.value.points }))
     return
   }
-  if (isMultiDrawing.value || isSpinning.value) return
-
+  const context: DrawContext = { sequence: drawSequence, session: sessionKey.value, lotteryId: selectedLottery.value.id }
   isMultiDrawing.value = true
   multiDrawResults.value = []
   multiDrawError.value = ''
 
   try {
-    const res = await api.entertainment.drawMulti(selectedLottery.value.id)
+    const res = await api.entertainment.drawMulti(context.lotteryId)
+    if (!currentDraw(context)) return
     multiDrawResults.value = res.records || []
     multiDrawBadgeRewards.value = multiDrawResults.value
       .map(result => result.badgeOwnership)
@@ -701,7 +763,7 @@ async function multiDraw() {
     loadPoints() // 刷新积分
     loadLotteries() // 刷新奖品库存
   } catch (err: any) {
-    toast.error(t('entertainment.multiDrawFailed') + ': ' + err.message)
+    if (currentDraw(context)) toast.error(t('entertainment.multiDrawFailed') + ': ' + err.message)
   } finally {
     isMultiDrawing.value = false
   }
@@ -738,6 +800,7 @@ const multiDrawSummary = computed(() => {
 
 // 再次十连抽：关闭弹窗后立即再次抽奖
 function multiDrawAgain() {
+  if (!drawActive() || isSpinning.value || isMultiDrawing.value) return
   closeMultiDrawModal()
   multiDraw()
 }
@@ -1016,6 +1079,7 @@ function getWheelTextTransform(index: number, total: number): string {
           <button
             v-for="lottery in lotteries"
             :key="lottery.id"
+            :disabled="isSpinning || isMultiDrawing"
             class="px-4 py-2 rounded-lg border text-sm font-medium transition-colors"
             :class="selectedLottery?.id === lottery.id
               ? 'border-primary-500 bg-primary-500/10 text-primary-500'
@@ -1146,7 +1210,7 @@ function getWheelTextTransform(index: number, total: number): string {
             <button
               class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 sm:w-24 sm:h-24 rounded-full z-20 group"
               :class="{ 'animate-pulse-slow': !isSpinning && points.points >= selectedLottery.costPoints }"
-              :disabled="isSpinning || points.points < selectedLottery.costPoints"
+              :disabled="isSpinning || isMultiDrawing || points.points < selectedLottery.costPoints"
               @click="spin"
             >
               <!-- 按钮外圈 -->
@@ -2056,7 +2120,7 @@ function getWheelTextTransform(index: number, total: number): string {
               </button>
               <button 
                 class="btn btn-primary flex-[7] flex items-center justify-center gap-1"
-                :disabled="isMultiDrawing || !selectedLottery || points.points < selectedLottery.costPoints * 10"
+                :disabled="isMultiDrawing || isSpinning || !selectedLottery || points.points < selectedLottery.costPoints * 10"
                 @click="multiDrawAgain"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
