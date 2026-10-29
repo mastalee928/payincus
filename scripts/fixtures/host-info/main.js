@@ -19,6 +19,12 @@ createApp({ setup() {
   }
   session(); setLocale('zh-CN'); theme.setTheme(new URLSearchParams(location.search).has('dark') ? 'dark' : 'light')
   if (new URLSearchParams(location.search).has('inspect')) queueMicrotask(() => {
+    if (new URLSearchParams(location.search).has('copy')) {
+      const view = component.value?.$?.setupState
+      view.agentInstallCommand = 'DISPLAY-ONLY fixture command'
+      view.agentInstallTokenExpiresAt = new Date(Date.now() + 60000).toISOString()
+      view.agentCommandCopyError = true
+    }
     if (new URLSearchParams(location.search).has('error')) { pending.forEach(request => request.reject(Error('测试读取失败'))); return }
     const report = { id: 1, hostId: 11, agentId: 'fixture-agent', enabled: true, status: 'online', version: 'v1.0.1', latestVersion: 'v1.0.1', versionStatus: 'latest', capabilities: ['resources'], lastSeenAt: '2026-10-30T00:00:00.000Z', lastHeartbeatIp: '192.0.2.11', lastReport: {
       incus: { available: true }, resources: { cpuTotal: 8, cpuUsagePercent: 12.5, memoryTotalMb: 8192, memoryUsedMb: 2048, memoryUsagePercent: 25, swapTotalMb: 0, swapUsedMb: 0, swapUsagePercent: 0, diskTotalBytes: 107374182400, diskUsedBytes: 10737418240, diskUsagePercent: 10, processCount: 24 }, metrics: { heartbeatIntervalSeconds: 120, uptimeSeconds: 86461, load1: 0.12, load5: 0.23, load15: 0.34 }

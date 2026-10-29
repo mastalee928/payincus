@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R100复制安装命令先红剪贴板未完成就提示成功；现await、当前host/session/command代次、重复锁及持久三语失败/实际retry。真实Chrome24旧回执/权限拒绝/不支持/同步throw/三语三宽通过，226含部分/68已有不同/33待；R099写回执继续。
+
 2026-10-30 R098宿主信息三类读取独立序号、宿主/账户/role/sid/同步代次、KeepAlive及卸载保护已修；实际Chrome先红旧2覆盖新3，最终三类反序、18组旧回执/过期轮询、同sid与不重叠轮询、18种坏读及真实重试通过。225有修复/复验含部分、68已有不同、34待；R099写回执、R100复制及真实宿主另验。
 
 2026-10-30 R101宿主Agent异常metric先红toFixed崩溃→显示归一化/真零保持，Chrome12非法类型/容器/三语三宽通过，局部taste浅深三宽0FAIL/WARN；types/build与守卫最终证据见HANDOFF。224含部分/68已有不同/35待，R098实际读反序先红待修。
@@ -255,7 +257,7 @@
 | R1-097 | 存在 | 源码已修/隔离HMAC及PG验证通过 | metadata共享在途refresh，binary按version/name/小写hash合并，成功失败均finally释放。logs/takeover-agent-release-concurrency-final-2.log真实路由header/body、双架构、限流/stale/失败重试及5组key隔离通过；原生宿主与真实GitHub另验。 |
 | R1-098 | 存在 | 源码已修/隔离浏览器验证通过 | 三类读独立seq与host/account/role/sid/同步代次，缓存离页及卸载清状态并停poll；过期排队poll拒读、当前poll不重叠。实际Chrome三反序/18旧回执/18坏读、真实局部重试/保留最后成功值通过。双端types/build、对应守卫见HANDOFF；真实宿主另验。 |
 | R1-099 | 存在 | 待精修/运行复核 | 轮询/操作缺目标代次绑定；clipboard未await；formatPercent对非法类型缺保护。各项浏览器动态复核未做。 |
-| R1-100 | 存在 | 待精修/运行复核 | 轮询/操作缺目标代次绑定；clipboard未await；formatPercent对非法类型缺保护。各项浏览器动态复核未做。 |
+| R1-100 | 存在 | 源码已修/隔离浏览器验证通过 | await真实clipboard完成才成功，失败持久三语提示/实际retry；在途重复拒绝、host/session及command/expiry同步代次拒旧回执含ABA。Chrome24旧回执/延迟成功/权限拒绝/不支持/同步throw/三语三宽通过；仅DISPLAY-ONLY受控写，无系统剪贴板或真实token操作。 |
 | R1-101 | 存在 | 源码已修/本地Chrome通过 | Agent资源/metric容器与类型有限非负检查，缺失为-、真实零保留。logs/takeover-host-info-metrics-final-6.log实际12非法标量/坏容器/合法零数值/三语三宽通过；仅显示归一化不改原报告，真实宿主另验。 |
 | R1-102 | 存在 | 待精修/运行复核 | 宿主读取与操作无route generation；批量延期仅范围不integer并隐藏失败数；copy未等待clipboard。 |
 | R1-103 | 存在 | 待精修/运行复核 | 宿主读取与操作无route generation；批量延期仅范围不integer并隐藏失败数；copy未等待clipboard。 |

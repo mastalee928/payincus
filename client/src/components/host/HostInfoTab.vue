@@ -103,6 +103,10 @@ const agentUpgradeRequesting = ref(false)
 const agentInstallCommandLoading = ref(false)
 const agentInstallCommand = ref('')
 const agentInstallTokenExpiresAt = ref('')
+const agentCommandCopying = ref(false)
+const agentCommandCopyError = ref(false)
+let commandGeneration = 0
+watch([agentInstallCommand, agentInstallTokenExpiresAt], () => { commandGeneration++; agentCommandCopyError.value = false }, { flush: 'sync' })
 const agentStatusError = ref('')
 const statsError = ref(false), statsReady = ref(false), statsLoading = ref(false)
 const trafficError = ref(false), trafficReady = ref(false), active = ref(false)
@@ -494,10 +498,20 @@ async function generateAgentInstallCommand() {
   }
 }
 
-function copyAgentInstallCommand() {
-  if (!agentInstallCommand.value) return
-  navigator.clipboard.writeText(agentInstallCommand.value)
-  toast.success(t('admin.hosts.agentInstallCommandCopied'))
+async function copyAgentInstallCommand() {
+  if (!available.value || !agentInstallCommand.value || agentCommandCopying.value) return
+  const context = readContext(), command = agentInstallCommand.value, version = commandGeneration
+  const current = () => context.current() && version === commandGeneration && command === agentInstallCommand.value
+  agentCommandCopying.value = true
+  agentCommandCopyError.value = false
+  try {
+    await navigator.clipboard.writeText(command)
+    if (current()) toast.success(t('admin.hosts.agentInstallCommandCopied'))
+  } catch {
+    if (current()) { agentCommandCopyError.value = true; toast.error(t('common.copyFailed')) }
+  } finally {
+    agentCommandCopying.value = false
+  }
 }
 
 // 资源校对
@@ -847,10 +861,11 @@ const xAxisLabels = computed(() => {
             </span>
           </p>
         </div>
-        <button class="btn-secondary btn-xs" @click="copyAgentInstallCommand">
+        <button type="button" data-host-command-copy class="btn-secondary btn-xs shrink-0 whitespace-nowrap" :disabled="agentCommandCopying" :aria-busy="agentCommandCopying" @click="copyAgentInstallCommand">
           {{ t('admin.hosts.copyCommand') }}
         </button>
       </div>
+      <p v-if="agentCommandCopyError" data-host-command-copy-error class="text-sm text-themed-secondary mb-2" role="status">{{ t('common.copyFailed') }}</p>
       <pre class="rounded-md p-3 overflow-x-auto text-xs font-mono whitespace-pre-wrap break-all" :class="themeStore.isDark ? 'bg-black/40 text-green-300' : 'bg-gray-900 text-green-300'">{{ agentInstallCommand }}</pre>
     </div>
 
