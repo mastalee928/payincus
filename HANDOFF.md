@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-29 R1-303 宿主兑换码写目标与结果
+
+- 8e9e15d已push核远端；0444f64/794e336/a27e991源码CI已success，27cb569/8e9e15d最后仍运行。创建/启停/批量删除共用busy门禁，绑定host/session/页面及弹窗代次；切换/重开旧回执不刷新或关闭当前页，跨切换保留在途busy。删除固定开框时ID/码值并保后来新选择，启停固定方向且更新同页刷新后的对象，成功失效旧列表；辅助读失败不改写已提交结果。
+- 创建数值/数量/使用次数完整整数与范围、资源类型/日期/备注校验，提交固定草稿，批量回执数量/唯一性及单码ID检查；失败持久显示。使用过或并发消失的码返回409/404后刷新实际部分结果，保错误提示，不伪装全部删除。创建/删除弹窗busy禁关闭/禁改，标签、键盘焦点/Escape/Tab和手机限高完善；手机列表全选入口保留。后台事务/当前授权及日志失败一致性未改。
+- takeover-redeem-writes-before.log Chrome先红旧create刷新新host；最终takeover-redeem-writes-final-r3.log完整矩阵通过，含create/toggle/delete重复/目标/旧回执/会话/cache/关闭、批量与部分结果、新勾选、输入边界、同sid/旧列表、真实点击/手机全选及两视口截图。takeover-redeem-writes-read-regression.log读取完整回归通过；受控API没有真实兑换码写入。首轮浏览器清理滞留，核进程后仅终止该夹具Chrome，脚本随后exit0；r2/r3均自然关闭浏览器和server并exit0。缺翻译key与control-regex lint已修后重跑。
+- client types、最终双端build含vue-tsc exit0（takeover-redeem-writes-build.log）、3守卫（route/i18n/redeem-code-management）、lint零错警、manifest194/131通过；dist记录takeover-redeem-writes-dist.log。新写专项接Chrome CI。复制剪贴板回执/批量结果弹窗与输入文案细化仍需继续，不能记R303整体完成。
+- 下一项MigrateHostModal读取已Chrome先红：切目标后旧images覆盖新目标（takeover-migrate-reads-before.log）；host-migrate三fixture及test-host-migrate-reads.mjs未提交，产品迁移未改，完整组件、父调用、后端迁移route及consistency守卫已读。需host/plans/images请求序号、session/弹窗生命周期、固定选择与300ms关闭回调；旧后台迁移并发/补偿另待，专属机器409门禁保持。327/R269/Go proc/完整灾备未完成。
+
 ## 2026-10-29 R1-303 宿主兑换码读取与分页
 
 - 27cb569已push核远端；其CI类型/构建/双架构组件及部分集成通过，交付集成最后仍运行。兑换码列表/options/usages分别绑定host/session/请求序号/激活状态，旧回执不回写，切host/账号/角色/logout/cache/unmount清列表、选中与弹窗；同sid刷新保留。错误持久重试，非法回执拒绝，同页保有效选择、翻页/筛选清选择，删除末页回退合法页。

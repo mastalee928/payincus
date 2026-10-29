@@ -7256,6 +7256,7 @@ pool: {
 
     // Redeem codes management
     redeemCodes: {
+        invalidCreateFields: 'Use whole numbers: 1–100 codes, 1–1000 uses for a single code. Check the resource type, expiry date and remark (up to 200 characters, no control characters).',
         selectAll: 'Select all codes on this page',
         title: 'Redeem Codes',
         create: 'Create Code',

@@ -22,6 +22,9 @@ const pageActive = ref(false)
 let listSequence = 0
 let optionsSequence = 0
 let usagesSequence = 0
+let contextGeneration = 0
+let createGeneration = 0
+let deleteGeneration = 0
 const sessionKey = computed(() => {
   if (!authStore.token || !authStore.user) return ''
   let identity = authStore.token
@@ -63,6 +66,9 @@ const enabledFilter = ref<'all' | 'true' | 'false'>('all')
 // 创建兑换码
 const showCreateModal = ref(false)
 const creating = ref(false)
+const createError = ref('')
+const actionError = ref('')
+const togglingId = ref<number | null>(null)
 const createForm = ref({
   codeType: 'c' as 'c' | 'r' | 'd' | 't',
   codeValue: 0,
@@ -133,6 +139,42 @@ function handleUsagesKey(event: KeyboardEvent) {
 const selectedIds = ref<Set<number>>(new Set())
 const showDeleteModal = ref(false)
 const deleting = ref(false)
+const deleteTargets = ref<Array<{ id: number; code: string }>>([])
+const writeBusy = computed(() => creating.value || deleting.value || togglingId.value !== null)
+const canStartWrite = computed(() => canRead.value && !loading.value && !writeBusy.value)
+watch(showCreateModal, () => { createGeneration++ }, { flush: 'sync' })
+watch(showDeleteModal, () => { deleteGeneration++ }, { flush: 'sync' })
+function captureWrite(kind: 'create' | 'toggle' | 'delete') {
+  const hostId = props.hostId, session = sessionKey.value, generation = contextGeneration
+  const dialogGeneration = kind === 'create' ? createGeneration : deleteGeneration
+  return { hostId, current: () => canRead.value && hostId === props.hostId && session === sessionKey.value && generation === contextGeneration &&
+    (kind === 'toggle' || kind === 'create' && showCreateModal.value && dialogGeneration === createGeneration ||
+      kind === 'delete' && showDeleteModal.value && dialogGeneration === deleteGeneration) }
+}
+function invalidateEarlierList() { listSequence++; loading.value = false }
+function closeCreateModal() { if (!creating.value) showCreateModal.value = false }
+function closeDeleteModal() { if (!deleting.value) showDeleteModal.value = false }
+const createDialog = ref<HTMLElement | null>(null)
+const deleteDialog = ref<HTMLElement | null>(null)
+let writeReturnFocus: HTMLElement | null = null
+watch([showCreateModal, showDeleteModal], async ([createOpen, deleteOpen], [wasCreateOpen, wasDeleteOpen]) => {
+  if ((createOpen || deleteOpen) && !wasCreateOpen && !wasDeleteOpen) writeReturnFocus = document.activeElement as HTMLElement | null
+  await nextTick()
+  if (createOpen && showCreateModal.value) createDialog.value?.focus()
+  else if (deleteOpen && showDeleteModal.value) deleteDialog.value?.focus()
+  else if (!showCreateModal.value && !showDeleteModal.value && writeReturnFocus?.isConnected) writeReturnFocus.focus()
+})
+function handleWriteDialogKey(event: KeyboardEvent, kind: 'create' | 'delete') {
+  if (event.key === 'Escape') { event.preventDefault(); kind === 'create' ? closeCreateModal() : closeDeleteModal(); return }
+  if (event.key !== 'Tab') return
+  const dialog = kind === 'create' ? createDialog.value : deleteDialog.value
+  const controls = [...(dialog?.querySelectorAll<HTMLElement>('button,input,select,[tabindex="0"]') ?? [])]
+    .filter(element => !element.matches(':disabled') && element.getClientRects().length > 0)
+  const first = controls[0], last = controls.at(-1)
+  if (!first) { event.preventDefault(); dialog?.focus(); return }
+  if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) { event.preventDefault(); last?.focus() }
+  else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) { event.preventDefault(); first.focus() }
+}
 
 // 复制状态
 const copiedCode = ref<number | null>(null)
@@ -147,6 +189,7 @@ function resetUsages() {
 }
 watch([showUsagesModal, () => selectedCode.value?.id], resetUsages, { flush: 'sync' })
 function resetReadContext() {
+  contextGeneration++
   listSequence++
   optionsSequence++
   codes.value = []
@@ -158,6 +201,9 @@ function resetReadContext() {
   optionsLoading.value = false
   optionsReady.value = false
   optionsError.value = ''
+  createError.value = ''
+  actionError.value = ''
+  deleteTargets.value = []
   showCreateModal.value = false
   showBatchResultModal.value = false
   batchCreatedCodes.value = []
@@ -182,6 +228,7 @@ onDeactivated(() => { pageActive.value = false; resetReadContext() })
 onUnmounted(() => { alive = false; pageActive.value = false; resetReadContext() })
 
 watch(enabledFilter, () => {
+  contextGeneration++
   page.value = 1
   selectedIds.value.clear()
   showDeleteModal.value = false
@@ -275,7 +322,8 @@ async function loadOptions() {
 }
 
 function openCreateModal() {
-  if (!canRead.value || !optionsReady.value || creating.value) return
+  if (!canStartWrite.value || !optionsReady.value || showCreateModal.value || showDeleteModal.value || showBatchResultModal.value) return
+  createError.value = ''
   createForm.value = {
     codeType: 'c',
     codeValue: codeOptions.value.ranges.c.min,
@@ -296,44 +344,60 @@ watch(() => createForm.value.codeType, () => {
 }, { flush: 'sync' })
 
 async function handleCreate() {
-  if (!canRead.value || !optionsReady.value || !showCreateModal.value || creating.value) return
+  if (!canStartWrite.value || !optionsReady.value || !showCreateModal.value) return
+  const context = captureWrite('create')
+  const draft = { ...createForm.value }
+  createError.value = ''
   if (!createForm.value.codeValue) {
-    toast.error(t('redeemCodes.selectValue'))
+    createError.value = t('redeemCodes.selectValue')
     return
   }
 
   // 验证数值是否在允许范围内
   const range = currentRange.value
   if (createForm.value.codeValue < range.min || createForm.value.codeValue > range.max) {
-    toast.error(t('redeemCodes.valueOutOfRange', { min: range.min, max: range.max }))
+    createError.value = t('redeemCodes.valueOutOfRange', { min: range.min, max: range.max })
     return
   }
 
   // 确保是整数
-  if (!Number.isInteger(createForm.value.codeValue)) {
-    toast.error(t('redeemCodes.valueMustBeInteger'))
+  if (!Number.isSafeInteger(draft.codeValue)) {
+    createError.value = t('redeemCodes.valueMustBeInteger')
+    return
+  }
+  if (!['c', 'r', 'd', 't'].includes(draft.codeType) || !Number.isSafeInteger(draft.batchCount) || draft.batchCount < 1 || draft.batchCount > 100 ||
+    (draft.batchCount === 1 && (!Number.isSafeInteger(draft.maxUses) || draft.maxUses < 1 || draft.maxUses > 1000)) ||
+    typeof draft.remark !== 'string' || draft.remark.trim().length > 200 || [...draft.remark.trim()].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) ||
+    typeof draft.expiresAt !== 'string' || (draft.expiresAt !== '' && !Number.isFinite(Date.parse(draft.expiresAt)))) {
+    createError.value = t('redeemCodes.invalidCreateFields')
     return
   }
 
   creating.value = true
   try {
-    const data: any = {
-      codeType: createForm.value.codeType,
-      codeValue: createForm.value.codeValue,
-      remark: createForm.value.remark.trim() || undefined
+    const data: Parameters<typeof api.hosts.createRedeemCode>[1] = {
+      codeType: draft.codeType,
+      codeValue: draft.codeValue,
+      remark: draft.remark.trim() || undefined
     }
 
-    if (createForm.value.expiresAt) {
-      data.expiresAt = new Date(createForm.value.expiresAt).toISOString()
+    if (draft.expiresAt) {
+      data.expiresAt = new Date(draft.expiresAt).toISOString()
     }
 
-    if (createForm.value.batchCount > 1) {
-      data.batchCount = createForm.value.batchCount
+    if (draft.batchCount > 1) {
+      data.batchCount = draft.batchCount
     } else {
-      data.maxUses = createForm.value.maxUses
+      data.maxUses = draft.maxUses
     }
 
-    const res = await api.hosts.createRedeemCode(props.hostId, data)
+    const res = await api.hosts.createRedeemCode(context.hostId, data)
+    if (!context.current()) return
+    if (!res || typeof res.message !== 'string' || !res.message || (draft.batchCount > 1
+      ? !Array.isArray(res.codes) || res.codes.length !== draft.batchCount || res.codes.some(code => typeof code !== 'string' || !code) ||
+        new Set(res.codes).size !== res.codes.length || res.count !== draft.batchCount || typeof res.batchId !== 'string' || !res.batchId
+      : typeof res.code !== 'string' || !res.code || !Number.isSafeInteger(res.id) || (res.id ?? 0) <= 0)) throw new Error(t('common.operationFailed'))
+    invalidateEarlierList()
     
     if (res.codes && res.codes.length > 0) {
       // 批量创建成功
@@ -350,21 +414,32 @@ async function handleCreate() {
     
     await loadCodes()
   } catch (err: unknown) {
-    toast.error(translateError(err))
+    if (context.current()) createError.value = translateError(err)
   } finally {
     creating.value = false
   }
 }
 
 async function toggleEnabled(code: RedeemCode) {
+  if (!canStartWrite.value || showCreateModal.value || showDeleteModal.value || !codes.value.includes(code)) return
+  const context = captureWrite('toggle'), targetId = code.id, targetCode = code.code, enabled = !code.enabled
+  togglingId.value = targetId
+  actionError.value = ''
   try {
-    await api.hosts.updateRedeemCode(props.hostId, code.id, {
-      enabled: !code.enabled
+    const res = await api.hosts.updateRedeemCode(context.hostId, targetId, {
+      enabled
     })
-    code.enabled = !code.enabled
-    toast.success(t(code.enabled ? 'redeemCodes.enabled' : 'redeemCodes.disabled'))
+    if (!context.current()) return
+    if (!res || typeof res.message !== 'string' || !res.message) throw new Error(t('common.operationFailed'))
+    invalidateEarlierList()
+    const currentCode = codes.value.find(item => item.id === targetId && item.code === targetCode)
+    if (currentCode) currentCode.enabled = enabled
+    toast.success(t(enabled ? 'redeemCodes.enabled' : 'redeemCodes.disabled'))
+    await loadCodes()
   } catch (err: unknown) {
-    toast.error(translateError(err))
+    if (context.current()) actionError.value = translateError(err)
+  } finally {
+    togglingId.value = null
   }
 }
 
@@ -433,21 +508,39 @@ function toggleSelectAll() {
 }
 
 function openDeleteModal() {
-  if (selectedIds.value.size === 0) return
+  if (!canStartWrite.value || showCreateModal.value || showDeleteModal.value || selectedIds.value.size === 0) return
+  const targets = codes.value.filter(code => selectedIds.value.has(code.id))
+  if (targets.length !== selectedIds.value.size) return
+  deleteTargets.value = targets.map(({ id, code }) => ({ id, code }))
+  actionError.value = ''
   showDeleteModal.value = true
 }
 
 async function confirmDelete() {
-  if (selectedIds.value.size === 0) return
+  if (!canStartWrite.value || !showDeleteModal.value || !deleteTargets.value.length ||
+    deleteTargets.value.some(target => !codes.value.some(code => code.id === target.id && code.code === target.code))) return
+  const context = captureWrite('delete'), targets = deleteTargets.value.map(target => ({ ...target }))
+  actionError.value = ''
   deleting.value = true
   try {
-    await api.hosts.batchDeleteRedeemCodes(props.hostId, Array.from(selectedIds.value))
-    toast.success(t('redeemCodes.deleteSuccess', { count: selectedIds.value.size }))
-    selectedIds.value.clear()
+    const res = await api.hosts.batchDeleteRedeemCodes(context.hostId, targets.map(target => target.id))
+    if (!context.current()) return
+    if (!res || typeof res.message !== 'string' || !res.message || res.count !== targets.length) throw new Error(t('common.operationFailed'))
+    invalidateEarlierList()
+    toast.success(t('redeemCodes.deleteSuccess', { count: res.count }))
+    selectedIds.value = new Set([...selectedIds.value].filter(id => !targets.some(target => target.id === id)))
     showDeleteModal.value = false
     await loadCodes()
   } catch (err: unknown) {
-    toast.error(translateError(err))
+    if (!context.current()) return
+    actionError.value = translateError(err)
+    // Used or concurrently removed codes can leave a partial server result.
+    // Refresh their actual state before another explicit deletion attempt.
+    if (err && typeof err === 'object' && 'code' in err && ['REDEEM_CODE_USED', 'REDEEM_CODE_NOT_FOUND'].includes(String(err.code))) {
+      invalidateEarlierList()
+      showDeleteModal.value = false
+      await loadCodes()
+    }
   } finally {
     deleting.value = false
   }
@@ -503,6 +596,7 @@ function isExpired(expiresAt: string | null): boolean {
 
 function goToPrevPage() {
   if (canRead.value && !loading.value && page.value > 1) {
+    contextGeneration++
     page.value--
     selectedIds.value.clear()
     showDeleteModal.value = false
@@ -513,6 +607,7 @@ function goToPrevPage() {
 
 function goToNextPage() {
   if (canRead.value && !loading.value && page.value * pageSize < total.value) {
+    contextGeneration++
     page.value++
     selectedIds.value.clear()
     showDeleteModal.value = false
@@ -526,7 +621,11 @@ function goToNextPage() {
   <div class="space-y-4">
     <!-- 工具栏 -->
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
+        <label class="md:hidden flex items-center gap-2 text-sm text-themed-secondary">
+          <input type="checkbox" :checked="allSelected" :disabled="!canRead || loading || !codes.length" :aria-label="t('redeemCodes.selectAll')" @change="toggleSelectAll">
+          {{ t('common.all') }}
+        </label>
         <!-- 筛选器 -->
         <select
           v-model="enabledFilter"
@@ -547,6 +646,7 @@ function goToNextPage() {
         <!-- 批量删除按钮 -->
         <button
           v-if="selectedIds.size > 0"
+          :disabled="!canStartWrite || showCreateModal || showDeleteModal"
           :class="[
             'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors',
             themeStore.isDark
@@ -564,7 +664,7 @@ function goToNextPage() {
 
       <!-- 创建按钮 -->
       <button
-        :disabled="!canRead || !optionsReady || creating"
+        :disabled="!canStartWrite || !optionsReady || showCreateModal || showDeleteModal || showBatchResultModal"
         :class="[
           'flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg transition-colors',
           themeStore.isDark
@@ -580,6 +680,7 @@ function goToNextPage() {
       </button>
     </div>
 
+    <p v-if="actionError && !showDeleteModal" role="alert" class="text-sm text-red-500 break-words">{{ actionError }}</p>
     <div v-if="optionsError" role="alert" data-options-error class="text-sm text-red-500 break-words">
       {{ optionsError }}
       <button class="btn-secondary ml-2" :disabled="!canRead || optionsLoading" @click="loadOptions">{{ t('common.retry') }}</button>
@@ -662,6 +763,7 @@ function goToNextPage() {
                       themeStore.isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-200 text-gray-500'
                     ]"
                     :title="t('common.copy')"
+                    :aria-label="t('common.copy')"
                     @click="copyCode(code.code, code.id)"
                   >
                     <svg v-if="copiedCode === code.id" class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -726,6 +828,7 @@ function goToNextPage() {
               </td>
               <td class="px-4 py-3 text-right" :data-label="t('redeemCodes.actions')">
                 <button
+                  :disabled="!canStartWrite || showCreateModal || showDeleteModal"
                   :class="[
                     'px-2 py-1 text-xs font-medium rounded transition-colors',
                     code.enabled
@@ -781,22 +884,23 @@ function goToNextPage() {
     <!-- 创建兑换码弹窗 -->
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="showCreateModal = false">
-          <div :class="['w-full max-w-md rounded-xl shadow-xl', themeStore.isDark ? 'bg-gray-900' : 'bg-white']">
+        <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="closeCreateModal">
+          <div ref="createDialog" role="dialog" aria-modal="true" :aria-label="t('redeemCodes.createTitle')" tabindex="-1" :class="['w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl shadow-xl', themeStore.isDark ? 'bg-gray-900' : 'bg-white']" @keydown="handleWriteDialogKey($event, 'create')">
             <div :class="['flex items-center justify-between px-6 py-4 border-b', themeStore.isDark ? 'border-gray-800' : 'border-gray-200']">
               <h3 :class="['text-lg font-semibold', themeStore.isDark ? 'text-white' : 'text-gray-900']">{{ t('redeemCodes.createTitle') }}</h3>
-              <button :class="themeStore.isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'" @click="showCreateModal = false">
+              <button :disabled="creating" :aria-label="t('common.close')" :class="themeStore.isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'" @click="closeCreateModal">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            <div class="px-6 py-4 space-y-4">
+            <fieldset class="px-6 py-4 space-y-4 min-w-0" :disabled="creating">
               <!-- 资源类型 -->
               <div>
-                <label :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.resourceType') }}</label>
+                <label for="redeem-resource-type" :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.resourceType') }}</label>
                 <select
+                  id="redeem-resource-type"
                   v-model="createForm.codeType"
                   :class="[
                     'w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-1',
@@ -813,15 +917,16 @@ function goToNextPage() {
 
               <!-- 资源数值 -->
               <div>
-                <label :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.resourceValue') }}</label>
+                <label for="redeem-resource-value" :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.resourceValue') }}</label>
                 <div class="flex items-center gap-2">
                   <input
+                    id="redeem-resource-value"
                     v-model.number="createForm.codeValue"
                     type="number"
                     :min="currentRange.min"
                     :max="currentRange.max"
                     :class="[
-                      'flex-1 px-3 py-2 rounded-lg border focus:outline-none focus:ring-1',
+                      'flex-1 min-w-0 px-3 py-2 rounded-lg border focus:outline-none focus:ring-1',
                       themeStore.isDark
                         ? 'bg-gray-800 border-gray-700 text-white focus:ring-blue-500'
                         : 'bg-white border-gray-300 text-gray-900 focus:ring-blue-500'
@@ -838,8 +943,9 @@ function goToNextPage() {
 
               <!-- 批量数量 -->
               <div>
-                <label :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.batchCount') }}</label>
+                <label for="redeem-batch-count" :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.batchCount') }}</label>
                 <input
+                  id="redeem-batch-count"
                   v-model.number="createForm.batchCount"
                   type="number"
                   min="1"
@@ -856,8 +962,9 @@ function goToNextPage() {
 
               <!-- 最大使用次数（仅单个创建时显示） -->
               <div v-if="createForm.batchCount <= 1">
-                <label :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.maxUses') }}</label>
+                <label for="redeem-max-uses" :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.maxUses') }}</label>
                 <input
+                  id="redeem-max-uses"
                   v-model.number="createForm.maxUses"
                   type="number"
                   min="1"
@@ -873,8 +980,9 @@ function goToNextPage() {
 
               <!-- 过期时间 -->
               <div>
-                <label :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.expiresAt') }}</label>
+                <label for="redeem-expires-at" :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.expiresAt') }}</label>
                 <input
+                  id="redeem-expires-at"
                   v-model="createForm.expiresAt"
                   type="datetime-local"
                   :class="[
@@ -889,8 +997,9 @@ function goToNextPage() {
 
               <!-- 备注 -->
               <div>
-                <label :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.remark') }}</label>
+                <label for="redeem-remark" :class="['block text-sm font-medium mb-1', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('redeemCodes.remark') }}</label>
                 <input
+                  id="redeem-remark"
                   v-model="createForm.remark"
                   type="text"
                   maxlength="200"
@@ -903,7 +1012,8 @@ function goToNextPage() {
                   ]"
                 />
               </div>
-            </div>
+            </fieldset>
+            <p v-if="createError" role="alert" class="px-6 pb-3 text-sm text-red-500 break-words">{{ createError }}</p>
 
             <div :class="['flex justify-end gap-3 px-6 py-4 border-t', themeStore.isDark ? 'border-gray-800' : 'border-gray-200']">
               <button
@@ -913,12 +1023,13 @@ function goToNextPage() {
                     ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 ]"
-                @click="showCreateModal = false"
+                :disabled="creating"
+                @click="closeCreateModal"
               >
                 {{ t('common.cancel') }}
               </button>
               <button
-                :disabled="creating || !canRead || !optionsReady"
+                :disabled="!canStartWrite || !optionsReady"
                 :class="[
                   'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
                   creating ? 'opacity-50 cursor-not-allowed' : '',
@@ -1048,8 +1159,8 @@ function goToNextPage() {
     <!-- 删除确认弹窗 -->
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="showDeleteModal = false">
-          <div :class="['w-full max-w-sm rounded-xl shadow-xl', themeStore.isDark ? 'bg-gray-900' : 'bg-white']">
+        <div v-if="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="closeDeleteModal">
+          <div ref="deleteDialog" role="dialog" aria-modal="true" :aria-label="t('redeemCodes.confirmDelete')" tabindex="-1" :class="['w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-xl shadow-xl', themeStore.isDark ? 'bg-gray-900' : 'bg-white']" @keydown="handleWriteDialogKey($event, 'delete')">
             <div class="p-6 text-center">
               <div :class="['w-12 h-12 mx-auto mb-4 rounded-full flex items-center justify-center', themeStore.isDark ? 'bg-red-900/30' : 'bg-red-100']">
                 <svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1058,8 +1169,9 @@ function goToNextPage() {
               </div>
               <h3 :class="['text-lg font-semibold mb-2', themeStore.isDark ? 'text-white' : 'text-gray-900']">{{ t('redeemCodes.confirmDelete') }}</h3>
               <p :class="['text-sm mb-6', themeStore.isDark ? 'text-gray-400' : 'text-gray-500']">
-                {{ t('redeemCodes.confirmDeleteMessage', { count: selectedIds.size }) }}
+                {{ t('redeemCodes.confirmDeleteMessage', { count: deleteTargets.length }) }}
               </p>
+              <p v-if="actionError" role="alert" class="mb-4 text-sm text-red-500 break-words">{{ actionError }}</p>
               <div class="flex gap-3">
                 <button
                   :class="[
@@ -1068,12 +1180,13 @@ function goToNextPage() {
                       ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   ]"
-                  @click="showDeleteModal = false"
+                  :disabled="deleting"
+                  @click="closeDeleteModal"
                 >
                   {{ t('common.cancel') }}
                 </button>
                 <button
-                  :disabled="deleting"
+                  :disabled="!canStartWrite"
                   :class="[
                     'flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors',
                     deleting ? 'opacity-50 cursor-not-allowed' : '',
