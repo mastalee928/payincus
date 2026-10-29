@@ -124,6 +124,7 @@ const agentReleaseFetchAttempts = 3
 const agentReleaseRetryBaseDelayMs = 1000
 const agentReleaseRetryMaxDelayMs = 10 * 1000
 const agentReleaseStaleRetryTtlMs = 60 * 1000
+const agentHeartbeatUpgradeWaitMs = 1000
 const maxAgentInstallUrlLength = 2048
 const defaultAgentHeartbeatIntervalSeconds = 30
 const minAgentHeartbeatIntervalSeconds = 5
@@ -916,6 +917,16 @@ async function buildAgentUpgradeInstruction(request: FastifyRequest, body: Agent
   return instruction
 }
 
+async function getHeartbeatUpgradeInstruction(request: FastifyRequest, body: AgentHeartbeatBody): Promise<AgentUpgradeInstruction> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      buildAgentUpgradeInstruction(request, body).catch(() => ({ available: false })),
+      new Promise<AgentUpgradeInstruction>(resolve => { timer = setTimeout(() => resolve({ available: false }), agentHeartbeatUpgradeWaitMs) })
+    ])
+  } finally { if (timer) clearTimeout(timer) }
+}
+
 function normalizeAgentMetrics(metrics: Record<string, unknown> | undefined): Record<string, unknown> {
   return {
     ...(metrics ?? {}),
@@ -1622,7 +1633,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
       serverTime: now.toISOString(),
       taskPollIntervalSeconds: 15,
       instanceReport,
-      upgrade: await buildAgentUpgradeInstruction(request, request.body)
+      upgrade: await getHeartbeatUpgradeInstruction(request, request.body)
     }
   })
 }

@@ -356,6 +356,8 @@ jobs:
         run: pnpm --filter server test:review-telegram-profile
       - name: Heartbeat writes require the current enabled Agent identity after authentication
         run: pnpm --filter server test:review-agent-heartbeat-current
+      - name: Optional upgrade lookups stay within the heartbeat response deadline
+        run: pnpm --filter server test:review-agent-upgrade-deadline
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: Snapshot writes recheck current account, ownership and restore locks

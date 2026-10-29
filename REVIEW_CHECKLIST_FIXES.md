@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R096可选升级等待最多1秒，外部query继续原截止/重试/校验；实际HMAC/PG三类卡顿先红→心跳200/online及后续SHA升级exit0，7守卫/R094全回归/server build/专项types均最终exit0。222含部分/68已有不同/37待；真实Go宿主与生产另验。
+
 2026-10-30 R094真实HMAC后禁用仍200先红→current Agent/host/secret/enabled/status锁内复核协议/实例/流量/心跳；最终四旧认证、五真实等待竞争、七并发与正常重放exit0，7守卫/原credentials回归/build/types/manifest194常规189专项通过。221含部分/68已有不同/38待，Go真宿主与生产另验。
 
 2026-10-30 R093安装token消费补secret格式与空白校验，真实PG/Fastify先红200→六非法格式403且完整记录token保持、恢复原密文重试/两合法边界与原权限/并发/回滚exit0。三守卫/server build/types及专项types通过；220含部分/68已有不同/39待，Go真安装与生产另验。
@@ -243,7 +245,7 @@
 | R1-093 | 存在 | 源码已修/隔离PG验证通过 | R092先完成解密/hash与消费原子性，本项补格式/空白拒绝。logs/takeover-agent-secret-final.log六坏格式保token/修复重试/两合法边界及原并发权限回归通过；真实Go安装另验 |
 | R1-094 | 存在 | 源码已修/隔离HMAC及PG验证通过 | 协议/实例/流量/心跳逐次锁内current Agent身份启用状态复核。logs/takeover-agent-heartbeat-current-final-5.log四旧认证与五真实host/Agent锁竞争、7并发/正常/nonce回归通过；原生宿主另验 |
 | R1-095 | 已有防护 | 保留初审结论 | hostId使用parsePositiveId及safe integer，严格拒绝数字后缀。 |
-| R1-096 | 存在 | 待精修/运行复核 | 升级metadata查询无singleflight且可超过Agent10秒请求期限，缓存miss重复拉取。 |
+| R1-096 | 存在 | 源码已修/隔离HMAC及PG验证通过 | 可选升级等待上限1秒，后台保留外部截止/重试/SHA。logs/takeover-agent-upgrade-deadline-final.log实际三类卡顿心跳200/online、释放后SHA升级通过；真实Go宿主另验，并发cache miss留R097。 |
 | R1-097 | 存在 | 待精修/运行复核 | 升级metadata查询无singleflight且可超过Agent10秒请求期限，缓存miss重复拉取。 |
 | R1-098 | 存在 | 待精修/运行复核 | 轮询/操作缺目标代次绑定；clipboard未await；formatPercent对非法类型缺保护。各项浏览器动态复核未做。 |
 | R1-099 | 存在 | 待精修/运行复核 | 轮询/操作缺目标代次绑定；clipboard未await；formatPercent对非法类型缺保护。各项浏览器动态复核未做。 |

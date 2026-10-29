@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新接续**：136eb897已push核远端。R096仅可选upgrade最多等1秒/超时false，后台保原query截止重试SHA；实际HMAC/PG三类stall先红→final心跳200/online与后续SHA升级exit0。7守卫/专项types及server build48375与R094全回归43414已poll最终exit0，无待poll，manifest194常规190专项接CI。222含部分/68已有不同/37待；阶段commit/push后继续R097并发metadata/相同version/name/hash下载合并与失败释放重试，源码和install/version守卫已读。PG55438保留；真实Go/Linux/客户/完整327/灾备未完。
+
 > **最新接续**：R093已push160b90ed核远端。R094 actual HMAC/nonce后禁用仍200先红，协议/实例/流量/最终heartbeat锁内current Agent/host/secret/enabled/status已修，host→Agent/预先UPDATE避免锁升级；final-5四旧认证/五pg_blocking_pids真实等待/7并发正常reports/nonceexit0，7守卫/credential全回归/server build-final80708与testtypes88162通过。最后追加testtypes-final-5已poll13241 exit0，无待poll，manifest194常规189专项接CI，221含部分/68已有不同/38待。阶段commit/push后R096/R097已读metadata/retry/cache/version守卫尚未改；真实Go/Linux/客户/完整327/灾备未完，PG55438保留。
 
 > **最新接续**：ea539e25 R080已commit/push核远端，最终三宽浅深图全看、taste0 FAIL/WARN/双端build6744和末dist均exit0。R093补consume前secret格式/空白校验，真实PG/Fastify先红200→六非法保完整Agent/token403、修复原密文后重试/两合法格式边界和原7并发/权限/回滚exit0；3守卫/server build/types/专项types/diff过，无待poll，backend无eslint.config未计lint通过。220含部分/68已有不同/39待；阶段单独提交推送后继续R094。其Agent route/auth/report守卫已读尚未改，PG55438保留，真实TG/Go安装/客户/完整327/灾备未完。

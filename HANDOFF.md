@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-096 心跳可选升级查询等待上限
+
+- 外部升级metadata响应头、metadata正文或二进制checksum正文卡住时，原心跳会等待15秒外部截止及重试，超过Go默认10秒请求期限。现仅为可选升级信息等待最多1秒，超时/查询失败返回available:false；后台查询保留原截止、重试和SHA校验，后续心跳仍可获得完整升级信息。
+- takeover-agent-upgrade-deadline-before实际HMAC/本地PG先红exit1；final三种受控卡顿均在1.7秒测试窗口内返回200、记录online，释放卡顿后收到正确SHA升级，exit0。7对应Agent守卫、R094完整旧身份/五真实锁竞争/7并发/nonce回归、专项types、server build含tsc均最终exit0（48375/43414已poll）。manifest194常规190专项与CI分类通过，diff已审。
+- 本项1秒仅限制可选升级等待，不承诺整个心跳所有DB写入均1秒，也不取消共享后台查询。源码及本地隔离API证据；真实Go/Linux宿主、GitHub慢网络、完整327及灾备仍未全面验收，未发行/改生产/操作客户。前端未改，沿R080双端build/dist。
+- 136eb897已push核远端；本项阶段保存后222有修复/复验含部分、68已有不同、37待。下一R097合并并发metadata和相同版本/name/hash二进制下载，继续保留SHA/可信URL/双架构和失败重试。PG55438保留。
+
 ## 2026-10-30 R1-094 心跳提交复核当前 Agent 身份
 
 - 实际HMAC/nonce通过后禁用Agent，旧heartbeat仍200并标online先红。现协议确认、实例状态、流量事务及最后heartbeat逐次复核当前Agent id/host/secret/enabled/status并持行锁；锁序host→Agent与凭据轮换一致，写目标预先用UPDATE避免并发锁升级死锁。仅数据库监控报告，不改客户转发/全端口/实例运行状态业务或重建身份。
