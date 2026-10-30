@@ -2,7 +2,16 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-055 / R1-058 控制台摘要会话与轮询生命周期
+
+- 实际Dashboard五请求先红：account2新结果后account1旧结果把auth身份写回1；另独立卸载复现mounted等待结束又新建timer。现固定account/role/sid/route及同步代次、KeepAlive/unmount立即清摘要/停止timer，mounted/activated同步共用activate，一次初读/一条timer/当前单在途。五读取Promise.allSettled后复核当前，严格inventory数组/正ID/重复/归属、me ID/role；只在当前允许身份和摘要写入。必要读取失败持久retry、401当前stop，optional失败保最后确认当前余额/积分，零/空正确。请求不会取消远端业务，本项均只读；auth store/API refresh另项。
+- 完整最终takeover-dashboard-session-complete.log自然exit0：20旧account/sid/role/logout/session-cache-route ABA/unmount五请求摘要，旧finally不释放新在途、同sid保持/初读不重复、失败actual retry/foreign me与坏inventory拒绝、合法空/真零、三语1440/768/390实际retry及全页无横溢、late mount零timer/数据。SSHKeysSection当前已有R075/076防护，takeover-dashboard-ssh-session-regression.log真实14旧回执/坏list/retry复验自然exit0，不重复改其源码。
+- client types82650自然exit0，目标lint-final零错警（一处既有多空行warning移除），2/2route-i18n(test-run-20261030-083603)、manifest/语法/diff通过；最终双端build8779含两次vue-tsc自然exit0(user51.32秒/admin48.67秒)，末dist守卫通过。最初类型合同与script重复const失败已修，失败轮不计通过。三语三宽9终图已全看；仅摘要逻辑，不改旧紫色spark/光晕、低对比/长手机指标布局，整页taste/UI仍未达上线验收，不用这一项假称全页面精修。
+- 原327更新247有修复/复验（含部分）/68已有不同/12待，已记录内部缺口继续。R166已push27a57a5343e63aef66c8c4472d097a49847e781c/CI40979936516运行；前40974379396 Caddy读取与操作已success、首帧专项当前in_progress，其Pool及其它新CI仍非终态，不计整体CI通过。阶段保存后接R056当前auth identity旧回执/跨标签identity清理，再R057双API refresh，先读高危源码与守卫，保留Linux IO、SSH pin和完整灾备缺口，不生产/发行。
+
 ## 2026-10-30 R1-166 无调用旧重试模块
+
+- 已提交推送27a57a5343e63aef66c8c4472d097a49847e781c，HEAD=远端main，CI40979936516运行；下一项期间跟终态。
 
 - 完整读取288行server/src/lib/retry.ts，运行源码、脚本、前端、agent、部署、文档与CI搜索无该模块导入/动态加载/重新导出，withRetry等仅自身定义与内部使用；同名backup/batch-config本地函数和gateway-journal是不同实现。仅删除孤立模块，不凭参考清单删除其它实际JSON验证。
 - 六受保护gateway journal/installation worker/backup upload/batch config/Incus实例/Agent源码SHA256修改前后保持；最终引用搜索没有旧模块消费者，git diff通过。server含tsc build70853自然exit0；4/4常规core-boundaries/incus-pool/agent-install/backup-task-race（test-run-20261030-082633）正常exit0；额外实际gateway-installation-guards涵盖journal忙锁重试与lease拒绝自然exit0（takeover-retired-retry-gateway-guard.log）。没有孤立模块活体流程可验，不将清理当作真实备份/网关交付重试验收；本地既有dist的历史文件不充新干净发行产物证据。

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
-import { RouterLink } from 'vue-router'
+import { ref, computed, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useConfigStore } from '@/stores/config'
@@ -162,82 +162,100 @@ const loading = ref(true)
 const loadError = ref('')
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null
+const route = useRoute()
+const active = ref(false)
+let alive = true, generation = 0
+let pending: { generation: number } | undefined
+const session = computed(() => {
+  if (!authStore.user || !authStore.token || !Number.isSafeInteger(authStore.user.id) || authStore.user.id < 1) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string' && payload.sid) identity = payload.sid
+  } catch { /* Legacy tokens keep their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const available = computed(() => alive && active.value && !!session.value && authStore.user?.role === 'user' && route.path === '/dashboard')
+function stopRefresh() { if (refreshInterval !== null) clearInterval(refreshInterval); refreshInterval = null }
+function invalidate() {
+  generation++; stopRefresh(); instances.value = []
+  balanceOverview.value = { balance: 0, frozen: 0, totalRecharge: 0, totalConsume: 0 }
+  userVipLevel.value = 0; userVipBadgeStyle.value = null; userVipProgress.value = null; userPoints.value = 0
+  loading.value = true; loadError.value = ''
+}
+function startRefresh() {
+  if (!available.value) return
+  if (refreshInterval === null) refreshInterval = setInterval(loadData, 15000)
+  void loadData()
+}
+watch([session, () => route.path], () => {
+  invalidate()
+  const version = generation
+  queueMicrotask(() => { if (version === generation) startRefresh() })
+}, { flush: 'sync' })
+function activate() {
+  if (!alive || active.value) return
+  active.value = true; startRefresh()
+}
 
-onMounted(async () => {
+onMounted(() => {
   // 初始化随机骚话
   funnyQuote.value = getRandomFunnyQuote(locale.value)
-  await loadData()
-  refreshInterval = setInterval(loadData, 15000)
+  activate()
 })
 
-onUnmounted(() => {
-  if (refreshInterval) clearInterval(refreshInterval)
-})
+onBeforeUnmount(() => { alive = false; active.value = false; invalidate() })
 
 // 当组件被 KeepAlive 停用时，暂停定时器
-onDeactivated(() => {
-  if (refreshInterval) {
-    clearInterval(refreshInterval)
-    refreshInterval = null
-  }
-})
+onDeactivated(() => { active.value = false; invalidate() })
 
 // 当组件从 KeepAlive 缓存中激活时，恢复定时器并刷新数据
-onActivated(async () => {
-  // 恢复定时刷新
-  if (!refreshInterval) {
-    refreshInterval = setInterval(loadData, 15000)
-  }
-  // 立即刷新数据以确保最新
-  await loadData()
-})
+onActivated(activate)
 
 async function loadData(): Promise<void> {
+  if (!available.value || pending?.generation === generation) return
+  const identity = session.value, version = generation, userId = authStore.user!.id, role = authStore.user!.role
+  const request = { generation: version }; pending = request
+  const current = () => available.value && identity === session.value && version === generation
   try {
-    // 如果用户未认证，停止定时刷新
-    if (!authStore.isAuthenticated) {
-      if (refreshInterval) {
-        clearInterval(refreshInterval)
-        refreshInterval = null
-      }
-      return
-    }
-    
-    const [instancesRes, meRes, balanceRes, vipRes, pointsRes] = await Promise.all([
+    const results = await Promise.allSettled([
       api.instances.list({ pageSize: 1000 }),  // 获取所有实例以确保统计准确
       api.auth.me(),
-      api.billing.getUserBalance().catch(() => null),
-      api.vipLevels.getMyOverview().catch(() => null),
-      api.entertainment.getPoints().catch(() => null)
+      api.billing.getUserBalance(),
+      api.vipLevels.getMyOverview(),
+      api.entertainment.getPoints()
     ])
-    const res = instancesRes as { instances?: Instance[] }
-    instances.value = res.instances || []
+    if (!current()) return
+    const [instanceResult, meResult, balanceResult, vipResult, pointsResult] = results
+    if (instanceResult.status === 'rejected') throw instanceResult.reason
+    if (meResult.status === 'rejected') throw meResult.reason
+    const res = instanceResult.value as unknown as { instances?: Instance[] }, me = meResult.value.user
+    if (!res || !Array.isArray(res.instances) || res.instances.some(instance => !instance || !Number.isSafeInteger(instance.id) || instance.id < 1 ||
+      instance.user_id !== undefined && instance.user_id !== userId) || new Set(res.instances.map(instance => instance.id)).size !== res.instances.length ||
+      !me || me.id !== userId || me.role !== role) throw Error(t('common.loadFailed'))
+    instances.value = res.instances
     loadError.value = ''
-    if ((meRes as { user?: any }).user) {
-      authStore.user = (meRes as { user: any }).user
+    authStore.user = { ...me, email: me.email || '', avatarStyle: me.avatarStyle || 'bigSmile' }
+    if (balanceResult.status === 'fulfilled' && balanceResult.value?.balance &&
+      ['balance', 'frozen', 'totalRecharge', 'totalConsume'].every(key => Number.isFinite(balanceResult.value.balance[key as keyof UserBalance]))) {
+      balanceOverview.value = balanceResult.value.balance
     }
-    if (balanceRes?.balance) {
-      balanceOverview.value = balanceRes.balance
+    if (vipResult.status === 'fulfilled' && vipResult.value) {
+      userVipLevel.value = normalizeVipLevel(vipResult.value.userVipLevel)
+      userVipBadgeStyle.value = userVipLevel.value > 0 ? normalizeVipBadgeStyle(vipResult.value.userVipBadgeStyle, userVipLevel.value) : null
+      userVipProgress.value = vipResult.value.userVipProgress || null
     }
-    userVipLevel.value = normalizeVipLevel(vipRes?.userVipLevel)
-    userVipBadgeStyle.value = userVipLevel.value > 0
-      ? normalizeVipBadgeStyle(vipRes?.userVipBadgeStyle, userVipLevel.value)
-      : null
-    userVipProgress.value = vipRes?.userVipProgress || null
-    userPoints.value = Number(pointsRes?.points || 0)
+    if (pointsResult.status === 'fulfilled' && Number.isFinite(pointsResult.value?.points) && pointsResult.value.points >= 0) userPoints.value = pointsResult.value.points
   } catch (error: any) {
-    console.error('Failed to load dashboard:', error)
+    if (!current()) return
+    loadError.value = error?.message || t('common.loadFailed')
     // 如果是认证错误（401），停止定时刷新
     if (error?.response?.status === 401 || error?.code === 'UNAUTHORIZED') {
-      if (refreshInterval) {
-        clearInterval(refreshInterval)
-        refreshInterval = null
-      }
-    } else {
-      loadError.value = error?.message || t('common.loadFailed')
+      stopRefresh()
     }
   } finally {
-    loading.value = false
+    if (pending === request) pending = undefined
+    if (current()) loading.value = false
   }
 }
 
@@ -670,7 +688,6 @@ function getInstanceRowClass(): string {
             </div>
           </div>
         </div>
-
       </div>
 
       <!-- 右：实例状态分布 -->

@@ -1,5 +1,9 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新R055/R058收尾**：Dashboard account/role/sid/route/同步代次/五读取allSettled/strict身份和列表、cache-unmount清摘要/timer/单初读和单在途已先红后修。20旧摘要+三语三宽actual retry+合法零空/坏list/foreign me/late mount零timer完整69913自然exit0；SSH14旧回执47538自然exit0；types82650/lint/2守卫/manifest/最后双端types build8779自然exit0及末dist/diff通过，9图已看。247含部分/68已有不同/12待，立即保存后R056/057 auth/API refresh，已读真实auth store、双API refresh/拦截器和auth-session守卫；原Dashboard UI紫色光晕/手机长列表另待未改。前CI40974379396 Caddy读/操作成功、首帧专项当前运行，Pool仍未終态，其它4新CI也须追；Go IO未修/SSH身份未变，无远端命令，不生产/发行，无待poll/测试serve。
+
+> **R166已保存远端**：27a57a5343e63aef66c8c4472d097a49847e781c，CI40979936516运行。R055/R058 Dashboard已读真实五读取及mounted/KeepAlive钩子，开始补延迟与卸载复现；SSH既有隔离不改。
+
 > **最新R166收尾**：只删孤立retry288行，完整搜索无调用/导出，实际gateway/backup/batch/Incus/Agent六源码SHA保持，server含tsc build70853自然exit0、4/4守卫53716及gateway installation专项自然exit0、后搜索/diff通过。245含部分/68已有不同/14待，单项保存后接R055 Dashboard旧session/overview及R058晚mount timer；SSHKeysSection现已有session/cache防护，归R075/076不重复改。前CI继续集成任务in_progress，历史Go IO未修，不接受SSH新身份。无待poll/测试serve，不生产/发行，内部缺口继续。
 
 > **R054已保存远端**：498ed0d316e0e02f0cfc3e8a5aca2ad7e3f5d235，HEAD=远端main，CI40979555768运行；继续R166孤立retry清理，完整281行已读且无调用，实际gateway-journal/backup/batch-config/Incus重试保留，尚未改。

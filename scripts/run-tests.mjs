@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-dashboard-session', 'requires Chrome/Edge and local Vite; actual dashboard current account/session and five-request summary, KeepAlive/unmount/route polling cleanup and retry; controlled API only'],
   ['test:review-inbox-polling', 'requires Chrome/Edge and local Vite; actual Pinia unread store and AppLayout unmount/remount, delayed count/session/local mutation isolation and timer/listener cleanup; controlled API only'],
   ['test:review-inbox-receipts', 'requires Chrome/Edge and local Vite; actual inbox page current lists, read/delete mutation receipts, unread filtering, final-page contraction, session/cache/route isolation and retry; controlled API only'],
   ['test:review-managed-provision', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; actual managed provision cleanup, mTLS failures and resource/refund checks'],
