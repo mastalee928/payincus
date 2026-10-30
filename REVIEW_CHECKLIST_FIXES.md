@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为273项（含部分、待验收），54项仍保初审分类；这不是完整修复数，不能按327减273计算剩余全部工作。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为274项（含部分、待验收），53项仍保初审分类；这不是完整修复数，不能按327减274计算剩余全部工作。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -466,7 +466,7 @@
 | R1-172 | 存在 | 源码已修/实际HTTP总期限通过 | 原fetch与body共用10秒AbortSignal。review-notification-wire.log自然exit0：正常/拒绝/非法JSON、不返回headers及不完整body实测，后两10012/10002ms失败且底层socket归零。fetch只定向本地HTTP而保持原options/信号，无Cloudflare外部通信；现行登录/注册UI整链另验。 |
 | R1-173 | 已有防护 | 实际发送入口/15秒取消/PG日志通过 | 原sendToChannel+PG、仅本机HTTP桥接保options；headers15046ms/body15043ms取消、零活跃响应和pending、延迟后零迟到sent，恢复成功保原failed。disabled专用渠道/原payload、拒绝/非法JSON/302不跟随/缺配置保持；custom-telegram-r173-final/types/guards通过，CI登记，未向外部机器人投递。 |
 | R1-174 | 部分存在 | 重连取消与总期限已迁入；产品专项通过 | 原opening撤销保留，reconnect从backoff起20秒并贯穿POST/双握手，四范围close立即abort、清本轮再重试。真实mTLS十二撤销/三并发隔离/client断开/VM/总期限与原PG初连回归、types/三守卫通过terminal-r174-product-*；R177重连授权和pending提交窗口下一段，真实Incus长期运行仍待。 |
-| R1-175 | 已有防护 | 保留初审结论 | 重连等待后及新连接完成后核对activeSessions对象、reconnectGeneration和client状态，不符关闭新socket。 |
+| R1-175 | 已有防护并由R174/R177加强取消 | 现源码/mTLS与对应Linux步骤复验通过 | 关闭时abort/generation失效/移除会话/清心跳和双socket；重连等待及授权完成后复核。12组取消/三组跨账户隔离/client断开/VM/20秒后重试实证在迟到回执前零socket；产品及专项自67f3b47c未变，复用terminal-r177-product-reconnect自然exit0，CI41131838318两重连step success。原生长期公网仍待。 |
 | R1-176 | 已有防护；补验发现授权审计死锁 | 名额PG/mTLS补验与同链死锁修复通过 | 确定性PG先红40P01后改instance FOR NO KEY UPDATE，审计FK可并发、UPDATE/DELETE仍阻塞。原route并发实例3/用户5、撤销零POST且全部审计落定、释放后重连与双socket清理通过terminal-reservations-complete.log；原初连/重连当前授权/期限/COMMIT清理回归、types/三守卫/build均自然exit0。真实Incus公网长期运行另验；本次在v1.7.8之后。 |
 | R1-177 | 部分存在 | 初连/重连当前授权已修，产品PG/mTLS与构建通过 | 重连复用原初连闭包重核当前角色/会话与原实例/host/package；真实route九类变更拒绝/五PG锁竞争/三角色正常/20秒与真实COMMIT失败清理通过。初连和重连已连通但事务pending时撤销立即清双socket；terminal-r177-product-*全回归/types/三守卫/build自然exit0，已接CI。原生Incus UUID及长期公网终端另待。 |
 | R1-178 | 已有防护 | 真实PG并发与审计复验通过 | 同事务按用户advisory锁串行count/insert；99+10并发只有1个201及1条成功审计，9个明确400/MAX_COMMANDS_REACHED、DB精确100；满额重试完整原行和审计不变。command-r178-quota-final/types/guards自然exit0，沿原CI专项，不改产品；认证夹具不替代生产登录验收。 |

@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R175 关闭会话后重连资源回收证据归档
+
+- 重新核对terminal-proxy：close先递增generation、abort本轮controller、移除activeSessions、清heartbeat和原双socket；重连在等待后及新双socket/授权事务完成后都核当前对象/generation/client/abort，不再接纳已关闭会话。
+- 本条与R174/R177已有专项属于同一实际调用链，未重复运行未变代码。git diff 67f3b47cafc956ad59fb426bd18d61324f788982 HEAD -- terminal-proxy及test-review-terminal-reconnect为空；既有terminal-r177-product-reconnect.log自然exit0及完整types/build证据保持。CI41131838318同完整head的Terminal reconnects cancel pending requests和Terminal reconnects recheck current authorization两step均success，整体仍运行。
+- 可执行证据覆盖12组backoff/POST/握手×user/session/instance/all取消，在迟到回执释放前实际socket归零；另三组双账户隔离、client close/error、VM取消零fallback、正常VM fallback和正常重连、20秒期限后原请求关闭再独立重试。不是仅靠activeSessions=0推断资源已释放；未覆盖原生Incus与长期公网连接，因此该缺口继续保留。
+- R173已推6470b529fe4031ce543589874234879ad872fbf2 / CI41141251933。R175证据归入原编号后274/327项（83.8%，含部分/待验收），53项保初审分类；没有新增产品改动或生产部署。
+
 ## 2026-10-31 R173 自定义 Telegram 超时与日志补验
 
 - 原sendToChannel的Telegram分支已有15秒AbortSignal及manual redirect，本项未改产品。新增长期专项调用真实sendToChannel和PG日志，只把fetch目的地桥接到本机HTTP，保留method/body/redirect/signal；不向外部机器人发送。
