@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195分段已推；本轮R275实证认证后降权仍写与早请求失败覆盖后来配置，改为统一实例锁内当前授权、远端成功再提交及90秒冷连/读写总期限；实际PG/Fastify、mTLS单池三类超时、类型/守卫/build通过，原生Incus仍待验。R182 CI并发夹具顺序已单独修正推3c2880b1；41134810809历史失败及新CI继续，详HANDOFF。R202另修实际映射IPv6出站绕过，R203正确流量通知器八场景复验通过；R66快照编号越界修复及126非法请求/8合法不存在边界通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为267项（含部分、待验收），60项仍保初审分类；这不是完整修复数，不能按327减267计算剩余全部工作。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195分段已推；本轮R275实证认证后降权仍写与早请求失败覆盖后来配置，改为统一实例锁内当前授权、远端成功再提交及90秒冷连/读写总期限；实际PG/Fastify、mTLS单池三类超时、类型/守卫/build通过，原生Incus仍待验。R182 CI并发夹具顺序已单独修正推3c2880b1；41134810809历史失败及新CI继续，详HANDOFF。R202另修实际映射IPv6出站绕过，R203正确流量通知器八场景复验通过；R66快照及R95 Agent宿主接口PG编号边界分别复现/修复，实际非法与合法不存在边界、零远端写/凭据保持通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为268项（含部分、待验收），59项仍保初审分类；这不是完整修复数，不能按327减268计算剩余全部工作。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -386,7 +386,7 @@
 | R1-092 | 存在 | 源码已修/隔离PG验证通过 | identity/secret/nonce和install token同事务轮换，消费先decrypt/hash核验再CAS；7并发发行仅最新token，消费仅1次，故障回滚及坏密文不消费。logs/review-agent-credentials-integration.log |
 | R1-093 | 存在 | 源码已修/隔离PG验证通过 | R092先完成解密/hash与消费原子性，本项补格式/空白拒绝。logs/takeover-agent-secret-final.log六坏格式保token/修复重试/两合法边界及原并发权限回归通过；真实Go安装另验 |
 | R1-094 | 存在 | 源码已修/隔离HMAC及PG验证通过 | 协议/实例/流量/心跳逐次锁内current Agent身份启用状态复核。logs/takeover-agent-heartbeat-current-final-5.log四旧认证与五真实host/Agent锁竞争、7并发/正常/nonce回归通过；原生宿主另验 |
-| R1-095 | 已有防护 | 保留初审结论 | hostId使用parsePositiveId及safe integer，严格拒绝数字后缀。 |
+| R1-095 | 部分存在 | Agent宿主PG编号越界已修并复验 | 原已拒后缀，但2147483648实际500；六入口共用parser补PG上界。84非法400、6合法不存在404、正常空Agent状态200，原凭据/安装令牌/nonce及审计完整不变、零外部请求；types/2守卫/build通过。 |
 | R1-096 | 存在 | 源码已修/隔离HMAC及PG验证通过 | 可选升级等待上限1秒，后台保留外部截止/重试/SHA。logs/takeover-agent-upgrade-deadline-final.log实际三类卡顿心跳200/online、释放后SHA升级通过；真实Go宿主另验，并发cache miss留R097。 |
 | R1-097 | 存在 | 源码已修/隔离HMAC及PG验证通过 | metadata共享在途refresh，binary按version/name/小写hash合并，成功失败均finally释放。logs/takeover-agent-release-concurrency-final-2.log真实路由header/body、双架构、限流/stale/失败重试及5组key隔离通过；原生宿主与真实GitHub另验。 |
 | R1-098 | 存在 | 源码已修/隔离浏览器验证通过 | 三类读独立seq与host/account/role/sid/同步代次，缓存离页及卸载清状态并停poll；过期排队poll拒读、当前poll不重叠。实际Chrome三反序/18旧回执/18坏读、真实局部重试/保留最后成功值通过。双端types/build、对应守卫见HANDOFF；真实宿主另验。 |

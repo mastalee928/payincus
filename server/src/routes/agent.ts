@@ -148,7 +148,7 @@ function parsePositiveId(value: string): number | null {
     return null
   }
   const id = Number(value)
-  return Number.isSafeInteger(id) && id > 0 ? id : null
+  return Number.isSafeInteger(id) && id > 0 && id <= 2147483647 ? id : null
 }
 
 function sanitizeShortString(value: unknown, maxLength: number): string | null {

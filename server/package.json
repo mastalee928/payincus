@@ -71,6 +71,7 @@
     "test:review-process-boost-transport": "node --import tsx scripts/test-review-process-boost-transport.ts",
     "test:review-traffic-notification-transport": "node --import tsx scripts/test-review-traffic-notification-transport.ts",
     "test:review-snapshot-id-boundaries": "node --import tsx scripts/test-review-snapshot-id-boundaries.ts",
+    "test:review-agent-id-boundaries": "node --import tsx scripts/test-review-agent-id-boundaries.ts",
     "test:review-oauth-locales": "node ../scripts/test-oauth-locales.mjs",
     "test:review-instance-task-site-cleanup": "node --import tsx scripts/test-review-instance-task-site-cleanup.ts",
     "test:review-terminal-commands-lifecycle": "node ../scripts/test-terminal-commands-lifecycle.mjs",

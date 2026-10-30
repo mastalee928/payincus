@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R95 Agent宿主接口 PostgreSQL 编号边界
+
+- 原parser拒数字后缀，但2147483648仍进入prisma.host.findUnique并integer越界500，logs/agent-r95-id-before.log自然exit1。仅共用parsePositiveId补2147483647上界，六处宿主状态/升级/安装命令/凭据入口统一拒绝；不修改HMAC认证、凭据轮换或真实升级流程。
+- logs/agent-r95-id-final.log自然exit0：14非法/越界ID×6入口84次400，6合法不存在上界404，已有未安装Agent宿主的用户/admin状态接口200；原host/agent安装令牌与凭据字段/nonce/audit完整状态不变，零外部发行或宿主请求。安装资料只内存比较不输出。完整server+专项types、2守卫、清单及后端build自然exit0；新专项已接CI。该范围不声称实机Agent升级验收。
+- R66已推9d4f4c2c829b7484eb06d3443d43f38447f64c57 / CI41139128809，R202/R203为d5a02f0f7385fa1fc7ca3d21c343009a8f1ed659 / 41138737969，均运行中；R275与工单修正CI继续。R95进入复验后268项（含部分/待验收）、59项保初审分类。R132反代同类编号复审正在另段进行。
+
 ## 2026-10-31 R66 快照接口 PostgreSQL 编号边界
 
 - 原“已有防护”仅拒绝小数/后缀，safe integer仍包含PG Int越界。logs/snapshot-r66-id-before.log自然exit1：实际Fastify GET /instances/2147483648/snapshots进入prisma.instance.findUnique后integer越界500。共用parser的数字/字符串分支加2147483647上限，覆盖七处instanceId和两处snapshotId，不改创建/删除/恢复权限或流程。

@@ -20,8 +20,9 @@ assert.ok(
 )
 assert.ok(
   parserSection.includes('positiveRouteIdPattern.test(value)') &&
-    parserSection.includes('const id = Number(value)'),
-  'Agent route path ID parser must reject malformed values before numeric conversion'
+    parserSection.includes('const id = Number(value)') &&
+    parserSection.includes('id <= 2147483647'),
+  'Agent route path ID parser must reject malformed values and PostgreSQL Int overflow'
 )
 assert.ok(
   !parserSection.includes('Number.parseInt') && !parserSection.includes('parseInt'),
