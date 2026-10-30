@@ -82,6 +82,7 @@ assert.ok(
     source.includes('function parseHostAuditHistoryPageSize(value: string | undefined): number | null | undefined') &&
     source.match(/const instanceId = parseOptionalPositiveQueryInteger\(request\.query\.instanceId\)/g)?.length === 2 &&
     source.includes('const pageSize = parseHostAuditHistoryPageSize(request.query.pageSize)') &&
+    source.includes('hostId > 2147483647 || (instanceId !== undefined && instanceId > 2147483647)') &&
     source.includes('instanceId === null || pageSize === null') &&
     source.includes('take: pageSize ?? 20'),
   'host ops audit query routes must strictly validate optional instanceId and pageSize filters'

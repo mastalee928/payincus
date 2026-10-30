@@ -291,6 +291,8 @@ jobs:
         run: pnpm --filter server test:review-agent-id-boundaries
       - name: Proxy site routes reject PostgreSQL ID overflow before any Caddy dispatch
         run: pnpm --filter server test:review-proxy-id-boundaries
+      - name: Host audit history preserves pagination bounds and isolates host and instance records
+        run: pnpm --filter server test:review-host-audit-history
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets

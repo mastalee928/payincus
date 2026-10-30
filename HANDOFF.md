@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R277 运维审计分页复验与编号上界
+
+- 原分页小数/无效值进入Prisma的说法未复现。真实Fastify/PG中默认20、空值默认20、1/50/51及最大safe integer上限50、13类非法或重复pageSize拒绝、扫描和操作时间降序、当前宿主/实例筛选、跨宿主空结果、非owner拒绝及admin读取均通过。
+- 同入口新发现hostId/instanceId接受2147483648后分别进入host和scan查询导致PG integer越界500，logs/host-audit-r277-product-before.log自然exit1。只在该history路由补PG Int上界，不改共享parser及现有分页大整数夹50行为，不据此宣称全部hosts接口编号都已补齐。
+- logs/host-audit-r277-final.log自然exit0：上述分页和隔离场景、非法/越界ID、合法不存在上界、host/instance/scan/action/log完整记录不变、零Incus连接。完整server+新专项types零诊断、host-route-id守卫1/1、清单与后端build自然exit0；专项登记Linux CI。认证hook为测试身份，实际PG和路由；不替代公网部署或原生审计扫描执行。第一份host-audit-r277-before.log是夹具缺authenticateAdmin注册失败，保留但不算产品复现。
+- 上段R132已推3538403ec31d939f70f3c319bf233aa55acf051f / CI41139600444，另11条源码CI仍有步骤推进、无新增失败，历史41134810809保留。R277转入复验后270/327项（82.6%，含部分/待验收）、57项保初审分类；这不是完整修复率。未部署生产，固定v1.7.8不变。
+
 ## 2026-10-31 R132 反代实例/站点 PostgreSQL 编号边界
 
 - 旧共用parser仅限制safe integer，GET /instances/2147483648/sites进入PG integer越界500，logs/proxy-r132-id-before.log自然exit1。加PG Int上界，覆盖九处instanceId与七处siteId；原当前权限、持久操作计划和Caddy执行不改。

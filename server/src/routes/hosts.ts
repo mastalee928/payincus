@@ -7905,6 +7905,10 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     const instanceId = parseOptionalPositiveQueryInteger(request.query.instanceId)
     const pageSize = parseHostAuditHistoryPageSize(request.query.pageSize)
     if (!hostId || instanceId === null || pageSize === null) return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
+    // These filters become PostgreSQL Int values; pageSize is independently capped at 50.
+    if (hostId > 2147483647 || (instanceId !== undefined && instanceId > 2147483647)) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
+    }
 
     const auth = await getAuthorizedOpsHost(hostId, user)
     if (!auth.host) return reply.code(auth.status).send(auth.error)
