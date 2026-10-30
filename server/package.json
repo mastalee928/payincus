@@ -76,6 +76,7 @@
     "test:review-host-audit-history": "node --import tsx scripts/test-review-host-audit-history.ts",
     "test:review-turnstile-config": "node --import tsx scripts/test-review-turnstile-config.ts",
     "test:review-custom-telegram-transport": "node --import tsx scripts/test-review-custom-telegram-transport.ts",
+    "test:review-lottery-notification-transport": "node --import tsx scripts/test-review-lottery-notification-transport.ts",
     "test:review-oauth-locales": "node ../scripts/test-oauth-locales.mjs",
     "test:review-instance-task-site-cleanup": "node --import tsx scripts/test-review-instance-task-site-cleanup.ts",
     "test:review-terminal-commands-lifecycle": "node ../scripts/test-terminal-commands-lifecycle.mjs",

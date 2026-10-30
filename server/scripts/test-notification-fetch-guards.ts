@@ -88,6 +88,11 @@ assert.ok(
   'lottery Discord notifier must throw a bounded sanitized upstream error preview'
 )
 assert.equal(
+  (lotteryNotifierSource.match(/await response\.body\?\.cancel\(\)\.catch/g) ?? []).length,
+  2,
+  'lottery Discord and webhook outcomes must release unread response bodies'
+)
+assert.equal(
   (lotteryNotifierSource.match(/await assertSafeWebhookUrl/g) ?? []).length,
   2,
   'lottery Discord and generic webhook notifiers must validate webhook URLs before fetch'

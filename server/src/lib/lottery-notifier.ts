@@ -215,8 +215,13 @@ async function sendDiscord(
     redirect: 'manual'
   }, 'Webhook URL')
 
-  if (!response.ok) {
-    throw new Error(await readSafeNotificationError(response))
+  try {
+    if (!response.ok) {
+      throw new Error(await readSafeNotificationError(response))
+    }
+  } finally {
+    // Successful Discord replies are status-only; release any unused body immediately.
+    await response.body?.cancel().catch(() => {})
   }
 }
 
@@ -255,7 +260,12 @@ async function sendWebhook(
     redirect: 'manual'
   }, 'Webhook URL')
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
+  try {
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+  } finally {
+    // Both webhook outcomes use only the status, so neither should retain a response.
+    await response.body?.cancel().catch(() => {})
   }
 }

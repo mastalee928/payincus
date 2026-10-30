@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R170 抽奖通知出站补验与未读正文回收
+
+- 原地址预检查/实际连接期safe dispatcher、manual redirect及15秒期限均有效；复审新增发现Discord成功和webhook成功/失败只看status，正文未消费也未取消。lottery-r170-before.log自然exit1：正常回执及记录已经落定，仍残留3个未结束响应。仅在这两发送分支finally取消剩余body，保原通知成功/失败规则与Discord错误读取。
+- lottery-r170-final.log自然exit0：原sendLotteryWinNotification+实际PG，Telegram/Discord/Webhook正常sent；Discord和webhook的私有URL、302与普通/映射IPv6 DNS重绑定全部保notificationSent=false、零/private，连接拒绝使用原dispatcher。五种headers/半body真实停滞约15059–15072ms后保未通知、记录其它字段完整不变。三个不读取正文的已完成结果即刻取消响应，清理前active=0，独立dispatcher结束后socket=0。
+- 正常/停滞HTTP仅桥接到本机并保原请求参数，DNS预检/连接结果受控；未做公网投递、抽奖扣款/奖品发放或客户实例操作。完整server+专项types零诊断、通知/出站守卫2/2、manifest与后端build自然exit0，专项已接CI。
+- R175文档已推31a627ee3ffa38ba71835c0bfd65fa028755f0f7 / CI41141331712，R173的CI41141251933及之前15条继续。R170后275/327项（84.1%，含部分/待验收），52项保初审分类；历史失败与所有待验收范围保持，固定v1.7.8不变。
+
 ## 2026-10-31 R175 关闭会话后重连资源回收证据归档
 
 - 重新核对terminal-proxy：close先递增generation、abort本轮controller、移除activeSessions、清heartbeat和原双socket；重连在等待后及新双socket/授权事务完成后都核当前对象/generation/client/abort，不再接纳已关闭会话。

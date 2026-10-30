@@ -297,6 +297,8 @@ jobs:
         run: pnpm --filter server test:review-turnstile-config
       - name: Custom Telegram notifications cancel stalled responses and settle their logs
         run: pnpm --filter server test:review-custom-telegram-transport
+      - name: Lottery notifications reject private destinations and release completed response bodies
+        run: pnpm --filter server test:review-lottery-notification-transport
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets

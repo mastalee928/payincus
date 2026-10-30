@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为274项（含部分、待验收），53项仍保初审分类；这不是完整修复数，不能按327减274计算剩余全部工作。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为275项（含部分、待验收），52项仍保初审分类；这不是完整修复数，不能按327减275计算剩余全部工作。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -461,7 +461,7 @@
 | R1-167 | 存在 | 源码已修/原审查路由PG与mTLS通过 | 显式空规则不回退内置。review-audit-route-mtls.log自然exit0：PG停用全部内置规则→原审查POST及exec/output→findings与持久记录均空，只重新启用一项后仅命中该规则。三轮观察exec无其它远端写/实例不变；输出受控，未在原生宿主执行命令。 |
 | R1-168 | 存在 | 源码已修/原审查路由PG与mTLS通过 | ss/netstat按各自列序解析。review-audit-route-mtls.log自然exit0：原execWithOutput实际mTLS输出读取后，TCP/UDP/IPv6端点、状态、PID及listening计数正确并落库；命令含原ss失败回退netstat。隔离后端返回输出，原生工具执行/浏览器仍待。 |
 | R1-169 | 存在 | 源码已修/PG及实际HTTP正文签名通过 | 签名和发送共用包含timestamp的同一body。review-notification-wire.log自然exit0：原发送器读PG，fetch边界定向本地HTTP，UTF-8/Unicode/转义及双配置并发HMAC匹配，改timestamp/换secret不匹配；无secret及成功/503的通知标记正确。未发第三方Webhook，公网接收服务另验。 |
-| R1-170 | 已有防护 | 保留初审结论 | 已有safeFetch连接时校验及AbortSignal.timeout，出站绕过问题不成立。 |
+| R1-170 | 出站/期限已有防护，未读响应回收有缺口 | 三渠道PG/HTTP补验及回收修复通过 | 原入口私有URL/302/两类DNS重绑零私网写；五类15秒停滞保未通知/其余记录不变。三status-only结果留下active3先红，Discord/webhook finally取消正文后active0/socket0，原sent/failed保持；lottery-r170-final/types/guards/build自然exit0，CI接入，非公网投递验收。 |
 | R1-171 | 后端已有防护，公开状态不一致 | 公开可用条件已修/真实PG复验通过 | enabled+site但缺secret时公开true、后端跳过先红；公开改复用完整配置条件，只返回可用site、不泄secret。八配置×五实际auth preHandler验证关闭/缺项跳过、缺token400/无效JSON与拒绝403/合法通过；后置204阻止业务及邮件，provider受控，types/3守卫/build通过；外部挑战与浏览器仍未验。 |
 | R1-172 | 存在 | 源码已修/实际HTTP总期限通过 | 原fetch与body共用10秒AbortSignal。review-notification-wire.log自然exit0：正常/拒绝/非法JSON、不返回headers及不完整body实测，后两10012/10002ms失败且底层socket归零。fetch只定向本地HTTP而保持原options/信号，无Cloudflare外部通信；现行登录/注册UI整链另验。 |
 | R1-173 | 已有防护 | 实际发送入口/15秒取消/PG日志通过 | 原sendToChannel+PG、仅本机HTTP桥接保options；headers15046ms/body15043ms取消、零活跃响应和pending、延迟后零迟到sent，恢复成功保原failed。disabled专用渠道/原payload、拒绝/非法JSON/302不跟随/缺配置保持；custom-telegram-r173-final/types/guards通过，CI登记，未向外部机器人投递。 |
