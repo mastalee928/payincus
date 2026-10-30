@@ -26,4 +26,13 @@ assert.ok(workflow.indexOf('cp -r patches release/') > 0 &&
   'production package must carry the patch before frozen dependency installation')
 const ci = readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8')
 assert.ok(ci.includes('run: pnpm --filter server test:prisma-transaction-start-timeout'), 'real PostgreSQL timeout regression must run in CI')
+const smoke = readFileSync(resolve(root, 'scripts/smoke-fresh-install.sh'), 'utf8')
+assert.ok(smoke.includes('node "$repo_dir/scripts/smoke-prisma-transaction-start.mjs"'),
+  'each architecture must exercise the Prisma regression from its installed production package')
+const installedSmoke = readFileSync(resolve(root, 'scripts/smoke-prisma-transaction-start.mjs'), 'utf8')
+assert.ok(installedSmoke.includes("createRequire(join(serverRoot, 'package.json'))") &&
+  installedSmoke.includes("const serverRoot = '/opt/incudal/server'") &&
+  installedSmoke.includes("join(temporary, 'test-prisma-transaction-start-timeout.ts')") &&
+  installedSmoke.includes('DATABASE_URL: database.href') && installedSmoke.includes("'dropdb', '--force', testDatabase"),
+  'installed-package regression must resolve packaged dependencies and clean only its dedicated fixture database')
 console.log('Prisma transaction-start cleanup guards passed for both Node runtimes and production packaging')

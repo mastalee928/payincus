@@ -122,6 +122,7 @@ NGINX
 nginx -t
 systemctl restart nginx
 node "$repo_dir/scripts/smoke-fresh-install.mjs"
+node "$repo_dir/scripts/smoke-prisma-transaction-start.mjs"
 node "$repo_dir/scripts/smoke-platform-backup.mjs"
 RUN_BACKUP_INTEGRITY_DRILL=1 node "$repo_dir/scripts/smoke-platform-backup-integrity.mjs"
 RUN_BACKUP_COMPATIBILITY_DRILL=1 node "$repo_dir/scripts/smoke-platform-backup-compatibility.mjs"

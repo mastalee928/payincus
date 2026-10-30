@@ -1,3 +1,5 @@
+> **2026-10-30当前：v1.7.8候选验收继续**。Prisma已推a85265576a385b0397369075a34e9761febd375e / CI41057438463真实PG及Linux冻结安装通过；守卫/LF段011b173e8884fd8559d388f4db955398aa5d0be9 / CI41058561817，重建快照段c70685160b100c5b63cf3c218ac6a5b2ecaa8155 / CI41059920880均已推。重建六故障/四未证缺失保记录零DELETE/POST、非空确认/两404达旧删除边界及PG/SMTP/types/build/十守卫/destroy自然0，见HANDOFF。全量195重新运行；新增安装包Prisma专项和1.7.8候选待双架构预览，无tag/Release/生产。旧CI/GoIO历史准确原因、原生Incus、原327及灾备缺口保留，继续。
+
 2026-10-30 R011重装snapshot：mTLS list失败仍发config先红，明确验证列表/名称、删除后再读空列表才移DB记录，cloud-init重置放清理确认之后，失败不吞继续。真实六read/shape/name/delete/still-present/confirm故障保记录零config及非空实际DELETE确认成功，原stop/4/12/18/28与全SMTP、types/build/十守卫/destroy过见HANDOFF。50570a68a4c6411f503df727a615df504e601f3e / CI41050640712已推；41049136134越原阻塞继续host batch未终态，recreate及跨系统/原生客户另待，259含部分/68不同不增。
 
 2026-10-30 R011重装stop：mTLS状态500后仍发config先红，stop异常直接拒绝，读取真实Stopped才进入cloud-init/快照/重装，原Alpine busy参数保持。真实worker三state失败/stop失败/ACK后仍Running零config写、snapshot/image/password/cloudInitState保留；types/build/十守卫及原完整PG/SMTP/mTLS/destroy最终exit0见HANDOFF。6b3785483ab7e55389817d3dddb6ab12a01f186e / CI41049136134已过网络阻塞并向后推进未终态，recreate stop及snapshot缺失另待，259含部分/68不同不增。
@@ -612,4 +614,3 @@
 request/verify/check/claim/profile事务按账户、原会话sid及邮箱摘要核验；旧无绑定账号码必须重发。实际PG/SMTP完整回归、8并发唯一消费、profile跨会话/旧邮箱拒绝且不消耗新邮箱code、原回滚/2FA/destroy专用流程、严格类型/后端构建/operation与auth守卫/manifest均自然exit0，详见HANDOFF。文案已三语改为自然查收提示，af5af1af已推并CI终态success。仅账户操作绑定闭合，generic资源当前目标/会话及权限合同、外部邮件/原生客户与灾备另待，259含部分/68不同计数不增。阶段保存后继续，不将阶段汇报作为停工点。
 2026-10-30接续R011：重装重建原授权持久保存并在执行入口核原actor/session/角色、实例及宿主身份、选定镜像/SSH ID/init IDs和原任务批次；公共回执不含内部授权。实际PG两任务28变化/worker拒绝零实例写/正常维护/旧授权拒绝、真实migration、严格types/server build/十守卫/destroy与manifest通过，完整范围及日志见HANDOFF顶部。原327259含部分/68不同不增，远端全程和SSH/init正文在途变化仍待。新查41031081702快照恢复在途删除超时500 CI失败已读，下一段修根因，六运行CI与旧GoIO/外部SMTP/原生客户/灾备继续。文案af5af1af已三语自然查收且CI通过，不重复编辑。
 > 2026-10-30连接泄漏修复已推a8526557/CI41057438463；Linux冻结安装及真实PG8连接超时专项成功，整体CI未终态。全量195实际执行193过、删除入口Body/重装SSH旧断言两败，精确核实际材料所有权/建连后重核和删除顺序后更新守卫，三项复验自然exit0，明确补丁LF字节守卫。完整终态及后续重建快照缺口见HANDOFF；原327计数不增。
-

@@ -48,3 +48,8 @@ and the pool counters, then verifies ordinary commits and rollbacks. CI runs it
 against PostgreSQL 16. The release workflow copies this directory before its
 frozen production dependency install, so packaged installations use the same
 patch. Remove the backport only after a dependency upgrade passes these checks.
+
+Both architecture fresh-install jobs also run the same PostgreSQL regression
+from below `/opt/incudal/server`, using the installed production dependencies
+and a disposable local database. This checks the packaged runtimes instead of
+the source checkout's dependency tree.
