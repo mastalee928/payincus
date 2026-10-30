@@ -1,5 +1,9 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **最新R166收尾**：只删孤立retry288行，完整搜索无调用/导出，实际gateway/backup/batch/Incus/Agent六源码SHA保持，server含tsc build70853自然exit0、4/4守卫53716及gateway installation专项自然exit0、后搜索/diff通过。245含部分/68已有不同/14待，单项保存后接R055 Dashboard旧session/overview及R058晚mount timer；SSHKeysSection现已有session/cache防护，归R075/076不重复改。前CI继续集成任务in_progress，历史Go IO未修，不接受SSH新身份。无待poll/测试serve，不生产/发行，内部缺口继续。
+
+> **R054已保存远端**：498ed0d316e0e02f0cfc3e8a5aca2ad7e3f5d235，HEAD=远端main，CI40979555768运行；继续R166孤立retry清理，完整281行已读且无调用，实际gateway-journal/backup/batch-config/Incus重试保留，尚未改。
+
 > **最新R054收尾**：store清零/递减/session/role/sid/同步ABA/stop-restart代次、当前轮询单在途门禁/strict count、AppLayout卸载stopPolling已先红后修。Chrome14旧回执/坏count/retry/实际卸载重挂final自然exit0；R04890回执与三语三宽回归自然exit0；lint零错警/2守卫/manifest/语法/双端含vue-tsc50242自然exit0(user59.90s/admin48.97s)/末dist/diff通过。244含部分/68已有不同/15待，立即保存后接R166孤立retry清理再R055缓存，不停工。CI40974379396/40975365166/40978319474六job成功/Pool仍运行，继续查终态；历史Go IO未修，未放宽安全或接受新SSH身份，无远端命令。无本项测试serve/build待poll，无视觉改动，不重复taste；原327内部缺口与完整网关灾备/客户边界保留。
 
 > **R048已保存远端**：3bb81c495e86e08d810073b1f90d732fb0cb59e3，HEAD=远端main，新CI40978319474运行。立即接R054，先真实延迟回执/布局卸载复现，不重复既有完整回归；上一inspector13716命令已核为test-inbox-receipts --serve，可定向停止。

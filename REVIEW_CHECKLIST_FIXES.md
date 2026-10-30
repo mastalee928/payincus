@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R054收尾后）：原327个编号中，244项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，15项仍为「待精修/运行复核」。244并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以15项表示。
+当前进度（2026-10-30，R166收尾后）：原327个编号中，245项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，14项仍为「待精修/运行复核」。245并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以14项表示。
+
+2026-10-30 R166：完整读288行旧retry，全运行目录符号/静态动态路径搜索无调用或barrel；只删孤立模块，不机械删本库实际JSON校验。六受保护gateway journal/worker/backup/batch-config/Incus/Agent源码SHA保持；后端含tsc build70853自然exit0、4/4常规守卫与真实gateway journal忙锁/lease拒绝等守卫自然exit0，最终引用/diff过。245含部分/68已有不同/14待，孤立模块无活体流程，不充实际网关恢复或备份验收。R055的SSH隔离已由R075/076实现，Dashboard确实缺会话代次且有R058晚mount重建timer，接该实际范围。
 
 2026-10-30 R054：真实Vue/Pinia先红清零又恢复8，实际AppLayout卸载残留initialized/timer/listener均1；现本地清零/递减、session/role/sid/同步ABA、stop/restart代次保护、当前轮询单在途门禁及严格safe integer count，layout卸载stopPolling。完整Chrome14旧回执/非法值/重试/真零/旧finally不释放新锁/实际卸载重挂通过，R048完整90回执回归、lint/route-i18n/双端含vue-tsc build/末dist/manifest正常exit0。原一空行lint warning已去、初失败不计通过；244含部分/68已有不同/15待，真实消息跨标签页与铃铛旧写回执/账户身份store另验。R048已push3bb81c495e86e08d810073b1f90d732fb0cb59e3/CI40978319474运行，CI前两同样仍集成任务运行，见HANDOFF。
 
@@ -363,7 +365,7 @@
 | R1-163 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
 | R1-164 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
 | R1-165 | 存在 | 退役适配器/类型已清理，构建守卫通过 | 运行源码/脚本及部署完整搜索确认仅定义/导出/孤立类型，清理31行；八现行网络实现SHA保持、后无旧引用和产物导出。server含tsc build、core-boundaries/incus-pool/host-pool/证书路径四守卫及目标lint/diff通过见HANDOFF。无活体调用，不冒充真实客户网络验收。 |
-| R1-166 | 部分存在 | 待精修/运行复核 | 通用withRetry等只在本模块内部/注释出现，无应用导入，旧retry模块孤立；未找到对方四项JSON结构校验同类模块，不能凭清单删除其它实际校验。 |
+| R1-166 | 部分存在 | 无调用旧模块已清理；原四项JSON实现不同 | 288行retry仅本模块定义/调用/注释，无运行消费者或barrel，已移除；实际gateway-journal/backup/batch-config/Incus/Agent六源码SHA保持，后端含tsc build与4/4常规+gateway installation专项守卫正常exit0。本库无对应四项孤立JSON校验，不删除实际验证。无孤立模块活体入口，见HANDOFF。 |
 | R1-167 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
 | R1-168 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
 | R1-169 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |

@@ -2,7 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-166 无调用旧重试模块
+
+- 完整读取288行server/src/lib/retry.ts，运行源码、脚本、前端、agent、部署、文档与CI搜索无该模块导入/动态加载/重新导出，withRetry等仅自身定义与内部使用；同名backup/batch-config本地函数和gateway-journal是不同实现。仅删除孤立模块，不凭参考清单删除其它实际JSON验证。
+- 六受保护gateway journal/installation worker/backup upload/batch config/Incus实例/Agent源码SHA256修改前后保持；最终引用搜索没有旧模块消费者，git diff通过。server含tsc build70853自然exit0；4/4常规core-boundaries/incus-pool/agent-install/backup-task-race（test-run-20261030-082633）正常exit0；额外实际gateway-installation-guards涵盖journal忙锁重试与lease拒绝自然exit0（takeover-retired-retry-gateway-guard.log）。没有孤立模块活体流程可验，不将清理当作真实备份/网关交付重试验收；本地既有dist的历史文件不充新干净发行产物证据。
+- 原327更新245有修复/复验（含部分）/68已有不同/14待。R054已push498ed0d316e0e02f0cfc3e8a5aca2ad7e3f5d235/CI40979555768，新CI仍运行；前40974379396/40975365166/40978319474须继续跟集成终态。R055完整复读发现SSH隔离已随R075/076实现，Dashboard仍无session代次、并有R058晚mount建timer，下一先真实复现这两项；原Linux IO/网关灾备及内部缺口保留，不生产/发行。
+
 ## 2026-10-30 R1-054 未读计数与布局轮询清理
+
+- 本项已提交推送498ed0d316e0e02f0cfc3e8a5aca2ad7e3f5d235，HEAD与远端main一致；新CI40979555768运行，后续跟到终态。该SHA同时登记上一R048完整SHA/CI。
 
 - 真实Chrome先红：clearUnread后旧响应把0恢复8；实际AppLayout卸载仍保留initialized=true、一个15秒timer与visibility listener。store固定当前账户/role/sid与同步代次，本地clear/decrement、会话切换与stop使旧响应失效，当前轮询/refresh/可见性共享一个在途读取，旧finally不得释放新请求锁。同sid token更新保持，非法count保留最后确认值，合法0显示0；layout卸载stopPolling。仅一处既有多空行lint warning顺手去掉，无样式/API或后端修改。
 - logs/takeover-inbox-polling-final.log自然exit0：14旧account/sid/role/logout/ABA/stop/restart成功失败回执，清零/递减与新通知、重复tick/refresh/visibility单请求，坏count/失败retry/真零、旧finally隔离，以及实际AppLayout卸载清timer/listener、旧响应不能恢复、重挂恰一轮。专项test:review-inbox-polling已登记server/EXCLUDED/CI；interval夹具保留真实callback与登记/清理，主动触发15秒callback以免等待，API受控。未测试真实账户通知或跨标签页，NotificationBell与auth旧回执仍独立缺口。
