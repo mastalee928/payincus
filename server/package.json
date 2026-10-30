@@ -62,6 +62,7 @@
     "test:review-terminal-session": "node ../scripts/test-terminal-session.mjs",
     "test:review-terminal-pagination": "node ../scripts/test-terminal-pagination.mjs",
     "test:review-terminal-opening": "node --import tsx scripts/test-review-terminal-opening.ts",
+    "test:review-terminal-reconnect": "node --import tsx scripts/test-review-terminal-reconnect.ts",
     "test:review-terminal-authorization": "node --import tsx scripts/test-review-terminal-authorization.ts",
     "test:review-oauth-locales": "node ../scripts/test-oauth-locales.mjs",
     "test:review-instance-task-site-cleanup": "node --import tsx scripts/test-review-instance-task-site-cleanup.ts",

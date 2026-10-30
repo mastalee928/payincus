@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-terminal-reconnect', 'requires OpenSSL and local mTLS HTTP/WebSocket fixture; reconnect backoff/POST/handshake cancellation, four revocation scopes, concurrent account isolation, client disconnect, VM fallback and total deadline with transport cleanup'],
   ['test:prisma-transaction-start-timeout', 'requires isolated local *_pool_test PostgreSQL; real Prisma acquisition timeouts, late BEGIN cleanup, eight-connection recovery and commit/rollback behavior'],
   ['test:review-oauth-locales', 'requires Chrome/Edge and local Vite; actual administrator OAuth login configuration translated labels in three languages/widths, empty existing secret and omitted update payload; controlled API only'],
   ['test:review-instance-task-site-cleanup', 'requires isolated PostgreSQL and OpenSSL/local TLS Caddy fixture; recreate/change-host source-site preflight, missing config/failed remote writes, durable failed-task delete receipts, current identity fences, normal/idempotent cleanup and original-instance preservation'],

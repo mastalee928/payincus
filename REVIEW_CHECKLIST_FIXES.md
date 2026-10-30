@@ -465,7 +465,7 @@
 | R1-171 | 已有防护 | 保留初审结论 | login/register/forgot统一verifier，enabled=false直接跳过；完整site/secret条件一致。 |
 | R1-172 | 存在 | 源码已修/实际HTTP总期限通过 | 原fetch与body共用10秒AbortSignal。review-notification-wire.log自然exit0：正常/拒绝/非法JSON、不返回headers及不完整body实测，后两10012/10002ms失败且底层socket归零。fetch只定向本地HTTP而保持原options/信号，无Cloudflare外部通信；现行登录/注册UI整链另验。 |
 | R1-173 | 已有防护 | 保留初审结论 | 自定义Telegram发送已有AbortSignal.timeout，不按旧清单重复改。 |
-| R1-174 | 部分存在 | 建连撤销mTLS专项与构建守卫通过；重连待验 | 异步前登记opening当前user/session/instance及取消信号，四范围关闭中断POST/握手并清资源；实际TLS先红后修、并发隔离/断开/失败重试/正常VM回退通过。前置授权R177与重连总截止/真实Incus仍另验。 |
+| R1-174 | 部分存在 | 重连取消与总期限已迁入；产品专项通过 | 原opening撤销保留，reconnect从backoff起20秒并贯穿POST/双握手，四范围close立即abort、清本轮再重试。真实mTLS十二撤销/三并发隔离/client断开/VM/总期限与原PG初连回归、types/三守卫通过terminal-r174-product-*；R177重连授权和pending提交窗口下一段，真实Incus长期运行仍待。 |
 | R1-175 | 已有防护 | 保留初审结论 | 重连等待后及新连接完成后核对activeSessions对象、reconnectGeneration和client状态，不符关闭新socket。 |
 | R1-176 | 已有防护 | 保留初审结论 | 所有异步建连前同步claimTerminalConnection预留名额，close释放pending且release幂等。 |
 | R1-177 | 部分存在 | 初始建连当前授权PG/mTLS专项与构建守卫通过 | 先登记opening撤销，再锁原实例/host/当前actor及package核归属、身份、role/session、running/任务门禁并完成初连，总20秒及提交失败清socket。真实route5组零POST/PG9竞争/正常三角色/TLS撤销与超时通过；真实Incus UUID及持续重连权限另待。 |

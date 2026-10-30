@@ -1,5 +1,17 @@
 # 版本与验证记录
 
+## 2026-10-31 R174 重连取消与总期限迁入主分支（阶段保存）
+
+- v1.7.8 tag已冻结后，先迁入独立R174修复：重连从backoff开始20秒总期限，取消信号覆盖等待、POST及双握手；用户/登录会话/实例/全局关闭立即取消在途请求，finally清本轮timer/controller后才递归重试，原generation与VM正常fallback保持。
+- 新长期test-review-terminal-reconnect.ts登记server脚本/活体清单排除理由及LinuxCI。terminal-r174-product-reconnect.log真实mTLS自然exit0：12组backoff/POST/握手×四撤销范围在释放迟到回执前实际socket归零，三范围双账户并发隔离，client close/error、VM撤销不fallback及正常fallback、正常重连/20秒到期后独立重试通过。
+- terminal-r174-product-pg.log、opening.log、guards.log与build.log全部自然exit0，原真实PG/Fastify/mTLS初连授权与三终端/WebSocket守卫保持；完整server+三专项types零诊断，test manifest有效。无前端变更，v1.7.8固定tag不含本次后续修复；R177重连当前授权及pending提交取消下一段，原生Incus长期终端仍待。
+
+## 2026-10-31 v1.7.8 正式发行已启动（等待构建及首装）
+
+- 冻结产品c77b68c5aab9d3e6f48f4091c7dce111c055465a的源码CI41115227451已整体success，七job全成功；同提交文档41115227538与双架构预览41115228247成功，预览发布步骤预期skipped。实际预览包及本地196/196证据见下。
+- 按owner已授权发行，annotated tag v1.7.8精确指向c77b68c5并推送；启动时main为文档提交0c1cd6772eda7be9683dd28b64268c6f8cdf44b3，没有把后续临时候选纳入发行。正式任务41131263041完整headSha一致，双构建/双首装及Release/资产核验继续；tag推送不等于发行成功或生产部署。
+- 文档提交9d0845c8/0c1cd677对应CI41123203452/41127725085六job成功、Pool仍运行；同样跟到终态，不能以产品候选成功替代它们。payincus-ci保持ACTIVE。没有生产OTA、DNS或客户操作。
+
 ## 2026-10-31 发行冻结期间终端与工单并发补验（尚未迁入产品）
 
 - main已推9d0845c8a7b623a3fa22bbbbb42ce31cd0693b56，仅交接/清单文档；发行产品保持c77b68c5aab9d3e6f48f4091c7dce111c055465a。源码CI41115227451六job成功、Pool已过146步继续；9d0845c8的CI41123203452也六job成功、Pool继续。现有payincus-ci heartbeat ACTIVE，不重复在途任务；v1.7.8尚未tag/Release。

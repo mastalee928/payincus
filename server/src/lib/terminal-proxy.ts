@@ -7,6 +7,7 @@
 import type { WebSocket as WsWebSocket } from 'ws'
 import { Agent, request } from 'undici'
 import { readFileSync } from 'fs'
+import { setTimeout as waitForReconnect } from 'node:timers/promises'
 import type { Host } from '../types/database.js'
 import { resolveCertificatePair } from './incus/certificate-paths.js'
 
@@ -79,6 +80,7 @@ export interface TerminalSession {
     reconnectingIncus: boolean
     incusReconnectAttempts: number
     reconnectGeneration: number
+    reconnectCancellation: AbortController | null
 }
 
 // 活跃终端会话存储
@@ -330,27 +332,29 @@ async function reconnectIncusConnection(sessionId: string, reason: string): Prom
     cleanupIncusSockets(session)
 
     const delay = Math.min(TERMINAL_CONFIG.reconnectDelay + (session.incusReconnectAttempts - 1) * 2000, 15000)
-    await new Promise(resolve => setTimeout(resolve, delay))
-
-    if (activeSessions.get(sessionId) !== session || session.reconnectGeneration !== reconnectGeneration) {
-        return
-    }
-    if (session.clientWebSocket.readyState !== session.clientWebSocket.OPEN) {
-        closeTerminalSession(sessionId, reason)
-        return
-    }
-
+    const cancellation = new AbortController()
+    session.reconnectCancellation = cancellation
+    const deadline = setTimeout(() => cancellation.abort(new Error('Terminal reconnection deadline exceeded')), 20000)
+    let retry = false
     try {
+        await waitForReconnect(delay, undefined, { signal: cancellation.signal })
+        if (activeSessions.get(sessionId) !== session || session.reconnectGeneration !== reconnectGeneration) return
+        if (session.clientWebSocket.readyState !== session.clientWebSocket.OPEN) {
+            closeTerminalSession(sessionId, reason)
+            return
+        }
         const { controlWs, dataWs, mode } = await createIncusConsoleConnection(
             session.host,
             session.instanceName,
-            session.instanceType
+            session.instanceType,
+            cancellation.signal
         )
 
         if (
             activeSessions.get(sessionId) !== session ||
             session.reconnectGeneration !== reconnectGeneration ||
-            session.clientWebSocket.readyState !== session.clientWebSocket.OPEN
+            session.clientWebSocket.readyState !== session.clientWebSocket.OPEN ||
+            cancellation.signal.aborted
         ) {
             closeIncusConnectionPair(dataWs, controlWs)
             if (
@@ -378,17 +382,19 @@ async function reconnectIncusConnection(sessionId: string, reason: string): Prom
             mode
         })
     } catch (error) {
-        if (activeSessions.get(sessionId) !== session || session.reconnectGeneration !== reconnectGeneration) {
-            return
-        }
+        if (activeSessions.get(sessionId) !== session || session.reconnectGeneration !== reconnectGeneration) return
         if (session.clientWebSocket.readyState !== session.clientWebSocket.OPEN) {
             closeTerminalSession(sessionId, reason)
             return
         }
         session.reconnectingIncus = false
         console.error(`[Terminal] Failed to reconnect Incus backend for session ${session.id}:`, error)
-        await reconnectIncusConnection(sessionId, 'Incus reconnection failed')
+        retry = true
+    } finally {
+        clearTimeout(deadline)
+        if (session.reconnectCancellation === cancellation) session.reconnectCancellation = null
     }
+    if (retry) await reconnectIncusConnection(sessionId, 'Incus reconnection failed')
 }
 
 /**
@@ -632,7 +638,8 @@ export async function createTerminalSession(
         lastActivity: Date.now(),
         reconnectingIncus: false,
         incusReconnectAttempts: 0,
-        reconnectGeneration: 0
+        reconnectGeneration: 0,
+        reconnectCancellation: null
     }
 
     bindIncusSocketHandlers(session, dataWs, controlWs)
@@ -803,6 +810,8 @@ export function closeTerminalSession(sessionId: string, reason: string = 'Sessio
 
     // Invalidate reconnect work that may currently be sleeping or opening sockets.
     session.reconnectGeneration += 1
+    session.reconnectCancellation?.abort()
+    session.reconnectCancellation = null
     activeSessions.delete(sessionId)
 
     // 清除心跳定时器

@@ -265,6 +265,8 @@ jobs:
         run: pnpm --filter server test:review-terminal-pagination
       - name: Terminal opening sessions stop on revocation and clean their mTLS sockets
         run: pnpm --filter server test:review-terminal-opening
+      - name: Terminal reconnects cancel pending requests and release sockets within the total deadline
+        run: pnpm --filter server test:review-terminal-reconnect
       - name: Terminal openings bind current session and original target under PostgreSQL locks
         run: pnpm --filter server test:review-terminal-authorization
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
