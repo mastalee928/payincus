@@ -52,8 +52,13 @@ assert.ok(
 )
 
 assert.ok(
-  source.includes('where: { userId, operationType, code: prepared.codeHash, ...GENERIC_VERIFICATIONS }'),
-  'send-failure cleanup must delete the hashed verification record'
+  source.includes('id: prepared.recordId, userId, operationType, code: prepared.codeHash, attempts: DELIVERY_PENDING, verified: false, ...GENERIC_VERIFICATIONS') &&
+    source.includes('data: { attempts: DELIVERY_FAILED }') &&
+    source.includes('attempts: DELIVERY_PENDING,') &&
+    source.includes('pendingOperationDeliveries.delete(requestKey)') &&
+    source.includes('pendingOperationDeliveries.get(requestKey) === prepared.recordId') &&
+    source.includes('if (activated.count !== 1)'),
+  'sending and failed codes must remain ineligible; conditional activation and exact-record failure markers retain the resend budget and release in-flight state'
 )
 
 assert.ok(

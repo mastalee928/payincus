@@ -2,7 +2,18 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011/013 通用验证码真实投递状态（持续施工）
+
+- 重发段af5af1af6b51272e7aa6a370227ada2df9d4554a已推/CI41017076013仍运行。真实SMTP延迟最终ACK先红：首邮件未被接受，重复请求却200 alreadySent；发送失败原删除记录还可绕过冷却。现沿原user/operation/resource锁预存不可验证的pending标记，单后端按固定请求key保在途门禁，邮件/通知成功后精确recordId/hash/状态/有效期CAS激活，失败保不可验证记录及原发送时间；在途跨60秒/行被删除仍不重发，旧进程pending无当前I/O转failed，冷却后可重试。失败只返回稳定错误，不把原SMTP内容暴露到UI。持久标记复用attempts的6/7值，无schema迁移；原0–4验证次数门禁及销毁专用标记空间保持。
+- 新PG/SMTP78146自然exit0，takeover-verification-delivery-pg-final.log覆盖原61秒/并发单邮件/账户隔离、延迟ACK零成功与提前验证拒绝、跨60秒和移除DB标记仍拒绝并行、ACK后可验证、550失败保冷却且61秒后重试、模拟旧进程pending恢复与destroy-email记录不变。原实际2FA47900及destroy96415真实PG/SMTP全回归自然exit0；含A/B同码强制碰撞、账户/session/email/set/一次消费/60秒/hour限制保持。真实SMTP服务在本机隔离，认证及外部账户不是生产实证。
+- 前端pending保持request、不toast success，SEND_FAILED/限流使用三语自然错误及真实剩余倒计时，request页禁用重发也直接显示倒计时；取消/旧context清timer保持。提取原countdown避免零秒递减，旧请求行为不变。失败红字浅色3.6:1被实际taste拦下，局部改为深红/深色浅红；不扩通用选择器。
+- 末actual Chrome33065自然exit0，takeover-verification-delivery-ui-last.log：三语pending/失败实际error/零新增toast/disabled倒计时/取消，原14旧child context与36冻结motion×locale×width×theme全回归；新增18失败截图+18输入截图，36inspect全零findings，全部图经两contact-sheet及全尺寸重点图复核。旧toast自然消失导致数量断言2!=3误报，改按新增ID检查；改CSS期间HMR轮不算末证据。
+- source+专项types78426自然exit0，server build38279自然exit0；有效client ESLint94590无错警，末四守卫67886自然exit0（test-run-20261030-151029），manifest194常规231专项有效。冻结产品唯一双端82148自然exit0，takeover-verification-delivery-dual-final.log含两types/user1m16s/admin50.09s/NATURAL_EXIT_CODE=0；末dist-final通过。pnpm --only误解析及无server ESLint配置的命令错误已改用真实runner/client配置，不列为通过证据。
+- 仍保留generic已验证/已消费后的发送预算、不同操作/资源统一账户预算、验证当前会话/邮箱及完整通知渠道目标一致性等内部缺口；本段不声称全部解决。外部SMTP/真实客户完整流程/原327整体UI与灾备未完成。a292/41014322522、bfb/41015808583及af5/41017076013仍需跟终态，历史GoIO40799210505继续待定位；阶段保存推送后继续。
+
 ## 2026-10-30 R1-013 通用敏感验证码重发与提示（持续施工）
+
+- 本段已提交推送af5af1af6b51272e7aa6a370227ada2df9d4554a，远端main同提交，CI41017076013运行；下一继续SMTP在途及失败回执代码/真实投递审查，未因阶段保存停止。
 
 - MyHosts段已推bfb45feebbb615ac6be349293159ca322493bf8d，对应CI41015808583；后端校对a292a95527d50faec9a52d6ddd0e71d116808a94/41014322522仍运行，两次各六job成功、Pool integration继续推进。41006712461已七job终态success。历史Go进程审计IO失败40799210505仍待准确复现，不因本地通过删除。
 - 原通用敏感验证码前端60秒允许重发，后端120秒以内复用旧记录；真实PG/本地SMTP先红：61秒后仍只有一封邮件。现同原user/operation/resource事务advisory锁下使用60秒，将alreadySent及剩余resendAfter与验证码expiresIn分开返回；前端使用实际剩余冷却，旧服务器缺字段仍按60秒。保留原验证和销毁专用账户/会话/邮箱/实例集合绑定、60秒及去同码合同。

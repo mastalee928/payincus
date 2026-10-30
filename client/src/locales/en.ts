@@ -5792,6 +5792,8 @@ pool: {
         NO_NOTIFICATION_CHANNEL: 'No notification channel configured',
         EMAIL_NOT_CONFIGURED: 'Email not configured, cannot send verification code',
         SEND_FAILED: 'Failed to send verification code',
+        VERIFICATION_PENDING: 'Sending your code. Please wait.',
+        VERIFICATION_RATE_LIMITED: 'Please wait before sending another code.',
         // Checkin errors
         CHECKIN_NO_INSTANCE: 'You need at least one instance to check in',
         CHECKIN_ALREADY_TODAY: 'You have already checked in today',

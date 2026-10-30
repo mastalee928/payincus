@@ -148,7 +148,8 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
                 
                 return reply.code(400).send({
                     error: result.error,
-                    code: result.errorCode || 'VERIFICATION_FAILED'
+                    code: result.errorCode || 'VERIFICATION_FAILED',
+                    resendAfter: result.resendAfter
                 })
             }
 

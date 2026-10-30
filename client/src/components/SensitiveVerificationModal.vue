@@ -5,6 +5,7 @@ import { useThemeStore } from '@/stores/theme'
 import api from '@/api'
 import { useToast } from '@/stores/toast'
 import { useAuthStore } from '@/stores/auth'
+import { translateError } from '@/utils/errorHandler'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
@@ -81,6 +82,21 @@ function captureContext() {
     operationType === props.operationType && resourceId === props.resourceId }
 }
 
+function startCountdown(seconds: number, context: ReturnType<typeof captureContext>) {
+  if (countdownTimer) clearInterval(countdownTimer)
+  countdownTimer = null
+  countdown.value = seconds
+  if (seconds <= 0) return
+  countdownTimer = setInterval(() => {
+    if (!context.current()) return
+    countdown.value = Math.max(0, countdown.value - 1)
+    if (countdown.value === 0 && countdownTimer) {
+      clearInterval(countdownTimer)
+      countdownTimer = null
+    }
+  }, 1000)
+}
+
 // 操作类型显示名称
 const operationName = computed(() => {
   const names: Record<string, string> = {
@@ -152,25 +168,16 @@ async function requestCode() {
     step.value = 'verify'
     
     // Current servers report remaining resend time separately from code expiry.
-    countdown.value = typeof response.resendAfter === 'number' && Number.isSafeInteger(response.resendAfter) && response.resendAfter >= 0
-      ? response.resendAfter : 60
-    if (countdownTimer) clearInterval(countdownTimer)
-    countdownTimer = setInterval(() => {
-      if (!context.current()) return
-      countdown.value--
-      if (countdown.value <= 0) {
-        if (countdownTimer) {
-          clearInterval(countdownTimer)
-          countdownTimer = null
-        }
-      }
-    }, 1000)
+    startCountdown(typeof response.resendAfter === 'number' && Number.isSafeInteger(response.resendAfter) && response.resendAfter >= 0
+      ? response.resendAfter : 60, context)
     
     if (response.alreadySent === true) toast.info(t(channel.value === 'email' ? 'sensitiveVerification.codeAlreadySent' : 'sensitiveVerification.codeAlreadySentNotification'))
     else toast.success(t('sensitiveVerification.codeSent'))
   } catch (err: any) {
     if (!context.current()) return
-    error.value = err?.message || String(err)
+    error.value = translateError(err)
+    if (['VERIFICATION_RATE_LIMITED', 'SEND_FAILED'].includes(err?.code) && typeof err.resendAfter === 'number' &&
+      Number.isSafeInteger(err.resendAfter) && err.resendAfter > 0) startCountdown(err.resendAfter, context)
   } finally {
     if (context.current()) loading.value = false
   }
@@ -322,10 +329,10 @@ onBeforeUnmount(() => {
             <button
               v-if="step === 'request'"
               class="btn-primary"
-              :disabled="loading"
+              :disabled="loading || countdown > 0"
               @click="requestCode"
             >
-              {{ loading ? t('sensitiveVerification.sendingCode') : t('sensitiveVerification.sendCode') }}
+              {{ loading ? t('sensitiveVerification.sendingCode') : countdown > 0 ? t('sensitiveVerification.resendIn', { seconds: countdown }) : t('sensitiveVerification.sendCode') }}
             </button>
             <button
               v-else
@@ -379,6 +386,12 @@ onBeforeUnmount(() => {
 }
 .two-factor-verification .modal-body button {
   color: var(--kawaii-text) !important;
+}
+.two-factor-verification [role="alert"] {
+  color: #b91c1c !important;
+}
+.dark .two-factor-verification [role="alert"] {
+  color: #fca5a5 !important;
 }
 .two-factor-verification .input {
   background: var(--kawaii-bg) !important;

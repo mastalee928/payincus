@@ -46,6 +46,12 @@ const VERIFICATION_CONFIG = {
     resendAfterSeconds: 60
 }
 
+// Delivery markers are not eligible attempt counts. Persist them before sending,
+// and keep only active I/O in memory under the single-backend deployment contract.
+const DELIVERY_PENDING = VERIFICATION_CONFIG.maxAttempts + 1
+const DELIVERY_FAILED = VERIFICATION_CONFIG.maxAttempts + 2
+const pendingOperationDeliveries = new Map<string, number>()
+
 // 操作类型显示名称（用于通知）
 const OPERATION_NAMES: Record<OperationType, { zh: string; en: string }> = {
     change_password: { zh: '修改密码', en: 'Change Password' },
@@ -161,7 +167,8 @@ export interface RequestVerificationResult {
 
 type PreparedOperationVerification =
     | { alreadySent: true; expiresIn: number; resendAfter: number }
-    | { alreadySent: false; code: string; codeHash: string }
+    | { alreadySent: false; code: string; codeHash: string; recordId: number; createdAt: Date; expiresAt: Date }
+    | { error: string; errorCode: string; resendAfter?: number }
 
 function getOperationVerificationRequestLockKey(
     userId: number,
@@ -221,12 +228,19 @@ export async function requestOperationVerification(
         maskedTarget = notifyChannel.target || channel
     }
 
+    let pendingRecordId: number | undefined
+    const requestKey = getOperationVerificationRequestLockKey(userId, operationType, resourceId)
     const prepared = await prisma.$transaction(async (tx): Promise<PreparedOperationVerification> => {
         await advisoryTransactionLockString(
             tx,
             OPERATION_VERIFICATION_REQUEST_LOCK_NAMESPACE,
             getOperationVerificationRequestLockKey(userId, operationType, resourceId)
         )
+
+        // Keep the in-flight gate even if an expired row is removed by cleanup.
+        if (pendingOperationDeliveries.has(requestKey)) {
+            return { error: 'Verification delivery is in progress', errorCode: 'VERIFICATION_PENDING' }
+        }
 
         const now = new Date()
         const normalizedResourceId = resourceId || null
@@ -254,10 +268,22 @@ export async function requestOperationVerification(
         })
 
         if (existingVerification) {
+            if (existingVerification.attempts === DELIVERY_PENDING) {
+                // A pending marker without active I/O survives an interrupted
+                // process. It cannot prove delivery or authorize an operation.
+                await tx.operationVerification.updateMany({
+                    where: { id: existingVerification.id, attempts: DELIVERY_PENDING, verified: false },
+                    data: { attempts: DELIVERY_FAILED }
+                })
+                existingVerification.attempts = DELIVERY_FAILED
+            }
             // Match the UI resend interval; code lifetime is a separate value.
             const resendAfter = Math.max(0, Math.ceil(VERIFICATION_CONFIG.resendAfterSeconds -
                 (now.getTime() - existingVerification.createdAt.getTime()) / 1000))
             if (resendAfter > 0) {
+                if (existingVerification.attempts >= VERIFICATION_CONFIG.maxAttempts) {
+                    return { error: 'Please wait before requesting another verification code', errorCode: 'VERIFICATION_RATE_LIMITED', resendAfter }
+                }
                 await tx.operationVerification.deleteMany({
                     where: {
                         userId,
@@ -297,20 +323,29 @@ export async function requestOperationVerification(
         const expiresAt = new Date(now.getTime() + VERIFICATION_CONFIG.expiresInMinutes * 60 * 1000)
 
         // 6. 存储验证码
-        await tx.operationVerification.create({
+        const record = await tx.operationVerification.create({
             data: {
                 userId,
                 operationType,
                 code: codeHash,
                 channel,
+                attempts: DELIVERY_PENDING,
                 resourceId: normalizedResourceId,
                 resourceType: resourceType || null,
-                expiresAt
+                expiresAt,
+                createdAt: now
             }
         })
 
-        return { alreadySent: false, code, codeHash }
+        pendingRecordId = record.id
+        pendingOperationDeliveries.set(requestKey, record.id)
+        return { alreadySent: false, code, codeHash, recordId: record.id, createdAt: now, expiresAt }
+    }).catch(error => {
+        if (pendingRecordId !== undefined && pendingOperationDeliveries.get(requestKey) === pendingRecordId) pendingOperationDeliveries.delete(requestKey)
+        throw error
     })
+
+    if ('errorCode' in prepared) return { success: false, ...prepared }
 
     if (prepared.alreadySent) {
         return {
@@ -327,43 +362,37 @@ export async function requestOperationVerification(
     // 7. 发送验证码
     const operationName = getOperationName(operationType, 'zh')
 
-    if (channel === 'email') {
-        // 发送邮件
-        const result = await sendOperationVerificationEmail(user.email!, {
-            username: user.username,
-            operationName,
-            code: prepared.code,
-            expiresInMinutes: VERIFICATION_CONFIG.expiresInMinutes
-        })
-        if (!result.success) {
-            // 删除刚创建的验证码
-            await prisma.operationVerification.deleteMany({
-                where: { userId, operationType, code: prepared.codeHash, ...GENERIC_VERIFICATIONS }
+    try {
+        let sent = false
+        try {
+            const data = { operationName, code: prepared.code, expiresInMinutes: VERIFICATION_CONFIG.expiresInMinutes }
+            sent = channel === 'email'
+                ? (await sendOperationVerificationEmail(user.email!, { username: user.username, ...data })).success
+                : (await sendVerificationNotification(userId, data)).success
+        } catch { /* A thrown transport failure cannot leave an eligible code. */ }
+        if (!sent) {
+            // Retain the timestamp for the resend budget, but never allow this
+            // code to verify or let a later request claim it was sent.
+            await prisma.operationVerification.updateMany({
+                where: { id: prepared.recordId, userId, operationType, code: prepared.codeHash, attempts: DELIVERY_PENDING, verified: false, ...GENERIC_VERIFICATIONS },
+                data: { attempts: DELIVERY_FAILED }
             })
-            return { success: false, error: result.error, errorCode: 'SEND_FAILED' }
+            return { success: false, error: 'Verification code could not be sent. Please try again later.', errorCode: 'SEND_FAILED',
+                resendAfter: Math.max(0, Math.ceil(VERIFICATION_CONFIG.resendAfterSeconds - (Date.now() - prepared.createdAt.getTime()) / 1000)) }
         }
-    } else {
-        // 发送通知渠道消息
-        const result = await sendVerificationNotification(userId, {
-            operationName,
-            code: prepared.code,
-            expiresInMinutes: VERIFICATION_CONFIG.expiresInMinutes
+        const activated = await prisma.operationVerification.updateMany({
+            where: { id: prepared.recordId, userId, operationType, code: prepared.codeHash, attempts: DELIVERY_PENDING, verified: false, expiresAt: { gt: new Date() }, ...GENERIC_VERIFICATIONS },
+            data: { attempts: 0 }
         })
-        if (!result.success) {
-            await prisma.operationVerification.deleteMany({
-                where: { userId, operationType, code: prepared.codeHash, ...GENERIC_VERIFICATIONS }
-            })
-            return { success: false, error: result.error, errorCode: 'SEND_FAILED' }
+        if (activated.count !== 1) return { success: false, error: 'Verification code is no longer available. Please request a new code.', errorCode: 'INVALID_CODE' }
+        const now = Date.now()
+        return {
+            success: true, channel, maskedTarget, alreadySent: false,
+            expiresIn: Math.max(0, Math.ceil((prepared.expiresAt.getTime() - now) / 1000)),
+            resendAfter: Math.max(0, Math.ceil(VERIFICATION_CONFIG.resendAfterSeconds - (now - prepared.createdAt.getTime()) / 1000))
         }
-    }
-
-    return {
-        success: true,
-        channel,
-        maskedTarget,
-        expiresIn: VERIFICATION_CONFIG.expiresInMinutes * 60,
-        alreadySent: false,
-        resendAfter: VERIFICATION_CONFIG.resendAfterSeconds
+    } finally {
+        if (pendingOperationDeliveries.get(requestKey) === prepared.recordId) pendingOperationDeliveries.delete(requestKey)
     }
 }
 

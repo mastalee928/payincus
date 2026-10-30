@@ -12,6 +12,8 @@ const { default: routes } = await import('../src/routes/verification.js')
 const { clearTransporterCache } = await import('../src/lib/mailer.js')
 const { invalidateAllConfigCache } = await import('../src/lib/config-cache.js')
 const tag = 'verification-resend-' + randomUUID().slice(0, 8), messages: string[] = [], sockets = new Set<Socket>()
+let delivery: 'accepted' | 'held' | 'rejected' = 'accepted'
+const held: Array<{ message: string; finish: () => void }> = []
 const smtp = createServer(socket => {
   sockets.add(socket); socket.on('close', () => sockets.delete(socket)); socket.setEncoding('utf8'); socket.write('220 isolated SMTP\r\n')
   let buffer = '', data = false, message = ''
@@ -21,7 +23,12 @@ const smtp = createServer(socket => {
       const end = buffer.indexOf('\r\n'), line = buffer.slice(0, end); buffer = buffer.slice(end + 2)
       if (data) {
         if (line !== '.') { message += line + '\r\n'; continue }
-        data = false; messages.push(message); message = ''; socket.write('250 queued\r\n'); continue
+        data = false
+        const completed = message; message = ''
+        if (delivery === 'held') held.push({ message: completed, finish: () => { messages.push(completed); socket.write('250 queued\r\n') } })
+        else if (delivery === 'rejected') socket.write('550 fixture rejects delivery\r\n')
+        else { messages.push(completed); socket.write('250 queued\r\n') }
+        continue
       }
       if (/^EHLO|^HELO/.test(line)) socket.write('250-isolated\r\n250 AUTH PLAIN\r\n')
       else if (/^AUTH/.test(line)) socket.write('235 authenticated\r\n')
@@ -71,7 +78,9 @@ try {
   assert.ok(duplicate.json().expiresIn > 500)
   await prisma.operationVerification.update({ where: { id: current.id }, data: { createdAt: new Date(Date.now() - 60_000) } })
   const concurrent = await Promise.all(Array.from({ length: 8 }, () => request()))
-  assert.ok(concurrent.every(response => response.statusCode === 200))
+  assert.ok(concurrent.every(response => response.statusCode === 200 ||
+    (response.statusCode === 400 && response.json().code === 'VERIFICATION_PENDING')),
+  'concurrent requests report accepted delivery or explicitly pending delivery')
   assert.equal(messages.length, 3, 'eight concurrent requests at the resend boundary produce one SMTP delivery')
   assert.equal(concurrent.filter(response => response.json().alreadySent === false).length, 1)
   assert.equal(await prisma.operationVerification.count({ where: { userId: actor.id, operationType: 'disable_2fa', verified: false } }), 1)
@@ -91,7 +100,71 @@ try {
   await request()
   assert.deepEqual(await prisma.operationVerification.findUniqueOrThrow({ where: { id: destroy.id } }), destroy)
   console.log('PASS account-isolated delivery/verification and generic request preserves destroy-email records')
+
+  await prisma.operationVerification.deleteMany({ where: { userId: actor.id, operationType: 'disable_2fa' } })
+  const beforeHeld = messages.length
+  delivery = 'held'
+  const sending = request()
+  for (let attempt = 0; !held.length; attempt++) {
+    assert.ok(attempt < 200, 'SMTP must reach held final acknowledgement')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  try {
+    const duplicatePending = await request()
+    assert.equal(duplicatePending.statusCode, 400, 'a pending SMTP delivery must not report an already-sent success')
+    assert.equal(duplicatePending.json().code, 'VERIFICATION_PENDING')
+    assert.equal(messages.length, beforeHeld)
+    const raw = held[0].message.replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/g, (_, value: string) => String.fromCharCode(parseInt(value, 16)))
+    const pendingCode = raw.match(/>\s*(\d{6})\s*</)?.[1]; assert.ok(pendingCode)
+    const premature = await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: pendingCode } })
+    assert.equal(premature.statusCode, 400, 'a not-yet-accepted delivery cannot grant verification')
+    const pendingRecord = await record()
+    await prisma.operationVerification.update({ where: { id: pendingRecord.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
+    const stillSending = await request()
+    assert.equal(stillSending.statusCode, 400, 'crossing resend interval must not overlap an in-flight delivery')
+    assert.equal(stillSending.json().code, 'VERIFICATION_PENDING')
+    await prisma.operationVerification.delete({ where: { id: pendingRecord.id } })
+    const removedSending = await request()
+    assert.equal(removedSending.statusCode, 400, 'in-flight gate survives removal of its database marker')
+    assert.equal(removedSending.json().code, 'VERIFICATION_PENDING')
+    await prisma.operationVerification.create({ data: pendingRecord })
+  } finally { held.splice(0).forEach(item => item.finish()) }
+  const sent = await sending
+  assert.equal(sent.statusCode, 200); assert.equal(messages.length, beforeHeld + 1)
+  const deliveredCode = codeFor(actor.email!)
+  const verifiedDelivery = await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: deliveredCode } })
+  assert.equal(verifiedDelivery.statusCode, 200)
+  console.log('PASS SMTP pending receipts cannot report success, verify early, or overlap after sixty seconds; acknowledgement enables verification')
+
+  await prisma.operationVerification.deleteMany({ where: { userId: actor.id, operationType: 'disable_2fa' } })
+  delivery = 'rejected'
+  const rejected = await request(); assert.equal(rejected.statusCode, 400)
+  assert.equal(rejected.json().code, 'SEND_FAILED')
+  const failedRecord = await record()
+  delivery = 'accepted'
+  const failedCooldown = await request(); assert.equal(failedCooldown.statusCode, 400)
+  assert.equal(failedCooldown.json().code, 'VERIFICATION_RATE_LIMITED', 'failed delivery preserves its resend budget')
+  assert.equal(messages.length, beforeHeld + 1)
+  await prisma.operationVerification.update({ where: { id: failedRecord.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  const retryDelivery = await request(); assert.equal(retryDelivery.statusCode, 200)
+  assert.equal(messages.length, beforeHeld + 2)
+  assert.deepEqual(await prisma.operationVerification.findUniqueOrThrow({ where: { id: destroy.id } }), destroy)
+  console.log('PASS rejected SMTP keeps sixty-second cooldown and retry succeeds afterwards without changing destroy-email records')
+
+  await prisma.operationVerification.deleteMany({ where: { userId: actor.id, operationType: 'disable_2fa' } })
+  const interrupted = await prisma.operationVerification.create({ data: { userId: actor.id, operationType: 'disable_2fa',
+    channel: 'email', code: 'sha256:interrupted-fixture', attempts: 6, expiresAt: new Date(Date.now() + 600_000),
+    createdAt: new Date(Date.now() - 30_000) } })
+  const interruptedCooldown = await request()
+  assert.equal(interruptedCooldown.statusCode, 400); assert.equal(interruptedCooldown.json().code, 'VERIFICATION_RATE_LIMITED')
+  assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: interrupted.id } })).attempts, 7)
+  assert.equal(messages.length, beforeHeld + 2)
+  await prisma.operationVerification.update({ where: { id: interrupted.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  assert.equal((await request()).statusCode, 200)
+  assert.equal(messages.length, beforeHeld + 3)
+  console.log('PASS interrupted-process pending marker cannot prove delivery and recovers after the resend cooldown')
 } catch (error) { failure = error } finally {
+  held.splice(0).forEach(item => item.finish())
   await app.close(); clearTransporterCache()
   await prisma.user.deleteMany({ where: { id: { in: users.map(user => user.id) } } })
   await prisma.systemConfig.deleteMany({ where: { key: { in: Object.keys(config) } } })

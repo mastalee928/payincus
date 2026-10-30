@@ -5852,6 +5852,8 @@ pool: {
         NO_NOTIFICATION_CHANNEL: '未绑定通知渠道，无需二次验证',
         EMAIL_NOT_CONFIGURED: '未配置邮箱，无法发送验证码',
         SEND_FAILED: '验证码发送失败',
+        VERIFICATION_PENDING: '验证码正在发送，请稍候',
+        VERIFICATION_RATE_LIMITED: '请稍后重新发送验证码',
         // 签到错误
         CHECKIN_NO_INSTANCE: '您需要至少拥有一个实例才能签到',
         CHECKIN_ALREADY_TODAY: '今日已签到',

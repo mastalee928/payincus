@@ -1,5 +1,9 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **2026-10-30 R011/013真实投递末验证完成**：真实SMTP未ACK重复200先红→pending6/failed7不可验证标记、固定user/operation/resource在途key门禁、精确ID/hash/CAS成功激活，失败保60秒冷却/旧进程pending可恢复，销毁专用保持。PG78146/types78426/server38279/2FA47900/destroy96415/末Chrome33065/有效client ESLint94590/四守卫67886均自然exit0；36末输入及失败inspect零findings、两sheet及重点原图已看。冻结产品唯一双端82148自然exit0（两types/user1m16s/admin50.09s），末dist过，无待poll。toast自然消失误计改新增ID、旧HMR轮不算。原327259含部分/68不同，generic消费后预算/账户统一预算/当前邮箱会话及通知目标等未完。af5af1af6b51272e7aa6a370227ada2df9d4554a/CI41017076013、a292/41014322522、bfb/41015808583仍Pool运行；历史GoIO/灾备保持。保存推送后继续。
+
+> **重发段已保存**：af5af1af6b51272e7aa6a370227ada2df9d4554a已push并核远端main一致，CI41017076013运行；无活动本地构建/测试，下一通用敏感验证SMTP在途及失败回执精修。前41014322522/41015808583仍运行，历史GoIO及原327内部缺口保持。
+
 > **2026-10-30 R013通用重发末验证完成，持续施工**：原前60/后120合同真实PG/SMTP61秒先红，现同user/operation/resource锁下60秒、alreadySent/resendAfter与expiry分开，前端真实剩余倒计时/重复零dispatch及自然提示「验证码已发送，请查收邮箱」（其他渠道查看通知，三语同步）。PG90923/server build52903/testtypes59776/Chrome93557/三守卫84902/lint76422/manifest均自然exit0，唯一双端7727含两types/user1m4s/admin56.02s自然exit0，末dist过，无待poll。18最后图及contact-sheet已看、18inspect零findings，critique保存。销毁专用60秒/绑定/去同码未改；generic SMTP在途/失败及消费后的预算另待，不称全账户预算或外部邮件全验。bfb45feebbb615ac6be349293159ca322493bf8d/CI41015808583、a292a95527d50faec9a52d6ddd0e71d116808a94/CI41014322522各六job成功仍Pool运行；410067现全success。原327259含部分/68不同、历史GoIO40799210505及灾备其它缺口保留，阶段保存推送后继续。
 
 > **2026-10-30 MyHosts批量校对**：actual Chrome48567全237分页/137顺序write/重复门禁/failed-only retry/6坏页/40旧回执/6坏写/18视觉色44px通过；最终route/i18n72878/host-pool50753/lint无错警/manifest194常规230专项/双端types-build85173自然exit0（user1m21/admin52.85s）、末dist通过，无待poll。末18图全看及taste3FAIL每屏旧gradient/button-shadow/panel-shadow保留，不称整页完。后端a292a955已推CI41014322522仍跑，410057全success，410067仍跑；GoIO/其他缺口不删。R020分页分项已保存源码，跨页强快照/真实宿主/原list/create/takeover/整页UI未完。阶段保存后继续通用敏感验证码前60/后120合同与实际发送证据，销毁专用60保持；PG55438可用。

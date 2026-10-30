@@ -6403,6 +6403,8 @@ pool: {
         NO_NOTIFICATION_CHANNEL: '未綁定通知管道，無需二次驗證',
         EMAIL_NOT_CONFIGURED: '未設定電子郵件，無法發送驗證碼',
         SEND_FAILED: '驗證碼發送失敗',
+        VERIFICATION_PENDING: '驗證碼正在發送，請稍候',
+        VERIFICATION_RATE_LIMITED: '請稍後重新發送驗證碼',
         // 簽到錯誤
         CHECKIN_NO_INSTANCE: '您需要至少擁有一個實例才能簽到',
         CHECKIN_ALREADY_TODAY: '今日已簽到',
