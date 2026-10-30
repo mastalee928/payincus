@@ -1332,7 +1332,7 @@ export async function verifyAndConsumeOAuthState(stateToken: string): Promise<OA
         const data = JSON.parse(Buffer.from(payload, 'base64url').toString()) as OAuthStateData
 
         // 检查时戳是否过期
-        if (Date.now() - data.timestamp > OAUTH_STATE_TTL_MS) {
+        if (Date.now() - data.timestamp >= OAUTH_STATE_TTL_MS) {
             return null
         }
 
@@ -1610,7 +1610,7 @@ export function verifyAndConsumeOAuthLoginCode(code: string): OAuthLoginCodeData
         const data = JSON.parse(Buffer.from(payload, 'base64url').toString()) as OAuthLoginCodeData
 
         // 检查时戳是否过期（60秒）
-        if (Date.now() - data.timestamp > OAUTH_LOGIN_CODE_TTL_MS) {
+        if (Date.now() - data.timestamp >= OAUTH_LOGIN_CODE_TTL_MS) {
             return null
         }
 

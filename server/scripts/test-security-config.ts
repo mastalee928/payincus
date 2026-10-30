@@ -140,6 +140,9 @@ try {
   assert.ok(result.warnings.includes('ENCRYPTION_KEY not configured, will use JWT_SECRET as fallback'))
 
   const securitySource = readFileSync(resolve(__dirname, '../src/lib/security.ts'), 'utf8')
+  assert.ok(securitySource.includes('Date.now() - data.timestamp >= OAUTH_STATE_TTL_MS') &&
+    securitySource.includes('Date.now() - data.timestamp >= OAUTH_LOGIN_CODE_TTL_MS'),
+  'OAuth token expiry must reject the exact deadline when nonce cleanup also expires its entry')
   const configCacheSource = readFileSync(resolve(__dirname, '../src/lib/config-cache.ts'), 'utf8')
   const hostRouteSource = readFileSync(resolve(__dirname, '../src/routes/hosts.ts'), 'utf8')
   const envExampleSource = readFileSync(resolve(__dirname, '../../.env.example'), 'utf8')

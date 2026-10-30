@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R005 OAuth nonce 清理与精确到期边界
+
+- 原按条清理而非整表clear确实保护未到期nonce；但清理使用expiresAt<=now，两个验证器却使用age>TTL。控制Date.now并调用实际注册清理回调，oauth-r005-both-before.log自然exit1：state和login code恰到TTL时已消费记录被清理后可再消费，未使用凭证在该时刻也仍有效。只将两个验证器改为age>=TTL，到期即拒绝，与清理一致；10分钟/60秒期限及单后端进程不变量不变。
+- oauth-r005-final.log自然exit0：实际签发/验签/消费函数及原清理callback，过期旧记录不复活、未过期已用记录清理后拒绝、每种20并发唯一次、错误签名不消耗原凭证、两种精确TTL已用/未用全部拒绝。仅时钟可控，不等待真实10分钟；无数据库业务改动。第一份oauth-r005-before.log是未提供模块所需DB环境，保留但非产品证据。
+- 原真实PG/Fastify OAuth配置/回调/兑换/解绑回归oauth-r005-regression.log自然exit0，当前权限、撤销、绑定CAS与失败回滚保持；提供商响应及JWT签发为原夹具。完整server+专项types零诊断、security/config与OAuth两守卫3/3、manifest及后端build自然exit0。新专项已登记CI，未进行外部OAuth授权或生产登录。
+- R170已推121df3ff36b70717bc07723ca163c31eca1c9c46 / CI41141678816，之前各阶段CI继续。R005后276/327项（84.4%，含部分/待验收），51项保初审分类，完整验收率另计，不改变固定v1.7.8或生产。
+
 ## 2026-10-31 R170 抽奖通知出站补验与未读正文回收
 
 - 原地址预检查/实际连接期safe dispatcher、manual redirect及15秒期限均有效；复审新增发现Discord成功和webhook成功/失败只看status，正文未消费也未取消。lottery-r170-before.log自然exit1：正常回执及记录已经落定，仍残留3个未结束响应。仅在这两发送分支finally取消剩余body，保原通知成功/失败规则与Discord错误读取。

@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为275项（含部分、待验收），52项仍保初审分类；这不是完整修复数，不能按327减275计算剩余全部工作。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为276项（含部分、待验收），51项仍保初审分类；这不是完整修复数，不能按327减276计算剩余全部工作。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -296,7 +296,7 @@
 | R1-002 | 部分存在 | 源码已修/隔离PG验证通过 | 邮箱注册锁、验证码次数/用途/过期与业务提交同事务；注册/profile/reset并发、旧认证状态及撤销故障回滚通过 logs/review-verification-integration-profile.log；admin创建大小写邮箱/初始状态配额及重置通过 logs/review-admin-account-integration.log；未生产验收 |
 | R1-003 | 存在 | 源码已修/隔离PG验证通过 | 2FA状态CAS、恢复码单次消费、完整已验证认证字段、enable/disable同事务撤销；logs/review-2fa-integration-latest.log；密码修改同事务通过 logs/review-verification-integration-profile.log |
 | R1-004 | 存在 | 源码已修/隔离PG验证通过 | 2FA状态CAS、恢复码单次消费、完整已验证认证字段、enable/disable同事务撤销；logs/review-2fa-integration-latest.log；密码修改同事务通过 logs/review-verification-integration-profile.log |
-| R1-005 | 已有防护 | 保留初审结论 | nonce按到期逐项移除，没有在TTL内整表clear；保留单Node部署约束。 |
+| R1-005 | 逐条清理已有防护，精确到期有缺口 | 两token期限已修/实际函数与回调复验通过 | 清理<=到期、校验>TTL导致恰到期可重放，控制时钟调用实际cleanup先红；state与login code改>=，20并发唯一次/有效期内清理保护/篡改不消费/精确TTL拒绝均过。oauth-r005-final及原PG OAuth回归/types/3守卫/build自然exit0，单Node保持，非外部OAuth实证。 |
 | R1-006 | 部分存在 | 源码已修/隔离PG验证通过 | 实际缺口在oauth.ts绑定/回调：binding身份及updatedAt CAS、current user/session、callback起始认证时间、exchange当前角色与绑定；自助解绑和撤销同事务。logs/review-oauth-integration-final.log；provider HTTPS为fetch夹具 |
 | R1-007 | 已有防护 | 保留初审结论 | 已有反斜杠、编码与控制字符的严格校验。 |
 | R1-008 | 部分存在 | 登录配置三语/密钥保留已复验；整页另待 | 繁体原生OAuth组缺失导致英文回退，已补31项并以原生文本守卫、Chrome三语三宽实际编辑提交及PG/Fastify省略/空值/UNCHANGED保旧密钥复验。相关守卫/types/lint/双端build/dist通过；外部应用区硬编码文案、整页UI和供应商登录仍待。 |
