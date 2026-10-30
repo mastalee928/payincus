@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-174 终端建连中途撤销
+
+- 保留接续时未提交的源码/测试/CI登记，读实际proxy/routes与auth-session、terminal-route守卫；实际HTTPS/mTLS专项先红为closeUserSessions返回0，旧opening未登记。现同步登记opening user/instance/sid与取消器，四关闭范围立即abort POST/握手，不等迟到回执、不触发VM回退；成对失败清socket、监听及计时器，active删除先于客户端close避免递归。
+- takeover-terminal-opening-last.log实际本机TLS/data/control ws专项通过：POST与握手×四范围撤销、双用户并发隔离、client close/error、失败retry、已断开客户端零POST、正常container/VM fallback和全部清理。3/3守卫test-run-20261030-104400全过。接续无仍在运行的本项build/tsc，旧日志无自然退出回执不能补记成功，必要重核server构建41800自然exit0（takeover-terminal-opening-server-build-recovered.log）及专项严格tsc自然exit0（takeover-terminal-opening-types-recovered.log）。恢复时首次专项类型日志路径误写C:/logs，未执行，不计通过；修到仓库logs后成功。
+- 新专项已登记server/EXCLUDED_FROM_SUITE/CI；仅受控客户端与本机实际HTTPS/mTLS/真实ws，不等于真实Incus或浏览器/生产。重连阶段取消/总截止、实例持久UUID和最新权限持续核验另待；R177最后前置授权复核随后继续。无前端改动，不重复双端构建。原327现253含部分/68已有不同/6待，内部验收缺口不删。
+- R059已推送5b056333035d145037fd75acec79f099eea8470a，对应40992598123运行；R057/40984944304已终态success，R073/40989729533和R074/40992045627仍各六job成功、Pool持续前进，继续跟。历史GoIO/三机SSH身份/真实邮件及完整灾备保留。按owner逐项提交推送后继续R177，不发行/生产。
+
 ## 2026-10-30 R1-059 孤立恢复组件及全局任务store
 
 - 完整读BackupManager996行/restoreTask219行，应用两入口、路由、组件、Vite所有plugins/alias、静态/动态导入与脚本全搜。store只有BackupManager消费者；组件无消费者或动态/全局自动注册。仅清这两个孤立文件，不将旧store竞态修改搬入当前不同备份栈；历史初审仍保留当时证据。

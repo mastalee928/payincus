@@ -83,6 +83,14 @@ export interface TerminalSession {
 
 // 活跃终端会话存储
 const activeSessions = new Map<string, TerminalSession>()
+interface OpeningTerminalSession {
+    userId: number
+    instanceId: number
+    sessionId?: string
+    client: WsWebSocket
+    cancellation: AbortController
+}
+const openingSessions = new Map<string, OpeningTerminalSession>()
 
 /**
  * 生成会话 ID
@@ -138,7 +146,8 @@ async function requestTerminalOperation(
     baseUrl: string,
     agent: Agent,
     endpoint: string,
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    signal?: AbortSignal
 ): Promise<{ operationId: string; fds: Record<string, string> }> {
     const response = await request(`${baseUrl}${endpoint}`, {
         method: 'POST',
@@ -146,7 +155,8 @@ async function requestTerminalOperation(
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal
     })
 
     const data = await response.body.json() as {
@@ -195,6 +205,7 @@ function closeIncusConnectionPair(dataWs: WsWebSocket, controlWs: WsWebSocket | 
     for (const socket of [dataWs, controlWs]) {
         if (!socket) continue
         socket.removeAllListeners()
+        socket.once('error', () => {})
         try {
             if (socket.readyState === socket.OPEN || socket.readyState === socket.CONNECTING) {
                 socket.close()
@@ -203,6 +214,28 @@ function closeIncusConnectionPair(dataWs: WsWebSocket, controlWs: WsWebSocket | 
             console.debug('[Terminal] Failed to close stale Incus WebSocket:', err)
         }
     }
+}
+
+function waitForTerminalSocket(socket: WsWebSocket, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+        let settled = false
+        const timeout = setTimeout(() => finish(new Error('Terminal WebSocket connection timeout')), 10000)
+        const finish = (error?: Error) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timeout)
+            socket.off('open', opened); socket.off('error', failed); socket.off('close', closed)
+            signal?.removeEventListener('abort', aborted)
+            if (error) reject(error); else resolve()
+        }
+        const opened = () => finish()
+        const failed = (error: Error) => finish(error)
+        const closed = () => finish(new Error('Terminal WebSocket closed while opening'))
+        const aborted = () => finish(new Error('Terminal connection cancelled'))
+        socket.once('open', opened); socket.once('error', failed); socket.once('close', closed)
+        signal?.addEventListener('abort', aborted, { once: true })
+        if (signal?.aborted) aborted()
+    })
 }
 
 function cleanupIncusSockets(session: TerminalSession): void {
@@ -387,8 +420,10 @@ export function getActiveSessionStats(): {
 export async function createIncusConsoleConnection(
     host: Host,
     instanceName: string,
-    instanceType: 'container' | 'vm' = 'container'
+    instanceType: 'container' | 'vm' = 'container',
+    signal?: AbortSignal
 ): Promise<{ controlWs: WsWebSocket | null; dataWs: WsWebSocket; operationId: string; mode: 'exec' | 'console' }> {
+    signal?.throwIfAborted()
     // 构建 Incus API URL
     const baseUrl = host.url
 
@@ -422,18 +457,21 @@ export async function createIncusConsoleConnection(
                     baseUrl,
                     agent,
                     `/1.0/instances/${encodedInstanceName}/exec`,
-                    buildExecPayload()
+                    buildExecPayload(),
+                    signal
                 )
                 operationId = execResult.operationId
                 fds = execResult.fds
                 mode = 'exec'
             } catch (execError) {
+                signal?.throwIfAborted()
                 console.warn(`[Terminal] VM exec unavailable for ${instanceName}, falling back to console:`, execError)
                 const consoleResult = await requestTerminalOperation(
                     baseUrl,
                     agent,
                     `/1.0/instances/${encodedInstanceName}/console`,
-                    buildConsolePayload()
+                    buildConsolePayload(),
+                    signal
                 )
                 operationId = consoleResult.operationId
                 fds = consoleResult.fds
@@ -444,7 +482,8 @@ export async function createIncusConsoleConnection(
                 baseUrl,
                 agent,
                 `/1.0/instances/${encodedInstanceName}/exec`,
-                buildExecPayload()
+                buildExecPayload(),
+                signal
             )
             operationId = execResult.operationId
             fds = execResult.fds
@@ -453,6 +492,8 @@ export async function createIncusConsoleConnection(
     } finally {
         await agent.close()
     }
+
+    signal?.throwIfAborted()
 
     // 检查数据 WebSocket fd 是否存在
     const dataSecret = fds['0']
@@ -474,6 +515,7 @@ export async function createIncusConsoleConnection(
 
     // 使用原生 WebSocket（需要 mTLS）
     const WebSocket = (await import('ws')).default
+    signal?.throwIfAborted()
 
     const dataWs = new WebSocket(dataWsUrl, {
         cert,
@@ -491,39 +533,17 @@ export async function createIncusConsoleConnection(
     }
 
     // 等待连接建立（带资源清理）
+    const socketCancellation = new AbortController()
+    const socketSignal = signal ? AbortSignal.any([signal, socketCancellation.signal]) : socketCancellation.signal
     try {
         await Promise.all([
-            new Promise<void>((resolve, reject) => {
-                const timeout = setTimeout(() => reject(new Error('Data WebSocket connection timeout')), 10000)
-                dataWs.once('open', () => {
-                    clearTimeout(timeout)
-                    resolve()
-                })
-                dataWs.once('error', (err) => {
-                    clearTimeout(timeout)
-                    reject(err)
-                })
-            }),
-            controlWs ? new Promise<void>((resolve, reject) => {
-                const timeout = setTimeout(() => reject(new Error('Control WebSocket connection timeout')), 10000)
-                controlWs.once('open', () => {
-                    clearTimeout(timeout)
-                    resolve()
-                })
-                controlWs.once('error', (err) => {
-                    clearTimeout(timeout)
-                    reject(err)
-                })
-            }) : Promise.resolve()
+            waitForTerminalSocket(dataWs, socketSignal),
+            controlWs ? waitForTerminalSocket(controlWs, socketSignal) : Promise.resolve()
         ])
     } catch (error) {
         // 连接失败时，关闭已成功的连接，避免资源泄漏
-        if (dataWs.readyState === dataWs.OPEN || dataWs.readyState === dataWs.CONNECTING) {
-            dataWs.close()
-        }
-        if (controlWs && (controlWs.readyState === controlWs.OPEN || controlWs.readyState === controlWs.CONNECTING)) {
-            controlWs.close()
-        }
+        socketCancellation.abort()
+        closeIncusConnectionPair(dataWs, controlWs)
         throw error
     }
 
@@ -544,29 +564,41 @@ export async function createTerminalSession(
 ): Promise<TerminalSession> {
     const sessionId = generateSessionId()
     let clientDisconnected = clientWs.readyState !== clientWs.OPEN
+    if (clientDisconnected) throw new Error('Client disconnected before terminal connection started')
+    const cancellation = new AbortController()
+    openingSessions.set(sessionId, { userId, instanceId, sessionId: authSessionId, client: clientWs, cancellation })
 
     // Install lifecycle handlers before any asynchronous Incus work so an early
     // browser disconnect cannot be missed while the backend connection is opening.
-    clientWs.on('close', () => {
+    const clientClosed = () => {
         clientDisconnected = true
         console.log(`[Terminal] Client WebSocket closed for session ${sessionId}`)
         closeTerminalSession(sessionId, 'Client disconnected')
-    })
+    }
 
-    clientWs.on('error', (err) => {
+    const clientFailed = (err: Error) => {
         clientDisconnected = true
         console.error(`[Terminal] Client WebSocket error for session ${sessionId}:`, err.message)
         closeTerminalSession(sessionId, 'Client connection error')
-    })
+    }
+    clientWs.on('close', clientClosed)
+    clientWs.on('error', clientFailed)
 
     // 创建 Incus 控制台连接
-    const { controlWs, dataWs, operationId, mode } = await createIncusConsoleConnection(
-        host,
-        instanceName,
-        instanceType
-    )
+    let connection: Awaited<ReturnType<typeof createIncusConsoleConnection>>
+    try {
+        connection = await createIncusConsoleConnection(host, instanceName, instanceType, cancellation.signal)
+    } catch (error) {
+        openingSessions.delete(sessionId)
+        clientWs.off('close', clientClosed); clientWs.off('error', clientFailed)
+        throw error
+    }
+    const { controlWs, dataWs, operationId, mode } = connection
+    if (cancellation.signal.aborted) clientDisconnected = true
 
     if (clientDisconnected || clientWs.readyState !== clientWs.OPEN) {
+        openingSessions.delete(sessionId)
+        clientWs.off('close', clientClosed); clientWs.off('error', clientFailed)
         closeIncusConnectionPair(dataWs, controlWs)
         throw new Error('Client disconnected while terminal backend connection was opening')
     }
@@ -722,6 +754,7 @@ export async function createTerminalSession(
     }, TERMINAL_CONFIG.heartbeatInterval)
 
     // 存储会话
+    openingSessions.delete(sessionId)
     activeSessions.set(sessionId, session)
 
     // 发送连接成功消息
@@ -744,6 +777,15 @@ export async function createTerminalSession(
  * 关闭终端会话
  */
 export function closeTerminalSession(sessionId: string, reason: string = 'Session closed'): void {
+    const opening = openingSessions.get(sessionId)
+    if (opening) {
+        openingSessions.delete(sessionId)
+        opening.cancellation.abort()
+        if (opening.client.readyState === opening.client.OPEN) {
+            safeSendClientMessage(opening.client, { type: 'disconnected', reason })
+            try { opening.client.close() } catch { /* Abort still fences backend creation. */ }
+        }
+    }
     const session = activeSessions.get(sessionId)
     if (!session) return
 
@@ -751,10 +793,12 @@ export function closeTerminalSession(sessionId: string, reason: string = 'Sessio
 
     // Invalidate reconnect work that may currently be sleeping or opening sockets.
     session.reconnectGeneration += 1
+    activeSessions.delete(sessionId)
 
     // 清除心跳定时器
     if (session.heartbeatTimer) {
         clearInterval(session.heartbeatTimer)
+        session.heartbeatTimer = null
     }
 
     cleanupIncusSockets(session)
@@ -777,8 +821,6 @@ export function closeTerminalSession(sessionId: string, reason: string = 'Sessio
         }
     }
 
-    // 移除会话
-    activeSessions.delete(sessionId)
 }
 
 /**
@@ -787,6 +829,9 @@ export function closeTerminalSession(sessionId: string, reason: string = 'Sessio
 export function closeInstanceSessions(instanceId: number, reason: string = 'Instance session closed'): number {
     // 先收集要关闭的会话 ID，避免在遍历时修改 Map
     const sessionsToClose: string[] = []
+    for (const [sessionId, session] of openingSessions) {
+        if (session.instanceId === instanceId) sessionsToClose.push(sessionId)
+    }
     for (const [sessionId, session] of activeSessions) {
         if (session.instanceId === instanceId) {
             sessionsToClose.push(sessionId)
@@ -854,6 +899,9 @@ export function stopSessionCleanup(): void {
 export function closeUserSessions(userId: number, reason: string = 'User session closed'): number {
     // 先收集要关闭的会话 ID，避免在遍历时修改 Map
     const sessionsToClose: string[] = []
+    for (const [sessionId, session] of openingSessions) {
+        if (session.userId === userId) sessionsToClose.push(sessionId)
+    }
     for (const [sessionId, session] of activeSessions) {
         if (session.userId === userId) {
             sessionsToClose.push(sessionId)
@@ -868,6 +916,9 @@ export function closeUserSessions(userId: number, reason: string = 'User session
 
 export function closeSessionTerminalSessions(sessionId: string, reason: string = 'Session closed'): number {
     const sessionsToClose: string[] = []
+    for (const [currentSessionId, session] of openingSessions) {
+        if (session.sessionId === sessionId) sessionsToClose.push(currentSessionId)
+    }
 
     for (const [currentSessionId, session] of activeSessions) {
         if (session.sessionId === sessionId) {
@@ -886,7 +937,7 @@ export function closeSessionTerminalSessions(sessionId: string, reason: string =
  * 关闭所有终端会话（用于服务器优雅关闭）
  */
 export function closeAllSessions(reason: string = 'Server shutdown'): number {
-    const sessionIds = Array.from(activeSessions.keys())
+    const sessionIds = [...openingSessions.keys(), ...activeSessions.keys()]
     for (const sessionId of sessionIds) {
         closeTerminalSession(sessionId, reason)
     }

@@ -55,6 +55,7 @@
     "test:review-change-plan-lifecycle": "node ../scripts/test-change-plan-lifecycle.mjs",
     "test:review-terminal-lifecycle": "node ../scripts/test-terminal-lifecycle.mjs",
     "test:review-terminal-session": "node ../scripts/test-terminal-session.mjs",
+    "test:review-terminal-opening": "node --import tsx scripts/test-review-terminal-opening.ts",
     "test:review-terminal-commands-lifecycle": "node ../scripts/test-terminal-commands-lifecycle.mjs",
     "test:review-ticket-lifecycle": "node ../scripts/test-ticket-lifecycle.mjs",
     "test:review-ticket-actions": "node ../scripts/test-ticket-actions.mjs",

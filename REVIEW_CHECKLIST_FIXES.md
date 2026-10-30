@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R059收尾后）：原327个编号中，252项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，7项仍为「待精修/运行复核」。252并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以7项表示。
+当前进度（2026-10-30，R174收尾后）：原327个编号中，253项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，6项仍为「待精修/运行复核」。253并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以6项表示。
+
+2026-10-30 R174：实际mTLS专项先红，closeUserSessions未找到opening终端。异步前登记opening身份及AbortController，用户/session/实例/全部关闭覆盖POST与双WebSocket握手；撤销取消请求、清监听/计时器及连接，不能触发VM fallback或迟到connected。最后TLS专项覆盖8类阶段/范围撤销、双用户并发隔离、断开/error、失败retry、正常双通道与VM回退通过；3守卫通过，恢复核对后server含tsc构建41800自然exit0、专项严格类型exit0。仅本机HTTPS/mTLS/真实ws及受控客户端，不充真实Incus或浏览器验收；重连阶段总截止/持久身份复核及R177前置授权另继续。253含部分/68不同/6待。
 
 2026-10-30 R059：完整读孤立BackupManager/store及全部运行入口/路由/Vite导入/自动注册证据，仅互相依赖且无应用消费者，清1215行；实际OSS/备份worker/API/router/detail十SHA保持。4守卫/双端types build72497/末dist自然exit0，无活体孤立入口，不当实际备份恢复验证。252含部分/68不同/7待，终端后端与原内部缺口继续。
 
@@ -385,7 +387,7 @@
 | R1-171 | 已有防护 | 保留初审结论 | login/register/forgot统一verifier，enabled=false直接跳过；完整site/secret条件一致。 |
 | R1-172 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
 | R1-173 | 已有防护 | 保留初审结论 | 自定义Telegram发送已有AbortSignal.timeout，不按旧清单重复改。 |
-| R1-174 | 部分存在 | 待精修/运行复核 | 异步前已注册close/error，断开后关闭新建连接；尚未activeSessions登记时的凭据撤销仍需复核。 |
+| R1-174 | 部分存在 | 建连撤销mTLS专项与构建守卫通过；重连待验 | 异步前登记opening当前user/session/instance及取消信号，四范围关闭中断POST/握手并清资源；实际TLS先红后修、并发隔离/断开/失败重试/正常VM回退通过。前置授权R177与重连总截止/真实Incus仍另验。 |
 | R1-175 | 已有防护 | 保留初审结论 | 重连等待后及新连接完成后核对activeSessions对象、reconnectGeneration和client状态，不符关闭新socket。 |
 | R1-176 | 已有防护 | 保留初审结论 | 所有异步建连前同步claimTerminalConnection预留名额，close释放pending且release幂等。 |
 | R1-177 | 部分存在 | 待精修/运行复核 | 票据领取后已有会话撤销检查和最新用户读取，再经实例/宿主/套餐await后createTerminalSession；最后建连前缺统一再验证，窗口待撤销/转移时序夹具，而非完全未认证。 |
