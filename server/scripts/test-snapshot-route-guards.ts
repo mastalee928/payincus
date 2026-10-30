@@ -20,8 +20,9 @@ assert.ok(
   source.includes('const POSITIVE_INTEGER_ID_RE = /^[1-9]\\d*$/') &&
     source.includes('function parsePositiveId(value: unknown): number | null') &&
     source.includes('Number.isSafeInteger(value) && value > 0') &&
-    source.includes('Number.isSafeInteger(parsed)'),
-  'snapshot routes must define a strict positive integer ID parser'
+    source.includes('value <= 2147483647') &&
+    source.includes('Number.isSafeInteger(parsed) && parsed <= 2147483647'),
+  'snapshot routes must define a strict positive PostgreSQL Int ID parser'
 )
 
 assert.equal(

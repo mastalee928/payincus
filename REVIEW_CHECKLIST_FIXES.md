@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195分段已推；本轮R275实证认证后降权仍写与早请求失败覆盖后来配置，改为统一实例锁内当前授权、远端成功再提交及90秒冷连/读写总期限；实际PG/Fastify、mTLS单池三类超时、类型/守卫/build通过，原生Incus仍待验。R182 CI并发夹具顺序已单独修正推3c2880b1；41134810809历史失败及新CI继续，详HANDOFF。R202另修实际映射IPv6出站绕过，R203正确流量通知器八场景复验通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为266项（含部分、待验收），61项仍保初审分类；这不是完整修复数，不能按327减266计算剩余全部工作。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195分段已推；本轮R275实证认证后降权仍写与早请求失败覆盖后来配置，改为统一实例锁内当前授权、远端成功再提交及90秒冷连/读写总期限；实际PG/Fastify、mTLS单池三类超时、类型/守卫/build通过，原生Incus仍待验。R182 CI并发夹具顺序已单独修正推3c2880b1；41134810809历史失败及新CI继续，详HANDOFF。R202另修实际映射IPv6出站绕过，R203正确流量通知器八场景复验通过；R66快照编号越界修复及126非法请求/8合法不存在边界通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为267项（含部分、待验收），60项仍保初审分类；这不是完整修复数，不能按327减267计算剩余全部工作。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -357,7 +357,7 @@
 | R1-063 | 原症状已修 | 当前授权真实Fastify/PG复验通过 | 四操作现withSnapshotMutation重读status/sid/role；20组实际写锁等待包括封禁/撤销/降权后403、零mTLS远端写，takeover-snapshot-mutation-authorization exit0；对应守卫/test types过，真实网页登录/Linux另验。 |
 | R1-064 | 原症状已修 | 目标/source/state/互斥真实Fastify/PG复验通过 | 原事务锁覆盖四effect，归属/转移与快照源替换/running等待后409、零mTLS写；恢复真实PUT悬挂期间同源delete409且源保留，合法对照通过takeover-snapshot-mutation-authorization，守卫/types过；原生磁盘另验。 |
 | R1-065 | 存在 | 已修；真实Fastify/PG通过 | 原实例锁内按当前策略重新排程：改间隔/重启/缺值重排，原样保留，关闭null，lastRunAt不变；schedule-before先红→final2间隔/账户门禁/实例字段保持与原auto-regression26条PG/mTLS回归全部exit0，3守卫/server types/build通过。真实Linux Incus另验。 |
-| R1-066 | 已有防护 | 保留初审结论 | parsePositiveId严格正整数及safe integer；不接受小数ID。 |
+| R1-066 | 部分存在 | PG编号溢出已修，真实路由复验 | 小数/后缀原已拒，但2147483648实际integer越界500；parser两分支补PG Int上界，126非法请求400、8合法不存在404、既有列表/策略可读，全部记录及审计不变/零宿主连接。types/守卫/build通过，原生流程范围另记。 |
 | R1-067 | 原症状已修 | 当前失败分支真实PG/mTLS复验通过 | 旧updateSnapshotPolicyLastRun无消费者；failure仅attempt约束操作回执。new_schedule_failure/disabled_schedule_failure完整policy保持/零远端写并原同操作恢复，takeover-snapshot-failure-schedule-final完整28条PASS exit0，两守卫/独立types过；成功恢复排程语义与原生磁盘另验。 |
 | R1-068 | 原症状已修 | 当前通知/审计真实PG复验通过 | 当前phase/最终事务重读owner/实例/宿主，renamed_queued实际站内信data/content及日志用当前名称；owner_changed blocked零mTLS写/双方零成功通知，恢复原owner同operation唯一通知。current-final完整30条PASS exit0，两守卫/test types过；外部通知与发送中再次变化另评，原生磁盘/整体灾备另验。 |
 | R1-069 | 实现不同 | 保留初审结论 | backupRoutes/storageConfig和restoreTaskWorker/backupUploadWorker实际注册启动；本库客机备份后端未退役。 |

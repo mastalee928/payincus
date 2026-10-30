@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R66 快照接口 PostgreSQL 编号边界
+
+- 原“已有防护”仅拒绝小数/后缀，safe integer仍包含PG Int越界。logs/snapshot-r66-id-before.log自然exit1：实际Fastify GET /instances/2147483648/snapshots进入prisma.instance.findUnique后integer越界500。共用parser的数字/字符串分支加2147483647上限，覆盖七处instanceId和两处snapshotId，不改创建/删除/恢复权限或流程。
+- 新test-review-snapshot-id-boundaries.ts登记CI。logs/snapshot-r66-id-final.log自然exit0：14非法/越界ID×9请求共126次400，8个合法不存在上界404；既有快照列表/策略读取成功，instance/snapshot/policy/operation/audit完整快照不变、零宿主连接。对应snapshot守卫、完整server+专项types、清单、后端build自然exit0。限于编号校验范围，不将此项算作所有原生快照流程新验收。
+- R202/R203已推d5a02f0f7385fa1fc7ca3d21c343009a8f1ed659 / CI41138737969运行中；R275与工单CI修正运行41137537472/41137000191持续。R66入复验后267项进入修复/复验（含部分/待验收）、60项保初审分类；不等于完整验收完成率。仍在固定v1.7.8之后，未生产部署。
+
 ## 2026-10-31 R202 映射IPv6出站绕过修复、R203实际流量通知期限补验
 
 - R202复审纠正：已有safeFetch连接期校验，但isIpv6PrivateOrReserved仅匹配点分IPv4映射，实际DNS返回十六进制::ffff:7f00:1会漏判。logs/traffic-r202-mapped-before.log自然exit1：原sendTrafficWarningNotification、真实PG、实际safeOutboundDispatcher，预检查DNS为公网、连接DNS为映射loopback时，隔离HTTP服务确实收到一次/private且通知sent。只访问本机专用服务，无外部通知或客户目标。

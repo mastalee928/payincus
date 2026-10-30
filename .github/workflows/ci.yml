@@ -285,6 +285,8 @@ jobs:
         run: pnpm --filter server test:review-process-boost-transport
       - name: Traffic notifications bound stalled attempts and reject private connection DNS results
         run: pnpm --filter server test:review-traffic-notification-transport
+      - name: Snapshot routes reject PostgreSQL ID overflow before any resource access
+        run: pnpm --filter server test:review-snapshot-id-boundaries
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets

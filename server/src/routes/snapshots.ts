@@ -32,7 +32,7 @@ function getSnapshotCreateLockKey(instanceId: number): string {
 
 function parsePositiveId(value: unknown): number | null {
   if (typeof value === 'number') {
-    return Number.isSafeInteger(value) && value > 0 ? value : null
+    return Number.isSafeInteger(value) && value > 0 && value <= 2147483647 ? value : null
   }
 
   if (typeof value !== 'string' || !POSITIVE_INTEGER_ID_RE.test(value)) {
@@ -40,7 +40,7 @@ function parsePositiveId(value: unknown): number | null {
   }
 
   const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
+  return Number.isSafeInteger(parsed) && parsed <= 2147483647 ? parsed : null
 }
 
 // 检查实例是否被转移锁定
