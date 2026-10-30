@@ -1,5 +1,19 @@
 # 版本与验证记录
 
+## 2026-10-31 发行冻结期间终端与工单并发补验（尚未迁入产品）
+
+- main已推9d0845c8a7b623a3fa22bbbbb42ce31cd0693b56，仅交接/清单文档；发行产品保持c77b68c5aab9d3e6f48f4091c7dce111c055465a。源码CI41115227451六job成功、Pool已过146步继续；9d0845c8的CI41123203452也六job成功、Pool继续。现有payincus-ci heartbeat ACTIVE，不重复在途任务；v1.7.8尚未tag/Release。
+- R177原WebSocket路由初连后直接提交DB封禁、断后端，基线仍发重连POST（terminal-reconnect-authority-before.log自然exit1）。正式封禁路由另有closeUserSessions，不能解释成全部正式封禁失效；缺口是重连自身未复核当前授权。临时合并R174/R177副本logs/terminal-proxy-reconnect-authority-candidate.ts保原初连授权闭包，每次重连在原实例/host/current actor/package锁内复核，保20秒总期限、取消、失败关双socket及正常后端有界重试；产品未改。
+- 最终terminal-authority-pg-boundaries-verified.log自然exit0：原route九类已提交授权/目标变化全部零重连POST；session/banned/transferred/host-url/demoted五类实际pg_blocking_pids锁竞争提交后拒绝；owner/host owner/admin正常重连。等待PG锁期间撤销零迟到POST，5秒锁超时关闭，3.2秒锁等待后卡POST合计约20秒取消并释放目标锁。两临时表延迟外键在回调正常完成后的真实COMMIT失败（23503/commitTransaction栈），已连双socket关闭且无第二次connected回执；主动回调失败同样保持。terminal-authority-cancel-regression.log与terminal-authority-opening-pg.log均自然exit0，原取消矩阵/初连授权回归保持；完整server+两测试虚拟原路径types最终0（terminal-authority-pg-boundaries-types-verified.log）。
+- 本轮测试纠错：初次类型检查未用导入已修；“真实COMMIT失败”初夹具临时表引用永久users表，实际42P16建表失败，虽socket清理断言过，不能作为COMMIT证据。已改双临时表并强制回调正常完成/外键错误断言。另一轮轮询session当前controller错过旧controller已取消且已开始下次重试，改捕获本轮controller检查；原错轮exit1保留。最终只以上verified轮作为完整证据。
+- R181复审纠正：原“已有防护”只涵盖新回复updatedAt CAS；管理员deleteTicketMessage不改ticket.updatedAt，自动关闭读完最后客服回复后，删除先提交仍能关闭，review-ticket-autoclose-delete-before.log自然exit1，实际deleteWon=true/closed=1。临时副本logs/tickets-autoclose-candidate.ts只在autoClose每项事务读取前加3秒lock_timeout及原ticket FOR UPDATE，协调现有回复/删除锁。review-ticket-autoclose-expanded-staged.log自然exit0：关闭先锁时删除等待；删除/客户新回复先持锁提交后关闭重读拒绝，八并发/重复ID只一成功回执，新回复/客户末条/无消息拒绝，事务失败完整回滚。加载器核候选SHA256 0000bf4d2be977541832314716888672a3cd0e348c36e0934ac9e5c59b267e1a。临时脚本首次括号错误、加载器strip-only不支持参数属性均已修，未算产品故障。
+- R181候选完整server及长期测试虚拟路径types零诊断（ticket-autoclose-candidate-types.log），原三专项ticket-autoclose-candidate-original-regression.log全部自然exit0：网站42权限/对象/状态竞争、真实PAT/POA鉴权160类竞争、原对象绑定与首消息故障回滚；加载器确认同候选。没有外部通知或附件服务；产品迁入仍待发行之后。
+- R177进一步边界复现：两通道成功但授权事务尚未提交时撤销，旧临时候选未立即关新socket（terminal-reconnect-pending-commit-before.log自然exit1），用户会话已关闭；需要给未发布pair绑定本轮取消监听并在成功接管或finally移除。临时候选已补，pending-commit-fixed/types回归运行中；此前verified轮不覆盖本次新增改动。
+- R177重连pending提交窗口最终pending-commit-fixed/types自然exit0；立即取消监听使事务仍held时双socket先关闭、无第二次connected。后续terminal-pending-commit-cancel-regression.log与terminal-pending-commit-opening-regression.log自然exit0，加载候选SHA256 1215884b607b6cfb0b138e067f94a5a1fedb593d9b0a45060824fb4804c05157；扩大取消矩阵和原初连授权保持。初连相同pending提交窗口另外补验中，不把旧初连回归当这个新增场景证据。
+- 同类初连pending事务撤销也先红（terminal-initial-pending-commit-before.log），临时副本为初连signal同步绑定未发布pair取消监听；terminal-initial-pending-commit-fixed.log和types自然exit0，完整重连权限/PG锁/真实COMMIT失败及两类pending撤销均通过。再次冻结候选后仅复跑受影响原opening/mTLS/PG与reconnect取消，terminal-final-*日志待收终态。正式产品仍未迁入。
+- 最终候选SHA256 5820c06b2cb8f4a4ab845b9d477c3b349cfc077b481650116d936c02b8f9b797：terminal-final-opening-mtls.log、terminal-final-opening-pg.log与terminal-final-reconnect-cancel.log全部自然exit0；同候选完整server/两长期测试types零诊断。初连/重连普通成功、VM fallback、四范围撤销/并发隔离、原route授权/20秒期限和提交失败均保留，尚须正式产品迁入、守卫/build及新CI。
+- 上述两段为隔离真实PG和本地mTLS证据，原生Incus终端/持续公网连接及工单外部通知仍未验。先完成已授权v1.7.8发行，随后分别迁入产品、保存长期测试、登记清单/CI、构建/守卫并逐段提交推送。此前259含部分/68初审为历史口径；R181本轮从初审转入复验且尚未落地，不能增加完整修复数。没有生产操作。
+
 ## 2026-10-31 地图所有可售地区名称与基础避让（阶段保存）
 
 - 冻结产品提交为c77b68c5aab9d3e6f48f4091c7dce111c055465a；源码CI41115227451、文档41115227538与双架构预览41115228247完整headSha一致。文档/预览已success，源码CI六job成功、Pool已过124步仍运行，继续读具体job与终态。此次补验文档单独阶段保存；正式v1.7.8应指向通过门槛的c77b68c5，不无意将后续文档提交当已验证产品。

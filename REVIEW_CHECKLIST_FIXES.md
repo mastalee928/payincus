@@ -1,3 +1,5 @@
+2026-10-31最新补验：R174/R177临时候选覆盖重连当前授权、20秒总期限和初连/重连已连通但事务未结束的撤销清理，真实PG/mTLS及原回归/types通过；R181删除末条客服回复竞争实证推翻“已有防护”，临时两行锁修复及原PG/PAT/对象绑定回归通过。产品仍冻结c77b68c5等待v1.7.8发行后逐段迁入，详HANDOFF。按“进入修复或复验记录”口径现为260项（含部分、待落地），67项仍保初审分类；这不是完整修复数，原327内部尚未完成项不能按327减260计算。
+
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
 > **2026-10-30当前：v1.7.8候选验收继续**。Prisma补丁、最终本地195/195及双端/后端build、1d2d558b双架构完整预览41062229849/实际production PG专项与安装包检查通过，源码CI41061780692仍后续Pool集成运行。审查R269真实20秒行锁+26秒慢身份复现45秒事务后继续远端写、DB结算失败；清理期限现先于事务申请创建，修后约30秒零停止/实例DELETE、PG连接归还及资源地址保持；完整21场景/严格types/build/8守卫/destroy通过见HANDOFF。产品新增使旧预览不覆盖此修复，需新候选全量/CI/双架构；原327计数259含部分/68不同不增，原生Incus/强杀恢复/灾备缺口保持，无tag/Release/生产。
@@ -470,7 +472,7 @@
 | R1-178 | 已有防护 | 保留初审结论 | 事务advisory lock串行count和insert，100条上限已有并发保护。 |
 | R1-179 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-180 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
-| R1-181 | 已有防护 | 保留初审结论 | 逐项事务重新读resolved/最后回复，updateMany约束updatedAt；仅实际closedTickets发送通知日志。 |
+| R1-181 | 部分存在（复审纠正） | 删除末条回复竞争已复现；临时修复通过，待落地 | 原updatedAt CAS覆盖新回复，但管理员删除末条客服回复不改ticket.updatedAt；原auto-close读取后删除先提交仍关闭，review-ticket-autoclose-delete-before.log自然exit1。临时候选读取前锁ticket，实际两序PG锁竞争、八并发唯一回执、新回复/客户末条/无消息及事务回滚通过expanded-staged.log。产品仍冻结，长期测试/源码/构建/CI与外部通知另待，不能记整项已修。 |
 | R1-182 | 已有防护 | 保留初审结论 | 逐项事务重新读resolved/最后回复，updateMany约束updatedAt；仅实际closedTickets发送通知日志。 |
 | R1-183 | 部分存在 | 源码已修/隔离PG验证通过 | 完整十进制/safe integer与DB offset乘积限32位；四路由/helper非法及重复参数、有效二页/末页/100上限/偏移临界通过takeover-ticket-pagination-r3.log。数字搜索超PG整数范围按原文字匹配，重复search不500；4守卫、后端build与专项类型通过，浏览器/生产未验 |
 | R1-184 | 部分存在（复审纠正） | 源码已修/隔离PG验证通过 | 原safe integer仍越过PG Int上限；实际2147483648复现500后加入2147483647上限。154路径/查询/正文非法ID400、最大合法但不存在404、正常200且无写入，分页回归/4守卫/build/types通过takeover-ticket-id-final.log |
