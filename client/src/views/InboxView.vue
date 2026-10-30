@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
@@ -34,6 +34,9 @@ const authStore = useAuthStore()
 const messages = ref<InboxMessage[]>([])
 const loading = ref(false)
 const loaded = ref(false)
+const readError = ref(false), actionError = ref(false), mutating = ref(false), active = ref(false)
+let alive = true, generation = 0, viewGeneration = 0, readSequence = 0
+let currentMutation: (() => boolean) | undefined
 
 // 分页
 const currentPage = ref(1)
@@ -44,6 +47,36 @@ const totalPages = computed(() => Math.ceil(total.value / pageSize.value))
 // 筛选
 const filter = ref<'all' | 'unread'>('all')
 const categoryFilter = ref<MessageCategory | 'all'>('all')
+const session = computed(() => {
+  if (!authStore.user || !authStore.token || !Number.isSafeInteger(authStore.user.id) || authStore.user.id < 1) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string' && payload.sid) identity = payload.sid
+  } catch { /* Legacy tokens keep their full identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const available = computed(() => alive && active.value && !!session.value && ['/inbox', '/admin/inbox'].includes(route.path))
+const actionsDisabled = computed(() => !available.value || !loaded.value || loading.value || readError.value || mutating.value)
+function context() {
+  const identity = session.value, version = generation, revision = viewGeneration, path = route.path
+  const page = currentPage.value, selectedFilter = filter.value, userId = authStore.user!.id
+  return { userId, page, selectedFilter, sessionCurrent: () => available.value && identity === session.value && version === generation,
+    current: () => available.value && identity === session.value && version === generation &&
+    revision === viewGeneration && path === route.path && page === currentPage.value && selectedFilter === filter.value }
+}
+function invalidateView() {
+  viewGeneration++; readSequence++; messages.value = []; total.value = 0
+  loaded.value = false; loading.value = false; readError.value = false; actionError.value = false
+}
+function invalidateContext() { generation++; invalidateView(); currentPage.value = 1; filter.value = 'all'; categoryFilter.value = 'all' }
+watch([session, () => route.path], () => { invalidateContext(); if (available.value) void loadMessages() }, { flush: 'sync' })
+watch([currentPage, filter], invalidateView, { flush: 'sync' })
+function activate() { if (!alive || active.value) return; active.value = true; if (available.value) void loadMessages() }
+onMounted(activate)
+onActivated(activate)
+onDeactivated(() => { active.value = false; invalidateContext() })
+onBeforeUnmount(() => { alive = false; active.value = false; invalidateContext() })
 
 // 所有类别（根据用户配额过滤）
 const allCategories = getAllCategories()
@@ -76,81 +109,123 @@ const filteredMessages = computed(() => {
 
 // 加载消息列表
 async function loadMessages() {
+  if (!available.value || currentMutation?.() || !Number.isSafeInteger(currentPage.value) || currentPage.value < 1 ||
+    !Number.isSafeInteger(pageSize.value) || pageSize.value < 1 || pageSize.value > 100) return
+  const target = context(), size = pageSize.value, sequence = ++readSequence
+  const current = () => target.current() && sequence === readSequence && size === pageSize.value
   loading.value = true
+  readError.value = false
   try {
     const res = await api.inbox.list({
-      page: currentPage.value,
-      pageSize: pageSize.value,
-      isRead: filter.value === 'unread' ? false : undefined
+      page: target.page,
+      pageSize: size,
+      isRead: target.selectedFilter === 'unread' ? false : undefined
     })
-    messages.value = res.messages
+    if (!current()) return
+    if (!res || res.page !== target.page || res.pageSize !== size || !Number.isSafeInteger(res.total) || res.total < 0 ||
+      res.totalPages !== Math.ceil(res.total / size) || !Array.isArray(res.messages) || res.messages.length > size ||
+      !res.messages.every(message => validMessage(message, target.userId) && (target.selectedFilter !== 'unread' || !message.isRead)) ||
+      new Set(res.messages.map(message => message.id)).size !== res.messages.length || (res.total === 0 && res.messages.length > 0)) throw Error('Invalid inbox response')
+    if (target.page > Math.max(1, res.totalPages)) {
+      currentPage.value = Math.max(1, res.totalPages)
+      await loadMessages()
+      return
+    }
+    messages.value = res.messages.map(message => ({ ...message }))
     total.value = res.total
-  } catch (err) {
-    console.error('Failed to load inbox messages:', err)
-    toast.error(t('common.error'))
-  } finally {
-    loading.value = false
     loaded.value = true
+  } catch {
+    if (current()) readError.value = true
+  } finally {
+    if (current()) loading.value = false
+  }
+}
+function validMessage(value: unknown, userId: number): value is InboxMessage {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const message = value as InboxMessage
+  return Number.isSafeInteger(message.id) && message.id > 0 && message.userId === userId && typeof message.isRead === 'boolean' &&
+    typeof message.eventType === 'string' && typeof message.title === 'string' && typeof message.content === 'string' &&
+    typeof message.createdAt === 'string' && Number.isFinite(Date.parse(message.createdAt)) &&
+    (message.data === null || typeof message.data === 'object' && !Array.isArray(message.data))
+}
+async function mutate(operation: () => Promise<{ success: boolean; count?: number }>, apply: () => void, counted = false) {
+  if (actionsDisabled.value) return false
+  const target = context()
+  mutating.value = true; currentMutation = target.current; actionError.value = false
+  readSequence++; loading.value = false
+  try {
+    const response = await operation()
+    if (!target.current()) return false
+    if (!response || response.success !== true || counted && (!Number.isSafeInteger(response.count) || response.count! < 0)) throw Error('Invalid inbox mutation response')
+    apply()
+    loaded.value = false
+    return true
+  } catch {
+    if (target.current()) actionError.value = true
+    return false
+  } finally {
+    mutating.value = false; currentMutation = undefined
+    if (available.value && !loading.value && (!loaded.value || target.sessionCurrent())) void loadMessages()
   }
 }
 
 // 标记单条已读
 async function markAsRead(message: InboxMessage) {
-  if (message.isRead) return
-  try {
-    await api.inbox.markAsRead(message.id)
-    message.isRead = true
+  if (actionsDisabled.value || !messages.value.some(item => item.id === message.id)) return false
+  if (message.isRead) return true
+  const id = message.id
+  return mutate(() => api.inbox.markAsRead(id), () => {
+    messages.value.forEach(item => { if (item.id === id) item.isRead = true })
+    if (filter.value === 'unread') {
+      messages.value = messages.value.filter(item => item.id !== id)
+      total.value = Math.max(0, total.value - 1)
+      const page = Math.min(currentPage.value, Math.max(1, totalPages.value))
+      if (page !== currentPage.value) currentPage.value = page
+    }
     inboxStore.decrementUnread()
-  } catch {
-    // 静默失败
-  }
+  })
 }
 
 // 全部标记已读
 async function markAllAsRead() {
-  try {
-    const res = await api.inbox.markAllAsRead()
+  await mutate(() => api.inbox.markAllAsRead(), () => {
     messages.value.forEach(m => m.isRead = true)
+    if (filter.value === 'unread') { messages.value = []; total.value = 0; currentPage.value = 1 }
     inboxStore.clearUnread()
     toast.success(t('inbox.markedAllRead'))
-    if (res.count > 0) {
-      loadMessages()
-    }
-  } catch {
-    toast.error(t('common.error'))
-  }
+  }, true)
 }
 
 // 删除单条消息
 async function deleteMessage(message: InboxMessage) {
+  if (actionsDisabled.value || !messages.value.some(item => item.id === message.id)) return
+  const target = context(), id = message.id, wasUnread = !message.isRead
   if (!confirm(t('inbox.deleteConfirm'))) return
-  try {
-    await api.inbox.delete(message.id)
-    messages.value = messages.value.filter(m => m.id !== message.id)
-    total.value--
-    if (!message.isRead) {
-      inboxStore.decrementUnread()
-    }
+  if (!target.current()) return
+  await mutate(() => api.inbox.delete(id), () => {
+    messages.value = messages.value.filter(m => m.id !== id)
+    total.value = Math.max(0, total.value - 1)
+    const page = Math.min(currentPage.value, Math.max(1, totalPages.value))
+    if (page !== currentPage.value) currentPage.value = page
+    if (wasUnread) inboxStore.decrementUnread()
     toast.success(t('inbox.deleted'))
-  } catch {
-    toast.error(t('common.error'))
-  }
+  })
 }
 
 // 清空已读
 async function deleteReadMessages() {
+  if (actionsDisabled.value) return
+  const target = context()
   if (!confirm(t('inbox.clearConfirm'))) return
-  try {
-    await api.inbox.deleteRead()
-    loadMessages()
+  if (!target.current()) return
+  await mutate(() => api.inbox.deleteRead(), () => {
     toast.success(t('inbox.cleared'))
-  } catch {
-    toast.error(t('common.error'))
-  }
+  }, true)
 }
 
 // 切换筛选
 function setFilter(newFilter: 'all' | 'unread') {
+  if (!available.value || !['all', 'unread'].includes(newFilter) || newFilter === filter.value) return
   filter.value = newFilter
   currentPage.value = 1
   loadMessages()
@@ -163,7 +238,10 @@ function setCategoryFilter(category: MessageCategory | 'all') {
 
 // 点击消息 - 标记已读并跳转
 async function handleMessageClick(message: InboxMessage) {
-  await markAsRead(message)
+  if (actionsDisabled.value) return
+  const target = context()
+  const marked = await markAsRead(message)
+  if (!target.sessionCurrent() || !marked && !target.current()) return
   const targetRoute = getMessageRoute(message)
   if (targetRoute) {
     router.push(targetRoute)
@@ -184,7 +262,7 @@ function getCategoryLabel(message: InboxMessage): string {
 
 // 分页
 function goToPage(page: number) {
-  if (page < 1 || page > totalPages.value) return
+  if (!available.value || !Number.isSafeInteger(page) || page < 1 || page > totalPages.value || page === currentPage.value) return
   currentPage.value = page
   loadMessages()
 }
@@ -194,20 +272,10 @@ function formatTime(dateStr: string): string {
   return formatRelativeTime(dateStr, t)
 }
 
-onMounted(() => {
-  loadMessages()
-})
-
-// 路由变化时刷新
-watch(() => route.path, () => {
-  if (route.path === '/inbox') {
-    inboxStore.refresh()
-  }
-})
 </script>
 
 <template>
-  <div ref="revealRoot" class="kawaii-page animate-fade-in">
+  <div ref="revealRoot" class="kawaii-page inbox-page animate-fade-in">
     <!-- Header -->
     <div data-reveal class="page-header">
       <div class="min-w-0">
@@ -218,6 +286,7 @@ watch(() => route.path, () => {
         <!-- 清空已读 -->
         <button
           class="btn btn-secondary btn-sm"
+          :disabled="actionsDisabled"
           @click="deleteReadMessages"
         >
           {{ t('inbox.clearRead') }}
@@ -225,6 +294,7 @@ watch(() => route.path, () => {
         <!-- 全部已读 -->
         <button
           class="btn btn-primary btn-sm"
+          :disabled="actionsDisabled"
           @click="markAllAsRead"
         >
           {{ t('inbox.markAllRead') }}
@@ -290,10 +360,18 @@ watch(() => route.path, () => {
       </div>
     </div>
 
+    <div v-if="actionError" role="alert" data-inbox-action-error class="mb-4 text-sm text-red-600 dark:text-red-400">
+      {{ t('common.error') }}
+    </div>
+
     <!-- 消息列表 -->
     <div class="card">
       <!-- 加载中 -->
-      <div v-if="loading && !loaded" class="px-8 py-14 text-center">
+      <div v-if="readError" role="alert" data-inbox-read-error class="px-8 py-8 text-center">
+        <p class="text-sm text-red-600 dark:text-red-400">{{ t('common.error') }}</p>
+        <button class="btn btn-secondary mt-3" :disabled="loading" @click="loadMessages">{{ t('common.retry') }}</button>
+      </div>
+      <div v-else-if="loading && !loaded" class="px-8 py-14 text-center">
         <svg class="mx-auto h-6 w-6 animate-spin text-themed-muted" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -342,7 +420,12 @@ watch(() => route.path, () => {
           </div>
 
           <!-- 内容 -->
-          <div class="min-w-0 flex-1" @click="handleMessageClick(message)">
+          <div
+            class="min-w-0 flex-1 break-words" role="button" tabindex="0" :aria-disabled="actionsDisabled"
+            @click="handleMessageClick(message)"
+            @keydown.enter.prevent="handleMessageClick(message)"
+            @keydown.space.prevent="handleMessageClick(message)"
+          >
             <div class="flex flex-wrap items-center gap-2">
               <!-- 类别标签 -->
               <span
@@ -379,6 +462,8 @@ watch(() => route.path, () => {
               v-if="!message.isRead"
               class="rounded-md p-1.5 text-themed-faint transition-colors hover:bg-themed-hover hover:text-themed"
               :title="t('inbox.markRead')"
+              :aria-label="t('inbox.markRead')"
+              :disabled="actionsDisabled"
               @click.stop="markAsRead(message)"
             >
               <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -388,6 +473,8 @@ watch(() => route.path, () => {
             <button
               class="rounded-md p-1.5 text-themed-faint transition-colors hover:bg-themed-hover hover:text-red-500"
               :title="t('common.delete')"
+              :aria-label="t('common.delete')"
+              :disabled="actionsDisabled"
               @click.stop="deleteMessage(message)"
             >
               <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -434,7 +521,7 @@ watch(() => route.path, () => {
 </template>
 
 <style scoped>
-/* Nimbus 收件箱：等宽类别标签 + 未读靛蓝点 */
+/* 收件箱的类别标签与未读标记沿用单色界面。 */
 .nimbus-tag {
   display: inline-flex;
   align-items: center;
@@ -447,7 +534,24 @@ watch(() => route.path, () => {
 }
 
 .nimbus-unread {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--kawaii-primary) 18%, transparent);
+  background: var(--text-primary);
+  box-shadow: none;
+}
+
+.inbox-page .card { background: var(--bg-primary) !important; background-image: none !important; box-shadow: none !important; backdrop-filter: none; }
+.inbox-page button { box-shadow: none !important; transform: none !important; }
+.inbox-page .btn-primary { background: var(--text-primary) !important; background-image: none !important; color: var(--bg-primary) !important; border-color: var(--text-primary) !important; }
+.inbox-page .btn-primary::before { display: none !important; }
+.inbox-page .btn-secondary { background: var(--bg-secondary); background-image: none; color: var(--text-primary); }
+.inbox-page button:disabled { opacity: .5; }
+.inbox-page [role='button']:focus-visible, .inbox-page button:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.inbox-page .nimbus-tag, .inbox-page .font-mono { font-family: inherit; }
+.inbox-page .nimbus-tag { font-size: 12px; color: var(--text-secondary); background: var(--bg-secondary); }
+.inbox-page .text-themed-faint { color: var(--text-secondary); }
+.inbox-page .page-description { color: var(--text-secondary); }
+
+@media (max-width: 639px) {
+  button { min-width: 44px; min-height: 44px; transform: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {

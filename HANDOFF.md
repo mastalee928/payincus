@@ -2,6 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-048 站内信读取、已读与删除回执
+
+- Chrome先复现旧列表覆盖新列表；固定账户、role、sid、路由、分页、筛选与同步代次/请求序号，KeepAlive及卸载清旧数据。严格归属、消息结构与分页，读取失败持久显示可重试，未确认列表不允许写入。四类写入共享在途门禁，strict success/count，旧回执不修改新列表、计数或通知。
+- 已读立即移出未读筛选；删末页末条回退合法页并重新读取，同账户切筛选时原写完成再次同步当前列表。保留现有点击路由行为，旧点击完成不导航替换视图；实际按钮禁用/aria-label及内容键盘操作，手机44px。局部去渐变/光晕/阴影、改善时间与描述对比，后端接口/权限/消息发送保持。
+- 最终无HMR冻结源码logs/takeover-inbox-complete-verified.log自然exit0：最新响应、未读移除/末页回退、90组旧读写account/sid/role/logout/ABA/cache/unmount/route/filter回执，坏读写与持久重试、重复/交叉门禁、count=0、切筛选再同步、旧点击和三语1440/768/390实际按钮/手机44px。最后双端含vue-tsc build自然exit0（takeover-inbox-final-dual-build.log），route/i18n 2/2（test-run-20261030-080551）、目标lint零错警、manifest分类与diff通过；最后构建后dist守卫takeover-inbox-dist-final.log通过。早期带HMR或端口冲突轮不计最终通过。
+- 专项test:review-inbox-receipts已登记server/EXCLUDED_FROM_SUITE/CI。taste沿Achromatic ledger seed242843060，浅深三宽0FAIL/1WARN，短消息列表留白保持实际内容，12终图已查看，critique 7.3存logs/inbox-receipts-critique.md。受控API、独立组件与测试消息不代替真实账户、完整shell、后端并发、外部邮件或NotificationBell/未读store验收；未读store下一R054。原327现243有修复/复验（含部分）/68已有防护或不同/16待，已记录项内部缺口仍保留。
+- R072已commit/push025c3bf888c7f6acc1654aaaaa5b213a426b9425，远端main一致。最新40974379396/b8b88f02de22b9bc003a6d7203bdce0d08f7ed76与40975365166/025c3bf888c7f6acc1654aaaaa5b213a426b9425均六job成功、Pool集成仍in_progress，不计CI成功。旧40968364762/40969838036/40970307707/40970700657全部completed/failure，原失败日志logs/takeover-ci-<ID>-failed.log均已读，均旧源码Caddy手机44px；原失败不抹去、不重跑旧提交。历史40799210505 Go进程审计IO仍未修，三测试机身份不匹配/缺pin仍未发远端命令；继续代码审查保留原生Linux缺口。
+- Owner再次要求记录错误；OWNER_REQUIREMENTS §5已明确事实/根因/修正/下次检查，随本阶段保存。阶段提交推送后继续R054及CI终态，未操作生产/客户/Release/tag/OTA/DNS。
+
 ## 2026-10-30 R1-072 清理无调用的旧个人账单组件
 
 - 已完整读取667行BillingSection及其调用/路由/对应守卫，当前ProfileView明确余额移至WalletView，应用/路由/自动组件导入均无BillingSection消费者；最终搜索仅余两条翻译注释。只删除孤立组件，保留翻译兼容、实际Wallet/Profile/user router/API与充值后端。实际页面无此组件的运行流程可验，不将清理残留当作余额/支付生命周期修复。

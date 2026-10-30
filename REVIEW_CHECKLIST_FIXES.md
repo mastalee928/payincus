@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R072收尾后）：原327个编号中，242项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，17项仍为「待精修/运行复核」。242并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以17项表示。
+当前进度（2026-10-30，R048收尾后）：原327个编号中，243项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，16项仍为「待精修/运行复核」。243并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以16项表示。
+
+2026-10-30 R048：当前账户/role/sid/路由/分页/筛选/同步代次与读序号、缓存卸载清旧数据，严格列表归属/分页及success/count，四写共享在途门禁与持久错误/重试；已读移出未读列表，删末页最后一项回合法页，同账户切筛选后写入完成再同步。完整冻结源码Chrome回归90旧回执、实际三语三宽按钮/手机44px、类型/lint/route-i18n/双端build/末dist全exit0；浅深三宽0FAIL/1WARN为短列表下留白，critique见logs/inbox-receipts-critique.md。243含部分/68已有不同/16待；受控API不代替真实账户/后端并发及NotificationBell或未读store，接R054。旧四CI终态failure已读原日志，最新两CI仍集成任务运行，详见HANDOFF。
 
 2026-10-30 R072无调用组件完整复核后删除BillingSection667行，保留实际Wallet/Profile/user router/充值API后端及翻译；受保护源码哈希保持，3守卫与双端含types build/末dist通过。无可运行的孤立组件入口，不能据此称真实支付已验；242含部分/68已有不同/17待，按授权保存后接R048并跟CI，详见HANDOFF。
 
@@ -241,7 +243,7 @@
 | R1-045 | 部分存在 | 源码已修/隔离PG验证通过 | 邀请码handler/支付fee own-property访问拒继承；通知完整正整数及PG offset上限；真实Fastify/PG非法后缀、小数、溢出、有效筛选分页与账目无写入通过 logs/review-config-pagination-integration.log；相关5/5 logs/test-run-20261027-200553 |
 | R1-046 | 实现不同 | 保留初审结论 | 当前表单常驻且固定第一页100条；无对方所述弹窗关闭或末页分页实现，超100条展示另评。 |
 | R1-047 | 已有防护 | 保留初审结论 | 通知enum已normalize且资源ID严格正安全整数；admin-notification-channels同样。原unchecked enum/数字前缀问题不成立。 |
-| R1-048 | 存在 | 待精修/运行复核 | load缺请求代次，未读视图标记已读后不移出旧列表；删末条total--但不回退越界页。待浏览器延迟夹具。 |
+| R1-048 | 存在 | 已修复；真实账户与后端并发未验 | 当前账户/sid/role/路由/筛选/分页/同步代次及读序号、缓存卸载清数据、严格归属/分页/四写回执与共享门禁；未读移除、末页回退、失败持久重试和旧点击不跳替换视图。冻结源码实际Chrome90旧回执与三语三宽按钮通过，types/lint/route-i18n/双端build/末dist通过，见HANDOFF。未读store与铃铛另项。 |
 | R1-049 | 存在 | 源码已修/隔离PG验证通过 | admin direct/broadcast current actor/session锁内核验，消息与history同事务；降权/注销拒写、history trigger失败全回滚。logs/review-inbox-send-integration.log，相关4/4 logs/test-run-20261027-224442 |
 | R1-050 | 存在 | 源码已修/隔离PG验证通过 | host/instance通知锁实例/host/current accounts后重新选收件人；host转移拒发送，实例新归属收到且旧owner无消息，冲突409；批量邮件同事务入队、单邮件用已提交授权快照。logs/review-inbox-send-integration.log；未发送SMTP |
 | R1-051 | 存在 | 源码已修/隔离PG验证通过 | 四入口inbox/history同事务，批量email queue也同提交；history或queue trigger失败消息/历史/任务均0，保留每60秒队列排期。logs/review-inbox-send-integration.log |

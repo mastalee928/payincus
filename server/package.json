@@ -7,6 +7,7 @@
   "types": "dist/app.d.ts",
   "scripts": {
     "test:review-instance-badge": "node ../scripts/test-instance-badge.mjs",
+    "test:review-inbox-receipts": "node ../scripts/test-inbox-receipts.mjs",
     "test:review-prize-stock": "node --import tsx scripts/test-review-prize-stock.ts",
     "test:review-vip-reward-description": "node --import tsx scripts/test-review-vip-reward-description.ts",
     "test:review-vip-reward-editor": "node ../scripts/test-vip-reward-editor.mjs",
