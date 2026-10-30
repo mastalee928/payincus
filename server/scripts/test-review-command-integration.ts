@@ -19,6 +19,31 @@ await app.register(terminalRoutes, { prefix: '/terminal' })
 const post = (url: string, payload: object) => app.inject({ method: 'POST', url, payload })
 const put = (url: string, payload: object) => app.inject({ method: 'PUT', url, payload })
 try {
+  // Route IDs must fit the PostgreSQL Int column before any command lookup/write.
+  const untouched = await prisma.customInitCommand.create({ data: {
+    userId: user.id, name: 'ID boundary fixture', command: 'echo fixture', distros: '["debian"]'
+  } })
+  const beforeLogs = await prisma.log.count({ where: { userId: user.id } })
+  const invalidIds = ['2147483648', '4294967296', '9007199254740991', '9007199254740992',
+    '0', '-1', '1.5', '1e2', '0x10', '01', '1junk', 'NaN', 'Infinity', '+1', ' 1', '1 ']
+  for (const id of invalidIds) {
+    for (const method of ['GET', 'PUT', 'DELETE'] as const) {
+      const response = await app.inject({ method, url: `/init/${encodeURIComponent(id)}`,
+        ...(method === 'PUT' ? { payload: { name: 'Must not change' } } : {}) })
+      assert.equal(response.statusCode, 400, `${method} ${id}: ${response.statusCode}`)
+    }
+  }
+  for (const method of ['GET', 'PUT', 'DELETE'] as const) {
+    const response = await app.inject({ method, url: '/init/2147483647',
+      ...(method === 'PUT' ? { payload: { name: 'Missing record' } } : {}) })
+    assert.equal(response.statusCode, 404, `${method}: maximum valid but missing ID`)
+  }
+  assert.deepEqual(await prisma.customInitCommand.findUniqueOrThrow({ where: { id: untouched.id } }), untouched)
+  assert.equal(await prisma.log.count({ where: { userId: user.id } }), beforeLogs)
+  assert.equal((await app.inject({ method: 'GET', url: `/init/${untouched.id}` })).json().command.name, untouched.name)
+  await prisma.customInitCommand.delete({ where: { id: untouched.id } })
+  console.log('PASS initialization command IDs: 48 invalid requests rejected, Int maximum remains valid and no records/audits changed')
+
   for (const route of ['/init', '/terminal']) {
     assert.equal((await post(route, { name: '   ', command: 'echo fixture', distros: ['debian'] })).statusCode, 400)
     assert.equal((await post(route, { name: 'Fixture', command: ' \n\t', distros: ['debian'] })).statusCode, 400)

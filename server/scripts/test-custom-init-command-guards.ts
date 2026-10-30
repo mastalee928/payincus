@@ -8,8 +8,8 @@ const dbSource = readFileSync(resolve(process.cwd(), 'src/db/custom-init-command
 assert.ok(
   routeSource.includes('function parsePositiveRouteId(value: string): number | null') &&
     routeSource.includes('const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\\d*$/') &&
-    routeSource.includes('Number.isSafeInteger(parsed)'),
-  'custom init command routes must use a strict positive safe-integer route ID parser'
+    routeSource.includes('Number.isSafeInteger(parsed) && parsed <= 2147483647'),
+  'custom init command routes must use a strict positive PostgreSQL Int route ID parser'
 )
 
 assert.equal(

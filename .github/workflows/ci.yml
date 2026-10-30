@@ -273,6 +273,8 @@ jobs:
         run: pnpm --filter server test:review-terminal-reconnect-authorization
       - name: Terminal reservations retain limits and persist concurrent audits without deadlock
         run: pnpm --filter server test:review-terminal-reservations
+      - name: Command routes preserve PostgreSQL ID bounds, quotas and current authorization
+        run: pnpm --filter server test:review-command-integration
       - name: Ticket auto-close serializes with public reply deletion and returns only committed receipts
         run: pnpm --filter server test:review-ticket-autoclose
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed

@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。R174/R177终端重连与R181自动关单随后已分别提交推送；本轮R176原名额防护补验并修复终端授权与审计外键死锁，真实PG/mTLS、原初连/重连回归、types/三守卫/build通过，详HANDOFF。这些后续主分支修复不在固定v1.7.8内，CI继续跟终态。按“进入修复或复验记录”口径现为261项（含部分、待验收），66项仍保初审分类；这不是完整修复数，原327内部尚未完成项不能按327减261计算。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续R174/R177终端重连、R181自动关单、R176名额补验与审计外键死锁修复已分别推送；本轮R195初始化命令PG Int越界先红500后修，48非法请求/3最大合法缺失请求及原并发/权限回归、types/守卫/build通过，详HANDOFF。这些后续主分支修复不在固定v1.7.8内，CI继续跟终态。按“进入修复或复验记录”口径现为262项（含部分、待验收），65项仍保初审分类；这不是完整修复数，原327内部尚未完成项不能按327减262计算。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -486,7 +486,7 @@
 | R1-192 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-193 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-194 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
-| R1-195 | 已有防护 | 保留初审结论 | 严格数字正ID及safe integer，已拒绝小数/溢出。 |
+| R1-195 | 部分存在（复审纠正） | PG Int越界已修/原路由PG验证通过 | 原safe integer接受2147483648，真实GET返回500；共用parser加2147483647上限。48非法GET/PUT/DELETE均400、最大合法但不存在三次404，正常详情及完整行/审计不变，原命令并发配额/编辑/删除/撤销/封禁回归、types/两守卫/build自然exit0，command-r195-*；已接LinuxCI，未部署生产。 |
 | R1-196 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-197 | 存在 | 源码已修/真实浏览器夹具通过 | distro/session序号与AbortController，切换清旧选择、迟到成功/失败/finally及卸载忽略，同SID刷新保留；三语失败重试、键盘/移动可用。真实Chrome源码组件延迟API矩阵takeover-init-selector-browser-final.log、3守卫/lint/双端build/dist边界通过；完整开通/重装未验 |
 | R1-198 | 存在 | 源码已修/真实浏览器夹具通过 | 保存前同步门禁/固定ID和表单快照/成功锁存、等待中禁所有关闭入口、失败保草稿；目标/session/卸载隔离旧读写及计时器，同SID刷新保草稿，父先关窗再刷列表。takeover-init-editor-browser-final.log真实组件+父页面竞争通过，3守卫/lint/双端类型构建/dist边界通过；实际后端联调/请求幂等未验 |

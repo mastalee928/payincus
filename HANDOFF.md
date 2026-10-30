@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R195 初始化命令 PostgreSQL 编号边界（阶段保存）
+
+- 复审纠正“已有防护”：JavaScript safe integer仍包含超出PG Int的2147483648；原Fastify GET /init/2147483648实际500，command-r195-boundary-before.log自然exit1并记录数据库integer越界。仅在初始化命令共用parser增加2147483647上限，覆盖详情/编辑/删除，保留严格十进制及原权限。
+- 扩展原test-review-command-integration.ts并接入LinuxCI。command-r195-boundary-final.log自然exit0：16种非法编号×GET/PUT/DELETE共48次400，最大合法不存在编号三次404，正常详情200；原命令完整行与审计数不变。原50/100名额十并发、独立字段并发编辑、删除竞争、空白、撤销与封禁拒绝均保持。types零诊断、2/2对应守卫、清单和后端build自然exit0，无前端改动。
+- 上段终端审计修复已推2fadbc74976606844798a0960d1bfa0cc8eed866，CI41133775870已核完整headSha仍运行；b21da655文档CI41132963545及前五批继续。此阶段在v1.7.8之后，未改变tag或生产。R195转入复验，当前262项进入修复/复验（含部分及待验收）、65项初审分类，不能按减法宣称仅剩65项。
+
 ## 2026-10-31 R176 名额补验与终端审计外键死锁修复（阶段保存）
 
 - 上轮terminal-reservation-check.log自然exit1，不能把close回执加200ms等待当全部授权事务结束。PG原日志明确等待环为logs INSERT（先user外键KEY SHARE、后instance外键KEY SHARE）与终端授权（先instance FOR UPDATE、后user FOR UPDATE）。新确定性隔离PG测试不重置数据行，先持user KEY SHARE、确认授权实际被阻塞后插入真实审计；terminal-reservations-deterministic-before.log自然exit1并复现40P01，证实产品锁冲突。

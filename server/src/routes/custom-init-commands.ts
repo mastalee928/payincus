@@ -26,7 +26,7 @@ function parsePositiveRouteId(value: string): number | null {
   }
 
   const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
+  return Number.isSafeInteger(parsed) && parsed <= 2147483647 ? parsed : null
 }
 
 export default async function customInitCommandRoutes(fastify: FastifyInstance) {
