@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 UPAY Pro 共享充值函数兼容回归
+
+- 新建仅本机隔离*_upaypro_test库并执行全迁移，再运行原UPAY Pro集成；recharge-upay-regression.log自然exit1定位专用冲突异常把原「订单状态已变更」改成内部英文标识，既有stale-completion错误合同断言失败。保留专用异常类型供管理员409映射，恢复兼容中文文案，不放宽旧支付尝试或账目断言。
+- recharge-upay-regression-final.log自然exit0：全新迁移及原创建/回调/金额/重复/重新支付竞争/旧凭据快照/易支付与手动渠道回归全部通过，脚本finally仅清本轮新库；provider请求受控，无公网投递。完整types零诊断、充值单号/状态/UPAY三守卫3/3、后端build自然exit0。
+- 上段8f27751175171854d6b598159d458026faf97944 / CI41146317552已记录；该回归发现及修复作为独立阶段保存。283/327（86.5%，含部分/待验收）及44初审不变，用户verify和callback在途竞争继续，固定v1.7.8及生产不变。
+
 ## 2026-10-31 管理员同步待付与取消分支重核当前授权
 
 - recharge-sync-revocation-before.log自然exit1：Heleket查询途中admin降权后check分支仍200并修改订单元数据。metadata与cancel helper新增可选actor，在同一事务先锁并核当前账户状态/角色/session，再执行原支付选择CAS及状态更新；admin入口传actor。原complete/fail已有授权保持，自动供应商调用不要求虚构Web会话。

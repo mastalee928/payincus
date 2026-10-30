@@ -48,7 +48,7 @@ export type CompleteRechargeResult = RechargeRecord & {
 }
 
 export class RechargePaymentSelectionChangedError extends Error {
-  constructor() { super('RECHARGE_PAYMENT_SELECTION_CHANGED') }
+  constructor() { super('订单状态已变更，请刷新后重试') }
 }
 
 function paymentSelectionCondition(expected: Record<string, unknown> | null | undefined): Prisma.RechargeRecordWhereInput {
