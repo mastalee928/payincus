@@ -939,20 +939,20 @@ async function executeRestartTask(
 /**
  * 执行重装任务
  */
-async function clearRebuildSnapshots(client: Awaited<ReturnType<typeof getIncusClient>>, name: string, instanceId: number): Promise<void> {
+async function clearRebuildSnapshots(client: Awaited<ReturnType<typeof getIncusClient>>, name: string, instanceId: number, operation = '重装'): Promise<void> {
   const snapshots: unknown = await listSnapshots(client, name)
-  if (!Array.isArray(snapshots)) throw new Error('快照列表无法识别，重装未开始')
+  if (!Array.isArray(snapshots)) throw new Error(`快照列表无法识别，${operation}未开始`)
   const names = snapshots.map(snapshot => {
     const snapshotName = typeof snapshot === 'string' ? snapshot.split('/').pop()
       : snapshot && typeof snapshot === 'object' && 'name' in snapshot ? snapshot.name : undefined
     if (typeof snapshotName !== 'string' || !snapshotName || snapshotName === '.' || snapshotName === '..' || /[\r\n/\\]/.test(snapshotName)) {
-      throw new Error('快照名称无法识别，重装未开始')
+      throw new Error(`快照名称无法识别，${operation}未开始`)
     }
     return snapshotName
   })
   for (const snapshotName of names) await deleteIncusSnapshot(client, name, snapshotName)
   const confirmed: unknown = await listSnapshots(client, name)
-  if (!Array.isArray(confirmed) || confirmed.length !== 0) throw new Error('快照尚未确认清理，重装未开始，请检查宿主后重试')
+  if (!Array.isArray(confirmed) || confirmed.length !== 0) throw new Error(`快照尚未确认清理，${operation}未开始，请检查宿主后重试`)
   await prisma.snapshot.deleteMany({ where: { instanceId } })
 }
 
@@ -1278,28 +1278,23 @@ async function executeRecreateTask(
     }
   }
 
-  // 重建会生成全新的系统实例，旧 cloud-init 状态不能继续复用。
-  await resetInstanceCloudInitState(task.instanceId)
-
   // 2. 删除旧实例的快照
   await updateInstanceTaskProgress(task.id, 'cleaning_snapshots')
-  try {
-    const snapshots = await listSnapshots(client, oldIncusId) as unknown[]
-    if (snapshots && snapshots.length > 0) {
-      console.log(`[Recreate] 删除 ${snapshots.length} 个快照...`)
-      for (const snapshot of snapshots) {
-        const snapshotName = typeof snapshot === 'string'
-          ? snapshot.split('/').pop()
-          : (snapshot as { name?: string }).name
-        if (snapshotName) {
-          await deleteIncusSnapshot(client, oldIncusId, snapshotName)
-        }
-      }
+  if (originalExists) {
+    await clearRebuildSnapshots(client, oldIncusId, task.instanceId, '重建')
+  } else {
+    // A missing state endpoint alone does not prove that the instance and its snapshots are absent.
+    let confirmedMissing = false
+    try { await getInstance(client, oldIncusId) } catch (error) {
+      if (error instanceof IncusApiError && error.statusCode === 404 && error.path === `/1.0/instances/${oldIncusId}`) confirmedMissing = true
+      else throw error
     }
+    if (!confirmedMissing) throw new Error('原实例尚未确认不存在，重建未开始，请检查宿主状态后重试')
     await prisma.snapshot.deleteMany({ where: { instanceId: task.instanceId } })
-  } catch (_err) {
-    console.warn('[Recreate] 删除快照失败，继续执行')
   }
+
+  // Reset initialization only after confirmed snapshot cleanup or the original instance's confirmed absence.
+  await resetInstanceCloudInitState(task.instanceId)
 
   // 3. 获取实例类型
   let instanceType: 'container' | 'virtual-machine' = 'container'

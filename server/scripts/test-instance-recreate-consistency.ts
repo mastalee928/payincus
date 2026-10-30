@@ -49,6 +49,14 @@ assert.ok(
 )
 
 const deleteOld = indexOfOrThrow(recreateSection, 'await deleteInstance(client, oldIncusId)', 'old Incus delete')
+const clearSnapshots = indexOfOrThrow(recreateSection, "await clearRebuildSnapshots(client, oldIncusId, task.instanceId, '重建')", 'confirmed snapshot cleanup')
+const resetInitialization = indexOfOrThrow(recreateSection, 'await resetInstanceCloudInitState(task.instanceId)', 'initialization reset')
+assert.ok(clearSnapshots < resetInitialization && resetInitialization < deleteOld && !recreateSection.includes('删除快照失败，继续执行'),
+  'recreate must confirm snapshot cleanup before initialization reset and original deletion without swallowing failures')
+assert.ok(recreateSection.includes('await getInstance(client, oldIncusId)') &&
+  recreateSection.includes('error instanceof IncusApiError && error.statusCode === 404 && error.path === `/1.0/instances/${oldIncusId}`') &&
+  recreateSection.includes('if (!confirmedMissing) throw new Error('),
+  'state-endpoint absence requires a second exact original-instance absence confirmation before forgetting snapshots')
 const markOldDeleted = indexOfOrThrow(recreateSection, 'oldInstanceDeleted = true', 'old deleted marker')
 const createNew = indexOfOrThrow(recreateSection, 'await createInstance(client, incusConfig)', 'new Incus create')
 const markNewCreated = indexOfOrThrow(recreateSection, 'newInstanceCreated = true', 'new created marker')

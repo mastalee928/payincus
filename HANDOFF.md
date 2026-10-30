@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-30 R1-011 重建快照清理失败中止（持续施工）
+
+- 011b173e8884fd8559d388f4db955398aa5d0be9已推，对应CI41058561817；本轮停止recreate吞快照读取/删除错误后继续。存在原实例时复用列表/名称校验、逐删除、再读空列表确认，之后才删平台快照和reset cloud-init。state精确404还须原instance路径精确404才能按缺失处理；403/500/误导正文及仍存在均拒绝。
+- takeover-recreate-stop-resend-verified.log最终实际PG/Fastify/SMTP/mTLS自然exit0：六快照读取/格式/名称/删除/残留/确认失败与四未证实缺失均零原实例DELETE、零替代POST、保原snapshot/cloudInitState/image/password/Incus/IP；真正非空清理确认两次列表、及两精确404不读快照，均在fixture拒绝原DELETE前达到该边界，零替代POST。正常缺失后完整创建仍未验，不能把此边界验收称为交付成功。
+- 受改源码与专项types、最终server build、10相关task/operation/public-api/Prisma/删除/专属网络守卫及专用邮箱销毁PG/SMTP专项全部自然exit0。原7停机、4建连、12材料、18镜像、28授权竞争、验证码60秒/跨账户/会话/邮箱回归保持。原生Incus、清理成功后数据库故障持久恢复、之后IP/旧删除/新创建补偿缺口保留。
+- 全量195本轮仍运行，不提前当通过。Prisma已推CI41057438463六job成功、Pool继续；上一011b CI亦继续，无新终态失败。补充安装包原生Prisma回归下一阶段，在双架构预览前完成；原327统计不增，无生产或发行操作，保存后继续。
+
 ## 2026-10-30 Prisma补丁跨平台与全量终态核对（持续施工）
 
 - 连接泄漏修复已推送a85265576a385b0397369075a34e9761febd375e，对应CI41057438463。Linux冻结安装及真实PG事务超时专项已success；构建及Pool其余集成仍运行，整体尚未通过，不提前发行。
