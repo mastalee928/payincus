@@ -34,6 +34,7 @@ import { validateName, encryptSensitiveData } from '../lib/security.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { parsePositivePaymentMoney } from '../lib/payment-money.js'
+import { isRechargeGatewayOrderNoMatch } from '../lib/recharge-order-guard.js'
 import {
   getSystemImageAvailabilityForHost,
   isImageCompatibleWithInstanceType,
@@ -3324,6 +3325,10 @@ if (provider.type === 'yipay') {
           }
         }
 
+        if (!isRechargeGatewayOrderNoMatch(record.orderNo, queryResult.out_trade_no)) {
+          return reply.status(400).send({ error: '支付平台返回的订单号不匹配，请核对后重试' })
+        }
+
         tradeNo = queryResult.trade_no || ''
         tradeNoForIdx = getTradeNoForIndex(record.orderNo, tradeNo)
 
@@ -3357,6 +3362,10 @@ if (provider.type === 'yipay') {
           { orderNo: record.orderNo, status, paymentState, uuid: queryResult.uuid, txid: queryResult.txid },
           '管理员同步-Heleket 订单查询结果'
         )
+
+        if (!isRechargeGatewayOrderNoMatch(record.orderNo, queryResult.order_id)) {
+          return reply.status(400).send({ error: '支付平台返回的订单号不匹配，请核对后重试' })
+        }
 
         callbackPayload = {
           source: 'admin_sync',

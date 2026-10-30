@@ -60,6 +60,8 @@ try {
         providerConfigSnapshot: snapshot
       } })
       let arrived = 0, release: (() => void) | undefined
+      let returnedOrder: unknown = order.orderNo
+      let returnedStatus = 'paid'
       const barrier = mode === 'concurrent' ? new Promise<void>(resolve => { release = resolve }) : undefined
       query = async (input, settings) => {
         const url = new URL(input)
@@ -79,11 +81,41 @@ try {
         }
         arrived++; await barrier
         return new Response(JSON.stringify(type === 'yipay'
-          ? { code: 1, status: 1, money: '10.00', trade_no: order.orderNo, out_trade_no: order.orderNo }
-          : { state: 0, result: { order_id: order.orderNo, uuid: order.orderNo, status: 'paid', amount: '10.00', currency: 'CNY' } }),
+          ? { code: 1, status: 1, money: '10.00', trade_no: order.orderNo, out_trade_no: returnedOrder }
+          : { state: 0, result: { order_id: returnedOrder, uuid: order.orderNo, status: returnedStatus, amount: '10.00', currency: 'CNY' } }),
         { headers: { 'content-type': 'application/json' } })
       }
       const sync = () => app.inject({ method: 'POST', url: `/api/admin/billing/recharge-records/${order.id}/sync` })
+      if (mode === 'encrypted') {
+        const capture = async () => ({
+          user: await prisma.user.findUniqueOrThrow({ where: { id: user.id } }),
+          record: await prisma.rechargeRecord.findUniqueOrThrow({ where: { id: order.id } }),
+          balance: await prisma.balanceLog.findMany({ where: { userId: user.id }, orderBy: { id: 'asc' } }),
+          inbox: await prisma.inboxMessage.findMany({ where: { userId: user.id }, orderBy: { id: 'asc' } }),
+          callbacks: await prisma.paymentCallback.findMany({ where: { providerId: provider.id }, orderBy: { id: 'asc' } }),
+          audit: await prisma.log.findMany({ where: { userId: admin.id }, orderBy: { id: 'asc' } })
+        })
+        const before = await capture()
+        for (const foreign of ['different-order', undefined, null, '', ' ', 123]) {
+          returnedOrder = foreign
+          const response = await sync()
+          if (response.statusCode !== 400) {
+            const after = await capture()
+            console.log('Unexpected mismatched order result', type, response.statusCode, after.record.status,
+              'balance delta', Number(after.user.balance) - Number(before.user.balance),
+              'new ledger', after.balance.length - before.balance.length, 'new inbox', after.inbox.length - before.inbox.length)
+          }
+          assert.equal(response.statusCode, 400, `${type}: mismatched provider order must reject`)
+          assert.deepEqual(await capture(), before, 'wrong provider order must not change accounting, callbacks or notifications')
+        }
+        if (type === 'heleket') for (const status of ['check', 'cancel', 'fail']) {
+          returnedOrder = 'different-order'; returnedStatus = status
+          assert.equal((await sync()).statusCode, 400)
+          assert.deepEqual(await capture(), before, 'foreign unpaid/terminal query must not change order metadata or state')
+        }
+        returnedOrder = order.orderNo; returnedStatus = 'paid'
+        console.log('PASS', type, 'missing/foreign provider order rejected before every state or accounting mutation')
+      }
       const expectedRequests = mode === 'concurrent' ? 8 : 1
       const pending = Promise.all(Array.from({ length: expectedRequests }, () => sync()))
       if (barrier) {

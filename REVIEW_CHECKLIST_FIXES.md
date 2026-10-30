@@ -330,7 +330,7 @@
 | R1-036 | 存在 | 源码已修/隔离PG验证通过 | 严格正十进制付款金额补齐用户查询/回调及管理员sync；真实PG/Fastify admin sync拒缺失/0/后缀/负/NaN且不写账。logs/review-finance-authorization-integration.log；provider fetch夹具 |
 | R1-037 | 存在 | 源码已修/隔离PG验证通过 | 纠正接续摘要：recharge.ts手动complete/fail和admin-billing.ts sync均实际存在；传actor到tx检查current admin/session，自动供应商完成保留。中途降权/注销拒写、重复到账1笔、ledger故障回滚。logs/review-finance-authorization-integration.log |
 | R1-038 | 存在 | 源码已修/隔离PG验证通过 | 邀请码handler/支付fee own-property访问拒继承；通知完整正整数及PG offset上限；真实Fastify/PG非法后缀、小数、溢出、有效筛选分页与账目无写入通过 logs/review-config-pagination-integration.log；相关5/5 logs/test-run-20261027-200553 |
-| R1-039 | 已有防护 | 双渠道实际加密PG配置及sync复验通过 | 原getter+snapshot解密有效，recharge-r039-sync-final涵易支付/Heleket各加密、旧字符串、旧对象、快照替换现配置及8并发；实际请求凭据/签名正确，一次账务/通知，types/4守卫/manifest过。供应商响应受控，错配返回编号/在途repay继续查。 |
+| R1-039 | 解密已有防护，复审另见错配订单缺口 | 双渠道PG解密复验及错配订单修复通过 | 原getter+snapshot解密有效，原十组含8并发通过；另实际错配订单200入账先红，admin补供应商order核验后两渠道6非法号/Heleket3错误状态均400零修改。recharge-sync-order-final/types/5守卫/build自然exit0，供应商响应受控，当前支付尝试/在途repay继续查。 |
 | R1-040 | 已有防护 | 原管理员sync双渠道八并发仅一通知通过 | 同recharge-r039-sync-final实际PG/原路由，两渠道各8请求在query屏障前读pending，释放后仅一synced=true，余额/ledger/callback/audit/inbox各一次；随后3次同步零新请求/写。types/4守卫及同源码build保持，通知崩溃必达和外部渠道另待。 |
 | R1-041 | 部分存在 | 源码已修/隔离PG验证通过 | 所有卡密admin mutation传actor，tx current admin/session和直接PG读取allowlist；中途降权7入口及cached allowlist移除拒写。用户发行/撤销current session；正常退款一次规则保留。logs/review-finance-authorization-integration.log |
 | R1-042 | 部分存在 | 源码已修/隔离PG验证通过 | redeem余额/card锁后current active/session，封禁/注销拒写、并发5仅1兑换；保留issuer不可自兑及过期持久化、撤销一次退款。logs/review-finance-authorization-integration.log |

@@ -37,4 +37,15 @@ assert.ok(
   'mismatched active verification must not complete recharge'
 )
 
+const adminSource = readFileSync(resolve(__dirname, '../src/routes/admin-billing.ts'), 'utf8')
+const adminSync = adminSource.slice(adminSource.indexOf("app.post('/api/admin/billing/recharge-records/:id/sync'"),
+  adminSource.indexOf('// ==================== 管理员创建实例 ===================='))
+assert.ok(adminSync.includes('!isRechargeGatewayOrderNoMatch(record.orderNo, queryResult.out_trade_no)'),
+  'administrator yipay sync must reject missing or foreign order numbers')
+assert.ok(adminSync.includes('!isRechargeGatewayOrderNoMatch(record.orderNo, queryResult.order_id)'),
+  'administrator Heleket sync must reject missing or foreign order numbers')
+assert.ok(adminSync.indexOf('!isRechargeGatewayOrderNoMatch(record.orderNo, queryResult.order_id)') <
+  adminSync.indexOf('paymentDetails = mergeHeleketPaymentDetails('),
+  'Heleket identity validation must precede all metadata and status mutations')
+
 console.log('recharge gateway order guard tests passed')

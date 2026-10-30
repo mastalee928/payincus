@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 管理员充值同步拒绝错误订单号
+
+- R039/040继续复审发现admin-billing sync遗漏用户verify已有的供应商返回订单号检查。recharge-sync-order-product-before.log自然exit1：易支付返回different-order仍200/completed，实际余额+9、新增ledger及inbox各1，不能仅凭HTTP回执说明风险。
+- 两渠道复用isRechargeGatewayOrderNoMatch，匹配当前查询的订单号才继续。Heleket验证在paymentDetails合并及pending/cancel/fail分支前，错误订单的未付款或终态也不会修改当前订单。recharge-sync-order-final.log自然exit0：两渠道各6种缺失/非法/错误订单号400且user/record/ledger/inbox/callback/audit完整快照保持；Heleket另3种错误订单状态同样零修改；原十组解密/快照/8并发及重复同步保持。
+- 完整server+专项types零诊断、5对应守卫5/5、后端build自然exit0；原CI专项涵新矩阵。仍未外部支付查询/生产写入。重新支付后的当前支付尝试和在途切换另有缺口，下一段继续，不把此次订单号比较宣称为全同步安全完成。
+- R040已推1cd70bdd518613eb1c9dc4ad017527723632fecb / CI41144490983，R039 CI41144444144。新增全success：41132963545 / b21da655f1a9f2c4b393e8ac715a725c91e2e764、41134142331 / 9bc1b31de908a697bcce4ece88b42ec2064541e7；其它阶段继续，历史失败保留。本补修归原充值项，不增283/327（86.5%，含部分/待验收）及44项初审计数。
+
 ## 2026-10-31 R040 管理员充值同步重复通知复验归档
 
 - 原实际admin-billing sync只在completedNow=true时写成功审计及站内信，防重复逻辑有效。沿R039同一已完成PG/Fastify专项，两渠道各8个请求在供应商查询屏障前均读到pending，释放后均200、仅一个synced=true，余额仅加9、ledger/callback/audit/inbox各一条；再同步3次不调用供应商且记录数量不变。
