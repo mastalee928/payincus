@@ -60,7 +60,7 @@ const codeFor = (email: string) => {
   const decoded = message.replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/g, (_, value: string) => String.fromCharCode(parseInt(value, 16)))
   const code = decoded.match(/>\s*(\d{6})\s*</)?.[1]; assert.ok(code); return code
 }
-async function queuedRequest(mutate: (tx: Prisma.TransactionClient) => Promise<unknown>) {
+async function queuedRequest(mutate: (tx: Prisma.TransactionClient) => Promise<unknown>, run = request) {
   let release!: () => void, ready!: (pid: number) => void, rejectReady!: (err: unknown) => void
   const hold = new Promise<void>(resolve => { release = resolve })
   const started = new Promise<number>((resolve, reject) => { ready = resolve; rejectReady = reject })
@@ -73,7 +73,7 @@ async function queuedRequest(mutate: (tx: Prisma.TransactionClient) => Promise<u
   void blocker.catch(rejectReady)
   const pid = await started
   let settled = false, blocked = false
-  const pending = request().then(response => { settled = true; return response })
+  const pending = run().then(response => { settled = true; return response })
   try {
     const end = Date.now() + 3500
     while (!settled && Date.now() < end) {
@@ -417,6 +417,40 @@ try {
     delivery = 'accepted'; sessionId += '-after'; issuedAt += 1
   }
   console.log('PASS SMTP acknowledgement after banned status/email/session changes cannot activate an eligible code')
+
+  await prisma.operationVerification.updateMany({ where: { userId: actor.id, resourceType: null }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  assert.equal((await request()).statusCode, 200)
+  const issuedRecord = await record(), issuedCode = codeFor(actor.email!)
+  await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+  const deniedVerify = await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: issuedCode } })
+  assert.equal(deniedVerify.statusCode, 400, 'a banned actor cannot promote a delivered code to a verified grant')
+  assert.equal(deniedVerify.json().code, 'AUTHENTICATION_STATE_CHANGED')
+  const deniedWrong = await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: '000000' } })
+  assert.equal(deniedWrong.statusCode, 400); assert.equal(deniedWrong.json().code, 'AUTHENTICATION_STATE_CHANGED')
+  assert.deepEqual(await prisma.operationVerification.findUniqueOrThrow({ where: { id: issuedRecord.id } }), issuedRecord,
+    'rejected authentication cannot consume code attempts or verify the grant')
+  await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+  await prisma.tokenInvalidation.create({ data: { userId: actor.id, sessionId, invalidatedAt: issuedAt } })
+  const invalidatedVerify = await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: issuedCode } })
+  assert.equal(invalidatedVerify.statusCode, 400); assert.equal(invalidatedVerify.json().code, 'AUTHENTICATION_STATE_CHANGED')
+  console.log('PASS delivered verification checks reject banned or revoked actors without changing the pending record')
+
+  sessionId += '-verify'; issuedAt += 1
+  const submitCode = () => app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: issuedCode } })
+  for (const mode of ['banned', 'session', 'account'] as const) {
+    const result = await queuedRequest(tx => mode === 'banned' ? tx.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+      : tx.tokenInvalidation.upsert({ where: { userId_sessionId: { userId: actor.id, sessionId: mode === 'session' ? sessionId : '__USER_LEVEL__' } },
+        create: { userId: actor.id, sessionId: mode === 'session' ? sessionId : '__USER_LEVEL__', invalidatedAt: issuedAt }, update: { invalidatedAt: issuedAt } }), submitCode)
+    assert.equal(result.blocked, true); assert.equal(result.response.statusCode, 400); assert.equal(result.response.json().code, 'AUTHENTICATION_STATE_CHANGED')
+    assert.deepEqual(await prisma.operationVerification.findUniqueOrThrow({ where: { id: issuedRecord.id } }), issuedRecord)
+    await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+    sessionId += '-current'; issuedAt += 1
+  }
+  const concurrentVerified = await Promise.all(Array.from({ length: 8 }, () => submitCode()))
+  assert.equal(concurrentVerified.filter(response => response.statusCode === 200).length, 1)
+  assert.ok(concurrentVerified.every(response => response.statusCode === 200 || response.statusCode === 400))
+  assert.equal((await record()).attempts, 0)
+  console.log('PASS verification waits on current account changes and eight concurrent correct codes promote exactly one grant')
 } catch (error) { failure = error } finally {
   globalThis.fetch = originalFetch
   held.splice(0).forEach(item => item.finish())

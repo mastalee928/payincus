@@ -449,14 +449,14 @@ export interface VerifyOperationResult {
     errorCode?: string
 }
 
-async function recordFailedVerificationAttempt(verificationId: number): Promise<boolean> {
-    const updated = await prisma.operationVerification.updateMany({
+async function recordFailedVerificationAttempt(tx: Prisma.TransactionClient, verificationId: number): Promise<boolean> {
+    const updated = await tx.operationVerification.updateMany({
         where: { id: verificationId, verified: false, expiresAt: { gt: new Date() },
             attempts: { lt: VERIFICATION_CONFIG.maxAttempts }, ...GENERIC_VERIFICATIONS },
         data: { attempts: { increment: 1 } }
     })
     if (updated.count !== 1) return true
-    const verification = await prisma.operationVerification.findUnique({
+    const verification = await tx.operationVerification.findUnique({
         where: { id: verificationId }, select: { attempts: true }
     })
     // Keep the exhausted row for its resend timestamp. Atomic bounded increments
@@ -471,77 +471,83 @@ export async function verifyOperationCode(
     userId: number,
     operationType: OperationType,
     code: string,
-    resourceId?: number
+    resourceId?: number,
+    actor?: WriteActor
 ): Promise<VerifyOperationResult> {
-    const now = new Date()
-    const codeHash = hashVerificationCode(code)
-    const candidates = await prisma.operationVerification.findMany({
-        where: {
-            userId,
-            operationType,
-            resourceId: resourceId || null,
-            ...GENERIC_VERIFICATIONS,
-            verified: false,
-            expiresAt: { gt: now },
-            attempts: { lt: VERIFICATION_CONFIG.maxAttempts }
-        },
-        orderBy: { createdAt: 'desc' }
-    })
-    const verification = candidates.find(candidate => (
-        candidate.code === codeHash || verificationCodeMatches(candidate.code, code)
-    ))
+    return prisma.$transaction(async tx => {
+        if (!actor || actor.id !== userId || !await authorizeUserWrite(tx, userId, actor)) {
+            return { success: false, verified: false, error: 'Account or session state changed. Please sign in again.', errorCode: 'AUTHENTICATION_STATE_CHANGED' }
+        }
+        const now = new Date()
+        const codeHash = hashVerificationCode(code)
+        const candidates = await tx.operationVerification.findMany({
+            where: {
+                userId,
+                operationType,
+                resourceId: resourceId || null,
+                ...GENERIC_VERIFICATIONS,
+                verified: false,
+                expiresAt: { gt: now },
+                attempts: { lt: VERIFICATION_CONFIG.maxAttempts }
+            },
+            orderBy: { createdAt: 'desc' }
+        })
+        const verification = candidates.find(candidate => (
+            candidate.code === codeHash || verificationCodeMatches(candidate.code, code)
+        ))
 
-    if (!verification) {
-        const activeVerification = candidates[0]
-        if (activeVerification) {
-            const exhausted = await recordFailedVerificationAttempt(activeVerification.id)
-            if (exhausted) {
-                return {
-                    success: false,
-                    verified: false,
-                    error: 'Too many verification attempts, please request a new code',
-                    errorCode: 'TOO_MANY_ATTEMPTS'
+        if (!verification) {
+            const activeVerification = candidates[0]
+            if (activeVerification) {
+                const exhausted = await recordFailedVerificationAttempt(tx, activeVerification.id)
+                if (exhausted) {
+                    return {
+                        success: false,
+                        verified: false,
+                        error: 'Too many verification attempts, please request a new code',
+                        errorCode: 'TOO_MANY_ATTEMPTS'
+                    }
                 }
+            }
+
+            return {
+                success: false,
+                verified: false,
+                error: 'Invalid or expired verification code',
+                errorCode: 'INVALID_CODE'
             }
         }
 
-        return { 
-            success: false, 
-            verified: false, 
-            error: 'Invalid or expired verification code',
-            errorCode: 'INVALID_CODE'
-        }
-    }
+        // 标记为已验证。使用条件 updateMany 避免候选记录被并发清理/耗尽时抛出 500。
+        const verifiedAt = new Date()
+        const claimed = await tx.operationVerification.updateMany({
+            where: {
+                id: verification.id,
+                userId,
+                operationType,
+                resourceId: resourceId || null,
+                ...GENERIC_VERIFICATIONS,
+                verified: false,
+                expiresAt: { gt: verifiedAt },
+                attempts: { lt: VERIFICATION_CONFIG.maxAttempts }
+            },
+            data: {
+                verified: true,
+                verifiedAt
+            }
+        })
 
-    // 标记为已验证。使用条件 updateMany 避免候选记录被并发清理/耗尽时抛出 500。
-    const verifiedAt = new Date()
-    const claimed = await prisma.operationVerification.updateMany({
-        where: {
-            id: verification.id,
-            userId,
-            operationType,
-            resourceId: resourceId || null,
-            ...GENERIC_VERIFICATIONS,
-            verified: false,
-            expiresAt: { gt: verifiedAt },
-            attempts: { lt: VERIFICATION_CONFIG.maxAttempts }
-        },
-        data: { 
-            verified: true,
-            verifiedAt
+        if (claimed.count !== 1) {
+            return {
+                success: false,
+                verified: false,
+                error: 'Invalid or expired verification code',
+                errorCode: 'INVALID_CODE'
+            }
         }
+
+        return { success: true, verified: true }
     })
-
-    if (claimed.count !== 1) {
-        return {
-            success: false,
-            verified: false,
-            error: 'Invalid or expired verification code',
-            errorCode: 'INVALID_CODE'
-        }
-    }
-
-    return { success: true, verified: true }
 }
 
 /**

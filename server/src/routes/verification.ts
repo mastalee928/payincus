@@ -216,7 +216,8 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
                 user.id,
                 operationType,
                 code,
-                normalizedResource.resourceId
+                normalizedResource.resourceId,
+                user
             )
 
             if (!result.success || !result.verified) {

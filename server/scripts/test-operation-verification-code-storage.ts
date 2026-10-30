@@ -57,7 +57,7 @@ assert.ok(requestOperationVerificationSource.includes('notificationTargetBinding
   requestOperationVerificationSource.includes('sendVerificationNotification(notificationChannel,') &&
   !verificationDelivery.includes('getEnabledChannelsByUserId') && verificationDelivery.includes('return sendOperationVerificationEmail(config.email, data)'),
   'display and delivery must share one channel snapshot, reject changed-target duplicate receipts, and send resource email to its configured recipient')
-assert.ok(failedAttemptSource.includes('operationVerification.updateMany({') &&
+assert.ok(failedAttemptSource.includes('tx.operationVerification.updateMany({') &&
   failedAttemptSource.includes('attempts: { lt: VERIFICATION_CONFIG.maxAttempts }') &&
   !failedAttemptSource.includes('operationVerification.deleteMany('),
   'wrong attempts must use a bounded conditional increment and retain exhausted records for the resend budget')
@@ -122,7 +122,7 @@ assert.ok(
 )
 
 assert.ok(
-  source.includes('const candidates = await prisma.operationVerification.findMany({') &&
+  source.includes('const candidates = await tx.operationVerification.findMany({') &&
     !source.includes('code,\n            resourceId: resourceId || null,\n            verified: false'),
   'verification lookup must not filter by raw code in Prisma'
 )
@@ -136,7 +136,7 @@ assert.ok(
 
 assert.ok(
   !verifyOperationCodeSource.includes('operationVerification.update({') &&
-    verifyOperationCodeSource.includes('const claimed = await prisma.operationVerification.updateMany({') &&
+    verifyOperationCodeSource.includes('const claimed = await tx.operationVerification.updateMany({') &&
     verifyOperationCodeSource.includes('id: verification.id') &&
     verifyOperationCodeSource.includes('verified: false') &&
     verifyOperationCodeSource.includes('expiresAt: { gt: verifiedAt }') &&
@@ -144,6 +144,11 @@ assert.ok(
     verifyOperationCodeSource.includes('if (claimed.count !== 1)'),
   'successful operation verification must conditionally claim the pending row without throwing stale-record races'
 )
+assert.ok(verifyOperationCodeSource.includes('return prisma.$transaction(async tx => {') &&
+  verifyOperationCodeSource.includes('authorizeUserWrite(tx, userId, actor)') &&
+  verifyOperationCodeSource.indexOf('authorizeUserWrite(tx, userId, actor)') < verifyOperationCodeSource.indexOf('const candidates') &&
+  verifyOperationCodeSource.includes('recordFailedVerificationAttempt(tx, activeVerification.id)'),
+  'verification attempts and grant promotion must share the current account/session row-lock transaction')
 
 assert.ok(
   claimOperationVerificationSource.includes('const result = await prisma.operationVerification.updateMany({') &&

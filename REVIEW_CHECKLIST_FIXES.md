@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R011验证current认证：已投递码banned账户仍200promote先红→verify request.user进入同事务authorizeUserWrite账户行锁，正确CAS和错误bounded尝试都在当前授权之后。真实PG三排队停用/撤销、八正确并发唯一次、拒绝不耗记录、原完整SMTP/预算/目标与destroy/2FA全过；最终types/build/两守卫/diff过见HANDOFF。355d39e554268eba746ee1b33b79adec8d0419b5/41025555281已推，410143及410158两CI终态success，八其它CI仍跟。原session/email持久绑定、check/claim/profile及327内部继续，计数不增。
+
 2026-10-30 R011当前投递授权：真实PG账号banned仍200发信先红→request.user进入准备/ACK后两事务authorizeUserWrite账户行锁，核current状态/撤销/捕获email及个人通知目标，变化不发或不激活。实际4类PG排队竞争/3类SMTP在途变化与完整预算目标回归、destroy/2FA、最终types/build/两守卫/manifest/diff过；d55c7ef7f032eafed37409affa1a26417997f33c/41024907571已推。当前已发送码verify/check/claim持久session/email绑定仍待，不将准备局部当全合同，259含部分/68不同保持，详见HANDOFF。
 
 2026-10-30 R011 generic账户预算：真实PG/SMTP切换操作立即发信先红，新增账户advisory与精确recordId在途gate、所有generic历史跨操作/资源60秒预算和最近过期保历史。实际八混合并发单邮件/他账户独立/在途跨60秒及删行/失败耗尽消费切换/过期清理61秒、原投递目标/SMTP全部与销毁/2FA回归自然exit0；最后types/server build/两守卫/manifest/diff过见HANDOFF。2909625494e3dc1f49a7bc4926014c1efb0400dd/41024139392已推，41014322522终态success其它CI继续跟。当前会话邮箱/资源权限及内部整验收另待，原327计数不变。
