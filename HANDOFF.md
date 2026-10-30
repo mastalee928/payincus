@@ -1,5 +1,14 @@
 # 版本与验证记录
 
+## 2026-10-30 批量配置复用事务连接，单连接真实TLS回归通过（阶段保存）
+
+- 快照段c6d3e0c9a3787433131583935ff491ec88d4ebaa已推，源码CI41078031261、文档41078031227及预览41078210231同提交。文档/双架构预览终态success；本机195/195自然exit0（snapshot-pool-full-final.log，test-run-20261030-231018）。两个实际包root身份、准确版本/提交、补丁原字节/hash、两个Node runtime、快照三个tx建连及配额查询、managed期限/重建清理均核，报告logs/release-preview-c6d3e0c9/prisma-package-verification.json。AMD64 SHA256 74fafb153f73bc0e52cee6400cdb937f386856bc7046ff9cbfe064abea47a4ed；ARM64 d426bfe059cfbe220d7dd8dfe0e2b20255750840eeca4c83fa451e5a51509c8e。
+- 两首装实际230迁移、唯一后端/双端/admin登录、production Prisma四轮48超时及迟到SQL回滚/release/失败/正常事务、完整备份与ZIP/ZIP64恢复完整性均success，实际fresh-install两log已读取。传输为隔离替身，不代表真实OSS/公网灾备。一次未先核job ID的读取404，随后按实际job取得；AMD64 gh缓存zip损坏改直接jobs/logs读取，未重跑成功预览或把读取失败当通过。
+- 继续调用链审查发现batch-config在withBatchInstanceMutation中getIncusClient(host)再向全局Prisma借连接。真实Fastify/PG/mTLS max=1原代码connect超时、自动重试仍失败（batch-pool-before-final.log自然exit1）。仅改该调用传tx，保锁内宿主身份双查和事务门禁；新增单池专项已登记排除常规清单原因并接LinuxCI，同时接原批量配置PG专项。
+- batch-pool-single-final.log自然exit0：冷TLS连接、资源PATCH与高级PUT各一次、DB/宿主资源差值提交、连接idle1/waiting0且无PG idle transaction；真实连接失败零写/DB回滚、恢复后重试成功。IPv4/IPv6/端口设备及实例身份/价格/到期保持。原批量专项当前账户/撤销/权限/归属/任务/转移、真实PG操作锁、资源计数/远端部分失败与DB失败/及时冲突审计全部通过；严格源码及两专项types、server build、四守卫和清单195/233分类通过，batch-pool-{integration,types,build,guards}-final.log自然exit0。
+- 夹具初漏专属宿主资源上限、随后customerDiskGiB误拼产生非产品失败；旧批量专项同样漏上限，补有效测试容量后实际触发器保持并通过。保留setup-field/integration-capacity-fixture-failure日志，只有原connect超时为本次故障证据；新夹具setup也置于finally清理范围。最后types/单池再次验证通过。无前端源码改动；新产品需当前提交全量/CI/双架构，旧包不能覆盖此一行修复。
+- 旧68de源码CI41070010863及c6d3源码CI41078031261仍Pool浏览器后续推进，未终态；无新增CI failure。原327计数不增，正式仍v1.7.7，无生产OTA/DNS/客户操作。后续创建准备的IPv6查重辅助函数仍有全局查询，下一段核实并修复，原生Incus/持久崩溃恢复及完整灾备缺口保持。
+
 ## 2026-10-30 快照事务复用连接，关闭池满时的嵌套申请（阶段保存）
 
 - 接续未提交的快照修复：withSnapshotMutation持有PG连接后，checkSnapshotQuota及getIncusClient原先使用全局Prisma再次申请连接。原五事务同时占满五连接的quota回归全部连接超时，snapshot-quota-pool-before.log自然exit1；这是应用层连接等待，与Prisma迟到BEGIN泄漏分别处理，不改连接池上限。

@@ -77,7 +77,8 @@ try {
   const other = await makeUser('other')
   currentActor = { ...session, id: admin.id, username: admin.username, role: 'admin' }
   const host = await prisma.host.create({ data: { userId: owner.id, name: tag, url: 'https://127.0.0.1:1', status: 'online',
-    singleTenant: true, cpuUsed: 100, memoryUsed: 512, diskUsed: 1024 } })
+    singleTenant: true, cpuAllowanceMax: 1000, memoryMax: 4096, customerDiskGiB: 8,
+    cpuUsed: 100, memoryUsed: 512, diskUsed: 1024 } })
   hostIds.push(host.id)
   const instance = await prisma.instance.create({ data: { userId: buyer.id, hostId: host.id, name: tag, incusId: `batch-${tag}`,
     image: 'fixture', status: 'running', dedicatedIpv4: true, dedicatedNetworkReady: true,

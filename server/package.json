@@ -185,6 +185,7 @@
     "test:review-sync-observation-protection-integration": "node --import tsx scripts/test-review-sync-observation-protection-integration.ts",
     "test:review-proxy-ipv4-sync-integration": "node --import tsx scripts/test-review-proxy-ipv4-sync-integration.ts",
     "test:review-batch-config-integration": "node --import tsx scripts/test-review-batch-config-integration.ts",
+    "test:batch-config-single-connection": "node --import tsx scripts/test-batch-config-single-connection.ts",
     "test:review-admin-balance-integration": "node --import tsx scripts/test-review-admin-balance-integration.ts",
     "test:review-user-list-integration": "node --import tsx scripts/test-review-user-list-integration.ts",
     "test:review-batch-port-range-integration": "node --import tsx scripts/test-review-batch-port-range-integration.ts",

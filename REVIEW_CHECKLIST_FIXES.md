@@ -2,6 +2,8 @@
 
 2026-10-30连接池接续：68de双架构预览41070141170/实际生产Prisma PG专项及包检查成功。源码旧CI41057438463/41058561817/41059920880/41060617563/41061780692已success，41070010863继续后续浏览器专项。快照事务内配额及Incus宿主查询全局再申请连接已实际复现，修为当前tx；max=1冷连接三操作/原20竞争/验证码与故障回滚/八并发、严格types/build/五守卫/Incus竞争及配额PG通过见HANDOFF。新产品需同提交全量/预览，原327统计不增；历史failure41050640712与原生/灾备缺口保留。
 
+2026-10-30批量配置同事务：原getIncusClient(host)在tx中再次借连接，max=1真实PG/Fastify/mTLS先connect超时、改传tx后资源/高级配置、失败回滚/恢复重试及idle1/waiting0/零遗留事务通过，原完整batch授权/锁/计数/故障/审计专项、严格types/build/四守卫通过见HANDOFF。c6d3预览41078210231双包/production Prisma/首装恢复与195全量成功；新修复需新同提交门槛。R024/025内部新增证据，327计数不增，原生/崩溃恢复保持。
+
 2026-10-30 R011重装snapshot：mTLS list失败仍发config先红，明确验证列表/名称、删除后再读空列表才移DB记录，cloud-init重置放清理确认之后，失败不吞继续。真实六read/shape/name/delete/still-present/confirm故障保记录零config及非空实际DELETE确认成功，原stop/4/12/18/28与全SMTP、types/build/十守卫/destroy过见HANDOFF。50570a68a4c6411f503df727a615df504e601f3e / CI41050640712已推；41049136134越原阻塞继续host batch未终态，recreate及跨系统/原生客户另待，259含部分/68不同不增。
 
 2026-10-30 R011重装stop：mTLS状态500后仍发config先红，stop异常直接拒绝，读取真实Stopped才进入cloud-init/快照/重装，原Alpine busy参数保持。真实worker三state失败/stop失败/ACK后仍Running零config写、snapshot/image/password/cloudInitState保留；types/build/十守卫及原完整PG/SMTP/mTLS/destroy最终exit0见HANDOFF。6b3785483ab7e55389817d3dddb6ab12a01f186e / CI41049136134已过网络阻塞并向后推进未终态，recreate stop及snapshot缺失另待，259含部分/68不同不增。

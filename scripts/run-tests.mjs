@@ -225,6 +225,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-sync-observation-protection-integration', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; actual failed status observations preserve customer resources and dedicated inventory against mTLS Incus fixture'],
   ['test:review-proxy-ipv4-sync-integration', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; durable address-sync intent, same-IP retry, current ownership, failure rollback and TLS Caddy fixture'],
   ['test:review-batch-config-integration', 'requires isolated local *_pool_test PostgreSQL; current batch actor/target locks, resource accounting, concurrency and partial remote failure through Incus fixture'],
+  ['test:batch-config-single-connection', 'requires isolated local *_pool_test PostgreSQL, DB_POOL_MAX=1 and OpenSSL; actual batch Fastify/mTLS route with cold host configuration, atomic resource counters, failed connection rollback/retry and pool recovery'],
   ['test:review-admin-balance-integration', 'requires isolated local *_pool_test PostgreSQL; actual administrative balance routes, current actor/session, approval CAS and ledger rollback'],
   ['test:review-user-list-integration', 'requires isolated local *_pool_test PostgreSQL; real Fastify list payload, fixed SQL count and database-limited latest login retrieval'],
   ['test:review-caddy-integration', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; Caddy credential routes and HTTPS API fixture for ETag/routing/error semantics'],

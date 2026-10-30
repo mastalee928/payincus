@@ -366,7 +366,7 @@ async function updateSingleInstance(
       progress = 'connect'
       let client: Awaited<ReturnType<typeof getIncusClient>> | null = null
       if (hasIncusConfig(config)) {
-        const pooledClient = await getIncusClient(host)
+        const pooledClient = await getIncusClient(host, tx)
         // A request-local facade bounds all requests before the DB transaction
         // deadline, without changing the shared connection's methods or identity.
         client = Object.create(pooledClient) as typeof pooledClient

@@ -173,6 +173,15 @@ jobs:
           DB_POOL_MAX: '1'
           DB_CONNECTION_TIMEOUT: '1000'
           REVIEW_SNAPSHOT_SINGLE_CONNECTION: '1'
+      - name: Batch configuration completes using one PostgreSQL connection
+        timeout-minutes: 2
+        run: pnpm --filter server test:batch-config-single-connection
+        env:
+          DB_POOL_MAX: '1'
+          DB_CONNECTION_TIMEOUT: '1000'
+      - name: Batch configuration preserves current authorization and atomic resource accounting
+        timeout-minutes: 2
+        run: pnpm --filter server test:review-batch-config-integration
       - name: Verify backup upload authorization, queue races and export completion
         run: |
           pnpm --filter server test:review-upload-completion-integration
