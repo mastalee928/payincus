@@ -116,17 +116,29 @@ for (const path of ['/:id/config', '/:id/swap/enable', '/:id/swap/disable', '/:i
   )
 }
 
-assert.ok(
-  boostRoute.includes('const previousProcesses = instanceConfig?.limits_processes ?? null') &&
-    boostRoute.includes('limitsProcesses: previousProcesses'),
-  'boost-processes must preserve and restore the exact previous database limit when Incus fails'
-)
-assert.ok(
-  boostRoute.includes("code: 'PROCESS_LIMIT_BOOST_PARTIAL_FAILURE'") &&
-    boostRoute.includes("incusLimitApplied: 'unknown'") &&
-    boostRoute.includes('databaseLimit: targetLimit'),
-  'boost-processes must return explicit actual-state details when database rollback also fails'
-)
+const boostMutation = readFileSync(resolve(__dirname, '../src/db/instance-process-boost.ts'), 'utf8')
+assert.ok(boostRoute.includes('boostInstanceProcessesAuthorized(instance, host, user)') &&
+  boostMutation.includes('withBatchInstanceMutation(') && boostMutation.includes('}, actor, true,') &&
+  boostMutation.includes('assertNoPendingSnapshotOperations(tx, instance.id)') &&
+  boostMutation.includes('assertNoPendingProxySiteOperations(tx, instance.id)'),
+  'process boosting must use current administrative authorization and the shared instance operation fence')
+assert.ok(boostMutation.includes('previousProcesses = instance.limitsProcesses') &&
+  boostMutation.indexOf('await updateInstance(client,') < boostMutation.indexOf('await tx.instance.update(') &&
+  !boostRoute.includes('db.updateInstanceConfig('),
+  'remote failure must preserve the exact previous DB value by transaction rollback, never an unlocked stale overwrite')
+assert.ok(boostMutation.includes("'PROCESS_LIMIT_BOOST_PARTIAL_FAILURE'") &&
+  boostMutation.includes("incusLimitApplied: 'unknown'") &&
+  boostMutation.includes('previousDatabaseLimit: previousProcesses') &&
+  boostMutation.includes("databaseLimit: current ? current.limitsProcesses : 'unknown'"),
+  'failed PUT/COMMIT must report the current DB observation and remote uncertainty')
+assert.ok(boostMutation.indexOf('const operationDeadline = Date.now() + 90000') < boostMutation.indexOf('return await withBatchInstanceMutation') &&
+  boostMutation.includes('const client = new IncusClient(host)') &&
+  boostMutation.indexOf('client.request =') < boostMutation.indexOf('await client.connect()') &&
+  boostMutation.includes('AbortSignal.any([signal, callerSignal])') &&
+  boostMutation.includes('signal.throwIfAborted()') && boostMutation.includes('finally { await client.close() }'),
+  'cold mTLS connect and busy retries must share the total deadline and close the owned transport')
+assert.ok(boostRoute.includes("await createLog(null, 'instance', 'instance.boost_processes'") &&
+  boostRoute.includes('instanceId: null'), 'busy failures must retain identity in audit content without waiting on target FK locks')
 assert.ok(
   boostRoute.includes("'failed'") &&
     boostRoute.includes('return reply.code(500).send(apiError(') &&

@@ -1,5 +1,14 @@
 # 版本与验证记录
 
+## 2026-10-31 R275 进程数提升授权、并发与总期限（阶段保存）
+
+- 原单次Incus失败确实返回500并恢复精确旧值（含null），原“失败假成功”不成立；但process-boost-auth-before.log实证认证后降权仍200并PUT。新增logs/process-boost-race-before-product.log用fe12ac20原路由（只调整临时副本import路径）与真实PG/批量路由确定性复现：批量配置已成功提交700，更早提升PUT迟到失败后把DB覆盖回null，自然exit1；第一份before日志仅夹具fastify路径缺失，不算产品复现。
+- 新instance-process-boost复用统一实例advisory/行锁、host及当前actor/status/sid/role授权，锁后确认原实例/宿主身份、任务/转移/快照/反代门禁和套餐类型；远端成功才更新同事务DB，失败不再事务外覆盖旧值。container1000/vm2000、原配置与设备保持。独立短期IncusClient沿当前锁定证书身份，90秒总期限从申请事务前开始，覆盖冷mTLS/GET/PUT及busy重试，finally关闭；不修改共享池和其他调用者。
+- PUT或COMMIT之后失败返回PARTIAL_FAILURE与请求上限、原/当前数据库观察值和远端unknown，不假称远端已回滚；具体cause保留服务日志。冲突失败审计以内容保留actor/instance编号，外键留null避免竞争者仍持行锁时拖延409；成功审计保持关联。
+- logs/process-boost-complete-final.log自然exit0：null/650失败后保持、重试与类型上限、四种当前角色/封禁/会话撤销拒绝、八组实际PG身份/账号锁等待、六类未就绪/任务门禁、先成功及先失败两种提升与batch竞争、及时忙响应、后续700保持；真实延迟外键COMMIT失败证明回调成功返回后失败，远端1000/DB650明确报告且失败审计持久。该专项Incus协议为替身，PG及Fastify是实际调用。
+- logs/process-boost-wire-first.log自然exit0：唯一PG连接下原Fastify/原IncusClient+本地认证mTLS，冷连成功/远端拒绝/重试/指纹不符拒绝；握手无响应90044ms、PUT响应体中断90041ms、持续busy90759ms退出，socket0、idle1/waiting0、零idle-in-transaction且额外2.2秒零迟到请求；随后正常操作成功。首次types发现夹具Duplex类型不匹配已修，最终server+两专项零诊断；对应守卫2/2、清单与后端build自然exit0。测试登记CI；尚无原生Incus/公网长期运行或生产部署证据。
+- 上段CI夹具修正已推3c2880b1e67fb8e5133e5e02517afc7e9565f677，新CI41137000191在运行；历史fe12ac20/41134810809失败保留。其它七批仍向后推进，无新失败。R275进入复验后264项进入修复/复验（含部分及待验收）、63项保留初审分类；不是264项全部完成。本修复在固定v1.7.8之后。
+
 ## 2026-10-31 R182 CI 并发夹具编号顺序修正
 
 - 最新已推fe12ac20dcc580fa3b54a020fb777aabf22ab5b5的CI41134810809失败，job124334530550，步骤Ticket auto-close serializes with public reply deletion and returns only committed receipts。原日志logs/ci-41134810809-failed.log保留：两张成功工单都已通知，失败为test-review-ticket-autoclose.ts的subject数组顺序断言；不是关单丢通知复发。其它六job成功。

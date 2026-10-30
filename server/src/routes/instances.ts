@@ -11,6 +11,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import * as db from '../db/index.js'
 import { createLog } from '../db/logs.js'
 import { updateInstanceQuotaAuthorized, InstanceQuotaMutationError } from '../db/instance-quota-mutations.js'
+import { boostInstanceProcessesAuthorized, ProcessBoostError } from '../db/instance-process-boost.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { prisma } from '../db/prisma.js'
 import { assertManagedCleanupIdentity, deletePendingManagedInstance, finalizeManagedCleanupForDeletion } from '../lib/managed-cleanup-identity.js'
@@ -5836,100 +5837,22 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
     }
 
-    // 检查转移锁定
-    if (await checkTransferLock(instanceId, reply)) return
-
-    // 获取实例类型（从套餐获取）
-    const pkg = instance.package_id ? await db.getPackageById(instance.package_id) : null
-    const instanceType = (pkg as { instance_type?: 'container' | 'vm' } | null)?.instance_type || 'container'
-
-    // 确定进程数上限：LXC=1000, KVM=2000
-    const targetLimit = instanceType === 'vm' ? 2000 : 1000
-
-    // 获取当前进程数配置
-    const instanceConfig = await db.getInstanceConfig(instanceId)
-    const previousProcesses = instanceConfig?.limits_processes ?? null
-    const currentProcesses = previousProcesses ?? 500
-
-    // 检查是否已达上限
-    if (currentProcesses >= targetLimit) {
-      return reply.code(400).send({
-        error: `Process limit already at maximum (${targetLimit})`,
-        code: 'PROCESS_LIMIT_ALREADY_MAX'
-      })
-    }
-
-    // 更新数据库中的实例配置
-    await db.updateInstanceConfig(instanceId, {
-      limitsProcesses: targetLimit
-    })
-
-    // 应用配置到 Incus 容器
     try {
-      const client = await getIncusClient(host)
-      await updateInstance(client, instance.incus_id, {
-        config: {
-          'limits.processes': String(targetLimit)
-        }
-      })
+      const targetLimit = await boostInstanceProcessesAuthorized(instance, host, user)
+      await createLog(user.id, 'instance', 'instance.boost_processes',
+        `Boosted process limit for instance "${instance.name}" to ${targetLimit}`, 'success', { instanceId })
+      return { message: 'Process limit boosted successfully', newLimit: targetLimit }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      console.error(`[BoostProcesses] Failed to apply to Incus for instance ${instance.name}:`, error)
-
-      try {
-        await db.updateInstanceConfig(instanceId, {
-          limitsProcesses: previousProcesses
-        })
-      } catch (rollbackError) {
-        const rollbackErrorMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
-        console.error(`[BoostProcesses] Failed to roll back database config for instance ${instance.name}:`, rollbackError)
-        await createLog(
-          user.id,
-          'instance',
-          'instance.boost_processes',
-          `Failed to apply process limit for instance "${instance.name}" and database rollback failed`,
-          'failed',
-          { instanceId }
-        )
-        return reply.code(500).send({
-          error: 'Process limit boost partially failed',
-          code: 'PROCESS_LIMIT_BOOST_PARTIAL_FAILURE',
-          details: {
-            incusError: errorMessage,
-            rollbackError: rollbackErrorMessage,
-            databaseLimit: targetLimit,
-            previousDatabaseLimit: previousProcesses,
-            incusLimitApplied: 'unknown'
-          }
-        })
+      console.error(`[BoostProcesses] Failed to set process limit for instance #${instanceId}:`, error)
+      // A competing mutation may still hold the user/instance FK locks. Keep
+      // their IDs in the durable error text without delaying this response.
+      await createLog(null, 'instance', 'instance.boost_processes',
+        `Actor #${user.id}, instance #${instanceId}: Failed to set process limit`, 'failed', { instanceId: null })
+      if (error instanceof ProcessBoostError) {
+        return reply.code(error.statusCode).send({ error: error.message, code: error.code,
+          ...(error.details ? { details: error.details } : {}) })
       }
-
-      await createLog(
-        user.id,
-        'instance',
-        'instance.boost_processes',
-        `Failed to apply process limit for instance "${instance.name}"; database change rolled back`,
-        'failed',
-        { instanceId }
-      )
-      return reply.code(500).send(apiError(
-        ErrorCode.CONFIG_UPDATE_FAILED,
-        `${errorMessage}; database change rolled back`
-      ))
-    }
-
-    await createLog(
-      user.id,
-      'instance',
-      'instance.boost_processes',
-      `Boosted process limit for instance "${instance.name}" to ${targetLimit}`,
-      'success',
-      { instanceId }
-    )
-
-    return {
-      message: 'Process limit boosted successfully',
-      newLimit: targetLimit
+      return reply.code(500).send(apiError(ErrorCode.CONFIG_UPDATE_FAILED))
     }
   })
 

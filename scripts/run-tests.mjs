@@ -51,6 +51,8 @@ environment:
  */
 const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-ticket-autoclose', 'requires isolated PostgreSQL; actual auto-close and reply deletion row-lock competition, changed last public reply, concurrent unique close receipts and rollback'],
+  ['test:review-process-boost', 'requires isolated PostgreSQL; process boost current authorization, actual target/account lock competition, batch fencing, exact rollback and deferred COMMIT failure'],
+  ['test:review-process-boost-transport', 'requires isolated PostgreSQL with DB_POOL_MAX=1 and OpenSSL; actual mTLS connect/body/busy deadlines, zero late writes and socket/transaction reclamation'],
   ['test:review-terminal-reconnect-authorization', 'requires isolated PostgreSQL, OpenSSL and local mTLS/WebSocket fixture; current authorization after reconnect, actual row-lock competition, lock/deadline cancellation, real COMMIT failure and revocation while initial/reconnect authorization is pending'],
   ['test:review-terminal-reservations', 'requires isolated PostgreSQL, OpenSSL and local mTLS/WebSocket fixture; deterministic audit FK lock competition, pending user/instance limits, cancellation with persisted audits and released-slot reuse'],
   ['test:review-terminal-reconnect', 'requires OpenSSL and local mTLS HTTP/WebSocket fixture; reconnect backoff/POST/handshake cancellation, four revocation scopes, concurrent account isolation, client disconnect, VM fallback and total deadline with transport cleanup'],

@@ -277,6 +277,12 @@ jobs:
         run: pnpm --filter server test:review-command-integration
       - name: Ticket auto-close serializes with public reply deletion and returns only committed receipts
         run: pnpm --filter server test:review-ticket-autoclose
+      - name: Process boosts retain current authorization and serialize with batch configuration
+        run: pnpm --filter server test:review-process-boost
+      - name: Process boost mTLS connect and busy retries release the only database connection within their deadline
+        env:
+          DB_POOL_MAX: 1
+        run: pnpm --filter server test:review-process-boost-transport
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets
