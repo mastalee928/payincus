@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onActivated, watch } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import api from '@/api'
@@ -10,6 +10,7 @@ import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import FlagIcon from '@/components/FlagIcon.vue'
 import { translateError } from '@/utils/errorHandler'
+import { loadCompletePages } from '@/utils/completePages'
 import { hostCreatePath, hostDetailPath, isAdminEntry } from '@/utils/app-paths'
 
 // 为 KeepAlive include 匹配定义组件名称（必须在所有 import 之后）
@@ -50,14 +51,33 @@ const hosts = ref([])
 const loading = ref(true)
 const search = ref('')
 const calibratingAll = ref(false)
+const calibrationResults = ref([]), calibrationError = ref('')
+let calibrationAlive = true, calibrationActive = true, calibrationGeneration = 0, calibrationInFlight = false
+const calibrationSession = computed(() => {
+  const user = authStore.user
+  if (!user || !authStore.token || !Number.isSafeInteger(user.id) || user.id < 1 || !['admin', 'user'].includes(user.role)) return ''
+  let identity = authStore.token
+  try {
+    const claims = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof claims.sid === 'string' && claims.sid) identity = claims.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${user.id}:${user.role}:${identity}`
+})
+const calibrationFailures = computed(() => calibrationResults.value.filter(row => row.status === 'failed'))
+const calibrationCompleted = computed(() => calibrationResults.value.filter(row => ['success', 'failed'].includes(row.status)).length)
+const calibrationSuccesses = computed(() => calibrationResults.value.filter(row => row.status === 'success').length)
+const calibrationChanges = computed(() => calibrationResults.value.filter(row => row.status === 'success' && row.changed).length)
+function invalidateCalibration() {
+  calibrationGeneration++; calibrationResults.value = []; calibrationError.value = ''
+}
+watch([calibrationSession, scope], invalidateCalibration, { flush: 'sync' })
+onDeactivated(() => { calibrationActive = false; invalidateCalibration() })
+onBeforeUnmount(() => { calibrationAlive = false; calibrationActive = false; invalidateCalibration() })
 const page = ref(1)
 const pageSize = ref(100)
 const total = ref(0)
 const totalPages = ref(0)
 const takingOverHostId = ref(null)
-
-// 在线节点数量（用于校对按钮禁用状态）
-const onlineHostsCount = computed(() => hosts.value.filter(h => h.status === 'online').length)
 
 // 计算可显示的页码列表
 const pageNumbers = computed(() => {
@@ -105,7 +125,10 @@ function handlePageSizeChange() {
 let hasInitialLoad = false
 
 // 加载宿主机列表
-async function loadHosts() {
+async function loadHosts(owns = () => true) {
+  const view = `${page.value}:${pageSize.value}:${search.value}:${scope.value}:${filterUserId.value}`
+  const isCurrent = () => owns() && view === `${page.value}:${pageSize.value}:${search.value}:${scope.value}:${filterUserId.value}`
+  if (!isCurrent()) return
   loading.value = true
   try {
     let res
@@ -134,13 +157,14 @@ async function loadHosts() {
         mine: true
       })
     }
+    if (!isCurrent()) return
     hosts.value = res.hosts || []
     total.value = res.total || 0
     totalPages.value = res.totalPages || 1
   } catch (err) {
-    toast.error(err.message)
+    if (isCurrent()) toast.error(err.message)
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -293,47 +317,73 @@ async function takeoverHost(host) {
   }
 }
 
-// 校对全部宿主机资源（校对用户的所有节点，而不是当前页面）
-async function calibrateAll() {
-  calibratingAll.value = true
-  let successCount = 0
-  let changedCount = 0
-  
+function validCalibrationReceipt(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.hasChanges !== 'boolean') return false
+  const keys = ['cpuUsed', 'memoryUsed', 'diskUsed', 'natPortsUsedCount', 'cpuAllowanceMax', 'memoryMax']
+  for (const field of ['before', 'after', 'diff']) {
+    const part = value[field]
+    if (!part || typeof part !== 'object' || Array.isArray(part) || !keys.every(key =>
+      Number.isSafeInteger(part[key]) && (field === 'diff' || part[key] >= 0))) return false
+  }
+  return keys.every(key => value.diff[key] === value.after[key] - value.before[key]) &&
+    value.hasChanges === keys.some(key => value.diff[key] !== 0)
+}
+
+// Freeze the complete owned target set before writing; retry only failed targets.
+async function calibrateAll(retryFailed = false) {
+  if (calibrationInFlight || scope.value !== 'mine') return
+  const identity = calibrationSession.value, generation = calibrationGeneration, userId = authStore.user?.id, admin = isAdmin.value
+  const current = () => calibrationAlive && calibrationActive && !!identity && scope.value === 'mine' &&
+    identity === calibrationSession.value && generation === calibrationGeneration
+  if (!current()) return
+  calibrationInFlight = true; calibratingAll.value = true; calibrationError.value = ''
   try {
-    // 先获取用户的所有节点（不分页）
-    const res = await api.hosts.list({
-      mine: true,
-      pageSize: 1000  // 获取所有节点
-    })
-    const allHosts = res.hosts || []
-    
-    // 只校对在线的节点
-    const onlineHosts = allHosts.filter(h => h.status === 'online')
-    if (onlineHosts.length === 0) {
-      toast.info(t('resources.hosts.noOnlineHosts'))
-      return
-    }
-    
-    for (const host of onlineHosts) {
-      try {
-        const res = await api.hosts.recalculateResources(host.id)
-        successCount++
-        if (res.hasChanges) changedCount++
-      } catch {
-        // 单个失败不影响其他
-      }
-    }
-    
-    if (changedCount > 0) {
-      toast.success(t('resources.hosts.calibrateAllDone', { total: successCount, changed: changedCount }))
+    let targets
+    if (retryFailed === true) {
+      targets = calibrationFailures.value.map(row => ({ ...row, status: 'pending', error: '', changed: false }))
+      if (!targets.length) return
+      const ids = new Set(targets.map(row => row.id))
+      calibrationResults.value = calibrationResults.value.map(row => ids.has(row.id) ? targets.find(target => target.id === row.id) : row)
     } else {
-      toast.success(t('resources.hosts.calibrateAllNoChange', { total: successCount }))
+      const allHosts = await loadCompletePages({
+        fetchPage: params => api.hosts.list({ ...params, ...(admin ? { scope: 'mine' } : { mine: 'true' }) }),
+        itemsKey: 'hosts', current, errorMessage: t('common.loadFailed'),
+        isItem: value => {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+          const owner = value.owner
+          return typeof value.id === 'number' && typeof value.name === 'string' && ['online', 'offline', 'maintenance'].includes(value.status) &&
+            (owner === undefined || owner === null || (typeof owner === 'object' && !Array.isArray(owner) && owner.id === userId)) &&
+            ['userId', 'user_id'].every(key => value[key] === undefined || value[key] === userId)
+        }
+      })
+      if (!current()) return
+      targets = allHosts.filter(host => host.status === 'online').map(host => ({ id: host.id, name: host.name, status: 'pending', changed: false, error: '' }))
+      calibrationResults.value = targets
+      if (!targets.length) { toast.info(t('resources.hosts.noOnlineHosts')); return }
     }
-    
-    // 重新加载列表以显示最新数据
-    await loadHosts()
+    for (const target of targets) {
+      if (!current()) return
+      target.status = 'running'
+      try {
+        const response = await api.hosts.recalculateResources(target.id)
+        if (!current()) return
+        if (!validCalibrationReceipt(response)) throw new Error(t('common.loadFailed'))
+        target.status = 'success'; target.changed = response.hasChanges
+      } catch (error) {
+        if (!current()) return
+        target.status = 'failed'; target.error = translateError(error)
+      }
+      // targets may be raw references; publish completion to the reactive list.
+      calibrationResults.value = calibrationResults.value.map(row => row.id === target.id ? { ...target } : row)
+    }
+    if (!current()) return
+    if (!calibrationFailures.value.length) toast.success(t(calibrationChanges.value ? 'resources.hosts.calibrateAllDone' : 'resources.hosts.calibrateAllNoChange',
+      { total: calibrationSuccesses.value, changed: calibrationChanges.value }))
+    await loadHosts(current)
+  } catch (error) {
+    if (current()) calibrationError.value = translateError(error)
   } finally {
-    calibratingAll.value = false
+    calibrationInFlight = false; calibratingAll.value = false
   }
 }
 
@@ -362,6 +412,7 @@ onMounted(() => {
 // 当组件从 KeepAlive 缓存中激活时，重新加载数据
 // 解决从创建页面返回后需要手动刷新的问题
 onActivated(() => {
+  calibrationActive = true
   // 避免与 onMounted 重复加载
   if (hasInitialLoad) {
     loadHosts()
@@ -371,7 +422,6 @@ onActivated(() => {
 
 <template>
   <div class="kawaii-page space-y-6 animate-fade-in">
-
     <div class="page-header">
       <div>
         <h1 class="page-title">{{ t('resources.hosts.title') }}</h1>
@@ -379,8 +429,9 @@ onActivated(() => {
       </div>
       <div v-if="scope === 'mine'" class="flex items-center gap-2">
         <button
-          class="btn-secondary btn-sm sm:btn"
-          :disabled="calibratingAll || onlineHostsCount === 0"
+          class="btn-secondary calibration-action"
+          :disabled="calibratingAll || !calibrationSession"
+          data-testid="calibration-start"
           @click="calibrateAll"
         >
           <svg v-if="calibratingAll" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -400,6 +451,20 @@ onActivated(() => {
         </button>
       </div>
     </div>
+
+    <section v-if="calibratingAll || calibrationError || calibrationResults.length" class="calibration-panel" data-testid="calibration-panel" :aria-busy="calibratingAll">
+      <div class="calibration-summary">
+        <p aria-live="polite">{{ t('resources.hosts.calibrationProgress', { done: calibrationCompleted, total: calibrationResults.length, success: calibrationSuccesses, changed: calibrationChanges, failed: calibrationFailures.length }) }}</p>
+        <button v-if="calibrationFailures.length" class="calibration-retry" data-testid="calibration-retry" :disabled="calibratingAll" @click="calibrateAll(true)">{{ t('resources.hosts.calibrationRetryFailed') }}</button>
+      </div>
+      <div v-if="calibrationError" role="alert" class="calibration-summary">
+        <p>{{ calibrationError }}</p>
+        <button class="calibration-retry" data-testid="calibration-load-retry" :disabled="calibratingAll" @click="calibrateAll()">{{ t('common.retry') }}</button>
+      </div>
+      <ul v-if="calibrationFailures.length" class="calibration-failures" aria-live="polite">
+        <li v-for="result in calibrationFailures" :key="result.id"><span class="font-medium">{{ result.name }}</span><span class="calibration-failure-detail">{{ t('resources.hosts.calibrationHostId', { id: result.id }) }} · {{ result.error }}</span></li>
+      </ul>
+    </section>
 
     <!-- 工具栏 -->
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
@@ -720,6 +785,19 @@ onActivated(() => {
 </template>
 
 <style scoped>
+.calibration-panel { border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; background: #fff; color: #0a0a0a; font-size: 14px; }
+.dark .calibration-panel { border-color: #333; background: #0a0a0a; color: #fff; }
+.calibration-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.calibration-summary p { min-width: 0; overflow-wrap: anywhere; }
+.calibration-retry { min-width: 44px; min-height: 44px; padding: 10px 14px; border-radius: 6px; background: #0a0a0a; color: #fff; font-weight: 500; }
+.dark .calibration-retry { background: #fff; color: #0a0a0a; }
+.calibration-retry:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.calibration-retry:disabled { opacity: .6; cursor: wait; }
+.calibration-action { min-height: 44px; }
+.calibration-failures { margin-top: 12px; display: grid; gap: 8px; }
+.calibration-failures li { display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.calibration-failure-detail { color: #525252; }
+.dark .calibration-failure-detail { color: #d4d4d4; }
 /* Nimbus interactive card: subtle hover-lift */
 .nimbus-card {
   transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;

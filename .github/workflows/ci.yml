@@ -466,6 +466,8 @@ jobs:
         run: pnpm --filter server test:review-package-form
       - name: Package host names and search include every page
         run: pnpm --filter server test:review-package-host-pagination
+      - name: Complete host calibration targets keep current authorization and retry only failed hosts
+        run: pnpm --filter server test:review-my-host-calibration
       - name: Verify expiry panel lifecycle in Chrome
         run: pnpm --filter server test:review-expiry-panel
       - name: Verify badge image recovery in Chrome

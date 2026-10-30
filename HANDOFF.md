@@ -2,6 +2,16 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-020 我的节点完整批量校对（持续施工）
+
+- 后端校对已推a292a95527d50faec9a52d6ddd0e71d116808a94，CI41014322522运行。41005762182现七job终态success，41006712461仍Pool integration运行，继续查终态；历史GoIO未删除。
+- 原MyHosts pageSize1000只取100条，首100离线时漏掉后137在线节点；初版实际Vue红为未请求第2页。现按100完整严格页/ID/name/status/可见owner读取自有节点，管理员明确scope:mine（原mine:true未过滤管理员全库，现修为自有范围），普通用户保mine字符串true；完整读取后冻结在线目标、逐台单请求执行。固定account/role/sid/同步代次/scope/cache/unmount，重复调用门禁，旧回执不继续发写、不toast、不refresh；在途底层请求结束后才释放全局门禁。刷新回执另固定当前列表页/筛选。列表原读/create/delete/test/takeover完整生命周期仍另待。
+- 严格六before/after/diff/hasChanges合同，非法成功回执计失败；失败不吞也不报整批成功，显示真实已处理/成功/修正/失败、完整节点名/编号/错误，实际重试只选失败固定目标。浅深黑白44px键盘重试和局部高对比错误文字；不改变全端口交付或用户网络入口。
+- 最终actual Chrome48567自然exit0，takeover-my-host-calibration-complete.log：237全页/首100离线137顺序write、重复门禁/真实failed-only retry、6坏页/foreign owner零写、普通owner过滤、40旧list/write成功失败身份scope缓存ABA/unmount回执、6坏写合同及18三语三宽深浅截图/44px/focus/实际颜色/无横溢通过。新深色detail4.2:1已修；首视觉focus=false因夹具未结束refresh使按钮合法disabled，补回执修正；probe原始对象在color层，错误测试读取已修。没有放宽产品断言。
+- 全18末图和visual-sheet已看，visual-critique及18实际taste judge报告保留：旧空卡gradient/紫色button shadow/静态panel shadow各屏3FAIL，桌面4WARN其余3WARN；静态lint6FAIL/16WARN是旧uppercase表头和其它旧样式，原description/hosted标签低对比待。新错误块检查通过，不称整页UI完成。
+- 最后route/i18n72878自然exit0（test-run-20261030-143756），host-pool50753通过；有效ESLint末无错警，manifest194常规230专项、node语法/diff过。冻结产品唯一双端build85173自然exit0，takeover-my-host-calibration-dual-final.log含两次vue-tsc、user1m21/admin52.85s及NATURAL_EXIT_CODE=0；末dist-final通过。新增Chrome专项接CI，受控API与后端真实PG证据分开，无生产/原生客户实证。
+- 原327仍259含部分记录/68已有不同，R020所列分页分项源码均已有修复，但跨页事务快照/原完整页面及后端外部流程另待，不称编号整体完成。保存推送后继续原内部验收缺口，下一先核通用敏感验证码60秒前端/120秒后端合同；销毁专用60秒保持。
+
 ## 2026-10-30 R1-020 宿主资源校对事务与当前权限（持续施工）
 
 - 前段7418ea68e7b1638b8b388dc2db4f66ebce600fde已推、CI41006712461仍运行；41000607228/41001679848/41003054433/41005024391现终态success，41005762182仍运行。最后两轮六job成功、Pool integration运行，继续跟终态，历史GoIO保留。
