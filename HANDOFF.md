@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R132 反代实例/站点 PostgreSQL 编号边界
+
+- 旧共用parser仅限制safe integer，GET /instances/2147483648/sites进入PG integer越界500，logs/proxy-r132-id-before.log自然exit1。加PG Int上界，覆盖九处instanceId与七处siteId；原当前权限、持久操作计划和Caddy执行不改。
+- logs/proxy-r132-id-final.log自然exit0：14种非法×16入口224请求全部400，16合法不存在上界404；已有列表及关闭HTTPS的证书查询200，instance/site/operation/audit完整记录不变、零Caddy dispatch。新专项登记CI，完整server+专项types/对应守卫/清单/build自然exit0。此项仅编号边界，无远端站点重新配置或外部DNS/证书验收。
+- R95已推97ad2b6f828c9d7d7c606a45cedfc6354a5b7c1f：CI41139402498运行，Agent Build & Release 41139402494 success；这是Agent工作流结果，不代表新平台版本或生产升级。R66 CI41139128809继续。
+- CI41127725085 / 0c1cd6772eda7be9683dd28b64268c6f8cdf44b3全success。R275 CI41137537472已通过新增进程数两专项并推进后续，整体继续；其余旧批未终态，历史41134810809失败保持。R132入复验后269项（含部分/待验收）、58项保初审分类。
+
 ## 2026-10-31 R95 Agent宿主接口 PostgreSQL 编号边界
 
 - 原parser拒数字后缀，但2147483648仍进入prisma.host.findUnique并integer越界500，logs/agent-r95-id-before.log自然exit1。仅共用parsePositiveId补2147483647上界，六处宿主状态/升级/安装命令/凭据入口统一拒绝；不修改HMAC认证、凭据轮换或真实升级流程。

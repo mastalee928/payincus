@@ -14,8 +14,8 @@ const operationSource = readFileSync(resolve(process.cwd(), 'src/db/proxy-site-o
 assert.ok(
   source.includes('function parsePositiveRouteId(value: string): number | null') &&
     source.includes('const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\\d*$/') &&
-    source.includes('Number.isSafeInteger(parsed)'),
-  'proxy site routes must use a strict positive safe-integer route ID parser'
+    source.includes('Number.isSafeInteger(parsed) && parsed <= 2147483647'),
+  'proxy site routes must use a strict positive PostgreSQL Int route ID parser'
 )
 
 assert.equal(
