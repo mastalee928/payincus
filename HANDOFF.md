@@ -1,5 +1,22 @@
 # 版本与验证记录
 
+## 2026-10-30 R1-269 清理总期限包括真实行锁等待（持续施工）
+
+- 事务代码审查发现managed清理30秒在取得实例锁后开始，而外层事务45秒；真实本机PG/mTLS注入20秒实例行锁及26秒身份GET，managed-cleanup-lock-delay-before.log自然exit1：约46.5秒已远端stop/DELETE，随后P2028导致DB结算失败。属于迟到远端副作用，未当作原Prisma连接泄漏的同根因。期限现在先于申请事务建立，清理复用绝对截止和底层取消；未扩大池或事务超时、未移除实例锁/身份确认/退款及库存保护。
+- managed-cleanup-lock-delay-final.log同故障约30.3秒中止、零stop/实例DELETE，等迟到response后零新增请求，连接idle=total/waiting0、无idle transaction，原实例Running和DB error/pending、库存/IP保持。新增回归已进原test-review-managed-provision（原20+新1），完整PG/mTLS21场景、受改专项+源严格types、server build、8相关守卫及destroy专用PG/SMTP自然exit0；日志managed-cleanup-{integration,types,build,guards,destroy,manifest}-final.log。无前端变化，双端构建沿用产品前端同源证据；本轮完整候选全量与预览另验。
+- 另外直接停止挂起/异步wait挂起/累计两慢响应三场景managed-cleanup-deadline-final.log全部约30秒取消、无后续实例或forward DELETE、PG归还及库存/IP保持。初夹具误计cloud-init文件DELETE为实例销毁而断言失败，精确路径后复验自然exit0，错误日志managed-cleanup-deadline-fixture-failure.log保留，不把初轮报成功。该三场景发生于本产品补改前，同 helper 的基础总期限证据；新锁回归为当前源码实证。
+- CI41053531629已整体success；1d2d558b CI41061780692仍后续Pool前进未终态，其余41057438463/41058561817/41059920880/41060617563继续。两轮旧候选双架构预览已成功，但不覆盖新增产品修复，正式仍v1.7.7。原生Incus、强杀后持久补偿、完整网关灾备及原327内部缺口保持，原计数不增，无生产OTA/DNS/客户操作。
+
+## 2026-10-30 Prisma修复通过双架构安装包验证（尚未正式发布）
+
+- 7d48e534289e40fdba0d6d55a7b471aeaf0f58c6 / 预览41060624750终态success：AMD64/ARM64构建及两种架构完整首装、安装包Prisma真实PG专项、备份恢复与完整性/兼容演练success，发布Release按预览skipped。原8池×4轮×12超时、真实迟到BEGIN SQL回滚/release各一次、断连失败仍归还及正常事务在实际production依赖运行通过；没有增大池或超时。
+- 下载两包逐字节核补丁与lock hash、两个Node runtime迟到清理、root归档身份、双端入口、1.7.8元数据/准确源码、recreate清理；报告logs/release-preview-7d48e534/prisma-package-verification.json。AMD64 212046126字节 SHA256 34d2b448ee09a876bff94c603a869ab1de7b51dd31e7420489fa86e0fbe8baef，ARM64 211250728字节 SHA256 f2b5b5a889464fbb36c75556c271c46420cd1feb89116e83435236580fbc4c52。
+- 新诊断提交1d2d558b25fa30348e18579b8aa130e507fc5923 / CI41061780692真实Linux快照权限/20竞争/restore互斥/grant专项success，Prisma超时专项success，其余Pool仍运行。该同提交预览41062229849仍运行；7d48与新诊断产品相同，但发行身份不同，不混同预览。旧快照失败41050640712保留failure，历史准确原因未证实；旧CI41049136134已整体success，余继续核终态。
+- 正式仍v1.7.7，本阶段无tag/Release/生产OTA。Windows全量195和最终双端/后端build自然exit0已核；首装恢复以隔离OSS传输边界为限，完整公网灾备、原生Incus及原327内部缺口继续。
+- 八条停在旧network persistence常驻timer的运行41047947257/41047399537/41046349071/41044295702/41042942813/41041773579/41039116226/41037666047已请求取消；新源码修复已由41049136134完整success验证，取消只清已定因的过时执行，不当通过或删除历史失败。最新CI仍继续，取消终态另核。
+- 上述八运行已核终态cancelled；41051350012已整体success。最新1d2d同提交预览41062229849双构建/双首装230迁移/真实production Prisma/备份恢复全部success、Release预期skipped。两包检查报告logs/release-preview-1d2d558b/prisma-package-verification.json，AMD64 212048255字节 SHA256 1e183fed6104e0e003d774b3d3f42833bcf80e56103f1f004239468ff4b5a165，ARM64 211253257字节 SHA256 6073f16d3c1381d1c6dd54c87307e9e7be2a7b52bb28322ece78901c3e7e3121。
+- ESM另用原生成client配置注入实际client.mjs，完整相同PG专项四轮48超时/回滚/release/断连/正常事务自然exit0（prisma-esm-timeout-final.log）；最初fixture误用node:module命名wrap导出导致启动失败，改Module.wrap后复验，未改产品。CJS已有双架构production实证，两runtime都有实际执行结果；源码CI41061780692仍Pool后续进展，正式发行尚未执行。
+
 ## 2026-10-30 全量通过与新发现快照CI失败（持续排查）
 
 - 候选7d48e534289e40fdba0d6d55a7b471aeaf0f58c6已推，源码CI41060617563、文档41060617562、同提交双架构预览41060624750。最终本地全量prisma-timeout-full-final.log实际195/195自然exit0；v1.7.8-candidate-build.log双端/后端/dist边界完整自然exit0。预览ARM64构建success、AMD64全量success，包首装/恢复仍待，不提前发tag。

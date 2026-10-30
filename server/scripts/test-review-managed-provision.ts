@@ -5,10 +5,11 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:https'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Pool } from 'pg'
 
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'), 'Use isolated local *_pool_test PostgreSQL')
-const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
+const { prisma, closePrismaDatabase, getDbPoolStats } = await import('../src/db/prisma.js')
 const { provisionManagedInstanceAsync } = await import('../src/lib/managed-instance-provision.js')
 const { getHostById } = await import('../src/db/hosts.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
@@ -23,6 +24,7 @@ let remote: { name: string; config: Record<string, string>; status: string } | n
 const actions: string[] = []
 let afterCreate: (() => Promise<void>) | undefined
 let afterStop: (() => Promise<void>) | undefined
+let firstCleanupRead = true
 const server = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
   response.setHeader('content-type', 'application/json')
   const ok = (metadata: unknown = {}) => response.end(JSON.stringify({ type: 'sync', metadata }))
@@ -54,6 +56,10 @@ const server = createServer({ key: await readFile(keyPath), cert: certificate, c
     if (request.method === 'GET') {
       if (mode === 'not_found_text') return fail(500, 'backend not found')
       if (!remote) return fail(404, 'not found')
+      if (mode === 'cleanup_lock_deadline' && firstCleanupRead && !path.endsWith('/state')) {
+        firstCleanupRead = false
+        await new Promise(resolve => setTimeout(resolve, 26000))
+      }
       return ok(path.endsWith('/state') ? { status: remote.status } : remote)
     }
     if (path.endsWith('/state') && request.method === 'PUT') {
@@ -85,8 +91,28 @@ const host = await prisma.host.create({ data: { userId: owner.id, name: tag, url
   certPath, keyPath, serverCertificate: certificate, serverFingerprint: new X509Certificate(certificate).fingerprint256 } })
 const constraint = `review_managed_${randomUUID().replaceAll('-', '')}`
 let constraintAdded = false
+const lockPool = new Pool({ connectionString: database.href, max: 1 })
+const originalTransaction = prisma.$transaction
+let lockRelease: Promise<void> | undefined
+let lockDelayInjected = false
+prisma.$transaction = new Proxy(originalTransaction, {
+  async apply(transaction, receiver, args) {
+    if (mode === 'cleanup_lock_deadline' && args[1]?.timeout === 45000 && !lockDelayInjected) {
+      lockDelayInjected = true
+      const locker = await lockPool.connect()
+      try {
+        await locker.query('BEGIN')
+        await locker.query('SELECT id FROM instances WHERE id = $1 FOR UPDATE', [instanceId])
+        lockRelease = new Promise<void>((resolve, reject) => {
+          setTimeout(() => { locker.query('ROLLBACK').then(() => resolve(), reject).finally(() => locker.release()) }, 20000)
+        })
+      } catch (error) { locker.release(error instanceof Error ? error : true); throw error }
+    }
+    return Reflect.apply(transaction, receiver, args)
+  }
+})
 try {
-  for (const scenario of ['delete_refused', 'stop_refused', 'still_running', 'uuid_changed', 'delete_unconfirmed', 'delete_false_404', 'not_found_text', 'forward_refused', 'forward_unconfirmed', 'existing', 'pending_create', 'absent', 'confirmed', 'lost_claim', 'host_changed', 'allocation_changed', 'locked_cleanup', 'db_failure', 'success', 'success_lost_claim']) {
+  for (const scenario of ['delete_refused', 'stop_refused', 'still_running', 'uuid_changed', 'delete_unconfirmed', 'delete_false_404', 'not_found_text', 'forward_refused', 'forward_unconfirmed', 'existing', 'pending_create', 'absent', 'confirmed', 'lost_claim', 'host_changed', 'allocation_changed', 'locked_cleanup', 'db_failure', 'success', 'success_lost_claim', 'cleanup_lock_deadline']) {
     mode = scenario; target = `${tag}-${mode}`; actions.length = 0; afterCreate = undefined; afterStop = undefined
     remote = mode === 'existing' ? { name: target, config: { 'user.unrelated': 'preserve' }, status: 'Running' } : null
     const instance = await prisma.instance.create({ data: { userId: owner.id, hostId: host.id, name: target, incusId: target,
@@ -111,12 +137,32 @@ try {
       assert.equal(mutationFinished, false, 'instance mutation must wait while cleanup holds the row lock')
     }
     const balance = Number((await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).balance)
+    const startedAt = performance.now()
     const provisioning = provisionManagedInstanceAsync(instanceId, (await getHostById(host.id))!, {
       name: target, image: 'fixture/debian', cpu: 50, memory: 256, disk: 1024, networkMode: 'public_ipv4',
       cloudInitConfig: { 'user.user-data': '#cloud-config\n{}' }, ipv4Address: '192.0.2.20', autoRemotePort: false
     })
     if (mode === 'success') await provisioning; else await assert.rejects(provisioning)
     await mutation
+    if (mode === 'cleanup_lock_deadline') {
+      const elapsed = performance.now() - startedAt
+      assert.ok(lockDelayInjected, 'hold a real row lock before the actual cleanup transaction')
+      assert.ok(elapsed >= 29500 && elapsed < 38000, `row-lock wait must count against cleanup deadline, elapsed=${elapsed}`)
+      const returnedActions = [...actions]
+      // Let the late identity response complete; it must not resume cleanup.
+      await new Promise(resolve => setTimeout(resolve, 7000))
+      await lockRelease
+      assert.deepEqual(actions, returnedActions, 'no remote writes after returning from timed-out cleanup')
+      assert.equal(actions.filter(action => action.startsWith('PUT ') || action === `DELETE /1.0/instances/${target}`).length, 0,
+        'waiting plus slow identity read must not send stop or instance deletion after the transaction expires')
+      assert.equal(remote?.status, 'Running', 'retain the original remote instance when cleanup is unconfirmed')
+      const stats = getDbPoolStats()
+      assert.equal(stats.waitingCount, 0)
+      assert.equal(stats.idleCount, stats.totalCount, 'return every checked-out PostgreSQL connection')
+      const idle = await prisma.$queryRaw<{ count: number }[]>`SELECT count(*)::int AS count FROM pg_stat_activity
+        WHERE datname = current_database() AND state LIKE 'idle in transaction%'`
+      assert.equal(idle[0].count, 0, 'no idle transaction remains after cleanup deadline')
+    }
     const current = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId } })
     const resources = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
     const address = await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: host.id } })
@@ -162,6 +208,9 @@ try {
   }
   console.log('PASS actual managed provision with local PostgreSQL and authenticated mTLS fixture; no live Incus or production operation.')
 } finally {
+  await lockRelease
+  prisma.$transaction = originalTransaction
+  await lockPool.end()
   if (constraintAdded) await prisma.$executeRawUnsafe(`ALTER TABLE hosts DROP CONSTRAINT ${constraint}`)
   await closeAllClients()
   await new Promise<void>(resolve => server.close(() => resolve()))

@@ -290,6 +290,9 @@ export async function provisionManagedInstanceAsync(
       console.error(`[Managed Provisioning] failed to compensate billing for instance ${instanceId}:`, compensationError)
     }
 
+    // Include pool admission and row-lock waiting in the remote cleanup budget;
+    // starting it only after the lock can let destructive I/O outlive this transaction.
+    const cleanupDeadline = Date.now() + 30000
     try {
       await prisma.$transaction(async tx => {
         // Destroy/transfer must not take this instance between the cleanup
@@ -302,7 +305,7 @@ export async function provisionManagedInstanceAsync(
           throw new Error('Instance allocation changed before cleanup')
         }
         if (!client) throw new Error('Original Incus connection unavailable; cleanup not confirmed')
-        await cleanupManagedInstanceRemote(client, config.name, attempt)
+        await cleanupManagedInstanceRemote(client, config.name, attempt, cleanupDeadline)
         const released = await tx.instance.updateMany({
           where: { ...target, status: 'error', provisioningCleanupPending: true },
           data: { provisioningCleanupPending: false }

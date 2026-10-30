@@ -1,4 +1,4 @@
-> **2026-10-30当前：v1.7.8候选验收继续**。Prisma已推a85265576a385b0397369075a34e9761febd375e / CI41057438463真实PG及Linux冻结安装通过；守卫/LF段011b173e8884fd8559d388f4db955398aa5d0be9 / CI41058561817，重建快照段c70685160b100c5b63cf3c218ac6a5b2ecaa8155 / CI41059920880均已推。重建六故障/四未证缺失保记录零DELETE/POST、非空确认/两404达旧删除边界及PG/SMTP/types/build/十守卫/destroy自然0，见HANDOFF。全量195重新运行；新增安装包Prisma专项和1.7.8候选待双架构预览，无tag/Release/生产。旧CI/GoIO历史准确原因、原生Incus、原327及灾备缺口保留，继续。
+> **2026-10-30当前：v1.7.8候选验收继续**。Prisma补丁、最终本地195/195及双端/后端build、1d2d558b双架构完整预览41062229849/实际production PG专项与安装包检查通过，源码CI41061780692仍后续Pool集成运行。审查R269真实20秒行锁+26秒慢身份复现45秒事务后继续远端写、DB结算失败；清理期限现先于事务申请创建，修后约30秒零停止/实例DELETE、PG连接归还及资源地址保持；完整21场景/严格types/build/8守卫/destroy通过见HANDOFF。产品新增使旧预览不覆盖此修复，需新候选全量/CI/双架构；原327计数259含部分/68不同不增，原生Incus/强杀恢复/灾备缺口保持，无tag/Release/生产。
 
 2026-10-30 R011重装snapshot：mTLS list失败仍发config先红，明确验证列表/名称、删除后再读空列表才移DB记录，cloud-init重置放清理确认之后，失败不吞继续。真实六read/shape/name/delete/still-present/confirm故障保记录零config及非空实际DELETE确认成功，原stop/4/12/18/28与全SMTP、types/build/十守卫/destroy过见HANDOFF。50570a68a4c6411f503df727a615df504e601f3e / CI41050640712已推；41049136134越原阻塞继续host batch未终态，recreate及跨系统/原生客户另待，259含部分/68不同不增。
 
@@ -550,7 +550,7 @@
 | R1-266 | 已有防护 | 保留初审结论 | 地区official/market/zone有active/hidden/globalShared/owner角色及专区授权；好友地区限定getSharedToUser集合；所有者列表/admin scope有requireAdmin或isAdmin门禁。原无过滤泄露私有套餐问题的当前防护已定位。 |
 | R1-267 | 已有防护 | 保留初审结论 | normalizePackagePlanInput以整数范围校验CPU/内存/磁盘/配额/价格/周期，流量通过PG bigint parser；不是直接缺省写负数/溢出。 |
 | R1-268 | 已有防护 | 保留初审结论 | syncInstanceNetwork及removeInstanceIpv6向cloud-init传nicMacs，保留已有eth0/eth1 hwaddr或按实例生成；原完全忽略MAC匹配的代码已有防护，不拿此结论代替所有VM真机重启验收。 |
-| R1-269 | 部分存在 | 自动失败回调及人工删除已修，超时/强杀待验 | managed原目标/attempt/UUID/mTLS与30秒清理核验、实例锁及事务释放，失败pending保资源退款独立；人工四删除入口核持久attempt/endpoint哈希，确认后清pending/IP，旧退款接口拒pending、record-only保占用。真实PG+mTLS20创建+16拒绝及正常/退款/重复矩阵、8守卫/build含tsc通过见HANDOFF。通用超时、进程强杀/事务退出续跑和原生Incus仍待，整体不记完成。 |
+| R1-269 | 部分存在 | 自动失败/人工删除及清理超时通过，强杀待验 | 原target/attempt/UUID/mTLS与实例锁保护、资源退款分离保持；真实20秒行锁+26秒身份读取先红后绿，期限先于事务申请，超时零停止/DELETE、迟到不续写/PG归还/原实例及库存地址保留。完整21创建场景、人工16拒绝/退款矩阵及三类真实总期限证据见HANDOFF；进程强杀、远端成功DB失败持久恢复和原生Incus仍待，整体不记完成。 |
 | R1-270 | 部分存在 | 准备补偿/通知隔离已修；原生交付待验 | IP/cloud-init/storage同事务、当前创建身份/资源核验；失败回滚IP并原子置error/回收CPU内存磁盘端口，失权/补偿DB失败保占用。inbox失败保202及日志，createLog原有catch是误判。13真实Fastify/PG+mTLS场景、6守卫/最终build含tsc通过见HANDOFF；零金额赠送无退款，默认机器池未改。原生Incus/强杀恢复/outbox及请求幂等另待。 |
 | R1-271 | 部分存在 | 三入口/底层/维护脚本已修；原生网络待验 | 原用户sync-status/宿主批量sync已有保护；三运维入口及底层current host/instance身份/版本/原IP/任务，状态IP同事务，每次接受消费版本。14PG+47API/mTLS+5backfill CLI/完整proxy回归通过；维护参数严格正PG整数及未知/重复拒绝，成功后计changed、dry-run另planned，5非法CLI零探测与5正常/失败CLI及覆盖脚本tsc通过见HANDOFF。baseline宿主资源快照竞争/全局ABA与原生网络仍待。 |
 | R1-272 | 部分存在 | 本接口null/用量/当前授权已修；扩展并发待验 | quota事务内当前actor/session/instance/host身份、实例锁及手工端口锁、有效用量检查；站点0不限/null继承或默认10，非systemManaged端口与creating/ready备份计额。真实Fastify/PG授权/目标竞争、站点/备份/快照事务创建竞争、端口等待重计及SQL回滚通过；7守卫/最终build含tsc见HANDOFF。原端口租期耗尽/其它配额写入口/ABA及原生Incus仍待。 |

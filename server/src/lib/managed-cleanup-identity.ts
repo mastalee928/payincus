@@ -45,9 +45,11 @@ export async function finalizeManagedCleanupForDeletion(instanceId: number): Pro
 }
 
 /** Shared bounded remote cleanup for the original managed creation identity. */
-export async function cleanupManagedInstanceRemote(client: IncusClient, name: string, attempt: string): Promise<void> {
+export async function cleanupManagedInstanceRemote(client: IncusClient, name: string, attempt: string, deadline = Date.now() + 30000): Promise<void> {
   const originalClient = client
-  const deadline = Date.now() + 30000, signal = AbortSignal.timeout(30000)
+  const remaining = Math.min(30000, deadline - Date.now())
+  if (remaining <= 0) throw new Error('Managed cleanup deadline exceeded')
+  const signal = AbortSignal.timeout(remaining)
   const boundedClient: Pick<IncusClient, 'request'> = {
     request<T = unknown>(method: string, path: string, body: unknown = null): Promise<T> {
       signal.throwIfAborted()
