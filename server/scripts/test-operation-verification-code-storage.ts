@@ -93,6 +93,14 @@ assert.ok(
       requestOperationVerificationSource.indexOf('await tx.operationVerification.create({'),
   'operation verification request creation must serialize check/delete/create under a per-user-operation-resource advisory lock'
 )
+assert.ok(requestOperationVerificationSource.includes('`generic-account:${userId}`') &&
+  requestOperationVerificationSource.includes('pendingOperationAccountDeliveries.has(userId)') &&
+  requestOperationVerificationSource.includes('pendingOperationAccountDeliveries.get(userId) === prepared.recordId') &&
+  requestOperationVerificationSource.includes('const accountSend = await tx.operationVerification.findFirst({') &&
+  requestOperationVerificationSource.includes('accountSend.operationType !== operationType') &&
+  requestOperationVerificationSource.includes('accountSend.resourceId !== normalizedResourceId') &&
+  requestOperationVerificationSource.indexOf('`generic-account:${userId}`') < requestOperationVerificationSource.indexOf('const accountSend'),
+  'all generic sensitive operations/resources must share an account resend lock, durable history and exact-record in-flight gate')
 
 assert.ok(
   !requestOperationVerificationSource.includes('operationVerification.delete({') &&

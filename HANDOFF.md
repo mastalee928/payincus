@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 通用敏感验证码账户发送预算（持续施工）
+
+- 个人目标段已推2909625494e3dc1f49a7bc4926014c1efb0400dd / CI41024139392。真实PG/SMTP先红takeover-verification-account-budget-before.log：disable_2fa发信后立即切change_password仍200新增邮件。现保原操作/资源锁，最先加generic-account账户锁；所有generic状态发送历史跨操作/资源检查60秒，单业务后端另保精确recordId账户在途门禁，原行被清理且超过60秒仍不并发发不同操作。失败/耗尽/消费保budget原实现沿用，过期清理保最近60秒generic发送时间，不修改destroy专用记录或其小时预算。
+- 实际PG/SMTP完整final-verified自然exit0（84968）：跨操作与资源切换、八混合操作/资源并发单邮件、另账户正常、在途跨时限/行被删除仍拒其它操作、失败/耗尽/消费跨操作仍限发、过期清理不失发送历史且61秒清理可重发。原个人目标/受控Telegram、SMTP ACK/拒收/中断/尝试与唯一消费全回归，销毁邮箱真实A/B碰撞/session/email/set/60秒与小时预算及实际2FA再回归全exit0。
+- 最后源+四专项严格types31358自然exit0，最终server build85382自然exit0，两operation守卫及manifest194/231/diff通过（test-run-20261030-160849）。无前端改动/无schema迁移；此为generic账户预算，不扩大为所有注册或销毁邮件共享同一预算，也不把其原独立合同改变。当前session/email绑定与资源权限/投递时身份变化仍待，原327259含部分/68不同和灾备继续。
+- CI41014322522已7job终态success；41015808583接近末校对专项仍运行，41017076013/41019111832/41019531979/41020374764/41023032382/41024139392继续推进、未发现新失败。Go41023032382双架构20次实际/proc及package job成功，历史40799210505准确根因仍未证明保留。保存推送后继续，不暂停、不生产、不发行。
+
 ## 2026-10-30 R1-011 通用验证码个人通知目标一致性（持续施工）
 
 - 实际PG/受控Telegram先红takeover-verification-channel-before.log：页面选择管理员告警444444、实际发送另取无排序个人列表，所显示目标与真实投递不一致。现仅选enabled个人渠道（isGlobal=false/alertCategory=null），按createdAt/id确定顺序；整行快照同用于提示与发送，每次传输重试不重新读库选择。资源email原被当作账户邮箱发送，现用配置email并正确遮蔽；账户操作继续强制账户邮箱，销毁专用邮箱流程保持。

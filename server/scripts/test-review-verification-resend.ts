@@ -11,7 +11,7 @@ const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { default: routes } = await import('../src/routes/verification.js')
 const { clearTransporterCache } = await import('../src/lib/mailer.js')
 const { invalidateAllConfigCache } = await import('../src/lib/config-cache.js')
-const { claimOperationVerificationRequirement, isOperationVerified } = await import('../src/lib/operation-verification.js')
+const { claimOperationVerificationRequirement, isOperationVerified, cleanupExpiredVerifications } = await import('../src/lib/operation-verification.js')
 const { sendVerificationNotification } = await import('../src/lib/notifier.js')
 const tag = 'verification-resend-' + randomUUID().slice(0, 8), messages: string[] = [], sockets = new Set<Socket>()
 const originalFetch = globalThis.fetch
@@ -130,6 +130,9 @@ try {
     const removedSending = await request()
     assert.equal(removedSending.statusCode, 400, 'in-flight gate survives removal of its database marker')
     assert.equal(removedSending.json().code, 'VERIFICATION_PENDING')
+    const crossOperationSending = await app.inject({ method: 'POST', url: '/verification/request', payload: { operationType: 'change_password' } })
+    assert.equal(crossOperationSending.statusCode, 400); assert.equal(crossOperationSending.json().code, 'VERIFICATION_PENDING')
+    assert.equal(held.length, 1, 'a removed pending row and elapsed cooldown cannot allow another operation to send in parallel')
     await prisma.operationVerification.create({ data: pendingRecord })
   } finally { held.splice(0).forEach(item => item.finish()) }
   const sent = await sending
@@ -147,6 +150,8 @@ try {
   delivery = 'accepted'
   const failedCooldown = await request(); assert.equal(failedCooldown.statusCode, 400)
   assert.equal(failedCooldown.json().code, 'VERIFICATION_RATE_LIMITED', 'failed delivery preserves its resend budget')
+  assert.equal((await app.inject({ method: 'POST', url: '/verification/request', payload: { operationType: 'change_password' } })).json().code, 'VERIFICATION_RATE_LIMITED',
+    'delivery failure cannot be bypassed by switching sensitive operations')
   assert.equal(messages.length, beforeHeld + 1)
   await prisma.operationVerification.update({ where: { id: failedRecord.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
   const retryDelivery = await request(); assert.equal(retryDelivery.statusCode, 200)
@@ -177,6 +182,8 @@ try {
   const exhaustedCooldown = await request()
   assert.equal(exhaustedCooldown.statusCode, 400, 'exhausting verification attempts must not reset the resend budget')
   assert.equal(exhaustedCooldown.json().code, 'VERIFICATION_RATE_LIMITED')
+  assert.equal((await app.inject({ method: 'POST', url: '/verification/request', payload: { operationType: 'change_password' } })).json().code, 'VERIFICATION_RATE_LIMITED',
+    'exhausted attempts cannot be bypassed by switching sensitive operations')
   assert.equal(messages.length, beforeExhausted)
   const exhausted = await record(); assert.equal(exhausted.attempts, 5)
   const exhaustedCode = codeFor(actor.email!)
@@ -209,6 +216,8 @@ try {
   const afterConsumption = await request()
   assert.equal(afterConsumption.statusCode, 400, 'atomic consumption must preserve the resend timestamp')
   assert.equal(afterConsumption.json().code, 'VERIFICATION_RATE_LIMITED')
+  assert.equal((await app.inject({ method: 'POST', url: '/verification/request', payload: { operationType: 'change_password' } })).json().code, 'VERIFICATION_RATE_LIMITED',
+    'grant consumption cannot be bypassed by switching sensitive operations')
   assert.equal(messages.length, beforeConsume)
   await prisma.operationVerification.update({ where: { id: consumedRecord.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
   assert.equal((await request()).statusCode, 200)
@@ -233,6 +242,7 @@ try {
   await createChannel('global', '333333333', now - 40_000, { isGlobal: true })
   await createChannel('administrator alert', '444444444', now - 50_000, { alertCategory: 'host' })
   await createChannel('disabled', '555555555', now - 60_000, { enabled: false })
+  await prisma.operationVerification.updateMany({ where: { userId: actor.id, operationType: 'disable_2fa' }, data: { createdAt: new Date(Date.now() - 61_000) } })
   const notifyRequest = (resourceId: number) => app.inject({ method: 'POST', url: '/verification/request',
     payload: { operationType: 'reinstall_instance', resourceId } })
   const notified = await notifyRequest(910001)
@@ -271,6 +281,7 @@ try {
   console.log('PASS administrator-only channels cannot impose or receive personal resource verification')
 
   const emailTarget = `${tag}-channel@example.test`
+  await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
   await prisma.notificationChannel.create({ data: { userId: actor.id, name: 'personal email', type: 'email', config: { email: emailTarget } } })
   const beforeChannelMail = messages.length
   const mailed = await notifyRequest(910003)
@@ -288,6 +299,46 @@ try {
   assert.equal(messages.length, beforeChannelMail + 1)
   assert.equal(await prisma.operationVerification.count({ where: { userId: actor.id, resourceId: 910004 } }), 0)
   console.log('PASS malformed stored notification configuration fails without issuing an eligible code or sending')
+
+  await prisma.operationVerification.deleteMany({ where: { userId: actor.id, NOT: { resourceType: { startsWith: 'destroy-email:v1:' } } } })
+  await prisma.operationVerification.deleteMany({ where: { userId: actor.id, resourceType: null } })
+  const beforeAccountBudget = messages.length
+  const accountFirst = await request(); assert.equal(accountFirst.statusCode, 200, accountFirst.body)
+  const otherOperation = await app.inject({ method: 'POST', url: '/verification/request', payload: { operationType: 'change_password' } })
+  assert.equal(otherOperation.statusCode, 400, 'switching sensitive operations cannot bypass the account send budget')
+  assert.equal(otherOperation.json().code, 'VERIFICATION_RATE_LIMITED'); assert.ok(otherOperation.json().resendAfter > 0)
+  assert.equal(messages.length, beforeAccountBudget + 1)
+  console.log('PASS different sensitive operations share the same account sixty-second send budget')
+
+  await prisma.notificationChannel.update({ where: { id: personalEmail.id }, data: { config: { email: emailTarget } } })
+  const crossResource = await notifyRequest(910005)
+  assert.equal(crossResource.statusCode, 400); assert.equal(crossResource.json().code, 'VERIFICATION_RATE_LIMITED')
+  assert.equal(messages.length, beforeAccountBudget + 1)
+  actor = users[1]
+  await prisma.operationVerification.deleteMany({ where: { userId: actor.id } })
+  const independentAccount = await request(); assert.equal(independentAccount.statusCode, 200)
+  assert.equal(messages.length, beforeAccountBudget + 2)
+  actor = users[0]
+  await prisma.operationVerification.updateMany({ where: { userId: actor.id, resourceType: null }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  const beforeMixed = messages.length
+  const mixed = await Promise.all(Array.from({ length: 8 }, (_, i) => app.inject({ method: 'POST', url: '/verification/request',
+    payload: i % 2 ? { operationType: 'change_password' } : { operationType: 'reinstall_instance', resourceId: 920000 + i } })))
+  assert.equal(mixed.filter(response => response.statusCode === 200).length, 1)
+  assert.ok(mixed.every(response => response.statusCode === 200 || ['VERIFICATION_PENDING', 'VERIFICATION_RATE_LIMITED'].includes(response.json().code)))
+  assert.equal(messages.length, beforeMixed + 1, 'mixed operation/resource requests deliver once under an account lock')
+  const mixedRecord = await prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
+  assert.equal(mixedRecord.attempts, 0)
+  await prisma.operationVerification.update({ where: { id: mixedRecord.id }, data: { expiresAt: new Date(Date.now() - 1) } })
+  await cleanupExpiredVerifications()
+  assert.ok(await prisma.operationVerification.findUnique({ where: { id: mixedRecord.id } }), 'recent expired rows still retain the send budget')
+  const expiredBudget = await request(); assert.equal(expiredBudget.statusCode, 400); assert.equal(expiredBudget.json().code, 'VERIFICATION_RATE_LIMITED')
+  assert.equal(messages.length, beforeMixed + 1)
+  await prisma.operationVerification.update({ where: { id: mixedRecord.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  await cleanupExpiredVerifications()
+  assert.equal(await prisma.operationVerification.findUnique({ where: { id: mixedRecord.id } }), null)
+  const resumedAccount = await request(); assert.equal(resumedAccount.statusCode, 200)
+  assert.equal(messages.length, beforeMixed + 2)
+  console.log('PASS resource switching/mixed eight-way concurrency share one account budget, other accounts remain independent, and expiry cleanup retains recent send history')
 } catch (error) { failure = error } finally {
   globalThis.fetch = originalFetch
   held.splice(0).forEach(item => item.finish())

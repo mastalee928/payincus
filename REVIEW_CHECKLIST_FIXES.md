@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R011 generic账户预算：真实PG/SMTP切换操作立即发信先红，新增账户advisory与精确recordId在途gate、所有generic历史跨操作/资源60秒预算和最近过期保历史。实际八混合并发单邮件/他账户独立/在途跨60秒及删行/失败耗尽消费切换/过期清理61秒、原投递目标/SMTP全部与销毁/2FA回归自然exit0；最后types/server build/两守卫/manifest/diff过见HANDOFF。2909625494e3dc1f49a7bc4926014c1efb0400dd/41024139392已推，41014322522终态success其它CI继续跟。当前会话邮箱/资源权限及内部整验收另待，原327计数不变。
+
 2026-10-30 R011个人通知目标：实际PG页面误选管理员告警、发送无排序另读个人渠道先红；现仅enabled个人按createdAt/id选择，提示和发送共用固定快照，email走配置地址。仅存目标摘要，冷却渠道变化撤销旧码并保预算、不误标新目标已发送；坏配置不绕验证。真实PG/SMTP+受控Telegram完整原重发回归、销毁A/B绑定/预算及2FA、types/最终server build/四守卫/manifest/YAML/diff过见HANDOFF。Go57711ea2e4dc123ec9d2cad0299c670d85c662b2/41023032382两架构20次实际专项/package job成功，总CI仍运行，历史准确根因保留。通用跨操作账户预算/会话邮箱和原327内验收继续，不增整项完成数。
 
 2026-10-30 Go进程审计分项：保留read/stat错误分类，ENOENT/ESRCH在两扫描与写者stat保持StableSnapshot=false，权限/IO/格式仍拒绝；固定phase/reason脱敏诊断、取消零目录读取、实际Linux子进程退出及身份变化专项接双架构CI20次有界运行。Windows受影响包实跑/vet、Linux双架构测试编译/vet与amd64全build、controller守卫/manifest/YAML/diff通过，Linux实跑尚待新CI。历史40799210505只有通用IO，准确根因仍未知；三机身份未核实、不绕pin。bf58eeda1fe6dda79fb266f8ee78d95fd1eb70a1/41020374764已推，前六CI仍跟终态。259含部分/68不同计数保持，原327内部缺口继续。

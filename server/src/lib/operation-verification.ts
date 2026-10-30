@@ -51,6 +51,7 @@ const VERIFICATION_CONFIG = {
 const DELIVERY_PENDING = VERIFICATION_CONFIG.maxAttempts + 1
 const DELIVERY_FAILED = VERIFICATION_CONFIG.maxAttempts + 2
 const pendingOperationDeliveries = new Map<string, number>()
+const pendingOperationAccountDeliveries = new Map<number, number>()
 
 // 操作类型显示名称（用于通知）
 const OPERATION_NAMES: Record<OperationType, { zh: string; en: string }> = {
@@ -232,6 +233,7 @@ export async function requestOperationVerification(
     const requestKey = getOperationVerificationRequestLockKey(userId, operationType, resourceId)
     const verificationResourceType = notificationChannel ? notificationTargetBinding(notificationChannel) : resourceType || null
     const prepared = await prisma.$transaction(async (tx): Promise<PreparedOperationVerification> => {
+        await advisoryTransactionLockString(tx, OPERATION_VERIFICATION_REQUEST_LOCK_NAMESPACE, `generic-account:${userId}`)
         await advisoryTransactionLockString(
             tx,
             OPERATION_VERIFICATION_REQUEST_LOCK_NAMESPACE,
@@ -239,19 +241,29 @@ export async function requestOperationVerification(
         )
 
         // Keep the in-flight gate even if an expired row is removed by cleanup.
-        if (pendingOperationDeliveries.has(requestKey)) {
+        if (pendingOperationDeliveries.has(requestKey) || pendingOperationAccountDeliveries.has(userId)) {
             return { error: 'Verification delivery is in progress', errorCode: 'VERIFICATION_PENDING' }
         }
 
         const now = new Date()
         const normalizedResourceId = resourceId || null
+        const accountSend = await tx.operationVerification.findFirst({
+            where: { userId, ...GENERIC_VERIFICATIONS }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]
+        })
+        const accountResendAfter = accountSend ? Math.max(0, Math.ceil(VERIFICATION_CONFIG.resendAfterSeconds -
+            (now.getTime() - accountSend.createdAt.getTime()) / 1000)) : 0
+        if (accountSend && accountResendAfter > 0 && (accountSend.operationType !== operationType ||
+            accountSend.resourceId !== normalizedResourceId || accountSend.expiresAt <= now)) {
+            return { error: 'Please wait before requesting another verification code', errorCode: 'VERIFICATION_RATE_LIMITED', resendAfter: accountResendAfter }
+        }
 
         // 3. 清理过期的验证码
         await tx.operationVerification.deleteMany({
             where: {
                 userId,
                 ...GENERIC_VERIFICATIONS,
-                expiresAt: { lt: now }
+                expiresAt: { lt: now },
+                createdAt: { lte: new Date(now.getTime() - VERIFICATION_CONFIG.resendAfterSeconds * 1000) }
             }
         })
 
@@ -347,9 +359,11 @@ export async function requestOperationVerification(
 
         pendingRecordId = record.id
         pendingOperationDeliveries.set(requestKey, record.id)
+        pendingOperationAccountDeliveries.set(userId, record.id)
         return { alreadySent: false, code, codeHash, recordId: record.id, createdAt: now, expiresAt }
     }).catch(error => {
         if (pendingRecordId !== undefined && pendingOperationDeliveries.get(requestKey) === pendingRecordId) pendingOperationDeliveries.delete(requestKey)
+        if (pendingRecordId !== undefined && pendingOperationAccountDeliveries.get(userId) === pendingRecordId) pendingOperationAccountDeliveries.delete(userId)
         throw error
     })
 
@@ -401,6 +415,7 @@ export async function requestOperationVerification(
         }
     } finally {
         if (pendingOperationDeliveries.get(requestKey) === prepared.recordId) pendingOperationDeliveries.delete(requestKey)
+        if (pendingOperationAccountDeliveries.get(userId) === prepared.recordId) pendingOperationAccountDeliveries.delete(userId)
     }
 }
 
@@ -616,9 +631,14 @@ export async function isResourceVerificationRequired(userId: number): Promise<bo
  * 删除所有已过期的验证记录
  */
 export async function cleanupExpiredVerifications(): Promise<number> {
+    const now = new Date()
     const result = await prisma.operationVerification.deleteMany({
         where: {
-            expiresAt: { lt: new Date() }
+            expiresAt: { lt: now },
+            OR: [
+                { resourceType: { startsWith: 'destroy-email:v1:' } },
+                { createdAt: { lte: new Date(now.getTime() - VERIFICATION_CONFIG.resendAfterSeconds * 1000) } }
+            ]
         }
     })
     return result.count
