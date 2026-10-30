@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { mock } from 'node:test'
+import type { Prisma } from '@prisma/client'
 import Fastify from 'fastify'
 
 const database = new URL(process.env.DATABASE_URL || '')
@@ -16,6 +17,7 @@ const { IncusClient } = await import('../src/lib/incus/incus-client.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const { notificationOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
 const { loadAuthorizedOperationVerificationResource } = await import('../src/db/operation-verification-resource-authorization.js')
+const { transferHostIdentity } = await import('../src/lib/transfer-host-identity.js')
 
 // Keep real routes, transactions, fees and ownership checks; only replace the remote host boundary.
 let connectionFails = false
@@ -232,12 +234,97 @@ try {
   assert.equal(sharedAccept.json().code, 'INSTANCE_MUST_BE_STOPPED', 'shared instances keep the existing stopped-state contract')
 
   const snapshot = pending.snapshot as any
-  await assert.rejects(createTransferWithFee({ instanceId: shared.id, fromUserId: stranger.id, toUserId: target.id, snapshot, fee: 2.5, instanceName: shared.name }), /TRANSFER_SOURCE_CHANGED/)
+  const userWriteActor = { id: owner.id, sid: 'user-push-fixture', iat: Math.floor(Date.now() / 1000) + 1 }
+  const sharedHost = await prisma.host.findUniqueOrThrow({ where: { id: shared.hostId } })
+  await assert.rejects(createTransferWithFee({ instanceId: shared.id, fromUserId: stranger.id, toUserId: target.id, snapshot, fee: 2.5,
+    instanceName: shared.name, actor: userWriteActor, expectedIncusId: shared.incusId, expectedHostIdentity: transferHostIdentity(sharedHost) }), /TRANSFER_SOURCE_CHANGED/)
   const feeInstance = await makeInstance('fee')
-  await setFee('4')
-  await assert.rejects(createTransferWithFee({ instanceId: feeInstance.id, fromUserId: owner.id, toUserId: target.id, snapshot, fee: 2.5,
-    instanceName: feeInstance.name, adminActorId: admin.id }), /TRANSFER_FEE_CHANGED/, 'fees are rechecked inside the creation transaction')
+  const beforeRevokedFee = await balance(owner.id)
+  const feeActor = { id: admin.id, sid: 'admin-push-fee-revoked', iat: Math.floor(Date.now() / 1000) + 1 }
+  const feeHost = await prisma.host.findUniqueOrThrow({ where: { id: feeInstance.hostId } })
+  await prisma.tokenInvalidation.create({ data: { userId: admin.id, sessionId: feeActor.sid, invalidatedAt: feeActor.iat } })
+  await assert.rejects(createTransferWithFee({ instanceId: feeInstance.id, fromUserId: owner.id, toUserId: target.id, snapshot,
+    fee: 2.5, instanceName: feeInstance.name, adminActorId: admin.id, actor: feeActor,
+    expectedIncusId: feeInstance.incusId, expectedHostIdentity: transferHostIdentity(feeHost) }),
+    /AUTHENTICATION_STATE_CHANGED/, 'the transfer transaction must reject a session revoked after the earlier verification check')
+  assert.equal(await balance(owner.id), beforeRevokedFee)
   assert.equal(await prisma.instanceTransfer.count({ where: { instanceId: feeInstance.id } }), 0)
+  await setFee('2.5')
+  const atomicActor = { id: owner.id, sid: 'transfer-atomic-fixture', iat: Math.floor(Date.now() / 1000) + 1 }
+  const atomicChannel = await prisma.notificationChannel.create({ data: { userId: owner.id, name: prefix + '-atomic',
+    type: 'email', config: { email: 'atomic@example.test' } } })
+  const atomicResource = await prisma.$transaction(tx => loadAuthorizedOperationVerificationResource(tx, atomicActor, 'transfer_instance', feeInstance.id))
+  if (atomicResource.kind !== 'allowed') throw new Error('atomic transfer fixture unavailable')
+  const atomicGrant = await prisma.operationVerification.create({ data: { userId: owner.id, operationType: 'transfer_instance',
+    resourceId: feeInstance.id, resourceType: notificationOperationVerificationBinding(atomicActor, atomicChannel, atomicResource.binding),
+    code: 'fixture-atomic-only', channel: 'email', verified: true, verifiedAt: new Date(), expiresAt: new Date(Date.now() + 600_000) } })
+  const atomicTransfer = () => createTransferWithFee({ instanceId: feeInstance.id, fromUserId: owner.id, toUserId: target.id,
+    snapshot: { ...snapshot, hostId: feeInstance.hostId, originalName: feeInstance.name }, fee: 2.5, instanceName: feeInstance.name,
+    actor: atomicActor, expectedIncusId: feeInstance.incusId, expectedHostIdentity: transferHostIdentity(feeHost) })
+  const grantUnconsumed = async () => assert.ok((await prisma.operationVerification.findUniqueOrThrow({ where: { id: atomicGrant.id } })).verifiedAt)
+  await prisma.user.update({ where: { id: owner.id }, data: { balance: 1 } })
+  await assert.rejects(atomicTransfer(), /INSUFFICIENT_BALANCE/)
+  await grantUnconsumed()
+  assert.equal(await balance(owner.id), 1)
+  await prisma.user.update({ where: { id: owner.id }, data: { balance: 100 } })
+  async function queuedTransfer(mutate: (tx: Prisma.TransactionClient) => Promise<unknown>, scope: 'account' | 'host' | 'instance') {
+    let release!: () => void, signal!: (pid: number) => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    const ready = new Promise<number>(resolve => { signal = resolve })
+    const blocker = prisma.$transaction(async tx => {
+      if (scope === 'host') await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${feeInstance.hostId} FOR UPDATE`
+      else if (scope === 'instance') await tx.$queryRaw`SELECT id FROM instances WHERE id = ${feeInstance.id} FOR UPDATE`
+      else await tx.$queryRaw`SELECT id FROM users WHERE id IN (${owner.id}, ${target.id}) ORDER BY id FOR UPDATE`
+      await mutate(tx)
+      const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+      signal(row.pid); await hold
+    }, { timeout: 15000 })
+    const pid = await ready
+    const pending = atomicTransfer().then(value => ({ value }), error => ({ error }))
+    let blocked = false
+    try {
+      const deadline = performance.now() + 3500
+      while (performance.now() < deadline) {
+        const [row] = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM pg_stat_activity WHERE ${pid} = ANY(pg_blocking_pids(pid))`
+        if (Number(row.count)) { blocked = true; break }
+        await new Promise(resolve => setTimeout(resolve, 20))
+      }
+    } finally { release(); await blocker }
+    assert.equal(blocked, true)
+    return pending
+  }
+  for (const mode of ['banned', 'session', 'target', 'incus', 'host'] as const) {
+    const queued = await queuedTransfer(tx => mode === 'banned' ? tx.user.update({ where: { id: owner.id }, data: { status: 'banned' } })
+      : mode === 'session' ? tx.tokenInvalidation.create({ data: { userId: owner.id, sessionId: atomicActor.sid, invalidatedAt: atomicActor.iat } })
+        : mode === 'target' ? tx.user.update({ where: { id: target.id }, data: { status: 'banned' } })
+          : mode === 'incus' ? tx.instance.update({ where: { id: feeInstance.id }, data: { incusId: feeInstance.incusId + '-replaced' } })
+            : tx.host.update({ where: { id: feeInstance.hostId }, data: { url: 'https://127.0.0.1:2' } }),
+      mode === 'incus' ? 'instance' : mode === 'host' ? 'host' : 'account')
+    assert.ok('error' in queued && queued.error instanceof Error)
+    assert.match(queued.error.message, mode === 'target' ? /TRANSFER_TO_BANNED/ : ['incus', 'host'].includes(mode) ? /TRANSFER_SOURCE_CHANGED/ : /AUTHENTICATION_STATE_CHANGED/)
+    await grantUnconsumed()
+    assert.equal(await balance(owner.id), 100)
+    assert.equal(await prisma.instanceTransfer.count({ where: { instanceId: feeInstance.id } }), 0)
+    await prisma.user.updateMany({ where: { id: { in: [owner.id, target.id] } }, data: { status: 'active' } })
+    await prisma.tokenInvalidation.deleteMany({ where: { userId: owner.id } })
+    await prisma.instance.update({ where: { id: feeInstance.id }, data: { incusId: feeInstance.incusId } })
+    await prisma.host.update({ where: { id: feeInstance.hostId }, data: { url: feeHost.url } })
+  }
+  const atomicResults = await Promise.allSettled(Array.from({ length: 8 }, atomicTransfer))
+  assert.equal(atomicResults.filter(result => result.status === 'fulfilled').length, 1)
+  assert.equal(await prisma.instanceTransfer.count({ where: { instanceId: feeInstance.id } }), 1)
+  assert.equal(await balance(owner.id), 97.5)
+  assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: atomicGrant.id } })).verifiedAt, null)
+  assert.equal(await prisma.balanceLog.count({ where: { instanceId: feeInstance.id, type: 'transfer_fee' } }), 1)
+  console.log('PASS transfer creation rejects revoked actor, real account/instance/host lock mutations, retains grants on fee rollback, and atomically charges/consumes once across eight requests')
+  await prisma.tokenInvalidation.deleteMany({ where: { userId: admin.id } })
+  await setFee('4')
+  const changedFeeInstance = await makeInstance('changed-fee')
+  const changedFeeHost = await prisma.host.findUniqueOrThrow({ where: { id: changedFeeInstance.hostId } })
+  await assert.rejects(createTransferWithFee({ instanceId: changedFeeInstance.id, fromUserId: owner.id, toUserId: target.id, snapshot, fee: 2.5,
+    instanceName: changedFeeInstance.name, adminActorId: admin.id, actor: feeActor,
+    expectedIncusId: changedFeeInstance.incusId, expectedHostIdentity: transferHostIdentity(changedFeeHost) }), /TRANSFER_FEE_CHANGED/, 'fees are rechecked inside the creation transaction')
+  assert.equal(await prisma.instanceTransfer.count({ where: { instanceId: changedFeeInstance.id } }), 0)
   console.log('Admin/user PUSH integration passed: authorization, verification, invalid/stale input, tasks, fees, duplicate requests, cancellation refund, host failure, owner recheck, dedicated accept/push, billing/network preservation and shared-instance stop requirement')
 } catch (error) { failure = error }
 finally {

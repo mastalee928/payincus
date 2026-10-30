@@ -17,8 +17,9 @@ import { assertNoPendingProxySiteOperations, ProxySiteOperationPendingError } fr
 import { prepareTransferCleanup, runTransferCleanup } from '../services/transfer-cleanup.js'
 import type { WriteActor } from '../db/user-write-authorization.js'
 import { redactAuditText } from '../lib/risk-audit.js'
+import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import {
-    claimOperationVerificationRequirement
+    checkOperationVerificationRequirement
 } from '../lib/operation-verification.js'
 
 // 自定义 nanoid，只使用小写字母和数字（Incus 不允许下划线）
@@ -69,7 +70,7 @@ async function requireVerifiedOperation(
     resourceId: number,
     actor: WriteActor
 ): Promise<boolean> {
-    const verification = await claimOperationVerificationRequirement(userId, 'transfer_instance', resourceId, actor)
+    const verification = await checkOperationVerificationRequirement(userId, 'transfer_instance', resourceId, actor)
     if (!verification.verified) {
         reply.code(403).send({
             error: 'Sensitive operation requires verification',
@@ -261,6 +262,8 @@ export default async function transferRoutes(fastify: FastifyInstance) {
         if (host && host.transfer_enabled === false) {
             return reply.code(400).send(apiError(ErrorCode.TRANSFER_HOST_DISABLED))
         }
+        const transferHost = await prisma.host.findUnique({ where: { id: instance.host_id } })
+        if (!transferHost) return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
 
         // 检查是否已有待处理的转移
         const hasPending = await db.hasPendingTransfer(instanceId)
@@ -335,12 +338,15 @@ export default async function transferRoutes(fastify: FastifyInstance) {
                 snapshot,
                 remark,
                 fee: transferFee,
-                instanceName: instance.name
+                instanceName: instance.name,
+                actor: user, expectedIncusId: instance.incus_id, expectedHostIdentity: transferHostIdentity(transferHost)
             })
             transferId = result.transferId
         } catch (error) {
             if ((error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError)) return reply.code(409).send({ code: error.code, error: error.message })
             const errorMsg = error instanceof Error ? error.message : ''
+            if (errorMsg === 'VERIFICATION_REQUIRED') return reply.code(403).send({ code: errorMsg, error: 'Sensitive operation requires verification', required: true })
+            if (errorMsg === 'AUTHENTICATION_STATE_CHANGED') return reply.code(403).send({ code: errorMsg, error: 'Please sign in again' })
             if (errorMsg === 'INSUFFICIENT_BALANCE') {
                 return reply.code(400).send(apiError(ErrorCode.TRANSFER_INSUFFICIENT_BALANCE))
             }
@@ -350,7 +356,7 @@ export default async function transferRoutes(fastify: FastifyInstance) {
             if (errorMsg === 'TRANSFER_ALREADY_PENDING') {
                 return reply.code(400).send(apiError(ErrorCode.TRANSFER_ALREADY_PENDING))
             }
-            if (['TRANSFER_SOURCE_CHANGED', 'TRANSFER_INSTANCE_BUSY', 'TRANSFER_INVALID_STATUS', 'TRANSFER_HOST_DISABLED', 'TRANSFER_TO_BANNED', 'TRANSFER_TO_SELF'].includes(errorMsg)) {
+            if (['TRANSFER_SOURCE_CHANGED', 'TRANSFER_INSTANCE_BUSY', 'TRANSFER_INVALID_STATUS', 'TRANSFER_HOST_DISABLED', 'TRANSFER_TO_BANNED', 'TRANSFER_TO_SELF', 'TRANSFER_FEE_CHANGED'].includes(errorMsg)) {
                 return reply.code(409).send({ code: errorMsg, error: '实例或接收用户状态已变化，请刷新后重试' })
             }
             console.error('[Transfer] Failed to create transfer:', error)

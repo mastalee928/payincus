@@ -12,6 +12,8 @@
 
 > **2026-10-30最新：上传CI终态回执修复已验证待保存**。41034830579已deleted重放403失败已读日志并本机复现；terminalOnly原锁内重核身份授权/终态，实际个人渠道回执、撤销拒绝、host行锁排队变ready409零远端调用与正常ready必须验证通过。完整PG/Fastify/mTLS upload、严格types/server build/八守卫自然exit0，详见HANDOFF。通知4c329dcf94e9daae50418d82e181461fb9964f82 / CI41035809878 Pool同步骤失败Build仍运行，终态后读日志，新修复CI继续跟。七旧CI与历史GoIO、grant后业务write/dispatch/原327缺口继续，不暂停。
 
+> **2026-10-30最新：转移当前授权/验证/手续费同事务验证通过待保存**。真实原sid撤销仍扣费先红，createTransferWithFee当前instance/host/排序账户锁+actor和手续费重核，路由只查要求，grant复用事务与扣费/转移统一回滚。五实际锁竞争拒绝零消费、余额失败回滚、八并发一笔费/转移/grant、原PUSH/SMTP/2FA/destroy、types/build/八守卫自然exit0，见HANDOFF。备份2f5d205a200d6d069c6973683ad247639adad205 / CI41036581988六job成功并越过原失败upload，整CI运行；410358失败终态日志确认同原因。六旧CI/历史GoIO继续跟，下一重装重建任务验证/授权原子及其它dispatch，原327不增，不暂停。
+
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
 > **R011验证current认证末段通过，保存后继续**：355d39e554268eba746ee1b33b79adec8d0419b5/41025555281已推。实际banned已发码仍promote先红→verify传request.user同事务current account lock/status/撤销，错误次数和正确CAS同事务。三排队/八正确唯一次/拒绝不改记录/原SMTP预算目标与destroy/2FA全通过；types86544/server51635/两守卫21903/diff过，无活动测试build。下一已发码/grant原session/email持久绑定与check/claim/profile全部消费接线，资源权限另待。41014322522和41015808583均7job终态success，41017076013/41019111832/41019531979/41020374764/41023032382/41024139392/41024907571/41025555281仍推进跟终态，历史准确GoIO未证明。原327259含部分/68不同与灾备不变，不停工、不生产、不发行。

@@ -10,6 +10,7 @@ import { INSTANCE_OPERATION_LOCK_NAMESPACE, TRANSFER_CREATE_LOCK_NAMESPACE, USER
 import { assertNoPendingProxySiteOperations } from './proxy-site-operation-guards.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
+import { claimOperationVerificationRequirement } from '../lib/operation-verification.js'
 
 // 事务隔离级别配置
 const TRANSFER_TRANSACTION_OPTIONS = {
@@ -121,6 +122,9 @@ export async function createTransferWithFee(data: {
     fee: number
     instanceName: string
     adminActorId?: number
+    actor: WriteActor
+    expectedIncusId: string
+    expectedHostIdentity: string
 }): Promise<{ transferId: number; feeDeducted: boolean }> {
     if (!Number.isFinite(data.fee) || data.fee < 0) throw new Error('TRANSFER_FEE_CHANGED')
     for (let attempt = 0; attempt < TRANSFER_CREATE_LOCK_RETRY_LIMIT; attempt++) {
@@ -134,6 +138,16 @@ export async function createTransferWithFee(data: {
             await assertNoPendingProxySiteOperations(tx, data.instanceId)
             const current = await tx.instance.findUnique({ where: { id: data.instanceId }, include: { host: true } })
             if (!current || current.userId !== data.fromUserId) throw new Error('TRANSFER_SOURCE_CHANGED')
+            await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${current.hostId} FOR SHARE`
+            current.host = await tx.host.findUniqueOrThrow({ where: { id: current.hostId } })
+            if (current.incusId !== data.expectedIncusId || transferHostIdentity(current.host) !== data.expectedHostIdentity) {
+                throw new Error('TRANSFER_SOURCE_CHANGED')
+            }
+            const accountIds = [...new Set([data.actor.id, data.fromUserId, data.toUserId])].sort((a, b) => a - b)
+            await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id IN (${Prisma.join(accountIds)}) ORDER BY id FOR UPDATE`)
+            if (data.actor.id !== (data.adminActorId ?? data.fromUserId) || !await authorizeUserWrite(tx, data.actor.id, data.actor)) {
+                throw new Error('AUTHENTICATION_STATE_CHANGED')
+            }
             if (!['running', 'stopped'].includes(current.status) || current.provisioningCleanupPending || current.deletionBillingPending) {
                 throw new Error('TRANSFER_INVALID_STATUS')
             }
@@ -153,10 +167,11 @@ export async function createTransferWithFee(data: {
                 const actor = await tx.user.findUnique({ where: { id: data.adminActorId }, select: { role: true, status: true } })
                 if (actor?.role !== 'admin' || actor.status !== 'active') throw new Error('FORBIDDEN')
                 if (recipient.role !== 'user') throw new Error('TRANSFER_TARGET_UNAVAILABLE')
-                const feeConfig = await tx.systemConfig.findUnique({ where: { key: 'transfer_fee' }, select: { value: true } })
-                const feeValue = Number.parseFloat(feeConfig?.value ?? '0')
-                if (data.fee !== (Number.isFinite(feeValue) ? feeValue : 0)) throw new Error('TRANSFER_FEE_CHANGED')
             }
+            await tx.$queryRaw`SELECT id FROM system_configs WHERE key = 'transfer_fee' FOR SHARE`
+            const feeConfig = await tx.systemConfig.findUnique({ where: { key: 'transfer_fee' }, select: { value: true } })
+            const feeValue = Number.parseFloat(feeConfig?.value ?? '0')
+            if (data.fee !== (Number.isFinite(feeValue) ? feeValue : 0)) throw new Error('TRANSFER_FEE_CHANGED')
 
             // 0. 在事务内检查是否已有 pending/processing 转移
             const existingTransfer = await tx.instanceTransfer.findFirst({
@@ -168,6 +183,9 @@ export async function createTransferWithFee(data: {
             if (existingTransfer) {
                 throw new Error('TRANSFER_ALREADY_PENDING')
             }
+
+            const verification = await claimOperationVerificationRequirement(data.actor.id, 'transfer_instance', data.instanceId, data.actor, tx)
+            if (!verification.verified) throw new Error('VERIFICATION_REQUIRED')
 
             // 1. 如果有手续费，先扣费
             if (data.fee > 0) {

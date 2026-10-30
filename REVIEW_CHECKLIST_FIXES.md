@@ -1,3 +1,5 @@
+2026-10-30 R011转移事务：真实原sid已撤销仍扣费先红，路由只查要求，最终实例/宿主/排序三账户锁内当前actor和原身份/手续费重核，grant领取复用外部事务与扣费/转移创建统一提交或回滚。实际PG五种真实排队变化零消费/零扣费、余额失败grant回滚、八并发一笔转移/费/grant及原PUSH/SMTP/2FA/destroy/types/build/八守卫全部自然exit0，证据见HANDOFF。备份2f5d205a200d6d069c6973683ad247639adad205 / CI41036581988已过原失败上传步骤且六job成功，整CI仍运行；后续其它敏感任务/dispatch与原327内部项继续，计数不增。
+
 2026-10-30 CI备份终态重放：41034830579上传专项已deleted DELETE403先红在本机PG/mTLS复现，路由terminalOnly在原mutation锁内current账号/instance/host/backup重新核验后回执，状态变ready拒409零远端调用且正常ready仍需验证。完整真实上传/删除专项含个人渠道/撤销/实际宿主锁竞争、严格types/server build/八守卫自然exit0，见HANDOFF。通知4c329dcf94e9daae50418d82e181461fb9964f82 / CI41035809878 Pool同步骤失败待终态日志，新修复推送CI待验证，不靠重跑/跳过，原327计数不增。
 
 2026-10-30 通知配置当前写授权：真实banned旧actor创建201先红，个人新增/修改/删除/开关在当前account/channel锁内核status/session/owner/scope/type，新增与验证码渠道选择共用account串行，八并发开关各生效一次。实际PG三类新增排队/三操作六变化及type409/完整原SMTP回归、严格types/server build/四守卫通过，见HANDOFF。5e77874f2d0fb14150f94fdf105fe3e59c88b9fa / CI41034830579上传专项已deleted重放403失败已读日志定位，下一修锁内终态回执；不增加327完整完成计数。

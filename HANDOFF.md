@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 转移验证领取、当前授权和手续费同事务（持续施工）
+
+- 备份回执段已推2f5d205a200d6d069c6973683ad247639adad205 / CI41036581988，当前六job成功且Pool已通过原失败上传专项，整体未终态。通知CI41035809878终态failure失败日志已读取确认同479行403≠200；两历史失败保留，修复实证不冒充旧运行成功。
+- 实际PG先红`takeover-transfer-current-authorization-before.log`：转移创建事务不核原sid撤销仍扣费成功。现用户/管理员路由只查验证要求，最终createTransferWithFee在原instance/host锁、按ID排序源/目标/actor账户锁内重核原Incus/宿主身份、status/role/session及真实手续费，传当前actor；grant领取复用调用者事务，验证记录消费、扣手续费和转移创建一并提交或回滚。通知配置新增与验证码目标读取同账户锁保持；手续费改变不默默扣新价。
+- 最终`logs/takeover-transfer-current-authorization-push-verified.log`实际PG/Fastify自然exit0：原管理员/用户PUSH财务、取消退款、原一机一卖专属网络/账期完整回归；新增余额不足后grant回滚、session撤销零扣费，五类真实account/instance/host行锁排队后current停用/撤销/目标停用/Incus或URL变化拒绝且grant/余额保持，八并发一次grant/一笔手续费/一次转移。原SMTP/权限/绑定/预算、2FA、专用销毁邮箱实际回归、严格源+受改专项types、后端最终build、四operation/通知守卫及四资源路由守卫全部自然exit0，日志同前缀。测试费率案例移至独立实例避免新并发fixture污染旧计数，最终重跑types/PUSH通过。
+- 无前端/schema/生产变化。此仅转移创建的验证/授权/扣费事务；重装重建任务受理/执行、快照/备份删除grant后dispatch及其它内部缺口下一段，原327259含部分/68不同不增。41025555281/41024907571/41024139392/41023032382已success；六旧CI仍运行与历史GoIO准确根因/原生客户/外部SMTP/完整灾备保留，阶段保存后继续。
+
 ## 2026-10-30 CI备份删除终态回执回归修复（持续施工）
 
 - 通知配置段已推送4c329dcf94e9daae50418d82e181461fb9964f82 / CI41035809878。资源绑定CI41034830579已failure，失败日志明确上传专项479行已deleted备份DELETE重放403≠200；本机原PG/mTLS专项`logs/takeover-backup-terminal-replay-before.log`复现同一失败。保留deleted资源不能发码/领取的规则，路由只对原已deleted快照请求terminalOnly回执，沿原instance/host/current账号/backup锁和任务门禁重新核验后返回；锁内变为ready时409且零远端DELETE，其他ready删除仍需验证。

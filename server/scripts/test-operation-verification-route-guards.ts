@@ -91,7 +91,7 @@ for (const { file, source: routeSource } of sensitiveOperationRouteSources) {
       profile.indexOf('await tx.operationVerification.updateMany') < profile.indexOf('await tx.user.updateMany'),
       'profile changes must consume a current verified account grant before the profile write in the same transaction')
   } else {
-    assert.ok(routeSource.includes('claimOperationVerificationRequirement'),
+    assert.ok(routeSource.includes(file.endsWith('/transfers.ts') ? 'checkOperationVerificationRequirement' : 'claimOperationVerificationRequirement'),
       `${file} must atomically claim a verified operation record before sensitive side effects`)
   }
   assert.ok(
@@ -103,7 +103,7 @@ for (const { file, source: routeSource } of sensitiveOperationRouteSources) {
 const adminPushSource = readFileSync(resolve(__dirname, '../src/services/admin-instance-push.ts'), 'utf8')
 for (const { file, source: routeSource } of sensitiveOperationRouteSources.filter(item =>
   ['instances.ts', 'backups.ts', 'snapshots.ts', 'transfers.ts'].some(name => item.file.endsWith('/' + name)))) {
-  assert.ok(/claimOperationVerificationRequirement\(userId, (?:operationType|'[^']+'), resourceId, actor\)/.test(routeSource),
+  assert.ok(/(?:claimOperationVerificationRequirement|checkOperationVerificationRequirement)\(userId, (?:operationType|'[^']+'), resourceId, actor\)/.test(routeSource),
     `${file} must pass the current authenticated actor when claiming a resource verification`)
 }
 const instanceRoutes = sensitiveOperationRouteSources.find(item => item.file.endsWith('/instances.ts'))!.source
@@ -111,8 +111,11 @@ assert.ok(instanceRoutes.includes('if (!isAdmin) {') && instanceRoutes.includes(
   'direct administrator deletion skips only the administrator verification; customer deletion still claims verification')
 assert.ok(instanceRoutes.includes('if (!isAdmin && isHostOwner && instance.user_id !== user.id)'),
   'direct administrator deletion must not refund the customer or debit the host owner')
-assert.ok(adminPushSource.includes("claimOperationVerificationRequirement(actorId, 'transfer_instance', instanceId, session)") &&
-  adminPushSource.indexOf('claimOperationVerificationRequirement(actorId') < adminPushSource.indexOf('await createTransferWithFee('),
-  'admin PUSH must claim the administrator verification before creating a request or charging the original owner')
+const transferDatabase = readFileSync(resolve(__dirname, '../src/db/transfers.ts'), 'utf8')
+assert.ok(adminPushSource.includes("checkOperationVerificationRequirement(actorId, 'transfer_instance', instanceId, session)") &&
+  adminPushSource.includes('actor: session!') &&
+  transferDatabase.includes("claimOperationVerificationRequirement(data.actor.id, 'transfer_instance', data.instanceId, data.actor, tx)") &&
+  transferDatabase.indexOf('claimOperationVerificationRequirement(data.actor.id') < transferDatabase.indexOf('// 1. 如果有手续费'),
+  'PUSH must consume current resource verification in the same transaction as the transfer and original-owner fee')
 
 console.log('operation verification route guard tests passed')

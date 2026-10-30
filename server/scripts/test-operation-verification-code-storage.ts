@@ -173,7 +173,8 @@ assert.ok(verifyOperationCodeSource.includes('return prisma.$transaction(async t
   'verification attempts and grant promotion must share the current account/session row-lock transaction')
 
 assert.ok(
-  claimOperationVerificationSource.includes('return prisma.$transaction(async tx => {') &&
+  claimOperationVerificationSource.includes('transaction ? work(transaction) : prisma.$transaction(work)') &&
+    claimOperationVerificationSource.includes('return run(async tx => {') &&
     claimOperationVerificationSource.includes('const result = await tx.operationVerification.updateMany({') &&
     claimOperationVerificationSource.includes('resourceType: resourceBinding') &&
     claimOperationVerificationSource.includes('data: { verifiedAt: null }') &&

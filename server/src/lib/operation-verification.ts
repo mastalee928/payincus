@@ -679,10 +679,13 @@ export async function claimOperationVerificationRequirement(
     userId: number,
     operationType: OperationType,
     resourceId?: number,
-    actor?: WriteActor
+    actor?: WriteActor,
+    transaction?: Prisma.TransactionClient
 ): Promise<{ required: boolean; verified: boolean }> {
+    const run = <T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> =>
+        transaction ? work(transaction) : prisma.$transaction(work)
     if (isAccountOperation(operationType)) {
-        return prisma.$transaction(async tx => {
+        return run(async tx => {
             if (!actor || actor.id !== userId || !await authorizeUserWrite(tx, userId, actor)) return { required: true, verified: false }
             const current = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } })
             const result = await tx.operationVerification.updateMany({ where: {
@@ -694,7 +697,7 @@ export async function claimOperationVerificationRequirement(
     }
 
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
-    return prisma.$transaction(async tx => {
+    return run(async tx => {
         const resource = actor && actor.id === userId ? await loadAuthorizedOperationVerificationResource(tx, actor, operationType, resourceId!) : null
         if (!actor || actor.id !== userId || !await authorizeUserWrite(tx, userId, actor)) return { required: true, verified: false }
         if (resource?.kind !== 'allowed') return { required: true, verified: false }

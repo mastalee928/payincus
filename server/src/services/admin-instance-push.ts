@@ -4,8 +4,9 @@ import { createTransferWithFee, hasActiveTransferWorkflow, type TransferSnapshot
 import { getSystemConfigFloat } from '../db/system-config.js'
 import { createLog } from '../db/logs.js'
 import { sendNotification } from '../lib/notifier.js'
-import { claimOperationVerificationRequirement } from '../lib/operation-verification.js'
+import { checkOperationVerificationRequirement } from '../lib/operation-verification.js'
 import type { WriteActor } from '../db/user-write-authorization.js'
+import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 
 export class AdminInstancePushError extends Error {
   constructor(public readonly code: string, message: string, public readonly status = 409) { super(message) }
@@ -68,7 +69,7 @@ export async function createAdminInstancePush(instanceId: number, actorId: numbe
   if (state.reason) throw new AdminInstancePushError('TRANSFER_UNAVAILABLE', state.reason)
   if (!Number.isFinite(input.expectedFee) || input.expectedFee !== state.fee) throw new AdminInstancePushError('TRANSFER_FEE_CHANGED', '转移手续费已变化，请刷新后确认')
   const target = await adminInstancePushTarget(instanceId, input.targetUsername)
-  const verification = await claimOperationVerificationRequirement(actorId, 'transfer_instance', instanceId, session)
+  const verification = await checkOperationVerificationRequirement(actorId, 'transfer_instance', instanceId, session)
   if (!verification.verified) throw new AdminInstancePushError('VERIFICATION_REQUIRED', '请先完成管理员身份验证', 403)
   const [portMappingsCount, snapshotsCount, backupsCount] = await Promise.all([
     prisma.portMapping.count({ where: { instanceId } }), prisma.snapshot.count({ where: { instanceId } }),
@@ -85,11 +86,14 @@ export async function createAdminInstancePush(instanceId: number, actorId: numbe
   let transferId: number
   try {
     const result = await createTransferWithFee({ instanceId, fromUserId: instance.userId, toUserId: target.id,
-      snapshot, fee: state.fee, instanceName: instance.name, remark: input.remark?.trim() || undefined, adminActorId: actorId })
+      snapshot, fee: state.fee, instanceName: instance.name, remark: input.remark?.trim() || undefined, adminActorId: actorId,
+      actor: session!, expectedIncusId: instance.incusId, expectedHostIdentity: transferHostIdentity(instance.host) })
     transferId = result.transferId
   } catch (error) {
     if (error instanceof ProxySiteOperationPendingError) throw new AdminInstancePushError(error.code, error.message, 409)
     const code = error instanceof Error ? error.message : 'TRANSFER_UNAVAILABLE'
+    if (code === 'VERIFICATION_REQUIRED') throw new AdminInstancePushError(code, '请先完成管理员身份验证', 403)
+    if (code === 'AUTHENTICATION_STATE_CHANGED' || code === 'FORBIDDEN') throw new AdminInstancePushError(code, '请重新登录后重试', 403)
     throw new AdminInstancePushError(code, '实例、接收用户或余额状态已变化，请刷新后重试')
   }
   await createLog(actorId, 'transfer', 'transfer.admin_create',
