@@ -7,6 +7,7 @@ import { prisma } from './prisma.js'
 import { Prisma } from '@prisma/client'
 import type { User, UserQuota } from '../types/database.js'
 import { verifyCodeInTransaction } from './email-verification.js'
+import { accountOperationVerificationBinding } from './operation-verification-binding.js'
 import { authorizeUserWrite, lockAdministrativeUserMutation, revokeUserSessionsInTransaction, type WriteActor, type WriteSession } from './user-write-authorization.js'
 import {
   USER_BALANCE_LOCK_NAMESPACE,
@@ -979,6 +980,7 @@ export async function updateUserProfileIfCurrent(
         const now = new Date()
         const grant = await tx.operationVerification.updateMany({ where: {
           userId: actor.id, operationType, resourceId: null, verified: true,
+          resourceType: accountOperationVerificationBinding(actor, expected.email),
           expiresAt: { gt: now }, verifiedAt: { gt: new Date(now.getTime() - 10 * 60000) }
         }, data: { verifiedAt: null } })
         if (!grant.count) throw new Error(`PROFILE_VERIFICATION_REQUIRED:${operationType}`)

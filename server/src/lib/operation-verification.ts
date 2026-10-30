@@ -10,6 +10,7 @@ import { OperationType, VerificationChannel, type Prisma, type NotificationChann
 import { sendOperationVerificationEmail } from './mailer.js'
 import { sendVerificationNotification } from './notifier.js'
 import { authorizeUserWrite, type WriteActor } from '../db/user-write-authorization.js'
+import { accountOperationVerificationBinding } from '../db/operation-verification-binding.js'
 import {
     OPERATION_VERIFICATION_REQUEST_LOCK_NAMESPACE,
     advisoryTransactionLockString
@@ -242,7 +243,8 @@ export async function requestOperationVerification(
 
     let pendingRecordId: number | undefined
     const requestKey = getOperationVerificationRequestLockKey(userId, operationType, resourceId)
-    const verificationResourceType = notificationChannel ? notificationTargetBinding(notificationChannel) : resourceType || null
+    const verificationResourceType = notificationChannel ? notificationTargetBinding(notificationChannel)
+        : actor ? accountOperationVerificationBinding(actor, user.email) : null
     const prepared = await prisma.$transaction(async (tx): Promise<PreparedOperationVerification> => {
         if (!await currentDeliveryAuthorized(tx, userId, actor, user.email, notificationChannel)) {
             return { error: 'Account or session state changed. Please sign in again.', errorCode: 'AUTHENTICATION_STATE_CHANGED' }
@@ -307,6 +309,9 @@ export async function requestOperationVerification(
             const resendAfter = Math.max(0, Math.ceil(VERIFICATION_CONFIG.resendAfterSeconds -
                 (now.getTime() - existingVerification.createdAt.getTime()) / 1000))
             if (resendAfter > 0) {
+                if (isAccountOperation(operationType) && existingVerification.resourceType !== verificationResourceType) {
+                    return { error: 'Please wait before requesting another verification code', errorCode: 'VERIFICATION_RATE_LIMITED', resendAfter }
+                }
                 if (notificationChannel && (existingVerification.channel !== channel || existingVerification.resourceType !== verificationResourceType)) {
                     // A newly selected channel cannot describe an earlier delivery.
                     // Revoke its eligibility, retaining the original send budget.
@@ -479,6 +484,8 @@ export async function verifyOperationCode(
             return { success: false, verified: false, error: 'Account or session state changed. Please sign in again.', errorCode: 'AUTHENTICATION_STATE_CHANGED' }
         }
         const now = new Date()
+        const accountBinding = isAccountOperation(operationType) ? accountOperationVerificationBinding(actor,
+            (await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } })).email) : null
         const codeHash = hashVerificationCode(code)
         const candidates = await tx.operationVerification.findMany({
             where: {
@@ -486,6 +493,7 @@ export async function verifyOperationCode(
                 operationType,
                 resourceId: resourceId || null,
                 ...GENERIC_VERIFICATIONS,
+                ...(accountBinding ? { resourceType: accountBinding } : {}),
                 verified: false,
                 expiresAt: { gt: now },
                 attempts: { lt: VERIFICATION_CONFIG.maxAttempts }
@@ -557,8 +565,19 @@ export async function verifyOperationCode(
 export async function isOperationVerified(
     userId: number,
     operationType: OperationType,
-    resourceId?: number
+    resourceId?: number,
+    actor?: WriteActor
 ): Promise<boolean> {
+    if (isAccountOperation(operationType)) {
+        return prisma.$transaction(async tx => {
+            if (!actor || actor.id !== userId || !await authorizeUserWrite(tx, userId, actor)) return false
+            const current = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } })
+            return Boolean(await tx.operationVerification.findFirst({ where: {
+                userId, operationType, resourceId: resourceId || null, resourceType: accountOperationVerificationBinding(actor, current.email),
+                verified: true, expiresAt: { gt: new Date() }, verifiedAt: { gt: new Date(Date.now() - 10 * 60000) }
+            } }))
+        })
+    }
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
     
     const verification = await prisma.operationVerification.findFirst({
@@ -579,7 +598,8 @@ export async function isOperationVerified(
 export async function checkOperationVerificationRequirement(
     userId: number,
     operationType: OperationType,
-    resourceId?: number
+    resourceId?: number,
+    actor?: WriteActor
 ): Promise<{ required: boolean; verified: boolean }> {
     const required = isAccountOperation(operationType) || await isResourceVerificationRequired(userId)
     if (!required) {
@@ -588,7 +608,7 @@ export async function checkOperationVerificationRequirement(
 
     return {
         required: true,
-        verified: await isOperationVerified(userId, operationType, resourceId)
+        verified: await isOperationVerified(userId, operationType, resourceId, actor)
     }
 }
 
@@ -599,11 +619,24 @@ export async function checkOperationVerificationRequirement(
 export async function claimOperationVerificationRequirement(
     userId: number,
     operationType: OperationType,
-    resourceId?: number
+    resourceId?: number,
+    actor?: WriteActor
 ): Promise<{ required: boolean; verified: boolean }> {
     const required = isAccountOperation(operationType) || await isResourceVerificationRequired(userId)
     if (!required) {
         return { required: false, verified: true }
+    }
+
+    if (isAccountOperation(operationType)) {
+        return prisma.$transaction(async tx => {
+            if (!actor || actor.id !== userId || !await authorizeUserWrite(tx, userId, actor)) return { required: true, verified: false }
+            const current = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } })
+            const result = await tx.operationVerification.updateMany({ where: {
+                userId, operationType, resourceId: resourceId || null, resourceType: accountOperationVerificationBinding(actor, current.email),
+                verified: true, expiresAt: { gt: new Date() }, verifiedAt: { gt: new Date(Date.now() - 10 * 60000) }
+            }, data: { verifiedAt: null } })
+            return { required: true, verified: result.count > 0 }
+        })
     }
 
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)

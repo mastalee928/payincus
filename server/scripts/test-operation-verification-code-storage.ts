@@ -43,6 +43,11 @@ const verifyOperationCodeSource = sourceBetween(
 const failedAttemptSource = sourceBetween(source, 'async function recordFailedVerificationAttempt(', 'export async function verifyOperationCode(')
 const notificationSelection = sourceBetween(source, 'async function getUserNotificationChannel(', 'function maskNotificationTarget(')
 const verificationDelivery = sourceBetween(notifier, 'export async function sendVerificationNotification(', 'export async function sendToChannel(')
+assert.ok(requestOperationVerificationSource.includes('accountOperationVerificationBinding(actor, user.email)') &&
+  verifyOperationCodeSource.includes('...(accountBinding ? { resourceType: accountBinding } : {})') &&
+  claimOperationVerificationSource.includes('resourceType: accountOperationVerificationBinding(actor, current.email)') &&
+  claimOperationVerificationSource.includes('authorizeUserWrite(tx, userId, actor)'),
+  'account codes and grants must bind their original session/recipient and recheck current authorization when claimed')
 assert.ok(source.includes('authorizeUserWrite(tx, userId, actor)') &&
   source.includes('notificationTargetBinding(current) === notificationTargetBinding(notificationChannel)') &&
   source.includes('actor.id !== userId') && requestOperationVerificationSource.includes('currentDeliveryAuthorized(tx, userId, actor, user.email, notificationChannel)') &&

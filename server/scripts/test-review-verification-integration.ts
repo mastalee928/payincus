@@ -6,6 +6,7 @@ assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && dat
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { createVerificationCode, verifyCode, cleanupExpiredCodes, hasPendingCode } = await import('../src/db/email-verification.js')
 const { isOperationVerified, claimOperationVerificationRequirement } = await import('../src/lib/operation-verification.js')
+const { accountOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
 const { get2FAMutationState, resetPasswordWithEmailVerification, updateUserProfileIfCurrent, createRegisteredUser } = await import('../src/db/users.js')
 const prefix = `verify-${randomUUID()}`
 const email = `${prefix}@example.test`
@@ -51,13 +52,15 @@ try {
   assert.equal(await prisma.emailVerificationCode.count({ where: { email } }), 0)
   assert.ok(await createVerificationCode(email, 'register'), 'budget reopens after the actual hour expires')
 
+  const verificationActor = { id: user.id, sid: 'fixture-expiry-session', iat: Math.floor(Date.now() / 1000) + 1 }
   const expired = await prisma.operationVerification.create({ data: { userId: user.id, operationType: 'change_password', code: 'fixture-hash',
+    resourceType: accountOperationVerificationBinding(verificationActor, null),
     channel: 'email', verified: true, verifiedAt: new Date(), expiresAt: new Date(Date.now() - 1) } })
-  assert.equal(await isOperationVerified(user.id, 'change_password'), false)
-  assert.equal((await claimOperationVerificationRequirement(user.id, 'change_password')).verified, false, 'fresh verification timestamp cannot revive an expired grant')
+  assert.equal(await isOperationVerified(user.id, 'change_password', undefined, verificationActor), false)
+  assert.equal((await claimOperationVerificationRequirement(user.id, 'change_password', undefined, verificationActor)).verified, false, 'fresh verification timestamp cannot revive an expired grant')
   await prisma.operationVerification.update({ where: { id: expired.id }, data: { expiresAt: new Date(Date.now() + 60000) } })
-  assert.equal(await isOperationVerified(user.id, 'change_password'), true)
-  const claims = await Promise.all(Array.from({ length: 8 }, () => claimOperationVerificationRequirement(user.id, 'change_password')))
+  assert.equal(await isOperationVerified(user.id, 'change_password', undefined, verificationActor), true)
+  const claims = await Promise.all(Array.from({ length: 8 }, () => claimOperationVerificationRequirement(user.id, 'change_password', undefined, verificationActor)))
   assert.equal(claims.filter(result => result.verified).length, 1)
   await prisma.user.update({ where: { id: user.id }, data: { email: replay, twoFactorEnabled: true, twoFactorSecret: 'fixture-secret', twoFactorRecoveryCodes: 'fixture-codes' } })
   const resetCode = await createVerificationCode(replay, 'password_reset')
@@ -94,6 +97,7 @@ try {
   const actor = { id: user.id, sid: 'fixture-profile-session', iat: Math.floor(Date.now() / 1000) + 1 }
   const grant = (operationType: 'change_email' | 'change_password') => prisma.operationVerification.create({ data: {
     userId: user.id, operationType, code: 'fixture-only', channel: 'email', verified: true,
+    resourceType: accountOperationVerificationBinding(actor, replay),
     verifiedAt: new Date(), expiresAt: new Date(Date.now() + 60000)
   } })
   const newEmail = `profile-${email}`
@@ -102,6 +106,28 @@ try {
   await grant('change_email'); await grant('change_password')
   const staleProfile = await get2FAMutationState(user.id)
   assert.ok(staleProfile)
+  const rejectBoundProfile = async (otherActor: typeof actor) => {
+    await assert.rejects(updateUserProfileIfCurrent(staleProfile, {
+      email: newEmail, passwordHash: 'fixture-profile-password'
+    }, otherActor, profileCode.code), /PROFILE_VERIFICATION_REQUIRED/)
+    assert.deepEqual(await get2FAMutationState(user.id), staleProfile)
+    assert.equal(await hasPendingCode(newEmail, 'change_email'), true)
+    assert.equal(await prisma.operationVerification.count({ where: {
+      userId: user.id, verified: true, verifiedAt: { not: null }
+    } }), 2, 'a mismatched session/recipient cannot consume original grants or the new-email code')
+  }
+  await rejectBoundProfile({ ...actor, sid: actor.sid + '-another-login' })
+  const originalBindings = await prisma.operationVerification.findMany({ where: {
+    userId: user.id, operationType: { in: ['change_email', 'change_password'] }, verifiedAt: { not: null }
+  }, select: { id: true, resourceType: true } })
+  await prisma.operationVerification.updateMany({ where: {
+    id: { in: originalBindings.map(row => row.id) }
+  }, data: { resourceType: accountOperationVerificationBinding(actor, `previous-${replay}`) } })
+  await rejectBoundProfile(actor)
+  for (const row of originalBindings) await prisma.operationVerification.update({
+    where: { id: row.id }, data: { resourceType: row.resourceType }
+  })
+  console.log('PASS profile transaction rejects other-session and previous-recipient grants without consuming either grant or new-email code')
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash: 'concurrent-profile-password' } })
   await assert.rejects(updateUserProfileIfCurrent(staleProfile, { email: newEmail, passwordHash: 'fixture-profile-password' }, actor, profileCode.code), /AUTHENTICATION_STATE_CHANGED/)
   assert.equal(await hasPendingCode(newEmail, 'change_email'), true)

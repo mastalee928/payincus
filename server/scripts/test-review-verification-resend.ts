@@ -14,6 +14,7 @@ const { clearTransporterCache } = await import('../src/lib/mailer.js')
 const { invalidateAllConfigCache } = await import('../src/lib/config-cache.js')
 const { claimOperationVerificationRequirement, isOperationVerified, cleanupExpiredVerifications } = await import('../src/lib/operation-verification.js')
 const { sendVerificationNotification } = await import('../src/lib/notifier.js')
+const { accountOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
 const tag = 'verification-resend-' + randomUUID().slice(0, 8), messages: string[] = [], sockets = new Set<Socket>()
 const originalFetch = globalThis.fetch
 let delivery: 'accepted' | 'held' | 'rejected' = 'accepted'
@@ -51,6 +52,7 @@ const users = await Promise.all(['a', 'b'].map(letter => prisma.user.create({ da
 } })))
 let actor = users[0]
 let sessionId = tag, issuedAt = Math.floor(Date.now() / 1000) + 1
+const currentActor = () => ({ id: actor.id, sid: sessionId, iat: issuedAt })
 const app = Fastify()
 app.decorate('authenticate', async request => { request.user = { id: actor.id, username: actor.username, role: 'user', sid: sessionId, iat: issuedAt } })
 const request = () => app.inject({ method: 'POST', url: '/verification/request', payload: { operationType: 'disable_2fa' } })
@@ -187,6 +189,7 @@ try {
 
   await prisma.operationVerification.deleteMany({ where: { userId: actor.id, operationType: 'disable_2fa' } })
   const interrupted = await prisma.operationVerification.create({ data: { userId: actor.id, operationType: 'disable_2fa',
+    resourceType: accountOperationVerificationBinding(currentActor(), actor.email),
     channel: 'email', code: 'sha256:interrupted-fixture', attempts: 6, expiresAt: new Date(Date.now() + 600_000),
     createdAt: new Date(Date.now() - 30_000) } })
   const interruptedCooldown = await request()
@@ -234,9 +237,9 @@ try {
   assert.equal(afterVerification.statusCode, 400, 'verification itself must not reset the sixty-second send budget')
   assert.equal(afterVerification.json().code, 'VERIFICATION_RATE_LIMITED')
   assert.equal(messages.length, beforeConsume)
-  const consumed = await Promise.all(Array.from({ length: 8 }, () => claimOperationVerificationRequirement(actor.id, 'disable_2fa')))
+  const consumed = await Promise.all(Array.from({ length: 8 }, () => claimOperationVerificationRequirement(actor.id, 'disable_2fa', undefined, currentActor())))
   assert.equal(consumed.filter(result => result.verified).length, 1)
-  assert.equal(await isOperationVerified(actor.id, 'disable_2fa'), false)
+  assert.equal(await isOperationVerified(actor.id, 'disable_2fa', undefined, currentActor()), false)
   const consumedRecord = await record()
   assert.equal(consumedRecord.verifiedAt, null)
   const afterConsumption = await request()
@@ -248,7 +251,7 @@ try {
   await prisma.operationVerification.update({ where: { id: consumedRecord.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
   assert.equal((await request()).statusCode, 200)
   assert.equal(messages.length, beforeConsume + 1)
-  assert.equal((await claimOperationVerificationRequirement(actor.id, 'disable_2fa')).verified, false)
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'disable_2fa', undefined, currentActor())).verified, false)
   console.log('PASS verified and single-use consumed grants retain sixty-second send history; new delivery cannot revive the consumed grant')
 
   const deliveries: Array<{ chat: string; text: string }> = []
@@ -345,7 +348,7 @@ try {
   const independentAccount = await request(); assert.equal(independentAccount.statusCode, 200)
   assert.equal(messages.length, beforeAccountBudget + 2)
   actor = users[0]
-  await prisma.operationVerification.updateMany({ where: { userId: actor.id, resourceType: null }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  await prisma.operationVerification.updateMany({ where: { userId: actor.id, operationType: 'disable_2fa' }, data: { createdAt: new Date(Date.now() - 61_000) } })
   const beforeMixed = messages.length
   const mixed = await Promise.all(Array.from({ length: 8 }, (_, i) => app.inject({ method: 'POST', url: '/verification/request',
     payload: i % 2 ? { operationType: 'change_password' } : { operationType: 'reinstall_instance', resourceId: 920000 + i } })))
@@ -366,7 +369,7 @@ try {
   assert.equal(messages.length, beforeMixed + 2)
   console.log('PASS resource switching/mixed eight-way concurrency share one account budget, other accounts remain independent, and expiry cleanup retains recent send history')
 
-  await prisma.operationVerification.updateMany({ where: { userId: actor.id, resourceType: null }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  await prisma.operationVerification.updateMany({ where: { userId: actor.id, operationType: 'disable_2fa' }, data: { createdAt: new Date(Date.now() - 61_000) } })
   await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
   const beforeRevoked = messages.length
   const suspendedRequest = await request()
@@ -384,7 +387,7 @@ try {
   console.log('PASS current banned/revoked sessions cannot send, while a fresh current session can request normally')
 
   for (const mode of ['banned', 'email', 'session', 'account'] as const) {
-    await prisma.operationVerification.updateMany({ where: { userId: actor.id, resourceType: null }, data: { createdAt: new Date(Date.now() - 61_000) } })
+    await prisma.operationVerification.updateMany({ where: { userId: actor.id, operationType: 'disable_2fa' }, data: { createdAt: new Date(Date.now() - 61_000) } })
     const beforeQueued: number = messages.length
     const result = await queuedRequest(tx => mode === 'banned'
       ? tx.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
@@ -401,7 +404,7 @@ try {
   console.log('PASS actual account row-lock waits recheck banned status, email and session/account revocations before issuing or sending')
 
   for (const mode of ['banned', 'email', 'session'] as const) {
-    await prisma.operationVerification.updateMany({ where: { userId: actor.id, resourceType: null }, data: { createdAt: new Date(Date.now() - 61_000) } })
+    await prisma.operationVerification.updateMany({ where: { userId: actor.id, operationType: 'disable_2fa' }, data: { createdAt: new Date(Date.now() - 61_000) } })
     delivery = 'held'
     const pending = request()
     for (let attempt = 0; !held.length; attempt++) { assert.ok(attempt < 200); await new Promise(resolve => setTimeout(resolve, 10)) }
@@ -418,9 +421,10 @@ try {
   }
   console.log('PASS SMTP acknowledgement after banned status/email/session changes cannot activate an eligible code')
 
-  await prisma.operationVerification.updateMany({ where: { userId: actor.id, resourceType: null }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  await prisma.operationVerification.updateMany({ where: { userId: actor.id, operationType: 'disable_2fa' }, data: { createdAt: new Date(Date.now() - 61_000) } })
   assert.equal((await request()).statusCode, 200)
-  const issuedRecord = await record(), issuedCode = codeFor(actor.email!)
+  const issuedRecord = await record()
+  let issuedCode = codeFor(actor.email!)
   await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
   const deniedVerify = await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: issuedCode } })
   assert.equal(deniedVerify.statusCode, 400, 'a banned actor cannot promote a delivered code to a verified grant')
@@ -446,11 +450,57 @@ try {
     await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
     sessionId += '-current'; issuedAt += 1
   }
+  await prisma.operationVerification.update({ where: { id: issuedRecord.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  assert.equal((await request()).statusCode, 200)
+  issuedCode = codeFor(actor.email!)
   const concurrentVerified = await Promise.all(Array.from({ length: 8 }, () => submitCode()))
   assert.equal(concurrentVerified.filter(response => response.statusCode === 200).length, 1)
   assert.ok(concurrentVerified.every(response => response.statusCode === 200 || response.statusCode === 400))
   assert.equal((await record()).attempts, 0)
   console.log('PASS verification waits on current account changes and eight concurrent correct codes promote exactly one grant')
+
+  await prisma.operationVerification.updateMany({ where: { userId: actor.id, operationType: 'disable_2fa' }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  assert.equal((await request()).statusCode, 200)
+  const boundCode = codeFor(actor.email!), boundRecord = await record(), originalSession = sessionId
+  assert.ok(boundRecord.resourceType?.startsWith('account-session:v1:') && !boundRecord.resourceType.includes(originalSession) && !boundRecord.resourceType.includes(actor.email!))
+  sessionId += '-second-login'
+  const secondSessionVerify = await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: boundCode } })
+  assert.equal(secondSessionVerify.statusCode, 400, 'another legitimate login cannot verify this session code')
+  assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: boundRecord.id } })).attempts, 0,
+    'another session cannot consume this session attempt budget')
+  const otherSessionRequest = await request()
+  assert.equal(otherSessionRequest.statusCode, 400); assert.equal(otherSessionRequest.json().code, 'VERIFICATION_RATE_LIMITED')
+  assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: boundRecord.id } })).verified, false)
+  sessionId = originalSession
+  await prisma.user.update({ where: { id: actor.id }, data: { email: `${tag}-bound-changed@example.test` } })
+  const changedEmailVerify = await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: boundCode } })
+  assert.equal(changedEmailVerify.statusCode, 400, 'a previous recipient code cannot verify the current email')
+  await prisma.user.update({ where: { id: actor.id }, data: { email: actor.email } })
+  assert.equal((await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: boundCode } })).statusCode, 200)
+  console.log('PASS account verification codes bind their original session and email without consuming another session attempts')
+
+  assert.equal(await isOperationVerified(actor.id, 'disable_2fa', undefined, currentActor()), true)
+  sessionId += '-other-check'
+  const otherSessionCheck = await app.inject({ method: 'GET', url: '/verification/check?operationType=disable_2fa' })
+  assert.equal(otherSessionCheck.statusCode, 200); assert.equal(otherSessionCheck.json().verified, false)
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'disable_2fa', undefined, currentActor())).verified, false)
+  sessionId = originalSession
+  await prisma.user.update({ where: { id: actor.id }, data: { email: `${tag}-grant-email@example.test` } })
+  assert.equal(await isOperationVerified(actor.id, 'disable_2fa', undefined, currentActor()), false)
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'disable_2fa', undefined, currentActor())).verified, false)
+  await prisma.user.update({ where: { id: actor.id }, data: { email: actor.email } })
+  const boundClaims = await Promise.all(Array.from({ length: 8 }, () => claimOperationVerificationRequirement(actor.id, 'disable_2fa', undefined, currentActor())))
+  assert.equal(boundClaims.filter(result => result.verified).length, 1)
+  assert.equal((await record()).verifiedAt, null)
+  console.log('PASS check/claim reject another session or email and the original bound grant consumes once under eight-way concurrency')
+
+  await prisma.operationVerification.update({ where: { id: boundRecord.id }, data: { verified: false, verifiedAt: null, resourceType: null, code: '654321' } })
+  const legacyVerify = await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: '654321' } })
+  assert.equal(legacyVerify.statusCode, 400, 'legacy account codes lack trusted session/recipient binding and must be reissued')
+  await prisma.operationVerification.update({ where: { id: boundRecord.id }, data: { verified: true, verifiedAt: new Date() } })
+  assert.equal(await isOperationVerified(actor.id, 'disable_2fa', undefined, currentActor()), false)
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'disable_2fa', undefined, currentActor())).verified, false)
+  console.log('PASS unbound legacy account codes and grants cannot inherit a current session')
 } catch (error) { failure = error } finally {
   globalThis.fetch = originalFetch
   held.splice(0).forEach(item => item.finish())

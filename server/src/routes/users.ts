@@ -416,7 +416,7 @@ export default async function userRoutes(fastify: FastifyInstance) {
     }
 
     if (user.email) {
-      const verified = await isOperationVerified(userId, 'change_email')
+      const verified = await isOperationVerified(userId, 'change_email', undefined, request.user)
       if (!verified) {
         return reply.code(403).send({
           error: 'Sensitive operation requires verification',
@@ -526,7 +526,7 @@ export default async function userRoutes(fastify: FastifyInstance) {
         }
         
         // 二次验证
-        const verified = await isOperationVerified(request.user.id, 'change_password')
+        const verified = await isOperationVerified(request.user.id, 'change_password', undefined, request.user)
         if (!verified) {
           return reply.code(403).send({
             error: 'Sensitive operation requires verification',
@@ -538,7 +538,7 @@ export default async function userRoutes(fastify: FastifyInstance) {
       // 修改邮箱需要二次验证
       if (email !== undefined && email !== user.email) {
         if (user.email) {
-          const verified = await isOperationVerified(request.user.id, 'change_email')
+          const verified = await isOperationVerified(request.user.id, 'change_email', undefined, request.user)
           if (!verified) {
             return reply.code(403).send({
               error: 'Sensitive operation requires verification',

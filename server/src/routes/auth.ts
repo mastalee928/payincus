@@ -1129,7 +1129,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
 
     // 敏感操作二次验证：在密码和 TOTP 通过后原子领取，避免错误输入消耗验证码。
-    const verification = await claimOperationVerificationRequirement(request.user.id, 'disable_2fa')
+    const verification = await claimOperationVerificationRequirement(request.user.id, 'disable_2fa', undefined, request.user)
     if (!verification.verified) {
       return reply.code(403).send({
         error: 'Sensitive operation requires verification',

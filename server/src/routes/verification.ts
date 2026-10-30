@@ -291,7 +291,8 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
             const verified = await isOperationVerified(
                 user.id,
                 operationType,
-                normalizedResource.resourceId
+                normalizedResource.resourceId,
+                user
             )
 
             return {

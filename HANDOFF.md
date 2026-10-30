@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 账户验证码及验证记录绑定原会话与邮箱（持续施工）
+
+- 接续保留上一模型未提交源码，补齐最终验证。账号操作的验证码与grant使用`account-session:v1:`摘要绑定账户、原sid及邮箱；request重复回执、verify、check、claim及profile同一事务消费均按该绑定检查。摘要不保存明文sid/邮箱，旧无绑定账号码及grant须重发，不能自动继承当前会话。账户60秒预算、资源通知目标与专用销毁邮箱流程保持。
+- 实际Fastify/PG/本机SMTP完整专项`takeover-verification-account-binding-resend-verified.log`自然exit0：另一合法会话不能验证或消耗原尝试次数，邮箱变化拒旧码；check/claim拒跨会话/邮箱，8并发只消费1次，旧无绑定码/grant拒绝。原SMTP ACK/失败/预算/授权排队/个人目标完整回归保持。`profile-verified.log`新增profile事务跨会话/旧收件邮箱拒绝且两grant、新邮箱code及账户字段不变；原故障回滚和6并发唯一修改通过。
+- 专项严格类型、后端最终build、两operation守卫、auth-session守卫、manifest194/231及diff全部自然exit0；`twofactor-verified.log`和`destroy-verified.log`实际回归均exit0，销毁A/B去同码、原会话/邮箱/集合绑定、单次消费和60秒预算保持。日志前缀均为`logs/takeover-verification-account-binding-`。未改前端，沿用原最终Chrome/双端证据；无需重复构建。
+- 接续验证第一次误用了历史55432测试库，原服务已停且schema较旧；错误轮不计通过。已确认当前55438隔离库并用既有连接完成最终回归，误启动的55432已正常关闭。类型夹具补正确typeRoots/ES2023，不修改产品编译配置。真实外部SMTP/客户原生操作/完整灾备未验收；generic资源码的当前通知目标与会话绑定、资源权限完整合同仍待，不扩大本段范围。
+- 文案纠正已在af5af1af6b51272e7aa6a370227ada2df9d4554a保存并推送，简中「验证码已发送，请查收邮箱」及非邮件「验证码已发送，请查看通知」，三语同步，倒计时表达冷却。CI41014322522/41015808583/41017076013已终态success；41019111832/41019531979/41020374764/41023032382/41024139392/41024907571/41025555281/41026234390仍运行、无新失败，须持续跟终态。历史40799210505准确IO根因未证明保留。原327计数259含部分/68已有不同不变，保存后继续。
+
 ## 2026-10-30 R1-011 验证已投递码时当前账户/会话授权（持续施工）
 
 - 准备授权段已推355d39e554268eba746ee1b33b79adec8d0419b5 / CI41025555281。真实PG/SMTP先红takeover-verification-verify-auth-before.log：已发码后账号banned，旧鉴权仍可200标verified。现verify传request.user，同一事务最先authorizeUserWrite锁current账户与撤销；正确码CAS、错误尝试bounded increment与回读同事务，未提供actor/不匹配/当前停用撤销拒绝且不修改记录。

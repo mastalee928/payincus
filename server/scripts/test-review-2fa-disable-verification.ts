@@ -13,6 +13,7 @@ const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { encryptSensitiveData, generate2FASecret, verify2FAToken } = await import('../src/lib/security.js')
 const { default: authRoutes } = await import('../src/routes/auth.js')
 const { default: verificationRoutes } = await import('../src/routes/verification.js')
+const { accountOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
 const prefix = randomUUID(), password = 'Fixture-disable-password1', secret = generate2FASecret()
 const passwordHash = await bcrypt.hash(password, 4)
 const actors = await Promise.all(['A', 'B'].map(suffix => prisma.user.create({ data: {
@@ -31,7 +32,8 @@ const disable = (submittedPassword = password, code = authenticator.generate(sec
   method: 'POST', url: '/auth/2fa/disable', payload: { password: submittedPassword, code }
 })
 const grant = (userId: number, operationType: 'disable_2fa' | 'change_password', code: string) => prisma.operationVerification.create({ data: {
-  userId, operationType, code, channel: 'email', expiresAt: new Date(Date.now() + 60000)
+  userId, operationType, code, channel: 'email', expiresAt: new Date(Date.now() + 60000),
+  resourceType: accountOperationVerificationBinding({ id: userId, sid: `fixture-${userId}` }, null)
 } })
 try {
   await app.register(authRoutes, { prefix: '/auth' })
