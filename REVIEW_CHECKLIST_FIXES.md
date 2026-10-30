@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 Go进程审计分项：保留read/stat错误分类，ENOENT/ESRCH在两扫描与写者stat保持StableSnapshot=false，权限/IO/格式仍拒绝；固定phase/reason脱敏诊断、取消零目录读取、实际Linux子进程退出及身份变化专项接双架构CI20次有界运行。Windows受影响包实跑/vet、Linux双架构测试编译/vet与amd64全build、controller守卫/manifest/YAML/diff通过，Linux实跑尚待新CI。历史40799210505只有通用IO，准确根因仍未知；三机身份未核实、不绕pin。bf58eeda1fe6dda79fb266f8ee78d95fd1eb70a1/41020374764已推，前六CI仍跟终态。259含部分/68不同计数保持，原327内部缺口继续。
+
 2026-10-30 R011消费预算分项：真实SMTP验证码验证后request200新增邮件先红；request读最新所有状态60秒限发，重发撤旧grant，claim/consume/profile事务updateMany清verifiedAt保发送历史和一次性。完整PG/SMTP八并发claim、profile回滚/当前身份、管理员PUSH/2FA/destroy原回归、源+全部受改专项types/server build/三守卫/manifest/diff过；profile与PUSH接CI，无前端重改。证据见HANDOFF，generic跨操作/当前邮箱会话和投递目标、原327整体验收继续，计数不增。
 
 2026-10-30 R011尝试预算分项：真实PG/SMTP第五次错误删记录导致零等待request200新增邮件先红，改未验证/未过期/generic/attempts<5条件原子increment、保耗尽记录与发送时间，八并发最大5。PG67448原完整投递回归/正确耗尽码拒绝/61秒重发、原2FA、types/server build/两守卫/diff过，无前端重改；CI及实际范围见HANDOFF。generic已消费/跨操作预算及当前身份通知目标仍待，不计整编号完成。

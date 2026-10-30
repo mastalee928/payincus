@@ -574,6 +574,9 @@ jobs:
         with:
           go-version: '1.22.x'
           cache-dependency-path: agent/go.mod
+      - name: Process audit exit races and redacted diagnostics
+        working-directory: agent
+        run: go test -count=20 -timeout=120s -run '^(TestProcess|TestReadProcessStat|TestReadActualProcAuditAndCancellation)' ./internal/controllerconfig
       - name: Install build dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build and verify isolated package

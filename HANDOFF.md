@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 Linux 进程审计退出竞态与失败诊断（持续施工）
+
+- 历史 CI40799210505 / commit3fd4488099bbaec13ed4ff15f1f9eda198a86539 的 TestReadActualProcAuditAndCancellation 返回 CONTROLLER_PROCESS_AUDIT_IO，失败日志只有通用错误码，尚不能准确证明原失败分支。代码复核发现 procfs 已打开 stat 在进程退出后可返回 ESRCH，原 read/stat 错误被归为 INVALID 或通用 IO。现保留原始错误供内部分类，ENOENT/ESRCH 在两次采集均标 StableSnapshot=false；写者审计共享同一分类。权限、IO、格式错误继续拒绝，绝不据退出竞态授予接管。失败诊断仅固定 phase/reason 与原错误码，不输出 OS 路径、进程名、命令或环境。取消在读取目录前检查。
+- 新增实际 Linux 子进程打开 stat 后退出的回归、两扫描退出注入、权限/EIO/格式脱敏、PID/父进程/UID/名称/启动时间变化与文件边界检查。Windows 受影响 controllerconfig/maintenance 实际测试与 vet 自然 exit0，日志 takeover-process-audit-windows-final.log / windows-vet.log；Go -work 保留临时产物，避免本机测试通过后清理临时 exe 时出现拒绝访问；具体阻拦来源未证明。Windows 全套仍因原 report.go 使用 Linux Statfs 不支持 Windows 而失败，不能宣称全套通过。
+- Linux amd64/arm64 最终测试编译与 vet、Linux amd64 Agent 全模块 build 自然 exit0，证据 takeover-process-audit-linux-{amd64,arm64}-compile.log / linux-build.log。controller-config-guards 完整专项自然 exit0（test-run-20261030-155000），manifest194/231、gofmt、CI YAML 与 diff 检查通过。双架构 CI 新增有界20次实际 /proc 与退出竞态专项（120秒）；本机不具备 Linux 运行环境，编译不等于实跑。三台测试机仍身份未核实，未绕过 SSH pin；历史 CI 准确根因继续保留，不据本段将其关闭。
+- 前消费历史段已推 bf58eeda1fe6dda79fb266f8ee78d95fd1eb70a1 / CI41020374764。此前六次 CI41014322522、41015808583、41017076013、41019111832、41019531979、41020374764 仍运行、其它六 job 成功，继续查终态。原327计数259含部分/68已有或不同不变。保存本段后继续通用验证码通知目标一致性；当前邮箱/会话绑定、跨操作账户预算、真实宿主与完整灾备仍待，无生产或发行。
+
 ## 2026-10-30 R1-011 通用验证码验证/消费后保发送记录（持续施工）
 
 - 尝试耗尽段已推3b2ac7b3f5c64a6da6dede85fb3c55f03b97a594/CI41019531979。下一实际PG/SMTP先红takeover-verification-consume-budget-before.log：验证成功后立即request200新增邮件；原消费deleteMany同样丢发送时间。现request读取同operation/resource最新所有状态，60秒内verified/耗尽均限发；重发仅撤销旧code/grant并保历史。generic claim及旧consume改条件updateMany清verifiedAt，保verified=true和原createdAt，既不能再verify也不能replay；profile事务同样清verifiedAt，账户写/撤销失败完整回滚保grant。无schema迁移，不改销毁专用记录或原鉴权/退款/全端口交付合同。

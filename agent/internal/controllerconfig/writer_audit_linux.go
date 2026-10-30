@@ -289,7 +289,7 @@ func ReadLocalWriterAudit(ctx context.Context, policy WriterAuditPolicy) (LocalW
 		}
 		base := filepath.Join("/proc", name)
 		row, err := readProcessStat(filepath.Join(base, "stat"))
-		if os.IsNotExist(err) {
+		if disappearedProcess(err) {
 			result.StableSnapshot = false
 			continue
 		}
@@ -378,7 +378,7 @@ func ReadLocalWriterAudit(ctx context.Context, policy WriterAuditPolicy) (LocalW
 			}
 		}
 		after, err := readProcessStat(filepath.Join(base, "stat"))
-		if os.IsNotExist(err) {
+		if disappearedProcess(err) {
 			result.StableSnapshot = false
 			continue
 		}
