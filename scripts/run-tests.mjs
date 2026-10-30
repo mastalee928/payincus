@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-terminal-authorization', 'requires isolated PostgreSQL, OpenSSL and local HTTP/WebSocket mTLS fixture; actual route preflight changes, target/account row-lock competition, current owner/host-owner/admin grants, total deadline and commit-failure socket cleanup'],
   ['test:review-terminal-opening', 'requires OpenSSL and local mTLS HTTP/WebSocket fixture; actual terminal opening session revocation, abort deadlines, resource cleanup, concurrent scope, normal connection and VM fallback'],
   ['test:review-notification-actions', 'requires Chrome/Edge and local Vite; actual notification mutation locks, draft snapshots/revisions, obsolete session/cache receipts, contract validation, failure retry and current row targets; controlled API only'],
   ['test:review-notification-reads', 'requires Chrome/Edge and local Vite; actual notification component deferred lists/history/stats, session/filter/page/KeepAlive isolation, malformed reads, retry and first-frame touch controls; controlled API only'],

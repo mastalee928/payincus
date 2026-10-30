@@ -1,5 +1,9 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **R177最终通过**：最后完整52315自然exit0，包含三种合法角色真实Fastify/ws双mTLS建立及关闭、旧route/PG竞争/总deadline/真实事务失败清socket；最后专项含源类型25725自然exit0，证据takeover-terminal-authorization-final-verified/types-final-verified。各产品与CI/守卫登记可提交，立即按单项保存推送后接R144/145原worker残留路由及R008/013台账复核。254含部分/68不同/5待，不将所有内部验收视作完成。
+
+> **R177末验证保存后继续**：opening登记后PG原instance/host/actor/package事务锁复核当前授权并持锁初连，总20秒、commit失败清已建双ws。实际Fastify/ws5旧状态零POST/9PG锁竞争/三权限/mTLS持锁撤销/总截止与事务失败清socket complete11522自然exit0；server build13673/3守卫105953/R174TLS回归/manifest194-219及最后专项类型51519自然exit0，额外三角色实际正常route完整回归继续核结果。R174c589bf260d630f9b90fcac3e8d857a4f43f94f7d/40993940514运行；其和三个前CI仍Pool前进、其它六job成功。254含部分/68不同/5待，保存后接R008/013旧台账复核、R020和R144/145；长期重连/实际UUID/GoIO/SSH/邮件/完整灾备保持，不生产/发行。隔离PG55438已按原路径恢复启动ready并保留。
+
 > **R174末验证完成，持续修复**：接续未提交opening撤销修复，实际TLS专项/3守卫通过；恢复核对server含tsc构建41800与专项严格类型自然exit0，manifest合法。同步opening身份取消器和四范围关闭，POST/双ws握手撤销及双用户隔离、失败重试/正常VM回退均通过；本机受控客户端，不当真实Incus。253含部分/68不同/6待，单项保存后立即R177最后前置授权复核；重连持续身份/总截止和真实宿主另待。R059 5b056333035d145037fd75acec79f099eea8470a/40992598123、R073/40989729533、R074/40992045627仍运行，R057/40984944304success，继续跟终态；历史GoIO/SSH/邮件/完整灾备保留，不生产/发行。
 
 > **R059末验证完成，继续终端后端（非暂停）**：完整可达性核对后仅删除无消费者BackupManager996行与restoreTask219行，实际备份/OSS/两router/API/detail十SHA保持。4/4守卫test-run-20261030-103155、双端含types72497及末dist自然exit0，无测试serve/build待poll。252含部分/68不同/7待，先单项commit/push；随后R174/177需实际延迟TLS/WebSocket及授权撤销时序，已读terminal route/proxy/守卫，高危按小段实现。R0749b0535612ede6d7c705d6b9c6124525f3c060112/40992045627、40984944304、40989729533仍CI运行，后两Pool持续前进；原GoIO/SSH/邮件/327内部缺口及灾备未完，不生产/发行。

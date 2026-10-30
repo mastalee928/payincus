@@ -21,6 +21,7 @@ import {
 import type { WebSocket } from 'ws'
 import { consumeTerminalAccessTicket, generateTerminalAccessTicket } from '../lib/action-ticket.js'
 import { isAccessTokenInvalidated } from '../lib/security.js'
+import { withTerminalOpeningAuthorization } from '../db/terminal-opening-authorization.js'
 
 // 终端专用连接限制
 const TERMINAL_LIMITS = {
@@ -427,7 +428,10 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
                 instance.incus_id,
                 user.id,
                 instanceType,
-                authResult.sessionId
+                authResult.sessionId,
+                open => withTerminalOpeningAuthorization(instance, host,
+                    { id: user.id, role: user.role, sid: authResult.sessionId, iat: authResult.issuedAt },
+                    instanceType, open)
             )
 
             // createTerminalSession 返回前已登记 activeSessions，pending 可安全释放。

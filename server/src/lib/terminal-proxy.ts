@@ -560,7 +560,8 @@ export async function createTerminalSession(
     instanceName: string,
     userId: number,
     instanceType: 'container' | 'vm' = 'container',
-    authSessionId?: string
+    authSessionId?: string,
+    authorizeOpening?: <T>(open: () => Promise<T>) => Promise<T>
 ): Promise<TerminalSession> {
     const sessionId = generateSessionId()
     let clientDisconnected = clientWs.readyState !== clientWs.OPEN
@@ -586,11 +587,20 @@ export async function createTerminalSession(
 
     // 创建 Incus 控制台连接
     let connection: Awaited<ReturnType<typeof createIncusConsoleConnection>>
+    let openedConnection: typeof connection | undefined
     try {
-        connection = await createIncusConsoleConnection(host, instanceName, instanceType, cancellation.signal)
+        const signal = AbortSignal.any([cancellation.signal, AbortSignal.timeout(20000)])
+        const open = async () => {
+            signal.throwIfAborted()
+            openedConnection = await createIncusConsoleConnection(host, instanceName, instanceType, signal)
+            return openedConnection
+        }
+        connection = authorizeOpening ? await authorizeOpening(open) : await open()
+        signal.throwIfAborted()
     } catch (error) {
         openingSessions.delete(sessionId)
         clientWs.off('close', clientClosed); clientWs.off('error', clientFailed)
+        if (openedConnection) closeIncusConnectionPair(openedConnection.dataWs, openedConnection.controlWs)
         throw error
     }
     const { controlWs, dataWs, operationId, mode } = connection

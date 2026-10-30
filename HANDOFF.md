@@ -2,6 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-177 初始终端连接最后授权
+
+- R174已提交推送c589bf260d630f9b90fcac3e8d857a4f43f94f7d，远端main一致、CI40993940514运行。R177读完整terminal route/proxy、session/terminal守卫、现user-write authorization/instance lane/transfer gate及真实DB映射，固定初始expected instance/host/createdAt/package/type。opening已登记后进入PG事务，实例advisory+row/宿主shared/当前账户/套餐shared锁下复核当前role/sid/iat、归属/目标/running与清理/活动任务/转移，初连持锁到完成；原owner/host-owner/admin权限保留。
+- 初始连接总20秒覆盖最终授权等待、POST/双握手，事务25秒为外层；撤销中断POST、失败清opening监听，事务失败后关闭已成功的两个后台socket。不把transaction回滚当作远端自动回滚，不改客户数据/网络/全端口。既有票据单次消费及前置初审保持；用户缺sid/iat不建立新终端。
+- 本地PG原55438已停，依原postmaster.opts路径启动原隔离数据目录，自动完成WAL恢复后ready；无新业务后端/生产操作。takeover-terminal-authorization-complete.log/11522自然exit0：真实Fastify/WebSocket读取后5组session/banned/transferred/replaced/host-url全部零POST；9组真实pg_blocking_pids锁竞争零dispatch，当前三角色/缺sid-iat/类型变化，实际mTLS持锁撤销、无回执20秒释放、真实事务在双ws成功后抛错并清资源。仅隔离PG/本机HTTPS/mTLS/ws，不等于真实Incus/Chrome/生产。
+- server含tsc build13673自然exit0（takeover-terminal-authorization-server-build.log），最终严格专项类型（含所有server源码）51519自然exit0；此前缺Fastify环境声明、临时config typeRoots及夹具generic断言失败均不算通过，已修配置/明确受控reader cast。3/3守卫test-run-20261030-105953自然exit0，R174全TLS回归takeover-terminal-authorization-opening-regression.log自然exit0，manifest194/219合法。根pnpm --only被自身解析及错误用regex only两轮未执行，最终三次实际--only逐项通过；新专项已登记CI，未重复无关前端构建。
+- 原327现254含部分/68已有不同/5待，持续重连撤销/最新身份及真实IncusUUID/审计失败恢复仍未验。R008/013当前实现与已做三语/2FA专项需纠正旧台账，随后继续R020及R144/145残留路由。最新40989729533/40992045627/40992598123/40993940514各六jobsuccess、Pool继续前进，仍待终态；历史GoIO/测试机SSH/真实邮件及完整灾备保留，不发行/生产。
+- 末扩展takeover-terminal-authorization-final-verified.log/52315自然exit0：原五旧route/九PG竞争和所有deadline/commit失败场景仍过，额外三种合法角色均经真实Fastify/ws及双mTLS成功建立/关闭；末完整源+专项类型25725自然exit0（takeover-terminal-authorization-types-final-verified.log）。无本项运行测试/build待poll，阶段保存后继续。
+
 ## 2026-10-30 R1-174 终端建连中途撤销
 
 - 保留接续时未提交的源码/测试/CI登记，读实际proxy/routes与auth-session、terminal-route守卫；实际HTTPS/mTLS专项先红为closeUserSessions返回0，旧opening未登记。现同步登记opening user/instance/sid与取消器，四关闭范围立即abort POST/握手，不等迟到回执、不触发VM回退；成对失败清socket、监听及计时器，active删除先于客户端close避免递归。

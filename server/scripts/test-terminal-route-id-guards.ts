@@ -166,3 +166,12 @@ assert.ok(
 )
 
 console.log('terminal route ID guard tests passed')
+
+const openingRegistration = proxySource.indexOf('openingSessions.set(sessionId', createSessionStart)
+const openingAuthorization = proxySource.indexOf('await authorizeOpening(open)', createSessionStart)
+assert.ok(openingRegistration > createSessionStart && openingRegistration < openingAuthorization,
+  'terminal openings must register their revocation scope before waiting for final authorization')
+assert.ok(routeSource.includes('open => withTerminalOpeningAuthorization(instance, host,') &&
+  proxySource.includes('AbortSignal.timeout(20000)') &&
+  proxySource.includes('if (openedConnection) closeIncusConnectionPair(openedConnection.dataWs, openedConnection.controlWs)'),
+  'the actual terminal route must bind original target/current session authorization, a total deadline and transaction-failure socket cleanup')

@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R174收尾后）：原327个编号中，253项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，6项仍为「待精修/运行复核」。253并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以6项表示。
+当前进度（2026-10-30，R177收尾后）：原327个编号中，254项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，5项仍为「待精修/运行复核」。254并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以5项表示。
+
+2026-10-30 R177：opening先登记撤销，再以原实例/host/创建时间/归属/package/type和当前actor role/sid/iat进入PG实例lane及instance/host/user/package锁，running及无清理/活动任务/转移才初次连接，保三种原权限。总20秒含授权等待/POST/握手，事务失败关闭已成功双ws；实际Fastify/ws前置屏障5组旧状态零POST，9组PG锁竞争零dispatch、三种正常角色/缺凭据与类型变化、mTLS持锁撤销、20秒无回执锁释放、事务失败清双socket自然exit0。server构建/最终专项含所有源类型/3守卫/R174完整回归/manifest通过，见HANDOFF。真实Incus UUID与长期重连授权/审计重试/浏览器及生产继续待，254含部分/68不同/5待。
 
 2026-10-30 R174：实际mTLS专项先红，closeUserSessions未找到opening终端。异步前登记opening身份及AbortController，用户/session/实例/全部关闭覆盖POST与双WebSocket握手；撤销取消请求、清监听/计时器及连接，不能触发VM fallback或迟到connected。最后TLS专项覆盖8类阶段/范围撤销、双用户并发隔离、断开/error、失败retry、正常双通道与VM回退通过；3守卫通过，恢复核对后server含tsc构建41800自然exit0、专项严格类型exit0。仅本机HTTPS/mTLS/真实ws及受控客户端，不充真实Incus或浏览器验收；重连阶段总截止/持久身份复核及R177前置授权另继续。253含部分/68不同/6待。
 
@@ -390,7 +392,7 @@
 | R1-174 | 部分存在 | 建连撤销mTLS专项与构建守卫通过；重连待验 | 异步前登记opening当前user/session/instance及取消信号，四范围关闭中断POST/握手并清资源；实际TLS先红后修、并发隔离/断开/失败重试/正常VM回退通过。前置授权R177与重连总截止/真实Incus仍另验。 |
 | R1-175 | 已有防护 | 保留初审结论 | 重连等待后及新连接完成后核对activeSessions对象、reconnectGeneration和client状态，不符关闭新socket。 |
 | R1-176 | 已有防护 | 保留初审结论 | 所有异步建连前同步claimTerminalConnection预留名额，close释放pending且release幂等。 |
-| R1-177 | 部分存在 | 待精修/运行复核 | 票据领取后已有会话撤销检查和最新用户读取，再经实例/宿主/套餐await后createTerminalSession；最后建连前缺统一再验证，窗口待撤销/转移时序夹具，而非完全未认证。 |
+| R1-177 | 部分存在 | 初始建连当前授权PG/mTLS专项与构建守卫通过 | 先登记opening撤销，再锁原实例/host/当前actor及package核归属、身份、role/session、running/任务门禁并完成初连，总20秒及提交失败清socket。真实route5组零POST/PG9竞争/正常三角色/TLS撤销与超时通过；真实Incus UUID及持续重连权限另待。 |
 | R1-178 | 已有防护 | 保留初审结论 | 事务advisory lock串行count和insert，100条上限已有并发保护。 |
 | R1-179 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-180 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
