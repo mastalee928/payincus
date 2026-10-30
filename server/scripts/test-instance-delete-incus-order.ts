@@ -56,7 +56,7 @@ assert(
 
 const singleDeleteSection = section(
   instancesSource,
-  'fastify.delete<{ Params: { id: string }; Body: { reason?: string } }>(\'/:id\'',
+  'fastify.delete<{ Params: { id: string }; Body: { reason?: string; emailCode?: string } }>(\'/:id\'',
   '  })\n\n  // 添加端口映射'
 )
 

@@ -90,7 +90,20 @@ const rebuildModal = readFileSync(new URL('../../client/src/components/instance/
 assert.ok(rebuildModal.includes('sshKeyId: selectedSshKeyId.value ?? undefined') && rebuildModal.includes('rebuildModal.passwordOnly') && !rebuildModal.includes('selectedSshKeyId.value = keys[0].id') && !rebuildModal.includes('loading || !selectedImage || !selectedSshKeyId'), 'rebuild UI must default to password login without requiring saved keys')
 const worker = readFileSync(new URL('../src/workers/instanceTaskWorker.ts', import.meta.url), 'utf8')
 const rebuild = worker.slice(worker.indexOf('async function executeRebuildTask('), worker.indexOf('async function executeRecreateTask('))
-assert.ok(!rebuild.includes('getSSHKeysByUserId') && rebuild.includes('SSH_KEY_NOT_OWNED') && rebuild.indexOf('SSH_KEY_NOT_OWNED') < rebuild.indexOf('deleting_snapshots'), 'rebuild must validate only the selected key before destructive steps and never silently inject another key')
+const taskDb = readFileSync(new URL('../src/db/instance-tasks.ts', import.meta.url), 'utf8')
+const materialLoader = taskDb.slice(taskDb.indexOf('async function loadDestructiveTaskMaterials('), taskDb.indexOf('export interface CreateInstanceTaskData'))
+const execution = worker.slice(worker.indexOf('async function executeTask('), worker.indexOf('// 任务完成'))
+assert.ok(materialLoader.includes('if (task.sshKeyId !== null)') && materialLoader.includes('FOR SHARE') &&
+  materialLoader.includes('if (!key || key.userId !== ownerId)') && materialLoader.includes('SSH_KEY_NOT_OWNED') &&
+  materialLoader.includes("else if (task.taskType === 'recreate')"),
+  'material validation must enforce selected-key ownership and restrict the latest-key fallback to recreate')
+assert.ok(execution.includes('let materials = await validateDestructiveTaskExecution(task)') &&
+  execution.indexOf('materials = await validateDestructiveTaskExecution(task, { prepareRebuild: true })') > execution.indexOf('await getIncusClient(host)') &&
+  execution.indexOf('materials = await validateDestructiveTaskExecution(task, { prepareRebuild: true })') < execution.indexOf('await executeRebuildTask(task, instance, host, client, materials)'),
+  'the worker must validate selected material again after connecting and before dispatching destructive work')
+assert.ok(!rebuild.includes('getSSHKeysByUserId') && rebuild.includes('const { sshKey, extraShellCommands } = materials') &&
+  rebuild.indexOf('const { sshKey, extraShellCommands } = materials') < rebuild.indexOf('deleting_snapshots'),
+  'rebuild must use its validated material without selecting another key')
 console.log('Dedicated address ownership, idempotency and customer privacy checks passed')
 const osPasswordMatrix = [
   ['alpine/3.21/cloud', 'sshd', 'apk'], ['alpine/3.23/cloud', 'sshd', 'apk'],

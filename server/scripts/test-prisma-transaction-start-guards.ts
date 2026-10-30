@@ -16,6 +16,10 @@ for (const format of ['client.js', 'client.mjs']) {
 }
 const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
 assert.equal(pkg.pnpm.patchedDependencies['@prisma/client@7.1.0'], 'patches/@prisma__client@7.1.0.patch')
+const attributes = readFileSync(resolve(root, '.gitattributes'), 'utf8')
+assert.ok(attributes.includes('*.patch text eol=lf'), 'patch bytes must be stable across Git checkout platforms')
+assert.ok(!readFileSync(resolve(root, pkg.pnpm.patchedDependencies['@prisma/client@7.1.0'])).includes(13),
+  'the frozen-install patch must use LF line endings')
 const workflow = readFileSync(resolve(root, '.github/workflows/release.yml'), 'utf8')
 assert.ok(workflow.indexOf('cp -r patches release/') > 0 &&
   workflow.indexOf('cp -r patches release/') < workflow.indexOf('pnpm install --prod --frozen-lockfile --ignore-scripts --filter server'),

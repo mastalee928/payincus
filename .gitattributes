@@ -1,5 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+.gitattributes text eol=lf
 
 # Shell scripts must always use LF
 *.sh text eol=lf
@@ -32,6 +33,7 @@ docker-compose*.yml text eol=lf
 *.go text eol=lf
 *.mod text eol=lf
 *.sum text eol=lf
+*.patch text eol=lf
 *.example text eol=lf
 
 # Keep Windows batch files with CRLF

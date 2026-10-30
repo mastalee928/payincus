@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-30 Prisma补丁跨平台与全量终态核对（持续施工）
+
+- 连接泄漏修复已推送a85265576a385b0397369075a34e9761febd375e，对应CI41057438463。Linux冻结安装及真实PG事务超时专项已success；构建及Pool其余集成仍运行，整体尚未通过，不提前发行。
+- 本地全量prisma-timeout-full-final.log自然exit1：195项全部执行，193通过，失败instance-delete-incus-order及dedicated-delivery。逐读实际代码：单删除Body已新增emailCode；重装SSH材料检查已移至instance-tasks并在建连后重核，旧守卫仍要求worker函数内错误码。精确更新入口与完整材料调用链断言，保留选定公钥归属、重装无默认公钥、真实删除先于退款/资源释放的约束；没有更改产品逻辑。三相关守卫重新执行全部自然exit0（test-run-20261030-204910）。最终全量另记，不将前轮失败改成成功。
+- 明确锁定*.patch及.gitattributes的LF；安装守卫检查补丁字节无CR，避免Windows Git重新检出改变冻结hash。原补丁Git索引和工作区均LF，LinuxCI安装已通过。误用pnpm test传多个--only被pnpm解析拒绝，随后直接调用逐条runner正确执行，不把命令失败报通过。
+- 原12待查CI继续跟踪；重建快照吞错与原生Incus/外部SMTP/历史GoIO及完整网关灾备验收缺口保留。原327统计不增；阶段保存后继续修复，无生产OTA/DNS/客户操作。
+
 ## 2026-10-30 Prisma 7.1.0 迟到事务启动耗尽连接池（发版前优先修复）
 
 - Owner报告并说明隔离复现8连接全idle in transaction/BEGIN、maxWait超时底层请求不取消。本机原7.1.0+adapter-pg真实PG再复现：12申请返回P2028后释放原占用，total8/idle0/waiting4，8条BEGIN无人接管，应用回调0；日志prisma-start-timeout-before.log退出1。根因位于client TransactionManager Promise.race丢失startTransaction结果，原PG适配器拿到连接仍BEGIN。
