@@ -20,7 +20,7 @@ PayIncus 是一套面向 hosting 业务的 Incus 商业化交付平台。它把�
 
 此仓库由 mastalee928 独立维护。源码、新安装、面板更新、Agent 和文档发布均使用 `mastalee928/payincus`。原有 BSD 3-Clause 许可证和版权声明保留在 [LICENSE](LICENSE) 中。
 
-当前稳定版：[v1.7.7](https://github.com/mastalee928/payincus/releases/tag/v1.7.7)（独立网关页面、外部/备用候选检查安装和 IPv4-only 网关回归），配套 [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3)。一键安装默认获取本仓库最新正式版。使用边界见 [v1.7.7 网关配置说明](docs/gateway-setup-v1.7.7.md) 和 [OSS 部署说明](docs-site/docs/deployment/oss-backup.md)，生产部署证据以 [HANDOFF.md](HANDOFF.md) 为准。main 中后续源码修复尚未正式发行；完整灾备接管仍待验收。
+当前稳定版：[v1.7.8](https://github.com/mastalee928/payincus/releases/tag/v1.7.8)（事务连接回收、销毁邮箱验证、超宽屏首页与可售地区名称），配套 [Agent v1.0.3](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.3)。一键安装默认获取本仓库最新正式版。使用边界见 [v1.7.8 更新说明](docs-site/release-notes/v1.7.8.md)、[网关配置说明](docs/gateway-setup-v1.7.7.md) 和 [OSS 部署说明](docs-site/docs/deployment/oss-backup.md)，生产部署证据以 [HANDOFF.md](HANDOFF.md) 为准。main 中后续终端与工单修复尚未正式发行；完整灾备接管仍待验收。
 
 v1.7.0 的旧版本 OTA 归档所有权校验回归已在 v1.7.1 修复，新安装与更新使用最新正式版本。失败任务和数据库备份保留；发行完成不等于现有主控已升级，也不代表完整公网灾备场景已验收。
 

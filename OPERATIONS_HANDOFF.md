@@ -8,9 +8,9 @@ The private backend on 127.0.0.1:3001 must run as exactly one Node.js process. T
 
 用户端与管理端使用不同源，通过各自的 /api 和 /api/ws 代理到同一后端，不共享 cookie 域。生产设置 SERVE_STATIC_CLIENT=false，由 Nginx 或现有入口提供两端静态文件。
 
-## 事务连接池耗尽排查（v1.7.8 候选修复）
+## 事务连接池耗尽排查（v1.7.8）
 
-Prisma 7.1.0 原始客户端可能在申请事务连接的 `maxWait` 超时后，继续等待底层连接并执行 `BEGIN`；应用已收到超时，迟到连接无人回滚及归还。扩大 PostgreSQL `max_connections`、应用连接池或等待时间不能修复此生命周期问题。候选版通过 pnpm 持久补丁修复两个 Node runtime，实际发行与安装证据以 HANDOFF.md 为准。
+Prisma 7.1.0 原始客户端可能在申请事务连接的 `maxWait` 超时后，继续等待底层连接并执行 `BEGIN`；应用已收到超时，迟到连接无人回滚及归还。扩大 PostgreSQL `max_connections`、应用连接池或等待时间不能修复此生命周期问题。v1.7.8 通过 pnpm 持久补丁修复两个 Node runtime，正式双架构包及首装已验证；目标环境是否已更新仍以 HANDOFF.md 的部署证据为准。
 
 区分事务连接申请的 `maxWait` 和事务执行的 `timeout`：前者取消应用等待，不自动取消 pg 的排队请求；后者结束数据库事务，不会自动取消应用已发出的远端请求。修复对迟到事务显式执行 SQL `ROLLBACK`，随后在 finally 中调用适配器释放；pg 适配器的 `rollback()` 本身只释放连接。远端清理另有贯穿连接申请、行锁等待及请求的总截止时间，未确认清理时保留库存和地址。
 

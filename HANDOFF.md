@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 v1.7.8 正式发行完成（未部署生产）
+
+- Release：https://github.com/mastalee928/payincus/releases/tag/v1.7.8 ，publishedAt为2026-10-30T21:40:09Z。annotated tag精确指向c77b68c5aab9d3e6f48f4091c7dce111c055465a；正式运行41131263041整体success，双构建、双首装与发布五job全部成功。
+- AMD64首装job124326102688、ARM64首装job124326102582日志分别保存logs/release-v1.7.8/install-{amd64,arm64}.log：230迁移、唯一后端/双前端/admin登录、正式安装Prisma重复八连接超时及迟到BEGIN回滚归还、整库共享快照/ZIP与ZIP64恢复、历史迁移均通过。备份演练OSS传输仍为模拟，不代表公网OSS整机灾备。
+- 正式AMD64包212050377字节，SHA256 f65add6dcea66925496a7755fdf665db0dc5b72b15bc471afe07cf14d93a6ea0；ARM64包211248190字节，SHA256 563e0d29586993a80b60fd67940a7f796f249251970c3e8606c05ccb85b85cac。两包源码/版本/root归属、冻结Prisma patch及两Node runtime、同事务复用、清理期限、地图和三语资源核验自然exit0。下载的两个sha256及两份一致OTA manifest与实际包字节/hash/大小/下载URL完全匹配，也与Release资产digest一致。
+- 后续主分支0777d97ea70efa820f8dad158e4f034dfe657439已推，包含94214b23的R174、67f3b47c的R177和0777d97e的R181；这些不在固定v1.7.8内。CI41123203452/41127725085/41131579517/41131838318/41132122560仍须逐个到终态，payincus-ci保持ACTIVE。
+- 原327项当前260项进入修复/复验（含部分及待验收）、67项保留初审分类，不能称260项全部完成或仅剩67项。继续精修，不以发行替代完整网关/灾备验收；没有生产OTA、DNS或客户操作。
+
 ## 2026-10-31 R181 自动关闭与回复删除串行化（阶段保存）
 
 - R177已推67f3b47cafc956ad59fb426bd18d61324f788982，CI41131838318继续跟终态。R181只在自动关闭逐项事务内读取前新增原ticket FOR UPDATE与3秒锁等待上限，复用现行回复/删除/改状态的工单锁。新test-review-ticket-autoclose.ts登记独立PG专项与LinuxCI。
