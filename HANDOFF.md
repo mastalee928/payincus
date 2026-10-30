@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-30 R1-011 建连完成后重核销毁任务授权（持续施工）
+
+- 镜像段已推72d0c2d9fffae4a6979e252c083f1583fe50efc2 / CI41047399537。新本机真实worker/mTLS先红：连接期间修改key仍2次远端写入。worker对rebuild/recreate在getIncusClient完成后再按原task/instance/host/account/image/key/command锁重新核验，真正业务执行使用第二次返回材料；重装dedicatedNetworkReady=false移入第二次核验事务，拒绝时不提前修改实例。第一入口检查仍保留，非破坏任务原行为保持。
+- 最终`logs/takeover-destructive-connection-resend-verified.log`真实PG/Fastify/本机SMTP/mTLS自然exit0：四建连变更（公钥/初始化正文/banned/session revoked）拒绝且零远端写、完整实例记录和原快照保持；后核验快照读取期间改正文，实际配置dispatch仍使用已核验内容。原12材料竞争、18镜像竞争、28权限/状态竞争、全部SMTP/预算/渠道及验证码回归保持。类型、最终server build、六task/verification/public-api与四资源路由守卫自然exit0，日志同前缀，无前端/schema变更。
+- 本段只关闭建连等待窗口，不证明每个远端步骤都持权限锁；后续远端副作用跨事务、实例网络输入重读、原生重装重建与完整灾备仍待。原327259含部分/68不同不增。七CI41037666047/41039116226/41041773579/41042942813/41044295702/41046349071/41047399537未终态，其中多个Pool停在Host network observation identity and generation步骤（例如41042942813始于10:47:50Z仍未完成）；下一优先本机复现该阻塞，不能只反复查询或重跑。41036581988旧snapshot失败根因已修而旧运行保failure，历史GoIO/真实SMTP/客户及灾备未完成，无生产/发行动作。
+
 ## 2026-10-30 R1-011 重装重建当前镜像授权与白名单锁（持续施工）
 
 - SSH/init段已推2669f4f4a6bd4942c13040d19cfa96b1bdab0736 / CI41046349071。本机真实PG先红（执行输出明确Missing expected rejection，原错误轮不计通过）：隐藏镜像直接任务受理仍成功。受理和执行材料检查现锁原system image和package，复用真实image availability函数及当前事务核可见/架构/host类型/实例内存/package类型/allowlist；v3摘要保原image ID/alias/创建身份及兼容配置。白名单替换先host FOR UPDATE，协调原空集合插入。旧无v3任务必须重新提交，不能继承当前镜像身份。

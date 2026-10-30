@@ -26,7 +26,9 @@ assert.ok(taskExecution.includes('SELECT id FROM instance_tasks WHERE id = ${tas
   taskExecution.includes('assertNoPendingSnapshotOperations(tx, instance.id)') &&
   taskExecution.includes('assertNoPendingProxySiteOperations(tx, instance.id)') &&
   taskExecution.includes('tx.restoreTask.count') && taskExecution.includes('tx.backupUploadTask.count') && taskExecution.includes('tx.instanceTransfer.count') &&
-  workerSource.indexOf('await validateDestructiveTaskExecution(task)') < workerSource.indexOf("if (task.taskType === 'rebuild' && instance.dedicated_ipv4)"),
+  workerSource.includes('materials = await validateDestructiveTaskExecution(task, { prepareRebuild: true })') &&
+  workerSource.indexOf('const client = await getIncusClient(host)') < workerSource.indexOf('materials = await validateDestructiveTaskExecution(task, { prepareRebuild: true })') &&
+  taskExecution.indexOf('destructiveTaskIdentity(currentTask, instance, host, role, materials.binding)') < taskExecution.indexOf('dedicatedNetworkReady: false'),
   'destructive execution must recheck persisted consent, exact attempt, current account/resource and workflow locks before instance writes')
 const taskMaterials = taskDatabase.slice(taskDatabase.indexOf('async function loadDestructiveTaskMaterials('), taskDatabase.indexOf('export interface CreateInstanceTaskData'))
 assert.ok(taskMaterials.includes('SELECT id FROM ssh_keys WHERE id = ${task.sshKeyId} FOR SHARE') &&

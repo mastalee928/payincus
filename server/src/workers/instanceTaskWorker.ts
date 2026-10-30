@@ -553,7 +553,7 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     }
     if (task.status !== 'PROCESSING' || task.startedAt?.getTime() !== attempt.startedAt.getTime() || task.retryCount !== attempt.retryCount) return
 
-    const materials = await validateDestructiveTaskExecution(task)
+    let materials = await validateDestructiveTaskExecution(task)
 
     console.log(`[InstanceTaskWorker] 开始执行任务 ${taskId} (${task.taskType})`)
 
@@ -561,10 +561,6 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     if (!instance) throw new Error('实例不存在')
     if (instance.status === 'deleted') {
       throw new Error('实例已删除，任务取消')
-    }
-
-    if (task.taskType === 'rebuild' && instance.dedicated_ipv4) {
-      await prisma.instance.update({ where: { id: instance.id }, data: { dedicatedNetworkReady: false } })
     }
 
     const earliestActiveTask = await prisma.instanceTask.findFirst({
@@ -590,6 +586,9 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     const clientStartTime = Date.now()
     const client = await getIncusClient(host)
     const clientDuration = Date.now() - clientStartTime
+    if (task.taskType === 'rebuild' || task.taskType === 'recreate') {
+      materials = await validateDestructiveTaskExecution(task, { prepareRebuild: true })
+    }
 
     // 记录连接池响应时间
     updateClientResponseTime(host.id, clientDuration)

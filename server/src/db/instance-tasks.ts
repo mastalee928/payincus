@@ -152,7 +152,7 @@ async function authorizeSensitiveTaskAdmission(tx: Prisma.TransactionClient, dat
 }
 
 /** Recheck persisted consent before a queued destructive task reaches its host. */
-export async function validateDestructiveTaskExecution(task: InstanceTask): Promise<DestructiveTaskMaterials | undefined> {
+export async function validateDestructiveTaskExecution(task: InstanceTask, options: { prepareRebuild?: boolean } = {}): Promise<DestructiveTaskMaterials | undefined> {
   if (!['rebuild', 'recreate'].includes(task.taskType)) return
   return prisma.$transaction(async tx => {
     if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, task.instanceId)) throw new InstanceTaskConflictError()
@@ -198,6 +198,9 @@ export async function validateDestructiveTaskExecution(task: InstanceTask): Prom
     if (await tx.restoreTask.count({ where: active }) || await tx.backupUploadTask.count({ where: active }) ||
       await tx.instanceTransfer.count({ where: { instanceId: instance.id, status: { in: ['pending', 'processing'] } } })) {
       throw new InstanceTaskConflictError()
+    }
+    if (options.prepareRebuild && currentTask.taskType === 'rebuild' && instance.dedicatedIpv4) {
+      await tx.instance.update({ where: { id: instance.id }, data: { dedicatedNetworkReady: false } })
     }
     return materials
   })

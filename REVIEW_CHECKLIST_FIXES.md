@@ -1,3 +1,5 @@
+2026-10-30 R011建连：worker mTLS建连中改key仍2远端写先红，现rebuild/recreate连接完成后二次原任务/当前授权及全部材料核验；专属网络状态更新同该事务，拒绝零实例改动。实际四key/command/banned/session建连变化零远端写、原快照/实例保持，后检查正文变化不替换配置，原12/18/28竞争及SMTP全回归、types/build/十守卫自然exit0见HANDOFF。72d0c2d9fffae4a6979e252c083f1583fe50efc2 / CI41047399537已推运行，七待查CI多个宿主网络步骤长时无进展，下一优先复现，259含部分/68不同不增，逐步远端/原生客户/灾备另待。
+
 2026-10-30 R011镜像：真实PG隐藏镜像仍入队先红；受理/执行锁image/package并复用同事务availability核visible/architecture/type/memory/allowlist，v3原image身份摘要，allowlist替换先host锁协调空集合。真实PG两任务18 image/host竞争与Fastify入队锁后400零任务、原SSH/init/worker mTLS/完整SMTP回归、types/build/11守卫/destroy最终exit0见HANDOFF。SSH段2669f4f4a6bd4942c13040d19cfa96b1bdab0736 / CI41046349071已推未终态；41036581988旧failure日志确认同已修snapshot超时。259含部分/68不同不增，逐远端授权/原生客户/SMTP/灾备另待。
 
 2026-10-30 R011 SSH/init正文：接续未提交材料检查并接真实worker，受理和执行前v2摘要绑定owner公钥/命令正文/发行版，材料行锁后重读；执行使用返回原核验内容，不在停机后再取新key或静默过滤。实际PG两任务十二材料行锁竞争、缺失/外人/回退变更/管理员owner材料及原验证码SMTP回归，真实mTLS配置dispatch在连接中改正文仍使用原材料，types/server build/十守卫/destroy/manifest全自然exit0见HANDOFF。原生重装、镜像当前授权和逐步远端授权另待，259含部分/68不同不增。上段ff625812416f7d0ab331194752fa0bccc70c803f / CI41044295702待终态，阶段保存后继续。

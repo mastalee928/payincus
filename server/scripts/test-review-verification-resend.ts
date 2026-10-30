@@ -429,6 +429,7 @@ try {
         '-subj', '/CN=localhost', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', keyPath, '-out', certificatePath], { stdio: 'pipe', windowsHide: true })
       const certificate = await readFile(certificatePath, 'utf8')
       let dispatchedConfig: Record<string, string> | undefined, changedAfterValidation = false
+      let connectionMutation: 'none' | 'key' | 'command' | 'banned' | 'session' = 'none', remoteWrites = 0
       materialRemote = createHttpsServer({ cert: certificate, key: await readFile(keyPath), ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
         const reply = (status: number, metadata: unknown) => {
           response.writeHead(status, { 'content-type': 'application/json' })
@@ -436,12 +437,19 @@ try {
         }
         try {
           if (request.method === 'GET' && request.url === '/1.0') {
+            if (connectionMutation === 'key') await prisma.sshKey.update({ where: { id: ownerKey.id }, data: { publicKey: 'ssh-ed25519 fixture-connection-change' } })
+            else if (connectionMutation === 'command') await prisma.customInitCommand.update({ where: { id: ownerCommand.id }, data: { command: 'echo fixture-connection-change' } })
+            else if (connectionMutation === 'banned') await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+            else if (connectionMutation === 'session') await prisma.tokenInvalidation.create({ data: { userId: actor.id, sessionId, invalidatedAt: issuedAt } })
+            return reply(200, {})
+          }
+          if (request.method !== 'GET') remoteWrites++
+          if (request.method === 'GET' && request.url?.endsWith('/snapshots')) {
             await prisma.sshKey.update({ where: { id: ownerKey.id }, data: { publicKey: 'ssh-ed25519 fixture-changed-after-validation' } })
             await prisma.customInitCommand.update({ where: { id: ownerCommand.id }, data: { command: 'echo fixture-changed-after-validation' } })
-            changedAfterValidation = true; return reply(200, {})
+            changedAfterValidation = true; return reply(200, [])
           }
           if (request.method === 'GET' && request.url?.endsWith('/state')) return reply(200, { status: 'Stopped' })
-          if (request.method === 'GET' && request.url?.endsWith('/snapshots')) return reply(200, [])
           if (request.method === 'GET' && request.url?.includes('/images/aliases/')) return reply(200, { target: 'fixture-image' })
           if (request.method === 'GET' && request.url?.includes('/images/')) return reply(200, { properties: {} })
           if (request.method === 'GET') return reply(200, { type: 'container', config: {}, devices: {} })
@@ -457,6 +465,31 @@ try {
         url: `https://127.0.0.1:${(materialRemote.address() as { port: number }).port}`, certPath: certificatePath, keyPath,
         serverCertificate: certificate, serverFingerprint: new X509Certificate(certificate).fingerprint256
       } })
+      for (const mode of ['key', 'command', 'banned', 'session'] as const) {
+        connectionMutation = mode
+        await prisma.instance.update({ where: { id: firstResourceId }, data: { dedicatedIpv4: true, dedicatedNetworkReady: true } })
+        const beforeConnection = await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } })
+        const admission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
+          taskType, imageAlias: fixtureImage.remoteAlias, sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
+            actor: currentActor(), entry: 'user', expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId,
+            expectedHostIdentity: transferHostIdentity(remoteHost)
+          } })
+        const running = await prisma.instanceTask.update({ where: { id: admission.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+        remoteWrites = 0
+        await executeTask(running.id, { startedAt: running.startedAt, retryCount: running.retryCount })
+        assert.equal(remoteWrites, 0, `connection/${mode}: changed consent must block all remote writes`)
+        assert.deepEqual(await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } }), beforeConnection,
+          `connection/${mode}: rejection must precede dedicated network and cloud-init writes`)
+        assert.equal(await prisma.snapshot.count({ where: { id: resourceSnapshot.id } }), 1)
+        await prisma.instanceTask.delete({ where: { id: running.id } })
+        await prisma.sshKey.update({ where: { id: ownerKey.id }, data: { publicKey: ownerKey.publicKey } })
+        await prisma.customInitCommand.update({ where: { id: ownerCommand.id }, data: { command: ownerCommand.command } })
+        await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+        await prisma.tokenInvalidation.deleteMany({ where: { userId: actor.id } })
+        await closeAllClients()
+      }
+      connectionMutation = 'none'
+      await prisma.instance.update({ where: { id: firstResourceId }, data: { dedicatedIpv4: false, dedicatedNetworkReady: false } })
       const workerAdmission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
         taskType, imageAlias: fixtureImage.remoteAlias, sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
           actor: currentActor(), entry: 'user', expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId,
@@ -476,7 +509,7 @@ try {
       await closeAllClients()
       await new Promise<void>(resolve => materialRemote!.close(() => resolve())); materialRemote = undefined
       await prisma.host.update({ where: { id: resourceHost.id }, data: { url: resourceHost.url, certPath: null, keyPath: null, serverCertificate: null, serverFingerprint: null } })
-      console.log('PASS actual worker mTLS dispatch retains validated SSH key and initialization contents when both change during connection; controlled remote rebuild failure stops before disk work')
+      console.log('PASS actual worker mTLS connection rechecks key/command/status/session changes before any remote or instance writes; post-check snapshot reads changing contents cannot replace validated configuration')
     }
     actor = users[1]
     await prisma.user.update({ where: { id: actor.id }, data: { role: 'admin' } })
