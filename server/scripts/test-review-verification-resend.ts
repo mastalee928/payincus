@@ -10,6 +10,7 @@ assert.ok(['postgresql:', 'postgres:'].includes(database.protocol) && ['127.0.0.
 process.env.JWT_SECRET ||= 'verification-resend-fixture-only'
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { default: routes } = await import('../src/routes/verification.js')
+const { default: notificationRoutes } = await import('../src/routes/notifications.js')
 const { clearTransporterCache } = await import('../src/lib/mailer.js')
 const { invalidateAllConfigCache } = await import('../src/lib/config-cache.js')
 const { claimOperationVerificationRequirement, isOperationVerified, cleanupExpiredVerifications } = await import('../src/lib/operation-verification.js')
@@ -106,6 +107,69 @@ let failure: unknown
 try {
   for (const [key, value] of Object.entries(config)) await prisma.systemConfig.upsert({ where: { key }, create: { key, value }, update: { value } })
   invalidateAllConfigCache(); clearTransporterCache(); await app.register(routes, { prefix: '/verification' })
+  await app.register(notificationRoutes, { prefix: '/notifications' })
+  const addPersonalChannel = () => app.inject({ method: 'POST', url: '/notifications/', payload: {
+    type: 'email', name: tag + '-current-write', config: { email: actor.email }
+  } })
+  await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+  const bannedChannelCreateStatus: number = (await addPersonalChannel()).statusCode
+  assert.equal(bannedChannelCreateStatus, 401, 'personal channel creation must recheck current account status instead of trusting the earlier authenticated actor')
+  assert.equal(await prisma.notificationChannel.count({ where: { userId: actor.id } }), 0)
+  await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+  await prisma.tokenInvalidation.create({ data: { userId: actor.id, sessionId, invalidatedAt: issuedAt } })
+  assert.equal((await addPersonalChannel()).statusCode, 401)
+  assert.equal(await prisma.notificationChannel.count({ where: { userId: actor.id } }), 0)
+  await prisma.tokenInvalidation.deleteMany({ where: { userId: actor.id } })
+  for (const mode of ['banned', 'session', 'account'] as const) {
+    const queued = await queuedRequest(tx => mode === 'banned' ? tx.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+      : tx.tokenInvalidation.create({ data: { userId: actor.id, sessionId: mode === 'session' ? sessionId : '__USER_LEVEL__', invalidatedAt: issuedAt } }), addPersonalChannel)
+    assert.equal(queued.blocked, true, 'notification inserts must wait for the current account lock')
+    assert.equal(queued.response.statusCode, 401)
+    assert.equal(await prisma.notificationChannel.count({ where: { userId: actor.id } }), 0)
+    await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+    await prisma.tokenInvalidation.deleteMany({ where: { userId: actor.id } })
+  }
+  const personalCreated = await addPersonalChannel()
+  assert.equal(personalCreated.statusCode, 201)
+  const personalWriteId: number = personalCreated.json().channel.id
+  const personalWrite = await prisma.notificationChannel.findUniqueOrThrow({ where: { id: personalWriteId } })
+  const writePersonal = (mode: 'patch' | 'delete' | 'toggle') => app.inject(mode === 'patch'
+    ? { method: 'PATCH', url: `/notifications/${personalWriteId}`, payload: { name: tag + '-changed', config: { email: 'changed@example.test' } } }
+    : { method: mode === 'delete' ? 'DELETE' : 'POST', url: `/notifications/${personalWriteId}${mode === 'toggle' ? '/toggle' : ''}` })
+  for (const operation of ['patch', 'delete', 'toggle'] as const) {
+    for (const authorization of ['banned', 'session', 'account', 'owner', 'global', 'alert'] as const) {
+      const queued = await queuedRequest(tx => authorization === 'banned'
+        ? tx.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+        : authorization === 'session' || authorization === 'account'
+          ? tx.tokenInvalidation.create({ data: { userId: actor.id, sessionId: authorization === 'session' ? sessionId : '__USER_LEVEL__', invalidatedAt: issuedAt } })
+          : tx.notificationChannel.update({ where: { id: personalWriteId }, data: authorization === 'owner' ? { userId: users[1].id }
+            : authorization === 'global' ? { isGlobal: true } : { alertCategory: 'ticket' } }), () => writePersonal(operation))
+      assert.equal(queued.blocked, true, `${operation}/${authorization} must wait for current write authorization`)
+      assert.equal(queued.response.statusCode, ['owner', 'global', 'alert'].includes(authorization) ? 403 : 401)
+      assert.equal(queued.response.json().code, ['owner', 'global', 'alert'].includes(authorization) ? 'FORBIDDEN' : 'AUTHENTICATION_STATE_CHANGED')
+      const unchanged = await prisma.notificationChannel.findUniqueOrThrow({ where: { id: personalWriteId } })
+      assert.equal(unchanged.name, personalWrite.name)
+      assert.deepEqual(unchanged.config, personalWrite.config)
+      assert.equal(unchanged.enabled, personalWrite.enabled)
+      await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+      await prisma.tokenInvalidation.deleteMany({ where: { userId: actor.id } })
+      await prisma.notificationChannel.update({ where: { id: personalWriteId }, data: { userId: actor.id, isGlobal: false, alertCategory: null } })
+    }
+  }
+  const changedChannelType = await queuedRequest(tx => tx.notificationChannel.update({ where: { id: personalWriteId },
+    data: { type: 'telegram', config: { botToken: 'fixture-channel-type', chatId: '123' } } }), () => writePersonal('patch'))
+  assert.equal(changedChannelType.blocked, true)
+  assert.equal(changedChannelType.response.statusCode, 409, 'configuration validated for an old channel type must not overwrite a different current type')
+  await prisma.notificationChannel.update({ where: { id: personalWriteId }, data: { type: 'email', config: { email: actor.email } } })
+  const toggleReplies = await Promise.all(Array.from({ length: 8 }, () => writePersonal('toggle')))
+  assert.ok(toggleReplies.every(response => response.statusCode === 200))
+  assert.equal(toggleReplies.filter(response => response.json().enabled).length, 4)
+  assert.equal((await prisma.notificationChannel.findUniqueOrThrow({ where: { id: personalWriteId } })).enabled, true)
+  assert.equal((await writePersonal('patch')).statusCode, 200)
+  assert.deepEqual((await prisma.notificationChannel.findUniqueOrThrow({ where: { id: personalWriteId } })).config, { email: 'changed@example.test' })
+  assert.equal((await writePersonal('delete')).statusCode, 200)
+  assert.equal(await prisma.notificationChannel.count({ where: { userId: { in: users.map(user => user.id) } } }), 0)
+  console.log('PASS personal notification writes recheck current status/session/ownership/scope after real account-lock waits; type changes reject and eight toggles apply once each')
   const permissionOperations = [
     ['reinstall_instance', firstResourceId], ['recreate_instance', firstResourceId],
     ['transfer_instance', firstResourceId], ['delete_instance', firstResourceId],

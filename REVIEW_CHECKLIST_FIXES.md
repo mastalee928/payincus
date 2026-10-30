@@ -1,3 +1,5 @@
+2026-10-30 通知配置当前写授权：真实banned旧actor创建201先红，个人新增/修改/删除/开关在当前account/channel锁内核status/session/owner/scope/type，新增与验证码渠道选择共用account串行，八并发开关各生效一次。实际PG三类新增排队/三操作六变化及type409/完整原SMTP回归、严格types/server build/四守卫通过，见HANDOFF。5e77874f2d0fb14150f94fdf105fe3e59c88b9fa / CI41034830579上传专项已deleted重放403失败已读日志定位，下一修锁内终态回执；不增加327完整完成计数。
+
 2026-10-30 R011原资源绑定：notification-resource摘要包含原会话/目标与实例/宿主/子资源身份及角色，准备/SMTP ACK/verify/check/isVerified/claim事务重核；在途owner/Incus变化不激活，已投递码遇Incus/宿主URL或owner、snapshot/backup原名称变更拒用且不消耗attempt/grant。真实PG/SMTP、PUSH、destroy、严格types/server build/6守卫/manifest均自然exit0，证据见HANDOFF。grant之后业务写/dispatch及新增渠道整体串行下一段，259含部分/68不同不重复计数。
 
 2026-10-30 R011资源权限：request/verify/check先只读锁当前实例/宿主/子资源及账号，四角色原业务权限矩阵、3阶段实际owner竞争、缺失/超Int零邮件/grant通过；实际PG/SMTP/PUSH/destroy、types/server build/6守卫自然exit0，详见HANDOFF。入口检查后原资源绑定及业务dispatch完整合同待，不新增327完成计数，259含部分/68不同保持。

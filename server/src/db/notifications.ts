@@ -5,6 +5,33 @@
 
 import { prisma } from './prisma.js'
 import type { NotificationChannel } from '../types/database.js'
+import type { Prisma } from '@prisma/client'
+import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
+
+export class NotificationChannelMutationError extends Error {
+  constructor(public readonly statusCode: number, public readonly code: string, message: string) {
+    super(message)
+  }
+}
+
+async function authorizeNotificationChannelWrite(tx: Prisma.TransactionClient, actor: WriteActor) {
+  // The account lock also serializes insertion with verification channel selection,
+  // including the empty-channel case where there are no channel rows to lock.
+  if (!await authorizeUserWrite(tx, actor.id, actor)) {
+    throw new NotificationChannelMutationError(401, 'AUTHENTICATION_STATE_CHANGED', 'Please sign in again')
+  }
+}
+
+async function lockPersonalNotificationChannel(tx: Prisma.TransactionClient, id: number, actor: WriteActor) {
+  await authorizeNotificationChannelWrite(tx, actor)
+  await tx.$queryRaw`SELECT id FROM notification_channels WHERE id = ${id} FOR UPDATE`
+  const channel = await tx.notificationChannel.findUnique({ where: { id } })
+  if (!channel) throw new NotificationChannelMutationError(404, 'NOTIFICATION_CHANNEL_NOT_FOUND', 'Notification channel not found')
+  if (channel.userId !== actor.id || channel.isGlobal || channel.alertCategory !== null) {
+    throw new NotificationChannelMutationError(403, 'FORBIDDEN', 'Access denied')
+  }
+  return channel
+}
 
 const notificationLogStatuses = new Set(['pending', 'sent', 'failed'])
 
@@ -79,18 +106,21 @@ export async function createNotificationChannel(data: {
   name: string
   config: Record<string, unknown>
   enabled?: boolean
-}): Promise<number> {
-  const channel = await prisma.notificationChannel.create({
-    data: {
-      userId: data.userId,
-      type: data.type,
-      name: data.name,
-      config: data.config as any,
-      enabled: data.enabled !== false
-    }
+}, actor: WriteActor): Promise<number> {
+  return prisma.$transaction(async tx => {
+    await authorizeNotificationChannelWrite(tx, actor)
+    if (data.userId !== actor.id) throw new NotificationChannelMutationError(403, 'FORBIDDEN', 'Access denied')
+    const channel = await tx.notificationChannel.create({
+      data: {
+        userId: data.userId,
+        type: data.type,
+        name: data.name,
+        config: data.config as Prisma.InputJsonObject,
+        enabled: data.enabled !== false
+      }
+    })
+    return channel.id
   })
-
-  return channel.id
 }
 
 /**
@@ -100,31 +130,41 @@ export async function updateNotificationChannel(id: number, data: {
   name?: string
   config?: Record<string, unknown>
   enabled?: boolean
-}): Promise<void> {
+}, actor: WriteActor, expectedType: NotificationChannel['type']): Promise<void> {
   const updateData: {
     name?: string
-    config?: any
+    config?: Prisma.InputJsonObject
     enabled?: boolean
   } = {}
 
   if (data.name !== undefined) updateData.name = data.name
-  if (data.config !== undefined) updateData.config = data.config as any
+  if (data.config !== undefined) updateData.config = data.config as Prisma.InputJsonObject
   if (data.enabled !== undefined) updateData.enabled = data.enabled
 
-  if (Object.keys(updateData).length === 0) return
-
-  await prisma.notificationChannel.update({
-    where: { id },
-    data: updateData
+  await prisma.$transaction(async tx => {
+    const channel = await lockPersonalNotificationChannel(tx, id, actor)
+    if (channel.type !== expectedType) throw new NotificationChannelMutationError(409, 'NOTIFICATION_CHANNEL_CHANGED', 'Please refresh and try again')
+    if (Object.keys(updateData).length === 0) return
+    await tx.notificationChannel.update({ where: { id }, data: updateData })
   })
 }
 
 /**
  * 删除通知渠道
  */
-export async function deleteNotificationChannel(id: number): Promise<void> {
-  await prisma.notificationChannel.delete({
-    where: { id }
+export async function deleteNotificationChannel(id: number, actor: WriteActor): Promise<void> {
+  await prisma.$transaction(async tx => {
+    await lockPersonalNotificationChannel(tx, id, actor)
+    await tx.notificationChannel.delete({ where: { id } })
+  })
+}
+
+export async function toggleNotificationChannel(id: number, actor: WriteActor): Promise<boolean> {
+  return prisma.$transaction(async tx => {
+    const channel = await lockPersonalNotificationChannel(tx, id, actor)
+    const enabled = !channel.enabled
+    await tx.notificationChannel.update({ where: { id }, data: { enabled } })
+    return enabled
   })
 }
 

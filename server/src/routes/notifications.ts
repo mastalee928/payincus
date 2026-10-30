@@ -3,13 +3,14 @@
  * 用户可以添加、管理通知渠道（Telegram、Discord、Webhook等）
  */
 
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import type { FastifyError, FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import * as db from '../db/index.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { testNotificationChannel } from '../lib/notifier.js'
 import type { NotificationChannel } from '../types/database.js'
 import { assertSafeWebhookUrl, OutboundTargetValidationError } from '../lib/outbound-security.js'
+import { NotificationChannelMutationError } from '../db/notifications.js'
 
 const telegramBotTokenPattern = /^[1-9]\d{5,19}:[A-Za-z0-9_-]{20,}$/
 const telegramChatIdPattern = /^-?\d{1,20}$|^@[A-Za-z0-9_]{5,32}$/
@@ -119,6 +120,12 @@ function normalizeNotificationChannelUpdateInput(input: unknown): NotificationCh
 }
 
 export default async function notificationRoutes(fastify: FastifyInstance) {
+  fastify.setErrorHandler<FastifyError>((error, _request, reply) => {
+    if (error instanceof NotificationChannelMutationError) {
+      return reply.code(error.statusCode).send({ error: error.message, code: error.code })
+    }
+    throw error
+  })
   async function validateOutboundConfig(
     type: UserNotificationChannelType,
     config: Record<string, unknown>
@@ -236,7 +243,7 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
       name,
       config,
       enabled
-    })
+    }, request.user)
 
     await createLog(request.user.id, 'notification', 'notification.add', `Added ${type} notification channel "${name}"`, 'success')
 
@@ -309,7 +316,7 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
       }
     }
 
-    await db.updateNotificationChannel(channelId, { name, config, enabled })
+    await db.updateNotificationChannel(channelId, { name, config, enabled }, request.user, channel.type)
 
     // 构建变更详情
     const changes: string[] = []
@@ -349,7 +356,7 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
-    await db.deleteNotificationChannel(channelId)
+    await db.deleteNotificationChannel(channelId, request.user)
 
     await createLog(request.user.id, 'notification', 'notification.delete', `Deleted ${channel.type} notification channel "${channel.name}"`, 'success')
 
@@ -407,8 +414,7 @@ export default async function notificationRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
-    const newEnabled = !channel.enabled
-    await db.updateNotificationChannel(channelId, { enabled: newEnabled })
+    const newEnabled = await db.toggleNotificationChannel(channelId, request.user)
 
     await createLog(
       request.user.id,

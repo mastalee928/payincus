@@ -7,6 +7,18 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 const source = readFileSync(resolve(__dirname, '../src/routes/notifications.ts'), 'utf8')
+const database = readFileSync(resolve(__dirname, '../src/db/notifications.ts'), 'utf8')
+assert.ok(database.includes('authorizeUserWrite(tx, actor.id, actor)') &&
+  database.includes('WHERE id = ${id} FOR UPDATE') &&
+  database.includes('channel.userId !== actor.id || channel.isGlobal || channel.alertCategory !== null') &&
+  database.includes('channel.type !== expectedType'),
+  'personal notification mutations must lock current account/channel authorization and preserve the validated channel type')
+assert.ok(source.includes('}, request.user)') &&
+  source.includes('db.updateNotificationChannel(channelId, { name, config, enabled }, request.user, channel.type)') &&
+  source.includes('db.deleteNotificationChannel(channelId, request.user)') &&
+  source.includes('db.toggleNotificationChannel(channelId, request.user)') &&
+  !source.includes('const newEnabled = !channel.enabled') && database.includes('const enabled = !channel.enabled'),
+  'all personal writes pass the authenticated actor and toggles derive their next state under the database lock')
 
 assert.ok(
   source.includes('const telegramBotTokenPattern = /^[1-9]'),

@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 个人通知配置写入的当前授权与并发开关（持续施工）
+
+- 资源身份绑定已推送5e77874f2d0fb14150f94fdf105fe3e59c88b9fa / CI41034830579。下一真实Fastify/PG先红`takeover-notification-current-write-before.log`：banned旧actor仍201新增个人通知渠道。新增/修改/删除/开关改为当前账户行锁授权事务，当前sid/账户撤销、归属、个人范围及经验证渠道类型重新核验；所有调用传request.user，账号锁也协调验证码读取与个人渠道新增（含空渠道）。开关从锁内当前enabled求反，不再用路由旧值覆盖并发操作，稳定401/403/409回执。
+- 最终`logs/takeover-notification-current-write-resend-verified.log`真实PG/Fastify/SMTP自然exit0：新增三类current授权真实锁排队；修改/删除/开关三操作×停用/会话撤销/全账号撤销/owner/global/alert六变化拒绝且原name/config/enabled保持，渠道type变化409且不覆盖；八并发开关四开四关，正常新增修改删除通过。原资源身份/账户/SMTP/预算/权限矩阵回归保持；严格源+受改专项types、后端最终build、四operation/user-notification/log守卫自然exit0，日志同前缀。无前端/schema变化。
+- 新CI41034830579已终态failure：六job成功，Pool在`test:review-upload-completion-integration.ts:479`失败403≠200。已读失败日志`logs/ci-41034830579-failed.log`并定位：已deleted备份的幂等DELETE重放原本200零远端调用，被新资源领取门禁拒绝；下一段修真正已终态回执且在事务锁内阻止状态回变后免验证删除，不跳过测试。41024139392/41023032382已success，其余八旧CI仍运行须跟，历史GoIO准确根因仍未证实。个人配置测试发送和审计原子、管理员全局配置以及grant后业务dispatch合同不在本段，原327259含部分/68不同保持，保存后继续。
+
 ## 2026-10-30 R1-011 验证码及领取记录绑定原资源身份（持续施工）
 
 - 资源权限段已推送15cdc486c93e3390c1c8e0c8c8c76e1173d699b1 / CI41032952213。实际SMTP在途变更归属仍激活旧码的先红证据为`logs/takeover-verification-resource-binding-before.log`。现资源记录使用`notification-resource:v1:`摘要绑定原账户/会话/通知目标、实例归属与Incus身份、宿主受信连接身份、快照/备份原名称和创建时间及当前角色；准备、投递ACK、verify/check/isVerified/claim均在事务锁内重核。ACK身份变化保失败标记和原发送冷却；旧仅session/target绑定码须重发，不自动继承新目标。
