@@ -1,3 +1,5 @@
+> **2026-10-30最新：备份DELETE同事务验证末段通过待保存**。快照e9356a6e已推/CI41042942813。备份claim移真实deleteAuthorizedBackup事务，原权限/宿主/备份/terminalOnly先核，grant与实际远端缺失/DB提交同事务；新并发先红定位失败审计FK等待实例锁30秒，冲突结构化warn后立即返回。实际PG/mTLS完整上传/五类远端失败/DB失败grant回滚/另一sid/上传门禁/7并发及时409/一次消费/终态重放全通过，types/build/十守卫/PG-SMTP/manifest自然exit0，见HANDOFF。41032952213旧CI新failure同快照根因已修日志已读，五余CI跟终态。下一worker SSH/init正文/镜像当前授权；原327259含部分/68不同与GoIO/客户/外部SMTP/灾备未完，不暂停。
+
 > **2026-10-30最新：快照DELETE验证同事务已验，待阶段保存**。ab7654322451bf7ad41f736320316433cfa7e05f已推，CI41041773579运行。41031081702/41031737023失败日志同恢复在途DELETE验证先锁实例导致30秒超时500；本地复现后移动claim到withSnapshotMutation，原20竞态/个人grant会话/及时409不消费/远端与DB失败回滚/8并发一删除一消费全通过，types/build/十守卫/原PG-SMTP/manifest自然exit0，见HANDOFF。41029729516新success，五余CI继续查。下一backup同类grant在门禁前缺口；原327259含部分/68不同、跨系统恢复/真实缺失确认/原生客户/GoIO/灾备继续，不暂停。
 
 > **2026-10-30最新：验证码入口资源权限段收尾**。上一068aab64/CI41031737023已推；request/verify/check先只读事务核真实instance/host/child及current role，原权限边界不变。实际四角色×六操作×三路由、缺失/超Int零邮件grant、3阶段owner锁竞争拒绝且原记录不变，以及原全PG/SMTP/PUSH/destroy/types/build/6守卫过，详见HANDOFF。真实9个资源夹具替换旧虚拟ID，正常清理。下一入口检查后ACK/verify/claim原资源持久绑定及grant后写/dispatch、通知配置串行；9个待查CI与历史GoIO保留，不暂停。

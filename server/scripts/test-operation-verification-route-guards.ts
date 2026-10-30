@@ -27,6 +27,7 @@ const sensitiveOperationRouteSources = sensitiveOperationRouteFiles.map(file => 
   file,
   source: readFileSync(resolve(__dirname, file), 'utf8')
 }))
+const backupDeletionSource = readFileSync(resolve(__dirname, '../src/db/backup-deletion.ts'), 'utf8')
 
 assert.ok(
   source.includes('const POSITIVE_RESOURCE_ID_PATTERN = /^[1-9]\\d*$/') &&
@@ -90,6 +91,12 @@ for (const { file, source: routeSource } of sensitiveOperationRouteSources) {
       profile.includes('if (!grant.count) throw new Error(`PROFILE_VERIFICATION_REQUIRED:${operationType}`)') &&
       profile.indexOf('await tx.operationVerification.updateMany') < profile.indexOf('await tx.user.updateMany'),
       'profile changes must consume a current verified account grant before the profile write in the same transaction')
+  } else if (file.endsWith('/backups.ts')) {
+    assert.ok(routeSource.includes('await deleteAuthorizedBackup(instance, backup, request.user,') &&
+      backupDeletionSource.includes("claimOperationVerificationRequirement(actor.id, 'delete_backup', current.id, actor, tx)") &&
+      backupDeletionSource.indexOf("if (current.status === 'deleted')") < backupDeletionSource.indexOf('await claimOperationVerificationRequirement(') &&
+      backupDeletionSource.indexOf('await claimOperationVerificationRequirement(') < backupDeletionSource.indexOf("await client.request('DELETE'"),
+      'backup deletion must preserve terminal receipts and consume current consent within the operation transaction before dispatch')
   } else {
     assert.ok(routeSource.includes(file.endsWith('/transfers.ts') ? 'checkOperationVerificationRequirement' : 'claimOperationVerificationRequirement'),
       `${file} must atomically claim a verified operation record before sensitive side effects`)
@@ -103,6 +110,11 @@ for (const { file, source: routeSource } of sensitiveOperationRouteSources) {
 const adminPushSource = readFileSync(resolve(__dirname, '../src/services/admin-instance-push.ts'), 'utf8')
 for (const { file, source: routeSource } of sensitiveOperationRouteSources.filter(item =>
   ['instances.ts', 'backups.ts', 'snapshots.ts', 'transfers.ts'].some(name => item.file.endsWith('/' + name)))) {
+  if (file.endsWith('/backups.ts')) {
+    assert.ok(backupDeletionSource.includes("claimOperationVerificationRequirement(actor.id, 'delete_backup', current.id, actor, tx)"),
+      'backup deletion must pass the original current actor through its transaction')
+    continue
+  }
   assert.ok(/(?:claimOperationVerificationRequirement|checkOperationVerificationRequirement)\(userId, (?:operationType|'[^']+'), resourceId, actor(?:, tx)?\)/.test(routeSource),
     `${file} must pass the current authenticated actor when claiming a resource verification`)
 }

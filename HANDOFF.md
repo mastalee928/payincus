@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-30 R1-011 备份删除同事务验证与及时冲突（持续施工）
+
+- 快照段已推e9356a6ec82493d566793539a3199a6f49a7fbe2 / CI41042942813。备份DELETE原先在操作事务前独立claim，现移至deleteAuthorizedBackup内部：当前操作锁/权限/原宿主/备份身份及状态先核，已deleted回执仍零远端且不需要新码，ready消费当前原账户/会话grant与真实缺失核验/DB状态更新同事务，VERIFICATION_REQUIRED保原403/required合同。
+- `logs/takeover-backup-delete-consent-before-conflict-audit.log`新严格并发测试先红：门禁虽已拒绝409，失败审计INSERT的instance FK等待当前删除事务的实例FOR UPDATE，约30秒才返回。冲突直接返回并写含instance/backup/user ID的结构化服务warn；真实外部失败保原失败审计，不放宽时间阈值。注意冲突不新增DB用户操作审计，服务日志的持久性由部署日志保存策略承担。
+- 最终`takeover-backup-delete-consent-upload-verified.log`实际PG/Fastify/mTLS完整上传/删除专项自然exit0；个人grant另一会话/上传冲突不消费零远端、403/500/误导成功/仍存在/断开五故障及DB提交trigger失败全部回滚grant保ready，1在途+7并发在5秒内409零额外dispatch，原任务一次消费，deleted终态免码重放200零远端，ready回变拒已消费grant。原上传身份/原attempt/audit/补偿/存储/退款库存与实例保持回归继续通过。
+- 严格源+受改专项types、最终server build、四资源路由与六验证码/任务/public-api守卫、完整PG/SMTP验证码回归及manifest自然exit0，日志同`takeover-backup-delete-consent-`前缀。fixture sid改真实randomUUID满足类型，守卫迁至真实事务消费点保原actor/终态顺序，不跳测试。无前端/schema变化，无生产/发行操作。
+- 41032952213新终态failure已读日志同快照105行Query read timeout/500≠409，已由e9356a6e源码修复；旧失败运行不改success。41036581988/41037666047/41039116226/41041773579/41042942813仍运行继续跟终态。原327259含部分/68不同不增；worker远端逐步授权、SSH/init正文及镜像当前授权、真实客户/外部SMTP/历史GoIO与完整灾备仍待，保存推送后继续。
+
 ## 2026-10-30 CI快照恢复在途删除门禁与验证消费同事务（持续施工）
 
 - 上段已推ab7654322451bf7ad41f736320316433cfa7e05f / CI41041773579。新查41031081702与41031737023终态failure，分别已读失败日志确认同snapshot-mutation-authorization.ts:105 / Query read timeout / 500≠409；本机`takeover-snapshot-delete-consent-before.log`真实PG/mTLS复现。根因是DELETE在操作门禁前单独领取验证，验证资源FOR SHARE被恢复事务实例FOR UPDATE阻塞；领取移入withSnapshotMutation事务，先即时检查原操作锁/当前权限/快照身份，再消费并执行删除。

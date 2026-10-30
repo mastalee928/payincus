@@ -17,6 +17,8 @@ const { uploadStorageIdentity } = await import('../src/db/backup-upload-authoriz
 const { transferHostIdentity } = await import('../src/lib/transfer-host-identity.js')
 const { normalizeStorageFilename } = await import('../src/storage/path.js')
 const { deleteAuthorizedBackup } = await import('../src/db/backup-deletion.js')
+const { loadAuthorizedOperationVerificationResource } = await import('../src/db/operation-verification-resource-authorization.js')
+const { notificationOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
 const { createRestoreTask } = await import('../src/db/restore-tasks.js')
 const { updateStorageConfig, deleteStorageConfig } = await import('../src/db/storage-configs.js')
 const { default: Fastify } = await import('fastify')
@@ -510,6 +512,59 @@ try {
   assert.deepEqual({ backupDeletes, backupChecks }, beforeReplay)
   assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'ready')
   assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 403, 'a ready backup still requires a current verification')
+  const backupResource = await prisma.$transaction(tx => loadAuthorizedOperationVerificationResource(tx, actor, 'delete_backup', backup.id))
+  if (backupResource.kind !== 'allowed') throw Error('isolated backup grant unavailable')
+  const grant = await prisma.operationVerification.create({ data: { userId: user.id, operationType: 'delete_backup', resourceId: backup.id,
+    resourceType: notificationOperationVerificationBinding(actor, replayChannel, backupResource.binding), code: 'isolated-backup-grant-only', channel: 'email',
+    verified: true, verifiedAt: new Date(), expiresAt: new Date(Date.now() + 600000) } })
+  const originalGrant = await prisma.operationVerification.findUniqueOrThrow({ where: { id: grant.id } })
+  const beforeGrant = backupDeletes
+  requestActor = { ...actor, sid: randomUUID(), role: 'user' }
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 403)
+  requestActor = { ...actor, role: 'user' }
+  assert.equal(backupDeletes, beforeGrant)
+  assert.deepEqual(await prisma.operationVerification.findUniqueOrThrow({ where: { id: grant.id } }), originalGrant)
+  const pendingVerifiedUpload = await makeTask('PENDING')
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 409)
+  assert.equal(backupDeletes, beforeGrant)
+  assert.deepEqual(await prisma.operationVerification.findUniqueOrThrow({ where: { id: grant.id } }), originalGrant)
+  await cancelBackupUploadTask(pendingVerifiedUpload.id, instance.id, actor)
+  for (const mode of ['forbidden', 'failure', 'misleading', 'present', 'disconnect'] as const) {
+    deleteMode = mode
+    assert.ok((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode >= 400)
+    assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'ready')
+    assert.deepEqual(await prisma.operationVerification.findUniqueOrThrow({ where: { id: grant.id } }), originalGrant, `${mode}: failed backup deletion must preserve the grant`)
+  }
+  deleteMode = 'absent'
+  let releaseVerifiedDelete!: () => void, verifiedDeleteEntered!: () => void
+  deletionGate = new Promise<void>(resolve => { releaseVerifiedDelete = resolve })
+  const verifiedEntered = new Promise<void>(resolve => { verifiedDeleteEntered = resolve }); deletionEntered = verifiedDeleteEntered
+  const firstVerifiedDeletion = Promise.resolve(app.inject({ method: 'DELETE', url: deleteUrl }))
+  await Promise.race([verifiedEntered, new Promise((_, reject) => setTimeout(() => reject(Error('verified deletion not reached')), 5000))])
+  try {
+    const beforeConcurrent = backupDeletes, started = performance.now()
+    const busyReplies = await Promise.all(Array.from({ length: 7 }, () => app.inject({ method: 'DELETE', url: deleteUrl })))
+    assert.ok(busyReplies.every(response => response.statusCode === 409))
+    assert.ok(performance.now() - started < 5000, 'concurrent deletion must fail at the operation gate before resource verification waits')
+    assert.equal(backupDeletes, beforeConcurrent)
+  } finally { releaseVerifiedDelete() }
+  assert.equal((await firstVerifiedDeletion).statusCode, 200)
+  deletionGate = undefined; deletionEntered = undefined
+  assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: grant.id } })).verifiedAt, null)
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 200)
+  await prisma.backup.update({ where: { id: backup.id }, data: { status: 'ready' } })
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 403, 'a consumed grant cannot authorize a now-ready backup')
+  await prisma.operationVerification.update({ where: { id: grant.id }, data: { verifiedAt: originalGrant.verifiedAt } })
+  await prisma.$executeRawUnsafe(`CREATE FUNCTION ${deleteTrigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = ${backup.id} AND NEW.status = 'deleted' THEN RAISE EXCEPTION 'fixture-backup-delete-commit-failed'; END IF; RETURN NEW; END $$`)
+  await prisma.$executeRawUnsafe(`CREATE TRIGGER ${deleteTrigger} BEFORE UPDATE ON backups FOR EACH ROW EXECUTE FUNCTION ${deleteTrigger}()`)
+  deleteFaultInstalled = true
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 500)
+  assert.deepEqual(await prisma.operationVerification.findUniqueOrThrow({ where: { id: grant.id } }), originalGrant, 'database commit failure must roll back backup verification consumption')
+  await prisma.$executeRawUnsafe(`DROP TRIGGER ${deleteTrigger} ON backups`)
+  await prisma.$executeRawUnsafe(`DROP FUNCTION ${deleteTrigger}()`)
+  deleteFaultInstalled = false
+  await prisma.operationVerification.delete({ where: { id: grant.id } })
+  console.log('PASS backup verification: other session and pending upload preserve grant, five remote failure modes and database failure roll back, seven concurrent requests return promptly without dispatch, original deletion consumes once and terminal replay stays idempotent')
   await prisma.notificationChannel.delete({ where: { id: replayChannel.id } })
   await prisma.backup.update({ where: { id: backup.id }, data: { status: 'ready' } })
   await prisma.$executeRawUnsafe(`CREATE FUNCTION ${deleteTrigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = ${backup.id} AND NEW.status = 'deleted' THEN RAISE EXCEPTION 'fixture-backup-delete-commit-failed'; END IF; RETURN NEW; END $$`)

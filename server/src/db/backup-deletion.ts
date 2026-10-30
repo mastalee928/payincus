@@ -3,6 +3,13 @@ import type { WriteActor } from './user-write-authorization.js'
 import { IncusApiError, IncusClient } from '../lib/incus/incus-client.js'
 import { recoveryHeld } from '../services/platform-backup-core.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { claimOperationVerificationRequirement } from '../lib/operation-verification.js'
+
+export class BackupDeletionVerificationError extends Error {
+  readonly statusCode = 403
+  readonly code = 'VERIFICATION_REQUIRED'
+  constructor(readonly required: boolean) { super('Sensitive operation requires verification') }
+}
 
 /** Keep the shared instance fence through remote absence confirmation and DB commit. */
 export async function deleteAuthorizedBackup(
@@ -25,6 +32,8 @@ export async function deleteAuthorizedBackup(
     if ([instance.incusId, current.incusName].some(name => !name || name === '.' || name === '..')) {
       throw new SnapshotMutationError('备份远端名称无效，请检查实例记录')
     }
+    const verification = await claimOperationVerificationRequirement(actor.id, 'delete_backup', current.id, actor, tx)
+    if (!verification.verified) throw new BackupDeletionVerificationError(verification.required)
     const path = `/1.0/instances/${encodeURIComponent(instance.incusId)}/backups/${encodeURIComponent(current.incusName)}`
     const client = new IncusClient(instance.host)
     const absent = (error: unknown) => error instanceof IncusApiError && error.statusCode === 404 && error.path === path

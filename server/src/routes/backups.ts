@@ -13,8 +13,8 @@ import { prisma } from '../db/prisma.js'
 import { BackupUploadAuthorizationError, uploadStorageIdentity } from '../db/backup-upload-authorization.js'
 import { RestoreAuthorizationError } from '../db/restore-task-authorization.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
-import { deleteAuthorizedBackup } from '../db/backup-deletion.js'
-import { SnapshotMutationError } from '../db/snapshot-operation-guards.js'
+import { deleteAuthorizedBackup, BackupDeletionVerificationError } from '../db/backup-deletion.js'
+import { SnapshotMutationError, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { getIncusClient } from '../lib/incus/index.js'
@@ -47,10 +47,6 @@ import {
     consumeDownloadToken
 } from '../lib/download-token.js'
 import { checkInstancePermission } from '../lib/permission.js'
-import type { WriteActor } from '../db/user-write-authorization.js'
-import {
-  claimOperationVerificationRequirement
-} from '../lib/operation-verification.js'
 
 // 检查实例是否被转移锁定
 async function checkTransferLock(instanceId: number, reply: FastifyReply): Promise<boolean> {
@@ -60,24 +56,6 @@ async function checkTransferLock(instanceId: number, reply: FastifyReply): Promi
     return true
   }
   return false
-}
-
-async function requireVerifiedOperation(
-  reply: FastifyReply,
-  userId: number,
-  resourceId: number,
-  actor: WriteActor
-): Promise<boolean> {
-  const verification = await claimOperationVerificationRequirement(userId, 'delete_backup', resourceId, actor)
-  if (!verification.verified) {
-    reply.code(403).send({
-      error: 'Sensitive operation requires verification',
-      code: 'VERIFICATION_REQUIRED',
-      required: verification.required
-    })
-    return false
-  }
-  return true
 }
 
 const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\d*$/
@@ -298,7 +276,6 @@ export default async function backupRoutes(fastify: FastifyInstance) {
     if (!deleteHost) return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
 
     const terminalReplay = backup.status === 'deleted'
-    if (!terminalReplay && !await requireVerifiedOperation(reply, request.user.id, backupIdNum, request.user)) return
 
     try {
       const result = await deleteAuthorizedBackup(instance, backup, request.user, transferHostIdentity(deleteHost), terminalReplay)
@@ -315,10 +292,14 @@ export default async function backupRoutes(fastify: FastifyInstance) {
 
       return { message: 'Backup deleted' }
     } catch (err) {
+      if (err instanceof BackupDeletionVerificationError) return reply.code(err.statusCode).send({ error: err.message, code: err.code, required: err.required })
+      if (err instanceof SnapshotMutationError || err instanceof SnapshotOperationPendingError) {
+        fastify.log.warn({ err, instanceId: instanceIdNum, backupId: backupIdNum, userId: request.user.id }, 'Backup deletion blocked by current operation state')
+        return reply.code(err.statusCode).send(apiError(ErrorCode.BACKUP_DELETE_FAILED, err.message))
+      }
       fastify.log.error(err)
       const errorMessage = err instanceof Error ? err.message : String(err)
       await createLog(request.user.id, 'backup', 'backup.delete', `Failed to delete backup: ${errorMessage}`, 'failed', { instanceId: instanceIdNum })
-      if (err instanceof SnapshotMutationError) return reply.code(err.statusCode).send(apiError(ErrorCode.BACKUP_DELETE_FAILED, errorMessage))
       return reply.code(500).send(apiError(ErrorCode.BACKUP_DELETE_FAILED, errorMessage))
     }
   })

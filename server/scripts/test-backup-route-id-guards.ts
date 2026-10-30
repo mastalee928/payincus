@@ -5,7 +5,8 @@ import { resolve } from 'node:path'
 const routeSource = readFileSync(resolve(process.cwd(), 'src/routes/backups.ts'), 'utf8')
 const deletionSource = readFileSync(resolve(process.cwd(), 'src/db/backup-deletion.ts'), 'utf8')
 assert.ok(routeSource.includes("const terminalReplay = backup.status === 'deleted'") &&
-  routeSource.includes('if (!terminalReplay && !await requireVerifiedOperation') &&
+  !routeSource.includes('requireVerifiedOperation') &&
+  deletionSource.includes("claimOperationVerificationRequirement(actor.id, 'delete_backup', current.id, actor, tx)") &&
   routeSource.includes('transferHostIdentity(deleteHost), terminalReplay)') &&
   deletionSource.includes('terminalOnly = false') &&
   deletionSource.indexOf("if (current.status === 'deleted')") < deletionSource.indexOf('if (terminalOnly)') &&
