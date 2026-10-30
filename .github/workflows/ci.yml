@@ -394,6 +394,8 @@ jobs:
         run: pnpm --filter server test:review-dashboard-session
       - name: Identity reads and login logout receipts stay within the current session
         run: pnpm --filter server test:review-auth-session
+      - name: Both API clients share refresh and reject obsolete request retries
+        run: pnpm --filter server test:review-auth-refresh
       - name: Host config preserves the registered connection endpoint
         run: pnpm --filter server test:review-host-config-endpoint
       - name: Host config sends explicit clears and keeps IPv6 mode gates

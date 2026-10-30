@@ -2,7 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-057 双API共享刷新及旧操作重试保护
+
+- 真Chrome先红：用户与管理API各自锁使同session同时两次refresh（before-actual：2≠1）。仅两wrapper原重复刷新/拦截器段落移到小型auth-session绑定器，各业务模块、URL、超时、凭据发送与错误额外字段保持，登录目的地仍各端本地。固定auth store身份/同步代次和原存储值，dispatch前同步捕获，实际transport前再核；旧成功/401/主动刷新及queued retry不得回写或借替换token发旧操作。same-sid已刷新token可单次重试，全部queued request有一次重试上限，15秒abort/5秒频控仍保留。
+- 真实Axios浏览器adapter与fetch受控，最后完整takeover-auth-refresh-final-complete.log自然exit0：共享主动/被动队列、28旧refresh成功/401、旧HTTP成功/401、storage事件前未同步零dispatch、两端第二401退出/旧queued零重试、replacement锁旧finally、503保身份/当前refresh401零dispatch、十非法token/合法role变化invalidate，以及memory-only跨端退出后新login成功。fixture第一次错误选Node axios导致process undefined已纠正浏览器ESM；其次静态导入先于受控adapter导致零fixture请求已用动态import纠正，失败轮均不计通过。无真实客户、cookie、外部OAuth或生产写入。
+- identity44组回归85138和实际两login页44046自然exit0；4/4末守卫test-run-20261030-091346、manifest、末lint零错警通过。最后types15395/build90589自然exit0（user约62s/admin51.73s），最后源码含当前存储不对齐时只允许认证入口、旧业务零dispatch；最后完整专项9058自然exit0。末dist takeover-auth-refresh-dist-final.log自然exit0。R056保存8721068f802128ac3450022afcb997d45376cfd3/CI40983222814仍in_progress；前40974379396、40975365166success，其余四前序CI继续跟。原327现249含部分/68已有不同/10待；R057完整cookie/OAuth/注册交换与原内部缺口保持，保存后接R073/074，不停工。
+
 ## 2026-10-30 错误记录复核与 R1-056 当前身份回执
+
+- 本阶段已提交推送8721068f802128ac3450022afcb997d45376cfd3，远端main一致，新CI40983222814运行。前Caddy修复提交b8b88f02de22b9bc003a6d7203bdce0d08f7ed76对应40974379396已completed/success，具体七job全部success；其余五前序CI与本阶段CI继续查终态。阶段保存后已接R057双API刷新，源码及对应鉴权/前端/dist守卫已读；原并发cookie/OAuth与历史Go IO未解决。
 
 - 按owner最新要求核对已保存错误：进度回复后停工、漏查CI终态及Caddy首帧缩放漏测。根因、纠正与下次接续检查已补充OWNER_REQUIREMENTS §5；本阶段将其随源码保存，随后继续R057，不以记录错误结束工作。
 - R056保留上一轮未提交改动，补当前account/role/sid、同步generation和读取序号、存储当前值核对；身份切换/跨标签clear/延迟事件及ABA立即清user/quota。旧me成功/401、登录与登出回执不得改替换会话；当前登出立即清私有信息并阻止身份读取，仍先发送原后端登出再清token，当前网络失败保已确认身份。same-sid刷新保留身份，当前401正常退出；接口和后端会话权限规则保持。

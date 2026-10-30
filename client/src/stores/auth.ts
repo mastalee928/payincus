@@ -39,6 +39,10 @@ export const useAuthStore = defineStore('auth', () => {
     return { userId, current: () => !!token.value && target === identity.value && target === tokenIdentity(localStorage.getItem('token')) &&
       version === generation && sequence === identitySequence && logoutGeneration !== generation }
   }
+  function captureAuthentication() {
+    const target = identity.value, storedTarget = tokenIdentity(localStorage.getItem('token')), version = generation
+    return { aligned: target === storedTarget, current: () => target === identity.value && storedTarget === tokenIdentity(localStorage.getItem('token')) && version === generation }
+  }
   function validUser(value: any, userId?: number): boolean {
     return !!value && Number.isSafeInteger(value.id) && value.id > 0 && (userId === undefined || value.id === userId) &&
       typeof value.username === 'string' && ['admin', 'user'].includes(value.role)
@@ -205,6 +209,7 @@ export const useAuthStore = defineStore('auth', () => {
     syncToken,
     clearLocalAuth,
     clearInMemoryAuth,
-    checkSession
+    checkSession,
+    captureAuthentication
   }
 })
