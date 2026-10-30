@@ -1,3 +1,5 @@
+2026-10-30 R011重装snapshot：mTLS list失败仍发config先红，明确验证列表/名称、删除后再读空列表才移DB记录，cloud-init重置放清理确认之后，失败不吞继续。真实六read/shape/name/delete/still-present/confirm故障保记录零config及非空实际DELETE确认成功，原stop/4/12/18/28与全SMTP、types/build/十守卫/destroy过见HANDOFF。50570a68a4c6411f503df727a615df504e601f3e / CI41050640712已推；41049136134越原阻塞继续host batch未终态，recreate及跨系统/原生客户另待，259含部分/68不同不增。
+
 2026-10-30 R011重装stop：mTLS状态500后仍发config先红，stop异常直接拒绝，读取真实Stopped才进入cloud-init/快照/重装，原Alpine busy参数保持。真实worker三state失败/stop失败/ACK后仍Running零config写、snapshot/image/password/cloudInitState保留；types/build/十守卫及原完整PG/SMTP/mTLS/destroy最终exit0见HANDOFF。6b3785483ab7e55389817d3dddb6ab12a01f186e / CI41049136134已过网络阻塞并向后推进未终态，recreate stop及snapshot缺失另待，259含部分/68不同不增。
 
 2026-10-30 CI宿主网络长时阻塞：本机host network sync全通过自然退出；第二network persistence 14例和DB清理完成后被新增transfer/verification/security依赖清理定时器保进程。仅集成入口捕获失败+finally清理后显式exit0/1，正常PG14例自然0和注入失败实际1，types重载纠正后复验，详HANDOFF。aa3e598da201466afbea5c79a3e00f751d32a5a1 / CI41047947257已推，八CI未终态，新提交须过原阻塞步骤，不修改旧结论或放宽产品守卫，原327计数不增。

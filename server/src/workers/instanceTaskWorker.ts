@@ -938,6 +938,23 @@ async function executeRestartTask(
 /**
  * 执行重装任务
  */
+async function clearRebuildSnapshots(client: Awaited<ReturnType<typeof getIncusClient>>, name: string, instanceId: number): Promise<void> {
+  const snapshots: unknown = await listSnapshots(client, name)
+  if (!Array.isArray(snapshots)) throw new Error('快照列表无法识别，重装未开始')
+  const names = snapshots.map(snapshot => {
+    const snapshotName = typeof snapshot === 'string' ? snapshot.split('/').pop()
+      : snapshot && typeof snapshot === 'object' && 'name' in snapshot ? snapshot.name : undefined
+    if (typeof snapshotName !== 'string' || !snapshotName || snapshotName === '.' || snapshotName === '..' || /[\r\n/\\]/.test(snapshotName)) {
+      throw new Error('快照名称无法识别，重装未开始')
+    }
+    return snapshotName
+  })
+  for (const snapshotName of names) await deleteIncusSnapshot(client, name, snapshotName)
+  const confirmed: unknown = await listSnapshots(client, name)
+  if (!Array.isArray(confirmed) || confirmed.length !== 0) throw new Error('快照尚未确认清理，重装未开始，请检查宿主后重试')
+  await prisma.snapshot.deleteMany({ where: { instanceId } })
+}
+
 async function executeRebuildTask(
   task: { id: number; userId: number; instanceId: number; imageAlias: string | null; sshKeyId: number | null; customInitCommandIds?: string | null },
   instance: { incus_id: string; name: string; user_id: number; image: string; network_mode: string; ipv4?: string | null; ipv6?: string | null; host_id: number; swap_enabled?: boolean; swap_size?: number | null },
@@ -973,28 +990,12 @@ async function executeRebuildTask(
     throw new Error('实例尚未确认停止，重装未开始，请检查宿主状态后重试')
   }
 
-  // 重装后 cloud-init 会重新运行，必须清空旧的检测状态与手动完成标记。
-  await resetInstanceCloudInitState(task.instanceId)
-
   // 删除所有快照
   await updateInstanceTaskProgress(task.id, 'deleting_snapshots')
-  try {
-    const snapshots = await listSnapshots(client, instance.incus_id) as unknown[]
-    if (snapshots && snapshots.length > 0) {
-      for (const snapshot of snapshots) {
-        const snapshotName = typeof snapshot === 'string'
-          ? snapshot.split('/').pop()
-          : (snapshot as { name?: string }).name
-        if (snapshotName) {
-          await deleteIncusSnapshot(client, instance.incus_id, snapshotName)
-        }
-      }
-    }
-    // 清理数据库中的快照记录
-    await prisma.snapshot.deleteMany({ where: { instanceId: task.instanceId } })
-  } catch (_err) {
-    console.warn('[InstanceTaskWorker] 删除快照失败，继续执行')
-  }
+  await clearRebuildSnapshots(client, instance.incus_id, task.instanceId)
+
+  // Reset cloud-init only after the original remote state and snapshot cleanup are confirmed.
+  await resetInstanceCloudInitState(task.instanceId)
 
   // 执行重装
   await updateInstanceTaskProgress(task.id, 'rebuilding')

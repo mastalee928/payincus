@@ -52,6 +52,11 @@ const rebuildExecution = workerSource.slice(workerSource.indexOf('async function
 assert.ok(rebuildExecution.indexOf('await stopInstance(client, instance.incus_id, true,') < rebuildExecution.indexOf('const confirmedStop = await getInstanceState(') &&
   rebuildExecution.indexOf("confirmedStop.status?.toLowerCase() !== 'stopped'") < rebuildExecution.indexOf('await resetInstanceCloudInitState('),
   'rebuild must reject stop/read failures and confirm the actual stopped state before cloud-init, snapshot or rootfs changes')
+const rebuildSnapshots = workerSource.slice(workerSource.indexOf('async function clearRebuildSnapshots('), workerSource.indexOf('async function executeRebuildTask('))
+assert.ok(rebuildSnapshots.includes('if (!Array.isArray(snapshots))') && rebuildSnapshots.includes('await deleteIncusSnapshot(') &&
+  rebuildSnapshots.indexOf('const confirmed: unknown = await listSnapshots(') < rebuildSnapshots.indexOf('await prisma.snapshot.deleteMany(') &&
+  rebuildSnapshots.includes('confirmed.length !== 0') && rebuildExecution.indexOf('await clearRebuildSnapshots(') < rebuildExecution.indexOf('await resetInstanceCloudInitState('),
+  'rebuild snapshot failures must abort and preserve platform records until the host confirms an empty snapshot list')
 
 function sectionBetween(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)

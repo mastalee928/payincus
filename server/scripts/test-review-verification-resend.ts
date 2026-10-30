@@ -431,6 +431,7 @@ try {
       let dispatchedConfig: Record<string, string> | undefined, changedAfterValidation = false
       let connectionMutation: 'none' | 'key' | 'command' | 'banned' | 'session' = 'none', remoteWrites = 0
       let stopFailure: 'none' | 'unavailable' | 'unconfirmed' | 'request-failure' = 'none', configWrites = 0
+      let snapshotFailure: 'none' | 'list-failure' | 'invalid-list' | 'invalid-name' | 'delete-failure' | 'still-present' | 'confirmation-failure' | 'success' = 'none', snapshotDeleted = false
       materialRemote = createHttpsServer({ cert: certificate, key: await readFile(keyPath), ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
         const reply = (status: number, metadata: unknown) => {
           response.writeHead(status, { 'content-type': 'application/json' })
@@ -446,9 +447,17 @@ try {
           }
           if (request.method !== 'GET') remoteWrites++
           if (request.method === 'GET' && request.url?.endsWith('/snapshots')) {
+            if (snapshotFailure === 'list-failure' || snapshotFailure === 'confirmation-failure' && snapshotDeleted) return reply(500, {})
+            if (snapshotFailure === 'invalid-list') return reply(200, {})
+            if (snapshotFailure === 'invalid-name') return reply(200, [{ name: '../invalid' }])
+            if (snapshotFailure !== 'none') return reply(200, snapshotDeleted && snapshotFailure !== 'still-present' ? [] : [{ name: resourceSnapshot.incusName }])
             await prisma.sshKey.update({ where: { id: ownerKey.id }, data: { publicKey: 'ssh-ed25519 fixture-changed-after-validation' } })
             await prisma.customInitCommand.update({ where: { id: ownerCommand.id }, data: { command: 'echo fixture-changed-after-validation' } })
             changedAfterValidation = true; return reply(200, [])
+          }
+          if (request.method === 'DELETE' && request.url?.includes('/snapshots/')) {
+            if (snapshotFailure === 'delete-failure') return reply(500, {})
+            snapshotDeleted = true; return reply(200, {})
           }
           if (request.method === 'GET' && request.url?.endsWith('/state')) {
             if (stopFailure === 'unavailable') return reply(500, {})
@@ -515,6 +524,37 @@ try {
       }
       console.log('PASS rebuild stop preflight rejects unavailable state, failed stop and unconfirmed acknowledgements without configuration or snapshot changes')
       stopFailure = 'none'
+      for (const mode of ['list-failure', 'invalid-list', 'invalid-name', 'delete-failure', 'still-present', 'confirmation-failure'] as const) {
+        snapshotFailure = mode; snapshotDeleted = false; configWrites = 0
+        const beforeCleanup = await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } })
+        const admission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
+          taskType, imageAlias: fixtureImage.remoteAlias, sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
+            actor: currentActor(), entry: 'user', expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId,
+            expectedHostIdentity: transferHostIdentity(remoteHost)
+          } })
+        const running = await prisma.instanceTask.update({ where: { id: admission.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+        await executeTask(running.id, { startedAt: running.startedAt, retryCount: running.retryCount })
+        assert.equal(configWrites, 0, `snapshots/${mode}: unconfirmed cleanup must stop before configuration or disk changes`)
+        assert.equal(await prisma.snapshot.count({ where: { id: resourceSnapshot.id } }), 1, `snapshots/${mode}: platform records must remain`)
+        const afterCleanup = await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } })
+        assert.deepEqual(afterCleanup.cloudInitState, beforeCleanup.cloudInitState)
+        assert.equal(afterCleanup.image, beforeCleanup.image); assert.equal(afterCleanup.rootPassword, beforeCleanup.rootPassword)
+        await prisma.instanceTask.delete({ where: { id: running.id } })
+      }
+      snapshotFailure = 'success'; snapshotDeleted = false; configWrites = 0
+      const cleanupAdmission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
+        taskType, imageAlias: fixtureImage.remoteAlias, sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
+          actor: currentActor(), entry: 'user', expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId,
+          expectedHostIdentity: transferHostIdentity(remoteHost)
+        } })
+      const cleanupTask = await prisma.instanceTask.update({ where: { id: cleanupAdmission.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+      await executeTask(cleanupTask.id, { startedAt: cleanupTask.startedAt, retryCount: cleanupTask.retryCount })
+      assert.equal(snapshotDeleted, true); assert.equal(configWrites, 1)
+      assert.equal(await prisma.snapshot.count({ where: { id: resourceSnapshot.id } }), 0)
+      await prisma.instanceTask.delete({ where: { id: cleanupTask.id } })
+      await prisma.snapshot.create({ data: resourceSnapshot })
+      console.log('PASS rebuild snapshots reject six read/shape/delete/confirmation faults while retaining platform records; actual nonempty deletion requires the confirmed empty list before configuration')
+      snapshotFailure = 'none'
       const workerAdmission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
         taskType, imageAlias: fixtureImage.remoteAlias, sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
           actor: currentActor(), entry: 'user', expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId,

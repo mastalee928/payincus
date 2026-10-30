@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-30 R1-011 重装快照清理确认（持续施工）
+
+- 停机段已推50570a68a4c6411f503df727a615df504e601f3e / CI41050640712。本机mTLS快照读取失败后仍1config写先红。重装清理现明确验证列表/每个名称、逐个删除、重新读取确认空列表后才移平台snapshot记录，异常直接中止；cloud-init重置移至清理确认之后，不吞读取/删除失败继续重装。原重装key/镜像与停机参数保持。
+- 最终`logs/takeover-rebuild-snapshot-resend-verified.log`实际PG/Fastify/SMTP/mTLS自然exit0：六故障（list500/坏列表/坏名称/delete500/删除后仍在/确认读取500）零config写、snapshot及image/password/cloudInitState保持；非空列表实际DELETE后确认空列表才删DB并发送配置。原stop三故障/建连四变化/12材料/18镜像/28授权竞争与所有SMTP/验证码预算回归完整保持。严格受改专项types、最终server build、六task/operation/public-api和四资源路由守卫、destroy专项通过日志同前缀。
+- 原生Incus磁盘/并发外部快照新建、删除成功后DB提交失败后的持久恢复以及recreate同类合同仍待。源码与隔离mTLS证据不代生产。CI41049136134已过原网络阻塞、六job成功Pool继续至host batch，本轮及前九CI未终态继续跟，旧失败及GoIO保留；原327259含部分/68不同不增，保存推送后继续重建，无生产/发行。
+
 ## 2026-10-30 R1-011 重装停机失败中止（持续施工）
 
 - CI退出段已推6b3785483ab7e55389817d3dddb6ab12a01f186e / CI41049136134，本轮已越过原Host network步骤，六job成功且Pool后续工单/终端专项持续推进，整体非终态。继续代码级复审真实重装发现状态读取/stop异常被吞后继续cloud-init和快照/配置。`logs/takeover-rebuild-stop-resend-verified.log`此前实际mTLS先红unavailable状态后仍1次config写。改为stopInstance异常直接失败，原Alpine busy恢复参数保持，之后再次读取实际state并明确Stopped才进入cloud-init/快照/重装，不凭数据库stopped或stop ACK成功继续。

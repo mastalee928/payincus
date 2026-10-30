@@ -1,3 +1,5 @@
+> **2026-10-30最新：重装snapshot清理确认段已验待保存，随后重建停机/清理**。50570a68a4c6411f503df727a615df504e601f3e / CI41050640712已推。mTLS list失败仍config先红；读取/名称验证、逐DELETE、再读空列表才移DB，cloud-init随后；六故障保记录零config+非空实际DELETE确认成功、原3/4/12/18/28与SMTP/types/build/十守卫/destroy过见HANDOFF。41049136134已越网络阻塞至host batch仍未终态，新旧CI继续查；recreate/跨系统/原生客户/SMTP/GoIO/灾备未完，原327259含部分/68不同不增，不暂停、不生产、不发行。
+
 > **2026-10-30最新：重装stop失败中止段已验待保存，随后继续重建/快照顺序**。6b3785483ab7e55389817d3dddb6ab12a01f186e / CI41049136134网络阻塞已越过、六job成功Pool工单继续未终态。真实mTLS state500后仍写config先红，stop失败直接拒绝并再读真实Stopped才进修改；三故障零config/snapshot/image/password/cloudInitState保持与原4/12/18/28竞争/SMTP、types/build/十守卫/destroy最终自然exit0见HANDOFF。错fixture cloudInitStatus已纠正真实字段并复跑。下一recreate停机与snapshot失败吞掉/真实缺失、逐远端授权；原327259含部分/68不同和客户/SMTP/GoIO/灾备仍未完，不暂停、不生产、不发行。
 
 > **2026-10-30最新：CI宿主网络长阻塞已定位修复**。aa3e598da201466afbea5c79a3e00f751d32a5a1 / CI41047947257已推。该步第一host sync52例自然exit0，第二persistence14例清理完被新增security清理timer保活，本机复现；仅专项入口failure/finally后明确exit0/1，真实PG14例正常0、注入断言故障1，types旧rejects重载纠正复验见HANDOFF。八旧CI仍未终态，新提交须核该步越过，原327259含部分/68不同、逐步远端/客户/SMTP/GoIO/灾备继续，不暂停、不生产、不发行。
