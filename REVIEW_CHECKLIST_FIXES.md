@@ -1,3 +1,5 @@
+2026-10-30 R011资源权限：request/verify/check先只读锁当前实例/宿主/子资源及账号，四角色原业务权限矩阵、3阶段实际owner竞争、缺失/超Int零邮件/grant通过；实际PG/SMTP/PUSH/destroy、types/server build/6守卫自然exit0，详见HANDOFF。入口检查后原资源绑定及业务dispatch完整合同待，不新增327完成计数，259含部分/68不同保持。
+
 2026-10-30 R011无个人渠道回执：request/check改共用requirement事务，当前账户授权先于渠道及grant判定；停用/撤销旧actor不再200免验证。实际PG两阶段锁竞争、SMTP与原绑定/预算完整专项、types/server build/2守卫/2FA/destroy自然exit0，证据见HANDOFF。资源权限与grant后dispatch完整合同继续，259含部分/68不同不增。
 
 2026-10-30 R011资源会话段：notification-session摘要绑定原sid/个人目标，request/verify/check/claim跨会话拒绝且不撤销原grant；资源claim先事务核当前授权，免渠道也不跳过账号门禁。七个现行入口传request.user，实际第二管理员会话零扣费和原PG/SMTP/并发/2FA/destroy/类型/build/6守卫/manifest均过，详见HANDOFF。grant后业务权限/远端dispatch与新渠道整体串行继续，259含部分/68不同计数不增。

@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 验证码三个入口先核资源当前归属权限（持续施工）
+
+- 无渠道授权段已推068aab64b55f373cdc200761064cf06955af5b1c / CI41031737023。下一实际PG先红`takeover-verification-resource-permission-before.log`：无通知账户对别人的reinstall目标request/check200免验证。新增独立只读事务权限器，request/verify/check三个入口在免验证、发送和grant验证之前锁实例/宿主/子资源并核当前账号及真实role；缺失/已删/超PG Int目标403，重装重建只owner，转移owner或当前管理员代转移，实例/快照/备份删除保owner/hostOwner/admin原边界。
+- `takeover-verification-resource-permission-resend-verified.log`实际Fastify/PG/SMTP自然exit0：四角色×六操作×三路由权限矩阵，缺失/超Int目标零邮件零grant；原已发码的request/verify/check在真实实例owner变更锁排队后403，原码/attempt/记录完整不变。测试原虚拟资源编号改为9条真实隔离instance和snapshot/backup，正常清理；原SMTP/绑定/预算/渠道竞争全部回归保持。
+- 最终源+受改专项严格types、后端build、两operation守卫与四资源路由守卫、实际PUSH及destroy PG/SMTP回归全部自然exit0，日志前缀`logs/takeover-verification-resource-permission-`。无前端/schema变化，不重复最终双端构建。权限锁只覆盖入口检查，不扩为后续发送ACK/verify/claim原归属持久绑定或grant后写/dispatch全程事务；这些及配置插入整体串行下一段继续，生产客户与原生验收未操作。
+- CI41019111832/41019531979/41020374764已success；41023032382/41024139392/41024907571/41025555281/41026234390/41028619415/41029729516/41031081702/41031737023仍运行无新失败须跟。原327259含部分/68不同计数不增，历史GoIO/外部SMTP/原生客户/完整灾备继续，阶段保存后接续。
+
 ## 2026-10-30 R1-011 无个人渠道的验证码请求/查询当前授权（持续施工）
 
 - 资源会话段已推9732f96149a6b41bdf62fa5c32af5885c46432bb / CI41031081702。实际PG先红`takeover-verification-no-channel-auth-before.log`：banned但旧authenticate actor仍在时，无个人渠道request返回200免验证。现checkOperationVerificationRequirement同一事务最先锁账户核当前授权，再锁已有渠道并判断required/当前绑定grant；request资源免验证分支与check路由共用它，停用/撤销返回稳定AUTHENTICATION_STATE_CHANGED，不再提前输出verified=true。

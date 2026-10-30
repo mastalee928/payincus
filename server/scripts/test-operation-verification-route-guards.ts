@@ -7,6 +7,14 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 const source = readFileSync(resolve(__dirname, '../src/routes/verification.ts'), 'utf8')
+assert.equal(source.match(/await requireVerificationResourcePermission\(user, operationType, normalizedResource.resourceId, reply\)/g)?.length, 3,
+  'request, verify and check must reject unauthorized resource targets before exemption, delivery or grant promotion')
+const resourceAuthorization = readFileSync(resolve(__dirname, '../src/db/operation-verification-resource-authorization.ts'), 'utf8')
+assert.ok(resourceAuthorization.includes('authorizeUserWrite(tx, actor.id, actor)') &&
+  resourceAuthorization.includes("operationType === 'reinstall_instance' || operationType === 'recreate_instance'") &&
+  resourceAuthorization.includes('return owner ?') && resourceAuthorization.includes('owner || admin || host.userId === actor.id') &&
+  resourceAuthorization.includes('resourceId > 2147483647'),
+  'resource verification permission must preserve owner-only reinstall/recreate, current administrator/host-owner scopes and database ID bounds')
 const sensitiveOperationRouteFiles = [
   '../src/routes/auth.ts',
   '../src/routes/users.ts',

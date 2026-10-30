@@ -1,3 +1,5 @@
+> **2026-10-30最新：验证码入口资源权限段收尾**。上一068aab64/CI41031737023已推；request/verify/check先只读事务核真实instance/host/child及current role，原权限边界不变。实际四角色×六操作×三路由、缺失/超Int零邮件grant、3阶段owner锁竞争拒绝且原记录不变，以及原全PG/SMTP/PUSH/destroy/types/build/6守卫过，详见HANDOFF。真实9个资源夹具替换旧虚拟ID，正常清理。下一入口检查后ACK/verify/claim原资源持久绑定及grant后写/dispatch、通知配置串行；9个待查CI与历史GoIO保留，不暂停。
+
 > **2026-10-30最新：无个人渠道request/check当前授权段收尾**。资源会话已推9732f961/CI41031081702；实际banned无渠道request200先红后，requirement事务先账户锁当前授权、渠道锁及绑定grant判定，request/check共用。实际PG/SMTP两阶段锁竞争/停用撤销/正常免渠道/原全回归、types/build/2守卫/2FA/destroy自然exit0，见HANDOFF。8个前CI未终态及历史GoIO继续查；下一资源归属/权限、grant后写/dispatch与配置插入合同。原327内部未完保留，不暂停。
 
 > **2026-10-30最新接续：资源验证码原会话绑定段收尾**。上一dc370b1d/CI41029729516已推；本段notification-session摘要绑定sid和个人目标，资源claim（含无渠道）当前账户/会话事务授权，所有现行调用传request.user。实际PG/SMTP第二会话零消费/零发送、3阶段渠道锁竞争、8并发、admin PUSH第二sid零扣费及destroy/2FA/types/build/6守卫/manifest自然exit0，见HANDOFF。7个旧CI仍运行；41019111832/41019531979/41020374764已success。下一资源归属/权限与grant后写入/远端dispatch、配置并发合同，不暂停，原327及历史GoIO保留。

@@ -50,13 +50,27 @@ const saved = await prisma.systemConfig.findMany({ where: { key: { in: Object.ke
 const users = await Promise.all(['a', 'b'].map(letter => prisma.user.create({ data: {
   username: `${tag}-${letter}`, passwordHash: 'unusable-fixture', email: `${tag}-${letter}@example.test`
 } })))
+const resourceHost = await prisma.host.create({ data: {
+  userId: users[0].id, name: `${tag}-host`, url: 'https://127.0.0.1:1'
+} })
+const resourceInstances = await Promise.all(Array.from({ length: 9 }, (_, index) => prisma.instance.create({ data: {
+  userId: users[0].id, hostId: resourceHost.id, name: `${tag}-resource-${index}`, incusId: `${tag}-resource-${index}`,
+  image: 'fixture/debian', cpu: 100, memory: 128, disk: 1, status: 'stopped'
+} })))
+const firstResourceId = resourceInstances[0].id
+const resourceSnapshot = await prisma.snapshot.create({ data: {
+  instanceId: firstResourceId, name: tag, incusName: tag
+} })
+const resourceBackup = await prisma.backup.create({ data: {
+  instanceId: firstResourceId, name: tag, incusName: tag, status: 'ready'
+} })
 let actor = users[0]
 let sessionId = tag, issuedAt = Math.floor(Date.now() / 1000) + 1
 const currentActor = () => ({ id: actor.id, sid: sessionId, iat: issuedAt })
 const app = Fastify()
 app.decorate('authenticate', async request => { request.user = { id: actor.id, username: actor.username, role: 'user', sid: sessionId, iat: issuedAt } })
 const request = () => app.inject({ method: 'POST', url: '/verification/request', payload: { operationType: 'disable_2fa' } })
-app.post('/fixture/claim-resource', async () => claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001, currentActor()))
+app.post('/fixture/claim-resource', async () => claimOperationVerificationRequirement(actor.id, 'reinstall_instance', firstResourceId, currentActor()))
 const record = () => prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id, operationType: 'disable_2fa' }, orderBy: { createdAt: 'desc' } })
 const codeFor = (email: string) => {
   const message = [...messages].reverse().find(value => value.includes('To: ' + email)); assert.ok(message)
@@ -91,6 +105,43 @@ let failure: unknown
 try {
   for (const [key, value] of Object.entries(config)) await prisma.systemConfig.upsert({ where: { key }, create: { key, value }, update: { value } })
   invalidateAllConfigCache(); clearTransporterCache(); await app.register(routes, { prefix: '/verification' })
+  const permissionOperations = [
+    ['reinstall_instance', firstResourceId], ['recreate_instance', firstResourceId],
+    ['transfer_instance', firstResourceId], ['delete_instance', firstResourceId],
+    ['delete_snapshot', resourceSnapshot.id], ['delete_backup', resourceBackup.id]
+  ] as const
+  const beforePermissions = messages.length
+  const permissionResponse = (operationType: typeof permissionOperations[number][0], resourceId: number,
+    phase: 'request' | 'check' | 'verify') => app.inject(phase === 'check' ? {
+      method: 'GET', url: `/verification/check?operationType=${operationType}&resourceId=${resourceId}`
+    } : { method: 'POST', url: `/verification/${phase}`, payload: {
+      operationType, resourceId, ...(phase === 'verify' ? { code: '123456' } : {})
+    } })
+  for (const role of ['owner', 'stranger', 'host-owner', 'admin'] as const) {
+    actor = role === 'owner' ? users[0] : users[1]
+    await prisma.host.update({ where: { id: resourceHost.id }, data: { userId: role === 'host-owner' ? users[1].id : users[0].id } })
+    await prisma.user.update({ where: { id: users[1].id }, data: { role: role === 'admin' ? 'admin' : 'user' } })
+    for (const [operationType, resourceId] of permissionOperations) {
+      const allowed = role === 'owner' || role === 'admin' && !['reinstall_instance', 'recreate_instance'].includes(operationType) ||
+        role === 'host-owner' && ['delete_instance', 'delete_snapshot', 'delete_backup'].includes(operationType)
+      for (const phase of ['request', 'check', 'verify'] as const) {
+        const response = await permissionResponse(operationType, resourceId, phase)
+        assert.equal(response.statusCode, allowed ? phase === 'verify' ? 400 : 200 : 403, `${role} ${operationType} ${phase}`)
+        if (!allowed) assert.equal(response.json().code, 'FORBIDDEN')
+        else if (phase !== 'verify') assert.equal(response.json().required, false)
+      }
+    }
+  }
+  actor = users[0]
+  await prisma.host.update({ where: { id: resourceHost.id }, data: { userId: users[0].id } })
+  await prisma.user.update({ where: { id: users[1].id }, data: { role: 'user' } })
+  for (const resourceId of [2147483647, 2147483648, Number.MAX_SAFE_INTEGER]) {
+    assert.equal((await permissionResponse('reinstall_instance', resourceId, 'request')).statusCode, 403)
+    assert.equal((await permissionResponse('reinstall_instance', resourceId, 'check')).statusCode, 403)
+  }
+  assert.equal(messages.length, beforePermissions)
+  assert.equal(await prisma.operationVerification.count({ where: { userId: { in: users.map(user => user.id) } } }), 0)
+  console.log('PASS actual owner/stranger/host-owner/current-admin permissions across six resource operations and three routes; missing/oversized targets reject with zero mail/grants')
   const initial = await request(); assert.equal(initial.statusCode, 200, initial.body)
   assert.equal(messages.length, 1)
   const original = await record(), oldCode = codeFor(actor.email!)
@@ -272,24 +323,46 @@ try {
   await createChannel('global', '333333333', now - 40_000, { isGlobal: true })
   await createChannel('administrator alert', '444444444', now - 50_000, { alertCategory: 'host' })
   await createChannel('disabled', '555555555', now - 60_000, { enabled: false })
+  actor = users[1]
+  for (const phase of ['request', 'check'] as const) {
+    const foreign = await app.inject(phase === 'request' ? {
+      method: 'POST', url: '/verification/request', payload: { operationType: 'reinstall_instance', resourceId: firstResourceId }
+    } : { method: 'GET', url: `/verification/check?operationType=reinstall_instance&resourceId=${firstResourceId}` })
+    assert.equal(foreign.statusCode, 403, `${phase} must refuse another user's instance before granting a no-channel exemption`)
+    assert.equal(foreign.json().code, 'FORBIDDEN')
+  }
+  actor = users[0]
   await prisma.operationVerification.updateMany({ where: { userId: actor.id, operationType: 'disable_2fa' }, data: { createdAt: new Date(Date.now() - 61_000) } })
-  const notifyRequest = (resourceId: number) => app.inject({ method: 'POST', url: '/verification/request',
-    payload: { operationType: 'reinstall_instance', resourceId } })
+  const notifyRequest = (fixtureId: number) => app.inject({ method: 'POST', url: '/verification/request',
+    payload: { operationType: 'reinstall_instance', resourceId: resourceInstances[fixtureId - 910001].id } })
   const notified = await notifyRequest(910001)
   assert.equal(notified.statusCode, 200, notified.body)
   assert.equal(notified.json().maskedTarget, 'Telegram (111111***)', 'only the selected personal target is described')
   assert.deepEqual(deliveries.map(value => value.chat), ['111111111'], 'actual transport receives the same oldest personal target shown by the route')
-  const notifiedRecord = await prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id, operationType: 'reinstall_instance', resourceId: 910001 } })
+  const notifiedRecord = await prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id, operationType: 'reinstall_instance', resourceId: firstResourceId } })
   assert.equal(notifiedRecord.channel, 'telegram'); assert.equal(notifiedRecord.attempts, 0)
   assert.ok(notifiedRecord.resourceType?.startsWith('notification-session:v1:') && !notifiedRecord.resourceType.includes('fixture-token') && !notifiedRecord.resourceType.includes('111111111') && !notifiedRecord.resourceType.includes(sessionId))
   const notificationCode = deliveries[0].text.match(/\d{6}/)?.[0]; assert.ok(notificationCode)
   assert.ok(!notified.body.includes(notificationCode) && !notified.body.includes('fixture-token') && !notified.body.includes('111111111'))
   console.log('PASS deterministic personal channel selection excludes global/administrator/disabled channels and matches the actual transport')
+  for (const phase of ['request', 'verify', 'check'] as const) {
+    const before = await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })
+    const queued = await queuedRequest(tx => tx.instance.update({ where: { id: firstResourceId }, data: { userId: users[1].id } }),
+      () => phase === 'request' ? notifyRequest(910001) : phase === 'verify' ? app.inject({ method: 'POST', url: '/verification/verify', payload: {
+        operationType: 'reinstall_instance', resourceId: firstResourceId, code: notificationCode
+      } }) : permissionResponse('reinstall_instance', firstResourceId, 'check'))
+    assert.equal(queued.blocked, true)
+    assert.equal(queued.response.statusCode, 403)
+    assert.equal(queued.response.json().code, 'FORBIDDEN')
+    assert.deepEqual(await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } }), before)
+    await prisma.instance.update({ where: { id: firstResourceId }, data: { userId: users[0].id } })
+  }
+  console.log('PASS request/verify/check wait for actual instance ownership mutations and reject without changing issued codes or attempts')
 
   const notificationSession = sessionId
   sessionId += '-other-resource-login'
   const otherSessionResourceVerify = await app.inject({ method: 'POST', url: '/verification/verify', payload: {
-    operationType: 'reinstall_instance', resourceId: 910001, code: notificationCode
+    operationType: 'reinstall_instance', resourceId: firstResourceId, code: notificationCode
   } })
   assert.equal(otherSessionResourceVerify.statusCode, 400, 'another legitimate session cannot verify the original resource code')
   assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).attempts, 0)
@@ -300,12 +373,12 @@ try {
   assert.equal(deliveries.length, beforeOtherSessionRequest)
   assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verified, false)
   await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { verified: true, verifiedAt: new Date() } })
-  assert.equal((await app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910001' })).json().verified, false)
-  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001, currentActor())).verified, false)
+  assert.equal((await app.inject({ method: 'GET', url: `/verification/check?operationType=reinstall_instance&resourceId=${firstResourceId}` })).json().verified, false)
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', firstResourceId, currentActor())).verified, false)
   assert.ok((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verifiedAt)
-  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001)).verified, false)
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', firstResourceId)).verified, false)
   sessionId = notificationSession
-  assert.equal(await isOperationVerified(actor.id, 'reinstall_instance', 910001, currentActor()), true)
+  assert.equal(await isOperationVerified(actor.id, 'reinstall_instance', firstResourceId, currentActor()), true)
   await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { verified: false, verifiedAt: null } })
   sessionId = notificationSession
   console.log('PASS resource codes/grants bind the original session; other login request/verify/check/claim neither sends nor consumes original state')
@@ -316,14 +389,14 @@ try {
 
   await prisma.notificationChannel.update({ where: { id: selected.id }, data: { enabled: false, config: { botToken: 'fixture-token', chatId: '999999999' } } })
   const changedTargetVerify = await app.inject({ method: 'POST', url: '/verification/verify', payload: {
-    operationType: 'reinstall_instance', resourceId: 910001, code: notificationCode
+    operationType: 'reinstall_instance', resourceId: firstResourceId, code: notificationCode
   } })
   assert.equal(changedTargetVerify.statusCode, 400, 'a changed personal notification target must reject the old code without another request')
   assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).attempts, 0)
   await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { verified: true, verifiedAt: new Date() } })
-  const changedTargetCheck = await app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910001' })
+  const changedTargetCheck = await app.inject({ method: 'GET', url: `/verification/check?operationType=reinstall_instance&resourceId=${firstResourceId}` })
   assert.equal(changedTargetCheck.json().verified, false)
-  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001, currentActor())).verified, false,
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', firstResourceId, currentActor())).verified, false,
     'a changed notification target cannot consume a previous-target grant')
   assert.ok((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verifiedAt)
   for (const phase of ['verify', 'check', 'claim'] as const) {
@@ -336,8 +409,8 @@ try {
     const queued = await queuedRequest(tx => tx.notificationChannel.update({ where: { id: selected.id }, data: {
       config: { botToken: 'fixture-token', chatId: '999999999' }
     } }), () => phase === 'verify' ? app.inject({ method: 'POST', url: '/verification/verify', payload: {
-      operationType: 'reinstall_instance', resourceId: 910001, code: notificationCode
-    } }) : phase === 'check' ? app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910001' })
+      operationType: 'reinstall_instance', resourceId: firstResourceId, code: notificationCode
+    } }) : phase === 'check' ? app.inject({ method: 'GET', url: `/verification/check?operationType=reinstall_instance&resourceId=${firstResourceId}` })
       : app.inject({ method: 'POST', url: '/fixture/claim-resource' }))
     assert.equal(queued.blocked, true, `${phase} must wait for the actual current notification row mutation`)
     if (phase === 'verify') assert.equal(queued.response.statusCode, 400)
@@ -350,7 +423,7 @@ try {
   await prisma.notificationChannel.update({ where: { id: selected.id }, data: {
     enabled: true, config: { botToken: 'fixture-token', chatId: '111111111' }
   } })
-  const resourceClaims = await Promise.all(Array.from({ length: 8 }, () => claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001, currentActor())))
+  const resourceClaims = await Promise.all(Array.from({ length: 8 }, () => claimOperationVerificationRequirement(actor.id, 'reinstall_instance', firstResourceId, currentActor())))
   assert.equal(resourceClaims.filter(result => result.verified).length, 1)
   assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verifiedAt, null)
   await prisma.notificationChannel.update({ where: { id: selected.id }, data: { enabled: false, config: { botToken: 'fixture-token', chatId: '999999999' } } })
@@ -361,7 +434,7 @@ try {
   assert.ok(!changedDuplicate.body.includes('777777') && !changedDuplicate.body.includes('999999') && !changedDuplicate.body.includes('maskedTarget'))
   assert.equal(deliveries.length, 1)
   assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verifiedAt, null)
-  assert.equal((await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'reinstall_instance', resourceId: 910001, code: notificationCode } })).statusCode, 400)
+  assert.equal((await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'reinstall_instance', resourceId: firstResourceId, code: notificationCode } })).statusCode, 400)
   console.log('PASS changed targets cannot mislabel a prior delivery, revive its code or bypass the resend budget')
   const fixed = await sendVerificationNotification(selected, { operationName: 'Snapshot fixture', code: '123456', expiresInMinutes: 10, username: actor.username })
   assert.equal(fixed.success, true)
@@ -372,31 +445,31 @@ try {
   const noPersonal = await notifyRequest(910002)
   assert.equal(noPersonal.statusCode, 200); assert.equal(noPersonal.json().required, false)
   assert.equal(deliveries.length, 2)
-  assert.equal(await prisma.operationVerification.count({ where: { userId: actor.id, resourceId: 910002 } }), 0)
+  assert.equal(await prisma.operationVerification.count({ where: { userId: actor.id, resourceId: resourceInstances[1].id } }), 0)
   console.log('PASS administrator-only channels cannot impose or receive personal resource verification')
-  assert.deepEqual(await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910002, currentActor()), { required: false, verified: true })
-  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910002)).verified, false)
+  assert.deepEqual(await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', resourceInstances[1].id, currentActor()), { required: false, verified: true })
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', resourceInstances[1].id)).verified, false)
   await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
-  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910002, currentActor())).verified, false)
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', resourceInstances[1].id, currentActor())).verified, false)
   const bannedNoChannelRequest = await notifyRequest(910002)
   assert.equal(bannedNoChannelRequest.statusCode, 400, 'a stale authenticated banned actor cannot receive a no-channel verification exemption')
   assert.equal(bannedNoChannelRequest.json().code, 'AUTHENTICATION_STATE_CHANGED')
-  const bannedNoChannelCheck = await app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910002' })
+  const bannedNoChannelCheck = await app.inject({ method: 'GET', url: `/verification/check?operationType=reinstall_instance&resourceId=${resourceInstances[1].id}` })
   assert.equal(bannedNoChannelCheck.statusCode, 400)
   assert.equal(bannedNoChannelCheck.json().code, 'AUTHENTICATION_STATE_CHANGED')
   await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
   await prisma.tokenInvalidation.create({ data: { userId: actor.id, sessionId, invalidatedAt: issuedAt } })
-  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910002, currentActor())).verified, false)
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', resourceInstances[1].id, currentActor())).verified, false)
   const revokedNoChannelRequest = await notifyRequest(910002)
   assert.equal(revokedNoChannelRequest.statusCode, 400)
   assert.equal(revokedNoChannelRequest.json().code, 'AUTHENTICATION_STATE_CHANGED')
-  const revokedNoChannelCheck = await app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910002' })
+  const revokedNoChannelCheck = await app.inject({ method: 'GET', url: `/verification/check?operationType=reinstall_instance&resourceId=${resourceInstances[1].id}` })
   assert.equal(revokedNoChannelCheck.statusCode, 400)
   assert.equal(revokedNoChannelCheck.json().code, 'AUTHENTICATION_STATE_CHANGED')
   await prisma.tokenInvalidation.deleteMany({ where: { userId: actor.id } })
   for (const phase of ['request', 'check'] as const) {
     const queued = await queuedRequest(tx => tx.user.update({ where: { id: actor.id }, data: { status: 'banned' } }),
-      () => phase === 'request' ? notifyRequest(910002) : app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910002' }))
+      () => phase === 'request' ? notifyRequest(910002) : app.inject({ method: 'GET', url: `/verification/check?operationType=reinstall_instance&resourceId=${resourceInstances[1].id}` }))
     assert.equal(queued.blocked, true)
     assert.equal(queued.response.statusCode, 400)
     assert.equal(queued.response.json().code, 'AUTHENTICATION_STATE_CHANGED')
@@ -421,7 +494,7 @@ try {
   const invalidConfig = await notifyRequest(910004)
   assert.equal(invalidConfig.statusCode, 400); assert.equal(invalidConfig.json().code, 'SEND_FAILED')
   assert.equal(messages.length, beforeChannelMail + 1)
-  assert.equal(await prisma.operationVerification.count({ where: { userId: actor.id, resourceId: 910004 } }), 0)
+  assert.equal(await prisma.operationVerification.count({ where: { userId: actor.id, resourceId: resourceInstances[3].id } }), 0)
   console.log('PASS malformed stored notification configuration fails without issuing an eligible code or sending')
 
   await prisma.operationVerification.deleteMany({ where: { userId: actor.id, NOT: { resourceType: { startsWith: 'destroy-email:v1:' } } } })
@@ -446,7 +519,7 @@ try {
   await prisma.operationVerification.updateMany({ where: { userId: actor.id, operationType: 'disable_2fa' }, data: { createdAt: new Date(Date.now() - 61_000) } })
   const beforeMixed = messages.length
   const mixed = await Promise.all(Array.from({ length: 8 }, (_, i) => app.inject({ method: 'POST', url: '/verification/request',
-    payload: i % 2 ? { operationType: 'change_password' } : { operationType: 'reinstall_instance', resourceId: 920000 + i } })))
+    payload: i % 2 ? { operationType: 'change_password' } : { operationType: 'reinstall_instance', resourceId: resourceInstances[5 + Math.floor(i / 2)].id } })))
   assert.equal(mixed.filter(response => response.statusCode === 200).length, 1)
   assert.ok(mixed.every(response => response.statusCode === 200 || ['VERIFICATION_PENDING', 'VERIFICATION_RATE_LIMITED'].includes(response.json().code)))
   assert.equal(messages.length, beforeMixed + 1, 'mixed operation/resource requests deliver once under an account lock')
@@ -600,6 +673,8 @@ try {
   globalThis.fetch = originalFetch
   held.splice(0).forEach(item => item.finish())
   await app.close(); clearTransporterCache()
+  await prisma.instance.deleteMany({ where: { id: { in: resourceInstances.map(instance => instance.id) } } })
+  await prisma.host.delete({ where: { id: resourceHost.id } })
   await prisma.user.deleteMany({ where: { id: { in: users.map(user => user.id) } } })
   await prisma.systemConfig.deleteMany({ where: { key: { in: Object.keys(config) } } })
   for (const row of saved) await prisma.systemConfig.create({ data: row })

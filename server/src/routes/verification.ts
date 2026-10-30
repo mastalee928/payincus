@@ -3,6 +3,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import { authorizeOperationVerificationResource } from '../db/operation-verification-resource-authorization.js'
 import {
     requestOperationVerification,
     verifyOperationCode,
@@ -65,6 +66,18 @@ function normalizeResourceIdForOperation(
         : { valid: false }
 }
 
+async function requireVerificationResourcePermission(user: FastifyRequest['user'], operationType: OperationType,
+    resourceId: number | undefined, reply: FastifyReply): Promise<boolean> {
+    if (!isResourceOperation(operationType)) return true
+    const authorization = await authorizeOperationVerificationResource(user, operationType, resourceId!)
+    if (authorization === 'allowed') return true
+    if (authorization === 'authentication_changed') reply.code(400).send({
+        error: 'Account or session state changed. Please sign in again.', code: 'AUTHENTICATION_STATE_CHANGED'
+    })
+    else reply.code(403).send({ error: 'No permission to operate this resource', code: 'FORBIDDEN' })
+    return false
+}
+
 export default async function verificationRoutes(fastify: FastifyInstance) {
     /**
      * 请求二次验证码
@@ -110,6 +123,8 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
                     code: 'INVALID_RESOURCE_ID'
                 })
             }
+
+            if (!await requireVerificationResourcePermission(user, operationType, normalizedResource.resourceId, reply)) return
 
             // 资源操作：检查是否需要二次验证
             if (isResourceOperation(operationType)) {
@@ -214,6 +229,8 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
                 })
             }
 
+            if (!await requireVerificationResourcePermission(user, operationType, normalizedResource.resourceId, reply)) return
+
             const result = await verifyOperationCode(
                 user.id,
                 operationType,
@@ -278,6 +295,8 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
                     code: 'INVALID_RESOURCE_ID'
                 })
             }
+
+            if (!await requireVerificationResourcePermission(user, operationType, normalizedResource.resourceId, reply)) return
 
             const requirement = await checkOperationVerificationRequirement(
                 user.id,
