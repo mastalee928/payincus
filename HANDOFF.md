@@ -2,7 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-059 孤立恢复组件及全局任务store
+
+- 完整读BackupManager996行/restoreTask219行，应用两入口、路由、组件、Vite所有plugins/alias、静态/动态导入与脚本全搜。store只有BackupManager消费者；组件无消费者或动态/全局自动注册。仅清这两个孤立文件，不将旧store竞态修改搬入当前不同备份栈；历史初审仍保留当时证据。
+- 实际backups路由/restoreTaskWorker/platform-backup-worker、AliyunOssView及OssRecoveryReview/Reconcile、两router/API/InstanceDetail十SHA256逐个前后保持，最终运行源码零孤立符号引用。4/4守卫test-run-20261030-103155（route/i18n/backup-task-race/review-core-boundaries）自然exit0；末双端含两次vue-tsc构建72497自然exit0，日志takeover-retired-restore-dual-build-final.log；末dist takeover-retired-restore-dist-final.log自然exit0。两次core守卫别名错误轮未执行，不计通过，最终按实际脚本名执行。无新增UI/业务/权限/网络动作，孤立入口无真机流程可验，不充OSS/客户实例恢复证据。
+- 原327现252含部分/68已有不同/7待；单项提交推送后继续R174/177终端建连撤销窗口，已有早close/error但activeSessions注册迟于后台连接、路由最后授权复核仍需实测。R074 9b0535612ede6d7c705d6b9c6124525f3c060112/40992045627运行，40984944304及40989729533仍Pool持续前进，无新增失败；旧GoIO/SSH身份、真实邮件/客户与完整灾备仍未完成，不生产/发行。
+
 ## 2026-10-30 R1-074 通知渠道操作与替换草稿
+
+- 已提交推送9b0535612ede6d7c705d6b9c6124525f3c060112，HEAD=远端main，新CI40992045627运行；接R059仅删除无运行消费者的BackupManager与旧store，实际备份/OSS/worker/router/API十文件SHA保持，构建与守卫继续，未提前计R059。前40983222814七jobsuccess，40984944304及40989729533仍待终态。
 
 - 实际组件先红重复create发两次请求。四写共享在途锁，固定已确认渠道目标、account/role/sid、同步代次及auth存储快照；cache/account改变不提前释放旧请求锁，旧成功/失败不能toast、清替换草稿或重读新账户。create固定提交config/name和同步草稿revision，取消/重开同值也保留新草稿；取消清敏感config。delete确认显示渠道名并在确认后再核目标；toggle提示依据真实enabled回执。真实create/message/toggle合同严格验证，当前失败持久显示并可用原按钮重试。
 - 最终受控Chrome takeover-notification-actions-final-complete.log /49822自然exit0：64旧操作成功失败、重复/交叠四写、detached config、替换草稿/同值重开、reload失败、12坏回执、confirmation身份改变和cache锁释放；三语三宽实际input/save重复点击/失败retry及全部行按钮；18三语三宽深浅布局、三种渠道label/44px和长名/secret清理。takeover-notification-actions-reads-final-complete.log /26393自然exit0完整R073回归含42旧读/21坏读/36首帧两motion与焦点。只用本机实际Chrome和受控API，不等于真实邮件或后端并发验收。

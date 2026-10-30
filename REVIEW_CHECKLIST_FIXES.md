@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R074收尾后）：原327个编号中，251项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，8项仍为「待精修/运行复核」。251并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以8项表示。
+当前进度（2026-10-30，R059收尾后）：原327个编号中，252项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，7项仍为「待精修/运行复核」。252并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以7项表示。
+
+2026-10-30 R059：完整读孤立BackupManager/store及全部运行入口/路由/Vite导入/自动注册证据，仅互相依赖且无应用消费者，清1215行；实际OSS/备份worker/API/router/detail十SHA保持。4守卫/双端types build72497/末dist自然exit0，无活体孤立入口，不当实际备份恢复验证。252含部分/68不同/7待，终端后端与原内部缺口继续。
 
 2026-10-30 R074：四写共享busy/固定session-storage代次和目标，提交config/name快照、同步draft revision和cancel清secret，严格真实回执及持久失败retry；实际Chrome64旧回执/12坏回执/替换同值草稿/三语三宽真实输入按钮/18深浅布局44px自然exit0。R073完整回归、4守卫/有效lint/末双端types build和dist均过，form/history24末图已看及critique保存；251含部分/68不同/8待，真实邮件/完整Profile与后端并发仍另验，单项保存后继续R059。
 
@@ -268,7 +270,7 @@
 | R1-056 | 存在 | 已精修（身份读取，相关链路仍待） | auth store读取/登录登出回执绑定当前身份、同步代次与存储，44旧读取/十非法身份/四登录/十登出Chrome回归及类型/4守卫/双端构建通过；真实cookie/OAuth/注册交换及API refresh重试由R057继续，见2026-10-30 HANDOFF。 |
 | R1-057 | 存在 | 已精修（refresh源码，真实cookie仍待） | 两实际API共享当前session刷新与一次重试、同步代次及存储对齐；Chrome旧refresh/401/queued写/新锁/非法token及登录回归通过，类型/lint/守卫/双端build见2026-10-30 HANDOFF。真实cookie并发/OAuth/注册交换另待。 |
 | R1-058 | 存在 | 已修复；真实浏览器长期轮询未验 | 同步activate建立一条timer，mounted/activated不重复读；unmount/deactivate立即清timer/摘要及代次，旧五请求settle不再重建。真实Chrome先红→late completion零timer/零旧数据与cache/route往返矩阵通过，types/lint/守卫/双端build/末dist通过，见HANDOFF。 |
-| R1-059 | 部分存在 | 待精修/运行复核 | startRestore未在首个await前占busy，全局activeTask在轮询完成后被直接回写，缺账户/任务代次。BackupManager当前消费者可达性与后端实际备份栈不同，不能据此删平台OSS。 |
+| R1-059 | 当前无运行入口 | 已清理孤立组件/store；实际恢复另验 | 完整读BackupManager996行/restoreTask219行；只有组件用store，组件无应用消费者/动态或全局注册。清两孤立文件，实际OSS/routes/worker/router/API/detail十SHA保持；4守卫/双端types build/末dist通过，不代表真实备份恢复验收。 |
 | R1-060 | 实现不同 | 保留初审结论 | 前端疑似无当前页面消费者；不代表后端或平台OSS备份已退役，不据此删除整栈。 |
 | R1-061 | 原症状已修 | 实际Chrome原样保存复验通过 | 当前c277ba30 SnapshotManager已Boolean(res.enabled)，真实GET/PUT布尔合同核对；true/false×10/60/360/1440实际编辑按钮/checkbox/原样save精确payload通过takeover-snapshot-policy-ui-final，三宽三语截图与3守卫过。未改真实策略或操作Incus；整体UI/其它生命周期另验。 |
 | R1-062 | 存在 | 源码已修；真实Linux/整体UI另验 | account/role/sid/target两ABA/cache/unmount清理、五写busy/字段关闭/固定payload及源ID/草稿弹窗ABA、严格GET ready/成功回执/恢复确认与失败DOM retry已修。Chrome36旧读90旧写、25冲突16旧草稿、16坏读22坏写/合法重试及bool回归全exit0，4守卫/lint/双端build含types/dist全部exit0，三语三宽截图已看。受控API非原生快照，整体UI/真实宿主另验，不称完整327验收。 |
