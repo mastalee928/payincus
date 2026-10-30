@@ -70,12 +70,14 @@ import { notifyAdminInstanceCreateFailed, notifyAdminInstanceCreated, notifyAdmi
 import {
   createInstanceTask,
   InstanceTaskConflictError,
+  InstanceTaskAuthorizationError,
   getInstanceTaskById,
   getActiveTaskForInstance,
   getTaskQueuePosition,
   cancelInstanceTask
 } from '../db/instance-tasks.js'
 import type { CreateInstanceTaskData, InstanceTaskWithDetails } from '../db/instance-tasks.js'
+import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { closeInstanceSessions } from '../lib/terminal-proxy.js'
 import { validateCommandsOwnership, mergeCommandContents, getImageDistroFromAlias } from '../db/custom-init-commands.js'
 import { getPlanById, isPaidPackage } from '../db/package-plans.js'
@@ -336,6 +338,10 @@ async function createInstanceTaskOrConflict(
     const task = await createInstanceTask(data)
     return task
   } catch (error) {
+    if (error instanceof InstanceTaskAuthorizationError) {
+      reply.code(error.statusCode).send({ code: error.code, error: error.message, ...(error.code === 'VERIFICATION_REQUIRED' ? { required: true } : {}) })
+      return null
+    }
     if ((error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError)) {
       reply.code(409).send({ code: error.code, error: error.message })
       return null
@@ -3644,7 +3650,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
 
 
-    if (!await requireVerifiedOperation(reply, user.id, 'reinstall_instance', instanceId, user)) return
+    const reinstallHost = await prisma.host.findUnique({ where: { id: instance.host_id } })
+    if (!reinstallHost) return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
 
     // 验证镜像是否在预设列表中
     if (!await isValidSystemImage(imageAlias)) {
@@ -3704,7 +3711,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       taskType: 'rebuild',
       imageAlias,
       sshKeyId,
-      customInitCommandIds
+      customInitCommandIds,
+      sensitiveAuthorization: { actor: user, entry: 'user', expectedOwnerId: instance.user_id,
+        expectedIncusId: instance.incus_id, expectedHostIdentity: transferHostIdentity(reinstallHost) }
     })
     if (!task) return
 
@@ -3781,7 +3790,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
 
 
-    if (!await requireVerifiedOperation(reply, user.id, 'recreate_instance', instanceId, user)) return
+    const recreateHost = await prisma.host.findUnique({ where: { id: instance.host_id } })
+    if (!recreateHost) return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
 
     // 验证镜像是否在预设列表中
     if (!await isValidSystemImage(imageAlias)) {
@@ -3841,7 +3851,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       taskType: 'recreate',
       imageAlias,
       sshKeyId,
-      customInitCommandIds
+      customInitCommandIds,
+      sensitiveAuthorization: { actor: user, entry: 'user', expectedOwnerId: instance.user_id,
+        expectedIncusId: instance.incus_id, expectedHostIdentity: transferHostIdentity(recreateHost) }
     })
     if (!task) return
 

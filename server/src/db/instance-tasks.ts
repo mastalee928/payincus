@@ -7,6 +7,9 @@ import { prisma } from './prisma.js'
 import type { InstanceTaskType, InstanceTaskStatus, Prisma } from '@prisma/client'
 import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from './advisory-locks.js'
 import { assertNoPendingProxySiteOperations } from './proxy-site-operation-guards.js'
+import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
+import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { claimOperationVerificationRequirement } from '../lib/operation-verification.js'
 
 export interface CreateInstanceTaskData {
   instanceId: number
@@ -19,6 +22,53 @@ export interface CreateInstanceTaskData {
   targetName?: string       // 克隆的目标名称
   targetHostId?: number     // 克隆的目标宿主机
   snapshotName?: string     // 克隆时的快照名称
+  sensitiveAuthorization?: {
+    actor: WriteActor
+    entry: 'user' | 'host'
+    expectedOwnerId: number
+    expectedIncusId: string
+    expectedHostIdentity: string
+  }
+}
+
+export class InstanceTaskAuthorizationError extends Error {
+  constructor(public readonly code: string, message: string, public readonly statusCode = 403) { super(message) }
+}
+
+async function authorizeSensitiveTaskAdmission(tx: Prisma.TransactionClient, data: CreateInstanceTaskData) {
+  const authorization = data.sensitiveAuthorization
+  if (!authorization || authorization.actor.id !== data.userId) {
+    throw new InstanceTaskAuthorizationError('AUTHENTICATION_STATE_CHANGED', '请重新登录后重试')
+  }
+  const instance = await tx.instance.findUnique({ where: { id: data.instanceId } })
+  if (!instance || instance.userId !== authorization.expectedOwnerId || instance.hostId !== data.hostId ||
+    instance.incusId !== authorization.expectedIncusId) throw new InstanceTaskAuthorizationError('INSTANCE_STATE_CHANGED', '实例归属或位置已变化，请刷新后重试', 409)
+  await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.hostId} FOR SHARE`
+  const host = await tx.host.findUniqueOrThrow({ where: { id: instance.hostId } })
+  if (transferHostIdentity(host) !== authorization.expectedHostIdentity) {
+    throw new InstanceTaskAuthorizationError('INSTANCE_STATE_CHANGED', '宿主身份已变化，请刷新后重试', 409)
+  }
+  if (!await authorizeUserWrite(tx, data.userId, authorization.actor)) {
+    throw new InstanceTaskAuthorizationError('AUTHENTICATION_STATE_CHANGED', '请重新登录后重试')
+  }
+  const admin = (await tx.user.findUniqueOrThrow({ where: { id: data.userId }, select: { role: true } })).role === 'admin'
+  if (authorization.entry === 'user' ? instance.userId !== data.userId : host.userId !== data.userId && !admin) {
+    throw new InstanceTaskAuthorizationError('FORBIDDEN', '无权操作此实例')
+  }
+  if (instance.status === 'deleted' || instance.status === 'suspended' || instance.provisioningCleanupPending || instance.deletionBillingPending ||
+    data.taskType === 'rebuild' && instance.status !== 'stopped') {
+    throw new InstanceTaskAuthorizationError('INSTANCE_STATE_CHANGED', '实例状态已变化，请刷新后重试', 409)
+  }
+  const active = { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] as ('PENDING' | 'PROCESSING')[] } }
+  if (await tx.restoreTask.count({ where: active }) || await tx.backupUploadTask.count({ where: active }) ||
+    await tx.instanceTransfer.count({ where: { instanceId: instance.id, status: { in: ['pending', 'processing'] } } })) {
+    throw new InstanceTaskConflictError()
+  }
+  if (authorization.entry === 'user') {
+    const operation = data.taskType === 'rebuild' ? 'reinstall_instance' : 'recreate_instance'
+    const verification = await claimOperationVerificationRequirement(data.userId, operation, instance.id, authorization.actor, tx)
+    if (!verification.verified) throw new InstanceTaskAuthorizationError('VERIFICATION_REQUIRED', '请先完成身份验证')
+  }
 }
 
 export interface InstanceTaskWithDetails {
@@ -107,6 +157,7 @@ export async function createInstanceTask(data: CreateInstanceTaskData): Promise<
     if (activeTask) {
       throw new InstanceTaskConflictError(activeTask as unknown as InstanceTaskWithDetails)
     }
+    if (data.taskType === 'rebuild' || data.taskType === 'recreate') await authorizeSensitiveTaskAdmission(tx, data)
 
     // 注：使用 as any 绕过 Prisma 类型检查，因为 customInitCommandIds 字段在迁移后才会生成类型
     return tx.instanceTask.create({

@@ -17,6 +17,8 @@ const { claimOperationVerificationRequirement, isOperationVerified, cleanupExpir
 const { sendVerificationNotification } = await import('../src/lib/notifier.js')
 const { accountOperationVerificationBinding, notificationOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
 const { loadAuthorizedOperationVerificationResource } = await import('../src/db/operation-verification-resource-authorization.js')
+const { createInstanceTask } = await import('../src/db/instance-tasks.js')
+const { transferHostIdentity } = await import('../src/lib/transfer-host-identity.js')
 const tag = 'verification-resend-' + randomUUID().slice(0, 8), messages: string[] = [], sockets = new Set<Socket>()
 const originalFetch = globalThis.fetch
 let delivery: 'accepted' | 'held' | 'rejected' = 'accepted'
@@ -66,6 +68,7 @@ const resourceSnapshot = await prisma.snapshot.create({ data: {
 const resourceBackup = await prisma.backup.create({ data: {
   instanceId: firstResourceId, name: tag, incusName: tag, status: 'ready'
 } })
+const admissionStorage = await prisma.storageConfig.create({ data: { userId: users[0].id, name: tag, type: 'WEBDAV', host: 'https://1.1.1.1' } })
 let actor = users[0]
 let sessionId = tag, issuedAt = Math.floor(Date.now() / 1000) + 1
 const currentActor = () => ({ id: actor.id, sid: sessionId, iat: issuedAt })
@@ -73,6 +76,17 @@ const app = Fastify()
 app.decorate('authenticate', async request => { request.user = { id: actor.id, username: actor.username, role: 'user', sid: sessionId, iat: issuedAt } })
 const request = () => app.inject({ method: 'POST', url: '/verification/request', payload: { operationType: 'disable_2fa' } })
 app.post('/fixture/claim-resource', async () => claimOperationVerificationRequirement(actor.id, 'reinstall_instance', firstResourceId, currentActor()))
+app.post<{ Body: { taskType: 'rebuild' | 'recreate'; entry?: 'user' | 'host' } }>('/fixture/admission', async (request, reply) => {
+  try {
+    const task = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
+      taskType: request.body.taskType, imageAlias: 'fixture/debian', sensitiveAuthorization: { actor: currentActor(), entry: request.body.entry ?? 'user',
+        expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId, expectedHostIdentity: transferHostIdentity(resourceHost) } })
+    return reply.code(202).send({ id: task.id })
+  } catch (error) {
+    if (error instanceof Error && 'code' in error) return reply.code('statusCode' in error ? Number(error.statusCode) : 409).send({ code: error.code })
+    return reply.code(409).send({ code: 'INSTANCE_TASK_CONFLICT' })
+  }
+})
 const record = () => prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id, operationType: 'disable_2fa' }, orderBy: { createdAt: 'desc' } })
 const codeFor = (email: string) => {
   const message = [...messages].reverse().find(value => value.includes('To: ' + email)); assert.ok(message)
@@ -170,6 +184,78 @@ try {
   assert.equal((await writePersonal('delete')).statusCode, 200)
   assert.equal(await prisma.notificationChannel.count({ where: { userId: { in: users.map(user => user.id) } } }), 0)
   console.log('PASS personal notification writes recheck current status/session/ownership/scope after real account-lock waits; type changes reject and eight toggles apply once each')
+  await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+  await assert.rejects(createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
+    taskType: 'rebuild', imageAlias: 'fixture/debian', sensitiveAuthorization: { actor: currentActor(), entry: 'user',
+      expectedOwnerId: actor.id, expectedIncusId: resourceInstances[0].incusId, expectedHostIdentity: transferHostIdentity(resourceHost) }
+  }), error => error instanceof Error && 'code' in error && error.code === 'AUTHENTICATION_STATE_CHANGED',
+  'rebuild admission must reject a revoked current actor before creating a destructive task')
+  assert.equal(await prisma.instanceTask.count({ where: { instanceId: firstResourceId } }), 0)
+  await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+  const admissionRequest = (taskType: 'rebuild' | 'recreate', entry: 'user' | 'host' = 'user') =>
+    app.inject({ method: 'POST', url: '/fixture/admission', payload: { taskType, entry } })
+  for (const taskType of ['rebuild', 'recreate'] as const) {
+    const operationType = taskType === 'rebuild' ? 'reinstall_instance' : 'recreate_instance'
+    const admissionChannel = await prisma.notificationChannel.create({ data: { userId: actor.id, type: 'email', name: tag + '-admission',
+      config: { email: actor.email } } })
+    const authorized = await prisma.$transaction(tx => loadAuthorizedOperationVerificationResource(tx, currentActor(), operationType, firstResourceId))
+    if (authorized.kind !== 'allowed') throw new Error('admission grant fixture unavailable')
+    const admissionGrant = await prisma.operationVerification.create({ data: { userId: actor.id, operationType, resourceId: firstResourceId,
+      resourceType: notificationOperationVerificationBinding(currentActor(), admissionChannel, authorized.binding), code: 'fixture-admission-only',
+      channel: 'email', verified: true, verifiedAt: new Date(), expiresAt: new Date(Date.now() + 600_000) } })
+    for (const mode of ['banned', 'session', 'owner', 'incus', 'host', 'status', 'upload', 'restore', 'transfer'] as const) {
+      const queued = await queuedRequest(tx => mode === 'banned' ? tx.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+        : mode === 'session' ? tx.tokenInvalidation.create({ data: { userId: actor.id, sessionId, invalidatedAt: issuedAt } })
+          : mode === 'owner' ? tx.instance.update({ where: { id: firstResourceId }, data: { userId: users[1].id } })
+            : mode === 'incus' ? tx.instance.update({ where: { id: firstResourceId }, data: { incusId: resourceInstances[0].incusId + '-replaced' } })
+              : mode === 'host' ? tx.host.update({ where: { id: resourceHost.id }, data: { url: 'https://127.0.0.1:2' } })
+                : mode === 'status' ? tx.instance.update({ where: { id: firstResourceId }, data: { status: taskType === 'rebuild' ? 'running' : 'suspended' } })
+                  : mode === 'upload' ? tx.backupUploadTask.create({ data: { userId: actor.id, hostId: resourceHost.id, instanceId: firstResourceId, backupId: resourceBackup.id, storageConfigId: admissionStorage.id } })
+                    : mode === 'restore' ? tx.restoreTask.create({ data: { userId: actor.id, hostId: resourceHost.id, instanceId: firstResourceId,
+                      originalInstanceName: resourceInstances[0].name, originalIncusId: resourceInstances[0].incusId } })
+                      : tx.instanceTransfer.create({ data: { instanceId: firstResourceId, fromUserId: actor.id, toUserId: users[1].id, snapshot: {} } }),
+        () => admissionRequest(taskType))
+      // Resource changes can be refused before needing the blocked account.
+      if (['banned', 'session', 'upload', 'restore', 'transfer'].includes(mode)) assert.equal(queued.blocked, true)
+      assert.ok(queued.response.statusCode >= 400, `${taskType}/${mode} must not create a destructive task`)
+      assert.ok((await prisma.operationVerification.findUniqueOrThrow({ where: { id: admissionGrant.id } })).verifiedAt)
+      assert.equal(await prisma.instanceTask.count({ where: { instanceId: firstResourceId } }), 0)
+      await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+      await prisma.tokenInvalidation.deleteMany({ where: { userId: actor.id } })
+      await prisma.instance.update({ where: { id: firstResourceId }, data: { userId: users[0].id, incusId: resourceInstances[0].incusId, status: 'stopped' } })
+      await prisma.host.update({ where: { id: resourceHost.id }, data: { url: resourceHost.url } })
+      await prisma.backupUploadTask.deleteMany({ where: { instanceId: firstResourceId } })
+      await prisma.restoreTask.deleteMany({ where: { instanceId: firstResourceId } })
+      await prisma.instanceTransfer.deleteMany({ where: { instanceId: firstResourceId } })
+    }
+    const admissionTrigger = 'admission_' + randomUUID().replaceAll('-', '')
+    try {
+      await prisma.$executeRawUnsafe(`CREATE FUNCTION ${admissionTrigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.instance_id = ${firstResourceId} THEN RAISE EXCEPTION 'fixture-admission-insert-failed'; END IF; RETURN NEW; END $$`)
+      await prisma.$executeRawUnsafe(`CREATE TRIGGER ${admissionTrigger} BEFORE INSERT ON instance_tasks FOR EACH ROW EXECUTE FUNCTION ${admissionTrigger}()`)
+      assert.equal((await admissionRequest(taskType)).statusCode, 409)
+      assert.ok((await prisma.operationVerification.findUniqueOrThrow({ where: { id: admissionGrant.id } })).verifiedAt)
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${admissionTrigger} ON instance_tasks`)
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${admissionTrigger}()`)
+    }
+    const admitted = await Promise.all(Array.from({ length: 8 }, () => admissionRequest(taskType)))
+    assert.equal(admitted.filter(response => response.statusCode === 202).length, 1)
+    assert.equal(await prisma.instanceTask.count({ where: { instanceId: firstResourceId } }), 1)
+    assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: admissionGrant.id } })).verifiedAt, null)
+    await prisma.instanceTask.deleteMany({ where: { instanceId: firstResourceId } })
+    await prisma.operationVerification.delete({ where: { id: admissionGrant.id } })
+    await prisma.notificationChannel.delete({ where: { id: admissionChannel.id } })
+    actor = users[1]
+    assert.equal((await admissionRequest(taskType)).statusCode, 403)
+    assert.equal((await admissionRequest(taskType, 'host')).statusCode, 403)
+    await prisma.user.update({ where: { id: actor.id }, data: { role: 'admin' } })
+    assert.equal((await admissionRequest(taskType)).statusCode, 403, 'administrator cannot use the owner-only user entry')
+    assert.equal((await admissionRequest(taskType, 'host')).statusCode, 202, 'current administrator retains the maintenance entry without a user grant')
+    await prisma.instanceTask.deleteMany({ where: { instanceId: firstResourceId } })
+    await prisma.user.update({ where: { id: actor.id }, data: { role: 'user' } })
+    actor = users[0]
+  }
+  console.log('PASS rebuild/recreate current admission: account/resource/workflow races reject without grant consumption, insert failure rolls back grant, eight requests admit once, and maintenance/user permissions remain distinct')
   const permissionOperations = [
     ['reinstall_instance', firstResourceId], ['recreate_instance', firstResourceId],
     ['transfer_instance', firstResourceId], ['delete_instance', firstResourceId],
@@ -799,6 +885,7 @@ try {
   await app.close(); clearTransporterCache()
   await prisma.instance.deleteMany({ where: { id: { in: resourceInstances.map(instance => instance.id) } } })
   await prisma.host.delete({ where: { id: resourceHost.id } })
+  await prisma.storageConfig.delete({ where: { id: admissionStorage.id } })
   await prisma.user.deleteMany({ where: { id: { in: users.map(user => user.id) } } })
   await prisma.systemConfig.deleteMany({ where: { key: { in: Object.keys(config) } } })
   for (const row of saved) await prisma.systemConfig.create({ data: row })

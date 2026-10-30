@@ -21,7 +21,8 @@ import { giftInstanceDays, InstanceGiftDaysError } from '../db/instance-gift-day
 import { extendHostPaidInstances, HostExtensionError } from '../db/host-instance-extensions.js'
 import { recalculateHostResources, HostRecalculationError } from '../db/host-resource-recalculation.js'
 import { apiError, ErrorCode, type ErrorCodeType } from '../lib/errors.js'
-import { createInstanceTask, getActiveTaskForInstance, InstanceTaskConflictError } from '../db/instance-tasks.js'
+import { createInstanceTask, getActiveTaskForInstance, InstanceTaskConflictError, InstanceTaskAuthorizationError } from '../db/instance-tasks.js'
+import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import type { CreateInstanceTaskData, InstanceTaskWithDetails } from '../db/instance-tasks.js'
 import { getSSHKeyById, getSSHKeysByUserId } from '../db/ssh-keys.js'
 import { getEnabledCommandsByDistro, validateCommandsOwnership } from '../db/custom-init-commands.js'
@@ -361,6 +362,10 @@ async function createHostInstanceTaskOrConflict(
   try {
     return await createInstanceTask(data)
   } catch (error) {
+    if (error instanceof InstanceTaskAuthorizationError) {
+      reply.code(error.statusCode).send({ code: error.code, error: error.message })
+      return null
+    }
     if ((error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError)) {
       reply.code(409).send({ code: error.code, error: error.message })
       return null
@@ -8551,6 +8556,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       }
     }
 
+    const admissionHost = await prisma.host.findUnique({ where: { id: instance.host_id } })
+    if (!admissionHost) return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
     const task = await createHostInstanceTaskOrConflict(reply, {
       instanceId,
       hostId: instance.host_id,
@@ -8558,7 +8565,9 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       taskType: action,
       imageAlias,
       sshKeyId,
-      customInitCommandIds
+      customInitCommandIds,
+      sensitiveAuthorization: { actor: user, entry: 'host', expectedOwnerId: instance.user_id,
+        expectedIncusId: instance.incus_id, expectedHostIdentity: transferHostIdentity(admissionHost) }
     })
     if (!task) return
 

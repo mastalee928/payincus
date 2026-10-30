@@ -10,6 +10,13 @@ const instancesSource = readFileSync(resolve(__dirname, '../src/routes/instances
 const dbInstancesSource = readFileSync(resolve(__dirname, '../src/db/instances.ts'), 'utf8')
 const hostsSource = readFileSync(resolve(__dirname, '../src/routes/hosts.ts'), 'utf8')
 const statusSchedulerSource = readFileSync(resolve(__dirname, '../src/services/status-scheduler.ts'), 'utf8')
+const taskDatabase = readFileSync(resolve(__dirname, '../src/db/instance-tasks.ts'), 'utf8')
+assert.ok(taskDatabase.includes("if (data.taskType === 'rebuild' || data.taskType === 'recreate') await authorizeSensitiveTaskAdmission(tx, data)") &&
+  taskDatabase.includes('authorizeUserWrite(tx, data.userId, authorization.actor)') &&
+  taskDatabase.includes('transferHostIdentity(host) !== authorization.expectedHostIdentity') &&
+  taskDatabase.includes('claimOperationVerificationRequirement(data.userId, operation, instance.id, authorization.actor, tx)') &&
+  taskDatabase.includes("authorization.entry === 'user' ? instance.userId !== data.userId : host.userId !== data.userId && !admin"),
+  'destructive task admission must authorize the current actor/resource and atomically consume user verification before queue insertion while preserving the maintenance scope')
 
 function sectionBetween(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)

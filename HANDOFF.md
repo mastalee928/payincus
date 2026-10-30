@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 重装/重建任务当前授权与验证入队同事务（持续施工）
+
+- 转移段已推89c059ba6aeeb140607216b97bd98bbf2689eebd / CI41037666047。下一真实PG先红`logs/takeover-rebuild-current-admission-before.log`：已banned旧actor仍创建rebuild任务。两用户入口不再在镜像验证前提前消费grant，最终任务受理在实例/宿主/current账号锁内核原owner/host/Incus/宿主摘要、status/session/role及恢复/上传/转移竞争，user入口仍owner-only、host入口保current宿主owner/admin原维护权限；用户grant消费与任务插入同事务，稳定403/409错误保原记录。
+- 最终`takeover-rebuild-current-admission-resend-verified.log`实际PG/Fastify/SMTP自然exit0：两任务×九类current账号/资源/状态/上传/恢复/转移排队变化拒绝且grant未消费，实际PG任务插入失败回滚grant，八并发一任务一grant；无关用户与管理员不能借user入口，current管理员host维护入口正常免用户grant。原通知写/全部验证码目标/权限/SMTP/预算回归保持。严格源+受改专项types、后端最终build、六验证码/实例冲突/任务/public-api守卫及四资源路由守卫自然exit0，日志同前缀。上传夹具0号存储违反真实FK的错误轮不计通过，最终改为隔离真实storage并正常清理。
+- 此段只完成受理当前授权/原目标/消费入队，任务尚未持久保存原授权/身份供worker再核，SSH key和初始化命令在途变更、镜像授权及实际远端执行合同仍待；不宣称已完成重装重建全流程。无前端/schema/生产变化，一机一卖与全端口保持。CI41036581988已越过原失败上传且六job成功整体仍运行，41037666047仍推进；41026234390新增终态success，五旧CI与两已修源码但旧运行失败、历史GoIO准确根因/原生客户/外部SMTP/完整灾备继续跟。原327259含部分/68不同不增，保存后继续。
+
 ## 2026-10-30 R1-011 转移验证领取、当前授权和手续费同事务（持续施工）
 
 - 备份回执段已推2f5d205a200d6d069c6973683ad247639adad205 / CI41036581988，当前六job成功且Pool已通过原失败上传专项，整体未终态。通知CI41035809878终态failure失败日志已读取确认同479行403≠200；两历史失败保留，修复实证不冒充旧运行成功。
