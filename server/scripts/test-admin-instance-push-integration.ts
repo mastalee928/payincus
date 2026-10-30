@@ -15,6 +15,7 @@ const { createTransferWithFee, executeTransfer } = await import('../src/db/trans
 const { IncusClient } = await import('../src/lib/incus/incus-client.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const { notificationOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
+const { loadAuthorizedOperationVerificationResource } = await import('../src/db/operation-verification-resource-authorization.js')
 
 // Keep real routes, transactions, fees and ownership checks; only replace the remote host boundary.
 let connectionFails = false
@@ -144,8 +145,12 @@ try {
 
   const channel = await prisma.notificationChannel.create({ data: { userId: admin.id, type: 'email', name: prefix, config: { email: 'test@example.invalid' } } })
   await expectError(payload, 'VERIFICATION_REQUIRED', 403)
+  const verificationActor = { id: admin.id, sid: 'admin-push-fixture', iat: Math.floor(Date.now() / 1000) + 1 }
+  const resourceBinding = await prisma.$transaction(tx => loadAuthorizedOperationVerificationResource(tx, verificationActor, 'transfer_instance', instance.id))
+  assert.equal(resourceBinding.kind, 'allowed')
+  if (resourceBinding.kind !== 'allowed') throw new Error('fixture resource authorization failed')
   await prisma.operationVerification.create({ data: { userId: admin.id, operationType: 'transfer_instance', resourceId: instance.id,
-    resourceType: notificationOperationVerificationBinding({ id: admin.id, sid: 'admin-push-fixture' }, channel),
+    resourceType: notificationOperationVerificationBinding(verificationActor, channel, resourceBinding.binding),
     channel: 'email', code: 'unused-test-code', verified: true, verifiedAt: new Date(), expiresAt: new Date(Date.now() + 60000) } })
   adminSession = 'admin-push-other-login'
   await expectError(payload, 'VERIFICATION_REQUIRED', 403)

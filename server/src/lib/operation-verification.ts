@@ -11,6 +11,7 @@ import { sendOperationVerificationEmail } from './mailer.js'
 import { sendVerificationNotification } from './notifier.js'
 import { authorizeUserWrite, type WriteActor } from '../db/user-write-authorization.js'
 import { accountOperationVerificationBinding, notificationOperationVerificationBinding } from '../db/operation-verification-binding.js'
+import { loadAuthorizedOperationVerificationResource } from '../db/operation-verification-resource-authorization.js'
 import {
     OPERATION_VERIFICATION_REQUEST_LOCK_NAMESPACE,
     advisoryTransactionLockString
@@ -171,7 +172,7 @@ function notificationTargetBinding(channel: NotificationChannel): string {
     ])).digest('hex')
 }
 
-async function currentNotificationVerificationBinding(tx: Prisma.TransactionClient, actor: WriteActor): Promise<string | null> {
+async function currentNotificationVerificationBinding(tx: Prisma.TransactionClient, actor: WriteActor, resourceBinding: string): Promise<string | null> {
     const userId = actor.id
     // Hold existing channel rows through the verification/claim, so a concurrent
     // update or deletion cannot change the recipient between lookup and use.
@@ -182,7 +183,13 @@ async function currentNotificationVerificationBinding(tx: Prisma.TransactionClie
     })
     if (!channel) return null
     try { maskNotificationTarget(channel) } catch { return null }
-    return notificationOperationVerificationBinding(actor, channel)
+    return notificationOperationVerificationBinding(actor, channel, resourceBinding)
+}
+
+async function currentResourceVerificationBinding(tx: Prisma.TransactionClient, actor: WriteActor,
+    operationType: OperationType, resourceId: number | undefined): Promise<string | null> {
+    const resource = await loadAuthorizedOperationVerificationResource(tx, actor, operationType, resourceId!)
+    return resource.kind === 'allowed' ? currentNotificationVerificationBinding(tx, actor, resource.binding) : null
 }
 
 async function currentDeliveryAuthorized(tx: Prisma.TransactionClient, userId: number, actor: WriteActor | undefined,
@@ -257,9 +264,18 @@ export async function requestOperationVerification(
 
     let pendingRecordId: number | undefined
     const requestKey = getOperationVerificationRequestLockKey(userId, operationType, resourceId)
-    const verificationResourceType = notificationChannel && actor ? notificationOperationVerificationBinding(actor, notificationChannel)
-        : actor ? accountOperationVerificationBinding(actor, user.email) : null
+    let verificationResourceType: string | null = null
     const prepared = await prisma.$transaction(async (tx): Promise<PreparedOperationVerification> => {
+        if (notificationChannel) {
+            if (!actor || actor.id !== userId) return { error: 'Account or session state changed. Please sign in again.', errorCode: 'AUTHENTICATION_STATE_CHANGED' }
+            const resource = await loadAuthorizedOperationVerificationResource(tx, actor, operationType, resourceId!)
+            if (resource.kind !== 'allowed') return { error: 'Resource ownership or authorization changed. Please retry.',
+                errorCode: resource.kind === 'authentication_changed' ? 'AUTHENTICATION_STATE_CHANGED' : 'FORBIDDEN' }
+            verificationResourceType = notificationOperationVerificationBinding(actor, notificationChannel, resource.binding)
+            if (await currentNotificationVerificationBinding(tx, actor, resource.binding) !== verificationResourceType) {
+                return { error: 'Notification target changed. Please retry.', errorCode: 'AUTHENTICATION_STATE_CHANGED' }
+            }
+        } else verificationResourceType = actor ? accountOperationVerificationBinding(actor, user.email) : null
         if (!await currentDeliveryAuthorized(tx, userId, actor, user.email, notificationChannel)) {
             return { error: 'Account or session state changed. Please sign in again.', errorCode: 'AUTHENTICATION_STATE_CHANGED' }
         }
@@ -433,7 +449,9 @@ export async function requestOperationVerification(
                 resendAfter: Math.max(0, Math.ceil(VERIFICATION_CONFIG.resendAfterSeconds - (Date.now() - prepared.createdAt.getTime()) / 1000)) }
         }
         const activated = await prisma.$transaction(async tx => {
-            if (!await currentDeliveryAuthorized(tx, userId, actor, user.email, notificationChannel)) {
+            const resourceCurrent = !notificationChannel || actor &&
+                await currentResourceVerificationBinding(tx, actor, operationType, resourceId) === verificationResourceType
+            if (!resourceCurrent || !await currentDeliveryAuthorized(tx, userId, actor, user.email, notificationChannel)) {
                 await tx.operationVerification.updateMany({
                     where: { id: prepared.recordId, attempts: DELIVERY_PENDING, verified: false }, data: { attempts: DELIVERY_FAILED }
                 })
@@ -491,13 +509,14 @@ export async function verifyOperationCode(
     actor?: WriteActor
 ): Promise<VerifyOperationResult> {
     return prisma.$transaction(async tx => {
+        const resourceBinding = isResourceOperation(operationType) && actor && actor.id === userId
+            ? await currentResourceVerificationBinding(tx, actor, operationType, resourceId) : null
         if (!actor || actor.id !== userId || !await authorizeUserWrite(tx, userId, actor)) {
             return { success: false, verified: false, error: 'Account or session state changed. Please sign in again.', errorCode: 'AUTHENTICATION_STATE_CHANGED' }
         }
         const now = new Date()
         const accountBinding = isAccountOperation(operationType) ? accountOperationVerificationBinding(actor,
             (await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } })).email) : null
-        const resourceBinding = isResourceOperation(operationType) ? await currentNotificationVerificationBinding(tx, actor) : null
         if (isResourceOperation(operationType) && !resourceBinding) {
             return { success: false, verified: false, error: 'Invalid or expired verification code', errorCode: 'INVALID_CODE' }
         }
@@ -598,8 +617,8 @@ export async function isOperationVerified(
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
     
     const verification = await prisma.$transaction(async tx => {
+        const resourceBinding = actor && actor.id === userId ? await currentResourceVerificationBinding(tx, actor, operationType, resourceId) : null
         if (!actor || actor.id !== userId || !await authorizeUserWrite(tx, userId, actor)) return null
-        const resourceBinding = await currentNotificationVerificationBinding(tx, actor)
         if (!resourceBinding) return null
         return tx.operationVerification.findFirst({
             where: {
@@ -625,6 +644,8 @@ export async function checkOperationVerificationRequirement(
     actor?: WriteActor
 ): Promise<{ required: boolean; verified: boolean; errorCode?: string }> {
     return prisma.$transaction(async tx => {
+        const resource = isResourceOperation(operationType) && actor && actor.id === userId
+            ? await loadAuthorizedOperationVerificationResource(tx, actor, operationType, resourceId!) : null
         if (!actor || actor.id !== userId || !await authorizeUserWrite(tx, userId, actor)) {
             return { required: true, verified: false, errorCode: 'AUTHENTICATION_STATE_CHANGED' }
         }
@@ -633,7 +654,8 @@ export async function checkOperationVerificationRequirement(
             const current = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } })
             binding = accountOperationVerificationBinding(actor, current.email)
         } else {
-            binding = await currentNotificationVerificationBinding(tx, actor)
+            if (resource?.kind !== 'allowed') return { required: true, verified: false, errorCode: 'FORBIDDEN' }
+            binding = await currentNotificationVerificationBinding(tx, actor, resource.binding)
             if (!binding) {
                 const configured = await tx.notificationChannel.findFirst({
                     where: { userId, enabled: true, isGlobal: false, alertCategory: null }, select: { id: true }
@@ -673,8 +695,10 @@ export async function claimOperationVerificationRequirement(
 
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
     return prisma.$transaction(async tx => {
+        const resource = actor && actor.id === userId ? await loadAuthorizedOperationVerificationResource(tx, actor, operationType, resourceId!) : null
         if (!actor || actor.id !== userId || !await authorizeUserWrite(tx, userId, actor)) return { required: true, verified: false }
-        const resourceBinding = await currentNotificationVerificationBinding(tx, actor)
+        if (resource?.kind !== 'allowed') return { required: true, verified: false }
+        const resourceBinding = await currentNotificationVerificationBinding(tx, actor, resource.binding)
         if (!resourceBinding) {
             const configured = await tx.notificationChannel.findFirst({
                 where: { userId, enabled: true, isGlobal: false, alertCategory: null }, select: { id: true }

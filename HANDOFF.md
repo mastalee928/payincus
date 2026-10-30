@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 验证码及领取记录绑定原资源身份（持续施工）
+
+- 资源权限段已推送15cdc486c93e3390c1c8e0c8c8c76e1173d699b1 / CI41032952213。实际SMTP在途变更归属仍激活旧码的先红证据为`logs/takeover-verification-resource-binding-before.log`。现资源记录使用`notification-resource:v1:`摘要绑定原账户/会话/通知目标、实例归属与Incus身份、宿主受信连接身份、快照/备份原名称和创建时间及当前角色；准备、投递ACK、verify/check/isVerified/claim均在事务锁内重核。ACK身份变化保失败标记和原发送冷却；旧仅session/target绑定码须重发，不自动继承新目标。
+- 最终真实Fastify/PG/本机SMTP专项`takeover-verification-resource-binding-resend-verified.log`自然exit0：SMTP在途owner/Incus变化不激活；Incus ID、宿主URL及owner变化拒旧verify/check/claim且不消耗attempt/grant；snapshot/backup原远端名称变化拒旧码和领取，恢复原身份正常领取。原账户/目标/并发/预算与权限矩阵保持。实际PUSH和销毁邮箱回归、严格源+受改专项types、后端build、两operation与四资源路由守卫、清单校验均自然exit0，日志同前缀。最终测试夹具TS7022补明确number后重跑types/resend通过，不放宽严格配置；仅测试修改沿用已通过产品build，无前端/schema变更。
+- CI41023032382已终态success；41024139392/41024907571/41025555281/41026234390/41028619415/41029729516/41031081702/41031737023/41032952213仍运行，最新运行六job成功、Pool集成继续，无新失败。保留历史40799210505准确Go IO根因未证实、外部SMTP/原生客户/完整灾备缺口；此段不保证grant领取之后业务写/dispatch全程原子，也不闭合新增通知渠道串行。原327计数259含部分/68已有不同保持，保存后继续。
+
 ## 2026-10-30 R1-011 验证码三个入口先核资源当前归属权限（持续施工）
 
 - 无渠道授权段已推068aab64b55f373cdc200761064cf06955af5b1c / CI41031737023。下一实际PG先红`takeover-verification-resource-permission-before.log`：无通知账户对别人的reinstall目标request/check200免验证。新增独立只读事务权限器，request/verify/check三个入口在免验证、发送和grant验证之前锁实例/宿主/子资源并核当前账号及真实role；缺失/已删/超PG Int目标403，重装重建只owner，转移owner或当前管理员代转移，实例/快照/备份删除保owner/hostOwner/admin原边界。

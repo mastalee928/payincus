@@ -12,7 +12,7 @@ assert.equal(source.match(/await requireVerificationResourcePermission\(user, op
 const resourceAuthorization = readFileSync(resolve(__dirname, '../src/db/operation-verification-resource-authorization.ts'), 'utf8')
 assert.ok(resourceAuthorization.includes('authorizeUserWrite(tx, actor.id, actor)') &&
   resourceAuthorization.includes("operationType === 'reinstall_instance' || operationType === 'recreate_instance'") &&
-  resourceAuthorization.includes('return owner ?') && resourceAuthorization.includes('owner || admin || host.userId === actor.id') &&
+  resourceAuthorization.includes('? owner') && resourceAuthorization.includes('owner || admin || host.userId === actor.id') &&
   resourceAuthorization.includes('resourceId > 2147483647'),
   'resource verification permission must preserve owner-only reinstall/recreate, current administrator/host-owner scopes and database ID bounds')
 const sensitiveOperationRouteFiles = [

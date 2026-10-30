@@ -14,7 +14,8 @@ const { clearTransporterCache } = await import('../src/lib/mailer.js')
 const { invalidateAllConfigCache } = await import('../src/lib/config-cache.js')
 const { claimOperationVerificationRequirement, isOperationVerified, cleanupExpiredVerifications } = await import('../src/lib/operation-verification.js')
 const { sendVerificationNotification } = await import('../src/lib/notifier.js')
-const { accountOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
+const { accountOperationVerificationBinding, notificationOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
+const { loadAuthorizedOperationVerificationResource } = await import('../src/db/operation-verification-resource-authorization.js')
 const tag = 'verification-resend-' + randomUUID().slice(0, 8), messages: string[] = [], sockets = new Set<Socket>()
 const originalFetch = globalThis.fetch
 let delivery: 'accepted' | 'held' | 'rejected' = 'accepted'
@@ -341,7 +342,7 @@ try {
   assert.deepEqual(deliveries.map(value => value.chat), ['111111111'], 'actual transport receives the same oldest personal target shown by the route')
   const notifiedRecord = await prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id, operationType: 'reinstall_instance', resourceId: firstResourceId } })
   assert.equal(notifiedRecord.channel, 'telegram'); assert.equal(notifiedRecord.attempts, 0)
-  assert.ok(notifiedRecord.resourceType?.startsWith('notification-session:v1:') && !notifiedRecord.resourceType.includes('fixture-token') && !notifiedRecord.resourceType.includes('111111111') && !notifiedRecord.resourceType.includes(sessionId))
+  assert.ok(notifiedRecord.resourceType?.startsWith('notification-resource:v1:') && !notifiedRecord.resourceType.includes('fixture-token') && !notifiedRecord.resourceType.includes('111111111') && !notifiedRecord.resourceType.includes(sessionId))
   const notificationCode = deliveries[0].text.match(/\d{6}/)?.[0]; assert.ok(notificationCode)
   assert.ok(!notified.body.includes(notificationCode) && !notified.body.includes('fixture-token') && !notified.body.includes('111111111'))
   console.log('PASS deterministic personal channel selection excludes global/administrator/disabled channels and matches the actual transport')
@@ -358,6 +359,45 @@ try {
     await prisma.instance.update({ where: { id: firstResourceId }, data: { userId: users[0].id } })
   }
   console.log('PASS request/verify/check wait for actual instance ownership mutations and reject without changing issued codes or attempts')
+  for (const identity of ['incus', 'host-transport', 'host-owner'] as const) {
+    await (identity === 'incus' ? prisma.instance.update({ where: { id: firstResourceId }, data: { incusId: resourceInstances[0].incusId + '-replaced' } })
+      : prisma.host.update({ where: { id: resourceHost.id }, data: identity === 'host-transport' ? { url: 'https://127.0.0.1:2' } : { userId: users[1].id } }))
+    const changedIdentityStatus: number = (await app.inject({ method: 'POST', url: '/verification/verify', payload: {
+      operationType: 'reinstall_instance', resourceId: firstResourceId, code: notificationCode
+    } })).statusCode
+    assert.equal(changedIdentityStatus, 400, `${identity} changes must reject the prior code even while the user still owns the instance`)
+    assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).attempts, 0)
+    await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { verified: true, verifiedAt: new Date() } })
+    assert.equal((await permissionResponse('reinstall_instance', firstResourceId, 'check')).json().verified, false)
+    assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', firstResourceId, currentActor())).verified, false)
+    assert.ok((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verifiedAt)
+    await prisma.instance.update({ where: { id: firstResourceId }, data: { incusId: resourceInstances[0].incusId } })
+    await prisma.host.update({ where: { id: resourceHost.id }, data: { userId: users[0].id, url: resourceHost.url } })
+    await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { verified: false, verifiedAt: null } })
+  }
+  console.log('PASS original Incus/host transport/host ownership bindings reject prior verify/check/claim while instance ownership remains authorized')
+  for (const [operationType, child] of [['delete_snapshot', resourceSnapshot], ['delete_backup', resourceBackup]] as const) {
+    const originalResource = await prisma.$transaction(tx => loadAuthorizedOperationVerificationResource(tx, currentActor(), operationType, child.id))
+    assert.equal(originalResource.kind, 'allowed')
+    if (originalResource.kind !== 'allowed') throw new Error('fixture child resource unavailable')
+    const childCode = await prisma.operationVerification.create({ data: {
+      userId: actor.id, operationType, resourceId: child.id,
+      resourceType: notificationOperationVerificationBinding(currentActor(), selected, originalResource.binding),
+      code: '654321', channel: 'telegram', createdAt: new Date(Date.now() - 61_000), expiresAt: new Date(Date.now() + 600_000)
+    } })
+    if (operationType === 'delete_snapshot') await prisma.snapshot.update({ where: { id: child.id }, data: { incusName: tag + '-replacement' } })
+    else await prisma.backup.update({ where: { id: child.id }, data: { incusName: tag + '-replacement' } })
+    assert.equal((await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType, resourceId: child.id, code: '654321' } })).statusCode, 400)
+    assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: childCode.id } })).attempts, 0)
+    await prisma.operationVerification.update({ where: { id: childCode.id }, data: { verified: true, verifiedAt: new Date() } })
+    assert.equal((await permissionResponse(operationType, child.id, 'check')).json().verified, false)
+    assert.equal((await claimOperationVerificationRequirement(actor.id, operationType, child.id, currentActor())).verified, false)
+    assert.ok((await prisma.operationVerification.findUniqueOrThrow({ where: { id: childCode.id } })).verifiedAt)
+    if (operationType === 'delete_snapshot') await prisma.snapshot.update({ where: { id: child.id }, data: { incusName: child.incusName } })
+    else await prisma.backup.update({ where: { id: child.id }, data: { incusName: child.incusName } })
+    assert.equal((await claimOperationVerificationRequirement(actor.id, operationType, child.id, currentActor())).verified, true)
+  }
+  console.log('PASS snapshot and backup original identities bind code/check/claim, reject replacement remote names without consuming attempts/grants, and preserve normal original claims')
 
   const notificationSession = sessionId
   sessionId += '-other-resource-login'
@@ -489,11 +529,31 @@ try {
   assert.ok(!mailed.body.includes(emailTarget))
   console.log('PASS configured personal email receives real SMTP delivery and the response masks the actual recipient')
 
+  await prisma.operationVerification.updateMany({ where: { userId: actor.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  for (const identity of ['owner', 'incus'] as const) {
+    await prisma.operationVerification.updateMany({ where: { userId: actor.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
+    delivery = 'held'
+    const pendingResourceMail = notifyRequest(910003)
+    for (let attempt = 0; !held.length; attempt++) { assert.ok(attempt < 200); await new Promise(resolve => setTimeout(resolve, 10)) }
+    await prisma.instance.update({ where: { id: resourceInstances[2].id }, data: identity === 'owner'
+      ? { userId: users[1].id } : { incusId: resourceInstances[2].incusId + '-replaced' } })
+    held.shift()!.finish()
+    const changedResourceAck = await pendingResourceMail
+    assert.equal(changedResourceAck.statusCode, 400, `SMTP acknowledgement after ${identity} changes cannot activate the prepared resource code`)
+    const changedResourceRecord = await prisma.operationVerification.findFirstOrThrow({ where: {
+      userId: actor.id, operationType: 'reinstall_instance', resourceId: resourceInstances[2].id
+    }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
+    assert.equal(changedResourceRecord.attempts, 7)
+    await prisma.instance.update({ where: { id: resourceInstances[2].id }, data: { userId: users[0].id, incusId: resourceInstances[2].incusId } })
+  }
+  delivery = 'accepted'
+  console.log('PASS changed resource ownership during actual SMTP delivery leaves the prepared code ineligible')
+
   const personalEmail = await prisma.notificationChannel.findFirstOrThrow({ where: { userId: actor.id, name: 'personal email' } })
   await prisma.notificationChannel.update({ where: { id: personalEmail.id }, data: { config: 'invalid-json' } })
   const invalidConfig = await notifyRequest(910004)
   assert.equal(invalidConfig.statusCode, 400); assert.equal(invalidConfig.json().code, 'SEND_FAILED')
-  assert.equal(messages.length, beforeChannelMail + 1)
+  assert.equal(messages.length, beforeChannelMail + 3)
   assert.equal(await prisma.operationVerification.count({ where: { userId: actor.id, resourceId: resourceInstances[3].id } }), 0)
   console.log('PASS malformed stored notification configuration fails without issuing an eligible code or sending')
 

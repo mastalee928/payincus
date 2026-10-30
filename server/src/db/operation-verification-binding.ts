@@ -9,8 +9,8 @@ export function accountOperationVerificationBinding(actor: WriteActor, email: st
   ])).digest('hex')
 }
 
-export function notificationOperationVerificationBinding(actor: WriteActor, channel: NotificationChannel): string {
-  return 'notification-session:v1:' + createHash('sha256').update(JSON.stringify([
-    actor.id, actor.sid, channel.id, channel.type, channel.config
+export function notificationOperationVerificationBinding(actor: WriteActor, channel: NotificationChannel, resourceBinding: string): string {
+  return 'notification-resource:v1:' + createHash('sha256').update(JSON.stringify([
+    actor.id, actor.sid, channel.id, channel.type, channel.config, resourceBinding
   ])).digest('hex')
 }

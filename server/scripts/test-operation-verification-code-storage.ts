@@ -50,8 +50,12 @@ assert.ok(requirementSource.includes('authorizeUserWrite(tx, userId, actor)') &&
   requirementSource.indexOf('authorizeUserWrite(tx, userId, actor)') < requirementSource.indexOf('const configured') &&
   requirementSource.includes('resourceType: binding'),
   'verification requirement receipts must recheck current authorization and recipient/session before any no-channel exemption')
-assert.ok(requestOperationVerificationSource.includes('notificationOperationVerificationBinding(actor, notificationChannel)') &&
-  source.includes('return notificationOperationVerificationBinding(actor, channel)') &&
+assert.ok(requestOperationVerificationSource.includes('loadAuthorizedOperationVerificationResource(tx, actor, operationType, resourceId!)') &&
+  requestOperationVerificationSource.includes('await currentResourceVerificationBinding(tx, actor, operationType, resourceId) === verificationResourceType') &&
+  source.includes('return resource.kind') && claimOperationVerificationSource.includes('loadAuthorizedOperationVerificationResource(tx, actor, operationType, resourceId!)'),
+  'resource codes/grants must retain their original resource identity and recheck it during preparation, delivery activation, verification and consumption')
+assert.ok(requestOperationVerificationSource.includes('notificationOperationVerificationBinding(actor, notificationChannel, resource.binding)') &&
+  source.includes('return notificationOperationVerificationBinding(actor, channel, resourceBinding)') &&
   claimOperationVerificationSource.includes('authorizeUserWrite(tx, userId, actor)') &&
   claimOperationVerificationSource.indexOf('authorizeUserWrite(tx, userId, actor)', claimOperationVerificationSource.indexOf('const tenMinutesAgo')) <
     claimOperationVerificationSource.indexOf('const configured'),
@@ -70,7 +74,7 @@ assert.ok(source.includes('authorizeUserWrite(tx, userId, actor)') &&
 assert.ok(notificationSelection.includes('enabled: true') && notificationSelection.includes('isGlobal: false') &&
   notificationSelection.includes('alertCategory: null') && notificationSelection.includes("orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]"),
   'resource verification must deterministically select only the current user personal notification channels')
-assert.ok(requestOperationVerificationSource.includes('notificationOperationVerificationBinding(actor, notificationChannel)') &&
+assert.ok(requestOperationVerificationSource.includes('notificationOperationVerificationBinding(actor, notificationChannel, resource.binding)') &&
   requestOperationVerificationSource.includes('existingVerification.resourceType !== verificationResourceType') &&
   requestOperationVerificationSource.includes('sendVerificationNotification(notificationChannel,') &&
   !verificationDelivery.includes('getEnabledChannelsByUserId') && verificationDelivery.includes('return sendOperationVerificationEmail(config.email, data)'),

@@ -1,3 +1,5 @@
+2026-10-30 R011原资源绑定：notification-resource摘要包含原会话/目标与实例/宿主/子资源身份及角色，准备/SMTP ACK/verify/check/isVerified/claim事务重核；在途owner/Incus变化不激活，已投递码遇Incus/宿主URL或owner、snapshot/backup原名称变更拒用且不消耗attempt/grant。真实PG/SMTP、PUSH、destroy、严格types/server build/6守卫/manifest均自然exit0，证据见HANDOFF。grant之后业务写/dispatch及新增渠道整体串行下一段，259含部分/68不同不重复计数。
+
 2026-10-30 R011资源权限：request/verify/check先只读锁当前实例/宿主/子资源及账号，四角色原业务权限矩阵、3阶段实际owner竞争、缺失/超Int零邮件/grant通过；实际PG/SMTP/PUSH/destroy、types/server build/6守卫自然exit0，详见HANDOFF。入口检查后原资源绑定及业务dispatch完整合同待，不新增327完成计数，259含部分/68不同保持。
 
 2026-10-30 R011无个人渠道回执：request/check改共用requirement事务，当前账户授权先于渠道及grant判定；停用/撤销旧actor不再200免验证。实际PG两阶段锁竞争、SMTP与原绑定/预算完整专项、types/server build/2守卫/2FA/destroy自然exit0，证据见HANDOFF。资源权限与grant后dispatch完整合同继续，259含部分/68不同不增。
