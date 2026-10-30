@@ -37,3 +37,7 @@ for (const forbiddenPattern of [
 }
 
 console.log('image route guard tests passed')
+const databaseSource = readFileSync(resolve(process.cwd(), 'src/db/images.ts'), 'utf8')
+const saveAllowlist = databaseSource.slice(databaseSource.indexOf('export async function saveHostAllowedImages('), databaseSource.indexOf('export async function getSystemImageAvailabilityForHost('))
+assert.ok(saveAllowlist.indexOf('SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE') < saveAllowlist.indexOf('await tx.hostAllowedImage.deleteMany('),
+  'host allowlist replacement must take the host lock before changing existing or empty allowlists')

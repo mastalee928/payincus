@@ -67,9 +67,10 @@ const users = await Promise.all(['a', 'b'].map(letter => prisma.user.create({ da
 const resourceHost = await prisma.host.create({ data: {
   userId: users[0].id, name: `${tag}-host`, url: 'https://127.0.0.1:1'
 } })
+const fixtureImage = await prisma.systemImage.create({ data: { name: tag, remoteAlias: `${tag}/debian`, icon: 'debian', instanceType: 'both' } })
 const resourceInstances = await Promise.all(Array.from({ length: 9 }, (_, index) => prisma.instance.create({ data: {
   userId: users[0].id, hostId: resourceHost.id, name: `${tag}-resource-${index}`, incusId: `${tag}-resource-${index}`,
-  image: 'fixture/debian', cpu: 100, memory: 128, disk: 1, status: 'stopped'
+  image: fixtureImage.remoteAlias, cpu: 100, memory: 128, disk: 1, status: 'stopped'
 } })))
 const firstResourceId = resourceInstances[0].id
 const resourceSnapshot = await prisma.snapshot.create({ data: {
@@ -89,7 +90,7 @@ app.post('/fixture/claim-resource', async () => claimOperationVerificationRequir
 app.post<{ Body: { taskType: 'rebuild' | 'recreate'; entry?: 'user' | 'host' } }>('/fixture/admission', async (request, reply) => {
   try {
     const task = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
-      taskType: request.body.taskType, imageAlias: 'fixture/debian', sensitiveAuthorization: { actor: currentActor(), entry: request.body.entry ?? 'user',
+      taskType: request.body.taskType, imageAlias: fixtureImage.remoteAlias, sensitiveAuthorization: { actor: currentActor(), entry: request.body.entry ?? 'user',
         expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId, expectedHostIdentity: transferHostIdentity(resourceHost) } })
     return reply.code(202).send({ id: task.id })
   } catch (error) {
@@ -109,13 +110,15 @@ const codeFor = (email: string) => {
   const code = decoded.match(/>\s*(\d{6})\s*</)?.[1]; assert.ok(code); return code
 }
 async function queuedRequest(mutate: (tx: Prisma.TransactionClient) => Promise<unknown>, run = request,
-  materialLock?: { keyId: number } | { commandId: number }) {
+  materialLock?: { keyId: number } | { commandId: number } | { imageId: number } | { hostId: number }) {
   let release!: () => void, ready!: (pid: number) => void, rejectReady!: (err: unknown) => void
   const hold = new Promise<void>(resolve => { release = resolve })
   const started = new Promise<number>((resolve, reject) => { ready = resolve; rejectReady = reject })
   const blocker = prisma.$transaction(async tx => {
     if (materialLock && 'keyId' in materialLock) await tx.$queryRaw`SELECT id FROM ssh_keys WHERE id = ${materialLock.keyId} FOR UPDATE`
-    else if (materialLock) await tx.$queryRaw`SELECT id FROM custom_init_commands WHERE id = ${materialLock.commandId} FOR UPDATE`
+    else if (materialLock && 'commandId' in materialLock) await tx.$queryRaw`SELECT id FROM custom_init_commands WHERE id = ${materialLock.commandId} FOR UPDATE`
+    else if (materialLock && 'imageId' in materialLock) await tx.$queryRaw`SELECT id FROM system_images WHERE id = ${materialLock.imageId} FOR UPDATE`
+    else if (materialLock) await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${materialLock.hostId} FOR UPDATE`
     else await tx.$queryRaw`SELECT id FROM users WHERE id = ${actor.id} FOR UPDATE`
     await mutate(tx)
     const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
@@ -204,7 +207,7 @@ try {
   console.log('PASS personal notification writes recheck current status/session/ownership/scope after real account-lock waits; type changes reject and eight toggles apply once each')
   await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
   await assert.rejects(createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
-    taskType: 'rebuild', imageAlias: 'fixture/debian', sensitiveAuthorization: { actor: currentActor(), entry: 'user',
+    taskType: 'rebuild', imageAlias: fixtureImage.remoteAlias, sensitiveAuthorization: { actor: currentActor(), entry: 'user',
       expectedOwnerId: actor.id, expectedIncusId: resourceInstances[0].incusId, expectedHostIdentity: transferHostIdentity(resourceHost) }
   }), error => error instanceof Error && 'code' in error && error.code === 'AUTHENTICATION_STATE_CHANGED',
   'rebuild admission must reject a revoked current actor before creating a destructive task')
@@ -281,7 +284,7 @@ try {
   }
   for (const taskType of ['rebuild', 'recreate'] as const) {
     const admitted = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
-      taskType, imageAlias: 'fixture/debian', sensitiveAuthorization: { actor: currentActor(), entry: 'user',
+      taskType, imageAlias: fixtureImage.remoteAlias, sensitiveAuthorization: { actor: currentActor(), entry: 'user',
         expectedOwnerId: actor.id, expectedIncusId: resourceInstances[0].incusId, expectedHostIdentity: transferHostIdentity(resourceHost) } })
     assertPublicTask(admitted)
     assertPublicTask(await getInstanceTaskById(admitted.id))
@@ -299,7 +302,7 @@ try {
     assert.equal(task.actorSid, sessionId)
     assert.equal(task.actorIat, issuedAt)
     assert.equal(task.operationEntry, 'user')
-    assert.match(task.operationIdentity!, /^destructive-task:v2:[a-f0-9]{64}$/)
+    assert.match(task.operationIdentity!, /^destructive-task:v3:[a-f0-9]{64}$/)
     await validateDestructiveTaskExecution(task)
     for (const mode of ['banned', 'session', 'role', 'owner', 'incus', 'host', 'host-owner', 'status', 'image', 'cleanup', 'billing', 'upload', 'restore', 'transfer'] as const) {
       const queued = await queuedRequest(async tx => {
@@ -376,7 +379,7 @@ try {
   for (const taskType of ['rebuild', 'recreate'] as const) {
     const createMaterialsTask = (sshKeyId?: number, customInitCommandIds?: number[], entry: 'user' | 'host' = 'user') =>
       createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id, taskType,
-        imageAlias: 'fixture/debian', sshKeyId, customInitCommandIds, sensitiveAuthorization: { actor: currentActor(), entry,
+        imageAlias: fixtureImage.remoteAlias, sshKeyId, customInitCommandIds, sensitiveAuthorization: { actor: currentActor(), entry,
           expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId, expectedHostIdentity: transferHostIdentity(resourceHost) } })
     for (const [keyId, ids] of [[foreignKey.id, []], [0, []], [ownerKey.id, [foreignCommand.id]],
       [ownerKey.id, [ownerCommand.id, ownerCommand.id]], [ownerKey.id, [2147483647]]] as const) {
@@ -455,7 +458,7 @@ try {
         serverCertificate: certificate, serverFingerprint: new X509Certificate(certificate).fingerprint256
       } })
       const workerAdmission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
-        taskType, imageAlias: 'fixture/debian', sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
+        taskType, imageAlias: fixtureImage.remoteAlias, sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
           actor: currentActor(), entry: 'user', expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId,
           expectedHostIdentity: transferHostIdentity(remoteHost)
         } })
@@ -486,6 +489,54 @@ try {
     actor = users[0]
   }
   console.log('PASS destructive SSH/init inputs: twelve content/owner/enabled/distro transaction races, missing/foreign/duplicate selections, optional key semantics, fallback changes and administrator owner materials')
+  await prisma.systemImage.update({ where: { id: fixtureImage.id }, data: { hidden: true } })
+  await assert.rejects(createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id, taskType: 'rebuild',
+    imageAlias: fixtureImage.remoteAlias, sensitiveAuthorization: { actor: currentActor(), entry: 'user', expectedOwnerId: actor.id,
+      expectedIncusId: resourceInstances[0].incusId, expectedHostIdentity: transferHostIdentity(resourceHost) } }),
+  'a hidden image must be rejected by locked task admission, after any earlier route check')
+  await prisma.systemImage.update({ where: { id: fixtureImage.id }, data: { hidden: false } })
+  for (const taskType of ['rebuild', 'recreate'] as const) {
+    const imageTask = () => createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id, taskType,
+      imageAlias: fixtureImage.remoteAlias, sensitiveAuthorization: { actor: currentActor(), entry: 'user', expectedOwnerId: actor.id,
+        expectedIncusId: resourceInstances[0].incusId, expectedHostIdentity: transferHostIdentity(resourceHost) } })
+    const admitted = await imageTask()
+    const task = await prisma.instanceTask.update({ where: { id: admitted.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+    for (const mode of ['hidden', 'architecture', 'type', 'memory', 'alias', 'deleted', 'host-architecture', 'host-type', 'whitelist'] as const) {
+      const queued = await queuedRequest(async tx => {
+        if (mode === 'hidden') await tx.systemImage.update({ where: { id: fixtureImage.id }, data: { hidden: true } })
+        else if (mode === 'architecture') await tx.systemImage.update({ where: { id: fixtureImage.id }, data: { architecture: 'aarch64' } })
+        else if (mode === 'type') await tx.systemImage.update({ where: { id: fixtureImage.id }, data: { instanceType: 'vm' } })
+        else if (mode === 'memory') await tx.systemImage.update({ where: { id: fixtureImage.id }, data: { icon: 'ubuntu' } })
+        else if (mode === 'alias') await tx.systemImage.update({ where: { id: fixtureImage.id }, data: { remoteAlias: fixtureImage.remoteAlias + '-changed' } })
+        else if (mode === 'deleted') await tx.systemImage.delete({ where: { id: fixtureImage.id } })
+        else if (mode === 'host-architecture') await tx.host.update({ where: { id: resourceHost.id }, data: { architecture: 'aarch64' } })
+        else if (mode === 'host-type') await tx.host.update({ where: { id: resourceHost.id }, data: { instanceType: 'vm' } })
+        else {
+          const otherImage = await tx.systemImage.create({ data: { name: tag + '-other', remoteAlias: tag + '-other', icon: 'debian' } })
+          await tx.hostAllowedImage.create({ data: { hostId: resourceHost.id, imageId: otherImage.id } })
+        }
+      }, () => app.inject({ method: 'POST', url: '/fixture/execution', payload: { id: task.id } }),
+      mode.startsWith('host-') || mode === 'whitelist' ? { hostId: resourceHost.id } : { imageId: fixtureImage.id })
+      if (mode !== 'alias') assert.equal(queued.blocked, true, `${taskType}/${mode}: must wait for the image/host mutation`)
+      assert.equal(queued.response.statusCode, 409, `${taskType}/${mode}: original image authorization must be rechecked`)
+      if (mode === 'deleted') await prisma.systemImage.create({ data: fixtureImage })
+      else await prisma.systemImage.update({ where: { id: fixtureImage.id }, data: {
+        hidden: false, architecture: fixtureImage.architecture, instanceType: fixtureImage.instanceType, icon: fixtureImage.icon, remoteAlias: fixtureImage.remoteAlias
+      } })
+      await prisma.host.update({ where: { id: resourceHost.id }, data: { architecture: resourceHost.architecture, instanceType: resourceHost.instanceType } })
+      await prisma.hostAllowedImage.deleteMany({ where: { hostId: resourceHost.id } })
+      await prisma.systemImage.deleteMany({ where: { remoteAlias: tag + '-other' } })
+      await validateDestructiveTaskExecution(task)
+    }
+    await prisma.instanceTask.delete({ where: { id: task.id } })
+    const queuedAdmission = await queuedRequest(tx => tx.systemImage.update({ where: { id: fixtureImage.id }, data: { hidden: true } }),
+      () => app.inject({ method: 'POST', url: '/fixture/admission', payload: { taskType } }), { imageId: fixtureImage.id })
+    assert.equal(queuedAdmission.blocked, true)
+    assert.equal(queuedAdmission.response.statusCode, 400)
+    assert.equal(await prisma.instanceTask.count({ where: { instanceId: firstResourceId } }), 0)
+    await prisma.systemImage.update({ where: { id: fixtureImage.id }, data: { hidden: false } })
+  }
+  console.log('PASS destructive image admission/execution: hidden admission and eighteen real image/host mutation races reject original tasks; visibility, deletion, alias, architecture, type, memory and allowlist recover after restoration')
   const permissionOperations = [
     ['reinstall_instance', firstResourceId], ['recreate_instance', firstResourceId],
     ['transfer_instance', firstResourceId], ['delete_instance', firstResourceId],
@@ -1121,6 +1172,7 @@ try {
   await app.close(); clearTransporterCache()
   await prisma.instance.deleteMany({ where: { id: { in: resourceInstances.map(instance => instance.id) } } })
   await prisma.host.delete({ where: { id: resourceHost.id } })
+  await prisma.systemImage.delete({ where: { id: fixtureImage.id } })
   await prisma.storageConfig.delete({ where: { id: admissionStorage.id } })
   await prisma.user.deleteMany({ where: { id: { in: users.map(user => user.id) } } })
   await prisma.systemConfig.deleteMany({ where: { key: { in: Object.keys(config) } } })

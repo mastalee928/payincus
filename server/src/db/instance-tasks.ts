@@ -12,11 +12,25 @@ import { authorizeUserWrite, type WriteActor } from './user-write-authorization.
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { claimOperationVerificationRequirement } from '../lib/operation-verification.js'
 import { getImageDistroFromAlias } from './custom-init-commands.js'
+import { getSystemImageAvailabilityForHost } from './images.js'
 
 export type DestructiveTaskMaterials = Readonly<{ binding: string; sshKey?: string; extraShellCommands?: string }>
 type DestructiveTaskInput = Pick<InstanceTask, 'taskType' | 'imageAlias' | 'sshKeyId' | 'customInitCommandIds'>
 
-async function loadDestructiveTaskMaterials(tx: Prisma.TransactionClient, task: DestructiveTaskInput, ownerId: number): Promise<DestructiveTaskMaterials> {
+async function loadDestructiveTaskMaterials(tx: Prisma.TransactionClient, task: DestructiveTaskInput, instance: Instance, host: Host): Promise<DestructiveTaskMaterials> {
+  const ownerId = instance.userId
+  if (!task.imageAlias) throw new InstanceTaskAuthorizationError('IMAGE_NOT_FOUND', '请选择可用的系统镜像', 400)
+  await tx.$queryRaw`SELECT id FROM system_images WHERE remote_alias = ${task.imageAlias} FOR SHARE`
+  const image = await tx.systemImage.findUnique({ where: { remoteAlias: task.imageAlias } })
+  let instanceType: 'container' | 'vm' = 'container'
+  if (instance.packageId) {
+    await tx.$queryRaw`SELECT id FROM packages WHERE id = ${instance.packageId} FOR SHARE`
+    const pkg = await tx.package.findUnique({ where: { id: instance.packageId }, select: { instanceType: true } })
+    if (!pkg) throw new InstanceTaskAuthorizationError('INSTANCE_STATE_CHANGED', '实例配置已变化，请刷新后重试', 409)
+    instanceType = pkg.instanceType === 'vm' ? 'vm' : 'container'
+  }
+  const imageAvailability = await getSystemImageAvailabilityForHost(task.imageAlias, host.id, { instanceType, memory: instance.memory }, tx)
+  if (!image || !imageAvailability.ok) throw new InstanceTaskAuthorizationError('INSTANCE_IMAGE_UNAVAILABLE', '所选镜像已不可用，请重新选择', 400)
   let key: Awaited<ReturnType<typeof tx.sshKey.findUnique>> = null
   if (task.sshKeyId !== null) {
     if (!Number.isSafeInteger(task.sshKeyId) || task.sshKeyId <= 0 || task.sshKeyId > 2147483647) {
@@ -52,7 +66,9 @@ async function loadDestructiveTaskMaterials(tx: Prisma.TransactionClient, task: 
     return distros.includes('all') || distros.includes(distro)
   })
   return {
-    binding: createHash('sha256').update(JSON.stringify([key && [key.id, key.userId, key.publicKey, key.createdAt.toISOString()],
+    binding: createHash('sha256').update(JSON.stringify([[image.id, image.remoteAlias, image.architecture, image.instanceType, image.icon,
+      image.osType, image.createdAt.toISOString(), host.architecture, host.instanceType, instance.memory, instance.packageId, instanceType],
+      key && [key.id, key.userId, key.publicKey, key.createdAt.toISOString()],
       commands.map(command => [command.id, command.userId, command.command, command.distros, command.enabled, command.createdAt.toISOString()])])).digest('hex'),
     sshKey: key?.publicKey,
     extraShellCommands: compatibleCommands.length ? compatibleCommands.map(command => command.command).join('\n') : undefined
@@ -84,7 +100,7 @@ export class InstanceTaskAuthorizationError extends Error {
 }
 
 function destructiveTaskIdentity(task: Pick<InstanceTask, 'taskType' | 'imageAlias' | 'sshKeyId' | 'customInitCommandIds' | 'actorSid' | 'actorIat'>, instance: Instance, host: Host, role: string, materialBinding: string) {
-  return 'destructive-task:v2:' + createHash('sha256').update(JSON.stringify([task.taskType, instance.id, instance.userId, instance.hostId,
+  return 'destructive-task:v3:' + createHash('sha256').update(JSON.stringify([task.taskType, instance.id, instance.userId, instance.hostId,
     instance.incusId, instance.createdAt.toISOString(), transferHostIdentity(host), role,
     task.imageAlias, task.sshKeyId, task.customInitCommandIds, task.actorSid, task.actorIat, materialBinding])).digest('hex')
 }
@@ -122,7 +138,7 @@ async function authorizeSensitiveTaskAdmission(tx: Prisma.TransactionClient, dat
   }
   const selectedInput = { taskType: data.taskType, imageAlias: data.imageAlias || null, sshKeyId: data.sshKeyId ?? null,
     customInitCommandIds: data.customInitCommandIds ? JSON.stringify(data.customInitCommandIds) : null }
-  const materials = await loadDestructiveTaskMaterials(tx, selectedInput, instance.userId)
+  const materials = await loadDestructiveTaskMaterials(tx, selectedInput, instance, host)
   if (authorization.entry === 'user') {
     const operation = data.taskType === 'rebuild' ? 'reinstall_instance' : 'recreate_instance'
     const verification = await claimOperationVerificationRequirement(data.userId, operation, instance.id, authorization.actor, tx)
@@ -172,7 +188,7 @@ export async function validateDestructiveTaskExecution(task: InstanceTask): Prom
     if (currentTask.operationEntry === 'user' ? actor.id !== instance.userId : actor.id !== host.userId && role !== 'admin') {
       throw new InstanceTaskAuthorizationError('FORBIDDEN', '原操作权限已失效，请重新提交')
     }
-    const materials = await loadDestructiveTaskMaterials(tx, currentTask, instance.userId)
+    const materials = await loadDestructiveTaskMaterials(tx, currentTask, instance, host)
     if (destructiveTaskIdentity(currentTask, instance, host, role, materials.binding) !== currentTask.operationIdentity) {
       throw new InstanceTaskAuthorizationError('INSTANCE_STATE_CHANGED', '实例、宿主或初始化配置已变化，请重新提交', 409)
     }

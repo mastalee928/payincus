@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-30 R1-011 重装重建当前镜像授权与白名单锁（持续施工）
+
+- SSH/init段已推2669f4f4a6bd4942c13040d19cfa96b1bdab0736 / CI41046349071。本机真实PG先红（执行输出明确Missing expected rejection，原错误轮不计通过）：隐藏镜像直接任务受理仍成功。受理和执行材料检查现锁原system image和package，复用真实image availability函数及当前事务核可见/架构/host类型/实例内存/package类型/allowlist；v3摘要保原image ID/alias/创建身份及兼容配置。白名单替换先host FOR UPDATE，协调原空集合插入。旧无v3任务必须重新提交，不能继承当前镜像身份。
+- 最终`takeover-destructive-image-resend-verified.log`真实PG/Fastify/本机SMTP/mTLS自然exit0：隐藏镜像入队拒绝、两任务18类image/host行锁竞争（隐藏/架构/类型/低内存/alias/删除/host架构/类型/白名单）执行拒绝，恢复原配置正常；两任务实际Fastify入队等待镜像锁后返回400且零任务。原SSH/init12材料竞争及真实worker配置dispatch、28原授权状态竞争与全部验证码/预算/个人渠道/SMTP回归保持。
+- 最终严格源+专项types、server build、六operation/task/public-api守卫、四资源路由守卫及image route守卫、destroy PG/SMTP均自然exit0，日志`takeover-destructive-image-`前缀；新增fixture使用真正隔离image ID/alias并正常清理。无前端/schema变化。package enum实际含both，代码明确按worker原VM/container执行语义归一，修正TS2322后最终types/build重跑；Fastify入队坏镜像保原400，测试不再误断言409。原327259含部分/68不同不增，原生镜像实际重装和各远端步骤授权仍待。
+- 新终态41036581988 failure已读`logs/ci-41036581988-failed.log`，snapshot-mutation-authorization.ts:105/Query read timeout/500≠409，同e9356a6ec82493d566793539a3199a6f49a7fbe2已修根因；旧失败不改success。41037666047/41039116226/41041773579/41042942813/41044295702/41046349071仍跟终态，不报CI整体通过。保存后继续worker远端步骤，真实客户/外部SMTP/历史GoIO及完整网关灾备保留，无发版/生产动作。
+
 ## 2026-10-30 R1-011 重装重建绑定SSH与初始化正文（持续施工）
 
 - 上一备份段已推ff625812416f7d0ab331194752fa0bccc70c803f / CI41044295702。接续保留未提交的instance-tasks材料检查并接入真实worker：受理及执行前按排序账户锁、选定SSH/初始化行锁核实例owner、启用状态和原正文，持久v2摘要包含公钥、命令、发行版及创建身份。重装未选key仍密码登录，重建原最新owner key回退也绑定；管理员维护使用实例所属用户材料。worker只使用执行核验返回的公钥/兼容命令，不在停机后重新查询或静默过滤已变选择。旧无v2绑定的排队任务须重新提交，不继承当前材料。

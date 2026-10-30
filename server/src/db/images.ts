@@ -4,7 +4,7 @@
  */
 
 import { prisma } from './prisma.js'
-import type { SystemImage } from '@prisma/client'
+import type { Prisma, SystemImage } from '@prisma/client'
 import { normalizeArchitecture, type SupportedArchitecture } from '../lib/architecture.js'
 
 type ImageType = 'container' | 'vm' | 'both'
@@ -249,6 +249,7 @@ export async function saveHostAllowedImages(hostId: number, useDefault: boolean,
   }
 
   await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
     await tx.hostAllowedImage.deleteMany({
       where: { hostId }
     })
@@ -276,9 +277,10 @@ export async function getSystemImageAvailabilityForHost(
   options: {
     instanceType?: 'container' | 'vm'
     memory?: number
-  } = {}
+  } = {},
+  database: Pick<Prisma.TransactionClient, 'host' | 'systemImage'> = prisma
 ): Promise<HostImageAvailability> {
-  const host = await prisma.host.findUnique({
+  const host = await database.host.findUnique({
     where: { id: hostId },
     select: {
       id: true,
@@ -296,7 +298,7 @@ export async function getSystemImageAvailabilityForHost(
     return { ok: false, reason: 'host_not_found' }
   }
 
-  const image = await prisma.systemImage.findUnique({
+  const image = await database.systemImage.findUnique({
     where: { remoteAlias },
     select: {
       id: true,

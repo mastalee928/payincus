@@ -32,8 +32,13 @@ const taskMaterials = taskDatabase.slice(taskDatabase.indexOf('async function lo
 assert.ok(taskMaterials.includes('SELECT id FROM ssh_keys WHERE id = ${task.sshKeyId} FOR SHARE') &&
   taskMaterials.includes('key.userId !== ownerId') && taskMaterials.includes('command.userId !== ownerId || !command.enabled') &&
   taskMaterials.includes('ORDER BY id FOR SHARE') && taskMaterials.includes('key.publicKey') && taskMaterials.includes('command.command') &&
-  taskDatabase.includes("'destructive-task:v2:'") && taskExecution.includes('return materials'),
+  taskDatabase.includes("'destructive-task:v3:'") && taskExecution.includes('return materials'),
   'queued consent must bind and lock the instance owner SSH key and initialization contents before returning verified execution inputs')
+assert.ok(taskMaterials.includes('SELECT id FROM system_images WHERE remote_alias = ${task.imageAlias} FOR SHARE') &&
+  taskMaterials.includes('getSystemImageAvailabilityForHost(task.imageAlias, host.id, { instanceType, memory: instance.memory }, tx)') &&
+  taskMaterials.includes('SELECT id FROM packages WHERE id = ${instance.packageId} FOR SHARE') &&
+  taskMaterials.includes('image.createdAt.toISOString()') && taskMaterials.includes('host.architecture, host.instanceType, instance.memory'),
+  'admission and execution must retain the original image identity and recheck visibility, host allowlist, architecture, memory and package type in their transaction')
 for (const [start, end] of [['async function executeRebuildTask(', 'async function executeRecreateTask('],
   ['async function executeRecreateTask(', 'async function executeChangeHostTask(']]) {
   const execution = workerSource.slice(workerSource.indexOf(start), workerSource.indexOf(end))
