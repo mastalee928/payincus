@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R007 OAuth 跳转防护复验与锚点结果参数
+
+- 原相对路径校验拒绝双斜杠/反斜杠/编码反斜杠及控制字符，外站绕过未复现。扩展实际authorize+callback的21输入矩阵时，oauth-r007-final.log自然exit1暴露原redirectWithQuery把结果拼到#fragment后，合法带锚点页面收不到error。只把追加参数放到fragment前，原路径/已有query/fragment、外站限制和默认目的地不变。
+- oauth-r007-success-final.log自然exit0：21组输入经原Fastify路由，authorize签发state仅存校验后本地路径，callback再次校验旧签名输入；非法目标均留本地，正常query/hash保持、missing_code可读；真实PG绑定成功时success=bound_github、keep=1及#oauth均保持。原当前授权/撤销/CAS/加密/失败回滚同轮通过，provider/JWT沿受控夹具，无外部登录。
+- 产品与专项types零诊断、redirect与OAuth守卫2/2、后端build自然exit0；原CI专项覆盖新增矩阵。中间补丁因守卫上下文不匹配被原子拒绝，随后一次误重跑仍旧产品的失败保留，不计修复通过；最终修正确认实际源码及自然终态。
+- R005已推76d1d6e58e6f6de2c7103fb45344e0645ec391ca / CI41142013356。R007后277/327项（84.7%，含部分/待验收），50项保初审分类。未做浏览器外站授权或生产部署，固定v1.7.8不变。
+
 ## 2026-10-31 R005 OAuth nonce 清理与精确到期边界
 
 - 原按条清理而非整表clear确实保护未到期nonce；但清理使用expiresAt<=now，两个验证器却使用age>TTL。控制Date.now并调用实际注册清理回调，oauth-r005-both-before.log自然exit1：state和login code恰到TTL时已消费记录被清理后可再消费，未使用凭证在该时刻也仍有效。只将两个验证器改为age>=TTL，到期即拒绝，与清理一致；10分钟/60秒期限及单后端进程不变量不变。

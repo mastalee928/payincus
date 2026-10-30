@@ -56,10 +56,45 @@ try {
     assert.equal((await db.getOAuthConfig('github'))?.client_secret, 'fixture-secret', 'empty/omitted/legacy placeholder preserves existing OAuth secret')
   }
   console.log('PASS actual OAuth config updates preserve existing secret for omitted, blank and legacy unchanged input')
-  const state = await security.generateOAuthState('bind', '/profile', { userId: user.id, issuedAt: session.iat, sessionId: session.sid })
+  const redirectCases = [
+    { value: '/dashboard', safe: '/dashboard' },
+    { value: '/a/b?x=1#details', safe: '/a/b?x=1#details' },
+    { value: '/profile#tab?part=details', safe: '/profile#tab?part=details' },
+    { value: ' /profile ', safe: '/profile' },
+    ...['//outside.example', '/\\outside.example', '/%5coutside.example', '/%5Coutside.example',
+      '/%2f%2foutside.example', '/%2Foutside.example', '/path\\part', '/\t/outside.example',
+      '/\n/outside.example', '/%0dLocation:outside', '/%0Aoutside', 'https://outside.example',
+      'javascript:alert(1)', '/javascript:alert(1)', '/data:text/plain,fixture', '/vbscript:fixture', '']
+      .map(value => ({ value, safe: '/' }))
+  ]
+  for (const item of redirectCases) {
+    const authorization = await app.inject({ method: 'GET', url: '/oauth/authorize/github?redirect=' + encodeURIComponent(item.value) })
+    assert.equal(authorization.statusCode, 302)
+    const providerUrl = new URL(authorization.headers.location!)
+    assert.equal(providerUrl.origin, 'https://github.com')
+    const issued = await security.verifyAndConsumeOAuthState(providerUrl.searchParams.get('state')!)
+    assert.equal(issued?.redirect, item.safe, 'Authorization must store only the validated relative redirect')
+    // A separately signed legacy bind state exercises callback validation independently of authorize.
+    const legacy = await security.generateOAuthState('bind', item.value, { userId: user.id, issuedAt: session.iat, sessionId: session.sid })
+    const callback = await app.inject({ method: 'GET', url: '/oauth/callback/github?state=' + encodeURIComponent(legacy) })
+    assert.equal(callback.statusCode, 302)
+    const destination = new URL(callback.headers.location!, 'https://fixture.invalid')
+    const expected = new URL(item.safe === '/' ? '/profile' : item.safe, 'https://fixture.invalid')
+    assert.equal(destination.origin, 'https://fixture.invalid')
+    assert.equal(destination.pathname, expected.pathname)
+    assert.equal(destination.hash, expected.hash)
+    for (const [key, value] of expected.searchParams) assert.equal(destination.searchParams.get(key), value)
+    assert.equal(destination.searchParams.get('error'), 'missing_code')
+  }
+  assert.equal((await db.getUserOAuthBindings(user.id)).length, 0)
+  console.log('PASS 21 redirect inputs through actual authorize and callback: safe local paths/queries/fragments preserved, invalid targets rejected, errors remain query parameters and no binding side effects')
+  const state = await security.generateOAuthState('bind', '/profile?keep=1#oauth', { userId: user.id, issuedAt: session.iat, sessionId: session.sid })
   const bind = await app.inject({ method: 'GET', url: `/oauth/callback/github?code=fixture-code&state=${encodeURIComponent(state)}` })
   assert.equal(bind.statusCode, 302)
   assert.ok(bind.headers.location?.includes('success=bound_github'), 'real callback creates binding')
+  const boundRedirect = new URL(bind.headers.location!, 'https://fixture.invalid')
+  assert.equal(boundRedirect.searchParams.get('success'), 'bound_github')
+  assert.equal(boundRedirect.searchParams.get('keep'), '1'); assert.equal(boundRedirect.hash, '#oauth')
   let current = await freshBinding()
   assert.equal(current.provider_user_id, identity)
   assert.notEqual(current.access_token, 'fixture-access-token', 'provider token stays encrypted')

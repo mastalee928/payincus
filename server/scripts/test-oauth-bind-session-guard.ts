@@ -29,6 +29,8 @@ assert.ok(
 
 assert.ok(
   oauthSource.includes('function redirectWithQuery(baseUrl: string, params: Record<string, string>): string') &&
+    oauthSource.includes("const hashIndex = baseUrl.indexOf('#')") &&
+    oauthSource.includes('${new URLSearchParams(params).toString()}${fragment}') &&
     oauthSource.includes("const errorRedirectBase = stateData.mode === 'bind' ? redirectUrl : loginRedirectBase") &&
     oauthSource.includes('return reply.redirect(redirectWithQuery(redirectUrl, { success: `bound_${provider}` }))') &&
     !oauthSource.includes('return reply.redirect(`/profile?success=bound_${provider}`)') &&

@@ -113,8 +113,11 @@ function buildOAuthCallbackUrl(request: FastifyRequest, provider: OAuthProvider,
 }
 
 function redirectWithQuery(baseUrl: string, params: Record<string, string>): string {
-  const separator = baseUrl.includes('?') ? '&' : '?'
-  return `${baseUrl}${separator}${new URLSearchParams(params).toString()}`
+  const hashIndex = baseUrl.indexOf('#')
+  const path = hashIndex === -1 ? baseUrl : baseUrl.slice(0, hashIndex)
+  const fragment = hashIndex === -1 ? '' : baseUrl.slice(hashIndex)
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}${new URLSearchParams(params).toString()}${fragment}`
 }
 
 async function readOAuthJsonResponse<T>(response: Response, label: string): Promise<T> {
