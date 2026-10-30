@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R011尝试预算分项：真实PG/SMTP第五次错误删记录导致零等待request200新增邮件先红，改未验证/未过期/generic/attempts<5条件原子increment、保耗尽记录与发送时间，八并发最大5。PG67448原完整投递回归/正确耗尽码拒绝/61秒重发、原2FA、types/server build/两守卫/diff过，无前端重改；CI及实际范围见HANDOFF。generic已消费/跨操作预算及当前身份通知目标仍待，不计整编号完成。
+
 2026-10-30 R011/013投递分项：真实SMTP未ACK时重复请求200已发送先红，现pending/failed持久不可验证标记与固定请求key在途门禁、精确ID/hash/CAS成功激活，失败保原60秒预算，跨时限/DB标记移除不并发重发，旧进程pending可恢复。PG78146真实SMTP/原2FA47900/destroy96415及types/server build/末Chrome33065/4守卫/有效lint/双端82148/末dist通过，36输入+失败视觉报告零finding，证据见HANDOFF。销毁专用A/B去同码、账户会话邮箱集合及预算原回归保持；generic消费后/跨操作预算与当前身份/通知目标等内部缺口另待，不计整编号完成或新增计数。
 
 2026-10-30 R013重发分项：原前端60/后端120秒在真实PG/SMTP61秒后不发送先红，现同user/operation/resource锁下60秒并独立返回alreadySent/resendAfter，前端用真实剩余时间/重复零dispatch；Owner纠正后邮箱用「验证码已发送，请查收邮箱」、其他渠道查看通知，三语同步。真实PG/SMTP61秒新邮件/30秒冷却/精确60秒八并发单邮件/跨账户验证及destroy-email记录隔离通过；actual Chrome原禁用2FA/14旧child context/36首帧44px键盘矩阵、18末图/inspect零findings、types/3守卫/lint/唯一双端build7727和末dist通过，证据见HANDOFF。仅原user/operation/resource合同，SMTP在途/失败/消费后预算、外部邮件与完整操作另待；销毁专用账户60秒/绑定/去同码保持，原327计数不重复增加。

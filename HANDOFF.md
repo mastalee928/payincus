@@ -2,7 +2,16 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 通用验证码尝试耗尽仍保重发冷却（持续施工）
+
+- 前投递段3ac7b8a5074b0e7977f43f1cb791673d70b59a52/CI41019111832已推；原recordFailedVerificationAttempt第五次后deleteMany，实际PG/SMTP先红takeover-verification-attempt-budget-before.log：五次错误后立刻request200并新增邮件。现以未验证/未过期/generic/attempts<5条件updateMany原子增加，保耗尽记录用于原发送时间，最大5；并发错误不越成pending6/failed7，也不删除或复活旧已验证记录。数据库故障不冒充正常错误上限。
+- 实际PG/SMTP67448自然exit0，takeover-verification-attempt-budget-pg-final.log：五次耗尽保冷却、正确旧码拒绝、61秒可重发、八错误并发最多5且零额外邮件，原发送ACK/拒收/中断/账户/destroy隔离完整回归。原实际2FA disable再次自然exit0（takeover-verification-attempt-budget-2fa-final.log），密码/TOTP错误保grant及正确消费/revoke保持。
+- 源+专项types55383/server build68054/两operation守卫test-run-20261030-151802均自然exit0，diff通过。本段无前端变更，沿用3ac7b8a5末双端/Chrome，不重复构建，也不扩大为外部SMTP或完整客户操作。
+- 2026-10-30末CI快照：41014322522集成105/172步骤完成、41015808583为89/173、41017076013为67/174；各六其它job成功、Pool仍运行，41019111832也未终态，继续查。原327259含部分/68不同计数不增，generic已消费和跨操作预算/当前身份/通知目标、历史GoIO及灾备继续，不宣称完整验收。
+
 ## 2026-10-30 R1-011/013 通用验证码真实投递状态（持续施工）
+
+- 本段已推3ac7b8a5074b0e7977f43f1cb791673d70b59a52，远端main一致，CI41019111832运行。随后真实PG/SMTP已复现尝试耗尽删除记录绕过60秒重发预算，下一段保耗尽记录及并发次数封顶精修；原generic跨操作/已消费预算与完整身份仍保留。
 
 - 重发段af5af1af6b51272e7aa6a370227ada2df9d4554a已推/CI41017076013仍运行。真实SMTP延迟最终ACK先红：首邮件未被接受，重复请求却200 alreadySent；发送失败原删除记录还可绕过冷却。现沿原user/operation/resource锁预存不可验证的pending标记，单后端按固定请求key保在途门禁，邮件/通知成功后精确recordId/hash/状态/有效期CAS激活，失败保不可验证记录及原发送时间；在途跨60秒/行被删除仍不重发，旧进程pending无当前I/O转failed，冷却后可重试。失败只返回稳定错误，不把原SMTP内容暴露到UI。持久标记复用attempts的6/7值，无schema迁移；原0–4验证次数门禁及销毁专用标记空间保持。
 - 新PG/SMTP78146自然exit0，takeover-verification-delivery-pg-final.log覆盖原61秒/并发单邮件/账户隔离、延迟ACK零成功与提前验证拒绝、跨60秒和移除DB标记仍拒绝并行、ACK后可验证、550失败保冷却且61秒后重试、模拟旧进程pending恢复与destroy-email记录不变。原实际2FA47900及destroy96415真实PG/SMTP全回归自然exit0；含A/B同码强制碰撞、账户/session/email/set/一次消费/60秒/hour限制保持。真实SMTP服务在本机隔离，认证及外部账户不是生产实证。

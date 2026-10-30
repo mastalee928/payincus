@@ -163,6 +163,32 @@ try {
   assert.equal((await request()).statusCode, 200)
   assert.equal(messages.length, beforeHeld + 3)
   console.log('PASS interrupted-process pending marker cannot prove delivery and recovers after the resend cooldown')
+
+  await prisma.operationVerification.deleteMany({ where: { userId: actor.id, operationType: 'disable_2fa' } })
+  await request()
+  const beforeExhausted = messages.length
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const wrongAttempt = await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: '000000' } })
+    assert.equal(wrongAttempt.statusCode, 400)
+  }
+  const exhaustedCooldown = await request()
+  assert.equal(exhaustedCooldown.statusCode, 400, 'exhausting verification attempts must not reset the resend budget')
+  assert.equal(exhaustedCooldown.json().code, 'VERIFICATION_RATE_LIMITED')
+  assert.equal(messages.length, beforeExhausted)
+  const exhausted = await record(); assert.equal(exhausted.attempts, 5)
+  const exhaustedCode = codeFor(actor.email!)
+  const exhaustedVerify = await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: exhaustedCode } })
+  assert.equal(exhaustedVerify.statusCode, 400)
+  await prisma.operationVerification.update({ where: { id: exhausted.id }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  assert.equal((await request()).statusCode, 200)
+  const concurrentAttemptRecord = await record()
+  const concurrentWrong = await Promise.all(Array.from({ length: 8 }, () => app.inject({ method: 'POST', url: '/verification/verify',
+    payload: { operationType: 'disable_2fa', code: '000000' } })))
+  assert.ok(concurrentWrong.every(response => response.statusCode === 400))
+  assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: concurrentAttemptRecord.id } })).attempts, 5)
+  assert.equal((await request()).json().code, 'VERIFICATION_RATE_LIMITED')
+  assert.equal(messages.length, beforeExhausted + 1)
+  console.log('PASS exhausted and concurrent wrong attempts remain capped at five and retain sixty-second resend cooldown')
 } catch (error) { failure = error } finally {
   held.splice(0).forEach(item => item.finish())
   await app.close(); clearTransporterCache()

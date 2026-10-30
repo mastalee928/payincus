@@ -39,6 +39,11 @@ const verifyOperationCodeSource = sourceBetween(
   'export async function verifyOperationCode(',
   '/**\n * 检查操作是否已经通过二次验证'
 )
+const failedAttemptSource = sourceBetween(source, 'async function recordFailedVerificationAttempt(', 'export async function verifyOperationCode(')
+assert.ok(failedAttemptSource.includes('operationVerification.updateMany({') &&
+  failedAttemptSource.includes('attempts: { lt: VERIFICATION_CONFIG.maxAttempts }') &&
+  !failedAttemptSource.includes('operationVerification.deleteMany('),
+  'wrong attempts must use a bounded conditional increment and retain exhausted records for the resend budget')
 
 assert.ok(
   source.includes("return `sha256:${crypto.createHash('sha256').update(code).digest('hex')}`"),

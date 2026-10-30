@@ -404,26 +404,18 @@ export interface VerifyOperationResult {
 }
 
 async function recordFailedVerificationAttempt(verificationId: number): Promise<boolean> {
-    let attempts: number
-    try {
-        const verification = await prisma.operationVerification.update({
-            where: { id: verificationId },
-            data: { attempts: { increment: 1 } },
-            select: { attempts: true }
-        })
-        attempts = verification.attempts
-    } catch {
-        return true
-    }
-
-    if (attempts >= VERIFICATION_CONFIG.maxAttempts) {
-        await prisma.operationVerification.deleteMany({
-            where: { id: verificationId, verified: false }
-        })
-        return true
-    }
-
-    return false
+    const updated = await prisma.operationVerification.updateMany({
+        where: { id: verificationId, verified: false, expiresAt: { gt: new Date() },
+            attempts: { lt: VERIFICATION_CONFIG.maxAttempts }, ...GENERIC_VERIFICATIONS },
+        data: { attempts: { increment: 1 } }
+    })
+    if (updated.count !== 1) return true
+    const verification = await prisma.operationVerification.findUnique({
+        where: { id: verificationId }, select: { attempts: true }
+    })
+    // Keep the exhausted row for its resend timestamp. Atomic bounded increments
+    // also prevent concurrent wrong guesses from becoming delivery markers.
+    return !verification || verification.attempts >= VERIFICATION_CONFIG.maxAttempts
 }
 
 /**
