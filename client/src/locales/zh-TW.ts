@@ -3568,6 +3568,7 @@ pool: {
             history: '歷史',
             historyTitle: '通知歷史',
             channelsLoadFailed: '無法讀取通知渠道，請重試。',
+            processing: '正在處理通知渠道，請稍候。',
             logsLoadFailed: '無法讀取目前通知歷史，請重試。',
             statsLoadFailed: '無法讀取通知統計，請重試。',
             statsPending: '等待: {count}',

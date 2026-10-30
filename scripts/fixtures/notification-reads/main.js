@@ -24,6 +24,11 @@ createApp({ setup() {
     pending.find(r => r.kind === 'logs').resolve({ logs: rows, total: rows.length, page: 1, pageSize: 10 })
     pending.find(r => r.kind === 'stats').resolve({ stats: { total: 3, failed: 1, sent: 1, pending: 1 } })
   })
+  if (query.get('preview') === 'form') onMounted(async () => {
+    await nextTick()
+    pending[0].resolve({ channels: [{ id: 1, name: '实例到期通知', type: 'telegram', enabled: true, configPreview: '已配置' }] })
+    component.value.$.setupState.showAddNotification = true
+  })
   return { component, active, mounted }
 }, components: { NotificationSection }, template: '<main class="max-w-6xl mx-auto p-4"><h1 class="text-xl mb-4">PayIncus · 通知设置</h1><KeepAlive v-if="mounted"><NotificationSection v-if="active" ref="component"/></KeepAlive></main>' })
   .use(createPinia()).use(i18n).mount('#app')

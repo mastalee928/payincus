@@ -2876,6 +2876,7 @@ pool: {
             history: 'History',
             historyTitle: 'Notification History',
             channelsLoadFailed: 'Could not load notification channels. Please retry.',
+            processing: 'Processing notification channel. Please wait.',
             logsLoadFailed: 'Could not load the selected notification history. Please retry.',
             statsLoadFailed: 'Could not load notification statistics. Please retry.',
             statsPending: 'Pending: {count}',

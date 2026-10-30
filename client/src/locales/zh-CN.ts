@@ -2930,6 +2930,7 @@ pool: {
             history: '历史',
             historyTitle: '通知历史',
             channelsLoadFailed: '无法读取通知渠道，请重试。',
+            processing: '正在处理通知渠道，请稍候。',
             logsLoadFailed: '无法读取当前通知历史，请重试。',
             statsLoadFailed: '无法读取通知统计，请重试。',
             statsPending: '等待: {count}',

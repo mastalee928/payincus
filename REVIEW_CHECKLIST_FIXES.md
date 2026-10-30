@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R073收尾后）：原327个编号中，250项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，9项仍为「待精修/运行复核」。250并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以9项表示。
+当前进度（2026-10-30，R074收尾后）：原327个编号中，251项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，8项仍为「待精修/运行复核」。251并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以8项表示。
+
+2026-10-30 R074：四写共享busy/固定session-storage代次和目标，提交config/name快照、同步draft revision和cancel清secret，严格真实回执及持久失败retry；实际Chrome64旧回执/12坏回执/替换同值草稿/三语三宽真实输入按钮/18深浅布局44px自然exit0。R073完整回归、4守卫/有效lint/末双端types build和dist均过，form/history24末图已看及critique保存；251含部分/68不同/8待，真实邮件/完整Profile与后端并发仍另验，单项保存后继续R059。
 
 2026-10-30 R073：实际通知组件先红旧全部覆盖失败筛选；现三类读取各自account/role/sid/存储/代次/序号与页筛选保护，close/cache/unmount清展示草稿，strict真实脱敏/统计合同及合法缩页重读，失败持久retry保同视图最后数据。末Chrome42旧读、21坏响应/三类真实retry/ABA/零值/same-sid及36组首帧44px三语三宽深浅双motion自然exit0，types/四守卫/lint/末双端build与dist通过；深浅inspect0FAIL/0WARN及12末图已看。R074重复写入/替换草稿另继续，真实邮件和完整Profile另验。
 
@@ -281,7 +283,7 @@
 | R1-071 | 存在 | 已修；真实账户/整体UI另验 | 固定submittedStyle/account/session、共享saving与字段门禁，回执只标本次style，非法/旧会话/cache/unmount不写新用户；详情seq/ID与retry同步保护。Chrome先红→final3提交草稿/14旧写14旧读/反序detail/非法回执/same sid exit0，4守卫/lint/双端build含types/dist全过；真实账户与整体UI另验。 |
 | R1-072 | 存在 | 无调用残留已清理/相关构建守卫通过 | 完整调用及自动导入复核，仅翻译注释余引用；删除BillingSection667行，保留实际Wallet/Profile/router/API及充值后端，受保护源码哈希保持。3守卫、双端含types build与末dist正常exit0，证据见HANDOFF；孤立组件无活体流程，不充当支付功能验收。 |
 | R1-073 | 存在 | 已修；真实通知/整页另验 | 三类当前读取session/storage/序号/页筛选及cache/unmount保护，strict合同、缩页、失败retry；Chrome42旧读/21坏读/36组首帧+三语三宽深浅、4守卫/lint/双端types build末dist通过。R074写保护另继续。 |
-| R1-074 | 存在 | 待精修/运行复核 | 读列表/变更完成缺目标和请求代次绑定；过滤改变、替换草稿与重复行操作有竞态窗口。 |
+| R1-074 | 存在 | 已修；真实通知/整页另验 | 四写busy、固定session/storage/目标、提交快照及草稿revision、strict回执/持久retry。Chrome64旧操作/12坏回执/实际三语三宽按钮和18布局44px、R073完整回归/4守卫/lint/末双端types build/dist通过；外部发送和后端并发另验。 |
 | R1-075 | 存在 | 已修；真实账户/整体UI另验 | 三写共享busy/current account/session、固定草稿/ID/严格回执；私钥open禁止覆盖，close/cache/unmount清展示、复制完成隔离与Blob/data延迟download取消。实际Chrome先红→final42旧写/冲突/retry/草稿/缓存锁/两下载路径exit0，4守卫/lint/双端types build末dist过。 |
 | R1-076 | 存在 | 已修；真实账户/整体UI另验 | 列表account/role/sid/seq/ABA/cache/unmount保护与同步缩页，严格读失败保留/三语retry。Chrome先红→final14旧读/七坏读/缩页/same sid零写exit0，4守卫/lint/双端types build末dist过；写回执保护继续R075。 |
 | R1-077 | 存在 | 已修；真实账户/整体UI另验 | GET list/detail真实createdAt，日期span改单字段及缺失—，实际Chrome先红→两个API日期/三语三宽零写exit0，3守卫/lint/双端types build末dist过。保持原手机日期隐藏，生成/保存保护继续R075。 |

@@ -701,15 +701,15 @@ poolOrder: (data: {
 
   // 通知管理
   notifications: {
-    list: (): Promise<{ channels: NotificationChannel[] }> => http.get('/notifications'),
+    list: (): Promise<{ channels: Array<{ id: number; type: NotificationChannel['type']; name: string; enabled: boolean; configPreview: string; createdAt: string }> }> => http.get('/notifications'),
     get: (id: number): Promise<NotificationChannel> => http.get(`/notifications/${id}`),
-    create: (data: CreateNotificationChannelRequest): Promise<NotificationChannel> =>
+    create: (data: CreateNotificationChannelRequest): Promise<{ message: string; channel: { id: number; type: NotificationChannel['type']; name: string; enabled: boolean } }> =>
       http.post('/notifications', data),
     update: (id: number, data: UpdateNotificationChannelRequest): Promise<NotificationChannel> =>
       http.patch(`/notifications/${id}`, data),
-    delete: (id: number): Promise<void> => http.delete(`/notifications/${id}`),
-    test: (id: number): Promise<void> => http.post(`/notifications/${id}/test`),
-    toggle: (id: number): Promise<NotificationChannel> => http.post(`/notifications/${id}/toggle`),
+    delete: (id: number): Promise<{ message: string }> => http.delete(`/notifications/${id}`),
+    test: (id: number): Promise<{ message: string }> => http.post(`/notifications/${id}/test`),
+    toggle: (id: number): Promise<{ message: string; enabled: boolean }> => http.post(`/notifications/${id}/toggle`),
     // 通知历史
     getLogs: (params: { page?: number; pageSize?: number; status?: 'pending' | 'sent' | 'failed' } = {}): Promise<{
       logs: Array<{

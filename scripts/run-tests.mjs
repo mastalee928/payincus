@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-notification-actions', 'requires Chrome/Edge and local Vite; actual notification mutation locks, draft snapshots/revisions, obsolete session/cache receipts, contract validation, failure retry and current row targets; controlled API only'],
   ['test:review-notification-reads', 'requires Chrome/Edge and local Vite; actual notification component deferred lists/history/stats, session/filter/page/KeepAlive isolation, malformed reads, retry and first-frame touch controls; controlled API only'],
   ['test:review-auth-refresh', 'requires Chrome/Edge and local Vite; both real API wrappers with Axios transport and fetch deferred for shared refresh, session/storage/ABA changes, stale writes, 401 queues, retry caps and malformed refresh replies'],
   ['test:review-auth-session', 'requires Chrome/Edge and local Vite; actual auth store identity ordering, account/session/storage ABA, login/logout receipts and current failure behavior; controlled API only'],

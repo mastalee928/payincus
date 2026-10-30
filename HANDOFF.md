@@ -2,7 +2,17 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-074 通知渠道操作与替换草稿
+
+- 实际组件先红重复create发两次请求。四写共享在途锁，固定已确认渠道目标、account/role/sid、同步代次及auth存储快照；cache/account改变不提前释放旧请求锁，旧成功/失败不能toast、清替换草稿或重读新账户。create固定提交config/name和同步草稿revision，取消/重开同值也保留新草稿；取消清敏感config。delete确认显示渠道名并在确认后再核目标；toggle提示依据真实enabled回执。真实create/message/toggle合同严格验证，当前失败持久显示并可用原按钮重试。
+- 最终受控Chrome takeover-notification-actions-final-complete.log /49822自然exit0：64旧操作成功失败、重复/交叠四写、detached config、替换草稿/同值重开、reload失败、12坏回执、confirmation身份改变和cache锁释放；三语三宽实际input/save重复点击/失败retry及全部行按钮；18三语三宽深浅布局、三种渠道label/44px和长名/secret清理。takeover-notification-actions-reads-final-complete.log /26393自然exit0完整R073回归含42旧读/21坏读/36首帧两motion与焦点。只用本机实际Chrome和受控API，不等于真实邮件或后端并发验收。
+- 局部taste沿Achromatic ledger seed242843060，修继承紫色主按钮/光晕和深色低对比label，不重抽方案。最后form深浅三宽各0FAIL/1WARN（短设置段落外的留白）；history各0FAIL/0WARN。两类全部24末fold/page图已看，critique为logs/notification-actions/critique.md；静态box-shadow:none/backdrop-filter:none词法警告是取消现全局效果。完整Profile布局/真实发送仍另验。
+- 末4/4守卫test-run-20261030-102315、manifest、有效client目录lint零错警通过；最后双端含两次vue-tsc构建74600自然exit0，takeover-notification-actions-dual-build-final-verified.log(user1m16s/admin52.22s)，末dist takeover-notification-actions-dist-final-complete.log自然exit0。两次守卫命令错误、根目录ESLint缺config与同一浏览器tick输入后点击disabled按钮的夹具失败均不计通过，已按真实入口/渲染更新顺序纠正。
+- 原327现251含部分/68已有不同/8待；先单项提交推送再接R059。前8721068f802128ac3450022afcb997d45376cfd3/40983222814七job终态success；40984944304和40989729533各六job成功、Pool继续前进，仍待终态。历史40799210505 Go进程审计IO根因未定，三测试机既有SSH身份缺口/真实邮件/完整灾备保留，不生产/发行。
+
 ## 2026-10-30 R1-073 通知历史当前读取及弹窗精修
+
+- 阶段保存fdacee96a6da35ca37a1f82831ab976ef744f1c4已推送远端main，CI40989729533运行。R074重复create先红2≠1，当前四操作busy/提交快照/草稿代次/旧session回执初稿已写，运行专项继续；不可将其初稿算已完成。前12516448f298f4e8c06137f8aae717393c2a161e/40981291834现七job终态success；40983222814、40984944304及本项CI继续跟。
 
 - 实际Vue组件先红：较早全部历史覆盖较新失败筛选。列表、历史及统计分别绑定account/role/sid、auth存储对齐、generation/请求序号、当前页及筛选；close/reopen和KeepAlive/unmount清旧展示与敏感草稿，旧成功/失败/finally不能写新状态。列表仅接受后端脱敏preview，不解析不存在的config；严格分页/行/统计合同，独立PG计数不强制瞬间等式，缩页重读合法页。当前读取失败持久显示真实retry，同视图保最近成功数据，loading/empty/合法零区分。
 - 末受控Chrome专项takeover-notification-reads-last.log自然exit0：42旧list/history/stats成功失败、account/sid/role/ABA/logout/cache/unmount、filterABA/存储未同步零dispatch、pending关闭重开、oldfinally、21坏响应、三类实际retry、零stats/same-sid刷新、缩页与36组首帧44px/三语三宽深浅两motion/Escape及opener焦点。实际组件+API受控，不等于外部邮件送达或真实cookie后端验收。

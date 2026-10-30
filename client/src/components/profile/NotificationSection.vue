@@ -75,6 +75,16 @@ const notificationForm = ref<NotificationForm>({
   config: {}
 })
 const notificationLoading = ref<boolean>(false)
+type MutationKind = 'add' | 'delete' | 'toggle' | 'test'
+const pendingMutation = ref<{ kind: MutationKind; id?: number } | null>(null)
+const mutationFailure = ref<MutationKind | ''>('')
+const canMutate = computed(() => available.value && channelsReady.value && !channelsLoading.value && !channelsError.value && !pendingMutation.value)
+let draftRevision = 0
+watch([notificationForm, showAddNotification], () => { draftRevision++ }, { deep: true, flush: 'sync' })
+function cancelNotificationForm(): void {
+  showAddNotification.value = false
+  notificationForm.value = { type: 'telegram', name: '', config: {} }
+}
 
 const totalPages = computed(() => Math.max(1, Math.ceil(logsTotal.value / logsPageSize)))
 
@@ -91,7 +101,7 @@ function invalidateContext(): void {
   showHistory.value = false; resetHistory()
   showAddNotification.value = false
   notificationForm.value = { type: 'telegram', name: '', config: {} }
-  notificationLoading.value = false
+  mutationFailure.value = ''
 }
 watch(session, () => { invalidateContext(); if (available.value) void loadNotificationChannels() }, { flush: 'sync' })
 watch([logsPage, logsStatusFilter], (_next, previous) => {
@@ -224,55 +234,104 @@ async function changeLogsFilter(status: 'all' | 'sent' | 'failed'): Promise<void
 }
 
 async function addNotificationChannel(): Promise<void> {
-  if (!notificationForm.value.name) return
-  
+  if (!canMutate.value || !showAddNotification.value || typeof notificationForm.value.name !== 'string' ||
+    !notificationForm.value.name.trim() || notificationForm.value.name.trim().length > 50 || !record(notificationForm.value.config)) return
+  const draft = { type: notificationForm.value.type, name: notificationForm.value.name.trim(), config: { ...notificationForm.value.config } }
+  const revision = draftRevision
+  const operation = beginMutation('add')
+  if (!operation) return
   notificationLoading.value = true
   try {
-    await api.notifications.create({
-      type: notificationForm.value.type,
-      name: notificationForm.value.name,
-      config: notificationForm.value.config
-    })
+    const response = await api.notifications.create(draft)
+    if (!operation.current()) return
+    if (!validMessage(response) || !record(response.channel) || !positiveId(response.channel.id) || response.channel.type !== draft.type ||
+      response.channel.name !== draft.name || typeof response.channel.enabled !== 'boolean') throw new Error('Unconfirmed notification create')
     toast.success(t('profile.notifications.addSuccess'))
-    showAddNotification.value = false
-    notificationForm.value = { type: 'telegram', name: '', config: {} }
-    await loadNotificationChannels()
-  } catch (error: any) {
-    toast.error(t('profile.notifications.addFailed') + ': ' + (error?.message || String(error)))
+    if (revision === draftRevision && showAddNotification.value) cancelNotificationForm()
+    await refreshAfterMutation()
+  } catch {
+    if (operation.current()) mutationFailure.value = 'add'
   } finally {
     notificationLoading.value = false
+    operation.finish()
   }
 }
 
 async function deleteNotificationChannel(channelId: number): Promise<void> {
-  if (!confirm(t('profile.notifications.confirmDelete'))) return
-  
+  const channel = notificationChannels.value.find(ch => ch.id === channelId)
+  if (!canMutate.value || !positiveId(channelId) || !channel) return
+  const version = generation, identity = session.value, authentication = auth.captureAuthentication()
+  if (!authentication.aligned || !confirm(`${t('profile.notifications.confirmDelete')}\n${channel.name}`)) return
+  if (!authentication.current() || version !== generation || identity !== session.value || !canMutate.value ||
+    notificationChannels.value.find(ch => ch.id === channelId) !== channel) return
+  const operation = beginMutation('delete', channelId)
+  if (!operation) return
   try {
-    await api.notifications.delete(channelId)
+    const response = await api.notifications.delete(channelId)
+    if (!operation.current()) return
+    if (!validMessage(response)) throw new Error('Unconfirmed notification delete')
     toast.success(t('profile.notifications.deleteSuccess'))
-    await loadNotificationChannels()
-  } catch (error: any) {
-    toast.error(t('profile.notifications.deleteFailed') + ': ' + (error?.message || String(error)))
+    await refreshAfterMutation()
+  } catch {
+    if (operation.current()) mutationFailure.value = 'delete'
+  } finally {
+    operation.finish()
   }
 }
 
 async function toggleNotificationChannel(channel: NotificationChannel): Promise<void> {
+  if (!canMutate.value || !channel || !positiveId(channel.id) || notificationChannels.value.find(ch => ch.id === channel.id) !== channel) return
+  const channelId = channel.id
+  const operation = beginMutation('toggle', channelId)
+  if (!operation) return
   try {
-    await api.notifications.toggle(channel.id)
-    toast.success(channel.enabled ? t('profile.notifications.disabled') : t('profile.notifications.enabled'))
-    await loadNotificationChannels()
-  } catch (error: any) {
-    toast.error(t('profile.notifications.toggleFailed') + ': ' + (error?.message || String(error)))
+    const response = await api.notifications.toggle(channelId)
+    if (!operation.current()) return
+    if (!validMessage(response) || typeof response.enabled !== 'boolean') throw new Error('Unconfirmed notification toggle')
+    toast.success(response.enabled ? t('profile.notifications.enabled') : t('profile.notifications.disabled'))
+    await refreshAfterMutation()
+  } catch {
+    if (operation.current()) mutationFailure.value = 'toggle'
+  } finally {
+    operation.finish()
   }
 }
 
 async function testNotificationChannel(channelId: number): Promise<void> {
+  if (!canMutate.value || !positiveId(channelId) || !notificationChannels.value.some(ch => ch.id === channelId)) return
+  const operation = beginMutation('test', channelId)
+  if (!operation) return
   try {
-    await api.notifications.test(channelId)
+    const response = await api.notifications.test(channelId)
+    if (!operation.current()) return
+    if (!validMessage(response)) throw new Error('Unconfirmed notification test')
     toast.success(t('profile.notifications.testSuccess'))
-  } catch (error: any) {
-    toast.error(t('profile.notifications.testFailed') + ': ' + (error?.message || String(error)))
+  } catch {
+    if (operation.current()) mutationFailure.value = 'test'
+  } finally {
+    operation.finish()
   }
+}
+
+function validMessage(value: unknown): value is { message: string } {
+  return record(value) && typeof value.message === 'string' && !!value.message.trim()
+}
+function beginMutation(kind: MutationKind, id?: number) {
+  if (!canMutate.value) return null
+  const authentication = auth.captureAuthentication(), identity = session.value, version = generation
+  if (!authentication.aligned) return null
+  const operation = { kind, id }
+  pendingMutation.value = operation
+  const claimed = pendingMutation.value
+  mutationFailure.value = ''; channelsSequence++
+  return {
+    current: () => available.value && authentication.current() && identity === session.value && version === generation && pendingMutation.value === claimed,
+    finish: () => { if (pendingMutation.value === claimed) pendingMutation.value = null }
+  }
+}
+async function refreshAfterMutation(): Promise<void> {
+  channelsSequence++
+  await loadNotificationChannels()
 }
 
 function getNotificationTypeLabel(type: string): string {
@@ -338,59 +397,61 @@ defineExpose({ loadNotificationChannels })
       <button class="btn-ghost btn-sm" :disabled="channelsLoading" @click="loadNotificationChannels">{{ $t('common.retry') }}</button>
     </div>
     <p v-if="channelsLoading" role="status" class="notification-loading">{{ $t('common.loading') }}</p>
+    <p v-if="pendingMutation" role="status" class="notification-loading">{{ $t('profile.notifications.processing') }}</p>
+    <p v-if="mutationFailure" role="alert" class="notification-read-state">{{ $t(`profile.notifications.${mutationFailure}Failed`) }}</p>
 
     <!-- 添加通知渠道表单 -->
     <div v-if="showAddNotification" class="mb-4 p-4 bg-themed-tertiary border border-themed rounded-xl space-y-3">
       <div>
-        <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.type') }}</label>
-        <select v-model="notificationForm.type" class="input" @change="notificationForm.config = {}">
+        <label for="notification-channel-type" class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.type') }}</label>
+        <select id="notification-channel-type" v-model="notificationForm.type" class="input" @change="notificationForm.config = {}">
           <option value="telegram">Telegram</option>
           <option value="discord">Discord</option>
           <option value="webhook">Webhook</option>
         </select>
       </div>
       <div>
-        <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.name') }}</label>
-        <input v-model="notificationForm.name" type="text" class="input" :placeholder="$t('profile.notifications.namePlaceholder')" />
+        <label for="notification-channel-name" class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.name') }}</label>
+        <input id="notification-channel-name" v-model="notificationForm.name" type="text" maxlength="50" class="input" :placeholder="$t('profile.notifications.namePlaceholder')" />
       </div>
       
       <!-- Telegram 配置 -->
       <template v-if="notificationForm.type === 'telegram'">
         <div>
-          <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.telegram.botToken') }}</label>
-          <input v-model="notificationForm.config.botToken" type="text" class="input" :placeholder="$t('profile.notifications.telegram.botTokenPlaceholder')" />
+          <label for="notification-bot-token" class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.telegram.botToken') }}</label>
+          <input id="notification-bot-token" v-model="notificationForm.config.botToken" type="password" autocomplete="off" class="input" :placeholder="$t('profile.notifications.telegram.botTokenPlaceholder')" />
         </div>
         <div>
-          <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.telegram.chatId') }}</label>
-          <input v-model="notificationForm.config.chatId" type="text" class="input" :placeholder="$t('profile.notifications.telegram.chatIdPlaceholder')" />
+          <label for="notification-chat-id" class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.telegram.chatId') }}</label>
+          <input id="notification-chat-id" v-model="notificationForm.config.chatId" type="text" class="input" :placeholder="$t('profile.notifications.telegram.chatIdPlaceholder')" />
         </div>
       </template>
       
       <!-- Discord 配置 -->
       <template v-else-if="notificationForm.type === 'discord'">
         <div>
-          <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.discord.webhookUrl') }}</label>
-          <input v-model="notificationForm.config.webhookUrl" type="text" class="input" :placeholder="$t('profile.notifications.discord.webhookUrlPlaceholder')" />
+          <label for="notification-discord-url" class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.discord.webhookUrl') }}</label>
+          <input id="notification-discord-url" v-model="notificationForm.config.webhookUrl" type="password" autocomplete="off" class="input" :placeholder="$t('profile.notifications.discord.webhookUrlPlaceholder')" />
         </div>
       </template>
       
       <!-- Webhook 配置 -->
       <template v-else-if="notificationForm.type === 'webhook'">
         <div>
-          <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.webhook.url') }}</label>
-          <input v-model="notificationForm.config.url" type="text" class="input" :placeholder="$t('profile.notifications.webhook.urlPlaceholder')" />
+          <label for="notification-webhook-url" class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.webhook.url') }}</label>
+          <input id="notification-webhook-url" v-model="notificationForm.config.url" type="text" class="input" :placeholder="$t('profile.notifications.webhook.urlPlaceholder')" />
         </div>
         <div>
-          <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.webhook.secret') }}</label>
-          <input v-model="notificationForm.config.secret" type="text" class="input" :placeholder="$t('profile.notifications.webhook.secretPlaceholder')" />
+          <label for="notification-webhook-secret" class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.notifications.webhook.secret') }}</label>
+          <input id="notification-webhook-secret" v-model="notificationForm.config.secret" type="password" autocomplete="off" class="input" :placeholder="$t('profile.notifications.webhook.secretPlaceholder')" />
         </div>
       </template>
 
       <div class="flex gap-2">
-        <button :disabled="notificationLoading || !notificationForm.name" class="btn-primary btn-sm" @click="addNotificationChannel">
+        <button :disabled="!canMutate || !notificationForm.name.trim()" class="btn-primary btn-sm" @click="addNotificationChannel">
           {{ notificationLoading ? $t('profile.notifications.saving') : $t('profile.notifications.save') }}
         </button>
-        <button class="btn-ghost btn-sm" @click="showAddNotification = false">{{ $t('profile.notifications.cancel') }}</button>
+        <button class="btn-ghost btn-sm" @click="cancelNotificationForm">{{ $t('profile.notifications.cancel') }}</button>
       </div>
     </div>
 
@@ -408,8 +469,8 @@ defineExpose({ loadNotificationChannels })
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
           </div>
-          <div>
-            <div class="text-sm text-themed-secondary flex items-center gap-2">
+          <div class="notification-channel-identity min-w-0">
+            <div class="text-sm text-themed-secondary flex flex-wrap items-center gap-2">
               {{ channel.name }}
               <span class="text-xs px-1.5 py-0.5 rounded badge-default">
                 {{ getNotificationTypeLabel(channel.type) }}
@@ -420,16 +481,16 @@ defineExpose({ loadNotificationChannels })
           </div>
         </div>
         <div class="flex items-center gap-2 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
-          <button class="btn-ghost btn-sm" :title="$t('profile.notifications.test')" @click="testNotificationChannel(channel.id)">
+          <button class="btn-ghost btn-sm" :disabled="!canMutate" :aria-label="$t('profile.notifications.test')" :title="$t('profile.notifications.test')" @click="testNotificationChannel(channel.id)">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </button>
-          <button class="btn-ghost btn-sm" @click="toggleNotificationChannel(channel)">
+          <button class="btn-ghost btn-sm" :disabled="!canMutate" @click="toggleNotificationChannel(channel)">
             {{ channel.enabled ? $t('profile.notifications.disable') : $t('profile.notifications.enable') }}
           </button>
-          <button class="text-themed-faint hover:text-red-400" @click="deleteNotificationChannel(channel.id)">
+          <button class="text-themed-faint hover:text-red-400" :disabled="!canMutate" :aria-label="$t('common.delete')" @click="deleteNotificationChannel(channel.id)">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
@@ -589,6 +650,25 @@ defineExpose({ loadNotificationChannels })
   min-height: 44px;
   min-width: 44px;
 }
+.notification-section input, .notification-section select { min-height: 44px; }
+.notification-section .text-xs { font-size: 13px; }
+.notification-section label { color: var(--kawaii-text) !important; }
+.notification-section .input {
+  color: var(--kawaii-text) !important;
+  background: var(--kawaii-bg) !important;
+  border-color: var(--kawaii-line-strong) !important;
+  box-shadow: none !important;
+}
+.notification-section .input::placeholder { color: var(--kawaii-muted) !important; opacity: 1; }
+.notification-section .input:focus { outline: 2px solid var(--kawaii-text); outline-offset: 2px; }
+.notification-section button { box-shadow: none !important; filter: none !important; }
+.notification-section .btn-primary {
+  color: var(--kawaii-bg) !important;
+  background: var(--kawaii-text) !important;
+  background-image: none !important;
+  border-color: var(--kawaii-text) !important;
+}
+.notification-section .btn-primary::before, .notification-section .btn-primary::after { display: none !important; }
 .notification-section button:focus-visible, .notification-history button:focus-visible {
   outline: 2px solid var(--kawaii-text);
   outline-offset: 2px;
@@ -604,6 +684,7 @@ defineExpose({ loadNotificationChannels })
 .notification-history .text-themed-faint, .notification-history .text-themed-muted,
 .notification-section .text-themed-faint { color: var(--kawaii-muted) !important; }
 .notification-log { overflow-wrap: anywhere; }
+.notification-channel-identity { overflow-wrap: anywhere; }
 .notification-log .flex.items-center { flex-wrap: wrap; }
 .notification-log .text-green-500 { color: #247b50; background: #dcfae5; }
 .notification-log .text-red-500 { color: #831c1e; background: #ffedea; }

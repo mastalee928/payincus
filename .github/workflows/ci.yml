@@ -398,6 +398,8 @@ jobs:
         run: pnpm --filter server test:review-auth-refresh
       - name: Notification history reads stay within the current session filter and page
         run: pnpm --filter server test:review-notification-reads
+      - name: Notification mutations protect submitted drafts and reject duplicate operations
+        run: pnpm --filter server test:review-notification-actions
       - name: Host config preserves the registered connection endpoint
         run: pnpm --filter server test:review-host-config-endpoint
       - name: Host config sends explicit clears and keeps IPv6 mode gates
