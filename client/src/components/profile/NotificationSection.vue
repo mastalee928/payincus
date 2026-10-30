@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import { useToast } from '@/stores/toast'
-import type { NotificationChannel as ApiNotificationChannel } from '@/types/api'
+import { useAuthStore } from '@/stores/auth'
+import { useDialogFocus } from '@/composables/useDialogFocus'
 
 const { t } = useI18n()
 const toast = useToast()
+const auth = useAuthStore()
 
 interface NotificationChannel {
   id: number
@@ -46,6 +48,21 @@ const logsTotal = ref(0)
 const logsPageSize = 10
 const logsStatusFilter = ref<'all' | 'sent' | 'failed'>('all')
 const logsLoading = ref(false)
+const channelsLoading = ref(false), channelsError = ref(false), channelsReady = ref(false)
+const logsError = ref(false), logsReady = ref(false), statsLoading = ref(false), statsError = ref(false)
+const historyRoot = ref<HTMLElement | null>(null), active = ref(false)
+let alive = true, generation = 0, channelsSequence = 0, logsSequence = 0, statsSequence = 0
+const session = computed(() => {
+  if (!auth.user || !auth.token || !Number.isSafeInteger(auth.user.id) || auth.user.id < 1) return ''
+  let identity = auth.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (payload.id !== auth.user.id || payload.role !== auth.user.role) return ''
+    if (typeof payload.sid === 'string' && payload.sid) identity = payload.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${auth.user.id}:${auth.user.role}:${identity}`
+})
+const available = computed(() => alive && active.value && !!session.value)
 
 interface NotificationForm {
   type: 'telegram' | 'discord' | 'webhook' | 'email'
@@ -59,55 +76,130 @@ const notificationForm = ref<NotificationForm>({
 })
 const notificationLoading = ref<boolean>(false)
 
-const totalPages = computed(() => Math.ceil(logsTotal.value / logsPageSize))
+const totalPages = computed(() => Math.max(1, Math.ceil(logsTotal.value / logsPageSize)))
+
+function resetHistory(): void {
+  logsSequence++; statsSequence++
+  notificationLogs.value = []; notificationStats.value = null
+  logsTotal.value = 0; logsPage.value = 1; logsStatusFilter.value = 'all'
+  logsLoading.value = false; logsError.value = false; logsReady.value = false
+  statsLoading.value = false; statsError.value = false
+}
+function invalidateContext(): void {
+  generation++; channelsSequence++
+  notificationChannels.value = []; channelsLoading.value = false; channelsError.value = false; channelsReady.value = false
+  showHistory.value = false; resetHistory()
+  showAddNotification.value = false
+  notificationForm.value = { type: 'telegram', name: '', config: {} }
+  notificationLoading.value = false
+}
+watch(session, () => { invalidateContext(); if (available.value) void loadNotificationChannels() }, { flush: 'sync' })
+watch([logsPage, logsStatusFilter], (_next, previous) => {
+  logsSequence++; notificationLogs.value = []; logsReady.value = false; logsError.value = false; logsLoading.value = false
+  if (previous && logsStatusFilter.value !== previous[1]) logsTotal.value = 0
+}, { flush: 'sync' })
+function activate(): void {
+  if (!alive || active.value) return
+  active.value = true
+  void loadNotificationChannels()
+}
+onMounted(activate); onActivated(activate)
+onDeactivated(() => { active.value = false; invalidateContext() })
+onBeforeUnmount(() => { alive = false; active.value = false; invalidateContext() })
+useDialogFocus(historyRoot, () => showHistory.value && !!historyRoot.value, closeHistory)
+const channelTypes = new Set(['telegram', 'discord', 'webhook', 'email'])
+function record(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+function positiveId(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) > 0 }
+function count(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0 }
+function validLog(value: unknown): value is NotificationLog {
+  return record(value) && positiveId(value.id) && positiveId(value.channelId) &&
+    typeof value.channelName === 'string' && typeof value.channelType === 'string' && channelTypes.has(value.channelType) &&
+    typeof value.eventType === 'string' && typeof value.message === 'string' && typeof value.status === 'string' && ['pending', 'sent', 'failed'].includes(value.status) &&
+    (value.error === null || typeof value.error === 'string') && typeof value.createdAt === 'string' && Number.isFinite(Date.parse(value.createdAt))
+}
 
 async function loadNotificationChannels(): Promise<void> {
+  if (!available.value) return
+  const identity = session.value, version = generation, sequence = ++channelsSequence, authentication = auth.captureAuthentication()
+  if (!authentication.aligned) return
+  const current = () => available.value && authentication.current() && identity === session.value && version === generation && sequence === channelsSequence
+  channelsLoading.value = true; channelsError.value = false
   try {
-    const response = await api.notifications.list()
-    const data = response as { channels?: ApiNotificationChannel[] }
-    notificationChannels.value = (data.channels || []).map((ch: ApiNotificationChannel) => ({
-      id: ch.id,
-      type: ch.type,
-      name: ch.name,
-      enabled: Boolean(ch.enabled),
-      config: typeof ch.config === 'string' ? JSON.parse(ch.config) : (ch.config ?? {}),
-      configPreview: (ch as any).configPreview || ''
-    }))
-  } catch (error) {
-    console.error('Failed to load notification channels:', error)
+    const data: unknown = await api.notifications.list()
+    if (!current()) return
+    if (!record(data) || !Array.isArray(data.channels) || !data.channels.every(ch => record(ch) && positiveId(ch.id) &&
+      typeof ch.type === 'string' && channelTypes.has(ch.type) && typeof ch.name === 'string' && typeof ch.enabled === 'boolean' &&
+      typeof ch.configPreview === 'string') || new Set(data.channels.map(ch => ch.id)).size !== data.channels.length) throw new Error('Invalid notification channels')
+    notificationChannels.value = data.channels.map(ch => ({ id: ch.id, type: ch.type, name: ch.name, enabled: ch.enabled, config: {}, configPreview: ch.configPreview }))
+    channelsReady.value = true
+  } catch {
+    if (current()) channelsError.value = true
+  } finally {
+    if (current()) channelsLoading.value = false
   }
 }
 
 async function loadNotificationLogs(): Promise<void> {
+  if (!available.value || !showHistory.value || !positiveId(logsPage.value)) return
+  const identity = session.value, version = generation, sequence = ++logsSequence, selectedPage = logsPage.value, filter = logsStatusFilter.value
+  const authentication = auth.captureAuthentication()
+  if (!authentication.aligned) return
+  const current = () => available.value && showHistory.value && authentication.current() && identity === session.value && version === generation &&
+    sequence === logsSequence && selectedPage === logsPage.value && filter === logsStatusFilter.value
   logsLoading.value = true
+  logsError.value = false
   try {
     const params: { page: number; pageSize: number; status?: 'sent' | 'failed' } = {
-      page: logsPage.value,
+      page: selectedPage,
       pageSize: logsPageSize
     }
-    if (logsStatusFilter.value !== 'all') {
-      params.status = logsStatusFilter.value
+    if (filter !== 'all') {
+      params.status = filter
     }
     const result = await api.notifications.getLogs(params)
-    notificationLogs.value = result.logs
+    if (!current()) return
+    if (!record(result) || !Array.isArray(result.logs) || result.logs.length > logsPageSize || !result.logs.every(validLog) ||
+      new Set(result.logs.map(log => log.id)).size !== result.logs.length || !count(result.total) || result.page !== selectedPage ||
+      result.pageSize !== logsPageSize || (filter !== 'all' && result.logs.some(log => log.status !== filter))) throw new Error('Invalid notification history')
+    const lastPage = Math.max(1, Math.ceil(result.total / logsPageSize))
+    if (selectedPage > lastPage) {
+      logsTotal.value = result.total; logsPage.value = lastPage
+      await loadNotificationLogs()
+      return
+    }
+    notificationLogs.value = result.logs.map(log => ({ ...log }))
     logsTotal.value = result.total
-  } catch (error) {
-    console.error('Failed to load notification logs:', error)
+    logsReady.value = true
+  } catch {
+    if (current()) logsError.value = true
   } finally {
-    logsLoading.value = false
+    if (current()) logsLoading.value = false
   }
 }
 
 async function loadNotificationStats(): Promise<void> {
+  if (!available.value || !showHistory.value) return
+  const identity = session.value, version = generation, sequence = ++statsSequence, authentication = auth.captureAuthentication()
+  if (!authentication.aligned) return
+  const current = () => available.value && showHistory.value && authentication.current() && identity === session.value && version === generation && sequence === statsSequence
+  statsLoading.value = true; statsError.value = false
   try {
     const result = await api.notifications.getStats()
-    notificationStats.value = result.stats
-  } catch (error) {
-    console.error('Failed to load notification stats:', error)
+    if (!current()) return
+    if (!record(result) || !record(result.stats) || !['total', 'sent', 'failed', 'pending'].every(field => count(result.stats[field as keyof NotificationStats]))) throw new Error('Invalid notification statistics')
+    notificationStats.value = { ...result.stats }
+  } catch {
+    if (current()) statsError.value = true
+  } finally {
+    if (current()) statsLoading.value = false
   }
 }
 
 async function openHistory(): Promise<void> {
+  if (!available.value || showHistory.value) return
+  resetHistory()
   showHistory.value = true
   logsPage.value = 1
   await Promise.all([loadNotificationLogs(), loadNotificationStats()])
@@ -115,14 +207,17 @@ async function openHistory(): Promise<void> {
 
 function closeHistory(): void {
   showHistory.value = false
+  resetHistory()
 }
 
 async function changeLogsPage(page: number): Promise<void> {
+  if (!positiveId(page) || page > totalPages.value || !showHistory.value || page === logsPage.value) return
   logsPage.value = page
   await loadNotificationLogs()
 }
 
 async function changeLogsFilter(status: 'all' | 'sent' | 'failed'): Promise<void> {
+  if (!['all', 'sent', 'failed'].includes(status) || !showHistory.value || status === logsStatusFilter.value) return
   logsStatusFilter.value = status
   logsPage.value = 1
   await loadNotificationLogs()
@@ -212,27 +307,24 @@ function formatDate(dateStr: string): string {
   })
 }
 
-// 挂载时加载
-loadNotificationChannels()
-
 defineExpose({ loadNotificationChannels })
 </script>
 
 <template>
-  <div class="card nimbus-section">
-    <div class="flex items-center justify-between mb-5">
+  <div class="card nimbus-section notification-section" :aria-busy="channelsLoading">
+    <div class="notification-heading flex items-center justify-between gap-4 mb-5">
       <div>
         <h2 class="nimbus-section-title">{{ $t('profile.notifications.title') }}</h2>
         <p class="nimbus-section-desc">{{ $t('profile.notifications.description') }}</p>
       </div>
       <div class="flex items-center gap-2">
-        <button class="btn-ghost btn-sm" @click="openHistory">
+        <button class="btn-ghost btn-sm" :disabled="!available" @click="openHistory">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           {{ $t('profile.notifications.history') }}
         </button>
-        <button class="btn-ghost btn-sm" @click="showAddNotification = true">
+        <button class="btn-ghost btn-sm" :disabled="!available" @click="showAddNotification = true">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
@@ -240,6 +332,12 @@ defineExpose({ loadNotificationChannels })
         </button>
       </div>
     </div>
+
+    <div v-if="channelsError" role="alert" class="notification-read-state">
+      <p>{{ $t('profile.notifications.channelsLoadFailed') }}</p>
+      <button class="btn-ghost btn-sm" :disabled="channelsLoading" @click="loadNotificationChannels">{{ $t('common.retry') }}</button>
+    </div>
+    <p v-if="channelsLoading" role="status" class="notification-loading">{{ $t('common.loading') }}</p>
 
     <!-- 添加通知渠道表单 -->
     <div v-if="showAddNotification" class="mb-4 p-4 bg-themed-tertiary border border-themed rounded-xl space-y-3">
@@ -303,7 +401,7 @@ defineExpose({ loadNotificationChannels })
             <svg v-if="channel.type === 'telegram'" class="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.461-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.442-.752-.244-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.014 3.333-1.386 4.025-1.627 4.477-1.635.099-.002.321.023.465.14.121.099.155.232.17.36.015.101.012.234-.004.36z" />
             </svg>
-            <svg v-else-if="channel.type === 'discord'" class="w-4 h-4 text-indigo-400" fill="currentColor" viewBox="0 0 24 24">
+            <svg v-else-if="channel.type === 'discord'" class="w-4 h-4 icon-themed" fill="currentColor" viewBox="0 0 24 24">
               <path d="M20.317 4.369a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.249a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.249.077.077 0 00-.079-.037 19.736 19.736 0 00-4.885 1.515.069.069 0 00-.032.027C.533 9.045-.32 13.58.099 18.056a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.078-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 01.079.009c.12.098.245.198.373.293a.077.077 0 01-.007.128 12.299 12.299 0 01-1.873.891.077.077 0 00-.041.107c.36.698.772 1.363 1.225 1.993a.076.076 0 00.084.029 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.056c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.028z" />
             </svg>
             <svg v-else class="w-4 h-4 icon-themed" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -339,7 +437,7 @@ defineExpose({ loadNotificationChannels })
         </div>
       </div>
     </TransitionGroup>
-    <div v-else-if="!showAddNotification" class="text-sm text-themed-muted text-center py-6 border border-dashed border-themed rounded-lg">
+    <div v-else-if="channelsReady && !channelsLoading && !channelsError && !showAddNotification" class="text-sm text-themed-muted text-center py-6 border border-dashed border-themed rounded-lg">
       <svg class="w-8 h-8 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
       </svg>
@@ -348,21 +446,27 @@ defineExpose({ loadNotificationChannels })
 
     <!-- 通知历史弹窗 -->
     <Teleport to="body">
-      <Transition name="modal">
-        <div v-if="showHistory" class="modal-overlay" @click.self="closeHistory">
+      <Transition name="notification-dialog">
+        <div v-if="showHistory" class="modal-overlay notification-history" @click.self="closeHistory">
           <div class="modal-backdrop" @click="closeHistory"></div>
-          <div class="modal-content !max-w-2xl w-full max-h-[80vh] flex flex-col">
+          <div ref="historyRoot" role="dialog" aria-modal="true" aria-labelledby="notification-history-title" tabindex="-1" class="modal-content !max-w-2xl w-full max-h-[80vh] flex flex-col">
             <!-- 头部 -->
             <div class="flex items-center justify-between p-4 border-b border-themed">
               <div>
-                <h3 class="text-sm font-medium text-themed-secondary">{{ $t('profile.notifications.historyTitle') }}</h3>
-                <div v-if="notificationStats" class="text-xs text-themed-faint mt-1 flex gap-3 tabular-nums">
+                <h3 id="notification-history-title" class="text-base font-medium text-themed-secondary">{{ $t('profile.notifications.historyTitle') }}</h3>
+                <div v-if="notificationStats" class="notification-stats text-sm text-themed-muted mt-1 flex flex-wrap gap-x-3 gap-y-1 tabular-nums" :aria-busy="statsLoading">
                   <span>{{ $t('profile.notifications.statsTotal', { count: notificationStats.total }) }}</span>
-                  <span class="text-green-500">{{ $t('profile.notifications.statsSent', { count: notificationStats.sent }) }}</span>
-                  <span class="text-red-500">{{ $t('profile.notifications.statsFailed', { count: notificationStats.failed }) }}</span>
+                  <span>{{ $t('profile.notifications.statsSent', { count: notificationStats.sent }) }}</span>
+                  <span>{{ $t('profile.notifications.statsFailed', { count: notificationStats.failed }) }}</span>
+                  <span>{{ $t('profile.notifications.statsPending', { count: notificationStats.pending }) }}</span>
+                </div>
+                <p v-if="statsLoading" role="status" class="notification-loading">{{ $t('common.loading') }}</p>
+                <div v-if="statsError" role="alert" class="notification-read-state">
+                  <p>{{ $t('profile.notifications.statsLoadFailed') }}</p>
+                  <button class="btn-ghost btn-sm" :disabled="statsLoading" @click="loadNotificationStats">{{ $t('common.retry') }}</button>
                 </div>
               </div>
-              <button class="text-themed-faint hover:text-themed-secondary" @click="closeHistory">
+              <button class="notification-close text-themed-muted hover:text-themed-secondary" :aria-label="$t('common.close')" @click="closeHistory">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -370,21 +474,24 @@ defineExpose({ loadNotificationChannels })
             </div>
 
             <!-- 筛选 -->
-            <div class="px-4 py-2 border-b border-themed flex gap-2">
+            <div class="notification-filters px-4 py-2 border-b border-themed flex gap-2" :aria-label="$t('profile.notifications.historyTitle')">
               <button
+                :aria-pressed="logsStatusFilter === 'all'"
                 :class="['px-3 py-1 text-xs rounded', logsStatusFilter === 'all' ? 'bg-themed-secondary text-themed-primary' : 'text-themed-muted hover:text-themed-secondary']"
                 @click="changeLogsFilter('all')"
               >
                 {{ $t('profile.notifications.filterAll') }}
               </button>
               <button
-                :class="['px-3 py-1 text-xs rounded', logsStatusFilter === 'sent' ? 'bg-green-500/20 text-green-500' : 'text-themed-muted hover:text-themed-secondary']"
+                :aria-pressed="logsStatusFilter === 'sent'"
+                :class="['px-3 py-1 text-xs rounded', logsStatusFilter === 'sent' ? 'bg-themed-secondary text-themed-primary' : 'text-themed-muted hover:text-themed-secondary']"
                 @click="changeLogsFilter('sent')"
               >
                 {{ $t('profile.notifications.filterSent') }}
               </button>
               <button
-                :class="['px-3 py-1 text-xs rounded', logsStatusFilter === 'failed' ? 'bg-red-500/20 text-red-500' : 'text-themed-muted hover:text-themed-secondary']"
+                :aria-pressed="logsStatusFilter === 'failed'"
+                :class="['px-3 py-1 text-xs rounded', logsStatusFilter === 'failed' ? 'bg-themed-secondary text-themed-primary' : 'text-themed-muted hover:text-themed-secondary']"
                 @click="changeLogsFilter('failed')"
               >
                 {{ $t('profile.notifications.filterFailed') }}
@@ -392,18 +499,22 @@ defineExpose({ loadNotificationChannels })
             </div>
 
             <!-- 列表 -->
-            <div class="flex-1 overflow-y-auto p-4">
-              <div v-if="logsLoading" class="text-center py-8 text-themed-muted">
+            <div class="notification-history-list flex-1 min-h-0 overflow-y-auto p-4" :aria-busy="logsLoading">
+              <div v-if="logsError" role="alert" class="notification-read-state">
+                <p>{{ $t('profile.notifications.logsLoadFailed') }}</p>
+                <button class="btn-ghost btn-sm" :disabled="logsLoading" @click="loadNotificationLogs">{{ $t('common.retry') }}</button>
+              </div>
+              <div v-if="logsLoading" role="status" class="notification-loading">
                 {{ $t('profile.notifications.loadingLogs') }}
               </div>
-              <div v-else-if="notificationLogs.length === 0" class="text-center py-8 text-themed-muted">
+              <div v-if="logsReady && !logsLoading && !logsError && notificationLogs.length === 0" class="text-center py-6 text-themed-muted">
                 {{ $t('profile.notifications.noLogs') }}
               </div>
-              <div v-else class="space-y-2">
+              <div v-if="notificationLogs.length" class="space-y-2">
                 <div
                   v-for="log in notificationLogs"
                   :key="log.id"
-                  class="p-3 bg-themed-tertiary border border-themed rounded-xl"
+                  class="notification-log p-3 bg-themed-tertiary border border-themed rounded-xl"
                 >
                   <div class="flex items-start justify-between gap-2">
                     <div class="flex-1 min-w-0">
@@ -421,10 +532,10 @@ defineExpose({ loadNotificationChannels })
                         <span class="text-themed-muted">{{ getEventTypeLabel(log.eventType) }}</span>
                         <span class="text-themed-faint">{{ log.channelName }} ({{ getNotificationTypeLabel(log.channelType) }})</span>
                       </div>
-                      <p class="text-xs text-themed-secondary mt-1 line-clamp-2">{{ log.message }}</p>
+                      <p class="text-sm text-themed-secondary mt-2">{{ log.message }}</p>
                       <p v-if="log.error" class="text-xs text-red-400 mt-1">{{ $t('profile.notifications.errorPrefix', { error: log.error }) }}</p>
                     </div>
-                    <span class="text-xs text-themed-faint whitespace-nowrap">{{ formatDate(log.createdAt) }}</span>
+                    <span class="notification-log-date text-xs text-themed-muted whitespace-nowrap tabular-nums">{{ formatDate(log.createdAt) }}</span>
                   </div>
                 </div>
               </div>
@@ -433,7 +544,7 @@ defineExpose({ loadNotificationChannels })
             <!-- 分页 -->
             <div v-if="totalPages > 1" class="px-4 py-3 border-t border-themed flex items-center justify-center gap-2">
               <button
-                :disabled="logsPage <= 1"
+                :disabled="logsLoading || logsPage <= 1"
                 class="px-3 py-1 text-xs rounded border border-themed disabled:opacity-50"
                 @click="changeLogsPage(logsPage - 1)"
               >
@@ -441,7 +552,7 @@ defineExpose({ loadNotificationChannels })
               </button>
               <span class="text-xs text-themed-muted tabular-nums">{{ logsPage }} / {{ totalPages }}</span>
               <button
-                :disabled="logsPage >= totalPages"
+                :disabled="logsLoading || logsPage >= totalPages"
                 class="px-3 py-1 text-xs rounded border border-themed disabled:opacity-50"
                 @click="changeLogsPage(logsPage + 1)"
               >
@@ -472,5 +583,50 @@ defineExpose({ loadNotificationChannels })
   margin-top: 0.15rem;
   font-size: 0.75rem;
   color: var(--kawaii-muted);
+}
+
+.notification-section button, .notification-history button {
+  min-height: 44px;
+  min-width: 44px;
+}
+.notification-section button:focus-visible, .notification-history button:focus-visible {
+  outline: 2px solid var(--kawaii-text);
+  outline-offset: 2px;
+}
+.notification-section, .notification-history .modal-content, .notification-log { box-shadow: none !important; }
+.notification-history .text-xs { font-size: 13px; }
+.notification-section .nimbus-section-desc { font-size: 13px; }
+.notification-read-state { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; color: var(--kawaii-text); }
+.notification-read-state p { flex: 1; min-width: 160px; }
+.notification-loading { margin: 8px 0; font-size: 14px; color: var(--kawaii-muted); }
+.notification-history .modal-content { background: var(--kawaii-bg) !important; backdrop-filter: none; animation: none; transform: none; }
+.notification-history .modal-backdrop { background: rgb(0 0 0 / 0.5) !important; backdrop-filter: none; }
+.notification-history .text-themed-faint, .notification-history .text-themed-muted,
+.notification-section .text-themed-faint { color: var(--kawaii-muted) !important; }
+.notification-log { overflow-wrap: anywhere; }
+.notification-log .flex.items-center { flex-wrap: wrap; }
+.notification-log .text-green-500 { color: #247b50; background: #dcfae5; }
+.notification-log .text-red-500 { color: #831c1e; background: #ffedea; }
+.notification-log .text-yellow-500 { color: #92400e; background: #fffbeb; }
+.notification-log .text-red-400 { color: #b91c1c; }
+.notification-section .text-blue-400 { color: var(--kawaii-text); }
+.notification-section button, .notification-history button { transform: none !important; }
+.notification-section .sm\:opacity-0 { opacity: 1; }
+.notification-dialog-enter-active, .notification-dialog-leave-active { transition: opacity 120ms ease; }
+.notification-dialog-enter-from, .notification-dialog-leave-to { opacity: 0; }
+.dark .notification-log .text-green-500 { color: #3fc07a !important; background: #172a1d !important; }
+.dark .notification-log .text-red-500 { color: #fda4af !important; background: #2c1a20 !important; }
+.dark .notification-log .text-yellow-500 { color: #fcd34d !important; background: #30250d !important; }
+.dark .notification-log .text-red-400 { color: #fda4af !important; }
+@media (max-width: 639px) {
+  .notification-heading { align-items: flex-start; flex-direction: column; }
+  .notification-section { padding: 16px; }
+  .notification-history { padding: 12px; }
+  .notification-log > .flex { flex-direction: column; }
+  .notification-log-date { align-self: flex-end; }
+  .notification-filters button { flex: 1; font-size: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notification-dialog-enter-active, .notification-dialog-leave-active { transition: none; }
 }
 </style>

@@ -12,6 +12,7 @@
     "test:review-dashboard-session": "node ../scripts/test-dashboard-session.mjs",
     "test:review-auth-session": "node ../scripts/test-auth-session.mjs",
     "test:review-auth-refresh": "node ../scripts/test-auth-refresh.mjs",
+    "test:review-notification-reads": "node ../scripts/test-notification-reads.mjs",
     "test:review-prize-stock": "node --import tsx scripts/test-review-prize-stock.ts",
     "test:review-vip-reward-description": "node --import tsx scripts/test-review-vip-reward-description.ts",
     "test:review-vip-reward-editor": "node ../scripts/test-vip-reward-editor.mjs",

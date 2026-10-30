@@ -2,7 +2,16 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-073 通知历史当前读取及弹窗精修
+
+- 实际Vue组件先红：较早全部历史覆盖较新失败筛选。列表、历史及统计分别绑定account/role/sid、auth存储对齐、generation/请求序号、当前页及筛选；close/reopen和KeepAlive/unmount清旧展示与敏感草稿，旧成功/失败/finally不能写新状态。列表仅接受后端脱敏preview，不解析不存在的config；严格分页/行/统计合同，独立PG计数不强制瞬间等式，缩页重读合法页。当前读取失败持久显示真实retry，同视图保最近成功数据，loading/empty/合法零区分。
+- 末受控Chrome专项takeover-notification-reads-last.log自然exit0：42旧list/history/stats成功失败、account/sid/role/ABA/logout/cache/unmount、filterABA/存储未同步零dispatch、pending关闭重开、oldfinally、21坏响应、三类实际retry、零stats/same-sid刷新、缩页与36组首帧44px/三语三宽深浅两motion/Escape及opener焦点。实际组件+API受控，不等于外部邮件送达或真实cookie后端验收。
+- 弹窗沿Achromatic ledger seed242843060、keep palette/type，取消继承scale-in/玻璃/重阴影，提高对比及13px小字，复用焦点trap。先红首帧41.8px后保44px严格断言，修正watch时modal ref尚未挂载与Vue :global选择器被编成全局.dark，最后深浅三宽inspect各0FAIL/0WARN，十二张末截图已看，critique保存在logs/notification-reads/critique.md。普通列表原结构及通知发送/权限规则保持；R074写回执和重复操作仍待。
+- 4/4末守卫test-run-20261030-095755、manifest与末lint零错警通过；最终双端含vue-tsc构建16387自然exit0，takeover-notification-reads-dual-build-last.log（user见原日志/admin53.11s），末dist takeover-notification-reads-dist-last.log自然exit0。250含部分/68已有不同/9待，保存后继续R074，已先红重复create两次请求。历史3bb81c495e86e08d810073b1f90d732fb0cb59e3/40978319474、498ed0d316e0e02f0cfc3e8a5aca2ad7e3f5d235/40979555768、27a57a5343e63aef66c8c4472d097a49847e781c/40979936516具体七job均终态success；40981291834、40983222814、40984944304仍运行，继续跟。历史Go进程审计IO未定位，三测试机SSH既有身份缺口保持，不生产/发行。
+
 ## 2026-10-30 R1-057 双API共享刷新及旧操作重试保护
+
+- 已提交推送7606cebfdedc9259000889269c4e8479d6ee7018，HEAD=远端main，新CI40984944304运行；接R073通知历史读取，已完整读NotificationSection、Profile消费者、actualAPI/通知routes和两通知守卫，尚未改其产品源码。前Caddy40974379396与旧账单组件40975365166终态success，五其它前序CI继续跟；不生产/发行。
 
 - 真Chrome先红：用户与管理API各自锁使同session同时两次refresh（before-actual：2≠1）。仅两wrapper原重复刷新/拦截器段落移到小型auth-session绑定器，各业务模块、URL、超时、凭据发送与错误额外字段保持，登录目的地仍各端本地。固定auth store身份/同步代次和原存储值，dispatch前同步捕获，实际transport前再核；旧成功/401/主动刷新及queued retry不得回写或借替换token发旧操作。same-sid已刷新token可单次重试，全部queued request有一次重试上限，15秒abort/5秒频控仍保留。
 - 真实Axios浏览器adapter与fetch受控，最后完整takeover-auth-refresh-final-complete.log自然exit0：共享主动/被动队列、28旧refresh成功/401、旧HTTP成功/401、storage事件前未同步零dispatch、两端第二401退出/旧queued零重试、replacement锁旧finally、503保身份/当前refresh401零dispatch、十非法token/合法role变化invalidate，以及memory-only跨端退出后新login成功。fixture第一次错误选Node axios导致process undefined已纠正浏览器ESM；其次静态导入先于受控adapter导致零fixture请求已用动态import纠正，失败轮均不计通过。无真实客户、cookie、外部OAuth或生产写入。

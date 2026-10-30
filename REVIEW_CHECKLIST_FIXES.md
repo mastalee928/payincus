@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R057收尾后）：原327个编号中，249项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，10项仍为「待精修/运行复核」。249并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以10项表示。
+当前进度（2026-10-30，R073收尾后）：原327个编号中，250项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，9项仍为「待精修/运行复核」。250并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以9项表示。
+
+2026-10-30 R073：实际通知组件先红旧全部覆盖失败筛选；现三类读取各自account/role/sid/存储/代次/序号与页筛选保护，close/cache/unmount清展示草稿，strict真实脱敏/统计合同及合法缩页重读，失败持久retry保同视图最后数据。末Chrome42旧读、21坏响应/三类真实retry/ABA/零值/same-sid及36组首帧44px三语三宽深浅双motion自然exit0，types/四守卫/lint/末双端build与dist通过；深浅inspect0FAIL/0WARN及12末图已看。R074重复写入/替换草稿另继续，真实邮件和完整Profile另验。
 
 2026-10-30 R057：真浏览器先红两wrapper同时两refresh，统一小型auth-session绑定器；同步固定session/代次/存储对齐、dispatch及response复核、共享主动/被动refresh、queued一次retry与same-sid已新token重试、旧finally新锁隔离。Chrome末完整28旧refresh成功/401、旧HTTP/storage前零dispatch、两端第二401/current401/503、非法token/role变化/memory-only正常login全部自然exit0，identity/login回归、末类型/lint/四守卫/双端types build与末dist见HANDOFF。原业务模块及API权限不变；真实cookie、OAuth/注册exchange和外部服务仍另验，249含部分，不以本项当完整鉴权验收。
 
@@ -278,7 +280,7 @@
 | R1-070 | 实现不同 | 保留初审结论 | storage配置与provider栈仍有后端消费者，不能因前端孤立按对方方案删掉。 |
 | R1-071 | 存在 | 已修；真实账户/整体UI另验 | 固定submittedStyle/account/session、共享saving与字段门禁，回执只标本次style，非法/旧会话/cache/unmount不写新用户；详情seq/ID与retry同步保护。Chrome先红→final3提交草稿/14旧写14旧读/反序detail/非法回执/same sid exit0，4守卫/lint/双端build含types/dist全过；真实账户与整体UI另验。 |
 | R1-072 | 存在 | 无调用残留已清理/相关构建守卫通过 | 完整调用及自动导入复核，仅翻译注释余引用；删除BillingSection667行，保留实际Wallet/Profile/router/API及充值后端，受保护源码哈希保持。3守卫、双端含types build与末dist正常exit0，证据见HANDOFF；孤立组件无活体流程，不充当支付功能验收。 |
-| R1-073 | 存在 | 待精修/运行复核 | 读列表/变更完成缺目标和请求代次绑定；过滤改变、替换草稿与重复行操作有竞态窗口。 |
+| R1-073 | 存在 | 已修；真实通知/整页另验 | 三类当前读取session/storage/序号/页筛选及cache/unmount保护，strict合同、缩页、失败retry；Chrome42旧读/21坏读/36组首帧+三语三宽深浅、4守卫/lint/双端types build末dist通过。R074写保护另继续。 |
 | R1-074 | 存在 | 待精修/运行复核 | 读列表/变更完成缺目标和请求代次绑定；过滤改变、替换草稿与重复行操作有竞态窗口。 |
 | R1-075 | 存在 | 已修；真实账户/整体UI另验 | 三写共享busy/current account/session、固定草稿/ID/严格回执；私钥open禁止覆盖，close/cache/unmount清展示、复制完成隔离与Blob/data延迟download取消。实际Chrome先红→final42旧写/冲突/retry/草稿/缓存锁/两下载路径exit0，4守卫/lint/双端types build末dist过。 |
 | R1-076 | 存在 | 已修；真实账户/整体UI另验 | 列表account/role/sid/seq/ABA/cache/unmount保护与同步缩页，严格读失败保留/三语retry。Chrome先红→final14旧读/七坏读/缩页/same sid零写exit0，4守卫/lint/双端types build末dist过；写回执保护继续R075。 |

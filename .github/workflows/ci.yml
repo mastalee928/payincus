@@ -396,6 +396,8 @@ jobs:
         run: pnpm --filter server test:review-auth-session
       - name: Both API clients share refresh and reject obsolete request retries
         run: pnpm --filter server test:review-auth-refresh
+      - name: Notification history reads stay within the current session filter and page
+        run: pnpm --filter server test:review-notification-reads
       - name: Host config preserves the registered connection endpoint
         run: pnpm --filter server test:review-host-config-endpoint
       - name: Host config sends explicit clears and keeps IPv6 mode gates
