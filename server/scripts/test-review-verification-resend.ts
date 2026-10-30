@@ -430,7 +430,8 @@ try {
       const certificate = await readFile(certificatePath, 'utf8')
       let dispatchedConfig: Record<string, string> | undefined, changedAfterValidation = false
       let connectionMutation: 'none' | 'key' | 'command' | 'banned' | 'session' = 'none', remoteWrites = 0
-      let stopFailure: 'none' | 'unavailable' | 'unconfirmed' | 'request-failure' = 'none', configWrites = 0
+      let stopFailure: 'none' | 'unavailable' | 'unconfirmed' | 'request-failure' | 'forbidden' | 'not-found-message' | 'invalid-state' | 'confirmation-failure' = 'none', configWrites = 0
+      let snapshotReads = 0, stateReads = 0, oldInstanceDeletes = 0, instanceCreates = 0
       let snapshotFailure: 'none' | 'list-failure' | 'invalid-list' | 'invalid-name' | 'delete-failure' | 'still-present' | 'confirmation-failure' | 'success' = 'none', snapshotDeleted = false
       materialRemote = createHttpsServer({ cert: certificate, key: await readFile(keyPath), ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
         const reply = (status: number, metadata: unknown) => {
@@ -446,7 +447,10 @@ try {
             return reply(200, {})
           }
           if (request.method !== 'GET') remoteWrites++
+          if (request.method === 'DELETE' && request.url === `/1.0/instances/${resourceInstances[0].incusId}`) oldInstanceDeletes++
+          if (request.method === 'POST' && request.url === '/1.0/instances') instanceCreates++
           if (request.method === 'GET' && request.url?.endsWith('/snapshots')) {
+            snapshotReads++
             if (snapshotFailure === 'list-failure' || snapshotFailure === 'confirmation-failure' && snapshotDeleted) return reply(500, {})
             if (snapshotFailure === 'invalid-list') return reply(200, {})
             if (snapshotFailure === 'invalid-name') return reply(200, [{ name: '../invalid' }])
@@ -460,7 +464,16 @@ try {
             snapshotDeleted = true; return reply(200, {})
           }
           if (request.method === 'GET' && request.url?.endsWith('/state')) {
+            stateReads++
             if (stopFailure === 'unavailable') return reply(500, {})
+            if (stopFailure === 'forbidden') return reply(403, {})
+            if (stopFailure === 'not-found-message') {
+              response.writeHead(500, { 'content-type': 'application/json' })
+              response.end(JSON.stringify({ type: 'error', error: 'Instance not found' })); return
+            }
+            if (stopFailure === 'invalid-state') return reply(200, {})
+            if (stopFailure === 'confirmation-failure' && stateReads >= 3) return reply(500, {})
+            if (stopFailure === 'confirmation-failure') return reply(200, { status: 'Running' })
             return reply(200, { status: stopFailure === 'none' ? 'Stopped' : 'Running' })
           }
           if (request.method === 'GET' && request.url?.includes('/images/aliases/')) return reply(200, { target: 'fixture-image' })
@@ -523,6 +536,36 @@ try {
         await prisma.instanceTask.delete({ where: { id: running.id } })
       }
       console.log('PASS rebuild stop preflight rejects unavailable state, failed stop and unconfirmed acknowledgements without configuration or snapshot changes')
+      const originalCloudInitState = (await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } })).cloudInitState
+      await prisma.instance.update({ where: { id: firstResourceId }, data: { cloudInitState: 'completed' } })
+      for (const mode of ['unavailable', 'unconfirmed', 'request-failure', 'forbidden', 'not-found-message', 'invalid-state', 'confirmation-failure'] as const) {
+        stopFailure = mode; configWrites = 0; snapshotReads = 0; stateReads = 0; oldInstanceDeletes = 0; instanceCreates = 0
+        const beforeStop = await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } })
+        const admission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
+          taskType: 'recreate', imageAlias: fixtureImage.remoteAlias, sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
+            actor: currentActor(), entry: 'user', expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId,
+            expectedHostIdentity: transferHostIdentity(remoteHost)
+          } })
+        const running = await prisma.instanceTask.update({ where: { id: admission.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+        await executeTask(running.id, { startedAt: running.startedAt, retryCount: running.retryCount })
+        const result = await prisma.instanceTask.findUniqueOrThrow({ where: { id: running.id } })
+        assert.equal(result.status, 'FAILED', `recreate stop/${mode}: task must fail at preflight`)
+        assert.match(result.error!, mode === 'not-found-message' ? /Instance not found/
+          : ['unconfirmed', 'invalid-state'].includes(mode) ? /原实例尚未确认停止/ : /fixture rebuild ends after configuration dispatch/)
+        assert.equal(configWrites, 0, `recreate stop/${mode}: configuration must remain untouched`)
+        assert.equal(snapshotReads, 0, `recreate stop/${mode}: snapshot cleanup must not begin`)
+        assert.equal(oldInstanceDeletes, 0, `recreate stop/${mode}: original instance must not be deleted`)
+        assert.equal(instanceCreates, 0, `recreate stop/${mode}: replacement must not be created`)
+        assert.equal(await prisma.snapshot.count({ where: { id: resourceSnapshot.id } }), 1, `recreate stop/${mode}: snapshots must remain on unconfirmed stop`)
+        assert.equal(snapshotDeleted, false)
+        const afterStop = await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } })
+        assert.deepEqual(afterStop.cloudInitState, beforeStop.cloudInitState)
+        assert.equal(afterStop.image, beforeStop.image); assert.equal(afterStop.rootPassword, beforeStop.rootPassword)
+        assert.equal(afterStop.incusId, beforeStop.incusId); assert.equal(afterStop.ipv4, beforeStop.ipv4)
+        await prisma.instanceTask.delete({ where: { id: running.id } })
+      }
+      await prisma.instance.update({ where: { id: firstResourceId }, data: { cloudInitState: originalCloudInitState } })
+      console.log('PASS recreate stop preflight rejects seven unavailable, forbidden, misleading, invalid and unconfirmed states before snapshot, configuration, original deletion or replacement creation')
       stopFailure = 'none'
       for (const mode of ['list-failure', 'invalid-list', 'invalid-name', 'delete-failure', 'still-present', 'confirmation-failure'] as const) {
         snapshotFailure = mode; snapshotDeleted = false; configWrites = 0

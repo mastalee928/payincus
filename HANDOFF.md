@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-30 R1-011 重建停机确认与真实失败副作用检查（持续施工）
+
+- 上段重装快照已推931ca4568a72e742e65c738a4dd8b2ba9ba5fdff / CI41051350012。接续原模型未提交的recreate停机修复，状态读取失败和stop失败直接中止，只有实际Stopped或原state路径的IncusApiError/404才继续；不靠错误正文推断缺失。原Alpine busy重试参数保持。此次只关闭重建停机缺口，快照清理及真实原实例缺失后全流程下一段。
+- 原验证仅configWrites=0且FAILED可能在后续配置失败时假绿；已明确统计snapshot读取、旧实例DELETE及新实例POST并核原失败原因，使用非空completed cloudInitState验证不提前清零。最终takeover-recreate-stop-resend-verified.log真实本机PG/Fastify/SMTP/mTLS七类故障全部在preflight失败，零快照清理/配置/旧删除/新创建，原快照、cloud-init、image/password/Incus/IP保持；原3停机/6快照/4建连/12材料/18镜像/28授权竞争及完整SMTP/验证码预算回归通过，自然exit0。受改专项+源严格types、六任务/操作守卫通过，产品build沿用无源码变化的最终同前缀build自然exit0；四资源路由和专用邮箱销毁专项本轮补验。
+- 四资源路由守卫与专用destroy PG/SMTP最终同前缀日志自然exit0，A/B去同码、账户/会话/邮箱/集合绑定、唯一消费与60秒预算保持；instance-recreate-consistency直接运行通过。当前源码阶段相关验证已齐，不将mTLS夹具当原生Incus全流程。
+- 最新CI41051350012已越过原宿主网络阻塞，六job成功、Pool后续浏览器专项继续；另外十个旧CI未终态继续跟，不改历史failure。v1.7.8开始准备候选，需关闭重建清理缺口并取得同提交全量/双架构预览与包证据再发布。原327259含部分/68不同不增，真实Incus/跨系统恢复、外部SMTP、历史GoIO及完整网关灾备仍未完成；无生产/发行操作。
+
 ## 2026-10-30 R1-011 重装快照清理确认（持续施工）
 
 - 停机段已推50570a68a4c6411f503df727a615df504e601f3e / CI41050640712。本机mTLS快照读取失败后仍1config写先红。重装清理现明确验证列表/每个名称、逐个删除、重新读取确认空列表后才移平台snapshot记录，异常直接中止；cloud-init重置移至清理确认之后，不吞读取/删除失败继续重装。原重装key/镜像与停机参数保持。

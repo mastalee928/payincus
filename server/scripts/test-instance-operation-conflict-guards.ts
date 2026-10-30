@@ -57,6 +57,11 @@ assert.ok(rebuildSnapshots.includes('if (!Array.isArray(snapshots))') && rebuild
   rebuildSnapshots.indexOf('const confirmed: unknown = await listSnapshots(') < rebuildSnapshots.indexOf('await prisma.snapshot.deleteMany(') &&
   rebuildSnapshots.includes('confirmed.length !== 0') && rebuildExecution.indexOf('await clearRebuildSnapshots(') < rebuildExecution.indexOf('await resetInstanceCloudInitState('),
   'rebuild snapshot failures must abort and preserve platform records until the host confirms an empty snapshot list')
+const recreateExecution = workerSource.slice(workerSource.indexOf('async function executeRecreateTask('), workerSource.indexOf('async function executeChangeHostTask('))
+assert.ok(recreateExecution.includes('error instanceof IncusApiError && error.statusCode === 404 && error.path === originalStatePath') &&
+  recreateExecution.indexOf("confirmedState.status?.toLowerCase() !== 'stopped'") < recreateExecution.indexOf('await resetInstanceCloudInitState(') &&
+  !recreateExecution.includes('停止旧实例异常，继续执行'),
+  'recreate must confirm an actual stopped state or exact original-path absence, while rejecting unknown and failed stop responses')
 
 function sectionBetween(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)

@@ -17,6 +17,7 @@ import { prisma } from '../db/prisma.js'
 import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations } from '../db/proxy-site-operation-guards.js'
 import { InstanceTaskType, Prisma } from '@prisma/client'
 import { getIncusClient, getInstance, updateInstance, deleteInstance, createInstance } from '../lib/incus/index.js'
+import { IncusApiError } from '../lib/incus/incus-client.js'
 import {
   startInstance,
   stopInstance,
@@ -1258,22 +1259,23 @@ async function executeRecreateTask(
   // 1. 强制停止旧实例（如果正在运行）
   await updateInstanceTaskProgress(task.id, 'stopping')
   console.log(`[Recreate] 停止旧实例 ${oldIncusId}...`)
+  const originalStatePath = `/1.0/instances/${oldIncusId}/state`
+  let originalExists = true
   try {
+    await getInstanceState(client, oldIncusId)
+  } catch (error) {
+    if (error instanceof IncusApiError && error.statusCode === 404 && error.path === originalStatePath) originalExists = false
+    else throw error
+  }
+  if (originalExists) {
     await stopInstance(client, oldIncusId, false, {
       allowCancelBusyUpdate,
       busyUpdateCancelAfterMs: allowCancelBusyUpdate ? ALPINE_BUSY_UPDATE_CANCEL_AFTER_MS : undefined
     })
-    // 等待停止完成
-    for (let i = 0; i < 30; i++) {
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      try {
-        const state = await getInstanceState(client, oldIncusId) as { status: string }
-        if (state.status.toLowerCase() === 'stopped') break
-      } catch { /* ignore */ }
+    const confirmedState = await getInstanceState(client, oldIncusId) as { status?: string }
+    if (confirmedState.status?.toLowerCase() !== 'stopped') {
+      throw new Error('原实例尚未确认停止，重建未开始，请检查宿主状态后重试')
     }
-  } catch (err) {
-    // 实例可能已经停止或不存在，继续执行
-    console.warn(`[Recreate] 停止旧实例异常，继续执行:`, err)
   }
 
   // 重建会生成全新的系统实例，旧 cloud-init 状态不能继续复用。
