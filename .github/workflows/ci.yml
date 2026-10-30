@@ -301,6 +301,8 @@ jobs:
         run: pnpm --filter server test:review-lottery-notification-transport
       - name: OAuth nonces remain single-use across exact expiry and cleanup boundaries
         run: pnpm --filter server test:review-oauth-nonce-expiry
+      - name: Notification channel IDs and enums reject invalid values before side effects
+        run: pnpm --filter server test:review-notification-id-boundaries
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets

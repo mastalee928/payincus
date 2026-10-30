@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R047 通知渠道枚举复验与 PostgreSQL 编号边界
+
+- 原非法type枚举及状态归一化已有防护，原safe integer编号仍接受2147483648后进入PG越界500；notification-r047-before.log自然exit1。只在用户/admin两个共用编号parser加PG Int上限，五个个人入口及四个全局入口统一拒绝，不改通知发送或授权规则。
+- notification-r047-final.log自然exit0：14非法值×9入口126次400、9个合法不存在上界404；原个人/全局读取成功且凭据掩码保持，6非法type拒绝、4非法/重复status安全归一化；原channel/log/audit完整记录不变、零fetch发送。完整server+专项types零诊断、三对应守卫3/3、manifest与后端build自然exit0，长期专项已登记CI。身份hook受控，未向外部通知或生产写入。
+- R007已推663d8065391c445b9f6ac1be9ac4473ee36e4f19 / CI41142415324。旧R174源码CI41131579517 / 94214b23b6fd92fa2edd74170b2bad393964bf02已全success，其余阶段继续；历史失败保持。R047后278/327项（85.0%，含部分/待验收），49项保初审分类，完整验收尚未完成。
+
 ## 2026-10-31 R007 OAuth 跳转防护复验与锚点结果参数
 
 - 原相对路径校验拒绝双斜杠/反斜杠/编码反斜杠及控制字符，外站绕过未复现。扩展实际authorize+callback的21输入矩阵时，oauth-r007-final.log自然exit1暴露原redirectWithQuery把结果拼到#fragment后，合法带锚点页面收不到error。只把追加参数放到fragment前，原路径/已有query/fragment、外站限制和默认目的地不变。

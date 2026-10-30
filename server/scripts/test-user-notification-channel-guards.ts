@@ -51,7 +51,7 @@ assert.ok(
 assert.ok(
   source.includes('function parsePositiveRouteId(value: string): number | null') &&
     source.includes('const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\\d*$/') &&
-    source.includes('Number.isSafeInteger(parsed)'),
+    source.includes('Number.isSafeInteger(parsed) && parsed <= 2147483647'),
   'user notification channel routes must use a strict positive safe-integer route ID parser'
 )
 assert.equal(

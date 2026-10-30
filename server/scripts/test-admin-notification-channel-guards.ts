@@ -27,7 +27,7 @@ assert.ok(
 assert.ok(
   source.includes('const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\\d*$/') &&
     source.includes('function parsePositiveRouteId(value: string): number | null') &&
-    source.includes('Number.isSafeInteger(parsed)'),
+    source.includes('Number.isSafeInteger(parsed) && parsed <= 2147483647'),
   'global Telegram channel routes must define strict positive safe-integer route ID parsing'
 )
 

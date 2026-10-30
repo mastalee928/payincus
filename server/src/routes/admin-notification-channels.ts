@@ -18,7 +18,7 @@ const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\d*$/
 function parsePositiveRouteId(value: string): number | null {
   if (!POSITIVE_ROUTE_ID_PATTERN.test(value)) return null
   const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
+  return Number.isSafeInteger(parsed) && parsed <= 2147483647 ? parsed : null
 }
 
 function normalizeGlobalTelegramChannelInput(input: {
