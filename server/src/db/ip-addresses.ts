@@ -274,9 +274,10 @@ export async function getNextDeviceName(instanceId: number): Promise<string> {
  * 
  * 注意：排除已删除状态的实例
  */
-export async function isIpAddressExists(address: string): Promise<boolean> {
+export async function isIpAddressExists(address: string,
+    client: Pick<Prisma.TransactionClient, 'ipAddress' | 'instance'> = prisma): Promise<boolean> {
     // 1. 检查 IpAddress 表（排除已删除的实例）
-    const existingInIpTable = await prisma.ipAddress.findFirst({
+    const existingInIpTable = await client.ipAddress.findFirst({
         where: {
             address,
             type: 'inet6',
@@ -291,7 +292,7 @@ export async function isIpAddressExists(address: string): Promise<boolean> {
 
     // 2. 检查 Instance 表的 ipv6 字段（防止数据不一致）
     // 有些实例可能 ipv6 字段有值，但 IpAddress 表没有对应记录
-    const existingInInstanceTable = await prisma.instance.findFirst({
+    const existingInInstanceTable = await client.instance.findFirst({
         where: {
             ipv6: address,
             status: { not: 'deleted' }

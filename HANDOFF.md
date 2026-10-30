@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-30 创建准备IPv6查重使用当前事务连接（阶段保存）
+
+- 批量配置段edcfc6ae9c471b9bfd5b7855a006d66119373025已推；源码CI41082272972、文档41082272621及同提交预览41082554153。文档success，CI批量单连接及原完整PG专项success后继续浏览器；预览双构建success、首装仍运行。68de/c6d3两旧CI也继续后续浏览器，未发现新failure，不提前发tag。
+- create-for-user准备事务中IPv6查重使用全局Prisma，max=1真实Fastify/PG/mTLS复现：gift-pool-before-final.log实际连接超时，错误阶段为分配routed IPv6，未走后续存储选择，natural exit1。isIpAddressExists新增可传当前tx的窄接口，地址表与实例ipv6双来源过滤保持；此调用传tx，不修改随机地址/预占/一机一卖/交付或计费规则。
+- gift-pool-single-final.log自然exit0：有效IPv6子网成功查重后在故意缺失存储池拒绝，零Incus请求、原库存/地址回收及价格/用户/到期不变；同单池实际未提交instance.ipv6和ip_addresses都能查到、未用地址false，主动rollback后原实例及地址保持，idle1/waiting0且无idle in transaction。新场景接原专项与LinuxCI max=1步骤；路径守卫钉同事务调用。
+- 原完整13种创建准备/通知/赠送付费或免费交付PG/mTLS专项、严格源及专项types、server build和四相关守卫全部自然exit0，gift-pool-{integration,types,build,guards}-final.log。测试第一次要求STORAGE_POOL_UNAVAILABLE正文与实际阶段化API回执不同，改核准确「选择系统盘存储池」阶段，不改产品文案；本次原故障日志明确prisma连接timeout，不能将错误码断言差异作为根因。原生Incus/完整IPv6公网交付/崩溃恢复仍不在夹具范围。
+- 无前端变化；该阶段保存后冻结当前产品，重新核全量和同提交双架构发行，旧预览不覆盖新IPv6改动。原327259含部分/68不同不增，正式仍1.7.7，无生产OTA/DNS/终止数据库会话/客户操作；历史GoIO与快照failure准确原因及网关完整灾备缺口保留。
+
 ## 2026-10-30 批量配置复用事务连接，单连接真实TLS回归通过（阶段保存）
 
 - 快照段c6d3e0c9a3787433131583935ff491ec88d4ebaa已推，源码CI41078031261、文档41078031227及预览41078210231同提交。文档/双架构预览终态success；本机195/195自然exit0（snapshot-pool-full-final.log，test-run-20261030-231018）。两个实际包root身份、准确版本/提交、补丁原字节/hash、两个Node runtime、快照三个tx建连及配额查询、managed期限/重建清理均核，报告logs/release-preview-c6d3e0c9/prisma-package-verification.json。AMD64 SHA256 74fafb153f73bc0e52cee6400cdb937f386856bc7046ff9cbfe064abea47a4ed；ARM64 d426bfe059cfbe220d7dd8dfe0e2b20255750840eeca4c83fa451e5a51509c8e。

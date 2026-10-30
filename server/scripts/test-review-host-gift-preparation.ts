@@ -10,7 +10,8 @@ import { join, resolve, sep } from 'node:path'
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'), 'Use isolated local *_pool_test PostgreSQL')
 process.env.JWT_SECRET ||= 'gift-preparation-fixture-only'
-const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
+const { prisma, closePrismaDatabase, getDbPoolStats } = await import('../src/db/prisma.js')
+const { isIpAddressExists } = await import('../src/db/ip-addresses.js')
 const { default: hostRoutes } = await import('../src/routes/hosts.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const { listNatIpv4Pool } = await import('../src/lib/ip-calculator.js')
@@ -76,21 +77,22 @@ const waitFor = async (check: () => Promise<boolean>) => {
 try {
   const all = ['storage_nat', 'storage_public', 'public_empty', 'nat_empty', 'nat_error', 'ipv6_error', 'storage_write_error', 'claim_lost', 'resource_changed', 'compensation_error', 'inbox_error', 'success_free', 'success_paid']
   for (const scenario of process.env.REVIEW_GIFT_SCENARIOS?.split(',') || all) {
-    const nat = ['storage_nat', 'nat_empty', 'nat_error', 'ipv6_error'].includes(scenario)
-    const networkMode = scenario === 'ipv6_error' ? 'nat_ipv6' : nat ? 'nat' : 'public_ipv4'
+    const nat = ['storage_nat', 'nat_empty', 'nat_error', 'ipv6_error', 'ipv6_storage'].includes(scenario)
+    const networkMode = ['ipv6_error', 'ipv6_storage'].includes(scenario) ? 'nat_ipv6' : nat ? 'nat' : 'public_ipv4'
     const paid = scenario !== 'success_free'
     const host = await prisma.host.create({ data: { userId: owner.id, name: `${prefix}-${scenario}`, url: `https://127.0.0.1:${(remoteServer.address() as { port: number }).port}`,
       certPath, keyPath, serverCertificate: certificate, serverFingerprint: new X509Certificate(certificate).fingerprint256,
       status: 'online', isInstalled: true, cpuAllowanceMax: 1000, memoryMax: 4096, storageSize: 60,
       cpuUsed: 75, memoryUsed: 512, diskUsed: 3072, natPortsUsedCount: 7, natPortStart: 20000, natPortEnd: 30000,
-      ipv6Subnet: scenario === 'ipv6_error' ? 'invalid-subnet' : null, ipv6ParentInterface: 'eth0' } })
+      ipv6Subnet: scenario === 'ipv6_error' ? 'invalid-subnet' : scenario === 'ipv6_storage' ? '2001:db8:1::/64' : null,
+      ipv6ParentInterface: 'eth0' } })
     const pkg = await prisma.package.create({ data: { userId: owner.id, name: host.name, cpuMax: 100, memoryMax: 1024, diskMax: 2048, portLimit: 6, networkMode } })
     const plan = await prisma.packagePlan.create({ data: { packageId: pkg.id, name: host.name, cpu: 50, memory: 256, disk: 1024, trafficLimit: 1000000n, price: 1000, portLimit: 3, snapshotLimit: 0, backupLimit: 0, siteLimit: 0 } })
     await prisma.storagePool.create({ data: { hostId: host.id, name: 'test', driver: 'btrfs', purpose: 'instance_data' } })
     await prisma.publicIpv4Address.create({ data: { hostId: host.id, address: '192.0.2.20', prefixLength: 24, gateway: '192.0.2.1' } })
     if (scenario === 'nat_empty') await prisma.natIpv4Reservation.createMany({ data: listNatIpv4Pool().map(address => ({ hostId: host.id, address, expiresAt: new Date(Date.now() + 3600000) })) })
     // Database-side faults execute on the real route's transaction boundaries.
-    const functionBody = scenario.startsWith('storage_') && scenario !== 'storage_write_error' || ['claim_lost', 'resource_changed', 'compensation_error'].includes(scenario)
+    const functionBody = scenario.startsWith('storage_') && scenario !== 'storage_write_error' || ['claim_lost', 'resource_changed', 'compensation_error', 'ipv6_storage'].includes(scenario)
       ? `IF TG_OP = 'INSERT' THEN DELETE FROM storage_pools WHERE host_id = ${host.id}; ${scenario === 'claim_lost' ? `UPDATE instances SET status = 'running' WHERE id = NEW.id;` : scenario === 'resource_changed' ? `UPDATE instances SET cpu = 60 WHERE id = NEW.id;` : ''} END IF;`
       : scenario === 'public_empty' ? `IF TG_OP = 'INSERT' THEN UPDATE public_ipv4_addresses SET status = 'disabled' WHERE host_id = ${host.id}; END IF;`
       : scenario === 'storage_write_error' ? `IF TG_OP = 'UPDATE' AND NEW.storage_pool_name IS NOT NULL THEN RAISE EXCEPTION 'fixture storage persistence failure'; END IF;`
@@ -117,6 +119,10 @@ try {
     } else {
       assert.ok([409, 503].includes(response.statusCode), `${scenario}: expected explicit preparation failure, got ${response.statusCode}`)
       assert.equal(actions.length, 0, 'failed preparation must perform no Incus requests')
+      if (scenario === 'ipv6_storage') {
+        assert.match(response.body, /选择系统盘存储池/, 'IPv6 lookup completes before the deliberate storage failure')
+        assert.doesNotMatch(response.body, /timeout exceeded when trying to connect/, 'transactional IPv6 lookup cannot borrow another connection')
+      }
     }
     const retained = accepted || ['claim_lost', 'resource_changed', 'compensation_error'].includes(scenario)
     const current = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
@@ -153,6 +159,23 @@ try {
     triggerInstalled = false
     if (scenario === 'compensation_error') await prisma.$executeRawUnsafe(`ALTER TABLE hosts DROP CONSTRAINT ${functionName}`)
     if (scenario === 'inbox_error') await prisma.$executeRawUnsafe(`ALTER TABLE inbox_messages DROP CONSTRAINT ${functionName}`)
+    if (scenario === 'ipv6_storage') {
+      await assert.rejects(prisma.$transaction(async tx => {
+        await tx.instance.update({ where: { id: instance.id }, data: { status: 'running', ipv6: '2001:db8:2::1' } })
+        assert.equal(await isIpAddressExists('2001:db8:2::1', tx), true, 'instance fallback sees uncommitted IPv6')
+        await tx.ipAddress.create({ data: { instanceId: instance.id, hostId: host.id, address: '2001:db8:2::2',
+          type: 'inet6', isPrimary: false, device: 'eth2' } })
+        assert.equal(await isIpAddressExists('2001:db8:2::2', tx), true, 'address-table lookup sees uncommitted IPv6')
+        assert.equal(await isIpAddressExists('2001:db8:2::3', tx), false, 'unused address remains available')
+        throw Error('controlled IPv6 lookup rollback')
+      }), /controlled IPv6 lookup rollback/)
+      assert.deepEqual(await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } }), current)
+      assert.equal(await prisma.ipAddress.count({ where: { instanceId: instance.id } }), 0)
+      assert.deepEqual(getDbPoolStats(), { totalCount: 1, idleCount: 1, waitingCount: 0 })
+      const [row] = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM pg_stat_activity
+        WHERE datname = current_database() AND state LIKE 'idle in transaction%'`
+      assert.equal(Number(row.count), 0, 'preparation failure leaves no abandoned transaction')
+    }
     console.log(`PASS host gift ${scenario}`)
   }
 } catch (error) { cleanupError = error } finally {

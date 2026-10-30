@@ -6371,7 +6371,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           if (!lockedHostWithIpv6.ipv6_subnet) throw new Error('宿主机未配置 routed IPv6 子网')
           for (let attempts = 0; attempts < 50; attempts++) {
             const candidate = generateRandomIPv6(lockedHostWithIpv6.ipv6_subnet)
-            if (!await db.isIpAddressExists(candidate)) { staticIPv6 = candidate; break }
+            if (!await db.isIpAddressExists(candidate, tx)) { staticIPv6 = candidate; break }
           }
           if (!staticIPv6) throw new Error('routed IPv6 地址分配失败')
         }

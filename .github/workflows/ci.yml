@@ -206,6 +206,13 @@ jobs:
         run: pnpm --filter server test:review-public-ipv4
       - name: Host gift preparation and notification failures
         run: pnpm --filter server test:review-host-gift-preparation
+      - name: IPv6 gift preparation reuses its transaction connection
+        timeout-minutes: 2
+        run: pnpm --filter server test:review-host-gift-preparation
+        env:
+          DB_POOL_MAX: '1'
+          DB_CONNECTION_TIMEOUT: '1000'
+          REVIEW_GIFT_SCENARIOS: 'ipv6_storage'
       - name: Host network observation identity and generation
         run: |
           pnpm --filter server test:review-host-network-sync

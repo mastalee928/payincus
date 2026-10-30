@@ -8,6 +8,8 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 const source = readFileSync(resolve(__dirname, '../src/routes/hosts.ts'), 'utf8')
+assert.ok(source.includes('db.isIpAddressExists(candidate, tx)'),
+  'create-for-user IPv6 uniqueness checks must use the active preparation transaction')
 const extensionSource = readFileSync(resolve(__dirname, '../src/db/host-instance-extensions.ts'), 'utf8')
 const storageTabSource = readFileSync(resolve(__dirname, '../../client/src/components/host/HostStorageTab.vue'), 'utf8')
 const hostOpsTabSource = readFileSync(resolve(__dirname, '../../client/src/components/host/HostOpsTab.vue'), 'utf8')
