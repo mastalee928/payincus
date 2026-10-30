@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R039 管理员充值同步有效配置解密复验
+
+- 原admin-billing实际sync入口通过getPaymentProviderById取得解密配置，再解析订单配置快照，原未解密缺陷未复现。新增test-review-recharge-sync用实际createPaymentProvider写入加密配置，检查原库值不含测试密钥，并在实际provider客户端请求处验证有效凭据/签名；请求响应被截获，不发送外部支付查询或邮件。
+- recharge-r039-sync-final.log自然exit0：易支付及Heleket各5组（加密、旧JSON字符串、旧对象、加密订单快照覆盖已更换现配置、8并发）。十笔实际PG同步均仅一次入账9元/账单10元，余额、ledger、callback、审计、站内信各一次；同笔再同步3次均synced=false且零新查询/写入。并发原callback唯一约束冲突由原分支处理，保留日志，不当未捕获失败。
+- 完整server+专项types零诊断、四对应守卫4/4与清单自然exit0，专项登记CI；无产品修改，复用redeem-r262-ids-build同源码成功。首份recharge-r039-sync.log因夹具使用Log.description（实际为content）失败，已修，不算产品证据。当前复验不包括订单返回编号错配或在途重新支付，继续核查该相关缺口。
+- R189已推bb5895f67d4f740e3268ce496df647e2480bb531 / CI41144078810。R039后282/327（86.2%，含部分/待验收），45项初审；新专项通知唯一性证据随后归R040。未生产操作，固定v1.7.8保持。
+
 ## 2026-10-31 R189 工单图片响应大小上限证据归档
 
 - R189与R188使用同一原图片代理入口，产品已有50MiB逐段上限；沿已完成ticket-r188-transport自然exit0证据归档，不重复运行未改变代码。远端声明超过上限即拒绝并取消；无Content-Length实际大流达到上限后取消，生产者没发完整200MiB且停止后计数不再增长。恰好50MiB返回200且逐字节正确，attachment.sizeBytes=3不被当作可信远端大小。
