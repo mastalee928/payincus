@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R040 管理员充值同步重复通知复验归档
+
+- 原实际admin-billing sync只在completedNow=true时写成功审计及站内信，防重复逻辑有效。沿R039同一已完成PG/Fastify专项，两渠道各8个请求在供应商查询屏障前均读到pending，释放后均200、仅一个synced=true，余额仅加9、ledger/callback/audit/inbox各一条；再同步3次不调用供应商且记录数量不变。
+- 同recharge-r039-sync-final自然exit0、完整types/4守卫与同产品build，不重跑相同代码。仅站内信真实落库，不涉及外部通知或生产资金；没有将“无重复”解释为进程崩溃/通知插入失败时的必达保证。返回错误订单号及在途重新支付仍继续复验。
+- R039已推c32e82d9e81e4ba3627851f265d054a44d678e2a。归档后283/327（86.5%，含部分/待验收），44项保初审；全部修复与完整灾备仍未完成。
+
 ## 2026-10-31 R039 管理员充值同步有效配置解密复验
 
 - 原admin-billing实际sync入口通过getPaymentProviderById取得解密配置，再解析订单配置快照，原未解密缺陷未复现。新增test-review-recharge-sync用实际createPaymentProvider写入加密配置，检查原库值不含测试密钥，并在实际provider客户端请求处验证有效凭据/签名；请求响应被截获，不发送外部支付查询或邮件。

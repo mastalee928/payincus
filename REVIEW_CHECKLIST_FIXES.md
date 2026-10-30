@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为282项（含部分、待验收），45项仍保初审分类；这不是完整修复数，不能按327减282计算剩余全部工作。R262新增复现并修复批量404前部分修改，真实PG宿主隔离和拒绝零修改通过。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为283项（含部分、待验收），44项仍保初审分类；这不是完整修复数，不能按327减283计算剩余全部工作。R262新增复现并修复批量404前部分修改，真实PG宿主隔离和拒绝零修改通过。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -331,7 +331,7 @@
 | R1-037 | 存在 | 源码已修/隔离PG验证通过 | 纠正接续摘要：recharge.ts手动complete/fail和admin-billing.ts sync均实际存在；传actor到tx检查current admin/session，自动供应商完成保留。中途降权/注销拒写、重复到账1笔、ledger故障回滚。logs/review-finance-authorization-integration.log |
 | R1-038 | 存在 | 源码已修/隔离PG验证通过 | 邀请码handler/支付fee own-property访问拒继承；通知完整正整数及PG offset上限；真实Fastify/PG非法后缀、小数、溢出、有效筛选分页与账目无写入通过 logs/review-config-pagination-integration.log；相关5/5 logs/test-run-20261027-200553 |
 | R1-039 | 已有防护 | 双渠道实际加密PG配置及sync复验通过 | 原getter+snapshot解密有效，recharge-r039-sync-final涵易支付/Heleket各加密、旧字符串、旧对象、快照替换现配置及8并发；实际请求凭据/签名正确，一次账务/通知，types/4守卫/manifest过。供应商响应受控，错配返回编号/在途repay继续查。 |
-| R1-040 | 已有防护 | 保留初审结论 | 到账消息仅completion.completedNow发送，已有重复完成门禁。 |
+| R1-040 | 已有防护 | 原管理员sync双渠道八并发仅一通知通过 | 同recharge-r039-sync-final实际PG/原路由，两渠道各8请求在query屏障前读pending，释放后仅一synced=true，余额/ledger/callback/audit/inbox各一次；随后3次同步零新请求/写。types/4守卫及同源码build保持，通知崩溃必达和外部渠道另待。 |
 | R1-041 | 部分存在 | 源码已修/隔离PG验证通过 | 所有卡密admin mutation传actor，tx current admin/session和直接PG读取allowlist；中途降权7入口及cached allowlist移除拒写。用户发行/撤销current session；正常退款一次规则保留。logs/review-finance-authorization-integration.log |
 | R1-042 | 部分存在 | 源码已修/隔离PG验证通过 | redeem余额/card锁后current active/session，封禁/注销拒写、并发5仅1兑换；保留issuer不可自兑及过期持久化、撤销一次退款。logs/review-finance-authorization-integration.log |
 | R1-043 | 已有防护 | 保留初审结论 | 生成数量已有安全整数和范围验证，不再静默截断。 |
