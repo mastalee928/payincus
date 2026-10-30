@@ -297,10 +297,11 @@ export default async function backupRoutes(fastify: FastifyInstance) {
     const deleteHost = await prisma.host.findUnique({ where: { id: instance.host_id } })
     if (!deleteHost) return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
 
-    if (!await requireVerifiedOperation(reply, request.user.id, backupIdNum, request.user)) return
+    const terminalReplay = backup.status === 'deleted'
+    if (!terminalReplay && !await requireVerifiedOperation(reply, request.user.id, backupIdNum, request.user)) return
 
     try {
-      const result = await deleteAuthorizedBackup(instance, backup, request.user, transferHostIdentity(deleteHost))
+      const result = await deleteAuthorizedBackup(instance, backup, request.user, transferHostIdentity(deleteHost), terminalReplay)
       if (!result.deletedNow) return { message: 'Backup deleted' }
 
       // 发送通知

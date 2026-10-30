@@ -206,7 +206,7 @@ try {
     expectedBackupName: 'saved', expectedStorageIdentity: uploadStorageIdentity(changedConfig), expectedHostIdentity: transferHostIdentity(host) })
   for (const [name, change, restore] of changes) {
     await change()
-    await assert.rejects(submit(), undefined, `admission: ${name}`)
+    await assert.rejects(submit(), `admission: ${name}`)
     assert.equal(await prisma.backupUploadTask.count({ where: { userId: user.id, status: { in: ['PENDING', 'PROCESSING'] } } }), 0)
     await restore()
   }
@@ -476,8 +476,41 @@ try {
   assert.ok(backupChecks >= 2)
   assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'deleted')
   const beforeReplay = { backupDeletes, backupChecks }
+  const replayChannel = await prisma.notificationChannel.create({ data: { userId: user.id, name: tag + '-replay-verification',
+    type: 'email', config: { email: 'replay@example.test' } } })
   assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 200)
   assert.deepEqual({ backupDeletes, backupChecks }, beforeReplay)
+  await prisma.tokenInvalidation.create({ data: { userId: user.id, sessionId: actor.sid, invalidatedAt: actor.iat } })
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 403)
+  assert.deepEqual({ backupDeletes, backupChecks }, beforeReplay)
+  await prisma.tokenInvalidation.deleteMany({ where: { userId: user.id } })
+  let releaseReplay!: () => void, replayLocked!: (pid: number) => void
+  const replayHold = new Promise<void>(resolve => { releaseReplay = resolve })
+  const replayReady = new Promise<number>(resolve => { replayLocked = resolve })
+  const replayBlocker = prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${host.id} FOR UPDATE`
+    const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+    replayLocked(row.pid)
+    await replayHold
+    await tx.backup.update({ where: { id: backup.id }, data: { status: 'ready' } })
+  }, { timeout: 15000 })
+  const replayPid = await replayReady
+  const changedReplay = Promise.resolve(app.inject({ method: 'DELETE', url: deleteUrl }))
+  let replayBlocked = false
+  try {
+    const deadline = performance.now() + 3500
+    while (performance.now() < deadline) {
+      const [row] = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM pg_stat_activity WHERE ${replayPid} = ANY(pg_blocking_pids(pid))`
+      if (Number(row.count)) { replayBlocked = true; break }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+  } finally { releaseReplay(); await replayBlocker }
+  assert.equal(replayBlocked, true, 'terminal replay must wait for the original host/backup mutation boundary')
+  assert.equal((await changedReplay).statusCode, 409, 'a stale terminal receipt must not delete a now-ready backup without verification')
+  assert.deepEqual({ backupDeletes, backupChecks }, beforeReplay)
+  assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'ready')
+  assert.equal((await app.inject({ method: 'DELETE', url: deleteUrl })).statusCode, 403, 'a ready backup still requires a current verification')
+  await prisma.notificationChannel.delete({ where: { id: replayChannel.id } })
   await prisma.backup.update({ where: { id: backup.id }, data: { status: 'ready' } })
   await prisma.$executeRawUnsafe(`CREATE FUNCTION ${deleteTrigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = ${backup.id} AND NEW.status = 'deleted' THEN RAISE EXCEPTION 'fixture-backup-delete-commit-failed'; END IF; RETURN NEW; END $$`)
   await prisma.$executeRawUnsafe(`CREATE TRIGGER ${deleteTrigger} BEFORE UPDATE ON backups FOR EACH ROW EXECUTE FUNCTION ${deleteTrigger}()`)

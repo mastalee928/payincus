@@ -3,6 +3,14 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const routeSource = readFileSync(resolve(process.cwd(), 'src/routes/backups.ts'), 'utf8')
+const deletionSource = readFileSync(resolve(process.cwd(), 'src/db/backup-deletion.ts'), 'utf8')
+assert.ok(routeSource.includes("const terminalReplay = backup.status === 'deleted'") &&
+  routeSource.includes('if (!terminalReplay && !await requireVerifiedOperation') &&
+  routeSource.includes('transferHostIdentity(deleteHost), terminalReplay)') &&
+  deletionSource.includes('terminalOnly = false') &&
+  deletionSource.indexOf("if (current.status === 'deleted')") < deletionSource.indexOf('if (terminalOnly)') &&
+  deletionSource.indexOf('if (terminalOnly)') < deletionSource.indexOf("client.request('DELETE'"),
+  'deleted backup receipts must recheck current authorization/identity and terminal state under the existing mutation fence before any remote side effect')
 
 assert.ok(
   routeSource.includes('function parsePositiveRouteId(value: string): number | null') &&

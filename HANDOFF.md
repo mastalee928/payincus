@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 CI备份删除终态回执回归修复（持续施工）
+
+- 通知配置段已推送4c329dcf94e9daae50418d82e181461fb9964f82 / CI41035809878。资源绑定CI41034830579已failure，失败日志明确上传专项479行已deleted备份DELETE重放403≠200；本机原PG/mTLS专项`logs/takeover-backup-terminal-replay-before.log`复现同一失败。保留deleted资源不能发码/领取的规则，路由只对原已deleted快照请求terminalOnly回执，沿原instance/host/current账号/backup锁和任务门禁重新核验后返回；锁内变为ready时409且零远端DELETE，其他ready删除仍需验证。
+- 最终`takeover-backup-terminal-replay-upload-verified.log`实际PG/Fastify/mTLS自然exit0：配置个人渠道的deleted重放200零远端调用，撤销会话403；真实宿主行锁排队后backup变ready拒409，随后无grant的ready删除403，原远端403/500/断开/仍存在保护、上传/恢复竞争、确认缺失才提交、提交失败补偿与完整上传专项保持。严格源+受改专项types、后端最终build、四资源路由和四验证码/个人通知守卫均自然exit0，日志同前缀。专项旧assert.rejects(undefined)重载改正确消息重载后types/upload重跑通过，不放宽类型或断言。
+- CI41035809878的Pool同上传步骤已failure，其余六job中Build尚运行，终态日志可取后继续确认；本次根因已实际修复，新推送CI仍需跟终态。41024907571/41024139392/41023032382已success，七个更旧CI仍运行；历史GoIO准确根因、外部SMTP/原生客户/完整灾备及grant后写/dispatch未完保持。无前端/schema/生产改动，原327259含部分/68已有不同不增，阶段保存后继续。
+
 ## 2026-10-30 个人通知配置写入的当前授权与并发开关（持续施工）
 
 - 资源身份绑定已推送5e77874f2d0fb14150f94fdf105fe3e59c88b9fa / CI41034830579。下一真实Fastify/PG先红`takeover-notification-current-write-before.log`：banned旧actor仍201新增个人通知渠道。新增/修改/删除/开关改为当前账户行锁授权事务，当前sid/账户撤销、归属、个人范围及经验证渠道类型重新核验；所有调用传request.user，账号锁也协调验证码读取与个人渠道新增（含空渠道）。开关从锁内当前enabled求反，不再用路由旧值覆盖并发操作，稳定401/403/409回执。
