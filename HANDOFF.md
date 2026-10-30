@@ -1,5 +1,15 @@
 # 版本与验证记录
 
+## 2026-10-31 首页超宽屏适配与右缘浮窗避让（阶段保存）
+
+- 首页原地图在1600px以上无上限使用92vw，而导航/标题上限1920px，宽屏使地图延伸过深。现在按窗口宽度、可用高度和2160px上限等比缩放，导航/标题/大洲筛选共享内容宽度；覆盖21:9、32:9及不同高度，不针对3440×1271写分支。手机球体、目录/购买和地图数据不变。
+- Chrome真实鼠标操作另复现悉尼右缘浮窗盖住节点：pointer move后elementFromPoint命中浮窗价格，点击不选择（logs/home-ultrawide-tooltip-before.log）。浮窗右侧不足时改置于节点左侧，节点和浮窗都可操作。
+- 最终源码四尺寸3440×1271/5120×1440/2560×1080/1920×720×三语全部通过：语言菜单、按钮/滚轮缩放、拖动/重置、大洲筛选、悉尼真实点击、URL和原数字地区purchase入口、48次浮窗边界检查；7次跨断点resize/手机球体及系统动态偏好、零控制台异常，home-ultrawide-interactions.log自然exit0。首轮11尺寸几何及截图在logs/home-ultrawide/；均无页面横溢出，3440地图2160×750，短窗口按高度收缩。
+- 最终两Vue ESLint、client types、路由/i18n守卫和双端构建/dist边界通过；home-ultrawide-lint-final.log、home-ultrawide-build-final.log、home-ultrawide-dist-final.log自然exit0。全量home-ultrawide-full-final.log最终195/195自然exit0，用时9分41秒（logs/test-run-20261031-003544），不是仅尾部PASS。
+- taste六张截图已人工复核。通用inspector原6 FAIL/5 WARN保留：已认可的地图微光/细线/手机卡片与滑动、SVG无摄影/视频、现有小字号与标题被通用规则命中；不为过审改原地图或加文案。控件在更宽地图框架内，导航/标题/筛选实际对齐；没有宣称通用审美全绿。侧聊给出标签显示/稳定字号/碰撞避让建议，属于后续展示改进，尚未实施。
+- 上一提交326ce73c0fa47883eaf50d1e51ca1d1cc308e0ef全量195/195自然exit0（transaction-pool-candidate-full-final.log），预览41085178730双构建/双首装success，日志核230迁移、唯一后端/双端、production Prisma四轮48次超时/迟到回滚/断连回收与完整备份/ZIP恢复；OSS传输为隔离替身。双包核root身份、准确源码/版本、冻结patch字节/hash及两个runtime；SHA256 AMD64 146946b98a4ef2cde1a38a1fa1eb396e6f61b880afa97c2ff469dc41f772a100，ARM64 c8828facd5a9cbfbe194bb1966b1143dd3affbe693025aaeb9585a2dc3977aab；报告logs/release-preview-326ce73c/prisma-package-verification.json。新UI需新同提交发行证据。
+- 68de源码CI41070010863整体success；c6d3/edcfc6/326ce源码CI41078031261/41082272972/41084276788继续后续浏览器，无新failure，终态继续跟。旧41050640712失败为Snapshot writes步骤，准确历史根因待日志复核，不能被新成功删除。正式仍v1.7.7，无tag/Release/生产OTA/DNS/客户操作；原327项259含部分/68不同及完整灾备缺口保持。
+
 ## 2026-10-30 创建准备IPv6查重使用当前事务连接（阶段保存）
 
 - 批量配置段edcfc6ae9c471b9bfd5b7855a006d66119373025已推；源码CI41082272972、文档41082272621及同提交预览41082554153。文档success，CI批量单连接及原完整PG专项success后继续浏览器；预览双构建success、首装仍运行。68de/c6d3两旧CI也继续后续浏览器，未发现新failure，不提前发tag。

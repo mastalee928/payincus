@@ -497,8 +497,12 @@ button:focus-visible,a:focus-visible,select:focus-visible {
 .footer-bottom { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 24px; font-size: 10px; color: #9ca6b5; }
 .mobile-footer-contact { display: none; }
 @media (min-width: 1600px) {
-  .content-width, .header-inner { width: min(1920px, 84vw); }
-  .home-intro h1 { font-size: clamp(48px, 3vw, 72px); }
+  .homepage-map-demo {
+    --home-map-width: min(92vw, 2160px, max(960px, calc((100svh - 360px) * 2.88)));
+    --home-content-width: min(1920px, 84vw, calc(var(--home-map-width) * .92));
+  }
+  .content-width, .header-inner { width: var(--home-content-width); }
+  .home-intro h1 { font-size: clamp(48px, min(3vw, 5svh), 72px); }
   .home-footer { margin-top: 32px; padding: 20px 0 16px; }
   .footer-bottom { margin-top: 12px; }
 }

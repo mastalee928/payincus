@@ -85,7 +85,9 @@ const tooltipStyle = computed(() => {
   const scale = mapWidth.value / 1440
   const x = ((region.displayX! - 720) * zoom.value + 720 + pan.value.x) * scale
   const y = ((region.displayY! - 250) * zoom.value + 250 + pan.value.y) * scale
-  return { left: `${Math.max(12, Math.min(mapWidth.value - 304, x + 22))}px`, top: `${Math.max(12, Math.min(mapFrame.value.clientHeight - 260, y - 110))}px` }
+  // Flip at the right edge so the tooltip does not cover the node being clicked.
+  const left = x + 22 + 280 <= mapWidth.value - 12 ? x + 22 : x - 22 - 280
+  return { left: `${Math.max(12, Math.min(mapWidth.value - 292, left))}px`, top: `${Math.max(12, Math.min(mapFrame.value.clientHeight - 260, y - 110))}px` }
 })
 watch([continent, search, onlyAvailable, activeRegionSlug], () => { visibleCount.value = 10 })
 watch([search, onlyAvailable, () => props.catalog], () => {
@@ -1662,8 +1664,8 @@ button:disabled {
 .minimal-load-error { display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 20px; color: #c6cdd8; font-size: 12px; }
 .minimal-load-error button { border: 0; background: none; color: #eff4fa; min-height: 44px; }
 @media (min-width: 1600px) {
-  .minimal-atlas .atlas-map { width: 92vw; max-width: none; aspect-ratio: 1440 / 500; }
-  .minimal-atlas .content-width { width: min(1920px, 84vw); }
+  .minimal-atlas .atlas-map { width: var(--home-map-width, min(92vw, 2160px)); aspect-ratio: 1440 / 500; }
+  .minimal-atlas .content-width { width: var(--home-content-width, min(1920px, 84vw)); }
 }
 @media (max-width: 767px) {
   .minimal-atlas .atlas-map.globe-trial-frame { height: clamp(310px, 46svh, 430px); aspect-ratio: auto; }
