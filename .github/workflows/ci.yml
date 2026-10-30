@@ -166,6 +166,13 @@ jobs:
       - name: Snapshot writes recheck current account, ownership and restore locks
         timeout-minutes: 3
         run: pnpm --filter server test:snapshot-mutation-authorization
+      - name: Snapshot transactions complete without borrowing another PostgreSQL connection
+        timeout-minutes: 2
+        run: pnpm --filter server test:snapshot-mutation-authorization
+        env:
+          DB_POOL_MAX: '1'
+          DB_CONNECTION_TIMEOUT: '1000'
+          REVIEW_SNAPSHOT_SINGLE_CONNECTION: '1'
       - name: Verify backup upload authorization, queue races and export completion
         run: |
           pnpm --filter server test:review-upload-completion-integration

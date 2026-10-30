@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import type { IncusClient as IncusClientType } from '../src/lib/incus/incus-client.js'
 
 process.env.DATABASE_URL = 'postgresql://fixture:fixture@127.0.0.1:1/payincus_pool_test'
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
@@ -14,8 +15,8 @@ let configuration = { url: 'https://127.0.0.1:10001', certPath: null, keyPath: n
 let findHook: (() => Promise<void>) | undefined
 let connectGate: ReturnType<typeof deferred> | undefined
 let closeGate: ReturnType<typeof deferred> | undefined
-const created: IncusClient[] = []
-const closed = new Set<IncusClient>()
+const created: IncusClientType[] = []
+const closed = new Set<IncusClientType>()
 const originalFind = prisma.host.findUnique
 const originalConnect = IncusClient.prototype.connect
 const originalClose = IncusClient.prototype.close
@@ -23,7 +24,7 @@ prisma.host.findUnique = (async () => {
   const result = { ...configuration }
   if (findHook) { const hook = findHook; findHook = undefined; await hook() }
   return result
-}) as typeof originalFind
+}) as unknown as typeof originalFind
 IncusClient.prototype.connect = async function () {
   created.push(this)
   const gate = connectGate; connectGate = undefined

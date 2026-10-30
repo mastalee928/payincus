@@ -184,17 +184,14 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
       const result = await withSnapshotMutation(instance, request.user, false, async (tx, current) => {
         if (!['running', 'stopped'].includes(current.status) || current.expiresAt && current.expiresAt <= new Date()) throw new SnapshotMutationError('实例状态或到期时间不允许创建快照')
         // 在实例级锁内重新检查配额，避免并发手动快照同时通过读前检查。
-        const quotaCheck = await checkSnapshotQuota(instance.user_id, instanceIdNum)
+        const quotaCheck = await checkSnapshotQuota(instance.user_id, instanceIdNum, tx)
         if (!quotaCheck.allowed) {
           throw new SnapshotMutationError(quotaCheck.message || '快照配额已满', 400)
         }
 
         // 获取宿主机信息并创建 Incus 客户端
-        const host = await db.getHostById(instance.host_id)
-        if (!host) {
-          throw new SnapshotMutationError('宿主机已不存在', 404)
-        }
-        const client = await getIncusClient(host)
+        const host = current.host
+        const client = await getIncusClient(host, tx)
 
         // 在 Incus 中创建快照
         await createSnapshot(client, instance.incus_id, incusName)
@@ -289,16 +286,13 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
     if (await checkTransferLock(instanceIdNum, reply)) return
 
     try {
-      const result = await withSnapshotMutation(instance, request.user, false, async (tx) => {
+      const result = await withSnapshotMutation(instance, request.user, false, async (tx, current) => {
         const currentSnapshot = await tx.snapshot.findUnique({ where: { id: snapshotIdNum } })
         if (!currentSnapshot || currentSnapshot.instanceId !== instanceIdNum || currentSnapshot.incusName !== snapshot.incus_name) throw new SnapshotMutationError('快照记录已变化，请刷新后重试')
         if (!await requireVerifiedOperation(reply, request.user.id, snapshotIdNum, request.user, tx)) return null
         // 获取宿主机信息并创建 Incus 客户端
-        const host = await db.getHostById(instance.host_id)
-        if (!host) {
-          throw new SnapshotMutationError('宿主机已不存在', 404)
-        }
-        const client = await getIncusClient(host)
+        const host = current.host
+        const client = await getIncusClient(host, tx)
 
         // 在 Incus 中删除快照
         await deleteSnapshot(client, instance.incus_id, snapshot.incus_name)
@@ -390,11 +384,8 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
         const currentSnapshot = await tx.snapshot.findUnique({ where: { id: snapshotIdNum } })
         if (!currentSnapshot || currentSnapshot.instanceId !== instanceIdNum || currentSnapshot.incusName !== snapshot.incus_name) throw new SnapshotMutationError('快照记录已变化，请刷新后重试')
         // 获取宿主机信息并创建 Incus 客户端
-        const host = await db.getHostById(instance.host_id)
-        if (!host) {
-          throw new SnapshotMutationError('宿主机已不存在', 404)
-        }
-        const client = await getIncusClient(host)
+        const host = current.host
+        const client = await getIncusClient(host, tx)
 
         // 在 Incus 中恢复快照
         await restoreSnapshot(client, instance.incus_id, snapshot.incus_name)

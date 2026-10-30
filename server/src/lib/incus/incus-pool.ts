@@ -9,6 +9,7 @@
  */
 
 import { prisma } from '../../db/prisma.js'
+import type { Prisma } from '@prisma/client'
 import type { IncusClient } from './incus-client.js'
 import { IncusClient as Client } from './incus-client.js'
 import { recordHostSuccess, recordHostError as recordHostHealthError } from './host-health.js'
@@ -81,13 +82,13 @@ function ensureCleanupStarted(): void {
 /**
  * 获取或创建 Incus 客户端（带并发保护）
  */
-export async function getIncusClient(host: Host): Promise<IncusClient> {
+export async function getIncusClient(host: Host, database: Pick<Prisma.TransactionClient, 'host'> = prisma): Promise<IncusClient> {
   ensureCleanupStarted()
   const key = `${host.id}`
   const invalidation = invalidations.get(key) ?? 0
   const globalGeneration = poolGeneration
   const sequence = ++lookupSequence
-  const options = await prisma.host.findUnique({ where: { id: host.id }, select: {
+  const options = await database.host.findUnique({ where: { id: host.id }, select: {
     url: true, certPath: true, keyPath: true, serverCertificate: true, serverFingerprint: true
   } })
   if (!options) throw new Error('Incus host no longer exists')
@@ -122,7 +123,7 @@ export async function getIncusClient(host: Host): Promise<IncusClient> {
       client = new Client(options)
       await client.connect()
       if (!current()) throw new Error('Incus connection invalidated while connecting')
-      const confirmed = await prisma.host.findUnique({ where: { id: host.id }, select: {
+      const confirmed = await database.host.findUnique({ where: { id: host.id }, select: {
         url: true, certPath: true, keyPath: true, serverCertificate: true, serverFingerprint: true
       } })
       if (!current() || JSON.stringify(confirmed) !== configuration) {

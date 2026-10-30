@@ -8,6 +8,29 @@ The private backend on 127.0.0.1:3001 must run as exactly one Node.js process. T
 
 用户端与管理端使用不同源，通过各自的 /api 和 /api/ws 代理到同一后端，不共享 cookie 域。生产设置 SERVE_STATIC_CLIENT=false，由 Nginx 或现有入口提供两端静态文件。
 
+## 事务连接池耗尽排查（v1.7.8 候选修复）
+
+Prisma 7.1.0 原始客户端可能在申请事务连接的 `maxWait` 超时后，继续等待底层连接并执行 `BEGIN`；应用已收到超时，迟到连接无人回滚及归还。扩大 PostgreSQL `max_connections`、应用连接池或等待时间不能修复此生命周期问题。候选版通过 pnpm 持久补丁修复两个 Node runtime，实际发行与安装证据以 HANDOFF.md 为准。
+
+区分事务连接申请的 `maxWait` 和事务执行的 `timeout`：前者取消应用等待，不自动取消 pg 的排队请求；后者结束数据库事务，不会自动取消应用已发出的远端请求。修复对迟到事务显式执行 SQL `ROLLBACK`，随后在 finally 中调用适配器释放；pg 适配器的 `rollback()` 本身只释放连接。远端清理另有贯穿连接申请、行锁等待及请求的总截止时间，未确认清理时保留库存和地址。
+
+故障时先保存唯一后端日志中的 `DB Pool: total/idle/waiting` 与相同时间的数据库状态。用有权限的数据库会话连接目标应用库，以下只读查询不输出业务 SQL 或连接凭据：
+
+```sql
+SELECT pid, application_name, state,
+       now() - xact_start AS transaction_age,
+       now() - state_change AS state_age,
+       wait_event_type, wait_event,
+       query = 'BEGIN' AS last_query_was_begin
+FROM pg_stat_activity
+WHERE datname = current_database() AND pid <> pg_backend_pid()
+ORDER BY xact_start NULLS LAST;
+```
+
+只有 `idle=0` 不能确定泄漏，正常在途事务也会占用连接。大量长时间 `idle in transaction`、最后语句为 `BEGIN`，同时应用超时且池不能恢复，才与本故障证据相符；继续核对锁等待、任务和时间。整库备份的共享快照会使用独立单连接池维持只读事务，不能把它与唯一后端业务池混为一谈。记录数据库名、会话和实际任务后再判断。
+
+本次没有更新现有生产服务，也没有终止生产数据库会话。部署已验证版本前应先备份；更新后观察重复事务请求的池归还、等待数和 PG 事务状态。不要把所有会话统一终止作为常规修复，也不要仅改 `node_modules`：补丁必须通过冻结安装及发行包进入对应客户端，避免下次安装丢失。
+
 ## 安装与来源
 
 ```bash

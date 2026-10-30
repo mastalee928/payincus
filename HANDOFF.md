@@ -1,5 +1,21 @@
 # 版本与验证记录
 
+## 2026-10-30 快照事务复用连接，关闭池满时的嵌套申请（阶段保存）
+
+- 接续未提交的快照修复：withSnapshotMutation持有PG连接后，checkSnapshotQuota及getIncusClient原先使用全局Prisma再次申请连接。原五事务同时占满五连接的quota回归全部连接超时，snapshot-quota-pool-before.log自然exit1；这是应用层连接等待，与Prisma迟到BEGIN泄漏分别处理，不改连接池上限。
+- 配额辅助函数可接当前事务，快照创建/恢复/删除复用锁内当前宿主及tx；Incus建连前和完成后的宿主地址/证书/指纹重查仍保留。snapshot-pool-single-final.log真实Fastify/PG/mTLS下max=1、冷Incus连接，三操作各一次远端写、waiting=0且唯一连接归还，自然exit0。原20账号/权限/归属/转移竞争、源快照变化、恢复互斥、跨会话验证、远端/DB故障回滚、八并发一删除一消费均通过（snapshot-pool-integration-final.log）。
+- 严格源码及受改专项types、server build、五相关守卫、Incus配置/延迟/移除/关闭竞争和配额/托管PG专项均自然exit0，snapshot-pool-{types,build,guards,pool,quota}-final.log。无前端源码变更；最终候选全量及同提交双架构另验，不能沿用68de产品包覆盖新修复。CI增加单连接池专项，不放宽权限/身份或库存守卫。
+- 初单池断言与响应后的异步通知日志抢用连接，snapshot-pool-single-notification-fixture-failure.log自然exit1；最终等待该同一连接归还并保留严格idle=1/waiting=0，不能把初轮报成功。前复现有无效fixture barrier及unsettled日志，只将实际五事务都入场并报五quota超时的before轮作为产品失败证据；pnpm尾部错误不作为根因。
+- 本次核旧CI41057438463/41058561817/41059920880/41060617563/41061780692均终态success；41050640712仍保留历史failure，准确旧根因未证实。68de源码CI41070010863已通过快照浏览器回归并继续SSH专项，整体未终态；同提交预览及文档已success。正式仍1.7.7，无生产OTA/终止会话/DNS/客户操作，原327计数259含部分/68不同不增。
+
+## 2026-10-30 68de3542 候选完整本地与双架构预览通过（源码CI继续）
+
+- R269期限修复提交68de3542780ab9eb69f8acb9ec3557377daea9c3已推main；源码CI41070010863、文档41070010921，同提交预览41070141170。本地managed-cleanup-full-final.log实际195/195自然exit0（test-run-20261030-221445）。Linux源码CI真实Prisma/快照权限及新增managed锁等待21场景已success，整体Pool仍运行；正式门槛未满足，不提前tag。
+- 同提交预览41070141170终态success：AMD64/ARM64双构建、双首装230迁移、唯一后端/双端/admin登录、实际production Prisma8池四轮48超时、正常commit/rollback、迟到BEGIN SQL rollback/release各一次、断连失败仍归还，以及备份/预检/恢复/完整性兼容演练全部success。Release预期skipped。实际首装日志fresh-install-{amd64,arm64}.log已读；恢复传输为隔离替身，不代表真实OSS/公网灾备。
+- 两实际包下载并核root身份、1.7.8/准确源码、补丁原字节及锁hash、两个runtime、recreate快照清理及新增managed绝对期限/底层取消、双端入口。报告logs/release-preview-68de3542/prisma-package-verification.json：AMD64 212044144字节 SHA256 172c14a4697c2f2bd2b3292e4e4efe0090bda020a1663dae793bd54a7d25f992；ARM64 211254251字节 SHA256 d0845569c0bfcf3052a1144f5e0bc69dce9ecfe8e4bd4e09f615f65be2bdb0d2。
+- 两次工具选择错误准确保留：dispatch短SHA被GitHub422拒绝，改用main并核返回headSha为68de完整提交才算触发；首装log误用未核job ID收到404，随后按实际124115680003/124115680535取得并检查。未重新触发无变化预览，未把失败读日志命令当验收。无活动本地测试；源码CI及旧非终态继续跟。
+- 代码级复审：managed期限锁等待缺陷已真实修复；batch配置90秒绝对期限在事务回调起始建立、120秒事务并1秒行锁超时；transfer各步90秒远端总期限/240秒事务并5秒锁超时；restore上传在事务外，步骤有明确事务期限/请求上限。后几项尚未全部故障注入，连接准备及多阶段累计时限仍需细验，不因代码比较名义超时宣布整体通过。原始pg备份使用独立单池，快照正常/失败出口释放并end，不占业务Prisma池；operations补只读脱敏诊断说明。原327259含部分/68不同不增，正式仍1.7.7，无生产OTA/终止会话/DNS/客户操作。
+
 ## 2026-10-30 R1-269 清理总期限包括真实行锁等待（持续施工）
 
 - 事务代码审查发现managed清理30秒在取得实例锁后开始，而外层事务45秒；真实本机PG/mTLS注入20秒实例行锁及26秒身份GET，managed-cleanup-lock-delay-before.log自然exit1：约46.5秒已远端stop/DELETE，随后P2028导致DB结算失败。属于迟到远端副作用，未当作原Prisma连接泄漏的同根因。期限现在先于申请事务建立，清理复用绝对截止和底层取消；未扩大池或事务超时、未移除实例锁/身份确认/退款及库存保护。

@@ -481,13 +481,14 @@ export async function checkPortQuota(_userId: number, instanceId: number): Promi
 /**
  * 检查实例快照配额（基于实例的 snapshotLimit）
  */
-export async function checkSnapshotQuota(_userId: number, instanceId: number): Promise<{
+export async function checkSnapshotQuota(_userId: number, instanceId: number,
+  client: Pick<Prisma.TransactionClient, 'instance'> = prisma): Promise<{
   allowed: boolean
   current: number
   limit: number
   message?: string
 }> {
-  const instance = await prisma.instance.findUnique({
+  const instance = await client.instance.findUnique({
     where: { id: instanceId },
     select: {
       snapshotLimit: true,

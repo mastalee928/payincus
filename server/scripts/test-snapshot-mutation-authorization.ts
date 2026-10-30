@@ -10,7 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import type { Prisma } from '@prisma/client'
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'), 'Use isolated local *_pool_test PostgreSQL')
-const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
+const { prisma, closePrismaDatabase, getDbPoolStats } = await import('../src/db/prisma.js')
 const { default: snapshotRoutes } = await import('../src/routes/snapshots.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const { loadAuthorizedOperationVerificationResource } = await import('../src/db/operation-verification-resource-authorization.js')
@@ -32,7 +32,7 @@ const remote = createServer({ key: await readFile(keyPath), cert: certificate, c
   for await (const _chunk of request) { /* drain the actual payload */ }
   if (request.method === 'DELETE' && failDelete) { reply.statusCode = 500; return reply.end(JSON.stringify({ type: 'error', error: 'controlled deletion failure', error_code: 500 })) }
   if (request.method === 'PUT' && holdRestore) { restoreReached?.(); await restoreRelease }
-  reply.end(JSON.stringify({ type: 'sync', metadata: {} }))
+  return reply.end(JSON.stringify({ type: 'sync', metadata: {} }))
 })
 await new Promise<void>(resolve => remote.listen(0, '127.0.0.1', resolve))
 const owner = await prisma.user.create({ data: { username: tag, passwordHash: 'unusable-fixture' } })
@@ -88,6 +88,25 @@ async function waitForRestoreFixture(reached: Promise<void>, response: Promise<{
   } finally { if (timer) clearTimeout(timer) }
 }
 try {
+  if (process.env.REVIEW_SNAPSHOT_SINGLE_CONNECTION === '1') {
+    assert.equal(process.env.DB_POOL_MAX, '1', 'single-connection regression must use one PG connection')
+    for (const op of ['create', 'restore', 'delete'] as const) {
+      await reset()
+      await closeAllClients() // exercise both connection configuration reads, not just a warm cache
+      const before = writes.length
+      const result = await invoke(op)
+      assert.equal(result.statusCode, op === 'create' ? 201 : 200, `${op}: ${result.body}`)
+      assert.equal(writes.length, before + 1, `${op}: exactly one remote mutation`)
+      const stats = getDbPoolStats()
+      assert.equal(stats.totalCount, 1)
+      assert.equal(stats.waitingCount, 0)
+      // Fire-and-forget notification logging may briefly borrow this same connection.
+      const settledUntil = Date.now() + 2000
+      while (getDbPoolStats().idleCount !== 1 && Date.now() < settledUntil) await delay(10)
+      assert.equal(getDbPoolStats().idleCount, 1, 'post-response logging must also return the sole connection')
+    }
+    console.log('PASS actual Fastify/PG/mTLS snapshot create/restore/delete with one PG connection, cold host connections and no nested pool acquisition')
+  } else {
   let races = 0
   for (const op of ['create', 'delete', 'restore', 'policy'] as const) for (const change of ['ban', 'revoke', 'demote', 'owner', 'transfer']) {
     await reset(); const before = writes.length
@@ -185,6 +204,7 @@ try {
   await prisma.notificationChannel.delete({ where: { id: channel.id } })
   console.log('PASS configured snapshot grant: foreign session rejects, restore conflict returns promptly without consumption, remote/database failures roll back, eight deletes dispatch and consume once')
   console.log(`PASS actual Fastify/PG snapshot routes: ${races} observed actor/owner/transfer races, changed snapshot source/current state, restore/delete mutual exclusion and valid controls; mTLS Incus fixture without Linux/customer disk acceptance`)
+  }
 } finally {
   await prisma.systemConfig.deleteMany({ where: { key: 'smtp_enabled' } }); if (savedSmtp) await prisma.systemConfig.create({ data: savedSmtp })
   invalidateAllConfigCache(); clearTransporterCache()
