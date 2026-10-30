@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R173 自定义 Telegram 超时与日志补验
+
+- 原sendToChannel的Telegram分支已有15秒AbortSignal及manual redirect，本项未改产品。新增长期专项调用真实sendToChannel和PG日志，只把fetch目的地桥接到本机HTTP，保留method/body/redirect/signal；不向外部机器人发送。
+- logs/custom-telegram-r173-final.log自然exit0：disabled专用渠道仍可正常发送、原Markdown与链接payload保持；远端拒绝/非法JSON/302/缺配置均落failed，302零跳转。无headers15046ms、半body15043ms后返回失败且真实响应已取消、PG零pending，1.5秒后零迟到sent；恢复后同渠道再次sent、原failed保留且enabled仍false。残留socket先确认零请求空闲替代连接，再关独立dispatcher归零，不通过强关活跃响应冒充取消通过。
+- 完整server+专项types零诊断、notification-fetch守卫1/1、清单自然exit0；只有专项和CI登记变化，复用相同产品源码的turnstile-r171-build成功证据。专项接入LinuxCI，尚非外部Telegram投递验收。
+- R171已推fe1a9316531b86b9b4b808f25dcba1517f8f3a81 / CI41140946141；截至本轮15条待核CI均继续到后续步骤，无新增失败，逐项完整head/step保logs/ci-state-<run>.json。R173后273/327项（83.5%，含部分/待验收），54项保初审分类；阶段修复在固定v1.7.8之后，未生产部署。
+
 ## 2026-10-31 R171 Turnstile 公开可用状态与认证门禁一致
 
 - 原登录/注册/找回密码共用turnstileVerifier，关闭时跳过的后端行为正确；但公开配置只看enabled与site key，不看secret key。logs/turnstile-r171-before.log自然exit1证实enabled=true/site有值/secret缺失时公开仍true，而后端跳过。仅公开配置复用getTurnstileConfig并以开关和完整两密钥计算可用状态，只返回site key，不返回secret；管理员原配置值和后端验证规则保持。
