@@ -13,6 +13,7 @@ const REDEEM_CODE_TYPES: readonly ResourceRedeemCodeType[] = ['c', 'r', 'd', 't'
 const MAX_REDEEM_CODE_BATCH_COUNT = 100
 const MAX_REDEEM_CODE_MAX_USES = 1000
 const MAX_REDEEM_CODE_REMARK_LENGTH = 200
+const MAX_POSTGRES_INT_ID = 2_147_483_647
 
 // 资源类型名称映射
 const CODE_TYPE_NAMES: Record<string, string> = {
@@ -36,14 +37,14 @@ function parsePositiveId(value: string): number | null {
   }
 
   const parsed = Number(value)
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_POSTGRES_INT_ID ? parsed : null
 }
 
 function normalizePositiveUniqueIds(values: unknown[]): number[] | null {
   const ids = new Set<number>()
 
   for (const value of values) {
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0 || ids.has(value)) {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0 || value > MAX_POSTGRES_INT_ID || ids.has(value)) {
       return null
     }
     ids.add(value)

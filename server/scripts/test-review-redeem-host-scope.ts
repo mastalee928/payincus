@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import Fastify from 'fastify'
+import Fastify, { type InjectOptions } from 'fastify'
 
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'))
@@ -27,7 +27,7 @@ const code = (hostId: number, used = false) => prisma.redeemCode.create({ data: 
 } })
 const codes = await Promise.all([code(hosts[0].id), code(hosts[0].id, true), code(hosts[1].id)])
 const usage = await prisma.redeemCodeUsage.create({ data: { redeemCodeId: codes[1].id, userId: owner.id, instanceId: instance.id } })
-const base = (hostId: number) => `/hosts/${hostId}/redeem-codes`
+const base = (hostId: number | string) => `/hosts/${hostId}/redeem-codes`
 const capture = async () => ({
   codes: await prisma.redeemCode.findMany({ where: { hostId: { in: hosts.map(host => host.id) } }, orderBy: { id: 'asc' } }),
   usage: await prisma.redeemCodeUsage.findMany({ where: { userId: owner.id }, orderBy: { id: 'asc' } }),
@@ -38,6 +38,41 @@ const capture = async () => ({
 const batch = (ids: number[]) => app.inject({ method: 'POST', url: base(hosts[0].id) + '/batch-delete', payload: { ids } })
   await app.register(routes)
   const before = await capture()
+  const managementRequests = (hostId: number | string, codeId: number | string) => [
+    { method: 'GET' as const, url: base(hostId) },
+    { method: 'POST' as const, url: base(hostId), payload: { codeType: 'c', codeValue: 1 } },
+    { method: 'PATCH' as const, url: base(hostId) + '/' + codeId, payload: { enabled: false } },
+    { method: 'DELETE' as const, url: base(hostId) + '/' + codeId },
+    { method: 'POST' as const, url: base(hostId) + '/batch-delete', payload: { ids: [codes[0].id] } },
+    { method: 'GET' as const, url: base(hostId) + '/' + codeId + '/usages' }
+  ]
+  const invalidIds = ['2147483648', '4294967296', '9007199254740991', '9007199254740992', '0', '-1', '1.5', '1e2', '1x']
+  let rejected = 0
+  for (const value of invalidIds) {
+    const requests: InjectOptions[] = [
+      ...managementRequests(value, codes[0].id),
+      ...managementRequests(hosts[0].id, value).filter((_, index) => [2, 3, 5].includes(index))
+    ]
+    // JSON number coercion intentionally accepts numeric strings; route IDs stay decimal-only.
+    if (value !== '1e2') requests.push({
+      method: 'POST', url: base(hosts[0].id) + '/batch-delete', payload: { ids: [codes[0].id, value] }
+    })
+    if (value !== '1e2' && Number.isFinite(Number(value))) requests.push({
+      method: 'POST', url: base(hosts[0].id) + '/batch-delete', payload: { ids: [codes[0].id, Number(value)] }
+    })
+    for (const request of requests) {
+      const response = await app.inject(request)
+      assert.equal(response.statusCode, 400, request.method + ' ' + request.url)
+      rejected++
+    }
+  }
+  for (const request of [
+    ...managementRequests(2147483647, codes[0].id),
+    ...managementRequests(hosts[0].id, 2147483647).filter((_, index) => [2, 3, 5].includes(index)),
+    { method: 'POST' as const, url: base(hosts[0].id) + '/batch-delete', payload: { ids: [2147483647] } }
+  ]) assert.equal((await app.inject(request)).statusCode, 404)
+  assert.deepEqual(await capture(), before)
+  console.log(`PASS ${rejected} malformed/overflow requests reject and ten valid missing IDs retain 404 with all records unchanged`)
   for (const request of [
     { method: 'PATCH' as const, url: base(hosts[0].id) + '/' + codes[2].id, payload: { enabled: false } },
     { method: 'DELETE' as const, url: base(hosts[0].id) + '/' + codes[2].id },

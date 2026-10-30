@@ -42,9 +42,10 @@ const usagesRoute = sectionBetween(routeSource, '// ==================== 获取�
 
 assert.ok(
   routeSource.includes('function parsePositiveId(value: string): number | null') &&
-    routeSource.includes('return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null') &&
+    routeSource.includes('const MAX_POSTGRES_INT_ID = 2_147_483_647') &&
+    routeSource.includes('return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_POSTGRES_INT_ID ? parsed : null') &&
     routeSource.includes('function normalizePositiveUniqueIds(values: unknown[]): number[] | null') &&
-    routeSource.includes("typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0 || ids.has(value)") &&
+    routeSource.includes("typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0 || value > MAX_POSTGRES_INT_ID || ids.has(value)") &&
     routeSource.includes('function normalizeOptionalExpiryDate(value: string | null | undefined): Date | null | undefined') &&
     routeSource.includes('return Number.isNaN(date.getTime()) ? undefined : date'),
   'redeem-code routes must normalize positive IDs and expiry dates before DB access'
