@@ -1,3 +1,5 @@
+2026-10-30 R011/CI快照DELETE：原验证码claim在操作锁前被恢复实例行锁阻塞，500失败本机复现。已改同withSnapshotMutation事务，原权限/快照源/操作锁先核再消费删除；真实PG/mTLS配置grant跨会话/及时409/远端与DB失败回滚/8并发一删除一消费、原20竞态、严格types/build/十守卫/原PG-SMTP/manifest通过。两旧失败运行与五在途CI保留，跨系统与原生缺失确认、backup同类合同/原327内部缺口继续，259含部分/68不同不增。
+
 2026-10-30 R011重装重建受理：实际banned旧actor仍建任务先红，两个用户入口验证与任务插入同事务、host维护入口原owner/admin权限current核验，实例/宿主/current account原身份status/session与上传恢复转移门禁锁内重核。实际两任务九变化拒绝保grant、任务插入故障回滚、八并发一任务、维护与user权限矩阵及原SMTP/通知回归、types/server build/十守卫自然exit0，见HANDOFF。worker原授权/身份持久与远端执行、SSH/初始化在途修改另待，原327计数不增。
 
 2026-10-30 R011转移事务：真实原sid已撤销仍扣费先红，路由只查要求，最终实例/宿主/排序三账户锁内当前actor和原身份/手续费重核，grant领取复用外部事务与扣费/转移创建统一提交或回滚。实际PG五种真实排队变化零消费/零扣费、余额失败grant回滚、八并发一笔转移/费/grant及原PUSH/SMTP/2FA/destroy/types/build/八守卫全部自然exit0，证据见HANDOFF。备份2f5d205a200d6d069c6973683ad247639adad205 / CI41036581988已过原失败上传步骤且六job成功，整CI仍运行；后续其它敏感任务/dispatch与原327内部项继续，计数不增。
@@ -591,4 +593,3 @@
 
 request/verify/check/claim/profile事务按账户、原会话sid及邮箱摘要核验；旧无绑定账号码必须重发。实际PG/SMTP完整回归、8并发唯一消费、profile跨会话/旧邮箱拒绝且不消耗新邮箱code、原回滚/2FA/destroy专用流程、严格类型/后端构建/operation与auth守卫/manifest均自然exit0，详见HANDOFF。文案已三语改为自然查收提示，af5af1af已推并CI终态success。仅账户操作绑定闭合，generic资源当前目标/会话及权限合同、外部邮件/原生客户与灾备另待，259含部分/68不同计数不增。阶段保存后继续，不将阶段汇报作为停工点。
 2026-10-30接续R011：重装重建原授权持久保存并在执行入口核原actor/session/角色、实例及宿主身份、选定镜像/SSH ID/init IDs和原任务批次；公共回执不含内部授权。实际PG两任务28变化/worker拒绝零实例写/正常维护/旧授权拒绝、真实migration、严格types/server build/十守卫/destroy与manifest通过，完整范围及日志见HANDOFF顶部。原327259含部分/68不同不增，远端全程和SSH/init正文在途变化仍待。新查41031081702快照恢复在途删除超时500 CI失败已读，下一段修根因，六运行CI与旧GoIO/外部SMTP/原生客户/灾备继续。文案af5af1af已三语自然查收且CI通过，不重复编辑。
-

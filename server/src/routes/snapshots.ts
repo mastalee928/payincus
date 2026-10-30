@@ -15,6 +15,7 @@ import { acquireLock, releaseLock } from '../lib/distributed-lock.js'
 import type { CreateSnapshotRequest } from '../types/api.js'
 import { checkInstancePermission } from '../lib/permission.js'
 import type { WriteActor } from '../db/user-write-authorization.js'
+import type { Prisma } from '@prisma/client'
 import { withSnapshotMutation, SnapshotMutationError, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 import { autoSnapshotOperationView, retryAutoSnapshotOperation } from '../services/auto-snapshot-operations.js'
 import {
@@ -56,9 +57,10 @@ async function requireVerifiedOperation(
   reply: FastifyReply,
   userId: number,
   resourceId: number,
-  actor: WriteActor
+  actor: WriteActor,
+  tx: Prisma.TransactionClient
 ): Promise<boolean> {
-  const verification = await claimOperationVerificationRequirement(userId, 'delete_snapshot', resourceId, actor)
+  const verification = await claimOperationVerificationRequirement(userId, 'delete_snapshot', resourceId, actor, tx)
   if (!verification.verified) {
     reply.code(403).send({
       error: 'Sensitive operation requires verification',
@@ -286,12 +288,11 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
     // 检查转移锁定
     if (await checkTransferLock(instanceIdNum, reply)) return
 
-    if (!await requireVerifiedOperation(reply, request.user.id, snapshotIdNum, request.user)) return
-
     try {
       const result = await withSnapshotMutation(instance, request.user, false, async (tx) => {
         const currentSnapshot = await tx.snapshot.findUnique({ where: { id: snapshotIdNum } })
         if (!currentSnapshot || currentSnapshot.instanceId !== instanceIdNum || currentSnapshot.incusName !== snapshot.incus_name) throw new SnapshotMutationError('快照记录已变化，请刷新后重试')
+        if (!await requireVerifiedOperation(reply, request.user.id, snapshotIdNum, request.user, tx)) return null
         // 获取宿主机信息并创建 Incus 客户端
         const host = await db.getHostById(instance.host_id)
         if (!host) {

@@ -103,7 +103,7 @@ for (const { file, source: routeSource } of sensitiveOperationRouteSources) {
 const adminPushSource = readFileSync(resolve(__dirname, '../src/services/admin-instance-push.ts'), 'utf8')
 for (const { file, source: routeSource } of sensitiveOperationRouteSources.filter(item =>
   ['instances.ts', 'backups.ts', 'snapshots.ts', 'transfers.ts'].some(name => item.file.endsWith('/' + name)))) {
-  assert.ok(/(?:claimOperationVerificationRequirement|checkOperationVerificationRequirement)\(userId, (?:operationType|'[^']+'), resourceId, actor\)/.test(routeSource),
+  assert.ok(/(?:claimOperationVerificationRequirement|checkOperationVerificationRequirement)\(userId, (?:operationType|'[^']+'), resourceId, actor(?:, tx)?\)/.test(routeSource),
     `${file} must pass the current authenticated actor when claiming a resource verification`)
 }
 const instanceRoutes = sensitiveOperationRouteSources.find(item => item.file.endsWith('/instances.ts'))!.source

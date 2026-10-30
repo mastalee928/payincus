@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-30 CI快照恢复在途删除门禁与验证消费同事务（持续施工）
+
+- 上段已推ab7654322451bf7ad41f736320316433cfa7e05f / CI41041773579。新查41031081702与41031737023终态failure，分别已读失败日志确认同snapshot-mutation-authorization.ts:105 / Query read timeout / 500≠409；本机`takeover-snapshot-delete-consent-before.log`真实PG/mTLS复现。根因是DELETE在操作门禁前单独领取验证，验证资源FOR SHARE被恢复事务实例FOR UPDATE阻塞；领取移入withSnapshotMutation事务，先即时检查原操作锁/当前权限/快照身份，再消费并执行删除。
+- `logs/takeover-snapshot-delete-consent-snapshot-verified.log`最终自然exit0：原20种实际账号/owner/转移锁竞争及恢复互斥完整保持；新增个人通知grant的另一会话403零远端、恢复期间DELETE小于5秒409不消费、远端500与真实DB删除触发器失败回滚grant并保记录、8并发一DELETE一消费、终态404零重放。SMTP在此专项关闭并恢复原配置，没有发外部邮件。
+- 严格源+受改专项types、最终后端build、四资源路由及六验证码/实例任务守卫、原完整Fastify/PG/SMTP验证专项与manifest自然exit0，前缀`takeover-snapshot-delete-consent-`。guard保同事务actor断言并增加操作锁→grant→remote顺序，不跳测试或放宽时间阈值。无前端/schema修改，无生产动作；远端成功后数据库失败的外部状态恢复、快照实际缺失确认与原生客户磁盘仍未完整验收，不把grant回滚当跨系统原子。
+- 41029729516新终态success；41032952213/41036581988/41037666047/41039116226/41041773579仍运行，前述四旧失败及历史GoIO继续保留。备份DELETE仍在操作锁前单独claim，同事务消费和在途冲突下一段；原327259含部分/68不同不增，外部SMTP/原生客户/网关灾备未完。阶段保存推送后继续，不把本地绿或新CI运行算全部完成。
+
 ## 2026-10-30 R1-011 重装重建任务持久授权与执行前复核（持续施工）
 
 - 接续保留上一模型未提交的schema、migration和worker改动，补齐原actor/session/角色、实例owner/Incus/宿主受信身份及选定image/SSH key ID/init IDs摘要。执行前按实例→任务→宿主→账户锁重新核验PROCESSING原批次及当前授权/状态/恢复/上传/转移/快照/站点竞争；旧任务缺原授权失败保记录，不补造验证。任务创建、读取、列表、取消和冲突回执通过明确select排除内部授权字段，拒绝授权不计宿主连接故障。

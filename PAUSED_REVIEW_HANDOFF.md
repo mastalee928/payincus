@@ -1,3 +1,5 @@
+> **2026-10-30最新：快照DELETE验证同事务已验，待阶段保存**。ab7654322451bf7ad41f736320316433cfa7e05f已推，CI41041773579运行。41031081702/41031737023失败日志同恢复在途DELETE验证先锁实例导致30秒超时500；本地复现后移动claim到withSnapshotMutation，原20竞态/个人grant会话/及时409不消费/远端与DB失败回滚/8并发一删除一消费全通过，types/build/十守卫/原PG-SMTP/manifest自然exit0，见HANDOFF。41029729516新success，五余CI继续查。下一backup同类grant在门禁前缺口；原327259含部分/68不同、跨系统恢复/真实缺失确认/原生客户/GoIO/灾备继续，不暂停。
+
 > **2026-10-30最新：验证码入口资源权限段收尾**。上一068aab64/CI41031737023已推；request/verify/check先只读事务核真实instance/host/child及current role，原权限边界不变。实际四角色×六操作×三路由、缺失/超Int零邮件grant、3阶段owner锁竞争拒绝且原记录不变，以及原全PG/SMTP/PUSH/destroy/types/build/6守卫过，详见HANDOFF。真实9个资源夹具替换旧虚拟ID，正常清理。下一入口检查后ACK/verify/claim原资源持久绑定及grant后写/dispatch、通知配置串行；9个待查CI与历史GoIO保留，不暂停。
 
 > **2026-10-30最新：无个人渠道request/check当前授权段收尾**。资源会话已推9732f961/CI41031081702；实际banned无渠道request200先红后，requirement事务先账户锁当前授权、渠道锁及绑定grant判定，request/check共用。实际PG/SMTP两阶段锁竞争/停用撤销/正常免渠道/原全回归、types/build/2守卫/2FA/destroy自然exit0，见HANDOFF。8个前CI未终态及历史GoIO继续查；下一资源归属/权限、grant后写/dispatch与配置插入合同。原327内部未完保留，不暂停。
@@ -585,4 +587,3 @@
 仓库 `logs/` 为本地忽略证据，交接文件不包含密码、token或密钥。阶段性测试只说明对应边界，不将源码、替身、发行包和生产实证混写。
 > **2026-10-30最新接续：账户验证码绑定段落已收尾**。上一模型未提交的account-session/email摘要源码保留并完成verify/check/claim/profile接线，新增实际profile跨会话/旧邮箱无消耗回归；PG/SMTP resend/profile/2FA/destroy、严格类型、后端build、operation与auth守卫/manifest均自然exit0，证据见HANDOFF最新段落。前端自然文案已af5af1af保存且CI41017076013终态success。八个待查CI41019111832/41019531979/41020374764/41023032382/41024139392/41024907571/41025555281/41026234390及历史GoIO40799210505继续跟；下一generic资源码的当前通知目标/会话与权限合同。不暂停，原327259含部分/68不同及原生/灾备内部未完保持。
 > **2026-10-30最新接续：重装重建持久授权完成本段验证待保存**。保留上一未提交schema/worker并补任务行锁、原actor/session/角色/实例宿主身份及选定输入摘要、原批次/当前授权/工作流执行前复核、公共任务回执select排内部字段。实际PG/SMTP两任务28变化、worker拒绝零实例写/健康不变、管理员维护降权、migrate/types/build/十守卫/destroy/manifest全部自然exit0，日志与范围见HANDOFF顶部。af5af1af文案已推且CI成功，不重复改动。新CI41031081702快照restore在途delete超时500失败已读日志，下一段修同事务验证/门禁顺序；41028619415新success，六余CI跟终态。远端全程/SSH-init正文/镜像当前授权、原生客户/GoIO/灾备继续，259含部分/68不同不增，保存推送后不停工。
-

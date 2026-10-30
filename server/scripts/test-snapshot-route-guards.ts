@@ -97,5 +97,10 @@ assert.ok(
 )
 
 console.log('snapshot route guard tests passed')
+const deleteSnapshotRoute = section(source, '  // 删除快照', '  // 恢复快照')
+assert.ok(source.includes("claimOperationVerificationRequirement(userId, 'delete_snapshot', resourceId, actor, tx)") &&
+  deleteSnapshotRoute.indexOf('await withSnapshotMutation(') < deleteSnapshotRoute.indexOf('await requireVerifiedOperation(') &&
+  deleteSnapshotRoute.indexOf('await requireVerifiedOperation(') < deleteSnapshotRoute.indexOf('await deleteSnapshot(client,'),
+  'snapshot deletion must reach its current operation gate before claiming consent in the same transaction and dispatching deletion')
 
 assert.ok(source.includes('await withSnapshotMutation(instance, request.user, false,') && source.includes('await retryAutoSnapshotOperation'), 'manual actions use current instance fence and expose authorized durable retry')
