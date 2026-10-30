@@ -392,6 +392,8 @@ jobs:
         run: pnpm --filter server test:review-inbox-polling
       - name: Dashboard summaries retain their current account and cannot restart polling after unmount
         run: pnpm --filter server test:review-dashboard-session
+      - name: Identity reads and login logout receipts stay within the current session
+        run: pnpm --filter server test:review-auth-session
       - name: Host config preserves the registered connection endpoint
         run: pnpm --filter server test:review-host-config-endpoint
       - name: Host config sends explicit clears and keeps IPv6 mode gates

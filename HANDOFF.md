@@ -2,7 +2,16 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 错误记录复核与 R1-056 当前身份回执
+
+- 按owner最新要求核对已保存错误：进度回复后停工、漏查CI终态及Caddy首帧缩放漏测。根因、纠正与下次接续检查已补充OWNER_REQUIREMENTS §5；本阶段将其随源码保存，随后继续R057，不以记录错误结束工作。
+- R056保留上一轮未提交改动，补当前account/role/sid、同步generation和读取序号、存储当前值核对；身份切换/跨标签clear/延迟事件及ABA立即清user/quota。旧me成功/401、登录与登出回执不得改替换会话；当前登出立即清私有信息并阻止身份读取，仍先发送原后端登出再清token，当前网络失败保已确认身份。same-sid刷新保留身份，当前401正常退出；接口和后端会话权限规则保持。
+- 最终真实Chrome受控API专项takeover-auth-session-final-verified.log自然exit0：44旧身份成功/401、读取先后/零quota/same-sid、十非法身份、四旧登录、十登出完成与实际storage事件。原实际两登录页回归15370自然exit0、控制台20旧摘要/三语三宽/late mount回归50459自然exit0；client types95749、最后lint零错警、4/4相关守卫test-run-20261030-085548、manifest通过。最后双端build48388含各自vue-tsc自然exit0（user46.21s/admin48.26s），末dist守卫takeover-auth-session-dist-final.log自然exit0。无视觉变化；受控API不替代真实跨标签后端cookie并发、OAuth/注册旧交换或R057刷新重试链路，内部缺口保留。原327现248含部分/68已有不同/11待，不是全验收数。
+- 最新CI40981291834/12516448f298f4e8c06137f8aae717393c2a161e六job success，Pool在邮箱销毁专项运行；40974379396/b8b88f02de22b9bc003a6d7203bdce0d08f7ed76六job success及三个Caddy专项success、Pool后续配置/积分专项仍运行。其余40979936516、40979555768、40978319474、40975365166继续待查终态，不能记整轮通过。历史40799210505原生Go进程审计IO仍未定位；本机无WSL发行版，三测试机既有SSH身份缺口保持，不放宽认证。
+
 ## 2026-10-30 R1-055 / R1-058 控制台摘要会话与轮询生命周期
+
+- 已提交推送12516448f298f4e8c06137f8aae717393c2a161e，HEAD=远端main，新CI40981291834运行；40974379396三个Caddy专项（读取、操作、首帧36组）现在均success，Pool仍继续配置专项，不能计整轮CI完成。
 
 - 实际Dashboard五请求先红：account2新结果后account1旧结果把auth身份写回1；另独立卸载复现mounted等待结束又新建timer。现固定account/role/sid/route及同步代次、KeepAlive/unmount立即清摘要/停止timer，mounted/activated同步共用activate，一次初读/一条timer/当前单在途。五读取Promise.allSettled后复核当前，严格inventory数组/正ID/重复/归属、me ID/role；只在当前允许身份和摘要写入。必要读取失败持久retry、401当前stop，optional失败保最后确认当前余额/积分，零/空正确。请求不会取消远端业务，本项均只读；auth store/API refresh另项。
 - 完整最终takeover-dashboard-session-complete.log自然exit0：20旧account/sid/role/logout/session-cache-route ABA/unmount五请求摘要，旧finally不释放新在途、同sid保持/初读不重复、失败actual retry/foreign me与坏inventory拒绝、合法空/真零、三语1440/768/390实际retry及全页无横溢、late mount零timer/数据。SSHKeysSection当前已有R075/076防护，takeover-dashboard-ssh-session-regression.log真实14旧回执/坏list/retry复验自然exit0，不重复改其源码。

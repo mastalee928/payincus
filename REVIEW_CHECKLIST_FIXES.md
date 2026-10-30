@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R055/R058收尾后）：原327个编号中，247项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，12项仍为「待精修/运行复核」。247并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以12项表示。
+当前进度（2026-10-30，R056收尾后）：原327个编号中，248项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，11项仍为「待精修/运行复核」。248并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以11项表示。
+
+2026-10-30 R056：身份读取固定account/role/sid/读取序号/同步代次与当前存储值；跨标签clear、延迟storage事件和ABA立即清私有身份，旧me成功/401及登录/登出回执不修改替换会话，当前网络失败保身份、当前401退出、same-sid刷新保持。真实Chrome44旧读取/十非法身份/四旧登录/十登出完成、原两登录页及Dashboard完整回归自然exit0，类型/末lint/4守卫/manifest及最后双端types build自然exit0，末dist见HANDOFF。无后端/样式改动；真实cookie并发、OAuth/注册交换与R057刷新重试另待。错误记录已补事实/根因/纠正/下次检查，保存后继续，不能以阶段汇报停工。
 
 2026-10-30 R055/R058：真实Chrome先红旧account1摘要回写account2身份、卸载late mounted completion重建timer；现Dashboard当前account/role/sid/route/同步代次、cache/unmount清摘要与stop、单初读/单在途/挂载同步建轮询。五请求allSettled后复核当前再写，strict归属/ID/坏列表与me身份，失败持久retry，optional失败保最后确认当前数值，零/空保持。完整20旧摘要组+三语三宽真实retry、SSH已实现14旧回执回归、types/lint/2守卫/manifest/双端含types build/末dist全自然exit0。247含部分/68已有不同/12待；既有Dashboard紫色/光晕/长手机UI未改未验为上线标准，不以session修复冒充整页精修，auth/API refresh旧回执下一R056/057。
 
@@ -257,7 +259,7 @@
 | R1-053 | 部分存在 | 源码已修/隔离PG验证通过 | 邮件与实例finalizer绑定claim startedAt+retryCount，旧/重复完成拒绝；超时回收同样CAS。logs/review-queue-sync-integration-final.log |
 | R1-054 | 部分存在 | 已修复；真实账户通知未验 | 清零/递减/session/role/sid/同步ABA与stop/restart代次使旧count失效；当前轮询/refresh/visibility共用单在途门禁、safe integer非负count与同sid保持。实际AppLayout卸载stopPolling清timer/listener，重挂仅一轮。Chrome先红后14旧回执/坏count/重试/真零/当前锁及实际卸载重挂通过，R048完整回归/types/lint/守卫/双端build/末dist通过；NotificationBell旧写与auth identity另项。 |
 | R1-055 | 存在 | 摘要会话隔离已修；真实账户/整页UI未验 | Dashboard固定account/role/sid/route/同步代次，缓存/卸载清摘要与timer，五读取settled后当前复核、strict归属/ID/me身份与单在途，旧成功失败不改新account/数值；20旧摘要组/三语三宽retry/types/lint/守卫/双端build/dist通过。SSH隔离已随R075/076实现，14旧回执真实回归再通过，不重复改。auth/API refresh R056/057、原Dashboard全页taste/UI另待。 |
-| R1-056 | 存在 | 待精修/运行复核 | identity读取与refresh缺generation绑定；旧请求可能回写新会话或用替换账户token重试旧操作。待会话切换动态验证。 |
+| R1-056 | 存在 | 已精修（身份读取，相关链路仍待） | auth store读取/登录登出回执绑定当前身份、同步代次与存储，44旧读取/十非法身份/四登录/十登出Chrome回归及类型/4守卫/双端构建通过；真实cookie/OAuth/注册交换及API refresh重试由R057继续，见2026-10-30 HANDOFF。 |
 | R1-057 | 存在 | 待精修/运行复核 | identity读取与refresh缺generation绑定；旧请求可能回写新会话或用替换账户token重试旧操作。待会话切换动态验证。 |
 | R1-058 | 存在 | 已修复；真实浏览器长期轮询未验 | 同步activate建立一条timer，mounted/activated不重复读；unmount/deactivate立即清timer/摘要及代次，旧五请求settle不再重建。真实Chrome先红→late completion零timer/零旧数据与cache/route往返矩阵通过，types/lint/守卫/双端build/末dist通过，见HANDOFF。 |
 | R1-059 | 部分存在 | 待精修/运行复核 | startRestore未在首个await前占busy，全局activeTask在轮询完成后被直接回写，缺账户/任务代次。BackupManager当前消费者可达性与后端实际备份栈不同，不能据此删平台OSS。 |
