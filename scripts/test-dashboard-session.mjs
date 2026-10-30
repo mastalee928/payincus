@@ -30,14 +30,14 @@ try {
     for (const request of h.pending.slice(start, end)) {
       if (fail) { request.reject(Error('controlled dashboard unavailable')); continue }
       const instance = { id, user_id: id, name: `Instance ${id}`, status: 'running', image: 'debian/13', instanceType: 'container', ipv4: '192.0.2.1', host: { name: 'Fixture host', country_code: 'us' } }
-      const values = { instances: { instances: [instance], page: 1, pageSize: 1000, total: 1, totalPages: 1 },
+      const values = { instances: { instances: [instance], page: 1, pageSize: 100, total: 1, totalPages: 1 },
         me: { user: { id, username: `fixture-account-${id}`, email: 'fixture@example.test', role: 'user' } },
         balance: { balance: { balance: id * 10, frozen: 0, totalRecharge: id * 20, totalConsume: id, destroyedValue: 0 } },
         vip: { userVipLevel: 0, userVipBadgeStyle: null, userVipProgress: null }, points: { points: id } }
       request.resolve(values[request.kind])
     }
   }, { start, end, id, fail })
-  if (!process.argv.includes('--lifecycle-only')) {
+  if (!process.argv.includes('--lifecycle-only') && !process.argv.includes('--pagination-only')) {
     await fresh(); const initialOldEnd = await count()
     await run(() => { const h = window.dashboardHarness; h.session(2); void h.view().loadData() })
     const initialNewEnd = await count()
@@ -97,7 +97,7 @@ try {
       assert.equal(await page.eval(() => window.dashboardHarness.view().instances.length), 0)
     }
     await fresh(); await run(() => { const h = window.dashboardHarness; for (const request of h.pending) {
-      if (request.kind === 'instances') request.resolve({ instances: [] })
+      if (request.kind === 'instances') request.resolve({ instances: [], page: 1, pageSize: 100, total: 0, totalPages: 0 })
       if (request.kind === 'balance') request.resolve({ balance: { balance: 0, frozen: 0, totalRecharge: 0, totalConsume: 0 } })
       if (request.kind === 'points') request.resolve({ points: 0 })
     } }); await settle(0, await count())
@@ -115,6 +115,93 @@ try {
       await page.screenshot({ path: resolve(output, `${locale}-${width}.jpg`), fullPage: true })
     }
     console.log('PASS actual retry controls in three locales and three widths')
+  }
+  if (process.argv.includes('--pagination-only')) {
+    await fresh()
+    assert.deepEqual(await page.eval(() => window.dashboardHarness.pending[0].params), { page: 1, pageSize: 100 }, 'the complete inventory starts at the real server page limit')
+    const rows = Array.from({ length: 237 }, (_, index) => ({ id: index + 1, name: `Inventory ${index + 1}`, user_id: 1,
+      status: index < 137 ? 'running' : 'stopped', image: 'debian/13', instanceType: 'container', host: { name: 'Fixture host', country_code: 'us' } }))
+    const resolvePage = (index, pageNumber, edits = {}) => run(({ index, pageNumber, rows, edits }) => {
+      window.dashboardHarness.pending[index].resolve({ instances: rows.slice((pageNumber - 1) * 100, pageNumber * 100),
+        page: pageNumber, pageSize: 100, total: rows.length, totalPages: Math.ceil(rows.length / 100), ...edits })
+    }, { index, pageNumber, rows, edits })
+    await settle(1, 5)
+    await resolvePage(0, 1)
+    assert.equal(await count(), 6, 'one next page is dispatched after page one completes')
+    assert.equal(await page.eval(() => window.dashboardHarness.view().instances.length), 0, 'no first-page summary is published')
+    await run(() => { const h = window.dashboardHarness; h.tick(); void h.view().loadData() })
+    assert.equal(await count(), 6, 'polling cannot overlap an inventory still loading')
+    await resolvePage(5, 2)
+    assert.equal(await count(), 7)
+    assert.equal(await page.eval(() => window.dashboardHarness.view().instances.length), 0)
+    await resolvePage(6, 3)
+    assert.deepEqual(await page.eval(() => window.dashboardHarness.pending.filter(r => r.kind === 'instances').map(r => r.params)),
+      [1, 2, 3].map(page => ({ page, pageSize: 100 })))
+    assert.deepEqual(await page.eval(() => ({ ...window.dashboardHarness.view().stats })), { total: 237, running: 137, stopped: 100, creating: 0 })
+    assert.equal(await page.eval(() => window.dashboardHarness.view().recentInstances.length), 5)
+    console.log('PASS 237 real component instances over three sequential pages; complete status counts and unchanged five recent rows')
+
+    const badPages = [
+      { page: 1 }, { page: '2' }, { pageSize: 1000 }, { pageSize: '100' }, { total: 238 }, { total: -1 }, { totalPages: 4 },
+      { totalPages: 0 }, { totalPages: Number.MAX_SAFE_INTEGER }, { instances: rows.slice(100, 199) }, { instances: [] },
+      { instances: [{ ...rows[0] }, ...rows.slice(101, 200)] }, { instances: [{ ...rows[100], id: 1.5 }, ...rows.slice(101, 200)] },
+      { instances: [{ ...rows[100], user_id: 2 }, ...rows.slice(101, 200)] },
+      { instances: [{ ...rows[100], userId: 2 }, ...rows.slice(101, 200)] }
+    ]
+    for (const edits of badPages) {
+      await fresh(); await settle(0, 5)
+      await run(() => { void window.dashboardHarness.view().loadData() }); await settle(6, 10)
+      await resolvePage(5, 1); await resolvePage(10, 2, edits)
+      assert.equal(await count(), 11, 'an invalid middle page cannot dispatch another page')
+      assert.ok(await page.eval(() => window.dashboardHarness.view().loadError))
+      assert.equal(await page.eval(() => window.dashboardHarness.view().instances.length), 1, 'failed inventory preserves the last complete current summary')
+    }
+    console.log(`PASS ${badPages.length} malformed, changed-total, wrong-page, partial, duplicate and foreign middle-page replies`)
+    for (const metadata of [{ total: 100001, totalPages: 1001 }, { total: '237', totalPages: 3 }, { total: 237, totalPages: 2 }, { total: 0, totalPages: 1 }]) {
+      await fresh(); await settle(1, 5); await resolvePage(0, 1, metadata)
+      assert.equal(await count(), 5, 'invalid or oversized first-page metadata stops immediately')
+      assert.ok(await page.eval(() => window.dashboardHarness.view().loadError))
+    }
+    await fresh(); await settle(1, 5); await resolvePage(0, 1)
+    await run(() => window.dashboardHarness.pending[5].reject(Error('controlled middle page failure')))
+    assert.ok(await page.eval(() => window.dashboardHarness.view().loadError))
+    assert.equal(await page.eval(() => window.dashboardHarness.view().instances.length), 0)
+    await run(() => [...document.querySelectorAll('button')].find(b => b.textContent.includes('重试')).click())
+    await settle(7, 11); await resolvePage(6, 1); await resolvePage(11, 2); await resolvePage(12, 3)
+    assert.equal(await page.eval(() => window.dashboardHarness.view().stats.total), 237)
+    assert.equal(await page.eval(() => window.dashboardHarness.view().loadError), '')
+    console.log('PASS first-page metadata bounds and failed middle page retry restart the full inventory')
+    let stale = 0
+    for (const mode of ['account', 'sid', 'role', 'logout', 'session-aba', 'cache', 'cache-aba', 'route', 'route-aba', 'unmount']) for (const fail of [false, true]) {
+      await fresh(); await settle(1, 5); await resolvePage(0, 1)
+      await run(async mode => {
+        const h = window.dashboardHarness; window.oldDashboard = h.view()
+        if (mode === 'account') h.session(2)
+        if (mode === 'sid') h.session(1, 'next-inventory-session')
+        if (mode === 'role') h.session(1, 'dashboard-session', 'admin')
+        if (mode === 'logout') h.auth.clearLocalAuth()
+        if (mode === 'session-aba') { h.session(2); h.session(1) }
+        if (mode === 'cache' || mode === 'cache-aba') h.active.value = false
+        if (mode === 'cache-aba') { await Promise.resolve(); await Promise.resolve(); h.active.value = true }
+        if (mode === 'route' || mode === 'route-aba') await h.router.push('/away')
+        if (mode === 'route-aba') await h.router.push('/dashboard')
+        if (mode === 'unmount') h.mounted.value = false
+      }, mode)
+      const newerEnd = await count()
+      if (newerEnd > 6) await settle(6, newerEnd, mode === 'account' ? 2 : 1)
+      const before = await snapshot()
+      if (fail) await run(() => window.dashboardHarness.pending[5].reject(Error('obsolete middle page failure')))
+      else await resolvePage(5, 2)
+      assert.equal(await count(), newerEnd, `${mode}: obsolete second page cannot dispatch page three`)
+      assert.equal(await snapshot(), before, `${mode}: obsolete inventory cannot change current summary/loading/error`)
+      stale++
+    }
+    console.log(`PASS ${stale} obsolete account/session/role/logout/ABA/cache/route/unmount middle-page success and failure replies`)
+    await fresh(); await settle(1, 5); await resolvePage(0, 1, { instances: [], total: 0, totalPages: 0 })
+    assert.equal(await page.eval(() => window.dashboardHarness.view().stats.total), 0)
+    assert.equal(await page.eval(() => window.dashboardHarness.view().loadError), '')
+    assert.equal(await count(), 5)
+    console.log('PASS the real empty-list metadata completes without extra requests')
   }
   await fresh(); const initial = await count(); await run(() => { const h = window.dashboardHarness; window.oldDashboard = h.view(); h.mounted.value = false })
   await settle(0, initial)

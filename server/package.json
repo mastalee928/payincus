@@ -10,6 +10,7 @@
     "test:review-inbox-receipts": "node ../scripts/test-inbox-receipts.mjs",
     "test:review-inbox-polling": "node ../scripts/test-inbox-polling.mjs",
     "test:review-dashboard-session": "node ../scripts/test-dashboard-session.mjs",
+    "test:review-dashboard-pagination": "node ../scripts/test-dashboard-session.mjs --pagination-only",
     "test:review-auth-session": "node ../scripts/test-auth-session.mjs",
     "test:review-auth-refresh": "node ../scripts/test-auth-refresh.mjs",
     "test:review-notification-reads": "node ../scripts/test-notification-reads.mjs",

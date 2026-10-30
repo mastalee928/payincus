@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-020 控制台完整实例分页（持续施工）
+
+- R013已提交推送fd56f21af691a6087e48676fe21d362bc6154a63，对应CI41000607228。前40992598123现七job终态success；40993940514/40995350722/40996832087/40998161357/41000607228仍运行且无新失败，继续跟终态，不能算全部CI通过。
+- 已读实例真实route/DB分页、Dashboard生命周期及对应守卫。原控制台pageSize1000被后端限制100，现通过小型completePages读取器按100顺序取页，校验页号/总数/页数/每页长度/ID与可见owner字段，固定首响应总数；仅在完整读取后发布统计。重复/缺页/总数改变失败保留上次完整当前摘要，旧session/route/cache/卸载回执停止下一页。单次最多100000项，超出明确读取失败，不静默截断。后端权限、排序及100上限保持；跨页不构成数据库事务快照，同数量替换/状态变化的强一致快照另待，不能声称具备该保证。
+- 实际Chrome分页专项47084自然exit0，takeover-dashboard-pagination-first.log：237条三页/137运行100停止/五条最近展示；15异常中间页、首metadata上限/合法空、失败retry及20旧第二页成功失败回执均通过。原源码先红为pageSize1000与缺page；实际产品已修。原控制台session专项63600自然exit0，takeover-dashboard-pagination-session-final.log：20旧五请求摘要、single pending、same-sid、非法身份、当前失败retry、三语三宽及卸载timer回归通过；末截图手机/英文桌面已看，旧紫色/玻璃整体UI仍未精修。
+- 三守卫test-run-20261030-120834自然exit0；有效lint无错警、node语法/diff检查及manifest194常规/224专项通过，新分页专项已登记CI。冻结后唯一双端构建33969自然exit0，takeover-dashboard-pagination-build-final.log含两次vue-tsc，user46.63秒/admin48.43秒；末dist边界takeover-dashboard-pagination-dist-final.log自然exit0。仅浏览器受控API及真实后端代码合同审查，无客户生产/原生宿主流程或发行。
+- 原327现259含部分修复复验/68已有不同/0未进入记录，并非全部验收完成。R020另五处Tickets/Terminal/MyPackages/MyHosts批量calibrate/HostInfo仍待；批量calibrate是写操作，先核授权/固定目标/离页撤销，不能机械扩大批量dispatch。原327的其它内部验收/Go进程审计IO失败/外部邮件/测试机SSH身份/完整网关灾备仍未结束。每阶段验证保存推送后继续。
+
 ## 2026-10-30 R1-013 禁用双重验证的敏感验证接线
 
 - 先读TwoFactorSection/PasswordSection、auth禁用路由、verification routes/service和对应守卫。禁用2FA收到VERIFICATION_REQUIRED时显示实际敏感弹窗；固定原password/TOTP与session/scope/draft快照，verified只重试一次，等待期间父输入/操作冻结。取消清password/code/pending；草稿ABA、sessionABA、role/account变化、KeepAlive离页/卸载均失效旧子回执。后端现有密码/TOTP/claim/CAS/revocation逻辑保持，没有管理员删除或销毁专用邮箱逻辑变更。

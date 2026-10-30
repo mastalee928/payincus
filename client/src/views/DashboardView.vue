@@ -20,6 +20,7 @@ import { instanceCreatePath, instanceDetailPath, instancesPath, isAdminEntry } f
 import { useReveal } from '@/composables/useReveal'
 import { ociMachineShape } from '@/utils/poolCatalog'
 import { localizePoolRegionName } from '@/utils/poolRegionCatalog'
+import { loadCompletePages } from '@/utils/completePages'
 
 // 为 KeepAlive include 匹配定义组件名称（必须在所有 import 之后）
 defineOptions({ name: 'DashboardView' })
@@ -219,7 +220,16 @@ async function loadData(): Promise<void> {
   const current = () => available.value && identity === session.value && version === generation
   try {
     const results = await Promise.allSettled([
-      api.instances.list({ pageSize: 1000 }),  // 获取所有实例以确保统计准确
+      loadCompletePages<Instance>({
+        fetchPage: params => api.instances.list(params), itemsKey: 'instances', current, errorMessage: t('common.loadFailed'),
+        isItem: (value): value is Instance => {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+          const instance = value as Record<string, unknown>
+          return typeof instance.id === 'number' && Number.isSafeInteger(instance.id) && instance.id > 0 &&
+            (instance.user_id === undefined || instance.user_id === userId) &&
+            (instance.userId === undefined || instance.userId === userId)
+        }
+      }),
       api.auth.me(),
       api.billing.getUserBalance(),
       api.vipLevels.getMyOverview(),
@@ -229,11 +239,9 @@ async function loadData(): Promise<void> {
     const [instanceResult, meResult, balanceResult, vipResult, pointsResult] = results
     if (instanceResult.status === 'rejected') throw instanceResult.reason
     if (meResult.status === 'rejected') throw meResult.reason
-    const res = instanceResult.value as unknown as { instances?: Instance[] }, me = meResult.value.user
-    if (!res || !Array.isArray(res.instances) || res.instances.some(instance => !instance || !Number.isSafeInteger(instance.id) || instance.id < 1 ||
-      instance.user_id !== undefined && instance.user_id !== userId) || new Set(res.instances.map(instance => instance.id)).size !== res.instances.length ||
-      !me || me.id !== userId || me.role !== role) throw Error(t('common.loadFailed'))
-    instances.value = res.instances
+    const me = meResult.value.user
+    if (!me || me.id !== userId || me.role !== role) throw Error(t('common.loadFailed'))
+    instances.value = instanceResult.value
     loadError.value = ''
     authStore.user = { ...me, email: me.email || '', avatarStyle: me.avatarStyle || 'bigSmile' }
     if (balanceResult.status === 'fulfilled' && balanceResult.value?.balance &&

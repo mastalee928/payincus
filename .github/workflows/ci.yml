@@ -404,6 +404,8 @@ jobs:
         run: pnpm --filter server test:review-inbox-polling
       - name: Dashboard summaries retain their current account and cannot restart polling after unmount
         run: pnpm --filter server test:review-dashboard-session
+      - name: Dashboard instance totals include all validated pages and reject obsolete middle pages
+        run: pnpm --filter server test:review-dashboard-pagination
       - name: Identity reads and login logout receipts stay within the current session
         run: pnpm --filter server test:review-auth-session
       - name: Both API clients share refresh and reject obsolete request retries
