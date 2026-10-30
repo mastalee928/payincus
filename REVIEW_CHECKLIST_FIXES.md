@@ -370,13 +370,13 @@
 | R1-078 | 存在 | 已修；真实账户/整体UI另验 | 当前account/role/sid/seq/页与cache/unmount隔离，切页清旧记录、同页失败保留/三语retry、缩页读有效末页及严格记录。真实Chrome先红→final14旧读/十坏读/分页/演示隐藏exit0，5守卫/lint/双端types build末dist过。 |
 | R1-079 | 存在 | 已修；真实账户/整体UI另验 | 移动设备先于Linux/macOS，Opera/Edge/Firefox/Chrome先于Safari，补CriOS/FxiOS。实际Vue Chrome先红→11UA/三语三宽exit0，5守卫/lint/双端types build末dist过，R078反序读另续。 |
 | R1-080 | 存在 | 源码已修/隔离Chrome验证通过 | 当前account/sid/目标代次及cache/unmount读写隔离，三写busy/严格回执/链接过期；实际checkbox失败恢复与保存后旧读覆盖回归、56旧回执/ABA/实际控件通过。logs/takeover-telegram-profile-final-ui-2.log；真实外部TG/账户另验 |
-| R1-081 | 存在 | 源码已修/代码复审/待Linux实跑 | Linux稳定inode flock、确认死亡旧PID可恢复，活PID/歧义/软链拒绝，不删除锁路径；owner强杀测试已写，Linux双架构vet/测试编译通过，Windows升级包通过；实际Linux故障注入待补 |
+| R1-081 | 存在 | 源码已修/Linux AMD64测试包通过 | Linux稳定inode flock、确认死亡旧PID可恢复，活PID/歧义/软链拒绝，不删除锁路径。c77b68c5源码CI41115227451/job124267588913实际go test ./...的internal/upgrade成功，覆盖子进程强杀后原inode重取锁及重复unlock保护；legacy PID重用分支可能跳过，原生完整Agent升级/ARM64运行另验。 |
 | R1-082 | 存在 | 源码已修/本机升级包通过 | 下载及gzip全部成员展开均限总大小，边界/损坏/超限不改旧文件；Windows升级包实际通过，Linux双架构vet/测试编译通过；正式Agent未发布 |
-| R1-083 | 存在 | 源码已修/代码复审/待Linux实跑 | systemd定时任务优先，fallback有界等待--no-block确认，不遗留随defer cancel被杀的子进程；取消与deadline测试已写并双架构编译，真实systemd待补 |
-| R1-084 | 待运行验证 | 源码已改/验证范围见右栏 | 捕获 Agent 原始报文 SHA256，兼容旧规范化哈希；wire-body/auth guard；真实Go/宿主待验 |
-| R1-085 | 存在 | 源码已修/代码复审/待Linux实跑 | shutdown context贯穿list/state，20秒总截止、3并发，部分失败标truncated，超时不报告完整空列表；取消/部分失败测试已写，双架构vet/测试编译通过 |
-| R1-086 | 存在 | 源码已修/代码复审/待Linux实跑 | 排除guest/guest-nice重复计数，解析防溢出；复审追加CPU累计计数倒退拒绝，正常/倒退/无变化/异常idle样本测试已写；双架构编译通过 |
-| R1-087 | 存在 | 源码已修/代码复审/待Linux实跑 | 检测强制ModeSocket，普通文件拒绝与真实Unix socket测试已写，双架构vet/测试编译通过；Windows被基线Statfs调用阻断，未伪称实跑 |
+| R1-083 | 存在 | 源码已修/Linux AMD64命令夹具通过 | systemd定时任务优先，fallback有界等待--no-block确认。c77b68c5源码CI41115227451/job124267588913的internal/upgrade实际成功，覆盖替身systemctl确认/取消/截止；不是活体systemd服务重启，真实服务与ARM64运行仍待。 |
+| R1-084 | 原跨语言风险已核 | 真实Go HTTP/完整心跳路由/PG通过 | 原Go panel.Client.Heartbeat发送大整数/科学计数/负零/Unicode/数字键/嵌套struct，三类Go/Node归一化hash不同仍验签；原Fastify agent路由5次完整PG落online和最后报文。nonce重放/篡改/其他Agent ID/禁用均401且第二记录保持，agent-go-full-final.log/report自然exit0；升级metadata为fixture，原生宿主仍另验。 |
+| R1-085 | 存在 | 源码已修/Linux AMD64 Unix socket测试通过 | shutdown context贯穿list/state，20秒总截止、3并发，部分失败标truncated。c77b68c5源码CI41115227451/job124267588913的internal/report实际成功；真实Unix socket HTTP夹具覆盖40实例慢状态、取消/总截止/部分失败，原生Incus和ARM64运行另验。 |
+| R1-086 | 存在 | 源码已修/Linux AMD64测试通过 | 排除guest/guest-nice重复计数，解析防溢出与累计计数倒退拒绝。c77b68c5源码CI41115227451/job124267588913的internal/report实际成功，覆盖正常/倒退/无变化/异常idle样本及Linux主机指标；持续真实负载和ARM64运行另验。 |
+| R1-087 | 存在 | 源码已修/Linux AMD64真实socket测试通过 | 检测强制ModeSocket。c77b68c5源码CI41115227451/job124267588913的internal/report实际成功，普通文件拒绝、实际创建Unix socket可识别；原生Incus发现/ARM64运行另验，Windows旧Statfs限制不作为Linux未运行的依据。 |
 | R1-088 | 已有防护 | 保留初审结论 | 已有目录准备、preflight/staging及dry-run凭据处理；不照搬旧覆盖安装修法，Linux真实安装另验。 |
 | R1-089 | 已有防护 | 保留初审结论 | 已有目录准备、preflight/staging及dry-run凭据处理；不照搬旧覆盖安装修法，Linux真实安装另验。 |
 | R1-090 | 已有防护 | 保留初审结论 | 已有目录准备、preflight/staging及dry-run凭据处理；不照搬旧覆盖安装修法，Linux真实安装另验。 |
@@ -446,22 +446,22 @@
 | R1-154 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
 | R1-155 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
 | R1-156 | 存在，初审范围已纠正 | 无调用镜像导出/旧轮询已清理，构建守卫通过 | 实际worker重装动态调用getImageAlias/getImage，保留两读取/类型；仅清其它9个无调用函数、barrel导出、PullImageOptions及旧长轮询，净减267行。两读取与现行wait/status逐字保持、worker SHA保持；受控request alias/image属性/失败回归、五守卫/server含tsc build/lint/diff通过见HANDOFF。不删除真实镜像交付，不冒充原生重装验收。 |
-| R1-157 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
+| R1-157 | 存在 | 源码已修/实际mTLS异步操作通过 | 原exec/wait遇Cancelled/Canceled/混合大小写及Failure只一次wait保留具体原因，不读取输出；review-incus-output-cloud-mtls-final.log自然exit0。固定证书/指纹及真实HTTP，远端操作状态受控，原生Incus仍待。 |
 | R1-158 | 存在 | 源码已修/行为与mTLS集成通过 | DB最新url/cert/key/fingerprint配置、singleflight/代次/lookup迟到保护，先失效后close；12并发/lookup/connect/close行为通过review-incus-pool守卫，删除真实PG+mTLS latest logs/review-user-no-refund-integration-latest.log |
 | R1-159 | 存在 | 源码已修/行为与mTLS集成通过 | DB最新url/cert/key/fingerprint配置、singleflight/代次/lookup迟到保护，先失效后close；12并发/lookup/connect/close行为通过review-incus-pool守卫，删除真实PG+mTLS latest logs/review-user-no-refund-integration-latest.log |
 | R1-160 | 存在 | 源码已修/行为与mTLS集成通过 | DB最新url/cert/key/fingerprint配置、singleflight/代次/lookup迟到保护，先失效后close；12并发/lookup/connect/close行为通过review-incus-pool守卫，删除真实PG+mTLS latest logs/review-user-no-refund-integration-latest.log |
-| R1-161 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
-| R1-162 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
-| R1-163 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
-| R1-164 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
+| R1-161 | 存在 | 源码已修/实际mTLS总期限通过 | 原exec/wait/readFile共用总期限，POST先550ms后卡输出headers/部分body，900ms总限实测906/903ms失败且socket归零；未为每阶段重置。review-incus-output-cloud-mtls-final.log自然exit0，原生Incus另验。 |
+| R1-162 | 存在 | 源码已修/实际mTLS输出错误通过 | 正常stdout/stderr保持；404/500不成为空输出或错误正文，单输出失败取消另一个无响应输出并释放连接。review-incus-output-cloud-mtls-final.log自然exit0，真实HTTP/固定TLS，原生Incus另验。 |
+| R1-163 | 存在 | 源码已修/原cloud-init路由PG与mTLS通过 | modules-final运行中返回running、无完成时间且重复GET继续读取，不因旧boot-finished/result空errors提前完成缓存；最终错误状态正确持久并缓存。review-incus-output-cloud-mtls-final.log自然exit0，远端文件夹具，原生镜像/浏览器另验。 |
+| R1-164 | 存在 | 源码已修/原cloud-init路由PG与mTLS通过 | 最终result.json错误保留done_with_errors并落库，正常result-only可完成，不完整JSON不能变ready；原路由/固定TLS/PG完整读写与缓存实测，review-incus-output-cloud-mtls-final.log自然exit0。原生cloud-init镜像另验。 |
 | R1-165 | 存在 | 退役适配器/类型已清理，构建守卫通过 | 运行源码/脚本及部署完整搜索确认仅定义/导出/孤立类型，清理31行；八现行网络实现SHA保持、后无旧引用和产物导出。server含tsc build、core-boundaries/incus-pool/host-pool/证书路径四守卫及目标lint/diff通过见HANDOFF。无活体调用，不冒充真实客户网络验收。 |
 | R1-166 | 部分存在 | 无调用旧模块已清理；原四项JSON实现不同 | 288行retry仅本模块定义/调用/注释，无运行消费者或barrel，已移除；实际gateway-journal/backup/batch-config/Incus/Agent六源码SHA保持，后端含tsc build与4/4常规+gateway installation专项守卫正常exit0。本库无对应四项孤立JSON校验，不删除实际验证。无孤立模块活体入口，见HANDOFF。 |
-| R1-167 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
-| R1-168 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
-| R1-169 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
+| R1-167 | 存在 | 源码已修/原审查路由PG与mTLS通过 | 显式空规则不回退内置。review-audit-route-mtls.log自然exit0：PG停用全部内置规则→原审查POST及exec/output→findings与持久记录均空，只重新启用一项后仅命中该规则。三轮观察exec无其它远端写/实例不变；输出受控，未在原生宿主执行命令。 |
+| R1-168 | 存在 | 源码已修/原审查路由PG与mTLS通过 | ss/netstat按各自列序解析。review-audit-route-mtls.log自然exit0：原execWithOutput实际mTLS输出读取后，TCP/UDP/IPv6端点、状态、PID及listening计数正确并落库；命令含原ss失败回退netstat。隔离后端返回输出，原生工具执行/浏览器仍待。 |
+| R1-169 | 存在 | 源码已修/PG及实际HTTP正文签名通过 | 签名和发送共用包含timestamp的同一body。review-notification-wire.log自然exit0：原发送器读PG，fetch边界定向本地HTTP，UTF-8/Unicode/转义及双配置并发HMAC匹配，改timestamp/换secret不匹配；无secret及成功/503的通知标记正确。未发第三方Webhook，公网接收服务另验。 |
 | R1-170 | 已有防护 | 保留初审结论 | 已有safeFetch连接时校验及AbortSignal.timeout，出站绕过问题不成立。 |
 | R1-171 | 已有防护 | 保留初审结论 | login/register/forgot统一verifier，enabled=false直接跳过；完整site/secret条件一致。 |
-| R1-172 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
+| R1-172 | 存在 | 源码已修/实际HTTP总期限通过 | 原fetch与body共用10秒AbortSignal。review-notification-wire.log自然exit0：正常/拒绝/非法JSON、不返回headers及不完整body实测，后两10012/10002ms失败且底层socket归零。fetch只定向本地HTTP而保持原options/信号，无Cloudflare外部通信；现行登录/注册UI整链另验。 |
 | R1-173 | 已有防护 | 保留初审结论 | 自定义Telegram发送已有AbortSignal.timeout，不按旧清单重复改。 |
 | R1-174 | 部分存在 | 建连撤销mTLS专项与构建守卫通过；重连待验 | 异步前登记opening当前user/session/instance及取消信号，四范围关闭中断POST/握手并清资源；实际TLS先红后修、并发隔离/断开/失败重试/正常VM回退通过。前置授权R177与重连总截止/真实Incus仍另验。 |
 | R1-175 | 已有防护 | 保留初审结论 | 重连等待后及新连接完成后核对activeSessions对象、reconnectGeneration和client状态，不符关闭新socket。 |
@@ -525,7 +525,7 @@
 | R1-233 | 存在 | 已修复；真实后端写入待验 | R232已独立修生命周期；本项操作后同步刷新实例iconBadgeId，null有效，不回填旧ownership/prop。刷新失败retry补同步、缺目标不报成功；Chrome受控API矩阵/4守卫/双端types build/dist/lint通过（takeover-instance-badge-result-*）。后端概览非一致事务快照，无生产徽章写入证据。 |
 | R1-234 | 存在；纠正初审 | 已修复；外部发送未验 | 列表不含notificationConfig，改弹窗按ID取详情回填，错误禁保存/retry、关闭/会话/缓存隔离，保存固定快照/冻结/重复门禁。真实Fastify/PG三种保存详情合同、Chrome三种回填/失败矩阵及R235回归、4守卫/types/双端build/dist/lint通过（takeover-lottery-notification-*）。仅inert配置，无外部消息发送。 |
 | R1-235 | 存在 | 已修复；生产验收待 | expectedRevision持久版本拒旧/重放，replenishAmount行锁内原子增加，抽奖同锁/原事务重试；前端详情读取、固定快照/冻结、失败禁重发需重读。真实Fastify/新PG全迁移+抽奖竞争/8并发重复/null/上限、Chrome、5守卫/types/双端build/dist/client lint通过（takeover-prize-stock-*）。多奖品仍非批量原子事务，活动概率并发/创建幂等/生产未验。 |
-| R1-236 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
+| R1-236 | 存在 | 源码已修/真实PG抽奖与流水通过 | 原performDraw命中耗尽区间无nothing抛配置错误，连续5次完整回滚已扣积分、库存及流水；有nothing只正常扣参与积分且其它奖品库存不动，合法区间中奖一次的积分/earned/spent/记录/库存一致。review-lottery-exhausted-pg.log自然exit0，随机值受控，未对真实用户操作。 |
 | R1-237 | 存在 | 已清理退役代码 | 删除无调用CheckinModal及局部样式，兑换守卫转当前Entertainment入口，保后端和三语文案守卫；3守卫/双端types build/dist及全引用复核通过（takeover-retired-checkin-*）。旧文件仅有分享规则展示，无独立分享辅助函数；死代码无活体入口，非线上签到验收。 |
 | R1-238 | 存在 | 已修复；真实领取未验 | description仅undefined继承旧值，null/空串/空白清空。真实Fastify/PG先红后绿、balance/points两类型回执/重读/省略/金额保持、server types/2守卫/manifest通过（takeover-vip-description-*）；无领取/余额/实例操作。R239/240独立继续。 |
 | R1-239 | 存在 | 已修复；后端批量幂等未新增 | 同步保存门禁/快照/冻结，成功create记ID/delete出队，部分失败及重读失败持久阻断并要求读取实际结果；读取/session/KeepAlive/方案回执隔离。实际Chrome先红十连点10次→1次，部分失败恢复与生命周期矩阵/4守卫/双端types build/dist/lint通过（takeover-vip-save-*）。后端仍逐项非原子，无跨管理员或生产保证。 |
@@ -533,7 +533,7 @@
 | R1-241 | 存在 | 已修复；实际发奖未验 | 父v-show传active，挂载/缓存/页签/session/GET取消与代次保护，失败持久retry并禁领取，在途写返回等settle再读，旧写回执/反馈timer隔离。真实Vue/Chrome先红后绿、4守卫/lint/双端types build/dist/manifest通过（takeover-vip-hall-*）。同上下文领取重叠R242及反馈snapshot R243继续。 |
 | R1-242 | 存在 | 已修复；跨浏览器领取未验 | 单项/批量/不同奖励统一writing同步门禁，当前页领取串行防旧overview恢复按钮。Chrome先红后绿、十连点/双向互斥/正确ID与最终已领状态及R241回归、3守卫/lint/双端types build/dist通过（takeover-vip-claim-*）；后端锁/次数保持，未新增跨浏览器幂等。 |
 | R1-243 | 存在 | 已修复；实际到账未验 | 反馈优先本次claim.snapshot的type/title/config，旧卡片只作缺省且类型一致回退；两级timer已由R241清理。Chrome先红后绿、余额/积分/待发实例批量、legacy回退、自然过期/隐藏延迟及R241/242回归、3守卫/lint/双端types build/dist通过（takeover-vip-feedback-*）。 |
-| R1-244 | 存在 | 源码已改/验证范围见右栏 | Turnstile deadline、webhook bytes、审计解析/规则、VIP payload、env去重、抽奖概率、同步筛选；部分行为/守卫通过；签名、VIP、脚本、调度具体流程仍待 |
+| R1-244 | 存在 | 源码已修/原路由真实PG验证通过 | 非数组rules返回400，不转换为空数组。review-vip-array-pg.log自然exit0：两类型28种缺失/错型/非法body或行均400且原规则及metric不变；合法替换/metric保存与显式[]清空仅作用指定类型。认证装饰器受控，管理员当前授权竞态及整页浏览器另验，产品未追加改动。 |
 | R1-245 | 存在 | 已修复；真实规则替换未验 | 当前type/session成功读取才可编辑保存，初读失败持久retry；同步保存/冻结/快照及类型session缓存卸载回执隔离。真实Chrome先红空规则请求→禁写，完整交互/共享奖励回归、4守卫/lint/双端types build/dist/manifest通过（takeover-vip-rules-*）；后端空数组合法替换与跨管理员竞争保持。 |
 | R1-246 | 已有防护 | 保留初审结论 | ResourceSlider/ResourceSliders/PackageSelector仍由InstanceCreateView、AdminInstanceCreateView、HostCreateInstanceTab维护代码导入使用；原全退役结论不成立，保留。 |
 | R1-247 | 存在 | 已修复；真实镜像交付未验 | 方案/镜像请求各自seq+host/session/package，selection代次阻旧链；刷新清旧选择并禁创建，提交镜像须在当前列表。Chrome先红后绿、方案/镜像旧成功失败/finally、刷新禁写/精确planId与image及R248回归、3守卫/lint/双端types build/dist通过（takeover-host-create-options-*）。R249/250另修。 |
@@ -549,7 +549,7 @@
 | R1-257 | 存在 | 源码已修；浏览器表格通过 | renderer.table使用header/rows的cell.tokens。jsdom及实际Chrome条款组件验证普通/仅表头/空单元格、加粗/链接/code、1440/390无整页横溢且截图已看（takeover-markdown-table-browser.log）；新专项接CI。仅补证据/测试，产品未改，R258/259继续。 |
 | R1-258 | 存在 | 已修；嵌套与任务浏览器通过 | 子tokens的链接/嵌套引用列表/任务/有序列表/字面code实际Chrome通过；截图发现勾选path.d丢失，浏览器/jsdom先红后修URI正则`.-:`意外数字范围，保留SVG几何及数字相对链接，危险/未知协议仍拒。3守卫/lint/最终完整双端types build/dist通过（takeover-markdown-tokens-*），手机截图已核勾选与外链图标。 |
 | R1-259 | 存在 | 源码已修；属性浏览器通过 | escapeHtml/DOMPurify实际Chrome验证引号/&/尖括号title和图片说明保持、格式化链接/外链rel、数字相对URL；危险标签/事件/协议移除，触发error/load/click后执行计数0，平台图标几何保留。桌面/手机截图及新CI专项通过本地检查（takeover-markdown-attributes-*）。非穷尽恶意HTML证明，法律内容不改。 |
-| R1-260 | 部分存在；原完整缺键集合未提供 | 支付实际三语已验；全消息穷尽未验 | 实际PaymentProvidersView五种已实现渠道/三语控件无raw key、密码空/1440和390通过（takeover-payment-locales-browser.log），只list无写。Heleket占位符字面@精确runtime通过但当前页面已无该key引用；原目标namespace编译与i18n/route共3守卫通过。邀请码R308/315及TG R326仍单独待验，不把支付页面结果当全部三语完成。 |
+| R1-260 | 部分存在；原完整缺键集合未提供 | 全消息编译/支付三语通过；逐页显示另验 | 本次c77b68c5全量第84/196项实际编译三语26,804条文案全部通过（home-label-full-final.log），目标namespace另924条runtime通过；编译不等同逐页显示。PaymentProvidersView五渠道三语1440/390、原Heleket字面@通过；当前页面无该旧key引用。邀请码/Telegram实际控件及长URL见已补验R315/326，整页UI仍按各项记录。 |
 | R1-261 | 实现不同 | 保留初审结论 | 本库新矢量地图/球体采用当前目录与坐标实现，未发现对方旧datacenter地图文件；不据此替换现行地图编码。 |
 | R1-262 | 已有防护 | 保留初审结论 | update/delete/batch/usages使用ForHost约束且校验code归属host，旧跨节点缺口已有防护。 |
 | R1-263 | 已有防护 | 保留初审结论 | 当前仅数据库移除有保留远端/磁盘及暂停销售说明，不能当完整销毁或释放可售库存。 |
@@ -623,4 +623,3 @@ request/verify/check/claim/profile事务按账户、原会话sid及邮箱摘要�
 2026-10-30接续R011：重装重建原授权持久保存并在执行入口核原actor/session/角色、实例及宿主身份、选定镜像/SSH ID/init IDs和原任务批次；公共回执不含内部授权。实际PG两任务28变化/worker拒绝零实例写/正常维护/旧授权拒绝、真实migration、严格types/server build/十守卫/destroy与manifest通过，完整范围及日志见HANDOFF顶部。原327259含部分/68不同不增，远端全程和SSH/init正文在途变化仍待。新查41031081702快照恢复在途删除超时500 CI失败已读，下一段修根因，六运行CI与旧GoIO/外部SMTP/原生客户/灾备继续。文案af5af1af已三语自然查收且CI通过，不重复编辑。
 > 2026-10-30连接泄漏修复已推a8526557/CI41057438463；Linux冻结安装及真实PG8连接超时专项成功，整体CI未终态。全量195实际执行193过、删除入口Body/重装SSH旧断言两败，精确核实际材料所有权/建连后重核和删除顺序后更新守卫，三项复验自然exit0，明确补丁LF字节守卫。完整终态及后续重建快照缺口见HANDOFF；原327计数不增。
 2026-10-31地图可售名称阶段：去原三城硬编码，全部可售地区优先，hover/键盘聚焦及选中最高，固定13px/20px与像素避让，放大补充名称；三语来自权威目录。最终type-check/三相关守卫/ESLint/双端build/dist及三语六尺寸、45可售密集/库存刷新/动画过程/真实点击与正式产物浏览器通过，详HANDOFF。全量196与新提交CI/双架构发行待终态；不增加原327完成计数，按owner要求保存后继续发行及原排查。
-
