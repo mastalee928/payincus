@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, nextTick, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import api from '@/api'
@@ -42,6 +42,32 @@ const target = ref<string | null>(null)
 const expiresAt = ref<string | null>(null)
 const countdown = ref(0)
 const error = ref('')
+const dialog = ref<HTMLElement | null>(null)
+const dialogId = useId()
+let returnFocus: HTMLElement | null = null
+watch(() => props.show, async show => {
+  if (props.operationType !== 'disable_2fa') return
+  if (show) {
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    await nextTick()
+    if (props.show) dialog.value?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true })
+  } else {
+    const previous = returnFocus
+    returnFocus = null
+    await nextTick()
+    if (!props.show && previous?.isConnected) previous.focus({ preventScroll: true })
+  }
+}, { flush: 'sync' })
+function handleDialogKey(event: KeyboardEvent) {
+  if (props.operationType !== 'disable_2fa') return
+  if (event.key === 'Escape') { event.preventDefault(); close(); return }
+  if (event.key !== 'Tab') return
+  const controls = Array.from(dialog.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]') || [])
+  const first = controls[0], last = controls.at(-1)
+  if (!first) { event.preventDefault(); dialog.value?.focus(); return }
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+}
 
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 let alive = true
@@ -194,18 +220,19 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <Transition name="modal">
-      <div v-if="show" class="modal-overlay">
+    <Transition name="modal" :css="operationType !== 'disable_2fa'">
+      <div v-if="show" class="modal-overlay" :class="{ 'two-factor-verification': operationType === 'disable_2fa' }">
         <div class="modal-backdrop" @click="close" />
-        <div class="modal-content max-w-md">
+        <div ref="dialog" class="modal-content max-w-md" role="dialog" aria-modal="true" :aria-labelledby="`${dialogId}-title`" :aria-busy="loading" tabindex="-1" @keydown="handleDialogKey">
           <div class="modal-header">
-            <h3 class="modal-title">{{ t('sensitiveVerification.title') }}</h3>
+            <h3 :id="`${dialogId}-title`" class="modal-title">{{ t('sensitiveVerification.title') }}</h3>
             <button
               type="button"
+              :aria-label="t('common.close')"
               class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               @click="close"
             >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg aria-hidden="true" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -234,7 +261,7 @@ onBeforeUnmount(() => {
                 {{ t('sensitiveVerification.requestHint') }}
               </p>
               
-              <div v-if="error" class="text-sm text-red-500">{{ error }}</div>
+              <div v-if="error" role="alert" class="text-sm text-red-500">{{ error }}</div>
             </div>
             
             <!-- 步骤 2: 输入验证码 -->
@@ -247,13 +274,16 @@ onBeforeUnmount(() => {
               </div>
               
               <div>
-                <label class="block text-sm text-themed-secondary mb-1.5">
+                <label :for="`${dialogId}-code`" class="block text-sm text-themed-secondary mb-1.5">
                   {{ t('sensitiveVerification.enterCode') }}
                 </label>
                 <input
+                  :id="`${dialogId}-code`"
                   v-model="verificationCode"
                   type="text"
                   maxlength="6"
+                  inputmode="numeric" autocomplete="one-time-code"
+                  :aria-invalid="!!error" :aria-describedby="error ? `${dialogId}-error` : undefined"
                   :disabled="loading"
                   class="input text-center text-2xl tracking-widest font-mono"
                   :placeholder="t('sensitiveVerification.codePlaceholder')"
@@ -281,7 +311,7 @@ onBeforeUnmount(() => {
                 </button>
               </div>
               
-              <div v-if="error" class="text-sm text-red-500">{{ error }}</div>
+              <div v-if="error" :id="`${dialogId}-error`" role="alert" class="text-sm text-red-500">{{ error }}</div>
             </div>
           </div>
           
@@ -309,3 +339,67 @@ onBeforeUnmount(() => {
     </Transition>
   </Teleport>
 </template>
+
+<style scoped>
+.two-factor-verification .modal-content {
+  background: var(--kawaii-bg) !important;
+  color: var(--kawaii-text);
+  border: 1px solid var(--kawaii-line) !important;
+  border-radius: 12px !important;
+  animation: none;
+  transform: none;
+  backdrop-filter: none;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.15) !important;
+}
+.two-factor-verification .modal-body,
+.two-factor-verification .modal-header,
+.two-factor-verification .modal-footer {
+  background: var(--kawaii-bg) !important;
+}
+.two-factor-verification .modal-backdrop {
+  background: rgb(0 0 0 / 0.4) !important;
+  backdrop-filter: none;
+}
+.two-factor-verification .modal-title {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.two-factor-verification .modal-header button {
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.two-factor-verification .modal-footer button,
+.two-factor-verification .modal-body button {
+  min-height: 44px;
+}
+.two-factor-verification .modal-body button {
+  color: var(--kawaii-text) !important;
+}
+.two-factor-verification .input {
+  background: var(--kawaii-bg) !important;
+  border: 1px solid var(--kawaii-line) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  min-height: 48px;
+}
+.two-factor-verification .btn-primary {
+  background: var(--kawaii-text) !important;
+  color: var(--kawaii-bg) !important;
+  border: 1px solid var(--kawaii-text) !important;
+  box-shadow: none !important;
+}
+.two-factor-verification .btn-secondary {
+  background: var(--kawaii-bg) !important;
+  color: var(--kawaii-text) !important;
+  border: 1px solid var(--kawaii-line) !important;
+  box-shadow: none !important;
+}
+.two-factor-verification button:focus-visible,
+.two-factor-verification input:focus-visible {
+  outline: 2px solid var(--kawaii-text);
+  outline-offset: 3px;
+}
+</style>

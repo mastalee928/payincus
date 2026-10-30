@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R008语言段落收尾后）：原327个编号中，257项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，2项仍为「待精修/运行复核」（R013、R020）。257并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以2项表示。
+当前进度（2026-10-30，R013验证接线段落收尾后）：原327个编号中，258项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，1项仍为「待精修/运行复核」（R020）。258并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以1项表示。
+
+2026-10-30 R013：禁用2FA遇VERIFICATION_REQUIRED打开实际SensitiveVerificationModal，验证后以原password/code及session/scope/draft快照重试一次；等待验证冻结父表单，取消清秘密，草稿/session/role/account/cache/unmount及迟到子回执拒绝。实际Chrome14旧子回执/坏验证/重复emit/坏重试和36三语三宽深浅动态偏好冻结动画、44px/Tab/Escape及18视觉报告0FAIL/0WARN通过。实际PG/Fastify密码/TOTP/原账户原操作验证、错误凭据保grant、清秘密/revoke/replay通过；四旧2FA及Password敏感验证回归、严格类型/守卫/lint/末双端build/dist通过，见HANDOFF。通用验证码前端60/后端120秒合同和真实邮件投递仍待，销毁专用60秒独立保持。
 
 2026-10-30 R008：管理员OAuth登录配置繁体原生文案缺失，运行时由mergeMissingMessages回退英文，纠正“显示裸键”的早期判断。补完整31项繁体文本；原生繁体标题/空密钥说明守卫先红后绿。实际组件Chrome三语×1440/768/390编辑/提交、空密钥和省略字段通过；实际PG/Fastify省略/空字符串/UNCHANGED三种输入保旧密钥及原OAuth回归通过。严格源+专项类型、有效lint、route/oauth守卫、双端含types构建/dist和manifest通过，见HANDOFF。外部OAuth应用区既有硬编码中文和整页视觉/外部供应商登录另待；不把配置组修复当作整个OAuth验收。
 
@@ -232,7 +234,7 @@
 | R1-010 | 实现不同 | 保留初审结论 | 请求认证读取最新用户和invalidations；无对方30秒正向认证缓存，多后端副本本项目不支持。 |
 | R1-011 | 部分存在 | 源码已修/隔离PG验证通过 | 邮箱注册锁、验证码次数/用途/过期与业务提交同事务；注册/profile/reset并发、旧认证状态及撤销故障回滚通过 logs/review-verification-integration-profile.log；admin创建大小写邮箱/初始状态配额及重置通过 logs/review-admin-account-integration.log；未生产验收 |
 | R1-012 | 存在 | 源码已修/隔离PG验证通过 | 2FA状态CAS、恢复码单次消费、完整已验证认证字段、enable/disable同事务撤销；logs/review-2fa-integration-latest.log；密码修改同事务通过 logs/review-verification-integration-profile.log |
-| R1-013 | 部分存在 | 待精修/运行复核 | 禁用直接调用API，未接SensitiveVerificationModal；倒计时与三语需另核。 |
+| R1-013 | 部分存在 | 验证接线与实际浏览器/PG通过；合同及邮件另待 | VERIFICATION_REQUIRED接实际敏感验证弹窗，固定原password/TOTP/context一次重试，取消/草稿/身份/离页清旧pending。Chrome14旧子回执/36冻结动画组与PG/Fastify实际禁用验证、旧2FA/Password回归、types/lint/守卫/双端build/dist通过。黑白弹窗、44px、键盘/18视觉报告通过；通用重发60/120秒合同与真实邮件待。 |
 | R1-014 | 部分存在 | 源码已修/隔离PG验证通过 | 邮箱注册锁、验证码次数/用途/过期与业务提交同事务；注册/profile/reset并发、旧认证状态及撤销故障回滚通过 logs/review-verification-integration-profile.log；admin创建大小写邮箱/初始状态配额及重置通过 logs/review-admin-account-integration.log；未生产验收 |
 | R1-015 | 部分存在 | 源码已修/隔离PG验证通过 | 删除事务锁actor/target并重新检查角色、余额、全部关联阻断；保留原FK冲突及库存关联；真实PG角色提升占锁后删除拒绝及非零余额保护通过 logs/review-admin-account-integration.log |
 | R1-016 | 存在 | 源码已修/隔离PG验证通过 | 异步RSA4096、真实ssh2/crypto公钥解析、单行/canonical blob、账户锁串行duplicate/20上限及当前角色状态会话；logs/review-ssh-keys-integration-final.log |

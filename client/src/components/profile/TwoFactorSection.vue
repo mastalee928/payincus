@@ -3,6 +3,7 @@ import { computed, ref, onMounted, onActivated, onDeactivated, onUnmounted, watc
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import SensitiveVerificationModal from '@/components/SensitiveVerificationModal.vue'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -32,6 +33,13 @@ function showSuccess(message: string, duration: number) {
   successTimer = setTimeout(() => { if (current === generation) success.value = ''; successTimer = undefined }, duration)
 }
 const loading = ref(false)
+const showVerificationModal = ref(false)
+const busy = computed(() => loading.value || showVerificationModal.value)
+let pendingDisable: { password: string; code: string; context: ReturnType<typeof writeContext> } | null = null
+function clearPendingDisable() {
+  pendingDisable = null
+  showVerificationModal.value = false
+}
 const enabled = ref(false)
 const setupMode = ref(false)
 const disableMode = ref(false)
@@ -58,9 +66,9 @@ const validVerificationCode = (value: unknown) => typeof value === 'string' && /
 function validRecoveryCodes(value: unknown): value is string[] {
   return Array.isArray(value) && value.length === 8 && value.every(code => typeof code === 'string' && /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code)) && new Set(value).size === value.length
 }
-const canEnable = computed(() => !loading.value && available.value && statusReady.value && !statusLoading.value && validVerificationCode(verifyCode.value))
-const canDisable = computed(() => !loading.value && available.value && statusReady.value && !statusLoading.value && !!disablePassword.value && validVerificationCode(disableCode.value))
-const canRegenerate = computed(() => !loading.value && available.value && statusReady.value && !statusLoading.value && !!regeneratePassword.value && validVerificationCode(regenerateCode.value))
+const canEnable = computed(() => !busy.value && available.value && statusReady.value && !statusLoading.value && validVerificationCode(verifyCode.value))
+const canDisable = computed(() => !busy.value && available.value && statusReady.value && !statusLoading.value && !!disablePassword.value && validVerificationCode(disableCode.value))
+const canRegenerate = computed(() => !busy.value && available.value && statusReady.value && !statusLoading.value && !!regeneratePassword.value && validVerificationCode(regenerateCode.value))
 
 const error = ref('')
 const success = ref('')
@@ -79,6 +87,7 @@ function invalidateRecoveryStatus() {
 watch(enabled, invalidateRecoveryStatus, { flush: 'sync' })
 function invalidateContext(reload = true) {
   generation += 1
+  clearPendingDisable()
   statusRequest += 1
   statusReady.value = false
   statusLoading.value = false
@@ -94,6 +103,7 @@ function invalidateContext(reload = true) {
 watch(scope, () => invalidateContext(), { flush: 'sync' })
 watch([setupMode, disableMode, regenerateMode, verifyCode, disablePassword, disableCode, regeneratePassword, regenerateCode], () => {
   draftGeneration += 1
+  clearPendingDisable()
   error.value = ''
 }, { flush: 'sync' })
 function writeContext() {
@@ -109,7 +119,7 @@ function writeContext() {
 }
 
 async function loadStatus() {
-  if (loading.value || !available.value) return
+  if (busy.value || !available.value) return
   const request = ++statusRequest
   recoveryStatusRequest += 1
   statusReady.value = false
@@ -154,7 +164,7 @@ async function loadRecoveryCodesStatus() {
 }
 
 async function startSetup() {
-  if (!available.value || loading.value || !statusReady.value || statusLoading.value) return
+  if (!available.value || busy.value || !statusReady.value || statusLoading.value) return
   const context = writeContext()
   invalidateRecoveryStatus()
   loading.value = true
@@ -175,7 +185,7 @@ async function startSetup() {
 }
 
 async function confirmEnable() {
-  if (!available.value || loading.value || !statusReady.value || statusLoading.value) return
+  if (!available.value || busy.value || !statusReady.value || statusLoading.value) return
   if (!validVerificationCode(verifyCode.value)) {
     error.value = t('profile.twoFactorAuth.enterCodeError')
     return
@@ -200,12 +210,16 @@ async function confirmEnable() {
 }
 
 async function confirmDisable() {
-  if (!available.value || loading.value || !statusReady.value || statusLoading.value) return
+  if (!available.value || busy.value || !statusReady.value || statusLoading.value) return
   if (!disablePassword.value || !validVerificationCode(disableCode.value)) {
     error.value = t('profile.twoFactorAuth.fillPasswordAndCode')
     return
   }
   const context = writeContext(), password = disablePassword.value, code = disableCode.value
+  await submitDisable(password, code, context, true)
+}
+
+async function submitDisable(password: string, code: string, context: ReturnType<typeof writeContext>, allowVerification: boolean) {
   loading.value = true
   invalidateRecoveryStatus()
   error.value = ''
@@ -220,14 +234,33 @@ async function confirmDisable() {
     recoveryCodesStatus.value = null
     showSuccess(t('profile.twoFactorAuth.disabledSuccess'), 3000)
   } catch (e: any) {
-    if (context.current()) error.value = e.message || t('profile.twoFactorAuth.disableFailed')
+    if (!context.current()) return
+    if (allowVerification && e?.code === 'VERIFICATION_REQUIRED') {
+      pendingDisable = { password, code, context }
+      showVerificationModal.value = true
+      return
+    }
+    error.value = e.message || t('profile.twoFactorAuth.disableFailed')
   } finally {
     context.finish()
   }
 }
 
+async function onDisableVerified() {
+  if (loading.value || !showVerificationModal.value || !pendingDisable?.context.current()) return
+  const submitted = pendingDisable
+  clearPendingDisable()
+  await submitDisable(submitted.password, submitted.code, submitted.context, false)
+}
+
+function closeDisableVerification() {
+  clearPendingDisable()
+  disablePassword.value = ''
+  disableCode.value = ''
+}
+
 async function confirmRegenerate() {
-  if (!available.value || loading.value || !statusReady.value || statusLoading.value) return
+  if (!available.value || busy.value || !statusReady.value || statusLoading.value) return
   if (!regeneratePassword.value || !validVerificationCode(regenerateCode.value)) {
     error.value = t('profile.twoFactorAuth.fillPasswordAndCode')
     return
@@ -252,7 +285,7 @@ async function confirmRegenerate() {
 }
 
 function cancelRegenerate() {
-  if (loading.value) return
+  if (busy.value) return
   regenerateMode.value = false
   regeneratePassword.value = ''
   regenerateCode.value = ''
@@ -261,7 +294,7 @@ function cancelRegenerate() {
 }
 
 function cancelSetup() {
-  if (loading.value) return
+  if (busy.value) return
   setupMode.value = false
   qrCode.value = ''
   secret.value = ''
@@ -271,7 +304,7 @@ function cancelSetup() {
 }
 
 function cancelDisable() {
-  if (loading.value) return
+  if (busy.value) return
   disableMode.value = false
   disablePassword.value = ''
   disableCode.value = ''
@@ -279,11 +312,11 @@ function cancelDisable() {
 }
 
 function openDisable() {
-  if (!loading.value && statusReady.value && !statusLoading.value) disableMode.value = true
+  if (!busy.value && statusReady.value && !statusLoading.value) disableMode.value = true
 }
 
 function openRegenerate() {
-  if (!loading.value && statusReady.value && !statusLoading.value) regenerateMode.value = true
+  if (!busy.value && statusReady.value && !statusLoading.value) regenerateMode.value = true
 }
 
 onMounted(() => { active.value = true })
@@ -298,7 +331,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
 
     <p v-if="statusLoading" class="text-sm text-themed-muted">{{ $t('common.loading') }}</p>
     <div v-else-if="statusError" role="alert" class="text-sm text-red-400 break-words">
-      {{ statusError }} <button :disabled="loading" class="underline ml-2" @click="loadStatus">{{ $t('common.retry') }}</button>
+      {{ statusError }} <button :disabled="busy" class="underline ml-2" @click="loadStatus">{{ $t('common.retry') }}</button>
     </div>
     <!-- Status display -->
     <div v-else-if="statusReady && !setupMode && !disableMode && !regenerateMode" class="space-y-4">
@@ -311,7 +344,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
         </div>
         <button 
           v-if="!enabled"
-          :disabled="loading"
+          :disabled="busy"
           class="btn-primary text-sm"
           @click="startSetup"
         >
@@ -319,7 +352,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
         </button>
         <button 
           v-else
-          :disabled="loading"
+          :disabled="busy"
           class="btn-secondary text-sm"
           @click="openDisable"
         >
@@ -333,13 +366,13 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
       <!-- Recovery codes status -->
       <p v-if="recoveryStatusLoading" class="text-sm text-themed-muted">{{ $t('common.loading') }}</p>
       <div v-else-if="recoveryStatusError" role="alert" class="text-sm text-red-400 break-words">
-        {{ recoveryStatusError }} <button :disabled="loading" class="underline ml-2" @click="loadRecoveryCodesStatus">{{ $t('common.retry') }}</button>
+        {{ recoveryStatusError }} <button :disabled="busy" class="underline ml-2" @click="loadRecoveryCodesStatus">{{ $t('common.retry') }}</button>
       </div>
       <div v-if="enabled && recoveryCodesStatus" class="mt-4 p-3 bg-themed-tertiary rounded">
         <div class="flex items-center justify-between mb-2">
           <span class="text-sm text-themed-primary">{{ $t('profile.twoFactorAuth.recoveryCodesStatus') }}</span>
           <button
-            :disabled="loading"
+            :disabled="busy"
             class="text-xs text-primary-500 hover:text-primary-400 transition-colors"
             @click="openRegenerate"
           >
@@ -387,7 +420,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
         <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.twoFactorAuth.enterCode') }}</label>
         <input 
           v-model="verifyCode"
-          :disabled="loading"
+          :disabled="busy"
           type="text"
           maxlength="6"
           class="input"
@@ -399,7 +432,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
         <button :disabled="!canEnable" class="btn-primary" @click="confirmEnable">
           {{ loading ? $t('profile.twoFactorAuth.verifying') : $t('profile.twoFactorAuth.confirmEnable') }}
         </button>
-        <button :disabled="loading" class="btn-secondary" @click="cancelSetup">{{ $t('profile.twoFactorAuth.cancel') }}</button>
+        <button :disabled="busy" class="btn-secondary" @click="cancelSetup">{{ $t('profile.twoFactorAuth.cancel') }}</button>
       </div>
     </div>
 
@@ -412,7 +445,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
         <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.twoFactorAuth.password') }}</label>
         <input 
           v-model="disablePassword"
-          :disabled="loading"
+          :disabled="busy"
           type="password"
           class="input"
           :placeholder="$t('profile.twoFactorAuth.passwordPlaceholder')"
@@ -422,7 +455,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
         <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.twoFactorAuth.verificationCode') }}</label>
         <input 
           v-model="disableCode"
-          :disabled="loading"
+          :disabled="busy"
           type="text"
           maxlength="6"
           class="input"
@@ -434,7 +467,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
         <button :disabled="!canDisable" class="btn-danger" @click="confirmDisable">
           {{ loading ? $t('profile.twoFactorAuth.processing') : $t('profile.twoFactorAuth.confirmDisable') }}
         </button>
-        <button :disabled="loading" class="btn-secondary" @click="cancelDisable">{{ $t('profile.twoFactorAuth.cancel') }}</button>
+        <button :disabled="busy" class="btn-secondary" @click="cancelDisable">{{ $t('profile.twoFactorAuth.cancel') }}</button>
       </div>
     </div>
 
@@ -451,7 +484,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
             {{ code }}
           </code>
         </div>
-        <button :disabled="loading" class="btn-primary text-sm mt-3" @click="cancelRegenerate">{{ $t('profile.twoFactorAuth.done') }}</button>
+        <button :disabled="busy" class="btn-primary text-sm mt-3" @click="cancelRegenerate">{{ $t('profile.twoFactorAuth.done') }}</button>
       </div>
 
       <!-- Input form -->
@@ -460,7 +493,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
           <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.twoFactorAuth.password') }}</label>
           <input 
             v-model="regeneratePassword"
-            :disabled="loading"
+            :disabled="busy"
             type="password"
             class="input"
             :placeholder="$t('profile.twoFactorAuth.passwordPlaceholder')"
@@ -470,7 +503,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
           <label class="block text-xs text-themed-muted mb-1.5">{{ $t('profile.twoFactorAuth.verificationCode') }}</label>
           <input 
             v-model="regenerateCode"
-            :disabled="loading"
+            :disabled="busy"
             type="text"
             maxlength="6"
             class="input"
@@ -482,7 +515,7 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
           <button :disabled="!canRegenerate" class="btn-primary" @click="confirmRegenerate">
             {{ loading ? $t('profile.twoFactorAuth.generating') : $t('profile.twoFactorAuth.confirmGenerate') }}
           </button>
-          <button :disabled="loading" class="btn-secondary" @click="cancelRegenerate">{{ $t('profile.twoFactorAuth.cancel') }}</button>
+          <button :disabled="busy" class="btn-secondary" @click="cancelRegenerate">{{ $t('profile.twoFactorAuth.cancel') }}</button>
         </div>
       </template>
     </div>
@@ -490,6 +523,12 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
     <!-- Messages -->
     <div v-if="error" class="mt-3 text-sm text-red-400">{{ error }}</div>
     <div v-if="success" class="mt-3 text-sm text-green-400">{{ success }}</div>
+    <SensitiveVerificationModal
+      :show="showVerificationModal"
+      operation-type="disable_2fa"
+      @close="closeDisableVerification"
+      @verified="onDisableVerified"
+    />
   </div>
 </template>
 
@@ -504,5 +543,15 @@ onUnmounted(() => { active.value = false; invalidateContext(false) })
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--kawaii-text);
+}
+.nimbus-section .text-themed-primary,
+.nimbus-section .btn-secondary {
+  color: var(--kawaii-text) !important;
+}
+.nimbus-section .btn-danger {
+  color: #b91c1c !important;
+}
+:global(.dark) .nimbus-section .btn-danger {
+  color: #fca5a5 !important;
 }
 </style>

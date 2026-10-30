@@ -126,6 +126,8 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-two-factor-reads', 'requires Chrome/Edge and local Vite; two-factor status/count read readiness, strict receipts, latest loading, persistent errors and mutation invalidation'],
   ['test:review-two-factor-session', 'requires Chrome/Edge and local Vite; two-factor read/write account/session/role/ABA/cache/draft isolation, secret cleanup and success timer lifecycle'],
   ['test:review-two-factor-receipts', 'requires Chrome/Edge and local Vite; actual TOTP input gates, setup QR/secret/recovery-code and mutation receipt validation with successful retry'],
+  ['test:review-two-factor-verification', 'requires Chrome/Edge and local Vite; actual disable-2FA verification child, fixed retry and pending-account/session/draft/cache/unmount cancellation; controlled API'],
+  ['test:review-2fa-disable-verification', 'requires isolated PostgreSQL; actual Fastify auth/verification routes, password/TOTP and single-use operation grant, cross-account rejection and disable/revocation; controlled authentication and no external email'],
   ['test:review-change-email-scope', 'requires Chrome/Edge and local Vite; email verification and update fixed targets/session/drafts, immediate cross-operation busy, old timers and unmount isolation'],
   ['test:review-change-email-receipts', 'requires Chrome/Edge and local Vite; strict email verification codes, real four-operation receipt contracts, failed receipt retry and expired verification cleanup'],
   ['test:review-help-editor-reads', 'requires Chrome/Edge and local Vite; help article editor current target/session/ABA read receipts, loading gates, matching ID, persistent error and retry'],

@@ -2,8 +2,17 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-013 禁用双重验证的敏感验证接线
+
+- 先读TwoFactorSection/PasswordSection、auth禁用路由、verification routes/service和对应守卫。禁用2FA收到VERIFICATION_REQUIRED时显示实际敏感弹窗；固定原password/TOTP与session/scope/draft快照，verified只重试一次，等待期间父输入/操作冻结。取消清password/code/pending；草稿ABA、sessionABA、role/account变化、KeepAlive离页/卸载均失效旧子回执。后端现有密码/TOTP/claim/CAS/revocation逻辑保持，没有管理员删除或销毁专用邮箱逻辑变更。
+- 2FA弹窗按原黑白方向局部覆盖玻璃/紫色、取消入场/离场动画、44px触控、ARIA标题/输入标签、初始focus/Tab/Escape与关闭focus恢复。复用既有Achromatic方向，未新绘制品牌。实际Chrome完整专项6618自然exit0，takeover-two-factor-verification-complete-final.log：14旧发送/验证回执、错误验证/重复emit/固定重试/坏回执/取消秘密与36三语三宽深浅动态偏好冻结动画组。18截图已看，taste modal-only报告0FAIL/0WARN；背景设置表单旧暗色黑字及危险文本对比度也已局部修。
+- 本机PG55438隔离库/Fastify actual auth/verification routes5857自然exit0，takeover-two-factor-verification-backend-last.log：无grant/错误账户与操作拒绝，真实bcrypt/TOTP、verify路由后重试、错误凭据保grant、禁用清全部秘密并原子撤销refresh/access、重放拒绝及B保持。鉴权替身受控，禁止外部fetch，没有真实邮件发送，不能作为端到端收信证据。严格全部server源+专项类型16591自然exit0，takeover-two-factor-verification-types-verified.log；client类型27205及最终双端两次vue-tsc通过。有效lint、四守卫test-run-20261030-115725、manifest194常规/223专项与node语法通过。四旧2FA scope/session/busy/receipts与实际Password敏感弹窗回归97838自然exit0。
+- 冻结后唯一最终双端build70198自然exit0，takeover-two-factor-verification-build-verified.log，末dist takeover-two-factor-verification-dist-last.log自然exit0。中间重复/HMR和定向停止轮不计最终源码证据；footer颜色误覆盖被taste拦下并修，错误与下次检查写OWNER_REQUIREMENTS。通用发送前端60/后端120秒合同仍待后续小段修复，销毁专用邮箱60秒规则独立不变；完整供应商邮件/账户真机及整页其它范围保留。
+- R008已push f89cf43aef76685379fd10f95edfdca7667dc393/CI40998161357。40989729533、40992045627现七job终态success；40992598123/40993940514/40995350722/40996832087/40998161357各六job成功、Pool持续前进，仍跟终态。旧40799210505失败日志已读，实际proc审计IO确切分支尚未复现，不删除待办。原327258含部分/68不同/1待R020，阶段保存后继续分页与内部缺口，无生产/发行动作。
+
 ## 2026-10-30 R1-008 管理员OAuth登录配置繁体与密钥保留
 
+- 已推送f89cf43aef76685379fd10f95edfdca7667dc393，对应CI40998161357运行；继续跟终态，不以推送或运行中为通过。
 - 繁体源缺admin.oauth组，末尾mergeMissingMessages使实际显示回退英文；早期“裸翻译键”判断纠正。补齐31项繁体文本，原生标题/留空不变更说明守卫先红后绿。现有后端保留旧密钥实现保持，增加实际PUT省略/空值/UNCHANGED输入的PG回归；测试JWT仅记录sign输入，明确测试替身转换，不放宽产品类型。
 - Chrome实际OAuthConfigView三语×1440/768/390、编辑/空密钥/实际submit/省略密钥payload/弹窗边界通过，takeover-oauth-locales-browser-final.log自然exit0，九图已看。本机PG/Fastify原OAuth回归及三种密钥保留takeover-oauth-locales-backend-resumed.log自然exit0；fixture-oauth-revocation-failure为预期故障注入。严格源+专项tsc25623自然exit0，takeover-oauth-locales-types-resumed.log；有效根ESLint显式client/eslint.config.js通过，takeover-oauth-locales-lint-resumed-final.log。初次省略配置的lint未执行，不计通过。
 - route/oauth-secret/oauth-provider三守卫test-run-20261030-112533和最终i18n守卫通过。末双端构建43526含两次vue-tsc自然exit0（50.05s/51.87s），takeover-oauth-locales-dual-build.log；末dist97877自然exit0，takeover-oauth-locales-dist-final.log；manifest194常规/221专项合法，新增浏览器专项已登记CI。此次只修登录配置文案组，原页面玻璃/紫色按钮及外部OAuth应用区硬编码中文、真实供应商登录另待，不声称整页精修完成。

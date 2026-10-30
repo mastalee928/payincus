@@ -310,6 +310,10 @@ jobs:
         run: pnpm --filter server test:review-two-factor-session
       - name: Two-factor setup validates its code material and confirmed result
         run: pnpm --filter server test:review-two-factor-receipts
+      - name: Disable two-factor verification retains the submitted credentials and current account
+        run: pnpm --filter server test:review-two-factor-verification
+      - name: Disable two-factor requires a current account operation grant and revokes access
+        run: pnpm --filter server test:review-2fa-disable-verification
       - name: Email verification and updates retain their submitted address and session
         run: pnpm --filter server test:review-change-email-scope
       - name: Email changes validate codes and confirmed API results

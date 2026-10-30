@@ -7,4 +7,7 @@ export default { auth: {
   enable2FA: code => defer('enable', { code }),
   disable2FA: (password, code) => defer('disable', { password, code }),
   regenerateRecoveryCodes: (password, code) => defer('regenerate', { password, code }),
+}, verification: {
+  request: (operationType, resourceId) => defer('verification-request', { operationType, resourceId }),
+  verify: (operationType, code, resourceId) => defer('verification-verify', { operationType, code, resourceId }),
 } }
