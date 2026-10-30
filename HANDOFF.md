@@ -2,7 +2,16 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-054 未读计数与布局轮询清理
+
+- 真实Chrome先红：clearUnread后旧响应把0恢复8；实际AppLayout卸载仍保留initialized=true、一个15秒timer与visibility listener。store固定当前账户/role/sid与同步代次，本地clear/decrement、会话切换与stop使旧响应失效，当前轮询/refresh/可见性共享一个在途读取，旧finally不得释放新请求锁。同sid token更新保持，非法count保留最后确认值，合法0显示0；layout卸载stopPolling。仅一处既有多空行lint warning顺手去掉，无样式/API或后端修改。
+- logs/takeover-inbox-polling-final.log自然exit0：14旧account/sid/role/logout/ABA/stop/restart成功失败回执，清零/递减与新通知、重复tick/refresh/visibility单请求，坏count/失败retry/真零、旧finally隔离，以及实际AppLayout卸载清timer/listener、旧响应不能恢复、重挂恰一轮。专项test:review-inbox-polling已登记server/EXCLUDED/CI；interval夹具保留真实callback与登记/清理，主动触发15秒callback以免等待，API受控。未测试真实账户通知或跨标签页，NotificationBell与auth旧回执仍独立缺口。
+- R048完整冻结源码回归takeover-inbox-polling-receipts-regression.log自然exit0含90旧回执/三语三宽44px；有效目标lint-final零错警，route/i18n 2/2(test-run-20261030-081843)、manifest/语法/diff通过。双端含两次vue-tsc build session50242自然exit0，user59.90秒/admin48.97秒，末dist守卫通过（takeover-inbox-polling-dist-final.log）。本项无视觉变化，沿R048已验局部UI，不重跑taste或完整套。
+- 原327现244有修复/复验（含部分）/68已有不同/15待，不是全验收数。R048已push3bb81c495e86e08d810073b1f90d732fb0cb59e3，远端一致，新CI40978319474及40974379396/40975365166均其它六job成功、Pool继续顺序运行，不计通过。旧四失败已读/已记录；历史40799210505已再次读取原日志明确TestReadActualProcAuditAndCancellation的IO失败，代码审查尚不足确认根因，未改Go或降低门禁。阶段单项提交推送后继续R166已读孤立retry及R055缓存，不生产/发行。
+
 ## 2026-10-30 R1-048 站内信读取、已读与删除回执
+
+- 本项已提交推送3bb81c495e86e08d810073b1f90d732fb0cb59e3，HEAD与远端main一致；新CI40978319474仍in_progress。该SHA包含错误规则、源码、专项与交接；下一R054期间继续跟终态。
 
 - Chrome先复现旧列表覆盖新列表；固定账户、role、sid、路由、分页、筛选与同步代次/请求序号，KeepAlive及卸载清旧数据。严格归属、消息结构与分页，读取失败持久显示可重试，未确认列表不允许写入。四类写入共享在途门禁，strict success/count，旧回执不修改新列表、计数或通知。
 - 已读立即移出未读筛选；删末页末条回退合法页并重新读取，同账户切筛选时原写完成再次同步当前列表。保留现有点击路由行为，旧点击完成不导航替换视图；实际按钮禁用/aria-label及内容键盘操作，手机44px。局部去渐变/光晕/阴影、改善时间与描述对比，后端接口/权限/消息发送保持。

@@ -388,6 +388,8 @@ jobs:
         run: pnpm --filter server test:review-host-caddy-touch
       - name: Inbox reads and mutations retain their current session and valid page
         run: pnpm --filter server test:review-inbox-receipts
+      - name: Inbox unread polling rejects obsolete counts and stops when the layout unmounts
+        run: pnpm --filter server test:review-inbox-polling
       - name: Host config preserves the registered connection endpoint
         run: pnpm --filter server test:review-host-config-endpoint
       - name: Host config sends explicit clears and keeps IPv6 mode gates

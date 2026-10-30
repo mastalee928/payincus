@@ -132,6 +132,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   layoutDisposed = true
+  inboxStore.stopPolling()
   if (recoveryPoll) clearInterval(recoveryPoll)
   document.removeEventListener('click', handleClickOutside)
 })
@@ -185,7 +186,6 @@ onUnmounted(() => {
               :class="'text-themed'"
             >{{ brand.brandName }}</span>
           </div>
-
         </div>
 
         <!-- 右侧菜单 -->

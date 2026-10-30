@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R048收尾后）：原327个编号中，243项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，16项仍为「待精修/运行复核」。243并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以16项表示。
+当前进度（2026-10-30，R054收尾后）：原327个编号中，244项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，15项仍为「待精修/运行复核」。244并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以15项表示。
+
+2026-10-30 R054：真实Vue/Pinia先红清零又恢复8，实际AppLayout卸载残留initialized/timer/listener均1；现本地清零/递减、session/role/sid/同步ABA、stop/restart代次保护、当前轮询单在途门禁及严格safe integer count，layout卸载stopPolling。完整Chrome14旧回执/非法值/重试/真零/旧finally不释放新锁/实际卸载重挂通过，R048完整90回执回归、lint/route-i18n/双端含vue-tsc build/末dist/manifest正常exit0。原一空行lint warning已去、初失败不计通过；244含部分/68已有不同/15待，真实消息跨标签页与铃铛旧写回执/账户身份store另验。R048已push3bb81c495e86e08d810073b1f90d732fb0cb59e3/CI40978319474运行，CI前两同样仍集成任务运行，见HANDOFF。
 
 2026-10-30 R048：当前账户/role/sid/路由/分页/筛选/同步代次与读序号、缓存卸载清旧数据，严格列表归属/分页及success/count，四写共享在途门禁与持久错误/重试；已读移出未读列表，删末页最后一项回合法页，同账户切筛选后写入完成再同步。完整冻结源码Chrome回归90旧回执、实际三语三宽按钮/手机44px、类型/lint/route-i18n/双端build/末dist全exit0；浅深三宽0FAIL/1WARN为短列表下留白，critique见logs/inbox-receipts-critique.md。243含部分/68已有不同/16待；受控API不代替真实账户/后端并发及NotificationBell或未读store，接R054。旧四CI终态failure已读原日志，最新两CI仍集成任务运行，详见HANDOFF。
 
@@ -249,7 +251,7 @@
 | R1-051 | 存在 | 源码已修/隔离PG验证通过 | 四入口inbox/history同事务，批量email queue也同提交；history或queue trigger失败消息/历史/任务均0，保留每60秒队列排期。logs/review-inbox-send-integration.log |
 | R1-052 | 部分存在 | 源码已修/隔离PG验证通过 | email timeout包含NULL且不抢fresh；instance startup/runtime均按exact startedAt/retryCount/type/status和到期复核，仅已变更才通知；old candidate不覆盖new attempt。logs/review-queue-sync-integration-final.log |
 | R1-053 | 部分存在 | 源码已修/隔离PG验证通过 | 邮件与实例finalizer绑定claim startedAt+retryCount，旧/重复完成拒绝；超时回收同样CAS。logs/review-queue-sync-integration-final.log |
-| R1-054 | 部分存在 | 待精修/运行复核 | 旧unread响应可覆盖本地清除；layout卸载轮询清理须逐条检查实际调用。 |
+| R1-054 | 部分存在 | 已修复；真实账户通知未验 | 清零/递减/session/role/sid/同步ABA与stop/restart代次使旧count失效；当前轮询/refresh/visibility共用单在途门禁、safe integer非负count与同sid保持。实际AppLayout卸载stopPolling清timer/listener，重挂仅一轮。Chrome先红后14旧回执/坏count/重试/真零/当前锁及实际卸载重挂通过，R048完整回归/types/lint/守卫/双端build/末dist通过；NotificationBell旧写与auth identity另项。 |
 | R1-055 | 存在 | 待精修/运行复核 | Dashboard/SSH缓存缺完整账户session隔离；会话切换后可能复用上一账户结果。待延迟响应浏览器夹具。 |
 | R1-056 | 存在 | 待精修/运行复核 | identity读取与refresh缺generation绑定；旧请求可能回写新会话或用替换账户token重试旧操作。待会话切换动态验证。 |
 | R1-057 | 存在 | 待精修/运行复核 | identity读取与refresh缺generation绑定；旧请求可能回写新会话或用替换账户token重试旧操作。待会话切换动态验证。 |
