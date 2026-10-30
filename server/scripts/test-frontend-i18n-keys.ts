@@ -23,6 +23,16 @@ const localeMessages = {
   zhTW
 }
 
+for (const [localeName, messages] of Object.entries(localeMessages)) {
+  assert.deepEqual(Object.keys(messages.admin.oauth).sort(), Object.keys(en.admin.oauth).sort(),
+    `${localeName} must define the complete administrator OAuth login configuration group`)
+  for (const [key, value] of Object.entries(messages.admin.oauth)) {
+    assert.ok(typeof value === 'string' && value.trim(), `${localeName} admin.oauth.${key} must have text`)
+  }
+}
+assert.equal(zhTW.admin.oauth.title, 'OAuth 設定', 'Traditional Chinese OAuth settings must not silently fall back to English')
+assert.equal(zhTW.admin.oauth.leaveEmptyUnchanged, '（留空表示不變更）')
+
 const sensitiveVerificationKeys = [
   'title',
   'description',

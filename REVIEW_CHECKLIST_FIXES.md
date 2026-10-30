@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R144/R145源码段落收尾后）：原327个编号中，256项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，3项仍为「待精修/运行复核」（R008、R013、R020）。256并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以3项表示。
+当前进度（2026-10-30，R008语言段落收尾后）：原327个编号中，257项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，2项仍为「待精修/运行复核」（R013、R020）。257并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以2项表示。
+
+2026-10-30 R008：管理员OAuth登录配置繁体原生文案缺失，运行时由mergeMissingMessages回退英文，纠正“显示裸键”的早期判断。补完整31项繁体文本；原生繁体标题/空密钥说明守卫先红后绿。实际组件Chrome三语×1440/768/390编辑/提交、空密钥和省略字段通过；实际PG/Fastify省略/空字符串/UNCHANGED三种输入保旧密钥及原OAuth回归通过。严格源+专项类型、有效lint、route/oauth守卫、双端含types构建/dist和manifest通过，见HANDOFF。外部OAuth应用区既有硬编码中文和整页视觉/外部供应商登录另待；不把配置组修复当作整个OAuth验收。
 
 2026-10-30 R144/R145：统一源站点安全预检，在原实例stop/delete、目标资源预占和数据库切换前持久保存原instance/owner/host/Incus/连接身份及站点清单，复用已核身份的Caddy删除意图和成功回执；缺配置或远端失败保留原实例、专属网络就绪状态及站点记录，失败任务的原删除意图可自动/受鉴权手动重试，绝不扩大到新站点。两finalizer只检查无残留站点，不再deleteMany或切换后吞远端失败。实际本机PG/Fastify/TLS覆盖两类正常/缺配置/失败/失败任务重试/重复成功零POST/五身份变化拒绝及无关路由保持；4守卫、server构建、严格源+专项类型、有效lint和manifest通过，见HANDOFF。真实Linux Caddy/Incus重建迁移、网络持续性及远端已成功而数据库提交失败的完整故障恢复另待；此源码段落不等于完整资源替换验收。
 
@@ -225,7 +227,7 @@
 | R1-005 | 已有防护 | 保留初审结论 | nonce按到期逐项移除，没有在TTL内整表clear；保留单Node部署约束。 |
 | R1-006 | 部分存在 | 源码已修/隔离PG验证通过 | 实际缺口在oauth.ts绑定/回调：binding身份及updatedAt CAS、current user/session、callback起始认证时间、exchange当前角色与绑定；自助解绑和撤销同事务。logs/review-oauth-integration-final.log；provider HTTPS为fetch夹具 |
 | R1-007 | 已有防护 | 保留初审结论 | 已有反斜杠、编码与控制字符的严格校验。 |
-| R1-008 | 部分存在 | 待精修/运行复核 | 空秘密/UNCHANGED已有保留逻辑；繁体整组文案须独立核验，不根据旧清单判断缺失。 |
+| R1-008 | 部分存在 | 登录配置三语/密钥保留已复验；整页另待 | 繁体原生OAuth组缺失导致英文回退，已补31项并以原生文本守卫、Chrome三语三宽实际编辑提交及PG/Fastify省略/空值/UNCHANGED保旧密钥复验。相关守卫/types/lint/双端build/dist通过；外部应用区硬编码文案、整页UI和供应商登录仍待。 |
 | R1-009 | 存在 | 部分精修/继续核查 | 账号与OAuth自助解绑同事务撤销，callback/exchange拒旧绑定与在途撤销；故障回滚通过 review-admin-account-integration.log、review-oauth-integration-final.log；其它入口仍按原编号继续 |
 | R1-010 | 实现不同 | 保留初审结论 | 请求认证读取最新用户和invalidations；无对方30秒正向认证缓存，多后端副本本项目不支持。 |
 | R1-011 | 部分存在 | 源码已修/隔离PG验证通过 | 邮箱注册锁、验证码次数/用途/过期与业务提交同事务；注册/profile/reset并发、旧认证状态及撤销故障回滚通过 logs/review-verification-integration-profile.log；admin创建大小写邮箱/初始状态配额及重置通过 logs/review-admin-account-integration.log；未生产验收 |

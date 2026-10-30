@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-008 管理员OAuth登录配置繁体与密钥保留
+
+- 繁体源缺admin.oauth组，末尾mergeMissingMessages使实际显示回退英文；早期“裸翻译键”判断纠正。补齐31项繁体文本，原生标题/留空不变更说明守卫先红后绿。现有后端保留旧密钥实现保持，增加实际PUT省略/空值/UNCHANGED输入的PG回归；测试JWT仅记录sign输入，明确测试替身转换，不放宽产品类型。
+- Chrome实际OAuthConfigView三语×1440/768/390、编辑/空密钥/实际submit/省略密钥payload/弹窗边界通过，takeover-oauth-locales-browser-final.log自然exit0，九图已看。本机PG/Fastify原OAuth回归及三种密钥保留takeover-oauth-locales-backend-resumed.log自然exit0；fixture-oauth-revocation-failure为预期故障注入。严格源+专项tsc25623自然exit0，takeover-oauth-locales-types-resumed.log；有效根ESLint显式client/eslint.config.js通过，takeover-oauth-locales-lint-resumed-final.log。初次省略配置的lint未执行，不计通过。
+- route/oauth-secret/oauth-provider三守卫test-run-20261030-112533和最终i18n守卫通过。末双端构建43526含两次vue-tsc自然exit0（50.05s/51.87s），takeover-oauth-locales-dual-build.log；末dist97877自然exit0，takeover-oauth-locales-dist-final.log；manifest194常规/221专项合法，新增浏览器专项已登记CI。此次只修登录配置文案组，原页面玻璃/紫色按钮及外部OAuth应用区硬编码中文、真实供应商登录另待，不声称整页精修完成。
+- 上一R144/R145已推送2d03a5fa3762e20cd6c92a653a25fd460c34cb51，CI40996832087。六个待查40989729533/40992045627/40992598123/40993940514/40995350722/40996832087当前各六job成功、Pool仍运行，详情logs/takeover-ci-<ID>-latest.json，继续跟终态；旧Go审计IO失败不删除。原327现257含部分/68已有不同/2待（R013/R020），内部未验范围继续，不发行/OTA/DNS或生产动作。
+
 ## 2026-10-30 R1-144/R1-145 源站点清理先于资源替换
 
 - 接续保留已有未提交源码，重新读取worker、proxy-site mutation/operation及重建/任务冲突/取消守卫。源清单和instance/owner/host/Incus/连接身份持久保存在任务replacementState；在recreate原实例stop/delete与change_host目标预占/创建之前必须取得每站点的已核身份Caddy删除回执。缺启用/地址/凭据、远端失败都阻断替换，保留站点依据与原实例/专属网络就绪状态。finalizer仅拒绝残留站点，不再deleteMany或切数据库后吞Caddy失败。

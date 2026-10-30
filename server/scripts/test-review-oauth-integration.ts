@@ -20,7 +20,8 @@ const app = Fastify()
 app.decorate('authenticate', async (request: any) => { request.user = { ...session } })
 app.decorate('authenticateAdmin', async (request: any) => { request.user = { ...session } })
 let signed: Record<string, unknown> | undefined
-app.decorate('jwt', { sign: (payload: Record<string, unknown>) => { signed = payload; return 'fixture-jwt' } })
+// The controlled exchange fixture records signing inputs; it never validates JWTs.
+app.decorate('jwt', { sign: (payload: Record<string, unknown>) => { signed = payload; return 'fixture-jwt' } } as unknown as typeof app.jwt)
 await app.register(cookie)
 const originalConfig = await prisma.oAuthConfig.findUnique({ where: { provider: 'github' } })
 const originalFetch = globalThis.fetch
@@ -47,6 +48,14 @@ try {
     provider: 'github', clientId: 'fixture-client', clientSecret: 'fixture-secret', enabled: true
   }, update: { clientId: 'fixture-client', clientSecret: 'fixture-secret', enabled: true } })
   await app.register(routes, { prefix: '/oauth' })
+  for (const body of [{ clientId: 'fixture-client', enabled: true },
+    { clientId: 'fixture-client', enabled: true, clientSecret: '' },
+    { clientId: 'fixture-client', enabled: true, clientSecret: 'UNCHANGED' }]) {
+    const update = await app.inject({ method: 'PUT', url: '/oauth/configs/github', payload: body })
+    assert.equal(update.statusCode, 200, update.body)
+    assert.equal((await db.getOAuthConfig('github'))?.client_secret, 'fixture-secret', 'empty/omitted/legacy placeholder preserves existing OAuth secret')
+  }
+  console.log('PASS actual OAuth config updates preserve existing secret for omitted, blank and legacy unchanged input')
   const state = await security.generateOAuthState('bind', '/profile', { userId: user.id, issuedAt: session.iat, sessionId: session.sid })
   const bind = await app.inject({ method: 'GET', url: `/oauth/callback/github?code=fixture-code&state=${encodeURIComponent(state)}` })
   assert.equal(bind.statusCode, 302)
