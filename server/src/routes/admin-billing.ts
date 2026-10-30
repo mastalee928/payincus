@@ -34,7 +34,7 @@ import { validateName, encryptSensitiveData } from '../lib/security.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { parsePositivePaymentMoney } from '../lib/payment-money.js'
-import { isRechargeGatewayOrderNoMatch } from '../lib/recharge-order-guard.js'
+import { getCurrentRechargeGatewayOrderNo, isRechargeGatewayOrderNoMatch } from '../lib/recharge-order-guard.js'
 import {
   getSystemImageAvailabilityForHost,
   isImageCompatibleWithInstanceType,
@@ -3293,6 +3293,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       let actualAmount = creditedAmount
       let callbackPayload: Record<string, unknown> = { source: 'admin_sync', adminId: admin.id }
       let paymentDetails = (record as any).paymentDetails as Record<string, unknown> | undefined
+      const gatewayOrderNo = getCurrentRechargeGatewayOrderNo(record.paymentDetails, record.orderNo)
 
             // 检查是否已处理（防重放）
 if (provider.type === 'yipay') {
@@ -3303,7 +3304,7 @@ if (provider.type === 'yipay') {
         }
 
         const epay = createEpayClient(epayConfig)
-        const queryResult = await epay.queryOrder(record.orderNo)
+        const queryResult = await epay.queryOrder(gatewayOrderNo)
 
         request.log.info({ orderNo: record.orderNo, queryResult: { success: queryResult.success, paid: queryResult.paid } }, '管理员同步-易支付订单查询结果')
 
@@ -3325,7 +3326,7 @@ if (provider.type === 'yipay') {
           }
         }
 
-        if (!isRechargeGatewayOrderNoMatch(record.orderNo, queryResult.out_trade_no)) {
+        if (!isRechargeGatewayOrderNoMatch(gatewayOrderNo, queryResult.out_trade_no)) {
           return reply.status(400).send({ error: '支付平台返回的订单号不匹配，请核对后重试' })
         }
 
@@ -3353,7 +3354,7 @@ if (provider.type === 'yipay') {
         }
 
         const heleket = createHeleketClient(heleketConfig)
-        const queryResult = await heleket.getPaymentInfo({ order_id: record.orderNo })
+        const queryResult = await heleket.getPaymentInfo({ order_id: gatewayOrderNo })
         const status = extractHeleketStatus(queryResult)
         const paymentState = getHeleketPaymentState(queryResult)
         const statusMessage = getHeleketStatusDescription(status)
@@ -3363,7 +3364,7 @@ if (provider.type === 'yipay') {
           '管理员同步-Heleket 订单查询结果'
         )
 
-        if (!isRechargeGatewayOrderNoMatch(record.orderNo, queryResult.order_id)) {
+        if (!isRechargeGatewayOrderNoMatch(gatewayOrderNo, queryResult.order_id)) {
           return reply.status(400).send({ error: '支付平台返回的订单号不匹配，请核对后重试' })
         }
 

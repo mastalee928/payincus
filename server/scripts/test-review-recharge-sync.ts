@@ -34,7 +34,7 @@ try {
   await app.register(routes)
   let expectedBalance = 0, completedOrders = 0
   for (const type of ['yipay', 'heleket'] as const) {
-    for (const mode of ['encrypted', 'legacy-string', 'legacy-object', 'snapshot', 'concurrent'] as const) {
+    for (const mode of ['encrypted', 'legacy-string', 'legacy-object', 'snapshot', 'concurrent', 'payment-attempt'] as const) {
       const secret = randomUUID(), merchant = randomUUID()
       const current: Record<string, unknown> = type === 'yipay'
         ? { version: 'v1', apiurl: 'https://8.8.8.8/current/', pid: merchant, key: secret }
@@ -59,8 +59,12 @@ try {
         userId: user.id, providerId: provider.id, amount: 10, actualAmount: 9, orderNo: 'sync-' + randomUUID(),
         providerConfigSnapshot: snapshot
       } })
+      const gatewayOrderNo = mode === 'payment-attempt' ? `${order.orderNo}--PA-123456789ABC` : order.orderNo
+      if (mode === 'payment-attempt') await prisma.rechargeRecord.update({ where: { id: order.id }, data: { paymentDetails: {
+        paymentAttempt: { current: { id: '123456789ABC', gatewayOrderNo, createdAt: new Date().toISOString() }, superseded: [] }
+      } } })
       let arrived = 0, release: (() => void) | undefined
-      let returnedOrder: unknown = order.orderNo
+      let returnedOrder: unknown = gatewayOrderNo
       let returnedStatus = 'paid'
       const barrier = mode === 'concurrent' ? new Promise<void>(resolve => { release = resolve }) : undefined
       query = async (input, settings) => {
@@ -70,14 +74,16 @@ try {
           assert.equal(settings.method, 'GET')
           assert.ok(url.searchParams.get('key') === secret && url.searchParams.get('pid') === merchant,
             'provider query must use decrypted effective credentials')
-          assert.equal(url.searchParams.get('out_trade_no'), order.orderNo)
+          if (url.searchParams.get('out_trade_no') !== gatewayOrderNo) console.log('Wrong query target', type, mode, 'current payment attempt was ignored')
+          assert.equal(url.searchParams.get('out_trade_no'), gatewayOrderNo)
         } else {
           assert.equal(settings.method, 'POST')
           const headers = new Headers(settings.headers), body = String(settings.body)
           assert.ok(headers.get('merchant') === merchant && headers.get('sign') ===
             createHash('md5').update(Buffer.from(body).toString('base64') + secret).digest('hex'),
           'provider query must sign with decrypted effective credentials')
-          assert.equal(JSON.parse(body).order_id, order.orderNo)
+          if (JSON.parse(body).order_id !== gatewayOrderNo) console.log('Wrong query target', type, mode, 'current payment attempt was ignored')
+          assert.equal(JSON.parse(body).order_id, gatewayOrderNo)
         }
         arrived++; await barrier
         return new Response(JSON.stringify(type === 'yipay'
@@ -151,6 +157,7 @@ try {
 finally {
   globalThis.fetch = originalFetch; await app.close(); await safeOutboundDispatcher.close()
   await prisma.paymentCallback.deleteMany({ where: { providerId: { in: providerIds } } })
+  await prisma.log.deleteMany({ where: { user: { username: { in: [tag, tag + '-admin'] } } } })
   await prisma.user.deleteMany({ where: { username: { in: [tag, tag + '-admin'] } } })
   await prisma.paymentProvider.deleteMany({ where: { id: { in: providerIds } } }); await closePrismaDatabase()
 }

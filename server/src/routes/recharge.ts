@@ -56,7 +56,7 @@ import { sendNotification } from '../lib/notifier.js'
 import { sendRechargeSuccessEmail } from '../lib/mailer.js'
 import { notifyAdminRecharge } from '../lib/admin-alerts.js'
 import { sanitizeObject } from '../lib/log-sanitizer.js'
-import { isRechargeGatewayOrderNoMatch } from '../lib/recharge-order-guard.js'
+import { getCurrentRechargeGatewayOrderNo, isRechargeGatewayOrderNoMatch, resolveRechargeOrderNoFromGatewayOrderNo } from '../lib/recharge-order-guard.js'
 import { parsePositivePaymentMoney } from '../lib/payment-money.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { assertSafeHttpUrl, isIpPrivateOrReserved } from '../lib/outbound-security.js'
@@ -71,7 +71,6 @@ const POSITIVE_ID_PATTERN = /^[1-9]\d*$/
 const RECHARGE_STATUSES = new Set(['pending', 'paid', 'completed', 'failed', 'cancelled', 'refunded'])
 const MAX_RECHARGE_TRADE_NO_LENGTH = 128
 const MAX_RECHARGE_ADMIN_REASON_LENGTH = 500
-const RECHARGE_PAYMENT_ATTEMPT_SUFFIX_PATTERN = /^(.*)--PA-([A-F0-9]{12})$/
 
 interface RechargePaymentAttempt {
   id: string
@@ -118,15 +117,6 @@ function readRechargePaymentAttemptState(paymentDetails: unknown): RechargePayme
     },
     superseded
   }
-}
-
-function resolveRechargeOrderNoFromGatewayOrderNo(gatewayOrderNo: string): string {
-  return gatewayOrderNo.match(RECHARGE_PAYMENT_ATTEMPT_SUFFIX_PATTERN)?.[1] || gatewayOrderNo
-}
-
-function getCurrentRechargeGatewayOrderNo(paymentDetails: unknown, orderNo: string): string {
-  const current = readRechargePaymentAttemptState(paymentDetails)?.current.gatewayOrderNo
-  return current && resolveRechargeOrderNoFromGatewayOrderNo(current) === orderNo ? current : orderNo
 }
 
 function isCurrentRechargePaymentAttempt(paymentDetails: unknown, orderNo: string, gatewayOrderNo: string): boolean {

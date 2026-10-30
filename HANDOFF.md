@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 管理员充值同步使用当前支付订单
+
+- recharge-attempt-before.log自然exit1：重新支付后paymentAttempt.current已有新网关单号，admin同步仍查询原orderNo，未查到新付款。将原用户路由的当前支付单号及原单号解析移到既有recharge-order-guard共用，保持原字段/后缀/归属和非法数据回退规则；管理员两渠道查询与返回单号比较使用同一当前号，内部余额/回调记录仍关联原平台订单。
+- recharge-attempt-cleanup-final.log自然exit0：原十组加密/快照/八并发及错误返回单号矩阵保持，新增两渠道当前支付尝试都查正确后缀单号并一次入账/审计/通知，重复同步无写；helper覆盖非法结构和别单后缀回退。完整server+专项types零诊断、5守卫5/5及后端build自然exit0。新专项finally明确清当前夹具审计，避免用户删除SET NULL留下孤立测试日志；最后回归包含该清理修正。
+- 此段尚不包括查询过程中发生repay的竞争与原Heleket元数据/失败分支并发，继续单独实测。无外部支付或生产操作；283/327及44初审不变。上一修复ebdf13c4bcb99b836a0a330333779eff7e7a70e9 / CI41144733563；旧CI41133775870 / 2fadbc74976606844798a0960d1bfa0cc8eed866新增全部success，其它有步骤推进且未见新失败。
+
 ## 2026-10-31 管理员充值同步拒绝错误订单号
 
 - R039/040继续复审发现admin-billing sync遗漏用户verify已有的供应商返回订单号检查。recharge-sync-order-product-before.log自然exit1：易支付返回different-order仍200/completed，实际余额+9、新增ledger及inbox各1，不能仅凭HTTP回执说明风险。
