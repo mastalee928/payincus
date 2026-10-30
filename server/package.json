@@ -6,6 +6,7 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:homepage-map-labels": "node --import tsx scripts/test-homepage-map-labels.ts",
     "test:prisma-transaction-start-guards": "node --import tsx scripts/test-prisma-transaction-start-guards.ts",
     "test:prisma-transaction-start-timeout": "node --import tsx scripts/test-prisma-transaction-start-timeout.ts",
     "test:review-instance-badge": "node ../scripts/test-instance-badge.mjs",

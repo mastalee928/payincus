@@ -4,6 +4,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowDown, ArrowUpRight, Check, ChevronDown, Globe2, Minus, Plus, RotateCcw, Search, X } from 'lucide-vue-next'
 import FlagIcon from '@/components/FlagIcon.vue'
+import HomeMapLabels from './HomeMapLabels.vue'
+import type { MapLabelPoint } from '@/utils/homeMapLabels'
+import { homeMapCityName } from '@/utils/homeMapCityNames'
 import { buildAtlasRegions, atlasPurchaseTarget, atlasRegionPurchaseTarget, atlasRegionFromQuery, type AtlasRegion } from '@/utils/homeRegionAtlas'
 import { formatMemoryMiB, formatPublicPrice, presetLabel, type PoolCatalogRegion } from '@/utils/poolCatalog'
 
@@ -74,6 +77,16 @@ const statusText = (region: AtlasRegion) => region.status === 'available' ? t('h
 const regionName = (region: AtlasRegion) => region.geography?.code === 'eu-madrid-3' ? t('homeMapDemo.madrid') : region.geography?.code === 'ap-kulai-2' ? t('homeMapDemo.kulai') : locale.value === 'en' ? region.nameEn : locale.value === 'zh-TW' ? region.nameZhTW : region.name
 const transform = computed(() => `translate(${pan.value.x} ${pan.value.y}) translate(720 250) scale(${zoom.value}) translate(-720 -250)`)
 const hitRadius = computed(() => touchMode.value ? 22 * 1440 / Math.max(1, mapWidth.value) / zoom.value : 14 / zoom.value)
+const labelPoints = computed<MapLabelPoint[]>(() => mapRegions.value.map(region => {
+  const active = region.slug === selectedSlug.value || region.slug === hoverSlug.value
+  const available = region.stock > 0 && !props.loading && !props.failed
+  return {
+    id: region.slug, x: region.displayX!, y: region.displayY!,
+    text: region.geography?.city ? homeMapCityName(region.geography.city, locale.value) : regionName(region) ?? region.name,
+    priority: active ? (region.slug === hoverSlug.value ? 3 : 2) : !matchesControls(region) ? -1 : available ? 1 : zoom.value >= 1.6 ? 0 : -1,
+    selected: region.slug === selectedSlug.value
+  }
+}))
 const nearHovered = computed(() => {
   if (!hovered.value) return []
   const target = hovered.value
@@ -408,10 +421,10 @@ onBeforeUnmount(() => { resize?.disconnect(); mobileQuery?.removeEventListener('
               <circle class="node-ring" r="12" pointer-events="none" />
               <circle class="node-ping" r="9" pointer-events="none" />
               <circle class="node-core" :r="region.stock > 0 ? 4.8 : 3.4" pointer-events="none" />
-              <text v-if="!touchMode && (region.slug === selectedSlug || region.slug === 'us-ashburn-1' || region.slug === 'eu-frankfurt-1' || region.slug === 'us-sanjose-1')" x="17" y="4" class="node-label" pointer-events="none">{{ region.geography?.city }}</text>
             </g>
           </g>
         </svg>
+        <HomeMapLabels v-if="!touchMode" :frame="mapFrame" :map-group="mapGroup" :points="labelPoints" :view-transform="transform" :hover-slug="hoverSlug" />
         <p v-if="!minimal" class="mobile-map-hint">{{ t('homeMapDemo.mapHint') }}</p>
         <div class="map-controls" role="group" :aria-label="t('homeMapDemo.zoomControls')">
           <button v-if="!(minimal && touchMode)" type="button" :disabled="zoom >= 4" :aria-label="t('homeMapDemo.zoomIn')" @click="changeZoom(0.4)"><Plus :size="16" /></button>
@@ -661,14 +674,6 @@ button:disabled {
   fill: #d5ffff;
   stroke: #00f2fe;
   filter: url(#atlas-neon);
-}
-.node-label {
-  fill: #9ca6b6;
-  font: 500 10px Inter,sans-serif;
-  letter-spacing: .4px;
-}
-.selected .node-label {
-  fill: #71e5eb;
 }
 .map-bottom {
   position: absolute;
