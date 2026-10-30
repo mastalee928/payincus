@@ -303,6 +303,8 @@ jobs:
         run: pnpm --filter server test:review-oauth-nonce-expiry
       - name: Notification channel IDs and enums reject invalid values before side effects
         run: pnpm --filter server test:review-notification-id-boundaries
+      - name: Redeem code batches reject missing and foreign host IDs before changing any code
+        run: pnpm --filter server test:review-redeem-host-scope
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets

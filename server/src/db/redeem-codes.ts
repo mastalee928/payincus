@@ -513,8 +513,9 @@ export async function deleteRedeemCodeBatchForHost(
       select: { id: true }
     })
     const foundIds = codes.map(code => code.id)
-    if (foundIds.length === 0) {
-      return { foundCount: 0, deletedCount: 0, disabledCount: 0 }
+    // Reject an incomplete host-scoped batch before changing any valid code.
+    if (foundIds.length !== sortedIds.length) {
+      return { foundCount: foundIds.length, deletedCount: 0, disabledCount: 0 }
     }
 
     const usages = await tx.redeemCodeUsage.groupBy({

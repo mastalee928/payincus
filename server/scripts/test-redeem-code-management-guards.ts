@@ -28,6 +28,16 @@ const updateRoute = sectionBetween(routeSource, '// ==================== 更新�
 const createRoute = sectionBetween(routeSource, '// ==================== 创建兑换码 ====================', '// ==================== 更新兑换码 ====================')
 const deleteRoute = sectionBetween(routeSource, '// ==================== 删除兑换码 ====================', '// ==================== 批量删除兑换码 ====================')
 const batchDeleteRoute = sectionBetween(routeSource, '// ==================== 批量删除兑换码 ====================', '// ==================== 获取兑换码使用记录 ====================')
+const batchDeleteHelper = sectionBetween(dbSource, 'export async function deleteRedeemCodeBatchForHost(', 'export async function getRedeemCodeUsagesForHost(')
+assert.match(
+  batchDeleteHelper,
+  /if \(foundIds\.length !== sortedIds\.length\) \{\s*return \{ foundCount: foundIds\.length, deletedCount: 0, disabledCount: 0 \}\s*\}/,
+  'incomplete host-scoped batches must return without deleting or disabling valid codes'
+)
+assert.ok(
+  batchDeleteHelper.indexOf('if (foundIds.length !== sortedIds.length)') < batchDeleteHelper.indexOf('const usages ='),
+  'all requested codes must belong to the host before inspecting usage and performing mutations'
+)
 const usagesRoute = sectionBetween(routeSource, '// ==================== 获取兑换码使用记录 ====================', '// ==================== 获取可选的资源类型和范围 ====================')
 
 assert.ok(
