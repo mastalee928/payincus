@@ -90,7 +90,8 @@ try {
   assert.deepEqual(await lookupForConnection({ family: 4 }), { address: '1.1.1.1', family: 4 })
 
   for (const options of [{ all: true }, { all: false }, {}]) {
-    for (const privateAddress of ['127.0.0.1', '10.0.0.1', '169.254.169.254', '::1', 'fc00::1']) {
+    for (const privateAddress of ['127.0.0.1', '10.0.0.1', '169.254.169.254', '::1', 'fc00::1',
+      '0:0:0:0:0:0:0:1', '::ffff:7f00:1', '::ffff:a9fe:a9fe', '0:0:0:0:0:ffff:a00:1']) {
       lookupAddresses = [...publicAddresses, { address: privateAddress, family: privateAddress.includes(':') ? 6 : 4 }]
       await assert.rejects(() => lookupForConnection(options), OutboundTargetValidationError,
         'a private result must reject the entire connection, including when the first result is public')

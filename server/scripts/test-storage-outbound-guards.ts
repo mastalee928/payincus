@@ -63,6 +63,19 @@ assert.equal(isIpPrivateOrReserved('192.168.1.1'), true)
 assert.equal(isIpPrivateOrReserved('169.254.169.254'), true)
 assert.equal(isIpPrivateOrReserved('::1'), true)
 assert.equal(isIpPrivateOrReserved('fc00::1'), true)
+for (const address of [
+  '0:0:0:0:0:0:0:0', '0:0:0:0:0:0:0:1', 'fe80::1%eth0', '2606:4700:4700::1111%eth0',
+  '::ffff:7f00:1', '::ffff:127.0.0.1', '0:0:0:0:0:ffff:7f00:1',
+  '::ffff:a00:1', '::ffff:a9fe:a9fe', '::ffff:c0a8:101',
+  '::ffff:ac10:1', '::ffff:6440:1', '::ffff:c000:201',
+  '::ffff:c612:1', '::ffff:e000:1', '::ffff:ffff:ffff'
+]) {
+  assert.equal(isIpPrivateOrReserved(address), true, `IPv6 spellings must preserve private/reserved classification: ${address}`)
+  await assertThrowsOutbound(() => resolvePublicHostname(address))
+}
+for (const address of ['2606:4700:4700:0:0:0:0:1111', '::ffff:808:808', '::ffff:8.8.8.8']) {
+  assert.equal(isIpPrivateOrReserved(address), false, `public IPv6 and mapped public IPv4 remain allowed: ${address}`)
+}
 assert.deepEqual(await resolvePublicHostname('8.8.8.8'), [{ address: '8.8.8.8', family: 4 }])
 await assertThrowsOutbound(() => resolvePublicHostname('127.0.0.1'))
 await assertThrowsOutbound(() => resolvePublicHostname('10.0.0.1'))

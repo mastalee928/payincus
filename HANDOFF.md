@@ -1,5 +1,14 @@
 # 版本与验证记录
 
+## 2026-10-31 R202 映射IPv6出站绕过修复、R203实际流量通知期限补验
+
+- R202复审纠正：已有safeFetch连接期校验，但isIpv6PrivateOrReserved仅匹配点分IPv4映射，实际DNS返回十六进制::ffff:7f00:1会漏判。logs/traffic-r202-mapped-before.log自然exit1：原sendTrafficWarningNotification、真实PG、实际safeOutboundDispatcher，预检查DNS为公网、连接DNS为映射loopback时，隔离HTTP服务确实收到一次/private且通知sent。只访问本机专用服务，无外部通知或客户目标。
+- 共享校验先规范化IPv6再拆两组十六进制映射回IPv4，沿原IPv4保留/私有段策略判断；展开loopback/unspecified也统一拒绝，不可规范化的带scope地址拒绝。公共IPv6/公共IPv4映射保持。原扩展守卫先自然exit1，修后存储/出站动态lookup与通知/支付回调/反代等7守卫通过；scope分支最终2守卫另复验。最终完整server+专项types及build均自然exit0。
+- 新test-review-traffic-notification-transport.ts登记CI，logs/traffic-r202-r203-product-final.log自然exit0：warning和throttled两真实入口×Telegram/Discord，正常JSON/204落sent；Discord302不跟随、私有URL零fetch，普通和映射IPv6的DNS重绑定均经真实dispatcher三次拒绝、零/private。DNS两阶段结果受控，不是外部公网DNS演练；正常/停滞HTTP只替换传输目的地且保留原method/body/signal，dispatcher连接校验在两种重绑定场景单独实测。
+- R203原15秒AbortSignal有效，未改发送期限。两入口×两渠道×无headers/半body共8场景均三次、每次约15秒、加退避总51841–52081ms，实际PG日志全部failed、零pending、活动response归零；独立测试dispatcher关闭后socket归零，不代表外部Telegram/Discord投递验收。
+- 纠错保留：旧logs/review-notification-transport.log只测通用notifier，不能冒充流量通知器；本次正确入口补验。第一版traffic-r202-r203-transport-first.log因socket数8≠0自然exit1，检查证实8条是取消后Undici新建且未发过HTTP请求的空闲替代连接，所有24个停滞响应均已取消。最终显式断言每条残留连接请求数0，再关闭独立测试dispatcher；未通过停止响应或强制关闭活跃请求来掩盖超时故障。
+- R275已推48f5a82dcdb605754b348bef202c795932b98ea3，CI41137537472继续；工单夹具修正3c2880b1e67fb8e5133e5e02517afc7e9565f677 / 41137000191已越过原失败步骤，整体仍未终态。历史41134810809失败保持。此阶段使266项进入修复/复验（含部分/待验收）、61项保初审分类，不是266项全部修完；仍无生产部署。
+
 ## 2026-10-31 R275 进程数提升授权、并发与总期限（阶段保存）
 
 - 原单次Incus失败确实返回500并恢复精确旧值（含null），原“失败假成功”不成立；但process-boost-auth-before.log实证认证后降权仍200并PUT。新增logs/process-boost-race-before-product.log用fe12ac20原路由（只调整临时副本import路径）与真实PG/批量路由确定性复现：批量配置已成功提交700，更早提升PUT迟到失败后把DB覆盖回null，自然exit1；第一份before日志仅夹具fastify路径缺失，不算产品复现。

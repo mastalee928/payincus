@@ -44,7 +44,12 @@ function normalizeIpv6(ip: string): string {
 }
 
 function isIpv6PrivateOrReserved(ip: string): boolean {
-  const normalized = normalizeIpv6(ip)
+  // URL canonicalization collapses expanded IPv6 and turns dotted mapped IPv4
+  // into two hexadecimal groups. Classify that canonical form, including DNS
+  // lookup results which have never passed through the URL parser.
+  let normalized: string
+  try { normalized = normalizeIpv6(new URL(`http://[${normalizeIpv6(ip)}]/`).hostname) }
+  catch { return true } // Scoped/non-URL addresses must never become outbound targets.
 
   if (
     normalized === '::' ||
@@ -58,9 +63,10 @@ function isIpv6PrivateOrReserved(ip: string): boolean {
     return true
   }
 
-  const mappedIpv4Match = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)
+  const mappedIpv4Match = normalized.match(/^::ffff:([\da-f]{1,4}):([\da-f]{1,4})$/)
   if (mappedIpv4Match) {
-    return isIpPrivateOrReserved(mappedIpv4Match[1])
+    const high = parseInt(mappedIpv4Match[1], 16), low = parseInt(mappedIpv4Match[2], 16)
+    return isIpPrivateOrReserved(`${high >>> 8}.${high & 255}.${low >>> 8}.${low & 255}`)
   }
 
   return false
