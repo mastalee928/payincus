@@ -57,6 +57,15 @@ const updateDb = indexOfOrThrow(recreateSection, 'await prisma.instance.update({
 const markDbSwitched = indexOfOrThrow(recreateSection, 'databaseSwitched = true', 'database switched marker')
 
 assert.ok(deleteOld < markOldDeleted, 'recreate must mark old deleted only after strict old Incus delete succeeds')
+const cleanupSites = indexOfOrThrow(recreateSection, 'await prepareInstanceTaskSiteCleanup(task.id, instance)', 'durable source Caddy cleanup')
+assert.ok(cleanupSites < deleteOld && cleanupSites < recreateSection.indexOf('await stopInstance('),
+  'recreate must confirm durable source Caddy deletes before stopping or deleting the original instance')
+const changeHostSection = section(source, 'async function executeChangeHostTask(', 'async function executeCloneTask(')
+assert.ok(changeHostSection.indexOf('await prepareInstanceTaskSiteCleanup(task.id, instance)') < changeHostSection.indexOf("'checking_capacity'"),
+  'change-host must complete durable source cleanup before reserving or creating any target resources')
+assert.ok(!cleanupSection.includes('tx.proxySite.deleteMany(') && !changeHostSection.includes('tx.proxySite.deleteMany(') &&
+  !changeHostSection.includes('caddyClient.deleteSite(') && changeHostSection.includes('INSTANCE_SITE_CLEANUP_UNCONFIRMED'),
+  'lifecycle finalization must not forget source Caddy routes or swallow cleanup failures after switching database identity')
 assert.ok(markOldDeleted < createNew, 'recreate must create replacement only after old Incus is gone')
 assert.ok(createNew < markNewCreated, 'recreate must mark replacement created only after Incus create succeeds')
 assert.ok(markNewCreated < cleanupRecords, 'recreate must not delete old DB associations before replacement exists')

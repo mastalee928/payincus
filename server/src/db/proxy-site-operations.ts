@@ -66,9 +66,16 @@ async function assertLifecycleClaim(tx: Prisma.TransactionClient, instance: Inst
   let valid = false
   if (claim?.kind === 'delete') valid = instance.status === 'deleted'
   if (claim?.kind === 'provisioning_cleanup') valid = instance.provisioningCleanupPending
-  if (claim?.kind === 'instance_task') valid = Boolean(await tx.instanceTask.findFirst({ where: {
-    id: claim.id, instanceId: instance.id, status: 'PROCESSING'
-  }, select: { id: true } }))
+  if (claim?.kind === 'instance_task') {
+    const task = await tx.instanceTask.findFirst({ where: { id: claim.id, instanceId: instance.id } })
+    const state = task?.replacementState as { kind?: string; phase?: string; instanceId?: number; ownerId?: number; hostId?: number; incusId?: string } | null
+    // A preflight failure has made no instance changes. Its already committed
+    // deletes may finish after the task fails; all target/site identities are
+    // still checked by applyProxySiteOperation before touching Caddy.
+    valid = task?.status === 'PROCESSING' || Boolean(task?.status === 'FAILED' && task.progress === 'cleaning_proxy_sites' &&
+      ['recreate', 'change_host'].includes(task.taskType) && state?.kind === 'instance_task_sites_v1' && state.phase === 'pending' &&
+      state.instanceId === instance.id && state.ownerId === instance.userId && state.hostId === instance.hostId && state.incusId === instance.incusId)
+  }
   if (claim?.kind === 'transfer') {
     const transfer = await tx.instanceTransfer.findFirst({ where: {
       id: claim.id, instanceId: instance.id, fromUserId: instance.userId, status: 'processing'
@@ -208,9 +215,19 @@ export async function retryProxySiteOperation(instanceId: number, siteId: number
   input: { requestId: string; expectedRevision: number }): Promise<ProxySiteOperation> {
   return withProxySiteMutation(instanceId, siteId, actor, async ({ tx, instance, host, site }) => {
     const operation = await tx.proxySiteOperation.findUnique({ where: { id: input.requestId } })
-    if (!operation || operation.actorId !== actor.id || operation.authority !== 'owner' ||
+    const lifecycleRetry = operation?.authority === 'lifecycle' &&
+      (operation.lifecycleClaim as ProxySiteLifecycleClaim | null)?.kind === 'instance_task'
+    if (!operation || operation.actorId !== actor.id || (operation.authority !== 'owner' && !lifecycleRetry) ||
       operation.siteKey !== site!.siteKey || operation.revision !== input.expectedRevision ||
       site!.revision !== input.expectedRevision) throw new ProxySiteMutationError(409, '原操作或站点代次已变化，请刷新后重试')
+    if (lifecycleRetry) {
+      const claim = operation.lifecycleClaim as ProxySiteLifecycleClaim & { id: number }
+      const task = await tx.instanceTask.findUnique({ where: { id: claim.id } })
+      if (task?.status !== 'FAILED' || task.progress !== 'cleaning_proxy_sites') {
+        throw new ProxySiteMutationError(409, '原任务尚未结束或不是安全预检失败，禁止重试站点清理', 'SITE_LIFECYCLE_CLAIM_CHANGED')
+      }
+      await assertLifecycleClaim(tx, instance, claim)
+    }
     if (operation.state === 'succeeded') return operation
     if (operation.state === 'superseded') throw new ProxySiteMutationError(409, '原操作已被新 IPv4 代次替代，请刷新页面', 'SITE_REVISION_CHANGED')
     if (operation.state === 'applying' && operation.startedAt && Date.now() - operation.startedAt.getTime() < ATTEMPT_TIMEOUT_MS) return operation
@@ -219,7 +236,7 @@ export async function retryProxySiteOperation(instanceId: number, siteId: number
       throw new ProxySiteMutationError(409, '原操作的实例或宿主身份已变化，必须先恢复原连接；禁止改用新目标重试', 'SITE_IDENTITY_CHANGED')
     }
     return tx.proxySiteOperation.update({ where: { id: operation.id }, data: { actorId: actor.id, actorSid: actor.sid!, actorIat: actor.iat!,
-      authority: 'owner', state: 'pending', attemptId: null, startedAt: null, attempts: 0, nextRetryAt: new Date() } })
+      authority: lifecycleRetry ? 'lifecycle' : 'owner', state: 'pending', attemptId: null, startedAt: null, attempts: 0, nextRetryAt: new Date() } })
   })
 }
 

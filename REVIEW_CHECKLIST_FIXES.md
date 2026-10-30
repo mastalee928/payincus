@@ -2,7 +2,9 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R177收尾后）：原327个编号中，254项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，5项仍为「待精修/运行复核」。254并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以5项表示。
+当前进度（2026-10-30，R144/R145源码段落收尾后）：原327个编号中，256项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，3项仍为「待精修/运行复核」（R008、R013、R020）。256并非完整验收通过数；已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，剩余全部工作不能仅以3项表示。
+
+2026-10-30 R144/R145：统一源站点安全预检，在原实例stop/delete、目标资源预占和数据库切换前持久保存原instance/owner/host/Incus/连接身份及站点清单，复用已核身份的Caddy删除意图和成功回执；缺配置或远端失败保留原实例、专属网络就绪状态及站点记录，失败任务的原删除意图可自动/受鉴权手动重试，绝不扩大到新站点。两finalizer只检查无残留站点，不再deleteMany或切换后吞远端失败。实际本机PG/Fastify/TLS覆盖两类正常/缺配置/失败/失败任务重试/重复成功零POST/五身份变化拒绝及无关路由保持；4守卫、server构建、严格源+专项类型、有效lint和manifest通过，见HANDOFF。真实Linux Caddy/Incus重建迁移、网络持续性及远端已成功而数据库提交失败的完整故障恢复另待；此源码段落不等于完整资源替换验收。
 
 2026-10-30 R177：opening先登记撤销，再以原实例/host/创建时间/归属/package/type和当前actor role/sid/iat进入PG实例lane及instance/host/user/package锁，running及无清理/活动任务/转移才初次连接，保三种原权限。总20秒含授权等待/POST/握手，事务失败关闭已成功双ws；实际Fastify/ws前置屏障5组旧状态零POST，9组PG锁竞争零dispatch、三种正常角色/缺凭据与类型变化、mTLS持锁撤销、20秒无回执锁释放、事务失败清双socket自然exit0。server构建/最终专项含所有源类型/3守卫/R174完整回归/manifest通过，见HANDOFF。真实Incus UUID与长期重连授权/审计重试/浏览器及生产继续待，254含部分/68不同/5待。
 
@@ -359,8 +361,8 @@
 | R1-141 | 部分存在 | 源码已修/TLS行为验证通过 | 同R125连接池组，CA内容绑定和LRU生命周期、请求时复用live Agent已真实TLS验证；review-caddy-lifecycle.log |
 | R1-142 | 存在 | 源码已修/隔离PG与TLS验证通过 | 两处用户sync的IP及ipv4SyncPending同事务，远端原子addSite，失败/DB提交失败保留flag；同IP再次sync重试、缺配置保留、suspended保护通过review-proxy-ipv4-sync-integration-final.log。无独立timer worker，其它网络入口未一并接入 |
 | R1-143 | 部分存在 | 源码已修/隔离PG与TLS验证通过 | 同instance锁重读current site enabled/status、owner/incusId/host及证书登记身份，disable/转移/旧观察拒绝，Caddy错误不会进not-found删实例分支；review-proxy-ipv4-sync-integration-final.log，相关3/3 test-run-20261027-232329 |
-| R1-144 | 部分存在 | 待精修/运行复核 | cleanupRecreatedInstanceRecords删proxySites；远端清理在源Caddy缺配置时跳过。不能因此把重建记录清理等同远端清理成功，需残留路由夹具。 |
-| R1-145 | 存在 | 待精修/运行复核 | change_host事务先删proxySites并切host，之后才清源Caddy；失败时旧路由仍在而数据库重试依据已丢。 |
+| R1-144 | 部分存在，部分已修 | 源站点预检/持久删除回执专项通过，原生替换待验 | 重建在停止/删除旧实例及清理记录前确认源Caddy删除，缺配置/远端失败保留原实例、专属就绪状态与站点依据；失败任务原意图可重试，身份/代次变化拒绝，新站点不扩入清单。实际PG/Fastify/TLS及守卫/类型/构建见HANDOFF；真实Incus及提交失败恢复待续。 |
+| R1-145 | 存在，部分已修 | 切换前源站点清理专项通过，原生迁移待验 | change_host在目标预占/创建/切数据库前复用源站点持久清理，finalizer拒残留、不删依据、不切换后吞失败。正常和失败任务受鉴权重试/身份变化零POST/无关路由及库存保持通过；真实迁移、客户持续网络与完整故障恢复待续。 |
 | R1-146 | 部分存在 | 源码已修/TLS行为验证通过 | 同R125连接池组，CA内容绑定和LRU生命周期、请求时复用live Agent已真实TLS验证；review-caddy-lifecycle.log |
 | R1-147 | 存在 | 源码已修/真实Linux待验 | 从Incus实际eth1 routed设备恢复，成功不抛旧错；暂移/启动/恢复失败保留精确错误并恢复完整原devices；行为边界与recreate/cancel 3/3 logs/test-run-20261027-190006；不跳宿主/客户IPv6核验 |
 | R1-148 | 存在 | 源码已修/真实Linux待验 | 从Incus实际eth1 routed设备恢复，成功不抛旧错；暂移/启动/恢复失败保留精确错误并恢复完整原devices；行为边界与recreate/cancel 3/3 logs/test-run-20261027-190006；不跳宿主/客户IPv6核验 |

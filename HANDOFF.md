@@ -2,6 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-144/R1-145 源站点清理先于资源替换
+
+- 接续保留已有未提交源码，重新读取worker、proxy-site mutation/operation及重建/任务冲突/取消守卫。源清单和instance/owner/host/Incus/连接身份持久保存在任务replacementState；在recreate原实例stop/delete与change_host目标预占/创建之前必须取得每站点的已核身份Caddy删除回执。缺启用/地址/凭据、远端失败都阻断替换，保留站点依据与原实例/专属网络就绪状态。finalizer仅拒绝残留站点，不再deleteMany或切数据库后吞Caddy失败。
+- 失败任务仅在cleaning_proxy_sites/pending且原身份一致时继续已提交删除意图；自动重试与原用户鉴权手动retry保留lifecycle权限和原claim，成功不重复POST。新owner/Incus/宿主凭据/task phase/site revision拒绝，已有cleared任务不扩大清理新站点。此安全预检可能已清理部分站点后阻断后续资源替换，回执逐站点保留，不能声称全部业务动作原子回滚。
+- 本机PG55438原隔离库和本机实际HTTPS Caddy配置替身/Fastify通过takeover-instance-site-cleanup-run-final-resumed.log自然exit0：recreate/change_host各缺配置/写失败保源、失败任务自动/手动重试、正常/重复回执、五身份变化零POST、无关route保持。前一复核轮缺PATH中的openssl而未执行，明确指定已安装Git OpenSSL后成功；不计失败轮。严格源+专项tsc21137、server含tsc构建55969和根目录有效ESLint60492自然exit0；初pnpm-filter lint错误工作目录未执行，不计通过。4/4守卫test-run-20261030-111802自然exit0，manifest194常规/220专项合法。
+- 没有前端改动，不重复双端构建；没有真实Incus/原生Linux Caddy迁移或客户/生产动作。完整替换/持续客户网络、远端成功后DB提交失败恢复、历史Go进程审计IO及完整网关灾备仍待。原327现256含部分/68已有不同/3待；3待为R008/R013/R020，不把已记录项的内部缺口删掉。
+- 末原站点操作完整回归takeover-instance-site-cleanup-proxy-regression.log/39578自然exit0：真实PG/Fastify/TLS的七类持久意图/身份/撤销/进程退出、IPv4代次替换、ETag重试、远端成功/SQL回滚重试、删除墓碑及lifecycle gate通过。故障注入日志中的fixture-proxy-log-failure与fixture-replacement-intent-failure为预期回滚场景，不是漏查失败；该底层回归不替代整个重建/迁移worker故障流程。
+- R177已推送ff95fbf10e3ec5d6b98310cd94506263110822d9/CI40995350722；当前40989729533/40992045627/40992598123/40993940514/40995350722均六job成功、Pool专项持续前进，尚无终态。详情保存在logs/takeover-ci-<ID>-resumed.json；继续跟到终态，历史失败不抹去。阶段提交推送后继续三个待精修和内部验收，不发行/OTA/DNS或操作客户。
+
 ## 2026-10-30 R1-177 初始终端连接最后授权
 
 - R174已提交推送c589bf260d630f9b90fcac3e8d857a4f43f94f7d，远端main一致、CI40993940514运行。R177读完整terminal route/proxy、session/terminal守卫、现user-write authorization/instance lane/transfer gate及真实DB映射，固定初始expected instance/host/createdAt/package/type。opening已登记后进入PG事务，实例advisory+row/宿主shared/当前账户/套餐shared锁下复核当前role/sid/iat、归属/目标/running与清理/活动任务/转移，初连持锁到完成；原owner/host-owner/admin权限保留。

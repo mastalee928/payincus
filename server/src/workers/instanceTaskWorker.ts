@@ -54,7 +54,7 @@ import { resetInstanceCloudInitState } from '../lib/cloud-init-status.js'
 import { resolveIncusSwapValue } from '../lib/instance-swap.js'
 import { selectBindableIpv4ListenAddress } from '../lib/network-address.js'
 import { getSystemImageAvailabilityForHost } from '../db/images.js'
-import { createCaddyClient } from '../lib/caddy-client.js'
+import { prepareInstanceTaskSiteCleanup } from '../services/instance-task-site-cleanup.js'
 import { resolveInstanceTrafficLimitForHost } from '../lib/traffic-multiplier.js'
 import { calculateInstanceTrafficStatus } from '../services/traffic-utils.js'
 
@@ -167,7 +167,7 @@ async function cleanupRecreatedInstanceRecords(instanceId: number, hostId: numbe
 
     await tx.snapshot.deleteMany({ where: { instanceId } })
     await tx.backup.deleteMany({ where: { instanceId } })
-    await tx.proxySite.deleteMany({ where: { instanceId } })
+    if (await tx.proxySite.count({ where: { instanceId } })) throw Error('INSTANCE_SITE_CLEANUP_UNCONFIRMED')
     await tx.backupPolicy.deleteMany({ where: { instanceId } })
     await tx.snapshotPolicy.deleteMany({ where: { instanceId } })
     await tx.trafficSnapshot.deleteMany({ where: { instanceId } })
@@ -562,7 +562,7 @@ async function executeTask(taskId: number, attempt: InstanceTaskAttempt): Promis
       throw new Error('实例已删除，任务取消')
     }
 
-    if (['rebuild', 'recreate'].includes(task.taskType) && instance.dedicated_ipv4) {
+    if (task.taskType === 'rebuild' && instance.dedicated_ipv4) {
       await prisma.instance.update({ where: { id: instance.id }, data: { dedicatedNetworkReady: false } })
     }
 
@@ -1276,6 +1276,9 @@ async function executeRecreateTask(
   const oldIncusId = instance.incus_id
   const allowCancelBusyUpdate = isAlpineImageAlias(instance.image) || isAlpineImageAlias(imageAlias)
 
+  await prepareInstanceTaskSiteCleanup(task.id, instance)
+  await prisma.instance.updateMany({ where: { id: instance.id, dedicatedIpv4: true }, data: { dedicatedNetworkReady: false } })
+
   const collectResult = await collectTrafficForRunningInstance(task.instanceId)
   if (!collectResult.success) {
     console.warn(`[Recreate] 实例 ${task.instanceId} 重建前即时采集流量失败: ${collectResult.error}`)
@@ -1747,6 +1750,7 @@ async function executeChangeHostTask(
   }
 
   try {
+    await prepareInstanceTaskSiteCleanup(task.id, instance)
     await updateInstanceTaskProgress(task.id, 'checking_capacity')
     const reservedHost = await prisma.$transaction(async (tx) => {
       return db.selectAndReserveHostWithLock(tx, {
@@ -1916,9 +1920,6 @@ async function executeChangeHostTask(
 
     await updateInstanceTaskProgress(task.id, 'switching_database')
 
-    const proxySites = await prisma.proxySite.findMany({
-      where: { instanceId: task.instanceId }
-    })
     let deletedPortMappingsCount = 0
     let baseTrafficLimit = pkg.monthly_traffic_limit ? BigInt(pkg.monthly_traffic_limit) : null
     if (instance.package_plan_id) {
@@ -1955,7 +1956,7 @@ async function executeChangeHostTask(
           status: { in: ['COMPLETED', 'FAILED'] }
         }
       })
-      await tx.proxySite.deleteMany({ where: { instanceId: task.instanceId } })
+      if (await tx.proxySite.count({ where: { instanceId: task.instanceId } })) throw Error('INSTANCE_SITE_CLEANUP_UNCONFIRMED')
       await tx.backupPolicy.deleteMany({ where: { instanceId: task.instanceId } })
       await tx.snapshotPolicy.deleteMany({ where: { instanceId: task.instanceId } })
       await tx.trafficSnapshot.deleteMany({ where: { instanceId: task.instanceId } })
@@ -2038,24 +2039,6 @@ async function executeChangeHostTask(
     })
     dbSwitched = true
 
-    if (proxySites.length > 0 && sourceHost.caddy_enabled && sourceHost.caddy_username && sourceHost.caddy_password) {
-      const caddyHost = sourceHost.nat_public_ip || sourceHost.ip_address
-      if (caddyHost) {
-        const caddyClient = createCaddyClient({
-          host: caddyHost,
-          port: sourceHost.caddy_port || 8444,
-          username: sourceHost.caddy_username,
-          password: sourceHost.caddy_password
-        })
-        for (const site of proxySites) {
-          try {
-            await caddyClient.deleteSite(site.domain)
-          } catch (err) {
-            console.warn(`[ChangeHost] 删除 Caddy 站点 ${site.domain} 失败，数据库记录已清理:`, err)
-          }
-        }
-      }
-    }
 
     await updateInstanceTaskProgress(task.id, 'deleting_old')
     let sourceClient: Awaited<ReturnType<typeof getIncusClient>> | null = null

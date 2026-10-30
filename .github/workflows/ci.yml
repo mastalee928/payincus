@@ -228,6 +228,8 @@ jobs:
         run: pnpm --filter server test:review-terminal-opening
       - name: Terminal openings bind current session and original target under PostgreSQL locks
         run: pnpm --filter server test:review-terminal-authorization
+      - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
+        run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: Saved commands preserve drafts and current account state
         run: pnpm --filter server test:review-terminal-commands-lifecycle
       - name: Ticket details and replies preserve the current page and draft
