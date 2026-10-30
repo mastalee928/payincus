@@ -40,6 +40,12 @@ assert.ok(
 )
 
 const adminSource = readFileSync(resolve(__dirname, '../src/routes/admin-billing.ts'), 'utf8')
+const userVerify = routeSource.slice(routeSource.indexOf("app.post('/api/recharge/orders/:orderNo/verify'"),
+  routeSource.indexOf('// ==================== 管理员接口 ===================='))
+assert.equal((userVerify.match(/expectedPaymentDetails/g) || []).length, 8,
+  'user provider verification must bind all seven metadata/status/settlement mutations to its original selection')
+assert.ok(userVerify.includes('error instanceof RechargePaymentSelectionChangedError') && userVerify.includes('reply.code(409)'),
+  'stale user verification must return an explicit conflict')
 const adminSync = adminSource.slice(adminSource.indexOf("app.post('/api/admin/billing/recharge-records/:id/sync'"),
   adminSource.indexOf('// ==================== 管理员创建实例 ===================='))
 assert.ok(adminSync.includes('!isRechargeGatewayOrderNoMatch(gatewayOrderNo, queryResult.out_trade_no)'),

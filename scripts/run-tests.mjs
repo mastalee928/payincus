@@ -65,6 +65,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-notification-id-boundaries', 'requires isolated PostgreSQL; actual personal/global channel Int bounds, invalid type/status enums, masked reads and zero side effects'],
   ['test:review-redeem-host-scope', 'requires isolated PostgreSQL; actual host-scoped code management, rejected batch atomicity and usage-history preservation'],
   ['test:review-recharge-sync', 'requires isolated PostgreSQL; real administrator sync with encrypted and legacy providers, order snapshots and concurrent settlement notification uniqueness'],
+  ['test:review-recharge-verify', 'requires isolated PostgreSQL; actual three-provider user verification and payment-selection races with signed Antom responses'],
   ['test:review-terminal-reconnect-authorization', 'requires isolated PostgreSQL, OpenSSL and local mTLS/WebSocket fixture; current authorization after reconnect, actual row-lock competition, lock/deadline cancellation, real COMMIT failure and revocation while initial/reconnect authorization is pending'],
   ['test:review-terminal-reservations', 'requires isolated PostgreSQL, OpenSSL and local mTLS/WebSocket fixture; deterministic audit FK lock competition, pending user/instance limits, cancellation with persisted audits and released-slot reuse'],
   ['test:review-terminal-reconnect', 'requires OpenSSL and local mTLS HTTP/WebSocket fixture; reconnect backoff/POST/handshake cancellation, four revocation scopes, concurrent account isolation, client disconnect, VM fallback and total deadline with transport cleanup'],

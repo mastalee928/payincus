@@ -57,6 +57,7 @@ import { sendRechargeSuccessEmail } from '../lib/mailer.js'
 import { notifyAdminRecharge } from '../lib/admin-alerts.js'
 import { sanitizeObject } from '../lib/log-sanitizer.js'
 import { getCurrentRechargeGatewayOrderNo, isRechargeGatewayOrderNoMatch, resolveRechargeOrderNoFromGatewayOrderNo } from '../lib/recharge-order-guard.js'
+import { RechargePaymentSelectionChangedError } from '../db/recharge-records.js'
 import { parsePositivePaymentMoney } from '../lib/payment-money.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { assertSafeHttpUrl, isIpPrivateOrReserved } from '../lib/outbound-security.js'
@@ -1634,6 +1635,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       let callbackPayload: Record<string, unknown> = { source: 'verify_api' }
       let paymentDetails = (record as any).paymentDetails as Record<string, unknown> | undefined
       const gatewayOrderNo = getCurrentRechargeGatewayOrderNo((record as any).paymentDetails, record.orderNo)
+      const expectedPaymentDetails = record.paymentDetails as Record<string, unknown> | null
 
       if (provider.type !== 'yipay' && provider.type !== 'heleket' && provider.type !== 'antom') {
         return {
@@ -1811,7 +1813,8 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           )
           await db.updateRechargeOrderMetadata(orderNo, {
             tradeNo: heleketTradeNo,
-            paymentDetails
+            paymentDetails,
+            expectedPaymentDetails
           })
 
           return {
@@ -1839,7 +1842,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         }
 
         if (paymentState === 'cancelled') {
-          await db.cancelRecharge(orderNo, callbackPayload, paymentDetails)
+          await db.cancelRecharge(orderNo, callbackPayload, paymentDetails, expectedPaymentDetails)
 
           return {
             success: true,
@@ -1866,7 +1869,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         }
 
         if (paymentState === 'failed') {
-          await db.failRecharge(orderNo, statusMessage, callbackPayload, paymentDetails)
+          await db.failRecharge(orderNo, statusMessage, callbackPayload, paymentDetails, undefined, expectedPaymentDetails)
 
           return {
             success: true,
@@ -1990,7 +1993,8 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         if (!queryResult.paymentStatus || queryResult.paymentStatus === 'PROCESSING') {
           await db.updateRechargeOrderMetadata(orderNo, {
             tradeNo: queryResult.paymentId || null,
-            paymentDetails
+            paymentDetails,
+            expectedPaymentDetails
           })
           return {
             success: true,
@@ -2019,8 +2023,8 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         if (queryResult.paymentStatus === 'FAIL' || queryResult.paymentStatus === 'CANCELLED') {
           const message = queryResult.paymentResultMessage || `Antom payment ${queryResult.paymentStatus.toLowerCase()}`
           const terminalRecord = queryResult.paymentStatus === 'CANCELLED'
-            ? await db.cancelRecharge(orderNo, callbackPayload, paymentDetails)
-            : await db.failRecharge(orderNo, message, callbackPayload, paymentDetails)
+            ? await db.cancelRecharge(orderNo, callbackPayload, paymentDetails, expectedPaymentDetails)
+            : await db.failRecharge(orderNo, message, callbackPayload, paymentDetails, undefined, expectedPaymentDetails)
           tradeNo = queryResult.paymentId || ''
           tradeNoForIndex = getTradeNoForIndex(orderNo, tradeNo)
           await markCallbackProcessed(provider.id, orderNo, tradeNoForIndex, request.ip)
@@ -2119,7 +2123,8 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           tradeNo,
           actualAmount,
           callbackData: callbackPayload,
-          paymentDetails
+          paymentDetails,
+          expectedPaymentDetails
         })
 
         // 记录已处理
@@ -2234,6 +2239,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       }
     } catch (error) {
       request.log.error(error, '验证订单状态失败')
+      if (error instanceof RechargePaymentSelectionChangedError) return reply.code(409).send({ error: '支付订单已更新，请重新查询' })
       return reply.status(500).send({ error: '验证订单状态失败' })
     }
   })

@@ -309,6 +309,8 @@ jobs:
         run: pnpm --filter server test:review-ticket-image-transport
       - name: Administrator recharge sync decrypts effective credentials and settles each order once
         run: pnpm --filter server test:review-recharge-sync
+      - name: User payment verification rejects obsolete provider results after repayment
+        run: pnpm --filter server test:review-recharge-verify
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets

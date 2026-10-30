@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 用户支付结果查询在途换单保护
+
+- recharge-verify-before.log自然exit1：用户verify查询时通过原DB helper重建支付尝试，旧易支付paid仍200/completed且余额+9。verify现向所有metadata/complete/cancel/fail传原paymentDetails，复用同语句CAS，冲突409；未改供应商签名/金额/用户归属和正常通知规则。
+- recharge-verify-final.log自然exit0：易支付paid、Heleket paid/check/cancel/fail、Antom SUCCESS/PROCESSING/CANCELLED/FAIL×原空/已有尝试共18场景，旧查询全部409且新订单完整字段/余额/ledger/inbox保持、零callback；随后各新尝试正常一次到账。Antom使用实际客户端RSA验签，仅DNS及响应为受控本地夹具；无供应商网络、外部通知或生产操作。
+- 完整server+专项types零诊断、6对应守卫6/6、后端build自然exit0，新专项及清单登记LinuxCI。之前兼容修正caa7c597af40527bb23fcec248dc85e9037729f3 / CI41146647164。此段仍原充值编号，不增283/327及44初审；供应商callback在途竞争下一项，完整项目/灾备验收未完成。
+
 ## 2026-10-31 UPAY Pro 共享充值函数兼容回归
 
 - 新建仅本机隔离*_upaypro_test库并执行全迁移，再运行原UPAY Pro集成；recharge-upay-regression.log自然exit1定位专用冲突异常把原「订单状态已变更」改成内部英文标识，既有stale-completion错误合同断言失败。保留专用异常类型供管理员409映射，恢复兼容中文文案，不放宽旧支付尝试或账目断言。
