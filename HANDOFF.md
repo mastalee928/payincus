@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 资源验证码使用时重核当前个人通知目标（持续施工）
+
+- 账户绑定段已推3a838c4bafd1e7bbd933492ebc02efcf6b88fdc6 / CI41028619415。下一实际PG/Fastify先红`takeover-verification-resource-target-before.log`：改个人渠道后未再request，旧码verify仍200。现verify/check/claim各自事务对已有个人渠道行`FOR SHARE`，固定原createdAt/id顺序重读enabled/isGlobal/alertCategory及config摘要；只有当前目标摘要匹配才验证/消费，不靠再次发送撤销旧目标资格。
+- `takeover-verification-resource-target-resend-verified.log`最终自然exit0：未重发直接改目标拒旧verify/check/claim且attempt/grant不变；三阶段实际PG行锁排队后重读变更并拒绝，8并发当前目标grant只消费1次。原账户session/email绑定、当前鉴权排队、SMTP ACK/失败/60秒预算、个人/全局/管理员渠道与destroy空间完整回归保持。
+- 最终专项严格types、后端build、两operation守卫和四instance/snapshot/backup/transfer路由守卫均自然exit0；实际管理员/用户PUSH及专用销毁PG/SMTP回归同样exit0，日志前缀`logs/takeover-verification-resource-target-`。管理员PUSH测试夹具补原真实渠道摘要，不恢复旧无绑定grant。初夹具在Fastify已ready后注册路线被拒，已移至启动前；JsonValue回写改为原明确fixture配置，错误轮不列通过。产品无前端/schema改动，不重跑无变化双端构建。
+- 本段只闭合已有渠道目标变更与grant事务消费，不保证新增渠道插入的整体串行快照；资源code/grant原session绑定、资源权限/当前actor在真正业务写入时重核和通知配置写授权完整合同仍待。原无个人通知渠道的资源免验证合同保持，用户自行销毁仍独立强制邮箱验证；不能把此段当资源全验收。
+- CI41017076013/41015808583/41014322522已success；41019111832/41019531979/41020374764/41023032382/41024139392/41024907571/41025555281/41026234390/41028619415仍运行且无新失败，持续跟终态。原327259含部分/68不同与历史GoIO/原生宿主/外部SMTP/完整灾备未完保持；阶段保存后继续。
+
 ## 2026-10-30 R1-011 账户验证码及验证记录绑定原会话与邮箱（持续施工）
 
 - 接续保留上一模型未提交源码，补齐最终验证。账号操作的验证码与grant使用`account-session:v1:`摘要绑定账户、原sid及邮箱；request重复回执、verify、check、claim及profile同一事务消费均按该绑定检查。摘要不保存明文sid/邮箱，旧无绑定账号码及grant须重发，不能自动继承当前会话。账户60秒预算、资源通知目标与专用销毁邮箱流程保持。

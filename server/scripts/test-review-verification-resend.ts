@@ -56,6 +56,7 @@ const currentActor = () => ({ id: actor.id, sid: sessionId, iat: issuedAt })
 const app = Fastify()
 app.decorate('authenticate', async request => { request.user = { id: actor.id, username: actor.username, role: 'user', sid: sessionId, iat: issuedAt } })
 const request = () => app.inject({ method: 'POST', url: '/verification/request', payload: { operationType: 'disable_2fa' } })
+app.post('/fixture/claim-resource', async () => claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001))
 const record = () => prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id, operationType: 'disable_2fa' }, orderBy: { createdAt: 'desc' } })
 const codeFor = (email: string) => {
   const message = [...messages].reverse().find(value => value.includes('To: ' + email)); assert.ok(message)
@@ -290,6 +291,47 @@ try {
   assert.equal(notifyDuplicate.json().maskedTarget, notified.json().maskedTarget); assert.equal(deliveries.length, 1)
 
   await prisma.notificationChannel.update({ where: { id: selected.id }, data: { enabled: false, config: { botToken: 'fixture-token', chatId: '999999999' } } })
+  const changedTargetVerify = await app.inject({ method: 'POST', url: '/verification/verify', payload: {
+    operationType: 'reinstall_instance', resourceId: 910001, code: notificationCode
+  } })
+  assert.equal(changedTargetVerify.statusCode, 400, 'a changed personal notification target must reject the old code without another request')
+  assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).attempts, 0)
+  await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { verified: true, verifiedAt: new Date() } })
+  const changedTargetCheck = await app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910001' })
+  assert.equal(changedTargetCheck.json().verified, false)
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001)).verified, false,
+    'a changed notification target cannot consume a previous-target grant')
+  assert.ok((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verifiedAt)
+  for (const phase of ['verify', 'check', 'claim'] as const) {
+    await prisma.notificationChannel.update({ where: { id: selected.id }, data: {
+      enabled: true, config: { botToken: 'fixture-token', chatId: '111111111' }
+    } })
+    await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: {
+      verified: phase !== 'verify', verifiedAt: phase === 'verify' ? null : new Date()
+    } })
+    const queued = await queuedRequest(tx => tx.notificationChannel.update({ where: { id: selected.id }, data: {
+      config: { botToken: 'fixture-token', chatId: '999999999' }
+    } }), () => phase === 'verify' ? app.inject({ method: 'POST', url: '/verification/verify', payload: {
+      operationType: 'reinstall_instance', resourceId: 910001, code: notificationCode
+    } }) : phase === 'check' ? app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910001' })
+      : app.inject({ method: 'POST', url: '/fixture/claim-resource' }))
+    assert.equal(queued.blocked, true, `${phase} must wait for the actual current notification row mutation`)
+    if (phase === 'verify') assert.equal(queued.response.statusCode, 400)
+    else assert.equal(queued.response.json().verified, false)
+    const unchanged = await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })
+    assert.equal(unchanged.attempts, 0)
+    assert.equal(unchanged.verified, phase !== 'verify')
+    assert.equal(Boolean(unchanged.verifiedAt), phase !== 'verify')
+  }
+  await prisma.notificationChannel.update({ where: { id: selected.id }, data: {
+    enabled: true, config: { botToken: 'fixture-token', chatId: '111111111' }
+  } })
+  const resourceClaims = await Promise.all(Array.from({ length: 8 }, () => claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001)))
+  assert.equal(resourceClaims.filter(result => result.verified).length, 1)
+  assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verifiedAt, null)
+  await prisma.notificationChannel.update({ where: { id: selected.id }, data: { enabled: false, config: { botToken: 'fixture-token', chatId: '999999999' } } })
+  await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { verified: false, verifiedAt: null } })
+  console.log('PASS changed personal targets reject old codes/checks/claims before resend, actual row-lock mutations recheck each phase, and eight current-target claims consume once')
   const changedDuplicate = await notifyRequest(910001)
   assert.equal(changedDuplicate.statusCode, 400); assert.equal(changedDuplicate.json().code, 'VERIFICATION_RATE_LIMITED')
   assert.ok(!changedDuplicate.body.includes('777777') && !changedDuplicate.body.includes('999999') && !changedDuplicate.body.includes('maskedTarget'))

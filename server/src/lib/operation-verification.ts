@@ -171,6 +171,19 @@ function notificationTargetBinding(channel: NotificationChannel): string {
     ])).digest('hex')
 }
 
+async function currentNotificationVerificationBinding(tx: Prisma.TransactionClient, userId: number): Promise<string | null> {
+    // Hold existing channel rows through the verification/claim, so a concurrent
+    // update or deletion cannot change the recipient between lookup and use.
+    await tx.$queryRaw`SELECT id FROM notification_channels WHERE user_id = ${userId} ORDER BY id FOR SHARE`
+    const channel = await tx.notificationChannel.findFirst({
+        where: { userId, enabled: true, isGlobal: false, alertCategory: null },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+    })
+    if (!channel) return null
+    try { maskNotificationTarget(channel) } catch { return null }
+    return notificationTargetBinding(channel)
+}
+
 async function currentDeliveryAuthorized(tx: Prisma.TransactionClient, userId: number, actor: WriteActor | undefined,
     email: string | null, notificationChannel: NotificationChannel | null): Promise<boolean> {
     if (!actor || actor.id !== userId || !await authorizeUserWrite(tx, userId, actor)) return false
@@ -486,6 +499,10 @@ export async function verifyOperationCode(
         const now = new Date()
         const accountBinding = isAccountOperation(operationType) ? accountOperationVerificationBinding(actor,
             (await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } })).email) : null
+        const resourceBinding = isResourceOperation(operationType) ? await currentNotificationVerificationBinding(tx, userId) : null
+        if (isResourceOperation(operationType) && !resourceBinding) {
+            return { success: false, verified: false, error: 'Invalid or expired verification code', errorCode: 'INVALID_CODE' }
+        }
         const codeHash = hashVerificationCode(code)
         const candidates = await tx.operationVerification.findMany({
             where: {
@@ -494,6 +511,7 @@ export async function verifyOperationCode(
                 resourceId: resourceId || null,
                 ...GENERIC_VERIFICATIONS,
                 ...(accountBinding ? { resourceType: accountBinding } : {}),
+                ...(resourceBinding ? { resourceType: resourceBinding } : {}),
                 verified: false,
                 expiresAt: { gt: now },
                 attempts: { lt: VERIFICATION_CONFIG.maxAttempts }
@@ -535,6 +553,7 @@ export async function verifyOperationCode(
                 operationType,
                 resourceId: resourceId || null,
                 ...GENERIC_VERIFICATIONS,
+                ...(resourceBinding ? { resourceType: resourceBinding } : {}),
                 verified: false,
                 expiresAt: { gt: verifiedAt },
                 attempts: { lt: VERIFICATION_CONFIG.maxAttempts }
@@ -580,16 +599,21 @@ export async function isOperationVerified(
     }
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
     
-    const verification = await prisma.operationVerification.findFirst({
-        where: {
-            userId,
-            operationType,
-            resourceId: resourceId || null,
-            ...GENERIC_VERIFICATIONS,
-            verified: true,
-            expiresAt: { gt: new Date() },
-            verifiedAt: { gt: tenMinutesAgo }
-        }
+    const verification = await prisma.$transaction(async tx => {
+        const resourceBinding = await currentNotificationVerificationBinding(tx, userId)
+        if (!resourceBinding) return null
+        return tx.operationVerification.findFirst({
+            where: {
+                userId,
+                operationType,
+                resourceId: resourceId || null,
+                ...GENERIC_VERIFICATIONS,
+                resourceType: resourceBinding,
+                verified: true,
+                expiresAt: { gt: new Date() },
+                verifiedAt: { gt: tenMinutesAgo }
+            }
+        })
     })
 
     return !!verification
@@ -640,17 +664,22 @@ export async function claimOperationVerificationRequirement(
     }
 
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
-    const result = await prisma.operationVerification.updateMany({
-        where: {
-            userId,
-            operationType,
-            resourceId: resourceId || null,
-            ...GENERIC_VERIFICATIONS,
-            verified: true,
-            expiresAt: { gt: new Date() },
-            verifiedAt: { gt: tenMinutesAgo }
-        },
-        data: { verifiedAt: null }
+    const result = await prisma.$transaction(async tx => {
+        const resourceBinding = await currentNotificationVerificationBinding(tx, userId)
+        if (!resourceBinding) return { count: 0 }
+        return tx.operationVerification.updateMany({
+            where: {
+                userId,
+                operationType,
+                resourceId: resourceId || null,
+                ...GENERIC_VERIFICATIONS,
+                resourceType: resourceBinding,
+                verified: true,
+                expiresAt: { gt: new Date() },
+                verifiedAt: { gt: tenMinutesAgo }
+            },
+            data: { verifiedAt: null }
+        })
     })
 
     return {

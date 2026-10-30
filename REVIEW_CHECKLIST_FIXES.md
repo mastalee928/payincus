@@ -1,3 +1,5 @@
+2026-10-30 R011资源目标段：当前个人渠道摘要在verify/check/claim事务锁定后重核，未request直接更换目标旧码/grant不可用；实际PG三阶段锁竞争/8并发单消费及原SMTP账户预算/绑定/PUSH/destroy回归、严格types/server build/6守卫通过，证据见HANDOFF。资源原会话/业务权限和新增渠道整体串行仍待，原259含部分/68不同不重复计数；阶段推送后继续。
+
 # 外部审查清单修复台账
 
 2026-10-30 R011验证current认证：已投递码banned账户仍200promote先红→verify request.user进入同事务authorizeUserWrite账户行锁，正确CAS和错误bounded尝试都在当前授权之后。真实PG三排队停用/撤销、八正确并发唯一次、拒绝不耗记录、原完整SMTP/预算/目标与destroy/2FA全过；最终types/build/两守卫/diff过见HANDOFF。355d39e554268eba746ee1b33b79adec8d0419b5/41025555281已推，410143及410158两CI终态success，八其它CI仍跟。原session/email持久绑定、check/claim/profile及327内部继续，计数不增。

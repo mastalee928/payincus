@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mock } from 'node:test'
 import Fastify from 'fastify'
 
@@ -143,6 +143,7 @@ try {
   const channel = await prisma.notificationChannel.create({ data: { userId: admin.id, type: 'email', name: prefix, config: { email: 'test@example.invalid' } } })
   await expectError(payload, 'VERIFICATION_REQUIRED', 403)
   await prisma.operationVerification.create({ data: { userId: admin.id, operationType: 'transfer_instance', resourceId: instance.id,
+    resourceType: 'notification-target:v1:' + createHash('sha256').update(JSON.stringify([channel.id, channel.type, channel.config])).digest('hex'),
     channel: 'email', code: 'unused-test-code', verified: true, verifiedAt: new Date(), expiresAt: new Date(Date.now() + 60000) } })
   const created = await adminPost()
   assert.equal(created.statusCode, 201, created.body)
