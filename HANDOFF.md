@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-30 R1-011 重装停机失败中止（持续施工）
+
+- CI退出段已推6b3785483ab7e55389817d3dddb6ab12a01f186e / CI41049136134，本轮已越过原Host network步骤，六job成功且Pool后续工单/终端专项持续推进，整体非终态。继续代码级复审真实重装发现状态读取/stop异常被吞后继续cloud-init和快照/配置。`logs/takeover-rebuild-stop-resend-verified.log`此前实际mTLS先红unavailable状态后仍1次config写。改为stopInstance异常直接失败，原Alpine busy恢复参数保持，之后再次读取实际state并明确Stopped才进入cloud-init/快照/重装，不凭数据库stopped或stop ACK成功继续。
+- 最终同前缀resend专项自然exit0，实际worker/mTLS三故障（state500、stop500、stop ACK后仍Running）零config写、原snapshot及image/password/cloudInitState保持；原4建连变化/12材料/18镜像/28当前授权竞争及全SMTP/验证码回归保持。受改专项严格types、最终server build、六task/operation/public-api与四route守卫、destroy PG/SMTP均自然exit0。测试原误写cloudInitStatus是undefined空比较且TS2551，改真实cloudInitState deepEqual后types/resend完整复跑通过，错误轮不算证据。
+- 无前端/schema变化。此项为rebuild停机门禁，不声称远端全步骤授权或快照真实缺失/重建stop失败全部完成；recreate停机/快照异常吞掉仍下一段，保原一机一卖、全端口与财务/客户保护。九待查CI加历史失败准确记录继续，原327259含部分/68不同不增；保存推送后继续，不生产/发行。
+
 ## 2026-10-30 CI宿主网络步骤退出阻塞（持续施工）
 
 - 建连授权段已推aa3e598da201466afbea5c79a3e00f751d32a5a1 / CI41047947257。多个CI长停Host network observation identity and generation（41042942813该步骤10:47:50Z开始）。本机分别运行两条命令：host network sync 52例PG/mTLS/CLI全部自然exit0；network persistence14例和DB清理已完成仍不退出，复现真实常驻进程。原因是新transfer→operation verification→notifier/DB→security依赖带入常驻清理interval。只在该集成测试入口保存failure，断言和finally清理完成后显式exit0/exit1，不改变生产安全定时器或跳业务检查。

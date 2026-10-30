@@ -964,16 +964,13 @@ async function executeRebuildTask(
 
   // 确保实例已停止
   await updateInstanceTaskProgress(task.id, 'stopping')
-  try {
-    const incusState = await getInstanceState(client, instance.incus_id) as { status?: string }
-    if (incusState.status === 'Running') {
-      await stopInstance(client, instance.incus_id, true, {
-        allowCancelBusyUpdate,
-        busyUpdateCancelAfterMs: allowCancelBusyUpdate ? ALPINE_BUSY_UPDATE_CANCEL_AFTER_MS : undefined
-      })
-    }
-  } catch (_err) {
-    // 继续执行
+  await stopInstance(client, instance.incus_id, true, {
+    allowCancelBusyUpdate,
+    busyUpdateCancelAfterMs: allowCancelBusyUpdate ? ALPINE_BUSY_UPDATE_CANCEL_AFTER_MS : undefined
+  })
+  const confirmedStop = await getInstanceState(client, instance.incus_id) as { status?: string }
+  if (confirmedStop.status?.toLowerCase() !== 'stopped') {
+    throw new Error('实例尚未确认停止，重装未开始，请检查宿主状态后重试')
   }
 
   // 重装后 cloud-init 会重新运行，必须清空旧的检测状态与手动完成标记。

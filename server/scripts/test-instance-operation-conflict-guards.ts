@@ -48,6 +48,10 @@ for (const [start, end] of [['async function executeRebuildTask(', 'async functi
     !execution.includes('db.getSSHKeyById(') && !execution.includes('db.getSSHKeysByUserId(') && !execution.includes('getCommandsByIds('),
     'destructive dispatch must use the verified material snapshot without rereading changed keys or commands after preflight')
 }
+const rebuildExecution = workerSource.slice(workerSource.indexOf('async function executeRebuildTask('), workerSource.indexOf('async function executeRecreateTask('))
+assert.ok(rebuildExecution.indexOf('await stopInstance(client, instance.incus_id, true,') < rebuildExecution.indexOf('const confirmedStop = await getInstanceState(') &&
+  rebuildExecution.indexOf("confirmedStop.status?.toLowerCase() !== 'stopped'") < rebuildExecution.indexOf('await resetInstanceCloudInitState('),
+  'rebuild must reject stop/read failures and confirm the actual stopped state before cloud-init, snapshot or rootfs changes')
 
 function sectionBetween(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)

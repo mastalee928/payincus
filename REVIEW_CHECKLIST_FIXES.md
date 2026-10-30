@@ -1,3 +1,5 @@
+2026-10-30 R011重装stop：mTLS状态500后仍发config先红，stop异常直接拒绝，读取真实Stopped才进入cloud-init/快照/重装，原Alpine busy参数保持。真实worker三state失败/stop失败/ACK后仍Running零config写、snapshot/image/password/cloudInitState保留；types/build/十守卫及原完整PG/SMTP/mTLS/destroy最终exit0见HANDOFF。6b3785483ab7e55389817d3dddb6ab12a01f186e / CI41049136134已过网络阻塞并向后推进未终态，recreate stop及snapshot缺失另待，259含部分/68不同不增。
+
 2026-10-30 CI宿主网络长时阻塞：本机host network sync全通过自然退出；第二network persistence 14例和DB清理完成后被新增transfer/verification/security依赖清理定时器保进程。仅集成入口捕获失败+finally清理后显式exit0/1，正常PG14例自然0和注入失败实际1，types重载纠正后复验，详HANDOFF。aa3e598da201466afbea5c79a3e00f751d32a5a1 / CI41047947257已推，八CI未终态，新提交须过原阻塞步骤，不修改旧结论或放宽产品守卫，原327计数不增。
 
 2026-10-30 R011建连：worker mTLS建连中改key仍2远端写先红，现rebuild/recreate连接完成后二次原任务/当前授权及全部材料核验；专属网络状态更新同该事务，拒绝零实例改动。实际四key/command/banned/session建连变化零远端写、原快照/实例保持，后检查正文变化不替换配置，原12/18/28竞争及SMTP全回归、types/build/十守卫自然exit0见HANDOFF。72d0c2d9fffae4a6979e252c083f1583fe50efc2 / CI41047399537已推运行，七待查CI多个宿主网络步骤长时无进展，下一优先复现，259含部分/68不同不增，逐步远端/原生客户/灾备另待。

@@ -430,6 +430,7 @@ try {
       const certificate = await readFile(certificatePath, 'utf8')
       let dispatchedConfig: Record<string, string> | undefined, changedAfterValidation = false
       let connectionMutation: 'none' | 'key' | 'command' | 'banned' | 'session' = 'none', remoteWrites = 0
+      let stopFailure: 'none' | 'unavailable' | 'unconfirmed' | 'request-failure' = 'none', configWrites = 0
       materialRemote = createHttpsServer({ cert: certificate, key: await readFile(keyPath), ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
         const reply = (status: number, metadata: unknown) => {
           response.writeHead(status, { 'content-type': 'application/json' })
@@ -449,11 +450,16 @@ try {
             await prisma.customInitCommand.update({ where: { id: ownerCommand.id }, data: { command: 'echo fixture-changed-after-validation' } })
             changedAfterValidation = true; return reply(200, [])
           }
-          if (request.method === 'GET' && request.url?.endsWith('/state')) return reply(200, { status: 'Stopped' })
+          if (request.method === 'GET' && request.url?.endsWith('/state')) {
+            if (stopFailure === 'unavailable') return reply(500, {})
+            return reply(200, { status: stopFailure === 'none' ? 'Stopped' : 'Running' })
+          }
           if (request.method === 'GET' && request.url?.includes('/images/aliases/')) return reply(200, { target: 'fixture-image' })
           if (request.method === 'GET' && request.url?.includes('/images/')) return reply(200, { properties: {} })
           if (request.method === 'GET') return reply(200, { type: 'container', config: {}, devices: {} })
           if (request.method === 'PUT') {
+            if (request.url?.endsWith('/state')) return reply(stopFailure === 'request-failure' ? 500 : 200, {})
+            configWrites++
             let body = ''; for await (const chunk of request) body += chunk
             dispatchedConfig = JSON.parse(body).config; return reply(200, {})
           }
@@ -490,6 +496,25 @@ try {
       }
       connectionMutation = 'none'
       await prisma.instance.update({ where: { id: firstResourceId }, data: { dedicatedIpv4: false, dedicatedNetworkReady: false } })
+      for (const mode of ['unavailable', 'unconfirmed', 'request-failure'] as const) {
+        stopFailure = mode; configWrites = 0
+        const beforeStop = await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } })
+        const admission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
+          taskType, imageAlias: fixtureImage.remoteAlias, sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
+            actor: currentActor(), entry: 'user', expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId,
+            expectedHostIdentity: transferHostIdentity(remoteHost)
+          } })
+        const running = await prisma.instanceTask.update({ where: { id: admission.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+        await executeTask(running.id, { startedAt: running.startedAt, retryCount: running.retryCount })
+        assert.equal(configWrites, 0, `stop/${mode}: remote stop must be confirmed before config or disk changes`)
+        assert.equal(await prisma.snapshot.count({ where: { id: resourceSnapshot.id } }), 1, `stop/${mode}: snapshot records must remain`)
+        const afterStop = await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } })
+        assert.deepEqual(afterStop.cloudInitState, beforeStop.cloudInitState)
+        assert.equal(afterStop.image, beforeStop.image); assert.equal(afterStop.rootPassword, beforeStop.rootPassword)
+        await prisma.instanceTask.delete({ where: { id: running.id } })
+      }
+      console.log('PASS rebuild stop preflight rejects unavailable state, failed stop and unconfirmed acknowledgements without configuration or snapshot changes')
+      stopFailure = 'none'
       const workerAdmission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
         taskType, imageAlias: fixtureImage.remoteAlias, sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
           actor: currentActor(), entry: 'user', expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId,
