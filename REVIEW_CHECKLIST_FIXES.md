@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277原分页防护经真实PG复验有效，同接口host/instance编号PG越界另行修复，分页/筛选隔离/原记录不变验证通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为270项（含部分、待验收），57项仍保初审分类；这不是完整修复数，不能按327减270计算剩余全部工作。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277原分页防护经真实PG复验有效，同接口host/instance编号PG越界另行修复；R178终端命令100上限十并发确认一成功/九明确拒绝，原记录和成功审计保持。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为271项（含部分、待验收），56项仍保初审分类；这不是完整修复数，不能按327减271计算剩余全部工作。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -469,7 +469,7 @@
 | R1-175 | 已有防护 | 保留初审结论 | 重连等待后及新连接完成后核对activeSessions对象、reconnectGeneration和client状态，不符关闭新socket。 |
 | R1-176 | 已有防护；补验发现授权审计死锁 | 名额PG/mTLS补验与同链死锁修复通过 | 确定性PG先红40P01后改instance FOR NO KEY UPDATE，审计FK可并发、UPDATE/DELETE仍阻塞。原route并发实例3/用户5、撤销零POST且全部审计落定、释放后重连与双socket清理通过terminal-reservations-complete.log；原初连/重连当前授权/期限/COMMIT清理回归、types/三守卫/build均自然exit0。真实Incus公网长期运行另验；本次在v1.7.8之后。 |
 | R1-177 | 部分存在 | 初连/重连当前授权已修，产品PG/mTLS与构建通过 | 重连复用原初连闭包重核当前角色/会话与原实例/host/package；真实route九类变更拒绝/五PG锁竞争/三角色正常/20秒与真实COMMIT失败清理通过。初连和重连已连通但事务pending时撤销立即清双socket；terminal-r177-product-*全回归/types/三守卫/build自然exit0，已接CI。原生Incus UUID及长期公网终端另待。 |
-| R1-178 | 已有防护 | 保留初审结论 | 事务advisory lock串行count和insert，100条上限已有并发保护。 |
+| R1-178 | 已有防护 | 真实PG并发与审计复验通过 | 同事务按用户advisory锁串行count/insert；99+10并发只有1个201及1条成功审计，9个明确400/MAX_COMMANDS_REACHED、DB精确100；满额重试完整原行和审计不变。command-r178-quota-final/types/guards自然exit0，沿原CI专项，不改产品；认证夹具不替代生产登录验收。 |
 | R1-179 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-180 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-181 | 部分存在（复审纠正） | 删除末条回复竞争已修；实际PG/构建通过 | 原updatedAt CAS未覆盖删除末条客服回复；读取前锁原ticket并限3秒锁等待，实际两序PG锁竞争、八并发唯一次关闭、新回复/客户末条/无消息与事务回滚通过。ticket-r181-product-*原42网站/160PAT-POA/对象绑定回归、types/四守卫/build自然exit0，长期测试接CI；外部通知与原生定时周期另验。本次为v1.7.8 tag之后的主分支修复。 |
