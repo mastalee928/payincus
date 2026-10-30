@@ -2,6 +2,15 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-020 宿主资源校对事务与当前权限（持续施工）
+
+- 前段7418ea68e7b1638b8b388dc2db4f66ebce600fde已推、CI41006712461仍运行；41000607228/41001679848/41003054433/41005024391现终态success，41005762182仍运行。最后两轮六job成功、Pool integration运行，继续跟终态，历史GoIO保留。
+- 原校对两次独立写host，createLog吞审计失败；getHostById未带natPortsUsedCount导致before端口误报0。实际Fastify/PG先红takeover-host-recalculate-before.log：真实日志trigger异常仍200成功并改资源。现事务锁实例（含deleted）→host→补齐新提交实例/映射端口→账号，复核active、sid/iat及账户/会话撤销、当前role与固定host归属；统计、六资源/配额一次更新和本地化审计同事务，审计异常回滚。原非deleted计数、系统映射计入及配额对齐到已用合同保持，未改客户网络/全端口交付。
+- 初版Serializable真实PG暴露：撤销仅持account锁插入invalidation、未更新account行时旧快照漏读撤销。已改READ COMMITTED与输入行锁，等待后读取已提交撤销；Prisma7适配器SQLSTATE在嵌套或直接cause中，精确冲突映射409，普通审计/数据库失败不冒充冲突。锁等待5秒、事务15秒，冲突显式刷新重试，不自动重放写。
+- 本机隔离PostgreSQL16.10、55438、*_pool_test与原Fastify route专项26733自然exit0，takeover-host-recalculate-inputs-final.log：审计失败六字段回滚、before/after/diff/重复无变化，6类排队账户/role/归属/会话撤销真实pg_blocking_pids等待拒写，host+instance及instance单独资源变化、端口删除等待后统计，合法owner/admin、六并发成功审计一一对应、非法sid/ID与零财务写。临时diagnostic已移除，初版/syntax失败不计最终证据。
+- server types93262、独立测试types88972、最终server build16094自然exit0；5/5资源原子/host-pool/log-localization/instance-quota-zero/resource-quota-bigint守卫50089自然exit0（test-run-20261030-142621），manifest194常规229专项及diff检查通过。PG专项已接CI，仅app.inject测试路由，未启动第二业务后端。前端未改沿用前段双端build，不当真实生产/原生宿主/全量验收。
+- 原327仍259含部分记录/68已有不同，内部待验未去重计数。本段保存推送后继续MyHosts完整批量目标、固定上下文/busy/旧回执及失败明细，list/create/takeover与其它内部验收/外部邮件/完整灾备保留。
+
 ## 2026-10-30 R1-020 套餐宿主名称完整分页（持续施工）
 
 - 宿主统计已推ea2d08e5301f17c7b2532218f9d7c2e09f3fcbb9/CI41005762182。40998161357现七job终态success；41000607228/41001679848/41003054433/41005024391/41005762182仍运行，继续查终态。其它内部缺口保持。

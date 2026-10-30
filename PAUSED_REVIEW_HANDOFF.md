@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **2026-10-30 R020后端校对**：PG审计吞错200先红→输入锁、当前账号role/sid/撤销/host归属重核、六字段及本地化audit同事务。Serializable漏读持锁插入撤销已真实拦下，READ COMMITTED+实例→host→port→account锁修正，Prisma7嵌套SQLSTATE冲突409。最终PG26733/types93262/testtypes88972/server build16094/5守卫50089全部自然exit0，无待poll，manifest194常规229专项接CI。PG55438已恢复供测试。7418已推CI41006712461仍跑，410006/410016/410030/410050均success，410057仍跑；GoIO保持。本段保存后接MyHosts批量分页/固定context/busy/逐台失败及重试，原327259含部分/68不同及灾备/其它内部缺口未结束。
+
 > **2026-10-30 R020套餐宿主名称末段验证**：237三页/实际第三页名称搜索/非法metadata与foreign普通owner拒绝/16旧身份缓存ABA回执/last-good实际retry/18三语三宽深浅44pxinverse颜色Chrome32827自然exit0；原PackageForm60431、route130345/i18n130344/lint47626/manifest194常规228专项通过。冻结产品最终双端55612自然exit0，两次vue-tsc与47.72秒admin构建确认；末dist后保存本段。18图已看/visual-critique保存，原package列表受控pending/紫色/整页UI与其它写入口另待。已读下一MyHosts calibrate真实route与resource helper：它改资源和配额且非事务、审计单独落库，先守卫/PG复现根因与当前授权，再扩大批量目标；尚未改这条后端。原327259含部分/68不同，不报总剩余1。40998161357现success，后五CI运行须跟；旧GoIO/SSH/真实邮件/完整灾备保持，不生产/发行，保存后继续。
 
 > **2026-10-30 R020宿主完整资源统计末验证通过，保存后继续**：237条三页精确474/121344/242688，13非法/foreign中间页与22旧host-session-cache-ABA回执、failed refresh last-good实际retry/空与nullable0/聚合溢出/九图通过。Chrome87971与最终reads71979、metrics62687/route125224/core125257/lint41866/manifest194-227均自然exit0；最终双端49982含两types/44.47及59.40秒自然exit0，末dist-final过，九图已看。无活动测试/build。工单014646d8085d69b852fe5380b72b1124f4632fa0/CI41005024391已推；40996832087success，后五运行须跟终态。原327259含部分/68不同及内部缺口保持，R020另MyPackages宿主名称/MyHosts写calibrate两处继续，不报总剩余2。没有生产/发行。马上保存再下一项。

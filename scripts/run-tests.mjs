@@ -69,6 +69,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-network-persistence', 'requires isolated local *_pool_test PostgreSQL; direct network snapshot identity, generation consumption and transactional primary address persistence'],
   ['test:review-instance-quota', 'requires isolated local *_pool_test PostgreSQL; actual admin/host quota null, omission, zero and range behavior'],
   ['test:review-host-gift-days', 'requires isolated local *_pool_test PostgreSQL; actual gift-days authorization, expiry and suspension races with paid renewal and transactional audit rollback'],
+  ['test:review-host-recalculate', 'requires isolated local *_pool_test PostgreSQL; resource/port accounting, current host/account/session authorization, row-lock races and atomic audit rollback'],
   ['test:review-host-extend-all', 'requires isolated local *_pool_test PostgreSQL; actual atomic host extension, current administrator and expiry races, audit/inbox rollback, billing lane and failed external delivery; no real customer instances'],
   ['test:review-host-images', 'requires Chrome/Edge and local Vite; actual host image policy current reads, failures and malformed replies, fixed drafts, pending save and obsolete session/host/cache receipts; controlled API only'],
   ['test:review-host-caddy-reads', 'requires Chrome/Edge and local Vite; actual host Caddy status/site current requests, obsolete session/cache replies, strict policies, error retry and shrinking pagination; controlled read-only API'],

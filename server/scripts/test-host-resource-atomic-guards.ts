@@ -22,6 +22,19 @@ function section(source: string, startPattern: string, endPattern: string): stri
 const quotaSource = readRepoFile('server/src/db/quota-operations.ts')
 const resourcePoolSource = readRepoFile('server/src/db/resource-pool.ts')
 const hostsSource = readRepoFile('server/src/db/hosts.ts')
+const recalculationSource = readRepoFile('server/src/db/host-resource-recalculation.ts')
+const hostRoutesSource = readRepoFile('server/src/routes/hosts.ts')
+const recalculationRoute = section(hostRoutesSource, "}>('/:id/recalculate-resources'", '// 批量封停实例')
+assert.ok(recalculationRoute.includes('recalculateHostResources(hostId, user)') && !recalculationRoute.includes('updateHostResources('),
+  'host resource calibration must use the transactional authorized write boundary')
+assert.ok(recalculationSource.includes('authorizeUserWrite(tx, actor.id, actor)') &&
+  recalculationSource.includes('account.role !== actor.role') && recalculationSource.includes('host.userId !== selected.userId') &&
+  recalculationSource.includes('ORDER BY id FOR UPDATE') && recalculationSource.includes('FROM port_mappings') &&
+  recalculationSource.includes('tx.instance.aggregate(') && recalculationSource.includes('tx.portMapping.count(') &&
+  recalculationSource.includes('await tx.host.update(') && recalculationSource.includes('await tx.log.create(') &&
+  recalculationSource.includes('Prisma.TransactionIsolationLevel.ReadCommitted') &&
+  recalculationSource.includes('normalizeLogContentForStorage(') && !recalculationSource.includes('await createLog('),
+  'calibration must lock current counting inputs and authorization, observe committed revocations and roll back on audit failure')
 
 const reserveSection = section(
   quotaSource,

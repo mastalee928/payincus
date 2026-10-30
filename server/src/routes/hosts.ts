@@ -19,6 +19,7 @@ import { createInboxMessage } from '../db/inbox.js'
 import { createLog } from '../db/logs.js'
 import { giftInstanceDays, InstanceGiftDaysError } from '../db/instance-gift-days.js'
 import { extendHostPaidInstances, HostExtensionError } from '../db/host-instance-extensions.js'
+import { recalculateHostResources, HostRecalculationError } from '../db/host-resource-recalculation.js'
 import { apiError, ErrorCode, type ErrorCodeType } from '../lib/errors.js'
 import { createInstanceTask, getActiveTaskForInstance, InstanceTaskConflictError } from '../db/instance-tasks.js'
 import type { CreateInstanceTaskData, InstanceTaskWithDetails } from '../db/instance-tasks.js'
@@ -4699,93 +4700,12 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
     }
 
-    // 验证节点存在且属于当前用户
-    const host = await db.getHostById(hostId)
-    if (!host) {
-      return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
-    }
-
-    // 权限检查：只有节点所有者可以校对资源
-    if (host.user_id !== user.id && user.role !== 'admin') {
-      return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
-    }
-
-    // 获取校对前的资源使用量
-    const before = {
-      cpuUsed: host.cpu_used || 0,
-      memoryUsed: host.memory_used || 0,
-      diskUsed: host.disk_used || 0,
-      natPortsUsedCount: host.nat_ports_used_count || 0,
-      cpuAllowanceMax: host.cpu_allowance_max || 0,
-      memoryMax: host.memory_max || 0
-    }
-
-    // 重新计算资源使用量（基于所有非 deleted 状态的实例）
-    const usedResources = await db.calculateHostResourcesFromInstances(hostId)
-
-    // 重新计算端口映射使用量
-    const portMappingsCount = await prisma.portMapping.count({
-      where: {
-        instance: {
-          hostId: hostId,
-          status: { not: 'deleted' }
-        }
-      }
-    })
-
-    // 更新宿主机资源使用量
-    await db.updateHostResources(hostId, {
-      cpuUsed: usedResources.cpuUsed,
-      memoryUsed: usedResources.memoryUsed,
-      diskUsed: usedResources.diskUsed
-    })
-
-    // 更新端口使用量，同时将配额对齐到已用配额
-    await prisma.host.update({
-      where: { id: hostId },
-      data: {
-        natPortsUsedCount: portMappingsCount,
-        // 将配额对齐到已用配额
-        cpuAllowanceMax: usedResources.cpuUsed,
-        memoryMax: usedResources.memoryUsed
-      }
-    })
-
-    const after = {
-      cpuUsed: usedResources.cpuUsed,
-      memoryUsed: usedResources.memoryUsed,
-      diskUsed: usedResources.diskUsed,
-      natPortsUsedCount: portMappingsCount,
-      cpuAllowanceMax: usedResources.cpuUsed,
-      memoryMax: usedResources.memoryUsed
-    }
-
-    // 计算差异
-    const diff = {
-      cpuUsed: after.cpuUsed - before.cpuUsed,
-      memoryUsed: after.memoryUsed - before.memoryUsed,
-      diskUsed: after.diskUsed - before.diskUsed,
-      natPortsUsedCount: after.natPortsUsedCount - before.natPortsUsedCount,
-      cpuAllowanceMax: after.cpuAllowanceMax - before.cpuAllowanceMax,
-      memoryMax: after.memoryMax - before.memoryMax
-    }
-
-    const hasChanges = diff.cpuUsed !== 0 || diff.memoryUsed !== 0 || diff.diskUsed !== 0 || diff.natPortsUsedCount !== 0 || diff.cpuAllowanceMax !== 0 || diff.memoryMax !== 0
-
-    await createLog(
-      user.id,
-      'host',
-      'host.recalculate_resources',
-      `Recalculated resources for host "${host.name}": CPU ${before.cpuUsed}→${after.cpuUsed}, Memory ${before.memoryUsed}→${after.memoryUsed}, Disk ${before.diskUsed}→${after.diskUsed}, Ports ${before.natPortsUsedCount}→${after.natPortsUsedCount}, CPUMax ${before.cpuAllowanceMax}→${after.cpuAllowanceMax}, MemMax ${before.memoryMax}→${after.memoryMax}`,
-      'success'
-    )
-
-    return {
-      message: hasChanges ? '资源校对完成，已修正差异' : '资源校对完成，无差异',
-      hasChanges,
-      before,
-      after,
-      diff
+    try {
+      return await recalculateHostResources(hostId, user)
+    } catch (error) {
+      if (error instanceof HostRecalculationError) return reply.code(error.statusCode).send(error.code
+        ? apiError(error.code) : { code: 'HOST_RECALCULATION_CONFLICT', error: error.message })
+      throw error
     }
   })
 
