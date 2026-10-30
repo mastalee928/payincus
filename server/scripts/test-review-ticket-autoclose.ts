@@ -133,10 +133,12 @@ try{
   // Only this process's configuration cache and candidate query are scoped.
   const {setCachedConfig,invalidateCachedConfig}=await import('../src/lib/config-cache.js')
   const {startTicketAutoCloseScheduler,stopTicketAutoCloseScheduler}=await import('../src/services/ticket-auto-close-scheduler.js')
-  const scheduled=await Promise.all(Array.from({length:3},(_,index)=>prisma.ticket.create({data:{
+  // Concurrent INSERTs can obtain sequence IDs in a different order from their
+  // Promise.all positions. Match the scheduler fixture's actual ID ordering.
+  const scheduled=(await Promise.all(Array.from({length:3},(_,index)=>prisma.ticket.create({data:{
     userId:user.id,subject:tag+'-scheduled-'+index,status:'resolved',updatedAt:old,
     messages:{create:{senderId:admin.id,content:'old support reply',isFromOwner:true,createdAt:old}}
-  }})))
+  }})))).sort((a,b)=>a.id-b.id)
   const originalFindMany=prisma.ticket.findMany,originalInterval=globalThis.setInterval,originalConsole=console.log
   let runCycle!:()=>Promise<void>,finish!:()=>void
   const finished=new Promise<void>(resolve=>{finish=resolve})

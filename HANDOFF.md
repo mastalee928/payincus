@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R182 CI 并发夹具编号顺序修正
+
+- 最新已推fe12ac20dcc580fa3b54a020fb777aabf22ab5b5的CI41134810809失败，job124334530550，步骤Ticket auto-close serializes with public reply deletion and returns only committed receipts。原日志logs/ci-41134810809-failed.log保留：两张成功工单都已通知，失败为test-review-ticket-autoclose.ts的subject数组顺序断言；不是关单丢通知复发。其它六job成功。
+- 根因是Promise.all并发INSERT分配自增ID的顺序不保证与输入下标一致，夹具查询按ID排序、预期却按输入排序。创建后按实际ID排序确定第一/中间/末张工单；仍严格断言失败单保resolved、两条成功通知与日志、重试补一条、再跑无重复和全部失败零新增。不修改产品调度器/通知行为。
+- logs/ticket-r182-ci-order-fixed.log自然exit0，完整server与该专项types零诊断自然exit0。后端build已在同产品源码自然exit0。修正需新提交LinuxCI复核，历史失败不抹除。
+- CI41123203452 / 9d0845c8a7b623a3fa22bbbbb42ce31cd0693b56已全success；v1.7.8正式41131263041、预览41115228247、源码41115227451、文档41115227538均为c77b68c5aab9d3e6f48f4091c7dce111c055465a且success。其余七批旧源码CI继续，R275未提交修复与mTLS专项正在独立收尾，不包含于本次测试修正提交。
+
 ## 2026-10-31 R182 自动关单部分失败保留通知回执（阶段保存）
 
 - 复审原通知“已有防护”发现反向缺口：autoCloseTickets逐单提交，但中途一次事务失败使整个Promise拒绝，之前已关闭的工单回执丢失、调度器不再发站内信/成功日志，后续候选也跳过。ticket-r182-partial-before.log自然exit1复现第一单已关闭而批次无回执。
