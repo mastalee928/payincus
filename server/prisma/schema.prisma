@@ -221,6 +221,13 @@ model InstanceTask {
   progress   String? // 当前执行步骤
   retryCount Int                @default(0) @map("retry_count")
 
+  // 原重装/重建授权仅供 worker 复核，不进入任务 API 回执。
+  operationOwnerId  Int?     @map("operation_owner_id")
+  actorSid         String?  @map("actor_sid")
+  actorIat         Int?     @map("actor_iat")
+  operationEntry   String?  @map("operation_entry")
+  operationIdentity String? @map("operation_identity")
+
   // 重装/克隆操作特有字段
   imageAlias           String? @map("image_alias") // 重装使用的镜像别名
   sshKeyId             Int?    @map("ssh_key_id") // 重装使用的 SSH 密钥 ID

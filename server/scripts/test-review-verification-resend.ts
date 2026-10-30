@@ -17,7 +17,9 @@ const { claimOperationVerificationRequirement, isOperationVerified, cleanupExpir
 const { sendVerificationNotification } = await import('../src/lib/notifier.js')
 const { accountOperationVerificationBinding, notificationOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
 const { loadAuthorizedOperationVerificationResource } = await import('../src/db/operation-verification-resource-authorization.js')
-const { createInstanceTask } = await import('../src/db/instance-tasks.js')
+const { createInstanceTask, validateDestructiveTaskExecution, getInstanceTaskById, getActiveTaskForInstance, getUserInstanceTasks, cancelInstanceTask } = await import('../src/db/instance-tasks.js')
+const { executeTask } = await import('../src/workers/instanceTaskWorker.js')
+const { getHostHealth } = await import('../src/lib/incus/host-health.js')
 const { transferHostIdentity } = await import('../src/lib/transfer-host-identity.js')
 const tag = 'verification-resend-' + randomUUID().slice(0, 8), messages: string[] = [], sockets = new Set<Socket>()
 const originalFetch = globalThis.fetch
@@ -86,6 +88,11 @@ app.post<{ Body: { taskType: 'rebuild' | 'recreate'; entry?: 'user' | 'host' } }
     if (error instanceof Error && 'code' in error) return reply.code('statusCode' in error ? Number(error.statusCode) : 409).send({ code: error.code })
     return reply.code(409).send({ code: 'INSTANCE_TASK_CONFLICT' })
   }
+})
+app.post<{ Body: { id: number } }>('/fixture/execution', async (request, reply) => {
+  const task = await prisma.instanceTask.findUniqueOrThrow({ where: { id: request.body.id } })
+  try { await validateDestructiveTaskExecution(task); return { accepted: true } }
+  catch { return reply.code(409).send({ accepted: false }) }
 })
 const record = () => prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id, operationType: 'disable_2fa' }, orderBy: { createdAt: 'desc' } })
 const codeFor = (email: string) => {
@@ -256,6 +263,101 @@ try {
     actor = users[0]
   }
   console.log('PASS rebuild/recreate current admission: account/resource/workflow races reject without grant consumption, insert failure rolls back grant, eight requests admit once, and maintenance/user permissions remain distinct')
+  const privateTaskFields = ['operationOwnerId', 'actorSid', 'actorIat', 'operationEntry', 'operationIdentity']
+  const assertPublicTask = (value: unknown) => {
+    assert.ok(value && typeof value === 'object')
+    assert.ok(privateTaskFields.every(field => !Object.hasOwn(value, field)), 'task API must not expose persisted worker authorization')
+  }
+  for (const taskType of ['rebuild', 'recreate'] as const) {
+    const admitted = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
+      taskType, imageAlias: 'fixture/debian', sensitiveAuthorization: { actor: currentActor(), entry: 'user',
+        expectedOwnerId: actor.id, expectedIncusId: resourceInstances[0].incusId, expectedHostIdentity: transferHostIdentity(resourceHost) } })
+    assertPublicTask(admitted)
+    assertPublicTask(await getInstanceTaskById(admitted.id))
+    assertPublicTask(await getActiveTaskForInstance(firstResourceId))
+    assertPublicTask((await getUserInstanceTasks(actor.id)).items.find(task => task.id === admitted.id))
+    try {
+      await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id, taskType: 'start' })
+      assert.fail('an existing task must block a second admission')
+    } catch (error) {
+      assert.ok(error instanceof Error && 'activeTask' in error)
+      assertPublicTask(error.activeTask)
+    }
+    const task = await prisma.instanceTask.update({ where: { id: admitted.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+    assert.equal(task.operationOwnerId, actor.id)
+    assert.equal(task.actorSid, sessionId)
+    assert.equal(task.actorIat, issuedAt)
+    assert.equal(task.operationEntry, 'user')
+    assert.match(task.operationIdentity!, /^[a-f0-9]{64}$/)
+    await validateDestructiveTaskExecution(task)
+    for (const mode of ['banned', 'session', 'role', 'owner', 'incus', 'host', 'host-owner', 'status', 'image', 'cleanup', 'billing', 'upload', 'restore', 'transfer'] as const) {
+      const queued = await queuedRequest(async tx => {
+        if (mode === 'banned') await tx.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+        else if (mode === 'session') await tx.tokenInvalidation.create({ data: { userId: actor.id, sessionId, invalidatedAt: issuedAt } })
+        else if (mode === 'role') await tx.user.update({ where: { id: actor.id }, data: { role: 'admin' } })
+        else if (mode === 'owner') await tx.instance.update({ where: { id: firstResourceId }, data: { userId: users[1].id } })
+        else if (mode === 'incus') await tx.instance.update({ where: { id: firstResourceId }, data: { incusId: resourceInstances[0].incusId + '-replaced' } })
+        else if (mode === 'host') await tx.host.update({ where: { id: resourceHost.id }, data: { url: 'https://127.0.0.1:2' } })
+        else if (mode === 'host-owner') await tx.host.update({ where: { id: resourceHost.id }, data: { userId: users[1].id } })
+        else if (mode === 'status') await tx.instance.update({ where: { id: firstResourceId }, data: { status: taskType === 'rebuild' ? 'running' : 'suspended' } })
+        else if (mode === 'image') await tx.instanceTask.update({ where: { id: task.id }, data: { imageAlias: 'fixture/changed' } })
+        else if (mode === 'cleanup') await tx.instance.update({ where: { id: firstResourceId }, data: { provisioningCleanupPending: true } })
+        else if (mode === 'billing') await tx.instance.update({ where: { id: firstResourceId }, data: { deletionBillingPending: true } })
+        else if (mode === 'upload') await tx.backupUploadTask.create({ data: { userId: actor.id, hostId: resourceHost.id, instanceId: firstResourceId, backupId: resourceBackup.id, storageConfigId: admissionStorage.id } })
+        else if (mode === 'restore') await tx.restoreTask.create({ data: { userId: actor.id, hostId: resourceHost.id, instanceId: firstResourceId, originalInstanceName: resourceInstances[0].name, originalIncusId: resourceInstances[0].incusId } })
+        else await tx.instanceTransfer.create({ data: { instanceId: firstResourceId, fromUserId: actor.id, toUserId: users[1].id, snapshot: {} } })
+      }, () => app.inject({ method: 'POST', url: '/fixture/execution', payload: { id: task.id } }))
+      assert.equal(queued.response.statusCode, 409, `${taskType}/${mode}: queued authorization must not inherit changed state`)
+      if (['banned', 'session', 'role', 'upload', 'restore', 'transfer'].includes(mode)) assert.equal(queued.blocked, true)
+      await prisma.user.update({ where: { id: actor.id }, data: { status: 'active', role: 'user' } })
+      await prisma.tokenInvalidation.deleteMany({ where: { userId: actor.id } })
+      await prisma.instance.update({ where: { id: firstResourceId }, data: { userId: users[0].id, incusId: resourceInstances[0].incusId, status: 'stopped', provisioningCleanupPending: false, deletionBillingPending: false } })
+      await prisma.host.update({ where: { id: resourceHost.id }, data: { url: resourceHost.url, userId: actor.id } })
+      await prisma.instanceTask.update({ where: { id: task.id }, data: { imageAlias: task.imageAlias } })
+      await prisma.backupUploadTask.deleteMany({ where: { instanceId: firstResourceId } })
+      await prisma.restoreTask.deleteMany({ where: { instanceId: firstResourceId } })
+      await prisma.instanceTransfer.deleteMany({ where: { instanceId: firstResourceId } })
+    }
+    for (const update of [{ retryCount: 1 }, { startedAt: new Date(task.startedAt!.getTime() + 1000) }, { status: 'FAILED' as const }]) {
+      await prisma.instanceTask.update({ where: { id: task.id }, data: update })
+      await assert.rejects(validateDestructiveTaskExecution(task))
+      await prisma.instanceTask.update({ where: { id: task.id }, data: { retryCount: task.retryCount, startedAt: task.startedAt, status: 'PROCESSING' } })
+    }
+    for (const update of [{ imageAlias: 'fixture/changed' }, { sshKeyId: 98765 }, { customInitCommandIds: '[123]' }, { actorSid: sessionId + '-other' }]) {
+      const changedTask = await prisma.instanceTask.update({ where: { id: task.id }, data: update })
+      await assert.rejects(validateDestructiveTaskExecution(task))
+      await assert.rejects(validateDestructiveTaskExecution(changedTask))
+      await prisma.instanceTask.update({ where: { id: task.id }, data: { imageAlias: task.imageAlias, sshKeyId: task.sshKeyId, customInitCommandIds: task.customInitCommandIds, actorSid: task.actorSid } })
+    }
+    await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+    const beforeRejectedExecution = await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } })
+    const beforeHostHealth = getHostHealth(resourceHost.id) ? { ...getHostHealth(resourceHost.id)! } : undefined
+    await executeTask(task.id, { startedAt: task.startedAt, retryCount: task.retryCount })
+    const rejectedTask = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+    assert.equal(rejectedTask.status, 'FAILED')
+    assert.equal(rejectedTask.error, '原登录授权已失效，请重新提交')
+    assert.deepEqual(await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } }), beforeRejectedExecution,
+      'worker authorization rejection must precede dedicated network, cloud-init and instance changes')
+    await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+    await prisma.instanceTask.update({ where: { id: task.id }, data: { status: 'PROCESSING', actorSid: null } })
+    await executeTask(task.id, { startedAt: task.startedAt, retryCount: task.retryCount })
+    assert.equal((await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })).error, '原任务缺少身份验证记录，请重新提交')
+    assert.deepEqual(getHostHealth(resourceHost.id), beforeHostHealth, 'authorization rejection must not count as a broken host connection')
+    await prisma.instanceTask.update({ where: { id: task.id }, data: { status: 'PENDING' } })
+    assertPublicTask(await cancelInstanceTask(task.id))
+    await prisma.instanceTask.delete({ where: { id: task.id } })
+    actor = users[1]
+    await prisma.user.update({ where: { id: actor.id }, data: { role: 'admin' } })
+    const maintenance = await admissionRequest(taskType, 'host')
+    assert.equal(maintenance.statusCode, 202)
+    const maintenanceTask = await prisma.instanceTask.update({ where: { id: maintenance.json().id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+    await validateDestructiveTaskExecution(maintenanceTask)
+    await prisma.user.update({ where: { id: actor.id }, data: { role: 'user' } })
+    await assert.rejects(validateDestructiveTaskExecution(maintenanceTask))
+    await prisma.instanceTask.delete({ where: { id: maintenanceTask.id } })
+    actor = users[0]
+  }
+  console.log('PASS persisted rebuild/recreate authorization: 28 current-state races, task attempt/payload changes, original consent, legacy rejection, worker zero instance writes and public projection')
   const permissionOperations = [
     ['reinstall_instance', firstResourceId], ['recreate_instance', firstResourceId],
     ['transfer_instance', firstResourceId], ['delete_instance', firstResourceId],

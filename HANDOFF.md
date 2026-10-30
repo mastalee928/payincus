@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-30 R1-011 重装重建任务持久授权与执行前复核（持续施工）
+
+- 接续保留上一模型未提交的schema、migration和worker改动，补齐原actor/session/角色、实例owner/Incus/宿主受信身份及选定image/SSH key ID/init IDs摘要。执行前按实例→任务→宿主→账户锁重新核验PROCESSING原批次及当前授权/状态/恢复/上传/转移/快照/站点竞争；旧任务缺原授权失败保记录，不补造验证。任务创建、读取、列表、取消和冲突回执通过明确select排除内部授权字段，拒绝授权不计宿主连接故障。
+- 实际PG先红`logs/takeover-rebuild-persistent-authorization-before-task-lock.log`：image修改未提交时校验读旧任务200；补任务FOR SHARE后，最终`takeover-rebuild-persistent-authorization-resend-verified.log`自然exit0。含两任务28类current状态锁竞争、原批次/镜像/SSH选择/init选择/会话改动拒绝、旧无授权任务、实际worker拒绝零实例写及健康状态不变、查询/冲突回执零内部字段、管理员原维护入口正常且降权拒绝。原完整Fastify/SMTP验证码回归保持。
+- 隔离55438库真实migrate deploy、严格源+受改专项types、最终后端build、六验证码/实例冲突/任务/public-api守卫、四资源路由守卫、专用destroy PG/SMTP与manifest均自然exit0，日志前缀`takeover-rebuild-persistent-authorization-`。类型夹具一度用非Fastify回执不符合原helper，改真实fixture route后通过；守卫同步持久授权受理表达式及执行门禁，不放宽断言。server未配置ESLint，误从server执行eslint的失败不计验证；根lint仅针对client，本段无前端改动不重复双端构建。
+- 文案反馈已核：三语自然查收提示在af5af1af6b51272e7aa6a370227ada2df9d4554a已推且CI41017076013终态success，未重复改动。原327仍259含部分/68不同，当前只补执行入口，不宣称远端每一步持锁或SSH公钥/init正文/镜像授权在途变更、原生客户重装重建完整验收；一机一卖全端口及管理员销毁免验证码保持。
+- 新查41028619415终态success。41031081702终态failure已读`logs/ci-41031081702-failed.log`：snapshot-mutation-authorization.ts:105恢复期间DELETE前验证码领取等待原实例锁到Query read timeout，500≠409；下一段复现并修门禁顺序/同事务消费，不能重跑掩盖。41029729516/41031737023/41032952213/41036581988/41037666047/41039116226仍运行，41034830579/41035809878旧备份失败源码已修但旧运行仍failure。历史Go IO准确根因、外部SMTP/原生客户/完整灾备保持；阶段提交推送后继续，无发行/OTA/生产操作。
+
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
 ## 2026-10-30 R1-011 重装/重建任务当前授权与验证入队同事务（持续施工）

@@ -11,12 +11,23 @@ const dbInstancesSource = readFileSync(resolve(__dirname, '../src/db/instances.t
 const hostsSource = readFileSync(resolve(__dirname, '../src/routes/hosts.ts'), 'utf8')
 const statusSchedulerSource = readFileSync(resolve(__dirname, '../src/services/status-scheduler.ts'), 'utf8')
 const taskDatabase = readFileSync(resolve(__dirname, '../src/db/instance-tasks.ts'), 'utf8')
-assert.ok(taskDatabase.includes("if (data.taskType === 'rebuild' || data.taskType === 'recreate') await authorizeSensitiveTaskAdmission(tx, data)") &&
+assert.ok(taskDatabase.includes("data.taskType === 'rebuild' || data.taskType === 'recreate'\n      ? await authorizeSensitiveTaskAdmission(tx, data) : {}") &&
   taskDatabase.includes('authorizeUserWrite(tx, data.userId, authorization.actor)') &&
   taskDatabase.includes('transferHostIdentity(host) !== authorization.expectedHostIdentity') &&
   taskDatabase.includes('claimOperationVerificationRequirement(data.userId, operation, instance.id, authorization.actor, tx)') &&
   taskDatabase.includes("authorization.entry === 'user' ? instance.userId !== data.userId : host.userId !== data.userId && !admin"),
   'destructive task admission must authorize the current actor/resource and atomically consume user verification before queue insertion while preserving the maintenance scope')
+const workerSource = readFileSync(resolve(__dirname, '../src/workers/instanceTaskWorker.ts'), 'utf8')
+const taskExecution = taskDatabase.slice(taskDatabase.indexOf('export async function validateDestructiveTaskExecution('), taskDatabase.indexOf('// These getters also feed API responses.'))
+assert.ok(taskExecution.includes('SELECT id FROM instance_tasks WHERE id = ${task.id} FOR SHARE') &&
+  taskExecution.includes('authorizeUserWrite(tx, actor.id, actor)') &&
+  taskExecution.includes('destructiveTaskIdentity(currentTask, instance, host, role) !== currentTask.operationIdentity') &&
+  taskExecution.includes('INSTANCE_TASK_AUTHORIZATION_MISSING') &&
+  taskExecution.includes('assertNoPendingSnapshotOperations(tx, instance.id)') &&
+  taskExecution.includes('assertNoPendingProxySiteOperations(tx, instance.id)') &&
+  taskExecution.includes('tx.restoreTask.count') && taskExecution.includes('tx.backupUploadTask.count') && taskExecution.includes('tx.instanceTransfer.count') &&
+  workerSource.indexOf('await validateDestructiveTaskExecution(task)') < workerSource.indexOf("if (task.taskType === 'rebuild' && instance.dedicated_ipv4)"),
+  'destructive execution must recheck persisted consent, exact attempt, current account/resource and workflow locks before instance writes')
 
 function sectionBetween(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)

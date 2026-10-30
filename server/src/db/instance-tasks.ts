@@ -4,7 +4,8 @@ import { assertNoPendingSnapshotOperations, } from './snapshot-operation-guards.
  */
 
 import { prisma } from './prisma.js'
-import type { InstanceTaskType, InstanceTaskStatus, Prisma } from '@prisma/client'
+import type { InstanceTaskType, InstanceTaskStatus, InstanceTask, Host, Instance, Prisma } from '@prisma/client'
+import { createHash } from 'node:crypto'
 import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from './advisory-locks.js'
 import { assertNoPendingProxySiteOperations } from './proxy-site-operation-guards.js'
 import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
@@ -33,6 +34,12 @@ export interface CreateInstanceTaskData {
 
 export class InstanceTaskAuthorizationError extends Error {
   constructor(public readonly code: string, message: string, public readonly statusCode = 403) { super(message) }
+}
+
+function destructiveTaskIdentity(task: Pick<InstanceTask, 'taskType' | 'imageAlias' | 'sshKeyId' | 'customInitCommandIds' | 'actorSid' | 'actorIat'>, instance: Instance, host: Host, role: string) {
+  return createHash('sha256').update(JSON.stringify([task.taskType, instance.id, instance.userId, instance.hostId,
+    instance.incusId, instance.createdAt.toISOString(), transferHostIdentity(host), role,
+    task.imageAlias, task.sshKeyId, task.customInitCommandIds, task.actorSid, task.actorIat])).digest('hex')
 }
 
 async function authorizeSensitiveTaskAdmission(tx: Prisma.TransactionClient, data: CreateInstanceTaskData) {
@@ -69,7 +76,69 @@ async function authorizeSensitiveTaskAdmission(tx: Prisma.TransactionClient, dat
     const verification = await claimOperationVerificationRequirement(data.userId, operation, instance.id, authorization.actor, tx)
     if (!verification.verified) throw new InstanceTaskAuthorizationError('VERIFICATION_REQUIRED', '请先完成身份验证')
   }
+  const role = (await tx.user.findUniqueOrThrow({ where: { id: data.userId }, select: { role: true } })).role
+  return { operationOwnerId: instance.userId, actorSid: authorization.actor.sid, actorIat: authorization.actor.iat,
+    operationEntry: authorization.entry, operationIdentity: destructiveTaskIdentity({ taskType: data.taskType,
+      actorSid: authorization.actor.sid ?? null, actorIat: authorization.actor.iat ?? null,
+      imageAlias: data.imageAlias || null, sshKeyId: data.sshKeyId || null,
+      customInitCommandIds: data.customInitCommandIds ? JSON.stringify(data.customInitCommandIds) : null }, instance, host, role) }
 }
+
+/** Recheck persisted consent before a queued destructive task reaches its host. */
+export async function validateDestructiveTaskExecution(task: InstanceTask): Promise<void> {
+  if (!['rebuild', 'recreate'].includes(task.taskType)) return
+  await prisma.$transaction(async tx => {
+    if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, task.instanceId)) throw new InstanceTaskConflictError()
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${task.instanceId} FOR UPDATE`
+    await tx.$queryRaw`SELECT id FROM instance_tasks WHERE id = ${task.id} FOR SHARE`
+    const currentTask = await tx.instanceTask.findUnique({ where: { id: task.id } })
+    if (!currentTask || currentTask.status !== 'PROCESSING' || currentTask.startedAt?.getTime() !== task.startedAt?.getTime() ||
+      !currentTask.startedAt || currentTask.retryCount !== task.retryCount || currentTask.instanceId !== task.instanceId ||
+      currentTask.hostId !== task.hostId || currentTask.userId !== task.userId || currentTask.taskType !== task.taskType ||
+      currentTask.imageAlias !== task.imageAlias || currentTask.sshKeyId !== task.sshKeyId ||
+      currentTask.customInitCommandIds !== task.customInitCommandIds || currentTask.actorSid !== task.actorSid ||
+      currentTask.actorIat !== task.actorIat || currentTask.operationOwnerId !== task.operationOwnerId ||
+      currentTask.operationEntry !== task.operationEntry || currentTask.operationIdentity !== task.operationIdentity) {
+      throw new InstanceTaskAuthorizationError('INSTANCE_TASK_CHANGED', '任务执行授权已变化', 409)
+    }
+    if (!currentTask.actorSid || !currentTask.actorIat || !currentTask.operationIdentity || !currentTask.operationOwnerId ||
+      !['user', 'host'].includes(currentTask.operationEntry ?? '')) {
+      throw new InstanceTaskAuthorizationError('INSTANCE_TASK_AUTHORIZATION_MISSING', '原任务缺少身份验证记录，请重新提交')
+    }
+    const instance = await tx.instance.findUnique({ where: { id: task.instanceId } })
+    if (!instance || instance.hostId !== currentTask.hostId || instance.userId !== currentTask.operationOwnerId ||
+      instance.status === 'deleted' || instance.status === 'suspended' || instance.provisioningCleanupPending || instance.deletionBillingPending ||
+      currentTask.taskType === 'rebuild' && instance.status !== 'stopped') {
+      throw new InstanceTaskAuthorizationError('INSTANCE_STATE_CHANGED', '原实例状态或归属已变化，请重新提交', 409)
+    }
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.hostId} FOR SHARE`
+    const host = await tx.host.findUniqueOrThrow({ where: { id: instance.hostId } })
+    const actor = { id: currentTask.userId, sid: currentTask.actorSid, iat: currentTask.actorIat }
+    if (!await authorizeUserWrite(tx, actor.id, actor)) throw new InstanceTaskAuthorizationError('AUTHENTICATION_STATE_CHANGED', '原登录授权已失效，请重新提交')
+    const role = (await tx.user.findUniqueOrThrow({ where: { id: actor.id }, select: { role: true } })).role
+    if (currentTask.operationEntry === 'user' ? actor.id !== instance.userId : actor.id !== host.userId && role !== 'admin') {
+      throw new InstanceTaskAuthorizationError('FORBIDDEN', '原操作权限已失效，请重新提交')
+    }
+    if (destructiveTaskIdentity(currentTask, instance, host, role) !== currentTask.operationIdentity) {
+      throw new InstanceTaskAuthorizationError('INSTANCE_STATE_CHANGED', '原实例或宿主身份已变化，请重新提交', 409)
+    }
+    await assertNoPendingSnapshotOperations(tx, instance.id)
+    await assertNoPendingProxySiteOperations(tx, instance.id)
+    const active = { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] as ('PENDING' | 'PROCESSING')[] } }
+    if (await tx.restoreTask.count({ where: active }) || await tx.backupUploadTask.count({ where: active }) ||
+      await tx.instanceTransfer.count({ where: { instanceId: instance.id, status: { in: ['pending', 'processing'] } } })) {
+      throw new InstanceTaskConflictError()
+    }
+  })
+}
+
+// These getters also feed API responses. Persisted worker authorization stays internal.
+const PUBLIC_INSTANCE_TASK_SELECT = {
+  id: true, instanceId: true, hostId: true, userId: true, taskType: true, status: true,
+  progress: true, retryCount: true, imageAlias: true, sshKeyId: true, customInitCommandIds: true,
+  targetName: true, targetHostId: true, replacementState: true, snapshotName: true,
+  newInstanceId: true, error: true, createdAt: true, startedAt: true, finishedAt: true
+} satisfies Prisma.InstanceTaskSelect
 
 export interface InstanceTaskWithDetails {
   id: number
@@ -149,6 +218,7 @@ export async function createInstanceTask(data: CreateInstanceTaskData): Promise<
         instanceId: data.instanceId,
         status: { in: ['PENDING', 'PROCESSING'] }
       },
+      select: PUBLIC_INSTANCE_TASK_SELECT,
       orderBy: [
         { createdAt: 'asc' },
         { id: 'asc' }
@@ -157,10 +227,11 @@ export async function createInstanceTask(data: CreateInstanceTaskData): Promise<
     if (activeTask) {
       throw new InstanceTaskConflictError(activeTask as unknown as InstanceTaskWithDetails)
     }
-    if (data.taskType === 'rebuild' || data.taskType === 'recreate') await authorizeSensitiveTaskAdmission(tx, data)
+    const operationAuthorization = data.taskType === 'rebuild' || data.taskType === 'recreate'
+      ? await authorizeSensitiveTaskAdmission(tx, data) : {}
 
-    // 注：使用 as any 绕过 Prisma 类型检查，因为 customInitCommandIds 字段在迁移后才会生成类型
     return tx.instanceTask.create({
+      select: PUBLIC_INSTANCE_TASK_SELECT,
       data: {
         instanceId: data.instanceId,
         hostId: data.hostId,
@@ -172,8 +243,9 @@ export async function createInstanceTask(data: CreateInstanceTaskData): Promise<
         targetName: data.targetName || null,
         targetHostId: data.targetHostId || null,
         snapshotName: data.snapshotName || null,
-        status: 'PENDING'
-      } as any
+        status: 'PENDING',
+        ...operationAuthorization
+      }
     })
   })
   return result as unknown as InstanceTaskWithDetails
@@ -184,7 +256,7 @@ export async function createInstanceTask(data: CreateInstanceTaskData): Promise<
  */
 export async function getInstanceTaskById(taskId: number): Promise<InstanceTaskWithDetails | null> {
   const result = await prisma.instanceTask.findUnique({
-    where: { id: taskId }
+    where: { id: taskId }, select: PUBLIC_INSTANCE_TASK_SELECT
   })
   return result as unknown as InstanceTaskWithDetails | null
 }
@@ -194,6 +266,7 @@ export async function getInstanceTaskById(taskId: number): Promise<InstanceTaskW
  */
 export async function getActiveTaskForInstance(instanceId: number): Promise<InstanceTaskWithDetails | null> {
   const result = await prisma.instanceTask.findFirst({
+    select: PUBLIC_INSTANCE_TASK_SELECT,
     where: {
       instanceId,
       status: { in: ['PENDING', 'PROCESSING'] }
@@ -220,6 +293,7 @@ export async function getUserInstanceTasks(
 
   const [items, total] = await Promise.all([
     prisma.instanceTask.findMany({
+      select: PUBLIC_INSTANCE_TASK_SELECT,
       where,
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
@@ -246,6 +320,7 @@ export async function updateInstanceTaskStatus(
   }
 ): Promise<InstanceTaskWithDetails> {
   const result = await prisma.instanceTask.update({
+    select: PUBLIC_INSTANCE_TASK_SELECT,
     where: { id: taskId },
     data: {
       status,
@@ -338,7 +413,7 @@ export async function cancelInstanceTask(taskId: number): Promise<InstanceTaskWi
     }
 
     return tx.instanceTask.findUnique({
-      where: { id: taskId }
+      where: { id: taskId }, select: PUBLIC_INSTANCE_TASK_SELECT
     })
   })
   return result as unknown as InstanceTaskWithDetails

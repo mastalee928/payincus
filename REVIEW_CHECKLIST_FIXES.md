@@ -590,3 +590,5 @@
 # 2026-10-30 接续：R1-011 账户验证码与grant绑定
 
 request/verify/check/claim/profile事务按账户、原会话sid及邮箱摘要核验；旧无绑定账号码必须重发。实际PG/SMTP完整回归、8并发唯一消费、profile跨会话/旧邮箱拒绝且不消耗新邮箱code、原回滚/2FA/destroy专用流程、严格类型/后端构建/operation与auth守卫/manifest均自然exit0，详见HANDOFF。文案已三语改为自然查收提示，af5af1af已推并CI终态success。仅账户操作绑定闭合，generic资源当前目标/会话及权限合同、外部邮件/原生客户与灾备另待，259含部分/68不同计数不增。阶段保存后继续，不将阶段汇报作为停工点。
+2026-10-30接续R011：重装重建原授权持久保存并在执行入口核原actor/session/角色、实例及宿主身份、选定镜像/SSH ID/init IDs和原任务批次；公共回执不含内部授权。实际PG两任务28变化/worker拒绝零实例写/正常维护/旧授权拒绝、真实migration、严格types/server build/十守卫/destroy与manifest通过，完整范围及日志见HANDOFF顶部。原327259含部分/68不同不增，远端全程和SSH/init正文在途变化仍待。新查41031081702快照恢复在途删除超时500 CI失败已读，下一段修根因，六运行CI与旧GoIO/外部SMTP/原生客户/灾备继续。文案af5af1af已三语自然查收且CI通过，不重复编辑。
+

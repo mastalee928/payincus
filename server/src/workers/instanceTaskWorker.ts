@@ -28,7 +28,7 @@ import { listSnapshots, deleteSnapshot as deleteIncusSnapshot } from '../lib/inc
 import { sendNotification } from '../lib/notifier.js'
 import { createLog } from '../db/logs.js'
 import * as db from '../db/index.js'
-import { updateInstanceTaskProgress } from '../db/instance-tasks.js'
+import { updateInstanceTaskProgress, validateDestructiveTaskExecution, InstanceTaskAuthorizationError, InstanceTaskConflictError } from '../db/instance-tasks.js'
 import { closeInstanceSessions } from '../lib/terminal-proxy.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
 import { encryptSensitiveData, decryptSensitiveData } from '../lib/security.js'
@@ -537,7 +537,7 @@ export async function finalizeInstanceTaskAttempt(taskId: number, attempt: Insta
   return result.count === 1
 }
 
-async function executeTask(taskId: number, attempt: InstanceTaskAttempt): Promise<void> {
+export async function executeTask(taskId: number, attempt: InstanceTaskAttempt): Promise<void> {
   if (runningTaskIds.has(taskId) || !attempt.startedAt) return
   const taskStartTime = Date.now()
   runningTaskIds.add(taskId)
@@ -553,6 +553,8 @@ async function executeTask(taskId: number, attempt: InstanceTaskAttempt): Promis
       return
     }
     if (task.status !== 'PROCESSING' || task.startedAt?.getTime() !== attempt.startedAt.getTime() || task.retryCount !== attempt.retryCount) return
+
+    await validateDestructiveTaskExecution(task)
 
     console.log(`[InstanceTaskWorker] 开始执行任务 ${taskId} (${task.taskType})`)
 
@@ -644,7 +646,7 @@ async function executeTask(taskId: number, attempt: InstanceTaskAttempt): Promis
     }
 
     // 记录连接池错误
-    recordClientError(task.hostId)
+    if (!(err instanceof InstanceTaskAuthorizationError) && !(err instanceof InstanceTaskConflictError)) recordClientError(task.hostId)
 
     const taskDuration = Date.now() - taskStartTime
     console.error(`[InstanceTaskWorker] 任务 ${taskId} (${task.taskType}) 失败，耗时 ${taskDuration}ms: ${errorMessage}`)
