@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 管理员同步的在途重新支付竞争
+
+- recharge-sync-race-before.log自然exit1：provider查询尚未返回时经真实updatePendingRechargePaymentSelection换新尝试，旧paid回执仍200/completed并加余额。admin现在携带查询前paymentDetails；metadata/complete/cancel/fail的实际updateMany同语句比较原值，已换则抛明确冲突并返回409，不能在路由先读后无条件写。Prisma SQL NULL与JSON null均按无尝试匹配，undefined保原未指定约束调用的语义。
+- recharge-sync-race-null-final.log自然exit0：两渠道共18组完整同步；已有尝试/原SQL NULL两类竞争，易支付paid及Heleket paid/check/cancel/fail共10个在途切换，旧结果全部409，新支付完整记录、余额/ledger/inbox保持，零旧callback；之后新尝试可正常一次同步。原错误单号、加密/旧格式/snapshot、8并发和已完成重复同步继续通过，JSON null正常同步另验。
+- 最终完整server+专项types零诊断、5守卫5/5、原财务授权与回滚回归recharge-sync-race-finance-regression自然exit0（在途禁用/降权/注销、ledger故障全回滚等），后端构建自然exit0。provider响应与身份hook受控，真实PG及路由，未外部支付或生产资金。
+- 688b3b2aa3b2c67b0f31beed7327556b5747885b / CI41145226472已记录。本段不增加283/327（86.5%，含部分/待验收）及44初审。用户verify/供应商callback的在途选择竞争，以及admin元数据/取消分支当前授权仍应继续核查，不把本段扩大为全入口验收。
+
 ## 2026-10-31 管理员充值同步使用当前支付订单
 
 - recharge-attempt-before.log自然exit1：重新支付后paymentAttempt.current已有新网关单号，admin同步仍查询原orderNo，未查到新付款。将原用户路由的当前支付单号及原单号解析移到既有recharge-order-guard共用，保持原字段/后缀/归属和非法数据回退规则；管理员两渠道查询与返回单号比较使用同一当前号，内部余额/回调记录仍关联原平台订单。

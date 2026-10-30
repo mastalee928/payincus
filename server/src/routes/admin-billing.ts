@@ -35,6 +35,7 @@ import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { parsePositivePaymentMoney } from '../lib/payment-money.js'
 import { getCurrentRechargeGatewayOrderNo, isRechargeGatewayOrderNoMatch } from '../lib/recharge-order-guard.js'
+import { RechargePaymentSelectionChangedError } from '../db/recharge-records.js'
 import {
   getSystemImageAvailabilityForHost,
   isImageCompatibleWithInstanceType,
@@ -3294,6 +3295,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       let callbackPayload: Record<string, unknown> = { source: 'admin_sync', adminId: admin.id }
       let paymentDetails = (record as any).paymentDetails as Record<string, unknown> | undefined
       const gatewayOrderNo = getCurrentRechargeGatewayOrderNo(record.paymentDetails, record.orderNo)
+      const expectedPaymentDetails = record.paymentDetails as Record<string, unknown> | null
 
             // 检查是否已处理（防重放）
 if (provider.type === 'yipay') {
@@ -3392,7 +3394,8 @@ if (provider.type === 'yipay') {
           )
           await db.updateRechargeOrderMetadata(record.orderNo, {
             tradeNo: heleketTradeNo,
-            paymentDetails
+            paymentDetails,
+            expectedPaymentDetails
           })
 
           return {
@@ -3404,7 +3407,7 @@ if (provider.type === 'yipay') {
         }
 
         if (paymentState === 'cancelled') {
-          await db.cancelRecharge(record.orderNo, callbackPayload, paymentDetails)
+          await db.cancelRecharge(record.orderNo, callbackPayload, paymentDetails, expectedPaymentDetails)
           request.log.info({ orderNo: record.orderNo, status }, '管理员同步-Heleket 订单已取消')
           return {
             success: true,
@@ -3415,7 +3418,7 @@ if (provider.type === 'yipay') {
         }
 
         if (paymentState === 'failed') {
-          await db.failRecharge(record.orderNo, statusMessage, callbackPayload, paymentDetails, admin)
+          await db.failRecharge(record.orderNo, statusMessage, callbackPayload, paymentDetails, admin, expectedPaymentDetails)
           request.log.info({ orderNo: record.orderNo, status }, '管理员同步-Heleket 订单已失败')
           return {
             success: true,
@@ -3487,6 +3490,7 @@ if (provider.type === 'yipay') {
         actualAmount,
         callbackData: callbackPayload,
         paymentDetails,
+        expectedPaymentDetails,
         actor: admin
       })
 
@@ -3546,6 +3550,7 @@ if (provider.type === 'yipay') {
       }
     } catch (error) {
       request.log.error(error, '同步充值订单失败')
+      if (error instanceof RechargePaymentSelectionChangedError) return reply.code(409).send({ error: '支付订单已更新，请重新同步' })
       if (error instanceof Error && error.message === 'ADMIN_ACTOR_FORBIDDEN') return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
       return reply.status(500).send({ error: '同步失败，请稍后重试' })
     }

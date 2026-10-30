@@ -3,7 +3,7 @@
  */
 
 import { prisma } from './prisma.js'
-import { type RechargeRecord, type RechargeStatus } from '@prisma/client'
+import { Prisma, type RechargeRecord, type RechargeStatus } from '@prisma/client'
 import { nanoid } from 'nanoid'
 import { getTodayRange } from '../lib/timezone.js'
 import { USER_BALANCE_LOCK_NAMESPACE, advisoryTransactionLock } from './advisory-locks.js'
@@ -45,6 +45,16 @@ export interface RechargeRecordWithProvider extends RechargeRecord {
 
 export type CompleteRechargeResult = RechargeRecord & {
   completedNow: boolean
+}
+
+export class RechargePaymentSelectionChangedError extends Error {
+  constructor() { super('RECHARGE_PAYMENT_SELECTION_CHANGED') }
+}
+
+function paymentSelectionCondition(expected: Record<string, unknown> | null | undefined): Prisma.RechargeRecordWhereInput {
+  return expected === undefined ? {} : {
+    paymentDetails: { equals: expected === null ? Prisma.AnyNull : expected as Prisma.InputJsonValue }
+  }
 }
 
 interface MoneySumRow {
@@ -256,6 +266,7 @@ export async function updateRechargeOrderMetadata(
     tradeNo?: string | null
     callbackData?: Record<string, unknown>
     paymentDetails?: Record<string, unknown>
+    expectedPaymentDetails?: Record<string, unknown> | null
   }
 ): Promise<RechargeRecord> {
   const updateData: Record<string, unknown> = {}
@@ -273,13 +284,15 @@ export async function updateRechargeOrderMetadata(
     updateData.paymentDetails = data.paymentDetails as any
   }
 
-  await prisma.rechargeRecord.updateMany({
+  const updated = await prisma.rechargeRecord.updateMany({
     where: {
       orderNo,
-      status: { in: ['pending', 'paid'] }
+      status: { in: ['pending', 'paid'] },
+      ...paymentSelectionCondition(data.expectedPaymentDetails)
     },
     data: updateData
   })
+  if (updated.count === 0 && data.expectedPaymentDetails !== undefined) throw new RechargePaymentSelectionChangedError()
 
   const record = await prisma.rechargeRecord.findUnique({
     where: { orderNo }
@@ -303,7 +316,7 @@ export async function completeRecharge(
     callbackData?: Record<string, unknown>
     actualAmount?: number
     paymentDetails?: Record<string, unknown>
-    expectedPaymentDetails?: Record<string, unknown>
+    expectedPaymentDetails?: Record<string, unknown> | null
     actor?: WriteActor
   }
 ): Promise<CompleteRechargeResult> {
@@ -340,9 +353,7 @@ export async function completeRecharge(
       where: {
         orderNo,
         status: { in: ['pending', 'paid'] },  // 状态机：只有这两种状态可以转为 completed
-        ...(data.expectedPaymentDetails !== undefined
-          ? { paymentDetails: { equals: data.expectedPaymentDetails as any } }
-          : {})
+        ...paymentSelectionCondition(data.expectedPaymentDetails)
       },
       data: {
         status: 'completed',
@@ -365,6 +376,7 @@ export async function completeRecharge(
       if (currentRecord && currentRecord.status === 'completed') {
         return { ...currentRecord, completedNow: false }
       }
+      if (data.expectedPaymentDetails !== undefined) throw new RechargePaymentSelectionChangedError()
       throw new Error('订单状态已变更，无法完成')
     }
 
@@ -428,14 +440,16 @@ export async function failRecharge(
   failReason: string,
   callbackData?: Record<string, unknown>,
   paymentDetails?: Record<string, unknown>,
-  actor?: WriteActor
+  actor?: WriteActor,
+  expectedPaymentDetails?: Record<string, unknown> | null
 ): Promise<RechargeRecord> {
   const { updateResult, record } = await prisma.$transaction(async (tx) => {
     if (actor) await lockAdministrativeUserMutation(tx, actor.id, actor)
     const updateResult = await tx.rechargeRecord.updateMany({
       where: {
         orderNo,
-        status: { in: ['pending', 'paid'] }
+        status: { in: ['pending', 'paid'] },
+        ...paymentSelectionCondition(expectedPaymentDetails)
       },
       data: {
         status: 'failed',
@@ -445,6 +459,7 @@ export async function failRecharge(
         paymentDetails: paymentDetails as any
       }
     })
+    if (updateResult.count === 0 && expectedPaymentDetails !== undefined) throw new RechargePaymentSelectionChangedError()
 
     const record = await tx.rechargeRecord.findUnique({
       where: { orderNo }
@@ -481,12 +496,14 @@ export async function failRecharge(
 export async function cancelRecharge(
   orderNo: string,
   callbackData?: Record<string, unknown>,
-  paymentDetails?: Record<string, unknown>
+  paymentDetails?: Record<string, unknown>,
+  expectedPaymentDetails?: Record<string, unknown> | null
 ): Promise<RechargeRecord> {
-  await prisma.rechargeRecord.updateMany({
+  const updated = await prisma.rechargeRecord.updateMany({
     where: {
       orderNo,
-      status: { in: ['pending', 'paid'] }
+      status: { in: ['pending', 'paid'] },
+      ...paymentSelectionCondition(expectedPaymentDetails)
     },
     data: {
       status: 'cancelled',
@@ -499,6 +516,7 @@ export async function cancelRecharge(
         : {})
     }
   })
+  if (updated.count === 0 && expectedPaymentDetails !== undefined) throw new RechargePaymentSelectionChangedError()
 
   const record = await prisma.rechargeRecord.findUnique({
     where: { orderNo }

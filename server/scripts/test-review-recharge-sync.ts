@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import Fastify from 'fastify'
+import { Prisma } from '@prisma/client'
 
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'))
@@ -12,6 +13,7 @@ const providers = await import('../src/db/payment-providers.js')
 const { buildRechargeProviderConfigSnapshot } = await import('../src/lib/recharge-provider-snapshot.js')
 const { default: routes } = await import('../src/routes/admin-billing.js')
 const { safeOutboundDispatcher } = await import('../src/lib/outbound-security.js')
+const { updatePendingRechargePaymentSelection } = await import('../src/db/recharge-records.js')
 const tag = 'sync-review-' + randomUUID(), originalFetch = globalThis.fetch, app = Fastify()
 let actor: any, query: (input: string, settings: RequestInit) => Promise<Response>
 let requests = 0, failure: unknown
@@ -34,7 +36,7 @@ try {
   await app.register(routes)
   let expectedBalance = 0, completedOrders = 0
   for (const type of ['yipay', 'heleket'] as const) {
-    for (const mode of ['encrypted', 'legacy-string', 'legacy-object', 'snapshot', 'concurrent', 'payment-attempt'] as const) {
+    for (const mode of ['encrypted', 'legacy-string', 'legacy-object', 'snapshot', 'concurrent', 'payment-attempt', 'json-null', 'changed-during-query', 'changed-from-null'] as const) {
       const secret = randomUUID(), merchant = randomUUID()
       const current: Record<string, unknown> = type === 'yipay'
         ? { version: 'v1', apiurl: 'https://8.8.8.8/current/', pid: merchant, key: secret }
@@ -57,15 +59,17 @@ try {
       }
       const order = await prisma.rechargeRecord.create({ data: {
         userId: user.id, providerId: provider.id, amount: 10, actualAmount: 9, orderNo: 'sync-' + randomUUID(),
-        providerConfigSnapshot: snapshot
+        providerConfigSnapshot: snapshot,
+        ...(mode === 'json-null' ? { paymentDetails: Prisma.JsonNull } : {})
       } })
-      const gatewayOrderNo = mode === 'payment-attempt' ? `${order.orderNo}--PA-123456789ABC` : order.orderNo
-      if (mode === 'payment-attempt') await prisma.rechargeRecord.update({ where: { id: order.id }, data: { paymentDetails: {
+      let gatewayOrderNo = mode === 'payment-attempt' || mode === 'changed-during-query' ? `${order.orderNo}--PA-123456789ABC` : order.orderNo
+      if (mode === 'payment-attempt' || mode === 'changed-during-query') await prisma.rechargeRecord.update({ where: { id: order.id }, data: { paymentDetails: {
         paymentAttempt: { current: { id: '123456789ABC', gatewayOrderNo, createdAt: new Date().toISOString() }, superseded: [] }
       } } })
       let arrived = 0, release: (() => void) | undefined
       let returnedOrder: unknown = gatewayOrderNo
       let returnedStatus = 'paid'
+      let afterQuery: (() => Promise<void>) | undefined
       const barrier = mode === 'concurrent' ? new Promise<void>(resolve => { release = resolve }) : undefined
       query = async (input, settings) => {
         const url = new URL(input)
@@ -85,13 +89,45 @@ try {
           if (JSON.parse(body).order_id !== gatewayOrderNo) console.log('Wrong query target', type, mode, 'current payment attempt was ignored')
           assert.equal(JSON.parse(body).order_id, gatewayOrderNo)
         }
-        arrived++; await barrier
+        arrived++; await barrier; await afterQuery?.()
         return new Response(JSON.stringify(type === 'yipay'
           ? { code: 1, status: 1, money: '10.00', trade_no: order.orderNo, out_trade_no: returnedOrder }
           : { state: 0, result: { order_id: returnedOrder, uuid: order.orderNo, status: returnedStatus, amount: '10.00', currency: 'CNY' } }),
         { headers: { 'content-type': 'application/json' } })
       }
       const sync = () => app.inject({ method: 'POST', url: `/api/admin/billing/recharge-records/${order.id}/sync` })
+      if (mode === 'changed-during-query' || mode === 'changed-from-null') {
+        const states = type === 'heleket' ? ['paid', 'check', 'cancel', 'fail'] : ['paid']
+        for (const status of states) {
+          if (mode === 'changed-from-null') {
+            await prisma.rechargeRecord.update({ where: { id: order.id }, data: { paymentDetails: Prisma.DbNull } })
+            gatewayOrderNo = order.orderNo; returnedOrder = gatewayOrderNo
+          }
+          returnedStatus = status
+          let changedRecord: unknown
+          afterQuery = async () => {
+            const suffix = randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()
+            const current = { id: suffix, gatewayOrderNo: `${order.orderNo}--PA-${suffix}`, createdAt: new Date().toISOString() }
+            changedRecord = await updatePendingRechargePaymentSelection(order.orderNo, { paymentDetails: { paymentAttempt: { current, superseded: [] } },
+              paymentMethod: 'new-attempt', fee: 0, actualAmount: 9 })
+            assert.ok(changedRecord)
+          }
+          const result = await sync()
+          const after = await prisma.rechargeRecord.findUniqueOrThrow({ where: { id: order.id } })
+          if (result.statusCode !== 409) console.log('Unexpected stale query', type, status, result.statusCode, after.status,
+            'balance', Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance))
+          assert.equal(result.statusCode, 409, 'a payment selection changed during query must reject the stale result')
+          assert.deepEqual(after, changedRecord)
+          assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), expectedBalance)
+          assert.equal(await prisma.balanceLog.count({ where: { userId: user.id } }), completedOrders)
+          assert.equal(await prisma.inboxMessage.count({ where: { userId: user.id } }), completedOrders)
+          assert.equal(await prisma.paymentCallback.count({ where: { providerId: provider.id } }), 0)
+          gatewayOrderNo = (after.paymentDetails as any).paymentAttempt.current.gatewayOrderNo
+          returnedOrder = gatewayOrderNo
+        }
+        afterQuery = undefined; returnedStatus = 'paid'
+        console.log('PASS', type, 'payment selection changes during paid/metadata/terminal queries preserve the new attempt and all accounting')
+      }
       if (mode === 'encrypted') {
         const capture = async () => ({
           user: await prisma.user.findUniqueOrThrow({ where: { id: user.id } }),

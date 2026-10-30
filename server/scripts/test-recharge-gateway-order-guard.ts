@@ -51,6 +51,16 @@ assert.ok(adminSync.indexOf('!isRechargeGatewayOrderNoMatch(gatewayOrderNo, quer
   'Heleket identity validation must precede all metadata and status mutations')
 assert.ok(adminSync.includes('epay.queryOrder(gatewayOrderNo)') && adminSync.includes('heleket.getPaymentInfo({ order_id: gatewayOrderNo })'),
   'both administrator sync providers must query the active payment attempt')
+assert.ok(adminSync.includes('const expectedPaymentDetails = record.paymentDetails') &&
+  adminSync.includes('paymentDetails,\n            expectedPaymentDetails') &&
+  adminSync.includes('db.cancelRecharge(record.orderNo, callbackPayload, paymentDetails, expectedPaymentDetails)') &&
+  adminSync.includes('db.failRecharge(record.orderNo, statusMessage, callbackPayload, paymentDetails, admin, expectedPaymentDetails)') &&
+  adminSync.includes('paymentDetails,\n        expectedPaymentDetails,\n        actor: admin'),
+  'every sync mutation must retain the originally queried payment selection')
+const recordSource = readFileSync(resolve(__dirname, '../src/db/recharge-records.ts'), 'utf8')
+assert.ok(recordSource.includes('expected === null ? Prisma.AnyNull') &&
+  (recordSource.match(/\.\.\.paymentSelectionCondition\(/g) || []).length === 4,
+  'metadata, completion, cancellation and failure must compare the selection in their actual database update including null')
 const active = { id: '123456789ABC', gatewayOrderNo: 'R123--PA-123456789ABC', createdAt: new Date().toISOString() }
 assert.equal(getCurrentRechargeGatewayOrderNo({ paymentAttempt: { current: active } }, 'R123'), active.gatewayOrderNo)
 assert.equal(resolveRechargeOrderNoFromGatewayOrderNo(active.gatewayOrderNo), 'R123')
