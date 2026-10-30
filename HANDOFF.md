@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-020 终端完整实例选择器（持续施工）
+
+- 控制台分页阶段已推送be4b515c1e497f1968a59053a259a55825768719，CI41001679848运行。前40993940514已七job终态success；40995350722/40996832087/40998161357/41000607228/41001679848仍运行无新失败，持续跟终态。
+- 终端原limit100后端不识别，可能默认20；现复用completePages按100顺序读取完整instances，严格页数/总数/长度/ID、两种owner字段及status字符串后再映射选择器。旧session/cache/unmount/superseded第二页停止后续请求。失败保留明确instancesError，实际黑白44pxRetry和role=alert，使用现有translateError接普通API错误对象，防止失败被解释为零台可用。连接票据/Cloud-init/全端口交付行为保持；只修完整选项与错误块，旧整个选择弹窗的玻璃/紫色/重复说明等UI仍待。
+- 实际Chrome99719自然exit0，takeover-terminal-pagination-final.log：237条三页、第一百条以后137台running可搜索并选择237；七类坏中间页、失败实际retry、18旧回执、真实空合同与三语三宽error/44px焦点和无横溢通过。截图手机/英文桌面已看。原基线在实际Vue来源路径以只读替换器复现limit100红断言，takeover-terminal-pagination-source-baseline.log；早期夹具未记录data和替换路径未命中/依赖解析失败轮不计产品先红或最终验证。测试替换器已移除。
+- 原terminal session50399与lifecycle44024自然exit0，takeover-terminal-pagination-session-final.log及takeover-terminal-pagination-lifecycle-final.log；三守卫test-run-20261030-122302/有效lint/node语法/manifest194常规225专项已通过，新专项登记CI。冻结后唯一双端build13918自然exit0，takeover-terminal-pagination-build-final.log含两次vue-tsc，user53.74秒/admin52.85秒；末dist takeover-terminal-pagination-dist-final.log自然exit0。无真实外部邮件/原生宿主/生产动作。
+- R020控制台已保存，本终端末验证后保存；Tickets/MyPackages/MyHosts写calibrate/HostInfo四处仍待。259含部分修复复验/68不同/0未进入记录不等于所有内部验收通过；GoIO/SSH身份/外部邮件/完整网关灾备继续。
+
 ## 2026-10-30 R1-020 控制台完整实例分页（持续施工）
 
 - R013已提交推送fd56f21af691a6087e48676fe21d362bc6154a63，对应CI41000607228。前40992598123现七job终态success；40993940514/40995350722/40996832087/40998161357/41000607228仍运行且无新失败，继续跟终态，不能算全部CI通过。

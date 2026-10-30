@@ -85,6 +85,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-change-plan-lifecycle', 'requires Chrome/Edge and local Vite; actual upgrade modal selection/preview binding, session identity, stale responses and submitted target'],
   ['test:review-terminal-lifecycle', 'requires Chrome/Edge and local Vite; actual KeepAlive terminal keyboard and overlay lifecycle with controlled clipboard and socket boundaries'],
   ['test:review-terminal-session', 'requires Chrome/Edge and local Vite; actual terminal session/list/cloud-init/ticket/socket lifecycle with controlled transport'],
+  ['test:review-terminal-pagination', 'requires Chrome/Edge and local Vite; actual terminal complete sequential instance pages, invalid middle rows, obsolete session/cache replies, running-instance search and persistent error/retry; controlled API only'],
   ['test:review-terminal-commands-lifecycle', 'requires Chrome/Edge and local Vite; actual saved command draft, CRUD response, session, cache and mobile lifecycle'],
   ['test:review-ticket-lifecycle', 'requires Chrome/Edge and local Vite; actual ticket detail, reply draft, pagination, attachment, session and cache lifecycle'],
   ['test:review-ticket-actions', 'requires Chrome/Edge and local Vite; current ticket status, admin actions and create draft/navigation isolation'],

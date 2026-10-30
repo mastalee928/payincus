@@ -29,7 +29,7 @@ try {
   const reject = index => run(index => window.terminalHarness.pending[index].reject(new Error('obsolete fixture failure')), index)
   const seed = () => run(() => window.terminalHarness.seedTab())
   const cloud = () => run(() => { void window.terminalHarness.view().checkCloudInitAndConnect('fixture-tab') })
-  const list = (id, name = `Fixture instance ${id}`) => ({ instances: [{ id, name, status: 'running', image: 'debian/12' }] })
+  const list = (id, name = `Fixture instance ${id}`) => ({ instances: [{ id, name, status: 'running', image: 'debian/12' }], total: 1, page: 1, pageSize: 100, totalPages: 1 })
   const connect = () => run(() => { window.terminalHarness.view().tabs[0].ws = null; void window.terminalHarness.view().connectTab('fixture-tab') })
   const firstList = await last('instances')
   await run(() => { window.terminalHarness.view(); window.terminalHarness.seedTab() })

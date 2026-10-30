@@ -241,7 +241,7 @@
 | R1-017 | 实现不同 | 源码已修/隔离PG验证通过 | 邮箱注册锁、验证码次数/用途/过期与业务提交同事务；注册/profile/reset并发、旧认证状态及撤销故障回滚通过 logs/review-verification-integration-profile.log；admin创建大小写邮箱/初始状态配额及重置通过 logs/review-admin-account-integration.log；未生产验收 |
 | R1-018 | 部分存在 | 源码已修/隔离PG验证通过 | 邀请码handler/支付fee own-property访问拒继承；通知完整正整数及PG offset上限；真实Fastify/PG非法后缀、小数、溢出、有效筛选分页与账目无写入通过 logs/review-config-pagination-integration.log；相关5/5 logs/test-run-20261027-200553 |
 | R1-019 | 部分存在 | 源码已修/隔离PG验证通过 | 初审纠正：N+1、单页用户全部登录历史读取、avatar_badge_id漏映射三项均存在；固定批量列表1人/100人均11SQL，2002历史仅返回1，徽章/统计/演示脱敏正确。logs/review-user-list-integration-final.log；type与相关5项通过 |
-| R1-020 | 部分存在 | 控制台完整分页已修/浏览器通过；另五处待 | 用户页和登录记录已有限幅正整数parser，实例页也有专用parser；Dashboard按100顺序全页/metadata与ID-owner/旧scope门禁已修，237条三页、15异常中间页及20旧回执actual Chrome、原session回归/三守卫/有效lint/双端types-build通过，末dist收尾。Tickets/Terminal/MyPackages/MyHosts批量calibrate/HostInfo另续，不能报告所有分页均NaN/无上限或此编号整体完成。 |
+| R1-020 | 部分存在 | 控制台完整分页已保存；终端末验证过、另四处待 | 用户页和登录记录已有限幅正整数parser，实例页也有专用parser；Dashboard按100顺序全页/metadata与ID-owner/旧scope门禁，237条三页/15异常/20旧回执、session/守卫/lint/双端types-build/dist过已推be4b515c。终端完整三页/137running/七异常/18旧回执/持久error-Retry、原session-lifecycle/守卫/lint/末双端types-build过。Tickets/MyPackages/MyHosts批量calibrate/HostInfo另续，不能报告所有分页均NaN/无上限或此编号整体完成。 |
 | R1-021 | 存在 | 沿用R301批量配置专项 | 已随80cadce修复：Done在清理前发success，失败重试保留之前成功数及不可重试明细；本次核源码及takeover-host-batch-config-final.log，真实Chrome覆盖Done刷新、仅失败目标重试和累计结果。类型/守卫/双端构建证据见HANDOFF的R301批量配置章节；原生远端配置/强杀恢复不在前端专项证据内。补登记，不重复计算产品修复。 |
 | R1-022 | 已有防护 | 保留初审结论 | 目标完整性及流量BigInt安全输入已有校验，不能移植旧负值修法。 |
 | R1-023 | 已有防护 | 保留初审结论 | 目标完整性及流量BigInt安全输入已有校验，不能移植旧负值修法。 |

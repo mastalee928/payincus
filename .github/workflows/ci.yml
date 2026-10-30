@@ -224,6 +224,8 @@ jobs:
         run: pnpm --filter server test:review-terminal-lifecycle
       - name: Terminal sessions reject old identity and connection results
         run: pnpm --filter server test:review-terminal-session
+      - name: Terminal selectors include complete instance pages and retain read failures
+        run: pnpm --filter server test:review-terminal-pagination
       - name: Terminal opening sessions stop on revocation and clean their mTLS sockets
         run: pnpm --filter server test:review-terminal-opening
       - name: Terminal openings bind current session and original target under PostgreSQL locks

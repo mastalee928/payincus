@@ -56,6 +56,7 @@
     "test:review-change-plan-lifecycle": "node ../scripts/test-change-plan-lifecycle.mjs",
     "test:review-terminal-lifecycle": "node ../scripts/test-terminal-lifecycle.mjs",
     "test:review-terminal-session": "node ../scripts/test-terminal-session.mjs",
+    "test:review-terminal-pagination": "node ../scripts/test-terminal-pagination.mjs",
     "test:review-terminal-opening": "node --import tsx scripts/test-review-terminal-opening.ts",
     "test:review-terminal-authorization": "node --import tsx scripts/test-review-terminal-authorization.ts",
     "test:review-oauth-locales": "node ../scripts/test-oauth-locales.mjs",

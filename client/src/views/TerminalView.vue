@@ -25,6 +25,8 @@ import {
 } from '@/lib/terminal-core'
 import api from '@/api'
 import type { InstanceWithDetails } from '@/types/api'
+import { loadCompletePages } from '@/utils/completePages'
+import { translateError } from '@/utils/errorHandler'
 import '@xterm/xterm/css/xterm.css'
 
 const MAX_TABS = 5  // 集中式终端页面允许更多标签
@@ -100,6 +102,7 @@ function captureTab(tab: TerminalTab) {
 // 实例列表
 const instances = ref<InstanceOption[]>([])
 const loadingInstances = ref(false)
+const instancesError = ref('')
 
 // 标签管理
 const tabs = ref<TerminalTab[]>([])
@@ -241,16 +244,26 @@ const statusText = computed(() => {
 // 加载用户实例列表
 async function loadInstances() {
     const currentSession = captureSession(), sequence = ++instancesSequence
+    const userId = authStore.user?.id
     const current = () => currentSession() && pageActive.value && sequence === instancesSequence
     instances.value = []
+    instancesError.value = ''
     selectedInstanceId.value = null
     if (!current()) return
     loadingInstances.value = true
     try {
-        const response = await api.instances.list({ limit: 100 })
+        const rows = await loadCompletePages<InstanceWithDetails>({
+            fetchPage: params => api.instances.list(params), itemsKey: 'instances', current, errorMessage: t('common.loadFailed'),
+            isItem: (value): value is InstanceWithDetails => {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+                const instance = value as Record<string, unknown>
+                return typeof instance.id === 'number' && typeof instance.status === 'string' &&
+                    (instance.user_id === undefined || instance.user_id === userId) &&
+                    (instance.userId === undefined || instance.userId === userId)
+            }
+        })
         if (!current()) return
-        const data = response as { instances?: Array<InstanceWithDetails & { imageName?: string; hostCountryCode?: string }>; total?: number }
-        instances.value = (data.instances || []).map((i) => ({
+        instances.value = rows.map((i) => ({
             id: i.id,
             name: i.name || `${t('instance.title')} #${i.id}`,
             status: i.status,
@@ -259,9 +272,9 @@ async function loadInstances() {
             hostName: i.host?.name,
             packageName: i.package?.name
         }))
-    } catch (err) {
+    } catch (err: unknown) {
         if (!current()) return
-        console.error('Failed to load instances:', err)
+        instancesError.value = translateError(err)
     } finally {
         if (current()) loadingInstances.value = false
     }
@@ -1185,6 +1198,7 @@ function deactivatePage() {
     uiGeneration++
     instancesSequence++
     loadingInstances.value = false
+    instancesError.value = ''
     closeSearch()
     showInstanceSelector.value = false
     selectedInstanceId.value = null
@@ -1730,6 +1744,17 @@ function handleVisibilityChange() {
               <div class="min-h-0 overflow-y-auto px-4 py-4 sm:p-5">
                 <div v-if="loadingInstances" class="flex items-center justify-center py-20">
                   <div class="h-8 w-8 animate-spin rounded-full border-2 border-themed border-t-primary-500" />
+                </div>
+                <div v-else-if="instancesError" role="alert" class="flex flex-col items-center gap-4 px-6 py-12 text-center">
+                  <p class="max-w-full break-words text-sm text-themed">{{ instancesError }}</p>
+                  <button
+                    type="button"
+                    data-testid="terminal-instances-retry"
+                    class="min-h-[44px] min-w-[44px] rounded-lg border border-neutral-950 bg-neutral-950 px-4 text-sm font-medium text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-white dark:bg-white dark:text-black"
+                    @click="loadInstances"
+                  >
+                    {{ t('common.retry') }}
+                  </button>
                 </div>
                 <div v-else-if="runningInstances.length === 0" class="flex h-full flex-col items-center justify-center px-6 py-20 text-center">
                   <div class="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-themed bg-themed-secondary">
