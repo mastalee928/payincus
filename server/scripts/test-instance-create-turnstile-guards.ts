@@ -7,6 +7,7 @@ const enLocaleSource = readFileSync(new URL('../../client/src/locales/en.ts', im
 const twLocaleSource = readFileSync(new URL('../../client/src/locales/zh-TW.ts', import.meta.url), 'utf8')
 const errorHandlerSource = readFileSync(new URL('../../client/src/utils/errorHandler.ts', import.meta.url), 'utf8')
 const schemaSource = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
+const publicConfigSource = readFileSync(new URL('../src/routes/system-config.ts', import.meta.url), 'utf8')
 
 function assert(condition: unknown, message: string): void {
   if (!condition) {
@@ -14,6 +15,13 @@ function assert(condition: unknown, message: string): void {
     process.exit(1)
   }
 }
+
+assert(
+  publicConfigSource.includes('getTurnstileConfig()') &&
+    publicConfigSource.includes('const turnstileEnabled = turnstile.enabled && Boolean(turnstile.siteKey && turnstile.secretKey)') &&
+    publicConfigSource.includes('turnstileSiteKey: turnstileEnabled ? turnstile.siteKey : null'),
+  'public challenge availability must require the same enabled flag and complete keys as the shared verifier'
+)
 
 assert(
   instanceRoutesSource.includes("import { turnstileVerifier } from '../lib/turnstile.js'"),

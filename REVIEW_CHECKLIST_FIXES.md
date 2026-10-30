@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277原分页防护经真实PG复验有效，同接口host/instance编号PG越界另行修复；R178终端命令100上限十并发确认一成功/九明确拒绝，原记录和成功审计保持。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为271项（含部分、待验收），56项仍保初审分类；这不是完整修复数，不能按327减271计算剩余全部工作。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为272项（含部分、待验收），55项仍保初审分类；这不是完整修复数，不能按327减272计算剩余全部工作。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -462,7 +462,7 @@
 | R1-168 | 存在 | 源码已修/原审查路由PG与mTLS通过 | ss/netstat按各自列序解析。review-audit-route-mtls.log自然exit0：原execWithOutput实际mTLS输出读取后，TCP/UDP/IPv6端点、状态、PID及listening计数正确并落库；命令含原ss失败回退netstat。隔离后端返回输出，原生工具执行/浏览器仍待。 |
 | R1-169 | 存在 | 源码已修/PG及实际HTTP正文签名通过 | 签名和发送共用包含timestamp的同一body。review-notification-wire.log自然exit0：原发送器读PG，fetch边界定向本地HTTP，UTF-8/Unicode/转义及双配置并发HMAC匹配，改timestamp/换secret不匹配；无secret及成功/503的通知标记正确。未发第三方Webhook，公网接收服务另验。 |
 | R1-170 | 已有防护 | 保留初审结论 | 已有safeFetch连接时校验及AbortSignal.timeout，出站绕过问题不成立。 |
-| R1-171 | 已有防护 | 保留初审结论 | login/register/forgot统一verifier，enabled=false直接跳过；完整site/secret条件一致。 |
+| R1-171 | 后端已有防护，公开状态不一致 | 公开可用条件已修/真实PG复验通过 | enabled+site但缺secret时公开true、后端跳过先红；公开改复用完整配置条件，只返回可用site、不泄secret。八配置×五实际auth preHandler验证关闭/缺项跳过、缺token400/无效JSON与拒绝403/合法通过；后置204阻止业务及邮件，provider受控，types/3守卫/build通过；外部挑战与浏览器仍未验。 |
 | R1-172 | 存在 | 源码已修/实际HTTP总期限通过 | 原fetch与body共用10秒AbortSignal。review-notification-wire.log自然exit0：正常/拒绝/非法JSON、不返回headers及不完整body实测，后两10012/10002ms失败且底层socket归零。fetch只定向本地HTTP而保持原options/信号，无Cloudflare外部通信；现行登录/注册UI整链另验。 |
 | R1-173 | 已有防护 | 保留初审结论 | 自定义Telegram发送已有AbortSignal.timeout，不按旧清单重复改。 |
 | R1-174 | 部分存在 | 重连取消与总期限已迁入；产品专项通过 | 原opening撤销保留，reconnect从backoff起20秒并贯穿POST/双握手，四范围close立即abort、清本轮再重试。真实mTLS十二撤销/三并发隔离/client断开/VM/总期限与原PG初连回归、types/三守卫通过terminal-r174-product-*；R177重连授权和pending提交窗口下一段，真实Incus长期运行仍待。 |

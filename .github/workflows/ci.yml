@@ -293,6 +293,8 @@ jobs:
         run: pnpm --filter server test:review-proxy-id-boundaries
       - name: Host audit history preserves pagination bounds and isolates host and instance records
         run: pnpm --filter server test:review-host-audit-history
+      - name: Public Turnstile availability matches all five authentication verifiers
+        run: pnpm --filter server test:review-turnstile-config
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets

@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R171 Turnstile 公开可用状态与认证门禁一致
+
+- 原登录/注册/找回密码共用turnstileVerifier，关闭时跳过的后端行为正确；但公开配置只看enabled与site key，不看secret key。logs/turnstile-r171-before.log自然exit1证实enabled=true/site有值/secret缺失时公开仍true，而后端跳过。仅公开配置复用getTurnstileConfig并以开关和完整两密钥计算可用状态，只返回site key，不返回secret；管理员原配置值和后端验证规则保持。
+- logs/turnstile-r171-final.log自然exit0：实际PG通过原updateSystemConfigs切换八种开关/密钥组合；真实公开接口与登录/注册/注册邮件/找回邮件/重置密码五个原preHandler一致，缺token400、无效及非法JSON403、仅合法token通过。断言实际注册钩子同为turnstileVerifier，并在其后204截停，未执行登录/注册/邮件/密码修改；外部Cloudflare响应受控，不代表实际挑战或浏览器验收。配置原值finally恢复，测试密钥不输出。
+- 完整server+专项types零诊断、系统配置/认证/Turnstile三个守卫3/3、manifest及后端build自然exit0，专项已登记CI。R178已推ba1e4b3cbd3c14097f144a0785e2f52127a3ba93 / CI41140423395，R277为01e1e2c09a149b29e1699df0b4cefdd3e921ff54 / CI41140251020，仍跟终态。
+- R171进入复验后272/327项（83.2%，含部分/待验收），55项保初审分类；不是完整验收率。固定v1.7.8不变，未部署生产。当前后续14条源码CI仍待终态，失败历史及原生/公网/灾备缺口保持。
+
 ## 2026-10-31 R178 保存终端命令并发上限复验
 
 - 代码复审确认每个用户在同一事务中先取advisory lock，再检查当前授权、COUNT及INSERT；100条限制已有保护，未改产品逻辑。旧R195专项已有十并发数量断言，本次进一步要求九个失败全部为400/MAX_COMMANDS_REACHED，不能把其它500当成正确限流。

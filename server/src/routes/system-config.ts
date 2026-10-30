@@ -11,6 +11,7 @@ import { testSmtpConnection, sendTestEmail, clearTransporterCache } from '../lib
 import { logAdminAction } from '../lib/security.js'
 import { isSupportedInviteCostResource, serializeInviteCostOptions, type InviteCostOption } from '../lib/invite-pricing.js'
 import { assertSafeHttpUrl } from '../lib/outbound-security.js'
+import { getTurnstileConfig } from '../lib/turnstile.js'
 import {
     DEFAULT_VIP_BENEFITS_CONFIG_JSON,
     VIP_BENEFITS_CONFIG_KEY,
@@ -125,14 +126,13 @@ export default async function systemConfigRoutes(fastify: FastifyInstance) {
     fastify.get('/public', {
         config: { rateLimit: { max: 60, timeWindow: '1 minute' } }
     }, async (_request: FastifyRequest, _reply: FastifyReply) => {
-        const [registrationEnabled, requireInviteCode, ticketCreationEnabled, freeSiteMode, mailAvailable, turnstileEnabled, turnstileSiteKey, avatarApiBase, smtpEnabled, emailDomainWhitelistEnabled, emailAllowedDomains, transferFee, footerContactEmail, footerTelegramLink, hostingMarketEntryEnabled, hostingNotice, brandName, brandSubtitle, brandLogoUrl, popupAnnouncementConfig, popupPromoImageUrlConfig, popupPromoPackageIdConfig] = await Promise.all([
+        const [registrationEnabled, requireInviteCode, ticketCreationEnabled, freeSiteMode, mailAvailable, turnstile, avatarApiBase, smtpEnabled, emailDomainWhitelistEnabled, emailAllowedDomains, transferFee, footerContactEmail, footerTelegramLink, hostingMarketEntryEnabled, hostingNotice, brandName, brandSubtitle, brandLogoUrl, popupAnnouncementConfig, popupPromoImageUrlConfig, popupPromoPackageIdConfig] = await Promise.all([
             db.isRegistrationEnabled(),
             db.isInviteCodeRequired(),
             db.getSystemConfigBoolean('ticket_enabled', true),
             db.getSystemConfigBoolean('free_site_mode', false),
             hasAvailableMailOffering(),
-            db.getSystemConfigBoolean('turnstile_enabled', false),
-            db.getSystemConfig('turnstile_site_key'),
+            getTurnstileConfig(),
             db.getSystemConfig('avatar_api_base'),
             db.getSystemConfigBoolean('smtp_enabled', false),
             db.getSystemConfigBoolean('email_domain_whitelist_enabled', false),
@@ -149,6 +149,8 @@ export default async function systemConfigRoutes(fastify: FastifyInstance) {
             db.getSystemConfigValueWithUpdatedAt('popup_promo_image_url'),
             db.getSystemConfigValueWithUpdatedAt('popup_promo_package_id')
         ])
+
+        const turnstileEnabled = turnstile.enabled && Boolean(turnstile.siteKey && turnstile.secretKey)
 
         // 解析允许的邮箱域名列表
         let allowedDomains: string[] | null = null
@@ -238,7 +240,7 @@ export default async function systemConfigRoutes(fastify: FastifyInstance) {
             freeSiteMode,
             mailAvailable,
             turnstileEnabled,
-            turnstileSiteKey: turnstileEnabled ? turnstileSiteKey : null,
+            turnstileSiteKey: turnstileEnabled ? turnstile.siteKey : null,
             avatarApiBase: avatarApiBase || 'https://api.dicebear.com/9.x',
             emailVerificationEnabled: smtpEnabled,
             emailDomainWhitelistEnabled,
