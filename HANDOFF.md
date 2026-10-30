@@ -1,5 +1,14 @@
 # 版本与验证记录
 
+## 2026-10-31 R176 名额补验与终端审计外键死锁修复（阶段保存）
+
+- 上轮terminal-reservation-check.log自然exit1，不能把close回执加200ms等待当全部授权事务结束。PG原日志明确等待环为logs INSERT（先user外键KEY SHARE、后instance外键KEY SHARE）与终端授权（先instance FOR UPDATE、后user FOR UPDATE）。新确定性隔离PG测试不重置数据行，先持user KEY SHARE、确认授权实际被阻塞后插入真实审计；terminal-reservations-deterministic-before.log自然exit1并复现40P01，证实产品锁冲突。
+- 产品仅将终端授权instance行锁改为FOR NO KEY UPDATE，仍阻止行修改和删除，并保留原操作advisory锁、host/package锁和当前账户/会话授权；允许审计外键KEY SHARE，避免相反锁序循环。未删除审计、放宽限额或调整连接池。实例任务/转移创建继续在同一操作advisory与instance行锁内，不能通过纯FK插入绕过产品门禁。
+- 新server/scripts/test-review-terminal-reservations.ts登记活体专项及Linux CI。terminal-reservations-complete.log自然exit0：确定性真实PG等待链双方完成；实例UPDATE/DELETE实际等待授权结束后执行并回滚，原实例保持；并发原WebSocket路由单实例3、跨三实例单用户5名额，撤销后等待全部事务及8条审计落定，零宿主POST；释放后正常双mTLS socket连接、连接/断开审计各一条、socket与session归零。
+- terminal-reservations-opening-regression.log与reconnect-regression.log自然exit0，原九类当前授权/目标变化、真实锁竞争、三角色允许、20秒总期限、COMMIT失败及初连/重连事务pending撤销清理均保留。完整server+新专项types零诊断，3/3守卫、测试清单及后端build自然exit0。无前端变更；原生Incus及公网长期终端未验。
+- 测试纠错：首轮新夹具用户限额断言遇乱序请求；改顺序请求又被更早的通用WS限额拒绝，实际code为WS_LIMIT_EXCEEDED，不能判为产品名额失效。最终三实例分配确保任何单实例不超3，全部真实路由先通过通用预检查再竞争claim，明确断言USER_LIMIT_EXCEEDED；所有取消事务与审计自然完成后才下一轮。初types的Prisma delegate包装签名与误用websocket-security-guards也已纠正，失败记录保留不计通过。
+- 发行证据文档已推b21da655f1a9f2c4b393e8ac715a725c91e2e764，其CI41132963545继续。R176原名额防护确认，新增死锁归终端授权同链；本阶段在v1.7.8固定tag之后，后续源码CI另跟。原327进度现261项进入修复/复验、66项仍保留初审分类，均不代表完整精修结束。
+
 ## 2026-10-31 v1.7.8 正式发行完成（未部署生产）
 
 - Release：https://github.com/mastalee928/payincus/releases/tag/v1.7.8 ，publishedAt为2026-10-30T21:40:09Z。annotated tag精确指向c77b68c5aab9d3e6f48f4091c7dce111c055465a；正式运行41131263041整体success，双构建、双首装与发布五job全部成功。

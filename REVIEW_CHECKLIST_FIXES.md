@@ -1,4 +1,4 @@
-2026-10-31最新补验：R174/R177临时候选覆盖重连当前授权、20秒总期限和初连/重连已连通但事务未结束的撤销清理，真实PG/mTLS及原回归/types通过；R181删除末条客服回复竞争实证推翻“已有防护”，临时两行锁修复及原PG/PAT/对象绑定回归通过。产品仍冻结c77b68c5等待v1.7.8发行后逐段迁入，详HANDOFF。按“进入修复或复验记录”口径现为260项（含部分、待落地），67项仍保初审分类；这不是完整修复数，原327内部尚未完成项不能按327减260计算。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。R174/R177终端重连与R181自动关单随后已分别提交推送；本轮R176原名额防护补验并修复终端授权与审计外键死锁，真实PG/mTLS、原初连/重连回归、types/三守卫/build通过，详HANDOFF。这些后续主分支修复不在固定v1.7.8内，CI继续跟终态。按“进入修复或复验记录”口径现为261项（含部分、待验收），66项仍保初审分类；这不是完整修复数，原327内部尚未完成项不能按327减261计算。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -467,7 +467,7 @@
 | R1-173 | 已有防护 | 保留初审结论 | 自定义Telegram发送已有AbortSignal.timeout，不按旧清单重复改。 |
 | R1-174 | 部分存在 | 重连取消与总期限已迁入；产品专项通过 | 原opening撤销保留，reconnect从backoff起20秒并贯穿POST/双握手，四范围close立即abort、清本轮再重试。真实mTLS十二撤销/三并发隔离/client断开/VM/总期限与原PG初连回归、types/三守卫通过terminal-r174-product-*；R177重连授权和pending提交窗口下一段，真实Incus长期运行仍待。 |
 | R1-175 | 已有防护 | 保留初审结论 | 重连等待后及新连接完成后核对activeSessions对象、reconnectGeneration和client状态，不符关闭新socket。 |
-| R1-176 | 已有防护 | 保留初审结论 | 所有异步建连前同步claimTerminalConnection预留名额，close释放pending且release幂等。 |
+| R1-176 | 已有防护；补验发现授权审计死锁 | 名额PG/mTLS补验与同链死锁修复通过 | 确定性PG先红40P01后改instance FOR NO KEY UPDATE，审计FK可并发、UPDATE/DELETE仍阻塞。原route并发实例3/用户5、撤销零POST且全部审计落定、释放后重连与双socket清理通过terminal-reservations-complete.log；原初连/重连当前授权/期限/COMMIT清理回归、types/三守卫/build均自然exit0。真实Incus公网长期运行另验；本次在v1.7.8之后。 |
 | R1-177 | 部分存在 | 初连/重连当前授权已修，产品PG/mTLS与构建通过 | 重连复用原初连闭包重核当前角色/会话与原实例/host/package；真实route九类变更拒绝/五PG锁竞争/三角色正常/20秒与真实COMMIT失败清理通过。初连和重连已连通但事务pending时撤销立即清双socket；terminal-r177-product-*全回归/types/三守卫/build自然exit0，已接CI。原生Incus UUID及长期公网终端另待。 |
 | R1-178 | 已有防护 | 保留初审结论 | 事务advisory lock串行count和insert，100条上限已有并发保护。 |
 | R1-179 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |

@@ -14,7 +14,9 @@ export async function withTerminalOpeningAuthorization<T>(
     if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, expected.id)) {
       throw new Error('TERMINAL_INSTANCE_BUSY')
     }
-    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${expected.id} FOR UPDATE`
+    // Block instance updates/deletion while allowing audit FK key-share checks.
+    // FOR UPDATE would deadlock with an audit holding the user FK before ours.
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${expected.id} FOR NO KEY UPDATE`
     const instance = await tx.instance.findUnique({ where: { id: expected.id } })
     if (!instance || instance.userId !== expected.user_id || instance.hostId !== expected.host_id ||
       instance.incusId !== expected.incus_id || instance.createdAt.toISOString() !== expected.created_at ||
