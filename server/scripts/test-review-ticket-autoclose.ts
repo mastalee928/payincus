@@ -90,14 +90,110 @@ try{
   prisma.$transaction=(async(callback:any,options:any)=>originalTransaction.call(prisma,async tx=>{
     const result=await callback(tx);void result;throw Error('controlled auto-close transaction failure')
   },options)) as typeof prisma.$transaction
-  await assert.rejects(autoCloseTickets([ticket.id],86400000),/controlled auto-close transaction failure/)
+  assert.deepEqual(await autoCloseTickets([ticket.id],86400000),[])
   prisma.$transaction=originalTransaction
   assert.deepEqual(await prisma.ticket.findUniqueOrThrow({where:{id:ticket.id}}),before)
   console.log('PASS failed auto-close transaction rolls back and returns no success receipt')
+
+  const batch = await Promise.all(Array.from({length:3},(_,index)=>prisma.ticket.create({data:{
+    userId:user.id,subject:tag+'-batch-'+index,status:'resolved',updatedAt:old,
+    messages:{create:{senderId:admin.id,content:'old support reply',isFromOwner:true,createdAt:old}}
+  }})))
+  try {
+    let call=0
+    prisma.$transaction=(async(callback:any,options:any)=>originalTransaction.call(prisma,async tx=>{
+      const current=++call,result=await callback(tx)
+      if(current===2)throw Error('controlled middle ticket failure')
+      return result
+    },options)) as typeof prisma.$transaction
+    const receipts=await autoCloseTickets(batch.map(item=>item.id),86400000).catch(()=>null)
+    assert.deepEqual(receipts?.map(item=>item.id),[batch[0].id,batch[2].id],
+      'a failed middle ticket must retain prior committed receipts and continue later tickets')
+    assert.equal((await prisma.ticket.findUniqueOrThrow({where:{id:batch[1].id}})).status,'resolved')
+    console.log('PASS a failed middle ticket retains prior committed close receipts and later work')
+    prisma.$transaction=originalTransaction
+    await prisma.ticket.updateMany({where:{id:{in:batch.map(item=>item.id)}},data:{status:'resolved',closedAt:null}})
+    let locked!:()=>void,unlock!:()=>void
+    const lockReady=new Promise<void>(resolve=>{locked=resolve}),lockHeld=new Promise<void>(resolve=>{unlock=resolve})
+    const blocker=prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${batch[1].id} FOR UPDATE`
+      locked();await lockHeld
+    },{timeout:10000})
+    await lockReady
+    try {
+      const receipts=await autoCloseTickets(batch.map(item=>item.id),86400000)
+      assert.deepEqual(receipts.map(item=>item.id),[batch[0].id,batch[2].id])
+      assert.equal((await prisma.ticket.findUniqueOrThrow({where:{id:batch[1].id}})).status,'resolved')
+      console.log('PASS real PostgreSQL lock timeout skips only the held ticket and preserves other committed receipts')
+    }finally{unlock();await blocker}
+    assert.deepEqual((await autoCloseTickets(batch.map(item=>item.id),86400000)).map(item=>item.id),[batch[1].id])
+  }finally{prisma.$transaction=originalTransaction;await prisma.ticket.deleteMany({where:{id:{in:batch.map(item=>item.id)}}})}
+
+  // Run the original scheduler and notifier against actual inbox/audit tables.
+  // Only this process's configuration cache and candidate query are scoped.
+  const {setCachedConfig,invalidateCachedConfig}=await import('../src/lib/config-cache.js')
+  const {startTicketAutoCloseScheduler,stopTicketAutoCloseScheduler}=await import('../src/services/ticket-auto-close-scheduler.js')
+  const scheduled=await Promise.all(Array.from({length:3},(_,index)=>prisma.ticket.create({data:{
+    userId:user.id,subject:tag+'-scheduled-'+index,status:'resolved',updatedAt:old,
+    messages:{create:{senderId:admin.id,content:'old support reply',isFromOwner:true,createdAt:old}}
+  }})))
+  const originalFindMany=prisma.ticket.findMany,originalInterval=globalThis.setInterval,originalConsole=console.log
+  let runCycle!:()=>Promise<void>,finish!:()=>void
+  const finished=new Promise<void>(resolve=>{finish=resolve})
+  const sent=()=>prisma.inboxMessage.findMany({where:{userId:user.id,eventType:'ticket_auto_closed'},orderBy:{id:'asc'}})
+  const logged=()=>prisma.log.findMany({where:{userId:user.id,action:'ticket.auto_closed'},orderBy:{id:'asc'}})
+  try {
+    setCachedConfig('ticket_auto_close_enabled','true');setCachedConfig('ticket_auto_close_hours','24')
+    prisma.ticket.findMany=(async(args:any)=>originalFindMany.call(prisma.ticket,{
+      ...args,where:{AND:[args?.where||{},{id:{in:scheduled.map(item=>item.id)}}]},orderBy:{id:'asc'}
+    })) as unknown as typeof originalFindMany
+    globalThis.setInterval=((callback:()=>Promise<void>,ms:number)=>{
+      runCycle=callback;return originalInterval(callback,ms)
+    }) as typeof globalThis.setInterval
+    console.log=(...args:unknown[])=>{
+      originalConsole(...args)
+      if(String(args[0]).startsWith('[TicketAutoClose] 成功自动关闭'))finish()
+    }
+    let transactionCount=0
+    prisma.$transaction=(async(callback:any,options:any)=>originalTransaction.call(prisma,async tx=>{
+      const current=++transactionCount,result=await callback(tx)
+      if(current===2)throw Error('controlled scheduler middle ticket failure')
+      return result
+    },options)) as typeof prisma.$transaction
+    startTicketAutoCloseScheduler()
+    await Promise.race([finished,delay(8000).then(()=>{throw Error('scheduler did not finish partial batch')})])
+    stopTicketAutoCloseScheduler();globalThis.setInterval=originalInterval;console.log=originalConsole
+    prisma.$transaction=originalTransaction
+    const messages=await sent(),logs=await logged()
+    assert.equal(messages.length,2);assert.equal(logs.length,2)
+    assert.deepEqual(messages.map(item=>(item.data as {subject:string}).subject),[scheduled[0].subject,scheduled[2].subject])
+    assert.ok(logs.every(item=>item.result==='success'))
+    assert.equal((await prisma.ticket.findUniqueOrThrow({where:{id:scheduled[1].id}})).status,'resolved')
+    await runCycle()
+    assert.equal((await sent()).length,3);assert.equal((await logged()).length,3)
+    assert.equal((await sent())[2].data && ((await sent())[2].data as {subject:string}).subject,scheduled[1].subject)
+    await runCycle()
+    assert.equal((await sent()).length,3);assert.equal((await logged()).length,3)
+    console.log('PASS original scheduler persists only committed inbox/audit results, retries failed ticket and never duplicates prior notifications')
+    await prisma.ticket.updateMany({where:{id:{in:scheduled.map(item=>item.id)}},data:{status:'resolved',closedAt:null}})
+    prisma.$transaction=(async(callback:any,options:any)=>originalTransaction.call(prisma,async tx=>{
+      await callback(tx);throw Error('controlled scheduler all-ticket failure')
+    },options)) as typeof prisma.$transaction
+    await runCycle();prisma.$transaction=originalTransaction
+    assert.equal((await sent()).length,3);assert.equal((await logged()).length,3)
+    assert.equal(await prisma.ticket.count({where:{id:{in:scheduled.map(item=>item.id)},status:'resolved'}}),3)
+    console.log('PASS all-failed scheduler cycle retains every ticket and writes no success inbox/audit')
+  }finally{
+    stopTicketAutoCloseScheduler();globalThis.setInterval=originalInterval;console.log=originalConsole
+    prisma.$transaction=originalTransaction;prisma.ticket.findMany=originalFindMany
+    invalidateCachedConfig('ticket_auto_close_enabled');invalidateCachedConfig('ticket_auto_close_hours')
+    await prisma.ticket.deleteMany({where:{id:{in:scheduled.map(item=>item.id)}}})
+  }
 }catch(error){failure=error}
 finally{
   release?.();prisma.$transaction=originalTransaction
   await prisma.ticket.delete({where:{id:ticket.id}})
+  await prisma.log.deleteMany({where:{userId:{in:[user.id,admin.id]}}})
   await prisma.user.deleteMany({where:{id:{in:[user.id,admin.id]}}})
   await closePrismaDatabase()
 }

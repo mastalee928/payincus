@@ -1519,6 +1519,11 @@ export async function autoCloseTickets(
         userId: latest.userId,
         hostId: latest.hostId
       }
+    }).catch(error => {
+      // Each ticket commits independently. Keep earlier receipts so the scheduler
+      // still notifies those users, and allow later candidates to be processed.
+      console.error(`[TicketAutoClose] Failed to close ticket #${ticketId}:`, error)
+      return null
     })
 
     if (closedTicket) {

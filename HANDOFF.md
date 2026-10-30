@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 R182 自动关单部分失败保留通知回执（阶段保存）
+
+- 复审原通知“已有防护”发现反向缺口：autoCloseTickets逐单提交，但中途一次事务失败使整个Promise拒绝，之前已关闭的工单回执丢失、调度器不再发站内信/成功日志，后续候选也跳过。ticket-r182-partial-before.log自然exit1复现第一单已关闭而批次无回执。
+- 产品最小改动在每单事务外捕获失败，带工单ID和具体错误记服务日志，失败单保留resolved、成功回执继续收集并处理后续单；原调度器只遍历成功回执。没有改变单单事务的回滚/原行锁和候选门禁，也没有把失败单写成成功。
+- ticket-r182-product-complete.log自然exit0：原两序删除/回复竞争与八并发唯一次关闭保持；中间回调失败和真实PG行锁3秒超时均只影响对应工单，后续成功回执保持，解锁后只补原失败单。原startTicketAutoCloseScheduler/原sendNotification在实际PG运行，部分失败只落两条站内信及两条成功日志，下周期补一条、再执行零重复，全部失败零新增成功通知/日志且三工单仍resolved。配置仅进程缓存、候选仅隔离测试记录，无外部通知渠道/Telegram绑定；原自然一小时周期及生产未验。日志失败明细为服务日志，未新增数据库失败审计。
+- 最终完整server+扩展专项types零诊断，ticket-auto-close/success/query/public-api-resource四守卫4/4与后端build自然exit0。最初单失败旧测试预期throw按新逐单返回空回执更新，原先红记录保留；本次不是跨进程崩溃后的持久通知outbox保证。
+- R195已推9bc1b31de908a697bcce4ece88b42ec2064541e7，CI41134142331；R176为2fadbc74976606844798a0960d1bfa0cc8eed866 / CI41133775870，发行文档b21da655f1a9f2c4b393e8ac715a725c91e2e764 / CI41132963545，均继续到终态。当前263项进入修复/复验、64项初审分类，含部分与待验收，不代表263全修好。此修复在固定v1.7.8之后。
+
 ## 2026-10-31 R195 初始化命令 PostgreSQL 编号边界（阶段保存）
 
 - 复审纠正“已有防护”：JavaScript safe integer仍包含超出PG Int的2147483648；原Fastify GET /init/2147483648实际500，command-r195-boundary-before.log自然exit1并记录数据库integer越界。仅在初始化命令共用parser增加2147483647上限，覆盖详情/编辑/删除，保留严格十进制及原权限。
