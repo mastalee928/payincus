@@ -232,7 +232,8 @@ assert.ok(
 assert.ok(
   usersRouteSource.includes('if (password) {') &&
     usersRouteSource.includes('db.updateUserProfileIfCurrent(profileState, updates, request.user, emailCode)') &&
-    usersDbSource.includes('const grant = await tx.operationVerification.deleteMany({') &&
+    usersDbSource.includes('const grant = await tx.operationVerification.updateMany({') &&
+    usersDbSource.includes('data: { verifiedAt: null }') &&
     usersDbSource.includes('email: expected.email, passwordHash: expected.passwordHash') &&
     usersRouteSource.includes("closeUserSessions(userId, 'Password updated')"),
   'password updates must revoke refresh tokens, invalidate access tokens, and close terminal sessions'

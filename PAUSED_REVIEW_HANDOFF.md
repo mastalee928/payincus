@@ -1,5 +1,7 @@
 # PayIncus 暂停交接（2026-10-28，北京时间）
 
+> **R011验证/消费发送记录末段通过**：3b2ac7b3f5c64a6da6dede85fb3c55f03b97a594/CI41019531979已推。验证后request200新增SMTP先红，现最新所有状态保60秒预算，重发撤销旧grant；claim/consume/profile事务updateMany清verifiedAt，保createdAt/verified，八并发唯一消费。真实SMTP完整/PG profile74056/管理员PUSH48108/2FA/destroy全回归、四专项+源types32265/server2568/三守卫91339/manifest/diff全自然exit0，无活动命令。无前端改动沿用3ac末构建；profile/PUSH专项接CI。前五CI410143/410158/410170/410191/410195仍运行和历史GoIO40799210505保持；下一继续generic当前身份/投递目标代码级审查，原327内部未完。保存推送后继续。
+
 > **尝试耗尽段末验证已完成**：五次错误删除记录后立刻SMTP重发200先红→generic未验证/未过期/attempts<5条件原子increment，保5次耗尽记录及原60秒预算，不越成delivery6/7。PG67448含八并发上限5/旧正确码拒绝/61秒重发和原完整SMTP回归、types55383/server68054/两守卫151802/原2FA再次回归全部自然exit0，无活动本地命令。无前端变更沿用3ac末双端和Chrome。410143集成105/172、410158为89/173、410170为67/174、410191仍运行须跟；历史GoIO/原327及generic消费后/跨操作预算当前身份通知目标等保留。保存推送后继续。
 
 > **投递段已推，尝试耗尽施工中**：3ac7b8a5074b0e7977f43f1cb791673d70b59a52/CI41019111832，远端main一致；实际PG/SMTP五错误尝试后立刻request200先红，正改原bounded updateMany保耗尽记录与60秒budget，尚未末types/build/守卫，不计完成。前41014322522/41015808583/41017076013仍运行，继续跟终态；原327其它内部缺口保持。

@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 通用验证码验证/消费后保发送记录（持续施工）
+
+- 尝试耗尽段已推3b2ac7b3f5c64a6da6dede85fb3c55f03b97a594/CI41019531979。下一实际PG/SMTP先红takeover-verification-consume-budget-before.log：验证成功后立即request200新增邮件；原消费deleteMany同样丢发送时间。现request读取同operation/resource最新所有状态，60秒内verified/耗尽均限发；重发仅撤销旧code/grant并保历史。generic claim及旧consume改条件updateMany清verifiedAt，保verified=true和原createdAt，既不能再verify也不能replay；profile事务同样清verifiedAt，账户写/撤销失败完整回滚保grant。无schema迁移，不改销毁专用记录或原鉴权/退款/全端口交付合同。
+- 实际PG/SMTP完整专项自然exit0（takeover-verification-consume-budget-pg-first.log），原验证/消费八并发唯一claim、60秒限发/61秒新邮件及旧grant不复活通过。profile/reset/register全PG74056自然exit0，takeover-verification-consume-budget-profile-final.log含旧凭据/邮箱冲突/撤销trigger故障回滚和六并发唯一profile提交；admin/user PUSH48108自然exit0含授权/验证/费用/失败退款/专属不停止与网络账期保持；实际2FA与destroy-email再次自然exit0。测试只改“记录删除”断言为“资格已撤销、发送时间保持”，不放宽业务保护。
+- 所有受改专项+src类型32265自然exit0、server build2568自然exit0、三鉴权/operation守卫91339自然exit0（test-run-20261030-152456），manifest194/231及diff通过；新增profile和admin PUSH实际专项接CI。无前端改动，沿用3ac末Chrome/双端不重复构建，无生产/外部SMTP或原生客户验收。
+- 前五CI41014322522/41015808583/41017076013/41019111832/41019531979仍运行，继续跟终态；40799210505历史GoIO待准确定位。原327259含部分/68不同计数保持；generic跨操作统一账户预算/当前会话邮箱绑定/通知目标完整合同及灾备另待。保存推送后继续。
+
 ## 2026-10-30 R1-011 通用验证码尝试耗尽仍保重发冷却（持续施工）
 
 - 前投递段3ac7b8a5074b0e7977f43f1cb791673d70b59a52/CI41019111832已推；原recordFailedVerificationAttempt第五次后deleteMany，实际PG/SMTP先红takeover-verification-attempt-budget-before.log：五次错误后立刻request200并新增邮件。现以未验证/未过期/generic/attempts<5条件updateMany原子增加，保耗尽记录用于原发送时间，最大5；并发错误不越成pending6/failed7，也不删除或复活旧已验证记录。数据库故障不冒充正常错误上限。

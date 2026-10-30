@@ -261,7 +261,6 @@ export async function requestOperationVerification(
                 operationType,
                 resourceId: normalizedResourceId,
                 ...GENERIC_VERIFICATIONS,
-                verified: false,
                 expiresAt: { gt: now }
             },
             orderBy: { createdAt: 'desc' }
@@ -281,7 +280,7 @@ export async function requestOperationVerification(
             const resendAfter = Math.max(0, Math.ceil(VERIFICATION_CONFIG.resendAfterSeconds -
                 (now.getTime() - existingVerification.createdAt.getTime()) / 1000))
             if (resendAfter > 0) {
-                if (existingVerification.attempts >= VERIFICATION_CONFIG.maxAttempts) {
+                if (existingVerification.verified || existingVerification.attempts >= VERIFICATION_CONFIG.maxAttempts) {
                     return { error: 'Please wait before requesting another verification code', errorCode: 'VERIFICATION_RATE_LIMITED', resendAfter }
                 }
                 await tx.operationVerification.deleteMany({
@@ -304,16 +303,16 @@ export async function requestOperationVerification(
                 }
             }
 
-            // 删除旧的验证码。使用 deleteMany 避免并发请求重复删除时抛出 not found。
-            await tx.operationVerification.deleteMany({
+            // Revoke prior codes and grants, retaining their send timestamps.
+            await tx.operationVerification.updateMany({
                 where: {
                     userId,
                     operationType,
                     resourceId: normalizedResourceId,
                     ...GENERIC_VERIFICATIONS,
-                    verified: false,
                     expiresAt: { gt: now }
-                }
+                },
+                data: { verified: true, verifiedAt: null }
             })
         }
 
@@ -555,7 +554,7 @@ export async function claimOperationVerificationRequirement(
     }
 
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
-    const result = await prisma.operationVerification.deleteMany({
+    const result = await prisma.operationVerification.updateMany({
         where: {
             userId,
             operationType,
@@ -564,7 +563,8 @@ export async function claimOperationVerificationRequirement(
             verified: true,
             expiresAt: { gt: new Date() },
             verifiedAt: { gt: tenMinutesAgo }
-        }
+        },
+        data: { verifiedAt: null }
     })
 
     return {
@@ -581,14 +581,15 @@ export async function consumeOperationVerification(
     operationType: OperationType,
     resourceId?: number
 ): Promise<void> {
-    await prisma.operationVerification.deleteMany({
+    await prisma.operationVerification.updateMany({
         where: {
             userId,
             operationType,
             resourceId: resourceId || null,
             ...GENERIC_VERIFICATIONS,
             verified: true
-        }
+        },
+        data: { verifiedAt: null }
     })
 }
 

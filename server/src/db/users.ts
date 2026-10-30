@@ -977,10 +977,10 @@ export async function updateUserProfileIfCurrent(
         ...(emailChanged && expected.email ? ['change_email' as const] : [])
       ]) {
         const now = new Date()
-        const grant = await tx.operationVerification.deleteMany({ where: {
+        const grant = await tx.operationVerification.updateMany({ where: {
           userId: actor.id, operationType, resourceId: null, verified: true,
           expiresAt: { gt: now }, verifiedAt: { gt: new Date(now.getTime() - 10 * 60000) }
-        } })
+        }, data: { verifiedAt: null } })
         if (!grant.count) throw new Error(`PROFILE_VERIFICATION_REQUIRED:${operationType}`)
       }
     }

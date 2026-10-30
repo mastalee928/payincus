@@ -121,7 +121,8 @@ assert.ok(
 )
 
 assert.ok(
-  claimOperationVerificationSource.includes('const result = await prisma.operationVerification.deleteMany({') &&
+  claimOperationVerificationSource.includes('const result = await prisma.operationVerification.updateMany({') &&
+    claimOperationVerificationSource.includes('data: { verifiedAt: null }') &&
     claimOperationVerificationSource.includes('verified: true') &&
     claimOperationVerificationSource.includes('expiresAt: { gt: new Date() }') &&
     claimOperationVerificationSource.includes('verifiedAt: { gt: tenMinutesAgo }') &&

@@ -216,6 +216,10 @@ jobs:
         run: pnpm --filter server test:review-host-recalculate
       - name: Sensitive verification resends use sixty seconds and truthful SMTP receipts
         run: pnpm --filter server test:review-verification-resend
+      - name: Consumed verification grants preserve send history and profile rollback
+        run: pnpm --filter server test:review-verification-integration
+      - name: Admin and user PUSH preserve verification and instance billing contracts
+        run: pnpm --filter server test:admin-instance-push-integration
       - name: Host extensions commit all expiries and their audit together
         run: pnpm --filter server test:review-host-extend-all
       - name: Instance detail reads stay on the current route and session

@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R011消费预算分项：真实SMTP验证码验证后request200新增邮件先红；request读最新所有状态60秒限发，重发撤旧grant，claim/consume/profile事务updateMany清verifiedAt保发送历史和一次性。完整PG/SMTP八并发claim、profile回滚/当前身份、管理员PUSH/2FA/destroy原回归、源+全部受改专项types/server build/三守卫/manifest/diff过；profile与PUSH接CI，无前端重改。证据见HANDOFF，generic跨操作/当前邮箱会话和投递目标、原327整体验收继续，计数不增。
+
 2026-10-30 R011尝试预算分项：真实PG/SMTP第五次错误删记录导致零等待request200新增邮件先红，改未验证/未过期/generic/attempts<5条件原子increment、保耗尽记录与发送时间，八并发最大5。PG67448原完整投递回归/正确耗尽码拒绝/61秒重发、原2FA、types/server build/两守卫/diff过，无前端重改；CI及实际范围见HANDOFF。generic已消费/跨操作预算及当前身份通知目标仍待，不计整编号完成。
 
 2026-10-30 R011/013投递分项：真实SMTP未ACK时重复请求200已发送先红，现pending/failed持久不可验证标记与固定请求key在途门禁、精确ID/hash/CAS成功激活，失败保原60秒预算，跨时限/DB标记移除不并发重发，旧进程pending可恢复。PG78146真实SMTP/原2FA47900/destroy96415及types/server build/末Chrome33065/4守卫/有效lint/双端82148/末dist通过，36输入+失败视觉报告零finding，证据见HANDOFF。销毁专用A/B去同码、账户会话邮箱集合及预算原回归保持；generic消费后/跨操作预算与当前身份/通知目标等内部缺口另待，不计整编号完成或新增计数。

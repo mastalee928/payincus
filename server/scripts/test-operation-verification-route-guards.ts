@@ -75,11 +75,12 @@ for (const { file, source: routeSource } of sensitiveOperationRouteSources) {
     const profile = userDb.slice(start, end)
     assert.ok(routeSource.includes('await db.updateUserProfileIfCurrent(profileState, updates, request.user, emailCode)') &&
       profile.includes('return prisma.$transaction(async tx => {') &&
-      profile.includes('await tx.operationVerification.deleteMany') &&
+      profile.includes('await tx.operationVerification.updateMany') &&
+      profile.includes('data: { verifiedAt: null }') &&
       profile.includes('userId: actor.id, operationType, resourceId: null, verified: true') &&
       profile.includes('expiresAt: { gt: now }, verifiedAt: { gt: new Date(now.getTime() - 10 * 60000) }') &&
       profile.includes('if (!grant.count) throw new Error(`PROFILE_VERIFICATION_REQUIRED:${operationType}`)') &&
-      profile.indexOf('await tx.operationVerification.deleteMany') < profile.indexOf('await tx.user.updateMany'),
+      profile.indexOf('await tx.operationVerification.updateMany') < profile.indexOf('await tx.user.updateMany'),
       'profile changes must consume a current verified account grant before the profile write in the same transaction')
   } else {
     assert.ok(routeSource.includes('claimOperationVerificationRequirement'),
