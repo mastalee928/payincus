@@ -1,3 +1,5 @@
+> **2026-10-30最新：CI宿主网络长阻塞已定位修复**。aa3e598da201466afbea5c79a3e00f751d32a5a1 / CI41047947257已推。该步第一host sync52例自然exit0，第二persistence14例清理完被新增security清理timer保活，本机复现；仅专项入口failure/finally后明确exit0/1，真实PG14例正常0、注入断言故障1，types旧rejects重载纠正复验见HANDOFF。八旧CI仍未终态，新提交须核该步越过，原327259含部分/68不同、逐步远端/客户/SMTP/GoIO/灾备继续，不暂停、不生产、不发行。
+
 > **2026-10-30最新：建连授权窗口段已验，保存后优先查CI宿主网络阻塞**。镜像已推72d0c2d9fffae4a6979e252c083f1583fe50efc2 / CI41047399537。真实worker mTLS连接期间改key仍2写先红；重装/重建建连后再核原任务/当前授权/全部材料，专属状态更新同核验事务，实际四变更零远端写且实例/快照保持、全部12/18/28竞争/SMTP/types/server build/十守卫最终exit0见HANDOFF。七CI多个长停Host network observation identity and generation，下一本机复现修根因；不只轮询/重跑。原327259含部分/68不同与逐步远端/原生客户/外部SMTP/GoIO/灾备保持，不暂停、不生产、不发行。
 
 > **2026-10-30最新：镜像current授权段验证通过，保存后继续远端各步骤**。SSH/init已推2669f4f4a6bd4942c13040d19cfa96b1bdab0736 / CI41046349071。隐藏镜像仍受理先红，现image/package/host行锁同事务重核visibility/architecture/type/memory/allowlist，v3原image身份摘要；allowlist写先host锁保空集合串行。PG两任务18竞争+Fastify入队锁后400/零任务、原SMTP/SSH/init/mTLS、types/build/11守卫/destroy最终自然exit0见HANDOFF。新41036581988终态failure日志已读同e935已修快照超时，六余CI仍跟。原327259含部分/68不同、远端逐步授权/原生客户/外部SMTP/GoIO/灾备未完，不暂停、不生产、不发行。

@@ -10,6 +10,7 @@ const other = await prisma.user.create({ data: { username: prefix + '-other', pa
 const host = await prisma.host.create({ data: { userId: owner.id, name: prefix, url: 'https://127.0.0.1:1' } })
 const replacement = await prisma.host.create({ data: { userId: owner.id, name: prefix + '-replacement', url: 'https://127.0.0.1:2' } })
 let constraint: string | undefined
+let failure: unknown
 try {
   for (const mode of ['host', 'incus', 'owner', 'version', 'address', 'host_connection', 'host_owner', 'pending', 'deleted', 'creating', 'transaction_failure', 'success', 'unchanged', 'concurrent']) {
     const instance = await prisma.instance.create({ data: { userId: owner.id, hostId: host.id, name: prefix, incusId: prefix + mode, image: 'fixture/debian',
@@ -43,8 +44,8 @@ try {
         const result = await apply()
         assert.equal(result.ipv4Changed, mode === 'success')
       }
-      await assert.rejects(apply, undefined, 'even an unchanged observation consumes its generation')
-    } else await assert.rejects(apply, undefined, `${mode}: stale/busy/failed observations must reject`)
+      await assert.rejects(apply, 'even an unchanged observation consumes its generation')
+    } else await assert.rejects(apply, `${mode}: stale/busy/failed observations must reject`)
     const current = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
     const changed = mode === 'success' || mode === 'concurrent'
     assert.equal(current.ipv4, changed ? '10.10.1.20' : mode === 'address' ? '10.10.1.30' : instance.ipv4)
@@ -57,9 +58,15 @@ try {
     await prisma.host.update({ where: { id: host.id }, data: { url: host.url, userId: owner.id } })
     console.log(`PASS network persistence ${mode}`)
   }
-} finally {
+  if (process.env.REVIEW_NETWORK_PERSISTENCE_INJECT_FAILURE === '1') {
+    assert.fail('fixture intentional assertion failure after persistence checks')
+  }
+} catch (error) { failure = error } finally {
   if (constraint) await prisma.$executeRawUnsafe(`ALTER TABLE ip_addresses DROP CONSTRAINT ${constraint}`)
   await prisma.instance.deleteMany({ where: { name: prefix } })
   await prisma.host.deleteMany({ where: { id: { in: [host.id, replacement.id] } } })
   await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } }); await closePrismaDatabase()
 }
+if (failure) { console.error(failure); process.exit(1) }
+console.log('PASS network persistence checks and database cleanup completed')
+process.exit(0)

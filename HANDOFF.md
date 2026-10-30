@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-30 CI宿主网络步骤退出阻塞（持续施工）
+
+- 建连授权段已推aa3e598da201466afbea5c79a3e00f751d32a5a1 / CI41047947257。多个CI长停Host network observation identity and generation（41042942813该步骤10:47:50Z开始）。本机分别运行两条命令：host network sync 52例PG/mTLS/CLI全部自然exit0；network persistence14例和DB清理已完成仍不退出，复现真实常驻进程。原因是新transfer→operation verification→notifier/DB→security依赖带入常驻清理interval。只在该集成测试入口保存failure，断言和finally清理完成后显式exit0/exit1，不改变生产安全定时器或跳业务检查。
+- `logs/takeover-network-ci-persistence-verified.log`最终14例真实PG及清理自然exit0；`takeover-network-ci-persistence-intentional-failure.log`注入最后断言失败实际exit1，未报成功。初阻塞轮已确认目标进程和完整PASS后定向停止，仅此轮标人为终止，不列通过。扩展专项严格types曾发现旧assert.rejects(undefined)重载两处，改正确message重载后最终types重跑。没有前端/schema/业务源码变更，沿用无变化最终产品build/守卫证据。
+- 八待查CI41037666047/41039116226/41041773579/41042942813/41044295702/41046349071/41047399537/41047947257保持非终态，旧运行不会自动获得此修复；新提交CI须确认该步骤越过并继续到终态。历史snapshot失败与GoIO准确根因记录保持。原327259含部分/68不同不增，下一其它dispatch/原生客户/外部SMTP/网关灾备继续，不因记录或推送停止。
+
 ## 2026-10-30 R1-011 建连完成后重核销毁任务授权（持续施工）
 
 - 镜像段已推72d0c2d9fffae4a6979e252c083f1583fe50efc2 / CI41047399537。新本机真实worker/mTLS先红：连接期间修改key仍2次远端写入。worker对rebuild/recreate在getIncusClient完成后再按原task/instance/host/account/image/key/command锁重新核验，真正业务执行使用第二次返回材料；重装dedicatedNetworkReady=false移入第二次核验事务，拒绝时不提前修改实例。第一入口检查仍保留，非破坏任务原行为保持。
