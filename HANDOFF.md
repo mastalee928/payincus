@@ -2,7 +2,17 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 通用验证码个人通知目标一致性（持续施工）
+
+- 实际PG/受控Telegram先红takeover-verification-channel-before.log：页面选择管理员告警444444、实际发送另取无排序个人列表，所显示目标与真实投递不一致。现仅选enabled个人渠道（isGlobal=false/alertCategory=null），按createdAt/id确定顺序；整行快照同用于提示与发送，每次传输重试不重新读库选择。资源email原被当作账户邮箱发送，现用配置email并正确遮蔽；账户操作继续强制账户邮箱，销毁专用邮箱流程保持。
+- 通知目标只保存id/type/config的SHA256摘要到通用记录resourceType，不存凭据/明文目标。冷却重复读取若当前目标不匹配旧记录，撤销旧码/grant资格并保createdAt，返回剩余冷却而不谎称新目标已发送；不绕60秒。配置损坏返回SEND_FAILED且零发信/零记录，不误判无渠道绕验证。此段不声称已完成通用当前会话/邮箱验证或发送过程中渠道撤销合同。
+- 最终takeover-verification-channel-pg-final.log自然exit0：真实PG与SMTP、实际Fastify、受控Telegram投递验证个人/全局/管理员/禁用/同时间ID选择、真实目标/冷却旧提示、目标变更旧码拒绝、发送快照配置保持、个人email实际收件人与坏配置；原发送ACK/失败/中断/耗尽/消费预算及八并发全回归。destroy-final与2fa-final自然exit0：原A/B强制同码重抽、账户/session/email/set绑定、60秒/小时预算、唯一消费与2FA验证/撤销均保持。
+- 原源types与最终受改专项+源types、后端最终build36218自然exit0，四守卫13939自然exit0（test-run-20261030-160334）、manifest194/231、CI YAML/diff通过。无前端改动，沿用已记录最终双端/Chrome；Telegram为受控transport，外部Telegram/SMTP、原生客户完整操作不据此计验收。下一继续通用账户预算/会话邮箱绑定，原327259含部分/68不同和完整网关灾备缺口不变。
+- Go段57711ea2e4dc123ec9d2cad0299c670d85c662b2 / 41023032382两架构20次实际/proc专项及package job成功，整CI仍Pool运行。此前六CI41014322522/41015808583/41017076013/41019111832/41019531979/41020374764仍推进，无新失败，继续跟终态；历史Go准确根因未证明保留。阶段提交推送后继续，无生产/发行。
+
 ## 2026-10-30 Linux 进程审计退出竞态与失败诊断（持续施工）
+
+- 本段已推57711ea2e4dc123ec9d2cad0299c670d85c662b2 / CI41023032382。Linux amd64与arm64各20次真实/proc、打开stat后子进程退出及脱敏/身份/文件边界专项均终态success，两网关组件package job也success；整次CI的Pool集成仍运行，不宣称总CI通过。历史40799210505无足够诊断，准确根因未证明，仍保留。
 
 - 历史 CI40799210505 / commit3fd4488099bbaec13ed4ff15f1f9eda198a86539 的 TestReadActualProcAuditAndCancellation 返回 CONTROLLER_PROCESS_AUDIT_IO，失败日志只有通用错误码，尚不能准确证明原失败分支。代码复核发现 procfs 已打开 stat 在进程退出后可返回 ESRCH，原 read/stat 错误被归为 INVALID 或通用 IO。现保留原始错误供内部分类，ENOENT/ESRCH 在两次采集均标 StableSnapshot=false；写者审计共享同一分类。权限、IO、格式错误继续拒绝，绝不据退出竞态授予接管。失败诊断仅固定 phase/reason 与原错误码，不输出 OS 路径、进程名、命令或环境。取消在读取目录前检查。
 - 新增实际 Linux 子进程打开 stat 后退出的回归、两扫描退出注入、权限/EIO/格式脱敏、PID/父进程/UID/名称/启动时间变化与文件边界检查。Windows 受影响 controllerconfig/maintenance 实际测试与 vet 自然 exit0，日志 takeover-process-audit-windows-final.log / windows-vet.log；Go -work 保留临时产物，避免本机测试通过后清理临时 exe 时出现拒绝访问；具体阻拦来源未证明。Windows 全套仍因原 report.go 使用 Linux Statfs 不支持 Windows 而失败，不能宣称全套通过。

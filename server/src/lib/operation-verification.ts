@@ -6,7 +6,7 @@
  */
 
 import { prisma } from '../db/prisma.js'
-import { OperationType, VerificationChannel, type Prisma } from '@prisma/client'
+import { OperationType, VerificationChannel, type Prisma, type NotificationChannel } from '@prisma/client'
 import { sendOperationVerificationEmail } from './mailer.js'
 import { sendVerificationNotification } from './notifier.js'
 import {
@@ -109,48 +109,39 @@ export function getOperationName(operationType: OperationType, lang: 'zh' | 'en'
 /**
  * 获取用户的首选通知渠道
  */
-async function getUserNotificationChannel(userId: number): Promise<{
-    channel: VerificationChannel | null
-    channelId: number | null
-    target: string | null
-}> {
-    // 查找用户启用的第一个通知渠道
-    const notificationChannel = await prisma.notificationChannel.findFirst({
+async function getUserNotificationChannel(userId: number): Promise<NotificationChannel | null> {
+    return prisma.notificationChannel.findFirst({
         where: {
             userId,
-            enabled: true
+            enabled: true,
+            isGlobal: false,
+            alertCategory: null
         },
-        orderBy: { createdAt: 'asc' }
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
     })
+}
 
-    if (!notificationChannel) {
-        return { channel: null, channelId: null, target: null }
-    }
-
-    // 解析渠道配置获取目标标识（用于显示）
-    let target = ''
+function maskNotificationTarget(notificationChannel: NotificationChannel): string {
     const config = typeof notificationChannel.config === 'string'
         ? JSON.parse(notificationChannel.config)
         : notificationChannel.config
+    if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Invalid notification configuration')
 
     switch (notificationChannel.type) {
         case 'telegram':
-            target = `Telegram (${(config as { chatId?: string }).chatId?.substring(0, 6)}***)`
-            break
+            if (typeof config.chatId !== 'string' || !config.chatId) throw new Error('Missing notification target')
+            return `Telegram (${config.chatId.substring(0, 6)}***)`
         case 'discord':
-            target = 'Discord Webhook'
-            break
+            return 'Discord Webhook'
         case 'webhook':
-            target = 'Webhook'
-            break
+            return 'Webhook'
+        case 'email': {
+            if (typeof config.email !== 'string' || !config.email.includes('@')) throw new Error('Missing notification target')
+            const [local, domain] = config.email.split('@')
+            return `${local.substring(0, 2)}***@${domain}`
+        }
         default:
-            target = notificationChannel.type
-    }
-
-    return {
-        channel: notificationChannel.type as VerificationChannel,
-        channelId: notificationChannel.id,
-        target
+            throw new Error('Unsupported notification channel')
     }
 }
 
@@ -169,6 +160,13 @@ type PreparedOperationVerification =
     | { alreadySent: true; expiresIn: number; resendAfter: number }
     | { alreadySent: false; code: string; codeHash: string; recordId: number; createdAt: Date; expiresAt: Date }
     | { error: string; errorCode: string; resendAfter?: number }
+
+function notificationTargetBinding(channel: NotificationChannel): string {
+    // Persist only a digest, never notification credentials or recipient data.
+    return 'notification-target:v1:' + crypto.createHash('sha256').update(JSON.stringify([
+        channel.id, channel.type, channel.config
+    ])).digest('hex')
+}
 
 function getOperationVerificationRequestLockKey(
     userId: number,
@@ -203,6 +201,7 @@ export async function requestOperationVerification(
     // 2. 确定验证渠道
     let channel: VerificationChannel
     let maskedTarget: string
+    let notificationChannel: NotificationChannel | null = null
 
     if (isAccountOperation(operationType)) {
         // 账号操作：强制使用邮件
@@ -215,8 +214,8 @@ export async function requestOperationVerification(
         maskedTarget = `${localPart.substring(0, 2)}***@${domain}`
     } else {
         // 资源操作：使用用户绑定的通知渠道
-        const notifyChannel = await getUserNotificationChannel(userId)
-        if (!notifyChannel.channel) {
+        notificationChannel = await getUserNotificationChannel(userId)
+        if (!notificationChannel) {
             // 没有绑定通知渠道，不需要二次验证
             return { 
                 success: false, 
@@ -224,12 +223,14 @@ export async function requestOperationVerification(
                 errorCode: 'NO_NOTIFICATION_CHANNEL' 
             }
         }
-        channel = notifyChannel.channel
-        maskedTarget = notifyChannel.target || channel
+        channel = notificationChannel.type
+        try { maskedTarget = maskNotificationTarget(notificationChannel) }
+        catch { return { success: false, error: 'Notification channel configuration is invalid', errorCode: 'SEND_FAILED' } }
     }
 
     let pendingRecordId: number | undefined
     const requestKey = getOperationVerificationRequestLockKey(userId, operationType, resourceId)
+    const verificationResourceType = notificationChannel ? notificationTargetBinding(notificationChannel) : resourceType || null
     const prepared = await prisma.$transaction(async (tx): Promise<PreparedOperationVerification> => {
         await advisoryTransactionLockString(
             tx,
@@ -280,6 +281,14 @@ export async function requestOperationVerification(
             const resendAfter = Math.max(0, Math.ceil(VERIFICATION_CONFIG.resendAfterSeconds -
                 (now.getTime() - existingVerification.createdAt.getTime()) / 1000))
             if (resendAfter > 0) {
+                if (notificationChannel && (existingVerification.channel !== channel || existingVerification.resourceType !== verificationResourceType)) {
+                    // A newly selected channel cannot describe an earlier delivery.
+                    // Revoke its eligibility, retaining the original send budget.
+                    await tx.operationVerification.updateMany({
+                        where: { id: existingVerification.id }, data: { verified: true, verifiedAt: null }
+                    })
+                    return { error: 'Please wait before requesting another verification code', errorCode: 'VERIFICATION_RATE_LIMITED', resendAfter }
+                }
                 if (existingVerification.verified || existingVerification.attempts >= VERIFICATION_CONFIG.maxAttempts) {
                     return { error: 'Please wait before requesting another verification code', errorCode: 'VERIFICATION_RATE_LIMITED', resendAfter }
                 }
@@ -330,7 +339,7 @@ export async function requestOperationVerification(
                 channel,
                 attempts: DELIVERY_PENDING,
                 resourceId: normalizedResourceId,
-                resourceType: resourceType || null,
+                resourceType: verificationResourceType,
                 expiresAt,
                 createdAt: now
             }
@@ -365,9 +374,9 @@ export async function requestOperationVerification(
         let sent = false
         try {
             const data = { operationName, code: prepared.code, expiresInMinutes: VERIFICATION_CONFIG.expiresInMinutes }
-            sent = channel === 'email'
+            sent = !notificationChannel
                 ? (await sendOperationVerificationEmail(user.email!, { username: user.username, ...data })).success
-                : (await sendVerificationNotification(userId, data)).success
+                : (await sendVerificationNotification(notificationChannel, { username: user.username, ...data })).success
         } catch { /* A thrown transport failure cannot leave an eligible code. */ }
         if (!sent) {
             // Retain the timestamp for the resend budget, but never allow this
@@ -599,7 +608,7 @@ export async function consumeOperationVerification(
  */
 export async function isResourceVerificationRequired(userId: number): Promise<boolean> {
     const channel = await getUserNotificationChannel(userId)
-    return channel.channel !== null
+    return channel !== null
 }
 
 /**

@@ -7,6 +7,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 const source = readFileSync(resolve(__dirname, '../src/lib/operation-verification.ts'), 'utf8')
+const notifier = readFileSync(resolve(__dirname, '../src/lib/notifier.ts'), 'utf8')
 const schema = readFileSync(resolve(__dirname, '../prisma/schema.prisma'), 'utf8')
 const locksSource = readFileSync(resolve(__dirname, '../src/db/advisory-locks.ts'), 'utf8')
 const attemptsMigration = readFileSync(
@@ -40,6 +41,16 @@ const verifyOperationCodeSource = sourceBetween(
   '/**\n * 检查操作是否已经通过二次验证'
 )
 const failedAttemptSource = sourceBetween(source, 'async function recordFailedVerificationAttempt(', 'export async function verifyOperationCode(')
+const notificationSelection = sourceBetween(source, 'async function getUserNotificationChannel(', 'function maskNotificationTarget(')
+const verificationDelivery = sourceBetween(notifier, 'export async function sendVerificationNotification(', 'export async function sendToChannel(')
+assert.ok(notificationSelection.includes('enabled: true') && notificationSelection.includes('isGlobal: false') &&
+  notificationSelection.includes('alertCategory: null') && notificationSelection.includes("orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]"),
+  'resource verification must deterministically select only the current user personal notification channels')
+assert.ok(requestOperationVerificationSource.includes('notificationTargetBinding(notificationChannel)') &&
+  requestOperationVerificationSource.includes('existingVerification.resourceType !== verificationResourceType') &&
+  requestOperationVerificationSource.includes('sendVerificationNotification(notificationChannel,') &&
+  !verificationDelivery.includes('getEnabledChannelsByUserId') && verificationDelivery.includes('return sendOperationVerificationEmail(config.email, data)'),
+  'display and delivery must share one channel snapshot, reject changed-target duplicate receipts, and send resource email to its configured recipient')
 assert.ok(failedAttemptSource.includes('operationVerification.updateMany({') &&
   failedAttemptSource.includes('attempts: { lt: VERIFICATION_CONFIG.maxAttempts }') &&
   !failedAttemptSource.includes('operationVerification.deleteMany('),

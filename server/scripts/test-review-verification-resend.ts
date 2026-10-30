@@ -12,7 +12,9 @@ const { default: routes } = await import('../src/routes/verification.js')
 const { clearTransporterCache } = await import('../src/lib/mailer.js')
 const { invalidateAllConfigCache } = await import('../src/lib/config-cache.js')
 const { claimOperationVerificationRequirement, isOperationVerified } = await import('../src/lib/operation-verification.js')
+const { sendVerificationNotification } = await import('../src/lib/notifier.js')
 const tag = 'verification-resend-' + randomUUID().slice(0, 8), messages: string[] = [], sockets = new Set<Socket>()
+const originalFetch = globalThis.fetch
 let delivery: 'accepted' | 'held' | 'rejected' = 'accepted'
 const held: Array<{ message: string; finish: () => void }> = []
 const smtp = createServer(socket => {
@@ -213,7 +215,81 @@ try {
   assert.equal(messages.length, beforeConsume + 1)
   assert.equal((await claimOperationVerificationRequirement(actor.id, 'disable_2fa')).verified, false)
   console.log('PASS verified and single-use consumed grants retain sixty-second send history; new delivery cannot revive the consumed grant')
+
+  const deliveries: Array<{ chat: string; text: string }> = []
+  globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), 'https://api.telegram.org/botfixture-token/sendMessage', 'verification stays on its captured transport')
+    const body = JSON.parse(String(init?.body)) as { chat_id: string; text: string }
+    deliveries.push({ chat: body.chat_id, text: body.text })
+    return new Response(JSON.stringify({ ok: true }), { status: 200 })
+  }
+  const createChannel = (name: string, chatId: string, createdAt: number, extras: { isGlobal?: boolean; alertCategory?: string; enabled?: boolean } = {}) =>
+    prisma.notificationChannel.create({ data: { userId: actor.id, name, type: 'telegram', config: { botToken: 'fixture-token', chatId },
+      createdAt: new Date(createdAt), ...extras } })
+  const now = Date.now()
+  await createChannel('newer inserted first', '222222222', now - 10_000)
+  const selected = await createChannel('oldest personal', '111111111', now - 20_000)
+  await createChannel('same timestamp larger ID', '777777777', now - 20_000)
+  await createChannel('global', '333333333', now - 40_000, { isGlobal: true })
+  await createChannel('administrator alert', '444444444', now - 50_000, { alertCategory: 'host' })
+  await createChannel('disabled', '555555555', now - 60_000, { enabled: false })
+  const notifyRequest = (resourceId: number) => app.inject({ method: 'POST', url: '/verification/request',
+    payload: { operationType: 'reinstall_instance', resourceId } })
+  const notified = await notifyRequest(910001)
+  assert.equal(notified.statusCode, 200, notified.body)
+  assert.equal(notified.json().maskedTarget, 'Telegram (111111***)', 'only the selected personal target is described')
+  assert.deepEqual(deliveries.map(value => value.chat), ['111111111'], 'actual transport receives the same oldest personal target shown by the route')
+  const notifiedRecord = await prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id, operationType: 'reinstall_instance', resourceId: 910001 } })
+  assert.equal(notifiedRecord.channel, 'telegram'); assert.equal(notifiedRecord.attempts, 0)
+  assert.ok(notifiedRecord.resourceType?.startsWith('notification-target:v1:') && !notifiedRecord.resourceType.includes('fixture-token') && !notifiedRecord.resourceType.includes('111111111'))
+  const notificationCode = deliveries[0].text.match(/\d{6}/)?.[0]; assert.ok(notificationCode)
+  assert.ok(!notified.body.includes(notificationCode) && !notified.body.includes('fixture-token') && !notified.body.includes('111111111'))
+  console.log('PASS deterministic personal channel selection excludes global/administrator/disabled channels and matches the actual transport')
+
+  const notifyDuplicate = await notifyRequest(910001)
+  assert.equal(notifyDuplicate.statusCode, 200); assert.equal(notifyDuplicate.json().alreadySent, true)
+  assert.equal(notifyDuplicate.json().maskedTarget, notified.json().maskedTarget); assert.equal(deliveries.length, 1)
+
+  await prisma.notificationChannel.update({ where: { id: selected.id }, data: { enabled: false, config: { botToken: 'fixture-token', chatId: '999999999' } } })
+  const changedDuplicate = await notifyRequest(910001)
+  assert.equal(changedDuplicate.statusCode, 400); assert.equal(changedDuplicate.json().code, 'VERIFICATION_RATE_LIMITED')
+  assert.ok(!changedDuplicate.body.includes('777777') && !changedDuplicate.body.includes('999999') && !changedDuplicate.body.includes('maskedTarget'))
+  assert.equal(deliveries.length, 1)
+  assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verifiedAt, null)
+  assert.equal((await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'reinstall_instance', resourceId: 910001, code: notificationCode } })).statusCode, 400)
+  console.log('PASS changed targets cannot mislabel a prior delivery, revive its code or bypass the resend budget')
+  const fixed = await sendVerificationNotification(selected, { operationName: 'Snapshot fixture', code: '123456', expiresInMinutes: 10, username: actor.username })
+  assert.equal(fixed.success, true)
+  assert.equal(deliveries.at(-1)?.chat, '111111111', 'a captured delivery must not reselect or reread a changed notification target')
+  console.log('PASS a prepared notification snapshot retains its original transport/config throughout delivery')
+
+  await prisma.notificationChannel.deleteMany({ where: { userId: actor.id, isGlobal: false, alertCategory: null } })
+  const noPersonal = await notifyRequest(910002)
+  assert.equal(noPersonal.statusCode, 200); assert.equal(noPersonal.json().required, false)
+  assert.equal(deliveries.length, 2)
+  assert.equal(await prisma.operationVerification.count({ where: { userId: actor.id, resourceId: 910002 } }), 0)
+  console.log('PASS administrator-only channels cannot impose or receive personal resource verification')
+
+  const emailTarget = `${tag}-channel@example.test`
+  await prisma.notificationChannel.create({ data: { userId: actor.id, name: 'personal email', type: 'email', config: { email: emailTarget } } })
+  const beforeChannelMail = messages.length
+  const mailed = await notifyRequest(910003)
+  assert.equal(mailed.statusCode, 200, mailed.body)
+  assert.equal(mailed.json().channel, 'email'); assert.equal(mailed.json().maskedTarget, `${emailTarget.slice(0, 2)}***@example.test`)
+  assert.equal(messages.length, beforeChannelMail + 1)
+  assert.ok(messages.at(-1)?.includes('To: ' + emailTarget), 'resource email delivery uses the configured channel address')
+  assert.ok(!mailed.body.includes(emailTarget))
+  console.log('PASS configured personal email receives real SMTP delivery and the response masks the actual recipient')
+
+  const personalEmail = await prisma.notificationChannel.findFirstOrThrow({ where: { userId: actor.id, name: 'personal email' } })
+  await prisma.notificationChannel.update({ where: { id: personalEmail.id }, data: { config: 'invalid-json' } })
+  const invalidConfig = await notifyRequest(910004)
+  assert.equal(invalidConfig.statusCode, 400); assert.equal(invalidConfig.json().code, 'SEND_FAILED')
+  assert.equal(messages.length, beforeChannelMail + 1)
+  assert.equal(await prisma.operationVerification.count({ where: { userId: actor.id, resourceId: 910004 } }), 0)
+  console.log('PASS malformed stored notification configuration fails without issuing an eligible code or sending')
 } catch (error) { failure = error } finally {
+  globalThis.fetch = originalFetch
   held.splice(0).forEach(item => item.finish())
   await app.close(); clearTransporterCache()
   await prisma.user.deleteMany({ where: { id: { in: users.map(user => user.id) } } })

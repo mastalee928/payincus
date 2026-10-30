@@ -10,6 +10,8 @@ import { prisma } from '../db/prisma.js'
 import { assertSafeWebhookUrl, safeFetch } from './outbound-security.js'
 import { sanitizeTokensInString } from './log-sanitizer.js'
 import { TICKET_REPLY_TITLE, formatTicketReplyNotice } from './ticket-notification.js'
+import { sendOperationVerificationEmail } from './mailer.js'
+import type { NotificationChannel as VerificationNotificationChannel } from '@prisma/client'
 
 // 重试配置
 const MAX_RETRIES = 3
@@ -1549,20 +1551,14 @@ export async function testNotificationChannel(channel: NotificationChannel): Pro
  * 发送敏感操作验证码通知
  */
 export async function sendVerificationNotification(
-  userId: number,
+  channel: VerificationNotificationChannel,
   data: {
+    username: string
     operationName: string
     code: string
     expiresInMinutes: number
   }
 ): Promise<{ success: boolean; error?: string }> {
-  // 获取用户的通知渠道
-  const channels = await db.getEnabledChannelsByUserId(userId)
-  
-  if (!channels || channels.length === 0) {
-    return { success: false, error: 'No notification channel configured' }
-  }
-
   const title = '🔐 操作验证码'
   const message = `您正在执行「${data.operationName}」操作
 
@@ -1571,13 +1567,15 @@ export async function sendVerificationNotification(
 此验证码将在 ${data.expiresInMinutes} 分钟后失效。
 如非本人操作，请立即修改密码。`
 
-  // 只发送给第一个启用的渠道
-  const channel = channels[0]
-  
+  // The caller captures one personal channel. Every retry uses this snapshot;
+  // rereading a list here can silently change both the transport and recipient.
   try {
     const config = typeof channel.config === 'string'
       ? JSON.parse(channel.config)
       : channel.config
+    if (!config || typeof config !== 'object' || Array.isArray(config)) {
+      return { success: false, error: 'Invalid notification configuration' }
+    }
 
     let result: NotificationResult
 
@@ -1606,6 +1604,9 @@ export async function sendVerificationNotification(
           'Webhook'
         )
         break
+      case 'email':
+        if (typeof config.email !== 'string' || !config.email.includes('@')) return { success: false, error: 'Missing email target' }
+        return sendOperationVerificationEmail(config.email, data)
       default:
         return { success: false, error: `Unsupported channel type: ${channel.type}` }
     }

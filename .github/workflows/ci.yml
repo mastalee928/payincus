@@ -214,7 +214,7 @@ jobs:
         run: pnpm --filter server test:review-host-gift-days
       - name: Host calibration locks current inputs and commits resource counters with its audit
         run: pnpm --filter server test:review-host-recalculate
-      - name: Sensitive verification resends use sixty seconds and truthful SMTP receipts
+      - name: Sensitive verification targets, budgets and SMTP receipts remain consistent
         run: pnpm --filter server test:review-verification-resend
       - name: Consumed verification grants preserve send history and profile rollback
         run: pnpm --filter server test:review-verification-integration
