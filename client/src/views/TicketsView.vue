@@ -14,6 +14,8 @@ import TicketImageLightbox from '@/components/tickets/TicketImageLightbox.vue'
 import TicketImageUploader from '@/components/tickets/TicketImageUploader.vue'
 import TicketInstanceOwnerCard from '@/components/tickets/TicketInstanceOwnerCard.vue'
 import { ticketsPath } from '@/utils/app-paths'
+import { loadCompletePages } from '@/utils/completePages'
+import { translateError } from '@/utils/errorHandler'
 import { useReveal } from '@/composables/useReveal'
 import type {
   Ticket,
@@ -169,6 +171,7 @@ let createRevision = 0
 watch([createForm, createAttachments], () => { createRevision++ }, { deep: true, flush: 'sync' })
 const availableInstances = ref<InstanceWithDetails[]>([])
 const instancesLoading = ref(false)
+const instancesError = ref('')
 const attachmentObjectUrls = ref<Record<number, string>>({})
 const attachmentLoadingIds = ref<Record<number, boolean>>({})
 const lightboxOpen = ref(false)
@@ -549,6 +552,7 @@ function resetPage() {
   loading.value = false
   refreshing.value = false
   instancesLoading.value = false
+  instancesError.value = ''
   tickets.value = []
   total.value = 0
   availableInstances.value = []
@@ -1028,16 +1032,29 @@ function openCreateForm() {
 
 async function loadAvailableInstances() {
   const context = capturePage(), sequence = ++instancesSequence
+  const userId = authStore.user?.id
   const current = () => context() && sequence === instancesSequence && viewMode.value === 'create'
   if (!current()) return
   instancesLoading.value = true
+  instancesError.value = ''
+  availableInstances.value = []
+  createForm.value.instanceId = null
   try {
-    const response = await api.instances.list({ pageSize: 100 }) as unknown as { instances: InstanceWithDetails[] }
+    const rows = await loadCompletePages<InstanceWithDetails>({
+      fetchPage: params => api.instances.list(params), itemsKey: 'instances', current, errorMessage: t('common.loadFailed'),
+      isItem: (value): value is InstanceWithDetails => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+        const instance = value as Record<string, unknown>
+        return typeof instance.id === 'number' && typeof instance.name === 'string' && typeof instance.status === 'string' &&
+          (instance.user_id === undefined || instance.user_id === userId) &&
+          (instance.userId === undefined || instance.userId === userId)
+      }
+    })
     if (!current()) return
-    availableInstances.value = response.instances || []
-  } catch (error: any) {
+    availableInstances.value = rows
+  } catch (error: unknown) {
     if (!current()) return
-    toast.error(error?.message || t('common.error'))
+    instancesError.value = translateError(error)
   } finally {
     if (current()) instancesLoading.value = false
   }
@@ -1760,7 +1777,18 @@ function formatDateShort(dateString: string) {
                 :instances="formattedInstances"
                 :placeholder="t('tickets.selectInstanceHint')"
               />
-              <p v-if="availableInstances.length === 0 && !instancesLoading" class="mt-2 text-sm text-themed-muted">
+              <div v-if="instancesError" role="alert" class="mt-3 flex flex-wrap items-center gap-3">
+                <p class="min-w-0 flex-1 break-words text-sm text-themed">{{ instancesError }}</p>
+                <button
+                  type="button"
+                  data-testid="ticket-instances-retry"
+                  class="ticket-instances-retry min-h-[44px] min-w-[44px] rounded-lg px-4 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                  @click="loadAvailableInstances"
+                >
+                  {{ t('common.retry') }}
+                </button>
+              </div>
+              <p v-else-if="availableInstances.length === 0 && !instancesLoading" class="mt-2 text-sm text-themed-muted">
                 {{ t('tickets.noInstancesHint') }}
               </p>
             </div>
@@ -1847,6 +1875,26 @@ function formatDateShort(dateString: string) {
 </template>
 
 <style scoped>
+.ticket-instances-retry {
+  background: #0a0a0a !important;
+  color: #fff !important;
+  outline-color: #0a0a0a;
+}
+
+.dark .ticket-instances-retry {
+  background: #fff !important;
+  color: #0a0a0a !important;
+  outline-color: #fff;
+}
+
+.ticket-instances-retry:hover {
+  background: #262626 !important;
+}
+
+.dark .ticket-instances-retry:hover {
+  background: #e5e5e5 !important;
+}
+
 .nimbus-pill {
   display: inline-flex;
   align-items: center;

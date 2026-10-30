@@ -116,7 +116,7 @@ try {
 
   await run(() => window.ticketHarness.session('user')); await ready(6)
   await run(() => window.ticketHarness.router.push('/tickets?compose=1'))
-  await accept(await last('instances'), { instances: [] })
+  await accept(await last('instances'), { instances: [], page: 1, pageSize: 100, total: 0, totalPages: 0 })
   const createDraft = content => run(content => { const v = window.ticketHarness.view(); v.createForm.subject = 'Fixture ticket'; v.createForm.content = content }, content)
   await createDraft('Original content text'); await run(() => { void window.ticketHarness.view().submitCreate() })
   const creation = await last('create'); await run(() => { void window.ticketHarness.view().submitCreate() }); assert.equal(await last('create'), creation)
@@ -126,7 +126,7 @@ try {
   await run(() => { void window.ticketHarness.view().submitCreate() }); const currentCreate = await last('create')
   await accept(currentCreate, { ticket: { id: 21 } }); assert.equal(await page.eval(() => window.ticketHarness.router.currentRoute.value.fullPath), '/tickets?ticket=21')
   await ready(21)
-  await run(() => window.ticketHarness.router.push('/tickets?compose=1')); await accept(await last('instances'), { instances: [] })
+  await run(() => window.ticketHarness.router.push('/tickets?compose=1')); await accept(await last('instances'), { instances: [], page: 1, pageSize: 100, total: 0, totalPages: 0 })
   await createDraft('Leave before completing'); await run(() => { void window.ticketHarness.view().submitCreate() }); const leaveCreate = await last('create')
   await run(() => window.ticketHarness.router.push('/other')); const beforeLeaveToast = await toasts()
   await accept(leaveCreate, { ticket: { id: 22 } }); assert.equal(await page.eval(() => window.ticketHarness.router.currentRoute.value.fullPath), '/other')

@@ -64,6 +64,7 @@
     "test:review-terminal-commands-lifecycle": "node ../scripts/test-terminal-commands-lifecycle.mjs",
     "test:review-ticket-lifecycle": "node ../scripts/test-ticket-lifecycle.mjs",
     "test:review-ticket-actions": "node ../scripts/test-ticket-actions.mjs",
+    "test:review-ticket-instance-pagination": "node ../scripts/test-ticket-instance-pagination.mjs",
     "test:review-ticket-instance-card": "node ../scripts/test-ticket-instance-card.mjs",
     "test:review-instance-batch-billing": "node ../scripts/test-instance-batch-billing.mjs",
     "test:destroy-email-ui": "node ../scripts/test-destroy-email-ui.mjs",

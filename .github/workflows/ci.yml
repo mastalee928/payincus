@@ -240,6 +240,8 @@ jobs:
         run: pnpm --filter server test:review-ticket-lifecycle
       - name: Ticket actions keep their original target and preserve later drafts
         run: pnpm --filter server test:review-ticket-actions
+      - name: Ticket instance choices include all pages and retain failed inventory reads
+        run: pnpm --filter server test:review-ticket-instance-pagination
       - name: Ticket instance cards discard stale actions and release all polling
         run: pnpm --filter server test:review-ticket-instance-card
       - name: Batch renewal and destruction submit only the approved preview targets

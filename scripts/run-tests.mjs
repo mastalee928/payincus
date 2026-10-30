@@ -89,6 +89,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-terminal-commands-lifecycle', 'requires Chrome/Edge and local Vite; actual saved command draft, CRUD response, session, cache and mobile lifecycle'],
   ['test:review-ticket-lifecycle', 'requires Chrome/Edge and local Vite; actual ticket detail, reply draft, pagination, attachment, session and cache lifecycle'],
   ['test:review-ticket-actions', 'requires Chrome/Edge and local Vite; current ticket status, admin actions and create draft/navigation isolation'],
+  ['test:review-ticket-instance-pagination', 'requires Chrome/Edge and local Vite; actual ticket complete instance choices, malformed/obsolete middle pages, original third-page create target and persistent error/retry in three locales and widths; controlled API only'],
   ['test:review-ticket-instance-card', 'requires Chrome/Edge and local Vite; ticket instance card response, polling, action, session and cache lifecycle'],
   ['test:review-instance-batch-billing', 'requires Chrome/Edge and local Vite; batch billing preview targets, eligibility and session/cache/write response isolation'],
   ['test:destroy-email-ui', 'requires Chrome/Edge and local Vite; actual destroy dialog email gates, lifecycle, keyboard and recharge copy'],

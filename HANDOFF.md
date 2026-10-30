@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-020 工单完整实例选项（持续施工）
+
+- 接续保留上一段未提交修改，终端7c8558a3c834b2a27dd03672b41625eba44b44a7已推、CI41003054433运行。40995350722现七job终态success；40996832087/40998161357/41000607228/41001679848/41003054433仍运行，逐次跟终态，历史Go进程审计IO失败仍待定位。
+- 工单关联实例沿真实list分页合同按100顺序读取全部页，校验metadata/长度/ID/name/status及可见owner；全页通过才发布选项。旧会话/角色/账户/路由/缓存/ABA/卸载及更新读取使旧第二页停止后续dispatch，失败持久显示错误与实际重试，不再伪装没有实例。实际第三页实例237可从原下拉选择并随原发工单payload提交；不更改工单权限/后端/实例交付及一机一卖全端口。
+- actual Chrome专项29250自然exit0，takeover-ticket-instance-pagination-final-colors.log：237条三页/七类坏中间页/22旧成功失败回执/实际error-retry/合法空及18三语三宽深浅主题44px键盘和无横溢通过。新对比度断言先红为深色1:1；原modal-content通用bg-white匹配dark:bg-white导致暗底黑字，局部专用class/颜色覆盖后严格主题色与19.8:1对比度通过。18最终截图已逐宽三语深浅查看，并保存visual-critique.txt；整页原玻璃/紫色按钮及提示弱对比度仍待，不把此控件当整页精修。
+- 原工单actions/lifecycle专项已自然exit0，takeover-ticket-instance-pagination-actions-final.log及lifecycle-final.log；原三守卫123135、最后route124233、有效ESLint50599及manifest194常规226专项通过。最终源码仅最后双端构建37684有效，takeover-ticket-instance-pagination-dual-last.log含两次vue-tsc、45.65/48.98秒及NATURAL_EXIT_CODE=0；末dist-last.log自然exit0，最后taste报告13528自然exit0（takeover-ticket-instance-pagination-taste-complete.log）；18报告保存原整页finding，edited retry无低对比度；提交保存后继续；此前build虽结束但期间改了selector，不计最终证据。
+- R020剩余MyPackages宿主名称全页/MyHosts写calibrate全页与授权/HostInfo完整实例统计三处；原327仍259含部分修复复验/68已有不同，内部验收总数未去重汇总，不能报剩余0。阶段保存推送后立即继续HostInfo，实际宿主/外部邮件/SSH身份及完整网关灾备保留；没有发行/OTA/生产动作。
+
 ## 2026-10-30 R1-020 终端完整实例选择器（持续施工）
 
 - 控制台分页阶段已推送be4b515c1e497f1968a59053a259a55825768719，CI41001679848运行。前40993940514已七job终态success；40995350722/40996832087/40998161357/41000607228/41001679848仍运行无新失败，持续跟终态。

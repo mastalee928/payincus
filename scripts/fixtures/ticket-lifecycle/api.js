@@ -12,5 +12,5 @@ export default {
     getAttachmentContent: id => defer('attachment', id),
     reply: (id, content, attachments) => defer('reply', id, { content, files: attachments.map(file => file.name) }),
   },
-  instances: { list: () => defer('instances') },
+  instances: { list: params => defer('instances', null, params) },
 }
