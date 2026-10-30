@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:review-terminal-reconnect-authorization', 'requires isolated PostgreSQL, OpenSSL and local mTLS/WebSocket fixture; current authorization after reconnect, actual row-lock competition, lock/deadline cancellation, real COMMIT failure and revocation while initial/reconnect authorization is pending'],
   ['test:review-terminal-reconnect', 'requires OpenSSL and local mTLS HTTP/WebSocket fixture; reconnect backoff/POST/handshake cancellation, four revocation scopes, concurrent account isolation, client disconnect, VM fallback and total deadline with transport cleanup'],
   ['test:prisma-transaction-start-timeout', 'requires isolated local *_pool_test PostgreSQL; real Prisma acquisition timeouts, late BEGIN cleanup, eight-connection recovery and commit/rollback behavior'],
   ['test:review-oauth-locales', 'requires Chrome/Edge and local Vite; actual administrator OAuth login configuration translated labels in three languages/widths, empty existing secret and omitted update payload; controlled API only'],

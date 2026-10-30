@@ -468,7 +468,7 @@
 | R1-174 | 部分存在 | 重连取消与总期限已迁入；产品专项通过 | 原opening撤销保留，reconnect从backoff起20秒并贯穿POST/双握手，四范围close立即abort、清本轮再重试。真实mTLS十二撤销/三并发隔离/client断开/VM/总期限与原PG初连回归、types/三守卫通过terminal-r174-product-*；R177重连授权和pending提交窗口下一段，真实Incus长期运行仍待。 |
 | R1-175 | 已有防护 | 保留初审结论 | 重连等待后及新连接完成后核对activeSessions对象、reconnectGeneration和client状态，不符关闭新socket。 |
 | R1-176 | 已有防护 | 保留初审结论 | 所有异步建连前同步claimTerminalConnection预留名额，close释放pending且release幂等。 |
-| R1-177 | 部分存在 | 初始建连当前授权PG/mTLS专项与构建守卫通过 | 先登记opening撤销，再锁原实例/host/当前actor及package核归属、身份、role/session、running/任务门禁并完成初连，总20秒及提交失败清socket。真实route5组零POST/PG9竞争/正常三角色/TLS撤销与超时通过；真实Incus UUID及持续重连权限另待。 |
+| R1-177 | 部分存在 | 初连/重连当前授权已修，产品PG/mTLS与构建通过 | 重连复用原初连闭包重核当前角色/会话与原实例/host/package；真实route九类变更拒绝/五PG锁竞争/三角色正常/20秒与真实COMMIT失败清理通过。初连和重连已连通但事务pending时撤销立即清双socket；terminal-r177-product-*全回归/types/三守卫/build自然exit0，已接CI。原生Incus UUID及长期公网终端另待。 |
 | R1-178 | 已有防护 | 保留初审结论 | 事务advisory lock串行count和insert，100条上限已有并发保护。 |
 | R1-179 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-180 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |

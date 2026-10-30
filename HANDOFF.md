@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R177 重连当前授权与待提交连接取消迁入（阶段保存）
+
+- R174已推94214b23b6fd92fa2edd74170b2bad393964bf02，CI41131579517启动，须跟终态。第二段保留原authorizeOpening闭包，每次重连复用当前账户/会话/角色、原实例/宿主/套餐与运行/转移门禁；授权或DB失败关闭用户会话，后端连接故障沿原有界重试。
+- 初连/重连已建立但尚未交给session的pair绑定原取消信号，pending事务期间撤销立即关闭，finally移除监听；成功后由原session生命周期管理。新test-review-terminal-reconnect-authorization.ts持久保存原route九类拒绝、五PG锁竞争、真实COMMIT失败及两pending窗口测试，登记清单与CI。产品types/build及受影响全部专项继续收自然退出，详细先红后绿证据在下。
+- 最终terminal-r177-product-{authority,opening-pg,opening,reconnect,types,guards,build}.log全部自然exit0：真实路由九类变更拒绝、五PG锁竞争、三角色正常、等待撤销/5秒锁超时/总20秒、真实COMMIT外键23503及初连/重连pending事务撤销均清双socket；原扩大取消/VM与初连授权保持。完整服务端+四长期测试零类型诊断，三守卫/清单/后端构建通过。没有前端变更；原生Incus UUID/长期公网终端仍另验。
+
 ## 2026-10-31 R174 重连取消与总期限迁入主分支（阶段保存）
 
 - v1.7.8 tag已冻结后，先迁入独立R174修复：重连从backoff开始20秒总期限，取消信号覆盖等待、POST及双握手；用户/登录会话/实例/全局关闭立即取消在途请求，finally清本轮timer/controller后才递归重试，原generation与VM正常fallback保持。

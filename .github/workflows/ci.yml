@@ -269,6 +269,8 @@ jobs:
         run: pnpm --filter server test:review-terminal-reconnect
       - name: Terminal openings bind current session and original target under PostgreSQL locks
         run: pnpm --filter server test:review-terminal-authorization
+      - name: Terminal reconnects recheck current authorization and clean sockets before pending transactions finish
+        run: pnpm --filter server test:review-terminal-reconnect-authorization
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets

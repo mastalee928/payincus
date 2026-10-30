@@ -81,6 +81,7 @@ export interface TerminalSession {
     incusReconnectAttempts: number
     reconnectGeneration: number
     reconnectCancellation: AbortController | null
+    authorizeConnection?: <T>(open: () => Promise<T>) => Promise<T>
 }
 
 // 活跃终端会话存储
@@ -336,6 +337,12 @@ async function reconnectIncusConnection(sessionId: string, reason: string): Prom
     session.reconnectCancellation = cancellation
     const deadline = setTimeout(() => cancellation.abort(new Error('Terminal reconnection deadline exceeded')), 20000)
     let retry = false
+    let openedConnection: Awaited<ReturnType<typeof createIncusConsoleConnection>> | undefined
+    let backendFailed = false
+    const closePendingConnection = () => {
+        if (openedConnection) closeIncusConnectionPair(openedConnection.dataWs, openedConnection.controlWs)
+    }
+    cancellation.signal.addEventListener('abort', closePendingConnection, { once: true })
     try {
         await waitForReconnect(delay, undefined, { signal: cancellation.signal })
         if (activeSessions.get(sessionId) !== session || session.reconnectGeneration !== reconnectGeneration) return
@@ -343,12 +350,28 @@ async function reconnectIncusConnection(sessionId: string, reason: string): Prom
             closeTerminalSession(sessionId, reason)
             return
         }
-        const { controlWs, dataWs, mode } = await createIncusConsoleConnection(
-            session.host,
-            session.instanceName,
-            session.instanceType,
-            cancellation.signal
-        )
+        const open = async () => {
+            cancellation.signal.throwIfAborted()
+            try {
+                openedConnection = await createIncusConsoleConnection(
+                    session.host,
+                    session.instanceName,
+                    session.instanceType,
+                    cancellation.signal
+                )
+                if (cancellation.signal.aborted) {
+                    closePendingConnection()
+                    cancellation.signal.throwIfAborted()
+                }
+                return openedConnection
+            } catch (error) {
+                backendFailed = true
+                throw error
+            }
+        }
+        const { controlWs, dataWs, mode } = session.authorizeConnection
+            ? await session.authorizeConnection(open)
+            : await open()
 
         if (
             activeSessions.get(sessionId) !== session ||
@@ -382,7 +405,13 @@ async function reconnectIncusConnection(sessionId: string, reason: string): Prom
             mode
         })
     } catch (error) {
+        if (openedConnection) closeIncusConnectionPair(openedConnection.dataWs, openedConnection.controlWs)
         if (activeSessions.get(sessionId) !== session || session.reconnectGeneration !== reconnectGeneration) return
+        if (session.authorizeConnection && !backendFailed) {
+            console.error(`[Terminal] Reconnection authorization failed for session ${session.id}:`, error)
+            closeTerminalSession(sessionId, 'Terminal reconnection authorization failed')
+            return
+        }
         if (session.clientWebSocket.readyState !== session.clientWebSocket.OPEN) {
             closeTerminalSession(sessionId, reason)
             return
@@ -392,6 +421,7 @@ async function reconnectIncusConnection(sessionId: string, reason: string): Prom
         retry = true
     } finally {
         clearTimeout(deadline)
+        cancellation.signal.removeEventListener('abort', closePendingConnection)
         if (session.reconnectCancellation === cancellation) session.reconnectCancellation = null
     }
     if (retry) await reconnectIncusConnection(sessionId, 'Incus reconnection failed')
@@ -594,11 +624,19 @@ export async function createTerminalSession(
     // 创建 Incus 控制台连接
     let connection: Awaited<ReturnType<typeof createIncusConsoleConnection>>
     let openedConnection: typeof connection | undefined
+    const signal = AbortSignal.any([cancellation.signal, AbortSignal.timeout(20000)])
+    const closePendingConnection = () => {
+        if (openedConnection) closeIncusConnectionPair(openedConnection.dataWs, openedConnection.controlWs)
+    }
+    signal.addEventListener('abort', closePendingConnection, { once: true })
     try {
-        const signal = AbortSignal.any([cancellation.signal, AbortSignal.timeout(20000)])
         const open = async () => {
             signal.throwIfAborted()
             openedConnection = await createIncusConsoleConnection(host, instanceName, instanceType, signal)
+            if (signal.aborted) {
+                closePendingConnection()
+                signal.throwIfAborted()
+            }
             return openedConnection
         }
         connection = authorizeOpening ? await authorizeOpening(open) : await open()
@@ -608,6 +646,8 @@ export async function createTerminalSession(
         clientWs.off('close', clientClosed); clientWs.off('error', clientFailed)
         if (openedConnection) closeIncusConnectionPair(openedConnection.dataWs, openedConnection.controlWs)
         throw error
+    } finally {
+        signal.removeEventListener('abort', closePendingConnection)
     }
     const { controlWs, dataWs, operationId, mode } = connection
     if (cancellation.signal.aborted) clientDisconnected = true
@@ -639,7 +679,8 @@ export async function createTerminalSession(
         reconnectingIncus: false,
         incusReconnectAttempts: 0,
         reconnectGeneration: 0,
-        reconnectCancellation: null
+        reconnectCancellation: null,
+        authorizeConnection: authorizeOpening
     }
 
     bindIncusSocketHandlers(session, dataWs, controlWs)
