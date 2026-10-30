@@ -1,3 +1,5 @@
+2026-10-30 R011 SSH/init正文：接续未提交材料检查并接真实worker，受理和执行前v2摘要绑定owner公钥/命令正文/发行版，材料行锁后重读；执行使用返回原核验内容，不在停机后再取新key或静默过滤。实际PG两任务十二材料行锁竞争、缺失/外人/回退变更/管理员owner材料及原验证码SMTP回归，真实mTLS配置dispatch在连接中改正文仍使用原材料，types/server build/十守卫/destroy/manifest全自然exit0见HANDOFF。原生重装、镜像当前授权和逐步远端授权另待，259含部分/68不同不增。上段ff625812416f7d0ab331194752fa0bccc70c803f / CI41044295702待终态，阶段保存后继续。
+
 2026-10-30 R011备份DELETE：grant在当前操作/资源/terminalOnly门禁后真实事务消费，远端和DB失败回滚；冲突审计FK30秒等待已通过立即409+结构化服务warn修复。实际PG/mTLS完整上传/五远端故障/DB故障/另一sid/上传冲突/7并发及时409/终态重放、types/server build/十守卫/PG-SMTP/manifest通过。详见HANDOFF与错误记录；冲突DB审计改服务日志证据范围明确，原327计数不增，内部验收继续。
 
 2026-10-30 R011/CI快照DELETE：原验证码claim在操作锁前被恢复实例行锁阻塞，500失败本机复现。已改同withSnapshotMutation事务，原权限/快照源/操作锁先核再消费删除；真实PG/mTLS配置grant跨会话/及时409/远端与DB失败回滚/8并发一删除一消费、原20竞态、严格types/build/十守卫/原PG-SMTP/manifest通过。两旧失败运行与五在途CI保留，跨系统与原生缺失确认、backup同类合同/原327内部缺口继续，259含部分/68不同不增。

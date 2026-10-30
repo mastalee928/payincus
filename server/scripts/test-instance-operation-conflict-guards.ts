@@ -21,13 +21,26 @@ const workerSource = readFileSync(resolve(__dirname, '../src/workers/instanceTas
 const taskExecution = taskDatabase.slice(taskDatabase.indexOf('export async function validateDestructiveTaskExecution('), taskDatabase.indexOf('// These getters also feed API responses.'))
 assert.ok(taskExecution.includes('SELECT id FROM instance_tasks WHERE id = ${task.id} FOR SHARE') &&
   taskExecution.includes('authorizeUserWrite(tx, actor.id, actor)') &&
-  taskExecution.includes('destructiveTaskIdentity(currentTask, instance, host, role) !== currentTask.operationIdentity') &&
+  taskExecution.includes('destructiveTaskIdentity(currentTask, instance, host, role, materials.binding) !== currentTask.operationIdentity') &&
   taskExecution.includes('INSTANCE_TASK_AUTHORIZATION_MISSING') &&
   taskExecution.includes('assertNoPendingSnapshotOperations(tx, instance.id)') &&
   taskExecution.includes('assertNoPendingProxySiteOperations(tx, instance.id)') &&
   taskExecution.includes('tx.restoreTask.count') && taskExecution.includes('tx.backupUploadTask.count') && taskExecution.includes('tx.instanceTransfer.count') &&
   workerSource.indexOf('await validateDestructiveTaskExecution(task)') < workerSource.indexOf("if (task.taskType === 'rebuild' && instance.dedicated_ipv4)"),
   'destructive execution must recheck persisted consent, exact attempt, current account/resource and workflow locks before instance writes')
+const taskMaterials = taskDatabase.slice(taskDatabase.indexOf('async function loadDestructiveTaskMaterials('), taskDatabase.indexOf('export interface CreateInstanceTaskData'))
+assert.ok(taskMaterials.includes('SELECT id FROM ssh_keys WHERE id = ${task.sshKeyId} FOR SHARE') &&
+  taskMaterials.includes('key.userId !== ownerId') && taskMaterials.includes('command.userId !== ownerId || !command.enabled') &&
+  taskMaterials.includes('ORDER BY id FOR SHARE') && taskMaterials.includes('key.publicKey') && taskMaterials.includes('command.command') &&
+  taskDatabase.includes("'destructive-task:v2:'") && taskExecution.includes('return materials'),
+  'queued consent must bind and lock the instance owner SSH key and initialization contents before returning verified execution inputs')
+for (const [start, end] of [['async function executeRebuildTask(', 'async function executeRecreateTask('],
+  ['async function executeRecreateTask(', 'async function executeChangeHostTask(']]) {
+  const execution = workerSource.slice(workerSource.indexOf(start), workerSource.indexOf(end))
+  assert.ok(execution.includes('const { sshKey, extraShellCommands } = materials') &&
+    !execution.includes('db.getSSHKeyById(') && !execution.includes('db.getSSHKeysByUserId(') && !execution.includes('getCommandsByIds('),
+    'destructive dispatch must use the verified material snapshot without rereading changed keys or commands after preflight')
+}
 
 function sectionBetween(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)

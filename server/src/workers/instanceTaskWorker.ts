@@ -28,7 +28,7 @@ import { listSnapshots, deleteSnapshot as deleteIncusSnapshot } from '../lib/inc
 import { sendNotification } from '../lib/notifier.js'
 import { createLog } from '../db/logs.js'
 import * as db from '../db/index.js'
-import { updateInstanceTaskProgress, validateDestructiveTaskExecution, InstanceTaskAuthorizationError, InstanceTaskConflictError } from '../db/instance-tasks.js'
+import { updateInstanceTaskProgress, validateDestructiveTaskExecution, InstanceTaskAuthorizationError, InstanceTaskConflictError, type DestructiveTaskMaterials } from '../db/instance-tasks.js'
 import { closeInstanceSessions } from '../lib/terminal-proxy.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
 import { encryptSensitiveData, decryptSensitiveData } from '../lib/security.js'
@@ -37,7 +37,6 @@ import { customAlphabet } from 'nanoid'
 import { generateRandomIPv6 } from '../lib/ip-calculator.js'
 import pLimit from 'p-limit'
 import { updateClientResponseTime, recordClientError } from '../lib/incus/incus-pool.js'
-import { getCommandsByIds, mergeCommandContents, getImageDistroFromAlias } from '../db/custom-init-commands.js'
 import { collectTrafficForRunningInstance } from '../services/instance-traffic-collector.js'
 import {
   HOST_TASK_CLAIM_LOCK_NAMESPACE,
@@ -554,7 +553,7 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     }
     if (task.status !== 'PROCESSING' || task.startedAt?.getTime() !== attempt.startedAt.getTime() || task.retryCount !== attempt.retryCount) return
 
-    await validateDestructiveTaskExecution(task)
+    const materials = await validateDestructiveTaskExecution(task)
 
     console.log(`[InstanceTaskWorker] 开始执行任务 ${taskId} (${task.taskType})`)
 
@@ -606,13 +605,15 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
         await executeRestartTask(task, instance, host, client)
         break
       case 'rebuild':
-        await executeRebuildTask(task, instance, host, client)
+        if (!materials) throw new InstanceTaskAuthorizationError('INSTANCE_TASK_AUTHORIZATION_MISSING', '原任务缺少身份验证记录，请重新提交')
+        await executeRebuildTask(task, instance, host, client, materials)
         break
       case 'clone':
         await executeCloneTask(task, instance, host, client)
         break
       case 'recreate':
-        await executeRecreateTask(task, instance, host, client)
+        if (!materials) throw new InstanceTaskAuthorizationError('INSTANCE_TASK_AUTHORIZATION_MISSING', '原任务缺少身份验证记录，请重新提交')
+        await executeRecreateTask(task, instance, host, client, materials)
         break
       case 'change_host':
         await executeChangeHostTask(task, instance, host, client)
@@ -942,18 +943,13 @@ async function executeRebuildTask(
   task: { id: number; userId: number; instanceId: number; imageAlias: string | null; sshKeyId: number | null; customInitCommandIds?: string | null },
   instance: { incus_id: string; name: string; user_id: number; image: string; network_mode: string; ipv4?: string | null; ipv6?: string | null; host_id: number; swap_enabled?: boolean; swap_size?: number | null },
   host: { name: string },
-  client: Awaited<ReturnType<typeof getIncusClient>>
+  client: Awaited<ReturnType<typeof getIncusClient>>,
+  materials: DestructiveTaskMaterials
 ): Promise<void> {
   const imageAlias = task.imageAlias
   if (!imageAlias) throw new Error('未指定重装镜像')
   // Only inject a key explicitly selected for this rebuild. Omitting it means password login.
-  const targetUserId = task.userId || instance.user_id
-  let sshKey: string | undefined
-  if (task.sshKeyId) {
-    const keyRecord = await db.getSSHKeyById(task.sshKeyId)
-    if (!keyRecord || keyRecord.user_id !== targetUserId) throw new Error('SSH_KEY_NOT_OWNED')
-    sshKey = keyRecord.public_key
-  }
+  const { sshKey, extraShellCommands } = materials
   const allowCancelBusyUpdate = isAlpineImageAlias(instance.image) || isAlpineImageAlias(imageAlias)
 
   // 关闭该实例的所有终端连接
@@ -1010,32 +1006,6 @@ async function executeRebuildTask(
   // SSH key is optional; password login still remains available when no key is present.
   if (!sshKey) {
     console.warn(`[Rebuild] Instance ${task.instanceId} has no SSH key; continuing without injecting authorized_keys`)
-  }
-
-  // 处理自定义初始化命令
-  let extraShellCommands: string | undefined
-  if (task.customInitCommandIds) {
-    try {
-      const commandIds = JSON.parse(task.customInitCommandIds) as number[]
-      if (commandIds.length > 0) {
-        const commands = await getCommandsByIds(commandIds)
-        // 二次验证：过滤掉不属于实例用户或已禁用的命令（防止任务排队期间命令被删除/禁用）
-        const validCmds = commands.filter(cmd =>
-          cmd.userId === targetUserId && cmd.enabled
-        )
-        // 筛选适配当前发行版的命令
-        const imageDistro = getImageDistroFromAlias(imageAlias)
-        const compatibleCmds = validCmds.filter(cmd => {
-          return cmd.distros.includes('all') || cmd.distros.includes(imageDistro)
-        })
-        if (compatibleCmds.length > 0) {
-          extraShellCommands = mergeCommandContents(compatibleCmds)
-          console.log(`[Rebuild] 应用 ${compatibleCmds.length} 条自定义初始化命令`)
-        }
-      }
-    } catch (err) {
-      console.warn('[Rebuild] 解析自定义初始化命令失败:', err)
-    }
   }
 
   const newPassword = generateRandomPassword(16)
@@ -1272,10 +1242,12 @@ async function executeRecreateTask(
     boot_host_shutdown_timeout?: number | null;
   },
   host: { id: number; name: string; nat_public_ip?: string | null; ip_address?: string | null; ipv6_gateway?: string | null; ipv6_parent_interface?: string | null },
-  client: Awaited<ReturnType<typeof getIncusClient>>
+  client: Awaited<ReturnType<typeof getIncusClient>>,
+  materials: DestructiveTaskMaterials
 ): Promise<void> {
   const imageAlias = task.imageAlias || instance.image
   const oldIncusId = instance.incus_id
+  const { sshKey, extraShellCommands } = materials
   const allowCancelBusyUpdate = isAlpineImageAlias(instance.image) || isAlpineImageAlias(imageAlias)
 
   await prepareInstanceTaskSiteCleanup(task.id, instance)
@@ -1340,42 +1312,8 @@ async function executeRecreateTask(
     }
   }
 
-  // 5. 获取 SSH 密钥
-  let sshKey: string | undefined
-  if (task.sshKeyId) {
-    const keyRecord = await db.getSSHKeyById(task.sshKeyId)
-    if (keyRecord && keyRecord.user_id === instance.user_id) {
-      sshKey = keyRecord.public_key
-    }
-  }
-  if (!sshKey) {
-    const userSshKeys = await db.getSSHKeysByUserId(instance.user_id)
-    sshKey = userSshKeys && userSshKeys.length > 0 ? userSshKeys[0].public_key : undefined
-  }
   if (!sshKey) {
     console.warn(`[Recreate] Instance ${task.instanceId} has no SSH key; continuing without injecting authorized_keys`)
-  }
-
-  // 6. 处理自定义初始化命令
-  let extraShellCommands: string | undefined
-  if (task.customInitCommandIds) {
-    try {
-      const commandIds = JSON.parse(task.customInitCommandIds) as number[]
-      if (commandIds.length > 0) {
-        const commands = await getCommandsByIds(commandIds)
-        const validCmds = commands.filter(cmd => cmd.userId === instance.user_id && cmd.enabled)
-        const imageDistro = getImageDistroFromAlias(imageAlias)
-        const compatibleCmds = validCmds.filter(cmd =>
-          cmd.distros.includes('all') || cmd.distros.includes(imageDistro)
-        )
-        if (compatibleCmds.length > 0) {
-          extraShellCommands = mergeCommandContents(compatibleCmds)
-          console.log(`[Recreate] 应用 ${compatibleCmds.length} 条自定义初始化命令`)
-        }
-      }
-    } catch (err) {
-      console.warn('[Recreate] 解析自定义初始化命令失败:', err)
-    }
   }
 
   // 7. 分配新的随机内网 IPv4 地址（避免 IP 冲突）

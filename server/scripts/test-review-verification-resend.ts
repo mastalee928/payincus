@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, X509Certificate } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { createServer as createHttpsServer } from 'node:https'
+import { tmpdir } from 'node:os'
+import { join, resolve, sep } from 'node:path'
 import { createServer, type Socket } from 'node:net'
 import Fastify from 'fastify'
 import type { Prisma } from '@prisma/client'
@@ -20,9 +25,12 @@ const { loadAuthorizedOperationVerificationResource } = await import('../src/db/
 const { createInstanceTask, validateDestructiveTaskExecution, getInstanceTaskById, getActiveTaskForInstance, getUserInstanceTasks, cancelInstanceTask } = await import('../src/db/instance-tasks.js')
 const { executeTask } = await import('../src/workers/instanceTaskWorker.js')
 const { getHostHealth } = await import('../src/lib/incus/host-health.js')
+const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const { transferHostIdentity } = await import('../src/lib/transfer-host-identity.js')
 const tag = 'verification-resend-' + randomUUID().slice(0, 8), messages: string[] = [], sockets = new Set<Socket>()
 const originalFetch = globalThis.fetch
+let materialRemote: ReturnType<typeof createHttpsServer> | undefined
+let materialTemp: string | undefined
 let delivery: 'accepted' | 'held' | 'rejected' = 'accepted'
 const held: Array<{ message: string; finish: () => void }> = []
 const smtp = createServer(socket => {
@@ -100,12 +108,15 @@ const codeFor = (email: string) => {
   const decoded = message.replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/g, (_, value: string) => String.fromCharCode(parseInt(value, 16)))
   const code = decoded.match(/>\s*(\d{6})\s*</)?.[1]; assert.ok(code); return code
 }
-async function queuedRequest(mutate: (tx: Prisma.TransactionClient) => Promise<unknown>, run = request) {
+async function queuedRequest(mutate: (tx: Prisma.TransactionClient) => Promise<unknown>, run = request,
+  materialLock?: { keyId: number } | { commandId: number }) {
   let release!: () => void, ready!: (pid: number) => void, rejectReady!: (err: unknown) => void
   const hold = new Promise<void>(resolve => { release = resolve })
   const started = new Promise<number>((resolve, reject) => { ready = resolve; rejectReady = reject })
   const blocker = prisma.$transaction(async tx => {
-    await tx.$queryRaw`SELECT id FROM users WHERE id = ${actor.id} FOR UPDATE`
+    if (materialLock && 'keyId' in materialLock) await tx.$queryRaw`SELECT id FROM ssh_keys WHERE id = ${materialLock.keyId} FOR UPDATE`
+    else if (materialLock) await tx.$queryRaw`SELECT id FROM custom_init_commands WHERE id = ${materialLock.commandId} FOR UPDATE`
+    else await tx.$queryRaw`SELECT id FROM users WHERE id = ${actor.id} FOR UPDATE`
     await mutate(tx)
     const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
     ready(row.pid); await hold
@@ -288,7 +299,7 @@ try {
     assert.equal(task.actorSid, sessionId)
     assert.equal(task.actorIat, issuedAt)
     assert.equal(task.operationEntry, 'user')
-    assert.match(task.operationIdentity!, /^[a-f0-9]{64}$/)
+    assert.match(task.operationIdentity!, /^destructive-task:v2:[a-f0-9]{64}$/)
     await validateDestructiveTaskExecution(task)
     for (const mode of ['banned', 'session', 'role', 'owner', 'incus', 'host', 'host-owner', 'status', 'image', 'cleanup', 'billing', 'upload', 'restore', 'transfer'] as const) {
       const queued = await queuedRequest(async tx => {
@@ -358,6 +369,123 @@ try {
     actor = users[0]
   }
   console.log('PASS persisted rebuild/recreate authorization: 28 current-state races, task attempt/payload changes, original consent, legacy rejection, worker zero instance writes and public projection')
+  const ownerKey = await prisma.sshKey.create({ data: { userId: users[0].id, name: tag, publicKey: 'ssh-ed25519 fixture-original-key', fingerprint: tag } })
+  const foreignKey = await prisma.sshKey.create({ data: { userId: users[1].id, name: tag, publicKey: 'ssh-ed25519 fixture-foreign-key', fingerprint: tag } })
+  const ownerCommand = await prisma.customInitCommand.create({ data: { userId: users[0].id, name: tag, command: 'echo fixture-original-command', distros: '["debian"]' } })
+  const foreignCommand = await prisma.customInitCommand.create({ data: { userId: users[1].id, name: tag, command: 'echo fixture-foreign-command', distros: '["all"]' } })
+  for (const taskType of ['rebuild', 'recreate'] as const) {
+    const createMaterialsTask = (sshKeyId?: number, customInitCommandIds?: number[], entry: 'user' | 'host' = 'user') =>
+      createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id, taskType,
+        imageAlias: 'fixture/debian', sshKeyId, customInitCommandIds, sensitiveAuthorization: { actor: currentActor(), entry,
+          expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId, expectedHostIdentity: transferHostIdentity(resourceHost) } })
+    for (const [keyId, ids] of [[foreignKey.id, []], [0, []], [ownerKey.id, [foreignCommand.id]],
+      [ownerKey.id, [ownerCommand.id, ownerCommand.id]], [ownerKey.id, [2147483647]]] as const) {
+      await assert.rejects(createMaterialsTask(keyId, [...ids]), 'invalid material selections must not enter the queue')
+      assert.equal(await prisma.instanceTask.count({ where: { instanceId: firstResourceId } }), 0)
+    }
+    const admitted = await createMaterialsTask(ownerKey.id, [ownerCommand.id])
+    const task = await prisma.instanceTask.update({ where: { id: admitted.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+    const materials = await validateDestructiveTaskExecution(task)
+    assert.equal(materials?.sshKey, ownerKey.publicKey)
+    assert.equal(materials?.extraShellCommands, ownerCommand.command)
+    for (const mode of ['key-content', 'key-owner', 'command-content', 'command-owner', 'command-disabled', 'command-distros'] as const) {
+      const queued = await queuedRequest(async tx => {
+        if (mode === 'key-content') await tx.sshKey.update({ where: { id: ownerKey.id }, data: { publicKey: 'ssh-ed25519 fixture-replaced-key' } })
+        else if (mode === 'key-owner') await tx.sshKey.update({ where: { id: ownerKey.id }, data: { userId: users[1].id } })
+        else await tx.customInitCommand.update({ where: { id: ownerCommand.id }, data: mode === 'command-content'
+          ? { command: 'echo fixture-replaced-command' } : mode === 'command-owner' ? { userId: users[1].id }
+            : mode === 'command-disabled' ? { enabled: false } : { distros: '["all"]' } })
+      }, () => app.inject({ method: 'POST', url: '/fixture/execution', payload: { id: task.id } }),
+      mode.startsWith('key-') ? { keyId: ownerKey.id } : { commandId: ownerCommand.id })
+      assert.equal(queued.blocked, true, `${taskType}/${mode}: must wait for the current material transaction`)
+      assert.equal(queued.response.statusCode, 409, `${taskType}/${mode}: changed contents must reject original consent`)
+      await prisma.sshKey.update({ where: { id: ownerKey.id }, data: { userId: users[0].id, publicKey: ownerKey.publicKey } })
+      await prisma.customInitCommand.update({ where: { id: ownerCommand.id }, data: { userId: users[0].id, command: ownerCommand.command, enabled: true, distros: ownerCommand.distros } })
+    }
+    await prisma.sshKey.delete({ where: { id: ownerKey.id } })
+    await assert.rejects(validateDestructiveTaskExecution(task), 'deleted selected key cannot fall back to a different key')
+    await prisma.sshKey.create({ data: ownerKey })
+    await prisma.customInitCommand.delete({ where: { id: ownerCommand.id } })
+    await assert.rejects(validateDestructiveTaskExecution(task), 'deleted selected command cannot silently disappear')
+    await prisma.customInitCommand.create({ data: ownerCommand })
+    await prisma.instanceTask.delete({ where: { id: task.id } })
+    const optional = await createMaterialsTask()
+    const optionalTask = await prisma.instanceTask.update({ where: { id: optional.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+    assert.equal((await validateDestructiveTaskExecution(optionalTask))?.sshKey, taskType === 'rebuild' ? undefined : ownerKey.publicKey,
+      'rebuild preserves password-only login; recreate keeps its original latest-owner-key fallback')
+    if (taskType === 'recreate') {
+      const newerKey = await prisma.sshKey.create({ data: { userId: users[0].id, name: tag + '-new', publicKey: 'ssh-ed25519 fixture-newer-key', fingerprint: tag + '-new', createdAt: new Date(Date.now() + 1000) } })
+      await assert.rejects(validateDestructiveTaskExecution(optionalTask), 'fallback changes also require new consent')
+      await prisma.sshKey.delete({ where: { id: newerKey.id } })
+    }
+    await prisma.instanceTask.delete({ where: { id: optionalTask.id } })
+    if (taskType === 'rebuild') {
+      materialTemp = await mkdtemp(join(tmpdir(), 'verification-materials-'))
+      const certificatePath = join(materialTemp, 'cert.pem'), keyPath = join(materialTemp, 'key.pem')
+      execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+        '-subj', '/CN=localhost', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', keyPath, '-out', certificatePath], { stdio: 'pipe', windowsHide: true })
+      const certificate = await readFile(certificatePath, 'utf8')
+      let dispatchedConfig: Record<string, string> | undefined, changedAfterValidation = false
+      materialRemote = createHttpsServer({ cert: certificate, key: await readFile(keyPath), ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
+        const reply = (status: number, metadata: unknown) => {
+          response.writeHead(status, { 'content-type': 'application/json' })
+          response.end(JSON.stringify(status >= 400 ? { type: 'error', error: 'fixture rebuild ends after configuration dispatch' } : { type: 'sync', metadata }))
+        }
+        try {
+          if (request.method === 'GET' && request.url === '/1.0') {
+            await prisma.sshKey.update({ where: { id: ownerKey.id }, data: { publicKey: 'ssh-ed25519 fixture-changed-after-validation' } })
+            await prisma.customInitCommand.update({ where: { id: ownerCommand.id }, data: { command: 'echo fixture-changed-after-validation' } })
+            changedAfterValidation = true; return reply(200, {})
+          }
+          if (request.method === 'GET' && request.url?.endsWith('/state')) return reply(200, { status: 'Stopped' })
+          if (request.method === 'GET' && request.url?.endsWith('/snapshots')) return reply(200, [])
+          if (request.method === 'GET' && request.url?.includes('/images/aliases/')) return reply(200, { target: 'fixture-image' })
+          if (request.method === 'GET' && request.url?.includes('/images/')) return reply(200, { properties: {} })
+          if (request.method === 'GET') return reply(200, { type: 'container', config: {}, devices: {} })
+          if (request.method === 'PUT') {
+            let body = ''; for await (const chunk of request) body += chunk
+            dispatchedConfig = JSON.parse(body).config; return reply(200, {})
+          }
+          return reply(500, {})
+        } catch { return reply(500, {}) }
+      })
+      await new Promise<void>(resolve => materialRemote!.listen(0, '127.0.0.1', resolve))
+      const remoteHost = await prisma.host.update({ where: { id: resourceHost.id }, data: {
+        url: `https://127.0.0.1:${(materialRemote.address() as { port: number }).port}`, certPath: certificatePath, keyPath,
+        serverCertificate: certificate, serverFingerprint: new X509Certificate(certificate).fingerprint256
+      } })
+      const workerAdmission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
+        taskType, imageAlias: 'fixture/debian', sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
+          actor: currentActor(), entry: 'user', expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId,
+          expectedHostIdentity: transferHostIdentity(remoteHost)
+        } })
+      const workerTask = await prisma.instanceTask.update({ where: { id: workerAdmission.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+      await executeTask(workerTask.id, { startedAt: workerTask.startedAt, retryCount: workerTask.retryCount })
+      assert.equal(changedAfterValidation, true)
+      assert.ok(dispatchedConfig?.['user.user-data'].includes(ownerKey.publicKey))
+      assert.ok(dispatchedConfig?.['user.user-data'].includes(ownerCommand.command))
+      assert.ok(!dispatchedConfig?.['user.user-data'].includes('fixture-changed-after-validation'))
+      assert.match((await prisma.instanceTask.findUniqueOrThrow({ where: { id: workerTask.id } })).error!, /fixture rebuild ends after configuration dispatch/)
+      await prisma.instanceTask.delete({ where: { id: workerTask.id } })
+      await prisma.snapshot.create({ data: resourceSnapshot })
+      await prisma.sshKey.update({ where: { id: ownerKey.id }, data: { publicKey: ownerKey.publicKey } })
+      await prisma.customInitCommand.update({ where: { id: ownerCommand.id }, data: { command: ownerCommand.command } })
+      await closeAllClients()
+      await new Promise<void>(resolve => materialRemote!.close(() => resolve())); materialRemote = undefined
+      await prisma.host.update({ where: { id: resourceHost.id }, data: { url: resourceHost.url, certPath: null, keyPath: null, serverCertificate: null, serverFingerprint: null } })
+      console.log('PASS actual worker mTLS dispatch retains validated SSH key and initialization contents when both change during connection; controlled remote rebuild failure stops before disk work')
+    }
+    actor = users[1]
+    await prisma.user.update({ where: { id: actor.id }, data: { role: 'admin' } })
+    const maintenance = await createMaterialsTask(ownerKey.id, [ownerCommand.id], 'host')
+    const maintenanceTask = await prisma.instanceTask.update({ where: { id: maintenance.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+    assert.equal((await validateDestructiveTaskExecution(maintenanceTask))?.sshKey, ownerKey.publicKey,
+      'administrator maintenance uses the instance owner key, rather than the administrator key')
+    await prisma.instanceTask.delete({ where: { id: maintenanceTask.id } })
+    await prisma.user.update({ where: { id: actor.id }, data: { role: 'user' } })
+    actor = users[0]
+  }
+  console.log('PASS destructive SSH/init inputs: twelve content/owner/enabled/distro transaction races, missing/foreign/duplicate selections, optional key semantics, fallback changes and administrator owner materials')
   const permissionOperations = [
     ['reinstall_instance', firstResourceId], ['recreate_instance', firstResourceId],
     ['transfer_instance', firstResourceId], ['delete_instance', firstResourceId],
@@ -983,6 +1111,12 @@ try {
   console.log('PASS unbound legacy account codes and grants cannot inherit a current session')
 } catch (error) { failure = error } finally {
   globalThis.fetch = originalFetch
+  await closeAllClients()
+  if (materialRemote) await new Promise<void>(resolve => materialRemote!.close(() => resolve()))
+  if (materialTemp) {
+    assert.ok(resolve(materialTemp).startsWith(resolve(tmpdir()) + sep) && materialTemp.includes('verification-materials-'))
+    await rm(materialTemp, { recursive: true, force: true })
+  }
   held.splice(0).forEach(item => item.finish())
   await app.close(); clearTransporterCache()
   await prisma.instance.deleteMany({ where: { id: { in: resourceInstances.map(instance => instance.id) } } })
