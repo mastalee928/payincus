@@ -195,6 +195,7 @@
     "test:review-agent-release-concurrency": "node --import tsx scripts/test-agent-release-concurrency.ts",
     "test:review-host-info-metrics": "node ../scripts/test-host-info-metrics.mjs",
     "test:review-host-info-reads": "node ../scripts/test-host-info-reads.mjs",
+    "test:review-host-info-pagination": "node ../scripts/test-host-info-pagination.mjs",
     "test:review-host-info-copy": "node ../scripts/test-host-info-copy.mjs",
     "test:review-host-info-mutations": "node ../scripts/test-host-info-mutations.mjs",
     "test:review-host-detail-copy": "node ../scripts/test-host-detail-copy.mjs",

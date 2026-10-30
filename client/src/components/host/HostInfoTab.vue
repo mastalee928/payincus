@@ -9,6 +9,7 @@ import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
 import { useAuthStore } from '@/stores/auth'
 import type { HostPublicIpv6Sync } from '@/types/host-pool'
 import type { HostAgentStatus } from '@/types/api'
+import { loadCompletePages } from '@/utils/completePages'
 
 const { t, te } = useI18n()
 const themeStore = useThemeStore()
@@ -152,19 +153,21 @@ async function loadInstanceStats() {
   const current = () => context.current() && sequence === statsSequence
   statsLoading.value = true; statsError.value = false
   try {
-    const res = await api.instances.list({
-      hostId: context.hostId,
-      pageSize: 1000 // 获取所有实�?
-    }) as unknown as { instances: Array<{ cpu?: number; memory?: number; disk?: number }>; total: number }
+    const instances = await loadCompletePages<{ id: number; cpu?: number | null; memory?: number | null; disk?: number | null }>({
+      fetchPage: params => api.instances.list({ ...params, hostId: context.hostId }),
+      itemsKey: 'instances', current, errorMessage: t('common.loadFailed'),
+      isItem: (value): value is { id: number; cpu?: number | null; memory?: number | null; disk?: number | null } => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+        const instance = value as Record<string, unknown>
+        return typeof instance.id === 'number' &&
+          (instance.hostId === undefined || instance.hostId === context.hostId) &&
+          (instance.host_id === undefined || instance.host_id === context.hostId) &&
+          ['cpu', 'memory', 'disk'].every(key => instance[key] === undefined || instance[key] === null || metricNumber(instance[key]) !== undefined)
+      }
+    })
     if (!current()) return
-    const instances = res.instances
-    if (!Array.isArray(instances) || !Number.isSafeInteger(res.total) || res.total < instances.length ||
-      !instances.every(instance => instance && ['cpu', 'memory', 'disk'].every(key => {
-        const value = instance[key as 'cpu' | 'memory' | 'disk']
-        return value === undefined || value === null || metricNumber(value) !== undefined
-      }))) throw new Error('Invalid host instance statistics')
     const stats = {
-      count: res.total,
+      count: instances.length,
       cpuUsed: instances.reduce((sum, instance) => sum + (instance.cpu || 0), 0),
       memoryUsed: instances.reduce((sum, instance) => sum + (instance.memory || 0), 0),
       diskUsed: instances.reduce((sum, instance) => sum + (instance.disk || 0), 0)

@@ -382,6 +382,8 @@ jobs:
         run: pnpm --filter server test:review-host-info-metrics
       - name: Host info reads and polling stay with the current host and session
         run: pnpm --filter server test:review-host-info-reads
+      - name: Host resource totals use complete instance pages
+        run: pnpm --filter server test:review-host-info-pagination
       - name: Host Agent command copy confirms current clipboard completion and handles retry
         run: pnpm --filter server test:review-host-info-copy
       - name: Host mutations confirm the current target and serialize pending operations

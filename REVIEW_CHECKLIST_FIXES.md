@@ -2,7 +2,7 @@
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
 
-当前进度（2026-10-30，R020工单分页段落收尾后）：原327个编号中，259项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，0项尚未进入修复/复验记录。259并非完整验收通过数；R020仍有MyPackages/MyHosts写calibrate/HostInfo三处待修，已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，不能以0项未进入记录声称全部修完。内部未完成验收尚未去重统计，不能虚报可靠剩余数量。
+当前进度（2026-10-30，R020宿主统计段落收尾后）：原327个编号中，259项已有修复或复验记录（包含部分完成项），68项保留已有防护/实现不同等初审结论，0项尚未进入修复/复验记录。259并非完整验收通过数；R020仍有MyPackages宿主名称/MyHosts写calibrate两处待修，已记录项内的后端并发、真实宿主、外部邮件及整页UI等未完范围仍逐项保留，不能以0项未进入记录声称全部修完。内部未完成验收尚未去重统计，不能虚报可靠剩余数量。
 
 2026-10-30 R013：禁用2FA遇VERIFICATION_REQUIRED打开实际SensitiveVerificationModal，验证后以原password/code及session/scope/draft快照重试一次；等待验证冻结父表单，取消清秘密，草稿/session/role/account/cache/unmount及迟到子回执拒绝。实际Chrome14旧子回执/坏验证/重复emit/坏重试和36三语三宽深浅动态偏好冻结动画、44px/Tab/Escape及18视觉报告0FAIL/0WARN通过。实际PG/Fastify密码/TOTP/原账户原操作验证、错误凭据保grant、清秘密/revoke/replay通过；四旧2FA及Password敏感验证回归、严格类型/守卫/lint/末双端build/dist通过，见HANDOFF。通用验证码前端60/后端120秒合同和真实邮件投递仍待，销毁专用60秒独立保持。
 
@@ -241,7 +241,7 @@
 | R1-017 | 实现不同 | 源码已修/隔离PG验证通过 | 邮箱注册锁、验证码次数/用途/过期与业务提交同事务；注册/profile/reset并发、旧认证状态及撤销故障回滚通过 logs/review-verification-integration-profile.log；admin创建大小写邮箱/初始状态配额及重置通过 logs/review-admin-account-integration.log；未生产验收 |
 | R1-018 | 部分存在 | 源码已修/隔离PG验证通过 | 邀请码handler/支付fee own-property访问拒继承；通知完整正整数及PG offset上限；真实Fastify/PG非法后缀、小数、溢出、有效筛选分页与账目无写入通过 logs/review-config-pagination-integration.log；相关5/5 logs/test-run-20261027-200553 |
 | R1-019 | 部分存在 | 源码已修/隔离PG验证通过 | 初审纠正：N+1、单页用户全部登录历史读取、avatar_badge_id漏映射三项均存在；固定批量列表1人/100人均11SQL，2002历史仅返回1，徽章/统计/演示脱敏正确。logs/review-user-list-integration-final.log；type与相关5项通过 |
-| R1-020 | 部分存在 | 控制台/终端已保存；工单完成验证，另三处待 | 原正整数parser保持；Dashboard和Terminal完整分页已推be4b515c/7c8558a3。Tickets237条三页/七坏页/22旧回执/原237目标create payload/持久错误实际retry/18三语三宽深浅44px及19.8:1对比度通过，原actions/lifecycle/route-i18n-pagination守卫/有效lint/末双端types-build/dist均过。MyPackages宿主名称/MyHosts批量calibrate/HostInfo另续；原整页UI/后端及外部真机缺口保持，不称此编号整体完成。 |
+| R1-020 | 部分存在 | 控制台/终端/工单已保存；宿主统计完成验证，另两处待 | 原正整数parser保持；前三分页已推。HostInfo237条三页精确CPU/内存/磁盘/13非法中间页/22旧回执/last-good实际retry/nullable字段0及聚合溢出拒绝、reads/metrics/守卫/lint/末双端types-build/dist通过，详见HANDOFF。MyPackages宿主名称/MyHosts批量calibrate另续；跨页事务快照、原整页UI/后端及外部真机缺口保持，不称此编号整体完成。 |
 | R1-021 | 存在 | 沿用R301批量配置专项 | 已随80cadce修复：Done在清理前发success，失败重试保留之前成功数及不可重试明细；本次核源码及takeover-host-batch-config-final.log，真实Chrome覆盖Done刷新、仅失败目标重试和累计结果。类型/守卫/双端构建证据见HANDOFF的R301批量配置章节；原生远端配置/强杀恢复不在前端专项证据内。补登记，不重复计算产品修复。 |
 | R1-022 | 已有防护 | 保留初审结论 | 目标完整性及流量BigInt安全输入已有校验，不能移植旧负值修法。 |
 | R1-023 | 已有防护 | 保留初审结论 | 目标完整性及流量BigInt安全输入已有校验，不能移植旧负值修法。 |

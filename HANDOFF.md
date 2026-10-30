@@ -2,7 +2,18 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-020 宿主完整实例资源统计（持续施工）
+
+- 工单014646d8085d69b852fe5380b72b1124f4632fa0已推、CI41005024391运行；40996832087已七job终态success。40998161357/41000607228/41001679848/41003054433及本段CI仍运行须跟终态；旧GoIO与其它未完不删除。
+- 读取真实instances route/权限/资源字段、HostInfoTab与既有reads/metrics守卫。原pageSize1000被后端限制100，237条total但资源只加前100条；actual Chrome红为cpuUsed200提前发布。现按100全页固定hostId/当前host-session-generation-sequence读取，metadata/ID去重/可见hostId及host_id/非负有限资源字段全部通过才发布统计。可空旧字段贡献0保持；溢出聚合拒绝，失败保上次完整当前值与实际block retry。管理权限、资源校对/Agent升级等写操作未变，统计仅只读；跨页无数据库事务快照，等数量替换/状态变化强一致另待。
+- actual Chrome87971自然exit0，takeover-host-info-pagination-complete.log：237台474CPU/121344MiB/242688MiB三页完整、13非法/重复/foreign/非有限中间页、失败保last-good/实际retry、22旧host-session-cache-ABA-unmount-supersession成功失败回执零后续页、空值0和非有限聚合保护/九三语三宽截图无横溢通过。首轮也自然exit0，实际产品先红两轮保留。原reads16796与最终更新metadata异常reads71979自然exit0；metrics62687自然exit0，原真实指标缺失/0/非法与轮询保持。仅浏览器受控API，不是原生宿主实证。
+- 最后route125224/core125257、有效ESLint41866、manifest194常规227专项/node语法/diff检查通过。双端含types最终49982自然exit0，日志takeover-host-info-pagination-dual.log含44.47/59.40秒及NATURAL_EXIT_CODE=0；末dist-final.log自然exit0后保存。9最终截图已查看三宽三语主要图及完整sheet；未改本项UI样式，不把Agent/traffic受控loading的背景视作整个页面完成。
+- 原327仍259含部分/68已有不同，内部未完验收未去重汇总；此分项后R020另MyPackages宿主名称完整页和MyHosts写calibrate完整目标/授权两处继续，不能报总剩余为2或0。完整网关/SSH身份/真实邮件等保持，无生产/发行动作。单项保存推送后继续。
+
 ## 2026-10-30 R1-020 工单完整实例选项（持续施工）
+
+- 本段已提交推送014646d8085d69b852fe5380b72b1124f4632fa0，CI41005024391运行；40996832087已七job终态success，余四前序和本段继续跟终态。已继续HostInfo完整统计，实际Chrome先红为237条总数却只计算前100条cpuUsed200，产品尚未改；不以保存停止。
+
 
 - 接续保留上一段未提交修改，终端7c8558a3c834b2a27dd03672b41625eba44b44a7已推、CI41003054433运行。40995350722现七job终态success；40996832087/40998161357/41000607228/41001679848/41003054433仍运行，逐次跟终态，历史Go进程审计IO失败仍待定位。
 - 工单关联实例沿真实list分页合同按100顺序读取全部页，校验metadata/长度/ID/name/status及可见owner；全页通过才发布选项。旧会话/角色/账户/路由/缓存/ABA/卸载及更新读取使旧第二页停止后续dispatch，失败持久显示错误与实际重试，不再伪装没有实例。实际第三页实例237可从原下拉选择并随原发工单payload提交；不更改工单权限/后端/实例交付及一机一卖全端口。

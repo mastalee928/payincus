@@ -34,7 +34,7 @@ createApp({ setup() {
     const report = { id: 1, hostId: 11, agentId: 'fixture-agent', enabled: true, status: 'online', version: 'v1.0.1', latestVersion: 'v1.0.1', versionStatus: 'latest', capabilities: ['resources'], lastSeenAt: '2026-10-30T00:00:00.000Z', lastHeartbeatIp: '192.0.2.11', lastReport: {
       incus: { available: true }, resources: { cpuTotal: 8, cpuUsagePercent: 12.5, memoryTotalMb: 8192, memoryUsedMb: 2048, memoryUsagePercent: 25, swapTotalMb: 0, swapUsedMb: 0, swapUsagePercent: 0, diskTotalBytes: 107374182400, diskUsedBytes: 10737418240, diskUsagePercent: 10, processCount: 24 }, metrics: { heartbeatIntervalSeconds: 120, uptimeSeconds: 86461, load1: 0.12, load5: 0.23, load15: 0.34 }
     } }
-    pending.find(p => p.kind === 'instances')?.resolve({ instances: [], total: 0 })
+    pending.find(p => p.kind === 'instances')?.resolve({ instances: [], page: 1, pageSize: 100, total: 0, totalPages: 0 })
     const traffic = [0, 1024, 2048, 1024, 0].map((total, index) => ({ date: `2026-10-0${index + 1}`, rxTotal: String(total), txTotal: '0', total: String(total), rxFormatted: `${total} B`, txFormatted: '0 B', totalFormatted: `${total} B` }))
     const totalUsed = String(traffic.reduce((sum, row) => sum + Number(row.total), 0))
     pending.find(p => p.kind === 'traffic')?.resolve({ data: traffic, summary: { totalUsed, totalUsedFormatted: `${totalUsed} B`, totalLimit: '1073741824', totalLimitFormatted: '1 GB' }, periodStart: '2026-10-01', periodEnd: '2026-10-31' })

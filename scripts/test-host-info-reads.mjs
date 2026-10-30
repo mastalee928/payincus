@@ -13,7 +13,7 @@ const server = await createServer({ configFile: false, cacheDir: resolve(output,
   css: { postcss: { plugins: [require('tailwindcss')(tailwind), require('autoprefixer')()] } }, server: { host: '127.0.0.1', port: 19740, strictPort: true, fs: { allow: [root] } }
 })
 const agent = (hostId = 11, stamp = 1) => ({ host: { id: hostId, name: 'fixture' }, agent: { id: hostId, hostId, agentId: `fixture-${hostId}`, enabled: true, status: 'online', version: 'v1.0.1', latestVersion: 'v1.0.1', versionStatus: 'latest', capabilities: ['resources'], lastReport: { resources: { cpuUsagePercent: stamp }, metrics: { heartbeatIntervalSeconds: 5 } }, lastSeenAt: null, lastHeartbeatIp: null, createdAt: '2026-10-30T00:00:00.000Z', updatedAt: '2026-10-30T00:00:00.000Z' } })
-const data = (kind, hostId = 11, stamp = 1) => kind === 'agent' ? agent(hostId, stamp) : kind === 'instances' ? { instances: [{ id: stamp, cpu: stamp, memory: stamp * 1024, disk: stamp * 1024 }], total: 1 } : { data: [{ date: '2026-10-01', rxTotal: String(stamp), txTotal: '0', total: String(stamp), rxFormatted: `${stamp} B`, txFormatted: '0 B', totalFormatted: `${stamp} B` }], summary: { totalUsed: String(stamp), totalUsedFormatted: `${stamp} B`, totalLimit: '1024', totalLimitFormatted: '1K' }, periodStart: '2026-10-01', periodEnd: '2026-10-31' }
+const data = (kind, hostId = 11, stamp = 1) => kind === 'agent' ? agent(hostId, stamp) : kind === 'instances' ? { instances: [{ id: stamp, hostId, cpu: stamp, memory: stamp * 1024, disk: stamp * 1024 }], page: 1, pageSize: 100, total: 1, totalPages: 1 } : { data: [{ date: '2026-10-01', rxTotal: String(stamp), txTotal: '0', total: String(stamp), rxFormatted: `${stamp} B`, txFormatted: '0 B', totalFormatted: `${stamp} B` }], summary: { totalUsed: String(stamp), totalUsedFormatted: `${stamp} B`, totalLimit: '1024', totalLimitFormatted: '1K' }, periodStart: '2026-10-01', periodEnd: '2026-10-31' }
 let browser, checked = 0
 try {
   await server.listen(); browser = await Browser.launch(); const page = await browser.newPage({ reducedMotion: true })
@@ -69,7 +69,7 @@ try {
   assert.equal(await page.eval(() => window.hostInfoHarness.pending.length), pollingCount, 'automatic polling does not overlap an unfinished current read')
   const errors = { instances: 'data-host-stats-error', traffic: 'data-host-traffic-error', agent: 'data-host-agent-error' }
   for (const kind of ['instances', 'traffic', 'agent']) {
-    const invalid = kind === 'instances' ? [null, {}, { instances: null, total: 0 }, { instances: [null], total: 1 }, { instances: [{ cpu: '5' }], total: 1 }, { instances: [], total: -1 }]
+    const invalid = kind === 'instances' ? [null, {}, { ...data(kind), instances: null }, { ...data(kind), instances: [null] }, { ...data(kind), instances: [{ id: 1, hostId: 11, cpu: '5' }] }, { ...data(kind), instances: [], total: -1 }]
       : kind === 'traffic' ? [null, {}, { ...data(kind), data: null }, { ...data(kind), data: [{ ...data(kind).data[0], total: 'bad' }] }, { ...data(kind), periodStart: null }, { ...data(kind), summary: {} }]
       : [null, {}, { ...agent(), host: { id: 12 } }, { ...agent(), agent: { ...agent().agent, hostId: 12 } }, { ...agent(), agent: { ...agent().agent, enabled: 'yes' } }, { ...agent(), agent: { ...agent().agent, capabilities: null } }]
     for (const result of invalid) {
