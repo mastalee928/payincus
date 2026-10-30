@@ -43,6 +43,12 @@ const verifyOperationCodeSource = sourceBetween(
 const failedAttemptSource = sourceBetween(source, 'async function recordFailedVerificationAttempt(', 'export async function verifyOperationCode(')
 const notificationSelection = sourceBetween(source, 'async function getUserNotificationChannel(', 'function maskNotificationTarget(')
 const verificationDelivery = sourceBetween(notifier, 'export async function sendVerificationNotification(', 'export async function sendToChannel(')
+assert.ok(source.includes('authorizeUserWrite(tx, userId, actor)') &&
+  source.includes('notificationTargetBinding(current) === notificationTargetBinding(notificationChannel)') &&
+  source.includes('actor.id !== userId') && requestOperationVerificationSource.includes('currentDeliveryAuthorized(tx, userId, actor, user.email, notificationChannel)') &&
+  requestOperationVerificationSource.includes("if ('authenticationChanged' in activated)") &&
+  requestOperationVerificationSource.indexOf('currentDeliveryAuthorized(tx, userId, actor') < requestOperationVerificationSource.indexOf('const accountSend'),
+  'verification preparation and successful delivery activation must check current account/session and captured recipient state')
 assert.ok(notificationSelection.includes('enabled: true') && notificationSelection.includes('isGlobal: false') &&
   notificationSelection.includes('alertCategory: null') && notificationSelection.includes("orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]"),
   'resource verification must deterministically select only the current user personal notification channels')

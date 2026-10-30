@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { createServer, type Socket } from 'node:net'
 import Fastify from 'fastify'
+import type { Prisma } from '@prisma/client'
 
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['postgresql:', 'postgres:'].includes(database.protocol) && ['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) &&
@@ -49,14 +50,39 @@ const users = await Promise.all(['a', 'b'].map(letter => prisma.user.create({ da
   username: `${tag}-${letter}`, passwordHash: 'unusable-fixture', email: `${tag}-${letter}@example.test`
 } })))
 let actor = users[0]
+let sessionId = tag, issuedAt = Math.floor(Date.now() / 1000) + 1
 const app = Fastify()
-app.decorate('authenticate', async request => { request.user = { id: actor.id, username: actor.username, role: 'user', sid: tag, iat: Math.floor(Date.now() / 1000) + 1 } })
+app.decorate('authenticate', async request => { request.user = { id: actor.id, username: actor.username, role: 'user', sid: sessionId, iat: issuedAt } })
 const request = () => app.inject({ method: 'POST', url: '/verification/request', payload: { operationType: 'disable_2fa' } })
 const record = () => prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id, operationType: 'disable_2fa' }, orderBy: { createdAt: 'desc' } })
 const codeFor = (email: string) => {
   const message = [...messages].reverse().find(value => value.includes('To: ' + email)); assert.ok(message)
   const decoded = message.replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/g, (_, value: string) => String.fromCharCode(parseInt(value, 16)))
   const code = decoded.match(/>\s*(\d{6})\s*</)?.[1]; assert.ok(code); return code
+}
+async function queuedRequest(mutate: (tx: Prisma.TransactionClient) => Promise<unknown>) {
+  let release!: () => void, ready!: (pid: number) => void, rejectReady!: (err: unknown) => void
+  const hold = new Promise<void>(resolve => { release = resolve })
+  const started = new Promise<number>((resolve, reject) => { ready = resolve; rejectReady = reject })
+  const blocker = prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${actor.id} FOR UPDATE`
+    await mutate(tx)
+    const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+    ready(row.pid); await hold
+  }, { timeout: 15000 })
+  void blocker.catch(rejectReady)
+  const pid = await started
+  let settled = false, blocked = false
+  const pending = request().then(response => { settled = true; return response })
+  try {
+    const end = Date.now() + 3500
+    while (!settled && Date.now() < end) {
+      const [row] = await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM pg_stat_activity WHERE ${pid} = ANY(pg_blocking_pids(pid))`
+      if (Number(row.count)) { blocked = true; break }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+  } finally { release(); await blocker }
+  return { blocked, response: await pending }
 }
 let failure: unknown
 try {
@@ -339,6 +365,58 @@ try {
   const resumedAccount = await request(); assert.equal(resumedAccount.statusCode, 200)
   assert.equal(messages.length, beforeMixed + 2)
   console.log('PASS resource switching/mixed eight-way concurrency share one account budget, other accounts remain independent, and expiry cleanup retains recent send history')
+
+  await prisma.operationVerification.updateMany({ where: { userId: actor.id, resourceType: null }, data: { createdAt: new Date(Date.now() - 61_000) } })
+  await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+  const beforeRevoked = messages.length
+  const suspendedRequest = await request()
+  assert.equal(suspendedRequest.statusCode, 400, 'an authenticated request must recheck current account status before preparing mail')
+  assert.equal(suspendedRequest.json().code, 'AUTHENTICATION_STATE_CHANGED')
+  assert.equal(messages.length, beforeRevoked)
+  await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+  await prisma.tokenInvalidation.create({ data: { userId: actor.id, sessionId, invalidatedAt: issuedAt } })
+  const revokedRequest = await request()
+  assert.equal(revokedRequest.statusCode, 400); assert.equal(revokedRequest.json().code, 'AUTHENTICATION_STATE_CHANGED')
+  assert.equal(messages.length, beforeRevoked)
+  sessionId += '-fresh'; issuedAt += 1
+  assert.equal((await request()).statusCode, 200)
+  assert.equal(messages.length, beforeRevoked + 1)
+  console.log('PASS current banned/revoked sessions cannot send, while a fresh current session can request normally')
+
+  for (const mode of ['banned', 'email', 'session', 'account'] as const) {
+    await prisma.operationVerification.updateMany({ where: { userId: actor.id, resourceType: null }, data: { createdAt: new Date(Date.now() - 61_000) } })
+    const beforeQueued: number = messages.length
+    const result = await queuedRequest(tx => mode === 'banned'
+      ? tx.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+      : mode === 'email' ? tx.user.update({ where: { id: actor.id }, data: { email: `${tag}-changed@example.test` } })
+      : tx.tokenInvalidation.upsert({ where: { userId_sessionId: { userId: actor.id, sessionId: mode === 'session' ? sessionId : '__USER_LEVEL__' } },
+        create: { userId: actor.id, sessionId: mode === 'session' ? sessionId : '__USER_LEVEL__', invalidatedAt: issuedAt }, update: { invalidatedAt: issuedAt } }))
+    assert.equal(result.blocked, true, mode + ' must wait on the actual account row lock')
+    assert.equal(result.response.statusCode, 400, result.response.body)
+    assert.equal(result.response.json().code, 'AUTHENTICATION_STATE_CHANGED')
+    assert.equal(messages.length, beforeQueued, 'queued ' + mode + ' change must send no mail')
+    await prisma.user.update({ where: { id: actor.id }, data: { status: 'active', email: actor.email } })
+    sessionId += '-next'; issuedAt += 1
+  }
+  console.log('PASS actual account row-lock waits recheck banned status, email and session/account revocations before issuing or sending')
+
+  for (const mode of ['banned', 'email', 'session'] as const) {
+    await prisma.operationVerification.updateMany({ where: { userId: actor.id, resourceType: null }, data: { createdAt: new Date(Date.now() - 61_000) } })
+    delivery = 'held'
+    const pending = request()
+    for (let attempt = 0; !held.length; attempt++) { assert.ok(attempt < 200); await new Promise(resolve => setTimeout(resolve, 10)) }
+    if (mode === 'banned') await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+    else if (mode === 'email') await prisma.user.update({ where: { id: actor.id }, data: { email: `${tag}-inflight@example.test` } })
+    else await prisma.tokenInvalidation.create({ data: { userId: actor.id, sessionId, invalidatedAt: issuedAt } })
+    held.splice(0).forEach(item => item.finish())
+    const response = await pending
+    assert.equal(response.statusCode, 400); assert.equal(response.json().code, 'AUTHENTICATION_STATE_CHANGED')
+    const inactive = await record(); assert.equal(inactive.attempts, 7); assert.equal(inactive.verified, false)
+    assert.equal((await app.inject({ method: 'POST', url: '/verification/verify', payload: { operationType: 'disable_2fa', code: codeFor(actor.email!) } })).statusCode, 400)
+    await prisma.user.update({ where: { id: actor.id }, data: { status: 'active', email: actor.email } })
+    delivery = 'accepted'; sessionId += '-after'; issuedAt += 1
+  }
+  console.log('PASS SMTP acknowledgement after banned status/email/session changes cannot activate an eligible code')
 } catch (error) { failure = error } finally {
   globalThis.fetch = originalFetch
   held.splice(0).forEach(item => item.finish())

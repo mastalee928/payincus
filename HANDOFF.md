@@ -2,6 +2,13 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 通用验证码准备与投递回执当前授权（持续施工）
+
+- 账户预算段已推d55c7ef7f032eafed37409affa1a26417997f33c / CI41024907571。真实PG/SMTP先红takeover-verification-current-auth-before.log：鉴权替身已给旧会话、账号当前banned仍200新增邮件。现request传真实request.user，准备事务先用原authorizeUserWrite锁账户并核当前status/sid/iat撤销及捕获邮箱，通知渠道检查当前归属/启用/个人/配置摘要；未提供当前actor同样拒绝。发送不持数据库锁，SMTP成功后在新事务再次核当前授权与收件目标，仅通过才CAS激活原记录；变更保failed7和发送时间，不能验证。
+- takeover-verification-current-auth-pg-final.log实际Fastify/PG/SMTP全回归自然exit0：停用/会话撤销零邮件，新会话正常；四类真实account FOR UPDATE排队竞争（banned/email/session/user-level撤销）实际等待后拒发信，三类SMTP ACK在途变化不激活/旧码拒绝。原个人目标、账户预算/八并发、失败/尝试/消费/过期清理全回归。销毁邮箱A/B去同码与session/email/set/单次消费/预算、实际2FA回归再次exit0。
+- 最终受改专项+src严格types93716自然exit0（测试beforeQueued补number避免TS循环推断）、server最终build32269自然exit0、两operation守卫63414自然exit0（test-run-20261030-161540）、manifest194/231/diff过，无活动测试build。无前端/schema变更。此仅准备和成功回执当前授权；已发送码后续verify/check/claim仍缺通用session/email持久绑定，资源授权与通知配置修改并发完整合同另待，不扩已完成范围。
+- CI41014322522已终态success；41015808583/41017076013/41019111832/41019531979/41020374764/41023032382/41024139392/41024907571仍推进，无新失败。Go两架构实际专项及package已success但历史40799210505准确根因未知保留。保存推送后继续通用码与grant会话邮箱绑定及原327内部项，259含部分/68不同不变，无生产/发行。
+
 ## 2026-10-30 R1-011 通用敏感验证码账户发送预算（持续施工）
 
 - 个人目标段已推2909625494e3dc1f49a7bc4926014c1efb0400dd / CI41024139392。真实PG/SMTP先红takeover-verification-account-budget-before.log：disable_2fa发信后立即切change_password仍200新增邮件。现保原操作/资源锁，最先加generic-account账户锁；所有generic状态发送历史跨操作/资源检查60秒，单业务后端另保精确recordId账户在途门禁，原行被清理且超过60秒仍不并发发不同操作。失败/耗尽/消费保budget原实现沿用，过期清理保最近60秒generic发送时间，不修改destroy专用记录或其小时预算。

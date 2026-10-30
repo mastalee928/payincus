@@ -9,6 +9,7 @@ import { prisma } from '../db/prisma.js'
 import { OperationType, VerificationChannel, type Prisma, type NotificationChannel } from '@prisma/client'
 import { sendOperationVerificationEmail } from './mailer.js'
 import { sendVerificationNotification } from './notifier.js'
+import { authorizeUserWrite, type WriteActor } from '../db/user-write-authorization.js'
 import {
     OPERATION_VERIFICATION_REQUEST_LOCK_NAMESPACE,
     advisoryTransactionLockString
@@ -169,6 +170,15 @@ function notificationTargetBinding(channel: NotificationChannel): string {
     ])).digest('hex')
 }
 
+async function currentDeliveryAuthorized(tx: Prisma.TransactionClient, userId: number, actor: WriteActor | undefined,
+    email: string | null, notificationChannel: NotificationChannel | null): Promise<boolean> {
+    if (!actor || actor.id !== userId || !await authorizeUserWrite(tx, userId, actor)) return false
+    if (!notificationChannel) return (await tx.user.findUnique({ where: { id: userId }, select: { email: true } }))?.email === email
+    const current = await tx.notificationChannel.findUnique({ where: { id: notificationChannel.id } })
+    return Boolean(current && current.userId === userId && current.enabled && !current.isGlobal && current.alertCategory === null &&
+        notificationTargetBinding(current) === notificationTargetBinding(notificationChannel))
+}
+
 function getOperationVerificationRequestLockKey(
     userId: number,
     operationType: OperationType,
@@ -184,7 +194,8 @@ export async function requestOperationVerification(
     userId: number,
     operationType: OperationType,
     resourceId?: number,
-    resourceType?: string
+    resourceType?: string,
+    actor?: WriteActor
 ): Promise<RequestVerificationResult> {
     if (resourceType?.startsWith('destroy-email:v1:')) {
         return { success: false, error: 'Use the instance destroy email verification flow', errorCode: 'INVALID_OPERATION' }
@@ -233,6 +244,9 @@ export async function requestOperationVerification(
     const requestKey = getOperationVerificationRequestLockKey(userId, operationType, resourceId)
     const verificationResourceType = notificationChannel ? notificationTargetBinding(notificationChannel) : resourceType || null
     const prepared = await prisma.$transaction(async (tx): Promise<PreparedOperationVerification> => {
+        if (!await currentDeliveryAuthorized(tx, userId, actor, user.email, notificationChannel)) {
+            return { error: 'Account or session state changed. Please sign in again.', errorCode: 'AUTHENTICATION_STATE_CHANGED' }
+        }
         await advisoryTransactionLockString(tx, OPERATION_VERIFICATION_REQUEST_LOCK_NAMESPACE, `generic-account:${userId}`)
         await advisoryTransactionLockString(
             tx,
@@ -402,10 +416,19 @@ export async function requestOperationVerification(
             return { success: false, error: 'Verification code could not be sent. Please try again later.', errorCode: 'SEND_FAILED',
                 resendAfter: Math.max(0, Math.ceil(VERIFICATION_CONFIG.resendAfterSeconds - (Date.now() - prepared.createdAt.getTime()) / 1000)) }
         }
-        const activated = await prisma.operationVerification.updateMany({
-            where: { id: prepared.recordId, userId, operationType, code: prepared.codeHash, attempts: DELIVERY_PENDING, verified: false, expiresAt: { gt: new Date() }, ...GENERIC_VERIFICATIONS },
-            data: { attempts: 0 }
+        const activated = await prisma.$transaction(async tx => {
+            if (!await currentDeliveryAuthorized(tx, userId, actor, user.email, notificationChannel)) {
+                await tx.operationVerification.updateMany({
+                    where: { id: prepared.recordId, attempts: DELIVERY_PENDING, verified: false }, data: { attempts: DELIVERY_FAILED }
+                })
+                return { count: 0, authenticationChanged: true }
+            }
+            return tx.operationVerification.updateMany({
+                where: { id: prepared.recordId, userId, operationType, code: prepared.codeHash, attempts: DELIVERY_PENDING, verified: false, expiresAt: { gt: new Date() }, ...GENERIC_VERIFICATIONS },
+                data: { attempts: 0 }
+            })
         })
+        if ('authenticationChanged' in activated) return { success: false, error: 'Account or session state changed. Please sign in again.', errorCode: 'AUTHENTICATION_STATE_CHANGED' }
         if (activated.count !== 1) return { success: false, error: 'Verification code is no longer available. Please request a new code.', errorCode: 'INVALID_CODE' }
         const now = Date.now()
         return {
