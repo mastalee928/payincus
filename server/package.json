@@ -143,6 +143,7 @@
     "test:review-badge-image": "node ../scripts/test-badge-image.mjs",
     "test:review-expiry-panel": "node ../scripts/test-expiry-panel.mjs",
     "test:review-package-form": "node ../scripts/test-package-form.mjs",
+    "test:review-package-host-pagination": "node ../scripts/test-package-host-pagination.mjs",
     "test:review-package-priorities": "node ../scripts/test-package-priorities.mjs",
     "test:review-lottery-draw": "node ../scripts/test-lottery-draw.mjs",
     "test:review-telegram-bindings": "node ../scripts/test-telegram-bindings.mjs",

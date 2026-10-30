@@ -2,7 +2,18 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-020 套餐宿主名称完整分页（持续施工）
+
+- 宿主统计已推ea2d08e5301f17c7b2532218f9d7c2e09f3fcbb9/CI41005762182。40998161357现七job终态success；41000607228/41001679848/41003054433/41005024391/41005762182仍运行，继续查终态。其它内部缺口保持。
+- 原MyPackages pageSize1000仅返回100宿主，影响名称及名称搜索。现用原hosts route按100全页读取，严格metadata/ID/name，普通用户保mine字符串true及可见owner核对，管理员原所有宿主范围保持；全部读取后发布名称。独立host/session/generation/seq/KeepAlive/unmount门禁，旧回执停止后续页，失败保同context上次完整清单并持久error/retry；离页返回即使首次package读取仍pending也重读宿主。套餐列表scope/filter读取和套餐/方案写、列表表格锁定布局均保持，它们的完整旧回执/写授权另待，不能扩成本页整体完成。
+- actual Chrome32827自然exit0，takeover-package-host-pagination-final.log：237全页第三页名称及实际名称搜索、六非法页/普通用户foreign owner拒绝、failed refresh last-good/实际retry、16旧身份/路由缓存ABA与superseded成功失败回执、真实空、18三语三宽深浅44px键盘inverse颜色/no横溢通过。红为原100条提前发布；夹具在PackageForm首屏先发hosts及角色更新后旧form再探测导致请求计数错误两轮已按nextTick后清pending修正，不能当产品失败或最终证据。18最后截图已看及visual-critique；背景package受控pending、原紫色/旧整页对比度仍待。
+- 原actual PackageForm及方案弹窗60431自然exit0，takeover-package-host-pagination-form-regression.log；保空description/null SLA/原价格与读写生命周期。末route130345/i18n130344、有效lint47626、manifest194常规228专项/node语法/diff检查通过。冻结产品后的唯一双端build55612自然exit0，takeover-package-host-pagination-dual-final.log含两次vue-tsc与NATURAL_EXIT_CODE=0；末dist-final后保存；不可因记录修改重复构建。
+- 原327仍259含部分/68已有不同，内部待验未去重计数；R020本段后仅MyHosts批量calibrate完整目标/当前授权待源码精修，不能说全部只剩1。已读校对route与资源helper，发现写入非事务/日志失败以及当前权限复核另需实际PG审查，先规格根因和守卫，不机械扩大批量写。无生产/发行动作，保存后继续。
+
 ## 2026-10-30 R1-020 宿主完整实例资源统计（持续施工）
+
+- 本段已推ea2d08e5301f17c7b2532218f9d7c2e09f3fcbb9，CI41005762182运行；继续MyPackages完整宿主名称，产品尚未改，actual Chrome分页专项已准备。
+
 
 - 工单014646d8085d69b852fe5380b72b1124f4632fa0已推、CI41005024391运行；40996832087已七job终态success。40998161357/41000607228/41001679848/41003054433及本段CI仍运行须跟终态；旧GoIO与其它未完不删除。
 - 读取真实instances route/权限/资源字段、HostInfoTab与既有reads/metrics守卫。原pageSize1000被后端限制100，237条total但资源只加前100条；actual Chrome红为cpuUsed200提前发布。现按100全页固定hostId/当前host-session-generation-sequence读取，metadata/ID去重/可见hostId及host_id/非负有限资源字段全部通过才发布统计。可空旧字段贡献0保持；溢出聚合拒绝，失败保上次完整当前值与实际block retry。管理权限、资源校对/Agent升级等写操作未变，统计仅只读；跨页无数据库事务快照，等数量替换/状态变化强一致另待。

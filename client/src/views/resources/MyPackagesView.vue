@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated, watch } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import api from '@/api'
@@ -10,6 +10,7 @@ import { useToast } from '@/stores/toast'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import { translateError } from '@/utils/errorHandler'
+import { loadCompletePages } from '@/utils/completePages'
 import type { Package, Host } from '@/types/api'
 import { instanceCreatePath, isAdminEntry, packageCreatePath, packageEditPath } from '@/utils/app-paths'
 
@@ -31,6 +32,25 @@ const filterUserId = ref('')  // 用于筛选特定用户的托管套餐
 
 const packages = ref<Package[]>([])
 const hosts = ref<Host[]>([])
+const hostsLoading = ref(false), hostsError = ref('')
+let hostsAlive = true, hostsActive = false, hostsGeneration = 0, hostsSequence = 0
+const hostsSession = computed(() => {
+  const user = authStore.user
+  if (!user || !authStore.token || !Number.isSafeInteger(user.id) || user.id < 1 || !['admin', 'user'].includes(user.role)) return ''
+  let identity = authStore.token
+  try {
+    const claims = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof claims.sid === 'string' && claims.sid) identity = claims.sid
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return `${user.id}:${user.role}:${identity}`
+})
+function invalidateHosts() {
+  hostsGeneration++; hostsSequence++
+  hosts.value = []; hostsLoading.value = false; hostsError.value = ''
+}
+watch(hostsSession, () => { invalidateHosts(); if (hostsActive) void loadHosts() }, { flush: 'sync' })
+onDeactivated(() => { hostsActive = false; invalidateHosts() })
+onBeforeUnmount(() => { hostsAlive = false; hostsActive = false; invalidateHosts() })
 const loading = ref<boolean>(true)
 const activeChangingId = ref<number | null>(null)
 
@@ -163,14 +183,19 @@ function bytesToMbps(bytes: string | null | undefined): number {
 }
 
 onMounted(async (): Promise<void> => {
+  hostsActive = true
   await Promise.all([loadPackages(), loadHosts()])
   hasInitialLoad = true
 })
 
 // 当组件从 KeepAlive 缓存中激活时，重新加载数据
 onActivated(async (): Promise<void> => {
+  const returning = !hostsActive
+  hostsActive = true
   if (hasInitialLoad) {
     await Promise.all([loadPackages(), loadHosts()])
+  } else if (returning) {
+    await loadHosts()
   }
 })
 
@@ -217,13 +242,28 @@ watch(filterUserId, () => {
 })
 
 async function loadHosts(): Promise<void> {
+  const identity = hostsSession.value, version = hostsGeneration, sequence = ++hostsSequence
+  const userId = authStore.user?.id, admin = isAdmin.value
+  const current = () => hostsAlive && hostsActive && !!identity && identity === hostsSession.value && version === hostsGeneration && sequence === hostsSequence
+  if (!current()) return
+  hostsLoading.value = true; hostsError.value = ''
   try {
     // 管理员加载所有节点（包括官方节点），普通用户只加载自己的节点
-    // 传递 pageSize 以获取所有宿主机，避免默认分页限制（默认只返回20条）
-    const response = await api.hosts.list(isAdmin.value ? { pageSize: '1000' } : { mine: 'true', pageSize: '1000' })
-    hosts.value = (response as { hosts?: Host[] }).hosts || []
+    const rows = await loadCompletePages<Host>({
+      fetchPage: params => api.hosts.list({ ...params, ...(admin ? {} : { mine: 'true' }) }),
+      itemsKey: 'hosts', current, errorMessage: t('common.loadFailed'),
+      isItem: (value): value is Host => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+        const host = value as Record<string, unknown>, owner = host.owner
+        return typeof host.id === 'number' && typeof host.name === 'string' &&
+          (admin || owner === undefined || owner === null || (typeof owner === 'object' && !Array.isArray(owner) && (owner as Record<string, unknown>).id === userId))
+      }
+    })
+    if (current()) hosts.value = rows
   } catch (err) {
-    console.error('加载宿主机失败:', err)
+    if (current()) hostsError.value = translateError(err)
+  } finally {
+    if (current()) hostsLoading.value = false
   }
 }
 
@@ -780,6 +820,11 @@ function getBillingCycleLabel(months: number): string {
           class="input pl-9 w-full"
         />
       </div>
+    </div>
+
+    <div v-if="hostsError" role="alert" class="flex flex-wrap items-center gap-3">
+      <p class="min-w-0 flex-1 break-words text-sm text-themed">{{ hostsError }}</p>
+      <button type="button" data-testid="package-hosts-retry" class="package-hosts-retry min-h-[44px] min-w-[44px] rounded-lg px-4 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" :disabled="hostsLoading" @click="loadHosts">{{ t('common.retry') }}</button>
     </div>
 
     <!-- 套餐列表 -->
@@ -1412,6 +1457,19 @@ function getBillingCycleLabel(months: number): string {
 </template>
 
 <style scoped>
+.package-hosts-retry {
+  background: #0a0a0a;
+  color: #fff;
+  outline-color: #0a0a0a;
+}
+.dark .package-hosts-retry {
+  background: #fff;
+  color: #0a0a0a;
+  outline-color: #fff;
+}
+.package-hosts-retry:hover { background: #262626; }
+.dark .package-hosts-retry:hover { background: #e5e5e5; }
+
 /* Linear finish: uppercase micro-label table headers (consistent with MyHostsView) */
 thead th {
   text-transform: uppercase;

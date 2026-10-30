@@ -184,7 +184,7 @@ try {
   assert.equal(await page.eval(index => window.packageHarness.pending[index].data.description, await latest('update')), '')
   await resolveRequest(await latest('update'), {})
   await routeTo('/plans')
-  await resolveRequest(await latest('hosts'), { hosts: [] })
+  await resolveRequest(await latest('hosts'), { hosts: [], page: 1, pageSize: 100, total: 0, totalPages: 0 })
   await resolveRequest(await latest('list'), { packages: [{ ...record(40).package, cpu_max: 100, memory_max: 512, disk_max: 5120, isOwn: true, network_mode: 'nat' }] })
   await run(() => [...document.querySelectorAll('button[title]')].find(el => el.title === '方案管理' || el.title === '管理方案')?.click())
   await check(() => window.packageHarness.pending.some(item => item.kind === 'plans'), 'plan list opened')
