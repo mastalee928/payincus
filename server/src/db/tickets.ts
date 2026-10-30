@@ -1466,6 +1466,8 @@ export async function autoCloseTickets(
 
   for (const ticketId of uniqueTicketIds) {
     const closedTicket = await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+      await tx.$queryRaw`SELECT id FROM tickets WHERE id = ${ticketId} FOR UPDATE`
       const latest = await tx.ticket.findUnique({
         where: { id: ticketId },
         select: {

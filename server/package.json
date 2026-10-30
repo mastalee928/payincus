@@ -65,6 +65,7 @@
     "test:review-terminal-reconnect": "node --import tsx scripts/test-review-terminal-reconnect.ts",
     "test:review-terminal-authorization": "node --import tsx scripts/test-review-terminal-authorization.ts",
     "test:review-terminal-reconnect-authorization": "node --import tsx scripts/test-review-terminal-reconnect-authorization.ts",
+    "test:review-ticket-autoclose": "node --import tsx scripts/test-review-ticket-autoclose.ts",
     "test:review-oauth-locales": "node ../scripts/test-oauth-locales.mjs",
     "test:review-instance-task-site-cleanup": "node --import tsx scripts/test-review-instance-task-site-cleanup.ts",
     "test:review-terminal-commands-lifecycle": "node ../scripts/test-terminal-commands-lifecycle.mjs",

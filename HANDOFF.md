@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R181 自动关闭与回复删除串行化（阶段保存）
+
+- R177已推67f3b47cafc956ad59fb426bd18d61324f788982，CI41131838318继续跟终态。R181只在自动关闭逐项事务内读取前新增原ticket FOR UPDATE与3秒锁等待上限，复用现行回复/删除/改状态的工单锁。新test-review-ticket-autoclose.ts登记独立PG专项与LinuxCI。
+- ticket-r181-product-integration.log自然exit0：管理员删除先提交后自动关闭重读末条客户消息拒绝；自动关闭先持锁时删除等待；客户回复先提交时重读拒绝；八并发/重复ID唯一次关闭回执、新回复/客户末条/无消息拒绝、失败事务完整回滚。原三工单回归/产品types/build/四守卫另收终态；两次--only误用不存在public-api脚本被清单拒绝，均未运行且不计通过，已按实际public-api-resource-guards重跑。
+- 最终ticket-r181-product-{integration,regression,types,build,guards}.log全部自然exit0：原42类网站/160类PAT-POA及对象绑定、首消息故障回滚保持；四守卫4/4、完整server与新长期测试types零诊断、后端构建和测试清单有效。无前端变更，未实测外部通知服务。本次修复在v1.7.8固定tag之后，不误报已在发行包内。
+
 ## 2026-10-31 R177 重连当前授权与待提交连接取消迁入（阶段保存）
 
 - R174已推94214b23b6fd92fa2edd74170b2bad393964bf02，CI41131579517启动，须跟终态。第二段保留原authorizeOpening闭包，每次重连复用当前账户/会话/角色、原实例/宿主/套餐与运行/转移门禁；授权或DB失败关闭用户会话，后端连接故障沿原有界重试。

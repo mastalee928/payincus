@@ -472,7 +472,7 @@
 | R1-178 | 已有防护 | 保留初审结论 | 事务advisory lock串行count和insert，100条上限已有并发保护。 |
 | R1-179 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-180 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
-| R1-181 | 部分存在（复审纠正） | 删除末条回复竞争已复现；临时修复通过，待落地 | 原updatedAt CAS覆盖新回复，但管理员删除末条客服回复不改ticket.updatedAt；原auto-close读取后删除先提交仍关闭，review-ticket-autoclose-delete-before.log自然exit1。临时候选读取前锁ticket，实际两序PG锁竞争、八并发唯一回执、新回复/客户末条/无消息及事务回滚通过expanded-staged.log。产品仍冻结，长期测试/源码/构建/CI与外部通知另待，不能记整项已修。 |
+| R1-181 | 部分存在（复审纠正） | 删除末条回复竞争已修；实际PG/构建通过 | 原updatedAt CAS未覆盖删除末条客服回复；读取前锁原ticket并限3秒锁等待，实际两序PG锁竞争、八并发唯一次关闭、新回复/客户末条/无消息与事务回滚通过。ticket-r181-product-*原42网站/160PAT-POA/对象绑定回归、types/四守卫/build自然exit0，长期测试接CI；外部通知与原生定时周期另验。本次为v1.7.8 tag之后的主分支修复。 |
 | R1-182 | 已有防护 | 保留初审结论 | 逐项事务重新读resolved/最后回复，updateMany约束updatedAt；仅实际closedTickets发送通知日志。 |
 | R1-183 | 部分存在 | 源码已修/隔离PG验证通过 | 完整十进制/safe integer与DB offset乘积限32位；四路由/helper非法及重复参数、有效二页/末页/100上限/偏移临界通过takeover-ticket-pagination-r3.log。数字搜索超PG整数范围按原文字匹配，重复search不500；4守卫、后端build与专项类型通过，浏览器/生产未验 |
 | R1-184 | 部分存在（复审纠正） | 源码已修/隔离PG验证通过 | 原safe integer仍越过PG Int上限；实际2147483648复现500后加入2147483647上限。154路径/查询/正文非法ID400、最大合法但不存在404、正常200且无写入，分页回归/4守卫/build/types通过takeover-ticket-id-final.log |
