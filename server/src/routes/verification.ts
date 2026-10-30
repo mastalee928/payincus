@@ -6,10 +6,9 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import {
     requestOperationVerification,
     verifyOperationCode,
-    isOperationVerified,
+    checkOperationVerificationRequirement,
     isAccountOperation,
     isResourceOperation,
-    isResourceVerificationRequired,
     getOperationName,
     OperationType
 } from '../lib/operation-verification.js'
@@ -114,8 +113,11 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
 
             // 资源操作：检查是否需要二次验证
             if (isResourceOperation(operationType)) {
-                const required = await isResourceVerificationRequired(user.id)
-                if (!required) {
+                const requirement = await checkOperationVerificationRequirement(user.id, operationType, normalizedResource.resourceId, user)
+                if (requirement.errorCode) return reply.code(400).send({
+                    error: 'Account or session state changed. Please sign in again.', code: requirement.errorCode
+                })
+                if (!requirement.required) {
                     // 用户没有绑定通知渠道，不需要二次验证
                     return {
                         success: true,
@@ -277,28 +279,17 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
                 })
             }
 
-            // 资源操作：检查是否需要二次验证
-            if (isResourceOperation(operationType)) {
-                const required = await isResourceVerificationRequired(user.id)
-                if (!required) {
-                    return {
-                        required: false,
-                        verified: true
-                    }
-                }
-            }
-
-            const verified = await isOperationVerified(
+            const requirement = await checkOperationVerificationRequirement(
                 user.id,
                 operationType,
                 normalizedResource.resourceId,
                 user
             )
 
-            return {
-                required: isAccountOperation(operationType) || await isResourceVerificationRequired(user.id),
-                verified
-            }
+            if (requirement.errorCode) return reply.code(400).send({
+                error: 'Account or session state changed. Please sign in again.', code: requirement.errorCode
+            })
+            return requirement
         }
     )
 

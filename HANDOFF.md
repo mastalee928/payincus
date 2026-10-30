@@ -2,6 +2,12 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 无个人渠道的验证码请求/查询当前授权（持续施工）
+
+- 资源会话段已推9732f96149a6b41bdf62fa5c32af5885c46432bb / CI41031081702。实际PG先红`takeover-verification-no-channel-auth-before.log`：banned但旧authenticate actor仍在时，无个人渠道request返回200免验证。现checkOperationVerificationRequirement同一事务最先锁账户核当前授权，再锁已有渠道并判断required/当前绑定grant；request资源免验证分支与check路由共用它，停用/撤销返回稳定AUTHENTICATION_STATE_CHANGED，不再提前输出verified=true。
+- 最终`takeover-verification-no-channel-auth-resend-verified.log`实际Fastify/PG/SMTP自然exit0，含无渠道request/check的banned/session撤销拒绝、两阶段实际账户FOR UPDATE排队后拒绝及正常免渠道合同；原账户/资源session-target绑定、预算、SMTP ACK/失败、渠道三阶段竞争、8并发单claim全回归。严格专项+源types、后端build、两operation守卫与原2FA/destroy PG/SMTP均自然exit0，日志前缀`logs/takeover-verification-no-channel-auth-`，无前端/schema改动。
+- 当前授权回执修复不等于资源归属权限、grant后业务写/远端dispatch或新增渠道串行闭合；这些及外部SMTP/原生机器/完整灾备继续。CI41019111832/41019531979/41020374764已success；41023032382/41024139392/41024907571/41025555281/41026234390/41028619415/41029729516/41031081702仍运行无新失败须跟。原327259含部分/68不同不增，历史GoIO保留，阶段保存后继续。
+
 ## 2026-10-30 R1-011 资源验证码绑定原会话并要求当前领取授权（持续施工）
 
 - 通知目标段已推dc370b1df7dfd05275c9f42ee58338172740b52b / CI41029729516。下一真实PG/Fastify先红`takeover-verification-resource-session-before.log`：同账户第二合法会话资源verify仍200。现`notification-session:v1:`摘要绑定账户/sid和原个人渠道id/type/config；request/verify/check/claim匹配原会话，别的会话请求不能撤销原码或绕过60秒。摘要不持久存凭据或明文sid，旧仅目标绑定的资源grant须重新验证。

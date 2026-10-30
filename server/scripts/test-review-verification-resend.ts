@@ -378,11 +378,31 @@ try {
   assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910002)).verified, false)
   await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
   assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910002, currentActor())).verified, false)
+  const bannedNoChannelRequest = await notifyRequest(910002)
+  assert.equal(bannedNoChannelRequest.statusCode, 400, 'a stale authenticated banned actor cannot receive a no-channel verification exemption')
+  assert.equal(bannedNoChannelRequest.json().code, 'AUTHENTICATION_STATE_CHANGED')
+  const bannedNoChannelCheck = await app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910002' })
+  assert.equal(bannedNoChannelCheck.statusCode, 400)
+  assert.equal(bannedNoChannelCheck.json().code, 'AUTHENTICATION_STATE_CHANGED')
   await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
   await prisma.tokenInvalidation.create({ data: { userId: actor.id, sessionId, invalidatedAt: issuedAt } })
   assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910002, currentActor())).verified, false)
+  const revokedNoChannelRequest = await notifyRequest(910002)
+  assert.equal(revokedNoChannelRequest.statusCode, 400)
+  assert.equal(revokedNoChannelRequest.json().code, 'AUTHENTICATION_STATE_CHANGED')
+  const revokedNoChannelCheck = await app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910002' })
+  assert.equal(revokedNoChannelCheck.statusCode, 400)
+  assert.equal(revokedNoChannelCheck.json().code, 'AUTHENTICATION_STATE_CHANGED')
   await prisma.tokenInvalidation.deleteMany({ where: { userId: actor.id } })
-  console.log('PASS no-personal-channel resource exemption still requires a supplied, active and unrevoked current actor at claim')
+  for (const phase of ['request', 'check'] as const) {
+    const queued = await queuedRequest(tx => tx.user.update({ where: { id: actor.id }, data: { status: 'banned' } }),
+      () => phase === 'request' ? notifyRequest(910002) : app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910002' }))
+    assert.equal(queued.blocked, true)
+    assert.equal(queued.response.statusCode, 400)
+    assert.equal(queued.response.json().code, 'AUTHENTICATION_STATE_CHANGED')
+    await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+  }
+  console.log('PASS no-channel request/check/claim reject missing, banned and revoked actors and recheck actual account-lock mutations')
 
   const emailTarget = `${tag}-channel@example.test`
   await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { createdAt: new Date(Date.now() - 61_000) } })

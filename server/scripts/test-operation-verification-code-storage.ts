@@ -43,6 +43,13 @@ const verifyOperationCodeSource = sourceBetween(
 const failedAttemptSource = sourceBetween(source, 'async function recordFailedVerificationAttempt(', 'export async function verifyOperationCode(')
 const notificationSelection = sourceBetween(source, 'async function getUserNotificationChannel(', 'function maskNotificationTarget(')
 const verificationDelivery = sourceBetween(notifier, 'export async function sendVerificationNotification(', 'export async function sendToChannel(')
+const requirementSource = sourceBetween(source, 'export async function checkOperationVerificationRequirement(',
+  'export async function claimOperationVerificationRequirement(')
+assert.ok(requirementSource.includes('authorizeUserWrite(tx, userId, actor)') &&
+  requirementSource.includes("errorCode: 'AUTHENTICATION_STATE_CHANGED'") &&
+  requirementSource.indexOf('authorizeUserWrite(tx, userId, actor)') < requirementSource.indexOf('const configured') &&
+  requirementSource.includes('resourceType: binding'),
+  'verification requirement receipts must recheck current authorization and recipient/session before any no-channel exemption')
 assert.ok(requestOperationVerificationSource.includes('notificationOperationVerificationBinding(actor, notificationChannel)') &&
   source.includes('return notificationOperationVerificationBinding(actor, channel)') &&
   claimOperationVerificationSource.includes('authorizeUserWrite(tx, userId, actor)') &&
