@@ -36,7 +36,7 @@ try {
   await app.register(routes)
   let expectedBalance = 0, completedOrders = 0
   for (const type of ['yipay', 'heleket'] as const) {
-    for (const mode of ['encrypted', 'legacy-string', 'legacy-object', 'snapshot', 'concurrent', 'payment-attempt', 'json-null', 'changed-during-query', 'changed-from-null'] as const) {
+    for (const mode of ['encrypted', 'legacy-string', 'legacy-object', 'snapshot', 'concurrent', 'payment-attempt', 'json-null', 'changed-during-query', 'changed-from-null', 'revoked-during-query'] as const) {
       const secret = randomUUID(), merchant = randomUUID()
       const current: Record<string, unknown> = type === 'yipay'
         ? { version: 'v1', apiurl: 'https://8.8.8.8/current/', pid: merchant, key: secret }
@@ -96,6 +96,33 @@ try {
         { headers: { 'content-type': 'application/json' } })
       }
       const sync = () => app.inject({ method: 'POST', url: `/api/admin/billing/recharge-records/${order.id}/sync` })
+      if (mode === 'revoked-during-query') {
+        const states = type === 'heleket' ? ['check', 'cancel', 'fail', 'paid'] : ['paid']
+        for (const status of states) for (const revoke of ['demotion', 'ban', 'logout']) {
+          returnedStatus = status
+          const before = await prisma.rechargeRecord.findUniqueOrThrow({ where: { id: order.id } })
+          afterQuery = async () => {
+            if (revoke === 'logout') await prisma.tokenInvalidation.create({ data: {
+              userId: admin.id, sessionId: actor.sid, invalidatedAt: actor.iat
+            } })
+            else await prisma.user.update({ where: { id: admin.id }, data: revoke === 'ban' ? { status: 'banned' } : { role: 'user' } })
+          }
+          const response = await sync()
+          const after = await prisma.rechargeRecord.findUniqueOrThrow({ where: { id: order.id } })
+          if (response.statusCode !== 403) console.log('Unexpected revoked sync', type, status, revoke, response.statusCode,
+            'record changed', JSON.stringify(after) !== JSON.stringify(before))
+          assert.equal(response.statusCode, 403, 'all mutations must recheck current administrator authorization')
+          assert.deepEqual(after, before)
+          assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), expectedBalance)
+          assert.equal(await prisma.balanceLog.count({ where: { userId: user.id } }), completedOrders)
+          assert.equal(await prisma.inboxMessage.count({ where: { userId: user.id } }), completedOrders)
+          assert.equal(await prisma.paymentCallback.count({ where: { providerId: provider.id } }), 0)
+          await prisma.user.update({ where: { id: admin.id }, data: { role: 'admin', status: 'active' } })
+          await prisma.tokenInvalidation.deleteMany({ where: { userId: admin.id, sessionId: actor.sid } })
+        }
+        afterQuery = undefined; returnedStatus = 'paid'
+        console.log('PASS', type, 'current admin demotion, ban and logout reject every in-flight sync mutation')
+      }
       if (mode === 'changed-during-query' || mode === 'changed-from-null') {
         const states = type === 'heleket' ? ['paid', 'check', 'cancel', 'fail'] : ['paid']
         for (const status of states) {

@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 管理员同步待付与取消分支重核当前授权
+
+- recharge-sync-revocation-before.log自然exit1：Heleket查询途中admin降权后check分支仍200并修改订单元数据。metadata与cancel helper新增可选actor，在同一事务先锁并核当前账户状态/角色/session，再执行原支付选择CAS及状态更新；admin入口传actor。原complete/fail已有授权保持，自动供应商调用不要求虚构Web会话。
+- recharge-sync-revocation-final.log自然exit0：两渠道20组完整正常及竞争回归，易支付paid与Heleket check/cancel/fail/paid×降权/封禁/注销共15种在途撤销全部403，原订单完整保持、余额/ledger/inbox不增、零callback。恢复原admin后正常同步成功；换单10竞争、错配订单、SQL/JSON空值、加密/snapshot/并发等保持。
+- 完整server+专项types零诊断、5守卫5/5、财务授权/故障回滚回归与后端build自然exit0。无实际支付/邮件或生产操作。上段0ab0a08730a016b890aae85daded46403db39800 / CI41145752070，既有CI16运行/8排队未见新失败；283/327（86.5%，含部分/待验收）、44初审不变，用户verify/callback在途选择竞争仍待。共享DB函数变更另补现有UPAY Pro集成回归。
+
 ## 2026-10-31 管理员同步的在途重新支付竞争
 
 - recharge-sync-race-before.log自然exit1：provider查询尚未返回时经真实updatePendingRechargePaymentSelection换新尝试，旧paid回执仍200/completed并加余额。admin现在携带查询前paymentDetails；metadata/complete/cancel/fail的实际updateMany同语句比较原值，已换则抛明确冲突并返回409，不能在路由先读后无条件写。Prisma SQL NULL与JSON null均按无尝试匹配，undefined保原未指定约束调用的语义。

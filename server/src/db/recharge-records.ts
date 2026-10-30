@@ -267,42 +267,46 @@ export async function updateRechargeOrderMetadata(
     callbackData?: Record<string, unknown>
     paymentDetails?: Record<string, unknown>
     expectedPaymentDetails?: Record<string, unknown> | null
+    actor?: WriteActor
   }
 ): Promise<RechargeRecord> {
-  const updateData: Record<string, unknown> = {}
+  return prisma.$transaction(async (tx) => {
+    if (data.actor) await lockAdministrativeUserMutation(tx, data.actor.id, data.actor)
+    const updateData: Record<string, unknown> = {}
 
-  if (data.tradeNo !== undefined) {
-    updateData.tradeNo = data.tradeNo
-  }
+    if (data.tradeNo !== undefined) {
+      updateData.tradeNo = data.tradeNo
+    }
 
-  if (data.callbackData !== undefined) {
-    updateData.callbackData = data.callbackData as any
-    updateData.callbackAt = new Date()
-  }
+    if (data.callbackData !== undefined) {
+      updateData.callbackData = data.callbackData as any
+      updateData.callbackAt = new Date()
+    }
 
-  if (data.paymentDetails !== undefined) {
-    updateData.paymentDetails = data.paymentDetails as any
-  }
+    if (data.paymentDetails !== undefined) {
+      updateData.paymentDetails = data.paymentDetails as any
+    }
 
-  const updated = await prisma.rechargeRecord.updateMany({
-    where: {
-      orderNo,
-      status: { in: ['pending', 'paid'] },
-      ...paymentSelectionCondition(data.expectedPaymentDetails)
-    },
-    data: updateData
+    const updated = await tx.rechargeRecord.updateMany({
+      where: {
+        orderNo,
+        status: { in: ['pending', 'paid'] },
+        ...paymentSelectionCondition(data.expectedPaymentDetails)
+      },
+      data: updateData
+    })
+    if (updated.count === 0 && data.expectedPaymentDetails !== undefined) throw new RechargePaymentSelectionChangedError()
+
+    const record = await tx.rechargeRecord.findUnique({
+      where: { orderNo }
+    })
+
+    if (!record) {
+      throw new Error('订单不存在')
+    }
+
+    return record
   })
-  if (updated.count === 0 && data.expectedPaymentDetails !== undefined) throw new RechargePaymentSelectionChangedError()
-
-  const record = await prisma.rechargeRecord.findUnique({
-    where: { orderNo }
-  })
-
-  if (!record) {
-    throw new Error('订单不存在')
-  }
-
-  return record
 }
 
 /**
@@ -497,36 +501,40 @@ export async function cancelRecharge(
   orderNo: string,
   callbackData?: Record<string, unknown>,
   paymentDetails?: Record<string, unknown>,
-  expectedPaymentDetails?: Record<string, unknown> | null
+  expectedPaymentDetails?: Record<string, unknown> | null,
+  actor?: WriteActor
 ): Promise<RechargeRecord> {
-  const updated = await prisma.rechargeRecord.updateMany({
-    where: {
-      orderNo,
-      status: { in: ['pending', 'paid'] },
-      ...paymentSelectionCondition(expectedPaymentDetails)
-    },
-    data: {
-      status: 'cancelled',
-      paymentDetails: paymentDetails as any,
-      ...(callbackData
-        ? {
-            callbackData: callbackData as any,
-            callbackAt: new Date()
-          }
-        : {})
+  return prisma.$transaction(async (tx) => {
+    if (actor) await lockAdministrativeUserMutation(tx, actor.id, actor)
+    const updated = await tx.rechargeRecord.updateMany({
+      where: {
+        orderNo,
+        status: { in: ['pending', 'paid'] },
+        ...paymentSelectionCondition(expectedPaymentDetails)
+      },
+      data: {
+        status: 'cancelled',
+        paymentDetails: paymentDetails as any,
+        ...(callbackData
+          ? {
+              callbackData: callbackData as any,
+              callbackAt: new Date()
+            }
+          : {})
+      }
+    })
+    if (updated.count === 0 && expectedPaymentDetails !== undefined) throw new RechargePaymentSelectionChangedError()
+
+    const record = await tx.rechargeRecord.findUnique({
+      where: { orderNo }
+    })
+
+    if (!record) {
+      throw new Error('订单不存在')
     }
+
+    return record
   })
-  if (updated.count === 0 && expectedPaymentDetails !== undefined) throw new RechargePaymentSelectionChangedError()
-
-  const record = await prisma.rechargeRecord.findUnique({
-    where: { orderNo }
-  })
-
-  if (!record) {
-    throw new Error('订单不存在')
-  }
-
-  return record
 }
 
 /**

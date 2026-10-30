@@ -3395,7 +3395,8 @@ if (provider.type === 'yipay') {
           await db.updateRechargeOrderMetadata(record.orderNo, {
             tradeNo: heleketTradeNo,
             paymentDetails,
-            expectedPaymentDetails
+            expectedPaymentDetails,
+            actor: admin
           })
 
           return {
@@ -3407,7 +3408,7 @@ if (provider.type === 'yipay') {
         }
 
         if (paymentState === 'cancelled') {
-          await db.cancelRecharge(record.orderNo, callbackPayload, paymentDetails, expectedPaymentDetails)
+          await db.cancelRecharge(record.orderNo, callbackPayload, paymentDetails, expectedPaymentDetails, admin)
           request.log.info({ orderNo: record.orderNo, status }, '管理员同步-Heleket 订单已取消')
           return {
             success: true,

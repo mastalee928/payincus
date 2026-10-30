@@ -52,8 +52,8 @@ assert.ok(adminSync.indexOf('!isRechargeGatewayOrderNoMatch(gatewayOrderNo, quer
 assert.ok(adminSync.includes('epay.queryOrder(gatewayOrderNo)') && adminSync.includes('heleket.getPaymentInfo({ order_id: gatewayOrderNo })'),
   'both administrator sync providers must query the active payment attempt')
 assert.ok(adminSync.includes('const expectedPaymentDetails = record.paymentDetails') &&
-  adminSync.includes('paymentDetails,\n            expectedPaymentDetails') &&
-  adminSync.includes('db.cancelRecharge(record.orderNo, callbackPayload, paymentDetails, expectedPaymentDetails)') &&
+  adminSync.includes('paymentDetails,\n            expectedPaymentDetails,\n            actor: admin') &&
+  adminSync.includes('db.cancelRecharge(record.orderNo, callbackPayload, paymentDetails, expectedPaymentDetails, admin)') &&
   adminSync.includes('db.failRecharge(record.orderNo, statusMessage, callbackPayload, paymentDetails, admin, expectedPaymentDetails)') &&
   adminSync.includes('paymentDetails,\n        expectedPaymentDetails,\n        actor: admin'),
   'every sync mutation must retain the originally queried payment selection')
