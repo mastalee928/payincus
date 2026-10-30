@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 R188 工单图片出站真实传输复验
+
+- 原URL与连接期安全dispatcher、manual redirect防护有效，无产品改动。新增test-review-ticket-image-transport调用原Fastify图片路由和真实PG，允许的公网目标仅桥接本机HTTP，DNS重绑定使用原安全dispatcher发起连接并拒绝；不会访问外部图床。
+- ticket-r188-transport.log自然exit0：其他用户404零外发、12种私网/等价IP/本地主机/非HTTP地址拒绝，4种连接期DNS结果（普通私网、两种映射IPv6、混合公网/私网）均两次预检查后真实连接期拒绝，零/private请求；302不跟随。声明超限及持续大流及时取消，实际生产者未发送完整200MiB，恰好50MiB允许且内容正确，附件声明3字节不替代全局上限。
+- 无headers15037ms、半body15029ms后原15秒期限结束且active=0；恢复正常读取成功，ticket/message/attachment完整原记录保持。清理前无活跃响应，独立dispatcher关闭后socket=0。身份hook及预检查DNS为夹具，实际路由/PG/HTTP/取消/连接期拒绝；未真实图床、浏览器或生产验收。
+- 完整server+专项types零诊断、图片安全/安全出站两守卫2/2自然exit0；新专项登记CI，复用相同产品源码的redeem-r262-ids-build成功结果。首次守卫only名outbound-security不存在，未执行；更正真实名字后成功，旧日志保留。本条后280/327（85.6%，含部分/待验收），47项保初审分类；同专项大小证据另归R189，不提前重复计数。
+- R262补验已推4c90055b2e31d3a5e986f22f003258f7c9bb0733 / CI41143664537。最近7条旧运行均继续推进后续浏览器检查、无新增失败，完整状态保存logs/ci-state-<run>.json；所有已推阶段继续跟终态。固定v1.7.8及生产不变。
+
 ## 2026-10-31 R262 补验 PostgreSQL 编号上限
 
 - redeem-r262-ids-before.log自然exit1复现GET /hosts/2147483648/redeem-codes进入PG integer越界500。仅本组路径/批量共用parser补2147483647上限，不扩大到其它接口或改变既有schema数值转换规则。

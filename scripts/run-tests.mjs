@@ -230,6 +230,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-init-command-modals', 'requires installed Chrome/Edge and local Vite; renders real init command modals with delayed API/clipboard fixture'],
   ['test:review-ticket-public-authorization', 'requires isolated local *_pool_test PostgreSQL; real bearer middleware and PAT/POA ticket write races with account/token/app/grant revocation'],
   ['test:review-ticket-image-proxy', 'requires isolated local *_pool_test PostgreSQL; real Fastify image proxy access, body timeout and cancellation with intercepted fetch transport'],
+  ['test:review-ticket-image-transport', 'requires isolated local *_pool_test PostgreSQL; real image route and local HTTP stream bounds, timeouts and connection-time DNS rebinding rejection'],
   ['test:review-ticket-authorization', 'requires isolated local *_pool_test PostgreSQL; real Fastify ticket creation actor/session revocation and account row-lock races'],
   ['test:review-ticket-target', 'requires isolated local *_pool_test PostgreSQL; real ticket creation races with instance ownership/host/deletion changes and DB rollback'],
   ['test:review-ticket-pagination', 'requires isolated local *_pool_test PostgreSQL; real Fastify ticket list/message pagination and numeric search boundaries'],
