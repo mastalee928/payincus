@@ -29,5 +29,5 @@ export default async function adminInstancePushRoutes(fastify: FastifyInstance) 
       targetUsername: { type: 'string', minLength: 2, maxLength: 64 }, expectedOwnerId: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
       expectedFee: { type: 'number', minimum: 0 }, acknowledge: { type: 'boolean' }, remark: { type: 'string', maxLength: 200 }
     } } }
-  }, async (request, reply) => reply.code(201).send(await createAdminInstancePush(request.params.id, request.user.id, request.body)))
+  }, async (request, reply) => reply.code(201).send(await createAdminInstancePush(request.params.id, request.user.id, request.body, request.user)))
 }

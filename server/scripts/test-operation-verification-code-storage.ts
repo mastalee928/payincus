@@ -43,6 +43,12 @@ const verifyOperationCodeSource = sourceBetween(
 const failedAttemptSource = sourceBetween(source, 'async function recordFailedVerificationAttempt(', 'export async function verifyOperationCode(')
 const notificationSelection = sourceBetween(source, 'async function getUserNotificationChannel(', 'function maskNotificationTarget(')
 const verificationDelivery = sourceBetween(notifier, 'export async function sendVerificationNotification(', 'export async function sendToChannel(')
+assert.ok(requestOperationVerificationSource.includes('notificationOperationVerificationBinding(actor, notificationChannel)') &&
+  source.includes('return notificationOperationVerificationBinding(actor, channel)') &&
+  claimOperationVerificationSource.includes('authorizeUserWrite(tx, userId, actor)') &&
+  claimOperationVerificationSource.indexOf('authorizeUserWrite(tx, userId, actor)', claimOperationVerificationSource.indexOf('const tenMinutesAgo')) <
+    claimOperationVerificationSource.indexOf('const configured'),
+  'resource grants bind the original session/target and current authorization is required even without a notification channel')
 assert.ok(requestOperationVerificationSource.includes('accountOperationVerificationBinding(actor, user.email)') &&
   verifyOperationCodeSource.includes('...(accountBinding ? { resourceType: accountBinding } : {})') &&
   claimOperationVerificationSource.includes('resourceType: accountOperationVerificationBinding(actor, current.email)') &&
@@ -57,7 +63,7 @@ assert.ok(source.includes('authorizeUserWrite(tx, userId, actor)') &&
 assert.ok(notificationSelection.includes('enabled: true') && notificationSelection.includes('isGlobal: false') &&
   notificationSelection.includes('alertCategory: null') && notificationSelection.includes("orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]"),
   'resource verification must deterministically select only the current user personal notification channels')
-assert.ok(requestOperationVerificationSource.includes('notificationTargetBinding(notificationChannel)') &&
+assert.ok(requestOperationVerificationSource.includes('notificationOperationVerificationBinding(actor, notificationChannel)') &&
   requestOperationVerificationSource.includes('existingVerification.resourceType !== verificationResourceType') &&
   requestOperationVerificationSource.includes('sendVerificationNotification(notificationChannel,') &&
   !verificationDelivery.includes('getEnabledChannelsByUserId') && verificationDelivery.includes('return sendOperationVerificationEmail(config.email, data)'),
@@ -156,8 +162,8 @@ assert.ok(verifyOperationCodeSource.includes('return prisma.$transaction(async t
   'verification attempts and grant promotion must share the current account/session row-lock transaction')
 
 assert.ok(
-  claimOperationVerificationSource.includes('const result = await prisma.$transaction(async tx => {') &&
-    claimOperationVerificationSource.includes('return tx.operationVerification.updateMany({') &&
+  claimOperationVerificationSource.includes('return prisma.$transaction(async tx => {') &&
+    claimOperationVerificationSource.includes('const result = await tx.operationVerification.updateMany({') &&
     claimOperationVerificationSource.includes('resourceType: resourceBinding') &&
     claimOperationVerificationSource.includes('data: { verifiedAt: null }') &&
     claimOperationVerificationSource.includes('verified: true') &&

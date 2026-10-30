@@ -47,6 +47,7 @@ import {
     consumeDownloadToken
 } from '../lib/download-token.js'
 import { checkInstancePermission } from '../lib/permission.js'
+import type { WriteActor } from '../db/user-write-authorization.js'
 import {
   claimOperationVerificationRequirement
 } from '../lib/operation-verification.js'
@@ -64,9 +65,10 @@ async function checkTransferLock(instanceId: number, reply: FastifyReply): Promi
 async function requireVerifiedOperation(
   reply: FastifyReply,
   userId: number,
-  resourceId: number
+  resourceId: number,
+  actor: WriteActor
 ): Promise<boolean> {
-  const verification = await claimOperationVerificationRequirement(userId, 'delete_backup', resourceId)
+  const verification = await claimOperationVerificationRequirement(userId, 'delete_backup', resourceId, actor)
   if (!verification.verified) {
     reply.code(403).send({
       error: 'Sensitive operation requires verification',
@@ -295,7 +297,7 @@ export default async function backupRoutes(fastify: FastifyInstance) {
     const deleteHost = await prisma.host.findUnique({ where: { id: instance.host_id } })
     if (!deleteHost) return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
 
-    if (!await requireVerifiedOperation(reply, request.user.id, backupIdNum)) return
+    if (!await requireVerifiedOperation(reply, request.user.id, backupIdNum, request.user)) return
 
     try {
       const result = await deleteAuthorizedBackup(instance, backup, request.user, transferHostIdentity(deleteHost))

@@ -5,6 +5,7 @@ import { getSystemConfigFloat } from '../db/system-config.js'
 import { createLog } from '../db/logs.js'
 import { sendNotification } from '../lib/notifier.js'
 import { claimOperationVerificationRequirement } from '../lib/operation-verification.js'
+import type { WriteActor } from '../db/user-write-authorization.js'
 
 export class AdminInstancePushError extends Error {
   constructor(public readonly code: string, message: string, public readonly status = 409) { super(message) }
@@ -57,7 +58,7 @@ export async function adminInstancePushTarget(instanceId: number, username: stri
 
 export async function createAdminInstancePush(instanceId: number, actorId: number, input: {
   targetUsername: string; expectedOwnerId: number; expectedFee: number; acknowledge: boolean; remark?: string
-}) {
+}, session?: WriteActor) {
   const actor = await prisma.user.findUnique({ where: { id: actorId }, select: { id: true, role: true, status: true } })
   if (actor?.role !== 'admin' || actor.status !== 'active') throw new AdminInstancePushError('FORBIDDEN', '仅管理员可代用户转移', 403)
   if (input.acknowledge !== true) throw new AdminInstancePushError('TRANSFER_CONFIRMATION_REQUIRED', '请确认转移内容与手续费', 400)
@@ -67,7 +68,7 @@ export async function createAdminInstancePush(instanceId: number, actorId: numbe
   if (state.reason) throw new AdminInstancePushError('TRANSFER_UNAVAILABLE', state.reason)
   if (!Number.isFinite(input.expectedFee) || input.expectedFee !== state.fee) throw new AdminInstancePushError('TRANSFER_FEE_CHANGED', '转移手续费已变化，请刷新后确认')
   const target = await adminInstancePushTarget(instanceId, input.targetUsername)
-  const verification = await claimOperationVerificationRequirement(actorId, 'transfer_instance', instanceId)
+  const verification = await claimOperationVerificationRequirement(actorId, 'transfer_instance', instanceId, session)
   if (!verification.verified) throw new AdminInstancePushError('VERIFICATION_REQUIRED', '请先完成管理员身份验证', 403)
   const [portMappingsCount, snapshotsCount, backupsCount] = await Promise.all([
     prisma.portMapping.count({ where: { instanceId } }), prisma.snapshot.count({ where: { instanceId } }),

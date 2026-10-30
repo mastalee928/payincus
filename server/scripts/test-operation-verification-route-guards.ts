@@ -93,12 +93,17 @@ for (const { file, source: routeSource } of sensitiveOperationRouteSources) {
 }
 
 const adminPushSource = readFileSync(resolve(__dirname, '../src/services/admin-instance-push.ts'), 'utf8')
+for (const { file, source: routeSource } of sensitiveOperationRouteSources.filter(item =>
+  ['instances.ts', 'backups.ts', 'snapshots.ts', 'transfers.ts'].some(name => item.file.endsWith('/' + name)))) {
+  assert.ok(/claimOperationVerificationRequirement\(userId, (?:operationType|'[^']+'), resourceId, actor\)/.test(routeSource),
+    `${file} must pass the current authenticated actor when claiming a resource verification`)
+}
 const instanceRoutes = sensitiveOperationRouteSources.find(item => item.file.endsWith('/instances.ts'))!.source
 assert.ok(instanceRoutes.includes('if (!isAdmin) {') && instanceRoutes.includes('claimDestroyEmailVerification(user, [instanceId], request.body?.emailCode)'),
   'direct administrator deletion skips only the administrator verification; customer deletion still claims verification')
 assert.ok(instanceRoutes.includes('if (!isAdmin && isHostOwner && instance.user_id !== user.id)'),
   'direct administrator deletion must not refund the customer or debit the host owner')
-assert.ok(adminPushSource.includes("claimOperationVerificationRequirement(actorId, 'transfer_instance', instanceId)") &&
+assert.ok(adminPushSource.includes("claimOperationVerificationRequirement(actorId, 'transfer_instance', instanceId, session)") &&
   adminPushSource.indexOf('claimOperationVerificationRequirement(actorId') < adminPushSource.indexOf('await createTransferWithFee('),
   'admin PUSH must claim the administrator verification before creating a request or charging the original owner')
 

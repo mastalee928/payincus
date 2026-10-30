@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { mock } from 'node:test'
 import Fastify from 'fastify'
 
@@ -14,6 +14,7 @@ const { createAdminInstancePush, AdminInstancePushError } = await import('../src
 const { createTransferWithFee, executeTransfer } = await import('../src/db/transfers.js')
 const { IncusClient } = await import('../src/lib/incus/incus-client.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
+const { notificationOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
 
 // Keep real routes, transactions, fees and ownership checks; only replace the remote host boundary.
 let connectionFails = false
@@ -35,11 +36,12 @@ const userIds: number[] = []
 const hostIds: number[] = []
 const instanceIds: number[] = []
 const previousFee = await prisma.systemConfig.findUnique({ where: { key: 'transfer_fee' } })
+let adminSession = 'admin-push-fixture'
 const app = Fastify()
 app.decorate('authenticateAdmin', async (request: any, reply: any) => {
   const user = await prisma.user.findUnique({ where: { id: Number(request.headers['x-test-user']) || 0 } })
   if (!user || user.role !== 'admin' || user.status !== 'active') return reply.code(403).send({ code: 'FORBIDDEN' })
-  request.user = { id: user.id, username: user.username, role: user.role, sid: 'admin-push-fixture', iat: Math.floor(Date.now() / 1000) + 1 }
+  request.user = { id: user.id, username: user.username, role: user.role, sid: adminSession, iat: Math.floor(Date.now() / 1000) + 1 }
 })
 app.decorate('authenticateUser', async (request: any, reply: any) => {
   const user = await prisma.user.findUnique({ where: { id: Number(request.headers['x-test-user']) || 0 } })
@@ -143,8 +145,15 @@ try {
   const channel = await prisma.notificationChannel.create({ data: { userId: admin.id, type: 'email', name: prefix, config: { email: 'test@example.invalid' } } })
   await expectError(payload, 'VERIFICATION_REQUIRED', 403)
   await prisma.operationVerification.create({ data: { userId: admin.id, operationType: 'transfer_instance', resourceId: instance.id,
-    resourceType: 'notification-target:v1:' + createHash('sha256').update(JSON.stringify([channel.id, channel.type, channel.config])).digest('hex'),
+    resourceType: notificationOperationVerificationBinding({ id: admin.id, sid: 'admin-push-fixture' }, channel),
     channel: 'email', code: 'unused-test-code', verified: true, verifiedAt: new Date(), expiresAt: new Date(Date.now() + 60000) } })
+  adminSession = 'admin-push-other-login'
+  await expectError(payload, 'VERIFICATION_REQUIRED', 403)
+  assert.equal(await prisma.instanceTransfer.count({ where: { instanceId: instance.id } }), 0)
+  assert.equal(await balance(owner.id), 100)
+  assert.equal(await prisma.operationVerification.count({ where: { userId: admin.id, verifiedAt: { not: null } } }), 1,
+    'a second administrator session cannot charge the owner or consume the first-session grant')
+  adminSession = 'admin-push-fixture'
   const created = await adminPost()
   assert.equal(created.statusCode, 201, created.body)
   const transferId = created.json().transfer.id

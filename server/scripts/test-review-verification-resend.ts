@@ -56,7 +56,7 @@ const currentActor = () => ({ id: actor.id, sid: sessionId, iat: issuedAt })
 const app = Fastify()
 app.decorate('authenticate', async request => { request.user = { id: actor.id, username: actor.username, role: 'user', sid: sessionId, iat: issuedAt } })
 const request = () => app.inject({ method: 'POST', url: '/verification/request', payload: { operationType: 'disable_2fa' } })
-app.post('/fixture/claim-resource', async () => claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001))
+app.post('/fixture/claim-resource', async () => claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001, currentActor()))
 const record = () => prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id, operationType: 'disable_2fa' }, orderBy: { createdAt: 'desc' } })
 const codeFor = (email: string) => {
   const message = [...messages].reverse().find(value => value.includes('To: ' + email)); assert.ok(message)
@@ -281,10 +281,34 @@ try {
   assert.deepEqual(deliveries.map(value => value.chat), ['111111111'], 'actual transport receives the same oldest personal target shown by the route')
   const notifiedRecord = await prisma.operationVerification.findFirstOrThrow({ where: { userId: actor.id, operationType: 'reinstall_instance', resourceId: 910001 } })
   assert.equal(notifiedRecord.channel, 'telegram'); assert.equal(notifiedRecord.attempts, 0)
-  assert.ok(notifiedRecord.resourceType?.startsWith('notification-target:v1:') && !notifiedRecord.resourceType.includes('fixture-token') && !notifiedRecord.resourceType.includes('111111111'))
+  assert.ok(notifiedRecord.resourceType?.startsWith('notification-session:v1:') && !notifiedRecord.resourceType.includes('fixture-token') && !notifiedRecord.resourceType.includes('111111111') && !notifiedRecord.resourceType.includes(sessionId))
   const notificationCode = deliveries[0].text.match(/\d{6}/)?.[0]; assert.ok(notificationCode)
   assert.ok(!notified.body.includes(notificationCode) && !notified.body.includes('fixture-token') && !notified.body.includes('111111111'))
   console.log('PASS deterministic personal channel selection excludes global/administrator/disabled channels and matches the actual transport')
+
+  const notificationSession = sessionId
+  sessionId += '-other-resource-login'
+  const otherSessionResourceVerify = await app.inject({ method: 'POST', url: '/verification/verify', payload: {
+    operationType: 'reinstall_instance', resourceId: 910001, code: notificationCode
+  } })
+  assert.equal(otherSessionResourceVerify.statusCode, 400, 'another legitimate session cannot verify the original resource code')
+  assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).attempts, 0)
+  const beforeOtherSessionRequest = deliveries.length
+  const otherSessionResourceRequest = await notifyRequest(910001)
+  assert.equal(otherSessionResourceRequest.statusCode, 400)
+  assert.equal(otherSessionResourceRequest.json().code, 'VERIFICATION_RATE_LIMITED')
+  assert.equal(deliveries.length, beforeOtherSessionRequest)
+  assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verified, false)
+  await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { verified: true, verifiedAt: new Date() } })
+  assert.equal((await app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910001' })).json().verified, false)
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001, currentActor())).verified, false)
+  assert.ok((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verifiedAt)
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001)).verified, false)
+  sessionId = notificationSession
+  assert.equal(await isOperationVerified(actor.id, 'reinstall_instance', 910001, currentActor()), true)
+  await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { verified: false, verifiedAt: null } })
+  sessionId = notificationSession
+  console.log('PASS resource codes/grants bind the original session; other login request/verify/check/claim neither sends nor consumes original state')
 
   const notifyDuplicate = await notifyRequest(910001)
   assert.equal(notifyDuplicate.statusCode, 200); assert.equal(notifyDuplicate.json().alreadySent, true)
@@ -299,7 +323,7 @@ try {
   await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { verified: true, verifiedAt: new Date() } })
   const changedTargetCheck = await app.inject({ method: 'GET', url: '/verification/check?operationType=reinstall_instance&resourceId=910001' })
   assert.equal(changedTargetCheck.json().verified, false)
-  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001)).verified, false,
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001, currentActor())).verified, false,
     'a changed notification target cannot consume a previous-target grant')
   assert.ok((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verifiedAt)
   for (const phase of ['verify', 'check', 'claim'] as const) {
@@ -326,7 +350,7 @@ try {
   await prisma.notificationChannel.update({ where: { id: selected.id }, data: {
     enabled: true, config: { botToken: 'fixture-token', chatId: '111111111' }
   } })
-  const resourceClaims = await Promise.all(Array.from({ length: 8 }, () => claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001)))
+  const resourceClaims = await Promise.all(Array.from({ length: 8 }, () => claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910001, currentActor())))
   assert.equal(resourceClaims.filter(result => result.verified).length, 1)
   assert.equal((await prisma.operationVerification.findUniqueOrThrow({ where: { id: notifiedRecord.id } })).verifiedAt, null)
   await prisma.notificationChannel.update({ where: { id: selected.id }, data: { enabled: false, config: { botToken: 'fixture-token', chatId: '999999999' } } })
@@ -350,6 +374,15 @@ try {
   assert.equal(deliveries.length, 2)
   assert.equal(await prisma.operationVerification.count({ where: { userId: actor.id, resourceId: 910002 } }), 0)
   console.log('PASS administrator-only channels cannot impose or receive personal resource verification')
+  assert.deepEqual(await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910002, currentActor()), { required: false, verified: true })
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910002)).verified, false)
+  await prisma.user.update({ where: { id: actor.id }, data: { status: 'banned' } })
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910002, currentActor())).verified, false)
+  await prisma.user.update({ where: { id: actor.id }, data: { status: 'active' } })
+  await prisma.tokenInvalidation.create({ data: { userId: actor.id, sessionId, invalidatedAt: issuedAt } })
+  assert.equal((await claimOperationVerificationRequirement(actor.id, 'reinstall_instance', 910002, currentActor())).verified, false)
+  await prisma.tokenInvalidation.deleteMany({ where: { userId: actor.id } })
+  console.log('PASS no-personal-channel resource exemption still requires a supplied, active and unrevoked current actor at claim')
 
   const emailTarget = `${tag}-channel@example.test`
   await prisma.operationVerification.update({ where: { id: notifiedRecord.id }, data: { createdAt: new Date(Date.now() - 61_000) } })

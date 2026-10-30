@@ -39,6 +39,7 @@ import {
   claimOperationVerificationRequirement
 } from '../lib/operation-verification.js'
 import { claimDestroyEmailVerification } from '../lib/instance-destroy-verification.js'
+import type { WriteActor } from '../db/user-write-authorization.js'
 import {
   detectCloudInitStatus,
   getCachedCloudInitStatus,
@@ -237,9 +238,10 @@ async function requireVerifiedOperation(
   reply: FastifyReply,
   userId: number,
   operationType: 'delete_instance' | 'reinstall_instance' | 'recreate_instance',
-  resourceId: number
+  resourceId: number,
+  actor: WriteActor
 ): Promise<boolean> {
-  const verification = await claimOperationVerificationRequirement(userId, operationType, resourceId)
+  const verification = await claimOperationVerificationRequirement(userId, operationType, resourceId, actor)
   if (!verification.verified) {
     reply.code(403).send({
       error: 'Sensitive operation requires verification',
@@ -3642,7 +3644,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
 
 
-    if (!await requireVerifiedOperation(reply, user.id, 'reinstall_instance', instanceId)) return
+    if (!await requireVerifiedOperation(reply, user.id, 'reinstall_instance', instanceId, user)) return
 
     // 验证镜像是否在预设列表中
     if (!await isValidSystemImage(imageAlias)) {
@@ -3779,7 +3781,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
 
 
-    if (!await requireVerifiedOperation(reply, user.id, 'recreate_instance', instanceId)) return
+    if (!await requireVerifiedOperation(reply, user.id, 'recreate_instance', instanceId, user)) return
 
     // 验证镜像是否在预设列表中
     if (!await isValidSystemImage(imageAlias)) {
@@ -3931,7 +3933,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       if (instance.user_id === user.id) {
         const verification = await claimDestroyEmailVerification(user, [instanceId], request.body?.emailCode)
         if (!verification.success) return reply.code(403).send(verification)
-      } else if (!await requireVerifiedOperation(reply, user.id, 'delete_instance', instanceId)) return
+      } else if (!await requireVerifiedOperation(reply, user.id, 'delete_instance', instanceId, user)) return
     }
 
     try {

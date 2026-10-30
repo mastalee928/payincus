@@ -66,9 +66,10 @@ function normalizeTransferCreateInput(input: unknown): TransferCreateInput {
 async function requireVerifiedOperation(
     reply: FastifyReply,
     userId: number,
-    resourceId: number
+    resourceId: number,
+    actor: WriteActor
 ): Promise<boolean> {
-    const verification = await claimOperationVerificationRequirement(userId, 'transfer_instance', resourceId)
+    const verification = await claimOperationVerificationRequirement(userId, 'transfer_instance', resourceId, actor)
     if (!verification.verified) {
         reply.code(403).send({
             error: 'Sensitive operation requires verification',
@@ -267,7 +268,7 @@ export default async function transferRoutes(fastify: FastifyInstance) {
             return reply.code(400).send(apiError(ErrorCode.TRANSFER_ALREADY_PENDING))
         }
 
-        if (!await requireVerifiedOperation(reply, user.id, instanceId)) return
+        if (!await requireVerifiedOperation(reply, user.id, instanceId, user)) return
 
         // 查找目标用户
         const targetUser = await db.findUserByUsername(targetUsername)

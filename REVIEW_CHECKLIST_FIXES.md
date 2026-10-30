@@ -1,3 +1,5 @@
+2026-10-30 R011资源会话段：notification-session摘要绑定原sid/个人目标，request/verify/check/claim跨会话拒绝且不撤销原grant；资源claim先事务核当前授权，免渠道也不跳过账号门禁。七个现行入口传request.user，实际第二管理员会话零扣费和原PG/SMTP/并发/2FA/destroy/类型/build/6守卫/manifest均过，详见HANDOFF。grant后业务权限/远端dispatch与新渠道整体串行继续，259含部分/68不同计数不增。
+
 2026-10-30 R011资源目标段：当前个人渠道摘要在verify/check/claim事务锁定后重核，未request直接更换目标旧码/grant不可用；实际PG三阶段锁竞争/8并发单消费及原SMTP账户预算/绑定/PUSH/destroy回归、严格types/server build/6守卫通过，证据见HANDOFF。资源原会话/业务权限和新增渠道整体串行仍待，原259含部分/68不同不重复计数；阶段推送后继续。
 
 # 外部审查清单修复台账

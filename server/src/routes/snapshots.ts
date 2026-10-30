@@ -14,6 +14,7 @@ import { checkSnapshotQuota } from '../db/quota-operations.js'
 import { acquireLock, releaseLock } from '../lib/distributed-lock.js'
 import type { CreateSnapshotRequest } from '../types/api.js'
 import { checkInstancePermission } from '../lib/permission.js'
+import type { WriteActor } from '../db/user-write-authorization.js'
 import { withSnapshotMutation, SnapshotMutationError, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 import { autoSnapshotOperationView, retryAutoSnapshotOperation } from '../services/auto-snapshot-operations.js'
 import {
@@ -54,9 +55,10 @@ async function checkTransferLock(instanceId: number, reply: FastifyReply): Promi
 async function requireVerifiedOperation(
   reply: FastifyReply,
   userId: number,
-  resourceId: number
+  resourceId: number,
+  actor: WriteActor
 ): Promise<boolean> {
-  const verification = await claimOperationVerificationRequirement(userId, 'delete_snapshot', resourceId)
+  const verification = await claimOperationVerificationRequirement(userId, 'delete_snapshot', resourceId, actor)
   if (!verification.verified) {
     reply.code(403).send({
       error: 'Sensitive operation requires verification',
@@ -284,7 +286,7 @@ export default async function snapshotRoutes(fastify: FastifyInstance) {
     // 检查转移锁定
     if (await checkTransferLock(instanceIdNum, reply)) return
 
-    if (!await requireVerifiedOperation(reply, request.user.id, snapshotIdNum)) return
+    if (!await requireVerifiedOperation(reply, request.user.id, snapshotIdNum, request.user)) return
 
     try {
       const result = await withSnapshotMutation(instance, request.user, false, async (tx) => {

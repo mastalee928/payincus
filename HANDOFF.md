@@ -2,6 +2,14 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-011 资源验证码绑定原会话并要求当前领取授权（持续施工）
+
+- 通知目标段已推dc370b1df7dfd05275c9f42ee58338172740b52b / CI41029729516。下一真实PG/Fastify先红`takeover-verification-resource-session-before.log`：同账户第二合法会话资源verify仍200。现`notification-session:v1:`摘要绑定账户/sid和原个人渠道id/type/config；request/verify/check/claim匹配原会话，别的会话请求不能撤销原码或绕过60秒。摘要不持久存凭据或明文sid，旧仅目标绑定的资源grant须重新验证。
+- 领取前必须提供当前actor并在账户行锁中核active/撤销；无个人渠道的资源免验证也在该当前授权之后，坏个人配置不能走免验证。实例重装/重建/宿主所有者删除、快照、备份、转移和管理员代转移均传原request.user。管理员直接删除免验证码和用户自销毁独立邮箱规则保持，原专属机器全端口与一机一卖库存/财务合同不变。
+- 最终`logs/takeover-verification-resource-session-resend-verified.log`自然exit0：资源第二会话request/verify/check/claim均拒绝且零新投递/原attempt和grant保持，原会话正常；未提供actor/banned/revoked在无个人渠道也不能领取；原三阶段渠道锁竞争及8并发唯一领取、账号session/email/60秒/SMTP状态完整回归保持。`push-verified.log`实际管理员第二sid403、原grant不消费/原用户余额不变后原sid正常；原手续费/退款/转移/专属网络保护完整通过。
+- 最终受改专项+源严格types、后端build、两operation守卫、四resource路由守卫、manifest194/231、实际2FA和专用destroy PG/SMTP回归全部自然exit0，日志同前缀。无前端/schema变化，沿用无变化最终双端/Chrome证据。当前actor与通知锁仅到grant消费事务，不宣称之后业务写/远端dispatch及新渠道插入整体串行完整闭合；资源归属权限与这些竞态下一段继续。
+- CI41019111832/41019531979/41020374764已终态success，41023032382/41024139392/41024907571/41025555281/41026234390/41028619415/41029729516仍运行且无新失败，持续查终态；历史40799210505准确IO根因、外部邮件/原生宿主/全部灾备未完保留。原327259含部分/68不同计数不增，阶段保存后继续。
+
 ## 2026-10-30 R1-011 资源验证码使用时重核当前个人通知目标（持续施工）
 
 - 账户绑定段已推3a838c4bafd1e7bbd933492ebc02efcf6b88fdc6 / CI41028619415。下一实际PG/Fastify先红`takeover-verification-resource-target-before.log`：改个人渠道后未再request，旧码verify仍200。现verify/check/claim各自事务对已有个人渠道行`FOR SHARE`，固定原createdAt/id顺序重读enabled/isGlobal/alertCategory及config摘要；只有当前目标摘要匹配才验证/消费，不靠再次发送撤销旧目标资格。
