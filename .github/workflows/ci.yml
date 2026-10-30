@@ -160,6 +160,9 @@ jobs:
           pnpm --filter server test:host-public-ipv6-integration
           pnpm --filter server test:admin-instance-delete-integration
           pnpm --filter server test:destroy-email-verification
+      - name: Transaction admission timeouts reclaim all eight PostgreSQL connections
+        timeout-minutes: 2
+        run: pnpm --filter server test:prisma-transaction-start-timeout
       - name: Verify backup upload authorization, queue races and export completion
         run: |
           pnpm --filter server test:review-upload-completion-integration

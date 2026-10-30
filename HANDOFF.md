@@ -1,5 +1,15 @@
 # 版本与验证记录
 
+## 2026-10-30 Prisma 7.1.0 迟到事务启动耗尽连接池（发版前优先修复）
+
+- Owner报告并说明隔离复现8连接全idle in transaction/BEGIN、maxWait超时底层请求不取消。本机原7.1.0+adapter-pg真实PG再复现：12申请返回P2028后释放原占用，total8/idle0/waiting4，8条BEGIN无人接管，应用回调0；日志prisma-start-timeout-before.log退出1。根因位于client TransactionManager Promise.race丢失startTransaction结果，原PG适配器拿到连接仍BEGIN。
+- 使用pnpm持久补丁回补7.1.0两种Node runtime：保留原startup promise，超时分支放弃唯一所有权，迟到结果先执行显式SQL ROLLBACK、finally调用adapter.rollback释放；原错误已返回，后台失败不产生未处理拒绝。没有扩大池、延长maxWait或修改账务/权限。已读发布npm7.2/7.3/7.4和7.10.1 sourcemap，初修仅adapter.rollback在PG只release而遗漏SQL，本补丁保完整SQL及单owner处理；补丁来源/维护说明见patches/README.md。
+- 最终prisma-start-timeout-final.log真实本机PG8连接×4轮×12超时均idle恢复、waiting0、无遗留事务/应用回调；真实BEGIN后延迟超时实际SQL回滚与release各1，后端断开回滚失败仍release1，底层排队最终拒绝、执行timeout、正常排队/commit/回滚及后续查询通过，自然exit0。故障测试首次未等原连接end便归还引起ECONNRESET，已等待本次原pid对应end后复验，不将失败轮列通过。测试清理只终止本次随机application_name的本地fixture会话。
+- 严格源+受改专项types、后端build、9相关守卫、原完整PG/SMTP验证码/销毁及PG续费/配额/上传/机器池专项通过；同前缀日志prisma-timeout-*-final自然exit0。冻结安装ignore-scripts成功；第一次patch-commit postinstall因无DATABASE_URL失败，随后显式正确fixture生成client并验证，不报初轮安装通过。发行工作流在生产依赖安装前复制patches，新增实际PG专项接CI，常规195/专项232清单通过。全量195仍运行，不当作已全绿。
+- 扩大验证发现原split-deploy-config守卫仍查旧两wrapper刷新实现，当前已共享auth-session，并误把UsersView局部fetch回调当原生网络；审真实调用后守卫检查共享路径/两个调用/credentials/controller15秒/清timer，移精确允许路径并锁局部callback结构，原网络边界保持，最终split守卫通过，无前端源码改动。
+- prisma-production-install-final.log独立目录按真实root/server/client包元数据、锁文件及patches冻结prod-only安装，原CLI生成7.1.0后用原生Node类型剥离执行相同真实PG专项全部通过，自然exit0；该证据是Windows生产依赖布局，不代替Linux完整包首装/OTA。全量195仍运行至138，终态另记。
+- 原重建stop已推e8cf8d34b6531a27c7aad285e1ccd29106807ac3 / CI41053531629，六job成功Pool后续推进未终态；另外11旧CI仍跟、历史failure保留。连接池修复待阶段提交，同提交CI与双架构发行另记；recreate快照吞错及原生/外部SMTP/GoIO/完整网关灾备未完，原327259含部分/68不同不增，无生产/发行操作。
+
 ## 2026-10-30 R1-011 重建停机确认与真实失败副作用检查（持续施工）
 
 - 上段重装快照已推931ca4568a72e742e65c738a4dd8b2ba9ba5fdff / CI41051350012。接续原模型未提交的recreate停机修复，状态读取失败和stop失败直接中止，只有实际Stopped或原state路径的IncusApiError/404才继续；不靠错误正文推断缺失。原Alpine busy重试参数保持。此次只关闭重建停机缺口，快照清理及真实原实例缺失后全流程下一段。

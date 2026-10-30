@@ -8,6 +8,11 @@ overrides:
   baseline-browser-mapping: ^2.10.38
   caniuse-lite: ^1.0.30001799
 
+patchedDependencies:
+  '@prisma/client@7.1.0':
+    hash: j5ya3azqlk3jdjqg7vccdztaya
+    path: patches/@prisma__client@7.1.0.patch
+
 importers:
 
   .:
@@ -198,7 +203,7 @@ importers:
         version: 7.1.0
       '@prisma/client':
         specifier: ^7.1.0
-        version: 7.1.0(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(typescript@5.9.3)
+        version: 7.1.0(patch_hash=j5ya3azqlk3jdjqg7vccdztaya)(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(typescript@5.9.3)
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
@@ -219,7 +224,7 @@ importers:
         version: 17.2.3
       drizzle-orm:
         specifier: ^0.38.2
-        version: 0.38.4(@electric-sql/pglite@0.3.2)(@libsql/client@0.14.0)(@prisma/client@7.1.0(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(typescript@5.9.3))(@types/pg@8.15.6)(@types/react@19.2.7)(mysql2@3.15.3)(pg@8.16.3)(postgres@3.4.7)(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(react@19.2.1)(sql.js@1.13.0)
+        version: 0.38.4(@electric-sql/pglite@0.3.2)(@libsql/client@0.14.0)(@prisma/client@7.1.0(patch_hash=j5ya3azqlk3jdjqg7vccdztaya)(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(typescript@5.9.3))(@types/pg@8.15.6)(@types/react@19.2.7)(mysql2@3.15.3)(pg@8.16.3)(postgres@3.4.7)(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(react@19.2.1)(sql.js@1.13.0)
       fastify:
         specifier: ^5.1.0
         version: 5.6.2
@@ -6053,7 +6058,7 @@ snapshots:
 
   '@prisma/client-runtime-utils@7.1.0': {}
 
-  '@prisma/client@7.1.0(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(typescript@5.9.3)':
+  '@prisma/client@7.1.0(patch_hash=j5ya3azqlk3jdjqg7vccdztaya)(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(typescript@5.9.3)':
     dependencies:
       '@prisma/client-runtime-utils': 7.1.0
     optionalDependencies:
@@ -7355,11 +7360,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.38.4(@electric-sql/pglite@0.3.2)(@libsql/client@0.14.0)(@prisma/client@7.1.0(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(typescript@5.9.3))(@types/pg@8.15.6)(@types/react@19.2.7)(mysql2@3.15.3)(pg@8.16.3)(postgres@3.4.7)(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(react@19.2.1)(sql.js@1.13.0):
+  drizzle-orm@0.38.4(@electric-sql/pglite@0.3.2)(@libsql/client@0.14.0)(@prisma/client@7.1.0(patch_hash=j5ya3azqlk3jdjqg7vccdztaya)(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(typescript@5.9.3))(@types/pg@8.15.6)(@types/react@19.2.7)(mysql2@3.15.3)(pg@8.16.3)(postgres@3.4.7)(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(react@19.2.1)(sql.js@1.13.0):
     optionalDependencies:
       '@electric-sql/pglite': 0.3.2
       '@libsql/client': 0.14.0
-      '@prisma/client': 7.1.0(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(typescript@5.9.3)
+      '@prisma/client': 7.1.0(patch_hash=j5ya3azqlk3jdjqg7vccdztaya)(prisma@7.1.0(@types/react@19.2.7)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(typescript@5.9.3))(typescript@5.9.3)
       '@types/pg': 8.15.6
       '@types/react': 19.2.7
       mysql2: 3.15.3

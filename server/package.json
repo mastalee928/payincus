@@ -6,6 +6,8 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:prisma-transaction-start-guards": "node --import tsx scripts/test-prisma-transaction-start-guards.ts",
+    "test:prisma-transaction-start-timeout": "node --import tsx scripts/test-prisma-transaction-start-timeout.ts",
     "test:review-instance-badge": "node ../scripts/test-instance-badge.mjs",
     "test:review-inbox-receipts": "node ../scripts/test-inbox-receipts.mjs",
     "test:review-inbox-polling": "node ../scripts/test-inbox-polling.mjs",

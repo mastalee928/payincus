@@ -82,6 +82,7 @@ const localNginxSplitSmoke = readRepoFile('scripts/smoke-local-nginx-split.sh')
 const serverApp = readRepoFile('server/src/app.ts')
 const viteConfig = readRepoFile('client/vite.config.ts')
 const clientApi = readRepoFile('client/src/api/index.ts')
+const clientAuthSession = readRepoFile('client/src/api/auth-session.ts')
 const clientAdminApi = readRepoFile('client/src/api/admin.ts')
 const clientApiUrl = readRepoFile('client/src/utils/api-url.ts')
 const clientApp = readRepoFile('client/src/App.vue')
@@ -113,7 +114,8 @@ function countOccurrences(source: string, pattern: string): number {
 
 // 每个定时/拦截层的 /auth/refresh 刷新请求都必须：走 buildApiUrl 封装、携带凭证，
 // 且用 AbortController + 15 秒超时兜底（避免 refresh 挂起时长期占用连接/悬挂 Promise）。
-function assertRefreshFetchTimeoutProtected(name: string, source: string, expectedCount: number): void {
+function assertRefreshFetchTimeoutProtected(name: string, source: string, expectedCount: number,
+  controllerName = 'refreshController', timeoutName = 'refreshTimeoutId'): void {
   assert.equal(
     countOccurrences(source, "fetch(buildApiUrl('/auth/refresh'), {"),
     expectedCount,
@@ -125,17 +127,17 @@ function assertRefreshFetchTimeoutProtected(name: string, source: string, expect
     `${name} each /auth/refresh fetch must include credentials so refresh cookies are sent`
   )
   assert.equal(
-    countOccurrences(source, 'signal: refreshController.signal'),
+    countOccurrences(source, `signal: ${controllerName}.signal`),
     expectedCount,
     `${name} each /auth/refresh fetch must pass an AbortController abort signal for timeout protection`
   )
   assert.equal(
-    countOccurrences(source, 'refreshController.abort(), 15_000'),
+    countOccurrences(source, `${controllerName}.abort(), 15_000`),
     expectedCount,
     `${name} each /auth/refresh fetch must abort after a 15s (15_000ms) timeout`
   )
   assert.equal(
-    countOccurrences(source, 'clearTimeout(refreshTimeoutId)'),
+    countOccurrences(source, `clearTimeout(${timeoutName})`),
     expectedCount,
     `${name} each /auth/refresh fetch must clear its timeout after the request settles`
   )
@@ -696,10 +698,15 @@ assert.ok(
 )
 assert.ok(clientApi.includes("const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'"), 'client axios base URL must default to same-origin /api')
 assert.ok(clientApi.includes('withCredentials: true'), 'client axios must include credentials so cross-site API refresh cookies can be stored and sent')
-// 所有 /auth/refresh 刷新入口（用户/管理端拦截层各 2 处，用户/管理端定时刷新各 1 处）
-// 必须携带凭证并具备 AbortController + 15s 超时保护。
-assertRefreshFetchTimeoutProtected('client API interceptor (api/index.ts)', clientApi, 2)
-assertRefreshFetchTimeoutProtected('client admin API interceptor (api/admin.ts)', clientAdminApi, 2)
+// 用户/管理员拦截层已经共用auth-session刷新队列，保留同一凭证/15秒超时合同。
+assertRefreshFetchTimeoutProtected('shared client API refresh (api/auth-session.ts)', clientAuthSession, 1, 'controller', 'timer')
+assert.ok(clientApi.includes("import { bindAuthSession } from './auth-session'") && clientApi.includes('bindAuthSession(http,') &&
+  clientAdminApi.includes("import { bindAuthSession } from './auth-session'") && clientAdminApi.includes('bindAuthSession(http,'),
+  'both API wrappers must use the protected shared session refresh boundary')
+assert.equal(countOccurrences(clientAuthSession, 'await refreshToken(session, redirect)'), 2,
+  'proactive and reactive interceptors must both enter the same protected refresh function')
+assert.equal(countOccurrences(clientApi + clientAdminApi, "fetch(buildApiUrl('/auth/refresh'), {"), 0,
+  'API wrappers must not introduce duplicate refresh paths outside the shared timeout boundary')
 assertRefreshFetchTimeoutProtected('client scheduled refresh (App.vue)', clientApp, 1)
 assertRefreshFetchTimeoutProtected('client admin scheduled refresh (admin/AdminApp.vue)', clientAdminApp, 1)
 assert.ok(clientApiUrl.includes("const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'"), 'client API URL helper must default to same-origin /api')
@@ -818,8 +825,7 @@ const allowedClientNetworkPrimitiveLines = new Map<string, string[]>([
   ['client/src/App.vue', ["fetch(buildApiUrl('/auth/refresh'), {"]],
   ['client/src/admin/AdminApp.vue', ["fetch(buildApiUrl('/auth/refresh'), {"]],
   ['client/src/components/layout/AppLayout.vue', ["fetch(buildApiUrl('/health'), {"]],
-  ['client/src/api/index.ts', ["fetch(buildApiUrl('/auth/refresh'), {"]],
-  ['client/src/api/admin.ts', ["fetch(buildApiUrl('/auth/refresh'), {"]],
+  ['client/src/api/auth-session.ts', ["fetch(buildApiUrl('/auth/refresh'), {"]],
   ['client/src/components/TermsOfServiceModal.vue', ['fetch(`/tos/${lang}.md`, { signal: controller.signal })']],
   // Bundled same-origin coastline JSON is a static asset, not a backend API request.
   ['client/src/components/public/MobileRegionGlobe.vue', ["fetch('/maps/mobile-globe-land.json', { signal: controller.signal })"]],
@@ -827,6 +833,11 @@ const allowedClientNetworkPrimitiveLines = new Map<string, string[]>([
   ['client/src/composables/useTerminal.ts', ['new WebSocket(wsUrl)']],
   ['client/src/views/TerminalView.vue', ['new WebSocket(wsUrl)']]
 ])
+const userDialogSource = readRepoFile('client/src/views/admin/UsersView.vue')
+assert.ok(userDialogSource.includes('return { error, async run(available, fetch, apply) {') &&
+  userDialogSource.includes('const result = await fetch()'),
+  'reviewed user dialog callback must remain locally supplied, rather than introducing a direct URL request')
+allowedClientNetworkPrimitiveLines.set('client/src/views/admin/UsersView.vue', ['const result = await fetch()'])
 
 for (const file of clientSourceFiles) {
   // 归一化为正斜杠，保证 allowlist 在 Windows（反斜杠路径）与 Linux/CI 上一致命中

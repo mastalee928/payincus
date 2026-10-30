@@ -160,6 +160,7 @@ jobs:
           cp LICENSE release/
           cp pnpm-lock.yaml release/
           cp pnpm-workspace.yaml release/
+          cp -r patches release/
           cp .env.example release/
           cp -r deploy/* release/deploy/
           cp scripts/init-env.sh release/scripts/

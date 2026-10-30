@@ -45,6 +45,7 @@
     "test:demo-readonly-redaction-guards": "pnpm --filter server test:demo-readonly-redaction-guards"
   },
   "testGuards": [
+    "pnpm --filter server test:prisma-transaction-start-guards",
     "pnpm --filter server test:host-install-inputs",
     "pnpm --filter server test:sample-seed-safety",
     "pnpm --filter server type-check:sample-seed",
@@ -252,6 +253,9 @@
     "overrides": {
       "baseline-browser-mapping": "^2.10.38",
       "caniuse-lite": "^1.0.30001799"
+    },
+    "patchedDependencies": {
+      "@prisma/client@7.1.0": "patches/@prisma__client@7.1.0.patch"
     }
   },
   "packageManager": "pnpm@9.14.2"
