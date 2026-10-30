@@ -77,6 +77,16 @@ async function blockedRequest(mutate: (tx: Prisma.TransactionClient) => Promise<
   assert.ok(blocked, 'request actually waited at the current database write gate')
   return await response
 }
+async function waitForRestoreFixture(reached: Promise<void>, response: Promise<{ statusCode: number; body: string }>, phase: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      reached,
+      response.then(result => { throw Error(`${phase}: restore returned before the TLS fixture: status=${result.statusCode} body=${result.body}`) }),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Error(`${phase}: restore fixture was not reached within 10000ms`)), 10000) })
+    ])
+  } finally { if (timer) clearTimeout(timer) }
+}
 try {
   let races = 0
   for (const op of ['create', 'delete', 'restore', 'policy'] as const) for (const change of ['ban', 'revoke', 'demote', 'owner', 'transfer']) {
@@ -109,7 +119,7 @@ try {
   const reached = new Promise<void>(resolve => { restoreReached = resolve }); holdRestore = true
   const restoring = invoke('restore'); const restorePromise = Promise.resolve(restoring)
   try {
-    await Promise.race([reached, delay(10000).then(() => { throw Error('restore fixture was not reached') })])
+    await waitForRestoreFixture(reached, restorePromise, 'initial restore')
     const before = writes.length, deletion = await invoke('delete')
     assert.equal(deletion.statusCode, 409); assert.equal(writes.length, before, 'delete cannot remove source during restore')
     assert.equal(await prisma.snapshot.count({ where: { id: snapshotId } }), 1)
@@ -135,9 +145,12 @@ try {
   let releaseVerifiedRestore!: () => void
   restoreRelease = new Promise<void>(resolve => { releaseVerifiedRestore = resolve })
   const verifiedReached = new Promise<void>(resolve => { restoreReached = resolve }); holdRestore = true
+  if (process.env.REVIEW_SNAPSHOT_EARLY_RESTORE_FAILURE === '1') {
+    await prisma.instance.update({ where: { id: instance.id }, data: { status: 'running' } })
+  }
   const verifiedRestore = Promise.resolve(invoke('restore'))
   try {
-    await Promise.race([verifiedReached, delay(10000).then(() => { throw Error('verified restore fixture was not reached') })])
+    await waitForRestoreFixture(verifiedReached, verifiedRestore, 'verified restore')
     const beforeBusy = writes.length, started = Date.now()
     assert.equal((await invoke('delete')).statusCode, 409)
     assert.ok(Date.now() - started < 5000, 'busy delete must fail at the operation gate before waiting on the in-flight restore')

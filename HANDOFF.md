@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-30 全量通过与新发现快照CI失败（持续排查）
+
+- 候选7d48e534289e40fdba0d6d55a7b471aeaf0f58c6已推，源码CI41060617563、文档41060617562、同提交双架构预览41060624750。最终本地全量prisma-timeout-full-final.log实际195/195自然exit0；v1.7.8-candidate-build.log双端/后端/dist边界完整自然exit0。预览ARM64构建success、AMD64全量success，包首装/恢复仍待，不提前发tag。
+- 旧CI41050640712终态failure，Pool job124045528580的snapshot-mutation-authorization在verified restore等待fixture10秒失败，完整及失败日志已读。该旧源码没有Prisma补丁，但日志没有池/事务证据，不能推断同泄漏根因。本机当前完整20竞争/配置grant/restore互斥/远端与DB失败回滚/八并发删除正常exit0。
+- 为拿准确Linux失败回执，本专项等待现在同时监测实际response，提前拒绝立即打印status/body并非零，保持10秒期限且finally清等待timer；移至CI事务超时专项之后提前检查。实际注入运行状态错误得到status400/SNAPSHOT_RESTORE_REQUIRES_STOP并自然exit1（v1.7.8-snapshot-intentional-failure.log），不是通过证据。新诊断后的正常专项与严格types另记。没有更改产品或放宽守卫；旧failure保留，准确根因仍待。
+- 最终带诊断的正常专项takeover-recreate-stop-snapshot-verified.log自然exit0，源及相关专项严格types与snapshot/verification两守卫、仓库来源通过；当前产品没有变化，沿用已冻结全量与build，新的Linux诊断CI必须取真实回执。
+
 ## 2026-10-30 v1.7.8候选与安装包Prisma专项（准备中）
 
 - 重建清理已推c70685160b100c5b63cf3c218ac6a5b2ecaa8155 / CI41059920880。按既有阶段发行授权将三包版本改为1.7.8候选，并准备说明；正式Release仍v1.7.7，无tag或生产部署。

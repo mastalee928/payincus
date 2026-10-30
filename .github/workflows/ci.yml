@@ -163,6 +163,9 @@ jobs:
       - name: Transaction admission timeouts reclaim all eight PostgreSQL connections
         timeout-minutes: 2
         run: pnpm --filter server test:prisma-transaction-start-timeout
+      - name: Snapshot writes recheck current account, ownership and restore locks
+        timeout-minutes: 3
+        run: pnpm --filter server test:snapshot-mutation-authorization
       - name: Verify backup upload authorization, queue races and export completion
         run: |
           pnpm --filter server test:review-upload-completion-integration
@@ -445,8 +448,6 @@ jobs:
         run: pnpm --filter server test:review-host-config-type-pg
       - name: Snapshot policy changes schedule their next execution from the current update
         run: pnpm --filter server test:snapshot-policy-schedule-integration
-      - name: Snapshot writes recheck current account, ownership and restore locks
-        run: pnpm --filter server test:snapshot-mutation-authorization
       - name: User and administrator logins reject repeated in-flight submissions
         run: pnpm --filter server test:review-login-submit
       - name: Balance adjustments keep their target, draft and confirmed receipt
