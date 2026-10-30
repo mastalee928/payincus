@@ -6513,6 +6513,8 @@ pool: {
         resendCode: '重新发送',
         resendIn: '{seconds} 秒后可重新发送',
         codeSent: '验证码已发送',
+        codeAlreadySent: '验证码已发送，请查收邮箱',
+        codeAlreadySentNotification: '验证码已发送，请查看通知',
         codeSentTo: '验证码已发送至 {channel}',
         enterCode: '请输入验证码',
         codePlaceholder: '000000',

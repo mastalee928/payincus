@@ -6457,6 +6457,8 @@ pool: {
         resendCode: 'Resend',
         resendIn: 'Resend in {seconds}s',
         codeSent: 'Code sent',
+        codeAlreadySent: 'Code sent. Check your email.',
+        codeAlreadySentNotification: 'Code sent. Check your notifications.',
         codeSentTo: 'Code sent to {channel}',
         enterCode: 'Enter verification code',
         codePlaceholder: '000000',

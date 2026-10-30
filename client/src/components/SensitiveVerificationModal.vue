@@ -151,8 +151,9 @@ async function requestCode() {
     expiresAt.value = response.expiresAt ?? null
     step.value = 'verify'
     
-    // 启动倒计时 (60秒后可重发)
-    countdown.value = 60
+    // Current servers report remaining resend time separately from code expiry.
+    countdown.value = typeof response.resendAfter === 'number' && Number.isSafeInteger(response.resendAfter) && response.resendAfter >= 0
+      ? response.resendAfter : 60
     if (countdownTimer) clearInterval(countdownTimer)
     countdownTimer = setInterval(() => {
       if (!context.current()) return
@@ -165,7 +166,8 @@ async function requestCode() {
       }
     }, 1000)
     
-    toast.success(t('sensitiveVerification.codeSent'))
+    if (response.alreadySent === true) toast.info(t(channel.value === 'email' ? 'sensitiveVerification.codeAlreadySent' : 'sensitiveVerification.codeAlreadySentNotification'))
+    else toast.success(t('sensitiveVerification.codeSent'))
   } catch (err: any) {
     if (!context.current()) return
     error.value = err?.message || String(err)

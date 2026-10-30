@@ -2004,6 +2004,8 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
       expiresAt?: string
       expiresIn?: number
       operationName?: string
+        alreadySent?: boolean
+        resendAfter?: number
     }> => http.post('/verification/request', { operationType, resourceId }),
 
     // 验证码校验

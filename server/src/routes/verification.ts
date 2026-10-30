@@ -140,6 +140,8 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
                         channel: result.channel,
                         maskedTarget: result.maskedTarget,
                         expiresIn: result.expiresIn,
+                        alreadySent: result.alreadySent,
+                        resendAfter: result.resendAfter,
                         message: 'Verification code already sent'
                     }
                 }
@@ -156,6 +158,8 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
                 channel: result.channel,
                 maskedTarget: result.maskedTarget,
                 expiresIn: result.expiresIn,
+                alreadySent: result.alreadySent,
+                resendAfter: result.resendAfter,
                 operationName: getOperationName(operationType, 'zh')
             }
         }

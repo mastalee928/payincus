@@ -36,11 +36,19 @@ try {
     await run(() => { const v = window.twoFactorHarness.view(); v.openDisable(); v.disablePassword = 'fixture-fixed-password'; v.disableCode = '123456'; void v.confirmDisable() })
     await requireVerification(); assert.equal(await read('showVerificationModal'), true)
   }
-  const request = async () => {
+  const request = async (extra = {}) => {
     await run(() => { void window.twoFactorHarness.verification().requestCode() })
     assert.deepEqual(await page.eval(() => window.twoFactorHarness.pending.findLast(x => x.kind === 'verification-request').data), { operationType: 'disable_2fa' })
-    await accept('verification-request', { success: true, required: true, channel: 'email', maskedTarget: 'fi***@example.test', expiresIn: 600 })
+    await accept('verification-request', { success: true, required: true, channel: 'email', maskedTarget: 'fi***@example.test', expiresIn: 600, ...extra })
   }
+  await prepare(); await request({ alreadySent: true, resendAfter: 30 })
+  const countdown = await page.eval(() => window.twoFactorHarness.verification().countdown)
+  assert.ok(countdown <= 30 && countdown >= 29, 'existing-code response uses actual remaining resend cooldown')
+  const requestCount = await page.eval(() => window.twoFactorHarness.pending.filter(x => x.kind === 'verification-request').length)
+  await run(() => { void window.twoFactorHarness.verification().requestCode() })
+  assert.equal(await page.eval(() => window.twoFactorHarness.pending.filter(x => x.kind === 'verification-request').length), requestCount)
+  assert.equal(await page.eval(() => window.twoFactorHarness.toast.toasts.value.at(-1).message), '验证码已发送，请查收邮箱')
+  console.log('PASS existing-code response uses remaining cooldown, blocks resend and does not claim a fresh delivery')
   const startVerify = () => run(() => { const v = window.twoFactorHarness.verification(); v.verificationCode = '012345'; void v.verify() })
   await prepare(); const before = await count()
   await run(() => { const v = window.twoFactorHarness.view(); void v.confirmDisable(); void v.confirmEnable(); void v.confirmRegenerate(); void v.startSetup(); v.cancelDisable() })

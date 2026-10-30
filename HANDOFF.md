@@ -2,6 +2,16 @@
 
 > 2026-10-28 用户已要求本聊天接手并继续；原暂停状态结束。当前仍是源码施工与隔离验证阶段，未满足发行条件。接续入口见 [PAUSED_REVIEW_HANDOFF.md](PAUSED_REVIEW_HANDOFF.md)。
 
+## 2026-10-30 R1-013 通用敏感验证码重发与提示（持续施工）
+
+- MyHosts段已推bfb45feebbb615ac6be349293159ca322493bf8d，对应CI41015808583；后端校对a292a95527d50faec9a52d6ddd0e71d116808a94/41014322522仍运行，两次各六job成功、Pool integration继续推进。41006712461已七job终态success。历史Go进程审计IO失败40799210505仍待准确复现，不因本地通过删除。
+- 原通用敏感验证码前端60秒允许重发，后端120秒以内复用旧记录；真实PG/本地SMTP先红：61秒后仍只有一封邮件。现同原user/operation/resource事务advisory锁下使用60秒，将alreadySent及剩余resendAfter与验证码expiresIn分开返回；前端使用实际剩余冷却，旧服务器缺字段仍按60秒。保留原验证和销毁专用账户/会话/邮箱/实例集合绑定、60秒及去同码合同。
+- Owner纠正文案后，邮箱提示改「验证码已发送，请查收邮箱」，其他渠道「验证码已发送，请查看通知」，繁体/英文同步；等待交倒计时，不向用户解释旧码或后台回执。现有记录回执用info，新发送用success；已同步OWNER_REQUIREMENTS。
+- 原Fastify route/隔离PG55438与本地真实SMTP专项90923自然exit0，takeover-verification-resend-pg-final.log：61秒新邮件、30秒剩余冷却、精确60秒八并发只新增一封、账户隔离/正确验证、generic不改destroy-email记录；响应无数字/哈希/完整邮箱。专项接CI/manifest，不启动第二业务后端。
+- 最后actual Chrome93557自然exit0，takeover-verification-resend-ui-final.log：实际30秒倒计时、重复发送零dispatch、自然中文提示、原禁用2FA全部回归、14旧child context与36三语三宽深浅动态偏好冻结动画/44px/Tab/Escape通过。18末截图和完整contact-sheet已看，18实际inspect报告findings均为空；视觉critique见logs/two-factor-verification/visual-critique.txt。初轮HMR失败不算最终证据。
+- server build52903、源与专项测试types59776、末ESLint76422无错警、route/i18n/operation-verification三守卫84902（test-run-20261030-144854）均自然exit0；manifest有效。唯一最终双端7727自然exit0，takeover-verification-resend-dual-final.log含两次vue-tsc/user1m4s/admin56.02s/NATURAL_EXIT_CODE=0；末dist-final自然exit0。未因记录修改重复构建。
+- 本段仅修同user/operation/resource重发合同，不声称全账户全操作统一预算；SMTP在途/失败删除记录及消费后的发送预算等内部缺口仍待，外部SMTP/客户完整操作、原327其它内部验收和完整灾备未完成。保存推送后继续这些缺口与待查CI。
+
 ## 2026-10-30 R1-020 我的节点完整批量校对（持续施工）
 
 - 后端校对已推a292a95527d50faec9a52d6ddd0e71d116808a94，CI41014322522运行。41005762182现七job终态success，41006712461仍Pool integration运行，继续查终态；历史GoIO未删除。

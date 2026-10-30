@@ -42,7 +42,8 @@ const RESOURCE_OPERATIONS: OperationType[] = [
 const VERIFICATION_CONFIG = {
     codeLength: 6,
     expiresInMinutes: 10,
-    maxAttempts: 5
+    maxAttempts: 5,
+    resendAfterSeconds: 60
 }
 
 // 操作类型显示名称（用于通知）
@@ -152,12 +153,14 @@ export interface RequestVerificationResult {
     channel?: VerificationChannel
     maskedTarget?: string
     expiresIn?: number
+    alreadySent?: boolean
+    resendAfter?: number
     error?: string
     errorCode?: string
 }
 
 type PreparedOperationVerification =
-    | { alreadySent: true; expiresIn: number }
+    | { alreadySent: true; expiresIn: number; resendAfter: number }
     | { alreadySent: false; code: string; codeHash: string }
 
 function getOperationVerificationRequestLockKey(
@@ -251,9 +254,10 @@ export async function requestOperationVerification(
         })
 
         if (existingVerification) {
-            // 如果验证码创建时间在2分钟内，拒绝重新发送
-            const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000)
-            if (existingVerification.createdAt > twoMinutesAgo) {
+            // Match the UI resend interval; code lifetime is a separate value.
+            const resendAfter = Math.max(0, Math.ceil(VERIFICATION_CONFIG.resendAfterSeconds -
+                (now.getTime() - existingVerification.createdAt.getTime()) / 1000))
+            if (resendAfter > 0) {
                 await tx.operationVerification.deleteMany({
                     where: {
                         userId,
@@ -269,7 +273,8 @@ export async function requestOperationVerification(
                 const remainingSeconds = Math.ceil((existingVerification.expiresAt.getTime() - now.getTime()) / 1000)
                 return {
                     alreadySent: true,
-                    expiresIn: remainingSeconds
+                    expiresIn: remainingSeconds,
+                    resendAfter
                 }
             }
 
@@ -310,6 +315,8 @@ export async function requestOperationVerification(
     if (prepared.alreadySent) {
         return {
             success: true,
+            alreadySent: true,
+            resendAfter: prepared.resendAfter,
             channel,
             maskedTarget,
             expiresIn: prepared.expiresIn,
@@ -354,7 +361,9 @@ export async function requestOperationVerification(
         success: true,
         channel,
         maskedTarget,
-        expiresIn: VERIFICATION_CONFIG.expiresInMinutes * 60
+        expiresIn: VERIFICATION_CONFIG.expiresInMinutes * 60,
+        alreadySent: false,
+        resendAfter: VERIFICATION_CONFIG.resendAfterSeconds
     }
 }
 

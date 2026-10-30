@@ -7131,6 +7131,8 @@ pool: {
         resendCode: '重新發送',
         resendIn: '{seconds} 秒後可重新發送',
         codeSent: '驗證碼已發送',
+        codeAlreadySent: '驗證碼已發送，請查收郵件',
+        codeAlreadySentNotification: '驗證碼已發送，請查看通知',
         codeSentTo: '驗證碼已發送至 {channel}',
         enterCode: '請輸入驗證碼',
         codePlaceholder: '000000',

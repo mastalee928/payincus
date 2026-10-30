@@ -107,6 +107,7 @@
     "test:review-two-factor-receipts": "node ../scripts/test-two-factor-receipts.mjs",
     "test:review-two-factor-verification": "node ../scripts/test-two-factor-verification.mjs",
     "test:review-2fa-disable-verification": "node --import tsx scripts/test-review-2fa-disable-verification.ts",
+    "test:review-verification-resend": "node --import tsx scripts/test-review-verification-resend.ts",
     "test:review-change-email-scope": "node ../scripts/test-change-email-scope.mjs",
     "test:review-change-email-receipts": "node ../scripts/test-change-email-receipts.mjs",
     "test:review-help-editor-reads": "node ../scripts/test-help-editor-reads.mjs",

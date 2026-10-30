@@ -1,5 +1,7 @@
 # 外部审查清单修复台账
 
+2026-10-30 R013重发分项：原前端60/后端120秒在真实PG/SMTP61秒后不发送先红，现同user/operation/resource锁下60秒并独立返回alreadySent/resendAfter，前端用真实剩余时间/重复零dispatch；Owner纠正后邮箱用「验证码已发送，请查收邮箱」、其他渠道查看通知，三语同步。真实PG/SMTP61秒新邮件/30秒冷却/精确60秒八并发单邮件/跨账户验证及destroy-email记录隔离通过；actual Chrome原禁用2FA/14旧child context/36首帧44px键盘矩阵、18末图/inspect零findings、types/3守卫/lint/唯一双端build7727和末dist通过，证据见HANDOFF。仅原user/operation/resource合同，SMTP在途/失败/消费后预算、外部邮件与完整操作另待；销毁专用账户60秒/绑定/去同码保持，原327计数不重复增加。
+
 2026-10-30 R020后端校对：实际PG审计插入失败仍200先红→输入行锁/当前账号role及会话撤销/固定host归属重核、统计六字段和本地化审计同事务；before端口误报0同步修正。Serializable旧快照漏读撤销实际拦下后改READ COMMITTED与行锁，保持原计数/配额对齐/全端口交付。最终原Fastify/PG回滚、6类真实排队授权变化、资源及端口并发、owner/admin、六并发及零账目写通过；5守卫/types/server build/测试types/manifest全部自然exit0，新专项接CI。前端calibrate全页/上下文/busy/失败明细下一段，259含部分记录/68不同不变，不是全验收。
 
 2026-10-30 纠正执行错误：进度回复后停工及漏查CI终态已写OWNER_REQUIREMENTS §5。R109弹窗继承scale-in使44px首帧约41.8px，reduce也受影响；局部取消弹窗animation/transform，保持严格44px。新增冻结动画36组回归、完整四操作/72旧操作/24旧copy、types/lint/五守卫/双端build及末route/dist通过，证据与仍在运行CI见HANDOFF。原编号不重复计数，阶段提交推送后继续未完项。
@@ -236,7 +238,7 @@
 | R1-010 | 实现不同 | 保留初审结论 | 请求认证读取最新用户和invalidations；无对方30秒正向认证缓存，多后端副本本项目不支持。 |
 | R1-011 | 部分存在 | 源码已修/隔离PG验证通过 | 邮箱注册锁、验证码次数/用途/过期与业务提交同事务；注册/profile/reset并发、旧认证状态及撤销故障回滚通过 logs/review-verification-integration-profile.log；admin创建大小写邮箱/初始状态配额及重置通过 logs/review-admin-account-integration.log；未生产验收 |
 | R1-012 | 存在 | 源码已修/隔离PG验证通过 | 2FA状态CAS、恢复码单次消费、完整已验证认证字段、enable/disable同事务撤销；logs/review-2fa-integration-latest.log；密码修改同事务通过 logs/review-verification-integration-profile.log |
-| R1-013 | 部分存在 | 验证接线与实际浏览器/PG通过；合同及邮件另待 | VERIFICATION_REQUIRED接实际敏感验证弹窗，固定原password/TOTP/context一次重试，取消/草稿/身份/离页清旧pending。Chrome14旧子回执/36冻结动画组与PG/Fastify实际禁用验证、旧2FA/Password回归、types/lint/守卫/双端build/dist通过。黑白弹窗、44px、键盘/18视觉报告通过；通用重发60/120秒合同与真实邮件待。 |
+| R1-013 | 部分存在 | 验证接线及60秒重发PG/SMTP/Chrome通过；其它邮件缺口待 | VERIFICATION_REQUIRED接实际敏感验证弹窗，固定原password/TOTP/context一次重试，取消/草稿/身份/离页清旧pending。Chrome14旧子回执/36冻结动画组与PG/Fastify实际禁用验证、旧2FA/Password回归、types/lint/守卫/双端build/dist通过。通用重发改60秒/真实剩余倒计时与自然三语提示，真实PG/SMTP61秒新邮件/并发边界及账户隔离通过；SMTP在途/失败/消费后预算、外部SMTP和客户完整流程另待，销毁专用合同保持。 |
 | R1-014 | 部分存在 | 源码已修/隔离PG验证通过 | 邮箱注册锁、验证码次数/用途/过期与业务提交同事务；注册/profile/reset并发、旧认证状态及撤销故障回滚通过 logs/review-verification-integration-profile.log；admin创建大小写邮箱/初始状态配额及重置通过 logs/review-admin-account-integration.log；未生产验收 |
 | R1-015 | 部分存在 | 源码已修/隔离PG验证通过 | 删除事务锁actor/target并重新检查角色、余额、全部关联阻断；保留原FK冲突及库存关联；真实PG角色提升占锁后删除拒绝及非零余额保护通过 logs/review-admin-account-integration.log |
 | R1-016 | 存在 | 源码已修/隔离PG验证通过 | 异步RSA4096、真实ssh2/crypto公钥解析、单行/canonical blob、账户锁串行duplicate/20上限及当前角色状态会话；logs/review-ssh-keys-integration-final.log |
