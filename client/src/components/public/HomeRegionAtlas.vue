@@ -11,7 +11,7 @@ import { buildAtlasRegions, atlasPurchaseTarget, atlasRegionPurchaseTarget, atla
 import { formatMemoryMiB, formatPublicPrice, presetLabel, type PoolCatalogRegion } from '@/utils/poolCatalog'
 
 const { t, locale } = useI18n()
-const props = defineProps<{ catalog: PoolCatalogRegion[]; loading?: boolean; failed?: boolean; presentation?: 'catalog' | 'minimal' }>()
+const props = defineProps<{ catalog: PoolCatalogRegion[]; loading?: boolean; failed?: boolean; light?: boolean; presentation?: 'catalog' | 'minimal' }>()
 const emit = defineEmits<{ retry: [] }>()
 const minimal = computed(() => props.presentation === 'minimal')
 const route = useRoute()
@@ -83,10 +83,14 @@ const labelPoints = computed<MapLabelPoint[]>(() => mapRegions.value.map(region 
   return {
     id: region.slug, x: region.displayX!, y: region.displayY!,
     text: region.geography?.city ? homeMapCityName(region.geography.city, locale.value) : regionName(region) ?? region.name,
-    priority: active ? (region.slug === hoverSlug.value ? 3 : 2) : !matchesControls(region) ? -1 : available ? 1 : zoom.value >= 1.6 ? 0 : -1,
+    priority: active ? (region.slug === hoverSlug.value ? 3 : 2) : !matchesControls(region) ? -1 : available ? 1 : continent.value !== 'all' || zoom.value >= 1.6 ? 0 : -1,
     selected: region.slug === selectedSlug.value
   }
 }))
+function selectLabel(slug: string) {
+  const region = mapRegions.value.find(item => item.slug === slug)
+  if (region) void selectRegion(region, 'map')
+}
 const nearHovered = computed(() => {
   if (!hovered.value) return []
   const target = hovered.value
@@ -414,7 +418,7 @@ onBeforeUnmount(() => { resize?.disconnect(); mobileQuery?.removeEventListener('
             <radialGradient id="atlas-pool"><stop offset="0" stop-color="#00f2fe" stop-opacity="0.14" /><stop offset="1" stop-color="#00f2fe" stop-opacity="0" /></radialGradient>
           </defs>
           <g ref="mapGroup" class="map-transformation" :transform="transform">
-            <image href="/maps/home-world.svg" width="1440" height="500" class="world-outline" />
+            <image :href="light ? '/maps/home-world-light.svg' : '/maps/home-world.svg'" width="1440" height="500" class="world-outline" />
             <g v-for="(region, index) in mapRegions" :key="region.slug" class="map-marker" :class="[region.stock > 0 && !props.loading && !props.failed ? 'available' : '', selectedSlug === region.slug ? 'selected' : '', !matchesControls(region) ? 'dimmed' : '']" :style="{ '--pulse-delay': `${-(index % 7) * 0.21}s` }" :transform="`translate(${region.displayX} ${region.displayY})`" role="button" tabindex="0" :aria-label="`${regionName(region)}，${props.loading ? t('homeMapDemo.stockLoading') : props.failed ? t('homeMapDemo.stockFailed') : statusText(region)}`" :aria-pressed="selectedSlug === region.slug" @pointerenter="showTooltip(region)" @pointerleave="hideTooltip" @focus="showTooltip(region)" @blur="hideTooltip" @keydown.enter.prevent="selectRegion(region, 'map')" @keydown.space.prevent="selectRegion(region, 'map')" @keydown.esc="hoverSlug = ''">
               <circle class="node-hit" :r="hitRadius" fill="transparent" />
               <circle v-if="region.stock > 0 && !loading && !failed" class="node-pool" r="48" fill="url(#atlas-pool)" pointer-events="none" />
@@ -424,7 +428,7 @@ onBeforeUnmount(() => { resize?.disconnect(); mobileQuery?.removeEventListener('
             </g>
           </g>
         </svg>
-        <HomeMapLabels v-if="!touchMode" :frame="mapFrame" :map-group="mapGroup" :points="labelPoints" :view-transform="transform" :hover-slug="hoverSlug" />
+        <HomeMapLabels v-if="!touchMode" :frame="mapFrame" :map-group="mapGroup" :points="labelPoints" :view-transform="transform" :hover-slug="hoverSlug" @select="selectLabel" />
         <p v-if="!minimal" class="mobile-map-hint">{{ t('homeMapDemo.mapHint') }}</p>
         <div class="map-controls" role="group" :aria-label="t('homeMapDemo.zoomControls')">
           <button v-if="!(minimal && touchMode)" type="button" :disabled="zoom >= 4" :aria-label="t('homeMapDemo.zoomIn')" @click="changeZoom(0.4)"><Plus :size="16" /></button>
@@ -1668,9 +1672,11 @@ button:disabled {
 .minimal-selection .selection-action:disabled { background: #262d38; color: #acb6c5; opacity: 1; }
 .minimal-load-error { display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 20px; color: #c6cdd8; font-size: 12px; }
 .minimal-load-error button { border: 0; background: none; color: #eff4fa; min-height: 44px; }
-@media (min-width: 1600px) {
-  .minimal-atlas .atlas-map { width: var(--home-map-width, min(92vw, 2160px)); aspect-ratio: 1440 / 500; }
+.minimal-atlas .atlas-legend small { font-size: 13px; }
+@media (min-width: 768px) {
+  .minimal-atlas .atlas-map { width: var(--home-map-width, min(100%, 2160px)); aspect-ratio: 1440 / 500; }
   .minimal-atlas .content-width { width: var(--home-content-width, min(1920px, 84vw)); }
+  .minimal-atlas .map-controls { bottom: 20px; right: max(20px, 4%); }
 }
 @media (max-width: 767px) {
   .minimal-atlas .atlas-map.globe-trial-frame { height: clamp(310px, 46svh, 430px); aspect-ratio: auto; }
@@ -1682,7 +1688,7 @@ button:disabled {
   .minimal-mobile-choice .small-action:disabled { background: #262d38; color: #acb6c5; opacity: 1; }
   .minimal-load-error { justify-content: flex-start; }
   .minimal-atlas .continent-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
-  .minimal-atlas .continent-tabs button { display: flex; align-items: center; justify-content: center; gap: 3px; padding: 6px 3px; min-width: 44px; min-height: 44px; font-size: 12px; line-height: 1.25; }
+  .minimal-atlas .continent-tabs button { display: flex; align-items: center; justify-content: center; gap: 3px; padding: 6px 3px; min-width: 44px; min-height: 44px; font-size: 13px; line-height: 1.25; }
   .more-continent-menu { position: absolute; right: 0; top: 48px; z-index: 30; display: grid; padding: 6px; min-width: 170px; background: #18202b; border: 1px solid #3a4556; border-radius: 7px; }
   .more-continent-menu button { border: 0; background: none; color: #eef2f7; padding: 10px 14px; min-height: 44px; text-align: left; font-size: 13px; }
   .mobile-gesture-guide { display: flex; align-items: center; gap: 7px; color: #cbd9e6; margin: 8px 0 0; font-size: 12px; line-height: 1.6; font-weight: 500; }
@@ -1699,7 +1705,7 @@ button:disabled {
   .candidate-list > button { display: grid; gap: 3px; width: 100%; min-height: 48px; padding: 8px 0; text-align: left; background: none; border: 0; color: #ecf2f8; font-size: 12px; }
   .candidate-list small { color: #a7bbcc; font-size: 11px; }
   .mobile-region-preview { margin-top: 12px; }
-  .mobile-preview-heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 10px; color: #b1c2d0; font-size: 12px; }
+  .mobile-preview-heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 10px; color: #b1c2d0; font-size: 13px; }
   .mobile-region-strip { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
   .mobile-region-strip::-webkit-scrollbar { display: none; }
   .mobile-region-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; flex: 0 0 calc(100% - 18px); box-sizing: border-box; min-height: 88px; padding: 14px; border-radius: 8px; border: 1px solid #303c4b; background: #141b25; scroll-snap-align: start; }

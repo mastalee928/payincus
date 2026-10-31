@@ -64,7 +64,7 @@ function animateTo(target: [number, number, number], targetZoom = 1) {
   closeCandidates()
   const start = [...rotation.value] as [number, number, number], startZoom = zoom.value
   const longitudeDelta = (((target[0] - start[0]) % 360 + 540) % 360) - 180
-  if (reduced()) { rotation.value = target; zoom.value = targetZoom; cameraMoving.value = false; return }
+  if (reduced()) { rotation.value = target; zoom.value = targetZoom; cameraMoving.value = false; if (selectedPoint.value && selected.value) feedbackOpen.value = true; return }
   cameraMoving.value = true
   const at = performance.now()
   const tick = (time: number) => {
@@ -180,16 +180,16 @@ onBeforeUnmount(() => { cancelAnimationFrame(animation); controller.abort(); res
   <div ref="frame" class="mobile-vector-globe" :class="interacting ? 'is-interacting' : ''">
     <svg ref="svg" viewBox="0 0 400 400" class="vector-globe-svg" role="group" :aria-label="t('homeMapDemo.globeLabel')" :data-rotation="rotation.join(',')" :data-zoom="zoom" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up">
       <defs>
-        <radialGradient id="globe-ocean" cx="34%" cy="27%" r="75%"><stop offset="0" stop-color="#152334" /><stop offset="0.66" stop-color="#0b1420" /><stop offset="1" stop-color="#04090f" /></radialGradient>
-        <radialGradient id="globe-light" cx="30%" cy="22%" r="82%"><stop offset="0" stop-color="#a1b9d0" stop-opacity="0.07" /><stop offset="0.7" stop-color="#060a12" stop-opacity="0" /><stop offset="1" stop-color="#000" stop-opacity="0.55" /></radialGradient>
+        <radialGradient id="globe-ocean" cx="34%" cy="27%" r="75%"><stop offset="0" stop-color="var(--globe-ocean-start, #152334)" /><stop offset="0.66" stop-color="var(--globe-ocean-mid, #0b1420)" /><stop offset="1" stop-color="var(--globe-ocean-end, #04090f)" /></radialGradient>
+        <radialGradient id="globe-light" cx="30%" cy="22%" r="82%"><stop offset="0" stop-color="#a1b9d0" stop-opacity="0.07" /><stop offset="0.7" stop-color="#060a12" stop-opacity="0" /><stop offset="1" stop-color="#000" stop-opacity="var(--globe-shade-opacity, .55)" /></radialGradient>
         <filter id="globe-point-light" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="3" /><feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge></filter>
         <clipPath id="globe-circle"><circle cx="200" cy="200" :r="176 * zoom" /></clipPath>
       </defs>
-      <circle cx="200" cy="200" :r="178 * zoom" fill="#101b2b" stroke="#344458" stroke-width="0.8" />
+      <circle cx="200" cy="200" :r="178 * zoom" fill="var(--globe-rim, #101b2b)" stroke="var(--globe-rim-stroke, #344458)" stroke-width="0.8" />
       <g clip-path="url(#globe-circle)">
         <circle cx="200" cy="200" :r="176 * zoom" fill="url(#globe-ocean)" />
-        <path :d="grid" fill="none" stroke="#4c637c" stroke-opacity="0.13" stroke-width="0.7" />
-        <path v-for="(path, index) in paths" :key="index" :d="path" fill="#202d3c" stroke="#526378" stroke-opacity="0.55" stroke-width="0.65" />
+        <path :d="grid" fill="none" stroke="var(--globe-grid, #4c637c)" stroke-opacity="0.13" stroke-width="0.7" />
+        <path v-for="(path, index) in paths" :key="index" :d="path" fill="var(--globe-land, #202d3c)" stroke="var(--globe-land-stroke, #526378)" stroke-opacity="0.55" stroke-width="0.65" />
         <circle cx="200" cy="200" :r="176 * zoom" fill="url(#globe-light)" pointer-events="none" />
         <g v-for="point in points" :key="point.region.slug" class="globe-region-point" :class="[point.region.stock > 0 && !loading && !failed ? 'available' : '', point.region.slug === selectedSlug ? 'selected' : '', point.region.slug === candidateHighlightSlug ? 'previewed' : '', continent !== 'all' && point.region.continent !== continent ? 'dimmed' : '']" :transform="`translate(${point.x} ${point.y})`" role="button" tabindex="0" :aria-label="`${name(point.region)}，${status(point.region)}`" @keydown.enter.prevent="choose(point.region)" @keydown.space.prevent="choose(point.region)">
           <circle :r="hitRadius" fill="transparent" class="globe-node-hit" />

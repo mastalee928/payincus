@@ -9,6 +9,7 @@ const props = defineProps<{
   viewTransform: string
   hoverSlug: string
 }>()
+const emit = defineEmits<{ select: [id: string] }>()
 const labels = ref<MapLabelPlacement[]>([])
 let frameId = 0, animateUntil = 0, disposed = false
 let resize: ResizeObserver | undefined
@@ -60,16 +61,30 @@ onBeforeUnmount(() => { disposed = true; cancelAnimationFrame(frameId); resize?.
 </script>
 
 <template>
-  <div class="map-label-layer" aria-hidden="true">
-    <span
+  <div class="map-label-layer">
+    <svg class="map-label-leaders" aria-hidden="true">
+      <line
+        v-for="label in labels" :key="label.id" :x1="label.nodeX" :y1="label.nodeY"
+        :x2="Math.max(label.x, Math.min(label.x + label.width, label.nodeX))"
+        :y2="Math.max(label.y + 3, Math.min(label.y + label.height - 3, label.nodeY))"
+      />
+    </svg>
+    <button
       v-for="label in labels" :key="label.id" class="map-region-label" :class="{ 'is-selected': label.selected }"
       :data-region="label.id" :style="{ transform: `translate(${label.x}px, ${label.y}px)`, width: `${label.width}px` }"
-    >{{ label.text }}</span>
+      type="button" :aria-pressed="label.selected" @click="emit('select', label.id)"
+    >
+      {{ label.text }}
+    </button>
   </div>
 </template>
 
 <style scoped>
 .map-label-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 12; }
-.map-region-label { position: absolute; top: 0; left: 0; white-space: nowrap; color: #d1d8e3; font: 500 13px/20px 'Inter Variable',Inter,'Microsoft YaHei',sans-serif; pointer-events: none; }
-.map-region-label.is-selected { color: #8ce6eb; }
+.map-label-leaders { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.map-label-leaders line { stroke: var(--home-map-leader, #69788b); stroke-width: .75; opacity: .65; }
+.map-region-label { position: absolute; top: 0; left: 0; padding: 0; border: 0; background: transparent; text-align: left; white-space: nowrap; color: var(--home-map-label, #d1d8e3); font: 500 13px/20px 'Inter Variable',Inter,'Microsoft YaHei',sans-serif; pointer-events: auto; cursor: pointer; }
+.map-region-label.is-selected { color: var(--home-map-active, #8ce6eb); }
+.map-region-label:hover { color: var(--home-map-active, #8ce6eb); }
+.map-region-label:focus-visible { outline: 2px solid var(--home-map-active, #8ce6eb); outline-offset: 3px; }
 </style>

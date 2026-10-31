@@ -10,6 +10,11 @@ const points = [point('Sydney', 750, 250), point('Seoul', 610, 110), point('Chun
 const normal = layoutMapLabels(points, 800, 300, measure)
 assert.deepEqual(new Set(normal.map(p => p.id)), new Set(['Sydney', 'Seoul', 'Chuncheon']))
 assert.deepEqual(layoutMapLabels([...points].reverse(), 800, 300, measure), normal, 'input order cannot reshuffle label priorities')
+for (const label of normal) {
+  const source = points.find(point => point.id === label.id)!
+  assert.equal(label.nodeX, source.x, 'leader keeps the original node x after label placement')
+  assert.equal(label.nodeY, source.y, 'leader keeps the original node y after label placement')
+}
 assert.equal(layoutMapLabels([point('hidden', 100, 100, -1)], 400, 300, measure).length, 0)
 assert.equal(layoutMapLabels([point('outside', -10, 100)], 400, 300, measure).length, 0)
 const dense = Array.from({ length: 45 }, (_, i) => point('city-' + i, 190 + (i % 5) * 4, 140 + Math.floor(i / 5) * 4))

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowRight, Menu, X } from 'lucide-vue-next'
+import { ArrowRight, Menu, Moon, Sun, X } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import PublicLanguageSwitch from './PublicLanguageSwitch.vue'
 import api from '@/api'
@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/auth'
 import { dashboardPath, helpPath, loginPath } from '@/utils/app-paths'
 import type { PoolCatalogRegion } from '@/utils/poolCatalog'
 import HomeRegionAtlas from './HomeRegionAtlas.vue'
+import '@/styles/home-map-theme.css'
 
 const props = withDefaults(defineProps<{ preview?: boolean }>(), { preview: true })
 const brand = useBrand()
@@ -18,6 +19,15 @@ const config = useConfigStore()
 const authStore = useAuthStore()
 const router = useRouter()
 const { t, locale } = useI18n()
+function savedHomeTheme(): 'light' | 'dark' {
+  try { return localStorage.getItem('homepage-theme') === 'light' ? 'light' : 'dark' }
+  catch { return 'dark' }
+}
+const homeTheme = ref(savedHomeTheme())
+function toggleHomeTheme() {
+  homeTheme.value = homeTheme.value === 'dark' ? 'light' : 'dark'
+  try { localStorage.setItem('homepage-theme', homeTheme.value) } catch { /* Still usable without persistence. */ }
+}
 const accountActionLabel = computed(() => authStore.isAuthenticated ? t('publicSite.actions.consoleCompact') : t('publicSite.actions.signIn'))
 function goToConsole() {
   if (authStore.isAuthenticated) { void router.push(dashboardPath()); return }
@@ -47,24 +57,27 @@ onMounted(() => { motionPreference.addEventListener('change', syncMotionPreferen
 </script>
 
 <template>
-  <div class="homepage-map-demo">
+  <div class="homepage-map-demo" :data-home-theme="homeTheme">
     <header class="home-header">
       <div class="header-inner">
         <button class="mobile-menu" type="button" :aria-expanded="menuOpen" aria-controls="home-mobile-nav" :aria-label="t(menuOpen ? 'homeMapDemo.closeMenu' : 'homeMapDemo.openMenu')" @click="menuOpen = !menuOpen"><X v-if="menuOpen" :size="21" /><Menu v-else :size="21" /></button>
         <RouterLink to="/" class="brand"><img :src="brand.brandLogoUrl" :alt="brand.brandName" /><span><strong>{{ brand.brandName }}</strong><small>{{ brand.brandSubtitle }}</small></span></RouterLink>
         <nav class="desktop-nav" :aria-label="t('homeMapDemo.navigation')"><RouterLink to="/purchase">{{ t('homeMapDemo.products') }}</RouterLink><RouterLink :to="helpPath()">{{ t('homeMapDemo.solutions') }}</RouterLink><RouterLink :to="dashboardPath()">{{ t('homeMapDemo.console') }}</RouterLink></nav>
-        <div class="header-actions"><PublicLanguageSwitch /><button type="button" class="header-login" @click="goToConsole">{{ accountActionLabel }} <ArrowRight :size="14" /></button></div>
+        <div class="header-actions"><button type="button" class="home-theme-toggle" :aria-label="t(homeTheme === 'dark' ? 'theme.light' : 'theme.dark')" :title="t(homeTheme === 'dark' ? 'theme.light' : 'theme.dark')" @click="toggleHomeTheme"><Sun v-if="homeTheme === 'dark'" :size="18" /><Moon v-else :size="18" /></button><PublicLanguageSwitch /><button type="button" class="header-login" @click="goToConsole">{{ accountActionLabel }} <ArrowRight :size="14" /></button></div>
       </div><nav v-if="menuOpen" id="home-mobile-nav" class="mobile-nav" :aria-label="t('homeMapDemo.navigation')" @keydown.esc="closeMenu"><RouterLink to="/purchase" @click="closeMenu">{{ t('homeMapDemo.products') }}</RouterLink><RouterLink :to="helpPath()" @click="closeMenu">{{ t('homeMapDemo.solutions') }}</RouterLink><RouterLink :to="dashboardPath()" @click="closeMenu">{{ t('homeMapDemo.console') }}</RouterLink></nav>
     </header>
 
     <main>
       <section class="home-intro content-width" aria-labelledby="home-title"><h1 id="home-title"><span>{{ t('homeMapDemo.titleFirst') }}</span><span>{{ t('homeMapDemo.titleSecond') }}</span></h1></section>
-      <HomeRegionAtlas presentation="minimal" :catalog="catalog" :loading="loading" :failed="failed" @retry="loadCatalog" />
+      <HomeRegionAtlas presentation="minimal" :catalog="catalog" :loading="loading" :failed="failed" :light="homeTheme === 'light'" @retry="loadCatalog" />
     </main>
     <footer class="home-footer content-width">
       <div class="footer-main"><div class="footer-brand"><strong>{{ brand.brandName }}</strong><span>{{ brand.brandSubtitle }}</span></div><nav class="footer-links" :aria-label="t('homeMapDemo.helpContact')"><RouterLink :to="helpPath()">{{ t('publicSite.nav.help') }}</RouterLink><a v-if="config.footerContactEmail" :href="`mailto:${config.footerContactEmail}`">{{ t('homeMapDemo.contact') }}</a><a v-if="config.footerTelegramLink" :href="config.footerTelegramLink" target="_blank" rel="noopener noreferrer">Telegram</a></nav></div>
       <details class="mobile-footer-contact"><summary>{{ t('homeMapDemo.helpContact') }}</summary><div><RouterLink :to="helpPath()">{{ t('publicSite.nav.help') }}</RouterLink><a v-if="config.footerContactEmail" :href="`mailto:${config.footerContactEmail}`">{{ t('homeMapDemo.contact') }}</a><a v-if="config.footerTelegramLink" :href="config.footerTelegramLink" target="_blank" rel="noopener noreferrer">Telegram</a></div></details>
-      <div class="footer-bottom"><span>{{ t('homeMapDemo.mapCredits') }} <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener noreferrer">Natural Earth</a> · <a href="https://www.geonames.org/" target="_blank" rel="noopener noreferrer">GeoNames</a></span><span v-if="props.preview" class="preview-note"><span :title="updatedAt ? t('homeMapDemo.updatedAt', { time: new Date(updatedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) }) : undefined">{{ t('homeMapDemo.preview') }}</span><button type="button" :disabled="loading" @click="loadCatalog">{{ t('homeMapDemo.refresh') }}</button></span></div>
+      <!-- Map sources retained in code; owner requested hiding the footer credit.
+      <span>{{ t('homeMapDemo.mapCredits') }} <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener noreferrer">Natural Earth</a> · <a href="https://www.geonames.org/" target="_blank" rel="noopener noreferrer">GeoNames</a></span>
+      -->
+      <div v-if="props.preview" class="footer-bottom"><span class="preview-note"><span :title="updatedAt ? t('homeMapDemo.updatedAt', { time: new Date(updatedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) }) : undefined">{{ t('homeMapDemo.preview') }}</span><button type="button" :disabled="loading" @click="loadCatalog">{{ t('homeMapDemo.refresh') }}</button></span></div>
     </footer>
   </div>
 </template>
@@ -496,13 +509,13 @@ button:focus-visible,a:focus-visible,select:focus-visible {
 .footer-links a:hover { color: #f5f5f7; }
 .footer-bottom { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 24px; font-size: 10px; color: #9ca6b5; }
 .mobile-footer-contact { display: none; }
-@media (min-width: 1600px) {
+@media (min-width: 768px) {
   .homepage-map-demo {
-    --home-map-width: min(92vw, 2160px, max(960px, calc((100svh - 360px) * 2.88)));
-    --home-content-width: min(1920px, 84vw, calc(var(--home-map-width) * .92));
+    --home-map-width: min(100%, 2160px, max(960px, calc((100svh - 360px) * 2.88)));
+    --home-content-width: min(1920px, calc(100% - 48px), calc(var(--home-map-width) * .92));
   }
   .content-width, .header-inner { width: var(--home-content-width); }
-  .home-intro h1 { font-size: clamp(48px, min(3vw, 5svh), 72px); }
+  .home-intro h1 { font-size: clamp(40px, min(3.4vw, 5svh), 72px); }
   .home-footer { margin-top: 32px; padding: 20px 0 16px; }
   .footer-bottom { margin-top: 12px; }
 }
@@ -525,4 +538,6 @@ button:focus-visible,a:focus-visible,select:focus-visible {
   .footer-bottom { flex-wrap: wrap; gap: 4px 16px; margin-top: 10px; font-size: 9px; }
   .footer-bottom .preview-note { gap: 5px; }
 }
+.brand small, .desktop-nav a, .header-login, .footer-brand > span, .footer-links,
+.footer-bottom, .mobile-footer-contact, .preview-note, .preview-note button { font-size: 13px; }
 </style>

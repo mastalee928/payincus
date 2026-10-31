@@ -8,7 +8,7 @@ export interface MapLabelPoint {
   radius?: number
 }
 export interface MapLabelRect { x: number; y: number; width: number; height: number }
-export interface MapLabelPlacement extends MapLabelPoint, MapLabelRect { slot: number }
+export interface MapLabelPlacement extends MapLabelPoint, MapLabelRect { slot: number; nodeX: number; nodeY: number }
 
 const overlaps = (a: MapLabelRect, b: MapLabelRect, gap = 3) =>
   a.x < b.x + b.width + gap && a.x + a.width + gap > b.x &&
@@ -40,7 +40,7 @@ export function layoutMapLabels(points: MapLabelPoint[], width: number, height: 
       if (x < 8 || y < 8 || x + w > width - 8 || y + h > height - 8) continue
       if (obstacles.some(r => overlaps(rect, r)) || placed.some(r => overlaps(rect, r)) ||
         nodes.some(r => r.id !== point.id && overlaps(rect, r))) continue
-      placed.push({ ...point, ...rect, slot })
+      placed.push({ ...point, ...rect, slot, nodeX: point.x, nodeY: point.y })
       break
     }
   }

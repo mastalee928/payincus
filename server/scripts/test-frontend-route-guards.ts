@@ -519,7 +519,7 @@ assert.ok(
     homepageMapSource.includes('void router.push(dashboardPath())') &&
     homepageMapSource.includes('void router.push(loginPath())') &&
     homepageMapSource.includes('authStore.isAuthenticated') &&
-    homepageMapSource.includes('v-if="props.preview" class="preview-note"') &&
+    homepageMapSource.includes('v-if="props.preview" class="footer-bottom"><span class="preview-note"') &&
     !homepageMapSource.includes('class="motion-toggle"') &&
     homepageMapSource.includes("motionPreference.addEventListener('change', syncMotionPreference)") &&
     !homepageMapSource.includes('https://vm.oci.ee') &&
