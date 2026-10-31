@@ -32,7 +32,7 @@ try {
       : version === 'v1' ? { apiurl: 'https://8.8.8.8', version, pid: '12345', key: secret }
         : { apiurl: 'https://8.8.8.8', version, pid: '12345', platform_public_key: publicKey, merchant_private_key: privateKey }
     const provider = await createPaymentProvider({ name: tag, type: type === 'heleket' ? type : 'yipay', status: 'active', config }); providerIds.push(provider.id)
-    const order = await prisma.rechargeRecord.create({ data: { orderNo: tag + type, userId: user.id, providerId: provider.id, amount: 10, actualAmount: 9,
+    let order = await prisma.rechargeRecord.create({ data: { orderNo: tag + type, userId: user.id, providerId: provider.id, amount: 10, actualAmount: 9,
       providerConfigSnapshot: buildRechargeProviderConfigSnapshot(type === 'heleket' ? type : 'yipay', config) } })
     const callback = (changes: Record<string, unknown> = {}) => {
       const payload: Record<string, unknown> = type === 'heleket'
@@ -62,9 +62,20 @@ try {
     await prisma.paymentProvider.update({ where: { id: provider.id }, data: { config: { ...config, ...(type === 'heleket' ? { currency: 'USD' } : { pid: '67890' }) } } })
     assert.equal((await callback(type === 'heleket' ? {} : { pid: 12345 })).statusCode, 200, 'the order merchant and currency snapshot remains authoritative after config changes')
     assert.equal((await callback()).statusCode, 200)
-    assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), balanceBefore + 9)
+    assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), Number((balanceBefore + 9).toFixed(2)))
     assert.equal(await prisma.balanceLog.count({ where: { orderId: order.orderNo } }), 1)
     console.log('PASS', type, 'invalid signed data rejected, current payment credited exactly once')
+    for (const [expected, paid, accepted] of [[1, 1.01, true], [1.01, 1, true], [1.01, 0.999999, false], [1, 1.010001, type === 'heleket']] as const) {
+      order = await prisma.rechargeRecord.create({ data: { orderNo: tag + randomUUID(), userId: user.id, providerId: provider.id,
+        amount: expected, actualAmount: expected, providerConfigSnapshot: buildRechargeProviderConfigSnapshot(type === 'heleket' ? type : 'yipay', config) } })
+      const before = Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance)
+      const response = await callback(type === 'heleket' ? { amount: String(paid) } : { money: String(paid) })
+      console.log('Callback tolerance:', type, expected, paid, response.statusCode)
+      assert.equal(response.statusCode, accepted ? 200 : 400)
+      assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), Number((before + (accepted ? expected : 0)).toFixed(2)))
+      assert.equal(await prisma.balanceLog.count({ where: { orderId: order.orderNo } }), accepted ? 1 : 0)
+      if (!accepted) assert.deepEqual(await prisma.rechargeRecord.findUniqueOrThrow({ where: { id: order.id } }), order)
+    }
   }
 } catch (error) { failure = error }
 finally {

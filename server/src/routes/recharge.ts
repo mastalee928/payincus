@@ -58,12 +58,9 @@ import { notifyAdminRecharge } from '../lib/admin-alerts.js'
 import { sanitizeObject } from '../lib/log-sanitizer.js'
 import { getCurrentRechargeGatewayOrderNo, isRechargeGatewayOrderNoMatch, resolveRechargeOrderNoFromGatewayOrderNo } from '../lib/recharge-order-guard.js'
 import { RechargePaymentSelectionChangedError } from '../db/recharge-records.js'
-import { parsePositivePaymentMoney } from '../lib/payment-money.js'
+import { isPaymentAmountWithinTolerance, parsePositivePaymentMoney } from '../lib/payment-money.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { assertSafeHttpUrl, isIpPrivateOrReserved } from '../lib/outbound-security.js'
-
-// 金额一致性检查容差（分）
-const AMOUNT_TOLERANCE_CENTS = 1
 
 const MANUAL_PROVIDER_TYPE = 'manual'
 const SUPPORTED_RECHARGE_PROVIDER_TYPES = new Set(['yipay', 'heleket', 'antom', 'upaypro', MANUAL_PROVIDER_TYPE])
@@ -1724,7 +1721,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         tradeNoForIndex = getTradeNoForIndex(orderNo, tradeNo)
 
         const paidAmount = parsePositivePaymentMoney(queryResult.money)
-        if (paidAmount === undefined || Math.abs(paidAmount - orderAmount) > AMOUNT_TOLERANCE_CENTS / 100) {
+        if (paidAmount === undefined || !isPaymentAmountWithinTolerance(paidAmount, orderAmount)) {
           request.log.warn(
             { orderNo, orderAmount, paidAmount },
             '支付金额与订单金额不匹配，拒绝处理'
@@ -1919,7 +1916,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           }
         }
 
-        if (invoiceAmount + AMOUNT_TOLERANCE_CENTS / 100 < orderAmount) {
+        if (!isPaymentAmountWithinTolerance(invoiceAmount, orderAmount, true)) {
           request.log.warn(
             { orderNo, orderAmount, invoiceAmount, diff: orderAmount - invoiceAmount },
             'Heleket 支付金额低于订单金额，拒绝处理'
@@ -2993,7 +2990,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           invoiceAmount: expectedAmount
         }
       ) as Record<string, unknown>
-      if (paidActualAmount + AMOUNT_TOLERANCE_CENTS / 100 < expectedAmount) {
+      if (!isPaymentAmountWithinTolerance(paidActualAmount, expectedAmount, true)) {
         request.log.warn({
           orderNo,
           expected: expectedAmount,
@@ -3011,7 +3008,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       }
     } else if (provider.type !== 'antom') {
       const diff = Math.abs(paidActualAmount - expectedAmount)
-      if (diff > AMOUNT_TOLERANCE_CENTS / 100) {
+      if (!isPaymentAmountWithinTolerance(paidActualAmount, expectedAmount)) {
         request.log.warn({
           orderNo,
           expected: expectedAmount,

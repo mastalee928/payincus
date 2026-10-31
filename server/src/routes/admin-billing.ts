@@ -33,7 +33,7 @@ import { getDateStringInTimezone, getTodayRange, getThisMonthStart, getLastMonth
 import { validateName, encryptSensitiveData } from '../lib/security.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
-import { parsePositivePaymentMoney } from '../lib/payment-money.js'
+import { isPaymentAmountWithinTolerance, parsePositivePaymentMoney } from '../lib/payment-money.js'
 import { getCurrentRechargeGatewayOrderNo, isRechargeGatewayOrderNoMatch } from '../lib/recharge-order-guard.js'
 import { RechargePaymentSelectionChangedError } from '../db/recharge-records.js'
 import {
@@ -3336,7 +3336,7 @@ if (provider.type === 'yipay') {
         tradeNoForIdx = getTradeNoForIndex(record.orderNo, tradeNo)
 
         const paidAmount = parsePositivePaymentMoney(queryResult.money)
-        if (paidAmount === undefined || Math.abs(paidAmount - orderAmount) > 0.01) {
+        if (paidAmount === undefined || !isPaymentAmountWithinTolerance(paidAmount, orderAmount)) {
           request.log.warn(
             { orderNo: record.orderNo, orderAmount, paidAmount },
             '管理员同步-支付金额不匹配'
@@ -3448,7 +3448,7 @@ if (provider.type === 'yipay') {
           }
         }
 
-        if (invoiceAmount + 0.01 < orderAmount) {
+        if (!isPaymentAmountWithinTolerance(invoiceAmount, orderAmount, true)) {
           request.log.warn(
             { orderNo: record.orderNo, orderAmount, invoiceAmount },
             '管理员同步-Heleket 支付金额不足'

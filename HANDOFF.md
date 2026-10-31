@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 资金专项：精确1分钱容差与阶段审查结论
+
+- money-tolerance-before.log真实签名/PG回调复现：应付1元实付1.01元返回400；同规则10→10.01可过。payment-money新增Decimal差值比较，回调/用户verify/admin同步统一调用；保留原1分钱容差和Heleket允许多付，Antom/UPAY原严格匹配不放宽。
+- money-tolerance-callback-fixed.log三渠道12个边界请求：精确1分钱通过，超界拒绝，Heleket多付保原规则且按订单金额加余额；原商户/金额/币种/快照与重复回调也通过。money-tolerance-verify.log和money-tolerance-sync.log真实路由对10.05应付/10.04实付接受，对10.039999拒绝，原查询竞争/权限/重复专项通过。初轮新增小数余额后测试自身未规范化加9的浮点期望，保留money-tolerance-callback.log，修测试期望后通过。
+- money-tolerance-core.log原核心边界与新增精确差值断言通过；money-tolerance-types.log含四专项严格类型、money-tolerance-guards.log7项充值守卫、money-tolerance-build.log后端构建通过。仅本地隔离/受控请求，无真实平台付款或生产操作。
+- 资金专项阶段结果见MONEY_REVIEW_2026-10-31.md：9处已修，M10持久请求幂等、M11超宽限期迟到付款对账补偿尚未实现。money-retry-boundary-fixed.log实际两次相同HTTP续费均成功、各扣10/各延长一次；旧并发快照防重复不是跨请求重试幂等。取消后的迟到款由代码确认，未做外部延迟支付实验。本轮精查不能记成全部资金风险已修完。
+- 前项efddfbdddf20d08c2b6a3a0766ad96ad9c7ca38e/41187433453与59cc38e50e0a3d2a149f4453b41782aaaaa24748/41186835436已推仍运行；前三资金提交及08475782也继续跟终态。暂不发版。
+
 ## 2026-10-31 资金专项：邮箱续费扣款前复核
 
 - money-mail-before.log实际Fastify/隔离PG复现请求鉴权后封禁，原手动续费仍200、余额100→90；日志因导入security的清理interval停留，已完成数据库清理和失败断言后中断。新专项沿既有做法只对导入期清理timer unref，后续自然退出。money-mail-price-before.log自然exit1复现计价后套餐10→20仍按旧10结算；money-mail-auto-before.log自然exit1复现封禁账户自动续费仍renewed/扣10。

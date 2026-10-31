@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { readFileSync } from 'node:fs'
 import { Agent } from 'undici'
-import { parsePositivePaymentMoney } from '../src/lib/payment-money.js'
+import { isPaymentAmountWithinTolerance, parsePositivePaymentMoney } from '../src/lib/payment-money.js'
 import { IncusClient } from '../src/lib/incus/incus-client.js'
 import { waitForOperation } from '../src/lib/incus/incus-utils.js'
 import { formatBytes } from '../../client/src/utils/formatters.js'
@@ -27,7 +27,14 @@ for (const amount of [undefined, null, '', ' ', 'NaN', 'Infinity', '10junk', '0x
 for (const amount of [10, '10', '10.00', ' 10.01 ', '0.01']) assert.equal(parsePositivePaymentMoney(amount), Number(amount))
 const recharge = readFileSync(new URL('../src/routes/recharge.ts', import.meta.url), 'utf8')
 assert.match(recharge, /paidAmount = parsePositivePaymentMoney\(queryResult.money\)/)
-assert.match(recharge, /paidAmount === undefined \|\| Math.abs\(paidAmount - orderAmount\)/)
+assert.match(recharge, /paidAmount === undefined \|\| !isPaymentAmountWithinTolerance\(paidAmount, orderAmount\)/)
+for (const [paid, expected] of [[1.01, 1], [1, 1.01], [10.01, 10], [1.1, 1.11]]) {
+  assert.equal(isPaymentAmountWithinTolerance(paid, expected), true)
+}
+for (const paid of [0.989999, 1.010001, 0, -1, NaN, Infinity]) assert.equal(isPaymentAmountWithinTolerance(paid, 1), false)
+assert.equal(isPaymentAmountWithinTolerance(2, 1, true), true)
+assert.equal(isPaymentAmountWithinTolerance(0.99, 1, true), true)
+assert.equal(isPaymentAmountWithinTolerance(0.989999, 1, true), false)
 assert.match(recharge, /actualAmount = parsePositivePaymentMoney\(callbackData.money\)/)
 assert.equal(formatBytes(1024 ** 5), '1.0 PB')
 assert.equal(formatBytes(1024 ** 6), '1.0 EB')

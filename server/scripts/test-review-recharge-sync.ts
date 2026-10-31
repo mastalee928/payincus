@@ -70,6 +70,7 @@ try {
       let returnedOrder: unknown = gatewayOrderNo
       let returnedStatus = 'paid'
       let returnedCurrency: unknown = 'CNY'
+      let returnedAmount = '10.00'
       let afterQuery: (() => Promise<void>) | undefined
       const barrier = mode === 'concurrent' ? new Promise<void>(resolve => { release = resolve }) : undefined
       query = async (input, settings) => {
@@ -92,8 +93,8 @@ try {
         }
         arrived++; await barrier; await afterQuery?.()
         return new Response(JSON.stringify(type === 'yipay'
-          ? { code: 1, status: 1, money: '10.00', trade_no: order.orderNo, out_trade_no: returnedOrder }
-          : { state: 0, result: { order_id: returnedOrder, uuid: order.orderNo, status: returnedStatus, amount: '10.00', currency: returnedCurrency } }),
+          ? { code: 1, status: 1, money: returnedAmount, trade_no: order.orderNo, out_trade_no: returnedOrder }
+          : { state: 0, result: { order_id: returnedOrder, uuid: order.orderNo, status: returnedStatus, amount: returnedAmount, currency: returnedCurrency } }),
         { headers: { 'content-type': 'application/json' } })
       }
       const sync = () => app.inject({ method: 'POST', url: `/api/admin/billing/recharge-records/${order.id}/sync` })
@@ -196,6 +197,14 @@ try {
           console.log('PASS admin sync currency binding: four invalid currencies leave accounting unchanged')
         }
         console.log('PASS', type, 'missing/foreign provider order rejected before every state or accounting mutation')
+      }
+      if (mode === 'encrypted') {
+        const current = await prisma.rechargeRecord.update({ where: { id: order.id }, data: { amount: 10.05 } })
+        returnedAmount = '10.039999'
+        assert.equal((await sync()).statusCode, 400, 'more than one cent underpayment must reject')
+        assert.deepEqual(await prisma.rechargeRecord.findUniqueOrThrow({ where: { id: order.id } }), current)
+        assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), expectedBalance)
+        returnedAmount = '10.04'
       }
       const expectedRequests = mode === 'concurrent' ? 8 : 1
       const pending = Promise.all(Array.from({ length: expectedRequests }, () => sync()))

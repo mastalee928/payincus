@@ -51,13 +51,14 @@ try {
           id: '123456789ABC', gatewayOrderNo, createdAt: new Date().toISOString()
         }, superseded: [] } } } : {}) } })
       let drift = true, resultState = state, changed: unknown, returnedCurrency: unknown = 'CNY'
+      let returnedAmount = '10.00'
       query = async (url, settings) => {
         const input = type === 'yipay' ? url.searchParams.get('out_trade_no') : JSON.parse(String(settings.body))[type === 'heleket' ? 'order_id' : 'paymentRequestId']
         assert.equal(input, gatewayOrderNo)
         if (drift) changed = await db.updatePendingRechargePaymentSelection(orderNo, { paymentMethod: 'new-payment', fee: 0, actualAmount: 9,
           paymentDetails: { paymentAttempt: { current: { id: 'ABCDEF123456', gatewayOrderNo: orderNo + '--PA-ABCDEF123456', createdAt: new Date().toISOString() }, superseded: [] } } })
-        const result = type === 'yipay' ? { code: 1, status: 1, out_trade_no: input, trade_no: orderNo, money: '10.00' }
-          : type === 'heleket' ? { state: 0, result: { order_id: input, uuid: orderNo, status: resultState, amount: '10.00', currency: returnedCurrency } }
+        const result = type === 'yipay' ? { code: 1, status: 1, out_trade_no: input, trade_no: orderNo, money: returnedAmount }
+          : type === 'heleket' ? { state: 0, result: { order_id: input, uuid: orderNo, status: resultState, amount: returnedAmount, currency: returnedCurrency } }
             : { result: { resultStatus: 'S', resultCode: 'SUCCESS' }, paymentStatus: resultState, paymentRequestId: input,
               paymentId: orderNo, paymentAmount: { currency: 'CNY', value: '1000' } }
         const body = JSON.stringify(result), headers: Record<string, string> = { 'content-type': 'application/json' }
@@ -100,6 +101,16 @@ try {
       assert.equal(await prisma.balanceLog.count({ where: { userId: user.id } }), completed)
       assert.equal(await prisma.inboxMessage.count({ where: { userId: user.id } }), completed)
       drift = false; gatewayOrderNo = orderNo + '--PA-ABCDEF123456'; resultState = type === 'antom' ? 'SUCCESS' : 'paid'
+      if (type !== 'antom') {
+        // Exact cent boundary with the credited amount remaining below the payable amount.
+        const current = await prisma.rechargeRecord.update({ where: { id: order.id }, data: { amount: 10.05 } })
+        returnedAmount = '10.039999'
+        const rejected = await verify()
+        assert.equal(rejected.json().verified, false)
+        assert.deepEqual(await prisma.rechargeRecord.findUniqueOrThrow({ where: { id: order.id } }), current)
+        assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), expectedBalance)
+        returnedAmount = '10.04'
+      }
       const normal = await verify(); assert.equal(normal.statusCode, 200, normal.body); assert.equal(normal.json().verified, true)
       completed++; expectedBalance += 9
       assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), expectedBalance)
