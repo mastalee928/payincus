@@ -8694,6 +8694,7 @@ hostPools: {
         applySpec: '设置规格（{count} 台）',
         applying: '设置中...',
         specSaved: '规格已设置，机器已进入池子',
+        specSaveFailed: '规格保存失败，请检查后重试。',
         specFailed: '设置规格失败',
         poolsEmpty: '还没有带规格的机器。接入机器并设置规格后，这里会自动出现池子。',
         colMachine: '机型 / 核心',

@@ -4,10 +4,12 @@ import HostRecoveryModal from './HostRecoveryModal.vue'
 import HostRecoveryBatchModal from './HostRecoveryBatchModal.vue'
 import HostPublicIpModal from './HostPublicIpModal.vue'
 import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
+import { useDialogFocus } from '@/composables/useDialogFocus'
 import { availableFlagCountryCodes, getLocalizedCountryName } from '@/utils/countryDisplay'
 import type { HostSshConnection } from '@/types/host-pool'
 import type { ManagedHost, UpdateHostGroupsRequest, HostMachineGroup, HostStockCounts, HostRegionGroup, ResourcePreset } from '@/types/api'
@@ -15,6 +17,7 @@ import { presetLabel } from '@/utils/poolCatalog'
 
 const { t, te, locale } = useI18n()
 const toast = useToast()
+const auth = useAuthStore()
 const chipIdle = 'inline-flex items-center gap-1.5 rounded-full border border-themed px-3 py-1 text-xs whitespace-nowrap transition-colors text-themed hover:bg-gray-50 dark:hover:bg-gray-800'
 const chipOn = 'inline-flex items-center gap-1.5 rounded-full border border-transparent bg-gray-900 px-3 py-1 text-xs whitespace-nowrap text-white transition-colors dark:bg-gray-100 dark:text-gray-900'
 const menuItemClass = 'flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-themed transition-colors hover:bg-gray-50 dark:hover:bg-gray-800'
@@ -163,24 +166,68 @@ const DISK_TIERS = [30, 60, 90, 120]
 const specTargets = ref<ManagedHost[]>([])
 const specPreset = ref<ResourcePreset>('E2')
 const specDisk = ref<number>(30)
+const specError = ref('')
+const specActive = ref(true)
+const specDialog = ref<HTMLElement | null>(null)
+useDialogFocus(specDialog, () => specActive.value && specTargets.value.length > 0, closeSpec)
+// The Teleport form is mounted after the synchronous visibility watcher.
+watch(specDialog, dialog => { if (dialog && specActive.value) dialog.querySelector<HTMLElement>('select')?.focus() }, { flush: 'post' })
+let specRevision = 0
+const specSession = computed(() => {
+  if (!auth.user || auth.user.role !== 'admin' || !auth.token) return ''
+  try {
+    const claims = JSON.parse(atob(auth.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (claims.id !== auth.user.id || claims.role !== auth.user.role) return ''
+    return `${auth.user.id}:${auth.user.role}:${claims.sid || auth.token}`
+  } catch { return `${auth.user.id}:${auth.user.role}:${auth.token}` }
+})
+const specAvailable = computed(() => specActive.value && !!specSession.value)
+watch([specTargets, specPreset, specDisk], () => { specRevision++ }, { deep: true, flush: 'sync' })
+function clearSpec() {
+  specTargets.value = []; specPreset.value = 'E2'; specDisk.value = 30; specError.value = ''
+}
+watch(specSession, clearSpec, { flush: 'sync' })
+function storageSession(value: string | null) {
+  try { const data = JSON.parse(atob(value!.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return `${data.id}:${data.role}:${data.sid || value}` } catch { return value }
+}
+function invalidateSpecStorage(event: StorageEvent) {
+  if (event.key === null || event.key === 'token' && storageSession(event.oldValue) !== storageSession(event.newValue)) clearSpec()
+}
+watch([page, search, machineGroup, regionGroup, stock], clearSpec, { flush: 'sync' })
 const specArchMismatch = computed(() => specTargets.value.filter(host => host.architecture !== (specPreset.value.startsWith('ARM') ? 'aarch64' : 'x86_64')))
 function hasSpec(host: ManagedHost) { return !!host.resourcePreset && host.customerDiskGiB !== null && host.cpuAllowanceMax > 0 }
 function openSpec(targets: ManagedHost[]) {
-  specTargets.value = targets
+  if (!specAvailable.value || saving.value || !auth.captureAuthentication().aligned || targets.length < 1 || targets.length > 100 ||
+    targets.some(host => !Number.isInteger(host.id) || host.id < 1 || host.id > 2147483647) || new Set(targets.map(host => host.id)).size !== targets.length) return
+  specTargets.value = targets.map(host => ({ ...host }))
+  specError.value = ''
   const first = targets[0]
   specPreset.value = (first?.resourcePreset as ResourcePreset | null) || (first?.architecture === 'aarch64' ? 'ARM1C' : 'E2')
   specDisk.value = first?.customerDiskGiB && DISK_TIERS.includes(first.customerDiskGiB) ? first.customerDiskGiB : 30
 }
-function closeSpec() { if (!saving.value) specTargets.value = [] }
+function closeSpec() { if (!saving.value) clearSpec() }
 async function saveSpec() {
-  if (saving.value || specArchMismatch.value.length) return
+  if (!specAvailable.value || saving.value || !specTargets.value.length || specTargets.value.length > 100 || specArchMismatch.value.length ||
+    !PRESETS.includes(specPreset.value) || !DISK_TIERS.includes(specDisk.value) ||
+    specTargets.value.some(host => !Number.isInteger(host.id) || host.id < 1 || host.id > 2147483647) ||
+    new Set(specTargets.value.map(host => host.id)).size !== specTargets.value.length) return
+  const authentication = auth.captureAuthentication()
+  if (!authentication.aligned || !authentication.current()) return
+  const revision = specRevision, session = specSession.value
+  const selection = JSON.stringify(selected.value)
+  const current = () => specAvailable.value && revision === specRevision && session === specSession.value && authentication.current()
+  const payload = { hostIds: specTargets.value.map(host => host.id), resourcePreset: specPreset.value, customerDiskGiB: specDisk.value }
   saving.value = true
+  specError.value = ''
   try {
-    await api.hostOnboarding.updateSpec({ hostIds: specTargets.value.map(host => host.id), resourcePreset: specPreset.value, customerDiskGiB: specDisk.value })
-    specTargets.value = []; selected.value = []
+    const response = await api.hostOnboarding.updateSpec(payload)
+    if (!current()) return
+    if (!response || response.success !== true || response.updated !== payload.hostIds.length) throw new Error('Unconfirmed specification update')
+    clearSpec()
+    if (selection === JSON.stringify(selected.value)) selected.value = []
     toast.success(t('hostInventory.specSaved'))
     await refresh()
-  } catch (error) { groupError(error) }
+  } catch (error) { if (current()) specError.value = groupErrorMessage(error, 'hostInventory.specSaveFailed') }
   finally { saving.value = false }
 }
 let disposed = false
@@ -188,6 +235,7 @@ let sequence = 0
 let timer: ReturnType<typeof setTimeout> | undefined
 
 async function refresh() {
+  if (disposed || !specActive.value) return
   clearTimeout(timer)
   const current = ++sequence
   try {
@@ -240,9 +288,12 @@ async function saveGroups() {
   finally { saving.value = false }
 }
 function groupError(error: unknown) {
+  toast.error(groupErrorMessage(error))
+}
+function groupErrorMessage(error: unknown, fallback = 'hostInventory.groupsFailed') {
   const data = (error as any)?.response?.data ?? error
   const code = data && typeof data === 'object' && 'code' in data ? String(data.code) : ''
-  toast.error(te('hostInventory.actionErrors.' + code) ? t('hostInventory.actionErrors.' + code) : te('onboarding.errors.' + code) ? t('onboarding.errors.' + code) : t('hostInventory.groupsFailed'))
+  return te('hostInventory.actionErrors.' + code) ? t('hostInventory.actionErrors.' + code) : te('onboarding.errors.' + code) ? t('onboarding.errors.' + code) : t(fallback)
 }
 function editMachine(group?: HostMachineGroup) { groupEditor.value = { kind: 'machine', id: group?.id, name: group?.name || '', countryCode: '' } }
 function editRegion(parentId: number, group?: HostRegionGroup) { groupEditor.value = { kind: 'region', parentId, id: group?.id, name: group?.name || '', countryCode: group?.countryCode || '' } }
@@ -285,12 +336,17 @@ onMounted(() => {
   void refresh()
   document.addEventListener('click', onMenuOutsideClick)
   document.addEventListener('keydown', onMenuEscape)
+  window.addEventListener('storage', invalidateSpecStorage)
 })
+onDeactivated(() => { specActive.value = false; clearSpec(); clearTimeout(timer); sequence++ })
+onActivated(() => { if (!specActive.value) { specActive.value = true; void refresh() } })
 onUnmounted(() => {
   disposed = true
+  specActive.value = false; clearSpec()
   clearTimeout(timer)
   document.removeEventListener('click', onMenuOutsideClick)
   document.removeEventListener('keydown', onMenuEscape)
+  window.removeEventListener('storage', invalidateSpecStorage)
 })
 defineExpose({ refresh })
 </script>
@@ -448,11 +504,11 @@ defineExpose({ refresh })
       </div>
       <div v-if="specTargets.length" class="modal-overlay" @keydown.esc="closeSpec">
         <div class="modal-backdrop" @click="closeSpec"></div>
-        <form class="modal-content max-w-xl max-h-[90dvh] flex flex-col overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="host-spec-title" @submit.prevent="saveSpec">
+        <form ref="specDialog" tabindex="-1" class="modal-content inventory-spec max-w-xl max-h-[90dvh] flex flex-col overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="host-spec-title" @submit.prevent="saveSpec">
           <div class="modal-header"><h2 id="host-spec-title" class="modal-title">{{ t('hostInventory.specTitle') }}</h2></div>
           <div class="modal-body min-h-0 overflow-y-auto">
-            <fieldset class="space-y-4 min-w-0" :disabled="saving">
-              <p class="text-sm text-themed break-words">{{ specTargets.length === 1 ? `${specTargets[0].name} · ${specTargets[0].architecture}` : t('hostInventory.selectedCount', { count: specTargets.length }) }}</p>
+            <fieldset class="space-y-4 min-w-0" :disabled="saving || !specAvailable">
+              <p class="text-sm text-themed break-all">{{ specTargets.length === 1 ? `${specTargets[0].name} · ${specTargets[0].architecture}` : t('hostInventory.selectedCount', { count: specTargets.length }) }}</p>
               <p class="text-xs text-themed-muted">{{ t('hostInventory.specHint') }}</p>
               <div>
                 <label class="block text-sm text-themed" for="host-spec-preset">{{ t('hostPools.specPreset') }}</label>
@@ -465,7 +521,8 @@ defineExpose({ refresh })
               </div>
             </fieldset>
           </div>
-          <div class="modal-footer gap-2"><button type="button" class="btn-secondary" :disabled="saving" @click="closeSpec">{{ t('common.cancel') }}</button><button class="btn-primary" type="submit" :disabled="saving || specArchMismatch.length > 0">{{ t(saving ? 'common.saving' : 'common.save') }}</button></div>
+          <p v-if="specError" class="px-6 pb-3 text-sm text-red-600 dark:text-red-400 break-words" role="alert">{{ specError }}</p>
+          <div class="modal-footer gap-2"><button type="button" class="btn-secondary" :disabled="saving" @click="closeSpec">{{ t('common.cancel') }}</button><button class="btn-primary" type="submit" :disabled="saving || !specAvailable || specArchMismatch.length > 0">{{ t(saving ? 'common.saving' : 'common.save') }}</button></div>
         </form>
       </div>
       <div v-if="showGroupManager && !groupEditor && !removeGroup" class="modal-overlay" @keydown.esc="showGroupManager = false">
@@ -547,4 +604,13 @@ defineExpose({ refresh })
 .modal-content { max-width: 36rem; max-height: 90dvh; overflow: hidden; }
 .modal-header, .modal-footer { flex-shrink: 0; }
 .modal-body { min-height: 0; overflow-y: auto; }
+.inventory-spec { animation: none !important; transform: none !important; background-image: none !important; backdrop-filter: none !important; background-color: #fff !important; }
+.dark .inventory-spec { background-color: #171717 !important; }
+.inventory-spec select, .inventory-spec button { min-height: 44px; }
+.inventory-spec .text-themed-muted { color: #525252 !important; }
+.dark .inventory-spec .text-themed-muted { color: #bdbdbd !important; }
+.inventory-spec .btn-primary { background: #171717 !important; color: #fff !important; box-shadow: none !important; }
+.dark .inventory-spec .btn-primary { background: #f5f5f5 !important; color: #171717 !important; }
+.inventory-spec button:focus-visible, .inventory-spec select:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.inventory-spec select:focus { border-color: currentColor !important; box-shadow: none !important; }
 </style>

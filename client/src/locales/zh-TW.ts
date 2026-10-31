@@ -9000,6 +9000,7 @@ hostPools: {
         applySpec: '設定規格（{count} 台）',
         applying: '設定中...',
         specSaved: '規格已設定，機器已進入池子',
+        specSaveFailed: '規格儲存失敗，請檢查後重試。',
         specFailed: '設定規格失敗',
         poolsEmpty: '還沒有帶規格的機器。接入機器並設定規格後，這裡會自動出現池子。',
         colMachine: '機型 / 核心',

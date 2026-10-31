@@ -8621,6 +8621,7 @@ hostPools: {
         applySpec: 'Set spec ({count})',
         applying: 'Setting...',
         specSaved: 'Spec saved, machines joined their pools',
+        specSaveFailed: 'Could not save the specification. Check and try again.',
         specFailed: 'Could not set the spec',
         poolsEmpty: 'No machines with a spec yet. Onboard machines and set their spec; pools appear here automatically.',
         colMachine: 'Machine / cores',

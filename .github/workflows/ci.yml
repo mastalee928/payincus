@@ -532,6 +532,8 @@ jobs:
         run: pnpm --filter server test:review-image-selector-lifecycle
       - name: Host config clear values persist and route mode stays protected
         run: pnpm --filter server test:review-host-config-clear-pg
+      - name: Inventory specification saves retain their current target and draft
+        run: pnpm --filter server test:review-inventory-spec
       - name: Host config drafts and save receipts stay with the current view
         run: pnpm --filter server test:review-host-config-submit
       - name: Host type refusals use the configured locale and keep the draft

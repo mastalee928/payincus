@@ -1,5 +1,14 @@
 # 版本与验证记录
 
+## 2026-10-31 R114 机器池规格保存的旧回执与弹窗修复
+
+- inventory-r114-before.log真实Chrome复现卸载后旧成功仍toast（1≠0）。仅调整HostInventoryPanel规格入口：固定请求payload/目标/同步draft revision、当前管理员/原会话/存储与生命周期，账户/筛选/页切换或缓存停用清草稿；在途不重开/重复提交/关闭，旧结果不清当前草稿、不提示、不刷新。响应必须success=true且updated等于本次唯一目标数，合法磁盘档和架构继续保留；失败持久显示本地化原因并可用原保存按钮重试。其它组/SSH/协议写入与后端授权/审计合同不借本项扩大验收。
+- inventory-r114-complete.log自然exit0：卸载零toast/额外请求，26组旧成功/失败（cache/account/sid/role/storage/目标和磁盘ABA/filter/page）、重复/open/close门禁、same-sid token更新、6坏回执、5非法磁盘、混合架构拒绝、两机器批量payload/真实数量通过。18组简繁英×1440/768/390×深浅实际输入/禁用/持久失败/retry/长名称/44px/Tab/Escape全部通过；18份taste报告零FAIL/零WARN，最终三宽截图已查看。API为可控边界，没有修改真实机器规格。
+- 焦点检查初次失败：同步visibility回调早于Teleport form挂载；改表单ref post-watch后真实焦点进入。旧modal渐变、手机紫色按钮与深色hint对比度分别被实际taste拦下，局部黑白平面样式/中性focus/44px修复；原失败日志保留。原布局和一机一卖保持，无重新设计全机器池，背景其它区域不在本次视觉结论内。
+- 最终产品冻结后inventory-r114-build-final.log两端vue-tsc/Vite自然exit0；guards-complete三项3/3（route/i18n/host-pool）、lint-final零诊断、dist、JS语法、YAML和198清单检查通过。早期build成功发生在最后焦点/样式改动前，不冒作最终证据。新增长期浏览器专项登记CI及活体排除。
+- R120已推fe8634688b0699fc9d36a10ce72294bf1168f51a / CI41156853752；R121 2a32f9bb20f14da90bcbe57b059fb906d0dace2e / CI41156893704。ci-r114-final-refresh.log自然exit0，新增终态1cd70bdd518613eb1c9dc4ad017527723632fecb / CI41144490983 success，其余仍跟，未发现新失败。
+- R114后313/327（95.7%，覆盖非完整验收）、14项初审；实际后端规格行锁等待后的当前管理员/审计同事务、所有其它库存弹窗与真实宿主尚待。预计剩余初审阶段6–12小时，未知复现及原生/外部/灾备不含在内，不能给全项目可靠完工日期；分段保存后继续。
+
 ## 2026-10-31 R121 Caddy 取消任务与锁释放前提复审
 
 - 完整检查caddy.sh及其实际命令生成链：手工shell只有EXIT cleanup_caddy_install，负责暂存文件和失败时服务状态恢复；没有后台cancel接口、lease/flock、解锁后返回继续安装的handler。数据库也无Caddy安装任务，因此原外部分支“取消后释放任务锁仍继续修改”的前提不适用。
