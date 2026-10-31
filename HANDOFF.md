@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R070 远程备份存储栈现行消费者复审
+
+- ProfileView及全前端未找到StorageSection组件消费者，旧配置区确为孤立；但整套provider并未退役。app.ts注册/api/storage-configs并启动backupUploadWorker，backups上传路由选当前账户指定/默认配置并创建绑定任务；worker实际StorageFactory.create后uploadStream，失败清理用deleteFile。host-replacement的已完成备份恢复实际调用同工厂downloadStream，再交Incus恢复。工厂按配置选择WebDAV/FTP/SFTP/S3，路由的连接测试也实际使用。
+- 原清单“UI与provider栈均无应用消费者”的整体前提不成立；保留后端配置、任务和provider，不按外部分支方案整栈删除，也不把仅有API客户端声明当消费者证据。此次只追注册、任务生产/执行和备份恢复链，无外部存储连接或实际恢复；原生存储认证/取消/恢复与完整灾备仍保留对应项内缺口。无产品修改、不重跑无变化构建。
+- R261已推e9a0f1d5eb093837d17ec2114611ae6c041f986a / CI41161603417；R070后316/327（96.6%，含部分和实现差异）、11项初审。R263浏览器18组合与原生命周期回归自然exit0，双端构建仍收尾，不提前作为已推结果。
+
 ## 2026-10-31 R261 地图资源扩展名与实际编码复审
 
 - 沿实际消费者核对：HomeRegionAtlas加载/maps/home-world.svg，文件原文以svg根元素开始；MobileRegionGlobe加载/maps/mobile-globe-land.json，再绘制SVG路径，JSON为含177个features的FeatureCollection。旧hero-cloud-map.png也核二进制头89504e470d0a1a0a0000000d49484452，实际确为PNG而非AVIF；旧CSS装饰引用由后续去装饰规则清除。map-r261-encoding.log保存实读结果。

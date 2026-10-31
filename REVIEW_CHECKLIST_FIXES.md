@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为315/327（96.3%，含部分、待验收、重复与实现差异），12项仍保初审分类；这不是完整修复数，不能按327减315计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为316/327（96.6%，含部分、待验收、重复与实现差异），11项仍保初审分类；这不是完整修复数，不能按327减316计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -361,7 +361,7 @@
 | R1-067 | 原症状已修 | 当前失败分支真实PG/mTLS复验通过 | 旧updateSnapshotPolicyLastRun无消费者；failure仅attempt约束操作回执。new_schedule_failure/disabled_schedule_failure完整policy保持/零远端写并原同操作恢复，takeover-snapshot-failure-schedule-final完整28条PASS exit0，两守卫/独立types过；成功恢复排程语义与原生磁盘另验。 |
 | R1-068 | 原症状已修 | 当前通知/审计真实PG复验通过 | 当前phase/最终事务重读owner/实例/宿主，renamed_queued实际站内信data/content及日志用当前名称；owner_changed blocked零mTLS写/双方零成功通知，恢复原owner同operation唯一通知。current-final完整30条PASS exit0，两守卫/test types过；外部通知与发送中再次变化另评，原生磁盘/整体灾备另验。 |
 | R1-069 | 实现不同 | 正常启动/调用链代码复审，不适用原退役判断 | app正式注册backups/storage路由，listen后启动restore/upload两worker；上传及host-replacement使用StorageFactory，用户API保留备份操作，非测试专用挂载。不删除活动后端；本项为调用链证据，不代替真实备份恢复验收，见HANDOFF。 |
-| R1-070 | 实现不同 | 保留初审结论 | storage配置与provider栈仍有后端消费者，不能因前端孤立按对方方案删掉。 |
+| R1-070 | 前端孤立，后端仍在使用 | 注册/任务上传与恢复真实调用链复审 | ProfileView无StorageSection消费者，但app注册配置路由并启动上传worker；backups产生任务，worker工厂uploadStream/deleteFile，host-replacement对已完成备份downloadStream并恢复。不能整栈删，不只把API声明当消费证据；外部存储/恢复未新增运行验收。 |
 | R1-071 | 存在 | 已修；真实账户/整体UI另验 | 固定submittedStyle/account/session、共享saving与字段门禁，回执只标本次style，非法/旧会话/cache/unmount不写新用户；详情seq/ID与retry同步保护。Chrome先红→final3提交草稿/14旧写14旧读/反序detail/非法回执/same sid exit0，4守卫/lint/双端build含types/dist全过；真实账户与整体UI另验。 |
 | R1-072 | 存在 | 无调用残留已清理/相关构建守卫通过 | 完整调用及自动导入复核，仅翻译注释余引用；删除BillingSection667行，保留实际Wallet/Profile/router/API及充值后端，受保护源码哈希保持。3守卫、双端含types build与末dist正常exit0，证据见HANDOFF；孤立组件无活体流程，不充当支付功能验收。 |
 | R1-073 | 存在 | 已修；真实通知/整页另验 | 三类当前读取session/storage/序号/页筛选及cache/unmount保护，strict合同、缩页、失败retry；Chrome42旧读/21坏读/36组首帧+三语三宽深浅、4守卫/lint/双端types build末dist通过。R074写保护另继续。 |
