@@ -751,12 +751,12 @@ async function confirmBatchDelete(databaseOnly: boolean = false) {
       throw new Error(t('admin.hosts.batchDeleteFailed'))
     }
     if (result.failedCount > 0) {
-      toast.warning(t('admin.hosts.batchDeletePartial', {
+      toast.warning(t(databaseOnly ? 'admin.hosts.batchRemoveRecordsPartial' : 'admin.hosts.batchDeletePartial', {
         success: result.successCount,
         failed: result.failedCount
       }))
     } else {
-      toast.success(t('admin.hosts.batchDeleteSuccess', { count: result.successCount }))
+      toast.success(t(databaseOnly ? 'admin.hosts.batchRemoveRecordsSuccess' : 'admin.hosts.batchDeleteSuccess', { count: result.successCount }))
     }
     
     deleteFailures.value = result.results.filter(item => !item.success)

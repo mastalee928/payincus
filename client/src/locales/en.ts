@@ -4401,6 +4401,8 @@ pool: {
             deleteWithRefund: 'Refund remaining value',
             batchDeleteSuccess: 'Successfully deleted {count} instance(s)',
             batchDeletePartial: 'Successfully deleted {success} instance(s), {failed} failed',
+            batchRemoveRecordsSuccess: 'Removed {count} record(s). The instances and disks remain on the host.',
+            batchRemoveRecordsPartial: 'Removed {success} record(s); {failed} could not be removed. The instances and disks remain on the host.',
             batchDeleteFailed: 'Batch delete failed',
             batchDeleteRefundWarning: 'Refund the amount available at deletion to the user balance; reverse the node owner’s earnings for hosted instances.',
             batchDeleteRefundTotal: 'Total Refund Amount',

@@ -26,6 +26,40 @@ try {
   const accept = (index, data) => run(({ index, data }) => window.hostDelete.pending[index].resolve(data), { index, data })
   const row = (id, hostId = 1) => ({ id, name: `Fixture instance ${id}`, hostId, status: 'running', image: 'debian/12', cpu: 1, memory: 512, disk: 10240, username: 'Fixture user', packagePlanId: 1, billingPrice: 10 })
   const preview = ids => ({ instances: ids.map(id => ({ id, name: `Fixture instance ${id}`, username: 'Fixture user', userId: 2, isOwnInstance: false, isPaid: true, remainingDays: 10, refundAmount: 5 })), totalRefundAmount: ids.length * 5 })
+  let copyCases = 0
+  for (const [locale, width] of [['zh-CN', 1440], ['zh-TW', 768], ['en', 390]]) {
+    for (const databaseOnly of [true, false]) for (const failedCount of [0, 1, 2]) {
+      await page.goto('http://127.0.0.1:19680', { settleMs: 800 })
+      await page.setViewport({ width, height: 1000, mobile: width === 390 })
+      await run(locale => window.hostDelete.setLocale(locale), locale)
+      await accept(await last('list'), { instances: [row(1), row(2)], total: 2, totalPages: 1 })
+      await run(() => { const v = window.hostDelete.view(); v.selectedIds = new Set([1, 2]); void v.openBatchDeleteModal() })
+      await accept(await last('preview'), preview([1, 2]))
+      await run(databaseOnly => {
+        const action = document.querySelector(databaseOnly ? '.modal-footer .btn-warning' : '.modal-footer .btn-danger')
+        if (!action || action.disabled) throw Error('Delete action unavailable')
+        action.click()
+      }, databaseOnly)
+      assert.equal(await page.eval(index => window.hostDelete.pending[index].params.databaseOnly, await last('delete')), databaseOnly)
+      const successCount = 2 - failedCount
+      await accept(await last('delete'), { successCount, failedCount, results: [1, 2].map(id => ({ id, success: id <= successCount, error: id > successCount ? 'Isolated failure' : undefined })) })
+      const messages = await page.eval(() => window.hostDelete.toast.toasts.value.map(item => item.message))
+      assert.equal(messages.length, 1)
+      if (databaseOnly) {
+        assert.match(messages[0], { 'zh-CN': /移除.*记录/, 'zh-TW': /移除.*記錄/, en: /removed.*record/i }[locale])
+        assert.match(messages[0], { 'zh-CN': /实例与磁盘.*保留/, 'zh-TW': /實例與磁碟.*保留/, en: /instances and disks.*remain/i }[locale])
+        assert.doesNotMatch(messages[0], /删除.*实例|刪除.*實例|deleted.*instance/i)
+      } else assert.match(messages[0], /删除.*实例|刪除.*實例|deleted.*instance/i)
+      assert.ok(messages[0].includes(String(successCount)), 'show the actual success count')
+      if (failedCount) assert.ok(messages[0].includes(String(failedCount)), 'show the actual failure count')
+      assert.equal(await page.eval(() => document.documentElement.scrollWidth <= innerWidth), true)
+      if (databaseOnly && failedCount === 0) await page.screenshot({ path: resolve(output, `r263-${locale}-${width}.png`), format: 'png' })
+      copyCases++
+    }
+  }
+  console.log(`PASS R263 ${copyCases} real button actions: database/full deletion, all/partial/no success and three languages/widths`)
+  if (!process.argv.includes('--copy-only')) {
+  await page.goto('http://127.0.0.1:19680', { settleMs: 800 })
   assert.equal(page.consoleErrors.length, 0, page.consoleErrors.join('\n'))
   await accept(await last('list'), { instances: [row(1), row(2)], total: 2, totalPages: 1 })
   await run(() => { const v = window.hostDelete.view(); v.toggleSelect(1); void v.openBatchDeleteModal() })
@@ -98,5 +132,6 @@ try {
   await run(() => { void window.hostDelete.view().confirmBatchDelete(false) }); assert.equal(await count('delete'), beforeUnmount)
   assert.equal(page.consoleErrors.length, 0, page.consoleErrors.join('\n'))
   console.log('PASS fixed targets, preview validation, duplicate and pending actions, partial failure, session/cache/unmount and both deletion modes')
+  }
 } finally { if (browser) await browser.close(); await server.close() }
 

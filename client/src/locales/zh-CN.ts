@@ -4455,6 +4455,8 @@ pool: {
             deleteWithRefund: '退还剩余价值',
             batchDeleteSuccess: '成功删除 {count} 个实例',
             batchDeletePartial: '成功删除 {success} 个实例，{failed} 个失败',
+            batchRemoveRecordsSuccess: '已移除 {count} 条记录，宿主上的实例与磁盘仍保留',
+            batchRemoveRecordsPartial: '已移除 {success} 条记录，{failed} 条未能移除；宿主上的实例与磁盘仍保留',
             batchDeleteFailed: '批量删除失败',
             batchDeleteRefundWarning: '按删除时的实际可退金额退回用户余额；托管实例同步冲正节点所有者收益。',
             batchDeleteRefundTotal: '总退款金额',
