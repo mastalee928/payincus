@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R223 AFF 守卫退役依赖复验
+
+- 原两个AFF守卫和当前AFF eligibility专项的直接导入/源码读取已核：守卫读现行mail.ts、mail-autorenew-scheduler.ts及AFF/计费路径，未发现所述已删除邮件模块，相关文件真实存在；不是断言前必然失败的旧脚本。实际aff-r223-guards.log执行两守卫2/2自然exit0，不只检查清单脚本名称。
+- 未改产品，不新增相同字符串守卫或重跑未变构建；两守卫仅证明当前断言运行和对应源码约束，不等于真实财务/外部邮件验收，AFF事务专项证据与内部缺口保持原编号。R069文档已推12d63b3f48c91db6ca80960a7c7cc2e086c4a0c5。
+- R223归档后296/327（90.5%，含部分/待验收）、31项初审，所有新提交CI继续跟踪。
+
 ## 2026-10-31 R069 实例备份后端“已退役”判断复审
 
 - 当前app.ts正式导入并注册backups到/api/instances、storage-configs到/api/storage-configs；唯一后端listen后的正常启动路径清理并启动restoreTaskWorker与backupUploadWorker，非测试专属挂载。上传worker实际调用StorageFactory.create，host-replacement亦消费远端备份；用户API保留get/create/delete/export/upload方法。原外部“明确退役后端只被测试强行挂载”前提在此仓库不成立，不删除可运行后端或provider。

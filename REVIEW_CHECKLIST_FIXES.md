@@ -514,7 +514,7 @@
 | R1-220 | 存在 | 已精修/浏览器通过 | 保存同步门禁、固定ID与hostIds快照、saving/saved禁用字段、等待所选存储池；旧成功/失败/finally按上下文拒绝，离页不跳回，成功锁存防导航取消后重发。实际Chrome十连提交/失败重试/目标与会话切换/旧finally/离页/同SID/正常创建编辑通过；3守卫、双端types build/dist/lint通过。未加服务器幂等或超时结果协调。 |
 | R1-221 | 存在 | 已精修/浏览器及PG合同通过 | PackageForm描述显式发送空字符串；MyPackages方案弹窗trim后保留空串，数字SLA输入清空的''转null而非省略。真实Vue弹窗清空/请求payload/重开空值及价格保持通过；实际Fastify/PG核验所有者/管理员清空、恢复、缺省保值、错误SLA/无权拒绝。4守卫、双端types build/dist/lint通过；身份中间件为夹具，无客户实例操作。 |
 | R1-222 | 部分存在 | 已精修/本地Chrome通过 | 完整写入/裁剪同步登记waitUntil，写入与清空串行，新增256条上限；存储失败不丢成功网络响应，清空代次拒绝旧下载回填，限定本应用/当前版本缓存。受控延迟/280并发/故障恢复专项及真实Chrome双源注册、断网回退、清空、容量通过；路由守卫、双端类型build/dist通过。未生产部署；256是条目上限而非磁盘字节配额。 |
-| R1-223 | 实现不同 | 保留初审结论 | 未找到对方依赖退役邮件模块的旧AFF脚本；本库两个AFF守卫有清单且已在181项基线实际通过。 |
+| R1-223 | 实现不同 | 当前AFF两守卫实际复验通过 | 原守卫读取的mail/自动续费/AFF文件存在，无所述退役依赖；aff-r223-guards两项2/2自然退出0，非断言前失败。未改产品；财务/外部邮件及AFF事务验收另按原项，见HANDOFF。 |
 | R1-224 | 实现不同 | 保留初审结论 | 未发现旧UserHistoryView；现行UsersView登录弹窗异步目标风险已列R305，不能虚构旧历史页面。 |
 | R1-225 | 已有防护 | 原竞争已有保护/离页边界补强 | 原refresh/action互斥和disposed已有；不能据此推断隐藏/会话回执也安全。R226补充读写回执代次、失效GET取消、离页保留在途action门禁及返回后的状态核验；真实Vue/Chrome延迟API专项通过，不声明服务器写入幂等。 |
 | R1-226 | 部分存在 | 源码已修/浏览器隔离验证通过 | Billing传overview active，结合KeepAlive、document visibility、session、status/history标签控制单一串行定时器；隐藏即清计时器/旧读取消/旧回执无效，恢复立即刷新。历史保同会话筛选页码、换会话重置。takeover-expiry-panel-browser-final/guards-final/build-final/server-types/dist日志：真实Vue/可控API计时器可见性、4守卫、双端类型构建与边界通过；非真实后台巡检执行。 |
