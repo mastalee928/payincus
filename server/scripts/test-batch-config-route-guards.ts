@@ -4,6 +4,9 @@ import { resolve } from 'node:path'
 
 const routeSource = readFileSync(resolve(process.cwd(), 'src/routes/batch-config.ts'), 'utf8')
 const mutationSource = readFileSync(resolve(process.cwd(), 'src/db/batch-config-mutations.ts'), 'utf8')
+assert.ok(routeSource.includes('Number.isSafeInteger(parsed) && parsed <= MAX_POSTGRES_INT_ID') &&
+  routeSource.includes('if (instanceId > MAX_POSTGRES_INT_ID) return null'),
+  'host and instance IDs must fit PostgreSQL Int before querying or changing a batch')
 assert.ok(routeSource.includes('const pooledClient = await getIncusClient(host, tx)'),
   'batch configuration must read host connection identity in its existing transaction without another pool acquisition')
 

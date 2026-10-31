@@ -319,6 +319,8 @@ jobs:
         run: pnpm --filter server test:review-gift-card-counts
       - name: Invalid gift card IDs reject entire batches before refunding or changing valid cards
         run: pnpm --filter server test:review-gift-card-id-boundaries
+      - name: Batch configuration validates every target and persists exact traffic limit boundaries
+        run: pnpm --filter server test:review-batch-config-input-boundaries
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets

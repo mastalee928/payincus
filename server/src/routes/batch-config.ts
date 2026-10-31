@@ -19,6 +19,7 @@ import pLimit from 'p-limit'
 // 每宿主机并发限制
 const BATCH_CONFIG_CONCURRENCY = 10
 const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\d*$/
+const MAX_POSTGRES_INT_ID = 2147483647
 const ADMIN_ONLY_BATCH_FIELDS = [
   'swapEnabled', 'swapSize', 'limitsRead', 'limitsWrite', 'limitsReadIops', 'limitsWriteIops',
   'limitsIngress', 'limitsEgress', 'limitsProcesses', 'limitsCpuPriority',
@@ -44,7 +45,7 @@ function parsePositiveRouteId(value: string): number | null {
   }
 
   const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
+  return Number.isSafeInteger(parsed) && parsed <= MAX_POSTGRES_INT_ID ? parsed : null
 }
 
 function normalizeBatchInstanceIds(instanceIds: number[]): number[] | null {
@@ -57,6 +58,7 @@ function normalizeBatchInstanceIds(instanceIds: number[]): number[] | null {
     if (!Number.isSafeInteger(instanceId) || instanceId <= 0 || uniqueIds.has(instanceId)) {
       return null
     }
+    if (instanceId > MAX_POSTGRES_INT_ID) return null
     uniqueIds.add(instanceId)
   }
 
