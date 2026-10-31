@@ -40,7 +40,7 @@ try {
   }
   const open = async (id = 1) => { await run(id => { const v = window.orderReads.view(); void v.openDetail(v.orders.find(item => item.sourceId === id)) }, id); return last('detail') }
   let request, staleCases = 0
-  if (!process.argv.includes('--visual-only')) {
+  if (!process.argv.includes('--visual-only') && !process.argv.includes('--pagination-only')) {
   await fresh(); request = await open()
   await run(() => { window.orderReads.view().selectedOrder = null })
   await accept(request, { order: row() })
@@ -110,7 +110,37 @@ try {
   await accept(await last('list'), list()); assert.equal(await read('selectedOrder'), null)
   console.log(`PASS R205 ${staleCases} obsolete success/failure replies, current error/retry, 10 invalid receipts, same-session refresh and cache reload`)
   }
-  for (const locale of ['zh-CN', 'zh-TW', 'en']) for (const width of [1440, 768, 390]) for (const dark of [false, true]) {
+  if (!process.argv.includes('--visual-only')) {
+    await fresh(false); await accept(await last('list'), list([row()], 31))
+    await run(() => window.orderReads.view().goPage(4)); request = await last('list')
+    await accept(request, list([], 12, 4))
+    assert.equal(await read('page'), 2, 'R206 removed rows move an out-of-range page to the final valid page')
+    assert.equal(await read('loading'), true, 'correction remains visibly loading')
+    assert.equal(await page.eval(() => window.orderReads.pending.at(-1).params.page), 2)
+    await accept(await last('list'), list([row(12)], 12, 2))
+    assert.equal((await read('orders'))[0].sourceId, 12); assert.equal(await read('loading'), false)
+    await run(() => { void window.orderReads.view().loadOrders() }); await accept(await last('list'), list([], 0, 2))
+    assert.equal(await read('page'), 1); await accept(await last('list'), list([], 0, 1))
+    assert.equal(await read('error'), ''); assert.equal(await read('loading'), false)
+    assert.equal(await read('totalPages'), 1)
+    // A failing correction remains retryable on the corrected page.
+    await fresh(false); await accept(await last('list'), list([row()], 31))
+    await run(() => window.orderReads.view().goPage(4)); await accept(await last('list'), list([], 1, 4))
+    await reject(await last('list')); assert.ok(await read('error')); assert.equal(await read('page'), 1)
+    await run(() => { void window.orderReads.view().loadOrders() }); await accept(await last('list'), list([row()], 1, 1))
+    assert.equal(await read('error'), ''); assert.equal((await read('orders')).length, 1)
+    // A late correction cannot change a new filter or its page/loading state.
+    await fresh(false); await accept(await last('list'), list([row()], 31))
+    await run(() => window.orderReads.view().goPage(4)); await accept(await last('list'), list([], 12, 4))
+    request = await last('list')
+    await run(() => { const v = window.orderReads.view(); v.type = 'recharge'; v.applyFilters() })
+    await accept(request, list([row(12)], 12, 2))
+    assert.equal(await read('page'), 1); assert.equal((await read('orders')).length, 0); assert.equal(await read('loading'), true)
+    await accept(await last('list'), list([row(4, 1, 'recharge')], 1))
+    assert.equal((await read('orders'))[0].sourceType, 'recharge')
+    console.log('PASS R206 shrinking totals, empty list, correction error/retry and obsolete correction preserve the current query')
+  }
+  if (!process.argv.includes('--pagination-only')) for (const locale of ['zh-CN', 'zh-TW', 'en']) for (const width of [1440, 768, 390]) for (const dark of [false, true]) {
     await fresh(); await page.setViewport({ width, height: 900, mobile: width === 390 })
     await run(({ locale, dark }) => { window.orderReads.setLocale(locale); window.orderReads.theme.setTheme(dark ? 'dark' : 'light') }, { locale, dark })
     await run(() => [...document.querySelectorAll('button')].find(el => el.getClientRects().length && el.textContent.trim() === window.orderReads.view().t('orders.detail')).click())
@@ -140,5 +170,5 @@ try {
     assert.equal(await read('selectedOrder'), null)
   }
   assert.equal(page.consoleErrors.length, 0, page.consoleErrors.join('\n'))
-  console.log('PASS R205 18 locale/width/theme keyboard/taste scenarios')
+  if (!process.argv.includes('--pagination-only')) console.log('PASS R205 18 locale/width/theme keyboard/taste scenarios')
 } finally { if (browser) await browser.close(); await server.close() }

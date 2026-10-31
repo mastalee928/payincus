@@ -199,6 +199,12 @@ async function loadOrders() {
     if (!res || !Array.isArray(res.orders) || res.orders.length > params.pageSize || !res.orders.every(validOrder) ||
       new Set(res.orders.map(item => item.id)).size !== res.orders.length || !Number.isSafeInteger(res.total) || res.total < res.orders.length ||
       res.page !== params.page || res.pageSize !== params.pageSize) throw new Error(t('orders.loadFailed'))
+    const lastPage = Math.max(1, Math.ceil(res.total / params.pageSize))
+    if (params.page > lastPage) {
+      page.value = lastPage
+      await loadOrders()
+      return
+    }
     orders.value = res.orders as OrderItem[]
     total.value = res.total
     loaded.value = true

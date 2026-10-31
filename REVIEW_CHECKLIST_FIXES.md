@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为320/327（97.9%，含部分、待验收、重复与实现差异），7项仍保初审分类；这不是完整修复数，不能按327减320计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为321/327（98.2%，含部分、待验收、重复与实现差异），6项仍保初审分类；这不是完整修复数，不能按327减321计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
 
 2026-10-31 CI端口锁补修：41153911142 / d347c861ace5188c6956e6c756c05686cb007dcf实际失败，经真实DELETE屏障复现reply.send早于finally解锁；持锁的单个/批量添加与删除返回payload，框架等清理后发HTTP。真实PG/Fastify/mTLS成功、配额/冲突/重复/远端添加和删除失败均核解锁前无响应、回执后锁0；原范围/配额/审计/回滚、types/build/两个守卫通过，详HANDOFF。底层释放失败及原生宿主另待，327覆盖数不增，CI不以本地绿代替终态。
 
@@ -499,7 +499,7 @@
 | R1-203 | 已有防护 | 实际流量通知器期限/日志复验通过 | warning/throttled×Telegram/Discord×headers/body八场景每次15秒、三重试总约52秒，实际PG全failed零pending、全部响应取消；8个残留socket证实为零请求空闲替代连接，独立dispatcher关闭归零。外部渠道投递另验；旧通用notifier记录不替代此证据。 |
 | R1-204 | 存在 | 退役残留已清理/双端类型构建通过 | 删除LazyImage/VirtualList；双端入口/Vite无自动注册，源码/标签/脚本零调用。takeover-retired-components-references/guards/build/dist通过；无对应活体页面，现有业务图片/列表入口保留 |
 | R1-205 | 初审纠正：当前订单有同类风险 | 已修读取与浏览器复验；后台真实账目另待 | OrdersView旧详情重开已关闭drawer真实复现；账户/sid/storage/query/目标代次及cache/unmount保护，严格回执、持久错误Retry与焦点/长名称。52旧回复、10坏回执、18三语三宽深浅及36taste报告通过，见HANDOFF；R206分页越界单独处理。 |
-| R1-206 | 实现不同 | 保留初审结论 | 未找到对方实例账单面板分页实现；当前订单页另有分页，不能直接套用旧面板越界修法。 |
+| R1-206 | 初审纠正：当前订单存在越界 | 已修必要浏览器复验 | 总数减少时当前有效回执算末页并重新读取，零记录回第一页；旧回执不能修改新筛选，补读失败可刷新重试。五类必要场景/route/lint/build见HANDOFF；沿R205证据，不重复未变视觉和后台。 |
 | R1-207 | 存在 | 退役残留已清理/双端类型构建通过 | 删除仅互引无消费者的PublicAuthShell/useM3Auth；PlanetScene原本不存在。takeover-retired-auth-references/guards/build/dist通过，2路由/i18n守卫，现行登录注册入口保留，无对应活体旧页面可验 |
 | R1-208 | 存在 | 源码已修/隔离PG验证通过 | getInstancesToSync下推due筛选后take，165 fresh running不挤掉old stopped。logs/review-queue-sync-integration-final.log；真实Linux周期sync仍待 |
 | R1-209 | 已有防护 | 实际浏览器40次生命周期通过 | 原组件普通/embedded各20次挂载卸载；真实EventTarget精确callback/capture 120增=120删，每次残留0/无失配；外部点击、选择、resize/scroll和打开Teleport卸载通过。长期专项登记CI、route守卫过，无产品改动；不扩大至KeepAlive停用或完整创建验收。 |
