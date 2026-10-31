@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R318 重装后启动提示复审
+
+- RebuildModal实际显示rebuildModal.manualStartHint，简繁英三份当前值均明确自动启动；英文为“The instance starts automatically after rebuilding.”。旧key及源码注释含manual字样不等于用户仍看到手动提示。executeRebuildTask在rebuild后调用startInstance/IPv6恢复启动，随后等网络并记running，与当前提示一致；未作无必要key重命名。
+- 既有2026-10-25密码重装/Alpine自动running记录保留为历史测试站证据，不视作当前源码所有系统或生产验收。当前三语i18n/route及双端build沿R276通过，无产品改动、不重新触发实例重装。R115已推64a6e0fdd84c0e46da5169d363e5606199b70314 / CI41155317977。
+- R318后305/327（93.3%，含部分/待验收）、22项初审；原生各来宾/在途任务等内部缺口继续，所有CI跟终态。
+
 ## 2026-10-31 R115 库存数量输入与一机一卖模型复审
 
 - HostInventoryPanel中stock只用于available/assigned/unavailable筛选，没有可清空的库存数量输入。规格表单只有E2/ARM预设与30/60/90/120GiB选项；updateSpec提交hostIds/resourcePreset/customerDiskGiB，后端schema必填且额外字段拒绝，磁盘整数下限10。库存汇总来自真实机器、占用/预留/故障/定价与就绪状态，未找到“空库存转0写入数量”的调用链，不引入多租户数量模型。

@@ -609,7 +609,7 @@
 | R1-315 | 已确认存在 | 功能三语实际Chrome复验通过；整页UI待 | 当前Telegram三语控件和管理员邀请码定价真实渲染、switch可访问名/价格步长及合法0/语言切换零请求，takeover-telegram-pricing-locales-final3；18截图/原两专项回归及守卫通过。原整页样式taste FAIL保留，未声称UI整体验收；未改真实配置。 |
 | R1-316 | 存在，部分已修 | 绑定/渠道读取与保存Chrome及构建守卫通过 | bindings搜索分页18旧回执/九非法及error retry/0；editor20旧读取/八非法/ready门禁/三语retry/关闭秘密；create/update固定payload/session/draft与busy/36旧回执/十非法/真实确认/掩码保持均通过，4守卫/lint/双端types build/dist。其它配置/删测试解绑写入、后台权限审计和真实TG仍待，见HANDOFF。 |
 | R1-317 | 存在，部分已修 | 重复提交Chrome及构建守卫通过 | 两端handleLogin第一行拒loading，演示/OAuth同gate，管理员等安全push完成。实际Chrome重复零额外写、失败重试/正确console/缺输入challenge与TOTP恢复码payload，3守卫/lint/双端types build/dist通过；离页/跨页及真实认证全流程另验，见HANDOFF。 |
-| R1-318 | 已有防护 | 保留初审结论 | manualStartHint已描述重装后自动启动。 |
+| R1-318 | 已有防护 | 三语渲染key与worker启动链复核 | RebuildModal实际manualStartHint简繁英均自动启动，worker重装后startInstance/IPv6恢复再等网络；旧key和注释不等于显示手动文案。当前i18n/route/build过，原测试站自动启动仅历史证据，不重装客户实例或扩大原生全系统验收。 |
 | R1-319 | 存在，已修本项文案 | 三语实际Wallet与门禁复验 | rechargeNotice改自行销毁不退款、PUSH手续费以实际转移页为准、邮箱在个人设置修改。三语真实Vue勾选门禁零充值订单、i18n/route与双端build过；未改真实计费规则，见HANDOFF。 |
 | R1-320 | 存在 | 已修复；本地浏览器通过 | 前端8–128位/大小写/数字规则与后台一致；三语持久hint及非法零API、合法边界精确payload/原敏感验证/重试/重新登录与scope32旧回执通过，takeover-password-policy-*；对应3守卫/lint/双端types build/dist通过，未改真实账户。 |
 | R1-321 | 存在，已修 | 文案/浏览器及相关守卫通过 | 三语resetTrafficWarning错误要求手动恢复1Mbps，已按实际route/running查询/scheduler/带宽仲裁改为自动检查并保留账户超限、离线和停止条件。Chrome完整reset/截图、types/4守卫/lint/双端build/dist通过；原生恢复与生产部署另验，不修改原恢复逻辑，见HANDOFF。 |
