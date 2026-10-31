@@ -239,6 +239,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-package-empty-fields', 'requires isolated local *_pool_test PostgreSQL; actual Fastify package/plan empty-field updates, omission semantics and owner authorization'],
   ['test:review-package-form', 'requires installed Chrome/Edge and local Vite; renders actual package form with Vue Router and delayed API fixture for route/session lifecycle'],
   ['test:review-package-host-pagination', 'requires Chrome/Edge and local Vite; complete package host names/search, malformed/foreign and obsolete middle pages, failed reads and actual keyboard retries; read-only controlled API'],
+  ['test:review-package-reads', 'requires Chrome/Edge and local Vite; current package reads/cache and deletion receipts with controlled API'],
   ['test:review-my-host-calibration', 'requires Chrome/Edge and local Vite; complete owned host targets, sequential resource writes, stale context isolation and persistent failed-target retry with controlled API'],
   ['test:review-service-worker-browser', 'requires installed Chrome/Edge; registers actual Service Worker on two isolated local HTTP origins and verifies CacheStorage/offline/clear/bounds'],
   ['test:review-init-command-selector', 'requires installed Chrome/Edge and local Vite; renders real selector with delayed API fixture for distro/session/unmount races'],

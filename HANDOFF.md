@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R216/R217/R218 当前套餐列表生命周期
+
+- 当前没有旧PackageDetailView，但MyPackagesView有实际同类缺陷：packages-r216-before.log真实浏览器切账户后旧list仍填入前账户套餐。读取现绑定账户/sid/storage、路由、scope/filter和代次；旧成功/失败/finally不落UI，当前错误持久显示并复用原Retry样式。300ms筛选去抖保留，停用/卸载清timer和数据，首次请求未完成便离开后再返回也重取。
+- 同组R218删除绑定原列表/查询/当前会话，单目标busy与按钮disabled防重复，旧成功/错误不删新列表或toast。沿原confirm、API及管理/用户范围，没有修改后端套餐授权或真实资源删除；这些在途授权缺口仍未验收。R216/R217/R218共用同次修复与证据，不计成三次独立完整验收。
+- packages-r216-218-complete.log自然exit0：8组账户/停用/route/新请求×旧成功失败，缓存回归、当前错误/Retry、重复删除一请求、两旧删除回执及当前删除。原夹具停用前未捕获setupState的TypeError保留，修夹具后通过。route、lint、198清单、YAML与语法通过；packages-r216-build.log双端vue-tsc/Vite自然exit0，dist.log通过，UI样式/表格未重做，按owner token限制不重复18组视觉矩阵或长时真机。
+- R044已推b374ca96，完整SHA/CI随下一阶段核对。此组后325/327（99.4%，覆盖非完整验收），剩R046、R325初审；其余明确项内缺口与CI继续，固定发行和生产保持。
+
 ## 2026-10-31 R044 卡密一次性结果前提定向复审
 
 - 当前GiftCardsView创建表单常驻，code由createGiftCardInTransaction真实落库；GET /gift-cards/admin/list的revealCode经authenticate/requireAdmin/requireGiftCardManager后传listGiftCardsByAdmin，查询原code并在revealCode=true时返回。页面已有“显示完整兑换码”勾选。因此原“关闭生成弹窗永久丢失一次性密码”的前提在本库不存在，并非仅按组件名排除。

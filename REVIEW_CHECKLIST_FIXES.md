@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为322/327（98.5%，含部分、待验收、重复与实现差异），5项仍保初审分类；这不是完整修复数，不能按327减322计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为325/327（99.4%，含部分、待验收、重复与实现差异），2项仍保初审分类；这不是完整修复数，不能按327减325计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
 
 2026-10-31 CI端口锁补修：41153911142 / d347c861ace5188c6956e6c756c05686cb007dcf实际失败，经真实DELETE屏障复现reply.send早于finally解锁；持锁的单个/批量添加与删除返回payload，框架等清理后发HTTP。真实PG/Fastify/mTLS成功、配额/冲突/重复/远端添加和删除失败均核解锁前无响应、回执后锁0；原范围/配额/审计/回滚、types/build/两个守卫通过，详HANDOFF。底层释放失败及原生宿主另待，327覆盖数不增，CI不以本地绿代替终态。
 
@@ -509,9 +509,9 @@
 | R1-213 | 存在 | 退役工具已清理/构建守卫通过 | 删除无调用useTurnstile及utils的getGlobalTurnstile/getTurnstileToken/withTurnstile；保留现行可见组件与readTurnstileToken/focusTurnstileSection，保留GiftCards独立同名函数。引用检查与保留函数逐字相等、4守卫、双端类型build/dist、lint通过；无旧入口可实跑，不声称Cloudflare实站验证。 |
 | R1-214 | 部分存在 | 无调用导出已清/双端构建通过 | 纠正初审：Dashboard的getTimeGreeting是局部函数，共享导出无调用；formatDateShort/getPercent同名也各为页面局部。删除4个未用格式化导出和calculatePriceDiff；getCycleDays仅去export保留日价内部调用，日价/折扣现行实现保留。takeover-retired-utils-{references,after,guards,build,dist,lint}.log：3守卫、双端vue-tsc/build、产物边界及lint通过；无退役工具运行入口，不冒充线上计费实测。 |
 | R1-215 | 存在 | 已修/既有行为复验 | formatBytes已支持PB/EB并钳制单位索引，非有限数/非正数返回0 B；本轮复跑core-boundaries的1024**5、1024**6与Infinity断言通过（logs/takeover-format-bytes-evidence.log）。纠正本行曾错填Cloud-init证据；未重复修改运行源码，不据此声称客户流量采集实测。 |
-| R1-216 | 实现不同 | 保留初审结论 | 本库无对方PackageDetailView；当前套餐页面生命周期按现有入口另核，不能声称旧详情修法适用。 |
-| R1-217 | 实现不同 | 保留初审结论 | 本库无对方PackageDetailView；当前套餐页面生命周期按现有入口另核，不能声称旧详情修法适用。 |
-| R1-218 | 实现不同 | 保留初审结论 | 本库无对方PackageDetailView；当前套餐页面生命周期按现有入口另核，不能声称旧详情修法适用。 |
+| R1-216 | 当前列表同类问题 | 已修必要浏览器复验 | MyPackages旧请求覆盖新账户真实复现；固定session/storage/query/generation，旧成功失败/finally拒绝，当前错误可Retry。共用R216–218证据见HANDOFF，后台在途权限未扩大验收。 |
+| R1-217 | 当前缓存同类问题 | 同组修复和证据 | 停用清数据/请求代次与筛选timer，重新激活重读；首次读取未完成时返回同页也重读。没有旧详情自动跳转，但当前列表复验，非重复运行整套。 |
+| R1-218 | 当前删除同类问题 | 同组修复和证据 | 删除固定原列表/会话/查询，busy防重复，旧回执不删新列表或toast；必要旧成功失败及当前删除通过，未改变后台删除。 |
 | R1-219 | 存在 | 读取阶段已精修/浏览器通过 | 当前App已排除PackageForm的KeepAlive，但同名路由切换仍复用；已按路由/ID/session失效旧详情与辅助列表/存储池、清表单并取消详情、核对响应ID。失败原地重试，未取得当前详情禁止保存，同SID刷新保草稿。真实Chrome/Vue Router延迟回执矩阵、3守卫、双端类型build/dist通过；保存后误跳转另列R220，真实后端套餐写入仍待。 |
 | R1-220 | 存在 | 已精修/浏览器通过 | 保存同步门禁、固定ID与hostIds快照、saving/saved禁用字段、等待所选存储池；旧成功/失败/finally按上下文拒绝，离页不跳回，成功锁存防导航取消后重发。实际Chrome十连提交/失败重试/目标与会话切换/旧finally/离页/同SID/正常创建编辑通过；3守卫、双端types build/dist/lint通过。未加服务器幂等或超时结果协调。 |
 | R1-221 | 存在 | 已精修/浏览器及PG合同通过 | PackageForm描述显式发送空字符串；MyPackages方案弹窗trim后保留空串，数字SLA输入清空的''转null而非省略。真实Vue弹窗清空/请求payload/重开空值及价格保持通过；实际Fastify/PG核验所有者/管理员清空、恢复、缺省保值、错误SLA/无权拒绝。4守卫、双端types build/dist/lint通过；身份中间件为夹具，无客户实例操作。 |

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated, onDeactivated, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
@@ -19,6 +19,7 @@ defineOptions({ name: 'MyPackagesView' })
 
 const { t } = useI18n()
 const router = useRouter()
+const route = useRoute()
 const toast = useToast()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
@@ -52,6 +53,23 @@ watch(hostsSession, () => { invalidateHosts(); if (hostsActive) void loadHosts()
 onDeactivated(() => { hostsActive = false; invalidateHosts() })
 onBeforeUnmount(() => { hostsAlive = false; hostsActive = false; invalidateHosts() })
 const loading = ref<boolean>(true)
+const packagesError = ref('')
+const deletingPackages = ref(new Set<number>())
+let packagesGeneration = 0, packagesSequence = 0
+let filterTimer: ReturnType<typeof setTimeout> | undefined
+const packagesQuery = computed(() => JSON.stringify([hostsSession.value, route.fullPath, scope.value, filterUserId.value]))
+const packagesVisible = computed(() => ['/resources/packages', '/admin/resources/packages'].includes(route.path))
+function invalidatePackages() {
+  clearTimeout(filterTimer)
+  packagesGeneration++; packagesSequence++
+  packages.value = []; packagesError.value = ''; loading.value = false; packagesPage.value = 1
+}
+watch(packagesQuery, () => {
+  invalidatePackages()
+  if (hostsActive && hostsSession.value && packagesVisible.value) filterTimer = setTimeout(() => { void loadPackages() }, 300)
+}, { flush: 'sync' })
+onDeactivated(invalidatePackages)
+onBeforeUnmount(invalidatePackages)
 const activeChangingId = ref<number | null>(null)
 
 // 搜索
@@ -192,34 +210,33 @@ onMounted(async (): Promise<void> => {
 onActivated(async (): Promise<void> => {
   const returning = !hostsActive
   hostsActive = true
-  if (hasInitialLoad) {
+  if (hasInitialLoad || returning) {
     await Promise.all([loadPackages(), loadHosts()])
-  } else if (returning) {
-    await loadHosts()
   }
 })
 
 async function loadPackages(): Promise<void> {
+  if (!hostsAlive || !hostsActive || !hostsSession.value || !packagesVisible.value) return
+  clearTimeout(filterTimer)
+  const authentication = authStore.captureAuthentication()
+  if (!authentication.aligned) return
+  const query = packagesQuery.value, version = packagesGeneration, sequence = ++packagesSequence
+  const admin = isAdmin.value, targetScope = scope.value, targetUser = filterUserId.value
+  const current = () => hostsAlive && hostsActive && authentication.current() && !!hostsSession.value &&
+    query === packagesQuery.value && version === packagesGeneration && sequence === packagesSequence
   loading.value = true
+  packagesError.value = ''
   try {
-    if (isAdmin.value && scope.value === 'hosted') {
-      // 管理员查看托管套餐
-      const response = await api.packages.listHosted({
-        ...(filterUserId.value ? { userId: parseInt(filterUserId.value, 10) } : {})
-      })
-      packages.value = (response as { packages?: Package[] }).packages || []
-    } else if (isAdmin.value && scope.value === 'mine') {
-      // 管理员查看自己的套餐（传 scope: 'mine'）
-      const response = await api.packages.list({ all: true, scope: 'mine' })
-      packages.value = (response as { packages?: Package[] }).packages || []
-    } else {
-      // 普通用户查看自己的套餐
-      const response = await api.packages.list({ all: true })
-      const allPackages = (response as { packages?: Package[] }).packages || []
-      packages.value = allPackages.filter((p: any) => p.isOwn === true)
-    }
+    const response = admin && targetScope === 'hosted'
+      ? await api.packages.listHosted({ ...(targetUser ? { userId: parseInt(targetUser, 10) } : {}) })
+      : await api.packages.list({ all: true, ...(admin ? { scope: 'mine' as const } : {}) })
+    if (!current()) return
+    if (!Array.isArray(response?.packages)) throw Error(t('common.loadFailed'))
+    packages.value = admin ? response.packages : response.packages.filter(p => p.isOwn === true)
+  } catch (err) {
+    if (current()) packagesError.value = translateError(err)
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
@@ -228,18 +245,7 @@ function switchScope(newScope: 'mine' | 'hosted'): void {
   scope.value = newScope
   filterUserId.value = ''
   packagesPage.value = 1
-  loadPackages()
 }
-
-// 按用户ID筛选时重新加载
-let filterTimer: ReturnType<typeof setTimeout> | null = null
-watch(filterUserId, () => {
-  if (filterTimer) clearTimeout(filterTimer)
-  filterTimer = setTimeout(() => {
-    packagesPage.value = 1
-    loadPackages()
-  }, 300)
-})
 
 async function loadHosts(): Promise<void> {
   const identity = hostsSession.value, version = hostsGeneration, sequence = ++hostsSequence
@@ -363,15 +369,24 @@ function openEdit(pkg: Package): void {
 }
 
 async function deletePackage(pkg: Package): Promise<void> {
+  if (!hostsAlive || !hostsActive || !hostsSession.value || !packagesVisible.value || deletingPackages.value.has(pkg.id) || !packages.value.includes(pkg)) return
+  const authentication = authStore.captureAuthentication()
+  if (!authentication.aligned) return
+  const query = packagesQuery.value, version = packagesGeneration, sequence = packagesSequence, id = pkg.id
+  const current = () => hostsAlive && hostsActive && authentication.current() && query === packagesQuery.value &&
+    version === packagesGeneration && sequence === packagesSequence
   if (!confirm(t('admin.packages.confirmDelete', { name: pkg.name }))) return
+  if (!current()) return
 
+  deletingPackages.value.add(id)
   try {
-    await api.packages.delete(pkg.id)
-    packages.value = packages.value.filter(p => p.id !== pkg.id)
+    await api.packages.delete(id)
+    if (!current()) return
+    packages.value = packages.value.filter(p => p.id !== id)
     toast.success(t('admin.packages.packageDeleted'))
   } catch (err: any) {
-    toast.error(t('admin.packages.deleteFailed') + ': ' + translateError(err))
-  }
+    if (current()) toast.error(t('admin.packages.deleteFailed') + ': ' + translateError(err))
+  } finally { deletingPackages.value.delete(id) }
 }
 
 async function togglePackageActive(pkg: Package): Promise<void> {
@@ -827,6 +842,10 @@ function getBillingCycleLabel(months: number): string {
       <button type="button" data-testid="package-hosts-retry" class="package-hosts-retry min-h-[44px] min-w-[44px] rounded-lg px-4 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" :disabled="hostsLoading" @click="loadHosts">{{ t('common.retry') }}</button>
     </div>
 
+    <div v-if="packagesError" role="alert" class="flex flex-wrap items-center gap-3">
+      <p class="min-w-0 flex-1 break-words text-sm text-themed">{{ packagesError }}</p>
+      <button type="button" data-package-read-retry class="package-hosts-retry min-h-[44px] min-w-[44px] rounded-lg px-4 text-sm font-medium" :disabled="loading" @click="loadPackages">{{ t('common.retry') }}</button>
+    </div>
     <!-- 套餐列表 -->
     <SkeletonLoader v-if="loading" type="list" />
 
@@ -965,7 +984,7 @@ function getBillingCycleLabel(months: number): string {
                 class="p-1.5 transition-colors rounded"
                 :class="'text-themed-muted hover:bg-rose-500/10 hover:text-error'"
                 :title="t('common.delete')"
-                @click="deletePackage(pkg)"
+                :disabled="deletingPackages.has(pkg.id)" @click="deletePackage(pkg)"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1112,7 +1131,7 @@ function getBillingCycleLabel(months: number): string {
                       class="p-1.5 transition-colors rounded"
                       :class="'text-themed-muted hover:bg-rose-500/10 hover:text-error'"
                       :title="t('common.delete')"
-                      @click="deletePackage(pkg)"
+                      :disabled="deletingPackages.has(pkg.id)" @click="deletePackage(pkg)"
                     >
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

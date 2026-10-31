@@ -570,6 +570,8 @@ jobs:
         run: pnpm --filter server test:review-service-worker-browser
       - name: Verify package form in Chrome
         run: pnpm --filter server test:review-package-form
+      - name: Verify current package reads and deletion replies
+        run: pnpm --filter server test:review-package-reads
       - name: Package host names and search include every page
         run: pnpm --filter server test:review-package-host-pagination
       - name: Complete host calibration targets keep current authorization and retry only failed hosts
