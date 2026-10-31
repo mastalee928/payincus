@@ -88,6 +88,7 @@
     "test:review-gift-card-id-boundaries": "node --import tsx scripts/test-review-gift-card-id-boundaries.ts",
     "test:review-batch-config-input-boundaries": "node --import tsx scripts/test-review-batch-config-input-boundaries.ts",
     "test:review-auto-renew-selection": "node --import tsx scripts/test-review-auto-renew-selection.ts",
+    "test:review-package-plan-boundaries": "node --import tsx scripts/test-review-package-plan-boundaries.ts",
     "test:review-oauth-locales": "node ../scripts/test-oauth-locales.mjs",
     "test:review-instance-task-site-cleanup": "node --import tsx scripts/test-review-instance-task-site-cleanup.ts",
     "test:review-terminal-commands-lifecycle": "node ../scripts/test-terminal-commands-lifecycle.mjs",
