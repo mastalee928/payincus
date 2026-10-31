@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R120 Caddy 后台安装任务前提复审
+
+- 完整核对/hosts/:id/caddy/generate、reset、confirm及host-caddy-credentials。generate只在host行锁/current actor授权内生成或复用凭据并返回手工下载命令；reset是显式轮换；没有创建持久Caddy安装任务、覆盖任务记录或后台安装调度。schema仅有host的enabled/username/password/port配置。不能套用外部分支“安装任务与凭据同事务”的修法。
+- 当前凭据生成/确认竞争仍由R118/R119处理：原授权/owner/credential快照和probe前后复核，review-caddy-proxy-final.log既有真实PG/Fastify/HTTPS证据保持。此轮仅代码复审，不重跑未变逻辑；它不证明远端shell安装失败后数据库/服务自动一致，也不覆盖审计写入失败和Linux安装。后续对应缺口保留，不把生成命令当安装完成。
+- R089已推5c11482e553c42f98d0ba945c1f154f9d57d64ab / CI41156761493；R090已推f0822dfb，完整身份下一段登记。R120后311/327（95.1%，含部分/待验收）、16项初审，CI及项内缺口继续。
+
 ## 2026-10-31 R090 Agent dry-run 凭据遮蔽复验
 
 - 共用R088的原脚本运行：systemd/OpenRC×一次性安装token/静态Agent凭据四组合，输出不含所植入token、secret或token模式的模拟secret，配置包含<redacted>，token下载路径包含<redacted-install-token>；每组合零下载/服务调用，未创建安装目录。agent-installer-second.log10用例自然exit0，原命令守卫/语法/清单均过，无产品修改。
