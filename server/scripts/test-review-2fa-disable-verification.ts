@@ -10,11 +10,17 @@ assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && dat
 process.env.ENCRYPTION_KEY = Buffer.alloc(32, 42).toString('base64')
 process.env.JWT_SECRET = 'fixture-2fa-disable-only-secret'
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { encryptSensitiveData, generate2FASecret, verify2FAToken } = await import('../src/lib/security.js')
+const { encryptSensitiveData, verify2FAToken } = await import('../src/lib/security.js')
 const { default: authRoutes } = await import('../src/routes/auth.js')
 const { default: verificationRoutes } = await import('../src/routes/verification.js')
 const { accountOperationVerificationBinding } = await import('../src/db/operation-verification-binding.js')
-const prefix = randomUUID(), password = 'Fixture-disable-password1', secret = generate2FASecret()
+// Password checks and DB reads can cross a 30-second TOTP boundary. Pin only
+// otplib's clock; grant expiry, session issuance and PostgreSQL keep real time.
+const originalTotpOptions = { ...authenticator.options }
+const totpEpoch = 1_800_000_030_000
+authenticator.options = { ...originalTotpOptions, epoch: totpEpoch }
+// Fixed public fixture secret avoids a random adjacent-step token collision.
+const prefix = randomUUID(), password = 'Fixture-disable-password1', secret = 'JBSWY3DPEHPK3PXP'
 const passwordHash = await bcrypt.hash(password, 4)
 const actors = await Promise.all(['A', 'B'].map(suffix => prisma.user.create({ data: {
   username: `disable-${suffix}-${prefix}`, passwordHash, twoFactorEnabled: true,
@@ -38,6 +44,13 @@ const grant = (userId: number, operationType: 'disable_2fa' | 'change_password',
 try {
   await app.register(authRoutes, { prefix: '/auth' })
   await app.register(verificationRoutes, { prefix: '/verification' })
+  authenticator.options = { epoch: totpEpoch - 1 }
+  const expiredTotp = authenticator.generate(secret)
+  authenticator.options = { epoch: totpEpoch }
+  assert.equal(verify2FAToken(expiredTotp, secret), false, 'a previous-step token is expired at the boundary')
+  const expired = await disable(password, expiredTotp)
+  assert.equal(expired.statusCode, 400, expired.body)
+  assert.equal(expired.json().code, 'INVALID_2FA_CODE', 'expired TOTP must reject before checking an operation grant')
   const missing = await disable()
   assert.equal(missing.statusCode, 403, missing.body)
   assert.equal(missing.json().code, 'VERIFICATION_REQUIRED')
@@ -72,8 +85,9 @@ try {
   assert.equal(consumed.createdAt.getTime(), code.createdAt.getTime())
   assert.equal((await disable()).statusCode, 409, 'completed disable cannot replay')
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: actors[1].id } })).twoFactorEnabled, true)
-  console.log('PASS actual Fastify/PG 2FA disable: required verification, wrong account/operation, verified route then fixed password/TOTP retry, invalid credentials preserve grant, atomic secret removal/revocation and replay protection. Controlled authentication; no external email sent.')
+  console.log('PASS actual Fastify/PG 2FA disable: expired-step TOTP rejection, required verification with a pinned TOTP clock, wrong account/operation, verified route then fixed password/TOTP retry, invalid credentials preserve grant, atomic secret removal/revocation and replay protection. Controlled authentication; no external email sent.')
 } finally {
+  authenticator.options = originalTotpOptions
   globalThis.fetch = originalFetch
   await app.close()
   await prisma.user.deleteMany({ where: { id: { in: actors.map(actor => actor.id) } } })

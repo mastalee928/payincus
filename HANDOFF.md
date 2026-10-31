@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 CI 关闭2FA测试跨TOTP时段
+
+- 998b46beb76f1b1a31636476a8b172fb7cc7dd23 / CI41174594901已终态failure，job124459424145的Disable two-factor requires a current account operation grant and revokes access步骤在test-review-2fa-disable-verification.ts:42预期403，实际400/INVALID_2FA_CODE。失败时间06:42:30.051 UTC，正处30秒换码边界；日志logs/ci-124459424145-failed.log。该提交不能记为CI通过，后续修正继承其机器池功能。
+- 隔离真实PG/实际Fastify路由，控制TOTP生成在时段末毫秒、验证在下一时段首毫秒，2fa-ci-boundary-before.log稳定复现相同400对403、exit1。原接口先验密码/TOTP再领取敏感操作授权，拒绝已过期TOTP是正确行为。
+- 仅测试固定otplib epoch及公开测试密钥，数据库、会话和授权过期仍使用真实时钟；补实际路由过期TOTP的400/INVALID_2FA_CODE断言，再验证当前TOTP缺授权403、账户/操作隔离、错误凭据不消费授权、成功清密钥和撤销会话及防重放。固定密钥避免相邻时间段随机撞码使边界断言偶发失败。产品有效期/权限规则、源码构建均未改变。
+- 2fa-ci-fixed.log原完整PG专项exit0，沿项目严格类型2fa-ci-types.log、auth-session-status守卫2fa-ci-guard.log及diff检查通过；测试仍沿原末尾process.exit(0)，没有将它冒称新增自然退出生命周期验收。复用998b46be已通过的双端/server构建，未重跑全套或长时真机。新提交完整SHA/CI记录logs/ci-2fa-clock-fix.json并加入定时跟进，Linux结果待终态。
+- 41169804973/9a88287df0a2d7f912730bf0ab6a66e35e246038与41169740267/cf0db5873dd0bb706ab32487b3069647850c50ae均终态failure；已读job124445105444、124444903078日志，均为22d80280修正的旧套餐夹具plan list opened断言，保留历史，不重复重跑。22d80280fcc08b9aa7c19e120604b9a17fe2a86b / CI41176345509仍运行；不发版。
+
 ## 2026-10-31 CI 套餐表单夹具跟随真实路由与会话
 
 - 新失败41166299435 / fd129fb180388c5d4d4dbf103dcda5051410af03，job124434496505的Verify package form in Chrome断言plan list opened失败；完整失败日志logs/ci-124434496505-failed.log，本地package-form-ci-before.log自然exit1复现。
