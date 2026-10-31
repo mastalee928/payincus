@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 R278 用户销毁成功提示仍错误宣称退款
+
+- 初审只核确认弹窗，漏掉实际成功回执。destroy-r278-before.log真实Chrome复现付费实例退款0仍提示“实例已销毁，已退款 ¥0.00”，自然exit1。InstanceDetailView用户自行销毁成功统一使用既有“实例已销毁”，没有改后端金额、邮箱验证码、管理员退款或远端删除保护。旧ruleFirstFreeDesc三语资源已无Vue消费者，当前确认模板不渲染首次全额退款规则，不为清理未用key扩大修改。
+- destroy-r278-final.log自然exit0：简繁英×首次/后续×免费/付费共12组，实际确认均明确不退款，真实详情提交固定编号和邮箱码，成功消息不宣称退款并跳原列表；原邮箱发送/冷却/重试/8迟到回执、详情异常销毁/重复/4旧写回执及Wallet勾选回归通过。三宽成功提示截图已检查，API为受控边界，没有销毁真实实例。
+- destroy-r278-guards.log三项3/3（route/i18n/user-destroy-incus-order），build.log双端vue-tsc/Vite自然exit0，lint.log零诊断exit0，dist.log通过；原后端paid/free/error零退款零余额流水的takeover-destroy-email-delete-final2.log沿用，不把前端回执夹具当新增后台验收。使用既有黑白UI和taste浏览器流程，仅修提示，未重设计弹窗。
+- 补齐上一项完整身份：R114 64a34d1d6a2847339e4cf5a71dec7bdf35c88d54 / CI41158491469，已推。ci-r278-refresh.log核完整head及job，新增终态ebdf13c4bcb99b836a0a330333779eff7e7a70e9 / CI41144733563 success，其他继续，不将排队记通过。
+- R278后314/327（96.0%，进入修复/复验，非完整验收）、13项初审。R263“仅移除记录”成功消息另已真实复现，本项保存后继续；原生Incus/VM、外部邮件/存储、在途授权与完整灾备等项内缺口保留。剩余初审仍估6–12小时，不给完整验收的无依据完工日期。
+
 ## 2026-10-31 R114 机器池规格保存的旧回执与弹窗修复
 
 - inventory-r114-before.log真实Chrome复现卸载后旧成功仍toast（1≠0）。仅调整HostInventoryPanel规格入口：固定请求payload/目标/同步draft revision、当前管理员/原会话/存储与生命周期，账户/筛选/页切换或缓存停用清草稿；在途不重开/重复提交/关闭，旧结果不清当前草稿、不提示、不刷新。响应必须success=true且updated等于本次唯一目标数，合法磁盘档和架构继续保留；失败持久显示本地化原因并可用原保存按钮重试。其它组/SSH/协议写入与后端授权/审计合同不借本项扩大验收。

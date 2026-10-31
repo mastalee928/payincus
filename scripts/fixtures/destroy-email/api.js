@@ -1,4 +1,5 @@
 export const pending = []
+const query = new URLSearchParams(location.search)
 const defer = (kind, data) => new Promise((resolve, reject) => pending.push({ kind, data, resolve, reject }))
 export default {
   systemConfig: { getPublic: async () => ({}) },
@@ -15,7 +16,7 @@ export default {
   logs: { list: async () => ({ logs: [], total: 0 }) },
   terminalSavedCommands: { list: async () => ({ commands: [] }) },
   billing: {
-    getDestroyInfo: async id => ({ canDestroy: true, isFreeInstance: true, refund: { refundAmount: 0, feeAmount: 0 },
+    getDestroyInfo: async id => ({ canDestroy: true, isFreeInstance: !query.has('paid'), isFirstTime: query.has('first'), refund: { refundAmount: 0, feeAmount: 0 },
       instance: { id, name: id === 1 ? 'Osaka server' : 'Sydney server', hostName: 'Isolated host', planName: null } }),
     destroyInstance: (id, data) => defer('destroy', { id, ...data }),
     requestDestroyVerification: ids => new URLSearchParams(location.search).has('inspect')

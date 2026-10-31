@@ -36,6 +36,28 @@ try {
     const item = window.destroyHarness.pending.at(-1); fail ? item.reject(Object.assign(new Error('Isolated delivery unavailable; submit a support ticket'), { code: 'SEND_FAILED' })) : item.resolve(data)
   }, { data, fail })
   const receipt = { success: true, channel: 'email', maskedTarget: 'is***@example.test', resendAfter: 60 }
+  let copyCases = 0
+  for (const [locale, width] of [['zh-CN', 1440], ['zh-TW', 768], ['en', 390]]) {
+    for (const isFreeInstance of [false, true]) for (const isFirstTime of [true, false]) {
+      await fresh(`?detail&locale=${locale}${isFreeInstance ? '' : '&paid'}${isFirstTime ? '&first' : ''}`)
+      await page.setViewport({ width, height: 900, mobile: width === 390 })
+      await run(() => { void window.destroyHarness.view().handleErrorDestroy() })
+      const warning = await page.eval(() => document.querySelector('[role="dialog"] .text-red-700').textContent.trim())
+      assert.match(warning, /无退款|無退款|no refund/, 'first/subsequent and free/paid confirmations all state no refund')
+      assert.doesNotMatch(await page.eval(() => document.querySelector('[role="dialog"]').textContent), /全额退款|全額退款|full refund/i)
+      await run(() => { const d = window.destroyHarness.dialog(); d.emailCode = '654321'; d.handleDestroy() })
+      assert.deepEqual(await page.eval(() => JSON.parse(JSON.stringify(window.destroyHarness.pending.at(-1).data))), { id: 1, emailCode: '654321' })
+      await settle({ success: true, isFreeInstance, isFirstTime, refundAmount: 0, feeAmount: 0 })
+      const messages = await page.eval(() => window.destroyHarness.toast.toasts.value.filter(item => item.type === 'success').map(item => item.message))
+      assert.deepEqual(messages, [{ 'zh-CN': '实例已销毁', 'zh-TW': '實例已銷毀', en: 'Instance destroyed' }[locale]], 'zero-refund deletion must never announce a refund')
+      assert.equal(await page.eval(() => window.destroyHarness.router.currentRoute.value.path), '/instances')
+      assert.equal(await page.eval(() => document.documentElement.scrollWidth <= innerWidth), true)
+      if (!isFreeInstance && isFirstTime) await page.screenshot({ path: resolve(output, `r278-${locale}-${width}.png`), format: 'png' })
+      copyCases++
+    }
+  }
+  console.log(`PASS R278 ${copyCases} first/subsequent free/paid confirmations and real detail success messages in three languages/widths`)
+  if (!process.argv.includes('--copy-only')) {
   await fresh(); await run(() => window.destroyHarness.view().handleDestroy())
   assert.equal(await page.eval(() => window.destroyHarness.state.destroyed.length), 0, 'empty email code cannot destroy')
   assert.equal(await page.eval(() => document.querySelectorAll('[role="dialog"] input').length), 1, 'only email code input remains')
@@ -147,5 +169,6 @@ try {
     console.log(dark.stdout)
     const darkReport = JSON.parse(readFileSync(output + '/taste-dark/report.json', 'utf8'))
     assert.equal(darkReport.findings.filter(item => item.level === 'FAIL').length, 0)
+  }
   }
 } finally { if (browser) await browser.close(); await server.close() }

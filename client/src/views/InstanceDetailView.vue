@@ -1404,13 +1404,9 @@ async function handleDestroy(emailCode: string): Promise<void> {
   destroyError.value = ''
   destroyLoading.value = true
   try {
-    const result = await customerSelfServiceApi.billing.destroyInstance(context.id, { emailCode })
+    await customerSelfServiceApi.billing.destroyInstance(context.id, { emailCode })
     if (!context.current()) return
-    if (result.isFreeInstance) {
-      toast.success(t('instance.destroy.success'))
-    } else {
-      toast.success(t('instance.destroy.successWithRefund', { amount: result.refundAmount.toFixed(2) }))
-    }
+    toast.success(t('instance.destroy.success'))
     showDestroyModal.value = false
     // 跳转到实例列表
     router.push(instancesPath())
