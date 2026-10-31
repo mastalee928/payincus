@@ -591,7 +591,7 @@
 | R1-297 | 存在，门禁已修 | 实际脚本隔离专项通过 | 两脚本最先校验显式test/dev+开关+精确本地专库/URL，旧force不可绕；各23拒绝零DB模块初始化/4有效目标到达替身、完整src+seed types/2守卫通过，入manifest/CI。未运行真实seed写库，见HANDOFF。 |
 | R1-298 | 部分存在，已修 | Bash入口专项通过 | 注入优先原本正确；非交互显式yes/默认8443、缺值及菜单在探测前拒绝。19真实函数组合零read/系统写探针、语法/3守卫/后端build含tsc通过；Linux原生安装和TTY另验，见HANDOFF。 |
 | R1-299 | 与R282–284重复，已修 | 沿用已验终端专项 | 935dac5改平级页签button和KeepAlive监听/浮层；cc5fd54隔离session/cloud-init/ticket/socket；c71d25c隔离保存命令草稿/CRUD。三段Chrome先红后绿/types/守卫/双端build已记录，不重复计新增修复。 |
-| R1-300 | 实现不同 | 保留初审结论 | 未发现对方余额转账/预览功能入口，不能误指现有实例PUSH或AFF兑换；新增同类功能时才适用。 |
+| R1-300 | 实现不同 | 钱包全部API/路由代码复审，不适用原转账入口 | Wallet调用仅余额/明细/充值查询重付取消创建和AFF；无收款人/余额转账预览提交。transfer_fee/refund是流水标签，/transfers是实例转移，托管收益另页；当前前后端API无同类合同。不是全钱包验收，不新增转账，证据见HANDOFF。 |
 | R1-301 | 存在，多阶段已修 | 读取/删除/批量状态/gift/price/reset/notify/recreate/single/batch-config与数字/角色专项通过；其它待续 | 读取/目标与回执隔离、gift失败重试、price/notify新草稿、reset辅助读、重建准备、single当前配置。批量配置固定targets/回执、Done刷新、retry原配置与累计明细；数字完整解析/0/null/精确流量；普通owner隐藏高级分区且构建/发送/retry拒绝admin-only已修。Chrome先红后绿/两回归/types/3守卫/lint/双端build/dist通过。迁移及后台完整状态写另续，不记整体完成，见HANDOFF。 |
 | R1-302 | 部分存在，多阶段精修 | 显示/默认/编辑读取与提交已修 | 资源0语义/未知用量、后台默认及有效备份计数、读取/草稿、0/null/整数/使用量提交、当前角色及目标/session/ABA回执均已修。真实PG详情/竞争、Chrome矩阵、types/守卫/双端build见HANDOFF；专属全端口及用户无转发入口保持，原生交付与整体327不由局部证据代替。 |
 | R1-303 | 存在，多阶段精修 | 专属迁移门禁、Storage/Redeem读写及迁移前端读写已修 | 旧迁移专属/singleTenant整批拒绝已PG验证；Storage/Redeem读写Chrome矩阵通过；迁移分页及读取、固定写target/旧回执/重复/部分结果，父同步选择/current身份/辅助读失败保结果Chrome/types/守卫通过。兑换复制/结果弹窗完整Chrome已修；存储容量输入与手机错误已修，后台容量API格式/单位/上限PG+mTLS已修；宿主分页补真实架构/IPv6及绑定地址/同步状态，按name+id固定跨owner同名顺序，真实PG/Fastify 105宿主两页及权限回归通过。驱动扩容/授权原子性、兑换事务日志、分页期间并发新增删除及旧迁移并发补偿另待。 |
