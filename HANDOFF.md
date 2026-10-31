@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R010 当前鉴权状态复验
+
+- 从app.ts原文抽取ensureActiveAccessToken/ensureCurrentAdmin及四个实际decorator，不改写实现，装入隔离Fastify并使用真实JWT和PG。auth-r010-final.log自然exit0：37请求确认热请求后用户名更新、管理员降权/恢复、banned、session及账户撤销立即生效；其它账户/会话保持可用，iat等于撤销时刻拒绝、晚于时刻允许。用户或撤销查询故障、坏/缺JWT及已删除账户均拒绝；未发现30秒正向授权缓存，无产品修改。
+- 完整server+专项类型auth-r010-types-verified.log零诊断exit0、auth-session-status守卫1/1、197项清单检查通过。先前两份types失败来自测试role与iat声明和Prisma故障替身类型，已修正且日志保留；故意注入的查询错误属预期拒绝场景。专项已登记CI；复用相同产品源码的R268后端build，不将隔离原hook执行扩大为完整app登录、在途操作授权或生产验收。
+- 补齐已推阶段完整身份：R060 87bc652acaffe5685850bdeac198432016b240c4 / CI41153025903；R069 12d63b3f48c91db6ca80960a7c7cc2e086c4a0c5 / CI41153071656；R223 cbebd0b4443bbb0024c87eadef38a066c6ab5da6 / CI41153135756；R300 3af8cc3e66a2efd8ac8ee91db0b91c85f0331e36 / CI41153252864；R327 de54e2abb25e27b105f3d2e3f1b5b08896a0bd55 / CI41153336748。logs/ci-r010-refresh.log及各run状态核head和步骤，后续CI继续，未新增失败。
+- R010归档后299/327（91.4%，含部分/待验收）、28项初审。不是完整验收率；固定v1.7.8、生产和完整灾备未改变。继续检查IPv6空配置新节点与无关字段保存。
+
 ## 2026-10-31 R327 删除集成测试证书清理顺序复审
 
 - 完整追到test-admin-instance-delete-integration.ts的TLS资源生命周期：115行创建独立临时目录/证书，174–372行全部单/批用户及管理员删除、在途退款、失败保库存用同一TLS服务；373行finally先closeAllClients再close服务，最后校验绝对临时路径并rm。清理之后只有成功日志和外层app/DB关闭，没有后续代理测试再用已删证书。本库TS专项与外部所述脚本顺序不同，原问题不适用，不无故重排清理。

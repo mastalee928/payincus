@@ -90,6 +90,7 @@
     "test:review-auto-renew-selection": "node --import tsx scripts/test-review-auto-renew-selection.ts",
     "test:review-package-plan-boundaries": "node --import tsx scripts/test-review-package-plan-boundaries.ts",
     "test:review-package-region-scope": "node --import tsx scripts/test-review-package-region-scope.ts",
+    "test:review-auth-current-state": "node --import tsx scripts/test-review-auth-current-state.ts",
     "test:review-oauth-locales": "node ../scripts/test-oauth-locales.mjs",
     "test:review-instance-task-site-cleanup": "node --import tsx scripts/test-review-instance-task-site-cleanup.ts",
     "test:review-terminal-commands-lifecycle": "node ../scripts/test-terminal-commands-lifecycle.mjs",

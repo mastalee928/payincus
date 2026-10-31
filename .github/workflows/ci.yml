@@ -329,6 +329,8 @@ jobs:
         run: pnpm --filter server test:review-package-plan-boundaries
       - name: Package regions reject unknown sources and preserve private package visibility
         run: pnpm --filter server test:review-package-region-scope
+      - name: Authentication rechecks current account roles and session revocations after warm requests
+        run: pnpm --filter server test:review-auth-current-state
       - name: VM network changes keep existing MAC identity through real mTLS
         run: pnpm --filter server test:review-vm-network-macs-transport
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed

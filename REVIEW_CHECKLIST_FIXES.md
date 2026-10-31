@@ -301,7 +301,7 @@
 | R1-007 | 外站校验已有防护，锚点回执缺口 | 原路由21输入及锚点结果修复通过 | authorize签名及callback双校验拒外站；合法#fragment原先吞结果参数，redirectWithQuery现把query追加在hash前。21矩阵、本地路径/query/hash及PG绑定成功回执、原OAuth竞争回归通过oauth-r007-success-final；types/2守卫/build自然exit0，非外部提供商或浏览器验收。 |
 | R1-008 | 部分存在 | 登录配置三语/密钥保留已复验；整页另待 | 繁体原生OAuth组缺失导致英文回退，已补31项并以原生文本守卫、Chrome三语三宽实际编辑提交及PG/Fastify省略/空值/UNCHANGED保旧密钥复验。相关守卫/types/lint/双端build/dist通过；外部应用区硬编码文案、整页UI和供应商登录仍待。 |
 | R1-009 | 存在 | 部分精修/继续核查 | 账号与OAuth自助解绑同事务撤销，callback/exchange拒旧绑定与在途撤销；故障回滚通过 review-admin-account-integration.log、review-oauth-integration-final.log；其它入口仍按原编号继续 |
-| R1-010 | 实现不同 | 保留初审结论 | 请求认证读取最新用户和invalidations；无对方30秒正向认证缓存，多后端副本本项目不支持。 |
+| R1-010 | 实现不同 | 原鉴权钩子隔离执行通过 | auth-r010-final.log：实际app原文四decorator、真实JWT/PG共37请求，热请求后角色/状态/用户名/会话和账户撤销立即生效，双用户/双会话隔离、精确iat边界与查询失败拒绝；types及原鉴权守卫通过。无30秒缓存、不改产品；未启动完整app登录或验收在途业务授权，多后端副本仍不支持。 |
 | R1-011 | 部分存在 | 源码已修/隔离PG验证通过 | 邮箱注册锁、验证码次数/用途/过期与业务提交同事务；注册/profile/reset并发、旧认证状态及撤销故障回滚通过 logs/review-verification-integration-profile.log；admin创建大小写邮箱/初始状态配额及重置通过 logs/review-admin-account-integration.log；未生产验收 |
 | R1-012 | 存在 | 源码已修/隔离PG验证通过 | 2FA状态CAS、恢复码单次消费、完整已验证认证字段、enable/disable同事务撤销；logs/review-2fa-integration-latest.log；密码修改同事务通过 logs/review-verification-integration-profile.log |
 | R1-013 | 部分存在 | 验证接线及60秒重发PG/SMTP/Chrome通过；其它邮件缺口待 | VERIFICATION_REQUIRED接实际敏感验证弹窗，固定原password/TOTP/context一次重试，取消/草稿/身份/离页清旧pending。Chrome14旧子回执/36冻结动画组与PG/Fastify实际禁用验证、旧2FA/Password回归、types/lint/守卫/双端build/dist通过。通用重发改60秒/真实剩余倒计时与自然三语提示，真实PG/SMTP61秒新邮件/并发边界及账户隔离通过；SMTP在途/失败/消费后预算、外部SMTP和客户完整流程另待，销毁专用合同保持。 |
