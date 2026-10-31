@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 资金专项：公开API续费在途撤销授权
+
+- money-public-renew-before.log通过真实Bearer认证、PG实例行锁及独立等待链观察复现：请求开始合法，等待时撤销API token，原续费仍200且扣10元。公开续费未把authenticatePublicApiRequest已捕获的writeAuthorization传到计费事务，只复核了账户状态。
+- 公开续费现传原凭据绑定，计费事务在既有账户锁内复用authorizePublicApiWrite，核token身份/撤销/有效期/计费scope以及OAuth应用和grant，并持锁至资金提交。失败公开接口403/SERVICE_RENEW_FORBIDDEN；Web会话续费及自动续费保持原入口与规则。
+- money-public-renew-fixed.log真实PG/认证10场：PAT与OAuth各撤销/过期/scope收回，另OAuth应用停用/grant撤销共8场403、零扣款/流水/账单、完整实例不变；两正常请求200且各只扣10元。money-public-renew-web-regression.log原完整Web专项通过；money-auto-renew-regression.log原关闭/重开/8并发/行锁/尝试上限/重试间隔专项通过且池归还。相关完整类型含新增专项、4公开API守卫、计费竞争守卫及后端构建均通过。
+- 新专项已登记CI/测试清单，Linux结果待终态。前项b58e281f690850402e421afa66b5a206871e85ca / CI41185859424已推仍运行；39deb353/41185376355、08475782/41183989740与61c0412e/41178719643继续。仍为隔离账户/数据库，无外部支付、真实宿主或生产操作，暂不发版。
+
 ## 2026-10-31 资金专项：回调商户绑定与严格金额解析
 
 - money-callback-before.log隔离PG/实际Fastify回调、真实RSA签名复现：易支付V2回调pid为其他商户仍200/completed；原代码只验平台公钥签名，没有核本订单收款商户。V1/V2的verify及verifyWithStatus现都比较商户号，拒缺失/空/数组/不符，接受相同数字或字符串商户号。继续使用订单配置快照，后台换商户不影响原订单付款。

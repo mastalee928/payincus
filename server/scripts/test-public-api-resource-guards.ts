@@ -276,7 +276,8 @@ assert.ok(
     route.includes("authenticatePublicApiRequest(request, reply, 'services:billing')") &&
     route.includes('normalizePublicServiceRenewMonths(request.body?.months)') &&
     route.includes('assertPublicServiceRenewAllowed(service, months)') &&
-    route.includes('performRenewal(apiToken.userId, service, months)') &&
+    route.includes('performRenewal(apiToken.userId, service, months, undefined, undefined, apiToken.writeAuthorization)') &&
+    route.includes("code: 'SERVICE_RENEW_FORBIDDEN'") &&
     route.includes("sendNotification(apiToken.userId, 'instance_renewed'") &&
     route.includes('sendHostManagedInstanceNotification(') &&
     route.includes('sendRenewSuccessEmail(') &&

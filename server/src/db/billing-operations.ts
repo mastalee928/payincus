@@ -5,6 +5,7 @@
 
 import { prisma } from './prisma.js'
 import { authorizeUserWrite, type WriteSession } from './user-write-authorization.js'
+import { authorizePublicApiWrite, type PublicApiWriteAuthorization } from './public-api-write-authorization.js'
 import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
 import { autoRenewEligibility } from '../lib/instance-auto-renew.js'
 import { recoveryHeld } from '../services/platform-backup-core.js'
@@ -550,13 +551,15 @@ export async function performRenewal(
   instance: Instance,
   months: number,
   automatic?: { expiryThreshold: Date },
-  session?: WriteSession
+  session?: WriteSession,
+  apiAuthorization?: PublicApiWriteAuthorization
 ): Promise<{ newExpiresAt: Date; amount: number; balanceLogId: number; discountAmount?: number; hostingIncomeResult?: { hostOwnerId: number; hostName: string } | null }> {
-  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months, automatic, session))
+  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months, automatic, session, apiAuthorization))
 }
 
 async function performRenewalMutation(
-  userId: number, instance: Instance, months: number, automatic?: { expiryThreshold: Date }, session?: WriteSession
+  userId: number, instance: Instance, months: number, automatic?: { expiryThreshold: Date }, session?: WriteSession,
+  apiAuthorization?: PublicApiWriteAuthorization
 ): Promise<{ newExpiresAt: Date; amount: number; balanceLogId: number; discountAmount?: number; hostingIncomeResult?: { hostOwnerId: number; hostName: string } | null }> {
   if (automatic && recoveryHeld()) throw new Error('AUTO_RENEW_RECOVERY_HELD')
   if (instance.status === 'deleted') {
@@ -597,6 +600,9 @@ async function performRenewalMutation(
     const accountIds = [...new Set([userId, currentHost.userId])].sort((a, b) => a - b)
     await tx.$queryRaw`SELECT id FROM users WHERE id IN (${Prisma.join(accountIds)}) ORDER BY id FOR UPDATE`
     if (session && !await authorizeUserWrite(tx, userId, session)) throw new Error('用户权限已变更，请重新登录')
+    if (apiAuthorization && !await authorizePublicApiWrite(tx, userId, apiAuthorization, 'services:billing')) {
+      throw new Error('SERVICE_RENEW_AUTHORIZATION_CHANGED')
+    }
     const owner = await tx.user.findUnique({ where: { id: currentHost.userId }, select: { role: true } })
     if (!automatic && owner?.role === 'user') {
       if (months !== 1) throw new Error('用户托管节点的实例仅支持按月续费')

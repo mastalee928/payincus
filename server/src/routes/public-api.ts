@@ -1772,7 +1772,7 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await performRenewal(apiToken.userId, service, months)
+      const result = await performRenewal(apiToken.userId, service, months, undefined, undefined, apiToken.writeAuthorization)
 
       await sendNotification(apiToken.userId, 'instance_renewed', {
         instanceName: service.name,
@@ -1838,6 +1838,9 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
         LogResult.FAILED,
         { instanceId: service.id }
       )
+      if (message === 'SERVICE_RENEW_AUTHORIZATION_CHANGED') {
+        return reply.code(403).send({ error: 'Current API authorization no longer permits renewal', code: 'SERVICE_RENEW_FORBIDDEN' })
+      }
       return reply.code(error instanceof AffCodeEligibilityError ? error.statusCode : 400).send({ error: message, code: 'SERVICE_RENEW_FAILED' })
     }
   })
