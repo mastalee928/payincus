@@ -19,8 +19,11 @@ try {
   const fresh = async (admin = true) => {
     await page.goto('http://127.0.0.1:19777', { settleMs: 250 }); const deadline = Date.now() + 15000
     while (!await page.eval(() => !!window.packageHarness?.view())) { if (Date.now() > deadline) throw Error('Package host fixture did not mount'); await sleep(50) }
-    await run(async admin => { const h = window.packageHarness; h.auth.user = { id: 1, username: 'fixture', role: admin ? 'admin' : 'user' }; await h.nextTick(); h.pending.splice(0); await h.router.push('/plans') }, admin)
+    await run(async admin => { const h = window.packageHarness; h.auth.user = { id: 1, username: 'fixture', role: admin ? 'admin' : 'user' }; await h.nextTick(); h.pending.splice(0); await h.router.push('/admin/resources/packages') }, admin)
     while (!await page.eval(() => window.packageHarness.view()?.loadHosts)) { if (Date.now() > deadline) throw Error('Package inventory did not mount'); await sleep(50) }
+    assert.equal(await page.eval(() => packageHarness.router.currentRoute.value.path), '/admin/resources/packages', 'inventory uses the current package route')
+    assert.equal(await page.eval(() => packageHarness.pending.filter(r => r.kind === 'hosts').length), 1, 'mounted inventory starts a new host request')
+    if (admin) assert.equal(await page.eval(() => packageHarness.pending.filter(r => r.kind === 'list').length), 1, 'mounted inventory starts a new package request')
   }
   const count = () => page.eval(() => packageHarness.pending.filter(r => r.kind === 'hosts').length)
   const last = () => page.eval(() => packageHarness.pending.findLastIndex(r => r.kind === 'hosts'))
@@ -69,7 +72,7 @@ try {
       if (mode === 'logout') h.auth.clearLocalAuth()
       if (mode === 'session-aba') { h.newSession('session-b'); h.newSession('session-a') }
       if (mode === 'route' || mode === 'route-aba') await h.router.push('/other')
-      if (mode === 'route-aba') await h.router.push('/plans')
+      if (mode === 'route-aba') await h.router.push('/admin/resources/packages')
       if (mode === 'supersede') void h.view().loadHosts()
     }, mode)
     const newer = await count(), snapshot = () => page.eval(() => JSON.stringify({ hosts: oldPackageInventory.hosts,

@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 CI 套餐宿主分页共享夹具漏改
+
+- 22d80280fcc08b9aa7c19e120604b9a17fe2a86b / CI41176345509终态failure，job124464579573的Package host names and search include every page步骤在scripts/test-package-host-pagination.mjs:23报Package inventory did not mount；完整失败日志logs/ci-124464579573-failed.log。本地package-host-ci-before.log自然exit1复现，不能把前一套餐表单专项通过当共享夹具所有消费者通过。
+- 根因为22d80280将共享MyPackages夹具改至真实/admin/resources/packages后，宿主分页专项首次进入和route-aba返回仍访问旧/plans。仅改这两处测试路径，并断言实际路由、新宿主读取和管理员套餐列表读取；产品路由/会话/权限保护不变。已搜索共享夹具全部消费者，test-package-form已使用真实路径，test-package-priorities只走原套餐编辑路径，无相同旧引用。
+- package-host-ci-fixed.log原完整浏览器专项自然exit0：237宿主跨三页与搜索、坏页/跨用户数据拒绝、完整缓存及错误重试、16组旧第二页回执和原有18组三语/宽度/主题断言。package-host-ci-guard.log路由守卫自然exit0，JS语法与diff检查通过。此项仅测试变更，复用既有产品类型/双端/server构建；受控API浏览器证据不代表真实宿主或生产验收，未新增完整矩阵或重跑全套。
+- 前项61c0412e82e2bc8113dd95661c1f6ff8af6108a8 / CI41178719643仍in_progress，继续核终态；其修正TOTP时钟不包含本次旧路由漏改。998b46be机器池功能及之前历史失败保留。本次提交身份与CI记录logs/ci-package-host-fix.json并加入payincus-ci；后续Linux结果待终态，暂不发版、不打tag/Release、不部署生产。
+
 ## 2026-10-31 CI 关闭2FA测试跨TOTP时段
 
 - 998b46beb76f1b1a31636476a8b172fb7cc7dd23 / CI41174594901已终态failure，job124459424145的Disable two-factor requires a current account operation grant and revokes access步骤在test-review-2fa-disable-verification.ts:42预期403，实际400/INVALID_2FA_CODE。失败时间06:42:30.051 UTC，正处30秒换码边界；日志logs/ci-124459424145-failed.log。该提交不能记为CI通过，后续修正继承其机器池功能。
