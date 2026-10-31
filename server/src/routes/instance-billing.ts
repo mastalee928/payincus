@@ -57,7 +57,7 @@ const BILLING_RECORD_TYPES = new Set<BillingRecordType>([
 function parsePositiveRouteId(value: string): number | null {
   if (!POSITIVE_ROUTE_ID_PATTERN.test(value)) return null
   const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
+  return Number.isSafeInteger(parsed) && parsed <= 2147483647 ? parsed : null
 }
 
 function parsePositiveIntegerQuery(value: string | undefined, fallback: number): number {
@@ -77,7 +77,7 @@ function normalizeBillingRecordType(value: string | undefined): BillingRecordTyp
 }
 
 function parsePositiveIntegerInput(value: unknown): number | null {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) return null
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0 || value > 2147483647) return null
   return value
 }
 
@@ -593,7 +593,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
         properties: {
           instanceIds: {
             type: 'array',
-            items: { type: 'integer' },
+            items: { type: 'integer', minimum: 1, maximum: 2147483647 },
             minItems: 1,
             maxItems: 100
           }
@@ -623,7 +623,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
         properties: {
           instanceIds: {
             type: 'array',
-            items: { type: 'integer' },
+            items: { type: 'integer', minimum: 1, maximum: 2147483647 },
             minItems: 1,
             maxItems: 100
           },
@@ -1052,7 +1052,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
         properties: {
           instanceIds: {
             type: 'array',
-            items: { type: 'integer' },
+            items: { type: 'integer', minimum: 1, maximum: 2147483647 },
             minItems: 1,
             maxItems: 100
           },

@@ -26,6 +26,10 @@ assert.ok(
     source.includes('function parsePositiveIntegerInput(value: unknown): number | null'),
   'instance billing routes must define strict positive safe-integer route and body ID parsing'
 )
+assert.equal(source.match(/items: \{ type: 'integer', minimum: 1, maximum: 2147483647 \}/g)?.length, 3,
+  'all billing batches must validate every PostgreSQL ID before any target is processed')
+assert.ok(source.includes('parsed <= 2147483647') && source.includes('value > 2147483647'),
+  'scalar billing IDs must fit the PostgreSQL integer range')
 
 assert.ok(
   source.includes("import type { BillingRecordType } from '@prisma/client'") &&

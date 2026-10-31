@@ -25,6 +25,38 @@ const make = (expiresAt: Date) => prisma.instance.create({ data: { userId: buyer
   billingPrice: 10, billingCycle: 1, expiresAt, status: 'stopped' } })
 try {
   await app.register(routes, { prefix: '/instances' })
+  const mixedTarget = await make(new Date(Date.now() + 86400000))
+  const mixed = await app.inject({ method: 'POST', url: '/instances/batch/renew', payload: { instanceIds: [mixedTarget.id, 2147483648], months: 1 } })
+  const mixedBalance = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
+  console.log('Mixed batch validation:', mixed.statusCode, 'balance:', mixedBalance,
+    'bills:', await prisma.instanceBillingRecord.count({ where: { instanceId: mixedTarget.id } }))
+  assert.equal(mixed.statusCode, 400, 'invalid batch IDs must be rejected before processing any target')
+  assert.equal(mixedBalance, 100, 'invalid batch must not charge its valid first target')
+  assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: mixedTarget.id } }), 0)
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: mixedTarget.id } })).expiresAt!.toISOString(), mixedTarget.expiresAt!.toISOString())
+  for (const invalid of [0, -1, 1.5, 2147483648, Number.MAX_SAFE_INTEGER]) {
+    for (const [method, url, extra] of [
+      ['POST', '/instances/batch/renew', { months: 1 }],
+      ['POST', '/instances/batch/renew-preview', {}],
+      ['PATCH', '/instances/batch/auto-renew', { autoRenew: true }]
+    ] as const) {
+      const response = await app.inject({ method, url, payload: { instanceIds: [mixedTarget.id, invalid], ...extra } })
+      assert.equal(response.statusCode, 400, `${url}: invalid ${invalid}`)
+    }
+  }
+  assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), 100)
+  assert.equal(await prisma.balanceLog.count({ where: { instanceId: mixedTarget.id } }), 0)
+  assert.deepEqual(await prisma.instance.findUniqueOrThrow({ where: { id: mixedTarget.id } }), mixedTarget)
+  for (const id of ['2147483648', '9007199254740991']) {
+    assert.equal((await app.inject({ method: 'POST', url: `/instances/${id}/renew`, payload: { months: 1 } })).statusCode, 400)
+    assert.equal((await app.inject({ method: 'PATCH', url: `/instances/${id}/auto-renew`, payload: { autoRenew: true } })).statusCode, 400)
+  }
+  assert.equal((await app.inject({ method: 'POST', url: '/instances/2147483647/renew', payload: { months: 1 } })).statusCode, 404)
+  const duplicateSwitch = await app.inject({ method: 'PATCH', url: '/instances/batch/auto-renew', payload: { instanceIds: [mixedTarget.id, mixedTarget.id], autoRenew: true } })
+  assert.equal(duplicateSwitch.statusCode, 200)
+  assert.equal(duplicateSwitch.json().results.length, 1, 'duplicate valid IDs still run once')
+  assert.equal(duplicateSwitch.json().results[0].success, true)
+  console.log('PASS invalid mixed renewal/preview/auto-renew batches leave every target and all money untouched; valid duplicate switch remains supported')
   const expired = await make(new Date(Date.now() - 90 * 86400000))
   const started = Date.now()
   const result = await billing.performRenewal(buyer.id, expired, 1, undefined, session)
@@ -88,6 +120,7 @@ try {
   console.log('PASS real PostgreSQL renewal/auto-renew: expired paid period, future extension, stale concurrent snapshot, transfer/status/revocation/current hosting restrictions, debit-ledger-expiry rollback and actual single/batch switch routes')
 } finally {
   await app.close()
+  await prisma.log.deleteMany({ where: { userId: buyer.id } })
   await prisma.balanceLog.deleteMany({ where: { userId: buyer.id } })
   await prisma.instance.deleteMany({ where: { hostId: host.id } })
   await prisma.package.delete({ where: { id: pkg.id } })

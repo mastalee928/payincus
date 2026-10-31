@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 资金专项：批量续费非法编号先扣款后报错
+
+- Owner新增充值、手动/自动续费与支付回调精查。本阶段发现真实缺陷：POST /instances/batch/renew传有效实例和2147483648时，先扣10元、延长有效实例并生成账单，随后PG整数越界导致整体500。money-renew-ids-before.log隔离Fastify/PG复现余额100→90、账单1、exit1；这会让失败回执与已提交资金状态矛盾。
+- 三个计费批量入口（续费、续费预览、自动续费开关）在schema统一限定每个ID为1至2147483647，任何非法项先整批400；共享标量编号解析同步限定PG范围。保留合法编号去重及既有逐台结果语义，不改计价、扣款、权限或计费周期。
+- money-renew-ids-fixed.log真实PG专项exit0：原复现现400、余额100、账单0；另15个非法混批/4个越界标量、合法上界404、重复ID只执行一次，完整实例与流水不变。原过期/未过期续费、同旧快照并发仅一次、转移/封禁/会话撤销、托管限制、账单INSERT故障导致扣款/流水/到期整体回滚继续通过。该脚本沿原末尾process.exit(0)，不声称新增自然退出验收。
+- money-renew-types.log完整后端类型、money-renew-test-types.log包含专项的严格类型、money-renew-guard.log相关守卫、money-renew-build.log后端构建及diff均通过；未改前端，不重复双端或整套。仅本地隔离资金，没有真实供应商付款、生产或客户操作。其余支付回调金额边界、实际API重试与自动续费调用链继续检查；本段不代表整个资金专项完成，仍暂不发版。
+
 ## 2026-10-31 CI 套餐宿主分页共享夹具漏改
 
 - 22d80280fcc08b9aa7c19e120604b9a17fe2a86b / CI41176345509终态failure，job124464579573的Package host names and search include every page步骤在scripts/test-package-host-pagination.mjs:23报Package inventory did not mount；完整失败日志logs/ci-124464579573-failed.log。本地package-host-ci-before.log自然exit1复现，不能把前一套餐表单专项通过当共享夹具所有消费者通过。
