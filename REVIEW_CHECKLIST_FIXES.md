@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为287项（含部分、待验收），40项仍保初审分类；这不是完整修复数，不能按327减287计算剩余全部工作。R262新增复现并修复批量404前部分修改，真实PG宿主隔离和拒绝零修改通过。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为288项（含部分、待验收），39项仍保初审分类；这不是完整修复数，不能按327减288计算剩余全部工作。R262新增复现并修复批量404前部分修改，真实PG宿主隔离和拒绝零修改通过。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -320,7 +320,7 @@
 | R1-026 | 部分存在 | 部分精修/继续核查 | 原账号/quota重算/托管余额已验；本轮普通余额adjust/gift及调账申请/批准/驳回current admin/session事务门禁通过review-admin-balance-integration.log、相关4/4 test-run-20261027-231225。orders独立操作case/Public API在途资格及配额设置仍需继续核查 |
 | R1-027 | 存在 | 源码已修/隔离PG验证通过 | increaseOwnQuota锁当前user/quota、当前步长与50%usage、status/session复核；7并发仅1增额，旧请求不降低新限额。logs/review-quota-hosting-integration.log |
 | R1-028 | 存在 | 源码已修/隔离PG验证通过 | autoRenew共享instance锁、current owner/status/paid/cleanup/session CAS；真实单/批route及旧owner拒绝。logs/review-renewal-integration.log |
-| R1-029 | 已有防护 | 保留初审结论 | 自动续费updateMany重新核对autoRenewEligibility及expires/version，旧候选不直接决定扣款。 |
+| R1-029 | 已有防护 | 原DB真实PG选择及竞争复验通过 | 三状态关闭后旧候选各3次零扣款/完整回滚；重启各8并发只一笔。真实行锁中续费已开始则关闭报忙，完成后关闭阻断后续扣款；5类重试/清理/暂停条件保持。renew-r029-selection、完整types/两守卫通过，自然调度与宿主动作另验。 |
 | R1-030 | 存在 | 源码已修/隔离PG验证通过 | 过期续费periodStart与end均以now为起点，未到期以原expiry；period/refund基数、并发仅1扣款和ledger失败全回滚。logs/review-renewal-integration.log |
 | R1-031 | 部分存在 | 部分精修/继续核查 | renewal事务内锁instance/host/accounts及余额、当前owner/status/plan/expiry/托管资格/session，6旧snapshot仅1成功；logs/review-renewal-integration.log。Public API在途PAT撤销另评 |
 | R1-032 | 部分存在 | 源码已修/隔离PG验证通过 | 纠正初审：两个返佣helper原缺enabled，邮箱续费可给已禁用码返佣。现AFF资格/费率锁到结算、旧绑定迁移保留、admin current session；顶层host/user/AFF顺序复审，竞争409零写并保留自动续费预算。review-aff-eligibility-integration.log、8/8 test-run-20261027-231442；真实Incus新购/迁移未验 |
