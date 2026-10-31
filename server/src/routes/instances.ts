@@ -4403,15 +4403,19 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       return reply.code(409).send(apiError(ErrorCode.PORT_CONFLICT, 'Port mapping operation is busy, please retry later'))
     }
 
+    // Return data rather than reply.send() while holding the lock: Fastify must
+    // await the finally block before completing the HTTP response.
     try {
     const quotaCheck = await db.checkPortQuota(instance.user_id, instanceId)
     if (!quotaCheck.allowed) {
-      return reply.code(400).send(apiError(ErrorCode.QUOTA_PORT_EXCEEDED, quotaCheck.message))
+      reply.code(400)
+      return apiError(ErrorCode.QUOTA_PORT_EXCEEDED, quotaCheck.message)
     }
 
     const host = await db.getHostById(instance.host_id)
     if (!host) {
-      return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
+      reply.code(404)
+      return apiError(ErrorCode.HOST_NOT_FOUND)
     }
 
     // 端口映射的下发（含「先查冲突再预留、失败只回滚本次创建的设备」这套安全序列）统一由
@@ -4428,12 +4432,14 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     if (!result.ok) {
       if (result.code === ErrorCode.INTERNAL_ERROR) {
         await createLog(user.id, 'instance', 'port.add', `Failed to add port mapping: ${result.message}`, 'failed', { instanceId })
-        return reply.code(500).send({ error: result.message })
+        reply.code(500)
+        return { error: result.message }
       }
       const status = result.code === ErrorCode.PORT_NO_AVAILABLE ? 503
         : result.code === ErrorCode.HOST_NOT_FOUND ? 404
         : 400
-      return reply.code(status).send(apiError(result.code, result.detail))
+      reply.code(status)
+      return apiError(result.code, result.detail)
     }
 
     await createLog(user.id, 'instance', 'port.add', `Added port mapping for instance "${instance.name}" [host: ${host?.name || 'unknown'}, ${protocol.toUpperCase()} ${result.mapping.publicPort}:${result.mapping.privatePort}${remark ? `, remark: ${remark}` : ''}]`, 'success', { instanceId })
@@ -4511,7 +4517,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       await createLog(user.id, 'instance', 'port.delete', `Failed to delete port mapping: ${errorMessage}`, 'failed', { instanceId })
-      return reply.code(500).send({ error: errorMessage })
+      reply.code(500)
+      return { error: errorMessage }
     } finally {
       await releaseLock(portLockKey, portLock.ownerId)
     }
@@ -4616,12 +4623,14 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     // 2. 计算连续端口数量（用于生成最终映射列表）
     const privatePortCount = privatePortEnd - privatePortStart + 1
     if (privatePortCount <= 0 || privatePortCount > MAX_BATCH_PORT_MAPPINGS) {
-      return reply.code(400).send({ error: `端口范围无效，最多支持 ${MAX_BATCH_PORT_MAPPINGS} 个连续端口` })
+      reply.code(400)
+      return { error: `端口范围无效，最多支持 ${MAX_BATCH_PORT_MAPPINGS} 个连续端口` }
     }
 
     const host = await db.getHostById(instance.host_id)
     if (!host) {
-      return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
+      reply.code(404)
+      return apiError(ErrorCode.HOST_NOT_FOUND)
     }
 
     // 3. 统一归一为最终映射列表
@@ -4632,14 +4641,16 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       if (portMappings.length !== privatePortCount || portMappings.some(mapping =>
         mapping.privatePort < privatePortStart || mapping.privatePort > privatePortEnd
       )) {
-        return reply.code(400).send(apiError(ErrorCode.PORT_RANGE_MISMATCH, `内网端口必须完整对应 ${privatePortStart}-${privatePortEnd}`))
+        reply.code(400)
+        return apiError(ErrorCode.PORT_RANGE_MISMATCH, `内网端口必须完整对应 ${privatePortStart}-${privatePortEnd}`)
       }
       finalMappings = portMappings
     } else if (publicPortStart !== undefined && publicPortEnd !== undefined) {
       // 用户指定了公网端口范围
       const publicPortCount = publicPortEnd - publicPortStart + 1
       if (publicPortCount !== privatePortCount) {
-        return reply.code(400).send(apiError(ErrorCode.PORT_RANGE_MISMATCH, `内网 ${privatePortCount} 个端口，公网 ${publicPortCount} 个端口`))
+        reply.code(400)
+        return apiError(ErrorCode.PORT_RANGE_MISMATCH, `内网 ${privatePortCount} 个端口，公网 ${publicPortCount} 个端口`)
       }
 
       // 生成映射关系
@@ -4676,12 +4687,13 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           suggestedPort: suggestedPorts[index] || null
         }))
 
-        return reply.code(409).send({
+        reply.code(409)
+        return {
           error: ErrorCode.PORT_CONFLICT,
           message: '部分端口已被占用',
           conflicts: conflictsWithSuggestions,
           availableCount: suggestedPorts.length
-        })
+        }
       }
     } else {
       // 公网端口留空，自动分配
@@ -4694,10 +4706,11 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       )
 
       if (allocatedPorts.length < privatePortCount) {
-        return reply.code(503).send({
+        reply.code(503)
+        return {
           error: ErrorCode.PORT_NO_AVAILABLE,
           message: `可用端口不足，需要 ${privatePortCount} 个，只有 ${allocatedPorts.length} 个可用`
-        })
+        }
       }
 
       // 排序以保证顺序
@@ -4713,29 +4726,34 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
     // 4. 所有入参路径统一按最终映射校验数量、唯一性与 NAT 允许范围
     if (finalMappings.length === 0 || finalMappings.length > MAX_BATCH_PORT_MAPPINGS) {
-      return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, `端口映射数量必须为 1-${MAX_BATCH_PORT_MAPPINGS}`))
+      reply.code(400)
+      return apiError(ErrorCode.INVALID_PARAMS, `端口映射数量必须为 1-${MAX_BATCH_PORT_MAPPINGS}`)
     }
 
     const privatePorts = finalMappings.map(mapping => mapping.privatePort)
     const publicPorts = finalMappings.map(mapping => mapping.publicPort)
     if (new Set(privatePorts).size !== finalMappings.length) {
-      return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, '内网端口不能重复'))
+      reply.code(400)
+      return apiError(ErrorCode.INVALID_PARAMS, '内网端口不能重复')
     }
     if (new Set(publicPorts).size !== finalMappings.length) {
-      return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, '公网端口不能重复'))
+      reply.code(400)
+      return apiError(ErrorCode.INVALID_PARAMS, '公网端口不能重复')
     }
 
     const natPortStart = host.nat_port_start
     const natPortEnd = host.nat_port_end
     if (!natPortStart || !natPortEnd) {
-      return reply.code(400).send(apiError(ErrorCode.PORT_RANGE_INVALID, '宿主机未配置 NAT 端口范围'))
+      reply.code(400)
+      return apiError(ErrorCode.PORT_RANGE_INVALID, '宿主机未配置 NAT 端口范围')
     }
     const hasOutOfRangePort = finalMappings.some(mapping =>
       mapping.privatePort < natPortStart || mapping.privatePort > natPortEnd ||
       mapping.publicPort < natPortStart || mapping.publicPort > natPortEnd
     )
     if (hasOutOfRangePort) {
-      return reply.code(400).send(apiError(ErrorCode.PORT_RANGE_INVALID, `允许范围: ${natPortStart}-${natPortEnd}`))
+      reply.code(400)
+      return apiError(ErrorCode.PORT_RANGE_INVALID, `允许范围: ${natPortStart}-${natPortEnd}`)
     }
 
     // 5. 最终映射数量计入实例套餐配额；Both 会实际创建 TCP/UDP 两组映射
@@ -4743,12 +4761,13 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     const quotaCheck = await db.checkPortQuota(instance.user_id, instanceId)
     const remainingQuota = quotaCheck.limit - quotaCheck.current
     if (remainingQuota < quotaNeeded) {
-      return reply.code(400).send({
+      reply.code(400)
+      return {
         error: ErrorCode.QUOTA_PORT_BATCH_EXCEEDED,
         message: `配额不足，需要 ${quotaNeeded} 个，剩余 ${remainingQuota} 个`,
         needed: quotaNeeded,
         remaining: remainingQuota
-      })
+      }
     }
 
     // 6. 批量创建映射
@@ -4776,7 +4795,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
                 // 忽略回滚错误
               }
             }
-            return reply.code(400).send(apiError(ErrorCode.PORT_IN_USE, `端口 ${mapping.publicPort} (${proto.toUpperCase()}) 已被占用`))
+            reply.code(400)
+            return apiError(ErrorCode.PORT_IN_USE, `端口 ${mapping.publicPort} (${proto.toUpperCase()}) 已被占用`)
           }
 
           const deviceName = `proxy-${proto}-${mapping.publicPort}`
@@ -4790,7 +4810,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           }
           const actualInstanceType = isVM ? 'virtual-machine' : 'container';
           if (instance.network_mode === 'ipv6_only') {
-            return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'IPv6 Only instances do not require port mappings'))
+            reply.code(400)
+            return apiError(ErrorCode.INVALID_PARAMS, 'IPv6 Only instances do not require port mappings')
           }
 
           // 提取确切 IPv6 供给代理防崩
@@ -4877,12 +4898,15 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       }
       await createLog(user.id, 'instance', 'port.batch_add', `Failed to batch add port mappings: ${errorMessage}`, 'failed', { instanceId })
       if (error instanceof PortMappingValidationError) {
-        return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, errorMessage))
+        reply.code(400)
+        return apiError(ErrorCode.INVALID_PARAMS, errorMessage)
       }
       if (isUniqueConstraintError(error)) {
-        return reply.code(400).send(apiError(ErrorCode.PORT_IN_USE))
+        reply.code(400)
+        return apiError(ErrorCode.PORT_IN_USE)
       }
-      return reply.code(500).send({ error: errorMessage })
+      reply.code(500)
+      return { error: errorMessage }
     }
     } finally {
       await releaseLock(portLockKey, portLock.ownerId)

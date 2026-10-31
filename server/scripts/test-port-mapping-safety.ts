@@ -107,6 +107,11 @@ assert.ok(
 )
 
 const deletePortSection = sectionBetween('// 删除端口映射', '// 批量添加端口映射')
+for (const section of [singlePortSection, deletePortSection, batchPortSection]) {
+  const locked = section.slice(section.indexOf('\n    try {', section.indexOf('const portLock = await acquireLock')))
+  assert.ok(!/reply\.code\([^)]*\)\.send\(/.test(locked),
+    'locked port handlers must return payloads so HTTP completion waits for finally/releaseLock')
+}
 assert.ok(
   deletePortSection.includes('const portLock = await acquireLock(portLockKey, PORT_MAPPING_LOCK_OPTIONS)') &&
     deletePortSection.includes('await releaseLock(portLockKey, portLock.ownerId)'),

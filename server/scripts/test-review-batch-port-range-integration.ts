@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:https'
+import pg from 'pg'
 
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'),
@@ -54,11 +55,46 @@ const instance = await prisma.instance.create({ data: { userId: user.id, hostId:
 const actor = { id: user.id, username: tag, role: 'user', sid: tag, iat: Math.floor(Date.now() / 1000) + 1 }
 const app = Fastify()
 const auditFailureTrigger = 'port_audit_' + randomUUID().replaceAll('-', '')
+const releaseTrigger = 'port_release_' + randomUUID().replaceAll('-', '')
 for (const hook of ['authenticate', 'authenticateUser', 'authenticateAdmin', 'requireAdmin']) {
   app.decorate(hook, async (request: any) => { request.user = { ...actor } })
 }
 const url = `/instances/${instance.id}/ports/batch`
 const submit = (payload: Record<string, unknown>) => app.inject({ method: 'POST', url, payload })
+// Block the real DELETE, rather than sleeping after a response and hoping cleanup finished.
+async function responseAfterRelease<T>(send: () => PromiseLike<T>): Promise<T> {
+  const blocker = new pg.Client({ connectionString: database.href })
+  await blocker.connect()
+  let pending: Promise<T> | undefined
+  try {
+    await blocker.query('BEGIN')
+    await blocker.query('SELECT pg_advisory_xact_lock(904273, $1::integer)', [instance.id])
+    const blockerPid = (await blocker.query('SELECT pg_backend_pid() AS pid')).rows[0].pid
+    let responded = false
+    pending = Promise.resolve(send()).then(response => { responded = true; return response })
+    const deadline = Date.now() + 5000
+    let waiting = false
+    while (Date.now() < deadline) {
+      // A separate autocommit observer avoids reusing the blocker's statistics snapshot.
+      const rows = await prisma.$queryRaw<Array<{ waiting: boolean }>>`
+        SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+          WHERE datname = current_database() AND ${blockerPid}::integer = ANY(pg_blocking_pids(pid))) AS waiting`
+      if (rows[0].waiting) { waiting = true; break }
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    assert.ok(waiting, 'the actual per-instance lock DELETE must reach the database barrier')
+    assert.equal(responded, false, 'HTTP response must await actual per-instance lock release')
+    await blocker.query('ROLLBACK')
+    const response = await pending
+    assert.equal(await prisma.distributedLock.count({ where: { lockKey: `instance:${instance.id}:port-mappings` } }), 0)
+    return response
+  } finally {
+    try {
+      await blocker.query('ROLLBACK')
+      await pending
+    } finally { await blocker.end() }
+  }
+}
 const full = [0, 1, 2].map(offset => ({ privatePort: 10010 + offset, publicPort: 10030 + offset }))
 const base = { protocol: 'tcp', privatePortStart: 10010, privatePortEnd: 10012 }
 const snapshot = async () => ({
@@ -69,9 +105,9 @@ const snapshot = async () => ({
   billing: await prisma.instanceBillingRecord.count({ where: { instanceId: instance.id } }),
   calls: calls.length, devices: structuredClone(devices)
 })
-async function rejected(payload: Record<string, unknown>, expectedCode?: string, status = 400) {
+async function rejected(payload: Record<string, unknown>, expectedCode?: string, status = 400, blockRelease = false) {
   const before = await snapshot()
-  const response = await submit(payload)
+  const response = blockRelease ? await responseAfterRelease(() => submit(payload)) : await submit(payload)
   assert.equal(response.statusCode, status, response.body)
   if (expectedCode) assert.equal(response.json().code || response.json().error, expectedCode, response.body)
   assert.deepEqual(await snapshot(), before, 'rejected input must not change mappings, accounts, logs, host count or remote devices')
@@ -81,6 +117,8 @@ async function rejected(payload: Record<string, unknown>, expectedCode?: string,
 }
 try {
   await app.register(instanceRoutes, { prefix: '/instances' })
+  await prisma.$executeRawUnsafe(`CREATE FUNCTION ${releaseTrigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.lock_key = 'instance:${instance.id}:port-mappings' THEN PERFORM pg_advisory_xact_lock(904273, ${instance.id}); END IF; RETURN OLD; END $$`)
+  await prisma.$executeRawUnsafe(`CREATE TRIGGER ${releaseTrigger} BEFORE DELETE ON distributed_locks FOR EACH ROW EXECUTE FUNCTION ${releaseTrigger}()`)
   await rejected({ ...base, portMappings: [] })
   await rejected({ ...base, portMappings: null })
   await rejected({ ...base, portMappings: full.slice(0, 2) }, 'PORT_RANGE_MISMATCH')
@@ -100,10 +138,10 @@ try {
 
   // Both still consumes two rows per mapping; the complete array does not bypass quota.
   await prisma.instance.update({ where: { id: instance.id }, data: { portLimit: 5 } })
-  const quota = await rejected({ ...base, protocol: 'both', portMappings: full }, 'QUOTA_PORT_BATCH_EXCEEDED')
+  const quota = await rejected({ ...base, protocol: 'both', portMappings: full }, 'QUOTA_PORT_BATCH_EXCEEDED', 400, true)
   assert.equal(quota.json().needed, 6)
   await prisma.instance.update({ where: { id: instance.id }, data: { portLimit: 12 } })
-  const both = await submit({ ...base, protocol: 'both', portMappings: [full[2], full[0], full[1]] })
+  const both = await responseAfterRelease(() => submit({ ...base, protocol: 'both', portMappings: [full[2], full[0], full[1]] }))
   assert.equal(both.statusCode, 200, both.body)
   assert.equal(both.json().count, 6)
   const saved = await prisma.portMapping.findMany({ where: { instanceId: instance.id } })
@@ -136,7 +174,7 @@ try {
   // Mirror the UI's full-range conflict resubmission, replacing only a conflicted public port.
   const conflictBase = { protocol: 'tcp', privatePortStart: 10080, privatePortEnd: 10080,
     publicPortStart: occupied.publicPort, publicPortEnd: occupied.publicPort }
-  const conflict = await rejected(conflictBase, 'PORT_CONFLICT', 409)
+  const conflict = await rejected(conflictBase, 'PORT_CONFLICT', 409, true)
   const resolvedMap = new Map<number, number>(conflict.json().conflicts.map((row: any) => [row.publicPort, row.suggestedPort]))
   const resubmission = Array.from({ length: conflictBase.privatePortEnd - conflictBase.privatePortStart + 1 }, (_, offset) => ({
     privatePort: conflictBase.privatePortStart + offset,
@@ -162,7 +200,7 @@ try {
   try {
     for (const [protocol, publicPort, privatePort] of [['tcp', 10095, 22], ['udp', 10096, 53]] as const) {
       const before = await snapshot()
-      const single = await app.inject({ method: 'POST', url: `/instances/${instance.id}/ports`, payload: { protocol, publicPort, privatePort } })
+      const single = await responseAfterRelease(() => app.inject({ method: 'POST', url: `/instances/${instance.id}/ports`, payload: { protocol, publicPort, privatePort } }))
       assert.equal(single.statusCode, 200, single.body)
       const saved = await prisma.portMapping.findUniqueOrThrow({ where: { id: single.json().mapping.id } })
       assert.equal(saved.instanceId, instance.id); assert.equal(saved.publicPort, publicPort)
@@ -174,7 +212,7 @@ try {
       assert.equal(after.logs, before.logs, 'failed audit does not pretend to persist')
       assert.equal(after.balance, before.balance); assert.equal(after.billing, before.billing)
       assert.equal(after.hostCount, before.hostCount, 'single-port helper preserves the host inventory snapshot')
-      const replay = await app.inject({ method: 'POST', url: `/instances/${instance.id}/ports`, payload: { protocol, publicPort, privatePort } })
+      const replay = await responseAfterRelease(() => app.inject({ method: 'POST', url: `/instances/${instance.id}/ports`, payload: { protocol, publicPort, privatePort } }))
       assert.equal(replay.statusCode, 400); assert.equal(replay.json().code, 'PORT_IN_USE')
       assert.deepEqual(await snapshot(), after)
     }
@@ -188,7 +226,7 @@ try {
   for (const [name, value] of Object.entries(batchDevices)) assert.deepEqual(devices[name], value)
   const beforeFailure = await snapshot()
   rejectNextDeviceWrite = true
-  const failedDevice = await app.inject({ method: 'POST', url: `/instances/${instance.id}/ports`, payload: { protocol: 'tcp', publicPort: 10097, privatePort: 22 } })
+  const failedDevice = await responseAfterRelease(() => app.inject({ method: 'POST', url: `/instances/${instance.id}/ports`, payload: { protocol: 'tcp', publicPort: 10097, privatePort: 22 } }))
   assert.equal(failedDevice.statusCode, 500)
   assert.equal(rejectNextDeviceWrite, false, 'request must reach the intended Incus write')
   const afterFailure = await snapshot()
@@ -198,9 +236,23 @@ try {
   assert.equal(afterFailure.balance, beforeFailure.balance); assert.equal(afterFailure.billing, beforeFailure.billing)
   assert.equal(afterFailure.logs, beforeFailure.logs + 1)
   assert.equal(await prisma.distributedLock.count({ where: { lockKey: `instance:${instance.id}:port-mappings` } }), 0)
+  const beforeDelete = await snapshot()
+  rejectNextDeviceWrite = true
+  const failedDelete = await responseAfterRelease(() => app.inject({ method: 'DELETE', url: `/instances/${instance.id}/ports/${batchMappings[0].id}` }))
+  assert.equal(failedDelete.statusCode, 500, failedDelete.body)
+  assert.equal(rejectNextDeviceWrite, false)
+  const afterDeleteFailure = await snapshot()
+  assert.deepEqual(afterDeleteFailure.mappings, beforeDelete.mappings)
+  assert.deepEqual(afterDeleteFailure.devices, beforeDelete.devices)
+  const deletion = await responseAfterRelease(() => app.inject({ method: 'DELETE', url: `/instances/${instance.id}/ports/${batchMappings[0].id}` }))
+  assert.equal(deletion.statusCode, 200, deletion.body)
+  assert.equal(await prisma.portMapping.count({ where: { id: batchMappings[0].id } }), 0)
+  console.log('PASS blocked real lock DELETE: quota/conflict/replay/device failure and successful batch/single/delete responses wait for release')
   console.log('PASS R273 TCP/UDP audit INSERT failures preserve committed mapping/device and reject replay; real device failure rolls back only its new reservation')
   console.log('PASS real PostgreSQL/Fastify batch ports: empty/missing/extra/out-of-range/duplicate custom mappings reject without side effects; NAT range and Both quota remain enforced; shuffled complete Both, automatic allocation and UI-shaped conflict resubmission work through real mTLS to isolated Incus fixture')
 } finally {
+  await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${releaseTrigger} ON distributed_locks`)
+  await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${releaseTrigger}()`)
   await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${auditFailureTrigger} ON logs`)
   await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${auditFailureTrigger}()`)
   await app.close()

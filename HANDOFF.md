@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 CI 端口响应早于实例锁释放
+
+- CI41153911142固定head d347c861ace5188c6956e6c756c05686cb007dcf，job124396387286的批量端口集成失败于配额拒绝后锁数量1≠0；完整run仍有Build排队，失败不能因整体未终态被忽略。具体job日志已保存ci-124396387286-job.log。
+- 本机真实PG BEFORE DELETE触发器以advisory屏障阻塞该实例的锁释放，独立autocommit观察真实pg_blocking_pids；port-lock-before.log稳定复现HTTP已完成而DELETE仍等待，非证明永久泄漏。持锁的单条添加、删除及批量路由改为设置状态码并返回数据，由Fastify等待async finally解锁后发响应；原权限、配额、返回正文、远端/账目及一机一卖保持。没有加事后sleep或扩大连接池。
+- port-r273-final.log自然exit0：真实PG/Fastify/mTLS完整原端口范围与Both配额、冲突重提交、审计INSERT失败保已提交映射/设备、设备失败回滚；受控解锁屏障覆盖配额/冲突/重复/添加失败/删除失败及单条/批量/删除成功，回执后立即核锁0。Incus为隔离mTLS边界，非原生宿主或客户验证；底层DELETE自身报错/长期数据库故障仍沿原释放失败日志和过期策略，不扩大为此项已解决。
+- port-lock-types.log完整server types、build.log后端构建及guard-port/guard-quota两个原守卫自然exit0。此前本地PG停止的P1001不是产品失败；恢复时遗漏旧命令的端口参数误启动5432，已正常停止并显式按127.0.0.1:55438启动原隔离目录。错误的--only正则未匹配任何项，未算通过，两个守卫随后按真实脚本分别执行。
+- R152已推完整09aae74747f979da35a9f30d83c83d8248667641 / CI41161998567。CI刷新jobs API502保留原错误，重读后41151264665 / 2f507291a29148b6e21683aaae1066acc2d25e17已终态success；其他仍跟。当前319/327覆盖（97.6%）、8项初审不增；R205独立收尾，所有已推阶段继续跟终态，v1.7.8固定包和生产未变。
+
 ## 2026-10-31 R152 改节点任务目标编号链路复审
 
 - 沿当前change-host路由→createInstanceTaskOrConflict→createInstanceTask→executeTask→executeChangeHostTask核实：路由同时传hostId=targetHostId及targetHostId；数据库分别原值落字段；worker用task.hostId读取目标host/Incus client，并从instance.host_id单独读取源host。执行器核目标编号与目标host一致且与源host不同，后续目标配额、IP、存储池、创建及切换使用targetHostId，未出现“hostId仍为源导致全部合法请求失败”的外部分支错误。
