@@ -37,6 +37,13 @@ assert.equal(normalizePlanTrafficLimitSpeed('1024'), null, 'sub-Mbit numeric byt
 assert.equal(normalizePlanTrafficLimitSpeed('-1'), undefined, 'negative speed must be rejected')
 assert.equal(normalizePlanTrafficLimitSpeed('abc'), undefined, 'malformed speed must be rejected')
 assert.equal(normalizePlanTrafficLimitSpeed(10), undefined, 'JSON number speed must be rejected')
+for (const input of ['9'.repeat(307) + 'Gbit', '9007199254740992Mbit', '9007199254741Gbit', '9'.repeat(400),
+  String((BigInt(Number.MAX_SAFE_INTEGER) + 1n) * 1048576n)]) {
+  assert.equal(normalizePlanTrafficLimitSpeed(input), undefined, 'converted speed must remain a finite safe integer')
+}
+assert.equal(normalizePlanTrafficLimitSpeed(`${Number.MAX_SAFE_INTEGER}Mbit`), `${Number.MAX_SAFE_INTEGER}Mbit`)
+assert.equal(normalizePlanTrafficLimitSpeed(String(BigInt(Number.MAX_SAFE_INTEGER) * 1048576n)), `${Number.MAX_SAFE_INTEGER}Mbit`)
+assert.equal(normalizePlanTrafficLimitSpeed('1.5Gbit'), '1500Mbit', 'normal decimal Gbit keeps its established conversion')
 
 for (const [label, source] of [
   ['user instance create route', instancesSource],

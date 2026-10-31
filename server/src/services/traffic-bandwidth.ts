@@ -70,12 +70,13 @@ export function normalizePlanTrafficLimitSpeed(trafficLimitSpeed: unknown): stri
     }
     const multiplier = unitMatch[2].toLowerCase() === 'gbit' ? 1000 : 1
     const mbps = Math.round(numeric * multiplier)
-    return mbps > 0 ? `${mbps}Mbit` : undefined
+    return Number.isSafeInteger(mbps) && mbps > 0 ? `${mbps}Mbit` : undefined
   }
 
   if (/^\d+$/.test(trimmed)) {
     const bytes = BigInt(trimmed)
     const mbps = bytes / MB_IN_BYTES
+    if (mbps > BigInt(Number.MAX_SAFE_INTEGER)) return undefined
     return mbps > 0n ? `${mbps.toString()}Mbit` : null
   }
 

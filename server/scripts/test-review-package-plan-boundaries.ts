@@ -37,6 +37,8 @@ try {
   const reject = async (payload: Record<string, unknown>) => {
     for (const method of ['POST', 'PUT'] as const) {
       const response = await submit(method, payload)
+      if (response.statusCode !== 400 && payload.trafficLimitSpeed) console.log('Unexpected accepted line speed', method,
+        response.statusCode, (await prisma.packagePlan.findFirst({ where: { packageId: pkg.id, name: 'Candidate' } }))?.trafficLimitSpeed)
       assert.equal(response.statusCode, 400, method + ' invalid field ' + Object.keys(payload).join(','))
       assert.deepEqual(await state(), before); rejected++
     }
@@ -54,6 +56,8 @@ try {
   for (const value of [-1, 1000000, 1.001, '1', false]) await reject({ trafficResetPrice: value })
   for (const value of [0, 101, 99.999, '99', false]) await reject({ slaGuarantee: value })
   for (const value of ['-1Mbit', 'InfinityMbit', 'NaNMbit', '1e3Mbit', {}, 10]) await reject({ trafficLimitSpeed: value })
+  for (const value of ['9'.repeat(307) + 'Gbit', '9007199254740992Mbit', '9007199254741Gbit', '9'.repeat(400),
+    String((BigInt(Number.MAX_SAFE_INTEGER) + 1n) * 1048576n)]) await reject({ trafficLimitSpeed: value })
   actor = { id: users[1], username: tag, role: 'user' }
   for (const method of ['POST', 'PUT'] as const) assert.equal((await submit(method, { name: 'Forbidden' })).statusCode, 403)
   assert.deepEqual(await state(), before)
