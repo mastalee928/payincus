@@ -50,14 +50,14 @@ try {
         ...(initial === 'attempt' ? { paymentDetails: { paymentAttempt: { current: {
           id: '123456789ABC', gatewayOrderNo, createdAt: new Date().toISOString()
         }, superseded: [] } } } : {}) } })
-      let drift = true, resultState = state, changed: unknown
+      let drift = true, resultState = state, changed: unknown, returnedCurrency: unknown = 'CNY'
       query = async (url, settings) => {
         const input = type === 'yipay' ? url.searchParams.get('out_trade_no') : JSON.parse(String(settings.body))[type === 'heleket' ? 'order_id' : 'paymentRequestId']
         assert.equal(input, gatewayOrderNo)
         if (drift) changed = await db.updatePendingRechargePaymentSelection(orderNo, { paymentMethod: 'new-payment', fee: 0, actualAmount: 9,
           paymentDetails: { paymentAttempt: { current: { id: 'ABCDEF123456', gatewayOrderNo: orderNo + '--PA-ABCDEF123456', createdAt: new Date().toISOString() }, superseded: [] } } })
         const result = type === 'yipay' ? { code: 1, status: 1, out_trade_no: input, trade_no: orderNo, money: '10.00' }
-          : type === 'heleket' ? { state: 0, result: { order_id: input, uuid: orderNo, status: resultState, amount: '10.00', currency: 'CNY' } }
+          : type === 'heleket' ? { state: 0, result: { order_id: input, uuid: orderNo, status: resultState, amount: '10.00', currency: returnedCurrency } }
             : { result: { resultStatus: 'S', resultCode: 'SUCCESS' }, paymentStatus: resultState, paymentRequestId: input,
               paymentId: orderNo, paymentAmount: { currency: 'CNY', value: '1000' } }
         const body = JSON.stringify(result), headers: Record<string, string> = { 'content-type': 'application/json' }
@@ -70,6 +70,26 @@ try {
         return new Response(body, { headers })
       }
       const verify = () => app.inject({ method: 'POST', url: `/api/recharge/orders/${orderNo}/verify` })
+      if (type === 'heleket' && state === 'paid') {
+        drift = false
+        const capture = async () => ({
+          user: await prisma.user.findUniqueOrThrow({ where: { id: user.id } }),
+          record: await prisma.rechargeRecord.findUniqueOrThrow({ where: { id: order.id } }),
+          ledger: await prisma.balanceLog.findMany({ where: { userId: user.id }, orderBy: { id: 'asc' } }),
+          inbox: await prisma.inboxMessage.findMany({ where: { userId: user.id }, orderBy: { id: 'asc' } }),
+          callbacks: await prisma.paymentCallback.findMany({ where: { orderNo }, orderBy: { id: 'asc' } })
+        })
+        const before = await capture()
+        for (const currency of ['USD', '', null, undefined]) {
+          returnedCurrency = currency
+          const invalid = await verify()
+          assert.equal(invalid.statusCode, 200, invalid.body)
+          assert.equal(invalid.json().verified, false, 'missing or foreign currency must not verify payment')
+          assert.deepEqual(await capture(), before, 'invalid currency must preserve order and all accounting')
+        }
+        returnedCurrency = 'CNY'; drift = true
+        console.log('PASS user verify currency binding', initial, 'four invalid currencies leave accounting unchanged')
+      }
       const stale = await verify(), after = await prisma.rechargeRecord.findUniqueOrThrow({ where: { id: order.id } })
       if (stale.statusCode !== 409) console.log('Unexpected stale user verify', type, state, initial, stale.statusCode, after.status,
         'balance', Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance))

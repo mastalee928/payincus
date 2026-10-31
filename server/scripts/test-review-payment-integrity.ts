@@ -47,7 +47,7 @@ try {
       return app.inject({ method: 'POST', url: `/api/recharge/callback/${provider.id}`, payload })
     }
     const balanceBefore = Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance)
-    const invalids = type === 'heleket' ? [{ amount: '10garbage' }, { amount: '1e1' }, { amount: 'Infinity' }]
+    const invalids = type === 'heleket' ? [{ amount: '10garbage' }, { amount: '1e1' }, { amount: 'Infinity' }, { currency: 'USD' }, { currency: '' }, { currency: null }, { currency: undefined }]
       : [{ pid: 'other-merchant' }, { pid: null }, { pid: '' }, { pid: ['12345'] }]
     for (const changes of invalids) {
       const response = await callback(changes)
@@ -59,8 +59,8 @@ try {
       assert.equal(await prisma.balanceLog.count({ where: { orderId: order.orderNo } }), 0)
       assert.equal(await prisma.paymentCallback.count({ where: { orderNo: order.orderNo } }), 0)
     }
-    if (type !== 'heleket') await prisma.paymentProvider.update({ where: { id: provider.id }, data: { config: { ...config, pid: '67890' } } })
-    assert.equal((await callback(type === 'heleket' ? {} : { pid: 12345 })).statusCode, 200, 'the order merchant snapshot remains authoritative after config changes')
+    await prisma.paymentProvider.update({ where: { id: provider.id }, data: { config: { ...config, ...(type === 'heleket' ? { currency: 'USD' } : { pid: '67890' }) } } })
+    assert.equal((await callback(type === 'heleket' ? {} : { pid: 12345 })).statusCode, 200, 'the order merchant and currency snapshot remains authoritative after config changes')
     assert.equal((await callback()).statusCode, 200)
     assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), balanceBefore + 9)
     assert.equal(await prisma.balanceLog.count({ where: { orderId: order.orderNo } }), 1)

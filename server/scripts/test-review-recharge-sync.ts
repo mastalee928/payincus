@@ -69,6 +69,7 @@ try {
       let arrived = 0, release: (() => void) | undefined
       let returnedOrder: unknown = gatewayOrderNo
       let returnedStatus = 'paid'
+      let returnedCurrency: unknown = 'CNY'
       let afterQuery: (() => Promise<void>) | undefined
       const barrier = mode === 'concurrent' ? new Promise<void>(resolve => { release = resolve }) : undefined
       query = async (input, settings) => {
@@ -92,7 +93,7 @@ try {
         arrived++; await barrier; await afterQuery?.()
         return new Response(JSON.stringify(type === 'yipay'
           ? { code: 1, status: 1, money: '10.00', trade_no: order.orderNo, out_trade_no: returnedOrder }
-          : { state: 0, result: { order_id: returnedOrder, uuid: order.orderNo, status: returnedStatus, amount: '10.00', currency: 'CNY' } }),
+          : { state: 0, result: { order_id: returnedOrder, uuid: order.orderNo, status: returnedStatus, amount: '10.00', currency: returnedCurrency } }),
         { headers: { 'content-type': 'application/json' } })
       }
       const sync = () => app.inject({ method: 'POST', url: `/api/admin/billing/recharge-records/${order.id}/sync` })
@@ -183,6 +184,17 @@ try {
           assert.deepEqual(await capture(), before, 'foreign unpaid/terminal query must not change order metadata or state')
         }
         returnedOrder = order.orderNo; returnedStatus = 'paid'
+        if (type === 'heleket') {
+          for (const currency of ['USD', '', null, undefined]) {
+            returnedCurrency = currency
+            const response = await sync()
+            assert.equal(response.statusCode, 200, response.body)
+            assert.equal(response.json().synced, false, 'missing or foreign currency must not settle payment')
+            assert.deepEqual(await capture(), before, 'invalid currency must not mutate accounting, audit or notifications')
+          }
+          returnedCurrency = 'CNY'
+          console.log('PASS admin sync currency binding: four invalid currencies leave accounting unchanged')
+        }
         console.log('PASS', type, 'missing/foreign provider order rejected before every state or accounting mutation')
       }
       const expectedRequests = mode === 'concurrent' ? 8 : 1

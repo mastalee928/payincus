@@ -1903,7 +1903,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         ).trim()
         tradeNoForIndex = getTradeNoForIndex(orderNo, tradeNo)
 
-        const invoiceAmount = getHeleketInvoiceAmount(queryResult)
+        const invoiceAmount = getHeleketInvoiceAmount(queryResult, heleketConfig.currency || 'CNY')
         if (invoiceAmount === undefined || !Number.isFinite(invoiceAmount) || invoiceAmount <= 0) {
           request.log.warn({ orderNo, queryResult: sanitizeObject(queryResult) }, 'Heleket 返回的支付金额无效')
           return {
@@ -2771,7 +2771,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         (typeof callbackData.txid === 'string' && callbackData.txid.trim() ? callbackData.txid : '') ||
         (typeof callbackData.order_id === 'string' && callbackData.order_id.trim() ? callbackData.order_id : '')
       )
-      actualAmount = heleketPaymentState === 'paid' ? getHeleketInvoiceAmount(callbackData) : undefined
+      actualAmount = heleketPaymentState === 'paid' ? getHeleketInvoiceAmount(callbackData, buildHeleketConfig(config).heleketConfig.currency || 'CNY') : undefined
     } else if (provider.type === 'upaypro' && upayNotification) {
       orderNo = upayNotification.order_id
       tradeNo = upayNotification.trade_id

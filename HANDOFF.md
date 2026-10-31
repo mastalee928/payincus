@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 资金专项：Heleket 入账币种绑定
+
+- money-currency-before.log真实签名/隔离PG回调复现：CNY订单收到USD且数字金额相同仍completed。回调、用户verify和管理员sync现均按订单有效配置（优先原快照）的发票币种校验后才读取入账金额；拒缺失/空/不符币种，不改变币种配置、汇率或原金额容差。
+- money-currency-snapshot.log三渠道回调专项通过：Heleket四种错误/空缺币种均400、完整订单及余额/账本/回调不变；渠道后来改USD仍接受原CNY订单，正常与重复只入账一次。money-currency-verify.log用户真实路由两种支付尝试各四种币种拒入账且原18场换单回归通过；money-currency-sync.log管理员同样四种拒入账、完整账目/审计不变及原完整同步回归通过。
+- money-currency-types.log含三个专项的完整严格类型、money-currency-guards.log七项充值守卫、money-currency-build.log后端构建通过。均为隔离PG和受控平台响应，非外部实际付款；暂不发版。前项290a8cf2929258cbf22ff693507e3113db03e188/41186257586及b58e281f/41185859424、39deb353/41185376355仍运行，已加入自动跟进。
+- 旧61c0412e82e2bc8113dd95661c1f6ff8af6108a8/41178719643终态failure；job124471542138日志确认Package inventory did not mount，原旧路由由08475782修正，保留历史，不重复测试。08475782/41183989740待终态。资金审查继续邮箱订阅扣费授权与请求重试/迟到付款边界。
+
 ## 2026-10-31 资金专项：公开API续费在途撤销授权
 
 - money-public-renew-before.log通过真实Bearer认证、PG实例行锁及独立等待链观察复现：请求开始合法，等待时撤销API token，原续费仍200且扣10元。公开续费未把authenticatePublicApiRequest已捕获的writeAuthorization传到计费事务，只复核了账户状态。

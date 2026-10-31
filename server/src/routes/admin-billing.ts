@@ -3437,7 +3437,7 @@ if (provider.type === 'yipay') {
         ).trim()
         tradeNoForIdx = getTradeNoForIndex(record.orderNo, tradeNo)
 
-        const invoiceAmount = getHeleketInvoiceAmount(queryResult)
+        const invoiceAmount = getHeleketInvoiceAmount(queryResult, heleketConfig.currency || 'CNY')
         if (invoiceAmount === undefined || !Number.isFinite(invoiceAmount) || invoiceAmount <= 0) {
           request.log.warn({ orderNo: record.orderNo, queryResult: sanitizeObject(queryResult) }, '管理员同步-Heleket 支付金额无效')
           return {

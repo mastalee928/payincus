@@ -275,7 +275,8 @@ export function extractHeleketPaymentDetails(
   }
 }
 
-export function getHeleketInvoiceAmount(payment: HeleketPayment | Record<string, unknown>): number | undefined {
+export function getHeleketInvoiceAmount(payment: HeleketPayment | Record<string, unknown>, expectedCurrency?: string): number | undefined {
+  if (expectedCurrency && payment.currency !== expectedCurrency) return undefined
   return typeof payment.amount === 'string' ? parsePositivePaymentMoney(payment.amount) : undefined
 }
 function formatHeleketError(data: HeleketApiResponse<unknown>, fallback: string): string {
