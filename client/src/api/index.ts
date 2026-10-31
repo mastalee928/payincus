@@ -2732,7 +2732,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
     }> => http.get('/recharge/providers'),
 
     // 创建充值订单
-    createRechargeOrder: (providerId: number, amount: number, paymentMethod?: string, creditTarget?: number): Promise<{
+    createRechargeOrder: (providerId: number, amount: number, paymentMethod?: string, creditTarget?: number, requestId?: string): Promise<{
       order: {
         orderNo: string
         amount: number
@@ -2750,10 +2750,14 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
         methods: string[]
       }
       payUrl: string | null
+      recovered?: boolean
       manualPayment?: {
         instructions: string
       } | null
-    }> => http.post('/recharge/orders', { providerId, amount, paymentMethod, ...(creditTarget !== undefined ? { creditTarget } : {}) }),
+    }> => http.post('/recharge/orders', { providerId, amount, paymentMethod, ...(creditTarget !== undefined ? { creditTarget } : {}), ...(requestId ? { requestId } : {}) }),
+
+    getRechargeCreation: (requestId: string): Promise<{ order: { orderNo: string; status: string; payableAmount: number; actualAmount: number | null; provider: { name: string } } | null; manualPayment?: { instructions: string } | null }> =>
+      http.get(`/recharge/requests/${encodeURIComponent(requestId)}`),
 
     // 获取充值记录列表
     getRechargeOrders: (params?: { page?: number; pageSize?: number; status?: string }): Promise<{

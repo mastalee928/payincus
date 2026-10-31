@@ -34,7 +34,7 @@ export interface UpdateRechargePaymentSelectionInput {
   actualAmount: number
   paymentDetails: Record<string, unknown> | null
   expiredAt?: Date
-  expectedPaymentDetails?: Record<string, unknown>
+  expectedPaymentDetails?: Record<string, unknown> | null
 }
 
 export interface RechargeRecordWithProvider extends RechargeRecord {
@@ -636,9 +636,7 @@ export async function updatePendingRechargePaymentSelection(
     where: {
       orderNo,
       status: 'pending',
-      ...(data.expectedPaymentDetails !== undefined
-        ? { paymentDetails: { equals: data.expectedPaymentDetails as any } }
-        : {})
+      ...paymentSelectionCondition(data.expectedPaymentDetails)
     },
     data: {
       paymentMethod: data.paymentMethod || null,

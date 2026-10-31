@@ -7,5 +7,6 @@ export default {
   auth: { me: async () => ({ user: { id: 1, username: 'seoul', role: 'user' } }) },
   instances: { poolOrder: data => ask('buy', data), getPoolOrder: id => ask('order', id) },
   billing: { getPaymentProviders: () => ask('providers'), createRechargeOrder: (...data) => ask('charge', data),
-    getRechargeOrder: id => ask('charge-status', id), verifyRechargeOrder: id => ask('verify', id) }
+    getRechargeCreation: id => ask('charge-intent', id),
+    getRechargeOrder: id => ask('charge-status', id), verifyRechargeOrder: id => ask('verify', id), repayRechargeOrder: id => ask('repay', id) }
 }

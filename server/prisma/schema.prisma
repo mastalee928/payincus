@@ -2829,6 +2829,8 @@ model RechargeRecord {
 
   // 订单信息
   orderNo String  @unique @map("order_no") // 系统订单号
+  creationRequestId String? @map("creation_request_id")
+  creationRequestHash String? @map("creation_request_hash")
   tradeNo String? @map("trade_no")          // 第三方交易号
 
   // 金额
@@ -2869,6 +2871,7 @@ model RechargeRecord {
   @@index([orderNo])
   @@index([tradeNo])
   @@map("recharge_records")
+  @@unique([userId, creationRequestId])
 }
 
 model RechargeLatePayment {

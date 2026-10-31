@@ -101,6 +101,7 @@
     "test:review-pool-cart-ui": "node ../scripts/test-pool-cart.mjs",
     "test:review-pool-provision": "node --import tsx scripts/test-review-pool-provision.ts",
     "test:review-pool-stock": "node --import tsx scripts/test-review-pool-stock.ts",
+    "test:review-recharge-create": "node --import tsx scripts/test-review-recharge-create.ts",
     "test:review-gift-card-counts": "node --import tsx scripts/test-review-gift-card-counts.ts",
     "test:review-gift-card-id-boundaries": "node --import tsx scripts/test-review-gift-card-id-boundaries.ts",
     "test:review-batch-config-input-boundaries": "node --import tsx scripts/test-review-batch-config-input-boundaries.ts",

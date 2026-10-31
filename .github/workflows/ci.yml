@@ -340,6 +340,8 @@ jobs:
         run: pnpm --filter server test:review-pool-provision
       - name: Pool allocation rechecks architecture after waiting for host locks
         run: pnpm --filter server test:review-pool-stock
+      - name: Recharge creation retries recover the same account-bound order
+        run: pnpm --filter server test:review-recharge-create
       - name: Gift card batch quantities reject invalid input and preserve exact boundary counts
         run: pnpm --filter server test:review-gift-card-counts
       - name: Invalid gift card IDs reject entire batches before refunding or changing valid cards

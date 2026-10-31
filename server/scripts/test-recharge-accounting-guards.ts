@@ -53,8 +53,9 @@ assert.ok(
   'recharge order creation must reject non-finite or non-positive credited amounts'
 )
 assert.ok(
+  createOrderRoute.includes('await createRechargeOnce') &&
   createOrderRoute.indexOf('!Number.isFinite(actualAmount) || actualAmount <= 0') <
-    createOrderRoute.indexOf('await db.createRechargeOrder'),
+    createOrderRoute.indexOf('await createRechargeOnce'),
   'credited amount guard must run before creating the recharge order'
 )
 
@@ -204,11 +205,12 @@ assert.ok(
 const checkoutViewSource = readFileSync(resolve(__dirname, '../../client/src/views/CheckoutView.vue'), 'utf8')
 const userApiSource = readFileSync(resolve(__dirname, '../../client/src/api/index.ts'), 'utf8')
 assert.ok(
-  userApiSource.includes("http.post('/recharge/orders', { providerId, amount, paymentMethod, ...(creditTarget !== undefined ? { creditTarget } : {}) })"),
+  userApiSource.includes("http.post('/recharge/orders', { providerId, amount, paymentMethod, ...(creditTarget !== undefined ? { creditTarget } : {}), ...(requestId ? { requestId } : {}) })"),
   'customer API client must forward the checkout credit target to the recharge order endpoint'
 )
 assert.ok(
-  checkoutViewSource.includes('api.billing.createRechargeOrder(providerId, targetYuan, undefined, targetYuan)') &&
+  checkoutViewSource.includes('gatewayIntent(account, providerId, targetYuan)') &&
+  checkoutViewSource.includes('api.billing.createRechargeOrder(intent.providerId, intent.amount, undefined, intent.amount, intent.requestId)') &&
     checkoutViewSource.includes("if (status === 'completed')") &&
     checkoutViewSource.includes("payChoice.value = 'balance'") &&
     checkoutViewSource.includes('gatewayCredited.value = true'),

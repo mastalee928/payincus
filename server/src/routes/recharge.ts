@@ -58,6 +58,7 @@ import { notifyAdminRecharge } from '../lib/admin-alerts.js'
 import { sanitizeObject } from '../lib/log-sanitizer.js'
 import { getCurrentRechargeGatewayOrderNo, isRechargeGatewayOrderNoMatch, resolveRechargeOrderNoFromGatewayOrderNo } from '../lib/recharge-order-guard.js'
 import { RechargePaymentSelectionChangedError } from '../db/recharge-records.js'
+import { createRechargeOnce, findRechargeCreation, rechargeCreationIntent, RechargeCreationError } from '../services/recharge-creation.js'
 import { isPaymentAmountWithinTolerance, parsePositivePaymentMoney } from '../lib/payment-money.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { assertSafeHttpUrl, isIpPrivateOrReserved } from '../lib/outbound-security.js'
@@ -1018,11 +1019,12 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       }
 
       const user = request.user!
-      const { providerId, amount, paymentMethod, creditTarget: creditTargetInput } = request.body as {
+      const { providerId, amount, paymentMethod, creditTarget: creditTargetInput, requestId } = request.body as {
         providerId: unknown
         amount: unknown
         paymentMethod?: string  // 支付方式：alipay, wxpay 等
         creditTarget?: unknown  // 结算页按「实际到账目标」充值：服务端据此把手续费补足
+        requestId?: unknown
       }
 
       const providerIdNum = parsePositiveId(providerId)
@@ -1045,6 +1047,17 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       let normalizedAmount = Math.round(rechargeAmount * 100) / 100
       if (normalizedAmount <= 0) {
         return reply.status(400).send({ error: '充值金额无效' })
+      }
+      if (paymentMethod !== undefined && (typeof paymentMethod !== 'string' || paymentMethod.length > 100)) return reply.status(400).send({ error: '支付方式无效' })
+      const intent = rechargeCreationIntent(requestId, providerIdNum, normalizedAmount, creditTarget, paymentMethod)
+      const recoveredResponse = async (record: NonNullable<Awaited<ReturnType<typeof db.getRechargeRecordByOrderNo>>>) => ({
+        order: buildRechargeRecordView(record), provider: record.provider,
+        payUrl: null, manualPayment: record.provider?.type === MANUAL_PROVIDER_TYPE ? buildManualRechargeResponse(record.paymentDetails) : null,
+        recovered: true
+      })
+      if (intent) {
+        const previous = await prisma.$transaction(tx => findRechargeCreation(user.id, intent, user, tx))
+        if (previous) return recoveredResponse((await db.getRechargeRecordByOrderNo(previous.orderNo))!)
       }
 
       // 获取支付渠道
@@ -1116,7 +1129,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       })
 
       // 创建订单
-      let order = await db.createRechargeOrder({
+      const created = await createRechargeOnce({
         orderNo,
         userId: user.id,
         providerId: providerIdNum,
@@ -1129,7 +1142,9 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         paymentDetails: paymentDetails as Record<string, unknown> | null,
         ip: request.ip,
         userAgent: request.headers['user-agent']
-      })
+      }, intent, user)
+      let order = created.order
+      if (!created.created) return recoveredResponse((await db.getRechargeRecordByOrderNo(order.orderNo))!)
 
       // 根据支付渠道类型生成支付链接
       let payUrl: string | null = null
@@ -1165,6 +1180,11 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         throw payError
       }
 
+      const currentOrder = await db.getRechargeRecordByOrderNo(order.orderNo)
+      if (!currentOrder || currentOrder.status !== 'pending' || getCurrentRechargeGatewayOrderNo(currentOrder.paymentDetails, currentOrder.orderNo) !== order.orderNo) {
+        return reply.status(409).send({ error: '订单状态已变化，请刷新后重试' })
+      }
+
       return {
         order: {
           orderNo: order.orderNo,
@@ -1188,11 +1208,23 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           : null
       }
     } catch (error) {
+      if (error instanceof RechargeCreationError) return reply.status(error.status).send({ error: error.message })
       request.log.error(error, '创建充值订单失败')
       return reply.status(500).send({ error: '创建充值订单失败' })
     }
   })
 
+  // 按原账户和创建请求找回订单；不根据金额或时间猜测。
+  app.get<{ Params: { requestId: string } }>('/api/recharge/requests/:requestId', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const requestId = request.params.requestId
+    reply.header('Cache-Control', 'no-store')
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(requestId)) return reply.status(400).send({ error: '充值请求编号无效' })
+    const record = await prisma.rechargeRecord.findUnique({ where: {
+      userId_creationRequestId: { userId: request.user!.id, creationRequestId: requestId.toLowerCase() }
+    }, include: { provider: { select: { id: true, name: true, type: true } } } })
+    if (!record) return { order: null }
+    return { order: buildRechargeRecordView(record), manualPayment: record.provider.type === MANUAL_PROVIDER_TYPE ? buildManualRechargeResponse(record.paymentDetails) : null }
+  })
   // 获取用户充值记录列表
   app.get('/api/recharge/orders', {
     onRequest: [app.authenticate]
@@ -1485,9 +1517,9 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         fee,
         actualAmount,
         paymentDetails,
+        expectedPaymentDetails: record.paymentDetails as Record<string, unknown> | null,
         ...(provider.type === 'upaypro' ? {
-          expiredAt: upayExpiredAt,
-          expectedPaymentDetails: record.paymentDetails as Record<string, unknown>
+          expiredAt: upayExpiredAt
         } : {})
       })
       if (!updatedRecord) {

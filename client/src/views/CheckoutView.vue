@@ -75,6 +75,22 @@ const gatewayOrder = ref<{
   payUrl: string | null
   manualInstructions: string | null
 } | null>(null)
+type GatewayIntent = { requestId: string; providerId: number; amount: number }
+const volatileGatewayIntents = new Map<number, GatewayIntent>()
+function gatewayIntent(account: number, providerId: number, amount: number): GatewayIntent {
+  let saved: GatewayIntent | null = volatileGatewayIntents.get(account) ?? null
+  try { saved ??= JSON.parse(sessionStorage.getItem(`payincus.checkout-payment-intent.${account}`) || 'null') } catch { /* Use memory fallback. */ }
+  if (!saved || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(saved.requestId) || !Number.isSafeInteger(saved.providerId) || saved.providerId < 1 || !Number.isFinite(saved.amount) || saved.amount <= 0) {
+    saved = { requestId: crypto.randomUUID(), providerId, amount }
+  }
+  volatileGatewayIntents.set(account, saved)
+  try { sessionStorage.setItem(`payincus.checkout-payment-intent.${account}`, JSON.stringify(saved)) } catch { /* Same-tab retry still works. */ }
+  return saved
+}
+function clearGatewayIntent(account: number) {
+  volatileGatewayIntents.delete(account)
+  try { sessionStorage.removeItem(`payincus.checkout-payment-intent.${account}`) } catch { /* Receipt is authoritative. */ }
+}
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 let gatewayPollTimer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
@@ -253,7 +269,7 @@ async function initialize() {
       .catch(() => { if (current()) payProviders.value = [] })
     if (sshKeys.value.length > 0) sshKeyId.value = sshKeys.value[0].id
     else authMode.value = 'password'
-    restoreGatewayOrder()
+    await restoreGatewayOrder()
   } catch (err) {
     if (current()) { catalogReady.value = false; error.value = translateError(err) }
   } finally {
@@ -440,16 +456,44 @@ function saveGatewayOrder() {
     else sessionStorage.removeItem(key)
   } catch { /* The original order remains accessible in the user's order list. */ }
 }
-function restoreGatewayOrder() {
+async function restoreGatewayOrder() {
+  const current = context(), account = authStore.user?.id
   try {
     const saved = JSON.parse(sessionStorage.getItem(`payincus.checkout-payment.${authStore.user?.id}`) || 'null')
+    if (!saved && account) {
+      const intent = volatileGatewayIntents.get(account) ?? JSON.parse(sessionStorage.getItem(`payincus.checkout-payment-intent.${account}`) || 'null')
+      if (!intent || typeof intent.requestId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(intent.requestId)) return
+      const found = await api.billing.getRechargeCreation(intent.requestId)
+      if (!current()) return
+      if (!found.order) { payChoice.value = intent.providerId; return }
+      gatewayOrder.value = { orderNo: found.order.orderNo, providerName: found.order.provider.name,
+        payableCents: Math.round(found.order.payableAmount * 100), actualAmountCents: Math.round(Number(found.order.actualAmount) * 100),
+        payUrl: null, manualInstructions: found.manualPayment?.instructions ?? null }
+      saveGatewayOrder(); clearGatewayIntent(account)
+      void refreshGatewayOrder()
+      return
+    }
     if (!saved || typeof saved.orderNo !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(saved.orderNo) || typeof saved.providerName !== 'string' ||
       ![saved.payableCents, saved.actualAmountCents].every(value => Number.isSafeInteger(value) && value >= 0) ||
       (saved.payUrl !== null && (typeof saved.payUrl !== 'string' || !/^https?:\/\//i.test(saved.payUrl))) ||
       (saved.manualInstructions !== null && typeof saved.manualInstructions !== 'string')) return
     gatewayOrder.value = saved
     void refreshGatewayOrder()
-  } catch { /* Corrupt cached payment metadata is not an authorization or payment fact. */ }
+  } catch { if (current()) gatewayError.value = t('cart.statusFailed') }
+}
+async function resumeGatewayPayment() {
+  const current = context(), order = gatewayOrder.value
+  if (!current() || !order || gatewayBusy.value || gatewayCredited.value) return
+  gatewayBusy.value = true; gatewayError.value = ''
+  try {
+    const result = await api.billing.repayRechargeOrder(order.orderNo)
+    if (!current() || gatewayOrder.value?.orderNo !== order.orderNo || result.order.orderNo !== order.orderNo) return
+    gatewayOrder.value = { ...order, payUrl: result.payUrl, manualInstructions: result.manualPayment?.instructions ?? null,
+      payableCents: Math.round(result.order.payableAmount * 100), actualAmountCents: Math.round(Number(result.order.actualAmount) * 100) }
+    saveGatewayOrder()
+    openGatewayPage()
+  } catch (err) { if (current()) gatewayError.value = translateError(err) }
+  finally { if (current()) { gatewayBusy.value = false; void refreshGatewayOrder() } }
 }
 
 /** 选渠道时按整单金额创建充值单；到账后仍由余额完成扣款与开通。 */
@@ -472,7 +516,8 @@ async function startGatewayPayment(): Promise<void> {
   error.value = ''
   try {
     const targetYuan = totalCents.value / 100
-    const result = await api.billing.createRechargeOrder(providerId, targetYuan, undefined, targetYuan)
+    const account = authStore.user!.id, intent = gatewayIntent(account, providerId, targetYuan)
+    const result = await api.billing.createRechargeOrder(intent.providerId, intent.amount, undefined, intent.amount, intent.requestId)
     if (!current()) return
     gatewayOrder.value = {
       orderNo: result.order.orderNo,
@@ -483,10 +528,17 @@ async function startGatewayPayment(): Promise<void> {
       manualInstructions: result.manualPayment?.instructions ?? null
     }
     saveGatewayOrder()
-    if (result.payUrl) window.open(result.payUrl, '_blank', 'noopener')
-    scheduleGatewayPoll(4000)
-  } catch (err) {
-    if (current()) gatewayError.value = translateError(err)
+    clearGatewayIntent(account)
+    if (result.payUrl && !result.recovered) window.open(result.payUrl, '_blank', 'noopener')
+    if (result.recovered) void refreshGatewayOrder()
+    else scheduleGatewayPoll(4000)
+  } catch (err: any) {
+    if (current()) {
+      // This endpoint returns 400 only before persistence. Unknown outcomes
+      // retain their identity; a definite input rejection can be corrected.
+      if (err?.response?.status === 400) clearGatewayIntent(authStore.user!.id)
+      gatewayError.value = translateError(err)
+    }
   } finally {
     if (current()) gatewayBusy.value = false
   }
@@ -706,9 +758,12 @@ function onPrimaryAction(): void {
             <p v-if="gatewayError" class="text-xs text-red-600 dark:text-red-400">{{ gatewayError }}</p>
             <div v-if="!gatewayCredited" class="checkout-gateway-actions">
               <button v-if="gatewayOrder.payUrl" type="button" class="checkout-secondary" @click="openGatewayPage">{{ t('cart.gatewayOpen') }}</button>
+              <button v-else-if="!gatewayOrder.manualInstructions" type="button" class="checkout-secondary" :disabled="gatewayBusy" @click="resumeGatewayPayment">{{ t('cart.gatewayResume') }}</button>
               <button type="button" class="checkout-secondary" :disabled="gatewayBusy" @click="refreshGatewayOrder(true)">{{ t('cart.gatewayRefresh') }}</button>
             </div>
+            <p v-if="!gatewayCredited && !gatewayOrder.payUrl && !gatewayOrder.manualInstructions" class="checkout-gateway-meta">{{ t('cart.gatewayRecovered') }}</p>
           </div>
+          <p v-if="gatewayError && !gatewayOrder" class="checkout-alert checkout-alert-error" role="alert">{{ gatewayError }}</p>
           <label v-if="rows.some(row => row.priceChanged)" class="checkout-price-consent"><input v-model="acceptPrices" type="checkbox" />{{ t('cart.acceptPrices') }}</label>
           <div v-if="turnstileRequired" class="checkout-verification">
             <TurnstileWidget ref="turnstileRef" v-model="turnstileToken" :site-key="configStore.turnstileSiteKey!" :theme="themeStore.isDark ? 'dark' : 'light'" size="compact" action="pool-checkout" />
