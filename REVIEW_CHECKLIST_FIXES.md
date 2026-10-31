@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为309/327（94.5%，含部分、待验收、重复与实现差异），18项仍保初审分类；这不是完整修复数，不能按327减309计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为310/327（94.8%，含部分、待验收、重复与实现差异），17项仍保初审分类；这不是完整修复数，不能按327减310计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -381,7 +381,7 @@
 | R1-087 | 存在 | 源码已修/Linux AMD64真实socket测试通过 | 检测强制ModeSocket。c77b68c5源码CI41115227451/job124267588913的internal/report实际成功，普通文件拒绝、实际创建Unix socket可识别；原生Incus发现/ARM64运行另验，Windows旧Statfs限制不作为Linux未运行的依据。 |
 | R1-088 | 已有防护 | 完整原脚本隔离运行通过 | 原preflight准备三个父目录；两个架构名称的新嵌套目录真实manifest/hash/staging/文件替换成功，顺序manifest→binary→token→smoke且无残留，agent-installer-second.log。服务/root/网络为夹具，非原生双架构或Linux服务验收，见2026-10-31 HANDOFF。 |
 | R1-089 | 已有防护 | 完整原脚本失败保旧复验通过 | 父目录/下载/hash/暂存冒烟四失败非零，原binary/config/service逐字节保持、零服务变更、无暂存；前三种不消费token，冒烟失败已消费。共用R088的agent-installer-second.log；提交后回滚、信号/崩溃、真实Linux服务仍待。 |
-| R1-090 | 已有防护 | 保留初审结论 | 已有目录准备、preflight/staging及dry-run凭据处理；不照搬旧覆盖安装修法，Linux真实安装另验。 |
+| R1-090 | 已有防护 | 完整原脚本dry-run复验通过 | systemd/OpenRC×token/静态secret四组合不打印植入凭据，显示原redacted占位；零网络/服务调用/安装目录。共用R088的agent-installer-second.log，不扩张为URL凭据或shell trace检查；真实Linux安装另验。 |
 | R1-091 | 存在 | 源码已修/隔离PG验证通过 | Agent凭据发行锁内复核current owner/actor/role/status/session或current host安装token；转移/封禁/注销/降权拒绝。logs/review-agent-credentials-integration.log；Go真安装未验 |
 | R1-092 | 存在 | 源码已修/隔离PG验证通过 | identity/secret/nonce和install token同事务轮换，消费先decrypt/hash核验再CAS；7并发发行仅最新token，消费仅1次，故障回滚及坏密文不消费。logs/review-agent-credentials-integration.log |
 | R1-093 | 存在 | 源码已修/隔离PG验证通过 | R092先完成解密/hash与消费原子性，本项补格式/空白拒绝。logs/takeover-agent-secret-final.log六坏格式保token/修复重试/两合法边界及原并发权限回归通过；真实Go安装另验 |

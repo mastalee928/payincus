@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R090 Agent dry-run 凭据遮蔽复验
+
+- 共用R088的原脚本运行：systemd/OpenRC×一次性安装token/静态Agent凭据四组合，输出不含所植入token、secret或token模式的模拟secret，配置包含<redacted>，token下载路径包含<redacted-install-token>；每组合零下载/服务调用，未创建安装目录。agent-installer-second.log10用例自然exit0，原命令守卫/语法/清单均过，无产品修改。
+- 范围仅安装token与Agent secret的普通dry-run输出；管理员自行传入带其它凭据的URL、shell调试trace、真实服务日志及崩溃恢复不由此证明安全。真实Linux安装/外部认证下载仍保留待验收。
+- 完整已推身份：R088 a969d79686a2ad5f2254142240306b5741586d37 / CI41156714810；R089的完整身份随下一次CI登记。R090后310/327（94.8%，含部分/待验收）、17项初审。测试和文档分项保存，不新增三次产品修复；CI持续跟踪，未生产部署。
+
 ## 2026-10-31 R089 Agent 失败保留旧安装复验
 
 - 复用R088完整原安装脚本的10用例运行。父目录被普通文件占用、下载失败、SHA256不符、暂存程序冒烟失败四种故障均非零退出；原binary/config/service逐字节cmp保持，服务边界零变更，前三种故障在领取token前退出；冒烟失败已领取token，不能误称仍可复用原token。暂存文件全部清理。
