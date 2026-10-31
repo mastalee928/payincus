@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R224 用户历史页与现行登录弹窗对应关系复审
+
+- 全双端路由及组件中无独立UserHistoryView，也无用户编号驱动的旧历史页；现行管理员登录记录与财务记录在UsersView弹窗。实际登录入口每次递增dialog generation、清记录并重置第一页，读取绑定当前admin session/用户/page/pageSize/开关/激活状态；同步失效requestId，旧成功/失败/finally均不应用，停用关闭弹窗，重开重新加载。余额概览/明细/充值采用相同独立读取状态。并非仅按文件名不同排除风险。
+- 共用R305已有takeover-user-dialog-reads-final-r2.log真实Chrome目标/ABA/会话/账户/角色/注销/关闭/缓存/分页及错误retry证据，与当前代码相符；该项没有第二次产品修复，也不重跑无变化构建。未验证的历史冻结、断网写入幂等、真实客户数据流程继续属于R305项内缺口，不把本条复审扩张成全部用户管理安全验收。
+- R070已推fedcede58a0d9485399944d23a8489400c31a9d3 / CI41161712175。R224归档后317/327（96.9%，含复用/部分）、10项初审；R263构建和CI继续。
+
 ## 2026-10-31 R070 远程备份存储栈现行消费者复审
 
 - ProfileView及全前端未找到StorageSection组件消费者，旧配置区确为孤立；但整套provider并未退役。app.ts注册/api/storage-configs并启动backupUploadWorker，backups上传路由选当前账户指定/默认配置并创建绑定任务；worker实际StorageFactory.create后uploadStream，失败清理用deleteFile。host-replacement的已完成备份恢复实际调用同工厂downloadStream，再交Incus恢复。工厂按配置选择WebDAV/FTP/SFTP/S3，路由的连接测试也实际使用。
