@@ -334,6 +334,10 @@ jobs:
         run: pnpm --filter server test:review-pool-checkout
       - name: Pool checkout preserves request identity and isolates old browser replies
         run: pnpm --filter server test:review-pool-checkout-ui
+      - name: Pool results expose only owned ready credentials and current clipboard replies
+        run: |
+          pnpm --filter server test:review-pool-result
+          pnpm --filter server test:review-pool-result-ui
       - name: Pool cart preserves concurrent entries and current purchase choices
         run: pnpm --filter server test:review-pool-cart-ui
       - name: Pool creation preserves remote identity and retries cleanup without duplicate refunds

@@ -98,6 +98,8 @@
     "test:review-late-payments-ui": "node ../scripts/test-late-payments.mjs",
     "test:review-pool-checkout": "node --import tsx scripts/test-review-pool-checkout.ts",
     "test:review-pool-checkout-ui": "node ../scripts/test-pool-checkout.mjs",
+    "test:review-pool-result-ui": "node ../scripts/test-pool-result.mjs",
+    "test:review-pool-result": "node --import tsx scripts/test-review-pool-result.ts",
     "test:review-pool-cart-ui": "node ../scripts/test-pool-cart.mjs",
     "test:review-pool-provision": "node --import tsx scripts/test-review-pool-provision.ts",
     "test:review-pool-stock": "node --import tsx scripts/test-review-pool-stock.ts",

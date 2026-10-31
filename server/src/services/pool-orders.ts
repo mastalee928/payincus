@@ -70,6 +70,7 @@ export interface PoolOrderResult {
     refundPending: boolean
     sshPort: number | null
     rootPassword: string | null
+    publicIpUpdating: boolean
     publicIpv6Addresses?: string[]
     publicIpv6Status?: string
   }>

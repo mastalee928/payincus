@@ -1,18 +1,31 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowRight, Check, ChevronRight, CircleAlert, Copy, Eye, EyeOff, Loader2, RefreshCw, Server, Terminal } from 'lucide-vue-next'
 import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import type { PoolCheckoutResult } from '@/types/host-pool'
 
 const props = defineProps<{ order: PoolCheckoutResult }>()
 defineEmits<{ refresh: [] }>()
 const { t } = useI18n()
 const toast = useToast()
+const auth = useAuthStore(), route = useRoute()
 const visiblePasswords = ref<Record<number, boolean>>({})
 const copiedField = ref('')
 let copyTimer: ReturnType<typeof setTimeout> | undefined
+let active = true, disposed = false, copyGeneration = 0
+function resetCopies() {
+  copyGeneration++
+  clearTimeout(copyTimer)
+  copiedField.value = ''
+  visiblePasswords.value = {}
+}
+watch(() => [props.order.batchId, route.fullPath, auth.user?.id, auth.token], resetCopies, { flush: 'sync' })
+onActivated(() => { active = true })
+onDeactivated(() => { active = false; resetCopies() })
 
 type Instance = PoolCheckoutResult['instances'][number]
 type State = 'ready' | 'creating' | 'updating' | 'unavailable' | 'failed' | 'refundPending' | 'refunded'
@@ -73,14 +86,22 @@ function sshCommand(instance: Instance) {
   return `ssh -p ${instance.sshPort} root@${instance.host}`
 }
 async function copyValue(value: string, field: string) {
+  clearTimeout(copyTimer)
+  copiedField.value = ''
+  const authentication = auth.captureAuthentication(), account = auth.user?.id, batch = props.order.batchId, path = route.fullPath
+  const version = ++copyGeneration
+  const current = () => active && !disposed && version === copyGeneration && !!auth.token && account === auth.user?.id &&
+    batch === props.order.batchId && path === route.fullPath && authentication.aligned && authentication.current()
+  if (!current()) return
   try {
     await navigator.clipboard.writeText(value)
+    if (!current()) return
     copiedField.value = field
     clearTimeout(copyTimer)
-    copyTimer = setTimeout(() => { copiedField.value = '' }, 2000)
-  } catch { toast.error(t('common.copyFailed')) }
+    copyTimer = setTimeout(() => { if (current()) copiedField.value = '' }, 2000)
+  } catch { if (current()) toast.error(t('common.copyFailed')) }
 }
-onUnmounted(() => clearTimeout(copyTimer))
+onUnmounted(() => { disposed = true; resetCopies() })
 </script>
 
 <template>

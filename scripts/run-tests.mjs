@@ -77,6 +77,8 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-late-payments-ui', 'requires Chrome/Edge and local Vite; actual reconciliation component actions, stale sessions and responsive layout'],
   ['test:review-pool-checkout', 'requires isolated PostgreSQL; actual pool checkout lock races, authorization revocation, accounting and receipt replay'],
   ['test:review-pool-checkout-ui', 'requires Chrome and Vite; actual checkout retries, account and route isolation, cart acknowledgement and payment recovery'],
+  ['test:review-pool-result-ui', 'requires Chrome and Vite; checkout result states and delayed clipboard completion isolation'],
+  ['test:review-pool-result', 'requires isolated PostgreSQL; actual order result ownership, credentials, delivery and refund states'],
   ['test:review-pool-cart-ui', 'requires Chrome and Vite; two-tab cart persistence, corrupt storage and purchase selector lifecycle'],
   ['test:review-pool-stock', 'requires isolated PostgreSQL; allocator revalidation after an actual host row lock wait'],
   ['test:review-recharge-create', 'requires isolated PostgreSQL; persistent recharge creation identity, recovery and account lock races'],
