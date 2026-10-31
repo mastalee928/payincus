@@ -78,6 +78,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-pool-checkout', 'requires isolated PostgreSQL; actual pool checkout lock races, authorization revocation, accounting and receipt replay'],
   ['test:review-pool-checkout-ui', 'requires Chrome and Vite; actual checkout retries, account and route isolation, cart acknowledgement and payment recovery'],
   ['test:review-pool-cart-ui', 'requires Chrome and Vite; two-tab cart persistence, corrupt storage and purchase selector lifecycle'],
+  ['test:review-pool-stock', 'requires isolated PostgreSQL; allocator revalidation after an actual host row lock wait'],
   ['test:review-pool-provision', 'requires isolated PostgreSQL and OpenSSL; actual pool creation identity, cleanup and refund lifecycle with authenticated mTLS'],
   ['test:review-gift-card-counts', 'requires isolated PostgreSQL; original admin batch routes reject invalid counts without mutations and persist exact min/max quantities and value limits'],
   ['test:review-gift-card-id-boundaries', 'requires isolated PostgreSQL; invalid card IDs and mixed batches preserve balances, cards and ledger before any refund, normal mutations remain idempotent'],

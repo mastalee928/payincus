@@ -1103,6 +1103,7 @@ export async function selectAndReserveHostWithLock(
       const ready = await tx.host.findFirst({ where: { id: host.id, singleTenant: true,
         ...dedicatedHostReadyWhere(), machineGroupId: options.poolMachineGroupId,
         regionGroupId: options.poolRegionGroupId, resourcePreset: options.poolResourcePreset,
+        architecture: options.poolResourcePreset?.startsWith('ARM') ? 'aarch64' : 'x86_64',
         customerDiskGiB: options.poolDiskGiB, instances: { none: HOST_OCCUPIED_INSTANCE_WHERE },
         ...(options.poolImageId ? { AND: [{ OR: [{ allowedImages: { none: {} } }, { allowedImages: { some: { imageId: options.poolImageId } } }] }] } : {}) }, select: { id: true } })
       if (!ready || await tx.instanceTask.count({ where: hostPendingMoveWhere(host.id) })) continue
