@@ -36,6 +36,12 @@ export interface EpayConfigLegacy {
 
 export type EpayConfig = EpayConfigV1 | EpayConfigV2 | EpayConfigLegacy
 
+// A platform signature can be shared across merchants; bind it to this payee.
+function matchesMerchantId(value: unknown, expected: string): boolean {
+  return (typeof value === 'string' && value.length > 0 && value === String(expected)) ||
+    (typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && String(value) === String(expected))
+}
+
 export interface PayParams {
   type: string          // 支付方式：alipay, wxpay, qqpay, bank, jdpay
   out_trade_no: string  // 商户订单号
@@ -119,6 +125,7 @@ export class EpayCoreV1 implements IEpayClient {
    */
   verify(data: CallbackData): boolean {
     if (!data || !data.sign) return false
+    if (!matchesMerchantId(data.pid, this.pid)) return false
     const sign = this.getSign(data as unknown as Record<string, string>)
     return sign === data.sign
   }
@@ -130,6 +137,9 @@ export class EpayCoreV1 implements IEpayClient {
   verifyWithStatus(data: CallbackData): VerifyResult {
     if (!data || !data.sign) {
       return { valid: false, tradeSuccess: false, error: '缺少签名参数' }
+    }
+    if (!matchesMerchantId(data.pid, this.pid)) {
+      return { valid: false, tradeSuccess: false, error: '支付商户不匹配' }
     }
 
     // 验证签名
@@ -281,6 +291,7 @@ export class EpayCoreV2 implements IEpayClient {
    */
   verify(data: CallbackData): boolean {
     if (!data || !data.sign) return false
+    if (!matchesMerchantId(data.pid, this.pid)) return false
     
     // 检查时间戳（允许 5 分钟误差）
     if (data.timestamp) {
@@ -301,6 +312,9 @@ export class EpayCoreV2 implements IEpayClient {
   verifyWithStatus(data: CallbackData): VerifyResult {
     if (!data || !data.sign) {
       return { valid: false, tradeSuccess: false, error: '缺少签名参数' }
+    }
+    if (!matchesMerchantId(data.pid, this.pid)) {
+      return { valid: false, tradeSuccess: false, error: '支付商户不匹配' }
     }
 
     // 检查时间戳（允许 5 分钟误差）

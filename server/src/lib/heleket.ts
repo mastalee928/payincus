@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { assertSafeHttpUrl, safeFetch } from './outbound-security.js'
+import { parsePositivePaymentMoney } from './payment-money.js'
 
 export interface HeleketConfig {
   apiurl: string
@@ -275,15 +276,7 @@ export function extractHeleketPaymentDetails(
 }
 
 export function getHeleketInvoiceAmount(payment: HeleketPayment | Record<string, unknown>): number | undefined {
-  const invoiceAmount = payment.amount
-  if (typeof invoiceAmount === 'string' && invoiceAmount.trim()) {
-    const parsed = parseFloat(invoiceAmount)
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed
-    }
-  }
-
-  return undefined
+  return typeof payment.amount === 'string' ? parsePositivePaymentMoney(payment.amount) : undefined
 }
 function formatHeleketError(data: HeleketApiResponse<unknown>, fallback: string): string {
   if (typeof data.message === 'string' && data.message.trim()) {

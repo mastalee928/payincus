@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 资金专项：回调商户绑定与严格金额解析
+
+- money-callback-before.log隔离PG/实际Fastify回调、真实RSA签名复现：易支付V2回调pid为其他商户仍200/completed；原代码只验平台公钥签名，没有核本订单收款商户。V1/V2的verify及verifyWithStatus现都比较商户号，拒缺失/空/数组/不符，接受相同数字或字符串商户号。继续使用订单配置快照，后台换商户不影响原订单付款。
+- money-heleket-before.log独立复现有效签名的Heleket amount=10garbage仍200/completed。发票金额helper改用现有严格十进制解析，拒后缀/指数/非有限值，影响callback、用户verify和admin同步三个入口；没有修改手续费、金额容差、币种或实际到账规则。
+- money-callback-snapshot.log通过11个非法签名数据场景，完整订单保持且余额/流水/回调记录不增；三渠道正常与重复回调各仅入账9元一次。原18场回调换单竞争、18场用户查询与管理员同步专项分别于money-callback-race/verify/sync-regression.log通过，真实MD5/RSA与PG，供应商响应/身份受控且零真实付款。类型含新专项、7充值守卫、后端构建与清单/diff通过；专项登记CI，Linux待终态。
+- 前项39deb3534470b2859344a669a1d961ec27ba8832 / CI41185376355仍运行；08475782/41183989740与61c0412e/41178719643继续跟踪。资金专项另发现公开API续费入口尚未将token授权传入扣款事务，继续定向验证；不把本段视为全部完成，不发版或操作生产。
+
 ## 2026-10-31 资金专项：批量续费非法编号先扣款后报错
 
 - Owner新增充值、手动/自动续费与支付回调精查。本阶段发现真实缺陷：POST /instances/batch/renew传有效实例和2147483648时，先扣10元、延长有效实例并生成账单，随后PG整数越界导致整体500。money-renew-ids-before.log隔离Fastify/PG复现余额100→90、账单1、exit1；这会让失败回执与已提交资金状态矛盾。
