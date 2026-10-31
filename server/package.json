@@ -83,6 +83,7 @@
     "test:review-recharge-sync": "node --import tsx scripts/test-review-recharge-sync.ts",
     "test:review-recharge-verify": "node --import tsx scripts/test-review-recharge-verify.ts",
     "test:review-recharge-callback-races": "node --import tsx scripts/test-review-recharge-callback-races.ts",
+    "test:review-recharge-terminal-states": "node --import tsx scripts/test-review-recharge-terminal-states.ts",
     "test:review-oauth-locales": "node ../scripts/test-oauth-locales.mjs",
     "test:review-instance-task-site-cleanup": "node --import tsx scripts/test-review-instance-task-site-cleanup.ts",
     "test:review-terminal-commands-lifecycle": "node ../scripts/test-terminal-commands-lifecycle.mjs",

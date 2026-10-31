@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为283项（含部分、待验收），44项仍保初审分类；这不是完整修复数，不能按327减283计算剩余全部工作。R262新增复现并修复批量404前部分修改，真实PG宿主隔离和拒绝零修改通过。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为284项（含部分、待验收），43项仍保初审分类；这不是完整修复数，不能按327减284计算剩余全部工作。R262新增复现并修复批量404前部分修改，真实PG宿主隔离和拒绝零修改通过。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -326,7 +326,7 @@
 | R1-032 | 部分存在 | 源码已修/隔离PG验证通过 | 纠正初审：两个返佣helper原缺enabled，邮箱续费可给已禁用码返佣。现AFF资格/费率锁到结算、旧绑定迁移保留、admin current session；顶层host/user/AFF顺序复审，竞争409零写并保留自动续费预算。review-aff-eligibility-integration.log、8/8 test-run-20261027-231442；真实Incus新购/迁移未验 |
 | R1-033 | 存在 | 源码已修/隔离PG验证通过 | AFF转换余额锁内current active/session；中途封禁与注销拦截、6并发余额仅支持5笔、ledger故障全回滚。logs/review-finance-authorization-integration.log |
 | R1-034 | 部分存在 | 源码已修/隔离PG验证通过 | AFF批准/拒绝事务内current admin/session、pending CAS；中途降权两入口拒绝与重复批准仅1结算。logs/review-finance-authorization-integration.log |
-| R1-035 | 已有防护 | 保留初审结论 | 失败/取消条件限定pending或paid，不覆盖completed。 |
+| R1-035 | 已有防护 | 真实PG终态竞争复验通过 | 21场真实行锁竞争覆盖到账先赢及失败/取消先赢；completed/failed/cancelled/refunded另28次完整记录零修改。余额/流水/4失败通知精确、重复不入账，池归还/零idle事务/零外发；recharge-r035-terminal-monitor退出0。产品无需变更，供应商及生产验收另记。 |
 | R1-036 | 存在 | 源码已修/隔离PG验证通过 | 严格正十进制付款金额补齐用户查询/回调及管理员sync；真实PG/Fastify admin sync拒缺失/0/后缀/负/NaN且不写账。logs/review-finance-authorization-integration.log；provider fetch夹具 |
 | R1-037 | 存在 | 源码已修/隔离PG验证通过 | 纠正接续摘要：recharge.ts手动complete/fail和admin-billing.ts sync均实际存在；传actor到tx检查current admin/session，自动供应商完成保留。中途降权/注销拒写、重复到账1笔、ledger故障回滚。logs/review-finance-authorization-integration.log |
 | R1-038 | 存在 | 源码已修/隔离PG验证通过 | 邀请码handler/支付fee own-property访问拒继承；通知完整正整数及PG offset上限；真实Fastify/PG非法后缀、小数、溢出、有效筛选分页与账目无写入通过 logs/review-config-pagination-integration.log；相关5/5 logs/test-run-20261027-200553 |

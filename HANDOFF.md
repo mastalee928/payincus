@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R035 充值终态真实行锁竞争复验
+
+- 原产品状态条件有效，没有修改产品源码。test-review-recharge-terminal-states使用真实PG原DB helper：13种到账先持订单行锁、失败/取消/元数据/过期更新随后真实阻塞；另8种失败/取消先排队、到账后排队。全部核pg_blocking_pids实际等待链，事务释放后仅胜出状态可写，余额与13条到账流水精确一致，4条失败站内信只来自真正失败转换。
+- recharge-r035-terminal-monitor.log退出0：21场竞争加completed/failed/cancelled/refunded的28次终态无修改检查，完整记录含metadata保持，重复完成不再次入账，已有expectedPaymentDetails冲突语义保持；池全部归还、无idle transaction、零外发。此为隔离DB函数证据，支付路由真验签另见上一节，不代表真实供应商付款或生产验收。
+- 首轮夹具用了不存在的inactive枚举；第二轮观察pg_stat_activity复用持锁事务的统计快照，看不到新连接导致8秒等待并触发5秒事务超时，两份失败日志均保留，不算产品状态机失败。现用独立autocommit只读观察连接并将观察上限压到3秒，实际21场竞争共约6秒结束；未增大产品事务timeout。
+- 最终完整server+专项types零诊断、3对应守卫3/3已收退出0；专项已登记脚本、清单与CI。未改产品，后端build沿用同产品源码recharge-callback-race-build。前段352cf62eb11941463fb310a038a1a649f4ea5284已推送，CI41148117616排队。R035归档后284/327（86.9%，含部分/待验收），43项仍初审，完整灾备及其他内部待验项保持。
+
 ## 2026-10-31 支付回调在途换单保护
 
 - recharge-callback-race-product-before.log真实复现旧易支付回调在重新支付后仍200/completed、余额+9；最初夹具mock.method不适用Prisma代理的失败单独保留，不算产品证据。GET/POST回调现在向全部渠道的metadata/complete/cancel/fail传原paymentDetails，同语句CAS拒绝旧选择并返回409；重试已过期回调仍按原规则确认忽略。
