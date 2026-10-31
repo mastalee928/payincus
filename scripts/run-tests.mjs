@@ -95,6 +95,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-host-gift-preparation', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; actual gift preparation rollback, resource claims and inbox failure after delivery starts'],
   ['test:review-host-network-sync', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; host network observation routes, stale identity/generation, revocation and atomic persistence'],
   ['test:review-network-persistence', 'requires isolated local *_pool_test PostgreSQL; direct network snapshot identity, generation consumption and transactional primary address persistence'],
+  ['test:review-vm-network-macs-transport', 'requires OpenSSL and local mTLS; actual Incus client serializes original VM MAC identities into network config and rejects missing identity before any PUT/restart'],
   ['test:review-instance-quota', 'requires isolated local *_pool_test PostgreSQL; actual admin/host quota null, omission, zero and range behavior'],
   ['test:review-host-gift-days', 'requires isolated local *_pool_test PostgreSQL; actual gift-days authorization, expiry and suspension races with paid renewal and transactional audit rollback'],
   ['test:review-host-recalculate', 'requires isolated local *_pool_test PostgreSQL; resource/port accounting, current host/account/session authorization, row-lock races and atomic audit rollback'],

@@ -54,6 +54,7 @@
     "pnpm --filter server test:review-badge-styles",
     "pnpm --filter server test:review-browser-startup",
     "pnpm --filter server test:review-ipv6-route-recovery",
+    "pnpm --filter server test:review-vm-network-macs",
     "pnpm --filter server test:review-secondary-boundaries",
     "pnpm --filter server test:review-incus-pool",
     "pnpm --filter server test:review-markdown",

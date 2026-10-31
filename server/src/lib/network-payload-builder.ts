@@ -160,6 +160,31 @@ function getVmNicMacsForInstanceName(instanceName: string): VmNicMacs {
   return generateVmNicMacs(instanceName)
 }
 
+function normalizeNetworkMac(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  if (!/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(value)) {
+    throw new Error('Invalid network interface MAC address')
+  }
+  return value.toLowerCase()
+}
+
+interface CurrentNetworkIdentity {
+  type?: string
+  config: Record<string, string>
+  devices: Record<string, Record<string, string>>
+  expanded_devices?: Record<string, Record<string, string>>
+  profiles: string[]
+  description?: string
+}
+
+function getCurrentNetworkMac(current: CurrentNetworkIdentity, device: 'eth0' | 'eth1'): string | undefined {
+  const mac = current.devices?.[device]?.hwaddr || current.expanded_devices?.[device]?.hwaddr || current.config[`volatile.${device}.hwaddr`]
+  if (!mac && current.type === 'virtual-machine') {
+    throw new Error(`Cannot update VM network: missing ${device} MAC address`)
+  }
+  return normalizeNetworkMac(mac || undefined)
+}
+
 /**
  * 生成 cloud-init network-config v2 YAML
  * 
@@ -172,12 +197,15 @@ function getVmNicMacsForInstanceName(instanceName: string): VmNicMacs {
 export function generateCloudInitNetworkConfig(options: CloudInitNetworkOptions): string {
   const { ipv4Address, ipv6List } = options
   const { gateway } = IPV4_CONFIG
+  const eth0Mac = normalizeNetworkMac(options.nicMacs?.eth0)
+  const eth1Mac = normalizeNetworkMac(options.nicMacs?.eth1)
+  const matchYaml = (mac: string | undefined) => mac ? `    match:\n      macaddress: "${mac}"\n` : ''
 
   // eth0: 静态 IPv4 配置
   let config = `version: 2
 ethernets:
   eth0:
-    dhcp4: false
+${matchYaml(eth0Mac)}    dhcp4: false
     dhcp6: false
     accept-ra: false
     addresses:
@@ -205,7 +233,7 @@ ethernets:
       .join('\n')
 
     config += `  eth1:
-    dhcp4: false
+${matchYaml(eth1Mac)}    dhcp4: false
     dhcp6: false
     accept-ra: false
     addresses:
@@ -279,15 +307,10 @@ export async function syncInstanceNetwork(
   restart: boolean = true
 ): Promise<void> {
   // 1. 获取当前配置
-  const current = await getInstance(client, instanceName) as unknown as {
-    config: Record<string, string>
-    devices: Record<string, Record<string, string>>
-    profiles: string[]
-    description?: string
-  }
+  const current = await getInstance(client, instanceName) as unknown as CurrentNetworkIdentity
 
   // 2. 获取当前实例的 IPv4 地址
-  const currentIpv4 = current.devices?.eth0?.['ipv4.address'] || '10.10.1.1'
+  const currentIpv4 = current.devices?.eth0?.['ipv4.address'] || current.expanded_devices?.eth0?.['ipv4.address'] || '10.10.1.1'
 
   // 3. 构建新的 IPv6 地址列表
   const allIps = [ipv6Config.primaryIp]
@@ -298,10 +321,11 @@ export async function syncInstanceNetwork(
   // 4. 更新 eth1 设备配置
   const devices = { ...current.devices }
 
-  if (devices['eth1']) {
+  const currentEth1 = devices['eth1'] || current.expanded_devices?.eth1
+  if (currentEth1) {
     // 更新现有 eth1
     devices['eth1'] = {
-      ...devices['eth1'],
+      ...currentEth1,
       'ipv6.address': allIps.join(',')
     }
 
@@ -332,8 +356,8 @@ export async function syncInstanceNetwork(
   // 5. 更新 cloud-init network-config
   const config = { ...current.config }
   const nicMacs = {
-    eth0: current.devices?.eth0?.hwaddr || getVmNicMacsForInstanceName(instanceName).eth0,
-    eth1: devices['eth1']?.hwaddr || current.devices?.eth1?.hwaddr || getVmNicMacsForInstanceName(instanceName).eth1
+    eth0: getCurrentNetworkMac(current, 'eth0'),
+    eth1: normalizeNetworkMac(devices['eth1']?.hwaddr) || getCurrentNetworkMac(current, 'eth1')
   }
   config['user.network-config'] = generateCloudInitNetworkConfig({
     ipv4Address: currentIpv4,
@@ -367,15 +391,10 @@ export async function removeInstanceIpv6(
   instanceName: string,
   restart: boolean = true
 ): Promise<void> {
-  const current = await getInstance(client, instanceName) as unknown as {
-    config: Record<string, string>
-    devices: Record<string, Record<string, string>>
-    profiles: string[]
-    description?: string
-  }
+  const current = await getInstance(client, instanceName) as unknown as CurrentNetworkIdentity
 
   // 获取当前实例的 IPv4 地址
-  const currentIpv4 = current.devices?.eth0?.['ipv4.address'] || '10.10.1.1'
+  const currentIpv4 = current.devices?.eth0?.['ipv4.address'] || current.expanded_devices?.eth0?.['ipv4.address'] || '10.10.1.1'
 
   // 移除 eth1
   const devices = { ...current.devices }
@@ -384,7 +403,7 @@ export async function removeInstanceIpv6(
   // 更新 network-config，保留 IPv4 配置，移除 IPv6
   const config = { ...current.config }
   const nicMacs = {
-    eth0: current.devices?.eth0?.hwaddr || getVmNicMacsForInstanceName(instanceName).eth0
+    eth0: getCurrentNetworkMac(current, 'eth0')
   }
   config['user.network-config'] = generateCloudInitNetworkConfig({
     ipv4Address: currentIpv4,

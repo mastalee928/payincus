@@ -240,6 +240,8 @@
     "test:review-host-detail-extend": "node ../scripts/test-host-detail-extend.mjs",
     "test:review-finance-authorization-integration": "node --import tsx scripts/test-review-finance-authorization-integration.ts",
     "test:review-ipv6-route-recovery": "node --import tsx scripts/test-review-ipv6-route-recovery.ts",
+    "test:review-vm-network-macs": "node --import tsx scripts/test-review-vm-network-macs.ts",
+    "test:review-vm-network-macs-transport": "node --import tsx scripts/test-review-vm-network-macs.ts --mtls",
     "test:review-quota-hosting-integration": "node --import tsx scripts/test-review-quota-hosting-integration.ts",
     "test:review-renewal-integration": "node --import tsx scripts/test-review-renewal-integration.ts",
     "test:review-queue-sync-integration": "node --import tsx scripts/test-review-queue-sync-integration.ts",

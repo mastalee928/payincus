@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R268 VM 网络修改丢失 MAC 匹配修复
+
+- 原初审只看到调用方传nicMacs，未核生成器实际读取；vm-network-r268-before.log退出1证明输出没有match/macaddress。generateCloudInitNetworkConfig现验证并输出各网卡MAC匹配；同步/移除沿现有设备、expanded设备及volatile取真实身份，不把已有VM网卡的未知MAC猜成按名称新生成值。VM缺主网卡/既有IPv6网卡身份时GET后拒绝、零PUT/重启；新增eth1才生成并与设备同值，继承设备及IPv4地址保留。
+- vm-network-r268-guards.log四项4/4（新运行专项、原IPv6恢复、独占交付、宿主IPv6）与完整server+专项最终types、后端build、197清单检查全部退出0。新专项另经实际IncusClient/本机mTLS序列运行vm-network-r268-transport.log退出0：显式/volatile/expanded/继承主网卡/新增IPv6、继承IPv6设备、移除保主MAC、三缺失身份、PUT失败零重启、容器原命名配置与非法MAC拒绝；磁盘/代理/profile/description/原config和UUID保持。常规运行与mTLS专项分别登记清单/CI。
+- 仅生成配置及隔离mTLS证据；真实VM来宾重启和网络持续性、IP路由在途授权与持久失败、继承网卡移除及原默认地址回退等边界未扩大验收。无真实客户配置/重启或生产操作。R273已推eb032df272c2546c052e288d720d87652112ad29 / CI41152322538；新增终态41141251933/6470b529fe4031ce543589874234879ad872fbf2、41141331712/31a627ee3ffa38ba71835c0bfd65fa028755f0f7、41141678816/121df3ff36b70717bc07723ca163c31eca1c9c46、41142013356/76d1d6e58e6f6de2c7103fb45344e0645ec391ca均success；其他提交继续跟踪，无新增失败。
+- R268归档后293/327（89.6%，含部分/待验收）、34项初审；完整项目与灾备验收仍未完成。
+
 ## 2026-10-31 R273 单端口审计失败与设备回滚边界复验
 
 - 当前helper边界有效，未改产品。沿原PG/Fastify/mTLS批量专项补真实logs INSERT触发器：TCP/UDP各一次审计失败均到达原createLog，成功映射和精确设备保持，重复请求PORT_IN_USE且零设备写；原13条映射和设备保持。另真实Incus PUT500撤销本次DB预留，旧设备/映射/余额/账单保持，失败审计一条，端口锁释放。日志port-r273-final.log自然exit0，原R139/R140完整回归同过。
