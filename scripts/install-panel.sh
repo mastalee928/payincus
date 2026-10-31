@@ -3,7 +3,7 @@
 # PayIncus 面板一键部署脚本（产物包模式）
 #
 # 功能：
-#   - 安装 Node.js 22、PostgreSQL 16 和系统仓库提供的 Redis
+#   - 安装 Node.js 24、PostgreSQL 16 和系统仓库提供的 Redis
 #   - 从 GitHub Releases 下载预构建产物包
 #   - 自动配置数据库、环境变量、systemd 服务
 #   - 支持 Nginx+Certbot / Cloudflare Tunnel / 纯端口 三种外部访问方案
@@ -27,7 +27,7 @@ readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 readonly ENV_FILE="${INSTALL_DIR}/.env"
 readonly RUN_USER="incudal"
 readonly DEFAULT_PORT=3001
-readonly NODE_MAJOR=22
+readonly NODE_MAJOR=24
 readonly PNPM_VERSION="9.14.2"
 readonly PG_VERSION=16
 RELEASE_VERIFIED_THIS_RUN=false

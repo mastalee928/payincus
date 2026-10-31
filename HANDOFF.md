@@ -1,5 +1,14 @@
 # 版本与验证记录
 
+## 2026-11-01 面板构建与新安装迁移 Node.js 24
+
+- Owner同意将面板CI、发行构建与安装器迁到Node.js 24 LTS，继续暂不发版、不改生产。六处CI Node版本、发行NODE_VERSION、首装NODE_MAJOR及独立网关esbuild target已统一24；发行包的双架构网关Node仍从官方HTTPS按构建版本下载并核SHA256。项目版本仍1.7.8，业务依赖、pnpm9.14.2及锁文件均未升级。
+- 现有后端保留Node22.12+兼容：根engines改为`^22.12.0 || >=24.0.0`，TypeScript仍编译为ES2022；独立复核本机527个已安装包的Node要求均接受22.12.0，复用此前CI22证据，不冒称最低补丁全量实测。业务systemd/OTA实际使用系统`/usr/bin/node`、迁移子进程使用`process.execPath`，普通OTA和应用回滚均不替换系统Node；没有向更新流程加入APT升级或停生产动作。
+- 本机Node24.18.0：`node24-frozen-install.log`冻结锁文件离线安装成功；`node24-server-build.log`后端tsc与网关资源复制自然exit0；`node24-installer-guards.log`安装器完整守卫自然exit0，日志中的校验失败/不安全归档属于预期负例。`node24-runtime-guards.log`仓库来源、拆分部署、OTA、Prisma补丁和组件包守卫均通过；Windows不能证明Linux符号链接恢复/进程组终止，相关原生检查继续交CI。`node24-config-check.log`严格比对YAML及运行时配置，除指定Node版本外工作流命令、触发、权限、服务和输入不变。前端产品源码未变，复用上一段同Node24.18.0双端类型/构建与dist证据，不重复全套。
+- 冻结安装保留一条`DEP0169 url.parse()`弃用提示，已定位pnpm9.14.2打包代码的旧URL解析，并核对pnpm官方问题9492/9529；安装exit0，非业务调用，未屏蔽warning或扩展pnpm大版本迁移。此前CI警告修复的零ESLint结果不等于所有工具进程零提示。
+- 曾本地试验文档站Node24并构建通过；其main路径会自动部署GitHub Pages，为保持本次发布边界，已仅撤回本任务文档站源码/工作流及生成日志的试改。仓库README、AGENTS和操作手册已同步，公开文档站仍沿原版本，待允许发布时另行同步；发行/Agent/文档工作流的旧Actions内部运行时提示与应用Node版本是不同事项，未在本段扩展处理。
+- 本项源码提交与新CI身份推送后记录`logs/node24-ci-run.json`，加入既有payincus-ci跟进。真实双架构组件运行及Node24主控数据库集成待新CI终态；完整发行包首装、现有主控运行时迁移、生产与灾备均未在本轮验收。未触发发行预览、tag、Release、OTA或GitHub Pages。
+
 ## 2026-11-01 GitHub CI 运行时与前端格式警告
 
 - Owner截图为旧CI的16条warning与2条notice。已读 `41223293206` 的真实annotation：旧Actions仍声明Node20、Ubuntu latest迁移提示，及IPv4表格前10处缩进。实际本地lint为19个Vue文件546处格式告警（首个文件21处，其他18个525处），不是546个业务故障；保留原结果 `logs/ci-warnings-original-annotations.json`、`logs/ci-warnings-lint.log`。

@@ -52,7 +52,7 @@
 
 ## 3. 本地怎么跑
 
-- **环境**：Node ≥ 20、pnpm 9.14.2、本地 PostgreSQL 16。
+- **环境**：Node.js 24 LTS、pnpm 9.14.2、本地 PostgreSQL 16；现有后端保留 Node.js 22.12+ 兼容，OTA 不自动升级系统 Node。
 - **装依赖**：`pnpm install`
 - **一把起全部（server + user + admin）**：`pnpm dev`
 - **分开起**：

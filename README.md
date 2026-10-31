@@ -62,7 +62,7 @@ docs-site/              VitePress 文档站
 运行依赖：
 
 - Linux 生产环境，推荐 Debian / Ubuntu
-- Node.js 20+，生产推荐 Node.js 22
+- Node.js 24 LTS（新安装与构建默认）；现有后端保留 Node.js 22.12+ 兼容
 - pnpm 9.14.2
 - PostgreSQL，生产推荐 PostgreSQL 16
 - 安装器仍安装、启动 Redis 并写入 `REDIS_URL`；当前后端没有 Redis 客户端，不用它共享会话锁、缓存或任务状态。已有安装器生成的 systemd 服务可能依赖 Redis，不能据此直接卸载该服务。

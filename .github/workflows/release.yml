@@ -18,7 +18,7 @@ on:
         default: ''
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '24'
 
 jobs:
   # ===== 构建发行包（多架构矩阵） =====

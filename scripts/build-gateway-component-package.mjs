@@ -50,7 +50,7 @@ for (const command of ['incudal-channels', 'incudal-gateway', 'incudal-maintenan
 }
 for (const [entry, target] of [['run-gateway-console', 'gateway-console'], ['run-gateway-backup', 'gateway-backup'], ['run-controller-discovery', 'controller-discovery'], ['run-controller-witness', 'controller-witness']]) {
   const result = await build({ absWorkingDir: root, entryPoints: ['server/src/scripts/' + entry + '.ts'], outfile: join(output, 'lib', target + '.cjs'),
-    bundle: true, platform: 'node', target: 'node22', format: 'cjs', metafile: true, sourcemap: false, legalComments: 'inline', logLevel: 'silent',
+    bundle: true, platform: 'node', target: 'node24', format: 'cjs', metafile: true, sourcemap: false, legalComments: 'inline', logLevel: 'silent',
     plugins: [{ name: 'gateway-reject-optional-proxy', setup(bundler) {
       bundler.onResolve({ filter: /^proxy-agent$/ }, () => ({ path: 'proxy-agent', namespace: 'gateway-no-proxy' }))
       bundler.onLoad({ filter: /.*/, namespace: 'gateway-no-proxy' }, () => ({ contents: "module.exports = function GatewayProxyRejected() { throw new Error('GATEWAY_PROXY_UNSUPPORTED') }", loader: 'js' }))

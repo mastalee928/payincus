@@ -8,6 +8,10 @@ The private backend on 127.0.0.1:3001 must run as exactly one Node.js process. T
 
 用户端与管理端使用不同源，通过各自的 /api 和 /api/ws 代理到同一后端，不共享 cookie 域。生产设置 SERVE_STATIC_CLIENT=false，由 Nginx 或现有入口提供两端静态文件。
 
+## Node.js 运行时
+
+新安装、CI、发行构建和独立网关组件以 Node.js 24 LTS 为基准。后端保留 Node.js 22.12+ 兼容，依赖不因本次运行时迁移升级；当前实际验证范围见 HANDOFF.md。业务后端 systemd 与 OTA 使用系统 `/usr/bin/node`，独立网关包自带 `bin/node`，两者分别核验版本。普通 OTA 和应用回滚均不替换系统 Node；现有主控迁移系统运行时需要另行安排维护与验证，不能以新包的构建版本当作线上已升级证明。
+
 ## 事务连接池耗尽排查（v1.7.8）
 
 Prisma 7.1.0 原始客户端可能在申请事务连接的 `maxWait` 超时后，继续等待底层连接并执行 `BEGIN`；应用已收到超时，迟到连接无人回滚及归还。扩大 PostgreSQL `max_connections`、应用连接池或等待时间不能修复此生命周期问题。v1.7.8 通过 pnpm 持久补丁修复两个 Node runtime，正式双架构包及首装已验证；目标环境是否已更新仍以 HANDOFF.md 的部署证据为准。
