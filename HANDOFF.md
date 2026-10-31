@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R121 Caddy 取消任务与锁释放前提复审
+
+- 完整检查caddy.sh及其实际命令生成链：手工shell只有EXIT cleanup_caddy_install，负责暂存文件和失败时服务状态恢复；没有后台cancel接口、lease/flock、解锁后返回继续安装的handler。数据库也无Caddy安装任务，因此原外部分支“取消后释放任务锁仍继续修改”的前提不适用。
+- 不因模型不同而声明信号处理完整：安装提交阶段的TERM/INT/进程崩溃、并发手工运行及系统配置回滚没有本轮运行实证，保留为Linux安装内部缺口。未改变shell、没有运行root安装或把网关任务混作Caddy任务，既有R116–119原生API/凭据专项边界保持。
+- R090完整身份f0822dfb1d4bd1b1754c4f8ccb294fb582ccfe63 / CI41156787528；R120已推fe863468。R121后312/327（95.4%，含部分/待验收）、15项初审；CI刷新ci-r090-refresh.log自然exit0，其余终态持续跟踪，完整灾备未完成。
+
 ## 2026-10-31 R120 Caddy 后台安装任务前提复审
 
 - 完整核对/hosts/:id/caddy/generate、reset、confirm及host-caddy-credentials。generate只在host行锁/current actor授权内生成或复用凭据并返回手工下载命令；reset是显式轮换；没有创建持久Caddy安装任务、覆盖任务记录或后台安装调度。schema仅有host的enabled/username/password/port配置。不能套用外部分支“安装任务与凭据同事务”的修法。

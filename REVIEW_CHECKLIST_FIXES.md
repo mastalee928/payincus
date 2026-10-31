@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为311/327（95.1%，含部分、待验收、重复与实现差异），16项仍保初审分类；这不是完整修复数，不能按327减311计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为312/327（95.4%，含部分、待验收、重复与实现差异），15项仍保初审分类；这不是完整修复数，不能按327减312计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -412,7 +412,7 @@
 | R1-118 | 部分存在 | 源码已修/隔离PG验证通过 | Caddy generate/reset/confirm提交内current actor/session/owner及current credentials；下载token绑定签发会话/角色/归属/凭据，注销/转移/重置旧命令拒绝。logs/review-caddy-proxy-final.log；Linux安装未验 |
 | R1-119 | 存在 | 源码已修/隔离PG验证通过 | host锁内生成/复用/重置，confirm前后核对owner/credential/port/address；probe期间password变更409且不启用。logs/review-caddy-proxy-final.log |
 | R1-120 | 实现不同 | 已复审（无后台安装任务模型） | 实际generate/reset返回手工命令，host锁内凭据生成/复用/显式重置；schema/worker无Caddy安装任务记录。R118/119实际授权/凭据竞争证据保留；shell与数据库完整失败一致性、审计失败及Linux安装未扩大验收，见2026-10-31 HANDOFF。 |
-| R1-121 | 实现不同 | 保留初审结论 | 本库为手工Caddy shell安装，未找到对方后台取消任务/锁释放后继续安装模型；不将网关任务与Caddy任务混为一谈。 |
+| R1-121 | 实现不同 | 已复审（无取消任务/锁模型） | 完整手工shell只有EXIT cleanup，没有cancel/lease/flock或解锁继续执行handler；无后台Caddy任务。TERM/INT/崩溃、并发手工运行、系统配置回滚仍待Linux验证，不能据模型不同宣称信号处理完整，见2026-10-31 HANDOFF。 |
 | R1-122 | 存在 | 源码已修/真实Caddy API验证通过 | HTTP-only automatic_https.skip与protocol匹配同一次ETag原子更新，保留已有绑定监听/其它服务器；真实HTTP请求到fixture upstream。logs/review-caddy-runtime-validation-final.log |
 | R1-123 | 存在 | 部分精修/继续核查 | 远端拒删/缺配置保留DB error、atomic addSite拒绝保留旧config已验；远端已成功后SQL或commit失败仍缺持久恢复意图/补偿，需继续修。logs/review-caddy-proxy-final.log |
 | R1-124 | 存在 | 部分精修/继续核查 | Caddy自身ETag原子reload回滚真实进程已验，但跨远端成功/DB失败仍未覆盖；hosts地址同步路径还保留旧快照及delete/add，须继续修 |
