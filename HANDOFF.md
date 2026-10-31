@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 本地收尾与CI交接
+
+- R046：fd129fb180388c5d4d4dbf103dcda5051410af03 / CI41166299435；R325：eea403ff5ef7d6890c44908b6efbf6a12b5ec102 / CI41166416058，已分别推送，最新均queued，不记通过。源码和测试全部提交，没有未推送积压。
+- ci-r325-refresh.log自然exit0：旧41153911142现整体终态failure，仍是已定位并由ef13bbe6修复的端口解锁失败，不是新失败；87bc652acaffe5685850bdeac198432016b240c4 / CI41153025903终态success。其他运行继续记录于本地ci-state文件，未终态不算成功。
+- payincus-ci定时跟进已更新为owner节省token要求：复用未变终态证据、紧凑核完整SHA/job，仅新失败定向修复和必要复现；全部终态且无新提交后停止。原327项全有定向处理记录，原项内缺口继续保留，不进行长期真机/外部服务/完整灾备，不重复整套。
+
 ## 2026-10-31 R325 失败交付确认清理后的库存结算
 
 - managed-r325-before.log真实PG+mTLS在确认远端删除后仍得到error，预期deleted，exit1。根因为仅清provisioningCleanupPending，库存谓词和宿主资源重算仍统计error。现在仅原目标身份/规格、远端原attempt/UUID/Stopped/精确404/无在途创建/转发清除全部确认，且失败退款已完成/已退/无购买账目、无删除账务待结时，同事务设deleted、清pending并释放宿主资源和公网IPv4。
