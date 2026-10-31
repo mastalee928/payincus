@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onActivated, onDeactivated, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
 import { useReveal } from '@/composables/useReveal'
+import { useDialogFocus } from '@/composables/useDialogFocus'
 
 const revealRoot = ref<HTMLElement | null>(null)
 useReveal(revealRoot)
@@ -12,6 +15,7 @@ const { t, locale } = useI18n()
 type OrderSourceType = 'recharge' | 'instance_billing'
 
 interface OrderItem {
+  userId: number
   id: string
   sourceType: OrderSourceType
   sourceId: number
@@ -51,6 +55,51 @@ const pageSize = ref(10)
 const total = ref(0)
 const type = ref('')
 const status = ref('')
+const authStore = useAuthStore(), route = useRoute()
+const active = ref(false), loaded = ref(false), detailError = ref('')
+const detailRoot = ref<HTMLElement | null>(null)
+let alive = true, generation = 0, listSequence = 0, detailSequence = 0
+const session = computed(() => {
+  if (!authStore.token || !authStore.user || authStore.user.role !== 'user' || !Number.isSafeInteger(authStore.user.id) || authStore.user.id < 1) return ''
+  let identity = authStore.token
+  try {
+    const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.sid === 'string' && payload.sid) identity = payload.sid
+  } catch { /* Legacy access tokens retain their complete identity. */ }
+  return `${authStore.user.id}:${authStore.user.role}:${identity}`
+})
+const available = computed(() => alive && active.value && !!session.value && route.path === '/orders')
+const queryKey = computed(() => JSON.stringify([session.value, route.path, page.value, pageSize.value, type.value, status.value]))
+function closeDetail() { selectedOrder.value = null }
+watch(() => selectedOrder.value?.id, () => { detailSequence++; detailLoading.value = false; detailError.value = '' }, { flush: 'sync' })
+useDialogFocus(detailRoot, () => !!selectedOrder.value, closeDetail)
+watch(detailRoot, element => { if (element && selectedOrder.value) element.querySelector<HTMLElement>('button')?.focus() }, { flush: 'post' })
+function invalidate() {
+  generation++; listSequence++; detailSequence++
+  orders.value = []; total.value = 0; loaded.value = false; loading.value = false; error.value = ''
+  closeDetail(); detailLoading.value = false; detailError.value = ''
+}
+watch([page, pageSize, type, status], invalidate, { flush: 'sync' })
+watch([session, () => route.path], () => {
+  invalidate(); page.value = 1; type.value = ''; status.value = ''
+  if (available.value) void loadOrders()
+}, { flush: 'sync' })
+function activate() { if (active.value || !alive) return; active.value = true; if (available.value) void loadOrders() }
+onMounted(activate)
+onActivated(activate)
+onDeactivated(() => { active.value = false; invalidate() })
+onBeforeUnmount(() => { alive = false; active.value = false; invalidate() })
+
+function validOrder(value: unknown): value is OrderItem {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const item = value as OrderItem
+  return item.userId === authStore.user?.id && ['recharge', 'instance_billing'].includes(item.sourceType) &&
+    Number.isSafeInteger(item.sourceId) && item.sourceId > 0 && item.id === `${item.sourceType}:${item.sourceId}` &&
+    typeof item.orderNo === 'string' && typeof item.status === 'string' && typeof item.rawStatus === 'string' &&
+    typeof item.title === 'string' && typeof item.createdAt === 'string' &&
+    [item.amount, item.fee].every(value => typeof value === 'number' && Number.isFinite(value)) &&
+    (item.actualAmount === null || (typeof item.actualAmount === 'number' && Number.isFinite(item.actualAmount)))
+}
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
@@ -135,32 +184,55 @@ function instanceName(order: OrderItem): string {
 }
 
 async function loadOrders() {
+  if (!available.value) return
+  const authentication = authStore.captureAuthentication()
+  if (!authentication.aligned) return
+  invalidate()
+  const key = queryKey.value, version = generation, sequence = ++listSequence
+  const params = { page: page.value, pageSize: pageSize.value, type: type.value || undefined, status: status.value || undefined }
+  const current = () => available.value && authentication.current() && key === queryKey.value && version === generation && sequence === listSequence
   loading.value = true
   error.value = ''
   try {
-    const res = await api.orders.list({
-      page: page.value,
-      pageSize: pageSize.value,
-      type: type.value || undefined,
-      status: status.value || undefined
-    })
+    const res = await api.orders.list(params)
+    if (!current()) return
+    if (!res || !Array.isArray(res.orders) || res.orders.length > params.pageSize || !res.orders.every(validOrder) ||
+      new Set(res.orders.map(item => item.id)).size !== res.orders.length || !Number.isSafeInteger(res.total) || res.total < res.orders.length ||
+      res.page !== params.page || res.pageSize !== params.pageSize) throw new Error(t('orders.loadFailed'))
     orders.value = res.orders as OrderItem[]
     total.value = res.total
+    loaded.value = true
   } catch (err: any) {
-    error.value = err?.message || t('orders.loadFailed')
+    if (current()) error.value = err?.message || t('orders.loadFailed')
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 async function openDetail(order: OrderItem) {
-  selectedOrder.value = order
+  if (!available.value || !loaded.value || loading.value || !orders.value.includes(order) || !validOrder(order)) return
+  detailSequence++; detailLoading.value = false; detailError.value = ''
+  selectedOrder.value = { ...order }
+  await loadDetail()
+}
+
+async function loadDetail() {
+  if (!available.value || !selectedOrder.value || detailLoading.value) return
+  const authentication = authStore.captureAuthentication()
+  if (!authentication.aligned) return
+  const target = selectedOrder.value, key = queryKey.value, version = generation, sequence = ++detailSequence
+  const current = () => available.value && authentication.current() && key === queryKey.value && version === generation && sequence === detailSequence && selectedOrder.value?.id === target.id
   detailLoading.value = true
+  detailError.value = ''
   try {
-    const res = await api.orders.detail(order.sourceType, order.sourceId)
+    const res = await api.orders.detail(target.sourceType, target.sourceId)
+    if (!current()) return
+    if (!validOrder(res?.order) || res.order.id !== target.id) throw new Error(t('orders.loadFailed'))
     selectedOrder.value = res.order as OrderItem
+  } catch (err: any) {
+    if (current()) detailError.value = err?.message || t('orders.loadFailed')
   } finally {
-    detailLoading.value = false
+    if (current()) detailLoading.value = false
   }
 }
 
@@ -181,7 +253,6 @@ function goPage(nextPage: number) {
   void loadOrders()
 }
 
-onMounted(loadOrders)
 </script>
 
 <template>
@@ -321,46 +392,63 @@ onMounted(loadOrders)
     </section>
 
     <Teleport to="body">
-    <div v-if="selectedOrder" class="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" @click.self="selectedOrder = null">
-      <aside class="flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-themed bg-themed-surface shadow-2xl">
-        <div class="flex items-start justify-between gap-4 border-b border-themed bg-themed p-6">
-          <div class="min-w-0">
-            <h2 class="truncate text-xl font-semibold text-themed">{{ orderTitle(selectedOrder) }}</h2>
-            <p class="mt-1 truncate font-mono text-sm text-themed-muted">{{ selectedOrder.orderNo }}</p>
+      <div v-if="selectedOrder" class="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" style="backdrop-filter: none" @click.self="closeDetail">
+        <aside ref="detailRoot" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="order-detail-title" class="order-detail-drawer flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-themed bg-themed-surface shadow-2xl">
+          <div class="flex items-start justify-between gap-4 border-b border-themed bg-themed p-6">
+            <div class="min-w-0">
+              <h2 id="order-detail-title" class="truncate text-xl font-semibold text-themed">{{ orderTitle(selectedOrder) }}</h2>
+              <p class="mt-1 truncate font-mono text-sm text-themed-muted">{{ selectedOrder.orderNo }}</p>
+            </div>
+            <button type="button" class="btn btn-sm btn-secondary gap-1.5 min-h-11" @click="closeDetail">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+              {{ $t('orders.close') }}
+            </button>
           </div>
-          <button class="btn btn-sm btn-secondary gap-1.5" @click="selectedOrder = null">
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-            {{ $t('orders.close') }}
-          </button>
-        </div>
 
-        <div v-if="detailLoading" class="p-6 text-sm text-themed-muted">{{ $t('orders.detailLoading') }}</div>
-        <dl v-else class="grid gap-px bg-themed-secondary p-px text-sm">
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldStatus') }}</dt><dd class="col-span-2 text-themed"><span :class="['inline-flex rounded-full border px-2 py-0.5 text-xs font-medium', statusClass(selectedOrder.status)]">{{ statusLabel(selectedOrder) }}</span></dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldAmount') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.amount) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldActualAmount') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ selectedOrder.actualAmount === null ? '-' : formatMoney(selectedOrder.actualAmount) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldFee') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.fee) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldChannel') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.provider?.name || selectedOrder.paymentMethod || '-' }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldTradeNo') }}</dt><dd class="col-span-2 break-all font-mono text-themed">{{ selectedOrder.tradeNo || '-' }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldInstance') }}</dt><dd class="col-span-2 text-themed">{{ instanceName(selectedOrder) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldPeriod') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.months ? $t('orders.monthsCount', { count: selectedOrder.months }) : '-' }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldPeriodStart') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.periodStart) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldPeriodEnd') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.periodEnd) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldCreatedAt') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.createdAt) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldCompletedAt') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.completedAt) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldFailReason') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.failReason || '-' }}</dd></div>
-          <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldRemark') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.remark || '-' }}</dd></div>
-        </dl>
-      </aside>
-    </div>
+          <div v-if="detailLoading" class="p-6 text-sm text-themed-muted">{{ $t('orders.detailLoading') }}</div>
+          <div v-else-if="detailError" role="alert" class="p-6 space-y-3">
+            <p class="text-sm text-themed break-words">{{ detailError }}</p>
+            <button type="button" data-order-detail-retry class="btn btn-secondary min-h-11" @click="loadDetail">{{ $t('common.retry') }}</button>
+          </div>
+          <dl v-else class="grid gap-px bg-themed-secondary p-px text-sm">
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldStatus') }}</dt><dd class="col-span-2 text-themed"><span :class="['inline-flex rounded-full border px-2 py-0.5 text-xs font-medium', statusClass(selectedOrder.status)]">{{ statusLabel(selectedOrder) }}</span></dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldAmount') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.amount) }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldActualAmount') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ selectedOrder.actualAmount === null ? '-' : formatMoney(selectedOrder.actualAmount) }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldFee') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.fee) }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldChannel') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.provider?.name || selectedOrder.paymentMethod || '-' }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldTradeNo') }}</dt><dd class="col-span-2 break-all font-mono text-themed">{{ selectedOrder.tradeNo || '-' }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldInstance') }}</dt><dd class="col-span-2 text-themed">{{ instanceName(selectedOrder) }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldPeriod') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.months ? $t('orders.monthsCount', { count: selectedOrder.months }) : '-' }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldPeriodStart') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.periodStart) }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldPeriodEnd') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.periodEnd) }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldCreatedAt') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.createdAt) }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldCompletedAt') }}</dt><dd class="col-span-2 text-themed">{{ formatTime(selectedOrder.completedAt) }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldFailReason') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.failReason || '-' }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldRemark') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.remark || '-' }}</dd></div>
+          </dl>
+        </aside>
+      </div>
     </Teleport>
   </div>
 </template>
 
 <style scoped>
+.order-detail-drawer { --order-muted: #aaa; }
+:global(.light .order-detail-drawer) { --order-muted: #666; }
+.order-detail-drawer .text-themed-muted { color: var(--order-muted); }
+.order-detail-drawer .btn {
+  min-height: 44px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  background-image: none;
+  box-shadow: none;
+  transform: none;
+}
+.order-detail-drawer .btn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; box-shadow: none; }
+.order-detail-drawer dd { min-width: 0; overflow-wrap: anywhere; }
 .nimbus-lift {
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }

@@ -366,6 +366,8 @@ jobs:
         run: pnpm --filter server test:review-host-instance-reads
       - name: Host deletion keeps reviewed targets and current results
         run: pnpm --filter server test:review-host-delete-lifecycle
+      - name: Order details and lists reject obsolete account and drawer replies
+        run: pnpm --filter server test:review-order-reads
       - name: Host batch state actions keep targets and current results
         run: pnpm --filter server test:review-host-batch-actions
       - name: Host gifts keep paid targets and current results

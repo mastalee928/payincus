@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 R205 当前订单读取与详情抽屉
+
+- 原初审按“没有InstanceBillingTab”排除过早；orders-r205-before.log真实Chrome复现已关闭抽屉被旧详情重开。现行OrdersView读取固定普通用户/原会话与storage、route、查询、代次和生命周期；筛选/页码、缓存停用/卸载及账户变化同步清旧数据，旧成功/失败/finally不覆盖新状态。同sid刷新保留请求；同订单再次打开显式换代，inspect-before.log此前复现该分支遗漏。
+- 列表核account、来源+编号、去重、金额和分页回执，详情核原目标/account，失败持久显示并可原位Retry。Teleport挂载后焦点进入，Tab/Escape有效，按钮44px，长实例名/备注完整换行；原定宽表/移动卡和后台订单/金额/权限合同不变。按owner黑白规范沿taste app检查作局部修复，未重设计整页；初轮阴影与3.8:1深色文字告警、错误global选择器导致浅色对比失败均保留，最终局部中性样式通过。
+- orders-r205-complete.log自然exit0：52组旧success/error（含同目标、关闭重开、ABA、账户/会话/storage、角色/退出、route、筛选/分页、缓存和卸载）、错误Retry、10坏回执、零金额、同sid刷新、缓存重取；真实页面详情按钮、18组简繁英×1440/768/390×深浅、Tab/Escape/44px/长名称和36份taste报告零FAIL/零WARN，三宽截图已查看。原后端只读接口已逐字段核一致；浏览器API为受控边界，不声称真实账目/外部支付端到端。
+- orders-r205-final-types.log、final-route.log、final-i18n.log、final-lint.log自然exit0；orders-r205-build.log两端vue-tsc/Vite最终自然exit0，dist.log边界通过，198清单/JS/YAML/diff检查通过。本阶段不重跑无变化的后端或全量；R206页码越界仍待单独修复。
+- 上一CI修复已推ef13bbe6dd5a90513ab1069b0a1d17a7cc55904d / CI41163302770，排队不是通过；专项完整源+测试types port-lock-test-types.log亦exit0。R205归档后320/327（97.9%，覆盖而非完整验收），7项初审。完整原生/外部服务/持久故障/灾备与项内缺口保留，后续按项推进，不从头重复327项。
+
 ## 2026-10-31 CI 端口响应早于实例锁释放
 
 - CI41153911142固定head d347c861ace5188c6956e6c756c05686cb007dcf，job124396387286的批量端口集成失败于配额拒绝后锁数量1≠0；完整run仍有Build排队，失败不能因整体未终态被忽略。具体job日志已保存ci-124396387286-job.log。

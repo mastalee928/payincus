@@ -110,6 +110,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-host-config-clear', 'requires Chrome/Edge and local Vite; actual explicit description/IPv6 clears, mode/subnet gates and errors with controlled API'],
   ['test:review-image-selector-lifecycle', 'requires Chrome/Edge and local Vite; 40 real Vue mount/unmount cycles verify exact document/window callback and capture removal plus teleported menu cleanup'],
   ['test:review-inventory-spec', 'requires Chrome/Edge and local Vite; real inventory specification editor validates current target/session/draft, stale completions, strict receipts, retry and keyboard/three-width UI; controlled API'],
+  ['test:review-order-reads', 'requires Chrome/Edge and local Vite; real user orders and detail drawer reject obsolete account/session/query replies, malformed receipts and cache/unmount results; controlled API'],
   ['test:review-host-config-submit', 'requires Chrome/Edge and local Vite; actual dirty parent refresh, host/session/draft ABA and cache/unmount save receipts, shared pending lock and malformed/current failure retry with controlled API'],
   ['test:review-host-config-type', 'requires Chrome/Edge and local Vite; actual current host type refusal in three locales and widths, persistent error/draft/retry and unknown-code fallback with controlled API'],
   ['test:review-host-config-type-pg', 'requires isolated local *_pool_test PostgreSQL; actual PATCH container/VM incompatibility refuses before writes/audits, compatible/both response shape and foreign owner denial; no Incus requests'],
