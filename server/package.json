@@ -98,6 +98,7 @@
     "test:review-late-payments-ui": "node ../scripts/test-late-payments.mjs",
     "test:review-pool-checkout": "node --import tsx scripts/test-review-pool-checkout.ts",
     "test:review-pool-checkout-ui": "node ../scripts/test-pool-checkout.mjs",
+    "test:review-pool-provision": "node --import tsx scripts/test-review-pool-provision.ts",
     "test:review-gift-card-counts": "node --import tsx scripts/test-review-gift-card-counts.ts",
     "test:review-gift-card-id-boundaries": "node --import tsx scripts/test-review-gift-card-id-boundaries.ts",
     "test:review-batch-config-input-boundaries": "node --import tsx scripts/test-review-batch-config-input-boundaries.ts",

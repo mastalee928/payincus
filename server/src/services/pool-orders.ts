@@ -276,9 +276,10 @@ export async function getPoolOrderResult(userId: number, batchId: string): Promi
   const purchases = await prisma.instanceBillingRecord.findMany({ where: { userId, instanceId: { in: instances.map(instance => instance.id) }, type: 'newPurchase' }, select: { instanceId: true, amount: true } })
   const paid = new Set(purchases.filter(purchase => Number(purchase.amount) > 0).map(purchase => purchase.instanceId))
   return { batchId, total: Number(order.totalCents), instances: instances.map(instance => {
+    const failedCreation = (instance.snapshottedSpecs as { poolProvision?: { phase?: string } } | null)?.poolProvision?.phase === 'failed'
     const ready = instance.dedicatedNetworkReady && !instance.host.publicIpSyncBlocked && ['running', 'stopped'].includes(instance.status)
     const ipv6 = customerIpv6View(instance.dedicatedIpv6, { hostId: instance.hostId, instanceName: instance.incusId, networkReady: instance.dedicatedNetworkReady })
-    return { id: instance.id, name: instance.name, incusId: instance.incusId, status: instance.status, refunded: refunded.has(instance.id),
+    return { id: instance.id, name: instance.name, incusId: instance.incusId, status: failedCreation ? 'error' : instance.status, refunded: refunded.has(instance.id),
       refundPending: instance.status === 'error' && paid.has(instance.id) && !refunded.has(instance.id),
       host: ready ? instance.host.natPublicIp : null, sshPort: ready ? 22 : null, publicIpUpdating: instance.host.publicIpSyncBlocked,
       publicIpv6Addresses: ['running', 'stopped'].includes(instance.status) ? ipv6?.addresses ?? [] : [], publicIpv6Status: ipv6?.status ?? 'none',
@@ -464,6 +465,7 @@ export async function placePoolOrder(userId: number, username: string, input: Po
                 packagePlanId: adminOptions?.billing === 'free' ? null : item.plan.id,
                 poolPriceId: price.id,
                 purchaseBatchId: batchId,
+                poolProvision: { version: 1, phase: 'prepared' },
                 createdAt: now.toISOString()
               } as Prisma.InputJsonValue,
               sshPort: planned.sshPort,
@@ -546,7 +548,7 @@ export async function placePoolOrder(userId: number, username: string, input: Po
         resources: { cpu: entry.item.plan.cpu, memory: entry.item.plan.memory, disk: entry.item.plan.disk },
         networkMode: entry.item.networkMode, portLimit: entry.item.plan.portLimit, instanceName: entry.planned.incusId,
         errorMessage: error instanceof Error ? error.message : 'Provisioning preparation failed'
-      })
+      }).catch(compensationError => console.error('[PoolOrder] Preparation compensation pending', entry.instanceId, compensationError))
     }
   }
 
@@ -570,21 +572,31 @@ async function startProvisioning(userId: number, sshKey: string, entry: CreatedI
     ipv6_parent_interface?: string | null
   }
   // Pool products currently use PayIncus NAT delivery; do not invent an independent IPv6 address.
-  const ipv4 = await db.allocateAndReserveNatIpv4(host.id, instanceId)
-  if (!ipv4) throw new Error('NAT IPv4 allocation failed')
-  const reserved = { ipv4, ipv6: null as string | null }
-  if (hostWithIpv6.ipv6_subnet) {
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const candidate = generateRandomIPv6(hostWithIpv6.ipv6_subnet)
-      if (await db.isIpAddressExists(candidate)) continue
-      await db.createIpAddress({ address: candidate, type: 'inet6', isPrimary: true, device: 'eth1', hostId: host.id, instanceId })
-      reserved.ipv6 = candidate
-      break
+  const { reserved, networkMode, storagePool } = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+    const current = await tx.instance.findUniqueOrThrow({ where: { id: instanceId } })
+    if (current.status !== 'creating' || current.provisioningCleanupPending || current.hostId !== host.id || current.userId !== userId || current.incusId !== planned.incusId) {
+      throw new Error('Pool preparation was cancelled or replaced')
     }
-    if (!reserved.ipv6) throw new Error('IPv6 address allocation failed')
-  }
-  const networkMode = reserved.ipv6 ? 'nat_ipv6' as const : item.networkMode
-  await prisma.instance.update({ where: { id: instanceId }, data: { networkMode } })
+    const ipv4 = await db.allocateAndReserveNatIpv4(host.id, instanceId, tx)
+    if (!ipv4) throw new Error('NAT IPv4 allocation failed')
+    const reserved = { ipv4, ipv6: null as string | null }
+    if (hostWithIpv6.ipv6_subnet) {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const candidate = generateRandomIPv6(hostWithIpv6.ipv6_subnet)
+        if (await db.isIpAddressExists(candidate, tx)) continue
+        await tx.ipAddress.create({ data: { address: candidate, type: 'inet6', isPrimary: true, device: 'eth1', hostId: host.id, instanceId } })
+        reserved.ipv6 = candidate
+        break
+      }
+      if (!reserved.ipv6) throw new Error('IPv6 address allocation failed')
+    }
+    const networkMode = reserved.ipv6 ? 'nat_ipv6' as const : item.networkMode
+    const storagePool = await db.resolveStoragePoolForNewInstance(host.id, { packageId: item.pkg.id, client: tx })
+    if (!storagePool) throw new Error('System storage pool is unavailable')
+    await tx.instance.update({ where: { id: instanceId }, data: { networkMode, storagePoolName: storagePool } })
+    return { reserved, networkMode, storagePool }
+    })
 
   // 与单台路径一致：拿到静态地址后重新生成带 network-config 的 cloud-init
   let configPayload = planned.configPayload
@@ -607,10 +619,6 @@ async function startProvisioning(userId: number, sshKey: string, entry: CreatedI
     })
     configPayload = regenerated.configPayload
   }
-
-  const storagePool = await db.resolveStoragePoolForNewInstance(host.id, { packageId: item.pkg.id })
-  if (!storagePool) throw new Error('System storage pool is unavailable')
-  await prisma.instance.update({ where: { id: instanceId }, data: { storagePoolName: storagePool } })
 
   void createInstanceAsync(instanceId, host, {
     name: planned.incusId,

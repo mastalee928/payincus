@@ -32,7 +32,7 @@ assert.ok(compensationSection.includes("if (instance.status === 'deleted')"), 'l
 const failureSection = section(
   instancesSource,
   '  } catch (error) {\n    const errorMessage = error instanceof Error ? error.message : String(error)',
-  '    throw error\n  }\n}'
+  '    throw error\n  } finally { poolProvision?.finish() }\n}'
 )
 
 const createInstanceAsyncSection = instancesSource.slice(

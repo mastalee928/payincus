@@ -606,6 +606,7 @@ export async function updateInstanceSwap(instanceId: number, data: {
  */
 export async function getStuckCreatingInstances(timeoutMs: number): Promise<Array<{
   id: number
+  purchase_batch_id: string | null
   incus_id: string
   name: string
   host_id: number
@@ -621,11 +622,12 @@ export async function getStuckCreatingInstances(timeoutMs: number): Promise<Arra
   
   const instances = await prisma.instance.findMany({
     where: {
-      status: 'creating',
-      createdAt: { lt: threshold }
+      OR: [{ status: 'creating', createdAt: { lt: threshold } },
+        { status: 'error', purchaseBatchId: { not: null }, provisioningCleanupPending: true, updatedAt: { lt: threshold } }]
     },
     select: {
       id: true,
+      purchaseBatchId: true,
       incusId: true,
       name: true,
       hostId: true,
@@ -641,6 +643,7 @@ export async function getStuckCreatingInstances(timeoutMs: number): Promise<Arra
   
   return instances.map(inst => ({
     id: inst.id,
+    purchase_batch_id: inst.purchaseBatchId,
     incus_id: inst.incusId,
     name: inst.name,
     host_id: inst.hostId,

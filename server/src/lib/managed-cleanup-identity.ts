@@ -10,7 +10,7 @@ export async function assertManagedCleanupIdentity(client: IncusClient, instance
   const instance = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId } })
   if (!instance.provisioningCleanupPending) return
   const specs = instance.snapshottedSpecs as Record<string, unknown> | null
-  const identity = specs?.managedCleanup as { attempt?: unknown; endpointHash?: unknown } | undefined
+  const identity = specs?.managedCleanup as { attempt?: unknown; endpointHash?: unknown; uuid?: unknown } | undefined
   if (typeof identity?.attempt !== 'string' || !/^[a-f0-9-]{36}$/i.test(identity.attempt) || identity.endpointHash !== managedCleanupEndpointHash(client)) {
     throw new Error('创建清理身份缺失或宿主连接已变化，请先核对原宿主；记录和库存已保留')
   }
@@ -22,6 +22,7 @@ export async function assertManagedCleanupIdentity(client: IncusClient, instance
     throw error
   }
   if (remote.name !== instance.incusId || remote.config?.['user.payincus.provisioning-attempt'] !== identity.attempt ||
+    (identity.uuid && remote.config?.['volatile.uuid'] !== identity.uuid) ||
     !/^[a-f0-9-]{36}$/i.test(remote.config?.['volatile.uuid'] || '')) {
     throw new Error('远端同名实例不属于本次创建，请先核对原实例；记录和库存已保留')
   }
@@ -45,7 +46,7 @@ export async function finalizeManagedCleanupForDeletion(instanceId: number): Pro
 }
 
 /** Shared bounded remote cleanup for the original managed creation identity. */
-export async function cleanupManagedInstanceRemote(client: IncusClient, name: string, attempt: string, deadline = Date.now() + 30000): Promise<void> {
+export async function cleanupManagedInstanceRemote(client: IncusClient, name: string, attempt: string, deadline = Date.now() + 30000, expectedUuid?: string): Promise<void> {
   const originalClient = client
   const remaining = Math.min(30000, deadline - Date.now())
   if (remaining <= 0) throw new Error('Managed cleanup deadline exceeded')
@@ -65,6 +66,7 @@ export async function cleanupManagedInstanceRemote(client: IncusClient, name: st
     }
     const uuid = remote.config?.['volatile.uuid']
     if (!uuid || !/^[a-f0-9-]{36}$/i.test(uuid)) throw new Error('Remote instance UUID not confirmed')
+    if (expectedUuid && uuid !== expectedUuid) throw new Error('Remote instance UUID changed from the original creation')
     if (remote.status !== 'Stopped') await boundedClient.request('PUT', `${path}/state`, { action: 'stop', force: true, timeout: 20 })
     const stopped = await boundedClient.request<IncusInstance>('GET', path)
     if (stopped.name !== name || stopped.config?.['user.payincus.provisioning-attempt'] !== attempt ||
@@ -109,6 +111,7 @@ export async function deletePendingManagedInstance(client: IncusClient, instance
   if (!instance.provisioningCleanupPending) return false
   await assertManagedCleanupIdentity(client, instanceId)
   const identity = (instance.snapshottedSpecs as { managedCleanup: { attempt: string } }).managedCleanup
-  await cleanupManagedInstanceRemote(client, instance.incusId, identity.attempt)
+  await cleanupManagedInstanceRemote(client, instance.incusId, identity.attempt, undefined,
+    (instance.snapshottedSpecs as { managedCleanup: { uuid?: string } }).managedCleanup.uuid)
   return true
 }

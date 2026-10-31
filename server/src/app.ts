@@ -934,6 +934,13 @@ const start = async (): Promise<void> => {
         const stuckInstances = await getStuckCreatingInstances(CREATE_TIMEOUT_MS)
         
         for (const instance of stuckInstances) {
+          if (instance.purchase_batch_id) {
+            const { failPoolProvision } = await import('./services/pool-provisioning.js')
+            await failPoolProvision(instance.id, await getHostById(instance.host_id), '创建超时或先前补偿待处理').catch(error => {
+              console.error('[CreateTimeout] Pool cleanup remains pending', instance.id, error)
+            })
+            continue
+          }
           console.log(`[CreateTimeout] 清理超时创建实例: ${instance.name} (ID: ${instance.id})`)
           
           // 使用原子操作更新状态，防止与 createInstanceAsync 的失败回滚竞争
