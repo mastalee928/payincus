@@ -2847,6 +2847,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
     }
 
     let paymentDetails = (record as any).paymentDetails as Record<string, unknown> | undefined
+    const expectedPaymentDetails = record.paymentDetails as Record<string, unknown> | null
 
     if (record.status === 'completed') {
       await markCallbackProcessed(providerIdNum, orderNo, tradeNoForIndex, clientIp)
@@ -2871,7 +2872,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
 
       const resultStatus = antomNotification.result?.resultStatus
       if (resultStatus === 'U') {
-        await db.updateRechargeOrderMetadata(orderNo, { tradeNo, callbackData, paymentDetails })
+        await db.updateRechargeOrderMetadata(orderNo, { tradeNo, callbackData, paymentDetails, expectedPaymentDetails })
         request.log.info({ orderNo }, 'Antom 处理中通知已记录')
         return antomNotificationResponse(true)
       }
@@ -2881,7 +2882,9 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
             orderNo,
             antomNotification.result?.resultMessage || 'Antom payment failed',
             callbackData,
-            paymentDetails
+            paymentDetails,
+            undefined,
+            expectedPaymentDetails
           )
         }
         await markCallbackProcessed(providerIdNum, orderNo, tradeNoForIndex, clientIp)
@@ -2935,7 +2938,8 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         await db.updateRechargeOrderMetadata(orderNo, {
           tradeNo,
           callbackData: heleketCallbackPayload,
-          paymentDetails
+          paymentDetails,
+          expectedPaymentDetails
         })
         request.log.info({ orderNo, heleketPaymentStatus }, 'Heleket 待处理回调已记录到本地订单')
         return { code: 'SUCCESS', message: 'OK' }
@@ -2943,10 +2947,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
 
       if (record.status === 'pending' || record.status === 'paid') {
         if (heleketPaymentState === 'cancelled') {
-          await db.cancelRecharge(orderNo, heleketCallbackPayload, paymentDetails)
+          await db.cancelRecharge(orderNo, heleketCallbackPayload, paymentDetails, expectedPaymentDetails)
         } else {
           const failReason = getHeleketStatusMessage(heleketPaymentStatus)
-          await db.failRecharge(orderNo, failReason, heleketCallbackPayload, paymentDetails)
+          await db.failRecharge(orderNo, failReason, heleketCallbackPayload, paymentDetails, undefined, expectedPaymentDetails)
         }
       }
 
@@ -3047,7 +3051,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         actualAmount: creditedAmount,
         callbackData: callbackData,
         paymentDetails,
-        ...(provider.type === 'upaypro' ? { expectedPaymentDetails: record.paymentDetails as Record<string, unknown> } : {})
+        expectedPaymentDetails
       })
 
       // 记录已处理
@@ -3149,6 +3153,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       return await handlePaymentCallback(request, reply, providerId, request.body)
     } catch (error) {
       request.log.error(error, '支付回调处理失败')
+      if (error instanceof RechargePaymentSelectionChangedError) return reply.status(409).send({ error: '支付订单已更新，请重试回调' })
       return reply.status(500).send({ error: '回调处理失败' })
     }
   })
@@ -3164,6 +3169,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       return await handlePaymentCallback(request, reply, providerId, request.query)
     } catch (error) {
       request.log.error(error, '支付回调处理失败')
+      if (error instanceof RechargePaymentSelectionChangedError) return reply.status(409).send({ error: '支付订单已更新，请重试回调' })
       return reply.status(500).send({ error: '回调处理失败' })
     }
   })

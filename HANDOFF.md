@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 支付回调在途换单保护
+
+- recharge-callback-race-product-before.log真实复现旧易支付回调在重新支付后仍200/completed、余额+9；最初夹具mock.method不适用Prisma代理的失败单独保留，不算产品证据。GET/POST回调现在向全部渠道的metadata/complete/cancel/fail传原paymentDetails，同语句CAS拒绝旧选择并返回409；重试已过期回调仍按原规则确认忽略。
+- recharge-callback-race-final.log退出0：真实PG及原Fastify路由，易支付GET/POST、Heleket paid/check/cancel/fail、Antom S/U/F，原SQL NULL/已有attempt共18场景。真实MD5/RSA验签；无效签名400，旧在途回调409且新记录完整保持、余额/ledger/inbox不增、零callback；新回调正常到账一次，重复不重复入账。供应商网络和外部通知未执行，未操作生产。
+- recharge-callback-race-types零诊断、guards 6/6、后端build及recharge-callback-upay-regression均已收退出0；UPAY新建隔离库全迁移及原签名/金额/重复/repay/旧快照回归通过，finally仅清本轮新库。专项已登记脚本、清单与Linux CI；此段仍归原充值编号，283/327（86.5%，含部分/待验收）、44项初审不变。
+- 前段d8b3344d9f9541437e35b81fd450031ec4d9e548对应CI41147296829排队。新增终态41137000191 / 3c2880b1e67fb8e5133e5e02517afc7e9565f677全部success；历史41134810809失败保留，其夹具修正后的Linux已过。其他已推阶段继续跟终态，固定v1.7.8及生产部署不变；下一项R035终态竞争复验。
+
 ## 2026-10-31 用户支付结果查询在途换单保护
 
 - recharge-verify-before.log自然exit1：用户verify查询时通过原DB helper重建支付尝试，旧易支付paid仍200/completed且余额+9。verify现向所有metadata/complete/cancel/fail传原paymentDetails，复用同语句CAS，冲突409；未改供应商签名/金额/用户归属和正常通知规则。

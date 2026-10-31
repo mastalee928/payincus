@@ -46,6 +46,11 @@ assert.equal((userVerify.match(/expectedPaymentDetails/g) || []).length, 8,
   'user provider verification must bind all seven metadata/status/settlement mutations to its original selection')
 assert.ok(userVerify.includes('error instanceof RechargePaymentSelectionChangedError') && userVerify.includes('reply.code(409)'),
   'stale user verification must return an explicit conflict')
+const callback = routeSource.slice(routeSource.indexOf('async function handlePaymentCallback('), routeSource.indexOf('// POST 回调接口'))
+assert.equal((callback.match(/expectedPaymentDetails/g) || []).length, 7,
+  'callbacks must bind every metadata/status/completion mutation to the original payment selection')
+assert.ok(!callback.includes("provider.type === 'upaypro' ? { expectedPaymentDetails"),
+  'callback selection protection must cover all providers')
 const adminSync = adminSource.slice(adminSource.indexOf("app.post('/api/admin/billing/recharge-records/:id/sync'"),
   adminSource.indexOf('// ==================== 管理员创建实例 ===================='))
 assert.ok(adminSync.includes('!isRechargeGatewayOrderNoMatch(gatewayOrderNo, queryResult.out_trade_no)'),

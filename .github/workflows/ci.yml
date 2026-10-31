@@ -311,6 +311,8 @@ jobs:
         run: pnpm --filter server test:review-recharge-sync
       - name: User payment verification rejects obsolete provider results after repayment
         run: pnpm --filter server test:review-recharge-verify
+      - name: Signed payment callbacks preserve replacements and never credit stale payment attempts
+        run: pnpm --filter server test:review-recharge-callback-races
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets
