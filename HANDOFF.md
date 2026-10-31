@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R246 资源选择组件当前消费者复审
+
+- 实际路由/模板链仍有效：用户/管理员instances/create分别加载InstanceCreateView/AdminInstanceCreateView，MyHostDetailView的create标签加载HostCreateInstanceTab；三者渲染PackageSelector及非付费等条件分支的ResourceSliders，后者实际渲染CPU/内存/磁盘ResourceSlider并向父级写对应字段。不是仅剩测试引用或只有失效import，“全退役可删除”的前提不成立，保留组件。
+- 无产品修改；沿同源码刚通过的R276双端build/dist和前端route守卫，未为复审触发客户创建，也不把模板消费者存在当资源交付验收。独占一机一卖、全端口要求和原资源授权待验边界保持。
+- R276完整提交c4bf29564b0a0ed6e31cbe09ab4f68f2d7a07ca7 / CI41154813564，原R306随后归档0088991d。R246后302/327（92.4%，含部分/待验收）、25项初审；完整验收仍未完成，CI继续跟踪。
+
 ## 2026-10-31 R306 空 IPv6 新节点重复条目归档
 
 - R306与R276引用相同MyHostConfigTab入口，均指合法空IPv6新节点编辑被挡。此次修复及POST→PATCH、真实行锁并发保新配置、浏览器三语三宽和全部types/build/守卫证据完全共用上一段；没有第二次产品修复或无变更重跑。R111“清空既有配置”仍分别保留：mode2/3允许、已有route配置不允许。

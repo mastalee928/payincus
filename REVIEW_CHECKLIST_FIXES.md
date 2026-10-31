@@ -537,7 +537,7 @@
 | R1-243 | 存在 | 已修复；实际到账未验 | 反馈优先本次claim.snapshot的type/title/config，旧卡片只作缺省且类型一致回退；两级timer已由R241清理。Chrome先红后绿、余额/积分/待发实例批量、legacy回退、自然过期/隐藏延迟及R241/242回归、3守卫/lint/双端types build/dist通过（takeover-vip-feedback-*）。 |
 | R1-244 | 存在 | 源码已修/原路由真实PG验证通过 | 非数组rules返回400，不转换为空数组。review-vip-array-pg.log自然exit0：两类型28种缺失/错型/非法body或行均400且原规则及metric不变；合法替换/metric保存与显式[]清空仅作用指定类型。认证装饰器受控，管理员当前授权竞态及整页浏览器另验，产品未追加改动。 |
 | R1-245 | 存在 | 已修复；真实规则替换未验 | 当前type/session成功读取才可编辑保存，初读失败持久retry；同步保存/冻结/快照及类型session缓存卸载回执隔离。真实Chrome先红空规则请求→禁写，完整交互/共享奖励回归、4守卫/lint/双端types build/dist/manifest通过（takeover-vip-rules-*）；后端空数组合法替换与跨管理员竞争保持。 |
-| R1-246 | 已有防护 | 保留初审结论 | ResourceSlider/ResourceSliders/PackageSelector仍由InstanceCreateView、AdminInstanceCreateView、HostCreateInstanceTab维护代码导入使用；原全退役结论不成立，保留。 |
+| R1-246 | 已有防护 | 实际路由与模板消费者确认 | 用户/管理员创建路由及MyHostDetailView create标签仍渲染PackageSelector/ResourceSliders，后者CPU/内存/磁盘均渲染ResourceSlider并有更新事件。不是失效import/仅测试引用，保留组件；同源码双端build/dist/route通过，不代表真实资源交付验收。 |
 | R1-247 | 存在 | 已修复；真实镜像交付未验 | 方案/镜像请求各自seq+host/session/package，selection代次阻旧链；刷新清旧选择并禁创建，提交镜像须在当前列表。Chrome先红后绿、方案/镜像旧成功失败/finally、刷新禁写/精确planId与image及R248回归、3守卫/lint/双端types build/dist通过（takeover-host-create-options-*）。R249/250另修。 |
 | R1-248 | 存在 | 已修复；完整创建生命周期继续 | 目标输入同步清旧验证，提交匹配当前trim用户名；lookup按seq/host/session/模式/cache隔离，核返回身份与ID，保存提示用提交payload。Chrome先红后绿、直接submit/乱序/错误身份/状态/SSH/session/host/cache/精确收件人、4守卫/lint/最终双端types build/dist/manifest通过（takeover-host-gift-target-*）；R247/249/250另修，未真实交付。 |
 | R1-249 | 存在 | 已修复；真实创建未验 | 自用/赠送回执绑定host/session/route/cache代次，旧success/error不导航/toast/清空；提交快照相同才重置，改过草稿保留，init IDs复制。Chrome先红新输入被清→保留、缓存/host/session/卸载/自用导航及R247/248回归、3守卫/lint/双端types build/dist通过（takeover-host-create-save-*）。R250初读独立继续。 |
