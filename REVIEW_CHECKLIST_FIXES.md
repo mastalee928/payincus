@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为288项（含部分、待验收），39项仍保初审分类；这不是完整修复数，不能按327减288计算剩余全部工作。R262新增复现并修复批量404前部分修改，真实PG宿主隔离和拒绝零修改通过。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为289项（含部分、待验收），38项仍保初审分类；这不是完整修复数，不能按327减289计算剩余全部工作。R262新增复现并修复批量404前部分修改，真实PG宿主隔离和拒绝零修改通过。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -431,7 +431,7 @@
 | R1-137 | 存在 | 部分精修/隔离运行通过 | 固定备份名精确确认删除后标deleted，拒绝/未确认保持记录，远端成功DB失败可续做；takeover-transfer-cleanup-final.log。其它备份生命周期仍待验。 |
 | R1-138 | 存在 | 源码已修/隔离运行通过 | 共享TCP/UDP及-v6设备确认后删除mapping，同事务重计host实际端口；专属端口不动。PG计数及DB失败重试通过takeover-transfer-cleanup-final.log；真实Incus规则另验。 |
 | R1-139 | 部分存在 | 源码已修/隔离PG与mTLS验证通过 | 显式portMappings非空/数量匹配/声明private范围，结合原去重完整覆盖；both配额、自动分配及真实409建议后重提通过logs/review-batch-port-range-integration.log，Incus边界fixture |
-| R1-140 | 已有防护 | 保留初审结论 | 统一finalMappings对公网NAT区间与both计数进行校验，冲突重试数组不直接跳过。 |
+| R1-140 | 已有防护 | 原路由真实PG/mTLS范围边界复验通过 | 原R139专项扩展tcp/udp/both上下越界零修改、10000/10100两端both成功，13映射/设备准确，both配额/自动/409建议重提保持。ports-r140-boundaries-final、types/安全守卫通过，专项登记CI；旧共享NAT不改变专属全端口规则。 |
 | R1-141 | 部分存在 | 源码已修/TLS行为验证通过 | 同R125连接池组，CA内容绑定和LRU生命周期、请求时复用live Agent已真实TLS验证；review-caddy-lifecycle.log |
 | R1-142 | 存在 | 源码已修/隔离PG与TLS验证通过 | 两处用户sync的IP及ipv4SyncPending同事务，远端原子addSite，失败/DB提交失败保留flag；同IP再次sync重试、缺配置保留、suspended保护通过review-proxy-ipv4-sync-integration-final.log。无独立timer worker，其它网络入口未一并接入 |
 | R1-143 | 部分存在 | 源码已修/隔离PG与TLS验证通过 | 同instance锁重读current site enabled/status、owner/incusId/host及证书登记身份，disable/转移/旧观察拒绝，Caddy错误不会进not-found删实例分支；review-proxy-ipv4-sync-integration-final.log，相关3/3 test-run-20261027-232329 |

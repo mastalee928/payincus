@@ -323,6 +323,8 @@ jobs:
         run: pnpm --filter server test:review-batch-config-input-boundaries
       - name: Automatic renewal rejects disabled selections and serializes switch changes with settlement
         run: pnpm --filter server test:review-auto-renew-selection
+      - name: Legacy shared NAT port retries respect both range endpoints and protocol quota
+        run: pnpm --filter server test:review-batch-port-range-integration
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets

@@ -3,7 +3,7 @@ import Fastify from 'fastify'
 import { randomUUID, X509Certificate } from 'node:crypto'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:https'
 
@@ -84,6 +84,9 @@ try {
   await rejected({ ...base, portMappings: [full[0], full[1], { privatePort: 10011, publicPort: 10032 }] }, 'INVALID_PARAMS')
   await rejected({ ...base, portMappings: [full[0], full[1], { privatePort: 10012, publicPort: 10031 }] }, 'INVALID_PARAMS')
   await rejected({ ...base, portMappings: [full[0], full[1], { privatePort: 10012, publicPort: 10101 }] }, 'PORT_RANGE_INVALID')
+  for (const protocol of ['tcp', 'udp', 'both']) for (const publicPort of [9999, 10101]) {
+    await rejected({ ...base, protocol, portMappings: [full[0], full[1], { privatePort: 10012, publicPort }] }, 'PORT_RANGE_INVALID')
+  }
   await rejected({ ...base, portMappings: [{ privatePort: 10010 }, ...full.slice(1)] })
   await rejected({ ...base, portMappings: [{ privatePort: 65536, publicPort: 10030 }, ...full.slice(1)] })
   await rejected({ ...base, privatePortStart: 10012, privatePortEnd: 10010, portMappings: full })
@@ -107,6 +110,18 @@ try {
     assert.equal(devices[`proxy-${mapping.protocol}-${mapping.publicPort}`].connect, `${mapping.protocol}:0.0.0.0:${mapping.privatePort}`)
   }
 
+  // Reserve the two endpoints before the automatic-allocation check can legitimately consume them.
+  await prisma.instance.update({ where: { id: instance.id }, data: { portLimit: 20 } })
+  for (const [privatePort, publicPort] of [[10090, 10000], [10091, 10100]]) {
+    const boundary = await submit({ protocol: 'both', privatePortStart: privatePort, privatePortEnd: privatePort,
+      portMappings: [{ privatePort, publicPort }] })
+    assert.equal(boundary.statusCode, 200, boundary.body); assert.equal(boundary.json().count, 2)
+    for (const protocol of ['tcp', 'udp'] as const) {
+      const mapping = await prisma.portMapping.findFirstOrThrow({ where: { instanceId: instance.id, protocol, publicPort } })
+      assert.equal(mapping.privatePort, privatePort)
+      assert.equal(devices[`proxy-${protocol}-${publicPort}`].connect, `${protocol}:0.0.0.0:${privatePort}`)
+    }
+  }
   // Omitting the custom array keeps automatic allocation available.
   const automatic = await submit({ protocol: 'tcp', privatePortStart: 10050, privatePortEnd: 10051 })
   assert.equal(automatic.statusCode, 200, automatic.body)
@@ -125,6 +140,8 @@ try {
     privatePortEnd: conflictBase.privatePortEnd, portMappings: resubmission })
   assert.equal(resolved.statusCode, 200, resolved.body)
   assert.equal(resolved.json().mappings[0].publicPort, resubmission[0].publicPort)
+  assert.equal(await prisma.portMapping.count({ where: { instanceId: instance.id } }), 13)
+  assert.equal(Object.keys(devices).length, 13)
   console.log('PASS real PostgreSQL/Fastify batch ports: empty/missing/extra/out-of-range/duplicate custom mappings reject without side effects; NAT range and Both quota remain enforced; shuffled complete Both, automatic allocation and UI-shaped conflict resubmission work through real mTLS to isolated Incus fixture')
 } finally {
   await app.close()
@@ -137,6 +154,7 @@ try {
   await prisma.host.delete({ where: { id: host.id } })
   await prisma.user.delete({ where: { id: user.id } })
   await closePrismaDatabase()
+  assert.ok(resolve(root).startsWith(resolve(tmpdir()) + sep), 'remove only this test temporary directory')
   await rm(root, { recursive: true, force: true })
 }
 process.exit(0)
