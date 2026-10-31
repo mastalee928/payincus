@@ -5,7 +5,7 @@
  * 打开时重新拉商品目录，逐行比对：已下架、价格变动、库存不足都提前标出来；
  * 真正的裁决在付款事务里（整单全有或全无）。允许删行、改数量、改前缀，不允许改配置。
  */
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft, ArrowRight, Check, CreditCard, Cpu, HardDrive, KeyRound, Loader2, LockKeyhole, MemoryStick, Minus, Plus, ShoppingBag, Trash2, Wallet } from 'lucide-vue-next'
@@ -78,25 +78,57 @@ const gatewayOrder = ref<{
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 let gatewayPollTimer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
+const active = ref(false), catalogReady = ref(false)
+let generation = 0, pollSequence = 0, gatewaySequence = 0
+const session = computed(() => {
+  if (!authStore.token || !authStore.user) return ''
+  let identity = authStore.token
+  try { const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); if (payload.sid) identity = payload.sid } catch { /* Keep legacy token identity. */ }
+  return `${authStore.user.id}:${identity}`
+})
+function context() {
+  const version = generation, authentication = authStore.captureAuthentication()
+  return () => !disposed && active.value && !!session.value && route.path === '/checkout' && version === generation && authentication.aligned && authentication.current()
+}
+function resetContext() {
+  generation++; pollSequence++; gatewaySequence++
+  clearTimeout(pollTimer); clearTimeout(gatewayPollTimer)
+  orderResult.value = null; regions.value = []; sshKeys.value = []; sshKeyId.value = null; serverAvailable.value = {}
+  loading.value = false; catalogReady.value = false; paying.value = false; error.value = ''; acceptPrices.value = false
+  gatewayOrder.value = null; gatewayBusy.value = false; gatewayCredited.value = false; gatewayError.value = ''; payProviders.value = []; payChoice.value = 'balance'
+  turnstileToken.value = ''; volatileIntent = null
+}
 async function pollOrder() {
   clearTimeout(pollTimer)
-  if (!orderResult.value || disposed) return
+  const current = context(), batchId = orderResult.value?.batchId, sequence = ++pollSequence
+  const valid = () => current() && sequence === pollSequence && orderResult.value?.batchId === batchId
+  if (!batchId || !valid()) return
   try {
-    const result = await api.instances.getPoolOrder(orderResult.value.batchId)
-    if (!disposed) { orderResult.value = result; error.value = '' }
-  } catch { if (!disposed) error.value = t('cart.statusFailed') }
-  if (!disposed && orderResult.value) {
+    const result = await api.instances.getPoolOrder(batchId)
+    if (valid() && result.batchId === batchId) { orderResult.value = result; error.value = '' }
+  } catch { if (valid()) error.value = t('cart.statusFailed') }
+  if (valid() && orderResult.value) {
     const pending = orderResult.value.instances.some(instance => instance.status === 'creating' || instance.refundPending || instance.publicIpUpdating)
     pollTimer = setTimeout(() => void pollOrder(), pending ? 4000 : 30000)
   }
 }
-async function acceptOrder(result: PoolCheckoutResult) {
-  orderResult.value = result; cartStore.clear()
+async function acceptOrder(result: PoolCheckoutResult, submitted: CartItem[], account: number, requestId: string) {
+  if (result.batchId !== requestId) throw Error(t('cart.statusFailed'))
+  clearCheckoutIntent(account, requestId)
+  try { sessionStorage.removeItem(`payincus.checkout-payment.${account}`) } catch { /* Receipt is authoritative. */ }
+  orderResult.value = result
+  // Only remove exactly what this request purchased; another tab or action may
+  // have added or edited a line while the server was accepting the order.
+  for (const item of submitted) {
+    const current = cartStore.items.find(row => row.key === item.key)
+    if (current && JSON.stringify(current) === JSON.stringify(item)) cartStore.remove(item.key)
+  }
   await router.replace({ path: '/checkout', query: { order: result.batchId } })
-  void authStore.fetchCurrentUser().catch(() => {})
-  void pollOrder()
 }
-onUnmounted(() => { disposed = true; clearTimeout(pollTimer); clearTimeout(gatewayPollTimer) })
+function activate() { active.value = true }
+onMounted(activate); onActivated(activate)
+onDeactivated(() => { active.value = false })
+onUnmounted(() => { disposed = true; resetContext() })
 
 interface CheckoutRow {
   item: CartItem
@@ -174,7 +206,7 @@ const tooMany = computed(() => totalQuantity.value > maxInstances.value)
 /** 有问题的行：已下架 / 库存不足 / 名称不合法。付款时会就地拦下并引导处理。 */
 const problemRows = computed(() => rows.value.filter(row => row.offSale || row.stockShort || !!row.nameError))
 /** 付款按钮只在「空车 / 未选密钥 / 付款中 / 加载中」时禁用；缺货等问题留给点击时就地引导。 */
-const canPay = computed(() => rows.value.length > 0 && (authMode.value === 'password' || sshKeyId.value !== null) && !paying.value && !loading.value)
+const canPay = computed(() => active.value && !!session.value && catalogReady.value && rows.value.length > 0 && (authMode.value === 'password' || sshKeyId.value !== null) && !paying.value && !loading.value)
 
 /** 正在抖动的行 key，用于「滚到那一行并抖一下」的提示。 */
 const shakingKey = ref<string | null>(null)
@@ -190,32 +222,49 @@ function highlightRow(key: string): void {
 }
 
 async function loadCatalog(): Promise<void> {
+  const current = context()
+  catalogReady.value = false
   const response = await api.packages.getPublicCatalog()
+  if (!current()) return
+  if (!Array.isArray(response.regions)) throw Error(t('common.loadFailed'))
   regions.value = response.regions || []
   maxInstances.value = response.maxInstances ?? 100
   serverAvailable.value = {}
+  catalogReady.value = true
 }
 
-onMounted(async () => {
+async function initialize() {
+  const current = context()
+  if (!current()) return
   loading.value = true
   try {
     if (typeof route.query.order === 'string') {
-      orderResult.value = await api.instances.getPoolOrder(route.query.order)
+      const id = route.query.order, result = await api.instances.getPoolOrder(id)
+      if (!current()) return
+      if (result.batchId !== id) throw Error(t('cart.statusFailed'))
+      orderResult.value = result
       void pollOrder()
       return
     }
-    await Promise.all([configStore.loadPublicConfig(), api.sshKeys.list().then(result => { sshKeys.value = result.keys }), loadCatalog()])
+    await Promise.all([configStore.loadPublicConfig(), api.sshKeys.list().then(result => { if (current()) sshKeys.value = result.keys }), loadCatalog()])
+    if (!current()) return
     void api.billing.getPaymentProviders()
-      .then(result => { payProviders.value = result.providers })
-      .catch(() => { payProviders.value = [] })
+      .then(result => { if (current()) payProviders.value = result.providers })
+      .catch(() => { if (current()) payProviders.value = [] })
     if (sshKeys.value.length > 0) sshKeyId.value = sshKeys.value[0].id
     else authMode.value = 'password'
+    restoreGatewayOrder()
   } catch (err) {
-    error.value = translateError(err)
+    if (current()) { catalogReady.value = false; error.value = translateError(err) }
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
-})
+}
+watch([session, active, () => route.fullPath], () => {
+  resetContext()
+  const version = generation
+  void nextTick(() => { if (version === generation) void initialize() })
+}, { flush: 'sync' })
 
 function updateQuantity(row: CheckoutRow, value: number): void {
   const upper = Math.max(1, Math.min(row.available || 1, maxInstances.value))
@@ -224,23 +273,34 @@ function updateQuantity(row: CheckoutRow, value: number): void {
 
 watch(() => rows.value.map(row => row.live ? `${row.live.id}:${row.live.monthlyPrice}:${row.live.setupFee}` : '').join('|'), () => { acceptPrices.value = false })
 
-let volatileIntent: { id: string; fingerprint: string } | null = null
-function checkoutRequestId(payload: unknown): string {
-  const key = `payincus.checkout.${authStore.user?.id}`
+let volatileIntent: { id: string; fingerprint: string; account: number } | null = null
+function clearCheckoutIntent(account: number, id: string) {
+  if (volatileIntent?.account === account && volatileIntent.id === id) volatileIntent = null
+  try {
+    const key = `payincus.checkout.${account}`
+    if (JSON.parse(sessionStorage.getItem(key) || 'null')?.id === id) sessionStorage.removeItem(key)
+  } catch { /* An acknowledged purchase remains successful if storage was blocked later. */ }
+}
+function checkoutRequestId(payload: unknown, account: number): string {
+  const key = `payincus.checkout.${account}`
   const fingerprint = JSON.stringify(payload)
-  if (volatileIntent?.fingerprint === fingerprint) return volatileIntent.id
+  if (volatileIntent?.account === account && volatileIntent.fingerprint === fingerprint) return volatileIntent.id
   try {
     const previous = JSON.parse(sessionStorage.getItem(key) || 'null')
-    if (previous?.fingerprint === fingerprint && typeof previous.id === 'string') { volatileIntent = previous; return previous.id }
+    if (previous?.fingerprint === fingerprint && typeof previous.id === 'string') { volatileIntent = { ...previous, account }; return previous.id }
     const id = crypto.randomUUID()
-    volatileIntent = { id, fingerprint }
+    volatileIntent = { id, fingerprint, account }
     sessionStorage.setItem(key, JSON.stringify(volatileIntent))
     return id
-  } catch { volatileIntent = { id: crypto.randomUUID(), fingerprint }; return volatileIntent.id }
+  } catch { volatileIntent = { id: crypto.randomUUID(), fingerprint, account }; return volatileIntent.id }
 }
 
 async function pay(): Promise<void> {
   if (!canPay.value) return
+  const account = authStore.user?.id, authentication = authStore.captureAuthentication()
+  if (!account || !authentication.aligned) return
+  const available = context()
+  const current = () => available() && authentication.current() && authStore.user?.id === account
 
   if (tooMany.value) {
     error.value = t('cart.tooMany', { max: maxInstances.value })
@@ -271,11 +331,14 @@ async function pay(): Promise<void> {
       sshKeyId: authMode.value === 'key' ? sshKeyId.value ?? undefined : undefined,
       expectedTotal: totalCents.value
   }
-  const requestId = checkoutRequestId(payload)
+  const submitted = JSON.parse(JSON.stringify(cartStore.items)) as CartItem[]
+  const requestId = checkoutRequestId(payload, account)
   try {
     const result = await api.instances.poolOrder({ ...payload, requestId, turnstileToken: verificationToken || undefined })
-    await acceptOrder(result)
+    if (!current()) return
+    await acceptOrder(result, submitted, account, requestId)
   } catch (err: any) {
+    if (!current()) return
     const data = err?.response?.data ?? err
     const code = data?.code
     if (code === 'POOL_STOCK_SHORT' && Array.isArray(data?.shortages)) {
@@ -287,23 +350,29 @@ async function pay(): Promise<void> {
       error.value = t('cart.stockShortError')
       // 按服务端给的真实余量重算后，滚到第一行缺货商品并抖动。
       await nextTick()
+      if (!current()) return
       const firstShort = rows.value.find(row => row.stockShort)
       if (firstShort) highlightRow(firstShort.item.key)
     } else if (code === 'POOL_PRICE_CHANGED') {
       await loadCatalog().catch(() => {})
+      if (!current()) return
       error.value = t('cart.priceChangedError')
       // 滚到第一行价格变动的商品并抖动，告诉用户是哪里变了。
       await nextTick()
+      if (!current()) return
       const changed = rows.value.find(row => row.priceChanged)
       if (changed) highlightRow(changed.item.key)
     } else {
       const accepted = await api.instances.getPoolOrder(requestId).catch(() => null)
-      if (accepted) await acceptOrder(accepted)
+      if (!current()) return
+      if (accepted) await acceptOrder(accepted, submitted, account, requestId)
       else error.value = translateError(err)
     }
   } finally {
-    turnstileToken.value = ''; turnstileRef.value?.reset()
-    paying.value = false
+    if (current()) {
+      turnstileToken.value = ''; turnstileRef.value?.reset()
+      paying.value = false
+    }
   }
 }
 
@@ -319,23 +388,28 @@ function selectPayChoice(choice: 'balance' | number): void {
 }
 
 function openGatewayPage(): void {
+  if (!context()()) return
   if (gatewayOrder.value?.payUrl) window.open(gatewayOrder.value.payUrl, '_blank', 'noopener')
 }
 
 function scheduleGatewayPoll(delay = 5000): void {
   clearTimeout(gatewayPollTimer)
-  if (disposed || !gatewayOrder.value || gatewayCredited.value) return
+  if (!context()() || !gatewayOrder.value || gatewayCredited.value) return
   gatewayPollTimer = setTimeout(() => void refreshGatewayOrder(), delay)
 }
 
 /** 查充值单：到账即解锁结算；手动点刷新时再主动向网关查询一次（并非所有渠道都支持）。 */
 async function refreshGatewayOrder(manual = false, silent = false): Promise<void> {
   const order = gatewayOrder.value
-  if (!order || gatewayCredited.value) return
+  const available = context(), sequence = ++gatewaySequence
+  const current = () => available() && gatewayOrder.value?.orderNo === order?.orderNo && sequence === gatewaySequence
+  if (!order || gatewayCredited.value || !current()) return
   if (!silent) gatewayBusy.value = true
   try {
     if (manual) await api.billing.verifyRechargeOrder(order.orderNo).catch(() => null)
+    if (!current()) return
     const detail = await api.billing.getRechargeOrder(order.orderNo)
+    if (!current() || detail.order.orderNo !== order.orderNo) return
     const status = detail.order.status
     if (status === 'completed') {
       if (detail.order.actualAmount !== null) order.actualAmountCents = Math.round(Number(detail.order.actualAmount) * 100)
@@ -346,22 +420,43 @@ async function refreshGatewayOrder(manual = false, silent = false): Promise<void
     }
     if (status === 'failed' || status === 'cancelled' || status === 'expired' || status === 'refunded') {
       gatewayOrder.value = null
+      saveGatewayOrder()
       gatewayError.value = t('cart.gatewayFailed')
       return
     }
     gatewayError.value = ''
   } catch (err) {
-    if (!silent) gatewayError.value = translateError(err)
+    if (!silent && current()) gatewayError.value = translateError(err)
   } finally {
-    if (!silent) gatewayBusy.value = false
+    if (!silent && available() && sequence === gatewaySequence) gatewayBusy.value = false
   }
-  scheduleGatewayPoll()
+  if (current()) scheduleGatewayPoll()
+}
+
+function saveGatewayOrder() {
+  try {
+    const key = `payincus.checkout-payment.${authStore.user?.id}`
+    if (gatewayOrder.value) sessionStorage.setItem(key, JSON.stringify(gatewayOrder.value))
+    else sessionStorage.removeItem(key)
+  } catch { /* The original order remains accessible in the user's order list. */ }
+}
+function restoreGatewayOrder() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(`payincus.checkout-payment.${authStore.user?.id}`) || 'null')
+    if (!saved || typeof saved.orderNo !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(saved.orderNo) || typeof saved.providerName !== 'string' ||
+      ![saved.payableCents, saved.actualAmountCents].every(value => Number.isSafeInteger(value) && value >= 0) ||
+      (saved.payUrl !== null && (typeof saved.payUrl !== 'string' || !/^https?:\/\//i.test(saved.payUrl))) ||
+      (saved.manualInstructions !== null && typeof saved.manualInstructions !== 'string')) return
+    gatewayOrder.value = saved
+    void refreshGatewayOrder()
+  } catch { /* Corrupt cached payment metadata is not an authorization or payment fact. */ }
 }
 
 /** 选渠道时按整单金额创建充值单；到账后仍由余额完成扣款与开通。 */
 async function startGatewayPayment(): Promise<void> {
+  const current = context()
   const providerId = payChoice.value
-  if (providerId === 'balance' || gatewayBusy.value || rows.value.length === 0) return
+  if (!current() || !canPay.value || providerId === 'balance' || gatewayBusy.value || rows.value.length === 0) return
   // 已有一张未完成的充值单时不再重复创建，直接回到支付页并刷新状态。
   if (gatewayOrder.value && !gatewayCredited.value) {
     openGatewayPage()
@@ -378,6 +473,7 @@ async function startGatewayPayment(): Promise<void> {
   try {
     const targetYuan = totalCents.value / 100
     const result = await api.billing.createRechargeOrder(providerId, targetYuan, undefined, targetYuan)
+    if (!current()) return
     gatewayOrder.value = {
       orderNo: result.order.orderNo,
       providerName: result.provider.name,
@@ -386,12 +482,13 @@ async function startGatewayPayment(): Promise<void> {
       payUrl: result.payUrl,
       manualInstructions: result.manualPayment?.instructions ?? null
     }
+    saveGatewayOrder()
     if (result.payUrl) window.open(result.payUrl, '_blank', 'noopener')
     scheduleGatewayPoll(4000)
   } catch (err) {
-    gatewayError.value = translateError(err)
+    if (current()) gatewayError.value = translateError(err)
   } finally {
-    gatewayBusy.value = false
+    if (current()) gatewayBusy.value = false
   }
 }
 

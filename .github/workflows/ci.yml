@@ -332,6 +332,8 @@ jobs:
         run: pnpm --filter server test:review-late-payments-ui
       - name: Pool checkout rechecks the original session before charging and replaying
         run: pnpm --filter server test:review-pool-checkout
+      - name: Pool checkout preserves request identity and isolates old browser replies
+        run: pnpm --filter server test:review-pool-checkout-ui
       - name: Gift card batch quantities reject invalid input and preserve exact boundary counts
         run: pnpm --filter server test:review-gift-card-counts
       - name: Invalid gift card IDs reject entire batches before refunding or changing valid cards
