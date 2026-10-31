@@ -597,7 +597,7 @@
 | R1-303 | 存在，多阶段精修 | 专属迁移门禁、Storage/Redeem读写及迁移前端读写已修 | 旧迁移专属/singleTenant整批拒绝已PG验证；Storage/Redeem读写Chrome矩阵通过；迁移分页及读取、固定写target/旧回执/重复/部分结果，父同步选择/current身份/辅助读失败保结果Chrome/types/守卫通过。兑换复制/结果弹窗完整Chrome已修；存储容量输入与手机错误已修，后台容量API格式/单位/上限PG+mTLS已修；宿主分页补真实架构/IPv6及绑定地址/同步状态，按name+id固定跨owner同名顺序，真实PG/Fastify 105宿主两页及权限回归通过。驱动扩容/授权原子性、兑换事务日志、分页期间并发新增删除及旧迁移并发补偿另待。 |
 | R1-304 | 存在，部分已修 | 单/批预览与写回执Chrome、审计和当前管理员PG通过 | 150ms旧预览同步失效、session/ABA/缓存、当前版本/余额与合法0及提交门禁；busy/关闭/草稿、失败后显式新预览、旧写回执/辅助读取隔离已修。后台审计原子回滚与正常结算、事务内当前管理员status/role/sid撤销及不变请求、实例资格行锁PG竞争通过。余额锁顺序/归属及支付记录并发、通知持久化及完整计费流程仍待，见HANDOFF。 |
 | R1-305 | 存在，部分已修 | 余额/登录/托管读取与三调整Chrome、三后台PG通过 | 读取当前session/目标/页与error/retry；三调整严格输入/busy/字段关闭/固定目标草稿回执与辅助刷新已修，欠款和负金额有效。三后台当前权限及账目审计原子事务，托管回执读取故障回滚/精确分币/超精度拒绝与积分溢出并发不足通过。冻结历史、断网幂等、邮件持久性及完整真实流程仍待，见HANDOFF。 |
-| R1-306 | 已有防护 | 保留初审结论 | requiresIpv6ParentInterface仅当前或旧subnet有值时要求接口，IPv6全部留空可保存；清空已有值仍见R1-111。 |
+| R1-306 | 初审遗漏，与R276重复 | 同入口共用修复及复验 | 同MyHostConfigTab和hosts PATCH；R276真实新建后失败及三语三宽/PG行锁/类型/构建证据共用，允许原及新字段均空而保已有route配置。不是第二次独立产品修复；清空旧配置见R111，原生宿主及其它并发仍另验。 |
 | R1-307 | 部分存在，部分已修 | 2FA与邮箱状态/回执实际Chrome及构建守卫通过 | 2FA busy/取消/初读ready/session/cache/unmount/draft/秘密timer、TOTP/设置材料与真实回执已修；邮箱busy和目标/session/输入回执见R313。真实认证全流程及R013敏感验证接线仍待，不把局部矩阵当作完整验收。 |
 | R1-308 | 部分存在 | 源码已改/验证范围见右栏 | 三语邀请码控件/实际i18n运行及长地址换行；locale runtime；手机浏览器待验 |
 | R1-309 | 存在，部分已修 | 固定密码/回执/验证联动真实Chrome通过 | 固定提交/session/draft pending、busy/取消/cache/unmount/旧timer、真实message/reauthRequired确认已修；Chrome32旧回执、实际SensitiveVerification request/verify/原payload retry/清登录跳转及旧child草稿隔离通过。外部SMTP/真实客户密码完整变更仍待。 |
