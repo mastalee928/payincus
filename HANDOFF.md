@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R069 实例备份后端“已退役”判断复审
+
+- 当前app.ts正式导入并注册backups到/api/instances、storage-configs到/api/storage-configs；唯一后端listen后的正常启动路径清理并启动restoreTaskWorker与backupUploadWorker，非测试专属挂载。上传worker实际调用StorageFactory.create，host-replacement亦消费远端备份；用户API保留get/create/delete/export/upload方法。原外部“明确退役后端只被测试强行挂载”前提在此仓库不成立，不删除可运行后端或provider。
+- 本项为当前源码调用链复审，无产品修改，沿既有受影响build/types证据；未为证明入口而另起第二个后端或触发备份任务，不把注册存在当作真实OSS/磁盘恢复验收。R069独立从初审转为实现差异确认，R070孤立StorageSection及provider分别继续，不混同。
+- R060文档已推87bc652acaffe5685850bdeac198432016b240c4。R069归档后295/327（90.2%，含部分/待验收）、32项初审；覆盖率包含不适用/重复项，完整修复与验收率仍不能由此推出，CI与内部待办继续。
+
 ## 2026-10-31 R060 退役恢复前端重复清单归档
 
 - 复核R060原描述与当前文件/引用：BackupManager.vue及restoreTask.ts已在5b056333035d145037fd75acec79f099eea8470a随R059删除1215行，当前client/server/scripts无BackupManager/useBackupStore旧运行引用。原双端build、route/i18n/backup-task-race/core四守卫及dist证据见R059；没有重复删文件或用清单编号制造第二次产品修复。

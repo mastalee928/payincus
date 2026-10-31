@@ -360,7 +360,7 @@
 | R1-066 | 部分存在 | PG编号溢出已修，真实路由复验 | 小数/后缀原已拒，但2147483648实际integer越界500；parser两分支补PG Int上界，126非法请求400、8合法不存在404、既有列表/策略可读，全部记录及审计不变/零宿主连接。types/守卫/build通过，原生流程范围另记。 |
 | R1-067 | 原症状已修 | 当前失败分支真实PG/mTLS复验通过 | 旧updateSnapshotPolicyLastRun无消费者；failure仅attempt约束操作回执。new_schedule_failure/disabled_schedule_failure完整policy保持/零远端写并原同操作恢复，takeover-snapshot-failure-schedule-final完整28条PASS exit0，两守卫/独立types过；成功恢复排程语义与原生磁盘另验。 |
 | R1-068 | 原症状已修 | 当前通知/审计真实PG复验通过 | 当前phase/最终事务重读owner/实例/宿主，renamed_queued实际站内信data/content及日志用当前名称；owner_changed blocked零mTLS写/双方零成功通知，恢复原owner同operation唯一通知。current-final完整30条PASS exit0，两守卫/test types过；外部通知与发送中再次变化另评，原生磁盘/整体灾备另验。 |
-| R1-069 | 实现不同 | 保留初审结论 | backupRoutes/storageConfig和restoreTaskWorker/backupUploadWorker实际注册启动；本库客机备份后端未退役。 |
+| R1-069 | 实现不同 | 正常启动/调用链代码复审，不适用原退役判断 | app正式注册backups/storage路由，listen后启动restore/upload两worker；上传及host-replacement使用StorageFactory，用户API保留备份操作，非测试专用挂载。不删除活动后端；本项为调用链证据，不代替真实备份恢复验收，见HANDOFF。 |
 | R1-070 | 实现不同 | 保留初审结论 | storage配置与provider栈仍有后端消费者，不能因前端孤立按对方方案删掉。 |
 | R1-071 | 存在 | 已修；真实账户/整体UI另验 | 固定submittedStyle/account/session、共享saving与字段门禁，回执只标本次style，非法/旧会话/cache/unmount不写新用户；详情seq/ID与retry同步保护。Chrome先红→final3提交草稿/14旧写14旧读/反序detail/非法回执/same sid exit0，4守卫/lint/双端build含types/dist全过；真实账户与整体UI另验。 |
 | R1-072 | 存在 | 无调用残留已清理/相关构建守卫通过 | 完整调用及自动导入复核，仅翻译注释余引用；删除BillingSection667行，保留实际Wallet/Profile/router/API及充值后端，受保护源码哈希保持。3守卫、双端含types build与末dist正常exit0，证据见HANDOFF；孤立组件无活体流程，不充当支付功能验收。 |
