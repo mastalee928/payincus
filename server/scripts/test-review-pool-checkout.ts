@@ -37,6 +37,30 @@ try {
   app.decorate('authenticate', async (request: any) => { request.user = { ...actor } })
   app.decorate('authenticateAdmin', async (request: any) => { request.user = { ...actor } })
   await app.register(routes, { prefix: '/instances' })
+  actor = { ...buyer, ...session }
+  for (const id of [2147483648, Number.MAX_SAFE_INTEGER, 1.5, 0, -1]) {
+    const valid = { requestId: randomUUID(), expectedTotal: 1200,
+      items: [{ poolPriceId: price.id, quantity: 1, namePrefix: tag, image: image.remoteAlias }] }
+    for (const payload of [
+      { ...valid, items: [{ ...valid.items[0], poolPriceId: id }] },
+      { ...valid, sshKeyId: id },
+      { ...valid, items: [{ ...valid.items[0], customInitCommandIds: [id] }] }
+    ]) {
+      const response = await app.inject({ method: 'POST', url: '/instances/pool-order', payload })
+      console.log('checkout invalid identifier', id, response.statusCode)
+      assert.equal(response.statusCode, 400, 'invalid database identifiers reject before processing a purchase')
+      assert.equal(await prisma.poolOrder.count({ where: { userId: buyer.id } }), 0)
+      assert.equal(await prisma.balanceLog.count({ where: { userId: buyer.id } }), 0)
+      assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance.toString(), '100')
+    }
+    actor = { ...admin, ...session }
+    assert.equal((await app.inject({ method: 'POST', url: '/instances/admin/pool-create', payload: {
+      requestId: randomUUID(), username: buyer.username, name: tag, poolPriceId: id, image: image.remoteAlias,
+      expectedTotal: 1200, billing: 'paid', chargeFirstMonth: true
+    } })).statusCode, 400)
+    actor = { ...buyer, ...session }
+  }
+  console.log('PASS invalid purchase identifiers reject with no order or accounting changes')
   for (const mode of ['logout', 'all-sessions', 'banned', 'admin-logout', 'admin-demoted', 'allowed']) {
     await prisma.tokenInvalidation.deleteMany({ where: { userId: { in: ids } } })
     await prisma.user.update({ where: { id: buyer.id }, data: { status: 'active' } })

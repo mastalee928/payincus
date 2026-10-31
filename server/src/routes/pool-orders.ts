@@ -23,7 +23,7 @@ export default async function poolOrderRoutes(fastify: FastifyInstance) {
     schema: { body: { type: 'object', additionalProperties: false,
       required: ['requestId', 'username', 'name', 'poolPriceId', 'image', 'expectedTotal', 'billing', 'chargeFirstMonth'], properties: {
         requestId: { type: 'string', format: 'uuid' }, username: { type: 'string', minLength: 1, maxLength: 64 },
-        name: { type: 'string', minLength: 2, maxLength: 60 }, poolPriceId: { type: 'integer', minimum: 1 },
+        name: { type: 'string', minLength: 2, maxLength: 60 }, poolPriceId: { type: 'integer', minimum: 1, maximum: 2147483647 },
         image: { type: 'string', minLength: 1, maxLength: 200 }, expectedTotal: { type: 'integer', minimum: 0 },
         billing: { type: 'string', enum: ['free', 'paid'] }, chargeFirstMonth: { type: 'boolean' }
       } } }
@@ -63,15 +63,15 @@ export default async function poolOrderRoutes(fastify: FastifyInstance) {
               additionalProperties: false,
               required: ['poolPriceId', 'quantity', 'namePrefix', 'image'],
               properties: {
-                poolPriceId: { type: 'integer', minimum: 1 },
+                poolPriceId: { type: 'integer', minimum: 1, maximum: 2147483647 },
                 quantity: { type: 'integer', minimum: 1, maximum: 1000 },
                 namePrefix: { type: 'string', minLength: 2, maxLength: 60 },
                 image: { type: 'string', minLength: 1, maxLength: 200 },
-                customInitCommandIds: { type: 'array', maxItems: 50, items: { type: 'integer', minimum: 1 } }
+                customInitCommandIds: { type: 'array', maxItems: 50, items: { type: 'integer', minimum: 1, maximum: 2147483647 } }
               }
             }
           },
-          sshKeyId: { type: ['integer', 'null'], minimum: 1 },
+          sshKeyId: { type: ['integer', 'null'], minimum: 1, maximum: 2147483647 },
           expectedTotal: { type: 'integer', minimum: 0 }
         }
       }
