@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R209 镜像选择器事件监听生命周期复验
+
+- 原onUnmounted按同回调及capture移除document click/window scroll/resize已有防护，不改产品。image-r209-final.log自然exit0：实际Vue/Vite/Chrome普通/embedded各20次挂载卸载，跟踪真实EventTarget callback身份与capture，120新增=120移除，未匹配删除0、每次卸载残留0。实际外部点击关闭、Ubuntu选择、滚动/resize、打开菜单卸载后的Teleport DOM清除均通过，控制台零错误。
+- 新长期专项/夹具已登记CI及活体排除理由；JS语法、197清单及前端route守卫通过。沿相同产品源码刚通过的R276双端/后端构建与类型证据；未修改完整创建页或发出资源创建。此专项不涵盖KeepAlive停用及其它异步创建流程，不能扩张为完整交付验收。
+- R306已推0088991d78544e994da09b5ad0b38041825842cf / CI41154886055；R246已推9a6687b9474fefb0f72660041f1f3c41b6155170 / CI41154930643。R209后303/327（92.7%，含部分/待验收）、24项初审；各阶段CI继续跟踪，固定v1.7.8及生产不变。
+
 ## 2026-10-31 R246 资源选择组件当前消费者复审
 
 - 实际路由/模板链仍有效：用户/管理员instances/create分别加载InstanceCreateView/AdminInstanceCreateView，MyHostDetailView的create标签加载HostCreateInstanceTab；三者渲染PackageSelector及非付费等条件分支的ResourceSliders，后者实际渲染CPU/内存/磁盘ResourceSlider并向父级写对应字段。不是仅剩测试引用或只有失效import，“全退役可删除”的前提不成立，保留组件。

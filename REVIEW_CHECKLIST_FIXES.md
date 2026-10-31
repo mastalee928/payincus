@@ -500,7 +500,7 @@
 | R1-206 | 实现不同 | 保留初审结论 | 未找到对方实例账单面板分页实现；当前订单页另有分页，不能直接套用旧面板越界修法。 |
 | R1-207 | 存在 | 退役残留已清理/双端类型构建通过 | 删除仅互引无消费者的PublicAuthShell/useM3Auth；PlanetScene原本不存在。takeover-retired-auth-references/guards/build/dist通过，2路由/i18n守卫，现行登录注册入口保留，无对应活体旧页面可验 |
 | R1-208 | 存在 | 源码已修/隔离PG验证通过 | getInstancesToSync下推due筛选后take，165 fresh running不挤掉old stopped。logs/review-queue-sync-integration-final.log；真实Linux周期sync仍待 |
-| R1-209 | 已有防护 | 保留初审结论 | onUnmounted已remove全局click handler，原累积监听问题不成立。 |
+| R1-209 | 已有防护 | 实际浏览器40次生命周期通过 | 原组件普通/embedded各20次挂载卸载；真实EventTarget精确callback/capture 120增=120删，每次残留0/无失配；外部点击、选择、resize/scroll和打开Teleport卸载通过。长期专项登记CI、route守卫过，无产品改动；不扩大至KeepAlive停用或完整创建验收。 |
 | R1-210 | 部分存在 | 文档已精修/构建通过 | README正式v1.7.7、实例快照/备份后端与无独立标签/自动调度缺口、OSS不含VPS磁盘；中英部署说明Redis实际安装但无后端client、单Node、每版迁移与ENV_FILE。初审纠正安装器Redis非虚假残留；takeover-docs-facts-guards/build通过，不代表实装验收 |
 | R1-211 | 存在 | 退役类型已清理/编译守卫通过 | 仅删除server兼容BackupPolicy/SnapshotPolicy及纠正SQLite文件头；Prisma模型/DB方法/client实际类型保留。takeover-retired-policy-references/build/guards通过，3备份/快照守卫，无数据库或运行行为改动 |
 | R1-212 | 部分存在 | 已精修/仅注释 | 核对实际消费者后注明JWT sid是refresh SHA-256前32位、用户级用__USER_LEVEL__、iat边界与PG null唯一语义；AFF允许多个全局码；PackagePlan分与Instance/MailPlan元分开。邮箱订阅模块仍使用，纠正“旧模块”暗示。4守卫、Prisma validate、类型及去注释前后相等验证通过；无schema/runtime变更与迁移。 |

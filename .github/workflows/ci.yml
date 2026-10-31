@@ -527,6 +527,8 @@ jobs:
         run: pnpm --filter server test:review-host-config-endpoint
       - name: Host config sends explicit clears and keeps IPv6 mode gates
         run: pnpm --filter server test:review-host-config-clear
+      - name: Image selector removes its exact global listeners and open menu on unmount
+        run: pnpm --filter server test:review-image-selector-lifecycle
       - name: Host config clear values persist and route mode stays protected
         run: pnpm --filter server test:review-host-config-clear-pg
       - name: Host config drafts and save receipts stay with the current view
