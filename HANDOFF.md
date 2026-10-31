@@ -1,5 +1,18 @@
 # 版本与验证记录
 
+## 2026-11-01 两轮审查修复：恢复取消、连接与Agent归属（RAG02–04）
+
+- `host-pool-recovery.ts`在申请事务前建立共享60秒期限，贯穿连接、锁等待、查询和每次远端写；8秒请求超时会取消共享signal，迟到GET不能再推进DELETE。原转发helper复用受限request，无须改变其它消费者。连接器复用当前tx，清理请求审计在事务外先持久写入pending且失败即拒绝；后续回滚不删除审计，不扩大连接池。
+- `agent-instance-report.ts`在状态与流量事务内按生命周期advisory→实例行→host→Agent锁序复核hostId/incusId/userId；转移、换机、改Incus身份后旧报告不再污染流量快照和旧用户配额。共享实例操作锁也避免与换机先删快照的路径死锁。
+- 本地定向证据：`review-pool-recovery-deadline.log`七项取消/预算探针通过；`review-pool-recovery-integration.log`真实隔离PG16单连接池通过默认connector、FK审计失败拒绝、失败事务保留请求审计及原恢复场景；相关host-pool/dedicated-delivery守卫和专项类型通过。`rag04-agent-identity-pg.log`真实PG覆盖12个身份/等待竞态、正常及并发计量、整体回滚；`rag04-agent-current-regression.log`原HMAC/凭据锁竞争/并发与nonce回归通过。新增测试登记清单/CI，未重跑全套。
+- 验证后主代理逐段审视最终diff、取消传播、审计顺序、transfer/replacement锁序以及测试失败断言，未以测试通过代替源码复核。真实Incus删除、生产与完整灾备未在本段验收；取消不能撤回远端已接受的请求，未确认清理仍保留隔离。RAG01/05、三角色管理员换域名和全局防滥用继续处理中，暂不发版。
+
+## 2026-11-01 机器池、Agent与网关两轮代码审查
+
+- Owner要求两轮审视及核实网关换域名，报告见`POOL_AGENT_GATEWAY_REVIEW_2026-11-01.md`，基线893df4b9。第一轮调用链/守卫审查，第二轮交叉复核与定向函数探针，确认5项：域名保存与宿主永久绑定冲突、恢复超时后的迟到转发删除、恢复事务额外申请全局连接及审计失败、Agent迟到流量未复核实例归属、域名更新并发漏排队。业务源码未修改，均未修复，不把审查完成称为修复完成。
+- 机器池、网关任务/端点、Agent认证/报告守卫通过；五项复现使用真实服务/helper与受控DB/SSH/文件边界，未做真实PG竞争或云宿主操作。Go工具链缺go.exe，本轮未跑Go测试。首轮端点守卫缺DATABASE_URL失败保留，补测试占位配置后自然exit0。证据及精确位置见报告，暂不发版、生产不变。
+- 当前本机网关页允许编辑保存域名，但宿主会拒绝替换旧hostname，外部网关缺完整换绑入口；不能告知owner保存即换绑成功。需补显式旧→新迁移和逐宿主收敛，原管理身份/端口/客户网络保护保持。
+
 ## 2026-11-01 面板构建与新安装迁移 Node.js 24
 
 - Owner同意将面板CI、发行构建与安装器迁到Node.js 24 LTS，继续暂不发版、不改生产。六处CI Node版本、发行NODE_VERSION、首装NODE_MAJOR及独立网关esbuild target已统一24；发行包的双架构网关Node仍从官方HTTPS按构建版本下载并核SHA256。项目版本仍1.7.8，业务依赖、pnpm9.14.2及锁文件均未升级。
@@ -7,7 +20,7 @@
 - 本机Node24.18.0：`node24-frozen-install.log`冻结锁文件离线安装成功；`node24-server-build.log`后端tsc与网关资源复制自然exit0；`node24-installer-guards.log`安装器完整守卫自然exit0，日志中的校验失败/不安全归档属于预期负例。`node24-runtime-guards.log`仓库来源、拆分部署、OTA、Prisma补丁和组件包守卫均通过；Windows不能证明Linux符号链接恢复/进程组终止，相关原生检查继续交CI。`node24-config-check.log`严格比对YAML及运行时配置，除指定Node版本外工作流命令、触发、权限、服务和输入不变。前端产品源码未变，复用上一段同Node24.18.0双端类型/构建与dist证据，不重复全套。
 - 冻结安装保留一条`DEP0169 url.parse()`弃用提示，已定位pnpm9.14.2打包代码的旧URL解析，并核对pnpm官方问题9492/9529；安装exit0，非业务调用，未屏蔽warning或扩展pnpm大版本迁移。此前CI警告修复的零ESLint结果不等于所有工具进程零提示。
 - 曾本地试验文档站Node24并构建通过；其main路径会自动部署GitHub Pages，为保持本次发布边界，已仅撤回本任务文档站源码/工作流及生成日志的试改。仓库README、AGENTS和操作手册已同步，公开文档站仍沿原版本，待允许发布时另行同步；发行/Agent/文档工作流的旧Actions内部运行时提示与应用Node版本是不同事项，未在本段扩展处理。
-- 本项源码提交与新CI身份推送后记录`logs/node24-ci-run.json`，加入既有payincus-ci跟进。真实双架构组件运行及Node24主控数据库集成待新CI终态；完整发行包首装、现有主控运行时迁移、生产与灾备均未在本轮验收。未触发发行预览、tag、Release、OTA或GitHub Pages。
+- 本项源码提交`893df4b9dec91caa50423eabeb9af01b2a8b69d1`与CI`41230893756`记录在`logs/node24-ci-run.json`。按owner最新分工，Node24由本升级对话的`payincus-node24-ci`每10分钟独立跟进；原`payincus-ci`仅跟首页和警告修复。最近核对完整SHA一致，Lint/类型、账单到期、amd64/arm64网关包与远端网关日志共5项通过，Build与实例交付集成仍运行，不记整轮通过。完整发行包首装、现有主控运行时迁移、生产与灾备均未在本轮验收。未触发发行预览、tag、Release、OTA或GitHub Pages。
 
 ## 2026-11-01 GitHub CI 运行时与前端格式警告
 

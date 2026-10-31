@@ -5,12 +5,13 @@ import { createLog } from '../db/logs.js'
 import { HOST_OCCUPIED_INSTANCE_WHERE } from '../lib/host-resource-usage.js'
 import { poolCapacityReady } from '../lib/pool-stock.js'
 import { getIncusClient } from '../lib/incus/incus-pool.js'
+import type { IncusRequestConditions } from '../lib/incus/incus-client.js'
 import { removeDedicatedForward } from '../lib/incus/dedicated-network.js'
 import { portProtocolView, PORT_PROTOCOL_CAPABILITY } from './host-port-protocol.js'
 import { dedicatedIpv6State, normalizeIpv6 } from '../lib/host-public-ipv6.js'
 
 type Db = Prisma.TransactionClient | typeof prisma
-type Client = Awaited<ReturnType<typeof getIncusClient>>
+type Client = Pick<Awaited<ReturnType<typeof getIncusClient>>, 'request'>
 type Connect = typeof getIncusClient
 type RemoteInstance = { name: string; status: string; created_at?: string; project?: string }
 type Forward = { listen_address: string; description: string; config: Record<string, string>; ports?: Array<{ protocol: string; listen_port: string; target_address?: string; target_port?: string; snat?: boolean }> }
@@ -48,16 +49,55 @@ const hostSelect = {
   storagePools: { select: { name: true, purpose: true } }
 } as const
 
-async function bounded<T>(action: Promise<T>): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([action, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new HostRecoveryError('HOST_RECOVERY_UNREACHABLE')), 8000)
-    })])
-  } finally { clearTimeout(timer) }
+function recoveryScope() {
+  // Start before audit, connection acquisition and row locks, not after them.
+  const deadline = Date.now() + 60000
+  const controller = new AbortController()
+  const expired = () => new HostRecoveryError('HOST_RECOVERY_UNREACHABLE')
+  const timer = setTimeout(() => controller.abort(expired()), 60000)
+  const remaining = () => {
+    const milliseconds = deadline - Date.now()
+    if (milliseconds <= 0) controller.abort(expired())
+    controller.signal.throwIfAborted()
+    return milliseconds
+  }
+  async function run<T>(action: () => PromiseLike<T>, limit = remaining()): Promise<T> {
+    const budget = Math.min(limit, remaining())
+    let onAbort!: () => void
+    const operationTimer = setTimeout(() => controller.abort(expired()), budget)
+    try {
+      const cancelled = new Promise<never>((_, reject) => {
+        onAbort = () => reject(controller.signal.reason)
+        controller.signal.addEventListener('abort', onAbort, { once: true })
+      })
+      const result = await Promise.race([action(), cancelled])
+      remaining() // A transport that ignores cancellation cannot advance cleanup.
+      return result
+    } finally {
+      clearTimeout(operationTimer)
+      controller.signal.removeEventListener('abort', onAbort)
+    }
+  }
+  return {
+    remaining, run,
+    client(original: Client): Client {
+      return { request<T = unknown>(method: string, path: string, body: unknown = null,
+        timeout = 8000, signal?: AbortSignal, conditions?: IncusRequestConditions): Promise<T> {
+        const budget = Math.min(8000, timeout, remaining())
+        const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+        requestSignal.throwIfAborted()
+        return run(() => original.request<T>(method, path, body, budget, requestSignal, conditions), budget)
+      } }
+    },
+    close() {
+      controller.abort(expired())
+      clearTimeout(timer)
+    }
+  }
 }
 
-async function inspect(db: Db, hostId: number, connect: Connect) {
+async function inspect(db: Db, hostId: number, connect: Connect, scope: ReturnType<typeof recoveryScope>) {
+  scope.remaining()
   const host = await db.host.findUnique({ where: { id: hostId }, select: hostSelect })
   if (!host) throw new HostRecoveryError('HOST_NOT_FOUND')
   const blockers = new Set<RecoveryBlocker>()
@@ -126,25 +166,25 @@ async function inspect(db: Db, hostId: number, connect: Connect) {
   // Occupied recovery reads the exact existing instance; it never enters cleanup.
   if (host.poolFaulted && !tasks && !onboarding) {
     try {
-      client = await bounded(connect(host))
-      const [remoteInstances, projects, networks, operations, pools] = await bounded(Promise.all([
+      client = scope.client(await scope.run(() => connect(host, db), 8000))
+      const [remoteInstances, projects, networks, operations, pools] = await Promise.all([
         client.request<RemoteInstance[]>('GET', '/1.0/instances?recursion=1&all-projects=true'),
         client.request<Array<{ name: string }>>('GET', '/1.0/projects?recursion=1'),
         client.request<Array<{ name: string; type: string; managed: boolean }>>('GET', '/1.0/networks?recursion=1'),
         client.request<Record<string, unknown[]>>('GET', '/1.0/operations?recursion=1'),
         client.request<Array<{ name: string; status: string }>>('GET', '/1.0/storage-pools?recursion=1')
-      ]))
+      ])
       instances = remoteInstances
       if (projects.some(project => project.name !== 'default')) blockers.add('projects')
       if (['running', 'pending', 'cancelling'].some(key => operations[key]?.length)) blockers.add('busy')
       if (!networks.some(network => network.name === 'incusbr0' && network.managed && network.type === 'bridge') ||
           host.storagePools.some(pool => pool.purpose === 'instance_data' && !pools.some(remote => remote.name === pool.name && remote.status === 'Created'))) blockers.add('not-ready')
       for (const network of networks.filter(network => network.managed && network.type === 'bridge')) {
-        const rows = await bounded(client.request<Forward[]>('GET', `/1.0/networks/${encodeURIComponent(network.name)}/forwards?recursion=1`))
+        const rows = await client.request<Forward[]>('GET', `/1.0/networks/${encodeURIComponent(network.name)}/forwards?recursion=1`)
         forwards.push(...rows.map(row => ({ ...row, network: network.name })))
       }
       for (const pool of pools) {
-        volumes.push(...await bounded(client.request<typeof volumes>('GET', `/1.0/storage-pools/${encodeURIComponent(pool.name)}/volumes?recursion=1&all-projects=true`)))
+        volumes.push(...await client.request<typeof volumes>('GET', `/1.0/storage-pools/${encodeURIComponent(pool.name)}/volumes?recursion=1&all-projects=true`))
       }
       if (preserve) {
         const expected = assignedInstances[0]
@@ -202,48 +242,66 @@ async function inspect(db: Db, hostId: number, connect: Connect) {
 }
 
 export async function inspectHostRecovery(hostId: number, connect: Connect = getIncusClient): Promise<HostRecoveryReport> {
-  return (await inspect(prisma, hostId, connect)).report
+  const scope = recoveryScope()
+  try { return (await inspect(prisma, hostId, connect, scope)).report }
+  finally { scope.close() }
 }
 
 export async function recoverPoolHost(hostId: number, actorId: number, options: {
   confirmation: string; acknowledgeCleanup: boolean
 }, connect: Connect = getIncusClient): Promise<{ success: true }> {
-  // The host row serializes recovery with allocation, replacement, and removal.
-  // Network failures leave the persistent quarantine set, including after a restart.
-  await prisma.$transaction(async tx => {
-    const rows = await tx.$queryRaw<Array<{ id: number }>>`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
-    if (!rows.length) throw new HostRecoveryError('HOST_NOT_FOUND')
-    await tx.$queryRaw`SELECT id FROM instances WHERE host_id = ${hostId} ORDER BY id FOR UPDATE`
-    const before = await inspect(tx, hostId, connect)
-    if (!before.report.canRecover || !before.client) throw new HostRecoveryError('HOST_RECOVERY_BLOCKED', before.report)
-    if (before.report.confirmation !== options.confirmation) throw new HostRecoveryError('HOST_RECOVERY_CHANGED', before.report)
-    if (before.report.needsCleanup && !options.acknowledgeCleanup) throw new HostRecoveryError('HOST_RECOVERY_CONFIRM_REQUIRED', before.report)
-    if (before.report.mode === 'preserve') {
-      // Retain customer ownership, accounting, disks, network rules and occupied resource counters.
-      await tx.host.update({ where: { id: hostId }, data: { poolFaulted: false } })
-      return
-    }
-    // Log intent before touching disks, so a timeout cannot erase the audit trail.
-    await createLog(actorId, 'host', 'host.pool.recovery_start',
-      `Recover host #${hostId}; obsolete systems: ${before.report.instances.map(instance => instance.name).join(', ') || 'none'}`, 'success')
+  const scope = recoveryScope()
+  try {
+    // Commit the request audit before holding a transaction connection. A later
+    // rollback must retain it, and an audit failure must prevent remote cleanup.
     try {
-      for (const instance of before.instances) {
-        // Recheck each exact system immediately before deletion. Running systems are refused.
-        const current = await bounded(before.client.request<RemoteInstance>('GET', `/1.0/instances/${encodeURIComponent(instance.name)}`))
-        if (current.status !== 'Stopped' || current.created_at !== instance.created_at || (current.project || 'default') !== (instance.project || 'default')) throw new HostRecoveryError('HOST_RECOVERY_CHANGED')
-        await bounded(before.client.request('DELETE', `/1.0/instances/${encodeURIComponent(instance.name)}`, null, 7000))
-      }
-      for (const name of before.obsolete) await bounded(removeDedicatedForward(before.client, name))
-      const after = await inspect(tx, hostId, connect)
-      if (!after.report.canRecover || after.report.needsCleanup) throw new HostRecoveryError('HOST_RECOVERY_BLOCKED', after.report)
-      await tx.host.update({ where: { id: hostId }, data: {
-        poolFaulted: false, cpuUsed: 0, memoryUsed: 0, diskUsed: 0, natPortsUsedCount: 0
-      } })
-    } catch (error) {
-      if (error instanceof HostRecoveryError) throw error
-      throw new HostRecoveryError('HOST_RECOVERY_FAILED')
-    }
-  }, { timeout: 60000, maxWait: 5000 })
+      await scope.run(() => prisma.log.create({ data: {
+        userId: actorId, module: 'host', action: 'host.pool.recovery_start', result: 'pending',
+        content: `Requested recovery of host #${hostId}; confirmation: ${options.confirmation}; cleanup acknowledged: ${options.acknowledgeCleanup}`
+      } }))
+    } catch { throw new HostRecoveryError('HOST_RECOVERY_FAILED') }
+    // The host row serializes recovery with allocation, replacement, and removal.
+    // Network failures leave the persistent quarantine set, including after a restart.
+    await prisma.$transaction(async tx => {
+      try {
+        scope.remaining()
+        const rows = await tx.$queryRaw<Array<{ id: number }>>`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
+        scope.remaining()
+        if (!rows.length) throw new HostRecoveryError('HOST_NOT_FOUND')
+        await tx.$queryRaw`SELECT id FROM instances WHERE host_id = ${hostId} ORDER BY id FOR UPDATE`
+        scope.remaining()
+        const before = await inspect(tx, hostId, connect, scope)
+        if (!before.report.canRecover || !before.client) throw new HostRecoveryError('HOST_RECOVERY_BLOCKED', before.report)
+        if (before.report.confirmation !== options.confirmation) throw new HostRecoveryError('HOST_RECOVERY_CHANGED', before.report)
+        if (before.report.needsCleanup && !options.acknowledgeCleanup) throw new HostRecoveryError('HOST_RECOVERY_CONFIRM_REQUIRED', before.report)
+        if (before.report.mode === 'preserve') {
+          // Retain customer ownership, accounting, disks, network rules and occupied resource counters.
+          scope.remaining()
+          await tx.host.update({ where: { id: hostId }, data: { poolFaulted: false } })
+          return
+        }
+        // The request audit is already durable; all destructive calls share its deadline.
+        try {
+          for (const instance of before.instances) {
+            // Recheck each exact system immediately before deletion. Running systems are refused.
+            const current = await before.client.request<RemoteInstance>('GET', `/1.0/instances/${encodeURIComponent(instance.name)}`)
+            if (current.status !== 'Stopped' || current.created_at !== instance.created_at || (current.project || 'default') !== (instance.project || 'default')) throw new HostRecoveryError('HOST_RECOVERY_CHANGED')
+            await before.client.request('DELETE', `/1.0/instances/${encodeURIComponent(instance.name)}`, null, 7000)
+          }
+          for (const name of before.obsolete) await removeDedicatedForward(before.client, name)
+          const after = await inspect(tx, hostId, connect, scope)
+          if (!after.report.canRecover || after.report.needsCleanup) throw new HostRecoveryError('HOST_RECOVERY_BLOCKED', after.report)
+          scope.remaining()
+          await tx.host.update({ where: { id: hostId }, data: {
+            poolFaulted: false, cpuUsed: 0, memoryUsed: 0, diskUsed: 0, natPortsUsedCount: 0
+          } })
+        } catch (error) {
+          if (error instanceof HostRecoveryError) throw error
+          throw new HostRecoveryError('HOST_RECOVERY_FAILED')
+        }
+      } finally { scope.close() }
+    }, { timeout: scope.remaining(), maxWait: Math.min(5000, scope.remaining()) })
+  } finally { scope.close() }
   await createLog(actorId, 'host', 'host.pool.recovered', `Verified host #${hostId} and released its quarantine; existing customer instances were preserved`, 'success')
   return { success: true }
 }

@@ -110,9 +110,20 @@ const trafficApply = section(
   'async function processOneAgentInstanceReport('
 )
 assert(
-  trafficApply.includes('const currentInstance = await tx.instance.findUnique') &&
+  trafficApply.includes('const currentInstance = await lockCurrentReportedInstance(tx, instance, agent)') &&
     trafficApply.includes('!currentInstance || !shouldApplyTraffic(currentInstance.status, item)'),
-  'Agent traffic writes must re-check current instance status inside the write transaction'
+  'Agent traffic writes must lock and re-check current instance identity and status inside the write transaction'
+)
+const identityGuard = section(source, 'async function lockCurrentReportedInstance(', 'async function applyReportedTrafficCounters(')
+assert(
+  identityGuard.includes('FOR NO KEY UPDATE') &&
+    identityGuard.includes('await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)') &&
+    identityGuard.includes('current.hostId !== agent.hostId') &&
+    identityGuard.includes('current.incusId !== instance.incusId') &&
+    identityGuard.includes('current.userId !== instance.userId') &&
+    identityGuard.indexOf('FOR NO KEY UPDATE') < identityGuard.indexOf('await lockCurrentHostAgent') &&
+    reportProcessor.includes('if (!await lockCurrentReportedInstance(tx, instance, agent)) return { count: 0 }'),
+  'Agent status and traffic writes must preserve instance -> host lock order and reject stale host, Incus or owner identity'
 )
 assert(
   source.includes('const sampledAt = normalizeReportSampledAt(payload, receivedAt)') &&

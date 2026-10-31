@@ -9,6 +9,8 @@ const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { inspectHostRecovery, recoverPoolHost, HostRecoveryError } = await import('../src/services/host-pool-recovery.js')
 const { default: routes } = await import('../src/routes/host-inventory.js')
 const { PORT_PROTOCOL_CAPABILITY } = await import('../src/services/host-port-protocol.js')
+const { IncusClient } = await import('../src/lib/incus/incus-client.js')
+const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 
 const prefix = `recover-test-${randomUUID().slice(0, 8)}`
 const owner = await prisma.user.create({ data: { username: `${prefix}-admin`, passwordHash: 'unusable-test-hash', role: 'admin' } })
@@ -123,7 +125,10 @@ try {
 
   failForward = true
   const beforeFailure = await inspectHostRecovery(source.id, connect)
+  const auditWhere = { userId: owner.id, action: 'host.pool.recovery_start', content: { contains: `host #${source.id};` } }
+  const auditCount = await prisma.log.count({ where: auditWhere })
   await rejects({ confirmation: beforeFailure.confirmation, acknowledgeCleanup: true }, 'HOST_RECOVERY_FAILED')
+  assert.equal(await prisma.log.count({ where: auditWhere }), auditCount + 1, 'cleanup request audit survives the failed recovery transaction')
   assert.deepEqual(deletions, [oldName])
   assert.equal(forwards.length, 1, 'failed network cleanup must keep the host quarantined')
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: source.id } })).cpuUsed, 200)
@@ -193,6 +198,40 @@ try {
   assert.equal(occupiedAfter.poolFaulted, false)
   assert.deepEqual([occupiedAfter.cpuUsed, occupiedAfter.memoryUsed, occupiedAfter.diskUsed], [occupiedBefore.cpuUsed, occupiedBefore.memoryUsed, occupiedBefore.diskUsed])
   assert.deepEqual(await prisma.instance.findUniqueOrThrow({ where: { id: liveInstance.id } }), liveBeforeRecovery, 'occupied recovery must retain owner, billing, expiry, renewal and network records')
+  // Exercise the default connector against the real database. Run this script
+  // with DB_POOL_MAX=1 to prove that audit and recovery never require two slots.
+  const emptyHost = await makeHost()
+  remote = []; forwards = []
+  const originalConnect = IncusClient.prototype.connect
+  const originalClose = IncusClient.prototype.close
+  const originalRequest = IncusClient.prototype.request
+  let remoteCalls = 0
+  IncusClient.prototype.connect = async function () { this.connected = true; return {} }
+  IncusClient.prototype.close = async function () { this.connected = false }
+  IncusClient.prototype.request = async function <T>(method: string, path: string): Promise<T> {
+    remoteCalls++
+    return await fakeClient.request(method, path) as T
+  }
+  try {
+    const report = await inspectHostRecovery(emptyHost.id)
+    assert.equal(report.canRecover, true)
+    const recoveryOptions = { confirmation: report.confirmation, acknowledgeCleanup: true }
+    remoteCalls = 0
+    await assert.rejects(recoverPoolHost(emptyHost.id, -2147483648, recoveryOptions),
+      error => error instanceof HostRecoveryError && error.code === 'HOST_RECOVERY_FAILED')
+    assert.equal(remoteCalls, 0, 'real PostgreSQL audit FK failure must prevent remote work')
+    assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: emptyHost.id } })).poolFaulted, true)
+    await recoverPoolHost(emptyHost.id, owner.id, recoveryOptions)
+    assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: emptyHost.id } })).poolFaulted, false)
+    assert.equal(await prisma.log.count({ where: { userId: owner.id, action: 'host.pool.recovery_start',
+      content: { contains: `host #${emptyHost.id};` } } }), 1)
+    console.log(`Host pool default connector and durable audit passed with DB_POOL_MAX=${process.env.DB_POOL_MAX || 'default'}`)
+  } finally {
+    await closeAllClients()
+    IncusClient.prototype.connect = originalConnect
+    IncusClient.prototype.close = originalClose
+    IncusClient.prototype.request = originalRequest
+  }
   console.log('Host pool recovery: authorization, confirmation, ownership, remote state, partial failure, retry, concurrency and billing preservation passed')
 } catch (error) { failure = error }
 finally {

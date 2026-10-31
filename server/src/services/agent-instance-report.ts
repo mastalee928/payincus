@@ -8,13 +8,14 @@
  */
 
 import pLimit from 'p-limit'
-import type { InstanceStatus } from '@prisma/client'
+import type { InstanceStatus, Prisma } from '@prisma/client'
 import { isIP } from 'node:net'
 import { prisma } from '../db/prisma.js'
 import { withLock } from '../lib/distributed-lock.js'
 import { mapInstanceStatus } from '../lib/incus/incus-utils.js'
 import { advanceTrafficSnapshot, calculateIncrement } from './traffic-utils.js'
 import { lockCurrentHostAgent, type HostAgentRecord } from '../lib/host-agent-credentials.js'
+import { advisoryTransactionLock, INSTANCE_OPERATION_LOCK_NAMESPACE } from '../db/advisory-locks.js'
 
 interface NormalizedAgentInstanceItem {
   name: string
@@ -212,6 +213,27 @@ function buildStatusUpdateData(item: NormalizedAgentInstanceItem, now: Date): {
   return data
 }
 
+async function lockCurrentReportedInstance(
+  tx: Prisma.TransactionClient,
+  instance: ReportedDbInstance,
+  agent: HostAgentRecord
+) {
+  // Share the lifecycle lock before touching the instance/snapshot rows: a
+  // replacement clears snapshots before updating the instance. Then follow
+  // transfer/replacement's instance -> host order through all report writes.
+  await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)
+  await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instance.id} FOR NO KEY UPDATE`
+  const current = await tx.instance.findUnique({
+    where: { id: instance.id },
+    select: { hostId: true, incusId: true, userId: true, status: true }
+  })
+  if (!current || current.hostId !== agent.hostId || current.incusId !== instance.incusId || current.userId !== instance.userId) {
+    return null
+  }
+  await lockCurrentHostAgent(tx, agent)
+  return current
+}
+
 async function applyReportedTrafficCounters(
   instance: ReportedDbInstance,
   item: NormalizedAgentInstanceItem,
@@ -228,11 +250,7 @@ async function applyReportedTrafficCounters(
     const normalizedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
     const userLockResult = await withLock(getUserTrafficLockKey(instance.userId), async () => prisma.$transaction(async (tx) => {
-      await lockCurrentHostAgent(tx, agent)
-      const currentInstance = await tx.instance.findUnique({
-        where: { id: instance.id },
-        select: { status: true }
-      })
+      const currentInstance = await lockCurrentReportedInstance(tx, instance, agent)
       if (!currentInstance || !shouldApplyTraffic(currentInstance.status, item)) {
         return {
           updated: false,
@@ -337,7 +355,7 @@ async function processOneAgentInstanceReport(
       const updateData = buildStatusUpdateData(item, now)
       if (updateData) {
         const updateResult = await prisma.$transaction(async tx => {
-          await lockCurrentHostAgent(tx, agent)
+          if (!await lockCurrentReportedInstance(tx, instance, agent)) return { count: 0 }
           return tx.instance.updateMany({
             where: {
               id: instance.id,

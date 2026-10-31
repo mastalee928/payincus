@@ -316,6 +316,8 @@
     "test:host-pool-integration": "node --import tsx scripts/test-host-pool-integration.ts",
     "test:admin-instance-delete-integration": "node --import tsx scripts/test-admin-instance-delete-integration.ts",
     "test:host-pool-recovery-integration": "node --import tsx scripts/test-host-pool-recovery-integration.ts",
+    "test:host-pool-recovery-deadline": "node --import tsx scripts/test-host-pool-recovery-deadline.ts",
+    "test:agent-report-identity": "node --import tsx scripts/test-agent-report-identity.ts",
     "test:host-onboarding-lease-integration": "node --import tsx scripts/test-host-onboarding-lease-integration.ts",
     "migrate:data": "node --import tsx scripts/migrate-data.ts",
     "backfill:instance-network": "node --import tsx scripts/backfill-instance-network-addresses.ts",

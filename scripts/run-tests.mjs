@@ -331,6 +331,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:host-onboarding-lease-integration', 'integration test needing live infrastructure'],
   ['test:host-pool-integration', 'integration test needing live infrastructure'],
   ['test:host-pool-recovery-integration', 'integration test needing live infrastructure'],
+  ['test:agent-report-identity', 'integration test requiring an isolated PostgreSQL database'],
   ['test:host-public-ip-integration', 'integration test needing live infrastructure'],
   ['test:host-public-ipv6-integration', 'integration test needing live infrastructure'],
   ['test:host-replacement-integration', 'integration test needing live infrastructure'],

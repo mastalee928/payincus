@@ -221,6 +221,7 @@
     "pnpm --filter server test:user-destroy-incus-order",
     "pnpm --filter server test:instance-delete-incus-order",
     "pnpm --filter server test:host-pool-guards",
+    "pnpm --filter server test:host-pool-recovery-deadline",
     "pnpm --filter server test:host-route-id-guards",
     "pnpm --filter server test:host-install-script-guards",
     "pnpm --filter server test:incus-certificate-paths",
