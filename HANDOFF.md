@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 机器池购买 P01：扣款与重放会话复核
+
+- Owner新增从机器池下单、购物车结算到开通全流程多情形精查，清单见POOL_PURCHASE_REVIEW_2026-10-31.md；本项是首个修复，剩余页面/付款/异步交付尚在检查，不能称整项完成。
+- 实际Fastify+PG余额锁等待，注销后旧请求202且生成订单/扣款，pool-checkout-auth-before.log自然exit1。现扣款事务及已有订单重放复核原sid/iat、管理员角色和目标账户，沿余额→商品组→账户锁顺序。新专项五种撤销/封禁拒绝且零写，正常下单/重放通过；原完整机器池库存、退款、价格、管理员收费集成通过。
+- pool-checkout-auth-fixed/regression-fixed/types/guards/build.log全部自然exit0；原回归首轮缺隔离库既有instance_task授权字段，补旧迁移后通过，日志保留。只做相关后端验证，无前端产品改动、不重复双端或全库测试；无实际客户开通。提交身份/CI见logs/ci-pool-checkout-auth.json；继续后续检查，暂不发版。
+- CI新增确认59cc38e50e0a3d2a149f4453b41782aaaaa24748/41186835436、290a8cf2929258cbf22ff693507e3113db03e188/41186257586成功，M10/M11及另两资金提交仍运行，logs/ci-pool-checkout-refresh.log。
+
 ## 2026-10-31 M11：取消后迟到付款的补偿与财务处理
 
 - M10已推b7a5ac7fda89d878eeb1c21ec36a997a07379a74，源码CI41190932439运行，文档41190932478成功；不把M10/M11继续留作未实现风险。本项新增cancel_reason及recharge_late_payments迁移，明确timeout/user/provider并保留历史null。平台超时后的正向付款在核原尝试、签名/金额/币种后可原子补款；用户取消/历史取消/失败先存证据，管理员核对后补款；退款、重复交易、旧尝试保留处理结论，不能直接入账。

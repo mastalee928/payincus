@@ -9,6 +9,7 @@ import { getPoolOrderResult, placePoolOrder, PoolOrderError, type PoolOrderInput
 import { prisma } from '../db/prisma.js'
 
 const STATUS_BY_CODE: Partial<Record<ErrorCodeType, number>> = {
+  [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.POOL_STOCK_SHORT]: 409,
   [ErrorCode.POOL_PRICE_CHANGED]: 409,
   [ErrorCode.SSH_KEY_NOT_OWNED]: 403
@@ -35,7 +36,7 @@ export default async function poolOrderRoutes(fastify: FastifyInstance) {
       const result = await placePoolOrder(target.id, target.username, {
         requestId: request.body.requestId, expectedTotal: request.body.expectedTotal, sshKeyId: key?.id ?? null,
         items: [{ poolPriceId: request.body.poolPriceId, quantity: 1, namePrefix: request.body.name, image: request.body.image }]
-      }, { actorId: request.user.id, billing: request.body.billing, chargeFirstMonth: request.body.chargeFirstMonth })
+      }, { actorId: request.user.id, billing: request.body.billing, chargeFirstMonth: request.body.chargeFirstMonth }, request.user)
       return reply.code(202).send(result)
     } catch (error) {
       if (error instanceof PoolOrderError) return reply.code(STATUS_BY_CODE[error.code] ?? 400).send({ ...apiError(error.code, error.message), ...error.details })
@@ -80,7 +81,7 @@ export default async function poolOrderRoutes(fastify: FastifyInstance) {
     await turnstileVerifier(request, reply)
     if (reply.sent) return
     try {
-      const result = await placePoolOrder(request.user.id, request.user.username, request.body)
+      const result = await placePoolOrder(request.user.id, request.user.username, request.body, undefined, request.user)
       return reply.code(202).send(result)
     } catch (error) {
       if (error instanceof PoolOrderError) {

@@ -12,7 +12,9 @@ const { deleteHost, selectAndReserveHostWithLock } = await import('../src/db/hos
 const { upsertPoolPrice, upsertPoolPrices, deletePoolPrice, poolInventory, publicPoolCatalog } = await import('../src/services/host-pool-prices.js')
 const { lockHostGroups } = await import('../src/services/host-groups.js')
 const { checkPackageSoldOut, checkPackagesSoldOut } = await import('../src/db/packages.js')
-const { placePoolOrder, getPoolOrderResult } = await import('../src/services/pool-orders.js')
+const { placePoolOrder: placeAuthenticatedPoolOrder, getPoolOrderResult } = await import('../src/services/pool-orders.js')
+const checkoutSession = { sid: randomUUID(), iat: Math.floor(Date.now() / 1000) }
+const placePoolOrder = (...args: Parameters<typeof placeAuthenticatedPoolOrder>) => placeAuthenticatedPoolOrder(args[0], args[1], args[2], args[3], checkoutSession)
 const { compensateFailedInstancePurchase } = await import('../src/db/instance-provisioning-compensation.js')
 const { default: inventoryRoutes } = await import('../src/routes/host-inventory.js')
 const { default: orderRoutes } = await import('../src/routes/pool-orders.js')
@@ -46,11 +48,11 @@ const waitFor = async (check: () => Promise<boolean>) => {
 const app = Fastify()
 app.decorate('authenticateAdmin', async (request: any, reply: any) => {
   if (request.headers['x-test-role'] !== 'admin') return reply.code(403).send({ code: 'FORBIDDEN' })
-  request.user = { id: owner.id, username: owner.username, role: 'admin' }
+  request.user = { id: owner.id, username: owner.username, role: 'admin', ...checkoutSession }
 })
 app.decorate('authenticate', async (request: any, reply: any) => {
   if (!request.headers['x-test-role']) return reply.code(401).send({ code: 'UNAUTHORIZED' })
-  request.user = { id: request.headers['x-test-role'] === 'other' ? other.id : buyer.id, username: buyer.username, role: 'user' }
+  request.user = { id: request.headers['x-test-role'] === 'other' ? other.id : buyer.id, username: buyer.username, role: 'user', ...checkoutSession }
 })
 await app.register(inventoryRoutes, { prefix: '/inventory-api' })
 await app.register(orderRoutes, { prefix: '/instances' })

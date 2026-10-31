@@ -30,6 +30,7 @@ import { encryptSensitiveData, decryptSensitiveData, validateName } from '../lib
 import { createInstanceAsync, compensateFailedInstanceCreation } from '../routes/instances.js'
 import { notifyAdminPoolOrderPurchase } from '../lib/admin-alerts.js'
 import { poolInventory, resolvePoolProduct } from './host-pool-prices.js'
+import { authorizeUserWrite, lockAdministrativeUserMutation, type WriteSession } from '../db/user-write-authorization.js'
 
 const shortId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 8)
 
@@ -281,7 +282,19 @@ export async function getPoolOrderResult(userId: number, batchId: string): Promi
 
 export interface AdminPoolOrderOptions { actorId: number; billing: 'free' | 'paid'; chargeFirstMonth: boolean }
 
-export async function placePoolOrder(userId: number, username: string, input: PoolOrderInput, adminOptions?: AdminPoolOrderOptions): Promise<PoolOrderResult> {
+async function authorizeCheckout(tx: Prisma.TransactionClient, userId: number, session: WriteSession | undefined, admin?: AdminPoolOrderOptions) {
+  if (admin) {
+    try {
+      const target = await lockAdministrativeUserMutation(tx, userId, { id: admin.actorId, ...session })
+      if (target.status === 'active') return
+    } catch (error) {
+      if (!(error instanceof Error) || !['ADMIN_ACTOR_FORBIDDEN', 'USER_NOT_FOUND'].includes(error.message)) throw error
+    }
+  } else if (await authorizeUserWrite(tx, userId, session)) return
+  throw new PoolOrderError(ErrorCode.FORBIDDEN, '当前登录状态或账号权限已变更，请重新登录')
+}
+
+export async function placePoolOrder(userId: number, username: string, input: PoolOrderInput, adminOptions?: AdminPoolOrderOptions, session?: WriteSession): Promise<PoolOrderResult> {
   if (adminOptions) {
     const actor = await prisma.user.findUnique({ where: { id: adminOptions.actorId }, select: { role: true, status: true } })
     if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw new PoolOrderError(ErrorCode.FORBIDDEN, '管理员权限不足')
@@ -289,6 +302,10 @@ export async function placePoolOrder(userId: number, username: string, input: Po
   const requestHash = adminOptions ? createHash('sha256').update(JSON.stringify({ input: poolOrderHash(input), adminOptions })).digest('hex') : poolOrderHash(input)
   const existingOrder = await prisma.poolOrder.findUnique({ where: { id: input.requestId } })
   if (existingOrder) {
+    await prisma.$transaction(async tx => {
+      await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, userId)
+      await authorizeCheckout(tx, userId, session, adminOptions)
+    })
     if (existingOrder.userId !== userId || existingOrder.requestHash !== requestHash) throw new PoolOrderError(ErrorCode.POOL_ORDER_INVALID, '结算请求已用于另一张订单')
     return (await getPoolOrderResult(userId, input.requestId))!
   }
@@ -314,19 +331,16 @@ export async function placePoolOrder(userId: number, username: string, input: Po
   try {
     created = await prisma.$transaction(async tx => {
       await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, userId)
-      if (adminOptions) {
-        const actor = await tx.user.findUnique({ where: { id: adminOptions.actorId }, select: { role: true, status: true } })
-        if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw new PoolOrderError(ErrorCode.FORBIDDEN, '管理员权限不足')
-      }
+      // Pricing and account mutations keep the same lock order, then authorization
+      // is rechecked before both a new debit and an existing receipt are returned.
+      await lockHostGroups(tx)
+      await authorizeCheckout(tx, userId, session, adminOptions)
       const previous = await tx.poolOrder.findUnique({ where: { id: batchId } })
       if (previous) {
         if (previous.userId !== userId || previous.requestHash !== requestHash) throw new PoolOrderError(ErrorCode.POOL_ORDER_INVALID, '结算请求冲突')
         return null
       }
       // Price changes, group edits and checkout use the same lock order.
-      await lockHostGroups(tx)
-      const account = await tx.user.findUnique({ where: { id: userId }, select: { status: true } })
-      if (!account || account.status !== 'active') throw new PoolOrderError(ErrorCode.FORBIDDEN, '账号不可用')
       for (const item of items) {
         const price = await tx.hostPoolPrice.findUnique({ where: { id: item.product.price.id } })
         if (!price?.active || price.shadowPlanId !== item.plan.id) throw new PoolOrderError(ErrorCode.PACKAGE_UNAVAILABLE, '商品已下架')

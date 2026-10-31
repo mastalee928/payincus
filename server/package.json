@@ -96,6 +96,7 @@
     "test:review-recharge-terminal-states": "node --import tsx scripts/test-review-recharge-terminal-states.ts",
     "test:review-late-payments": "node --import tsx scripts/test-review-late-payments.ts",
     "test:review-late-payments-ui": "node ../scripts/test-late-payments.mjs",
+    "test:review-pool-checkout": "node --import tsx scripts/test-review-pool-checkout.ts",
     "test:review-gift-card-counts": "node --import tsx scripts/test-review-gift-card-counts.ts",
     "test:review-gift-card-id-boundaries": "node --import tsx scripts/test-review-gift-card-id-boundaries.ts",
     "test:review-batch-config-input-boundaries": "node --import tsx scripts/test-review-batch-config-input-boundaries.ts",
