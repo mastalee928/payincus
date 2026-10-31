@@ -84,6 +84,7 @@
     "pnpm --filter server test:agent-route-id-guards",
     "pnpm --filter server test:agent-report-state-guards",
     "pnpm --filter server test:agent-install-command-guards",
+    "pnpm --filter server test:review-agent-installer",
     "pnpm --filter server test:agent-response-redaction",
     "pnpm --filter server test:aff-points-query-guards",
     "pnpm --filter server test:aff-review-ui-guards",

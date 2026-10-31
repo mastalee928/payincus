@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R088 Agent 自定义新目录安装复验
+
+- 新增test-agent-installer.mjs/sh执行未经改写的完整agent-install.sh：根身份、服务管理器和网络为边界夹具，临时目录、manifest解析、SHA256、文件staging、冒烟及正式文件替换真实执行。两个架构名称的全新嵌套目录均下载manifest成功，事件严格manifest→binary→token→smoke，最终二进制/配置/服务文件正确且无暂存残留；当前preflight先准备BIN/CONFIG/SERVICE父目录，原R088失败不再存在，无产品修改。
+- agent-installer-second.log自然exit0，10个隔离用例全部通过（其余失败保旧及dry-run场景由R089/R090分别归档）；第一次夹具错误把shell的`[`参数算成2个、漏末尾`]`，导致假报systemd未运行，first.log保留，修为精确3参数。真实Linux init/systemd/OpenRC、原生amd64/arm64程序、外部下载和真实宿主心跳仍未验收；不将假uname架构当原生双架构实机。
+- 现有agent-install-command守卫1/1、JS/Bash语法、198清单有效、YAML和diff检查通过。测试加入常规清单及CI独立步骤。Python无PyYAML及client无yaml的两次检查工具错误未算成功，改用仓库实际js-yaml解析；产品无变化，复用上阶段产品types/build，不重复无关构建。
+- R191已推ab2bdfcecb56a7273362318bdeacc97e1f0c6bfd / CI41156261206。R088后308/327（94.2%，含部分/待验收）、19项初审；R089/R090随后分别登记，共用这次测试，不计成三次产品修复。所有CI继续，完整项目与灾备未完成。
+
 ## 2026-10-31 R191 Telegram 工单入口差异复审
 
 - 核对实际注册的/api/telegram、完整webhook及telegramBotCommands：仅处理/start绑定、/join及别名、/join_vip、/notify；其它文本返回使用说明，没有reply_to_message消费者或工单写入。全库createTicket/addTicketMessage及Prisma工单写入只落在tickets/Public API调用链；notifier的Telegram工单通知为出站sendMessage，formatTicketReplyNotice明确要求前往工单页面查看。原Bot等待锁后回复的运行前提在当前仓库不存在，不新增Bot工单功能。

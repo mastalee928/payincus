@@ -42,6 +42,7 @@ jobs:
           node scripts/test-repository-source-guards.mjs
           pnpm --filter server test:host-install-inputs
           bash scripts/test-install-panel-guards.sh
+          node scripts/test-agent-installer.mjs
           python3 scripts/test-onboarding-control.py
           python3 scripts/test-onboarding-gateway.py
           sudo python3 -B scripts/test-host-gateway-dns.py
