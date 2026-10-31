@@ -315,6 +315,8 @@ jobs:
         run: pnpm --filter server test:review-recharge-callback-races
       - name: Recharge terminal states survive real row-lock competition without duplicate accounting
         run: pnpm --filter server test:review-recharge-terminal-states
+      - name: Gift card batch quantities reject invalid input and preserve exact boundary counts
+        run: pnpm --filter server test:review-gift-card-counts
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets
