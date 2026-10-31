@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R191 Telegram 工单入口差异复审
+
+- 核对实际注册的/api/telegram、完整webhook及telegramBotCommands：仅处理/start绑定、/join及别名、/join_vip、/notify；其它文本返回使用说明，没有reply_to_message消费者或工单写入。全库createTicket/addTicketMessage及Prisma工单写入只落在tickets/Public API调用链；notifier的Telegram工单通知为出站sendMessage，formatTicketReplyNotice明确要求前往工单页面查看。原Bot等待锁后回复的运行前提在当前仓库不存在，不新增Bot工单功能。
+- 本条为代码级复审，无产品修改、无外部机器人消息；不以此声明绑定/入群授权完整通过。网站与Public API工单授权仍保留R186/R187及后续专项证据/未验收范围，不重复未改源码的构建。
+- 上一阶段完整身份补齐：R318 261f1bf3a875f5b2dc6f8063bff518aa55cc4bf0 / CI41155393398；R322 7f2b326f3d8adee72a88c49755cf9ba5f5344d43 / CI41155941672。ci-r191-refresh.log自然exit0、逐run核完整head及job；新增终态c32e82d9e81e4ba3627851f265d054a44d678e2a / CI41144444144 success，其余继续，未发现新失败。
+- R191后307/327（93.9%，覆盖而非完整验收）、20项初审；FIXES顶部旧290统计已同步，历史阶段原样保留。当前工作区此前干净，上一阶段均已推送；本条保存后继续Agent安装器与Caddy复验，所有CI跟终态。完整项目与灾备尚未完成，无生产操作。
+
 ## 2026-10-31 R322 管理员创建页繁体错误承诺免费
 
 - 简体和英文已说明免费/付费，繁体仍为“為使用者贈送實例，無需支付任何費用”；admin-r322-before.log真实切换繁体后断言失败exit1。仅修改繁体description为“為指定使用者建立免費或付費實例”。当前freeGiftHint无Vue消费者，不能沿初审声称它仍在免费分支显示；实际免费/付费由原单选及计费摘要控制，未改计费逻辑。

@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。后续终端/关单/R195、R275授权与并发/90秒期限、R202映射IPv6出站、R203流量通知期限、R66/R95/R132编号边界已分段保存，证据详HANDOFF。R277分页及编号、R178命令并发上限复验已保存；R171另修缺secret时公开仍启用挑战的不一致，真实PG八配置/五原认证钩子通过。这些后续修复不在固定v1.7.8内。按“进入修复或复验记录”口径现为290项（含部分、待验收），37项仍保初审分类；这不是完整修复数，不能按327减290计算剩余全部工作。R262新增复现并修复批量404前部分修改，真实PG宿主隔离和拒绝零修改通过。历史CI41134810809失败保留，已修夹具，新CI及各已推批次继续跟到终态。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为307/327（93.9%，含部分、待验收、重复与实现差异），20项仍保初审分类；这不是完整修复数，不能按327减307计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -482,7 +482,7 @@
 | R1-188 | 已有防护 | 原PG路由及真实HTTP/DNS补验通过 | 原safeFetch/连接期dispatcher及manual有效，无产品改动。ticket-r188-transport：12私网/非法URL、4连接期DNS结果含映射IPv6与混合公网私网拒绝，外用户404与零/private；真实大流/15秒两阶段取消、原记录保持及socket释放通过。完整types/两守卫通过，实际图床与浏览器另待。 |
 | R1-189 | 已有防护 | 原图片路由大小边界真实HTTP复验通过 | 同ticket-r188-transport证据：声明超限即取消、无长度持续流超过50MiB及时终止生产者，恰50MiB内容正确200；较小DB附件size不冒充可信实际大小。原R190模拟伪短声明另有证据，明确非协议穿透；types/两守卫及同源码build保持，真实图床另待。 |
 | R1-190 | 部分存在 | 源码已修/隔离PG验证通过 | 原body异常已有502且INTERNAL_ERROR隐藏details；现固定区分超限/超时/读取失败。reader释放、请求abort及未读body取消覆盖HTTP/MIME/限长/中断；15实际PG/Fastify+截获fetch场景含真实15秒截止通过takeover-ticket-image-r1.log，5守卫/build/types通过，实际图床/浏览器未验 |
-| R1-191 | 实现不同 | 保留初审结论 | 当前Telegram路由未发现Bot工单回复入口，主要绑定/webhook/群组功能；现行网站工单写入风险另见R186/187，不据旧Bot清单虚构本库运行调用链。 |
+| R1-191 | 实现不同 | 已复审（当前无Bot工单写入口） | 已核完整Telegram webhook、已注册命令、全库ticket写入消费者及通知格式；仅绑定、入群、通知开关，工单通知为出站sendMessage并要求前往工单页面，无reply_to_message消费。网站/Public API实际写入仍按R186/187证据与缺口，不扩张为整个Bot授权验收，见2026-10-31 HANDOFF。 |
 | R1-192 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-193 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
 | R1-194 | 存在 | 源码已修/隔离PG验证通过 | command创建上限同事务、current actor/status/session、编辑最新合并或仅patch提交字段、delete/update返回正确403/404；空白/重复/50及100上限/并发编辑/取消与撤销通过 logs/review-command-integration-final.log |
