@@ -121,7 +121,7 @@ async function acceptOrder(result: PoolCheckoutResult, submitted: CartItem[], ac
   // have added or edited a line while the server was accepting the order.
   for (const item of submitted) {
     const current = cartStore.items.find(row => row.key === item.key)
-    if (current && JSON.stringify(current) === JSON.stringify(item)) cartStore.remove(item.key)
+    if (current && JSON.stringify(current) === JSON.stringify(item)) cartStore.remove(item.key, item)
   }
   await router.replace({ path: '/checkout', query: { order: result.batchId } })
 }

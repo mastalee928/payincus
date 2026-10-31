@@ -7,11 +7,12 @@ import { useCartStore } from '@/stores/cart'
 import { useConfigStore } from '@/stores/config'
 import { useThemeStore } from '@/stores/theme'
 import CheckoutView from '@/views/CheckoutView.vue'
+import PoolPurchaseWizard from '@/components/purchase/PoolPurchaseWizard.vue'
 import { requests } from './api.js'
 import '@/styles/main.css'
 const state = reactive({ mounted: true }), router = createRouter({ history: createMemoryHistory(), routes: [
   { path: '/checkout', name: 'checkout', component: { components: { CheckoutView }, setup: () => ({ state }), template: '<CheckoutView v-if="state.mounted" />' } },
-  { path: '/purchase', component: { template: '<p>Choose another machine</p>' } },
+  { path: '/purchase', component: { components: { PoolPurchaseWizard }, setup: () => ({ state }), template: '<PoolPurchaseWizard v-if="state.mounted" />' } },
   { path: '/instances/:id', component: { template: '<p>Instance</p>' } }
 ] })
 const app = createApp({ setup() {

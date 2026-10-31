@@ -5,7 +5,7 @@
  * 行里的 snapshot 只用于展示与比对，付款时以服务端当前价与库存为准。
  */
 import { defineStore } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 
 export interface CartItemSnapshot {
@@ -35,84 +35,110 @@ export interface CartItem {
 }
 
 const STORAGE_PREFIX = 'incudal.cart.'
-
+const ENTRY_PREFIX = 'incudal.cart.v2.'
+const validId = (value: unknown) => Number.isInteger(value) && Number(value) > 0 && Number(value) <= 2147483647
+const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max
 function isCartItem(value: unknown): value is CartItem {
   if (!value || typeof value !== 'object') return false
-  const item = value as Partial<CartItem>
-  return typeof item.key === 'string'
-    && Number.isInteger(item.poolPriceId) && (item.poolPriceId as number) > 0
-    && Number.isInteger(item.quantity) && (item.quantity as number) >= 1 && (item.quantity as number) <= 100
-    && typeof item.namePrefix === 'string'
-    && typeof item.image === 'string'
-    && Array.isArray(item.customInitCommandIds)
-    && !!item.snapshot && typeof item.snapshot === 'object'
+  const item = value as CartItem, snapshot = item.snapshot
+  return text(item.key, 100) && /^[a-zA-Z0-9_-]+$/.test(item.key) && validId(item.poolPriceId)
+    && Number.isInteger(item.quantity) && item.quantity >= 1 && item.quantity <= 100
+    && text(item.namePrefix, 60) && text(item.image, 200) && !!item.image
+    && Array.isArray(item.customInitCommandIds) && item.customInitCommandIds.length <= 50 && item.customInitCommandIds.every(validId)
+    && text(item.addedAt, 40) && Number.isFinite(Date.parse(item.addedAt))
+    && !!snapshot && typeof snapshot === 'object' && validId(snapshot.regionId)
+    && text(snapshot.regionName, 200) && (snapshot.countryCode === null || text(snapshot.countryCode, 8))
+    && text(snapshot.resourcePreset, 50) && text(snapshot.imageLabel, 200)
+    && [snapshot.diskGiB, snapshot.cpu, snapshot.memoryMiB, snapshot.monthlyPrice, snapshot.setupFee]
+      .every(value => Number.isSafeInteger(value) && value >= 0 && value <= 1e12)
 }
+function parse(raw: string | null): unknown { try { return raw ? JSON.parse(raw) : null } catch { return null } }
 
 export const useCartStore = defineStore('cart', () => {
-  const authStore = useAuthStore()
-  const items = ref<CartItem[]>([])
-
-  // 按账号隔离：切换账号时自动换存储键，看不到别人的购物车
-  const storageKey = computed(() => (authStore.user?.id ? `${STORAGE_PREFIX}${authStore.user.id}` : null))
-
+  const authStore = useAuthStore(), items = ref<CartItem[]>([])
+  const storageKey = computed(() => authStore.user?.id ? `${ENTRY_PREFIX}${authStore.user.id}.` : null)
+  let volatile = false
   function load(): void {
-    if (!storageKey.value) {
-      items.value = []
-      return
-    }
+    const prefix = storageKey.value
+    if (!prefix) { items.value = []; return }
+    if (volatile) return
     try {
-      const raw = localStorage.getItem(storageKey.value)
-      const parsed: unknown = raw ? JSON.parse(raw) : []
-      items.value = Array.isArray(parsed) ? parsed.filter(isCartItem).slice(0, 100) : []
-    } catch {
-      items.value = []
-    }
+      // Upgrade the old array once. Each line has its own key so independent
+      // tabs never overwrite an entire, potentially stale, cart snapshot.
+      const legacyKey = `${STORAGE_PREFIX}${authStore.user!.id}`
+      const legacy = parse(localStorage.getItem(legacyKey))
+      if (Array.isArray(legacy)) {
+        for (const item of legacy.filter(isCartItem).slice(0, 100)) {
+          if (localStorage.getItem(prefix + item.key) === null) localStorage.setItem(prefix + item.key, JSON.stringify(item))
+        }
+        localStorage.removeItem(legacyKey)
+      }
+      const loaded: CartItem[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (!key?.startsWith(prefix)) continue
+        const item = parse(localStorage.getItem(key))
+        if (isCartItem(item) && key === prefix + item.key) loaded.push(item)
+      }
+      items.value = loaded.sort((a, b) => a.addedAt.localeCompare(b.addedAt) || a.key.localeCompare(b.key)).slice(0, 200)
+    } catch { volatile = true }
   }
-
-  function persist(): void {
-    if (!storageKey.value) return
+  function writable(): boolean {
+    if (!storageKey.value || !authStore.token) return false
     try {
-      if (items.value.length === 0) localStorage.removeItem(storageKey.value)
-      else localStorage.setItem(storageKey.value, JSON.stringify(items.value))
-    } catch {
-      // 存储满了或被禁用：购物车退化为仅内存，不影响下单
-    }
+      if (!authStore.captureAuthentication().aligned) return false
+      const payload = JSON.parse(atob(authStore.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+      if (payload.id !== authStore.user?.id) return false
+    } catch { return false }
+    load()
+    return true
   }
-
-  watch(storageKey, load, { immediate: true })
-  watch(items, persist, { deep: true })
-
+  function save(item: CartItem | null, key: string): void {
+    const prefix = storageKey.value
+    if (!prefix) return
+    try {
+      if (item) localStorage.setItem(prefix + key, JSON.stringify(item))
+      else localStorage.removeItem(prefix + key)
+    } catch { volatile = true }
+    items.value = items.value.filter(row => row.key !== key)
+    if (item) items.value.push(item)
+  }
+  watch(storageKey, () => { volatile = false; items.value = []; load() }, { immediate: true, flush: 'sync' })
+  const onStorage = (event: StorageEvent) => {
+    if (event.storageArea === localStorage && (event.key === null || (storageKey.value && event.key.startsWith(storageKey.value)))) load()
+  }
+  window.addEventListener('storage', onStorage)
+  onScopeDispose(() => window.removeEventListener('storage', onStorage))
   const totalQuantity = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0))
-  /** 按加入时的展示价算的合计（分），结算页会用服务端价重算 */
-  const totalCents = computed(() => items.value.reduce(
-    (sum, item) => sum + item.quantity * (item.snapshot.monthlyPrice + item.snapshot.setupFee), 0))
-
-  function add(input: Omit<CartItem, 'key' | 'addedAt'>): CartItem {
-    const item: CartItem = {
-      ...input,
-      key: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      addedAt: new Date().toISOString()
-    }
-    items.value = [...items.value, item]
+  const totalCents = computed(() => items.value.reduce((sum, item) => sum + item.quantity * (item.snapshot.monthlyPrice + item.snapshot.setupFee), 0))
+  function add(input: Omit<CartItem, 'key' | 'addedAt'>): CartItem | null {
+    if (!writable()) return null
+    const item: CartItem = { ...input, key: crypto.randomUUID(), addedAt: new Date().toISOString() }
+    if (!isCartItem(item) || totalQuantity.value + item.quantity > 100) return null
+    save(item, item.key)
     return item
   }
-
-  function remove(key: string): void {
-    items.value = items.value.filter(item => item.key !== key)
+  function remove(key: string, expected?: CartItem): void {
+    if (!writable()) return
+    const current = items.value.find(row => row.key === key)
+    if (!current || (expected && JSON.stringify(current) !== JSON.stringify(expected))) return
+    save(null, key)
   }
-
   function setQuantity(key: string, quantity: number): void {
-    const next = Math.max(1, Math.floor(quantity))
-    items.value = items.value.map(item => (item.key === key ? { ...item, quantity: next } : item))
+    if (!Number.isFinite(quantity) || !writable()) return
+    const item = items.value.find(row => row.key === key)
+    if (!item) return
+    const next = Math.max(1, Math.min(100, 100 - totalQuantity.value + item.quantity, Math.floor(quantity)))
+    save({ ...item, quantity: next }, key)
   }
-
   function setNamePrefix(key: string, namePrefix: string): void {
-    items.value = items.value.map(item => (item.key === key ? { ...item, namePrefix } : item))
+    if (!text(namePrefix, 60) || !writable()) return
+    const item = items.value.find(row => row.key === key)
+    if (item) save({ ...item, namePrefix }, key)
   }
-
   function clear(): void {
-    items.value = []
+    if (!writable()) return
+    for (const item of [...items.value]) save(null, item.key)
   }
-
   return { items, totalQuantity, totalCents, add, remove, setQuantity, setNamePrefix, clear, reload: load }
 })

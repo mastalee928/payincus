@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowRight, Check, Cpu, Globe2, HardDrive, Loader2, MemoryStick, Minus, Plus, Search, Server, ShoppingBag } from 'lucide-vue-next'
@@ -31,8 +31,20 @@ const maxQuantity = computed(() => Math.max(0, Math.min((product.value?.idle ?? 
 const names = computed(() => buildPoolInstanceNames(name.value.trim(), Math.min(quantity.value || 1, maxInstances.value)))
 const nameValid = computed(() => !!name.value.trim() && names.value.every(value => validateName(value).valid))
 const subtotal = computed(() => product.value ? quantity.value * (product.value.monthlyPrice + product.value.setupFee) : 0)
-const canAdd = computed(() => !!product.value && !!image.value && nameValid.value && Number.isInteger(quantity.value) && quantity.value > 0 && quantity.value <= maxQuantity.value && !imagesLoading.value)
+const canAdd = computed(() => active.value && catalogReady.value && !loading.value && !error.value && auth.isAuthenticated && !!auth.user && !!product.value && !!image.value && nameValid.value && Number.isInteger(quantity.value) && quantity.value > 0 && quantity.value <= maxQuantity.value && !imagesLoading.value)
 const regionStock = (value: PoolCatalogRegion) => value.products.reduce((sum, item) => sum + item.idle, 0)
+const active = ref(false), catalogReady = ref(false)
+let generation = 0, imageSequence = 0, catalogSequence = 0
+const session = computed(() => {
+  if (!auth.token) return ''
+  let identity = auth.token
+  try { const payload = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); if (payload.sid) identity = payload.sid } catch { /* Legacy token. */ }
+  return `${auth.user?.id ?? ''}:${identity}`
+})
+function context() {
+  const version = generation, authentication = auth.captureAuthentication(), path = route.fullPath
+  return () => active.value && version === generation && path === route.fullPath && authentication.aligned && authentication.current()
+}
 
 const continentFilter = ref<ContinentCode | 'all' | null>(null)
 const regionSearch = ref('')
@@ -69,50 +81,61 @@ function selectContinent(value: string) {
 }
 
 async function load() {
-  loading.value = true; error.value = ''
+  const current = context(), sequence = ++catalogSequence
+  if (!current()) return
+  const valid = () => current() && sequence === catalogSequence
+  loading.value = true; catalogReady.value = false; error.value = ''; regions.value = []; image.value = ''; images.value = []
   try {
     const catalog = await api.packages.getPublicCatalog()
+    if (!valid()) return
     regions.value = catalog.regions; maxInstances.value = catalog.maxInstances ?? 100
     regionId.value = regions.value.find(value => value.id === Number(route.query.region))?.id ?? regions.value.find(value => regionStock(value) > 0)?.id ?? null
     productId.value = region.value?.products.find(value => value.id === Number(route.query.product))?.id ?? region.value?.products.find(value => value.idle > 0)?.id ?? null
-  } catch (err) { error.value = translateError(err) }
-  finally { loading.value = false }
+    catalogReady.value = true
+  } catch (err) { if (valid()) error.value = translateError(err) }
+  finally { if (valid()) loading.value = false }
 }
 function selectRegion(id: number) {
   regionId.value = id; productId.value = region.value?.products.find(value => value.idle > 0)?.id ?? null
 }
-let imageSequence = 0
 async function loadImages() {
-  const current = ++imageSequence
+  const current = ++imageSequence, validContext = context()
   image.value = ''; images.value = []
-  if (!product.value || !auth.isAuthenticated) { imagesLoading.value = false; return }
+  if (!product.value || !auth.isAuthenticated || !auth.user || !validContext()) { imagesLoading.value = false; return }
   const chosen = product.value
   imagesLoading.value = true
   try {
     const response = await api.images.getSystemImages('container', chosen.memoryMiB)
-    if (current !== imageSequence) return
+    if (current !== imageSequence || !validContext()) return
     images.value = response.images.filter(value => value.architecture === architectureOfPreset(chosen.resourcePreset))
       .map(value => ({ value: value.remoteAlias, label: value.name, icon: value.icon ?? null }))
     image.value = images.value[0]?.value ?? ''
-  } catch (err) { if (current === imageSequence) error.value = translateError(err) }
-  finally { if (current === imageSequence) imagesLoading.value = false }
+  } catch (err) { if (current === imageSequence && validContext()) error.value = translateError(err) }
+  finally { if (current === imageSequence && validContext()) imagesLoading.value = false }
 }
-watch([product, () => auth.isAuthenticated], () => { quantity.value = 1; void loadImages() })
+watch(product, () => { quantity.value = 1; void loadImages() })
 function login() {
   void router.push({ path: '/login', query: { redirect: `/purchase?region=${regionId.value ?? ''}&product=${productId.value ?? ''}` } })
 }
 function add(checkout = false) {
-  if (!canAdd.value || !product.value || !region.value) return
+  if (!canAdd.value || !context()() || !product.value || !region.value) return
   const chosen = product.value
-  cart.add({ poolPriceId: chosen.id, quantity: quantity.value, namePrefix: name.value.trim(), image: image.value, customInitCommandIds: [],
+  const added = cart.add({ poolPriceId: chosen.id, quantity: quantity.value, namePrefix: name.value.trim(), image: image.value, customInitCommandIds: [],
     snapshot: { regionId: region.value.id, regionName: region.value.name, countryCode: region.value.countryCode,
       resourcePreset: chosen.resourcePreset, diskGiB: chosen.diskGiB, cpu: chosen.cpu, memoryMiB: chosen.memoryMiB,
       monthlyPrice: chosen.monthlyPrice, setupFee: chosen.setupFee, imageLabel: images.value.find(value => value.value === image.value)?.label ?? image.value }
   })
+  if (!added) { error.value = t('cart.tooMany', { max: Math.min(maxInstances.value, 100) }); return }
   toast.success(t('poolPurchase.added')); name.value = ''
   if (checkout) void router.push('/checkout')
 }
-onMounted(load)
+onMounted(() => { active.value = true }); onActivated(() => { active.value = true })
+onDeactivated(() => { active.value = false }); onUnmounted(() => { active.value = false; generation++ })
+watch([session, active, () => route.fullPath], () => {
+  generation++; imageSequence++; catalogSequence++; catalogReady.value = false
+  regions.value = []; images.value = []; image.value = ''; name.value = ''; quantity.value = 1; error.value = ''; imagesLoading.value = false
+  if (active.value) void load()
+}, { flush: 'sync' })
 </script>
 
 <template>
@@ -180,12 +203,6 @@ onMounted(load)
           </div>
           <div v-if="!auth.isAuthenticated" class="purchase-sign-in"><p>{{ t('poolPurchase.signInHint') }}</p><button type="button" class="purchase-primary" @click="login">{{ t('poolPurchase.login') }}<ArrowRight :size="16" aria-hidden="true" /></button></div>
           <div v-else class="purchase-instance-fields">
-            <div class="purchase-field">
-              <span>{{ t('poolPurchase.system') }}</span>
-              <div v-if="imagesLoading" class="purchase-images-loading" role="status"><Loader2 :size="17" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />{{ t('common.loading') }}</div>
-              <ImageSelector v-else-if="images.length" v-model:selected-image="image" :available-images="images" :images-loading="imagesLoading" :title="t('poolPurchase.system')" embedded />
-              <p v-else class="purchase-field-notice text-amber-600 dark:text-amber-400">{{ t('poolPurchase.noImages') }}</p>
-            </div>
             <div class="purchase-name-quantity">
               <label class="purchase-field">
                 {{ t(quantity > 1 ? 'poolPurchase.namePrefix' : 'cart.line.name') }}
@@ -202,6 +219,12 @@ onMounted(load)
             </div>
             <p v-if="name && !nameValid" id="purchase-name-error" class="purchase-field-notice text-red-600 dark:text-red-400">{{ t('cart.nameInvalid') }}</p>
             <p v-else-if="name && quantity > 1" class="purchase-name-preview">{{ names.slice(0, 3).join(', ') }}{{ names.length > 3 ? ' …' : '' }}</p>
+            <div class="purchase-field">
+              <span>{{ t('poolPurchase.system') }}</span>
+              <div v-if="imagesLoading" class="purchase-images-loading" role="status"><Loader2 :size="17" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />{{ t('common.loading') }}</div>
+              <ImageSelector v-else-if="images.length" v-model:selected-image="image" :available-images="images" :images-loading="imagesLoading" :title="t('poolPurchase.system')" embedded />
+              <p v-else class="purchase-field-notice text-amber-600 dark:text-amber-400">{{ t('poolPurchase.noImages') }}</p>
+            </div>
             <p v-if="queuedQuantity" class="purchase-queued"><ShoppingBag :size="14" aria-hidden="true" />{{ t('poolPurchase.inCart', { count: queuedQuantity }) }}</p>
           </div>
         </section>
@@ -270,7 +293,7 @@ onMounted(load)
 .purchase-region-top, .purchase-config-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .purchase-region-name { flex: 1; font-size: 13px; font-weight: 550; line-height: 1.6; overflow-wrap: anywhere; }
 .purchase-region-option:hover:not(:disabled), .purchase-config-option:hover:not(:disabled) { border-color: var(--text-secondary); }
-.purchase-region-option.is-selected, .purchase-config-option.is-selected { border-color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--text-primary); background: var(--bg-tertiary); }
+.purchase-region-option.is-selected, .purchase-config-option.is-selected { border-color: var(--text-primary); outline: 1px solid var(--text-primary); outline-offset: -2px; box-shadow: none; background: var(--bg-tertiary); }
 .purchase-region-option:disabled, .purchase-config-option:disabled { opacity: 0.5; cursor: not-allowed; }
 .purchase-choice-indicator { display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid var(--border-hover); border-radius: 50%; flex-shrink: 0; }
 .is-selected > .purchase-region-top > .purchase-choice-indicator, .is-selected > .purchase-config-top > .purchase-choice-indicator { background: var(--text-primary); border-color: var(--text-primary); color: var(--bg-elevated); }
