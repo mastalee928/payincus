@@ -567,7 +567,7 @@
 | R1-273 | 已有防护 | 原路由真实PG/mTLS故障复验通过 | TCP/UDP真实审计INSERT失败仍保已提交映射和设备、重放PORT_IN_USE零设备写；原13映射保持，实际Incus PUT500撤本次预留保旧设备/账目，锁释放。完整批量回归、types/端口守卫通过，见HANDOFF；原生Incus、审计持久补录及强杀恢复另验。 |
 | R1-274 | 存在 | 当前身份/时长事务已修；原生到期并发待验 | gift-days共用billing lane/实例锁、current actor/session/host/instance/plan与任务门禁，按当前expiry递增并version+1，仅expired封停清除，赠送/持久审计原子且零账款。真实Fastify/PG9身份/账号竞争、当前封停/6并发、真实续费后赠送/旧续费拒扣、混合批量/审计失败回滚、4守卫/最终build通过见HANDOFF。原生expiry远端动作、请求幂等/全局ABA另待。 |
 | R1-275 | 部分存在 | 已修授权/并发，PG与mTLS复验；原生待验 | 单次假成功误判；实际复现降权仍写与旧失败覆盖后续700为null。统一实例锁内当前授权/身份与任务门禁，远端成功后同事务DB、失败不旧值覆盖，90秒从事务前覆盖冷连/读写/busy并关闭；真实锁竞争/COMMIT失败/单PG连接三个约90秒超时及零迟到写通过，详HANDOFF。 |
-| R1-276 | 已有防护 | 保留初审结论 | requiresIpv6ParentInterface仅当前或旧subnet有值时要求接口，IPv6全部留空可保存；清空已有值仍见R1-111。 |
+| R1-276 | 初审遗漏，实际存在 | 源码已修/浏览器与本地PG通过 | 真实POST接受mode1空IPv6后PATCH描述400、页面无请求先红；现允许既有及提交均空，省略空字段写入保并发补齐。真实行锁、部分配置拒绝、补齐后不可清空及原R111回归通过，三语三宽操作/types/4守卫/双端及后端build通过；真实宿主及其它在途状态并发另验。 |
 | R1-277 | 分页已有防护，编号边界另有缺口 | 分页复验及编号修复通过 | 真实Fastify/PG确认默认20/上限50、13类非法pageSize拒绝、排序/角色/宿主/实例隔离；hostId与instanceId超PG Int先红500，history入口补上界后400，合法不存在值和完整记录保持、零宿主连接。host-audit-r277-final/types/guards/build自然exit0；不代表全部hosts编号或原生审计扫描验收。 |
 | R1-278 | 已有防护 | 保留初审结论 | 销毁读取真实退款预览与已退款状态，无再次承诺全额；保持远端未删不释放资源。 |
 | R1-279 | 存在 | 部分精修/Chrome验证通过 | 详情及依赖读取绑定route/session/代次/请求序号，操作前旧读取失效、任务及刷新timer收尾；真实Chrome先红后绿覆盖ABA/旧success-error-finally/同sid刷新与logout/轮询及卸载，takeover-instance-detail-browser-final.log。types/route/i18n/lint/双端build/dist通过；写回执、密码和子组件完整生命周期仍待。 |

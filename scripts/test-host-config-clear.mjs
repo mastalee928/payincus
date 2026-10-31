@@ -24,6 +24,15 @@ try {
   const load = async (mode = 2) => {
     await fresh();await run(mode=>{const h=window.hostConfigHarness;h.host.value={...h.host.value,location:'old description',ipv6Mode:mode,ipv6ParentInterface:'eth0',ipv6Subnet:'2001:db8::/64'}},mode)
   }
+  for(const mode of [1,2,3,null]) {
+    await fresh();await run(mode=>{const h=window.hostConfigHarness;h.host.value={...h.host.value,ipv6Mode:mode===null?undefined:mode,ipv6Subnet:'',ipv6ParentInterface:''}},mode)
+    await run(()=>{const input=document.querySelector('input[placeholder="Hong Kong DC1"]');input.value='IPv4-only host';input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[type="submit"]').click()})
+    assert.equal(await page.eval(()=>window.hostConfigHarness.pending.length),1,'empty IPv6 must permit an unrelated description edit')
+    const payload=await page.eval(()=>window.hostConfigHarness.pending[0].data)
+    assert.equal(payload.location,'IPv4-only host');assert.equal(payload.ipv6Subnet,'');assert.equal(payload.ipv6ParentInterface,'')
+    await run(()=>window.hostConfigHarness.pending[0].resolve({message:'Fixture saved'}))
+    assert.equal(await page.eval(()=>window.hostConfigHarness.saved.value),1)
+  }
   for(const mode of [2,3]) for(const fields of [['location'],['ipv6Subnet'],['ipv6ParentInterface','ipv6Subnet'],['location','ipv6ParentInterface','ipv6Subnet']]) {
     await load(mode);await run(fields=>{const v=window.hostConfigHarness.view();for(const field of fields)v.form[field]='';void v.saveConfig()},fields)
     const payload=await page.eval(()=>window.hostConfigHarness.pending[0].data)
@@ -47,6 +56,13 @@ try {
   assert.equal(await page.eval(()=>window.hostConfigHarness.saved.value),0)
   assert.equal(await page.eval(()=>window.hostConfigHarness.view().form.ipv6Subnet),'','failure preserves the clearing draft')
   for(const locale of ['zh-CN','zh-TW','en']) for(const width of [1440,768,390]) {
+    await page.setViewport({width,height:1000});await fresh();await run(locale=>{const h=window.hostConfigHarness;h.setLocale(locale);h.host.value={...h.host.value,ipv6Mode:1,ipv6ParentInterface:'',ipv6Subnet:''}},locale)
+    await run(()=>{const input=document.querySelector('input[placeholder="Hong Kong DC1"]');input.value='IPv4-only host';input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[type="submit"]').click()})
+    assert.equal(await page.eval(()=>window.hostConfigHarness.pending.length),1)
+    assert.equal(await page.eval(()=>window.hostConfigHarness.pending[0].data.location),'IPv4-only host')
+    await run(()=>window.hostConfigHarness.pending[0].resolve({message:'Fixture saved'}))
+    assert.equal(await page.eval(()=>window.hostConfigHarness.saved.value),1)
+    if(locale==='zh-CN')await page.screenshot({path:resolve(output,`r276-empty-${width}.png`),format:'png',fullPage:true})
     await page.setViewport({width,height:1000});await load(2);await run(locale=>window.hostConfigHarness.setLocale(locale),locale)
     await run(()=>{for(const selector of ['input[placeholder="Hong Kong DC1"]','input[placeholder="eth0"]','input[placeholder="2001:db8::/48"]']){const input=document.querySelector(selector);input.value='';input.dispatchEvent(new Event('input',{bubbles:true}))}document.querySelector('button[type="submit"]').click()})
     const payload=await page.eval(()=>window.hostConfigHarness.pending[0].data)
@@ -54,5 +70,5 @@ try {
     assert.ok(await page.eval(()=>document.documentElement.scrollWidth<=innerWidth+1))
   }
   assert.equal(page.consoleErrors.length,0,page.consoleErrors.join('\n'))
-  console.log('PASS server failure keeps draft and three-language actual clear input/save controls')
+  console.log('PASS server failure keeps draft; initially empty IPv6 and explicit clearing use actual input/save controls in three languages and three widths')
 } finally { if (browser) await browser.close(); await server.close() }

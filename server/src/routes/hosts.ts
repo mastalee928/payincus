@@ -2386,10 +2386,10 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     let normalizedNatPublicIp: string | null | undefined = undefined
     let normalizedNatBindIp: string | null | undefined = undefined
     let normalizedNatBindIpv6: string | null | undefined = undefined
-    const normalizedIpv6ParentInterface = updates.ipv6ParentInterface === undefined
+    let normalizedIpv6ParentInterface = updates.ipv6ParentInterface === undefined
       ? undefined
       : (updates.ipv6ParentInterface.trim() || null)
-    const normalizedIpv6Subnet = updates.ipv6Subnet === undefined
+    let normalizedIpv6Subnet = updates.ipv6Subnet === undefined
       ? undefined
       : (updates.ipv6Subnet.trim() || null)
     if (updates.natConfig && 'publicIp' in updates.natConfig) {
@@ -2472,8 +2472,16 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       ? normalizedIpv6ParentInterface
       : (host.ipv6_parent_interface ?? null)
 
-    if (nextIpv6Mode === 1 && (!nextIpv6Subnet || !nextIpv6ParentInterface)) {
+    const unchangedEmptyRoutedIpv6 = nextIpv6Mode === 1 &&
+      !host.ipv6_subnet && !host.ipv6_parent_interface && !nextIpv6Subnet && !nextIpv6ParentInterface
+    if (nextIpv6Mode === 1 && !unchangedEmptyRoutedIpv6 && (!nextIpv6Subnet || !nextIpv6ParentInterface)) {
       return reply.code(400).send(apiError(ErrorCode.HOST_IPV6_ROUTE_REQUIRES_CONFIG))
+    }
+    // Creation permits an unconfigured routed host. Empty form fields are a no-op:
+    // do not erase IPv6 configured concurrently while this unrelated edit waits.
+    if (unchangedEmptyRoutedIpv6) {
+      normalizedIpv6Subnet = undefined
+      normalizedIpv6ParentInterface = undefined
     }
 
     if (updates.instanceType !== undefined && updates.instanceType !== host.instance_type) {

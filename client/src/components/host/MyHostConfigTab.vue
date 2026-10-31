@@ -169,8 +169,9 @@ function selectCountry(code: string) {
 }
 
 const requiresIpv6ParentInterface = computed(() => {
-  return Boolean(form.value.ipv6Subnet.trim() || props.host.ipv6Mode === 1 ||
-    props.host.ipv6Mode === undefined && props.host.ipv6Subnet?.trim())
+  return Boolean(form.value.ipv6Subnet.trim() ||
+    (props.host.ipv6Mode === 1 || props.host.ipv6Mode === undefined) &&
+      (props.host.ipv6Subnet?.trim() || props.host.ipv6ParentInterface?.trim()))
 })
 
 let formEndpoint = ''

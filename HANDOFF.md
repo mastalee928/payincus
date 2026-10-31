@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 R276 空 IPv6 新节点无法保存无关配置
+
+- 初审遗漏真实产品问题：POST允许ipv6Mode=1且subnet/parent均空，MyHostConfigTab与PATCH却要求补齐。host-r276-before.log真实新建201后PATCH描述400；host-r276-browser-before.log真实输入/保存无请求，两者自然exit1。页面仅在有新子网或既有路由配置时要求接口；后端允许原/新两字段均空的无关修改，并省略该空字段写入，避免覆盖并发新配置。
+- host-r276-final.log自然exit0：原POST新节点、描述/通知修改、完整其它host字段保持；只补半组拒绝，完整补齐成功、补齐后清空拒绝。真实PG行锁中先补齐IPv6再释放，旧空表单等待后仅改描述，保留新subnet/interface；原mode2/3清空、省略保持、外人拒绝及route-mode清空拒绝均回归。未执行安装脚本、Incus或真实宿主修改，当前身份/模式在其它时序下的并发仍不扩大验收。
+- host-r276-browser-verified.log自然exit0：四种mode空字段保存、三语×1440/768/390实际输入/保存、原清空与错误草稿矩阵通过；三宽截图已看，沿用原布局，修正空节点必填标记。完整server+专项/client类型零诊断，3对应守卫及i18n通过，完整pnpm build双端/dist边界/后端自然exit0。第一次守卫逗号筛选未匹配，改重复--only后真实3/3，失败日志保留。专项原CI登记沿用。
+- R010已推d347c861ace5188c6956e6c756c05686cb007dcf / CI41153911142；新增终态8af9c430ae9c675e91e0cc1dc6d9514d1da5c22d / CI41143353879 success，672405c45b7ae1eb6df8137dfabe48582565b6c0 / CI41143973573 success。其它阶段继续跟踪，无新失败，历史失败保留。
+- R276后300/327（91.7%，含部分/待验收）、27项初审；R306为同一入口随后归档，不算两次独立修复。原生宿主/外部服务/完整灾备仍未完成，固定v1.7.8未重打、未生产部署。
+
 ## 2026-10-31 R010 当前鉴权状态复验
 
 - 从app.ts原文抽取ensureActiveAccessToken/ensureCurrentAdmin及四个实际decorator，不改写实现，装入隔离Fastify并使用真实JWT和PG。auth-r010-final.log自然exit0：37请求确认热请求后用户名更新、管理员降权/恢复、banned、session及账户撤销立即生效；其它账户/会话保持可用，iat等于撤销时刻拒绝、晚于时刻允许。用户或撤销查询故障、坏/缺JWT及已删除账户均拒绝；未发现30秒正向授权缓存，无产品修改。
