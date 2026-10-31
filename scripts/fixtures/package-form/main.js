@@ -11,22 +11,26 @@ import { pending } from './api.js'
 import '@/styles/main.css'
 
 localStorage.removeItem('token')
-const jwt = (sid, generation = 1) => `fixture.${btoa(JSON.stringify({ sid, generation }))}.fixture`
+const jwt = (sid, generation = 1) => `fixture.${btoa(JSON.stringify({ id: 1, role: 'admin', sid, generation }))}.fixture`
 const router = createRouter({ history: createMemoryHistory(), routes: [
   { path: '/resources/packages/:id/edit', name: 'my-package-edit', component: PackageForm },
   { path: '/resources/packages/create', name: 'my-package-create', component: PackageForm },
   { path: '/resources/packages', name: 'my-packages', component: { template: '<p>Package list fixture</p>' } },
   { path: '/other', name: 'other', component: { template: '<p>Other page fixture</p>' } },
-  { path: '/plans', name: 'plans-fixture', component: MyPackages },
+  { path: '/admin/resources/packages', name: 'plans-fixture', component: MyPackages },
 ] })
 const app = createApp({
   setup() {
     const component = ref()
     const auth = useAuthStore(), theme = useThemeStore(), toast = useToast()
-    auth.user = { id: 1, username: 'isolated-ui', role: 'admin' }; auth.token = jwt('session-a')
+    const setSession = (sid, generation = 1) => {
+      const token = jwt(sid, generation)
+      localStorage.setItem('token', token); auth.token = token
+    }
+    auth.user = { id: 1, username: 'isolated-ui', role: 'admin' }; setSession('session-a')
     setLocale('zh-CN'); theme.setTheme('light')
     window.packageHarness = { pending, router, auth, theme, toast, nextTick, setLocale,
-      newSession(sid) { auth.token = jwt(sid) }, refreshSession(sid) { auth.token = jwt(sid, 2) },
+      newSession(sid) { setSession(sid) }, refreshSession(sid) { setSession(sid, 2) },
       view() { return component.value?.$?.setupState },
     }
     return { component }

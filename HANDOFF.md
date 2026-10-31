@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 CI 套餐表单夹具跟随真实路由与会话
+
+- 新失败41166299435 / fd129fb180388c5d4d4dbf103dcda5051410af03，job124434496505的Verify package form in Chrome断言plan list opened失败；完整失败日志logs/ci-124434496505-failed.log，本地package-form-ci-before.log自然exit1复现。
+- 原夹具将MyPackagesView挂在虚构/plans，且仅设置Pinia token、未同步localStorage；R216已修复的真实路由及认证对齐保护正确阻止列表读取，测试随后还可能取到旧编辑器list请求。仅修夹具：使用真实/admin/resources/packages，初始化和会话变化同步存储并携带账户/角色，断言页面路由有效、会话对齐及确实新增列表请求后再解析。未放宽产品保护或改权限逻辑。
+- package-form-ci-fixed.log自然exit0：原完整Chrome/Vue Router读写生命周期、旧回执、重复保存、方案描述/SLA清空及重开、价格保留、三语/手机桌面专项通过；package-form-ci-guard.log路由守卫自然exit0，两个JS语法和git diff检查通过。产品源码未变，复用998b46be阶段双端/后端构建，不重复完整测试或长时真机；受控API不等于真实套餐写入。
+- 998b46beb76f1b1a31636476a8b172fb7cc7dd23 / CI41174594901仍运行，持续跟进。本次失败历史保留，新提交身份及CI登记logs/ci-package-form-fix.json并加入payincus-ci。修正后的Linux结果待终态；暂不发版持续有效。
+
 ## 2026-10-31 机器池协议首选与批量修改
 
 - Owner明确默认首选TCP，不自动重置既有机器。新增宿主机原已有TCP/TCP+UDP及默认TCP，本次把选择移至对接凭据下方；单台和批量导入按明确选择传入接入任务，关闭重开恢复首选TCP。机器列表勾选后新增「批量修改协议」，逐台保留已提交待生效/失败和错误，可仅重试失败项；明确换协议时重新提交所选机器。
