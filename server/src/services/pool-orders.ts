@@ -106,6 +106,8 @@ interface PlannedInstance {
 
 interface ResolvedItem {
   imageId: number
+  imageSnapshot: { architecture: string; instanceType: string; icon: string }
+  commandSnapshot: Array<{ id: number; userId: number; name: string; command: string; distros: string; enabled: boolean }>
   input: PoolOrderItemInput
   product: NonNullable<Awaited<ReturnType<typeof resolvePoolProduct>>>
   pkg: NonNullable<Awaited<ReturnType<typeof db.getPackageById>>>
@@ -178,9 +180,12 @@ async function prepareOrder(userId: number, input: PoolOrderInput, sshKey: strin
 
     // 自定义初始化命令：归属与发行版兼容性沿用现有校验。
     let extraShellCommands: string | undefined
+    let commandSnapshot: ResolvedItem['commandSnapshot'] = []
     if (item.customInitCommandIds && item.customInitCommandIds.length > 0) {
       const validation = await validateCommandsOwnership(item.customInitCommandIds, userId)
       if (!validation.valid) throw new PoolOrderError(ErrorCode.INVALID_PARAMS, '自定义初始化命令不可用', { poolPriceId: item.poolPriceId })
+      commandSnapshot = validation.commands.map(cmd => ({ id: cmd.id, userId: cmd.userId, name: cmd.name, command: cmd.command,
+        distros: JSON.stringify(cmd.distros), enabled: cmd.enabled })).sort((a, b) => a.id - b.id)
       const distro = getImageDistroFromAlias(item.image)
       const compatible = validation.commands.filter(cmd => cmd.distros.includes('all') || cmd.distros.includes(distro))
       if (compatible.length > 0) extraShellCommands = mergeCommandContents(compatible)
@@ -215,7 +220,8 @@ async function prepareOrder(userId: number, input: PoolOrderInput, sshKey: strin
       return { name, incusId: `u${userId}-${shortId()}`, rootPassword, sshPort: metaData.sshPort, configPayload, extraShellCommands }
     })
 
-    items.push({ imageId: image.id, input: item, product, pkg, plan, billing, networkMode, planned })
+    items.push({ imageId: image.id, imageSnapshot: { architecture: image.architecture, instanceType: image.instanceType, icon: image.icon },
+      commandSnapshot, input: item, product, pkg, plan, billing, networkMode, planned })
   }
 
   const totalCents = Math.round(totalYuan * 100)
@@ -341,6 +347,19 @@ export async function placePoolOrder(userId: number, username: string, input: Po
         return null
       }
       // Price changes, group edits and checkout use the same lock order.
+      // Keep the validated credentials and image definitions unchanged until the
+      // order commits; preparation may have happened before a long balance wait.
+      if (input.sshKeyId != null) {
+        await tx.$queryRaw`SELECT id FROM ssh_keys WHERE id = ${input.sshKeyId} FOR SHARE`
+        const key = await tx.sshKey.findUnique({ where: { id: input.sshKeyId } })
+        if (!key || key.userId !== userId || key.publicKey !== sshKey) {
+          throw new PoolOrderError(ErrorCode.SSH_KEY_NOT_OWNED, 'SSH密钥已变更，请重新选择')
+        }
+      }
+      const imageIds = [...new Set(items.map(item => item.imageId))].sort((a, b) => a - b)
+      await tx.$queryRaw`SELECT id FROM system_images WHERE id IN (${Prisma.join(imageIds)}) ORDER BY id FOR SHARE`
+      const commandIds = [...new Set(items.flatMap(item => item.commandSnapshot.map(command => command.id)))].sort((a, b) => a - b)
+      if (commandIds.length) await tx.$queryRaw`SELECT id FROM custom_init_commands WHERE id IN (${Prisma.join(commandIds)}) ORDER BY id FOR SHARE`
       for (const item of items) {
         const price = await tx.hostPoolPrice.findUnique({ where: { id: item.product.price.id } })
         if (!price?.active || price.shadowPlanId !== item.plan.id) throw new PoolOrderError(ErrorCode.PACKAGE_UNAVAILABLE, '商品已下架')
@@ -352,6 +371,20 @@ export async function placePoolOrder(userId: number, username: string, input: Po
         if (plan.updatedAt.getTime() !== item.plan.updatedAt.getTime()) throw new PoolOrderError(ErrorCode.POOL_PRICE_CHANGED, '商品配置已变动，请刷新购物车')
         const image = await tx.systemImage.findFirst({ where: { remoteAlias: item.input.image, hidden: false } })
         if (!image) throw new PoolOrderError(ErrorCode.IMAGE_NOT_FOUND, '镜像已下架')
+        if (image.id !== item.imageId || image.architecture !== item.imageSnapshot.architecture ||
+          image.instanceType !== item.imageSnapshot.instanceType || image.icon !== item.imageSnapshot.icon) {
+          throw new PoolOrderError(ErrorCode.IMAGE_TYPE_MISMATCH, '镜像配置已变更，请重新选择')
+        }
+        if (item.commandSnapshot.length) {
+          const commands = await tx.customInitCommand.findMany({ where: { id: { in: item.commandSnapshot.map(command => command.id) } },
+            select: { id: true, userId: true, name: true, command: true, distros: true, enabled: true }, orderBy: { id: 'asc' } })
+          const unchanged = commands.length === item.commandSnapshot.length && commands.every((command, index) => {
+            const prepared = item.commandSnapshot[index]
+            return command.id === prepared.id && command.userId === userId && command.enabled && command.name === prepared.name &&
+              command.command === prepared.command && JSON.stringify(JSON.parse(command.distros)) === prepared.distros
+          })
+          if (!unchanged) throw new PoolOrderError(ErrorCode.INVALID_PARAMS, '初始化命令已变更，请重新选择')
+        }
       }
       await tx.poolOrder.create({ data: { id: batchId, userId, requestHash, totalCents } })
       // 先扣款再预占：预占失败整单回滚时扣款一并撤销；带余额条件的原子更新防止并发下单用旧余额覆盖。

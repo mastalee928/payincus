@@ -61,6 +61,35 @@ try {
     actor = { ...buyer, ...session }
   }
   console.log('PASS invalid purchase identifiers reject with no order or accounting changes')
+  for (const mode of process.env.REVIEW_CHECKOUT_CHANGED_INPUT ? [process.env.REVIEW_CHECKOUT_CHANGED_INPUT] : ['key', 'image', 'image-type', 'image-memory', 'command', 'command-content']) {
+    const key = await prisma.sshKey.create({ data: { userId: buyer.id, name: tag, publicKey: 'ssh-ed25519 fixture-public', fingerprint: tag } })
+    const command = await prisma.customInitCommand.create({ data: { userId: buyer.id, name: tag, command: 'echo original', distros: '["all"]', enabled: true } })
+    try {
+      const requestId = randomUUID()
+      await holder.query('BEGIN'); await holder.query('SELECT pg_advisory_xact_lock(4110, $1::int)', [buyer.id])
+      const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid
+      const operation = app.inject({ method: 'POST', url: '/instances/pool-order', payload: { requestId, expectedTotal: 1200,
+        sshKeyId: key.id, items: [{ poolPriceId: price.id, quantity: 1, namePrefix: tag, image: image.remoteAlias, customInitCommandIds: [command.id] }] } }).then(value => value)
+      pending = operation
+      await wait(async () => !!(await monitor.query('SELECT pid FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))', [pid])).rows.length)
+      if (mode === 'image') await prisma.systemImage.update({ where: { id: image.id }, data: { architecture: 'aarch64' } })
+      if (mode === 'image-type') await prisma.systemImage.update({ where: { id: image.id }, data: { instanceType: 'vm' } })
+      if (mode === 'image-memory') await prisma.systemImage.update({ where: { id: image.id }, data: { icon: 'windows' } })
+      if (mode === 'key') await prisma.sshKey.delete({ where: { id: key.id } })
+      if (mode === 'command') await prisma.customInitCommand.update({ where: { id: command.id }, data: { enabled: false } })
+      if (mode === 'command-content') await prisma.customInitCommand.update({ where: { id: command.id }, data: { command: 'echo changed' } })
+      await holder.query('COMMIT'); const response = await operation; pending = undefined
+      console.log('changed checkout input', mode, response.statusCode)
+      if (response.statusCode === 202) await wait(async () => await prisma.instance.count({ where: { purchaseBatchId: requestId, status: 'creating' } }) === 0)
+      assert.ok([400, 403, 409].includes(response.statusCode), 'changed checkout preparation must reject before charging')
+      assert.equal(await prisma.poolOrder.count({ where: { id: requestId } }), 0)
+      assert.equal(await prisma.balanceLog.count({ where: { userId: buyer.id } }), 0)
+    } finally {
+      await holder.query('ROLLBACK');await pending
+      await prisma.systemImage.update({ where: { id: image.id }, data: { architecture: 'x86_64', instanceType: 'container', icon: 'debian' } })
+      await prisma.sshKey.deleteMany({ where: { id: key.id } });await prisma.customInitCommand.deleteMany({ where: { id: command.id } })
+    }
+  }
   for (const mode of ['logout', 'all-sessions', 'banned', 'admin-logout', 'admin-demoted', 'allowed']) {
     await prisma.tokenInvalidation.deleteMany({ where: { userId: { in: ids } } })
     await prisma.user.update({ where: { id: buyer.id }, data: { status: 'active' } })
