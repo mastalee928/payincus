@@ -105,6 +105,13 @@ const snapshot = async () => ({
   billing: await prisma.instanceBillingRecord.count({ where: { instanceId: instance.id } }),
   calls: calls.length, devices: structuredClone(devices)
 })
+async function freeProbePort(protocol: 'tcp' | 'udp'): Promise<number> {
+  const mappings = await prisma.portMapping.findMany({ where: { hostId: host.id, protocol }, select: { publicPort: true } })
+  const used = new Set(mappings.map(mapping => mapping.publicPort))
+  const port = Array.from({ length: 101 }, (_, offset) => 10000 + offset).find(candidate => !used.has(candidate))
+  assert.notEqual(port, undefined, 'the isolated host must have a free port for the intended failure probe')
+  return port!
+}
 async function rejected(payload: Record<string, unknown>, expectedCode?: string, status = 400, blockRelease = false) {
   const before = await snapshot()
   const response = blockRelease ? await responseAfterRelease(() => submit(payload)) : await submit(payload)
@@ -186,6 +193,13 @@ try {
   assert.equal(resolved.json().mappings[0].publicPort, resubmission[0].publicPort)
   assert.equal(await prisma.portMapping.count({ where: { instanceId: instance.id } }), 13)
   assert.equal(Object.keys(devices).length, 13)
+  // Exercise the valid case where allocation has already consumed the former
+  // hard-coded failure-test port; later probes must use currently free ports.
+  if (!await prisma.portMapping.findFirst({ where: { hostId: host.id, protocol: 'tcp', publicPort: 10097 } })) {
+    const occupiedProbe = await submit({ protocol: 'tcp', privatePortStart: 10097, privatePortEnd: 10097,
+      portMappings: [{ privatePort: 10097, publicPort: 10097 }] })
+    assert.equal(occupiedProbe.statusCode, 200, occupiedProbe.body)
+  }
   const batchMappings = await prisma.portMapping.findMany({ where: { instanceId: instance.id }, orderBy: { id: 'asc' } })
   const batchDevices = structuredClone(devices)
   // A real audit INSERT failure must not enter the successful helper's device rollback.
@@ -198,7 +212,8 @@ try {
     originalError(...args)
   }
   try {
-    for (const [protocol, publicPort, privatePort] of [['tcp', 10095, 22], ['udp', 10096, 53]] as const) {
+    for (const [protocol, privatePort] of [['tcp', 22], ['udp', 53]] as const) {
+      const publicPort = await freeProbePort(protocol)
       const before = await snapshot()
       const single = await responseAfterRelease(() => app.inject({ method: 'POST', url: `/instances/${instance.id}/ports`, payload: { protocol, publicPort, privatePort } }))
       assert.equal(single.statusCode, 200, single.body)
@@ -225,9 +240,10 @@ try {
   assert.deepEqual(await prisma.portMapping.findMany({ where: { id: { in: batchMappings.map(row => row.id) } }, orderBy: { id: 'asc' } }), batchMappings)
   for (const [name, value] of Object.entries(batchDevices)) assert.deepEqual(devices[name], value)
   const beforeFailure = await snapshot()
+  const failurePort = await freeProbePort('tcp')
   rejectNextDeviceWrite = true
-  const failedDevice = await responseAfterRelease(() => app.inject({ method: 'POST', url: `/instances/${instance.id}/ports`, payload: { protocol: 'tcp', publicPort: 10097, privatePort: 22 } }))
-  assert.equal(failedDevice.statusCode, 500)
+  const failedDevice = await responseAfterRelease(() => app.inject({ method: 'POST', url: `/instances/${instance.id}/ports`, payload: { protocol: 'tcp', publicPort: failurePort, privatePort: 22 } }))
+  assert.equal(failedDevice.statusCode, 500, failedDevice.body)
   assert.equal(rejectNextDeviceWrite, false, 'request must reach the intended Incus write')
   const afterFailure = await snapshot()
   assert.deepEqual(afterFailure.mappings, beforeFailure.mappings)

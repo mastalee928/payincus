@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 CI 端口专项随机夹具冲突
+
+- 新失败41161712175 / fedcede58a0d9485399944d23a8489400c31a9d3，job124420479860，Legacy shared NAT port retries步骤：test-review-batch-port-range-integration.ts:192预期500、实际400。完整日志保留logs/ci-124420479860-job.log。该提交早于ef13bbe6，但本次不是之前的HTTP先完成/锁未释放断言，不能仅按步骤名归为已修。
+- 原自动分配和冲突建议会随机占用10095/10097，后续审计/设备失败探针写死这些端口，可能先收到正确的PORT_IN_USE，根本没到远端故障注入。当前源码额外通过真实API预先占用10097，port-ci-collision-before.log稳定复现同样400/PORT_IN_USE与500预期不符，exit1。
+- 仅修测试：每个审计和失败探针从隔离宿主实际同协议占用中选择空闲端口，保留提前占用10097的回归；断言失败输出真实响应。没有改产品随机分配、配额、接口、业务或生产。
+- port-ci-collision-final.log自然exit0，仍覆盖真实PG/mTLS审计INSERT拒绝、设备失败回滚、Both/边界/冲突、重复、锁DELETE屏障和删除成功失败；port-ci-collision-guard.log通过。port-ci-collision-types.log沿项目严格配置检查自然exit0。产品未变化，复用此前构建，不重跑整套或长时验证；对应新提交CI继续跟踪。
+- 本轮另外4个旧运行终态success：41155393398 / 261f1bf3a875f5b2dc6f8063bff518aa55cc4bf0、41155317977 / 64a6e0fdd84c0e46da5169d363e5606199b70314、41155230467 / 0035148b75e1bbb6b3f6b9207610f171d831ce89、41154930643 / 9a6687b9474fefb0f72660041f1f3c41b6155170。发现时22项未终态，不能把局部通过当全部通过。
+
 ## 2026-10-31 本地收尾与CI交接
 
 - R046：fd129fb180388c5d4d4dbf103dcda5051410af03 / CI41166299435；R325：eea403ff5ef7d6890c44908b6efbf6a12b5ec102 / CI41166416058，已分别推送，最新均queued，不记通过。源码和测试全部提交，没有未推送积压。
