@@ -564,7 +564,7 @@
 | R1-270 | 部分存在 | 准备补偿/通知隔离已修；原生交付待验 | IP/cloud-init/storage同事务、当前创建身份/资源核验；失败回滚IP并原子置error/回收CPU内存磁盘端口，失权/补偿DB失败保占用。inbox失败保202及日志，createLog原有catch是误判。13真实Fastify/PG+mTLS场景、6守卫/最终build含tsc通过见HANDOFF；零金额赠送无退款，默认机器池未改。原生Incus/强杀恢复/outbox及请求幂等另待。 |
 | R1-271 | 部分存在 | 三入口/底层/维护脚本已修；原生网络待验 | 原用户sync-status/宿主批量sync已有保护；三运维入口及底层current host/instance身份/版本/原IP/任务，状态IP同事务，每次接受消费版本。14PG+47API/mTLS+5backfill CLI/完整proxy回归通过；维护参数严格正PG整数及未知/重复拒绝，成功后计changed、dry-run另planned，5非法CLI零探测与5正常/失败CLI及覆盖脚本tsc通过见HANDOFF。baseline宿主资源快照竞争/全局ABA与原生网络仍待。 |
 | R1-272 | 部分存在 | 本接口null/用量/当前授权已修；扩展并发待验 | quota事务内当前actor/session/instance/host身份、实例锁及手工端口锁、有效用量检查；站点0不限/null继承或默认10，非systemManaged端口与creating/ready备份计额。真实Fastify/PG授权/目标竞争、站点/备份/快照事务创建竞争、端口等待重计及SQL回滚通过；7守卫/最终build含tsc见HANDOFF。原端口租期耗尽/其它配额写入口/ABA及原生Incus仍待。 |
-| R1-273 | 已有防护 | 保留初审结论 | helper的设备/DB回滚在helper内完成，路由成功日志在helper返回之后，不再因路由审计异常进入设备回滚。 |
+| R1-273 | 已有防护 | 原路由真实PG/mTLS故障复验通过 | TCP/UDP真实审计INSERT失败仍保已提交映射和设备、重放PORT_IN_USE零设备写；原13映射保持，实际Incus PUT500撤本次预留保旧设备/账目，锁释放。完整批量回归、types/端口守卫通过，见HANDOFF；原生Incus、审计持久补录及强杀恢复另验。 |
 | R1-274 | 存在 | 当前身份/时长事务已修；原生到期并发待验 | gift-days共用billing lane/实例锁、current actor/session/host/instance/plan与任务门禁，按当前expiry递增并version+1，仅expired封停清除，赠送/持久审计原子且零账款。真实Fastify/PG9身份/账号竞争、当前封停/6并发、真实续费后赠送/旧续费拒扣、混合批量/审计失败回滚、4守卫/最终build通过见HANDOFF。原生expiry远端动作、请求幂等/全局ABA另待。 |
 | R1-275 | 部分存在 | 已修授权/并发，PG与mTLS复验；原生待验 | 单次假成功误判；实际复现降权仍写与旧失败覆盖后续700为null。统一实例锁内当前授权/身份与任务门禁，远端成功后同事务DB、失败不旧值覆盖，90秒从事务前覆盖冷连/读写/busy并关闭；真实锁竞争/COMMIT失败/单PG连接三个约90秒超时及零迟到写通过，详HANDOFF。 |
 | R1-276 | 已有防护 | 保留初审结论 | requiresIpv6ParentInterface仅当前或旧subnet有值时要求接口，IPv6全部留空可保存；清空已有值仍见R1-111。 |
