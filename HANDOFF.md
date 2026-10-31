@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R060 退役恢复前端重复清单归档
+
+- 复核R060原描述与当前文件/引用：BackupManager.vue及restoreTask.ts已在5b056333035d145037fd75acec79f099eea8470a随R059删除1215行，当前client/server/scripts无BackupManager/useBackupStore旧运行引用。原双端build、route/i18n/backup-task-race/core四守卫及dist证据见R059；没有重复删文件或用清单编号制造第二次产品修复。
+- 实际实例backup/storage路由及restore/upload workers继续存在，平台OSS恢复组件仍保留；R060仅指不可达旧恢复跟踪前端，不代表后端退役或完整备份验收。此次代码复审无产品改动，不重跑未变的删除验证。R268已推adfb0b99e13290fb045ff82e92a9ad431b6e8142 / CI41152885260，完整head已核、排队中。
+- R060归档后294/327（89.9%，含部分/待验收）、33项初审；R059/R060共享一次实现证据，294并非独立bug数量或完整验收通过数，原完整灾备及各项内部缺口继续。
+
 ## 2026-10-31 R268 VM 网络修改丢失 MAC 匹配修复
 
 - 原初审只看到调用方传nicMacs，未核生成器实际读取；vm-network-r268-before.log退出1证明输出没有match/macaddress。generateCloudInitNetworkConfig现验证并输出各网卡MAC匹配；同步/移除沿现有设备、expanded设备及volatile取真实身份，不把已有VM网卡的未知MAC猜成按名称新生成值。VM缺主网卡/既有IPv6网卡身份时GET后拒绝、零PUT/重启；新增eth1才生成并与设备同值，继承设备及IPv4地址保留。
