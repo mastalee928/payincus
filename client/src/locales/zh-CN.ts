@@ -113,6 +113,7 @@ export default {
     }
   },
   hostPoolOps: {
+    batchProtocol: {"action": "批量修改协议", "title": "批量修改协议 · {count} 台", "hint": "保存后由宿主机自动应用。选择 TCP 将关闭客户端口的 UDP 入站；TCP+UDP 同时开放两种协议。", "summary": "已提交 {count}/{total} 台", "current": "当前已生效", "retry": "重试失败项", "states": {"ready": "待提交", "saving": "提交中", "submitted": "已提交，等待生效", "failed": "提交失败"}, "errors": {"HOST_AGENT_UPGRADE_REQUIRED": "宿主机 Agent 需升级后才能修改协议。", "HOST_NOT_FOUND": "宿主机已不存在，请刷新机器池。", "FORBIDDEN": "登录或管理权限已变化，请重新登录。", "PORT_PROTOCOL_REVISION_LIMIT": "协议更新次数已达上限，请发工单处理。", "PORT_PROTOCOL_BATCH_TIMEOUT": "本批处理超时，请重试此宿主机。", "unknown": "未能确认保存结果，请检查宿主机状态后重试。"}},
     "managementOnline": "管理连接在线",
     "assignedInstances": "已绑定 {count} 个实例",
     "quarantined": "已隔离，暂停出售",

@@ -118,6 +118,7 @@ const zhTW = {
     }
   },
   hostPoolOps: {
+    batchProtocol: {"action": "批次修改協定", "title": "批次修改協定 · {count} 台", "hint": "儲存後由主機自動套用。選擇 TCP 將關閉客戶連接埠的 UDP 入站；TCP+UDP 同時開放兩種協定。", "summary": "已提交 {count}/{total} 台", "current": "目前已生效", "retry": "重試失敗項目", "states": {"ready": "待提交", "saving": "提交中", "submitted": "已提交，等待生效", "failed": "提交失敗"}, "errors": {"HOST_AGENT_UPGRADE_REQUIRED": "主機 Agent 需升級後才能修改協定。", "HOST_NOT_FOUND": "主機已不存在，請重新整理機器池。", "FORBIDDEN": "登入或管理權限已變更，請重新登入。", "PORT_PROTOCOL_REVISION_LIMIT": "協定更新次數已達上限，請發工單處理。", "PORT_PROTOCOL_BATCH_TIMEOUT": "本批次處理逾時，請重試此主機。", "unknown": "無法確認儲存結果，請檢查主機狀態後重試。"}},
     "managementOnline": "管理連線正常",
     "assignedInstances": "已綁定 {count} 個實例",
     "quarantined": "已隔離，暫停出售",

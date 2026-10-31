@@ -1,11 +1,36 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../db/prisma.js'
-import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { PORT_PROTOCOL_CAPABILITY, portProtocolSelect, portProtocolView, type PortProtocol } from '../services/host-port-protocol.js'
+import { PortProtocolUpdateError, updateHostPortProtocol } from '../services/host-port-protocol-update.js'
 
 export default async function hostPortProtocolRoutes(fastify: FastifyInstance) {
-  const params = { type: 'object', required: ['id'], properties: { id: { type: 'integer', minimum: 1 } } }
+  const hostId = { type: 'integer', minimum: 1, maximum: 2147483647 }
+  const protocolSchema = { type: 'string', enum: ['tcp', 'tcp_udp'] }
+  const params = { type: 'object', required: ['id'], properties: { id: hostId } }
+  fastify.patch<{ Body: { hostIds: number[]; protocol: PortProtocol } }>('/port-protocol/batch', {
+    onRequest: [fastify.authenticateAdmin], config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    schema: { body: { type: 'object', additionalProperties: false, required: ['hostIds', 'protocol'], properties: {
+      hostIds: { type: 'array', minItems: 1, maxItems: 100, uniqueItems: true, items: hostId }, protocol: protocolSchema
+    } } }
+  }, async request => {
+    const results: Array<{ id: number; success: boolean; protocol?: ReturnType<typeof portProtocolView>; code?: string }> = []
+    let next = 0
+    const deadline = Date.now() + 20000
+    const update = async () => { while (next < request.body.hostIds.length) {
+      const id = request.body.hostIds[next++]
+      if (Date.now() >= deadline) { results.push({ id, success: false, code: 'PORT_PROTOCOL_BATCH_TIMEOUT' }); continue }
+      try {
+        const protocol = await updateHostPortProtocol(id, request.body.protocol, request.user)
+        results.push({ id, success: true, protocol })
+      } catch (error) {
+        if (!(error instanceof PortProtocolUpdateError)) request.log.error({ err: error, hostId: id }, 'Host protocol update failed')
+        results.push({ id, success: false, code: error instanceof PortProtocolUpdateError ? error.code : 'INTERNAL_ERROR' })
+      }
+    } }
+    await Promise.all(Array.from({ length: Math.min(4, request.body.hostIds.length) }, update))
+    return { results: request.body.hostIds.map(id => results.find(result => result.id === id)!) }
+  })
   fastify.get<{ Params: { id: number } }>('/:id/port-protocol', {
     onRequest: [fastify.authenticateAdmin], schema: { params }
   }, async (request, reply) => {
@@ -25,18 +50,13 @@ export default async function hostPortProtocolRoutes(fastify: FastifyInstance) {
   fastify.patch<{ Params: { id: number }; Body: { protocol: PortProtocol } }>('/:id/port-protocol', {
     onRequest: [fastify.authenticateAdmin],
     config: { rateLimit: { max: 15, timeWindow: '1 minute' } },
-    schema: { params, body: { type: 'object', additionalProperties: false, required: ['protocol'], properties: { protocol: { type: 'string', enum: ['tcp', 'tcp_udp'] } } } }
+    schema: { params, body: { type: 'object', additionalProperties: false, required: ['protocol'], properties: { protocol: protocolSchema } } }
   }, async (request, reply) => {
-    const host = await prisma.host.findUnique({ where: { id: request.params.id }, include: { agent: { select: { enabled: true, capabilities: true } } } })
-    if (!host) return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
-    if (request.user.role !== 'admin' && host.userId !== request.user.id) return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
-    if (!host.agent?.enabled || !Array.isArray(host.agent.capabilities) || !host.agent.capabilities.includes(PORT_PROTOCOL_CAPABILITY)) {
-      return reply.code(409).send({ code: 'HOST_AGENT_UPGRADE_REQUIRED', error: 'Update the host Agent before changing the public port protocol.' })
+    try {
+      return await updateHostPortProtocol(request.params.id, request.body.protocol, request.user)
+    } catch (error) {
+      if (!(error instanceof PortProtocolUpdateError)) throw error
+      return reply.code(error.statusCode).send({ code: error.code, error: error.message })
     }
-    const updated = await prisma.host.update({ where: { id: host.id }, data: {
-      portProtocol: request.body.protocol, portProtocolRevision: { increment: 1 }, portProtocolError: null
-    }, select: portProtocolSelect })
-    await createLog(request.user.id, 'host', 'host.port_protocol.update', `Updated public ingress protocol on host "${host.name}" to ${request.body.protocol}`, 'success')
-    return portProtocolView(updated)
   })
 }

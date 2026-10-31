@@ -536,6 +536,10 @@ jobs:
         run: pnpm --filter server test:review-host-config-clear-pg
       - name: Inventory specification saves retain their current target and draft
         run: pnpm --filter server test:review-inventory-spec
+      - name: Host protocol changes validate each target and commit with current authorization and audit
+        run: pnpm --filter server test:host-port-protocol-update
+      - name: Host onboarding and batch protocol selectors prefer TCP and retain individual results
+        run: pnpm --filter server test:host-port-protocol-ui
       - name: Host config drafts and save receipts stay with the current view
         run: pnpm --filter server test:review-host-config-submit
       - name: Host type refusals use the configured locale and keep the draft

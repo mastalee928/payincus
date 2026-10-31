@@ -353,6 +353,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
                 <textarea v-else id="onboarding-credential" v-model="credential" autocomplete="off" spellcheck="false" maxlength="32768" :required="credentialsNeeded" rows="4" class="input w-full font-mono text-xs"></textarea>
                 <p class="text-xs text-themed-muted">{{ t(createMode === 'single' ? 'onboarding.singleCredentialsHint' : 'onboarding.credentialsHint') }}</p>
               </div>
+              <label class="block text-sm text-themed" for="onboarding-port-protocol">{{ t('hostInventory.protocol') }}<select id="onboarding-port-protocol" v-model="defaults.portProtocol" class="input w-full mt-1"><option value="tcp">TCP</option><option value="tcp_udp">TCP+UDP</option></select></label>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label class="text-sm text-themed min-w-0">{{ t('onboarding.preset') }}<select v-model="defaults.resourcePreset" class="input w-full mt-1" @change="presetChanged"><option :value="null">{{ t('onboarding.autoResources') }}</option><option v-for="preset in presets" :key="preset" :value="preset">{{ presetLabel(preset) }}</option></select></label>
                 <label class="text-sm text-themed min-w-0">{{ t('onboarding.customerDisk') }}<select v-model="diskChoice" class="input w-full mt-1" @change="diskChoice !== 'custom' && (defaults.customerDiskGiB = diskChoice)"><option v-for="size in [30, 60, 90, 120]" :key="size" :value="size">{{ size }} GiB</option><option value="custom">{{ t('onboarding.customDisk') }}</option></select></label>
@@ -361,7 +362,6 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
                 <label class="text-sm text-themed min-w-0">{{ t('hostInventory.regionGroup') }}<select v-model="defaults.regionGroupId" :disabled="!defaults.machineGroupId" class="input w-full mt-1" @change="regionChanged"><option :value="null">{{ t('hostInventory.regionUnset') }}</option><option v-for="region in regions" :key="region.id" :value="region.id">{{ region.name }}</option></select></label>
               </div>
               <p class="text-xs text-themed-muted">{{ t('onboarding.autoResourceHint') }}</p>
-              <label class="block text-sm text-themed">{{ t('hostInventory.protocol') }}<select v-model="defaults.portProtocol" class="input w-full mt-1"><option value="tcp">TCP</option><option value="tcp_udp">TCP+UDP</option></select></label>
               <details open class="rounded-lg border border-themed" @invalid.capture="expandOptions">
                 <summary class="cursor-pointer p-3 text-sm font-medium text-themed">{{ t('onboarding.optionalSettings') }}</summary>
                 <div class="px-3 pb-3 space-y-3">

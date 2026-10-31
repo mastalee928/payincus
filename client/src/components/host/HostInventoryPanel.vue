@@ -3,6 +3,7 @@ import HostReplacementModal from './HostReplacementModal.vue'
 import HostRecoveryModal from './HostRecoveryModal.vue'
 import HostRecoveryBatchModal from './HostRecoveryBatchModal.vue'
 import HostPublicIpModal from './HostPublicIpModal.vue'
+import HostProtocolBatchModal from './HostProtocolBatchModal.vue'
 import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -88,6 +89,15 @@ const recoveryHost = ref<ManagedHost | null>(null)
 const recoveryTargets = ref<ManagedHost[]>([])
 function openBatchRecovery(targets: ManagedHost[]) { recoveryTargets.value = targets.filter(host => host.poolFaulted) }
 const publicIpHost = ref<ManagedHost | null>(null)
+const protocolTargets = ref<ManagedHost[]>([])
+function openBatchProtocol() {
+  if (saving.value || !specAvailable.value || !auth.captureAuthentication().aligned) return
+  protocolTargets.value = hosts.value.filter(host => selected.value.includes(host.id)).map(host => ({ ...host }))
+}
+function protocolsSubmitted(ids: number[], protocol: 'tcp' | 'tcp_udp') {
+  for (const id of ids) protocolRequests.set(id, protocol)
+  void refresh()
+}
 const protocolRequests = new Map<number, string>()
 async function changeProtocol(host: ManagedHost, event: Event) {
   const protocol = (event.target as HTMLSelectElement).value as 'tcp' | 'tcp_udp'
@@ -187,6 +197,7 @@ function clearSpec() {
   specTargets.value = []; specPreset.value = 'E2'; specDisk.value = 30; specError.value = ''
 }
 watch(specSession, clearSpec, { flush: 'sync' })
+watch(specSession, () => protocolRequests.clear(), { flush: 'sync' })
 function storageSession(value: string | null) {
   try { const data = JSON.parse(atob(value!.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return `${data.id}:${data.role}:${data.sid || value}` } catch { return value }
 }
@@ -236,13 +247,14 @@ let timer: ReturnType<typeof setTimeout> | undefined
 
 async function refresh() {
   if (disposed || !specActive.value) return
+  const authentication = auth.captureAuthentication()
   clearTimeout(timer)
   const current = ++sequence
   try {
     const result = await api.hostOnboarding.inventory({ page: page.value, search: search.value.trim(),
       machineGroupId: machineGroup.value === '' ? undefined : machineGroup.value,
       regionGroupId: regionGroup.value === '' ? undefined : regionGroup.value, stock: stock.value || undefined })
-    if (disposed || current !== sequence) return
+    if (disposed || !specActive.value || current !== sequence || !authentication.current()) return
     hosts.value = result.hosts; total.value = result.total
     for (const host of result.hosts) {
       if (!host.portProtocol || protocolRequests.get(host.id) !== host.portProtocol.requested) continue
@@ -257,9 +269,9 @@ async function refresh() {
     selected.value = selected.value.filter(id => result.hosts.some(host => host.id === id))
     failed.value = false
     if (page.value > pages.value) { page.value = pages.value; void refresh() }
-  } catch { if (!disposed && current === sequence) failed.value = true }
+  } catch { if (!disposed && specActive.value && current === sequence && authentication.current()) failed.value = true }
   finally {
-    if (!disposed && current === sequence) { loading.value = false; timer = setTimeout(() => void refresh(), hosts.value.some(host => host.portProtocol?.status === 'pending') ? 3000 : 15000) }
+    if (!disposed && specActive.value && current === sequence && authentication.current()) { loading.value = false; timer = setTimeout(() => void refresh(), hosts.value.some(host => host.portProtocol?.status === 'pending') ? 3000 : 15000) }
   }
 }
 function filter() { page.value = 1; selected.value = []; closeHostMenu(); void refresh() }
@@ -397,6 +409,7 @@ defineExpose({ refresh })
       <span class="text-sm">{{ t('hostInventory.selectedCount', { count: selected.length }) }}</span>
       <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="openGroups(hosts.filter(host => selected.includes(host.id)))">{{ t('hostInventory.batchGroups', { count: selected.length }) }}</button>
       <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="openSpec(hosts.filter(host => selected.includes(host.id)))">{{ t('hostInventory.batchSpec', { count: selected.length }) }}</button>
+      <button type="button" data-batch-protocol class="btn-secondary text-xs whitespace-nowrap" :disabled="saving" @click="openBatchProtocol">{{ t('hostPoolOps.batchProtocol.action') }}</button>
       <button type="button" class="btn-secondary text-xs whitespace-nowrap" :disabled="!hosts.some(host => selected.includes(host.id) && host.poolFaulted)" @click="openBatchRecovery(hosts.filter(host => selected.includes(host.id)))">{{ t('hostPoolOps.recovery.batch.checkSelected') }}</button>
       <button type="button" class="btn-secondary text-xs whitespace-nowrap" @click="selected = []">{{ t('hostInventory.clearSelection') }}</button>
     </div>
@@ -477,6 +490,7 @@ defineExpose({ refresh })
 
     <HostReplacementModal v-if="replacement" :instance-id="replacement.id" :instance-name="replacement.name" @close="replacement = null" @changed="refresh" />
     <HostPublicIpModal v-if="publicIpHost" :host-id="publicIpHost.id" :host-name="publicIpHost.name" @close="publicIpHost = null" @changed="refresh" />
+    <HostProtocolBatchModal v-if="protocolTargets.length" :hosts="protocolTargets" @close="protocolTargets = []" @submitted="protocolsSubmitted" />
     <HostRecoveryModal v-if="recoveryHost" :host-id="recoveryHost.id" :host-name="recoveryHost.name" @close="recoveryHost = null" @changed="refresh" @ssh="openSsh(recoveryHost); recoveryHost = null" />
     <HostRecoveryBatchModal v-if="recoveryTargets.length" :hosts="recoveryTargets" @close="recoveryTargets = []" @changed="refresh" />
     <Teleport to="body">

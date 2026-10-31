@@ -3774,6 +3774,8 @@ hostOnboarding: {
     replacementOptions: (id: number, allRegions = false): Promise<{ hosts: Array<{ id: number; name: string; natPublicIp: string | null; countryCode: string | null; regionGroupEntry: { name: string } | null }>; backups: Array<{ id: number; remoteFileName: string | null; finishedAt: string | null }>; task: { id: number; status: string; progress: string | null; error: string | null } | null }> => http.get(`/instances/${id}/replacement-options`, { params: { allRegions } }),
     replaceHost: (id: number, data: { targetHostId: number; backupUploadId: number | null; acknowledgeRebuild: boolean; allRegions?: boolean }): Promise<{ taskId: number }> => http.post(`/instances/${id}/replace-host`, data),
     setProtocol: (id: number, protocol: "tcp" | "tcp_udp"): Promise<unknown> => http.patch(`/hosts/${id}/port-protocol`, { protocol }),
+    setProtocols: (hostIds: number[], protocol: 'tcp' | 'tcp_udp'): Promise<{ results: Array<{ id: number; success: boolean; code?: string; protocol?: { requested: 'tcp' | 'tcp_udp'; applied: 'tcp' | 'tcp_udp'; status: 'pending' | 'applied' | 'failed' } }> }> =>
+      http.patch('/hosts/port-protocol/batch', { hostIds, protocol }, { timeout: 65000 }),
     getSsh: (id: number): Promise<HostSshConnection> => http.get(`/host-onboarding/inventory/${id}/ssh`),
     setSsh: (id: number, data: { host: string; port: number; username: string }): Promise<{ success: boolean }> => http.patch(`/host-onboarding/inventory/${id}/ssh`, data),
     deleteHost: (id: number): Promise<{ success: boolean }> => http.delete(`/host-onboarding/inventory/${id}`),

@@ -1,5 +1,15 @@
 # 版本与验证记录
 
+## 2026-10-31 机器池协议首选与批量修改
+
+- Owner明确默认首选TCP，不自动重置既有机器。新增宿主机原已有TCP/TCP+UDP及默认TCP，本次把选择移至对接凭据下方；单台和批量导入按明确选择传入接入任务，关闭重开恢复首选TCP。机器列表勾选后新增「批量修改协议」，逐台保留已提交待生效/失败和错误，可仅重试失败项；明确换协议时重新提交所选机器。
+- 新批量接口只允许管理员、1–100个不重复有效宿主ID及两种协议，最多4项并发、20秒后未开始项返回超时。每台以独立短事务锁住宿主/Agent并复核当前账户、会话撤销、角色和Agent能力，协议revision与审计同事务提交；单台接口复用同一保护。保存不冒充Agent应用，不改变一机一卖/全端口或用户端入口。
+- host-protocol-pg.log自然exit0：隔离真实PG验证非法输入零写、逐台部分成功、未选机器不变、requested/applied区分、审计失败回滚及真实行锁等待期间撤销会话/角色降级拒绝。host-protocol-ui.log自然exit0：实际Vue页面与Chrome验证单台/导入首选及明确TCP+UDP请求、勾选范围、重复提交、失败重试、旧账户/缓存/存储/路由回执及无效回执；390/1440浅深色截图人工查看，长名称换行、44px、无横溢、Tab/Escape及taste测量通过。
+- 测试修正记录：旧隔离PG未运行，恢复后再验；CSV夹具误用address列改为实际publicIp；同一JS任务连点两个Vue复选框未等待更新，改逐次操作。新原生dialog末尾Tab会离开窗口，复验发现后接入现有focus守卫并通过；仅测试导入的security周期清理计时器unref，保证完整清理后自然退出，不修改生产定时器或强制exit掩盖未完成。
+- host-protocol-test-types.log沿项目严格类型通过；相关route/i18n/host-pool三守卫、改动前端lint及测试清单通过。host-protocol-build.log最终双端vue-tsc/Vite、dist边界与server tsc构建自然exit0，CI YAML解析通过；新数据库/浏览器专项已登记CI，未重复全套327项。实际宿主Agent防火墙应用、外网UDP与真实SSH接入未重跑，浏览器使用受控API，不能记为真机或线上验收。
+- CI刷新ci-protocol-refresh.log新增41161480864 / 876f1cfffea6bc41593bebb763e52431dfb8d9e0终态success；其余14项仍运行，无新失败。历史两种端口失败及修正SHA继续保留。Owner暂缓发版持续有效，本阶段仅源码保存，不打tag/Release、不部署生产。
+- 最终ci-protocol-final-refresh.log再确认41161603417 / e9a0f1d5eb093837d17ec2114611ae6c041f986a终态success，余13项运行；本项提交后的完整SHA/运行ID记录于logs/ci-host-protocol.json并同步payincus-ci跟进，不因CI通过解除暂缓发版。
+
 ## 2026-10-31 Owner暂缓新版本发布
 
 - Owner要求修好后先别发版，还有内容要改。新版本发布/tag/Release暂停，等待补充要求及明确恢复发版；源码分项保存与必要CI继续，固定v1.7.8保持。

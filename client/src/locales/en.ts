@@ -113,6 +113,7 @@ export default {
     }
   },
   hostPoolOps: {
+    batchProtocol: {"action": "Change protocols", "title": "Change protocols · {count} hosts", "hint": "Hosts apply the change automatically after saving. TCP closes UDP ingress on customer ports; TCP+UDP allows both protocols.", "summary": "Submitted {count}/{total} hosts", "current": "Currently applied", "retry": "Retry failed hosts", "states": {"ready": "Ready", "saving": "Submitting", "submitted": "Submitted, awaiting application", "failed": "Submission failed"}, "errors": {"HOST_AGENT_UPGRADE_REQUIRED": "Update the host Agent before changing its protocol.", "HOST_NOT_FOUND": "The host no longer exists. Refresh the machine pool.", "FORBIDDEN": "Your session or administrator permission changed. Sign in again.", "PORT_PROTOCOL_REVISION_LIMIT": "The protocol revision limit was reached. Open a support ticket.", "PORT_PROTOCOL_BATCH_TIMEOUT": "This batch timed out. Retry this host.", "unknown": "The save result could not be confirmed. Check the host status before retrying."}},
     "managementOnline": "Management connected",
     "assignedInstances": "{count} assigned instances",
     "quarantined": "Quarantined · Sales paused",
