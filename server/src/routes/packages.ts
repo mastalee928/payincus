@@ -2983,6 +2983,9 @@ export default async function packageRoutes(fastify: FastifyInstance) {
     onRequest: [fastify.authenticate]
   }, async (request, reply) => {
     const { source = 'official' } = request.query
+    if (typeof source !== 'string' || !['official', 'market', 'friends', 'zone'].includes(source)) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Invalid package region source'))
+    }
     const user = request.user
     
     // 好友共享需要特殊处理：从好友共享套餐中提取地区
@@ -3041,6 +3044,7 @@ export default async function packageRoutes(fastify: FastifyInstance) {
     // 官方/托管市场/托管专区：使用统一公开套餐逻辑
     let whereCondition: any = {
       active: true, hidden: false,
+      globalShared: true,
       plans: {
         some: {
           isActive: true
