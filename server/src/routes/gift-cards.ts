@@ -30,11 +30,12 @@ const turnstileRequired = createTurnstileVerifier(true)
 
 const GIFT_CARD_CODE_REGEX = /^gc-[A-Za-z0-9_-]{24}$/
 const POSITIVE_ID_PATTERN = /^[1-9]\d*$/
+const MAX_POSTGRES_INT_ID = 2147483647
 
 function parsePositiveId(value: string): number | null {
   if (!POSITIVE_ID_PATTERN.test(value)) return null
   const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
+  return Number.isSafeInteger(parsed) && parsed <= MAX_POSTGRES_INT_ID ? parsed : null
 }
 
 function parsePositiveMoney(value: unknown): number | null {
@@ -74,7 +75,7 @@ function normalizeIdList(value: unknown): number[] | null {
   }
   const ids = new Set<number>()
   for (const item of value) {
-    if (typeof item !== 'number' || !Number.isSafeInteger(item) || item <= 0 || ids.has(item)) {
+    if (typeof item !== 'number' || !Number.isSafeInteger(item) || item <= 0 || item > MAX_POSTGRES_INT_ID || ids.has(item)) {
       return null
     }
     ids.add(item)

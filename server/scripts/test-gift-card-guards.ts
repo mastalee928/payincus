@@ -132,6 +132,9 @@ const adminBatchSection = route.slice(
   route.indexOf("fastify.post('/admin/batch'"),
   route.indexOf('// 管理员列表')
 )
+assert.ok(route.includes('Number.isSafeInteger(parsed) && parsed <= MAX_POSTGRES_INT_ID') &&
+  route.includes('item > MAX_POSTGRES_INT_ID'),
+  'gift card scalar and batch IDs must reject PostgreSQL Int overflow before any mutation/refund')
 const userRedeemSection = route.slice(
   route.indexOf("fastify.post('/user/redeem'"),
   route.indexOf('// 用户用余额生成兑换码')
