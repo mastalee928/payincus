@@ -29,6 +29,15 @@ const dbRenewSection = sectionBetween(
   'export async function renewMailSubscription',
   '// ==================== 域名 (MailDomain) ===================='
 )
+assert.ok(routeRenewSection.includes('authorizeUserWrite(tx, userId, request.user)') &&
+  routeRenewSection.includes('currentSubscription.expiresAt.getTime() !== subscription.expiresAt.getTime()') &&
+  routeRenewSection.includes('Number(currentSubscription.plan.price) !== Number(plan.price)') &&
+  routeRenewSection.includes('SELECT id FROM mail_subscriptions WHERE id = ${subscription.id} FOR UPDATE') &&
+  routeRenewSection.includes('SELECT id FROM mail_plans WHERE id = ${subscription.planId} FOR SHARE'),
+'mail renewal must lock current subscription/price and reject stale quotes or revoked sessions before debit')
+assert.ok(autoRenewSchedulerSource.includes("users[0]?.status !== 'active'") &&
+  autoRenewSchedulerSource.includes('SELECT status FROM users WHERE id = ${subscription.userId} FOR UPDATE'),
+'mail automatic renewal must serialize account status with debit and reject banned accounts')
 const expiryUpdateSection = sectionBetween(
   expirySchedulerSource,
   'const result = await prisma.mailSubscription.updateMany({',

@@ -61,6 +61,10 @@ export async function processMailAutoRenew(candidate: {
     )
     if (!balanceLocked) return { status: 'busy' as const }
 
+    await tx.$queryRaw`SELECT id FROM mail_subscriptions WHERE id = ${candidate.id} FOR UPDATE`
+    const planBinding = await tx.mailSubscription.findUnique({ where: { id: candidate.id }, select: { planId: true } })
+    if (!planBinding) return { status: 'ineligible' as const }
+    await tx.$queryRaw`SELECT id FROM mail_plans WHERE id = ${planBinding.planId} FOR SHARE`
     const subscription = await tx.mailSubscription.findUnique({
       where: { id: candidate.id },
       include: {
@@ -80,6 +84,9 @@ export async function processMailAutoRenew(candidate: {
     ) {
       return { status: 'ineligible' as const }
     }
+
+    const users = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${subscription.userId} FOR UPDATE`
+    if (users[0]?.status !== 'active') return { status: 'ineligible' as const }
 
     const periodKey = buildPeriodKey(subscription.id, subscription.expiresAt)
     const periodMarker = `[${periodKey}]`

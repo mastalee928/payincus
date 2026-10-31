@@ -15,6 +15,7 @@ import * as smarterMailService from '../services/smartermail.js'
 import { MAIL_DOMAIN_LOCK_NAMESPACE, MAIL_SUBSCRIPTION_LOCK_NAMESPACE, USER_BALANCE_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '../db/advisory-locks.js'
 import { assertSafeHttpUrl } from '../lib/outbound-security.js'
 import { AffCodeEligibilityError, getMailSubscriptionAffBinding, requireAffCodeForPurchase } from '../db/aff.js'
+import { authorizeUserWrite } from '../db/user-write-authorization.js'
 
 function normalizeBaseUrl(url: URL): string {
   return url.toString().replace(/\/+$/, '')
@@ -1198,6 +1199,9 @@ export default async function mailRoutes(fastify: FastifyInstance) {
         return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, '邮箱订阅正在处理，请稍后重试') }
       }
 
+      if (!await authorizeUserWrite(tx, userId, request.user)) {
+        return { error: apiError(ErrorCode.FORBIDDEN, '用户权限已变更，请重新登录'), statusCode: 403 }
+      }
       const updated = await tx.mailSubscription.updateMany({
         where: { id: subscription.id, userId },
         data: { autoRenew }
@@ -1208,7 +1212,7 @@ export default async function mailRoutes(fastify: FastifyInstance) {
     })
 
     if ('error' in updateResult) {
-      return reply.code(400).send(updateResult.error)
+      return reply.code(('statusCode' in updateResult ? updateResult.statusCode : undefined) ?? 400).send(updateResult.error)
     }
 
     await createLog(
@@ -1548,12 +1552,23 @@ export default async function mailRoutes(fastify: FastifyInstance) {
         return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, '用户余额正在处理，请稍后重试') }
       }
 
+      await tx.$queryRaw`SELECT id FROM mail_subscriptions WHERE id = ${subscription.id} FOR UPDATE`
+      await tx.$queryRaw`SELECT id FROM mail_plans WHERE id = ${subscription.planId} FOR SHARE`
       const currentSubscription = await tx.mailSubscription.findUnique({
         where: { id: subscription.id },
         include: { plan: true }
       })
       if (!currentSubscription || currentSubscription.userId !== userId) {
         return { error: apiError(ErrorCode.NOT_FOUND, '您没有邮箱订阅') }
+      }
+      if (!await authorizeUserWrite(tx, userId, request.user)) {
+        return { error: apiError(ErrorCode.FORBIDDEN, '用户权限已变更，请重新登录'), statusCode: 403 }
+      }
+      if (currentSubscription.planId !== subscription.planId ||
+        currentSubscription.expiresAt.getTime() !== subscription.expiresAt.getTime() ||
+        currentSubscription.plan.billingCycle !== plan.billingCycle ||
+        Number(currentSubscription.plan.price) !== Number(plan.price)) {
+        return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, '订阅或价格已变更，请刷新后重试'), statusCode: 409 }
       }
       if (currentSubscription.status === 'suspended') {
         return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, '订阅已被暂停，无法续费') }

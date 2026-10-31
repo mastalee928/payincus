@@ -69,6 +69,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-recharge-callback-races', 'requires isolated PostgreSQL; signed GET/POST callbacks reject payment selections replaced after their original order read'],
   ['test:review-payment-integrity', 'requires isolated PostgreSQL; real MD5/RSA callbacks bind merchant identity and strictly validate invoice amounts before one-time credit'],
   ['test:review-public-renewal', 'requires isolated PostgreSQL; actual bearer-authenticated renewal rechecks revoked/expired/scoped API and OAuth credentials after row-lock waits'],
+    ['test:review-mail-renewal', 'requires isolated PostgreSQL; manual and automatic mail renewal check current authorization, price and expiry, including row-lock waits and ledger rollback'],
   ['test:review-recharge-terminal-states', 'requires isolated PostgreSQL; real row-lock competition in both settlement and terminal-update orders, complete record preservation and exact accounting'],
   ['test:review-gift-card-counts', 'requires isolated PostgreSQL; original admin batch routes reject invalid counts without mutations and persist exact min/max quantities and value limits'],
   ['test:review-gift-card-id-boundaries', 'requires isolated PostgreSQL; invalid card IDs and mixed batches preserve balances, cards and ledger before any refund, normal mutations remain idempotent'],

@@ -318,6 +318,8 @@ jobs:
         run: pnpm --filter server test:review-payment-integrity
       - name: Public renewal checks current API and OAuth authorization before charging
         run: pnpm --filter server test:review-public-renewal
+      - name: Mail renewal checks current authorization and quote with atomic accounting
+        run: pnpm --filter server test:review-mail-renewal
       - name: Recharge terminal states survive real row-lock competition without duplicate accounting
         run: pnpm --filter server test:review-recharge-terminal-states
       - name: Gift card batch quantities reject invalid input and preserve exact boundary counts
