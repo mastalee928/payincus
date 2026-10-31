@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R044 卡密一次性结果前提定向复审
+
+- 当前GiftCardsView创建表单常驻，code由createGiftCardInTransaction真实落库；GET /gift-cards/admin/list的revealCode经authenticate/requireAdmin/requireGiftCardManager后传listGiftCardsByAdmin，查询原code并在revealCode=true时返回。页面已有“显示完整兑换码”勾选。因此原“关闭生成弹窗永久丢失一次性密码”的前提在本库不存在，并非仅按组件名排除。
+- 仅代码级调用链复审，无新产品改动，不重复浏览器/build。当前创建重复提交/旧回执缺口、固定100条看不到旧卡密属本页面其它待修问题，仍由R046一并明确处理，不把本条结论扩大为卡密页完整验收。owner要求节省token，保持精简验证范围。
+- R206已推92d2f62fa2fd22eb4b435a583cd9ca9172ac3552 / CI41164489664。R044后322/327（98.5%，覆盖非完整验收）、5项初审；既有CI和项内缺口继续，未生产操作。
+
 ## 2026-10-31 R206 订单总数减少后的页码修复
 
 - orders-r206-before.log真实浏览器复现第四页总数减至12仍留第四页（4≠2）。仅在当前有效列表回执校验后计算末页，越界则切到有效末页重新读取；零记录回第一页。沿R205代次/会话保护，旧回执不能改变新筛选，补读失败保错误与刷新入口。
