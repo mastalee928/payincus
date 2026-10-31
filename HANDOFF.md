@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R115 库存数量输入与一机一卖模型复审
+
+- HostInventoryPanel中stock只用于available/assigned/unavailable筛选，没有可清空的库存数量输入。规格表单只有E2/ARM预设与30/60/90/120GiB选项；updateSpec提交hostIds/resourcePreset/customerDiskGiB，后端schema必填且额外字段拒绝，磁盘整数下限10。库存汇总来自真实机器、占用/预留/故障/定价与就绪状态，未找到“空库存转0写入数量”的调用链，不引入多租户数量模型。
+- inventory-r115-guards.log实际host-pool守卫1/1通过，当前规格/容量/独占约束保留。无产品改动，复用刚过双端及后端build/types；本条仅确认输入模型差异，R114异步规格编辑和完整库存在途授权等仍待，不把该结论当全库存验收。
+- R209已推0035148b75e1bbb6b3f6b9207610f171d831ce89 / CI41155230467。R115后304/327（93.0%，含部分/待验收）、23项初审，所有阶段CI继续，原生/外部服务/灾备边界保持。
+
 ## 2026-10-31 R209 镜像选择器事件监听生命周期复验
 
 - 原onUnmounted按同回调及capture移除document click/window scroll/resize已有防护，不改产品。image-r209-final.log自然exit0：实际Vue/Vite/Chrome普通/embedded各20次挂载卸载，跟踪真实EventTarget callback身份与capture，120新增=120移除，未匹配删除0、每次卸载残留0。实际外部点击关闭、Ubuntu选择、滚动/resize、打开菜单卸载后的Teleport DOM清除均通过，控制台零错误。

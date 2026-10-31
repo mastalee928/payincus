@@ -406,7 +406,7 @@
 | R1-112 | 存在 | 源码已修/浏览器隔离验证通过 | 无关编辑省略url，默认HTTP80/HTTPS443正确；地址或端口变化只替换原URL相应字段保协议/path/query/hash，IPv6方括号及非法port拒写。68686真实Chrome八原URL/24修改组合/六坏port/三语三宽actual input-save过；types/lint/四守卫及build/dist见HANDOFF，真实宿主仍另验。 |
 | R1-113 | 存在，旧描述已纠正 | 三语错误/Chrome与PG写前拒绝复验通过 | 旧post-write warning已退役；真实HOST_INSTANCE_TYPE_MISMATCH缺三语翻译导致原key显示，已补三语并按te回退未知code原message，api.hosts.update改实际message合同。Chrome三语三宽持久错误/保草稿/retry，Fastify-PG container与VM拒绝全部host字段保持/无成功audit，foreign403和compatible/both精确回执通过；types/四守卫/lint/双端build/末dist见HANDOFF。后端并发绑定/类型检查窗口及真实宿主不在本项复验范围。 |
 | R1-114 | 实现不同 | 保留初审结论 | 没有对方快速多租户库存数量编辑器；本库独占规格/库存枚举，saveSpec有busy及固定磁盘档。不得迁入对方库存数量模型。 |
-| R1-115 | 实现不同 | 保留初审结论 | 本库通过独占规格和枚举机器管理库存，无对方必填stock输入清空为0的同类入口；保持一机一卖。 |
+| R1-115 | 实现不同 | 实际表单/写入/库存模型确认 | stock是三态筛选；规格仅预设+固定磁盘档，提交hostIds/resourcePreset/customerDiskGiB，后端字段必填/磁盘下限10；库存依实际机器和占用等计算，无空数量转0路径。原host-pool守卫1/1过，保一机一卖；异步编辑R114及其它在途库存验证另待。 |
 | R1-116 | 存在 | 源码已修/真实Caddy API验证通过 | v2域名无损ID；legacy exact host+ETag删除，避免label碰撞；HTTP-only protocol及automatic_https.skip同次提交。logs/review-caddy-proxy-final.log、review-caddy-runtime-validation-final.log；Windows原生Caddy2.11.7，Linux安装未验 |
 | R1-117 | 存在 | 源码已修/真实Caddy API验证通过 | delete只吞实际HTTP404，正文404不吞500；legacy exact host和ETag；真实原生API删除/重放与TLS夹具500通过。logs/review-caddy-proxy-final.log、review-caddy-runtime-validation-final.log |
 | R1-118 | 部分存在 | 源码已修/隔离PG验证通过 | Caddy generate/reset/confirm提交内current actor/session/owner及current credentials；下载token绑定签发会话/角色/归属/凭据，注销/转移/重置旧命令拒绝。logs/review-caddy-proxy-final.log；Linux安装未验 |
