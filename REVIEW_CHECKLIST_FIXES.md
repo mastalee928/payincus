@@ -1,4 +1,4 @@
-2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为318/327（97.2%，含部分、待验收、重复与实现差异），9项仍保初审分类；这不是完整修复数，不能按327减318计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
+2026-10-31当前：v1.7.8已正式发布于c77b68c5，双架构构建/首装/Release及实际包校验通过。之后的源码分段提交在HANDOFF逐项留证，不在固定v1.7.8包内。按“进入修复或复验记录”口径现为319/327（97.6%，含部分、待验收、重复与实现差异），8项仍保初审分类；这不是完整修复数，不能按327减319计算剩余全部工作。原生Incus/VM、外部服务、在途授权、持久故障恢复及完整灾备等项内缺口继续保留。历史失败不删除，所有已推批次CI继续跟到终态；当前细节以HANDOFF最新段落为准。
 
 2026-10-31追加首页：通用超宽屏按宽高约束等比地图与共享内容边界；真实浏览器复现右缘悉尼浮窗截住点击，改为侧向避让。四尺寸三语交互/48浮窗边界/七次resize/系统动态偏好、195/195全量、双端build/dist及lint自然exit0，详HANDOFF。此项不增加原327计数；新同提交发行仍跟进。
 
@@ -443,7 +443,7 @@
 | R1-149 | 存在 | 源码已修/真实Linux待验 | 从Incus实际eth1 routed设备恢复，成功不抛旧错；暂移/启动/恢复失败保留精确错误并恢复完整原devices；行为边界与recreate/cancel 3/3 logs/test-run-20261027-190006；不跳宿主/客户IPv6核验 |
 | R1-150 | 存在 | 源码已修/隔离PG验证通过 | host锁内复核5轻任务上限、instance互斥及host/type/status=PENDING条件领取；取消不复活及heavy互斥通过 logs/review-task-claim-integration.log；执行尝试身份/超时继续复核 |
 | R1-151 | 存在 | 源码已修/隔离PG验证通过 | host锁内复核5轻任务上限、instance互斥及host/type/status=PENDING条件领取；取消不复活及heavy互斥通过 logs/review-task-claim-integration.log；执行尝试身份/超时继续复核 |
-| R1-152 | 已有防护 | 保留初审结论 | 路由task.hostId明确设targetHostId，worker以该字段取目标且executeChangeHostTask校验target；原hostId含义不一致导致全失败问题不成立。 |
+| R1-152 | 已有防护 | 路由/落库/worker源目标字段完整复审 | change-host路由hostId=targetHostId，两字段原值落库，worker用task.hostId读取目标host/client，源独立从instance.host_id取，执行器核一致/异源及后续配额/IP/存储/创建目标。相关recreate-consistency守卫通过，仅代码级字段结论；原生迁移/在途授权并发仍待。 |
 | R1-153 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
 | R1-154 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |
 | R1-155 | 存在 | 源码已改/验证范围见右栏 | Incus操作精确资源路径、取消状态和总期限及输出读取错误；core boundaries；真实Incus待验 |

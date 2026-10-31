@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-10-31 R152 改节点任务目标编号链路复审
+
+- 沿当前change-host路由→createInstanceTaskOrConflict→createInstanceTask→executeTask→executeChangeHostTask核实：路由同时传hostId=targetHostId及targetHostId；数据库分别原值落字段；worker用task.hostId读取目标host/Incus client，并从instance.host_id单独读取源host。执行器核目标编号与目标host一致且与源host不同，后续目标配额、IP、存储池、创建及切换使用targetHostId，未出现“hostId仍为源导致全部合法请求失败”的外部分支错误。
+- task-r152-guards.log原instance-recreate-consistency守卫自然exit0（相关资源一致性，不能冒作change-host端到端）。本项仅代码级完整字段追踪，没有创建真实迁移任务，无产品修改；change-host在途权限/源目标并发与真实双宿主迁移仍待对应专项，不以字段一致声明整体迁移完成。一机一卖的replace-host独立流程保留。
+- R263已推36f4d54eda461f4dc7c157f1f167470348165621 / CI41161894079。R152归档后319/327（97.6%，覆盖非完整验收）、8项初审；接着处理R205/R206当前订单读取，所有CI继续跟踪。
+
 ## 2026-10-31 R263 仅移除记录结果误称删除实例
 
 - host-r263-before.log真实Chrome点击“仅移除记录”后收到“成功删除2个实例”，exit1；原初审只核确认说明漏掉完成反馈。HostInstancesTab按本次固定databaseOnly参数选择成功/部分失败文案，简繁英均说明已移除多少记录、失败数，以及宿主实例与磁盘仍保留；完整删除沿原文案。未改实际API参数、管理员退款、远端删除、数据库清理或暂停销售合同。
