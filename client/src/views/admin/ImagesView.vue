@@ -370,98 +370,98 @@ onMounted(() => {
 
         <div class="card hidden overflow-hidden lg:block">
           <table class="w-full table-fixed">
-          <thead>
-            <tr class="border-b border-themed bg-themed-secondary/60 text-left text-2xs font-medium uppercase tracking-wide text-themed-muted">
-              <th class="w-[7%] px-4 py-3">{{ t('admin.images.fields.icon') }}</th>
-              <th class="w-[17%] px-4 py-3">{{ t('admin.images.fields.name') }}</th>
-              <th class="w-[22%] px-4 py-3">{{ t('admin.images.fields.remoteAlias') }}</th>
-              <th class="w-[13%] px-4 py-3">{{ t('admin.images.fields.architecture') }}</th>
-              <th class="w-[13%] px-4 py-3">{{ t('admin.images.fields.instanceType') }}</th>
-              <th class="w-[8%] px-4 py-3">{{ t('admin.images.fields.sortOrder') }}</th>
-              <th class="w-[8%] px-4 py-3">{{ t('admin.images.fields.status') }}</th>
-              <th class="w-[12%] px-4 py-3 text-right">{{ t('common.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-themed">
-            <tr
-              v-for="image in filteredImages"
-              :key="image.id"
-              class="transition-colors hover:bg-themed-hover"
-              :class="image.hidden ? 'opacity-60' : ''"
-            >
-              <td class="px-4 py-3">
-                <DistroIcon :distro="image.icon" :size="32" />
-              </td>
-              <td class="px-4 py-3 text-sm text-themed truncate" :title="image.name">{{ image.name }}</td>
-              <td class="px-4 py-3 font-mono text-xs text-themed-muted truncate" :title="image.remoteAlias">{{ image.remoteAlias }}</td>
-              <td class="px-4 py-3">
-                <span
-                  class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
-                  :class="getArchitectureBadgeClass(image.architecture)"
-                >
-                  {{ image.architecture }}
-                </span>
-              </td>
-              <td class="px-4 py-3">
-                <span
-                  class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
-                  :class="getInstanceTypeBadgeClass(image.instanceType)"
-                >
-                  {{ image.instanceType === 'container' ? t('admin.images.typeContainer') : image.instanceType === 'vm' ? t('admin.images.typeVm') : t('admin.images.typeBoth') }}
-                </span>
-              </td>
-              <td class="px-4 py-3 text-sm text-themed-muted">{{ image.sortOrder }}</td>
-              <td class="px-4 py-3">
-                <span
-                  class="px-2 py-1 text-xs rounded-full"
-                  :class="image.hidden
-                    ? (themeStore.isDark ? 'bg-gray-800 text-gray-400' : 'bg-gray-100 text-gray-600')
-                    : (themeStore.isDark ? 'bg-green-900/50 text-green-400' : 'bg-green-100 text-green-700')"
-                >
-                  {{ image.hidden ? t('admin.images.statusHidden') : t('admin.images.statusVisible') }}
-                </span>
-              </td>
-              <td class="px-4 py-3 text-right">
-                <div class="flex items-center justify-end gap-2">
-                  <button
-                    class="p-1.5 rounded transition-colors"
-                    :class="themeStore.isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'"
-                    :title="image.hidden ? t('admin.images.show') : t('admin.images.hide')"
-                    @click="toggleHidden(image)"
+            <thead>
+              <tr class="border-b border-themed bg-themed-secondary/60 text-left text-2xs font-medium uppercase tracking-wide text-themed-muted">
+                <th class="w-[7%] px-4 py-3">{{ t('admin.images.fields.icon') }}</th>
+                <th class="w-[17%] px-4 py-3">{{ t('admin.images.fields.name') }}</th>
+                <th class="w-[22%] px-4 py-3">{{ t('admin.images.fields.remoteAlias') }}</th>
+                <th class="w-[13%] px-4 py-3">{{ t('admin.images.fields.architecture') }}</th>
+                <th class="w-[13%] px-4 py-3">{{ t('admin.images.fields.instanceType') }}</th>
+                <th class="w-[8%] px-4 py-3">{{ t('admin.images.fields.sortOrder') }}</th>
+                <th class="w-[8%] px-4 py-3">{{ t('admin.images.fields.status') }}</th>
+                <th class="w-[12%] px-4 py-3 text-right">{{ t('common.actions') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-themed">
+              <tr
+                v-for="image in filteredImages"
+                :key="image.id"
+                class="transition-colors hover:bg-themed-hover"
+                :class="image.hidden ? 'opacity-60' : ''"
+              >
+                <td class="px-4 py-3">
+                  <DistroIcon :distro="image.icon" :size="32" />
+                </td>
+                <td class="px-4 py-3 text-sm text-themed truncate" :title="image.name">{{ image.name }}</td>
+                <td class="px-4 py-3 font-mono text-xs text-themed-muted truncate" :title="image.remoteAlias">{{ image.remoteAlias }}</td>
+                <td class="px-4 py-3">
+                  <span
+                    class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
+                    :class="getArchitectureBadgeClass(image.architecture)"
                   >
-                    <svg v-if="image.hidden" class="w-4 h-4 text-themed-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                    <svg v-else class="w-4 h-4 text-themed-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                    </svg>
-                  </button>
-                  <button
-                    class="p-1.5 rounded transition-colors"
-                    :class="themeStore.isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'"
-                    :title="t('common.edit')"
-                    @click="openEditModal(image)"
+                    {{ image.architecture }}
+                  </span>
+                </td>
+                <td class="px-4 py-3">
+                  <span
+                    class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
+                    :class="getInstanceTypeBadgeClass(image.instanceType)"
                   >
-                    <svg class="w-4 h-4 text-themed-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                  <button
-                    class="p-1.5 rounded transition-colors"
-                    :class="themeStore.isDark ? 'hover:bg-rose-900/50' : 'hover:bg-rose-50'"
-                    :title="t('common.delete')"
-                    @click="deleteImage(image)"
+                    {{ image.instanceType === 'container' ? t('admin.images.typeContainer') : image.instanceType === 'vm' ? t('admin.images.typeVm') : t('admin.images.typeBoth') }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-sm text-themed-muted">{{ image.sortOrder }}</td>
+                <td class="px-4 py-3">
+                  <span
+                    class="px-2 py-1 text-xs rounded-full"
+                    :class="image.hidden
+                      ? (themeStore.isDark ? 'bg-gray-800 text-gray-400' : 'bg-gray-100 text-gray-600')
+                      : (themeStore.isDark ? 'bg-green-900/50 text-green-400' : 'bg-green-100 text-green-700')"
                   >
-                    <svg class="w-4 h-4 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                    {{ image.hidden ? t('admin.images.statusHidden') : t('admin.images.statusVisible') }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <div class="flex items-center justify-end gap-2">
+                    <button
+                      class="p-1.5 rounded transition-colors"
+                      :class="themeStore.isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'"
+                      :title="image.hidden ? t('admin.images.show') : t('admin.images.hide')"
+                      @click="toggleHidden(image)"
+                    >
+                      <svg v-if="image.hidden" class="w-4 h-4 text-themed-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                      <svg v-else class="w-4 h-4 text-themed-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                      </svg>
+                    </button>
+                    <button
+                      class="p-1.5 rounded transition-colors"
+                      :class="themeStore.isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'"
+                      :title="t('common.edit')"
+                      @click="openEditModal(image)"
+                    >
+                      <svg class="w-4 h-4 text-themed-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button
+                      class="p-1.5 rounded transition-colors"
+                      :class="themeStore.isDark ? 'hover:bg-rose-900/50' : 'hover:bg-rose-50'"
+                      :title="t('common.delete')"
+                      @click="deleteImage(image)"
+                    >
+                      <svg class="w-4 h-4 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </template>
     </template>

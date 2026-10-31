@@ -433,7 +433,6 @@ function riskToneClass(severity: string): string {
     </div>
 
     <div v-else-if="stats" class="space-y-6">
-
       <section class="space-y-5">
         <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
           <div>

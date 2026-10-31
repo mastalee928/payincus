@@ -660,47 +660,47 @@ onMounted(() => {
         </div>
         <div class="hidden overflow-hidden lg:block">
           <table class="w-full table-fixed divide-y divide-themed">
-          <thead class="bg-themed-tertiary">
-            <tr>
-              <th class="w-[18%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">订单</th>
-              <th class="w-[12%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">用户</th>
-              <th class="w-[10%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">类型</th>
-              <th class="w-[10%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">金额</th>
-              <th class="w-[10%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">状态</th>
-              <th class="w-[14%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">关联实例</th>
-              <th class="w-[16%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">时间</th>
-              <th class="w-[10%] px-4 py-2.5 text-right text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">操作</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-themed">
-            <tr v-for="order in orders" :key="order.id" class="text-[13px] text-themed transition-colors hover:bg-themed-hover [&>td]:break-words">
-              <td class="px-4 py-3">
-                <div class="font-medium text-themed">{{ order.title }}</div>
-                <div class="font-mono text-xs text-themed-muted">{{ order.orderNo }}</div>
-              </td>
-              <td class="px-4 py-3">
-                <div class="text-themed">{{ order.user?.username || `#${order.userId}` }}</div>
-                <div class="text-xs text-themed-muted">{{ order.user?.email || '-' }}</div>
-              </td>
-              <td class="px-4 py-3 text-themed-muted">{{ sourceLabel(order.sourceType) }}</td>
-              <td class="px-4 py-3 font-mono font-medium tabular-nums text-themed">{{ formatMoney(order.amount) }}</td>
-              <td class="px-4 py-3">
-                <span :class="['badge border', statusClass(order.status)]">{{ statusLabel(order) }}</span>
-                <span
-                  v-if="order.operationCase"
-                  :class="['badge border ml-2', operationStatusClass(order.operationCase.status)]"
-                >
-                  {{ operationStatusLabel(order.operationCase.status) }}
-                </span>
-              </td>
-              <td class="px-4 py-3 text-themed-muted">{{ instanceName(order) }}</td>
-              <td class="px-4 py-3 font-mono tabular-nums text-themed-muted">{{ formatTime(order.createdAt) }}</td>
-              <td class="px-4 py-3 text-right">
-                <button class="btn btn-sm btn-secondary" @click="openDetail(order)">详情</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+            <thead class="bg-themed-tertiary">
+              <tr>
+                <th class="w-[18%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">订单</th>
+                <th class="w-[12%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">用户</th>
+                <th class="w-[10%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">类型</th>
+                <th class="w-[10%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">金额</th>
+                <th class="w-[10%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">状态</th>
+                <th class="w-[14%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">关联实例</th>
+                <th class="w-[16%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">时间</th>
+                <th class="w-[10%] px-4 py-2.5 text-right text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-themed">
+              <tr v-for="order in orders" :key="order.id" class="text-[13px] text-themed transition-colors hover:bg-themed-hover [&>td]:break-words">
+                <td class="px-4 py-3">
+                  <div class="font-medium text-themed">{{ order.title }}</div>
+                  <div class="font-mono text-xs text-themed-muted">{{ order.orderNo }}</div>
+                </td>
+                <td class="px-4 py-3">
+                  <div class="text-themed">{{ order.user?.username || `#${order.userId}` }}</div>
+                  <div class="text-xs text-themed-muted">{{ order.user?.email || '-' }}</div>
+                </td>
+                <td class="px-4 py-3 text-themed-muted">{{ sourceLabel(order.sourceType) }}</td>
+                <td class="px-4 py-3 font-mono font-medium tabular-nums text-themed">{{ formatMoney(order.amount) }}</td>
+                <td class="px-4 py-3">
+                  <span :class="['badge border', statusClass(order.status)]">{{ statusLabel(order) }}</span>
+                  <span
+                    v-if="order.operationCase"
+                    :class="['badge border ml-2', operationStatusClass(order.operationCase.status)]"
+                  >
+                    {{ operationStatusLabel(order.operationCase.status) }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-themed-muted">{{ instanceName(order) }}</td>
+                <td class="px-4 py-3 font-mono tabular-nums text-themed-muted">{{ formatTime(order.createdAt) }}</td>
+                <td class="px-4 py-3 text-right">
+                  <button class="btn btn-sm btn-secondary" @click="openDetail(order)">详情</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </template>
 
@@ -785,50 +785,50 @@ onMounted(() => {
         </div>
         <div class="hidden overflow-hidden lg:block">
           <table class="w-full table-fixed divide-y divide-themed">
-          <thead class="bg-themed-tertiary">
-            <tr>
-              <th class="w-[20%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">申请</th>
-              <th class="w-[14%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">用户</th>
-              <th class="w-[12%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">金额</th>
-              <th class="w-[16%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">来源</th>
-              <th class="w-[12%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">状态</th>
-              <th class="w-[16%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">时间</th>
-              <th class="w-[10%] px-4 py-2.5 text-right text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">操作</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-themed">
-            <tr v-for="request in adjustmentRequests" :key="request.id" class="text-[13px] text-themed transition-colors hover:bg-themed-hover [&>td]:break-words">
-              <td class="px-4 py-3">
-                <div class="font-medium text-themed"><span class="font-mono tabular-nums">#{{ request.id }}</span> {{ adjustmentTypeLabel(request.requestType) }}</div>
-                <div class="max-w-[260px] truncate text-xs text-themed-muted">{{ request.reason }}</div>
-              </td>
-              <td class="px-4 py-3">
-                <div class="text-themed">{{ request.user.username }}</div>
-                <div class="text-xs text-themed-muted">申请人 {{ request.requestedBy.username }}</div>
-              </td>
-              <td class="px-4 py-3 font-mono font-medium tabular-nums" :class="request.amount >= 0 ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'">
-                {{ request.amount >= 0 ? '+' : '' }}{{ formatMoney(request.amount) }}
-              </td>
-              <td class="px-4 py-3 text-themed-muted">
-                <div class="font-mono">{{ request.orderNo || '-' }}</div>
-                <div class="text-xs">{{ request.sourceType || '-' }}</div>
-              </td>
-              <td class="px-4 py-3">
-                <span :class="['badge border', adjustmentStatusClass(request.status)]">
-                  {{ adjustmentStatusLabel(request.status) }}
-                </span>
-              </td>
-              <td class="px-4 py-3 font-mono tabular-nums text-themed-muted">{{ formatTime(request.createdAt) }}</td>
-              <td class="px-4 py-3 text-right">
-                <div v-if="request.status === 'pending'" class="flex justify-end gap-2">
-                  <button class="btn btn-sm btn-danger" :disabled="reviewLoadingId === request.id" @click="rejectAdjustmentRequest(request)">驳回</button>
-                  <button class="btn btn-sm btn-primary" :disabled="reviewLoadingId === request.id" @click="approveAdjustmentRequest(request)">通过并执行</button>
-                </div>
-                <span v-else class="text-xs text-themed-muted">{{ request.reviewedBy?.username || '-' }}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+            <thead class="bg-themed-tertiary">
+              <tr>
+                <th class="w-[20%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">申请</th>
+                <th class="w-[14%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">用户</th>
+                <th class="w-[12%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">金额</th>
+                <th class="w-[16%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">来源</th>
+                <th class="w-[12%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">状态</th>
+                <th class="w-[16%] px-4 py-2.5 text-left text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">时间</th>
+                <th class="w-[10%] px-4 py-2.5 text-right text-[11px] font-mono font-medium uppercase tracking-wider text-themed-faint">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-themed">
+              <tr v-for="request in adjustmentRequests" :key="request.id" class="text-[13px] text-themed transition-colors hover:bg-themed-hover [&>td]:break-words">
+                <td class="px-4 py-3">
+                  <div class="font-medium text-themed"><span class="font-mono tabular-nums">#{{ request.id }}</span> {{ adjustmentTypeLabel(request.requestType) }}</div>
+                  <div class="max-w-[260px] truncate text-xs text-themed-muted">{{ request.reason }}</div>
+                </td>
+                <td class="px-4 py-3">
+                  <div class="text-themed">{{ request.user.username }}</div>
+                  <div class="text-xs text-themed-muted">申请人 {{ request.requestedBy.username }}</div>
+                </td>
+                <td class="px-4 py-3 font-mono font-medium tabular-nums" :class="request.amount >= 0 ? 'text-green-700 dark:text-green-300' : 'text-rose-700 dark:text-rose-300'">
+                  {{ request.amount >= 0 ? '+' : '' }}{{ formatMoney(request.amount) }}
+                </td>
+                <td class="px-4 py-3 text-themed-muted">
+                  <div class="font-mono">{{ request.orderNo || '-' }}</div>
+                  <div class="text-xs">{{ request.sourceType || '-' }}</div>
+                </td>
+                <td class="px-4 py-3">
+                  <span :class="['badge border', adjustmentStatusClass(request.status)]">
+                    {{ adjustmentStatusLabel(request.status) }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 font-mono tabular-nums text-themed-muted">{{ formatTime(request.createdAt) }}</td>
+                <td class="px-4 py-3 text-right">
+                  <div v-if="request.status === 'pending'" class="flex justify-end gap-2">
+                    <button class="btn btn-sm btn-danger" :disabled="reviewLoadingId === request.id" @click="rejectAdjustmentRequest(request)">驳回</button>
+                    <button class="btn btn-sm btn-primary" :disabled="reviewLoadingId === request.id" @click="approveAdjustmentRequest(request)">通过并执行</button>
+                  </div>
+                  <span v-else class="text-xs text-themed-muted">{{ request.reviewedBy?.username || '-' }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </template>
 

@@ -280,7 +280,6 @@ function closeAndGoBack() {
 
 <template>
   <div class="kawaii-page space-y-6 animate-fade-in">
-
     <!-- 居中容器 -->
     <div class="flex justify-center">
       <div class="w-full max-w-3xl space-y-6">

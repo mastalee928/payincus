@@ -2430,15 +2430,15 @@ function copyToClipboard(text: string) {
                 <td class="p-3 text-themed-muted whitespace-nowrap">{{ formatDate(rec.createdAt) }}</td>
                 <td class="p-3 whitespace-nowrap">
                   <div class="flex items-center gap-2">
-                  <button
-                    v-if="rec.status === 'pending' || (rec.status === 'cancelled' && rec.cancelReason === 'timeout')"
-                    class="btn btn-sm btn-ghost text-themed"
-                    :disabled="syncingRecordId === rec.id"
-                    @click="syncRechargeRecord(rec)"
-                  >
-                    {{ syncingRecordId === rec.id ? $t('common.syncing') : $t('admin.billing.sync') }}
-                  </button>
-                  <span v-if="rec.status !== 'pending'" class="text-themed-muted">-</span>
+                    <button
+                      v-if="rec.status === 'pending' || (rec.status === 'cancelled' && rec.cancelReason === 'timeout')"
+                      class="btn btn-sm btn-ghost text-themed"
+                      :disabled="syncingRecordId === rec.id"
+                      @click="syncRechargeRecord(rec)"
+                    >
+                      {{ syncingRecordId === rec.id ? $t('common.syncing') : $t('admin.billing.sync') }}
+                    </button>
+                    <span v-if="rec.status !== 'pending'" class="text-themed-muted">-</span>
                   </div>
                 </td>
               </tr>

@@ -524,73 +524,73 @@ onMounted(async () => {
           </tbody>
         </table>
 
-      <!-- Pagination -->
-      <div
-        v-if="total > 0"
-        class="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-themed"
-      >
-        <div class="flex items-center gap-3">
-          <span class="text-sm text-themed-secondary">
-            {{ $t('logs.totalRecords', { total, page, totalPages }) }}
-          </span>
-          <select
-            v-model="pageSize"
-            class="text-sm rounded-md border-0 py-1 pl-2 pr-7 ring-1 ring-inset focus:ring-2 focus:ring-primary cursor-pointer"
-            :class="themeStore.isDark
-              ? 'bg-gray-800 text-gray-300 ring-gray-700'
-              : 'bg-gray-50 text-gray-700 ring-gray-200'"
-            @change="handlePageSizeChange"
-          >
-            <option :value="10">10 / {{ $t('common.page') }}</option>
-            <option :value="30">30 / {{ $t('common.page') }}</option>
-            <option :value="50">50 / {{ $t('common.page') }}</option>
-            <option :value="100">100 / {{ $t('common.page') }}</option>
-          </select>
-        </div>
-        <div v-if="totalPages > 1" class="flex items-center gap-1">
-          <button
-            :disabled="page === 1 || refreshing"
-            class="inline-flex items-center justify-center w-8 h-8 rounded-md text-sm transition-colors"
-            :class="[
-              page === 1
-                ? 'opacity-40 cursor-not-allowed'
-                : themeStore.isDark
-                  ? 'hover:bg-gray-800 text-gray-400'
-                  : 'hover:bg-gray-100 text-gray-600'
-            ]"
-            @click="page = Math.max(1, page - 1); loadLogs(true)"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <div
-            class="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium"
-            :class="themeStore.isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700'"
-          >
-            <span>{{ page }}</span>
-            <span :class="themeStore.isDark ? 'text-gray-600' : 'text-gray-400'">/</span>
-            <span :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-500'">{{ totalPages }}</span>
+        <!-- Pagination -->
+        <div
+          v-if="total > 0"
+          class="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-themed"
+        >
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-themed-secondary">
+              {{ $t('logs.totalRecords', { total, page, totalPages }) }}
+            </span>
+            <select
+              v-model="pageSize"
+              class="text-sm rounded-md border-0 py-1 pl-2 pr-7 ring-1 ring-inset focus:ring-2 focus:ring-primary cursor-pointer"
+              :class="themeStore.isDark
+                ? 'bg-gray-800 text-gray-300 ring-gray-700'
+                : 'bg-gray-50 text-gray-700 ring-gray-200'"
+              @change="handlePageSizeChange"
+            >
+              <option :value="10">10 / {{ $t('common.page') }}</option>
+              <option :value="30">30 / {{ $t('common.page') }}</option>
+              <option :value="50">50 / {{ $t('common.page') }}</option>
+              <option :value="100">100 / {{ $t('common.page') }}</option>
+            </select>
           </div>
-          <button
-            :disabled="page === totalPages || refreshing"
-            class="inline-flex items-center justify-center w-8 h-8 rounded-md text-sm transition-colors"
-            :class="[
-              page === totalPages
-                ? 'opacity-40 cursor-not-allowed'
-                : themeStore.isDark
-                  ? 'hover:bg-gray-800 text-gray-400'
-                  : 'hover:bg-gray-100 text-gray-600'
-            ]"
-            @click="page = Math.min(totalPages, page + 1); loadLogs(true)"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
+          <div v-if="totalPages > 1" class="flex items-center gap-1">
+            <button
+              :disabled="page === 1 || refreshing"
+              class="inline-flex items-center justify-center w-8 h-8 rounded-md text-sm transition-colors"
+              :class="[
+                page === 1
+                  ? 'opacity-40 cursor-not-allowed'
+                  : themeStore.isDark
+                    ? 'hover:bg-gray-800 text-gray-400'
+                    : 'hover:bg-gray-100 text-gray-600'
+              ]"
+              @click="page = Math.max(1, page - 1); loadLogs(true)"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div
+              class="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium"
+              :class="themeStore.isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700'"
+            >
+              <span>{{ page }}</span>
+              <span :class="themeStore.isDark ? 'text-gray-600' : 'text-gray-400'">/</span>
+              <span :class="themeStore.isDark ? 'text-gray-500' : 'text-gray-500'">{{ totalPages }}</span>
+            </div>
+            <button
+              :disabled="page === totalPages || refreshing"
+              class="inline-flex items-center justify-center w-8 h-8 rounded-md text-sm transition-colors"
+              :class="[
+                page === totalPages
+                  ? 'opacity-40 cursor-not-allowed'
+                  : themeStore.isDark
+                    ? 'hover:bg-gray-800 text-gray-400'
+                    : 'hover:bg-gray-100 text-gray-600'
+              ]"
+              @click="page = Math.min(totalPages, page + 1); loadLogs(true)"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
-    </div>
     </template>
   </div>
 </template>

@@ -488,42 +488,42 @@ const regionOptions = [
 
         <div class="card hidden overflow-hidden lg:block">
           <table class="w-full table-fixed">
-          <thead>
-            <tr class="border-b border-themed">
-              <th class="nimbus-th w-[12%]">{{ t('admin.mail.region') }}</th>
-              <th class="nimbus-th w-[22%]">{{ t('common.name') }}</th>
-              <th class="nimbus-th w-[38%]">{{ t('admin.mail.apiEndpoint') }}</th>
-              <th class="nimbus-th w-[12%]">{{ t('admin.mail.plans') }}</th>
-              <th class="nimbus-th nimbus-th-right w-[16%]">{{ t('common.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="source in sources" :key="source.id" class="nimbus-row border-b border-themed">
-              <td class="px-4 py-3">
-                <div class="flex items-center gap-2">
-                  <FlagIcon :code="source.code" class="w-5 h-5" />
-                  <span class="text-sm font-medium text-themed">{{ source.code.toUpperCase() }}</span>
-                </div>
-              </td>
-              <td class="px-4 py-3 text-sm text-themed truncate">{{ source.name }}</td>
-              <td class="px-4 py-3 font-mono text-xs text-themed-muted truncate" :title="source.apiUrl">{{ source.apiUrl }}</td>
-              <td class="px-4 py-3 text-sm text-themed tabular-nums">{{ source.planCount || 0 }}</td>
-              <td class="px-4 py-3 text-right">
-                <button class="btn btn-ghost btn-xs" @click="openEditSourceModal(source)">
-                  {{ t('common.edit') }}
-                </button>
-                <button
-                  class="btn btn-ghost btn-xs text-error"
-                  :disabled="actionLoading === `delete-source-${source.id}`"
-                  @click="deleteSource(source)"
-                >
-                  <span v-if="actionLoading === `delete-source-${source.id}`" class="loading loading-spinner loading-xs"></span>
-                  <span v-else>{{ t('common.delete') }}</span>
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+            <thead>
+              <tr class="border-b border-themed">
+                <th class="nimbus-th w-[12%]">{{ t('admin.mail.region') }}</th>
+                <th class="nimbus-th w-[22%]">{{ t('common.name') }}</th>
+                <th class="nimbus-th w-[38%]">{{ t('admin.mail.apiEndpoint') }}</th>
+                <th class="nimbus-th w-[12%]">{{ t('admin.mail.plans') }}</th>
+                <th class="nimbus-th nimbus-th-right w-[16%]">{{ t('common.actions') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="source in sources" :key="source.id" class="nimbus-row border-b border-themed">
+                <td class="px-4 py-3">
+                  <div class="flex items-center gap-2">
+                    <FlagIcon :code="source.code" class="w-5 h-5" />
+                    <span class="text-sm font-medium text-themed">{{ source.code.toUpperCase() }}</span>
+                  </div>
+                </td>
+                <td class="px-4 py-3 text-sm text-themed truncate">{{ source.name }}</td>
+                <td class="px-4 py-3 font-mono text-xs text-themed-muted truncate" :title="source.apiUrl">{{ source.apiUrl }}</td>
+                <td class="px-4 py-3 text-sm text-themed tabular-nums">{{ source.planCount || 0 }}</td>
+                <td class="px-4 py-3 text-right">
+                  <button class="btn btn-ghost btn-xs" @click="openEditSourceModal(source)">
+                    {{ t('common.edit') }}
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-xs text-error"
+                    :disabled="actionLoading === `delete-source-${source.id}`"
+                    @click="deleteSource(source)"
+                  >
+                    <span v-if="actionLoading === `delete-source-${source.id}`" class="loading loading-spinner loading-xs"></span>
+                    <span v-else>{{ t('common.delete') }}</span>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </template>
     </div>
@@ -587,44 +587,44 @@ const regionOptions = [
 
         <div class="card hidden overflow-hidden lg:block">
           <table class="w-full table-fixed">
-          <thead>
-            <tr class="border-b border-themed">
-              <th class="nimbus-th w-[26%]">{{ t('common.name') }}</th>
-              <th class="nimbus-th w-[18%]">{{ t('admin.mail.source') }}</th>
-              <th class="nimbus-th w-[14%]">{{ t('admin.mail.domainLimit') }}</th>
-              <th class="nimbus-th w-[14%]">{{ t('admin.mail.diskLimit') }}</th>
-              <th class="nimbus-th w-[14%]">{{ t('admin.mail.price') }}</th>
-              <th class="nimbus-th nimbus-th-right w-[14%]">{{ t('common.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="plan in plans" :key="plan.id" class="nimbus-row border-b border-themed">
-              <td class="px-4 py-3">
-                <div class="text-sm font-medium text-themed">{{ plan.name }}</div>
-                <div v-if="plan.description" class="text-xs text-themed-muted truncate">{{ plan.description }}</div>
-              </td>
-              <td class="px-4 py-3 text-sm text-themed truncate">{{ plan.source?.name || '-' }}</td>
-              <td class="px-4 py-3 text-sm text-themed tabular-nums">{{ plan.domainLimit }}</td>
-              <td class="px-4 py-3 text-sm text-themed tabular-nums">{{ plan.diskLimitGb }} GB</td>
-              <td class="px-4 py-3 text-sm font-medium text-themed tabular-nums">
-                {{ formatPrice(plan.price) }}/{{ plan.billingCycle === 'monthly' ? t('mail.month') : t('mail.year') }}
-              </td>
-              <td class="px-4 py-3 text-right">
-                <button class="btn btn-ghost btn-xs" @click="openEditPlanModal(plan)">
-                  {{ t('common.edit') }}
-                </button>
-                <button
-                  class="btn btn-ghost btn-xs text-error"
-                  :disabled="actionLoading === `delete-plan-${plan.id}`"
-                  @click="deletePlan(plan)"
-                >
-                  <span v-if="actionLoading === `delete-plan-${plan.id}`" class="loading loading-spinner loading-xs"></span>
-                  <span v-else>{{ t('common.delete') }}</span>
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+            <thead>
+              <tr class="border-b border-themed">
+                <th class="nimbus-th w-[26%]">{{ t('common.name') }}</th>
+                <th class="nimbus-th w-[18%]">{{ t('admin.mail.source') }}</th>
+                <th class="nimbus-th w-[14%]">{{ t('admin.mail.domainLimit') }}</th>
+                <th class="nimbus-th w-[14%]">{{ t('admin.mail.diskLimit') }}</th>
+                <th class="nimbus-th w-[14%]">{{ t('admin.mail.price') }}</th>
+                <th class="nimbus-th nimbus-th-right w-[14%]">{{ t('common.actions') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="plan in plans" :key="plan.id" class="nimbus-row border-b border-themed">
+                <td class="px-4 py-3">
+                  <div class="text-sm font-medium text-themed">{{ plan.name }}</div>
+                  <div v-if="plan.description" class="text-xs text-themed-muted truncate">{{ plan.description }}</div>
+                </td>
+                <td class="px-4 py-3 text-sm text-themed truncate">{{ plan.source?.name || '-' }}</td>
+                <td class="px-4 py-3 text-sm text-themed tabular-nums">{{ plan.domainLimit }}</td>
+                <td class="px-4 py-3 text-sm text-themed tabular-nums">{{ plan.diskLimitGb }} GB</td>
+                <td class="px-4 py-3 text-sm font-medium text-themed tabular-nums">
+                  {{ formatPrice(plan.price) }}/{{ plan.billingCycle === 'monthly' ? t('mail.month') : t('mail.year') }}
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <button class="btn btn-ghost btn-xs" @click="openEditPlanModal(plan)">
+                    {{ t('common.edit') }}
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-xs text-error"
+                    :disabled="actionLoading === `delete-plan-${plan.id}`"
+                    @click="deletePlan(plan)"
+                  >
+                    <span v-if="actionLoading === `delete-plan-${plan.id}`" class="loading loading-spinner loading-xs"></span>
+                    <span v-else>{{ t('common.delete') }}</span>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </template>
     </div>
@@ -703,47 +703,47 @@ const regionOptions = [
 
         <div class="card hidden overflow-hidden lg:block">
           <table class="w-full table-fixed">
-          <thead>
-            <tr class="border-b border-themed">
-              <th class="nimbus-th w-[30%]">{{ t('admin.mail.user') }}</th>
-              <th class="nimbus-th w-[18%]">{{ t('admin.mail.plan') }}</th>
-              <th class="nimbus-th w-[12%]">{{ t('common.status') }}</th>
-              <th class="nimbus-th w-[16%]">{{ t('admin.mail.expiresAt') }}</th>
-              <th class="nimbus-th w-[14%]">{{ t('common.createdAt') }}</th>
-              <th class="nimbus-th nimbus-th-right w-[10%]">{{ t('common.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="sub in subscriptions" :key="sub.id" class="nimbus-row border-b border-themed">
-              <td class="px-4 py-3">
-                <div class="flex items-center gap-3">
-                  <UserAvatar :username="sub.user?.username || ''" :email="sub.user?.email" :avatar-style="sub.user?.avatarStyle" :badge-id="sub.user?.avatarBadgeId || null" :size="32" />
-                  <div class="min-w-0">
-                    <div class="truncate text-sm font-medium text-themed">{{ sub.user?.username || '-' }}</div>
-                    <div class="truncate text-xs text-themed-muted">ID: {{ sub.user?.id || '-' }} · {{ sub.user?.email || '-' }}</div>
+            <thead>
+              <tr class="border-b border-themed">
+                <th class="nimbus-th w-[30%]">{{ t('admin.mail.user') }}</th>
+                <th class="nimbus-th w-[18%]">{{ t('admin.mail.plan') }}</th>
+                <th class="nimbus-th w-[12%]">{{ t('common.status') }}</th>
+                <th class="nimbus-th w-[16%]">{{ t('admin.mail.expiresAt') }}</th>
+                <th class="nimbus-th w-[14%]">{{ t('common.createdAt') }}</th>
+                <th class="nimbus-th nimbus-th-right w-[10%]">{{ t('common.actions') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="sub in subscriptions" :key="sub.id" class="nimbus-row border-b border-themed">
+                <td class="px-4 py-3">
+                  <div class="flex items-center gap-3">
+                    <UserAvatar :username="sub.user?.username || ''" :email="sub.user?.email" :avatar-style="sub.user?.avatarStyle" :badge-id="sub.user?.avatarBadgeId || null" :size="32" />
+                    <div class="min-w-0">
+                      <div class="truncate text-sm font-medium text-themed">{{ sub.user?.username || '-' }}</div>
+                      <div class="truncate text-xs text-themed-muted">ID: {{ sub.user?.id || '-' }} · {{ sub.user?.email || '-' }}</div>
+                    </div>
                   </div>
-                </div>
-              </td>
-              <td class="px-4 py-3 text-sm text-themed truncate">{{ sub.plan?.name || '-' }}</td>
-              <td class="px-4 py-3">
-                <span :class="['badge badge-sm', getStatusBadge(sub.status)]">
-                  {{ t('mail.status.' + sub.status) }}
-                </span>
-              </td>
-              <td class="px-4 py-3 text-sm text-themed tabular-nums">{{ formatDate(sub.expiresAt) }}</td>
-              <td class="px-4 py-3 text-sm text-themed-muted tabular-nums">{{ formatDate(sub.createdAt) }}</td>
-              <td class="px-4 py-3 text-right">
-                <button
-                  class="btn btn-ghost btn-xs text-error"
-                  :disabled="actionLoading === 'unsub'"
-                  @click="openUnsubModal(sub)"
-                >
-                  {{ t('admin.mail.unsub.button') }}
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                </td>
+                <td class="px-4 py-3 text-sm text-themed truncate">{{ sub.plan?.name || '-' }}</td>
+                <td class="px-4 py-3">
+                  <span :class="['badge badge-sm', getStatusBadge(sub.status)]">
+                    {{ t('mail.status.' + sub.status) }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-sm text-themed tabular-nums">{{ formatDate(sub.expiresAt) }}</td>
+                <td class="px-4 py-3 text-sm text-themed-muted tabular-nums">{{ formatDate(sub.createdAt) }}</td>
+                <td class="px-4 py-3 text-right">
+                  <button
+                    class="btn btn-ghost btn-xs text-error"
+                    :disabled="actionLoading === 'unsub'"
+                    @click="openUnsubModal(sub)"
+                  >
+                    {{ t('admin.mail.unsub.button') }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </template>
 
@@ -828,37 +828,37 @@ const regionOptions = [
 
         <div class="card hidden overflow-hidden lg:block">
           <table class="w-full table-fixed">
-          <thead>
-            <tr class="border-b border-themed">
-              <th class="nimbus-th w-[26%]">{{ t('admin.mail.domain') }}</th>
-              <th class="nimbus-th w-[32%]">{{ t('admin.mail.user') }}</th>
-              <th class="nimbus-th w-[14%]">{{ t('common.status') }}</th>
-              <th class="nimbus-th w-[12%]">{{ t('admin.mail.accounts') }}</th>
-              <th class="nimbus-th w-[16%]">{{ t('common.createdAt') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="domain in domains" :key="domain.id" class="nimbus-row border-b border-themed">
-              <td class="px-4 py-3 font-mono text-sm font-medium text-themed truncate" :title="domain.domain">{{ domain.domain }}</td>
-              <td class="px-4 py-3">
-                <div class="flex items-center gap-3">
-                  <UserAvatar :username="domain.subscription?.user?.username || ''" :email="domain.subscription?.user?.email" :avatar-style="domain.subscription?.user?.avatarStyle" :badge-id="domain.subscription?.user?.avatarBadgeId || null" :size="32" />
-                  <div class="min-w-0">
-                    <div class="truncate text-sm font-medium text-themed">{{ domain.subscription?.user?.username || '-' }}</div>
-                    <div class="truncate text-xs text-themed-muted">ID: {{ domain.subscription?.user?.id || '-' }} · {{ domain.subscription?.user?.email || '-' }}</div>
+            <thead>
+              <tr class="border-b border-themed">
+                <th class="nimbus-th w-[26%]">{{ t('admin.mail.domain') }}</th>
+                <th class="nimbus-th w-[32%]">{{ t('admin.mail.user') }}</th>
+                <th class="nimbus-th w-[14%]">{{ t('common.status') }}</th>
+                <th class="nimbus-th w-[12%]">{{ t('admin.mail.accounts') }}</th>
+                <th class="nimbus-th w-[16%]">{{ t('common.createdAt') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="domain in domains" :key="domain.id" class="nimbus-row border-b border-themed">
+                <td class="px-4 py-3 font-mono text-sm font-medium text-themed truncate" :title="domain.domain">{{ domain.domain }}</td>
+                <td class="px-4 py-3">
+                  <div class="flex items-center gap-3">
+                    <UserAvatar :username="domain.subscription?.user?.username || ''" :email="domain.subscription?.user?.email" :avatar-style="domain.subscription?.user?.avatarStyle" :badge-id="domain.subscription?.user?.avatarBadgeId || null" :size="32" />
+                    <div class="min-w-0">
+                      <div class="truncate text-sm font-medium text-themed">{{ domain.subscription?.user?.username || '-' }}</div>
+                      <div class="truncate text-xs text-themed-muted">ID: {{ domain.subscription?.user?.id || '-' }} · {{ domain.subscription?.user?.email || '-' }}</div>
+                    </div>
                   </div>
-                </div>
-              </td>
-              <td class="px-4 py-3">
-                <span :class="['badge badge-sm', getStatusBadge(domain.status)]">
-                  {{ t('mail.domainStatus.' + domain.status) }}
-                </span>
-              </td>
-              <td class="px-4 py-3 text-sm text-themed tabular-nums">{{ domain._count?.accounts || 0 }}</td>
-              <td class="px-4 py-3 text-sm text-themed-muted tabular-nums">{{ formatDate(domain.createdAt) }}</td>
-            </tr>
-          </tbody>
-        </table>
+                </td>
+                <td class="px-4 py-3">
+                  <span :class="['badge badge-sm', getStatusBadge(domain.status)]">
+                    {{ t('mail.domainStatus.' + domain.status) }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-sm text-themed tabular-nums">{{ domain._count?.accounts || 0 }}</td>
+                <td class="px-4 py-3 text-sm text-themed-muted tabular-nums">{{ formatDate(domain.createdAt) }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </template>
 

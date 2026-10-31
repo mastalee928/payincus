@@ -369,20 +369,20 @@ const quotaLimitDisplay = computed(() => {
             </span>
           </p>
         </div>
-	        <button
-	          v-if="canManageSites"
-	          class="btn-primary w-full sm:w-auto"
-	          :disabled="isQuotaFull || !canMutateSites || adding"
-	          @click="openAddModal"
-	        >
+        <button
+          v-if="canManageSites"
+          class="btn-primary w-full sm:w-auto"
+          :disabled="isQuotaFull || !canMutateSites || adding"
+          @click="openAddModal"
+        >
           <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
-	          {{ t('instance.sites.addSite') }}
-	        </button>
-	      </div>
+          {{ t('instance.sites.addSite') }}
+        </button>
+      </div>
 
-	      <!-- 站点列表 -->
+      <!-- 站点列表 -->
       <div v-if="hasSites" class="space-y-3">
         <div
           v-for="site in sites"
@@ -444,13 +444,15 @@ const quotaLimitDisplay = computed(() => {
               </div>
             </div>
 
-	            <div v-if="canMutateSites" class="flex items-center flex-wrap gap-2 self-end sm:self-auto">
+            <div v-if="canMutateSites" class="flex items-center flex-wrap gap-2 self-end sm:self-auto">
               <button
                 v-if="site.syncPending && site.operationId"
                 class="btn-ghost min-h-11 px-3"
                 :disabled="!canMutateSites || rowBusy(site.id) || site.operationState === 'applying'"
                 @click="retrySite(site.id)"
-              >{{ t('instance.sites.retryOperation') }}</button>
+              >
+                {{ t('instance.sites.retryOperation') }}
+              </button>
               <!-- 启用/禁用切换 -->
               <button
                 v-if="!site.syncPending"
@@ -573,12 +575,12 @@ const quotaLimitDisplay = computed(() => {
         <p class="text-sm mb-4" :class="themeStore.isDark ? 'text-gray-400' : 'text-gray-500'">
           {{ t('instance.sites.empty') }}
         </p>
-	        <button
-	          v-if="canManageSites"
-	          class="btn-primary"
-	          :disabled="isQuotaFull || !canMutateSites || adding"
-	          @click="openAddModal"
-	        >
+        <button
+          v-if="canManageSites"
+          class="btn-primary"
+          :disabled="isQuotaFull || !canMutateSites || adding"
+          @click="openAddModal"
+        >
           {{ t('instance.sites.addFirstSite') }}
         </button>
       </div>
@@ -671,10 +673,10 @@ const quotaLimitDisplay = computed(() => {
               </div>
 
               <div class="flex justify-end gap-3 mt-6">
-                <button class="btn-ghost" @click="closeAddModal" :disabled="adding">
+                <button class="btn-ghost" :disabled="adding" @click="closeAddModal">
                   {{ t('common.cancel') }}
                 </button>
-	                <button :disabled="adding" class="btn-primary" @click="addSite">
+                <button :disabled="adding" class="btn-primary" @click="addSite">
                   <span v-if="adding" class="flex items-center gap-2">
                     <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -775,10 +777,10 @@ const quotaLimitDisplay = computed(() => {
               </div>
 
               <div class="flex justify-end gap-3 mt-6">
-                <button class="btn-ghost" @click="closeEditModal" :disabled="editing">
+                <button class="btn-ghost" :disabled="editing" @click="closeEditModal">
                   {{ t('common.cancel') }}
                 </button>
-	                <button :disabled="editing" class="btn-primary" @click="updateSite">
+                <button :disabled="editing" class="btn-primary" @click="updateSite">
                   <span v-if="editing" class="flex items-center gap-2">
                     <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>

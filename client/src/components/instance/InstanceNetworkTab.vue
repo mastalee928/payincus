@@ -319,11 +319,11 @@ const canReassignIpv6 = computed(() => {
                       : 'bg-gray-100 text-gray-400 cursor-not-allowed')
                 ]"
                 :disabled="!canReassignIpv6 || props.reassignIpv6Loading"
-	                :title="ipv6ReassignCooldown.inCooldown
-	                  ? t('instance.detail.network.reassignIpv6Cooldown', { hours: ipv6ReassignCooldown.remainingHours })
-	                  : (instance.status !== 'stopped'
-	                    ? t('instance.detail.network.reassignIpv6StopRequired')
-	                    : t('instance.detail.network.reassignIpv6'))"
+                :title="ipv6ReassignCooldown.inCooldown
+                  ? t('instance.detail.network.reassignIpv6Cooldown', { hours: ipv6ReassignCooldown.remainingHours })
+                  : (instance.status !== 'stopped'
+                    ? t('instance.detail.network.reassignIpv6StopRequired')
+                    : t('instance.detail.network.reassignIpv6'))"
                 @click="emit('reassign-ipv6')"
               >
                 <span v-if="props.reassignIpv6Loading" class="flex items-center gap-1">
@@ -528,7 +528,7 @@ const canReassignIpv6 = computed(() => {
       <div v-else-if="filteredPortMappings.length" class="space-y-2">
         <!-- 全选行 -->
         <div
-	          v-if="canMutateNetwork && paginatedPorts.length > 0"
+          v-if="canMutateNetwork && paginatedPorts.length > 0"
           class="flex items-center justify-between gap-3 pb-2 border-b"
           :class="themeStore.isDark ? 'border-gray-800' : 'border-gray-200'"
         >

@@ -376,7 +376,9 @@ function formatDisk(mb: number) {
       </div>
     </div>
   </div>
-  <SensitiveVerificationModal v-if="verificationAttempt" :key="verificationAttempt.key" :show="true"
+  <SensitiveVerificationModal
+    v-if="verificationAttempt" :key="verificationAttempt.key" :show="true"
     operation-type="transfer_instance" :resource-id="verificationAttempt.instanceId"
-    @close="verificationAttempt.close" @verified="verificationAttempt.verified" />
+    @close="verificationAttempt.close" @verified="verificationAttempt.verified"
+  />
 </template>

@@ -188,7 +188,6 @@ function backToEmail() {
   <div ref="revealRoot" class="nimbus-auth kawaii-public-shell kawaii-auth-shell kawaii-user-auth min-h-screen flex items-center justify-center p-4 sm:p-6">
     <div class="nimbus-aurora" aria-hidden="true"></div>
     <div class="relative z-10 w-full max-w-sm">
-
       <!-- Logo lockup -->
       <div class="nimbus-lockup" data-reveal>
         <div class="nimbus-logo-tile">

@@ -111,8 +111,10 @@ function verified() { showVerification.value = false; void submit() }
               <div>
                 <label for="admin-push-target" class="mb-1 block text-sm font-medium">{{ t('admin.instancePush.target') }}</label>
                 <div class="flex gap-2">
-                  <input id="admin-push-target" v-model="targetUsername" class="input min-w-0 flex-1" maxlength="64" autocomplete="off"
-                    :disabled="submitting" :placeholder="t('admin.instancePush.targetPlaceholder')" @keydown.enter.prevent="searchTarget" />
+                  <input
+                    id="admin-push-target" v-model="targetUsername" class="input min-w-0 flex-1" maxlength="64" autocomplete="off"
+                    :disabled="submitting" :placeholder="t('admin.instancePush.targetPlaceholder')" @keydown.enter.prevent="searchTarget"
+                  />
                   <button type="button" class="btn-secondary shrink-0" :disabled="searching || submitting || targetUsername.trim().length < 2" @click="searchTarget">
                     {{ searching ? t('common.loading') : t('admin.instancePush.search') }}
                   </button>
@@ -145,8 +147,10 @@ function verified() { showVerification.value = false; void submit() }
       </section>
     </div>
   </Teleport>
-  <SensitiveVerificationModal :show="showVerification" operation-type="transfer_instance" :resource-id="instance.id"
-    @close="showVerification = false" @verified="verified" />
+  <SensitiveVerificationModal
+    :show="showVerification" operation-type="transfer_instance" :resource-id="instance.id"
+    @close="showVerification = false" @verified="verified"
+  />
 </template>
 
 <style scoped>

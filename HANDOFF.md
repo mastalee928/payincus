@@ -1,5 +1,14 @@
 # 版本与验证记录
 
+## 2026-11-01 GitHub CI 运行时与前端格式警告
+
+- Owner截图为旧CI的16条warning与2条notice。已读 `41223293206` 的真实annotation：旧Actions仍声明Node20、Ubuntu latest迁移提示，及IPv4表格前10处缩进。实际本地lint为19个Vue文件546处格式告警（首个文件21处，其他18个525处），不是546个业务故障；保留原结果 `logs/ci-warnings-original-annotations.json`、`logs/ci-warnings-lint.log`。
+- 仅CI工作流升级checkout/setup-node/pnpm action至v5、setup-go至v6；已从各官方action.yml核对均为node24及输入兼容。两处ubuntu-latest固定24.04；项目Node22、Go1.22.x、pnpm9.14.2及双架构矩阵保持。`ci-warnings-workflow.log`解析YAML后严格比对，恰好20处Action与2处runner变化，其余命令、触发、服务、输入及矩阵完全一致。发行/Agent/文档工作流未纳入本次CI修复。
+- 19个Vue文件仅修缩进、标签换行、空行、标签空格及两处简单按钮属性顺序；ESLint规则未放宽。`ci-warnings-vue-equivalence.log`逐文件比较脚本、样式及生产模板编译，19/19通过；只将已核实的两处@click/:disabled顺序在基线中定向对齐，再以TypeScript printer比较生成代码，保留业务字符串。表格宽度、事件、条件及业务行为均保持。
+- `ci-warnings-lint-final.log`全前端ESLint以--max-warnings 0自然exit0；最后清理InstanceLogsTab两处旧行末空格后单文件同标准复验通过。前端路由、仓库来源、Prisma补丁及组件包守卫通过；组件包守卫无package脚本别名，首次误用名称只输出None，未计为通过，已按实际TS路径执行并自然exit0，见`ci-warnings-package-guard.log`。最终`ci-warnings-build-complete.log`双端vue-tsc/Vite及`ci-warnings-dist.log`边界守卫均自然exit0。
+- 首轮双端构建通过后完整lint发现更多旧格式问题，后续范围扩大；最后diff检查发现上述行末空格，已定向停止本任务过期构建再清理，不将被停止轮记为通过。最终证据只采用`ci-warnings-build-complete.log`；后续改动先完成diff检查再启动最终构建，避免重复。纯格式通过编译等价复用原业务流程证据，未重做生产/真实宿主流程。
+- 前项首页提交`974af39e6d0ab377cffbd6666fc8cdedb2e9080e`/CI`41223293206`仍运行，未称通过；本项提交与CI身份在推送后记录`logs/ci-warnings-run.json`并加入既有payincus-ci跟进。旧运行annotation保留，新运行结果单独核实。暂不发版、不创建tag/Release、不部署生产。
+
 ## 2026-11-01 首页地图复查、亮色主题与来源隐藏
 
 - 复查和范围见 `HOME_MAP_REVIEW_2026-11-01.md`。修复 1600px 断点宽度突缩，统一桌面尺寸与内容边界；密集城市名称增加原点引线和直接选择，首尔/春川分别保持地区7/8；筛选大洲按空间补充无库存名称，全球默认优先所有可售地区。真实地理/购买绑定不变。

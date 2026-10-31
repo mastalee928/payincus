@@ -210,7 +210,8 @@ const xAxisLabels = computed(() => {
           </div>
 
           <!-- Progress Bar -->
-          <div v-if="trafficData.monthlyLimit"
+          <div
+            v-if="trafficData.monthlyLimit"
             class="h-2 rounded-full overflow-hidden"
             :class="themeStore.isDark ? 'bg-gray-700' : 'bg-gray-200'"
           >

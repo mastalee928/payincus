@@ -326,7 +326,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
             </svg>
             {{ t('instance.detail.info.redeem') }}
           </button>
-<div
+          <div
             v-if="isRunning && statsLoading"
             class="w-3 h-3 border-2 border-sakura-400 border-t-transparent rounded-full animate-spin"
           ></div>

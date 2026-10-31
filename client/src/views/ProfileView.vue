@@ -42,7 +42,6 @@ useReveal(revealRoot)
     </div>
 
     <div class="nimbus-settings-stack">
-
       <!-- 账户信息和配额 -->
       <AccountSection data-reveal />
 
