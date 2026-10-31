@@ -150,7 +150,10 @@ assert.ok(
     managedAsyncSection.includes('await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`') &&
     managedAsyncSection.includes('await db.releasePublicIpv4ForInstance(tx, instanceId)') &&
     managedAsyncSection.includes('await db.compensateFailedInstancePurchase(instanceId, instance.userId, instance.hostId)') &&
-    managedAsyncSection.indexOf('await cleanupManagedInstanceRemote(client, config.name, attempt)') < managedAsyncSection.indexOf('UPDATE hosts SET cpu_used'),
+    managedAsyncSection.includes('if (!billingSettled || current.deletionBillingPending) throw new Error') &&
+    managedAsyncSection.includes("data: { status: 'deleted', provisioningCleanupPending: false }") &&
+    indexOfOrThrow(managedAsyncSection, 'await cleanupManagedInstanceRemote(client, config.name, attempt, cleanupDeadline)', 'confirmed remote cleanup') <
+      indexOfOrThrow(managedAsyncSection, 'UPDATE hosts SET cpu_used', 'resource release'),
   'managed failures must claim the same target, preserve pending resources until confirmed remote cleanup, and release resources/IP atomically under the instance lock; refunds remain independent'
 )
 

@@ -11,7 +11,9 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'), 'Use isolated local *_pool_test PostgreSQL')
 const { prisma, closePrismaDatabase, getDbPoolStats } = await import('../src/db/prisma.js')
 const { provisionManagedInstanceAsync } = await import('../src/lib/managed-instance-provision.js')
-const { getHostById } = await import('../src/db/hosts.js')
+const { getHostById, calculateHostResourcesFromInstances } = await import('../src/db/hosts.js')
+const { HOST_OCCUPIED_INSTANCE_WHERE } = await import('../src/lib/host-resource-usage.js')
+const { compensateFailedInstancePurchase } = await import('../src/db/instance-provisioning-compensation.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const tag = `managed-${randomUUID()}`
 const root = await mkdtemp(join(tmpdir(), tag))
@@ -97,6 +99,7 @@ let lockRelease: Promise<void> | undefined
 let lockDelayInjected = false
 prisma.$transaction = new Proxy(originalTransaction, {
   async apply(transaction, receiver, args) {
+    if (mode === 'compensation_failed' && args[1]?.timeout === 15000) throw new Error('fixture compensation transaction unavailable')
     if (mode === 'cleanup_lock_deadline' && args[1]?.timeout === 45000 && !lockDelayInjected) {
       lockDelayInjected = true
       const locker = await lockPool.connect()
@@ -112,7 +115,9 @@ prisma.$transaction = new Proxy(originalTransaction, {
   }
 })
 try {
-  for (const scenario of ['delete_refused', 'stop_refused', 'still_running', 'uuid_changed', 'delete_unconfirmed', 'delete_false_404', 'not_found_text', 'forward_refused', 'forward_unconfirmed', 'existing', 'pending_create', 'absent', 'confirmed', 'lost_claim', 'host_changed', 'allocation_changed', 'locked_cleanup', 'db_failure', 'success', 'success_lost_claim', 'cleanup_lock_deadline']) {
+  for (const scenario of ['delete_refused', 'stop_refused', 'still_running', 'uuid_changed', 'delete_unconfirmed', 'delete_false_404', 'not_found_text', 'forward_refused', 'forward_unconfirmed', 'existing', 'pending_create', 'absent', 'confirmed', 'lost_claim', 'host_changed', 'allocation_changed', 'locked_cleanup', 'db_failure', 'success', 'success_lost_claim', 'cleanup_lock_deadline', 'compensation_failed', 'already_refunded', 'unpaid']) {
+    const selected = process.env.REVIEW_MANAGED_SCENARIOS?.split(',')
+    if (selected && !selected.includes(scenario)) continue
     mode = scenario; target = `${tag}-${mode}`; actions.length = 0; afterCreate = undefined; afterStop = undefined
     remote = mode === 'existing' ? { name: target, config: { 'user.unrelated': 'preserve' }, status: 'Running' } : null
     const instance = await prisma.instance.create({ data: { userId: owner.id, hostId: host.id, name: target, incusId: target,
@@ -125,7 +130,7 @@ try {
     }
     await prisma.publicIpv4Address.create({ data: { hostId: host.id, address: '192.0.2.20', status: 'assigned', instanceId,
       prefixLength: 24, gateway: '192.0.2.1' } })
-    await prisma.instanceBillingRecord.create({ data: { userId: owner.id, instanceId, type: 'newPurchase', amount: 5, months: 1,
+    if (mode !== 'unpaid') await prisma.instanceBillingRecord.create({ data: { userId: owner.id, instanceId, type: 'newPurchase', amount: 5, months: 1,
       periodStart: new Date(), periodEnd: new Date(Date.now() + 86400000) } })
     if (mode === 'lost_claim') afterCreate = () => prisma.instance.update({ where: { id: instanceId }, data: { status: 'running' } }).then(() => {})
     if (mode === 'host_changed') afterCreate = () => prisma.host.update({ where: { id: host.id }, data: { url: 'https://127.0.0.1:1' } }).then(() => {})
@@ -136,6 +141,7 @@ try {
       await new Promise(resolve => setTimeout(resolve, 150))
       assert.equal(mutationFinished, false, 'instance mutation must wait while cleanup holds the row lock')
     }
+    if (mode === 'already_refunded') await compensateFailedInstancePurchase(instanceId, owner.id, host.id)
     const balance = Number((await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).balance)
     const startedAt = performance.now()
     const provisioning = provisionManagedInstanceAsync(instanceId, (await getHostById(host.id))!, {
@@ -166,13 +172,13 @@ try {
     const current = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId } })
     const resources = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
     const address = await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: host.id } })
-    const cleaned = ['absent', 'confirmed', 'host_changed', 'locked_cleanup'].includes(mode)
+    const cleaned = ['absent', 'confirmed', 'host_changed', 'locked_cleanup', 'already_refunded', 'unpaid'].includes(mode)
     assert.equal(resources.cpuUsed, cleaned ? 75 : 125, `${mode}: retain resources until remote absence and forward cleanup are confirmed`)
     assert.equal(resources.memoryUsed, cleaned ? 512 : 768)
     assert.equal(resources.diskUsed, cleaned ? 3072 : 4096)
     assert.equal(address.status, cleaned ? 'free' : 'assigned')
     const otherOwner = ['lost_claim', 'success', 'success_lost_claim'].includes(mode)
-    assert.equal(current.status, mode === 'success_lost_claim' ? 'stopped' : ['lost_claim', 'success'].includes(mode) ? 'running' : 'error')
+    assert.equal(current.status, cleaned ? 'deleted' : mode === 'success_lost_claim' ? 'stopped' : ['lost_claim', 'success'].includes(mode) ? 'running' : 'error')
     assert.equal(current.provisioningCleanupPending, !cleaned && !otherOwner)
     if (!otherOwner) {
       const identity = (current.snapshottedSpecs as any).managedCleanup
@@ -180,8 +186,12 @@ try {
       assert.match(identity.endpointHash, /^[a-f0-9]{64}$/)
       assert.equal('url' in identity, false, 'persist only an endpoint hash, not a management address')
     }
-    assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).balance), balance + (otherOwner ? 0 : 5), 'failure refund remains independent of unresolved remote cleanup')
+    assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).balance), balance + (otherOwner || ['compensation_failed', 'already_refunded', 'unpaid'].includes(mode) ? 0 : 5), 'failure refund remains independent of unresolved remote cleanup')
     if (['existing', 'lost_claim', 'not_found_text', 'allocation_changed'].includes(mode)) assert.equal(actions.filter(action => action.startsWith('PUT ') || action === `DELETE /1.0/instances/${target}`).length, 0, 'unknown or no longer claimed instance must not be stopped/deleted')
+    assert.equal(await prisma.instance.count({ where: { hostId: host.id, ...HOST_OCCUPIED_INSTANCE_WHERE } }), cleaned ? 0 : 1, 'only confirmed and settled cleanup frees dedicated inventory')
+    const counted = await calculateHostResourcesFromInstances(host.id)
+    assert.equal(counted.cpuUsed, cleaned ? 0 : current.cpu, 'resource recalculation must not resurrect released claims')
+    if (mode === 'compensation_failed') assert.equal(remote, null, 'remote cleanup can complete while billing retains the claim')
     if (mode === 'confirmed') {
       assert.equal(remote, null)
       assert.ok(actions.indexOf(`PUT /1.0/instances/${target}/state`) < actions.indexOf(`DELETE /1.0/instances/${target}`))
@@ -192,7 +202,7 @@ try {
     }), /no longer owns/)
     assert.equal(actions.length, actionCount, 'late duplicate callback must not retry destructive I/O')
     assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).cpuUsed, resources.cpuUsed)
-    assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId, type: 'refund' } }), otherOwner ? 0 : 1)
+    assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId, type: 'refund' } }), otherOwner || ['compensation_failed', 'unpaid'].includes(mode) ? 0 : 1)
     if (['success', 'success_lost_claim'].includes(mode)) {
       assert.equal(remote?.status, 'Running')
       assert.equal(actions.filter(action => action === `DELETE /1.0/instances/${target}`).length, 0)

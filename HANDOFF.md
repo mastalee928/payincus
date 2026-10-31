@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 R325 失败交付确认清理后的库存结算
+
+- managed-r325-before.log真实PG+mTLS在确认远端删除后仍得到error，预期deleted，exit1。根因为仅清provisioningCleanupPending，库存谓词和宿主资源重算仍统计error。现在仅原目标身份/规格、远端原attempt/UUID/Stopped/精确404/无在途创建/转发清除全部确认，且失败退款已完成/已退/无购买账目、无删除账务待结时，同事务设deleted、清pending并释放宿主资源和公网IPv4。
+- 退款失败仍可执行远端清理，但保留error/pending、库存和地址，不把尚未结算账目隐藏成deleted。DB资源更新失败整体回滚，原管理身份及一机一卖规则不变；既有历史error数据没有批量迁移，也没有增加长期失败的自动重试，仍需按原恢复流程处理。
+- managed-r325-verified.log自然exit0：10个必要场景（confirmed、absent、delete_refused、uuid_changed、pending_create、db_failure、compensation_failed、already_refunded、unpaid、locked_cleanup），核独占库存谓词、真实资源重算、地址、余额及重复回调零重复副作用。原已通过30秒deadline等未变化场景按owner token约束复用，不重跑完整矩阵；原生Incus/客户机未运行，mTLS适配器范围明确。
+- managed-r325-types.log、managed-r325-test-types-complete.log、managed-r325-build.log与两相关守卫自然exit0。首次新增退款失败夹具误把事务args判断注入HTTP回调，产生args未定义，保留managed-r325-final.log，修夹具后通过；单文件tsc误用配置引入DOM dispatcher/缺node类型，改沿项目tsconfig及typeRoots后通过。相关守卫原indexOf找不到旧三参数调用仍以-1比较通过，改为先断言存在实际四参数调用再比顺序，并要求账务门禁和最终deleted。
+- 前项R046已推fd129fb180388c5d4d4dbf103dcda5051410af03 / CI41166299435，queued。本项后327/327均有定向修复或复核记录，无初审保留项；这是100%覆盖，不是完整精修/真机验收率。原项内授权、原生VM/Incus、外部服务、长时故障及完整灾备缺口保留；本地收尾后不因这些暂缓范围重复整套，继续跟踪CI新失败。
+
 ## 2026-10-31 R046 卡密分页与当前回执
 
 - 原固定page=1/pageSize=100，101条起无法查看；gift-r046-before.log真实浏览器确认没有可用分页。现沿既有API分页，过滤回首页、末页总数缩小时自动重读有效页，切页清选择，保留原移动卡与PC定宽表。

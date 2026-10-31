@@ -284,8 +284,10 @@ export async function provisionManagedInstanceAsync(
 
     // Customer failure refunds do not depend on host reachability. The resource
     // claim and IPv4 remain occupied independently until cleanup is confirmed.
+    let billingSettled = false
     try {
-      await db.compensateFailedInstancePurchase(instanceId, instance.userId, instance.hostId)
+      const compensation = await db.compensateFailedInstancePurchase(instanceId, instance.userId, instance.hostId)
+      billingSettled = compensation.refunded || compensation.reason === 'already_refunded' || compensation.reason === 'not_paid_purchase'
     } catch (compensationError) {
       console.error(`[Managed Provisioning] failed to compensate billing for instance ${instanceId}:`, compensationError)
     }
@@ -306,9 +308,12 @@ export async function provisionManagedInstanceAsync(
         }
         if (!client) throw new Error('Original Incus connection unavailable; cleanup not confirmed')
         await cleanupManagedInstanceRemote(client, config.name, attempt, cleanupDeadline)
+        // Do not hide a failed purchase from compensation while its billing is
+        // unresolved. Confirmed absence alone is insufficient to release stock.
+        if (!billingSettled || current.deletionBillingPending) throw new Error('远端清理已确认，但创建失败账务尚未结清；记录、库存和地址继续保留')
         const released = await tx.instance.updateMany({
           where: { ...target, status: 'error', provisioningCleanupPending: true },
-          data: { provisioningCleanupPending: false }
+          data: { status: 'deleted', provisioningCleanupPending: false }
         })
         if (released.count === 0) return
         const portCount = networkModeAllowsPortMapping(instance.networkMode) ? (instance.portLimit || 0) : 0
@@ -324,7 +329,7 @@ export async function provisionManagedInstanceAsync(
     } catch (cleanupError) {
       console.error(`[Managed Provisioning] cleanup pending for instance ${instanceId}; resources retained:`, cleanupError)
       await db.createLog(instance.userId, 'instance', 'instance.create',
-        `宿主机 ${host.id} 实例 ${instanceId} 创建失败，远端清理未确认，资源和地址继续保留。请核查实例身份与停止/删除结果后重试清理。${cleanupError instanceof Error ? cleanupError.message : 'Unknown cleanup error'}`,
+        `宿主机 ${host.id} 实例 ${instanceId} 创建失败，清理尚未完成，资源和地址继续保留。请核查远端清理和账务结果后重试。${cleanupError instanceof Error ? cleanupError.message : 'Unknown cleanup error'}`,
         'failed', { instanceId }).catch(logError => console.error('[Managed Provisioning] failed to record pending cleanup:', logError))
     }
 
