@@ -80,7 +80,7 @@ assert.ok(
   'monthly mail renewal must retain the existing 1-12 month limit'
 )
 assert.ok(
-  routeRenewSection.includes('Body: { months: unknown }'),
+  routeRenewSection.includes('Body: { months: unknown; subscriptionId?: unknown }'),
   'mail renewal request body must not trust compile-time number typing at runtime'
 )
 assert.ok(

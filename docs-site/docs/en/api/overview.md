@@ -186,7 +186,9 @@ Public API does not expose direct payment creation, payment callbacks, refunds, 
   <p>Renew a paid service through the internal billing state machine.</p>
   <table><tbody>
     <tr><th>Scope</th><td><code>services:billing</code></td></tr>
-    <tr><th>Body</th><td>Renew period and idempotency key.</td></tr>
+    <tr><th>Body</th><td><code>{ "months": 1 }</code>, from 1 to 24 months.</td></tr>
+    <tr><th>Header</th><td><code>Idempotency-Key</code> is required: 16–128 letters, digits, underscores or hyphens; UUIDs are recommended. Persist and reuse the key after timeouts or lost responses. Use a new key only for a new renewal. Reusing a key with another target or duration returns 409; missing keys return 400. Existing clients must add this header.</td></tr>
+    <tr><th>Response</th><td>serviceId, months, amount, discountAmount and newExpiresAt. Retries return the original durable result without another debit or extension.</td></tr>
     <tr><th>Boundary</th><td>Balance deduction, billing records, AFF discounts and hosted-node restrictions are handled inside the transaction.</td></tr>
   </tbody></table>
 </div>

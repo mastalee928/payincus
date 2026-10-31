@@ -38,7 +38,7 @@ try {
       const before = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
       await holder.query('BEGIN'); await holder.query('SELECT id FROM instances WHERE id=$1 FOR UPDATE', [instance.id])
       const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid
-      const operation = app.inject({ method: 'POST', url: `/v1/services/${instance.id}/renew`, headers: { authorization: `Bearer ${raw}` }, payload: { months: 1 } }).then(value => value)
+      const operation = app.inject({ method: 'POST', url: `/v1/services/${instance.id}/renew`, headers: { authorization: `Bearer ${raw}`, 'idempotency-key': randomUUID() }, payload: { months: 1 } }).then(value => value)
       pending = operation
       try {
         const deadline = Date.now() + 3000

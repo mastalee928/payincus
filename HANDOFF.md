@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-10-31 M10：续费请求持久幂等
+
+- 单台、批量、公开API及邮箱手动续费要求Idempotency-Key，绑定账户、目标及月数；扣款、账单和逐项回执同事务。重放核当前授权且复用原结果；不同输入409。新增renewal_requests迁移，整库备份自然包含回执；未做OSS恢复演练。
+- 客户端同页双击合并，网络失败及同标签刷新保留编号，确认成功后允许新的续费；邮箱明确绑定订阅编号。公开API旧客户端须添加请求头，SDK示例及中英/OpenAPI静态文档同步。SDK查询参数的既有严格类型错误也作最小修正。
+- renewal-m10-partial-restart-fixed.log真实Fastify/PG自然exit0：顺序及6并发一次、独立新进程重放、批量提交一台后退出再恢复只扣未完台、账户/参数/会话隔离、合法新请求、PAT/邮箱、回执故障使扣款和到期整体回滚。新增半批场景后旧余额断言漏计新增的两台，原失败保留，修正测试账目期望后通过。
+- renewal-m10-browser.log实际Chrome通过双击、响应丢失/刷新重试和账户/参数隔离；原Web、公开API、邮箱和AFF定向PG回归通过。client/server及专项严格类型、SDK严格类型、相关路由/邮件/公开API守卫和清单均过；renewal-m10-build.log双端+dist边界+server自然exit0。没有真实支付/宿主/邮箱供应商调用。浏览器回执存在sessionStorage，关闭标签后不保证复用；服务端同key回执持久化，不依赖进程。
+- 本项先提交推送，再继续M11迟到付款；此前资金提交7个运行本次均仍in_progress，无新失败，见logs/ci-renewal-m10-refresh.log。暂不发版。
+
 ## 2026-10-31 资金专项：精确1分钱容差与阶段审查结论
 
 - money-tolerance-before.log真实签名/PG回调复现：应付1元实付1.01元返回400；同规则10→10.01可过。payment-money新增Decimal差值比较，回调/用户verify/admin同步统一调用；保留原1分钱容差和Heleket允许多付，Antom/UPAY原严格匹配不放宽。

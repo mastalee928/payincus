@@ -312,7 +312,7 @@ const adminApiForbiddenCustomerSelfServiceMarkers = [
   "http.post('/recharge/orders",
   "http.get('/recharge/orders",
   "http.get('/recharge/stats",
-  "http.post('/instances/batch/renew",
+  "postRenewal(http, '/instances/batch/renew",
   "http.post('/instances/batch/destroy",
   "http.patch('/instances/batch/auto-renew",
   "http.get('/aff/me",

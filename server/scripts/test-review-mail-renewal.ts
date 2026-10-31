@@ -57,7 +57,7 @@ try {
         else await prisma.tokenInvalidation.create({ data: { userId, sessionId: change === 'logout' ? tag : '__USER_LEVEL__', invalidatedAt: actor.iat as number } })
         expected = await capture()
       }
-      const response = await app.inject({ method: 'POST', url: '/mail/subscription/renew', payload: { months: 1 } })
+      const response = await app.inject({ method: 'POST', url: '/mail/subscription/renew', headers: { 'idempotency-key': randomUUID() }, payload: { months: 1, subscriptionId: subscription.id } })
       console.log('Manual renewal after', change, 'status', response.statusCode, 'balance', Number((await capture()).user.balance))
       assert.equal(response.statusCode, change === 'price' || change === 'expiry' ? 409 : 403)
       assert.deepEqual(await capture(), expected, 'stale or revoked renewal must leave all accounting unchanged')
@@ -92,7 +92,7 @@ try {
     await holder.query('SELECT id FROM mail_subscriptions WHERE id=$1 FOR UPDATE', [subscription.id])
     const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid
     const operation = mode === 'manual'
-      ? app.inject({ method: 'POST', url: '/mail/subscription/renew', payload: { months: 1 } }).then(response => response.statusCode)
+      ? app.inject({ method: 'POST', url: '/mail/subscription/renew', headers: { 'idempotency-key': randomUUID() }, payload: { months: 1, subscriptionId: subscription.id } }).then(response => response.statusCode)
       : processMailAutoRenew(subscription, new Date(), new Date(Date.now() + 3 * 86400000)).then(result => result.status)
     pending = operation
     let expected: Awaited<ReturnType<typeof capture>> | undefined
@@ -112,14 +112,14 @@ try {
   await prisma.$executeRawUnsafe(`CREATE TRIGGER ${trigger} BEFORE INSERT ON balance_logs FOR EACH ROW EXECUTE FUNCTION ${trigger}()`)
   triggerCreated = true
   const beforeFailure = await capture()
-  const failed = await app.inject({ method: 'POST', url: '/mail/subscription/renew', payload: { months: 1 } })
+  const failed = await app.inject({ method: 'POST', url: '/mail/subscription/renew', headers: { 'idempotency-key': randomUUID() }, payload: { months: 1, subscriptionId: subscription.id } })
   assert.equal(failed.statusCode, 500)
   assert.deepEqual(await capture(), beforeFailure, 'ledger INSERT failure must roll back debit and expiry')
   await assert.rejects(processMailAutoRenew(subscription, new Date(), new Date(Date.now() + 3 * 86400000)), /isolated mail ledger failure/)
   assert.deepEqual(await capture(), beforeFailure)
   await prisma.$executeRawUnsafe(`DROP TRIGGER ${trigger} ON balance_logs`)
   await prisma.$executeRawUnsafe(`DROP FUNCTION ${trigger}()`); triggerCreated = false
-  const manual = await app.inject({ method: 'POST', url: '/mail/subscription/renew', payload: { months: 1 } })
+  const manual = await app.inject({ method: 'POST', url: '/mail/subscription/renew', headers: { 'idempotency-key': randomUUID() }, payload: { months: 1, subscriptionId: subscription.id } })
   assert.equal(manual.statusCode, 200, manual.body)
   assert.equal(manual.json().finalPrice, 10)
   assert.equal(Number((await capture()).user.balance), 90)

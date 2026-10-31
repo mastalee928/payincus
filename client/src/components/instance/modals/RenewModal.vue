@@ -132,7 +132,7 @@ async function loadBillingInfo() {
 
 // 执行续费
 async function handleRenew() {
-  if (insufficientBalance.value || !selectedRenewOption.value || !canHostedInstanceRenew.value) return
+  if (renewing.value || insufficientBalance.value || !selectedRenewOption.value || !canHostedInstanceRenew.value) return
   
   renewing.value = true
   error.value = ''

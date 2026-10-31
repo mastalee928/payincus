@@ -16,6 +16,7 @@ import { MAIL_DOMAIN_LOCK_NAMESPACE, MAIL_SUBSCRIPTION_LOCK_NAMESPACE, USER_BALA
 import { assertSafeHttpUrl } from '../lib/outbound-security.js'
 import { AffCodeEligibilityError, getMailSubscriptionAffBinding, requireAffCodeForPurchase } from '../db/aff.js'
 import { authorizeUserWrite } from '../db/user-write-authorization.js'
+import { renewalRequest, readRenewalItems, lockRenewalRequest, saveRenewalItem, RenewalRequestError, type RenewalRequest } from '../db/renewal-requests.js'
 
 function normalizeBaseUrl(url: URL): string {
   return url.toString().replace(/\/+$/, '')
@@ -1485,7 +1486,7 @@ export default async function mailRoutes(fastify: FastifyInstance) {
 
   // 续费订阅
   fastify.post<{
-    Body: { months: unknown }
+    Body: { months: unknown; subscriptionId?: unknown }
   }>('/subscription/renew', {
     onRequest: [fastify.authenticate]
   }, async (request, reply) => {
@@ -1497,8 +1498,22 @@ export default async function mailRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(error)
     }
 
+    const targetId = request.body.subscriptionId
+    if (typeof targetId !== 'number' || !Number.isSafeInteger(targetId) || targetId < 1 || targetId > 2147483647) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_ID, '请选择需要续费的邮箱订阅'))
+    }
+    let renewal: RenewalRequest
+    try {
+      renewal = renewalRequest(request.headers['idempotency-key'], 'mail', [targetId], renewMonths)
+      const saved = (await readRenewalItems(userId, renewal, request.user))[0] as { response?: unknown } | undefined
+      if (saved) return saved.response
+    } catch (error) {
+      if (error instanceof RenewalRequestError) return reply.code(error.statusCode).send({ error: error.message, code: error.code })
+      throw error
+    }
+
     const subscription = await db.getUserMailSubscription(userId)
-    if (!subscription) {
+    if (!subscription || subscription.id !== targetId) {
       return reply.code(404).send(apiError(ErrorCode.NOT_FOUND, '您没有邮箱订阅'))
     }
 
@@ -1543,6 +1558,11 @@ export default async function mailRoutes(fastify: FastifyInstance) {
 
     // 事务：扣费 + 续费 + 返利
     const renewResult = await prisma.$transaction(async (tx) => {
+      const saved = (await lockRenewalRequest(tx, userId, renewal))[0] as { response?: unknown } | undefined
+      if (saved) {
+        if (!await authorizeUserWrite(tx, userId, request.user)) return { error: apiError(ErrorCode.FORBIDDEN), statusCode: 403 }
+        return { replay: saved.response }
+      }
       const locked = await tryAdvisoryTransactionLock(tx, MAIL_SUBSCRIPTION_LOCK_NAMESPACE, userId)
       if (!locked) {
         return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, '邮箱订阅正在处理，请稍后重试') }
@@ -1646,6 +1666,9 @@ export default async function mailRoutes(fastify: FastifyInstance) {
         )
       }
 
+      await saveRenewalItem(tx, userId, renewal, 0, { subscriptionId: result.id, response: {
+        expiresAt: result.expiresAt.toISOString(), discountApplied: discountAmount > 0, discountAmount, finalPrice
+      } })
       return { subscription: result, revived }
     }).catch(error => {
       if (error instanceof AffCodeEligibilityError) return { error: apiError(ErrorCode.OPERATION_NOT_ALLOWED, error.message), statusCode: error.statusCode }
@@ -1655,6 +1678,7 @@ export default async function mailRoutes(fastify: FastifyInstance) {
     if ('error' in renewResult) {
       return reply.code(('statusCode' in renewResult ? renewResult.statusCode : undefined) ?? 400).send(renewResult.error)
     }
+    if ('replay' in renewResult) return renewResult.replay
 
     const updated = renewResult.subscription
 

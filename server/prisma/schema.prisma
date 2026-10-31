@@ -512,6 +512,7 @@ model User {
   // 计费相关
   balanceLogs     BalanceLog[]
   rechargeRecords RechargeRecord[]
+  renewalRequests RenewalRequest[]
   balanceAdjustmentTargets BalanceAdjustmentRequest[] @relation("BalanceAdjustmentTarget")
   balanceAdjustmentRequests BalanceAdjustmentRequest[] @relation("BalanceAdjustmentRequester")
   balanceAdjustmentReviews BalanceAdjustmentRequest[] @relation("BalanceAdjustmentReviewer")
@@ -2809,6 +2810,18 @@ model PaymentProvider {
 }
 
 // 充值记录
+model RenewalRequest {
+  userId     Int      @map("user_id")
+  requestKey String   @map("request_key") @db.VarChar(128)
+  inputHash  String   @map("input_hash")
+  results    Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, requestKey])
+  @@map("renewal_requests")
+}
+
 model RechargeRecord {
   id         Int @id @default(autoincrement())
   userId     Int @map("user_id")

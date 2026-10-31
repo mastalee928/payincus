@@ -91,6 +91,8 @@
     "test:review-payment-integrity": "node --import tsx scripts/test-review-payment-integrity.ts",
     "test:review-public-renewal": "node --import tsx scripts/test-review-public-renewal.ts",
     "test:review-mail-renewal": "node --import tsx scripts/test-review-mail-renewal.ts",
+    "test:review-renewal-idempotency": "node --import tsx scripts/test-review-renewal-idempotency.ts",
+    "test:review-renewal-request-ui": "node ../scripts/test-renewal-request.mjs",
     "test:review-recharge-terminal-states": "node --import tsx scripts/test-review-recharge-terminal-states.ts",
     "test:review-gift-card-counts": "node --import tsx scripts/test-review-gift-card-counts.ts",
     "test:review-gift-card-id-boundaries": "node --import tsx scripts/test-review-gift-card-id-boundaries.ts",

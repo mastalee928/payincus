@@ -179,8 +179,11 @@ export interface PayIncusServiceActionResult {
 }
 
 export interface PayIncusServiceRenewResult {
-  service: PayIncusService
-  billingRecord?: PayIncusBillingRecord
+  serviceId: number
+  months: number
+  amount: number
+  discountAmount: number | null
+  newExpiresAt: string
 }
 
 export interface PayIncusOrderListOptions extends PayIncusListOptions {
@@ -269,7 +272,7 @@ export class PayIncusPublicApiClient {
     this.token = options.token
   }
 
-  private query(options: Record<string, unknown> = {}): string {
+  private query(options: object = {}): string {
     const params = new URLSearchParams()
     for (const [key, value] of Object.entries(options)) {
       if (value === undefined || value === null) continue
@@ -306,10 +309,11 @@ export class PayIncusPublicApiClient {
     return form
   }
 
-  private async request<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+  private async request<T>(path: string, options: { method?: string; body?: unknown; idempotencyKey?: string } = {}): Promise<T> {
     const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
     const headers = {
       Authorization: `Bearer ${this.token}`,
+      ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
       ...(options.body === undefined || isFormData ? {} : { 'Content-Type': 'application/json' })
     }
     const response = await fetch(`${this.baseUrl}/api/v1${path}`, {
@@ -400,8 +404,8 @@ export class PayIncusPublicApiClient {
     return this.request(`/services/${id}/tasks/${taskId}`, { method: 'DELETE' }) as Promise<PayIncusResponse<PayIncusServiceTask>>
   }
 
-  renewService(id: number, months: number) {
-    return this.request(`/services/${id}/renew`, { method: 'POST', body: { months } }) as Promise<PayIncusResponse<PayIncusServiceRenewResult>>
+  renewService(id: number, months: number, idempotencyKey: string) {
+    return this.request(`/services/${id}/renew`, { method: 'POST', body: { months }, idempotencyKey }) as Promise<PayIncusResponse<PayIncusServiceRenewResult>>
   }
 
   listOrders(options: PayIncusOrderListOptions = {}) {

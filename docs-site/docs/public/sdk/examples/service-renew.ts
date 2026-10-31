@@ -11,8 +11,11 @@ async function main() {
   if (!serviceId) throw new Error('PAYINCUS_SERVICE_ID is required')
   if (!Number.isInteger(months) || months < 1) throw new Error('PAYINCUS_RENEW_MONTHS must be a positive integer')
 
-  const result = await client.renewService(serviceId, months)
-  console.log(`renewed service ${result.data.service.id} for ${months} month(s)`)
+  // Persist and reuse this identifier after network errors; use a new one for a new renewal.
+  const requestKey = process.env.PAYINCUS_RENEW_REQUEST_KEY
+  if (!requestKey) throw new Error('PAYINCUS_RENEW_REQUEST_KEY is required')
+  const result = await client.renewService(serviceId, months, requestKey)
+  console.log(`renewed service ${result.data.serviceId} for ${months} month(s)`)
 }
 
 main().catch(error => {

@@ -195,8 +195,9 @@ Public API 不开放直接支付建单、支付回调、退款、直接余额写
   <p>通过内部账务状态机续费当前用户付费服务。</p>
   <table><tbody>
     <tr><th>Scope</th><td><code>services:billing</code></td></tr>
-    <tr><th>Body</th><td>续费周期和幂等键。</td></tr>
-    <tr><th>返回</th><td>续费后的服务和账务结果。</td></tr>
+    <tr><th>Body</th><td><code>{ "months": 1 }</code>，周期为1–24个月。</td></tr>
+    <tr><th>Header</th><td>必须提供 <code>Idempotency-Key</code>：16–128位字母、数字、下划线或连字符，推荐UUID。超时或响应丢失后复用原编号；明确发起下一次续费才生成新编号。同账户同编号换目标或周期返回409，缺失编号返回400。旧客户端需补充此请求头。</td></tr>
+    <tr><th>返回</th><td>原始续费结果：serviceId、months、amount、discountAmount、newExpiresAt。相同编号重试复用数据库回执，不再次扣费或延长。</td></tr>
     <tr><th>边界</th><td>余额扣减、账单、AFF 折扣和托管节点限制由内部事务处理，不暴露直接扣款接口。</td></tr>
   </tbody></table>
 </div>

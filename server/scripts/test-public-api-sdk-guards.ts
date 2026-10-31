@@ -127,7 +127,7 @@ assert.ok(
     sdk.includes('PayIncusServiceActionResult') &&
     sdk.includes('PayIncusServiceTask') &&
     sdk.includes('PayIncusServiceRenewResult') &&
-    sdk.includes('renewService(id: number, months: number)') &&
+    sdk.includes('renewService(id: number, months: number, idempotencyKey: string)') &&
     sdk.includes('PayIncusOrderListOptions') &&
     sdk.includes('listOrders(options: PayIncusOrderListOptions = {})') &&
     sdk.includes('getOrder(id: string)') &&
@@ -170,7 +170,7 @@ assert.ok(
     sdk.includes('this.request(`/billing-records${this.query(options)}`)') &&
     sdk.includes('this.request(`/billing-records/${id}`)') &&
     sdk.includes("this.request(`/services/${id}/actions`, { method: 'POST'") &&
-    sdk.includes("this.request(`/services/${id}/renew`, { method: 'POST', body: { months } })") &&
+    sdk.includes("this.request(`/services/${id}/renew`, { method: 'POST', body: { months }, idempotencyKey })") &&
     sdk.includes('this.request(`/services/${id}/tasks/${taskId}`)') &&
     sdk.includes("this.request(`/services/${id}/tasks/${taskId}`, { method: 'DELETE' })") &&
     sdk.includes('this.request(`/orders/${encodeURIComponent(id)}`)') &&
@@ -202,7 +202,7 @@ assert.ok(
     serviceRenewExample.includes('PayIncusPublicApiClient') &&
     serviceRenewExample.includes('PAYINCUS_SERVICE_ID') &&
     serviceRenewExample.includes('PAYINCUS_RENEW_MONTHS') &&
-    serviceRenewExample.includes('renewService(serviceId, months)') &&
+    serviceRenewExample.includes('renewService(serviceId, months, requestKey)') &&
     serviceRenewExample.includes('PayIncusPublicApiError') &&
     balanceAdjustmentExample.includes('createBalanceAdjustmentRequest({') &&
     balanceAdjustmentExample.includes('listBalanceAdjustmentRequests({ status: \'pending\'') &&

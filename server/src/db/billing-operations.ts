@@ -7,6 +7,7 @@ import { prisma } from './prisma.js'
 import { authorizeUserWrite, type WriteSession } from './user-write-authorization.js'
 import { authorizePublicApiWrite, type PublicApiWriteAuthorization } from './public-api-write-authorization.js'
 import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
+import { lockRenewalRequest, saveRenewalItem, type RenewalRequest } from './renewal-requests.js'
 import { autoRenewEligibility } from '../lib/instance-auto-renew.js'
 import { recoveryHeld } from '../services/platform-backup-core.js'
 import { Prisma, type Instance, type PackagePlan } from '@prisma/client'
@@ -546,21 +547,28 @@ export function previewRenewPrices(
  * 执行续费操作（带乐观锁并发控制）
  * 支持 AFF 优惠码折扣和返利
  */
+export type RenewalResult = { newExpiresAt: Date; amount: number; balanceLogId: number; instanceName?: string; discountAmount?: number; hostingIncomeResult?: { hostOwnerId: number; hostName: string } | null; replayed?: boolean }
+export function restoreRenewalResult(value: unknown): RenewalResult {
+  const result = value as RenewalResult
+  return { ...result, discountAmount: result.discountAmount && result.discountAmount > 0 ? result.discountAmount : undefined,
+    newExpiresAt: new Date(result.newExpiresAt), replayed: true }
+}
 export async function performRenewal(
   userId: number,
   instance: Instance,
   months: number,
   automatic?: { expiryThreshold: Date },
   session?: WriteSession,
-  apiAuthorization?: PublicApiWriteAuthorization
-): Promise<{ newExpiresAt: Date; amount: number; balanceLogId: number; discountAmount?: number; hostingIncomeResult?: { hostOwnerId: number; hostName: string } | null }> {
-  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months, automatic, session, apiAuthorization))
+  apiAuthorization?: PublicApiWriteAuthorization,
+  request?: RenewalRequest
+): Promise<RenewalResult> {
+  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months, automatic, session, apiAuthorization, request))
 }
 
 async function performRenewalMutation(
   userId: number, instance: Instance, months: number, automatic?: { expiryThreshold: Date }, session?: WriteSession,
-  apiAuthorization?: PublicApiWriteAuthorization
-): Promise<{ newExpiresAt: Date; amount: number; balanceLogId: number; discountAmount?: number; hostingIncomeResult?: { hostOwnerId: number; hostName: string } | null }> {
+  apiAuthorization?: PublicApiWriteAuthorization, request?: RenewalRequest
+): Promise<RenewalResult> {
   if (automatic && recoveryHeld()) throw new Error('AUTO_RENEW_RECOVERY_HELD')
   if (instance.status === 'deleted') {
     throw new Error('实例已删除，无法续费')
@@ -583,6 +591,17 @@ async function performRenewalMutation(
 
   // 执行事务（带乐观锁）
   const result = await prisma.$transaction(async (tx) => {
+    if (request) {
+      const receipt = await lockRenewalRequest(tx, userId, request)
+      if (receipt[instance.id]) {
+        const item = receipt[instance.id]
+        if (item && typeof item === 'object' && 'failure' in item) throw new Error('该续费请求已完成，请重新确认续费')
+        const allowed = apiAuthorization ? await authorizePublicApiWrite(tx, userId, apiAuthorization, 'services:billing') : await authorizeUserWrite(tx, userId, session)
+        if (!allowed) throw new Error('用户权限已变更，请重新登录')
+        const saved = restoreRenewalResult(receipt[instance.id])
+        return { ...saved, finalAmount: saved.amount }
+      }
+    }
     if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)) throw new Error('实例正在处理，请稍后重试')
     await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instance.id} FOR UPDATE`
     const current = await tx.instance.findUnique({ where: { id: instance.id } })
@@ -757,15 +776,17 @@ async function performRenewalMutation(
       hostingIncomeResult = { hostOwnerId: hostingOwner.userId, hostName: hostingOwner.hostName }
     }
 
-    return { balanceLogId: balanceLog.id, hostingIncomeResult, newExpiresAt, finalAmount, discountAmount }
+    if (request) await saveRenewalItem(tx, userId, request, instance.id, { balanceLogId: balanceLog.id, instanceName: instance.name, hostingIncomeResult, newExpiresAt, amount: finalAmount, discountAmount })
+    return { balanceLogId: balanceLog.id, hostingIncomeResult, newExpiresAt, finalAmount, discountAmount, replayed: false }
   })
 
   return {
     newExpiresAt: result.newExpiresAt,
     amount: result.finalAmount,
     balanceLogId: result.balanceLogId,
-    discountAmount: result.discountAmount > 0 ? result.discountAmount : undefined,
-    hostingIncomeResult: result.hostingIncomeResult
+    discountAmount: result.discountAmount && result.discountAmount > 0 ? result.discountAmount : undefined,
+    hostingIncomeResult: result.hostingIncomeResult,
+    replayed: result.replayed
   }
 }
 

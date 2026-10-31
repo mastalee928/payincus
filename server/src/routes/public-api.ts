@@ -1,4 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { renewalRequest, readRenewalItems, RenewalRequestError, type RenewalRequest } from '../db/renewal-requests.js'
+import { restoreRenewalResult } from '../db/billing-operations.js'
 import type { BalanceAdjustmentRequestStatus, BalanceAdjustmentRequestType, BalanceLogType, BillingRecordType, InstanceStatus, Prisma, RechargeStatus, TicketPriority, TicketStatus } from '@prisma/client'
 import { createLog, LogModule, LogResult } from '../db/logs.js'
 import { authenticatePublicApiRequest } from '../lib/public-api-auth.js'
@@ -1757,6 +1759,19 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
       })
     }
 
+    let renewal: RenewalRequest
+    const responseFor = (value: ReturnType<typeof restoreRenewalResult>) => ({ data: {
+      serviceId: id, months, amount: value.amount, discountAmount: value.discountAmount ?? null, newExpiresAt: value.newExpiresAt.toISOString()
+    } })
+    try {
+      renewal = renewalRequest(request.headers['idempotency-key'], 'public-instance', [id], months)
+      const saved = (await readRenewalItems(apiToken.userId, renewal, undefined, apiToken.writeAuthorization))[id]
+      if (saved) return responseFor(restoreRenewalResult(saved))
+    } catch (error) {
+      if (error instanceof RenewalRequestError) return reply.code(error.statusCode).send({ error: error.message, code: error.code })
+      throw error
+    }
+
     const service = await prisma.instance.findFirst({
       where: { id, userId: apiToken.userId }
     })
@@ -1772,7 +1787,8 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await performRenewal(apiToken.userId, service, months, undefined, undefined, apiToken.writeAuthorization)
+      const result = await performRenewal(apiToken.userId, service, months, undefined, undefined, apiToken.writeAuthorization, renewal)
+      if (result.replayed) return responseFor(result)
 
       await sendNotification(apiToken.userId, 'instance_renewed', {
         instanceName: service.name,
@@ -1830,6 +1846,7 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Service renewal failed'
+      if (error instanceof RenewalRequestError) return reply.code(error.statusCode).send({ error: error.message, code: error.code })
       await createLog(
         apiToken.userId,
         LogModule.PLUGIN,

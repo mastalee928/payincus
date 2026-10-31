@@ -16,6 +16,8 @@ import { restoreBandwidth } from '../lib/incus/incus-traffic.js'
 import { sendRenewSuccessEmail } from '../lib/mailer.js'
 import { calculateDailyPrice } from '../lib/billing-calc.js'
 import type { BillingRecordType } from '@prisma/client'
+import { renewalRequest, readRenewalItems, recordRenewalFailure, RenewalRequestError, type RenewalRequest } from '../db/renewal-requests.js'
+import { restoreRenewalResult } from '../db/billing-operations.js'
 
 interface BatchRenewPreviewItem {
   id: number
@@ -223,8 +225,15 @@ async function buildBatchRenewPreviewItem(userId: number, instanceId: number): P
 async function executeRenewForUser(
   user: { id: number; username: string } & WriteSession,
   instanceId: number,
-  months: number
+  months: number,
+  request: RenewalRequest
 ): Promise<BatchRenewResultItem> {
+  const existing = (await readRenewalItems(user.id, request, user))[instanceId]
+  if (existing) {
+    if (typeof existing === 'object' && 'failure' in existing) return existing.failure as unknown as BatchRenewResultItem
+    const saved = restoreRenewalResult(existing)
+    return { id: instanceId, name: saved.instanceName || `#${instanceId}`, success: true, amount: saved.amount, newExpiresAt: saved.newExpiresAt.toISOString() }
+  }
   const preview = await buildBatchRenewPreviewItem(user.id, instanceId)
   if (!preview.canRenew) {
     return {
@@ -272,7 +281,8 @@ async function executeRenewForUser(
   }
 
   try {
-    const result = await db.performRenewal(user.id, instance, months, undefined, user)
+    const result = await db.performRenewal(user.id, instance, months, undefined, user, undefined, request)
+    if (result.replayed) return { id: instance.id, name: instance.name, success: true, amount: result.amount, newExpiresAt: result.newExpiresAt.toISOString() }
 
     await sendNotification(user.id, 'instance_renewed', {
       instanceName: instance.name,
@@ -453,6 +463,19 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
     }
 
+    let renewal: RenewalRequest
+    try {
+      renewal = renewalRequest(request.headers['idempotency-key'], 'instance', [instanceId], months)
+      const saved = (await readRenewalItems(user.id, renewal, user))[instanceId]
+      if (saved) {
+        const result = restoreRenewalResult(saved)
+        return { message: '续费成功', amount: result.amount, months, newExpiresAt: result.newExpiresAt.toISOString() }
+      }
+    } catch (error) {
+      if (error instanceof RenewalRequestError) return reply.code(error.statusCode).send({ error: error.message, code: error.code })
+      throw error
+    }
+
     const instance = await prisma.instance.findUnique({
       where: { id: instanceId }
     })
@@ -510,7 +533,8 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await db.performRenewal(user.id, instance, months, undefined, user)
+      const result = await db.performRenewal(user.id, instance, months, undefined, user, undefined, renewal)
+      if (result.replayed) return { message: '续费成功', amount: result.amount, months, newExpiresAt: result.newExpiresAt.toISOString() }
 
       // 发送续费成功通知
       await sendNotification(user.id, 'instance_renewed', {
@@ -577,6 +601,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '续费失败'
+      if (error instanceof RenewalRequestError) return reply.code(error.statusCode).send({ error: error.message, code: error.code })
       return reply.code(error instanceof db.AffCodeEligibilityError ? error.statusCode : 400).send({ error: errorMessage })
     }
   })
@@ -645,10 +670,26 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
       iat: request.user.iat
     }
 
+    let renewal: RenewalRequest
+    try {
+      renewal = renewalRequest(request.headers['idempotency-key'], 'instance-batch', uniqueIds, request.body.months)
+      await readRenewalItems(userMeta.id, renewal, userMeta)
+    } catch (error) {
+      if (error instanceof RenewalRequestError) return reply.code(error.statusCode).send({ error: error.message, code: error.code })
+      throw error
+    }
+
     const results: BatchRenewResultItem[] = []
     for (const instanceId of uniqueIds) {
-      const item = await executeRenewForUser(userMeta, instanceId, request.body.months)
-      results.push(item)
+      const item = await executeRenewForUser(userMeta, instanceId, request.body.months, renewal)
+      if (!item.success) {
+        const saved = await recordRenewalFailure(userMeta.id, renewal, instanceId, item, userMeta)
+        if (saved && typeof saved === 'object' && 'failure' in saved) results.push(saved.failure as unknown as BatchRenewResultItem)
+        else {
+          const completed = restoreRenewalResult(saved)
+          results.push({ id: instanceId, name: completed.instanceName || item.name, success: true, amount: completed.amount, newExpiresAt: completed.newExpiresAt.toISOString() })
+        }
+      } else results.push(item)
     }
 
     const successCount = results.filter(item => item.success).length

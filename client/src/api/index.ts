@@ -230,6 +230,8 @@ function buildTicketFormData(
   return formData
 }
 
+import { postRenewal } from './renewal-request'
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 // 创建 axios 实例
@@ -2497,7 +2499,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
       amount: number
       months: number
       newExpiresAt: string
-    }> => http.post(`/instances/${instanceId}/renew`, { months }),
+    }> => postRenewal(http, `/instances/${instanceId}/renew`, { months }),
 
     applyAffCodeToInstance: (instanceId: number, affCode: string): Promise<{
       success: boolean
@@ -2538,7 +2540,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
         amount?: number
         newExpiresAt?: string
       }>
-    }> => http.post('/instances/batch/renew', { instanceIds, months }, { timeout: TIMEOUT.BATCH }),
+    }> => postRenewal(http, '/instances/batch/renew', { instanceIds: [...new Set(instanceIds)].sort((a, b) => a - b), months }, TIMEOUT.BATCH),
 
     // 升降级预览
     getChangePlanPreview: (instanceId: number, newPlanId: number): Promise<{
@@ -3553,13 +3555,13 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
     }> => http.post('/mail/validate-aff', { code }),
 
     // 续费订阅
-    renewSubscription: (months: number): Promise<{
+    renewSubscription: (months: number, subscriptionId: number): Promise<{
       expiresAt: string
       discountApplied?: boolean
       discountAmount?: number
       finalPrice?: number
     }> =>
-      http.post('/mail/subscription/renew', { months }),
+      postRenewal(http, '/mail/subscription/renew', { months, subscriptionId }),
 
     // 获取域名列表
     getDomains: (): Promise<{

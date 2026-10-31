@@ -26,7 +26,7 @@ const make = (expiresAt: Date) => prisma.instance.create({ data: { userId: buyer
 try {
   await app.register(routes, { prefix: '/instances' })
   const mixedTarget = await make(new Date(Date.now() + 86400000))
-  const mixed = await app.inject({ method: 'POST', url: '/instances/batch/renew', payload: { instanceIds: [mixedTarget.id, 2147483648], months: 1 } })
+  const mixed = await app.inject({ method: 'POST', url: '/instances/batch/renew', headers: { 'idempotency-key': randomUUID() }, payload: { instanceIds: [mixedTarget.id, 2147483648], months: 1 } })
   const mixedBalance = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
   console.log('Mixed batch validation:', mixed.statusCode, 'balance:', mixedBalance,
     'bills:', await prisma.instanceBillingRecord.count({ where: { instanceId: mixedTarget.id } }))
@@ -48,10 +48,10 @@ try {
   assert.equal(await prisma.balanceLog.count({ where: { instanceId: mixedTarget.id } }), 0)
   assert.deepEqual(await prisma.instance.findUniqueOrThrow({ where: { id: mixedTarget.id } }), mixedTarget)
   for (const id of ['2147483648', '9007199254740991']) {
-    assert.equal((await app.inject({ method: 'POST', url: `/instances/${id}/renew`, payload: { months: 1 } })).statusCode, 400)
+    assert.equal((await app.inject({ method: 'POST', url: `/instances/${id}/renew`, headers: { 'idempotency-key': randomUUID() }, payload: { months: 1 } })).statusCode, 400)
     assert.equal((await app.inject({ method: 'PATCH', url: `/instances/${id}/auto-renew`, payload: { autoRenew: true } })).statusCode, 400)
   }
-  assert.equal((await app.inject({ method: 'POST', url: '/instances/2147483647/renew', payload: { months: 1 } })).statusCode, 404)
+  assert.equal((await app.inject({ method: 'POST', url: '/instances/2147483647/renew', headers: { 'idempotency-key': randomUUID() }, payload: { months: 1 } })).statusCode, 404)
   const duplicateSwitch = await app.inject({ method: 'PATCH', url: '/instances/batch/auto-renew', payload: { instanceIds: [mixedTarget.id, mixedTarget.id], autoRenew: true } })
   assert.equal(duplicateSwitch.statusCode, 200)
   assert.equal(duplicateSwitch.json().results.length, 1, 'duplicate valid IDs still run once')

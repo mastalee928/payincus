@@ -641,7 +641,8 @@ export function buildPublicApiOpenApiDocument() {
           operationId: 'renewPublicService',
           security: [{ publicApiToken: ['services:billing'] }, { oauthAccessToken: ['services:billing'] }],
           parameters: [
-            { name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }
+              { name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } },
+              { name: 'Idempotency-Key', in: 'header', required: true, description: 'Persist one key per renewal intent. Reuse it for retries after network failures; changed targets or months require a new key.', schema: { type: 'string', pattern: '^[A-Za-z0-9_-]{16,128}$' } }
           ],
           requestBody: {
             required: true,

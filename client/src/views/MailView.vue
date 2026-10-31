@@ -249,9 +249,10 @@ const renewFinalPrice = computed(() => {
 })
 
 async function renewSubscription() {
+  if (renewLoading.value || !subscription.value?.id) return
   renewLoading.value = true
   try {
-    await api.mail.renewSubscription(renewMonths.value)
+    await api.mail.renewSubscription(renewMonths.value, subscription.value.id)
     toast.success(t('mail.renewSuccess'))
     showRenewModal.value = false
     await loadData()
