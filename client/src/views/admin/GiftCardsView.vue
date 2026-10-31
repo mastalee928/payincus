@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onActivated, onDeactivated, onBeforeUnmount, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
@@ -7,6 +9,35 @@ import type { GiftCardRecord, GiftCardStats, GiftCardStatus } from '@/types/api'
 
 const { t, locale } = useI18n()
 const toast = useToast()
+const auth = useAuthStore(), route = useRoute()
+const pageNumber = ref(1), total = ref(0), pageSize = 100
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+const loadError = ref(''), mutationBusy = ref(false)
+const writing = computed(() => saving.value || mutationBusy.value)
+let active = false, alive = true, generation = 0, sequence = 0
+const sessionKey = computed(() => {
+  let identity = auth.token || ''
+  try { identity = JSON.parse(atob(identity.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sid || identity } catch { /* Legacy token identity. */ }
+  return JSON.stringify([auth.user?.id, auth.user?.role, identity])
+})
+function context() {
+  const authentication = auth.captureAuthentication(), key = sessionKey.value, version = generation
+  const query = JSON.stringify([route.fullPath, statusFilter.value, revealCode.value, pageNumber.value])
+  return () => alive && active && route.path === '/admin/gift-cards' && !!auth.token && auth.user?.role === 'admin' &&
+    authentication.aligned && authentication.current() && key === sessionKey.value && version === generation &&
+    query === JSON.stringify([route.fullPath, statusFilter.value, revealCode.value, pageNumber.value])
+}
+function clearView() {
+  generation++; sequence++
+  records.value = []; stats.value = null; selectedIds.value = new Set()
+  total.value = 0; loading.value = false; loadError.value = ''; batchResult.value = null
+}
+function goPage(next: number) {
+  if (loading.value || next < 1 || next > totalPages.value || next === pageNumber.value) return
+  generation++
+  pageNumber.value = next
+  void loadData()
+}
 
 const records = ref<GiftCardRecord[]>([])
 const stats = ref<GiftCardStats | null>(null)
@@ -61,28 +92,34 @@ function statusClass(status: GiftCardStatus): string {
 }
 
 async function loadData(): Promise<void> {
-  loading.value = true
+  const current = context(), request = ++sequence
+  if (!current()) return
+  const valid = () => current() && request === sequence
+  loading.value = true; loadError.value = ''; records.value = []; selectedIds.value = new Set()
   try {
     const [listResponse, statsResponse] = await Promise.all([
-      api.giftCards.list({
-        page: 1,
-        pageSize: 100,
-        status: statusFilter.value || undefined,
-        revealCode: revealCode.value
-      }),
+      api.giftCards.list({ page: pageNumber.value, pageSize, status: statusFilter.value || undefined, revealCode: revealCode.value }),
       api.giftCards.stats()
     ])
+    if (!valid()) return
+    total.value = listResponse.total
+    if (pageNumber.value > totalPages.value) {
+      pageNumber.value = totalPages.value
+      await loadData()
+      return
+    }
     records.value = listResponse.records
     stats.value = statsResponse
-    selectedIds.value = new Set()
   } catch (err: any) {
-    toast.error(t('giftCardsAdmin.toast.loadFailed', { message: err?.message || String(err) }))
+    if (valid()) loadError.value = t('giftCardsAdmin.toast.loadFailed', { message: err?.message || String(err) })
   } finally {
-    loading.value = false
+    if (valid()) loading.value = false
   }
 }
 
 async function createCards(): Promise<void> {
+  const current = context()
+  if (writing.value || !current()) return
   const count = Number(form.value.count)
   const faceValue = Number(form.value.faceValue)
   const balanceValue = form.value.balanceValue === null || form.value.balanceValue === undefined
@@ -103,69 +140,54 @@ async function createCards(): Promise<void> {
     }
     if (count === 1) {
       const response = await api.giftCards.generate(payload)
+      if (!current()) return
       batchResult.value = { batchId: '', codes: [response.giftCard] }
       toast.success(t('giftCardsAdmin.toast.created'))
     } else {
       const response = await api.giftCards.batch({ ...payload, count })
+      if (!current()) return
       batchResult.value = { batchId: response.batchId, codes: response.codes }
       toast.success(t('giftCardsAdmin.toast.batchCreated', { count: response.count }))
     }
     await loadData()
   } catch (err: any) {
-    toast.error(t('giftCardsAdmin.toast.createFailed', { message: err?.message || String(err) }))
+    if (current()) toast.error(t('giftCardsAdmin.toast.createFailed', { message: err?.message || String(err) }))
   } finally {
     saving.value = false
   }
 }
 
-async function updateCardStatus(card: GiftCardRecord): Promise<void> {
+async function mutateCards(action: () => Promise<unknown>, success: (response: any) => string, failure: string): Promise<void> {
+  const current = context()
+  if (writing.value || loading.value || !current()) return
+  mutationBusy.value = true
   try {
-    if (card.status === 'disabled') {
-      await api.giftCards.enable(card.id)
-      toast.success(t('giftCardsAdmin.toast.enabled'))
-    } else {
-      await api.giftCards.disable(card.id)
-      toast.success(t('giftCardsAdmin.toast.disabled'))
-    }
+    const response = await action()
+    if (!current()) return
+    toast.success(success(response))
     await loadData()
   } catch (err: any) {
-    toast.error(t('giftCardsAdmin.toast.updateFailed', { message: err?.message || String(err) }))
-  }
+    if (current()) toast.error(t(failure, { message: err?.message || String(err) }))
+  } finally { mutationBusy.value = false }
 }
-
+function updateCardStatus(card: GiftCardRecord): Promise<void> {
+  const enable = card.status === 'disabled'
+  return mutateCards(() => enable ? api.giftCards.enable(card.id) : api.giftCards.disable(card.id),
+    () => t(enable ? 'giftCardsAdmin.toast.enabled' : 'giftCardsAdmin.toast.disabled'), 'giftCardsAdmin.toast.updateFailed')
+}
 async function deleteCard(card: GiftCardRecord): Promise<void> {
-  if (!confirm(t('giftCardsAdmin.confirm.deleteOne', { code: card.codeMasked || card.code }))) return
-  try {
-    await api.giftCards.delete(card.id)
-    toast.success(t('giftCardsAdmin.toast.deleted'))
-    await loadData()
-  } catch (err: any) {
-    toast.error(t('giftCardsAdmin.toast.deleteFailed', { message: err?.message || String(err) }))
-  }
+  if (writing.value || !context()() || !confirm(t('giftCardsAdmin.confirm.deleteOne', { code: card.codeMasked || card.code }))) return
+  await mutateCards(() => api.giftCards.delete(card.id), () => t('giftCardsAdmin.toast.deleted'), 'giftCardsAdmin.toast.deleteFailed')
 }
-
 async function batchDisable(): Promise<void> {
   const ids = Array.from(selectedIds.value)
-  if (ids.length === 0 || !confirm(t('giftCardsAdmin.confirm.disableSelected', { count: ids.length }))) return
-  try {
-    const response = await api.giftCards.batchDisable(ids)
-    toast.success(t('giftCardsAdmin.toast.batchDisabled', { count: response.count }))
-    await loadData()
-  } catch (err: any) {
-    toast.error(t('giftCardsAdmin.toast.batchDisableFailed', { message: err?.message || String(err) }))
-  }
+  if (writing.value || !context()() || ids.length === 0 || !confirm(t('giftCardsAdmin.confirm.disableSelected', { count: ids.length }))) return
+  await mutateCards(() => api.giftCards.batchDisable(ids), response => t('giftCardsAdmin.toast.batchDisabled', { count: response.count }), 'giftCardsAdmin.toast.batchDisableFailed')
 }
-
 async function batchDelete(): Promise<void> {
   const ids = Array.from(selectedIds.value)
-  if (ids.length === 0 || !confirm(t('giftCardsAdmin.confirm.deleteSelected', { count: ids.length }))) return
-  try {
-    const response = await api.giftCards.batchDelete(ids)
-    toast.success(t('giftCardsAdmin.toast.batchDeleted', { count: response.count }))
-    await loadData()
-  } catch (err: any) {
-    toast.error(t('giftCardsAdmin.toast.batchDeleteFailed', { message: err?.message || String(err) }))
-  }
+  if (writing.value || !context()() || ids.length === 0 || !confirm(t('giftCardsAdmin.confirm.deleteSelected', { count: ids.length }))) return
+  await mutateCards(() => api.giftCards.batchDelete(ids), response => t('giftCardsAdmin.toast.batchDeleted', { count: response.count }), 'giftCardsAdmin.toast.batchDeleteFailed')
 }
 
 function toggleSelected(id: number, checked: boolean): void {
@@ -180,7 +202,16 @@ async function copyCodes(codes: GiftCardRecord[]): Promise<void> {
   toast.success(t('giftCards.toast.copied'))
 }
 
-onMounted(loadData)
+watch([sessionKey, () => route.fullPath, statusFilter, revealCode], () => {
+  clearView(); pageNumber.value = 1
+  if (active) void loadData()
+}, { flush: 'sync' })
+function activate() { if (!active) { active = true; void loadData() } }
+function deactivate() { active = false; clearView() }
+onMounted(activate)
+onActivated(activate)
+onDeactivated(deactivate)
+onBeforeUnmount(() => { alive = false; deactivate() })
 </script>
 
 <template>
@@ -253,7 +284,7 @@ onMounted(loadData)
           <input v-model="form.remark" class="input" maxlength="200" :placeholder="t('giftCards.remarkPlaceholder')" />
         </label>
         <div class="flex items-end">
-          <button class="btn btn-primary w-full" :disabled="saving" @click="createCards">
+          <button class="btn btn-primary w-full" :disabled="writing" @click="createCards">
             {{ saving ? t('giftCards.generating') : t('giftCards.generate') }}
           </button>
         </div>
@@ -279,20 +310,24 @@ onMounted(loadData)
     <section class="card overflow-hidden">
       <div class="flex flex-col gap-3 border-b border-themed p-4 lg:flex-row lg:items-center lg:justify-between">
         <div class="flex flex-col gap-3 sm:flex-row">
-          <select v-model="statusFilter" class="input w-full sm:w-44" @change="loadData">
+          <select v-model="statusFilter" class="input w-full sm:w-44">
             <option v-for="item in statusOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
           <label class="flex h-10 items-center gap-2 text-sm text-themed">
-            <input v-model="revealCode" type="checkbox" class="h-4 w-4 rounded text-accent" @change="loadData" />
+            <input v-model="revealCode" type="checkbox" class="h-4 w-4 rounded text-accent" />
             {{ t('giftCardsAdmin.revealCode') }}
           </label>
         </div>
         <div class="flex gap-2">
-          <button class="btn btn-secondary btn-sm" :disabled="selectedCount === 0" @click="batchDisable">{{ t('giftCardsAdmin.batchDisable') }}</button>
-          <button class="btn btn-sm text-rose-600 hover:bg-rose-500/10 dark:text-rose-400" :disabled="selectedCount === 0" @click="batchDelete">{{ t('giftCardsAdmin.batchDelete') }}</button>
+          <button class="btn btn-secondary btn-sm" :disabled="selectedCount === 0 || writing || loading" @click="batchDisable">{{ t('giftCardsAdmin.batchDisable') }}</button>
+          <button class="btn btn-sm text-rose-600 hover:bg-rose-500/10 dark:text-rose-400" :disabled="selectedCount === 0 || writing || loading" @click="batchDelete">{{ t('giftCardsAdmin.batchDelete') }}</button>
         </div>
       </div>
 
+      <div v-if="loadError" role="alert" class="flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-themed">
+        <span>{{ loadError }}</span>
+        <button data-gift-retry class="btn btn-secondary min-h-[44px]" @click="loadData">{{ t('common.retry') }}</button>
+      </div>
       <div class="space-y-3 p-4 lg:hidden">
         <div v-for="card in records" :key="card.id" class="rounded-lg border border-themed bg-themed-surface p-4">
           <div class="flex items-start gap-3">
@@ -319,10 +354,10 @@ onMounted(loadData)
                 <div>{{ t('giftCardsAdmin.usedBy', { user: card.usedBy?.username || '-' }) }}</div>
               </div>
               <div class="mt-4 flex flex-wrap gap-2">
-                <button v-if="card.status === 'active' || card.status === 'disabled'" class="btn btn-secondary btn-sm" @click="updateCardStatus(card)">
+                <button v-if="card.status === 'active' || card.status === 'disabled'" class="btn btn-secondary btn-sm" :disabled="writing || loading" @click="updateCardStatus(card)">
                   {{ card.status === 'disabled' ? t('giftCardsAdmin.enable') : t('giftCardsAdmin.disable') }}
                 </button>
-                <button v-if="card.status !== 'used'" class="btn btn-danger btn-sm" @click="deleteCard(card)">{{ t('giftCardsAdmin.delete') }}</button>
+                <button v-if="card.status !== 'used'" class="btn btn-danger btn-sm" :disabled="writing || loading" @click="deleteCard(card)">{{ t('giftCardsAdmin.delete') }}</button>
               </div>
             </div>
           </div>
@@ -366,10 +401,10 @@ onMounted(loadData)
               <td class="px-4 py-3 text-themed-muted">{{ formatDate(card.expiresAt) }}</td>
               <td class="px-4 py-3">
                 <div class="flex flex-wrap gap-2">
-                  <button v-if="card.status === 'active' || card.status === 'disabled'" class="btn btn-secondary btn-sm" @click="updateCardStatus(card)">
+                  <button v-if="card.status === 'active' || card.status === 'disabled'" class="btn btn-secondary btn-sm" :disabled="writing || loading" @click="updateCardStatus(card)">
                     {{ card.status === 'disabled' ? t('giftCardsAdmin.enable') : t('giftCardsAdmin.disable') }}
                   </button>
-                  <button v-if="card.status !== 'used'" class="btn btn-danger btn-sm" @click="deleteCard(card)">{{ t('giftCardsAdmin.delete') }}</button>
+                  <button v-if="card.status !== 'used'" class="btn btn-danger btn-sm" :disabled="writing || loading" @click="deleteCard(card)">{{ t('giftCardsAdmin.delete') }}</button>
                 </div>
               </td>
             </tr>
@@ -378,6 +413,14 @@ onMounted(loadData)
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-3 border-t border-themed p-4 text-sm text-themed">
+        <span>{{ t('orders.totalRecords', { count: total }) }}</span>
+        <div class="flex items-center gap-3">
+          <button data-gift-prev class="btn btn-secondary min-h-[44px]" :disabled="loading || pageNumber <= 1" @click="goPage(pageNumber - 1)">{{ t('orders.prevPage') }}</button>
+          <span aria-live="polite" class="tabular-nums">{{ pageNumber }} / {{ totalPages }}</span>
+          <button data-gift-next class="btn btn-secondary min-h-[44px]" :disabled="loading || pageNumber >= totalPages" @click="goPage(pageNumber + 1)">{{ t('orders.nextPage') }}</button>
+        </div>
       </div>
     </section>
   </div>

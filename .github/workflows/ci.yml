@@ -572,6 +572,8 @@ jobs:
         run: pnpm --filter server test:review-package-form
       - name: Verify current package reads and deletion replies
         run: pnpm --filter server test:review-package-reads
+      - name: Gift card pagination and writes retain current administrator context
+        run: pnpm --filter server test:review-gift-card-admin
       - name: Package host names and search include every page
         run: pnpm --filter server test:review-package-host-pagination
       - name: Complete host calibration targets keep current authorization and retry only failed hosts

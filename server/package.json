@@ -180,6 +180,7 @@
     "test:review-expiry-panel": "node ../scripts/test-expiry-panel.mjs",
     "test:review-package-form": "node ../scripts/test-package-form.mjs",
     "test:review-package-host-pagination": "node ../scripts/test-package-host-pagination.mjs",
+    "test:review-gift-card-admin": "node ../scripts/test-gift-card-admin.mjs",
     "test:review-package-reads": "node ../scripts/test-package-reads.mjs --with-deletion",
     "test:review-my-host-calibration": "node ../scripts/test-my-host-calibration.mjs",
     "test:review-package-priorities": "node ../scripts/test-package-priorities.mjs",
