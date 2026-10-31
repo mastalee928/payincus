@@ -1,5 +1,14 @@
 # 版本与验证记录
 
+## 2026-10-31 M11：取消后迟到付款的补偿与财务处理
+
+- M10已推b7a5ac7fda89d878eeb1c21ec36a997a07379a74，源码CI41190932439运行，文档41190932478成功；不把M10/M11继续留作未实现风险。本项新增cancel_reason及recharge_late_payments迁移，明确timeout/user/provider并保留历史null。平台超时后的正向付款在核原尝试、签名/金额/币种后可原子补款；用户取消/历史取消/失败先存证据，管理员核对后补款；退款、重复交易、旧尝试保留处理结论，不能直接入账。
+- 回调、用户verify及管理员sync贯通；交易号锁协调同渠道跨订单重复，补款、余额流水、证据处理同事务。负向平台终态先核订单身份再取消自动补款资格。管理员补款/仅记录结论事务复核当前角色/会话，补款成功发送到账通知；备注和处理人时间持久化。财务页新增分页核对面板，原超时取消记录可点同步。
+- late-payment-integration-final/frozen.log真实Fastify/隔离PG：三渠道有效签名、错误金额/币种不入账、5并发只一笔、超时/主动取消与回调竞争、历史/用户/失败人工补款、退款/旧尝试/重复交易拒补、管理员会话撤销403、流水INSERT故障整体回滚、expire来源、用户verify与管理员sync补款。late-payment-callback/verify/sync/terminal-regression.log原完整相关回归自然exit0，终态专项21场锁竞争及28项不变检查、准确账本/通知且无idle事务。无外部付款/邮件/客户实例操作。
+- late-payment-browser-inspection-final.log实际Chrome通过备注、补款与仅保存结论、双击、旧会话失败隔离、空状态及1440/768/390浅深。最终截图逐张检查，原夹具缺light类、旧全局important覆盖与切主题过渡中的中间颜色失败保留；改真实theme store、局部黑白变量/必要覆盖、测量过渡结束颜色后通过。taste Achromatic ledger seed1168103659保留项目字体/配色；六幅运行时检查无FAIL，桌面hero-void仅独立组件夹具外部空白，正常财务页还有原日对账；lint的两条shadow为显式box-shadow:none。示例首尔/悉尼数据仅在测试夹具，产品直接读API。
+- 相关充值7项、管理员路由、前端路由、清单与含专项严格类型通过；late-payment-build-final.log最终双端构建、dist边界守卫及server构建自然exit0。提交前发现新增两步CI缩进错误，已修正并核YAML解析及steps登记；配置修正不改变已构建产品。整库pg_dump和动态表校验包含新回执/证据，未做OSS恢复实测，旧快照之后的资金仍须恢复核对；v1.7.8固定包不含本项，保持暂不发版。
+- 本项推送身份和运行见logs/ci-money-late-payments.json；此前39deb3534470b2859344a669a1d961ec27ba8832/41185376355及08475782a2b62ad6e5d60f0e281a58675ef2e23f/41183989740已success。其余资金提交仍按完整SHA/具体job跟进，历史失败保留，不把本地专项通过称为CI或外部支付验收。
+
 ## 2026-10-31 M10：续费请求持久幂等
 
 - 单台、批量、公开API及邮箱手动续费要求Idempotency-Key，绑定账户、目标及月数；扣款、账单和逐项回执同事务。重放核当前授权且复用原结果；不同输入409。新增renewal_requests迁移，整库备份自然包含回执；未做OSS恢复演练。

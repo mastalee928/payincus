@@ -5,6 +5,7 @@ import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js
  */
 
 import type { FastifyInstance } from 'fastify'
+import rechargeReconciliationRoutes from './recharge-reconciliation.js'
 import { Prisma, type FinancialReconciliationItemType, type FinancialReconciliationStatus, type InstanceStatus } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { assertNoPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
@@ -686,6 +687,7 @@ async function buildBatchPriceUpdatePreview(
 }
 
 export default async function adminBillingRoutes(app: FastifyInstance): Promise<void> {
+  await app.register(rechargeReconciliationRoutes)
   await registerExpiryEnforcementRoutes(app, { status: getExpiryEnforcementStatus, start: startExpiryEnforcement, run: executeExpiryEnforcement, logs: getExpiryEnforcementHistory })
   // ==================== 计费概览 ====================
 
@@ -3185,6 +3187,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
             actualAmount: r.actualAmount !== null && r.actualAmount !== undefined ? Number(r.actualAmount) : null,
             fee: Number(r.fee || 0),
             status: r.status,
+            cancelReason: r.cancelReason,
             payMethod: r.paymentMethod,
             actualPaymentMethod: paymentInfo.actualPaymentMethod,
             paymentCurrency: paymentInfo.paymentCurrency,
@@ -3255,7 +3258,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       }
 
       // 3. 如果订单已取消或失败，不允许同步
-      if (record.status === 'cancelled' || record.status === 'failed') {
+      if ((record.status === 'cancelled' || record.status === 'failed') && !db.isTimeoutCancelledRecharge(record)) {
         return reply.status(400).send({ error: `订单已${record.status === 'cancelled' ? '取消' : '失败'}，无法同步` })
       }
 
@@ -3292,6 +3295,8 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       let tradeNo = ''
       let tradeNoForIdx = ''
       let actualAmount = creditedAmount
+      let receivedAmount: number | undefined
+      let receivedCurrency = 'CNY'
       let callbackPayload: Record<string, unknown> = { source: 'admin_sync', adminId: admin.id }
       let paymentDetails = (record as any).paymentDetails as Record<string, unknown> | undefined
       const gatewayOrderNo = getCurrentRechargeGatewayOrderNo(record.paymentDetails, record.orderNo)
@@ -3346,6 +3351,7 @@ if (provider.type === 'yipay') {
           })
         }
 
+        receivedAmount = paidAmount
         actualAmount = creditedAmount
         callbackPayload = { source: 'admin_sync', queryResult: sanitizeObject(queryResult.rawData) as Record<string, unknown>, adminId: admin.id }
       } else {
@@ -3375,6 +3381,10 @@ if (provider.type === 'yipay') {
           heleketStatus: status,
           queryResult: sanitizeObject(queryResult) as Record<string, unknown>,
           adminId: admin.id
+        }
+        if (db.isTimeoutCancelledRecharge(record) && paymentState !== 'paid') {
+          await db.observeUnpaidTimeout(record, paymentState !== 'pending', callbackPayload, admin)
+          return { success: true, synced: false, status: record.status, message: '支付平台尚未确认付款' }
         }
         paymentDetails = mergeHeleketPaymentDetails(
           (record as any).paymentDetails,
@@ -3458,6 +3468,8 @@ if (provider.type === 'yipay') {
           })
         }
 
+        receivedAmount = invoiceAmount
+        receivedCurrency = heleketConfig.currency || 'CNY'
         actualAmount = creditedAmount
       }
 
@@ -3472,7 +3484,7 @@ if (provider.type === 'yipay') {
         }
       })
 
-      if (existingCallback) {
+      if (existingCallback && !db.isTimeoutCancelledRecharge(record)) {
         // 已处理过，重新查询订单状态
         const updatedRecord = await prisma.rechargeRecord.findUnique({
           where: { id: recordId }
@@ -3492,8 +3504,10 @@ if (provider.type === 'yipay') {
         callbackData: callbackPayload,
         paymentDetails,
         expectedPaymentDetails,
-        actor: admin
+        actor: admin,
+        verifiedPayment: { gatewayOrderNo, receivedAmount, currency: receivedCurrency, proof: callbackPayload }
       })
+      if (completion.reconciliationPending) return { success: true, synced: false, status: completion.status, message: '付款已记录，等待财务核对' }
 
       // 记录已处理（防重放）
       await prisma.paymentCallback.create({

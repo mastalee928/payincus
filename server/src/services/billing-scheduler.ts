@@ -987,7 +987,8 @@ async function cleanExpiredRechargeOrders(): Promise<void> {
         expiredAt: { lt: new Date(Date.now() - CANCEL_GRACE_MS) }
       },
       data: {
-        status: 'cancelled'
+        status: 'cancelled',
+        cancelReason: 'timeout'
       }
     })
 

@@ -73,6 +73,8 @@ const EXCLUDED_FROM_SUITE = new Map([
     ['test:review-renewal-idempotency', 'requires isolated PostgreSQL; durable renewal receipts across process restart, concurrent and partial batch retries, API/mail and account isolation'],
     ['test:review-renewal-request-ui', 'requires Chrome/Edge and local Vite; actual persistent renewal intent survives lost responses and reloads without duplicate requests'],
   ['test:review-recharge-terminal-states', 'requires isolated PostgreSQL; real row-lock competition in both settlement and terminal-update orders, complete record preservation and exact accounting'],
+  ['test:review-late-payments', 'requires isolated PostgreSQL; signed late payment reconciliation, rollback, duplicate trades and admin authorization'],
+  ['test:review-late-payments-ui', 'requires Chrome/Edge and local Vite; actual reconciliation component actions, stale sessions and responsive layout'],
   ['test:review-gift-card-counts', 'requires isolated PostgreSQL; original admin batch routes reject invalid counts without mutations and persist exact min/max quantities and value limits'],
   ['test:review-gift-card-id-boundaries', 'requires isolated PostgreSQL; invalid card IDs and mixed batches preserve balances, cards and ledger before any refund, normal mutations remain idempotent'],
   ['test:review-batch-config-input-boundaries', 'requires isolated PostgreSQL; exact batch target membership, host and instance Int bounds, traffic bigint boundaries and unchanged unrelated state'],

@@ -2840,6 +2840,8 @@ model RechargeRecord {
   paymentMethod String? @map("payment_method") // alipay/wxpay/card 等
 
   status RechargeStatus @default(pending)
+  cancelReason String? @map("cancel_reason")
+  latePayments RechargeLatePayment[]
 
   // 回调信息
   callbackData Json?     @map("callback_data") // 支付回调原始数据
@@ -2867,6 +2869,30 @@ model RechargeRecord {
   @@index([orderNo])
   @@index([tradeNo])
   @@map("recharge_records")
+}
+
+model RechargeLatePayment {
+  id Int @id @default(autoincrement())
+  rechargeId Int @map("recharge_id")
+  providerId Int @map("provider_id")
+  gatewayOrderNo String @map("gateway_order_no")
+  tradeNo String @map("trade_no")
+  receivedAmount String? @map("received_amount")
+  currency String?
+  eligible Boolean @default(false)
+  reason String
+  status String @default("pending")
+  proof Json
+  expectedPaymentDetails Json? @map("expected_payment_details")
+  note String?
+  handledById Int? @map("handled_by_id")
+  handledAt DateTime? @map("handled_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  recharge RechargeRecord @relation(fields: [rechargeId], references: [id], onDelete: Cascade)
+  @@unique([rechargeId, gatewayOrderNo, tradeNo])
+  @@index([status, createdAt])
+  @@index([providerId, tradeNo])
+  @@map("recharge_late_payments")
 }
 
 // VIP 等级规则配置

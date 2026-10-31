@@ -70,7 +70,11 @@ assert.ok(adminSync.includes('const expectedPaymentDetails = record.paymentDetai
   'every sync mutation must retain the originally queried payment selection')
 const recordSource = readFileSync(resolve(__dirname, '../src/db/recharge-records.ts'), 'utf8')
 assert.ok(recordSource.includes('expected === null ? Prisma.AnyNull') &&
-  (recordSource.match(/\.\.\.paymentSelectionCondition\(/g) || []).length === 4,
+  ['updateRechargeOrderMetadata', 'completeRecharge', 'failRecharge', 'cancelRecharge'].every((name, index, names) => {
+    const start = recordSource.indexOf(`export async function ${name}(`)
+    const end = index + 1 < names.length ? recordSource.indexOf(`export async function ${names[index + 1]}(`, start) : recordSource.indexOf('export async function updatePendingRechargePaymentSelection(', start)
+    return start >= 0 && end > start && /updateMany\([\s\S]*?\.\.\.paymentSelectionCondition\(/.test(recordSource.slice(start, end))
+  }),
   'metadata, completion, cancellation and failure must compare the selection in their actual database update including null')
 const active = { id: '123456789ABC', gatewayOrderNo: 'R123--PA-123456789ABC', createdAt: new Date().toISOString() }
 assert.equal(getCurrentRechargeGatewayOrderNo({ paymentAttempt: { current: active } }, 'R123'), active.gatewayOrderNo)

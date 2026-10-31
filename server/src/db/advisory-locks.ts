@@ -26,6 +26,7 @@ export const HOST_PUBLIC_IP_SYNC_LOCK_NAMESPACE = 4122
 export const MANAGEMENT_GATEWAY_TASK_LOCK_NAMESPACE = 4123
 export const EMAIL_VERIFICATION_LOCK_NAMESPACE = 4125
 export const RENEWAL_REQUEST_LOCK_NAMESPACE = 4126
+export const PAYMENT_SETTLEMENT_LOCK_NAMESPACE = 4127
 
 export async function tryAdvisoryTransactionLock(
   tx: Prisma.TransactionClient,

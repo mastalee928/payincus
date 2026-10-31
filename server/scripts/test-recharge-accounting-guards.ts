@@ -235,7 +235,8 @@ assert.ok(
     callbackHandlerSource.indexOf('epay.verifyWithStatus(callbackData as CallbackData)') < callbackHandlerSource.indexOf('await db.completeRecharge(') &&
     callbackHandlerSource.includes('if (record.providerId !== providerIdNum)') &&
     callbackHandlerSource.includes('!isCurrentRechargePaymentAttempt(') &&
-    callbackHandlerSource.includes('if (await isCallbackProcessed(providerIdNum, orderNo, tradeNoForIndex))'),
+    callbackHandlerSource.includes('if (await isCallbackProcessed(providerIdNum, orderNo, tradeNoForIndex) && preliminaryRecord?.status === \'completed\'') &&
+    callbackHandlerSource.includes('preliminaryRecord.tradeNo === tradeNo'),
   'source IP, signature, channel consistency, current-attempt and replay checks must all run before a recharge callback can credit a balance'
 )
 assert.ok(

@@ -1352,7 +1352,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       // 检查订单是否已过期
       if (record.expiredAt && new Date(record.expiredAt) < new Date()) {
         // 自动取消过期订单
-        await db.cancelRecharge(orderNo)
+        await db.cancelRecharge(orderNo, undefined, undefined, undefined, undefined, 'timeout')
         return reply.status(400).send({ error: '订单已过期，请重新创建' })
       }
 
@@ -1579,7 +1579,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       }
 
       // 4. 如果订单已取消或失败，返回状态
-      if (record.status === 'cancelled' || record.status === 'failed') {
+      if ((record.status === 'cancelled' || record.status === 'failed') && !db.isTimeoutCancelledRecharge(record)) {
         return {
           success: true,
           verified: false,
@@ -1629,6 +1629,8 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       let tradeNo = ''
       let tradeNoForIndex = ''
       let actualAmount = creditedAmount
+      let receivedAmount: number | undefined
+      let receivedCurrency = 'CNY'
       let callbackPayload: Record<string, unknown> = { source: 'verify_api' }
       let paymentDetails = (record as any).paymentDetails as Record<string, unknown> | undefined
       const gatewayOrderNo = getCurrentRechargeGatewayOrderNo((record as any).paymentDetails, record.orderNo)
@@ -1739,6 +1741,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           }
         }
 
+        receivedAmount = paidAmount
         actualAmount = creditedAmount
         callbackPayload = { source: 'verify_api', queryResult: sanitizeObject(queryResult.rawData) as Record<string, unknown> }
       } else if (provider.type === 'heleket') {
@@ -1791,6 +1794,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           source: 'verify_api',
           heleketStatus: status,
           queryResult: sanitizeObject(queryResult) as Record<string, unknown>
+        }
+        if (db.isTimeoutCancelledRecharge(record) && paymentState !== 'paid') {
+          await db.observeUnpaidTimeout(record, paymentState !== 'pending', callbackPayload)
+          return { success: true, verified: false, status: record.status, message: '支付平台尚未确认付款' }
         }
         paymentDetails = mergeHeleketPaymentDetails(
           (record as any).paymentDetails,
@@ -1934,6 +1941,8 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           }
         }
 
+        receivedAmount = invoiceAmount
+        receivedCurrency = heleketConfig.currency || 'CNY'
         actualAmount = creditedAmount
       } else if (provider.type === 'antom') {
         const { config: antomConfig, valid, error: configError } = buildAntomConfig(effectiveConfig)
@@ -1987,6 +1996,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           antomPaymentId: queryResult.paymentId || null
         }
 
+        if (db.isTimeoutCancelledRecharge(record) && queryResult.paymentStatus !== 'SUCCESS') {
+          await db.observeUnpaidTimeout(record, ['FAIL', 'CANCELLED'].includes(queryResult.paymentStatus || ''), callbackPayload)
+          return { success: true, verified: false, status: record.status, message: '支付平台尚未确认付款' }
+        }
         if (!queryResult.paymentStatus || queryResult.paymentStatus === 'PROCESSING') {
           await db.updateRechargeOrderMetadata(orderNo, {
             tradeNo: queryResult.paymentId || null,
@@ -2082,10 +2095,12 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
 
         tradeNo = queryResult.paymentId || orderNo
         tradeNoForIndex = getTradeNoForIndex(orderNo, tradeNo)
+        receivedAmount = Number(paidAmount.value) / 10 ** antomConfig.currencyExponent
+        receivedCurrency = paidAmount.currency
         actualAmount = creditedAmount
       }
 
-      if (await isCallbackProcessed(provider.id, orderNo, tradeNoForIndex)) {
+      if (await isCallbackProcessed(provider.id, orderNo, tradeNoForIndex) && !db.isTimeoutCancelledRecharge(record)) {
         // 已处理过，重新查询订单状态
         const updatedRecord = await db.getRechargeRecordByOrderNo(orderNo)
         return {
@@ -2121,8 +2136,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
           actualAmount,
           callbackData: callbackPayload,
           paymentDetails,
-          expectedPaymentDetails
+          expectedPaymentDetails,
+          verifiedPayment: { gatewayOrderNo, receivedAmount, currency: receivedCurrency, proof: callbackPayload }
         })
+        if (completion.reconciliationPending) return { success: true, verified: false, status: completion.status, message: '付款已记录，等待财务核对' }
 
         // 记录已处理
         await markCallbackProcessed(provider.id, orderNo, tradeNoForIndex, request.ip)
@@ -2809,7 +2826,7 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
     const gatewayOrderNo = orderNo
     orderNo = resolveRechargeOrderNoFromGatewayOrderNo(gatewayOrderNo)
     const tradeNoForIndex = getTradeNoForIndex(gatewayOrderNo, tradeNo)
-    if (await isCallbackProcessed(providerIdNum, orderNo, tradeNoForIndex)) {
+    if (await isCallbackProcessed(providerIdNum, orderNo, tradeNoForIndex) && preliminaryRecord?.status === 'completed' && preliminaryRecord.tradeNo === tradeNo) {
       request.log.info({ orderNo }, '重复回调，忽略')
       // 返回成功，避免支付平台重试
       if (provider.type === 'upaypro') return 'ok'
@@ -2833,6 +2850,11 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
     }
 
     if (!isCurrentRechargePaymentAttempt((record as any).paymentDetails, record.orderNo, gatewayOrderNo)) {
+      const reportsPaid = provider.type === 'yipay' || heleketPaymentState === 'paid' ||
+        (provider.type === 'antom' && antomNotification?.result?.resultStatus === 'S') || provider.type === 'upaypro'
+      if (reportsPaid) await db.recordLateRechargePayment(record, tradeNo, {
+        gatewayOrderNo, receivedAmount: actualAmount, proof: callbackData
+      }, 'superseded_attempt', false)
       await markCallbackProcessed(providerIdNum, record.orderNo, tradeNoForIndex, clientIp)
       request.log.warn(
         { orderNo: record.orderNo, gatewayOrderNo, tradeNo },
@@ -2847,6 +2869,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
     const expectedPaymentDetails = record.paymentDetails as Record<string, unknown> | null
 
     if (record.status === 'completed') {
+      const reportsPaid = provider.type === 'yipay' || heleketPaymentState === 'paid' ||
+        (provider.type === 'antom' && antomNotification?.result?.resultStatus === 'S') || provider.type === 'upaypro'
+      if (reportsPaid && tradeNo && tradeNo !== record.tradeNo) await db.recordLateRechargePayment(record, tradeNo,
+        { gatewayOrderNo, receivedAmount: actualAmount, proof: callbackData }, 'additional_payment', false)
       await markCallbackProcessed(providerIdNum, orderNo, tradeNoForIndex, clientIp)
       request.log.info({ orderNo }, '订单已完成，幂等返回')
       if (provider.type === 'upaypro') return 'ok'
@@ -2855,6 +2881,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
     }
 
     if (provider.type === 'antom' && antomConfig && antomNotification) {
+      if (db.isTimeoutCancelledRecharge(record) && antomNotification.result?.resultStatus !== 'S') {
+        await db.observeUnpaidTimeout(record, antomNotification.result?.resultStatus === 'F', callbackData)
+        return antomNotificationResponse(true)
+      }
       const orderAmount = getRechargePayableAmount({
         amount: record.amount,
         fee: record.fee,
@@ -2913,6 +2943,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
     const paidActualAmount = actualAmount as number
 
     if (provider.type === 'heleket' && heleketPaymentState !== 'paid') {
+      if (db.isTimeoutCancelledRecharge(record)) {
+        await db.observeUnpaidTimeout(record, heleketPaymentState !== 'pending', callbackData)
+        return { code: 'SUCCESS', message: 'OK' }
+      }
       paymentDetails = mergeHeleketPaymentDetails(
         (record as any).paymentDetails,
         callbackData,
@@ -3035,11 +3069,8 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
       request.log.warn({ orderNo, expiredAt: record.expiredAt }, '订单已过本地过期时间，但回调已验签验额，按真实到账继续入账')
     }
 
-    // 10. 检查订单状态（幂等性处理）
-    if (record.status !== 'pending' && record.status !== 'paid') {
-      request.log.warn({ orderNo, status: record.status }, '订单状态不允许完成')
-      return reply.status(400).send({ error: '订单状态异常' })
-    }
+    // Terminal payments are reconciled inside the same transaction as any credit.
+    // Only an explicit timeout cancellation can recover automatically.
 
     // 11. 完成充值（带幂等性保护）
     try {
@@ -3048,7 +3079,10 @@ export default async function rechargeRoutes(app: FastifyInstance): Promise<void
         actualAmount: creditedAmount,
         callbackData: callbackData,
         paymentDetails,
-        expectedPaymentDetails
+        expectedPaymentDetails,
+        verifiedPayment: { gatewayOrderNo, receivedAmount: provider.type === 'antom' && antomConfig && antomNotification
+          ? Number((antomNotification.actualPaymentAmount || antomNotification.paymentAmount)?.value) / 10 ** antomConfig.currencyExponent : paidActualAmount,
+          currency: provider.type === 'heleket' ? String(callbackData.currency) : provider.type === 'antom' ? antomConfig?.currency : 'CNY', proof: callbackData }
       })
 
       // 记录已处理

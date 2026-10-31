@@ -15,6 +15,7 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import BillingOverviewIcon from '@/components/admin/BillingOverviewIcon.vue'
 import ExpiryEnforcementPanel from '@/components/admin/ExpiryEnforcementPanel.vue'
+import LatePaymentsPanel from '@/components/admin/LatePaymentsPanel.vue'
 import { calculateDiscountedPrice } from '@/utils/billing'
 import { instanceDetailPath } from '@/utils/app-paths'
 
@@ -2364,7 +2365,7 @@ function copyToClipboard(text: string) {
 
             <div class="flex justify-end gap-2">
               <button
-                v-if="rec.status === 'pending'"
+                v-if="rec.status === 'pending' || (rec.status === 'cancelled' && rec.cancelReason === 'timeout')"
                 class="btn btn-sm btn-ghost text-themed"
                 :disabled="syncingRecordId === rec.id"
                 @click="syncRechargeRecord(rec)"
@@ -2430,7 +2431,7 @@ function copyToClipboard(text: string) {
                 <td class="p-3 whitespace-nowrap">
                   <div class="flex items-center gap-2">
                   <button
-                    v-if="rec.status === 'pending'"
+                    v-if="rec.status === 'pending' || (rec.status === 'cancelled' && rec.cancelReason === 'timeout')"
                     class="btn btn-sm btn-ghost text-themed"
                     :disabled="syncingRecordId === rec.id"
                     @click="syncRechargeRecord(rec)"
@@ -2493,6 +2494,7 @@ function copyToClipboard(text: string) {
 
     <!-- 财务对账 Tab -->
     <div v-show="activeTab === 'reconciliation'" class="space-y-5">
+      <LatePaymentsPanel :active="activeTab === 'reconciliation' && pricingActive" />
       <div class="card p-5">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>

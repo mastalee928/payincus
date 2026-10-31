@@ -6,7 +6,9 @@ import { prisma } from './prisma.js'
 import { Prisma, type RechargeRecord, type RechargeStatus } from '@prisma/client'
 import { nanoid } from 'nanoid'
 import { getTodayRange } from '../lib/timezone.js'
-import { USER_BALANCE_LOCK_NAMESPACE, advisoryTransactionLock } from './advisory-locks.js'
+import { USER_BALANCE_LOCK_NAMESPACE, PAYMENT_SETTLEMENT_LOCK_NAMESPACE, advisoryTransactionLock, advisoryTransactionLockString } from './advisory-locks.js'
+import { getCurrentRechargeGatewayOrderNo } from '../lib/recharge-order-guard.js'
+import { sanitizeObject } from '../lib/log-sanitizer.js'
 import { lockAdministrativeUserMutation, type WriteActor } from './user-write-authorization.js'
 
 // ==================== 类型定义 ====================
@@ -45,6 +47,44 @@ export interface RechargeRecordWithProvider extends RechargeRecord {
 
 export type CompleteRechargeResult = RechargeRecord & {
   completedNow: boolean
+  reconciliationPending?: boolean
+}
+
+export interface VerifiedRechargePayment {
+  gatewayOrderNo: string
+  receivedAmount?: number
+  currency?: string
+  proof: Record<string, unknown>
+}
+
+export function isTimeoutCancelledRecharge(record: { status: string; cancelReason?: string | null }): boolean {
+  return record.status === 'cancelled' && record.cancelReason === 'timeout'
+}
+
+export async function observeUnpaidTimeout(record: RechargeRecord, terminal: boolean, proof: Record<string, unknown>, actor?: WriteActor) {
+  if (!terminal) return
+  await prisma.$transaction(async tx => {
+    if (actor) await lockAdministrativeUserMutation(tx, record.userId, actor)
+    const changed = await tx.rechargeRecord.updateMany({ where: { id: record.id, status: 'cancelled', cancelReason: 'timeout',
+      ...paymentSelectionCondition(record.paymentDetails as Record<string, unknown> | null) },
+      data: { cancelReason: 'provider', callbackData: sanitizeObject(proof) as Prisma.InputJsonObject, callbackAt: new Date() } })
+    if (!changed.count) throw new RechargePaymentSelectionChangedError()
+  })
+}
+
+export async function recordLateRechargePayment(
+  record: RechargeRecord, tradeNo: string | undefined, payment: VerifiedRechargePayment,
+  reason: string, eligible: boolean, tx: Prisma.TransactionClient = prisma
+) {
+  const trade = tradeNo?.trim() || `__NO_TRADE_NO__${payment.gatewayOrderNo}`
+  return tx.rechargeLatePayment.upsert({
+    where: { rechargeId_gatewayOrderNo_tradeNo: { rechargeId: record.id, gatewayOrderNo: payment.gatewayOrderNo, tradeNo: trade } },
+    create: { rechargeId: record.id, providerId: record.providerId, gatewayOrderNo: payment.gatewayOrderNo, tradeNo: trade,
+      receivedAmount: payment.receivedAmount === undefined ? null : String(payment.receivedAmount), currency: payment.currency,
+      eligible: eligible && !!tradeNo?.trim(), reason, proof: sanitizeObject(payment.proof) as Prisma.InputJsonObject,
+      expectedPaymentDetails: record.paymentDetails === null ? Prisma.JsonNull : record.paymentDetails },
+    update: {}
+  })
 }
 
 export class RechargePaymentSelectionChangedError extends Error {
@@ -322,6 +362,9 @@ export async function completeRecharge(
     paymentDetails?: Record<string, unknown>
     expectedPaymentDetails?: Record<string, unknown> | null
     actor?: WriteActor
+    verifiedPayment?: VerifiedRechargePayment
+    latePaymentId?: number
+    reconciliationNote?: string
   }
 ): Promise<CompleteRechargeResult> {
   const record = await prisma.rechargeRecord.findUnique({
@@ -333,12 +376,12 @@ export async function completeRecharge(
   }
 
   // 幂等性处理：已完成的订单直接返回，不重复处理
-  if (record.status === 'completed') {
+  if (record.status === 'completed' && !data.actor && !data.verifiedPayment) {
     return { ...record, completedNow: false }
   }
 
   // 已取消或失败的订单不能再完成
-  if (record.status === 'cancelled' || record.status === 'failed') {
+  if ((record.status === 'cancelled' || record.status === 'failed') && !data.verifiedPayment && !data.latePaymentId) {
     throw new Error(`订单状态异常：${record.status}`)
   }
 
@@ -349,19 +392,58 @@ export async function completeRecharge(
 
   // 使用事务确保原子性
   const result = await prisma.$transaction(async (tx) => {
+    if (data.tradeNo) {
+      await advisoryTransactionLockString(tx, PAYMENT_SETTLEMENT_LOCK_NAMESPACE, `${record.providerId}:${data.tradeNo.trim()}`)
+    }
     await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, record.userId)
     if (data.actor) await lockAdministrativeUserMutation(tx, record.userId, data.actor)
+
+    await tx.$queryRaw`SELECT id FROM recharge_records WHERE id = ${record.id} FOR UPDATE`
+    const current = await tx.rechargeRecord.findUniqueOrThrow({ where: { id: record.id } })
+    if (current.status === 'completed') {
+      if (data.verifiedPayment && data.tradeNo && current.tradeNo !== data.tradeNo.trim()) {
+        await recordLateRechargePayment(current, data.tradeNo, data.verifiedPayment, 'additional_payment', false, tx)
+      }
+      return { ...current, completedNow: false }
+    }
+    if (!await tx.rechargeRecord.findFirst({ where: { id: record.id, ...paymentSelectionCondition(data.expectedPaymentDetails) } })) {
+      throw new RechargePaymentSelectionChangedError()
+    }
+    if (data.verifiedPayment && (data.expectedPaymentDetails === undefined ||
+      data.verifiedPayment.gatewayOrderNo !== getCurrentRechargeGatewayOrderNo(current.paymentDetails, current.orderNo))) {
+      throw new RechargePaymentSelectionChangedError()
+    }
+    const duplicateTrade = data.tradeNo ? await tx.rechargeRecord.findFirst({ where: {
+      providerId: record.providerId, tradeNo: data.tradeNo.trim(), id: { not: record.id }, status: { in: ['completed', 'refunded'] }
+    } }) : null
+    let evidence: Awaited<ReturnType<typeof recordLateRechargePayment>> | null = null
+    if (data.latePaymentId) {
+      if (!data.actor) throw new Error('ADMIN_ACTOR_FORBIDDEN')
+      evidence = await tx.rechargeLatePayment.findUnique({ where: { id: data.latePaymentId } })
+      if (!evidence || evidence.rechargeId !== record.id || evidence.status !== 'pending' || !evidence.eligible ||
+        evidence.tradeNo !== data.tradeNo || evidence.gatewayOrderNo !== getCurrentRechargeGatewayOrderNo(current.paymentDetails, current.orderNo) ||
+        !['cancelled', 'failed'].includes(current.status) || duplicateTrade) throw new Error('LATE_PAYMENT_NOT_CREDITABLE')
+    } else if (data.verifiedPayment && (duplicateTrade || !['pending', 'paid'].includes(current.status))) {
+      const active = getCurrentRechargeGatewayOrderNo(current.paymentDetails, current.orderNo) === data.verifiedPayment.gatewayOrderNo
+      evidence = await recordLateRechargePayment(current, data.tradeNo, data.verifiedPayment,
+        duplicateTrade ? 'duplicate_trade' : current.status === 'refunded' ? 'refunded' : current.cancelReason || current.status,
+        active && !duplicateTrade && current.status !== 'refunded', tx)
+      if (!isTimeoutCancelledRecharge(current) || !evidence.eligible || evidence.status !== 'pending') {
+        return { ...current, completedNow: false, reconciliationPending: true }
+      }
+    } else if (duplicateTrade) throw new Error('PAYMENT_TRADE_ALREADY_CREDITED')
 
     // 1. 使用条件更新确保并发安全（只有 pending 或 paid 状态可以变为 completed）
     const updateResult = await tx.rechargeRecord.updateMany({
       where: {
         orderNo,
-        status: { in: ['pending', 'paid'] },  // 状态机：只有这两种状态可以转为 completed
+        // Terminal recovery requires a verified, locked evidence record; ordinary calls stay pending/paid only.
+        ...(evidence ? { status: current.status } : { status: { in: ['pending', 'paid'] as RechargeStatus[] } }),
         ...paymentSelectionCondition(data.expectedPaymentDetails)
       },
       data: {
         status: 'completed',
-        tradeNo: data.tradeNo,
+        tradeNo: data.tradeNo?.trim(),
         callbackData: data.callbackData as any,
         callbackAt: new Date(),
         completedAt: new Date(),
@@ -413,6 +495,10 @@ export async function completeRecharge(
         remark: `充值：${Number(record.amount)} 元`
       }
     })
+    if (evidence) await tx.rechargeLatePayment.update({ where: { id: evidence.id }, data: {
+      status: 'credited', handledAt: new Date(), handledById: data.actor?.id,
+      note: data.actor ? data.reconciliationNote : '系统超时取消后收到有效付款，自动补入余额'
+    } })
 
     // 4. 注释掉首次充值激活 AFF 推荐计划的逻辑
     // 由于需求变更，AFF 推荐计划现在无需充值即可使用
@@ -502,7 +588,8 @@ export async function cancelRecharge(
   callbackData?: Record<string, unknown>,
   paymentDetails?: Record<string, unknown>,
   expectedPaymentDetails?: Record<string, unknown> | null,
-  actor?: WriteActor
+  actor?: WriteActor,
+  cancelReason: 'user' | 'provider' | 'timeout' = callbackData ? 'provider' : 'user'
 ): Promise<RechargeRecord> {
   return prisma.$transaction(async (tx) => {
     if (actor) await lockAdministrativeUserMutation(tx, actor.id, actor)
@@ -514,6 +601,7 @@ export async function cancelRecharge(
       },
       data: {
         status: 'cancelled',
+        cancelReason,
         paymentDetails: paymentDetails as any,
         ...(callbackData
           ? {
@@ -591,10 +679,12 @@ export async function expireOrders(orderNos: string[]): Promise<number> {
   const result = await prisma.rechargeRecord.updateMany({
     where: {
       orderNo: { in: orderNos },
-      status: 'pending'
+      status: 'pending',
+      expiredAt: { lt: new Date() }
     },
     data: {
-      status: 'cancelled'
+      status: 'cancelled',
+      cancelReason: 'timeout'
     }
   })
   return result.count

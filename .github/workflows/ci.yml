@@ -326,6 +326,10 @@ jobs:
         run: pnpm --filter server test:review-renewal-request-ui
       - name: Recharge terminal states survive real row-lock competition without duplicate accounting
         run: pnpm --filter server test:review-recharge-terminal-states
+      - name: Late payments reconcile once and protect terminal orders
+        run: pnpm --filter server test:review-late-payments
+      - name: Late payment review preserves current sessions and explicit settlement actions
+        run: pnpm --filter server test:review-late-payments-ui
       - name: Gift card batch quantities reject invalid input and preserve exact boundary counts
         run: pnpm --filter server test:review-gift-card-counts
       - name: Invalid gift card IDs reject entire batches before refunding or changing valid cards

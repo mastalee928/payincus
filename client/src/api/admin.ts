@@ -2858,6 +2858,7 @@ const api = {
         actualAmount: number | null
         fee: number
         status: string
+          cancelReason: string | null
         payMethod: string | null
         actualPaymentMethod: string | null
         paymentCurrency: string | null
@@ -2880,6 +2881,8 @@ const api = {
     }> => http.get('/admin/billing/recharge-records', { params }),
 
     // 同步充值订单状态
+    getLatePayments: (params: { page: number; status: string }): Promise<{ records: import('@/components/admin/late-payment-types').LatePayment[]; total: number }> => http.get('/admin/billing/late-payments', { params }),
+    resolveLatePayment: (id: number, action: 'credit' | 'resolve', note: string): Promise<{ message: string }> => http.post(`/admin/billing/late-payments/${id}/resolve`, { action, note }),
     syncRechargeRecord: (id: number): Promise<{
       success: boolean
       synced: boolean
