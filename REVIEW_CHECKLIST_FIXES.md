@@ -613,7 +613,7 @@
 | R1-319 | 存在，已修本项文案 | 三语实际Wallet与门禁复验 | rechargeNotice改自行销毁不退款、PUSH手续费以实际转移页为准、邮箱在个人设置修改。三语真实Vue勾选门禁零充值订单、i18n/route与双端build过；未改真实计费规则，见HANDOFF。 |
 | R1-320 | 存在 | 已修复；本地浏览器通过 | 前端8–128位/大小写/数字规则与后台一致；三语持久hint及非法零API、合法边界精确payload/原敏感验证/重试/重新登录与scope32旧回执通过，takeover-password-policy-*；对应3守卫/lint/双端types build/dist通过，未改真实账户。 |
 | R1-321 | 存在，已修 | 文案/浏览器及相关守卫通过 | 三语resetTrafficWarning错误要求手动恢复1Mbps，已按实际route/running查询/scheduler/带宽仲裁改为自动检查并保留账户超限、离线和停止条件。Chrome完整reset/截图、types/4守卫/lint/双端build/dist通过；原生恢复与生产部署另验，不修改原恢复逻辑，见HANDOFF。 |
-| R1-322 | 已有防护 | 保留初审结论 | 管理员创建description已免费或付费；freeGiftHint只在免费赠送分支，不是整页都说免费。 |
+| R1-322 | 初审遗漏，繁体存在 | 文案已修/实际浏览器通过 | 繁体仍承诺无需费用，实际切换先红；改为为指定用户创建免费或付费。机器池/套餐两入口三语标题通过、繁体双宽截图通过，route/i18n/types/双端build通过。freeGiftHint当前无Vue消费者，纠正旧初审；没有计费/真实交付改动。 |
 | R1-323 | 存在，已修 | 文案/浏览器及相关守卫通过 | 三语bootPriority改高值先启动，startupDelay改本实例启动后、下一实例前等待；已核Incus原映射与官方instance_options定义。takeover-package-boot-hints-browser实际Vue/Chrome矩阵及三宽截图、route/i18n/input守卫、locale lint/双端types build/dist通过；不改默认范围/交付，原生宿主自动开机另验。 |
 | R1-324 | 存在 | 沿用R302配额编辑专项 | 已随6c8b219/0444f64修复真实snake_case字段读取、0/null保留、实际用量和剩余额度、轮询保草稿及提交回执。核当前getQuotaFormValues/calculateRemainingQuota与takeover-quota-editor-final.log、takeover-quota-submit-final-r4.log，Chrome通过真实字段、0/null、用量、换目标/会话与草稿矩阵；类型/守卫/双端构建及专属用户无转发入口证据见HANDOFF的R302章节。原生交付另验。补登记，不重复计算产品修复。 |
 | R1-325 | 实现不同 | 保留初审结论 | managed失败保留error，与独占pool交付/退款/隔离库存不同；不能为了释放库存将远端未确认删除直接标deleted，先保留并核查实际残留。 |

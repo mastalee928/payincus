@@ -55,6 +55,18 @@ try {
   await click('admin.instanceCreate.poolSource'); await finishPool(); await click('admin.instanceCreate.packageSource')
   assert.equal(await count('packages'), 2, 'successful empty legacy load is cached within the page')
   await click('admin.instanceCreate.poolSource'); await finishPool()
+  for(const [locale,expected] of [['zh-CN',/免费.*付费/],['zh-TW',/免費.*付費/],['en',/free.*paid/i]]) {
+    await run(locale=>window.poolHarness.setLocale(locale),locale)
+    assert.match(await page.eval(()=>document.querySelector('.page-description')?.textContent||''),expected,'creation heading must describe both billing modes')
+    await click('admin.instanceCreate.packageSource')
+    assert.match(await page.eval(()=>document.querySelector('.page-description')?.textContent||''),expected)
+    await click('admin.instanceCreate.poolSource');await finishPool()
+    if(locale==='zh-TW')for(const width of [1440,390]){
+      await page.setViewport({width,height:1000})
+      assert.ok(await page.eval(()=>document.documentElement.scrollWidth<=innerWidth))
+      await page.screenshot({path:resolve(output,`r322-tw-${width}.png`),format:'png'})
+    }
+  }
   await page.screenshot({ path: resolve(output, 'independent-pool-entry.png') })
   console.log('PASS real admin default pool has zero legacy package dependency; lazy package loading, slow/failed package return, retry and successful empty cache. Controlled API.')
 } finally { if (browser) await browser.close(); await server.close() }

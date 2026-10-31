@@ -1,5 +1,12 @@
 # 版本与验证记录
 
+## 2026-10-31 R322 管理员创建页繁体错误承诺免费
+
+- 简体和英文已说明免费/付费，繁体仍为“為使用者贈送實例，無需支付任何費用”；admin-r322-before.log真实切换繁体后断言失败exit1。仅修改繁体description为“為指定使用者建立免費或付費實例”。当前freeGiftHint无Vue消费者，不能沿初审声称它仍在免费分支显示；实际免费/付费由原单选及计费摘要控制，未改计费逻辑。
+- admin-r322-final.log自然exit0：真实管理员页面机器池/原套餐两入口×简繁英标题语义一致，原懒加载/失败重试/空结果缓存回归；繁体1440/390截图已检查无横向溢出。对应route/i18n守卫2/2、pnpm build:client（两端vue-tsc+Vite）exit0，dist边界另检查。仅受控API，没有真实付款/赠送或实例交付；后端沿R276相同源码通过证据。
+- R318已推261f1bf3a875f5b2dc6f8063bff518aa55cc4bf0，run ID待下一轮登记；新增终态bb5895f67d4f740e3268ce496df647e2480bb531 / CI41144078810 success，4c90055b2e31d3a5e986f22f003258f7c9bb0733 / CI41143664537 success。其它运行继续，无新增失败。
+- R322后306/327（93.6%，含部分/待验收）、21项初审；初审语义遗漏已记OWNER_REQUIREMENTS。完整项目验收及灾备仍未完成，固定v1.7.8未更新、生产未部署。
+
 ## 2026-10-31 R318 重装后启动提示复审
 
 - RebuildModal实际显示rebuildModal.manualStartHint，简繁英三份当前值均明确自动启动；英文为“The instance starts automatically after rebuilding.”。旧key及源码注释含manual字样不等于用户仍看到手动提示。executeRebuildTask在rebuild后调用startInstance/IPv6恢复启动，随后等网络并记running，与当前提示一致；未作无必要key重命名。

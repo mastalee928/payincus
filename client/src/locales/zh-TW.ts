@@ -4825,7 +4825,7 @@ pool: {
             poolStock: '可用 {count} 台',
             noPoolStock: '暫無可用機器，請核對機器池的定價、上線狀態及空閒庫存。',
             title: '建立實例',
-            description: '為使用者贈送實例，無需支付任何費用',
+            description: '為指定使用者建立免費或付費實例',
             targetUser: '目標使用者',
             usernamePlaceholder: '輸入使用者名稱',
             usernameHint: '實例將建立到該使用者帳戶下',
