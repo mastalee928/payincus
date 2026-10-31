@@ -618,7 +618,7 @@
 | R1-324 | 存在 | 沿用R302配额编辑专项 | 已随6c8b219/0444f64修复真实snake_case字段读取、0/null保留、实际用量和剩余额度、轮询保草稿及提交回执。核当前getQuotaFormValues/calculateRemainingQuota与takeover-quota-editor-final.log、takeover-quota-submit-final-r4.log，Chrome通过真实字段、0/null、用量、换目标/会话与草稿矩阵；类型/守卫/双端构建及专属用户无转发入口证据见HANDOFF的R302章节。原生交付另验。补登记，不重复计算产品修复。 |
 | R1-325 | 实现不同 | 保留初审结论 | managed失败保留error，与独占pool交付/退款/隔离库存不同；不能为了释放库存将远端未确认删除直接标deleted，先保留并核查实际残留。 |
 | R1-326 | 已确认存在 | 长地址换行实际Chrome复验通过；整页UI待 | 本地长真实origin生成配置Webhook、当前URL含300字符query，三语1440/768/390完整文本/多行/元素与全页无横溢，takeover-telegram-pricing-locales-final3；无DNS修改/外部Telegram/写入，原整页taste FAIL另待精修。 |
-| R1-327 | 实现不同 | 保留初审结论 | 本库管理员删除集成是TS脚本、测试finally在整套结束清理；未发现对方共享证书提前删除的同类脚本，不照搬旧修法。 |
+| R1-327 | 实现不同 | TLS完整资源生命周期代码复审，原顺序问题不适用 | TS专项在全部TLS删除/退款/失败矩阵后finally依次关client、服务、检查专属temp绝对路径再删证书；之后只有日志/app/DB关闭，无后续代理复用。未改清理顺序或冒充新一次销毁实跑，见HANDOFF。 |
 # 2026-10-30 接续：R1-011 账户验证码与grant绑定
 
 request/verify/check/claim/profile事务按账户、原会话sid及邮箱摘要核验；旧无绑定账号码必须重发。实际PG/SMTP完整回归、8并发唯一消费、profile跨会话/旧邮箱拒绝且不消耗新邮箱code、原回滚/2FA/destroy专用流程、严格类型/后端构建/operation与auth守卫/manifest均自然exit0，详见HANDOFF。文案已三语改为自然查收提示，af5af1af已推并CI终态success。仅账户操作绑定闭合，generic资源当前目标/会话及权限合同、外部邮件/原生客户与灾备另待，259含部分/68不同计数不增。阶段保存后继续，不将阶段汇报作为停工点。
