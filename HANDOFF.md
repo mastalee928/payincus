@@ -2,6 +2,7 @@
 
 ## 2026-11-01 防滥用增加客户实例测速屏蔽
 
+- 测速提交`ed514b828b4fa09b016d4905af086739aca0718a`/CI41270772710：Remote、Billing及双架构组件已成功，Agent41270772784成功且Publish skipped；Pool仍推进。Linux原IPv6基线已通过，随后宿主TCP正常对照失败。诊断确认回声服务串行等待前一个已握手但数据被丢弃的客户连接，阻塞下一正常连接；改为每连接独立处理，保留原超时/过滤断言。实际本地双连接复现`speed-network-echo-before-corrected.log`失败约0.7秒，修正`speed-network-echo-fixed.log`正常约0.002秒，Linux完整流量待后继CI。首次本地复现因Windows换行读取断言失败（`speed-network-echo-before.log`），不计根因复现。
 - 与BT/挖矿同一全局表单、保存/重试/汇总和受管客户FORWARD链，新增独立默认关闭开关；保留owner原14个词，TCP/UDP及IPv4/IPv6按明文特征匹配。宿主OUTPUT、管理与受管桥之间流量保持豁免；页面说明宽匹配及加密/隧道局限。
 - 旧备份/Agent磁盘缺字段默认关闭并保留BT/挖矿，显式null/错类型拒绝；旧页面遗漏字段保留当前测速值。新增能力标识与完整flags回执比较，旧Agent不接收无法完整执行的策略也不能被标记成功；新Agent拒绝缺测速字段的旧主控关闭已有测速防护，保留版本/nonce、离线退避与重启恢复。
 - 本地`speed-abuse-go.log`、`speed-panel-go.log`定向测试自然exit0；`takeover-bulk-review-final.log`真实PG/Fastify/HMAC含原108宿主批量失败审计/撤权/并发及新增兼容回归exit0。`speed-server-type.log`、`speed-client-build.log`双端类型/构建、`speed-frontend-guards.log`、`speed-dist-guards.log`、`speed-ui-lint.log`均通过；`speed-ui.log`真实Chrome三开关/草稿保留/迟到回执/三语三宽亮暗及截图通过。Linux交叉编译仅证明可编译。

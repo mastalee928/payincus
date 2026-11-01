@@ -40,6 +40,13 @@ def space():
 server_code = r'''
 import socket,threading,time,queue
 ready=queue.Queue()
+def echo_client(c):
+ c.settimeout(2)
+ try:
+  data=c.recv(4096)
+  if data:c.sendall(data)
+ except (socket.timeout,ConnectionError):pass
+ finally:c.close()
 def serve(family,kind):
  s=socket.socket(family,kind);s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
  if family==socket.AF_INET6:s.setsockopt(socket.IPPROTO_IPV6,socket.IPV6_V6ONLY,1)
@@ -48,12 +55,10 @@ def serve(family,kind):
   s.listen()
   ready.put(True)
   while True:
-   c,_=s.accept();c.settimeout(2)
-   try:
-    data=c.recv(4096)
-    if data:c.sendall(data)
-   except socket.timeout:pass
-   finally:c.close()
+   c,_=s.accept()
+   # A filtered client completes its handshake but cannot send application
+   # bytes. It must not block the following host OUTPUT control connection.
+   threading.Thread(target=echo_client,args=(c,),daemon=True).start()
  else:
   ready.put(True)
   while True:
