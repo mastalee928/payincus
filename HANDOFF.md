@@ -1,5 +1,17 @@
 # 版本与验证记录
 
+## 2026-11-01 v1.7.9 预览回退专项继续
+
+- 预览 `41281709300` 第二次已越过公开 Agent 验证，两架构备份、预检与恢复成功；ARM64 回退成功后被旧 ifindex 不变断言拒绝，AMD64 回退返回 `manual_recovery_required / OSS_OPERATION_FAILED`，当前日志不足以认定其具体根因。原失败分别保留在 `logs/release-v1.7.9-preview-{amd64,arm64}-attempt2-failed.log`，快照 `logs/release-v1.7.9-preview-attempt-2.json`；仍不满足发行门槛。
+- 首装回退演练按现行“强制核内核状态”修正：主动改变临时 VM 的 MTU/监听端口，回退后核地址、MTU、公开身份、端口及 peer，普通同身份恢复仍保 ifindex/endpoint 不变检查。增加仅命令类别/退出码/固定布尔分类与 journal 阶段的失败诊断，不输出 argv、stderr、私钥或凭证；诊断不视为已修复 AMD64 根因。
+- `node --check`、真实子进程成功/失败透传与诊断脱敏检查、原备份守卫及中断回退守卫均通过，见 `logs/release-v1.7.9-diagnostic-check.mjs`、`logs/release-v1.7.9-backup-smoke-guards.log`、`logs/release-v1.7.9-rollback-diagnostic-guards.log`。仅测试脚本与台账变化，产品/Agent/发布保护不变；候选更新后重新跟同 SHA 预览与相关 CI。Agent 正式 v1.0.4 来源仍为 76e779df，未重复发行。AMD64 具体失败及双架构完整恢复演练待新预览。
+## 2026-11-01 v1.7.9 预览依赖纠正与 Agent v1.0.4 发行
+
+- 候选完整提交 `76e779df77e52cbe96ee2e103d57dd951dba4e1e`。预览 `41281709300` 第一次双架构构建全部成功，两个首装均在 `smoke-fresh-install.mjs:65` 正确拒绝旧公开 Agent v1.0.3；备份/恢复尚未执行。旧失败日志与快照保留在 `logs/release-v1.7.9-preview-{amd64,arm64}-failed.log` 和 `logs/release-v1.7.9-preview-attempt-1.json`，不能称预览已通过。
+- 原“面板首装全部通过后才发布 Agent”的顺序存在依赖循环。按 owner 已授权的配套发行，使用未修改的 Agent 工作流从候选分支独立发布：`41282502953` 的 Go、Linux IPv6、双架构构建和发布全部 success，实际 checkout 与 `agent-v1.0.4` 标签均为上述完整提交。Agent PR `41281700028` 已成功且 Publish skipped；其实际合并引用 `898eee4cd7c3fb132f97b5415a00a31f7ac43802` 与候选 tree 同为 `f2c6b8e3fba5909e90f3e2f80cab466aecbf8b11`，两种身份分别记录。
+- 已下载正式 Agent 两个 ELF 和 LICENSE，核架构、大小、GitHub digest/本地 SHA256及许可证。amd64：5337240 字节、`3f6c953b45a79081b9a63d2468236b651105424e87ba3fa2c1fe75b80d4ba1c5`；arm64：5046424 字节、`874ac352850ad72797ac9e2169a13edef2b64b5eecf7f3018e468e08dcf0b0b0`。正式资产证据 `logs/release-v1.7.9-agent-assets-verified.json`；Agent 未占用 latest，面板 latest 仍为 v1.7.8。
+- 公开依赖更新后，仅重跑预览失败 job，复用原成功构建，原能力校验和发行门禁保持。面板 PR CI `41281700041` 的 Pool 仍运行，其他六项已成功。须待候选源码 CI、双架构首装与备份恢复通过后才 fast-forward main 和发布面板 v1.7.9；main 可能再次触发同版本 Agent 发行，须比对完整来源和资产字节。本记录先本地保存，不为记录制造新候选或重复 CI。未操作生产 OTA、客户宿主、DNS 或系统 Node；发行不等于已部署或完整 OSS 灾备验收。
+
 ## 2026-11-01 v1.7.9 / Agent v1.0.4 候选准备
 
 - Owner最新指示：本次全部处理完就开始发新版，取代此前暂不发版。e9a0effd/CI41272556370及d5d35a10/CI41273601335现均7job全部success，本接手原CI收尾。当前正式面板v1.7.8、Agent v1.0.3，候选分支codex/release-v1.7.9将根/client/server版本同步1.7.9、Agent版本同步v1.0.4，发行说明见docs/release-v1.7.9.md。

@@ -1,17 +1,40 @@
 // Real database/systemd recovery on disposable GitHub VMs. Only OSS transport
 // is replaced with local files; no cloud credentials or customer hosts are used.
 import assert from 'node:assert/strict'
-import { execFile } from 'node:child_process'
+import childProcess, { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { chown, copyFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
-import { join } from 'node:path'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
+import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Disposable GitHub runner required')
 assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
 assert.equal(process.platform, 'linux')
 assert.equal(process.getuid(), 0)
+// Preserve real child execution, but report only fixed operation labels and
+// exit metadata when the worker sanitizes an OS error. Never log argv or stderr:
+// gateway commands and database utilities can carry identity/credential data.
+const originalExec = childProcess.execFile
+const originalPromisifiedExec = originalExec[promisify.custom]
+const diagnosticExec = (...args) => originalExec(...args)
+diagnosticExec[promisify.custom] = (...args) => {
+  const pending = originalPromisifiedExec(...args)
+  const result = pending.catch(error => {
+    const operation = ['is-active', 'restart', 'start', 'stop', 'show', 'strip', 'syncconf', '-u', '-g'].includes(args[1]?.[0]) ? args[1][0] : 'other'
+    console.error('Backup drill child failure', JSON.stringify({ program: basename(args[0]), operation,
+      exitCode: Number.isInteger(error.code) ? error.code : null,
+      signal: ['SIGTERM', 'SIGKILL'].includes(error.signal) ? error.signal : null,
+      deviceMissing: /(?:Cannot find device|does not exist|No such device)/i.test(error.stderr || ''),
+      deviceExists: /(?:already exists|File exists)/i.test(error.stderr || ''),
+      serviceFailed: /Job for .* failed/i.test(error.stderr || '') }))
+    throw error
+  })
+  result.child = pending.child
+  return result
+}
+childProcess.execFile = diagnosticExec
+syncBuiltinESMExports()
 const exec = promisify(execFile)
 const require = createRequire('/opt/incudal/server/package.json')
 const initialEnv = require('dotenv').parse(await readFile('/opt/incudal/.env'))
@@ -54,6 +77,12 @@ async function task(kind, extras = {}) {
   const id = randomUUID()
   await runPlatformBackupTask({ id, kind, createdBy: 0, createdAt: new Date().toISOString(), config, ...extras })
   const result = await core.readJson(core.statePath('results', `${id}.json`))
+  if (result?.status !== 'success') {
+    const hold = await core.readJson(join(core.backupRoot(), 'recovery-hold.json'))
+    const journal = hold?.taskId && await core.readJson(core.statePath('private', `${core.validateId(hold.taskId)}/journal.json`))
+    const stage = ['prepared', 'switching', 'database_switched', 'files_switched', 'awaiting_review', 'rolled_back_review'].includes(journal?.stage) ? journal.stage : 'unknown'
+    console.error('Backup drill recovery state', JSON.stringify({ kind, held: Boolean(hold), journalStage: stage }))
+  }
   assert.equal(result?.status, 'success', `${kind}: ${result?.stage} ${result?.error || ''}`)
   console.log(`Platform backup drill: ${kind} passed`)
   return result
@@ -62,6 +91,17 @@ async function health(held) {
   const response = await fetch('http://127.0.0.1:3001/api/health')
   assert.equal(response.status, 200)
   assert.equal((await response.json()).recoveryHeld, held)
+}
+async function gatewayState() {
+  const links = JSON.parse((await exec('/usr/sbin/ip', ['-j', 'address', 'show', 'dev', 'incudal-mgmt'])).stdout)
+  assert.equal(links.length, 1)
+  return {
+    mtu: links[0].mtu,
+    addresses: links[0].addr_info.map(item => `${item.family}:${item.local}/${item.prefixlen}`).sort(),
+    publicKey: (await exec('/usr/bin/wg', ['show', 'incudal-mgmt', 'public-key'])).stdout.trim(),
+    listenPort: (await exec('/usr/bin/wg', ['show', 'incudal-mgmt', 'listen-port'])).stdout.trim(),
+    peers: (await exec('/usr/bin/wg', ['show', 'incudal-mgmt', 'allowed-ips'])).stdout.trim()
+  }
 }
 try {
   for (const entry of ['user', 'admin']) {
@@ -90,6 +130,7 @@ try {
   const preview = await task('preview', { sourcePrefix: backup.objectPrefix, password: core.sealSecret(password) })
   const gatewayEndpoints = (await exec('/usr/bin/wg', ['show', 'incudal-mgmt', 'endpoints'])).stdout
   const gatewayIfindex = (await readFile('/sys/class/net/incudal-mgmt/ifindex', 'utf8')).trim()
+  const gatewayBefore = await gatewayState()
   await task('restore', { previewId: preview.id, confirmation: `RESTORE ${preview.id}` })
   assert.equal((await readFile('/sys/class/net/incudal-mgmt/ifindex', 'utf8')).trim(), gatewayIfindex, 'same-controller recovery must not recreate the management interface')
   assert.equal((await exec('/usr/bin/wg', ['show', 'incudal-mgmt', 'endpoints'])).stdout, gatewayEndpoints, 'same-controller recovery must preserve learned peer endpoints')
@@ -108,9 +149,13 @@ try {
   const login = await fetch('http://127.0.0.1:3001/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: initialEnv.ADMIN_PASSWORD }) })
   assert.equal(login.status, 200, 'administrator can log in while recovery is held')
   await exec('/usr/bin/sudo', ['-u', 'incudal', 'test', '-r', '/opt/incudal/server/certs/onboarding-gateway.key'])
+  // Model an interrupted worker whose files already match but whose live
+  // network still differs. Rollback must reconcile the kernel, not the ifindex.
+  await exec('/usr/sbin/ip', ['link', 'set', 'dev', 'incudal-mgmt', 'mtu', gatewayBefore.mtu === 1280 ? '1380' : '1280'])
+  await exec('/usr/bin/wg', ['set', 'incudal-mgmt', 'listen-port', gatewayBefore.listenPort === '51998' ? '51997' : '51998'])
+  assert.notDeepEqual(await gatewayState(), gatewayBefore, 'drill must actually change live gateway state')
   await task('rollback', { confirmation: 'ROLLBACK RESTORE' })
-  assert.equal((await readFile('/sys/class/net/incudal-mgmt/ifindex', 'utf8')).trim(), gatewayIfindex, 'rollback must preserve the unchanged management interface')
-  assert.equal((await exec('/usr/bin/wg', ['show', 'incudal-mgmt', 'endpoints'])).stdout, gatewayEndpoints, 'rollback must preserve learned peer endpoints')
+  assert.deepEqual(await gatewayState(), gatewayBefore, 'rollback must restore live addresses, MTU, identity, listen port and peers')
   await health(true)
   assert.equal((await pgQuery('SELECT value FROM system_configs WHERE key=$1', [key]))[0].value, 'before-restore')
   assert.equal(process.env.ENCRYPTION_KEY, targetKey)
