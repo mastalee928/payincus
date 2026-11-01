@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-11-01 v1.7.9 / Agent v1.0.4 候选准备
+
+- Owner最新指示：本次全部处理完就开始发新版，取代此前暂不发版。e9a0effd/CI41272556370及d5d35a10/CI41273601335现均7job全部success，本接手原CI收尾。当前正式面板v1.7.8、Agent v1.0.3，候选分支codex/release-v1.7.9将根/client/server版本同步1.7.9、Agent版本同步v1.0.4，发行说明见docs/release-v1.7.9.md。
+- d5的真实PG16旧库dump/restore及失败隔离已成功，详见logs/restore-history-ci.log和logs/restore-acceptance-status.json；此前五轮旧CI均已终态，历史失败由后继成功验证，见logs/takeover-completed-stages.json。原本地通过及Linux数据包证据继续复用，不重查327项或重复无变化的大型测试。
+- agent/VERSION推送main/dev会自动发布。候选先推codex分支，以PR触发CI及不发布Agent构建，并手动触发同SHA面板发行预览；通过后才将验证过的提交合入main并创建稳定tag。工作流发布条件保持不变，预览不创建Release；本机版本一致/非版本内容等价、清单、仓库来源及Agent版本守卫均通过，日志release-v1.7.9-*.log，必要全套/双构建交发行工作流运行。生产OTA/部署、客户实例/DNS/系统Node仍未授权；真实独立OSS新机灾备、网关接管/切回、千台/72小时等未验收范围继续保留。监控持续到新版发行验证完成后再删除。
+
 ## 2026-11-01 备份恢复中断与旧库兼容专项
 
 - 明确复现两处恢复缺陷：先持久化hold再写journal，journal失败会留下没有回退依据的保护状态；回退替换网关文件后sync失败，重试因磁盘文件相等误跳过live状态恢复。现先写持久journal再创建hold，回退显式重建网关网络配置并同步身份/peer，不把文件相等当内核状态一致；兼容旧worker中断后没有新增字段的journal。仅回退路径强制重新应用，普通未变化恢复仍保留现有隧道。
