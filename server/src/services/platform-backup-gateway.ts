@@ -33,16 +33,19 @@ export async function refreshRestoredGateway(previous: string, reconcileNetwork 
   // An unchanged file does not require restarting the live tunnel or discarding handshakes.
   if (!reconcileNetwork && active && previous === next) return
   const endpoints = active ? await exec('/usr/bin/wg', ['show', 'incudal-mgmt', 'endpoints'], { timeout: 10000 }).then(result => result.stdout) : ''
-  const directory = await mkdtemp('/var/tmp/incudal-gateway-restore-')
+  // Distribution confinement permits wg/wg-quick to read identity material
+  // under /etc/wireguard, not a generic temporary directory. mkdtemp is 0700.
+  const directory = await mkdtemp('/etc/wireguard/.incudal-restore-')
   try {
     const temporary = join(directory, 'incudal-mgmt.conf')
     // Interrupted rollback can leave file and live identities different. Do
     // not carry learned endpoints across an identity we cannot establish.
     await writeFile(temporary, retainGatewayEndpoints(reconcileNetwork ? '' : previous, next, endpoints), { mode: 0o600 })
     const sameNetwork = ['Address', 'ListenPort', 'MTU'].every(name => setting(previous, name) === setting(next, name))
-    if (reconcileNetwork || !active || !sameNetwork) await exec('/usr/bin/systemctl', ['restart', 'wg-quick@incudal-mgmt'], { timeout: 30000 })
     const stripped = await exec('/usr/bin/wg-quick', ['strip', temporary], { timeout: 10000 })
     const input = join(directory, 'sync.conf'); await writeFile(input, stripped.stdout, { mode: 0o600 })
+    // Reject unreadable/invalid input before disrupting the current interface.
+    if (reconcileNetwork || !active || !sameNetwork) await exec('/usr/bin/systemctl', ['restart', 'wg-quick@incudal-mgmt'], { timeout: 30000 })
     await exec('/usr/bin/wg', ['syncconf', 'incudal-mgmt', input], { timeout: 10000 })
     const result = await exec('/usr/bin/systemctl', ['is-active', 'wg-quick@incudal-mgmt'], { timeout: 10000 })
     ensure(result.stdout.trim() === 'active', 'OSS_GATEWAY_RESTORE_FAILED', 503)

@@ -90,3 +90,41 @@ for (const interruption of ['files', 'gateway', 'health', 'legacy-interrupted'])
   assert.ok(calls.includes('start') && disk.has('hold'), 'rollback restarts protected, never resumes business')
 }
 console.log('PASS interrupted file/gateway/health rollback retries converge the original identity and retain the recovery hold')
+
+// Ubuntu confines both wg-quick and wg config reads to /etc/wireguard.
+// Exercise the actual helper through that filesystem boundary, including a
+// parser failure before the live interface may be restarted.
+for (const parseFailure of [false, true]) {
+  const events: string[] = []
+  const files = new Map<string, string>()
+  const conf = '[Interface]\nPrivateKey = fixture\nAddress = 10.253.240.1/20\nListenPort = 51820\n'
+  const refresh = load<(previous: string, reconcileNetwork: boolean) => Promise<void>>(
+    gatewaySource.slice(gatewaySource.indexOf('const configPath =')).replace(/^export /gm, '') + '\nreturn refreshRestoredGateway', {
+      join, ensure, isIP: () => 0, readFile: async () => conf,
+      mkdtemp: async (prefix: string) => prefix + 'fixture',
+      writeFile: async (path: string, content: string, options: { mode: number }) => {
+        assert.equal(options.mode, 0o600, 'temporary identities must remain private')
+        files.set(path, content)
+      },
+      rm: async () => { events.push('cleanup') },
+      exec: async (program: string, args: string[]) => {
+        events.push(args[0])
+        if (args[0] === 'strip' || args[0] === 'syncconf') {
+          const path = args[args.length - 1]
+          assert.ok(path.replaceAll('\\', '/').startsWith('/etc/wireguard/.incudal-restore-'), `${program}: configuration must stay inside the confined WireGuard directory`)
+          assert.ok(files.has(path))
+          if (args[0] === 'strip' && parseFailure) throw new Error('injected parser refusal')
+        }
+        return { stdout: args[0] === 'is-active' ? 'active' : args[0] === 'strip' ? '[Interface]\nPrivateKey = fixture\n' : '' }
+      }
+    })
+  if (parseFailure) {
+    await assert.rejects(refresh(conf, true), /injected parser refusal/)
+    assert.ok(!events.includes('restart') && !events.includes('syncconf'), 'a parser refusal must precede any live network changes')
+  } else {
+    await refresh(conf, true)
+    assert.ok(events.indexOf('strip') < events.indexOf('restart') && events.includes('syncconf'))
+  }
+  assert.equal(events.at(-1), 'cleanup')
+}
+console.log('PASS confined private gateway files, parser-before-restart ordering and cleanup')

@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-11-01 v1.7.9 网关回退配置路径修复
+
+- 候选 `2ce1227e7e675ac4e20de937efff0e729241c421` / 预览 `41283143145`：双架构构建成功，ARM64 首装全程 success，包含实际备份、预检、恢复、强制改变 MTU/端口后回退、恢复营业、ZIP/数据库完整性与跨版本迁移/拒绝；日志 `logs/release-v1.7.9-2ce1227e-arm64-success.log`。OSS transport 仍为本地替身，不等于独立云端灾备。
+- AMD64（Ubuntu 26.04）失败诊断现精确到 `wg-quick strip` exit 1，journal 留在 awaiting_review、营业保护仍在，见 `logs/release-v1.7.9-2ce1227e-amd64-failed.log`。发行版 AppArmor 的 wg-quick 配置读取限定 `/etc/wireguard/{,**}`，当前 helper 的 `/var/tmp/incudal-gateway-restore-*` 不符合该目录限制；仓库既有原生网关测试已记录相同 wg 配置目录约束。未取得旧 VM 的内核审计日志，不能冒称已读取具体 DENIED 记录。
+- 回退 helper 将临时配置和 sync 输入放在 `/etc/wireguard/.incudal-restore-*` 下，mkdtemp 0700、文件 0600、finally 清理，原配置身份/peer同步及强制内核重建保持。将 strip 和输入写入移到网络重启之前，使解析/读取失败不先中断现有接口；未放宽 AppArmor，也未改发行门禁。
+- 新增实际 helper 的受限文件边界注入：原路径必败（`logs/release-v1.7.9-wg-confinement-before.log`），修正后验证私有目录/文件、解析失败零重启/零同步及最终清理通过；原 journal/中断/备份守卫、后端 tsc/构建及新增测试严格类型通过（wg-confinement-fixed/wg-backup-guards/wg-server-build/wg-test-types-fixed 日志）。专项类型配置首次从 logs 解析不到 @types/node，显式指定已有 server 类型目录后通过，保留原配置失败。实际 Ubuntu 26.04 双架构新预览仍待运行，不能以本地边界测试代替 Linux 回退成功。
 ## 2026-11-01 v1.7.9 预览回退专项继续
 
 - 预览 `41281709300` 第二次已越过公开 Agent 验证，两架构备份、预检与恢复成功；ARM64 回退成功后被旧 ifindex 不变断言拒绝，AMD64 回退返回 `manual_recovery_required / OSS_OPERATION_FAILED`，当前日志不足以认定其具体根因。原失败分别保留在 `logs/release-v1.7.9-preview-{amd64,arm64}-attempt2-failed.log`，快照 `logs/release-v1.7.9-preview-attempt-2.json`；仍不满足发行门槛。
