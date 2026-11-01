@@ -1075,8 +1075,9 @@ const api = {
     // 批量删除实例
     batchDeleteInstances: (hostId: number, instanceIds: number[], reason?: string, databaseOnly?: boolean, refund?: boolean): Promise<{
       message: string
-      results: Array<{ id: number; name: string; success: boolean; error?: string; refundAmount?: number }>
+      results: Array<{ id: number; name: string; success: boolean; pending?: boolean; error?: string; refundAmount?: number }>
       successCount: number
+      pendingCount?: number
       failedCount: number
       totalRefundAmount: number
     }> => http.delete(`/hosts/${hostId}/instances/batch`, { data: { instanceIds, reason, databaseOnly, refund }, timeout: TIMEOUT.BATCH }),
@@ -2686,6 +2687,7 @@ const api = {
     // 管理员删除并退款
     deleteAndRefundInstance: (instanceId: number, refundType: 'remaining' | 'full', reason: string, databaseOnly: boolean = false): Promise<{
       success: boolean
+      pending?: boolean
       message: string
       refundAmount: number
       refundType: string
@@ -3780,6 +3782,7 @@ hostOnboarding: {
     getPublicIp: (id: number): Promise<import('@/types/host-pool').HostPublicIpSync> => http.get(`/host-onboarding/inventory/${id}/public-ip`),
     syncPublicIp: (id: number, settings?: import('@/types/host-pool').HostPublicIpSettings): Promise<import('@/types/host-pool').HostPublicIpSync> => http.post(`/host-onboarding/inventory/${id}/public-ip/sync`, { settings }, { timeout: 150000 }),
     inspectRecovery: (id: number): Promise<import('@/types/host-pool').HostRecoveryReport> => http.get(`/host-onboarding/inventory/${id}/recovery`, { timeout: 65000 }),
+    retryCleanup: (id: number): Promise<{ success: true }> => http.post(`/host-onboarding/inventory/${id}/retry-cleanup`),
     recover: (id: number, data: { confirmation: string; acknowledgeCleanup: boolean }): Promise<{ success: boolean }> => http.post(`/host-onboarding/inventory/${id}/recover`, data, { timeout: 65000 }),
     replacementOptions: (id: number, allRegions = false): Promise<{ hosts: Array<{ id: number; name: string; natPublicIp: string | null; countryCode: string | null; regionGroupEntry: { name: string } | null }>; backups: Array<{ id: number; remoteFileName: string | null; finishedAt: string | null }>; task: { id: number; status: string; progress: string | null; error: string | null } | null }> => http.get(`/instances/${id}/replacement-options`, { params: { allRegions } }),
     replaceHost: (id: number, data: { targetHostId: number; backupUploadId: number | null; acknowledgeRebuild: boolean; allRegions?: boolean }): Promise<{ taskId: number }> => http.post(`/instances/${id}/replace-host`, data),

@@ -922,8 +922,9 @@ poolOrder: (data: {
     // 批量删除实例
     batchDeleteInstances: (hostId: number, instanceIds: number[], reason?: string, databaseOnly?: boolean, refund?: boolean): Promise<{
       message: string
-      results: Array<{ id: number; name: string; success: boolean; error?: string; refundAmount?: number }>
+      results: Array<{ id: number; name: string; success: boolean; pending?: boolean; error?: string; refundAmount?: number }>
       successCount: number
+      pendingCount?: number
       failedCount: number
       totalRefundAmount: number
     }> => http.delete(`/hosts/${hostId}/instances/batch`, { data: { instanceIds, reason, databaseOnly, refund }, timeout: TIMEOUT.BATCH }),
@@ -2603,6 +2604,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
 
     destroyInstance: (instanceId: number, options?: { feeWaiver?: string; emailCode?: string }): Promise<{
       success: boolean
+      pending?: boolean
       message: string
       refundAmount: number
       feeAmount: number
@@ -2641,6 +2643,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
       message: string
       successCount: number
       skippedCount: number
+      pendingCount?: number
       failedCount: number
       results: Array<{
         id: number

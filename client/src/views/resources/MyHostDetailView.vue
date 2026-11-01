@@ -8,6 +8,7 @@ import { useToast } from '@/stores/toast'
 import { useAuthStore } from '@/stores/auth'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import HostInfoTab from '@/components/host/HostInfoTab.vue'
+import HostManagementRepairStatus from '@/components/host/HostManagementRepairStatus.vue'
 import HostImagesTab from '@/components/host/HostImagesTab.vue'
 import MyHostConfigTab from '@/components/host/MyHostConfigTab.vue'
 import HostInstancesTab from '@/components/host/HostInstancesTab.vue'
@@ -19,6 +20,8 @@ import HostCreateInstanceTab from '@/components/host/HostCreateInstanceTab.vue'
 import HostOpsTab from '@/components/host/HostOpsTab.vue'
 import FlagIcon from '@/components/FlagIcon.vue'
 import { hostsPath } from '@/utils/app-paths'
+import { translateError } from '@/utils/errorHandler'
+import type { ManagedHost } from '@/types/host-pool'
 
 // 为 KeepAlive exclude 匹配定义组件名称
 defineOptions({
@@ -39,6 +42,7 @@ type TabType = 'info' | 'config' | 'images' | 'instances' | 'storage' | 'publicI
 const activeTab = ref<TabType>('info')
 
 interface Host {
+  managementRepair?: ManagedHost['managementRepair']
   id: number
   name: string
   url: string
@@ -230,7 +234,7 @@ async function runHostAction(kind: string, failureKey: string, execute: (id: num
   try { refresh = (await execute(id!, current)) === true }
   catch (err: unknown) {
     if (current()) {
-      actionError.value = t(failureKey) + ': ' + (err instanceof Error ? err.message : String(err))
+      actionError.value = t(failureKey) + ': ' + translateError(err)
       if (kind === 'verify-reinstall') { reinstallStatus.value = 'error'; reinstallError.value = actionError.value }
       toast.error(actionError.value)
     }
@@ -419,6 +423,7 @@ const tabs = [
               </span>
             </div>
             <p class="page-description mt-1 truncate font-mono text-themed-muted">{{ host.location || host.url }}</p>
+            <HostManagementRepairStatus class="mt-2" :state="host.managementRepair" />
           </div>
         </div>
 

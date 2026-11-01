@@ -4,7 +4,9 @@ import { en as managementGateway } from './management-gateway'
 import { en as expiryEnforcement } from './expiry-enforcement'
 import { en as gatewayEndpoint } from './gateway-endpoint'
 import { en as hostAbuse } from './host-abuse-policy'
+import { en as automaticRecovery } from './automatic-recovery'
 export default {
+    automaticRecovery,
     hostAbuse,
     homeMapDemo: {
         pageTitle: "Choose your next server",
@@ -129,6 +131,7 @@ export default {
     "udpClosed": "Applied · Inbound UDP blocked",
     "udpOpen": "Applied · TCP+UDP",
     "recovery": {
+      "auto": { "pending": "Waiting for automatic cleanup", "retry": "Reclaiming the old host", "blocked": "Automatic cleanup needs attention", "done": "Old host cleaned and quarantine released", "description": "The system verifies the old instance, stops and deletes its disk and snapshots, removes forwarding rules, then restores inventory after confirming the host is empty.", "next": "Next automatic check: {time}", "retryAction": "Retry automatic cleanup" },
       "preserve": "The existing customer instance, storage and network rules match. Releasing quarantine preserves ownership, price, expiry and occupied resources. This host remains sold and cannot be sold again.",
       "batch": {"title": "Batch check and recovery · {count} hosts", "description": "Check selected quarantined hosts one at a time and recover only those that pass. Failed checks retain their reasons; instance ownership, network and residual data checks are never skipped.", "progress": "Checked {checked}/{total} · Ready {ready} · Recovered {recovered}", "checkPage": "Check quarantined hosts on this page", "checkSelected": "Check and recover selected hosts", "working": "Processing hosts…", "restoreReady": "Recover {count} hosts that passed", "status": {"pending": "Pending", "checking": "Checking", "ready": "Ready", "blocked": "Blocked", "recovering": "Recovering", "recovered": "Recovered", "failed": "Failed"}},
       "title": "Check and recover",
@@ -246,6 +249,7 @@ export default {
     },
     // Common
     common: {
+    automaticDeletionPending: 'Deletion accepted. The system is automatically cleaning up and verifying resource release.',
         defaultBrandSubtitle: 'Affordable Incus-powered NAT VPS', adminPanel: 'Admin Console',
         pagination: 'Pagination',
         noResults: 'No results',
@@ -5433,6 +5437,19 @@ pool: {
 
     // Log actions translation
     logActions: {
+        'system.expiry_enforcement_started': 'Expiry inspection started',
+        'system.expiry_enforcement': 'Expiry inspection result',
+        'host.management.repair_applied': 'Host management repair applied',
+        'host.management.repaired': 'Host management connection restored',
+        'host.management.repair_retry': 'Host management retry',
+        'host.pool.cleanup_start': 'Host cleanup started',
+        'host.pool.cleanup_complete': 'Host cleanup completed',
+        'host.pool.cleanup_retry': 'Host cleanup retry',
+        'host.replacement.source_recovered': 'Original customer machine recovered',
+        'host.replacement.source_retry': 'Original customer machine verification',
+        'instance.delete_queued': 'Instance deletion accepted',
+        'instance.delete_retry': 'Instance deletion retry',
+
         // Security events
         'login_success': 'Login Success',
         'login_failed': 'Login Failed',
@@ -5547,6 +5564,8 @@ pool: {
 
     // Log results translation
     logResults: {
+        started: 'Started',
+        pending: 'Processing',
         success: 'Success',
         failed: 'Failed',
         warning: 'Warning',
@@ -8526,6 +8545,28 @@ onboarding: {
     },
 
 hostInventory: {
+  hostPublicIpv6: "Host public IPv6",
+  managementRepair: {
+    errors: {
+      "HOST_REPAIR_AUTHORITY_CHANGED": "The enrolling administrator’s authority changed. It will be checked again before sending credentials.",
+      "HOST_REPAIR_ENROLLMENT_CHANGED": "The host enrollment changed. The original identity is retained while the binding is checked.",
+      "HOST_REPAIR_BUSY": "Installation or delivery is active. Recovery resumes automatically when it finishes.",
+      "HOST_TLS_NOT_TRUSTED": "The host did not accept the original management certificate. Its identity is retained for the next check.",
+      "HOST_TLS_IDENTITY_MISSING": "The original management identity is incomplete. No replacement identity will be generated.",
+      "AGENT_REPAIR_DISABLED": "Agent is disabled. Automatic recovery respects this setting.",
+      "AGENT_REPAIR_IDENTITY_SUPERSEDED": "A later action changed Agent credentials. Recovery will not restore the old credentials.",
+      "AGENT_REPAIR_SECRET_INVALID": "Current Agent credentials failed integrity validation and were not sent.",
+      "AGENT_REPAIR_REMOTE_FAILED": "Management identity is verified but Agent configuration is not yet confirmed. Recovery will retry automatically.",
+      "HOST_MANAGEMENT_REPAIR_RETRY": "The management channel has not responded. Recovery will retry automatically."
+},
+    sourceRetry: 'Automatically checking the original customer machine before restoring its network status. The machine and disk are preserved.',
+    sourceDone: 'The original customer machine is verified and its network status is restored.',
+    retry: 'Restoring the management connection automatically',
+    'waiting-heartbeat': 'Connection repaired; confirming Agent reconnection',
+    done: 'Management connection restored automatically',
+    blocked: 'Automatic recovery paused: original identity or authorization could not be verified',
+    next: 'Next automatic check: {time}',
+  },
 "sshTitle": "SSH connection",
   "sshHint": "Save the management connection details, then copy the command to your terminal.",
   "sshGatewayHint": "Connect to the management gateway, then run the machine command on the gateway.",

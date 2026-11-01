@@ -7,6 +7,7 @@ import api, { type RiskOperationDefinition } from '@/api'
 import { useToast } from '@/stores/toast'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import type { Log } from '@/types/api'
+import { expiryLogDisplay } from '@/utils/expiry-log-display'
 import {
   formatLogAction,
   formatLogContent,
@@ -139,6 +140,7 @@ function formatDate(dateString: string | null | undefined): string {
 
 // 获取结果徽章类名
 function getResultClass(result: string): string {
+  if (result === 'started' || result === 'pending') return 'badge-default'
   if (result === 'success') {
     return 'badge-success'
   } else if (result === 'failed') {
@@ -201,9 +203,10 @@ function formatAction(action: string): string {
   return formatLogAction(action, tm('logActions') as Record<string, unknown>)
 }
 
-function formatContent(content: string): string {
-  return formatLogContent(content)
+function formatContent(log: Log): string {
+  return formatLogContent(log.content, log.action, locale.value)
 }
+function displayedResult(log: Log): string { return expiryLogDisplay(log.action, log.content, locale.value)?.result || log.result }
 
 // 切换内容展开/收起
 function toggleContent(logId: number): void {
@@ -225,7 +228,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="kawaii-page space-y-6 animate-fade-in">
+  <div class="logs-page kawaii-page space-y-6">
     <div class="page-header">
       <h1 class="page-title">{{ $t('logs.title') }}</h1>
       <button v-if="canAccessAudit" class="btn btn-primary" @click="exportAuditCsv">
@@ -236,7 +239,7 @@ onMounted(async () => {
       </button>
     </div>
 
-    <div class="grid gap-3" :class="canAccessAudit ? 'md:grid-cols-4' : 'md:grid-cols-3'">
+    <div class="grid grid-cols-2 gap-3" :class="canAccessAudit ? 'md:grid-cols-4' : 'md:grid-cols-3'">
       <div v-if="canAccessAudit" class="card p-4">
         <div class="text-xs font-medium uppercase tracking-wide text-themed-muted">{{ $t('logs.auditSummary.riskDefinitions') }}</div>
         <div class="mt-2 font-mono text-2xl font-semibold tabular-nums text-themed">{{ riskDefinitions.length }}</div>
@@ -313,8 +316,8 @@ onMounted(async () => {
               <div class="truncate text-sm font-semibold text-themed">{{ formatAction(log.action) }}</div>
               <div class="mt-1 font-mono text-xs text-themed-muted">{{ formatDate(log.created_at) }}</div>
             </div>
-            <span :class="['badge shrink-0 whitespace-nowrap', getResultClass(log.result)]">
-              {{ formatResult(log.result) }}
+            <span :class="['badge shrink-0 whitespace-nowrap', getResultClass(displayedResult(log))]">
+              {{ formatResult(displayedResult(log)) }}
             </span>
           </div>
 
@@ -340,12 +343,12 @@ onMounted(async () => {
 
           <div class="mt-3 rounded-lg bg-themed-secondary px-3 py-2 text-sm">
             <div class="mb-1 text-[11px] font-medium uppercase tracking-wide text-themed-muted">{{ $t('logs.content') }}</div>
-            <span v-if="!isContentLong(formatContent(log.content))" class="text-themed-secondary">
-              {{ formatContent(log.content) }}
+            <span v-if="!isContentLong(formatContent(log))" class="text-themed-secondary">
+              {{ formatContent(log) }}
             </span>
             <template v-else>
               <div v-if="!expandedRows.has(log.id)" class="flex min-w-0 items-center gap-2">
-                <span class="min-w-0 flex-1 truncate text-themed-secondary">{{ formatContent(log.content).slice(0, 72) }}...</span>
+                <span class="min-w-0 flex-1 truncate text-themed-secondary">{{ formatContent(log).slice(0, 72) }}...</span>
                 <button
                   type="button"
                   class="shrink-0 text-xs text-themed-secondary hover:underline"
@@ -355,7 +358,7 @@ onMounted(async () => {
                 </button>
               </div>
               <div v-else class="space-y-2">
-                <p class="whitespace-pre-wrap break-words text-themed-secondary">{{ formatContent(log.content) }}</p>
+                <p class="whitespace-pre-wrap break-words text-themed-secondary">{{ formatContent(log) }}</p>
                 <button
                   type="button"
                   class="text-xs text-themed-secondary hover:underline"
@@ -481,13 +484,13 @@ onMounted(async () => {
               <td class="py-3 px-4 text-sm">
                 <div class="max-w-full">
                   <!-- 短内容直接显示 -->
-                  <span v-if="!isContentLong(formatContent(log.content))" class="text-themed-secondary">
-                    {{ formatContent(log.content) }}
+                  <span v-if="!isContentLong(formatContent(log))" class="text-themed-secondary">
+                    {{ formatContent(log) }}
                   </span>
                   <!-- 长内容可展开 -->
                   <template v-else>
                     <div v-if="!expandedRows.has(log.id)" class="flex items-center gap-1.5">
-                      <span class="text-themed-secondary truncate flex-1">{{ formatContent(log.content).slice(0, 50) }}...</span>
+                      <span class="text-themed-secondary truncate flex-1">{{ formatContent(log).slice(0, 50) }}...</span>
                       <button
                         class="flex-shrink-0 p-1 rounded transition-colors"
                         :class="themeStore.isDark ? 'hover:bg-gray-700 text-themed-secondary' : 'hover:bg-gray-100 text-themed-secondary'"
@@ -500,7 +503,7 @@ onMounted(async () => {
                       </button>
                     </div>
                     <div v-else class="space-y-2">
-                      <p class="text-themed-secondary whitespace-pre-wrap break-words">{{ formatContent(log.content) }}</p>
+                      <p class="text-themed-secondary whitespace-pre-wrap break-words">{{ formatContent(log) }}</p>
                       <button
                         class="text-xs flex items-center gap-1 transition-colors"
                         :class="themeStore.isDark ? 'text-themed-secondary hover:text-themed' : 'text-themed-secondary hover:text-themed'"
@@ -516,8 +519,8 @@ onMounted(async () => {
                 </div>
               </td>
               <td class="py-3 px-4 whitespace-nowrap">
-                <span :class="['badge whitespace-nowrap', getResultClass(log.result)]">
-                  {{ formatResult(log.result) }}
+                <span :class="['badge whitespace-nowrap', getResultClass(displayedResult(log))]">
+                  {{ formatResult(displayedResult(log)) }}
                 </span>
               </td>
             </tr>
@@ -596,11 +599,19 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* Linear finish: uppercase micro-label audit-table headers (consistent with MyHostsView) */
-thead th {
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+/* Keep this operational view readable within the shared layered theme. */
+@layer base.logs {
+  .logs-page .card { background: var(--bg-primary) !important; box-shadow: none !important; }
+  .logs-page button { box-shadow: none !important; background-image: none !important; transform: none !important; }
+  .logs-page .btn-primary { background: var(--text-primary) !important; color: var(--bg-primary) !important; }
+  .logs-page .btn-primary::before { display: none !important; }
+  .logs-page th { text-transform: none !important; letter-spacing: normal !important; }
+  .logs-page .text-themed-muted { color: var(--text-secondary) !important; }
 }
+.logs-page .shadow-sm { box-shadow: none; }
+.logs-page .font-mono { font-family: inherit; font-variant-numeric: tabular-nums; }
+.logs-page .uppercase { text-transform: none; letter-spacing: normal; }
+.logs-page td, .logs-page p { overflow-wrap: anywhere; }
 
 @media (prefers-reduced-motion: reduce) {
   * {

@@ -8,7 +8,9 @@ import { zhTW as managementGateway } from './management-gateway'
 import { zhTW as expiryEnforcement } from './expiry-enforcement'
 import { zhTW as gatewayEndpoint } from './gateway-endpoint'
 import { zhTW as hostAbuse } from './host-abuse-policy'
+import { zhTW as automaticRecovery } from './automatic-recovery'
 const zhTW = {
+    automaticRecovery,
     hostAbuse,
     homeMapDemo: {
         pageTitle: "選擇你的下一台主機",
@@ -134,9 +136,10 @@ const zhTW = {
     "udpClosed": "已生效 · UDP 入站已關閉",
     "udpOpen": "已生效 · TCP+UDP",
     "recovery": {
+      "auto": { "pending": "正在自動回收舊機器", "retry": "正在自動回收舊機器", "blocked": "自動回收未完成", "done": "舊機器已清理並解除隔離", "description": "系統自動核對舊實例，停止並刪除系統碟與快照、清理轉發，確認宿主已清空後恢復庫存。", "next": "下次自動檢查：{time}", "retryAction": "重試自動回收" },
       "preserve": "現有使用者實例、磁碟與網路規則已核對一致；解除隔離後保留使用者、價格、到期時間和資源佔用，這台機器仍屬已售，不會重複出售。",
       "batch": {"title": "批次檢查與恢復 · {count} 台", "description": "逐台檢查所選隔離主機，僅恢復檢查通過的機器。檢查失敗會保留原因；不會跳過實例佔用、網路或遺留資料檢查。", "progress": "已檢查 {checked}/{total} 台 · 可恢復 {ready} 台 · 已恢復 {recovered} 台", "checkPage": "批次檢查本頁隔離主機", "checkSelected": "檢查並恢復所選主機", "working": "正在逐台處理…", "restoreReady": "恢復檢查通過的 {count} 台", "status": {"pending": "等待檢查", "checking": "檢查中", "ready": "檢查通過", "blocked": "檢查未通過", "recovering": "恢復中", "recovered": "已恢復", "failed": "操作失敗"}},
-      "title": "檢查與恢復",
+      "title": "自動恢復進度",
       "description": "隔離期間機器不會出售。檢查連線、任務、舊系統及網路，處理完成後才能解除隔離。",
       "checking": "正在檢查主機和遺留資料…",
       "ready": "檢查通過，可以解除隔離",
@@ -258,6 +261,7 @@ const zhTW = {
 
     // 通用
     common: {
+    automaticDeletionPending: '刪除已受理，系統正在自動清理並核驗資源釋放',
         operationFailed: '操作失敗',
         defaultBrandSubtitle: '基於 Incus 的平價 NAT VPS', adminPanel: '管理後台',
         confirm: '確認',
@@ -4024,6 +4028,19 @@ pool: {
 
     // 日誌操作翻譯
     logActions: {
+        'system.expiry_enforcement_started': '到期巡檢開始',
+        'system.expiry_enforcement': '到期巡檢結果',
+        'host.management.repair_applied': '宿主管理修復已執行',
+        'host.management.repaired': '宿主管理連線已恢復',
+        'host.management.repair_retry': '宿主管理自動重試',
+        'host.pool.cleanup_start': '宿主自動回收開始',
+        'host.pool.cleanup_complete': '宿主自動回收完成',
+        'host.pool.cleanup_retry': '宿主自動回收重試',
+        'host.replacement.source_recovered': '換機原客戶機器已恢復',
+        'host.replacement.source_retry': '換機原客戶機器自動核驗',
+        'instance.delete_queued': '實例刪除已受理',
+        'instance.delete_retry': '實例刪除自動重試',
+
         // 安全事件
         'login_success': '登入成功',
         'login_failed': '登入失敗',
@@ -4137,6 +4154,8 @@ pool: {
 
     // 日誌結果翻譯
     logResults: {
+        started: '已開始',
+        pending: '處理中',
         success: '成功',
         failed: '失敗',
         warning: '警告',
@@ -8905,6 +8924,28 @@ onboarding: {
     },
 
 hostInventory: {
+  hostPublicIpv6: "宿主公網 IPv6",
+  managementRepair: {
+    errors: {
+      "HOST_REPAIR_AUTHORITY_CHANGED": "原接入管理員的授權已變更。系統會重新核驗授權，目前不會下發憑據。",
+      "HOST_REPAIR_ENROLLMENT_CHANGED": "宿主接入綁定已改變。系統保留原身分，繼續核對綁定。",
+      "HOST_REPAIR_BUSY": "宿主有安裝或交付任務，結束後自動繼續。",
+      "HOST_TLS_NOT_TRUSTED": "原管理憑證未被宿主接受。系統保留原身分並繼續核驗。",
+      "HOST_TLS_IDENTITY_MISSING": "原管理身分記錄不完整，系統不會產生新身分覆蓋。",
+      "AGENT_REPAIR_DISABLED": "Agent 已停用，系統遵循停用設定。",
+      "AGENT_REPAIR_IDENTITY_SUPERSEDED": "Agent 憑據已由後續操作更換，系統不會恢復舊憑據。",
+      "AGENT_REPAIR_SECRET_INVALID": "目前 Agent 憑據未通過完整性校驗，系統沒有下發。",
+      "AGENT_REPAIR_REMOTE_FAILED": "管理連線已核驗，Agent 設定尚未確認；系統將自動重試。",
+      "HOST_MANAGEMENT_REPAIR_RETRY": "管理通道暫未回應，系統將自動重試。"
+},
+    sourceRetry: '系統正在自動核驗原客戶機器，確認後恢復網路狀態；現有機器和磁碟保持不變。',
+    sourceDone: '原客戶機器已核驗，網路狀態已自動恢復。',
+    retry: '正在自動恢復管理連線',
+    'waiting-heartbeat': '連線已修復，正在確認 Agent 重新連線',
+    done: '管理連線已自動恢復',
+    blocked: '自動恢復已暫停：原身分或授權未通過核驗',
+    next: '下次自動檢查：{time}',
+  },
 "sshTitle": "SSH 連線",
   "sshHint": "儲存機器的管理連線資訊後，可複製命令到終端連線。",
   "sshGatewayHint": "先連線管理閘道，再在閘道上執行機器的 SSH 命令。",

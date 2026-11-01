@@ -51,6 +51,7 @@ interface CustomerBillingApi {
       message: string
       successCount: number
       skippedCount: number
+      pendingCount?: number
       failedCount: number
     }>
   }
@@ -1455,6 +1456,8 @@ async function confirmBatchDestroy(): Promise<void> {
         failed: result.failedCount,
         skipped: result.skippedCount
       }))
+    } else if (result.pendingCount) {
+      toast.info(t('common.automaticDeletionPending'))
     } else {
       toast.success(t('instance.batch.successResult', { count: result.successCount }))
     }

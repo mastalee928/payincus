@@ -1,70 +1,56 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
-import { inspectRecoveryBatch, recoverRecoveryBatch, type RecoveryBatchItem } from '@/utils/hostRecoveryBatch'
+import type { HostRecoveryReport } from '@/types/host-pool'
+import HostRecoveryProgress from './HostRecoveryProgress.vue'
 
 const props = defineProps<{ hosts: Array<{ id: number; name: string }> }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
-const { t, te } = useI18n()
+const { t } = useI18n()
 const dialog = ref<HTMLDialogElement>()
-const busy = ref(false), acknowledged = ref(false)
-const items = reactive<RecoveryBatchItem[]>(props.hosts.map(host => ({ ...host, status: 'pending', report: null, error: '' })))
-const ready = computed(() => items.filter(item => item.status === 'ready' && item.report?.canRecover))
-const cleanupNeeded = computed(() => ready.value.some(item => item.report?.needsCleanup))
-const completed = computed(() => items.filter(item => item.status === 'recovered').length)
-const inspected = computed(() => items.filter(item => !['pending', 'checking'].includes(item.status)).length)
-function statusClass(status: RecoveryBatchItem['status']) {
-  return status === 'recovered' ? 'success' : status === 'blocked' ? 'warning' : status === 'failed' ? 'danger' : ''
-}
-function errorText(code: string) {
-  const key = 'hostPoolOps.recovery.errors.' + code
-  return te(key) ? t(key) : t('hostPoolOps.recovery.failed')
-}
+const items = reactive(props.hosts.map(host => ({ ...host, report: null as HostRecoveryReport | null, error: false })))
+let busy = false, disposed = false
+let poll: ReturnType<typeof setTimeout> | undefined
 async function check() {
-  if (busy.value) return
-  busy.value = true; acknowledged.value = false
-  try { await inspectRecoveryBatch(items, api.hostOnboarding) }
-  finally { busy.value = false }
+  if (busy || disposed) return
+  busy = true
+  try {
+    for (const item of items) {
+      if (disposed) return
+      if (item.report && !item.report.quarantined && !item.error) continue
+      try {
+        const report = await api.hostOnboarding.inspectRecovery(item.id)
+        if (disposed) return
+        item.report = report; item.error = false
+        if (!report.quarantined) emit('changed')
+      } catch { if (!disposed) item.error = true }
+    }
+  } finally {
+    busy = false
+    if (!disposed && items.some(item => !item.report || item.report.quarantined || item.error)) poll = setTimeout(check, 5000)
+  }
 }
-async function recover() {
-  if (busy.value || !ready.value.length || (cleanupNeeded.value && !acknowledged.value)) return
-  busy.value = true
-  try { await recoverRecoveryBatch(items, api.hostOnboarding, acknowledged.value) }
-  finally { busy.value = false; acknowledged.value = false; emit('changed') }
-}
-function close() { if (!busy.value) emit('close') }
-onMounted(async () => { await nextTick(); dialog.value?.showModal(); void check() })
+onMounted(async () => { await nextTick(); if (!disposed) { dialog.value?.showModal(); void check() } })
+onUnmounted(() => { disposed = true; clearTimeout(poll) })
 </script>
 
 <template>
   <Teleport to="body">
-    <dialog ref="dialog" class="recovery-batch" aria-labelledby="recovery-batch-title" @cancel="busy ? $event.preventDefault() : close()">
-      <form @submit.prevent="recover">
-        <header>
-          <h2 id="recovery-batch-title">{{ t('hostPoolOps.recovery.batch.title', { count: items.length }) }}</h2>
-          <p>{{ t('hostPoolOps.recovery.batch.description') }}</p>
-          <p role="status">{{ t('hostPoolOps.recovery.batch.progress', { checked: inspected, total: items.length, ready: ready.length, recovered: completed }) }}</p>
-        </header>
-        <ul class="recovery-batch-list" :aria-busy="busy">
-          <li v-for="item in items" :key="item.id">
-            <div class="recovery-batch-row"><strong>{{ item.name }} · #{{ item.id }}</strong><span :class="statusClass(item.status)">{{ t('hostPoolOps.recovery.batch.status.' + item.status) }}</span></div>
-            <ul v-if="item.report?.blockers.length"><li v-for="reason in item.report.blockers" :key="reason">{{ t('hostPoolOps.recovery.blockers.' + reason) }}</li></ul>
-            <p v-if="item.report?.mode === 'preserve' && item.report.canRecover">{{ t('hostPoolOps.recovery.preserve') }}</p>
-            <template v-if="item.report?.needsCleanup">
-              <p v-for="instance in item.report.instances" :key="instance.name">{{ instance.name }} · {{ t(instance.removable ? 'hostPoolOps.recovery.stoppedOld' : 'hostPoolOps.recovery.manualReview') }}</p>
-              <p v-if="item.report.forwardCount">{{ t('hostPoolOps.recovery.forwards', { count: item.report.forwardCount }) }}</p>
-            </template>
-            <p v-if="item.error" class="danger" role="alert">{{ errorText(item.error) }}</p>
-          </li>
-        </ul>
-        <label v-if="cleanupNeeded" class="recovery-batch-ack"><input v-model="acknowledged" type="checkbox" :disabled="busy" /><span>{{ t('hostPoolOps.recovery.acknowledge') }}</span></label>
-        <footer>
-          <button type="button" class="btn-secondary" :disabled="busy" @click="close">{{ t('common.close') }}</button>
-          <button type="button" class="btn-secondary" :disabled="busy || completed === items.length" @click="check">{{ t('hostPoolOps.recovery.recheck') }}</button>
-          <button type="submit" :class="cleanupNeeded ? 'btn-danger' : 'btn-primary'" :disabled="busy || !ready.length || (cleanupNeeded && !acknowledged)">{{ busy ? t('hostPoolOps.recovery.batch.working') : t('hostPoolOps.recovery.batch.restoreReady', { count: ready.length }) }}</button>
-        </footer>
-      </form>
+    <dialog ref="dialog" class="recovery-batch" aria-labelledby="recovery-batch-title" @cancel="emit('close')">
+      <header>
+        <h2 id="recovery-batch-title">{{ t('automaticRecovery.title') }} · {{ hosts.length }}</h2>
+        <p>{{ t('automaticRecovery.description') }}</p>
+      </header>
+      <ul class="recovery-batch-list">
+        <li v-for="item in items" :key="item.id">
+          <div class="recovery-batch-row"><strong>{{ item.name }} · #{{ item.id }}</strong></div>
+          <HostRecoveryProgress v-if="item.report" :report="item.report" />
+          <p v-else-if="!item.error" role="status">{{ t('automaticRecovery.checking') }}</p>
+          <p v-if="item.error" class="warning" role="status">{{ t('automaticRecovery.readRetry') }}</p>
+        </li>
+      </ul>
+      <footer><button type="button" class="btn-secondary" @click="emit('close')">{{ t('common.close') }}</button></footer>
     </dialog>
   </Teleport>
 </template>

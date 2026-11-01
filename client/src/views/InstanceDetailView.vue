@@ -98,6 +98,7 @@ interface CustomerSelfServiceApi {
     getDestroyInfo: (instanceId: number, options?: { feeWaiver?: string }) => Promise<unknown>
     destroyInstance: (instanceId: number, options?: { feeWaiver?: string; emailCode?: string }) => Promise<{
       success: boolean
+      pending?: boolean
       message: string
       refundAmount: number
       feeAmount: number
@@ -1404,9 +1405,10 @@ async function handleDestroy(emailCode: string): Promise<void> {
   destroyError.value = ''
   destroyLoading.value = true
   try {
-    await customerSelfServiceApi.billing.destroyInstance(context.id, { emailCode })
+    const result = await customerSelfServiceApi.billing.destroyInstance(context.id, { emailCode })
     if (!context.current()) return
-    toast.success(t('instance.destroy.success'))
+    if (result.pending) toast.info(t('common.automaticDeletionPending'))
+    else toast.success(t('instance.destroy.success'))
     showDestroyModal.value = false
     // 跳转到实例列表
     router.push(instancesPath())

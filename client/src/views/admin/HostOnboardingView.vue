@@ -12,10 +12,10 @@ import type { OnboardingBatch, OnboardingCredentials, OnboardingDefaults, Onboar
 
 const { t, te, locale } = useI18n()
 const toast = useToast()
-// Machine inventory and durable onboarding tasks share the machine-pool page.
-const activeTab = ref<'hosts' | 'tasks'>('hosts')
+// Inventory is the default workspace; infrequent policy settings have their own tab.
+const activeTab = ref<'hosts' | 'tasks' | 'abuse'>('hosts')
 function switchPoolTab(event: KeyboardEvent) {
-  const tabs = ['hosts', 'tasks'] as const
+  const tabs = ['hosts', 'tasks', 'abuse'] as const
   const current = tabs.indexOf(activeTab.value)
   const next = event.key === 'ArrowRight' ? (current + 1) % tabs.length : event.key === 'ArrowLeft' ? (current + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1
   if (next < 0) return
@@ -233,8 +233,8 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
 </script>
 
 <template>
-  <div class="space-y-4 animate-fade-in">
-    <div class="page-header gap-3">
+  <div class="machine-pool space-y-4">
+    <div class="page-header pool-header gap-3">
       <div class="min-w-0">
         <h1 class="page-title">{{ t('nav.machinePool') }}</h1>
         <p class="page-description">{{ t('onboarding.description') }}</p>
@@ -245,29 +245,34 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
       </div>
     </div>
 
-    <section class="card p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div class="min-w-0">
-        <p class="text-sm font-medium text-themed flex flex-wrap items-center gap-2">
-          <span class="h-2 w-2 rounded-full shrink-0" :class="gateway?.ready ? 'bg-green-500' : 'bg-amber-500'"></span>
-          {{ t(gateway?.ready ? 'onboarding.gatewayReady' : gateway ? 'onboarding.gatewayUnavailable' : 'common.loading') }}
-        </p>
-        <p class="mt-1 text-xs text-themed-muted">{{ gateway && !gateway.ready ? errorText(gateway.code) : t('onboarding.serverSide') }}</p>
+    <section v-if="gateway && !gateway.ready" class="card p-4 flex flex-wrap items-center justify-between gap-3" role="alert">
+      <div class="min-w-0 text-sm">
+        <p class="font-medium text-amber-700 dark:text-amber-300">{{ t('onboarding.gatewayUnavailable') }}</p>
+        <p class="mt-1 text-themed-muted">{{ errorText(gateway.code) }}</p>
       </div>
-      <button type="button" class="btn-secondary shrink-0 self-start whitespace-nowrap" @click="refresh">{{ t('common.refresh') }}</button>
+      <RouterLink to="/admin/gateways" class="btn-secondary whitespace-nowrap">{{ t('onboarding.gatewaySetup') }}</RouterLink>
     </section>
 
-    <RouterLink v-if="gateway && !gateway.ready" to="/admin/gateways" class="btn-secondary inline-flex items-center">{{ t('onboarding.gatewaySetup') }}</RouterLink>
-
-
-    <HostAbusePolicyPanel />
-
-    <div class="flex flex-wrap gap-2" role="tablist" :aria-label="t('onboarding.title')" @keydown="switchPoolTab">
-      <button id="pool-tab-hosts" type="button" role="tab" :tabindex="activeTab === 'hosts' ? 0 : -1" :aria-selected="activeTab === 'hosts'" aria-controls="pool-tab-content" :class="activeTab === 'hosts' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'hosts'">{{ t('hostInventory.hostsTab') }}</button>
-      <button id="pool-tab-tasks" type="button" role="tab" :tabindex="activeTab === 'tasks' ? 0 : -1" :aria-selected="activeTab === 'tasks'" aria-controls="pool-tab-content" :class="activeTab === 'tasks' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'tasks'">{{ t('hostInventory.tasksTab') }}</button>
+    <div class="pool-toolbar flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div class="pool-tabs flex gap-1" role="tablist" :aria-label="t('onboarding.title')" @keydown="switchPoolTab">
+        <button id="pool-tab-hosts" type="button" role="tab" :tabindex="activeTab === 'hosts' ? 0 : -1" :aria-selected="activeTab === 'hosts'" aria-controls="pool-tab-content" @click="activeTab = 'hosts'">{{ t('hostInventory.hostsTab') }}</button>
+        <button id="pool-tab-tasks" type="button" role="tab" :tabindex="activeTab === 'tasks' ? 0 : -1" :aria-selected="activeTab === 'tasks'" aria-controls="pool-tab-content" @click="activeTab = 'tasks'">{{ t('hostInventory.tasksTab') }}</button>
+        <button id="pool-tab-abuse" type="button" role="tab" :tabindex="activeTab === 'abuse' ? 0 : -1" :aria-selected="activeTab === 'abuse'" aria-controls="pool-tab-content" @click="activeTab = 'abuse'">{{ t('hostAbuse.title') }}</button>
+      </div>
+      <div class="flex items-center gap-3">
+        <p v-if="!gateway || gateway.ready" class="flex items-center gap-2 text-xs text-themed-muted" role="status">
+          <span v-if="gateway?.ready" class="h-1.5 w-1.5 rounded-full shrink-0 bg-green-500" aria-hidden="true"></span>
+          {{ t(gateway?.ready ? 'onboarding.gatewayReady' : 'common.loading') }}
+        </p>
+        <button type="button" class="btn-secondary whitespace-nowrap" @click="refresh">{{ t('common.refresh') }}</button>
+      </div>
     </div>
     <div id="pool-tab-content" role="tabpanel" :aria-labelledby="`pool-tab-${activeTab}`">
-      <HostInventoryPanel v-if="activeTab === 'hosts'" ref="inventory" />
-      <div v-else class="space-y-4">
+      <KeepAlive><HostInventoryPanel v-if="activeTab === 'hosts'" ref="inventory" /></KeepAlive>
+      <!-- Keep policy drafts and in-flight receipts when switching workspace tabs. -->
+      <HostAbusePolicyPanel v-show="activeTab === 'abuse'" />
+      <div v-if="activeTab === 'tasks'" class="space-y-4">
+        <p class="text-xs text-themed-muted">{{ t('onboarding.serverSide') }}</p>
         <form class="flex flex-wrap items-center gap-2" @submit.prevent="applySearch">
           <input v-model="search" type="search" class="input flex-1 min-w-0 sm:max-w-sm" maxlength="100" :aria-label="t('common.search')" :placeholder="t('onboarding.searchPlaceholder')" />
           <button class="btn-secondary whitespace-nowrap" type="submit">{{ t('common.search') }}</button>
@@ -449,6 +454,25 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
 </template>
 
 <style scoped>
+/* The shared theme uses layered !important rules; keep local neutral controls in the base layer. */
+@layer base.pool {
+  .machine-pool :deep(.btn-primary) { background: #111 !important; color: #fff !important; box-shadow: none !important; }
+  :global(.dark .machine-pool .btn-primary) { background: #fff !important; color: #111 !important; box-shadow: none !important; }
+  .machine-pool :deep(.card) { box-shadow: none !important; }
+  .pool-tabs button[aria-selected='true'] { background: var(--bg-secondary) !important; color: var(--text-primary) !important; box-shadow: none !important; }
+}
+.pool-header { margin-bottom: 0; padding-bottom: 1rem; box-shadow: none !important; }
+.pool-tabs button { min-height: 44px; padding: 0.5rem 0.875rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; color: var(--text-secondary); white-space: nowrap; }
+.pool-tabs button:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.pool-tabs button[aria-selected='true'] { color: var(--text-primary); background: var(--bg-secondary); }
+.pool-tabs button:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.pool-header .btn-primary::before { display: none !important; }
+.pool-toolbar .btn-secondary { min-height: 36px; padding: 0.375rem 0.75rem; }
+@media (max-width: 639px) {
+  .pool-header { flex-wrap: wrap; }
+  .pool-header > .min-w-0 { width: 100%; }
+  .pool-header .page-description { display: none; }
+}
 .modal-content { max-height: 90dvh; overflow: hidden; }
 .onboarding-create-dialog { max-width: 48rem; }
 .modal-header, .modal-footer { flex-shrink: 0; }

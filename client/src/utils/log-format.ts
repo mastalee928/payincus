@@ -1,3 +1,4 @@
+import { expiryLogDisplay } from './expiry-log-display'
 type TranslationMap = Record<string, unknown>
 
 function getTranslation(translations: TranslationMap, key: string): string | null {
@@ -48,8 +49,18 @@ function translateLogError(message: string): string {
     .replace(/request returned error:/gi, '请求返回错误：')
 }
 
-export function formatLogContent(content: string): string {
+export function formatLogContent(content: string, action?: string, locale = 'zh-CN'): string {
+  const structured = action ? expiryLogDisplay(action, content, locale) : null
+  if (structured) return structured.content
   if (!content) return content
+  if (action && /^(host\.management\.|host\.pool\.cleanup_|host\.replacement\.source_|instance\.delete_)/.test(action)) {
+    content = content.replace(/(下次自动重试：)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)/g, (match, label, value) => {
+      const date = new Date(value)
+      return Number.isFinite(date.getTime()) ? label + date.toLocaleString(locale === 'en' ? 'en-US' : locale, {
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      }) : match
+    })
+  }
 
   const exactContent: Record<string, string> = {
     password: '修改密码',

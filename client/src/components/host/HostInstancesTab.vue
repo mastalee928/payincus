@@ -755,12 +755,14 @@ async function confirmBatchDelete(databaseOnly: boolean = false) {
         success: result.successCount,
         failed: result.failedCount
       }))
+    } else if (result.pendingCount) {
+      toast.info(t('common.automaticDeletionPending'))
     } else {
       toast.success(t(databaseOnly ? 'admin.hosts.batchRemoveRecordsSuccess' : 'admin.hosts.batchDeleteSuccess', { count: result.successCount }))
     }
     
-    deleteFailures.value = result.results.filter(item => !item.success)
-    const succeeded = new Set(result.results.filter(item => item.success).map(item => item.id))
+    deleteFailures.value = result.results.filter(item => !item.success && !item.pending)
+    const succeeded = new Set(result.results.filter(item => item.success || item.pending).map(item => item.id))
     selectedIds.value = revision === selectionRevision
       ? new Set(deleteFailures.value.map(item => item.id))
       : new Set([...selectedIds.value].filter(id => !succeeded.has(id)))

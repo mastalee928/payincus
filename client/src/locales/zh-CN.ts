@@ -4,7 +4,9 @@ import { zhCN as managementGateway } from './management-gateway'
 import { zhCN as expiryEnforcement } from './expiry-enforcement'
 import { zhCN as gatewayEndpoint } from './gateway-endpoint'
 import { zhCN as hostAbuse } from './host-abuse-policy'
+import { zhCN as automaticRecovery } from './automatic-recovery'
 export default {
+    automaticRecovery,
     hostAbuse,
     homeMapDemo: {
         pageTitle: "选择你的下一台主机",
@@ -129,9 +131,10 @@ export default {
     "udpClosed": "已生效 · UDP 入站已关闭",
     "udpOpen": "已生效 · TCP+UDP",
     "recovery": {
+      "auto": { "pending": "正在自动回收旧机器", "retry": "正在自动回收旧机器", "blocked": "自动回收未完成", "done": "旧机器已清理并解除隔离", "description": "系统自动核对旧实例，停止并删除系统盘和快照、清理转发，确认宿主已清空后恢复库存。", "next": "下次自动检查：{time}", "retryAction": "重试自动回收" },
       "preserve": "现有用户实例、磁盘与网络规则已核对一致；解除隔离后保留用户、价格、到期时间和资源占用，这台机器仍属已售，不会重复出售。",
-      "batch": {"title": "批量检查与恢复 · {count} 台", "description": "逐台检查所选隔离宿主，仅恢复检查通过的机器。检查失败会保留原因；不会跳过实例占用、网络或遗留数据检查。", "progress": "已检查 {checked}/{total} 台 · 可恢复 {ready} 台 · 已恢复 {recovered} 台", "checkPage": "批量检查本页隔离宿主", "checkSelected": "检查并恢复所选宿主", "working": "正在逐台处理…", "restoreReady": "恢复检查通过的 {count} 台", "status": {"pending": "等待检查", "checking": "检查中", "ready": "检查通过", "blocked": "检查未通过", "recovering": "恢复中", "recovered": "已恢复", "failed": "操作失败"}},
-      "title": "检查与恢复",
+      "batch": {"title": "批量检查与恢复 · {count} 台", "description": "逐台检查所选隔离宿主，仅恢复检查通过的机器。检查失败会保留原因；不会跳过实例占用、网络或遗留数据检查。", "progress": "已检查 {checked}/{total} 台 · 可恢复 {ready} 台 · 已恢复 {recovered} 台", "checkPage": "本页自动恢复进度", "checkSelected": "查看所选恢复进度", "working": "正在逐台处理…", "restoreReady": "恢复检查通过的 {count} 台", "status": {"pending": "等待检查", "checking": "检查中", "ready": "检查通过", "blocked": "检查未通过", "recovering": "恢复中", "recovered": "已恢复", "failed": "操作失败"}},
+      "title": "自动恢复进度",
       "description": "隔离期间机器不会出售。检查连接、任务、旧系统及网络，处理完成后才能解除隔离。",
       "checking": "正在检查宿主机和遗留数据…",
       "ready": "检查通过，可以解除隔离",
@@ -302,6 +305,7 @@ export default {
     },
     // 通用
     common: {
+    automaticDeletionPending: '删除已受理，系统正在自动清理并核验资源释放',
         defaultBrandSubtitle: '基于 Incus 的低价 NAT VPS', adminPanel: '管理后台',
         pagination: '分页', noResults: '暂无结果', operationFailed: '操作失败', prev: '上一页', user: '用户',
         confirm: '确认',
@@ -5493,6 +5497,19 @@ pool: {
 
     // 日志操作翻译
     logActions: {
+        'system.expiry_enforcement_started': '到期巡检开始',
+        'system.expiry_enforcement': '到期巡检结果',
+        'host.management.repair_applied': '宿主管理修复已执行',
+        'host.management.repaired': '宿主管理连接已恢复',
+        'host.management.repair_retry': '宿主管理自动重试',
+        'host.pool.cleanup_start': '宿主自动回收开始',
+        'host.pool.cleanup_complete': '宿主自动回收完成',
+        'host.pool.cleanup_retry': '宿主自动回收重试',
+        'host.replacement.source_recovered': '换机原客户机器已恢复',
+        'host.replacement.source_retry': '换机原客户机器自动核验',
+        'instance.delete_queued': '实例删除已受理',
+        'instance.delete_retry': '实例删除自动重试',
+
         // 安全事件
         'login_success': '登录成功',
         'login_failed': '登录失败',
@@ -5607,6 +5624,8 @@ pool: {
 
     // 日志结果翻译
     logResults: {
+        started: '已开始',
+        pending: '处理中',
         success: '成功',
         failed: '失败',
         warning: '警告',
@@ -8599,6 +8618,28 @@ onboarding: {
     },
 
 hostInventory: {
+  hostPublicIpv6: "宿主公网 IPv6",
+  managementRepair: {
+    errors: {
+      "HOST_REPAIR_AUTHORITY_CHANGED": "原接入管理员的授权已变更。系统会重新核验授权，当前不会下发凭据。",
+      "HOST_REPAIR_ENROLLMENT_CHANGED": "宿主接入绑定已改变。系统保留原身份，继续核对绑定。",
+      "HOST_REPAIR_BUSY": "宿主有安装或交付任务，结束后自动继续。",
+      "HOST_TLS_NOT_TRUSTED": "原管理证书未被宿主接受。系统保留原身份并继续核验。",
+      "HOST_TLS_IDENTITY_MISSING": "原管理身份记录不完整，系统不会生成新身份覆盖。",
+      "AGENT_REPAIR_DISABLED": "Agent 已停用，系统遵循停用设置。",
+      "AGENT_REPAIR_IDENTITY_SUPERSEDED": "Agent 凭据已由后续操作更换，系统不会恢复旧凭据。",
+      "AGENT_REPAIR_SECRET_INVALID": "当前 Agent 凭据未通过完整性校验，系统没有下发。",
+      "AGENT_REPAIR_REMOTE_FAILED": "管理连接已核验，Agent 配置尚未确认；系统将自动重试。",
+      "HOST_MANAGEMENT_REPAIR_RETRY": "管理通道暂未响应，系统将自动重试。"
+},
+    sourceRetry: '系统正在自动核验原客户机器，确认后恢复网络状态；现有机器和磁盘保持不变。',
+    sourceDone: '原客户机器已核验，网络状态已自动恢复。',
+    retry: '正在自动恢复管理连接',
+    'waiting-heartbeat': '连接已修复，正在确认 Agent 重连',
+    done: '管理连接已自动恢复',
+    blocked: '自动恢复已暂停：原身份或授权未通过核验',
+    next: '下次自动检查：{time}',
+  },
 "sshTitle": "SSH 连接",
   "sshHint": "保存机器的管理连接信息后，可复制命令到终端连接。",
   "sshGatewayHint": "先连接管理网关，再在网关上执行机器的 SSH 命令。",

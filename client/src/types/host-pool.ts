@@ -100,6 +100,7 @@ export interface OnboardingGatewayStatus {
 }
 
 export interface ManagedHost {
+  managementRepair?: { status: 'retry' | 'waiting-heartbeat' | 'done' | 'blocked'; attempts: number; checkedAt: string | null; nextAttemptAt: string | null; error: string | null } | null
   publicIpSync?: HostPublicIpSync
   publicIpv6Sync?: HostPublicIpv6Sync
   poolFaulted?: boolean
@@ -141,6 +142,8 @@ export interface HostPublicIpv6Sync {
   error: string | null
 }
 export interface HostRecoveryReport {
+  automaticSourceRecovery?: { status: 'pending' | 'retry' | 'done'; nextAttemptAt?: string; error?: string }
+  automaticCleanup?: { status: 'pending' | 'retry' | 'blocked' | 'done'; attempts: number; nextAttemptAt?: string; error?: string }
   mode?: 'empty' | 'preserve'
   hostId: number
   quarantined: boolean
