@@ -1,0 +1,253 @@
+{
+  "verifiedAt": "2026-11-01T11:28:43.7130485Z",
+  "panelVersion": "v1.7.9",
+  "panelRelease": "https://github.com/mastalee928/payincus/releases/tag/v1.7.9",
+  "panelSourceCommit": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+  "panelTagObject": "ad3e7864603b3a4ec8a1fb95002817dd08147869",
+  "panelLatest": "v1.7.9",
+  "agentVersion": "v1.0.4",
+  "agentRelease": "https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.4",
+  "agentTagSource": "76e779df77e52cbe96ee2e103d57dd951dba4e1e",
+  "agentTree": "359dcf6657f8666e1274a2b21bc556c2dbf28270",
+  "allReleaseSourceRuns": [
+    {
+      "id": 41293344545,
+      "name": "Build & Release",
+      "event": "push",
+      "head_sha": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+      "conclusion": "success",
+      "html_url": "https://github.com/mastalee928/payincus/actions/runs/41293344545"
+    },
+    {
+      "id": 41293280496,
+      "name": "Agent Build & Release",
+      "event": "push",
+      "head_sha": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+      "conclusion": "success",
+      "html_url": "https://github.com/mastalee928/payincus/actions/runs/41293280496"
+    },
+    {
+      "id": 41293280568,
+      "name": "CI",
+      "event": "push",
+      "head_sha": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+      "conclusion": "success",
+      "html_url": "https://github.com/mastalee928/payincus/actions/runs/41293280568"
+    },
+    {
+      "id": 41284539776,
+      "name": "Agent Build & Release",
+      "event": "pull_request",
+      "head_sha": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+      "conclusion": "success",
+      "html_url": "https://github.com/mastalee928/payincus/actions/runs/41284539776"
+    },
+    {
+      "id": 41284539779,
+      "name": "CI",
+      "event": "pull_request",
+      "head_sha": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+      "conclusion": "success",
+      "html_url": "https://github.com/mastalee928/payincus/actions/runs/41284539779"
+    },
+    {
+      "id": 41284537389,
+      "name": "Build & Release",
+      "event": "workflow_dispatch",
+      "head_sha": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+      "conclusion": "success",
+      "html_url": "https://github.com/mastalee928/payincus/actions/runs/41284537389"
+    }
+  ],
+  "candidateAndMainCi": [
+    {
+      "id": 41281700041,
+      "headSha": "76e779df77e52cbe96ee2e103d57dd951dba4e1e",
+      "conclusion": "success",
+      "successfulJobs": 7,
+      "verifiedAt": "2026-11-01T08:38:34.3892667Z",
+      "snapshot": "logs/release-v1.7.9-run-41281700041.json"
+    },
+    {
+      "id": 41283146060,
+      "headSha": "2ce1227e7e675ac4e20de937efff0e729241c421",
+      "conclusion": "success",
+      "successfulJobs": 7,
+      "verifiedAt": "2026-11-01T09:02:13.9052343Z",
+      "snapshot": "logs/release-v1.7.9-run-41283146060.json"
+    },
+    {
+      "id": 41284539779,
+      "headSha": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+      "conclusion": "success",
+      "successfulJobs": 7,
+      "verifiedAt": "2026-11-01T09:27:37.9572845Z",
+      "snapshot": "logs/release-v1.7.9-run-41284539779.json"
+    },
+    {
+      "id": 41293280568,
+      "headSha": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+      "conclusion": "success",
+      "successfulJobs": 7,
+      "verifiedAt": "2026-11-01T11:28:43.7130485Z",
+      "snapshot": "logs/release-v1.7.9-run-41293280568.json",
+      "actualCheckoutEvidence": "logs/release-v1.7.9-main-ci-verified.json"
+    }
+  ],
+  "historicalSourceRuns": [
+    {
+      "id": 41267661733,
+      "headSha": "00e56910d4bdf947bf88472a4e5921441cafca1c",
+      "conclusion": "failure"
+    },
+    {
+      "id": 41267807397,
+      "headSha": "c166d2c3649e41e40e5657bcf54e63d76e7f644d",
+      "conclusion": "failure"
+    },
+    {
+      "id": 41268291094,
+      "headSha": "3a589aa4920111d88408daf209c3793ebdc8dde9",
+      "conclusion": "failure"
+    },
+    {
+      "id": 41269015834,
+      "headSha": "1a004beb17e173a0eb03614a697f0332a15252a6",
+      "conclusion": "failure"
+    },
+    {
+      "id": 41270772710,
+      "headSha": "ed514b828b4fa09b016d4905af086739aca0718a",
+      "conclusion": "failure"
+    },
+    {
+      "id": 41272556370,
+      "headSha": "e9a0effdbf4123b6ec3098e7d5ccfdbdabfacf97",
+      "conclusion": "success"
+    },
+    {
+      "id": 41273601335,
+      "headSha": "d5d35a1081affddbf9846bc18eb57dca2526bec4",
+      "conclusion": "success"
+    }
+  ],
+  "historicalFailureResolution": "Existing failures verified by successful successor e9a0effdbf4123b6ec3098e7d5ccfdbdabfacf97 and d5d35a1081affddbf9846bc18eb57dca2526bec4 jobs; historical conclusions retained",
+  "historicalPreviewFailures": {
+    "runs": [
+      41281709300,
+      41283143145
+    ],
+    "resolution": "Required public Agent published; rollback live-state assertion corrected; confined WireGuard temporary directory fixed. Successful successor preview 41284537389 and formal 41293344545 retain all gates."
+  },
+  "panelAssets": [
+    {
+      "name": "incudal-v1.7.9-linux-amd64.tar.gz",
+      "size": 213737232,
+      "sha256": "c504f4135e45cd2e173c2cd9ea109330c0b94c81d725ef33542146ede718296c"
+    },
+    {
+      "name": "incudal-v1.7.9-linux-amd64.tar.gz.sha256",
+      "size": 100,
+      "sha256": "5ebb1de75bee4b36deb99ed8500df390cdfce64db2019d882fbcbe42e35d3b9c"
+    },
+    {
+      "name": "incudal-v1.7.9-linux-arm64.tar.gz",
+      "size": 212982462,
+      "sha256": "fee06af248eb3c07d7b474a5b4dd9d8909a0740939f32cf602d83efeaa06d63e"
+    },
+    {
+      "name": "incudal-v1.7.9-linux-arm64.tar.gz.sha256",
+      "size": 100,
+      "sha256": "eeea6cefcc2cd990a01358787eb45a49c68eda0b5b3f2ac73466370086e1fc1e"
+    },
+    {
+      "name": "incudal-v1.7.9-ota-manifest.json",
+      "size": 996,
+      "sha256": "d2ee1b94b16b831e2d275317acf7ef26fc9d910c4269637b86d3939c4cca8cb6"
+    },
+    {
+      "name": "ota-manifest.json",
+      "size": 996,
+      "sha256": "d2ee1b94b16b831e2d275317acf7ef26fc9d910c4269637b86d3939c4cca8cb6"
+    }
+  ],
+  "packages": [
+    {
+      "file": "incudal-v1.7.9-linux-amd64.tar.gz",
+      "version": "v1.7.9",
+      "fullSourceCommit": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+      "rootOwnership": true,
+      "migrationCount": 233,
+      "nativeDependencyCount": 2,
+      "components": [
+        {
+          "architecture": "amd64",
+          "sourceCommit": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+          "signedFilesVerified": 20
+        },
+        {
+          "architecture": "arm64",
+          "sourceCommit": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+          "signedFilesVerified": 20
+        }
+      ],
+      "rollbackPathFixPresent": true
+    },
+    {
+      "file": "incudal-v1.7.9-linux-arm64.tar.gz",
+      "version": "v1.7.9",
+      "fullSourceCommit": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+      "rootOwnership": true,
+      "migrationCount": 233,
+      "nativeDependencyCount": 2,
+      "components": [
+        {
+          "architecture": "amd64",
+          "sourceCommit": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+          "signedFilesVerified": 20
+        },
+        {
+          "architecture": "arm64",
+          "sourceCommit": "4c24d4fd9ecdbc68b78f869862a53acc849ef2ab",
+          "signedFilesVerified": 20
+        }
+      ],
+      "rollbackPathFixPresent": true
+    }
+  ],
+  "otaManifestsIdentical": true,
+  "agentAssets": [
+    {
+      "name": "incudal-agent-aarch64-v1.0.4",
+      "size": 5046424,
+      "sha256": "874ac352850ad72797ac9e2169a13edef2b64b5eecf7f3018e468e08dcf0b0b0",
+      "matchesOriginal": true,
+      "elfMachine": 183
+    },
+    {
+      "name": "incudal-agent-x86_64-v1.0.4",
+      "size": 5337240,
+      "sha256": "3f6c953b45a79081b9a63d2468236b651105424e87ba3fa2c1fe75b80d4ba1c5",
+      "matchesOriginal": true,
+      "elfMachine": 62
+    },
+    {
+      "name": "LICENSE",
+      "size": 1496,
+      "sha256": "5659dbf51fa91752f85fe0fb6677086ac1fbc368768ac3d230a70af86afdad6b",
+      "matchesOriginal": true,
+      "elfMachine": null
+    }
+  ],
+  "releaseNotesReadbackMatches": true,
+  "productionDeployment": false,
+  "fullIndependentDisasterRecovery": false,
+  "unverifiedBoundaries": [
+    "Independent OSS recovery on a new controller and original host reconnection",
+    "Standby gateway takeover and failback",
+    "Newer revocation and post-snapshot financial reconciliation",
+    "Thousand-host and 72-hour operation"
+  ],
+  "unresolvedFailures": [],
+  "pendingRuns": []
+}

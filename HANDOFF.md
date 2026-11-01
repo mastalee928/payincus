@@ -1,5 +1,27 @@
 # 版本与验证记录
 
+## 2026-11-01 v1.7.9 正式发行、资产核验与 CI 全部收尾
+
+- [面板 v1.7.9](https://github.com/mastalee928/payincus/releases/tag/v1.7.9) 已于 09:40:51 UTC 正式发布，latest 为 v1.7.9，非 draft/prerelease。正式运行 `41293344545` 的双构建、双首装及 Release 共五 job 全部 success；每个 job 的实际 checkout 均核为 `4c24d4fd9ecdbc68b78f869862a53acc849ef2ab`，见 `logs/release-v1.7.9-formal-verified.json` 和 `logs/release-v1.7.9-formal-release.log`。双首装真实通过 233 迁移、唯一后台、公开 Agent、备份/预检/恢复/回退/续跑、SQL/ZIP完整性及旧版/CRLF迁移和拒绝；OSS传输仍是一次性VM本地替身。
+- 六个公开发行资产已实际下载到 `logs/release-v1.7.9-panel-assets/`，全部大小和 GitHub SHA256 digest 匹配；两个 tar 包各自校验文件、版本 OTA manifest 与 ota-manifest.json 的大小/hash/URL/架构一致，两份 manifest 字节相同。AMD64 包 `213737232` bytes，SHA256 `c504f4135e45cd2e173c2cd9ea109330c0b94c81d725ef33542146ede718296c`；ARM64 包 `212982462` bytes，SHA256 `fee06af248eb3c07d7b474a5b4dd9d8909a0740939f32cf602d83efeaa06d63e`。
+- 包内根/server版本1.7.9、LICENSE、233迁移、双端入口、root归属、归档路径及原生依赖架构已核。两个包各自包含的双架构网关组件，以仓库独立公钥（与先前受信发行一致）核 Ed25519 签名、20文件哈希/大小/权限及ELF架构；catalog与签名payload均绑定完整4c源码。version.json/OTA manifest沿现格式记录12位提交，完整身份由tag、实际checkout及签名组件另核。受限WireGuard回退路径修复已包含。证据 `logs/release-v1.7.9-panel-assets-verified.json`、`logs/release-v1.7.9-panel-assets-verification.log`。
+- 正式发行说明已按 `logs/release-v1.7.9-tag-notes.md` 更新并回读一致，包含全局BT/挖矿/测速及本次网关回退修复；更新后再核公开六资产未变和panel latest，见 `logs/release-v1.7.9-public-release-verified.json`。配套Agent v1.0.4公开资产与标签身份已在main自动发布后核验，复用上一节证据，不重复发布。
+- main CI `41293280568` 的七 job 已全部 success，最后 Pool job `124808792530` 于 11:20:54 UTC 完成；七 job 实际 checkout 均核为完整4c，见 `logs/release-v1.7.9-main-ci-verified.json`。同4c的候选CI、Agent PR、预览、main CI、main Agent与正式发行六个关联运行均已终态success。此前修复/候选全部终态已归档，旧失败保留且由后继实证解决，无未处理失败。
+- 最终公开证据汇总见 `docs/release-v1.7.9-verification.json`；本次收尾仅保存版本台账、网关进度与发行说明，以文档提交跳过重复CI，不移动v1.7.9或Agent标签，也不重建公开资产。完成保存后删除本次 `payincus-node24-ci` 监控。尚未部署生产、操作DNS/客户实例或升级系统Node；完整独立OSS新机恢复/网关接管/千台/72小时未验收。
+
+## 2026-11-01 v1.7.9 正式发行已启动
+
+- 最后一轮候选 CI `41284539779` 已七 job 全部 success；76e/2ce/4c 三轮源码 CI 均归档 `logs/release-v1.7.9-completed-ci.json`。同源码双架构预览与恢复证据继续复用，不重复运行。
+- 确认远端 main 原为 `d5d35a1081affddbf9846bc18eb57dca2526bec4`、v1.7.9 尚未占用后，将已验证 `4c24d4fd9ecdbc68b78f869862a53acc849ef2ab` 精确 fast-forward 到 main；PR #1 已以该提交合并。没有 squash、force 或修改候选源码。准入记录 `logs/release-v1.7.9-publish-gates.json`。
+- 正式注释标签 `v1.7.9` 对象 `ad3e7864603b3a4ec8a1fb95002817dd08147869` 指向同一 4c 完整提交，正式 `Build & Release` 运行 `41293344545` 已启动，双构建/首装/Release 与公开面板资产尚待终态核验；main CI `41293280568` 同时继续。全部关联运行见 `logs/release-v1.7.9-main-associated-runs.json`，未触发 Pages。
+- main 的 Agent 自动流程 `41293280496` 三 job 全 success，实际 checkout 为 4c，源码 Agent tree 仍 `359dcf6657f8666e1274a2b21bc556c2dbf28270`。公开两架构二进制与 LICENSE 重新下载，大小、SHA256 和 ELF 架构均与初次发行一致；`agent-v1.0.4` 仍指向 `76e779df77e52cbe96ee2e103d57dd951dba4e1e`，未挪 tag。证据 `logs/release-v1.7.9-agent-after-main-verified.json`，面板 latest 此时仍 v1.7.8。
+- 本阶段没有生产 OTA/部署、DNS、客户实例或系统 Node 操作。正式面板资产尚未通过最终下载核验，完整独立 OSS 灾备边界保持；监控持续到本任务关联 CI 与正式发行均终态及资产核验完成。
+
+## 2026-11-01 v1.7.9 双架构发行预览通过，待源码 CI 收尾
+
+- 候选 `4c24d4fd9ecdbc68b78f869862a53acc849ef2ab` / 预览 `41284537389` 已全部通过：AMD64/ARM64 双构建及双首装 success，Release 预期 skipped。构建与两首装日志核实实际 checkout 为同一完整候选；PR 合并引用 `1333fc751883f4b6f96bc21d8e342fd12a272455` 与候选 tree 同为 `a7d7b283d9b1e098de7f4fb233bd23a2736c1945`，合并身份与候选身份分别记录。
+- 两架构真实一次性 VM 均通过 233 迁移、唯一后端、双端/管理员/网关/公开 Agent 下载，以及备份→预检→恢复→主动改变 MTU/端口后回退→受保护续跑。完整 SQL、ZIP/ZIP64、共享快照/金额/大对象/序列校验、旧版及 CRLF 迁移与不兼容拒绝均通过。Ubuntu 26.04 AMD64 原 `wg-quick strip` 失败已由新路径修复越过，原失败保留；没有放宽系统访问规则。日志 `logs/release-v1.7.9-4c24d4fd-{amd64,arm64}-success.log`，终态汇总 `logs/release-v1.7.9-preview-verified.json`，artifact 身份 `logs/release-v1.7.9-preview-artifacts.json`。
+- 旧候选 `76e779df` / CI `41281700041` 与 `2ce1227e` / CI `41283146060` 均已七 job 全部成功，终态归档 `logs/release-v1.7.9-completed-ci.json`，不再轮询。当前仅候选 `4c24d4fd` / CI `41284539779` 的 Pool 仍运行（最新 step 188），其他六 job 已成功。Agent v1.0.4 正式资产与候选不发布构建均已核过。待最后 CI 终态后继续精确提交合入及正式面板发行，本记录暂存本地，不更换已验证候选而重复启动 CI。首装演练仅替换 OSS 传输为本地文件，生产 OTA、真实独立 OSS 新机灾备/接管仍未实施或验收。
 ## 2026-11-01 v1.7.9 网关回退配置路径修复
 
 - 候选 `2ce1227e7e675ac4e20de937efff0e729241c421` / 预览 `41283143145`：双架构构建成功，ARM64 首装全程 success，包含实际备份、预检、恢复、强制改变 MTU/端口后回退、恢复营业、ZIP/数据库完整性与跨版本迁移/拒绝；日志 `logs/release-v1.7.9-2ce1227e-arm64-success.log`。OSS transport 仍为本地替身，不等于独立云端灾备。
