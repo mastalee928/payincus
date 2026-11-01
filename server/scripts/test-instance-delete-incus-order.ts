@@ -24,17 +24,6 @@ const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
 const instancesSource = readFileSync(resolve(repoRoot, 'server/src/routes/instances.ts'), 'utf8')
 const hostsSource = readFileSync(resolve(repoRoot, 'server/src/routes/hosts.ts'), 'utf8')
 
-for (const [source, marker, stopCall, deleteCall] of [
-  [instancesSource, 'async function deleteIncusInstanceForDelete(', 'await stopInstance(', 'await deleteInstance('],
-  [hostsSource, 'async function deleteIncusInstanceForHostBatch(', 'await operations.stopInstance(', 'await operations.deleteInstance(']
-]) {
-  const helper = section(source, marker, '\n}\n')
-  assert(!helper.includes("if (instance.status === 'running')"), 'administrator deletion must not trust a stale database status to skip stopping Incus')
-  const stop = indexOfOrThrow(helper, stopCall, 'remote-state stop')
-  const remove = indexOfOrThrow(helper, deleteCall, 'confirmed remote deletion')
-  assert(stop < remove, 'administrator single/batch deletion must check actual state before deletion')
-}
-
 const configUpdateSection = section(
   instancesSource,
   '// 更新宿主机资源使用量',
@@ -54,95 +43,17 @@ assert(
   'config updates must not overwrite host usage from stale host values'
 )
 
-const singleDeleteSection = section(
-  instancesSource,
-  'fastify.delete<{ Params: { id: string }; Body: { reason?: string; emailCode?: string } }>(\'/:id\'',
-  '  })\n\n  // 添加端口映射'
-)
-
-assert(
-  instancesSource.includes('async function restoreClaimedInstanceForDelete'),
-  'single delete must be able to restore claimed instance status'
-)
-assert(
-  instancesSource.includes('async function deleteIncusInstanceForDelete'),
-  'single delete must use a strict Incus delete helper'
-)
-assert(
-  singleDeleteSection.includes('await restoreClaimedInstanceForDelete(instanceId, instance.status as InstanceStatus)'),
-  'single delete must restore claimed status when Incus client/delete fails'
-)
-
-const singleIncusDelete = indexOfOrThrow(singleDeleteSection, 'await deleteIncusInstanceForDelete(client, instance, request.log)', 'single strict Incus delete')
-const singleRefund = indexOfOrThrow(singleDeleteSection, '// ===== 7. 处理退款', 'single refund section')
-const singleDbCleanup = indexOfOrThrow(singleDeleteSection, '// ===== 7.1 删除数据库附属记录', 'single DB cleanup section')
-const singleResourceRelease = indexOfOrThrow(singleDeleteSection, 'await db.rollbackResources({', 'single resource release')
-
-assert(singleIncusDelete < singleRefund, 'single delete must delete Incus instance before refund')
-assert(singleIncusDelete < singleDbCleanup, 'single delete must delete Incus instance before DB cleanup')
-assert(singleIncusDelete < singleResourceRelease, 'single delete must delete Incus instance before resource release')
-assert(
-  !singleDeleteSection.includes('Incus 删除实例失败'),
-  'single delete must not swallow Incus delete failures and continue'
-)
-
-const singleRefundSection = singleDeleteSection.slice(singleRefund, singleDbCleanup)
-assert(
-  singleRefundSection.includes('await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, instance.user_id)'),
-  'single delete refund must use a blocking user balance lock'
-)
-assert(
-  !singleRefundSection.includes('tryAdvisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE'),
-  'single delete refund must not use a nonblocking user balance lock'
-)
-
-const batchDeleteSection = section(
-  hostsSource,
-  'fastify.delete<{\n    Params: { id: string }\n    Body: { instanceIds: number[]; reason?: string; databaseOnly?: boolean; refund?: boolean }',
-  '  })\n\n  // 删除宿主机'
-)
-
-assert(
-  hostsSource.includes('async function claimHostBatchInstanceForDelete'),
-  'host batch delete must claim each instance before remote deletion'
-)
-assert(
-  hostsSource.includes('async function restoreHostBatchDeleteClaim'),
-  'host batch delete must be able to restore claimed instance status'
-)
-assert(
-  hostsSource.includes('async function deleteIncusInstanceForHostBatch'),
-  'host batch delete must use a strict Incus delete helper'
-)
-assert(
-  batchDeleteSection.includes("code: 'INCUS_CLIENT_UNAVAILABLE'"),
-  'host batch delete must fail when Incus client is unavailable in full delete mode'
-)
-assert(
-  batchDeleteSection.includes('await restoreHostBatchDeleteClaim(instance.id, instance.status as InstanceStatus)'),
-  'host batch delete must restore claimed status when Incus delete fails'
-)
-
-const batchClaim = indexOfOrThrow(batchDeleteSection, 'await claimHostBatchInstanceForDelete(instance.id, instance.status as InstanceStatus)', 'host batch claim')
-const batchRemoteCleanup = indexOfOrThrow(batchDeleteSection, '// ===== 1. 删除反代站点', 'host batch remote cleanup')
-const batchIncusDelete = indexOfOrThrow(batchDeleteSection, 'await deleteIncusInstanceForHostBatch(client, incusInstanceOperations, instance, fastify.log)', 'host batch strict Incus delete')
-const batchRefund = indexOfOrThrow(batchDeleteSection, '// ===== 6. 处理退款', 'host batch refund section')
-const batchDbCleanup = indexOfOrThrow(batchDeleteSection, '// ===== 7. 删除数据库附属记录', 'host batch DB cleanup section')
-const batchResourceRelease = indexOfOrThrow(batchDeleteSection, 'await finalizeHostBatchDelete(instance.id, hostId, databaseOnly === true)', 'host batch resource release')
-
-assert(batchClaim < batchRemoteCleanup, 'host batch delete must claim before remote cleanup')
-assert(batchIncusDelete < batchRefund, 'host batch delete must delete Incus instance before refund')
-assert(batchIncusDelete < batchDbCleanup, 'host batch delete must delete Incus instance before DB cleanup')
-assert(batchIncusDelete < batchResourceRelease, 'host batch delete must delete Incus instance before resource release')
-
-const batchRefundSection = batchDeleteSection.slice(batchRefund, batchDbCleanup)
-assert(
-  batchRefundSection.includes('await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, instance.userId)'),
-  'host batch delete refund must use a blocking user balance lock'
-)
-assert(
-  !batchRefundSection.includes('tryAdvisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE'),
-  'host batch delete refund must not use a nonblocking user balance lock'
-)
-
-console.log('instance delete Incus ordering checks passed')
+const deletion = readFileSync(resolve(repoRoot, 'server/src/services/instance-deletion.ts'), 'utf8')
+assert(instancesSource.includes('await requestInstanceDeletion(') && hostsSource.includes('await requestInstanceDeletion('), 'all full deletion routes must persist intent')
+assert(!instancesSource.includes('restoreClaimedInstanceForDelete') && !hostsSource.includes('restoreHostBatchDeleteClaim'), 'remote failures cannot resurrect possibly deleted guests')
+const stop = indexOfOrThrow(deletion, "{ action: 'stop', force: true", 'actual-state stop')
+const remove = indexOfOrThrow(deletion, 'await deleteInstance(incus, state.name)', 'remote deletion')
+const refund = indexOfOrThrow(deletion, 'let refundAmount = 0, isFirstTime = false', 'settlement')
+const release = indexOfOrThrow(deletion, 'deletionBillingPending: false, provisioningCleanupPending: false', 'resource release')
+assert(stop < remove && remove < refund && refund < release, 'confirm remote deletion before settlement and release')
+assert(deletion.includes('deletionIntent: asJson(state)') && deletion.includes('state.uuid') && deletion.includes('state.absent'), 'persist original target and reject same-name recreation')
+assert(deletion.includes('await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, instance.userId)'), 'refund must serialize balance changes')
+assert(deletion.includes('previous') && deletion.includes("'节点实例删除退款'"), 'refund must have a durable duplicate fence')
+assert(deletion.includes('HOST_OCCUPIED_INSTANCE_WHERE') && deletion.includes('tx.instance.aggregate'), 'release must recompute occupied inventory')
+assert(hostsSource.includes("kind: 'manual', reason: 'database_only'"), 'records-only removal must retain remote inventory quarantine')
+console.log('instance delete durable intent, remote ordering, refund and inventory guards passed')

@@ -3,6 +3,9 @@ import { createHash } from 'node:crypto'
 import { IncusApiError, type IncusClient } from './incus/incus-client.js'
 import type { IncusInstance } from '../types/incus.js'
 import { removeDedicatedForward } from './incus/dedicated-network.js'
+import { verifyInstanceDeleted } from './incus/verify-instance-deleted.js'
+import { queueDeletedPoolHost } from '../services/host-pool-cleanup.js'
+import { HOST_OCCUPIED_INSTANCE_WHERE } from './host-resource-usage.js'
 
 /** Pending managed creations retain their original endpoint and attempt marker.
  * Legacy pending records without that evidence need operator reconciliation. */
@@ -34,14 +37,21 @@ export function managedCleanupEndpointHash(client: IncusClient): string {
 
 /** Called only by a deletion owner after confirmed remote cleanup. */
 export async function finalizeManagedCleanupForDeletion(instanceId: number): Promise<void> {
+  await queueDeletedPoolHost(instanceId)
   await prisma.$transaction(async tx => {
+    const located = await tx.instance.findUniqueOrThrow({ where: { id: instanceId }, select: { hostId: true } })
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${located.hostId} FOR UPDATE`
     await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
     const instance = await tx.instance.findUniqueOrThrow({ where: { id: instanceId } })
-    if (!instance.provisioningCleanupPending) return
     if (instance.status !== 'deleted') throw new Error('实例删除状态已变化，保留清理标记')
     await tx.$executeRaw`UPDATE public_ipv4_addresses SET status = 'free', instance_id = NULL, released_at = NOW(), updated_at = NOW()
       WHERE instance_id = ${instanceId} AND status = 'assigned'`
-    await tx.instance.update({ where: { id: instanceId }, data: { provisioningCleanupPending: false } })
+    await tx.instance.update({ where: { id: instanceId }, data: { provisioningCleanupPending: false, deletionBillingPending: false } })
+    const allocated = { hostId: instance.hostId, ...HOST_OCCUPIED_INSTANCE_WHERE }
+    const resources = await tx.instance.aggregate({ where: allocated, _sum: { cpu: true, memory: true, disk: true } })
+    const ports = await tx.portMapping.count({ where: { instance: allocated } })
+    await tx.host.update({ where: { id: instance.hostId }, data: { cpuUsed: resources._sum.cpu || 0,
+      memoryUsed: resources._sum.memory || 0, diskUsed: resources._sum.disk || 0, natPortsUsedCount: ports } })
   })
 }
 
@@ -104,6 +114,7 @@ export async function cleanupManagedInstanceRemote(client: IncusClient, name: st
   if (forwards.some(forward => forward.description === `payincus-dedicated:${name}`)) {
     throw new Error('Remote address forward deletion not confirmed')
   }
+  await verifyInstanceDeleted(boundedClient, name)
 }
 
 export async function deletePendingManagedInstance(client: IncusClient, instanceId: number): Promise<boolean> {

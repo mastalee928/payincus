@@ -205,10 +205,16 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
       await prisma.storagePool.upsert({ where: { hostId_name: { hostId: host.id, name: poolName } },
         create: { hostId: host.id, name: poolName, driver: pool.driver, purpose: 'instance_data', config: pool.config },
         update: { driver: pool.driver, purpose: 'instance_data', config: pool.config } })
-      await prisma.host.update({ where: { id: host.id }, data: {
-        status: 'online', isInstalled: true, installToken: null, installTokenExpire: null, certDownloadExpire: null,
-        architecture: normalizeArchitecture(info.environment?.kernel_architecture)
-      } })
+      await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${host.id} FOR UPDATE`
+        await tx.$queryRaw`SELECT id FROM host_onboarding_nodes WHERE id = ${node.id} FOR UPDATE`
+        if (stopped || lostLease || !await tx.hostOnboardingNode.findFirst({ where })) throw new OnboardingError('WORKER_INTERRUPTED')
+        await tx.host.update({ where: { id: host.id }, data: {
+          ...panelCertificatePaths(),
+          status: 'online', isInstalled: true, installPending: false, installToken: null, installTokenExpire: null, certDownloadExpire: null,
+          architecture: normalizeArchitecture(info.environment?.kernel_architecture)
+        } })
+      })
     } finally { await client.close() }
     let agentReady = false
     for (let attempt = 0; attempt < 36; attempt++) {

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:https'
+import { randomUUID } from 'node:crypto'
 // Explicit opt-in: this test creates data only in an empty local test database.
 const database = new URL(process.env.DATABASE_URL || 'postgresql://localhost/invalid')
 assert.equal(process.env.BILLING_EXPIRY_INTEGRATION_TEST, '1', 'explicit integration test opt-in required')
@@ -24,6 +25,7 @@ const { performRenewal } = await import('../src/db/billing-operations.js')
 const { withInstanceBillingMutation } = await import('../src/lib/instance-billing-mutation.js')
 const cron = await import('node-cron')
 const remote = new Map()
+const identities = new Map()
 let offline = true, failDelete = false, stopCount = 0, deleteCount = 0
 const server = createServer({ key: await readFile(root + '/tls.key'), cert: await readFile(root + '/tls.crt') }, async (request, response) => {
   const url = new URL(request.url, 'https://fixture')
@@ -31,6 +33,7 @@ const server = createServer({ key: await readFile(root + '/tls.key'), cert: awai
   const send = (metadata, code = 200) => { response.writeHead(code, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ type: code === 200 ? 'sync' : 'error', metadata, error: code === 200 ? '' : code === 404 ? 'Instance not found' : 'offline fixture' })) }
   if (url.pathname === '/1.0') return send({ api_version: '1.0' })
   if (url.pathname === '/1.0/operations') return send({})
+  if (url.pathname === '/1.0/storage-pools' || url.pathname === '/1.0/networks') return send([])
   if (url.pathname.includes('/forwards')) return send([])
   if (offline) return send({}, 503)
   if (url.pathname === '/1.0/instances') return send([...remote.keys()].map(name => '/1.0/instances/' + name))
@@ -39,6 +42,7 @@ const server = createServer({ key: await readFile(root + '/tls.key'), cert: awai
   const name = match[1]
   if (!remote.has(name)) return send({}, 404)
   if (request.method === 'GET' && match[2]) return send({ status: remote.get(name) || 'Stopped' })
+  if (request.method === 'GET') return send({ name, project: 'default', status: remote.get(name), ...identities.get(name) })
   if (request.method === 'PUT') { assert.equal(JSON.parse(body).action, 'stop'); stopCount++; remote.set(name, 'Stopped'); return send({}) }
   if (request.method === 'DELETE') { deleteCount++; if (failDelete) { if (failDelete === 'accepted') remote.delete(name); return send({}, 503) } remote.delete(name); return send({}) }
   return send({})
@@ -54,6 +58,7 @@ const host = await prisma.host.create({ data: { userId: owner.id, name: 'expiry-
   certPath: root + '/tls.crt', keyPath: root + '/tls.key', status: 'online', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 34 } })
 async function instance(name, data = {}) {
   remote.set(name, 'Running')
+  identities.set(name, { created_at: new Date(Date.now() - 60000).toISOString(), config: { 'volatile.uuid': randomUUID() } })
   return prisma.instance.create({ data: { userId: user.id, hostId: host.id, name, incusId: name, status: 'running', image: 'fixture',
     cpu: 100, memory: 128, disk: 1024, packageId: pkg.id, packagePlanId: plan.id, billingPrice: 10, billingCycle: 1,
     expiresAt: new Date(Date.now() - 60000), ...data } })
@@ -85,6 +90,13 @@ try {
   failDelete = true; await executeExpiryEnforcement()
   const pending = await prisma.instance.findUniqueOrThrow({ where: { id: deleting.id } })
   assert.equal(pending.status, 'deleted'); assert.equal(pending.deletionBillingPending, true)
+  const originalIdentity = identities.get(deleting.incusId)
+  const beforeReuse = deleteCount
+  identities.set(deleting.incusId, { ...originalIdentity, config: { 'volatile.uuid': randomUUID() } })
+  await executeExpiryEnforcement()
+  assert.equal(deleteCount, beforeReuse, 'same-name replacement cannot be deleted on retry')
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: deleting.id } })).deletionBillingPending, true)
+  identities.set(deleting.incusId, originalIdentity)
   assert.equal(await prisma.instance.count({ where: { hostId: host.id, OR: [{ status: { not: 'deleted' } }, { deletionBillingPending: true }] } }), 6)
   failDelete = 'accepted'; await executeExpiryEnforcement()
   assert.equal(remote.has(deleting.incusId), false)

@@ -7,6 +7,45 @@ on:
     branches: [main]
 
 jobs:
+  cleanup-incus:
+    name: Actual Incus cleanup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pool_test
+          POSTGRES_PASSWORD: pool_test
+          POSTGRES_DB: actual_cleanup_pool_test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://pool_test:pool_test@127.0.0.1:5432/actual_cleanup_pool_test
+      JWT_SECRET: actual-incus-ci-fixture-only
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: |
+          pnpm --filter server exec prisma generate
+          pnpm --filter server exec prisma migrate deploy
+      - name: Real guest and disk release through the shipped deletion implementation
+        run: sudo env "PATH=$PATH" "DATABASE_URL=$DATABASE_URL" "JWT_SECRET=$JWT_SECRET" GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted bash scripts/smoke-pool-cleanup-incus.sh
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.22.x'
+          cache-dependency-path: agent/go.mod
+      - name: Real Agent service reconnects using reconciled credentials
+        run: |
+          (cd agent && go build -ldflags='-X main.version=v1.0.4' -o /tmp/incudal-agent-repair ./cmd/incudal-agent)
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted python3 -B scripts/smoke-host-agent-repair.py /tmp/incudal-agent-repair
+
   lint-and-typecheck:
     name: Lint & Type Check
     runs-on: ubuntu-24.04
@@ -45,6 +84,7 @@ jobs:
           node scripts/test-agent-installer.mjs
           python3 scripts/test-onboarding-control.py
           python3 scripts/test-onboarding-gateway.py
+          sudo python3 -B scripts/test-host-agent-repair.py
           sudo python3 -B scripts/test-host-gateway-dns.py
           sudo python3 -B scripts/test-gateway-domain-control.py
           sudo python3 -B scripts/test-upgrade-onboarding-gateway.py
@@ -175,6 +215,10 @@ jobs:
           pnpm --filter server test:host-pool-integration
           pnpm --filter server test:host-public-ipv6-integration
           pnpm --filter server test:admin-instance-delete-integration
+          pnpm --filter server test:host-pool-cleanup-integration
+          pnpm --filter server test:host-management-repair-integration
+          pnpm --filter server test:host-install-session-integration
+          pnpm --filter server test:host-replacement-recovery-integration
           pnpm --filter server test:destroy-email-verification
       - name: Transaction admission timeouts reclaim all eight PostgreSQL connections
         timeout-minutes: 2

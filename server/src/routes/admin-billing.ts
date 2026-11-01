@@ -1,3 +1,4 @@
+import { requestInstanceDeletion } from '../services/instance-deletion.js'
 import { assertNoPendingSnapshotOperations, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
 /**
@@ -2140,6 +2141,11 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         return reply.status(409).send({ error: '实例创建清理尚未完成，请使用实例删除或节点批量删除核验原实例后处理', code: 'PROVISIONING_CLEANUP_PENDING' })
       }
 
+      if (!databaseOnly) {
+        const result = await requestInstanceDeletion(instance, admin, { mode: 'admin', adminRefundType: refundType, reason })
+        return reply.code(result.pending ? 202 : 200).send({ ...result, refundType })
+      }
+
       // 3. 计算可退款金额（仅用于全额退款模式）
       const { maxRefundable } = await getMaxRefundable(instanceId)
 
@@ -2236,23 +2242,8 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         }
       }
 
-      // 4. 删除实例（复用现有逻辑）
-      // 4.1 停止实例（databaseOnly 模式下跳过）
-      if (instance.status === 'running' && !databaseOnly) {
-        try {
-          const host = await db.getHostById(instance.hostId)
-          if (host) {
-            const { getIncusClient, stopInstance } = await import('../lib/incus/index.js')
-            const client = await getIncusClient(host)
-            await stopInstance(client, instance.incusId, true)
-          }
-        } catch (err) {
-          request.log.warn(err, '停止实例失败')
-        }
-      }
-
       // 4.2 删除端口映射
-      const portMappings = await prisma.portMapping.findMany({ where: { instanceId } })
+
 
       // 4.3 清理关联数据
       try {
@@ -2274,49 +2265,15 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         request.log.warn(cleanupErr, '清理关联数据失败')
       }
 
-      // 4.4 从 Incus 删除实例（databaseOnly 模式下跳过）
-      if (!databaseOnly) {
-        try {
-          const host = await db.getHostById(instance.hostId)
-          if (host) {
-            const { getIncusClient, deleteInstance } = await import('../lib/incus/index.js')
-            const client = await getIncusClient(host)
-            await deleteInstance(client, instance.incusId)
-          }
-        } catch (incusErr) {
-          request.log.error(incusErr, 'Incus 删除实例失败')
-          // 继续执行，即使 Incus 删除失败也要更新数据库状态
-        }
-      }
-
-      // 4.6 释放宿主机资源
-      const portMappingsCount = portMappings?.length || 0
-      await db.rollbackResources({
-        hostId: instance.hostId,
-        cpu: instance.cpu,
-        memory: instance.memory,
-        disk: instance.disk,
-        portCount: portMappingsCount
-      })
-
-      // 重新计算宿主机资源使用量
-      const usedResources = await db.calculateHostResourcesFromInstances(instance.hostId)
-      const actualPortsUsed = await prisma.portMapping.count({
-        where: {
-          instance: {
-            hostId: instance.hostId,
-            status: { not: 'deleted' }
-          }
-        }
-      })
-      await db.updateHostResources(instance.hostId, {
-        cpuUsed: usedResources.cpuUsed,
-        memoryUsed: usedResources.memoryUsed,
-        diskUsed: usedResources.diskUsed
-      })
-      await prisma.host.update({
-        where: { id: instance.hostId },
-        data: { natPortsUsedCount: actualPortsUsed }
+      // Records-only removal deliberately retains all remote disks and resale quarantine.
+      await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.hostId} FOR UPDATE`
+        const occupied = { hostId: instance.hostId, OR: [{ status: { not: 'deleted' as const } }, { provisioningCleanupPending: true }, { deletionBillingPending: true }] }
+        const usage = await tx.instance.aggregate({ where: occupied, _sum: { cpu: true, memory: true, disk: true } })
+        const ports = await tx.portMapping.count({ where: { instance: occupied } })
+        await tx.host.update({ where: { id: instance.hostId }, data: { poolFaulted: true,
+          poolCleanup: { version: 1, kind: 'manual', reason: 'database_only' }, cpuUsed: usage._sum.cpu || 0,
+          memoryUsed: usage._sum.memory || 0, diskUsed: usage._sum.disk || 0, natPortsUsedCount: ports } })
       })
 
       // 6. 记录操作日志

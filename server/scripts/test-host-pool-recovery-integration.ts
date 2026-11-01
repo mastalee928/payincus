@@ -19,7 +19,7 @@ let sequence = 0
 async function makeHost(poolFaulted = true) {
   const id = ++sequence
   return prisma.host.create({ data: {
-    userId: owner.id, name: `${prefix}-${id}`, url: 'https://127.0.0.1:1', status: 'online', isInstalled: true,
+    userId: owner.id, name: `${prefix}-${id}`, url: 'https://127.0.0.1:1', status: 'online', isInstalled: true, certPath: 'fixture.crt', keyPath: 'fixture.key',
     singleTenant: true, poolFaulted, resourcePreset: 'E2', architecture: 'x86_64', cpuAllowanceMax: 200,
     memoryMax: 768, storageSize: 34, customerDiskGiB: 30, cpuUsed: poolFaulted ? 200 : 0,
     memoryUsed: poolFaulted ? 768 : 0, diskUsed: poolFaulted ? 30720 : 0,

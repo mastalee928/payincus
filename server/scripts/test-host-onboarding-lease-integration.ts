@@ -10,13 +10,14 @@ process.env.ENCRYPTION_KEY = 'onboarding-retry-integration-fixture'
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { claimHostOnboardingNode } = await import('../src/workers/hostOnboardingWorker.js')
 const batchId = randomUUID()
+const actor = await prisma.user.create({ data: { username: `lease-${batchId}`, role: 'admin', passwordHash: 'fixture-only' } })
 
 try {
   const timezone = await prisma.$queryRawUnsafe<Array<{ TimeZone: string }>>('SHOW TIMEZONE')
   assert.equal(timezone[0]?.TimeZone, 'Asia/Shanghai')
   assert.equal(await prisma.hostOnboardingNode.count({ where: { deletedAt: null, status: { in: ['queued', 'running'] } } }), 0, 'test database must have no active onboarding jobs')
   await prisma.hostOnboardingBatch.create({ data: {
-    id: batchId, createdById: 1, name: 'Lease regression', accountLabel: 'test', defaults: {},
+    id: batchId, createdById: actor.id, name: 'Lease regression', accountLabel: 'test', defaults: {},
     nodes: { create: { name: `lease-${batchId}`, publicIp: `lease-${batchId}`, credentialsExpireAt: new Date(Date.now() + 3600000) } }
   } })
   const first = await claimHostOnboardingNode()
@@ -31,7 +32,7 @@ try {
   const app = Fastify({ ajv: { customOptions: { removeAdditional: false } } })
   app.decorate('authenticateAdmin', async (request, reply) => {
     if (request.headers['x-test-role'] !== 'admin') return reply.code(403).send({ code: 'ADMIN_REQUIRED' })
-    request.user = { id: 1, username: 'fixture-admin', role: 'admin' }
+    request.user = { id: actor.id, username: actor.username, role: 'admin' }
   })
   await app.register(onboardingRoutes, { prefix: '/onboarding' })
   try {
@@ -65,6 +66,7 @@ try {
   console.log('Onboarding lease timezone, recovery and current-system retry integration checks passed')
 } finally {
   await prisma.hostOnboardingBatch.deleteMany({ where: { id: batchId } })
+  await prisma.user.delete({ where: { id: actor.id } })
   await closePrismaDatabase()
 }
 process.exit(0)

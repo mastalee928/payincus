@@ -317,7 +317,15 @@ function buildLogWhere(options: {
   }
 
   if (safeSearch) {
+    const automaticActions: Record<string, string[]> = {
+      '巡检': ['system.expiry_enforcement_started', 'system.expiry_enforcement'],
+      '到期巡检': ['system.expiry_enforcement_started', 'system.expiry_enforcement'],
+      '巡检开始': ['system.expiry_enforcement_started'], '巡检完成': ['system.expiry_enforcement'],
+      '自动修复': ['host.management.repair_applied', 'host.management.repaired', 'host.management.repair_retry'],
+      '自动回收': ['host.pool.cleanup_start', 'host.pool.cleanup_complete', 'host.pool.cleanup_retry']
+    }
     where.OR = [
+      ...(automaticActions[safeSearch] ? [{ action: { in: automaticActions[safeSearch] } }] : []),
       { content: { contains: safeSearch, mode: 'insensitive' } },
       { action: { contains: safeSearch, mode: 'insensitive' } },
       { user: { username: { contains: safeSearch, mode: 'insensitive' } } }

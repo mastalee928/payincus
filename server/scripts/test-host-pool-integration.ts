@@ -33,7 +33,7 @@ let hostSequence = 0
 async function host(diskGiB = 30, extra: Record<string, unknown> = {}) {
   const machine = await prisma.host.create({ data: { userId: owner.id, name: `${prefix}-${++hostSequence}`, url: 'https://127.0.0.1:1',
     singleTenant: true, machineGroupId: group.id, regionGroupId: region.id, resourcePreset: 'E2', customerDiskGiB: diskGiB,
-    status: 'online', isInstalled: true, architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: diskGiB + 8,
+    status: 'online', isInstalled: true, certPath: 'fixture.crt', keyPath: 'fixture.key', architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: diskGiB + 8,
     natPublicIp: `192.0.2.${hostSequence}`, natPortStart: 20000, natPortEnd: 30000, ...extra } })
   await prisma.storagePool.create({ data: { hostId: machine.id, name: 'test', driver: 'btrfs', purpose: 'instance_data' } })
   return machine

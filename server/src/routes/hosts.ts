@@ -1,3 +1,4 @@
+import { requestInstanceDeletion, processInstanceDeletion, instanceDeletionResult } from '../services/instance-deletion.js'
 import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 /**
  * 宿主机管理路由 (管理员)
@@ -23,6 +24,8 @@ import { recalculateHostResources, HostRecalculationError } from '../db/host-res
 import { apiError, ErrorCode, type ErrorCodeType } from '../lib/errors.js'
 import { createInstanceTask, getActiveTaskForInstance, InstanceTaskConflictError, InstanceTaskAuthorizationError } from '../db/instance-tasks.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { repairHostManagement, managementRepairView } from '../services/host-management-repair.js'
+import { authorizeUserWrite } from '../db/user-write-authorization.js'
 import type { CreateInstanceTaskData, InstanceTaskWithDetails } from '../db/instance-tasks.js'
 import { getSSHKeyById, getSSHKeysByUserId } from '../db/ssh-keys.js'
 import { getEnabledCommandsByDistro, validateCommandsOwnership } from '../db/custom-init-commands.js'
@@ -96,7 +99,7 @@ import {
   parseStartupItems
 } from '../lib/instance-audit.js'
 import { provisionManagedInstanceAsync } from '../lib/managed-instance-provision.js'
-import { assertManagedCleanupIdentity, deletePendingManagedInstance, finalizeManagedCleanupForDeletion } from '../lib/managed-cleanup-identity.js'
+import { finalizeManagedCleanupForDeletion } from '../lib/managed-cleanup-identity.js'
 import type { InstanceStatus } from '@prisma/client'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -378,16 +381,6 @@ async function createHostInstanceTaskOrConflict(
   }
 }
 
-async function restoreHostBatchDeleteClaim(instanceId: number, originalStatus: InstanceStatus): Promise<void> {
-  await prisma.instance.updateMany({
-    where: {
-      id: instanceId,
-      status: 'deleted'
-    },
-    data: { status: originalStatus, deletionBillingPending: false }
-  })
-}
-
 async function finalizeHostBatchDelete(instanceId: number, hostId: number, databaseOnly: boolean): Promise<void> {
   if (!databaseOnly) await finalizeManagedCleanupForDeletion(instanceId)
   await prisma.$transaction(async tx => {
@@ -401,29 +394,9 @@ async function finalizeHostBatchDelete(instanceId: number, hostId: number, datab
       cpuUsed: resources._sum.cpu || 0, memoryUsed: resources._sum.memory || 0, diskUsed: resources._sum.disk || 0,
       natPortsUsedCount: ports,
       // The remote instance still exists after record-only removal; it cannot be sold again.
-      ...(databaseOnly ? { poolFaulted: true } : {})
+      ...(databaseOnly ? { poolFaulted: true, poolCleanup: { version: 1, kind: 'manual', reason: 'database_only' } } : {})
     } })
   })
-}
-
-async function deleteIncusInstanceForHostBatch(
-  client: IncusClient,
-  operations: {
-    stopInstance: (client: IncusClient, name: string, force?: boolean) => Promise<unknown>
-    deleteInstance: (client: IncusClient, name: string) => Promise<unknown>
-  },
-  instance: { incusId: string; status: string },
-  logger: { warn: (...args: any[]) => void }
-): Promise<void> {
-  // A failed creation can leave a Running guest behind an error DB record.
-  // stopInstance checks the remote state, including its stopped no-op.
-  try {
-    await operations.stopInstance(client, instance.incusId, true)
-  } catch (err) {
-    logger.warn(err, '停止实例失败，继续尝试删除')
-  }
-
-  await operations.deleteInstance(client, instance.incusId)
 }
 
 async function deleteIncusInstanceForMigration(
@@ -1440,6 +1413,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           id: true,
           name: true,
           isInstalled: true,
+          installPending: true,
           installTokenExpire: true
         }
       })
@@ -1450,7 +1424,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       }
 
       // 检查是否已安装
-      if (host.isInstalled) {
+      if (host.isInstalled && !host.installPending) {
         request.log.warn(`Install script download failed: host ${host.name} already installed`)
         return reply.code(403).send('# Error: Host already installed')
       }
@@ -1553,6 +1527,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           id: true,
           name: true,
           isInstalled: true,
+          installPending: true,
           installTokenExpire: true
         }
       })
@@ -1563,7 +1538,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       }
 
       // 检查是否已安装
-      if (host.isInstalled) {
+      if (host.isInstalled && !host.installPending) {
         request.log.warn(`Certificate download failed: host ${host.name} already installed`)
         return reply.code(403).send('# Error: Host already installed')
       }
@@ -1626,11 +1601,29 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     // 检查是否有待验证的安装会话（证书模式不再需要 installToken，但保留过期检查）
     const fullHost = await prisma.host.findUnique({
       where: { id: hostId },
-      select: { installTokenExpire: true, url: true, isInstalled: true }
+      select: { installTokenExpire: true, url: true, isInstalled: true, installPending: true, certPath: true, keyPath: true }
     })
 
     if (fullHost?.isInstalled) {
-      return reply.code(400).send({ error: '该宿主机已完成安装，无需再次验证' })
+      if (!fullHost.certPath || !fullHost.keyPath) {
+        await repairHostManagement(hostId)
+        const repaired = await prisma.host.findUnique({ where: { id: hostId }, select: { certPath: true, keyPath: true } })
+        if (!repaired?.certPath || !repaired.keyPath) return reply.code(409).send({ error: '系统正在核验并恢复原管理连接，请稍后刷新', code: 'HOST_MANAGEMENT_REPAIR_RETRY' })
+      }
+      try { await (await getIncusClient({ id: hostId, url: fullHost.url })).request('GET', '/1.0') }
+      catch { return reply.code(409).send({ error: '原管理连接暂未通过核验，系统将继续检查', code: 'HOST_MANAGEMENT_REPAIR_RETRY' }) }
+      // A reinstall session never downgrades an established TLS pin to first use.
+      if (fullHost.installPending) await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
+        if (!await authorizeUserWrite(tx, user.id, user)) return
+        const actor = await tx.user.findUnique({ where: { id: user.id }, select: { role: true } })
+        const current = await tx.host.findUnique({ where: { id: hostId } })
+        if (!current || (current.userId !== user.id && actor?.role !== 'admin') || current.url !== fullHost.url) return
+        await tx.host.updateMany({ where: { id: hostId, installTokenExpire: fullHost.installTokenExpire }, data: {
+          installPending: false, installToken: null, installTokenExpire: null, certDownloadExpire: null
+        } })
+      })
+      return { success: true }
     }
 
     // 检查是否过期
@@ -1748,6 +1741,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       const updateData: Record<string, unknown> = {
         status: 'online',
         isInstalled: true,
+        installPending: false,
         installToken: null,  // 清空 installToken（已不再需要）
         installTokenExpire: null,
         certDownloadCount: 0,  // 重置下载次数
@@ -1859,17 +1853,18 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     const installToken = randomUUID()
     const installTokenExpire = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24小时有效
 
-    // 更新数据库
-    await prisma.host.update({
-      where: { id: hostId },
-      data: {
-        installToken,
-        installTokenExpire,
-        isInstalled: false,
-        certPath: null,
-        keyPath: null
-      }
+    // Keep the active connection separate from the pending installer session.
+    const prepared = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
+      const current = await tx.host.findUniqueOrThrow({ where: { id: hostId } })
+      if (!await authorizeUserWrite(tx, user.id, user)) return false
+      const actor = await tx.user.findUnique({ where: { id: user.id }, select: { role: true } })
+      if (current.userId !== user.id && actor?.role !== 'admin') return false
+      if (await tx.hostOnboardingNode.count({ where: { hostId, status: { in: ['queued', 'running'] } } })) return false
+      await tx.host.update({ where: { id: hostId }, data: { installToken, installTokenExpire, installPending: true } })
+      return true
     })
+    if (!prepared) return reply.code(409).send({ error: '宿主正在接入或归属已改变，请等待当前操作完成', code: 'HOST_INSTALL_BUSY' })
 
     // 生成安装命令（面板地址和 token 自动注入脚本）
     const panelUrl = derivePanelUrl(request)
@@ -1991,6 +1986,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     }
 
     const currentAgent = await prisma.hostAgent.findUnique({ where: { hostId }, select: { enabled: true, lastSeenAt: true, lastReport: true } })
+    const repairState = await prisma.host.findUnique({ where: { id: hostId }, select: { managementRepair: true } })
     const liveStatus = hostLiveStatus(host.status, currentAgent)
     // 获取该宿主机上的实例列表
     const instances = await db.getInstancesByHost(hostId)
@@ -2044,6 +2040,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         architecture: host.architecture || 'x86_64',
         certPath: host.cert_path || '',
         keyPath: host.key_path || '',
+        managementRepair: managementRepairView(repairState?.managementRepair),
         resources: {
           cpuUsed: host.cpu_used,
           memoryUsed: host.memory_used,
@@ -2991,40 +2988,24 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: '没有找到可删除的实例' })
     }
 
-    const results: { id: number; name: string; success: boolean; error?: string; refundAmount?: number }[] = []
+    const results: { id: number; name: string; success: boolean; pending?: boolean; error?: string; refundAmount?: number }[] = []
     let totalRefundAmount = 0
-    let client: IncusClient | null = null
     const deferredNotifications: Array<() => Promise<void>> = []
 
-    if (!databaseOnly) {
-      try {
-        client = await getIncusClient(host)
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err)
-        fastify.log.error(`获取 Incus 客户端失败: ${errorMessage}`)
-        return reply.code(502).send({
-          error: `获取 Incus 客户端失败: ${errorMessage}`,
-          code: 'INCUS_CLIENT_UNAVAILABLE'
-        })
-      }
-    }
 
-    // 导入必要的函数
-    const incusInstanceOperations = databaseOnly
-      ? null
-      : await import('../lib/incus/index.js')
     const { getProxySitesByInstanceId, deleteProxySite } = await import('../db/proxy-sites.js')
-    const incusSnapshotOperations = databaseOnly
-      ? null
-      : await import('../lib/incus/incus-snapshots.js')
-    const incusBackupOperations = databaseOnly
-      ? null
-      : await import('../lib/incus/incus-backups.js')
 
     for (const instance of instances) {
       let deleteClaimed = false
       let deletionFinalized = false
       try {
+        if (!databaseOnly) {
+          const result = await requestInstanceDeletion(instance, user,
+            { mode: user.role === 'admin' ? 'admin' : 'host', refund, reason, deferRemote: true })
+          results.push({ id: instance.id, name: instance.name, success: result.success, pending: result.pending, refundAmount: result.refundAmount })
+          totalRefundAmount += result.refundAmount
+          continue
+        }
         // ===== 0. 检查转移锁定、恢复任务和上传任务 =====
         // 注意：批量删除接口只允许宿主机拥有者调用，所以不需要检查套餐限制
         const hasPendingTransfer = await db.hasPendingTransfer(instance.id)
@@ -3055,96 +3036,11 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           continue
         }
         deleteClaimed = true
-        if (!databaseOnly && client) {
-          try { await assertManagedCleanupIdentity(client, instance.id) }
-          catch (error) {
-            await restoreHostBatchDeleteClaim(instance.id, instance.status as InstanceStatus)
-            deleteClaimed = false
-            throw error
-          }
-        }
-
-        // ===== 1. 删除反代站点（完整删除清 Caddy，DB-only 只清数据库）=====
+        // Records-only removal intentionally preserves remote guests and disks.
         const proxySites = await getProxySitesByInstanceId(instance.id)
-        if (proxySites.length > 0) {
-          // 仅完整删除模式尝试删除 Caddy 远程配置；DB-only 无论宿主机是否在线都不碰远端。
-          if (!databaseOnly && host.caddy_enabled && host.caddy_username && host.caddy_password) {
-            const targetHost = host.nat_public_ip || host.ip_address
-            if (targetHost) {
-              const caddyClient = createCaddyClient({
-                host: targetHost,
-                port: host.caddy_port || 8444,
-                username: host.caddy_username,
-                password: host.caddy_password
-              })
-              for (const site of proxySites) {
-                try {
-                  await caddyClient.deleteSite(site.domain)
-                } catch (caddyError) {
-                  // 忽略 Caddy 删除错误
-                }
-              }
-            }
-          }
-        }
-
-        // ===== 2. 删除端口映射（完整删除清 Incus 设备，DB-only 只清数据库）=====
         const portMappings = await db.getPortMappings(instance.id)
-        if (portMappings && portMappings.length > 0) {
-          for (const mapping of portMappings) {
-            const map = mapping as { id: number; protocol: string; public_port: number }
-            // 仅完整删除模式尝试删除 Incus 设备；DB-only 无论宿主机是否在线都不碰远端。
-            if (client && incusInstanceOperations) {
-              const deviceName = `proxy-${map.protocol}-${map.public_port}`
-              try {
-                await incusInstanceOperations.removeDevice(client, instance.incusId, deviceName)
-              } catch (deviceError) {
-                // 忽略设备删除错误
-              }
-            }
-          }
-        }
-
-        // ===== 3. 删除快照（完整删除清 Incus 快照，DB-only 只清数据库）=====
         const snapshots = await db.getSnapshotsByInstanceId(instance.id)
-        if (snapshots.length > 0) {
-          for (const snapshot of snapshots) {
-            // 仅完整删除模式尝试删除 Incus 快照；DB-only 无论宿主机是否在线都不碰远端。
-            if (client && incusSnapshotOperations) {
-              try {
-                await incusSnapshotOperations.deleteSnapshot(client, instance.incusId, snapshot.incus_name)
-              } catch (snapshotError) {
-                // 忽略快照删除错误
-              }
-            }
-          }
-        }
-
-        // ===== 4. 删除备份（完整删除清 Incus 备份，DB-only 只清数据库）=====
         const backups = await db.getBackupsByInstanceId(instance.id)
-        if (backups.length > 0) {
-          for (const backup of backups) {
-            // 仅完整删除模式尝试删除 Incus 备份；DB-only 无论宿主机是否在线都不碰远端。
-            if (client && incusBackupOperations) {
-              try {
-                await incusBackupOperations.deleteBackup(client, instance.incusId, backup.incus_name)
-              } catch (backupError) {
-                // 忽略备份删除错误
-              }
-            }
-          }
-        }
-
-        // ===== 5. 停止并删除 Incus 实例（完整删除模式专属）=====
-        if (!databaseOnly && client && incusInstanceOperations) {
-          try {
-            if (!await deletePendingManagedInstance(client, instance.id)) await deleteIncusInstanceForHostBatch(client, incusInstanceOperations, instance, fastify.log)
-          } catch (incusError) {
-            await restoreHostBatchDeleteClaim(instance.id, instance.status as InstanceStatus)
-            deleteClaimed = false
-            throw incusError
-          }
-        }
 
         // ===== 6. 处理退款（节点所有者删除他人的付费实例时）=====
         let refundAmount = 0
@@ -3332,11 +3228,19 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       }
     }
 
+    // Persist all admitted intents before the first remote deletion. An offline
+    // first host or an HTTP timeout cannot discard the rest of the accepted batch.
+    for (const result of results.filter(item => item.pending)) {
+      await processInstanceDeletion(result.id)
+      Object.assign(result, await instanceDeletionResult(result.id))
+      totalRefundAmount += result.refundAmount || 0
+    }
+
     // ===== 批量删除完成后，按 packageId 汇总发送资源释放通知 =====
     const releaseMap = new Map<number, { cpu: number; memory: number; count: number }>()
     for (const instance of instances) {
       const result = results.find(r => r.id === instance.id)
-      if (result?.success && instance.packageId) {
+      if (databaseOnly && result?.success && instance.packageId) {
         const existing = releaseMap.get(instance.packageId) || { cpu: 0, memory: 0, count: 0 }
         existing.cpu += instance.cpu
         existing.memory += instance.memory
@@ -3356,8 +3260,9 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     // Each successful deletion already recalculates resources under the host row lock.
     // A second unlocked write here could overwrite a concurrent reservation or free unfinished cleanup.
 
+    const pendingCount = results.filter(r => r.pending).length
     const successCount = results.filter(r => r.success).length
-    const failedCount = results.filter(r => !r.success).length
+    const failedCount = results.filter(r => !r.success && !r.pending).length
 
     if (deferredNotifications.length > 0) {
       setImmediate(() => {
@@ -3368,10 +3273,11 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     }
 
     return {
-      message: `成功删除 ${successCount} 个实例${failedCount > 0 ? `，${failedCount} 个失败` : ''}${totalRefundAmount > 0 ? `，共退款 ¥${totalRefundAmount.toFixed(2)}` : ''}`,
+      message: pendingCount ? `已受理 ${pendingCount} 个后台自动删除任务` : `成功删除 ${successCount} 个实例${failedCount > 0 ? `，${failedCount} 个失败` : ''}${totalRefundAmount > 0 ? `，共退款 ¥${totalRefundAmount.toFixed(2)}` : ''}`,
       results,
       successCount,
       failedCount,
+      pendingCount,
       totalRefundAmount: Number(totalRefundAmount.toFixed(2))
     }
   })

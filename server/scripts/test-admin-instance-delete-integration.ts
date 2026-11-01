@@ -14,6 +14,7 @@ const { default: hostRoutes } = await import('../src/routes/hosts.js')
 const { default: instanceRoutes } = await import('../src/routes/instances.js')
 const { default: destroyRoutes } = await import('../src/routes/instance-destroy.js')
 const { default: adminBillingRoutes } = await import('../src/routes/admin-billing.js')
+const { processInstanceDeletion, readDeletionIntent } = await import('../src/services/instance-deletion.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const prefix = `delete-test-${randomUUID().slice(0, 8)}`
 const admin = await prisma.user.create({ data: { username: `${prefix}-admin`, passwordHash: 'unusable-fixture', role: 'admin' } })
@@ -64,7 +65,7 @@ try {
   const direct = await fixture()
   const directBefore = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
   const adminDelete = await app.inject({ method: 'DELETE', url: `/instances/${direct.instance.id}`, headers: { 'x-test-role': 'admin' }, payload: {} })
-  assert.equal(adminDelete.statusCode, 500, 'administrator reaches the actual remote deletion attempt without secondary verification')
+  assert.equal(adminDelete.statusCode, 202, 'administrator durably queues offline deletion without secondary verification')
   assert.notEqual(adminDelete.json().code, 'VERIFICATION_REQUIRED')
   assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), directBefore)
   assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: direct.instance.id, type: 'refund' } }), 0)
@@ -106,8 +107,8 @@ try {
 
   const offline = await fixture()
   const offlineBefore = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
-  assert.equal((await remove(offline.host.id, [offline.instance.id], 'admin', true, false)).statusCode, 502, 'full deletion cannot succeed without remote confirmation')
-  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: offline.instance.id } })).status, 'running')
+  assert.equal((await remove(offline.host.id, [offline.instance.id], 'admin', true, false)).json().pendingCount, 1, 'offline deletion is pending, not completed')
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: offline.instance.id } })).status, 'deleted')
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: offline.host.id } })).cpuUsed, 100)
   assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), offlineBefore)
 
@@ -121,6 +122,8 @@ try {
   const remoteConfig = new Map<string, Record<string, string>>()
   let rejectDeletion = false
   let keepDeleted = false
+  let loseReceipt = false
+  let diskResidue: string | undefined
   let beforeRemoteDelete: (() => Promise<void>) | undefined
   const server = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate,
     requestCert: true, rejectUnauthorized: true }, async (request, response) => {
@@ -134,19 +137,24 @@ try {
     }
     if (url.pathname === '/1.0') return send({ api_version: '1.0' })
     if (url.pathname === '/1.0/operations') return send({})
+    if (url.pathname === '/1.0/storage-pools') return send(diskResidue ? [{ name: 'fixture' }] : [])
+    if (url.pathname.endsWith('/volumes')) return send(diskResidue ? [{ name: diskResidue, type: 'container' }] : [])
+    if (url.pathname === '/1.0/networks') return send([])
     if (url.pathname.includes('/forwards') || url.pathname.endsWith('/snapshots') || url.pathname.endsWith('/backups')) return send([])
     const match = /^\/1\.0\/instances\/([^/]+)(\/state)?$/.exec(url.pathname)
     if (!match || !remoteStates.has(match[1]!)) return send({}, 404)
     const name = match[1]!
     if (request.method === 'GET' && match[2]) return send({ status: remoteStates.get(name) })
-    if (request.method === 'GET') return send({ name, status: remoteStates.get(name), devices: {}, config: remoteConfig.get(name) || {} })
+    if (request.method === 'GET') return send({ name, status: remoteStates.get(name), created_at: '2020-01-01T00:00:00Z', devices: {}, config: remoteConfig.get(name) || {} })
     if (request.method === 'PUT' && match[2]) {
       assert.equal(JSON.parse(body).action, 'stop'); remoteStates.set(name, 'Stopped'); return send({})
     }
     if (request.method === 'DELETE') {
       if (rejectDeletion || remoteStates.get(name) !== 'Stopped') return send({}, 503)
       if (beforeRemoteDelete) { const hook = beforeRemoteDelete; beforeRemoteDelete = undefined; await hook() }
-      if (!keepDeleted) remoteStates.delete(name); return send({})
+      if (!keepDeleted) remoteStates.delete(name)
+      if (loseReceipt) return send({}, 503)
+      return send({})
     }
     return send({}, 404)
   })
@@ -159,6 +167,7 @@ try {
       certPath: certificatePath, keyPath, serverCertificate: certificate, serverFingerprint: new X509Certificate(certificate).fingerprint256 } })
     await prisma.instance.update({ where: { id: value.instance.id }, data: { status: 'error' } })
     remoteStates.set(value.instance.incusId, 'Running')
+    remoteConfig.set(value.instance.incusId, { 'volatile.uuid': randomUUID() })
     return value
   }
   async function pendingCleanupFixture() {
@@ -216,9 +225,9 @@ try {
           : entry === 'admin' ? await app.inject({ method: 'DELETE', url: `/instances/${value.instance.id}`, headers: { 'x-test-role': 'admin' }, payload: {} })
           : await remove(value.host.id, [value.instance.id], 'admin', false, false)
         if (entry.includes('batch')) assert.equal(result.json().successCount, 0, result.body)
-        else assert.ok(result.statusCode >= 400, result.body)
+        else assert.equal(result.statusCode, 202, result.body)
         const current = await prisma.instance.findUniqueOrThrow({ where: { id: value.instance.id } })
-        assert.equal(current.status, 'error'); assert.equal(current.provisioningCleanupPending, true)
+        assert.equal(current.status, 'deleted'); assert.equal(current.deletionBillingPending, true); assert.equal(current.provisioningCleanupPending, true)
         assert.equal((await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: value.host.id } })).status, 'assigned')
         assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: value.host.id } })).cpuUsed, 100)
         assert.deepEqual(await ledgerSnapshot(), before)
@@ -280,6 +289,10 @@ try {
     const batchPreview = await app.inject({ method: 'POST', url: '/instances/batch/destroy-info', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: ids } })
     assert.equal(batchPreview.statusCode, 200, batchPreview.body)
     batchPreview.json().items.forEach(assertNoRefundPreview)
+    beforeRemoteDelete = async () => {
+      assert.equal(await prisma.instance.count({ where: { id: { in: ids }, status: 'deleted', deletionBillingPending: true,
+        deletionIntent: { path: ['version'], equals: 1 } } }), ids.length, 'entire admitted batch is durable before its first remote DELETE')
+    }
     const userBatchResponse = await app.inject({ method: 'POST', url: '/instances/batch/destroy', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: ids, ...await destroyPayload(ids) } })
     assert.equal(userBatchResponse.statusCode, 200, userBatchResponse.body)
     assert.equal(userBatchResponse.json().successCount, 2, userBatchResponse.body)
@@ -289,6 +302,32 @@ try {
     for (const value of userBatch) await assertDeleted(value)
     assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: userBatch[0]!.instance.id } })).provisioningCleanupPending, false)
     assert.equal((await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: userBatch[0]!.host.id } })).status, 'free')
+
+    const mixedBatch = [await runningErrorFixture(), await runningErrorFixture(), await runningErrorFixture()]
+    const mixedIds = mixedBatch.map(value => value.instance.id)
+    const beforeMixed = await ledgerSnapshot()
+    const mixedPayload = { instanceIds: mixedIds, ...await destroyPayload(mixedIds) }
+    const mixedResponse = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`WITH locked AS (SELECT pg_advisory_xact_lock(4106, ${mixedIds[1]!}::integer)) SELECT true FROM locked`
+      beforeRemoteDelete = async () => {
+        assert.equal(await prisma.instance.count({ where: { id: { in: mixedIds }, deletionBillingPending: true } }), 2,
+          'a busy middle item must not prevent durable admission of the later item')
+      }
+      return app.inject({ method: 'POST', url: '/instances/batch/destroy', headers: { 'x-test-role': 'buyer' }, payload: mixedPayload })
+    }, { timeout: 30000 })
+    assert.equal(mixedResponse.statusCode, 200, mixedResponse.body)
+    assert.deepEqual([mixedResponse.json().successCount, mixedResponse.json().failedCount, mixedResponse.json().pendingCount], [2, 1, 0])
+    assert.equal(mixedResponse.json().results[1].reason, '实例正在执行其他任务，本项销毁未受理')
+    const busyRow = await prisma.instance.findUniqueOrThrow({ where: { id: mixedIds[1] } })
+    assert.equal(busyRow.deletionIntent, null); assert.equal(busyRow.status, 'error')
+    assert.equal(remoteStates.get(busyRow.incusId), 'Running')
+    assert.equal(remoteCalls.some(call => call.startsWith('DELETE ') && call.endsWith('/' + busyRow.incusId)), false)
+    await assertDeleted(mixedBatch[0]!); await assertDeleted(mixedBatch[2]!)
+    assert.deepEqual(await ledgerSnapshot(), beforeMixed)
+    const mixedAudit = await prisma.log.findFirstOrThrow({ where: { userId: buyer.id, action: 'instance.batch_destroy' }, orderBy: { id: 'desc' } })
+    assert.equal(mixedAudit.result, 'warning')
+    assert.equal(mixedAudit.content, '批量销毁共 3 台：已完成 2 台，自动处理中 0 台，已跳过 0 台，未完成 1 台')
+    console.log('PASS user batch: locked middle item preserves itself, later items continue, Chinese audit reports actual totals')
 
     const single = await pendingCleanupFixture()
     const beforeSingle = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
@@ -331,10 +370,7 @@ try {
 
     const interleaved = await runningErrorFixture()
     const beforeInterleaved = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
-    beforeRemoteDelete = async () => {
-      const { compensateFailedInstancePurchase } = await import('../src/db/instance-provisioning-compensation.js')
-      const late = await compensateFailedInstancePurchase(interleaved.instance.id, buyer.id, interleaved.host.id)
-      assert.equal(late.reason, 'instance_deleted', 'late compensation must defer to destroy claim')
+    const refundBeforeAdmission = async () => {
       const { advisoryTransactionLock, USER_BALANCE_LOCK_NAMESPACE } = await import('../src/db/advisory-locks.js')
       await prisma.$transaction(async tx => {
         await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, buyer.id)
@@ -343,32 +379,107 @@ try {
           type: 'refund', amount: -10, months: 0, periodStart: new Date(), periodEnd: new Date(), remark: 'In-flight refund completed after quote' } })
       })
     }
+    await refundBeforeAdmission()
     const interleavedDestroy = await app.inject({ method: 'POST', url: `/instances/${interleaved.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' }, payload: await destroyPayload([interleaved.instance.id]) })
     assert.equal(interleavedDestroy.statusCode, 200, interleavedDestroy.body)
     assert.equal(interleavedDestroy.json().refundAmount, 0, 'user destroy never refunds even when another refund finishes concurrently')
     assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), beforeInterleaved + 10)
     assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: interleaved.instance.id, type: 'refund' } }), 1)
 
-    const failed = await runningErrorFixture(); rejectDeletion = true
-    const beforeFailed = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
-    const refused = await remove(failed.host.id, [failed.instance.id], 'admin', true, false)
-    assert.equal(refused.json().successCount, 0)
-    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: failed.instance.id } })).status, 'error')
-    assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: failed.host.id } })).cpuUsed, 100)
-    assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), beforeFailed)
-    assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: failed.instance.id, type: 'refund' } }), 0)
-    const failedLedgers = await ledgerSnapshot()
-    const failedAuditCount = await prisma.userDestroyRecord.count({ where: { instanceId: failed.instance.id } })
-    const userFailed = await app.inject({ method: 'POST', url: `/instances/${failed.instance.id}/destroy?feeWaiver=error`, headers: { 'x-test-role': 'buyer' }, payload: await destroyPayload([failed.instance.id]) })
-    assert.equal(userFailed.statusCode, 500, userFailed.body)
-    const batchFailed = await app.inject({ method: 'POST', url: '/instances/batch/destroy', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: [failed.instance.id], ...await destroyPayload([failed.instance.id]) } })
-    assert.equal(batchFailed.json().successCount, 0, batchFailed.body)
-    assert.equal(remoteStates.has(failed.instance.incusId), true)
-    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: failed.instance.id } })).status, 'error')
-    assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: failed.host.id } })).cpuUsed, 100)
-    assert.deepEqual(await ledgerSnapshot(), failedLedgers, 'failed destruction cannot affect ledgers')
-    assert.equal(await prisma.userDestroyRecord.count({ where: { instanceId: failed.instance.id } }), failedAuditCount)
-    assert.ok(remoteCalls.some(call => call.startsWith('PUT ')) && remoteCalls.some(call => call.startsWith('DELETE ')))
+    const expireBackoff = async (id: number) => {
+      const row = await prisma.instance.findUniqueOrThrow({ where: { id } })
+      const state = readDeletionIntent(row.deletionIntent)!
+      await prisma.instance.update({ where: { id }, data: { deletionIntent: { ...state, nextAttemptAt: new Date(0).toISOString() } as any } })
+    }
+    for (const entry of ['admin_batch', 'user', 'user_batch', 'admin']) {
+      const failed = await runningErrorFixture(); rejectDeletion = true
+      const before = await ledgerSnapshot()
+      const refused = entry === 'admin_batch' ? await remove(failed.host.id, [failed.instance.id], 'admin', true, false)
+        : entry === 'admin' ? await app.inject({ method: 'DELETE', url: `/instances/${failed.instance.id}`, headers: { 'x-test-role': 'admin' }, payload: {} })
+        : entry === 'user_batch' ? await app.inject({ method: 'POST', url: '/instances/batch/destroy', headers: { 'x-test-role': 'buyer' }, payload: { instanceIds: [failed.instance.id], ...await destroyPayload([failed.instance.id]) } })
+        : await app.inject({ method: 'POST', url: `/instances/${failed.instance.id}/destroy`, headers: { 'x-test-role': 'buyer' }, payload: await destroyPayload([failed.instance.id]) })
+      assert.ok(refused.json().pending || refused.json().pendingCount, refused.body)
+      if (entry === 'user_batch') {
+        const audit = await prisma.log.findFirstOrThrow({ where: { userId: buyer.id, action: 'instance.batch_destroy' }, orderBy: { id: 'desc' } })
+        assert.equal(audit.result, 'pending', 'accepted background deletion is not reported as completed')
+        assert.equal(audit.content, '批量销毁共 1 台：已完成 0 台，自动处理中 1 台，已跳过 0 台，未完成 0 台')
+      }
+      const row = await prisma.instance.findUniqueOrThrow({ where: { id: failed.instance.id } })
+      assert.equal(row.status, 'deleted'); assert.equal(row.deletionBillingPending, true)
+      assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: failed.host.id } })).cpuUsed, 100)
+      assert.deepEqual(await ledgerSnapshot(), before, 'failed remote deletion cannot touch money')
+      const count = remoteCalls.length
+      await processInstanceDeletion(row.id)
+      assert.equal(remoteCalls.length, count, 'persisted backoff survives another invocation')
+      rejectDeletion = false; await expireBackoff(row.id)
+      await Promise.all([processInstanceDeletion(row.id), processInstanceDeletion(row.id)])
+      const done = await prisma.instance.findUniqueOrThrow({ where: { id: row.id } })
+      assert.equal(readDeletionIntent(done.deletionIntent)?.status, 'done', JSON.stringify(done.deletionIntent))
+      assert.equal(done.deletionBillingPending, false)
+      assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: failed.host.id } })).cpuUsed, 0)
+      const money = await ledgerSnapshot(), afterCalls = remoteCalls.length
+      await processInstanceDeletion(row.id)
+      assert.equal(remoteCalls.length, afterCalls); assert.deepEqual(await ledgerSnapshot(), money)
+      assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: row.id, type: 'refund' } }), entry === 'admin_batch' ? 1 : 0)
+      console.log(`PASS ${entry}: durable offline retry, concurrent resume and exactly-once settlement`)
+    }
+    for (const refundType of ['full', 'remaining']) {
+      const value = await runningErrorFixture(); rejectDeletion = true
+      const before = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
+      const result = await app.inject({ method: 'POST', url: `/api/admin/instances/${value.instance.id}/delete-and-refund`,
+        headers: { 'x-test-role': 'admin' }, payload: { refundType, reason: 'isolated automatic deletion test' } })
+      assert.equal(result.statusCode, 202, result.body)
+      assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), before)
+      rejectDeletion = false; await expireBackoff(value.instance.id); await processInstanceDeletion(value.instance.id)
+      const done = await prisma.instance.findUniqueOrThrow({ where: { id: value.instance.id } })
+      assert.equal(readDeletionIntent(done.deletionIntent)?.status, 'done', JSON.stringify(done.deletionIntent))
+      const records = await prisma.instanceBillingRecord.findMany({ where: { instanceId: done.id, type: 'refund' } })
+      assert.equal(records.length, 1); assert.ok(Number(records[0].amount) < 0)
+      const after = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
+      assert.equal(after, before + Math.abs(Number(records[0].amount)))
+      await processInstanceDeletion(done.id)
+      assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), after)
+      console.log(`PASS administrator ${refundType} refund waits for verified deletion and settles once`)
+    }
+    const renewed = await runningErrorFixture()
+    const { requestInstanceDeletion } = await import('../src/services/instance-deletion.js')
+    const renewedSnapshot = await prisma.instance.findUniqueOrThrow({ where: { id: renewed.instance.id } })
+    await prisma.instance.update({ where: { id: renewed.instance.id }, data: { version: { increment: 1 }, expiresAt: new Date(Date.now() + 60 * 86400000) } })
+    const priorCalls = remoteCalls.length
+    await assert.rejects(requestInstanceDeletion(renewedSnapshot, { id: admin.id, sid: `${prefix}-session`, iat: Math.floor(Date.now()/1000)+1 }, { mode: 'admin' }), /DELETE_TARGET_CHANGED/)
+    assert.equal(remoteCalls.length, priorCalls)
+    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: renewed.instance.id } })).deletionIntent, null)
+    console.log('PASS renewal committed before deletion admission: no old-intent stop/delete')
+    for (const failure of ['lost-receipt', 'disk-left', 'uuid-reused', 'revoked', 'host-changed', 'recovery-hold']) {
+      const value = await runningErrorFixture()
+      loseReceipt = failure === 'lost-receipt'; diskResidue = failure === 'disk-left' ? value.instance.incusId : undefined
+      rejectDeletion = !['lost-receipt', 'disk-left'].includes(failure)
+      const result = await remove(value.host.id, [value.instance.id], 'admin', true, false)
+      assert.equal(result.json().pendingCount, 1, result.body)
+      const snapshot = await prisma.instance.findUniqueOrThrow({ where: { id: value.instance.id } })
+      const oldConfig = { ...remoteConfig.get(value.instance.incusId)! }
+      if (failure === 'uuid-reused') remoteConfig.set(value.instance.incusId, { 'volatile.uuid': randomUUID() })
+      if (failure === 'revoked') await prisma.user.update({ where: { id: admin.id }, data: { role: 'user' } })
+      if (failure === 'host-changed') await prisma.host.update({ where: { id: value.host.id }, data: { url: 'https://127.0.0.1:2' } })
+      const { backupRoot } = await import('../src/services/platform-backup-core.js')
+      const { mkdir, writeFile, unlink } = await import('node:fs/promises')
+      if (failure === 'recovery-hold') { await mkdir(backupRoot(), { recursive: true }); await writeFile(join(backupRoot(), 'recovery-hold.json'), '{}') }
+      const callsBefore = remoteCalls.length
+      loseReceipt = false; rejectDeletion = false
+      await expireBackoff(snapshot.id); await processInstanceDeletion(snapshot.id)
+      if (['uuid-reused', 'revoked', 'host-changed', 'recovery-hold', 'disk-left'].includes(failure)) {
+        assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: snapshot.id } })).deletionBillingPending, true)
+        assert.equal(remoteCalls.slice(callsBefore).some(call => /^(PUT|DELETE) /.test(call)), false, 'changed identity/authority or retained disk never causes blind writes')
+      } else assert.equal(readDeletionIntent((await prisma.instance.findUniqueOrThrow({ where: { id: snapshot.id } })).deletionIntent)?.status, 'done')
+      if (failure === 'uuid-reused') remoteConfig.set(value.instance.incusId, oldConfig)
+      if (failure === 'revoked') await prisma.user.update({ where: { id: admin.id }, data: { role: 'admin' } })
+      if (failure === 'host-changed') await prisma.host.update({ where: { id: value.host.id }, data: { url: `https://127.0.0.1:${endpointPort}` } })
+      if (failure === 'recovery-hold') await unlink(join(backupRoot(), 'recovery-hold.json'))
+      diskResidue = undefined; await expireBackoff(snapshot.id); await processInstanceDeletion(snapshot.id)
+      assert.equal(readDeletionIntent((await prisma.instance.findUniqueOrThrow({ where: { id: snapshot.id } })).deletionIntent)?.status, 'done')
+      assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: snapshot.id, type: 'refund' } }), 1)
+      console.log(`PASS ${failure}: automatic recovery retains original identity, inventory and single refund`)
+    }
     console.log('PASS actual TLS Incus boundary: single/batch paid, error and free user destruction has zero refunds and zero ledger writes; administrator refund choices and failed-delete protection preserved')
   } finally {
     await closeAllClients()

@@ -1,5 +1,6 @@
 import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, } from '../db/snapshot-operation-guards.js'
 import { executeHostReplacement } from '../services/host-replacement.js'
+import { processPoolCleanupQueue } from '../services/host-pool-cleanup.js'
 import { prepareDedicatedDelivery } from '../services/dedicated-delivery.js'
 import { prepareDedicatedIpv6Delivery } from '../services/host-public-ipv6-sync.js'
 /**
@@ -83,6 +84,7 @@ const ALPINE_BUSY_UPDATE_CANCEL_AFTER_MS = 10_000
 
 let workerInterval: ReturnType<typeof setInterval> | null = null
 let timeoutCheckInterval: ReturnType<typeof setInterval> | null = null
+let poolCleanupInterval: ReturnType<typeof setInterval> | null = null
 const runningTaskIds = new Set<number>()
 const dbBackoff = createWorkerDbBackoff('InstanceTaskWorker')
 
@@ -2626,6 +2628,14 @@ export function startInstanceTaskWorker(): void {
   }
 
   console.log('[InstanceTaskWorker] 启动 Worker...')
+  const cleanupPool = () => {
+    if (!dbBackoff.shouldSkip()) void processPoolCleanupQueue().catch(err => {
+      console.error('[InstanceTaskWorker] 机器池回收失败:', err)
+      dbBackoff.arm(err)
+    })
+  }
+  cleanupPool()
+  poolCleanupInterval = setInterval(cleanupPool, 30000)
 
   // 立即清理僵尸任务
   cleanupStaleTasks().catch(err => {
@@ -2656,6 +2666,7 @@ export function startInstanceTaskWorker(): void {
  * 停止 Worker
  */
 export function stopInstanceTaskWorker(): void {
+  if (poolCleanupInterval) { clearInterval(poolCleanupInterval); poolCleanupInterval = null }
   if (workerInterval) {
     clearInterval(workerInterval)
     workerInterval = null

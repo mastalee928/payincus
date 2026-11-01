@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-const source = readFileSync(resolve(__dirname, '../src/routes/admin-billing.ts'), 'utf8')
+const source = readFileSync(resolve(__dirname, '../src/routes/admin-billing.ts'), 'utf8').replace(/\r\n/g, '\n')
 const billingOperationsSource = readFileSync(resolve(__dirname, '../src/db/billing-operations.ts'), 'utf8')
 const manualRefundRoute = source.slice(
   source.indexOf("app.post('/api/admin/instances/:id/refund'"),
@@ -114,15 +114,10 @@ assert.ok(
   'admin manual instance refunds must deduct the actual refund amount from hosted income in the same transaction'
 )
 
-assert.ok(
-  deleteAndRefundRoute.includes(`await db.deductHostingBalance(
-              instance.hostId,
-              refundAmount,
-              instanceId,
-              \`管理员删除托管实例退款扣除：\${instance.name}\`,
-              tx
-            )`),
-  'admin delete-and-refund must deduct the actual refund amount from hosted income in the same transaction'
-)
+const deletionWorker = readFileSync(resolve(__dirname, '../src/services/instance-deletion.ts'), 'utf8')
+assert.ok(deleteAndRefundRoute.includes('await requestInstanceDeletion(instance, admin') &&
+  deletionWorker.includes('await deductHostingBalance(host.id, refundAmount, instanceId') &&
+  deletionWorker.includes('getMaxRefundable(instanceId, tx)') && deletionWorker.includes('await reverseInstanceAffCommissionForRefund({ tx'),
+  'full deletion must settle capped refunds, AFF and hosted income in the durable worker transaction')
 
 console.log('admin billing route ID guard tests passed')

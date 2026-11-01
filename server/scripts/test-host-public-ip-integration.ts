@@ -23,7 +23,7 @@ let sequence = 0
 async function makeHost() {
   const seq = ++sequence
   return prisma.host.create({ data: {
-    userId: owner.id, name: `${prefix}-${seq}`, url: `https://10.253.240.${seq + 1}:8443`, status: 'online', isInstalled: true,
+    userId: owner.id, name: `${prefix}-${seq}`, url: `https://10.253.240.${seq + 1}:8443`, status: 'online', isInstalled: true, certPath: 'fixture.crt', keyPath: 'fixture.key',
     singleTenant: true, resourcePreset: 'E2', architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 34, customerDiskGiB: 30,
     natPublicIp: `8.8.8.${seq}`, natBindIp: '10.0.0.13', natPortStart: 1, natPortEnd: 65535,
     serverCertificate: 'isolated-fake-certificate', serverFingerprint: 'isolated-fake-pin', managementSshHost: `10.253.240.${seq + 1}`,

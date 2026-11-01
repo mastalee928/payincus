@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "1.7.9",
+  "version": "1.8.0",
   "description": "PayIncus backend service",
   "type": "module",
   "main": "dist/app.js",
@@ -317,6 +317,10 @@
     "test:host-pool-integration": "node --import tsx scripts/test-host-pool-integration.ts",
     "test:admin-instance-delete-integration": "node --import tsx scripts/test-admin-instance-delete-integration.ts",
     "test:host-pool-recovery-integration": "node --import tsx scripts/test-host-pool-recovery-integration.ts",
+    "test:host-pool-cleanup-integration": "node --import tsx scripts/test-host-pool-cleanup-integration.ts",
+    "test:host-management-repair-integration": "node --import tsx scripts/test-host-management-repair-integration.ts",
+    "test:host-install-session-integration": "node --import tsx scripts/test-host-install-session-integration.ts",
+    "test:host-replacement-recovery-integration": "node --import tsx scripts/test-host-replacement-recovery-integration.ts",
     "test:host-pool-recovery-deadline": "node --import tsx scripts/test-host-pool-recovery-deadline.ts",
     "test:agent-report-identity": "node --import tsx scripts/test-agent-report-identity.ts",
     "test:host-onboarding-lease-integration": "node --import tsx scripts/test-host-onboarding-lease-integration.ts",

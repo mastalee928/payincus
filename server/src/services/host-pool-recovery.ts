@@ -13,7 +13,8 @@ import { dedicatedIpv6State, normalizeIpv6 } from '../lib/host-public-ipv6.js'
 type Db = Prisma.TransactionClient | typeof prisma
 type Client = Pick<Awaited<ReturnType<typeof getIncusClient>>, 'request'>
 type Connect = typeof getIncusClient
-type RemoteInstance = { name: string; status: string; created_at?: string; project?: string }
+export type RecoveryInstance = { name: string; status: string; created_at?: string; project?: string; config?: Record<string, string> }
+type RemoteInstance = RecoveryInstance
 type Forward = { listen_address: string; description: string; config: Record<string, string>; ports?: Array<{ protocol: string; listen_port: string; target_address?: string; target_port?: string; snat?: boolean }> }
 type Residue = { name: string; status: string; removable: boolean }
 
@@ -21,6 +22,8 @@ export type RecoveryBlocker = 'not-quarantined' | 'assigned' | 'busy' | 'offline
   'not-ready' | 'protocol-pending' | 'capacity' | 'unreachable' | 'projects' | 'unknown-instance' |
   'running-instance' | 'unknown-forward' | 'volumes' | 'assigned-mismatch' | 'assigned-not-ready'
 export interface HostRecoveryReport {
+  automaticSourceRecovery?: { status: 'pending' | 'retry' | 'done'; nextAttemptAt?: string; error?: string }
+  automaticCleanup?: { status: 'pending' | 'retry' | 'blocked' | 'done'; attempts: number; nextAttemptAt?: string; error?: string }
   hostId: number
   quarantined: boolean
   checkedAt: string
@@ -38,7 +41,7 @@ export class HostRecoveryError extends Error {
 
 const pending = ['PENDING', 'PROCESSING'] as const
 const hostSelect = {
-  id: true, url: true, certPath: true, keyPath: true, status: true, poolFaulted: true,
+  id: true, url: true, certPath: true, keyPath: true, status: true, poolFaulted: true, poolCleanup: true,
   singleTenant: true, isInstalled: true, instanceType: true, natPublicIp: true, natBindIp: true,
   portProtocol: true, portProtocolRevision: true, portProtocolApplied: true, portProtocolAppliedRevision: true, portProtocolError: true,
   resourcePreset: true, customerDiskGiB: true, architecture: true, cpuAllowanceMax: true,
@@ -49,12 +52,12 @@ const hostSelect = {
   storagePools: { select: { name: true, purpose: true } }
 } as const
 
-function recoveryScope() {
+export function recoveryScope(timeoutMs = 60000) {
   // Start before audit, connection acquisition and row locks, not after them.
-  const deadline = Date.now() + 60000
+  const deadline = Date.now() + timeoutMs
   const controller = new AbortController()
   const expired = () => new HostRecoveryError('HOST_RECOVERY_UNREACHABLE')
-  const timer = setTimeout(() => controller.abort(expired()), 60000)
+  const timer = setTimeout(() => controller.abort(expired()), timeoutMs)
   const remaining = () => {
     const milliseconds = deadline - Date.now()
     if (milliseconds <= 0) controller.abort(expired())
@@ -79,7 +82,7 @@ function recoveryScope() {
     }
   }
   return {
-    remaining, run,
+    remaining, run, signal: controller.signal as AbortSignal, deadline,
     client(original: Client): Client {
       return { request<T = unknown>(method: string, path: string, body: unknown = null,
         timeout = 8000, signal?: AbortSignal, conditions?: IncusRequestConditions): Promise<T> {
@@ -96,7 +99,9 @@ function recoveryScope() {
   }
 }
 
-async function inspect(db: Db, hostId: number, connect: Connect, scope: ReturnType<typeof recoveryScope>) {
+export async function inspectPoolRecovery(db: Db, hostId: number, connect: Connect, scope: ReturnType<typeof recoveryScope>, automatic?: {
+  name: string; createdBefore: string; createdAfter?: string; uuid?: string; createdAt?: string; marker?: string
+}, failedSourceInstanceId?: number) {
   scope.remaining()
   const host = await db.host.findUnique({ where: { id: hostId }, select: hostSelect })
   if (!host) throw new HostRecoveryError('HOST_NOT_FOUND')
@@ -129,7 +134,7 @@ async function inspect(db: Db, hostId: number, connect: Connect, scope: ReturnTy
   const assigned = assignedInstances.length
   const preserve = assigned > 0
   if (preserve && (assigned !== 1 || assignedInstances.some(instance => instance.provisioningCleanupPending || instance.deletionBillingPending || instance.status === 'deleted'))) blockers.add('assigned')
-  if (preserve && assignedInstances.some(instance => !instance.dedicatedIpv4 || !instance.dedicatedNetworkReady || !instance.ipv4 ||
+  if (preserve && assignedInstances.some(instance => !instance.dedicatedIpv4 || (!instance.dedicatedNetworkReady && instance.id !== failedSourceInstanceId) || !instance.ipv4 ||
       !['running', 'stopped', 'suspended'].includes(instance.status) || !instance.storagePoolName)) blockers.add('assigned-not-ready')
   if (preserve && assignedInstances.some(instance => instance.cpu > host.cpuAllowanceMax || instance.memory > host.memoryMax || instance.disk > host.storageSize * 1024)) blockers.add('capacity')
   if (tasks || onboarding) blockers.add('busy')
@@ -140,7 +145,11 @@ async function inspect(db: Db, hostId: number, connect: Connect, scope: ReturnTy
   }
   const obsolete = new Set<string>()
   const creationBounds = new Map<string, { after: number; before: number }>()
-  for (const task of history) {
+  if (automatic) {
+    obsolete.add(automatic.name)
+    creationBounds.set(automatic.name, { after: automatic.createdAfter ? Date.parse(automatic.createdAfter) : 0, before: Date.parse(automatic.createdBefore) })
+  }
+  for (const task of automatic ? [] : history) {
     const state = task.replacementState as Record<string, unknown> | null
     if (!state) continue
     if (task.status === 'COMPLETED' && state.stage === 'delivered' && state.sourceHostId === hostId &&
@@ -157,6 +166,11 @@ async function inspect(db: Db, hostId: number, connect: Connect, scope: ReturnTy
   const recognized = (instance: RemoteInstance) => {
     const bounds = creationBounds.get(instance.name)
     const createdAt = Date.parse(instance.created_at || '')
+    if (automatic && (instance.name !== automatic.name || !/^[a-f0-9-]{36}$/i.test(instance.config?.['volatile.uuid'] || '') ||
+        (automatic.uuid && instance.config?.['volatile.uuid'] !== automatic.uuid) ||
+        (automatic.marker && instance.config?.['user.payincus.replacement'] !== automatic.marker) ||
+        (automatic.createdAt && instance.created_at !== automatic.createdAt))) return false
+    if (automatic?.uuid && automatic.createdAt) return !instance.project || instance.project === 'default'
     return Boolean(bounds && createdAt >= bounds.after && createdAt <= bounds.before && (!instance.project || instance.project === 'default'))
   }
   let client: Client | undefined
@@ -213,13 +227,22 @@ async function inspect(db: Db, hostId: number, connect: Connect, scope: ReturnTy
       } else {
         for (const instance of instances) {
           if (!recognized(instance)) blockers.add('unknown-instance')
-          if (instance.status !== 'Stopped') blockers.add('running-instance')
+          if (instance.status !== 'Stopped' && !(automatic && recognized(instance) && ['Running', 'Frozen'].includes(instance.status))) blockers.add('running-instance')
         }
         if (forwards.some(row => row.network !== 'incusbr0' || !obsolete.has(row.description.replace(/^payincus-dedicated:/, '')) ||
             !row.description.startsWith('payincus-dedicated:'))) blockers.add('unknown-forward')
-        if (volumes.some(volume => volume.type !== 'image' &&
-            (!['container', 'virtual-machine'].includes(volume.type) || !instances.some(instance =>
-              obsolete.has(instance.name) && (volume.name === instance.name || volume.name.startsWith(instance.name + '/')))))) blockers.add('volumes')
+        if (volumes.some(volume => {
+          if ((volume.project || 'default') !== 'default') return true
+          if (volume.type === 'image') return false
+          if (!['container', 'virtual-machine'].includes(volume.type)) return true
+          const knownGuest = instances.some(instance => obsolete.has(instance.name) &&
+            (volume.name === instance.name || volume.name.startsWith(instance.name + '/')))
+          // After an accepted DELETE the system volume may still be disappearing.
+          // Only a previously persisted guest identity may wait for its own volume.
+          const deletingGuest = automatic?.uuid && automatic.createdAt &&
+            (volume.name === automatic.name || volume.name.startsWith(automatic.name + '/'))
+          return !knownGuest && !deletingGuest
+        })) blockers.add('volumes')
       }
     } catch { blockers.add('unreachable') }
   }
@@ -230,6 +253,21 @@ async function inspect(db: Db, hostId: number, connect: Connect, scope: ReturnTy
       removable: recognized(instance) && instance.status === 'Stopped' })),
     forwardCount: preserve ? 0 : forwards.length, needsCleanup: !preserve && (instances.length > 0 || forwards.length > 0),
     canRecover: blockers.size === 0, confirmation: ''
+  }
+  const cleanup = host.poolCleanup as { version?: number; status?: string; attempts?: number; nextAttemptAt?: string; error?: string } | null
+  const failedSource = history.filter(task => task.status === 'FAILED' && (task.replacementState as Record<string, unknown> | null)?.stage === 'cleaned' &&
+    (task.replacementState as Record<string, unknown> | null)?.sourceHostId === hostId && task.instance.hostId === hostId)
+    .sort((a, b) => b.id - a.id)[0]
+  const sourceState = failedSource?.replacementState as Record<string, unknown> | undefined
+  const sourceRecovery = sourceState?.sourceRecovery as { status?: string; nextAttemptAt?: string; error?: string } | undefined
+  if (sourceRecovery && ['retry', 'done'].includes(sourceRecovery.status || '')) {
+    report.automaticSourceRecovery = { status: sourceRecovery.status as 'retry' | 'done',
+      nextAttemptAt: sourceRecovery.nextAttemptAt, error: sourceRecovery.error }
+  }
+  if (cleanup?.version === 1 && ['pending', 'retry', 'blocked', 'done'].includes(cleanup.status || '') &&
+      (!host.poolFaulted || cleanup.status !== 'done')) {
+    report.automaticCleanup = { status: cleanup.status as 'pending' | 'retry' | 'blocked' | 'done', attempts: cleanup.attempts || 0,
+      nextAttemptAt: cleanup.nextAttemptAt, error: cleanup.error }
   }
   // Bind confirmation to the displayed state; never trust names supplied by a browser.
   report.confirmation = createHash('sha256').update(JSON.stringify({ hostId, poolFaulted: host.poolFaulted,
@@ -243,7 +281,7 @@ async function inspect(db: Db, hostId: number, connect: Connect, scope: ReturnTy
 
 export async function inspectHostRecovery(hostId: number, connect: Connect = getIncusClient): Promise<HostRecoveryReport> {
   const scope = recoveryScope()
-  try { return (await inspect(prisma, hostId, connect, scope)).report }
+  try { return (await inspectPoolRecovery(prisma, hostId, connect, scope)).report }
   finally { scope.close() }
 }
 
@@ -270,7 +308,10 @@ export async function recoverPoolHost(hostId: number, actorId: number, options: 
         if (!rows.length) throw new HostRecoveryError('HOST_NOT_FOUND')
         await tx.$queryRaw`SELECT id FROM instances WHERE host_id = ${hostId} ORDER BY id FOR UPDATE`
         scope.remaining()
-        const before = await inspect(tx, hostId, connect, scope)
+        const before = await inspectPoolRecovery(tx, hostId, connect, scope)
+        if (before.report.automaticCleanup && ['pending', 'retry', 'blocked'].includes(before.report.automaticCleanup.status)) {
+          throw new HostRecoveryError('HOST_RECOVERY_BLOCKED', before.report)
+        }
         if (!before.report.canRecover || !before.client) throw new HostRecoveryError('HOST_RECOVERY_BLOCKED', before.report)
         if (before.report.confirmation !== options.confirmation) throw new HostRecoveryError('HOST_RECOVERY_CHANGED', before.report)
         if (before.report.needsCleanup && !options.acknowledgeCleanup) throw new HostRecoveryError('HOST_RECOVERY_CONFIRM_REQUIRED', before.report)
@@ -289,7 +330,7 @@ export async function recoverPoolHost(hostId: number, actorId: number, options: 
             await before.client.request('DELETE', `/1.0/instances/${encodeURIComponent(instance.name)}`, null, 7000)
           }
           for (const name of before.obsolete) await removeDedicatedForward(before.client, name)
-          const after = await inspect(tx, hostId, connect, scope)
+          const after = await inspectPoolRecovery(tx, hostId, connect, scope)
           if (!after.report.canRecover || after.report.needsCleanup) throw new HostRecoveryError('HOST_RECOVERY_BLOCKED', after.report)
           scope.remaining()
           await tx.host.update({ where: { id: hostId }, data: {

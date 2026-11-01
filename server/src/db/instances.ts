@@ -179,6 +179,7 @@ export async function getAllInstances(): Promise<Array<Instance & {
  * 根据 ID 获取实例
  */
 export async function getInstanceById(id: number): Promise<(Instance & {
+  version?: number
   host_name?: string
   host_country_code?: string
   nat_public_ip?: string
@@ -216,6 +217,7 @@ export async function getInstanceById(id: number): Promise<(Instance & {
 
   return {
     id: inst.id,
+    version: inst.version,
     incus_id: inst.incusId,
     dedicated_ipv4: inst.dedicatedIpv4,
     dedicated_network_ready: inst.dedicatedNetworkReady,

@@ -1,5 +1,6 @@
 import { assertNoPendingSnapshotOperations, } from '../db/snapshot-operation-guards.js'
 import { Prisma, type InstanceTask } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
 import { prisma } from '../db/prisma.js'
 import { assertNoPendingProxySiteOperations } from '../db/proxy-site-operation-guards.js'
 import * as db from '../db/index.js'
@@ -7,7 +8,7 @@ import { advisoryTransactionLock, INSTANCE_OPERATION_LOCK_NAMESPACE } from '../d
 import { lockHostGroups } from './host-groups.js'
 import { dedicatedHostReadyWhere, HOST_OCCUPIED_INSTANCE_WHERE, hostPendingMoveWhere } from '../lib/host-resource-usage.js'
 import { getIncusClient } from '../lib/incus/index.js'
-import { buildInstanceConfig, createInstance, deleteInstance, execWithOutput, restartInstance, startInstance, stopInstance, updateInstance } from '../lib/incus/incus-instances.js'
+import { buildInstanceConfig, createInstance, execWithOutput, restartInstance, startInstance, updateInstance } from '../lib/incus/incus-instances.js'
 import { generateIncusConfig } from '../lib/incus-config-generator.js'
 import { decryptSensitiveData, encryptSensitiveData } from '../lib/security.js'
 import { generateRandomIPv6 } from '../lib/ip-calculator.js'
@@ -16,9 +17,17 @@ import { prepareDedicatedIpv6Delivery } from './host-public-ipv6-sync.js'
 import { StorageFactory } from '../storage/factory.js'
 import { restoreFromStream } from '../lib/incus/incus-restore.js'
 import { createLog } from '../db/logs.js'
+import { poolCleanupRecord } from './host-pool-cleanup.js'
+import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { verifyInstanceAbsent } from '../lib/incus/verify-instance-deleted.js'
+import type { RecoveryInstance } from './host-pool-recovery.js'
+import { recoveryHeld } from './platform-backup-core.js'
 
 type ReplacementState = {
   sourceHostId: number; sourceIncusId: string; backupUploadId: number | null
+  sourceHostIdentity?: string; targetHostIdentity?: string; targetMarker?: string
+  targetUuid?: string; targetCreatedAt?: string; targetCreationStartedAt?: string
+  targetCleanupReadOnly?: boolean
   targetIncusId?: string; ipv4?: string; ipv6?: string | null; storagePool?: string
   stage: 'reserved' | 'creating' | 'delivered' | 'cleaned' | 'cleanup_pending'
 }
@@ -77,20 +86,20 @@ export async function requestHostReplacement(instanceId: number, targetHostId: n
       if (!backup) throw new Error('没有可用于该实例的异地备份')
     }
     if (!instance.rootPassword) throw new Error('实例没有可用的 SSH 密码')
-    const state: ReplacementState = { sourceHostId: instance.hostId, sourceIncusId: instance.incusId, backupUploadId: backupUploadId || null, stage: 'reserved' }
+    const state: ReplacementState = { sourceHostId: instance.hostId, sourceIncusId: instance.incusId,
+      sourceHostIdentity: transferHostIdentity(instance.host), targetHostIdentity: transferHostIdentity(target),
+      backupUploadId: backupUploadId || null, stage: 'reserved' }
     const task = await tx.instanceTask.create({ data: { instanceId, hostId: targetHostId, targetHostId, userId: adminId,
       taskType: 'replace_host', replacementState: state as Prisma.InputJsonValue } })
-    // This persistent quarantine survives task timeouts and backend restarts.
-    // Only verified cleanup or completed delivery may release the target again.
-    await tx.host.update({ where: { id: instance.hostId }, data: { poolFaulted: true } })
+    // Reserve only the target. The source remains the customer's delivered
+    // machine until the verified switch commits; task locks fence other work.
     await tx.host.update({ where: { id: targetHostId }, data: { poolFaulted: true,
       cpuUsed: { increment: instance.cpu }, memoryUsed: { increment: instance.memory }, diskUsed: { increment: instance.disk } } })
-    await tx.instance.update({ where: { id: instanceId }, data: { dedicatedNetworkReady: false } })
     return { taskId: task.id }
   }, { timeout: 20000 })
 }
 
-export async function executeHostReplacement(task: InstanceTask): Promise<void> {
+export async function executeHostReplacement(task: InstanceTask, connect = getIncusClient): Promise<void> {
   const state = task.replacementState as unknown as ReplacementState
   if (!state || !task.targetHostId) throw new Error('换机任务数据不完整')
   const targetId = task.targetHostId
@@ -99,9 +108,11 @@ export async function executeHostReplacement(task: InstanceTask): Promise<void> 
   if (instance.hostId !== state.sourceHostId || instance.incusId !== state.sourceIncusId) throw new Error('实例归属已经改变')
   const target = await db.getHostById(targetId)
   if (!target) throw new Error('备用机器不存在')
+  const targetRecord = await prisma.host.findUniqueOrThrow({ where: { id: targetId } })
   let client: Awaited<ReturnType<typeof getIncusClient>> | undefined
   let switched = false
   const assertActive = async () => {
+    if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
     const current = await prisma.instanceTask.findUnique({ where: { id: task.id }, select: { status: true } })
     if (current?.status !== 'PROCESSING') throw new Error('换机任务已取消或超时')
   }
@@ -112,7 +123,10 @@ export async function executeHostReplacement(task: InstanceTask): Promise<void> 
   }
   try {
     await assertActive()
-    client = await getIncusClient(target)
+    if (state.targetHostIdentity && state.targetHostIdentity !== transferHostIdentity(targetRecord)) throw new Error('TARGET_HOST_IDENTITY_CHANGED')
+    // A restarted worker must reconcile the previous attempt, never create over it.
+    if (state.stage !== 'reserved') throw new Error('TARGET_CREATION_RECONCILIATION_PENDING')
+    client = await connect(target)
     state.targetIncusId ||= `u${instance.userId}-replace${task.id}`
     state.storagePool ||= (await db.resolveStoragePoolForNewInstance(targetId)) || undefined
     if (!state.storagePool) throw new Error('备用机器没有系统盘存储池')
@@ -135,8 +149,20 @@ export async function executeHostReplacement(task: InstanceTask): Promise<void> 
       storagePool: state.storagePool, ipv4Address: state.ipv4, ipv6Address: state.ipv6,
       ipv6Config: state.ipv6 ? { primaryIp: state.ipv6 } : null, hostInterface: target.ipv6_parent_interface || 'eth0',
       limitsIngress: DEDICATED_BANDWIDTH, limitsEgress: DEDICATED_BANDWIDTH, swapEnabled: false })
+    await verifyInstanceAbsent(client, state.targetIncusId)
+    await assertActive()
+    state.targetMarker = randomUUID()
+    state.targetCreationStartedAt = new Date().toISOString()
+    ;(config.config as Record<string, string>)['user.payincus.replacement'] = state.targetMarker
     state.stage = 'creating'
     await save(state.backupUploadId ? 'restoring_backup' : 'creating_on_target')
+    const saveTargetIdentity = async () => {
+      const remote = await client!.request<RecoveryInstance>('GET', `/1.0/instances/${encodeURIComponent(state.targetIncusId!)}`)
+      if (remote.name !== state.targetIncusId || (remote.project || 'default') !== 'default' ||
+          !/^[a-f0-9-]{36}$/i.test(remote.config?.['volatile.uuid'] || '') || !Number.isFinite(Date.parse(remote.created_at || ''))) throw new Error('TARGET_INSTANCE_IDENTITY_UNVERIFIED')
+      state.targetUuid = remote.config!['volatile.uuid']; state.targetCreatedAt = remote.created_at
+      await save('target_created')
+    }
     if (state.backupUploadId) {
       const backup = await prisma.backupUploadTask.findFirstOrThrow({ where: { id: state.backupUploadId, instanceId: instance.id,
         userId: instance.userId, status: 'COMPLETED', storageConfig: { userId: instance.userId } }, include: { storageConfig: true } })
@@ -144,6 +170,7 @@ export async function executeHostReplacement(task: InstanceTask): Promise<void> 
       const stream = await StorageFactory.create(backup.storageConfig).downloadStream(backup.remoteFileName)
       try { await restoreFromStream({ client, backupStream: stream, targetName: state.targetIncusId, poolName: state.storagePool }) }
       finally { stream.destroy() }
+      await saveTargetIdentity()
       await updateInstance(client, state.targetIncusId, { config: config.config as Record<string, string>, devices: config.devices as Record<string, Record<string, string>> })
       await startInstance(client, state.targetIncusId)
       // Re-run the generated configuration on a restored system. Customer data
@@ -153,6 +180,7 @@ export async function executeHostReplacement(task: InstanceTask): Promise<void> 
       await restartInstance(client, state.targetIncusId, true)
     } else {
       await createInstance(client, config)
+      await saveTargetIdentity()
       await startInstance(client, state.targetIncusId)
     }
     await assertActive()
@@ -179,6 +207,10 @@ export async function executeHostReplacement(task: InstanceTask): Promise<void> 
       await tx.ipAddress.create({ data: { address: state.ipv4!, type: 'inet4', device: 'eth0', isPrimary: true, hostId: targetId, instanceId: instance.id } })
       if (state.ipv6) await tx.ipAddress.create({ data: { address: state.ipv6, type: 'inet6', device: 'eth1', isPrimary: true, hostId: targetId, instanceId: instance.id } })
       await tx.host.update({ where: { id: targetId }, data: { poolFaulted: false } })
+      const source = await tx.host.findUniqueOrThrow({ where: { id: state.sourceHostId } })
+      await tx.host.update({ where: { id: source.id }, data: { poolFaulted: true,
+        poolCleanup: { ...poolCleanupRecord(source, state.sourceIncusId, task.userId, task.createdAt, task.id),
+          hostIdentity: state.sourceHostIdentity || transferHostIdentity(source) } as unknown as Prisma.InputJsonValue } })
       state.stage = 'delivered'
       await tx.instanceTask.update({ where: { id: task.id }, data: { status: 'COMPLETED', progress: 'delivered', finishedAt: new Date(), replacementState: state as Prisma.InputJsonValue } })
     }, { timeout: 20000 })
@@ -186,20 +218,32 @@ export async function executeHostReplacement(task: InstanceTask): Promise<void> 
     await createLog(instance.userId, 'instance', 'instance.replace_host', `实例「${instance.name}」更换机器已完成，公网 IP 已更新，原价格和到期时间保留`, 'success', { instanceId: instance.id })
   } catch (error) {
     if (!switched) {
-      let cleaned = !state.targetIncusId
-      if (client && state.targetIncusId) {
-        try {
-          await stopInstance(client, state.targetIncusId, true).catch(() => {})
-          await deleteInstance(client, state.targetIncusId)
-          cleaned = true
-        } catch { /* Keep persistent quarantine until cleanup is verified. */ }
-      }
+      const creationAttempted = state.stage !== 'reserved'
+      const cleaned = !recoveryHeld() && state.stage === 'reserved' && !state.targetIncusId && (!state.targetHostIdentity || state.targetHostIdentity === transferHostIdentity(targetRecord))
+      if (!creationAttempted) state.targetCleanupReadOnly = true
       state.stage = cleaned ? 'cleaned' : 'cleanup_pending'
       await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${targetId} FOR UPDATE`
         if (cleaned) {
           await tx.host.update({ where: { id: targetId }, data: { poolFaulted: false,
             cpuUsed: { decrement: instance.cpu }, memoryUsed: { decrement: instance.memory }, diskUsed: { decrement: instance.disk } } })
           await tx.ipAddress.deleteMany({ where: { hostId: targetId, instanceId: instance.id } })
+        } else if (state.targetIncusId && (state.targetHostIdentity ||
+          (targetRecord.serverCertificate && targetRecord.serverFingerprint && targetRecord.certPath && targetRecord.keyPath))) {
+          // Persist before handing the failure back to the task worker. All
+          // destructive cleanup uses the same identity/volume/forward verifier.
+          const existing = await tx.host.findUniqueOrThrow({ where: { id: targetId } })
+          if (existing.poolCleanup === null || (existing.poolCleanup as { status?: string }).status === 'done') {
+            await tx.host.update({ where: { id: targetId }, data: { poolFaulted: true, poolCleanup: {
+              ...poolCleanupRecord(targetRecord, state.targetIncusId, task.userId, new Date(), task.id),
+              kind: state.targetCleanupReadOnly ? 'verify_empty' : 'failed_target',
+              hostIdentity: state.targetHostIdentity || transferHostIdentity(targetRecord), createdAfter: task.createdAt.toISOString(),
+              uuid: state.targetUuid, createdAt: state.targetCreatedAt,
+              // Imported backups receive their marker only after the import;
+              // the saved UUID is the binding for that short interval.
+              marker: state.backupUploadId ? undefined : state.targetMarker
+            } as unknown as Prisma.InputJsonValue } })
+          }
         }
         await tx.instanceTask.update({ where: { id: task.id }, data: { replacementState: state as Prisma.InputJsonValue } })
       })

@@ -1,9 +1,10 @@
 import { removeDedicatedForward } from './dedicated-network.js'
+import { verifyInstanceAbsent, verifyInstanceDeleted } from './verify-instance-deleted.js'
 /**
  * Incus 实例管理
  */
 
-import type { IncusClient } from './incus-client.js'
+import { IncusApiError, type IncusClient } from './incus-client.js'
 import type { IncusInstance, IncusOperation } from '../../types/incus.js'
 import { allowanceToCores } from '../cpu-allowance.js'
 import type { BuildInstanceConfigOptions, IPv6Config } from '../../types/incus.js'
@@ -273,11 +274,14 @@ export async function createInstance(client: IncusClient, config: unknown): Prom
  */
 export async function deleteInstance(client: IncusClient, name: string): Promise<unknown> {
   let result: unknown
-  try { result = await client.request('DELETE', `/1.0/instances/${name}`) }
+  const path = `/1.0/instances/${encodeURIComponent(name)}`
+  try { result = await client.request('DELETE', path) }
   catch (error) {
-    if (!(error instanceof Error) || !/not found|not exist/i.test(error.message)) throw error
+    if (!(error instanceof IncusApiError) || error.statusCode !== 404 || error.path !== path) throw error
   }
+  await verifyInstanceAbsent(client, name)
   await removeDedicatedForward(client, name)
+  await verifyInstanceDeleted(client, name)
   return result
 }
 

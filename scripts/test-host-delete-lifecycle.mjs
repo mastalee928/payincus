@@ -57,6 +57,16 @@ try {
       copyCases++
     }
   }
+  await page.goto('http://127.0.0.1:19680', { settleMs: 800 })
+  await accept(await last('list'), { instances: [row(1)], total: 1, totalPages: 1 })
+  await run(() => { const v = window.hostDelete.view(); v.selectedIds = new Set([1]); void v.openBatchDeleteModal() })
+  await accept(await last('preview'), preview([1]))
+  await run(() => document.querySelector('.modal-footer .btn-danger').click())
+  await accept(await last('delete'), { successCount: 0, pendingCount: 1, failedCount: 0, results: [{ id: 1, success: false, pending: true }] })
+  assert.equal(await page.eval(() => window.hostDelete.view().showDeleteModal), false, 'accepted automatic work closes the dialog without retry prompt')
+  assert.equal(await page.eval(() => window.hostDelete.view().deleteFailures.length), 0, 'automatic pending is not a manual failure')
+  assert.match(await page.eval(() => window.hostDelete.toast.toasts.value.at(-1).message), /自动清理|自動清理|automatically cleaning/)
+  console.log('PASS durable pending deletion: truthful status, no manual retry or duplicate submission')
   console.log(`PASS R263 ${copyCases} real button actions: database/full deletion, all/partial/no success and three languages/widths`)
   if (!process.argv.includes('--copy-only')) {
   await page.goto('http://127.0.0.1:19680', { settleMs: 800 })

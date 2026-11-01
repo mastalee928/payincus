@@ -175,3 +175,25 @@ export async function probeGatewayHost(nodeId: string, input: { sshPort: number;
       value.sshIdentityVerified !== true || value.keysAndRoutesPreserved !== true) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
   } finally { client.end() }
 }
+
+export async function repairGatewayHostAgent(nodeId: string, input: {
+  sshPort: number; sshFingerprint: string; nodePublicKey: string; agentId: string; agentSecret: string; expiresAt: number
+}, signal?: AbortSignal) {
+  if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(nodeId) || !gatewayConfigured()) throw new OnboardingError('GATEWAY_NOT_CONFIGURED')
+  const privateKey = await readFile(process.env.ONBOARDING_GATEWAY_KEY_PATH!)
+  const client = await connectOnboardingSsh({ host: process.env.ONBOARDING_GATEWAY_HOST!, port: Number(process.env.ONBOARDING_GATEWAY_PORT || 22), privateKey },
+    async fingerprint => !signal?.aborted && fingerprint === process.env.ONBOARDING_GATEWAY_FINGERPRINT)
+  const abort = () => client.destroy()
+  signal?.addEventListener('abort', abort, { once: true })
+  try {
+    signal?.throwIfAborted()
+    // Remote publication expires before this transaction's deadline, even when
+    // an SSH response is lost and the remote interpreter has not exited yet.
+    if (input.expiresAt <= Date.now()) throw new OnboardingError('AGENT_REPAIR_EXPIRED')
+    const value = JSON.parse(await sshExec(client, `repair-agent ${nodeId}`, JSON.stringify(input), 35000, 2048))
+    if (Object.keys(value).sort().join(',') !== 'agentId,configReconciled,keysAndRoutesPreserved,nodeId' ||
+        value.nodeId !== nodeId || value.agentId !== input.agentId || value.configReconciled !== true || value.keysAndRoutesPreserved !== true) {
+      throw new OnboardingError('AGENT_REPAIR_RECEIPT_INVALID')
+    }
+  } finally { signal?.removeEventListener('abort', abort); client.destroy() }
+}

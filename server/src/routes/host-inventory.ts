@@ -4,6 +4,8 @@ import { PublicIpSyncError } from '../lib/host-public-ip.js'
 import { publicIpv6View, syncHostPublicIpv6 } from '../services/host-public-ipv6-sync.js'
 import { PublicIpv6SyncError } from '../lib/host-public-ipv6.js'
 import { HostRecoveryError, inspectHostRecovery, recoverPoolHost } from '../services/host-pool-recovery.js'
+import { retryPoolCleanup } from '../services/host-pool-cleanup.js'
+import { managementRepairView } from '../services/host-management-repair.js'
 import type { FastifyInstance } from 'fastify'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
@@ -94,7 +96,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
         natBindIp: true, publicIpSync: true, publicIpSyncBlocked: true, publicIpv6Sync: true, ipv6Mode: true, ipv6Subnet: true,
         machineGroup: true, regionGroup: true, machineGroupId: true, regionGroupId: true,
         machineGroupEntry: { select: { name: true } }, regionGroupEntry: { select: { name: true } },
-        architecture: true, status: true, isInstalled: true, resourcePreset: true, customerDiskGiB: true,
+        architecture: true, status: true, isInstalled: true, managementRepair: true, resourcePreset: true, customerDiskGiB: true,
         cpuAllowanceMax: true, memoryMax: true, storageSize: true, resourceSnapshot: true, singleTenant: true, poolFaulted: true, ...portProtocolSelect,
         agent: { select: { enabled: true, lastSeenAt: true, lastReport: true } },
         instances: { where: occupied, select: { id: true, name: true, status: true, cpu: true, memory: true, disk: true, user: { select: { id: true, username: true } } }, orderBy: { id: 'asc' } },
@@ -112,6 +114,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
         managementAddress, countryCode: host.countryCode, poolFaulted: host.poolFaulted, portProtocol: portProtocolView(host),
         publicIpSync: publicIpView(host),
         publicIpv6Sync: publicIpv6View(host),
+        managementRepair: managementRepairView(host.managementRepair),
         machineGroup: host.machineGroupEntry?.name || host.machineGroup, regionGroup: host.regionGroupEntry?.name || host.regionGroup,
         machineGroupId: host.machineGroupId, regionGroupId: host.regionGroupId,
         architecture: host.architecture, status: hostLiveStatus(host.status, host.agent), isInstalled: host.isInstalled,
@@ -261,6 +264,14 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
       if (error instanceof HostRecoveryError) return reply.code(error.code === 'HOST_NOT_FOUND' ? 404 : 409).send({ code: error.code })
       throw error
     }
+  })
+  fastify.post<{ Params: { id: number } }>('/inventory/:id/retry-cleanup', {
+    onRequest: [fastify.authenticateAdmin], schema: hostIdSchema,
+    config: { rateLimit: { max: 6, timeWindow: '1 minute' } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    await retryPoolCleanup(Number(request.params.id), request.user.id)
+    return { success: true }
   })
   fastify.post<{ Params: { id: number }; Body: { confirmation: string; acknowledgeCleanup: boolean } }>('/inventory/:id/recover', {
     onRequest: [fastify.authenticateAdmin], config: { rateLimit: { max: 20, timeWindow: '1 minute' } },

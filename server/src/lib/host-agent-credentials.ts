@@ -62,7 +62,7 @@ export type AgentCredentialAuthority = { actor: WriteActor; adminOnly?: boolean 
 async function lockCredentialHost(tx: Prisma.TransactionClient, hostId: number, authority: AgentCredentialAuthority) {
   await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
   const host = await tx.host.findUnique({ where: { id: hostId }, select: {
-    id: true, name: true, userId: true, isInstalled: true, installToken: true, installTokenExpire: true
+    id: true, name: true, userId: true, isInstalled: true, installPending: true, installToken: true, installTokenExpire: true
   } })
   if (!host) throw new Error('HOST_NOT_FOUND')
   if ('actor' in authority) {
@@ -70,7 +70,7 @@ async function lockCredentialHost(tx: Prisma.TransactionClient, hostId: number, 
     if (!await authorizeUserWrite(tx, actor.id, actor)) throw new Error('AGENT_ACTOR_FORBIDDEN')
     const current = await tx.user.findUnique({ where: { id: actor.id }, select: { role: true } })
     if (current?.role !== 'admin' && (authority.adminOnly || host.userId !== actor.id)) throw new Error('AGENT_ACTOR_FORBIDDEN')
-  } else if (host.isInstalled || host.installToken !== authority.hostInstallToken ||
+  } else if ((host.isInstalled && !host.installPending) || host.installToken !== authority.hostInstallToken ||
     !host.installTokenExpire || host.installTokenExpire <= new Date()) {
     throw new Error('AGENT_INSTALL_TOKEN_INVALID')
   }
@@ -92,6 +92,7 @@ async function rotateCredentialsInTransaction(tx: Prisma.TransactionClient, host
     update: {
       agentId, secretHash: hashAgentSecret(agentSecret), secretEncrypted: encryptSensitiveData(agentSecret),
       installTokenHash: null, installTokenExpiresAt: null, installTokenUsedAt: null,
+      installTokenKeepsIdentity: false,
       enabled, status: 'offline', version: null, capabilities: [] as Prisma.InputJsonValue,
       lastReport: {} as Prisma.InputJsonObject, lastSeenAt: null, lastHeartbeatIp: null, adminOfflineAlertedAt: null
     }
@@ -127,21 +128,28 @@ export async function issueHostAgentInstallToken(hostId: number, enabled: boolea
   installTokenExpiresAt: Date
 }> {
   return prisma.$transaction(async tx => {
-    const rotated = await rotateCredentialsInTransaction(tx, hostId, enabled, authority)
+    // Preparing an installer must not revoke an already running Agent. Explicit
+    // credential rotation remains a separate operation with immediate revocation.
+    const host = await lockCredentialHost(tx, hostId, authority)
+    const existing = await tx.hostAgent.findUnique({ where: { hostId } })
+    const current = existing?.enabled && existing.status !== 'disabled'
+      ? { host, agent: existing }
+      : await rotateCredentialsInTransaction(tx, hostId, enabled, authority)
     const installToken = generateAgentInstallToken()
     const installTokenExpiresAt = new Date(Date.now() + agentInstallTokenTtlMs)
 
     const agent = await tx.hostAgent.update({
-      where: { id: rotated.agent.id },
+      where: { id: current.agent.id },
       data: {
         installTokenHash: hashAgentInstallToken(installToken),
+        installTokenKeepsIdentity: true,
         installTokenExpiresAt,
         installTokenUsedAt: null
       }
     })
 
     return {
-      host: rotated.host,
+      host: current.host,
       agent,
       installToken,
       installTokenExpiresAt

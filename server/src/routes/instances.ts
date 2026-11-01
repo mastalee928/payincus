@@ -1,4 +1,4 @@
-import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
+import { hasPendingSnapshotOperation, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
 import { applyCustomerInstanceView } from '../lib/customer-instance-view.js'
 import { hostLiveStatus } from '../lib/host-live-status.js'
@@ -15,8 +15,8 @@ import { updateInstanceQuotaAuthorized, InstanceQuotaMutationError } from '../db
 import { boostInstanceProcessesAuthorized, ProcessBoostError } from '../db/instance-process-boost.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { prisma } from '../db/prisma.js'
-import { assertManagedCleanupIdentity, deletePendingManagedInstance, finalizeManagedCleanupForDeletion } from '../lib/managed-cleanup-identity.js'
-import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
+import { requestInstanceDeletion, DeletionAdmissionError } from '../services/instance-deletion.js'
+import { hasPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
 import { Prisma, type InstanceStatus } from '@prisma/client'
 import { getIncusClient } from '../lib/incus/index.js'
 import {
@@ -34,7 +34,6 @@ import {
   getTrafficCountersFromState,
   execWithOutput
 } from '../lib/incus/index.js'
-import { deleteSnapshot } from '../lib/incus/incus-snapshots.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
 import { encryptSensitiveData, decryptSensitiveData, validateName } from '../lib/security.js'
 import {
@@ -63,10 +62,8 @@ import {
   isValidSystemImage
 } from '../db/images.js'
 import { generateRandomIPv6 } from '../lib/ip-calculator.js'
-import { getProxySitesByInstanceId, deleteProxySite } from '../db/proxy-sites.js'
 import { calculateVipLevel, getVipBadgeStyleForLevel, getVipRules } from '../services/vip-levels.js'
 import { ProxyStrategyFactory } from '../lib/proxy/index.js'
-import { createCaddyClient } from '../lib/caddy-client.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
 import { notifyAdminInstanceCreateFailed, notifyAdminInstanceCreated, notifyAdminInstancePurchase } from '../lib/admin-alerts.js'
 import {
@@ -80,7 +77,6 @@ import {
 } from '../db/instance-tasks.js'
 import type { CreateInstanceTaskData, InstanceTaskWithDetails } from '../db/instance-tasks.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
-import { closeInstanceSessions } from '../lib/terminal-proxy.js'
 import { validateCommandsOwnership, mergeCommandContents, getImageDistroFromAlias } from '../db/custom-init-commands.js'
 import { getPlanById, isPaidPackage } from '../db/package-plans.js'
 import { calculateCreateBilling } from '../db/billing-operations.js'
@@ -103,9 +99,7 @@ import {
 } from '../lib/instance-network-sync.js'
 import { syncInstanceNetworkAndProxySites, readProxyNetworkSyncHostIdentity, ProxyNetworkSyncError } from '../lib/instance-proxy-network-sync.js'
 import {
-  INSTANCE_OPERATION_LOCK_NAMESPACE,
   USER_BALANCE_LOCK_NAMESPACE,
-  advisoryTransactionLock,
   tryAdvisoryTransactionLock
 } from '../db/advisory-locks.js'
 import { acquireLock, releaseLock } from '../lib/distributed-lock.js'
@@ -354,68 +348,6 @@ async function createInstanceTaskOrConflict(
     }
     throw error
   }
-}
-
-async function claimInstanceForDelete(instanceId: number, currentStatus: InstanceStatus): Promise<boolean> {
-  return prisma.$transaction(async (tx) => {
-    const locked = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
-    if (!locked) return false
-    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
-    await assertNoPendingSnapshotOperations(tx, instanceId)
-    await assertNoPendingProxySiteOperations(tx, instanceId)
-
-    const [activeRestoreTask, activeUploadTask, activeInstanceTask] = await Promise.all([
-      tx.restoreTask.findFirst({
-        where: { instanceId, status: { in: ['PENDING', 'PROCESSING'] } },
-        select: { id: true }
-      }),
-      tx.backupUploadTask.findFirst({
-        where: { instanceId, status: { in: ['PENDING', 'PROCESSING'] } },
-        select: { id: true }
-      }),
-      tx.instanceTask.findFirst({
-        where: { instanceId, status: { in: ['PENDING', 'PROCESSING'] } },
-        select: { id: true }
-      })
-    ])
-    if (activeRestoreTask || activeUploadTask || activeInstanceTask) return false
-
-    const result = await tx.instance.updateMany({
-      where: {
-        id: instanceId,
-        status: currentStatus
-      },
-      data: { status: 'deleted' }
-    })
-
-    return result.count === 1
-  })
-}
-
-async function restoreClaimedInstanceForDelete(instanceId: number, originalStatus: InstanceStatus): Promise<void> {
-  await prisma.instance.updateMany({
-    where: {
-      id: instanceId,
-      status: 'deleted'
-    },
-    data: { status: originalStatus }
-  })
-}
-
-async function deleteIncusInstanceForDelete(
-  client: Awaited<ReturnType<typeof getIncusClient>>,
-  instance: { incus_id: string; status: string },
-  logger: { warn: (...args: any[]) => void }
-): Promise<void> {
-  // The database may say error while a failed provision is still Running.
-  // The stop helper reads Incus state and is a no-op for a stopped guest.
-  try {
-    await stopInstance(client, instance.incus_id, true)
-  } catch (err) {
-    logger.warn(err, '停止实例失败，继续尝试删除')
-  }
-
-  await deleteInstance(client, instance.incus_id)
 }
 
 /**
@@ -3951,384 +3883,14 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      // 复用上面已获取的host
-      if (!host) {
-        throw new Error('Host not found')
-      }
-
-      // ===== 0. 关闭该实例的所有终端连接 =====
-      const closedSessions = closeInstanceSessions(instanceId, 'Instance is being deleted')
-      if (closedSessions > 0) {
-        console.log(`[Delete] Closed ${closedSessions} terminal session(s) for instance ${instanceId}`)
-      }
-
-      // 导入需要的删除函数
-      const { deleteBackup: deleteIncusBackup } = await import('../lib/incus/incus-backups.js')
-      const { sendNotification } = await import('../lib/notifier.js')
-
-      // 检查是否有正在进行的恢复任务
-      const activeRestoreTask = await prisma.restoreTask.findFirst({
-        where: {
-          instanceId,
-          status: { in: ['PENDING', 'PROCESSING'] }
-        }
-      })
-      if (activeRestoreTask) {
-        return reply.code(409).send({
-          error: '该实例有正在进行的恢复任务，请等待完成或取消',
-          code: 'RESTORE_IN_PROGRESS'
-        })
-      }
-
-      // 检查是否有正在进行的备份上传任务
-      const activeUploadTask = await prisma.backupUploadTask.findFirst({
-        where: {
-          instanceId,
-          status: { in: ['PENDING', 'PROCESSING'] }
-        }
-      })
-      if (activeUploadTask) {
-        return reply.code(409).send({
-          error: '该实例有正在进行的备份上传任务，请等待完成或取消',
-          code: 'UPLOAD_IN_PROGRESS'
-        })
-      }
-
-      // 检查是否有正在进行的实例操作任务
-      const activeInstanceTask = await getActiveTaskForInstance(instanceId)
-      if (activeInstanceTask) {
-        return reply.code(409).send({
-          error: '该实例有正在进行的操作任务，请等待完成',
-          code: 'TASK_IN_PROGRESS',
-          taskId: activeInstanceTask.id,
-          taskType: activeInstanceTask.taskType,
-          status: activeInstanceTask.status
-        })
-      }
-
-      let claimed: boolean
-      try { claimed = await claimInstanceForDelete(instanceId, instance.status as InstanceStatus) }
-      catch (error) {
-        if ((error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError)) return reply.code(409).send({ code: error.code, error: error.message })
-        throw error
-      }
-      if (!claimed) {
-        return reply.code(409).send({
-          error: '实例正在删除或已删除',
-          code: 'INSTANCE_DELETE_IN_PROGRESS'
-        })
-      }
-
-      let hostOwnerRefundAmount = 0
-
-      let client = null
-      try {
-        client = await getIncusClient(host)
-        await assertManagedCleanupIdentity(client, instanceId)
-      } catch (clientError) {
-        const errorMessage = clientError instanceof Error ? clientError.message : String(clientError)
-        await restoreClaimedInstanceForDelete(instanceId, instance.status as InstanceStatus)
-        throw new Error(`获取 Incus 客户端失败: ${errorMessage}`)
-      }
-
-      // ===== 1. 删除反代站点（Caddy 远程 + 数据库）=====
-      const proxySites = await getProxySitesByInstanceId(instanceId)
-      if (proxySites.length > 0) {
-        // 尝试删除 Caddy 远程配置
-        if (host.caddy_enabled && host.caddy_username && host.caddy_password) {
-          const targetHost = host.nat_public_ip || host.ip_address
-          if (targetHost) {
-            const caddyClient = createCaddyClient({
-              host: targetHost,
-              port: host.caddy_port || 8444,
-              username: host.caddy_username,
-              password: host.caddy_password
-            })
-
-            for (const site of proxySites) {
-              try {
-                await caddyClient.deleteSite(site.domain)
-              } catch (caddyError) {
-                const errorMessage = caddyError instanceof Error ? caddyError.message : String(caddyError)
-                console.error(`删除 Caddy 反代站点失败 (${site.domain}):`, errorMessage)
-              }
-            }
-          }
-        }
-      }
-
-      // ===== 2. 删除端口映射（Incus 设备 + 数据库）=====
-      const portMappings = await db.getPortMappings(instanceId)
-      if (portMappings && portMappings.length > 0) {
-        for (const mapping of portMappings) {
-          const map = mapping as { id: number; protocol: string; public_port: number }
-          // 尝试删除 Incus 设备
-          if (client) {
-            const deviceName = `proxy-${map.protocol}-${map.public_port}`
-            try {
-              await removeDevice(client, instance.incus_id, deviceName)
-            } catch (deviceError) {
-              const errorMessage = deviceError instanceof Error ? deviceError.message : String(deviceError)
-              console.error(`删除端口映射设备失败 (${deviceName}):`, errorMessage)
-            }
-          }
-        }
-      }
-
-      // ===== 3. 删除快照（Incus 远程 + 数据库）=====
-      const snapshots = await db.getSnapshotsByInstanceId(instanceId)
-      if (snapshots.length > 0) {
-        for (const snapshot of snapshots) {
-          // 尝试删除 Incus 快照
-          if (client) {
-            try {
-              await deleteSnapshot(client, instance.incus_id, snapshot.incus_name)
-            } catch (snapshotError) {
-              const errorMessage = snapshotError instanceof Error ? snapshotError.message : String(snapshotError)
-              console.error(`删除 Incus 快照失败 (${snapshot.name}):`, errorMessage)
-            }
-          }
-        }
-      }
-
-      // ===== 4. 删除备份（Incus 远程 + 数据库软删除）=====
-      const backups = await db.getBackupsByInstanceId(instanceId)
-      if (backups.length > 0) {
-        for (const backup of backups) {
-          // 尝试删除 Incus 备份
-          if (client) {
-            try {
-              await deleteIncusBackup(client, instance.incus_id, backup.incus_name)
-            } catch (backupError) {
-              const errorMessage = backupError instanceof Error ? backupError.message : String(backupError)
-              console.error(`删除 Incus 备份失败 (${backup.name}):`, errorMessage)
-            }
-          }
-        }
-      }
-
-      // ===== 6. 停止并删除 Incus 实例 =====
-      try {
-        if (!await deletePendingManagedInstance(client, instanceId)) await deleteIncusInstanceForDelete(client, instance, request.log)
-      } catch (incusError) {
-        await restoreClaimedInstanceForDelete(instanceId, instance.status as InstanceStatus)
-        throw incusError
-      }
-
-      // ===== 7. 处理退款（节点所有者删除他人的付费实例时；管理员直接删除不退款）=====
-      if (!isAdmin && isHostOwner && instance.user_id !== user.id) {
-        const instanceBilling = await prisma.instance.findUnique({
-          where: { id: instance.id },
-          select: {
-            billingPrice: true,
-            billingCycle: true,
-            expiresAt: true,
-            packagePlanId: true
-          }
-        })
-
-        const refundInfo = instanceBilling
-          ? await db.calculateInstanceRefund({
-              id: instance.id,
-              billingPrice: instanceBilling.billingPrice ? Number(instanceBilling.billingPrice) : null,
-              billingCycle: instanceBilling.billingCycle,
-              expiresAt: instanceBilling.expiresAt,
-              packagePlanId: instanceBilling.packagePlanId
-            })
-          : { isPaid: false, refundAmount: 0 }
-
-        if (refundInfo.isPaid && refundInfo.refundAmount > 0) {
-          hostOwnerRefundAmount = refundInfo.refundAmount
-
-          await prisma.$transaction(async (tx) => {
-            await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, instance.user_id)
-
-            const instanceOwner = await tx.user.findUnique({
-              where: { id: instance.user_id },
-              select: { balance: true }
-            })
-            const oldBalance = Number(instanceOwner?.balance || 0)
-
-            const updatedUser = await tx.user.update({
-              where: { id: instance.user_id },
-              data: { balance: { increment: hostOwnerRefundAmount } },
-              select: { balance: true }
-            })
-            const newBalance = Number(updatedUser.balance)
-
-            await tx.balanceLog.create({
-              data: {
-                userId: instance.user_id,
-                type: 'refund',
-                amount: hostOwnerRefundAmount,
-                balanceBefore: oldBalance,
-                balanceAfter: newBalance,
-                instanceId: instance.id,
-                remark: `托管实例被删除退款：${instance.name}`
-              }
-            })
-
-            await db.deductHostingBalance(
-              instance.host_id,
-              hostOwnerRefundAmount,
-              instance.id,
-              `删除托管实例退款扣除：${instance.name}`,
-              tx
-            )
-          })
-        }
-      }
-
-      // ===== 7.1 删除数据库附属记录 =====
-      for (const site of proxySites) {
-        await deleteProxySite(site.id)
-      }
-      for (const mapping of portMappings || []) {
-        await db.deletePortMapping((mapping as { id: number }).id)
-      }
-      for (const snapshot of snapshots) {
-        await db.deleteSnapshot(snapshot.id)
-      }
-      for (const backup of backups) {
-        await db.deleteBackup(backup.id)
-      }
-
-      try {
-        await prisma.snapshotPolicy.deleteMany({ where: { instanceId } })
-        await prisma.backupPolicy.deleteMany({ where: { instanceId } })
-      } catch (policyError) {
-        const errorMessage = policyError instanceof Error ? policyError.message : String(policyError)
-        console.error('删除策略失败:', errorMessage)
-      }
-
-      try {
-        await prisma.trafficSnapshot.deleteMany({ where: { instanceId } })
-        await prisma.dailyTraffic.deleteMany({ where: { instanceId } })
-      } catch (trafficError) {
-        const errorMessage = trafficError instanceof Error ? trafficError.message : String(trafficError)
-        console.error('删除流量记录失败:', errorMessage)
-      }
-
-      try {
-        await prisma.ipAddress.deleteMany({ where: { instanceId } })
-        await prisma.ipv6Subnet.deleteMany({ where: { instanceId } })
-      } catch (ipError) {
-        const errorMessage = ipError instanceof Error ? ipError.message : String(ipError)
-        console.error('删除 IP 记录失败:', errorMessage)
-      }
-
-      try {
-        await prisma.restoreTask.deleteMany({
-          where: { instanceId, status: { in: ['COMPLETED', 'FAILED'] } }
-        })
-        await prisma.backupUploadTask.deleteMany({
-          where: { instanceId, status: { in: ['COMPLETED', 'FAILED'] } }
-        })
-        await prisma.instanceTask.deleteMany({
-          where: { instanceId, status: { in: ['COMPLETED', 'FAILED'] } }
-        })
-      } catch (taskError) {
-        const errorMessage = taskError instanceof Error ? taskError.message : String(taskError)
-        console.error('删除历史任务记录失败:', errorMessage)
-      }
-
-      try {
-        await prisma.instanceTransfer.updateMany({
-          where: { instanceId, status: 'pending' },
-          data: { status: 'cancelled', cancelledAt: new Date() }
-        })
-      } catch (transferError) {
-        const errorMessage = transferError instanceof Error ? transferError.message : String(transferError)
-        console.error('取消转移请求失败:', errorMessage)
-      }
-
-      // ===== 8. 释放用户配额和宿主机资源 =====
-      const portMappingsCount = portMappings?.length || 0
-      await db.rollbackResources({
-        hostId: instance.host_id,
-        cpu: instance.cpu,
-        memory: instance.memory,
-        disk: instance.disk,
-        portCount: portMappingsCount
-      })
-
-      await finalizeManagedCleanupForDeletion(instanceId)
-      // 重新计算宿主机资源使用量（包括端口）
-      const usedResources = await db.calculateHostResourcesFromInstances(instance.host_id)
-      // 重新计算端口映射使用量
-      const actualPortsUsed = await prisma.portMapping.count({
-        where: {
-          instance: {
-            hostId: instance.host_id,
-            status: { not: 'deleted' }
-          }
-        }
-      })
-      await db.updateHostResources(instance.host_id, {
-        cpuUsed: usedResources.cpuUsed,
-        memoryUsed: usedResources.memoryUsed,
-        diskUsed: usedResources.diskUsed
-      })
-      // 更新端口使用量
-      await prisma.host.update({
-        where: { id: instance.host_id },
-        data: { natPortsUsedCount: actualPortsUsed }
-      })
-
-      // ===== 10. 发送通知 =====
-      // 判断是否是宿主机所有者删除他人的实例
-      if (isPrivilegedDeleter && instance.user_id !== user.id) {
-        // 宿主机所有者删除他人的实例，如果提供了原因，发送特定通知给实例所有者
-        if (reason && reason.trim()) {
-          await sendNotification(instance.user_id, 'instance_deleted_by_host_owner', {
-            instanceName: instance.name,
-            hostName: host?.name || undefined,
-            deleteReason: reason.trim()
-          })
-        } else {
-          // 没有提供原因，发送普通删除通知
-          await sendNotification(instance.user_id, 'instance_deleted', {
-            instanceName: instance.name,
-            hostName: host?.name || undefined
-          })
-        }
-      } else {
-        // 用户删除自己的实例，发送通知给自己
-        await sendNotification(user.id, 'instance_deleted', {
-          instanceName: instance.name,
-          hostName: host?.name || undefined
-        })
-      }
-
-      // 无论谁删除的，都向套餐绑定的通知渠道发送"资源释放"通知
-      if (instance.package_id) {
-        const { sendReleaseNotification } = await import('../lib/release-notifier.js')
-        sendReleaseNotification({
-          packageId: instance.package_id,
-          cpu: instance.cpu,
-          memory: instance.memory,
-          source: isPrivilegedDeleter && instance.user_id !== user.id
-            ? (isAdmin ? '管理员删除实例' : '节点所有者删除实例')
-            : '用户删除实例'
-        }).catch(() => { })
-      }
-
-      await createLog(
-        user.id,
-        'instance',
-        'instance.delete',
-        `Deleted instance "${instance.name}" [host: ${host?.name || 'unknown'}, user: ${instance.user_id}, released resources: CPU=${instance.cpu}%, Memory=${instance.memory}MB, Disk=${instance.disk}MB, ports=${portMappingsCount}]`,
-        'success',
-        { instanceId }
-      )
-
-      return {
-        message: 'Instance deleted',
-        refundAmount: hostOwnerRefundAmount > 0 ? hostOwnerRefundAmount : undefined
-      }
+      const result = await requestInstanceDeletion({ id: instance.id, hostId: instance.host_id, userId: instance.user_id,
+        incusId: instance.incus_id, status: instance.status, expiresAt: instance.expires_at, version: instance.version }, user,
+      { mode: isAdmin ? 'admin' : isHostOwner ? 'host' : 'owner', refund: !isAdmin && isHostOwner && instance.user_id !== user.id, reason })
+      return reply.code(result.pending ? 202 : 200).send(result)
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      return reply.code(500).send({ error: errorMessage })
+      if (error instanceof DeletionAdmissionError) return reply.code(error.statusCode).send({ code: error.code, error: error.message })
+      if (error instanceof ProxySiteOperationPendingError || error instanceof SnapshotOperationPendingError) return reply.code(409).send({ code: error.code, error: error.message })
+      throw error
     }
   })
 

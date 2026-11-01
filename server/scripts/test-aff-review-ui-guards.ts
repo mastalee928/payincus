@@ -105,7 +105,7 @@ assert.ok(hostsSource.includes('await copyInstanceAffBinding(instance.id, create
 const affRefundReversalSource = sectionBetween(
   instanceDestroySource,
   'export async function reverseInstanceAffCommissionForRefund(',
-  'async function claimInstanceForUserDestroy('
+  'async function buildBatchDestroyPreviewItem('
 )
 assert.ok(
   affRefundReversalSource.includes('refundAmount / originalPaidAmount') &&
@@ -125,17 +125,11 @@ assert.ok(
   'AFF usage count must roll back once only after the new-purchase commission is fully reversed'
 )
 
-const userDestroySettlementSource = sectionBetween(
-  instanceDestroySource,
-  'async function recordUserDestroyAudit(',
-  'async function buildBatchDestroyPreviewItem('
-)
-assert.ok(
-  !userDestroySettlementSource.includes('reverseInstanceAffCommissionForRefund') &&
-    !userDestroySettlementSource.includes('balanceLog.create') &&
-    !userDestroySettlementSource.includes('instanceBillingRecord.create'),
-  'user destroy must not refund or reverse AFF commission; financial reversal remains for administrator refunds'
-)
+const deletionWorker = readFileSync(resolve(root, 'server/src/services/instance-deletion.ts'), 'utf8')
+const userDestroySettlementSource = sectionBetween(deletionWorker, "if (state.mode === 'user_destroy' && instance.packagePlanId)", 'await tx.portMapping.deleteMany')
+assert.ok(!userDestroySettlementSource.includes('reverseInstanceAffCommissionForRefund') &&
+  !userDestroySettlementSource.includes('balanceLog.create') && !userDestroySettlementSource.includes('instanceBillingRecord.create') &&
+  deletionWorker.includes('state.refund = false'), 'user destroy must not refund or reverse AFF commission')
 
 const adminRefundSource = sectionBetween(
   adminBillingSource,
@@ -153,8 +147,8 @@ const adminDeleteRefundSource = sectionBetween(
   '// ==================== 管理员应用AFF优惠码 ===================='
 )
 assert.ok(
-  adminDeleteRefundSource.includes('await reverseInstanceAffCommissionForRefund({') &&
-    adminDeleteRefundSource.includes('refundAmount,'),
+  adminDeleteRefundSource.includes('await requestInstanceDeletion(instance, admin') &&
+    deletionWorker.includes('await reverseInstanceAffCommissionForRefund({ tx, instanceId, refundAmount,'),
   'admin delete-and-refund must reverse AFF commission in the refund transaction'
 )
 

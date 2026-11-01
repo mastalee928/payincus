@@ -7,7 +7,7 @@ assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && dat
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const credentials = await import('../src/lib/host-agent-credentials.js')
 const { encryptSensitiveData, decryptSensitiveData } = await import('../src/lib/security.js')
-const { hashAgentSecret } = await import('../src/lib/agent-auth.js')
+const { hashAgentSecret, createAgentBodyHash, createAgentSignature } = await import('../src/lib/agent-auth.js')
 const { default: routes } = await import('../src/routes/agent.js')
 const tag = randomUUID()
 const user = await prisma.user.create({ data: { username: `agent-credentials-${tag}`, passwordHash: 'unusable-fixture' } })
@@ -26,6 +26,13 @@ const rotate = () => credentials.rotateHostAgentCredentials(host.id, true, { act
 const issue = () => credentials.issueHostAgentInstallToken(host.id, true, { actor })
 const snapshot = () => prisma.hostAgent.findUniqueOrThrow({ where: { hostId: host.id } })
 const trigger = `review_agent_${tag.replaceAll('-', '')}`
+const heartbeat = (agentId: string, agentSecret: string) => {
+  const body = { version: 'v1.0.4', runtime: { goos: 'linux', goarch: 'amd64' }, metrics: { heartbeatIntervalSeconds: 30 } }
+  const timestamp = String(Date.now()), nonce = randomUUID(), bodyHash = createAgentBodyHash(body)
+  return app.inject({ method: 'POST', url: '/agent/heartbeat', payload: body, headers: {
+    'x-incudal-agent-id': agentId, 'x-incudal-timestamp': timestamp, 'x-incudal-nonce': nonce, 'x-incudal-body-sha256': bodyHash,
+    'x-incudal-signature': createAgentSignature(agentSecret, { method: 'POST', path: '/agent/heartbeat', timestamp, nonce, bodyHash }) } })
+}
 try {
   await app.register(routes, { prefix: '/agent' })
   const original = await rotate()
@@ -71,13 +78,16 @@ try {
   const current = await snapshot()
   const latest = issues.find(r => createHash('sha256').update(r.installToken).digest('hex') === current.installTokenHash)!
   assert.ok(latest)
+  assert.equal((await heartbeat(original.agentId, original.agentSecret)).statusCode, 200, 'unconsumed installer must not disconnect the running Agent')
   assert.equal(current.agentId, latest.agent.agentId, 'stored token belongs to the same committed identity')
   const redeemed = await Promise.all(issues.map(r => credentials.consumeHostAgentInstallToken(r.installToken).then(value => value, () => null)))
   assert.equal(redeemed.filter(Boolean).length, 1, 'only the latest serialized issuance remains valid')
   const valid = redeemed.find(Boolean)!
   assert.equal(valid.agent.agentId, current.agentId)
   assert.equal(hashAgentSecret(valid.agentSecret), current.secretHash)
-  assert.equal(await prisma.hostAgentNonce.count({ where: { agentId: original.agentId } }), 0)
+  assert.equal(current.agentId, original.agentId, 'preparing and consuming installers preserves the active identity')
+  assert.equal(current.secretHash, before.secretHash)
+  assert.equal(await prisma.hostAgentNonce.count({ where: { agentId: original.agentId, nonce: tag } }), 1, 'installer issuance must retain replay protection for the active Agent')
   const singleUse = await issue()
   const repeats = await Promise.all(Array.from({ length: 7 }, () => credentials.consumeHostAgentInstallToken(singleUse.installToken).then(() => true, () => false)))
   assert.equal(repeats.filter(Boolean).length, 1)
@@ -117,6 +127,11 @@ try {
   const expired = await issue()
   await prisma.hostAgent.update({ where: { hostId: host.id }, data: { installTokenExpiresAt: new Date(Date.now() - 1000) } })
   await assert.rejects(credentials.consumeHostAgentInstallToken(expired.installToken), /AGENT_INSTALL_TOKEN_EXPIRED/)
+  const validActive = await snapshot()
+  assert.equal((await heartbeat(validActive.agentId, decryptSensitiveData(validActive.secretEncrypted)!)).statusCode, 200, 'expired installer leaves active heartbeat working')
+  await rotate()
+  assert.equal((await heartbeat(validActive.agentId, decryptSensitiveData(validActive.secretEncrypted)!)).statusCode, 401, 'explicit rotation still revokes the old identity')
+  assert.equal(await prisma.hostAgentNonce.count({ where: { agentId: validActive.agentId } }), 0)
   const notRotated = await snapshot()
   await assert.rejects(credentials.issueHostAgentInstallToken(host.id, true, { hostInstallToken: 'wrong-fixture-token' }), /AGENT_INSTALL_TOKEN_INVALID/)
   assert.deepEqual(await snapshot(), notRotated)

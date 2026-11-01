@@ -1,4 +1,5 @@
 import { sanitizeTokensInString } from './log-sanitizer.js'
+import { parseExpiryRunRecord } from './expiry-enforcement-history.js'
 
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical'
 
@@ -224,6 +225,13 @@ export function classifyLogRisk(log: RiskAuditLogInput): {
   verificationRequired: boolean
   batchSensitive: boolean
 } {
+  if (log.module === 'system' && ['system.expiry_enforcement_started', 'system.expiry_enforcement'].includes(log.action)) {
+    const run = parseExpiryRunRecord(log.content || '')
+    const complete = run && typeof run.finishedAt === 'string' && Date.parse(run.finishedAt) >= Date.parse(run.startedAt)
+    const validPhase = log.action.endsWith('_started') ? run?.finishedAt === null : complete
+    if (run && validPhase && run.failureCount === 0 && !run.lastError) return { riskLevel: 'low', riskTitle: '自动巡检记录',
+      approvalRequired: false, verificationRequired: false, batchSensitive: false }
+  }
   const definition = getOperationDefinition(log)
   if (definition) {
     return {

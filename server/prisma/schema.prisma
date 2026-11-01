@@ -737,6 +737,7 @@ model Host {
   installToken        String?      @unique @map("install_token")
   installTokenExpire  DateTime?    @map("install_token_expire")
   isInstalled         Boolean      @default(false) @map("is_installed")
+  installPending      Boolean      @default(false) @map("install_pending")
   // 证书下载限制（每次安装操作独立计数）
   certDownloadCount   Int          @default(0) @map("cert_download_count")
   certDownloadExpire  DateTime?    @map("cert_download_expire")
@@ -813,6 +814,9 @@ model Host {
   portProtocolAppliedRevision Int @default(0) @map("port_protocol_applied_revision")
   portProtocolError String? @map("port_protocol_error")
   poolFaulted Boolean @default(false) @map("pool_faulted")
+  // Durable old-system cleanup survives deletion of instance/task history.
+  poolCleanup Json? @map("pool_cleanup")
+  managementRepair Json? @map("management_repair")
   publicIpSyncBlocked Boolean @default(false) @map("public_ip_sync_blocked")
   publicIpSync Json? @map("public_ip_sync")
   publicIpv6Sync Json? @map("public_ipv6_sync")
@@ -838,6 +842,7 @@ model HostAgent {
   installTokenHash      String?   @unique @map("install_token_hash")
   installTokenExpiresAt DateTime? @map("install_token_expires_at")
   installTokenUsedAt    DateTime? @map("install_token_used_at")
+  installTokenKeepsIdentity Boolean @default(false) @map("install_token_keeps_identity")
   enabled               Boolean   @default(true)
   status                String    @default("offline")
   version               String?
@@ -1187,6 +1192,7 @@ model Instance {
   purchaseBatchId String? @map("purchase_batch_id")
   provisioningCleanupPending Boolean @default(false) @map("provisioning_cleanup_pending")
   deletionBillingPending Boolean @default(false) @map("deletion_billing_pending")
+  deletionIntent Json? @map("deletion_intent")
   poolPrice HostPoolPrice? @relation(fields: [poolPriceId], references: [id], onDelete: SetNull)
 
   @@index([purchaseBatchId])

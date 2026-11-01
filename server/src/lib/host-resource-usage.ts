@@ -11,6 +11,7 @@ export const HOST_OCCUPIED_INSTANCE_WHERE: Prisma.InstanceWhereInput = {
 export function dedicatedHostReadyWhere(): Prisma.HostWhereInput {
   return {
     poolFaulted: false, publicIpSyncBlocked: false, status: 'online', isInstalled: true, instanceType: { in: ['container', 'both'] },
+    certPath: { not: null }, keyPath: { not: null },
     storagePools: { some: { purpose: 'instance_data' } },
     natPublicIp: { not: null }, natPortStart: { not: null }, natPortEnd: { not: null },
     OR: [

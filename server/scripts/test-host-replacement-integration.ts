@@ -10,6 +10,7 @@ const { encryptSensitiveData } = await import('../src/lib/security.js')
 const { requestHostReplacement, replacementCandidates, executeHostReplacement } = await import('../src/services/host-replacement.js')
 const { default: routes } = await import('../src/routes/host-replacements.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
+const { IncusApiError } = await import('../src/lib/incus/incus-client.js')
 
 const prefix = `replace-test-${randomUUID().slice(0, 8)}`
 const owner = await prisma.user.create({ data: { username: `${prefix}-admin`, passwordHash: 'unusable-test-hash', role: 'admin' } })
@@ -21,7 +22,7 @@ let sequence = 0
 async function makeHost(extra: Record<string, unknown> = {}) {
   const host = await prisma.host.create({ data: {
     userId: owner.id, name: `${prefix}-${++sequence}`, url: 'https://127.0.0.1:1',
-    status: 'online', isInstalled: true, singleTenant: true, machineGroupId: group.id,
+    status: 'online', isInstalled: true, certPath: 'fixture.crt', keyPath: 'fixture.key', singleTenant: true, machineGroupId: group.id,
     regionGroupId: region.id, resourcePreset: 'E2', architecture: 'x86_64',
     cpuAllowanceMax: 200, memoryMax: 768, storageSize: 38, customerDiskGiB: 30,
     natPublicIp: `192.0.2.${sequence}`, natPortStart: 20000, natPortEnd: 30000, ...extra
@@ -51,6 +52,7 @@ try {
   const target = await makeHost()
   const crossRegion = await makeHost({ regionGroupId: otherRegion.id, countryCode: 'us' })
   const quarantined = await makeHost({ poolFaulted: true })
+  const missingCertificate = await makeHost({ certPath: null, keyPath: null })
   await makeHost({ architecture: 'aarch64' })
   await makeHost({ memoryMax: 512 })
   const incompatible = await Promise.all([
@@ -79,6 +81,7 @@ try {
   const unconfirmed = await app.inject({ method: 'POST', url: `/instances/${a.id}/replace-host`, headers: { 'x-test-role': 'admin' }, payload: { targetHostId: target.id } })
   assert.equal(unconfirmed.statusCode, 400, 'rebuilding without a backup requires explicit acknowledgement')
   await assert.rejects(requestHostReplacement(a.id, target.id, owner.id, 2147483647), /备份/)
+  await assert.rejects(requestHostReplacement(a.id, missingCertificate.id, owner.id), /未就绪/)
   await assert.rejects(() => prisma.instance.create({ data: instanceData(quarantined.id, 'must-not-sell') }), /HOST_POOL_FAULTED/)
 
   const results = await Promise.allSettled([
@@ -88,8 +91,8 @@ try {
   const task = await prisma.instanceTask.findFirstOrThrow({ where: { targetHostId: target.id, taskType: 'replace_host' } })
   const before = task.instanceId === a.id ? a : b
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: target.id } })).cpuUsed, 200)
-  assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: before.hostId } })).poolFaulted, true)
-  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: before.id } })).dedicatedNetworkReady, false)
+  assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: before.hostId } })).poolFaulted, false, 'request preserves delivered source readiness')
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: before.id } })).dedicatedNetworkReady, true)
   assert.equal((await replacementCandidates(before.id)).some(host => host.id === target.id), false)
 
   // Connection failure before any creation releases only the unused target.
@@ -102,6 +105,8 @@ try {
   assert.equal(released.memoryUsed, 0)
   assert.equal(released.diskUsed, 0)
   const preserved = await prisma.instance.findUniqueOrThrow({ where: { id: before.id } })
+  assert.equal(preserved.dedicatedNetworkReady, true, 'failure before creation does not hide existing customer networking')
+  assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: before.hostId } })).poolFaulted, false)
   assert.equal(preserved.hostId, before.hostId)
   assert.equal(preserved.userId, before.userId)
   assert.equal(preserved.billingPrice?.toString(), before.billingPrice?.toString())
@@ -115,6 +120,43 @@ try {
   await assert.rejects(executeHostReplacement(crossTask))
   await prisma.instanceTask.update({ where: { id: crossTask.id }, data: { status: 'FAILED' } })
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: crossRegion.id } })).cpuUsed, 0)
+
+  for (const fault of ['existing-target', 'create-response-lost', 'start-failed']) {
+    const spare = await makeHost()
+    const queued = await requestHostReplacement(before.id, spare.id, owner.id)
+    const running = await prisma.instanceTask.update({ where: { id: queued.taskId }, data: { status: 'PROCESSING' } })
+    const targetName = `u${before.userId}-replace${running.id}`
+    let remote: any = fault === 'existing-target' ? { name: targetName, status: 'Running' } : null
+    const calls: string[] = []
+    const connect: any = async () => ({ request: async (method: string, path: string, payload: any) => {
+      calls.push(method + ' ' + path)
+      if (method === 'GET') {
+        if (!remote) throw new IncusApiError('Instance not found', 404, path)
+        return structuredClone(remote)
+      }
+      if (method === 'POST' && path === '/1.0/instances') {
+        const saved = (await prisma.instanceTask.findUniqueOrThrow({ where: { id: running.id } })).replacementState as any
+        assert.equal(saved.stage, 'creating'); assert.equal(saved.targetMarker, payload.config['user.payincus.replacement'])
+        remote = { name: targetName, status: 'Stopped', project: 'default', created_at: new Date().toISOString(),
+          config: { ...payload.config, 'volatile.uuid': randomUUID() } }
+        if (fault === 'create-response-lost') throw Error('creation accepted; response lost')
+        return {}
+      }
+      if (method === 'PUT' && payload.action === 'start') throw Error('start failed')
+      throw Error('unexpected replacement fixture request')
+    } })
+    await assert.rejects(executeHostReplacement(running, connect))
+    await prisma.instanceTask.update({ where: { id: running.id }, data: { status: 'FAILED' } })
+    const cleanup = (await prisma.host.findUniqueOrThrow({ where: { id: spare.id } })).poolCleanup as any
+    assert.equal(cleanup.kind, fault === 'existing-target' ? 'verify_empty' : 'failed_target')
+    assert.equal(cleanup.name, targetName)
+    assert.ok(!calls.some(call => call.startsWith('DELETE')), 'failure persists cleanup instead of blindly deleting by name')
+    if (fault === 'existing-target') assert.ok(calls.every(call => call.startsWith('GET')))
+    if (fault === 'start-failed') { assert.equal(cleanup.uuid, remote.config['volatile.uuid']); assert.equal(cleanup.createdAt, remote.created_at) }
+    if (fault === 'create-response-lost') assert.equal(cleanup.marker, remote.config['user.payincus.replacement'])
+    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: before.id } })).hostId, before.hostId)
+    console.log(`PASS replacement execution ${fault}: persisted creation binding, original customer preserved, no blind cleanup`)
+  }
 
   // After a process interruption, an uncertain remote target stays quarantined.
   const retry = await requestHostReplacement(before.id, target.id, owner.id)

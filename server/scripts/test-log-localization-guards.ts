@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { normalizeLogContentForStorage } from '../src/lib/log-localization.js'
+import assert from 'node:assert/strict'
+import { expiryLogDisplay } from '../../client/src/utils/expiry-log-display.js'
+import { formatLogContent } from '../../client/src/utils/log-format.js'
+import { automaticOperationAudit } from '../src/lib/automatic-operation-audit.js'
 
 const repoRoot = resolve(import.meta.dirname, '../..')
 
@@ -33,7 +37,7 @@ assertIncludes(
 )
 assertIncludes(
   'client/src/views/LogsView.vue',
-  'formatLogContent(content)',
+  'formatLogContent(log.content, log.action, locale.value)',
   '日志内容必须使用中文化格式化器展示'
 )
 assertIncludes(
@@ -75,4 +79,31 @@ assertEqual(
   '实例创建失败日志内容应中文化'
 )
 
-console.log('Log localization guards passed')
+const run = { schemaVersion: 1, runId: '943be41c-5c73-4be3-8aea-91b96e528245', startedAt: '2026-11-01T16:35:00.012Z',
+  finishedAt: '2026-11-01T16:35:00.039Z', failureCount: 0, lastError: null }
+const action = 'system.expiry_enforcement'
+assert.equal(expiryLogDisplay(action, JSON.stringify(run))?.result, 'success')
+assert.match(formatLogContent(JSON.stringify(run), action), /到期巡检已完成，未发现处理失败/)
+assert.ok(!formatLogContent(JSON.stringify(run), action).includes('schemaVersion'))
+assert.equal(expiryLogDisplay(action + '_started', JSON.stringify({ ...run, finishedAt: null }))?.result, 'started', 'old warning start records display as started without changing the historical row')
+assert.match(expiryLogDisplay(action, JSON.stringify({ ...run, failureCount: 2, lastError: 'EXPIRY_REMOTE_DELETE_PENDING' }))!.content, /2 项.*删除回执/)
+assert.equal(expiryLogDisplay(action, JSON.stringify({ ...run, failureCount: 0, lastError: 'EXPIRY_REMOTE_DELETE_PENDING' }))?.result, 'failed', 'an error is never disguised by a zero counter')
+assert.ok(!expiryLogDisplay(action, JSON.stringify({ ...run, failureCount: 0, lastError: 'EXPIRY_REMOTE_DELETE_PENDING' }))?.content.includes('0 项'))
+assert.equal(expiryLogDisplay(action + '_started', JSON.stringify({ ...run, finishedAt: null, failureCount: 1 }))?.result, 'warning')
+for (const record of [{ ...run, failureCount: -1 }, { ...run, finishedAt: null }, { ...run, startedAt: 'invalid' },
+  { ...run, finishedAt: '2020-01-01' }, { ...run, lastError: '<script>private-value</script>' }]) {
+  const formatted = expiryLogDisplay(action, JSON.stringify(record))!
+  assert.equal(formatted.result, 'warning'); assert.ok(!formatted.content.includes('private-value'))
+}
+for (const locale of ['zh-CN', 'zh-TW', 'en']) {
+  assert.ok(expiryLogDisplay(action, JSON.stringify(run), locale)?.content)
+  assert.ok(!expiryLogDisplay(action, '{broken', locale)?.content.includes('{broken'))
+}
+assert.equal(expiryLogDisplay('instance.create', JSON.stringify(run)), null, 'only known structured events receive this renderer')
+const audit = automaticOperationAudit({ hostId: 32, hostName: '本地样例', stage: '核验磁盘释放', attempt: 2,
+  result: '已安排重试', error: 'INCUS_STORAGE_STATE_UNKNOWN', nextAttemptAt: '2026-11-02T01:00:00.000Z' })
+assert.match(audit, /宿主未返回有效的存储清单/)
+assert.ok(!audit.includes('INCUS_STORAGE_STATE_UNKNOWN'))
+assert.ok(!formatLogContent(audit, 'host.pool.cleanup_retry').includes('T01:00:00.000Z'))
+assert.match(automaticOperationAudit({ hostId: 32, hostName: '本地样例', stage: '核验', attempt: 1, result: '重试', error: 'unknown-instance,volumes' }), /无法确认为原任务目标的实例.*存储卷/)
+console.log('Log localization guards passed, including historical patrol JSON, start/result semantics and malformed records')

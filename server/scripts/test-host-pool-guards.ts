@@ -158,7 +158,9 @@ assert.equal(batchItems[3].status, 'recovered')
 await inspectRecoveryBatch(batchItems, batchApi)
 assert.equal(batchItems[3].status, 'recovered', 'rechecking failed hosts must preserve successful results')
 const batchModal = readFileSync(new URL('../../client/src/components/host/HostRecoveryBatchModal.vue', import.meta.url), 'utf8')
-assert.ok(batchModal.includes('item.report.blockers') && batchModal.includes('cleanupNeeded && !acknowledged') && batchModal.includes("dialog.value?.showModal()"), 'batch modal must show per-host blockers, explicit cleanup consent and native focus management')
+assert.ok(batchModal.includes('<HostRecoveryProgress') && batchModal.includes('setTimeout(check, 5000)') && batchModal.includes("dialog.value?.showModal()") &&
+  !batchModal.includes('@click="check"') && !batchModal.includes('acknowledged') && !batchModal.includes('recoverRecoveryBatch'),
+  'batch recovery displays per-host background progress with automatic reads and native focus management; no manual retry or cleanup confirmation loop')
 const recoveryService = readFileSync(new URL('../src/services/host-pool-recovery.ts', import.meta.url), 'utf8')
 const preserveStart = recoveryService.indexOf("if (before.report.mode === 'preserve')")
 const cleanupStart = recoveryService.indexOf('// The request audit is already durable')

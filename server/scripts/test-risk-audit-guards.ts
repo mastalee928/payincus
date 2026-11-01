@@ -68,6 +68,12 @@ assert.ok(
 )
 
 const definitions = getRiskOperationDefinitions()
+assert.notEqual(classifyLogRisk({ module: 'system', action: 'system.expiry_enforcement', content: JSON.stringify({ schemaVersion: 1,
+  runId: '943be41c-5c73-4be3-8aea-91b96e528245', startedAt: '2026-11-01T16:35:00Z', finishedAt: null, failureCount: 0, lastError: null }) }).riskLevel, 'low',
+  'a missing finish receipt cannot be classified as a successful routine inspection')
+assert.equal(classifyLogRisk({ module: 'system', action: 'system.expiry_enforcement', content: JSON.stringify({ schemaVersion: 1,
+  runId: '943be41c-5c73-4be3-8aea-91b96e528245', startedAt: '2026-11-01T16:35:00Z', finishedAt: '2026-11-01T16:35:01Z', failureCount: 0, lastError: null }) }).riskLevel, 'low',
+  'successful routine inspection is not a configuration risk or failure merely because its JSON contains lastError')
 assert.ok(definitions.length >= 15, 'risk catalog must contain a practical set of sensitive operations')
 assert.equal(
   classifyLogRisk({ module: 'billing', action: 'payment_provider.update' }).riskLevel,

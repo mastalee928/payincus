@@ -64,7 +64,16 @@ function publicOperationError(error: unknown, host?: Host): string {
 
 async function assertLifecycleClaim(tx: Prisma.TransactionClient, instance: Instance, claim: ProxySiteLifecycleClaim | undefined) {
   let valid = false
-  if (claim?.kind === 'delete') valid = instance.status === 'deleted'
+  if (claim?.kind === 'delete') {
+    valid = instance.status === 'deleted'
+    if (instance.deletionIntent) {
+      const { readDeletionIntent, assertDeletionAuthority } = await import('../services/instance-deletion.js')
+      const intent = readDeletionIntent(instance.deletionIntent)
+      const host = await tx.host.findUniqueOrThrow({ where: { id: instance.hostId } })
+      if (!intent) throw new Error('DELETE_INTENT_INVALID')
+      await assertDeletionAuthority(tx, instance, host, intent)
+    }
+  }
   if (claim?.kind === 'provisioning_cleanup') valid = instance.provisioningCleanupPending
   if (claim?.kind === 'instance_task') {
     const task = await tx.instanceTask.findFirst({ where: { id: claim.id, instanceId: instance.id } })

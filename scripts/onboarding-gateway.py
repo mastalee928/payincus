@@ -189,6 +189,98 @@ def atomic_write(path, content):
             os.unlink(temp)
 
 
+def repair_host_agent(job, control):
+    """Fixed credential reconciliation for an already enrolled host, never a shell API."""
+    raw = sys.stdin.buffer.read(4097)
+    if len(raw) > 4096: raise ValueError('input too large')
+    request = json.loads(raw, object_pairs_hook=strict_json)
+    if not isinstance(request, dict) or set(request) != {'sshPort', 'sshFingerprint', 'nodePublicKey', 'agentId', 'agentSecret', 'expiresAt'}:
+        raise ValueError('invalid agent repair')
+    if type(request['expiresAt']) is not int or not time.time()*1000 < request['expiresAt'] <= time.time()*1000+30000: raise ValueError('expired repair')
+    if type(request['sshPort']) is not int or not 1 <= request['sshPort'] <= 65535: raise ValueError('invalid port')
+    if not isinstance(request['sshFingerprint'], str) or not re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}', request['sshFingerprint']): raise ValueError('invalid fingerprint')
+    if not isinstance(request['agentId'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,128}', request['agentId']): raise ValueError('invalid agent identity')
+    if not isinstance(request['agentSecret'], str) or not re.fullmatch(r'ias_[A-Za-z0-9_-]{32,96}', request['agentSecret']): raise ValueError('invalid agent secret')
+    reservation = STATE / (job + '.json')
+    for path in [reservation, *reservation.parents]:
+        info = path.lstat()
+        if info.st_uid != 0 or stat.S_ISLNK(info.st_mode) or info.st_mode & 0o022: raise ValueError('untrusted reservation')
+    if not reservation.is_file() or reservation.stat().st_size > 4096 or reservation.stat().st_nlink != 1: raise ValueError('invalid reservation')
+    saved = json.loads(reservation.read_text(), object_pairs_hook=strict_json)
+    address = ipaddress.IPv4Address(saved['managementIp'])
+    if address not in control.network or address in (control.ip, control.network.network_address, control.network.broadcast_address): raise ValueError('invalid target')
+    peer = saved['nodePublicKey']
+    if request['nodePublicKey'] != peer or not re.fullmatch(r'[A-Za-z0-9+/]{43}=', peer): raise ValueError('peer mismatch')
+    allowed = dict(line.split(maxsplit=1) for line in run('wg', 'show', INTERFACE, 'allowed-ips').splitlines())
+    if allowed.get(peer) != str(address) + '/32': raise ValueError('route mismatch')
+    scan = subprocess.run(['ssh-keyscan', '-T', '5', '-p', str(request['sshPort']), '-t', 'ed25519,rsa,ecdsa', str(address)], capture_output=True, timeout=15, check=False)
+    known = verified_host_scan(scan, request['sshFingerprint'])
+    # Python is installed by both supported host installers. Transport secrets
+    # through encrypted stdin only; no command arguments, stdout or log values.
+    payload = base64.b64encode(json.dumps({'nodeId': job, 'agentId': request['agentId'], 'agentSecret': request['agentSecret'], 'expiresAt': request['expiresAt']}).encode()).decode()
+    script = "D=__import__('json').loads(__import__('base64').b64decode('" + payload + "'))\n" + AGENT_REPAIR_SCRIPT
+    with tempfile.TemporaryDirectory(prefix='incudal-agent-repair-', dir='/root') as directory:
+        trust = pathlib.Path(directory) / 'known_hosts'; trust.write_text(known[0] + '\n'); trust.chmod(0o600)
+        result = subprocess.run(['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
+                                 '-o', 'UserKnownHostsFile=' + str(trust), '-o', 'ConnectTimeout=8', '-o', 'IdentitiesOnly=yes',
+                                 '-i', str(MANAGEMENT_PUBLIC_KEY.with_suffix('')), '-p', str(request['sshPort']), 'root@' + str(address),
+                                 'python3 -I -B -'], input=script.encode(), capture_output=True, timeout=40, check=False)
+        if result.returncode != 0 or result.stdout.strip() != b'AGENT_CONFIG_RECONCILED':
+            raise GatewayOperationError('AGENT_REPAIR_REMOTE_FAILED')
+    return {'nodeId': job, 'agentId': request['agentId'], 'configReconciled': True, 'keysAndRoutesPreserved': True}
+
+
+AGENT_REPAIR_SCRIPT = r'''
+import os,stat,pathlib,re,tempfile,subprocess,fcntl,time
+def active():
+    if time.time()*1000 >= D['expiresAt']: raise ValueError('expired repair')
+active()
+def protected(path, limit):
+    for parent in [path.parent, *path.parent.parents]:
+        info=parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022: raise ValueError('unsafe directory')
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    with os.fdopen(fd,'rb') as handle:
+        info=os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1 or info.st_mode & 0o022 or info.st_size > limit: raise ValueError('unsafe file')
+        return handle.read(limit+1)
+if protected(pathlib.Path('/etc/incudal-onboarding-id'),128).decode().strip()!=D['nodeId']: raise ValueError('wrong node')
+path=pathlib.Path('/etc/incudal-agent/config.yaml')
+original=protected(path,65536)
+lock=os.open(path.parent/'.repair.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW|os.O_NONBLOCK,0o600)
+try:
+    info=os.fstat(lock)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_nlink!=1 or info.st_mode & 0o077: raise ValueError('unsafe lock')
+    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    if protected(path,65536)!=original: raise ValueError('configuration changed')
+    text=original.decode()
+    for field,value in [('agent_id',D['agentId']),('agent_secret',D['agentSecret'])]:
+        text,count=re.subn(r'(?m)^'+field+r':[ \t]*[^\r\n]*',field+': "'+value+'"',text)
+        if count!=1: raise ValueError('unexpected configuration')
+    changed=text.encode()!=original
+    if changed:
+        fd,temp=tempfile.mkstemp(prefix='.agent-repair-',dir=path.parent)
+        try:
+            with os.fdopen(fd,'wb') as handle:
+                os.fchmod(handle.fileno(),0o600);handle.write(text.encode());handle.flush();os.fsync(handle.fileno())
+            active()
+            if protected(path,65536)!=original: raise ValueError('configuration changed')
+            os.replace(temp,path)
+            directory=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+            try: os.fsync(directory)
+            finally: os.close(directory)
+        finally:
+            if os.path.exists(temp): os.unlink(temp)
+    # A lost receipt after publication is idempotent. Restarting only the Agent
+    # also covers a previous timeout between file publication and service restart.
+    command=['systemctl','restart','incudal-agent'] if pathlib.Path('/run/systemd/system').is_dir() else ['rc-service','incudal-agent','restart']
+    active()
+    subprocess.run(command,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
+    print('AGENT_CONFIG_RECONCILED')
+finally: os.close(lock)
+'''
+
+
 def ipv4_networks(value):
     return [network for item in re.split(r"[\s,]+", value.strip()) if item and item != "(none)"
             for network in [ipaddress.ip_network(item)] if network.version == 4]
@@ -289,7 +381,8 @@ def main():
     args = shlex.split(os.environ.get("SSH_ORIGINAL_COMMAND", ""))
     dns_request = len(args) == 2 and args[0] == 'dns' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
     probe_request = len(args) == 2 and args[0] == 'probe' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
-    if args not in (["status"], ["peers"]) and not dns_request and not probe_request and not (len(args) == 3 and args[0] == "add" and re.fullmatch(r"[a-f0-9-]{36}", args[1]) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", args[2])):
+    agent_request = len(args) == 2 and args[0] == 'repair-agent' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
+    if args not in (["status"], ["peers"]) and not dns_request and not probe_request and not agent_request and not (len(args) == 3 and args[0] == "add" and re.fullmatch(r"[a-f0-9-]{36}", args[1]) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", args[2])):
         raise ValueError("unsupported operation")
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     with open(STATE / "lock", "a") as lock:
@@ -312,6 +405,9 @@ def main():
             print(json.dumps(install_host_dns(args[1], control, result['publicKey']))); return
         if probe_request:
             print(json.dumps(probe_host(args[1], control))); return
+        if agent_request:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            print(json.dumps(repair_host_agent(args[1], control))); return
         if args[0] == "peers":
             result["peers"] = peer_status(control)
         if args[0] == "add":

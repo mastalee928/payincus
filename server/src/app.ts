@@ -6,6 +6,7 @@ import hostOnboardingRoutes from './routes/host-onboarding.js'
 import hostPoolPriceRoutes from './routes/host-pool-prices.js'
 import poolOrderRoutes from './routes/pool-orders.js'
 import { startHostOnboardingWorker, stopHostOnboardingWorker } from './workers/hostOnboardingWorker.js'
+import { startHostRepairWorker, stopHostRepairWorker } from './workers/hostRepairWorker.js'
 import { startHostPublicIpSync, stopHostPublicIpSync } from './services/host-public-ip-sync.js'
 import { startHostPublicIpv6Sync, stopHostPublicIpv6Sync } from './services/host-public-ipv6-sync.js'
 import { startHostOfflineAlertWorker, stopHostOfflineAlertWorker } from './workers/hostOfflineAlertWorker.js'
@@ -541,6 +542,7 @@ await fastify.register(hostOnboardingRoutes, { prefix: '/api/host-onboarding' })
 await fastify.register(hostPoolPriceRoutes, { prefix: '/api/host-pools' })
 await fastify.register(poolOrderRoutes, { prefix: '/api/instances' })
 fastify.addHook('onClose', async () => { await stopHostOnboardingWorker() })
+fastify.addHook('onClose', stopHostRepairWorker)
 fastify.addHook('onClose', async () => { stopHostOfflineAlertWorker() })
 fastify.addHook('onClose', async () => { await stopHostPublicIpSync() })
 fastify.addHook('onClose', async () => { await stopHostPublicIpv6Sync() })
@@ -826,6 +828,7 @@ const start = async (): Promise<void> => {
     await cleanupStaleInstanceTasks()
     startInstanceTaskWorker()
     startHostOnboardingWorker()
+    startHostRepairWorker()
     startHostOfflineAlertWorker()
     startHostPublicIpSync()
     startHostPublicIpv6Sync()
