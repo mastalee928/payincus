@@ -24,6 +24,8 @@ systemctl() { printf '%s\n' "service $*" >> "$TEST_CASE/events"; return 0; }
 rc-service() { printf '%s\n' "service $*" >> "$TEST_CASE/events"; return 0; }
 rc-update() { printf '%s\n' "service $*" >> "$TEST_CASE/events"; return 0; }
 nft() { return 0; }
+iptables-restore() { return 0; }
+ip6tables-restore() { return 0; }
 apt-get() { echo 'Unexpected package installation' >&2; return 90; }
 apk() { echo 'Unexpected package installation' >&2; return 90; }
 # The fixture must not chown host files. Preserve all real install operations and

@@ -83,6 +83,12 @@ jobs:
         working-directory: agent
         run: go test ./...
 
+      - name: Agent abuse prevention with real isolated IPv4 and IPv6 packets
+        run: |
+          sudo apt-get install -y -qq iptables nftables iproute2 python3
+          (cd agent && go test -c -o /tmp/incudal-abuse-tests ./internal/abuse)
+          sudo env INCUDAL_ABUSE_NETNS_TEST=1 /tmp/incudal-abuse-tests -test.run=TestFirewallLinuxNamespace -test.v
+
       - name: Controller discovery and maintenance race checks
         working-directory: agent
         run: go test -race ./internal/controllerconfig ./cmd/incudal-maintenance
@@ -696,9 +702,14 @@ jobs:
       - name: Global abuse policy and remote domain recovery
         run: |
           pnpm --filter server test:gateway-dns-channel
+          pnpm --filter server test:host-abuse-policy
           pnpm --filter server test:gateway-domain-integration
         env:
           JWT_SECRET: isolated-gateway-policy-ci-fixture
+      - name: Administrator bulk policy and three-role domain browser flows
+        run: |
+          pnpm --filter server test:gateway-abuse-ui
+          node scripts/test-host-protocol.mjs
       - name: Gateway management identity on first external setup and restore
         working-directory: server
         run: sudo env DATABASE_URL="$DATABASE_URL" "$(command -v node)" --import tsx scripts/test-gateway-domain-key-integration.ts

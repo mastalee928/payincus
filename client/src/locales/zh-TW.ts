@@ -7,7 +7,9 @@ import { zhTW as ipv6Delivery } from './ipv6-delivery'
 import { zhTW as managementGateway } from './management-gateway'
 import { zhTW as expiryEnforcement } from './expiry-enforcement'
 import { zhTW as gatewayEndpoint } from './gateway-endpoint'
+import { zhTW as hostAbuse } from './host-abuse-policy'
 const zhTW = {
+    hostAbuse,
     homeMapDemo: {
         pageTitle: "選擇你的下一台主機",
         titleFirst: "你的下一台主機，",

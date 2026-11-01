@@ -7,6 +7,7 @@ import { useToast } from '@/stores/toast'
 import { availableFlagCountryCodes, getLocalizedCountryName } from '@/utils/countryDisplay'
 import { OnboardingCsvError, parseHostOnboardingCsv } from '@/utils/hostOnboardingCsv'
 import HostInventoryPanel from '@/components/host/HostInventoryPanel.vue'
+import HostAbusePolicyPanel from '@/components/host/HostAbusePolicyPanel.vue'
 import type { OnboardingBatch, OnboardingCredentials, OnboardingDefaults, OnboardingGatewayStatus, OnboardingNode, OnboardingStatus, OnboardingTargetInput, HostMachineGroup, ResourcePreset } from '@/types/api'
 
 const { t, te, locale } = useI18n()
@@ -257,6 +258,8 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
 
     <RouterLink v-if="gateway && !gateway.ready" to="/admin/gateways" class="btn-secondary inline-flex items-center">{{ t('onboarding.gatewaySetup') }}</RouterLink>
 
+
+    <HostAbusePolicyPanel />
 
     <div class="flex flex-wrap gap-2" role="tablist" :aria-label="t('onboarding.title')" @keydown="switchPoolTab">
       <button id="pool-tab-hosts" type="button" role="tab" :tabindex="activeTab === 'hosts' ? 0 : -1" :aria-selected="activeTab === 'hosts'" aria-controls="pool-tab-content" :class="activeTab === 'hosts' ? 'btn-primary' : 'btn-secondary'" @click="activeTab = 'hosts'">{{ t('hostInventory.hostsTab') }}</button>

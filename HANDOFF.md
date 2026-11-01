@@ -1,5 +1,16 @@
 # 版本与验证记录
 
+## 2026-11-01 接手收尾：三角色换域名、全局防滥用与批量失败审查
+
+- Owner将原聊天剩余工作交给当前对话，授权复核、必要验证、分项提交推送与CI，仍暂不发版。RAG01/05现有显式旧→新域名/版本迁移、丢排队恢复；主控兼网关、独立、备用角色各自保留身份、任务、核验结果。外部域名任务领取、远端写前和最终落库均重核原管理员角色、会话与凭据，授权寿命短于撤销标记保留期。一次密码仅供准备受限通道，后续安全故障自动退避；身份/DNS冲突保留失败，不宣称已换绑。
+- 全局BT/挖矿策略一次保存供已有与新宿主继承，Agent保留离线重试、组件重启恢复、真实应用回执与版本/nonce保护。旧备份策略更旧或缺失、宿主仍有较新保护时显示冲突，管理员核对开关后显式保存统一新版本；异常大版本隔离。管理页汇总、异常优先、搜索分页及全部异常重试，不要求逐台选择。
+- 接手修正：换域名请求编号的TypeScript推断过窄；权限失效错误映射；两个新组件操作按钮的主题颜色过渡导致瞬时对比度不足。真实Chrome验证三角色操作、全局策略、失败恢复、旧回执隔离、三语/1440/768/390/亮暗。共享主题仍保留原过渡，稳态截图等待实际动画结束，未把过渡中间帧当作稳态通过。
+- 独立批量审查确认一处缺陷：前100台已提交、后5台失败时，失败明细事务自身报错会跳过独立审计并丢失部分成功响应。现失败明细存储异常仍写安全错误码及原逐台原因到独立审计，保留100/5结果；审计也失败则报错，不伪称持久记录。管理员用户行锁→策略锁、逐批重验、版本及原nonce比较保持，旧失败不覆盖后续成功，撤权仅追加审计不写配置。真实PG触发器复现见`logs/takeover-bulk-review-before.log`（exit1），修复与双失败回归见`logs/takeover-bulk-review-fixed.log`（exit0）。
+- 最终本地证据：`takeover-bulk-review-server-build.log`后端类型/构建exit0；`takeover-final-client-build.log`双端类型/构建及dist边界exit0；`takeover-final-frontend-guards.log`路由/i18n、`takeover-final-ui-lint.log`两新组件零ESLint告警、`takeover-gateway-abuse-ui-final.log`实际Chrome流程均通过；`takeover-host-protocol-final.log`共享机器列表/协议流程浏览器回归exit0；`takeover-final-manifest.log`清单有效。Go定向二进制测试见`takeover-abuse-go-final.log`与`takeover-panel-go-final.log`，均自然exit0。未重复全库测试。
+- 复用未变证据：`gateway-domain-control-python-frozen.log`及`gateway-domain-control-python-identity.log`（16项）、`gateway-domain-host-python.log`（15项）、`gateway-abuse-final-guards.log`（含收敛）、`gateway-dns-channel-pg-final.log`/`gateway-dns-channel-python-deadline.log`、`gateway-domain-integration.log`（真实PG 15项，exit0）。原名含final但失败的`gateway-domain-control-python-final.log`、`gateway-domain-convergence-final.log`不计成功；Windows明确跳过的root文件/网络测试交新CI。Linux编译只证明可编译。
+- 首页974af39e/CI41223293206、警告6cfe64e1/CI41229513065、Node24 893df4b9/CI41230893756、RAG02–04 252fae4c/CI41235278424及Agent41235278399均已全绿，完整SHA与终态保存在对应logs JSON；不再轮询。旧payincus-ci已删除，payincus-node24-ci已迁至本接手聊天跟剩余修复。新提交与CI记录见`logs/takeover-final-ci.json`（推送后生成），不能以本地通过代替CI终态。
+- 未操作生产、客户宿主或DNS，未打tag/Release、未触发发行预览/Pages、未升级系统Node。BT/挖矿特征匹配不等于识别全部加密/隧道流量；完整千台实证、真实SSH跨域换绑、Linux数据包、独立OSS整机恢复、备用接管/切回与72小时仍各自保留边界，其中Linux原生检查待本提交CI。
+
 ## 2026-11-01 两轮审查修复：恢复取消、连接与Agent归属（RAG02–04）
 
 - `host-pool-recovery.ts`在申请事务前建立共享60秒期限，贯穿连接、锁等待、查询和每次远端写；8秒请求超时会取消共享signal，迟到GET不能再推进DELETE。原转发helper复用受限request，无须改变其它消费者。连接器复用当前tx，清理请求审计在事务外先持久写入pending且失败即拒绝；后续回滚不删除审计，不扩大连接池。

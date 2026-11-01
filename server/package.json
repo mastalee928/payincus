@@ -509,9 +509,11 @@
     "test:platform-recovery-reconciliation-integration": "node scripts/test-platform-recovery-reconciliation-integration.mjs",
     "test:simple-gateway-setup": "node --import tsx scripts/test-simple-gateway-setup.ts",
     "test:gateway-dns-convergence": "node ../scripts/test-gateway-dns-convergence.cjs",
+    "test:host-abuse-policy": "node --import tsx scripts/test-host-abuse-policy.ts",
     "test:gateway-domain-guards": "node --import tsx scripts/test-gateway-domain-guards.ts",
     "test:gateway-domain-integration": "node --import tsx scripts/test-gateway-domain-integration.ts",
     "test:gateway-domain-key-integration": "node --import tsx scripts/test-gateway-domain-key-integration.ts",
+    "test:gateway-abuse-ui": "node ../scripts/test-gateway-abuse-ui.mjs",
     "test:gateway-dns-channel": "node --import tsx scripts/test-gateway-dns-channel.ts"
   },
   "dependencies": {

@@ -316,20 +316,21 @@ preflight_environment() {
 }
 
 ensure_ingress_dependencies() {
-  command -v nft >/dev/null 2>&1 && return 0
+  if command -v nft >/dev/null 2>&1 && command -v iptables-restore >/dev/null 2>&1 && command -v ip6tables-restore >/dev/null 2>&1; then return 0; fi
   if [ "${DRY_RUN}" = "1" ]; then
-    echo "+ install nftables for the ingress protocol policy"
+    echo "+ install nftables and iptables for the ingress and abuse prevention policies"
     return 0
   fi
   if command -v apk >/dev/null 2>&1; then
-    apk add --no-cache nftables
+    apk add --no-cache nftables iptables ip6tables
   elif command -v apt-get >/dev/null 2>&1; then
     apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nftables
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nftables iptables
   else
-    fail "nftables is required; install it with your system package manager"
+    fail "nftables and iptables are required; install them with your system package manager"
   fi
   command -v nft >/dev/null 2>&1 || fail "nftables installation failed"
+  command -v iptables-restore >/dev/null 2>&1 && command -v ip6tables-restore >/dev/null 2>&1 || fail "iptables installation failed"
 }
 
 rollback_agent_install() {

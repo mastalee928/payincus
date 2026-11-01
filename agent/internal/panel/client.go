@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"incudal-agent/internal/abuse"
 	"incudal-agent/internal/config"
 	"incudal-agent/internal/ingress"
 	"incudal-agent/internal/protocol"
@@ -25,12 +26,13 @@ type Client struct {
 }
 
 type HeartbeatResult struct {
+	AbusePolicy  *abuse.Instruction
 	PortProtocol *ingress.Instruction
-	StatusCode int
-	Body       string
-	OK         bool
-	Upgrade    *UpgradeInstruction
-	LatencyMs  int64
+	StatusCode   int
+	Body         string
+	OK           bool
+	Upgrade      *UpgradeInstruction
+	LatencyMs    int64
 }
 
 type UpgradeInstruction struct {
@@ -43,8 +45,9 @@ type UpgradeInstruction struct {
 }
 
 type heartbeatResponse struct {
+	AbusePolicy  *abuse.Instruction   `json:"abusePolicy"`
 	PortProtocol *ingress.Instruction `json:"portProtocol"`
-	Upgrade *UpgradeInstruction `json:"upgrade"`
+	Upgrade      *UpgradeInstruction  `json:"upgrade"`
 }
 
 func New(cfg config.Config) *Client {
@@ -110,6 +113,7 @@ func (client *Client) Heartbeat(ctx context.Context, payload map[string]any) (He
 	if err := json.Unmarshal(responseBody, &parsedResponse); err == nil {
 		result.Upgrade = parsedResponse.Upgrade
 		result.PortProtocol = parsedResponse.PortProtocol
+		result.AbusePolicy = parsedResponse.AbusePolicy
 	}
 
 	var parsed map[string]any

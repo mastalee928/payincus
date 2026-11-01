@@ -1,6 +1,7 @@
 import hostReplacementRoutes from './routes/host-replacements.js'
 import adminInstancePushRoutes from './routes/admin-instance-push.js'
 import hostPortProtocolRoutes from './routes/host-port-protocol.js'
+import hostAbusePolicyRoutes from './routes/host-abuse-policy.js'
 import hostOnboardingRoutes from './routes/host-onboarding.js'
 import hostPoolPriceRoutes from './routes/host-pool-prices.js'
 import poolOrderRoutes from './routes/pool-orders.js'
@@ -535,6 +536,7 @@ await fastify.register(hostRoutes, { prefix: '/api/hosts' })
 await fastify.register(hostReplacementRoutes, { prefix: '/api/instances' })
 await fastify.register(adminInstancePushRoutes, { prefix: '/api/admin/instance-push' })
 await fastify.register(hostPortProtocolRoutes, { prefix: '/api/hosts' })
+await fastify.register(hostAbusePolicyRoutes, { prefix: '/api/hosts' })
 await fastify.register(hostOnboardingRoutes, { prefix: '/api/host-onboarding' })
 await fastify.register(hostPoolPriceRoutes, { prefix: '/api/host-pools' })
 await fastify.register(poolOrderRoutes, { prefix: '/api/instances' })

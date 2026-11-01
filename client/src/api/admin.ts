@@ -1,6 +1,7 @@
 import type { ProxySiteView, ProxySiteOperationRequest, ProxySiteMutationResult, ProxySiteDnsResult } from '@/types/proxy-sites'
 import type { HostSshConnection, OnboardingCredentials, CreateOnboardingRequest, OnboardingListResponse, OnboardingGatewayStatus, HostRegionGroup, HostMachineGroup, HostInventoryResponse, HostInventoryQuery, UpdateHostGroupsRequest, HostPoolPrice, HostPoolPriceInput, HostPoolInventoryRow } from '@/types/host-pool'
 import axios, { type AxiosInstance } from 'axios'
+import type { HostAbuseOverview, HostAbusePolicy } from '@/types/host-abuse-policy'
 import type { GatewayDomainStatus } from '@/types/management-gateway'
 import type { AdminInstancePushPreview, AdminInstancePushTarget } from '@/types/instance-push'
 import type { OssConfig, OssTask, OssBackup, OssDirectory } from '@/types/aliyun-oss'
@@ -904,6 +905,9 @@ const api = {
 
   // 主机管理
   hosts: {
+    abusePolicy: (params: { page?: number; search?: string; state?: string } = {}): Promise<HostAbuseOverview> => http.get('/hosts/abuse-policy', { params }),
+    saveAbusePolicy: (policy: HostAbusePolicy): Promise<HostAbusePolicy> => http.put('/hosts/abuse-policy', policy),
+    retryAbusePolicy: (revision: number): Promise<{ queued: number; failed: number; results: Array<{ id: number; success: boolean; code?: string }> }> => http.post('/hosts/abuse-policy/retry', { revision }),
     list: (params: Record<string, unknown> = {}): Promise<{ hosts: HostWithDetails[]; total: number; page: number; pageSize: number; totalPages: number }> =>
       http.get('/hosts', { params }),
     // 管理员专用：获取托管节点列表

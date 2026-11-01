@@ -5,6 +5,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { Prisma } from '@prisma/client'
+import { ABUSE_CAPABILITY, AbusePolicyError, abuseInstruction, normalizeAbuseStatus } from '../services/host-abuse-policy.js'
 import { createHash } from 'crypto'
 import { existsSync, readFileSync, statSync } from 'fs'
 import { isIP } from 'net'
@@ -50,6 +51,7 @@ interface AgentInstallCommandBody {
 
 interface AgentHeartbeatBody {
   portProtocolStatus?: Record<string, unknown>
+  abusePolicyStatus?: Record<string, unknown>
   version?: string
   capabilities?: string[]
   runtime?: Record<string, unknown>
@@ -1031,6 +1033,7 @@ async function serializeAgentStatus(agent: HostAgentRecord) {
 
 function buildHeartbeatReport(body: AgentHeartbeatBody): Record<string, unknown> {
   return {
+    abusePolicyStatus: normalizeAbuseStatus(body.abusePolicyStatus),
     runtime: body.runtime ?? {},
     incus: body.incus ?? {},
     resources: body.resources ?? {},
@@ -1651,9 +1654,18 @@ export default async function agentRoutes(fastify: FastifyInstance) {
       throw error
     }
 
+    let abusePolicy: Awaited<ReturnType<typeof abuseInstruction>> = null
+    if (normalizeCapabilities(request.body.capabilities).includes(ABUSE_CAPABILITY)) {
+      try { abusePolicy = await abuseInstruction(agent.hostId) }
+      catch (error) {
+        if (!(error instanceof AbusePolicyError)) throw error
+        request.log.warn({ hostId: agent.hostId, code: error.code }, 'Host abuse policy is invalid; retaining existing host protection')
+      }
+    }
     const hostProtocol = await prisma.host.findUniqueOrThrow({ where: { id: agent.hostId }, select: { portProtocol: true, portProtocolRevision: true } })
     return {
       portProtocol: { mode: hostProtocol.portProtocol, revision: hostProtocol.portProtocolRevision },
+      abusePolicy,
       ok: true,
       serverTime: now.toISOString(),
       taskPollIntervalSeconds: 15,

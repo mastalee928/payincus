@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"incudal-agent/internal/abuse"
 	"incudal-agent/internal/config"
 	"incudal-agent/internal/dedicatedipv6"
 	"incudal-agent/internal/ingress"
@@ -20,13 +21,23 @@ import (
 
 var version = "dev"
 var lastPortProtocolStatus *ingress.Status
+var abusePolicy = abuse.New()
 
 func main() {
 	configPath := flag.String("config", "/etc/incudal-agent/config.yaml", "agent config file")
 	once := flag.Bool("once", false, "send one heartbeat and exit")
 	restoreIngress := flag.Bool("restore-port-protocol", false, "restore saved ingress policy")
+	restoreAbuse := flag.Bool("restore-abuse-policy", false, "restore saved customer abuse policy")
 	syncIPv6 := flag.Bool("sync-dedicated-ipv6", false, "reconcile managed dedicated IPv6 networking")
 	flag.Parse()
+	if *restoreAbuse {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := abusePolicy.Restore(ctx); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if *syncIPv6 {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -61,8 +72,12 @@ func main() {
 	if err := dedicatedipv6.Restore(ctx); err != nil {
 		log.Printf("restore dedicated IPv6: %v", err)
 	}
+	if err := abusePolicy.Restore(ctx); err != nil {
+		log.Printf("restore abuse policy: %v", err)
+	}
 	// IPv6 recovery must work even while the panel or heartbeat is unavailable.
 	go reconcileIPv6(ctx)
+	go reconcileAbuse(ctx)
 	client := panel.New(cfg)
 	if *once {
 		if _, err := sendHeartbeat(ctx, client, cfg.HeartbeatIntervalSeconds); err != nil {
@@ -118,8 +133,24 @@ func reconcileIPv6(ctx context.Context) {
 	}
 }
 
+func reconcileAbuse(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			abusePolicy.Sync(ctx, nil)
+		}
+	}
+}
+
 func sendHeartbeat(ctx context.Context, client *panel.Client, heartbeatIntervalSeconds int) (panel.HeartbeatResult, error) {
 	payload := report.HeartbeatPayload(ctx, version, heartbeatIntervalSeconds)
+	if status := abusePolicy.Sync(ctx, nil); status != nil {
+		payload["abusePolicyStatus"] = *status
+	}
 	if lastPortProtocolStatus != nil {
 		payload["portProtocolStatus"] = *lastPortProtocolStatus
 	}
@@ -127,6 +158,7 @@ func sendHeartbeat(ctx context.Context, client *panel.Client, heartbeatIntervalS
 	if err != nil {
 		return result, err
 	}
+	abusePolicy.Sync(ctx, result.AbusePolicy)
 	if result.PortProtocol != nil {
 		applyCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		status := ingress.Apply(applyCtx, *result.PortProtocol)

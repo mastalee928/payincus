@@ -3,7 +3,9 @@ import { en as ipv6Delivery } from './ipv6-delivery'
 import { en as managementGateway } from './management-gateway'
 import { en as expiryEnforcement } from './expiry-enforcement'
 import { en as gatewayEndpoint } from './gateway-endpoint'
+import { en as hostAbuse } from './host-abuse-policy'
 export default {
+    hostAbuse,
     homeMapDemo: {
         pageTitle: "Choose your next server",
         titleFirst: "Your next server,",

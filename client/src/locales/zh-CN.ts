@@ -3,7 +3,9 @@ import { zhCN as ipv6Delivery } from './ipv6-delivery'
 import { zhCN as managementGateway } from './management-gateway'
 import { zhCN as expiryEnforcement } from './expiry-enforcement'
 import { zhCN as gatewayEndpoint } from './gateway-endpoint'
+import { zhCN as hostAbuse } from './host-abuse-policy'
 export default {
+    hostAbuse,
     homeMapDemo: {
         pageTitle: "选择你的下一台主机",
         titleFirst: "你的下一台主机，",
