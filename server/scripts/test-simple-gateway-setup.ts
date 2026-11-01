@@ -3,7 +3,7 @@ import Fastify from 'fastify'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { validateSimpleGatewayRequest, simpleGatewayPlanHash, detectedGatewayPublicIPv4 } from '../src/lib/local-gateway-setup.js'
-import { gatewayDnsRetry, resumeGatewayDnsState } from '../src/lib/gateway-dns-queue.js'
+import { GATEWAY_DNS_MAX_ATTEMPTS, gatewayDnsRetry, resumeGatewayDnsState } from '../src/lib/gateway-dns-queue.js'
 import { registerSimpleGatewaySetupRoutes } from '../src/routes/simple-gateway-setup.js'
 import { gatewaySshHost } from '../src/services/onboarding-ssh.js'
 
@@ -36,12 +36,15 @@ assert.equal(detectedGatewayPublicIPv4('8.8.4.4\n'), '8.8.4.4')
 for (const value of ['10.0.0.1', '127.0.0.1', 'html response', '8.8.4.4;id']) assert.throws(() => detectedGatewayPublicIPv4(value))
 assert.equal(gatewayDnsRetry('SSH_CONNECT_FAILED', 1, now), now + 5000)
 assert.equal(gatewayDnsRetry('SSH_CONNECT_FAILED', 2, now), now + 20000)
-assert.equal(gatewayDnsRetry('SSH_CONNECT_FAILED', 3, now), null)
+assert.equal(gatewayDnsRetry('SSH_CONNECT_FAILED', 3, now), now + 80000)
+assert.equal(gatewayDnsRetry('SSH_CONNECT_FAILED', 7, now), now + 300000)
+assert.equal(gatewayDnsRetry('SSH_CONNECT_FAILED', GATEWAY_DNS_MAX_ATTEMPTS, now), now + 900000)
+assert.equal(gatewayDnsRetry('SSH_CONNECT_FAILED', 10000, now), now + 900000)
 for (const code of ['SSH_HOST_KEY_CHANGED', 'GATEWAY_DNS_HOST_IDENTITY_CHANGED', 'GATEWAY_DNS_ADMIN_REQUIRED']) assert.equal(gatewayDnsRetry(code, 1, now), null)
 const running = { state: 'running', actor: 1, attempt: 1, step: 'install' }
 assert.equal(resumeGatewayDnsState(running, true, now), running)
 assert.equal(resumeGatewayDnsState(running, false, now).state, 'queued')
-assert.equal(resumeGatewayDnsState({ ...running, attempt: 3 }, false, now).state, 'failed')
+assert.equal(resumeGatewayDnsState({ ...running, attempt: GATEWAY_DNS_MAX_ATTEMPTS }, false, now).state, 'queued')
 const thousand = Array.from({ length: 1000 }, (_, index) => resumeGatewayDnsState({ ...running, actor: index + 1 }, false, now))
 assert.equal(thousand.filter(item => item.state === 'queued').length, 1000)
 

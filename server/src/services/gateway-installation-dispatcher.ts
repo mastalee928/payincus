@@ -24,6 +24,8 @@ export async function dispatchGatewayInstallationTasks() {
   dispatching = true
   try {
     await expireGatewayInstallationTasks()
+    const { dispatchGatewayDomainTasks } = await import('./gateway-domain-management.js')
+    await dispatchGatewayDomainTasks(gatewayInstallationExecutorAvailable, launchGatewayInstallationTask)
     if (!gatewayInstallationExecutorAvailable()) return
     const tasks = await prisma.managementGatewayTask.findMany({ where: { kind: 'install', OR: [
       { status: 'awaiting_confirmation', preparationState: 'queued' }, { status: 'queued', preparationState: 'ready' }

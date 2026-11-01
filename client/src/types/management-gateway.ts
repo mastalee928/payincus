@@ -25,6 +25,12 @@ export interface ManagementGateway {
   target: { machineId: string; ssh: null | { address: string; port: number; fingerprint: string } }
   tasks: GatewayManagementTask[]
 }
+export interface GatewayDomainStatus {
+  gatewayId: string; purpose: 'independent' | 'backup'; scope: 'console'
+  hostname: string; desiredHostname: string | null; state: 'idle' | 'queued' | 'running' | 'retrying' | 'succeeded' | 'failed'
+  step: string; errorCode: string | null; attempt: number; retryAt: number | string | null
+  revision: string; requestId: string | null; channelReady: boolean; credentialsRequired: boolean
+}
 export interface RemoteGatewayPreparation {
   retryable?: boolean
   requestId: string; gatewayId: string; actorId: number; name: string; purpose: 'independent' | 'backup'; address: string; hostname: string

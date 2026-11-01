@@ -46,6 +46,10 @@ jobs:
           python3 scripts/test-onboarding-control.py
           python3 scripts/test-onboarding-gateway.py
           sudo python3 -B scripts/test-host-gateway-dns.py
+          sudo python3 -B scripts/test-gateway-domain-control.py
+          sudo python3 -B scripts/test-upgrade-onboarding-gateway.py
+          pnpm --filter server test:gateway-dns-convergence
+          pnpm --filter server test:gateway-domain-guards
           sudo apt-get update -qq
           sudo apt-get install -y -qq wireguard-tools iproute2
           sudo env INCUDAL_NETWORK_NAMESPACE_TEST=1 unshare --net python3 scripts/test-onboarding-control-network.py
@@ -689,6 +693,15 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
           pnpm --filter server exec prisma generate
           pnpm --filter server exec prisma migrate deploy
+      - name: Global abuse policy and remote domain recovery
+        run: |
+          pnpm --filter server test:gateway-dns-channel
+          pnpm --filter server test:gateway-domain-integration
+        env:
+          JWT_SECRET: isolated-gateway-policy-ci-fixture
+      - name: Gateway management identity on first external setup and restore
+        working-directory: server
+        run: sudo env DATABASE_URL="$DATABASE_URL" "$(command -v node)" --import tsx scripts/test-gateway-domain-key-integration.ts
       - name: Verify persistent planning, DNS pinning and credential boundaries
         run: pnpm --filter server test:remote-gateway-setup-integration
 

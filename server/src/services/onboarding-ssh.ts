@@ -69,6 +69,7 @@ export interface OnboardingGateway {
   sshHost: string
   managementSshPublicKey: string
   peers?: GatewayPeer[]
+  dnsProtocolVersion?: number
 }
 
 export interface GatewayPeer {
@@ -93,6 +94,7 @@ export function validateGatewayResponse(raw: unknown, endpoint: string, sshHost:
   if (!match || Number(match[2]) < 1 || Number(match[2]) > 65535 || !/^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(sshHost)) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
   if (typeof value.managementSshPublicKey !== 'string' || !/^ssh-ed25519 [A-Za-z0-9+/]+={0,2}$/.test(value.managementSshPublicKey) || value.managementSshPublicKey.length > 200) throw new OnboardingError('GATEWAY_MANAGEMENT_KEY_MISSING')
   if (ssh2.utils.parseKey(value.managementSshPublicKey) instanceof Error) throw new OnboardingError('GATEWAY_MANAGEMENT_KEY_MISSING')
+  if (value.dnsProtocolVersion !== undefined && value.dnsProtocolVersion !== 2) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
   let peers: GatewayPeer[] | undefined
   if (value.peers !== undefined) {
     if (!Array.isArray(value.peers) || value.peers.length > 10000) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
@@ -107,7 +109,8 @@ export function validateGatewayResponse(raw: unknown, endpoint: string, sshHost:
     if (new Set(peers.map(peer => peer.nodeId)).size !== peers.length || new Set(peers.map(peer => peer.managementIp)).size !== peers.length) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
   }
   return { publicKey: value.publicKey, controlIp: value.controlIp, network: String(value.network), peers,
-    managementIp: value.managementIp as string | undefined, managementSshPublicKey: value.managementSshPublicKey, endpoint, sshHost }
+    managementIp: value.managementIp as string | undefined, managementSshPublicKey: value.managementSshPublicKey, endpoint, sshHost,
+    ...(value.dnsProtocolVersion === 2 ? { dnsProtocolVersion: 2 } : {}) }
 }
 
 export function gatewayConfigured(): boolean {
@@ -141,16 +144,22 @@ export async function gatewayCommand(command = 'status'): Promise<OnboardingGate
   } finally { client.end() }
 }
 
-export async function installGatewayHostDns(nodeId: string, input: { hostname: string; port: number; sshPort: number; sshFingerprint: string; nodePublicKey: string }) {
+export async function installGatewayHostDns(nodeId: string, input: { hostname: string; port: number; sshPort: number; sshFingerprint: string; nodePublicKey: string;
+  revision?: number; previous?: Array<{ hostname: string; revision: number }> }) {
   if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(nodeId) || !gatewayConfigured()) throw new OnboardingError('GATEWAY_NOT_CONFIGURED')
   const privateKey = await readFile(process.env.ONBOARDING_GATEWAY_KEY_PATH!)
   const client = await connectOnboardingSsh({ host: process.env.ONBOARDING_GATEWAY_HOST!, port: Number(process.env.ONBOARDING_GATEWAY_PORT || 22), privateKey },
     async fingerprint => fingerprint === process.env.ONBOARDING_GATEWAY_FINGERPRINT)
   try {
+    if (input.revision !== undefined) {
+      const status = JSON.parse(await sshExec(client, 'status')) as { dnsProtocolVersion?: number }
+      if (status.dnsProtocolVersion !== 2) throw new OnboardingError('GATEWAY_DNS_HELPER_UPGRADE_REQUIRED')
+    }
     const receipt = JSON.parse(await sshExec(client, `dns ${nodeId}`, JSON.stringify(input), 100000))
     if (receipt.nodeId !== nodeId || receipt.dnsRefreshInstalled !== true || receipt.endpoint !== `${input.hostname}:${input.port}` || receipt.keysAndRoutesPreserved !== true ||
-        Object.keys(receipt).sort().join(',') !== 'dnsRefreshInstalled,endpoint,keysAndRoutesPreserved,nodeId') throw new OnboardingError('GATEWAY_DNS_INSTALL_FAILED')
-    return receipt as { nodeId: string; dnsRefreshInstalled: true; endpoint: string; keysAndRoutesPreserved: true }
+        (input.revision !== undefined && receipt.revision !== input.revision) ||
+        Object.keys(receipt).sort().join(',') !== 'dnsRefreshInstalled,endpoint,keysAndRoutesPreserved,nodeId' + (input.revision === undefined ? '' : ',revision')) throw new OnboardingError('GATEWAY_DNS_INSTALL_FAILED')
+    return receipt as { nodeId: string; dnsRefreshInstalled: true; endpoint: string; keysAndRoutesPreserved: true; revision?: number }
   } catch (error) { throw error instanceof OnboardingError ? error : new OnboardingError('GATEWAY_DNS_INSTALL_FAILED') }
   finally { client.end() }
 }

@@ -60,13 +60,6 @@ async function confirm() {
   catch (failure) { error.value = message((failure as { code?: string }).code) }
   finally { busy.value = false }
 }
-async function saveDomain() {
-  if (busy.value || !hostname.value.trim()) return
-  busy.value = true; error.value = ''
-  try { const endpoint = await api.hostOnboarding.saveGatewayEndpoint({ hostname: hostname.value.trim() }); savedHostname.value = endpoint.endpoint?.hostname || ''; await loadGateway() }
-  catch (failure) { error.value = message((failure as { code?: string }).code) }
-  finally { busy.value = false }
-}
 onMounted(async () => {
   try {
     const status = await api.hostOnboarding.gatewaySetupStatus()
@@ -115,11 +108,10 @@ onUnmounted(() => { disposed = true; clearTimeout(timer) })
           <p v-if="loading" role="status" class="text-sm text-themed-muted">{{ t('gatewayEndpoint.setup.loading') }}</p>
           <p v-if="gateway?.local === false" role="status" class="text-sm text-amber-700 dark:text-amber-300">{{ t('gatewayEndpoint.flow.localMigrationBlocked') }}</p>
           <button type="button" class="btn-primary" :disabled="loading || busy || running || !available || gateway?.local === false" @click="start">{{ t(busy || running ? 'gatewayEndpoint.setup.working' : 'gatewayEndpoint.setup.start') }}</button>
-          <label v-if="task?.plan || gateway?.ready" class="block text-sm text-themed">{{ t('gatewayEndpoint.hostname') }}
+          <label v-if="task?.state === 'awaiting_confirmation' && task.plan" class="block text-sm text-themed">{{ t('gatewayEndpoint.hostname') }}
             <input v-model.trim="hostname" required maxlength="253" autocomplete="off" class="input mt-2 w-full" aria-describedby="gateway-setup-domain-help" :disabled="busy || running || gateway?.local === false" />
           </label>
-          <p v-if="task?.plan || gateway?.ready" id="gateway-setup-domain-help" class="text-xs text-themed-muted">{{ t('gatewayEndpoint.hint') }}</p>
-          <button v-if="gateway?.ready && gateway.local && task?.state !== 'awaiting_confirmation' && !running" type="button" class="btn-secondary" :disabled="busy || !hostname || hostname === savedHostname" @click="saveDomain">{{ t('gatewayEndpoint.save') }}</button>
+          <p v-if="task?.state === 'awaiting_confirmation' && task.plan" id="gateway-setup-domain-help" class="text-xs text-themed-muted">{{ t('gatewayEndpoint.hint') }}</p>
         </div>
         <div v-if="task?.state === 'awaiting_confirmation' && task.plan" class="rounded-lg bg-themed-secondary p-4 space-y-3">
           <h3 class="text-sm font-semibold text-themed">{{ t('gatewayEndpoint.setup.review') }}</h3>
@@ -139,7 +131,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer) })
       </div>
       <GatewayExtensionEntrypoints :purpose="selected === 'local' ? null : selected" @select="selected = $event" />
     </div>
-    <section v-if="hasCurrent" class="card p-5"><GatewayEndpointPanel :manage-domain="false" /></section>
+    <section v-if="hasCurrent" class="card p-5"><GatewayEndpointPanel @changed="savedHostname = $event" /></section>
     <details class="card p-5 space-y-3"><summary class="cursor-pointer text-sm font-semibold text-themed">{{ t('gatewayEndpoint.flow.recovery') }}</summary><div class="pt-3 space-y-3 text-sm text-themed-muted"><p>{{ t('gatewayEndpoint.flow.standbyMeaning') }}</p><p>{{ t('gatewayEndpoint.flow.recoverController') }}</p><p>{{ t('gatewayEndpoint.flow.recoverGateway') }}</p><p>{{ t('gatewayEndpoint.flow.switchBack') }}</p><p class="text-amber-700 dark:text-amber-300">{{ t('gatewayEndpoint.flow.recoveryPending') }}</p></div></details>
   </section>
 </template>

@@ -1,26 +1,30 @@
 import type { FastifyInstance } from 'fastify'
+import { isIPv4 } from 'node:net'
 import { normalizeOrigin } from '../lib/origin-config.js'
 import { normalizeOnboardingAddress, OnboardingError } from '../lib/host-onboarding.js'
 import { stableGatewayEndpointText, validateStableGatewayEndpoint } from '../lib/onboarding-gateway-endpoint.js'
 import { recoveryHeld } from '../services/platform-backup-core.js'
-import { loadStableGatewayEndpoint, saveStableGatewayEndpoint, resolveGatewayEndpointAddress } from '../services/onboarding-gateway-endpoint.js'
+import { loadStableGatewayEndpoint, saveStableGatewayEndpoint, resolveGatewayEndpointAddress, loadGatewayEndpointPlan } from '../services/onboarding-gateway-endpoint.js'
 import { gatewayCommand, gatewayConfigured } from '../services/onboarding-ssh.js'
 import { listHostGatewayDns, queueHostGatewayDns, startHostGatewayDnsDispatcher } from '../services/host-gateway-dns.js'
+import { ensureGatewayDnsChannel, gatewayDnsChannelStatus } from '../services/gateway-dns-channel.js'
 
 const installedOperations = {
   load: loadStableGatewayEndpoint, save: saveStableGatewayEndpoint,
   resolve: resolveGatewayEndpointAddress, gateway: gatewayCommand, configured: gatewayConfigured,
-  hosts: listHostGatewayDns, install: async (id: string, actor: number) => queueHostGatewayDns(actor, id), queue: queueHostGatewayDns
+  hosts: listHostGatewayDns, install: async (id: string, actor: number) => queueHostGatewayDns(actor, id), queue: queueHostGatewayDns,
+  plan: loadGatewayEndpointPlan, channel: gatewayDnsChannelStatus, prepare: ensureGatewayDnsChannel
 }
-type EndpointOperations = Omit<typeof installedOperations, 'install' | 'queue'> & {
-  install: (id: string, actor: number) => Promise<unknown>; queue?: typeof queueHostGatewayDns
+type EndpointOperations = Omit<typeof installedOperations, 'install' | 'queue' | 'plan' | 'channel' | 'prepare'> & {
+  install: (id: string, actor: number) => Promise<unknown>; queue?: typeof queueHostGatewayDns; plan?: typeof loadGatewayEndpointPlan
+  channel?: typeof gatewayDnsChannelStatus; prepare?: typeof ensureGatewayDnsChannel
 }
 export async function registerGatewayEndpointRoutes(app: FastifyInstance, operations: EndpointOperations = installedOperations) {
   app.get('/gateway/endpoint', { onRequest: [app.authenticateAdmin] }, async (_request, reply) => {
     reply.header('Cache-Control', 'no-store')
     const endpoint = await operations.load()
     return { endpoint, effectiveEndpoint: endpoint ? stableGatewayEndpointText(endpoint) : process.env.ONBOARDING_WG_ENDPOINT || null,
-      existingHostsNeedUpdate: true }
+      existingHostsNeedUpdate: true, revision: (await operations.plan?.())?.revision ?? null, ...(await operations.channel?.()) }
   })
   app.get('/gateway/endpoint/hosts', { onRequest: [app.authenticateAdmin] }, async (_request, reply) => {
     reply.header('Cache-Control', 'no-store')
@@ -55,7 +59,9 @@ export async function registerGatewayEndpointRoutes(app: FastifyInstance, operat
   app.put('/gateway/endpoint', {
     onRequest: [app.authenticateAdmin], bodyLimit: 2048, config: { rateLimit: { max: 4, timeWindow: '1 minute' } },
     schema: { body: { type: 'object', additionalProperties: false, required: ['hostname'], properties: {
-      hostname: { type: 'string', maxLength: 253 }, port: { type: 'integer', minimum: 1, maximum: 65535 }
+      hostname: { type: 'string', maxLength: 253 }, port: { type: 'integer', minimum: 1, maximum: 65535 },
+      expectedHostname: { type: 'string', maxLength: 253 },
+      credentials: { type: 'object', additionalProperties: false, required: ['password'], properties: { password: { type: 'string', minLength: 1, maxLength: 1024 } } }
     } } }
   }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
@@ -67,11 +73,14 @@ export async function registerGatewayEndpointRoutes(app: FastifyInstance, operat
       const configured = operations.configured()
       const gateway = configured ? await operations.gateway() : null
       const current = gateway ? /:([0-9]+)$/.exec(gateway.endpoint) : null
-      const body = request.body as { hostname: string; port?: number }
+      const body = request.body as { hostname: string; port?: number; expectedHostname?: string; credentials?: { password: string } }
+      const savedBefore = await operations.load()
+      const expectedHostname = body.expectedHostname ?? savedBefore?.hostname ?? ''
+      if (expectedHostname !== (savedBefore?.hostname ?? '')) throw new OnboardingError('GATEWAY_DNS_SETTINGS_CONFLICT')
       const input = validateStableGatewayEndpoint({ hostname: body.hostname, port: current ? Number(current[1]) : 51820 })
       if (!configured) {
         await operations.resolve(input.hostname)
-        const endpoint = await operations.save(input)
+        const endpoint = await operations.save(input, request.user.id, expectedHostname, undefined, request.user)
         const synchronization = operations.queue ? await operations.queue(request.user.id) : { queued: 0 }
         return { endpoint, effectiveEndpoint: stableGatewayEndpointText(endpoint), existingHostsNeedUpdate: true, ...synchronization }
       }
@@ -80,12 +89,13 @@ export async function registerGatewayEndpointRoutes(app: FastifyInstance, operat
       const configuredHost = gateway.endpoint.replace(/:[0-9]+$/, '')
       const originalAddress = await operations.resolve(normalizeOnboardingAddress(configuredHost))
       if (address !== originalAddress) throw new OnboardingError('GATEWAY_DNS_TARGET_MISMATCH')
+      await operations.prepare?.(gateway, body.credentials?.password, request.user)
       if (recoveryHeld()) return reply.code(409).send({ code: 'GATEWAY_RECOVERY_HELD' })
-      const endpoint = await operations.save(input)
+      const endpoint = await operations.save(input, request.user.id, expectedHostname, isIPv4(configuredHost) ? undefined : configuredHost, request.user)
       const synchronization = operations.queue ? await operations.queue(request.user.id) : { queued: 0 }
       return { endpoint, effectiveEndpoint: stableGatewayEndpointText(endpoint), existingHostsNeedUpdate: true, ...synchronization }
     } catch (error) {
-      return reply.code(error instanceof OnboardingError ? 400 : 500).send({ code: error instanceof OnboardingError ? error.code : 'GATEWAY_DNS_SAVE_FAILED' })
+      return reply.code(error instanceof OnboardingError ? error.code.includes('CONFLICT') ? 409 : 400 : 500).send({ code: error instanceof OnboardingError ? error.code : 'GATEWAY_DNS_SAVE_FAILED' })
     }
   })
   let stop: (() => void) | undefined

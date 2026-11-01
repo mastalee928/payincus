@@ -14,6 +14,7 @@ import { readDiscoveryPrivateFile, validateDiscoveryPrivateDirectory } from './c
 import { inspectLocalManagementGateway, inspectRemoteManagementGateway } from './gateway-preflight.js'
 import { connectOnboardingSsh, sshExec } from './onboarding-ssh.js'
 import { verifyRemoteGatewayDomain } from './onboarding-gateway-endpoint.js'
+import { enrollGatewayDomainChannel } from './gateway-domain-driver.js'
 
 interface Component { directory: string; version: string; sourceCommit: string }
 interface Enrollment { schemaVersion: 1 | 2; platformId: string; signingKeyPath: string; signingKeyId?: string; packageSigningKey: string; components: Partial<Record<'amd64' | 'arm64', Component>> }
@@ -175,10 +176,17 @@ export async function createGatewayInstallationDriver(planInput: unknown, creden
         const staged = await stage(component, report.architecture)
         require(staged.manifestHash === request.task.componentHash, 'GATEWAY_INSTALL_COMPONENT_CHANGED')
         const receipt = validateGatewayInstallationReceipt(await run('execute-gateway-install.py', staged, request), request)
+        // Reuse the controller's backed-up management key; never retain root
+        // credentials or create an unbacked domain-only identity.
+        const domainChannel = client
+          ? await enrollGatewayDomainChannel(client, { schemaVersion: 1, operation: 'enroll', platformId: plan.platformId,
+            gatewayId: plan.gatewayId, machineId: plan.target.machineId, requestId: plan.taskId,
+            expectedRevision: (BigInt(plan.basedOnRevision) + 1n).toString(), expectedOrigin: desired.consoleOrigin, origin: desired.consoleOrigin,
+            expectedCertificateSha256: receipt.consoleCertificateSha256, expectedTlsKeySha256: null }) : undefined
         const bootstrapPath = '/var/lib/incudal-management-gateway/' + plan.gatewayId + '/bootstrap.json'
         const bootstrapRaw = client ? await remoteScript(`import sys\n` + (await readFile(join(scripts, 'verify-gateway-component-package.py'), 'utf8')).replace("if __name__ == '__main__':", "if False:") +
           `\nprint(protected_read(DATA['path'],8192,0o600).decode())\n`, { path: bootstrapPath }) : await readDiscoveryPrivateFile(bootstrapPath, 8192)
-        return { receipt, bootstrap: validateGatewayBootstrapMaterial(JSON.parse(bootstrapRaw)) }
+        return { receipt, bootstrap: validateGatewayBootstrapMaterial(JSON.parse(bootstrapRaw)), domainChannel }
       },
       close() { signal.removeEventListener('abort', abort); client?.end() }
     }

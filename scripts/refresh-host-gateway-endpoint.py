@@ -20,6 +20,15 @@ from pathlib import Path
 CONFIG = Path('/etc/wireguard/incudal-mgmt.conf')
 IDENTITY = Path('/etc/incudal-onboarding-id')
 ENROLLMENT = Path('/etc/incudal-gateway-dns.json')
+ENROLLMENT_FIELDS = {'schemaVersion', 'nodeId', 'localPublicKey', 'peerPublicKey', 'localAddress', 'allowedIp', 'hostname', 'port'}
+
+
+class EndpointResolutionError(ValueError):
+    pass
+
+
+class RuntimeUnavailable(ValueError):
+    pass
 
 
 def strict_object(pairs):
@@ -115,7 +124,7 @@ def binding(config, node_id, execute):
 
 
 def validate_enrollment(value):
-    require(isinstance(value, dict) and set(value) == {'schemaVersion', 'nodeId', 'localPublicKey', 'peerPublicKey', 'localAddress', 'allowedIp', 'hostname', 'port'})
+    require(isinstance(value, dict) and set(value) == ENROLLMENT_FIELDS)
     require(type(value['schemaVersion']) is int and value['schemaVersion'] == 1 and
             isinstance(value['nodeId'], str) and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', value['nodeId']))
     key(value['localPublicKey']); key(value['peerPublicKey'])
@@ -125,6 +134,16 @@ def validate_enrollment(value):
     local = ipaddress.IPv4Interface(value['localAddress']); control = ipaddress.IPv4Network(value['allowedIp'])
     require(str(local) == value['localAddress'] and str(control) == value['allowedIp'] and local.network.prefixlen == 32 and control.prefixlen == 32 and
             str(local.ip).startswith('10.') and str(control.network_address).startswith('10.') and local.ip != control.network_address)
+    return value
+
+
+def stored_enrollment(value):
+    require(isinstance(value, dict) and set(value) in [ENROLLMENT_FIELDS, ENROLLMENT_FIELDS | {'revision', 'previousHostname'}])
+    base = validate_enrollment({name: value[name] for name in ENROLLMENT_FIELDS})
+    if 'revision' in value:
+        require(type(value['revision']) is int and 0 <= value['revision'] < 2 ** 53)
+        previous = value['previousHostname']
+        require(previous is None or isinstance(previous, str) and endpoint(previous + ':' + str(base['port']))[0] == previous)
     return value
 
 
@@ -173,22 +192,84 @@ def enroll(value, config_path=CONFIG, identity_path=IDENTITY, enrollment_path=EN
     return {'enrolled': True, 'configurationChanged': updated != original, 'keysAndRoutesPreserved': True}
 
 
+def migrate(value, config_path=CONFIG, identity_path=IDENTITY, enrollment_path=ENROLLMENT, execute=None):
+    """Explicit monotonic hostname-only migration under the same enrolled identity.
+
+    The controller's persisted revision history supplies the old-value CAS. A
+    legacy unversioned enroll cannot overwrite this durable migration record.
+    """
+    execute = execute or command
+    require(isinstance(value, dict) and set(value) == {'binding', 'revision', 'previous'})
+    desired = validate_enrollment(value['binding'])
+    revision = value['revision']
+    require(type(revision) is int and 0 <= revision < 2 ** 53 and isinstance(value['previous'], list) and len(value['previous']) <= 64)
+    previous = []
+    for row in value['previous']:
+        require(isinstance(row, dict) and set(row) == {'hostname', 'revision'} and type(row['revision']) is int and 0 <= row['revision'] < revision)
+        host, _ = endpoint(row['hostname'] + ':' + str(desired['port']))
+        require(host == row['hostname'] and not re.fullmatch(r'[0-9.]+', host))
+        previous.append((host, row['revision']))
+    require(len({item[1] for item in previous}) == len(previous))
+    node_id = protected(identity_path, 64).strip()
+    original = protected(config_path, 16384)
+    config = configuration(original)
+    current = binding(config, node_id, execute)
+    immutable = ENROLLMENT_FIELDS - {'hostname'}
+    require(all(current[name] == desired[name] for name in immutable))
+    saved_raw = None
+    if enrollment_path.exists() or enrollment_path.is_symlink():
+        saved_raw = protected(enrollment_path, 4096)
+        saved = stored_enrollment(json.loads(saved_raw, object_pairs_hook=strict_object))
+        require(all(saved[name] == desired[name] for name in immutable))
+        old_revision = saved.get('revision', 0)
+        require(revision >= old_revision)
+        require(config['host'] == saved['hostname'] or config['host'] == saved.get('previousHostname') or
+                'revision' not in saved and re.fullmatch(r'[0-9.]+', config['host']))
+        if revision == old_revision:
+            require(saved['hostname'] == desired['hostname'])
+        else:
+            require((saved['hostname'], old_revision) in previous or 'revision' not in saved and
+                    (saved['hostname'] == desired['hostname'] or any(host == saved['hostname'] for host, _ in previous)))
+    else:
+        require(config['host'] == desired['hostname'] or re.fullmatch(r'[0-9.]+', config['host']) or any(host == config['host'] for host, _ in previous))
+    require(protected(config_path, 16384) == original and protected(identity_path, 64).strip() == node_id)
+    if saved_raw is not None:
+        require(protected(enrollment_path, 4096) == saved_raw)
+    # Persist before publishing the config; previousHostname is a root-owned,
+    # identity-checked continuation of this exact revision after interruption.
+    record = {**desired, 'revision': revision, 'previousHostname': config['host'] if config['host'] != desired['hostname'] else None}
+    atomic_file(enrollment_path, json.dumps(record, separators=(',', ':')))
+    updated, count = re.subn(r'(?m)^(\s*Endpoint\s*=\s*)[^\r\n]+$', lambda match: match[1] + desired['hostname'] + ':' + str(desired['port']), original)
+    require(count == 1)
+    if updated != original:
+        atomic_file(config_path, updated)
+    return {'enrolled': True, 'configurationChanged': updated != original, 'revision': revision, 'keysAndRoutesPreserved': True}
+
+
 def command(program, args, data=None):
-    result = subprocess.run([program, *args], input=data, capture_output=True, timeout=10, check=False,
-                            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
-    require(result.returncode == 0 and len(result.stdout) <= 16384)
+    try:
+        result = subprocess.run([program, *args], input=data, capture_output=True, timeout=10, check=False,
+                                env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+    except (OSError, subprocess.SubprocessError):
+        raise RuntimeUnavailable('HOST_GATEWAY_DNS_RUNTIME_UNAVAILABLE') from None
+    if result.returncode != 0:
+        raise RuntimeUnavailable('HOST_GATEWAY_DNS_RUNTIME_UNAVAILABLE')
+    require(len(result.stdout) <= 16384)
     return result.stdout.decode().strip()
 
 
 def resolve(host):
     # A separate process makes libc DNS resolution bounded even during outages.
     program = "import json,socket,sys;print(json.dumps(sorted(set(x[4][0] for x in socket.getaddrinfo(sys.argv[1],None,socket.AF_INET,socket.SOCK_DGRAM)))))"
-    result = subprocess.run([sys.executable, '-I', '-c', program, host], capture_output=True, timeout=8, check=False,
-                            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'})
-    require(result.returncode == 0 and len(result.stdout) <= 4096)
-    values = json.loads(result.stdout)
-    require(isinstance(values, list) and len(values) == 1)
-    return public_ipv4(values[0])
+    try:
+        result = subprocess.run([sys.executable, '-I', '-c', program, host], capture_output=True, timeout=8, check=False,
+                                env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'})
+        require(result.returncode == 0 and len(result.stdout) <= 4096)
+        values = json.loads(result.stdout)
+        require(isinstance(values, list) and len(values) == 1)
+        return public_ipv4(values[0])
+    except (ValueError, OSError, subprocess.SubprocessError):
+        raise EndpointResolutionError('HOST_GATEWAY_DNS_LOOKUP_FAILED') from None
 
 
 def refresh(config_path=CONFIG, identity_path=IDENTITY, execute=command, lookup=resolve, enrollment_path=ENROLLMENT):
@@ -198,8 +279,8 @@ def refresh(config_path=CONFIG, identity_path=IDENTITY, execute=command, lookup=
     config = configuration(original)
     if re.fullmatch(r'[0-9.]+', config['host']):
         return {'refreshed': False, 'reason': 'literal-ip', 'customerRoutesChanged': False}
-    enrolled = validate_enrollment(json.loads(protected(enrollment_path, 4096), object_pairs_hook=strict_object))
-    require(binding(config, identity, execute) == enrolled)
+    enrolled = stored_enrollment(json.loads(protected(enrollment_path, 4096), object_pairs_hook=strict_object))
+    require(binding(config, identity, execute) == {name: enrolled[name] for name in ENROLLMENT_FIELDS})
     resolved = lookup(config['host'])
     public_ipv4(resolved)
     local_public = execute('/usr/bin/wg', ['pubkey'], (config['privateKey'] + '\n').encode())
@@ -217,12 +298,13 @@ def refresh(config_path=CONFIG, identity_path=IDENTITY, execute=command, lookup=
     require(protected(config_path, 16384) == original and protected(identity_path, 64).strip() == identity)
     if fields[1] != desired:
         execute('/usr/bin/wg', ['set', 'incudal-mgmt', 'peer', config['publicKey'], 'endpoint', desired])
+        require(execute('/usr/bin/wg', ['show', 'incudal-mgmt', 'endpoints']).split() == [config['publicKey'], desired])
     return {'refreshed': True, 'endpointChanged': fields[1] != desired, 'customerRoutesChanged': False}
 
 
 def main():
     try:
-        require(os.geteuid() == 0 and sys.argv[1:] in [[], ['--serve'], ['--enroll']])
+        require(os.geteuid() == 0 and sys.argv[1:] in [[], ['--serve'], ['--enroll'], ['--migrate']])
         lock = os.open('/run/incudal-gateway-dns.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
         try:
             info = os.fstat(lock)
@@ -235,6 +317,13 @@ def main():
             if sys.argv[1:] == ['--enroll']:
                 raw = sys.stdin.buffer.read(4097); require(len(raw) <= 4096)
                 print(json.dumps(enroll(json.loads(raw, object_pairs_hook=strict_object)), separators=(',', ':')))
+                return 0
+            if sys.argv[1:] == ['--migrate']:
+                raw = sys.stdin.buffer.read(24577); require(len(raw) <= 24576)
+                result = migrate(json.loads(raw, object_pairs_hook=strict_object))
+                refreshed = refresh()
+                require(refreshed['refreshed'])
+                print(json.dumps({**result, 'endpointVerified': True}, separators=(',', ':')))
                 return 0
             while True:
                 try:
@@ -250,6 +339,12 @@ def main():
                 time.sleep(30)
         finally:
             os.close(lock)
+    except EndpointResolutionError:
+        print('{"code":"HOST_GATEWAY_DNS_LOOKUP_FAILED"}')
+        return 1
+    except RuntimeUnavailable:
+        print('{"code":"HOST_GATEWAY_DNS_RUNTIME_UNAVAILABLE"}')
+        return 1
     except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
         print('{"code":"HOST_GATEWAY_DNS_REFRESH_REJECTED"}')
         return 1

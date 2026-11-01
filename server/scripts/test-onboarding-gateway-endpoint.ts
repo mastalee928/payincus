@@ -3,6 +3,7 @@ import Fastify from 'fastify'
 import { validateStableGatewayEndpoint } from '../src/lib/onboarding-gateway-endpoint.js'
 import { registerGatewayEndpointRoutes } from '../src/routes/onboarding-gateway-endpoint.js'
 import { verifyRemoteGatewayDomain } from '../src/services/onboarding-gateway-endpoint.js'
+import { OnboardingError } from '../src/lib/host-onboarding.js'
 
 assert.equal(await verifyRemoteGatewayDomain('8.8.4.4', 'Gateway.Example.com', async () => '8.8.4.4'), 'gateway.example.com')
 await assert.rejects(verifyRemoteGatewayDomain('8.8.4.4', 'gateway.example.com', async host => host === '8.8.4.4' ? host : '8.8.8.8'), /TARGET_MISMATCH/)
@@ -24,10 +25,23 @@ app.decorate('authenticateAdmin', async (request, reply) => {
   request.user = { id: 1, username: 'fixture-admin', role: 'admin', sid: request.headers['x-no-session'] ? undefined : 'fixture-session' }
 })
 let saved = 0, address = '8.8.4.4', installations = 0
+let currentHostname = ''
+let needsChannelUpgrade = false, preparations = 0
 await registerGatewayEndpointRoutes(app, {
-  load: async () => null, save: async input => { saved++; return validateStableGatewayEndpoint(input) },
+  load: async () => currentHostname ? { hostname: currentHostname, port: 51820 } : null,
+  save: async (input, actor, expected) => {
+    assert.equal(actor, 1)
+    if (expected !== currentHostname) throw new OnboardingError('GATEWAY_DNS_SETTINGS_CONFLICT')
+    const endpoint = validateStableGatewayEndpoint(input); currentHostname = endpoint.hostname; saved++; return endpoint
+  },
   resolve: async host => host === '8.8.4.4' ? host : address,
   configured: () => true, hosts: async () => [], install: async id => { installations++; return { nodeId: id, dnsRefreshInstalled: true, endpoint: 'gateway.example.com:51820', keysAndRoutesPreserved: true } },
+  channel: async () => ({ needsChannelUpgrade, channelTarget: 'remote' as const, channelError: null }),
+  prepare: async (_gateway, password) => {
+    preparations++
+    if (needsChannelUpgrade && !password) throw new OnboardingError('GATEWAY_DNS_HELPER_UPGRADE_REQUIRED')
+    if (password) { assert.equal(password, 'fixture-once'); needsChannelUpgrade = false }
+  },
   gateway: async () => ({ endpoint: '8.8.4.4:51820', publicKey: 'fixture', controlIp: '10.253.240.1',
     network: '10.253.240.0/24', sshHost: 'fixture', managementSshPublicKey: 'fixture' })
 })
@@ -50,6 +64,28 @@ try {
   assert.equal(response.json().effectiveEndpoint, 'gateway.example.com:51820')
   assert.equal(response.json().existingHostsNeedUpdate, true)
   assert.equal(saved, 1)
+  assert.equal((await app.inject({ method: 'PUT', url: '/gateway/endpoint', headers,
+    payload: { hostname: 'new.example.com', expectedHostname: 'old.example.com' } })).statusCode, 409)
+  assert.equal(saved, 1, 'stale domain forms must not write')
+  assert.equal((await app.inject({ method: 'PUT', url: '/gateway/endpoint', headers,
+    payload: { hostname: 'new.example.com', expectedHostname: 'gateway.example.com' } })).statusCode, 200)
+  assert.equal(currentHostname, 'new.example.com')
+  needsChannelUpgrade = true
+  assert.equal((await app.inject({ method: 'GET', url: '/gateway/endpoint', headers })).json().needsChannelUpgrade, true)
+  const savedBeforeUpgrade = saved
+  const upgradePayload = { hostname: 'updated.example.com', expectedHostname: 'new.example.com' }
+  assert.equal((await app.inject({ method: 'PUT', url: '/gateway/endpoint', headers, payload: upgradePayload })).json().code, 'GATEWAY_DNS_HELPER_UPGRADE_REQUIRED')
+  assert.equal(saved, savedBeforeUpgrade, 'old forced helper must be upgraded before changing desired domain')
+  const preparationsBeforeStale = preparations
+  assert.equal((await app.inject({ method: 'PUT', url: '/gateway/endpoint', headers,
+    payload: { ...upgradePayload, expectedHostname: 'stale.example.com', credentials: { password: 'fixture-once' } } })).statusCode, 409)
+  assert.equal(preparations, preparationsBeforeStale, 'stale form must not initiate a remote upgrade')
+  assert.equal((await app.inject({ method: 'PUT', url: '/gateway/endpoint', headers,
+    payload: { ...upgradePayload, credentials: { password: 'fixture-once' } } })).statusCode, 200)
+  assert.equal(currentHostname, 'updated.example.com')
+  const stateAfterUpgrade = (await app.inject({ method: 'GET', url: '/gateway/endpoint', headers })).body
+  assert.equal(JSON.parse(stateAfterUpgrade).needsChannelUpgrade, false)
+  assert.equal(stateAfterUpgrade.includes('fixture-once'), false)
   const url = '/gateway/endpoint/hosts/11111111-1111-4111-8111-111111111111'
   for (const extra of [{ 'x-role': 'user' }, { origin: 'https://other.example.com' }, { 'x-no-session': '1' }]) {
     assert.equal((await app.inject({ method: 'POST', url, headers: { ...headers, ...extra }, payload: {} })).statusCode, 403)

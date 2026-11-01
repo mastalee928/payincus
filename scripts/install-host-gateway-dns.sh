@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fixed endpoint refresh for an already enrolled host; no route/key replacement.
 set -Eeuo pipefail
-[[ $EUID -eq 0 && $# -eq 0 ]] || exit 1
+[[ $EUID -eq 0 && ( $# -eq 0 || ( $# -eq 1 && $1 == --migrate ) ) ]] || exit 1
+operation=${1:---enroll}
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 source="$root/refresh-host-gateway-endpoint.py"
 [[ -f "$source" && ! -L "$source" && $(stat -c %u "$source") == 0 ]] || exit 1
@@ -48,7 +49,7 @@ restore_service() {
     fi
 }
 trap restore_service EXIT
-/usr/bin/python3 -I -B "$target" --enroll
+/usr/bin/python3 -I -B "$target" "$operation"
 if command -v systemctl >/dev/null 2>&1; then
     cat > "$unit" <<'EOF'
 # payincus-host-gateway-dns-v1

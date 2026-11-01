@@ -1,6 +1,7 @@
 import type { ProxySiteView, ProxySiteOperationRequest, ProxySiteMutationResult, ProxySiteDnsResult } from '@/types/proxy-sites'
 import type { HostSshConnection, OnboardingCredentials, CreateOnboardingRequest, OnboardingListResponse, OnboardingGatewayStatus, HostRegionGroup, HostMachineGroup, HostInventoryResponse, HostInventoryQuery, UpdateHostGroupsRequest, HostPoolPrice, HostPoolPriceInput, HostPoolInventoryRow } from '@/types/host-pool'
 import axios, { type AxiosInstance } from 'axios'
+import type { GatewayDomainStatus } from '@/types/management-gateway'
 import type { AdminInstancePushPreview, AdminInstancePushTarget } from '@/types/instance-push'
 import type { OssConfig, OssTask, OssBackup, OssDirectory } from '@/types/aliyun-oss'
 import type { GatewayManagementList, GatewayInspectionInput, GatewayInspectionResult, GatewayManagementTask, GatewayInstallationInput, GatewayInstallationConfirmation, GatewayBootstrapAuthorization, GatewayBootstrapMaterial, RemoteGatewaySetupInput } from '@/types/management-gateway'
@@ -3761,6 +3762,8 @@ const api = {
 ,
 hostOnboarding: {
     managementGateways: (): Promise<GatewayManagementList> => http.get('/host-onboarding/management-gateways'),
+    gatewayDomain: (id: string): Promise<GatewayDomainStatus> => http.get(`/host-onboarding/management-gateways/${id}/domain`),
+    changeGatewayDomain: (id: string, input: { hostname: string; expectedHostname: string; requestId: string; credentials?: { password: string } }): Promise<GatewayDomainStatus> => http.put(`/host-onboarding/management-gateways/${id}/domain`, input),
     restartGatewayCandidate: (id: string): Promise<{ retired: true }> => http.post(`/host-onboarding/management-gateways/${id}/restart-candidate`, {}),
     inspectGateway: (data: GatewayInspectionInput): Promise<GatewayInspectionResult> => http.post('/host-onboarding/management-gateways/inspect', data, { timeout: 65000 }),
     gatewayTask: (id: string): Promise<GatewayManagementTask> => http.get(`/host-onboarding/management-gateways/tasks/${id}`),
@@ -3796,7 +3799,7 @@ hostOnboarding: {
       http.patch('/host-onboarding/inventory/spec', data),
     gateway: (): Promise<OnboardingGatewayStatus> => http.get('/host-onboarding/gateway'),
     gatewayEndpoint: (): Promise<GatewayEndpointStatus> => http.get('/host-onboarding/gateway/endpoint'),
-    saveGatewayEndpoint: (endpoint: { hostname: string; port?: number }): Promise<GatewayEndpointStatus> => http.put('/host-onboarding/gateway/endpoint', endpoint),
+    saveGatewayEndpoint: (endpoint: { hostname: string; port?: number; expectedHostname?: string; credentials?: { password: string } }): Promise<GatewayEndpointStatus> => http.put('/host-onboarding/gateway/endpoint', endpoint),
     gatewayDnsHosts: (): Promise<{ hosts: GatewayDnsHost[] }> => http.get('/host-onboarding/gateway/endpoint/hosts'),
     installGatewayDnsHost: (id: string): Promise<{ queued: number }> => http.post(`/host-onboarding/gateway/endpoint/hosts/${id}`, {}),
     synchronizeGatewayDnsHosts: (failedOnly = false): Promise<{ queued: number }> => http.post('/host-onboarding/gateway/endpoint/hosts', { failedOnly }),

@@ -60,10 +60,14 @@ def strict_json(pairs):
 def install_host_dns(job, control, gateway_public):
     # A fixed one-hop operation, restricted to a previously reserved management
     # /32. It never connects to the host's customer-facing public SSH port.
-    raw = sys.stdin.buffer.read(2049)
-    if len(raw) > 2048: raise ValueError('input too large')
+    raw = sys.stdin.buffer.read(24577)
+    if len(raw) > 24576: raise ValueError('input too large')
     request = json.loads(raw, object_pairs_hook=strict_json)
-    if not isinstance(request, dict) or set(request) != {'hostname', 'port', 'sshPort', 'sshFingerprint', 'nodePublicKey'}: raise ValueError('invalid DNS request')
+    fields = {'hostname', 'port', 'sshPort', 'sshFingerprint', 'nodePublicKey'}
+    if not isinstance(request, dict) or set(request) not in [fields, fields | {'revision', 'previous'}]: raise ValueError('invalid DNS request')
+    migrating = 'revision' in request
+    if migrating and (type(request['revision']) is not int or not 0 <= request['revision'] < 2 ** 53 or
+                      not isinstance(request['previous'], list) or len(request['previous']) > 64): raise ValueError('invalid DNS migration')
     domain = request['hostname']
     if not isinstance(domain, str) or len(domain) > 253 or domain != domain.lower() or not re.fullmatch(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?', domain): raise ValueError('invalid domain')
     if domain.endswith(('.localhost', '.local', '.internal', '.invalid', '.test')): raise ValueError('nonpublic domain')
@@ -90,7 +94,10 @@ def install_host_dns(job, control, gateway_public):
             if info.st_uid != 0 or stat.S_ISLNK(info.st_mode) or info.st_mode & 0o022: raise ValueError('untrusted DNS tool')
         if not path.is_file() or path.stat().st_size > 65536: raise ValueError('invalid DNS tool')
         files[name] = path.read_bytes()
-    scan = subprocess.run(['ssh-keyscan', '-T', '5', '-p', str(request['sshPort']), '-t', 'ed25519,rsa,ecdsa', str(address)], capture_output=True, timeout=15, check=False)
+    try:
+        scan = subprocess.run(['ssh-keyscan', '-T', '5', '-p', str(request['sshPort']), '-t', 'ed25519,rsa,ecdsa', str(address)], capture_output=True, timeout=15, check=False)
+    except subprocess.TimeoutExpired:
+        raise GatewayOperationError('GATEWAY_DNS_HOST_UNREACHABLE') from None
     known = verified_host_scan(scan, request['sshFingerprint'])
     binding = {'schemaVersion': 1, 'nodeId': job, 'localPublicKey': peer_key, 'peerPublicKey': gateway_public,
                'localAddress': str(address) + '/32', 'allowedIp': str(control.ip) + '/32', 'hostname': domain, 'port': request['port']}
@@ -101,17 +108,32 @@ def install_host_dns(job, control, gateway_public):
         script = 'set -eu\numask 077\nd=$(mktemp -d /root/incudal-dns-install-XXXXXX)\ntrap \'rm -f "$d/refresh-host-gateway-endpoint.py" "$d/install-host-gateway-dns.sh"; rmdir "$d"\' EXIT\n'
         for name, content in files.items():
             script += "printf '%s' '" + base64.b64encode(content).decode() + "' | base64 -d > \"$d/" + name + '\"\n'
-        script += "printf '%s' '" + base64.b64encode(json.dumps(binding, separators=(',', ':')).encode()).decode() + "' | base64 -d | bash \"$d/install-host-gateway-dns.sh\"\n"
-        result = subprocess.run(['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
-                                 '-o', 'UserKnownHostsFile=' + str(trust), '-o', 'ConnectTimeout=10', '-o', 'IdentitiesOnly=yes',
-                                 '-i', str(MANAGEMENT_PUBLIC_KEY.with_suffix('')), '-p', str(request['sshPort']), 'root@' + str(address), 'sh -s'],
-                                input=script.encode(), capture_output=True, timeout=90, check=False)
+        payload = {'binding': binding, 'revision': request['revision'], 'previous': request['previous']} if migrating else binding
+        script += "printf '%s' '" + base64.b64encode(json.dumps(payload, separators=(',', ':')).encode()).decode() + "' | base64 -d | bash \"$d/install-host-gateway-dns.sh\"" + (' --migrate' if migrating else '') + '\n'
+        try:
+            result = subprocess.run(['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
+                                     '-o', 'UserKnownHostsFile=' + str(trust), '-o', 'ConnectTimeout=10', '-o', 'IdentitiesOnly=yes',
+                                     '-i', str(MANAGEMENT_PUBLIC_KEY.with_suffix('')), '-p', str(request['sshPort']), 'root@' + str(address), 'sh -s'],
+                                    input=script.encode(), capture_output=True, timeout=90, check=False)
+        except subprocess.TimeoutExpired:
+            raise GatewayOperationError('SSH_COMMAND_TIMEOUT') from None
         if result.returncode != 0:
+            if result.returncode == 255:
+                if b'Permission denied' in result.stderr:
+                    raise GatewayOperationError('GATEWAY_DNS_MANAGEMENT_AUTH_REQUIRED')
+                if b'Host key verification failed' in result.stderr or b'REMOTE HOST IDENTIFICATION HAS CHANGED' in result.stderr:
+                    raise GatewayOperationError('GATEWAY_DNS_HOST_IDENTITY_CHANGED')
+                raise GatewayOperationError('GATEWAY_DNS_HOST_UNREACHABLE')
             if b'"code":"HOST_GATEWAY_DNS_SERVICE_BUSY"' in result.stdout:
                 raise GatewayOperationError('GATEWAY_DNS_SERVICE_BUSY')
+            if b'"code":"HOST_GATEWAY_DNS_LOOKUP_FAILED"' in result.stdout:
+                raise GatewayOperationError('GATEWAY_DNS_LOOKUP_FAILED')
+            if b'"code":"HOST_GATEWAY_DNS_RUNTIME_UNAVAILABLE"' in result.stdout:
+                raise GatewayOperationError('GATEWAY_DNS_RUNTIME_UNAVAILABLE')
             raise GatewayOperationError('GATEWAY_DNS_INSTALL_FAILED')
         if b'Existing gateway DNS refresh enabled' not in result.stdout: raise ValueError('missing DNS install receipt')
-    return {'nodeId': job, 'dnsRefreshInstalled': True, 'endpoint': domain + ':' + str(request['port']), 'keysAndRoutesPreserved': True}
+    return {'nodeId': job, 'dnsRefreshInstalled': True, 'endpoint': domain + ':' + str(request['port']), 'keysAndRoutesPreserved': True,
+            **({'revision': request['revision']} if migrating else {})}
 
 
 def run(*args):
@@ -281,7 +303,7 @@ def main():
         if len(public_key_parts) < 2 or public_key_parts[0] != "ssh-ed25519" or not re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", public_key_parts[1]):
             raise ValueError("management public key missing")
         result = {"publicKey": run("wg", "show", INTERFACE, "public-key"), "controlIp": str(control.ip),
-                  "network": str(control.network), "managementSshPublicKey": " ".join(public_key_parts[:2])}
+                  "network": str(control.network), "managementSshPublicKey": " ".join(public_key_parts[:2]), "dnsProtocolVersion": 2}
         if dns_request:
             # DNS installation reads the reservation and validates exact peer
             # identity; it does not mutate the controller's peers. Do not hold

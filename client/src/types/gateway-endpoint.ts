@@ -1,5 +1,9 @@
 export interface StableGatewayEndpoint { hostname: string; port: number }
 export interface GatewayEndpointStatus {
+  needsChannelUpgrade?: boolean
+  channelTarget?: 'local' | 'remote'
+  channelError?: string | null
+  revision?: number
   endpoint: StableGatewayEndpoint | null
   effectiveEndpoint: string | null
   existingHostsNeedUpdate: boolean
@@ -7,7 +11,8 @@ export interface GatewayEndpointStatus {
 export interface GatewayDnsHost {
   id: string; name: string; managementIp: string | null; eligible: boolean; running: boolean
   installed: boolean; endpoint: string | null; error: string | null; updatedAt: string | null
-  state?: string; step?: string; attempt?: number; maxAttempts?: number; retryAt?: number | null
+  state?: string; step?: string; attempt?: number; maxAttempts?: number | null; fastRetryAttempts?: number; retryAt?: number | null
+  desiredRevision?: number; appliedRevision?: number; queuedRevision?: number; needsReview?: boolean; retryable?: boolean
 }
 export interface GatewaySetupProgress {
   id: string; actorId: number; state: string; step: string; errorCode: string | null; updatedAt: string; hostCapacity?: number

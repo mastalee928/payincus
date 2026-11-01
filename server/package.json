@@ -507,7 +507,12 @@
     "test:platform-recovery-review": "node --import tsx scripts/test-platform-recovery-review.ts",
     "test:platform-recovery-reconciliation": "node --import tsx scripts/test-platform-recovery-reconciliation.ts",
     "test:platform-recovery-reconciliation-integration": "node scripts/test-platform-recovery-reconciliation-integration.mjs",
-    "test:simple-gateway-setup": "node --import tsx scripts/test-simple-gateway-setup.ts"
+    "test:simple-gateway-setup": "node --import tsx scripts/test-simple-gateway-setup.ts",
+    "test:gateway-dns-convergence": "node ../scripts/test-gateway-dns-convergence.cjs",
+    "test:gateway-domain-guards": "node --import tsx scripts/test-gateway-domain-guards.ts",
+    "test:gateway-domain-integration": "node --import tsx scripts/test-gateway-domain-integration.ts",
+    "test:gateway-domain-key-integration": "node --import tsx scripts/test-gateway-domain-key-integration.ts",
+    "test:gateway-dns-channel": "node --import tsx scripts/test-gateway-dns-channel.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",

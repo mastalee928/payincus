@@ -1,5 +1,7 @@
 import { zhCN as flowZhCN, zhTW as flowZhTW, en as flowEn } from './gateway-flow'
+import { zhCN as changeZhCN, zhTW as changeZhTW, en as changeEn } from './gateway-domain-change'
 export const zhCN = {
+  change: changeZhCN,
   flow: flowZhCN,
   "title": "网关域名与宿主连接",
   "description": "域名保存一次，系统自动为已接入宿主配置地址更新。恢复后沿用原身份重新连接。",
@@ -138,6 +140,7 @@ export const zhCN = {
   }
 }
 export const zhTW = {
+  change: changeZhTW,
   flow: flowZhTW,
   "title": "網關網域與宿主連線",
   "description": "網域儲存一次，系統自動為已接入宿主配置位址更新。恢復後沿用原身分重新連線。",
@@ -276,6 +279,7 @@ export const zhTW = {
   }
 }
 export const en = {
+  change: changeEn,
   flow: flowEn,
   "title": "Gateway domain and hosts",
   "description": "Save the domain once. Enrolled hosts receive automatic address updates and keep their original identities after recovery.",

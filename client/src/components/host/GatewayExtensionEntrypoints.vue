@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import GatewayInstallationPanel from './GatewayInstallationPanel.vue'
+import GatewayDomainChangePanel from './GatewayDomainChangePanel.vue'
 import type { ManagementGateway, RemoteGatewayPreparation } from '@/types/management-gateway'
 const { t, te } = useI18n()
 const props = defineProps<{ purpose?: 'independent' | 'backup' | null }>()
@@ -130,7 +131,8 @@ onUnmounted(() => { disposed = true; password.value = '' })
       </div>
       <p class="text-sm text-amber-700 dark:text-amber-300">{{ t(record.installation?.installationReceipt ? 'gatewayEndpoint.flow.installedCandidate' : 'gatewayEndpoint.flow.preparingCandidate') }}</p>
       <p class="text-sm text-themed-muted">{{ t('gatewayEndpoint.extensions.notReady') }}</p>
-      <p v-if="record.hostname" class="text-sm text-themed-muted break-all">{{ t('gatewayEndpoint.hostname') }} · {{ record.hostname }}</p>
+      <p v-if="record.hostname && !record.installation?.installationReceipt" class="text-sm text-themed-muted break-all">{{ t('gatewayEndpoint.hostname') }} · {{ record.hostname }}</p>
+      <GatewayDomainChangePanel v-if="record.installation?.installationReceipt" :gateway-id="record.gateway.id" />
       <dl v-if="record.configuration && !record.installation?.installationPreview" class="grid gap-3 text-sm sm:grid-cols-2">
         <div><dt class="text-themed-muted">{{ t('managementGateway.network') }}</dt><dd class="text-themed tabular-nums break-all">{{ record.configuration.network }} · {{ record.configuration.address }}</dd></div>
         <div><dt class="text-themed-muted">{{ t('managementGateway.udp') }} / {{ t('managementGateway.https') }}</dt><dd class="text-themed tabular-nums">{{ record.configuration.listenPort }} / {{ record.configuration.consolePort }}</dd></div>

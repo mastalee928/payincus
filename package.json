@@ -243,7 +243,9 @@
     "pnpm --filter server test:platform-backup-guards",
     "pnpm --filter server test:platform-recovery-review",
     "pnpm --filter server test:platform-recovery-reconciliation",
-    "pnpm --filter server test:simple-gateway-setup"
+    "pnpm --filter server test:simple-gateway-setup",
+    "pnpm --filter server test:gateway-dns-convergence",
+    "pnpm --filter server test:gateway-domain-guards"
   ],
   "devDependencies": {
     "concurrently": "^9.1.0",

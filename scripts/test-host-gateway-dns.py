@@ -112,6 +112,81 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+class MigrationTests(unittest.TestCase):
+    def setUp(self):
+        self.contents = CONFIG
+        self.record = {'schemaVersion': 1, 'nodeId': IDENTITY, 'localPublicKey': LOCAL, 'peerPublicKey': PEER,
+                       'localAddress': '10.253.240.2/32', 'allowedIp': '10.253.240.1/32', 'hostname': 'gateway.example.com', 'port': 51820}
+        self.initial = dict(self.record)
+        self.writes = []
+        self.fail_config = False
+        def read(path, _limit):
+            return self.contents if path == dns.CONFIG else json.dumps(self.record) if path == dns.ENROLLMENT else IDENTITY
+        def write(path, value):
+            if path == dns.CONFIG and self.fail_config:
+                raise OSError('controlled interrupted publication')
+            self.writes.append(path)
+            if path == dns.CONFIG:
+                self.contents = value
+            else:
+                self.record = json.loads(value)
+        for fixture in [patch.object(dns, 'protected', side_effect=read), patch.object(dns, 'atomic_file', side_effect=write),
+                        patch.object(dns.Path, 'exists', return_value=True)]:
+            fixture.start(); self.addCleanup(fixture.stop)
+
+    def migrate(self, hostname='new.example.com', revision=1, previous=None, change=None):
+        return dns.migrate({'binding': {**self.initial, 'hostname': hostname, **(change or {})}, 'revision': revision,
+                           'previous': previous if previous is not None else [{'hostname': 'gateway.example.com', 'revision': 0}]}, execute=lambda *_: LOCAL)
+
+    def test_explicit_domain_migration_preserves_every_other_config_line(self):
+        self.assertTrue(self.migrate()['configurationChanged'])
+        self.assertEqual(self.contents, CONFIG.replace('gateway.example.com', 'new.example.com'))
+        self.assertEqual(self.record['revision'], 1)
+        self.assertFalse(self.migrate()['configurationChanged'])
+        self.assertEqual(self.record['previousHostname'], None)
+
+    def test_late_legacy_or_revision_requests_cannot_rollback_domain(self):
+        self.migrate()
+        before = self.contents, dict(self.record)
+        with self.assertRaises(ValueError):
+            dns.enroll(self.initial, execute=lambda *_: LOCAL)
+        for hostname, revision in [('gateway.example.com', 0), ('other.example.com', 1)]:
+            with self.assertRaises(ValueError):
+                self.migrate(hostname, revision, [])
+        self.assertEqual((self.contents, self.record), before)
+
+    def test_interrupted_config_write_resumes_same_request_without_rekey(self):
+        self.fail_config = True
+        with self.assertRaises(OSError):
+            self.migrate()
+        self.assertEqual(self.contents, CONFIG)
+        self.assertEqual(self.record['hostname'], 'new.example.com')
+        self.fail_config = False
+        self.assertTrue(self.migrate()['configurationChanged'])
+        self.assertEqual(self.contents, CONFIG.replace('gateway.example.com', 'new.example.com'))
+
+    def test_skipped_revisions_and_domain_aba_use_revision_cas(self):
+        self.migrate()
+        history = [{'hostname': 'gateway.example.com', 'revision': 0}, {'hostname': 'new.example.com', 'revision': 1},
+                   {'hostname': 'third.example.com', 'revision': 2}]
+        self.migrate('gateway.example.com', 3, history)
+        before = self.contents, dict(self.record)
+        with self.assertRaises(ValueError):
+            self.migrate('new.example.com', 1)
+        self.assertEqual((self.contents, self.record), before)
+
+    def test_wrong_old_domain_or_trust_is_rejected_before_write(self):
+        for change in [{'nodeId': '22222222-2222-4222-8222-222222222222'}, {'peerPublicKey': LOCAL},
+                       {'localAddress': '10.253.240.3/32'}, {'allowedIp': '10.253.240.4/32'}, {'port': 51821}]:
+            with self.assertRaises(ValueError):
+                self.migrate(change=change)
+        self.migrate('gateway.example.com', 1, [])
+        self.writes.clear()
+        with self.assertRaises(ValueError):
+            self.migrate('new.example.com', 2, [{'hostname': 'other.example.com', 'revision': 1}])
+        self.assertEqual(self.writes, [])
+
+
 @unittest.skipUnless(hasattr(os, 'geteuid') and os.geteuid() == 0, 'root-owned file checks require Linux root')
 class FileTests(unittest.TestCase):
     def test_existing_daemon_lock_reports_service_busy(self):

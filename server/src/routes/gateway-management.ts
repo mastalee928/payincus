@@ -9,6 +9,7 @@ import { startGatewayInstallationDispatcher } from '../services/gateway-installa
 import { prepareRemoteGateway } from '../services/remote-gateway-setup.js'
 import type { RemoteGatewaySetupInput } from '../lib/remote-gateway-setup.js'
 import { retireUnusedGatewayCandidate } from '../services/gateway-task-journal.js'
+import { getGatewayDomain, requestGatewayDomain, type GatewayDomainInput } from '../services/gateway-domain-management.js'
 
 export interface GatewayManagementOperations {
   list: typeof listManagementGateways
@@ -20,6 +21,8 @@ export interface GatewayManagementOperations {
   bootstrap?: typeof retrieveGatewayBootstrap
   prepareRemote?: typeof prepareRemoteGateway
   retireCandidate?: typeof retireUnusedGatewayCandidate
+  domain?: typeof getGatewayDomain
+  updateDomain?: typeof requestGatewayDomain
 }
 export async function registerGatewayManagementRoutes(fastify: FastifyInstance, operations: GatewayManagementOperations) {
   const webMutation = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -67,6 +70,25 @@ export async function registerGatewayManagementRoutes(fastify: FastifyInstance, 
     try { return await operations.inspect(request.body, request.user.id) } catch (error) { return failure(reply, error) }
   })
   const params = { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }
+  if (operations.domain) fastify.get<{ Params: { id: string } }>('/management-gateways/:id/domain', {
+    onRequest: [fastify.authenticateAdmin], schema: { params }, config: { rateLimit: { max: 60, timeWindow: '1 minute' } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    try { return await operations.domain!(request.params.id) } catch (error) { return failure(reply, error) }
+  })
+  if (operations.updateDomain) fastify.put<{ Params: { id: string }; Body: GatewayDomainInput }>('/management-gateways/:id/domain', {
+    onRequest: [fastify.authenticateAdmin, webMutation], bodyLimit: 4096,
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    schema: { params, body: { type: 'object', additionalProperties: false, required: ['hostname', 'expectedHostname', 'requestId'], properties: {
+      requestId: { type: 'string', format: 'uuid' }, hostname: { type: 'string', minLength: 1, maxLength: 253 },
+      expectedHostname: { type: 'string', minLength: 1, maxLength: 253 },
+      credentials: { type: 'object', additionalProperties: false, required: ['password'], properties: { password: { type: 'string', minLength: 1, maxLength: 1024 } } }
+    } } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    try { return reply.code(202).send(await operations.updateDomain!(request.params.id, request.body, request.user)) }
+    catch (error) { return failure(reply, error) }
+  })
   if (operations.retireCandidate) fastify.post<{ Params: { id: string }; Body: Record<string, never> }>('/management-gateways/:id/restart-candidate', {
     onRequest: [fastify.authenticateAdmin, webMutation], schema: { params, body: { type: 'object', additionalProperties: false, properties: {} } }
   }, async (request, reply) => {
@@ -123,7 +145,8 @@ export async function registerGatewayManagementRoutes(fastify: FastifyInstance, 
 }
 export default async function gatewayManagementRoutes(fastify: FastifyInstance) {
   await registerGatewayManagementRoutes(fastify, { list: listManagementGateways, task: getManagementGatewayTask, inspect: inspectManagementGateway,
-    install: requestGatewayInstallation, confirm: confirmGatewayInstallation, cancel: cancelGatewayInstallation, bootstrap: retrieveGatewayBootstrap, prepareRemote: prepareRemoteGateway, retireCandidate: retireUnusedGatewayCandidate })
+    install: requestGatewayInstallation, confirm: confirmGatewayInstallation, cancel: cancelGatewayInstallation, bootstrap: retrieveGatewayBootstrap,
+    prepareRemote: prepareRemoteGateway, retireCandidate: retireUnusedGatewayCandidate, domain: getGatewayDomain, updateDomain: requestGatewayDomain })
   let stop: (() => void) | undefined
   fastify.addHook('onReady', async () => { stop = startGatewayInstallationDispatcher() })
   fastify.addHook('onClose', async () => { stop?.() })

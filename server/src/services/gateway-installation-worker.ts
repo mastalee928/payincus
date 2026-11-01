@@ -12,6 +12,10 @@ import { claimGatewayInstallationPreparation, heartbeatGatewayInstallationPrepar
 export async function runGatewayInstallationTask(id: string) {
   if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(id)) throw new GatewayTaskError('GATEWAY_INSTALLATION_INVALID')
   const candidate = await prisma.managementGatewayTask.findUnique({ where: { id } })
+  if (candidate?.kind === 'update' && (candidate.installation as { kind?: string } | null)?.kind === 'domain') {
+    const { runGatewayDomainTask } = await import('./gateway-domain-management.js')
+    return runGatewayDomainTask(id)
+  }
   if (!candidate || candidate.kind !== 'install' || candidate.preparationState === null) throw new GatewayTaskError('GATEWAY_INSTALLATION_INVALID')
   const preparing = candidate.status === 'awaiting_confirmation' && ['queued', 'running'].includes(candidate.preparationState)
   const task = await retryGatewayJournal(() => preparing ? claimGatewayInstallationPreparation(id) : claimManagementGatewayTask(id))
@@ -70,6 +74,11 @@ export async function runGatewayInstallationTask(id: string) {
     writing = true
     const installed = await driver.execute(request)
     assertLease()
+    if (installed.domainChannel) {
+      const changed = await journal(() => prisma.managementGatewayTask.updateMany({ where: { id, status: 'running', leaseToken: token },
+        data: { installation: { ...saved, domainChannel: { ...installed.domainChannel } } as unknown as import('@prisma/client').Prisma.InputJsonObject } }))
+      if (changed.count !== 1) throw new GatewayTaskError('GATEWAY_TASK_LEASE_LOST')
+    }
     const encrypted = encryptGatewayTaskSecret(JSON.stringify(installed.bootstrap))
     await complete('install-components', installed.receipt)
     await complete('verify-installation', installed.receipt, plan.configurationHash)

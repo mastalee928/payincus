@@ -10,7 +10,7 @@ assert.equal(process.env.HOST_GATEWAY_DNS_INTEGRATION_TEST, '1')
 process.env.NODE_ENV = 'test'
 process.env.PLATFORM_BACKUP_STATE_DIR = await mkdtemp(join(tmpdir(), 'incudal-host-dns-integration-'))
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { saveStableGatewayEndpoint } = await import('../src/services/onboarding-gateway-endpoint.js')
+const { saveStableGatewayEndpoint, loadGatewayEndpointPlan } = await import('../src/services/onboarding-gateway-endpoint.js')
 const { installHostGatewayDns, listHostGatewayDns, queueHostGatewayDns, dispatchHostGatewayDns } = await import('../src/services/host-gateway-dns.js')
 const { OnboardingError } = await import('../src/lib/host-onboarding.js')
 assert.equal(await prisma.host.count(), 0, 'empty isolated test database required')
@@ -22,9 +22,9 @@ const node = await prisma.hostOnboardingNode.create({ data: { batchId: batch.id,
   managementIp: '10.253.240.2', sshPort: 22, sshFingerprint: 'SHA256:' + 'a'.repeat(43), nodePublicKey: 'A'.repeat(43) + '=', status: 'succeeded', credentialsExpireAt: new Date() } })
 const hold = join(process.env.PLATFORM_BACKUP_STATE_DIR, 'recovery-hold.json')
 let deployments = 0
-const deploy = async (id: string, input: { hostname: string; nodePublicKey: string }) => {
+const deploy = async (id: string, input: { hostname: string; nodePublicKey: string; revision?: number }) => {
   deployments++; assert.equal(id, node.id); assert.equal(input.nodePublicKey, node.nodePublicKey)
-  return { nodeId: id, dnsRefreshInstalled: true as const, endpoint: input.hostname + ':51820', keysAndRoutesPreserved: true as const }
+  return { nodeId: id, dnsRefreshInstalled: true as const, endpoint: input.hostname + ':51820', keysAndRoutesPreserved: true as const, revision: input.revision }
 }
 try {
   await saveStableGatewayEndpoint({ hostname: 'gateway.example.com', port: 51820 })
@@ -52,9 +52,28 @@ try {
   await prisma.hostOnboardingNode.update({ where: { id: node.id }, data: { sshFingerprint: node.sshFingerprint } })
   await saveStableGatewayEndpoint({ hostname: 'new.example.com', port: 51820 })
   assert.equal((await listHostGatewayDns())[0].installed, false, 'changing settings must not claim old host deployment matches')
+  Object.assign(process.env, { ONBOARDING_GATEWAY_HOST: 'fixture', ONBOARDING_GATEWAY_KEY_PATH: 'fixture',
+    ONBOARDING_GATEWAY_FINGERPRINT: 'fixture', ONBOARDING_WG_ENDPOINT: 'fixture:51820' })
+  let enteredOld: () => void = () => {}, releaseOld: () => void = () => {}
+  const oldStarted = new Promise<void>(resolve => { enteredOld = resolve }), oldGate = new Promise<void>(resolve => { releaseOld = resolve })
+  const oldDeployment = installHostGatewayDns(node.id, user.id, async (...args) => { enteredOld(); await oldGate; return deploy(...args) })
+  await oldStarted
+  await saveStableGatewayEndpoint({ hostname: 'newer.example.com', port: 51820 }, user.id, 'new.example.com')
+  assert.equal((await queueHostGatewayDns(user.id)).queued, 0, 'running old installation is not duplicated')
+  releaseOld(); await oldDeployment
+  assert.equal((await listHostGatewayDns())[0].state, 'queued', 'old receipt must schedule current revision')
+  await dispatchHostGatewayDns(deploy)
+  assert.equal((await listHostGatewayDns())[0].installed, true)
+  await assert.rejects(saveStableGatewayEndpoint({ hostname: 'late.example.com', port: 51820 }, user.id, 'new.example.com'), /SETTINGS_CONFLICT/)
+  await saveStableGatewayEndpoint({ hostname: 'latest.example.com', port: 51820 }, user.id, 'newer.example.com')
+  await dispatchHostGatewayDns(deploy)
+  assert.equal((await listHostGatewayDns())[0].installed, true, 'saved desired state repairs a missing enqueue after restart')
+  await saveStableGatewayEndpoint({ hostname: 'final.example.com', port: 51820 }, user.id)
+  const desiredRevision = (await loadGatewayEndpointPlan())!.revision
   // A thousand real persisted rows, with the SSH installation boundary injected.
   // Never counted as a thousand real WireGuard hosts.
-  const bulk = Array.from({ length: 1000 }, (_, index) => ({ id: randomUUID(), hostId: 10000 + index,
+  const size = process.env.HOST_GATEWAY_DNS_SMALL_TEST === '1' ? 8 : 1000
+  const bulk = Array.from({ length: size }, (_, index) => ({ id: randomUUID(), hostId: 10000 + index,
     managementIp: `10.240.${Math.floor(index / 254)}.${index % 254 + 1}`, name: `dns-queue-${index}` }))
   await prisma.host.createMany({ data: bulk.map(item => ({ id: item.hostId, userId: user.id, name: item.name,
     url: `https://${item.managementIp}:8443`, managementSshHost: item.managementIp, managementSshPort: 22, managementSshUser: 'root' })) })
@@ -62,32 +81,32 @@ try {
     publicIp: item.id, hostId: item.hostId, managementIp: item.managementIp, sshPort: 22, sshFingerprint: node.sshFingerprint,
     nodePublicKey: node.nodePublicKey, status: 'succeeded', credentialsExpireAt: new Date() })) })
   await queueHostGatewayDns(user.id)
-  assert.equal((await listHostGatewayDns()).filter(item => item.state === 'queued').length, 1001)
+  assert.equal((await listHostGatewayDns()).filter(item => item.state === 'queued').length, size + 1)
   const keys = bulk.map(item => 'onboarding_gateway_dns_host_' + item.id)
   for (let offset = 0; offset < keys.length; offset += 40) await prisma.$transaction(keys.slice(offset, offset + 40).map(key =>
-    prisma.systemConfig.update({ where: { key }, data: { value: JSON.stringify({ state: 'running', actor: user.id, attempt: 1, step: 'install' }) } })))
+    prisma.systemConfig.update({ where: { key }, data: { value: JSON.stringify({ state: 'running', actor: user.id, attempt: 1, step: 'install', desiredRevision }) } })))
   Object.assign(process.env, { ONBOARDING_GATEWAY_HOST: 'fixture', ONBOARDING_GATEWAY_KEY_PATH: 'fixture',
     ONBOARDING_GATEWAY_FINGERPRINT: 'fixture', ONBOARDING_WG_ENDPOINT: 'fixture:51820' })
   let inFlight = 0, maximum = 0, completed = 0
-  const bulkDeploy = async (id: string, input: { hostname: string }) => {
+  const bulkDeploy = async (id: string, input: { hostname: string; revision?: number }) => {
     inFlight++; maximum = Math.max(maximum, inFlight)
     await new Promise(resolve => setTimeout(resolve, 5))
     inFlight--; completed++
-    return { nodeId: id, dnsRefreshInstalled: true as const, endpoint: input.hostname + ':51820', keysAndRoutesPreserved: true as const }
+    return { nodeId: id, dnsRefreshInstalled: true as const, endpoint: input.hostname + ':51820', keysAndRoutesPreserved: true as const, revision: input.revision }
   }
   await dispatchHostGatewayDns(bulkDeploy)
   const resumed = await prisma.systemConfig.findMany({ where: { key: { in: keys } } })
-  assert.equal(resumed.filter(item => JSON.parse(item.value).state === 'queued').length, 1000, 'all interrupted jobs resume after restart')
-  assert.equal(resumed.filter(item => JSON.parse(item.value).code === 'GATEWAY_DNS_INTERRUPTED').length, 1000)
+  assert.equal(resumed.filter(item => JSON.parse(item.value).state === 'queued').length, size, 'all interrupted jobs resume after restart')
+  assert.equal(resumed.filter(item => JSON.parse(item.value).code === 'GATEWAY_DNS_INTERRUPTED').length, size)
   for (let offset = 0; offset < resumed.length; offset += 40) await prisma.$transaction(resumed.slice(offset, offset + 40).map(row =>
     prisma.systemConfig.update({ where: { key: row.key }, data: { value: JSON.stringify({ ...JSON.parse(row.value), retryAt: 0 }) } })))
-  for (let pass = 0; pass < 251; pass++) await dispatchHostGatewayDns(bulkDeploy)
-  assert.equal((await listHostGatewayDns()).filter(item => item.installed).length, 1001)
+  for (let pass = 0; pass <= Math.ceil(size / 4); pass++) await dispatchHostGatewayDns(bulkDeploy)
+  assert.equal((await listHostGatewayDns()).filter(item => item.installed).length, size + 1)
   assert.equal(maximum, 4, 'exactly four installation lanes at most')
-  assert.equal(completed, 1001)
+  assert.equal(completed, size + 1)
   console.log(JSON.stringify({ passed: true, realPostgres: true, remoteFixture: true, pinnedIdentityPassed: true,
     recoveryHeld: true, failurePersisted: true, retrySucceeded: true, concurrentDeploymentDenied: true, staleEndpointNotReady: true,
-    thousandPersistentQueue: true, restartResumed: true, maximumParallelism: maximum }))
+    persistentQueueHosts: size + 1, restartResumed: true, concurrentDomainConverged: true, lostEnqueueRecovered: true, maximumParallelism: maximum }))
 } finally {
   await prisma.systemConfig.deleteMany({ where: { OR: [{ key: 'onboarding_gateway_dns_endpoint' }, { key: { startsWith: 'onboarding_gateway_dns_host_' } }] } })
   await prisma.hostOnboardingBatch.delete({ where: { id: batch.id } })
