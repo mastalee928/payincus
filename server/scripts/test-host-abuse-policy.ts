@@ -10,7 +10,7 @@ import { Client } from 'pg'
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && /_(?:pool_)?test$/.test(database.pathname), 'Use isolated local test PostgreSQL')
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { ABUSE_POLICY_KEY, ABUSE_CAPABILITY, readAbusePolicy, abuseInstruction, normalizeAbuseStatus, listAbuseHosts, retryAbuseHosts, retryAllAbuseHosts } = await import('../src/services/host-abuse-policy.js')
+const { ABUSE_POLICY_KEY, ABUSE_CAPABILITY, ABUSE_SPEEDTEST_CAPABILITY, readAbusePolicy, abuseInstruction, normalizeAbuseStatus, listAbuseHosts, retryAbuseHosts, retryAllAbuseHosts } = await import('../src/services/host-abuse-policy.js')
 const { default: policyRoutes } = await import('../src/routes/host-abuse-policy.js')
 const interval = globalThis.setInterval
 globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => { const timer = interval(...args); timer.unref(); return timer }) as typeof setInterval
@@ -73,7 +73,7 @@ async function removeQueueFailure() {
 try {
   await holder.connect(); await observer.connect()
   const holderPid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number
-  assert.deepEqual(await readAbusePolicy(), { revision: 0, blockBt: false, blockMining: false })
+  assert.deepEqual(await readAbusePolicy(), { revision: 0, blockBt: false, blockMining: false, blockSpeedTest: false })
   assert.equal(await abuseInstruction(hosts[0].id), null)
   assert.equal((await listAbuseHosts({})).summary.unconfigured, 107)
   for (const payload of [{}, { revision: -1, blockBt: true, blockMining: true }, { revision: 0.5, blockBt: true, blockMining: true },
@@ -87,7 +87,7 @@ try {
   assert.equal((await app.inject({ method: 'GET', url: '/hosts/abuse-policy', headers: { 'x-web-test-denied': '1' } })).statusCode, 403)
   assert.equal((await save(0)).statusCode, 200)
   let policy = await readAbusePolicy()
-  assert.deepEqual(policy, { revision: 1, blockBt: true, blockMining: true })
+  assert.deepEqual(policy, { revision: 1, blockBt: true, blockMining: true, blockSpeedTest: false })
   const inventory = await listAbuseHosts({})
   assert.equal(inventory.total, 107); assert.equal(inventory.pages, 6); assert.equal(inventory.hosts.length, 20)
   assert.equal(inventory.summary.pending, 105); assert.equal(inventory.summary.offline, 1); assert.equal(inventory.summary.unsupported, 1)
@@ -115,8 +115,8 @@ try {
     return { 'x-incudal-agent-id': credentials.agentId, 'x-incudal-timestamp': timestamp, 'x-incudal-nonce': nonce, 'x-incudal-body-sha256': bodyHash,
       'x-incudal-signature': createAgentSignature(credentials.agentSecret, { method: 'POST', path: '/agent/heartbeat', timestamp, nonce, bodyHash }) }
   }
-  const heartbeat = (status?: unknown, supported = true) => {
-    const payload = { version: '1.0.3', capabilities: supported ? [ABUSE_CAPABILITY] : [], abusePolicyStatus: status }
+  const heartbeat = (status?: unknown, supported = true, speedSupported = false) => {
+    const payload = { version: '1.0.3', capabilities: supported ? [ABUSE_CAPABILITY, ...(speedSupported ? [ABUSE_SPEEDTEST_CAPABILITY] : [])] : [], abusePolicyStatus: status }
     return app.inject({ method: 'POST', url: '/agent/heartbeat', headers: sign(payload), payload })
   }
   let response = await heartbeat()
@@ -296,7 +296,7 @@ try {
   policy = await readAbusePolicy(); assert.equal(policy.revision, 3)
   assert.equal((await listAbuseHosts({ search: expiredHost.name })).hosts[0].queueErrorCode, null, 'new desired revision invalidates old queue failure without deleting audit history')
   assert.equal((await listAbuseHosts({})).summary.applied, 0)
-  assert.deepEqual(await abuseInstruction(added.id), { revision: 3, blockBt: false, blockMining: false, retryNonce: 0 })
+  assert.deepEqual(await abuseInstruction(added.id), { revision: 3, blockBt: false, blockMining: false, blockSpeedTest: false, retryNonce: 0 })
   await prisma.hostAgent.update({ where: { hostId: hosts[0].id }, data: { enabled: true, status: 'online' } })
   report = { ...report, revision: 8, retryNonce: 5, blockBt: true, checkedAt: new Date().toISOString() }
   assert.equal((await heartbeat(report)).statusCode, 200)
@@ -319,6 +319,42 @@ try {
   assert.equal((await listAbuseHosts({ search: hosts[0].name })).hosts[0].errorCode, 'ABUSE_POLICY_UNTRUSTED_REVISION')
   assert.equal((await save(policy.revision, true, true)).statusCode, 200, 'one host cannot exhaust the global revision space')
   policy = await readAbusePolicy(); assert.equal(policy.revision, 10)
+  // A historical database row has no speed-test field. A supplied invalid
+  // field is rejected; an old UI save must preserve an already enabled switch.
+  const legacyPolicy = { revision: policy.revision, blockBt: true, blockMining: true }
+  await prisma.systemConfig.update({ where: { key: ABUSE_POLICY_KEY }, data: { value: JSON.stringify(legacyPolicy) } })
+  assert.deepEqual(await readAbusePolicy(), { ...legacyPolicy, blockSpeedTest: false })
+  for (const value of [null, 'true', 1, {}]) {
+    await prisma.systemConfig.update({ where: { key: ABUSE_POLICY_KEY }, data: { value: JSON.stringify({ ...legacyPolicy, blockSpeedTest: value }) } })
+    await assert.rejects(readAbusePolicy(), /ABUSE_POLICY_INVALID/)
+    const rejected = await app.inject({ method: 'PUT', url: '/hosts/abuse-policy', payload: { ...legacyPolicy, blockSpeedTest: value } })
+    assert.equal(rejected.statusCode, 400, 'explicit invalid speed switch is never coerced to a disable')
+  }
+  await prisma.systemConfig.update({ where: { key: ABUSE_POLICY_KEY }, data: { value: JSON.stringify(legacyPolicy) } })
+  await heartbeat({ ...report, ...legacyPolicy })
+  response = await app.inject({ method: 'PUT', url: '/hosts/abuse-policy', payload: { ...legacyPolicy, blockSpeedTest: true } })
+  assert.equal(response.statusCode, 200, response.body)
+  policy = await readAbusePolicy(); assert.equal(policy.blockSpeedTest, true)
+  report = { ...report, ...policy, checkedAt: new Date().toISOString() }
+  response = await heartbeat(report)
+  assert.equal(response.json().abusePolicy, null, 'old Agent must not receive an unenforceable partial policy')
+  assert.equal((await listAbuseHosts({ search: hosts[0].name })).hosts[0].state, 'unsupported', 'even a forged matching old-agent report cannot claim speed protection')
+  assert.equal((await retryAbuseHosts([hosts[0].id], policy.revision, actor)).results[0].code, 'HOST_AGENT_UPGRADE_REQUIRED')
+  const { blockSpeedTest: omittedSpeed, ...oldReport } = report
+  await heartbeat(oldReport, true, true)
+  assert.notEqual((await listAbuseHosts({ search: hosts[0].name })).hosts[0].state, 'applied', 'a capability alone cannot replace the speed flag receipt')
+  response = await heartbeat(report, true, true)
+  assert.deepEqual(response.json().abusePolicy, { ...policy, retryNonce: 12 })
+  assert.equal((await listAbuseHosts({ search: hosts[0].name })).hosts[0].state, 'applied')
+  assert.equal((await save(policy.revision, false, false)).statusCode, 200)
+  policy = await readAbusePolicy(); assert.equal(policy.blockSpeedTest, true, 'old page omitting the field preserves enabled speed protection')
+  assert.equal((await listAbuseHosts({ search: hosts[0].name })).hosts[0].state, 'pending', 'old receipt cannot satisfy newer speed policy')
+  response = await app.inject({ method: 'PUT', url: '/hosts/abuse-policy', payload: { ...policy, blockSpeedTest: false } })
+  assert.equal(response.statusCode, 200, response.body)
+  policy = await readAbusePolicy(); assert.equal(policy.blockSpeedTest, false)
+  response = await heartbeat({ ...report, ...policy }, true, false)
+  assert.deepEqual(response.json().abusePolicy, { ...policy, retryNonce: 12 }, 'old Agent remains compatible with BT/mining when speed is disabled')
+  console.log('PASS speed-test legacy backup/UI compatibility, strict flags, capability gating, exact current receipt, disable and old-agent BT/mining compatibility')
   await prisma.hostAgent.updateMany({ where: { hostId: { in: hosts.map(host => host.id) } }, data: { enabled: false } })
   await prisma.tokenInvalidation.create({ data: { userId: admin.id, sessionId: actor.sid, invalidatedAt: actor.iat } })
   const beforeDeniedRetry = await snapshot()

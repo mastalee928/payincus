@@ -6,12 +6,12 @@ import { useAuthStore } from '@/stores/auth'
 import type { HostAbuseOverview, HostAbusePolicy } from '@/types/host-abuse-policy'
 const { t, te } = useI18n(), auth = useAuthStore()
 const overview = ref<HostAbuseOverview | null>(null)
-const draft = ref<HostAbusePolicy>({ revision: 0, blockBt: false, blockMining: false })
+const draft = ref<HostAbusePolicy>({ revision: 0, blockBt: false, blockMining: false, blockSpeedTest: false })
 const loading = ref(true), busy = ref<'save' | 'retry' | ''>(''), error = ref(''), loadError = ref(''), notice = ref('')
 const stalePolicy = ref(false)
 const search = ref(''), state = ref('attention'), page = ref(1)
 let active = true, disposed = false, sequence = 0, initialized = false, timer: ReturnType<typeof setTimeout> | undefined
-const dirty = computed(() => !!overview.value && (draft.value.blockBt !== overview.value.policy.blockBt || draft.value.blockMining !== overview.value.policy.blockMining))
+const dirty = computed(() => !!overview.value && (draft.value.blockBt !== overview.value.policy.blockBt || draft.value.blockMining !== overview.value.policy.blockMining || draft.value.blockSpeedTest !== overview.value.policy.blockSpeedTest))
 const retryCount = computed(() => overview.value ? overview.value.summary.pending + overview.value.summary.retrying + overview.value.summary.offline : 0)
 const allowed = () => active && !disposed && auth.user?.role === 'admin' && !!auth.token
 function message(failure: unknown) {
@@ -68,7 +68,7 @@ async function mutate(kind: 'save' | 'retry') {
 function filter() { page.value = 1; void refresh() }
 watch(() => [auth.user?.id, auth.user?.role, auth.token], () => {
   ++sequence; clearTimeout(timer); overview.value = null; initialized = false; loading.value = true
-  draft.value = { revision: 0, blockBt: false, blockMining: false }; error.value = ''; notice.value = ''; busy.value = ''
+  draft.value = { revision: 0, blockBt: false, blockMining: false, blockSpeedTest: false }; error.value = ''; notice.value = ''; busy.value = ''
   stalePolicy.value = false; loadError.value = ''
   if (allowed()) void refresh(true)
 })
@@ -81,10 +81,10 @@ onUnmounted(() => { disposed = true; ++sequence; clearTimeout(timer) })
   <section class="abuse-policy card p-5 space-y-5" :aria-busy="loading || !!busy">
     <div><h2 class="text-lg font-semibold text-themed">{{ t('hostAbuse.title') }}</h2><p class="mt-1 text-sm text-themed-muted">{{ t('hostAbuse.description') }}</p></div>
     <form class="space-y-4" @submit.prevent="mutate('save')">
-      <fieldset class="grid gap-4 sm:grid-cols-2" :disabled="loading || !!busy || !overview">
-        <label v-for="key in (['blockBt', 'blockMining'] as const)" :key="key" class="flex items-start gap-3 cursor-pointer py-2">
+      <fieldset class="grid gap-4 sm:grid-cols-3" :disabled="loading || !!busy || !overview">
+        <label v-for="key in (['blockBt', 'blockMining', 'blockSpeedTest'] as const)" :key="key" class="flex items-start gap-3 cursor-pointer py-2">
           <input v-model="draft[key]" type="checkbox" class="mt-1 h-5 w-5 shrink-0 accent-black dark:accent-white" :data-abuse-toggle="key" />
-          <span><span class="block text-sm font-medium text-themed">{{ t(`hostAbuse.${key}`) }}</span><span class="mt-1 block text-sm text-themed-muted">{{ t(key === 'blockBt' ? 'hostAbuse.btHint' : 'hostAbuse.miningHint') }}</span></span>
+          <span><span class="block text-sm font-medium text-themed">{{ t(`hostAbuse.${key}`) }}</span><span class="mt-1 block text-sm text-themed-muted">{{ t(key === 'blockBt' ? 'hostAbuse.btHint' : key === 'blockMining' ? 'hostAbuse.miningHint' : 'hostAbuse.speedTestHint') }}</span></span>
         </label>
       </fieldset>
       <p class="text-sm text-themed-muted">{{ t('hostAbuse.scope') }}</p>

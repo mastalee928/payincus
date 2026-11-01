@@ -85,7 +85,7 @@ jobs:
 
       - name: Agent abuse prevention with real isolated IPv4 and IPv6 packets
         run: |
-          sudo apt-get install -y -qq iptables nftables iproute2 python3
+          sudo apt-get install -y -qq iptables nftables iproute2 iputils-ping python3
           (cd agent && go test -c -o /tmp/incudal-abuse-tests ./internal/abuse)
           sudo env INCUDAL_ABUSE_NETNS_TEST=1 /tmp/incudal-abuse-tests -test.run=TestFirewallLinuxNamespace -test.v
 

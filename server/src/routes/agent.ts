@@ -1656,7 +1656,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
 
     let abusePolicy: Awaited<ReturnType<typeof abuseInstruction>> = null
     if (normalizeCapabilities(request.body.capabilities).includes(ABUSE_CAPABILITY)) {
-      try { abusePolicy = await abuseInstruction(agent.hostId) }
+      try { abusePolicy = await abuseInstruction(agent.hostId, normalizeCapabilities(request.body.capabilities)) }
       catch (error) {
         if (!(error instanceof AbusePolicyError)) throw error
         request.log.warn({ hostId: agent.hostId, code: error.code }, 'Host abuse policy is invalid; retaining existing host protection')

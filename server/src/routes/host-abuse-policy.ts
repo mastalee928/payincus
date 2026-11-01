@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { AbusePolicyError, listAbuseHosts, retryAllAbuseHosts, saveAbusePolicy, type AbusePolicy } from '../services/host-abuse-policy.js'
+import { AbusePolicyError, listAbuseHosts, retryAllAbuseHosts, saveAbusePolicy, type AbusePolicyInput } from '../services/host-abuse-policy.js'
 
 export default async function hostAbusePolicyRoutes(fastify: FastifyInstance) {
   const revision = { type: 'integer', minimum: 0, maximum: 2147483647 }
@@ -15,9 +15,15 @@ export default async function hostAbusePolicyRoutes(fastify: FastifyInstance) {
     try { return await listAbuseHosts(request.query) }
     catch (error) { if (error instanceof AbusePolicyError) return reply.code(error.statusCode).send({ code: error.code }); throw error }
   })
-  fastify.put<{ Body: AbusePolicy }>('/abuse-policy', {
+  fastify.put<{ Body: AbusePolicyInput }>('/abuse-policy', {
     onRequest: [fastify.authenticateAdmin], config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
-    schema: { body: { type: 'object', additionalProperties: false, required: ['revision', 'blockBt', 'blockMining'], properties: { revision, blockBt: { type: 'boolean' }, blockMining: { type: 'boolean' } } } }
+    preValidation: async (request, reply) => {
+      const body = request.body
+      if (body && Object.hasOwn(body, 'blockSpeedTest') && typeof body.blockSpeedTest !== 'boolean') {
+        return reply.code(400).send({ code: 'ABUSE_POLICY_INVALID' })
+      }
+    },
+    schema: { body: { type: 'object', additionalProperties: false, required: ['revision', 'blockBt', 'blockMining'], properties: { revision, blockBt: { type: 'boolean' }, blockMining: { type: 'boolean' }, blockSpeedTest: { type: 'boolean' } } } }
   }, async (request, reply) => {
     try { return await saveAbusePolicy(request.body, request.user) }
     catch (error) { if (error instanceof AbusePolicyError) return reply.code(error.statusCode).send({ code: error.code }); throw error }

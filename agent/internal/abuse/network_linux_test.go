@@ -45,7 +45,7 @@ func TestFirewallLinuxNamespace(t *testing.T) {
 		t.Skip("requires opt-in dedicated Linux network test host")
 	}
 	directory := t.TempDir()
-	rules, err := Rules(Instruction{Revision: 1, BlockBT: true, BlockMining: true}, []string{"incusbr0", "tenant1"})
+	rules, err := Rules(Instruction{Revision: 1, BlockBT: true, BlockMining: true, BlockSpeedTest: true}, []string{"incusbr0", "tenant1"})
 	if err != nil {
 		t.Fatal(err)
 	}

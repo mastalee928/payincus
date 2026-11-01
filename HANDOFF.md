@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-11-01 防滥用增加客户实例测速屏蔽
+
+- 与BT/挖矿同一全局表单、保存/重试/汇总和受管客户FORWARD链，新增独立默认关闭开关；保留owner原14个词，TCP/UDP及IPv4/IPv6按明文特征匹配。宿主OUTPUT、管理与受管桥之间流量保持豁免；页面说明宽匹配及加密/隧道局限。
+- 旧备份/Agent磁盘缺字段默认关闭并保留BT/挖矿，显式null/错类型拒绝；旧页面遗漏字段保留当前测速值。新增能力标识与完整flags回执比较，旧Agent不接收无法完整执行的策略也不能被标记成功；新Agent拒绝缺测速字段的旧主控关闭已有测速防护，保留版本/nonce、离线退避与重启恢复。
+- 本地`speed-abuse-go.log`、`speed-panel-go.log`定向测试自然exit0；`takeover-bulk-review-final.log`真实PG/Fastify/HMAC含原108宿主批量失败审计/撤权/并发及新增兼容回归exit0。`speed-server-type.log`、`speed-client-build.log`双端类型/构建、`speed-frontend-guards.log`、`speed-dist-guards.log`、`speed-ui-lint.log`均通过；`speed-ui.log`真实Chrome三开关/草稿保留/迟到回执/三语三宽亮暗及截图通过。Linux交叉编译仅证明可编译。
+- CI41269015834的旧IPv6基线UDP在未应用规则前超时，未认定产品规则故障。网络夹具改为四监听器真实就绪、先单独验证ICMP邻居可达并在失败时保留三命名空间地址/路由/邻居/规则诊断；原0.7秒DROP断言不放宽。新增14词数据包验证，Linux实际结果待新CI；不能把待验证假设写成已修根因。Agent41269015744已success且Publish skipped；前四轮Pool仍运行，精确快照`logs/takeover-ci-<runId>.json`。
+- 备份还原专项继续，历史迁移前缀及旧格式守卫证据复用；尚未实际完成本轮旧库dump/restore。暂不发版、不操作生产/客户实例/DNS。
+
 ## 2026-11-01 接手收尾：三角色换域名、全局防滥用与批量失败审查
 
 - `3a589aa4920111d88408daf209c3793ebdc8dde9`/CI41268291094已通过仓库/安装守卫、实际OpenSSL及远端网关整job（含PG、Chrome、Linux root密钥恢复）。其Linux数据包专项在创建共存nft表时失败，尚未进入策略断言；原夹具单行嵌套块缺少内块后的分隔，改为标准多行块，并保留stderr供下一次具体诊断。见`takeover-ci-third-lint-failed.log`，不将夹具创建失败冒称防滥用数据包失败或通过。

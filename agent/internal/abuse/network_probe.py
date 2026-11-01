@@ -38,13 +38,15 @@ def space():
     raise AssertionError("child did not create a namespace")
 
 server_code = r'''
-import socket,threading,time
+import socket,threading,time,queue
+ready=queue.Queue()
 def serve(family,kind):
  s=socket.socket(family,kind);s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
  if family==socket.AF_INET6:s.setsockopt(socket.IPPROTO_IPV6,socket.IPV6_V6ONLY,1)
  s.bind(('::' if family==socket.AF_INET6 else '0.0.0.0',9001))
  if kind==socket.SOCK_STREAM:
   s.listen()
+  ready.put(True)
   while True:
    c,_=s.accept();c.settimeout(2)
    try:
@@ -53,12 +55,14 @@ def serve(family,kind):
    except socket.timeout:pass
    finally:c.close()
  else:
+  ready.put(True)
   while True:
    data,address=s.recvfrom(4096);s.sendto(data,address)
 for family in (socket.AF_INET,socket.AF_INET6):
  for kind in (socket.SOCK_STREAM,socket.SOCK_DGRAM):
   threading.Thread(target=serve,args=(family,kind),daemon=True).start()
-time.sleep(.15);print('READY',flush=True);time.sleep(70)
+for _ in range(4):ready.get(timeout=5)
+print('READY',flush=True);time.sleep(70)
 '''
 client_code = r'''
 import socket,sys
@@ -79,7 +83,20 @@ def probe(pid, family, protocol, payload, allowed):
     result = subprocess.run(prefix + ["python3", "-c", client_code, family, protocol, address, payload.hex()], capture_output=True)
     expected = 0 if allowed else 2
     if result.returncode != expected:
+        diagnostics()
         raise AssertionError(("packet result", family, protocol, "allowed", allowed, result.returncode, result.stderr.decode()))
+
+def diagnostics():
+    # Failed baseline reachability is separate from a firewall assertion. Keep
+    # routing/neighbor evidence from all three isolated namespaces before exit.
+    for label, pid in [("router", None), ("guest", guest), ("server", server)]:
+        prefix = [] if pid is None else ["nsenter", "-t", str(pid), "-n"]
+        for args in [("ip", "-6", "addr"), ("ip", "-6", "route"), ("ip", "-6", "neigh"), ("ip", "-s", "link")]:
+            result = subprocess.run(prefix + list(args), text=True, capture_output=True)
+            print(label, args, result.stdout, result.stderr, flush=True)
+    for args in [("nft", "list", "ruleset"), ("ip6tables-save",), ("bridge", "mdb", "show")]:
+        result = subprocess.run(args, text=True, capture_output=True)
+        print(args, result.stdout, result.stderr, flush=True)
 
 def checksum(data):
     if len(data) % 2: data += b"\0"
@@ -148,9 +165,19 @@ try:
     run("ip","neigh","replace","172.30.10.3","lladdr","02:00:00:00:00:03","nud","permanent","dev","incusbr0")
     run("ip","-6","neigh","replace","fd42:10::3","lladdr","02:00:00:00:00:03","nud","permanent","dev","incusbr0")
     mac=bytes.fromhex(json.loads(run("ip","-j","link","show","dev","incusbr0"))[0]["address"].replace(":",""))
+    # Establish neighbor reachability separately from the short DROP deadline.
+    # A newly created IPv6 link can still be completing multicast membership /
+    # neighbor discovery. ICMP is never part of the signature filter assertions.
+    for family, address in [("-4", "172.30.20.2"), ("-6", "fd42:20::2")]:
+        try:
+            ns(guest, "ping", family, "-c", "1", "-W", "3", address)
+        except AssertionError:
+            diagnostics()
+            raise
     bt=b"\x13BitTorrent protocol"+b"\0"*40
     mining=b'{"id":1,"method":"mining.subscribe","params":[]}\n'
     plain=b"ordinary DNS or web traffic, no matched protocol signature"
+    speed_signatures=[b".speed", b"speed.", b".speed.", b"fast.com", b"speedtest.net", b"speedtest.com", b"speedtest.cn", b"test.ustc.edu.cn", b"10000.gd.cn", b"db.laomoe.com", b"jiyou.cloud", b"ovo.speedtestcustom.com", b"speed.cloudflare.com", b"speedtest"]
     for family in ("4","6"):
         probe(guest,family,"udp",bt,True);tap_probe(tap,family,plain,True,mac)
     for family in ("iptables","ip6tables"):
@@ -162,6 +189,11 @@ try:
             probe(guest,family,protocol,payload,False)
             probe(None,family,protocol,payload,True)
         probe(guest,family,"tcp",plain,True);probe(guest,family,"udp",plain,True)
+        for index, signature in enumerate(speed_signatures):
+            probe(guest,family,"tcp" if index % 2 else "udp",signature,False)
+        probe(None,family,"tcp",b"fast.com",True)
+        probe(None,family,"udp",b"speedtest",True)
+        tap_probe(tap,family,b"speedtest",False,mac)
         tap_probe(tap,family,bt,False,mac);tap_probe(tap,family,plain,True,mac)
     run("ip","link","set","uplink","name","incudal-mgmt")
     for family in ("4","6"):probe(guest,family,"udp",bt,True)
@@ -174,6 +206,7 @@ try:
         if "-A UNRELATED -j RETURN" not in run(family+"-save","-t","mangle"):raise AssertionError("foreign rule changed")
     for family in ("4","6"):
         probe(guest,family,"udp",bt,True);probe(guest,family,"tcp",mining,True);tap_probe(tap,family,bt,True,mac)
+        probe(guest,family,"tcp",b"fast.com",True);probe(guest,family,"udp",b"speedtest",True)
     if run("nft","list","table","inet","incudal_ingress_protocol")!=ingress_before:raise AssertionError("ingress policy changed")
     os.close(tap)
     print("IPv4+IPv6 bridged veth/TAP signatures, plain traffic, host OUTPUT, management/inter-bridge exemption, removal and ingress coexistence passed")

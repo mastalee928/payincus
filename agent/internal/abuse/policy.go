@@ -19,19 +19,22 @@ const jump = "-A FORWARD -m comment --comment incudal-abuse-v1 -j " + chain
 var interfaceName = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`)
 
 type Instruction struct {
-	Revision    int  `json:"revision"`
-	BlockBT     bool `json:"blockBt"`
-	BlockMining bool `json:"blockMining"`
-	RetryNonce  int  `json:"retryNonce"`
+	Revision         int  `json:"revision"`
+	BlockBT          bool `json:"blockBt"`
+	BlockMining      bool `json:"blockMining"`
+	BlockSpeedTest   bool `json:"blockSpeedTest"`
+	speedTestMissing bool
+	RetryNonce       int `json:"retryNonce"`
 }
 
 // A partially decoded response must never silently turn a switch off.
 func (p *Instruction) UnmarshalJSON(data []byte) error {
 	var value struct {
-		Revision    *int  `json:"revision"`
-		BlockBT     *bool `json:"blockBt"`
-		BlockMining *bool `json:"blockMining"`
-		RetryNonce  *int  `json:"retryNonce"`
+		Revision       *int            `json:"revision"`
+		BlockBT        *bool           `json:"blockBt"`
+		BlockMining    *bool           `json:"blockMining"`
+		BlockSpeedTest json.RawMessage `json:"blockSpeedTest"`
+		RetryNonce     *int            `json:"retryNonce"`
 	}
 	if err := json.Unmarshal(data, &value); err != nil {
 		return err
@@ -39,7 +42,17 @@ func (p *Instruction) UnmarshalJSON(data []byte) error {
 	if value.Revision == nil || value.BlockBT == nil || value.BlockMining == nil || value.RetryNonce == nil {
 		return fmt.Errorf("incomplete abuse policy")
 	}
-	*p = Instruction{Revision: *value.Revision, BlockBT: *value.BlockBT, BlockMining: *value.BlockMining, RetryNonce: *value.RetryNonce}
+	// Policies persisted before speed-test support have no field. Explicit null
+	// or a wrong type is corruption, not an instruction to disable protection.
+	speedTest := false
+	if len(value.BlockSpeedTest) != 0 {
+		var flag *bool
+		if err := json.Unmarshal(value.BlockSpeedTest, &flag); err != nil || flag == nil {
+			return fmt.Errorf("invalid speed-test policy")
+		}
+		speedTest = *flag
+	}
+	*p = Instruction{Revision: *value.Revision, BlockBT: *value.BlockBT, BlockMining: *value.BlockMining, BlockSpeedTest: speedTest, speedTestMissing: len(value.BlockSpeedTest) == 0, RetryNonce: *value.RetryNonce}
 	return nil
 }
 
@@ -76,7 +89,7 @@ func (s *Status) UnmarshalJSON(data []byte) error {
 func (p Instruction) valid() bool {
 	return p.Revision >= 1 && p.Revision <= 2147483647 && p.RetryNonce >= 0 && p.RetryNonce <= 2147483647
 }
-func (p Instruction) enabled() bool { return p.BlockBT || p.BlockMining }
+func (p Instruction) enabled() bool { return p.BlockBT || p.BlockMining || p.BlockSpeedTest }
 
 func normalizedBridges(bridges []string) ([]string, error) {
 	if len(bridges) > 128 {
@@ -140,6 +153,12 @@ func Rules(p Instruction, bridges []string) ([]string, error) {
 	if p.BlockMining {
 		for _, method := range []string{"mining.subscribe", "mining.authorize", "mining.submit", "eth_submitLogin", "eth_submitWork", "eth_getWork"} {
 			add("tcp", `"`+method+`"`)
+		}
+	}
+	if p.BlockSpeedTest {
+		for _, signature := range []string{".speed", "speed.", ".speed.", "fast.com", "speedtest.net", "speedtest.com", "speedtest.cn", "test.ustc.edu.cn", "10000.gd.cn", "db.laomoe.com", "jiyou.cloud", "ovo.speedtestcustom.com", "speed.cloudflare.com", "speedtest"} {
+			add("tcp", signature)
+			add("udp", signature)
 		}
 	}
 	return rules, nil

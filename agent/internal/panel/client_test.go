@@ -18,6 +18,8 @@ func TestHeartbeatAbusePolicyContract(t *testing.T) {
 		expected       bool
 	}{
 		{"configured", `{"abusePolicy":{"revision":2,"blockBt":true,"blockMining":false,"retryNonce":4}}`, true},
+		{"speed configured", `{"abusePolicy":{"revision":2,"blockBt":true,"blockMining":false,"blockSpeedTest":true,"retryNonce":4}}`, true},
+		{"speed null rejected", `{"abusePolicy":{"revision":2,"blockBt":true,"blockMining":false,"blockSpeedTest":null,"retryNonce":4}}`, false},
 		{"never configured", `{"abusePolicy":null}`, false},
 		{"old server", `{"ok":true}`, false},
 		{"partial must not disable", `{"abusePolicy":{"revision":3,"blockBt":false}}`, false},
@@ -47,6 +49,9 @@ func TestHeartbeatAbusePolicyContract(t *testing.T) {
 			}
 			if tc.expected && (result.AbusePolicy.Revision != 2 || !result.AbusePolicy.BlockBT || result.AbusePolicy.RetryNonce != 4) {
 				t.Fatal(result.AbusePolicy)
+			}
+			if tc.name == "speed configured" && !result.AbusePolicy.BlockSpeedTest {
+				t.Fatal("speed switch lost on wire")
 			}
 		})
 	}

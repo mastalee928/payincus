@@ -179,8 +179,8 @@ func (e *Engine) Sync(ctx context.Context, instruction *Instruction) *Status {
 			return &s
 		}
 		current := e.state.Policy
-		if current != nil && (instruction.Revision < current.Revision ||
-			(instruction.Revision == current.Revision && (instruction.BlockBT != current.BlockBT || instruction.BlockMining != current.BlockMining || instruction.RetryNonce < current.RetryNonce))) {
+		if current != nil && ((current.BlockSpeedTest && instruction.speedTestMissing) || instruction.Revision < current.Revision ||
+			(instruction.Revision == current.Revision && (instruction.BlockBT != current.BlockBT || instruction.BlockMining != current.BlockMining || instruction.BlockSpeedTest != current.BlockSpeedTest || instruction.RetryNonce < current.RetryNonce))) {
 			// Never let a delayed/old response remove newer host protection.
 			s := e.state.Status
 			return &s

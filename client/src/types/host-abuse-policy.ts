@@ -1,4 +1,4 @@
-export interface HostAbusePolicy { revision: number; blockBt: boolean; blockMining: boolean }
+export interface HostAbusePolicy { revision: number; blockBt: boolean; blockMining: boolean; blockSpeedTest: boolean }
 export type HostAbuseState = 'applied' | 'pending' | 'retrying' | 'offline' | 'unsupported' | 'unconfigured' | 'conflict'
 export interface HostAbuseRow {
   id: number; name: string; state: HostAbuseState; lastSeenAt: string | null

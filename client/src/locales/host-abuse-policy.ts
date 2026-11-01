@@ -1,6 +1,6 @@
 export const zhCN = {
   title: '防滥用', description: '统一保护全部宿主，新接入的宿主自动继承。',
-  blockBt: '屏蔽 BT', blockMining: '屏蔽挖矿', btHint: '拦截可识别的 BitTorrent 握手和 DHT 流量。', miningHint: '拦截可识别的常见矿池协议。',
+  blockBt: '屏蔽 BT', blockMining: '屏蔽挖矿', blockSpeedTest: '屏蔽测速', speedTestHint: '按 14 个测速关键词匹配，包括 speedtest、.speed 与 fast.com；包含这些词的其他流量也可能被拦截。', btHint: '拦截可识别的 BitTorrent 握手和 DHT 流量。', miningHint: '拦截可识别的常见矿池协议。',
   scope: '作用于受管客户网络的 IPv4 / IPv6 出站流量。加密、隧道及未知协议可能无法识别。',
   save: '保存并同步全部宿主', saving: '正在保存…', saved: '策略已保存，全部宿主将自动同步。',
   automatic: '离线宿主上线后自动补齐；临时失败会退避重试，重启后继续恢复。',
@@ -22,7 +22,7 @@ export const zhCN = {
     ABUSE_RETRY_FAILED: '系统暂时未能安排重试。原策略继续保留，可稍后重试全部异常。',
     HOST_AGENT_NOT_INSTALLED: '此宿主尚未安装 Agent。完成接入安装后会自动同步全局策略。',
     HOST_AGENT_DISABLED: '此宿主的 Agent 已停用。恢复启用后会自动同步全局策略。',
-    HOST_AGENT_UPGRADE_REQUIRED: '此 Agent 尚不支持防滥用，升级至支持版本并恢复心跳后自动同步。',
+    HOST_AGENT_UPGRADE_REQUIRED: '此 Agent 尚不支持所选防滥用策略，升级至支持版本并恢复心跳后自动同步。',
     HOST_NOT_FOUND: '此宿主记录已不存在，请刷新列表。',
     ABUSE_REVISION_LIMIT: '此宿主的重试版本异常，请检查 Agent 本地状态后重新同步。',
     ABUSE_POLICY_UNTRUSTED_REVISION: '此宿主报告的策略版本异常，已隔离该冲突，不影响其他宿主同步。请检查宿主 Agent 的本地状态与身份。',
@@ -38,7 +38,7 @@ export const zhCN = {
 }
 export const zhTW = {
   title: '防濫用', description: '統一保護全部宿主，新接入的宿主自動繼承。',
-  blockBt: '封鎖 BT', blockMining: '封鎖挖礦', btHint: '攔截可識別的 BitTorrent 交握與 DHT 流量。', miningHint: '攔截可識別的常見礦池協定。',
+  blockBt: '封鎖 BT', blockMining: '封鎖挖礦', blockSpeedTest: '封鎖測速', speedTestHint: '依 14 個測速關鍵詞比對，包括 speedtest、.speed 與 fast.com；包含這些詞的其他流量也可能被攔截。', btHint: '攔截可識別的 BitTorrent 交握與 DHT 流量。', miningHint: '攔截可識別的常見礦池協定。',
   scope: '作用於受管客戶網路的 IPv4 / IPv6 輸出流量。加密、隧道及未知協定可能無法識別。',
   save: '儲存並同步全部宿主', saving: '正在儲存…', saved: '策略已儲存，全部宿主將自動同步。',
   automatic: '離線宿主上線後自動補齊；暫時失敗會退避重試，重新啟動後繼續恢復。',
@@ -60,7 +60,7 @@ export const zhTW = {
     ABUSE_RETRY_FAILED: '系統暫時未能安排重試。原策略繼續保留，可稍後重試全部異常。',
     HOST_AGENT_NOT_INSTALLED: '此宿主尚未安裝 Agent。完成接入安裝後會自動同步全域策略。',
     HOST_AGENT_DISABLED: '此宿主的 Agent 已停用。恢復啟用後會自動同步全域策略。',
-    HOST_AGENT_UPGRADE_REQUIRED: '此 Agent 尚不支援防濫用，升級至支援版本並恢復心跳後自動同步。',
+    HOST_AGENT_UPGRADE_REQUIRED: '此 Agent 尚不支援所選防濫用策略，升級至支援版本並恢復心跳後自動同步。',
     HOST_NOT_FOUND: '此宿主紀錄已不存在，請重新整理列表。',
     ABUSE_REVISION_LIMIT: '此宿主的重試版本異常，請檢查 Agent 本地狀態後重新同步。',
     ABUSE_POLICY_UNTRUSTED_REVISION: '此宿主回報的策略版本異常，已隔離衝突，不影響其他宿主同步。請檢查 Agent 的本地狀態與身分。',
@@ -76,7 +76,7 @@ export const zhTW = {
 }
 export const en = {
   title: 'Abuse prevention', description: 'One policy for every host, automatically inherited by new hosts.',
-  blockBt: 'Block BitTorrent', blockMining: 'Block mining', btHint: 'Block recognizable BitTorrent handshakes and DHT traffic.', miningHint: 'Block recognizable common mining protocols.',
+  blockBt: 'Block BitTorrent', blockMining: 'Block mining', blockSpeedTest: 'Block speed tests', speedTestHint: 'Match 14 speed-test keywords, including speedtest, .speed and fast.com. Other traffic containing these strings may also be blocked.', btHint: 'Block recognizable BitTorrent handshakes and DHT traffic.', miningHint: 'Block recognizable common mining protocols.',
   scope: 'Covers outgoing IPv4 / IPv6 traffic on managed customer networks. Encrypted traffic, tunnels and unknown protocols may evade detection.',
   save: 'Save and sync all hosts', saving: 'Saving…', saved: 'Policy saved. All hosts will synchronize automatically.',
   automatic: 'Offline hosts catch up when they reconnect. Temporary failures retry with backoff and recover after restart.',
@@ -98,7 +98,7 @@ export const en = {
     ABUSE_RETRY_FAILED: 'Could not queue this retry. Existing policy remains active; retry all exceptions later.',
     HOST_AGENT_NOT_INSTALLED: 'This host has no Agent installed. It will receive the global policy after onboarding installs the Agent.',
     HOST_AGENT_DISABLED: 'This host’s Agent is disabled. It will receive the global policy when enabled again.',
-    HOST_AGENT_UPGRADE_REQUIRED: 'This Agent lacks abuse prevention. It will synchronize after a supported upgrade and heartbeat.',
+    HOST_AGENT_UPGRADE_REQUIRED: 'This Agent does not support the selected abuse policy. It will synchronize after a supported upgrade and heartbeat.',
     HOST_NOT_FOUND: 'This host record no longer exists. Refresh the list.',
     ABUSE_REVISION_LIMIT: 'This host reported an invalid retry version. Check its Agent state before synchronizing again.',
     ABUSE_POLICY_UNTRUSTED_REVISION: 'This host reports an implausible policy revision. Its conflict is isolated; other hosts can still synchronize. Review this Agent’s local state and identity.',

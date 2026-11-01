@@ -88,6 +88,70 @@ func TestNeverConfiguredDoesNotTouchFirewall(t *testing.T) {
 	}
 }
 
+func TestSpeedTestOfflineRestartAndLatePolicy(t *testing.T) {
+	f := newFixture(t)
+	p := Instruction{Revision: 5, BlockSpeedTest: true, RetryNonce: 3}
+	if s := f.e.Sync(context.Background(), &p); !s.Applied || !s.BlockSpeedTest {
+		t.Fatal(s)
+	}
+	original := f.snapshots["iptables"]
+	for _, stale := range []Instruction{{Revision: 4}, {Revision: 5, RetryNonce: 9}, {Revision: 5, BlockSpeedTest: true, RetryNonce: 2}} {
+		if s := f.e.Sync(context.Background(), &stale); !s.BlockSpeedTest || s.Revision != 5 || s.RetryNonce != 3 {
+			t.Fatal("late policy removed protection", s)
+		}
+	}
+	var oldServer Instruction
+	if err := json.Unmarshal([]byte(`{"revision":6,"blockBt":false,"blockMining":false,"retryNonce":0}`), &oldServer); err != nil {
+		t.Fatal(err)
+	}
+	if s := f.e.Sync(context.Background(), &oldServer); !s.BlockSpeedTest || s.Revision != 5 {
+		t.Fatal("old server silently disabled speed protection", s)
+	}
+	if err := os.WriteFile(f.e.path, f.saved, 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.e.loaded = false
+	f.e.state = diskState{}
+	f.snapshots = map[string]string{}
+	f.incusDown = true
+	if err := f.e.Restore(context.Background()); err != nil || f.snapshots["iptables"] != original || !f.e.Status().BlockSpeedTest {
+		t.Fatal("offline restore lost speed policy", err)
+	}
+	f.incusDown = false
+	f.failFamily = "iptables"
+	disable := Instruction{Revision: 6}
+	if s := f.e.Sync(context.Background(), &disable); s.Applied {
+		t.Fatal("failed removal reported applied", s)
+	}
+	f.clock = f.clock.Add(time.Hour)
+	if s := f.e.Sync(context.Background(), nil); !s.Applied || s.BlockSpeedTest || f.snapshots["iptables"] != "" {
+		t.Fatal("offline retry did not remove rules", s)
+	}
+}
+
+func TestRestoreLegacyDiskKeepsBTMining(t *testing.T) {
+	f := newFixture(t)
+	p := Instruction{Revision: 3, BlockBT: true, BlockMining: true}
+	if s := f.e.Sync(context.Background(), &p); !s.Applied {
+		t.Fatal(s)
+	}
+	legacy := strings.ReplaceAll(string(f.saved), `,"blockSpeedTest":false`, "")
+	if err := os.WriteFile(f.e.path, []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.e.loaded = false
+	f.e.state = diskState{}
+	f.snapshots = map[string]string{}
+	f.incusDown = true
+	if err := f.e.Restore(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s := f.e.Status()
+	if !s.Applied || !s.BlockBT || !s.BlockMining || s.BlockSpeedTest || strings.Count(f.snapshots["iptables"], "-j DROP") != 12 {
+		t.Fatal(s)
+	}
+}
+
 func TestApplyDriftOfflineRestoreAndRemoval(t *testing.T) {
 	f := newFixture(t)
 	p := Instruction{Revision: 1, BlockBT: true, BlockMining: true}

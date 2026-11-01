@@ -1,10 +1,38 @@
 package abuse
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
 )
+
+func TestSpeedTestLegacyAndStrictPolicy(t *testing.T) {
+	var p Instruction
+	if err := json.Unmarshal([]byte(`{"revision":4,"blockBt":true,"blockMining":true,"retryNonce":2}`), &p); err != nil || p.BlockSpeedTest || !p.BlockBT || !p.BlockMining {
+		t.Fatal("legacy protections lost", p, err)
+	}
+	for _, flag := range []string{"null", `"true"`, "1", "{}"} {
+		if json.Unmarshal([]byte(`{"revision":4,"blockBt":true,"blockMining":true,"retryNonce":2,"blockSpeedTest":`+flag+`}`), &p) == nil {
+			t.Fatal("invalid speed switch accepted", flag)
+		}
+	}
+	rules, err := Rules(Instruction{Revision: 1, BlockSpeedTest: true}, []string{"incusbr0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(rules, "\n")
+	if strings.Count(text, "-j DROP") != 28 || strings.Contains(text, "OUTPUT") || strings.Contains(text, "--algo bm") {
+		t.Fatal(text)
+	}
+	for _, signature := range []string{".speed", "speed.", ".speed.", "fast.com", "speedtest.net", "speedtest.com", "speedtest.cn", "test.ustc.edu.cn", "10000.gd.cn", "db.laomoe.com", "jiyou.cloud", "ovo.speedtestcustom.com", "speed.cloudflare.com", "speedtest"} {
+		for _, protocol := range []string{"tcp", "udp"} {
+			if !strings.Contains(text, "-p "+protocol+" -m string --hex-string \"|"+hex.EncodeToString([]byte(signature))+"|\" --algo kmp") {
+				t.Fatal("missing speed match", signature, protocol)
+			}
+		}
+	}
+}
 
 func TestRejectIncompletePolicy(t *testing.T) {
 	for _, data := range []string{`{"revision":1}`, `{"revision":1,"blockBt":true,"blockMining":false}`, `{"revision":1,"blockBt":null,"blockMining":false,"retryNonce":0}`} {

@@ -3,6 +3,7 @@ import { prisma } from '../db/prisma.js'
 import { authorizeUserWrite, type WriteActor } from '../db/user-write-authorization.js'
 
 export const ABUSE_CAPABILITY = 'abuse-policy-v1'
+export const ABUSE_SPEEDTEST_CAPABILITY = 'abuse-speedtest-v1'
 export const ABUSE_POLICY_KEY = 'host_abuse_policy_v1'
 const retryPrefix = 'host_abuse_retry_v1_'
 const queueErrorPrefix = 'host_abuse_queue_error_v1_'
@@ -12,7 +13,8 @@ const queueErrors = new Set(['ABUSE_RETRY_TIMEOUT', 'ABUSE_RETRY_FAILED', 'HOST_
 // Normal backup lag can be reconciled; implausibly large reports stay isolated.
 const recoveryRevisionWindow = 10000
 const errors = new Set(['DEPENDENCY_MISSING', 'NETWORK_DISCOVERY_FAILED', 'APPLY_FAILED', 'PERSIST_FAILED', 'RESTORE_FAILED', 'UNSUPPORTED_NETWORK', 'INVALID_POLICY'])
-export type AbusePolicy = { revision: number; blockBt: boolean; blockMining: boolean }
+export type AbusePolicy = { revision: number; blockBt: boolean; blockMining: boolean; blockSpeedTest: boolean }
+export type AbusePolicyInput = Omit<AbusePolicy, 'blockSpeedTest'> & { blockSpeedTest?: boolean }
 export type AbuseInstruction = AbusePolicy & { retryNonce: number }
 export type AbuseStatus = AbuseInstruction & { applied: boolean; attempts: number; errorCode: string | null; nextRetryAt: string | null; checkedAt: string }
 type Reader = Pick<Prisma.TransactionClient, 'systemConfig'>
@@ -26,28 +28,33 @@ export class AbusePolicyError extends Error {
 
 export async function readAbusePolicy(db: Reader = prisma): Promise<AbusePolicy> {
   const row = await db.systemConfig.findUnique({ where: { key: ABUSE_POLICY_KEY }, select: { value: true } })
-  if (!row) return { revision: 0, blockBt: false, blockMining: false }
+  if (!row) return { revision: 0, blockBt: false, blockMining: false, blockSpeedTest: false }
   let value: Record<string, unknown>
   try { value = object(JSON.parse(row.value)) } catch { throw new AbusePolicyError(409, 'ABUSE_POLICY_INVALID') }
-  if (!integer(value.revision, 1) || typeof value.blockBt !== 'boolean' || typeof value.blockMining !== 'boolean') throw new AbusePolicyError(409, 'ABUSE_POLICY_INVALID')
-  return { revision: value.revision, blockBt: value.blockBt, blockMining: value.blockMining }
+  if (!integer(value.revision, 1) || typeof value.blockBt !== 'boolean' || typeof value.blockMining !== 'boolean' ||
+    ('blockSpeedTest' in value && typeof value.blockSpeedTest !== 'boolean')) throw new AbusePolicyError(409, 'ABUSE_POLICY_INVALID')
+  return { revision: value.revision, blockBt: value.blockBt, blockMining: value.blockMining, blockSpeedTest: value.blockSpeedTest === true }
 }
 
 export function normalizeAbuseStatus(input: unknown): AbuseStatus | null {
   const value = object(input)
   if (!integer(value.revision, 1) || !integer(value.retryNonce) || !integer(value.attempts) ||
     typeof value.blockBt !== 'boolean' || typeof value.blockMining !== 'boolean' || typeof value.applied !== 'boolean' ||
+    ('blockSpeedTest' in value && typeof value.blockSpeedTest !== 'boolean') ||
     typeof value.checkedAt !== 'string' || !Number.isFinite(Date.parse(value.checkedAt)) || Date.parse(value.checkedAt) > Date.now() + 60000) return null
   return { revision: value.revision, retryNonce: value.retryNonce, blockBt: value.blockBt, blockMining: value.blockMining,
+    blockSpeedTest: value.blockSpeedTest === true,
     applied: value.applied, attempts: value.attempts,
     errorCode: value.applied ? null : errors.has(String(value.errorCode)) ? String(value.errorCode) : 'APPLY_FAILED',
     checkedAt: new Date(value.checkedAt).toISOString(),
     nextRetryAt: typeof value.nextRetryAt === 'string' && Number.isFinite(Date.parse(value.nextRetryAt)) ? new Date(value.nextRetryAt).toISOString() : null }
 }
 
-export async function abuseInstruction(hostId: number): Promise<AbuseInstruction | null> {
+export async function abuseInstruction(hostId: number, capabilities?: string[]): Promise<AbuseInstruction | null> {
   const policy = await readAbusePolicy()
   if (!policy.revision) return null
+  // Do not send an instruction that an old Agent can only partially enforce.
+  if (capabilities && (!capabilities.includes(ABUSE_CAPABILITY) || (policy.blockSpeedTest && !capabilities.includes(ABUSE_SPEEDTEST_CAPABILITY)))) return null
   const row = await prisma.systemConfig.findUnique({ where: { key: retryPrefix + hostId }, select: { value: true } })
   const nonce = Number(row?.value || 0)
   if (!integer(nonce)) throw new AbusePolicyError(409, 'ABUSE_POLICY_INVALID')
@@ -58,9 +65,10 @@ async function authorize(tx: Prisma.TransactionClient, actor: WriteActor) {
   if (!await authorizeUserWrite(tx, actor.id, actor) || (await tx.user.findUnique({ where: { id: actor.id }, select: { role: true } }))?.role !== 'admin') throw new AbusePolicyError(403, 'FORBIDDEN')
 }
 
-function unsupportedAgent(host: { agent: { enabled: boolean; capabilities: unknown } | null } | undefined) {
+function unsupportedAgent(host: { agent: { enabled: boolean; capabilities: unknown } | null } | undefined, policy: AbusePolicy) {
   return !host ? 'HOST_NOT_FOUND' : !host.agent ? 'HOST_AGENT_NOT_INSTALLED' : !host.agent.enabled ? 'HOST_AGENT_DISABLED' :
-    !Array.isArray(host.agent.capabilities) || !host.agent.capabilities.includes(ABUSE_CAPABILITY) ? 'HOST_AGENT_UPGRADE_REQUIRED' : null
+    !Array.isArray(host.agent.capabilities) || !host.agent.capabilities.includes(ABUSE_CAPABILITY) ||
+    (policy.blockSpeedTest && !host.agent.capabilities.includes(ABUSE_SPEEDTEST_CAPABILITY)) ? 'HOST_AGENT_UPGRADE_REQUIRED' : null
 }
 
 async function writeQueueErrors(tx: Prisma.TransactionClient, rows: AbuseRetryResult[], revision: number) {
@@ -106,7 +114,7 @@ async function recordQueueAttemptFailure(rows: AbuseRetryResult[], revision: num
   return forbidden
 }
 
-export async function saveAbusePolicy(input: AbusePolicy, actor: WriteActor) {
+export async function saveAbusePolicy(input: AbusePolicyInput, actor: WriteActor) {
   return prisma.$transaction(async tx => {
     await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`
     await authorize(tx, actor)
@@ -121,11 +129,12 @@ export async function saveAbusePolicy(input: AbusePolicy, actor: WriteActor) {
       return reported <= current.revision + recoveryRevisionWindow ? Math.max(maximum, reported) : maximum
     }, current.revision)
     if (floor >= 2147483647) throw new AbusePolicyError(409, 'ABUSE_REVISION_LIMIT')
-    const policy = { revision: floor + 1, blockBt: input.blockBt, blockMining: input.blockMining }
+    // Old open pages may omit the new switch; never let that disable it.
+    const policy = { revision: floor + 1, blockBt: input.blockBt, blockMining: input.blockMining, blockSpeedTest: input.blockSpeedTest ?? current.blockSpeedTest }
     const value = JSON.stringify(policy)
     await tx.systemConfig.upsert({ where: { key: ABUSE_POLICY_KEY }, create: { key: ABUSE_POLICY_KEY, value, type: 'json' }, update: { value } })
     await tx.log.create({ data: { userId: actor.id, module: 'host', action: 'host.abuse_policy.update', result: 'success',
-      content: `Saved host abuse policy revision ${policy.revision}: BT=${policy.blockBt}, mining=${policy.blockMining}; awaiting host verification` } })
+      content: `Saved host abuse policy revision ${policy.revision}: BT=${policy.blockBt}, mining=${policy.blockMining}, speedTest=${policy.blockSpeedTest}; awaiting host verification` } })
     return policy
   }, { maxWait: 2000, timeout: 10000 })
 }
@@ -141,12 +150,12 @@ export async function retryAbuseHosts(ids: number[], revision: number, actor: Wr
     const results: AbuseRetryResult[] = []
     for (const id of ids) {
       const host = rows.find(row => row.id === id)
-      const unsupported = unsupportedAgent(host)
+      const unsupported = unsupportedAgent(host, policy)
       if (unsupported) { results.push({ id, success: false, code: unsupported }); continue }
       const key = retryPrefix + id
       const row = await tx.systemConfig.findUnique({ where: { key }, select: { value: true } })
       const report = normalizeAbuseStatus(object(host?.agent?.lastReport).abusePolicyStatus)
-      if (report && (report.revision > revision || (report.revision === revision && (report.blockBt !== policy.blockBt || report.blockMining !== policy.blockMining)))) {
+      if (report && (report.revision > revision || (report.revision === revision && (report.blockBt !== policy.blockBt || report.blockMining !== policy.blockMining || report.blockSpeedTest !== policy.blockSpeedTest)))) {
         results.push({ id, success: false, code: 'ABUSE_POLICY_CONFLICT' }); continue
       }
       const previous = Math.max(Number(row?.value || 0), report?.revision === revision ? report.retryNonce : 0)
@@ -192,14 +201,14 @@ async function abuseInventory() {
   }))
   const rows = hosts.map(host => {
     const report = normalizeAbuseStatus(object(host.agent?.lastReport).abusePolicyStatus)
-    const unsupported = unsupportedAgent(host), supported = !unsupported
+    const unsupported = unsupportedAgent(host, policy), supported = !unsupported
     const metrics = object(object(host.agent?.lastReport).metrics)
     const interval = typeof metrics.heartbeatIntervalSeconds === 'number' && Number.isFinite(metrics.heartbeatIntervalSeconds) ? Math.min(3600, Math.max(30, metrics.heartbeatIntervalSeconds)) : 60
     const fresh = host.agent?.lastSeenAt && Date.now() - host.agent.lastSeenAt.getTime() < Math.max(180000, interval * 3000)
-    const matches = report && report.revision === policy.revision && report.retryNonce === (nonces.get(host.id) || 0) && report.blockBt === policy.blockBt && report.blockMining === policy.blockMining
+    const matches = report && report.revision === policy.revision && report.retryNonce === (nonces.get(host.id) || 0) && report.blockBt === policy.blockBt && report.blockMining === policy.blockMining && report.blockSpeedTest === policy.blockSpeedTest
     const checked = report && Date.now() - Date.parse(report.checkedAt) < Math.max(180000, interval * 2000)
-    const conflict = report && (report.revision > policy.revision || (report.revision === policy.revision &&
-      (report.blockBt !== policy.blockBt || report.blockMining !== policy.blockMining)))
+    const conflict = report && (report.revision > policy.revision || (supported && report.revision === policy.revision &&
+      (report.blockBt !== policy.blockBt || report.blockMining !== policy.blockMining || report.blockSpeedTest !== policy.blockSpeedTest)))
     const state = conflict ? 'conflict' : !policy.revision ? 'unconfigured' : !supported ? 'unsupported' : !fresh ? 'offline' : !matches ? 'pending' : !report.applied ? 'retrying' : checked ? 'applied' : 'pending'
     const failure = failures.get(host.id)
     const queueFailure = failure?.revision === policy.revision && queueErrors.has(String(failure.code)) &&
