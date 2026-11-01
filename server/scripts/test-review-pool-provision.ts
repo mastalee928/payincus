@@ -21,6 +21,7 @@ const keyPath=join(root,'key.pem'),certPath=join(root,'cert.pem')
 execFileSync(process.env.REVIEW_OPENSSL || 'openssl',['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=incus-fixture','-addext','subjectAltName=IP:127.0.0.1','-keyout',keyPath,'-out',certPath],{stdio:'pipe',windowsHide:true})
 const certificate=await readFile(certPath,'utf8'), actions:string[]=[]
 let mode='existing', name='', currentId=0, remote: {name:string;status:string;config:Record<string,string>}|null=null
+const storagePending = ['storage-refused','storage-unknown','disk-residue','snapshot-residue']
 const server=createServer({key:await readFile(keyPath),cert:certificate,ca:certificate,requestCert:true,rejectUnauthorized:true},async(req,res)=>{
   const ok=(metadata:unknown={})=>res.end(JSON.stringify({type:'sync',metadata})),fail=(code:number,error:string)=>{res.statusCode=code;res.end(JSON.stringify({type:'error',error}))}
   try {
@@ -40,7 +41,20 @@ const server=createServer({key:await readFile(keyPath),cert:certificate,ca:certi
     }
     if(path.includes('/files?')){if(mode==='replaced-before-cleanup'&&remote)remote.config['volatile.uuid']=randomUUID();return fail(500,'fixture initialization failed')}
     if(path==='/1.0/operations?recursion=1')return ok(mode==='pending'?{running:[{status:'Running',resources:{instances:[`/1.0/instances/${name}`]}}]}:{})
-    if(path.startsWith('/1.0/networks'))return ok([])
+    if(path==='/1.0/storage-pools?recursion=1') {
+      assert.equal(req.method,'GET')
+      if(mode==='storage-refused')return fail(500,'fixture storage API unavailable')
+      return ok(mode==='storage-unknown'?null:[{name:'fixture'}])
+    }
+    if(path==='/1.0/storage-pools/fixture/volumes?recursion=1&all-projects=true') {
+      assert.equal(req.method,'GET')
+      return ok(mode==='disk-residue'?[{name,type:'container',project:'default'}]
+        :mode==='snapshot-residue'?[{name:name+'/snapshot0',type:'container',project:'default'}]
+          :[{name:'cached-image',type:'image'}])
+    }
+    if(path==='/1.0/networks')return ok(['/1.0/networks/incusbr0'])
+    if(path==='/1.0/networks?recursion=1')return ok([{name:'incusbr0',type:'bridge',managed:true}])
+    if(path==='/1.0/networks/incusbr0/forwards?recursion=1')return ok([])
     assert.ok(path===`/1.0/instances/${name}`||path===`/1.0/instances/${name}/state`)
     if(req.method==='GET')return remote?ok(remote):fail(404,'not found')
     if(req.method==='PUT'){if(remote){remote.status='Stopped';if(mode==='uuid-changed')remote.config['volatile.uuid']=randomUUID()}return ok()}
@@ -54,7 +68,7 @@ const host=await prisma.host.create({data:{userId:user.id,name:tag,singleTenant:
   cpuAllowanceMax:200,memoryMax:768,storageSize:38,architecture:'x86_64',url:`https://127.0.0.1:${(server.address() as {port:number}).port}`,certPath,keyPath,serverCertificate:certificate,serverFingerprint:new X509Certificate(certificate).fingerprint256}})
 let failure:unknown
 try {
-  for(const scenario of ['existing','confirmed','lost-response','delete-refused','uuid-changed','replaced-before-cleanup','pending','superseded','timed-out','prepared','unpaid','refund-failed']) {
+  for(const scenario of ['existing','confirmed','lost-response','delete-refused',...storagePending,'uuid-changed','replaced-before-cleanup','pending','superseded','timed-out','prepared','unpaid','refund-failed']) {
     mode=scenario;name=tag+'-'+mode;actions.length=0
     await prisma.host.update({where:{id:host.id},data:{poolFaulted:false}})
     remote=mode==='existing'?{name,status:'Running',config:{'user.unrelated':'preserve'}}:null
@@ -75,7 +89,7 @@ try {
     const shouldRefund=!['unpaid','superseded','refund-failed'].includes(mode)
     assert.equal(Number((await prisma.user.findUniqueOrThrow({where:{id:user.id}})).balance),before+(shouldRefund?12:0))
     assert.equal(await prisma.instanceBillingRecord.count({where:{instanceId:instance.id,type:'refund'}}),shouldRefund?1:0)
-    const retain=['existing','delete-refused','uuid-changed','replaced-before-cleanup','pending','superseded','refund-failed'].includes(mode)
+    const retain=['existing','delete-refused',...storagePending,'uuid-changed','replaced-before-cleanup','pending','superseded','refund-failed'].includes(mode)
     if(retain) {
       if(mode==='existing') {
       assert.ok(remote,'a rejected same-name creation must preserve the unrelated remote instance')
@@ -83,6 +97,12 @@ try {
       }
       assert.equal(current.provisioningCleanupPending,mode!=='superseded')
       assert.equal((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).cpuUsed,200)
+      if(storagePending.includes(mode)) {
+        assert.equal(remote,null,'guest deletion alone cannot release storage allocation')
+        assert.equal(current.status,'error')
+        const occupied=await prisma.host.findUniqueOrThrow({where:{id:host.id}})
+        assert.equal(occupied.memoryUsed,768);assert.equal(occupied.diskUsed,30720)
+      }
     } else {
       assert.equal(remote,null);assert.equal(current.status,'deleted');assert.equal(current.provisioningCleanupPending,false)
       assert.equal((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).cpuUsed,0)
@@ -93,10 +113,18 @@ try {
     }
     if(mode==='replaced-before-cleanup')assert.ok(!actions.some(action=>action===`DELETE /1.0/instances/${name}`||action.startsWith('PUT ')))
     const count=actions.length
-    if(mode==='delete-refused'||mode==='refund-failed'||mode==='pending') {
+    if(mode==='delete-refused'||mode==='refund-failed'||mode==='pending'||storagePending.includes(mode)) {
       mode='confirmed'
       await failPoolProvision(instance.id,(await getHostById(host.id))!,'retry cleanup')
-      assert.equal((await prisma.instance.findUniqueOrThrow({where:{id:instance.id}})).status,'deleted')
+      const retried=await prisma.instance.findUniqueOrThrow({where:{id:instance.id}})
+      assert.equal(retried.status,'deleted');assert.equal(retried.provisioningCleanupPending,false)
+      const released=await prisma.host.findUniqueOrThrow({where:{id:host.id}})
+      assert.equal(released.cpuUsed,0);assert.equal(released.memoryUsed,0);assert.equal(released.diskUsed,0)
+      assert.equal(await prisma.instanceBillingRecord.count({where:{instanceId:instance.id,type:'refund'}}),1)
+      assert.equal(Number((await prisma.user.findUniqueOrThrow({where:{id:user.id}})).balance),before+12)
+      const settledActions=actions.length
+      await failPoolProvision(instance.id,(await getHostById(host.id))!,'repeat settled retry')
+      assert.equal(actions.length,settledActions,'settled retry does not repeat remote cleanup')
       assert.equal(await prisma.instanceBillingRecord.count({where:{instanceId:instance.id,type:'refund'}}),1)
     } else if(!retain) {
       await failPoolProvision(instance.id,(await getHostById(host.id))!,'repeat compensation')

@@ -7,12 +7,13 @@ import assert from 'node:assert/strict'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-const instancesSource = readFileSync(resolve(__dirname, '../src/routes/instances.ts'), 'utf8')
-const adminBillingSource = readFileSync(resolve(__dirname, '../src/routes/admin-billing.ts'), 'utf8')
-const managedProvisionSource = readFileSync(resolve(__dirname, '../src/lib/managed-instance-provision.ts'), 'utf8')
-const managedCleanupSource = readFileSync(resolve(__dirname, '../src/lib/managed-cleanup-identity.ts'), 'utf8')
-const appSource = readFileSync(resolve(__dirname, '../src/app.ts'), 'utf8')
-const compensationSource = readFileSync(resolve(__dirname, '../src/db/instance-provisioning-compensation.ts'), 'utf8')
+const readSource = (path: string) => readFileSync(resolve(__dirname, path), 'utf8').replace(/\r\n/g, '\n')
+const instancesSource = readSource('../src/routes/instances.ts')
+const adminBillingSource = readSource('../src/routes/admin-billing.ts')
+const managedProvisionSource = readSource('../src/lib/managed-instance-provision.ts')
+const managedCleanupSource = readSource('../src/lib/managed-cleanup-identity.ts')
+const appSource = readSource('../src/app.ts')
+const compensationSource = readSource('../src/db/instance-provisioning-compensation.ts')
 
 function indexOfOrThrow(source: string, pattern: string, label: string): number {
   const index = source.indexOf(pattern)
@@ -170,7 +171,7 @@ assert.ok(
   'admin instance creation must rollback resources and compensate purchase when public IPv4 allocation races to empty'
 )
 
-const hostRoutesSource = readFileSync(resolve(__dirname, '../src/routes/hosts.ts'), 'utf8')
+const hostRoutesSource = readSource('../src/routes/hosts.ts')
 assert.ok(
   hostRoutesSource.includes('宿主机 ${lockedHost!.name} 没有可用独立 IPv4 地址') &&
     hostRoutesSource.includes('instanceId && lockedHost && !provisioningStarted') &&
@@ -242,7 +243,8 @@ const cloudInitClient = {
 await prepareNewContainerCloudInit(cloudInitClient, 'new-customer', { 'user.user-data': '#cloud-config\n{}' })
 assert.deepEqual(cloudInitRequests, [{ method: 'DELETE', path: '/1.0/instances/new-customer/files?path=/etc/cloud/cloud-init.disabled' }])
 cloudInitRequests.length = 0
-for (const config of [undefined, {}, { 'user.user-data': '  ' }]) {
+const emptyCloudInitConfigs: Array<Record<string, string> | undefined> = [undefined, {}, { 'user.user-data': '  ' }]
+for (const config of emptyCloudInitConfigs) {
   await prepareNewContainerCloudInit(cloudInitClient, 'not-initialized', config)
 }
 await prepareNewContainerCloudInit(cloudInitClient, 'vm', { 'user.user-data': '#cloud-config\n{}' }, 'vm')
