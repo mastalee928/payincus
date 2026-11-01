@@ -243,7 +243,11 @@ def new_certificate(state, request, revision):
             if os.path.exists(temporary):
                 os.unlink(temporary)
     raw = read(destination, 32768)
-    command('/usr/bin/openssl', ['x509', '-in', str(destination), '-noout', '-checkhost', origin(request['origin']).hostname])
+    host = origin(request['origin']).hostname
+    # OpenSSL 3.0 can exit zero even when -checkhost reports a mismatch.
+    # Check the positive result in the fixed C locale as well as the exit code.
+    checked = command('/usr/bin/openssl', ['x509', '-in', str(destination), '-noout', '-checkhost', host])
+    require(checked.strip() == ('Hostname ' + host + ' does match certificate').encode(), 'GATEWAY_DOMAIN_IDENTITY_CHANGED')
     require(command('/usr/bin/openssl', ['x509', '-in', str(destination), '-pubkey', '-noout']) ==
             command('/usr/bin/openssl', ['pkey', '-in', str(state / 'tls.key'), '-pubout']), 'GATEWAY_DOMAIN_IDENTITY_CHANGED')
     return str(destination), certificate_sha(raw)

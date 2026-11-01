@@ -309,6 +309,15 @@ class RealTlsTests(unittest.TestCase):
                 self.assertEqual((state / 'tls.key').read_bytes(), original_key)
                 self.assertEqual(pin, domain.certificate_sha(Path(cert).read_bytes()))
                 self.assertEqual(domain.new_certificate(state, request, '2'), (cert, pin))
+                # Ubuntu OpenSSL 3.0 returns success for a negative hostname
+                # check; keep that exact command result covered on all OSes.
+                def mismatch_result(_program, args, *a, **kw):
+                    if '-checkhost' in args:
+                        return b'Hostname new.example.com does NOT match certificate\n'
+                    return command(executable, args, *a, **kw)
+                with patch.object(domain, 'command', side_effect=mismatch_result):
+                    with self.assertRaisesRegex(domain.Rejected, 'IDENTITY_CHANGED'):
+                        domain.new_certificate(state, request, '2')
                 long_host = 'a' * 60 + '.gateway.example.com'
                 long_cert, _ = domain.new_certificate(state, {**request, 'requestId': REQUEST, 'origin': 'https://' + long_host + ':18443'}, '2')
                 command(executable, ['x509', '-in', long_cert, '-noout', '-checkhost', long_host])
