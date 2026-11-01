@@ -1,6 +1,48 @@
 # 版本与验证记录
 
+## 2026-11-02 v1.8.0 发行、资产及全部 CI 收尾完成
+
+- [v1.8.0正式发行](https://github.com/mastalee928/payincus/releases/tag/v1.8.0)与六公开资产已核验，完整发行来源保持`85323d5fe7ddbbf80ca0e9258308bca395ddcd23`，注释tag对象保持`554aa2855b65e5aad7986ff5c2751f4c70d6bbac`。main CI `41345869211`八job现均success，最后Pool `124965429881`于22:09:17 UTC完成；八job实际checkout均853，修正步骤16/80/81与真实行锁断言通过，终态证据`logs/release-v1.8.0-main-ci-verified.json`和逐job日志。
+- 本任务15个关联运行全部终态，同853的候选CI/Agent/预览、main CI/Agent和正式发行六个运行均success；旧四个失败运行保留原结论，分别由后继测试适配和完整候选/main门禁解决，无未处理失败。main的真实Incus/systemd日志再次确认运行guest、系统卷/快照/forward删除、两worker库存结算及旧Agent身份修复后签名心跳。Agent v1.0.4本轮Publish skipped，原标签、源码tree及公开资产保持，未重复发行。
+- 公开脱敏汇总：[v1.8.0发行验证台账](docs/release-v1.8.0-verification.json)，包含完整源码/实际checkout区分、各run终态、失败解决链、正式首装恢复、六资产hash与组件签名、修复文件/迁移以及日志摘要哈希。仅提交本次最终文档记录并跳过重复CI，不移动稳定tag、不重新构建资产；记录保存后删除`payincus-v1-8-0`监控。以下章节为历史阶段记录，当前终态以本节及公开台账为准。
+- 本版包含换机旧源实际回收、Host30类原客户就绪恢复、Host32类证书与Agent认证修复、单批完整删除及到期三天宽限/续费保护、可读日志和宿主IPv6纯文本。owner从网页“系统更新”升级后按[完整非SSH点击实测流程](docs/release-v1.8.0-owner-click-test.md)逐项验证；后台已受理任务自动续接，原身份、权限、磁盘与账目保护保持。
+- 本任务未操作生产OTA/配置/数据库/DNS/客户实例；生产恢复效果待owner实测。首装OSS传输是一次性VM本地替身，完整独立OSS新机恢复、网关接管、千台、72小时及全327项仍未验收，不能以本次发行或CI通过代替。
+
+## 2026-11-02 v1.8.0 已正式发布并核验公开资产，待 main CI 收尾
+
+- [面板v1.8.0](https://github.com/mastalee928/payincus/releases/tag/v1.8.0)于20:24:32 UTC实际发布，非draft/prerelease，panel latest=v1.8.0。正式`41345894421`双构建、双首装及Release五job全部success，逐job实际checkout均`85323d5fe7ddbbf80ca0e9258308bca395ddcd23`。正式日志独立核过202项、236迁移、唯一后台、双前端、公开Agent、备份/预检/恢复/live状态改变回退续接、SQL/ZIP完整性与旧版CRLF迁移及拒绝；证据`logs/release-v1.8.0-formal-verified.json`、`formal-job-*.log`。
+- 六个公开资产实际下载至`logs/release-v1.8.0-panel-assets/`，API digest/大小、双tar独立校验文件和两份OTA manifest的字节/大小/hash/URL/架构全部匹配。AMD64包213793834字节，SHA256 `7211c77e17b5a5a6de93e09e3325a2bceb5df48cef32ff9aeb8ccb9f8cf73c1a`；ARM64包213027450字节，SHA256 `85b3e35d49551aad71ab2cbfad7a4e0f5c3924b318bc9b2c3c04fa85e4be4df7`。
+- 包内1.8.0版本、236迁移、LICENSE、root归属、归档路径/原生架构、修复编译文件、worker入口和三项恢复/删除迁移已核。每包的双架构网关组件用独立受信公钥核Ed25519签名、20文件hash/大小/权限/ELF架构；catalog与签名payload完整sourceCommit均853，version.json/OTA沿现格式12位提交。证据`logs/release-v1.8.0-panel-assets-verified.json`、`panel-assets-verification.log`。
+- 正式发行说明已按`logs/release-v1.8.0-tag-notes.md`更新并回读一致，覆盖换机回收、Host30/32类自动修复、单批删除、到期保护、日志及IPv6，并链接[完整网页实测流程](docs/release-v1.8.0-owner-click-test.md)。更新后再核六资产与latest，见`logs/release-v1.8.0-public-release-verified.json`。Agent本轮Publish skipped，原v1.0.4来源与资产已归档保持。
+- 当前仅main CI `41345869211` Pool `124965429881`未终态（最新step75），其余七jobsuccess，无新失败；成功发行、预览及Agent均不再查询或重跑。等待main CI终态后保存最终公开台账并删除监控。未操作生产OTA/配置/数据库/DNS/客户实例，owner自行网页升级实测；首装OSS传输仍是本地替身，独立OSS新机/网关接管/千台/72小时尚未验收。
+
+## 2026-11-02 v1.8.0 正式发行已启动
+
+- main Agent `41345869226`已终态success，Publish按预期skipped；成功job实际checkout均853，版本变更门禁明确false。公开Agent三资产大小/hash及更新时间仍与上次实际下载核验一致，原tag仍76e779df、agent tree不变，复用既有下载证据；`logs/release-v1.8.0-agent-after-main-verified.json`保存逐job来源与比对，不重复发布或下载。panel latest此时仍v1.7.9。当前仅正式`41345894421`（双构建成功，双首装/Release待终态）及main CI `41345869211` Pool运行，无新失败。
+
+- 候选 `85323d5fe7ddbbf80ca0e9258308bca395ddcd23` 的CI `41335981541` 已八job全部success；逐job实际checkout均为PR merge `5b67c37b7430ea41cc8ee010d7f559bac0a2c67e`，与候选tree同`74e1756ef7d6d85b62b4a092c0c8be718bc6b16e`。此前三个测试适配失败已由后继step16/80/81及整体CI成功闭环，历史日志保留，无未处理失败。完整终态/逐job来源证据`logs/release-v1.8.0-candidate-ci-verified.json`；同候选双架构预览/首装与真实Incus/systemd证据继续复用，不重跑。
+- 核remote main为预期祖先 `a6239b50e928d1eed4a9ea0a6325f4386b3c0b79`、v1.8.0 tag与Release均未占用后，精确fast-forward验证候选至main。PR [#2](https://github.com/mastalee928/payincus/pull/2)于20:14:57 UTC合并，mergeCommit为同一853；无force/squash。注释tag `v1.8.0`对象`554aa2855b65e5aad7986ff5c2751f4c70d6bbac`于20:15:12 UTC推送，解引用为853，禁止挪动。证据`logs/release-v1.8.0-publish-gates.json`、`tag-published.json`、`pr-merged.json`。
+- 正式Build & Release `41345894421`已启动；main CI `41345869211`、main Agent `41345869226`同步跟进，全部完整headSha均为853。逐run快照与待运行项以plan/status为准，所有关联运行`logs/release-v1.8.0-main-associated-runs.json`。正式首装/Release终态及公开资产尚未核验，不能称v1.8.0已发行完成。
+- Agent仍v1.0.4，源码tree`359dcf6657f8666e1274a2b21bc556c2dbf28270`不变，原tag仍`76e779df77e52cbe96ee2e103d57dd951dba4e1e`；本轮main预期Publish skipped。未操作生产OTA/配置/数据库/DNS/客户实例，owner网页实测仍待发行后自行更新；完整独立OSS/接管/千台/72小时未验收。
+
 ## 2026-11-02 v1.8.0 候选：自动恢复、持久删除与可读日志
+
+- 853候选双架构预览 `41335998256`已全部终态成功（双构建、双首装success，Release预期skipped），逐job实际checkout与组件完整sourceCommit均核为`85323d5fe7ddbbf80ca0e9258308bca395ddcd23`。202项、236迁移、唯一后台、双前端、公开Agent及真实VM备份/预检/恢复/live状态改变回退续接、SQL/ZIP完整性、旧版CRLF迁移/拒绝全部通过。证据`logs/release-v1.8.0-preview-verified.json`、`preview-job-*.log`及`preview-artifacts-85323d5f.json`。仅余CI `41335981541` Pool `124935782029`运行（最新step53），其余七job成功；原step81故障待本轮实际越过及整体CI成功才闭环。已终态运行不再查询，未正式发行、未操作生产。
+
+- 853候选真实Incus/systemd job `124935781894`已success，日志核实际checkout为PR merge `5b67c37b7430ea41cc8ee010d7f559bac0a2c67e`（与候选同tree）；运行guest、系统卷、快照与forward真实删除、持久worker库存结算、旧Agent身份拒绝及受限修复后新签名心跳均通过。证据`logs/release-v1.8.0-actual-incus-85323d5f-verified.json`和同前缀`success.log`。Agent PR `41335981487`已success/Publish skipped，终态归档后不再查。当前仅CI `41335981541`与预览 `41335998256`未终态，最新步骤详见plan/status；无新失败，未正式发行或生产更新。
+
+- 行锁测试修正已提交推送 `85323d5fe7ddbbf80ca0e9258308bca395ddcd23`，仅改`test-review-pool-stock.ts`。本地真实PG专项、机器池守卫和覆盖产品源码/该测试的严格类型检查均exit0，证据`logs/release-v1.8.0-pool-stock-fix-evidence.json`。同SHA CI `41335981541`、Agent PR `41335981487`及无tag双架构预览 `41335998256`已启动，完整快照与待运行项在plan/status；实际checkout日志尚待终态核验。PR merge `5b67c37b7430ea41cc8ee010d7f559bac0a2c67e`与候选tree同`74e1756ef7d6d85b62b4a092c0c8be718bc6b16e`，不把merge身份写为候选。尚未正式发行，main/base仍预期a6239b50；旧成功预览和Linux实证不冒充新SHA门禁。
+
+- fce的CI `41333517268` 已终态failure，七job成功，Pool step80已越过原存储替身故障，step81 `test:review-pool-stock`失败：行锁竞争测试宿主没有cert/key引用，被现有可售条件提前排除，未进入真实锁等待。`logs/release-v1.8.0-pool-fce89cce-failure.log`及`pool-stock-before.log`保留CI/本地复现。测试先核缺任一引用不可售，再补齐引用、确认当前可售前提后执行原PG行锁/架构重查；`pool-stock-fixed.log`自然exit0，原库存守卫`pool-stock-guards.log`通过。产品分配代码与身份保护未改。fce成功预览另存`preview-fce89cce-verified.json`，不得冒充后继候选结果；正式发行仍待新SHA完整门禁。
+
+- fce候选双架构预览 `41333514151` 已五job终态（四success，Release预期skipped），实际checkout/签名组件完整来源均 `fce89cce00d0af087f03d43cbe589a64feb2dba0`；202项、236迁移、唯一后端、Agent下载、备份恢复回退续接/完整性/旧版兼容均通过。新证据 `logs/release-v1.8.0-preview-verified.json`、`preview-job-*.log`、`preview-artifacts-fce89cce.json`，不再查询或重跑。fce真实Incus/systemd `124928398942` 也已通过，实际checkout为PR merge `3fadb38ed2f1830e8b4a281105fe74368547e443`，tree与候选同 `391c1463150aac79a87384b60f1c21f54952e259`；`actual-incus-fce89cce-success.log`已核。Agent PR `41333517189` success/Publish skipped。当前只剩CI `41333517268` Pool `124928398440`（最近step52），其余七job成功；旧step80后继尚未运行，历史失败待此门禁闭环。未正式发行、未生产升级。
+
+- 两测试修正已提交推送为 `fce89cce00d0af087f03d43cbe589a64feb2dba0`，PR #2继续使用原分支，产品源码未变化。16场景、创建补偿守卫和包含产品源码/两个改动测试的严格type-check均自然exit0；后者另修旧测试空对象联合推断，只增加明确的测试数组类型。证据 `logs/release-v1.8.0-pool-provision-fix-evidence.json`、`pool-provision-types-verified.log`、`pool-compensation-guards-verified.log`。同提交无tag预览 `41333514151`已启动，CI及Agent运行ID记plan/status；旧099预览成功证据归档`preview-099571cd-verified.json`，不冒充fce已通过。仍未合main、打tag或正式发行，生产不变。
+
+- 099的CI `41331026864` 已终态failure，七job成功，Pool step80 `test:review-pool-provision`失败：另一个创建路径的mTLS替身同样遗漏存储清单，远端guest已删但存储未能核验，产品正确保留error/占用，测试却要求deleted。日志 `logs/release-v1.8.0-pool-099571cd-failure.log`，本地`pool-provision-before.log`真实复现。已补存储/卷/递归网络响应及四种存储失败/残留场景，验证CPU/内存/磁盘占用保留，恢复后清理续接、退款一次和重复调用不再远端写入；16组PG+mTLS专项通过`pool-provision-fixed.log`。相关创建补偿守卫本机遇CRLF匹配误判，统一读源码时仅规范换行后通过`pool-compensation-guards-fixed.log`；Linux原守卫已通过。此次仅修测试，不改产品保护；新候选CI和预览待推送后核验。上次只补managed替身漏掉pool替身，现沿共享清理调用者核两创建路径及原删除/到期适配器，保留首轮遗漏事实。
+
+- 后继候选 `099571cd0429b528307ac19295037fe59e106c03` 已推送；仅修正三处测试适配，产品源码未再次变化。双架构无tag预览 `41331035120` 已全成功（双构建、双首装，Release按预期skipped），逐job日志实际checkout与签名组件完整sourceCommit均为099；全套202项通过，236迁移、唯一后端、公开Agent、备份/预检/恢复/改变live状态后的回退/续接、SQL与ZIP完整性及旧版CRLF迁移/拒绝均通过。证据 `logs/release-v1.8.0-preview-verified.json`、`preview-job-*.log`、`preview-artifacts.json`。预览成功不等于正式发行；不重复查询或重跑本预览。
+- 同099的CI `41331026864` 已七job成功，仅Pool `124920962766`尚在运行；此前失败的managed-provision存储核验step16现已成功。真实Incus/systemd job `124920962954`成功，实际checkout为PR merge `05133985f8fd67b68d17e00bec6dd331be388d7a`，与候选tree同 `dc7d4442798512908e6f03bbfb757ec8fd4dbc47`，分别记录身份。日志 `logs/release-v1.8.0-actual-incus-099571cd-success.log`；Agent PR `41331026840` success、Publish skipped，不重发v1.0.4。余下CI终态后才精确FF main并打正式tag；当前仍未正式发布或生产部署。后续运行以 `logs/release-v1.8.0-plan.json` / `status.json` 为准。
 
 - 首轮已提交推送：后端`22761023`、前端`5293c04c`、文档`5eb67311c12b50e92d8d38f4c663271be6de1236`，PR [#2](https://github.com/mastalee928/payincus/pull/2)。CI `41330334475` 八job中七成功；实际Incus job `124918886288`已真实通过运行容器/快照/卷/forward删除、pool/通用worker库存结算、systemd Go v1.0.4认证修复心跳。实际checkout `b852ef9bd4e6de3ac139e398e96ac19dbdad3660`为PR合并提交，tree与候选同`9d8b818c4d5c5d1379e958435d777e320c3e4e6c`，不混写来源。Agent PR `41330334491` success、Publish skipped。
 - 首轮CI的Pool step16失败：旧`test-review-managed-provision`替身没有存储清单响应，新增严格卷核验因此拒绝释放，产品保护按预期工作。已补真实形状的存储/网络只读响应，并加存储拒绝/未知、残系统卷/快照四例；全28组PG+mTLS专项通过`logs/release-v1.8.0-managed-storage-reviewed.log`。

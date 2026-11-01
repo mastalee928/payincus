@@ -1,0 +1,716 @@
+{
+  "verifiedAt": "2026-11-01T22:15:58.922374+00:00",
+  "panelVersion": "v1.8.0",
+  "panelRelease": "https://github.com/mastalee928/payincus/releases/tag/v1.8.0",
+  "publishedAt": "2026-11-01T20:24:32Z",
+  "panelSourceCommit": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+  "panelSourceTree": "74e1756ef7d6d85b62b4a092c0c8be718bc6b16e",
+  "panelTagObject": "554aa2855b65e5aad7986ff5c2751f4c70d6bbac",
+  "panelLatest": "v1.8.0",
+  "pullRequest": "https://github.com/mastalee928/payincus/pull/2",
+  "candidateActualCheckout": "5b67c37b7430ea41cc8ee010d7f559bac0a2c67e",
+  "mainActualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+  "candidateMergeTreeEqualsSourceTree": true,
+  "allReleaseSourceRuns": [
+    {
+      "databaseId": 41335981487,
+      "workflowName": "Agent Build & Release",
+      "event": "pull_request",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41335981487"
+    },
+    {
+      "databaseId": 41335998256,
+      "workflowName": "Build & Release",
+      "event": "workflow_dispatch",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41335998256"
+    },
+    {
+      "databaseId": 41335981541,
+      "workflowName": "CI",
+      "event": "pull_request",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41335981541"
+    },
+    {
+      "databaseId": 41345869226,
+      "workflowName": "Agent Build & Release",
+      "event": "push",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "main",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41345869226"
+    },
+    {
+      "databaseId": 41345894421,
+      "workflowName": "Build & Release",
+      "event": "push",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41345894421"
+    },
+    {
+      "databaseId": 41345869211,
+      "workflowName": "CI",
+      "event": "push",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "main",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41345869211"
+    }
+  ],
+  "allTaskRuns": [
+    {
+      "databaseId": 41330334475,
+      "workflowName": "CI",
+      "event": "pull_request",
+      "headSha": "5eb67311c12b50e92d8d38f4c663271be6de1236",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41330334475"
+    },
+    {
+      "databaseId": 41330334491,
+      "workflowName": "Agent Build & Release",
+      "event": "pull_request",
+      "headSha": "5eb67311c12b50e92d8d38f4c663271be6de1236",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41330334491"
+    },
+    {
+      "databaseId": 41330352460,
+      "workflowName": "Build & Release",
+      "event": "workflow_dispatch",
+      "headSha": "5eb67311c12b50e92d8d38f4c663271be6de1236",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41330352460"
+    },
+    {
+      "databaseId": 41331026840,
+      "workflowName": "Agent Build & Release",
+      "event": "pull_request",
+      "headSha": "099571cd0429b528307ac19295037fe59e106c03",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41331026840"
+    },
+    {
+      "databaseId": 41331035120,
+      "workflowName": "Build & Release",
+      "event": "workflow_dispatch",
+      "headSha": "099571cd0429b528307ac19295037fe59e106c03",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41331035120"
+    },
+    {
+      "databaseId": 41331026864,
+      "workflowName": "CI",
+      "event": "pull_request",
+      "headSha": "099571cd0429b528307ac19295037fe59e106c03",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41331026864"
+    },
+    {
+      "databaseId": 41333517189,
+      "workflowName": "Agent Build & Release",
+      "event": "pull_request",
+      "headSha": "fce89cce00d0af087f03d43cbe589a64feb2dba0",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41333517189"
+    },
+    {
+      "databaseId": 41333514151,
+      "workflowName": "Build & Release",
+      "event": "workflow_dispatch",
+      "headSha": "fce89cce00d0af087f03d43cbe589a64feb2dba0",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41333514151"
+    },
+    {
+      "databaseId": 41333517268,
+      "workflowName": "CI",
+      "event": "pull_request",
+      "headSha": "fce89cce00d0af087f03d43cbe589a64feb2dba0",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41333517268"
+    },
+    {
+      "databaseId": 41335981487,
+      "workflowName": "Agent Build & Release",
+      "event": "pull_request",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41335981487"
+    },
+    {
+      "databaseId": 41335998256,
+      "workflowName": "Build & Release",
+      "event": "workflow_dispatch",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41335998256"
+    },
+    {
+      "databaseId": 41335981541,
+      "workflowName": "CI",
+      "event": "pull_request",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "codex/release-v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41335981541"
+    },
+    {
+      "databaseId": 41345869226,
+      "workflowName": "Agent Build & Release",
+      "event": "push",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "main",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41345869226"
+    },
+    {
+      "databaseId": 41345894421,
+      "workflowName": "Build & Release",
+      "event": "push",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "v1.8.0",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41345894421"
+    },
+    {
+      "databaseId": 41345869211,
+      "workflowName": "CI",
+      "event": "push",
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "headBranch": "main",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mastalee928/payincus/actions/runs/41345869211"
+    }
+  ],
+  "resolvedHistoricalFailures": [
+    {
+      "source": "5eb67311c12b50e92d8d38f4c663271be6de1236",
+      "ci": 41330334475,
+      "preview": 41330352460,
+      "failures": "storage response missing in managed-provision fixture; two static guards still referenced old inline deletion",
+      "fix": "099571cd0429b528307ac19295037fe59e106c03",
+      "localValidation": "28 managed provision scenarios and both static guards pass",
+      "resolvedByNewCI": true
+    },
+    {
+      "source": "099571cd0429b528307ac19295037fe59e106c03",
+      "ci": 41331026864,
+      "preview": 41331035120,
+      "previewConclusion": "success",
+      "failures": "Pool provision mTLS fixture lacks storage list; local compensation static guard is CRLF-sensitive",
+      "fix": "fce89cce00d0af087f03d43cbe589a64feb2dba0",
+      "localValidation": "16 pool provision scenarios pass; compensation guard passes with normalized newlines",
+      "resolvedByNewCI": true
+    },
+    {
+      "source": "fce89cce00d0af087f03d43cbe589a64feb2dba0",
+      "ci": 41333517268,
+      "preview": 41333514151,
+      "previewConclusion": "success",
+      "failures": "Pool stock lock-race fixture omitted cert/key references and was excluded before row locking",
+      "fix": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "localValidation": "PostgreSQL failure reproduced; missing-reference rejection and real row-lock architecture race pass, host-pool guards and strict source/test types pass",
+      "resolvedByNewCI": true
+    }
+  ],
+  "allTaskRunsTerminal": true,
+  "unhandledFailures": [],
+  "candidateAndMainCi": [
+    {
+      "run": 41335981541,
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "actualCheckout": "5b67c37b7430ea41cc8ee010d7f559bac0a2c67e",
+      "jobs": [
+        {
+          "id": 124935781827,
+          "name": "Remote gateway setup journal integration",
+          "conclusion": "success",
+          "actualCheckout": "5b67c37b7430ea41cc8ee010d7f559bac0a2c67e",
+          "log": "logs/release-v1.8.0-candidate-ci-job-124935781827.log",
+          "logSha256": "2522240f7d9e366a87d7642640989db23b391088e10677d4d4b0083ab1b91c26"
+        },
+        {
+          "id": 124935781894,
+          "name": "Actual Incus cleanup",
+          "conclusion": "success",
+          "actualCheckout": "5b67c37b7430ea41cc8ee010d7f559bac0a2c67e",
+          "log": "logs/release-v1.8.0-candidate-ci-job-124935781894.log",
+          "logSha256": "e7cd503c4386403d3dc2124e50d8d447aec4ce79bd492e3e6eb87c848d13f433"
+        },
+        {
+          "id": 124935781905,
+          "name": "Lint & Type Check",
+          "conclusion": "success",
+          "actualCheckout": "5b67c37b7430ea41cc8ee010d7f559bac0a2c67e",
+          "log": "logs/release-v1.8.0-candidate-ci-job-124935781905.log",
+          "logSha256": "300f53964a658ffa96f4430b80032789ac8283548a47ee81481c74322e680187"
+        },
+        {
+          "id": 124935781977,
+          "name": "Gateway component package (arm64)",
+          "conclusion": "success",
+          "actualCheckout": "5b67c37b7430ea41cc8ee010d7f559bac0a2c67e",
+          "log": "logs/release-v1.8.0-candidate-ci-job-124935781977.log",
+          "logSha256": "939494d5c054efb5ab3613bb57000909ac68292e5562094277bbfaf9fd14142d"
+        },
+        {
+          "id": 124935781985,
+          "name": "Gateway component package (amd64)",
+          "conclusion": "success",
+          "actualCheckout": "5b67c37b7430ea41cc8ee010d7f559bac0a2c67e",
+          "log": "logs/release-v1.8.0-candidate-ci-job-124935781985.log",
+          "logSha256": "7653c3390f9b6dad52d7667ee91371796c43325b591ed7ca8d638c0a0854e655"
+        },
+        {
+          "id": 124935781992,
+          "name": "Billing expiry integration",
+          "conclusion": "success",
+          "actualCheckout": "5b67c37b7430ea41cc8ee010d7f559bac0a2c67e",
+          "log": "logs/release-v1.8.0-candidate-ci-job-124935781992.log",
+          "logSha256": "945db3e019534d4c410e59355a431eb246a6f8a9ab8f7aa41019a3a9f7f8421b"
+        },
+        {
+          "id": 124935782029,
+          "name": "Pool delivery and deletion integration",
+          "conclusion": "success",
+          "actualCheckout": "5b67c37b7430ea41cc8ee010d7f559bac0a2c67e",
+          "log": "logs/release-v1.8.0-candidate-ci-job-124935782029.log",
+          "logSha256": "e2abd334a41fac1c875417c691a04063bf021981f333a65ef9a32d85838ab5a1"
+        },
+        {
+          "id": 124937058615,
+          "name": "Build",
+          "conclusion": "success",
+          "actualCheckout": "5b67c37b7430ea41cc8ee010d7f559bac0a2c67e",
+          "log": "logs/release-v1.8.0-candidate-ci-job-124937058615.log",
+          "logSha256": "f5a802531a612cd000ed987919b871595b45b8e7c7128e49905c3c609176b74f"
+        }
+      ]
+    },
+    {
+      "run": 41345869211,
+      "headSha": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "jobs": [
+        {
+          "id": 124965429643,
+          "name": "Billing expiry integration",
+          "conclusion": "success",
+          "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "log": "logs/release-v1.8.0-main-ci-job-124965429643.log",
+          "logSha256": "bf77cd6cd6e89615951cc9290266ced3f5568ac1adcc721d778ab9d588d66750"
+        },
+        {
+          "id": 124965429794,
+          "name": "Gateway component package (arm64)",
+          "conclusion": "success",
+          "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "log": "logs/release-v1.8.0-main-ci-job-124965429794.log",
+          "logSha256": "6fbafbe34fb1402803ca2ce63bbeb39b86b5c203ab32f567ebec2e134f7d4f8d"
+        },
+        {
+          "id": 124965429800,
+          "name": "Lint & Type Check",
+          "conclusion": "success",
+          "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "log": "logs/release-v1.8.0-main-ci-job-124965429800.log",
+          "logSha256": "844feb21ea2ecc307c5bd4bb8fef518d4ae41ca994058c1e8961823d31ca7cb7"
+        },
+        {
+          "id": 124965429845,
+          "name": "Actual Incus cleanup",
+          "conclusion": "success",
+          "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "log": "logs/release-v1.8.0-main-ci-job-124965429845.log",
+          "logSha256": "81e867532b5e4c2c994535a36d4aa7bc4263d0166ecbb144081eaeac2eed9f22"
+        },
+        {
+          "id": 124965429878,
+          "name": "Remote gateway setup journal integration",
+          "conclusion": "success",
+          "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "log": "logs/release-v1.8.0-main-ci-job-124965429878.log",
+          "logSha256": "4b928572dbdcd84862ce0dbdbb158fbd060fdd65af0ec80c48c1313ae68a73ce"
+        },
+        {
+          "id": 124965429881,
+          "name": "Pool delivery and deletion integration",
+          "conclusion": "success",
+          "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "log": "logs/release-v1.8.0-main-ci-job-124965429881.log",
+          "logSha256": "73f790ea1d2b3314386b8a6dcfff9f00af0b5e52949c92998374a759e232dcc1"
+        },
+        {
+          "id": 124965429889,
+          "name": "Gateway component package (amd64)",
+          "conclusion": "success",
+          "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "log": "logs/release-v1.8.0-main-ci-job-124965429889.log",
+          "logSha256": "0c1ce298afafe8ba7e02206828de8a310343b0753ee4a29bf88b73b5ea7081c8"
+        },
+        {
+          "id": 124966469343,
+          "name": "Build",
+          "conclusion": "success",
+          "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "log": "logs/release-v1.8.0-main-ci-job-124966469343.log",
+          "logSha256": "3ba47842224308de6bd33ac5797f06af692c68c8a0c4e7c709763ecb259ccc23"
+        }
+      ]
+    }
+  ],
+  "previewJobs": [
+    {
+      "job": "构建 (arm64)",
+      "id": 124935835622,
+      "conclusion": "success",
+      "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "log": "logs/release-v1.8.0-preview-job-124935835622.log",
+      "logSha256": "bc8b8c71180b4f099d026e683801304c6c7ccac61ab7c180f5eead4befc73340"
+    },
+    {
+      "job": "构建 (amd64)",
+      "id": 124935835788,
+      "conclusion": "success",
+      "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "log": "logs/release-v1.8.0-preview-job-124935835788.log",
+      "logSha256": "f31043cf8dfe64a6b47a748effc399662d3335bdf678734f061f4391ae603291"
+    },
+    {
+      "job": "全新安装验证 (arm64)",
+      "id": 124938120657,
+      "conclusion": "success",
+      "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "log": "logs/release-v1.8.0-preview-job-124938120657.log",
+      "logSha256": "f76aef793e2f8562aa616addb4587687943729e19ede283a6396316793cf0aa0"
+    },
+    {
+      "job": "全新安装验证 (amd64)",
+      "id": 124938120692,
+      "conclusion": "success",
+      "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "log": "logs/release-v1.8.0-preview-job-124938120692.log",
+      "logSha256": "4c22ff0da07dc2c7427e66ee831ef6329f7d588429feb02c37edf3e5942b58b0"
+    },
+    {
+      "job": "发布 Release",
+      "id": 124938837868,
+      "conclusion": "skipped"
+    }
+  ],
+  "formalReleaseJobs": [
+    {
+      "job": "构建 (amd64)",
+      "id": 124965501388,
+      "conclusion": "success",
+      "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "log": "logs/release-v1.8.0-formal-job-124965501388.log",
+      "logSha256": "41dc4a905ece0492c2e65a83af8eab953cf23fb4f1f291c4e37922a0cbc388f3"
+    },
+    {
+      "job": "构建 (arm64)",
+      "id": 124965501511,
+      "conclusion": "success",
+      "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "log": "logs/release-v1.8.0-formal-job-124965501511.log",
+      "logSha256": "c581a394844457a34b93c856f224163d07ca8d7409adb81a6a291975efc8adc9"
+    },
+    {
+      "job": "全新安装验证 (arm64)",
+      "id": 124967087864,
+      "conclusion": "success",
+      "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "log": "logs/release-v1.8.0-formal-job-124967087864.log",
+      "logSha256": "7dda66c4dbca4bb24b36171f30250f7d08793bcf21a3836c91c6670c9dd22c28"
+    },
+    {
+      "job": "全新安装验证 (amd64)",
+      "id": 124967087878,
+      "conclusion": "success",
+      "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "log": "logs/release-v1.8.0-formal-job-124967087878.log",
+      "logSha256": "6d61e2befd769603348bee8b42e2c932d87ebe7510ec1958cfb4b8dc23a29f21"
+    },
+    {
+      "job": "发布 Release",
+      "id": 124967803087,
+      "conclusion": "success",
+      "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "log": "logs/release-v1.8.0-formal-job-124967803087.log",
+      "logSha256": "dbbdc1e276e6a894f7cdd6e91a05a1ebdc79f83d2d41fb9fdf06e18f951e5945"
+    }
+  ],
+  "freshInstallAndRestoreChecks": [
+    "236 migrations, IPv6 schema, one backend, both frontends, admin login, management gateway, published Agent downloads.",
+    "Linux backup/preview/restore/rollback/resume and key consistency passed; OSS transport was simulated.",
+    "PASS: every table has readable SQL derived from the same archive; full SQL restores into an isolated database with matching integrity.",
+    "PASS: full shared-snapshot backup restores despite concurrent fixture writes;",
+    "PASS: encrypted ZIP/ZIP64 decrypts to a standard ZIP and its complete database restores with all integrity checks matched.",
+    "PASS: changed financial value with unchanged row count is rejected.",
+    "PASS: changed array lower bounds with identical elements are rejected.",
+    "PASS: incorrect sequence counter is rejected.",
+    "PASS: damaged large-object content is rejected.",
+    "PASS: missing table is rejected.",
+    "PASS: unsupported foreign-table data is refused before publishing a backup.",
+    "PASS: older release and verified CRLF history migrate in isolation; exact financial values survive",
+    "PASS: newer backup, PostgreSQL mismatch, schema drift, destination change and unknown migration checksum are refused"
+  ],
+  "actualLinuxCleanupAndAgentRepair": {
+    "run": 41345869211,
+    "job": 124965429845,
+    "actualCheckout": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+    "checks": [
+      "PASS actual Incus mTLS deletion path: running guest stopped, deleted, system volume/snapshot/forward absent",
+      "PASS actual cleanup worker: persisted task, remote stop/delete and disk/forward confirmation, PostgreSQL inventory release",
+      "PASS actual durable instance deletion: persisted UUID, running guest/snapshot/forward deletion, PostgreSQL allocation settlement and automatic sale readiness",
+      "PASS actual systemd + Go v1.0.4: old identity rejected, fixed repair applied, new signed heartbeat received"
+    ],
+    "log": "logs/release-v1.8.0-main-ci-job-124965429845.log"
+  },
+  "panelAssets": [
+    {
+      "name": "incudal-v1.8.0-linux-amd64.tar.gz",
+      "size": 213793834,
+      "sha256": "7211c77e17b5a5a6de93e09e3325a2bceb5df48cef32ff9aeb8ccb9f8cf73c1a"
+    },
+    {
+      "name": "incudal-v1.8.0-linux-amd64.tar.gz.sha256",
+      "size": 100,
+      "sha256": "1e4d334bd31d86564eb239193d5c65b29ff1268a3620e85d38c71f9c38b16b68"
+    },
+    {
+      "name": "incudal-v1.8.0-linux-arm64.tar.gz",
+      "size": 213027450,
+      "sha256": "85b3e35d49551aad71ab2cbfad7a4e0f5c3924b318bc9b2c3c04fa85e4be4df7"
+    },
+    {
+      "name": "incudal-v1.8.0-linux-arm64.tar.gz.sha256",
+      "size": 100,
+      "sha256": "022620e0c64d869bdf0849b3f397e29faa618ad7166797096c822c6ce177084c"
+    },
+    {
+      "name": "incudal-v1.8.0-ota-manifest.json",
+      "size": 996,
+      "sha256": "b3850dbf73434627651e51fc07c28f6d68a2b54eb99582d46f3743b19a611a21"
+    },
+    {
+      "name": "ota-manifest.json",
+      "size": 996,
+      "sha256": "b3850dbf73434627651e51fc07c28f6d68a2b54eb99582d46f3743b19a611a21"
+    }
+  ],
+  "packages": [
+    {
+      "file": "incudal-v1.8.0-linux-amd64.tar.gz",
+      "version": "v1.8.0",
+      "fullSourceCommit": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "rootOwnership": true,
+      "migrationCount": 236,
+      "nativeDependencyCount": 2,
+      "components": [
+        {
+          "architecture": "amd64",
+          "sourceCommit": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "signedFilesVerified": 20
+        },
+        {
+          "architecture": "arm64",
+          "sourceCommit": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "signedFilesVerified": 20
+        }
+      ],
+      "rollbackPathFixPresent": true,
+      "repairFilesVerified": [
+        "scripts/onboarding-gateway.py",
+        "server/dist/app.js",
+        "server/dist/lib/host-agent-credentials.js",
+        "server/dist/lib/incus/verify-instance-deleted.js",
+        "server/dist/services/host-management-repair.js",
+        "server/dist/services/host-pool-cleanup.js",
+        "server/dist/services/host-replacement-recovery.js",
+        "server/dist/services/instance-deletion.js",
+        "server/dist/services/onboarding-ssh.js",
+        "server/dist/workers/hostRepairWorker.js"
+      ],
+      "repairMigrationsVerified": [
+        "server/prisma/migrations/202611010001_pool_cleanup/migration.sql",
+        "server/prisma/migrations/202611010002_management_repair/migration.sql",
+        "server/prisma/migrations/202611010003_deletion_intent/migration.sql"
+      ]
+    },
+    {
+      "file": "incudal-v1.8.0-linux-arm64.tar.gz",
+      "version": "v1.8.0",
+      "fullSourceCommit": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+      "rootOwnership": true,
+      "migrationCount": 236,
+      "nativeDependencyCount": 2,
+      "components": [
+        {
+          "architecture": "amd64",
+          "sourceCommit": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "signedFilesVerified": 20
+        },
+        {
+          "architecture": "arm64",
+          "sourceCommit": "85323d5fe7ddbbf80ca0e9258308bca395ddcd23",
+          "signedFilesVerified": 20
+        }
+      ],
+      "rollbackPathFixPresent": true,
+      "repairFilesVerified": [
+        "scripts/onboarding-gateway.py",
+        "server/dist/app.js",
+        "server/dist/lib/host-agent-credentials.js",
+        "server/dist/lib/incus/verify-instance-deleted.js",
+        "server/dist/services/host-management-repair.js",
+        "server/dist/services/host-pool-cleanup.js",
+        "server/dist/services/host-replacement-recovery.js",
+        "server/dist/services/instance-deletion.js",
+        "server/dist/services/onboarding-ssh.js",
+        "server/dist/workers/hostRepairWorker.js"
+      ],
+      "repairMigrationsVerified": [
+        "server/prisma/migrations/202611010001_pool_cleanup/migration.sql",
+        "server/prisma/migrations/202611010002_management_repair/migration.sql",
+        "server/prisma/migrations/202611010003_deletion_intent/migration.sql"
+      ]
+    }
+  ],
+  "otaManifestsIdentical": true,
+  "releaseNotesMatch": true,
+  "releaseNotesSha256": "632d2db42df052682b8329407e12ffd85c33d6b4c8466bddf84403a415341b4a",
+  "agentVersion": "v1.0.4",
+  "agentTagSource": "76e779df77e52cbe96ee2e103d57dd951dba4e1e",
+  "agentTree": "359dcf6657f8666e1274a2b21bc556c2dbf28270",
+  "mainAgentRun": 41345869226,
+  "mainAgentPublish": "skipped",
+  "agentAssets": [
+    {
+      "name": "incudal-agent-aarch64-v1.0.4",
+      "size": 5046424,
+      "sha256": "874ac352850ad72797ac9e2169a13edef2b64b5eecf7f3018e468e08dcf0b0b0",
+      "matchesOriginal": true,
+      "elfMachine": 183
+    },
+    {
+      "name": "incudal-agent-x86_64-v1.0.4",
+      "size": 5337240,
+      "sha256": "3f6c953b45a79081b9a63d2468236b651105424e87ba3fa2c1fe75b80d4ba1c5",
+      "matchesOriginal": true,
+      "elfMachine": 62
+    },
+    {
+      "name": "LICENSE",
+      "size": 1496,
+      "sha256": "5659dbf51fa91752f85fe0fb6677086ac1fbc368768ac3d230a70af86afdad6b",
+      "matchesOriginal": true,
+      "elfMachine": null
+    }
+  ],
+  "agentNotLatest": true,
+  "agentDownloadEvidenceReused": "logs/release-v1.7.9-agent-after-main-verified.json",
+  "ownerBrowserTest": "https://github.com/mastalee928/payincus/blob/v1.8.0/docs/release-v1.8.0-owner-click-test.md",
+  "localEvidence": [
+    {
+      "path": "logs/release-v1.8.0-candidate-ci-verified.json",
+      "sha256": "267e4993ddc5518e0165abd04f36c1085d130fa4bf50c009f110e2d6286535aa"
+    },
+    {
+      "path": "logs/release-v1.8.0-main-ci-verified.json",
+      "sha256": "c835fc95f9260348d663a97010321f3cb839edf427e3c5ffdce9c03369f6f0f9"
+    },
+    {
+      "path": "logs/release-v1.8.0-preview-verified.json",
+      "sha256": "45f5788caed0297241a92f7710965f456b63d284a97b6a5642d05ab41bfc8480"
+    },
+    {
+      "path": "logs/release-v1.8.0-formal-verified.json",
+      "sha256": "13907a81103f9c105dfcaf9823c58c8db26589af14730badff922a4d171a2582"
+    },
+    {
+      "path": "logs/release-v1.8.0-panel-assets-verified.json",
+      "sha256": "10dbb904f930dc63e5583c4e3b9ef3239e9e8910aa7637a3dcecfff9016ece5e"
+    },
+    {
+      "path": "logs/release-v1.8.0-public-release-verified.json",
+      "sha256": "790c5195298876ebb2dd66139049f8a46e4c0fc1eedd1475062417f3571049d3"
+    },
+    {
+      "path": "logs/release-v1.8.0-agent-after-main-verified.json",
+      "sha256": "8c4e3aed4700f878700601d1eea99fa43bfb60f75383c110d8a7f2f0380336e2"
+    },
+    {
+      "path": "logs/release-v1.8.0-actual-incus-85323d5f-verified.json",
+      "sha256": "aac8d727a6a2220e3465333e26765eea7dcae924fde615d10353d97e9a945ff6"
+    },
+    {
+      "path": "logs/release-v1.8.0-publish-gates.json",
+      "sha256": "c32afe55026f0dc92aaba80895b847a1d5d52653250a5ec2a7d1f87f0083cad5"
+    },
+    {
+      "path": "logs/release-v1.8.0-tag-published.json",
+      "sha256": "6e2763f73414ac059b0eeb207fe12e6a05202dd3eaf0192df51c9f5b52557ff4"
+    },
+    {
+      "path": "logs/release-v1.8.0-pr-merged.json",
+      "sha256": "a10ec06a834aa6c921c51ebefc0a6863813965440f1ad3296349eb91ca70d6a1"
+    }
+  ],
+  "scope": {
+    "productionDeployment": false,
+    "productionConfigurationChanges": false,
+    "productionCustomerOperations": false,
+    "ownerBrowserAcceptance": "pending owner execution",
+    "ossTransport": "local substitute in disposable GitHub VMs",
+    "fullIndependentOssRecovery": false,
+    "gatewayFailover": false,
+    "thousandHostScale": false,
+    "seventyTwoHourAcceptance": false,
+    "all327ReviewItemsAccepted": false
+  },
+  "recordCommitPolicy": "Documentation only, skip CI; keep stable release tag and published asset source unchanged."
+}
