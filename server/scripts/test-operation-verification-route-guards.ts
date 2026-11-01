@@ -121,7 +121,8 @@ for (const { file, source: routeSource } of sensitiveOperationRouteSources.filte
 const instanceRoutes = sensitiveOperationRouteSources.find(item => item.file.endsWith('/instances.ts'))!.source
 assert.ok(instanceRoutes.includes('if (!isAdmin) {') && instanceRoutes.includes('claimDestroyEmailVerification(user, [instanceId], request.body?.emailCode)'),
   'direct administrator deletion skips only the administrator verification; customer deletion still claims verification')
-assert.ok(instanceRoutes.includes('if (!isAdmin && isHostOwner && instance.user_id !== user.id)'),
+assert.ok(instanceRoutes.includes("mode: isAdmin ? 'admin' : isHostOwner ? 'host' : 'owner'") &&
+  instanceRoutes.includes('refund: !isAdmin && isHostOwner && instance.user_id !== user.id'),
   'direct administrator deletion must not refund the customer or debit the host owner')
 const transferDatabase = readFileSync(resolve(__dirname, '../src/db/transfers.ts'), 'utf8')
 assert.ok(adminPushSource.includes("checkOperationVerificationRequirement(actorId, 'transfer_instance', instanceId, session)") &&

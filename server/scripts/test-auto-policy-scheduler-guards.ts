@@ -17,8 +17,16 @@ for (const required of ['tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_
   "state: 'succeeded'", "stage: 'created'", 'current.attempts >= 5']) assert.ok(operation.includes(required), required)
 assert.ok(operation.indexOf('remoteUuid: uuid') < operation.indexOf("client.request('POST'"), 'UUID saved before remote mutation')
 assert.ok(operation.indexOf("stage: 'created'") < operation.indexOf("client.request('DELETE'"), 'new snapshot confirmed before old deletion')
-for (const path of ['db/instance-tasks.ts', 'db/transfers.ts', 'routes/instances.ts', 'routes/hosts.ts',
-  'routes/instance-destroy.ts', 'routes/admin-billing.ts', 'services/host-replacement.ts', 'services/transfer-cleanup.ts']) {
+for (const path of ['db/instance-tasks.ts', 'db/transfers.ts', 'routes/hosts.ts',
+  'routes/admin-billing.ts', 'services/host-replacement.ts', 'services/transfer-cleanup.ts']) {
   assert.ok(source(path).includes('await assertNoPendingSnapshotOperations(tx,'), path + ' must fence unfinished automatic snapshots')
+}
+const deletion = source('services/instance-deletion.ts')
+assert.ok(deletion.includes('await assertNoPendingSnapshotOperations(tx, instance.id)') &&
+  deletion.includes('await assertDeletionAuthority(tx, claimed, host, state)') &&
+  deletion.includes('await assertDeletionAuthority(tx, instance, host, state)'),
+  'durable deletion fences snapshots during admission and every resumed remote mutation')
+for (const path of ['routes/instances.ts', 'routes/instance-destroy.ts']) {
+  assert.ok(source(path).includes('await requestInstanceDeletion('), path + ' delegates deletion to the fenced durable service')
 }
 console.log('auto policy durable recovery guard tests passed')

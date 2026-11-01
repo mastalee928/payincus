@@ -48,9 +48,19 @@ const server = createServer({ key: await readFile(keyPath), cert: certificate, c
     }
     if (path.includes('/files?')) return ['success', 'success_lost_claim'].includes(mode) ? ok() : fail(500, 'fixture cloud-init preparation failed')
     if (path === '/1.0/operations?recursion=1') return ok(mode === 'pending_create' ? { running: [{ id: 'pending-create', status: 'Running', resources: { instances: [`/1.0/instances/${target}`] } }] } : {})
+    if (path === '/1.0/storage-pools?recursion=1') {
+      if (mode === 'storage_refused') return fail(500, 'fixture storage API unavailable')
+      return ok(mode === 'storage_unknown' ? null : [{ name: 'fixture' }])
+    }
+    if (path === '/1.0/storage-pools/fixture/volumes?recursion=1&all-projects=true') {
+      return ok(mode === 'disk_residue' ? [{ name: target, type: 'container', project: 'default' }]
+        : mode === 'snapshot_residue' ? [{ name: target + '/snapshot0', type: 'container', project: 'default' }]
+          : [{ name: 'cached-image', type: 'image' }])
+    }
     if (path.startsWith('/1.0/networks')) {
       if (mode === 'forward_refused') return fail(500, 'fixture network API unavailable')
       if (path === '/1.0/networks') return ok(['/1.0/networks/incusbr0'])
+      if (path === '/1.0/networks?recursion=1') return ok([{ name: 'incusbr0', type: 'bridge', managed: true }])
       if (mode === 'forward_unconfirmed' && request.method === 'GET') return ok([{ description: `payincus-dedicated:${target}`, listen_address: '192.0.2.20' }])
       return ok([])
     }
@@ -115,7 +125,7 @@ prisma.$transaction = new Proxy(originalTransaction, {
   }
 })
 try {
-  for (const scenario of ['delete_refused', 'stop_refused', 'still_running', 'uuid_changed', 'delete_unconfirmed', 'delete_false_404', 'not_found_text', 'forward_refused', 'forward_unconfirmed', 'existing', 'pending_create', 'absent', 'confirmed', 'lost_claim', 'host_changed', 'allocation_changed', 'locked_cleanup', 'db_failure', 'success', 'success_lost_claim', 'cleanup_lock_deadline', 'compensation_failed', 'already_refunded', 'unpaid']) {
+  for (const scenario of ['delete_refused', 'stop_refused', 'still_running', 'uuid_changed', 'delete_unconfirmed', 'delete_false_404', 'not_found_text', 'forward_refused', 'forward_unconfirmed', 'storage_refused', 'storage_unknown', 'disk_residue', 'snapshot_residue', 'existing', 'pending_create', 'absent', 'confirmed', 'lost_claim', 'host_changed', 'allocation_changed', 'locked_cleanup', 'db_failure', 'success', 'success_lost_claim', 'cleanup_lock_deadline', 'compensation_failed', 'already_refunded', 'unpaid']) {
     const selected = process.env.REVIEW_MANAGED_SCENARIOS?.split(',')
     if (selected && !selected.includes(scenario)) continue
     mode = scenario; target = `${tag}-${mode}`; actions.length = 0; afterCreate = undefined; afterStop = undefined
@@ -192,6 +202,10 @@ try {
     const counted = await calculateHostResourcesFromInstances(host.id)
     assert.equal(counted.cpuUsed, cleaned ? 0 : current.cpu, 'resource recalculation must not resurrect released claims')
     if (mode === 'compensation_failed') assert.equal(remote, null, 'remote cleanup can complete while billing retains the claim')
+    if (['storage_refused', 'storage_unknown', 'disk_residue', 'snapshot_residue'].includes(mode)) {
+      assert.equal(remote, null, 'guest deletion alone must not release capacity without verified disk/snapshot absence')
+      assert.ok(actions.includes('GET /1.0/storage-pools?recursion=1'), 'inspect actual storage before settlement')
+    }
     if (mode === 'confirmed') {
       assert.equal(remote, null)
       assert.ok(actions.indexOf(`PUT /1.0/instances/${target}/state`) < actions.indexOf(`DELETE /1.0/instances/${target}`))
