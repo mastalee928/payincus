@@ -17,7 +17,10 @@ root = Path(sys.argv[1])
 children = []
 
 def run(*args, input=None):
-    return subprocess.run(args, input=input, text=True, capture_output=True, check=True).stdout
+    result = subprocess.run(args, input=input, text=True, capture_output=True)
+    if result.returncode:
+        raise AssertionError(("fixture command failed", args, result.returncode, result.stderr))
+    return result.stdout
 
 def ns(pid, *args):
     return run("nsenter", "-t", str(pid), "-n", *args)
@@ -134,7 +137,7 @@ try:
     for family in ("iptables","ip6tables"):
         run(family,"-t","mangle","-N","UNRELATED")
         run(family,"-t","mangle","-A","UNRELATED","-j","RETURN")
-    run("nft","-f","-",input="table inet incudal_ingress_protocol { chain forward { type filter hook forward priority -20; policy accept; } }\n")
+    run("nft","-f","-",input="table inet incudal_ingress_protocol {\n chain forward {\n  type filter hook forward priority -20; policy accept;\n }\n}\n")
     ingress_before=run("nft","list","table","inet","incudal_ingress_protocol")
     echo=subprocess.Popen(["nsenter","-t",str(server),"-n","python3","-u","-c",server_code],stdout=subprocess.PIPE)
     children.append(echo)
