@@ -176,7 +176,9 @@ jobs:
           cp scripts/gateway-install-plan.py scripts/execute-gateway-install.py scripts/verify-gateway-component-package.py scripts/install-gateway-controller.sh scripts/enroll-gateway-controller.py scripts/provision-gateway-controller.py release/scripts/
           cp scripts/ensure-host-swap.py release/scripts/
           cp scripts/configure-oci-node-network.sh release/scripts/
-          cp scripts/onboarding-gateway.py scripts/gateway-domain-control.py scripts/upgrade-onboarding-gateway.py release/scripts/
+          cp scripts/onboarding-gateway.py release/scripts/
+          cp scripts/gateway-domain-control.py release/scripts/
+          cp scripts/upgrade-onboarding-gateway.py release/scripts/
           cp scripts/install-onboarding-gateway.sh release/scripts/
           cp scripts/setup-onboarding-control.py release/scripts/
           cp scripts/refresh-onboarding-gateway.sh release/scripts/
