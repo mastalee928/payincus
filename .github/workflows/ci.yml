@@ -60,6 +60,11 @@ jobs:
       - name: Type check (server)
         run: pnpm --filter server type-check
 
+      - name: Backup legacy format and interrupted rollback guards
+        run: |
+          pnpm --filter server test:platform-backup-guards
+          pnpm --filter server test:platform-backup-interruption-guards
+
       - name: Controller candidate and discovery guards
         run: pnpm --filter server test:controller-config-guards
 
@@ -706,6 +711,10 @@ jobs:
           pnpm --filter server test:gateway-domain-integration
         env:
           JWT_SECRET: isolated-gateway-policy-ci-fixture
+      - name: Legacy backup import and interrupted migration in PostgreSQL
+        run: pnpm --filter server test:platform-backup-history-integration
+        env:
+          BACKUP_TEST_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
       - name: Administrator bulk policy and three-role domain browser flows
         run: |
           pnpm --filter server test:gateway-abuse-ui

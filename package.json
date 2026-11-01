@@ -241,6 +241,7 @@
     "pnpm --filter server test:host-public-ip",
     "pnpm --filter server test:host-public-ipv6",
     "pnpm --filter server test:platform-backup-guards",
+    "pnpm --filter server test:platform-backup-interruption-guards",
     "pnpm --filter server test:platform-recovery-review",
     "pnpm --filter server test:platform-recovery-reconciliation",
     "pnpm --filter server test:simple-gateway-setup",

@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:platform-backup-history-integration', 'requires disposable Linux CI and its PostgreSQL 16 container; real v1.7.7 custom dump/restore, nullable old fields, failed imports and isolated migration failure'],
   ['test:review-ticket-autoclose', 'requires isolated PostgreSQL; actual auto-close and reply deletion row-lock competition, changed last public reply, concurrent unique close receipts and rollback'],
   ['test:review-process-boost', 'requires isolated PostgreSQL; process boost current authorization, actual target/account lock competition, batch fencing, exact rollback and deferred COMMIT failure'],
   ['test:review-process-boost-transport', 'requires isolated PostgreSQL with DB_POOL_MAX=1 and OpenSSL; actual mTLS connect/body/busy deadlines, zero late writes and socket/transaction reclamation'],

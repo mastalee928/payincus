@@ -426,7 +426,7 @@ try {
   const app = await readFile(resolve(import.meta.dirname, '../src/app.ts'), 'utf8')
   assert.equal((source.match(/await refreshRestoredGateway\(gatewayBefore/g) || []).length, 2, 'restore and rollback must preserve unchanged live management tunnels')
   const gateway = await readFile(resolve(import.meta.dirname, '../src/services/platform-backup-gateway.ts'), 'utf8')
-  assert.ok(gateway.includes('if (active && previous === next) return') && gateway.includes("['syncconf', 'incudal-mgmt', input]"), 'unchanged gateway state must avoid restart and changed peer configuration must synchronize live endpoints')
+  assert.ok(gateway.includes('if (!reconcileNetwork && active && previous === next) return') && gateway.includes("['syncconf', 'incudal-mgmt', input]"), 'ordinary unchanged restore avoids restart; rollback must reconcile potentially interrupted live state')
   const layout = await readFile(resolve(import.meta.dirname, '../../client/src/components/layout/AppLayout.vue'), 'utf8')
   assert.ok(layout.includes("fetch(buildApiUrl('/health')") && layout.includes('state.recoveryHeld === true'), 'layout must check the public protection state without loading privileged settings')
   assert.ok(layout.includes('<section v-if="recoveryHeld"') && layout.includes('oss.protectionMessage') && layout.includes('<slot v-if="!recoveryHeld || (isAdminEntry && route.name === \'admin-aliyun-oss\')"'), 'held business pages must show recovery guidance instead of misleading empty lists while keeping recovery controls reachable')

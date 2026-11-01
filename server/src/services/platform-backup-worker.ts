@@ -229,7 +229,10 @@ async function rollbackJournal(directory: string): Promise<boolean> {
     if (file.saved) { await atomicFileCopy(file.saved, file.target); await chmod(file.target, file.mode); await chown(file.target, 0, file.mode === 0o640 ? gid : 0) }
     else await unlink(file.target).catch((err: NodeJS.ErrnoException) => { if (err.code !== 'ENOENT') throw err })
   }
-  if (gatewayBefore !== null) await refreshRestoredGateway(gatewayBefore)
+  // A previous rollback (including an older worker) may have replaced files
+  // before failing to synchronize the interface. File equality is not proof
+  // that the live address, MTU, identity or peers have been restored.
+  if (gatewayBefore !== null) await refreshRestoredGateway(gatewayBefore, true)
   if (journal.files.some(file => file.target.startsWith(CONTROLLER_ROOT + '/'))) await verifyControllerEnrollment()
   // These ciphertexts belong to the original environment key restored above.
   // This also makes an explicit rollback in a later process restore credentials.
@@ -348,10 +351,11 @@ export async function runPlatformBackupTask(request: BackupTaskRequest): Promise
       await freeSpace((await databaseMetadata()).bytes + plan.manifest.databaseBytes * 2)
       const journal: RestoreJournal = { taskId: id, database, staging, rollback, stage: 'prepared', config: request.config, files: [] }
       // Persistent across application and database restarts; gate is created before stopping any writer.
-      await writeJson(holdPath(), { taskId: id, createdAt: new Date().toISOString(), reason: 'restore', mode: 'restore',
-        snapshot: { createdAt: plan.manifest.createdAt, version: plan.manifest.version } }, 0o640)
+      // Its rollback journal must be durable before the hold can become visible.
       preserve = true
       await writeJson(join(directory, 'journal.json'), journal)
+      await writeJson(holdPath(), { taskId: id, createdAt: new Date().toISOString(), reason: 'restore', mode: 'restore',
+        snapshot: { createdAt: plan.manifest.createdAt, version: plan.manifest.version } }, 0o640)
       await update('stopping'); await service('stop')
       const integrity = files.has('database-integrity.json') ? await readJson<DatabaseIntegrity>(files.get('database-integrity.json')!) : undefined
       ensure(!files.has('database-integrity.json') || integrity, 'OSS_DATABASE_INTEGRITY_INVALID')

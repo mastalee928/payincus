@@ -27,18 +27,20 @@ export function retainGatewayEndpoints(previous: string, next: string, endpoints
     return endpoint ? section.trimEnd() + `\nEndpoint = ${endpoint}\n` : section
   }).join('')
 }
-export async function refreshRestoredGateway(previous: string) {
+export async function refreshRestoredGateway(previous: string, reconcileNetwork = false) {
   const next = await readFile(configPath, 'utf8')
   const active = await exec('/usr/bin/systemctl', ['is-active', 'wg-quick@incudal-mgmt'], { timeout: 10000 }).then(result => result.stdout.trim() === 'active').catch(() => false)
   // An unchanged file does not require restarting the live tunnel or discarding handshakes.
-  if (active && previous === next) return
+  if (!reconcileNetwork && active && previous === next) return
   const endpoints = active ? await exec('/usr/bin/wg', ['show', 'incudal-mgmt', 'endpoints'], { timeout: 10000 }).then(result => result.stdout) : ''
   const directory = await mkdtemp('/var/tmp/incudal-gateway-restore-')
   try {
     const temporary = join(directory, 'incudal-mgmt.conf')
-    await writeFile(temporary, retainGatewayEndpoints(previous, next, endpoints), { mode: 0o600 })
+    // Interrupted rollback can leave file and live identities different. Do
+    // not carry learned endpoints across an identity we cannot establish.
+    await writeFile(temporary, retainGatewayEndpoints(reconcileNetwork ? '' : previous, next, endpoints), { mode: 0o600 })
     const sameNetwork = ['Address', 'ListenPort', 'MTU'].every(name => setting(previous, name) === setting(next, name))
-    if (!active || !sameNetwork) await exec('/usr/bin/systemctl', ['restart', 'wg-quick@incudal-mgmt'], { timeout: 30000 })
+    if (reconcileNetwork || !active || !sameNetwork) await exec('/usr/bin/systemctl', ['restart', 'wg-quick@incudal-mgmt'], { timeout: 30000 })
     const stripped = await exec('/usr/bin/wg-quick', ['strip', temporary], { timeout: 10000 })
     const input = join(directory, 'sync.conf'); await writeFile(input, stripped.stdout, { mode: 0o600 })
     await exec('/usr/bin/wg', ['syncconf', 'incudal-mgmt', input], { timeout: 10000 })

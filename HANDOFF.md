@@ -1,5 +1,14 @@
 # 版本与验证记录
 
+## 2026-11-01 备份恢复中断与旧库兼容专项
+
+- 明确复现两处恢复缺陷：先持久化hold再写journal，journal失败会留下没有回退依据的保护状态；回退替换网关文件后sync失败，重试因磁盘文件相等误跳过live状态恢复。现先写持久journal再创建hold，回退显式重建网关网络配置并同步身份/peer，不把文件相等当内核状态一致；兼容旧worker中断后没有新增字段的journal。仅回退路径强制重新应用，普通未变化恢复仍保留现有隧道。
+- `restore-interruption-before.log`和`restore-rollback-before-corrected.log`保留原失败；最终`restore-interruption-legacy-fixed.log`覆盖journal/hold写前与rename后失败、文件替换后失败、gateway sync失败、保护启动失败及旧日志已替换文件的重试。采用实际worker/helper源码注入OS/文件/DB边界，核原身份/网络恢复与hold保留；不冒称systemd/WireGuard真机恢复。曾试过保存gatewayBefore到journal，复审发现不能覆盖旧worker已中断状态，最终改为回退强制重建，未新增journal字段。
+- `restore-final-guards.log`原备份守卫、`restore-final-server-build.log`后端类型/构建、`restore-specialized-types.log`两新增测试严格类型、`restore-final-manifest.log`清单通过，均自然exit0。旧PICBKP01格式、坏包/重复/缺失/路径/校验拒绝及controller信任边界复用原守卫；历史v1.6.8/v1.7.1/v1.7.7/v1.7.8迁移均为当前未变前缀，见`takeover-restore-history.log`，未发现需放宽的旧字段拒绝。
+- 新增CI定向旧库实测：使用v1.7.7的218条可信迁移建隔离库，实际custom dump/restore后升级当前233条；核restore_tasks六个缺失字段补null、旧Unicode/身份/失败/重试记录与精确余额保持，再核损坏包、导入中途冲突单事务回滚及迁移失败只留隔离库未完成历史。调用实际dump/restore函数，Docker仅适配PG16工具边界；本机缺pg_dump/pg_restore，`restore-history-fixture-check.log`仅为夹具/清单检查，真实结果待本提交CI，不称已通过。
+- 测速后继`e9a0effdbf4123b6ec3098e7d5ccfdbdabfacf97`/CI41272556370已核6个job成功；其中Linux `TestFirewallLinuxNamespace`真实通过（`speed-linux-ci-success.log`），原IPv6基线和串行回声故障均越过。Agent41272556421成功且Publish skipped；同SHA仅上述两运行。该轮及前五轮Pool仍运行，历史已知失败保留、由后继修复，不重跑旧运行或全套。
+- 分项源码推送后继续本任务所有新旧CI终态。无前端产品修改，复用测速三语三宽亮暗及双端构建；暂不发版，未触发发行预览/Pages、生产/客户实例/DNS或系统Node操作。完整OSS新机恢复、真实网关接管/切回与灾备验收仍未完成。
+
 ## 2026-11-01 防滥用增加客户实例测速屏蔽
 
 - 测速提交`ed514b828b4fa09b016d4905af086739aca0718a`/CI41270772710：Remote、Billing及双架构组件已成功，Agent41270772784成功且Publish skipped；Pool仍推进。Linux原IPv6基线已通过，随后宿主TCP正常对照失败。诊断确认回声服务串行等待前一个已握手但数据被丢弃的客户连接，阻塞下一正常连接；改为每连接独立处理，保留原超时/过滤断言。实际本地双连接复现`speed-network-echo-before-corrected.log`失败约0.7秒，修正`speed-network-echo-fixed.log`正常约0.002秒，Linux完整流量待后继CI。首次本地复现因Windows换行读取断言失败（`speed-network-echo-before.log`），不计根因复现。
