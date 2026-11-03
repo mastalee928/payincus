@@ -118,7 +118,7 @@ try {
     assert.equal(await readFile(`/opt/incudal/client/dist/${entry}/recovery/payincus-recovery.py`, 'utf8'), await readFile('/opt/incudal/scripts/platform-backup-recovery.py', 'utf8'))
     assert.equal(await readFile(`/opt/incudal/client/dist/${entry}/recovery/恢复说明.md`, 'utf8'), await readFile('/opt/incudal/scripts/platform-backup-recovery-guide.md', 'utf8'))
   }
-  await exec('python3', ['/opt/incudal/scripts/platform-backup-recovery.py', 'status'])
+  await exec('python3', ['/opt/incudal/scripts/platform-backup-recovery.py', 'status'], { timeout: 15000 })
   for (const path of ['/etc/systemd/system/incudal-platform-backup@.service', '/etc/systemd/system/incudal-backend.service.d/platform-backup.conf']) assert.ok((await stat(path)).isFile())
   await exec('/usr/bin/sudo', ['-u', 'incudal', 'test', '-w', '/var/lib/incudal-backup/inbox'])
   await assert.rejects(exec('/usr/bin/sudo', ['-u', 'incudal', 'test', '-r', '/var/lib/incudal-backup/private']))

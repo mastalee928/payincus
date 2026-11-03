@@ -6,6 +6,7 @@ import { chown } from 'node:fs/promises'
 import { ensure, normalizeConfig, readBackupConfig, sealSecret, statePath, taskResults, validateId, validateObjectPrefix, writeBackupConfig, writeJson, type BackupTaskKind, type BackupTaskRequest } from '../services/platform-backup-core.js'
 import { activeRecoveryBatch, assertRecoveryReady } from '../services/platform-recovery-state.js'
 import { activeBackupTask } from '../services/platform-backup-scheduler.js'
+import { closePrismaDatabase } from '../db/prisma.js'
 
 // Root-only disaster recovery; input is stdin, never command-line credentials.
 // Invoke the installed, sealed worker through the same systemd helper as the UI.
@@ -56,3 +57,5 @@ try {
   process.stderr.write('Operation failed. Check the command, protected input file and installed executor. No credential details are printed.\n')
   process.exitCode = 1
 }
+finally { try { await closePrismaDatabase() } catch { process.exitCode = 1 } }
+process.exit(process.exitCode || 0)
