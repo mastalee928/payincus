@@ -1,13 +1,11 @@
 import { createHash } from 'node:crypto'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import { join } from 'node:path'
 import { lstat } from 'node:fs/promises'
 import { backupRoot, ensure, readJson, writeJson, validateId, statePath } from './platform-backup-core.js'
 import { hashFile } from './platform-backup-archive.js'
 import { recoverInterruptedActivation, recoveryActivationPath, validateRecoveryActivation, durableUnlink, type RecoveryActivation } from './platform-recovery-activation.js'
 import { recoverInterruptedMapping, recoveryMappingPath, validateRecoveryMappingJournal, type RecoveryMappingJournal } from './platform-recovery-mapping-journal.js'
-import { waitForProtectedBackendHealth } from './platform-backup-health.js'
+import { waitForProtectedBackendHealth, controlRecoveryBackend } from './platform-backup-health.js'
 import { readHeldRestoreJournal, interruptedRestoreAction, restoreWorkerAlive, assertRestoreStartIdentity } from './platform-recovery-restore-journal.js'
 import { pgQuery, localDatabaseAdmin } from './platform-backup-database.js'
 
@@ -127,10 +125,7 @@ async function superviseRecoveryAttempt() {
   const current:SupervisorReceipt={version:1,taskId,batchId,holdTaskId,mode:activation?'activation':mapping?'mapping':restorePending?'restore':previous!.mode,
     fingerprint,environmentHash,attempts:same?Math.min(previous!.attempts+1,1000000):1,nextAt:0,status:'running'}
   await writeJson(path,current,0o640)
-  const system=async(action:'stop'|'start')=>{
-    try{await promisify(execFile)('/usr/bin/systemctl',[action,'incudal-backend.service'],{timeout:120000})}
-    catch{throw Object.assign(new Error('OSS_BACKEND_SERVICE_FAILED'),{code:'OSS_BACKEND_SERVICE_FAILED'})}
-  }
+  const system=controlRecoveryBackend
   try {
     ensure(!observation.error,observation.error||'OSS_DATABASE_UNAVAILABLE',503)
     if(!journal) {

@@ -23,6 +23,7 @@ import { ensureBackupLocales } from '../src/services/platform-backup-locale.js'
 import { assertBackupVersion, assertMigrationHistory, normalizedReleaseSchema, releaseMigrationHash, releaseMigrations } from '../src/services/platform-backup-compatibility.js'
 import { verifyAppWorkerLifecycle } from './fixtures/app-worker-lifecycle.js'
 import { verifyRecoveryStateMode } from './fixtures/recovery-state-mode.js'
+import { verifyRecoveryServiceStart } from './fixtures/recovery-service-start.js'
 
 process.env.ENCRYPTION_KEY = 'local-test-encryption-key-not-a-real-credential'
 const workspace = await mkdtemp(join(tmpdir(), 'payincus-oss-test-'))
@@ -30,6 +31,7 @@ const importedIntervals: ReturnType<typeof setInterval>[] = []
 assert.ok(resolve(workspace).startsWith(resolve(tmpdir(), 'payincus-oss-test-')))
 try {
   await verifyRecoveryStateMode(workspace)
+  await verifyRecoveryServiceStart()
   const installedLocales=['C','C.utf8','POSIX'],generatedLocales:string[]=[]
   const localeRuntime={list:async()=>installedLocales,generate:async(source:string,name:string)=>{
     assert.equal(source,'en_US');generatedLocales.push(name);installedLocales.push('en_US.utf8')

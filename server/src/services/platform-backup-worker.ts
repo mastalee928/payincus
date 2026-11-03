@@ -25,7 +25,7 @@ import { discoverLocalRecoveryGateway } from './platform-recovery-local-gateway.
 import { stableGatewayEndpointText } from '../lib/onboarding-gateway-endpoint.js'
 import { readGatewayEndpointPlan } from './onboarding-gateway-endpoint.js'
 import { CONTROLLER_BACKUP_FILES, restoreControllerIdentity } from './platform-backup-controller.js'
-import { waitForProtectedBackendHealth as protectedHealth, waitForRestoredAgentHeartbeats } from './platform-backup-health.js'
+import { waitForProtectedBackendHealth as protectedHealth, waitForRestoredAgentHeartbeats, controlRecoveryBackend } from './platform-backup-health.js'
 import { inspectRecoveryMapping } from './platform-recovery-mapping.js'
 import { recoveryMappingPath, recoverInterruptedMapping, type RecoveryMappingJournal } from './platform-recovery-mapping-journal.js'
 import { activeRecoveryBatch } from './platform-recovery-state.js'
@@ -49,8 +49,7 @@ interface RestorePlan { id: string; createdBy: number; expiresAt: string; manife
 const holdPath = () => join(backupRoot(), 'recovery-hold.json')
 const taskDir = (id: string) => statePath('private', validateId(id))
 async function service(action: 'stop' | 'start' | 'restart') {
-  try { await exec('/usr/bin/systemctl', [action, 'incudal-backend.service'], { timeout: 90000 }) }
-  catch { throw new BackupError('OSS_BACKEND_SERVICE_FAILED', 503) }
+  await controlRecoveryBackend(action)
 }
 async function freeSpace(bytes: number) {
   const info = await statfs(backupRoot()); ensure(info.bavail * info.bsize > bytes + 256 * 1024 ** 2, 'OSS_DISK_SPACE_LOW', 409)

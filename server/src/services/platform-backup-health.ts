@@ -1,5 +1,23 @@
 import { BackupError } from './platform-backup-core.js'
 import { pgQuery } from './platform-backup-database.js'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+type ServiceCommand = (program: string, args: string[], options: {timeout:number}) => Promise<{stdout:string}>
+export async function controlRecoveryBackend(action: 'stop' | 'start' | 'restart', execute: ServiceCommand = promisify(execFile)) {
+  const command = (args: string[], timeout = 90000) => execute('/usr/bin/systemctl', args, {timeout})
+  try { await command([action, 'incudal-backend.service']); return }
+  catch { /* Distinguish systemd's rate limit from a real startup failure. */ }
+  try {
+    if (action === 'stop') throw new Error('stop failed')
+    const result = await command(['show', 'incudal-backend.service', '--property=Result', '--value'], 10000)
+    if (result.stdout.trim() !== 'start-limit-hit') throw new Error('startup failed')
+    // Several authorized restore/rollback stages can consume the normal burst.
+    // Reset only this exact refusal, once; a crashing service remains throttled.
+    await command(['reset-failed', 'incudal-backend.service'], 10000)
+    await command([action, 'incudal-backend.service'])
+  } catch { throw new BackupError('OSS_BACKEND_SERVICE_FAILED', 503) }
+}
 
 interface HealthRuntime {
   fetch: typeof fetch

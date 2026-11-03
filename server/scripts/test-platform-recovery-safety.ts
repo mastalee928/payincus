@@ -259,7 +259,7 @@ for(const scenario of ['prepared','committed','restore-rollback','restore-start'
     resumeInterruptedRecovery,recoverySupervisorRetry,waitForProtectedBackendHealth:async()=>{
       if(scenario==='receipt-condition' && fileVersion===1)throw Object.assign(Error('context'),{code:'OSS_RECOVERY_CONTEXT_CHANGED'})
     },
-    promisify:()=>async(_program:string,args:string[])=>{if(args[0]==='stop')stops++;else{starts++;if(failStart){failStart=false;throw Error('start failure')}}},execFile:()=>{}
+    controlRecoveryBackend:async(action:string)=>{if(action==='stop')stops++;else{starts++;if(failStart){failStart=false;throw Object.assign(Error('OSS_BACKEND_SERVICE_FAILED'),{code:'OSS_BACKEND_SERVICE_FAILED'})}}}
   }
   // Date is also constructed for public timestamps; override only now.
   class Clock extends Date {static now(){return now}}

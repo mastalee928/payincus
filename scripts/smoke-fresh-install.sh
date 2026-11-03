@@ -35,6 +35,9 @@ if env.exists():
         if '=' not in line or line.startswith('#'):
             continue
         key, value = line.split('=', 1)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
         if value and re.search(r'PASSWORD|SECRET|TOKEN|ENCRYPTION_KEY|DATABASE_URL|REDIS_URL', key):
             secrets.append(value)
             try:
