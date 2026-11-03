@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import Fastify from 'fastify'
 import jwt from '@fastify/jwt'
 import ts from 'typescript'
@@ -8,8 +11,13 @@ import ts from 'typescript'
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'))
 process.env.NODE_ENV = 'test'
+const recoveryState = await mkdtemp(join(tmpdir(), 'payincus-auth-current-'))
+assert.ok(resolve(recoveryState).startsWith(resolve(tmpdir(), 'payincus-auth-current-')))
+process.env.PLATFORM_BACKUP_STATE_DIR = recoveryState
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { isAccessTokenInvalidated } = await import('../src/lib/security.js')
+const { validateRecoverySession } = await import('../src/services/platform-recovery-operator.js')
+const { recoveryHeld } = await import('../src/services/platform-backup-core.js')
 const tag = 'auth-current-' + randomUUID(), app = Fastify(), users: number[] = []
 let failure: unknown
 try {
@@ -24,7 +32,9 @@ try {
     assert.ok(hookSource.includes(`fastify.decorate('${name}'`))
   }
   const compiled = ts.transpileModule(hookSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText
-  new Function('fastify', 'prisma', 'isAccessTokenInvalidated', compiled)(app, prisma, isAccessTokenInvalidated)
+  new Function('fastify', 'prisma', 'isAccessTokenInvalidated', 'validateRecoverySession', 'recoveryHeld', compiled)(
+    app, prisma, isAccessTokenInvalidated, validateRecoverySession, recoveryHeld)
+  assert.equal(recoveryHeld(), false)
   for (const [path, hooks] of [['read', [app.authenticate]], ['admin', [app.authenticateAdmin]],
     ['regular', [app.authenticateUser]], ['combined', [app.authenticate, app.requireAdmin]]] as const) {
     app.get('/' + path, { onRequest: [...hooks] }, async request => ({ id: request.user.id, username: request.user.username, role: request.user.role }))
@@ -41,7 +51,7 @@ try {
   const check = async (path: string, accessToken: string | undefined, status: number, code?: string) => {
     requests++
     const result = await app.inject({ method: 'GET', url: '/' + path, headers: accessToken ? { authorization: 'Bearer ' + accessToken } : {} })
-    assert.equal(result.statusCode, status, `${path} expected ${status}`)
+    assert.equal(result.statusCode, status, `${path} expected ${status}; code=${result.json().code || 'none'}`)
     if (code) assert.equal(result.json().code, code)
     return result.json()
   }
@@ -49,6 +59,10 @@ try {
     assert.equal((await check('read', firstToken, 200)).username, first.username)
     await check('admin', firstToken, 200); await check('combined', firstToken, 200)
   }
+  for (const path of ['read', 'admin', 'regular', 'combined']) {
+    await check(path, token(first.id, `recovery:${randomUUID()}:expired`), 401, 'OSS_RECOVERY_LOGIN_REQUIRED')
+  }
+  await check('admin', firstToken, 200)
   await prisma.user.update({ where: { id: first.id }, data: { role: 'user', username: tag + '-new' } })
   const downgraded = await check('read', firstToken, 200)
   assert.equal(downgraded.username, tag + '-new'); assert.equal(downgraded.role, 'user')
@@ -81,8 +95,8 @@ try {
   await prisma.user.delete({ where: { id: first.id } })
   await check('read', firstToken, 401, 'UNAUTHORIZED')
   assert.equal(await prisma.log.count({ where: { userId: other.id } }), 0)
-  console.log(`PASS ${requests} original application auth-hook requests with real JWT/PG: warm authorization never caches stale role, status, username, session or account revocation; other users and sessions remain isolated, database failure refuses access`)
+  console.log(`PASS ${requests} original application auth-hook requests with real JWT/PG: warm authorization never caches stale role, status, username, session or account revocation; other users and sessions remain isolated, database failure refuses access; ended recovery sessions are rejected by the real recovery validator`)
 } catch (error) { failure = error }
-finally { await app.close(); await prisma.user.deleteMany({ where: { id: { in: users } } }); await closePrismaDatabase() }
+finally { await app.close(); await prisma.user.deleteMany({ where: { id: { in: users } } }); await closePrismaDatabase(); await rm(recoveryState, {recursive:true,force:true}) }
 if (failure) { console.error(failure); process.exit(1) }
 process.exit(0)
