@@ -142,6 +142,10 @@ try {
   const gatewayIfindex = (await readFile('/sys/class/net/incudal-mgmt/ifindex', 'utf8')).trim()
   const gatewayBefore = await gatewayState()
   await task('restore', { previewId: preview.id, confirmation: `RESTORE ${preview.id}` })
+  for (const name of ['recovery-hold.json', 'recovery-operator.json']) {
+    assert.equal((await stat(join(core.backupRoot(), name))).mode & 0o777, 0o640, 'restored public state retains exact service-read mode under umask077')
+    await exec('/usr/bin/sudo', ['-u', 'incudal', 'test', '-r', join(core.backupRoot(), name)])
+  }
   const legacyHold = await core.readJson(join(core.backupRoot(), 'recovery-hold.json'))
   await core.writeJson(join(core.backupRoot(), 'recovery-hold.json'), { ...legacyHold, autoResume: false }, 0o640)
   assert.equal((await readFile('/sys/class/net/incudal-mgmt/ifindex', 'utf8')).trim(), gatewayIfindex, 'same-controller recovery must not recreate the management interface')

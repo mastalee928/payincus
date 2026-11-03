@@ -152,7 +152,11 @@ export async function writeJson(path: string, value: unknown, mode = 0o600): Pro
     // Root-created public state must retain the protected directory's service
     // group; otherwise a restored operator cannot read the new 0640 file.
     if (process.platform !== 'win32' && process.getuid?.() === 0 && (mode & 0o040)) await file.chown(0, (await stat(dirname(path))).gid)
-    await file.writeFile(JSON.stringify(value)); await file.sync()
+    await file.writeFile(JSON.stringify(value))
+    // The recovery CLI may inherit umask 077. Apply the requested final mode
+    // to this exclusively created file so service-readable state stays 0640.
+    await file.chmod(mode)
+    await file.sync()
   } finally { await file.close() }
   try { await rename(temporary, path) } finally { await unlink(temporary).catch(() => {}) }
   if (process.platform !== 'win32') {
