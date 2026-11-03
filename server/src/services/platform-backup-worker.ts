@@ -251,7 +251,7 @@ async function rollbackJournal(directory: string, manageService = true): Promise
   ensure(heldBefore?.taskId === journal.taskId, 'OSS_RECOVERY_CONTEXT_CHANGED', 503)
   if (manageService) await service('stop')
   const q = quoteIdentifier, literal = (value: string) => `'${value.replace(/'/g, "''")}'`
-  const catalog = JSON.parse(await localDatabaseAdmin(`SELECT COALESCE(json_agg(json_build_object('name',datname,'oid',oid)), '[]') FROM pg_database;`)) as Array<{name:string;oid:number}>
+  const catalog = JSON.parse(await localDatabaseAdmin(`SELECT COALESCE(json_agg(json_build_object('name',datname,'oid',oid::int)), '[]') FROM pg_database;`)) as Array<{name:string;oid:number}>
   const renames = rollbackDatabasePlan(journal, catalog)
   // Verify every saved file before changing any database or destination file.
   for (const file of journal.files) {

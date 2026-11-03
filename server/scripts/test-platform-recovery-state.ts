@@ -3,11 +3,13 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { verifyRecoveryDatabaseCatalog } from './fixtures/recovery-database-catalog.js'
 // @ts-ignore bcryptjs follows the runtime auth import
 import bcrypt from 'bcryptjs'
 
 const url = new URL(process.env.DATABASE_URL || '')
 assert.ok(url.hostname === '127.0.0.1' && url.port !== '5432' && url.pathname.endsWith('_recovery_test'), 'Dedicated disposable local recovery database required')
+await verifyRecoveryDatabaseCatalog()
 process.env.NODE_ENV = 'test'; process.env.JWT_SECRET = 'recovery-test-b-controller-secret'
 process.env.ENCRYPTION_KEY = 'recovery-test-b-encryption-key'
 const folder = await mkdtemp(join(tmpdir(),'incudal-recovery-state-')); process.env.PLATFORM_BACKUP_STATE_DIR=folder

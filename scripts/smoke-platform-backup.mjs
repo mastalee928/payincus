@@ -164,6 +164,7 @@ try {
   assert.equal((await fetch('http://127.0.0.1:3001/api/system-config/public')).status, 200)
   const login = await fetch('http://127.0.0.1:3001/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: initialEnv.ADMIN_PASSWORD }) })
   assert.equal(login.status, 200, 'administrator can log in while recovery is held')
+  console.log('PASS installed recovery state: service-readable 0640 files and administrator login while held')
   await exec('/usr/bin/sudo', ['-u', 'incudal', 'test', '-r', '/opt/incudal/server/certs/onboarding-gateway.key'])
   // Model an interrupted worker whose files already match but whose live
   // network still differs. Rollback must reconcile the kernel, not the ifindex.
@@ -211,6 +212,13 @@ try {
     if (batch?.completed_at && !await core.readJson(join(core.backupRoot(), 'recovery-hold.json')) &&
         !await core.readJson(join(core.backupRoot(), 'recovery-activation.json'))) { complete = true; break }
     await new Promise(resolve => setTimeout(resolve, 1000))
+  }
+  if (!complete) {
+    const checks = await pgQuery("SELECT category,payload FROM platform_recovery_evidence WHERE batch_id=$1 AND category IN ('gateway-check','auto-resume') ORDER BY created_at DESC LIMIT 4", [automaticRestore.id])
+    console.error('Snapshot continuation checks', JSON.stringify(checks.map(({category,payload}) => ({category,
+      status: ['retry','blocked','dispatched','success','running'].includes(payload?.status) ? payload.status : 'unknown',
+      code: /^[A-Z0-9_]{1,100}$/.test(payload?.code || '') ? payload.code : null,
+      attempt: Number.isSafeInteger(payload?.attempt) ? payload.attempt : null}))))
   }
   assert.ok(complete, 'snapshot recovery must finish through installed automatic review and root resume')
   await health(false)
