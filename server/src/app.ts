@@ -545,6 +545,8 @@ fastify.addHook('onRequest', async (request, reply) => {
 })
 await fastify.register(adminAliyunOssRoutes, { prefix: '/api/admin/aliyun-oss' })
 fastify.addHook('onClose', async () => { stopPlatformBackupScheduler() })
+fastify.addHook('onClose', async () => { stopRecoveryReviewWorker() })
+fastify.addHook('onClose', async () => { await stopCheckoutWorker() })
 
 // 注册 API 路由
 await fastify.register(authRoutes, { prefix: '/api/auth' })
@@ -783,7 +785,6 @@ const start = async (): Promise<void> => {
     // Do not run startup mutations or workers against a database awaiting review.
     if (recoveryHeld()) {
       startRecoveryReviewWorker()
-      fastify.addHook('onClose', async () => { stopRecoveryReviewWorker() })
       await fastify.listen({ port: parseInt(process.env.PORT || '3001', 10), host: process.env.HOST || '127.0.0.1' })
       console.log('Platform recovery protection is active; background jobs are disabled.')
       // The root worker commits the reviewed activation after protected health.
@@ -851,7 +852,6 @@ const start = async (): Promise<void> => {
     await cleanupStaleInstanceTasks()
     startInstanceTaskWorker()
     startCheckoutWorker()
-    fastify.addHook('onClose', async () => { await stopCheckoutWorker() })
     startHostOnboardingWorker()
     startHostRepairWorker()
     startHostOfflineAlertWorker()

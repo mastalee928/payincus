@@ -2,11 +2,17 @@ import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { mock } from 'node:test'
 import Fastify from 'fastify'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'))
 process.env.NODE_ENV = 'test'
 process.env.ENCRYPTION_KEY = randomBytes(32).toString('base64')
+const recoveryRoot = await mkdtemp(join(tmpdir(), 'payincus-turnstile-'))
+assert.ok(resolve(recoveryRoot).startsWith(resolve(tmpdir(), 'payincus-turnstile-')))
+process.env.PLATFORM_BACKUP_STATE_DIR = recoveryRoot
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { updateSystemConfigs } = await import('../src/db/system-config.js')
 const { invalidateAllConfigCache } = await import('../src/lib/config-cache.js')
@@ -32,7 +38,9 @@ app.decorate('authenticateAdmin', app.authenticate)
 app.addHook('onRoute', options => {
   if (options.method !== 'POST' || !endpoints.some(endpoint => options.url === '/auth' + endpoint.path)) return
   const hooks = Array.isArray(options.preHandler) ? options.preHandler : [options.preHandler]
-  assert.deepEqual(hooks, [turnstileVerifier], 'All five real auth routes must use the same verifier')
+  assert.equal(hooks.length, 1)
+  if (options.url !== '/auth/login') assert.deepEqual(hooks, [turnstileVerifier], 'Non-recovery auth routes use the original verifier')
+  else assert.equal(typeof hooks[0], 'function', 'Login has a recovery-aware verifier; its ordinary behavior is exercised below')
   registered.add(options.url)
   // Stop after the real preHandler so this test cannot log in, send mail or change passwords.
   options.preHandler = [...hooks as [typeof turnstileVerifier], async (_request, reply) => { reached++; return reply.code(204).send() }]
@@ -82,6 +90,14 @@ try {
       assert.equal(reached - beforeReached, 5); assert.equal(providerCalls - beforeCalls, 15)
     }
   }
+  await updateSystemConfigs(keys.map((key, index) => ({ key, value: ['true', site, secret][index] })))
+  await writeFile(join(recoveryRoot, 'recovery-hold.json'), '{}')
+  const callsBeforeHold = providerCalls
+  assert.equal((await post(endpoints[0])).statusCode, 204, 'Held recovery login reaches its separate operator authentication without the old captcha')
+  for (const endpoint of endpoints.slice(1)) assert.equal((await post(endpoint)).statusCode, 400, 'Recovery exception is limited to login')
+  assert.equal(providerCalls, callsBeforeHold)
+  await rm(join(recoveryRoot, 'recovery-hold.json'))
+  assert.equal((await post(endpoints[0])).statusCode, 400, 'Ordinary login requires captcha again when protection ends')
   console.log('PASS eight live configuration combinations and five original auth preHandlers agree with public challenge availability; missing/rejected/malformed tokens stop before auth actions, only valid tokens pass, no secret is public')
 } catch (error) { failure = error }
 finally {
@@ -93,6 +109,7 @@ finally {
     else await prisma.systemConfig.deleteMany({ where: { key } })
   }
   invalidateAllConfigCache(); await closePrismaDatabase()
+  await rm(recoveryRoot, { recursive: true, force: true })
 }
 if (failure) { console.error(failure); process.exit(1) }
 process.exit(0)

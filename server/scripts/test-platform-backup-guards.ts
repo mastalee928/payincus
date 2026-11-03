@@ -21,6 +21,7 @@ import { restoreControllerIdentity } from '../src/services/platform-backup-contr
 import { controllerSigningKeyId } from '../src/lib/controller-config.js'
 import { ensureBackupLocales } from '../src/services/platform-backup-locale.js'
 import { assertBackupVersion, assertMigrationHistory, normalizedReleaseSchema, releaseMigrationHash, releaseMigrations } from '../src/services/platform-backup-compatibility.js'
+import { verifyAppWorkerLifecycle } from './fixtures/app-worker-lifecycle.js'
 
 process.env.ENCRYPTION_KEY = 'local-test-encryption-key-not-a-real-credential'
 const workspace = await mkdtemp(join(tmpdir(), 'payincus-oss-test-'))
@@ -540,6 +541,7 @@ try {
   assert.ok(databaseSource.includes('LC_COLLATE ${quoteLiteral(properties.datcollate)} LC_CTYPE ${quoteLiteral(properties.datctype)}'), 'new-machine recovery must preserve the backup collation instead of inheriting destination defaults')
   assert.ok(source.includes("before-authorized-keys") && source.includes("await chmod(`${INSTALL}/server/certs/onboarding-gateway.key`, 0o640)"), 'gateway recovery must save local authorization and preserve backend key access')
   const app = await readFile(resolve(import.meta.dirname, '../src/app.ts'), 'utf8')
+  await verifyAppWorkerLifecycle(app)
   assert.equal((source.match(/await refreshRestoredGateway\(gatewayBefore/g) || []).length, 2, 'restore and rollback must preserve unchanged live management tunnels')
   const gateway = await readFile(resolve(import.meta.dirname, '../src/services/platform-backup-gateway.ts'), 'utf8')
   assert.ok(gateway.includes('if (!reconcileNetwork && active && previous === next) return') && gateway.includes("['syncconf', 'incudal-mgmt', input]"), 'ordinary unchanged restore avoids restart; rollback must reconcile potentially interrupted live state')
