@@ -18,8 +18,14 @@ def read():
 
 for mode in ['tcp', 'tcp_udp']:
     rule = 'iifname != "incusbr0" oifname "incusbr0" meta l4proto udp ct direction original counter drop;' if mode == 'tcp' else ''
-    config = 'table inet incudal_ingress_protocol { chain forward { type filter hook forward priority -20; policy accept; '+rule+' } }'
-    subprocess.run(['nft','-f','-'], input=config, text=True, check=True, capture_output=True)
+    config = ('table inet incudal_ingress_protocol {\n'
+              '  chain forward {\n'
+              '    type filter hook forward priority -20; policy accept;\n'
+              '    '+rule+'\n'
+              '  }\n'
+              '}\n')
+    # The rules contain only fixed fixture values; preserve native parser errors.
+    subprocess.run(['nft','-f','-'], input=config, text=True, check=True)
     gateway.verify_recovery_port_protocol(read(), mode)
     try:
         gateway.verify_recovery_port_protocol(read(), 'tcp_udp' if mode == 'tcp' else 'tcp')
