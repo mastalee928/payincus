@@ -219,6 +219,17 @@ try {
       status: ['retry','blocked','dispatched','success','running'].includes(payload?.status) ? payload.status : 'unknown',
       code: /^[A-Z0-9_]{1,100}$/.test(payload?.code || '') ? payload.code : null,
       attempt: Number.isSafeInteger(payload?.attempt) ? payload.attempt : null}))))
+    for (const {category,payload} of checks) {
+      if (category !== 'auto-resume' || !/^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(payload?.taskId || '')) continue
+      const unit = `incudal-platform-backup@${payload.taskId}.service`
+      const unitLog = await exec('/usr/bin/journalctl', ['-u',unit,'--no-pager','-n','12']).catch(() => ({stdout:''}))
+      const result = await core.readJson(core.statePath('results',`${payload.taskId}.json`))
+      // Only fixed classifications leave the VM; journal text may hold secrets.
+      console.error('Snapshot worker diagnostics', JSON.stringify({attempt:payload.attempt,
+        lockBusy:/platform maintenance (?:task is running|lock did not become available)/.test(unitLog.stdout),
+        trustRejected:/release (?:file set|integrity)|worker missing/.test(unitLog.stdout),
+        receiptPresent:Boolean(result),code:/^[A-Z0-9_]{1,100}$/.test(result?.error || '')?result.error:null}))
+    }
   }
   assert.ok(complete, 'snapshot recovery must finish through installed automatic review and root resume')
   await health(false)

@@ -9,6 +9,10 @@ WORK_DIR="$(mktemp -d)"
 HTTP_FIXTURE_PID=""
 trap '[[ -z "$HTTP_FIXTURE_PID" ]] || kill "$HTTP_FIXTURE_PID" 2>/dev/null || true; rm -rf "$WORK_DIR"' EXIT
 
+if [[ "$(uname -s)" == Linux ]]; then
+  python3 "$REPO_ROOT/scripts/test-platform-recovery-lock.py"
+fi
+
 # Token-bearing script downloads retain forwarding but no proxy request logs.
 write_nginx_split_server_block panel.example.invalid /fixture/user > "$WORK_DIR/nginx-script-token.conf"
 sed -n '/location \^~ \/api\/hosts\/caddy-script\//,/^    }/p' "$WORK_DIR/nginx-script-token.conf" > "$WORK_DIR/nginx-script-token-location.conf"

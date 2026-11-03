@@ -555,6 +555,8 @@ try {
   assert.ok(app.indexOf('if (recoveryHeld()) {') < app.indexOf('await initPrismaDatabase('), 'recovery gate precedes initialization and background jobs')
   const helper = await readFile(resolve(import.meta.dirname, '../../deploy/incudal-online-task.sh.example'), 'utf8')
   assert.ok(helper.includes('flock -n 9') && helper.includes('verify_manifest'), 'privileged workers must serialize with OTA and verify code')
+  const backupAdmission = helper.slice(helper.indexOf('  platform-backup)'), helper.indexOf('  harden)'))
+  assert.ok(backupAdmission.includes('flock -w 30 -E 75 9') && backupAdmission.indexOf('flock -w') < backupAdmission.indexOf('verify_manifest'), 'recovery continuation must wait boundedly for the prior root worker before verifying or executing code')
   const recoveryWorker = await readFile(resolve(import.meta.dirname, '../src/services/platform-backup-worker.ts'), 'utf8')
   assert.ok(recoveryWorker.includes('await pgQuery(QUARANTINE_RESTORED_GATEWAY_TASKS_SQL, [], staging)') &&
     recoveryWorker.indexOf('await pgQuery(QUARANTINE_RESTORED_GATEWAY_TASKS_SQL, [], staging)') < recoveryWorker.indexOf("journal.stage = 'switching'"),

@@ -296,7 +296,10 @@ case "${1:-}" in
   platform-backup)
     [[ "$#" -eq 2 && "$2" =~ ^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$ ]] || fail "invalid platform task id"
     exec 9>/var/lib/incudal-platform-operation.lock
-    flock -n 9 || fail "another platform maintenance task is running"
+    # A successful restore receipt can reach the backend just before its root
+    # worker exits and releases this lock. Keep the queued continuation alive
+    # for that handoff; never overlap maintenance or wait without a deadline.
+    flock -w 30 -E 75 9 || fail "platform maintenance lock did not become available within 30 seconds"
     verify_manifest
     app_dir="$(resolve_app_dir)"
     [[ -f "$app_dir/server/dist/scripts/run-platform-backup-task.js" && ! -L "$app_dir/server/dist/scripts/run-platform-backup-task.js" ]] || fail "platform worker missing"
