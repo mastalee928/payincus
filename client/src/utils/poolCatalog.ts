@@ -10,6 +10,8 @@ export interface PoolCatalogProduct {
   memoryMiB: number
   /** 空闲台数（与分配器同一套就绪判据）。0 = 该档位无货，界面灰掉但保留展示。 */
   idle: number
+  idleForDirect?: number
+  idleForCart?: number
   total: number
 }
 

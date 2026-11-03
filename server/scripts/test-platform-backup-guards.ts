@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { mock } from 'node:test'
 import { createCipheriv, createPublicKey, generateKeyPairSync, randomBytes, randomUUID, scryptSync } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
@@ -9,20 +10,64 @@ import { openPromise } from 'yauzl'
 import { BackupError, normalizeConfig, openSecret, sealSecret, publicConfig, recoveryRequestAllowed, validatePrefix, nextScheduledTime } from '../src/services/platform-backup-core.js'
 import { decryptBackup, encryptBackup, hashFile, validAssetName, validateManifest } from '../src/services/platform-backup-archive.js'
 import { AliyunOssClient, sanitizedOssError } from '../src/services/aliyun-oss-client.js'
-import { assertDatabaseIntegrity, normalizedDumpHash, restoreDumpToolchainHeader, type DatabaseIntegrity } from '../src/services/platform-backup-database.js'
+import { assertDatabaseIntegrity, normalizedDumpHash, restoreDumpToolchainHeader, databaseToolFailure, type DatabaseIntegrity } from '../src/services/platform-backup-database.js'
 import { createReadableZip, readableZipName, verifyReadableZip } from '../src/services/platform-backup-readable.js'
-import { waitForProtectedBackendHealth } from '../src/services/platform-backup-health.js'
-import { retainGatewayEndpoints } from '../src/services/platform-backup-gateway.js'
+import { waitForProtectedBackendHealth, waitForRestoredAgentHeartbeats } from '../src/services/platform-backup-health.js'
+import { retainGatewayEndpoints, reconcileArchivedGatewayPeers } from '../src/services/platform-backup-gateway.js'
 import { mergeBackupEnvironment } from '../src/services/platform-backup-environment.js'
+import { localRecoveryGateway } from '../src/services/platform-recovery-local-gateway.js'
 import { parse as parseEnv } from 'dotenv'
 import { restoreControllerIdentity } from '../src/services/platform-backup-controller.js'
 import { controllerSigningKeyId } from '../src/lib/controller-config.js'
+import { ensureBackupLocales } from '../src/services/platform-backup-locale.js'
 import { assertBackupVersion, assertMigrationHistory, normalizedReleaseSchema, releaseMigrationHash, releaseMigrations } from '../src/services/platform-backup-compatibility.js'
 
 process.env.ENCRYPTION_KEY = 'local-test-encryption-key-not-a-real-credential'
 const workspace = await mkdtemp(join(tmpdir(), 'payincus-oss-test-'))
+const importedIntervals: ReturnType<typeof setInterval>[] = []
 assert.ok(resolve(workspace).startsWith(resolve(tmpdir(), 'payincus-oss-test-')))
 try {
+  const installedLocales=['C','C.utf8','POSIX'],generatedLocales:string[]=[]
+  const localeRuntime={list:async()=>installedLocales,generate:async(source:string,name:string)=>{
+    assert.equal(source,'en_US');generatedLocales.push(name);installedLocales.push('en_US.utf8')
+  }}
+  await ensureBackupLocales(['en_US.UTF-8','en_US.UTF-8','C'],localeRuntime)
+  await ensureBackupLocales(['en_US.UTF-8'],localeRuntime)
+  assert.deepEqual(generatedLocales,['en_US.UTF-8'],'fresh B generates the source locale once, then reuses it')
+  for(const name of ['../../private','--prefix=private','en_US.UTF-8;evil','en_US.UTF-8\n','en_US.ISO-8859-1'])
+    await assert.rejects(ensureBackupLocales([name],localeRuntime),/LOCALE_UNSUPPORTED/)
+  await assert.rejects(ensureBackupLocales(['de_DE.UTF-8'],{list:async()=>['C'],generate:async()=>{}}),/LOCALE_UNAVAILABLE/,'localedef success must be read back')
+  await assert.rejects(ensureBackupLocales(['fr_FR.UTF-8'],{list:async()=>['C'],generate:async()=>{throw new BackupError('OSS_DATABASE_LOCALE_UNAVAILABLE',409)}}),/LOCALE_UNAVAILABLE/)
+  const activeId=randomUUID(),deletedId=randomUUID(),activeKey=Buffer.alloc(32,1).toString('base64'),deletedKey=Buffer.alloc(32,2).toString('base64')
+  const activePeer=`# incudal-onboarding ${activeId}\n[Peer]\nPublicKey = ${activeKey}\nAllowedIPs = 10.253.240.2/32\n`
+  const deletedPeer=`# incudal-onboarding ${deletedId}\n[Peer]\nPublicKey = ${deletedKey}\nAllowedIPs = 10.253.240.3/32\n`
+  const gatewayHeader='[Interface]\nPrivateKey = original-key\nAddress = 10.253.240.1/20\n'
+  const reservations=new Map([[activeId,{nodePublicKey:activeKey,managementIp:'10.253.240.2'}],[deletedId,{nodePublicKey:deletedKey,managementIp:'10.253.240.3'}]])
+  const originalNodes=[{id:activeId,hostId:1,nodePublicKey:activeKey,managementIp:'10.253.240.2',deletedAt:null},
+    {id:deletedId,hostId:null,nodePublicKey:deletedKey,managementIp:'10.253.240.3',deletedAt:new Date()}]
+  const archived=gatewayHeader+deletedPeer+activePeer
+  const reconciled=reconcileArchivedGatewayPeers(archived,reservations,originalNodes)
+  assert.equal(reconciled.config,gatewayHeader+activePeer,'only the deleted host block and its marker are removed')
+  assert.deepEqual(reconciled.removedNodeIds,[deletedId]);assert.equal(reservations.size,2,'tombstone reservations remain')
+  assert.equal(reconcileArchivedGatewayPeers(reconciled.config,reservations,originalNodes).config,reconciled.config)
+  assert.throws(()=>reconcileArchivedGatewayPeers(archived,reservations,originalNodes.slice(0,1)),/IDENTITY_CHANGED/)
+  assert.throws(()=>reconcileArchivedGatewayPeers(archived,reservations,originalNodes.map(node=>({...node,deletedAt:null}))),/IDENTITY_CHANGED/)
+  assert.throws(()=>reconcileArchivedGatewayPeers(archived+activePeer,reservations,originalNodes),/IDENTITY_CHANGED/)
+  assert.throws(()=>reconcileArchivedGatewayPeers(archived.replace('10.253.240.3/32','10.253.240.2/32'),reservations,originalNodes),/IDENTITY_CHANGED/)
+  assert.throws(()=>reconcileArchivedGatewayPeers(gatewayHeader+deletedPeer,reservations,originalNodes),/MISSING_ROUTES/)
+  for(const [message,code] of [
+    ['pg_restore: error: unsupported version (1.99) in file header','OSS_DATABASE_ARCHIVE_INVALID'],
+    ['pg_restore: error: input file is too short','OSS_DATABASE_ARCHIVE_INVALID'],
+    ['pg_dump: error: permission denied for table customers','OSS_DATABASE_TOOL_PERMISSION_DENIED'],
+    ['connection to server failed: FATAL: password authentication failed for user private-user','OSS_DATABASE_TOOL_PERMISSION_DENIED'],
+    ['pg_restore: error: could not write: No space left on device','OSS_DATABASE_STORAGE_FULL'],
+    ['connection to server at localhost failed: Connection refused','OSS_DATABASE_UNAVAILABLE'],
+    ['pg_restore: error: unknown SQL failure containing private-data','OSS_DATABASE_TOOL_FAILED']]){
+    const error=databaseToolFailure(message)
+    assert.equal(error.code,code);assert.equal(error.message,code,'private utility diagnostics never enter the task result')
+  }
+  assert.equal(databaseToolFailure('', 'ENOENT').code,'OSS_DATABASE_TOOL_MISSING')
+  assert.equal(databaseToolFailure('', undefined, true).code,'OSS_DATABASE_TOOL_TIMEOUT')
   const replacement = 'DATABASE_URL=target-fixture\nENCRYPTION_KEY=target-fixture-key\nJWT_SECRET=target-session-fixture\nONBOARDING_GATEWAY_HOST=127.0.0.1\nONBOARDING_GATEWAY_FINGERPRINT=SHA256:' + 'A'.repeat(43) + '\nONBOARDING_WG_ENDPOINT=gateway.example.com:51820\n'
   const oldEnvironment = 'DATABASE_URL=old-fixture\nENCRYPTION_KEY=original-fixture-key\nJWT_SECRET=old-session-fixture\nONBOARDING_GATEWAY_FINGERPRINT=SHA256:' + 'B'.repeat(43) + '\n'
   const mapped = parseEnv(mergeBackupEnvironment(replacement, oldEnvironment, '[Interface]\nListenPort = 51999\n[Peer]\nPublicKey = fixture\n'))
@@ -33,6 +78,23 @@ try {
   assert.throws(() => mergeBackupEnvironment(replacement, oldEnvironment, '[Interface]\nListenPort = 0\n'), /OSS_GATEWAY_CONFIG_UNSUPPORTED/)
   assert.throws(() => mergeBackupEnvironment(replacement, oldEnvironment, '[Peer]\nListenPort = 51999\n'), /OSS_GATEWAY_CONFIG_UNSUPPORTED/)
   assert.throws(() => mergeBackupEnvironment(replacement.replace('127.0.0.1', 'gateway.example.com'), oldEnvironment, '[Interface]\nListenPort = 51999\n'), /OSS_GATEWAY_MAPPING_REQUIRED/)
+  const localPair=generateKeyPairSync('ed25519')
+  const rawLocal=localPair.publicKey.export({format:'der',type:'spki'}).subarray(-32)
+  const sshPublic=Buffer.concat([Buffer.from([0,0,0,11]),Buffer.from('ssh-ed25519'),Buffer.from([0,0,0,32]),rawLocal]).toString('base64')
+  const blankB='DATABASE_URL=target-fixture\nENCRYPTION_KEY=target-fixture-key\nJWT_SECRET=target-session-fixture\n'
+  const originalA=oldEnvironment+'ONBOARDING_WG_ENDPOINT=original-gateway.example.com:51999\n'
+  const discovered=localRecoveryGateway(blankB,originalA,`ssh-ed25519 ${sshPublic}`,'port 2222\nhostkey /etc/ssh/ssh_host_ed25519_key\n')
+  const automaticLocal=parseEnv(mergeBackupEnvironment(blankB,originalA,'[Interface]\nListenPort = 51999\n',undefined,discovered))
+  assert.equal(automaticLocal.ONBOARDING_GATEWAY_HOST,'127.0.0.1');assert.equal(automaticLocal.ONBOARDING_GATEWAY_PORT,'2222')
+  assert.equal(automaticLocal.ONBOARDING_WG_ENDPOINT,'original-gateway.example.com:51999')
+  assert.equal(automaticLocal.ONBOARDING_GATEWAY_FINGERPRINT,discovered.fingerprint)
+  assert.equal(automaticLocal.DATABASE_URL,'target-fixture');assert.equal(automaticLocal.JWT_SECRET,'target-session-fixture')
+  assert.equal(localRecoveryGateway(blankB,originalA,`ssh-ed25519 ${sshPublic}`,'port 2222\nhostkey /etc/ssh/ssh_host_ed25519_key\n','saved-in-database.example.com:51820').hostname,'saved-in-database.example.com')
+  assert.throws(()=>localRecoveryGateway(blankB,originalA,`ssh-ed25519 ${sshPublic}`,'port 22\n'),/SSH_IDENTITY_MISSING/)
+  assert.throws(()=>localRecoveryGateway(blankB,oldEnvironment,`ssh-ed25519 ${sshPublic}`,'port 22\n'),/DOMAIN_MISSING/)
+  assert.throws(()=>localRecoveryGateway(blankB,originalA.replace('original-gateway.example.com','192.0.2.10'),`ssh-ed25519 ${sshPublic}`,'port 22\n'),/DOMAIN_MISSING/)
+  assert.throws(()=>localRecoveryGateway(blankB,originalA,`ssh-ed25519 ${sshPublic}`,'port 22\nport 2222\n'),/SSH_AMBIGUOUS/)
+  assert.throws(()=>localRecoveryGateway(blankB+'ONBOARDING_GATEWAY_HOST=external.example.test\n',originalA,`ssh-ed25519 ${sshPublic}`,'port 22\n'),/MAPPING_REQUIRED/)
   const signing = generateKeyPairSync('ed25519'), signingPem = signing.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
   const signingPublic = createPublicKey(signing.privateKey).export({ type: 'spki', format: 'der' }).subarray(12).toString('base64')
   const platform = randomUUID(), packageSigningKey = Buffer.alloc(32, 7).toString('base64')
@@ -192,7 +254,7 @@ try {
     fetch: async (url: string | URL | Request, options?: RequestInit) => {
       assert.equal(url, 'http://127.0.0.1:3001/api/health')
       assert.equal(options?.redirect, 'error')
-      return new Response(JSON.stringify({ recoveryHeld: false }), { status: healthClock >= 45000 ? 200 : 503 })
+      return new Response(JSON.stringify({ recoveryHeld: false, businessStartupReady: healthClock >= 45000 }), { status: healthClock >= 45000 ? 200 : 503 })
     }
   }
   await waitForProtectedBackendHealth(false, healthRuntime)
@@ -200,6 +262,14 @@ try {
   healthClock = 0
   await assert.rejects(waitForProtectedBackendHealth(false, { ...healthRuntime, fetch: async () => new Response(JSON.stringify({ recoveryHeld: true })) }), /OSS_PROTECTED_START_FAILED/)
   assert.equal(healthClock, 90000, 'HTTP success with the wrong protection state must fail within the startup deadline')
+  healthClock=0
+  const heartbeatRuntime={now:()=>healthClock,sleep:async(ms:number)=>{healthClock+=ms},
+    query:(async()=>[{activated:true,pending:healthClock<30000?'1':'0'}]) as any}
+  await waitForRestoredAgentHeartbeats(randomUUID(),heartbeatRuntime)
+  assert.equal(healthClock,30000,'restoration waits for a new heartbeat, not a saved online flag')
+  healthClock=0
+  await assert.rejects(waitForRestoredAgentHeartbeats(randomUUID(),{...heartbeatRuntime,query:(async()=>[{activated:true,pending:'1'}]) as any}),/AGENT_HEARTBEAT_PENDING/)
+  assert.equal(healthClock,90000,'a missing heartbeat yields to durable automatic continuation')
   const databaseIntegrity: DatabaseIntegrity = { format: 1, dataEncoding: 'postgres-record-text-v1', database: { encoding: 6, datcollate: 'C.UTF-8', datctype: 'C.UTF-8', datlocprovider: 'c' }, schemaSha256: 'b'.repeat(64), tables: [{ schema: 'public', name: 'orders', kind: 'r', rows: '3', sha256: 'c'.repeat(64) }], sequences: [{ schema: 'public', name: 'orders_id_seq', reference: 'public.orders_id_seq', lastValue: '9007199254740993', isCalled: true }], largeObjects: { objects: '1', pages: '2', sha256: 'd'.repeat(64) } }
   assertDatabaseIntegrity(databaseIntegrity, structuredClone(databaseIntegrity))
   for (const changed of [
@@ -230,8 +300,11 @@ try {
   const gatewayAsset = join(workspace, 'source-gateway.conf'), environmentAsset = join(workspace, 'source-runtime.env'), mappingArchive = join(workspace, 'mapping.enc')
   await writeFile(gatewayAsset, '[Interface]\nListenPort = 51999\n')
   await writeFile(environmentAsset, oldEnvironment)
-  await encryptBackup([{ name: 'database.dump', path: dump }, { name: 'runtime.env', path: environmentAsset }, { name: 'gateway.conf', path: gatewayAsset }], metadata, 'test-password-123', mappingArchive)
+  const baselineAsset=join(workspace,'gateway-baseline.json')
+  await writeFile(baselineAsset,JSON.stringify({version:1,publicKey:'A'.repeat(43)+'='}))
+  await encryptBackup([{ name: 'database.dump', path: dump }, { name: 'runtime.env', path: environmentAsset }, { name: 'gateway.conf', path: gatewayAsset }, {name:'gateway-baseline.json',path:baselineAsset}], metadata, 'test-password-123', mappingArchive)
   const mappingDecoded = await decryptBackup(mappingArchive, 'test-password-123', join(workspace, 'mapping-restored'))
+  assert.equal(await readFile(mappingDecoded.files.get('gateway-baseline.json')!,'utf8'),await readFile(baselineAsset,'utf8'))
   const mappedArchive = parseEnv(mergeBackupEnvironment(replacement, await readFile(mappingDecoded.files.get('runtime.env')!, 'utf8'), await readFile(mappingDecoded.files.get('gateway.conf')!, 'utf8')))
   assert.equal(mappedArchive.ONBOARDING_WG_ENDPOINT, 'gateway.example.com:51999')
   assert.equal(mappedArchive.ONBOARDING_GATEWAY_FINGERPRINT, 'SHA256:' + 'A'.repeat(43))
@@ -330,6 +403,39 @@ try {
   }
 
   const transport = new AliyunOssClient(config)
+  const discovery = new AliyunOssClient(config)
+  try {
+    const prefixes=[`old-root/${randomUUID()}/${randomUUID()}/`,`another-root/${randomUUID()}/${randomUUID()}/`]
+    let page=0
+    discovery.client.listV2=async(options:any)=>{
+      assert.equal(Object.hasOwn(options,'prefix'),false,'whole bucket discovery must omit empty prefix for OSS V4 signing')
+      assert.equal(options['continuation-token'],page===0?undefined:'second-page')
+      const name=prefixes[page++]+'complete.json'
+      return {objects:[{name}],isTruncated:page===1,nextContinuationToken:'second-page'} as never
+    }
+    discovery.readSmall=async(key:string)=>{const parts=key.split('/');return Buffer.from(JSON.stringify({...metadata,
+      installationId:parts[1],id:parts[2],bytes:42,sha256:'a'.repeat(64)}))}
+    assert.deepEqual((await discovery.backups('')).map(row=>row.prefix).sort(),prefixes.sort())
+    assert.equal(page,2,'old installation backups are discovered across pages without an installation ID')
+    page=0
+    const invalidPrefix=`old-root/${randomUUID()}/${randomUUID()}/`
+    discovery.client.listV2=async(options:any)=>{
+      assert.equal(Object.hasOwn(options,'prefix'),false)
+      assert.equal(options['continuation-token'],page===0?undefined:'second-page')
+      return {objects:page++===0?[{name:prefixes[0]+'complete.json'},{name:invalidPrefix+'complete.json'},{name:'other-app/complete.json'}]:
+        [{name:prefixes[1]+'complete.json'}],isTruncated:page===1,nextContinuationToken:'second-page'} as never
+    }
+    const readIndex=discovery.readSmall.bind(discovery)
+    discovery.readSmall=async key=>key===invalidPrefix+'complete.json'?Buffer.from('{broken'):readIndex(key)
+    const firstPage=await discovery.discoverBackups()
+    assert.equal(firstPage.backups.length,1);assert.equal(firstPage.issues.length,1)
+    assert.equal(firstPage.issues[0].prefix,invalidPrefix)
+    const secondPage=await discovery.discoverBackups('',firstPage.nextCursor!)
+    assert.equal(secondPage.backups.length,1);assert.equal(secondPage.nextCursor,null)
+    assert.equal(page,2,'page discovery preserves valid backups and reports broken markers separately')
+    discovery.client.listV2=async()=>({objects:[],isTruncated:true,nextContinuationToken:'same'} as never)
+    await assert.rejects(discovery.discoverBackups('','same'),/CURSOR_INVALID/)
+  }finally{discovery.close()}
   const companion = new AliyunOssClient(config)
   const published: string[] = []
   companion.client.multipartUpload = async (name: string) => { published.push(name); return {} as never }
@@ -384,7 +490,17 @@ try {
   process.env.DATABASE_URL = 'postgresql://localhost:5432/payincus_oss_test'
   process.env.PLATFORM_BACKUP_STATE_DIR = join(workspace, 'route-state')
   const { default: Fastify } = await import('fastify')
-  const { default: routes } = await import('../src/routes/admin-aliyun-oss.js')
+  // Route dependencies install process-wide auth housekeeping timers. Keep
+  // their behavior during this test, but dispose only the timers we imported.
+  const originalInterval = globalThis.setInterval
+  const intervalMock = mock.method(globalThis, 'setInterval', ((...args: Parameters<typeof setInterval>) => {
+    const timer = originalInterval(...args)
+    importedIntervals.push(timer)
+    return timer
+  }) as typeof setInterval)
+  let routes: typeof import('../src/routes/admin-aliyun-oss.js').default
+  try { routes = (await import('../src/routes/admin-aliyun-oss.js')).default }
+  finally { intervalMock.mock.restore() }
   const appServer = Fastify()
   appServer.decorate('authenticateAdmin', async (request: any, reply: any) => {
     if (!request.headers['x-test-user']) return reply.code(401).send({ error: 'Unauthorized' })
@@ -447,5 +563,7 @@ try {
   for (const [sourcePath, publicPath] of [['scripts/platform-backup-recovery.py', 'client/public/recovery/payincus-recovery.py'], ['scripts/platform-backup-recovery-guide.md', 'client/public/recovery/恢复说明.md']]) assert.equal(await readFile(resolve(import.meta.dirname, '../..', sourcePath), 'utf8'), await readFile(resolve(import.meta.dirname, '../..', publicPath), 'utf8'))
   console.log('Platform backup guards passed: authenticated archive, tampering, paths, schedule, retention and restore boundaries.')
 } finally {
+  for (const timer of importedIntervals) clearInterval(timer)
+  if(process.env.DATABASE_URL){const { closePrismaDatabase } = await import('../src/db/prisma.js');await closePrismaDatabase()}
   await rm(workspace, { recursive: true, force: true })
 }

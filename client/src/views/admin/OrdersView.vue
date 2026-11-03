@@ -28,6 +28,8 @@ interface OrderOperationCase {
 }
 
 interface AdminOrderItem {
+  paymentSources?: Array<{ providerName: string; method: string; amount: number; status: string }>
+  walletRefundAllowed?: boolean
   id: string
   sourceType: OrderSourceType
   sourceId: number
@@ -192,7 +194,8 @@ function statusLabel(order: AdminOrderItem): string {
     pending: '待处理',
     failed: '失败',
     cancelled: '已取消',
-    refunded: '已退款'
+    refunded: '已退款',
+    refund_pending: '原路退款处理中'
   }
   return labels[order.status] || order.rawStatus
 }
@@ -867,7 +870,7 @@ onMounted(() => {
           <div class="grid grid-cols-3 gap-3"><dt class="text-xs uppercase tracking-wider text-themed-faint">金额</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.amount) }}</dd></div>
           <div class="grid grid-cols-3 gap-3"><dt class="text-xs uppercase tracking-wider text-themed-faint">实际到账</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ selectedOrder.actualAmount === null ? '-' : formatMoney(selectedOrder.actualAmount) }}</dd></div>
           <div class="grid grid-cols-3 gap-3"><dt class="text-xs uppercase tracking-wider text-themed-faint">手续费</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.fee) }}</dd></div>
-          <div class="grid grid-cols-3 gap-3"><dt class="text-xs uppercase tracking-wider text-themed-faint">支付渠道</dt><dd class="col-span-2 text-themed">{{ selectedOrder.provider?.name || selectedOrder.paymentMethod || '-' }}</dd></div>
+          <div class="grid grid-cols-3 gap-3"><dt class="text-xs uppercase tracking-wider text-themed-faint">支付渠道</dt><dd class="col-span-2 text-themed"><template v-if="selectedOrder.paymentSources?.length"><p v-for="(source,index) in selectedOrder.paymentSources" :key="index" class="break-words">{{ source.method === 'balance' ? '账户余额' : source.providerName + ' · ' + (source.method === 'alipay' ? '支付宝' : source.method === 'wxpay' ? '微信支付' : source.method) }} · {{ formatMoney(source.amount) }} · {{ source.status === 'refunded' ? '已退款' : '退款处理中' }}</p></template><template v-else>{{ selectedOrder.provider?.name || selectedOrder.paymentMethod || '-' }}</template></dd></div>
           <div v-if="selectedOrder.providerStatusSummary" class="grid grid-cols-3 gap-3">
             <dt class="text-xs uppercase tracking-wider text-themed-faint">Provider 摘要</dt>
             <dd class="col-span-2 text-themed">
@@ -929,7 +932,7 @@ onMounted(() => {
               <textarea v-model="operationResult" class="input min-h-[72px]" placeholder="可选，例如已联系用户、等待 provider 对账、已补偿" :disabled="actionLoading" />
             </label>
             <label class="flex items-center gap-2 text-sm text-themed">
-              <input v-model="operationCreateRefundRequest" type="checkbox" class="h-4 w-4 accent-primary-500" :disabled="actionLoading || hasPendingRefundRequest" />
+              <input v-model="operationCreateRefundRequest" type="checkbox" class="h-4 w-4 accent-primary-500" :disabled="actionLoading || hasPendingRefundRequest || selectedOrder.walletRefundAllowed === false" />
               <span>同时登记退款审批</span>
             </label>
             <label class="block text-sm">
@@ -937,6 +940,7 @@ onMounted(() => {
               <input v-model="operationRefundAmount" class="input font-mono tabular-nums" placeholder="勾选退款登记时必填，例如 10.00" :disabled="actionLoading || !operationCreateRefundRequest" />
             </label>
             <p v-if="hasPendingRefundRequest" class="text-sm text-amber-600 dark:text-amber-400">该订单已有待审核退款审批，需处理完成后才能再次登记。</p>
+            <p v-if="selectedOrder.walletRefundAllowed === false" class="text-sm text-themed-muted">第三方付款请从「计费」的实例退款入口办理，退款进度在「原路退款」查看。</p>
             <button class="btn btn-primary justify-self-start" :disabled="actionLoading" @click="saveOperationCase">保存运营处理</button>
           </div>
         </section>

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { resolvePublicHostname } from '../lib/outbound-security.js'
-import { BackupError, ensure, openSecret, validateBucket, validateId, validatePrefix, validateRegion, type BackupConfig } from './platform-backup-core.js'
+import { BackupError, ensure, openSecret, validateBucket, validateId, validateObjectPrefix, validateObjectKey, validateRegion, type BackupConfig } from './platform-backup-core.js'
 import { boundedDownload, hashFile, MAX_ARCHIVE_BYTES } from './platform-backup-archive.js'
 import { validReadableZipName } from './platform-backup-readable.js'
 
@@ -59,7 +59,7 @@ export class AliyunOssClient {
   }
   async listObjects(prefix: string, cursor?: string) {
     ensure(this.bucket, 'OSS_BUCKET_REQUIRED', 409)
-    prefix = validatePrefix(prefix, true); ensure(!cursor || cursor.length <= 4096, 'OSS_CURSOR_INVALID')
+    prefix = validateObjectPrefix(prefix, true); ensure(!cursor || cursor.length <= 4096, 'OSS_CURSOR_INVALID')
     // OSS V4 rejects this SDK's canonical query when an empty prefix is sent as prefix=.
     const result = await this.client.listV2({ ...(prefix ? { prefix } : {}), delimiter: '/', 'max-keys': 100, ...(cursor ? { 'continuation-token': cursor } : {}) })
     return { directories: result.prefixes || [], objects: (result.objects || []).map(o => ({ name: o.name, size: o.size, lastModified: o.lastModified })), nextCursor: result.isTruncated ? result.nextContinuationToken : null }
@@ -84,7 +84,7 @@ export class AliyunOssClient {
     // A selected bucket always uses the stricter backup read/write checks below.
     if (!this.bucket) { await this.listBuckets(); return }
     await this.assertBackupBucket(config.region)
-    const key = `${config.prefix}${config.installationId}/.probe-${randomUUID()}`
+    const key = validateObjectKey(`${config.prefix}${config.installationId}/.probe-${randomUUID()}`)
     const payload = Buffer.from(randomUUID())
     try {
       await this.client.put(key, payload, { headers: { 'x-oss-forbid-overwrite': 'true' } })
@@ -93,7 +93,7 @@ export class AliyunOssClient {
     } finally { await this.client.delete(key) }
   }
   async readSmall(key: string): Promise<Buffer> {
-    const response = await this.client.getStream(key)
+    const response = await this.client.getStream(validateObjectKey(key))
     let length = 0; const parts: Buffer[] = []
     try {
       for await (const chunk of response.stream) { const bytes = Buffer.from(chunk); length += bytes.length; ensure(length <= 65536, 'OSS_INDEX_INVALID'); parts.push(bytes) }
@@ -101,7 +101,7 @@ export class AliyunOssClient {
     return Buffer.concat(parts)
   }
   async index(prefix: string): Promise<RemoteBackup> {
-    prefix = validatePrefix(prefix)
+    prefix = validateObjectPrefix(prefix)
     const parsed = JSON.parse((await this.readSmall(`${prefix}complete.json`)).toString('utf8')) as BackupIndex
     validateId(parsed.id); validateId(parsed.installationId)
     ensure(parsed.format === 1 && prefix.endsWith(`/${parsed.installationId}/${parsed.id}/`) && /^[a-f0-9]{64}$/.test(parsed.sha256) && Number.isSafeInteger(parsed.bytes) && parsed.bytes > 0 && parsed.bytes <= MAX_ARCHIVE_BYTES && typeof parsed.createdAt === 'string' && Number.isFinite(Date.parse(parsed.createdAt)) && typeof parsed.version === 'string' && parsed.version.length <= 64, 'OSS_INDEX_INVALID')
@@ -110,22 +110,49 @@ export class AliyunOssClient {
   }
   async backups(prefix: string): Promise<RemoteBackup[]> {
     ensure(this.bucket, 'OSS_BUCKET_REQUIRED', 409)
-    prefix = validatePrefix(prefix); const backups: RemoteBackup[] = []; let cursor: string | undefined; const seen = new Set<string>()
+    prefix = validateObjectPrefix(prefix, true); const backups: RemoteBackup[] = []; let cursor: string | undefined; const seen = new Set<string>()
     for (let page = 0; page < 100; page++) {
-      const result = await this.client.listV2({ prefix, 'max-keys': 100, ...(cursor ? { 'continuation-token': cursor } : {}) })
+      // As in listObjects, the OSS V4 signer must omit an empty prefix.
+      const result = await this.client.listV2({ ...(prefix ? {prefix} : {}), 'max-keys': 100, ...(cursor ? { 'continuation-token': cursor } : {}) })
       for (const object of result.objects || []) if (object.name.endsWith('/complete.json')) backups.push(await this.index(object.name.slice(0, -'complete.json'.length)))
       if (!result.isTruncated) return backups.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
       cursor = result.nextContinuationToken; ensure(cursor && !seen.has(cursor), 'OSS_CURSOR_INVALID'); seen.add(cursor)
     }
     throw new BackupError('OSS_LIST_LIMIT', 409)
   }
+  async discoverBackups(prefix='',cursor?:string) {
+    ensure(this.bucket,'OSS_BUCKET_REQUIRED',409)
+    prefix=validateObjectPrefix(prefix,true)
+    ensure(!cursor || cursor.length<=4096,'OSS_CURSOR_INVALID')
+    const page=await this.client.listV2({...(prefix?{prefix}:{}),'max-keys':1000,...(cursor?{'continuation-token':cursor}:{})})
+    const backups:RemoteBackup[]=[],issues:Array<{prefix:string;code:string}>=[]
+    for(const object of page.objects||[]) {
+      if(!object.name.endsWith('/complete.json'))continue
+      const candidate=object.name.slice(0,-'complete.json'.length)
+      // A general bucket can also contain other applications' complete.json.
+      // PayIncus object identities always end in installation/backup UUIDs.
+      const parts=candidate.slice(0,-1).split('/')
+      try{validateId(parts.at(-1));validateId(parts.at(-2))}catch{continue}
+      try {backups.push(await this.index(candidate))}
+      catch(error) {
+        const code=error instanceof SyntaxError?'OSS_INDEX_INVALID':sanitizedOssError(error).code
+        if(!['OSS_INDEX_INVALID','OSS_TASK_INVALID','OSS_PREFIX_INVALID','OSS_NoSuchKey'].includes(code))throw error
+        issues.push({prefix:candidate,code:'OSS_INDEX_INVALID'})
+      }
+    }
+    const nextCursor=page.isTruncated?page.nextContinuationToken:null
+    ensure(!page.isTruncated || nextCursor && nextCursor!==cursor && nextCursor.length<=4096,'OSS_CURSOR_INVALID')
+    return {backups,issues,nextCursor:nextCursor||null}
+  }
   async download(backup: RemoteBackup, destination: string) {
-    const response = await this.client.getStream(`${backup.prefix}payload.enc`)
+    const response = await this.client.getStream(validateObjectKey(`${validateObjectPrefix(backup.prefix)}payload.enc`))
     await pipeline(response.stream, boundedDownload(backup.bytes), createWriteStream(destination, { flags: 'wx', mode: 0o600 }))
     ensure(await hashFile(destination) === backup.sha256, 'OSS_VERIFY_FAILED')
   }
   async upload(config: BackupConfig, file: string, metadata: BackupIndex, verificationPath: string, onCheckpoint?: (checkpoint: OSS.Checkpoint) => Promise<void>, readablePath?: string) {
     const prefix = `${config.prefix}${config.installationId}/${metadata.id}/`
+    validateId(config.installationId); validateId(metadata.id)
+    for (const name of ['payload.enc', 'complete.json', 'deleting.json', metadata.readableZip?.name].filter(Boolean)) validateObjectKey(`${prefix}${name}`)
     let checkpoint: OSS.Checkpoint | undefined
     try {
       await this.client.multipartUpload(`${prefix}payload.enc`, file, { parallel: 2, partSize: 8 * 1024 ** 2,

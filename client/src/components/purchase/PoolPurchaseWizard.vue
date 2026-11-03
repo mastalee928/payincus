@@ -10,6 +10,7 @@ import SelectionTabs from '@/components/ui/SelectionTabs.vue'
 import CartAddedNotice from '@/components/purchase/CartAddedNotice.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
+import { useDirectPurchaseStore } from '@/stores/directPurchase'
 import { useToast } from '@/stores/toast'
 import { translateError } from '@/utils/errorHandler'
 import { validateName } from '@/utils/validation'
@@ -19,6 +20,7 @@ import { architectureOfPreset, buildPoolInstanceNames, formatMemoryMiB, formatPu
 
 const { t, locale } = useI18n()
 const route = useRoute(), router = useRouter(), auth = useAuthStore(), cart = useCartStore(), toast = useToast()
+const directPurchase = useDirectPurchaseStore()
 const regions = ref<PoolCatalogRegion[]>([])
 const regionId = ref<number | null>(null), productId = ref<number | null>(null)
 const image = ref(''), name = ref(''), quantity = ref(1), maxInstances = ref(100)
@@ -27,11 +29,13 @@ const images = ref<Array<{ value: string; label: string; icon: string | null }>>
 const region = computed(() => regions.value.find(value => value.id === regionId.value))
 const product = computed(() => region.value?.products.find(value => value.id === productId.value))
 const queuedQuantity = computed(() => cart.items.filter(item => item.poolPriceId === productId.value).reduce((sum, item) => sum + item.quantity, 0))
-const maxQuantity = computed(() => Math.max(0, Math.min((product.value?.idle ?? 0) - queuedQuantity.value, maxInstances.value - cart.totalQuantity)))
+const maxQuantity = computed(() => Math.max(0, Math.min(product.value?.idle ?? 0, maxInstances.value)))
 const names = computed(() => buildPoolInstanceNames(name.value.trim(), Math.min(quantity.value || 1, maxInstances.value)))
 const nameValid = computed(() => !!name.value.trim() && names.value.every(value => validateName(value).valid))
 const subtotal = computed(() => product.value ? quantity.value * (product.value.monthlyPrice + product.value.setupFee) : 0)
 const canAdd = computed(() => active.value && catalogReady.value && !loading.value && !error.value && auth.isAuthenticated && !!auth.user && !!product.value && !!image.value && nameValid.value && Number.isInteger(quantity.value) && quantity.value > 0 && quantity.value <= maxQuantity.value && !imagesLoading.value)
+const canBuyDirect = computed(() => canAdd.value && quantity.value <= (product.value?.idleForDirect ?? product.value?.idle ?? 0))
+const canAddToCart = computed(() => canAdd.value && quantity.value + queuedQuantity.value <= (product.value?.idleForCart ?? product.value?.idle ?? 0) && quantity.value + cart.totalQuantity <= Math.min(maxInstances.value, 100))
 const regionStock = (value: PoolCatalogRegion) => value.products.reduce((sum, item) => sum + item.idle, 0)
 const active = ref(false), catalogReady = ref(false)
 let generation = 0, imageSequence = 0, catalogSequence = 0
@@ -86,8 +90,14 @@ async function load() {
   const valid = () => current() && sequence === catalogSequence
   loading.value = true; catalogReady.value = false; error.value = ''; regions.value = []; image.value = ''; images.value = []
   try {
-    const catalog = await api.packages.getPublicCatalog()
+    const [catalog, cartCatalog] = auth.isAuthenticated
+      ? await Promise.all([api.checkout.catalog('direct'), api.checkout.catalog('cart')])
+      : [await api.packages.getPublicCatalog(), null]
     if (!valid()) return
+    if (cartCatalog) for (const group of catalog.regions) for (const item of group.products) {
+      const stock = cartCatalog.regions.flatMap(row => row.products).find(row => row.id === item.id)?.idle ?? 0
+      Object.assign(item, { idleForDirect: item.idle, idleForCart: stock, idle: Math.max(item.idle, stock) })
+    }
     regions.value = catalog.regions; maxInstances.value = catalog.maxInstances ?? 100
     regionId.value = regions.value.find(value => value.id === Number(route.query.region))?.id ?? regions.value.find(value => regionStock(value) > 0)?.id ?? null
     productId.value = region.value?.products.find(value => value.id === Number(route.query.product))?.id ?? region.value?.products.find(value => value.idle > 0)?.id ?? null
@@ -118,16 +128,21 @@ function login() {
   void router.push({ path: '/login', query: { redirect: `/purchase?region=${regionId.value ?? ''}&product=${productId.value ?? ''}` } })
 }
 function add(checkout = false) {
-  if (!canAdd.value || !context()() || !product.value || !region.value) return
+  if (!(checkout ? canBuyDirect.value : canAddToCart.value) || !context()() || !product.value || !region.value) return
   const chosen = product.value
-  const added = cart.add({ poolPriceId: chosen.id, quantity: quantity.value, namePrefix: name.value.trim(), image: image.value, customInitCommandIds: [],
+  const input = { poolPriceId: chosen.id, quantity: quantity.value, namePrefix: name.value.trim(), image: image.value, customInitCommandIds: [],
     snapshot: { regionId: region.value.id, regionName: region.value.name, countryCode: region.value.countryCode,
       resourcePreset: chosen.resourcePreset, diskGiB: chosen.diskGiB, cpu: chosen.cpu, memoryMiB: chosen.memoryMiB,
       monthlyPrice: chosen.monthlyPrice, setupFee: chosen.setupFee, imageLabel: images.value.find(value => value.value === image.value)?.label ?? image.value }
-  })
+  }
+  if (checkout) {
+    const draft = directPurchase.create(input)
+    if (draft) void router.push({ path: '/order/confirm', query: { draft } })
+    return
+  }
+  const added = cart.add(input)
   if (!added) { error.value = t('cart.tooMany', { max: Math.min(maxInstances.value, 100) }); return }
   toast.success(t('poolPurchase.added')); name.value = ''
-  if (checkout) void router.push('/checkout')
 }
 onMounted(() => { active.value = true }); onActivated(() => { active.value = true })
 onDeactivated(() => { active.value = false }); onUnmounted(() => { active.value = false; generation++ })
@@ -255,8 +270,8 @@ watch([session, active, () => route.fullPath], () => {
             <button v-if="!auth.isAuthenticated" type="button" class="purchase-primary" @click="login">{{ t('poolPurchase.login') }}<ArrowRight :size="16" aria-hidden="true" /></button>
             <template v-else>
               <CartAddedNotice :total="cart.totalQuantity" :selection="productId" />
-              <button type="button" class="purchase-primary" :disabled="!canAdd" @click="add()"><ShoppingBag :size="16" aria-hidden="true" />{{ t('poolPurchase.add') }}</button>
-              <button type="button" class="purchase-secondary" :disabled="!canAdd" @click="add(true)">{{ t('poolPurchase.checkout') }}<ArrowRight :size="15" aria-hidden="true" /></button>
+              <button type="button" class="purchase-primary" :disabled="!canAddToCart" @click="add()"><ShoppingBag :size="16" aria-hidden="true" />{{ t('poolPurchase.add') }}</button>
+              <button type="button" class="purchase-secondary" :disabled="!canBuyDirect" @click="add(true)">{{ t('poolPurchase.checkout') }}<ArrowRight :size="15" aria-hidden="true" /></button>
               <p v-if="!name.trim()" class="purchase-action-hint">{{ t('poolPurchase.nameRequired') }}</p>
             </template>
           </div>

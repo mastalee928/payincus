@@ -34,6 +34,8 @@ includes(billingOpsSource, 'reservePlanUpgradeCapacityWithLock(tx, instance, new
 includes(billingOpsSource, 'limitsIngress: normalizedPlanTrafficLimitSpeed', 'user upgrade DB ingress update')
 includes(billingOpsSource, 'limitsEgress: normalizedPlanTrafficLimitSpeed', 'user upgrade DB egress update')
 includes(billingOpsSource, 'bandwidthLimit: normalizedPlanTrafficLimitSpeed', 'user upgrade bandwidth result')
+includes(billingOpsSource, 'upgradeBalanceLogId = upgradeDebit.id', 'exact upgrade debit retained in its transaction')
+includes(billingOpsSource, 'balanceLogId: upgradeBalanceLogId', 'upgrade billing record links original debit for recovery')
 
 includes(instanceBillingSource, 'db.checkPlanUpgradeCapacity(instance, newPlan)', 'user upgrade preview capacity check')
 includes(instanceBillingSource, 'resourceCapacity: capacity', 'user upgrade preview capacity payload')

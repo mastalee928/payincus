@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
+import { recoveryGuestStateMatches } from './platform-recovery-inventory.js'
 import { prisma } from '../db/prisma.js'
 import { createLog } from '../db/logs.js'
 import { HOST_OCCUPIED_INSTANCE_WHERE } from '../lib/host-resource-usage.js'
@@ -9,6 +10,7 @@ import type { IncusRequestConditions } from '../lib/incus/incus-client.js'
 import { removeDedicatedForward } from '../lib/incus/dedicated-network.js'
 import { portProtocolView, PORT_PROTOCOL_CAPABILITY } from './host-port-protocol.js'
 import { dedicatedIpv6State, normalizeIpv6 } from '../lib/host-public-ipv6.js'
+import { recoveryNetworkHash } from './platform-recovery-network.js'
 
 type Db = Prisma.TransactionClient | typeof prisma
 type Client = Pick<Awaited<ReturnType<typeof getIncusClient>>, 'request'>
@@ -101,7 +103,7 @@ export function recoveryScope(timeoutMs = 60000) {
 
 export async function inspectPoolRecovery(db: Db, hostId: number, connect: Connect, scope: ReturnType<typeof recoveryScope>, automatic?: {
   name: string; createdBefore: string; createdAfter?: string; uuid?: string; createdAt?: string; marker?: string
-}, failedSourceInstanceId?: number) {
+}, failedSourceInstanceId?: number, recoveredNetwork?: {instanceId:number;hash:string}, snapshotRestore = false) {
   scope.remaining()
   const host = await db.host.findUnique({ where: { id: hostId }, select: hostSelect })
   if (!host) throw new HostRecoveryError('HOST_NOT_FOUND')
@@ -203,14 +205,21 @@ export async function inspectPoolRecovery(db: Db, hostId: number, connect: Conne
       if (preserve) {
         const expected = assignedInstances[0]
         if (assigned !== 1 || instances.length !== 1 || !expected || instances[0].name !== expected.incusId ||
-            (instances[0].project || 'default') !== 'default' || instances[0].status !== (expected.status === 'running' ? 'Running' : 'Stopped')) blockers.add('assigned-mismatch')
+            (instances[0].project || 'default') !== 'default' || !recoveryGuestStateMatches(expected.status,instances[0].status,snapshotRestore)) blockers.add('assigned-mismatch')
         if (expected) {
           const owner = `payincus-dedicated:${expected.incusId}`
           const ipv6 = dedicatedIpv6State(expected.dedicatedIpv6)
           // Quarantine intentionally pauses IPv6 reconciliation. Verify its retained mappings
           // against the remote rules below rather than requiring quarantine to be removed first.
           const pausedIpv6 = ipv6?.status === 'pending' && ipv6.error === 'IPV6_HOST_QUARANTINED' && ipv6.mappings.length > 0
-          if (ipv6 && (ipv6.hostId !== hostId || ipv6.instanceName !== expected.incusId || (!['none', 'ready'].includes(ipv6.status) && !pausedIpv6) || ipv6.mappings.some(mapping => !mapping.ready))) blockers.add('assigned-not-ready')
+          // Only the protected recovery caller supplies proof that the exact
+          // saved files, addresses and forwards were just read under original
+          // trust. It proves preservation, never public connectivity. Ordinary
+          // pool repair and sales retain their existing readiness requirement.
+          const preservedIpv6 = recoveredNetwork?.instanceId === expected.id && recoveredNetwork.hash === recoveryNetworkHash(expected.dedicatedIpv6) &&
+            ipv6?.status === 'pending' && ipv6.error === 'IPV6_RECOVERY_VERIFICATION_PENDING' && ipv6.mappings.length > 0
+          if (ipv6 && (ipv6.hostId !== hostId || ipv6.instanceName !== expected.incusId ||
+            (!['none', 'ready'].includes(ipv6.status) && !pausedIpv6 && !preservedIpv6) || (!preservedIpv6 && ipv6.mappings.some(mapping => !mapping.ready)))) blockers.add('assigned-not-ready')
           const ipv4Forward = (row: Forward) => row.listen_address === host.natBindIp && row.config.target_address === expected.ipv4 && !row.ports?.length
           const ipv6Forward = (row: Forward) => ipv6?.mappings.some(mapping => normalizeIpv6(row.listen_address) === mapping.publicIp &&
             normalizeIpv6(row.config.target_address) === (mapping.fallbackIp || mapping.privateIp) &&

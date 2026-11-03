@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { randomUUID, X509Certificate } from 'node:crypto'
+import { createHash, randomUUID, X509Certificate } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:https'
@@ -14,6 +14,8 @@ try { await import('../src/lib/security.js') } finally { globalThis.setInterval=
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { createInstanceAsync } = await import('../src/routes/instances.js')
 const { failPoolProvision } = await import('../src/services/pool-provisioning.js')
+const { beginPoolProvision, PoolProvisionOwnershipError } = await import('../src/services/pool-provisioning.js')
+const { IncusClient } = await import('../src/lib/incus/incus-client.js')
 const { getHostById } = await import('../src/db/hosts.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const tag='pool-provision-'+randomUUID(), root=await mkdtemp(join(tmpdir(),tag))
@@ -73,7 +75,16 @@ try {
     await prisma.host.update({where:{id:host.id},data:{poolFaulted:false}})
     remote=mode==='existing'?{name,status:'Running',config:{'user.unrelated':'preserve'}}:null
     const order=await prisma.poolOrder.create({data:{id:randomUUID(),userId:user.id,requestHash:tag,totalCents:1200}})
-    const instance=await prisma.instance.create({data:{name,incusId:name,userId:user.id,hostId:host.id,purchaseBatchId:order.id,dedicatedIpv4:true,status:'creating',cpu:200,memory:768,disk:30720,image:'debian/12',networkMode:'nat',snapshottedSpecs:{poolProvision:{version:1,phase:'prepared'}}}})
+    const preparedIdentity={attempt:randomUUID(),endpointHash:createHash('sha256').update(IncusClient.normalizeUrl(host.url)).digest('hex')}
+    const instance=await prisma.instance.create({data:{name,incusId:name,userId:user.id,hostId:host.id,purchaseBatchId:order.id,dedicatedIpv4:true,status:'creating',cpu:200,memory:768,disk:30720,image:'debian/12',networkMode:'nat',snapshottedSpecs:{poolProvision:{version:1,phase:'prepared'},managedCleanup:preparedIdentity}}})
+    if(mode==='prepared') {
+      const actualHost=(await getHostById(host.id))!,client=new IncusClient(actualHost)
+      for(const altered of [{...preparedIdentity,attempt:'bad'},{...preparedIdentity,endpointHash:'b'.repeat(64)},{...preparedIdentity,uuid:randomUUID()}]) {
+        await prisma.instance.update({where:{id:instance.id},data:{snapshottedSpecs:{poolProvision:{version:1,phase:'prepared'},managedCleanup:altered}}})
+        await assert.rejects(beginPoolProvision(instance.id,actualHost,client,name),PoolProvisionOwnershipError)
+      }
+      await prisma.instance.update({where:{id:instance.id},data:{snapshottedSpecs:instance.snapshottedSpecs!}})
+    }
     currentId=instance.id
     await prisma.host.update({where:{id:host.id},data:{cpuUsed:200,memoryUsed:768,diskUsed:30720}})
     await prisma.instanceBillingRecord.create({data:{instanceId:instance.id,userId:user.id,type:'newPurchase',amount:mode==='unpaid'?0:12,months:1,periodStart:new Date(),periodEnd:new Date(Date.now()+86400000)}})
@@ -85,6 +96,7 @@ try {
       else await assert.rejects(createInstanceAsync(instance.id,(await getHostById(host.id))!,{name,image:'debian/12',cpu:200,memory:768,disk:30720,networkMode:'nat',cloudInitConfig:{'user.user-data':'#cloud-config\n{}'}},user.id,{cpu:200,memory:768,disk:30720}))
     }finally{prisma.$transaction=originalTransaction}
     const current=await prisma.instance.findUniqueOrThrow({where:{id:instance.id}})
+    assert.equal((current.snapshottedSpecs as any).managedCleanup.attempt,preparedIdentity.attempt,'creation keeps the attempt committed with its purchase')
     assert.equal((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).poolFaulted,mode!=='superseded','failed delivery quarantines its host')
     const shouldRefund=!['unpaid','superseded','refund-failed'].includes(mode)
     assert.equal(Number((await prisma.user.findUniqueOrThrow({where:{id:user.id}})).balance),before+(shouldRefund?12:0))

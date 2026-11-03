@@ -57,6 +57,23 @@ def strict_json(pairs):
     return result
 
 
+def read_protected_state(path, limit):
+    for parent in [path, *path.parents]:
+        info = parent.lstat()
+        if info.st_uid != 0 or stat.S_ISLNK(info.st_mode) or info.st_mode & 0o022:
+            raise ValueError('untrusted recovery state')
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022 or info.st_nlink != 1 or info.st_size > limit:
+            raise ValueError('invalid recovery state')
+        content = os.read(descriptor, limit + 1)
+        if len(content) > limit: raise ValueError('invalid recovery state')
+        return content
+    finally:
+        os.close(descriptor)
+
+
 def install_host_dns(job, control, gateway_public):
     # A fixed one-hop operation, restricted to a previously reserved management
     # /32. It never connects to the host's customer-facing public SSH port.
@@ -137,17 +154,24 @@ def install_host_dns(job, control, gateway_public):
 
 
 def run(*args):
-    return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL).strip()
+    try:
+        return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL, timeout=3).strip()
+    except subprocess.TimeoutExpired:
+        raise GatewayOperationError('SSH_COMMAND_TIMEOUT') from None
+    except subprocess.CalledProcessError:
+        raise GatewayOperationError('GATEWAY_RECOVERY_RUNTIME_UNAVAILABLE') from None
 
 
 def probe_host(job, control):
     raw = sys.stdin.buffer.read(2049)
     if len(raw) > 2048: raise ValueError('input too large')
     request = json.loads(raw, object_pairs_hook=strict_json)
-    if not isinstance(request, dict) or set(request) != {'sshPort', 'sshFingerprint', 'nodePublicKey'}: raise ValueError('invalid probe request')
+    if not isinstance(request, dict) or set(request) not in ({'sshPort', 'sshFingerprint', 'nodePublicKey'}, {'sshPort', 'sshFingerprint', 'nodePublicKey', 'portProtocol'}): raise ValueError('invalid probe request')
+    if 'portProtocol' in request and request['portProtocol'] not in ('tcp', 'tcp_udp'): raise ValueError('invalid protocol')
     if type(request['sshPort']) is not int or not 1 <= request['sshPort'] <= 65535: raise ValueError('invalid port')
     if not isinstance(request['sshFingerprint'], str) or not re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}', request['sshFingerprint']): raise ValueError('invalid fingerprint')
     reservation = STATE / (job + '.json')
+    if not reservation.exists(): raise GatewayOperationError('GATEWAY_RECOVERY_BINDING_MISSING')
     for path in [reservation, *reservation.parents]:
         info = path.lstat()
         if info.st_uid != 0 or stat.S_ISLNK(info.st_mode) or info.st_mode & 0o022: raise ValueError('untrusted reservation')
@@ -156,19 +180,76 @@ def probe_host(job, control):
     address = ipaddress.IPv4Address(saved['managementIp'])
     if address not in control.network or address in (control.ip, control.network.network_address, control.network.broadcast_address): raise ValueError('invalid target')
     peer = saved['nodePublicKey']
-    if not re.fullmatch(r'[A-Za-z0-9+/]{43}=', peer) or request['nodePublicKey'] != peer: raise ValueError('peer mismatch')
+    if not re.fullmatch(r'[A-Za-z0-9+/]{43}=', peer) or request['nodePublicKey'] != peer: raise GatewayOperationError('GATEWAY_DNS_HOST_IDENTITY_CHANGED')
     allowed = dict(line.split(maxsplit=1) for line in run('wg', 'show', INTERFACE, 'allowed-ips').splitlines())
-    if allowed.get(peer) != str(address) + '/32': raise ValueError('route mismatch')
-    scan = subprocess.run(['ssh-keyscan', '-T', '5', '-p', str(request['sshPort']), '-t', 'ed25519,rsa,ecdsa', str(address)], capture_output=True, timeout=15, check=False)
+    if allowed.get(peer) != str(address) + '/32': raise GatewayOperationError('GATEWAY_RECOVERY_ROUTE_MISMATCH')
+    scan = recovery_probe_process(['ssh-keyscan', '-T', '5', '-p', str(request['sshPort']), '-t', 'ed25519,rsa,ecdsa', str(address)])
     known = verified_host_scan(scan, request['sshFingerprint'])
     with tempfile.TemporaryDirectory(prefix='incudal-host-probe-', dir='/root') as directory:
         trust = pathlib.Path(directory) / 'known_hosts'; trust.write_text(known[0] + '\n'); trust.chmod(0o600)
-        result = subprocess.run(['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
+        command = 'head -c64 /etc/incudal-onboarding-id'
+        if 'portProtocol' in request:
+            command += '; printf "\\n"; nft -j list table inet incudal_ingress_protocol'
+        result = recovery_probe_process(['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
                                  '-o', 'UserKnownHostsFile=' + str(trust), '-o', 'ConnectTimeout=8', '-o', 'IdentitiesOnly=yes',
                                  '-i', str(MANAGEMENT_PUBLIC_KEY.with_suffix('')), '-p', str(request['sshPort']), 'root@' + str(address),
-                                 'head -c64 /etc/incudal-onboarding-id'], capture_output=True, timeout=15, check=False)
-        if result.returncode or result.stdout.decode().strip() != job: raise ValueError('host identity mismatch')
-    return {'nodeId': job, 'sshIdentityVerified': True, 'keysAndRoutesPreserved': True}
+                                 command])
+        if result.returncode:
+            if b'Permission denied' in result.stderr: raise GatewayOperationError('GATEWAY_DNS_MANAGEMENT_AUTH_REQUIRED')
+            if b'Host key verification failed' in result.stderr or b'REMOTE HOST IDENTIFICATION HAS CHANGED' in result.stderr:
+                raise GatewayOperationError('GATEWAY_DNS_HOST_IDENTITY_CHANGED')
+            raise GatewayOperationError('GATEWAY_RECOVERY_HOST_UNREACHABLE')
+        if len(result.stdout) > 65536: raise ValueError('probe response too large')
+        identity, _, policy = result.stdout.decode().strip().partition('\n')
+        if identity.strip() != job: raise GatewayOperationError('GATEWAY_DNS_HOST_IDENTITY_CHANGED')
+        if 'portProtocol' in request:
+            verify_recovery_port_protocol(json.loads(policy, object_pairs_hook=strict_json), request['portProtocol'])
+    return {'nodeId': job, 'sshIdentityVerified': True, 'keysAndRoutesPreserved': True,
+            **({'portProtocolVerified': request['portProtocol']} if 'portProtocol' in request else {})}
+
+
+def verify_recovery_port_protocol(document, mode):
+    """Read the actual dedicated-host filter; an old DB/Agent ack is insufficient."""
+    code = 'OSS_RECOVERY_DELIVERY_PROTOCOL_PENDING'
+    entries = document.get('nftables') if isinstance(document, dict) else None
+    if not isinstance(entries, list) or len(entries) > 256: raise GatewayOperationError(code)
+    chains = []; rules = []; tables = []
+    for entry in entries:
+        if not isinstance(entry, dict) or len(entry) != 1: raise GatewayOperationError(code)
+        kind, value = next(iter(entry.items()))
+        if kind == 'metainfo': continue
+        if kind not in ('table', 'chain', 'rule') or not isinstance(value, dict): raise GatewayOperationError(code)
+        if value.get('family') != 'inet': raise GatewayOperationError(code)
+        if (value.get('name') if kind == 'table' else value.get('table')) != 'incudal_ingress_protocol': raise GatewayOperationError(code)
+        {'table': tables, 'chain': chains, 'rule': rules}[kind].append(value)
+    if len(tables) != 1 or len(chains) != 1: raise GatewayOperationError(code)
+    chain = chains[0]
+    if any(chain.get(k) != v for k, v in {'name':'forward', 'type':'filter', 'hook':'forward', 'prio':-20, 'policy':'accept'}.items()): raise GatewayOperationError(code)
+    if mode == 'tcp_udp':
+        if rules: raise GatewayOperationError(code)
+        return
+    if mode != 'tcp' or len(rules) != 1 or rules[0].get('chain') != 'forward': raise GatewayOperationError(code)
+    expressions = rules[0].get('expr')
+    if not isinstance(expressions, list): raise GatewayOperationError(code)
+    normalized = []
+    for expression in expressions:
+        if isinstance(expression, dict) and set(expression) == {'counter'}: continue
+        normalized.append(expression)
+    wanted = [
+        {'match': {'op':'!=', 'left':{'meta':{'key':'iifname'}}, 'right':'incusbr0'}},
+        {'match': {'op':'==', 'left':{'meta':{'key':'oifname'}}, 'right':'incusbr0'}},
+        {'match': {'op':'==', 'left':{'meta':{'key':'l4proto'}}, 'right':'udp'}},
+        {'match': {'op':'==', 'left':{'ct':{'key':'direction'}}, 'right':'original'}},
+        {'drop':None}
+    ]
+    if normalized != wanted: raise GatewayOperationError(code)
+
+
+def recovery_probe_process(arguments):
+    try:
+        return subprocess.run(arguments, capture_output=True, timeout=15, check=False)
+    except subprocess.TimeoutExpired:
+        raise GatewayOperationError('SSH_COMMAND_TIMEOUT') from None
 
 
 def atomic_write(path, content):
@@ -305,6 +386,124 @@ def configured_peers(config):
     return peers
 
 
+def recovery_configured_peers(text):
+    peers = {}
+    for section in re.split(r'(?m)^\s*\[Peer\]\s*$', text)[1:]:
+        fields = {}
+        for line in section.splitlines():
+            line = line.split('#', 1)[0].strip()
+            if not line: continue
+            if line.startswith('['): break
+            if '=' not in line: raise ValueError('invalid saved peer')
+            name, value = [part.strip() for part in line.split('=', 1)]
+            if name in fields: raise ValueError('duplicate saved field')
+            fields[name] = value
+        key = fields.get('PublicKey')
+        if not key or key in peers: raise ValueError('invalid saved peer')
+        peers[key] = fields
+    return peers
+
+
+def recovery_live_routes():
+    result = {}
+    for line in run('wg', 'show', INTERFACE, 'allowed-ips').splitlines():
+        if not line.strip(): continue
+        key, value = line.split(maxsplit=1)
+        if key in result: raise ValueError('duplicate live peer')
+        result[key] = [str(ipaddress.ip_network(item)) for item in re.split(r'[\s,]+', value) if item and item != '(none)']
+    return result
+
+
+def read_recovery_state(control):
+    allowed = recovery_live_routes()
+    config_bytes = read_protected_state(CONFIG, 2*1024*1024)
+    configured = recovery_configured_peers(config_bytes.decode('utf-8'))
+    for key, routes in allowed.items():
+        fields = configured.get(key)
+        expected = [str(ipaddress.ip_network(item)) for item in re.split(r'[\s,]+', fields.get('AllowedIPs', '')) if item] if fields else None
+        if routes != expected:
+            raise GatewayOperationError('GATEWAY_RECOVERY_ADDRESS_CONFLICT')
+    peers = []
+    for path in sorted(STATE.glob('*.json')):
+        if not re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', path.stem): continue
+        saved = json.loads(read_protected_state(path, 4096), object_pairs_hook=strict_json)
+        if not isinstance(saved, dict) or set(saved) != {'managementIp', 'nodePublicKey'}:
+            raise ValueError('invalid reservation')
+        address = str(ipaddress.IPv4Address(saved['managementIp']))
+        key = saved['nodePublicKey']
+        if not isinstance(key, str) or not re.fullmatch(r'[A-Za-z0-9+/]{43}=', key): raise ValueError('invalid peer')
+        if ipaddress.IPv4Address(address) not in control.network or ipaddress.IPv4Address(address) in (control.ip, control.network.network_address, control.network.broadcast_address):
+            raise GatewayOperationError('GATEWAY_RECOVERY_ADDRESS_CONFLICT')
+        peers.append({'nodeId': path.stem, 'managementIp': address, 'nodePublicKey': key, 'enabled': allowed.get(key) == [address + '/32']})
+        if len(peers) > 10000: raise ValueError('too many peers')
+    known_keys = {peer['nodePublicKey'] for peer in peers}
+    if len(known_keys) != len(peers) or set(allowed) - known_keys:
+        raise GatewayOperationError('GATEWAY_RECOVERY_UNKNOWN_PEER')
+    if len({peer['managementIp'] for peer in peers}) != len(peers):
+        raise GatewayOperationError('GATEWAY_RECOVERY_ADDRESS_CONFLICT')
+    # A missing runtime route remains visible for the bounded repair path.
+    # Duplicate/foreign routes never disappear in a dict conversion.
+    return {'version': 1, 'observedAt': int(time.time() * 1000), 'peers': peers,
+            'stateHash': hashlib.sha256(json.dumps(peers, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+            'configHash': hashlib.sha256(config_bytes).hexdigest(),
+            'runtimeHash': hashlib.sha256(json.dumps(allowed, sort_keys=True, separators=(',', ':')).encode()).hexdigest()}
+
+
+def restore_saved_peer(job, control, gateway_public):
+    """Restore only a missing runtime /32 from this gateway's current file.
+
+    The old controller database is never a source for recreating enrollment.
+    A removed block, changed key/address or foreign live route is a conflict.
+    The caller holds the same gateway mutation lock as peer registration.
+    """
+    raw = sys.stdin.buffer.read(4097)
+    if len(raw) > 4096: raise ValueError('input too large')
+    request = json.loads(raw, object_pairs_hook=strict_json)
+    fields = {'nodePublicKey', 'managementIp', 'gatewayPublicKey', 'configHash', 'expiresAt'}
+    if not isinstance(request, dict) or set(request) != fields: raise ValueError('invalid restore request')
+    if type(request['expiresAt']) is not int or not time.time()*1000 < request['expiresAt'] <= time.time()*1000+30000:
+        raise GatewayOperationError('GATEWAY_RECOVERY_REPAIR_EXPIRED')
+    config_bytes = read_protected_state(CONFIG, 2*1024*1024)
+    if (request['gatewayPublicKey'] != gateway_public or
+        request['configHash'] != hashlib.sha256(config_bytes).hexdigest()):
+        raise GatewayOperationError('GATEWAY_RECOVERY_REPAIR_CHANGED')
+    reservation = read_protected_state(STATE / (job + '.json'), 4096)
+    saved = json.loads(reservation, object_pairs_hook=strict_json)
+    key, address = saved['nodePublicKey'], str(ipaddress.IPv4Address(saved['managementIp']))
+    if (set(saved) != {'nodePublicKey', 'managementIp'} or request['nodePublicKey'] != key or request['managementIp'] != address or
+        not re.fullmatch(r'[A-Za-z0-9+/]{43}=', key) or ipaddress.IPv4Address(address) not in control.network or
+        ipaddress.IPv4Address(address) in (control.ip, control.network.network_address, control.network.broadcast_address)):
+        raise GatewayOperationError('GATEWAY_RECOVERY_REPAIR_CHANGED')
+    text = config_bytes.decode('utf-8')
+    block = '# incudal-onboarding ' + job + '\n[Peer]\nPublicKey = ' + key + '\nAllowedIPs = ' + address + '/32\n'
+    expected = [address + '/32']
+    fields = recovery_configured_peers(text)
+    configured = {peer: [str(ipaddress.ip_network(item)) for item in re.split(r'[\s,]+', value.get('AllowedIPs', '')) if item]
+                  for peer, value in fields.items()}
+    if (text.count('# incudal-onboarding ' + job) != 1 or block not in text or configured.get(key) != expected or
+        set(fields.get(key, {})) != {'PublicKey', 'AllowedIPs'}):
+        raise GatewayOperationError('GATEWAY_RECOVERY_SAVED_ROUTE_MISSING')
+    for peer_key, subnets in configured.items():
+        if peer_key != key and any(ipaddress.ip_address(address) in ipaddress.ip_network(subnet) for subnet in subnets):
+            raise GatewayOperationError('GATEWAY_RECOVERY_ADDRESS_CONFLICT')
+    live = recovery_live_routes()
+    if set(live) - set(configured) or any(subnets != configured.get(peer_key) for peer_key, subnets in live.items()):
+        raise GatewayOperationError('GATEWAY_RECOVERY_ADDRESS_CONFLICT')
+    if key not in live:
+        if time.time()*1000 >= request['expiresAt']: raise GatewayOperationError('GATEWAY_RECOVERY_REPAIR_EXPIRED')
+        if (read_protected_state(CONFIG, 2*1024*1024) != config_bytes or
+            read_protected_state(STATE / (job + '.json'), 4096) != reservation or
+            run('wg', 'show', INTERFACE, 'public-key') != gateway_public):
+            raise GatewayOperationError('GATEWAY_RECOVERY_REPAIR_CHANGED')
+        if recovery_live_routes() != live:
+            raise GatewayOperationError('GATEWAY_RECOVERY_REPAIR_CHANGED')
+        if time.time()*1000 >= request['expiresAt']: raise GatewayOperationError('GATEWAY_RECOVERY_REPAIR_EXPIRED')
+        run('wg', 'set', INTERFACE, 'peer', key, 'allowed-ips', address + '/32')
+    observed = recovery_live_routes()
+    if observed != {**live, key: expected}: raise GatewayOperationError('GATEWAY_RECOVERY_ROUTE_MISMATCH')
+    return {'nodeId': job, 'runtimeRouteRestored': True, 'savedConfigurationPreserved': True}
+
+
 def register_peer(job, public_key, control, config, live_peers):
     peer_file = STATE / (job + ".json")
     peers = configured_peers(config)
@@ -382,11 +581,23 @@ def main():
     dns_request = len(args) == 2 and args[0] == 'dns' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
     probe_request = len(args) == 2 and args[0] == 'probe' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
     agent_request = len(args) == 2 and args[0] == 'repair-agent' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
-    if args not in (["status"], ["peers"]) and not dns_request and not probe_request and not agent_request and not (len(args) == 3 and args[0] == "add" and re.fullmatch(r"[a-f0-9-]{36}", args[1]) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", args[2])):
+    route_request = len(args) == 2 and args[0] == 'restore-route' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
+    if args not in (["status"], ["peers"], ["recovery-state"]) and not dns_request and not probe_request and not agent_request and not route_request and not (len(args) == 3 and args[0] == "add" and re.fullmatch(r"[a-f0-9-]{36}", args[1]) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", args[2])):
         raise ValueError("unsupported operation")
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with open(STATE / "lock", "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    for parent in [STATE, *STATE.parents]:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError('untrusted gateway directory')
+    descriptor = os.open(STATE / 'lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(descriptor, 'a') as lock:
+        info = os.fstat(lock.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1 or info.st_mode & 0o077:
+            raise ValueError('untrusted gateway lock')
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise GatewayOperationError('GATEWAY_RECOVERY_BUSY') from None
         addresses = json.loads(run("ip", "-j", "-4", "addr", "show", "dev", INTERFACE))[0]["addr_info"]
         address = next(a for a in addresses if a["family"] == "inet")
         control = ipaddress.ip_interface(str(address["local"]) + "/" + str(address["prefixlen"]))
@@ -396,7 +607,7 @@ def main():
         if len(public_key_parts) < 2 or public_key_parts[0] != "ssh-ed25519" or not re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", public_key_parts[1]):
             raise ValueError("management public key missing")
         result = {"publicKey": run("wg", "show", INTERFACE, "public-key"), "controlIp": str(control.ip),
-                  "network": str(control.network), "managementSshPublicKey": " ".join(public_key_parts[:2]), "dnsProtocolVersion": 2}
+                  "network": str(control.network), "managementSshPublicKey": " ".join(public_key_parts[:2]), "dnsProtocolVersion": 2, "recoveryProtocolVersion": 1}
         if dns_request:
             # DNS installation reads the reservation and validates exact peer
             # identity; it does not mutate the controller's peers. Do not hold
@@ -408,6 +619,10 @@ def main():
         if agent_request:
             fcntl.flock(lock, fcntl.LOCK_UN)
             print(json.dumps(repair_host_agent(args[1], control))); return
+        if route_request:
+            print(json.dumps(restore_saved_peer(args[1], control, result['publicKey']))); return
+        if args[0] == "recovery-state":
+            result['recovery'] = read_recovery_state(control)
         if args[0] == "peers":
             result["peers"] = peer_status(control)
         if args[0] == "add":

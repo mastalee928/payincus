@@ -56,8 +56,8 @@ try {
   }
   console.log(`PASS ${obsolete} obsolete identity success/401 receipts across accounts, sessions, roles, ABA and storage events`)
   await fresh(); await request('fetchCurrentUser'); await request('checkSession')
-  await run(() => window.authHarness.pending[1].resolve({ user: { ...window.authHarness.user(), username: 'current-name', quota: { hostLimit: 0 } } }))
-  await settle(0)
+  assert.equal(await page.eval(() => window.authHarness.pending.length), 1, 'same-session identity reads are shared')
+  await run(() => window.authHarness.pending[0].resolve({ user: { ...window.authHarness.user(), username: 'current-name', quota: { hostLimit: 0 } } }))
   assert.equal(await page.eval(() => window.authHarness.auth.user.username), 'current-name')
   assert.equal(await page.eval(() => window.authHarness.auth.quota.hostLimit), 0)
   await fresh(); await request('fetchCurrentUser'); await run(() => window.authHarness.session(1, 'auth-session', 'user', 'refreshed')); await settle(0)

@@ -120,6 +120,6 @@ export function bindAuthSession(http: AxiosInstance, redirect: () => void) {
       return http(request)
     }
     return Promise.reject({ message: data?.error || data?.message || error.message || 'Request failed',
-      code: data?.code || null, details: data?.details || null, ...data })
+      code: data?.code || null, details: data?.details || null, ...data, httpStatus: error.response?.status })
   })
 }

@@ -8,7 +8,7 @@ import { useToast } from '@/stores/toast'
 import { useAuthStore } from '@/stores/auth'
 import type { PoolCheckoutResult } from '@/types/host-pool'
 
-const props = defineProps<{ order: PoolCheckoutResult }>()
+const props = defineProps<{ order: PoolCheckoutResult; embedded?: boolean }>()
 defineEmits<{ refresh: [] }>()
 const { t } = useI18n()
 const toast = useToast()
@@ -115,7 +115,7 @@ onUnmounted(() => { disposed = true; resetCopies() })
           <Server v-else :size="25" :stroke-width="1.6" />
         </span>
         <div class="order-result-intro" aria-live="polite" aria-atomic="true">
-          <h1 id="order-result-title">{{ t(summary.title, { count: entries.length }) }}</h1>
+          <component :is="embedded ? 'h2' : 'h1'" id="order-result-title">{{ t(summary.title, { count: entries.length }) }}</component>
           <p>{{ t(summary.hint) }}</p>
           <p v-if="entries.length > 1" class="order-result-count">{{ t('cart.result.completedCount', { ready: readyCount, total: entries.length }) }}</p>
         </div>
@@ -215,7 +215,7 @@ onUnmounted(() => { disposed = true; resetCopies() })
 [data-tone="neutral"] { --state-color: var(--text-secondary); }
 .order-result-symbol { color: var(--state-color); }
 .order-result-intro { min-width: 0; padding-top: 1px; }
-.order-result-intro h1 { font-size: 28px; font-weight: 650; line-height: 1.35; letter-spacing: -0.03em; text-wrap: balance; }
+.order-result-intro :is(h1,h2) { font-size: 28px; font-weight: 650; line-height: 1.35; letter-spacing: -0.03em; text-wrap: balance; }
 .order-result-intro p { max-width: 56ch; margin-top: 7px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; text-wrap: pretty; }
 .order-result-intro .order-result-count { margin-top: 10px; font-size: 12px; font-weight: 550; font-variant-numeric: tabular-nums; color: var(--text-primary); }
 .order-result-shopping { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; flex-shrink: 0; color: var(--text-secondary); font-size: 12px; text-underline-offset: 4px; }
@@ -284,7 +284,7 @@ onUnmounted(() => { disposed = true; resetCopies() })
 @container order-result (max-width: 440px) {
   .order-result-summary { gap: 12px; }
   .order-result-symbol { width: 44px; height: 44px; }
-  .order-result-intro h1 { font-size: 23px; }
+  .order-result-intro :is(h1,h2) { font-size: 23px; }
   .order-result-shopping { margin-left: 56px; }
   .order-instance-header { margin-inline: 18px; padding-block: 12px; }
   .order-connection-grid { padding: 20px 18px; }

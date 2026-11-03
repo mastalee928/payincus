@@ -1101,6 +1101,7 @@ export default async function userRoutes(fastify: FastifyInstance) {
       if (
         blockers.balanceLogs > 0 ||
         blockers.rechargeRecords > 0 ||
+        blockers.checkoutOrders > 0 ||
         blockers.hostingBalanceLogs > 0 ||
         blockers.loginRecords > 0 ||
         blockers.redeemCodeUsages > 0

@@ -19,10 +19,16 @@ type Specs = Record<string, unknown> & { poolProvision?: { version?: number; pha
 export async function beginPoolProvision(instanceId: number, host: Host, client: IncusClient, name: string) {
   const instance = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId } })
   if (!instance.purchaseBatchId) return null
-  const attempt = randomUUID(), controller = new AbortController()
+  const controller = new AbortController()
   const endpoint = await prisma.host.findUniqueOrThrow({ where: { id: host.id }, select: { url: true } })
   const specs = (instance.snapshottedSpecs || {}) as Specs
   if (specs.poolProvision?.phase === 'creating') throw new PoolProvisionOwnershipError('Pool creation already started')
+  const saved=specs.managedCleanup
+  if(saved && (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(saved.attempt||'') ||
+    saved.endpointHash!==managedCleanupEndpointHash(client) || saved.uuid)) {
+    throw new PoolProvisionOwnershipError('Prepared pool creation identity changed')
+  }
+  const attempt=saved?.attempt || randomUUID()
   const claimed = await prisma.instance.updateMany({ where: { id: instanceId, userId: instance.userId, hostId: host.id, incusId: name,
     status: 'creating', provisioningCleanupPending: false, snapshottedSpecs: { equals: instance.snapshottedSpecs ?? Prisma.DbNull } },
     data: { snapshottedSpecs: { ...specs, poolProvision: { version: 1, phase: 'creating' },
@@ -50,7 +56,8 @@ export async function beginPoolProvision(instanceId: number, host: Host, client:
       if (currentSpecs.managedCleanup?.attempt !== attempt) throw new Error('Pool creation identity was replaced')
       const saved = await prisma.instance.updateMany({ where: { id: instanceId, status: 'creating', provisioningCleanupPending: false,
         snapshottedSpecs: { equals: current.snapshottedSpecs! } }, data: { snapshottedSpecs: {
-          ...currentSpecs, managedCleanup: { ...currentSpecs.managedCleanup, uuid: actualUuid }
+          ...currentSpecs, managedCleanup: { ...currentSpecs.managedCleanup, uuid: actualUuid },
+          recoveryIdentity: { uuid: actualUuid, createdAt: (remote as IncusInstance & { created_at?: string }).created_at, project: 'default' }
         } as Prisma.InputJsonValue } })
       if (!saved.count) throw new Error('Pool creation was finalized before identity confirmation')
     }
@@ -94,7 +101,7 @@ export async function failPoolProvision(instanceId: number, host: Host | null, r
   try {
     const result = await compensateFailedInstancePurchase(instanceId, instance.userId, instance.hostId)
     const purchase = await prisma.instanceBillingRecord.findFirst({ where: { instanceId, userId: instance.userId, type: 'newPurchase' }, orderBy: { createdAt: 'asc' } })
-    billingSettled = result.refunded || result.reason === 'already_refunded' || (!!purchase && Number(purchase.amount) === 0)
+    billingSettled = result.refunded || result.reason === 'already_refunded' || result.reason === 'external_refund_pending' || (!!purchase && Number(purchase.amount) === 0)
     refundAmount = result.refundAmount
   } catch (error) { console.error('[PoolProvision] Purchase refund pending', instanceId, error) }
   const deadline = Date.now() + 30000
@@ -135,7 +142,7 @@ export async function failPoolProvision(instanceId: number, host: Host | null, r
   console.warn('[PoolProvision] Creation failed', instanceId, reason)
   if (firstFailure) {
     void notifyAdminInstanceCreateFailed({ userId: instance.userId, instanceId, errorMessage: reason,
-      refundStatus: billingSettled ? (refundAmount > 0 ? 'refunded' : 'not_required') : 'failed', refundAmount }).catch(() => undefined)
+      refundStatus: (await prisma.checkoutRefund.count({ where: { instanceId, status: 'pending' } })) ? 'failed' : billingSettled ? (refundAmount > 0 ? 'refunded' : 'not_required') : 'failed', refundAmount }).catch(() => undefined)
     const { sendNotification } = await import('../lib/notifier.js')
     await sendNotification(instance.userId, 'instance_create_failed', { instanceName: instance.name,
       error: '实例开通失败，如需帮助请发工单' }).catch(() => undefined)

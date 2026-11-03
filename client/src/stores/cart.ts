@@ -38,7 +38,7 @@ const STORAGE_PREFIX = 'incudal.cart.'
 const ENTRY_PREFIX = 'incudal.cart.v2.'
 const validId = (value: unknown) => Number.isInteger(value) && Number(value) > 0 && Number(value) <= 2147483647
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max
-function isCartItem(value: unknown): value is CartItem {
+export function isCartItem(value: unknown): value is CartItem {
   if (!value || typeof value !== 'object') return false
   const item = value as CartItem, snapshot = item.snapshot
   return text(item.key, 100) && /^[a-zA-Z0-9_-]+$/.test(item.key) && validId(item.poolPriceId)

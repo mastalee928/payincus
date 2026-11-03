@@ -3,7 +3,8 @@ import { promisify } from 'node:util'
 import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { unlink } from 'node:fs/promises'
-import { ensure, nextScheduledTime, readBackupConfig, readJson, recoveryHeld, serializeBackupMutation, statePath, validateId, writeBackupConfig, writeJson, type BackupTaskKind, type BackupTaskRequest, type BackupTaskResult } from './platform-backup-core.js'
+import { backupRoot, ensure, nextScheduledTime, readBackupConfig, readJson, recoveryHeld, serializeBackupMutation, statePath, validateId, writeBackupConfig, writeJson, type BackupTaskKind, type BackupTaskRequest, type BackupTaskResult } from './platform-backup-core.js'
+import { join } from 'node:path'
 
 const exec = promisify(execFile)
 export function backupRuntimeReady(): boolean {
@@ -20,24 +21,62 @@ export async function activeBackupTask(): Promise<BackupTaskResult | null> {
     const status = await exec('/usr/bin/systemctl', ['show', unit, '--property=ActiveState', '--value'], { timeout: 10000 }).catch(() => null)
     if (status && ['inactive', 'failed'].includes(status.stdout.trim())) {
       await unlink(statePath('inbox', `${pending.id}.json`)).catch(() => {})
-      await writeJson(statePath('inbox', 'last-failure.json'), { ...pending, status: 'failed', stage: 'failed', error: 'OSS_WORKER_STOPPED', updatedAt: new Date().toISOString() })
+      const final=await readJson<BackupTaskResult>(statePath('results',`${pending.id}.json`))
+      if(final && ['success','warning','failed'].includes(final.status)){await unlink(statePath('inbox','active.json'));return null}
+      const failure = { ...pending, status: 'failed', stage: 'failed', error: 'OSS_WORKER_STOPPED', updatedAt: new Date().toISOString(),
+        restoreNotStarted:final?.id===pending.id && final.kind==='restore' && final.stage==='accepted' && final.restoreNotStarted===true }
+      // The API process cannot write root-owned results. Its observation lives
+      // in inbox and never claims that an unacknowledged restore had no effects.
+      await writeJson(statePath('inbox', 'last-failure.json'), failure)
       await unlink(statePath('inbox', 'active.json')); return null
     }
   }
   return result || pending
 }
 // Caller holds the single-backend mutation queue. Root workers also use a shared OS flock with OTA.
-export async function enqueueBackupTask(kind: BackupTaskKind, createdBy: number, extras: Partial<Pick<BackupTaskRequest, 'sourcePrefix' | 'password' | 'previewId' | 'confirmation'>> = {}) {
+export async function dispatchPreparedBackupTask(id:string) {
+  validateId(id)
+  ensure(backupRuntimeReady(),'OSS_RUNTIME_NOT_INSTALLED',503)
+  ensure(!await activeBackupTask(),'OSS_TASK_BUSY',409)
+  const request=await readJson<BackupTaskRequest>(statePath('inbox',`${id}.json`))
+  ensure(request?.id===id && !existsSync(statePath('results',`${id}.json`)),'OSS_TASK_ID_CONFLICT',409)
+  // The inbox precedes the active marker and systemd dispatch. If the API died
+  // at that boundary, refresh the unconsumed request's short dispatch lifetime.
+  const unit=await exec('/usr/bin/systemctl',['show',`incudal-platform-backup@${id}.service`,'--property=ActiveState','--value'],{timeout:10000})
+  ensure(['inactive','failed'].includes(unit.stdout.trim()),'OSS_TASK_BUSY',409)
+  request.createdAt=new Date().toISOString()
+  await writeJson(statePath('inbox',`${id}.json`),request)
+  const pending:BackupTaskResult={id,kind:request.kind,createdAt:request.createdAt,updatedAt:new Date().toISOString(),status:'pending',stage:'queued'}
+  await writeJson(statePath('inbox','active.json'),pending)
+  try {await exec('sudo',['-n','/usr/local/libexec/incudal/systemctl','start','--no-block',`incudal-platform-backup@${id}.service`],{timeout:15000})}
+  catch {ensure(false,'OSS_WORKER_START_FAILED',503)}
+  return pending
+}
+export async function observeBackupTask(result:BackupTaskResult) {
+  validateId(result.id)
+  if(!await activeBackupTask())await writeJson(statePath('inbox','active.json'),result)
+  return activeBackupTask()
+}
+export async function enqueueBackupTask(kind: BackupTaskKind, createdBy: number, extras: Partial<Pick<BackupTaskRequest, 'sourcePrefix' | 'password' | 'previewId' | 'confirmation' | 'restorePolicy' | 'recoveryBatchId' | 'gatewayAddress' | 'recoveryHelperId' | 'recoveryMappingId'>> = {}, reservedId?:string) {
   ensure(backupRuntimeReady(), 'OSS_RUNTIME_NOT_INSTALLED', 503)
   ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409)
-  ensure(kind === 'resume' || kind === 'rollback' || !recoveryHeld(), 'OSS_RECOVERY_HELD', 409)
+  // A committed activation can outlive its worker's public result. Its startup
+  // recovery must finish before any new restore or backup replaces the context.
+  ensure(!existsSync(join(backupRoot(), 'recovery-activation.json')), 'OSS_RECOVERY_ACTIVATION_PENDING', 409)
+  ensure(!existsSync(join(backupRoot(), 'recovery-mapping.json')), 'OSS_RECOVERY_MAPPING_PENDING', 409)
+  ensure(!existsSync(join(backupRoot(), 'recovery-supervisor.json')), 'OSS_RECOVERY_CONTINUATION_PENDING', 409)
+  ensure(kind === 'resume' || kind === 'rollback' || kind === 'gateway-map' || kind === 'gateway-helper' || !recoveryHeld(), 'OSS_RECOVERY_HELD', 409)
+  const {readAutomaticRestore,automaticRestoreReserved}=await import('./platform-recovery-start.js')
+  const automatic=await readAutomaticRestore()
+  ensure(!automaticRestoreReserved(automatic) || automatic?.taskId===reservedId || recoveryHeld() && ['resume','rollback','gateway-map','gateway-helper'].includes(kind),'OSS_TASK_BUSY',409)
   const config = await readBackupConfig(); ensure(config, 'OSS_CONFIG_REQUIRED', 409)
   if (kind === 'backup') {
     ensure(config.bucket, 'OSS_BUCKET_REQUIRED', 409)
     ensure(config.backupPassword, 'OSS_BACKUP_PASSWORD_REQUIRED', 409)
     ensure(config.testedRevision === config.revision, 'OSS_TEST_REQUIRED', 409)
   }
-  const id = randomUUID(), createdAt = new Date().toISOString()
+  const id = reservedId ? validateId(reservedId) : randomUUID(), createdAt = new Date().toISOString()
+  ensure(!existsSync(statePath('results',`${id}.json`)) && !existsSync(statePath('inbox',`${id}.json`)), 'OSS_TASK_ID_CONFLICT',409)
   const request: BackupTaskRequest = { id, kind, createdBy, createdAt, config, ...extras }
   const pending: BackupTaskResult = { id, kind, createdAt, updatedAt: createdAt, status: 'pending', stage: 'queued' }
   await writeJson(statePath('inbox', `${id}.json`), request)
@@ -52,22 +91,30 @@ export async function enqueueBackupTask(kind: BackupTaskKind, createdBy: number,
 }
 let timer: ReturnType<typeof setInterval> | undefined
 let ticking = false
+let failures=0,nextTickAt=0
 export function startPlatformBackupScheduler() {
   if (timer) return
   const tick = async () => {
-    if (ticking || !backupRuntimeReady() || recoveryHeld()) return
+    if (ticking || !backupRuntimeReady() || Date.now()<nextTickAt) return
     ticking = true
     try {
       await serializeBackupMutation(async () => {
+        const {advanceAutomaticRestore,readAutomaticRestore,automaticRestoreReserved}=await import('./platform-recovery-start.js')
+        await advanceAutomaticRestore()
+        if(recoveryHeld() || automaticRestoreReserved(await readAutomaticRestore()))return
         const config = await readBackupConfig()
         if (!config?.enabled || !config.nextRunAt || Date.parse(config.nextRunAt) > Date.now() || await activeBackupTask()) return
         await enqueueBackupTask('backup', 0)
         config.nextRunAt = nextScheduledTime(config.nextRunAt, config.intervalHours)
         await writeBackupConfig(config)
       })
-    } catch { console.warn('[PlatformBackup] Scheduler attempt failed; inspect backup configuration and runtime readiness.') }
+      failures=0;nextTickAt=0
+    } catch {
+      failures=Math.min(failures+1,8);nextTickAt=Date.now()+Math.min(1800000,30000*2**(failures-1))
+      console.warn('[PlatformBackup] Scheduler state unavailable; task records retained and retry deferred.')
+    }
     finally { ticking = false }
   }
-  timer = setInterval(() => { void tick() }, 60000); timer.unref(); void tick()
+  timer = setInterval(() => { void tick() }, 5000); timer.unref(); void tick()
 }
 export function stopPlatformBackupScheduler() { if (timer) clearInterval(timer); timer = undefined }

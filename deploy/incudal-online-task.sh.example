@@ -245,6 +245,32 @@ run_task() {
 }
 
 case "${1:-}" in
+  recovery-supervisor)
+    [[ "$#" -eq 1 && "$EUID" -eq 0 ]] || fail "recovery supervisor requires root and no arguments"
+    [[ -e /var/lib/incudal-backup/recovery-hold.json || -e /var/lib/incudal-backup/recovery-activation.json || -e /var/lib/incudal-backup/recovery-mapping.json || -e /var/lib/incudal-backup/recovery-supervisor.json ]] || exit 0
+    exec 9>/var/lib/incudal-platform-operation.lock
+    flock -n 9 || exit 0
+    verify_manifest
+    app_dir="$(resolve_app_dir)"
+    [[ -f "$app_dir/server/dist/scripts/run-platform-recovery-supervisor.js" && ! -L "$app_dir/server/dist/scripts/run-platform-recovery-supervisor.js" ]] || fail "recovery supervisor missing"
+    exec /usr/bin/env -u NODE_OPTIONS -u NODE_PATH -u LD_PRELOAD -u BASH_ENV -u ENV \
+      PATH="$SYSTEM_PATH" INCUDAL_APP_DIR="$app_dir" NODE_ENV=production \
+      /usr/bin/node "$app_dir/server/dist/scripts/run-platform-recovery-supervisor.js"
+    ;;
+  recovery-startup|recovery-ready)
+    [[ "$#" -eq 1 && "$EUID" -eq 0 ]] || fail "recovery startup requires root and no arguments"
+    # Ordinary first install has no activation journal and may not yet be sealed.
+    # Never execute privileged recovery code before verifying its entire release.
+    [[ -e /var/lib/incudal-backup/recovery-hold.json || -e /var/lib/incudal-backup/recovery-activation.json || -e /var/lib/incudal-backup/recovery-mapping.json ]] || exit 0
+    verify_manifest
+    app_dir="$(resolve_app_dir)"
+    [[ -f "$app_dir/server/dist/scripts/run-platform-recovery-startup.js" && ! -L "$app_dir/server/dist/scripts/run-platform-recovery-startup.js" ]] || fail "recovery startup worker missing"
+    recovery_phase="startup"
+    [[ "$1" != recovery-ready ]] || recovery_phase="ready"
+    exec /usr/bin/env -u NODE_OPTIONS -u NODE_PATH -u LD_PRELOAD -u BASH_ENV -u ENV \
+      PATH="$SYSTEM_PATH" INCUDAL_APP_DIR="$app_dir" NODE_ENV=production \
+      /usr/bin/node "$app_dir/server/dist/scripts/run-platform-recovery-startup.js" "$recovery_phase"
+    ;;
   local-gateway)
     [[ "$#" -eq 2 && "$2" =~ ^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$ ]] || fail "invalid local gateway task id"
     exec 9>/var/lib/incudal-platform-operation.lock

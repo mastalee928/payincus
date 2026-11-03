@@ -260,6 +260,33 @@ export class EpayCoreV1 implements IEpayClient {
  * V2 版本易支付客户端 (RSA签名)
  * 适用于新版彩虹易支付
  */
+function parseEpayRsaKey(value: string, kind: 'private' | 'public'): crypto.KeyObject {
+  const normalized = value.trim().replace(/\\r\\n|\\n/g, '\n')
+  const parse = kind === 'private' ? crypto.createPrivateKey : crypto.createPublicKey
+  const labels = kind === 'private' ? ['PRIVATE KEY', 'RSA PRIVATE KEY'] : ['PUBLIC KEY', 'RSA PUBLIC KEY']
+  const candidates = normalized.includes('-----BEGIN') ? [normalized] : labels.map(label => {
+    const body = normalized.replace(/\s/g, '')
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(body)) return ''
+    return `-----BEGIN ${label}-----\n${body.match(/.{1,64}/g)?.join('\n')}\n-----END ${label}-----`
+  })
+  for (const candidate of candidates) {
+    if (!labels.some(label => candidate.startsWith(`-----BEGIN ${label}-----`))) continue
+    try {
+      const key = parse(candidate)
+      if (key.asymmetricKeyType === 'rsa') return key
+    } catch { /* Try only the other standard RSA encoding; never weaken verification. */ }
+  }
+  throw Error(kind === 'private' ? '易支付商户私钥格式无效，请检查RSA私钥' : '易支付平台公钥格式无效，请检查RSA公钥')
+}
+
+export function validateEpayRsaKeys(config: Pick<EpayConfigV2, 'merchant_private_key' | 'platform_public_key'>): string | undefined {
+  try {
+    parseEpayRsaKey(config.merchant_private_key, 'private')
+    parseEpayRsaKey(config.platform_public_key, 'public')
+    return undefined
+  } catch (error) { return error instanceof Error ? error.message : '易支付RSA密钥格式无效' }
+}
+
 export class EpayCoreV2 implements IEpayClient {
   private apiurl: string
   private pid: string
@@ -389,7 +416,7 @@ export class EpayCoreV2 implements IEpayClient {
    * 商户私钥签名
    */
   private rsaPrivateSign(data: string): string {
-    const key = `-----BEGIN PRIVATE KEY-----\n${this.merchantPrivateKey.match(/.{1,64}/g)?.join('\n')}\n-----END PRIVATE KEY-----`
+    const key = parseEpayRsaKey(this.merchantPrivateKey, 'private')
     const sign = crypto.sign('sha256', Buffer.from(data), {
       key,
       padding: crypto.constants.RSA_PKCS1_PADDING
@@ -402,7 +429,7 @@ export class EpayCoreV2 implements IEpayClient {
    */
   private rsaPublicVerify(data: string, signature: string): boolean {
     try {
-      const key = `-----BEGIN PUBLIC KEY-----\n${this.platformPublicKey.match(/.{1,64}/g)?.join('\n')}\n-----END PUBLIC KEY-----`
+      const key = parseEpayRsaKey(this.platformPublicKey, 'public')
       return crypto.verify('sha256', Buffer.from(data), {
         key,
         padding: crypto.constants.RSA_PKCS1_PADDING

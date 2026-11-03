@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CheckoutRefundsPanel from '@/components/CheckoutRefundsPanel.vue'
 import { ref, onMounted, onActivated, onDeactivated, onUnmounted, computed, watch, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -1401,6 +1402,7 @@ function copyToClipboard(text: string) {
 
     <!-- 概览 Tab -->
     <div v-show="activeTab === 'overview'">
+      <CheckoutRefundsPanel :active="activeTab === 'overview'" />
       <ExpiryEnforcementPanel :active="activeTab === 'overview'" />
       <div v-if="overviewLoading" class="space-y-5">
         <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

@@ -69,7 +69,9 @@ export interface OnboardingGateway {
   sshHost: string
   managementSshPublicKey: string
   peers?: GatewayPeer[]
+  recovery?: { version: 1; observedAt: number; stateHash: string; configHash?: string; runtimeHash?: string; peers: Array<{ nodeId: string; nodePublicKey: string; managementIp: string; enabled: boolean }> }
   dnsProtocolVersion?: number
+  recoveryProtocolVersion?: number
 }
 
 export interface GatewayPeer {
@@ -95,6 +97,7 @@ export function validateGatewayResponse(raw: unknown, endpoint: string, sshHost:
   if (typeof value.managementSshPublicKey !== 'string' || !/^ssh-ed25519 [A-Za-z0-9+/]+={0,2}$/.test(value.managementSshPublicKey) || value.managementSshPublicKey.length > 200) throw new OnboardingError('GATEWAY_MANAGEMENT_KEY_MISSING')
   if (ssh2.utils.parseKey(value.managementSshPublicKey) instanceof Error) throw new OnboardingError('GATEWAY_MANAGEMENT_KEY_MISSING')
   if (value.dnsProtocolVersion !== undefined && value.dnsProtocolVersion !== 2) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
+  if (value.recoveryProtocolVersion !== undefined && value.recoveryProtocolVersion !== 1) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
   let peers: GatewayPeer[] | undefined
   if (value.peers !== undefined) {
     if (!Array.isArray(value.peers) || value.peers.length > 10000) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
@@ -108,9 +111,22 @@ export function validateGatewayResponse(raw: unknown, endpoint: string, sshHost:
     })
     if (new Set(peers.map(peer => peer.nodeId)).size !== peers.length || new Set(peers.map(peer => peer.managementIp)).size !== peers.length) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
   }
-  return { publicKey: value.publicKey, controlIp: value.controlIp, network: String(value.network), peers,
+  let recovery: OnboardingGateway['recovery']
+  if (value.recovery !== undefined) {
+    const state = value.recovery as NonNullable<OnboardingGateway['recovery']>
+    if(state?.configHash!==undefined && !/^[a-f0-9]{64}$/.test(state.configHash))throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
+    if(state?.runtimeHash!==undefined && !/^[a-f0-9]{64}$/.test(state.runtimeHash))throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
+    if (!state || state.version !== 1 || !Number.isSafeInteger(state.observedAt) || !/^[a-f0-9]{64}$/.test(state.stateHash) || !Array.isArray(state.peers) || state.peers.length > 10000 ||
+        state.peers.some(peer => !peer || !/^[a-f0-9-]{36}$/.test(peer.nodeId) || !/^[A-Za-z0-9+/]{43}=$/.test(peer.nodePublicKey) || !isIPv4(peer.managementIp) || typeof peer.enabled !== 'boolean') ||
+        new Set(state.peers.map(peer => peer.nodeId)).size !== state.peers.length || new Set(state.peers.map(peer => peer.managementIp)).size !== state.peers.length ||
+        new Set(state.peers.map(peer => peer.nodePublicKey)).size !== state.peers.length || state.peers.some(peer => peer.managementIp === value.controlIp ||
+          ((ipv4Number(peer.managementIp) & mask) >>> 0) !== ipv4Number(network[0]))) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
+    recovery = state
+  }
+  return { recovery, publicKey: value.publicKey, controlIp: value.controlIp, network: String(value.network), peers,
     managementIp: value.managementIp as string | undefined, managementSshPublicKey: value.managementSshPublicKey, endpoint, sshHost,
-    ...(value.dnsProtocolVersion === 2 ? { dnsProtocolVersion: 2 } : {}) }
+    ...(value.dnsProtocolVersion === 2 ? { dnsProtocolVersion: 2 } : {}),
+    ...(value.recoveryProtocolVersion === 1 ? { recoveryProtocolVersion: 1 } : {}) }
 }
 
 export function gatewayConfigured(): boolean {
@@ -127,21 +143,34 @@ export function gatewaySshHost(endpoint: string, settings = {
   return settings.jumpHost || settings.gatewayHost
 }
 
-export async function gatewayCommand(command = 'status'): Promise<OnboardingGateway> {
+export async function gatewayCommand(command = 'status', resolvedEndpoint?: string): Promise<OnboardingGateway> {
   if (!gatewayConfigured()) throw new OnboardingError('GATEWAY_NOT_CONFIGURED')
   const privateKey = await readFile(process.env.ONBOARDING_GATEWAY_KEY_PATH!)
   const client = await connectOnboardingSsh({ host: process.env.ONBOARDING_GATEWAY_HOST!, port: Number(process.env.ONBOARDING_GATEWAY_PORT || 22), privateKey },
     async fingerprint => fingerprint === process.env.ONBOARDING_GATEWAY_FINGERPRINT)
   try {
     let raw: unknown
-    try { raw = JSON.parse(await sshExec(client, command, '', 30000, command === 'peers' ? 2 * 1024 * 1024 : 65536)) }
+    try { raw = JSON.parse(await sshExec(client, command, '', 30000, ['peers', 'recovery-state'].includes(command) ? 2 * 1024 * 1024 : 65536)) }
     catch (error) { if (error instanceof OnboardingError) throw error; throw new OnboardingError('GATEWAY_RESPONSE_INVALID') }
     // Validation and SSH helpers are also used by standalone guard processes.
     // Load database-backed endpoint settings only for an actual gateway command.
-    const { currentOnboardingGatewayEndpoint } = await import('./onboarding-gateway-endpoint.js')
-    const endpoint = await currentOnboardingGatewayEndpoint()
+    const endpoint = resolvedEndpoint ?? await (await import('./onboarding-gateway-endpoint.js')).currentOnboardingGatewayEndpoint()
     return validateGatewayResponse(raw, endpoint, gatewaySshHost(endpoint))
   } finally { client.end() }
+}
+
+export async function restoreGatewayRuntimeRoute(nodeId:string,input:{nodePublicKey:string;managementIp:string;gatewayPublicKey:string;configHash:string;expiresAt:number}) {
+  if(!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(nodeId) || !gatewayConfigured())throw new OnboardingError('GATEWAY_NOT_CONFIGURED')
+  const privateKey=await readFile(process.env.ONBOARDING_GATEWAY_KEY_PATH!)
+  const client=await connectOnboardingSsh({host:process.env.ONBOARDING_GATEWAY_HOST!,port:Number(process.env.ONBOARDING_GATEWAY_PORT||22),privateKey},
+    async fingerprint=>fingerprint===process.env.ONBOARDING_GATEWAY_FINGERPRINT)
+  try{
+    let value:any
+    try{value=JSON.parse(await sshExec(client,`restore-route ${nodeId}`,JSON.stringify(input),15000))}
+    catch(error){throw error instanceof OnboardingError?error:new OnboardingError('GATEWAY_RESPONSE_INVALID')}
+    if(!value || Object.keys(value).sort().join(',')!=='nodeId,runtimeRouteRestored,savedConfigurationPreserved' || value.nodeId!==nodeId ||
+      value.runtimeRouteRestored!==true || value.savedConfigurationPreserved!==true)throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
+  }finally{client.end()}
 }
 
 export async function installGatewayHostDns(nodeId: string, input: { hostname: string; port: number; sshPort: number; sshFingerprint: string; nodePublicKey: string;
@@ -164,14 +193,15 @@ export async function installGatewayHostDns(nodeId: string, input: { hostname: s
   finally { client.end() }
 }
 
-export async function probeGatewayHost(nodeId: string, input: { sshPort: number; sshFingerprint: string; nodePublicKey: string }) {
+export async function probeGatewayHost(nodeId: string, input: { sshPort: number; sshFingerprint: string; nodePublicKey: string; portProtocol?: 'tcp'|'tcp_udp' }) {
   if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(nodeId) || !gatewayConfigured()) throw new OnboardingError('GATEWAY_NOT_CONFIGURED')
   const privateKey = await readFile(process.env.ONBOARDING_GATEWAY_KEY_PATH!)
   const client = await connectOnboardingSsh({ host: process.env.ONBOARDING_GATEWAY_HOST!, port: Number(process.env.ONBOARDING_GATEWAY_PORT || 22), privateKey },
     async fingerprint => fingerprint === process.env.ONBOARDING_GATEWAY_FINGERPRINT)
   try {
     const value = JSON.parse(await sshExec(client, `probe ${nodeId}`, JSON.stringify(input), 40000))
-    if (Object.keys(value).sort().join(',') !== 'keysAndRoutesPreserved,nodeId,sshIdentityVerified' || value.nodeId !== nodeId ||
+    if (Object.keys(value).sort().join(',') !== (input.portProtocol ? 'keysAndRoutesPreserved,nodeId,portProtocolVerified,sshIdentityVerified' : 'keysAndRoutesPreserved,nodeId,sshIdentityVerified') || value.nodeId !== nodeId ||
+      (input.portProtocol && value.portProtocolVerified !== input.portProtocol) ||
       value.sshIdentityVerified !== true || value.keysAndRoutesPreserved !== true) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
   } finally { client.end() }
 }

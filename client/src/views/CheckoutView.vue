@@ -8,11 +8,16 @@
 import { computed, nextTick, onMounted, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, ArrowRight, Check, CreditCard, Cpu, HardDrive, KeyRound, Loader2, LockKeyhole, MemoryStick, Minus, Plus, ShoppingBag, Trash2, Wallet } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, Check, Cpu, HardDrive, KeyRound, Loader2, LockKeyhole, MemoryStick, Minus, Plus, ShoppingBag, Trash2, Wallet } from 'lucide-vue-next'
 import api from '@/api'
 import FlagIcon from '@/components/FlagIcon.vue'
 import CheckoutOrderResult from '@/components/CheckoutOrderResult.vue'
+import CheckoutPaymentPanel from '@/components/CheckoutPaymentPanel.vue'
+import PaymentMethodIcon from '@/components/PaymentMethodIcon.vue'
+import { paymentDisplayName } from '@/utils/paymentDisplay'
+import type { CheckoutOrder } from '@/types/checkout'
 import { useCartStore, type CartItem } from '@/stores/cart'
+import { useDirectPurchaseStore } from '@/stores/directPurchase'
 import { useConfigStore } from '@/stores/config'
 import { useAuthStore } from '@/stores/auth'
 import type { SshKey } from '@/types/api'
@@ -39,6 +44,12 @@ const authStore = useAuthStore()
 const { t, locale } = useI18n()
 const themeStore = useThemeStore()
 const cartStore = useCartStore()
+const directPurchase = useDirectPurchaseStore()
+const direct = computed(() => route.path === '/order/confirm')
+const checkoutStore = computed(() => direct.value ? directPurchase : cartStore)
+const checkoutItems = computed(() => checkoutStore.value.items)
+const checkoutTitle = computed(() => t(direct.value ? 'cart.confirmTitle' : 'cart.title'))
+const checkoutScope = computed(() => direct.value ? `direct.${String(route.query.draft ?? '')}` : 'cart')
 const configStore = useConfigStore()
 const sshKeys = ref<SshKey[]>([])
 
@@ -57,42 +68,13 @@ const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
 const turnstileRequired = computed(() => configStore.turnstileEnabled && !!configStore.turnstileSiteKey)
 const acceptPrices = ref(false)
 const maxInstances = ref(100)
-/**
- * 支付方式：'balance' 走现有余额扣款；数字是后台已启用渠道的 id。
- * 选渠道时按整单金额创建充值单（服务端把手续费补足到账不少于订单额），到账后仍由余额完成
- * 整单扣款与开通 —— 购买订单本身没有新增任何支付状态。
- */
-const payProviders = ref<Array<{ id: number; name: string; type: string }>>([])
+const payProviders = ref<Awaited<ReturnType<typeof api.billing.getPaymentProviders>>['providers']>([])
 const payChoice = ref<'balance' | number>('balance')
-const gatewayBusy = ref(false)
-const gatewayError = ref('')
-const gatewayCredited = ref(false)
-const gatewayOrder = ref<{
-  orderNo: string
-  providerName: string
-  payableCents: number
-  actualAmountCents: number
-  payUrl: string | null
-  manualInstructions: string | null
-} | null>(null)
-type GatewayIntent = { requestId: string; providerId: number; amount: number }
-const volatileGatewayIntents = new Map<number, GatewayIntent>()
-function gatewayIntent(account: number, providerId: number, amount: number): GatewayIntent {
-  let saved: GatewayIntent | null = volatileGatewayIntents.get(account) ?? null
-  try { saved ??= JSON.parse(sessionStorage.getItem(`payincus.checkout-payment-intent.${account}`) || 'null') } catch { /* Use memory fallback. */ }
-  if (!saved || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(saved.requestId) || !Number.isSafeInteger(saved.providerId) || saved.providerId < 1 || !Number.isFinite(saved.amount) || saved.amount <= 0) {
-    saved = { requestId: crypto.randomUUID(), providerId, amount }
-  }
-  volatileGatewayIntents.set(account, saved)
-  try { sessionStorage.setItem(`payincus.checkout-payment-intent.${account}`, JSON.stringify(saved)) } catch { /* Same-tab retry still works. */ }
-  return saved
-}
-function clearGatewayIntent(account: number) {
-  volatileGatewayIntents.delete(account)
-  try { sessionStorage.removeItem(`payincus.checkout-payment-intent.${account}`) } catch { /* Receipt is authoritative. */ }
-}
-let pollTimer: ReturnType<typeof setTimeout> | undefined
+const walletBalance = ref<number | null>(null)
+const payMethod = ref<string | undefined>()
+const checkoutId = computed(() => typeof route.query.checkout === 'string' ? route.query.checkout : '')
 let gatewayPollTimer: ReturnType<typeof setTimeout> | undefined
+let pollTimer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 const active = ref(false), catalogReady = ref(false)
 let generation = 0, pollSequence = 0, gatewaySequence = 0
@@ -104,14 +86,15 @@ const session = computed(() => {
 })
 function context() {
   const version = generation, authentication = authStore.captureAuthentication()
-  return () => !disposed && active.value && !!session.value && route.path === '/checkout' && version === generation && authentication.aligned && authentication.current()
+  return () => !disposed && active.value && !!session.value && ['/checkout', '/order/confirm'].includes(route.path) && version === generation && authentication.aligned && authentication.current()
 }
 function resetContext() {
   generation++; pollSequence++; gatewaySequence++
   clearTimeout(pollTimer); clearTimeout(gatewayPollTimer)
   orderResult.value = null; regions.value = []; sshKeys.value = []; sshKeyId.value = null; serverAvailable.value = {}
   loading.value = false; catalogReady.value = false; paying.value = false; error.value = ''; acceptPrices.value = false
-  gatewayOrder.value = null; gatewayBusy.value = false; gatewayCredited.value = false; gatewayError.value = ''; payProviders.value = []; payChoice.value = 'balance'
+  payProviders.value = []; payChoice.value = 'balance'; payMethod.value = undefined
+  walletBalance.value = null
   turnstileToken.value = ''; volatileIntent = null
 }
 async function pollOrder() {
@@ -127,19 +110,6 @@ async function pollOrder() {
     const pending = orderResult.value.instances.some(instance => instance.status === 'creating' || instance.refundPending || instance.publicIpUpdating)
     pollTimer = setTimeout(() => void pollOrder(), pending ? 4000 : 30000)
   }
-}
-async function acceptOrder(result: PoolCheckoutResult, submitted: CartItem[], account: number, requestId: string) {
-  if (result.batchId !== requestId) throw Error(t('cart.statusFailed'))
-  clearCheckoutIntent(account, requestId)
-  try { sessionStorage.removeItem(`payincus.checkout-payment.${account}`) } catch { /* Receipt is authoritative. */ }
-  orderResult.value = result
-  // Only remove exactly what this request purchased; another tab or action may
-  // have added or edited a line while the server was accepting the order.
-  for (const item of submitted) {
-    const current = cartStore.items.find(row => row.key === item.key)
-    if (current && JSON.stringify(current) === JSON.stringify(item)) cartStore.remove(item.key, item)
-  }
-  await router.replace({ path: '/checkout', query: { order: result.batchId } })
 }
 function activate() { active.value = true }
 onMounted(activate); onActivated(activate)
@@ -179,10 +149,10 @@ const rows = computed<CheckoutRow[]>(() => {
   // 同一商品可能被加进购物车多次（多行）；库存要按该商品的总需求量比对，
   // 否则「两行各 1 台、池子只剩 1 台」会被逐行判成不缺货，付款被拒时也找不到行可提示。
   const requestedByProduct = new Map<number, number>()
-  for (const item of cartStore.items) {
+  for (const item of checkoutItems.value) {
     requestedByProduct.set(item.poolPriceId, (requestedByProduct.get(item.poolPriceId) ?? 0) + item.quantity)
   }
-  return cartStore.items.map(item => {
+  return checkoutItems.value.map(item => {
     const found = findLive(item.poolPriceId)
     const live = found?.product ?? null
     const unitCents = live ? live.monthlyPrice + live.setupFee : 0
@@ -214,7 +184,7 @@ const rows = computed<CheckoutRow[]>(() => {
   })
 })
 
-const totalQuantity = computed(() => cartStore.totalQuantity)
+const totalQuantity = computed(() => checkoutItems.value.reduce((sum, item) => sum + item.quantity, 0))
 const totalCents = computed(() => rows.value.reduce((sum, row) => sum + row.subtotalCents, 0))
 const monthlyTotalCents = computed(() => rows.value.reduce((sum, row) => sum + (row.live?.monthlyPrice ?? 0) * row.item.quantity, 0))
 const setupTotalCents = computed(() => rows.value.reduce((sum, row) => sum + (row.live?.setupFee ?? 0) * row.item.quantity, 0))
@@ -222,7 +192,7 @@ const tooMany = computed(() => totalQuantity.value > maxInstances.value)
 /** 有问题的行：已下架 / 库存不足 / 名称不合法。付款时会就地拦下并引导处理。 */
 const problemRows = computed(() => rows.value.filter(row => row.offSale || row.stockShort || !!row.nameError))
 /** 付款按钮只在「空车 / 未选密钥 / 付款中 / 加载中」时禁用；缺货等问题留给点击时就地引导。 */
-const canPay = computed(() => active.value && !!session.value && catalogReady.value && rows.value.length > 0 && (authMode.value === 'password' || sshKeyId.value !== null) && !paying.value && !loading.value)
+const canPay = computed(() => active.value && !!session.value && catalogReady.value && rows.value.length > 0 && (authMode.value === 'password' || sshKeyId.value !== null) && !paying.value && !loading.value && (payChoice.value !== 'balance' || (walletBalance.value !== null && Math.round(walletBalance.value * 100) >= totalCents.value)))
 
 /** 正在抖动的行 key，用于「滚到那一行并抖一下」的提示。 */
 const shakingKey = ref<string | null>(null)
@@ -240,7 +210,7 @@ function highlightRow(key: string): void {
 async function loadCatalog(): Promise<void> {
   const current = context()
   catalogReady.value = false
-  const response = await api.packages.getPublicCatalog()
+  const response = await api.checkout.catalog(direct.value ? 'direct' : 'cart')
   if (!current()) return
   if (!Array.isArray(response.regions)) throw Error(t('common.loadFailed'))
   regions.value = response.regions || []
@@ -253,7 +223,10 @@ async function initialize() {
   const current = context()
   if (!current()) return
   loading.value = true
+  error.value = ''
+  if (direct.value) directPurchase.load(String(route.query.draft ?? ''))
   try {
+    if (checkoutId.value) return
     if (typeof route.query.order === 'string') {
       const id = route.query.order, result = await api.instances.getPoolOrder(id)
       if (!current()) return
@@ -264,12 +237,12 @@ async function initialize() {
     }
     await Promise.all([configStore.loadPublicConfig(), api.sshKeys.list().then(result => { if (current()) sshKeys.value = result.keys }), loadCatalog()])
     if (!current()) return
-    void api.billing.getPaymentProviders()
+    await api.billing.getUserBalance().then(result => { if (current()) walletBalance.value = result.balance.balance })
+    await api.billing.getPaymentProviders()
       .then(result => { if (current()) payProviders.value = result.providers })
-      .catch(() => { if (current()) payProviders.value = [] })
     if (sshKeys.value.length > 0) sshKeyId.value = sshKeys.value[0].id
     else authMode.value = 'password'
-    await restoreGatewayOrder()
+
   } catch (err) {
     if (current()) { catalogReady.value = false; error.value = translateError(err) }
   } finally {
@@ -284,22 +257,15 @@ watch([session, active, () => route.fullPath], () => {
 
 function updateQuantity(row: CheckoutRow, value: number): void {
   const upper = Math.max(1, Math.min(row.available || 1, maxInstances.value))
-  cartStore.setQuantity(row.item.key, Math.min(Math.max(1, Math.floor(value || 1)), upper))
+  checkoutStore.value.setQuantity(row.item.key, Math.min(Math.max(1, Math.floor(value || 1)), upper))
 }
 
 watch(() => rows.value.map(row => row.live ? `${row.live.id}:${row.live.monthlyPrice}:${row.live.setupFee}` : '').join('|'), () => { acceptPrices.value = false })
 
 let volatileIntent: { id: string; fingerprint: string; account: number } | null = null
-function clearCheckoutIntent(account: number, id: string) {
-  if (volatileIntent?.account === account && volatileIntent.id === id) volatileIntent = null
-  try {
-    const key = `payincus.checkout.${account}`
-    if (JSON.parse(sessionStorage.getItem(key) || 'null')?.id === id) sessionStorage.removeItem(key)
-  } catch { /* An acknowledged purchase remains successful if storage was blocked later. */ }
-}
 function checkoutRequestId(payload: unknown, account: number): string {
-  const key = `payincus.checkout.${account}`
-  const fingerprint = JSON.stringify(payload)
+  const key = direct.value ? `payincus.checkout.${account}.${checkoutScope.value}` : `payincus.checkout.${account}`
+  const fingerprint = JSON.stringify([checkoutScope.value, checkoutItems.value, payload])
   if (volatileIntent?.account === account && volatileIntent.fingerprint === fingerprint) return volatileIntent.id
   try {
     const previous = JSON.parse(sessionStorage.getItem(key) || 'null')
@@ -347,12 +313,21 @@ async function pay(): Promise<void> {
       sshKeyId: authMode.value === 'key' ? sshKeyId.value ?? undefined : undefined,
       expectedTotal: totalCents.value
   }
-  const submitted = JSON.parse(JSON.stringify(cartStore.items)) as CartItem[]
+  const submitted = JSON.parse(JSON.stringify(checkoutItems.value)) as CartItem[]
   const requestId = checkoutRequestId(payload, account)
+  const selectedChoice = payChoice.value, selectedMethod = payMethod.value
   try {
-    const result = await api.instances.poolOrder({ ...payload, requestId, turnstileToken: verificationToken || undefined })
+    let result = await api.checkout.create({ ...payload, requestId, source: direct.value ? 'direct' : 'cart', turnstileToken: verificationToken || undefined })
     if (!current()) return
-    await acceptOrder(result, submitted, account, requestId)
+    if (result.status === 'pending') result = selectedChoice === 'balance'
+      ? await api.checkout.balance(result.id)
+      : await api.checkout.payment(result.id, selectedChoice, selectedMethod)
+    if (!current()) return
+    rememberSubmitted(result.id, submitted, account)
+    if (result.paidAt) removePaidItems(result)
+    await router.replace({ path: route.path, query: { ...route.query, checkout: result.id, payment: selectedChoice === 'balance' ? 'balance' : `${selectedChoice}:${selectedMethod ?? ''}` } })
+    const payment = result.payments.find(row => row.providerId === selectedChoice && (!selectedMethod || row.method === selectedMethod))
+    if (authentication.current() && active.value && route.query.checkout === result.id && result.status === 'pending' && payment?.payUrl) window.location.assign(payment.payUrl)
   } catch (err: any) {
     if (!current()) return
     const data = err?.response?.data ?? err
@@ -379,10 +354,13 @@ async function pay(): Promise<void> {
       const changed = rows.value.find(row => row.priceChanged)
       if (changed) highlightRow(changed.item.key)
     } else {
-      const accepted = await api.instances.getPoolOrder(requestId).catch(() => null)
+      const accepted = await api.checkout.get(requestId).catch(() => null)
       if (!current()) return
-      if (accepted) await acceptOrder(accepted, submitted, account, requestId)
-      else error.value = translateError(err)
+      if (accepted) {
+        rememberSubmitted(accepted.id, submitted, account)
+        await router.replace({ path: route.path, query: { ...route.query, checkout: accepted.id, paymentFailed: '1', payment: selectedChoice === 'balance' ? 'balance' : `${selectedChoice}:${selectedMethod ?? ''}` } })
+      } else error.value = translateError(err)
+
     }
   } finally {
     if (current()) {
@@ -394,175 +372,60 @@ async function pay(): Promise<void> {
 
 const payChoiceLabel = computed(() => {
   if (payChoice.value === 'balance') return t('cart.balance')
-  return payProviders.value.find(provider => provider.id === payChoice.value)?.name ?? t('cart.balance')
+  const name = payProviders.value.find(provider => provider.id === payChoice.value)?.name ?? ''
+  return paymentDisplayName(payMethod.value, name, t)
 })
-
-function selectPayChoice(choice: 'balance' | number): void {
-  payChoice.value = choice
-  gatewayError.value = ''
-  error.value = ''
-}
-
-function openGatewayPage(): void {
-  if (!context()()) return
-  if (gatewayOrder.value?.payUrl) window.open(gatewayOrder.value.payUrl, '_blank', 'noopener')
-}
-
-function scheduleGatewayPoll(delay = 5000): void {
-  clearTimeout(gatewayPollTimer)
-  if (!context()() || !gatewayOrder.value || gatewayCredited.value) return
-  gatewayPollTimer = setTimeout(() => void refreshGatewayOrder(), delay)
-}
-
-/** 查充值单：到账即解锁结算；手动点刷新时再主动向网关查询一次（并非所有渠道都支持）。 */
-async function refreshGatewayOrder(manual = false, silent = false): Promise<void> {
-  const order = gatewayOrder.value
-  const available = context(), sequence = ++gatewaySequence
-  const current = () => available() && gatewayOrder.value?.orderNo === order?.orderNo && sequence === gatewaySequence
-  if (!order || gatewayCredited.value || !current()) return
-  if (!silent) gatewayBusy.value = true
-  try {
-    if (manual) await api.billing.verifyRechargeOrder(order.orderNo).catch(() => null)
-    if (!current()) return
-    const detail = await api.billing.getRechargeOrder(order.orderNo)
-    if (!current() || detail.order.orderNo !== order.orderNo) return
-    const status = detail.order.status
-    if (status === 'completed') {
-      if (detail.order.actualAmount !== null) order.actualAmountCents = Math.round(Number(detail.order.actualAmount) * 100)
-      gatewayCredited.value = true
-      gatewayError.value = ''
-      payChoice.value = 'balance'
-      return
-    }
-    if (status === 'failed' || status === 'cancelled' || status === 'expired' || status === 'refunded') {
-      gatewayOrder.value = null
-      saveGatewayOrder()
-      gatewayError.value = t('cart.gatewayFailed')
-      return
-    }
-    gatewayError.value = ''
-  } catch (err) {
-    if (!silent && current()) gatewayError.value = translateError(err)
-  } finally {
-    if (!silent && available() && sequence === gatewaySequence) gatewayBusy.value = false
-  }
-  if (current()) scheduleGatewayPoll()
-}
-
-function saveGatewayOrder() {
-  try {
-    const key = `payincus.checkout-payment.${authStore.user?.id}`
-    if (gatewayOrder.value) sessionStorage.setItem(key, JSON.stringify(gatewayOrder.value))
-    else sessionStorage.removeItem(key)
-  } catch { /* The original order remains accessible in the user's order list. */ }
-}
-async function restoreGatewayOrder() {
-  const current = context(), account = authStore.user?.id
-  try {
-    const saved = JSON.parse(sessionStorage.getItem(`payincus.checkout-payment.${authStore.user?.id}`) || 'null')
-    if (!saved && account) {
-      const intent = volatileGatewayIntents.get(account) ?? JSON.parse(sessionStorage.getItem(`payincus.checkout-payment-intent.${account}`) || 'null')
-      if (!intent || typeof intent.requestId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(intent.requestId)) return
-      const found = await api.billing.getRechargeCreation(intent.requestId)
-      if (!current()) return
-      if (!found.order) { payChoice.value = intent.providerId; return }
-      gatewayOrder.value = { orderNo: found.order.orderNo, providerName: found.order.provider.name,
-        payableCents: Math.round(found.order.payableAmount * 100), actualAmountCents: Math.round(Number(found.order.actualAmount) * 100),
-        payUrl: null, manualInstructions: found.manualPayment?.instructions ?? null }
-      saveGatewayOrder(); clearGatewayIntent(account)
-      void refreshGatewayOrder()
-      return
-    }
-    if (!saved || typeof saved.orderNo !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(saved.orderNo) || typeof saved.providerName !== 'string' ||
-      ![saved.payableCents, saved.actualAmountCents].every(value => Number.isSafeInteger(value) && value >= 0) ||
-      (saved.payUrl !== null && (typeof saved.payUrl !== 'string' || !/^https?:\/\//i.test(saved.payUrl))) ||
-      (saved.manualInstructions !== null && typeof saved.manualInstructions !== 'string')) return
-    gatewayOrder.value = saved
-    void refreshGatewayOrder()
-  } catch { if (current()) gatewayError.value = t('cart.statusFailed') }
-}
-async function resumeGatewayPayment() {
-  const current = context(), order = gatewayOrder.value
-  if (!current() || !order || gatewayBusy.value || gatewayCredited.value) return
-  gatewayBusy.value = true; gatewayError.value = ''
-  try {
-    const result = await api.billing.repayRechargeOrder(order.orderNo)
-    if (!current() || gatewayOrder.value?.orderNo !== order.orderNo || result.order.orderNo !== order.orderNo) return
-    gatewayOrder.value = { ...order, payUrl: result.payUrl, manualInstructions: result.manualPayment?.instructions ?? null,
-      payableCents: Math.round(result.order.payableAmount * 100), actualAmountCents: Math.round(Number(result.order.actualAmount) * 100) }
-    saveGatewayOrder()
-    openGatewayPage()
-  } catch (err) { if (current()) gatewayError.value = translateError(err) }
-  finally { if (current()) { gatewayBusy.value = false; void refreshGatewayOrder() } }
-}
-
-/** 选渠道时按整单金额创建充值单；到账后仍由余额完成扣款与开通。 */
-async function startGatewayPayment(): Promise<void> {
-  const current = context()
-  const providerId = payChoice.value
-  if (!current() || !canPay.value || providerId === 'balance' || gatewayBusy.value || rows.value.length === 0) return
-  // 已有一张未完成的充值单时不再重复创建，直接回到支付页并刷新状态。
-  if (gatewayOrder.value && !gatewayCredited.value) {
-    openGatewayPage()
-    void refreshGatewayOrder(true)
-    return
-  }
-  if (tooMany.value) { error.value = t('cart.tooMany', { max: maxInstances.value }); return }
-  const problem = problemRows.value[0]
-  if (problem) { error.value = ''; highlightRow(problem.item.key); return }
-  if (rows.value.some(row => row.priceChanged) && !acceptPrices.value) { error.value = t('cart.acceptPricesRequired'); return }
-  gatewayBusy.value = true
-  gatewayError.value = ''
-  error.value = ''
-  try {
-    const targetYuan = totalCents.value / 100
-    const account = authStore.user!.id, intent = gatewayIntent(account, providerId, targetYuan)
-    const result = await api.billing.createRechargeOrder(intent.providerId, intent.amount, undefined, intent.amount, intent.requestId)
-    if (!current()) return
-    gatewayOrder.value = {
-      orderNo: result.order.orderNo,
-      providerName: result.provider.name,
-      payableCents: Math.round(Number(result.order.payableAmount) * 100),
-      actualAmountCents: Math.round(Number(result.order.actualAmount) * 100),
-      payUrl: result.payUrl,
-      manualInstructions: result.manualPayment?.instructions ?? null
-    }
-    saveGatewayOrder()
-    clearGatewayIntent(account)
-    if (result.payUrl && !result.recovered) window.open(result.payUrl, '_blank', 'noopener')
-    if (result.recovered) void refreshGatewayOrder()
-    else scheduleGatewayPoll(4000)
-  } catch (err: any) {
-    if (current()) {
-      // This endpoint returns 400 only before persistence. Unknown outcomes
-      // retain their identity; a definite input rejection can be corrected.
-      if (err?.response?.status === 400) clearGatewayIntent(authStore.user!.id)
-      gatewayError.value = translateError(err)
-    }
-  } finally {
-    if (current()) gatewayBusy.value = false
-  }
-}
-
-const primaryLabel = computed(() => {
-  if (paying.value) return t('cart.paying')
-  if (gatewayBusy.value) return t('cart.gatewayCreating')
-  if (gatewayOrder.value && !gatewayCredited.value) return t('cart.gatewayWaiting')
-  if (payChoice.value !== 'balance') return t('cart.gatewayPayButton', { amount: formatPublicPrice(totalCents.value) })
-  return t('cart.pay')
+const paymentOptions = computed(() => payProviders.value.filter(provider => ['yipay','upaypro','heleket','antom'].includes(provider.type)).flatMap(provider => {
+  // Hosted crypto gateways choose their currency/network on the gateway page.
+  const methods = provider.type === 'yipay' ? (provider.methods?.length ? provider.methods : ['alipay']) : [undefined]
+  return methods.map(method => ({ provider, method, key: `${provider.id}:${method ?? ''}`, label: paymentDisplayName(method, provider.name, t) }))
+}))
+const gatewayQuote = computed(() => {
+  const provider = payProviders.value.find(p => p.id === payChoice.value)
+  if (!provider || totalCents.value <= 0) return null
+  const selected = payMethod.value ? provider.methodFees?.[payMethod.value] : undefined
+  const fee = Math.round(Number((totalCents.value / 100 * Number(selected?.feeRate ?? provider.feeRate ?? 0) + Number(selected?.feeFixed ?? provider.feeFixed ?? 0)).toFixed(2)) * 100)
+  return { fee, payable: totalCents.value + fee }
 })
-
-function onPrimaryAction(): void {
-  if (gatewayOrder.value && !gatewayCredited.value) return
-  if (payChoice.value === 'balance') void pay()
-  else void startGatewayPayment()
+function selectPayChoice(choice: 'balance' | number, method?: string) { if (paying.value) return; payChoice.value = choice; payMethod.value = method; error.value = '' }
+const primaryLabel = computed(() => paying.value ? t('cart.paying') : t('cart.pay'))
+function onPrimaryAction() { void pay() }
+function rememberSubmitted(id: string, items: CartItem[], account: number) {
+  try { sessionStorage.setItem(`payincus.checkout-submitted.${account}.${id}`, JSON.stringify({ items, source: direct.value ? 'direct' : 'cart', draft: route.query.draft })) } catch { /* Never block a paid order. */ }
+}
+function removePaidItems(order: CheckoutOrder) {
+  if (!order.paidAt || !authStore.user) return
+  const key = `payincus.checkout-submitted.${authStore.user.id}.${order.id}`
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(key) || 'null')
+    if (!saved || saved.source !== order.source || !Array.isArray(saved.items)) return
+    const store = saved.source === 'direct' ? directPurchase : cartStore
+    if (saved.source === 'direct') directPurchase.load(String(saved.draft || ''))
+    for (const item of saved.items) {
+      const current = store.items.find(row => row.key === item.key)
+      if (current && JSON.stringify(current) === JSON.stringify(item)) store.remove(item.key, item)
+    }
+    sessionStorage.removeItem(key)
+  } catch { /* Server order remains authoritative if storage is unavailable. */ }
+}
+function forgetClosedIntent(order: CheckoutOrder) {
+  if (!authStore.user || !['cancelled','expired'].includes(order.status)) return
+  if (volatileIntent?.id === order.id) volatileIntent = null
+  try {
+    for (const key of Object.keys(sessionStorage)) {
+      if (!key.startsWith(`payincus.checkout.${authStore.user.id}`)) continue
+      if (JSON.parse(sessionStorage.getItem(key) || 'null')?.id === order.id) sessionStorage.removeItem(key)
+    }
+  } catch { /* Closed server orders can never be charged again. */ }
 }
 </script>
 
 <template>
   <div class="checkout-page" :aria-busy="loading || paying">
+    <CheckoutPaymentPanel v-if="checkoutId" :key="checkoutId" :id="checkoutId" @paid="removePaidItems" @closed="forgetClosedIntent" />
+    <template v-else>
     <header v-if="!orderResult" class="checkout-header">
-      <h1>{{ t('cart.title') }}</h1>
+      <h1>{{ checkoutTitle }}</h1>
       <router-link v-if="rows.length || orderResult" to="/purchase" class="checkout-back-link">
         <ArrowLeft :size="15" aria-hidden="true" />{{ t('cart.continueShopping') }}
       </router-link>
@@ -571,7 +434,7 @@ function onPrimaryAction(): void {
       </p>
     </header>
 
-    <div v-if="error && (orderResult || loading || !rows.length)" class="checkout-alert checkout-alert-error" role="alert">{{ error }}</div>
+    <div v-if="error && (orderResult || loading || !rows.length)" class="checkout-alert checkout-alert-error" role="alert">{{ error }}<button v-if="!catalogReady && !loading" type="button" class="checkout-retry" @click="initialize">{{ t('common.refresh') }}</button></div>
     <CheckoutOrderResult v-if="orderResult" :order="orderResult" @refresh="pollOrder" />
     <div v-else-if="loading" class="checkout-panel checkout-loading" role="status">
       <Loader2 :size="22" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />{{ t('common.loading') }}
@@ -580,8 +443,8 @@ function onPrimaryAction(): void {
     <div v-else-if="rows.length === 0" class="checkout-panel checkout-empty">
       <span class="checkout-empty-icon"><ShoppingBag :size="32" :stroke-width="1.4" aria-hidden="true" /></span>
       <div class="checkout-empty-copy">
-        <h2>{{ t('cart.empty') }}</h2>
-        <p>{{ t('cart.emptyHint') }}</p>
+        <h2>{{ t(direct ? 'cart.directEmpty' : 'cart.empty') }}</h2>
+        <p v-if="!direct">{{ t('cart.emptyHint') }}</p>
       </div>
       <router-link to="/purchase" class="checkout-primary">
         {{ t('cart.goShopping') }}<ArrowRight :size="16" aria-hidden="true" />
@@ -589,7 +452,7 @@ function onPrimaryAction(): void {
     </div>
 
     <fieldset v-else :disabled="paying" class="checkout-layout">
-      <legend class="sr-only">{{ t('cart.title') }}</legend>
+      <legend class="sr-only">{{ checkoutTitle }}</legend>
       <div class="checkout-main">
         <section class="checkout-items" aria-labelledby="checkout-items-title">
           <div class="checkout-section-heading">
@@ -627,7 +490,7 @@ function onPrimaryAction(): void {
                   <p v-if="row.live && row.live.setupFee > 0">{{ t('cart.line.setup') }}<span>¥{{ formatPublicPrice(row.live.setupFee) }}</span></p>
                 </div>
               </div>
-              <button type="button" class="checkout-remove" :aria-label="`${t('cart.line.remove')} ${rowRegionLabel(row)}`" :title="t('cart.line.remove')" @click="cartStore.remove(row.item.key)">
+              <button type="button" class="checkout-remove" :aria-label="`${t('cart.line.remove')} ${rowRegionLabel(row)}`" :title="t('cart.line.remove')" @click="checkoutStore.remove(row.item.key)">
                 <Trash2 :size="17" :stroke-width="1.7" aria-hidden="true" />
               </button>
             </div>
@@ -648,7 +511,7 @@ function onPrimaryAction(): void {
                   class="input checkout-input"
                   :aria-invalid="!!row.nameError"
                   :aria-describedby="row.nameError ? `cart-name-error-${row.item.key}` : row.item.quantity > 1 ? `cart-name-preview-${row.item.key}` : undefined"
-                  @input="cartStore.setNamePrefix(row.item.key, ($event.target as HTMLInputElement).value)"
+                  @input="checkoutStore.setNamePrefix(row.item.key, ($event.target as HTMLInputElement).value)"
                 />
                 <span v-if="row.item.quantity > 1 && !row.nameError" :id="`cart-name-preview-${row.item.key}`" class="checkout-name-preview">{{ row.names.slice(0, 3).join(', ') }}{{ row.names.length > 3 ? ' …' : '' }}</span>
               </div>
@@ -725,57 +588,44 @@ function onPrimaryAction(): void {
             <div><dt>{{ t('cart.monthlyTotal') }}</dt><dd>¥{{ formatPublicPrice(monthlyTotalCents) }}</dd></div>
             <div v-if="setupTotalCents > 0"><dt>{{ t('cart.setupTotal') }}</dt><dd>¥{{ formatPublicPrice(setupTotalCents) }}</dd></div>
             <div><dt>{{ t('cart.paymentMethod') }}</dt><dd>{{ payChoiceLabel }}</dd></div>
+            <div v-if="gatewayQuote && gatewayQuote.fee > 0"><dt>{{ t('wallet.feeNote') }}</dt><dd>¥{{ formatPublicPrice(gatewayQuote.fee) }}</dd></div>
+            <div v-if="gatewayQuote"><dt>{{ t('wallet.payableAmount') }}</dt><dd>¥{{ formatPublicPrice(gatewayQuote.payable) }}</dd></div>
           </dl>
           <div class="checkout-grand-total">
             <span>{{ t('cart.firstPayment') }}</span>
-            <strong><span class="checkout-currency">¥</span>{{ formatPublicPrice(totalCents) }}</strong>
+            <strong><span class="checkout-currency">¥</span>{{ formatPublicPrice(gatewayQuote?.payable ?? totalCents) }}</strong>
           </div>
         </div>
 
         <div class="checkout-summary-section checkout-payment">
           <p v-if="tooMany" class="text-xs text-red-600 dark:text-red-400">{{ t('cart.tooMany', { max: maxInstances }) }}</p>
-          <div v-if="error" class="checkout-alert checkout-alert-error" role="alert">{{ error }}</div>
-          <div v-if="payProviders.length > 0 && totalCents > 0" class="checkout-pay-choice" role="group" :aria-label="t('cart.paymentMethod')">
+          <div v-if="error" class="checkout-alert checkout-alert-error" role="alert">{{ error }}<button v-if="!catalogReady && !loading" type="button" class="checkout-retry" @click="initialize">{{ t('common.refresh') }}</button></div>
+          <div class="checkout-pay-choice" role="group" :aria-label="t('cart.paymentMethod')">
             <button type="button" class="checkout-pay-option" :class="{ 'is-selected': payChoice === 'balance' }" :aria-pressed="payChoice === 'balance'" @click="selectPayChoice('balance')">
               <Wallet :size="16" aria-hidden="true" />
-              <span>{{ t('cart.balance') }}</span>
+              <span>{{ t('cart.balance') }} <small>{{ walletBalance === null ? '—' : `¥${walletBalance.toFixed(2)}` }}</small></span>
               <span class="checkout-pay-check" aria-hidden="true"><Check v-if="payChoice === 'balance'" :size="12" :stroke-width="3" /></span>
             </button>
-            <button v-for="provider in payProviders" :key="provider.id" type="button" class="checkout-pay-option" :class="{ 'is-selected': payChoice === provider.id }" :aria-pressed="payChoice === provider.id" @click="selectPayChoice(provider.id)">
-              <CreditCard :size="16" aria-hidden="true" />
-              <span>{{ provider.name }}</span>
-              <span class="checkout-pay-check" aria-hidden="true"><Check v-if="payChoice === provider.id" :size="12" :stroke-width="3" /></span>
+            <button v-for="option in paymentOptions" :key="option.key" type="button" class="checkout-pay-option" :class="{ 'is-selected': payChoice === option.provider.id && payMethod === option.method }" :aria-pressed="payChoice === option.provider.id && payMethod === option.method" @click="selectPayChoice(option.provider.id, option.method)">
+              <PaymentMethodIcon :method="option.method || option.provider.methods?.[0]" :provider-type="option.provider.type" />
+              <span>{{ option.label }}</span>
+              <span class="checkout-pay-check" aria-hidden="true"><Check v-if="payChoice === option.provider.id && payMethod === option.method" :size="12" :stroke-width="3" /></span>
             </button>
           </div>
-          <p v-if="payChoice !== 'balance'" class="checkout-pay-hint">{{ t('cart.gatewayAmountHint') }}</p>
-          <div v-if="gatewayOrder" class="checkout-gateway" role="status">
-            <p v-if="gatewayCredited" class="checkout-gateway-credited">{{ t('cart.gatewayCredited', { amount: formatPublicPrice(gatewayOrder.actualAmountCents) }) }}</p>
-            <template v-else>
-              <p>{{ t('cart.gatewayPending', { name: gatewayOrder.providerName }) }}</p>
-              <p class="checkout-gateway-meta">{{ t('cart.gatewayPayHint', { payable: formatPublicPrice(gatewayOrder.payableCents), actual: formatPublicPrice(gatewayOrder.actualAmountCents) }) }}</p>
-              <pre v-if="gatewayOrder.manualInstructions" class="checkout-gateway-manual">{{ gatewayOrder.manualInstructions }}</pre>
-            </template>
-            <p v-if="gatewayError" class="text-xs text-red-600 dark:text-red-400">{{ gatewayError }}</p>
-            <div v-if="!gatewayCredited" class="checkout-gateway-actions">
-              <button v-if="gatewayOrder.payUrl" type="button" class="checkout-secondary" @click="openGatewayPage">{{ t('cart.gatewayOpen') }}</button>
-              <button v-else-if="!gatewayOrder.manualInstructions" type="button" class="checkout-secondary" :disabled="gatewayBusy" @click="resumeGatewayPayment">{{ t('cart.gatewayResume') }}</button>
-              <button type="button" class="checkout-secondary" :disabled="gatewayBusy" @click="refreshGatewayOrder(true)">{{ t('cart.gatewayRefresh') }}</button>
-            </div>
-            <p v-if="!gatewayCredited && !gatewayOrder.payUrl && !gatewayOrder.manualInstructions" class="checkout-gateway-meta">{{ t('cart.gatewayRecovered') }}</p>
-          </div>
-          <p v-if="gatewayError && !gatewayOrder" class="checkout-alert checkout-alert-error" role="alert">{{ gatewayError }}</p>
+          <p v-if="payChoice === 'balance' && walletBalance !== null && Math.round(walletBalance * 100) < totalCents" class="checkout-alert checkout-alert-error">{{ t('checkout.insufficient') }}</p>
           <label v-if="rows.some(row => row.priceChanged)" class="checkout-price-consent"><input v-model="acceptPrices" type="checkbox" />{{ t('cart.acceptPrices') }}</label>
           <div v-if="turnstileRequired" class="checkout-verification">
             <TurnstileWidget ref="turnstileRef" v-model="turnstileToken" :site-key="configStore.turnstileSiteKey!" :theme="themeStore.isDark ? 'dark' : 'light'" size="compact" action="pool-checkout" />
           </div>
-          <button type="button" class="checkout-primary checkout-pay" :disabled="!canPay || gatewayBusy || (!!gatewayOrder && !gatewayCredited)" @click="onPrimaryAction">
-            <Loader2 v-if="paying || gatewayBusy" :size="17" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          <button type="button" class="checkout-primary checkout-pay" :disabled="!canPay" @click="onPrimaryAction">
+            <Loader2 v-if="paying" :size="17" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
             {{ primaryLabel }}
-            <ArrowRight v-if="!paying && !gatewayBusy" :size="17" aria-hidden="true" />
+            <ArrowRight v-if="!paying" :size="17" aria-hidden="true" />
           </button>
         </div>
       </aside>
     </fieldset>
+    </template>
   </div>
 </template>
 
@@ -860,7 +710,7 @@ function onPrimaryAction(): void {
 .checkout-verification { min-width: 0; max-width: 100%; }
 .checkout-alert { padding: 12px 14px; border: 1px solid rgb(239 68 68 / 0.25); border-radius: 10px; font-size: 12px; line-height: 1.65; }
 .checkout-alert-error { color: #dc2626; background: rgb(239 68 68 / 0.045); }
-:global(.dark) .checkout-alert-error { color: #f87171; }
+.dark .checkout-alert-error { color: #f87171; }
 .checkout-loading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 240px; color: var(--text-secondary); font-size: 13px; }
 .checkout-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; min-height: 340px; padding: 40px 24px; text-align: center; }
 .checkout-empty h2 { font-size: 20px; font-weight: 550; letter-spacing: -0.02em; }
@@ -920,11 +770,6 @@ function onPrimaryAction(): void {
 .checkout-pay-check { display: grid; place-items: center; width: 18px; height: 18px; margin-left: auto; flex-shrink: 0; border: 1px solid var(--border-hover); border-radius: 50%; }
 .is-selected .checkout-pay-check { border-color: var(--text-primary); background: var(--text-primary); color: var(--bg-elevated); }
 .checkout-pay-hint { font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
-.checkout-gateway { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-secondary); font-size: 12px; line-height: 1.6; }
-.checkout-gateway p { overflow-wrap: anywhere; }
-.checkout-gateway-meta { color: var(--text-secondary); }
-.checkout-gateway-credited { color: var(--text-primary); font-weight: 550; }
-.checkout-gateway-manual { margin: 0; padding: 8px; border-radius: 8px; background: var(--bg-elevated); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
-.checkout-gateway-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.checkout-gateway-actions .checkout-secondary { min-height: 40px; padding: 9px 14px; font-size: 12px; }
+.checkout-retry { display: block; min-height: 44px; text-decoration: underline; }
+.checkout-pay-option small { display: block; margin-top: 3px; font-size: 12px; color: var(--text-secondary); }
 </style>

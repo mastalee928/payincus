@@ -1,3 +1,5 @@
+import { recoveryHeld, BackupError } from '../services/platform-backup-core.js'
+import { recoveryOperator, recoveryOperatorPayload, authenticateRecoveryOperator } from '../services/platform-recovery-operator.js'
 /**
  * 认证路由
  */
@@ -131,6 +133,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
   }, async (request: FastifyRequest<{ Body: { username: string } }>, _reply: FastifyReply) => {
     const { username } = request.body
+    if (recoveryHeld()) {
+      const operator = await recoveryOperator()
+      return { requires2FA: username === operator.username && !!operator.mfa }
+    }
 
     // 查询用户（支持用户名或邮箱）
     const user = await db.findUserByUsernameOrEmail(username)
@@ -151,7 +157,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
   // 用户登录 (支持 2FA)
   fastify.post<{ Body: LoginWith2FARequest }>('/login', {
-    preHandler: [turnstileVerifier],
+    preHandler: [async (request, reply) => { if (!recoveryHeld()) await turnstileVerifier(request, reply) }],
     schema: {
       body: {
         type: 'object',
@@ -167,6 +173,16 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
   }, async (request: FastifyRequest<{ Body: LoginWith2FARequest }>, reply: FastifyReply) => {
     const { username, password, totpCode, recoveryCode } = request.body
+    if (recoveryHeld()) {
+      try {
+        const user = await authenticateRecoveryOperator(username, password, totpCode)
+        reply.header('Cache-Control', 'no-store')
+        return { token: fastify.jwt.sign(user, { expiresIn: '30m' }), user }
+      } catch (error) {
+        if (error instanceof BackupError) return reply.code(error.status).send({ code: error.code, error: error.code })
+        throw error
+      }
+    }
     const clientIp = request.ip
 
     // 调试日志（生产环境可通过 LOG_LEVEL=debug 启用）
@@ -716,6 +732,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
   fastify.get('/me', {
     onRequest: [fastify.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
+    if (recoveryHeld()) return { user: await recoveryOperatorPayload() }
     const user = await db.findUserById(request.user.id)
     if (!user) {
       return reply.code(404).send(apiError(ErrorCode.USER_NOT_FOUND))
@@ -795,6 +812,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
   // 刷新 Access Token
   fastify.post('/refresh', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (recoveryHeld()) return reply.code(401).send({ code: 'OSS_RECOVERY_LOGIN_REQUIRED' })
     try {
       const refreshToken = request.cookies?.refreshToken
 

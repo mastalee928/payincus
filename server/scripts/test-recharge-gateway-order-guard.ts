@@ -21,7 +21,7 @@ assert.equal(isRechargeGatewayOrderNoMatch('R123', ' R123 '), true)
 assert.equal(isRechargeGatewayOrderNoMatch('R123', 'R124'), false)
 assert.equal(isRechargeGatewayOrderNoMatch('R123', undefined), false)
 
-const routeSource = readFileSync(resolve(__dirname, '../src/routes/recharge.ts'), 'utf8')
+const routeSource = readFileSync(resolve(__dirname, '../src/routes/recharge.ts'), 'utf8').replaceAll('\r\n', '\n')
 assert.ok(
   routeSource.includes("getCurrentRechargeGatewayOrderNo, isRechargeGatewayOrderNoMatch, resolveRechargeOrderNoFromGatewayOrderNo } from '../lib/recharge-order-guard.js'"),
   'recharge route must import gateway order guard'
@@ -39,7 +39,7 @@ assert.ok(
   'mismatched active verification must not complete recharge'
 )
 
-const adminSource = readFileSync(resolve(__dirname, '../src/routes/admin-billing.ts'), 'utf8')
+const adminSource = readFileSync(resolve(__dirname, '../src/routes/admin-billing.ts'), 'utf8').replaceAll('\r\n', '\n')
 const userVerify = routeSource.slice(routeSource.indexOf("app.post('/api/recharge/orders/:orderNo/verify'"),
   routeSource.indexOf('// ==================== 管理员接口 ===================='))
 assert.equal((userVerify.match(/expectedPaymentDetails/g) || []).length, 8,
@@ -68,7 +68,7 @@ assert.ok(adminSync.includes('const expectedPaymentDetails = record.paymentDetai
   adminSync.includes('db.failRecharge(record.orderNo, statusMessage, callbackPayload, paymentDetails, admin, expectedPaymentDetails)') &&
   adminSync.includes('paymentDetails,\n        expectedPaymentDetails,\n        actor: admin'),
   'every sync mutation must retain the originally queried payment selection')
-const recordSource = readFileSync(resolve(__dirname, '../src/db/recharge-records.ts'), 'utf8')
+const recordSource = readFileSync(resolve(__dirname, '../src/db/recharge-records.ts'), 'utf8').replaceAll('\r\n', '\n')
 assert.ok(recordSource.includes('expected === null ? Prisma.AnyNull') &&
   ['updateRechargeOrderMetadata', 'completeRecharge', 'failRecharge', 'cancelRecharge'].every((name, index, names) => {
     const start = recordSource.indexOf(`export async function ${name}(`)

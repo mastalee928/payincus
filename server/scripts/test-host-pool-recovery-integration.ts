@@ -6,7 +6,8 @@ const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'), 'Use an isolated local *_pool_test database')
 process.env.JWT_SECRET ||= 'host-recovery-integration-only'
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { inspectHostRecovery, recoverPoolHost, HostRecoveryError } = await import('../src/services/host-pool-recovery.js')
+const { inspectHostRecovery, inspectPoolRecovery, recoveryScope, recoverPoolHost, HostRecoveryError } = await import('../src/services/host-pool-recovery.js')
+const {recoveryNetworkHash}=await import('../src/services/platform-recovery-network.js')
 const { default: routes } = await import('../src/routes/host-inventory.js')
 const { PORT_PROTOCOL_CAPABILITY } = await import('../src/services/host-port-protocol.js')
 const { IncusClient } = await import('../src/lib/incus/incus-client.js')
@@ -155,10 +156,10 @@ try {
     autoRenew: true, expiresAt: new Date('2030-01-01T00:00:00Z') } })
   const occupiedBefore = await prisma.host.update({ where: { id: occupiedHost.id }, data: { poolFaulted: true, cpuUsed: 200, memoryUsed: 768, diskUsed: 30720 } })
   let mismatchedInstance = false, mismatchedNetwork = false, extraDataVolume = false
-  let ipv6ForwardPresent = false
+  let ipv6ForwardPresent = false, occupiedStatus = 'Running'
   const occupiedConnect = async () => ({ request: async (method: string, path: string) => {
     assert.equal(method, 'GET', 'occupied recovery must never mutate customer systems, snapshots or network rules')
-    if (path.startsWith('/1.0/instances?')) return [{ name: mismatchedInstance ? 'unknown' : liveInstance.incusId, status: 'Running', project: 'default' }]
+    if (path.startsWith('/1.0/instances?')) return [{ name: mismatchedInstance ? 'unknown' : liveInstance.incusId, status: occupiedStatus, project: 'default' }]
     if (path.startsWith('/1.0/projects?')) return [{ name: 'default' }]
     if (path.startsWith('/1.0/networks?')) return [{ name: 'incusbr0', managed: true, type: 'bridge' }]
     if (path.startsWith('/1.0/operations?')) return { running: [] }
@@ -179,6 +180,14 @@ try {
   assert.equal(occupiedReport.canRecover, true)
   assert.equal(occupiedReport.needsCleanup, false)
   assert.deepEqual(occupiedReport.instances, [])
+  occupiedStatus='Stopped'
+  assert.ok((await inspectHostRecovery(occupiedHost.id,occupiedConnect)).blockers.includes('assigned-mismatch'))
+  const snapshotScope=recoveryScope()
+  try {
+    assert.equal((await inspectPoolRecovery(prisma,occupiedHost.id,occupiedConnect,snapshotScope,undefined,undefined,undefined,true)).report.canRecover,true,
+      'snapshot restore preserves an original guest that shut down naturally without starting it')
+  } finally { snapshotScope.close() }
+  occupiedStatus='Running'
   await prisma.instance.update({ where: { id: liveInstance.id }, data: { dedicatedIpv6: {
     version: 1, hostId: occupiedHost.id, instanceName: liveInstance.incusId, status: 'pending', error: 'IPV6_HOST_QUARANTINED',
     mappings: []
@@ -190,6 +199,23 @@ try {
   } } })
   assert.ok((await inspectHostRecovery(occupiedHost.id, occupiedConnect)).blockers.includes('unknown-forward'), 'paused IPv6 recovery must verify every retained mapping remotely')
   ipv6ForwardPresent = true
+  const pausedNetwork=(await prisma.instance.findUniqueOrThrow({where:{id:liveInstance.id}})).dedicatedIpv6 as any
+  const recoveredNetwork={...pausedNetwork,error:'IPV6_RECOVERY_VERIFICATION_PENDING',mappings:pausedNetwork.mappings.map((row:any)=>({...row,ready:false}))}
+  await prisma.instance.update({where:{id:liveInstance.id},data:{dedicatedIpv6:recoveredNetwork}})
+  const inspectPreserved=async(proof?:{instanceId:number;hash:string})=>{
+    const scope=recoveryScope();try{return (await inspectPoolRecovery(prisma,occupiedHost.id,occupiedConnect,scope,undefined,undefined,proof)).report}finally{scope.close()}
+  }
+  assert.ok((await inspectPreserved()).blockers.includes('assigned-not-ready'),'ordinary pool recovery cannot use preservation evidence as connectivity')
+  assert.ok((await inspectPreserved({instanceId:liveInstance.id,hash:'0'.repeat(64)})).blockers.includes('assigned-not-ready'))
+  assert.ok((await inspectPreserved({instanceId:liveInstance.id+1,hash:recoveryNetworkHash(recoveredNetwork)})).blockers.includes('assigned-not-ready'))
+  const proof={instanceId:liveInstance.id,hash:recoveryNetworkHash(recoveredNetwork)}
+  assert.equal((await inspectPreserved(proof)).canRecover,true,'protected caller may prove preserved configuration without inventing egress')
+  mismatchedNetwork=true
+  assert.ok((await inspectPreserved(proof)).blockers.includes('unknown-forward'),'proof does not bypass live forwarding checks')
+  mismatchedNetwork=false;ipv6ForwardPresent=false
+  assert.ok((await inspectPreserved(proof)).blockers.includes('unknown-forward'),'missing IPv6 forwarding still blocks')
+  ipv6ForwardPresent=true
+  await prisma.instance.update({where:{id:liveInstance.id},data:{dedicatedIpv6:pausedNetwork}})
   const liveBeforeRecovery = await prisma.instance.findUniqueOrThrow({ where: { id: liveInstance.id } })
   const finalOccupiedReport = await inspectHostRecovery(occupiedHost.id, occupiedConnect)
   assert.equal(finalOccupiedReport.canRecover, true, 'verified retained IPv6 rules break the quarantine/reconciliation dependency cycle')

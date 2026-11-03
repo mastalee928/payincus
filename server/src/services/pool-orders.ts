@@ -1,6 +1,7 @@
 import { generateRandomIPv6 } from '../lib/ip-calculator.js'
 import { DEDICATED_BANDWIDTH } from './dedicated-delivery.js'
 import { customerIpv6View } from '../lib/host-public-ipv6.js'
+import { IncusClient } from '../lib/incus/incus-client.js'
 /**
  * 一机一卖的多台订单：购物车结算与「直接付款」共用的唯一下单路径。
  *
@@ -13,7 +14,7 @@ import { customerIpv6View } from '../lib/host-public-ipv6.js'
  */
 import { Prisma } from '@prisma/client'
 import { customAlphabet } from 'nanoid'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { advisoryTransactionLock, USER_BALANCE_LOCK_NAMESPACE } from '../db/advisory-locks.js'
 import { lockHostGroups } from './host-groups.js'
 import * as db from '../db/index.js'
@@ -105,7 +106,7 @@ interface PlannedInstance {
   extraShellCommands?: string
 }
 
-interface ResolvedItem {
+export interface ResolvedItem {
   imageId: number
   imageSnapshot: { architecture: string; instanceType: string; icon: string }
   commandSnapshot: Array<{ id: number; userId: number; name: string; command: string; distros: string; enabled: boolean }>
@@ -128,7 +129,7 @@ function buildInstanceNames(prefix: string, quantity: number): string[] {
 /**
  * 事务之前的全部校验与定价。失败即抛错，此时还没有锁任何机器。
  */
-async function prepareOrder(userId: number, input: PoolOrderInput, sshKey: string): Promise<{ items: ResolvedItem[]; totalYuan: number; totalCount: number }> {
+export async function prepareOrder(userId: number, input: PoolOrderInput, sshKey: string): Promise<{ items: ResolvedItem[]; totalYuan: number; totalCount: number }> {
   if (!Array.isArray(input.items) || input.items.length === 0) {
     throw new PoolOrderError(ErrorCode.POOL_ORDER_INVALID, '订单为空')
   }
@@ -251,7 +252,7 @@ async function buildShortages(items: ResolvedItem[]): Promise<Array<{ poolPriceI
   }).filter(row => row.requested > row.available)
 }
 
-interface CreatedInstance {
+export interface CreatedInstance {
   instanceId: number
   host: NonNullable<Awaited<ReturnType<typeof db.selectAndReserveHostWithLock>>>
   item: ResolvedItem
@@ -265,23 +266,30 @@ export function poolOrderHash(input: PoolOrderInput): string {
   })).digest('hex')
 }
 
-export async function getPoolOrderResult(userId: number, batchId: string): Promise<PoolOrderResult | null> {
-  const order = await prisma.poolOrder.findFirst({ where: { id: batchId, userId } })
+export async function getPoolOrderResult(userId: number, batchId: string, client: Prisma.TransactionClient = prisma): Promise<PoolOrderResult | null> {
+  const order = await client.poolOrder.findFirst({ where: { id: batchId, userId } })
   if (!order) return null
-  const instances = await prisma.instance.findMany({ where: { purchaseBatchId: batchId, userId }, orderBy: { id: 'asc' }, include: {
+  const instances = await client.instance.findMany({ where: { purchaseBatchId: batchId, userId }, orderBy: { id: 'asc' }, include: {
     host: { select: { natPublicIp: true, publicIpSyncBlocked: true } },
     portMappings: { where: { protocol: 'tcp' }, select: { privatePort: true, publicPort: true } }
   } })
-  const refunds = await prisma.instanceBillingRecord.findMany({ where: { userId, instanceId: { in: instances.map(instance => instance.id) }, type: 'refund', remark: { contains: '实例创建失败自动退款' } }, select: { instanceId: true } })
-  const refunded = new Set(refunds.map(refund => refund.instanceId))
-  const purchases = await prisma.instanceBillingRecord.findMany({ where: { userId, instanceId: { in: instances.map(instance => instance.id) }, type: 'newPurchase' }, select: { instanceId: true, amount: true } })
+  const refunds = await client.instanceBillingRecord.findMany({ where: { userId, instanceId: { in: instances.map(instance => instance.id) }, type: 'refund' }, select: { instanceId: true, amount: true, remark: true } })
+  const failedIds = new Set(instances.filter(instance => instance.status === 'error' || (instance.snapshottedSpecs as { poolProvision?: { phase?: string } } | null)?.poolProvision?.phase === 'failed').map(instance => instance.id))
+  const externalRefunds = await client.checkoutRefund.findMany({ where: { orderId: batchId, instanceId: { in: instances.map(instance => instance.id) } } })
+  const pendingExternal = new Set(externalRefunds.filter(refund => refund.status === 'pending').map(refund => refund.instanceId))
+  const refunded = new Set(refunds.filter(refund => refund.remark?.includes('实例创建失败自动退款') && !pendingExternal.has(refund.instanceId)).map(refund => refund.instanceId))
+  const purchases = await client.instanceBillingRecord.findMany({ where: { userId, instanceId: { in: instances.map(instance => instance.id) }, type: 'newPurchase' }, select: { instanceId: true, amount: true } })
   const paid = new Set(purchases.filter(purchase => Number(purchase.amount) > 0).map(purchase => purchase.instanceId))
+  for (const purchase of purchases) {
+    const returned = refunds.filter(refund => refund.instanceId === purchase.instanceId).reduce((sum, refund) => sum + Math.abs(Number(refund.amount)), 0)
+    if (failedIds.has(purchase.instanceId) && !pendingExternal.has(purchase.instanceId) && returned >= Number(purchase.amount)) refunded.add(purchase.instanceId)
+  }
   return { batchId, total: Number(order.totalCents), instances: instances.map(instance => {
     const failedCreation = (instance.snapshottedSpecs as { poolProvision?: { phase?: string } } | null)?.poolProvision?.phase === 'failed'
     const ready = instance.dedicatedNetworkReady && !instance.host.publicIpSyncBlocked && ['running', 'stopped'].includes(instance.status)
     const ipv6 = customerIpv6View(instance.dedicatedIpv6, { hostId: instance.hostId, instanceName: instance.incusId, networkReady: instance.dedicatedNetworkReady })
     return { id: instance.id, name: instance.name, incusId: instance.incusId, status: failedCreation ? 'error' : instance.status, refunded: refunded.has(instance.id),
-      refundPending: instance.status === 'error' && paid.has(instance.id) && !refunded.has(instance.id),
+      refundPending: (failedCreation || instance.status === 'error') && (pendingExternal.has(instance.id) || (paid.has(instance.id) && !refunded.has(instance.id))),
       host: ready ? instance.host.natPublicIp : null, sshPort: ready ? 22 : null, publicIpUpdating: instance.host.publicIpSyncBlocked,
       publicIpv6Addresses: ['running', 'stopped'].includes(instance.status) ? ipv6?.addresses ?? [] : [], publicIpv6Status: ipv6?.status ?? 'none',
       rootPassword: ready && instance.rootPassword ? decryptSensitiveData(instance.rootPassword) : null }
@@ -343,51 +351,13 @@ export async function placePoolOrder(userId: number, username: string, input: Po
       // is rechecked before both a new debit and an existing receipt are returned.
       await lockHostGroups(tx)
       await authorizeCheckout(tx, userId, session, adminOptions)
+      if (await tx.checkoutOrder.count({ where: { id: batchId } })) throw new PoolOrderError(ErrorCode.POOL_ORDER_INVALID, '请在原购买订单中继续付款')
       const previous = await tx.poolOrder.findUnique({ where: { id: batchId } })
       if (previous) {
         if (previous.userId !== userId || previous.requestHash !== requestHash) throw new PoolOrderError(ErrorCode.POOL_ORDER_INVALID, '结算请求冲突')
         return null
       }
-      // Price changes, group edits and checkout use the same lock order.
-      // Keep the validated credentials and image definitions unchanged until the
-      // order commits; preparation may have happened before a long balance wait.
-      if (input.sshKeyId != null) {
-        await tx.$queryRaw`SELECT id FROM ssh_keys WHERE id = ${input.sshKeyId} FOR SHARE`
-        const key = await tx.sshKey.findUnique({ where: { id: input.sshKeyId } })
-        if (!key || key.userId !== userId || key.publicKey !== sshKey) {
-          throw new PoolOrderError(ErrorCode.SSH_KEY_NOT_OWNED, 'SSH密钥已变更，请重新选择')
-        }
-      }
-      const imageIds = [...new Set(items.map(item => item.imageId))].sort((a, b) => a - b)
-      await tx.$queryRaw`SELECT id FROM system_images WHERE id IN (${Prisma.join(imageIds)}) ORDER BY id FOR SHARE`
-      const commandIds = [...new Set(items.flatMap(item => item.commandSnapshot.map(command => command.id)))].sort((a, b) => a - b)
-      if (commandIds.length) await tx.$queryRaw`SELECT id FROM custom_init_commands WHERE id IN (${Prisma.join(commandIds)}) ORDER BY id FOR SHARE`
-      for (const item of items) {
-        const price = await tx.hostPoolPrice.findUnique({ where: { id: item.product.price.id } })
-        if (!price?.active || price.shadowPlanId !== item.plan.id) throw new PoolOrderError(ErrorCode.PACKAGE_UNAVAILABLE, '商品已下架')
-        if (Number(price.monthlyPrice) !== Number(item.product.price.monthlyPrice) || Number(price.setupFee) !== Number(item.product.price.setupFee)) {
-          throw new PoolOrderError(ErrorCode.POOL_PRICE_CHANGED, '价格已变动，请刷新购物车')
-        }
-        const plan = await tx.packagePlan.findUnique({ where: { id: item.plan.id }, include: { package: true } })
-        if (!plan?.isActive || !plan.package.active) throw new PoolOrderError(ErrorCode.PACKAGE_UNAVAILABLE, '商品已下架')
-        if (plan.updatedAt.getTime() !== item.plan.updatedAt.getTime()) throw new PoolOrderError(ErrorCode.POOL_PRICE_CHANGED, '商品配置已变动，请刷新购物车')
-        const image = await tx.systemImage.findFirst({ where: { remoteAlias: item.input.image, hidden: false } })
-        if (!image) throw new PoolOrderError(ErrorCode.IMAGE_NOT_FOUND, '镜像已下架')
-        if (image.id !== item.imageId || image.architecture !== item.imageSnapshot.architecture ||
-          image.instanceType !== item.imageSnapshot.instanceType || image.icon !== item.imageSnapshot.icon) {
-          throw new PoolOrderError(ErrorCode.IMAGE_TYPE_MISMATCH, '镜像配置已变更，请重新选择')
-        }
-        if (item.commandSnapshot.length) {
-          const commands = await tx.customInitCommand.findMany({ where: { id: { in: item.commandSnapshot.map(command => command.id) } },
-            select: { id: true, userId: true, name: true, command: true, distros: true, enabled: true }, orderBy: { id: 'asc' } })
-          const unchanged = commands.length === item.commandSnapshot.length && commands.every((command, index) => {
-            const prepared = item.commandSnapshot[index]
-            return command.id === prepared.id && command.userId === userId && command.enabled && command.name === prepared.name &&
-              command.command === prepared.command && JSON.stringify(JSON.parse(command.distros)) === prepared.distros
-          })
-          if (!unchanged) throw new PoolOrderError(ErrorCode.INVALID_PARAMS, '初始化命令已变更，请重新选择')
-        }
-      }
+      await validatePreparedOrder(tx, userId, input, sshKey, items)
       await tx.poolOrder.create({ data: { id: batchId, userId, requestHash, totalCents } })
       // 先扣款再预占：预占失败整单回滚时扣款一并撤销；带余额条件的原子更新防止并发下单用旧余额覆盖。
       const walletUpdate = await tx.user.updateMany({
@@ -434,81 +404,8 @@ export async function placePoolOrder(userId: number, username: string, input: Po
             })
           }
 
-          const monthlyTrafficLimit = null
-          const bandwidthLimit = DEDICATED_BANDWIDTH
-
-          const instance = await tx.instance.create({
-            data: {
-              incusId: planned.incusId,
-              name: planned.name,
-              userId,
-              hostId: lockedHost.id,
-              packageId: item.pkg.id,
-              packagePlanId: adminOptions?.billing === 'free' ? null : item.plan.id,
-              image: item.input.image,
-              cpu: item.plan.cpu,
-              memory: item.plan.memory,
-              disk: item.plan.disk,
-              networkMode: item.networkMode,
-              snapshottedSpecs: {
-                packageId: item.pkg.id,
-                packageName: item.pkg.name,
-                cpuMax: item.pkg.cpu_max,
-                memoryMax: item.pkg.memory_max,
-                diskMax: item.pkg.disk_max,
-                networkMode: item.networkMode,
-                portLimit: 0,
-                nested: Boolean(item.pkg.nested),
-                privileged: Boolean(item.pkg.privileged),
-                sshPublicKey: sshKey || null,
-                nodeSelectors: [],
-                billingMode: 'package',
-                packagePlanId: adminOptions?.billing === 'free' ? null : item.plan.id,
-                poolPriceId: price.id,
-                purchaseBatchId: batchId,
-                poolProvision: { version: 1, phase: 'prepared' },
-                createdAt: now.toISOString()
-              } as Prisma.InputJsonValue,
-              sshPort: planned.sshPort,
-              rootPassword: encryptSensitiveData(planned.rootPassword),
-              status: 'creating',
-              dedicatedIpv4: true,
-              monthlyTrafficLimit,
-              portLimit: 0,
-              snapshotLimit: item.plan.snapshotLimit,
-              backupLimit: item.plan.backupLimit,
-              siteLimit: item.plan.siteLimit,
-              swapEnabled: false,
-              swapSize: item.plan.swapSize,
-              limitsIngress: bandwidthLimit,
-              limitsEgress: bandwidthLimit,
-              expiresAt: adminOptions?.billing === 'free' ? null : item.billing.expiresAt,
-              billingPrice: adminOptions?.billing === 'free' ? null : item.billing.price,
-              billingCycle: item.billing.billingCycle,
-              poolPriceId: price.id,
-              purchaseBatchId: batchId,
-              autoRenew: false
-            }
-          })
-
-          await tx.instanceBillingRecord.create({
-            data: {
-              instanceId: instance.id,
-              userId,
-              type: 'newPurchase',
-              amount: waiveCharge ? 0 : item.billing.totalPrice,
-              months: item.billing.billingCycle,
-              periodStart: now,
-              periodEnd: item.billing.expiresAt,
-              balanceLogId: balanceLog.id,
-              purchaseBatchId: batchId,
-              remark: item.billing.setupFee > 0
-                ? `新开通 ${item.billing.billingCycle} 个月，含初装费 ¥${item.billing.setupFee.toFixed(2)}（订单 ${batchId}）`
-                : `新开通 ${item.billing.billingCycle} 个月（订单 ${batchId}）`
-            }
-          })
-
-          if (!waiveCharge) await db.processHostingIncome(lockedHost.id, item.billing.totalPrice, instance.id, 'purchase', tx)
+          const instance = await materializePoolInstance(tx, { userId, batchId, sshKey, item, planned, lockedHost,
+            adminOptions, waiveCharge: !!waiveCharge, balanceLogId: balanceLog.id, now })
           results.push({ instanceId: instance.id, host: lockedHost, item, planned })
         }
       }
@@ -565,7 +462,7 @@ export async function placePoolOrder(userId: number, username: string, input: Po
 }
 
 /** 与单台路径的「阶段六」一致：IP 预留 → 带静态地址重生成 cloud-init → 存储池 → 异步开通。 */
-async function startProvisioning(userId: number, sshKey: string, entry: CreatedInstance): Promise<void> {
+export async function startProvisioning(userId: number, sshKey: string, entry: CreatedInstance): Promise<void> {
   const { instanceId, host, item, planned } = entry
   const hostWithIpv6 = host as typeof host & {
     ipv6_subnet?: string | null
@@ -573,16 +470,19 @@ async function startProvisioning(userId: number, sshKey: string, entry: CreatedI
     ipv6_parent_interface?: string | null
   }
   // Pool products currently use PayIncus NAT delivery; do not invent an independent IPv6 address.
-  const { reserved, networkMode, storagePool } = await prisma.$transaction(async tx => {
+  const preparation = await prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
     const current = await tx.instance.findUniqueOrThrow({ where: { id: instanceId } })
+    if ((current.snapshottedSpecs as { poolProvision?: { phase?: string } } | null)?.poolProvision?.phase === 'creating') return null
     if (current.status !== 'creating' || current.provisioningCleanupPending || current.hostId !== host.id || current.userId !== userId || current.incusId !== planned.incusId) {
       throw new Error('Pool preparation was cancelled or replaced')
     }
-    const ipv4 = await db.allocateAndReserveNatIpv4(host.id, instanceId, tx)
+    const ipv4 = current.ipv4 || await db.allocateAndReserveNatIpv4(host.id, instanceId, tx)
     if (!ipv4) throw new Error('NAT IPv4 allocation failed')
     const reserved = { ipv4, ipv6: null as string | null }
-    if (hostWithIpv6.ipv6_subnet) {
+    const previousIpv6 = await tx.ipAddress.findFirst({ where: { instanceId, hostId: host.id, type: 'inet6' }, select: { address: true } })
+    if (previousIpv6) reserved.ipv6 = previousIpv6.address
+    if (hostWithIpv6.ipv6_subnet && !reserved.ipv6) {
       for (let attempt = 0; attempt < 20; attempt++) {
         const candidate = generateRandomIPv6(hostWithIpv6.ipv6_subnet)
         if (await db.isIpAddressExists(candidate, tx)) continue
@@ -598,6 +498,8 @@ async function startProvisioning(userId: number, sshKey: string, entry: CreatedI
     await tx.instance.update({ where: { id: instanceId }, data: { networkMode, storagePoolName: storagePool } })
     return { reserved, networkMode, storagePool }
     })
+  if (!preparation) return
+  const { reserved, networkMode, storagePool } = preparation
 
   // 与单台路径一致：拿到静态地址后重新生成带 network-config 的 cloud-init
   let configPayload = planned.configPayload
@@ -650,4 +552,133 @@ async function startProvisioning(userId: number, sshKey: string, entry: CreatedI
   }).catch(error => {
     console.error(`[PoolOrder] 实例 ${instanceId} 开通失败:`, error instanceof Error ? error.message : error)
   })
+}
+
+export async function validatePreparedOrder(tx: Prisma.TransactionClient, userId: number, input: PoolOrderInput, sshKey: string, items: ResolvedItem[], accepted = false) {
+      // Price changes, group edits and checkout use the same lock order.
+      // Keep the validated credentials and image definitions unchanged until the
+      // order commits; preparation may have happened before a long balance wait.
+      if (input.sshKeyId != null) {
+        await tx.$queryRaw`SELECT id FROM ssh_keys WHERE id = ${input.sshKeyId} FOR SHARE`
+        const key = await tx.sshKey.findUnique({ where: { id: input.sshKeyId } })
+        if (!key || key.userId !== userId || key.publicKey !== sshKey) {
+          throw new PoolOrderError(ErrorCode.SSH_KEY_NOT_OWNED, 'SSH密钥已变更，请重新选择')
+        }
+      }
+      const imageIds = [...new Set(items.map(item => item.imageId))].sort((a, b) => a - b)
+      await tx.$queryRaw`SELECT id FROM system_images WHERE id IN (${Prisma.join(imageIds)}) ORDER BY id FOR SHARE`
+      const commandIds = [...new Set(items.flatMap(item => item.commandSnapshot.map(command => command.id)))].sort((a, b) => a - b)
+      if (commandIds.length) await tx.$queryRaw`SELECT id FROM custom_init_commands WHERE id IN (${Prisma.join(commandIds)}) ORDER BY id FOR SHARE`
+      for (const item of items) {
+        const price = await tx.hostPoolPrice.findUnique({ where: { id: item.product.price.id } })
+        if (!price?.active || price.shadowPlanId !== item.plan.id) throw new PoolOrderError(ErrorCode.PACKAGE_UNAVAILABLE, '商品已下架')
+        if (!accepted && (Number(price.monthlyPrice) !== Number(item.product.price.monthlyPrice) || Number(price.setupFee) !== Number(item.product.price.setupFee))) {
+          throw new PoolOrderError(ErrorCode.POOL_PRICE_CHANGED, '价格已变动，请刷新购物车')
+        }
+        const plan = await tx.packagePlan.findUnique({ where: { id: item.plan.id }, include: { package: true } })
+        if (!plan?.isActive || !plan.package.active) throw new PoolOrderError(ErrorCode.PACKAGE_UNAVAILABLE, '商品已下架')
+        if (!accepted && plan.updatedAt.getTime() !== item.plan.updatedAt.getTime()) throw new PoolOrderError(ErrorCode.POOL_PRICE_CHANGED, '商品配置已变动，请刷新购物车')
+        const image = await tx.systemImage.findFirst({ where: { remoteAlias: item.input.image, hidden: false } })
+        if (!image) throw new PoolOrderError(ErrorCode.IMAGE_NOT_FOUND, '镜像已下架')
+        if (image.id !== item.imageId || image.architecture !== item.imageSnapshot.architecture ||
+          image.instanceType !== item.imageSnapshot.instanceType || image.icon !== item.imageSnapshot.icon) {
+          throw new PoolOrderError(ErrorCode.IMAGE_TYPE_MISMATCH, '镜像配置已变更，请重新选择')
+        }
+        if (item.commandSnapshot.length) {
+          const commands = await tx.customInitCommand.findMany({ where: { id: { in: item.commandSnapshot.map(command => command.id) } },
+            select: { id: true, userId: true, name: true, command: true, distros: true, enabled: true }, orderBy: { id: 'asc' } })
+          const unchanged = commands.length === item.commandSnapshot.length && commands.every((command, index) => {
+            const prepared = item.commandSnapshot[index]
+            return command.id === prepared.id && command.userId === userId && command.enabled && command.name === prepared.name &&
+              command.command === prepared.command && JSON.stringify(JSON.parse(command.distros)) === prepared.distros
+          })
+          if (!unchanged) throw new PoolOrderError(ErrorCode.INVALID_PARAMS, '初始化命令已变更，请重新选择')
+        }
+      }
+}
+export async function materializePoolInstance(tx: Prisma.TransactionClient, args: {
+  userId: number; batchId: string; sshKey: string; item: ResolvedItem; planned: ResolvedItem['planned'][number];
+  lockedHost: CreatedInstance['host']; adminOptions?: AdminPoolOrderOptions; waiveCharge: boolean; balanceLogId: number | null; now: Date
+}) {
+  const { userId, batchId, sshKey, item, planned, lockedHost, adminOptions, waiveCharge, balanceLogId, now } = args
+  const price = item.product.price
+          const monthlyTrafficLimit = null
+          const bandwidthLimit = DEDICATED_BANDWIDTH
+
+          const instance = await tx.instance.create({
+            data: {
+              incusId: planned.incusId,
+              name: planned.name,
+              userId,
+              hostId: lockedHost.id,
+              packageId: item.pkg.id,
+              packagePlanId: adminOptions?.billing === 'free' ? null : item.plan.id,
+              image: item.input.image,
+              cpu: item.plan.cpu,
+              memory: item.plan.memory,
+              disk: item.plan.disk,
+              networkMode: item.networkMode,
+              snapshottedSpecs: {
+                packageId: item.pkg.id,
+                packageName: item.pkg.name,
+                cpuMax: item.pkg.cpu_max,
+                memoryMax: item.pkg.memory_max,
+                diskMax: item.pkg.disk_max,
+                networkMode: item.networkMode,
+                portLimit: 0,
+                nested: Boolean(item.pkg.nested),
+                privileged: Boolean(item.pkg.privileged),
+                sshPublicKey: sshKey || null,
+                nodeSelectors: [],
+                billingMode: 'package',
+                packagePlanId: adminOptions?.billing === 'free' ? null : item.plan.id,
+                poolPriceId: price.id,
+                purchaseBatchId: batchId,
+                poolProvision: { version: 1, phase: 'prepared' },
+                // Commit the identity with the purchase, before any remote work.
+                // A backup of prepared must still recognize its later guest.
+                managedCleanup: { attempt: randomUUID(), endpointHash: createHash('sha256').update(IncusClient.normalizeUrl(lockedHost.url)).digest('hex') },
+                createdAt: now.toISOString()
+              } as Prisma.InputJsonValue,
+              sshPort: planned.sshPort,
+              rootPassword: encryptSensitiveData(planned.rootPassword),
+              status: 'creating',
+              dedicatedIpv4: true,
+              monthlyTrafficLimit,
+              portLimit: 0,
+              snapshotLimit: item.plan.snapshotLimit,
+              backupLimit: item.plan.backupLimit,
+              siteLimit: item.plan.siteLimit,
+              swapEnabled: false,
+              swapSize: item.plan.swapSize,
+              limitsIngress: bandwidthLimit,
+              limitsEgress: bandwidthLimit,
+              expiresAt: adminOptions?.billing === 'free' ? null : item.billing.expiresAt,
+              billingPrice: adminOptions?.billing === 'free' ? null : item.billing.price,
+              billingCycle: item.billing.billingCycle,
+              poolPriceId: price.id,
+              purchaseBatchId: batchId,
+              autoRenew: false
+            }
+          })
+
+          await tx.instanceBillingRecord.create({
+            data: {
+              instanceId: instance.id,
+              userId,
+              type: 'newPurchase',
+              amount: waiveCharge ? 0 : item.billing.totalPrice,
+              months: item.billing.billingCycle,
+              periodStart: now,
+              periodEnd: item.billing.expiresAt,
+              balanceLogId,
+              purchaseBatchId: batchId,
+              remark: item.billing.setupFee > 0
+                ? `新开通 ${item.billing.billingCycle} 个月，含初装费 ¥${item.billing.setupFee.toFixed(2)}（订单 ${batchId}）`
+                : `新开通 ${item.billing.billingCycle} 个月（订单 ${batchId}）`
+            }
+          })
+
+          if (!waiveCharge) await db.processHostingIncome(lockedHost.id, item.billing.totalPrice, instance.id, 'purchase', tx)
+  return instance
 }

@@ -396,6 +396,9 @@ export async function completeRecharge(
       await advisoryTransactionLockString(tx, PAYMENT_SETTLEMENT_LOCK_NAMESPACE, `${record.providerId}:${data.tradeNo.trim()}`)
     }
     await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, record.userId)
+    if (data.tradeNo && await tx.checkoutReceipt.findUnique({ where: { providerId_tradeNo: { providerId: record.providerId, tradeNo: data.tradeNo.trim() } } })) {
+      throw new Error('PAYMENT_TRADE_ALREADY_CREDITED')
+    }
     if (data.actor) await lockAdministrativeUserMutation(tx, record.userId, data.actor)
 
     await tx.$queryRaw`SELECT id FROM recharge_records WHERE id = ${record.id} FOR UPDATE`

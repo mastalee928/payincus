@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto'
 import { Pool, type PoolClient } from 'pg'
 import { BackupError, ensure } from './platform-backup-core.js'
 import type { BackupMigration } from './platform-backup-compatibility.js'
+import { ensureBackupLocales } from './platform-backup-locale.js'
 
 const exec = promisify(execFile)
 export function postgresConnection() {
@@ -21,12 +22,44 @@ function pgEnv(database?: string) {
   const connection = postgresConnection()
   return { PATH: '/usr/local/bin:/usr/bin:/bin', PGHOST: connection.url.hostname, PGPORT: connection.url.port || '5432',
     PGUSER: connection.user, PGPASSWORD: decodeURIComponent(connection.url.password), PGDATABASE: database || connection.database,
-    PGSSLMODE: connection.url.searchParams.get('sslmode') || 'prefer', PGCONNECT_TIMEOUT: '15' }
+    PGSSLMODE: connection.url.searchParams.get('sslmode') || 'prefer', PGCONNECT_TIMEOUT: '15', LC_ALL: 'C' }
+}
+// Classify locally; utility diagnostics can contain SQL, values and credentials.
+// Only the fixed code may reach a task receipt, never the raw stderr text.
+export function databaseToolFailure(stderr: string, launchCode?: string, timedOut = false): BackupError {
+  if (timedOut) return new BackupError('OSS_DATABASE_TOOL_TIMEOUT', 503)
+  if (launchCode === 'ENOENT') return new BackupError('OSS_DATABASE_TOOL_MISSING', 503)
+  if (['EACCES','EPERM'].includes(launchCode || '') || /permission denied|password authentication failed|no pg_hba.conf entry|must be (?:owner|superuser)/i.test(stderr))
+    return new BackupError('OSS_DATABASE_TOOL_PERMISSION_DENIED', 503)
+  if (/no space left on device|disk full/i.test(stderr)) return new BackupError('OSS_DATABASE_STORAGE_FULL', 503)
+  if (/unsupported version .* in file header|does not appear to be a valid archive|input file is too short|unexpected end of file|could not read from input file/i.test(stderr))
+    return new BackupError('OSS_DATABASE_ARCHIVE_INVALID', 409)
+  if (/connection refused|could not connect to server|connection to server .* failed|server closed the connection unexpectedly|database system is (?:starting up|shutting down)|connection timed out/i.test(stderr))
+    return new BackupError('OSS_DATABASE_UNAVAILABLE', 503)
+  return new BackupError('OSS_DATABASE_TOOL_FAILED', 503)
 }
 export async function pgQuery<T extends import('pg').QueryResultRow>(sql: string, params: unknown[] = [], database?: string): Promise<T[]> {
   const { url } = postgresConnection(); if (database) url.pathname = `/${database}`
   const pool = new Pool({ connectionString: url.toString(), max: 1, connectionTimeoutMillis: 15000, statement_timeout: 60000 })
   try { return (await pool.query<T>(sql, params)).rows } finally { await pool.end() }
+}
+// Reuse a single connection and snapshot for final recovery gates and changes.
+export async function pgRecoveryTransaction<T>(action: (query: typeof pgQuery) => Promise<T>, database?: string): Promise<T> {
+  const url = postgresConnection().url
+  if (database) url.pathname = `/${database}`
+  const pool = new Pool({ connectionString: url.toString(), max: 1, connectionTimeoutMillis: 15000, statement_timeout: 60000 })
+  const client = await pool.connect().catch(async error => { await pool.end(); throw error })
+  try {
+    await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE')
+    const query: typeof pgQuery = async (sql, params = [], database) => {
+      ensure(database === undefined, 'OSS_DATABASE_INVALID')
+      return (await client.query(sql, params)).rows
+    }
+    const result = await action(query)
+    await client.query('COMMIT')
+    return result
+  } catch (error) { await client.query('ROLLBACK'); throw error }
+  finally { client.release(); await pool.end() }
 }
 export async function appliedBackupMigrations(database?: string): Promise<BackupMigration[]> {
   const [unfinished] = await pgQuery<{ count: string }>('SELECT count(*)::text AS count FROM "_prisma_migrations" WHERE finished_at IS NULL AND rolled_back_at IS NULL', [], database)
@@ -45,12 +78,12 @@ async function pgProcess(command: 'pg_dump' | 'pg_restore' | 'psql', args: strin
   const gid = Number((await exec('/usr/bin/id', ['-g', 'incudal'])).stdout.trim())
   ensure(uid > 0 && gid > 0, 'OSS_RUNTIME_INVALID', 503)
   const child = spawn(command, args, { uid, gid, env: pgEnv(database), stdio: ['pipe', 'pipe', 'pipe'] })
-  const timer = setTimeout(() => child.kill('SIGKILL'), 60 * 60 * 1000)
-  // Discard utility output that could include database content or credentials.
-  child.stderr.resume()
+  let timedOut = false, diagnostic = ''
+  const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, 60 * 60 * 1000)
+  child.stderr.on('data', chunk => { diagnostic = (diagnostic + chunk.toString()).slice(-32768) })
   const finished = new Promise<void>((resolve, reject) => {
-    child.once('error', () => reject(new BackupError('OSS_DATABASE_TOOL_FAILED', 503)))
-    child.once('exit', code => code === 0 ? resolve() : reject(new BackupError('OSS_DATABASE_TOOL_FAILED', 503)))
+    child.once('error', (error: NodeJS.ErrnoException) => reject(databaseToolFailure(diagnostic, error.code, timedOut)))
+    child.once('close', code => code === 0 ? resolve() : reject(databaseToolFailure(diagnostic, undefined, timedOut)))
   })
   try {
     const operations: Promise<unknown>[] = [finished]
@@ -58,7 +91,13 @@ async function pgProcess(command: 'pg_dump' | 'pg_restore' | 'psql', args: strin
     else child.stdin.end()
     if (output) operations.push(pipeline(child.stdout, createWriteStream(output, { flags: 'wx', mode: 0o600 })))
     else child.stdout.resume()
-    await Promise.all(operations)
+    try { await Promise.all(operations) }
+    catch (error) {
+      // An early utility refusal can close stdin first. Preserve the actual
+      // utility classification instead of turning EPIPE into a retryable outage.
+      if ((error as NodeJS.ErrnoException).code === 'EPIPE') await finished
+      throw error
+    }
   } finally { clearTimeout(timer); if (child.exitCode === null) child.kill('SIGKILL') }
 }
 export async function dumpDatabase(destination: string, snapshot?: string) {
@@ -304,27 +343,47 @@ export async function createBackupRestoreDatabase(staging: string, expected?: Da
   ensure(typeof properties.datcollate === 'string' && typeof properties.datctype === 'string' && typeof properties.encodingName === 'string', 'OSS_DATABASE_INTEGRITY_INVALID')
   const provider = properties.datlocprovider
   ensure(!provider || provider === 'c', 'OSS_DATABASE_LOCALE_UNSUPPORTED', 409)
-  const locales = (await exec('/usr/bin/locale', ['-a'], { timeout: 10000 })).stdout.split(/\r?\n/)
-  const localeKey = (value: string) => value.toLowerCase().replace(/utf-8/g, 'utf8')
-  ensure([properties.datcollate, properties.datctype].every(value => locales.some(locale => localeKey(locale) === localeKey(value))), 'OSS_DATABASE_LOCALE_UNAVAILABLE', 409)
+  await ensureBackupLocales([properties.datcollate, properties.datctype])
   // Locale differences must not silently change index or text semantics during verification.
   await localDatabaseAdmin(`CREATE DATABASE ${quoteIdentifier(staging)} OWNER ${quoteIdentifier(postgresConnection().user)} TEMPLATE template0 ENCODING ${quoteLiteral(properties.encodingName)} LC_COLLATE ${quoteLiteral(properties.datcollate)} LC_CTYPE ${quoteLiteral(properties.datctype)};`)
+}
+export function databaseAdminFailure(stderr: string, timedOut: boolean): string {
+  if (timedOut) return 'OSS_DATABASE_ADMIN_TIMEOUT'
+  // psql VERBOSITY=verbose adds SQLSTATE. Retain only a fixed classification;
+  // SQL text, role names and database contents never enter a public result.
+  const states=[...stderr.matchAll(/(?:ERROR|FATAL|PANIC):\s+([0-9A-Z]{5}):/g)].map(row=>row[1])
+  if(states.some(code=>['57P01','57P02','57P03','53300','53400','08000','08001','08003','08004','08006'].includes(code)))return 'OSS_DATABASE_UNAVAILABLE'
+  if(states.some(code=>['55P03','40P01','40001'].includes(code)))return 'OSS_DATABASE_BUSY'
+  if(states.includes('53100'))return 'OSS_DATABASE_STORAGE_FULL'
+  return 'OSS_DATABASE_ADMIN_FAILED'
 }
 export async function localDatabaseAdmin(sql: string) {
   const { url } = postgresConnection()
   ensure(['localhost', '127.0.0.1', '[::1]', '::1'].includes(url.hostname), 'OSS_LOCAL_RESTORE_REQUIRED', 409)
   // Fixed local peer-authenticated administrator; never use credentials from the archive.
-  const child = spawn('/usr/sbin/runuser', ['-u', 'postgres', '--', 'psql', '-X', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-p', url.port || '5432', '-d', 'postgres'], {
-    env: { PATH: '/usr/bin:/bin', PGCONNECT_TIMEOUT: '15' }, stdio: ['pipe', 'pipe', 'pipe']
+  const child = spawn('/usr/sbin/runuser', ['-u', 'postgres', '--', 'psql', '-X', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-p', url.port || '5432', '-d', 'postgres'], {
+    env: { PATH: '/usr/bin:/bin', PGCONNECT_TIMEOUT: '15', LC_ALL:'C' }, stdio: ['pipe', 'pipe', 'pipe']
   })
   let output = ''
   child.stdout.on('data', chunk => { if (output.length < 65536) output += String(chunk) })
-  child.stderr.resume()
-  const timer = setTimeout(() => child.kill('SIGKILL'), 60000)
+  let diagnostic='',timedOut=false
+  child.stderr.on('data',chunk=>{diagnostic=(diagnostic+String(chunk)).slice(-65536)})
+  const timer = setTimeout(() => {timedOut=true;child.kill('SIGKILL')}, 60000)
   try {
     await new Promise<void>((resolve, reject) => {
       child.once('error', () => reject(new BackupError('OSS_DATABASE_ADMIN_FAILED', 503)))
-      child.once('exit', code => code === 0 ? resolve() : reject(new BackupError('OSS_DATABASE_ADMIN_FAILED', 503)))
+      child.once('close', async code => {
+        if(code===0){resolve();return}
+        let failure=databaseAdminFailure(diagnostic,timedOut)
+        if(code===2 && failure==='OSS_DATABASE_ADMIN_FAILED') {
+          // Exit 2 also covers authentication failure. Probe local readiness
+          // before treating it as a temporary outage, without executing SQL.
+          try { await exec('/usr/sbin/runuser',['-u','postgres','--','pg_isready','-q','-t','3','-p',url.port||'5432','-d','postgres'],
+            {env:{PATH:'/usr/bin:/bin'},timeout:5000}) }
+          catch(error){if([1,2].includes(Number((error as {code?:unknown}).code)))failure='OSS_DATABASE_UNAVAILABLE'}
+        }
+        reject(new BackupError(failure,503))
+      })
       child.stdin.on('error', () => {}); child.stdin.end(sql)
     })
     return output.trim()

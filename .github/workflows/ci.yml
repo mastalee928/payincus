@@ -91,8 +91,9 @@ jobs:
           pnpm --filter server test:gateway-dns-convergence
           pnpm --filter server test:gateway-domain-guards
           sudo apt-get update -qq
-          sudo apt-get install -y -qq wireguard-tools iproute2
+          sudo apt-get install -y -qq wireguard-tools iproute2 nftables
           sudo env INCUDAL_NETWORK_NAMESPACE_TEST=1 unshare --net python3 scripts/test-onboarding-control-network.py
+          sudo env INCUDAL_NETWORK_NAMESPACE_TEST=1 unshare --net python3 scripts/test-recovery-port-protocol-network.py
 
       - name: Type check (client)
         run: pnpm --filter client type-check
@@ -137,6 +138,51 @@ jobs:
       - name: Controller discovery and maintenance race checks
         working-directory: agent
         run: go test -race ./internal/controllerconfig ./cmd/incudal-maintenance
+
+  recovery-checkout:
+    name: Snapshot recovery and checkout
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: recovery_test
+          POSTGRES_PASSWORD: recovery_test
+          POSTGRES_DB: postgres
+        ports: ['55449:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGPASSWORD: recovery_test
+      JWT_SECRET: recovery-ci-disposable-fixture-only
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm --filter server exec prisma generate
+        env:
+          DATABASE_URL: postgresql://recovery_test:recovery_test@127.0.0.1:55449/postgres
+      - name: Restore continuation, final host gates and purchase accounting
+        run: |
+          set -euo pipefail
+          command -v createdb >/dev/null || { sudo apt-get update -qq; sudo apt-get install -y -qq postgresql-client; }
+          for pair in 'auto-resume:auto_recovery_test' 'state:state_recovery_test' 'final-check:final_recovery_test' 'instance:instance_recovery_test' 'helper:helper_recovery_test' 'gateway:gateway_recovery_test' 'replacement:replacement_recovery_test'; do
+            guard="${pair%%:*}"; database="${pair##*:}"
+            createdb -h 127.0.0.1 -p 55449 -U recovery_test "$database"
+            export DATABASE_URL="postgresql://recovery_test:recovery_test@127.0.0.1:55449/$database"
+            pnpm --filter server exec prisma migrate deploy
+            pnpm --filter server "test:platform-recovery-$guard"
+          done
+          createdb -h 127.0.0.1 -p 55449 -U recovery_test checkout_pool_test
+          export DATABASE_URL='postgresql://recovery_test:recovery_test@127.0.0.1:55449/checkout_pool_test'
+          pnpm --filter server exec prisma migrate deploy
+          pnpm --filter server test:checkout-payments
 
   billing-expiry-integration:
     name: Billing expiry integration

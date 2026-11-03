@@ -314,6 +314,10 @@ export async function createBalanceAdjustmentRequest(
   const amount = normalizeBalanceAmount(input.amount)
 
   return prisma.$transaction(async tx => {
+    if (input.requestType === 'refund' && input.sourceType === 'instance_billing') {
+      const { assertWalletRefundSource } = await import('../services/checkout-refunds.js')
+      await assertWalletRefundSource(tx, input.sourceId!)
+    }
     if (input.actor) {
       if (input.actor.id !== input.requestedByUserId) throw new Error('ADMIN_ACTOR_FORBIDDEN')
       await lockAdministrativeUserMutation(tx, input.userId, input.actor)
@@ -382,6 +386,11 @@ export async function approveBalanceAdjustmentRequest(
     }
 
     await lockAdministrativeUserMutation(tx, request.userId, actor)
+
+    if (request.requestType === 'refund' && request.sourceType === 'instance_billing') {
+      const { assertWalletRefundSource } = await import('../services/checkout-refunds.js')
+      await assertWalletRefundSource(tx, request.sourceId!)
+    }
 
     const claimed = await tx.balanceAdjustmentRequest.updateMany({
       where: { id: requestId, status: 'pending' },

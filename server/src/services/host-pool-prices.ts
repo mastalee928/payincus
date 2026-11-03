@@ -280,16 +280,19 @@ export async function listPoolPrices(machineGroupId?: number, resourcePreset?: s
  * - 购买页用 true：必须与分配器 `selectAvailableHost` 用**同一套就绪判据**，
  *   否则会出现「页面显示有货、下单却挑不到机器」。
  */
-export async function poolInventory(_options: { readyOnly?: boolean } = {}): Promise<PoolInventoryRow[]> {
-  const [hosts, readyHosts, moves] = await Promise.all([
+export async function poolInventory(_options: { readyOnly?: boolean; replacing?: { userId: number; source: 'direct' | 'cart' } } = {}): Promise<PoolInventoryRow[]> {
+  const [hosts, readyHosts, moves, reservations] = await Promise.all([
     prisma.host.findMany({ where: { singleTenant: true }, select: {
       id: true, machineGroupId: true, resourcePreset: true, regionGroupId: true, customerDiskGiB: true,
       ...poolCapacitySelect, _count: { select: { instances: { where: HOST_OCCUPIED_INSTANCE_WHERE } } }
     } }),
     prisma.host.findMany({ where: { singleTenant: true, ...dedicatedHostReadyWhere() }, select: { id: true } }),
-    prisma.instanceTask.findMany({ where: { taskType: { in: ['change_host', 'replace_host'] }, status: { in: ['PENDING', 'PROCESSING'] }, targetHostId: { not: null } }, select: { targetHostId: true } })
+    prisma.instanceTask.findMany({ where: { taskType: { in: ['change_host', 'replace_host'] }, status: { in: ['PENDING', 'PROCESSING'] }, targetHostId: { not: null } }, select: { targetHostId: true } }),
+    prisma.checkoutReservation.findMany({ where: _options.replacing ? {
+      NOT: { order: { userId: _options.replacing.userId, source: _options.replacing.source, status: 'pending' } }
+    } : {}, select: { hostId: true } })
   ])
-  const ready = new Set(readyHosts.map(host => host.id)), reserved = new Set(moves.map(task => task.targetHostId))
+  const ready = new Set(readyHosts.map(host => host.id)), reserved = new Set([...moves.map(task => task.targetHostId), ...reservations.map(row => row.hostId)])
   const byPool = new Map<string, PoolInventoryRow>()
   for (const host of hosts) {
     const key = poolKeyOf(host), id = poolKeyString(key)
@@ -301,8 +304,8 @@ export async function poolInventory(_options: { readyOnly?: boolean } = {}): Pro
   return [...byPool.values()]
 }
 
-export async function publicPoolCatalog() {
-  const [prices, inventory] = await Promise.all([listPoolPrices(), poolInventory()])
+export async function publicPoolCatalog(replacing?: { userId: number; source: 'direct' | 'cart' }) {
+  const [prices, inventory] = await Promise.all([listPoolPrices(), poolInventory({ replacing })])
   const stock = new Map(inventory.map(row => [poolKeyString(row), row]))
   const regions = new Map<number, { id: number; name: string; countryCode: string | null; products: Array<{
     id: number; resourcePreset: string; diskGiB: number; monthlyPrice: number; setupFee: number;

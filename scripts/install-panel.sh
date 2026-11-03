@@ -399,12 +399,12 @@ install_pnpm() {
 install_system_tools() {
     step "安装基础系统工具..."
 
-    apt-get install -y -qq ca-certificates curl git sudo tar python3 openssh-client openssh-server wireguard-tools >/dev/null 2>&1
+    apt-get install -y -qq ca-certificates curl git sudo tar python3 openssh-client openssh-server wireguard-tools locales >/dev/null 2>&1
 
     # apt 的错误此前被完全吞掉：任何一个基础工具没装上，后面都会以难以定位的方式失败
     # （例如 git 缺失会让部署目录不是 Git 工作区，只留下一句 warn）。这里显式验一遍。
     local missing=""
-    for _tool in curl git sudo tar python3 ssh ssh-keygen wg; do
+    for _tool in curl git sudo tar python3 ssh ssh-keygen wg locale localedef; do
         command -v "$_tool" &>/dev/null || missing="${missing} ${_tool}"
     done
     if [[ -n "$missing" ]]; then

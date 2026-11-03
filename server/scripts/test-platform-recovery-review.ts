@@ -36,7 +36,7 @@ try {
   assert.ok(service.includes('SET TRANSACTION READ ONLY'), 'review must not run business reconciliation mutations')
   assert.ok(service.includes('host.managementSshHost !== node.managementIp') && service.includes('host.managementSshPort !== node.sshPort'), 'only reserved management paths may be probed')
   assert.ok(service.includes('!host.serverCertificate || !host.serverFingerprint'), 'review refuses unpinned Incus identities')
-  assert.ok(service.includes("'/1.0/instances?recursion=1'"), 'inventory check uses read-only Incus API')
+  assert.ok(service.includes("'/1.0/instances?recursion=1&all-projects=true'"), 'inventory check uses read-only Incus API')
   assert.ok(routes.includes("'/recovery-review'") && routes.includes('fastify.authenticateAdmin, requireBackupAdmin'), 'existing restricted backup administrator boundary stays in place')
   assert.ok(routes.includes('request.user.sid') && routes.includes('origins.includes(origin)') && routes.includes("'OSS_REVIEW_WEB_SESSION_REQUIRED'"), 'recovery review keeps the Web session and admin Origin boundary')
   assert.ok(gateway.includes("'head -c64 /etc/incudal-onboarding-id'") && gateway.includes("allowed.get(peer) != str(address) + '/32'"), 'SSH probe is fixed, bounded, and bound to an enrolled /32')

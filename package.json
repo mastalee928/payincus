@@ -1,6 +1,6 @@
 {
   "name": "payincus",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "PayIncus commercial Incus platform",
   "type": "module",
   "private": true,
@@ -45,6 +45,9 @@
     "test:demo-readonly-redaction-guards": "pnpm --filter server test:demo-readonly-redaction-guards"
   },
   "testGuards": [
+    "pnpm --filter server test:auth-identity-state",
+    "pnpm --filter server test:recovery-page-state",
+    "pnpm --filter server test:recovery-gate-state",
     "pnpm --filter server test:homepage-map-labels",
     "pnpm --filter server test:prisma-transaction-start-guards",
     "pnpm --filter server test:host-install-inputs",
@@ -204,6 +207,8 @@
     "pnpm --filter server test:redeem-code-management-guards",
     "pnpm --filter server test:registration-concurrency-guards",
     "pnpm --filter server test:recharge-accounting-guards",
+    "pnpm --filter server test:checkout-payment-state",
+    "pnpm --filter server test:epay-key-formats",
     "pnpm --filter server test:recharge-query-result-storage-redaction",
     "pnpm --filter server test:recharge-gateway-order-guard",
     "pnpm --filter server test:recharge-query-guards",
@@ -243,6 +248,8 @@
     "pnpm --filter server test:platform-backup-guards",
     "pnpm --filter server test:platform-backup-interruption-guards",
     "pnpm --filter server test:platform-recovery-review",
+    "pnpm --filter server test:platform-recovery-safety",
+    "pnpm --filter server test:platform-recovery-start",
     "pnpm --filter server test:platform-recovery-reconciliation",
     "pnpm --filter server test:simple-gateway-setup",
     "pnpm --filter server test:gateway-dns-convergence",

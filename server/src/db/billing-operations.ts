@@ -794,7 +794,7 @@ async function performRenewalMutation(
  * 执行升降级操作（带乐观锁并发控制）
  * 
  * 升级：从余额扣除差价
- * 降级：差价退款到余额
+ * 降级：差价按原支付来源退款
  */
 export async function performPlanChange(
   userId: number,
@@ -885,6 +885,7 @@ export async function performPlanChange(
 
     const oldBalance = Number(user.balance)
     let hostingIncomeResult: { hostOwnerId: number; hostName: string } | null = null
+    let upgradeBalanceLogId: number | null = null
 
     // 升级需要补差价
     if (changeResult.priceDiff > 0) {
@@ -911,7 +912,7 @@ export async function performPlanChange(
       const newBalance = Number(updatedUser.balance)
 
       // 升级扣费记录
-      await tx.balanceLog.create({
+      const upgradeDebit = await tx.balanceLog.create({
         data: {
           userId,
           type: 'consume',
@@ -922,6 +923,7 @@ export async function performPlanChange(
           remark: `升级方案：${changeResult.oldPlan.name} → ${newPlan.name}`
         }
       })
+      upgradeBalanceLogId = upgradeDebit.id
 
       const hostingOwner = await resolveHostedIncomeOwner(tx, instance.hostId)
       if (hostingOwner) {
@@ -942,29 +944,14 @@ export async function performPlanChange(
       }
     }
 
-    // 降级退款到余额
+    // Refund each payment to its original source and record the refund limit.
     if (changeResult.priceDiff < 0) {
       refundAmount = Math.abs(changeResult.priceDiff)
-
-      const updatedUser = await tx.user.update({
-        where: { id: userId },
-        data: { balance: { increment: refundAmount } },
-        select: { balance: true }
-      })
-      const newBalance = Number(updatedUser.balance)
-
-      // 降级退款记录
-      await tx.balanceLog.create({
-        data: {
-          userId,
-          type: 'refund',
-          amount: refundAmount,
-          balanceBefore: oldBalance,
-          balanceAfter: newBalance,
-          instanceId: instance.id,
-          remark: `降级方案退款：${changeResult.oldPlan.name} → ${newPlan.name}`
-        }
-      })
+      const { refundInstancePayment } = await import('../services/checkout-refunds.js')
+      const refund = await refundInstancePayment(tx, instance.id, userId, refundAmount, `降级方案退款：${changeResult.oldPlan.name} → ${newPlan.name}`)
+      await tx.instanceBillingRecord.create({ data: { instanceId: instance.id, userId, type: 'refund', amount: -refundAmount,
+        months: 0, periodStart: new Date(), periodEnd: instance.expiresAt!, balanceLogId: refund.balanceLogId,
+        checkoutRefunds: { connect: refund.refundIds.map(id => ({ id })) }, remark: '方案降级差价退款' } })
     }
 
     const monthlyTrafficLimit = await resolveInstanceTrafficLimitForHost(tx as any, {
@@ -1022,6 +1009,7 @@ export async function performPlanChange(
         userId,
         type: changeResult.isUpgrade ? 'upgrade' : 'downgrade',
         amount: changeResult.priceDiff > 0 ? changeResult.priceDiff : 0,
+        balanceLogId: upgradeBalanceLogId,
         months: 0, // 升降级不改变时长
         periodStart: new Date(),
         periodEnd: instance.expiresAt!,

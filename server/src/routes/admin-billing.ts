@@ -1,3 +1,4 @@
+import { refundInstancePayment } from '../services/checkout-refunds.js'
 import { requestInstanceDeletion } from '../services/instance-deletion.js'
 import { assertNoPendingSnapshotOperations, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
@@ -15,7 +16,7 @@ import { createLog } from '../db/logs.js'
 import { normalizeLogContentForStorage } from '../lib/log-localization.js'
 import { authorizeUserWrite, type WriteActor } from '../db/user-write-authorization.js'
 import { sendNotification } from '../lib/notifier.js'
-import { createEpayClient, type EpayConfig, type EpayConfigV1, type EpayConfigV2, type EpayVersion } from '../lib/epay.js'
+import { createEpayClient, validateEpayRsaKeys, type EpayConfig, type EpayConfigV1, type EpayConfigV2, type EpayVersion } from '../lib/epay.js'
 import {
   buildHeleketConfig,
   createHeleketClient,
@@ -308,6 +309,8 @@ function buildEpayConfig(config: Record<string, unknown>): { epayConfig: EpayCon
       return { epayConfig: v2Config, valid: false, error: '支付渠道配置不完整' }
     }
 
+    const keyError = validateEpayRsaKeys(v2Config)
+    if (keyError) return { epayConfig: v2Config, valid: false, error: keyError }
     return { epayConfig: v2Config, valid: true }
   }
 }
@@ -1991,6 +1994,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         })
       }
 
+      let externalRefundCents = 0
       // 执行退款
       await prisma.$transaction(async (tx) => {
         const balanceLocked = await tryAdvisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, instance.userId)
@@ -1998,35 +2002,10 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
           throw new Error('BALANCE_CONFLICT: 用户余额正在处理，请稍后重试')
         }
 
-        const currentUser = await tx.user.findUnique({
-          where: { id: instance.userId },
-          select: { balance: true }
-        })
-        if (!currentUser) {
-          throw new Error('USER_NOT_FOUND: 用户不存在')
-        }
-        const oldBalance = Number(currentUser.balance)
-
-        // 增加用户余额
-        const updatedUser = await tx.user.update({
-          where: { id: instance.userId },
-          data: { balance: { increment: amount } },
-          select: { balance: true }
-        })
-        const newBalance = Number(updatedUser.balance)
-
-        // 记录余额变动
-        const balanceLog = await tx.balanceLog.create({
-          data: {
-            userId: instance.userId,
-            type: 'refund',
-            amount: amount,
-            balanceBefore: oldBalance,
-            balanceAfter: newBalance,
-            instanceId,
-            remark: `管理员退款：${reason}`
-          }
-        })
+        const currentLimit = await getMaxRefundable(instanceId, tx)
+        if (amount > currentLimit.maxRefundable) throw new Error('REFUND_AMOUNT_CHANGED')
+        const refund = await refundInstancePayment(tx, instanceId, instance.userId, amount, `管理员退款：${reason}`)
+        externalRefundCents = refund.externalCents
 
         // 记录退款记录（负数表示退款）
         await tx.instanceBillingRecord.create({
@@ -2038,7 +2017,8 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
             months: 0,
             periodStart: new Date(),
             periodEnd: new Date(),
-            balanceLogId: balanceLog.id,
+            balanceLogId: refund.balanceLogId,
+            checkoutRefunds: { connect: refund.refundIds.map(id => ({ id })) },
             remark: `管理员退款：${reason}（操作者: ${admin.username}）`
           }
         })
@@ -2069,7 +2049,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       )
 
       // 通知用户
-      await sendNotification(instance.userId, 'refund_completed', {
+      if (!externalRefundCents) await sendNotification(instance.userId, 'refund_completed', {
         instanceName: instance.name,
         amount,
         reason
@@ -2077,7 +2057,8 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
 
       return {
         success: true,
-        message: `已退款 ${amount} 元`,
+        message: externalRefundCents ? `已受理退款 ${amount} 元，原路退款进度可在购买订单查看` : `已退款 ${amount} 元`,
+        refundPending: externalRefundCents > 0,
         amount,
         maxRefundable: maxRefundable - amount
       }
@@ -2150,6 +2131,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       const { maxRefundable } = await getMaxRefundable(instanceId)
 
       // 4. 计算退款金额
+      let externalRefundCents = 0
       let refundAmount = 0
       if (refundType === 'full') {
         // 全额退款：退还所有已消费金额（受消费记录限制）
@@ -2179,30 +2161,10 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
               throw new Error('BALANCE_CONFLICT: 用户余额正在处理，请稍后重试')
             }
 
-            const currentUser = await tx.user.findUnique({
-              where: { id: instance.userId },
-              select: { balance: true }
-            })
-            const oldBalance = Number(currentUser?.balance || 0)
-
-            const updatedUser = await tx.user.update({
-              where: { id: instance.userId },
-              data: { balance: { increment: refundAmount } },
-              select: { balance: true }
-            })
-            const newBalance = Number(updatedUser.balance)
-
-            const balanceLog = await tx.balanceLog.create({
-              data: {
-                userId: instance.userId,
-                type: 'refund',
-                amount: refundAmount,
-                balanceBefore: oldBalance,
-                balanceAfter: newBalance,
-                instanceId,
-                remark: `管理员删除并退款（${refundType === 'full' ? '全额' : '按剩余价值'}）：${reason}`
-              }
-            })
+            const currentLimit = await getMaxRefundable(instanceId, tx)
+            if (refundAmount > currentLimit.maxRefundable) throw new Error('REFUND_AMOUNT_CHANGED')
+            const refund = await refundInstancePayment(tx, instanceId, instance.userId, refundAmount, `管理员删除并退款：${reason}`)
+            externalRefundCents = refund.externalCents
 
             await tx.instanceBillingRecord.create({
               data: {
@@ -2213,7 +2175,8 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
                 months: 0,
                 periodStart: new Date(),
                 periodEnd: new Date(),
-                balanceLogId: balanceLog.id,
+                balanceLogId: refund.balanceLogId,
+                checkoutRefunds: { connect: refund.refundIds.map(id => ({ id })) },
                 remark: `管理员删除并退款（${refundType === 'full' ? '全额' : '按剩余价值'}）：${reason}（操作者: ${admin.username}）`
               }
             })
@@ -2287,7 +2250,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       )
 
       // 7. 通知用户
-      await sendNotification(instance.userId, 'instance_deleted_refunded', {
+      if (!externalRefundCents) await sendNotification(instance.userId, 'instance_deleted_refunded', {
         instanceName: instance.name,
         refundAmount,
         refundType: refundType === 'full' ? '全额退款' : '按剩余价值退款',
@@ -2296,7 +2259,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
 
       try {
         const targetUser = await db.findUserById(instance.userId)
-        if (targetUser?.email) {
+        if (targetUser?.email && !externalRefundCents) {
           await sendInstanceDestroyRefundEmail(targetUser.email, {
             username: targetUser.username,
             instanceName: instance.name,
@@ -2313,7 +2276,8 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       const modeText = databaseOnly ? '（仅数据库）' : ''
       return {
         success: true,
-        message: `实例已删除${modeText}${refundAmount > 0 ? `，已退款 ¥${refundAmount.toFixed(2)}` : ''}`,
+        message: `实例已删除${modeText}${refundAmount > 0 ? `，${externalRefundCents ? '原路退款处理中' : '已退款'} ¥${refundAmount.toFixed(2)}` : ''}`,
+        refundPending: externalRefundCents > 0,
         refundAmount,
         refundType
       }
@@ -2453,6 +2417,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       }
 
       let priceDiff = 0
+      let priceRefundPending = false
       let remainingDays = 0
       let billingCycle = instance.billingCycle || 1
 
@@ -2544,18 +2509,12 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
             })
             balanceAfter = Number(updatedUser?.balance || 0)
             balanceBefore = roundMoney(balanceAfter + priceDiff)
-          } else {
-            const updatedUser = await tx.user.update({
-              where: { id: currentInstance.userId },
-              data: { balance: { increment: Math.abs(priceDiff) } },
-              select: { balance: true }
-            })
-            balanceAfter = Number(updatedUser.balance)
-            balanceBefore = roundMoney(balanceAfter - Math.abs(priceDiff))
           }
 
           // 记录余额变动日志
-          const balanceLog = await tx.balanceLog.create({
+          const refund = priceDiff < 0 ? await refundInstancePayment(tx, instanceId, currentInstance.userId, Math.abs(priceDiff), '管理员调整实例价格退款') : null
+          priceRefundPending = (refund?.externalCents ?? 0) > 0
+          const balanceLog = priceDiff > 0 ? await tx.balanceLog.create({
             data: {
               userId: currentInstance.userId,
               type: priceDiff > 0 ? 'consume' : 'refund',
@@ -2567,7 +2526,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
                 ? `管理员调整实例价格，补交差价 ¥${priceDiff.toFixed(2)}`
                 : `管理员调整实例价格，退还差价 ¥${Math.abs(priceDiff).toFixed(2)}`
             }
-          })
+          }) : null
 
           // 记录计费变动
           await tx.instanceBillingRecord.create({
@@ -2579,7 +2538,8 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
               months: 0,
               periodStart: new Date(),
               periodEnd: currentInstance.expiresAt || new Date(),
-              balanceLogId: balanceLog.id,
+              balanceLogId: balanceLog?.id ?? refund?.balanceLogId,
+              checkoutRefunds: { connect: (refund?.refundIds ?? []).map(id => ({ id })) },
               remark: `价格调整: ¥${oldPrice.toFixed(2)} → ¥${roundedNewPrice.toFixed(2)}`
             }
           })
@@ -2600,7 +2560,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       }
 
       // 6. 通知用户（如果有余额变动）
-      if (settleBalance && priceDiff !== 0) {
+      if (settleBalance && priceDiff !== 0 && !priceRefundPending) {
         await sendNotification(instance.userId, 'instance_price_changed', {
           instanceName: instance.name,
           oldPrice: oldPrice,
@@ -2615,7 +2575,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         message: priceDiff > 0
           ? `价格已更新，已从用户余额扣除 ¥${priceDiff.toFixed(2)}`
           : priceDiff < 0
-            ? `价格已更新，已退还用户 ¥${Math.abs(priceDiff).toFixed(2)}`
+            ? `价格已更新，${priceRefundPending ? '原路退款处理中' : '已退还用户'} ¥${Math.abs(priceDiff).toFixed(2)}`
             : '价格已更新',
         oldPrice,
         newPrice: roundedNewPrice,
@@ -2731,6 +2691,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
     try {
       const { instanceIds, newPrice, settleBalance, expectations } = parseBatchPriceUpdateBody(request.body)
       let notificationItems: BatchPriceUpdateItem[] = []
+      const priceRefundPendingIds = new Set<number>()
 
       const preview = await prisma.$transaction(async (tx) => {
         await tx.$queryRaw(Prisma.sql`SELECT id FROM instances WHERE id IN (${Prisma.join([...instanceIds].sort((a, b) => a - b))}) ORDER BY id FOR UPDATE`)
@@ -2824,20 +2785,11 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
               })
               balanceAfter = Number(updatedUser?.balance || 0)
               balanceBefore = roundMoney(balanceAfter + item.priceDiff)
-            } else {
-              const refundAmount = Math.abs(item.priceDiff)
-              const updatedUser = await tx.user.update({
-                where: { id: user.id },
-                data: {
-                  balance: { increment: refundAmount }
-                },
-                select: { balance: true }
-              })
-              balanceAfter = Number(updatedUser.balance)
-              balanceBefore = roundMoney(balanceAfter - refundAmount)
             }
 
-            const balanceLog = await tx.balanceLog.create({
+            const refund = item.priceDiff < 0 ? await refundInstancePayment(tx, item.id, user.id, Math.abs(item.priceDiff), '管理员批量调整实例价格退款') : null
+            if (refund?.externalCents) priceRefundPendingIds.add(item.id)
+            const balanceLog = item.priceDiff > 0 ? await tx.balanceLog.create({
               data: {
                 userId: user.id,
                 type: item.priceDiff > 0 ? 'consume' : 'refund',
@@ -2849,7 +2801,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
                   ? `管理员批量调整实例价格，补交差价 ¥${item.priceDiff.toFixed(2)}`
                   : `管理员批量调整实例价格，退还差价 ¥${Math.abs(item.priceDiff).toFixed(2)}`
               }
-            })
+            }) : null
 
             await tx.instanceBillingRecord.create({
               data: {
@@ -2860,14 +2812,15 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
                 months: 0,
                 periodStart: new Date(),
                 periodEnd: periodEndMap.get(item.id) || new Date(),
-                balanceLogId: balanceLog.id,
+                balanceLogId: balanceLog?.id ?? refund?.balanceLogId,
+                checkoutRefunds: { connect: (refund?.refundIds ?? []).map(id => ({ id })) },
                 remark: `批量价格调整: ¥${(item.oldPrice || 0).toFixed(2)} → ¥${item.newPrice.toFixed(2)}`
               }
             })
           }
         }
 
-        notificationItems = changedItems.filter(item => item.user && item.priceDiff !== 0)
+        notificationItems = changedItems.filter(item => item.user && item.priceDiff !== 0 && !priceRefundPendingIds.has(item.id))
         await tx.log.create({ data: {
           userId: admin.id,
           module: 'admin',

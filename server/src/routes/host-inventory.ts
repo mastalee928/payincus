@@ -66,7 +66,8 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
     const stateById = new Map<number, StockState>()
     const reasonById = new Map<number, UnsellableReason | null>()
     const increment = (target: Counts, state: StockState) => { target.total++; target[state]++ }
-    const reserved = new Set(moves.map(task => task.targetHostId))
+    const reservations = await prisma.checkoutReservation.findMany({ select: { hostId: true } })
+    const reserved = new Set([...moves.map(task => task.targetHostId), ...reservations.map(row => row.hostId)])
     for (const host of inventory) {
       const reason = unsellableReason({
         occupied: host._count.instances > 0, reserved: reserved.has(host.id), quarantined: host.poolFaulted,

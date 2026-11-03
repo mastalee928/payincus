@@ -420,7 +420,7 @@ router.beforeEach(async (to: RouteLocationNormalized, _from: RouteLocationNormal
   }
 
   // Authenticated admins accessing the admin login page
-  if (to.meta.guest && authStore.isAuthenticated) {
+  if (to.meta.guest && authStore.isAuthenticated && authStore.isAdmin) {
     // 根据用户角色跳转
     next({ name: 'admin-users' })
     return

@@ -35,7 +35,7 @@ export class IncusClient {
     this.serverCertificate = options.serverCertificate || null
     this.serverFingerprint = options.serverFingerprint || null
     if (this.serverCertificate && new X509Certificate(this.serverCertificate).fingerprint256 !== this.serverFingerprint) {
-      throw new Error('Incus TLS pin does not match the stored certificate')
+      throw Object.assign(new Error('Incus TLS pin does not match the stored certificate'), { code: 'INCUS_CERTIFICATE_MISMATCH' })
     }
     this.baseUrl = IncusClient.normalizeUrl(options.url)
     const certificatePair = resolveCertificatePair(options.certPath, options.keyPath)
@@ -47,7 +47,7 @@ export class IncusClient {
    * 规范化 URL，确保 IPv6 地址被方括号包裹
    * 例如 https://2a06:de04:10:1250:::8443 → https://[2a06:de04:10:1250::]:8443
    */
-  private static normalizeUrl(url: string): string {
+  static normalizeUrl(url: string): string {
     try {
       // 如果 new URL() 能正常解析，说明格式已经正确
       new URL(url)
@@ -94,7 +94,7 @@ export class IncusClient {
           ca: this.serverCertificate,
           rejectUnauthorized: true,
           checkServerIdentity: (_hostname: string, peer: { fingerprint256: string }) => peer.fingerprint256 === this.serverFingerprint
-            ? undefined : new Error('Incus TLS fingerprint changed')
+            ? undefined : Object.assign(new Error('Incus TLS fingerprint changed'), { code: 'INCUS_FINGERPRINT_MISMATCH' })
         } : { rejectUnauthorized: false }) // Preserve existing manually registered hosts.
       },
       headersTimeout: options.headersTimeout ?? 120000,
@@ -116,7 +116,7 @@ export class IncusClient {
     } catch (error) {
       this.connected = false
       const message = error instanceof Error ? error.message : String(error)
-      throw new Error(`无法连接到 Incus: ${message}`)
+      throw new Error(`无法连接到 Incus: ${message}`, { cause: error })
     }
   }
 
@@ -215,7 +215,7 @@ export class IncusClient {
    * 读取实例文件（用于 Files API，不解析 JSON）
    * @returns 文件内容与 HTTP 状态码
    */
-  async readFile(path: string, signal?: AbortSignal): Promise<{ content: string; statusCode: number }> {
+  async readFile(path: string, signal?: AbortSignal, maxBytes?:number): Promise<{ content: string; statusCode: number }> {
     if (!this.agent) {
       throw new Error('Incus 客户端未连接')
     }
@@ -231,7 +231,16 @@ export class IncusClient {
     })
 
     // Files API 返回原始文件内容，不是 JSON
-    const content = await response.body.text()
+    let content:string
+    if(maxBytes!==undefined) {
+      const chunks:Buffer[]=[];let size=0
+      for await (const chunk of response.body) {
+        const bytes=Buffer.from(chunk);size+=bytes.length
+        if(size>maxBytes){response.body.destroy();throw Object.assign(new Error('INCUS_FILE_TOO_LARGE'),{code:'INCUS_FILE_TOO_LARGE'})}
+        chunks.push(bytes)
+      }
+      content=Buffer.concat(chunks).toString('utf8')
+    }else content=await response.body.text()
 
     return { content, statusCode: response.statusCode }
   }

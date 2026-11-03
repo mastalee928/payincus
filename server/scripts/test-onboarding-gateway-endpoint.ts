@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import Fastify from 'fastify'
 import { validateStableGatewayEndpoint } from '../src/lib/onboarding-gateway-endpoint.js'
 import { registerGatewayEndpointRoutes } from '../src/routes/onboarding-gateway-endpoint.js'
-import { verifyRemoteGatewayDomain } from '../src/services/onboarding-gateway-endpoint.js'
+import { readGatewayEndpointPlan, verifyRemoteGatewayDomain } from '../src/services/onboarding-gateway-endpoint.js'
 import { OnboardingError } from '../src/lib/host-onboarding.js'
 
 assert.equal(await verifyRemoteGatewayDomain('8.8.4.4', 'Gateway.Example.com', async () => '8.8.4.4'), 'gateway.example.com')
@@ -17,6 +17,17 @@ for (const hostname of ['127.0.0.1', '8.8.4.4', 'localhost', 'https://gateway.ex
 }
 for (const port of [0, 65536, 1.5, '51820']) assert.throws(() => validateStableGatewayEndpoint({ hostname: 'gateway.example.com', port }))
 assert.throws(() => validateStableGatewayEndpoint({ hostname: 'gateway.example.com', port: 51820, command: 'sh' }))
+// Restore consumes the persisted plan, including its revision/history, rather
+// than passing those metadata fields into the strict endpoint input validator.
+assert.deepEqual(readGatewayEndpointPlan(JSON.stringify({ hostname: 'Gateway.Example.com', port: 51820,
+  revision: 3, previous: [{ hostname: 'old.example.com', revision: 2 }], actor: 7 })),
+{ hostname: 'gateway.example.com', port: 51820, revision: 3, previous: [{ hostname: 'old.example.com', revision: 2 }], actor: 7 })
+assert.deepEqual(readGatewayEndpointPlan(JSON.stringify({ hostname: 'gateway.example.com', port: 51820 })),
+  { hostname: 'gateway.example.com', port: 51820, revision: 0, previous: [], actor: null })
+for (const previous of [[{ hostname: 'old.example.com', revision: 3 }], [{ hostname: '127.0.0.1', revision: 1 }],
+  [{ hostname: 'old.example.com', revision: 1 }, { hostname: 'older.example.com', revision: 1 }]]) {
+  assert.throws(() => readGatewayEndpointPlan(JSON.stringify({ hostname: 'gateway.example.com', port: 51820, revision: 3, previous })))
+}
 const oldOrigin = process.env.ADMIN_FRONTEND_URL
 process.env.ADMIN_FRONTEND_URL = 'https://admin.example.com'
 const app = Fastify({ ajv: { customOptions: { removeAdditional: false } } })

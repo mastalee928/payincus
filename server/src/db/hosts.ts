@@ -994,6 +994,7 @@ export async function selectAvailableHost(options: {
 export async function selectAndReserveHostWithLock(
   tx: Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>,
   options: {
+    reservationOnly?: boolean
     poolImageId?: number
     poolMachineGroupId?: number
     poolRegionGroupId?: number
@@ -1106,7 +1107,7 @@ export async function selectAndReserveHostWithLock(
         architecture: options.poolResourcePreset?.startsWith('ARM') ? 'aarch64' : 'x86_64',
         customerDiskGiB: options.poolDiskGiB, instances: { none: HOST_OCCUPIED_INSTANCE_WHERE },
         ...(options.poolImageId ? { AND: [{ OR: [{ allowedImages: { none: {} } }, { allowedImages: { some: { imageId: options.poolImageId } } }] }] } : {}) }, select: { id: true } })
-      if (!ready || await tx.instanceTask.count({ where: hostPendingMoveWhere(host.id) })) continue
+      if (!ready || await tx.instanceTask.count({ where: hostPendingMoveWhere(host.id) }) || await tx.checkoutReservation.count({ where: { hostId: host.id } })) continue
     }
 
     // 检查标签选择�?
@@ -1208,7 +1209,7 @@ export async function selectAndReserveHostWithLock(
     console.log(`[selectAndReserveHostWithLock] 宿主�?${host.name} 通过检查，执行资源预占`)
 
     // 资源检查通过，更新宿主机资源使用量（在同一事务中原子执行）
-    await tx.host.update({
+    if (!options.reservationOnly) await tx.host.update({
       where: { id: host.id },
       data: {
         cpuUsed: cpuUsedEffective + cpu,

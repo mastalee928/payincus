@@ -16,6 +16,7 @@ export type PoolCleanup = {
   createdBefore: string; createdAfter?: string; taskId?: number; uuid?: string; createdAt?: string; marker?: string
   status: 'pending' | 'retry' | 'blocked' | 'done'; attempts: number; nextAttemptAt?: string
   error?: string; finishedAt?: string
+  recoverySupersededBy?: string
 }
 export function poolCleanupRecord(host: Host, name: string, actorId: number, createdBefore: Date, taskId?: number): PoolCleanup {
   return { version: 1, kind: taskId ? 'replacement' : 'verify_empty', name, actorId,
@@ -43,7 +44,7 @@ export async function queueDeletedPoolHost(instanceId: number): Promise<void> {
     const host = await tx.host.findUniqueOrThrow({ where: { id: instance.hostId } })
     if (!host.singleTenant || instance.status !== 'deleted') return
     const existing = readPoolCleanup(host.poolCleanup)
-    if (existing && existing.status !== 'done') return
+    if (existing && existing.status !== 'done' && !existing.recoverySupersededBy) return
     await tx.host.update({ where: { id: host.id }, data: { poolFaulted: true,
       poolCleanup: json(poolCleanupRecord(host, instance.incusId, host.userId, new Date())) } })
   })
@@ -58,7 +59,7 @@ export async function retryPoolCleanup(hostId: number, actorId: number): Promise
     if (actor?.role !== 'admin' || actor.status !== 'active') throw new Error('CLEANUP_ADMIN_AUTHORIZATION_CHANGED')
     const host = await tx.host.findUniqueOrThrow({ where: { id: hostId } })
     const state = readPoolCleanup(host.poolCleanup)
-    if (!host.poolFaulted || !state || state.status === 'done') return
+    if (!host.poolFaulted || !state || state.status === 'done' || state.recoverySupersededBy) return
     // A retry grants a new attempt, never a new host/guest identity.
     await tx.host.update({ where: { id: hostId }, data: { poolCleanup: json({ ...state, actorId, revision: randomUUID(),
       status: 'pending', attempts: 0, error: undefined, nextAttemptAt: undefined }) } })
@@ -78,7 +79,7 @@ export async function processPoolCleanup(hostId: number, connect = getIncusClien
       if (recoveryHeld()) return
       const host = await tx.host.findUnique({ where: { id: hostId } })
       const state = readPoolCleanup(host?.poolCleanup)
-      if (!host || !state || !['pending', 'retry', 'blocked'].includes(state.status) ||
+      if (!host || !state || state.recoverySupersededBy || !['pending', 'retry', 'blocked'].includes(state.status) ||
           (state.nextAttemptAt && Date.parse(state.nextAttemptAt) > Date.now())) return
       attempt = { ...state, attempts: state.attempts + 1, status: 'retry', nextAttemptAt: new Date(Date.now() + 60000).toISOString() }
       if (!host.poolFaulted || transferHostIdentity(host) !== state.hostIdentity) throw new CleanupBlocked('HOST_IDENTITY_OR_QUARANTINE_CHANGED')
@@ -212,7 +213,7 @@ export async function processPoolCleanupQueue(connect = getIncusClient): Promise
       const current = readPoolCleanup(host.poolCleanup)
       if (current?.nextAttemptAt && Date.parse(current.nextAttemptAt) > Date.now()) continue
       if (host.poolCleanup !== null && !current) continue // records-only keeps its explicit retained-data policy
-      if (current?.status === 'done') continue
+      if (current?.status === 'done' || current?.recoverySupersededBy) continue
       cleanupCursor = host.id
       try {
         let state = current

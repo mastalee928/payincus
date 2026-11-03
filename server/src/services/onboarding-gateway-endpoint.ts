@@ -11,7 +11,7 @@ export interface GatewayEndpointPlan extends StableGatewayEndpoint {
   previous: Array<{ hostname: string; revision: number }>
   actor: number | null
 }
-function readPlan(raw: string): GatewayEndpointPlan {
+export function readGatewayEndpointPlan(raw: string): GatewayEndpointPlan {
   const row = JSON.parse(raw)
   const endpoint = validateStableGatewayEndpoint({ hostname: row.hostname, port: row.port })
   const revision = row.revision ?? 0
@@ -26,7 +26,7 @@ function readPlan(raw: string): GatewayEndpointPlan {
 }
 export async function loadGatewayEndpointPlan(): Promise<GatewayEndpointPlan | null> {
   const config = await prisma.systemConfig.findUnique({ where: { key }, select: { value: true } })
-  return config ? readPlan(config.value) : null
+  return config ? readGatewayEndpointPlan(config.value) : null
 }
 export async function resolveGatewayEndpointAddress(value: string): Promise<string> {
   const hostname = normalizeOnboardingAddress(value)
@@ -69,7 +69,7 @@ export async function saveStableGatewayEndpoint(input: unknown, actor?: number, 
     }
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('onboarding_gateway_dns_endpoint'))`
     const record = await tx.systemConfig.findUnique({ where: { key }, select: { value: true } })
-    const old = record ? readPlan(record.value) : null
+    const old = record ? readGatewayEndpointPlan(record.value) : null
     if (expectedHostname !== undefined && (old?.hostname ?? '') !== expectedHostname) throw new OnboardingError('GATEWAY_DNS_SETTINGS_CONFLICT')
     if (old && old.port !== endpoint.port) throw new OnboardingError('GATEWAY_DNS_PORT_CONFLICT')
     const changed = !!old && old.hostname !== endpoint.hostname

@@ -3,6 +3,8 @@ import { Prisma, type BillingRecordType, type OrderOperationStatus, type Recharg
 import { prisma } from '../db/prisma.js'
 import { createBalanceAdjustmentRequest } from '../db/balance.js'
 import { createLog } from '../db/logs.js'
+import { assertWalletRefundSource } from '../services/checkout-refunds.js'
+import { getInstanceBillingLineageIds } from '../db/billing-records.js'
 
 const POSITIVE_ID_PATTERN = /^[1-9]\d*$/
 const ORDER_TYPES = new Set(['recharge', 'instance_billing'])
@@ -296,6 +298,43 @@ function buildBillingOrder(record: {
   }
 }
 
+async function billingOrdersWithPayment(records: (Parameters<typeof buildBillingOrder>[0] & { instanceId: number })[]) {
+  const lineages = await Promise.all([...new Set(records.map(row => row.instanceId))].map(async id => ({ id, ids: await getInstanceBillingLineageIds(id) })))
+  const purchaseSources = await prisma.instanceBillingRecord.findMany({ where: { instanceId: { in: lineages.flatMap(row => row.ids) }, type: 'newPurchase', purchaseBatchId: { not: null } }, select: { instanceId: true, purchaseBatchId: true } })
+  const sourceBills = await prisma.instanceBillingRecord.findMany({ where: { id: { in: records.map(row => row.id) } }, select: { id: true, purchaseBatchId: true } })
+  const batches = sourceBills.flatMap(row => row.purchaseBatchId ? [row.purchaseBatchId] : [])
+  const [orders, refunds, batchBills] = await Promise.all([
+    prisma.checkoutOrder.findMany({ where: { id: { in: [...batches, ...purchaseSources.map(row => row.purchaseBatchId!)] } }, include: { payments: { include: { receipts: true } } } }),
+    prisma.checkoutRefund.findMany({ where: { billingRecordId: { in: records.map(row => row.id) } }, include: { payment: true, receipt: true } }),
+    prisma.instanceBillingRecord.findMany({ where: { purchaseBatchId: { in: batches }, type: 'newPurchase' }, orderBy: { id: 'asc' } })
+  ])
+  return records.map(record => {
+    const base = buildBillingOrder(record)
+    const related = refunds.filter(row => row.billingRecordId === record.id)
+    const order = orders.find(row => row.id === sourceBills.find(bill => bill.id === record.id)?.purchaseBatchId)
+    const payment = record.type === 'newPurchase' ? order?.payments.find(row => row.id === order.paymentId) : related[0]?.payment
+    const lineage = lineages.find(row => row.id === record.instanceId)?.ids ?? []
+    const walletRefundAllowed = !purchaseSources.some(bill => lineage.includes(bill.instanceId) && orders.some(row => row.id === bill.purchaseBatchId && row.paidAt && row.paymentId && row.paymentId !== 'balance'))
+    if (!payment) return { ...base, walletRefundAllowed }
+    const pending = related.some(row => row.status !== 'refunded')
+    const principal = Math.round(Math.abs(base.amount) * 100)
+    const preceding = batchBills.filter(row => row.purchaseBatchId === order?.id && row.id < record.id).reduce((sum, row) => sum + Math.round(Number(row.amount) * 100), 0)
+    const feeCents = related.length ? related.reduce((sum, row) => sum + row.amountCents - row.principalCents, 0)
+      : order?.totalCents ? Math.round((preceding + principal) * payment.feeCents / order.totalCents) - Math.round(preceding * payment.feeCents / order.totalCents) : 0
+    const paymentSources = related.map(row => ({ providerName: row.payment.providerName, method: row.payment.method,
+      amount: row.amountCents / 100, status: row.status === 'refunded' ? 'refunded' : 'refund_pending' }))
+    const walletCents = principal - related.reduce((sum, row) => sum + row.principalCents, 0)
+    if (related.length && walletCents > 0) paymentSources.push({ providerName: '', method: 'balance', amount: walletCents / 100, status: 'refunded' })
+    return { ...base, provider: { id: payment.providerId, name: payment.providerName, type: payment.providerType },
+      paymentSources,
+      paymentMethod: payment.method, tradeNo: related[0]?.receipt.tradeNo ?? order?.payments.find(row => row.id === payment.id)?.receipts[0]?.tradeNo ?? null,
+      status: pending ? 'refund_pending' : base.status, fee: feeCents / 100,
+      actualAmount: (principal + feeCents) / 100 * (base.amount < 0 ? -1 : 1),
+      completedAt: related.length ? pending ? null : related.reduce((latest, row) => row.handledAt && row.handledAt > latest ? row.handledAt : latest, new Date(0)).toISOString() : base.completedAt,
+      walletRefundAllowed: false }
+  })
+}
+
 function serializeBalanceAdjustmentRequest(request: any) {
   if (!request) return null
   return {
@@ -498,10 +537,10 @@ async function listOrders(options: {
 
   const combined = [
     ...rechargeRecords.map(record => buildRechargeOrder(record)),
-    ...billingRecords.map(record => buildBillingOrder({
+    ...await billingOrdersWithPayment(billingRecords.map(record => ({
       ...record,
       user: billingUserById.get(record.userId) ?? null
-    }))
+    })))
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
   const start = (options.page - 1) * options.pageSize
@@ -592,7 +631,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
       }
     })
     if (!record) return reply.code(404).send({ error: 'Order not found', code: 'ORDER_NOT_FOUND' })
-    return { order: buildBillingOrder(record) }
+    return { order: (await billingOrdersWithPayment([record]))[0] }
   })
 
   fastify.get<{ Querystring: OrderQuery }>('/api/admin/orders', {
@@ -671,7 +710,7 @@ export default async function orderRoutes(fastify: FastifyInstance) {
     const operationCase = await getOrderOperationCase(type, id)
     return {
       order: {
-        ...buildBillingOrder({ ...record, user }),
+        ...(await billingOrdersWithPayment([{ ...record, user }]))[0],
         operationCase: serializeOrderOperationCase(operationCase)
       }
     }
@@ -709,6 +748,11 @@ export default async function orderRoutes(fastify: FastifyInstance) {
 
     if (!order) {
       return reply.code(404).send({ error: '订单不存在', code: 'ORDER_NOT_FOUND' })
+    }
+
+    if (input.createRefundRequest && billingOrder) {
+      try { await assertWalletRefundSource(prisma, billingOrder.id) }
+      catch (error) { return reply.code(409).send({ error: (error as Error).message, code: 'EXTERNAL_REFUND_REQUIRED' }) }
     }
 
     if (

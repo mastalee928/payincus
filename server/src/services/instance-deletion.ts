@@ -26,6 +26,7 @@ import { recoveryHeld } from './platform-backup-core.js'
 import { reverseInstanceAffCommissionForRefund } from '../routes/instance-destroy.js'
 import { sendInstanceDestroyRefundEmail } from '../lib/mailer.js'
 import { automaticOperationAudit } from '../lib/automatic-operation-audit.js'
+import { refundInstancePayment } from './checkout-refunds.js'
 
 type Mode = 'admin' | 'host' | 'owner' | 'user_destroy'
 export type DeletionIntent = {
@@ -33,7 +34,7 @@ export type DeletionIntent = {
   adminRefundType?: 'full' | 'remaining'
   ownerId: number; hostId: number; name: string; hostIdentity: string; instanceVersion: number
   requestedAt: string; status: 'pending' | 'retry' | 'blocked' | 'done'; attempts: number; nextAttemptAt?: string
-  uuid?: string; createdAt?: string; absent?: boolean; error?: string; refundAmount?: number; isFirstTime?: boolean
+  uuid?: string; createdAt?: string; absent?: boolean; error?: string; refundPending?: boolean; refundAmount?: number; refundBillingRecordId?: number; isFirstTime?: boolean
   sites: Array<{ id: number; siteKey: string; revision: number }>
 }
 type Expected = { id: number; hostId: number; userId: number; incusId: string; status: string; expiresAt: Date | string | null; version?: number }
@@ -116,7 +117,7 @@ export async function instanceDeletionResult(instanceId: number) {
   const row = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId } })
   const state = readDeletionIntent(row.deletionIntent)!
   return { success: state.status === 'done', pending: state.status !== 'done', refundAmount: state.refundAmount || 0,
-    feeAmount: 0, isFirstTime: state.isFirstTime || false,
+    refundPending: state.refundPending || false, feeAmount: 0, isFirstTime: state.isFirstTime || false,
     message: state.status === 'done' ? '实例已删除，资源已释放' : '删除已受理，系统正在自动清理并核验资源释放' }
 }
 
@@ -199,7 +200,7 @@ export async function processInstanceDeletion(instanceId: number, connect = getI
         if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
         // Remote disk/snapshot/forward absence is established before money or inventory changes.
         step = '结算原删除请求并释放资源登记'
-        let refundAmount = 0, isFirstTime = false
+        let refundAmount = 0, refundPending = false, isFirstTime = false, refundBillingRecordId: number | undefined
         if (state.refund && (state.adminRefundType || instance.userId !== host.userId)) {
           await advisoryTransactionLock(tx, USER_BALANCE_LOCK_NAMESPACE, instance.userId)
           const remark = state.adminRefundType ? `管理员删除并退款：${state.revision}` : '节点实例删除退款'
@@ -207,16 +208,20 @@ export async function processInstanceDeletion(instanceId: number, connect = getI
           if (!previous) {
             refundAmount = state.adminRefundType === 'full' ? (await getMaxRefundable(instanceId, tx)).maxRefundable : (await calculateInstanceRefund(instance, tx)).refundAmount
             if (refundAmount > 0) {
-              const before = await tx.user.findUniqueOrThrow({ where: { id: instance.userId } })
-              const after = await tx.user.update({ where: { id: instance.userId }, data: { balance: { increment: refundAmount } } })
-              const log = await tx.balanceLog.create({ data: { userId: instance.userId, type: 'refund', amount: refundAmount,
-                balanceBefore: before.balance, balanceAfter: after.balance, instanceId, remark: `托管实例被删除退款：${instance.name}` } })
-              await tx.instanceBillingRecord.create({ data: { instanceId, userId: instance.userId, type: 'refund', amount: state.adminRefundType ? -refundAmount : refundAmount,
-                months: 0, periodStart: new Date(), periodEnd: instance.expiresAt || new Date(), balanceLogId: log.id, remark } })
+              const refund = await refundInstancePayment(tx, instanceId, instance.userId, refundAmount, `托管实例被删除退款：${instance.name}`)
+              refundPending = refund.externalCents > 0
+              const refundBill = await tx.instanceBillingRecord.create({ data: { instanceId, userId: instance.userId, type: 'refund', amount: state.adminRefundType ? -refundAmount : refundAmount,
+                months: 0, periodStart: new Date(), periodEnd: instance.expiresAt || new Date(), balanceLogId: refund.balanceLogId,
+                checkoutRefunds: { connect: refund.refundIds.map(id => ({ id })) }, remark } })
+              refundBillingRecordId = refundBill.id
               if (state.adminRefundType) await reverseInstanceAffCommissionForRefund({ tx, instanceId, refundAmount,
                 remark: `管理员删除并退款返利冲正：${instance.name}` })
               await deductHostingBalance(host.id, refundAmount, instanceId, `删除托管实例退款扣除：${instance.name}`, tx)
             }
+          } else {
+            refundBillingRecordId = previous.id
+            refundAmount = Math.abs(Number(previous.amount))
+            refundPending = !!await tx.checkoutRefund.count({ where: { billingRecordId: previous.id, status: { not: 'refunded' } } })
           }
         }
         if (state.mode === 'user_destroy' && instance.packagePlanId) {
@@ -236,7 +241,7 @@ export async function processInstanceDeletion(instanceId: number, connect = getI
         await tx.ipv6Subnet.deleteMany({ where: { instanceId } })
         await tx.$executeRaw`UPDATE public_ipv4_addresses SET status = 'free', instance_id = NULL, released_at = NOW(), updated_at = NOW()
           WHERE instance_id = ${instanceId} AND status = 'assigned'`
-        const done: DeletionIntent = { ...state, status: 'done', error: undefined, nextAttemptAt: undefined, refundAmount, isFirstTime }
+        const done: DeletionIntent = { ...state, status: 'done', error: undefined, nextAttemptAt: undefined, refundAmount, refundPending, refundBillingRecordId, isFirstTime }
         await tx.instance.update({ where: { id: instanceId }, data: { deletionBillingPending: false, provisioningCleanupPending: false, deletionIntent: asJson(done) } })
         const allocated = { hostId: host.id, ...HOST_OCCUPIED_INSTANCE_WHERE }
         const resources = await tx.instance.aggregate({ where: allocated, _sum: { cpu: true, memory: true, disk: true } })
@@ -249,7 +254,7 @@ export async function processInstanceDeletion(instanceId: number, connect = getI
         await tx.log.create({ data: { userId: state.actor.id, instanceId, module: 'instance',
           action: state.mode === 'user_destroy' ? 'instance.user_destroy' : 'instance.delete', result: 'success',
           content: automaticOperationAudit({ hostId: host.id, hostName: host.name, instanceId, stage: step, attempt: state.attempts,
-            result: `删除成功；实例、磁盘、快照及转发均已释放；退款 ${refundAmount.toFixed(2)}；宿主可售资格由后台继续核验` }) } })
+            result: `删除成功；实例、磁盘、快照及转发均已释放；${refundPending ? '原路退款处理中' : '退款'} ${refundAmount.toFixed(2)}；宿主可售资格由后台继续核验` }) } })
         completed = { instance, host, state: done }
       }, { timeout: scope.remaining(), maxWait: 3000 })
     })
@@ -277,12 +282,12 @@ export async function processInstanceDeletion(instanceId: number, connect = getI
   // A notification transport cannot roll back or replay a completed deletion/refund.
   if (completed) {
     const { instance, host, state } = completed
-    void sendNotification(instance.userId, state.adminRefundType ? 'instance_deleted_refunded' : state.reason ? 'instance_deleted_by_host_owner' : 'instance_deleted', {
+    if (!state.refundPending) void sendNotification(instance.userId, state.adminRefundType ? 'instance_deleted_refunded' : state.reason ? 'instance_deleted_by_host_owner' : 'instance_deleted', {
       refundAmount: state.refundAmount || 0, refundType: state.adminRefundType === 'full' ? '全额退款' : '按剩余价值退款', reason: state.reason,
       instanceName: instance.name, hostName: host.name, ...(state.reason ? { deleteReason: state.reason } : {}) }).catch(() => {})
     if (state.adminRefundType) {
       const owner = await prisma.user.findUnique({ where: { id: instance.userId }, select: { email: true, username: true } })
-      if (owner?.email) void sendInstanceDestroyRefundEmail(owner.email, { username: owner.username, instanceName: instance.name,
+      if (owner?.email) if (!state.refundPending) void sendInstanceDestroyRefundEmail(owner.email, { username: owner.username, instanceName: instance.name,
         refundAmount: state.refundAmount || 0, refundType: state.adminRefundType === 'full' ? '全额退款' : '按剩余价值退款', reason: state.reason || '', isUserDestroy: false }).catch(() => {})
     }
     if (state.mode === 'user_destroy') void sendHostManagedInstanceNotification(host.id, 'destroy', {

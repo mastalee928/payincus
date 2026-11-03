@@ -762,6 +762,7 @@ export type UserDeletionBlockers = {
   hostingBalanceNonZero: boolean
   balanceLogs: number
   rechargeRecords: number
+  checkoutOrders: number
   hostingBalanceLogs: number
   loginRecords: number
   redeemCodeUsages: number
@@ -776,6 +777,7 @@ export async function getUserDeletionBlockers(userId: number, client: Prisma.Tra
     hostingZones,
     balanceLogs,
     rechargeRecords,
+    checkoutOrders,
     hostingBalanceLogs,
     loginRecords,
     redeemCodeUsages
@@ -792,6 +794,7 @@ export async function getUserDeletionBlockers(userId: number, client: Prisma.Tra
     client.hostingZone.count({ where: { ownerId: userId } }),
     client.balanceLog.count({ where: { userId } }),
     client.rechargeRecord.count({ where: { userId } }),
+    client.checkoutOrder.count({ where: { userId } }),
     client.hostingBalanceLog.count({ where: { userId } }),
     client.loginRecord.count({ where: { userId } }),
     client.redeemCodeUsage.count({ where: { userId } })
@@ -806,6 +809,7 @@ export async function getUserDeletionBlockers(userId: number, client: Prisma.Tra
     hostingBalanceNonZero: balances?.hostingBalance.isZero() === false,
     balanceLogs,
     rechargeRecords,
+    checkoutOrders,
     hostingBalanceLogs,
     loginRecords,
     redeemCodeUsages

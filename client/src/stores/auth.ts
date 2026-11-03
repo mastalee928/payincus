@@ -9,6 +9,7 @@ export const useAuthStore = defineStore('auth', () => {
   const quota = ref<any>(null)
   let generation = 0, identitySequence = 0
   let logoutGeneration: number | undefined
+  let identityRead: { current: () => boolean; promise: Promise<AuthUser | null> } | undefined
   function tokenIdentity(value: string | null): string {
     if (!value) return ''
     try {
@@ -102,8 +103,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function fetchCurrentUser(): Promise<AuthUser | null> {
     if (!token.value || logoutGeneration === generation) return null
+    // Router initialization, the store timer and visibility checks must await
+    // the same verified identity. A parallel read cannot invalidate the result
+    // another caller needs to decide whether the current route is allowed.
+    if (identityRead?.current()) return identityRead.promise
     const context = captureIdentity()
-    try {
+    const promise = (async () => { try {
       const response = await api.auth.me()
       if (!context.current()) return null
       if (!validUser(response?.user, context.userId)) throw Error('Invalid identity response')
@@ -118,7 +123,10 @@ export const useAuthStore = defineStore('auth', () => {
         clearLocalAuth()
       }
       throw error
-    }
+    } })()
+    identityRead = { current: context.current, promise }
+    try { return await promise }
+    finally { if (identityRead?.promise === promise) identityRead = undefined }
   }
 
   // 清除本地认证状态（不调用后端API）
@@ -177,23 +185,13 @@ export const useAuthStore = defineStore('auth', () => {
       return false
     }
     if (logoutGeneration === generation) return false
-    const context = captureIdentity()
     try {
-      const response = await api.auth.me()
-      if (!context.current()) return !!token.value
-      if (!validUser(response?.user, context.userId)) throw Error('Invalid identity response')
-      applyAuthUser(response.user)
-      quota.value = (response.user as any).quota || null
-      return true
-    } catch (error: any) {
-      if (!context.current()) return !!token.value
-      // 如果是401，说明会话已过期
-      if (error?.code === 'UNAUTHORIZED' || error?.response?.status === 401) {
-        clearLocalAuth()
-        return false
-      }
-      // 其他错误（如网络错误），不清除状态
-      return true
+      await fetchCurrentUser()
+      return !!token.value
+    } catch {
+      // fetchCurrentUser clears only the current session on 401. Temporary
+      // transport failures preserve its last verified identity.
+      return !!token.value
     }
   }
 

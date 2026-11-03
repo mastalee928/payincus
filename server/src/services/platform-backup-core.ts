@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto'
 import { constants, existsSync } from 'node:fs'
-import { mkdir, open, readdir, rename, unlink } from 'node:fs/promises'
+import { mkdir, open, readdir, rename, unlink, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
 export const BACKUP_INTERVALS = [1, 3, 6, 12, 24, 72] as const
@@ -32,12 +32,30 @@ export function validateRegion(value: unknown): string {
   ensure(typeof value === 'string' && OSS_REGIONS.some(row => row.id === value), 'OSS_REGION_INVALID')
   return value
 }
+// A configured root needs room for installation/backup UUIDs and companion names.
+// Browsing/restoring must also accept already-written complete object prefixes.
 export function validatePrefix(value: unknown, allowEmpty = false): string {
-  ensure(typeof value === 'string' && value.length <= 400, 'OSS_PREFIX_INVALID')
+  const result = validateObjectPrefix(value, allowEmpty)
+  ensure(Buffer.byteLength(result, 'utf8') <= 800, 'OSS_PREFIX_INVALID')
+  return result
+}
+export function validateObjectPrefix(value: unknown, allowEmpty = false): string {
+  ensure(typeof value === 'string', 'OSS_PREFIX_INVALID')
   ensure(!/[\\\x00-\x1f\x7f%]/.test(value) && !value.startsWith('/'), 'OSS_PREFIX_INVALID')
   const result = value.replace(/\/+$/, '')
   ensure((allowEmpty || result.length > 0) && (!result || result.split('/').every(p => p && p !== '.' && p !== '..')), 'OSS_PREFIX_INVALID')
-  return result ? `${result}/` : ''
+  const prefix = result ? `${result}/` : ''
+  ensure(Buffer.byteLength(prefix, 'utf8') <= 1023, 'OSS_PREFIX_INVALID')
+  return prefix
+}
+export function validateObjectKey(value: string): string {
+  ensure(!value.endsWith('/'), 'OSS_PREFIX_INVALID')
+  // Prefix normalization adds a slash; validate syntax without rejecting an
+  // object key that already occupies OSS's full 1023-byte allowance.
+  ensure(typeof value === 'string' && !/[\\\x00-\x1f\x7f%]/.test(value) && !value.startsWith('/') &&
+    value.split('/').every(part => part && part !== '.' && part !== '..'), 'OSS_PREFIX_INVALID')
+  ensure(Buffer.byteLength(value, 'utf8') <= 1023, 'OSS_PREFIX_INVALID')
+  return value
 }
 export function validateId(value: unknown): string {
   ensure(typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(value), 'OSS_TASK_INVALID')
@@ -130,7 +148,12 @@ export async function readJson<T>(path: string, limit = 1024 * 1024): Promise<T 
 export async function writeJson(path: string, value: unknown, mode = 0o600): Promise<void> {
   const temporary = `${path}.${randomUUID()}.tmp`
   const file = await open(temporary, 'wx', mode)
-  try { await file.writeFile(JSON.stringify(value)); await file.sync() } finally { await file.close() }
+  try {
+    // Root-created public state must retain the protected directory's service
+    // group; otherwise a restored operator cannot read the new 0640 file.
+    if (process.platform !== 'win32' && process.getuid?.() === 0 && (mode & 0o040)) await file.chown(0, (await stat(dirname(path))).gid)
+    await file.writeFile(JSON.stringify(value)); await file.sync()
+  } finally { await file.close() }
   try { await rename(temporary, path) } finally { await unlink(temporary).catch(() => {}) }
   if (process.platform !== 'win32') {
     const directory = await open(dirname(path), 'r')
@@ -143,15 +166,25 @@ export async function initBackupState(): Promise<void> {
 }
 export const readBackupConfig = () => readJson<BackupConfig>(statePath('inbox', 'config.json'))
 export const writeBackupConfig = (config: BackupConfig) => writeJson(statePath('inbox', 'config.json'), config)
-export type BackupTaskKind = 'backup' | 'preview' | 'restore' | 'resume' | 'rollback'
+export type BackupTaskKind = 'backup' | 'preview' | 'restore' | 'resume' | 'rollback' | 'gateway-map' | 'gateway-helper'
 export interface BackupTaskRequest {
   id: string; kind: BackupTaskKind; createdAt: string; createdBy: number; config: BackupConfig
-  sourcePrefix?: string; password?: string; previewId?: string; confirmation?: string
+  sourcePrefix?: string; password?: string; previewId?: string; confirmation?: string; recoveryBatchId?: string
+  gatewayAddress?: string
+  recoveryHelperId?: string
+  recoveryMappingId?: string
+  restorePolicy?: 'snapshot-v1'
 }
 export interface BackupTaskResult {
   id: string; kind: BackupTaskKind; status: 'pending' | 'running' | 'success' | 'failed' | 'warning'
   createdAt: string; updatedAt: string; stage: string; error?: string
   bytes?: number; objectPrefix?: string; preview?: { version: string; createdAt: string; files: number; expiresAt: string }
+  continuation?: { status: 'retry' | 'blocked' | 'complete'; attempts: number; nextAt: string | null }
+  // Written only by the root worker when a restore failed before its WAL/hold.
+  // An absent flag is ambiguous and must never authorize another overwrite.
+  restoreNotStarted?: boolean
+  // Root verified the original empty replacement DB, files and protected start.
+  rollbackVerified?: boolean
 }
 export async function taskResults(): Promise<BackupTaskResult[]> {
   const names = await readdir(statePath('results', '')).catch((err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return []; throw err })

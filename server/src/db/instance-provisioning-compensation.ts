@@ -5,6 +5,8 @@ import {
   advisoryTransactionLock
 } from './advisory-locks.js'
 import { prisma } from './prisma.js'
+import { requestCheckoutRefund } from '../services/checkout-orders.js'
+import { getMaxRefundable } from './billing-operations.js'
 
 export async function compensateFailedInstancePurchase(
   instanceId: number,
@@ -21,7 +23,8 @@ export async function compensateFailedInstancePurchase(
         name: true,
         userId: true,
         hostId: true,
-        status: true
+        status: true,
+        purchaseBatchId: true
       }
     })
 
@@ -63,11 +66,25 @@ export async function compensateFailedInstancePurchase(
       return { refunded: false, refundAmount: 0, reason: 'already_refunded' }
     }
 
-    const refundAmount = Number(purchaseRecord.amount)
+    // An administrator may already have refunded part of a still-creating
+    // instance. Compensation returns only the remaining entitlement.
+    const limit = await getMaxRefundable(instanceId, tx)
+    const refundAmount = Math.min(Number(purchaseRecord.amount), limit.maxRefundable)
+    if (refundAmount === 0 && Number(purchaseRecord.amount) > 0) return { refunded: false, refundAmount: 0, reason: 'already_refunded' }
     if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
       return { refunded: false, refundAmount: 0, reason: 'invalid_purchase_amount' }
     }
 
+    const checkout = instance.purchaseBatchId ? await tx.checkoutOrder.findUnique({ where: { id: instance.purchaseBatchId } }) : null
+    const external = !!checkout?.paymentId && checkout.paymentId !== 'balance'
+    if (external && checkout) {
+      const refundId = await requestCheckoutRefund(tx, checkout, instanceId, Math.round(refundAmount * 100), 'provisioning_failed')
+      if (!refundId) throw new Error('原付款退款记录未能创建')
+      // The negative bill records a refund liability; only the payment receipt marks money returned.
+      const now = new Date()
+      await tx.instanceBillingRecord.create({ data: { instanceId, userId, type: 'refund', amount: -refundAmount,
+        months: 0, periodStart: now, periodEnd: now, balanceLogId: null, checkoutRefunds: { connect: { id: refundId } }, remark: `实例创建失败自动退款（原路退款待处理）：${instance.name}` } })
+    } else {
     const user = await tx.user.findUnique({
       where: { id: userId },
       select: { balance: true }
@@ -115,6 +132,7 @@ export async function compensateFailedInstancePurchase(
       }
     })
 
+    }
     const affLogs = await tx.affLog.findMany({
       where: {
         instanceId,
@@ -187,7 +205,7 @@ export async function compensateFailedInstancePurchase(
       }
     })
 
-    return { refunded: true, refundAmount }
+    return external ? { refunded: false, refundAmount, reason: 'external_refund_pending' } : { refunded: true, refundAmount }
   }, {
     // Blocking balance locks serialize refunds. Read after the lock is acquired:
     // a Serializable snapshot taken while waiting can abort sibling cart refunds.

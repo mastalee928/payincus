@@ -250,6 +250,18 @@ bindAuthSession(http, () => {
 
 // API 模块
 const api = {
+  checkout: {
+    catalog: (source: 'direct' | 'cart'): Promise<{ maxInstances?: number; regions: import('@/utils/poolCatalog').PoolCatalogRegion[] }> => http.get('/checkout/catalog', { params: { source } }),
+    create: (data: { requestId: string; source: 'direct' | 'cart'; items: Array<{ poolPriceId: number; quantity: number; namePrefix: string; image: string; customInitCommandIds?: number[] }>; expectedTotal: number; sshKeyId?: number; turnstileToken?: string }): Promise<import('@/types/checkout').CheckoutOrder> => http.post('/checkout', data),
+    get: (id: string): Promise<import('@/types/checkout').CheckoutOrder> => http.get(`/checkout/${encodeURIComponent(id)}`),
+    balance: (id: string): Promise<import('@/types/checkout').CheckoutOrder> => http.post(`/checkout/${encodeURIComponent(id)}/balance`),
+    payment: (id: string, providerId: number, method?: string): Promise<import('@/types/checkout').CheckoutOrder> => http.post(`/checkout/${encodeURIComponent(id)}/payment`, { providerId, method }),
+    cancel: (id: string): Promise<import('@/types/checkout').CheckoutOrder> => http.post(`/checkout/${encodeURIComponent(id)}/cancel`),
+    verify: (id: string): Promise<import('@/types/checkout').CheckoutOrder> => http.post(`/checkout/${encodeURIComponent(id)}/verify`),
+    list: (before?: string): Promise<{ orders: Array<{ id: string; status: string; totalCents: number; createdAt: string; expiresAt: string; display: import('@/types/checkout').CheckoutOrder['items'] }>; next: string | null }> => http.get('/checkout', { params: { before } }),
+    refunds: (): Promise<{ refunds: Array<{ id: string; orderId: string; amountCents: number; reason: string; createdAt: string; order: { userId: number }; payment: { providerName: string; method: string }; receipt: { tradeNo: string; amountCents: number; currency: string } }> }> => http.get('/checkout-admin/refunds'),
+    completeRefund: (id: string, receipt: string) => http.post(`/checkout-admin/refunds/${encodeURIComponent(id)}/complete`, { receipt })
+  },
   // 认证
   auth: {
     check2FA: (username: string): Promise<{ requires2FA: boolean }> =>

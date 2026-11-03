@@ -416,6 +416,7 @@ enum FriendshipStatus {
 
 model User {
   poolOrders PoolOrder[]
+  checkoutOrders CheckoutOrder[]
   id           Int        @id @default(autoincrement())
   username     String     @unique
   email        String?
@@ -694,6 +695,7 @@ model Friendship {
 // ==================== 节点相关模型 ====================
 
 model Host {
+  checkoutReservation CheckoutReservation?
   id                  Int          @id @default(autoincrement())
   userId              Int          @map("user_id") // 所有者
   name                String
@@ -1171,6 +1173,7 @@ model Instance {
   checkinRecords   CheckinRecord[]
   redeemCodeUsages RedeemCodeUsage[]
   billingRecords   InstanceBillingRecord[]  // 计费记录
+  checkoutRefunds CheckoutRefund[]
   affBinding       AffBinding?              // AFF优惠码绑定
   resourcePoolLogs ResourcePoolLog[]        // 资源池应用记录
   destroyRecords   UserDestroyRecord[]      // 销毁记录
@@ -2648,6 +2651,52 @@ model BalanceLog {
 }
 
 // Corrections applied while the restored platform is held. Credentials are never journaled.
+// Evidence belongs to a restore generation, never to a reusable host flag.
+model PlatformRecoveryBatch {
+  id String @id @db.Uuid
+  holdTaskId String @map("hold_task_id") @db.Uuid
+  mode String
+  operatorId Int @map("operator_id")
+  revision Int @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  completedAt DateTime? @map("completed_at")
+  hosts PlatformRecoveryHost[]
+  evidence PlatformRecoveryEvidence[]
+  @@map("platform_recovery_batches")
+}
+model PlatformRecoveryHost {
+  batchId String @map("batch_id") @db.Uuid
+  batch PlatformRecoveryBatch @relation(fields: [batchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  hostId Int @map("host_id")
+  status String @default("pending")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now()) @map("next_attempt_at")
+  leaseToken String? @map("lease_token") @db.Uuid
+  leaseUntil DateTime? @map("lease_until")
+  checkedAt DateTime? @map("checked_at")
+  sourceHash String? @map("source_hash")
+  result Json?
+  @@id([batchId, hostId])
+  @@index([batchId, nextAttemptAt])
+  @@map("platform_recovery_hosts")
+}
+model PlatformRecoveryEvidence {
+  id String @id @default(uuid()) @db.Uuid
+  batchId String @map("batch_id") @db.Uuid
+  batch PlatformRecoveryBatch @relation(fields: [batchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  category String
+  reference String
+  evidenceHash String @map("evidence_hash")
+  sourceHash String @map("source_hash")
+  observedAt DateTime @map("observed_at")
+  actorId Int @map("actor_id")
+  payload Json
+  createdAt DateTime @default(now()) @map("created_at")
+  @@unique([batchId, category, reference])
+  @@index([batchId, category])
+  @@map("platform_recovery_evidence")
+}
+
 model PlatformRecoveryReconciliation {
   id          String   @id @db.Uuid
   holdTaskId  String   @db.Uuid @map("hold_task_id")
@@ -2811,6 +2860,9 @@ model PaymentProvider {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   rechargeRecords RechargeRecord[]
+
+  checkoutPayments CheckoutPayment[]
+  checkoutReceipts CheckoutReceipt[]
 
   @@map("payment_providers")
 }
@@ -3051,6 +3103,7 @@ model InstanceBillingRecord {
   createdAt DateTime @default(now()) @map("created_at")
 
   instance Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  checkoutRefunds CheckoutRefund[]
 
   @@index([instanceId, createdAt(sort: Desc)])
   @@index([userId, createdAt(sort: Desc)])
@@ -3882,6 +3935,107 @@ model PoolOrder {
 
   @@index([userId, createdAt])
   @@map("pool_orders")
+}
+
+// Purchase payments never credit the wallet. Orders outlive browser sessions.
+model CheckoutOrder {
+  id String @id
+  userId Int @map("user_id")
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  requestHash String @map("request_hash")
+  source String
+  status String @default("pending")
+  totalCents Int @map("total_cents")
+  snapshot String
+  display Json
+  expiresAt DateTime @map("expires_at")
+  paidAt DateTime? @map("paid_at")
+  paymentId String? @map("payment_id")
+  error String?
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now()) @map("next_attempt_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  reservations CheckoutReservation[]
+  payments CheckoutPayment[]
+  refunds CheckoutRefund[]
+  @@index([userId, createdAt])
+  @@index([status, nextAttemptAt])
+  @@map("checkout_orders")
+}
+
+model CheckoutReservation {
+  hostId Int @id @map("host_id")
+  orderId String @map("order_id")
+  ordinal Int
+  order CheckoutOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  host Host @relation(fields: [hostId], references: [id], onDelete: Restrict)
+  @@unique([orderId, ordinal])
+  @@map("checkout_reservations")
+}
+
+model CheckoutPayment {
+  id String @id
+  orderId String @map("order_id")
+  providerId Int @map("provider_id")
+  provider PaymentProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  providerType String @map("provider_type")
+  providerName String @map("provider_name")
+  method String
+  payableCents Int @map("payable_cents")
+  feeCents Int @map("fee_cents")
+  configSnapshot String @map("config_snapshot")
+  details Json
+  payUrl String? @map("pay_url")
+  status String @default("creating")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  order CheckoutOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  receipts CheckoutReceipt[]
+  refunds CheckoutRefund[]
+  @@unique([orderId, providerId, method])
+  @@map("checkout_payments")
+}
+
+model CheckoutReceipt {
+  id String @id
+  paymentId String @map("payment_id")
+  providerId Int @map("provider_id")
+  provider PaymentProvider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  tradeNo String @map("trade_no")
+  amountCents Int @map("amount_cents")
+  currency String
+  proof Json
+  createdAt DateTime @default(now()) @map("created_at")
+  payment CheckoutPayment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  refunds CheckoutRefund[]
+  @@unique([providerId, tradeNo])
+  @@map("checkout_receipts")
+}
+
+model CheckoutRefund {
+  id String @id
+  orderId String @map("order_id")
+  paymentId String @map("payment_id")
+  receiptId String @map("receipt_id")
+  instanceId Int? @map("instance_id")
+  billingRecordId Int? @map("billing_record_id")
+  billingRecord InstanceBillingRecord? @relation(fields: [billingRecordId], references: [id], onDelete: Restrict)
+  instance Instance? @relation(fields: [instanceId], references: [id], onDelete: Restrict)
+  amountCents Int @map("amount_cents")
+  principalCents Int @map("principal_cents")
+  reason String
+  status String @default("pending")
+  resolution String?
+  handledById Int? @map("handled_by_id")
+  handledAt DateTime? @map("handled_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  order CheckoutOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  payment CheckoutPayment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  receipt CheckoutReceipt @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  @@index([status, createdAt])
+  @@index([billingRecordId])
+  @@map("checkout_refunds")
 }
 
 // Control-plane inventory and journals. A role here never grants a host lease.

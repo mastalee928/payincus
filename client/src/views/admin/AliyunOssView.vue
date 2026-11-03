@@ -1,76 +1,159 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, onActivated, onDeactivated, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import { useToast } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
 import type { OssBackup, OssConfig, OssDirectory, OssTask } from '@/types/aliyun-oss'
 import OssRecoveryReview from '@/components/backup/OssRecoveryReview.vue'
 
 const { t, te, locale } = useI18n()
 const toast = useToast()
+const auth = useAuthStore()
 const loading = ref(true), busy = ref(false), loadError = ref(''), runtimeReady = ref(false), held = ref(false)
 const config = ref<OssConfig | null>(null), tasks = ref<OssTask[]>([]), backups = ref<OssBackup[]>([])
+const backupIssues=ref<Array<{prefix:string;code:string}>>([]),discovering=ref(false)
+let discoveryGeneration=0
 const regions = ref<Array<{ id: string; name: string }>>([])
 const form = reactive({ revision: '', enabled: false, region: 'oss-cn-hangzhou', bucket: '', prefix: 'payincus-backups/', accessKeyId: '', accessKeySecret: '', backupPassword: '', intervalHours: 24, retention: 3 })
-const searchPrefix = ref(''), sourcePrefix = ref(''), restorePassword = ref(''), confirmation = ref('')
+const sourcePrefix = ref(''), restorePassword = ref(''), confirmation = ref('')
 const bucketRows = ref<Array<{ name: string; region: string; creationDate: string }>>([]), bucketCursor = ref<string | null>(null)
 const browseBucket = ref(''), browseRegion = ref('oss-cn-hangzhou'), browsePrefix = ref('')
 const listing = ref<OssDirectory>({ directories: [], objects: [], nextCursor: null })
-const modal = ref<HTMLDialogElement>(), modalKind = ref<'create' | 'delete' | 'preview' | 'restore' | 'resume' | 'rollback'>('create')
-const newBucketName = ref(''), newBucketRegion = ref('oss-cn-hangzhou'), selectedPreview = ref<OssTask | null>(null)
+const modal = ref<HTMLDialogElement>(), modalKind = ref<'create' | 'delete' | 'preview' | 'rollback'>('create')
+const newBucketName = ref(''), newBucketRegion = ref('oss-cn-hangzhou')
 const activeTask = ref<OssTask | null>(null)
+const nextReadAt=ref(0), pollError=ref('')
+let readFailures=0
+const continuationFailure=ref<{error:string;updatedAt:string}|null>(null)
 const active = computed(() => activeTask.value !== null)
 const reviewBusy = ref(false)
 const reviewEditing = ref(false)
-const disabled = computed(() => busy.value || active.value || reviewBusy.value || reviewEditing.value)
+const recoveryReady = ref(false)
+const autoResume = ref(false)
+const automaticRestore=ref<import('@/types/aliyun-oss').AutomaticRestore|null>(null)
+const automaticPending=computed(()=>automaticRestore.value && !['blocked','complete'].includes(automaticRestore.value.phase))
+const automaticUncertain=ref(false)
+let automaticRetryAt=0,automaticRetries=0
+let automaticRequestId=crypto.randomUUID()
+const disabled = computed(() => busy.value || active.value || automaticPending.value || automaticUncertain.value || reviewBusy.value || reviewEditing.value)
 const dirty = computed(() => !config.value || Boolean(form.accessKeySecret || form.backupPassword) || ['enabled', 'region', 'bucket', 'prefix', 'accessKeyId', 'intervalHours', 'retention'].some(key => form[key as keyof typeof form] !== config.value![key as keyof OssConfig]))
 const backupReady = computed(() => config.value?.bucket && config.value.hasBackupPassword && config.value.testedRevision === config.value.revision && !dirty.value)
 const connectionForm = ref<HTMLFormElement>()
 const saveThenTest = ref(false)
 const actionError = ref('')
-let poll: ReturnType<typeof setInterval> | undefined, polling = false, disposed = false
+let poll: ReturnType<typeof setInterval> | undefined, polling = false, disposed = false, inactive = false, generation=0, readDenied=false, initialized=false
+function capture() { const session=auth.captureAuthentication(),version=generation;return()=>!disposed && !inactive && session.current() && generation===version }
+function reset() {
+  generation++;initialized=false;config.value=null;tasks.value=[];backups.value=[];activeTask.value=null
+  discoveryGeneration++;discovering.value=false;backupIssues.value=[]
+  held.value=false;runtimeReady.value=false;recoveryReady.value=false;autoResume.value=false;continuationFailure.value=null
+  automaticRestore.value=null;automaticRequestId=crypto.randomUUID();automaticUncertain.value=false;automaticRetryAt=0;automaticRetries=0
+  regions.value=[];bucketRows.value=[];bucketCursor.value=null;listing.value={directories:[],objects:[],nextCursor:null}
+  Object.assign(form,{revision:'',enabled:false,region:'oss-cn-hangzhou',bucket:'',prefix:'payincus-backups/',accessKeyId:'',accessKeySecret:'',backupPassword:'',intervalHours:24,retention:3})
+  sourcePrefix.value='';restorePassword.value='';confirmation.value='';browseBucket.value='';browsePrefix.value='';newBucketName.value=''
+  actionError.value='';loadError.value='';pollError.value='';nextReadAt.value=0;readFailures=0;readDenied=false;modal.value?.close()
+}
+let authentication=auth.captureAuthentication()
+watch(()=>auth.token,()=>{if(!authentication.current()){reset();authentication=auth.captureAuthentication();if(!inactive)void initialize()}},{flush:'sync'})
 const date = (value?: string | null) => value ? new Date(value).toLocaleString(locale.value) : t('oss.notScheduled')
 const size = (bytes: number) => bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GiB` : `${(bytes / 1024 ** 2).toFixed(2)} MiB`
 const errorText = (code?: string) => code && te(`oss.errors.${code}`) ? t(`oss.errors.${code}`) : `${t('oss.failed')}${code ? ` (${code})` : ''}`
 function acceptConfig(value: OssConfig) {
+  // An older page of results belongs to the configuration used to request it.
+  // Invalidate it before replacing credentials/bucket, even while discovery runs.
+  discoveryGeneration++;discovering.value=false;backups.value=[];backupIssues.value=[]
   config.value = value
   Object.assign(form, { revision: value.revision, enabled: value.enabled, region: value.region, bucket: value.bucket, prefix: value.prefix, accessKeyId: value.accessKeyId, intervalHours: value.intervalHours, retention: value.retention, accessKeySecret: '', backupPassword: '' })
 }
-async function action(work: () => Promise<void>) {
-  if (busy.value) return
+async function action(work: (current:()=>boolean) => Promise<void>) {
+  if (busy.value || disposed || inactive) return
+  const current=capture()
   busy.value = true; actionError.value = ''
-  try { await work() } catch (error: any) { actionError.value = errorText(error?.code || error?.response?.data?.code); toast.error(actionError.value) }
+  try { await work(current) } catch (error: any) { if(current()){actionError.value = errorText(error?.code || error?.response?.data?.code); toast.error(actionError.value)} }
   finally { busy.value = false }
 }
 async function loadTasks() {
+  const current=capture()
   const result = await api.aliyunOss.tasks()
-  if (!disposed) { tasks.value = result.tasks; activeTask.value = result.activeTask ?? null; held.value = result.recoveryHeld }
+  if (current()) { tasks.value = result.tasks; activeTask.value = result.activeTask ?? null; held.value = result.recoveryHeld; autoResume.value=result.autoResume===true; continuationFailure.value=result.continuationFailure??null;automaticRestore.value=result.automaticRestore??null }
+  if(current() && result.automaticRestore?.id===automaticRequestId)automaticUncertain.value=false
 }
 async function loadBackups() {
-  if (!config.value) return
-  const result = await api.aliyunOss.backups(searchPrefix.value || undefined); backups.value = result.backups
+  if (!config.value || discovering.value) return
+  const current=capture(),run=++discoveryGeneration,seen=new Set<string>(),found=new Map<string,OssBackup>()
+  let cursor:string|undefined
+  discovering.value=true;backups.value=[];backupIssues.value=[]
+  try {
+    do {
+      const result=await api.aliyunOss.backups(undefined,cursor)
+      if(!current() || run!==discoveryGeneration)return
+      for(const row of result.backups)found.set(row.prefix,row)
+      backups.value=[...found.values()].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)||b.id.localeCompare(a.id))
+      backupIssues.value.push(...(result.issues||[]))
+      cursor=result.nextCursor||undefined
+      if(cursor && seen.has(cursor))throw {code:'OSS_CURSOR_INVALID'}
+      if(cursor)seen.add(cursor)
+    }while(cursor)
+  }catch(error){if(current() && run===discoveryGeneration)throw error}
+  finally{if(run===discoveryGeneration)discovering.value=false}
 }
+function readFailed(error:any) {
+  readFailures=Math.min(readFailures+1,6)
+  readDenied=[401,403].includes(error?.httpStatus||error?.response?.status)||['UNAUTHORIZED','ACCOUNT_BANNED','FORBIDDEN','AUTHENTICATION_STATE_CHANGED'].includes(error?.code)
+  nextReadAt.value=readDenied?0:Date.now()+Math.min(300000,15000*2**(readFailures-1))
+}
+function readSucceeded(){readFailures=0;nextReadAt.value=0;readDenied=false;pollError.value=''}
 async function initialize() {
+  if(disposed || inactive || polling)return
+  const current=capture()
+  polling=true
   loading.value = true; loadError.value = ''; actionError.value = ''
   try {
     const [state, catalog] = await Promise.all([api.aliyunOss.config(), api.aliyunOss.regions()])
+    if(!current())return
     if (state.config) acceptConfig(state.config)
     runtimeReady.value = state.runtimeReady; held.value = state.recoveryHeld; regions.value = catalog.regions
     await loadTasks()
-  } catch (error: any) { loadError.value = errorText(error?.code || error?.response?.data?.code) }
-  finally { loading.value = false }
+    if(current()){
+      initialized=true;readSucceeded()
+      if(config.value?.bucket && !held.value)void loadBackups().catch((error:any)=>{if(current())actionError.value=errorText(error?.code||error?.response?.data?.code)})
+    }
+  } catch (error: any) {
+    if(!current())return
+    loadError.value = errorText(error?.code || error?.response?.data?.code)
+    readFailed(error)
+  }
+  finally { if(current())loading.value = false;polling=false }
 }
-onMounted(async () => {
-  await initialize()
-  poll = setInterval(async () => {
-    if (polling || disposed || loadError.value) return
+async function pollState() {
+    if (polling || disposed || inactive || readDenied || Date.now()<nextReadAt.value) return
+    if(loadError.value || !initialized){await initialize();return}
+    const current=capture()
     polling = true
-    try { await loadTasks() } catch { /* A restore intentionally stops the backend. Keep last observed state. */ }
+    try {
+      await loadTasks()
+      if(current() && automaticUncertain.value && Date.now()>=automaticRetryAt && !activeTask.value && !held.value)
+        await submitAutomatic(current)
+      if(current())readSucceeded()
+    }
+    catch(error:any) { if(current()){pollError.value=errorText(error?.code || error?.response?.data?.code);readFailed(error)} }
     finally { polling = false }
-  }, 5000)
+}
+onMounted(() => {
+  poll = setInterval(()=>{void pollState()},5000)
+  void initialize()
 })
-onUnmounted(() => { disposed = true; if (poll) clearInterval(poll) })
-function save() { return action(async () => { const result = await api.aliyunOss.save({ ...form }); acceptConfig(result.config); toast.success(t('oss.saved')) }) }
+onDeactivated(()=>{inactive=true;reset()})
+onActivated(()=>{if(inactive){inactive=false;void initialize()}})
+onUnmounted(() => { disposed = true;reset();if (poll) clearInterval(poll) })
+async function refreshSavedBackups(current:()=>boolean) {
+  if(current() && config.value?.bucket && !held.value)await loadBackups()
+}
+function save() { return action(async current => {
+  const result = await api.aliyunOss.save({ ...form })
+  if(current()){acceptConfig(result.config); toast.success(t('oss.saved'));await refreshSavedBackups(current)}
+}) }
 function test() {
   if (!connectionForm.value?.reportValidity()) return
   saveThenTest.value = true; connectionForm.value.requestSubmit()
@@ -78,50 +161,85 @@ function test() {
 async function submitSettings() {
   const shouldTest = saveThenTest.value; saveThenTest.value = false
   if (!shouldTest) return save()
-  return action(async () => {
-    if (dirty.value) { const saved = await api.aliyunOss.save({ ...form, enabled: false }); acceptConfig(saved.config) }
-    const result = await api.aliyunOss.test(); acceptConfig(result.config)
+  return action(async current => {
+    if (dirty.value) { const saved = await api.aliyunOss.save({ ...form, enabled: false }); if(!current())return;acceptConfig(saved.config) }
+    const result = await api.aliyunOss.test(); if(!current())return;acceptConfig(result.config)
     toast.success(t(config.value?.bucket ? 'oss.tested' : 'oss.credentialsTested'))
+    await refreshSavedBackups(current)
   })
 }
 async function listBuckets(cursor?: string) {
-  const result = await api.aliyunOss.buckets(cursor); bucketRows.value = result.buckets; bucketCursor.value = result.nextCursor
+  const current=capture(),result = await api.aliyunOss.buckets(cursor); if(current()){bucketRows.value = result.buckets; bucketCursor.value = result.nextCursor}
 }
 async function listDirectory(prefix = '', cursor?: string) {
-  listing.value = await api.aliyunOss.objects({ region: browseRegion.value, bucket: browseBucket.value, prefix, cursor }); browsePrefix.value = prefix
+  const current=capture(),result=await api.aliyunOss.objects({ region: browseRegion.value, bucket: browseBucket.value, prefix, cursor }); if(current()){listing.value=result;browsePrefix.value = prefix}
 }
 function chooseBucket(bucket: { name: string; region: string }) {
   return action(async () => { browseBucket.value = bucket.name; browseRegion.value = bucket.region; await listDirectory() })
 }
-function openModal(kind: typeof modalKind.value, preview?: OssTask) {
-  modalKind.value = kind; confirmation.value = ''; restorePassword.value = ''; selectedPreview.value = preview || null
+function openModal(kind: typeof modalKind.value) {
+  modalKind.value = kind; confirmation.value = ''; restorePassword.value = ''
   newBucketRegion.value = form.region; modal.value?.showModal()
 }
 function closeModal() { if (busy.value) return; modal.value?.close(); restorePassword.value = ''; confirmation.value = '' }
-function preview(backup: OssBackup) { sourcePrefix.value = backup.prefix; openModal('preview') }
+async function preview(backup: OssBackup) {
+  if(disabled.value || held.value)return
+  if(sourcePrefix.value!==backup.prefix || ['complete','blocked'].includes(automaticRestore.value?.phase||'')){automaticRequestId=crypto.randomUUID()}
+  sourcePrefix.value = backup.prefix
+  if(!config.value?.hasBackupPassword){openModal('preview');return}
+  await action(submitAutomatic)
+}
+async function submitAutomatic(current:()=>boolean) {
+  automaticUncertain.value=true
+  try {
+    const result=await api.aliyunOss.automaticRestore({id:automaticRequestId,prefix:sourcePrefix.value,...(restorePassword.value?{password:restorePassword.value}:{})})
+    if(current()){automaticRestore.value=result.operation;automaticUncertain.value=false;automaticRetries=0;restorePassword.value='';modal.value?.close()}
+  } catch(failure:any) {
+    if(current()){automaticRetries=Math.min(automaticRetries+1,6);automaticRetryAt=Date.now()+Math.min(300000,15000*2**(automaticRetries-1))}
+    if(current() && [400,401,403,409,422,429].includes(failure?.httpStatus || failure?.response?.status))automaticUncertain.value=false
+    if(current())await loadTasks().catch(()=>{})
+    throw failure
+  }
+}
 async function submitModal() {
-  await action(async () => {
-    if (modalKind.value === 'create') { await api.aliyunOss.createBucket(newBucketRegion.value, newBucketName.value); await listBuckets() }
-    if (modalKind.value === 'delete') { await api.aliyunOss.deleteBucket(browseRegion.value, browseBucket.value, confirmation.value); browseBucket.value = ''; await listBuckets() }
-    if (modalKind.value === 'preview') await api.aliyunOss.preview(sourcePrefix.value, restorePassword.value)
-    if (modalKind.value === 'restore' && selectedPreview.value) await api.aliyunOss.restore(selectedPreview.value.id, confirmation.value)
-    if (modalKind.value === 'resume') await api.aliyunOss.resume(confirmation.value)
+  await action(async current => {
+    if (modalKind.value === 'create') { await api.aliyunOss.createBucket(newBucketRegion.value, newBucketName.value); if(!current())return;await listBuckets() }
+    if (modalKind.value === 'delete') { await api.aliyunOss.deleteBucket(browseRegion.value, browseBucket.value, confirmation.value); if(!current())return;browseBucket.value = ''; await listBuckets() }
+    if (modalKind.value === 'preview') {
+      await submitAutomatic(current)
+      if(!current())return
+    }
     if (modalKind.value === 'rollback') await api.aliyunOss.rollback(confirmation.value)
-    modal.value?.close(); restorePassword.value = ''; confirmation.value = ''; await loadTasks(); toast.success(t('oss.success'))
+    if(!current())return
+    modal.value?.close(); restorePassword.value = ''; confirmation.value = ''; await loadTasks(); if(current())toast.success(t('oss.success'))
   })
 }
-const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'deleteBucket', preview: 'preview', restore: 'restore', resume: 'resume', rollback: 'rollback' } as const)[modalKind.value]}`))
+const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'deleteBucket', preview: 'restore', rollback: 'rollback' } as const)[modalKind.value]}`))
 </script>
 
 <template>
   <main class="oss-page" :aria-busy="loading || busy">
     <header class="oss-header"><div><h1>{{ t('oss.title') }}</h1><p>{{ t('oss.description') }}</p></div><button :disabled="busy" @click="initialize">{{ t('oss.refresh') }}</button></header>
     <p v-if="loadError" role="alert" class="oss-notice danger">{{ loadError }}</p>
+    <p v-if="pollError" role="alert" class="oss-notice danger">{{ pollError }}</p>
+    <p v-if="nextReadAt" role="status">{{ t('oss.review.automation.next',{time:date(new Date(nextReadAt).toISOString())}) }}</p>
     <p v-if="actionError" role="alert" class="oss-notice danger">{{ actionError }}</p>
     <template v-if="!loading && !loadError">
       <div v-if="!runtimeReady" class="oss-notice" role="status"><p>{{ t('oss.runtimeMissing') }}</p><a href="https://mastalee928.github.io/payincus/deployment/oss-backup" target="_blank" rel="noopener noreferrer">{{ t('oss.deploymentHelp') }}</a></div>
-      <div v-if="held" class="oss-notice"><p>{{ t('oss.held') }}</p><div class="oss-actions"><button :disabled="disabled" @click="openModal('resume')">{{ t('oss.resume') }}</button><button :disabled="disabled" @click="openModal('rollback')">{{ t('oss.rollback') }}</button></div></div>
-      <OssRecoveryReview v-if="held" :disabled="busy || active" @busy="reviewBusy = $event" @editing="reviewEditing = $event" />
+      <p v-if="automaticUncertain" class="oss-notice" role="status">{{ t('oss.automaticAcknowledgement') }}</p>
+      <div v-if="automaticRestore" class="oss-notice" role="status" aria-live="polite"><strong>{{ t(`oss.automaticPhases.${automaticRestore.phase}`) }}</strong><p v-if="automaticRestore.code">{{ errorText(automaticRestore.code) }}</p><small>{{ date(automaticRestore.updatedAt) }}</small></div>
+      <div v-if="held" class="oss-notice"><p>{{ t('oss.review.automation.autoResume') }}</p><div class="oss-actions"><button :disabled="busy || active || reviewBusy" @click="openModal('rollback')">{{ t('oss.rollback') }}</button></div></div>
+      <p v-if="continuationFailure" role="alert" class="danger-text">{{ errorText(continuationFailure.error) }} <small>{{ date(continuationFailure.updatedAt) }}</small></p>
+      <OssRecoveryReview v-if="held" :disabled="busy || active" @busy="reviewBusy = $event" @editing="reviewEditing = $event" @ready="recoveryReady = $event" />
+      <section aria-labelledby="oss-backups-title">
+        <div class="oss-section-header"><h2 id="oss-backups-title">{{ t('oss.records') }}</h2><button :disabled="busy || discovering || !config?.bucket" @click="action(loadBackups)">{{ t('oss.refresh') }}</button></div>
+        <p class="hint">{{ t('oss.automaticHint') }}</p>
+        <p v-if="discovering" role="status" class="hint">{{ t('oss.discoveringBackups',{count:backups.length}) }}</p>
+        <details v-if="backupIssues.length" class="oss-notice"><summary>{{ t('oss.invalidBackups',{count:backupIssues.length}) }}</summary><p v-for="issue in backupIssues" :key="issue.prefix">{{ issue.prefix }} · {{ errorText(issue.code) }}</p></details>
+        <p v-if="!backups.length && !discovering" class="hint">{{ t('oss.noBackups') }}</p>
+        <ul class="backup-list"><li v-for="backup in backups" :key="backup.prefix"><div><strong>{{ date(backup.createdAt) }}</strong><small>{{ t('oss.version') }} {{ backup.version }} · {{ size(backup.bytes) }}</small></div><button class="primary" :disabled="disabled || !runtimeReady || held" @click="preview(backup)">{{ t('oss.restore') }}</button></li></ul>
+      </section>
+      <details class="oss-settings" :open="!config?.bucket"><summary>{{ t('oss.connection') }} · {{ t('oss.settings') }}</summary>
       <form ref="connectionForm" @submit.prevent="submitSettings">
         <section aria-labelledby="oss-connection-title">
           <h2 id="oss-connection-title">{{ t('oss.connection') }}</h2><p class="hint">{{ t('oss.setupHint') }}</p>
@@ -148,7 +266,7 @@ const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'dele
         <section aria-labelledby="oss-settings-title">
           <h2 id="oss-settings-title">{{ t('oss.settings') }}</h2>
           <fieldset :disabled="disabled || held" class="oss-fields">
-            <label for="oss-prefix">{{ t('oss.prefix') }}<input id="oss-prefix" v-model="form.prefix" required maxlength="400" aria-describedby="oss-prefix-hint"><small id="oss-prefix-hint">{{ t('oss.prefixHint') }}</small></label>
+            <label for="oss-prefix">{{ t('oss.prefix') }}<input id="oss-prefix" v-model="form.prefix" required maxlength="800" aria-describedby="oss-prefix-hint"><small id="oss-prefix-hint">{{ t('oss.prefixHint') }}</small></label>
             <label for="oss-password">{{ t('oss.password') }}<input id="oss-password" v-model="form.backupPassword" type="password" :required="form.enabled && !config?.hasBackupPassword" minlength="12" maxlength="256" autocomplete="new-password" :placeholder="config?.hasBackupPassword ? t('oss.retainedSecret') : ''" aria-describedby="oss-password-hint"><small id="oss-password-hint">{{ t('oss.passwordHint') }}</small></label>
             <label for="oss-interval">{{ t('oss.interval') }}<select id="oss-interval" v-model.number="form.intervalHours"><option v-for="hours in [1,3,6,12,24,72]" :key="hours" :value="hours">{{ t('oss.everyHours', { hours }) }}</option></select></label>
             <label for="oss-retention">{{ t('oss.retention') }}<select id="oss-retention" v-model.number="form.retention"><option v-for="count in [1,3,5]" :key="count" :value="count">{{ t('oss.keep', { count }) }}</option></select></label>
@@ -159,13 +277,11 @@ const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'dele
           <div class="oss-actions"><button type="submit" class="primary" :disabled="disabled || held" @click="saveThenTest = false">{{ t('oss.save') }}</button><button type="button" :disabled="disabled || held" @click="test">{{ t('oss.saveAndTest') }}</button><button type="button" :disabled="disabled || !runtimeReady || !backupReady || held" @click="action(async () => { await api.aliyunOss.backup(); await loadTasks() })">{{ t('oss.backupNow') }}</button></div>
         </section>
       </form>
-      <section aria-labelledby="oss-backups-title">
-        <h2 id="oss-backups-title">{{ t('oss.records') }}</h2>
-        <form class="oss-search" @submit.prevent="action(loadBackups)"><label for="oss-search-prefix">{{ t('oss.searchPrefix') }}<input id="oss-search-prefix" v-model="searchPrefix" maxlength="400" :placeholder="config ? `${config.prefix}${config.installationId}/` : ''"></label><button :disabled="busy || !config">{{ t('oss.search') }}</button></form>
-        <p v-if="!backups.length" class="hint">{{ t('oss.noBackups') }}</p>
-        <ul class="backup-list"><li v-for="backup in backups" :key="backup.prefix"><div><strong>{{ date(backup.createdAt) }}</strong><p class="break-all">{{ backup.prefix }}</p><small>{{ t('oss.version') }} {{ backup.version }} · {{ size(backup.bytes) }}</small></div><button :disabled="disabled || !runtimeReady || held" @click="preview(backup)">{{ t('oss.preview') }}</button></li></ul>
-      </section>
-      <section aria-labelledby="oss-tasks-title"><h2 id="oss-tasks-title">{{ t('oss.tasks') }}</h2><ul class="backup-list"><li v-for="task in tasks" :key="task.id"><div><strong>{{ t(`oss.stages.${task.stage}`) }}</strong><small class="task-status" :class="{ 'danger-text': task.status === 'failed' }">{{ ['pending', 'running'].includes(task.status) && activeTask?.id !== task.id ? t('oss.review.reconciliation.taskCheckpoint') : t(`oss.statuses.${task.status}`) }} · {{ date(task.createdAt) }}</small><p v-if="task.error" class="danger-text">{{ errorText(task.error) }}</p><small class="break-all">{{ task.id }}</small></div><button v-if="task.preview && task.status === 'success'" :disabled="disabled || held || Date.parse(task.preview.expiresAt) < Date.now()" @click="openModal('restore', task)">{{ t('oss.restore') }}</button></li></ul></section>
+      </details>
+      <section aria-labelledby="oss-tasks-title"><h2 id="oss-tasks-title">{{ t('oss.tasks') }}</h2><ul class="backup-list"><li v-for="task in tasks" :key="task.id"><div><strong>{{ t(`oss.stages.${task.stage}`) }}</strong><small class="task-status" :class="{ 'danger-text': task.status === 'failed' }">{{ ['pending', 'running'].includes(task.status) && activeTask?.id !== task.id ? t('oss.review.reconciliation.taskCheckpoint') : t(`oss.statuses.${task.status}`) }} · {{ date(task.createdAt) }}</small><p v-if="task.error" class="danger-text">{{ errorText(task.error) }}</p>
+        <small v-if="task.continuation">{{ t('oss.review.automation.attempts', {count:task.continuation.attempts}) }} · {{ t(`oss.continuation.${task.continuation.status}`) }}</small>
+        <small v-if="task.continuation?.nextAt">{{ t('oss.review.automation.next', {time:date(task.continuation.nextAt)}) }}</small>
+        <small class="break-all">{{ task.id }}</small></div></li></ul></section>
     </template>
     <section aria-labelledby="oss-recovery-title" class="oss-recovery">
       <h2 id="oss-recovery-title">{{ t('oss.recoveryTitle') }}</h2>
@@ -181,11 +297,9 @@ const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'dele
         <h2 id="oss-modal-title">{{ modalTitle }}</h2>
         <template v-if="modalKind === 'create'"><p>{{ t('oss.createHint') }}</p><label for="oss-new-region">{{ t('oss.region') }}<select id="oss-new-region" v-model="newBucketRegion"><option v-for="region in regions" :key="region.id" :value="region.id">{{ locale.startsWith('zh') ? region.name : region.id }}</option></select></label><label for="oss-new-bucket">{{ t('oss.bucketName') }}<input id="oss-new-bucket" v-model="newBucketName" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" maxlength="63"></label></template>
         <template v-if="modalKind === 'delete'"><p>{{ t('oss.deleteHint') }}</p><strong class="break-all">{{ browseBucket }}</strong><label for="oss-delete-confirm">{{ t('oss.nameConfirmation') }}<input id="oss-delete-confirm" v-model="confirmation" required autocomplete="off"></label></template>
-        <template v-if="modalKind === 'preview'"><p>{{ t('oss.previewHint') }}</p><p class="break-all">{{ sourcePrefix }}</p><label for="oss-restore-password">{{ t('oss.restorePassword') }}<input id="oss-restore-password" v-model="restorePassword" type="password" required minlength="12" maxlength="256" autocomplete="new-password"></label></template>
-        <template v-if="modalKind === 'restore'"><p class="danger-text">{{ t('oss.restoreWarning') }}</p><p>{{ t('oss.time') }}: {{ date(selectedPreview?.preview?.createdAt) }}</p><p>{{ t('oss.expires') }}: {{ date(selectedPreview?.preview?.expiresAt) }}</p><code class="break-all">RESTORE {{ selectedPreview?.id }}</code><label for="oss-restore-confirm">{{ t('oss.restoreConfirmation') }}<input id="oss-restore-confirm" v-model="confirmation" required autocomplete="off"></label></template>
-        <template v-if="modalKind === 'resume'"><p>{{ t('oss.resumeHint') }}</p><code>RESUME AFTER RECONCILIATION</code><label for="oss-resume-confirm">{{ t('oss.restoreConfirmation') }}<input id="oss-resume-confirm" v-model="confirmation" required autocomplete="off"></label></template>
+        <template v-if="modalKind === 'preview'"><p>{{ t('oss.automaticHint') }}</p><p class="break-all">{{ sourcePrefix }}</p><label v-if="!config?.hasBackupPassword" for="oss-restore-password">{{ t('oss.restorePassword') }}<input id="oss-restore-password" v-model="restorePassword" type="password" required minlength="12" maxlength="256" autocomplete="new-password"></label></template>
         <template v-if="modalKind === 'rollback'"><p>{{ t('oss.rollbackHint') }}</p><code>ROLLBACK RESTORE</code><label for="oss-rollback-confirm">{{ t('oss.restoreConfirmation') }}<input id="oss-rollback-confirm" v-model="confirmation" required autocomplete="off"></label></template>
-        <div class="oss-actions"><button type="button" :disabled="busy" @click="closeModal">{{ t('oss.cancel') }}</button><button type="submit" class="primary" :disabled="busy || (modalKind === 'delete' && confirmation !== browseBucket) || (modalKind === 'restore' && confirmation !== `RESTORE ${selectedPreview?.id}`) || (modalKind === 'resume' && confirmation !== 'RESUME AFTER RECONCILIATION') || (modalKind === 'rollback' && confirmation !== 'ROLLBACK RESTORE')">{{ t('oss.confirm') }}</button></div>
+        <div class="oss-actions"><button type="button" :disabled="busy" @click="closeModal">{{ t('oss.cancel') }}</button><button type="submit" class="primary" :disabled="busy || (modalKind === 'delete' && confirmation !== browseBucket) || (modalKind === 'rollback' && confirmation !== 'ROLLBACK RESTORE')">{{ t('oss.confirm') }}</button></div>
       </form>
     </dialog>
   </main>
@@ -196,6 +310,9 @@ const modalTitle = computed(() => t(`oss.${({ create: 'newBucket', delete: 'dele
 :global(.dark .oss-page) { --oss-bg: #0a0a0a; --oss-fg: #fafafa; --oss-muted: #b3b3b3; --oss-line: #454545; }
 .oss-header { display: flex; justify-content: space-between; align-items: start; gap: 24px; margin-bottom: 24px; }
 .oss-header > button { flex-shrink: 0; white-space: nowrap; }
+.oss-section-header { display:flex; align-items:center; justify-content:space-between; gap:16px; } .oss-section-header h2 { margin:0; }
+.oss-settings { border-top:1px solid var(--oss-line); padding:20px 0; } .oss-settings > summary { cursor:pointer; font-size:16px; font-weight:600; padding:6px 0; }
+.oss-settings > summary:focus-visible { outline:2px solid var(--oss-fg); outline-offset:3px; }
 h1 { font-size: 28px; font-weight: 650; letter-spacing: -.02em; } h2 { font-size: 19px; font-weight: 650; margin-bottom: 16px; }
 p { line-height: 1.65; margin: 8px 0; max-width: 75ch; } .hint, small, .oss-header p { color: var(--oss-muted); } small { display: block; font-size: 12px; line-height: 1.5; }
 section { padding: 28px 0; border-top: 1px solid var(--oss-line); } .oss-fields { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 22px 28px; padding: 0; border: 0; margin: 20px 0; }

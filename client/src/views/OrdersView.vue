@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
+import PurchaseOrdersList from '@/components/PurchaseOrdersList.vue'
+import { paymentDisplayName } from '@/utils/paymentDisplay'
 import { useReveal } from '@/composables/useReveal'
 import { useDialogFocus } from '@/composables/useDialogFocus'
 
@@ -15,6 +17,7 @@ const { t, locale } = useI18n()
 type OrderSourceType = 'recharge' | 'instance_billing'
 
 interface OrderItem {
+  paymentSources?: Array<{ providerName: string; method: string; amount: number; status: string }>
   userId: number
   id: string
   sourceType: OrderSourceType
@@ -149,13 +152,14 @@ function statusLabel(order: OrderItem): string {
     case 'failed': return t('orders.statusFailed')
     case 'cancelled': return t('orders.statusCancelled')
     case 'refunded': return t('orders.statusRefunded')
+    case 'refund_pending': return t('checkout.states.refund_pending')
     default: return order.rawStatus
   }
 }
 
 function statusClass(statusValue: string): string {
   if (statusValue === 'completed') return 'bg-green-50 text-green-700 border-green-200'
-  if (statusValue === 'pending') return 'bg-yellow-50 text-yellow-700 border-yellow-200'
+  if (statusValue === 'pending' || statusValue === 'refund_pending') return 'bg-yellow-50 text-yellow-700 border-yellow-200'
   if (statusValue === 'refunded') return 'bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700'
   if (statusValue === 'failed' || statusValue === 'cancelled') return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/20'
   return 'bg-gray-50 text-gray-700 border-gray-200'
@@ -276,6 +280,8 @@ function goPage(nextPage: number) {
         {{ $t('orders.refresh') }}
       </button>
     </header>
+
+    <PurchaseOrdersList :active="available" />
 
     <section data-reveal class="nimbus-lift rounded-xl border border-themed bg-themed-surface p-4 shadow-sm">
       <div class="grid gap-3 md:grid-cols-[180px_180px_auto]">
@@ -424,7 +430,7 @@ function goPage(nextPage: number) {
             <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldAmount') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.amount) }}</dd></div>
             <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldActualAmount') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ selectedOrder.actualAmount === null ? '-' : formatMoney(selectedOrder.actualAmount) }}</dd></div>
             <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldFee') }}</dt><dd class="col-span-2 font-mono tabular-nums text-themed">{{ formatMoney(selectedOrder.fee) }}</dd></div>
-            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldChannel') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.provider?.name || selectedOrder.paymentMethod || '-' }}</dd></div>
+            <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldChannel') }}</dt><dd class="col-span-2 text-themed"><template v-if="selectedOrder.paymentSources?.length"><p v-for="(source,index) in selectedOrder.paymentSources" :key="index" class="break-words">{{ paymentDisplayName(source.method, source.providerName, t) }} · {{ formatMoney(source.amount) }} · {{ source.status === 'refunded' ? $t('orders.statusRefunded') : $t('checkout.states.refund_pending') }}</p></template><template v-else>{{ paymentDisplayName(selectedOrder.paymentMethod, selectedOrder.provider?.name, t) }}</template></dd></div>
             <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldTradeNo') }}</dt><dd class="col-span-2 break-all font-mono text-themed">{{ selectedOrder.tradeNo || '-' }}</dd></div>
             <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldInstance') }}</dt><dd class="col-span-2 text-themed">{{ instanceName(selectedOrder) }}</dd></div>
             <div class="grid grid-cols-3 gap-3 bg-themed-surface px-6 py-3"><dt class="text-themed-muted">{{ $t('orders.fieldPeriod') }}</dt><dd class="col-span-2 text-themed">{{ selectedOrder.months ? $t('orders.monthsCount', { count: selectedOrder.months }) : '-' }}</dd></div>

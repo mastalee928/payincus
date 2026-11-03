@@ -206,15 +206,13 @@ const checkoutViewSource = readFileSync(resolve(__dirname, '../../client/src/vie
 const userApiSource = readFileSync(resolve(__dirname, '../../client/src/api/index.ts'), 'utf8')
 assert.ok(
   userApiSource.includes("http.post('/recharge/orders', { providerId, amount, paymentMethod, ...(creditTarget !== undefined ? { creditTarget } : {}), ...(requestId ? { requestId } : {}) })"),
-  'customer API client must forward the checkout credit target to the recharge order endpoint'
+  'wallet top-up API must keep forwarding the historical credit target'
 )
 assert.ok(
-  checkoutViewSource.includes('gatewayIntent(account, providerId, targetYuan)') &&
-  checkoutViewSource.includes('api.billing.createRechargeOrder(intent.providerId, intent.amount, undefined, intent.amount, intent.requestId)') &&
-    checkoutViewSource.includes("if (status === 'completed')") &&
-    checkoutViewSource.includes("payChoice.value = 'balance'") &&
-    checkoutViewSource.includes('gatewayCredited.value = true'),
-  'pool checkout must create a credit-target recharge, wait for completion, then settle through balance'
+  checkoutViewSource.includes('api.checkout.create(') && checkoutViewSource.includes('api.checkout.balance(') &&
+    checkoutViewSource.includes('api.checkout.payment(') && !checkoutViewSource.includes('createRechargeOrder(') &&
+    !checkoutViewSource.includes('gatewayCredited'),
+  'purchase checkout must use its own order and payment receipt, never a wallet top-up or second confirmation'
 )
 
 const callbackHandlerSource = sectionBetween(
@@ -242,10 +240,10 @@ assert.ok(
   'source IP, signature, channel consistency, current-attempt and replay checks must all run before a recharge callback can credit a balance'
 )
 assert.ok(
-  checkoutViewSource.includes("if (status === 'completed')") &&
+  checkoutViewSource.includes('if (result.paidAt) removePaidItems(result)') &&
     !checkoutViewSource.includes('creditBalance') &&
     !checkoutViewSource.includes('/recharge/callback'),
-  'pool checkout must never credit a balance itself; it only unlocks settlement on the server-reported completed status'
+  'purchase UI must acknowledge the server receipt without crediting a wallet or invoking a payment callback'
 )
 
 console.log('recharge accounting guard tests passed')

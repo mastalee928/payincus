@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:checkout-payments', 'requires isolated local PostgreSQL; reservation locks, signed callbacks, no wallet intermediary, automatic fulfillment, duplicate/late refund and expiry races'],
   ['test:platform-backup-history-integration', 'requires disposable Linux CI and its PostgreSQL 16 container; real v1.7.7 custom dump/restore, nullable old fields, failed imports and isolated migration failure'],
   ['test:review-ticket-autoclose', 'requires isolated PostgreSQL; actual auto-close and reply deletion row-lock competition, changed last public reply, concurrent unique close receipts and rollback'],
   ['test:review-process-boost', 'requires isolated PostgreSQL; process boost current authorization, actual target/account lock competition, batch fencing, exact rollback and deferred COMMIT failure'],
@@ -103,6 +104,10 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-notification-reads', 'requires Chrome/Edge and local Vite; actual notification component deferred lists/history/stats, session/filter/page/KeepAlive isolation, malformed reads, retry and first-frame touch controls; controlled API only'],
   ['test:review-auth-refresh', 'requires Chrome/Edge and local Vite; both real API wrappers with Axios transport and fetch deferred for shared refresh, session/storage/ABA changes, stale writes, 401 queues, retry caps and malformed refresh replies'],
   ['test:review-auth-session', 'requires Chrome/Edge and local Vite; actual auth store identity ordering, account/session/storage ABA, login/logout receipts and current failure behavior; controlled API only'],
+  ['test:platform-recovery-instance', 'requires disposable PostgreSQL and local SSH/mTLS endpoints; isolated original identity, multi-guest purchase, duplicate receipt, transfer ownership and refund recovery'],
+  ['test:platform-recovery-helper', 'requires disposable PostgreSQL; persisted original-gateway helper authorization, dispatch/response loss, bounded retry and identity/credential conflicts with controlled transport'],
+  ['test:platform-recovery-gateway', 'requires disposable PostgreSQL and local pinned SSH; runtime route repair intent, lost reply, persistent history, readiness and automatic host continuation'],
+  ['test:platform-recovery-replacement', 'requires disposable PostgreSQL; completed transfer/replacement identity chains, changed evidence automatic continuation and zero balance changes'],
   ['test:review-dashboard-session', 'requires Chrome/Edge and local Vite; actual dashboard current account/session and five-request summary, KeepAlive/unmount/route polling cleanup and retry; controlled API only'],
   ['test:review-dashboard-pagination', 'requires Chrome/Edge and local Vite; actual dashboard complete sequential instance pages, metadata/identity/count checks, middle-page failure retry and obsolete session/KeepAlive/route replies; controlled API only'],
   ['test:review-inbox-polling', 'requires Chrome/Edge and local Vite; actual Pinia unread store and AppLayout unmount/remount, delayed count/session/local mutation isolation and timer/listener cleanup; controlled API only'],
@@ -319,6 +324,9 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:remote-gateway-setup-integration', 'requires isolated local *_gateway_test PostgreSQL; exercises persistent remote planning, interrupted retries, credential protection and port/network conflict fixture'],
   ['test:admin-instance-delete-integration', 'requires an isolated local *_pool_test PostgreSQL database; exercises actual administrator/owner route permissions, refund choices, duplicate requests and resource finalization'],
   ['test:platform-recovery-reconciliation-integration', 'explicit isolated local *_recovery_test PostgreSQL database and built server/dist; tests atomic recovery corrections, actual password/MFA, stale snapshots and rollback'],
+  ['test:platform-recovery-state', 'disposable local *_recovery_test PostgreSQL with all migrations; 1001-host persistence, operator credentials, evidence invalidation and transaction rollback'],
+  ['test:platform-recovery-final-check', 'disposable empty local *_recovery_test PostgreSQL; bounded final check continuation, failed or changed and expired evidence'],
+  ['test:platform-recovery-auto-resume', 'disposable local PostgreSQL on 55449 with all migrations; automatic resume persistence, lost dispatch and unchanged failure gating'],
   ['test:host-gateway-dns-integration', 'requires explicit opt-in and an empty local *_expiry_test PostgreSQL database; verifies host DNS deployment state and conflict boundaries'],
   ['test:billing-expiry-integration', 'requires explicit opt-in, an empty local *_expiry_test PostgreSQL database and OpenSSL; exercises renewal/expiry scheduler against an HTTPS Incus fixture'],
   ['test:gateway-installation-live', 'explicit Linux root opt-in installs a real fresh gateway using a protected controller enrollment and isolated *_gateway_test database'],

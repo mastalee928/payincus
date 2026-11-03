@@ -112,6 +112,11 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresUser: true, titleKey: 'nav.cart', title: '购物车' }
   },
   {
+    path: '/order/confirm', name: 'direct-purchase-confirm',
+    component: () => import('@/views/CheckoutView.vue'),
+    meta: { requiresAuth: true, requiresUser: true, titleKey: 'cart.confirmTitle', title: '确认订单' }
+  },
+  {
     path: '/market',
     name: 'market',
     component: () => import('@/views/MarketView.vue'),

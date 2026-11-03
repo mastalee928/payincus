@@ -435,6 +435,7 @@ try {
       assert.equal(readDeletionIntent(done.deletionIntent)?.status, 'done', JSON.stringify(done.deletionIntent))
       const records = await prisma.instanceBillingRecord.findMany({ where: { instanceId: done.id, type: 'refund' } })
       assert.equal(records.length, 1); assert.ok(Number(records[0].amount) < 0)
+      assert.equal(readDeletionIntent(done.deletionIntent)?.refundBillingRecordId, records[0].id)
       const after = Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
       assert.equal(after, before + Math.abs(Number(records[0].amount)))
       await processInstanceDeletion(done.id)

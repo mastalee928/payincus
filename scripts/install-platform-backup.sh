@@ -29,10 +29,39 @@ cat > /etc/systemd/system/incudal-backend.service.d/platform-backup.conf <<EOF
 ReadWritePaths=/var/lib/incudal-backup/inbox
 ExecStartPre=
 ExecStartPre=+/usr/bin/bash $work_dir/scripts/install-platform-backup.sh
+ExecStartPre=+/usr/local/libexec/incudal/incudal-online-task recovery-startup
+ExecStartPost=+/usr/local/libexec/incudal/incudal-online-task recovery-ready
 ExecStartPre=/usr/bin/bash -lc 'if [ ! -e /var/lib/incudal-backup/recovery-hold.json ]; then cd $work_dir/server && pnpm exec prisma migrate deploy; fi'
 EOF
 chmod 0644 /etc/systemd/system/incudal-backend.service.d/platform-backup.conf
+cat > /etc/systemd/system/incudal-recovery-supervisor.service <<'EOF'
+[Unit]
+Description=PayIncus interrupted recovery continuation
+After=postgresql.service network-online.target
+[Service]
+Type=oneshot
+User=root
+Group=incudal
+EnvironmentFile=/opt/incudal/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/local/libexec/incudal/incudal-online-task recovery-supervisor
+TimeoutStartSec=10min
+KillMode=control-group
+UMask=0027
+EOF
+cat > /etc/systemd/system/incudal-recovery-supervisor.timer <<'EOF'
+[Unit]
+Description=Continue interrupted PayIncus recovery
+[Timer]
+OnBootSec=90s
+OnUnitInactiveSec=60s
+Unit=incudal-recovery-supervisor.service
+[Install]
+WantedBy=timers.target
+EOF
+chmod 0644 /etc/systemd/system/incudal-recovery-supervisor.{service,timer}
 /usr/bin/systemctl daemon-reload
+/usr/bin/systemctl enable --now incudal-recovery-supervisor.timer
 if [[ -f "$root/scripts/install-local-gateway-worker.sh" ]]; then
     [[ ! -L "$root/scripts/install-local-gateway-worker.sh" && $(stat -c %u "$root/scripts/install-local-gateway-worker.sh") == 0 ]] || exit 1
     bash "$root/scripts/install-local-gateway-worker.sh"

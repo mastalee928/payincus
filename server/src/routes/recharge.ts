@@ -8,7 +8,7 @@ import * as db from '../db/index.js'
 import * as crypto from 'crypto'
 import { isIP } from 'net'
 import { Readable } from 'stream'
-import { createEpayClient, type EpayConfig, type EpayConfigV1, type EpayConfigV2, type CallbackData, type EpayVersion, type VerifyResult } from '../lib/epay.js'
+import { createEpayClient, validateEpayRsaKeys, type EpayConfig, type EpayConfigV1, type EpayConfigV2, type CallbackData, type EpayVersion, type VerifyResult } from '../lib/epay.js'
 import {
   buildHeleketConfig,
   createHeleketClient,
@@ -357,7 +357,7 @@ function getProviderCallbackIpWhitelist(providerType: string): string[] {
 /**
  * 验证 IP 是否在白名单内
  */
-function isIpInWhitelist(ip: string, providerType: string): boolean {
+export function isIpInWhitelist(ip: string, providerType: string): boolean {
   if (process.env.PAYMENT_CALLBACK_SKIP_IP_WHITELIST === 'true') {
     return true
   }
@@ -374,7 +374,7 @@ function isIpInWhitelist(ip: string, providerType: string): boolean {
 /**
  * 根据配置构建易支付客户端配置
  */
-function buildEpayConfig(config: Record<string, unknown>): { epayConfig: EpayConfig; valid: boolean; error?: string } {
+export function buildEpayConfig(config: Record<string, unknown>): { epayConfig: EpayConfig; valid: boolean; error?: string } {
   const version = (config.version as EpayVersion) || 'v2'
 
   if (version === 'v1') {
@@ -405,6 +405,8 @@ function buildEpayConfig(config: Record<string, unknown>): { epayConfig: EpayCon
       return { epayConfig: v2Config, valid: false, error: '支付渠道配置不完整（V2版本需要接口地址、商户ID、平台公钥、商户私钥）' }
     }
 
+    const keyError = validateEpayRsaKeys(v2Config)
+    if (keyError) return { epayConfig: v2Config, valid: false, error: keyError }
     return { epayConfig: v2Config, valid: true }
   }
 }
@@ -489,7 +491,7 @@ function validatePublicBaseUrl(url: string, configName: string): string {
   return normalized
 }
 
-function getRechargeFrontendUrl(): string {
+export function getRechargeFrontendUrl(): string {
   const configuredUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim()
   const frontendUrl = configuredUrl || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3000')
 
@@ -500,7 +502,7 @@ function getRechargeFrontendUrl(): string {
   return validatePublicBaseUrl(frontendUrl, 'FRONTEND_URL')
 }
 
-function getRechargeCallbackBaseUrl(): string {
+export function getRechargeCallbackBaseUrl(): string {
   const callbackUrl = process.env.PAYMENT_CALLBACK_BASE_URL?.trim()
   if (callbackUrl) {
     return validatePublicBaseUrl(callbackUrl, 'PAYMENT_CALLBACK_BASE_URL')
@@ -630,13 +632,14 @@ function buildRechargeUrls(providerId: number, orderNo: string): {
   }
 }
 
-async function createRechargePayUrl(
+export async function createRechargePayUrl(
   provider: { id: number; type: string; methods: unknown },
   config: Record<string, unknown>,
   orderNo: string,
   amount: number,
   paymentMethod: string | undefined,
-  urls: { notifyUrl: string; returnUrl: string; successUrl: string }
+  urls: { notifyUrl: string; returnUrl: string; successUrl: string },
+  title = '账户充值'
 ): Promise<{ payUrl: string | null; upayOrder?: UpayProOrder }> {
   if (provider.type === 'yipay') {
     const { epayConfig, valid, error } = buildEpayConfig(config)
@@ -654,7 +657,7 @@ async function createRechargePayUrl(
       payUrl: epay.getPayLink({
         type: paymentMethod || 'alipay',
         out_trade_no: orderNo,
-        name: '账户充值',
+        name: title,
         money: amount.toFixed(2),
         notify_url: urls.notifyUrl,
         return_url: urls.successUrl

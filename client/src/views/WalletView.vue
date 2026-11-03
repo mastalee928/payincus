@@ -6,6 +6,8 @@ import api from '@/api'
 import { useToast } from '@/stores/toast'
 import { useConfigStore } from '@/stores/config'
 import TermsOfServiceModal from '@/components/TermsOfServiceModal.vue'
+import PaymentMethodIcon from '@/components/PaymentMethodIcon.vue'
+import { paymentDisplayName } from '@/utils/paymentDisplay'
 import { freeSiteCopy } from '@/utils/freeSiteFun'
 import { instanceDetailPath, walletPath } from '@/utils/app-paths'
 import { useReveal } from '@/composables/useReveal'
@@ -482,7 +484,7 @@ async function createRechargeOrder() {
         orderNo: res.order.orderNo,
         payableAmount: res.order.payableAmount,
         actualAmount: res.order.actualAmount,
-        providerName: res.provider.name,
+        providerName: paymentDisplayName(paymentMethod, res.provider.name, t),
         instructions: res.manualPayment.instructions
       }
       showRechargeModal.value = false
@@ -1918,7 +1920,8 @@ function formatAmount() {
                     : 'border-themed text-themed hover:border-themed hover:bg-themed-hover'"
                   @click="selectedProvider = p.id; selectedPaymentMethod = ''"
                 >
-                  {{ p.name }}
+                  <PaymentMethodIcon v-if="p.methods?.length === 1" :method="p.methods[0]" :provider-type="p.type" />
+                  {{ p.type === 'yipay' ? (p.methods?.length ? p.methods : ['alipay']).map((method: string) => paymentDisplayName(method, p.name, t)).join(' / ') : p.name }}
                 </button>
               </div>
             </div>
@@ -1942,18 +1945,7 @@ function formatAmount() {
                   ]"
                   @click="selectedPaymentMethod = method"
                 >
-                  <!-- 支付宝图标 -->
-                  <svg v-if="method === 'alipay'" class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" :class="selectedPaymentMethod === method || (!selectedPaymentMethod && selectedProviderInfo.methods[0] === method) ? 'text-blue-500' : 'text-blue-400'">
-                    <path d="M21.422 15.358c-3.83-1.153-6.055-1.84-7.358-2.22a15.503 15.503 0 001.07-3.122h-4.067v-1.2h4.89V7.69h-4.89V5.5H9.333v2.19H4.5v1.126h4.833v1.2H5.266v1.124h7.09a12.14 12.14 0 01-.671 1.883c-1.627-.396-3.177-.586-4.384-.513-3.407.206-5.136 2.051-5.26 3.708-.153 2.038 1.57 3.728 4.49 3.782 2.448.045 4.793-1.083 6.51-3.058.756.39 1.603.831 2.542 1.323.939.492 1.97 1.033 3.114 1.632h5.25v-3.514c-.167-.053-.324-.095-.525-.025zM7.028 18.93c-1.86-.143-2.66-1.062-2.583-1.95.076-.882.973-1.712 2.526-1.806.984-.06 2.243.13 3.685.508a7.016 7.016 0 01-3.628 3.248z" />
-                  </svg>
-                  <!-- 微信支付图标 -->
-                  <svg v-else-if="method === 'wxpay'" class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" :class="selectedPaymentMethod === method || (!selectedPaymentMethod && selectedProviderInfo.methods[0] === method) ? 'text-green-500' : 'text-green-400'">
-                    <path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 01.213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 00.167-.054l1.903-1.114a.864.864 0 01.717-.098 10.16 10.16 0 002.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.596-6.348zM5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 01-1.162 1.178A1.17 1.17 0 014.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 01-1.162 1.178 1.17 1.17 0 01-1.162-1.178c0-.651.52-1.18 1.162-1.18zm5.34 2.867c-1.797-.052-3.746.512-5.28 1.786-1.72 1.428-2.687 3.72-1.78 6.22.942 2.453 3.666 4.229 6.884 4.229.826 0 1.622-.12 2.361-.336a.722.722 0 01.598.082l1.584.926a.272.272 0 00.14.045c.133 0 .241-.108.241-.241 0-.06-.023-.12-.038-.177l-.327-1.233a.582.582 0 01-.023-.156.49.49 0 01.201-.398C23.024 18.48 24 16.82 24 14.98c0-3.21-2.931-5.837-6.656-6.088l-.105-.001-.301-.033zm-2.746 2.769a.96.96 0 110 1.92.96.96 0 010-1.92zm4.93 0a.96.96 0 110 1.92.96.96 0 010-1.92z" />
-                  </svg>
-                  <!-- 其他支付方式 -->
-                  <svg v-else class="w-5 h-5 text-themed-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                  </svg>
+                  <PaymentMethodIcon :method="method" />
                   <span>{{ getPaymentMethodName(method) }}</span>
                 </button>
               </div>

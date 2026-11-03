@@ -3,7 +3,8 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import { chown } from 'node:fs/promises'
-import { ensure, normalizeConfig, readBackupConfig, sealSecret, statePath, taskResults, validateId, validatePrefix, writeBackupConfig, writeJson, type BackupTaskKind, type BackupTaskRequest } from '../services/platform-backup-core.js'
+import { ensure, normalizeConfig, readBackupConfig, sealSecret, statePath, taskResults, validateId, validateObjectPrefix, writeBackupConfig, writeJson, type BackupTaskKind, type BackupTaskRequest } from '../services/platform-backup-core.js'
+import { activeRecoveryBatch, assertRecoveryReady } from '../services/platform-recovery-state.js'
 import { activeBackupTask } from '../services/platform-backup-scheduler.js'
 
 // Root-only disaster recovery; input is stdin, never command-line credentials.
@@ -31,7 +32,7 @@ try {
       const id = randomUUID()
       const request: BackupTaskRequest = { id, kind: command as BackupTaskKind, createdAt: new Date().toISOString(), createdBy: 0, config }
       if (command === 'preview') {
-        request.sourcePrefix = validatePrefix(payload.prefix)
+        request.sourcePrefix = validateObjectPrefix(payload.prefix)
         ensure(typeof payload.password === 'string' && payload.password.length >= 12 && payload.password.length <= 256, 'OSS_PASSWORD_INVALID')
         request.password = sealSecret(payload.password)
       }
@@ -39,6 +40,10 @@ try {
       if (command === 'resume' || command === 'rollback') {
         const expected = command === 'resume' ? 'RESUME AFTER RECONCILIATION' : 'ROLLBACK RESTORE'
         ensure(payload.confirmation === expected, 'OSS_CONFIRMATION_REQUIRED'); request.confirmation = expected
+        if (command === 'resume') {
+          request.recoveryBatchId = (await activeRecoveryBatch()).id
+          await assertRecoveryReady(request.recoveryBatchId)
+        }
       }
       await writeJson(statePath('inbox', `${id}.json`), request)
       await writeJson(statePath('inbox', 'active.json'), { id, kind: request.kind, status: 'pending', stage: 'queued', createdAt: request.createdAt, updatedAt: request.createdAt })

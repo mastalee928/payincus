@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, generateKeyPairSync } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { Client } from 'pg'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -19,6 +19,9 @@ const user=await prisma.user.create({data:{username:tag,passwordHash:'fixture'}}
 const provider=await createPaymentProvider({name:tag,type:'manual',status:'active',config:{instructions:'Isolated test instructions'}})
 const other=await prisma.user.create({data:{username:tag+'-other',passwordHash:'fixture'}})
 const gateway=await createPaymentProvider({name:tag+'-gateway',type:'heleket',status:'active',config:{apiurl:'https://8.8.8.8',merchant_uuid:randomUUID(),api_key:randomUUID(),currency:'CNY'}})
+const merchantKeys=generateKeyPairSync('rsa',{modulusLength:2048}),platformKeys=generateKeyPairSync('rsa',{modulusLength:2048})
+const epayConfig={version:'v2',apiurl:'https://8.8.8.8',pid:'123',merchant_private_key:merchantKeys.privateKey.export({format:'pem',type:'pkcs8'}).toString(),platform_public_key:platformKeys.publicKey.export({format:'pem',type:'spki'}).toString(),methodFees:{alipay:{feeRate:0.01},wxpay:{feeRate:0.02}}}
+const epayProvider=await createPaymentProvider({name:tag+'-epay',type:'yipay',status:'active',methods:['alipay','wxpay'],config:epayConfig})
 const originalFetch=globalThis.fetch
 const calls:Array<{id:string;resolve:()=>void;reject:()=>void}>=[]
 globalThis.fetch=(async(input,init)=>{
@@ -83,6 +86,19 @@ try {
  console.log('PASS controlled gateway: in-flight and failed creation replay, concurrent repayment CAS and superseded initial link')
  await prisma.rechargeRecord.update({where:{orderNo:calls[0].id},data:{paymentDetails:(await import('@prisma/client')).Prisma.DbNull}})
  const legacyRepay=repay();await waitCalls(6);calls[5].resolve();assert.equal((await legacyRepay).statusCode,200,'legacy null details still accept an unchanged payment attempt')
+ const epayInput={providerId:epayProvider.id,amount:11,creditTarget:11,paymentMethod:'wxpay',requestId:randomUUID()}
+ const epayResponse=await app.inject({method:'POST',url:'/api/recharge/orders',payload:epayInput})
+ assert.equal(epayResponse.statusCode,200,epayResponse.body)
+ const epayReceipt=epayResponse.json(),epayLink=new URL(epayReceipt.payUrl)
+ assert.equal(epayLink.searchParams.get('type'),'wxpay');assert.equal(epayLink.searchParams.get('money'),'11.22');assert.equal(Number(epayReceipt.order.actualAmount),11)
+ const epayReplay=await app.inject({method:'POST',url:'/api/recharge/orders',payload:epayInput});assert.equal(epayReplay.json().order.orderNo,epayReceipt.order.orderNo)
+ const {updatePaymentProvider}=await import('../src/db/payment-providers.js')
+ await updatePaymentProvider(epayProvider.id,{config:{...epayConfig,merchant_private_key:'invalid-key'}})
+ const beforeInvalid=await prisma.rechargeRecord.count({where:{userId:user.id}})
+ const invalid=await app.inject({method:'POST',url:'/api/recharge/orders',payload:{...epayInput,requestId:randomUUID()}})
+ assert.equal(invalid.statusCode,400,invalid.body);assert.equal(await prisma.rechargeRecord.count({where:{userId:user.id}}),beforeInvalid,'invalid RSA key must reject before creating a pending order')
+ assert.ok(!invalid.body.includes('invalid-key'),'key contents must not appear in errors')
+ console.log('PASS real route/PG: standard RSA PEM creates signed WeChat link with method fee; replay is single order; invalid key returns 400 without persistence')
  const before=await prisma.rechargeRecord.count({where:{userId:user.id}})
  await holder.query('BEGIN');await holder.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[user.id])
  const pid=Number((await holder.query('SELECT pg_backend_pid() pid')).rows[0].pid)
@@ -97,6 +113,6 @@ try {
 }catch(error){failure=error}finally{
  for(const call of calls)call.reject()
  globalThis.fetch=originalFetch
- await holder.query('ROLLBACK').catch(()=>{});await pending?.catch(()=>{});await holder.end();await monitor.end();await app.close();await prisma.rechargeRecord.deleteMany({where:{userId:{in:[user.id,other.id]}}});await prisma.user.deleteMany({where:{id:{in:[user.id,other.id]}}});await prisma.paymentProvider.deleteMany({where:{id:{in:[provider.id,gateway.id]}}});await closePrismaDatabase()
+ await holder.query('ROLLBACK').catch(()=>{});await pending?.catch(()=>{});await holder.end();await monitor.end();await app.close();await prisma.rechargeRecord.deleteMany({where:{userId:{in:[user.id,other.id]}}});await prisma.user.deleteMany({where:{id:{in:[user.id,other.id]}}});await prisma.paymentProvider.deleteMany({where:{id:{in:[provider.id,gateway.id,epayProvider.id]}}});await closePrismaDatabase()
 }
 if(failure){console.error(failure);process.exitCode=1}

@@ -1,3 +1,4 @@
+import { reauthenticateRecoveryOperator, recoveryOperator } from './platform-recovery-operator.js'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { changeBalanceInTransaction } from '../db/balance.js'
@@ -105,6 +106,7 @@ export function normalizeRecoveryCorrection(value: unknown): RecoveryCorrection 
 }
 
 async function reauthenticate(tx: Prisma.TransactionClient, actorId: number, credentials: { password: string; totpCode?: string }) {
+  if ((await readRecoveryHold()).batchId) { await reauthenticateRecoveryOperator(actorId, credentials); return }
   // Serialize MFA use and prevent credentials/role/status changing during this commit.
   await tx.$queryRaw`SELECT id FROM users WHERE id = ${actorId} FOR UPDATE`
   try { await authorizeGatewayAdministration(tx, actorId, credentials) }
@@ -170,10 +172,13 @@ export async function reconcileRecovery(input: RecoveryCorrection, actorId: numb
     }
     const rechargeRows = []
     for (const item of correction.recharges) {
-      const recharge = await tx.rechargeRecord.findUnique({ where: { id: item.id }, select: { id: true, userId: true, orderNo: true, amount: true, status: true, tradeNo: true } })
+      const recharge = await tx.rechargeRecord.findUnique({ where: { id: item.id }, select: { id: true, providerId: true, userId: true, orderNo: true, amount: true, status: true, tradeNo: true } })
       ensure(recharge && recharge.userId === correction.userId && recharge.orderNo === item.orderNo && recharge.status === item.expectedStatus &&
         recharge.amount.toFixed(2) === item.expectedAmount && !await tx.balanceLog.count({ where: { orderId: item.orderNo, type: 'recharge' } }), 'OSS_RECONCILIATION_STALE', 409)
       ensure(!item.settlement?.tradeNo || !recharge.tradeNo || recharge.tradeNo === item.settlement.tradeNo, 'OSS_RECONCILIATION_STALE', 409)
+      const tradeNo = item.settlement?.tradeNo || recharge.tradeNo
+      if (tradeNo) ensure(!await tx.checkoutReceipt.count({ where: { providerId: recharge.providerId, tradeNo } }) &&
+        !await tx.rechargeRecord.count({ where: { id: { not: recharge.id }, providerId: recharge.providerId, tradeNo } }), 'OSS_RECOVERY_RECEIPT_EXISTS', 409)
       rechargeRows.push({ ...recharge, credit: new Prisma.Decimal(item.settlement?.creditedAmount || recharge.amount),
         completedAt: item.settlement?.completedAt || correction.observedAt, tradeNo: item.settlement?.tradeNo || recharge.tradeNo })
     }
@@ -278,7 +283,7 @@ export async function recoveryCorrectionAccount(userId: number, actorId: number)
       tx.instance.count({ where: instanceWhere }), tx.rechargeRecord.count({ where: rechargeWhere })
     ])
     return { account: { id: user.id, username: user.username, balance: user.balance.toFixed(2), latestBalanceLogId: user.balanceLogs[0]?.id || null },
-      requiresMfa: actor?.twoFactorEnabled || false,
+      requiresMfa: (await readRecoveryHold()).batchId ? !!(await recoveryOperator()).mfa : actor?.twoFactorEnabled || false,
       instances: instances.map(({ instanceTasks, billingRecords, packagePlanId, deletionBillingPending, provisioningCleanupPending, ...row }) => ({ ...row,
         latestBillingRecordId: billingRecords[0]?.id || null,
         expiresAt: row.expiresAt?.toISOString() || null, billingPrice: row.billingPrice?.toFixed(2) || null,

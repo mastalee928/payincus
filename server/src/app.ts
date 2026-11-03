@@ -1,3 +1,5 @@
+import { startRecoveryReviewWorker, stopRecoveryReviewWorker } from './services/platform-recovery-queue.js'
+import { validateRecoverySession } from './services/platform-recovery-operator.js'
 import hostReplacementRoutes from './routes/host-replacements.js'
 import adminInstancePushRoutes from './routes/admin-instance-push.js'
 import hostPortProtocolRoutes from './routes/host-port-protocol.js'
@@ -5,6 +7,8 @@ import hostAbusePolicyRoutes from './routes/host-abuse-policy.js'
 import hostOnboardingRoutes from './routes/host-onboarding.js'
 import hostPoolPriceRoutes from './routes/host-pool-prices.js'
 import poolOrderRoutes from './routes/pool-orders.js'
+import checkoutRoutes from './routes/checkout.js'
+import { startCheckoutWorker, stopCheckoutWorker } from './workers/checkoutWorker.js'
 import { startHostOnboardingWorker, stopHostOnboardingWorker } from './workers/hostOnboardingWorker.js'
 import { startHostRepairWorker, stopHostRepairWorker } from './workers/hostRepairWorker.js'
 import { startHostPublicIpSync, stopHostPublicIpSync } from './services/host-public-ip-sync.js'
@@ -405,11 +409,17 @@ async function ensureActiveAccessToken(
     return false
   }
 
+  if (!await validateRecoverySession(user)) {
+    reply.code(401).send({ code: 'OSS_RECOVERY_LOGIN_REQUIRED', error: 'Recovery login required' })
+    return false
+  }
   const invalidated = await isAccessTokenInvalidated(user.id, user.iat, user.sid)
   if (invalidated) {
     reply.code(401).send({ error: 'Session expired', code: 'SESSION_INVALIDATED' })
     return false
   }
+
+  if (recoveryHeld()) { user.role = 'admin'; user.status = 'active'; return true }
 
   const currentUser = await prisma.user.findUnique({
     where: { id: user.id },
@@ -509,15 +519,22 @@ fastify.decorate('authenticateUser', async function (request, reply) {
 // Referrer-Policy, HSTS, CSP 等
 
 // 健康检查
+let businessStartupReady = false
 fastify.get('/api/health', async () => {
-  return { status: 'ok', recoveryHeld: recoveryHeld(), timestamp: new Date().toISOString() }
+  return { status: 'ok', recoveryHeld: recoveryHeld(), businessStartupReady, timestamp: new Date().toISOString() }
 })
 
 // The recovery marker is outside the restored database. Block all ordinary
 // API/agent/callback/WebSocket traffic until reconciliation is acknowledged.
 fastify.addHook('onRequest', async (request, reply) => {
-  if (!recoveryHeld()) return
   const path = request.url.split('?')[0]
+  if (!recoveryHeld()) {
+    if (!businessStartupReady && path.startsWith('/api/') && path !== '/api/health') {
+      reply.header('Retry-After', '5')
+      return reply.code(503).send({ code: 'PLATFORM_STARTING', error: 'Platform initialization is in progress' })
+    }
+    return
+  }
   // The password login page loads both public settings and providers together;
   // keep its captcha/2FA flow usable without enabling an OAuth callback.
   if (path === '/api/oauth/providers' && (request.method === 'GET' || request.method === 'HEAD')) return reply.send({ providers: [] })
@@ -541,6 +558,7 @@ await fastify.register(hostAbusePolicyRoutes, { prefix: '/api/hosts' })
 await fastify.register(hostOnboardingRoutes, { prefix: '/api/host-onboarding' })
 await fastify.register(hostPoolPriceRoutes, { prefix: '/api/host-pools' })
 await fastify.register(poolOrderRoutes, { prefix: '/api/instances' })
+await fastify.register(checkoutRoutes)
 fastify.addHook('onClose', async () => { await stopHostOnboardingWorker() })
 fastify.addHook('onClose', stopHostRepairWorker)
 fastify.addHook('onClose', async () => { stopHostOfflineAlertWorker() })
@@ -764,9 +782,14 @@ const start = async (): Promise<void> => {
 
     // Do not run startup mutations or workers against a database awaiting review.
     if (recoveryHeld()) {
+      startRecoveryReviewWorker()
+      fastify.addHook('onClose', async () => { stopRecoveryReviewWorker() })
       await fastify.listen({ port: parseInt(process.env.PORT || '3001', 10), host: process.env.HOST || '127.0.0.1' })
       console.log('Platform recovery protection is active; background jobs are disabled.')
-      return
+      // The root worker commits the reviewed activation after protected health.
+      // Keep every business initializer stopped until it durably removes hold.
+      while (recoveryHeld()) await new Promise(resolve => setTimeout(resolve, 500))
+      stopRecoveryReviewWorker()
     }
 
     // 初始化 Prisma 数据库
@@ -784,7 +807,7 @@ const start = async (): Promise<void> => {
     const port = parseInt(process.env.PORT || '3001', 10)
     const host = process.env.HOST || '127.0.0.1'
 
-    await fastify.listen({ port, host })
+    if (!fastify.server.listening) await fastify.listen({ port, host })
     console.log(`🚀 Incudal 服务已启动: http://localhost:${port}`)
 
     startPlatformBackupScheduler()
@@ -827,6 +850,8 @@ const start = async (): Promise<void> => {
     const { cleanupStaleTasks: cleanupStaleInstanceTasks, startInstanceTaskWorker } = await import('./workers/instanceTaskWorker.js')
     await cleanupStaleInstanceTasks()
     startInstanceTaskWorker()
+    startCheckoutWorker()
+    fastify.addHook('onClose', async () => { await stopCheckoutWorker() })
     startHostOnboardingWorker()
     startHostRepairWorker()
     startHostOfflineAlertWorker()
@@ -1124,6 +1149,7 @@ const start = async (): Promise<void> => {
 
     console.log(`🔒 安全模式: ${process.env.NODE_ENV === 'production' ? '生产环境' : '开发环境'}`)
     printRateLimitSummary()
+    businessStartupReady = true
 
     if (process.env.RESET_DATABASE === 'true' || process.env.RESET_DATABASE === '1') {
       console.log('⚠️  注意：数据库已在启动时清空，请在生产环境中移除 RESET_DATABASE 环境变量')

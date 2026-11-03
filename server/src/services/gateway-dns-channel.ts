@@ -58,6 +58,18 @@ export async function ensureGatewayDnsChannel(gateway: OnboardingGateway, passwo
   if (local()) throw new OnboardingError('GATEWAY_DNS_LOCAL_HELPER_OUTDATED')
   if (!password) throw new OnboardingError('GATEWAY_DNS_HELPER_UPGRADE_REQUIRED')
   if (password.length > 1024) throw new OnboardingError('GATEWAY_DNS_INVALID')
+  await withGatewayDnsWriteAuthorization(actor, () => refreshPinnedGatewayHelpers(gateway, password))
+  const current = await gatewayCommand()
+  if (current.dnsProtocolVersion !== 2 || JSON.stringify(identity(current)) !== JSON.stringify(identity(gateway))) {
+    throw new OnboardingError('GATEWAY_DNS_HOST_IDENTITY_CHANGED')
+  }
+}
+
+// Callers supply their own current Web/recovery authorization before entering.
+// Only fixed, packaged helpers are copied; pins, peers and keys remain intact.
+export async function refreshPinnedGatewayHelpers(gateway: OnboardingGateway, password: string) {
+  if (local()) throw new OnboardingError('GATEWAY_DNS_LOCAL_HELPER_OUTDATED')
+  if (typeof password !== 'string' || !password || password.length > 1024) throw new OnboardingError('GATEWAY_DNS_HELPER_UPGRADE_REQUIRED')
   const sources: Record<string, string> = {}
   for (const name of ['onboarding-gateway.py', 'refresh-host-gateway-endpoint.py', 'install-host-gateway-dns.sh']) {
     const source = await readFile(fileURLToPath(new URL('../../../scripts/' + name, import.meta.url)))
@@ -70,14 +82,8 @@ export async function ensureGatewayDnsChannel(gateway: OnboardingGateway, passwo
   const client = await connectOnboardingSsh({ host: process.env.ONBOARDING_GATEWAY_HOST!, port: Number(process.env.ONBOARDING_GATEWAY_PORT || 22), password },
     async fingerprint => fingerprint === process.env.ONBOARDING_GATEWAY_FINGERPRINT)
   try {
-    await withGatewayDnsWriteAuthorization(actor, async () => {
       const result = JSON.parse(await sshExec(client, '/usr/bin/python3 -I -B -', script, 45000, 8192)) as Record<string, unknown>
       if (!result || Object.keys(result).sort().join(',') !== 'dnsProtocolVersion,keysAndRoutesPreserved' ||
           result.dnsProtocolVersion !== 2 || result.keysAndRoutesPreserved !== true) throw new OnboardingError('GATEWAY_DNS_UPGRADE_FAILED')
-    })
   } finally { client.end() }
-  const current = await gatewayCommand()
-  if (current.dnsProtocolVersion !== 2 || JSON.stringify(identity(current)) !== JSON.stringify(identity(gateway))) {
-    throw new OnboardingError('GATEWAY_DNS_HOST_IDENTITY_CHANGED')
-  }
 }
