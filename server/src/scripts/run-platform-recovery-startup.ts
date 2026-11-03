@@ -9,4 +9,5 @@ try {
   await recoverInterruptedActivation(process.argv[2] === 'ready')
 }
 catch { process.stderr.write('Recovery activation is incomplete; backend startup remains blocked.\n'); process.exitCode = 1 }
-finally { await closePrismaDatabase() }
+finally { try { await closePrismaDatabase() } catch { process.exitCode = 1 } }
+process.exit(process.exitCode || 0)

@@ -124,15 +124,14 @@ export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
     const client = new AliyunOssClient({ ...config, ...(target?.region ? { region: validateRegion(target.region) } : {}), ...(target?.bucket ? { bucket: validateBucket(target.bucket) } : {}) })
     try { return await action(client) } finally { client.close() }
   }
-  const recoveryWrite = [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession]
   const credentialsSchema = { password: { type: 'string', minLength: 1, maxLength: 256 }, totpCode: { type: 'string', pattern: '^[0-9]{6}$' } }
   const evidenceSchema = { reference: { type: 'string', minLength: 6, maxLength: 120 }, evidenceHash: { type: 'string', pattern: '^[a-f0-9]{64}$' }, observedAt: { type: 'string', format: 'date-time' }, sourceHash: { type: 'string', pattern: '^[a-f0-9]{64}$' } }
-  fastify.get<{Params:{id:string}}>('/recovery-review/orders/:id', {onRequest:recoveryWrite,
+  fastify.get<{Params:{id:string}}>('/recovery-review/orders/:id', {onRequest:[fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession],
     schema:{params:{...objectSchema,required:['id'],properties:{id:{type:'string',pattern:'^[A-Za-z0-9_-]{1,100}$'}}}}}, async(request,reply)=>{
     reply.header('Cache-Control','no-store');return recoveryOrder(request.params.id)
   })
   fastify.post<{Body:{resolution:RecoveryOrderResolution;password:string;totpCode?:string}}>('/recovery-review/orders/resolve', {
-    onRequest:recoveryWrite,bodyLimit:32768,config:{rateLimit:{max:8,timeWindow:'1 minute'}},schema:{body:{...objectSchema,required:['resolution','password'],properties:{
+    onRequest:[fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession],bodyLimit:32768,config:{rateLimit:{max:8,timeWindow:'1 minute'}},schema:{body:{...objectSchema,required:['resolution','password'],properties:{
       ...credentialsSchema,resolution:{...objectSchema,required:['id','orderId','sourceHash','reference','evidenceHash','observedAt','conclusion','refunds'],properties:{...evidenceSchema,
         id:{type:'string',maxLength:36},orderId:{type:'string',pattern:'^[A-Za-z0-9_-]{1,100}$'},conclusion:{enum:['unpaid','delivered','partial','refunded']},walletBalance:{type:'string',pattern:'^(0|[1-9][0-9]{0,7})\\.[0-9]{2}$'},
         walletTargets:{type:'array',maxItems:201,items:{...objectSchema,required:['userId','balance'],properties:{userId:{type:'integer',minimum:1},balance:{type:'string',pattern:'^(0|[1-9][0-9]{0,7})\\.[0-9]{2}$'}}}},
@@ -145,7 +144,7 @@ export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
         Object.keys(links).sort().join(',')==='debitId,evidenceHash,id,observedAt,orderId,purchaseBillIds,reference,sourceHash',
         'OSS_RECOVERY_EVIDENCE_INVALID')
     },
-    onRequest:recoveryWrite,bodyLimit:16384,config:{rateLimit:{max:8,timeWindow:'1 minute'}},schema:{body:{...objectSchema,required:['links','password'],properties:{
+    onRequest:[fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession],bodyLimit:16384,config:{rateLimit:{max:8,timeWindow:'1 minute'}},schema:{body:{...objectSchema,required:['links','password'],properties:{
       ...credentialsSchema,links:{...objectSchema,required:['id','orderId','sourceHash','reference','evidenceHash','observedAt','debitId','purchaseBillIds'],properties:{
         ...evidenceSchema,id:{type:'string',maxLength:36},orderId:{type:'string',pattern:'^[A-Za-z0-9_-]{1,100}$'},debitId:{type:'integer',minimum:1,maximum:2147483647},
         purchaseBillIds:{type:'array',minItems:1,maxItems:100,uniqueItems:true,items:{type:'integer',minimum:1,maximum:2147483647}}}}}}}
@@ -155,53 +154,53 @@ export default async function adminAliyunOssRoutes(fastify: FastifyInstance) {
       const body=request.body
       ensure(body && Object.keys(body).every(key=>['links','password','totpCode'].includes(key)), 'OSS_RECOVERY_EVIDENCE_INVALID')
     },
-    onRequest:recoveryWrite,bodyLimit:16384,config:{rateLimit:{max:8,timeWindow:'1 minute'}},schema:{body:{...objectSchema,required:['links','password'],properties:{
+    onRequest:[fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession],bodyLimit:16384,config:{rateLimit:{max:8,timeWindow:'1 minute'}},schema:{body:{...objectSchema,required:['links','password'],properties:{
       ...credentialsSchema,links:{type:'object'}}}}
   },async request=>serializeBackupMutation(async()=>{ensure(!await activeBackupTask(),'OSS_TASK_BUSY',409);return restoreRecoveryBillingLinks(request.body.links,request.user.id,request.body)}))
   fastify.post<{ Body: { category: RecoveryCategory; evidence: RecoveryEvidenceInput; password: string; totpCode?: string } }>('/recovery-review/evidence', {
-    onRequest: recoveryWrite, config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema,
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema,
       required: ['category', 'evidence', 'password'], properties: { ...credentialsSchema, category: { enum: ['finance', 'access', 'tasks'] },
       evidence: { ...objectSchema, required: Object.keys(evidenceSchema), properties: evidenceSchema } } } }
   }, async request => serializeBackupMutation(async () => { ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409); return recordRecoveryEvidence(request.body.category, request.body.evidence, request.user.id, request.body) }))
-  fastify.get<{ Querystring: { page?: number } }>('/recovery-review/access', { onRequest: recoveryWrite,
+  fastify.get<{ Querystring: { page?: number } }>('/recovery-review/access', { onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession],
     schema: { querystring: { ...objectSchema, properties: { page: { type: 'integer', minimum: 1, maximum: 1000000 } } } }
   }, async (request, reply) => { reply.header('Cache-Control', 'no-store'); return recoveryAccessAccounts(request.query.page) })
   fastify.post<{ Body: { correction: Parameters<typeof reconcileRecoveryAccess>[0]; password: string; totpCode?: string } }>('/recovery-review/access', {
-    onRequest: recoveryWrite, bodyLimit: 8192, config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema, required: ['correction','password'], properties: {
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], bodyLimit: 8192, config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema, required: ['correction','password'], properties: {
       ...credentialsSchema, correction: { ...objectSchema, required: ['userId','expectedHash','role','status','reference','evidenceHash','observedAt'], properties: {
         ...evidenceSchema, userId: { type: 'integer', minimum: 1, maximum: 2147483647 }, expectedHash: { type: 'string', pattern: '^[a-f0-9]{32}$' },
         role: { enum: ['admin','user'] }, status: { enum: ['active','banned'] }, newPassword: { type: 'string', minLength: 12, maxLength: 128 } } } } } }
   }, async request => serializeBackupMutation(async () => { ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409); return reconcileRecoveryAccess(request.body.correction, request.user.id, request.body) }))
   fastify.post<{ Body: { password: string; totpCode?: string } }>('/recovery-review/gateway', {
-    onRequest: recoveryWrite, config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema, required: ['password'], properties: credentialsSchema } }
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema, required: ['password'], properties: credentialsSchema } }
   }, async request => serializeBackupMutation(async () => { ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409); return reconcileRecoveryGateway(request.user.id, request.body) }))
-  fastify.get('/recovery-review/gateway', {onRequest:recoveryWrite}, async (_request,reply)=>{
+  fastify.get('/recovery-review/gateway', {onRequest:[fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession]}, async (_request,reply)=>{
     reply.header('Cache-Control','no-store');return recoveryGatewayStatus()
   })
   fastify.post<{Body:{address:string;password:string;totpCode?:string}}>('/recovery-review/gateway/map',{
-    onRequest:recoveryWrite,bodyLimit:4096,config:{rateLimit:{max:3,timeWindow:'1 minute'}},schema:{body:{...objectSchema,
+    onRequest:[fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession],bodyLimit:4096,config:{rateLimit:{max:3,timeWindow:'1 minute'}},schema:{body:{...objectSchema,
       required:['address','password'],properties:{...credentialsSchema,address:{type:'string',format:'ipv4'}}}}
   },async request=>serializeBackupMutation(()=>mapRecoveryGateway(request.user.id,request.body)))
   fastify.post<{Body:{password:string;totpCode?:string;gatewayPassword:string}}>('/recovery-review/gateway/helper', {
-    onRequest:recoveryWrite,bodyLimit:4096,config:{rateLimit:{max:3,timeWindow:'1 minute'}},schema:{body:{...objectSchema,
+    onRequest:[fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession],bodyLimit:4096,config:{rateLimit:{max:3,timeWindow:'1 minute'}},schema:{body:{...objectSchema,
       required:['password','gatewayPassword'],properties:{...credentialsSchema,gatewayPassword:{type:'string',minLength:1,maxLength:1024}}}}
   },async request=>serializeBackupMutation(async()=>{ensure(!await activeBackupTask(),'OSS_TASK_BUSY',409);return upgradeRecoveryGatewayHelper(request.user.id,request.body)}))
   fastify.post<{ Body: { registration: RecoveryRegistration; password: string; totpCode?: string } }>('/recovery-review/register', {
-    onRequest: recoveryWrite, bodyLimit: 32768, config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema, required: ['registration','password'], properties: {
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], bodyLimit: 32768, config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema, required: ['registration','password'], properties: {
       ...credentialsSchema, registration: { type: 'object' } } } }
   }, async request => serializeBackupMutation(async () => { ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409); return registerRecoveryBusiness(request.body.registration, request.user.id, request.body) }))
   fastify.post<{ Body: { registration: RecoveryAccountRegistration; password: string; totpCode?: string } }>('/recovery-review/register-account', {
-    onRequest: recoveryWrite, bodyLimit: 16384, config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema,
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], bodyLimit: 16384, config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema,
       required: ['registration','password'], properties: { ...credentialsSchema, registration: { type: 'object' } } } }
   }, async request => serializeBackupMutation(async () => { ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409); return registerRecoveryAccount(request.body.registration,request.user.id,request.body) }))
-  fastify.get<{Params:{id:string}}>('/recovery-review/instances/:id', {onRequest:recoveryWrite,schema:{params:{...objectSchema,required:['id'],properties:{id:{type:'string',pattern:'^[1-9][0-9]{0,9}$'}}}}},
+  fastify.get<{Params:{id:string}}>('/recovery-review/instances/:id', {onRequest:[fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession],schema:{params:{...objectSchema,required:['id'],properties:{id:{type:'string',pattern:'^[1-9][0-9]{0,9}$'}}}}},
     async(request,reply)=>{reply.header('Cache-Control','no-store');return recoveryInstance(Number(request.params.id))})
   fastify.post<{Body:{evidence:RecoveryInstanceEvidence;password:string;totpCode?:string}}>('/recovery-review/instance-evidence',{
-    onRequest:recoveryWrite,bodyLimit:16384,config:{rateLimit:{max:8,timeWindow:'1 minute'}},schema:{body:{...objectSchema,required:['evidence','password'],
+    onRequest:[fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession],bodyLimit:16384,config:{rateLimit:{max:8,timeWindow:'1 minute'}},schema:{body:{...objectSchema,required:['evidence','password'],
       properties:{...credentialsSchema,evidence:{type:'object'}}}}
   },async request=>serializeBackupMutation(async()=>{ensure(!await activeBackupTask(),'OSS_TASK_BUSY',409);return recordRecoveryInstance(request.body.evidence,request.user.id,request.body)}))
   fastify.post<{ Body: { registration: RecoveryRechargeRegistration; password: string; totpCode?: string } }>('/recovery-review/register-recharge', {
-    onRequest: recoveryWrite, bodyLimit: 16384, config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema,
+    onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession], bodyLimit: 16384, config: { rateLimit: { max: 8, timeWindow: '1 minute' } }, schema: { body: { ...objectSchema,
       required: ['registration','password'], properties: { ...credentialsSchema, registration: { type: 'object' } } } }
   }, async request => serializeBackupMutation(async () => { ensure(!await activeBackupTask(), 'OSS_TASK_BUSY', 409); return registerRecoveryRecharge(request.body.registration,request.user.id,request.body) }))
   fastify.get('/recovery-review/readiness', { onRequest: [fastify.authenticateAdmin, requireBackupAdmin, requireReviewWebSession] }, async (_request, reply) => {

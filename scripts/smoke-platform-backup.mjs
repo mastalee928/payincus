@@ -75,7 +75,17 @@ AliyunOssClient.prototype.download = async (record, destination) => { await copy
 async function task(kind, extras = {}) {
   config = await core.readBackupConfig()
   const id = randomUUID()
-  await runPlatformBackupTask({ id, kind, createdBy: 0, createdAt: new Date().toISOString(), config, ...extras })
+  const request = { id, kind, createdBy: 0, createdAt: new Date().toISOString(), config, ...extras }
+  if (['restore', 'rollback', 'resume'].includes(kind)) {
+    // Run the shipped oneshot with its actual PID/task argv and operation flock.
+    // Startup recovery must recognize the live owner, not mistake this smoke
+    // process for an interrupted restore and roll its activation back.
+    await core.writeJson(core.statePath('inbox', `${id}.json`), request)
+    await exec('/usr/local/libexec/incudal/incudal-online-task', ['platform-backup', id], { timeout: 180000 })
+    Object.assign(process.env, require('dotenv').parse(await readFile('/opt/incudal/.env')))
+  } else {
+    await runPlatformBackupTask(request)
+  }
   const result = await core.readJson(core.statePath('results', `${id}.json`))
   if (result?.status !== 'success') {
     const hold = await core.readJson(join(core.backupRoot(), 'recovery-hold.json'))
@@ -132,6 +142,8 @@ try {
   const gatewayIfindex = (await readFile('/sys/class/net/incudal-mgmt/ifindex', 'utf8')).trim()
   const gatewayBefore = await gatewayState()
   await task('restore', { previewId: preview.id, confirmation: `RESTORE ${preview.id}` })
+  const legacyHold = await core.readJson(join(core.backupRoot(), 'recovery-hold.json'))
+  await core.writeJson(join(core.backupRoot(), 'recovery-hold.json'), { ...legacyHold, autoResume: false }, 0o640)
   assert.equal((await readFile('/sys/class/net/incudal-mgmt/ifindex', 'utf8')).trim(), gatewayIfindex, 'same-controller recovery must not recreate the management interface')
   assert.equal((await exec('/usr/bin/wg', ['show', 'incudal-mgmt', 'endpoints'])).stdout, gatewayEndpoints, 'same-controller recovery must preserve learned peer endpoints')
   await health(true)
@@ -162,8 +174,49 @@ try {
   assert.equal(require('dotenv').parse(await readFile('/opt/incudal/.env')).ONBOARDING_WG_ENDPOINT, targetEnv.ONBOARDING_WG_ENDPOINT, 'rollback preserves destination environment bytes')
   assert.equal(createHash('sha256').update(await readFile(`${controllerRoot}/signing.pem`)).digest('hex'), controllerKeyBefore)
   assert.equal(core.openSecret((await core.readBackupConfig()).backupPassword), password)
-  await task('resume', { confirmation: 'RESUME AFTER RECONCILIATION' })
+  // The legacy rollback drill must supply the current batch and real review
+  // receipts, just like the protected route. It is not the one-click contract.
+  Object.assign(process.env, require('dotenv').parse(await readFile('/opt/incudal/.env')))
+  const recoveryState = await import('/opt/incudal/server/dist/services/platform-recovery-state.js')
+  const { recordRecoveryEvidence } = await import('/opt/incudal/server/dist/services/platform-recovery-evidence.js')
+  const { verifyRecoveryGateway } = await import('/opt/incudal/server/dist/services/platform-recovery-gateway.js')
+  const rollbackBatch = await recoveryState.activeRecoveryBatch()
+  assert.equal(rollbackBatch.mode, 'rollback')
+  assert.equal((await pgQuery('SELECT count(*)::int count FROM hosts'))[0].count, 0, 'fresh fixture must have no customer hosts')
+  for (const category of ['finance', 'access', 'tasks']) {
+    await recordRecoveryEvidence(category, { reference: `fresh-rollback-${category}`, observedAt: new Date().toISOString(),
+      sourceHash: await recoveryState.recoveryDatasetHash(category), evidenceHash: createHash('sha256').update(`empty-fixture-${category}`).digest('hex') },
+    rollbackBatch.operator_id, { password: initialEnv.ADMIN_PASSWORD })
+  }
+  await verifyRecoveryGateway(rollbackBatch, rollbackBatch.operator_id)
+  await task('resume', { confirmation: 'RESUME AFTER RECONCILIATION', recoveryBatchId: rollbackBatch.id })
   await health(false)
   assert.equal((await exec('/usr/bin/systemctl', ['show', 'incudal-backend', '-p', 'NRestarts', '--value'])).stdout.trim(), '0')
   console.log('Linux backup/preview/restore/rollback/resume and key consistency passed; OSS transport was simulated.')
+
+  // Exercise the current snapshot policy independently. The installed protected
+  // backend must verify the real local gateway and dispatch its own root resume;
+  // no finance/access receipt or second operator confirmation is provided.
+  const automaticPreview = await task('preview', { sourcePrefix: backup.objectPrefix, password: core.sealSecret(password) })
+  const automaticRestore = await task('restore', { previewId: automaticPreview.id,
+    confirmation: `RESTORE ${automaticPreview.id}`, restorePolicy: 'snapshot-v1' })
+  const until = Date.now() + 120000
+  let complete = false
+  while (Date.now() < until) {
+    const [batch] = await pgQuery('SELECT completed_at FROM platform_recovery_batches WHERE id=$1', [automaticRestore.id])
+    if (batch?.completed_at && !await core.readJson(join(core.backupRoot(), 'recovery-hold.json')) &&
+        !await core.readJson(join(core.backupRoot(), 'recovery-activation.json'))) { complete = true; break }
+    await new Promise(resolve => setTimeout(resolve, 1000))
+  }
+  assert.ok(complete, 'snapshot recovery must finish through installed automatic review and root resume')
+  await health(false)
+  assert.equal((await pgQuery('SELECT value FROM system_configs WHERE key=$1', [key]))[0].value, 'snapshot')
+  assert.equal(createHash('sha256').update(await readFile(`${controllerRoot}/signing.pem`)).digest('hex'), controllerKeyBefore)
+  assert.equal(await readFile(`${controllerRoot}/identity.json`, 'utf8'), controllerIdentityBefore)
+  const [{ count: manualReceipts }] = await pgQuery("SELECT count(*)::int count FROM platform_recovery_evidence WHERE batch_id=$1 AND category IN ('finance','access','tasks')", [automaticRestore.id])
+  assert.equal(manualReceipts, 0, 'snapshot policy must not require manual review evidence')
+  console.log('PASS installed snapshot policy: real database and gateway identity restored; automatic root resume; zero manual financial/access/task receipts; OSS transport simulated; no customer hosts.')
 } finally { await rm(storage, { recursive: true, force: true }) }
+const { closePrismaDatabase } = await import('/opt/incudal/server/dist/db/prisma.js')
+await closePrismaDatabase()
+process.exit(0)

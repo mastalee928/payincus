@@ -8,6 +8,9 @@ import { randomUUID } from 'node:crypto'
 import ts from 'typescript'
 import { ensure, statePath } from '../src/services/platform-backup-core.js'
 import { validateRestoreJournal, rollbackDatabasePlan } from '../src/services/platform-recovery-restore-journal.js'
+import { verifyRecoveryOneshotExit } from './fixtures/recovery-oneshot.js'
+
+await verifyRecoveryOneshotExit()
 
 const source = await readFile(new URL('../src/services/platform-backup-worker.ts', import.meta.url), 'utf8')
 const gatewaySource = await readFile(new URL('../src/services/platform-backup-gateway.ts', import.meta.url), 'utf8')

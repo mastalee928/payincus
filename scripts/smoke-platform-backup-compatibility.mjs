@@ -81,3 +81,4 @@ try {
   if (targetCreated) await db.localDatabaseAdmin(`DROP DATABASE ${q(target)} WITH (FORCE);`)
   await rm(directory, { recursive: true, force: true })
 }
+process.exit(0)
