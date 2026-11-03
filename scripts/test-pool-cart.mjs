@@ -67,11 +67,26 @@ try {
   const run=(fn,arg)=>a.eval(fn,arg)
   const wait=async fn=>{const end=Date.now()+7000;while(!await run(fn)){assert.ok(Date.now()<end,await run(()=>document.body.innerText));await sleep(30)}}
   const pending=kind=>run(kind=>window.checkoutHarness.requests.findLastIndex(r=>r.kind===kind&&!r.done),kind)
-  const reply=(index,data,failed=false)=>run(({index,data,failed})=>{const r=window.checkoutHarness.requests[index];r.done=true;failed?r.reject(data):r.resolve(data)},{index,data,failed})
+  const reply=(index,data,failed=false)=>run(({index,data,failed})=>{const r=window.checkoutHarness.requests[index];if(!r||r.done)throw Error('Invalid request '+index);r.done=true;failed?r.reject(data):r.resolve(data)},{index,data,failed})
   const product={id:20,resourcePreset:'E2',diskGiB:30,cpu:200,memoryMiB:768,monthlyPrice:1000,setupFee:200,idle:5,total:5}
   const catalog={regions:[{id:10,name:'韩国 · 首尔',countryCode:'kr',products:[product]}],maxInstances:100}
   const images={images:[{name:'Debian 12',remoteAlias:'debian/12',architecture:'x86_64'}]}
-  const enter=async()=>{await run(()=>{window.checkoutHarness.cart.clear();return window.checkoutHarness.router.push('/purchase')});await wait(()=>!!document.querySelector('.purchase-page'));await reply(await pending('catalog'),catalog);await wait(()=>window.checkoutHarness.requests.some(r=>r.kind==='images'&&!r.done))}
+  const loadCatalogs=async(after,failed=false)=>{
+    const until=Date.now()+7000
+    let indexes=[]
+    while(indexes.length<2){
+      indexes=await run(after=>window.checkoutHarness.requests.flatMap((r,i)=>i>=after&&r.kind==='catalog'&&!r.done?[i]:[]),after)
+      assert.ok(Date.now()<until,'direct and cart catalogs must both be requested');if(indexes.length<2)await sleep(30)
+    }
+    assert.deepEqual(await run(indexes=>indexes.map(i=>window.checkoutHarness.requests[i].data).sort(),indexes),['cart','direct'])
+    for(const index of indexes)await reply(index,failed?{message:'catalog unavailable'}:catalog,failed)
+  }
+  const enter=async()=>{
+    const after=await run(()=>window.checkoutHarness.requests.length)
+    await run(()=>{window.checkoutHarness.cart.clear();return window.checkoutHarness.router.push('/purchase')})
+    await wait(()=>!!document.querySelector('.purchase-page'));await loadCatalogs(after)
+    await wait(()=>window.checkoutHarness.requests.some(r=>r.kind==='images'&&!r.done))
+  }
   const fill=()=>run(()=>{const el=document.querySelector('.purchase-input');el.value='new-server';el.dispatchEvent(new Event('input',{bubbles:true}))})
   await enter();await reply(await pending('images'),images);await fill();await sleep(40)
   assert.equal(await run(()=>document.querySelector('.purchase-primary').disabled),false)
@@ -88,12 +103,18 @@ try {
   }
   await run(()=>{window.checkoutHarness.state.mounted=true;window.checkoutHarness.account(1);return window.checkoutHarness.router.push('/checkout')})
   await enter();await reply(await pending('images'),{message:'images unavailable'},true);await sleep(40)
-  await run(()=>document.querySelector('.purchase-alert button').click());await reply(await pending('catalog'),{message:'catalog unavailable'},true);await sleep(40)
+  let after=await run(()=>window.checkoutHarness.requests.length)
+  await run(()=>document.querySelector('.purchase-alert button').click());await loadCatalogs(after,true);await sleep(40)
   assert.equal(await run(()=>!!document.querySelector('.purchase-primary:not(:disabled)')),false,'failed refresh cannot use old product')
-  await run(()=>document.querySelector('.purchase-alert button').click());await reply(await pending('catalog'),catalog);await reply(await pending('images'),images);await fill();await sleep(40)
+  after=await run(()=>window.checkoutHarness.requests.length)
+  await run(()=>document.querySelector('.purchase-alert button').click());await loadCatalogs(after);await wait(()=>window.checkoutHarness.requests.some(r=>r.kind==='images'&&!r.done));await reply(await pending('images'),images);await fill();await sleep(40)
   await run(()=>document.querySelector('.purchase-secondary').click());await sleep(60)
-  assert.equal(await run(()=>window.checkoutHarness.router.currentRoute.value.path),'/checkout')
-  assert.equal(await run(()=>window.checkoutHarness.cart.totalQuantity),1,'direct purchase uses the same valid cart')
+  assert.equal(await run(()=>window.checkoutHarness.router.currentRoute.value.path),'/order/confirm')
+  assert.equal(await run(()=>window.checkoutHarness.cart.totalQuantity),0,'direct purchase never inserts a cart item')
+  const directDraft = await run(()=>{const h=window.checkoutHarness,id=h.router.currentRoute.value.query.draft;return {id,item:JSON.parse(sessionStorage.getItem(`incudal.direct-purchase.${h.auth.user.id}.${id}`)||'null')}})
+  assert.match(directDraft.id,/^[a-f0-9-]{36}$/)
+  assert.equal(directDraft.item.namePrefix,'new-server')
+  assert.equal(directDraft.item.poolPriceId,20)
   console.log('PASS actual purchase selector: add/direct purchase, old image replies, identity/routes/unmount and catalog retry')
   await enter();await reply(await pending('images'),images);await fill();await sleep(80)
   assert.ok(await run(()=>document.querySelector('.purchase-name-quantity').getBoundingClientRect().top < document.querySelector('.purchase-instance-fields > .purchase-field').getBoundingClientRect().top),'instance name precedes operating system')

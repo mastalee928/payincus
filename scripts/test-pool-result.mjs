@@ -27,8 +27,13 @@ try {
   const item = { poolPriceId: 20, quantity: 1, namePrefix: 'my-server', image: 'debian/12', customInitCommandIds: [], snapshot: { regionId: 10, regionName: '美国 · 圣何塞', countryCode: 'us', resourcePreset: 'E2', diskGiB: 30, cpu: 200, memoryMiB: 768, monthlyPrice: 1000, setupFee: 200, imageLabel: 'Debian 12' } }
   const respond = (index, data, failure = false) => run(({index,data,failure}) => { const r=window.checkoutHarness.requests[index]; if(!r||r.done)throw Error('Invalid request '+index);r.done=true;failure?r.reject(data):r.resolve(data) }, {index,data,failure})
   const pending = kind => page.eval(kind => window.checkoutHarness.requests.findLastIndex(r=>r.kind===kind&&!r.done),kind)
-  const accept = async (kind, data) => respond(await pending(kind),data)
-  const load = async () => { await wait(()=>window.checkoutHarness.requests.some(r=>r.kind==='catalog'&&!r.done));await accept('catalog',catalog);await accept('keys',{keys:[]});await accept('providers',{providers:[{id:5,name:'Payment',type:'yipay'}]}) }
+  const accept = async (kind, data) => {
+    const until = Date.now() + 8000
+    let index
+    while ((index = await pending(kind)) < 0) { assert.ok(Date.now() < until, `Missing ${kind} request`); await sleep(30) }
+    return respond(index, data)
+  }
+  const load = async () => { await accept('catalog',catalog);await accept('keys',{keys:[]});await accept('balance',{balance:{balance:100}});await accept('providers',{providers:[{id:5,name:'Payment',type:'yipay'}]}) }
   const add = value => run(value=>window.checkoutHarness.cart.add(value),value)
   const click = () => run(()=>document.querySelector('.checkout-pay').click())
   const result = id => ({batchId:id,total:1200,instances:[{id:70,name:'my-server',status:'creating',refunded:false,refundPending:false,host:null,sshPort:null,rootPassword:null}]})
