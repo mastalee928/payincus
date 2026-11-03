@@ -1,5 +1,46 @@
 # 版本与验证记录
 
+## 2026-11-04 v1.8.1 正式发行、全部 CI 与资产核验完成
+
+- [正式 Release](https://github.com/mastalee928/payincus/releases/tag/v1.8.1) 于 `2026-11-03T15:08:52Z` 发布，非 draft/prerelease。正式 Build & Release `41658234856` 五 job 全部 success，逐 job 实际 checkout 均为 `bc860dcbdb364557611531fda388921968c35600`；正式双架构首装独立核过 238 迁移、唯一后台、双端、恢复内登录、legacy 回退续接、snapshot 零人工材料自动恢复、SQL/ZIP 完整性与旧版本迁移。见 `logs/release-v1.8.1-formal-verified.json` 和正式逐 job 日志。
+- 六公开资产已实际下载并独立核验。AMD64 大小 `214165053`、SHA256 `3722697c3fcf9a1cf6cd8d58d181244a74f12851ebae4d42569c6af1d80e18c7`；ARM64 大小 `213389266`、SHA256 `28c93bae9dbdf6df6ee74bce16d4b37802a5005ccd105b4f7edb02d587fba2f0`。API digest/大小、独立校验文件、两份 OTA manifest 字节与 URL 一致；包内版本/238 迁移/LICENSE/路径/root 归属/原生架构、支付 worker 与恢复修正均通过。每包双架构组件各 20 文件大小/hash/权限/ELF 及独立 Ed25519 信任、公钥/catalog/payload 完整 sourceCommit 同正式来源，见 `panel-assets-verified.json` 和验证日志。
+- Release 说明已按 tag-notes.md 更新并回读；GitHub 将换行转为 CRLF，逐行完全一致，核验仅统一换行后通过，不改正文。更新后六资产保持，panel latest=v1.8.1，Agent v1.0.4 的原 tag/tree/三资产 digest/大小/更新时间保持，复用此前实际下载基线。见 `public-release-verified.json`、`agent-after-main-verified.json`；不重复下载或发布。
+- 主分支 CI `41658225173` 九 job 全部 success；逐 job 实际 checkout 同正式完整来源，Pool `125994183211` 全部业务步骤及清理结束，16/58/78/79/80/81/90 等原失败后继步骤均成功。原生 nft、维护锁、真实 Incus、原 Agent HMAC、恢复和付款标记均核验，九份日志及哈希见 `logs/release-v1.8.1-main-ci-verified.json`。候选 CI、预览、正式发行及全部历史运行已终态，无未处理发行失败。
+- 支付/UI 与普通 OSS 还原修复均在 v1.8.1 正式包内；可由 owner 在后台「版本更新」检查并升级，普通升级不执行 OSS 还原。完整网页步骤见 [使用与验收](docs/release-v1.8.1-owner-click-test.md)，R1–R9 与证据范围见 [公开验证记录](docs/release-v1.8.1-validation.md)。
+- 稳定 tag 仍指向 `bc860dcbdb364557611531fda388921968c35600`，最终文档单独保存，不重新打包。未操作生产部署或恢复；独立真实 OSS 新 B、原宿主实际隧道及客户持续连接、千台/72 小时仍未验收。以下为各阶段历史记录。
+
+## 2026-11-03 v1.8.1 正式标签已推送，主分支与正式包验证中
+
+- 候选 `bc860dcbdb364557611531fda388921968c35600` 的 CI `41639497558` 九 job 全部 success，双架构预览 `41639521902` 全 success / Release skipped；完整日志、实际来源、209 守卫、238 迁移及自动还原已核验。历史失败均由最新成功步骤闭环，旧运行全部终态。
+- 已核远端 main 为预期 `d444dfcf609c778b5ee8a03926cf159a2c346798` 祖先、v1.8.1 与 Release 均空闲，精确 FF 同候选至 main，PR #3 于 `2026-11-03T14:53:48Z` MERGED；未 force/squash。正式注释 tag 对象 `75316dfa255cdf0502e10ea81e1ca8e73b63e623`，解引用同候选，禁止移动稳定 tag。
+- 当前主分支 CI `41658225173`、正式 Build & Release `41658234856` 运行中，完整 headSha 均为候选。正式双构建/双首装/Release 与六公开资产尚待独立核验，不用预览代替。Agent 文件未变，不手动发行；保留 v1.0.4 原 tag/tree/资产。
+- 门槛与提交证据：`logs/release-v1.8.1-candidate-ci-verified.json`、`preview-bc860dcb-verified.json`、`history-closure.json`、`publish-gates.json`、`tag-published.json`、`pr-merged.json`。最终以 plan/status pendingRuns 为准；阶段文档保留至正式发行收尾，避免改变发行身份。
+- 未部署生产；独立真实 OSS 新 B、原宿主真实隧道、客户持续连接、千台/72 小时仍未验收。用户按原固定域名先指向 B、保存 OSS 资料/选包/点击还原的合同保持。
+
+## 2026-11-03 v1.8.1 最新发行续接（bc860dcb）
+
+- 最新已推候选 `bc860dcbdb364557611531fda388921968c35600`，PR #3；双架构预览 `41639521902` 已全部 success / Release skipped，四 job 实际 checkout 和组件完整 sourceCommit 均为候选。209 守卫、238 迁移、唯一后台、双端、恢复内登录、legacy 回退续接、snapshot 自动恢复及 SQL/ZIP/旧版兼容均独立核验，证据 `logs/release-v1.8.1-preview-bc860dcb-verified.json` 与逐 job 日志。CI `41639497558` 八 job success，仅 Pool `125929086800` 运行中；尚未正式发行或部署生产。
+- `7ba0fdb2` 预览双构建及 ARM64 首装成功，AMD64 在 snapshot 自动续接首次派发后没有 root 回执，90 秒后回收再派发，后续后台已从 start-limit-hit 恢复但超出整段观察时间。旧 unit 的确切失败日志不完整，不能将锁竞争称为已取得原现场的完整根因实证。原失败日志保留。
+- 代码确认恢复 helper 使用 `flock -n`，前一恢复任务尚未释放维护锁时会立即拒绝新续接；本候选改为同一锁上最多等待 30 秒，超时仍失败，取得锁后才验签和执行。新增真实 Linux 持锁、释放后单次执行、超时拒绝与空闲成功专项，首装失败仅输出 unit 固定分类诊断；本地 backup/interruption 守卫、类型与脚本语法已过。最新 Lint 和双架构构建日志均包含原生锁专项成功，双端自动恢复终态成功；证据 `logs/release-v1.8.1-lock-fix-evidence.json`、`preview-bc860dcb-builds-verified.json`。
+- CI 的 PR 实际 checkout 为 `b97f29eb04fa833e25d97c0ac28d32575de1845f`，与候选 tree 同 `8febf127221c292c19c7c54fb08d7dc2fea9b65c`，见 `candidate-pr-checkout.json`。最新 snapshot/支付 job 已独立核原用户/管理员实例权限、自动续费、原 Agent HMAC、自动恢复和真实 PG 回退标记。待整体 Pool 终态后归档最终九 job 来源。
+- 旧 CI `41634167451` 已确认 cancelled 终态：八 job success，Pool 的 90 鉴权与 108 订单已通过。没有重跑旧成功任务；`0f06aab9` 完整成功预览保留，但不替代本候选证据。支付修复已推送；真实 OSS 新 B、原宿主隧道和在用客户持续连接、千台/72 小时仍未验收。
+
+## 2026-11-03 v1.8.1 最新发行续接（7ba0fdb2）
+
+- 最新已推候选 `7ba0fdb225acea74afc36e25d7508f7aea1b55fb`，PR #3。CI `41634167451` 与同提交预览 `41636162813` 运行中；仍未正式发行或部署生产。
+- `0f06aab9` 双架构预览 `41633184131` 已全部成功（Release 按预期 skipped），四 job 实际 checkout 与组件完整 sourceCommit 均为 `0f06aab9a097577b3b49b86ec68f7da3cc3f85e9`。209 项守卫、238 迁移、唯一后台、两前端、公开 Agent、备份完整性/旧版本兼容、恢复保护内登录、legacy 回退续接及 snapshot-v1 零人工材料自动恢复全部核验。证据 `logs/release-v1.8.1-preview-0f06aab9-verified.json` 和逐 job 日志。首装 OSS 传输为本地替身，不能替代独立真实 OSS 灾备。
+- 此前 `64e0644a` 双首装在连续恢复/回退/续接后触发 systemd start-limit-hit。`0f06aab9` 仅明确收到该错误才清除唯一后台的计数并重试一次；普通启动失败仍拒绝。守卫、type/build 与后继双端实际自动恢复已闭环；原失败保留。失败诊断同时修正带引号环境值脱敏。
+- `64e0644a` CI step58/78/79/80/81 已成功，随后 step90 的抽取鉴权夹具漏绑定恢复会话函数而返回 401。`7ba0fdb2` 绑定实际恢复验证器、隔离状态目录，42 次真实 JWT/PG 请求核角色/封禁/会话撤销/数据库故障及恢复结束后的旧会话拒绝，type 与 auth 守卫通过；产品源码未因此修改。`0f06aab9` 旧 CI 已取消避免重复；最后候选仍须完整 CI/预览终态。
+- 本轮支付、OSS 核心修复均已推送，正式发布仍待最终门槛。独立真实 OSS 新 B、原宿主真实隧道、客户持续连接、千台/72 小时仍未验收。
+
+
+## 2026-11-03 v1.8.1 最新发行续接（64e0644a）
+
+- 支付与普通 OSS 恢复源码已提交并推送 `codex/release-v1.8.1`，PR #3；当前候选 `64e0644ae08024457df84fb89dc1b23e52190c63`。候选 CI `41630242998`、双架构预览 `41630266915` 正在运行，尚未正式发行或部署生产。
+- 03170b34 两端首装已通过新后台启动、238 迁移、备份/预检/恢复、0640 服务读取及恢复保护内管理员登录，旧启动/权限问题已越过；随后 legacy 回退误报数据库身份改变。真实 PG 复现 `json_build_object` 将 OID 编码为字符串，保存日志为整数；47d61c9d 统一查询 `oid::int`，保持严格身份比较。新增真实空库改名专项验证两次改名、重复执行、保留两个原 OID 与错误身份拒绝；type/build、backup/interruption 守卫均 exit 0。
+- 03170b34 Pool step78 的旧浏览器夹具漏回复新增余额请求；后继 step79 仍只响应单份目录并期待直接购买写购物车。64e0644a 按真实 direct/cart 两份目录和独立确认页修夹具；订单复制迟到回执/凭据/退款状态、两页购物车/直接购买、三宽深浅浏览器专项 exit 0。没有为测试改动购买业务。
+- 原失败及新专项保存在 `logs/release-v1.8.1-oid-fixes.json` 和对应日志；plan/status 是最新运行来源。必须等当前双首装完成回退、续接、snapshot-v1 自动放行及整体 CI，不能以局部通过代替。独立真实 OSS 新 B、原宿主隧道与客户持续连接、千台/72 小时仍未验收。以下为历史记录。
+
 ## 2026-11-03 v1.8.1 支付与普通 OSS 恢复候选
 
 - 本轮合同：保存 OSS 资料→选包→点击还原，自动恢复到备份时点。主控兼网关使用原固定域名，owner 先将其解析指向新 B。沿用原管理、Incus 与 Agent 身份；不增加 DNS 凭据、人工补账或逐台配置。下文是历史过程，独立备用/增量对账及共享宿主分支不再作为普通还原的必经步骤。
@@ -10,6 +51,10 @@
 - Windows 本机没有可用 Linux 虚拟化，QEMU 已明确失败，不再重复尝试。原生 nft、Linux/systemd 及双架构首装转交同提交 CI/发行预览；当前尚未正式发布 v1.8.1，CI 与资产状态见本地发行 plan/status。
 - 尚未验收：独立真实 OSS 新 B 全流程、原宿主隧道真实重连、在用客户持续连接、千台真机/72 小时。真实样本没有在用客户实例，客户管理/计费通过隔离夹具验证。缺失原远端客机/磁盘/身份、原 IPv6 文件或就绪摘要以及真实协议冲突仍保留具体失败与保护，不能凭空重建客户数据或声称所有极端故障均自动修复。
 
+
+
+- 2026-11-03 发行续接：候选 `402bbbbc69724aa83dc1186d08cacfb665effd2a` 已推送 PR #3；CI `41614106647` 与双架构预览 `41614099401` 运行中。旧 `893e659f` 双构建及209项守卫已成功，但首装暴露后台在 listen 后注册 checkout 关闭钩子，旧 Pool step58 暴露 Turnstile 夹具按旧函数身份断言。现已修前置注册；真实 Fastify 普通/保护启动关闭专项、五入口八种配置及恢复登录前后验证码、238迁移/备份守卫、服务端类型和构建均通过。原失败日志保留，尚待后继完整CI/首装闭环。
+- root恢复task/startup/supervisor及CLI均等待数据库清理后显式退出，避免被导入定时器拖住oneshot；包含引用定时器和成功/失败/清理失败的专项通过。首装演练改用真实受信helper/PID/flock执行恢复与续接，并独立验证snapshot-v1零人工凭据自动放行。该首装新场景当前尚未终态，不能宣称已经通过。
 
 ### 2026-11-03 续接：转让后换机的自动账务核对
 
