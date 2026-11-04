@@ -66,6 +66,7 @@ interface Host {
   }
   natConfig?: {
     publicIp: string | null
+    publicIpSync?: ManagedHost['publicIpSync']
     publicIpv6?: string | null
     bindIp?: string | null
     bindIpv6?: string | null
@@ -156,6 +157,17 @@ onMounted(() => { if (!pendingHostRead?.()) void loadHost() })
 onActivated(() => { if (isOnHostDetailRoute() && !host.value && !pendingHostRead?.()) void loadHost() })
 onDeactivated(invalidateHostReads)
 onBeforeUnmount(invalidateHostReads)
+let ipRefreshTimer: ReturnType<typeof setInterval> | undefined
+function startIpRefresh() {
+  clearInterval(ipRefreshTimer)
+  ipRefreshTimer = setInterval(() => {
+    if (activeTab.value === 'info' && document.visibilityState === 'visible' && !pendingHostRead?.() && !pendingHostAction?.current()) void loadHost()
+  }, 15000)
+}
+onMounted(startIpRefresh)
+onActivated(startIpRefresh)
+onDeactivated(() => clearInterval(ipRefreshTimer))
+onBeforeUnmount(() => clearInterval(ipRefreshTimer))
 
 async function loadHost() {
   if (!copyViewAlive || !copyViewActive.value || !isOnHostDetailRoute()) return
@@ -423,6 +435,8 @@ const tabs = [
               </span>
             </div>
             <p class="page-description mt-1 truncate font-mono text-themed-muted">{{ host.location || host.url }}</p>
+            <p v-if="host.natConfig?.publicIpSync?.observedIp || host.natConfig?.publicIp" data-node-current-ip class="mt-1 text-sm text-themed-muted">{{ t('hostInventory.publicIp') }}: <span class="font-mono text-themed">{{ host.natConfig?.publicIpSync?.observedIp || host.natConfig?.publicIp }}</span></p>
+            <p v-if="isAdmin && host.natConfig?.publicIpSync?.error" class="mt-1 text-xs text-amber-600 dark:text-amber-400" role="status">{{ t('hostIpSync.errors.' + host.natConfig.publicIpSync.error) }}</p>
             <HostManagementRepairStatus class="mt-2" :state="host.managementRepair" />
           </div>
         </div>
@@ -768,6 +782,8 @@ const tabs = [
 .reinstall-dialog .bg-accent { background: var(--kawaii-text) !important; color: var(--kawaii-surface) !important; }
 .reinstall-dialog button::before,
 .host-detail button::before { display: none; }
+.host-detail .text-amber-600 { color: #92400e !important; }
+.dark .host-detail .text-amber-600 { color: #fbbf24 !important; }
 .reinstall-dialog .text-themed-muted,
 .host-detail .text-themed-muted { color: var(--kawaii-text) !important; }
 @media (max-width: 639px) {

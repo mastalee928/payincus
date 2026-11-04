@@ -36,6 +36,7 @@ interface Host {
   }
   natConfig?: {
     publicIp: string | null
+    publicIpSync?: { observedIp?: string | null }
     publicIpv6?: string | null
     publicIpv6Sync?: HostPublicIpv6Sync | null
     bindIp?: string | null
@@ -795,9 +796,9 @@ const xAxisLabels = computed(() => {
       >
         <h3 class="text-xs font-medium text-gray-500 mb-3">{{ t('admin.hosts.natConfig') }}</h3>
         <dl class="space-y-2 text-sm">
-          <div v-if="host.natConfig?.publicIp" class="flex justify-between">
+          <div v-if="host.natConfig?.publicIpSync?.observedIp || host.natConfig?.publicIp" class="flex justify-between">
             <dt class="text-gray-500">{{ t('admin.hosts.natPublicIpv4') }}</dt>
-            <dd class="font-mono" :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-700'">{{ host.natConfig.publicIp }}</dd>
+            <dd class="font-mono" :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-700'">{{ host.natConfig.publicIpSync?.observedIp || host.natConfig.publicIp }}</dd>
           </div>
           <div v-if="ipv6Sync" class="space-y-2 pt-2">
             <dt class="flex flex-wrap items-center justify-between gap-2">
@@ -1247,6 +1248,7 @@ const xAxisLabels = computed(() => {
 }
 .host-info.card,
 .host-info .card {
+  background: var(--kawaii-surface) !important;
   box-shadow: none !important;
 }
 .host-info [class*="text-gray-400"],

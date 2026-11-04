@@ -1,5 +1,6 @@
 import { isIP } from 'node:net'
 import { customerIpv6View } from './host-public-ipv6.js'
+import { observedPublicIp } from './host-public-ip.js'
 
 export function publicInstanceIpv6(value: string | null | undefined): string | null {
   return value && isIP(value) === 6 && /^[23][0-9a-f]{0,3}:/i.test(value) ? value : null
@@ -10,10 +11,12 @@ export function applyCustomerInstanceView(response: Record<string, any>, instanc
   dedicated_ipv4?: boolean; dedicated_network_ready?: boolean; public_ip_sync_blocked?: boolean
   dedicated_ipv6?: unknown; host_id?: number; incus_id?: string | null
   service_fault?: boolean
+  public_ip_sync?: unknown
 }, admin: boolean): void {
   response.dedicatedIpv4 = instance.dedicated_ipv4 === true
   response.serviceFault = instance.service_fault === true
   response.publicIpUpdating = instance.public_ip_sync_blocked === true
+  response.observedPublicIp = response.dedicatedIpv4 ? observedPublicIp(instance.public_ip_sync) : null
   response.dedicatedNetworkReady = instance.dedicated_network_ready === true && !response.publicIpUpdating
   delete response.dedicated_ipv6
   delete response.dedicatedIpv6

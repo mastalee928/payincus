@@ -11,7 +11,8 @@ export interface ArchivedGatewayNode {
   id:string; hostId:number|null; nodePublicKey:string|null; managementIp:string|null; deletedAt:Date|null
 }
 // An authenticated snapshot can include old reservations after host deletion.
-// Keep those reservations as tombstones, but do not reactivate their tunnels on B.
+// Keep deleted-Host reservations as tombstones, without reactivating them on B.
+// Hiding a task while retaining its Host must preserve that Host's route.
 // This prepares a local file only; it never edits an existing external gateway.
 export function reconcileArchivedGatewayPeers(config:string, reservations:Map<string,unknown>, nodes:ArchivedGatewayNode[]) {
   const known=new Map(nodes.map(node=>[node.id,node])),keys=new Map<string,{node:ArchivedGatewayNode;address:string}>(),addresses=new Set<string>()
@@ -40,11 +41,11 @@ export function reconcileArchivedGatewayPeers(config:string, reservations:Map<st
     const key=fields.get('PublicKey')||'',saved=keys.get(key)
     ensure(saved && !seen.has(key) && fields.get('AllowedIPs')===`${saved.address}/32`,'OSS_RECOVERY_GATEWAY_IDENTITY_CHANGED',409)
     seen.add(key)
-    if(saved.node.deletedAt){removed.push(saved.node.id);return ''}
+    if(saved.node.deletedAt && saved.node.hostId===null){removed.push(saved.node.id);return ''}
     ensure(saved.node.hostId!==null,'OSS_RECOVERY_GATEWAY_IDENTITY_CHANGED',409)
     return section
   }).join('')
-  for(const node of nodes.filter(node=>node.hostId!==null && !node.deletedAt))ensure(
+  for(const node of nodes.filter(node=>node.hostId!==null))ensure(
     node.nodePublicKey && seen.has(node.nodePublicKey),'OSS_RECOVERY_GATEWAY_MISSING_ROUTES',409)
   return {config:next,removedNodeIds:removed}
 }

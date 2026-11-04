@@ -55,6 +55,7 @@ export interface OnboardingNode {
   id: string
   name: string
   publicIp: string
+  currentPublicIp?: string | null
   machineGroup: string | null
   regionGroup: string | null
   countryCode: string | null
@@ -90,6 +91,8 @@ export interface OnboardingListResponse {
   page: number
   pageSize: number
   gatewaySshHost: string | null
+  retirementTotal?: number
+  retirements?: Array<{ id: string; name: string; publicIp: string; status: 'pending' | 'blocked' | 'done'; attempts: number; nextAttemptAt: string; error: string | null }>
 }
 export interface OnboardingGatewayStatus {
   local?: boolean
@@ -97,6 +100,10 @@ export interface OnboardingGatewayStatus {
   ready: boolean
   code?: string
   gateway?: { controlIp: string; network: string; sshHost: string }
+}
+export interface OnboardingAddressCheck {
+  publicIp: string
+  conflict: { code: string; publicIp: string; host?: { id: number; name: string; status: string; isInstalled: boolean }; node?: { id: string; batchId: string; status: string } } | null
 }
 
 export interface ManagedHost {
@@ -266,6 +273,7 @@ export interface HostPublicIpSync {
   hostId: number
   supported: boolean
   currentIp: string | null
+  confirmedIp: string | null
   currentBindIp: string | null
   blocked: boolean
   settings: HostPublicIpSettings
@@ -276,5 +284,9 @@ export interface HostPublicIpSync {
   checkedAt: string | null
   changedAt: string | null
   previousIp: string | null
+  observedIp: string | null
+  managementCheckedAt: string | null
+  verifiedAt: string | null
+  nextCheckAt: string | null
   error: string | null
 }

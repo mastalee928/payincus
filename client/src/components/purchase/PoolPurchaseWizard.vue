@@ -75,20 +75,32 @@ const hasStock = computed(() => regions.value.some(value => regionStock(value) >
 const selectedImageLabel = computed(() => images.value.find(value => value.value === image.value)?.label ?? '')
 
 function selectPurchaseRegion(value: PoolPurchaseRegion) {
+  if (value.key === selectedPurchaseRegion.value?.key) return
   const available = value.regions.find(group => regionStock(group) > 0)
-  if (available) selectRegion(available.id)
+  if (!available) return
+  if (currentContinent.value !== 'all') continentFilter.value = continentOf(value.countryCode)
+  selectRegion(available.id)
+}
+
+function clearSelection() {
+  productId.value = null; regionId.value = null; quantity.value = 1
 }
 
 function selectContinent(value: string) {
+  if (value !== (regionSearch.value.trim() ? 'all' : currentContinent.value)) clearSelection()
   continentFilter.value = value as ContinentCode | 'all'
   regionSearch.value = ''
 }
+
+watch(visibleRegions, values => {
+  if (selectedPurchaseRegion.value && !values.some(value => value.key === selectedPurchaseRegion.value?.key)) clearSelection()
+}, { flush: 'sync' })
 
 async function load() {
   const current = context(), sequence = ++catalogSequence
   if (!current()) return
   const valid = () => current() && sequence === catalogSequence
-  loading.value = true; catalogReady.value = false; error.value = ''; regions.value = []; image.value = ''; images.value = []
+  loading.value = true; catalogReady.value = false; error.value = ''; clearSelection(); regions.value = []; image.value = ''; images.value = []
   try {
     const [catalog, cartCatalog] = auth.isAuthenticated
       ? await Promise.all([api.checkout.catalog('direct'), api.checkout.catalog('cart')])
@@ -99,7 +111,11 @@ async function load() {
       Object.assign(item, { idleForDirect: item.idle, idleForCart: stock, idle: Math.max(item.idle, stock) })
     }
     regions.value = catalog.regions; maxInstances.value = catalog.maxInstances ?? 100
-    regionId.value = regions.value.find(value => value.id === Number(route.query.region))?.id ?? regions.value.find(value => regionStock(value) > 0)?.id ?? null
+    const requestedRegion = regions.value.find(value => value.id === Number(route.query.region))
+    if (continentFilter.value === null && requestedRegion) continentFilter.value = continentOf(requestedRegion.countryCode)
+    const visibleIds = new Set(visibleRegions.value.flatMap(value => value.regions.map(group => group.id)))
+    regionId.value = regions.value.find(value => visibleIds.has(value.id) && value.id === Number(route.query.region))?.id
+      ?? regions.value.find(value => visibleIds.has(value.id) && regionStock(value) > 0)?.id ?? null
     productId.value = region.value?.products.find(value => value.id === Number(route.query.product))?.id ?? region.value?.products.find(value => value.idle > 0)?.id ?? null
     catalogReady.value = true
   } catch (err) { if (valid()) error.value = translateError(err) }
@@ -123,7 +139,7 @@ async function loadImages() {
   } catch (err) { if (current === imageSequence && validContext()) error.value = translateError(err) }
   finally { if (current === imageSequence && validContext()) imagesLoading.value = false }
 }
-watch(product, () => { quantity.value = 1; void loadImages() })
+watch(product, () => { quantity.value = 1; void loadImages() }, { flush: 'sync' })
 function login() {
   void router.push({ path: '/login', query: { redirect: `/purchase?region=${regionId.value ?? ''}&product=${productId.value ?? ''}` } })
 }
@@ -148,6 +164,7 @@ onMounted(() => { active.value = true }); onActivated(() => { active.value = tru
 onDeactivated(() => { active.value = false }); onUnmounted(() => { active.value = false; generation++ })
 watch([session, active, () => route.fullPath], () => {
   generation++; imageSequence++; catalogSequence++; catalogReady.value = false
+  continentFilter.value = null; regionSearch.value = ''; clearSelection()
   regions.value = []; images.value = []; image.value = ''; name.value = ''; quantity.value = 1; error.value = ''; imagesLoading.value = false
   if (active.value) void load()
 }, { flush: 'sync' })
@@ -198,7 +215,7 @@ watch([session, active, () => route.fullPath], () => {
           <div class="purchase-section-heading">
             <span class="purchase-step" aria-hidden="true">02</span><h2 id="purchase-config-title">{{ t('poolPurchase.chooseConfiguration') }}</h2>
           </div>
-          <TransitionGroup name="purchase-options" tag="div" class="purchase-config-grid">
+          <div class="purchase-config-grid">
             <button v-for="value in configurations" :key="value.id" type="button" class="purchase-config-option" :class="{ 'is-selected': value.id === productId }" :aria-pressed="value.id === productId" :disabled="value.idle === 0" @click="regionId = value.regionId; productId = value.id">
               <span class="purchase-config-top"><span class="purchase-preset">{{ presetLabel(value.resourcePreset) }}</span><span class="purchase-choice-indicator"><Check v-if="value.id === productId" :size="12" :stroke-width="2.5" aria-hidden="true" /></span></span>
               <span class="purchase-config-specs">
@@ -209,7 +226,7 @@ watch([session, active, () => route.fullPath], () => {
               <span class="purchase-config-price"><span><strong><span>¥</span>{{ formatPublicPrice(value.monthlyPrice) }}</strong><span class="purchase-price-period"> / {{ t('poolPurchase.month') }}</span></span><span class="purchase-stock" :class="{ 'is-available': value.idle > 0 }"><span aria-hidden="true"></span>{{ value.idle ? t('poolPurchase.stock', { count: value.idle }) : t('poolPurchase.soldOut') }}</span></span>
               <span v-if="value.setupFee > 0" class="purchase-setup-fee">{{ t('poolPurchase.setupFee') }} ¥{{ formatPublicPrice(value.setupFee) }}</span>
             </button>
-          </TransitionGroup>
+          </div>
         </section>
 
         <section v-if="product" class="purchase-panel purchase-section" aria-labelledby="purchase-system-title">
@@ -264,7 +281,7 @@ watch([session, active, () => route.fullPath], () => {
         <template v-if="product">
           <div class="purchase-summary-section">
             <dl class="purchase-fees"><div><dt>{{ t('poolPurchase.monthly') }}</dt><dd>¥{{ formatPublicPrice(product.monthlyPrice * quantity) }}</dd></div><div v-if="product.setupFee > 0"><dt>{{ t('poolPurchase.setup') }}</dt><dd>¥{{ formatPublicPrice(product.setupFee * quantity) }}</dd></div></dl>
-            <div class="purchase-grand-total"><span>{{ t('poolPurchase.firstPayment') }}</span><Transition name="purchase-number" mode="out-in"><strong :key="subtotal"><span>¥</span>{{ formatPublicPrice(subtotal) }}</strong></Transition></div>
+            <div class="purchase-grand-total"><span>{{ t('poolPurchase.firstPayment') }}</span><strong><span>¥</span>{{ formatPublicPrice(subtotal) }}</strong></div>
           </div>
           <div class="purchase-summary-section purchase-actions">
             <button v-if="!auth.isAuthenticated" type="button" class="purchase-primary" @click="login">{{ t('poolPurchase.login') }}<ArrowRight :size="16" aria-hidden="true" /></button>
@@ -319,8 +336,8 @@ watch([session, active, () => route.fullPath], () => {
 .purchase-config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 12px; }
 .purchase-config-option { display: flex; flex-direction: column; padding: 18px; border: 1px solid var(--border-color); border-radius: 12px; text-align: left; background: var(--bg-elevated); transition: border-color 150ms, background 150ms; }
 .purchase-preset { font-size: 15px; font-weight: 600; }
-.purchase-config-specs { display: grid; gap: 10px; margin: 20px 0; font-size: 13px; }
-.purchase-config-specs > span { display: flex; align-items: center; gap: 9px; }
+.purchase-config-specs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 16px 0; font-size: 13px; }
+.purchase-config-specs > span { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; text-align: center; }
 .purchase-config-specs svg { color: var(--text-tertiary); }
 .purchase-config-price { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 15px; border-top: 1px solid var(--border-color); }
 .purchase-config-price strong { font-size: 23px; font-weight: 600; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; }
@@ -397,8 +414,6 @@ watch([session, active, () => route.fullPath], () => {
   .purchase-section, .purchase-summary-section { padding: 18px; }
   .purchase-region-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .purchase-region-option { padding: 13px; }
-  .purchase-config-specs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
-  .purchase-config-specs > span { flex-direction: column; align-items: flex-start; gap: 6px; }
   .purchase-name-quantity { grid-template-columns: minmax(0, 1fr) 112px; gap: 12px; }
   .purchase-quantity { grid-template-columns: 32px minmax(0, 1fr) 32px; }
 }

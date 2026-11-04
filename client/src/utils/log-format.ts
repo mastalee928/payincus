@@ -1,4 +1,7 @@
 import { expiryLogDisplay } from './expiry-log-display'
+import zhCN from '@/locales/zh-CN'
+import zhTW from '@/locales/zh-TW'
+import en from '@/locales/en'
 type TranslationMap = Record<string, unknown>
 
 function getTranslation(translations: TranslationMap, key: string): string | null {
@@ -53,6 +56,17 @@ export function formatLogContent(content: string, action?: string, locale = 'zh-
   const structured = action ? expiryLogDisplay(action, content, locale) : null
   if (structured) return structured.content
   if (!content) return content
+  if (action === 'host.public_ip.synced' || action === 'host.public_ip.observed') {
+    const words = (locale === 'en' ? en : locale === 'zh-TW' ? zhTW : zhCN).hostIpSync
+    const confirmed = content.match(/^Host #(\d+) public IPv4 verified and updated: ([^;]+); management address and customer instance retained$/)
+    if (confirmed) return `${locale === 'en' ? 'Host' : '宿主'} #${confirmed[1]} · ${words.status.synced} · ${confirmed[2]}`
+    const observed = content.match(/^Host #(\d+): observed IPv4 ([^;]+); ingress ([^;]+); reason ([^;]+); next check ([^;]+); instance and management identity retained$/)
+    if (observed) {
+      const reason = words.errors[observed[4] as keyof typeof words.errors] || (observed[3] === 'synced' ? words.status.synced : words.errors.IP_CHECK_FAILED)
+      const when = new Date(observed[5])
+      return `${locale === 'en' ? 'Host' : '宿主'} #${observed[1]} · ${words.detected}: ${observed[2] === 'unavailable' ? '—' : observed[2]} · ${reason} · ${words.nextCheck}: ${Number.isFinite(when.getTime()) ? when.toLocaleString(locale === 'en' ? 'en-US' : locale) : '—'}`
+    }
+  }
   if (action && /^(host\.management\.|host\.pool\.cleanup_|host\.replacement\.source_|instance\.delete_)/.test(action)) {
     content = content.replace(/(下次自动重试：)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)/g, (match, label, value) => {
       const date = new Date(value)

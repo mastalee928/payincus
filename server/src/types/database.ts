@@ -74,6 +74,7 @@ export interface Host {
   key_path: string | null
   nat_public_ip: string | null
   public_ip_sync_blocked?: boolean
+  public_ip_sync?: unknown
   public_ipv6_sync?: unknown
   nat_public_ipv6?: string | null
   nat_bind_ip?: string | null

@@ -243,7 +243,9 @@ export async function getHostsPaginated(options: PaginationOptions = {}): Promis
     where.OR = [
       { name: { contains: search, mode: 'insensitive' } },
       { location: { contains: search, mode: 'insensitive' } },
-      { url: { contains: search, mode: 'insensitive' } }
+      { url: { contains: search, mode: 'insensitive' } },
+      { natPublicIp: { contains: search } },
+      { publicIpSync: { path: ['observedIp'], string_contains: search } }
     ]
   }
 
@@ -281,6 +283,7 @@ export async function getHostsPaginated(options: PaginationOptions = {}): Promis
     natBindIp: true,
     natBindIpv6: true,
     publicIpv6Sync: true,
+    publicIpSync: true,
     natPortStart: true,
     natPortEnd: true,
     natPortsUsedCount: true,
@@ -341,6 +344,7 @@ export async function getHostsPaginated(options: PaginationOptions = {}): Promis
       nat_bind_ip: h.natBindIp,
       nat_bind_ipv6: h.natBindIpv6,
       public_ipv6_sync: h.publicIpv6Sync,
+      public_ip_sync: h.publicIpSync,
       nat_port_start: h.natPortStart,
       nat_port_end: h.natPortEnd,
       nat_ports_used_count: h.natPortsUsedCount,
@@ -471,6 +475,7 @@ export async function getInstancesPaginated(options: PaginationOptions = {}): Pr
           architecture: true,
           natPublicIp: true,
           publicIpSyncBlocked: true,
+          publicIpSync: true,
           natPublicIpv6: true,
           ipv6Gateway: true,
           ipAddress: true,
@@ -519,6 +524,7 @@ export async function getInstancesPaginated(options: PaginationOptions = {}): Pr
       dedicated_network_ready: i.dedicatedNetworkReady,
       dedicated_ipv6: i.dedicatedIpv6,
       public_ip_sync_blocked: i.host.publicIpSyncBlocked,
+      public_ip_sync: i.host.publicIpSync,
       name: i.name,
       user_id: i.userId,
       host_id: i.hostId,

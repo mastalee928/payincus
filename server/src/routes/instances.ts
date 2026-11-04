@@ -741,6 +741,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           dedicated_ipv4?: boolean
           dedicated_network_ready?: boolean
           public_ip_sync_blocked?: boolean
+          public_ip_sync?: unknown
           host_name: string | null
           host_resource_preset?: string | null
           host_architecture?: string | null
@@ -2666,6 +2667,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
     const statusAgent = await prisma.hostAgent.findUnique({ where: { hostId: instance.host_id }, select: { enabled: true, lastSeenAt: true, lastReport: true } })
     applyCustomerInstanceView(response, { ...instance, public_ip_sync_blocked: host?.public_ip_sync_blocked,
+      public_ip_sync: host?.public_ip_sync,
       service_fault: hostLiveStatus(host?.status || 'offline', statusAgent) === 'offline' && !['creating', 'deleted', 'error'].includes(instance.status) }, request.user.role === 'admin')
     return { instance: response }
   })

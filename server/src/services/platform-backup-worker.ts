@@ -98,7 +98,7 @@ async function listSources(): Promise<BackupSource[]> {
     if (!existsSync(path)) { ensure(!required, 'OSS_REQUIRED_ASSET_MISSING', 503); return }
     ensure((await lstat(path)).isDirectory() && !(await lstat(path)).isSymbolicLink(), 'OSS_ASSET_SYMLINK', 503)
     for (const file of (await readdir(path)).sort()) {
-      if (file === '.gitkeep' || file === 'lock') continue
+      if (file === '.gitkeep' || file === 'lock' || prefix === 'peers' && file === 'retired') continue
       ensure(validAssetName(`${prefix}/${file}`), 'OSS_UNSUPPORTED_ASSET', 503)
       sources.push({ name: `${prefix}/${file}`, path: join(path, file) })
     }
@@ -108,6 +108,7 @@ async function listSources(): Promise<BackupSource[]> {
   if (localGateway) {
     sources.push({ name: 'gateway.conf', path: '/etc/wireguard/incudal-mgmt.conf' }, { name: 'management.key', path: '/root/.ssh/incudal-host-management' }, { name: 'management.pub', path: '/root/.ssh/incudal-host-management.pub' })
     await addDirectory('/var/lib/incudal-onboarding', 'peers', true)
+    await addDirectory('/var/lib/incudal-onboarding/retired', 'retirements', false)
   }
   if (existsSync(CONTROLLER_ROOT)) {
     await verifyControllerEnrollment()
@@ -217,7 +218,7 @@ async function prepareFiles(plan: RestorePlan, directory: string) {
     ensure(['management.key', 'management.pub', 'certs/onboarding-gateway.key'].every(name => files.has(name)), 'OSS_REQUIRED_ASSET_MISSING')
     safeGatewayConfig(await readFile(files.get('gateway.conf')!, 'utf8'))
     // Prepare only fixed local directories, never generate replacement keys.
-    for(const path of ['/etc/wireguard','/root/.ssh','/var/lib/incudal-onboarding']){
+    for(const path of ['/etc/wireguard','/root/.ssh','/var/lib/incudal-onboarding',...([...files.keys()].some(name=>name.startsWith('retirements/'))?['/var/lib/incudal-onboarding/retired']:[])]){
       await mkdir(path,{recursive:true,mode:0o700})
       const info=await lstat(path);ensure(info.isDirectory() && !info.isSymbolicLink() && info.uid===0 && (info.mode&0o022)===0,'OSS_ASSET_SYMLINK',409)
     }
@@ -230,6 +231,7 @@ async function prepareFiles(plan: RestorePlan, directory: string) {
     let target: string | undefined
     if (name.startsWith('certs/')) target = join(INSTALL, 'server', name)
     if (name.startsWith('peers/')) target = join('/var/lib/incudal-onboarding', name.slice(6))
+    if (name.startsWith('retirements/')) target = join('/var/lib/incudal-onboarding/retired', name.slice(12))
     if (name === 'gateway.conf') target = '/etc/wireguard/incudal-mgmt.conf'
     if (name === 'management.key') target = '/root/.ssh/incudal-host-management'
     if (name === 'management.pub') target = '/root/.ssh/incudal-host-management.pub'

@@ -504,7 +504,89 @@ def restore_saved_peer(job, control, gateway_public):
     return {'nodeId': job, 'runtimeRouteRestored': True, 'savedConfigurationPreserved': True}
 
 
+def registration(job):
+    path = STATE / (job + '.json')
+    try: raw = read_protected_state(path, 4096)
+    except FileNotFoundError:
+        pending = []
+        for receipt in (STATE / 'retired').glob(job + '-*.json'):
+            saved = json.loads(read_protected_state(receipt, 4096), object_pairs_hook=strict_json)
+            if saved.get('done') is False: pending.append(saved['registration'])
+        if len(pending) > 1: raise GatewayOperationError('GATEWAY_RETIREMENT_CHANGED')
+        return pending[0] if pending else None
+    saved = json.loads(raw, object_pairs_hook=strict_json)
+    if (not isinstance(saved, dict) or set(saved) != {'managementIp', 'nodePublicKey'} or
+        not re.fullmatch(r'[A-Za-z0-9+/]{43}=', saved.get('nodePublicKey', ''))):
+        raise GatewayOperationError('GATEWAY_RETIREMENT_CHANGED')
+    saved['managementIp'] = str(ipaddress.IPv4Address(saved['managementIp']))
+    return saved
+
+
+def retire_peer(job, control):
+    """Remove exactly one checked registration, with a durable crash receipt."""
+    raw = sys.stdin.buffer.read(4097)
+    if len(raw) > 4096: raise ValueError('input too large')
+    request = json.loads(raw, object_pairs_hook=strict_json)
+    if not isinstance(request, dict) or set(request) != {'nodePublicKey', 'managementIp', 'expiresAt', 'requestId'}:
+        raise ValueError('invalid retirement request')
+    if not isinstance(request['requestId'], str) or not re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', request['requestId']):
+        raise ValueError('invalid request id')
+    if type(request['expiresAt']) is not int or not time.time()*1000 < request['expiresAt'] <= time.time()*1000+30000:
+        raise GatewayOperationError('GATEWAY_RETIREMENT_EXPIRED')
+    key, address = request['nodePublicKey'], str(ipaddress.IPv4Address(request['managementIp']))
+    if not isinstance(key, str) or not re.fullmatch(r'[A-Za-z0-9+/]{43}=', key): raise ValueError('invalid peer')
+    target = ipaddress.IPv4Address(address)
+    if target not in control.network or target in (control.ip, control.network.network_address, control.network.broadcast_address):
+        raise GatewayOperationError('GATEWAY_RETIREMENT_CHANGED')
+    directory = STATE / 'retired'
+    directory.mkdir(mode=0o700, exist_ok=True)
+    journal = directory / (job + '-' + request['requestId'] + '.json')
+    expected = {'nodePublicKey': key, 'managementIp': address}
+    try: previous = json.loads(read_protected_state(journal, 4096), object_pairs_hook=strict_json)
+    except FileNotFoundError: previous = None
+    if previous and previous.get('registration') != expected:
+        raise GatewayOperationError('GATEWAY_RETIREMENT_CHANGED')
+    if previous and previous.get('registration') == expected and previous.get('done') is True:
+        return {'nodeId': job, 'registrationRetired': True}
+    saved = registration(job)
+    if saved is not None and saved != expected:
+        raise GatewayOperationError('GATEWAY_RETIREMENT_CHANGED')
+    config = read_protected_state(CONFIG, 2*1024*1024).decode('utf-8')
+    marker = '# incudal-onboarding ' + job
+    block = marker + '\n[Peer]\nPublicKey = ' + key + '\nAllowedIPs = ' + address + '/32\n'
+    fields = recovery_configured_peers(config)
+    if marker in config:
+        if config.count(marker) != 1 or config.count(block) != 1 or fields.get(key) != {'PublicKey': key, 'AllowedIPs': address + '/32'}:
+            raise GatewayOperationError('GATEWAY_RETIREMENT_CHANGED')
+    elif key in fields:
+        raise GatewayOperationError('GATEWAY_RETIREMENT_CHANGED')
+    for path in STATE.glob('*.json'):
+        if path.stem == job: continue
+        other = json.loads(read_protected_state(path, 4096), object_pairs_hook=strict_json)
+        if other.get('nodePublicKey') == key or other.get('managementIp') == address:
+            raise GatewayOperationError('GATEWAY_RETIREMENT_CHANGED')
+    live = recovery_live_routes()
+    if saved is None and previous is None and (marker in config or key in fields or key in live):
+        raise GatewayOperationError('GATEWAY_RETIREMENT_CHANGED')
+    if key in live and live[key] != [address + '/32']:
+        raise GatewayOperationError('GATEWAY_RETIREMENT_CHANGED')
+    if time.time()*1000 >= request['expiresAt']: raise GatewayOperationError('GATEWAY_RETIREMENT_EXPIRED')
+    atomic_write(journal, json.dumps({'registration': expected, 'done': False}))
+    # Remove the startup configuration before runtime. Every interruption can
+    # finish using the journal; unrelated configuration and peers stay intact.
+    if block in config: atomic_write(CONFIG, config.replace(block, '', 1))
+    if key in live: run('wg', 'set', INTERFACE, 'peer', key, 'remove')
+    if key in recovery_live_routes(): raise GatewayOperationError('GATEWAY_RETIREMENT_FAILED')
+    path = STATE / (job + '.json')
+    if path.exists(): path.unlink()
+    atomic_write(journal, json.dumps({'registration': expected, 'done': True}))
+    return {'nodeId': job, 'registrationRetired': True}
+
+
 def register_peer(job, public_key, control, config, live_peers):
+    for journal in (STATE / 'retired').glob(job + '-*.json'):
+        retired = json.loads(read_protected_state(journal, 4096), object_pairs_hook=strict_json)
+        if retired.get('done') is not True: raise GatewayOperationError('GATEWAY_RETIREMENT_PENDING')
     peer_file = STATE / (job + ".json")
     peers = configured_peers(config)
     for key, subnets in live_peers.items():
@@ -582,7 +664,8 @@ def main():
     probe_request = len(args) == 2 and args[0] == 'probe' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
     agent_request = len(args) == 2 and args[0] == 'repair-agent' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
     route_request = len(args) == 2 and args[0] == 'restore-route' and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
-    if args not in (["status"], ["peers"], ["recovery-state"]) and not dns_request and not probe_request and not agent_request and not route_request and not (len(args) == 3 and args[0] == "add" and re.fullmatch(r"[a-f0-9-]{36}", args[1]) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", args[2])):
+    registration_request = len(args) == 2 and args[0] in ['registration', 'retire'] and re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}', args[1])
+    if args not in (["status"], ["peers"], ["recovery-state"]) and not dns_request and not probe_request and not agent_request and not route_request and not registration_request and not (len(args) == 3 and args[0] == "add" and re.fullmatch(r"[a-f0-9-]{36}", args[1]) and re.fullmatch(r"[A-Za-z0-9+/]{43}=", args[2])):
         raise ValueError("unsupported operation")
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     for parent in [STATE, *STATE.parents]:
@@ -607,7 +690,11 @@ def main():
         if len(public_key_parts) < 2 or public_key_parts[0] != "ssh-ed25519" or not re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", public_key_parts[1]):
             raise ValueError("management public key missing")
         result = {"publicKey": run("wg", "show", INTERFACE, "public-key"), "controlIp": str(control.ip),
-                  "network": str(control.network), "managementSshPublicKey": " ".join(public_key_parts[:2]), "dnsProtocolVersion": 2, "recoveryProtocolVersion": 1}
+                  "network": str(control.network), "managementSshPublicKey": " ".join(public_key_parts[:2]), "dnsProtocolVersion": 2, "recoveryProtocolVersion": 1, "retirementProtocolVersion": 1}
+        if registration_request:
+            if args[0] == 'retire': print(json.dumps(retire_peer(args[1], control)))
+            else: print(json.dumps({'nodeId': args[1], 'registration': registration(args[1])}))
+            return
         if dns_request:
             # DNS installation reads the reservation and validates exact peer
             # identity; it does not mutate the controller's peers. Do not hold

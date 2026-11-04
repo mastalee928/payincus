@@ -32,7 +32,8 @@ export function validAssetName(name: string): boolean {
   return ['database.dump', 'database-globals.sql', 'database-integrity.json', 'runtime.env', 'backup.config', 'gateway.conf', 'gateway-baseline.json', 'management.key', 'management.pub',
     'controller/signing.pem', 'controller/identity.json', 'controller/enrollment.json'].includes(name) ||
     /^certs\/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,100}\.(crt|key|pem|pub)$/.test(name) ||
-    /^peers\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\.json$/.test(name)
+    /^peers\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\.json$/.test(name) ||
+    /^retirements\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\.json$/.test(name)
 }
 export function validateManifest(input: unknown): BackupManifest {
   ensure(input && typeof input === 'object', 'OSS_ARCHIVE_INVALID')

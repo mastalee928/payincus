@@ -17,7 +17,10 @@ const unfinished = { status: 'failed', step: 'checking', hostId: null, managemen
 assert.equal(refreshUnprovisionedSshIdentity(unfinished), true, 'retry a failed first SSH connection using the current system after DD')
 assert.equal(refreshUnprovisionedSshIdentity({ ...unfinished, status: 'cancelled', step: 'queued' }), true)
 for (const step of ['tunnel', 'resources', 'swap']) assert.equal(refreshUnprovisionedSshIdentity({ ...unfinished, step }), true)
-for (const change of [{ hostId: 1 }, { managementIp: '10.90.0.2' }, { nodePublicKey: 'registered-peer' },
+for (const change of [{ managementIp: '10.90.0.2' }, { nodePublicKey: 'registered-peer' }]) {
+  assert.equal(refreshUnprovisionedSshIdentity({ ...unfinished, ...change }), true, 'a reserved peer without a formal Host does not prove completed onboarding')
+}
+for (const change of [{ hostId: 1 },
   { step: 'installing' }, { step: 'done' }, { status: 'running' }, { status: 'queued' }, { status: 'succeeded' }, { sshFingerprint: null }]) {
   assert.equal(refreshUnprovisionedSshIdentity({ ...unfinished, ...change }), false, 'an established or active identity must not be replaced on retry')
 }

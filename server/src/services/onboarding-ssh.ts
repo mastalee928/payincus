@@ -72,6 +72,7 @@ export interface OnboardingGateway {
   recovery?: { version: 1; observedAt: number; stateHash: string; configHash?: string; runtimeHash?: string; peers: Array<{ nodeId: string; nodePublicKey: string; managementIp: string; enabled: boolean }> }
   dnsProtocolVersion?: number
   recoveryProtocolVersion?: number
+  retirementProtocolVersion?: number
 }
 
 export interface GatewayPeer {
@@ -98,6 +99,7 @@ export function validateGatewayResponse(raw: unknown, endpoint: string, sshHost:
   if (ssh2.utils.parseKey(value.managementSshPublicKey) instanceof Error) throw new OnboardingError('GATEWAY_MANAGEMENT_KEY_MISSING')
   if (value.dnsProtocolVersion !== undefined && value.dnsProtocolVersion !== 2) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
   if (value.recoveryProtocolVersion !== undefined && value.recoveryProtocolVersion !== 1) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
+  if (value.retirementProtocolVersion !== undefined && value.retirementProtocolVersion !== 1) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
   let peers: GatewayPeer[] | undefined
   if (value.peers !== undefined) {
     if (!Array.isArray(value.peers) || value.peers.length > 10000) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
@@ -126,7 +128,31 @@ export function validateGatewayResponse(raw: unknown, endpoint: string, sshHost:
   return { recovery, publicKey: value.publicKey, controlIp: value.controlIp, network: String(value.network), peers,
     managementIp: value.managementIp as string | undefined, managementSshPublicKey: value.managementSshPublicKey, endpoint, sshHost,
     ...(value.dnsProtocolVersion === 2 ? { dnsProtocolVersion: 2 } : {}),
-    ...(value.recoveryProtocolVersion === 1 ? { recoveryProtocolVersion: 1 } : {}) }
+    ...(value.recoveryProtocolVersion === 1 ? { recoveryProtocolVersion: 1 } : {}),
+    ...(value.retirementProtocolVersion === 1 ? { retirementProtocolVersion: 1 } : {}) }
+}
+
+export async function gatewayRegistrationOperation(nodeId: string, expected?: { nodePublicKey: string; managementIp: string; requestId: string }) {
+  if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(nodeId) || !gatewayConfigured()) throw new OnboardingError('GATEWAY_NOT_CONFIGURED')
+  const privateKey = await readFile(process.env.ONBOARDING_GATEWAY_KEY_PATH!)
+  const client = await connectOnboardingSsh({ host: process.env.ONBOARDING_GATEWAY_HOST!, port: Number(process.env.ONBOARDING_GATEWAY_PORT || 22), privateKey },
+    async fingerprint => fingerprint === process.env.ONBOARDING_GATEWAY_FINGERPRINT)
+  try {
+    const value = JSON.parse(await sshExec(client, `${expected ? 'retire' : 'registration'} ${nodeId}`,
+      expected ? JSON.stringify({ ...expected, expiresAt: Date.now() + 25000 }) : '', 28000))
+    if (value?.nodeId !== nodeId) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
+    if (expected) {
+      if (Object.keys(value).sort().join(',') !== 'nodeId,registrationRetired' || value.registrationRetired !== true) throw new OnboardingError('GATEWAY_RETIREMENT_FAILED')
+      return null
+    }
+    if (Object.keys(value).sort().join(',') !== 'nodeId,registration') throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
+    if (value.registration === null) return null
+    const saved = value.registration
+    if (!saved || Object.keys(saved).sort().join(',') !== 'managementIp,nodePublicKey' || !isIPv4(saved.managementIp) ||
+      !/^[A-Za-z0-9+/]{43}=$/.test(saved.nodePublicKey)) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
+    return saved as { nodePublicKey: string; managementIp: string }
+  } catch (error) { throw error instanceof OnboardingError ? error : new OnboardingError('GATEWAY_RESPONSE_INVALID') }
+  finally { client.end() }
 }
 
 export function gatewayConfigured(): boolean {

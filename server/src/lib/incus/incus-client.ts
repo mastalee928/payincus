@@ -105,12 +105,12 @@ export class IncusClient {
   /**
    * 初始化 mTLS 连接
    */
-  async connect(): Promise<unknown> {
+  async connect(timeout = 120000): Promise<unknown> {
     try {
       this.agent = this.createTransport()
 
       // 测试连接
-      const info = await this.getServerInfo()
+      const info = await this.getServerInfo(timeout)
       this.connected = true
       return info
     } catch (error) {
@@ -247,8 +247,8 @@ export class IncusClient {
 
   // ==================== 服务器信息 ====================
 
-  async getServerInfo(): Promise<unknown> {
-    return this.request('GET', '/1.0')
+  async getServerInfo(timeout = 120000): Promise<unknown> {
+    return this.request('GET', '/1.0', null, timeout)
   }
 
   async getResources(): Promise<unknown> {

@@ -776,6 +776,7 @@ export interface Instance {
   publicIpv6Addresses?: string[]
   publicIpv6Status?: 'none' | 'ready' | 'pending' | 'failed'
   publicIpUpdating?: boolean
+  observedPublicIp?: string | null
   id: number
   incus_id: string
   name: string

@@ -3886,7 +3886,8 @@ model HostOnboardingNode {
   batchId              String    @map("batch_id")
   hostId               Int?      @unique @map("host_id")
   name                 String
-  publicIp             String    @unique @map("public_ip")
+  publicIp             String    @map("public_ip") // Original onboarding address, retained as history.
+  activePublicIp       String?   @unique @map("active_public_ip") // Maintained by DB triggers from the current Host.
   machineGroup         String?   @map("machine_group")
   regionGroup          String?   @map("region_group")
   machineGroupId       Int?      @map("machine_group_id")
@@ -3910,6 +3911,8 @@ model HostOnboardingNode {
   startedAt            DateTime? @map("started_at")
   completedAt          DateTime? @map("completed_at")
   deletedAt            DateTime? @map("deleted_at")
+  identityReset        Json?     @map("identity_reset")
+  peerRetirement       Json?     @map("peer_retirement")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -3921,6 +3924,7 @@ model HostOnboardingNode {
   @@unique([batchId, name])
   @@index([status, leaseUntil])
   @@index([deletedAt, createdAt])
+  @@index([publicIp, updatedAt])
   @@map("host_onboarding_nodes")
 }
 

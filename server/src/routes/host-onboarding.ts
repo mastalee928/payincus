@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { Prisma } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
 import { prisma } from '../db/prisma.js'
 import { createLog } from '../db/logs.js'
 import { encryptSensitiveData } from '../lib/security.js'
@@ -11,13 +12,16 @@ import hostGroupRoutes from './host-groups.js'
 import gatewayManagementRoutes from './gateway-management.js'
 import { registerGatewayEndpointRoutes } from './onboarding-gateway-endpoint.js'
 import simpleGatewaySetupRoutes from './simple-gateway-setup.js'
+import { lockOnboardingLifecycle, pendingPeerRetirement, readPeerRetirement, deletedPeerRetirement } from '../services/onboarding-lifecycle.js'
+import { onboardingAddressConflict, lockOnboardingAddresses } from '../services/onboarding-conflicts.js'
+import { publicIpState } from '../lib/host-public-ip.js'
 
 const nodeSelect = {
   id: true, name: true, publicIp: true, sshPort: true, sshFingerprint: true, managementIp: true,
   machineGroup: true, regionGroup: true, machineGroupId: true, regionGroupId: true, countryCode: true,
   resourcePreset: true, customerDiskGiB: true, resolvedResources: true,
   hostId: true, status: true, step: true, errorCode: true, attempt: true, createdAt: true, updatedAt: true,
-  completedAt: true, host: { select: { status: true, isInstalled: true, architecture: true, agent: { select: { lastSeenAt: true } } } }
+  completedAt: true, host: { select: { status: true, isInstalled: true, architecture: true, natPublicIp: true, publicIpSync: true, agent: { select: { lastSeenAt: true } } } }
 } as const
 const batchSelect = {
   id: true, name: true, accountLabel: true, defaults: true, createdAt: true,
@@ -37,6 +41,21 @@ export default async function hostOnboardingRoutes(fastify: FastifyInstance) {
   await fastify.register(gatewayManagementRoutes)
   await registerGatewayEndpointRoutes(fastify)
   await fastify.register(simpleGatewaySetupRoutes)
+  fastify.get<{ Querystring: { address: string } }>('/address-check', {
+    onRequest: [fastify.authenticateAdmin], config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    schema: { querystring: { type: 'object', additionalProperties: false, required: ['address'], properties: { address: { type: 'string', minLength: 1, maxLength: 254 } } } }
+  }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    try {
+      const input = await resolveOnboardingInput({ requestId: randomUUID(), name: 'address-check', accountLabel: '', defaults: { countryCode: 'us' },
+        credentials: { password: 'address-check-only' }, nodes: [{ name: 'address-check', address: request.query.address }] })
+      const publicIp = input.nodes[0]!.publicIp
+      return { publicIp, conflict: await onboardingAddressConflict(publicIp) }
+    } catch (error) {
+      if (error instanceof OnboardingError) return reply.code(400).send({ code: error.code })
+      throw error
+    }
+  })
   fastify.get('/gateway', { onRequest: [fastify.authenticateAdmin], config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (_request, reply) => {
     reply.header('Cache-Control', 'no-store')
     if (!gatewayConfigured()) return { ready: false, code: 'GATEWAY_NOT_CONFIGURED' }
@@ -51,13 +70,27 @@ export default async function hostOnboardingRoutes(fastify: FastifyInstance) {
     const page = Math.max(1, Math.min(100000, Math.trunc(Number(request.query.page)) || 1))
     const search = request.query.search?.trim().slice(0, 100)
     const where: Prisma.HostOnboardingBatchWhereInput = { nodes: { some: { deletedAt: null } },
-      ...(search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { accountLabel: { contains: search, mode: 'insensitive' } }, { nodes: { some: { deletedAt: null, OR: [{ name: { contains: search, mode: 'insensitive' } }, { publicIp: { contains: search } }] } } }] } : {}) }
-    const [batches, total] = await Promise.all([
+      ...(search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { accountLabel: { contains: search, mode: 'insensitive' } }, { nodes: { some: { deletedAt: null, OR: [
+        { name: { contains: search, mode: 'insensitive' } }, { publicIp: { contains: search } }, { activePublicIp: { contains: search } },
+        { host: { is: { publicIpSync: { path: ['observedIp'], string_contains: search } } } }
+      ] } } }] } : {}) }
+    const retirementWhere: Prisma.HostOnboardingNodeWhereInput = { deletedAt: { not: null }, hostId: null,
+      OR: [{ peerRetirement: { path: ['status'], equals: 'pending' } }, { peerRetirement: { path: ['status'], equals: 'blocked' } }] }
+    const [batches, total, retiredNodes, retirementTotal] = await Promise.all([
       prisma.hostOnboardingBatch.findMany({ where, select: batchSelect, orderBy: { createdAt: 'desc' }, skip: (page - 1) * 10, take: 10 }),
-      prisma.hostOnboardingBatch.count({ where })
+      prisma.hostOnboardingBatch.count({ where }),
+      prisma.hostOnboardingNode.findMany({ where: retirementWhere, select: { id: true, name: true, publicIp: true, peerRetirement: true }, orderBy: { updatedAt: 'desc' }, take: 20 }),
+      prisma.hostOnboardingNode.count({ where: retirementWhere })
     ])
     reply.header('Cache-Control', 'no-store')
-    return { batches, total, page, pageSize: 10, gatewaySshHost: process.env.ONBOARDING_SSH_JUMP_HOST || process.env.ONBOARDING_GATEWAY_HOST || null }
+    return { batches: batches.map(batch => ({ ...batch, nodes: batch.nodes.map(node => {
+      const state = publicIpState(node.host?.publicIpSync)
+      return { ...node, currentPublicIp: node.host ? state.observedIp || node.host.natPublicIp : null,
+        host: node.host ? { status: node.host.status, isInstalled: node.host.isInstalled, architecture: node.host.architecture, agent: node.host.agent } : null }
+    }) })), total, page, pageSize: 10, gatewaySshHost: process.env.ONBOARDING_SSH_JUMP_HOST || process.env.ONBOARDING_GATEWAY_HOST || null,
+      retirementTotal, retirements: retiredNodes.map(node => { const state = readPeerRetirement(node.peerRetirement)!; return {
+        id: node.id, name: node.name, publicIp: node.publicIp, status: state.status, attempts: state.attempts, nextAttemptAt: state.nextAttemptAt, error: state.error
+      } }) }
   })
 
   fastify.post<{ Body: OnboardingRequest }>('/', {
@@ -90,13 +123,23 @@ export default async function hostOnboardingRoutes(fastify: FastifyInstance) {
         if (existing.createdById !== request.user.id) return reply.code(409).send({ code: 'INVALID_REQUEST_ID' })
         return { id: existing.id }
       }
+      const input = await resolveOnboardingInput(request.body)
+      for (const row of input.nodes) {
+        const conflict = await onboardingAddressConflict(row.publicIp)
+        if (conflict) return reply.code(409).send(conflict)
+      }
+      const duplicates = await prisma.host.findMany({ where: { userId: request.user.id, name: { in: input.nodes.map(row => row.name) } }, select: { name: true } })
+      if (duplicates.length) return reply.code(409).send({ code: 'HOST_NAME_ALREADY_REGISTERED', conflicts: duplicates.map(host => host.name) })
       onboardingPanelOrigin()
       await gatewayCommand()
-      const input = await resolveOnboardingInput(request.body)
-      const names = input.nodes.map(row => row.name), addresses = input.nodes.map(row => row.publicIp)
-      const duplicates = await prisma.host.findMany({ where: { OR: [{ userId: request.user.id, name: { in: names } }, { natPublicIp: { in: addresses } }, { ipAddress: { in: addresses } }] }, select: { name: true } })
-      if (duplicates.length) return reply.code(409).send({ code: 'HOST_ALREADY_REGISTERED', conflicts: duplicates.map(host => host.name) })
       const batch = await prisma.$transaction(async tx => {
+        await lockOnboardingAddresses(tx, input.nodes.map(row => row.publicIp))
+        await lockOnboardingLifecycle(tx)
+        for (const row of input.nodes) {
+          const conflict = await onboardingAddressConflict(row.publicIp, tx)
+          if (conflict) throw new OnboardingError(conflict.code)
+        }
+        if (await tx.host.count({ where: { userId: request.user.id, name: { in: input.nodes.map(row => row.name) } } })) throw new OnboardingError('HOST_NAME_ALREADY_REGISTERED')
         const batch = await tx.hostOnboardingBatch.create({ data: {
           id: input.requestId, createdById: request.user.id, name: input.name.trim(), accountLabel: input.accountLabel.trim(),
           defaults: input.defaults as unknown as Prisma.InputJsonObject
@@ -113,14 +156,16 @@ export default async function hostOnboardingRoutes(fastify: FastifyInstance) {
             credentialsEncrypted: encryptSensitiveData(JSON.stringify(onboardingCredentials(row, input.credentials))),
             credentialsExpireAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
           }
-          const previous = await tx.hostOnboardingNode.findUnique({ where: { publicIp: row.publicIp } })
+          const previous = await tx.hostOnboardingNode.findFirst({ where: { publicIp: row.publicIp, hostId: null, deletedAt: { not: null } }, orderBy: { updatedAt: 'desc' } })
           if (previous?.deletedAt && !previous.hostId) {
-            // Reuse a removed attempt's tunnel identity, without permitting two live jobs for one IP.
-            if (row.sshFingerprint && previous.sshFingerprint && row.sshFingerprint !== previous.sshFingerprint) throw new OnboardingError('SSH_HOST_KEY_CHANGED')
+            const retired = readPeerRetirement(previous.peerRetirement)
+            // Keep the historical identity until the current root login and
+            // remote preflight pass. The worker retires the old peer first.
             const revived = await tx.hostOnboardingNode.updateMany({ where: { id: previous.id, deletedAt: previous.deletedAt, hostId: null }, data: {
               ...data, deletedAt: null, status: 'queued', step: 'queued', errorCode: null, startedAt: null, completedAt: null,
               leaseToken: null, leaseUntil: null, resolvedResources: Prisma.DbNull,
-              sshFingerprint: previous.sshFingerprint || row.sshFingerprint || null
+              identityReset: { version: 1, requestId: randomUUID(), reason: 'new' },
+              peerRetirement: (retired ? { ...retired, attempts: 0, nextAttemptAt: new Date().toISOString() } : pendingPeerRetirement(previous.nodePublicKey && previous.managementIp ? { nodePublicKey: previous.nodePublicKey, managementIp: previous.managementIp } : undefined)) as unknown as Prisma.InputJsonValue
             } })
             if (!revived.count) throw new OnboardingError('HOST_ALREADY_REGISTERED')
           } else {
@@ -155,18 +200,26 @@ export default async function hostOnboardingRoutes(fastify: FastifyInstance) {
       try { validateCredentials(request.body) } catch { return reply.code(400).send({ code: 'SSH_CREDENTIALS_INVALID' }) }
       encrypted = encryptSensitiveData(JSON.stringify({ password: request.body.password, privateKey: request.body.privateKey }))
     } else if (!encrypted || node.credentialsExpireAt < new Date()) return reply.code(400).send({ code: 'SSH_CREDENTIALS_REQUIRED' })
-    const refreshIdentity = refreshUnprovisionedSshIdentity(node)
+    const refreshIdentity = refreshUnprovisionedSshIdentity(node) || (node.hostId === null && !node.sshFingerprint)
+    const oldRetirement = readPeerRetirement(node.peerRetirement)
     const updated = await prisma.$transaction(async tx => {
+      await lockOnboardingAddresses(tx, [node.publicIp])
+      await lockOnboardingLifecycle(tx)
+      if (node.hostId === null) {
+        const conflict = await onboardingAddressConflict(node.publicIp, tx, node.id)
+        if (conflict) return { count: 0 }
+      }
       const updated = await tx.hostOnboardingNode.updateMany({ where: { id: node.id, status: node.status, deletedAt: null,
-        ...(refreshIdentity ? { hostId: null, managementIp: null, nodePublicKey: null,
+        ...(refreshIdentity ? { hostId: null,
           step: node.step, sshFingerprint: node.sshFingerprint, updatedAt: node.updatedAt } : {})
       }, data: {
         status: 'queued', errorCode: null, credentialsEncrypted: encrypted,
-        ...(refreshIdentity ? { sshFingerprint: null, resolvedResources: Prisma.DbNull } : {}),
+        ...(oldRetirement ? { peerRetirement: { ...oldRetirement, attempts: 0, nextAttemptAt: new Date().toISOString(), error: null } as unknown as Prisma.InputJsonValue } : {}),
+        ...(refreshIdentity ? { identityReset: { version: 1, requestId: randomUUID(), reason: 'retry' } } : {}),
         credentialsExpireAt: new Date(Date.now() + 24 * 60 * 60 * 1000), startedAt: null, completedAt: null, leaseToken: null, leaseUntil: null
       } })
       if (updated.count && refreshIdentity) await tx.log.create({ data: { userId: request.user.id, module: 'host',
-        action: 'host.onboarding.ssh_identity_refreshed', result: 'success',
+        action: 'host.onboarding.current_system_requested', result: 'success',
         content: `Explicit retry will inspect the current system of unprovisioned host "${node.name}"; previous SSH fingerprint: ${node.sshFingerprint}` } })
       return updated
     })
@@ -190,9 +243,14 @@ export default async function hostOnboardingRoutes(fastify: FastifyInstance) {
   fastify.delete<{ Params: { id: string } }>('/nodes/:id', {
     onRequest: [fastify.authenticateAdmin], config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
   }, async (request, reply) => {
-    const updated = await prisma.hostOnboardingNode.updateMany({ where: {
-      id: request.params.id, deletedAt: null, status: { in: ['succeeded', 'failed', 'cancelled'] }
-    }, data: { deletedAt: new Date(), credentialsEncrypted: null, leaseToken: null, leaseUntil: null } })
+    const updated = await prisma.$transaction(async tx => {
+      await lockOnboardingLifecycle(tx)
+      const node = await tx.hostOnboardingNode.findUnique({ where: { id: request.params.id } })
+      return tx.hostOnboardingNode.updateMany({ where: {
+        id: request.params.id, deletedAt: null, status: { in: ['succeeded', 'failed', 'cancelled'] }
+      }, data: { deletedAt: new Date(), credentialsEncrypted: null, leaseToken: null, leaseUntil: null,
+        ...(node && node.hostId === null ? { peerRetirement: deletedPeerRetirement(node) as unknown as Prisma.InputJsonValue } : {}) } })
+    })
     if (!updated.count) {
       const node = await prisma.hostOnboardingNode.findUnique({ where: { id: request.params.id }, select: { deletedAt: true } })
       if (!node) return reply.code(404).send({ code: 'ONBOARDING_NOT_FOUND' })

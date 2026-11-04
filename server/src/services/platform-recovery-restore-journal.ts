@@ -38,6 +38,7 @@ export function validateRestoreJournal(record: RestoreJournal, directory: string
       '/root/.ssh/incudal-host-management.pub', '/root/.ssh/authorized_keys'].includes(file.target) ||
       /^\/opt\/incudal\/server\/certs\/[A-Za-z0-9_.-]+$/.test(file.target) ||
       /^\/var\/lib\/incudal-onboarding\/[A-Za-z0-9_.-]+$/.test(file.target) ||
+      /^\/var\/lib\/incudal-onboarding\/retired\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\.json$/.test(file.target) ||
       /^\/var\/lib\/incudal-gateway-controller\/(signing.pem|identity.json|enrollment.json)$/.test(file.target)
     ensure(allowed && !targets.has(file.target) && [0o600, 0o640].includes(file.mode) &&
       (file.saved === null || typeof file.saved === 'string' && resolve(dirname(file.saved)) === resolve(directory) &&

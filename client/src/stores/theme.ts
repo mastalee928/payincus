@@ -2,16 +2,19 @@
  * Theme mode store: light, dark, or system.
  */
 import { defineStore } from 'pinia'
-import { ref, watch, computed, type Ref } from 'vue'
+import { ref, watch, computed, onScopeDispose, type Ref } from 'vue'
 
 type ThemeMode = 'light' | 'dark' | 'system'
 
 export const useThemeStore = defineStore('theme', () => {
   const mode: Ref<ThemeMode> = ref((localStorage.getItem('theme') as ThemeMode) || 'system')
+  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  const systemDark = ref(mediaQuery.matches)
+  let listening = false
 
   const resolvedTheme = computed(() => {
     if (mode.value === 'system') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+      return systemDark.value ? 'dark' : 'light'
     }
     return mode.value
   })
@@ -41,19 +44,25 @@ export const useThemeStore = defineStore('theme', () => {
     setTheme(modes[(currentIndex + 1) % modes.length])
   }
 
+  function syncSystemTheme(event: MediaQueryListEvent) {
+    systemDark.value = event.matches
+    if (mode.value === 'system') applyTheme()
+  }
+
   function setupSystemThemeListener() {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    mediaQuery.addEventListener('change', () => {
-      if (mode.value === 'system') applyTheme()
-    })
+    if (listening) return
+    mediaQuery.addEventListener('change', syncSystemTheme)
+    listening = true
   }
 
   function init() {
+    systemDark.value = mediaQuery.matches
     applyTheme()
     setupSystemThemeListener()
   }
 
   watch(mode, applyTheme)
+  onScopeDispose(() => { if (listening) mediaQuery.removeEventListener('change', syncSystemTheme) })
 
   return { mode, resolvedTheme, isDark, toggleTheme, setTheme, applyTheme, init }
 })

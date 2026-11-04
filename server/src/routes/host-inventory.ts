@@ -43,6 +43,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
       ...(request.query.regionGroupId !== undefined ? { regionGroupId: request.query.regionGroupId || null } : {}),
       ...(search ? { OR: [
         { name: { contains: search, mode: 'insensitive' } }, { natPublicIp: { contains: search } },
+        { publicIpSync: { path: ['observedIp'], string_contains: search } },
         { location: { contains: search, mode: 'insensitive' } },
         { instances: { some: { ...occupied, user: { username: { contains: search, mode: 'insensitive' } } } } },
         { onboardingNode: { batch: { accountLabel: { contains: search, mode: 'insensitive' } } } }
@@ -111,7 +112,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
       try { managementAddress = new URL(host.url).hostname } catch { /* Legacy URLs may be invalid. */ }
       return {
         id: host.id, name: host.name, accountLabel: host.onboardingNode?.batch.accountLabel || host.location,
-        publicIp: host.natPublicIp || host.onboardingNode?.publicIp || (isOnboardingPublicIPv4(host.ipAddress) ? host.ipAddress : null),
+        publicIp: publicIpView(host).currentIp || host.onboardingNode?.publicIp || (isOnboardingPublicIPv4(host.ipAddress) ? host.ipAddress : null),
         managementAddress, countryCode: host.countryCode, poolFaulted: host.poolFaulted, portProtocol: portProtocolView(host),
         publicIpSync: publicIpView(host),
         publicIpv6Sync: publicIpv6View(host),

@@ -82,7 +82,7 @@ function ensureCleanupStarted(): void {
 /**
  * 获取或创建 Incus 客户端（带并发保护）
  */
-export async function getIncusClient(host: Host, database: Pick<Prisma.TransactionClient, 'host'> = prisma): Promise<IncusClient> {
+export async function getIncusClient(host: Host, database: Pick<Prisma.TransactionClient, 'host'> = prisma, connectTimeout = 120000): Promise<IncusClient> {
   ensureCleanupStarted()
   const key = `${host.id}`
   const invalidation = invalidations.get(key) ?? 0
@@ -121,7 +121,7 @@ export async function getIncusClient(host: Host, database: Pick<Prisma.Transacti
       if (pooled) await pooled.client.close()
       if (!current()) throw new Error('Incus connection configuration changed')
       client = new Client(options)
-      await client.connect()
+      await client.connect(connectTimeout)
       if (!current()) throw new Error('Incus connection invalidated while connecting')
       const confirmed = await database.host.findUnique({ where: { id: host.id }, select: {
         url: true, certPath: true, keyPath: true, serverCertificate: true, serverFingerprint: true

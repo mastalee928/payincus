@@ -627,9 +627,9 @@ function getIps(instance: Instance): Array<{ip: string, type: 'ipv4' | 'ipv6'}> 
   const mode = instance.networkMode || instance.network_mode
   const ips: Array<{ip: string, type: 'ipv4' | 'ipv6'}> = []
 
-  const natPublicIp = instance.natPublicIp || instance.host?.nat_public_ip
+  const natPublicIp = instance.dedicatedIpv4 && instance.publicIpUpdating ? instance.observedPublicIp : instance.natPublicIp || instance.host?.nat_public_ip
   const maskedNatIp = isIpv4Address(natPublicIp) ? maskIpv4(natPublicIp) : null
-  const maskedPrivateIp = maskIpv4(instance.ipv4)
+  const maskedPrivateIp = instance.dedicatedIpv4 && instance.publicIpUpdating ? maskIpv4(instance.observedPublicIp) : maskIpv4(instance.ipv4)
   const hostIpv6 = getHostIpv6(instance)
 
   if (mode === 'nat') {
@@ -1950,6 +1950,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                       </div>
                     </template>
                     <span v-else class="text-themed-muted text-xs">-</span>
+                    <span v-if="isAdmin && instance.publicIpUpdating" class="text-xs text-amber-600 dark:text-amber-400">{{ $t('hostIpSync.customerPendingShort') }}</span>
                   </div>
                 </div>
               </td>
@@ -2189,6 +2190,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                       </span>
                     </template>
                     <span v-else class="text-themed-muted text-xs">-</span>
+                    <span v-if="isAdmin && instance.publicIpUpdating" class="text-xs text-amber-600 dark:text-amber-400">{{ $t('hostIpSync.customerPendingShort') }}</span>
                   </div>
                 </div>
                 <div class="flex items-center justify-between">

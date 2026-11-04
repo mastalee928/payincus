@@ -55,6 +55,7 @@ try {
   assert.equal(reconciled.config,gatewayHeader+activePeer,'only the deleted host block and its marker are removed')
   assert.deepEqual(reconciled.removedNodeIds,[deletedId]);assert.equal(reservations.size,2,'tombstone reservations remain')
   assert.equal(reconcileArchivedGatewayPeers(reconciled.config,reservations,originalNodes).config,reconciled.config)
+  assert.equal(reconcileArchivedGatewayPeers(archived,reservations,originalNodes.map(node=>node.hostId===null?node:{...node,deletedAt:new Date()})).config,reconciled.config, 'hidden task history must not remove the current Host management route')
   assert.throws(()=>reconcileArchivedGatewayPeers(archived,reservations,originalNodes.slice(0,1)),/IDENTITY_CHANGED/)
   assert.throws(()=>reconcileArchivedGatewayPeers(archived,reservations,originalNodes.map(node=>({...node,deletedAt:null}))),/IDENTITY_CHANGED/)
   assert.throws(()=>reconcileArchivedGatewayPeers(archived+activePeer,reservations,originalNodes),/IDENTITY_CHANGED/)
@@ -236,6 +237,8 @@ try {
   assert.equal(validAssetName('certs/../../authorized_keys.pub'), false)
   assert.equal(validAssetName('database-globals.sql'), true)
   assert.equal(validAssetName('database-integrity.json'), true)
+  assert.equal(validAssetName('retirements/11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222.json'), true)
+  assert.equal(validAssetName('retirements/../../authorized_keys'), false)
   const firstDump = '\\restrict RandomKey1\nCREATE ROLE example;\n\\unrestrict RandomKey1\n'
   const nextDump = '\\restrict RandomKey2\nCREATE ROLE example;\n\\unrestrict RandomKey2\n'
   assert.equal(normalizedDumpHash(firstDump), normalizedDumpHash(nextDump))
@@ -302,6 +305,13 @@ try {
   const previewBackup = await decryptBackup(previewPath, 'test-password-123', join(workspace, 'preview-restored'))
   assert.equal(previewBackup.manifest.version, previewVersion, 'release preview archive must survive authenticated round trip')
   const manifest = await encryptBackup([{ name: 'database.dump', path: dump }, { name: 'runtime.env', path: env }], metadata, 'test-password-123', encrypted)
+  const retirementName = 'retirements/11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222.json'
+  const retirementSource = join(workspace, 'retirement.json'), retirementArchive = join(workspace, 'retirement.enc')
+  const retirementContent = JSON.stringify({ registration: { nodePublicKey: Buffer.alloc(32, 22).toString('base64'), managementIp: '10.253.240.2' }, done: true })
+  await writeFile(retirementSource, retirementContent)
+  await encryptBackup([{ name: 'database.dump', path: dump }, { name: 'runtime.env', path: env }, { name: retirementName, path: retirementSource }], metadata, 'test-password-123', retirementArchive)
+  const retirementRestored = await decryptBackup(retirementArchive, 'test-password-123', join(workspace, 'retirement-restored'))
+  assert.equal(await readFile(retirementRestored.files.get(retirementName)!, 'utf8'), retirementContent, 'durable gateway retirement receipts survive authenticated OSS archive round trip')
   const gatewayAsset = join(workspace, 'source-gateway.conf'), environmentAsset = join(workspace, 'source-runtime.env'), mappingArchive = join(workspace, 'mapping.enc')
   await writeFile(gatewayAsset, '[Interface]\nListenPort = 51999\n')
   await writeFile(environmentAsset, oldEnvironment)

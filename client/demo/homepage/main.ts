@@ -4,6 +4,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import i18n from '../../src/locales'
 import { setLocale, getLocale } from '../../src/locales'
 import Home from '../../src/components/public/HomepageMapDemo.vue'
+import { useThemeStore } from '../../src/stores/theme'
 import '../../src/styles/main.css'
 import '@fontsource-variable/inter'
 import 'flag-icons/css/flag-icons.min.css'
@@ -19,5 +20,6 @@ const app = createApp({ template: '<RouterView />' })
 app.use(createPinia())
 app.use(router)
 app.use(i18n)
+useThemeStore().init()
 setLocale(getLocale())
 app.mount('#app')

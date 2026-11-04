@@ -14,6 +14,7 @@ import {
   type NetworkMode
 } from '../lib/network-modes.js'
 import { countFreePublicIpv4ForHost } from './public-ipv4.js'
+import { lockOnboardingLifecycle, deletedPeerRetirement } from '../services/onboarding-lifecycle.js'
 
 type DbClient = Prisma.TransactionClient | typeof prisma
 
@@ -79,6 +80,7 @@ export async function getAllHosts(): Promise<Host[]> {
     nat_public_ip: host.natPublicIp,
     nat_public_ipv6: host.natPublicIpv6,
     public_ipv6_sync: host.publicIpv6Sync,
+    public_ip_sync: host.publicIpSync,
     nat_bind_ip: host.natBindIp,
     nat_bind_ipv6: host.natBindIpv6,
     nat_port_start: host.natPortStart,
@@ -141,6 +143,7 @@ export async function getHostById(id: number): Promise<Host | null> {
     disk_used: host.diskUsed,
     ip_address: host.ipAddress,
     public_ip_sync_blocked: host.publicIpSyncBlocked,
+    public_ip_sync: host.publicIpSync,
     storage_driver: host.storageDriver,
     storage_type: host.storageType,
     storage_path: host.storagePath,
@@ -705,13 +708,18 @@ export class HostRemovalError extends Error {
 
 export async function deleteHost(id: number): Promise<void> {
   await prisma.$transaction(async tx => {
+    await lockOnboardingLifecycle(tx)
     const rows = await tx.$queryRaw<Array<{ id: number }>>`SELECT id FROM hosts WHERE id = ${id} FOR UPDATE`
     if (!rows.length) throw new HostRemovalError('HOST_NOT_FOUND')
     if (await tx.instance.count({ where: { hostId: id, ...HOST_OCCUPIED_INSTANCE_WHERE } })) throw new HostRemovalError('HOST_HAS_INSTANCES')
     const tasks = await tx.instanceTask.count({ where: { OR: [{ hostId: id }, { targetHostId: id }], status: { in: ['PENDING', 'PROCESSING'] } } })
     const onboarding = await tx.hostOnboardingNode.count({ where: { hostId: id, status: { in: ['queued', 'running'] } } })
     if (tasks || onboarding) throw new HostRemovalError('HOST_HAS_PENDING_TASKS')
-    await tx.hostOnboardingNode.updateMany({ where: { hostId: id }, data: { deletedAt: new Date(), credentialsEncrypted: null } })
+    const nodes = await tx.hostOnboardingNode.findMany({ where: { hostId: id } })
+    for (const node of nodes) await tx.hostOnboardingNode.update({ where: { id: node.id }, data: {
+      deletedAt: new Date(), credentialsEncrypted: null, leaseToken: null, leaseUntil: null,
+      peerRetirement: deletedPeerRetirement(node) as unknown as Prisma.InputJsonValue
+    } })
     await tx.portMapping.deleteMany({ where: { hostId: id } })
     await tx.instance.deleteMany({ where: { hostId: id } })
     await tx.host.delete({ where: { id } })

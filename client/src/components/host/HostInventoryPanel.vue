@@ -361,7 +361,8 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onMenuEscape)
   window.removeEventListener('storage', invalidateSpecStorage)
 })
-defineExpose({ refresh })
+function findHost(name: string) { search.value = name; machineGroup.value = ''; regionGroup.value = ''; stock.value = ''; page.value = 1; void refresh() }
+defineExpose({ refresh, findHost })
 </script>
 
 <template>
@@ -439,8 +440,8 @@ defineExpose({ refresh })
             </div>
             <span v-else class="text-themed-muted">—</span>
           </div>
+          <p v-if="host.publicIpSync?.supported && host.publicIpSync.status !== 'synced'" data-host-public-ip-status class="mt-1 text-xs text-amber-600 dark:text-amber-400" role="status">{{ t('hostIpSync.status.' + host.publicIpSync.status) }}<span v-if="host.publicIpSync.error"> · {{ t('hostIpSync.errors.' + host.publicIpSync.error) }}</span></p>
           <dl v-if="!compactView" class="mt-2 text-xs space-y-1">
-            <p v-if="host.publicIpSync?.supported" class="text-xs" :class="host.publicIpSync.blocked || host.publicIpSync.status === 'failed' ? 'text-amber-600 dark:text-amber-400' : 'text-themed-muted'">{{ t('hostIpSync.status.' + host.publicIpSync.status) }}</p>
             <div class="flex flex-wrap gap-x-2"><dt class="text-themed-muted">{{ t('hostInventory.managementIp') }}</dt><dd class="font-mono text-themed break-all">{{ host.managementAddress || '—' }}</dd></div>
           </dl>
         </div>
@@ -622,6 +623,12 @@ defineExpose({ refresh })
 </template>
 
 <style scoped>
+.text-themed-muted { color: #525252 !important; }
+.dark .text-themed-muted { color: #bdbdbd !important; }
+.text-amber-600 { color: #92400e !important; }
+.dark .text-amber-600 { color: #fbbf24 !important; }
+.text-green-600 { color: #166534 !important; }
+.dark .text-green-600 { color: #4ade80 !important; }
 .modal-content { max-width: 36rem; max-height: 90dvh; overflow: hidden; }
 .modal-header, .modal-footer { flex-shrink: 0; }
 .modal-body { min-height: 0; overflow-y: auto; }

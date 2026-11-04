@@ -1,5 +1,19 @@
 # 网关灾备工程进度
 
+## 2026-11-04 v1.8.2 发行准备
+
+本线程接入生命周期、OCI公网IP复用与静默续接、来源IP和购买/主题修复统一进入v1.8.2候选。定向守卫10项、双端类型/build、后端build和发行清单通过，240迁移/209守卫；新增Linux真实WireGuard清理/中断续接CI待执行。原管理身份、现用通道、客户与计费保护保持。阶段证据见HANDOFF及 `logs/release-v1.8.2-plan.json`，尚未发布或部署；真实OCI/Agent换IP、OSS全新B完整灾备和千台/72小时缺口保持。
+
+## 2026-11-04 OCI 公网IP回收复用补验
+
+A原 `1.1.1.1` 核验换至 `1.1.1.2`，B接到 `1.1.1.1` 的隔离模拟通过：两套真实不同SSH key交换，B使用B原身份，错误A key拒绝；A当前占用延迟提交时B不抢占，A完成后后台自动续接。客户/账期/余额/Agent记录/管理身份/私网转发保持，节点/池当前地址查询及客户API正确。临时SSH/socket超时持久60→120→240→300秒退避，恢复清状态；确定身份/归属失败保持保护并低频复核。真实PG加密备份/恢复保留退避字段及有效IP索引，相关守卫与类型/build通过。详见HANDOFF顶部和 `logs/host-ip-silent-recovery-evidence.json`。没有真实OCI/Agent换IP或新B OSS灾备实证，未部署、未挪稳定tag；A无法核验新址或互换现用IP不自动猜测释放，用户电脑known_hosts不由平台处理。
+
+## 2026-11-04 OCI 宿主换公网 IP 与备份迁移专项
+
+- 同一OCI VNIC私网IP保持，原WG/Incus/Agent身份自动续接；地址发现与公网核验分开，关机/隔离不被强制更改，新入口核验后才更新正式IP并释放旧有效地址。用户只在原IPv4栏看新IP；详细阶段留在管理员页。
+- 新有效地址unique与trigger经过真实独立PG、pg_dump/产品加密/pg_restore往返，隐藏关联Host保护、删除释放、239旧结构迁移和IP冲突整体回滚均通过；240迁移尚未进入发行或生产。IPv6与原恢复安全专项通过，未把普通换IP变成重新接入或重生成管理身份。
+- 定向源码、两端构建和实际Vue/Chrome三宽三语验证已记录于 `logs/host-ip-fix-evidence.json`、`docs/host-ip-change-review-2026-11-04.md`。没有本轮真实OCI IP切换、真实OSS新B/原宿主整条重连或千台72小时实测，稳定v1.8.1保持。
+
 ## 2026-11-04 v1.8.1 发行验证完成
 
 - 正式来源 `bc860dcbdb364557611531fda388921968c35600` 的候选及 main CI 均九 job success；正式工作流 `41658234856` 五 job success，正式双首装独立通过 snapshot 自动恢复、legacy 回退续接、238 迁移与完整性检查。主分支 CI `41658225173` 全部实际 checkout、原失败后继步骤及九份日志已核，见 `logs/release-v1.8.1-main-ci-verified.json`。

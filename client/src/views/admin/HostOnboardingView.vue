@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import api from '@/api/admin'
@@ -25,6 +25,8 @@ function switchPoolTab(event: KeyboardEvent) {
 }
 const inventory = ref<InstanceType<typeof HostInventoryPanel> | null>(null)
 const batches = ref<OnboardingBatch[]>([])
+const retirements = ref<NonNullable<import('@/types/host-pool').OnboardingListResponse['retirements']>>([])
+const retirementTotal = ref(0)
 const gateway = ref<OnboardingGatewayStatus | null>(null)
 const gatewaySshHost = ref<string | null>(null)
 const loading = ref(true)
@@ -38,6 +40,40 @@ const showCreate = ref(false)
 const createMode = ref<'single' | 'batch'>('single')
 const firstCreateInput = ref<HTMLInputElement | null>(null)
 const hostAddress = ref('')
+const addressCheck = ref<import('@/types/host-pool').OnboardingAddressCheck | null>(null)
+const addressChecking = ref(false)
+const addressError = ref('')
+let addressSequence = 0
+let addressTimer: ReturnType<typeof setTimeout> | undefined
+const addressMessage = computed(() => {
+  const conflict = addressCheck.value?.conflict
+  if (!conflict) return addressError.value
+  if (conflict.host) return t(conflict.host.isInstalled && conflict.host.status === 'online' ? 'onboarding.addressAlreadyOnline' : 'onboarding.addressAlreadyRegistered', { name: conflict.host.name })
+  return errorText(conflict.code)
+})
+async function checkAddress() {
+  clearTimeout(addressTimer)
+  const address = hostAddress.value.trim(), sequence = ++addressSequence
+  if (!address || !showCreate.value || createMode.value !== 'single') return
+  addressChecking.value = true
+  try {
+    const result = await api.hostOnboarding.checkAddress(address)
+    if (disposed || sequence !== addressSequence || !showCreate.value) return
+    addressCheck.value = result; addressError.value = ''
+  } catch (error) {
+    if (disposed || sequence !== addressSequence || !showCreate.value) return
+    addressCheck.value = null; addressError.value = apiErrorText(error)
+  } finally { if (!disposed && sequence === addressSequence) addressChecking.value = false }
+}
+watch(hostAddress, () => {
+  ++addressSequence; clearTimeout(addressTimer); addressCheck.value = null; addressError.value = ''; addressChecking.value = false
+  if (showCreate.value && createMode.value === 'single' && hostAddress.value.trim()) addressTimer = setTimeout(() => void checkAddress(), 450)
+}, { flush: 'sync' })
+function viewAddressConflict() {
+  const conflict = addressCheck.value?.conflict
+  if (conflict?.host) { closeCreate(); activeTab.value = 'hosts'; void nextTick(() => inventory.value?.findHost(conflict.host!.name)) }
+  else if (conflict?.node) { const batchId = conflict.node.batchId, publicIp = conflict.publicIp; closeCreate(); activeTab.value = 'tasks'; expanded.value = batchId; search.value = publicIp; page.value = 1; void loadBatches() }
+}
 const sshPort = ref(22)
 const sshFingerprint = ref('')
 const groups = ref<HostMachineGroup[]>([])
@@ -70,7 +106,8 @@ function errorText(code?: string | null): string {
   return code && te(key) ? t(key) : t('onboarding.actionFailed')
 }
 function apiErrorText(error: unknown): string {
-  return errorText(error && typeof error === 'object' && 'code' in error ? String(error.code) : undefined)
+  const value = error as { code?: string; response?: { data?: { code?: string } } } | undefined
+  return errorText(value?.response?.data?.code || value?.code)
 }
 const preview = computed(() => {
   try { return { nodes: parseHostOnboardingCsv(importText.value), error: '' } }
@@ -108,6 +145,7 @@ async function loadBatches() {
     const result = await api.hostOnboarding.list({ page: page.value, search: search.value.trim() })
     if (disposed || sequence !== loadSequence) return
     batches.value = result.batches
+    retirements.value = result.retirements || []; retirementTotal.value = result.retirementTotal || 0
     total.value = result.total
     if (page.value > pageCount.value) { page.value = pageCount.value; void loadBatches(); return }
     gatewaySshHost.value = result.gatewaySshHost
@@ -118,7 +156,7 @@ async function loadBatches() {
   } finally {
     if (!disposed && sequence === loadSequence) {
       loading.value = false
-      const active = batches.value.some(batch => batch.nodes.some(node => ['queued', 'running'].includes(node.status)))
+      const active = retirementTotal.value > 0 || batches.value.some(batch => batch.nodes.some(node => ['queued', 'running'].includes(node.status)))
       timer = setTimeout(() => void loadBatches(), active ? 5000 : 15000)
     }
   }
@@ -146,6 +184,7 @@ function expandOptions(event: Event) { (event.currentTarget as HTMLDetailsElemen
 function closeCreate() {
   if (submitting.value) return
   showCreate.value = false
+  ++addressSequence; clearTimeout(addressTimer); addressCheck.value = null; addressError.value = ''; addressChecking.value = false
   credential.value = ''; importText.value = ''; formError.value = ''
   batchName.value = ''; accountLabel.value = ''; requestId.value = crypto.randomUUID()
   hostAddress.value = ''; sshPort.value = 22; sshFingerprint.value = ''; authType.value = 'password'
@@ -179,7 +218,7 @@ async function readCsv(event: Event) {
   finally { input.value = '' }
 }
 async function createHosts() {
-  if (submitting.value || importBlocked.value || !gateway.value?.ready) return
+  if (submitting.value || importBlocked.value || !gateway.value?.ready || addressChecking.value || addressCheck.value?.conflict) return
   submitting.value = true; formError.value = ''
   try {
     const result = await api.hostOnboarding.create({ requestId: requestId.value, name: batchName.value.trim() || generatedName.value, accountLabel: accountLabel.value.trim(),
@@ -229,7 +268,7 @@ async function copy(value: string) {
   catch { toast.error(t('common.copyFailed')) }
 }
 onMounted(() => void refresh())
-onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = ''; retryCredential.value = ''; importText.value = '' })
+onUnmounted(() => { disposed = true; ++addressSequence; clearTimeout(addressTimer); clearTimeout(timer); credential.value = ''; retryCredential.value = ''; importText.value = '' })
 </script>
 
 <template>
@@ -272,6 +311,14 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
       <!-- Keep policy drafts and in-flight receipts when switching workspace tabs. -->
       <HostAbusePolicyPanel v-show="activeTab === 'abuse'" />
       <div v-if="activeTab === 'tasks'" class="space-y-4">
+        <section v-if="retirementTotal" class="card p-4 space-y-3" aria-live="polite">
+          <h2 class="text-sm font-semibold text-themed">{{ t('onboarding.retirementTitle', { count: retirementTotal }) }}</h2>
+          <article v-for="item in retirements" :key="item.id" class="text-sm leading-5 break-words">
+            <p class="font-medium text-themed">{{ item.name }} · {{ item.publicIp }}</p>
+            <p :class="item.status === 'blocked' ? 'text-red-600 dark:text-red-400' : 'text-amber-700 dark:text-amber-300'">{{ item.error ? errorText(item.error) : t('onboarding.retirementPending') }}</p>
+            <p v-if="item.status === 'pending'" class="text-xs text-themed-muted">{{ t('onboarding.retirementNext', { time: date(item.nextAttemptAt) }) }}</p>
+          </article>
+        </section>
         <p class="text-xs text-themed-muted">{{ t('onboarding.serverSide') }}</p>
         <form class="flex flex-wrap items-center gap-2" @submit.prevent="applySearch">
           <input v-model="search" type="search" class="input flex-1 min-w-0 sm:max-w-sm" maxlength="100" :aria-label="t('common.search')" :placeholder="t('onboarding.searchPlaceholder')" />
@@ -300,7 +347,8 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
                 <div class="min-w-0">
                   <RouterLink v-if="node.hostId" :to="`/resources/hosts/${node.hostId}`" class="text-sm font-medium text-blue-600 dark:text-blue-400 break-all">{{ node.name }}</RouterLink>
                   <span v-else class="text-sm font-medium text-themed break-all">{{ node.name }}</span>
-                  <p class="text-xs text-themed-muted font-mono mt-1">{{ node.publicIp }}:{{ node.sshPort }}</p>
+                  <p class="text-xs text-themed-muted font-mono mt-1" data-onboarding-current-ip>{{ node.currentPublicIp || node.publicIp }}</p>
+                  <p v-if="node.currentPublicIp && node.currentPublicIp !== node.publicIp" class="mt-1 text-xs text-themed-muted">{{ t('hostIpSync.original') }}: <span class="font-mono">{{ node.publicIp }}</span></p>
                   <p v-if="node.managementIp" class="text-xs text-themed-muted mt-1">{{ t('onboarding.managementIp') }}: {{ node.managementIp }}</p>
                   <p v-if="node.machineGroup || node.regionGroup" class="text-xs text-themed-muted mt-1 break-words">{{ node.machineGroup }} · {{ node.regionGroup }}</p>
                   <p v-if="node.resolvedResources" class="text-xs text-themed-muted mt-1">{{ node.resolvedResources.cpuAllowanceMax / 100 }} CPU · {{ node.resolvedResources.memoryMax }} MiB · {{ node.resolvedResources.customerDiskGiB ?? '—' }} GiB</p>
@@ -344,7 +392,13 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
               <template v-if="createMode === 'single'">
                 <p class="text-sm text-themed-muted">{{ t('onboarding.singleHint') }}</p>
                 <div class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_8rem] gap-3">
-                  <label class="text-sm text-themed min-w-0">{{ t('onboarding.address') }}<input ref="firstCreateInput" v-model.trim="hostAddress" required maxlength="254" class="input w-full mt-1" autocomplete="off" autocapitalize="none" spellcheck="false" :placeholder="t('onboarding.addressPlaceholder')" /></label>
+                  <div class="min-w-0">
+                    <label class="text-sm text-themed">{{ t('onboarding.address') }}<input ref="firstCreateInput" v-model.trim="hostAddress" required maxlength="254" class="input w-full mt-1" autocomplete="off" autocapitalize="none" spellcheck="false" :placeholder="t('onboarding.addressPlaceholder')" :aria-invalid="!!addressCheck?.conflict || !!addressError" aria-describedby="onboarding-address-result" @blur="checkAddress" /></label>
+                    <div id="onboarding-address-result" class="mt-2 text-sm leading-5 break-words" aria-live="polite">
+                      <p v-if="addressChecking" class="text-themed-muted">{{ t('onboarding.addressChecking') }}</p>
+                      <template v-else-if="addressMessage"><p class="text-red-600 dark:text-red-400">{{ addressMessage }}</p><button v-if="addressCheck?.conflict" type="button" class="mt-1 min-h-11 text-themed underline underline-offset-4" @click="viewAddressConflict">{{ t(addressCheck.conflict.host ? 'onboarding.viewExistingHost' : 'onboarding.viewExistingTask') }}</button></template>
+                    </div>
+                  </div>
                   <label class="text-sm text-themed">{{ t('onboarding.sshPort') }}<input v-model.number="sshPort" required type="number" min="1" max="65535" step="1" class="input w-full mt-1" /></label>
                 </div>
               </template>
@@ -402,7 +456,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
           <div class="modal-footer flex-wrap gap-2">
             <span class="text-xs text-themed-muted mr-auto">{{ t('onboarding.nodeCount', { count: createMode === 'single' ? 1 : preview.nodes.length }) }}</span>
             <button type="button" class="btn-secondary" :disabled="submitting" @click="closeCreate">{{ t('common.cancel') }}</button>
-            <button type="submit" class="btn-primary whitespace-nowrap" :disabled="submitting || importBlocked || !gateway?.ready">{{ t(submitting ? 'common.submitting' : 'onboarding.start') }}</button>
+            <button type="submit" class="btn-primary whitespace-nowrap" :disabled="submitting || importBlocked || !gateway?.ready || addressChecking || !!addressCheck?.conflict">{{ t(submitting ? 'common.submitting' : 'onboarding.start') }}</button>
           </div>
         </form>
       </div>
@@ -462,6 +516,8 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); credential.value = '';
   .pool-tabs button[aria-selected='true'] { background: var(--bg-secondary) !important; color: var(--text-primary) !important; box-shadow: none !important; }
 }
 .pool-header { margin-bottom: 0; padding-bottom: 1rem; box-shadow: none !important; }
+.machine-pool .text-themed-muted { color: #525252 !important; }
+.dark .machine-pool .text-themed-muted { color: #bdbdbd !important; }
 .pool-tabs button { min-height: 44px; padding: 0.5rem 0.875rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; color: var(--text-secondary); white-space: nowrap; }
 .pool-tabs button:hover { color: var(--text-primary); background: var(--bg-tertiary); }
 .pool-tabs button[aria-selected='true'] { color: var(--text-primary); background: var(--bg-secondary); }

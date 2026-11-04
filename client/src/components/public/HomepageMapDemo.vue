@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowRight, Menu, Moon, Sun, X } from 'lucide-vue-next'
+import { ArrowRight, Menu, Monitor, Moon, Sun, X } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import PublicLanguageSwitch from './PublicLanguageSwitch.vue'
 import api from '@/api'
 import { useBrand } from '@/composables/useBrand'
 import { useConfigStore } from '@/stores/config'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
 import { dashboardPath, helpPath, loginPath } from '@/utils/app-paths'
 import type { PoolCatalogRegion } from '@/utils/poolCatalog'
 import HomeRegionAtlas from './HomeRegionAtlas.vue'
@@ -19,15 +20,9 @@ const config = useConfigStore()
 const authStore = useAuthStore()
 const router = useRouter()
 const { t, locale } = useI18n()
-function savedHomeTheme(): 'light' | 'dark' {
-  try { return localStorage.getItem('homepage-theme') === 'light' ? 'light' : 'dark' }
-  catch { return 'dark' }
-}
-const homeTheme = ref(savedHomeTheme())
-function toggleHomeTheme() {
-  homeTheme.value = homeTheme.value === 'dark' ? 'light' : 'dark'
-  try { localStorage.setItem('homepage-theme', homeTheme.value) } catch { /* Still usable without persistence. */ }
-}
+const themeStore = useThemeStore()
+const homeTheme = computed(() => themeStore.resolvedTheme)
+const themeLabel = computed(() => t('theme.' + themeStore.mode))
 const accountActionLabel = computed(() => authStore.isAuthenticated ? t('publicSite.actions.consoleCompact') : t('publicSite.actions.signIn'))
 function goToConsole() {
   if (authStore.isAuthenticated) { void router.push(dashboardPath()); return }
@@ -63,7 +58,7 @@ onMounted(() => { motionPreference.addEventListener('change', syncMotionPreferen
         <button class="mobile-menu" type="button" :aria-expanded="menuOpen" aria-controls="home-mobile-nav" :aria-label="t(menuOpen ? 'homeMapDemo.closeMenu' : 'homeMapDemo.openMenu')" @click="menuOpen = !menuOpen"><X v-if="menuOpen" :size="21" /><Menu v-else :size="21" /></button>
         <RouterLink to="/" class="brand"><img :src="brand.brandLogoUrl" :alt="brand.brandName" /><span><strong>{{ brand.brandName }}</strong><small>{{ brand.brandSubtitle }}</small></span></RouterLink>
         <nav class="desktop-nav" :aria-label="t('homeMapDemo.navigation')"><RouterLink to="/purchase">{{ t('homeMapDemo.products') }}</RouterLink><RouterLink :to="helpPath()">{{ t('homeMapDemo.solutions') }}</RouterLink><RouterLink :to="dashboardPath()">{{ t('homeMapDemo.console') }}</RouterLink></nav>
-        <div class="header-actions"><button type="button" class="home-theme-toggle" :aria-label="t(homeTheme === 'dark' ? 'theme.light' : 'theme.dark')" :title="t(homeTheme === 'dark' ? 'theme.light' : 'theme.dark')" @click="toggleHomeTheme"><Sun v-if="homeTheme === 'dark'" :size="18" /><Moon v-else :size="18" /></button><PublicLanguageSwitch /><button type="button" class="header-login" @click="goToConsole">{{ accountActionLabel }} <ArrowRight :size="14" /></button></div>
+        <div class="header-actions"><button type="button" class="home-theme-toggle" :aria-label="t('nav.toggleTheme') + ' · ' + themeLabel" :title="themeLabel" @click="themeStore.toggleTheme"><Moon v-if="themeStore.mode === 'dark'" :size="18" aria-hidden="true" /><Sun v-else-if="themeStore.mode === 'light'" :size="18" aria-hidden="true" /><Monitor v-else :size="18" aria-hidden="true" /></button><PublicLanguageSwitch /><button type="button" class="header-login" @click="goToConsole">{{ accountActionLabel }} <ArrowRight :size="14" /></button></div>
       </div><nav v-if="menuOpen" id="home-mobile-nav" class="mobile-nav" :aria-label="t('homeMapDemo.navigation')" @keydown.esc="closeMenu"><RouterLink to="/purchase" @click="closeMenu">{{ t('homeMapDemo.products') }}</RouterLink><RouterLink :to="helpPath()" @click="closeMenu">{{ t('homeMapDemo.solutions') }}</RouterLink><RouterLink :to="dashboardPath()" @click="closeMenu">{{ t('homeMapDemo.console') }}</RouterLink></nav>
     </header>
 

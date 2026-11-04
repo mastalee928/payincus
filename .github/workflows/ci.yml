@@ -7,6 +7,44 @@ on:
     branches: [main]
 
 jobs:
+  onboarding-ip-integration:
+    name: Onboarding lifecycle and OCI IP reuse
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ip_review
+          POSTGRES_PASSWORD: ip_review
+          POSTGRES_DB: onboarding_ip_pool_test
+        ports: ['55453:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ip_review:ip_review@127.0.0.1:55453/onboarding_ip_pool_test
+      JWT_SECRET: onboarding-ip-ci-isolated-only
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - name: Prepare isolated schema
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm --filter server exec prisma generate
+          pnpm --filter server exec prisma migrate deploy
+      - name: Actual SSH authentication and recycled address ownership
+        run: |
+          pnpm --filter server test:onboarding-current-system
+          pnpm --filter server test:host-public-ip-integration
+      - name: Native retirement and crash continuation
+        run: |
+          command -v wg >/dev/null || { sudo apt-get update -qq; sudo apt-get install -y -qq wireguard-tools; }
+          sudo env INCUDAL_NETWORK_NAMESPACE_TEST=1 unshare --net python3 -B scripts/test-onboarding-retirement-network.py
+
   cleanup-incus:
     name: Actual Incus cleanup
     runs-on: ubuntu-24.04

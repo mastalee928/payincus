@@ -13,6 +13,7 @@ import { dirname } from 'path'
 import { Agent, request as undiciRequest } from 'undici'
 import * as db from '../db/index.js'
 import { discoverHostPublicIpv6, publicIpv6State } from '../lib/host-public-ipv6.js'
+import { publicIpState } from '../lib/host-public-ip.js'
 import { prisma } from '../db/prisma.js'
 import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
 import { checkHostingAccess } from '../lib/hosting-access.js'
@@ -848,6 +849,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         nat_public_ip?: string | null
         nat_public_ipv6?: string | null
         public_ipv6_sync?: unknown
+        public_ip_sync?: unknown
         nat_bind_ip?: string | null
         nat_bind_ipv6?: string | null
         nat_port_start?: number | null
@@ -886,6 +888,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         instanceCount,
         natConfig: {
           publicIp: host.nat_public_ip,
+          publicIpSync: publicIpState(host.public_ip_sync),
           publicIpv6: host.nat_public_ipv6,
           publicIpv6Sync: host.public_ipv6_sync ? publicIpv6State(host.public_ipv6_sync) : null,
           bindIp: (host as any).nat_bind_ip || null,
@@ -2052,6 +2055,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         instanceType: host.instance_type || 'container',
         natConfig: {
           publicIp: host.nat_public_ip,
+          publicIpSync: publicIpState(host.public_ip_sync),
           publicIpv6: host.nat_public_ipv6,
           publicIpv6Sync: host.public_ipv6_sync ? publicIpv6State(host.public_ipv6_sync) : null,
           bindIp: (host as any).nat_bind_ip || null,

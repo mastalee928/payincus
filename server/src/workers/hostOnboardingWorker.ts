@@ -3,12 +3,14 @@ import { readFile } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import { isIPv4 } from 'net'
 import type { Client } from 'ssh2'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { createLog } from '../db/logs.js'
 import { decryptSensitiveData } from '../lib/security.js'
 import { OnboardingError, shellQuote as q, onboardingPanelOrigin, type OnboardingDefaults, type OnboardingCredentials } from '../lib/host-onboarding.js'
-import { connectOnboardingSsh, gatewayCommand, gatewayConfigured, sshExec } from '../services/onboarding-ssh.js'
+import { connectOnboardingSsh, gatewayConfigured, sshExec } from '../services/onboarding-ssh.js'
+import { lockOnboardingLifecycle, processOnboardingRetirements, inspectCurrentOnboardingSystem, enrollOnboardingGateway, readPeerRetirement } from '../services/onboarding-lifecycle.js'
+import { currentHostAddressWhere, lockOnboardingAddresses } from '../services/onboarding-conflicts.js'
 import { preflightScript, prepareKeyScript, wireguardScript, installerStartScript, installerPollScript } from '../services/onboarding-scripts.js'
 import { withHostAddressRegistryLock, prepareHostAddressSnapshotForWrite, persistHostAddressSnapshot } from '../services/host-address-monitor.js'
 import { panelCertificatePaths } from '../lib/incus/certificate-paths.js'
@@ -27,9 +29,12 @@ const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 export async function claimHostOnboardingNode() {
   return prisma.$transaction(async tx => {
+    await lockOnboardingLifecycle(tx)
     const rows = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM host_onboarding_nodes
-      WHERE deleted_at IS NULL AND (status = 'queued' OR (status = 'running' AND lease_until < (NOW() AT TIME ZONE 'UTC')))
+      WHERE deleted_at IS NULL AND (status = 'queued' AND
+        (peer_retirement->>'nextAttemptAt' IS NULL OR peer_retirement->>'nextAttemptAt' <= ${new Date().toISOString()})
+        OR (status = 'running' AND lease_until < (NOW() AT TIME ZONE 'UTC')))
       ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1`
     if (!rows[0]) return null
     const current = await tx.hostOnboardingNode.findUniqueOrThrow({ where: { id: rows[0].id } })
@@ -44,6 +49,7 @@ export async function claimHostOnboardingNode() {
 async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnboardingNode>>>) {
   let ssh: Client | undefined
   let lostLease = false
+  let gatewayStage = false
   const where = { id: node.id, leaseToken: node.leaseToken, status: 'running' }
   const checkpoint = async (step: string, data: Prisma.HostOnboardingNodeUpdateManyMutationInput = {}) => {
     if (stopped || lostLease) throw new OnboardingError('WORKER_INTERRUPTED')
@@ -55,6 +61,8 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
       if (!result.count) { lostLease = true; clearInterval(heartbeat); ssh?.destroy() }
     }).catch(() => { lostLease = true; clearInterval(heartbeat); ssh?.destroy() })
   }, 15000)
+  const identityReset = node.identityReset as { version?: number; requestId?: string; reason?: string } | null
+  const inspectCurrentSystem = node.hostId === null && identityReset?.version === 1 && ['retry', 'new'].includes(identityReset.reason || '')
   const connect = async (host: string, credentials: OnboardingCredentials) => {
     if (stopped || lostLease) throw new OnboardingError('WORKER_INTERRUPTED')
     const client = await connectOnboardingSsh({ host, port: node.sshPort, ...credentials }, async fingerprint => {
@@ -80,12 +88,18 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
     await checkpoint('checking')
     // Resumed tasks can recover over the management tunnel even if public
     // ports have subsequently been assigned to a customer.
-    try { ssh = await connect(node.managementIp || node.publicIp, credentials) }
-    catch (error) {
-      if (!node.managementIp) throw error
-      ssh = await connect(node.publicIp, credentials)
+    if (inspectCurrentSystem) {
+      ssh = await inspectCurrentOnboardingSystem(node, node.batch.createdById, credentials)
+      connections.add(ssh); ssh.once('close', () => connections.delete(ssh!))
+      node.resolvedResources = (await prisma.hostOnboardingNode.findUniqueOrThrow({ where: { id: node.id }, select: { resolvedResources: true } })).resolvedResources
+    } else {
+      try { ssh = await connect(node.managementIp || node.publicIp, credentials) }
+      catch (error) {
+        if (!node.managementIp) throw error
+        ssh = await connect(node.publicIp, credentials)
+      }
+      await sshExec(ssh, 'sh -s', preflightScript(node.id))
     }
-    await sshExec(ssh, 'sh -s', preflightScript(node.id))
     await checkpoint('tunnel')
     const prepared = await sshExec(ssh, 'sh -s', prepareKeyScript(node.id), 240000)
     const osId = prepared.match(/INCUDAL_OS_ID:([a-z]+)/)?.[1]
@@ -109,7 +123,11 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
     const publicKey = prepared.match(/INCUDAL_PUBLIC_KEY:([A-Za-z0-9+/]{43}=)/)?.[1]
     const bindIp = prepared.match(/INCUDAL_BIND_IP:([0-9.]+)/)?.[1]
     if (!publicKey || !bindIp || !isIPv4(bindIp)) throw new OnboardingError('NODE_NETWORK_INVALID')
-    const gateway = await gatewayCommand(`add ${node.id} ${publicKey}`)
+    // A key can change independently of SSH (for example an interrupted OS
+    // restore). Only an explicit, authenticated no-Host inspection can replace it.
+    gatewayStage = true
+    const gateway = await enrollOnboardingGateway(node, publicKey, inspectCurrentSystem)
+    gatewayStage = false
     if (!gateway.managementIp) throw new OnboardingError('GATEWAY_RESPONSE_INVALID')
     await checkpoint('tunnel', { managementIp: gateway.managementIp, nodePublicKey: publicKey })
     await sshExec(ssh, 'sh -s', wireguardScript(node.id, gateway), 60000)
@@ -139,8 +157,10 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
       host = await withHostAddressRegistryLock(async () => {
         const snapshot = await prepareHostAddressSnapshotForWrite(url)
         return prisma.$transaction(async tx => {
+          await lockOnboardingAddresses(tx, [node.publicIp])
+          await lockOnboardingLifecycle(tx)
           await lockHostGroups(tx)
-          const duplicate = await tx.host.findFirst({ where: { OR: [{ natPublicIp: node.publicIp }, { ipAddress: node.publicIp }] }, select: { id: true } })
+          const duplicate = await tx.host.findFirst({ where: currentHostAddressWhere(node.publicIp), select: { id: true } })
           if (duplicate) throw new OnboardingError('HOST_ALREADY_REGISTERED')
           // Group edits made while SSH setup runs must be reflected in the new host.
           const currentNode = await tx.hostOnboardingNode.findUniqueOrThrow({ where: { id: node.id } })
@@ -232,7 +252,14 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
     // During shutdown, leave the durable job resumable. The detached remote
     // installer keeps running; its PID/exit files prevent duplicate installs.
     if (!stopped && !lostLease && code !== 'WORKER_INTERRUPTED') {
-      await prisma.hostOnboardingNode.updateMany({ where, data: { status: 'failed', errorCode: code, completedAt: new Date(), leaseToken: null, leaseUntil: null } })
+      const current = await prisma.hostOnboardingNode.findUnique({ where: { id: node.id } })
+      const retirement = readPeerRetirement(current?.peerRetirement)
+      const resumable = gatewayStage && current?.hostId === null && retirement && retirement.attempts < 5 &&
+        ['GATEWAY_RETIREMENT_FAILED', 'GATEWAY_RETIREMENT_EXPIRED', 'GATEWAY_RECOVERY_BUSY', 'SSH_CONNECT_FAILED', 'SSH_DISCONNECTED', 'SSH_COMMAND_TIMEOUT'].includes(code)
+      await prisma.hostOnboardingNode.updateMany({ where, data: { status: resumable ? 'queued' : 'failed', errorCode: code,
+        completedAt: resumable ? null : new Date(), leaseToken: null, leaseUntil: null,
+        ...(resumable ? { peerRetirement: { ...retirement, attempts: retirement.attempts + 1, error: code,
+          nextAttemptAt: new Date(Date.now() + Math.min(300000, 15000 * 2 ** retirement.attempts)).toISOString() } as unknown as Prisma.InputJsonValue } : {}) } })
     }
   } finally { clearInterval(heartbeat); ssh?.end() }
 }
@@ -243,6 +270,9 @@ async function tick() {
   try {
     await prisma.hostOnboardingNode.updateMany({ where: { credentialsExpireAt: { lt: new Date() }, credentialsEncrypted: { not: null } }, data: { credentialsEncrypted: null } })
     if (!gatewayConfigured()) return
+    const cleanup = processOnboardingRetirements()
+    active.add(cleanup)
+    try { await cleanup } finally { active.delete(cleanup) }
     while (active.size < 2 && !stopped) {
       const node = await claimHostOnboardingNode()
       if (!node) break

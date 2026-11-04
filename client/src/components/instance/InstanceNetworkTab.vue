@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
+import { useAuthStore } from '@/stores/auth'
 import type { Instance } from '@/types/api'
 import PublicIpv6Addresses from '@/components/PublicIpv6Addresses.vue'
 
@@ -47,6 +48,7 @@ interface Emits {
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 const themeStore = useThemeStore()
+const authStore = useAuthStore()
 
 function isIpv4Address(value: string | null | undefined): boolean {
   if (!value) return false
@@ -54,10 +56,13 @@ function isIpv4Address(value: string | null | undefined): boolean {
 }
 
 const publicIpv4Address = computed<string | null>(() => {
+  if (props.instance.dedicatedIpv4 && props.instance.publicIpUpdating) return null
   const candidate = (props.instance as any).nat_public_ip ?? props.instance.natPublicIp ?? props.instance.host?.nat_public_ip ?? null
   return isIpv4Address(candidate) ? candidate : null
 })
 const primaryIpv4Address = computed(() => props.instance.dedicatedIpv4 ? publicIpv4Address.value : props.instance.ipv4)
+const displayedIpv4Address = computed(() => props.instance.dedicatedIpv4 && props.instance.publicIpUpdating
+  ? (isIpv4Address(props.instance.observedPublicIp) ? props.instance.observedPublicIp : null) : primaryIpv4Address.value)
 
 // 宿主机公网 IPv6 地址（从 host_ip_address 中提取，仅在 IPv6 NAT 模式下使用）
 function isIpv6Address(value: string | null | undefined): boolean {
@@ -244,7 +249,7 @@ const canReassignIpv6 = computed(() => {
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="instance-network space-y-4">
     <!-- Network Addresses -->
     <div class="card p-5">
       <h2
@@ -358,15 +363,19 @@ const canReassignIpv6 = computed(() => {
         </template>
         <!-- 独占实例及非 NAT 模式: 显示公网 IPv4 和公网 IPv6 -->
         <template v-else>
-          <p v-if="instance.publicIpUpdating" class="text-sm text-amber-600 dark:text-amber-400 mb-3" role="status">{{ t('hostIpSync.customerUpdating') }}</p>
+          <div v-if="authStore.user?.role === 'admin' && instance.publicIpUpdating" class="mb-3 text-sm" role="status">
+            <p class="text-amber-600 dark:text-amber-400">{{ t(instance.status === 'stopped' ? 'hostIpSync.customerStopped' : 'hostIpSync.customerUpdating') }}</p>
+          </div>
           <div class="flex justify-between items-center">
             <dt class="text-gray-500">{{ t('instance.detail.network.publicIpv4') }}</dt>
-            <dd v-if="primaryIpv4Address" class="flex items-center gap-2">
+            <dd v-if="displayedIpv4Address" class="flex items-center gap-2">
               <code
                 class="font-mono px-2 py-0.5 rounded"
                 :class="themeStore.isDark ? 'text-gray-300 bg-gray-800' : 'text-gray-700 bg-gray-100'"
-              >{{ primaryIpv4Address }}</code>
+                :data-customer-observed-ip="instance.publicIpUpdating ? '' : undefined"
+              >{{ displayedIpv4Address }}</code>
               <button
+                v-if="primaryIpv4Address"
                 class="text-gray-500 hover:text-gray-400"
                 :title="t('common.copy')"
                 @click="emit('copy', primaryIpv4Address, 'ipv4')"
@@ -379,7 +388,7 @@ const canReassignIpv6 = computed(() => {
                 </svg>
               </button>
             </dd>
-            <dd v-else class="text-gray-500">{{ t("dedicated.unassigned") }}</dd>
+            <dd v-else class="text-gray-500">{{ instance.dedicatedIpv4 && instance.publicIpUpdating ? '—' : t('dedicated.unassigned') }}</dd>
           </div>
           <div v-if="instance.dedicatedIpv4" class="mt-4 space-y-2">
             <dt class="text-gray-500">{{ t('instance.detail.network.publicIpv6') }}</dt>
@@ -707,3 +716,10 @@ const canReassignIpv6 = computed(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.instance-network .card { background: var(--kawaii-surface) !important; box-shadow: none !important; }
+.instance-network .text-gray-500, .instance-network .text-gray-400 { color: var(--text-secondary) !important; }
+.instance-network .text-amber-600 { color: #92400e !important; }
+.dark .instance-network .text-amber-600 { color: #fbbf24 !important; }
+</style>

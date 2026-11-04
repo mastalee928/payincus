@@ -3788,6 +3788,7 @@ const api = {
   }
 ,
 hostOnboarding: {
+    checkAddress: (address: string): Promise<import('@/types/host-pool').OnboardingAddressCheck> => http.get('/host-onboarding/address-check', { params: { address } }),
     managementGateways: (): Promise<GatewayManagementList> => http.get('/host-onboarding/management-gateways'),
     gatewayDomain: (id: string): Promise<GatewayDomainStatus> => http.get(`/host-onboarding/management-gateways/${id}/domain`),
     changeGatewayDomain: (id: string, input: { hostname: string; expectedHostname: string; requestId: string; credentials?: { password: string } }): Promise<GatewayDomainStatus> => http.put(`/host-onboarding/management-gateways/${id}/domain`, input),

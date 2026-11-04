@@ -1,5 +1,75 @@
 # 版本与验证记录
 
+## 2026-11-04 v1.8.2 发行准备
+
+- Owner已授权整理本线程修复、提交推送及新版发行。本版包含用户活动来源IP、重装重试与删除后接入、OCI公网IP变更/历史地址复用和静默续接、购买页选择/配置布局及首页三态主题；保留v1.8.1支付和普通OSS自动还原。原Agent v1.0.4及稳定发行标签不移动。
+- 本地10项定向守卫通过，清单209项有效；双端类型/构建、边界守卫、后端构建通过，Lint 0错误/244 warnings。日志为 `logs/release-v1.8.2-{local-guards,manifest,repository-guards,lint,build}.log`。此前失败命令调用的记录保留，不作为通过证据；不重复本机完整套件。
+- OCI回收复用、实际两套不同SSH身份、PG地址唯一/并发和持久退避、加密pg_dump/pg_restore及真实Vue证据沿本页各阶段记录。新增Linux独立CI核真实WireGuard删除、0600回执、发布中断续接及迟到旧回执不影响新登记；该项在候选CI中首次执行，当前不能声称通过。
+- 发行流程从main `2172dd0720ce9b60330222f08bd97d0c2959167c` 整理新分支；同来源CI与双架构预览通过后才精确快进main和正式tag，正式独立双首装/六公开资产仍需核验。实时完整SHA及pendingRuns写入 `logs/release-v1.8.2-plan.json` / `status.json`，最终公开记录为 `docs/release-v1.8.2-validation.md`。
+- 本轮无生产OTA/恢复、DNS、OCI换IP或客户实例操作。真实OCI与原Agent换IP、真实OSS全新B/原宿主客户公网重连、近千台和72小时未验收；发行与隔离通过不代表这些目标完成。
+
+## 2026-11-04 OCI 历史公网 IP 回收复用与静默续接补验
+
+- Owner例子已在隔离真实PG和两套不同的实际SSH服务中模拟：A从 `1.1.1.1` 核验换至 `1.1.1.2`，B从 `1.1.1.3` 换到 `1.1.1.1`。B按自己的管理证书/地址和客机SSH key验证，不读取A历史身份。节点/机器池当前IP查询及客户API分别归属正确；A/B实例、订单关联、账期/价格、余额、Agent记录、管理身份和私网forward保持。
+- 覆盖B先到、A当前占用尚未提交的时序：B保留旧confirmed地址/客户保护、不抢占、不探测另一现用机器；A安全提交后后台自动扫描续接B。真实错误SSH key被拒绝，改回B实际服务后自动通过，不删除或替换受信key。此项不包括A一直无法完成新地址核验或双方互换仍被占用IP的自动解除；这种状态继续保留占用，不能猜测释放。
+- SSH暂不通及明确socket/HTTP超时归pending；同原因/同候选连续失败按60/120/240/300秒持久退避，成功清error/计数/blocked。关机/任务/隔离等等待条件维持60秒检查；身份/归属等明确失败渐退至30分钟只做原身份复核，不重装或放宽核验。证书过期/信任失败不误报身份变化或普通断网。
+- `logs/host-ip-silent-integration.log` 为完整复验，包含真实不同SSH握手、错误key拒绝、零认证/命令、有效unique、现址搜索和客户端mapper；WG/Incus/OCI公网映射仍为受控适配器，SSH socket重定向loopback，未访问例子公网地址。真实pg_dump→产品加密→解密→独立pg_restore保留计数、下一次时间及地址保护，见 `host-ip-silent-backup-roundtrip.log`。相关IPv4/IPv6单位/集成、池/恢复安全守卫、server类型/build、test清单和定向lint exit0。
+- 补验曾发现并发夹具未持有首波请求，快回执下peak不保证达到4；加明确首波屏障后完整通过。失败日志 `host-ip-silent-integration-scheduling-failure.log` 保留。首次lint从根未指定现有配置失败，使用 `client/eslint.config.js` 后exit0；原调用错误保留。证据与本轮源码hash见 `logs/host-ip-silent-recovery-evidence.json`，此前 `host-ip-fix-evidence.json` 仅为前一阶段来源，不冒充本轮最新hash。
+- 本轮未改前端，复用前阶段真实Vue/双端build证据；新字段为服务端持久JSON内部计数，不增加用户说明。未提交、推送、发行或部署；稳定v1.8.1不动。真实OCI、实际Agent换IP心跳、客户公网持续观察、真实OSS新B及千台/72小时仍未验收，用户电脑known_hosts不由平台修改。
+
+## 2026-11-04 OCI 同一宿主更换公网 IP：源码修正与隔离验证
+
+- 已按 Oracle 官方公网/私网 IP 文档确认：公网 IP 关联 VNIC 私网 IP，删除原公网再附加新公网不改变同一机器主私网地址。修正沿原 WG/Incus/Agent身份发现地址并自动续接；受信 observedIp 与正式 confirmedIp 分开，新公网 SSH身份握手通过后才提交 Host 公网地址和释放旧有效占用。实例/磁盘/账期/余额/管理地址与地区保持；关机/封停不强制启动，隔离不擅自解除。
+- 原接入 publicIp保留历史，新增迁移 `202611040002_host_current_public_ip` 的唯一 activePublicIp及维护trigger；隐藏但仍关联Host的任务继续保留当前地址占用，删除Host后释放，旧地址不再因历史unique阻挡新接入。地址锁→生命周期锁保护接入；同步按实例锁→地址锁→Host行锁执行。同一IP竞争仅一台成功。
+- 最多4台并发、到期较早优先、peer快照30秒刷新、每台远端45秒总截止、单次HTTP/SSH8秒真实取消，事务75秒/锁等待8秒；每台结束后60秒到期，整轮结束5秒再扫描。没有承诺千台全部在1–3分钟内完成，未重复本机全套大矩阵。
+- Owner后续要求用户界面只看新IP：用户实例列表/网络原IPv4栏更新，不展示检测/关机后验证说明或增加确认。节点与任务管理员页面显示当前IP、原接入历史和具体原因；静默刷新不会覆盖配置编辑、手工输入或会话切换后的页面。
+- 隔离真实PG专项、实际HTTP socket超时、IPv6回归、接入lease/当前系统、恢复安全及池守卫通过。实际pg_dump→产品认证加密→解密→独立库pg_restore通过；240迁移来源及239旧结构回填、有效unique/trigger保持，IP冲突迁移整体回滚保留旧schema/index。实际Vue/Chrome四页三语三宽深浅、session ABA与弹窗关闭重开、用户只显示新IP和正式核验后复制按钮恢复均通过。证据 `logs/host-ip-fix-integration-release.log`、`host-ip-fix-backup-roundtrip-final.log`、`host-ip-close-browser.log`；完整清单及源码hash见 `logs/host-ip-fix-evidence.json`。
+- 相关两端类型、路由/i18n、test清单、双端build/dist与后端build通过；定向lint exit0。构建既有大chunk warning保留。Framed sheet保留品牌字体/配色及原页面结构；实际样本taste检查无FAIL，单条列表/独立网络组件自然结束留白、详情既有并列面板及原IPv6空状态对比度WARN如实记录，不假称全部UI无警告。
+- 尚未提交、推送、发行或部署；稳定 v1.8.1不变，未操作生产OCI IP/配置/DNS/客户实例。本轮WG/Incus/公网SSH为受控适配器，真实OCI删除附加后重连未执行；真实OSS新B、客户公网持续观察、千台/72小时仍未验收。后续报告见 `docs/host-ip-change-review-2026-11-04.md`，原只读审查保留如下。
+
+## 2026-11-04 同一宿主更换公网 IP：审查与问题确认
+
+- 只读当前主控28台独占宿主：28台 Incus/管理SSH均使用原管理内网地址，28台公网字段一致且自动模式、无手工bind；27台公网状态synced，#23为IP_HOST_QUARANTINED/pending，未代做换IP或解除隔离。证据 `logs/host-ip-change-review-production{,-summary}.json`；这是当前配置实证，不是本轮真实换IP验收。
+- 原系统、WireGuard/Incus/Agent身份与网关出口路径保持时，宿主主动握手可更新网关peer公网端点，管理地址不随公网变化；Agent用原ID/HMAC重试，不锁定旧源IP。公网同步核新握手、管理TLS、物理网卡和客机SSH身份后只更新Host的natPublicIp/natBindIp/ipAddress，不改实例、价格、账期或身份。
+- 当前源码的公网单位守卫与独立PG完整IP专项exit0；另加仅在ignored logs的审查用例，确认机器池、节点mapper、实例列表及订单结果同新IP；关机客机连续三次保持IP_INSTANCE_STOPPED且正式IP不前进，旧接入地址仍报HOST_IP_HAS_TASK。证据 `logs/host-ip-change-review-{unit,integration,cases}.log`。远端Incus/WG/公网SSH为受控适配器，PG是真实独立数据库；该数据库已停止。
+- 缺口：节点列表/标题用location或管理URL，未直接展示当前公网IP；节点详情公网字段有新IP但没有该页定时更新。接入任务原IP既作为历史显示又受unique/冲突约束，旧IP再分配会受阻；本轮未提交接入改动也须一起修这一边界。公网SSH未通、关机、隔离和多入口/多bind均不能保证自动更新；全宿主串行扫描加完成后60秒等待，不能保证千台时1–3分钟，peer快照超过180秒还会过期。
+- 审查报告与建议见 `docs/host-ip-change-review-2026-11-04.md`。历史2026-10-15已有同机公网映射更换、真实SSH及TCP/UDP抽测通过，仅作为当时分项证据；本轮没有生产换IP、重装、客户操作、业务源码修复、提交或发行。
+
+## 2026-11-04 首页主题与全站三态统一
+
+- 首页移除独立的 `homepage-theme` 两态状态，复用全站 `theme` 偏好与 `dark → light → system` 切换顺序。按钮按当前模式显示月亮、太阳或显示器，标题与无障碍标签复用三语主题词条；地图深浅样式同步使用共用 resolvedTheme。正式双端已有初始化，独立首页 demo 补齐同一初始化。
+- 共用 store 原来在 computed 内直接读取非响应式 matchMedia.matches，系统变化后仍使用旧缓存。现使用响应式系统偏好、单一监听及 dispose 清理；反复 init 不新增监听。实际旧 store 在相同 Chrome 用例中 system dark→light 失败，见 `logs/home-theme-before.log`；修正后系统实时变化、手动模式不被系统覆盖、回到 system、跨页共用选择和刷新保留全部通过。
+- 本机真实 Vue/Pinia/router 与 Chrome 系统媒体偏好验证，商品目录为静态本地夹具，不连接生产。1440/768/390 三宽、简中/繁中/英文、系统深浅组合、44px 按钮、显示器图标及监听清理均通过，六张深浅截图已逐张检查，无横向溢出。见 `logs/home-theme-browser.log` 与 `logs/home-theme/verified.json`。
+- route、i18n、首页地图守卫、测试清单、定向 lint、真实购买页回归、双端 vue-tsc/build 与 dist 边界均 exit0；日志为 `logs/home-theme-{routes,i18n,map-guards,manifest,lint,purchase-regression,build,dist}.log`，来源及摘要见 `logs/home-theme-evidence.json`。构建保留既有大 chunk warning，不为该局部修复调整打包。
+- 本次为源码及本机浏览器验证，尚未提交、推送、发行或部署；稳定 v1.8.1 tag不变。工作区机器接入、来源IP与购买页修复完整保留。
+
+## 2026-11-04 `/purchase` 选择联动、配置闪现与卡片收紧
+
+- 后续 owner指出横排后文字与图标偏斜，尤其 `768 MiB`。修正每列 `align-items:center/text-align:center`，图标与数值共用中心线；浏览器按实际坐标检查三列中心偏差小于1px，三宽深浅均通过。旧源码新增该断言后失败，证据 `logs/pool-purchase-spec-alignment-before.log`；修正后完整选择专项通过。之前只验横排、上下顺序及列内宽度，漏查中心对齐，本次补齐，不再以不溢出代替视觉对齐。
+- 切洲原来只筛地区，仍使用旧 `regionId/productId`；现切换不同洲同步清选择，搜索隐藏所选地区也失效，重复点击同洲/同地区保留有效配置。目录刷新仅从当前可见地区选商品，初始地区深链接先确定对应洲，重新进入页面清旧筛选。直接购买与购物车保留独立入口，生成的快照来自当前地区/配置。
+- 配置列表移除会保留旧节点的 TransitionGroup，首付款金额立即更新；镜像 watcher 同步清旧选择/数量并增加请求序号，迟到成功/失败回执不会结束新请求或恢复旧镜像。即使新地区 DOM 尚未更新，旧购买按钮的处理函数也不能使用失效选择。
+- CPU/内存/磁盘在桌面、平板和手机均横排，图标在上、数值在下；配置卡片更紧凑。三语库存文案为 `库存:N / 庫存:N / Stock:N`，原售罄状态保留；共享该词条的公开商品卡同步简化。
+- 浏览器证据：`logs/pool-purchase-selection-browser.log` 与 `logs/pool-purchase-selection/verified.json`，真实 Vue/Pinia/router，受控本地目录和镜像 API；逐切换连续8帧核配置/价格，旧请求、搜索、售罄、同地区E2/ARM、深链接、匿名及目录失败重试、旧按钮同步调用和实际购物车/直接购买快照全部通过。三宽×深浅×两种动态偏好，六截图和 taste 检查无 FAIL；标题小的 WARN 保留现有工具页字号，左右栏高度 WARN 源于独立固定摘要，不为对齐拉长配置内容。
+- 相关 route、i18n、host-pool 守卫、测试清单、组件 lint、原购物车真实浏览器回归、最终双端类型/构建与 dist 边界均 exit0，日志为 `logs/pool-purchase-selection-{routes,i18n,pool,manifest,lint,cart-regression,build,dist}.log`；源码 hash 和结果在 `logs/pool-purchase-selection-evidence.json`。构建保留既有 chunk size warning，不把警告称零；仅写台账不重复构建。
+- 源码修复与本机隔离验证，尚未提交、推送、发布或部署；稳定 v1.8.1 不变。保留此前接入生命周期与来源IP的工作区修复，未操作生产付款、机器或数据。
+
+## 2026-11-04 机器池重装与删除后再接入：源码修复与隔离验证
+
+- 地址输入即时检查正式 Host 与现用接入任务，区分正常已接入、其他状态 Host、在途任务及同名冲突；最终创建事务再次检查。同 IP 并发只创建一个有效任务。查看已有机器会清除库存/机型/地区筛选；查看任务按目标 IP 定位，防旧地址和关闭弹窗后的迟到响应污染结果。
+- 失败任务即使已保存管理 IP/公钥，只要没有正式 Host 且处在接入前期，明确重试会用当前 root 凭据和无客户实例预检核当前系统；通过后才保存新 SSH 指纹和清资源探测。错误密码、实例占用、已建立正式身份及失去 worker lease 均不允许绕过保护。
+- 删除正式 Host 或无 Host 的任务会持久安排精确旧 peer 清理；只隐藏任务而保留 Host 时不删除其正常连接。新生命周期状态使用迁移 `202611040001_onboarding_identity_lifecycle` 的两个 JSON 字段。受限 helper 按任务/公钥/管理 IP/独立 requestId 核验配置与 runtime，journal 保存中断回执；旧请求不能删除重新登记后的 peer。
+- 清理观察和意图先提交，再执行单个受限远端动作；清理结果独立提交后才登记新 key，新登记前另保存 enrollmentKey，兼容远端成功而 DB 回执失败。临时网关清理/登记故障自动有限退避续接；删除后台清理持续退避，确定身份冲突停止重复写入。任务页显示未完成清理及下次自动动作，日志保留阶段。关闭后台等待在途清理结束。
+- 复查发现清理 journal 子目录会破坏旧 OSS 文件枚举，已增加独立受限 `retirements/` 备份资产、恢复目录和 journal 白名单；认证加密包往返核字节保持。另修正仅隐藏任务的正式 Host 在快照恢复时仍保留原管理 route。旧无 receipts 包继续兼容，不重生成 Agent/管理密钥。
+- 证据：`logs/onboarding-current-system.log`（独立本机 PG/真实 SSH 认证与网关协议，删除再建、客户占用、回执丢失、登记中断、心跳不被行锁阻塞、重复IP并发与退避领取）；`onboarding-lease.log`；`onboarding-gateway-tests.log`（28 项，1 Linux root DNS 项 skipped，WireGuard/OS 边界为 Windows adapter）；`onboarding-backup-guards.log`；`onboarding-pool-guards.log`；`onboarding-browser.log` 和9张三语/三宽深浅截图；type、test manifest、route/i18n、双端 build/dist boundary 与 server build日志。Lint exit0，既有244 warnings/0 errors；不把 warnings称零。
+- 尚未提交、推送、发行或部署，本次稳定 v1.8.1 tag不变。未在真实 Linux WireGuard、生产目标 DD 宿主或真实 OSS 新 B 演练本次修正；隔离 SSH协议和页面通过不等同于实际隧道/Incus/Agent整条接入完成。此前来源IP修复保留为独立未发行工作区改动；详见 `docs/host-onboarding-review-2026-11-04.md`。
+
+## 2026-11-04 用户活动误记本机 IP：源码已修，尚未发行或部署
+
+- 只读核实当前生产为 v1.8.1，唯一后台监听回环地址，`TRUST_PROXY=true` 且未配置额外跳数；cloudflared active，Nginx 使用 `$proxy_add_x_forwarded_for`，没有 real-ip 重写。用户活动直接显示最后一条登录记录，登录入口使用 `request.ip`。本地以相同双层代理头复现旧解析器把外部来源记录为 `127.0.0.1`；没有修改生产服务、配置或登录记录。
+- `TRUST_PROXY=true` 默认从固定一跳改为仅信任回环地址，越过本机 cloudflared/Nginx 后取第一个非本机地址。直接访问和未知内网代理不受信，外部伪造前置 XFF、X-Real-IP、CF-Connecting-IP 不能覆盖真实来源；显式 IP/CIDR 和正整数跳数仍沿原配置执行。此改动同时修正登录记录、登录限流和安全事件的来源，不通过前端替换掩盖历史数据。
+- 14 个 IPv4/IPv6/映射地址/双代理/直连/缺头与伪造头用例、不同客户独立限流及同客户伪造头仍被限流、真实 HTTP socket 通过。代理专项、鉴权会话守卫、分层部署守卫、服务端类型与构建均 exit 0；编译产物的真实 HTTP 取值也已核验。证据在 `logs/user-activity-ip-{before.json,production-readonly.json,proxy-tests.log,auth-tests.log,split-tests.log,types.log,build.log,compiled-verified.json}`。
+- 该修正尚未提交、推送、发行或部署，已发布的 v1.8.1 标签与安装包保持原样。历史 `127.0.0.1` 记录不推测改写；修复部署后，新登录记录才会更新用户活动。其他机器上的代理需按已登记 IP/CIDR 配置信任；不扩展为信任全部来源。
+
 ## 2026-11-04 v1.8.1 正式发行、全部 CI 与资产核验完成
 
 - [正式 Release](https://github.com/mastalee928/payincus/releases/tag/v1.8.1) 于 `2026-11-03T15:08:52Z` 发布，非 draft/prerelease。正式 Build & Release `41658234856` 五 job 全部 success，逐 job 实际 checkout 均为 `bc860dcbdb364557611531fda388921968c35600`；正式双架构首装独立核过 238 迁移、唯一后台、双端、恢复内登录、legacy 回退续接、snapshot 零人工材料自动恢复、SQL/ZIP 完整性与旧版本迁移。见 `logs/release-v1.8.1-formal-verified.json` 和正式逐 job 日志。

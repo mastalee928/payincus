@@ -4,9 +4,17 @@
 
 ## Private Backend Must Run As A Single Instance
 
+机器池当前未发行源码已补重复 IP 的填写时反馈与重装/删除再接入生命周期。失败前期任务没有正式 Host 时，使用当前 root 密码点普通重试，后台认证并预检后才更新身份和清理旧 peer；只删除接入任务历史不会删除现存 Host 的管理连接。正式 Host 移除需无客户/在途任务。清理未完成显示在机器池「接入任务」，安全临时故障自动退避；身份不一致保留具体原因。发布包必须同时包含新数据库迁移和受限网关 helper；本机 OTA 的现有刷新流程会更新 helper，外部旧组件需升级后再执行该清理协议。当前生产 v1.8.1 不包含本轮修正，不通过清数据库指纹或搬稳定tag替代更新。证据见 HANDOFF顶部。
+
 The private backend on 127.0.0.1:3001 must run as exactly one Node.js process. Treat a second backend replica as an unsupported deployment. Login locks, OAuth nonces, replay prevention, task state and configuration caches include process-local state; PostgreSQL advisory locks do not make multiple replicas safe. Move that state into shared storage before considering additional workers.
 
 用户端与管理端使用不同源，通过各自的 /api 和 /api/ws 代理到同一后端，不共享 cookie 域。生产设置 SERVE_STATIC_CLIENT=false，由 Nginx 或现有入口提供两端静态文件。
+
+## 用户登录 IP 与本机代理
+
+`TRUST_PROXY=true` 默认仅信任回环代理地址（`127.0.0.0/8`、`::1/128`）。从后端连接向外读取 `X-Forwarded-For`，越过本机 Nginx、cloudflared 后，取第一个非本机地址；直连请求不能通过自填转发头覆盖自己的地址。旧版只信任一跳，在 Cloudflare Tunnel→Nginx→后端链路中可能把 `127.0.0.1` 写入用户登录记录。
+
+Nginx 在独立内网机器时，`TRUST_PROXY` 应列出受信代理 IP/CIDR，不信任整个内网或全部来源。显式数字及 `TRUST_PROXY_HOPS` 保留固定跳数语义，仅适用于入口路径固定且禁止绕过代理的部署。新取值适用于更新后的登录、限流和安全事件；旧登录记录不按当前 IP 改写，管理员“用户活动”需有新的登录记录后才显示新的地址。修复的发行及部署状态以 HANDOFF.md 为准。
 
 ## Node.js 运行时
 

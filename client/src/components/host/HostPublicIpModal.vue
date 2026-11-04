@@ -1,39 +1,71 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import type { HostPublicIpSettings, HostPublicIpSync } from '@/types/host-pool'
+import { useAuthStore } from '@/stores/auth'
 
 const props = defineProps<{ hostId: number; hostName: string }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
 const { t, te, locale } = useI18n()
+const auth = useAuthStore()
 const report = ref<HostPublicIpSync | null>(null)
 const form = ref<HostPublicIpSettings>({ mode: 'auto', publicIp: null, bindIp: null, sshPort: 22 })
 const busy = ref(false)
 const error = ref('')
+let alive = true, reading = false, generation = 0, timer: ReturnType<typeof setInterval> | undefined
+const context = () => {
+  const hostId = props.hostId, version = generation, session = auth.captureAuthentication()
+  return { hostId, current: () => alive && version === generation && hostId === props.hostId && auth.user?.role === 'admin' && session.current() }
+}
+const sessionKey = () => {
+  try { const claims = JSON.parse(atob((auth.token || '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return claims.sid || auth.token }
+  catch { return auth.token }
+}
+watch([() => props.hostId, sessionKey, () => auth.user?.id, () => auth.user?.role], () => {
+  generation++; report.value = null; error.value = ''; busy.value = false; reading = false
+  form.value = { mode: 'auto', publicIp: null, bindIp: null, sshPort: 22 }
+  void load()
+}, { flush: 'sync' })
 const date = (value: string | null) => value ? new Date(value).toLocaleString(locale.value) : '—'
 function errorText(code: string) { return te('hostIpSync.errors.' + code) ? t('hostIpSync.errors.' + code) : t('hostIpSync.errors.IP_CHECK_FAILED') }
 async function load() {
+  const request = context()
+  if (!request.current()) return
   busy.value = true
-  try { report.value = await api.hostOnboarding.getPublicIp(props.hostId); form.value = { ...report.value.settings } }
-  catch { error.value = t('hostIpSync.loadFailed') }
-  finally { busy.value = false }
+  try { const result = await api.hostOnboarding.getPublicIp(request.hostId); if (request.current()) { report.value = result; form.value = { ...result.settings } } }
+  catch { if (request.current()) error.value = t('hostIpSync.loadFailed') }
+  finally { if (request.current()) busy.value = false }
+}
+async function refreshReport() {
+  if (!alive || busy.value || reading) return
+  const request = context()
+  if (!request.current()) return
+  reading = true
+  try {
+    const result = await api.hostOnboarding.getPublicIp(request.hostId)
+    if (request.current() && !busy.value) report.value = result
+  } catch { /* Retain the last check while the next automatic read is pending. */ }
+  finally { if (request.current()) reading = false }
 }
 async function sync() {
   if (busy.value) return
+  const request = context()
+  if (!request.current()) return
   busy.value = true; error.value = ''
   try {
-    report.value = await api.hostOnboarding.syncPublicIp(props.hostId, {
+    const result = await api.hostOnboarding.syncPublicIp(request.hostId, {
       ...form.value, publicIp: form.value.publicIp?.trim() || null, bindIp: form.value.bindIp?.trim() || null
     })
-    emit('changed')
+    if (request.current()) { report.value = result; emit('changed') }
   } catch (value) {
     const data = (value as { response?: { data?: { code?: string } } })?.response?.data
-    error.value = errorText(data?.code || 'IP_CHECK_FAILED')
-  } finally { busy.value = false }
+    if (request.current()) error.value = errorText(data?.code || 'IP_CHECK_FAILED')
+  } finally { if (request.current()) busy.value = false }
 }
 function close() { if (!busy.value) emit('close') }
-onMounted(() => void load())
+onMounted(() => { void load(); timer = setInterval(() => void refreshReport(), 10000) })
+onBeforeUnmount(() => { alive = false; clearInterval(timer) })
 </script>
 
 <template>
@@ -48,6 +80,7 @@ onMounted(() => void load())
             <div class="flex flex-wrap justify-between gap-2"><dt class="text-themed-muted">{{ t('hostIpSync.current') }}</dt><dd class="font-mono text-themed">{{ report.currentIp || '—' }}</dd></div>
             <div v-if="report.candidateIp && report.candidateIp !== report.currentIp" class="flex flex-wrap justify-between gap-2"><dt class="text-themed-muted">{{ t('hostIpSync.detected') }}</dt><dd class="font-mono text-themed">{{ report.candidateIp }}</dd></div>
             <div class="flex flex-wrap justify-between gap-2"><dt class="text-themed-muted">{{ t('hostIpSync.checked') }}</dt><dd class="text-themed">{{ date(report.checkedAt) }}</dd></div>
+            <div v-if="report.nextCheckAt && report.status !== 'synced'" class="flex flex-wrap justify-between gap-2"><dt class="text-themed-muted">{{ t('hostIpSync.nextCheck') }}</dt><dd>{{ date(report.nextCheckAt) }}</dd></div>
           </dl>
           <p v-if="report && !busy" class="text-sm font-medium" :class="report.status === 'synced' ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'" role="status">{{ t('hostIpSync.status.' + report.status) }}</p>
           <p v-if="report?.blocked" class="text-sm text-amber-600 dark:text-amber-400">{{ t('hostIpSync.blocked') }}</p>

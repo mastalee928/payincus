@@ -548,6 +548,16 @@ assert.ok(
   'the homepage must use the real catalog and numeric purchase identifiers, default to the mobile globe, and disable unknown or sold-out inventory'
 )
 assert.ok(
+  homepageMapSource.includes("import { useThemeStore } from '@/stores/theme'") &&
+    homepageMapSource.includes('computed(() => themeStore.resolvedTheme)') &&
+    homepageMapSource.includes('@click="themeStore.toggleTheme"') &&
+    homepageMapSource.includes("themeStore.mode === 'dark'") &&
+    homepageMapSource.includes("themeStore.mode === 'light'") &&
+    homepageMapSource.includes('<Monitor v-else') &&
+    !homepageMapSource.includes('homepage-theme'),
+  'homepage must share the application light/dark/system preference and display a system-mode icon'
+)
+assert.ok(
   oauthAuthorizeViewSource.includes("import { dashboardPath } from '@/utils/app-paths'") &&
     oauthAuthorizeViewSource.includes('router.push(dashboardPath())') &&
     !oauthAuthorizeViewSource.includes("router.push('/dashboard')"),

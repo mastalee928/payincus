@@ -69,6 +69,7 @@ const calibrationSuccesses = computed(() => calibrationResults.value.filter(row 
 const calibrationChanges = computed(() => calibrationResults.value.filter(row => row.status === 'success' && row.changed).length)
 function invalidateCalibration() {
   calibrationGeneration++; calibrationResults.value = []; calibrationError.value = ''
+  hostReadSequence++; hostReadPending = false
 }
 watch([calibrationSession, scope], invalidateCalibration, { flush: 'sync' })
 onDeactivated(() => { calibrationActive = false; invalidateCalibration() })
@@ -125,11 +126,15 @@ function handlePageSizeChange() {
 let hasInitialLoad = false
 
 // 加载宿主机列表
-async function loadHosts(owns = () => true) {
+let hostReadSequence = 0, hostReadPending = false
+async function loadHosts(owns = () => true, silent = false) {
+  if (silent && hostReadPending) return
+  const sequence = ++hostReadSequence, session = calibrationSession.value
   const view = `${page.value}:${pageSize.value}:${search.value}:${scope.value}:${filterUserId.value}`
-  const isCurrent = () => owns() && view === `${page.value}:${pageSize.value}:${search.value}:${scope.value}:${filterUserId.value}`
+  const isCurrent = () => calibrationAlive && calibrationActive && sequence === hostReadSequence && session === calibrationSession.value && owns() && view === `${page.value}:${pageSize.value}:${search.value}:${scope.value}:${filterUserId.value}`
   if (!isCurrent()) return
-  loading.value = true
+  hostReadPending = true
+  if (!silent) loading.value = true
   try {
     let res
     if (isAdmin.value && scope.value === 'hosted') {
@@ -164,6 +169,7 @@ async function loadHosts(owns = () => true) {
   } catch (err) {
     if (isCurrent()) toast.error(err.message)
   } finally {
+    if (sequence === hostReadSequence) hostReadPending = false
     if (isCurrent()) loading.value = false
   }
 }
@@ -408,6 +414,17 @@ onMounted(() => {
   loadHosts()
   hasInitialLoad = true
 })
+let ipRefreshTimer
+function startIpRefresh() {
+  clearInterval(ipRefreshTimer)
+  ipRefreshTimer = setInterval(() => {
+    if (calibrationAlive && calibrationActive && !loading.value && document.visibilityState === 'visible') void loadHosts(() => calibrationAlive && calibrationActive, true)
+  }, 15000)
+}
+onMounted(startIpRefresh)
+onActivated(startIpRefresh)
+onDeactivated(() => clearInterval(ipRefreshTimer))
+onBeforeUnmount(() => clearInterval(ipRefreshTimer))
 
 // 当组件从 KeepAlive 缓存中激活时，重新加载数据
 // 解决从创建页面返回后需要手动刷新的问题
@@ -421,7 +438,7 @@ onActivated(() => {
 </script>
 
 <template>
-  <div class="kawaii-page space-y-6 animate-fade-in">
+  <div class="host-list kawaii-page space-y-6 animate-fade-in">
     <div class="page-header">
       <div>
         <h1 class="page-title">{{ t('resources.hosts.title') }}</h1>
@@ -545,6 +562,8 @@ onActivated(() => {
                 <div class="mt-0.5 truncate font-mono text-xs text-themed-muted">
                   {{ host.location || host.url }}
                 </div>
+                <div v-if="host.natConfig?.publicIpSync?.observedIp || host.natConfig?.publicIp" data-node-current-ip class="mt-1 text-xs font-mono text-themed">{{ host.natConfig?.publicIpSync?.observedIp || host.natConfig?.publicIp }}</div>
+                <p v-if="isAdmin && host.natConfig?.publicIpSync?.error" class="mt-1 text-xs text-amber-600 dark:text-amber-400">{{ t('hostIpSync.errors.' + host.natConfig.publicIpSync.error) }}</p>
               </div>
             </div>
             <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-themed px-2 py-1 text-xs font-mono text-themed-secondary">
@@ -630,6 +649,8 @@ onActivated(() => {
                     <div class="truncate font-mono text-xs text-themed-muted">
                       {{ host.location || host.url }}
                     </div>
+                    <div v-if="host.natConfig?.publicIpSync?.observedIp || host.natConfig?.publicIp" data-node-current-ip class="mt-1 text-xs font-mono text-themed">{{ host.natConfig?.publicIpSync?.observedIp || host.natConfig?.publicIp }}</div>
+                    <p v-if="isAdmin && host.natConfig?.publicIpSync?.error" class="mt-1 text-xs text-amber-600 dark:text-amber-400">{{ t('hostIpSync.errors.' + host.natConfig.publicIpSync.error) }}</p>
                   </div>
                 </div>
               </td>
@@ -785,6 +806,14 @@ onActivated(() => {
 </template>
 
 <style scoped>
+.host-list .card { background: var(--kawaii-surface) !important; box-shadow: none !important; }
+.host-list button { box-shadow: none !important; }
+.host-list button::before { display: none; }
+.host-list .text-themed-muted { color: var(--text-secondary) !important; }
+.host-list .text-xs { font-size: 13px; }
+.host-list th { text-transform: none; letter-spacing: normal; }
+.host-list .text-amber-600 { color: #92400e !important; }
+.dark .host-list .text-amber-600 { color: #fbbf24 !important; }
 .calibration-panel { border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; background: #fff; color: #0a0a0a; font-size: 14px; }
 .dark .calibration-panel { border-color: #333; background: #0a0a0a; color: #fff; }
 .calibration-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

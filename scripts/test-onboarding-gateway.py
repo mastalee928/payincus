@@ -315,5 +315,102 @@ class GatewayTests(unittest.TestCase):
             self.assertEqual(commands[-1][0], 'ssh')
 
 
+class RetirementTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='incudal-retirement-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = pathlib.Path(self.temp.name)
+        self.state = self.root / 'state'; self.state.mkdir()
+        self.config = self.root / 'wg.conf'
+        self.job = '11111111-1111-4111-8111-111111111111'
+        self.request_id = '22222222-2222-4222-8222-222222222222'
+        self.key = base64.b64encode(bytes([11])*32).decode()
+        self.other = base64.b64encode(bytes([12])*32).decode()
+        self.address = '10.253.240.6'
+        self.control = ipaddress.ip_interface('10.253.240.1/20')
+        self.block = '# incudal-onboarding '+self.job+'\n[Peer]\nPublicKey = '+self.key+'\nAllowedIPs = '+self.address+'/32\n'
+        self.unrelated = '[Interface]\nAddress = 10.253.240.1/20\n\n[Peer]\nPublicKey = '+self.other+'\nAllowedIPs = 10.253.240.7/32\n\n'
+        self.config.write_text(self.unrelated+self.block)
+        (self.state/(self.job+'.json')).write_text(json.dumps({'nodePublicKey':self.key,'managementIp':self.address}))
+        self.live = {self.key:[self.address+'/32'],self.other:['10.253.240.7/32']}
+        self.writes = []
+        mock.patch.object(gateway,'STATE',self.state).start();mock.patch.object(gateway,'CONFIG',self.config).start()
+        # File ownership and OS WireGuard boundaries are tested on Linux; this
+        # fixture executes the real journal/configuration lifecycle on disk.
+        mock.patch.object(gateway,'read_protected_state',side_effect=lambda path,limit:path.read_bytes()).start()
+        mock.patch.object(gateway,'recovery_live_routes',side_effect=lambda:dict(self.live)).start()
+        mock.patch.object(gateway.time,'time',return_value=1000).start()
+        def run(*args):
+            self.writes.append(args)
+            if args[-1]=='remove': self.live.pop(args[-2],None)
+            return ''
+        mock.patch.object(gateway,'run',side_effect=run).start();self.addCleanup(mock.patch.stopall)
+
+    def retire(self, **changes):
+        request={'nodePublicKey':self.key,'managementIp':self.address,'expiresAt':1025000,'requestId':self.request_id,**changes}
+        with mock.patch.object(gateway.sys,'stdin',type('Input',(),{'buffer':io.BytesIO(json.dumps(request).encode())})()):
+            return gateway.retire_peer(self.job,self.control)
+
+    def test_delete_recreate_and_late_old_receipt_preserve_new_peer(self):
+        self.assertTrue(self.retire()['registrationRetired'])
+        self.assertEqual(self.config.read_text(),self.unrelated)
+        self.assertEqual(self.live,{self.other:['10.253.240.7/32']})
+        self.assertIsNone(gateway.registration(self.job))
+        self.assertEqual(len(self.writes),1)
+        new_key=base64.b64encode(bytes([13])*32).decode()
+        address=gateway.register_peer(self.job,new_key,self.control,self.config.read_text(),{key:[ipaddress.ip_network(route) for route in routes] for key,routes in self.live.items()})
+        self.live[new_key]=[address+'/32']
+        before=self.config.read_text(),dict(self.live)
+        self.assertTrue(self.retire()['registrationRetired'])
+        self.assertEqual((self.config.read_text(),self.live),before,'late retirement must not touch a new generation')
+
+    def test_crash_after_startup_config_write_resumes_without_duplicate_changes(self):
+        original=gateway.atomic_write
+        def publish(path,text):
+            original(path,text)
+            if path==self.config: raise RuntimeError('lost receipt after config publication')
+        with mock.patch.object(gateway,'atomic_write',side_effect=publish):
+            with self.assertRaises(RuntimeError):self.retire()
+        self.assertTrue(self.retire()['registrationRetired'])
+        self.assertEqual(self.config.read_text(),self.unrelated)
+        self.assertEqual(self.live,{self.other:['10.253.240.7/32']})
+        self.assertEqual(len(self.writes),1)
+
+    def test_changed_foreign_duplicate_and_expired_requests_make_no_changes(self):
+        before=self.config.read_text()
+        for changes in [{'nodePublicKey':self.other},{'managementIp':'10.253.240.7'},{'expiresAt':1000000},{'extra':1}]:
+            with self.subTest(changes=changes):
+                with self.assertRaises(ValueError):self.retire(**changes)
+                self.assertEqual(self.config.read_text(),before);self.assertEqual(self.writes,[])
+        self.config.write_text(before+self.block)
+        with self.assertRaises(ValueError):self.retire()
+        self.assertEqual(self.writes,[])
+
+    def test_incomplete_retirement_blocks_new_registration_until_finished(self):
+        original=gateway.atomic_write
+        def publish(path,text):
+            original(path,text)
+            if path==self.config: raise RuntimeError('interrupted')
+        with mock.patch.object(gateway,'atomic_write',side_effect=publish):
+            with self.assertRaises(RuntimeError):self.retire()
+        with self.assertRaises(gateway.GatewayOperationError):gateway.register_peer(self.job,self.other,self.control,self.config.read_text(),self.live)
+        self.retire()
+        self.assertNotIn(self.key,self.live)
+
+    def test_restored_deleted_node_without_peer_can_complete_retirement(self):
+        self.config.write_text(self.unrelated)
+        (self.state/(self.job+'.json')).unlink()
+        self.live.pop(self.key)
+        self.assertTrue(self.retire()['registrationRetired'])
+        self.assertEqual(self.config.read_text(),self.unrelated)
+        self.assertEqual(self.writes,[])
+
+    def test_missing_reservation_does_not_authorize_an_untracked_live_peer(self):
+        (self.state/(self.job+'.json')).unlink()
+        with self.assertRaises(gateway.GatewayOperationError):self.retire()
+        self.assertIn(self.key,self.live)
+        self.assertEqual(self.writes,[])
+
+
 if __name__ == "__main__":
     unittest.main()

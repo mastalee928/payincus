@@ -4,8 +4,9 @@ export type TrustProxyConfig = boolean | number | string[]
 
 const ENABLED_VALUES = ['true', '1', 'yes', 'on']
 const DISABLED_VALUES = ['false', '0', 'no', 'off']
+const LOCAL_PROXY_ADDRESSES = ['127.0.0.0/8', '::1/128']
 
-function getConfiguredHops(): number {
+function getConfiguredHops(): number | undefined {
   const configured = process.env.TRUST_PROXY_HOPS?.trim()
 
   if (configured && /^\d+$/.test(configured)) {
@@ -15,7 +16,7 @@ function getConfiguredHops(): number {
     }
   }
 
-  return 1
+  return undefined
 }
 
 function isValidProxyAddress(value: string): boolean {
@@ -48,7 +49,10 @@ export function getTrustProxyConfig(): TrustProxyConfig {
   }
 
   if (ENABLED_VALUES.includes(configured)) {
-    return getConfiguredHops()
+    // Nginx and cloudflared may both connect over loopback. A hop count of one
+    // records cloudflared's address; a larger count also trusts direct clients.
+    // Stop at the first non-local address unless the operator configured hops.
+    return getConfiguredHops() ?? [...LOCAL_PROXY_ADDRESSES]
   }
 
   if (/^\d+$/.test(configured)) {
