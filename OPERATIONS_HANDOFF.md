@@ -4,7 +4,9 @@
 
 ## Private Backend Must Run As A Single Instance
 
-机器池当前未发行源码已补重复 IP 的填写时反馈与重装/删除再接入生命周期。失败前期任务没有正式 Host 时，使用当前 root 密码点普通重试，后台认证并预检后才更新身份和清理旧 peer；只删除接入任务历史不会删除现存 Host 的管理连接。正式 Host 移除需无客户/在途任务。清理未完成显示在机器池「接入任务」，安全临时故障自动退避；身份不一致保留具体原因。发布包必须同时包含新数据库迁移和受限网关 helper；本机 OTA 的现有刷新流程会更新 helper，外部旧组件需升级后再执行该清理协议。当前生产 v1.8.1 不包含本轮修正，不通过清数据库指纹或搬稳定tag替代更新。证据见 HANDOFF顶部。
+v1.8.2已发行并完成同来源CI、双架构首装及六公开资产核验，包含重复IP反馈和重装/删除再接入生命周期。失败前期任务没有正式Host时，使用当前root密码点普通重试，后台认证并预检后才更新身份和清理旧peer；只隐藏接入历史不会删除现存Host的管理连接。正式Host移除需无客户/在途任务。包内含新迁移和受限网关helper，本机OTA会刷新helper，外部旧组件需升级后再执行新协议。版本与各目标部署事实见HANDOFF顶部。
+
+已知v1.8.2遗漏：旧清理任务done后又发生开通失败，宿主会再次被隔离，但自动扫描和重试跳过旧done任务，IPv4/IPv6因此等待。在线、心跳正常或地址已读取均不等于隔离已恢复；“立即同步IPv6”不能解除该门禁。先只读核原身份、历史失败/清理、客户及残留数据，保存具体结果；不要重放旧删除授权、清指纹或直接改数据库标记。该问题已诊断但未修复，新源码修复按新版本处理，稳定v1.8.2不移动。
 
 The private backend on 127.0.0.1:3001 must run as exactly one Node.js process. Treat a second backend replica as an unsupported deployment. Login locks, OAuth nonces, replay prevention, task state and configuration caches include process-local state; PostgreSQL advisory locks do not make multiple replicas safe. Move that state into shared storage before considering additional workers.
 

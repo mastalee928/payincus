@@ -1,6 +1,44 @@
 # 版本与验证记录
 
+## 2026-11-05 v1.8.2 发行核验完成；隔离恢复遗漏仍未修复
+
+- 正式源码 `b70a9f56b9a06d72c0d91c6bebd984db9e7c68c5`，tree `2dd572ace1f390f84dc23ac18dd0374ba3fe8d1c`。main从 `2172dd0720ce9b60330222f08bd97d0c2959167c` 精确非force快进，PR [#4](https://github.com/mastalee928/payincus/pull/4) 已MERGED且mergeCommit同源码。注释tag `v1.8.2` 对象 `5973f499c0cc82a9318c7e321886446c3729a9a0` 固定解引用同源码，文档收尾不移动tag、不重新打包。
+- 候选CI [41835355829](https://github.com/mastalee928/payincus/actions/runs/41835355829) 十job success，实际PR checkout `99a887abbb7412ae35f682f586b98162a84c160c` 与候选tree一致；预览 [41835346983](https://github.com/mastalee928/payincus/actions/runs/41835346983) 四必需job success/Release skipped。正式 [41855613144](https://github.com/mastalee928/payincus/actions/runs/41855613144) 五job success，双原生首装独立核验，不以预览替代。main CI [41855600457](https://github.com/mastalee928/payincus/actions/runs/41855600457) 现已十job终态success；`verify-ci.py`逐job实际checkout均同完整正式源码，最终Pool日志及16/58/78–81/90等步骤归档。按同SHA最后发现只有上述四关联运行，全部终态，无新增Agent/Pages运行或未处理发行失败。
+- 证据 `logs/release-v1.8.2-{candidate-ci,preview,formal,main-ci}-verified.json` 及逐job日志。209完整守卫、240迁移、唯一后台、双前端、公开Agent、首装备份预检/还原/改变后回退续接、SQL/ZIP完整性、旧版CRLF迁移及拒绝条件均通过。Linux接入job另核真实PG/不同实际SSH的A/B旧IP复用与原生WireGuard删除、0600回执、中断续接和迟到回执保护；原历史失败由当前来源闭环，保留原失败证据。
+- [v1.8.2 Release](https://github.com/mastalee928/payincus/releases/tag/v1.8.2) 于 `2026-11-04T15:29:15Z` 发布，非draft/prerelease，panel latest=v1.8.2。六公开资产已实际下载并核API digest/大小、独立SHA256、两OTA manifest、240迁移/修复编译文件/LICENSE/root归属/原生架构、每包双架构组件的独立受信Ed25519签名和catalog/payload完整sourceCommit。AMD64 `214172891` 字节 SHA256 `86fbc64cbc795aeb2565ba7c9b8495a8ebe3fc3c44b203c9ca49c84a0744ffc5`；ARM64 `213423279` 字节 SHA256 `ec7918d253730a5ad86f40370a9aeb3ca9b703b806485a82074a5e3b6d2c936c`。六项摘要见[公开验证记录](docs/release-v1.8.2-validation.md)，下载及完整验签证据在ignored logs，不重复下载发布。
+- Agent保持v1.0.4，原tag来源 `76e779df77e52cbe96ee2e103d57dd951dba4e1e`、tree `359dcf6657f8666e1274a2b21bc556c2dbf28270` 与三公开资产hash/大小/更新时间未变；`agent-after-main-verified.json`复用原实际下载证据。未移动或手工重发Agent。
+- 生产事实单独记录：此次只读诊断实际读得目标主控v1.8.2 / `b70a9f56b9a0`，deployedAt `2026-11-04T16:53:54.766Z`；本agent没有执行该升级。目标已升级不代表全部生产流程验收。Host #23存在已确认且未修复的 `done清理任务+再次故障隔离` 恢复遗漏，IPv4/IPv6仍pending，详情见下一节；不得把CI/发行通过说成该线上问题已解决。
+- [网页升级与检查](docs/release-v1.8.2-owner-click-test.md)已明确版本检查、接入/IP/支付/OSS/日志步骤及该已知限制。首装OSS是本地传输替身；真实OCI换IP后原Agent与客户公网连接、真实OSS全新B完整灾备、独立备用接管、近千台/72小时仍未验收。本轮未操作生产OTA/还原/DNS/OCI换IP/客户实例，`.taste-skill/`保留。以下保留诊断与各阶段历史，旧“在跑/未部署”仅是当时状态。
+
+## 2026-11-05 在线宿主 IPv4/IPv6 同步等待：生产只读诊断
+
+- Owner指出在线宿主IPv4显示原故障隔离，手动IPv6同步也未完成。已沿原受信控制机SSH与原Incus mTLS执行只读核验，不修改生产状态。实际主控版本为v1.8.2 / `b70a9f56b9a0`，deployedAt `2026-11-04T16:53:54.766Z`；这是此次读取的部署事实，不能据此前发行推断。
+- 目标Host #23在线、Agent v1.0.4当前心跳、原管理地址/证书和端口协议一致；但 `poolFaulted=true` 且合法原身份清理记录 `kind=verify_empty,status=done`。IPv4/IPv6各自因IP_HOST_QUARANTINED/IPV6_HOST_QUARANTINED保留pending。已读取地址不等于公网入口交付完成。
+- 实际恢复检查 `mode=empty,blockers=[],canRecover=true,needsCleanup=false`；无现存客户实例、无数据卷/快照/转发，只有两份镜像缓存；历史三实例均deleted且删除账务/清理字段结束。私有证据保存在仓库外 `seoul-quarantine-readonly-20261105.json` / `seoul-inventory-readonly-20261105.json`，不提交真实地址/凭据。
+- 确认源码缺口：`processPoolCleanupQueue` 跳过done记录，`retryPoolCleanup`同样跳过；旧完成回执与后来重新隔离同时存在时，没有创建新的只读核验任务，恢复弹窗仅反复GET检查，无法自动解开该状态。再次点击IPv6不会解除此门禁。
+- Owner追问“为什么只有这台仍有隔离标记”后，扩大只读查询至该Host全部历史实例及关联日志。实例#24于 `2026-11-02T03:03:01Z` 删除，`03:03:17Z` 回收日志明确隔离已解除；随后实例#26于 `12:21:24Z` 创建、`12:21:32Z` 更新为deleted，保留 `poolProvision.phase=failed`，清理/账务pending均false。该failed字段唯一产品写入路径为 `failPoolProvision`，同路径先设置 `poolFaulted=true`、随后清理失败实例，却不替换旧done核验任务；对应代码沿历史和当前版本核对。由此追到再次隔离的开通失败补偿流程，不能再只说首次来源完全未知。
+- #26没有对应持久失败原因日志；当时唯一后台journal查询无保留输出，缺少单独隔离标记切换审计。不能猜当次失败为SSH、IPv6、安全组或本次升级，也不能将旧#21的公网SSH失败当成#26原因。新私有证据 `seoul-isolation-origin-readonly-20261105.json` / `seoul-isolation-journal-readonly-20261105.json` 在仓库外，不公开订单标识、真实地址或凭据。时间换算为北京时间：11月2日11:03恢复，20:21再次开通失败。
+- 本轮仅诊断，未修改源码、清理状态、生产数据库/网络或客户实例。修复应为重新隔离的宿主创建新的只读身份/库存核验，旧删除授权不得重放；保留未知残留、在途任务、原身份和真实客户保护。稳定v1.8.2标签保持，发行CI收尾仍按plan进行。以下为发行及历史阶段记录。
+
+## 2026-11-04 v1.8.2 正式发行验证中
+
+- 候选CI `41835355829` 已十job全部终态success，实际PR checkout `99a887abbb7412ae35f682f586b98162a84c160c` 与候选 `b70a9f56b9a06d72c0d91c6bebd984db9e7c68c5` 的tree同为 `2dd572ace1f390f84dc23ac18dd0374ba3fe8d1c`。Pool后继16/58/78–81/90、Linux实际接入/IP复用、快照恢复/支付及逐job日志已核，归档 `logs/release-v1.8.2-candidate-ci-verified.json`；历史失败闭环，旧运行不再查询。
+- 双架构预览 `41835346983` 已success，双构建与双原生首装success/Release skipped；209守卫、240迁移、备份预检/还原/回退续接、SQL/ZIP/旧版CRLF迁移拒绝及四job实际来源已核，见 `logs/release-v1.8.2-preview-verified.json`，不重跑。
+- 2026-11-04T15:14:06Z main从 `2172dd0720ce9b60330222f08bd97d0c2959167c` 精确非force快进至同候选，PR [#4](https://github.com/mastalee928/payincus/pull/4) 已MERGED；同来源注释tag `v1.8.2` 已推送，对象 `5973f499c0cc82a9318c7e321886446c3729a9a0`，解引用同候选。稳定tag不移动。
+- 当前只跟main CI `41855600457` 和正式Build & Release `41855613144`，均完整headSha同候选，未见新失败；终态后分别独立核十job/五job实际checkout和日志，再下载六公开资产核hash/大小/OTA/受信签名/完整sourceCommit。plan.pendingRuns为准，本线程监控继续；正式首装及公开资产尚未核验完成。
+- 2026-11-04T15:25Z快照：main其余九job success且日志实际checkout已归档 `logs/release-v1.8.2-main-ci-partial-verified.json`，仅Pool `126663241997` 在跑（step52）。正式双构建 `126663283555` / `126663283953` success，已核209/209全套、原生恢复锁/权限及双组件完整sourceCommit，见 `logs/release-v1.8.2-formal-partial-verified.json`；双首装 `126668822684` / `126668822710` 在跑step4。部分job成功不代替两运行终态验证，成功日志供终态verifier复用，不重跑或重复下载。
+- 15:41Z正式 `41855613144` 已五job全部终态success，`verify-workflow.py formal` 独立核五job实际checkout、双架构首装及240迁移/209守卫/唯一后台/双端/公开Agent/备份预检恢复/改变后回退续接/SQL ZIP/旧版CRLF迁移拒绝，归档 `logs/release-v1.8.2-formal-verified.json` 及五份日志，不再查询或重跑。v1.8.2已由正式workflow实际发布；正在下载核六公开资产，尚未宣称hash/签名/OTA完成。main仅Pool在跑step103；plan只保留main CI。
+- 15:43Z六公开资产已下载至 `logs/release-v1.8.2-panel-assets` 并独立核API digest/大小、双tar SHA256、两OTA manifest字节/hash/大小/URL/架构、包内版本/240迁移/LICENSE/root归属/路径/原生架构/编译修复/worker入口。每包双架构组件独立受信Ed25519签名、20文件hash/权限/ELF及catalog/payload完整sourceCommit同b70；version.json/OTA的12位提交另有完整身份核验。AMD64 `214172891` 字节 SHA256 `86fbc64cbc795aeb2565ba7c9b8495a8ebe3fc3c44b203c9ca49c84a0744ffc5`；ARM64 `213423279` 字节 SHA256 `ec7918d253730a5ad86f40370a9aeb3ca9b703b806485a82074a5e3b6d2c936c`。证据 `panel-assets-verified.json` / verification.log，不重复下载发布。
+- Release https://github.com/mastalee928/payincus/releases/tag/v1.8.2 于2026-11-04T15:29:15Z实际发布，非draft/prerelease；说明按tag-notes.md更新并回读一致，更新后六资产/latest=v1.8.2再核，见 `logs/release-v1.8.2-public-release-verified.json`。Agent v1.0.4原tag/tree/三资产hash/大小/更新时间保持并复用原实际下载证据，见 `agent-after-main-verified.json`。当前仅mainCI待终态，最终公开台账与doc提交待其通过。
+- 本轮未生产升级/还原、DNS、OCI换IP或客户实例操作。Agent v1.0.4原tag/tree/资产保持；首装OSS为本地传输替身。真实OCI与原Agent客户公网、新B完整OSS灾备、备用接管、近千台/72小时缺口保持。以下为准备与历史阶段记录。
+
 ## 2026-11-04 v1.8.2 发行准备
+
+- 当前已提交推送候选 `b70a9f56b9a06d72c0d91c6bebd984db9e7c68c5`，分支 `codex/release-v1.8.2`，PR [#4](https://github.com/mastalee928/payincus/pull/4) 已附本线程；候选CI `41835355829` 与预览 `41835346983` 在跑。PR实际checkout `99a887abbb7412ae35f682f586b98162a84c160c` 和候选tree均 `2dd572ace1f390f84dc23ac18dd0374ba3fe8d1c`；逐job来源待终态完整归档。
+- 当前Linux新job `126592714298` 已success：实际PG/两套不同SSH身份的A/B旧IP复用、当前root认证与无客户预检、真实WireGuard删除、0600回执、发布中断续接及迟到旧回执保留新登记均过，日志 `logs/release-v1.8.2-candidate-ci-job-126592714298.log`。这项不证明真实OCI控制台换IP或原Agent公网重连。
+- 当前来源209项完整守卫全部通过，AMD64/ARM64构建均success且逐job实际checkout/catalog与payload完整sourceCommit同 `b70a9f56`，见 `logs/release-v1.8.2-preview-builds-verified.json`。双原生首装在跑；CI当前仅完整Pool仍未终态，其余9job success。两个历史根因已由当前来源专项及完整209守卫闭环；首装、完整CI、正式标签/资产尚未完成。本线程监控 `payincus-v1-8-2` 已创建，按plan继续，最终核验结束后删除。
+- 预览 `41835346983` 现已终态success，双构建/双原生首装全部success，Release按预览协议skipped。`verify-workflow.py preview` 已核四job实际checkout同完整候选、209守卫/240迁移、唯一后台/双前端/公开Agent、备份预检还原、改变后回退续接、完整SQL/ZIP、旧版CRLF迁移和拒绝场景；归档 `logs/release-v1.8.2-preview-verified.json` / preview-job日志，不再查询或重跑该预览。首装OSS仍是本地传输替身，无客户宿主。仅候选CI `41835355829` 的Pool job `126592714425` 未终态（最近step59），其余9job success及实际PR checkout已核；plan.pendingRuns只保留该CI。正式发行必须等待CI，再独立核mainCI/正式首装和六资产，稳定v1.8.2尚未打tag。
+- 历史候选 `aecb967f` 的ignored日志目录前提失败由 `458fe246` 改独立临时目录与标准URL路径转换；该候选全套发现日志格式器 `@/locales` 无法由独立Node解析，由 `b70a9f56` 相对import及三语实际断言闭环，定向守卫/routes/双端build/dist边界均过。历史CI/预览已终态cancelled或failure，exact日志及原因写plan，保留历史不盲重跑；当前209项全套结果待核。
 
 - Owner已授权整理本线程修复、提交推送及新版发行。本版包含用户活动来源IP、重装重试与删除后接入、OCI公网IP变更/历史地址复用和静默续接、购买页选择/配置布局及首页三态主题；保留v1.8.1支付和普通OSS自动还原。原Agent v1.0.4及稳定发行标签不移动。
 - 本地10项定向守卫通过，清单209项有效；双端类型/构建、边界守卫、后端构建通过，Lint 0错误/244 warnings。日志为 `logs/release-v1.8.2-{local-guards,manifest,repository-guards,lint,build}.log`。此前失败命令调用的记录保留，不作为通过证据；不重复本机完整套件。
