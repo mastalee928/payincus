@@ -105,5 +105,13 @@ const audit = automaticOperationAudit({ hostId: 32, hostName: '本地样例', st
 assert.match(audit, /宿主未返回有效的存储清单/)
 assert.ok(!audit.includes('INCUS_STORAGE_STATE_UNKNOWN'))
 assert.ok(!formatLogContent(audit, 'host.pool.cleanup_retry').includes('T01:00:00.000Z'))
+for (const locale of ['zh-CN', 'zh-TW', 'en']) {
+  const confirmed = formatLogContent('Host #32 public IPv4 verified and updated: 1.1.1.1 -> 1.1.1.2; management address and customer instance retained', 'host.public_ip.synced', locale)
+  assert.ok(confirmed.includes('1.1.1.1 -> 1.1.1.2'))
+  assert.ok(!confirmed.includes('management address'))
+  const observed = formatLogContent('Host #32: observed IPv4 1.1.1.2; ingress pending; reason IP_SSH_UNREACHABLE; next check 2026-11-04T13:30:00.000Z; instance and management identity retained', 'host.public_ip.observed', locale)
+  assert.ok(observed.includes('1.1.1.2'))
+  assert.ok(!observed.includes('IP_SSH_UNREACHABLE') && !observed.includes('T13:30:00.000Z'))
+}
 assert.match(automaticOperationAudit({ hostId: 32, hostName: '本地样例', stage: '核验', attempt: 1, result: '重试', error: 'unknown-instance,volumes' }), /无法确认为原任务目标的实例.*存储卷/)
 console.log('Log localization guards passed, including historical patrol JSON, start/result semantics and malformed records')

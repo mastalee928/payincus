@@ -1,7 +1,7 @@
 import { expiryLogDisplay } from './expiry-log-display'
-import zhCN from '@/locales/zh-CN'
-import zhTW from '@/locales/zh-TW'
-import en from '@/locales/en'
+import zhCN from '../locales/zh-CN'
+import zhTW from '../locales/zh-TW'
+import en from '../locales/en'
 type TranslationMap = Record<string, unknown>
 
 function getTranslation(translations: TranslationMap, key: string): string | null {
