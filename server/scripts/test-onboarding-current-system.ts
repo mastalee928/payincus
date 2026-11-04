@@ -3,7 +3,10 @@ import { randomUUID, generateKeyPairSync } from 'node:crypto'
 import { once } from 'node:events'
 import ssh2 from 'ssh2'
 import Fastify from 'fastify'
-import { writeFile, unlink } from 'node:fs/promises'
+import { writeFile, unlink, mkdtemp, rmdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(database.hostname === '127.0.0.1' && database.pathname.endsWith('_pool_test'))
 process.env.ENCRYPTION_KEY = 'onboarding-current-system-fixture'
@@ -34,7 +37,8 @@ const ssh = new ssh2.Server({ hostKeys: [key] }, connection => {
 })
 ssh.listen(0, '127.0.0.1'); await once(ssh, 'listening')
 const gatewayKey = ssh2.utils.generateKeyPairSync('ed25519')
-const keyFile = new URL('../../logs/onboarding-gateway-fixture.private.key', import.meta.url)
+const fixtureDirectory = await mkdtemp(join(tmpdir(), 'payincus-onboarding-'))
+const keyFile = pathToFileURL(join(fixtureDirectory, 'gateway.private.key'))
 await writeFile(keyFile, gatewayKey.private, { mode: 0o600 })
 const oldPeer = { nodePublicKey: Buffer.alloc(32, 8).toString('base64'), managementIp: '10.253.240.6' }
 let registration: typeof oldPeer | null = { ...oldPeer }, retireCalls = 0, failRetire = false, failAdd = false, helperVersion = true
@@ -78,7 +82,7 @@ const gateway = new ssh2.Server({ hostKeys: [key] }, connection => {
 gateway.listen(0, '127.0.0.1'); await once(gateway, 'listening')
 process.env.ONBOARDING_GATEWAY_HOST = '127.0.0.1'
 process.env.ONBOARDING_GATEWAY_PORT = String((gateway.address() as { port: number }).port)
-process.env.ONBOARDING_GATEWAY_KEY_PATH = keyFile.pathname.replace(/^\/(?:([A-Z]):)/, '$1:')
+process.env.ONBOARDING_GATEWAY_KEY_PATH = fileURLToPath(keyFile)
 const parsedKey = ssh2.utils.parseKey(key); assert.ok(!(parsedKey instanceof Error) && !Array.isArray(parsedKey))
 process.env.ONBOARDING_GATEWAY_FINGERPRINT = sshFingerprint(parsedKey.getPublicSSH())
 process.env.ONBOARDING_WG_ENDPOINT = '8.8.8.8:51820'
@@ -181,7 +185,7 @@ try {
   console.log('Current-system authentication, protected preflight, duplicate IP, delete/recreate, helper compatibility, durable retirement/lost receipt/add interruption, heartbeat and background cleanup passed (real local PG and SSH protocol, gateway OS fixture)')
 } finally {
   await app.close(); await new Promise<void>(resolve => ssh.close(() => resolve()))
-  await new Promise<void>(resolve => gateway.close(() => resolve())); await unlink(keyFile)
+  await new Promise<void>(resolve => gateway.close(() => resolve())); await unlink(keyFile); await rmdir(fixtureDirectory)
   await prisma.host.deleteMany({ where: { userId: actor.id } }); await prisma.hostOnboardingBatch.deleteMany({ where: { createdById: actor.id } }); await prisma.user.delete({ where: { id: actor.id } }); await closePrismaDatabase()
 }
 process.exit(0)
