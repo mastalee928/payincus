@@ -98,6 +98,13 @@ try {
     const current=await prisma.instance.findUniqueOrThrow({where:{id:instance.id}})
     assert.equal((current.snapshottedSpecs as any).managedCleanup.attempt,preparedIdentity.attempt,'creation keeps the attempt committed with its purchase')
     assert.equal((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).poolFaulted,mode!=='superseded','failed delivery quarantines its host')
+    if (mode !== 'superseded') {
+      const failure = (current.snapshottedSpecs as any).poolProvision
+      assert.ok(failure.error && Number.isFinite(Date.parse(failure.failedAt)), 'original failure persists through compensation')
+      assert.ok(await prisma.log.count({ where: { instanceId: instance.id, result: 'failed', content: { contains: '开通失败' } } }), 'failure cause has durable audit')
+      const cleanup = (await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).poolCleanup as any
+      assert.equal(cleanup.kind, 'verify_empty'); assert.equal(cleanup.name, '')
+    }
     const shouldRefund=!['unpaid','superseded','refund-failed'].includes(mode)
     assert.equal(Number((await prisma.user.findUniqueOrThrow({where:{id:user.id}})).balance),before+(shouldRefund?12:0))
     assert.equal(await prisma.instanceBillingRecord.count({where:{instanceId:instance.id,type:'refund'}}),shouldRefund?1:0)

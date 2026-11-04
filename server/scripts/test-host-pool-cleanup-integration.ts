@@ -12,7 +12,7 @@ process.env.PLATFORM_BACKUP_STATE_DIR = root
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
 const { IncusApiError } = await import('../src/lib/incus/incus-client.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
-const { poolCleanupRecord, processPoolCleanup, processPoolCleanupQueue, readPoolCleanup, queueDeletedPoolHost } = await import('../src/services/host-pool-cleanup.js')
+const { poolCleanupRecord, processPoolCleanup, processPoolCleanupQueue, readPoolCleanup, queueDeletedPoolHost, retryPoolCleanup } = await import('../src/services/host-pool-cleanup.js')
 const { deleteInstance } = await import('../src/lib/incus/incus-instances.js')
 const { dedicatedHostReadyWhere, HOST_OCCUPIED_INSTANCE_WHERE } = await import('../src/lib/host-resource-usage.js')
 const { PORT_PROTOCOL_CAPABILITY } = await import('../src/services/host-port-protocol.js')
@@ -192,6 +192,9 @@ try {
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: legacy.id } })).poolFaulted, false)
   assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: delivered.id } })).hostId, target.id)
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: manual.id } })).poolFaulted, true)
+  const manualDeleted = await prisma.instance.create({ data: { hostId: manual.id, userId: owner.id, name: 'manual-deleted', incusId: 'manual-deleted', status: 'deleted', cpu: 1, memory: 1, disk: 1, image: 'images:debian/13' } })
+  await queueDeletedPoolHost(manualDeleted.id)
+  assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: manual.id } })).poolCleanup?.['kind'], 'manual', 'deletion bookkeeping cannot replace records-only retention policy')
   console.log('PASS legacy running residue adopted; deleting task history does not lose cleanup; records-only host untouched')
 
   for (const fault of ['', 'offline', 'delete-accepted-error', 'before-task', 'after-task', 'marker-changed', 'readonly-residue', 'readonly-empty']) {
@@ -242,6 +245,55 @@ try {
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: automaticEmpty.id } })).poolFaulted, false)
   assert.equal(mutations().length, 0)
   console.log('PASS quarantined empty host recovered automatically without browser action or remote mutation')
+
+  for (const fault of ['empty', 'offline', 'unknown-volume', 'old-guest', 'identity-changed', 'superseded']) {
+    await prisma.host.updateMany({ where: { userId: owner.id }, data: { poolFaulted: false } })
+    const host = await fixture()
+    await processPoolCleanup(host.id, connect)
+    const completed = readPoolCleanup((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).poolCleanup)!
+    assert.equal(completed.status, 'done')
+    await prisma.host.update({ where: { id: host.id }, data: { poolFaulted: true,
+      ...(fault === 'superseded' ? { poolCleanup: { ...completed, recoverySupersededBy: 'fixture-recovery' } as any } : {}) } })
+    calls = []; mode = fault === 'offline' ? 'offline' : ''
+    if (fault === 'unknown-volume') volumes = [{ name: 'customer-data', type: 'custom' }]
+    if (fault === 'old-guest') remote = [{ name: host.name, status: 'Running', created_at: completed.createdAt,
+      project: 'default', config: { 'volatile.uuid': completed.uuid } }]
+    if (fault === 'identity-changed') await prisma.host.update({ where: { id: host.id }, data: { url: 'https://127.0.0.1:2' } })
+    await scanCurrentHost()
+    const refreshed = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
+    const state = readPoolCleanup(refreshed.poolCleanup)!
+    assert.equal(mutations().length, 0, 'completed deletion authority cannot be replayed')
+    if (fault === 'superseded') {
+      assert.equal(state.revision, completed.revision); assert.equal(refreshed.poolFaulted, true)
+      continue
+    }
+    assert.notEqual(state.revision, completed.revision)
+    assert.equal(state.hostIdentity, completed.hostIdentity)
+    assert.equal(state.kind, 'verify_empty'); assert.equal(state.name, '')
+    for (const field of ['taskId', 'uuid', 'createdAt', 'marker']) assert.equal((state as any)[field], undefined)
+    assert.equal(refreshed.poolFaulted, fault !== 'empty')
+    if (fault === 'offline') {
+      assert.equal(state.status, 'retry')
+      const count = calls.length
+      await processPoolCleanup(host.id, connect)
+      assert.equal(calls.length, count, 'restart retains read-only recovery backoff')
+      mode = ''; await elapsedBackoff(host.id); await scanCurrentHost()
+      assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).poolFaulted, false)
+    }
+    console.log(`PASS completed cleanup / later quarantine ${fault}: fresh inspection retains trust and never replays deletion`)
+  }
+  await prisma.host.updateMany({ where: { userId: owner.id }, data: { poolFaulted: false } })
+  const concurrent = await fixture()
+  await processPoolCleanup(concurrent.id, connect)
+  const prior = readPoolCleanup((await prisma.host.findUniqueOrThrow({ where: { id: concurrent.id } })).poolCleanup)!
+  await prisma.host.update({ where: { id: concurrent.id }, data: { poolFaulted: true } })
+  calls = []
+  await Promise.all([scanCurrentHost(), retryPoolCleanup(concurrent.id, owner.id)])
+  await processPoolCleanup(concurrent.id, connect)
+  const final = readPoolCleanup((await prisma.host.findUniqueOrThrow({ where: { id: concurrent.id } })).poolCleanup)!
+  assert.equal(final.status, 'done'); assert.notEqual(final.revision, prior.revision)
+  assert.equal(final.hostIdentity, prior.hostIdentity); assert.equal(mutations().length, 0)
+  console.log('PASS concurrent scanner and retry preserve a fresh inspection and finish without deletion')
 
   const request = async (method: string, path: string) => {
     if (method === 'DELETE') throw new IncusApiError('operation not found', 404, '/1.0/operations/other')

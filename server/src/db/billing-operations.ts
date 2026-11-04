@@ -604,6 +604,7 @@ async function performRenewalMutation(
     }
     if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)) throw new Error('实例正在处理，请稍后重试')
     await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instance.id} FOR UPDATE`
+    if (await tx.instanceTransfer.count({ where: { instanceId: instance.id, status: { in: ['pending', 'processing'] } } })) throw new Error('实例正在转移，请等待转移完成')
     const current = await tx.instance.findUnique({ where: { id: instance.id } })
     if (!current || current.userId !== userId || current.userId !== instance.userId || current.hostId !== instance.hostId ||
       current.version !== instance.version || current.status !== instance.status ||
@@ -1043,6 +1044,7 @@ export async function updateAutoRenew(
   await prisma.$transaction(async tx => {
     if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)) throw new Error('实例正在处理，请稍后重试')
     await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+    if (await tx.instanceTransfer.count({ where: { instanceId, status: { in: ['pending', 'processing'] } } })) throw new Error('实例正在转移，请等待转移完成')
     if (!await authorizeUserWrite(tx, userId, session, true)) throw new Error('用户权限已变更，请重新登录')
     const result = await tx.instance.updateMany({ where: {
       id: instanceId, userId, status: { not: 'deleted' }, packagePlanId: { not: null },

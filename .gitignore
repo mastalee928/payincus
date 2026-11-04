@@ -96,6 +96,8 @@ coverage/
 
 # ==================== 文档 (内部) ====================
 docs/*
+!docs/release-v1.8.3-validation.md
+!docs/release-v1.8.3-owner-click-test.md
 !docs/host-pool.md
 !docs/fork-release.md
 !docs/controller-dd-oss-recovery-v1.7.2.md

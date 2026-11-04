@@ -34,6 +34,32 @@ const loading = ref(true)
 const failed = ref(false)
 const menuOpen = ref(false)
 const updatedAt = ref('')
+const pageRoot = ref<HTMLElement | null>(null)
+let layoutObserver: ResizeObserver | undefined
+function fitMapToViewport() {
+  const root = pageRoot.value
+  if (!root) return
+  const availableHeight = window.visualViewport?.height || window.innerHeight
+  const reserved = ['.home-header', '.home-intro', '.atlas-toolbar', '.home-footer'].reduce((sum, selector) => {
+    const element = root.querySelector<HTMLElement>(selector)
+    if (!element) return sum
+    const style = getComputedStyle(element)
+    return sum + element.getBoundingClientRect().height + parseFloat(style.marginTop || '0') + parseFloat(style.marginBottom || '0')
+  }, 0)
+  root.style.setProperty('--home-map-height', `${Math.max(240, availableHeight - reserved - 24)}px`)
+}
+onMounted(() => {
+  layoutObserver = new ResizeObserver(fitMapToViewport)
+  if (pageRoot.value) for (const element of pageRoot.value.querySelectorAll('.home-header,.home-intro,.atlas-toolbar,.home-footer')) layoutObserver.observe(element)
+  window.addEventListener('resize', fitMapToViewport)
+  window.visualViewport?.addEventListener('resize', fitMapToViewport)
+  fitMapToViewport()
+})
+onBeforeUnmount(() => {
+  layoutObserver?.disconnect()
+  window.removeEventListener('resize', fitMapToViewport)
+  window.visualViewport?.removeEventListener('resize', fitMapToViewport)
+})
 const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)')
 const motionEnabled = ref(!motionPreference.matches && (!props.preview || new URLSearchParams(window.location.search).get('motion') !== 'off'))
 function syncMotionPreference() { motionEnabled.value = !motionPreference.matches && (!props.preview || new URLSearchParams(window.location.search).get('motion') !== 'off') }
@@ -52,7 +78,7 @@ onMounted(() => { motionPreference.addEventListener('change', syncMotionPreferen
 </script>
 
 <template>
-  <div class="homepage-map-demo" :data-home-theme="homeTheme">
+  <div ref="pageRoot" class="homepage-map-demo" :data-home-theme="homeTheme">
     <header class="home-header">
       <div class="header-inner">
         <button class="mobile-menu" type="button" :aria-expanded="menuOpen" aria-controls="home-mobile-nav" :aria-label="t(menuOpen ? 'homeMapDemo.closeMenu' : 'homeMapDemo.openMenu')" @click="menuOpen = !menuOpen"><X v-if="menuOpen" :size="21" /><Menu v-else :size="21" /></button>
@@ -506,13 +532,18 @@ button:focus-visible,a:focus-visible,select:focus-visible {
 .mobile-footer-contact { display: none; }
 @media (min-width: 768px) {
   .homepage-map-demo {
-    --home-map-width: min(100%, 2160px, max(960px, calc((100svh - 360px) * 2.88)));
-    --home-content-width: min(1920px, calc(100% - 48px), calc(var(--home-map-width) * .92));
+    --home-map-width: min(100%, 2160px, calc(var(--home-map-height, max(240px, calc(100svh - 400px))) * 2.88));
+    --home-content-width: min(1920px, calc(100% - 48px));
   }
   .content-width, .header-inner { width: var(--home-content-width); }
   .home-intro h1 { font-size: clamp(40px, min(3.4vw, 5svh), 72px); }
   .home-footer { margin-top: 32px; padding: 20px 0 16px; }
   .footer-bottom { margin-top: 12px; }
+}
+@media (min-width: 768px) and (max-height: 700px) {
+  .home-intro { padding-top: 18px; padding-bottom: 12px; }
+  .home-intro h1 { font-size: clamp(28px, 4.8svh, 40px); }
+  .home-footer { margin-top: 16px; }
 }
 @media (max-width: 767px) {
   .home-intro { padding-top: 12px; padding-bottom: 10px; }

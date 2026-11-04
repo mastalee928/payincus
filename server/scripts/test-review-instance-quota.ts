@@ -18,7 +18,7 @@ const prefix = `instance-quota-${randomUUID().slice(0, 8)}`
 const admin = await prisma.user.create({ data: { username: `${prefix}-admin`, passwordHash: 'unusable-fixture', role: 'admin' } })
 const owner = await prisma.user.create({ data: { username: `${prefix}-owner`, passwordHash: 'unusable-fixture' } })
 const buyer = await prisma.user.create({ data: { username: `${prefix}-buyer`, passwordHash: 'unusable-fixture' } })
-const host = await prisma.host.create({ data: { userId: owner.id, name: prefix, url: 'https://127.0.0.1:1' } })
+const host = await prisma.host.create({ data: { userId: owner.id, name: prefix, location: 'fixture-oci-account', natPublicIp: '192.0.2.45', url: 'https://127.0.0.1:1' } })
 const replacement = await prisma.host.create({ data: { userId: owner.id, name: prefix + '-replacement', url: 'https://127.0.0.1:2' } })
 const pkg = await prisma.package.create({ data: { userId: owner.id, name: prefix, cpuMax: 100, memoryMax: 512, diskMax: 1024, siteLimit: 1 } })
 const instance = await prisma.instance.create({ data: { userId: buyer.id, hostId: host.id, name: prefix, incusId: prefix, image: 'fixture/debian',
@@ -88,6 +88,8 @@ try {
       const response = await app.inject({ method: 'GET', url: `/instances/${instance.id}`, headers: { 'x-test-role': role } })
       assert.equal(response.statusCode, 200, response.body)
       const detail = response.json().instance
+      if (role === 'admin') assert.equal(detail.ociAccountLabel, 'fixture-oci-account')
+      else assert.equal('ociAccountLabel' in detail, false, 'OCI account name is administrator-only')
       assert.deepEqual(detail.effective_quota_limit, { port: value ?? 0, snapshot: value ?? 0, backup: value ?? 0, site: value ?? 10 }, 'detail must report the quotas enforced on resource creation')
       assert.deepEqual(detail.quota_usage, { port: 0, snapshot: 0, backup: 0, site: 0 })
       assert.deepEqual(detail.remaining_quota, { port: value ?? 0, snapshot: value ?? 0, backup: value ?? 0, site: value ?? 10 })
@@ -98,6 +100,15 @@ try {
       }
     }
   }
+  await reset()
+  const pendingTransfer = await prisma.instanceTransfer.create({ data: { instanceId: instance.id, fromUserId: buyer.id, toUserId: owner.id, status: 'processing', snapshot: {} } })
+  const transferredDetail = await app.inject({ method: 'GET', url: `/instances/${instance.id}`, headers: { 'x-test-role': 'buyer' } })
+  assert.deepEqual(transferredDetail.json().instance.activeTransfer, { id: pendingTransfer.id, status: 'processing' })
+  const transferredList = await app.inject({ method: 'GET', url: '/instances/', headers: { 'x-test-role': 'buyer' } })
+  assert.equal(transferredList.statusCode, 200, transferredList.body)
+  assert.equal(transferredList.json().instances.find((row: any) => row.id === instance.id)?.activeTransfer?.status, 'processing')
+  await prisma.instanceTransfer.delete({ where: { id: pendingTransfer.id } })
+  console.log('PASS actual instance API exposes current transfer state and administrator-only OCI label')
   await reset()
   await prisma.portMapping.createMany({ data: [false, true].map((systemManaged, n) => ({ instanceId: instance.id, hostId: host.id,
     protocol: 'tcp' as const, publicPort: 21500 + n, privatePort: 21500 + n, systemManaged })) })

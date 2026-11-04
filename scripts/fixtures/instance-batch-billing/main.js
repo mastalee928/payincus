@@ -14,12 +14,12 @@ const jwt = (sid, iat = 1) => `fixture.${btoa(JSON.stringify({ sid, iat }))}.fix
 let cachedView
 const app = createApp({ setup() {
   const auth = useAuthStore(), theme = useThemeStore(), toast = useToast(), toasts = [], seen = new Set()
-  auth.user = { id: 1, username: 'fixture', role: 'user', email: 'isolated@example.test' }; auth.token = jwt('a'); setLocale('zh-CN'); theme.setTheme('light')
+  auth.user = { id: 1, username: 'fixture', role: 'user', email: 'isolated@example.test' }; auth.token = jwt('a'); localStorage.setItem('token', auth.token); setLocale('zh-CN'); theme.setTheme('light')
   watch(() => toast.toasts.value.map(item => ({ id: item.id, type: item.type, message: item.message })), items => {
     for (const item of items) if (!seen.has(item.id)) { seen.add(item.id); toasts.push(item) }
   }, { flush: 'sync' })
   window.batchHarness = { state, auth, theme, pending, calls, toasts, router, setLocale,
-    session(sid, iat = 1) { auth.token = sid ? jwt(sid, iat) : null },
+    session(sid, iat = 1) { auth.token = sid ? jwt(sid, iat) : null; if (auth.token) localStorage.setItem('token', auth.token); else localStorage.removeItem('token') },
     view() {
       let current = document.querySelector('.kawaii-instances-page')?.__vueParentComponent
       while (current && !current.setupState?.confirmBatchRenew) current = current.parent

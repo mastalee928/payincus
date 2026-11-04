@@ -2,7 +2,9 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { createRouter, createWebHistory } from 'vue-router'
 import i18n, { setLocale } from '@/locales'
-import HomepageMapDemo from '@/components/public/HomepageMapDemo.vue'
+import PortalView from '@/views/PortalView.vue'
+import PoolPurchaseWizard from '@/components/purchase/PoolPurchaseWizard.vue'
+import App from '@/App.vue'
 import PublicSiteHeader from '@/components/public/PublicSiteHeader.vue'
 import { useThemeStore } from '@/stores/theme'
 import { useConfigStore } from '@/stores/config'
@@ -22,10 +24,11 @@ window.matchMedia = query => {
   return media
 }
 const router = createRouter({ history: createWebHistory(), routes: [
-  { path: '/', component: { components: { HomepageMapDemo }, template: '<HomepageMapDemo :preview="false" />' } },
-  { path: '/other', component: { components: { PublicSiteHeader }, template: '<PublicSiteHeader /><main style="padding:24px"><h1>创建实例</h1></main>' } }
+  { path: '/', name: 'portal', component: PortalView },
+  { path: '/purchase', name: 'pool-purchase', component: PoolPurchaseWizard, meta: { title: '创建实例' } },
+  { path: '/other', name: 'market', component: { components: { PublicSiteHeader }, template: '<PublicSiteHeader /><main style="padding:24px"><h1>创建实例</h1></main>' } }
 ] })
-const app = createApp({ template: '<RouterView />' })
+const app = createApp(App)
 app.use(createPinia()); app.use(i18n); app.use(router)
 const theme = useThemeStore(), config = useConfigStore()
 config.loadPublicConfig = async () => {}; config.brandName = 'PayIncus'
@@ -33,4 +36,4 @@ config.brandSubtitle = ''; config.brandLogoUrl = '/incudal_logo.webp'
 theme.init()
 setLocale('zh-CN')
 await router.isReady(); app.mount('#app')
-window.themeHarness = { theme, router, setLocale, listeners, dispose: () => { app.unmount(); theme.$dispose() } }
+window.themeHarness = { theme, config, router, setLocale, listeners, dispose: () => { app.unmount(); theme.$dispose() } }

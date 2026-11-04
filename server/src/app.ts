@@ -934,14 +934,17 @@ const start = async (): Promise<void> => {
 
     // 清理卡住的转移 processing 状态
     const { cleanupStaleTransfers, cleanupTimeoutTransfers } = await import('./db/transfers.js')
+    const { resumeTransferCleanups } = await import('./services/transfer-cleanup.js')
     const staleTransfers = await cleanupStaleTransfers()
     if (staleTransfers > 0) {
         console.log(`🔄 清理了 ${staleTransfers} 个卡住的转移请求`)
     }
+    void resumeTransferCleanups().catch(err => console.error('转移自动续接失败:', err))
     // 定期检查超时的 processing 状态（每5分钟）
     setInterval(async () => {
         try {
             const count = await cleanupTimeoutTransfers()
+            await resumeTransferCleanups()
             if (count > 0) {
                 console.log(`🔄 清理了 ${count} 个超时的转移请求`)
             }

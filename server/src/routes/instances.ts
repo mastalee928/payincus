@@ -721,6 +721,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     }
 
     const result = await db.getInstancesPaginated(options)
+    const openTransfers = await prisma.instanceTransfer.findMany({ where: { instanceId: { in: result.items.map(item => item.id) },
+      status: { in: ['pending', 'processing'] } }, select: { id: true, instanceId: true, status: true }, orderBy: { id: 'desc' } })
     const instanceHosts = await prisma.host.findMany({ where: { id: { in: result.items.map(item => item.host_id) } }, select: { id: true, status: true, agent: { select: { enabled: true, lastSeenAt: true, lastReport: true } } } })
     const unavailableHosts = new Set(instanceHosts.filter(host => hostLiveStatus(host.status, host.agent) === 'offline').map(host => host.id))
 
@@ -880,6 +882,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           response.hostId = instance.host_id
         }
 
+        Object.assign(response, { activeTransfer: openTransfers.find(transfer => transfer.instanceId === instance.id) || null })
         applyCustomerInstanceView(response, { ...instance, service_fault: unavailableHosts.has(instance.host_id) && !['creating', 'deleted', 'error'].includes(instance.status) }, request.user.role === "admin")
         return response
       }),
@@ -2457,6 +2460,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       suspend_reason?: string | null
       // 自动续费
       autoRenew?: boolean
+      ociAccountLabel?: string | null
       // 托管节点所有者信息（仅用户托管节点）
       hostOwnerInfo?: {
         id: number
@@ -2666,6 +2670,13 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     // It's only returned once during instance creation
 
     const statusAgent = await prisma.hostAgent.findUnique({ where: { hostId: instance.host_id }, select: { enabled: true, lastSeenAt: true, lastReport: true } })
+    if (isAdmin) {
+      const accountHost = await prisma.host.findUnique({ where: { id: instance.host_id }, select: {
+        location: true, onboardingNode: { select: { batch: { select: { accountLabel: true } } } } } })
+      response.ociAccountLabel = accountHost?.onboardingNode?.batch.accountLabel || accountHost?.location || null
+    }
+    const activeTransfer = await prisma.instanceTransfer.findFirst({ where: { instanceId: instance.id, status: { in: ['pending', 'processing'] } }, select: { id: true, status: true }, orderBy: { id: 'desc' } })
+    Object.assign(response, { activeTransfer })
     applyCustomerInstanceView(response, { ...instance, public_ip_sync_blocked: host?.public_ip_sync_blocked,
       public_ip_sync: host?.public_ip_sync,
       service_fault: hostLiveStatus(host?.status || 'offline', statusAgent) === 'offline' && !['creating', 'deleted', 'error'].includes(instance.status) }, request.user.role === 'admin')

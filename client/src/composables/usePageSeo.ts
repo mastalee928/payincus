@@ -11,7 +11,7 @@ interface SeoOptions {
   image?: string
 }
 
-const defaultTitle = typeof document !== 'undefined' ? document.title : 'Incudal'
+let seoOwner: symbol | undefined
 const defaultDescription = typeof document !== 'undefined'
   ? (document.querySelector('meta[name="description"]') as HTMLMetaElement | null)?.content || ''
   : ''
@@ -101,8 +101,8 @@ function restoreDefaults(): void {
   const brandName = configStore.brandName?.trim() || 'Incudal'
   const brandSubtitle = configStore.brandSubtitle?.trim() || '基于 Incus 的低价 NAT VPS'
   const brandLogoUrl = toAbsoluteUrl(configStore.brandLogoUrl?.trim() || '/incudal_logo.webp')
-  const title = defaultTitle.replace(/Incudal/g, brandName)
-  const description = defaultDescription || brandSubtitle
+  const title = `${brandName} - ${brandSubtitle}`
+  const description = brandSubtitle || defaultDescription
 
   document.title = title
   upsertMetaByName('description', description)
@@ -122,15 +122,26 @@ function restoreDefaults(): void {
 }
 
 export function usePageSeo(options: MaybeRefOrGetter<SeoOptions>): void {
+  const owner = Symbol('page-seo')
+  let appliedTitle = ''
   watchEffect(() => {
     if (typeof window === 'undefined') {
       return
     }
 
-    applySeo(toValue(options))
+    seoOwner = owner
+    const current = toValue(options)
+    appliedTitle = current.title
+    applySeo(current)
   })
 
   onUnmounted(() => {
-    restoreDefaults()
+    if (seoOwner === owner) {
+      seoOwner = undefined
+      // A newly entered route may already have set its current title.
+      const currentTitle = document.title
+      restoreDefaults()
+      if (currentTitle !== appliedTitle) document.title = currentTitle
+    }
   })
 }

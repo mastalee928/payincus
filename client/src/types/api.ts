@@ -770,6 +770,7 @@ export interface BadgeMultiDrawResponse {
 // ==================== 实例相关 ====================
 
 export interface Instance {
+  activeTransfer?: { id: number; status: 'pending' | 'processing' } | null
   serviceFault?: boolean
   dedicatedIpv4?: boolean
   dedicatedNetworkReady?: boolean
@@ -879,6 +880,7 @@ export interface Instance {
 }
 
 export interface InstanceWithDetails extends Omit<Instance, 'host'> {
+  ociAccountLabel?: string | null
   user?: Pick<User, 'id' | 'username' | 'email'>
   // 实例详情页面的宿主机信息（比列表更详细）
   host?: {

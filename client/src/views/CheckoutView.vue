@@ -71,6 +71,7 @@ const maxInstances = ref(100)
 const payProviders = ref<Awaited<ReturnType<typeof api.billing.getPaymentProviders>>['providers']>([])
 const payChoice = ref<'balance' | number>('balance')
 const walletBalance = ref<number | null>(null)
+const balanceLabel = computed(() => `${t('cart.balance')}(${walletBalance.value === null ? '—' : `￥${walletBalance.value.toFixed(2)}`})`)
 const payMethod = ref<string | undefined>()
 const checkoutId = computed(() => typeof route.query.checkout === 'string' ? route.query.checkout : '')
 let gatewayPollTimer: ReturnType<typeof setTimeout> | undefined
@@ -371,7 +372,7 @@ async function pay(): Promise<void> {
 }
 
 const payChoiceLabel = computed(() => {
-  if (payChoice.value === 'balance') return t('cart.balance')
+  if (payChoice.value === 'balance') return balanceLabel.value
   const name = payProviders.value.find(provider => provider.id === payChoice.value)?.name ?? ''
   return paymentDisplayName(payMethod.value, name, t)
 })
@@ -603,7 +604,7 @@ function forgetClosedIntent(order: CheckoutOrder) {
           <div class="checkout-pay-choice" role="group" :aria-label="t('cart.paymentMethod')">
             <button type="button" class="checkout-pay-option" :class="{ 'is-selected': payChoice === 'balance' }" :aria-pressed="payChoice === 'balance'" @click="selectPayChoice('balance')">
               <Wallet :size="16" aria-hidden="true" />
-              <span>{{ t('cart.balance') }} <small>{{ walletBalance === null ? '—' : `¥${walletBalance.toFixed(2)}` }}</small></span>
+              <span>{{ balanceLabel }}</span>
               <span class="checkout-pay-check" aria-hidden="true"><Check v-if="payChoice === 'balance'" :size="12" :stroke-width="3" /></span>
             </button>
             <button v-for="option in paymentOptions" :key="option.key" type="button" class="checkout-pay-option" :class="{ 'is-selected': payChoice === option.provider.id && payMethod === option.method }" :aria-pressed="payChoice === option.provider.id && payMethod === option.method" @click="selectPayChoice(option.provider.id, option.method)">

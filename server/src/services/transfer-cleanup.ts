@@ -11,6 +11,10 @@ import { executeTransfer, hasActiveTransferWorkflow } from '../db/transfers.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { authorizeUserWrite, type WriteActor } from '../db/user-write-authorization.js'
 import type { IncusInstance } from '../types/incus.js'
+import { transferFailureMessage } from '../lib/transfer-error.js'
+import { recoveryHeld } from './platform-backup-core.js'
+import { sendNotification } from '../lib/notifier.js'
+import { automaticOperationAudit } from '../lib/automatic-operation-audit.js'
 
 type TransferCleanupState = {
   version: 1
@@ -27,6 +31,8 @@ type TransferCleanupState = {
   snapshots: Array<{ id: number; incusName: string }>
   backups: Array<{ id: number; incusName: string }>
   error?: string
+  retryAttempts?: number
+  nextAttemptAt?: string
 }
 const STAGES: TransferCleanupState['stage'][] = ['claimed', 'renamed', 'sites', 'ports', 'snapshots', 'backups', 'finalize']
 // The private backend is a single process. A restart drops only execution ownership,
@@ -48,15 +54,24 @@ function decodeState(value: unknown): TransferCleanupState {
   return structuredClone(value as TransferCleanupState)
 }
 
-async function saveError(transferId: number, attemptId: string, error: unknown) {
+async function saveError(transferId: number, attemptId: string | undefined, error: unknown) {
   try {
     const row = await prisma.instanceTransfer.findUnique({ where: { id: transferId } })
     if (!row || row.status !== 'processing' || !row.cleanupState) return
     const state = decodeState(row.cleanupState)
-    if (state.attemptId !== attemptId) return
-    state.error = redactAuditText(error instanceof Error ? error.message : String(error)).slice(0, 1500)
-    await prisma.instanceTransfer.updateMany({ where: { id: transferId, status: 'processing', cleanupState: { equals: row.cleanupState } },
+    if (attemptId && state.attemptId !== attemptId) return
+    state.error = transferFailureMessage(error)
+    state.retryAttempts = (state.retryAttempts || 0) + 1
+    state.nextAttemptAt = new Date(Date.now() + Math.min(30 * 60000, 30000 * 2 ** Math.min(state.retryAttempts, 6))).toISOString()
+    const host = await prisma.host.findUnique({ where: { id: state.hostId }, select: { name: true } })
+    const saved = await prisma.instanceTransfer.updateMany({ where: { id: transferId, status: 'processing', cleanupState: { equals: row.cleanupState } },
       data: { cleanupState: state as Prisma.InputJsonValue } })
+    if (saved.count !== 1) return
+    await prisma.log.create({ data: { userId: state.actor?.id || state.sourceOwnerId, instanceId: row.instanceId,
+      module: 'transfer', action: 'transfer.retry', result: 'warning', content: automaticOperationAudit({
+        hostId: state.hostId, hostName: host?.name || `#${state.hostId}`, instanceId: row.instanceId, stage: `转移 ${state.stage}`, attempt: state.retryAttempts,
+        result: state.error, error: redactAuditText(error instanceof Error ? error.message : String(error)).slice(0, 1500),
+        nextAttemptAt: state.nextAttemptAt }) } })
   }
   catch (recordError) { console.error('[Transfer] Unable to persist cleanup error:', redactAuditText(recordError instanceof Error ? recordError.message : String(recordError))) }
 }
@@ -96,7 +111,7 @@ export async function prepareTransferCleanup(transferId: number, newIncusId: str
     ])
     const state: TransferCleanupState = { version: 1, stage: 'claimed', sourceOwnerId: candidate.fromUserId,
       targetOwnerId: candidate.toUserId, hostId: current.hostId, oldIncusId: current.incusId, newIncusId,
-      newName, dedicated: current.dedicatedIpv4, hostIdentity: transferHostIdentity(host), sites, ports, snapshots, backups }
+      newName, dedicated: current.dedicatedIpv4, hostIdentity: transferHostIdentity(host), actor, sites, ports, snapshots, backups }
     await tx.snapshotPolicy.deleteMany({ where: { instanceId: current.id } })
     await tx.backupPolicy.deleteMany({ where: { instanceId: current.id } })
     await tx.instanceTransfer.update({ where: { id: transferId }, data: { cleanupState: state as Prisma.InputJsonValue } })
@@ -147,6 +162,7 @@ async function withRemote<T>(host: Host, work: (client: IncusClient) => Promise<
 async function step(transferId: number, actor: WriteActor, attemptId: string, claim: boolean,
   work: (tx: Prisma.TransactionClient, state: TransferCleanupState, host: Host, instanceId: number) => Promise<void>) {
   return prisma.$transaction(async tx => {
+    if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
     await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`
     const initial = await tx.instanceTransfer.findUniqueOrThrow({ where: { id: transferId } })
     await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, initial.instanceId)
@@ -174,6 +190,7 @@ async function step(transferId: number, actor: WriteActor, attemptId: string, cl
     if (claim) { state.attemptId = attemptId; state.actor = actor }
     await work(tx, state, host, instance.id)
     delete state.error
+    delete state.nextAttemptAt
     const saved = await tx.instanceTransfer.updateMany({ where: { id: transferId, status: 'processing', cleanupState: { equals: transfer.cleanupState! } },
       data: { cleanupState: state as Prisma.InputJsonValue } })
     if (saved.count !== 1) throw new Error('TRANSFER_CLEANUP_STATE_CHANGED')
@@ -191,11 +208,14 @@ async function deleteRemoteResource(client: IncusClient, state: TransferCleanupS
 
 /** Retries use the fixed claim snapshot; no current-resource list is re-scanned. */
 export async function runTransferCleanup(transferId: number, actor: WriteActor): Promise<void> {
+  if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
   if (activeTransfers.has(transferId)) throw new Error('TRANSFER_INSTANCE_BUSY')
   activeTransfers.add(transferId)
   const attemptId = randomUUID()
+  let claimed = false
   try {
     let state = await step(transferId, actor, attemptId, true, async () => {})
+    claimed = true
     const transfer = await prisma.instanceTransfer.findUniqueOrThrow({ where: { id: transferId } })
     const advance = async (stage: TransferCleanupState['stage']) => {
       state = await step(transferId, actor, attemptId, false, async (_tx, current) => { current.stage = stage })
@@ -282,7 +302,36 @@ export async function runTransferCleanup(transferId: number, actor: WriteActor):
         state.targetOwnerId, state.newName, state.newIncusId, state.oldIncusId, attemptId, actor)
     }
   } catch (error) {
-    await saveError(transferId, attemptId, error)
+    await saveError(transferId, claimed ? attemptId : undefined, error)
     throw error
   } finally { activeTransfers.delete(transferId) }
+}
+
+let resuming = false
+let resumeCursor = 0
+/** Resume only previously authorized, persisted plans. Every step rechecks the
+ * original session, parties, UUID and host pin; a restart cannot grant authority. */
+export async function resumeTransferCleanups(): Promise<void> {
+  if (resuming || recoveryHeld()) return
+  resuming = true
+  try {
+    const rows = await prisma.instanceTransfer.findMany({ where: { status: 'processing', cleanupState: { not: Prisma.DbNull } }, orderBy: { id: 'asc' } })
+    const rotated = [...rows.filter(row => row.id > resumeCursor), ...rows.filter(row => row.id <= resumeCursor)]
+    let processed = 0
+    for (const row of rotated) {
+      if (recoveryHeld()) return
+      if (activeTransfers.has(row.id)) continue
+      let state: TransferCleanupState
+      try { state = decodeState(row.cleanupState) } catch { continue }
+      if (!state.actor?.sid || !state.actor.iat || state.nextAttemptAt && Date.parse(state.nextAttemptAt) > Date.now()) continue
+      resumeCursor = row.id
+      try {
+        await runTransferCleanup(row.id, state.actor)
+        await sendNotification(row.toUserId, 'transfer_ownership_received', { instanceName: state.newName })
+        await prisma.log.create({ data: { userId: state.actor.id, instanceId: row.instanceId, module: 'transfer',
+          action: 'transfer.resume', result: 'success', content: `实例 #${row.instanceId} 转移已自动续接完成；原实例身份及已付账期保持` } })
+      } catch { /* runTransferCleanup persists the exact failed stage and backoff. */ }
+      if (++processed >= 3) break
+    }
+  } finally { resuming = false }
 }

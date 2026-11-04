@@ -11,7 +11,7 @@ const { default: vue } = await import(pathToFileURL(require.resolve('@vitejs/plu
 const tailwind = require('tailwindcss/loadConfig')(root + '/client/tailwind.config.js')
 tailwind.content = [root + '/client/src/**/*.{vue,js,ts}', root + '/scripts/fixtures/instance-batch-billing/*.js']
 const output = resolve(root, 'logs/instance-batch-billing-lifecycle'); mkdirSync(output, { recursive: true }); process.env.TASTE_SKILL_TMP = output
-const server = await createServer({ configFile: false, root: root + '/scripts/fixtures/instance-batch-billing', plugins: [vue()],
+const server = await createServer({ cacheDir: root + '/logs/instance-batch-billing-lifecycle/vite-cache', configFile: false, root: root + '/scripts/fixtures/instance-batch-billing', plugins: [vue()],
   resolve: { alias: [{ find: /^@\/api$/, replacement: root + '/scripts/fixtures/instance-batch-billing/api.js' }, { find: '@', replacement: root + '/client/src' },
     ...['vue', 'pinia', 'vue-i18n', 'vue-router'].map(name => ({ find: name, replacement: require.resolve(name === 'vue' ? 'vue/dist/vue.esm-bundler.js' : name) }))], dedupe: ['vue', 'pinia', 'vue-i18n', 'vue-router'] },
   css: { postcss: { plugins: [require('tailwindcss')(tailwind), require('autoprefixer')()] } },
@@ -21,6 +21,8 @@ let browser
 try {
   await server.listen(); browser = await Browser.launch(); const page = await browser.newPage({ reducedMotion: true })
   await page.goto('http://127.0.0.1:19673', { settleMs: 1500 })
+  const bootDeadline = Date.now() + 15000
+  while (!await page.eval(() => !!window.batchHarness)) { assert.ok(Date.now() < bootDeadline, page.consoleErrors.join('\n')); await sleep(100) }
   assert.equal(page.consoleErrors.length, 0, page.consoleErrors.join('\n'))
   const run = async (fn, arg) => { const result = await page.eval(fn, arg); await sleep(70); return result }
   const last = kind => page.eval(kind => window.batchHarness.pending.findLastIndex(item => item.kind === kind), kind)
@@ -29,6 +31,29 @@ try {
   const reject = index => run(index => window.batchHarness.pending[index].reject(new Error('fixture failure')), index)
   const view = key => page.eval(key => JSON.parse(JSON.stringify(window.batchHarness.view()[key])), key)
   const preview = id => ({ id, name: `Fixture ${id}`, canRenew: true, autoRenew: false, isHostedInstance: false, daysUntilExpire: 5, options: [{ months: 1, price: 10, discountedPrice: 10, expiresAt: '2030-02-01T00:00:00Z' }] })
+  await run(() => { const v = window.batchHarness.view(); v.instances[0].activeTransfer = { id: 1, status: 'processing' } })
+  assert.ok(await page.eval(() => document.body.innerText.includes('转移中')))
+  assert.equal(await page.eval(() => [...document.querySelectorAll('article button')].find(el => el.textContent.trim() === 'PUSH')?.disabled), true)
+  await run(() => { const v = window.batchHarness.view(); v.openInstanceTransfer(v.instances[0]) })
+  assert.equal(await view('transferTarget'), null, 'processing transfer cannot open duplicate PUSH')
+  await run(() => { const b = [...document.querySelectorAll('.info-hint button')].find(el => el.getBoundingClientRect().width); b.focus() })
+  assert.ok(await page.eval(() => document.querySelector('[role="tooltip"]')?.textContent.includes('账户余额')))
+  await run(() => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  assert.equal(await page.eval(() => !!document.querySelector('[role="tooltip"]')), false)
+  for (const locale of ['zh-CN', 'zh-TW', 'en']) {
+    await page.setViewport({ width: 390, height: 844, mobile: true })
+    await run(locale => window.batchHarness.setLocale(locale), locale)
+    const button = await page.eval(() => { const b = [...document.querySelectorAll('.info-hint button')].find(el => el.getBoundingClientRect().width); b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return { x: r.x + r.width/2, y: r.y + r.height/2, width: r.width, height: r.height } })
+    assert.ok(button.width >= 44 && button.height >= 44)
+    await page.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: button.x, y: button.y }] }); await page.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(100)
+    assert.ok(await page.eval(() => { const tip = document.querySelector('[role="tooltip"]'); return !!tip && !tip.textContent.includes('instance.card') }))
+    await page.screenshot({ path: resolve(output, `hint-${locale}-390.png`), format: 'png' })
+    await page.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: button.x, y: button.y }] }); await page.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(100)
+    assert.equal(await page.eval(() => !!document.querySelector('[role="tooltip"]')), false)
+    assert.ok(await page.eval(locale => document.body.innerText.includes({'zh-CN':'转移中','zh-TW':'轉移中',en:'Transferring'}[locale]), locale), 'mobile card shows transfer status')
+  }
+  await page.setViewport({ width: 1440, height: 900 }); await run(() => window.batchHarness.setLocale('zh-CN'))
+  await run(() => { delete window.batchHarness.view().instances[0].activeTransfer; document.activeElement.blur() })
   await run(() => { const v = window.batchHarness.view(); v.selectedIds = new Set([1]); void v.openBatchRenewModal() })
   await accept(await last('renew-preview'), { items: [preview(1)] }); await accept(await last('balance'), { balance: { balance: 100, frozen: 0, totalRecharge: 100, totalConsume: 0 } })
   await run(() => { const v = window.batchHarness.view(); v.selectedIds = new Set([2]); void v.confirmBatchRenew() })

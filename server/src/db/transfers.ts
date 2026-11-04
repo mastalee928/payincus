@@ -11,6 +11,8 @@ import { assertNoPendingProxySiteOperations } from './proxy-site-operation-guard
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
 import { claimOperationVerificationRequirement } from '../lib/operation-verification.js'
+import { isTransactionConflict } from '../lib/transaction-conflict.js'
+import { recoveryHeld } from '../services/platform-backup-core.js'
 
 // 事务隔离级别配置
 const TRANSFER_TRANSACTION_OPTIONS = {
@@ -634,88 +636,114 @@ export async function executeTransfer(
     attemptId?: string,
     actor?: WriteActor
 ): Promise<void> {
-    await prisma.$transaction(async (tx) => {
-        await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
-        await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
-        await assertNoPendingSnapshotOperations(tx, instanceId)
-        await assertNoPendingProxySiteOperations(tx, instanceId)
-        const source = await tx.instance.findUniqueOrThrow({ where: { id: instanceId }, select: { hostId: true } })
-        await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${source.hostId} FOR SHARE`
-        // 获取转移记录，获取 fee 和 fromUserId
-        const transfer = await tx.instanceTransfer.findUnique({
-            where: { id: transferId },
-            select: { fee: true, fromUserId: true, toUserId: true, instanceId: true, status: true, cleanupState: true }
-        })
-        const current = await tx.instance.findUnique({ where: { id: instanceId }, include: { host: true } })
-        if (!transfer || transfer.status !== 'processing' || transfer.instanceId !== instanceId ||
-            transfer.fromUserId !== fromUserId || transfer.toUserId !== toUserId || !current || current.userId !== fromUserId ||
-            (expectedIncusId !== undefined && current.incusId !== expectedIncusId)) throw new Error('TRANSFER_SOURCE_CHANGED')
-        if (transfer.cleanupState === null ||
-            ((transfer.cleanupState as any).stage !== 'finalize' || (transfer.cleanupState as any).newIncusId !== newIncusId ||
-            (transfer.cleanupState as any).newName !== newInstanceName || (transfer.cleanupState as any).oldIncusId !== current.incusId ||
-            (transfer.cleanupState as any).sourceOwnerId !== fromUserId || (transfer.cleanupState as any).targetOwnerId !== toUserId ||
-            (transfer.cleanupState as any).hostId !== current.hostId || (transfer.cleanupState as any).dedicated !== current.dedicatedIpv4 ||
-            (transfer.cleanupState as any).hostIdentity !== transferHostIdentity(current.host) ||
-            !(transfer.cleanupState as any).remoteUuid || !attemptId || (transfer.cleanupState as any).attemptId !== attemptId)) {
-            throw new Error('TRANSFER_CLEANUP_PENDING')
-        }
-        const parties = [...new Set([fromUserId, toUserId])].sort((a, b) => a - b)
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id IN (${Prisma.join(parties)}) ORDER BY id FOR UPDATE`)
-        if (!actor || !parties.includes(actor.id) || !await authorizeUserWrite(tx, actor.id, actor, true)) throw new Error('FORBIDDEN')
-        const recipient = await tx.user.findUnique({ where: { id: toUserId }, select: { status: true } })
-        if (!recipient || recipient.status !== 'active') throw new Error('TRANSFER_TO_BANNED')
-        if ((await tx.user.findUnique({ where: { id: fromUserId }, select: { status: true } }))?.status !== 'active') throw new Error('TRANSFER_SOURCE_CHANGED')
-        if (!current.host.transferEnabled) throw new Error('TRANSFER_HOST_DISABLED')
-        if (!['running', 'stopped'].includes(current.status) || current.provisioningCleanupPending || current.deletionBillingPending ||
-            (current.dedicatedIpv4 && (!current.dedicatedNetworkReady || current.host.publicIpSyncBlocked || current.host.poolFaulted || newIncusId !== current.incusId)) ||
-            (!current.dedicatedIpv4 && current.status !== 'stopped')) {
-            throw new Error('TRANSFER_INVALID_STATUS')
-        }
-        if (await hasActiveTransferWorkflow(instanceId, tx)) {
-            throw new Error('TRANSFER_INSTANCE_BUSY')
-        }
-        if (await tx.proxySite.count({ where: { instanceId } }) || await tx.snapshot.count({ where: { instanceId } }) ||
-            await tx.backup.count({ where: { instanceId, status: { not: 'deleted' } } }) ||
-            !current.dedicatedIpv4 && await tx.portMapping.count({ where: { instanceId } })) throw new Error('TRANSFER_CLEANUP_RESOURCES_CHANGED')
-
-        // 注意：不再更新实例配额，实例转移只更新实例的所有者、名称和 Incus ID
-
-        // 更新实例所有者、名称和 Incus ID；新所有者需自行确认并重新开启自动续费
-        await tx.instance.update({
-            where: { id: instanceId },
-            data: {
-                userId: toUserId,
-                name: newInstanceName,
-                incusId: newIncusId,
-                autoRenew: false,
-                displayOrder: 0
-            }
-        })
-
-        // 更新转移状态
-        const now = new Date()
-        await tx.instanceTransfer.update({
-            where: { id: transferId },
-            data: {
-                status: 'accepted',
-                acceptedAt: now
-            }
-        })
-
-        // 如果有手续费，创建计费记录（用于收入统计和记录展示）
-        if (transfer?.fee && Number(transfer.fee) > 0) {
-            await tx.instanceBillingRecord.create({
-                data: {
-                    instanceId,
-                    userId: transfer.fromUserId,  // 发起方支付手续费
-                    type: 'transfer_fee',
-                    amount: transfer.fee,
-                    months: 0,  // 手续费不涉及月数
-                    periodStart: now,
-                    periodEnd: now,
-                    remark: `转移实例手续费`
+    // Finalization has database effects only. Each retry obtains a fresh snapshot
+    // and rechecks the durable attempt, ownership, authorization and resource fences.
+    for (let attempt = 0; ; attempt++) {
+        try {
+            await prisma.$transaction(async (tx) => {
+                await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
+                await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+                await assertNoPendingSnapshotOperations(tx, instanceId)
+                await assertNoPendingProxySiteOperations(tx, instanceId)
+                const source = await tx.instance.findUniqueOrThrow({ where: { id: instanceId }, select: { hostId: true } })
+                await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${source.hostId} FOR SHARE`
+                await tx.$queryRaw`SELECT id FROM instance_transfers WHERE id = ${transferId} FOR UPDATE`
+                // 获取转移记录，获取 fee 和 fromUserId
+                const transfer = await tx.instanceTransfer.findUnique({
+                    where: { id: transferId },
+                    select: { fee: true, fromUserId: true, toUserId: true, instanceId: true, status: true, cleanupState: true }
+                })
+                const current = await tx.instance.findUnique({ where: { id: instanceId }, include: { host: true } })
+                // A lost response after commit may be acknowledged only for this exact
+                // authorized plan and completed target; never write or bill it again.
+                const receipt = transfer?.cleanupState as Record<string, unknown> | null
+                if (transfer?.status === 'accepted' && transfer.instanceId === instanceId &&
+                    transfer.fromUserId === fromUserId && transfer.toUserId === toUserId &&
+                    receipt?.stage === 'finalize' && receipt.attemptId === attemptId && attemptId &&
+                    receipt.oldIncusId === expectedIncusId && receipt.newIncusId === newIncusId && receipt.newName === newInstanceName &&
+                    receipt.sourceOwnerId === fromUserId && receipt.targetOwnerId === toUserId &&
+                    current?.userId === toUserId && current.incusId === newIncusId && current.name === newInstanceName &&
+                    receipt.hostId === current.hostId && receipt.hostIdentity === transferHostIdentity(current.host)) {
+                  if (!actor || ![fromUserId, toUserId].includes(actor.id) || !await authorizeUserWrite(tx, actor.id, actor, true)) throw new Error('FORBIDDEN')
+                  return
                 }
-            })
+                if (!transfer || transfer.status !== 'processing' || transfer.instanceId !== instanceId ||
+                    transfer.fromUserId !== fromUserId || transfer.toUserId !== toUserId || !current || current.userId !== fromUserId ||
+                    (expectedIncusId !== undefined && current.incusId !== expectedIncusId)) throw new Error('TRANSFER_SOURCE_CHANGED')
+                if (transfer.cleanupState === null ||
+                    ((transfer.cleanupState as any).stage !== 'finalize' || (transfer.cleanupState as any).newIncusId !== newIncusId ||
+                    (transfer.cleanupState as any).newName !== newInstanceName || (transfer.cleanupState as any).oldIncusId !== current.incusId ||
+                    (transfer.cleanupState as any).sourceOwnerId !== fromUserId || (transfer.cleanupState as any).targetOwnerId !== toUserId ||
+                    (transfer.cleanupState as any).hostId !== current.hostId || (transfer.cleanupState as any).dedicated !== current.dedicatedIpv4 ||
+                    (transfer.cleanupState as any).hostIdentity !== transferHostIdentity(current.host) ||
+                    !(transfer.cleanupState as any).remoteUuid || !attemptId || (transfer.cleanupState as any).attemptId !== attemptId)) {
+                    throw new Error('TRANSFER_CLEANUP_PENDING')
+                }
+                const parties = [...new Set([fromUserId, toUserId])].sort((a, b) => a - b)
+                await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id IN (${Prisma.join(parties)}) ORDER BY id FOR UPDATE`)
+                if (!actor || !parties.includes(actor.id) || !await authorizeUserWrite(tx, actor.id, actor, true)) throw new Error('FORBIDDEN')
+                const recipient = await tx.user.findUnique({ where: { id: toUserId }, select: { status: true } })
+                if (!recipient || recipient.status !== 'active') throw new Error('TRANSFER_TO_BANNED')
+                if ((await tx.user.findUnique({ where: { id: fromUserId }, select: { status: true } }))?.status !== 'active') throw new Error('TRANSFER_SOURCE_CHANGED')
+                if (!current.host.transferEnabled) throw new Error('TRANSFER_HOST_DISABLED')
+                if (!['running', 'stopped'].includes(current.status) || current.provisioningCleanupPending || current.deletionBillingPending ||
+                    (current.dedicatedIpv4 && (!current.dedicatedNetworkReady || current.host.publicIpSyncBlocked || current.host.poolFaulted || newIncusId !== current.incusId)) ||
+                    (!current.dedicatedIpv4 && current.status !== 'stopped')) {
+                    throw new Error('TRANSFER_INVALID_STATUS')
+                }
+                if (await hasActiveTransferWorkflow(instanceId, tx)) {
+                    throw new Error('TRANSFER_INSTANCE_BUSY')
+                }
+                if (await tx.proxySite.count({ where: { instanceId } }) || await tx.snapshot.count({ where: { instanceId } }) ||
+                    await tx.backup.count({ where: { instanceId, status: { not: 'deleted' } } }) ||
+                    !current.dedicatedIpv4 && await tx.portMapping.count({ where: { instanceId } })) throw new Error('TRANSFER_CLEANUP_RESOURCES_CHANGED')
+
+                // 注意：不再更新实例配额，实例转移只更新实例的所有者、名称和 Incus ID
+
+                if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
+                // 更新实例所有者、名称和 Incus ID；新所有者需自行确认并重新开启自动续费
+                await tx.instance.update({
+                    where: { id: instanceId },
+                    data: {
+                        userId: toUserId,
+                        name: newInstanceName,
+                        incusId: newIncusId,
+                        autoRenew: false,
+                        displayOrder: 0
+                    }
+                })
+
+                // 更新转移状态
+                const now = new Date()
+                await tx.instanceTransfer.update({
+                    where: { id: transferId },
+                    data: {
+                        status: 'accepted',
+                        acceptedAt: now
+                    }
+                })
+
+                // 如果有手续费，创建计费记录（用于收入统计和记录展示）
+                if (transfer?.fee && Number(transfer.fee) > 0) {
+                    await tx.instanceBillingRecord.create({
+                        data: {
+                            instanceId,
+                            userId: transfer.fromUserId,  // 发起方支付手续费
+                            type: 'transfer_fee',
+                            amount: transfer.fee,
+                            months: 0,  // 手续费不涉及月数
+                            periodStart: now,
+                            periodEnd: now,
+                            remark: `转移实例手续费`
+                        }
+                    })
+                }
+            }, TRANSFER_TRANSACTION_OPTIONS)
+            return
+        } catch (error) {
+            if (!isTransactionConflict(error)) throw error
+            if (attempt >= 3) throw new Error('TRANSFER_DATABASE_RETRY_PENDING')
+            await sleep(50 * 2 ** attempt)
         }
-    }, TRANSFER_TRANSACTION_OPTIONS)
+    }
 }

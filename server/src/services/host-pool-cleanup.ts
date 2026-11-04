@@ -29,6 +29,13 @@ export function readPoolCleanup(value: unknown): PoolCleanup | null {
     (!state.createdAfter || Number.isFinite(Date.parse(state.createdAfter))) &&
     ['pending', 'retry', 'blocked', 'done'].includes(state.status) && Number.isSafeInteger(state.attempts) ? state : null
 }
+/** A completed authorization is never replayed. A later quarantine starts only
+ * a fresh read-only inspection, retaining the originally trusted host identity. */
+export function completedPoolReinspection(state: PoolCleanup): PoolCleanup {
+  return { version: 1, kind: 'verify_empty', name: '', actorId: state.actorId,
+    hostIdentity: state.hostIdentity, revision: randomUUID(), createdBefore: new Date().toISOString(),
+    status: 'pending', attempts: 0 }
+}
 const json = (state: PoolCleanup) => state as unknown as Prisma.InputJsonValue
 const retryable = new Set(['offline', 'agent-offline', 'busy', 'unreachable', 'protocol-pending'])
 class CleanupBlocked extends Error {}
@@ -44,9 +51,11 @@ export async function queueDeletedPoolHost(instanceId: number): Promise<void> {
     const host = await tx.host.findUniqueOrThrow({ where: { id: instance.hostId } })
     if (!host.singleTenant || instance.status !== 'deleted') return
     const existing = readPoolCleanup(host.poolCleanup)
+    if (host.poolCleanup !== null && !existing) return // Preserve records-only retained-data policy.
+    if (existing?.recoverySupersededBy) return
     if (existing && existing.status !== 'done' && !existing.recoverySupersededBy) return
     await tx.host.update({ where: { id: host.id }, data: { poolFaulted: true,
-      poolCleanup: json(poolCleanupRecord(host, instance.incusId, host.userId, new Date())) } })
+      poolCleanup: json(existing ? completedPoolReinspection(existing) : poolCleanupRecord(host, instance.incusId, host.userId, new Date())) } })
   })
 }
 
@@ -59,7 +68,11 @@ export async function retryPoolCleanup(hostId: number, actorId: number): Promise
     if (actor?.role !== 'admin' || actor.status !== 'active') throw new Error('CLEANUP_ADMIN_AUTHORIZATION_CHANGED')
     const host = await tx.host.findUniqueOrThrow({ where: { id: hostId } })
     const state = readPoolCleanup(host.poolCleanup)
-    if (!host.poolFaulted || !state || state.status === 'done' || state.recoverySupersededBy) return
+    if (!host.poolFaulted || !state || state.recoverySupersededBy) return
+    if (state.status === 'done') {
+      await tx.host.update({ where: { id: hostId }, data: { poolCleanup: json(completedPoolReinspection(state)) } })
+      return
+    }
     // A retry grants a new attempt, never a new host/guest identity.
     await tx.host.update({ where: { id: hostId }, data: { poolCleanup: json({ ...state, actorId, revision: randomUUID(),
       status: 'pending', attempts: 0, error: undefined, nextAttemptAt: undefined }) } })
@@ -213,10 +226,21 @@ export async function processPoolCleanupQueue(connect = getIncusClient): Promise
       const current = readPoolCleanup(host.poolCleanup)
       if (current?.nextAttemptAt && Date.parse(current.nextAttemptAt) > Date.now()) continue
       if (host.poolCleanup !== null && !current) continue // records-only keeps its explicit retained-data policy
-      if (current?.status === 'done' || current?.recoverySupersededBy) continue
+      if (current?.recoverySupersededBy) continue
       cleanupCursor = host.id
       try {
         let state = current
+        if (state?.status === 'done') {
+          await prisma.$transaction(async tx => {
+            await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${host.id} FOR UPDATE`
+            if (recoveryHeld()) return
+            const latest = await tx.host.findUnique({ where: { id: host.id } })
+            const completed = readPoolCleanup(latest?.poolCleanup)
+            if (!latest?.poolFaulted || completed?.status !== 'done' || completed.recoverySupersededBy || completed.revision !== state!.revision) return
+            state = completedPoolReinspection(completed)
+            await tx.host.update({ where: { id: host.id }, data: { poolCleanup: json(state) } })
+          })
+        }
         if (!state && host.poolCleanup === null) {
           const task = await prisma.instanceTask.findFirst({ where: { taskType: 'replace_host',
             status: { in: ['COMPLETED', 'FAILED'] }, instance: { hostId: { not: host.id } }, OR: [

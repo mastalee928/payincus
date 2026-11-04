@@ -50,6 +50,13 @@ if (process.argv[2] === '--partial') {
       name: tag, incusId: randomUUID(), image: 'fixture', cpu: 100, memory: 1024, disk: 2048, billingPrice: 10, billingCycle: 1,
       status: 'stopped', expiresAt: new Date(Date.now() + 86400000) } })
     const one = await make(), two = await make(), foreign = await make(other.id)
+    const { performRenewal, updateAutoRenew } = await import('../src/db/billing-operations.js')
+    const transfer = await prisma.instanceTransfer.create({ data: { instanceId: one.id, fromUserId: buyer.id, toUserId: other.id, status: 'processing', snapshot: {} } })
+    await assert.rejects(performRenewal(buyer.id, one, 1, undefined, actor), /实例正在转移/)
+    await assert.rejects(updateAutoRenew(one.id, true, buyer.id, actor), /实例正在转移/)
+    assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), 200)
+    assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: one.id } }), 0)
+    await prisma.instanceTransfer.delete({ where: { id: transfer.id } })
     const renew = (id: number, key: string | undefined, months = 1) => app.inject({ method: 'POST', url: `/instances/${id}/renew`, headers: key ? { 'idempotency-key': key } : {}, payload: { months } })
     const balance = async () => Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance)
     assert.equal((await renew(one.id, undefined)).statusCode, 400)

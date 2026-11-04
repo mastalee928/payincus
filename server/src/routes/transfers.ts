@@ -18,6 +18,7 @@ import { prepareTransferCleanup, runTransferCleanup } from '../services/transfer
 import type { WriteActor } from '../db/user-write-authorization.js'
 import { redactAuditText } from '../lib/risk-audit.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { transferFailureMessage } from '../lib/transfer-error.js'
 import {
     checkOperationVerificationRequirement
 } from '../lib/operation-verification.js'
@@ -114,13 +115,13 @@ async function claimTransferForProcessing(transferId: number, userId: number, pa
 }
 
 function transferResultError(error: unknown): { code: string; error: string } {
-    const message = redactAuditText(error instanceof Error ? error.message : String(error))
+    const message = transferFailureMessage(error)
     return { code: 'TRANSFER_CLEANUP_PENDING', error: `实例转移尚未完成，原实例与库存继续保留：${message}` }
 }
 
 function transferCleanupError(state: unknown): string | null {
     const error = isPlainRecord(state) && typeof state.error === 'string' ? state.error : null
-    return error ? redactAuditText(error).slice(0, 1500) : null
+    return error ? transferFailureMessage(error) : null
 }
 
 async function completeClaimedTransfer(transferId: number, party: 'accept' | 'push',

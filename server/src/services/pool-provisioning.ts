@@ -9,10 +9,13 @@ import { cleanupManagedInstanceRemote, managedCleanupEndpointHash } from '../lib
 import type { IncusClient, IncusRequestConditions } from '../lib/incus/incus-client.js'
 import type { IncusInstance } from '../types/incus.js'
 import type { Host } from '../types/database.js'
+import { completedPoolReinspection, poolCleanupRecord, readPoolCleanup } from './host-pool-cleanup.js'
+import { redactAuditText } from '../lib/risk-audit.js'
+import { automaticOperationAudit } from '../lib/automatic-operation-audit.js'
 
 const active = new Map<number, AbortController>()
 export class PoolProvisionOwnershipError extends Error {}
-type Specs = Record<string, unknown> & { poolProvision?: { version?: number; phase?: string }; managedCleanup?: { attempt?: string; endpointHash?: string; uuid?: string } }
+type Specs = Record<string, unknown> & { poolProvision?: { version?: number; phase?: string; error?: string; failedAt?: string }; managedCleanup?: { attempt?: string; endpointHash?: string; uuid?: string } }
 
 /** A durable attempt is installed before the first remote write. Every later
  * request is fenced by the original order and identity, including after timeouts. */
@@ -89,13 +92,34 @@ export async function failPoolProvision(instanceId: number, host: Host | null, r
   if (!instance?.purchaseBatchId) return false
   if (!['creating', 'error'].includes(instance.status)) return true
   const target = { id: instanceId, userId: instance.userId, hostId: instance.hostId, incusId: instance.incusId }
-  const claimed = await prisma.instance.updateMany({ where: { ...target, status: { in: ['creating', 'error'] } },
-    data: { status: 'error', provisioningCleanupPending: true, dedicatedNetworkReady: false } })
+  const failureReason = redactAuditText(reason).slice(0, 1500)
+  const claimed = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+    const current = await tx.instance.findFirst({ where: { ...target, status: { in: ['creating', 'error'] } } })
+    if (!current) return { count: 0, firstFailure: false }
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.hostId} FOR UPDATE`
+    const currentHost = await tx.host.findUniqueOrThrow({ where: { id: instance.hostId } })
+    const currentSpecs = (current.snapshottedSpecs || {}) as Specs
+    const previous = readPoolCleanup(currentHost.poolCleanup)
+    const inspection = previous?.status === 'done' && !previous.recoverySupersededBy ? completedPoolReinspection(previous)
+      : currentHost.poolCleanup === null ? poolCleanupRecord(currentHost, '', currentHost.userId, new Date()) : null
+    const result = await tx.instance.updateMany({ where: { ...target, status: { in: ['creating', 'error'] } }, data: {
+      status: 'error', provisioningCleanupPending: true, dedicatedNetworkReady: false,
+      snapshottedSpecs: { ...currentSpecs, poolProvision: { ...currentSpecs.poolProvision,
+        error: currentSpecs.poolProvision?.error || failureReason, failedAt: currentSpecs.poolProvision?.failedAt || new Date().toISOString() } } as Prisma.InputJsonValue
+    } })
+    await tx.host.update({ where: { id: instance.hostId }, data: { poolFaulted: true,
+      ...(inspection ? { poolCleanup: inspection as unknown as Prisma.InputJsonValue } : {}) } })
+    if (current.status === 'creating') await tx.log.create({ data: { userId: current.userId, instanceId,
+      module: 'instance', action: 'instance.create', result: 'failed', content: automaticOperationAudit({
+        hostId: currentHost.id, hostName: currentHost.name, instanceId, stage: '实例开通失败并隔离宿主', attempt: 1,
+        result: `开通失败：${failureReason}；保留原身份，退款与清理独立处理，完成后自动只读核验库存` }) } })
+    return { ...result, firstFailure: current.status === 'creating' }
+  }, { maxWait: 5000, timeout: 10000 })
   if (!claimed.count) return true
   // A host that could not deliver must be inspected before another customer
   // buys it, even after its previous allocation and refund are fully settled.
-  await prisma.host.update({ where: { id: instance.hostId }, data: { poolFaulted: true } })
-  const firstFailure = instance.status === 'creating'
+  const firstFailure = claimed.firstFailure
   active.get(instanceId)?.abort(new Error('Pool provisioning failed or timed out'))
   let billingSettled = false, refundAmount = 0
   try {
@@ -128,7 +152,7 @@ export async function failPoolProvision(instanceId: number, host: Host | null, r
       }
       if (!billingSettled || current.deletionBillingPending) throw new Error('Purchase accounting remains unsettled')
       await tx.instance.update({ where: { id: instanceId }, data: { status: 'deleted', provisioningCleanupPending: false,
-        snapshottedSpecs: { ...currentSpecs, poolProvision: { version: 1, phase: 'failed' } } as Prisma.InputJsonValue } })
+        snapshottedSpecs: { ...currentSpecs, poolProvision: { ...currentSpecs.poolProvision, version: 1, phase: 'failed' } } as Prisma.InputJsonValue } })
       await tx.ipAddress.deleteMany({ where: { instanceId } })
       if (current.ipv4) await tx.natIpv4Reservation.deleteMany({ where: { hostId: current.hostId, address: current.ipv4 } })
       await tx.$executeRaw`UPDATE hosts SET cpu_used = GREATEST(cpu_used - ${current.cpu}, 0),

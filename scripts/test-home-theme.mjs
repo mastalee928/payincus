@@ -18,7 +18,7 @@ if (process.argv.includes('--baseline-store')) {
   writeFileSync(out + '/baseline-theme.ts', execFileSync('git', ['show', 'HEAD:client/src/stores/theme.ts'], { cwd: root }))
   aliases.push({ find: /^@\/stores\/theme$/, replacement: out + '/baseline-theme.ts' })
 }
-const server = await createServer({ configFile: false, root: root + '/scripts/fixtures/home-theme', publicDir: root + '/client/public', plugins: [vue()],
+const server = await createServer({ cacheDir: root + '/logs/home-theme/vite-cache', configFile: false, root: root + '/scripts/fixtures/home-theme', publicDir: root + '/client/public', plugins: [vue()],
   resolve: { alias: [...aliases, { find: '@', replacement: root + '/client/src' }, ...['vue', 'pinia', 'vue-i18n', 'vue-router', '@fontsource-variable/inter', 'flag-icons/css/flag-icons.min.css'].map(name => ({ find: name, replacement: require.resolve(name === 'vue' ? 'vue/dist/vue.esm-bundler.js' : name) }))], dedupe: ['vue', 'pinia', 'vue-i18n', 'vue-router'] },
   css: { postcss: { plugins: [require('tailwindcss')(tailwind), require('autoprefixer')()] } }, server: { host: '127.0.0.1', port: 19832, strictPort: true, fs: { allow: [root] } } })
 let browser
@@ -27,11 +27,41 @@ try {
   await server.listen(); browser = await Browser.launch()
   const page = await browser.newPage()
   const run = (fn, arg) => page.eval(fn, arg)
-  const wait = async fn => { const end = Date.now() + 10000; while (!await run(fn)) { assert.ok(Date.now() < end, await run(() => document.body.innerText)); await sleep(25) } }
+  const wait = async fn => { const end = Date.now() + 10000; while (!await run(fn)) { assert.ok(Date.now() < end, page.consoleErrors.join('\n') + await run(() => document.body.innerText)); await sleep(25) } }
   const os = async value => { await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value }, { name: 'prefers-reduced-motion', value: 'reduce' }] }); await sleep(100) }
   await os('dark')
   await page.goto('http://127.0.0.1:19832', { settleMs: 300 })
   await wait(() => !!window.themeHarness && !!document.querySelector('.home-theme-toggle'))
+  for (const [width,height] of [[1948,1024],[1920,720],[1366,768],[1024,576],[768,600],[390,844]]) {
+    await page.setViewport({width,height,mobile:width<768}); await sleep(150)
+    const layout=await run(()=>{const r=document.querySelector('.home-footer').getBoundingClientRect(); return {bottom:r.bottom,scrollWidth:document.documentElement.scrollWidth,height:innerHeight,width:innerWidth}})
+    assert.equal(layout.scrollWidth,layout.width)
+    if(width>=768)assert.ok(layout.bottom<=height+2,JSON.stringify(layout))
+    else {await run(()=>window.scrollTo(0,document.documentElement.scrollHeight));assert.ok(await run(()=>document.querySelector('.home-footer').getBoundingClientRect().bottom<=innerHeight+2));await run(()=>window.scrollTo(0,0))}
+    observations.push({width,height,...layout})
+    await page.screenshot({path:out+`/fit-${width}x${height}.png`,format:'png',fullPage:true})
+  }
+  for (const zoom of [1.25, 1.5]) {
+    // Browser page zoom reduces the CSS viewport; device scale alone does not.
+    const width = Math.round(1948 / zoom), height = Math.round(1024 / zoom)
+    await page.setViewport({ width, height, dsf: zoom }); await sleep(180)
+    assert.ok(await run(() => document.querySelector('.home-footer').getBoundingClientRect().bottom <= innerHeight + 2))
+    observations.push({ zoom, width, height, scope: 'CSS viewport and device scale equivalent to desktop page zoom' })
+  }
+  await run(() => { window.themeHarness.config.brandName = 'OCI 示例品牌'; window.themeHarness.config.brandSubtitle = '管理员配置的网站副标题 · 基于云资源的实例服务' })
+  await sleep(180)
+  assert.ok(await run(() => document.querySelector('.home-footer').getBoundingClientRect().bottom <= innerHeight + 2))
+  await run(() => window.themeHarness.router.push('/purchase')); await wait(() => !!document.querySelector('.purchase-page'))
+  await sleep(500)
+  assert.equal(await run(() => document.title), 'OCI 示例品牌 - 管理员配置的网站副标题 · 基于云资源的实例服务')
+  await run(() => { window.themeHarness.config.brandSubtitle = '已保存的新副标题' }); await sleep(100)
+  assert.equal(await run(() => document.title), 'OCI 示例品牌 - 已保存的新副标题')
+  await run(() => window.themeHarness.router.push('/')); await wait(() => !!document.querySelector('.home-theme-toggle'))
+  await run(() => window.themeHarness.router.push('/purchase')); await sleep(500)
+  assert.equal(await run(() => document.title), 'OCI 示例品牌 - 已保存的新副标题', 'old home SEO cleanup cannot restore obsolete title')
+  await run(() => { window.themeHarness.config.brandName = 'PayIncus'; window.themeHarness.config.brandSubtitle = ''; return window.themeHarness.router.push('/') }); await wait(() => !!document.querySelector('.home-theme-toggle'))
+  console.log('PASS actual App home/purchase transitions, reactive brand subtitle, SEO cleanup and zoom-equivalent viewport')
+  await page.setViewport({width:1440,height:900})
   const state = () => run(() => ({ mode: window.themeHarness.theme.mode, resolved: window.themeHarness.theme.resolvedTheme,
     classDark: document.documentElement.classList.contains('dark'), home: document.querySelector('.homepage-map-demo')?.dataset.homeTheme,
     map: document.querySelector('.world-outline')?.getAttribute('href'), meta: document.querySelector('meta[name="theme-color"]').content,

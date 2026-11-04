@@ -15,6 +15,7 @@ import type { Instance, UserBalance } from '@/types/api'
 import FlagIcon from '@/components/FlagIcon.vue'
 import DistroIcon from '@/components/icons/DistroIcon.vue'
 import InstanceDisplayIcon from '@/components/InstanceDisplayIcon.vue'
+import InfoHint from '@/components/InfoHint.vue'
 import InstanceOrderMenu from '@/components/instance/InstanceOrderMenu.vue'
 import TransferModal from '@/components/instance/modals/TransferModal.vue'
 import DestroyEmailVerificationFields from '@/components/instance/DestroyEmailVerificationFields.vue'
@@ -195,8 +196,8 @@ const isAllSelected = computed(() => instances.value.length > 0 && selectedIds.v
 const isPartialSelected = computed(() => selectedIds.value.size > 0 && selectedIds.value.size < instances.value.length)
 const selectedCount = computed(() => selectedIds.value.size)
 const selectedInstances = computed(() => instances.value.filter(instance => selectedIds.value.has(instance.id)))
-const selectedRunningCount = computed(() => selectedInstances.value.filter(instance => !instance.serviceFault && instance.status?.toLowerCase() === 'running').length)
-const selectedStoppedCount = computed(() => selectedInstances.value.filter(instance => !instance.serviceFault && instance.status?.toLowerCase() === 'stopped').length)
+const selectedRunningCount = computed(() => selectedInstances.value.filter(instance => !instance.activeTransfer && !instance.serviceFault && instance.status?.toLowerCase() === 'running').length)
+const selectedStoppedCount = computed(() => selectedInstances.value.filter(instance => !instance.activeTransfer && !instance.serviceFault && instance.status?.toLowerCase() === 'stopped').length)
 const selectedBillingActionIds = computed(() =>
   selectedInstances.value
     .filter(instance => !!instance.packagePlanId)
@@ -452,7 +453,10 @@ onActivated(async () => {
   clearCreatedInstanceRouteHint()
 })
 
+let listGeneration = 0
 async function loadInstances(force = false): Promise<void> {
+  const authentication = authStore.captureAuthentication(), path = route.fullPath, request = ++listGeneration
+  const current = () => billingAlive && billingPageActive.value && authentication.aligned && authentication.current() && path === route.fullPath && request === listGeneration
   // 如果有操作进行中，跳过刷新
   if (
     !force &&
@@ -483,6 +487,7 @@ async function loadInstances(force = false): Promise<void> {
     }
     
     const response = await api.instances.list(params)
+    if (!current()) return
     const data = response as { instances?: Instance[]; total?: number; totalPages?: number; availableCountries?: string[] }
     const nextInstances = data.instances || []
     instances.value = nextInstances
@@ -498,10 +503,11 @@ async function loadInstances(force = false): Promise<void> {
     const visibleIds = new Set(nextInstances.map(instance => instance.id))
     selectedIds.value = new Set([...selectedIds.value].filter(id => visibleIds.has(id)))
   } catch (error) {
+    if (!current()) return
     console.error('Failed to load instances:', error)
     listError.value = translateError(error) || t('common.loadFailed')
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
@@ -753,12 +759,14 @@ function getInstanceResetTrafficPrice(instance: Instance): string {
 }
 
 function canResetInstanceTraffic(instance: Instance): boolean {
+  if (instance.activeTransfer) return false
   if (isAdminEntry || instance.dedicatedIpv4) return false
   if (instance.status?.toLowerCase() === 'deleted') return false
   return Number((instance as any).monthlyTrafficUsed || 0) > 0
 }
 
 function openResetTrafficModal(instance: Instance): void {
+  if (instance.activeTransfer) return
   resetTrafficTarget.value = instance
   showResetTrafficModal.value = true
 }
@@ -798,15 +806,15 @@ function getInstanceMonthlyPrice(instance: Instance): string {
 }
 
 function canUseInstanceBillingAction(instance: Instance): boolean {
-  return canUseCustomerBillingActions.value && !!instance.packagePlanId
+  return !instance.activeTransfer && canUseCustomerBillingActions.value && !!instance.packagePlanId
 }
 
 function canStartInstance(instance: Instance): boolean {
-  return !instance.serviceFault && instance.status?.toLowerCase() === 'stopped'
+  return !instance.activeTransfer && !instance.serviceFault && instance.status?.toLowerCase() === 'stopped'
 }
 
 function canDeleteInstance(instance: Instance): boolean {
-  return !instance.packagePlanId && (instance as any).allow_instance_deletion !== false
+  return !instance.activeTransfer && !instance.packagePlanId && (instance as any).allow_instance_deletion !== false
 }
 
 function getInstanceStatusTextClass(instance: Instance): string {
@@ -1047,6 +1055,7 @@ async function reorderInstance(instance: Instance, action: InstanceOrderAction):
 }
 
 async function handleAction(instance: Instance, action: InstanceAction): Promise<void> {
+  if (instance.activeTransfer) return
   if (action === 'delete' && !isAdmin.value && instance.user_id === authStore.user?.id) {
     selectedIds.value = new Set([instance.id])
     await openBatchDestroyModal()
@@ -1113,10 +1122,10 @@ function openInstanceDetail(instanceId: number): void {
 
 function getBatchTargets(action: BatchSimpleAction): Instance[] {
   if (action === 'start') {
-    return selectedInstances.value.filter(instance => !instance.serviceFault && instance.status?.toLowerCase() === 'stopped')
+    return selectedInstances.value.filter(instance => !instance.activeTransfer && !instance.serviceFault && instance.status?.toLowerCase() === 'stopped')
   }
   if (action === 'stop' || action === 'restart') {
-    return selectedInstances.value.filter(instance => !instance.serviceFault && instance.status?.toLowerCase() === 'running')
+    return selectedInstances.value.filter(instance => !instance.activeTransfer && !instance.serviceFault && instance.status?.toLowerCase() === 'running')
   }
   return selectedInstances.value
 }
@@ -1303,6 +1312,7 @@ async function openSingleRenewModal(instance: Instance): Promise<void> {
 }
 
 function openInstanceTransfer(instance: Instance): void {
+  if (instance.activeTransfer || actionLoading.value[instance.id]) return
   transferTarget.value = instance
 }
 
@@ -2029,7 +2039,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                   />
                   <button
                     v-if="canStartInstance(instance)"
-                    :disabled="!!actionLoading[instance.id]"
+                    :disabled="!!instance.activeTransfer || !!actionLoading[instance.id]"
                     class="p-1.5 rounded hover:bg-green-50 dark:hover:bg-green-900/20 text-green-500 transition-colors disabled:opacity-50"
                     :title="$t('instance.actions.start')"
                     @click.stop="handleAction(instance, 'start')"
@@ -2044,7 +2054,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                   </button>
                   <button
                     v-if="!instance.serviceFault && instance.status?.toLowerCase() === 'running'"
-                    :disabled="!!actionLoading[instance.id]"
+                    :disabled="!!instance.activeTransfer || !!actionLoading[instance.id]"
                     class="p-1.5 rounded hover:bg-amber-50 dark:hover:bg-amber-900/20 text-amber-500 transition-colors disabled:opacity-50"
                     :title="$t('instance.actions.stop')"
                     @click.stop="handleAction(instance, 'stop')"
@@ -2059,7 +2069,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                   </button>
                   <button
                     v-if="!instance.serviceFault && instance.status?.toLowerCase() === 'running'"
-                    :disabled="!!actionLoading[instance.id]"
+                    :disabled="!!instance.activeTransfer || !!actionLoading[instance.id]"
                     class="p-1.5 rounded hover:bg-primary-500/10 text-primary-600 transition-colors disabled:opacity-50 dark:text-primary-400"
                     :title="$t('instance.actions.restart')"
                     @click.stop="handleAction(instance, 'restart')"
@@ -2147,6 +2157,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                   >
                     {{ formatImageName(instance.image, (instance as any).imageName) }}
                   </div>
+                  <span v-if="instance.activeTransfer" class="text-xs font-semibold text-amber-600 dark:text-amber-400" role="status">{{ $t(instance.activeTransfer.status === 'processing' ? 'instance.card.transferring' : 'instance.card.transferPending') }}</span>
                   <div class="mt-2 flex flex-wrap items-center gap-1.5">
                     <span
                       v-if="isAdminEntry"
@@ -2225,6 +2236,10 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                     </template>
                   </span>
                 </div>
+                <div class="flex items-center justify-between">
+                  <span class="inline-flex items-center gap-1 text-themed-muted text-xs">{{ $t('instance.card.autoRenew') }}<InfoHint :text="$t('instance.card.autoRenewHelp')" /></span>
+                  <button type="button" class="btn-ghost btn-sm" :disabled="!canUseInstanceBillingAction(instance) || !!actionLoading[instance.id]" :aria-pressed="!!instance.autoRenew" @click.stop="handleSingleAutoRenew(instance, !instance.autoRenew)">{{ $t(instance.autoRenew ? 'billing.autoRenewEnabled' : 'billing.autoRenewDisabled') }}</button>
+                </div>
                 <div v-if="isAdmin" class="flex items-center justify-between">
                   <span class="text-themed-muted text-xs">{{ $t('instance.mobileCard.host') }}</span>
                   <span class="inline-flex items-center gap-1.5">
@@ -2276,7 +2291,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
               />
               <button
                 v-if="canStartInstance(instance)"
-                :disabled="!!actionLoading[instance.id]"
+                :disabled="!!instance.activeTransfer || !!actionLoading[instance.id]"
                 class="btn-ghost btn-sm flex-1"
                 @click.stop="handleAction(instance, 'start')"
               >
@@ -2288,7 +2303,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
               </button>
               <button
                 v-if="!instance.serviceFault && instance.status?.toLowerCase() === 'running'"
-                :disabled="!!actionLoading[instance.id]"
+                :disabled="!!instance.activeTransfer || !!actionLoading[instance.id]"
                 class="btn-ghost btn-sm flex-1"
                 @click.stop="handleAction(instance, 'stop')"
               >
@@ -2300,7 +2315,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
               </button>
               <button
                 v-if="!instance.serviceFault && instance.status?.toLowerCase() === 'running'"
-                :disabled="!!actionLoading[instance.id]"
+                :disabled="!!instance.activeTransfer || !!actionLoading[instance.id]"
                 class="btn-ghost btn-sm flex-1"
                 @click.stop="handleAction(instance, 'restart')"
               >
@@ -2311,7 +2326,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
               </button>
               <button
                 v-if="canResetInstanceTraffic(instance)"
-                :disabled="!!actionLoading[instance.id]"
+                :disabled="!!instance.activeTransfer || !!actionLoading[instance.id]"
                 class="btn-ghost btn-sm flex-1"
                 @click.stop="openResetTrafficModal(instance)"
               >
@@ -2319,7 +2334,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
               </button>
               <button
                 v-if="canDeleteInstance(instance)"
-                :disabled="!!actionLoading[instance.id]"
+                :disabled="!!instance.activeTransfer || !!actionLoading[instance.id]"
                 class="btn-ghost btn-sm flex-1 text-red-500 hover:text-red-400"
                 @click.stop="handleAction(instance, 'delete')"
               >
@@ -2433,9 +2448,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
               <dt class="font-semibold" :class="'text-themed'">
                 <span class="inline-flex items-center gap-1">
                   {{ $t('instance.card.autoRenew') }}
-                  <svg class="h-3.5 w-3.5 text-themed-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-                  </svg>
+                  <InfoHint :text="$t('instance.card.autoRenewHelp')" />
                 </span>
               </dt>
               <dd>
@@ -2459,6 +2472,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
 
             <div class="mt-4 flex items-center justify-between gap-3">
               <div class="inline-flex min-w-0 items-center gap-2">
+                <span v-if="instance.activeTransfer" class="text-sm font-semibold text-amber-600 dark:text-amber-400" role="status">{{ $t(instance.activeTransfer.status === 'processing' ? 'instance.card.transferring' : 'instance.card.transferPending') }}</span>
                 <span :class="['h-5 w-5 rounded-full border-4 border-themed', getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).dot]"></span>
                 <span class="truncate text-sm font-semibold" :class="getInstanceStatusTextClass(instance)">{{ getStatusInfo(instance.serviceFault ? 'fault' : instance.status, t).label }}</span>
               </div>
@@ -2487,6 +2501,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                   type="button"
                   class="kawaii-action-button inline-flex h-8 items-center justify-center rounded-md px-4 text-sm font-medium transition-colors"
                   :class="'bg-themed-secondary text-themed'"
+                  :disabled="!!instance.activeTransfer || !!actionLoading[instance.id]"
                   @click.stop="openInstanceTransfer(instance)"
                 >
                   {{ $t('instance.card.push') }}
@@ -2504,7 +2519,7 @@ function previewMatchesTargets(items: Array<{ id: number }>, targetIds: number[]
                   type="button"
                   class="kawaii-action-button inline-flex h-8 items-center justify-center rounded-md px-4 text-sm font-medium transition-colors"
                   :class="'bg-themed-secondary text-themed'"
-                  :disabled="!!actionLoading[instance.id]"
+                  :disabled="!!instance.activeTransfer || !!actionLoading[instance.id]"
                   @click.stop="openResetTrafficModal(instance)"
                 >
                   {{ actionLoading[instance.id] === 'resetTraffic' ? '...' : $t('admin.hosts.resetTraffic') }}

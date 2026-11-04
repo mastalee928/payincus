@@ -9,7 +9,8 @@ import { join } from 'node:path'
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'))
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { prepareTransferCleanup, runTransferCleanup } = await import('../src/services/transfer-cleanup.js')
+const { prepareTransferCleanup, runTransferCleanup, resumeTransferCleanups } = await import('../src/services/transfer-cleanup.js')
+const { executeTransfer } = await import('../src/db/transfers.js')
 const { closeCaddyClients } = await import('../src/lib/caddy-client.js')
 const tag = `transfer-${randomUUID().slice(0, 8)}`
 const root = await mkdtemp(join(tmpdir(), tag))
@@ -98,6 +99,7 @@ async function dropFault() {
     await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS fixture_transfer_fault()')
     triggerTable = undefined
   }
+  await prisma.$executeRawUnsafe('DROP SEQUENCE IF EXISTS fixture_transfer_conflicts')
 }
 async function injectFault(table: string, condition: string) {
   assert.ok(['instance_transfers', 'port_mappings', 'snapshots', 'backups'].includes(table))
@@ -107,7 +109,7 @@ async function injectFault(table: string, condition: string) {
 }
 try {
   for (const scenario of ['shared', 'dedicated', 'rename_commit', 'port_commit', 'snapshot_commit', 'backup_commit',
-    'site_failure', 'remote_refused', 'unconfirmed_delete', 'host_identity', 'uuid_changed', 'session_revoked', 'concurrent', 'new_resource', 'process_killed'] as const) {
+    'site_failure', 'remote_refused', 'unconfirmed_delete', 'host_identity', 'uuid_changed', 'session_revoked', 'concurrent', 'new_resource', 'process_killed', 'finalize_conflict', 'finalize_exhausted', 'snapshot_race'] as const) {
     const dedicated = scenario === 'dedicated'
     const name = `${tag}-${scenario}`, newName = dedicated ? name : `${name}-target`
     const host = await prisma.host.create({ data: { userId: owner.id, name, url: `https://127.0.0.1:${incusPort}`,
@@ -145,7 +147,35 @@ try {
     assert.equal(await prisma.backupPolicy.count({ where: { instanceId: instance.id } }), 0)
     assert.equal((await prepareTransferCleanup(transfer.id, newName, 'different retry label', actor)).newName, name)
     const run = () => runTransferCleanup(transfer.id, actor)
+    const originalTransaction = prisma.$transaction
+    let snapshotRace = false
     const beforeCalls = calls.length
+    try {
+    if (scenario === 'snapshot_race') prisma.$transaction = new Proxy(originalTransaction, { apply(fn, receiver, args) {
+      if (args[1]?.isolationLevel === 'Serializable') {
+        const work = args[0]
+        args[0] = (tx: any) => work(new Proxy(tx, { get(target, key) {
+          if (key !== '$queryRaw') return Reflect.get(target, key)
+          return async (...query: any[]) => {
+            const result = await target.$queryRaw(...query)
+            if (!snapshotRace) {
+              snapshotRace = true
+              // The first advisory-lock SQL established the Serializable snapshot.
+              // An actual concurrent commit now updates the row before FOR UPDATE.
+              await prisma.instance.update({ where: { id: instance.id }, data: { updatedAt: new Date() } })
+            }
+            return result
+          }
+        } }))
+      }
+      return Reflect.apply(fn, receiver, args)
+    } })
+    if (scenario === 'finalize_conflict' || scenario === 'finalize_exhausted') {
+      await prisma.$executeRawUnsafe('CREATE SEQUENCE fixture_transfer_conflicts')
+      triggerTable = 'instance_transfers'
+      await prisma.$executeRawUnsafe(`CREATE FUNCTION fixture_transfer_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = ${transfer.id} AND NEW.status = 'accepted' AND nextval('fixture_transfer_conflicts') <= ${scenario === 'finalize_exhausted' ? 4 : 2} THEN RAISE EXCEPTION 'could not serialize access due to concurrent update' USING ERRCODE = '40001'; END IF; RETURN NEW; END $$`)
+      await prisma.$executeRawUnsafe('CREATE TRIGGER fixture_transfer_fault BEFORE UPDATE ON instance_transfers FOR EACH ROW EXECUTE FUNCTION fixture_transfer_fault()')
+    }
     if (scenario === 'host_identity') {
       await prisma.host.update({ where: { id: host.id }, data: { serverFingerprint: 'changed' } })
       await assert.rejects(run, /TRANSFER_SOURCE_CHANGED/)
@@ -164,7 +194,7 @@ try {
     rejectCaddy = scenario === 'site_failure'
     refuseDelete = ['remote_refused', 'uuid_changed', 'new_resource'].includes(scenario)
     ignoreDelete = scenario === 'unconfirmed_delete'
-    if (triggerTable || rejectCaddy || refuseDelete || ignoreDelete) {
+    if ((!['finalize_conflict', 'finalize_exhausted'].includes(scenario) && triggerTable) || rejectCaddy || refuseDelete || ignoreDelete) {
       await assert.rejects(run)
       const pending = await prisma.instanceTransfer.findUniqueOrThrow({ where: { id: transfer.id } })
       assert.equal(pending.status, 'processing')
@@ -224,7 +254,20 @@ try {
       const first = run(); await ready
       await assert.rejects(run, /TRANSFER_INSTANCE_BUSY/)
       pauseRemote = undefined; release(); await first
+    } else if (scenario === 'finalize_exhausted') {
+      await assert.rejects(run, /TRANSFER_DATABASE_RETRY_PENDING/)
+      const pending = await prisma.instanceTransfer.findUniqueOrThrow({ where: { id: transfer.id } })
+      const state = pending.cleanupState as any
+      assert.equal(state.stage, 'finalize'); assert.equal(pending.status, 'processing')
+      assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: instance.id } }), 0)
+      assert.ok(!/Prisma|40001|Invalid|queryRaw/.test(state.error), 'human error hides database internals')
+      const count = calls.length
+      await resumeTransferCleanups(); assert.equal(calls.length, count, 'persisted backoff is respected')
+      await prisma.instanceTransfer.update({ where: { id: transfer.id }, data: { cleanupState: { ...state, nextAttemptAt: new Date(0).toISOString() } } })
+      await resumeTransferCleanups()
     } else await run()
+    } finally { prisma.$transaction = originalTransaction }
+    if (scenario === 'snapshot_race') assert.equal(snapshotRace, true, 'actual concurrent commit was injected after snapshot acquisition')
     const completed = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
     assert.equal(completed.userId, target.id); assert.equal(completed.incusId, newName); assert.equal(completed.autoRenew, false)
     for (const key of ['hostId', 'status', 'ipv4', 'ipv6', 'cpu', 'memory', 'disk', 'billingPrice', 'expiresAt', 'dedicatedNetworkReady'] as const) {
@@ -233,6 +276,13 @@ try {
     assert.equal(remote.uuid, originalUuid)
     assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: instance.id, type: 'transfer_fee' } }), 1)
     assert.equal((await prisma.instanceTransfer.findUniqueOrThrow({ where: { id: transfer.id } })).status, 'accepted')
+    if (scenario === 'finalize_conflict' || scenario === 'finalize_exhausted') {
+      assert.equal(Number((await prisma.$queryRawUnsafe<any[]>('SELECT last_value FROM fixture_transfer_conflicts'))[0].last_value), scenario === 'finalize_exhausted' ? 5 : 3)
+      const receipt = (await prisma.instanceTransfer.findUniqueOrThrow({ where: { id: transfer.id } })).cleanupState as any
+      await executeTransfer(transfer.id, instance.id, owner.id, target.id, name, newName, name, receipt.attemptId, actor)
+      assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: instance.id, type: 'transfer_fee' } }), 1, 'commit receipt does not repeat the fee')
+      await dropFault()
+    }
     assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).natPortsUsedCount, dedicated ? 2 : 0)
     assert.equal(await prisma.portMapping.count({ where: { instanceId: instance.id } }), dedicated ? 2 : 0)
     assert.deepEqual(remote.devices, dedicated ? originalDevices : Object.fromEntries(Object.entries(originalDevices).filter(([key]) => !key.startsWith('proxy-'))))
@@ -243,14 +293,20 @@ try {
   }
   console.log('Transfer cleanup integration passed: actual PostgreSQL, mTLS Incus boundary, TLS Caddy boundary; fixed resources, UUID/pin, restartable receipts, concurrency and dedicated preservation')
 } finally {
+  console.log('CLEANUP fault records')
   await dropFault()
+  console.log('CLEANUP Caddy clients')
   await closeCaddyClients()
+  for (const server of [incus, caddy]) server.closeAllConnections()
+  console.log('CLEANUP TLS servers')
   await Promise.all([incus, caddy].map(server => new Promise<void>(resolve => server.close(() => resolve()))))
   await prisma.log.deleteMany({ where: { instanceId: { in: instanceIds } } })
   await prisma.instance.deleteMany({ where: { id: { in: instanceIds } } })
   await prisma.host.deleteMany({ where: { id: { in: hostIds } } })
   await prisma.user.deleteMany({ where: { id: { in: [owner.id, target.id] } } })
   await closePrismaDatabase()
+  console.log('CLEANUP PostgreSQL connections closed')
   if (previousCa === undefined) delete process.env.CADDY_CA_PATH; else process.env.CADDY_CA_PATH = previousCa
   await rm(root, { recursive: true, force: true })
 }
+process.exit(0)

@@ -113,7 +113,7 @@ const mergedInstance = computed(() => {
 const displayStatus = computed(() => optimisticStatus.value || mergedInstance.value.status || 'stopped')
 const statusInfo = computed(() => getStatusInfo(displayStatus.value, t))
 const networkMode = computed(() => {
-  const mode = (mergedInstance.value.network_mode || (mergedInstance.value as { networkMode?: string }).networkMode || null) as 'nat' | 'nat_ipv6' | 'nat_ipv6_nat' | 'ipv6_only' | 'ipv6_nat' | null
+  const mode = mergedInstance.value.network_mode || (mergedInstance.value as { networkMode?: string }).networkMode || null
   return mode
 })
 const networkModeLabel = computed(() => {
@@ -140,14 +140,16 @@ const priceLabel = computed(() => {
   return Number.isFinite(price) && price > 0 ? `¥${price.toFixed(2)}` : null
 })
 const displayIp = computed(() => ({
-  ipv4: mergedInstance.value.ipv4 || null,
+  ipv4: mergedInstance.value.publicIpUpdating ? mergedInstance.value.observedPublicIp || null
+    : mergedInstance.value.nat_public_ip || mergedInstance.value.natPublicIp || mergedInstance.value.host?.nat_public_ip ||
+      (['public_ipv4', 'public_ipv4_ipv6'].includes(networkMode.value || '') ? mergedInstance.value.ipv4 || null : null),
   ipv6: ['nat_ipv6', 'ipv6_only'].includes(networkMode.value || '') ? mergedInstance.value.ipv6 || null : null
 }))
 const isRunning = computed(() => displayStatus.value.toLowerCase() === 'running')
 const isSuspended = computed(() => displayStatus.value.toLowerCase() === 'suspended')
 const isDeleted = computed(() => displayStatus.value.toLowerCase() === 'deleted')
 const hasActiveTask = computed(() => !!activeTask.value && !['COMPLETED', 'FAILED'].includes(activeTask.value.status))
-const isBusy = computed(() => !captureContext()() || loading.value || actionLoading.value !== '' || hasActiveTask.value)
+const isBusy = computed(() => !captureContext()() || loading.value || actionLoading.value !== '' || hasActiveTask.value || !!mergedInstance.value.activeTransfer)
 const canStart = computed(() => !!instance.value && !isBusy.value && !isRunning.value && !isSuspended.value && !isDeleted.value)
 const canStop = computed(() => !!instance.value && !isBusy.value && isRunning.value)
 const canRestart = computed(() => !!instance.value && !isBusy.value && isRunning.value)
@@ -903,6 +905,10 @@ onBeforeUnmount(() => { alive = false; deactivate() })
             <div class="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-black/20">
               <div class="text-[11px] text-gray-500 dark:text-gray-400">IPv4</div>
               <div class="mt-1 break-all font-mono text-sm text-gray-900 dark:text-gray-100">{{ displayIp.ipv4 || '-' }}</div>
+            </div>
+            <div v-if="authStore.isAdmin" class="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-black/20">
+              <div class="text-[11px] text-gray-500 dark:text-gray-400">{{ t('onboarding.accountLabel') }}</div>
+              <div class="mt-1 break-all text-sm text-gray-900 dark:text-gray-100">{{ mergedInstance.ociAccountLabel || '-' }}</div>
             </div>
             <div class="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-black/20">
               <div class="text-[11px] text-gray-500 dark:text-gray-400">IPv6</div>

@@ -50,7 +50,7 @@ watchEffect(() => {
 
   const brandName = configStore.brandName?.trim() || 'Incudal'
   const brandSubtitle = configStore.brandSubtitle?.trim() || t('common.defaultBrandSubtitle')
-  document.title = pageTitle ? `${brandName} - ${pageTitle}` : `${brandName} - ${brandSubtitle}`
+  document.title = route.name === 'pool-purchase' || !pageTitle ? `${brandName} - ${brandSubtitle}` : `${brandName} - ${pageTitle}`
 })
 
 // 检查会话是否有效

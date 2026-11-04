@@ -19,6 +19,7 @@ const { t, locale } = useI18n(), route = useRoute(), auth = useAuthStore()
 const order = ref<CheckoutOrder | null>(null), error = ref(''), busy = ref(false), checking = ref(false)
 const providers = ref<Awaited<ReturnType<typeof api.billing.getPaymentProviders>>['providers']>([])
 const walletBalance = ref<number | null>(null)
+const balanceLabel = computed(() => `${t('cart.balance')}(${walletBalance.value === null ? '—' : `￥${walletBalance.value.toFixed(2)}`})`)
 const configurationReady = ref(false)
 const choice = ref('balance'), now = ref(Date.now())
 let alive = true, active = false, generation = 0, sequence = 0, initializedChoice = false
@@ -85,7 +86,11 @@ async function pay() {
     const result = key === 'balance' ? await api.checkout.balance(props.id) : option ? await api.checkout.payment(props.id, option.provider.id, option.method || undefined) : null
     if (result && current()) {
       accept(result)
-      if (key === 'balance') void auth.fetchCurrentUser()
+      if (key === 'balance') {
+        void auth.fetchCurrentUser()
+        walletBalance.value = null
+        void api.billing.getUserBalance().then(value => { if (current()) walletBalance.value = value.balance.balance }).catch(() => {})
+      }
       else if (choice.value === key && result.status === 'pending') {
         const attempt = result.payments.find(row => row.providerId === option?.provider.id && (!option.method || row.method === option.method))
         if (attempt?.payUrl) window.location.assign(attempt.payUrl)
@@ -155,7 +160,7 @@ onBeforeUnmount(() => { alive = false; active = false; reset() })
         <section class="payment-checkout" :aria-label="t('cart.paymentMethod')">
           <h2>{{ open ? t('cart.paymentMethod') : t('cart.summary') }}</h2>
           <div v-if="open" class="payment-options" role="group" :aria-label="t('cart.paymentMethod')">
-            <button type="button" :disabled="busy" :aria-pressed="choice === 'balance'" :class="choice === 'balance' ? 'selected' : ''" @click="choice = 'balance'"><Wallet :size="18" /><span>{{ t('cart.balance') }}<small>{{ walletBalance === null ? '—' : `¥${walletBalance.toFixed(2)}` }}</small></span><Check v-if="choice === 'balance'" :size="16" /></button>
+            <button type="button" :disabled="busy" :aria-pressed="choice === 'balance'" :class="choice === 'balance' ? 'selected' : ''" @click="choice = 'balance'"><Wallet :size="18" /><span>{{ balanceLabel }}</span><Check v-if="choice === 'balance'" :size="16" /></button>
             <button v-for="option in options" :key="option.key" type="button" :disabled="busy" :aria-pressed="choice === option.key" :class="choice === option.key ? 'selected' : ''" @click="choice = option.key"><PaymentMethodIcon :method="option.method || option.provider.methods?.[0]" :provider-type="option.provider.type" /><span>{{ option.label }}</span><Check v-if="choice === option.key" :size="16" /></button>
           </div>
           <dl><div><dt>{{ t('checkout.productTotal') }}</dt><dd>¥{{ formatPublicPrice(order.totalCents) }}</dd></div><div v-if="open && quote.fee"><dt>{{ t('wallet.feeNote') }}</dt><dd>¥{{ formatPublicPrice(quote.fee) }}</dd></div></dl>

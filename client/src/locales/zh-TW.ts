@@ -2564,6 +2564,9 @@ pool: {
             noAvailableVersions: '此發行版無可用版本',
         },
         card: {
+            autoRenewHelp: '開啟後，平台在到期前按目前計費週期自動續費並扣除帳戶餘額。請保持餘額充足；轉移後自動關閉，由新用戶自行開啟。',
+            transferring: '轉移中',
+            transferPending: '等待轉移',
             region: '地區',
             cpu: 'CPU',
             memory: '記憶體',
