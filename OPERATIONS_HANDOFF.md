@@ -6,9 +6,9 @@
 
 v1.8.2已发行并完成同来源CI、双架构首装及六公开资产核验，包含重复IP反馈和重装/删除再接入生命周期。失败前期任务没有正式Host时，使用当前root密码点普通重试，后台认证并预检后才更新身份和清理旧peer；只隐藏接入历史不会删除现存Host的管理连接。正式Host移除需无客户/在途任务。包内含新迁移和受限网关helper，本机OTA会刷新helper，外部旧组件需升级后再执行新协议。版本与各目标部署事实见HANDOFF顶部。
 
-v1.8.3候选已针对下述隔离遗漏建立新的只读核验周期，保留原身份、客户/库存及未知残留保护，不重放旧删除授权。转移40001仅DB最终提交有限重试，耗尽后持久退避和按原授权续接；权限/身份变化仍阻断。正式发行及目标验证见HANDOFF顶部，owner自行网页升级。
+v1.8.3已正式发行，候选/main完整CI、双架构正式首装及六公开资产验签完成，实际来源见HANDOFF顶部。本版针对下述隔离遗漏建立新的只读核验周期，保留原身份、客户/库存及未知残留保护，不重放旧删除授权。转移40001仅DB最终提交有限重试，耗尽后持久退避和按原授权续接；权限/身份变化仍阻断。Owner自行按[网页升级与检查](docs/release-v1.8.3-owner-click-test.md)核目标结果，本次没有代做生产OTA或解除隔离。
 
-已知v1.8.2遗漏：旧清理任务done后又发生开通失败，宿主会再次被隔离，但自动扫描和重试跳过旧done任务，IPv4/IPv6因此等待。在线、心跳正常或地址已读取均不等于隔离已恢复；“立即同步IPv6”不能解除该门禁。先只读核原身份、历史失败/清理、客户及残留数据，保存具体结果；不要重放旧删除授权、清指纹或直接改数据库标记。该问题已诊断但未修复，新源码修复按新版本处理，稳定v1.8.2不移动。
+v1.8.2历史遗漏：旧清理任务done后又发生开通失败，宿主再次隔离，但自动扫描和重试跳过旧done任务，IPv4/IPv6因此等待；v1.8.3源码和隔离回归已修此生命周期。在线、心跳正常或地址已读取仍不能代替恢复条件核验；“立即同步IPv6”不能解除该门禁。升级后由新周期只读核原身份、客户/任务/库存与残留，通过后程序续接，未知身份或数据冲突保留保护与具体原因；不要重放旧删除授权、清指纹或直接改数据库标记。稳定v1.8.2包保持原样，实际生产恢复须单独记录。
 
 The private backend on 127.0.0.1:3001 must run as exactly one Node.js process. Treat a second backend replica as an unsupported deployment. Login locks, OAuth nonces, replay prevention, task state and configuration caches include process-local state; PostgreSQL advisory locks do not make multiple replicas safe. Move that state into shared storage before considering additional workers.
 

@@ -1,8 +1,44 @@
 # 版本与验证记录
 
+## 2026-11-05 v1.8.3 七项修复正式发行核验完成
+
+- 正式源码 `1ac022b567ee959d0d44df70462c73e9683f08d6`，tree `c75c12e4313dba81d1b17a29f8c5b95c12fec09b`。main精确非force快进、PR [#5](https://github.com/mastalee928/payincus/pull/5) MERGED且mergeCommit同源码；注释tag `v1.8.3` 对象 `bc0639ba9ece29ce334c7ed56cfc6c8a345a7926` 固定解引用同源码。最终文档提交不移动tag、不重新打包。
+- 候选CI [41894899709](https://github.com/mastalee928/payincus/actions/runs/41894899709) 十job success、实际PR checkout `df33a8fc35f3c0c18d58f8593c04d2d1ba456f73` tree同候选；预览 [41894888749](https://github.com/mastalee928/payincus/actions/runs/41894888749) 四必需job success/Release skipped。正式 [41914476956](https://github.com/mastalee928/payincus/actions/runs/41914476956) 五job success、双原生首装独立核验。main CI [41914468073](https://github.com/mastalee928/payincus/actions/runs/41914468073) 现已十job全部终态success；23:09:02Z逐job实际checkout同完整正式源码，最终Pool日志、16/58/78–81/90与本批隔离/PG/App/API/三语真实触摸markers已核。旧候选step99失败由候选与main新来源通过闭环，原日志保留。
+- 最后按同SHA发现仅上述四关联运行，全部终态success，无新增Agent/Pages或未处理发行失败。`logs/release-v1.8.3-{candidate-ci,preview,formal,main-ci}-verified.json`与逐job原始日志归档；209完整守卫、240迁移、唯一后台、双前端、公开Agent、双首装备份预检/恢复/改变后回退续接及SQL ZIP/旧CRLF完整性拒绝分别核验，预览没有替代正式。
+- [v1.8.3 Release](https://github.com/mastalee928/payincus/releases/tag/v1.8.3) 于 `2026-11-04T21:27:53Z` 公开发布，非draft/prerelease、核验latest=v1.8.3。六资产实际下载并核API digest/大小、SHA256/双OTA、包内版本/迁移/LICENSE/root/路径/native、本批前后端修复编译文件及双组件原受信Ed25519签名/20文件/完整sourceCommit；Release说明回读一致、更新后资产保持。AMD64 `214176614` 字节/hash `b6ead81c50180d5d84f11e4aff5e08b4b850f0637fd1fe0574215fc57568246e`，ARM64 `213431430` 字节/hash `9b67415d0b83317446e6c384a131a95071b6aa41d77703271d0e0c05e05dce9b`。完整六项与范围见[公开验证记录](docs/release-v1.8.3-validation.md)。
+- Agent保持v1.0.4，原tag来源 `76e779df77e52cbe96ee2e103d57dd951dba4e1e`、tree `359dcf6657f8666e1274a2b21bc556c2dbf28270` 与三资产hash/大小/更新时间沿原实际下载基线不变，无移动/重发。`panel-assets-verified.json`、`public-release-verified.json`、`agent-after-main-verified.json`及资产验签日志归档，不重复下载发布。
+- 本版修复done后二次隔离无新核验、转移40001有限提交重试与持久续接、工单公网IPv4/管理员OCI标签、首页底部、三语说明图标、转移状态门禁、品牌副标题与余额显示。原身份/未知残留/客户与库存保护保持，首次失败原因持久记录；历史开通#26具体失败步骤无原日志，不能猜因。代码复核、本机隔离PG/TLS与真实Vue/Chrome、对应守卫/类型/双端build均有独立证据，本机未重复全套大矩阵。
+- Owner自行[网页升级与检查](docs/release-v1.8.3-owner-click-test.md)，含实际版本/提交、七项回归、接入/IP、支付、OSS与日志/库存判据。此前只读目标实际已v1.8.2（deployedAt `2026-11-04T16:53:54.766Z`），不是本agent升级；本次未代部署v1.8.3、解除生产隔离或操作客户。真实OCI/原Agent客户公网、真实OSS全新B完整灾备、独立备用、近千台/72小时仍未全面验收。`.taste-skill/`保留；以下“在跑/准备”均为历史阶段记录。
+
+## 2026-11-05 v1.8.3 正式发行与六资产已核，等待最终 main CI
+
+- [v1.8.3 Release](https://github.com/mastalee928/payincus/releases/tag/v1.8.3) 于 `2026-11-04T21:27:53Z` 实际公开发布，非draft/prerelease，panel latest=v1.8.3。正式Build & Release [41914476956](https://github.com/mastalee928/payincus/actions/runs/41914476956) 五job全部终态success；verify-workflow.py formal独立核五job实际checkout同完整源码 `1ac022b567ee959d0d44df70462c73e9683f08d6`，双原生首装、209守卫/240迁移、唯一后台/双前端/公开Agent、备份预检/恢复/改变后回退续接、SQL ZIP及旧CRLF完整性拒绝通过。`formal-verified.json`和五日志归档，不再查询或重跑。
+- 六公开资产实际下载至 `logs/release-v1.8.3-panel-assets`，核API digest/大小、双tar独立SHA256、双OTA字节/hash/大小/URL/架构、包内1.8.3/240迁移/LICENSE/root归属/路径/native和本批前后端修复编译markers。每包双架构组件独立用v1.8.2沿用的受信Ed25519公钥验签，20文件hash/大小/权限/ELF架构、catalog/payload完整sourceCommit同源码。AMD64包 `214176614` 字节 SHA256 `b6ead81c50180d5d84f11e4aff5e08b4b850f0637fd1fe0574215fc57568246e`；ARM64包 `213431430` 字节 SHA256 `9b67415d0b83317446e6c384a131a95071b6aa41d77703271d0e0c05e05dce9b`。`panel-assets-verified.json`与verification.log归档，不重复下载或执行verify-public-release.py。
+- Release说明按tag-notes.md更新并回读逐字一致，更新后六资产/latest复核 `public-release-verified.json`。Agent仍v1.0.4，原tag来源 `76e779df77e52cbe96ee2e103d57dd951dba4e1e`/tree `359dcf6657f8666e1274a2b21bc556c2dbf28270`、三资产hash/大小/更新时间沿实际下载基线不变，`agent-after-main-verified.json`归档，无重发。
+- 当前仅main CI [41914468073](https://github.com/mastalee928/payincus/actions/runs/41914468073) Pool `126870351390` 未终态，21:31Z step57，无新失败；其余九job终态success，实际checkout同完整正式源码，`main-ci-partial-verified.json`及九日志归档。最终须核十job完整终态及日志，最后发现同SHA关联新增run并全部核验；当前四关联run中候选/预览/formal均success，不查旧终态。完成后才提交最终公开验证文档与台账，不把九job成功说成全部main CI通过。
+- 本次未代部署v1.8.3或解除生产隔离；此前只读目标已v1.8.2，源码/隔离/发行不代表该目标受影响流程已恢复。首装OSS为本地传输替身，真实OCI/原Agent客户公网、真实OSS全新B完整灾备、独立备用、千台/72小时仍未验收。以下保留阶段历史。
+
+## 2026-11-05 v1.8.3 候选核验完成，main 与正式 tag 已推进
+
+- 候选CI [41894899709](https://github.com/mastalee928/payincus/actions/runs/41894899709) 已十job全部终态success。逐job实际PR checkout `df33a8fc35f3c0c18d58f8593c04d2d1ba456f73` 的tree与正式源码 `1ac022b567ee959d0d44df70462c73e9683f08d6` 同为 `c75c12e4313dba81d1b17a29f8c5b95c12fec09b`；最终Pool完整日志、16/58/78–81/90、本批隔离/转移PG/API/完整App及三语实际触摸markers已核。证据 `logs/release-v1.8.3-candidate-ci-verified.json` 与十份日志归档，旧step99失败由新来源通过闭环，历史保留不再查询。
+- 同来源预览 [41894888749](https://github.com/mastalee928/payincus/actions/runs/41894888749) 四必需job全部success/Release skipped，209守卫、240迁移、双原生首装全部恢复/回退续接及SQL ZIP/旧CRLF拒绝已独立核验并归档，不再查询或重跑。
+- `2026-11-04T21:16:01Z` main从 `6ddd67d8c38099f5c29aebd890c131bea6113b02` 精确非force快进至上述源码，PR [#5](https://github.com/mastalee928/payincus/pull/5) 已MERGED，mergeCommit同完整源码。注释tag `v1.8.3` 对象 `bc0639ba9ece29ce334c7ed56cfc6c8a345a7926` 于21:16:05Z核验推送、解引用同源码；不再执行publish.py，不移动任何稳定tag。
+- 同SHA关联发现共四run：候选CI/预览均终态success；新main CI [41914468073](https://github.com/mastalee928/payincus/actions/runs/41914468073) 与正式Build & Release [41914476956](https://github.com/mastalee928/payincus/actions/runs/41914476956) 仍在跑，无新失败，尚无关联Agent/Pages运行。plan.pendingRuns仅后两项；终态须分别核全部十job/五job实际来源与日志，再核六公开资产、原受信签名、OTA/latest与Agent原基线。
+- 正式首装和六资产尚未完成，不能称正式发行核验完成；本次未代做生产OTA、解除隔离或客户操作。此前只读目标已v1.8.2，本次v1.8.3尚无目标部署证据；真实OSS新B、原Agent/客户公网、独立备用、千台/72小时仍未验收。阶段台账留至最终文档提交，不为记录触发产品重跑。以下保留原阶段历史。
+
 ## 2026-11-05 v1.8.3 本批七项修复与候选发行准备
 
+2026-11-04T19:39Z最新候选预览41894888749已四必需job全部终态success/Release skipped，独立verify-workflow.py preview核实际checkout同1ac022b5完整SHA、209守卫/240迁移、双原生首装全部备份/恢复/回退续接/SQL ZIP及旧CRLF拒绝；四份日志和preview-verified.json归档，不再查询或重跑。候选CI41894899709九job success，仅Pool综合job126801689760 step98未终态，无新失败；以pendingRuns为准，全部通过前不推进main/tag。
+
+最新候选 `1ac022b567ee959d0d44df70462c73e9683f08d6` / tree `c75c12e4313dba81d1b17a29f8c5b95c12fec09b` 已推同分支与PR#5，只改手机触摸测试定位和失败诊断，产品源码与此前候选相同。本次完整浏览器专项自然exit0，测试清单和语法检查通过；新CI41894899709/预览41894888749完整headSha已核，正在运行，无新失败。以plan/pendingRuns为准，2a7f候选CI失败和旧预览success保留历史、不再查询；main/稳定tag尚未发布。下方旧候选为各阶段原记录。
+
+2026-11-04T19:07Z发现候选CI41887788857终态failure，唯一失败为Pool job126776816396 step99，`scripts/test-instance-batch-billing.mjs:49`手机真实触摸未显示说明；其余九job均success。完整失败job日志归档；step81本批真实40001、耗尽续接和完整App首页，二次隔离/真实API专项均已实际通过。失败触摸测试在scrollIntoView后同步取坐标、未等平滑滚动/布局完成且未核点击命中；本机原用例再次自然exit0，不能凭CI单条断言认定产品触控无效或确定具体浏览器调度。最小补丁仅稳定测试的定位与触控输入：即时滚入视口、三次稳定坐标和真实hit-test、50ms触摸保持；原三语开关/44px/转移及全批量业务断言不降低，失败追加布局诊断与截图。修正后同一完整浏览器专项自然exit0，生产源码不变，复用对应类型/build/PG证据；新候选须重新核同来源CI/预览。尚未推进main或打v1.8.3稳定tag，旧成功预览保留历史不作新候选证据。
+
 Owner已授权整理、修复、代码复核、推送和新版本发行；稳定v1.8.2不移动，本次不代做生产OTA、清数据库隔离或操作客户网络。旧v1.8.2监控已删除。
+
+候选 `2a7f80ff99826c7c12bba3be817c791870375118` / tree `1343324f71e27e96c89c65564ddb6a83ee2f818b` 已推 `codex/release-v1.8.3`，PR [#5](https://github.com/mastalee928/payincus/pull/5) 已附聊天。2026-11-04T18:42Z：CI [41887788857](https://github.com/mastalee928/payincus/actions/runs/41887788857) 九job终态success/仅Pool综合job在跑；实际PR checkout `df8181d4b9bef24d51889168361a23247059bdb2` 已独立核tree与候选一致，九job日志归档。预览 [41887784640](https://github.com/mastalee928/payincus/actions/runs/41887784640) 双构建success、AMD64完整209守卫已核，双原生首装恢复仍在跑，无新失败。此为阶段记录，main仍 `6ddd67d8c38099f5c29aebd890c131bea6113b02`，尚未打v1.8.3稳定tag或正式发行；`logs/release-v1.8.3-plan.json/status.json`与本线程监控 `payincus-v1-8-3` 持续核验。阶段文档保留到最终台账，不为纯记录换候选或重跑测试。
+
+2026-11-04T18:43Z：预览41887784640已全部终态success/Release skipped；`release-v1.8.3-verify-workflow.py preview`独立核四job实际checkout、209守卫/240迁移、双原生首装与完整备份预检/还原/改变后回退续接/SQL ZIP完整性及旧CRLF拒绝条件，`logs/release-v1.8.3-preview-verified.json`与四份日志归档。预览不再查询或重跑，pending仅CI41887788857。
 
 再次隔离由失败开通补偿保留旧done任务造成；新周期保持原受信Host身份，仅只读核验，不带旧UUID/删除授权，扫描/重试都能推进；未知残留、身份变化、保留数据策略及客户/账務占用继续保护。首次失败原因与时间持久保存，缺失历史原步骤不推测补写。转移40001仅DB最终提交有限重试，实际并发快照与四次耗尽专项确认自动退避续接、手续费一次及原资源身份保持；撤权、恢复保护、原UUID/库存门禁保留。
 

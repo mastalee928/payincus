@@ -1,8 +1,40 @@
 # 网关灾备工程进度
 
+## 2026-11-05 v1.8.3 发行与最终 CI 核验完成
+
+正式源码 `1ac022b567ee959d0d44df70462c73e9683f08d6` / tree `c75c12e4313dba81d1b17a29f8c5b95c12fec09b`；main精确非force快进、PR#5合并，注释tag对象 `bc0639ba9ece29ce334c7ed56cfc6c8a345a7926` 固定同来源。候选CI41894899709与mainCI41914468073各十job、预览41894888749四必需job、formal41914476956五job全部终态通过；逐job实际来源/关键步骤与日志归档，候选PR checkout tree一致。最终main Pool完整日志于23:09:02Z核验，二次隔离、转移真实PG竞争/耗尽续接与手续费一次、管理员字段隔离、完整App/三语真实触摸通过。最后同SHA仅四关联run，全部success，无新增Agent/Pages或未处理失败。
+
+v1.8.3于21:27:53Z公开发布，六资产实际下载独立核hash/大小/API digest/双OTA、1.8.3/240迁移/LICENSE/root/路径/native、本批修复编译markers和双组件原受信Ed25519签名/20文件/完整sourceCommit；Release说明回读一致/latest核验。AMD64包214176614字节/hash `b6ead81c50180d5d84f11e4aff5e08b4b850f0637fd1fe0574215fc57568246e`，ARM64包213431430字节/hash `9b67415d0b83317446e6c384a131a95071b6aa41d77703271d0e0c05e05dce9b`。Agent v1.0.4原tag/tree/三资产基线保持，无重发。详见[公开验证](docs/release-v1.8.3-validation.md)与[网页升级检查](docs/release-v1.8.3-owner-click-test.md)，原日志在ignored logs。
+
+本轮七项源码/隔离/发行闭环完成，生产目标未由本agent升级到v1.8.3或解除隔离。此前只读主控已v1.8.2，历史开通的确切失败步骤缺日志不得猜因；新版保留原身份/客户/未知残留并记录新失败。首装OSS为本地替身，真实OSS全新B/原Agent客户公网/独立备用/近千台72小时仍未全面验收，不能把发行通过当成完整灾备完成。稳定tag不改来源，`.taste-skill/`保留；以下为历史阶段记录。
+
+## 2026-11-05 v1.8.3 已公开发行与验签，main CI 尚未终态
+
+21:27:53Z v1.8.3实际公开发布，formal41914476956五job终态success，实际checkout均同 `1ac022b567ee959d0d44df70462c73e9683f08d6`；209守卫/240迁移、双原生首装、唯一后台/双前端/公开Agent、完整备份恢复/回退续接及SQL ZIP/旧CRLF拒绝独立核验。六公开资产已实际下载核API digest/大小、双tar/hash/双OTA、包内修复与双端编译markers、root/路径/native/LICENSE、双组件原受信Ed25519签名与20文件/完整sourceCommit。Release说明回读一致、六资产/latest复核，Agent v1.0.4原tag/tree/三资产基线保持。formal/public-release/panel-assets/agent-after-main证据与日志归档，不重复查询终态、下载或发布。
+
+仅main CI41914468073的Pool126870351390未终态，21:31Z step57，无新失败；其它九job实际checkout同完整源码，原日志已归档供终态复用。最终十job及同SHA新增关联run全部核后再提交文档台账收尾。稳定tag固定原来源，本轮没有代部署v1.8.3或手工解除生产隔离。首装OSS是本地替身；真实OSS新B/原Agent客户公网/独立备用/千台72小时仍未验收。以下为历史阶段记录。
+
+## 2026-11-05 v1.8.3 候选完成，正式验证在跑
+
+候选CI41894899709十job全部终态success，实际PR checkout `df33a8fc35f3c0c18d58f8593c04d2d1ba456f73` 与源码 `1ac022b567ee959d0d44df70462c73e9683f08d6` tree一致；最终Pool日志、关键步骤及隔离/40001/真实API/完整App/三语触摸已独立核验，旧step99失败由新来源闭环。预览41894888749双原生首装、209守卫/240迁移与完整恢复/拒绝条件全部通过，日志归档不再查询。
+
+21:16:01Z main精确非force快进到同源码，PR#5 MERGED且mergeCommit一致；v1.8.3注释tag对象 `bc0639ba9ece29ce334c7ed56cfc6c8a345a7926` 固定解引用同源码，不再执行publish.py或移动稳定tag。当前仅main CI41914468073、正式Build & Release41914476956未终态，无新失败；同SHA共四关联run，无新增Agent/Pages。必须继续独立核main十job、formal五job和六公开资产/原受信签名/OTA/latest，预览不代替正式。
+
+本轮未代部署v1.8.3或手工解除生产隔离；此前只读主控已v1.8.2，真实生产恢复与客户流程仍须owner网页验收。真实OSS新B、原Agent客户公网、独立备用、千台/72小时仍未验收。阶段记录保留到最终文档收尾，不为台账重新运行产品。以下为历史阶段记录。
+
 ## 2026-11-05 v1.8.3 本批七项修复与候选发行准备
 
+19:39Z当前1ac022b5预览41894888749四必需job终态success/Release skipped，独立核完整来源、209守卫/240迁移和双原生首装恢复/完整性拒绝，preview-verified.json及四job日志归档。仅候选CI41894899709 Pool综合job未终态，无新失败；不将预览代替正式或全部CI通过。
+
+最新候选 `1ac022b567ee959d0d44df70462c73e9683f08d6` / tree `c75c12e4313dba81d1b17a29f8c5b95c12fec09b`已推，只更新触摸测试定位/诊断；新CI41894899709与预览41894888749同完整SHA在跑，旧2a7f运行全部终态归档不再查。产品代码和此前PG/build/Vue证据复用，新SHA发行门槛独立核验。main与v1.8.3稳定tag未发布，以plan/pending为准。
+
+19:07Z候选CI41887788857唯一失败为Pool step99手机说明触摸断言，原test第49行；九其它job和本批隔离/转移PG/完整App首页专项通过。测试原先滚动后立即取坐标且不核命中，原用例本机仍通过；最小修正仅测试定位/输入稳定和失败诊断，保留真实触摸与三语/44px/批量业务全部断言，修正后完整专项自然exit0。无产品源码或生产变更，新的候选按完整来源CI/预览重核，不盲rerun、不将旧预览充当新SHA结果。
+
 Owner已授权整理、修复、代码复核、推送和新版本发行；稳定v1.8.2不移动，本次不代做生产OTA、清数据库隔离或操作客户网络。旧v1.8.2监控已删除。
+
+候选 `2a7f80ff99826c7c12bba3be817c791870375118` 已推，PR [#5](https://github.com/mastalee928/payincus/pull/5)。2026-11-04T18:42Z：CI41887788857九jobsuccess，仅Pool综合job未终态；预览41887784640双构建success/AMD64209守卫已核，双首装恢复未终态，无新失败。实际PR checkout `df8181d4b9bef24d51889168361a23247059bdb2` 与候选tree一致，成功job原始日志归档复用。main未推进、v1.8.3未打tag/正式发行；plan/status及本线程 `payincus-v1-8-3` 监控继续核验。阶段文档不单独提交，不将部分成功当成发行通过。
+
+18:43Z预览已四必需job终态success/Release skipped，逐job完整来源、209守卫/240迁移、双原生首装完整备份恢复/回退续接及完整性拒绝断言通过，`preview-verified.json`归档，不再查或重跑；仅候选CI41887788857未终态。发行与生产/完整灾备证据继续分开。
 
 再次隔离由失败开通补偿保留旧done任务造成；新周期保持原受信Host身份，仅只读核验，不带旧UUID/删除授权，扫描/重试都能推进；未知残留、身份变化、保留数据策略及客户/账務占用继续保护。首次失败原因与时间持久保存，缺失历史原步骤不推测补写。转移40001仅DB最终提交有限重试，实际并发快照与四次耗尽专项确认自动退避续接、手续费一次及原资源身份保持；撤权、恢复保护、原UUID/库存门禁保留。
 
