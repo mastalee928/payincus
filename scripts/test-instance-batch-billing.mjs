@@ -17,9 +17,9 @@ const server = await createServer({ cacheDir: root + '/logs/instance-batch-billi
   css: { postcss: { plugins: [require('tailwindcss')(tailwind), require('autoprefixer')()] } },
   server: { host: '127.0.0.1', port: 19673, strictPort: true, fs: { allow: [root] } },
 })
-let browser
+let browser, page
 try {
-  await server.listen(); browser = await Browser.launch(); const page = await browser.newPage({ reducedMotion: true })
+  await server.listen(); browser = await Browser.launch(); page = await browser.newPage({ reducedMotion: true })
   await page.goto('http://127.0.0.1:19673', { settleMs: 1500 })
   const bootDeadline = Date.now() + 15000
   while (!await page.eval(() => !!window.batchHarness)) { assert.ok(Date.now() < bootDeadline, page.consoleErrors.join('\n')); await sleep(100) }
@@ -30,6 +30,32 @@ try {
   const accept = (index, data) => run(({ index, data }) => window.batchHarness.pending[index].resolve(data), { index, data })
   const reject = index => run(index => window.batchHarness.pending[index].reject(new Error('fixture failure')), index)
   const view = key => page.eval(key => JSON.parse(JSON.stringify(window.batchHarness.view()[key])), key)
+  const touchHint = async () => {
+    // CSS enables smooth scrolling. Read input coordinates only after the visible
+    // mobile button has settled, and verify the browser will hit that button.
+    await page.eval(() => {
+      const button = [...document.querySelectorAll('.info-hint button')].find(el => el.getBoundingClientRect().width)
+      button.scrollIntoView({ block: 'center', behavior: 'instant' })
+    })
+    let previous, stable = 0, target
+    const deadline = Date.now() + 5000
+    while (stable < 3) {
+      await sleep(50)
+      target = await page.eval(() => {
+        const button = [...document.querySelectorAll('.info-hint button')].find(el => el.getBoundingClientRect().width)
+        const r = button.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2
+        return { x, y, width: r.width, height: r.height, hit: button.contains(document.elementFromPoint(x, y)) }
+      })
+      stable = target.hit && previous && Math.abs(previous.x - target.x) < .5 && Math.abs(previous.y - target.y) < .5 ? stable + 1 : 0
+      assert.ok(Date.now() < deadline, `mobile hint did not settle: ${JSON.stringify(target)}`)
+      previous = target
+    }
+    assert.ok(target.width >= 44 && target.height >= 44)
+    await page.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: target.x, y: target.y }] })
+    await sleep(50)
+    await page.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await sleep(100)
+  }
   const preview = id => ({ id, name: `Fixture ${id}`, canRenew: true, autoRenew: false, isHostedInstance: false, daysUntilExpire: 5, options: [{ months: 1, price: 10, discountedPrice: 10, expiresAt: '2030-02-01T00:00:00Z' }] })
   await run(() => { const v = window.batchHarness.view(); v.instances[0].activeTransfer = { id: 1, status: 'processing' } })
   assert.ok(await page.eval(() => document.body.innerText.includes('转移中')))
@@ -43,14 +69,13 @@ try {
   for (const locale of ['zh-CN', 'zh-TW', 'en']) {
     await page.setViewport({ width: 390, height: 844, mobile: true })
     await run(locale => window.batchHarness.setLocale(locale), locale)
-    const button = await page.eval(() => { const b = [...document.querySelectorAll('.info-hint button')].find(el => el.getBoundingClientRect().width); b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return { x: r.x + r.width/2, y: r.y + r.height/2, width: r.width, height: r.height } })
-    assert.ok(button.width >= 44 && button.height >= 44)
-    await page.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: button.x, y: button.y }] }); await page.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(100)
-    assert.ok(await page.eval(() => { const tip = document.querySelector('[role="tooltip"]'); return !!tip && !tip.textContent.includes('instance.card') }))
+    await touchHint()
+    assert.ok(await page.eval(() => { const tip = document.querySelector('[role="tooltip"]'); return !!tip && !tip.textContent.includes('instance.card') }), `${locale}: real touch opens the settled hint`)
     await page.screenshot({ path: resolve(output, `hint-${locale}-390.png`), format: 'png' })
-    await page.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: button.x, y: button.y }] }); await page.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(100)
+    await touchHint()
     assert.equal(await page.eval(() => !!document.querySelector('[role="tooltip"]')), false)
     assert.ok(await page.eval(locale => document.body.innerText.includes({'zh-CN':'转移中','zh-TW':'轉移中',en:'Transferring'}[locale]), locale), 'mobile card shows transfer status')
+    console.log(`PASS ${locale}: settled mobile hint hit target, actual touch open/close and transfer state`)
   }
   await page.setViewport({ width: 1440, height: 900 }); await run(() => window.batchHarness.setLocale('zh-CN'))
   await run(() => { delete window.batchHarness.view().instances[0].activeTransfer; document.activeElement.blur() })
@@ -189,4 +214,16 @@ try {
     console.log(`PASS ${kind}: write/cache/session isolation, failure retry, permission/logout/unmount and desktop/mobile Chrome`)
   }
   assert.equal(page.consoleErrors.length, 0, page.consoleErrors.join('\n'))
+} catch (error) {
+  if (page) {
+    const diagnostic = await page.eval(() => ({ scrollY, viewport: { width: innerWidth, height: innerHeight },
+      hints: [...document.querySelectorAll('.info-hint button')].map(button => {
+        const r = button.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2
+        return { x, y, width: r.width, height: r.height, expanded: button.getAttribute('aria-expanded'),
+          hit: button.contains(document.elementFromPoint(x, y)) }
+      }), tooltipVisible: !!document.querySelector('[role="tooltip"]') })).catch(() => null)
+    console.error('Batch browser failure layout:', JSON.stringify(diagnostic))
+    await page.screenshot({ path: resolve(output, 'failure.png'), format: 'png' }).catch(() => {})
+  }
+  throw error
 } finally { if (browser) await browser.close(); await server.close() }
