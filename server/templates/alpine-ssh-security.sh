@@ -50,6 +50,10 @@ alpine_ssh_preserved_files() {
   printf '%s\n' /etc/passwd /etc/shadow /etc/group /etc/apk/repositories /etc/conf.d/sshd >> "$alpine_ssh_lock/paths"
   while IFS= read -r alpine_ssh_file; do
     [ -e "$alpine_ssh_file" ] || [ -L "$alpine_ssh_file" ] || continue
+    # apk preserves a modified sshd_config and writes the vendor replacement
+    # beside it. Only a newly created standard backup is allowed; effective
+    # configuration below must remain byte-identical as well.
+    if [ "$alpine_ssh_file" = /etc/ssh/sshd_config.apk-new ] && [ "${alpine_ssh_had_apk_new:-true}" = false ]; then continue; fi
     stat -c '%n %a %u %g %F' "$alpine_ssh_file" || return 1
     if [ -L "$alpine_ssh_file" ]; then readlink "$alpine_ssh_file" || return 1; fi
     if [ -f "$alpine_ssh_file" ]; then sha256sum "$alpine_ssh_file" || return 1; fi
@@ -104,6 +108,9 @@ alpine_ssh_security_update() (
     rc-service sshd status >/dev/null 2>&1 || { alpine_ssh_fail 'existing SSH listener is not running'; exit 1; }
     alpine_ssh_binary=$(alpine_ssh_listener_binary) || { alpine_ssh_fail 'SSH listener uses an unsupported binary or PID path'; exit 1; }
     timeout 5 env sshd_disable_keygen=yes rc-service sshd checkconfig >/dev/null 2>&1 || { alpine_ssh_fail 'existing SSH configuration is invalid'; exit 1; }
+    "$alpine_ssh_binary" -T > "$alpine_ssh_lock/effective-before" || exit 1
+    alpine_ssh_had_apk_new=false
+    if [ -e /etc/ssh/sshd_config.apk-new ] || [ -L /etc/ssh/sshd_config.apk-new ]; then alpine_ssh_had_apk_new=true; fi
     alpine_ssh_preserved_files > "$alpine_ssh_lock/before-unsorted" || exit 1
     sort "$alpine_ssh_lock/before-unsorted" > "$alpine_ssh_lock/before"
   fi
@@ -133,6 +140,11 @@ alpine_ssh_security_update() (
     fi
     alpine_ssh_preserved_files > "$alpine_ssh_lock/after-unsorted" || exit 1
     sort "$alpine_ssh_lock/after-unsorted" > "$alpine_ssh_lock/after"
+    alpine_ssh_binary=$(alpine_ssh_listener_binary) || exit 1
+    "$alpine_ssh_binary" -T > "$alpine_ssh_lock/effective-after" || exit 1
+    cmp -s "$alpine_ssh_lock/effective-before" "$alpine_ssh_lock/effective-after" || {
+      alpine_ssh_fail 'effective SSH configuration changed during the package update'; exit 1;
+    }
     cmp -s "$alpine_ssh_lock/before" "$alpine_ssh_lock/after" || {
       # Only paths/mode changes are diagnostic; local account/key digests never
       # leave the guest, including when an official package creates apk-new.
