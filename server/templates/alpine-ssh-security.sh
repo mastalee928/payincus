@@ -134,6 +134,9 @@ alpine_ssh_security_update() (
     alpine_ssh_preserved_files > "$alpine_ssh_lock/after-unsorted" || exit 1
     sort "$alpine_ssh_lock/after-unsorted" > "$alpine_ssh_lock/after"
     cmp -s "$alpine_ssh_lock/before" "$alpine_ssh_lock/after" || {
+      # Only paths/mode changes are diagnostic; local account/key digests never
+      # leave the guest, including when an official package creates apk-new.
+      diff -u "$alpine_ssh_lock/before" "$alpine_ssh_lock/after" | sed -E 's/[a-f0-9]{64}/[local digest]/g' >&2
       alpine_ssh_fail 'SSH identity, account or configuration changed during the package update'; exit 1;
     }
     rc-service sshd status >/dev/null 2>&1 || { alpine_ssh_fail 'SSH listener is unavailable after reload'; exit 1; }
