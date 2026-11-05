@@ -74,7 +74,7 @@ rc-service sshd start
     if (error) { reject(error); return }
     try { assert.match(stdout, /^INCUDAL_ALPINE_SSH_PATCH_INSTALLED$/m); resolve() } catch (error) { reject(error) }
   }))
-  const fixed = docker(['exec', name, 'apk', 'info', '-v', 'openssh-server']).trim()
+  const fixed = docker(['exec', name, 'apk', 'info', '-v']).split('\n').find(x => /^openssh-server-[0-9]/.test(x))
   assert.equal(fixed, 'openssh-server-10.0_p1-r11')
   const newConnection = await connect(password); newConnection.end()
   for (const candidate of ['wrong-original-password', 'x'.repeat(300), 'x'.repeat(1024), '']) {

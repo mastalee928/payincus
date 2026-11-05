@@ -16,8 +16,10 @@ alpine_ssh_minimum() {
 }
 
 alpine_ssh_version() {
-  alpine_ssh_package_info=$(apk info -v "$1" 2>/dev/null) || return 1
-  printf '%s\n' "$alpine_ssh_package_info" | sed -n "s/^$1-//p" | head -n 1
+  # With an argument apk info prints description/URL/size; list installed
+  # packages instead so the value is exactly package-version, never prose.
+  alpine_ssh_package_info=$(apk info -v 2>/dev/null) || return 1
+  printf '%s\n' "$alpine_ssh_package_info" | sed -n "s/^$1-\([0-9][^ ]*\)$/\1/p" | head -n 1
 }
 
 alpine_ssh_assert_fixed() {
