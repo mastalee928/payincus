@@ -18,7 +18,7 @@ try {
   // Old signed revision is fetched through the branch's package trust keys.
   docker(['exec', '-i', name, 'sh', '-s'], `set -eu
 apk add --no-cache openrc openssh-server-common-openrc ca-certificates
-apk add --no-cache --allow-downgrades \\
+apk add --no-cache \\
  https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-10.0_p1-r10.apk \\
  https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-common-10.0_p1-r10.apk \\
  https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-keygen-10.0_p1-r10.apk
@@ -94,7 +94,7 @@ rc-service sshd start
   // rather than accepting the new package while serving the deleted old binary.
   const recovery = docker(['exec', '-i', name, 'sh', '-s'], `set -eu
 . /opt/alpine-ssh-security.sh
-apk add --no-cache --allow-downgrades \\
+apk add --no-cache \\
  https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-10.0_p1-r10.apk \\
  https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-common-10.0_p1-r10.apk \\
  https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-keygen-10.0_p1-r10.apk

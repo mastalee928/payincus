@@ -6,7 +6,9 @@ Owner已明确“开始修”，保留客户原SSH密码与无感目标。采用
 
 本地server/client类型、双端build、Alpine/前端路由/i18n/宿主安装守卫、dedicated实际本机SSH与18OS生成专项通过；隔离PG维护含真实并发锁、失效管理员会话、原UUID、失败重试及原客户/账目保持自然exit0。210项清单登记；没有重复全矩阵。原生Linux连续SSH/SFTP/长错误密码与reload失败续接将由本分支一次性Actions专项核验，当前尚未有终态证据；Windows本机QEMU故障不能当原生通过。网页入口真实Chrome检查仍进行中。
 
-当前未执行生产宿主/客户维护、OTA、稳定tag或Release；v1.8.3已完成的发行监控不恢复。阶段分支codex/alpine-ssh-security，来源/运行ID随后记录。[维护范围与网页入口](docs/alpine-ssh-security-maintenance.md)。`.taste-skill/`保留，真实云端无中断须另行实证。
+阶段提交`3e783f31549e28a0d4016ee46392b39c5a7abdc9`已推codex/alpine-ssh-security；专项[42084579076](https://github.com/mastalee928/payincus/actions/runs/42084579076)的native job127446129119失败于夹具`apk add --allow-downgrades`不支持的选项，尚未执行产品升级，原日志归档。最小修正为签名旧revision URL直接指定版本，不盲rerun。Chrome实际管理员详情页三宽/三语/深浅色、44px按钮/无溢出、重复点击和旧会话迟到结果专项自然exit0；脚本登记独立测试。
+
+当前未执行生产宿主/客户维护、OTA、稳定tag或Release；v1.8.3已完成的发行监控不恢复。[维护范围与网页入口](docs/alpine-ssh-security-maintenance.md)。`.taste-skill/`保留，真实云端无中断须另行实证。
 
 ## 2026-11-05 v1.8.3 七项修复正式发行核验完成
 

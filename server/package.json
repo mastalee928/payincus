@@ -543,7 +543,8 @@
     "test:gateway-dns-channel": "node --import tsx scripts/test-gateway-dns-channel.ts",
     "test:alpine-ssh-security-guards": "node --import tsx scripts/test-alpine-ssh-security-guards.ts",
     "test:alpine-ssh-maintenance": "node --import tsx scripts/test-alpine-ssh-maintenance.ts",
-    "test:alpine-ssh-native": "node ../scripts/test-alpine-ssh-native.mjs"
+    "test:alpine-ssh-native": "node ../scripts/test-alpine-ssh-native.mjs",
+    "test:alpine-ssh-web": "node ../scripts/test-alpine-ssh-web.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",
