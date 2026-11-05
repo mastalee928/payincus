@@ -2,6 +2,7 @@
 
 ## 2026-11-06 Alpine OpenSSH 原密码安全修复：源码及隔离专项完成
 
+- 下一次安装包必含项：owner已安排本轮修复随下次版本一并发行，无需现在单独发版。集成 `codex/alpine-ssh-security` 的已验证源码后，核 AMD64/ARM64 实际包内共享模板、初始化/交付检查、维护 API 和双端入口；原密码与身份保护保持。当前仅记录下一次发行门槛，不立即合并 main、打 tag 或更新生产客户。
 - 已推分支 `codex/alpine-ssh-security`，核验源码 `536594ec9f58cc210715f1a1514c63659f24f1af` / tree `1e33905a88c63b89f919761071b03a52cc5b9f81`。采用 [OpenSSH 10.6p2 官方公告](https://www.openssh.com/releasenotes.html)与 Alpine stable `pw.patch` 对应签名修订；不关闭密码登录、不强制转换 PAM、不重置客户密码、主机密钥、端口或 SSH 配置。公告影响部分 Linux musl/PAM-disabled 环境；未公布的 CVE、利用情况或具体原因不作推断。
 - 新 Alpine 容器/VM 初始化及宿主接入使用共享补丁检查，独占交付同时核包与实际监听二进制。既有客户维护有管理员实例详情页显式入口，核原管理证书、登记 attempt/endpointHash/UUID、当前管理员会话与实例/转移/恢复/快照/反代冲突。持原密码连接，更新后核运行监听进程、原连接与新登录；账户、密钥、配置、权限和 `sshd -T` 前后比较。没有后台启动扫描或普通 OTA 静默维护客户。
 - [专项 42089071874](https://github.com/mastalee928/payincus/actions/runs/42089071874) **8 job 全部终态 success**，逐 job 完整 checkout 与 PASS markers 独立核验。AMD64 Alpine 3.19–3.24 六分支，加 3.22 ARM64，均实测官方旧 revision → 修补 revision、原密码新登录、错误/300与1024字符/空密码及不存在用户拒绝、原持续 SSH/SFTP 字节与文件 hash 完整、幂等、已装补丁但 reload 失败后重新加载续接。每项持续 SFTP 为 1,048,576–1,769,472 字节；未伪造服务启动状态。PG job `127461979492` 同来源核管理员/原身份/真实并发锁/任务/失败续接/账目与初始化守卫。`logs/alpine-ssh-native-verified.json`、run 快照和八份原日志保留本地。
