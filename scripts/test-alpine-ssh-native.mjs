@@ -33,10 +33,13 @@ for package in openssh-server openssh-server-common openssh-keygen; do
   wget -T 20 -O "/opt/old-ssh/$package.apk" "https://dl-cdn.alpinelinux.org/alpine/v${branch}/main/$(apk --print-arch)/$package-${oldRevision}.apk"
 done
 apk add --no-cache /opt/old-ssh/openssh-server.apk /opt/old-ssh/openssh-server-common.apk /opt/old-ssh/openssh-keygen.apk
-mkdir -p /run/openrc
+## Legacy OpenRC expects boot to create its state and exclusive-lock directories.
+## This disposable container has no init; do not fabricate a started sshd state.
+for state in exclusive started starting stopping inactive wasinactive failed hotplugged scheduled options daemons; do
+  mkdir -p "/run/openrc/$state"
+done
 touch /run/openrc/softlevel
-# Docker has no boot runlevel. Do not let legacy OpenRC dependency traversal
-# recursively start sshd before this fixture has supplied its configuration.
+# Docker has no boot runlevel or service-managed networking/cgroups.
 printf '%s\\n' 'rc_depend_strict="NO"' 'rc_sys="docker"' 'rc_cgroup_mode="none"' >> /etc/rc.conf
 printf '%s\\n' 'root:${password}' | chpasswd
 cat > /etc/ssh/sshd_config <<'CONF'
@@ -50,7 +53,11 @@ CONF
 ssh-keygen -A
 echo 'sshd_disable_keygen="yes"' >> /etc/conf.d/sshd
 echo 'rc_need="!net"' >> /etc/conf.d/sshd
-rc-service sshd start
+if ! rc-service sshd start; then
+  ls -ld /run/openrc /run/openrc/exclusive >&2
+  rc-service sshd status >&2 || true
+  exit 1
+fi
 `)
   const mapping = docker(['port', name, '2222/tcp']).trim()
   const port = Number(mapping.split(':').at(-1))
