@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
+import { fileURLToPath } from 'node:url'
 import ssh2 from '../server/node_modules/ssh2/lib/index.js'
 const { Client } = ssh2
+const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
 
 assert.equal(process.platform, 'linux', 'Native Alpine test requires disposable Linux and Docker')
 const name = `incudal-alpine-ssh-${randomUUID().slice(0, 8)}`
@@ -14,14 +16,15 @@ const received = []
 const sent = []
 const blocks = []
 try {
-  docker(['run', '-d', '--name', name, '-p', '127.0.0.1::2222', '-v', `${process.cwd()}/server/templates/alpine-ssh-security.sh:/opt/alpine-ssh-security.sh:ro`, 'alpine:3.22', 'sleep', '600'])
+  docker(['run', '-d', '--name', name, '-p', '127.0.0.1::2222', '-v', `${root}/server/templates/alpine-ssh-security.sh:/opt/alpine-ssh-security.sh:ro`, 'alpine:3.22', 'sleep', '600'])
   // Old signed revision is fetched through the branch's package trust keys.
   docker(['exec', '-i', name, 'sh', '-s'], `set -eu
 apk add --no-cache openrc openssh-server-common-openrc ca-certificates
-apk add --no-cache \\
- https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-10.0_p1-r10.apk \\
- https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-common-10.0_p1-r10.apk \\
- https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-keygen-10.0_p1-r10.apk
+mkdir /opt/old-ssh
+for package in openssh-server openssh-server-common openssh-keygen; do
+  wget -T 20 -O "/opt/old-ssh/$package.apk" "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/$package-10.0_p1-r10.apk"
+done
+apk add --no-cache /opt/old-ssh/openssh-server.apk /opt/old-ssh/openssh-server-common.apk /opt/old-ssh/openssh-keygen.apk
 mkdir -p /run/openrc
 touch /run/openrc/softlevel
 printf '%s\\n' 'root:${password}' | chpasswd
@@ -94,10 +97,7 @@ rc-service sshd start
   // rather than accepting the new package while serving the deleted old binary.
   const recovery = docker(['exec', '-i', name, 'sh', '-s'], `set -eu
 . /opt/alpine-ssh-security.sh
-apk add --no-cache \\
- https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-10.0_p1-r10.apk \\
- https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-common-10.0_p1-r10.apk \\
- https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-keygen-10.0_p1-r10.apk
+apk add --no-cache /opt/old-ssh/openssh-server.apk /opt/old-ssh/openssh-server-common.apk /opt/old-ssh/openssh-keygen.apk
 env sshd_disable_keygen=yes rc-service sshd reload
 sleep 1
 mkdir /tmp/fail-reload-bin

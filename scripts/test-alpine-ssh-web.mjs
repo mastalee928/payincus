@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { mkdirSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import { Browser, sleep } from '../.agents/skills/design-taste-frontend/scripts/lib/cdp.mjs'
-const root = process.cwd().replaceAll('\\', '/'), require = createRequire(root + '/client/package.json')
+const root = fileURLToPath(new URL('..', import.meta.url)).replaceAll('\\', '/').replace(/\/$/, ''), require = createRequire(root + '/client/package.json')
 const { createServer } = await import(pathToFileURL(require.resolve('vite')).href)
 const { default: vue } = await import(pathToFileURL(require.resolve('@vitejs/plugin-vue')).href)
 const output = root + '/logs/alpine-ssh-web'; mkdirSync(output, { recursive: true }); process.env.TASTE_SKILL_TMP = output
