@@ -8,6 +8,14 @@ const { Client } = ssh2
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
 
 assert.equal(process.platform, 'linux', 'Native Alpine test requires disposable Linux and Docker')
+const baselines = {
+  '3.19': ['9.6_p1-r2', '9.6_p1-r3'], '3.20': ['9.7_p1-r5', '9.7_p1-r6'],
+  '3.21': ['9.9_p2-r0', '9.9_p2-r1'], '3.22': ['10.0_p1-r10', '10.0_p1-r11'],
+  '3.23': ['10.2_p1-r0', '10.2_p1-r1'], '3.24': ['10.3_p1-r1', '10.3_p1-r2']
+}
+const branch = process.argv[2] || '3.22'
+assert.ok(baselines[branch], 'Test branch needs a verified official patch baseline')
+const [oldRevision, fixedRevision] = baselines[branch]
 const name = `incudal-alpine-ssh-${randomUUID().slice(0, 8)}`
 const docker = (args, input) => execFileSync('docker', args, { input, encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024 })
 const password = 'Native-Alpine-Original-Password-Only-2026!'
@@ -16,13 +24,13 @@ const received = []
 const sent = []
 const blocks = []
 try {
-  docker(['run', '-d', '--name', name, '-p', '127.0.0.1::2222', '-v', `${root}/server/templates/alpine-ssh-security.sh:/opt/alpine-ssh-security.sh:ro`, 'alpine:3.22', 'sleep', '600'])
+  docker(['run', '-d', '--name', name, '-p', '127.0.0.1::2222', '-v', `${root}/server/templates/alpine-ssh-security.sh:/opt/alpine-ssh-security.sh:ro`, `alpine:${branch}`, 'sleep', '600'])
   // Old signed revision is fetched through the branch's package trust keys.
   docker(['exec', '-i', name, 'sh', '-s'], `set -eu
 apk add --no-cache openrc openssh-server-common-openrc ca-certificates
 mkdir /opt/old-ssh
 for package in openssh-server openssh-server-common openssh-keygen; do
-  wget -T 20 -O "/opt/old-ssh/$package.apk" "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/$package-10.0_p1-r10.apk"
+  wget -T 20 -O "/opt/old-ssh/$package.apk" "https://dl-cdn.alpinelinux.org/alpine/v${branch}/main/$(apk --print-arch)/$package-${oldRevision}.apk"
 done
 apk add --no-cache /opt/old-ssh/openssh-server.apk /opt/old-ssh/openssh-server-common.apk /opt/old-ssh/openssh-keygen.apk
 mkdir -p /run/openrc
@@ -75,7 +83,7 @@ rc-service sshd start
     try { assert.match(stdout, /^INCUDAL_ALPINE_SSH_PATCH_INSTALLED$/m); resolve() } catch (error) { reject(error) }
   }))
   const fixed = docker(['exec', name, 'apk', 'info', '-v']).split('\n').find(x => /^openssh-server-[0-9]/.test(x))
-  assert.equal(fixed, 'openssh-server-10.0_p1-r11')
+  assert.equal(fixed, `openssh-server-${fixedRevision}`)
   const newConnection = await connect(password); newConnection.end()
   for (const candidate of ['wrong-original-password', 'x'.repeat(300), 'x'.repeat(1024), '']) {
     await assert.rejects(connect(candidate), 'invalid credentials must be refused after patch')
@@ -116,7 +124,7 @@ alpine_ssh_listener_current
 `)
   assert.match(recovery, /^INCUDAL_ALPINE_SSH_ALREADY_FIXED$/m)
   const recovered = await connect(password); recovered.end()
-  console.log(`PASS native Alpine 3.22: signed r10→r11 patch; original password/new login; incorrect/long/empty/unknown-user refused; live SSH/SFTP ${blocks.length * 32768} bytes preserved; idempotent check; failed reload recovered with installed patch`)
+  console.log(`PASS native Alpine ${branch} ${docker(['exec', name, 'apk', '--print-arch']).trim()}: signed ${oldRevision}→${fixedRevision} patch; original password/new login; incorrect/long/empty/unknown-user refused; live SSH/SFTP ${blocks.length * 32768} bytes preserved; idempotent check; failed reload recovered with installed patch`)
 } finally {
   pumping = false
   if (pump) await pump.catch(() => {})

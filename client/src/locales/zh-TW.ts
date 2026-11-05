@@ -4081,6 +4081,7 @@ pool: {
         'instance.create': '建立實例',
         'instance.delete': '刪除實例',
         'instance.start': '啟動實例',
+        'instance.ssh_security': 'SSH 安全維護',
         'instance.stop': '停止實例',
         'instance.restart': '重新啟動實例',
         'instance.rebuild': '重裝系統',

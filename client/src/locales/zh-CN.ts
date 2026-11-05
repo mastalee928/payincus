@@ -5550,6 +5550,7 @@ pool: {
         'instance.create': '创建实例',
         'instance.delete': '删除实例',
         'instance.start': '启动实例',
+        'instance.ssh_security': 'SSH 安全维护',
         'instance.stop': '停止实例',
         'instance.restart': '重启实例',
         'instance.rebuild': '重装系统',

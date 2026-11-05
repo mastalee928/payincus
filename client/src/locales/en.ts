@@ -5490,6 +5490,7 @@ pool: {
         'instance.create': 'Create Instance',
         'instance.delete': 'Delete Instance',
         'instance.start': 'Start Instance',
+        'instance.ssh_security': 'SSH Security Maintenance',
         'instance.stop': 'Stop Instance',
         'instance.restart': 'Restart Instance',
         'instance.rebuild': 'Rebuild System',

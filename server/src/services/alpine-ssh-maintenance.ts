@@ -82,8 +82,10 @@ export async function maintainAlpineCustomerSsh(instanceId: number, actorId: num
         await tx.restoreTask.count({ where: { instanceId, status: { in: ['PENDING', 'PROCESSING'] } } }) ||
         await tx.backupUploadTask.count({ where: { instanceId, status: { in: ['PENDING', 'PROCESSING'] } } }) ||
         await tx.instanceTransfer.count({ where: { instanceId, status: { in: ['pending', 'processing'] } } })) throw new Error('ALPINE_SSH_INSTANCE_BUSY')
-      await assertNoPendingSnapshotOperations(tx, instanceId)
-      await assertNoPendingProxySiteOperations(tx, instanceId)
+      try {
+        await assertNoPendingSnapshotOperations(tx, instanceId)
+        await assertNoPendingProxySiteOperations(tx, instanceId)
+      } catch { throw new Error('ALPINE_SSH_INSTANCE_BUSY') }
       const client = await deps.connect(host, tx, 8000)
       const specs = (instance.snapshottedSpecs || {}) as Record<string, unknown>
       const identity = specs.managedCleanup as { attempt?: string; endpointHash?: string; uuid?: string } | undefined
@@ -107,6 +109,7 @@ export async function maintainAlpineCustomerSsh(instanceId: number, actorId: num
         if (JSON.stringify([...before.fingerprints].sort()) !== JSON.stringify([...after.fingerprints].sort())) throw new Error('ALPINE_SSH_INSTANCE_IDENTITY_CHANGED')
         await session.verify()
         await deps.login(host.natPublicIp, password, before.fingerprints, instance.sshPort || 22)
+        if (recoveryHeld()) throw new Error('ALPINE_SSH_RECOVERY_HELD')
         await tx.instance.update({ where: { id: instanceId }, data: { snapshottedSpecs: {
           ...specs, alpineSshSecurity: { status: 'verified', checkedAt: new Date().toISOString(), remoteUuid: uuid, passwordLoginPreserved: true }
         } as Prisma.InputJsonValue } })
@@ -119,7 +122,13 @@ export async function maintainAlpineCustomerSsh(instanceId: number, actorId: num
     return result
   } catch (error) {
     const code = error instanceof Error && /^ALPINE_SSH_[A-Z_]+$/.test(error.message) ? error.message : 'ALPINE_SSH_VERIFICATION_FAILED'
-    await createLog(actorId, 'instance', 'instance.ssh_security', `宿主 #${hostId} / 实例 #${instanceId}：SSH 安全维护未完成（${code}），保留原密码、实例和配置，修复条件后可重新执行`, 'error', { instanceId }).catch(() => {})
+    const reasons: Record<string, string> = {
+      ALPINE_SSH_ADMIN_REQUIRED: '管理员权限或会话已失效', ALPINE_SSH_RECOVERY_HELD: '平台恢复保护已开启',
+      ALPINE_SSH_INSTANCE_BUSY: '实例有其他未完成操作', ALPINE_SSH_TARGET_NOT_READY: '原管理连接或实例尚未就绪',
+      ALPINE_SSH_INSTANCE_IDENTITY_CHANGED: '远端实例与原登记身份不一致', ALPINE_SSH_UPDATE_FAILED: '官方补丁安装或服务重载未完成',
+      ALPINE_SSH_PASSWORD_UNAVAILABLE: '原客户密码不可用', ALPINE_SSH_VERIFICATION_FAILED: '原连接或新密码登录未通过验证'
+    }
+    await createLog(actorId, 'instance', 'instance.ssh_security', `宿主 #${hostId} / 实例 #${instanceId}：SSH 安全维护未完成，${reasons[code] || '安全检查未通过'}。未重置密码；未完成的补丁或运行状态保留，条件恢复后可重新执行`, 'error', { instanceId }).catch(() => {})
     throw new Error(code)
   }
 }

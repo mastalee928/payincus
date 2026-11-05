@@ -77,6 +77,16 @@ alpine_ssh_listener_current() {
   [ "$alpine_ssh_running_inode" = "$alpine_ssh_package_inode" ]
 }
 
+alpine_ssh_standard_service() (
+  # Effective-config comparisons below use the standard OpenRC config path.
+  # A customized service is kept untouched until its arguments are validated.
+  [ ! -f /etc/conf.d/sshd ] || . /etc/conf.d/sshd
+  [ "${cfgfile:-${SSHD_CONFIG:-/etc/ssh/sshd_config}}" = /etc/ssh/sshd_config ] &&
+    [ "${SSHD_CONFDIR:-/etc/ssh}" = /etc/ssh ] &&
+    [ "${SSHD_PIDFILE:-/run/sshd.pid}" = /run/sshd.pid ] &&
+    [ -z "${command_args:-${SSHD_OPTS:-}}" ] && [ -z "${SSHD_BINARY:-}" ]
+)
+
 alpine_ssh_security_update() (
   set -eu
   alpine_ssh_mode=${1:-install}
@@ -93,6 +103,7 @@ alpine_ssh_security_update() (
   chmod 700 "$alpine_ssh_lock"
   printf 'https://dl-cdn.alpinelinux.org/alpine/v%s/main\n' "$alpine_ssh_branch" > "$alpine_ssh_lock/repositories"
   if [ "$alpine_ssh_mode" = update ]; then
+    alpine_ssh_standard_service || { alpine_ssh_fail 'custom SSH service arguments require separate validation'; exit 1; }
     alpine_ssh_old=$(alpine_ssh_version openssh-server)
     [ -n "$alpine_ssh_old" ] || { alpine_ssh_fail 'existing SSH server is missing'; exit 1; }
     # Revision-only backports avoid the historical cross-version restart hooks.

@@ -7,7 +7,15 @@ on:
     branches: [main]
 jobs:
   native:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ['3.19', '3.20', '3.21', '3.22', '3.23', '3.24']
+        runner: [ubuntu-24.04]
+        include:
+          - branch: '3.22'
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v5
@@ -16,7 +24,7 @@ jobs:
         with: { node-version: '24', cache: pnpm }
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Native Alpine password and continuous SSH SFTP verification
-        run: node scripts/test-alpine-ssh-native.mjs
+        run: node scripts/test-alpine-ssh-native.mjs '${{ matrix.branch }}'
   maintenance:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
