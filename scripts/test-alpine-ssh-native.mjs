@@ -35,6 +35,9 @@ done
 apk add --no-cache /opt/old-ssh/openssh-server.apk /opt/old-ssh/openssh-server-common.apk /opt/old-ssh/openssh-keygen.apk
 mkdir -p /run/openrc
 touch /run/openrc/softlevel
+# Docker has no boot runlevel. Do not let legacy OpenRC dependency traversal
+# recursively start sshd before this fixture has supplied its configuration.
+printf '%s\\n' 'rc_depend_strict="NO"' 'rc_sys="docker"' 'rc_cgroup_mode="none"' >> /etc/rc.conf
 printf '%s\\n' 'root:${password}' | chpasswd
 cat > /etc/ssh/sshd_config <<'CONF'
 Port 2222
@@ -46,6 +49,7 @@ Subsystem sftp internal-sftp
 CONF
 ssh-keygen -A
 echo 'sshd_disable_keygen="yes"' >> /etc/conf.d/sshd
+echo 'rc_need="!net"' >> /etc/conf.d/sshd
 rc-service sshd start
 `)
   const mapping = docker(['port', name, '2222/tcp']).trim()
