@@ -14,6 +14,12 @@ The private backend on 127.0.0.1:3001 must run as exactly one Node.js process. T
 
 用户端与管理端使用不同源，通过各自的 /api 和 /api/ws 代理到同一后端，不共享 cookie 域。生产设置 SERVE_STATIC_CLIENT=false，由 Nginx 或现有入口提供两端静态文件。
 
+## Alpine SSH 密码认证安全维护
+
+安全修复分支 `codex/alpine-ssh-security` 已通过原生 Alpine 3.19–3.24 AMD64/3.22 ARM64 与隔离 PG 专项，实际来源与范围见 HANDOFF；尚未合并 main、发布新包或操作生产实例。部署该源码后，新 Alpine 初始化检查官方同分支签名补丁；普通面板 OTA 不会自动修改客户系统。
+
+既有已交付、运行独占实例从管理员「实例」→详情→「SSH 安全维护」执行，无需再次填写客户密码或 SSH 地址。后台核当前管理员授权、原管理/实例身份、任务冲突、原密码连接，安装安全修订后验证实际监听进程、配置/密钥/账户保持及原连接和新登录；管理员日志持久留结果。缺原登记身份（含仅 recoveryIdentity 或换机后旧 managedCleanup）、自定义服务参数、跨版本和旧 restart 钩子会拒绝，不能删除身份保护或降回漏洞包。异常 SIGKILL 残留互斥目录须由运维确认没有未结束更新后处理，不自动绕过。步骤与失败判据见[维护指南](docs/alpine-ssh-security-maintenance.md)；生产客户全体连接无中断须有另行授权的实际维护证据。
+
 ## 用户登录 IP 与本机代理
 
 `TRUST_PROXY=true` 默认仅信任回环代理地址（`127.0.0.0/8`、`::1/128`）。从后端连接向外读取 `X-Forwarded-For`，越过本机 Nginx、cloudflared 后，取第一个非本机地址；直连请求不能通过自填转发头覆盖自己的地址。旧版只信任一跳，在 Cloudflare Tunnel→Nginx→后端链路中可能把 `127.0.0.1` 写入用户登录记录。

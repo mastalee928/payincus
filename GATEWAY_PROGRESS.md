@@ -1,8 +1,10 @@
 # 网关灾备工程进度
 
-## 2026-11-06 Alpine OpenSSH 安全修复进行中
+## 2026-11-06 Alpine OpenSSH 安全修复源码及隔离专项完成
 
-官方同分支安全修订、原密码/主机身份/配置保持、新安装与受限管理员网页维护源码已完成本地类型/守卫/双端构建及隔离PG专项。跨版本、旧restart钩子、自定义PID/二进制和恢复/转移等冲突均拒自动维护。Linux实际包升级、连续SSH/SFTP及已装包reload失败续接待本分支专项Actions终态；Chrome网页入口验收仍进行。本阶段不代表已更新任何生产宿主或客户实例，不恢复已结束v1.8.3监控、不改稳定tag/发行。详情见HANDOFF与[维护指南](docs/alpine-ssh-security-maintenance.md)。
+分支 `codex/alpine-ssh-security` 核验源码 `536594ec9f58cc210715f1a1514c63659f24f1af`，同来源 [42089071874](https://github.com/mastalee928/payincus/actions/runs/42089071874) 八job全部终态success且逐job日志/checkout已核。AMD64六分支3.19–3.24与3.22 ARM64真实官方签名修订、原密码新登录、错误/长/空密码拒绝、原SSH/SFTP连续字节、幂等及已装补丁reload失败续接均通过；PG权限/原UUID/并发/失败/原账目另核。旧OpenRC缺boot状态/锁目录的容器夹具失败由最新来源闭环，历史产品apk版本读取及官方apk-new保留问题已修，确切日志留本地。最终类型/相关守卫/server与双前端build、Chrome三宽三语/深浅44px和旧会话保护已通过。
+
+新安装先核补丁，既有客户使用管理员详情页显式维护，保持原密码/主机密钥/配置，无普通OTA自动客户扫描。仅标准OpenRC、同版本修订且原登记attempt/endpointHash/UUID完整的运行独占实例可维护；恢复或换机后的缺失/旧身份不放宽。跨版本、旧restart钩子、自定义配置或任务/恢复冲突拒绝。源码与一次性Docker证据不代表生产客户已更新、全VM/PAM配置/全体公网零中断或完整网关灾备通过；本轮没有main合并、OTA或新tag/Release，不恢复v1.8.3监控。详情见HANDOFF与[维护指南](docs/alpine-ssh-security-maintenance.md)。`.taste-skill/`保留。
 
 ## 2026-11-05 v1.8.3 发行与最终 CI 核验完成
 

@@ -1,14 +1,14 @@
 # 版本与验证记录
 
-## 2026-11-06 Alpine OpenSSH 原密码安全修复：源码阶段
+## 2026-11-06 Alpine OpenSSH 原密码安全修复：源码及隔离专项完成
 
-Owner已明确“开始修”，保留客户原SSH密码与无感目标。采用官方当前stable分支pw.patch对应修订，不关闭密码认证、不强制PAM转换、不重置客户密码/主机密钥。新建容器/VM与Alpine宿主接入安装补丁；独占交付核实际包与监听进程。已有实例有管理员详情页显式维护入口，核原管理证书/UUID、会话、任务冲突，持原密码连接并核包后旧连接/新登录；保存本地账户/SSH配置hash及权限比较。包已安装但reload失败仍重新核运行进程，拒跨版本及官方restart钩子旧修订，原证据/账目保留。
-
-本地server/client类型、双端build、Alpine/前端路由/i18n/宿主安装守卫、dedicated实际本机SSH与18OS生成专项通过；隔离PG维护含真实并发锁、失效管理员会话、原UUID、失败重试及原客户/账目保持自然exit0。210项清单登记；没有重复全矩阵。原生Linux连续SSH/SFTP/长错误密码与reload失败续接将由本分支一次性Actions专项核验，当前尚未有终态证据；Windows本机QEMU故障不能当原生通过。网页入口真实Chrome检查仍进行中。
-
-阶段提交`3e783f31549e28a0d4016ee46392b39c5a7abdc9`已推codex/alpine-ssh-security；专项[42084579076](https://github.com/mastalee928/payincus/actions/runs/42084579076)的native job127446129119失败于夹具`apk add --allow-downgrades`不支持的选项，尚未执行产品升级，原日志归档。最小修正为签名旧revision URL直接指定版本，不盲rerun。Chrome实际管理员详情页三宽/三语/深浅色、44px按钮/无溢出、重复点击和旧会话迟到结果专项自然exit0；脚本登记独立测试。
-
-当前未执行生产宿主/客户维护、OTA、稳定tag或Release；v1.8.3已完成的发行监控不恢复。[维护范围与网页入口](docs/alpine-ssh-security-maintenance.md)。`.taste-skill/`保留，真实云端无中断须另行实证。
+- 已推分支 `codex/alpine-ssh-security`，核验源码 `536594ec9f58cc210715f1a1514c63659f24f1af` / tree `1e33905a88c63b89f919761071b03a52cc5b9f81`。采用 [OpenSSH 10.6p2 官方公告](https://www.openssh.com/releasenotes.html)与 Alpine stable `pw.patch` 对应签名修订；不关闭密码登录、不强制转换 PAM、不重置客户密码、主机密钥、端口或 SSH 配置。公告影响部分 Linux musl/PAM-disabled 环境；未公布的 CVE、利用情况或具体原因不作推断。
+- 新 Alpine 容器/VM 初始化及宿主接入使用共享补丁检查，独占交付同时核包与实际监听二进制。既有客户维护有管理员实例详情页显式入口，核原管理证书、登记 attempt/endpointHash/UUID、当前管理员会话与实例/转移/恢复/快照/反代冲突。持原密码连接，更新后核运行监听进程、原连接与新登录；账户、密钥、配置、权限和 `sshd -T` 前后比较。没有后台启动扫描或普通 OTA 静默维护客户。
+- [专项 42089071874](https://github.com/mastalee928/payincus/actions/runs/42089071874) **8 job 全部终态 success**，逐 job 完整 checkout 与 PASS markers 独立核验。AMD64 Alpine 3.19–3.24 六分支，加 3.22 ARM64，均实测官方旧 revision → 修补 revision、原密码新登录、错误/300与1024字符/空密码及不存在用户拒绝、原持续 SSH/SFTP 字节与文件 hash 完整、幂等、已装补丁但 reload 失败后重新加载续接。每项持续 SFTP 为 1,048,576–1,769,472 字节；未伪造服务启动状态。PG job `127461979492` 同来源核管理员/原身份/真实并发锁/任务/失败续接/账目与初始化守卫。`logs/alpine-ssh-native-verified.json`、run 快照和八份原日志保留本地。
+- 本机 server/client type-check、server build、最终双端 build、Alpine/宿主安装/前端路由/i18n 守卫通过；独占交付专项核18 OS alias × 容器/VM × 两种密码策略及真实本机 SSH 指纹/错误密码/非root/不可达/ECDSA/RSA。隔离 PG 自然 exit0。真实 Chrome 管理员详情页核1440/768/390宽、三语/深浅、44px、无溢出、重复点击与旧会话迟到结果；照片与日志存 ignored logs。210项清单登记只证明清单完整，不宣称本轮全量套件通过。
+- 历史失败及改正保留：`42084579076` 夹具不支持 `--allow-downgrades`；`42084942483` 不支持直接 HTTPS apk 参数，改为 HTTPS 下载本地签名包；`42085540542` 产品误用带包名 `apk info -v` 读到说明，改为无参数 installed 列表；`42085915611`/`42086166954` 仅新建官方 `sshd_config.apk-new` 被 manifest 拒绝，增加脱敏诊断并在生效配置保持的前提下允许该备份。`42087523457`/`42088154205` 3.19–3.21 未进入产品脚本，旧 OpenRC 容器启动报“already starting”；源码查明锁文件 open 失败亦会产生此提示，一次性容器缺 boot 创建的 `/run/openrc/exclusive` 等目录，补目录后最新三 job 通过。此前“依赖递归启动”的判断没有确证，修正为已核初始化目录缺失；不推断客户 SSH 产品故障。最新缺省脚本检查须调用实际 Git Bash 路径并核自然退出，不能把 PowerShell 找不到 bash 后残留 `$LASTEXITCODE=0` 当成功；本轮补用绝对路径，两份 Bash syntax 自然 exit0。
+- 自动维护仅覆盖同分支/同上游修订、标准 OpenRC 且原登记身份完整的运行独占实例；跨版本、已知自动 restart 钩子旧修订、自定义参数、缺原密码/身份、仅 recoveryIdentity 或换机后旧 managedCleanup 不符均保守拒绝，不能删 UUID 门禁。Linux 原生实证是一次性 Docker/标准无 PAM sshd，不代替全分支 VM 镜像首装、所有自定义/PAM/Krb 配置或生产公网无中断验收。
+- 本轮没有合并 main、生产宿主/客户更新、OTA、新稳定 tag 或 Release；旧 v1.8.3发行监控保持已结束。后续部署/生产维护另有证据门槛。[维护范围与网页步骤](docs/alpine-ssh-security-maintenance.md)。`.taste-skill/`保留；已有灾备与近千台/72小时缺口仍保持。
 
 ## 2026-11-05 v1.8.3 七项修复正式发行核验完成
 
