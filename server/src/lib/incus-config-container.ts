@@ -4,6 +4,7 @@
  */
 
 import crypto from 'crypto'
+import { alpineSshSecurityScript } from './alpine-ssh-security.js'
 
 // ==================== 类型定义 ====================
 
@@ -253,11 +254,10 @@ function getSetupCommands(osInfo: OsInfo): string[] {
 
   // ================= Alpine =================
   if (osInfo.family === 'alpine') {
-    cmds.push('sed -i "s/https:/http:/g" /etc/apk/repositories || true')
     const essentialPkgs = 'openssh openssh-server-pam bash shadow sed grep dhcpcd util-linux ca-certificates iproute2'
-    const installCmd = `apk update && apk add --no-cache --allow-untrusted ${essentialPkgs}`
+    const installCmd = `apk update && apk add --no-cache ${essentialPkgs}`
     cmds.push(wrapWithNetworkRetry(installCmd))
-    cmds.push('sed -i "s/http:/https:/g" /etc/apk/repositories || true')
+    cmds.push('/usr/local/bin/incudal-alpine-ssh-security.sh install')
     cmds.push('touch /etc/shadow && chmod 640 /etc/shadow || true')
   }
   // ================= Arch Linux =================
@@ -335,6 +335,8 @@ set -e
 SSH_KEY="${escapedKey}"
 ROOT_PASSWORD='${escapedPassword}'
 USERS="${usersListForLoop}"
+
+${osInfo.family === 'alpine' ? '/usr/local/bin/incudal-alpine-ssh-security.sh check || exit 1' : ''}
 
 if echo "root:$ROOT_PASSWORD" | chpasswd >/dev/null 2>&1; then
   :
@@ -560,7 +562,7 @@ export function generateContainerConfig(params: IncusConfigParams): IncusConfigR
   const runcmd = [
     'mkdir -p /etc/ssh/sshd_config.d || true',
     ...setupCmds,
-    '/usr/local/bin/incus-setup.sh || true',
+    isAlpine ? '/usr/local/bin/incus-setup.sh' : '/usr/local/bin/incus-setup.sh || true',
     ...routedIpv6GuardCmds,
     ...userCustomCmds
   ]
@@ -570,6 +572,13 @@ export function generateContainerConfig(params: IncusConfigParams): IncusConfigR
   const packagesYaml = packages.map(p => `  - ${p}`).join('\n')
 
   const writeFilesYaml = [
+    ...(isAlpine ? [
+      '  - path: /usr/local/bin/incudal-alpine-ssh-security.sh',
+      '    owner: root:root',
+      "    permissions: '0700'",
+      '    content: |',
+      ...`${alpineSshSecurityScript}\ncase "$1" in check) alpine_ssh_assert_fixed ;; install) alpine_ssh_security_update install ;; *) exit 1 ;; esac\n`.split('\n').map(l => `      ${l}`)
+    ] : []),
     `  - path: ${sshdDropInPath}`,
     `    owner: root:root`,
     `    permissions: '0644'`,

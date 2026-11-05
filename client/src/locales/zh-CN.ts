@@ -1810,6 +1810,11 @@ pool: {
         },
         // 实例详情页
         detail: {
+            sshSecurity: {
+                button: 'SSH 安全维护', running: '正在核验 SSH…',
+                success: 'SSH 安全核验通过，原密码与验证连接保持。',
+                notAlpine: '实际系统不是 Alpine，未更新客户系统。',
+            },
             invalidId: '无效的实例 ID',
             notExist: '实例不存在',
             loadFailed: '加载实例失败',

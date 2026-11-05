@@ -1912,6 +1912,11 @@ pool: {
         },
         createdAt: '建立時間',
         detail: {
+            sshSecurity: {
+                button: 'SSH 安全維護', running: '正在核驗 SSH…',
+                success: 'SSH 安全核驗通過，原密碼與驗證連線保持。',
+                notAlpine: '實際系統不是 Alpine，未更新客戶系統。',
+            },
             invalidId: '無效的實例 ID',
             notExist: '實例不存在',
             loadFailed: '載入實例失敗',

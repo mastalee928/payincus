@@ -360,6 +360,8 @@ const api = {
     get: (id: number): Promise<InstanceWithDetails> => http.get(`/instances/${id}`),
     getPassword: (id: number): Promise<{ rootPassword: string | null }> => http.get(`/instances/${id}/password`),
     resetPassword: (id: number): Promise<{ message: string; rootPassword: string | null }> => http.post(`/instances/${id}/reset-password`),
+    maintainSshSecurity: (id: number): Promise<{ instanceId: number; status: 'verified' | 'already-fixed' | 'not-alpine' }> =>
+      http.post(`/instances/${id}/ssh-security`, {}, { timeout: TIMEOUT.REBUILD }),
     getStats: (id: number): Promise<InstanceStats & { status?: string }> => http.get(`/instances/${id}/stats`),
     create: (data: CreateInstanceRequest): Promise<CreateInstanceResponse> => http.post('/instances', data),
     getAvailableHosts: (params: Record<string, unknown> = {}): Promise<AvailableHost[]> =>

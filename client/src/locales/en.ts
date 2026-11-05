@@ -1756,6 +1756,11 @@ pool: {
         },
         // Instance detail page
         detail: {
+            sshSecurity: {
+                button: 'SSH Security Maintenance', running: 'Verifying SSH…',
+                success: 'SSH security verified. Original password and verification connection preserved.',
+                notAlpine: 'This system is not Alpine. No customer system update was performed.',
+            },
             invalidId: 'Invalid instance ID',
             notExist: 'Instance does not exist',
             loadFailed: 'Failed to load instance',

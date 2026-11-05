@@ -1602,6 +1602,21 @@ async function handleAction(action: InstanceAction): Promise<void> {
   }
 }
 
+async function handleSshSecurity(): Promise<void> {
+  if (!isAdminEntry || !authStore.isAdmin || !instance.value || isOperationDisabled.value) return
+  const context = captureDetailRead('ssh-security')
+  actionLoading.value = 'ssh-security'
+  try {
+    const result = await api.instances.maintainSshSecurity(context.id)
+    if (context.current()) toast.success(t(result.status === 'not-alpine'
+      ? 'instance.detail.sshSecurity.notAlpine' : 'instance.detail.sshSecurity.success'))
+  } catch (error) {
+    if (context.current()) toast.error(translateError(error))
+  } finally {
+    if (context.current()) actionLoading.value = ''
+  }
+}
+
 // 重建系统
 // 点击重建按钮时的处理：运行中提示需要先关机
 function handleRebuildClick(): void {
@@ -2748,6 +2763,14 @@ function formatShortDate(dateStr: string | null | undefined): string {
             @click="showHostReplacement = true"
           >
             {{ $t('dedicated.replacement.manageTitle') }}
+          </button>
+          <button
+            v-if="isAdminEntry && authStore.isAdmin && instance.dedicatedIpv4"
+            :disabled="isOperationDisabled || instance.status !== 'running'"
+            class="btn-secondary btn-sm sm:btn min-h-[44px]"
+            @click="handleSshSecurity"
+          >
+            {{ $t(actionLoading === 'ssh-security' ? 'instance.detail.sshSecurity.running' : 'instance.detail.sshSecurity.button') }}
           </button>
           <!-- 重建按钮（始终可点击，运行时提示需要先关机） -->
           <button

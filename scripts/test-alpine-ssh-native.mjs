@@ -1,0 +1,125 @@
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
+import ssh2 from '../server/node_modules/ssh2/lib/index.js'
+const { Client } = ssh2
+
+assert.equal(process.platform, 'linux', 'Native Alpine test requires disposable Linux and Docker')
+const name = `incudal-alpine-ssh-${randomUUID().slice(0, 8)}`
+const docker = (args, input) => execFileSync('docker', args, { input, encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024 })
+const password = 'Native-Alpine-Original-Password-Only-2026!'
+let connection, echoStream, sftp, file, pump, pumpError, pumping = true, echoClosed = false, transferClosed = false
+const received = []
+const sent = []
+const blocks = []
+try {
+  docker(['run', '-d', '--name', name, '-p', '127.0.0.1::2222', '-v', `${process.cwd()}/server/templates/alpine-ssh-security.sh:/opt/alpine-ssh-security.sh:ro`, 'alpine:3.22', 'sleep', '600'])
+  // Old signed revision is fetched through the branch's package trust keys.
+  docker(['exec', '-i', name, 'sh', '-s'], `set -eu
+apk add --no-cache openrc openssh-server-common-openrc ca-certificates
+apk add --no-cache --allow-downgrades \\
+ https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-10.0_p1-r10.apk \\
+ https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-common-10.0_p1-r10.apk \\
+ https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-keygen-10.0_p1-r10.apk
+mkdir -p /run/openrc
+touch /run/openrc/softlevel
+printf '%s\\n' 'root:${password}' | chpasswd
+cat > /etc/ssh/sshd_config <<'CONF'
+Port 2222
+PermitRootLogin yes
+PasswordAuthentication yes
+PubkeyAuthentication yes
+UsePAM no
+Subsystem sftp internal-sftp
+CONF
+ssh-keygen -A
+echo 'sshd_disable_keygen="yes"' >> /etc/conf.d/sshd
+rc-service sshd start
+`)
+  const mapping = docker(['port', name, '2222/tcp']).trim()
+  const port = Number(mapping.split(':').at(-1))
+  const fingerprint = docker(['exec', name, 'ssh-keygen', '-lf', '/etc/ssh/ssh_host_ed25519_key.pub', '-E', 'sha256']).match(/SHA256:[A-Za-z0-9+/]+/)[0]
+  const connect = (candidate, username = 'root') => new Promise((resolve, reject) => {
+    const client = new Client()
+    client.on('error', error => { client.destroy(); reject(error) })
+    client.once('ready', () => resolve(client))
+    client.connect({ host: '127.0.0.1', port, username, password: candidate, readyTimeout: 8000,
+      algorithms: { serverHostKey: ['ssh-ed25519'] },
+      hostVerifier: key => `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}` === fingerprint })
+  })
+  connection = await connect(password)
+  echoStream = await new Promise((resolve, reject) => connection.exec('cat', (error, stream) => error ? reject(error) : resolve(stream)))
+  echoStream.on('data', data => received.push(data))
+  echoStream.on('close', () => { echoClosed = true })
+  sftp = await new Promise((resolve, reject) => connection.sftp((error, value) => error ? reject(error) : resolve(value)))
+  sftp.on('close', () => { transferClosed = true })
+  file = await new Promise((resolve, reject) => sftp.open('/root/continuous-transfer', 'w', (error, handle) => error ? reject(error) : resolve(handle)))
+  pump = (async () => {
+    let position = 0
+    while (pumping) {
+      const token = Buffer.from(`session-${blocks.length}\n`); sent.push(token); echoStream.write(token)
+      const block = Buffer.alloc(32768, blocks.length % 251); blocks.push(block)
+      await new Promise((resolve, reject) => sftp.write(file, block, 0, block.length, position, error => error ? reject(error) : resolve()))
+      position += block.length
+      await delay(10)
+    }
+  })().catch(error => { pumpError = error; pumping = false })
+  // Run package update asynchronously so real SSH/SFTP traffic continues.
+  const { execFile } = await import('node:child_process')
+  await new Promise((resolve, reject) => execFile('docker', ['exec', name, 'sh', '-c', '. /opt/alpine-ssh-security.sh; alpine_ssh_security_update update'], { timeout: 90000 }, (error, stdout) => {
+    if (error) { reject(error); return }
+    try { assert.match(stdout, /^INCUDAL_ALPINE_SSH_PATCH_INSTALLED$/m); resolve() } catch (error) { reject(error) }
+  }))
+  const fixed = docker(['exec', name, 'apk', 'info', '-v', 'openssh-server']).trim()
+  assert.equal(fixed, 'openssh-server-10.0_p1-r11')
+  const newConnection = await connect(password); newConnection.end()
+  for (const candidate of ['wrong-original-password', 'x'.repeat(300), 'x'.repeat(1024), '']) {
+    await assert.rejects(connect(candidate), 'invalid credentials must be refused after patch')
+  }
+  await assert.rejects(connect(password, 'incudal-nonexistent-user'))
+  await delay(100)
+  pumping = false; await pump
+  if (pumpError) throw pumpError
+  assert.ok(!echoClosed && !transferClosed && blocks.length > 3, 'original SSH and SFTP sessions survive the update')
+  echoStream.end()
+  await new Promise(resolve => echoStream.once('close', resolve))
+  assert.deepEqual(Buffer.concat(received), Buffer.concat(sent), 'continuous SSH byte stream preserved')
+  await new Promise((resolve, reject) => sftp.close(file, error => error ? reject(error) : resolve()))
+  const expected = createHash('sha256').update(Buffer.concat(blocks)).digest('hex')
+  assert.equal(docker(['exec', name, 'sha256sum', '/root/continuous-transfer']).split(' ')[0], expected, 'active SFTP file remains byte-exact')
+  const again = docker(['exec', name, 'sh', '-c', '. /opt/alpine-ssh-security.sh; alpine_ssh_security_update update'])
+  assert.match(again, /^INCUDAL_ALPINE_SSH_ALREADY_FIXED$/m)
+  // A killed reload after package install must recover on the next update,
+  // rather than accepting the new package while serving the deleted old binary.
+  const recovery = docker(['exec', '-i', name, 'sh', '-s'], `set -eu
+. /opt/alpine-ssh-security.sh
+apk add --no-cache --allow-downgrades \\
+ https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-10.0_p1-r10.apk \\
+ https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-server-common-10.0_p1-r10.apk \\
+ https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssh-keygen-10.0_p1-r10.apk
+env sshd_disable_keygen=yes rc-service sshd reload
+sleep 1
+mkdir /tmp/fail-reload-bin
+cat > /tmp/fail-reload-bin/rc-service <<'FAIL'
+#!/bin/sh
+case "$2" in reload) exit 1 ;; *) exec /sbin/rc-service "$@" ;; esac
+FAIL
+chmod 755 /tmp/fail-reload-bin/rc-service
+original_path=$PATH
+PATH=/tmp/fail-reload-bin:$PATH
+if alpine_ssh_security_update update; then echo 'failed reload was incorrectly accepted'; exit 1; fi
+alpine_ssh_assert_fixed
+PATH=$original_path
+alpine_ssh_security_update update
+alpine_ssh_listener_current
+`)
+  assert.match(recovery, /^INCUDAL_ALPINE_SSH_ALREADY_FIXED$/m)
+  const recovered = await connect(password); recovered.end()
+  console.log(`PASS native Alpine 3.22: signed r10→r11 patch; original password/new login; incorrect/long/empty/unknown-user refused; live SSH/SFTP ${blocks.length * 32768} bytes preserved; idempotent check; failed reload recovered with installed patch`)
+} finally {
+  pumping = false
+  if (pump) await pump.catch(() => {})
+  connection?.destroy()
+  try { docker(['rm', '-f', name]) } catch {}
+}

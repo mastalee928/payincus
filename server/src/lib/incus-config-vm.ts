@@ -1,4 +1,5 @@
 import { generateVmNicMacs, type VmNicMacs } from './vm-network-identifiers.js'
+import { alpineSshSecurityScript } from './alpine-ssh-security.js'
 
 // ================= 类型定义 =================
 
@@ -240,6 +241,7 @@ systemctl restart qemu-guest-agent 2>/dev/null || true`
 LOG_FILE="/var/log/incudal-vm-setup.log"
 exec >>"$LOG_FILE" 2>&1
 # 不启用 shell trace，避免 ROOT_PASSWORD/SSH_KEY 写入 guest 日志
+${osInfo.family === 'alpine' ? alpineSshSecurityScript : ''}
 
 SSH_KEY="${escapedKey}"
 ROOT_PASSWORD='${escapedPassword}'
@@ -397,6 +399,8 @@ echo "Installing base packages..."
 ensure_dns_fallback
 wait_for_network || true
 ${packageInstallCommand} || true
+
+${osInfo.family === 'alpine' ? 'alpine_ssh_security_update install || exit 1' : ''}
 
 command -v update-ca-certificates >/dev/null 2>&1 && update-ca-certificates || true
 command -v ssh-keygen >/dev/null 2>&1 && ssh-keygen -A || true

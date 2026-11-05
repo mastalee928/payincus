@@ -1,0 +1,48 @@
+name: Alpine SSH security
+on:
+  push:
+    branches: [main, dev, codex/alpine-ssh-security]
+    paths: ['server/templates/alpine-ssh-security.sh', 'server/src/lib/alpine-ssh-security.ts', 'server/src/lib/incus-config-*.ts', 'server/src/lib/dedicated-ssh.ts', 'server/src/services/alpine-ssh-maintenance.ts', 'server/src/routes/alpine-ssh-security.ts', 'server/scripts/test-alpine-ssh-*.ts', 'scripts/test-alpine-ssh-native.mjs', '.github/workflows/alpine-ssh-security.yml']
+  pull_request:
+    branches: [main]
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: pnpm }
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Native Alpine password and continuous SSH SFTP verification
+        run: node scripts/test-alpine-ssh-native.mjs
+  maintenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ssh_test
+          POSTGRES_PASSWORD: ssh_test
+          POSTGRES_DB: ssh_security_pool_test
+        ports: ['55455:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ssh_test:ssh_test@127.0.0.1:55455/ssh_security_pool_test
+      JWT_SECRET: alpine-ssh-ci-isolated-fixture-only
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: pnpm }
+      - run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm --filter server exec prisma generate
+          pnpm --filter server exec prisma migrate deploy
+      - name: Current actor, original instance identity, PG conflicts and failure continuation
+        run: pnpm --filter server test:alpine-ssh-maintenance
+      - name: Initializer and password policy guards
+        run: pnpm --filter server test:alpine-ssh-security-guards

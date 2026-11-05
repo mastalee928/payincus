@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-11-06 Alpine OpenSSH 原密码安全修复：源码阶段
+
+Owner已明确“开始修”，保留客户原SSH密码与无感目标。采用官方当前stable分支pw.patch对应修订，不关闭密码认证、不强制PAM转换、不重置客户密码/主机密钥。新建容器/VM与Alpine宿主接入安装补丁；独占交付核实际包与监听进程。已有实例有管理员详情页显式维护入口，核原管理证书/UUID、会话、任务冲突，持原密码连接并核包后旧连接/新登录；保存本地账户/SSH配置hash及权限比较。包已安装但reload失败仍重新核运行进程，拒跨版本及官方restart钩子旧修订，原证据/账目保留。
+
+本地server/client类型、双端build、Alpine/前端路由/i18n/宿主安装守卫、dedicated实际本机SSH与18OS生成专项通过；隔离PG维护含真实并发锁、失效管理员会话、原UUID、失败重试及原客户/账目保持自然exit0。210项清单登记；没有重复全矩阵。原生Linux连续SSH/SFTP/长错误密码与reload失败续接将由本分支一次性Actions专项核验，当前尚未有终态证据；Windows本机QEMU故障不能当原生通过。网页入口真实Chrome检查仍进行中。
+
+当前未执行生产宿主/客户维护、OTA、稳定tag或Release；v1.8.3已完成的发行监控不恢复。阶段分支codex/alpine-ssh-security，来源/运行ID随后记录。[维护范围与网页入口](docs/alpine-ssh-security-maintenance.md)。`.taste-skill/`保留，真实云端无中断须另行实证。
+
 ## 2026-11-05 v1.8.3 七项修复正式发行核验完成
 
 - 正式源码 `1ac022b567ee959d0d44df70462c73e9683f08d6`，tree `c75c12e4313dba81d1b17a29f8c5b95c12fec09b`。main精确非force快进、PR [#5](https://github.com/mastalee928/payincus/pull/5) MERGED且mergeCommit同源码；注释tag `v1.8.3` 对象 `bc0639ba9ece29ce334c7ed56cfc6c8a345a7926` 固定解引用同源码。最终文档提交不移动tag、不重新打包。

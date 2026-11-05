@@ -1447,6 +1447,10 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       let script: string
       try {
         script = readFileSync(scriptPath, 'utf-8')
+        if (request.query.os === 'alpine') {
+          const securityScript = readFileSync(join(__dirname, '../../templates/alpine-ssh-security.sh'), 'utf-8').replace(/\r\n/g, '\n')
+          script = script.replace('# INJECT_ALPINE_SSH_SECURITY', () => securityScript)
+        }
       } catch (err) {
         request.log.error(err, 'Failed to read install script file')
         return reply.code(500).send('# Error: Install script file not found')

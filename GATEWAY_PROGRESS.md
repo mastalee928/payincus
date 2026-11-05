@@ -1,5 +1,9 @@
 # 网关灾备工程进度
 
+## 2026-11-06 Alpine OpenSSH 安全修复进行中
+
+官方同分支安全修订、原密码/主机身份/配置保持、新安装与受限管理员网页维护源码已完成本地类型/守卫/双端构建及隔离PG专项。跨版本、旧restart钩子、自定义PID/二进制和恢复/转移等冲突均拒自动维护。Linux实际包升级、连续SSH/SFTP及已装包reload失败续接待本分支专项Actions终态；Chrome网页入口验收仍进行。本阶段不代表已更新任何生产宿主或客户实例，不恢复已结束v1.8.3监控、不改稳定tag/发行。详情见HANDOFF与[维护指南](docs/alpine-ssh-security-maintenance.md)。
+
 ## 2026-11-05 v1.8.3 发行与最终 CI 核验完成
 
 正式源码 `1ac022b567ee959d0d44df70462c73e9683f08d6` / tree `c75c12e4313dba81d1b17a29f8c5b95c12fec09b`；main精确非force快进、PR#5合并，注释tag对象 `bc0639ba9ece29ce334c7ed56cfc6c8a345a7926` 固定同来源。候选CI41894899709与mainCI41914468073各十job、预览41894888749四必需job、formal41914476956五job全部终态通过；逐job实际来源/关键步骤与日志归档，候选PR checkout tree一致。最终main Pool完整日志于23:09:02Z核验，二次隔离、转移真实PG竞争/耗尽续接与手续费一次、管理员字段隔离、完整App/三语真实触摸通过。最后同SHA仅四关联run，全部success，无新增Agent/Pages或未处理失败。

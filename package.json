@@ -243,6 +243,7 @@
     "pnpm --filter server test:redirect-validator-guards",
     "pnpm --filter server test:error-response-guards",
     "pnpm --filter server test:dedicated-delivery",
+    "pnpm --filter server test:alpine-ssh-security-guards",
     "pnpm --filter server test:host-public-ip",
     "pnpm --filter server test:host-public-ipv6",
     "pnpm --filter server test:platform-backup-guards",

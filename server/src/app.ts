@@ -66,6 +66,7 @@ import {
 import authRoutes from './routes/auth.js'
 import userRoutes from './routes/users.js'
 import instanceRoutes from './routes/instances.js'
+import alpineSshSecurityRoutes from './routes/alpine-ssh-security.js'
 import hostRoutes from './routes/hosts.js'
 import packageRoutes from './routes/packages.js'
 import snapshotRoutes from './routes/snapshots.js'
@@ -552,6 +553,7 @@ fastify.addHook('onClose', async () => { await stopCheckoutWorker() })
 await fastify.register(authRoutes, { prefix: '/api/auth' })
 await fastify.register(userRoutes, { prefix: '/api/users' })
 await fastify.register(instanceRoutes, { prefix: '/api/instances' })
+await fastify.register(alpineSshSecurityRoutes, { prefix: '/api/instances' })
 await fastify.register(hostRoutes, { prefix: '/api/hosts' })
 await fastify.register(hostReplacementRoutes, { prefix: '/api/instances' })
 await fastify.register(adminInstancePushRoutes, { prefix: '/api/admin/instance-push' })

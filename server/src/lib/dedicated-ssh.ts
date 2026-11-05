@@ -7,6 +7,7 @@ const sshVerificationReasons = {
   identity: '客户公网 SSH 身份与实例内登记身份不一致',
   authentication: '客户 SSH 密码认证被拒绝',
   passwordDisabled: '镜像初始化后 SSH 仍禁用密码登录（PasswordAuthentication no）',
+  securityPatch: 'Alpine SSH 安全补丁尚未安装，保留密码登录并等待安全初始化完成',
   identityUnavailable: '实例内尚未取得 SSH 主机公钥',
   inspection: '无法通过已认证的管理通道检查实例 SSH',
   command: '客户 SSH 登录后无法执行验证命令',
@@ -15,6 +16,41 @@ const sshVerificationReasons = {
 
 export class DedicatedSshVerificationError extends Error {
   constructor(public reason: keyof typeof sshVerificationReasons) { super(sshVerificationReasons[reason]) }
+}
+
+/** Keep an authenticated customer session open across a package reload. Password
+ * is only sent after the Incus-pinned key matches; no password reset is attempted.
+ */
+export async function holdCustomerSshSession(host: string, password: string, fingerprints: string[], port = 22) {
+  const client = new Client()
+  let closed = false
+  client.on('error', () => { closed = true })
+  client.on('close', () => { closed = true })
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => { client.destroy(); reject(new DedicatedSshVerificationError('timeout')) }, 12000)
+    client.once('error', () => { clearTimeout(timer); reject(new DedicatedSshVerificationError('unreachable')) })
+    client.once('ready', () => { clearTimeout(timer); resolve() })
+    client.connect({ host, port, username: 'root', password, readyTimeout: 10000,
+      keepaliveInterval: 5000, keepaliveCountMax: 2,
+      hostVerifier: (key: Buffer) => fingerprints.includes(`SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`) })
+  })
+  const verify = () => new Promise<void>((resolve, reject) => {
+    if (closed) { reject(new DedicatedSshVerificationError('unreachable')); return }
+    const timer = setTimeout(() => { client.destroy(); reject(new DedicatedSshVerificationError('timeout')) }, 12000)
+    client.exec('id -u', (error, stream) => {
+      if (error) { clearTimeout(timer); reject(new DedicatedSshVerificationError('command')); return }
+      let output = ''
+      stream.on('data', (data: Buffer) => { output = (output + data.toString()).slice(0, 128) })
+      stream.once('error', () => { clearTimeout(timer); reject(new DedicatedSshVerificationError('command')) })
+      stream.once('close', (code: number) => {
+        clearTimeout(timer)
+        if (closed || code !== 0 || output.trim() !== '0') reject(new DedicatedSshVerificationError('command'))
+        else resolve()
+      })
+    })
+  })
+  try { await verify() } catch (error) { client.destroy(); throw error }
+  return { verify, close: () => client.end() }
 }
 
 /** Verify the exact customer password only after the Incus-pinned key matches. */

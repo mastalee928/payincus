@@ -12,6 +12,8 @@ INJECT_AGENT_BINARY_SHA256=""
 
 fail() { printf 'Alpine installation failed: %s\n' "$*" >&2; exit 1; }
 
+# INJECT_ALPINE_SSH_SECURITY
+
 install_alpine() {
   [[ $EUID -eq 0 ]] || fail 'root is required'
   . /etc/os-release
@@ -34,6 +36,8 @@ install_alpine() {
   local management_ip
   management_ip=$(ip -4 -o address show dev incudal-mgmt | awk '{split($4,a,"/"); print a[1]; exit}')
   [[ "$management_ip" =~ ^10\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'management tunnel is required'
+
+  alpine_ssh_security_update update || fail 'SSH password-authentication patch failed'
 
   # Use signed packages from the installed stable branch, never Alpine edge.
   local repository="https://dl-cdn.alpinelinux.org/alpine/$branch"
