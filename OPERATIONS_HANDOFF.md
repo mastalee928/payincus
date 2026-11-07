@@ -18,6 +18,8 @@ The private backend on 127.0.0.1:3001 must run as exactly one Node.js process. T
 
 2026-11-08 owner授权本线程精修后提交推送源码分支，实际SHA/Actions见HANDOFF。维护前及恢复前必须取得Incus明确`ephemeral=false`，临时或持久属性未知的客户不允许自动重启/停止，避免Incus自动删除；不自动转换客户属性。新接入最终核当前故障/IP/独占门禁，等待节点锁后重新核完整原管理身份。原生自动重启白名单仍为空，源码推送不代表新包已发行或线上已加固。
 
+最终源码`683f952cab61239416fe0848d1e60b900a074934`已推，专项九job核同来源终态success。SSH互斥只最多等待两秒取得实际释放锁，BusyBox timeout已结束命令的watchdog不会导致立即续接失败；仍活跃子进程、未知/缺baseline残留继续拒绝，不强制解锁。AMD64六Alpine分支与ARM64原密码/持续SSH/SFTP和失败续接原生验证通过，不能代替自动重启的真实内核/客户恢复或下一版包/OTA验收。
+
 安全修复分支 `codex/alpine-ssh-security` 已通过原生 Alpine 3.19–3.24 AMD64/3.22 ARM64 与隔离 PG 专项，实际来源与范围见 HANDOFF；尚未合并 main、发布新包或操作生产实例。11-07追加了下一版自动维护队列源码，部署包含该队列且通过发行门槛的新版后，自动逐机核身份、有效隔离、UID/GID/Seccomp/AppArmor，再应用适用的官方SSH补丁；现有v1.8.3包不含它。原密码/配置和连接验证保持；具体[自动加固范围与门槛](docs/automatic-security-hardening.md)。
 
 既有已交付、运行独占实例从管理员「实例」→详情→「SSH 安全维护」执行，无需再次填写客户密码或 SSH 地址。后台核当前管理员授权、原管理/实例身份、任务冲突、原密码连接，安装安全修订后验证实际监听进程、配置/密钥/账户保持及原连接和新登录；管理员日志持久留结果。缺原登记身份（含仅 recoveryIdentity 或换机后旧 managedCleanup）、自定义服务参数、跨版本和旧 restart 钩子会拒绝，不能删除身份保护或降回漏洞包。异常 SIGKILL 残留互斥目录须由运维确认没有未结束更新后处理，不自动绕过。步骤与失败判据见[维护指南](docs/alpine-ssh-security-maintenance.md)；生产客户全体连接无中断须有另行授权的实际维护证据。
