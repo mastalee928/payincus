@@ -24,6 +24,7 @@ for (const output of ['', 'apk unavailable', 'prefix INCUDAL_ALPINE_SSH_FIXED', 
 }
 assert.ok(alpineSshSecurityScript.includes('--repositories-file') && alpineSshSecurityScript.includes('openssh-server~'))
 assert.ok(alpineSshSecurityScript.includes('rc-service sshd reload') && !alpineSshSecurityScript.includes('sshd restart'))
+assert.ok(alpineSshSecurityScript.includes('flock -w 2 9'),'allow bounded acquisition after BusyBox watchdog exits, without releasing a live inherited lock')
 assert.ok(alpineSshSecurityScript.includes('cmp -s') && !alpineSshSecurityScript.includes('chpasswd') && !/^\s*ssh-keygen\b/m.test(alpineSshSecurityScript))
 const delivery = readFileSync(new URL('../src/services/dedicated-delivery.ts', import.meta.url), 'utf8')
 assert.ok(delivery.indexOf('assertAlpineSshSecurityInspection(result.stdout)') < delivery.indexOf('await checkSshLogin(publicIp'))

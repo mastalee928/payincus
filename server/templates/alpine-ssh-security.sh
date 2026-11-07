@@ -111,7 +111,10 @@ alpine_ssh_lock_acquire() {
   fi
   (umask 077; : >> "$alpine_ssh_gate") || return 1
   exec 9>> "$alpine_ssh_gate"
-  flock -n 9 || { alpine_ssh_fail 'another SSH security update is active'; return 1; }
+  # BusyBox timeout leaves an inherited watchdog for up to one second after
+  # its command exits. Wait a bounded two seconds for actual descriptor release;
+  # never unlock/delete the gate or assume a live updater/descendant has ended.
+  flock -w 2 9 || { alpine_ssh_fail 'another SSH security update is active'; return 1; }
   if [ -e "$alpine_ssh_lock" ] || [ -L "$alpine_ssh_lock" ]; then
     [ ! -L "$alpine_ssh_lock" ] && [ -d "$alpine_ssh_lock" ] &&
       [ "$(stat -c '%u:%a' "$alpine_ssh_lock")" = '0:700' ] || return 1
