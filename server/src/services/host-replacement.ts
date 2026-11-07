@@ -7,6 +7,7 @@ import * as db from '../db/index.js'
 import { advisoryTransactionLock, INSTANCE_OPERATION_LOCK_NAMESPACE } from '../db/advisory-locks.js'
 import { lockHostGroups } from './host-groups.js'
 import { dedicatedHostReadyWhere, HOST_OCCUPIED_INSTANCE_WHERE, hostPendingMoveWhere } from '../lib/host-resource-usage.js'
+import { hardeningIdentityInclude, hardeningReceiptMatches } from '../lib/hardening-identity.js'
 import { getIncusClient } from '../lib/incus/index.js'
 import { buildInstanceConfig, createInstance, execWithOutput, restartInstance, startInstance, updateInstance } from '../lib/incus/incus-instances.js'
 import { generateIncusConfig } from '../lib/incus-config-generator.js'
@@ -74,8 +75,8 @@ export async function requestHostReplacement(instanceId: number, targetHostId: n
         await tx.backupUploadTask.count({ where: { instanceId, status: { in: ['PENDING', 'PROCESSING'] } } })) throw new Error('实例有其他任务正在执行')
     const target = await tx.host.findFirst({ where: { ...dedicatedHostReadyWhere(), id: targetHostId, singleTenant: true,
       ...replacementConfigurationWhere(instance, allRegions),
-      instances: { none: HOST_OCCUPIED_INSTANCE_WHERE } } })
-    if (!target || await tx.instanceTask.count({ where: hostPendingMoveWhere(targetHostId) }) ||
+      instances: { none: HOST_OCCUPIED_INSTANCE_WHERE } }, include: hardeningIdentityInclude })
+    if (!target || !hardeningReceiptMatches(target) || await tx.instanceTask.count({ where: hostPendingMoveWhere(targetHostId) }) ||
         target.cpuAllowanceMax - target.cpuUsed < instance.cpu || target.memoryMax - target.memoryUsed < instance.memory ||
         target.storageSize * 1024 - target.diskUsed < instance.disk || (target.customerDiskGiB ?? 0) * 1024 < instance.disk) {
       throw new Error('备用机器已被占用、未就绪或规格不兼容')

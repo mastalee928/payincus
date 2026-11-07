@@ -8,6 +8,10 @@ import { useToast } from '@/stores/toast'
 import { useAuthStore } from '@/stores/auth'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import HostInfoTab from '@/components/host/HostInfoTab.vue'
+import { defineAsyncComponent } from 'vue'
+import { isAdminEntry } from '@/utils/app-paths'
+const HostHardeningDetails=isAdminEntry?defineAsyncComponent(()=>import('@/components/host/HostHardeningDetails.vue')):null
+const showHardening=ref(false)
 import HostManagementRepairStatus from '@/components/host/HostManagementRepairStatus.vue'
 import HostImagesTab from '@/components/host/HostImagesTab.vue'
 import MyHostConfigTab from '@/components/host/MyHostConfigTab.vue'
@@ -435,6 +439,7 @@ const tabs = [
               </span>
             </div>
             <p class="page-description mt-1 truncate font-mono text-themed-muted">{{ host.location || host.url }}</p>
+            <button v-if="isAdmin" type="button" class="min-h-[44px] text-sm text-themed underline underline-offset-4" @click="showHardening = true">{{t('securityHardening.detail')}}</button>
             <p v-if="host.natConfig?.publicIpSync?.observedIp || host.natConfig?.publicIp" data-node-current-ip class="mt-1 text-sm text-themed-muted">{{ t('hostInventory.publicIp') }}: <span class="font-mono text-themed">{{ host.natConfig?.publicIpSync?.observedIp || host.natConfig?.publicIp }}</span></p>
             <p v-if="isAdmin && host.natConfig?.publicIpSync?.error" class="mt-1 text-xs text-amber-600 dark:text-amber-400" role="status">{{ t('hostIpSync.errors.' + host.natConfig.publicIpSync.error) }}</p>
             <HostManagementRepairStatus class="mt-2" :state="host.managementRepair" />
@@ -534,6 +539,7 @@ const tabs = [
       <!-- Tab Content -->
       <div>
         <HostInfoTab v-if="activeTab === 'info'" :host="host" @refresh="loadHost" />
+        <HostHardeningDetails v-if="isAdmin && showHardening && HostHardeningDetails" :host-id="host.id" :host-name="host.name" @close="showHardening = false" />
         <MyHostConfigTab v-if="activeTab === 'config'" :host="host" @saved="onConfigSaved" />
         <HostImagesTab v-if="activeTab === 'images'" :host-id="host.id" :host-name="host.name" />
         <HostStorageTab v-if="activeTab === 'storage'" :host-id="host.id" />

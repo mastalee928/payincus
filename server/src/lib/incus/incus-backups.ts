@@ -3,6 +3,7 @@
  */
 
 import type { IncusClient } from './incus-client.js'
+import { createInstance } from './incus-instances.js'
 import type { IncusBackup, CreateBackupOptions } from '../../types/incus.js'
 
 /**
@@ -157,12 +158,15 @@ export async function restoreFromBackup(
   newInstanceName: string,
   backupData: Record<string, unknown>
 ): Promise<unknown> {
-  return client.request('POST', '/1.0/instances', {
+  const result = await createInstance(client, {
     name: newInstanceName,
+    profiles: [],
+    config: { 'security.privileged': 'false' },
     source: {
       type: 'backup',
       ...backupData
     }
   })
+  return result
 }
 

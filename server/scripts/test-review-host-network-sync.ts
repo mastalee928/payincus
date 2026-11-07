@@ -63,7 +63,7 @@ let constraint: string | undefined
 let failure: unknown
 try {
   for (const entry of process.env.REVIEW_NETWORK_ENTRIES?.split(',') || ['single', 'repair', 'baseline', 'backfill']) {
-    const modes = entry === 'backfill' ? ['host_changed', 'host_connection_changed', 'database_failure', 'success', 'dry_run'] : ['host_changed', 'instance_renamed', 'owner_changed', 'new_generation', 'address_changed', 'host_connection_changed', 'host_owner_changed', 'actor_banned', 'session_revoked', 'cleanup_pending', 'pending_task', 'deleted', 'suspended', 'database_failure', 'success', ...(entry !== 'baseline' ? ['stable_suspended'] : [])]
+    const modes = entry === 'backfill' ? ['host_changed', 'host_connection_changed', 'maintenance', 'database_failure', 'success', 'dry_run'] : ['host_changed', 'instance_renamed', 'owner_changed', 'new_generation', 'address_changed', 'host_connection_changed', 'host_owner_changed', 'maintenance', 'actor_banned', 'session_revoked', 'cleanup_pending', 'pending_task', 'deleted', 'suspended', 'database_failure', 'success', ...(entry !== 'baseline' ? ['stable_suspended'] : [])]
     for (const mode of process.env.REVIEW_NETWORK_MODES?.split(',') || modes) {
       const host = await prisma.host.create({ data: { userId: owner.id, name: `${prefix}-${entry}-${mode}`, url: `https://127.0.0.1:${(remote.address() as { port: number }).port}`,
         certPath, keyPath, serverCertificate: certificate, serverFingerprint: new X509Certificate(certificate).fingerprint256, status: 'online' } })
@@ -73,6 +73,7 @@ try {
       const primary = await prisma.ipAddress.create({ data: { instanceId: instance.id, hostId: host.id, address: instance.ipv4!, type: 'inet4', isPrimary: true, device: 'eth0' } })
       const custom = await prisma.ipAddress.create({ data: { instanceId: instance.id, hostId: host.id, address: '2001:db8::99', type: 'inet6', isPrimary: false, isCustom: true, device: 'eth1' } })
       beforeProbe = async () => {
+        if (mode === 'maintenance') await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { maintenance: { phase: 'waiting-boot' } } } })
         if (mode === 'host_changed') await prisma.instance.update({ where: { id: instance.id }, data: { hostId: replacement.id } })
         if (mode === 'instance_renamed') await prisma.instance.update({ where: { id: instance.id }, data: { incusId: instance.incusId + '-new' } })
         if (mode === 'owner_changed') await prisma.instance.update({ where: { id: instance.id }, data: { userId: other.id } })

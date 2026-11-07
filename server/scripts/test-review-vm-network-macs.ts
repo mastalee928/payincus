@@ -16,6 +16,7 @@ const base: State = { type: 'virtual-machine', config: { 'user.fixture': 'keep',
   profiles: ['original-profile'], description: 'keep original description' }
 let state: State = structuredClone(base), calls: string[] = [], writeFailure = false
 const fixtureRequest = async (method: string, path: string, body?: any) => {
+  if (method === 'GET' && path === '/1.0/profiles/original-profile') return { config: {}, devices: {} }
   calls.push(`${method} ${path}`)
   assert.ok(path === '/1.0/instances/mac-fixture' || path === '/1.0/instances/mac-fixture/state')
   if (method === 'GET') return structuredClone(state)
@@ -93,7 +94,8 @@ for (const origin of ['explicit', 'volatile', 'expanded', 'inherited-primary', '
   assert.equal(state.devices.eth1['ipv6.routes'], undefined)
   assert.match(state.config['user.network-config'], /10\.10\.1\.23\/22/)
   assert.match(state.config['user.network-config'], /2001:db8::46\/128/)
-  assert.deepEqual(calls, ['GET /1.0/instances/mac-fixture', 'PUT /1.0/instances/mac-fixture', 'PUT /1.0/instances/mac-fixture/state'])
+  assert.deepEqual(calls, ['GET /1.0/instances/mac-fixture', 'PUT /1.0/instances/mac-fixture',
+    'GET /1.0/instances/mac-fixture', 'PUT /1.0/instances/mac-fixture/state'], 'Restart checks effective isolation before dispatch')
   calls = []
   await removeInstanceIpv6(client, 'mac-fixture', false)
   assert.deepEqual(matchedMacs(), [primaryMac]); assert.equal(state.devices.eth1, undefined)

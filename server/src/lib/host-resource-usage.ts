@@ -1,4 +1,26 @@
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { SECURITY_HARDENING_REVISION } from './security-hardening.js'
+
+/** Uninspected legacy hosts keep their existing readiness rules. Once a host
+ * enters hardening, only a current successful receipt can release new stock. */
+export function hostHardeningReadyWhere(): Prisma.HostWhereInput {
+  return { OR: [
+    { securityHardening: { equals: Prisma.DbNull } },
+    { AND: [
+      { securityHardening: { path: ['revision'], equals: SECURITY_HARDENING_REVISION } },
+      { securityHardening: { path: ['status'], equals: 'verified' } },
+      { securityHardening: { path: ['phase'], equals: 'finished' } },
+      { securityHardening: { path: ['nextCheckAt'], gte: new Date().toISOString() } },
+      { OR: [
+        { securityHardening: { path: ['maintenance'], equals: Prisma.AnyNull } },
+        { AND: [
+          { securityHardening: { path: ['maintenance','revision'], equals: 'host-maintenance-v1' } },
+          { securityHardening: { path: ['maintenance','phase'], equals: 'verified' } }
+        ] }
+      ] }
+    ] }
+  ] }
+}
 
 export const HOST_RESOURCE_INSTANCE_STATUSES = ['creating', 'running', 'stopped', 'suspended'] as const
 
@@ -15,8 +37,9 @@ export function dedicatedHostReadyWhere(): Prisma.HostWhereInput {
     storagePools: { some: { purpose: 'instance_data' } },
     natPublicIp: { not: null }, natPortStart: { not: null }, natPortEnd: { not: null },
     OR: [
-      { onboardingNode: { is: null } },
+      { onboardingNode: { is: null }, ...hostHardeningReadyWhere() },
       { onboardingNode: { is: { status: 'succeeded' } },
+        ...hostHardeningReadyWhere(),
         agent: { is: { enabled: true, lastSeenAt: { gte: new Date(Date.now() - 90000) } } } }
     ]
   }

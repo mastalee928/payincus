@@ -16,6 +16,7 @@ import { mapInstanceStatus } from '../lib/incus/incus-utils.js'
 import { advanceTrafficSnapshot, calculateIncrement } from './traffic-utils.js'
 import { lockCurrentHostAgent, type HostAgentRecord } from '../lib/host-agent-credentials.js'
 import { advisoryTransactionLock, INSTANCE_OPERATION_LOCK_NAMESPACE } from '../db/advisory-locks.js'
+import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 
 interface NormalizedAgentInstanceItem {
   name: string
@@ -356,6 +357,10 @@ async function processOneAgentInstanceReport(
       if (updateData) {
         const updateResult = await prisma.$transaction(async tx => {
           if (!await lockCurrentReportedInstance(tx, instance, agent)) return { count: 0 }
+          const host=await tx.host.findUnique({where:{id:agent.hostId},select:{securityHardening:true}})
+          // A reboot's temporary Stopped observation cannot consume the original
+          // running intent needed for recovery. Traffic counters still continue.
+          if(!host||hostMaintenanceBlocked(host.securityHardening))return {count:0}
           return tx.instance.updateMany({
             where: {
               id: instance.id,

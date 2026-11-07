@@ -12,6 +12,7 @@ import { buildNetworkDevices, generateCloudInitNetworkConfig, hasIpv6Support } f
 import { networkModeNeedsNatIpv4 } from '../network-modes.js'
 import { generateVmNicMacs } from '../vm-network-identifiers.js'
 import { resolveIncusSwapValue } from '../instance-swap.js'
+import { assertCustomerIsolation, assertCustomerProfiles, readCustomerIsolation, rejectCustomerPrivilege } from './customer-isolation.js'
 
 const INSTANCE_BUSY_WAIT_TIMEOUT_MS = 300000
 const INSTANCE_BUSY_POLL_INTERVAL_MS = 2000
@@ -266,6 +267,12 @@ export async function getInstanceState(client: IncusClient, name: string): Promi
  * 创建实例
  */
 export async function createInstance(client: IncusClient, config: unknown): Promise<unknown> {
+  if (!config || typeof config !== 'object' || !Array.isArray((config as { profiles?: unknown }).profiles)) {
+    throw new Error('客户实例创建必须显式指定 profile 列表')
+  }
+  await assertCustomerProfiles(client, { ...config, expanded_config: undefined, expanded_devices: undefined } as Parameters<typeof assertCustomerProfiles>[1])
+  // Preserve the caller's create/compensation receipt; check the effective remote
+  // configuration before starting it or replacing any original restore source.
   return client.request('POST', '/1.0/instances', config)
 }
 
@@ -289,6 +296,7 @@ export async function deleteInstance(client: IncusClient, name: string): Promise
  * 启动实例
  */
 export async function startInstance(client: IncusClient, name: string): Promise<unknown> {
+  await readCustomerIsolation(client, name)
   return client.request('PUT', `/1.0/instances/${name}/state`, {
     action: 'start',
     timeout: 60  // 60秒
@@ -328,6 +336,7 @@ export async function stopInstance(
  * 重启实例
  */
 export async function restartInstance(client: IncusClient, name: string, force: boolean = false): Promise<unknown> {
+  await readCustomerIsolation(client, name)
   return client.request('PUT', `/1.0/instances/${name}/state`, {
     action: 'restart',
     timeout: 60,  // 60秒
@@ -349,6 +358,7 @@ export async function freezeInstance(client: IncusClient, name: string): Promise
  * 解冻实例
  */
 export async function unfreezeInstance(client: IncusClient, name: string): Promise<unknown> {
+  await readCustomerIsolation(client, name)
   return client.request('PUT', `/1.0/instances/${name}/state`, {
     action: 'unfreeze',
     timeout: 30
@@ -366,6 +376,8 @@ export async function rebuildInstance(
   config?: Record<string, string>,
   options: BusyRetryOptions = {}
 ): Promise<unknown> {
+  await readCustomerIsolation(client, name)
+  assertCustomerIsolation({ config })
   // 处理远程镜像源
   // 如果 alias 以 "images:" 开头，表示从远程 images.linuxcontainers.org 拉取
   let source: Record<string, string>
@@ -418,6 +430,7 @@ export async function updateInstance(client: IncusClient, name: string, updates:
       }
     }
 
+    await assertCustomerProfiles(client, { ...current, ...sanitizedUpdates, expanded_config: undefined, expanded_devices: undefined })
     return client.request('PUT', `/1.0/instances/${name}`, {
       ...current,
       ...sanitizedUpdates
@@ -570,6 +583,7 @@ export async function addDevice(
   const instance = await getInstance(client, instanceName)
   const devices = instance.devices || {}
   devices[deviceName] = device
+  await assertCustomerProfiles(client, { ...instance, devices, expanded_config: undefined, expanded_devices: undefined })
   return client.request('PUT', `/1.0/instances/${instanceName}`, {
     ...instance,
     devices
@@ -588,6 +602,8 @@ export async function removeDevice(
   if (instance.devices && instance.devices[deviceName]) {
     const devices = { ...instance.devices }
     delete devices[deviceName]
+    // Removing a local device can expose a device of the same name in a profile.
+    await assertCustomerProfiles(client, { ...instance, devices, expanded_config: undefined, expanded_devices: undefined })
     return client.request('PUT', `/1.0/instances/${instanceName}`, {
       ...instance,
       devices
@@ -652,6 +668,7 @@ export function buildInstanceConfig(options: BuildInstanceConfigOptions): Record
     bootAutostartDelay,
     bootHostShutdownTimeout
   } = options
+  rejectCustomerPrivilege(privileged)
 
   // 兼容旧存量数据：将 Gbit 统一转换为 Mbit，避免 Incus 因单位格式拒绝请求
   const normalizedIngress = normalizeBandwidth(limitsIngress)
@@ -814,10 +831,14 @@ export function buildInstanceConfig(options: BuildInstanceConfigOptions): Record
     name,
     // Incus API: 'container' 或 'virtual-machine'
     type: instanceType === 'vm' ? 'virtual-machine' : 'container',
+    // All required devices are explicit; never inherit host profile mounts/raw config.
+    profiles: [],
     source,
     config: configObj,
     devices
   }
+  // Even legacy callers without a static IP need a NIC without the default profile.
+  if (!devices.eth0) devices.eth0 = { type: 'nic', name: 'eth0', network: networkBridge || 'incusbr0' }
 
   // VM 关闭 UEFI 安全启动（允许用户 DD 系统等操作）
   if (instanceType === 'vm') {
@@ -829,10 +850,7 @@ export function buildInstanceConfig(options: BuildInstanceConfigOptions): Record
     (config.config as Record<string, string>)['security.nesting'] = 'true'
   }
 
-  // 特性映射: 特权模式
-  if (privileged) {
-    (config.config as Record<string, string>)['security.privileged'] = 'true'
-  }
+  if (instanceType === 'container') configObj['security.privileged'] = 'false'
 
   // 如果提供了 cloudInitConfig（来自配置生成器），直接使用
   if (cloudInitConfig && cloudInitConfig['user.user-data']) {
@@ -932,7 +950,8 @@ export async function execWithOutput(
   instanceName: string,
   command: string | string[],
   options: Record<string, unknown> = {},
-  timeout: number = 120000
+  timeout: number = 120000,
+  maxOutputBytes?:number
 ): Promise<IncusExecOutput> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new Error('Incus command output timeout')), Math.max(1, timeout))
@@ -947,7 +966,7 @@ export async function execWithOutput(
 
     async function readOutput(path: string | null, label: string): Promise<string> {
       if (!path) return ''
-      const result = await client.readFile(path, controller.signal)
+      const result = await client.readFile(path, controller.signal,maxOutputBytes)
       if (result.statusCode !== 200) throw new Error(`Incus ${label} output read failed: HTTP ${result.statusCode}`)
       return result.content
     }

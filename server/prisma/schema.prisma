@@ -819,6 +819,7 @@ model Host {
   // Durable old-system cleanup survives deletion of instance/task history.
   poolCleanup Json? @map("pool_cleanup")
   managementRepair Json? @map("management_repair")
+  securityHardening Json? @map("security_hardening")
   publicIpSyncBlocked Boolean @default(false) @map("public_ip_sync_blocked")
   publicIpSync Json? @map("public_ip_sync")
   publicIpv6Sync Json? @map("public_ipv6_sync")

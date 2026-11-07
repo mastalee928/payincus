@@ -1,5 +1,67 @@
 # 版本与验证记录
 
+## 2026-11-08 加固代码复审与源码分支推送
+
+- Owner最新授权精修后提交推送`codex/alpine-ssh-security`；远端分支复核仍为原HEAD `586cc3b491dd82a40f6a8d2442d36a4db6191055`，没有覆盖其他提交。当前为提交前记录；实际推送身份及Actions终态在本节后续补记，不新增main/tag/发行或生产操作。
+- 本轮精修三处：维护准备、远端自启条件更新和恢复动作均要求Incus明确`ephemeral=false`，拒绝临时/缺失/非布尔持久属性，防止停止临时实例自动删盘；宿主维护获节点锁后复核完整管理身份与batch，拒绝等待锁期间变更的旧地址；新接入最终完成再次核独占模式、故障隔离及公网IP门禁，不采纳旧加固成功或清接入凭据。
+- 真实隔离PG/原证书mTLS客户恢复专项、AMD64/ARM64空宿主维护协议专项和队列专项自然exit0。新增真实READ COMMITTED节点锁竞争明确观测锁等待，原管理地址改变后零远端准备/重启；临时实例运行/停止均零start/stop；新接入三种当前门禁变化均拒绝完成并保留凭据。队列专项移除强制exit0，仅导入期间的后台cache timer unref，失败仍自然非零。三项隔离/SSH/加固守卫与Python七项夹具、源码及四专项类型检查通过；构建与日志见ignored `logs/security-hardening-v8-*`。一次守卫选择名称不匹配未执行，记录原非零日志后改正确三项清单，未算通过。
+- 本轮前端无新增修改，沿v7源文件hash核复用双端构建、v6真实Vue/Chrome三语/移动/键盘及撤权回执证据；已有SSH补丁、非特权、反代维护协调和内存实验按原范围集成提交，不重跑未变大矩阵。
+- `NATIVE_VALIDATED_MAINTENANCE_RECIPES`继续空。原生AMD64/ARM64内核/AppArmor拒绝/客户真正重启恢复与持续SSH/IPv4/IPv6/转发及内存峰值、VM/真正Frozen、GRUB/缺工具、独立救援/同故障域熔断和下一版同来源实际双架构包/OTA仍未验收。本机夹具/推送不代表生产已加固，内存优化实验默认关闭；`.taste-skill/`及本地临时日志保留且不提交。历史v1.8.3发行监控不重开。
+
+## 2026-11-08 全自动加固源码推进：持久编排与客户恢复，原生放行尚未完成
+
+- 本轮沿owner“开始动代码”实现下一版，分支仍为`codex/alpine-ssh-security`，保留全部已有未提交改动及`.taste-skill/`，没有commit/push/tag/发行/生产操作。历史v1.8.3发行已完成，本轮没有重开其监控。
+- 未提交源码补齐持久host维护intent、root保护远端journal、准备hash/单次重启屏障、新boot_id及Agent回执、全局单台维护与新接入安全成功/销售门禁。恢复独占单容器沿原UUID/attempt/endpoint/mTLS，保留原密码/资源/设备/转发配置与当前账務；精确start/优雅stop和固定只读SSH检查能力不开放任意exec、其它目标、写文件或特权。检查输出限64KiB。
+- 自启原值含继承/null保存，远端修改前journal落盘，使用Incus本地socket与ETag条件写入，仅临时关闭自启；核恢复后还原原值。丢失准备/启动/还原/最终验收回执不重复reboot/start，外部新配置拒绝覆盖。最新停机/封停/到期/删除/待任务优先，保留原任务给正常worker继续，不从旧running基线改状态或账務。平台封停且远端Stopped保持；真正Frozen及VM/KVM仍拒绝自动重启方案。
+- 真实隔离PG+mTLS客户恢复及完整host协调专项、空宿主AMD64/ARM64协议专项、原SSH维护、自动队列、反代同步/操作、Incus连接池、mTLS恢复和16恢复替换专项自然exit0。Python远端boot/journal 7项、固定网关7项及helper升级6项通过；类型/相关守卫/双端构建/server构建证据见ignored `logs/security-hardening-v7-*`及最终evidence JSON。v6真实Vue/Chrome三语桌面/手机、键盘焦点、撤权迟到回执和Agent Go/双架构交叉编译证据按未变范围复用。
+- 历史失败完整保留：反代旧toggle fixture缺当前请求字段；首个host测试断言成功后被导入cache timers留住，结束该测试后非零历史退出，修专项timer生命周期后自然exit0。新增coordinator fixture缺独占容量/字段大小写、随机公开IP重复已修；实际预检被maintenance lane挡住已改为授权固定只读probe；首次hash函数类型过窄已修。最终专项捕获start/deadline分别取时导致超过20分钟上限的毫秒竞态，改为同时间基准后host/customer专项通过；dist边界不在默认清单，误选未运行已改显式单跑通过。未放宽生产隔离/原身份或用退出强制0掩盖失败。
+- `NATIVE_VALIDATED_MAINTENANCE_RECIPES`仍为空。Ubuntu模拟器退出3221225727；可运行的专用Alpine live+chroot实际AppArmor=N，未完成安装盘引导/真实Incus客户恢复，已sync/poweroff，QEMU会话自然exit0且进程消失。串口因poweroff无完成marker返回1，不能当作原生加固成功。
+- 本轮仍未完成：真实AMD64/ARM64内核/引导/容器进程隔离及策略拒绝、持续客户SSH/IPv4/IPv6/转发和内存峰值、VM/QEMU/真正冻结恢复、Debian/GRUB/缺AppArmor工具的固定准备、分层管理自动修复/独立救援及同故障域熔断、同来源下一版双架构包/首装/OTA。代码及夹具通过不等于全自动上线验收；新接入需重启但未适用时保持明确门禁。详见[统一方案](docs/automatic-security-hardening.md)。
+
+## 2026-11-07 ARM64加固与安装包要求确认
+
+- Owner强调ARM适配，已同步OWNER与[统一方案](docs/automatic-security-hardening.md)：AMD64/x86_64和ARM64/aarch64分别探测与匹配目标组件，混合架构不沿用主控判断，核ARM内核/引导/AppArmor/Seccomp/VM及实际内存页大小；新接入、已有宿主维护、重启续接、原密码/网络与低内存峰值及同来源实际包分别验证。
+- 本次仅文档，无运行代码变更或重复测试；既有ARM64 SSH补丁证据不代替新自动加固全流程。后者及实际新包仍待实现/验收，未提交、推送、发行或操作生产。
+
+## 2026-11-07 全自动加固异常复审：补固定维修及验收缺口
+
+- Owner要求增加判断，复杂问题也尽量自动处理。本轮沿当前queue、受限网关/探针、SSH共享模板与维护入口、对应守卫核对：已实现当前权限/原绑定/恢复/任务门禁、租约与精确回执、容器运行映射/Seccomp/标签、适用SSH及有限退避；没有自动防护准备/重启/新接入销售门禁/完整详情。
+- 追加[统一方案](docs/automatic-security-hardening.md)及OWNER/运维要求：准确故障分类、内核引导/空间只读/包管理进程预检、远端journal与boot_id去重、自身残留锁所有权、SSH/WG/TLS/Agent分层维修、受信配置回退、主控/活动网关目标识别、客户原运行/停机/暂停及付款/到期/删除竞争、分阶段预算/批次熔断与旧快照/组件兼容。已知有固定修复路径者自动推进，独立救援通道未具备时不能承诺整机无法启动也能自动恢复。
+- 当前明确缺口：未知错误汇总HARDENING_CHECK_FAILED、只有粗粒度状态和更新失败计数；SSH锁没有持久所有者、异常SIGKILL后不能安全自动清；VM未核实际QEMU防护。上述列为待实现/注入验证，未以文档描述冒充代码已修。本次仅文档，无运行代码修改或重复测试，不提交/推送/发行/重启生产；前轮证据沿用且不覆盖这些新增目标。
+
+## 2026-11-07 全自动加固要求重新整理：接受必要重启，新对接先验收
+
+- Owner最新要求正常加固无需管理员操作，并明确接受宿主重启的短暂客户影响；新对接同样全自动。统一目标为已有宿主升级后逐台准备/必要重启/原身份重连/客户恢复验收，新宿主加固通过后才成功及可售，机器池状态可点开详细原因与自动下一步。该安全维护授权不改变灾备恢复期间客户禁止重启的要求，不包含立即重启生产。
+- 本次只整理OWNER_REQUIREMENTS与[统一方案](docs/automatic-security-hardening.md)及台账，运行代码未修改，未重跑未变专项。前轮队列/SSH/非特权源码证据保持；自动AppArmor准备/重启意图与续接/客户原运行状态恢复、新对接成功和销售门禁、机器池详情及客户链接均尚待实现/原生验收，不能把目标说成已完成。前轮“重启一律需人工维护”为历史范围，后续按本次新授权实现；现有v1.8.3包与生产无变化。
+
+## 2026-11-07 下一版自动加固：源码与隔离专项，原生全流程待验收
+
+- Owner追加安装/升级后自动检查原宿主与客户。已实现持久逐机队列、短租约/精确回执、实例advisory与当前授权/绑定锁、恢复/离线/隔离/任务门禁、退避与连续六次补丁失败上限；下一版启动后自动参与已有及新增宿主。停止客户不自动启动，危险配置不自动转换；AppArmor缺失记录需维护，SSH部分通过不冒充整体完成。
+- 复核纠正后端不能读取root管理私钥的部署问题：沿原受限网关应用身份新增固定`security-hardening`命令，原地址/peer/SSH pin/登记node严格核验，只执行已安装受保护共享模板，不传任意脚本。首装/OTA刷新模板，外部固定组件升级与恢复来源hash同时纳入。客户实际维护再次核原host/UUID/attempt/endpointHash与当前权限/冲突，最终回执核客户绑定仍未改变；保持原密码与现有连接验证，不重启Incus/宿主/客户、不改网络账務。
+- 真实隔离PG迁移/队列及原密码维护专项自然exit0：权限/恢复/关闭、实际advisory、并发租约、部分AppArmor、失败续接、真实自动维护入口原身份、重试上限及客户绑定中途变化旧回执拒绝通过。新受限网关/提取宿主Python专项3项、固定升级helper6项通过；8项相关启动/备份/恢复/隔离/SSH守卫通过，最终改动对应守卫再次通过。server与专项脚本类型、server build、213项清单、Bash语法及diff检查通过。证据`logs/security-hardening-final-evidence.json`与逐项日志；本轮前端未改，复用此前双端build/Chrome证据。
+- 失败记录保留：隔离PG首次端口/启动参数、首次缺DATABASE_URL和string[]类型、测试宿主漏容量/固定IP残留、Windows路径夹具、专项close类型/路由参数、pnpm参数与原Unix守卫在Windows缺fcntl/目录权限均明确分开；未放宽原生守卫。原Unix完整网关专项本轮尚未在Linux通过，Windows适配器失败不记为原生结果。
+- 未提交/推送/发行/部署，新自动调度在受限后端→原网关→原生Incus容器/VM的连续SSH/SFTP、AppArmor/UID/PID、断线/任务/撤权全流程，以及同来源AMD64/ARM64实际包/首装/OTA钩子仍是下一版门槛。原Alpine补丁八job原生证据仅复用未变模板，不替代新全流程。28线上宿主AppArmor未启用仍需验证内核并安排维护；本轮没有生产加固。详情见[自动加固范围](docs/automatic-security-hardening.md)，稳定v1.8.3及.taste-skill保留。
+
+## 2026-11-07 客户实例禁止特权：源码保护与线上只读证据
+
+- Owner要求客户机不能特权。本轮封住套餐/批量API与管理开关、默认profile继承、raw配置及宿主挂载/socket/设备绕过；创建显式非特权与空profile，启动/复制/快照/备份替换前检查有效隔离。客户root和原密码策略保留，不自动转换已有客户。详情见[客户隔离检查](docs/customer-instance-isolation-2026-11-07.md)。
+- 13:12北京时间沿原受信身份只读核28台在线已接入宿主，无失败；实际两台运行客户#27/#28均非特权、root UID/GID映射宿主1000000、Seccomp2，无已读取危险覆盖/设备/socket。seoul-amd-3无客户。28台AppArmor未启用，是待隔离验证/生产维护的防护缺口，不据此声称已遭攻击或绝对安全。
+- 新隔离/真实API拒绝、PG单连接批量/并发授权/16恢复替换/恢复授权及五个开通场景、mTLS恢复与网络MAC、Chrome实际套餐/批量角色、原密码专项已通过。完整双端/边界/server构建自然exit0；最终数字0兼容/删除设备继承/默认套餐修正后类型与server build再次exit0，四专项/恢复mTLS/重建与端口守卫通过。`logs/customer-isolation-final-evidence.json`存准确日志/退出码与源码hash。总清单212条，仅清单校验与对应专项，不称全量通过；旧PG未启动/缺迁移、CRLF定位、UI资源误隐藏、数字0兼容及独立专项误选均保留失败与修正证据。
+- 本轮真实原生Incus新交付/重装/复制/快照/备份及持续SSH/SFTP未验收，不用PG夹具替代。源码未提交/推送/发行/部署；下一包须包含本轮保护和原Alpine SSH补丁，先隔离核真实客机流程及同来源双架构包。没有生产修改、重启或客户操作；原内存实验和.taste-skill保留。
+
+## 2026-11-07 宿主内存隔离优化：未完成生产验收
+
+- 本轮已实现仅新装小内存Alpine可用的实验入口，默认关闭；显式启用后保留原GODEBUG/disablethp、root权限和幂等，已有Incus进程/socket/database跳过。没有重启、改全局THP或客户额度/密码/网络；生产Seoul未应用。
+- server type-check/build、最终三项相关守卫、211项清单和Bash语法通过；实际Alpine最终专项含默认保持/Unix symlink拒绝/权限幂等通过，官方OpenRC root/640与环境解析另有证据。源码变更尚未commit/push，不触发发行。
+- 同Alpine/kernel/Incus版本三组管理流程完整结束，RSS78484/73988/75688KiB，大页24576/8192/20480KiB。恢复原配置组PSS受到客机测试Incus共享文件页影响，不能同条件比较；错误记录并保留全日志。约1.7–4.4MiB的RSS差异没有重复验证，不足以解释线上数百MiB差异，不自动推广。客机夹具在慢模拟器中过大压缩，缩小复用后仍未取得客机结果；已保存证据、同步专用盘并正常关闭QEMU/exit0/PID消失，无活动测试。观察连接exit0不代替客机结果。原生隔离串行重复对照、客机密码/连接/继承/网络/备份删除、KVM/真实客户公网/满额度/长期及生产无感仍未验收，宿主占用问题未解决。详见[报告](docs/host-memory-review-2026-11-06.md)。旧超时轮与失败日志保留，不伪报通过；SSH安全修复的下一次安装包必含安排保持。
+- 01:15北京时间追加两空机受信只读：Incus PID/startTicks保持，匿名映射子集RSS63928/214080KiB、大页40960/151552KiB。地址区间启发式不能识别Go/native分配，不归因为原生泄漏、不盲设分配器参数；自然exit0证据见 `logs/host-memory-anonymous-readonly.json`，生产配置无变更。
+
+## 2026-11-06 宿主内存只读检查：seoul-amd-2/3
+
+- 原受信SSH/Incus身份只读核验：seoul-amd-2整机423–437/966MiB、有运行客户#28约59–62MiB；seoul-amd-3无客户，截图336MiB/采集334–357MiB。Incus约142–149/114–115MiB PSS，Agent各约13MiB；整机统计为MemTotal减MemAvailable，不是Agent内存。#2约136MiB swap主要来自Incus，12/20秒采样没有新增换页/majorfault/OOM，不能据此保证长期满载。
+- 空机对照seoul-amd-1约525–536MiB，Incus约249–251MiB；jeddah-amd-1约317–327MiB，Incus约97MiB。Go堆三台Seoul仅6–12MiB，已归还大量空闲堆；全局THP为always/max_ptes_none511，Incus匿名大页82/46/164MiB，值得做仅Go堆的隔离A/B优化，不能把全部大页认定浪费或盲设GOMEMLIMIT。native匿名内存/高水位差异仍未定因，不诊断泄漏。
+- [完整检查与优化建议](docs/host-memory-review-2026-11-06.md)，原始脱敏采集与指标在ignored `logs/host-memory-*`。未改产品/生产配置、重启、关闭swap、清缓存、OTA或操作客户；仅文档记录，不新增发版/监控。1GiB宿主的768客户额度仍需额定负载与管理峰值验收，短时平稳不等于物理内存保障。
+
 ## 2026-11-06 Alpine OpenSSH 原密码安全修复：源码及隔离专项完成
 
 - 下一次安装包必含项：owner已安排本轮修复随下次版本一并发行，无需现在单独发版。集成 `codex/alpine-ssh-security` 的已验证源码后，核 AMD64/ARM64 实际包内共享模板、初始化/交付检查、维护 API 和双端入口；原密码与身份保护保持。当前仅记录下一次发行门槛，不立即合并 main、打 tag 或更新生产客户。

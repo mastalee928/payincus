@@ -12,6 +12,10 @@ import type {
 } from '../../types/incus.js'
 import { waitForOperation } from './incus-utils.js'
 import { resolveCertificatePair } from './certificate-paths.js'
+import { assertHostNotMaintaining } from '../host-maintenance-gate.js'
+import type { Prisma } from '@prisma/client'
+import { beginHostMutation } from '../host-operation-lane.js'
+import { alpineSshFingerprintInspectionCommand } from '../alpine-ssh-security.js'
 
 export class IncusApiError extends Error {
   constructor(message: string, readonly statusCode: number, readonly path: string) { super(message) }
@@ -23,6 +27,11 @@ export interface IncusRequestConditions {
 }
 
 export class IncusClient {
+  private hostId?: number
+  private maintenanceDatabase?: Pick<Prisma.TransactionClient,'host'>
+  private maintenanceStart?: {path:string;allowed:()=>Promise<void>}
+  private maintenanceStop?: {path:string;allowed:()=>Promise<void>}
+  private maintenanceSshInspection?: {path:string;allowed:()=>Promise<void>}
   private serverCertificate: string | null
   private serverFingerprint: string | null
   baseUrl: string
@@ -32,6 +41,7 @@ export class IncusClient {
   connected: boolean = false
 
   constructor(options: IncusClientOptions) {
+    this.hostId = options.id
     this.serverCertificate = options.serverCertificate || null
     this.serverFingerprint = options.serverFingerprint || null
     if (this.serverCertificate && new X509Certificate(this.serverCertificate).fingerprint256 !== this.serverFingerprint) {
@@ -129,6 +139,17 @@ export class IncusClient {
       throw new Error('Incus 客户端未连接')
     }
 
+    const maintenanceStart=this.maintenanceStart
+    const allowedStart=maintenanceStart&&method==='PUT'&&path===maintenanceStart.path&&
+      JSON.stringify(body)===JSON.stringify({action:'start',timeout:30})
+    const maintenanceStop=this.maintenanceStop
+    const allowedStop=maintenanceStop&&method==='PUT'&&path===maintenanceStop.path&&
+      JSON.stringify(body)===JSON.stringify({action:'stop',timeout:30,force:false})
+    const inspection=this.maintenanceSshInspection
+    const allowedInspection=inspection&&method==='POST'&&path===inspection.path&&JSON.stringify(body)===JSON.stringify({
+      command:['sh','-c',alpineSshFingerprintInspectionCommand],'wait-for-websocket':false,interactive:false,'record-output':true})
+    if((maintenanceStart||maintenanceStop||inspection)&&!['GET','HEAD'].includes(method)&&!allowedStart&&!allowedStop&&!allowedInspection)throw new Error('HARDENING_IDENTITY_CHANGED')
+    const release=allowedStart?(await maintenanceStart.allowed(),()=>{}):allowedStop?(await maintenanceStop.allowed(),()=>{}):allowedInspection?(await inspection.allowed(),()=>{}):await this.beginMaintenanceAccess(method)
     const startedAt = Date.now()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(new Error(`Incus request timeout (${timeout} ms)`)), Math.max(1, timeout))
@@ -196,7 +217,67 @@ export class IncusClient {
       }
 
       return (data.metadata || data) as T
-    } finally { clearTimeout(timer) }
+    } finally { clearTimeout(timer);release() }
+  }
+
+  /** Final gate for mutations, exec and asynchronous cancellation. */
+  async assertMaintenanceAccess(method: string, _path: string): Promise<void> {
+    if (this.hostId !== undefined && !['GET','HEAD'].includes(method.toUpperCase())) await assertHostNotMaintaining(this.hostId,this.maintenanceDatabase)
+  }
+  async beginMaintenanceAccess(method:string):Promise<()=>void> {
+    if(this.hostId===undefined||['GET','HEAD'].includes(method.toUpperCase()))return ()=>{}
+    const release=beginHostMutation(this.hostId)
+    try{await assertHostNotMaintaining(this.hostId,this.maintenanceDatabase);return release}
+    catch(error){release();throw error}
+  }
+  withMaintenanceDatabase(database:Pick<Prisma.TransactionClient,'host'>):IncusClient {
+    // Borrow the transport, never retain a transaction in the shared pool.
+    const scoped=Object.create(this) as IncusClient
+    scoped.maintenanceDatabase=database
+    // The pool alone owns this transport. Closing a transaction wrapper must
+    // neither close its parent's Agent nor leave the pool advertising it alive.
+    scoped.close=async()=>{}
+    scoped.connect=async()=>{throw new Error('A scoped Incus client cannot replace the pooled transport')}
+    return scoped
+  }
+  /** Internal recovery capability: the caller already holds the host lane and
+   * instance/current-authority locks. Borrow only this transport and allow one
+   * fixed start path; ordinary methods, exec and files retain the normal fence. */
+  withMaintenanceStart(name:string,allowed:()=>Promise<void>):IncusClient {
+    if(!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(name))throw new Error('HARDENING_IDENTITY_CHANGED')
+    const scoped=Object.create(this) as IncusClient
+    scoped.maintenanceStart={path:`/1.0/instances/${encodeURIComponent(name)}/state`,allowed}
+    scoped.maintenanceStop=undefined
+    scoped.maintenanceSshInspection=undefined
+    scoped.close=async()=>{}
+    scoped.connect=async()=>{throw new Error('A scoped Incus client cannot replace the pooled transport')}
+    return scoped
+  }
+
+  /** Latest stop/expiry/delete takes precedence even after an earlier recovery
+   * start. This grants only graceful stop of the locked original instance. */
+  withMaintenanceStop(name:string,allowed:()=>Promise<void>):IncusClient {
+    if(!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(name))throw new Error('HARDENING_IDENTITY_CHANGED')
+    const scoped=Object.create(this) as IncusClient
+    scoped.maintenanceStart=undefined
+    scoped.maintenanceSshInspection=undefined
+    scoped.maintenanceStop={path:`/1.0/instances/${encodeURIComponent(name)}/state`,allowed}
+    scoped.close=async()=>{}
+    scoped.connect=async()=>{throw new Error('A scoped Incus client cannot replace the pooled transport')}
+    return scoped
+  }
+
+  /** Recovery probe only: exact original instance and immutable read-only SSH
+   * command. Mutating exec/options, files and all other targets stay fenced. */
+  withMaintenanceSshInspection(name:string,allowed:()=>Promise<void>):IncusClient {
+    if(!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(name))throw new Error('HARDENING_IDENTITY_CHANGED')
+    const scoped=Object.create(this) as IncusClient
+    scoped.maintenanceStart=undefined
+    scoped.maintenanceStop=undefined
+    scoped.maintenanceSshInspection={path:`/1.0/instances/${encodeURIComponent(name)}/exec`,allowed}
+    scoped.close=async()=>{}
+    scoped.connect=async()=>{throw new Error('A scoped Incus client cannot replace the pooled transport')}
+    return scoped
   }
 
   /**

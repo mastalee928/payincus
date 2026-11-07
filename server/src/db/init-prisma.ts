@@ -227,7 +227,7 @@ async function createDefaultPackages() {
         diskMax: 5120,     // 5GB = 5120MB
         bandwidthMax: 100,
         networkMode: 'nat' as const,
-        privileged: true,  // 特权容器
+        privileged: false, // 客户容器禁止特权
         nested: true,      // 嵌套虚拟化
         active: true,      // 启用套餐
         portLimit: 20,
@@ -242,7 +242,7 @@ async function createDefaultPackages() {
         diskMax: 15360,    // 15GB = 15360MB
         bandwidthMax: 200,
         networkMode: 'nat_ipv6' as const, // NAT & IPv6
-        privileged: true,  // 特权容器
+        privileged: false, // 客户容器禁止特权
         nested: true,      // 嵌套虚拟化
         active: true,      // 启用套餐
         portLimit: 30,
@@ -257,7 +257,7 @@ async function createDefaultPackages() {
         diskMax: 25600,    // 25GB = 25600MB
         bandwidthMax: 500,
         networkMode: 'nat_ipv6' as const, // NAT + IPv6
-        privileged: true,  // 特权容器
+        privileged: false, // 客户容器禁止特权
         nested: true,      // 嵌套虚拟化
         active: true,      // 启用套餐
         portLimit: 50,

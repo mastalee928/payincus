@@ -3,6 +3,7 @@ package report
 import (
 	"context"
 	"os"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -67,10 +68,31 @@ func collectMetrics(heartbeatIntervalSeconds int) map[string]any {
 	if uptimeSeconds := readUptimeSeconds(); uptimeSeconds > 0 {
 		metrics["uptimeSeconds"] = uptimeSeconds
 	}
+	if bootID := readBootID(); bootID != "" {
+		metrics["bootId"] = bootID
+	}
 	for key, value := range readLoadAverage() {
 		metrics[key] = value
 	}
 	return metrics
+}
+
+var bootIDPattern = regexp.MustCompile(`^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$`)
+
+func readBootID() string {
+	value, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil || len(value) > 64 {
+		return ""
+	}
+	return parseBootID(string(value))
+}
+
+func parseBootID(value string) string {
+	value = strings.TrimSpace(value)
+	if !bootIDPattern.MatchString(value) {
+		return ""
+	}
+	return value
 }
 
 func detectIncus() map[string]any {

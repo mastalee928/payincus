@@ -6,6 +6,7 @@ import { PublicIpv6SyncError } from '../lib/host-public-ipv6.js'
 import { HostRecoveryError, inspectHostRecovery, recoverPoolHost } from '../services/host-pool-recovery.js'
 import { retryPoolCleanup } from '../services/host-pool-cleanup.js'
 import { managementRepairView } from '../services/host-management-repair.js'
+import { hardeningPublicView } from '../lib/hardening-view.js'
 import type { FastifyInstance } from 'fastify'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
@@ -98,7 +99,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
         natBindIp: true, publicIpSync: true, publicIpSyncBlocked: true, publicIpv6Sync: true, ipv6Mode: true, ipv6Subnet: true,
         machineGroup: true, regionGroup: true, machineGroupId: true, regionGroupId: true,
         machineGroupEntry: { select: { name: true } }, regionGroupEntry: { select: { name: true } },
-        architecture: true, status: true, isInstalled: true, managementRepair: true, resourcePreset: true, customerDiskGiB: true,
+        architecture: true, status: true, isInstalled: true, managementRepair: true, securityHardening: true, resourcePreset: true, customerDiskGiB: true,
         cpuAllowanceMax: true, memoryMax: true, storageSize: true, resourceSnapshot: true, singleTenant: true, poolFaulted: true, ...portProtocolSelect,
         agent: { select: { enabled: true, lastSeenAt: true, lastReport: true } },
         instances: { where: occupied, select: { id: true, name: true, status: true, cpu: true, memory: true, disk: true, user: { select: { id: true, username: true } } }, orderBy: { id: 'asc' } },
@@ -117,6 +118,7 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
         publicIpSync: publicIpView(host),
         publicIpv6Sync: publicIpv6View(host),
         managementRepair: managementRepairView(host.managementRepair),
+        securityHardening: hardeningPublicView(host.securityHardening),
         machineGroup: host.machineGroupEntry?.name || host.machineGroup, regionGroup: host.regionGroupEntry?.name || host.regionGroup,
         machineGroupId: host.machineGroupId, regionGroupId: host.regionGroupId,
         architecture: host.architecture, status: hostLiveStatus(host.status, host.agent), isInstalled: host.isInstalled,

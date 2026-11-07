@@ -38,7 +38,7 @@ class UpgradeTests(unittest.TestCase):
         result = upgrade.upgrade(self.request)
         self.assertEqual(result, {'dnsProtocolVersion': 2, 'keysAndRoutesPreserved': True})
         self.assertEqual([path for path, _ in self.writes], [upgrade.TOOLS / 'refresh-host-gateway-endpoint.py',
-                         upgrade.TOOLS / 'install-host-gateway-dns.sh', upgrade.HELPER])
+                         upgrade.TOOLS / 'install-host-gateway-dns.sh', upgrade.TOOLS / 'alpine-ssh-security.sh', upgrade.TOOLS / 'host-security-maintenance.py', upgrade.HELPER])
         self.assertEqual(upgrade.upgrade(self.request), result)
         self.assertTrue(all(path == upgrade.HELPER or path.parent == upgrade.TOOLS for path, _ in self.writes))
 

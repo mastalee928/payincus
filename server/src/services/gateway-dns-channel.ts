@@ -71,8 +71,8 @@ export async function refreshPinnedGatewayHelpers(gateway: OnboardingGateway, pa
   if (local()) throw new OnboardingError('GATEWAY_DNS_LOCAL_HELPER_OUTDATED')
   if (typeof password !== 'string' || !password || password.length > 1024) throw new OnboardingError('GATEWAY_DNS_HELPER_UPGRADE_REQUIRED')
   const sources: Record<string, string> = {}
-  for (const name of ['onboarding-gateway.py', 'refresh-host-gateway-endpoint.py', 'install-host-gateway-dns.sh']) {
-    const source = await readFile(fileURLToPath(new URL('../../../scripts/' + name, import.meta.url)))
+  for (const name of ['onboarding-gateway.py', 'refresh-host-gateway-endpoint.py', 'install-host-gateway-dns.sh', 'alpine-ssh-security.sh', 'host-security-maintenance.py']) {
+    const source = await readFile(fileURLToPath(new URL(['alpine-ssh-security.sh','host-security-maintenance.py'].includes(name) ? '../../templates/' + name : '../../../scripts/' + name, import.meta.url)))
     if (source.length > 131072 || source.length === 0) throw new OnboardingError('GATEWAY_DNS_UPGRADE_FAILED')
     sources[name] = source.toString('base64')
   }

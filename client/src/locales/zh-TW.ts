@@ -1,3 +1,4 @@
+import { zhTW as securityHardening } from './security-hardening'
 import { zhTW as ossMessages } from './aliyun-oss'
 // 繁體中文（台灣）語言檔案
 // Traditional Chinese (Taiwan) - 使用台灣用語習慣
@@ -10,6 +11,7 @@ import { zhTW as gatewayEndpoint } from './gateway-endpoint'
 import { zhTW as hostAbuse } from './host-abuse-policy'
 import { zhTW as automaticRecovery } from './automatic-recovery'
 const zhTW = {
+    securityHardening,
     automaticRecovery,
     hostAbuse,
     homeMapDemo: {

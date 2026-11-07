@@ -96,6 +96,9 @@ coverage/
 
 # ==================== 文档 (内部) ====================
 docs/*
+!docs/automatic-security-hardening.md
+!docs/customer-instance-isolation-2026-11-07.md
+!docs/host-memory-review-2026-11-06.md
 !docs/release-v1.8.3-validation.md
 !docs/release-v1.8.3-owner-click-test.md
 !docs/host-pool.md

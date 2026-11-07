@@ -3,7 +3,10 @@ import { execFileSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { register } from 'node:module'
 import ssh2 from '../server/node_modules/ssh2/lib/index.js'
+register('tsx/esm', new URL('../server/', import.meta.url))
+const { alpineSshPreflightScript, readAlpineSshPreflight } = await import('../server/src/lib/alpine-ssh-preflight.ts')
 const { Client } = ssh2
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
 
@@ -25,9 +28,21 @@ const sent = []
 const blocks = []
 try {
   docker(['run', '-d', '--name', name, '-p', '127.0.0.1::2222', '-v', `${root}/server/templates/alpine-ssh-security.sh:/opt/alpine-ssh-security.sh:ro`, `alpine:${branch}`, 'sleep', '600'])
+  const preflight = docker(['exec','-i',name,'sh','-s'],alpineSshPreflightScript)
+  const actualArchitecture=docker(['exec',name,'uname','-m']).trim()
+  assert.ok(['x86_64','aarch64'].includes(actualArchitecture))
+  assert.match(preflight,new RegExp(`^INCUDAL_SSH_PREFLIGHT ${actualArchitecture} `))
+  const preflightResult=readAlpineSshPreflight(preflight)
+  assert.ok(['verified','retry'].includes(preflightResult.status),'actual BusyBox preflight must parse; capacity is measured, not assumed')
+  const limited=name+'-low-memory'
+  try{
+    docker(['run','-d','--name',limited,'--memory','64m',`alpine:${branch}`,'sleep','60'])
+    assert.equal(readAlpineSshPreflight(docker(['exec','-i',limited,'sh','-s'],alpineSshPreflightScript)).reason,'HARDENING_MEMORY_LOW',
+      'real cgroup headroom rejects a low-memory customer without changing its password or resource limit')
+  }finally{docker(['rm','-f',limited])}
   // Old signed revision is fetched through the branch's package trust keys.
   docker(['exec', '-i', name, 'sh', '-s'], `set -eu
-apk add --no-cache openrc openssh-server-common-openrc ca-certificates
+apk add --no-cache openrc openssh-server-common-openrc ca-certificates util-linux
 mkdir /opt/old-ssh
 for package in openssh-server openssh-server-common openssh-keygen; do
   wget -T 20 -O "/opt/old-ssh/$package.apk" "https://dl-cdn.alpinelinux.org/alpine/v${branch}/main/$(apk --print-arch)/$package-${oldRevision}.apk"
@@ -112,6 +127,27 @@ fi
   assert.equal(docker(['exec', name, 'sha256sum', '/root/continuous-transfer']).split(' ')[0], expected, 'active SFTP file remains byte-exact')
   const again = docker(['exec', name, 'sh', '-c', '. /opt/alpine-ssh-security.sh; alpine_ssh_security_update update'])
   assert.match(again, /^INCUDAL_ALPINE_SSH_ALREADY_FIXED$/m)
+  const locks = docker(['exec','-i',name,'sh','-s'],`set -eu
+. /opt/alpine-ssh-security.sh
+# A live inherited lock must survive the death of its original shell.
+mkdir -m 700 /run/incudal-alpine-ssh-security.lock
+sh -c 'exec 9>>/run/incudal-alpine-ssh-security.flock; flock -n 9; IFS=" " read -r p rest < /proc/self/stat; t=$(sed "s/.*) //" /proc/$p/stat); set -- $t; shift 19; t=$1; printf "v2 %s %s %s\\n" "$(cat /proc/sys/kernel/random/boot_id)" "$p" "$t" > /run/incudal-alpine-ssh-security.lock/owner; chmod 600 /run/incudal-alpine-ssh-security.lock/owner; sleep 3 & echo ready > /tmp/incudal-lock-ready; wait' &
+owner=$!
+while [ ! -f /tmp/incudal-lock-ready ]; do sleep 0.05; done
+kill -KILL "$owner"; wait "$owner" 2>/dev/null || true
+if alpine_ssh_security_update update; then echo 'live descendant lock accepted'; exit 1; fi
+sleep 3
+# An incomplete baseline remains blocked even after the descendant exits.
+if alpine_ssh_security_update update; then echo 'missing baseline accepted'; exit 1; fi
+# Remove only this test's two known fixture files.
+rm /run/incudal-alpine-ssh-security.lock/owner /tmp/incudal-lock-ready
+rmdir /run/incudal-alpine-ssh-security.lock
+mkdir -m 700 /run/incudal-alpine-ssh-security.lock
+if alpine_ssh_security_update update; then echo 'unowned legacy lock accepted'; exit 1; fi
+rmdir /run/incudal-alpine-ssh-security.lock
+alpine_ssh_security_update update
+`)
+  assert.match(locks,/^INCUDAL_ALPINE_SSH_ALREADY_FIXED$/m)
   // A killed reload after package install must recover on the next update,
   // rather than accepting the new package while serving the deleted old binary.
   const recovery = docker(['exec', '-i', name, 'sh', '-s'], `set -eu

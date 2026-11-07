@@ -16,6 +16,7 @@ import { getIncusClient } from '../lib/incus/incus-pool.js'
 import { isHostHealthy, recordHostSuccess, recordHostError, getAllHostHealth } from '../lib/incus/host-health.js'
 import { getInstanceState } from '../lib/incus/incus-instances.js'
 import { mapInstanceStatus } from '../lib/incus/incus-utils.js'
+import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { sendNotification } from '../lib/notifier.js'
 import * as db from '../db/index.js'
 import { recordUnverifiedInstanceObservation } from '../lib/instance-sync-observation-error.js'
@@ -255,6 +256,7 @@ export async function syncInstanceStatus(
             }
             await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.host.id} FOR SHARE`
             const hostNow = await tx.host.findUnique({ where: { id: instance.host.id } })
+            if (hostNow && hostMaintenanceBlocked(hostNow.securityHardening)) throw new Error('INSTANCE_SYNC_MAINTENANCE')
             if (!hostNow || hostNow.userId !== instance.host.userId || hostNow.url !== instance.host.url ||
                 hostNow.certPath !== instance.host.certPath || hostNow.keyPath !== instance.host.keyPath ||
                 hostNow.serverCertificate !== instance.host.serverCertificate || hostNow.serverFingerprint !== instance.host.serverFingerprint ||
@@ -289,6 +291,7 @@ export async function syncInstanceStatus(
         return committed.changed ? { changed: true, from: committed.previousStatus, to: incusStatus } : { changed: false }
 
     } catch (error) {
+        if (error instanceof Error && error.message === 'INSTANCE_SYNC_MAINTENANCE') return { changed: false }
         const localConflict = error instanceof Error && /^INSTANCE_SYNC_(BUSY|SOURCE_CHANGED)$/.test(error.message)
         if (!localConflict) recordHostError(instance.host.id)
         // Status polling cannot authorize deletion, even for an actual 404.

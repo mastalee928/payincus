@@ -51,6 +51,7 @@ export interface DefaultQuotaConfig {
  */
 export async function initSystemConfig(): Promise<void> {
     const configs = [
+        { key: 'automatic_security_hardening', value: 'true', type: 'boolean', label: '自动安全加固', description: '自动检查已有宿主和客户，应用已验证且保留原密码的 SSH 补丁；需要重启或转换的项目保留运行状态并记录需维护' },
         // 新配额系统
         // 注意：节点、套餐、好友功能默认不开放（默认值为 0），需要管理员授权
         // 注意：不再限制实例配额，用户可以创建无限数量的实例

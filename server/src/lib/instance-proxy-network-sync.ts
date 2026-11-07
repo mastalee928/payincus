@@ -4,6 +4,7 @@ import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '.
 import { hasActiveTransferWorkflow } from '../db/transfers.js'
 import { authorizeUserWrite, type WriteActor } from '../db/user-write-authorization.js'
 import { randomUUID } from 'node:crypto'
+import { hostMaintenanceBlocked } from './host-maintenance-gate.js'
 import { applyProxySiteOperation, prepareProxySiteOperationInTransaction, supersedeProxySiteIpv4Operation, type ProxySiteOperationRequest } from '../db/proxy-site-operations.js'
 import { PENDING_PROXY_SITE_OPERATION_STATES } from '../db/proxy-site-operation-guards.js'
 import { persistResolvedInstanceNetworkAddressesInTransaction,
@@ -45,6 +46,9 @@ async function lockCurrentInstance(tx: Prisma.TransactionClient, observed: Proxy
   }
   await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.hostId} FOR SHARE`
   const host = await tx.host.findUnique({ where: { id: instance.hostId } })
+  if (host && hostMaintenanceBlocked(host.securityHardening)) {
+    throw new ProxyNetworkSyncError('INSTANCE_SYNC_MAINTENANCE', '宿主正在执行安全维护，实例状态和网络将在验收后同步')
+  }
   if (!host || host.url !== observed.hostUrl || host.userId !== observed.hostOwnerId ||
     hostConnectionIdentity(host) !== observed.hostConnectionIdentity) {
     throw new ProxyNetworkSyncError('INSTANCE_SYNC_HOST_CHANGED', '宿主机连接或归属已变化，请重新同步')
@@ -62,6 +66,20 @@ async function lockCurrentInstance(tx: Prisma.TransactionClient, observed: Proxy
     throw new ProxyNetworkSyncError('INSTANCE_SYNC_BUSY', '实例正在交付、清理或转移，请稍后重试同步')
   }
   return { instance, host }
+}
+
+/** Stats are an observation, not a new start/stop intent. Commit only while the
+ * sampled identity/generation and current actor remain valid. */
+export async function syncObservedInstanceStatus(observed: ProxyNetworkSyncObservation,
+  status: InstanceStatus, actor: WriteActor): Promise<boolean> {
+  return prisma.$transaction(async tx => {
+    const { instance } = await lockCurrentInstance(tx, observed, actor, false)
+    if (instance.status === 'suspended' || instance.status === status) return false
+    await tx.instance.update({ where: { id: instance.id }, data: {
+      status, updatedAt: new Date(Math.max(Date.now(), instance.updatedAt.getTime() + 1))
+    } })
+    return true
+  }, { maxWait: 5000, timeout: 15000 })
 }
 
 function publicError(error: unknown, host?: Host): string {

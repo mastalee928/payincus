@@ -21,6 +21,7 @@ const BATCH_CONFIG_CONCURRENCY = 10
 const POSITIVE_ROUTE_ID_PATTERN = /^[1-9]\d*$/
 const MAX_POSTGRES_INT_ID = 2147483647
 const ADMIN_ONLY_BATCH_FIELDS = [
+  'nested', 'privileged',
   'swapEnabled', 'swapSize', 'limitsRead', 'limitsWrite', 'limitsReadIops', 'limitsWriteIops',
   'limitsIngress', 'limitsEgress', 'limitsProcesses', 'limitsCpuPriority',
   'bootAutostart', 'bootAutostartPriority', 'bootAutostartDelay', 'bootHostShutdownTimeout'
@@ -204,6 +205,7 @@ export default async function batchConfigRoutes(fastify: FastifyInstance) {
     if (user.role !== 'admin' && requiresAdmin) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
+    if (config.privileged === true) return reply.code(400).send(apiError(ErrorCode.VALIDATION_ERROR, '客户实例禁止特权模式'))
 
     const hostId = parsePositiveRouteId(id)
 
@@ -409,7 +411,7 @@ async function updateSingleInstance(
           incusConfig['security.nesting'] = config.nested ? 'true' : 'false'
         }
         if (config.privileged !== undefined) {
-          incusConfig['security.privileged'] = config.privileged ? 'true' : 'false'
+          incusConfig['security.privileged'] = 'false'
         }
 
         // 进程限制

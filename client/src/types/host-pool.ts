@@ -107,6 +107,7 @@ export interface OnboardingAddressCheck {
 }
 
 export interface ManagedHost {
+  securityHardening?: import('./security-hardening').HardeningView
   managementRepair?: { status: 'retry' | 'waiting-heartbeat' | 'done' | 'blocked'; attempts: number; checkedAt: string | null; nextAttemptAt: string | null; error: string | null } | null
   publicIpSync?: HostPublicIpSync
   publicIpv6Sync?: HostPublicIpv6Sync

@@ -1,3 +1,4 @@
+import { zhCN as securityHardening } from './security-hardening'
 import { zhCN as ossMessages } from './aliyun-oss'
 import { zhCN as ipv6Delivery } from './ipv6-delivery'
 import { zhCN as managementGateway } from './management-gateway'
@@ -6,6 +7,7 @@ import { zhCN as gatewayEndpoint } from './gateway-endpoint'
 import { zhCN as hostAbuse } from './host-abuse-policy'
 import { zhCN as automaticRecovery } from './automatic-recovery'
 export default {
+    securityHardening,
     automaticRecovery,
     hostAbuse,
     homeMapDemo: {

@@ -11,5 +11,9 @@ if [[ -f /etc/wireguard/incudal-mgmt.conf && -f /usr/local/sbin/incudal-onboardi
     [[ -f "$script_dir/$tool" && ! -L "$script_dir/$tool" ]] || exit 1
     install -o root -g root -m 0644 "$script_dir/$tool" "/usr/local/libexec/incudal-onboarding-dns/$tool"
   done
+  [[ -f "$script_dir/../server/templates/alpine-ssh-security.sh" && ! -L "$script_dir/../server/templates/alpine-ssh-security.sh" ]] || exit 1
+  install -o root -g root -m 0644 "$script_dir/../server/templates/alpine-ssh-security.sh" /usr/local/libexec/incudal-onboarding-dns/alpine-ssh-security.sh
+  [[ -f "$script_dir/../server/templates/host-security-maintenance.py" && ! -L "$script_dir/../server/templates/host-security-maintenance.py" ]] || exit 1
+  install -o root -g root -m 0644 "$script_dir/../server/templates/host-security-maintenance.py" /usr/local/libexec/incudal-onboarding-dns/host-security-maintenance.py
   echo 'Local management gateway code refreshed; keys and peers preserved.'
 fi

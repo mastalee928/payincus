@@ -16,6 +16,18 @@ import (
 	"time"
 )
 
+func TestBootIDAcceptsOnlyKernelUUID(t *testing.T) {
+	valid := "11111111-1111-4111-8111-111111111111"
+	if parseBootID(valid+"\n") != valid {
+		t.Fatal("kernel boot identity must be preserved")
+	}
+	for _, value := range []string{"", "new-boot", valid + " another", strings.ToUpper("abcdef12-1111-4111-8111-111111111111"), "private-payload"} {
+		if parseBootID(value) != "" {
+			t.Fatal("invalid boot identity accepted")
+		}
+	}
+}
+
 func TestCPUStatDoesNotDoubleCountGuestTime(t *testing.T) {
 	before, ok := parseCPUStatLine("cpu  100 50 25 100 10 5 5 5 80 20")
 	if !ok || before.total != 300 || before.idle != 110 {
@@ -240,7 +252,7 @@ func TestHeartbeatPayloadIncludesHostMetrics(t *testing.T) {
 		}
 	}
 	if runtime.GOOS == "linux" {
-		for _, key := range []string{"uptimeSeconds", "load1", "load5", "load15"} {
+		for _, key := range []string{"uptimeSeconds", "bootId", "load1", "load5", "load15"} {
 			if _, ok := metrics[key]; !ok {
 				t.Fatalf("linux metric key %s missing: %#v", key, metrics)
 			}

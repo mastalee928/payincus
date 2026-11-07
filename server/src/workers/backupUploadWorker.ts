@@ -291,6 +291,7 @@ export async function executeUploadTask(taskId: number): Promise<void> {
 
         // 3. 创建 Incus 客户端
         client = new IncusClient({
+            id: host.id,
             url: host.url,
             certPath: host.certPath,
             keyPath: host.keyPath,

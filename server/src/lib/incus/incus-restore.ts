@@ -8,6 +8,7 @@ import type { Readable } from 'stream'
 import { IncusApiError, type IncusClient } from './incus-client.js'
 import type { IncusApiResponse } from '../../types/incus.js'
 import { waitForOperation } from './incus-utils.js'
+import { readCustomerIsolation } from './customer-isolation.js'
 
 /** A stop acknowledgement is insufficient before importing a replacement. */
 export async function stopInstanceForRestore(client: IncusClient, name: string, timeoutMs = 90000): Promise<void> {
@@ -64,6 +65,7 @@ export async function restoreFromStream({
     onOperation
 }: RestoreFromStreamParams): Promise<void> {
     let restoreAgent: Agent | undefined
+    let release=()=>{}
     try {
         if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2147483647) throw new Error('Invalid restore timeout')
         if (!client.agent) throw new Error('Incus client is not connected')
@@ -73,6 +75,7 @@ export async function restoreFromStream({
         signal.throwIfAborted()
         restoreAgent = client.createTransport({ connectTimeout: Math.min(timeoutMs, 60000), headersTimeout: timeoutMs, bodyTimeout: 0 })
         const url = `${client.baseUrl}/1.0/instances`
+        release=await client.beginMaintenanceAccess('POST')
 
         // 构建 headers
         // Incus 使用 X-Incus-* headers，但也兼容 X-LXD-* (向后兼容)
@@ -124,10 +127,21 @@ export async function restoreFromStream({
         } else if (data.type !== 'sync') {
             throw new Error('Invalid restore response type')
         }
+        // Imported metadata can predate today's isolation policy. Validate while
+        // stopped, before callers replace the original or start this copy.
+        const bounded = Object.create(client) as IncusClient
+        bounded.request = ((method: string, path: string, body: unknown = null, timeout = 120000) => {
+            signal.throwIfAborted()
+            const remaining = timeoutMs - (Date.now() - started)
+            if (remaining <= 0) throw new Error('Restore isolation check timeout')
+            return client.request(method, path, body, Math.min(timeout, remaining), signal)
+        }) as typeof client.request
+        await readCustomerIsolation(bounded, targetName)
     } finally {
         backupStream.destroy()
         // Only this restore transport is owned here; the shared API client stays usable.
         await restoreAgent?.destroy().catch(() => {})
+        release()
     }
 }
 

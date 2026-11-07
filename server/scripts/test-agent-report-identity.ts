@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Client } from 'pg'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname) && database.pathname.endsWith('_pool_test'), 'Use isolated local *_pool_test PostgreSQL')
@@ -96,6 +96,14 @@ const assertAccountingUnchanged = async () => {
 try {
   await holder.connect(); await observer.connect()
   holderPid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid
+  await restore()
+  await prisma.host.update({where:{id:host.id},data:{securityHardening:{maintenance:{phase:'waiting-boot'}}}})
+  const maintenanceStopped=await processAgentInstanceReport(host.id,{...payload,items:[{...payload.items[0],status:'stopped'}]},agent)
+  assert.equal(maintenanceStopped.statusUpdated,0)
+  assert.equal((await prisma.instance.findUniqueOrThrow({where:{id:instance.id}})).status,'running','reboot observation cannot overwrite the recovery intent')
+  const maintenanceRunning=await processAgentInstanceReport(host.id,payload,agent)
+  assert.equal(maintenanceRunning.statusUpdated,0);assert.equal(maintenanceRunning.trafficUpdated,1,'maintenance must not drop real traffic accounting')
+  await prisma.host.update({where:{id:host.id},data:{securityHardening:Prisma.DbNull}})
   for (const phase of ['lookup', 'status'] as const) for (const change of ['owner', 'host', 'incus'] as const) {
     await restore()
     const mutate = async () => { await prisma.instance.update({ where: { id: instance.id }, data: changeData(change) }) }

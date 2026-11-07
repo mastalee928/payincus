@@ -14,6 +14,40 @@ fail() { printf 'Alpine installation failed: %s\n' "$*" >&2; exit 1; }
 
 # INJECT_ALPINE_SSH_SECURITY
 
+# Experimental opt-in pending representative memory and guest validation.
+# Never restart an existing daemon or change the kernel-wide THP policy.
+configure_incus_memory_default() {
+  [[ "${INCUDAL_EXPERIMENTAL_INCUS_MEMORY:-0}" == 1 ]] || return 0
+  local total_kb configuration=/etc/conf.d/incusd temporary
+  total_kb=$(awk '$1 == "MemTotal:" {print $2; exit}' /proc/meminfo)
+  [[ "$total_kb" =~ ^[0-9]+$ && "$total_kb" -gt 0 && "$total_kb" -le 2097152 ]] || return 0
+  if pgrep -x incusd >/dev/null 2>&1 || [[ -S /var/lib/incus/unix.socket || -d /var/lib/incus/database ]]; then
+    printf '%s\n' 'Incus memory default skipped: existing daemon/state preserved'
+    return 0
+  fi
+  [[ -f "$configuration" && ! -L "$configuration" ]] || fail 'Incus service configuration must be a regular file'
+  [[ "$(stat -c %u "$configuration")" == 0 ]] || fail 'Incus service configuration must belong to root'
+  grep -qFx '# Incudal small-host Go heap memory default v1' "$configuration" && return 0
+  temporary=$(mktemp /etc/conf.d/.incusd-memory.XXXXXX) || fail 'Incus memory configuration preparation failed'
+  if ! cat "$configuration" > "$temporary"; then
+    rm -f "$temporary"
+    fail 'Incus service configuration read failed'
+  fi
+  cat >> "$temporary" <<'INCUDAL_MEMORY'
+
+# Incudal small-host Go heap memory default v1
+# Explicit administrator disablethp values and other GODEBUG settings win.
+case ",${GODEBUG-}," in
+  *,disablethp=*) ;;
+  *) export GODEBUG="${GODEBUG:+${GODEBUG},}disablethp=1" ;;
+esac
+INCUDAL_MEMORY
+  if ! sh -n "$temporary" || ! chmod --reference="$configuration" "$temporary" || ! chown --reference="$configuration" "$temporary" || ! mv -f "$temporary" "$configuration"; then
+    rm -f "$temporary"
+    fail 'Incus memory configuration validation failed'
+  fi
+}
+
 install_alpine() {
   [[ $EUID -eq 0 ]] || fail 'root is required'
   . /etc/os-release
@@ -60,6 +94,7 @@ install_alpine() {
   sysctl -p /etc/sysctl.d/90-incudal-alpine.conf
   modprobe btrfs || true
   grep -qw btrfs /proc/filesystems || fail 'the running kernel has no Btrfs support'
+  configure_incus_memory_default
   rc-update add incusd default
   rc-service incusd status >/dev/null 2>&1 || rc-service incusd start
   local ready=false attempt

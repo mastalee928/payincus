@@ -50,6 +50,9 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:security-hardening-queue', 'requires isolated PostgreSQL; durable automatic host/guest hardening, original identities, permission/hold/task fences, retry and unchanged customer state'],
+  ['test:host-security-maintenance', 'requires isolated PostgreSQL; persisted maintenance intent, lost replies/crash continuation, exact fixed protocol, dual architecture, current permissions and no duplicate reboot; transport fixtures do not prove native reboot'],
+  ['test:customer-boot-recovery', 'requires isolated local PostgreSQL and OpenSSL; pinned mTLS exact original-instance start, lost receipt, current billing/stop/delete/authority and original password/network/config preservation; not native boot acceptance'],
   ['test:alpine-ssh-maintenance', 'requires isolated PostgreSQL; admin/identity/task fencing, unchanged customer data, original password/session and retry receipts'],
   ['test:alpine-ssh-native', 'requires disposable Linux Docker; signed Alpine backport with continuous real SSH and SFTP sessions'],
   ['test:alpine-ssh-web', 'requires Chrome and isolated Vue instance-detail fixture; administrator-only action, duplicate clicks and obsolete session handling'],

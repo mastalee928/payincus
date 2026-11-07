@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { setTimeout as delay } from 'node:timers/promises'
 import { createServer } from 'node:https'
 
 const database = new URL(process.env.DATABASE_URL || '')
@@ -97,10 +98,19 @@ const app = Fastify()
 for (const hook of ['authenticate', 'authenticateUser', 'authenticateAdmin', 'requireAdmin']) app.decorate(hook, async (request: any) => { request.user = { ...actor } })
 const single = () => app.inject({ method: 'POST', url: `/instances/${instance.id}/sync-status` })
 const batch = () => app.inject({ method: 'POST', url: `/hosts/${host.id}/instances/sync-status`, payload: { instanceIds: [instance.id] } })
-const toggle = () => app.inject({ method: 'POST', url: `/instances/${instance.id}/sites/${site.id}/toggle` })
+const toggle = async () => {
+  const current = await currentSite()
+  return app.inject({ method: 'POST', url: `/instances/${instance.id}/sites/${site.id}/toggle`,
+    payload: { enabled: !current.enabled, requestId: randomUUID(), expectedRevision: current.revision } })
+}
 const currentSite = () => prisma.proxySite.findUniqueOrThrow({ where: { id: site.id } })
 const currentInstance = () => prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
-const routeDial = () => config.apps.http.servers.sites.routes.find((route: any) => route['@id'] === routeId)?.handle[0].upstreams[0].dial
+async function waitForRetry() {
+  const operation = await prisma.proxySiteOperation.findFirst({ where: { instanceId: instance.id, state: 'retry' }, orderBy: { revision: 'desc' } })
+  if (operation?.nextRetryAt) await delay(Math.max(0, operation.nextRetryAt.getTime() - Date.now()) + 50)
+}
+const routeDial = () => config.apps.http.servers.sites.routes.find((route: any) =>
+  route.match?.some((match: any) => match.host?.includes(domain)) && route.handle?.[0]?.handler === 'reverse_proxy')?.handle[0].upstreams[0].dial
 async function setTrigger(condition: string) {
   await prisma.$executeRawUnsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = ${site.id} AND (${condition}) THEN RAISE EXCEPTION 'fixture-proxy-sync-write-failure'; END IF; RETURN NEW; END $$`)
   await prisma.$executeRawUnsafe(`CREATE TRIGGER ${trigger} BEFORE UPDATE ON proxy_sites FOR EACH ROW EXECUTE FUNCTION ${trigger}()`)
@@ -120,6 +130,20 @@ try {
   await app.register(instanceRoutes, { prefix: '/instances' })
   await app.register(hostRoutes, { prefix: '/hosts' })
   await app.register(proxyRoutes)
+
+  const maintenancePause = pauseObservation()
+  const maintenanceSync = single()
+  await maintenancePause.ready
+  await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { maintenance: { phase: 'waiting-boot' } } } })
+  const maintenanceCalls = calls.length
+  maintenancePause.release()
+  const heldSync = await maintenanceSync
+  assert.equal(heldSync.statusCode, 409, heldSync.body)
+  assert.equal(heldSync.json().code, 'INSTANCE_SYNC_MAINTENANCE')
+  assert.equal((await currentInstance()).status, 'running')
+  assert.equal((await currentInstance()).ipv4, '10.42.0.1')
+  assert.ok(!calls.slice(maintenanceCalls).some(call => call.endsWith('/config/apps/http')), 'maintenance observations never rewrite proxy routes')
+  await prisma.host.update({ where: { id: host.id }, data: { securityHardening: {} } })
 
   // Failure to persist intent rolls back both the instance address and primary IP.
   await setTrigger('NEW.ipv4_sync_pending AND NOT OLD.ipv4_sync_pending')
@@ -144,6 +168,7 @@ try {
   assert.ok(!calls.slice(beforeFailure).some(call => call.startsWith('DELETE ')))
   assert.equal((await prisma.ipAddress.findFirstOrThrow({ where: { instanceId: instance.id, type: 'inet4', isPrimary: true } })).address, observedIpv4)
   rejectWrite = false
+  await waitForRetry()
   const retry = await single()
   assert.equal(retry.statusCode, 200, retry.body)
   assert.equal(retry.json().ipv4Changed, false)
@@ -159,6 +184,7 @@ try {
   assert.equal(routeDial(), `${observedIpv4}:8080`)
   assert.equal((await currentSite()).ipv4SyncPending, true)
   await dropTrigger()
+  await waitForRetry()
   const completedRetry = await single()
   assert.equal(completedRetry.statusCode, 200, completedRetry.body)
   assert.equal(completedRetry.json().ipv4Changed, false)
@@ -243,6 +269,7 @@ try {
   assert.equal((await currentSite()).ipv4SyncPending, true)
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).cpuUsed, 100)
   rejectWrite = false
+  await waitForRetry()
   const batchRetry = await batch()
   assert.equal(batchRetry.json().results[0].success, true)
   assert.equal(batchRetry.json().results[0].proxySitesUpdated, 1)
@@ -257,6 +284,7 @@ try {
   assert.match((await currentSite()).error!, /Caddy 未启用/)
   assert.ok(!calls.slice(beforeMissing).some(call => call.endsWith('/config/apps/http')))
   await prisma.host.update({ where: { id: host.id }, data: { caddyEnabled: true } })
+  await waitForRetry()
   const recoveredConfig = await single()
   assert.equal(recoveredConfig.statusCode, 200)
   assert.equal(recoveredConfig.json().ipv4Changed, false)

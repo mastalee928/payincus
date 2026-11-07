@@ -1,4 +1,5 @@
 import { dedicatedHostReadyWhere, HOST_OCCUPIED_INSTANCE_WHERE, hostPendingMoveWhere } from '../lib/host-resource-usage.js'
+import { hardeningIdentityInclude, hardeningReceiptMatches } from '../lib/hardening-identity.js'
 /**
  * 主机相关数据库操�?
  * 使用 Prisma ORM
@@ -1114,8 +1115,8 @@ export async function selectAndReserveHostWithLock(
         regionGroupId: options.poolRegionGroupId, resourcePreset: options.poolResourcePreset,
         architecture: options.poolResourcePreset?.startsWith('ARM') ? 'aarch64' : 'x86_64',
         customerDiskGiB: options.poolDiskGiB, instances: { none: HOST_OCCUPIED_INSTANCE_WHERE },
-        ...(options.poolImageId ? { AND: [{ OR: [{ allowedImages: { none: {} } }, { allowedImages: { some: { imageId: options.poolImageId } } }] }] } : {}) }, select: { id: true } })
-      if (!ready || await tx.instanceTask.count({ where: hostPendingMoveWhere(host.id) }) || await tx.checkoutReservation.count({ where: { hostId: host.id } })) continue
+        ...(options.poolImageId ? { AND: [{ OR: [{ allowedImages: { none: {} } }, { allowedImages: { some: { imageId: options.poolImageId } } }] }] } : {}) }, include: hardeningIdentityInclude })
+      if (!ready || !hardeningReceiptMatches(ready) || await tx.instanceTask.count({ where: hostPendingMoveWhere(host.id) }) || await tx.checkoutReservation.count({ where: { hostId: host.id } })) continue
     }
 
     // 检查标签选择�?

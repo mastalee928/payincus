@@ -44,6 +44,12 @@ try {
   assert.equal(new Set(first).size, 1, 'concurrent first lookup must single-flight')
   assert.equal(created.length, 1)
   assert.equal(first[0]!.baseUrl, configuration.url, 'database configuration wins over a stale caller snapshot')
+  const borrowed=await getIncusClient(host,{host:prisma.host})
+  assert.notEqual(borrowed,first[0])
+  await borrowed.close()
+  assert.equal(first[0]!.connected,true,'closing a scoped wrapper must not close pooled transport')
+  assert.equal(await getIncusClient(host),first[0])
+  await assert.rejects(borrowed.connect(),/scoped/)
 
   configuration = { ...configuration, url: 'https://127.0.0.1:10002' }
   const second = await getIncusClient(host)

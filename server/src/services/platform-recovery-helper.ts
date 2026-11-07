@@ -157,6 +157,7 @@ export async function dispatchRecoveryHelper(runtime=defaultRuntime) {
     for(const name of ['onboarding-gateway.py','refresh-host-gateway-endpoint.py','install-host-gateway-dns.sh','upgrade-onboarding-gateway.py']){
       files.push([name,createHash('sha256').update(await readFile(fileURLToPath(new URL('../../../scripts/'+name,import.meta.url)))).digest('hex')])
     }
+    files.push(['alpine-ssh-security.sh',createHash('sha256').update(await readFile(fileURLToPath(new URL('../../templates/alpine-ssh-security.sh',import.meta.url)))).digest('hex')])
     const source=digest({binding:intent.binding,files})
     if(intent.status==='blocked'){
       let originalReturned=false

@@ -13,12 +13,13 @@ const toast = useToast()
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.user?.role === 'admin')
 const adminOnlyFields = new Set([
+  'nested', 'privileged',
   'swapEnabled', 'swapSize', 'limitsRead', 'limitsWrite', 'limitsReadIops', 'limitsWriteIops',
   'limitsIngress', 'limitsEgress', 'limitsProcesses', 'limitsCpuPriority',
   'bootAutostart', 'bootAutostartPriority', 'bootAutostartDelay', 'bootHostShutdownTimeout'
 ])
 function canEditConfig(config: Record<string, unknown>): boolean {
-  return isAdmin.value || !Object.keys(config).some(field => adminOnlyFields.has(field))
+  return config.privileged !== true && (isAdmin.value || !Object.keys(config).some(field => adminOnlyFields.has(field)))
 }
 const pageActive = ref(false)
 let alive = true
@@ -195,7 +196,7 @@ function buildConfig(): Record<string, unknown> {
   }
   if (enabledFields.value.disk) config.disk = readNumber(form.value.disk, 'disk', 1 / 1024, 2147483647 / 1024, false, false)! * 1024
   if (enabledFields.value.monthlyTrafficLimit) config.monthlyTrafficLimit = readTrafficBytes(form.value.monthlyTrafficLimit)
-  for (const field of ['swapEnabled', 'nested', 'privileged', 'bootAutostart'] as const) {
+  for (const field of ['swapEnabled', 'nested', 'bootAutostart'] as const) {
     if (!enabledFields.value[field]) continue
     const value = form.value[field]
     if (typeof value !== 'boolean' && !(field === 'bootAutostart' && value === null)) invalidField(field)
@@ -618,15 +619,6 @@ function normalizeStorageLimit(value: string, field: string): string | null {
                       <input v-model="enabledFields.nested" type="checkbox" class="rounded" />
                       <label class="w-24 text-sm text-themed-secondary">{{ t('host.batchConfig.nested') }}</label>
                       <select v-model="form.nested" :disabled="!enabledFields.nested" class="input flex-1">
-                        <option :value="null">-</option>
-                        <option :value="true">{{ t('common.enabled') }}</option>
-                        <option :value="false">{{ t('common.disabled') }}</option>
-                      </select>
-                    </div>
-                    <div class="flex items-center gap-3">
-                      <input v-model="enabledFields.privileged" type="checkbox" class="rounded" />
-                      <label class="w-24 text-sm text-themed-secondary">{{ t('host.batchConfig.privileged') }}</label>
-                      <select v-model="form.privileged" :disabled="!enabledFields.privileged" class="input flex-1">
                         <option :value="null">-</option>
                         <option :value="true">{{ t('common.enabled') }}</option>
                         <option :value="false">{{ t('common.disabled') }}</option>

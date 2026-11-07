@@ -3822,6 +3822,7 @@ hostOnboarding: {
     renameRegionGroup: (id: number, data: { name: string; countryCode?: string | null }): Promise<HostRegionGroup> => http.patch(`/host-onboarding/groups/regions/${id}`, data),
     deleteRegionGroup: (id: number): Promise<{ success: boolean }> => http.delete(`/host-onboarding/groups/regions/${id}`),
     inventory: (params: HostInventoryQuery = {}): Promise<HostInventoryResponse> => http.get('/host-onboarding/inventory', { params }),
+    securityHardening: (id: number): Promise<import('@/types/security-hardening').HardeningView & { hostId: number }> => http.get(`/hosts/${id}/security-hardening`),
     updateGroups: (data: UpdateHostGroupsRequest): Promise<{ success: boolean; updated: number }> => http.patch('/host-onboarding/inventory/groups', data),
     // 给已接入的机器补设规格（机型/核心 + 磁盘档），配额按预设自动算
     updateSpec: (data: { hostIds: number[]; resourcePreset: string; customerDiskGiB: number }): Promise<{ success: boolean; updated: number }> =>

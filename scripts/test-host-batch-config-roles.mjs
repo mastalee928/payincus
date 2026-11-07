@@ -39,8 +39,10 @@ try {
   assert.equal(await last('batch'), -1, 'host owners cannot submit admin-only advanced fields')
   console.log('PASS batch config advanced fields remain admin only')
   const advancedFields = ['swapEnabled', 'swapSize', 'limitsRead', 'limitsWrite', 'limitsIngress', 'limitsEgress',
+    'nested', 'privileged',
     'limitsProcesses', 'limitsCpuPriority', 'bootAutostart', 'bootAutostartPriority', 'bootAutostartDelay', 'bootHostShutdownTimeout']
   const values = { swapEnabled: true, swapSize: '512', limitsRead: '10MB', limitsWrite: '10MB', limitsIngress: 10, limitsEgress: 10,
+    nested: true, privileged: true,
     limitsProcesses: '100', limitsCpuPriority: '5', bootAutostart: true, bootAutostartPriority: '1', bootAutostartDelay: '5', bootHostShutdownTimeout: '30' }
   const setup = (field, value) => run(({ field, value }) => { const c = window.hostBatchConfig.child(); c.resetForm(); c.enabledFields[field] = true; c.form[field] = value }, { field, value })
   const submit = () => run(() => { void window.hostBatchConfig.child().handleSubmit() })
@@ -73,7 +75,9 @@ try {
   await run(() => { const v = window.hostBatchConfig.view(); v.selectedIds = new Set([1]); v.openBatchConfigForSelection() })
   assert.equal(await page.eval(() => document.querySelectorAll('[role="dialog"] fieldset button').length), 6, 'administrator retains all existing sections')
   for (const field of advancedFields) {
-    await setup(field, values[field]); const before = await count(); await submit(); assert.equal(await count(), before + 1)
+    await setup(field, values[field]); const before = await count(); await submit()
+    if (field === 'privileged') { assert.equal(await count(), before, 'Administrator cannot submit customer privilege'); continue }
+    assert.equal(await count(), before + 1)
     await accept(await last('batch'), success)
   }
   await setup('swapSize', '512'); await submit(); const oldRole = await last('batch')

@@ -2,7 +2,43 @@ name: Alpine SSH security
 on:
   push:
     branches: [main, dev, codex/alpine-ssh-security]
-    paths: ['server/templates/alpine-ssh-security.sh', 'server/src/lib/alpine-ssh-security.ts', 'server/src/lib/incus-config-*.ts', 'server/src/lib/dedicated-ssh.ts', 'server/src/services/alpine-ssh-maintenance.ts', 'server/src/routes/alpine-ssh-security.ts', 'server/scripts/test-alpine-ssh-*.ts', 'scripts/test-alpine-ssh-native.mjs', '.github/workflows/alpine-ssh-security.yml']
+    paths:
+      - 'server/templates/*security*'
+      - 'server/src/lib/alpine-ssh-*.ts'
+      - 'server/src/lib/alpine-ssh-security.ts'
+      - 'server/src/lib/*hardening*.ts'
+      - 'server/src/lib/host-maintenance*.ts'
+      - 'server/src/lib/host-operation-lane.ts'
+      - 'server/src/lib/instance*-sync.ts'
+      - 'server/src/lib/incus-config-*.ts'
+      - 'server/src/lib/incus/*.ts'
+      - 'server/src/lib/dedicated-ssh.ts'
+      - 'server/src/services/*security*.ts'
+      - 'server/src/services/host-maintenance-channel.ts'
+      - 'server/src/services/customer-boot-recovery.ts'
+      - 'server/src/db/proxy-site-*.ts'
+      - 'server/src/services/security-hardening-queue.ts'
+      - 'server/src/services/alpine-ssh-maintenance.ts'
+      - 'server/src/services/agent-instance-report.ts'
+      - 'server/src/services/status-scheduler.ts'
+      - 'server/src/workers/securityHardeningWorker.ts'
+      - 'server/src/workers/hostOnboardingWorker.ts'
+      - 'server/src/routes/*security*.ts'
+      - 'server/src/routes/instances.ts'
+      - 'server/scripts/test-security-hardening-*.ts'
+      - 'server/scripts/test-host-security-maintenance.ts'
+      - 'server/scripts/test-customer-boot-recovery.ts'
+      - 'server/scripts/test-agent-report-identity.ts'
+      - 'server/scripts/test-review-host-network-sync.ts'
+      - 'server/scripts/test-review-proxy-site-operations.ts'
+      - 'server/scripts/test-review-proxy-ipv4-sync-integration.ts'
+      - 'server/scripts/test-alpine-ssh-*.ts'
+      - 'agent/internal/report/**'
+      - 'scripts/onboarding-gateway.py'
+      - 'scripts/test-host-security-hardening.py'
+      - 'scripts/test-host-maintenance-plan.py'
+      - 'scripts/test-alpine-ssh-native.mjs'
+      - '.github/workflows/alpine-ssh-security.yml'
   pull_request:
     branches: [main]
 jobs:
@@ -26,7 +62,11 @@ jobs:
       - name: Native Alpine password and continuous SSH SFTP verification
         run: node scripts/test-alpine-ssh-native.mjs '${{ matrix.branch }}'
   maintenance:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     services:
       postgres:
@@ -46,6 +86,9 @@ jobs:
       - uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
         with: { node-version: '24', cache: pnpm }
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: agent/go.mod
       - run: |
           pnpm install --frozen-lockfile --ignore-scripts
           pnpm --filter server exec prisma generate
@@ -54,3 +97,22 @@ jobs:
         run: pnpm --filter server test:alpine-ssh-maintenance
       - name: Initializer and password policy guards
         run: pnpm --filter server test:alpine-ssh-security-guards
+      - name: Fixed host probe, resources and source boundaries
+        run: pnpm --filter server test:security-hardening-guards
+      - name: Durable hardening, onboarding completion and actual PG conflicts
+        run: pnpm --filter server test:security-hardening-queue
+      - name: Maintenance protocol, durable reboot intent and interruption recovery with PostgreSQL
+        run: pnpm --filter server test:host-security-maintenance
+      - name: Original customer boot recovery and current billing intentions with pinned mTLS
+        run: pnpm --filter server test:customer-boot-recovery
+      - name: Fixed boot recipe journal and conditional rollback fixtures
+        run: python3 scripts/test-host-maintenance-plan.py
+      - name: Agent observation preserves maintenance intent and traffic accounting
+        run: pnpm --filter server test:agent-report-identity
+      - name: State and network observations respect the maintenance fence
+        env:
+          REVIEW_NETWORK_MODES: maintenance,success
+        run: pnpm --filter server test:review-host-network-sync
+      - name: Agent reports the actual Linux boot identity
+        working-directory: agent
+        run: go test ./internal/report

@@ -10,6 +10,7 @@ import { createCaddyClient, CaddyManagedSiteConflictError } from '../lib/caddy-c
 import { normalizeLogContentForStorage } from '../lib/log-localization.js'
 import { sanitizeTokensInString } from '../lib/log-sanitizer.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 
 export type ProxySiteOperationAuthority = 'owner' | 'network' | 'lifecycle'
 export type ProxySiteLifecycleClaim = { kind: 'instance_task' | 'transfer'; id: number } | { kind: 'delete' | 'provisioning_cleanup' }
@@ -124,6 +125,7 @@ export async function prepareProxySiteOperationInTransaction(tx: Prisma.Transact
   context: { instance: Instance; host: Host; site: ProxySite; actor: WriteActor; authority?: ProxySiteOperationAuthority },
   input: ProxySiteOperationRequest, lifecycleClaim?: ProxySiteLifecycleClaim): Promise<ProxySiteOperation> {
   const { instance, host, site, actor } = context
+  if (hostMaintenanceBlocked(host.securityHardening)) throw new ProxySiteMutationError(409, '宿主正在执行安全维护，反代意图保留待续接', 'HOST_SECURITY_MAINTENANCE')
   const authority = context.authority || 'owner'
   validateProxySiteOperationRequest(input)
   if (authority === 'lifecycle') {
@@ -301,6 +303,7 @@ export async function applyProxySiteOperation(operationId: string): Promise<Prox
       await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${initial.hostId} FOR SHARE`
       const host = await tx.host.findUnique({ where: { id: initial.hostId } }); currentHost = host ?? undefined
       if (!host || proxySiteHostIdentity(host) !== initial.identityHash) throw new ProxySiteMutationError(409, '宿主机连接身份或凭据变化，请恢复原连接后重试', 'SITE_IDENTITY_CHANGED')
+      if (hostMaintenanceBlocked(host.securityHardening)) throw new ProxySiteMutationError(409, '宿主正在执行安全维护，反代意图保留待续接', 'HOST_SECURITY_MAINTENANCE')
       const lifecycleClaim = initial.authority === 'lifecycle' ? initial.lifecycleClaim as ProxySiteLifecycleClaim : undefined
       if (initial.authority === 'lifecycle') await assertLifecycleClaim(tx, instance, lifecycleClaim)
       else await authorizeOperation(tx, { id: initial.actorId, sid: initial.actorSid, iat: initial.actorIat }, initial.authority as ProxySiteOperationAuthority, instance, host)
@@ -341,13 +344,15 @@ export async function applyProxySiteOperation(operationId: string): Promise<Prox
     if (!didClaim) throw error
     const latest = await prisma.proxySiteOperation.findUnique({ where: { id: operationId } })
     if (!latest) throw error
-    const blocked = error instanceof CaddyManagedSiteConflictError ||
-      error instanceof ProxySiteMutationError && error.code !== 'INSTANCE_BUSY' || latest.attempts >= MAX_ATTEMPTS
+    const maintenanceWaiting = error instanceof ProxySiteMutationError && error.code === 'HOST_SECURITY_MAINTENANCE'
+    const blocked = !maintenanceWaiting && (error instanceof CaddyManagedSiteConflictError ||
+      error instanceof ProxySiteMutationError && error.code !== 'INSTANCE_BUSY' || latest.attempts >= MAX_ATTEMPTS)
     const message = `站点 ${((latest.desiredConfig as ProxySiteDesiredConfig).domain)} 同步失败：${publicOperationError(error, currentHost)}`
     // If commit actually succeeded but its response was lost, this CAS is a no-op.
     await prisma.$transaction(async tx => {
       const recorded = await tx.proxySiteOperation.updateMany({ where: { id: operationId, state: 'applying', attemptId },
         data: { state: blocked ? 'blocked' : 'retry', error: message,
+          ...(maintenanceWaiting ? { attempts: { decrement: 1 } } : {}),
           nextRetryAt: blocked ? null : new Date(Date.now() + Math.min(600000, 5000 * 3 ** Math.max(0, latest.attempts - 1))) } })
       if (recorded.count) await tx.proxySite.updateMany({ where: { id: latest.siteId, siteKey: latest.siteKey, revision: latest.revision }, data: { error: message } })
     })

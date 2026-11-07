@@ -25,6 +25,9 @@ const server = createServer({ key: original.key, cert: original.cert, ca: origin
   assert.ok((request.socket as any).authorized)
   const json = (status: number, data: unknown) => { response.writeHead(status, { 'content-type': 'application/json' }); response.end(JSON.stringify(data)) }
   if (request.url === '/1.0') { json(200, { type: 'sync', metadata: { api_version: '1.0' } }); return }
+  if (request.method === 'GET' && request.url === '/1.0/instances/restored') {
+    json(200, { type: 'sync', metadata: { type: 'container', config: mode === 'unsafe-import' ? { 'security.privileged': 'true' } : {}, devices: {}, profiles: [] } }); return
+  }
   if (request.url === '/1.0/instances/vm%3Fpart/state') {
     if (request.method === 'PUT') {
       stops++
@@ -94,6 +97,8 @@ try {
     assert.ok(stream.destroyed)
   }
   assert.equal(bytes, 24)
+  mode = 'unsafe-import'
+  await assert.rejects(restore(), /禁止特权/, 'Historical backup privilege must fail before callers replace/start a guest')
   for (const [state, pattern] of [['failure', /disk full/], ['cancelled', /cancelled/], ['error', /forbidden/],
     ['bad-path', /operation path/], ['bad-type', /response type/], ['large', /64 KiB/]] as const) {
     mode = state

@@ -11,6 +11,7 @@ import checkoutRoutes from './routes/checkout.js'
 import { startCheckoutWorker, stopCheckoutWorker } from './workers/checkoutWorker.js'
 import { startHostOnboardingWorker, stopHostOnboardingWorker } from './workers/hostOnboardingWorker.js'
 import { startHostRepairWorker, stopHostRepairWorker } from './workers/hostRepairWorker.js'
+import { startSecurityHardeningWorker, stopSecurityHardeningWorker } from './workers/securityHardeningWorker.js'
 import { startHostPublicIpSync, stopHostPublicIpSync } from './services/host-public-ip-sync.js'
 import { startHostPublicIpv6Sync, stopHostPublicIpv6Sync } from './services/host-public-ipv6-sync.js'
 import { startHostOfflineAlertWorker, stopHostOfflineAlertWorker } from './workers/hostOfflineAlertWorker.js'
@@ -67,6 +68,7 @@ import authRoutes from './routes/auth.js'
 import userRoutes from './routes/users.js'
 import instanceRoutes from './routes/instances.js'
 import alpineSshSecurityRoutes from './routes/alpine-ssh-security.js'
+import securityHardeningRoutes from './routes/security-hardening.js'
 import hostRoutes from './routes/hosts.js'
 import packageRoutes from './routes/packages.js'
 import snapshotRoutes from './routes/snapshots.js'
@@ -554,6 +556,7 @@ await fastify.register(authRoutes, { prefix: '/api/auth' })
 await fastify.register(userRoutes, { prefix: '/api/users' })
 await fastify.register(instanceRoutes, { prefix: '/api/instances' })
 await fastify.register(alpineSshSecurityRoutes, { prefix: '/api/instances' })
+await fastify.register(securityHardeningRoutes, { prefix: '/api/hosts' })
 await fastify.register(hostRoutes, { prefix: '/api/hosts' })
 await fastify.register(hostReplacementRoutes, { prefix: '/api/instances' })
 await fastify.register(adminInstancePushRoutes, { prefix: '/api/admin/instance-push' })
@@ -565,6 +568,7 @@ await fastify.register(poolOrderRoutes, { prefix: '/api/instances' })
 await fastify.register(checkoutRoutes)
 fastify.addHook('onClose', async () => { await stopHostOnboardingWorker() })
 fastify.addHook('onClose', stopHostRepairWorker)
+fastify.addHook('onClose', stopSecurityHardeningWorker)
 fastify.addHook('onClose', async () => { stopHostOfflineAlertWorker() })
 fastify.addHook('onClose', async () => { await stopHostPublicIpSync() })
 fastify.addHook('onClose', async () => { await stopHostPublicIpv6Sync() })
@@ -856,6 +860,7 @@ const start = async (): Promise<void> => {
     startCheckoutWorker()
     startHostOnboardingWorker()
     startHostRepairWorker()
+    startSecurityHardeningWorker()
     startHostOfflineAlertWorker()
     startHostPublicIpSync()
     startHostPublicIpv6Sync()

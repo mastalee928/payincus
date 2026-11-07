@@ -19,6 +19,9 @@ import { normalizeArchitecture } from '../lib/architecture.js'
 import { parseResourceProbe, resolveHostResources, type ResolvedHostResources } from '../lib/onboarding-resources.js'
 import { lockHostGroups, resolveHostGroups } from '../services/host-groups.js'
 import { queueHostGatewayDns } from '../services/host-gateway-dns.js'
+import { hardenExistingHost } from '../services/security-hardening-queue.js'
+import { finishSecureOnboarding } from '../services/onboarding-security-gate.js'
+import { prepareAutomaticHostMaintenance, resumeAutomaticHostMaintenance } from '../services/host-security-maintenance.js'
 
 let timer: ReturnType<typeof setInterval> | undefined
 let ticking = false
@@ -33,6 +36,8 @@ export async function claimHostOnboardingNode() {
     const rows = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM host_onboarding_nodes
       WHERE deleted_at IS NULL AND (status = 'queued' AND
+        (step <> 'hardening' OR EXISTS (SELECT 1 FROM hosts h WHERE h.id = host_id AND
+          (h.security_hardening->>'nextCheckAt' IS NULL OR h.security_hardening->>'nextCheckAt' <= ${new Date().toISOString()}))) AND
         (peer_retirement->>'nextAttemptAt' IS NULL OR peer_retirement->>'nextAttemptAt' <= ${new Date().toISOString()})
         OR (status = 'running' AND lease_until < (NOW() AT TIME ZONE 'UTC')))
       ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1`
@@ -50,14 +55,16 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
   let ssh: Client | undefined
   let lostLease = false
   let gatewayStage = false
+  let currentStep = node.step
   const where = { id: node.id, leaseToken: node.leaseToken, status: 'running' }
   const checkpoint = async (step: string, data: Prisma.HostOnboardingNodeUpdateManyMutationInput = {}) => {
     if (stopped || lostLease) throw new OnboardingError('WORKER_INTERRUPTED')
-    const changed = await prisma.hostOnboardingNode.updateMany({ where, data: { ...data, step, leaseUntil: new Date(Date.now() + 60000) } })
+    const changed = await prisma.hostOnboardingNode.updateMany({ where, data: { ...data, step, leaseUntil: new Date(Date.now() + (step === 'hardening' ? 600000 : 60000)) } })
     if (!changed.count) throw new OnboardingError('WORKER_INTERRUPTED')
+    currentStep = step
   }
   const heartbeat = setInterval(() => {
-    prisma.hostOnboardingNode.updateMany({ where, data: { leaseUntil: new Date(Date.now() + 60000) } }).then(result => {
+    prisma.hostOnboardingNode.updateMany({ where, data: { leaseUntil: new Date(Date.now() + (currentStep === 'hardening' ? 600000 : 60000)) } }).then(result => {
       if (!result.count) { lostLease = true; clearInterval(heartbeat); ssh?.destroy() }
     }).catch(() => { lostLease = true; clearInterval(heartbeat); ssh?.destroy() })
   }, 15000)
@@ -77,6 +84,17 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
     return client
   }
   try {
+    if (node.step === 'hardening' && node.hostId !== null) {
+      await checkpoint('hardening')
+      await resumeAutomaticHostMaintenance(node.hostId,undefined,{nodeId:node.id,leaseToken:node.leaseToken!})
+      await hardenExistingHost(node.hostId, undefined, { nodeId: node.id, leaseToken: node.leaseToken! })
+      await prepareAutomaticHostMaintenance(node.hostId,undefined,{nodeId:node.id,leaseToken:node.leaseToken!})
+      if (stopped || lostLease) throw new OnboardingError('WORKER_INTERRUPTED')
+      await finishSecureOnboarding(node.id, node.leaseToken!, node.hostId)
+      await queueHostGatewayDns(node.batch.createdById, node.id).catch(() => {})
+      await createLog(node.batch.createdById, 'host', 'host.onboarding.complete', `Onboarded host "${node.name}" after automatic security verification`, 'success')
+      return
+    }
     const owner = await prisma.user.findUnique({ where: { id: node.batch.createdById }, select: { role: true, status: true } })
     if (owner?.role !== 'admin' || owner.status !== 'active') throw new OnboardingError('ADMIN_REQUIRED')
     if (!node.credentialsEncrypted || node.credentialsExpireAt < new Date()) throw new OnboardingError('SSH_CREDENTIALS_REQUIRED')
@@ -211,7 +229,7 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
     const serverCertificate = new X509Certificate(certificatePem)
     if (host.serverFingerprint && host.serverFingerprint !== serverCertificate.fingerprint256) throw new OnboardingError('TLS_BOOTSTRAP_MISSING')
     host = await prisma.host.update({ where: { id: host.id }, data: { serverCertificate: certificatePem, serverFingerprint: serverCertificate.fingerprint256 } })
-    const client = new IncusClient({ url: host.url, ...panelCertificatePaths(), serverCertificate: host.serverCertificate, serverFingerprint: host.serverFingerprint })
+    const client = new IncusClient({ id:host.id,url: host.url, ...panelCertificatePaths(), serverCertificate: host.serverCertificate, serverFingerprint: host.serverFingerprint })
     try {
       const info = await client.connect() as { environment?: { kernel_architecture?: string } }
       await client.getResources()
@@ -244,20 +262,26 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
       await pause(5000)
     }
     if (!agentReady) throw new OnboardingError('AGENT_NOT_READY')
-    await checkpoint('done', { status: 'succeeded', credentialsEncrypted: null, completedAt: new Date(), leaseUntil: null, leaseToken: null })
+    await checkpoint('hardening')
+    await hardenExistingHost(host.id, undefined, { nodeId: node.id, leaseToken: node.leaseToken! })
+    await prepareAutomaticHostMaintenance(host.id,undefined,{nodeId:node.id,leaseToken:node.leaseToken!})
+    if (stopped || lostLease) throw new OnboardingError('WORKER_INTERRUPTED')
+    await finishSecureOnboarding(node.id, node.leaseToken!, host.id)
     await queueHostGatewayDns(node.batch.createdById, node.id).catch(() => {})
     await createLog(node.batch.createdById, 'host', 'host.onboarding.complete', `Onboarded host "${node.name}" via management tunnel`, 'success')
   } catch (error) {
-    const code = error instanceof OnboardingError ? error.code : 'ONBOARDING_STEP_FAILED'
+    const code = error instanceof OnboardingError ? error.code : error instanceof Error &&
+      /^(?:HARDENING_[A-Z_]+|WORKER_INTERRUPTED)$/.test(error.message) ? error.message : 'ONBOARDING_STEP_FAILED'
     // During shutdown, leave the durable job resumable. The detached remote
     // installer keeps running; its PID/exit files prevent duplicate installs.
     if (!stopped && !lostLease && code !== 'WORKER_INTERRUPTED') {
       const current = await prisma.hostOnboardingNode.findUnique({ where: { id: node.id } })
+      const hardeningResume = current?.step === 'hardening' && current.hostId !== null && code.startsWith('HARDENING_')
       const retirement = readPeerRetirement(current?.peerRetirement)
       const resumable = gatewayStage && current?.hostId === null && retirement && retirement.attempts < 5 &&
         ['GATEWAY_RETIREMENT_FAILED', 'GATEWAY_RETIREMENT_EXPIRED', 'GATEWAY_RECOVERY_BUSY', 'SSH_CONNECT_FAILED', 'SSH_DISCONNECTED', 'SSH_COMMAND_TIMEOUT'].includes(code)
-      await prisma.hostOnboardingNode.updateMany({ where, data: { status: resumable ? 'queued' : 'failed', errorCode: code,
-        completedAt: resumable ? null : new Date(), leaseToken: null, leaseUntil: null,
+      await prisma.hostOnboardingNode.updateMany({ where, data: { status: resumable || hardeningResume ? 'queued' : 'failed', errorCode: code,
+        completedAt: resumable || hardeningResume ? null : new Date(), leaseToken: null, leaseUntil: null,
         ...(resumable ? { peerRetirement: { ...retirement, attempts: retirement.attempts + 1, error: code,
           nextAttemptAt: new Date(Date.now() + Math.min(300000, 15000 * 2 ** retirement.attempts)).toISOString() } as unknown as Prisma.InputJsonValue } : {}) } })
     }

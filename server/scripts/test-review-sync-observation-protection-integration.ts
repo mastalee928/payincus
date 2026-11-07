@@ -132,7 +132,7 @@ try {
       console.log(`PASS ${entry}/${kind}: current instances, counters, ports, addresses, sites and occupied inventory retained`)
     }
   }
-  for (const kind of ['same_state', 'changed_state', 'newer_same_state', 'suspended', 'owner_changed', 'host_pin_changed', 'transfer', 'operation_busy'] as const) {
+  for (const kind of ['same_state', 'changed_state', 'newer_same_state', 'suspended', 'maintenance', 'owner_changed', 'host_pin_changed', 'transfer', 'operation_busy'] as const) {
     const label = `${tag}-success-${kind}`
     const host = await prisma.host.create({ data: { userId: owner.id, name: label, url: `https://127.0.0.1:${port}`,
       certPath, keyPath, serverCertificate: certificate, serverFingerprint: fingerprint, status: 'online', singleTenant: true,
@@ -149,6 +149,7 @@ try {
     let lockTransaction: Promise<unknown> | undefined
     let expectedInstance = instance
     scenarios.set(label, { code: 200, message: '', status: kind === 'same_state' ? 'Running' : 'Stopped', beforeReply: async () => {
+      if (kind === 'maintenance') await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { maintenance: { phase: 'waiting-boot' } } } })
       if (kind === 'newer_same_state') await prisma.instance.update({ where: { id: instance.id }, data: {
         status: 'running', lastSyncedAt: new Date(), updatedAt: new Date(instance.updatedAt.getTime() + 1000) } })
       if (kind === 'suspended') await prisma.instance.update({ where: { id: instance.id }, data: { status: 'suspended' } })
@@ -181,7 +182,8 @@ try {
         assert.ok(actual.lastSyncedAt)
       } else {
         assert.equal(result.changed, false)
-        assert.match(result.error!, /INSTANCE_SYNC_UNVERIFIED/)
+        if (kind === 'maintenance') assert.equal(result.error, undefined, 'maintenance is an expected observation hold')
+        else assert.match(result.error!, /INSTANCE_SYNC_UNVERIFIED/)
         assert.deepEqual(actual, expectedInstance, `${kind}: late successful observation cannot mutate current instance`)
         assert.equal(getHostHealth(host.id)?.errorCount, 0, 'local observation conflicts must not mark a healthy host failed')
       }

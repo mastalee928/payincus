@@ -87,6 +87,72 @@ alpine_ssh_standard_service() (
     [ -z "${command_args:-${SSHD_OPTS:-}}" ] && [ -z "${SSHD_BINARY:-}" ]
 )
 
+alpine_ssh_lock_release() {
+  # Only this process's private manifest may be removed. SIGKILL leaves a
+  # diagnosable owner; it never permits rm -rf of an unverified shared path.
+  [ -f "$alpine_ssh_lock/owner" ] && [ ! -L "$alpine_ssh_lock/owner" ] || return 1
+  [ "$(cat "$alpine_ssh_lock/owner")" = "$alpine_ssh_owner" ] || return 1
+  for alpine_ssh_name in repositories paths before-unsorted before after-unsorted after effective-before effective-after owner; do
+    [ ! -L "$alpine_ssh_lock/$alpine_ssh_name" ] || return 1
+    [ ! -e "$alpine_ssh_lock/$alpine_ssh_name" ] || rm -- "$alpine_ssh_lock/$alpine_ssh_name" || return 1
+  done
+  rmdir -- "$alpine_ssh_lock"
+}
+
+alpine_ssh_lock_acquire() {
+  # util-linux flock is installed by both platform Alpine initializers. The
+  # descriptor remains open in apk/hooks if the updater is killed; it is never
+  # released on a guessed timeout. Unknown legacy directories remain blocked.
+  command -v flock >/dev/null 2>&1 || { alpine_ssh_fail 'safe process lock is unavailable'; return 1; }
+  alpine_ssh_gate=/run/incudal-alpine-ssh-security.flock
+  if [ -e "$alpine_ssh_gate" ] || [ -L "$alpine_ssh_gate" ]; then
+    [ ! -L "$alpine_ssh_gate" ] && [ -f "$alpine_ssh_gate" ] &&
+      [ "$(stat -c '%u:%h:%a' "$alpine_ssh_gate")" = '0:1:600' ] || return 1
+  fi
+  (umask 077; : >> "$alpine_ssh_gate") || return 1
+  exec 9>> "$alpine_ssh_gate"
+  flock -n 9 || { alpine_ssh_fail 'another SSH security update is active'; return 1; }
+  if [ -e "$alpine_ssh_lock" ] || [ -L "$alpine_ssh_lock" ]; then
+    [ ! -L "$alpine_ssh_lock" ] && [ -d "$alpine_ssh_lock" ] &&
+      [ "$(stat -c '%u:%a' "$alpine_ssh_lock")" = '0:700' ] || return 1
+    [ -f "$alpine_ssh_lock/owner" ] && [ ! -L "$alpine_ssh_lock/owner" ] &&
+      [ "$(stat -c '%u:%h:%a' "$alpine_ssh_lock/owner")" = '0:1:600' ] || return 1
+    IFS=' ' read -r alpine_ssh_version_owner alpine_ssh_old_boot alpine_ssh_old_pid alpine_ssh_old_ticks alpine_ssh_extra < "$alpine_ssh_lock/owner"
+    [ "$alpine_ssh_version_owner" = 'v2' ] && [ -z "$alpine_ssh_extra" ] && [ "$alpine_ssh_old_boot" = "$alpine_ssh_boot" ] || return 1
+    case "$alpine_ssh_old_pid:$alpine_ssh_old_ticks" in *[!0-9:]*|:*|*:) return 1 ;; esac
+    if [ -d "/proc/$alpine_ssh_old_pid" ]; then
+      alpine_ssh_current_ticks=$(sed 's/.*) //' "/proc/$alpine_ssh_old_pid/stat" | awk '{print $20}') || return 1
+      [ "$alpine_ssh_current_ticks" != "$alpine_ssh_old_ticks" ] || { alpine_ssh_fail 'original update owner is still alive'; return 1; }
+    fi
+    # Holding the inherited gate proves that neither old owner nor descendants
+    # still hold it. Validate every file before deleting any known manifest.
+    for alpine_ssh_file in "$alpine_ssh_lock"/* "$alpine_ssh_lock"/.[!.]* "$alpine_ssh_lock"/..?*; do
+      [ -e "$alpine_ssh_file" ] || [ -L "$alpine_ssh_file" ] || continue
+      case "${alpine_ssh_file##*/}" in repositories|paths|before-unsorted|before|after-unsorted|after|effective-before|effective-after|owner) ;; *) return 1 ;; esac
+      [ ! -L "$alpine_ssh_file" ] && [ -f "$alpine_ssh_file" ] && [ "$(stat -c '%u:%h' "$alpine_ssh_file")" = '0:1' ] || return 1
+    done
+    if [ "$alpine_ssh_mode" = update ]; then
+      # An interrupted write can only resume after proving the saved account,
+      # key and effective-policy baseline. Never discard it to make a retry pass.
+      [ -s "$alpine_ssh_lock/before" ] && [ -s "$alpine_ssh_lock/effective-before" ] || return 1
+      alpine_ssh_had_apk_new=true
+      grep -q '^/etc/ssh/sshd_config.apk-new ' "$alpine_ssh_lock/before" || alpine_ssh_had_apk_new=false
+      alpine_ssh_preserved_files > "$alpine_ssh_lock/after-unsorted" || return 1
+      sort "$alpine_ssh_lock/after-unsorted" > "$alpine_ssh_lock/after" || return 1
+      alpine_ssh_binary=$(alpine_ssh_listener_binary) || return 1
+      "$alpine_ssh_binary" -T > "$alpine_ssh_lock/effective-after" || return 1
+      cmp -s "$alpine_ssh_lock/before" "$alpine_ssh_lock/after" &&
+        cmp -s "$alpine_ssh_lock/effective-before" "$alpine_ssh_lock/effective-after" || return 1
+    fi
+    alpine_ssh_new_owner=$alpine_ssh_owner
+    alpine_ssh_owner="$(cat "$alpine_ssh_lock/owner")"
+    alpine_ssh_lock_release || return 1
+    alpine_ssh_owner=$alpine_ssh_new_owner
+  fi
+  (umask 077; mkdir "$alpine_ssh_lock") || return 1
+  (umask 077; printf '%s\n' "$alpine_ssh_owner" > "$alpine_ssh_lock/owner")
+}
+
 alpine_ssh_security_update() (
   set -eu
   alpine_ssh_mode=${1:-install}
@@ -97,10 +163,16 @@ alpine_ssh_security_update() (
   alpine_ssh_min=$(alpine_ssh_minimum "$alpine_ssh_branch") || exit 1
   # Signed packages and indexes from this branch only; never change repositories.
   alpine_ssh_lock=/run/incudal-alpine-ssh-security.lock
-  mkdir "$alpine_ssh_lock" 2>/dev/null || { alpine_ssh_fail 'another SSH security update is active'; exit 1; }
-  trap 'rm -rf "$alpine_ssh_lock"' EXIT
+  # Read with a builtin: /proc/self identifies this updater subshell, whereas
+  # POSIX $$ would still identify its parent.
+  IFS=' ' read -r alpine_ssh_pid alpine_ssh_stat_tail < /proc/self/stat
+  alpine_ssh_ticks=$(sed 's/.*) //' "/proc/$alpine_ssh_pid/stat" | awk '{print $20}')
+  alpine_ssh_boot=$(cat /proc/sys/kernel/random/boot_id)
+  case "$alpine_ssh_pid:$alpine_ssh_ticks" in *[!0-9:]*|:*) alpine_ssh_fail 'cannot prove update process identity'; exit 1 ;; esac
+  alpine_ssh_owner="v2 $alpine_ssh_boot $alpine_ssh_pid $alpine_ssh_ticks"
+  alpine_ssh_lock_acquire || { alpine_ssh_fail 'update lock ownership could not be verified'; exit 1; }
+  trap 'alpine_ssh_lock_release' EXIT
   trap 'exit 1' HUP INT TERM
-  chmod 700 "$alpine_ssh_lock"
   printf 'https://dl-cdn.alpinelinux.org/alpine/v%s/main\n' "$alpine_ssh_branch" > "$alpine_ssh_lock/repositories"
   if [ "$alpine_ssh_mode" = update ]; then
     alpine_ssh_standard_service || { alpine_ssh_fail 'custom SSH service arguments require separate validation'; exit 1; }

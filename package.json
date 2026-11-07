@@ -45,6 +45,8 @@
     "test:demo-readonly-redaction-guards": "pnpm --filter server test:demo-readonly-redaction-guards"
   },
   "testGuards": [
+    "pnpm --filter server test:security-hardening-guards",
+    "pnpm --filter server test:customer-isolation",
     "pnpm --filter server test:auth-identity-state",
     "pnpm --filter server test:recovery-page-state",
     "pnpm --filter server test:recovery-gate-state",
@@ -243,6 +245,7 @@
     "pnpm --filter server test:redirect-validator-guards",
     "pnpm --filter server test:error-response-guards",
     "pnpm --filter server test:dedicated-delivery",
+    "pnpm --filter server test:incus-memory-default",
     "pnpm --filter server test:alpine-ssh-security-guards",
     "pnpm --filter server test:host-public-ip",
     "pnpm --filter server test:host-public-ipv6",

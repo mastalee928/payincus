@@ -164,7 +164,7 @@ function getPackageInstallCommand(osInfo: VmOsInfo): string {
     case 'yum':
       return 'retry_cmd "yum install -y qemu-guest-agent openssh-server openssh-clients curl ca-certificates"'
     case 'apk':
-      return 'retry_cmd "apk update" && retry_cmd "apk add --no-cache qemu-guest-agent openssh curl ca-certificates shadow"'
+      return 'retry_cmd "apk update" && retry_cmd "apk add --no-cache qemu-guest-agent openssh curl ca-certificates shadow util-linux"'
     default:
       return ':'
   }

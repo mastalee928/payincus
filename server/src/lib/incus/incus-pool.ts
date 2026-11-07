@@ -102,11 +102,12 @@ export async function getIncusClient(host: Host, database: Pick<Prisma.Transacti
   }
   if (!latestLookup || sequence > latestLookup.sequence) configurationLookups.set(key, { sequence, configuration })
   const existingLock = connectingLocks.get(key)
-  if (existingLock?.configuration === configuration) return existingLock.promise
+  const scoped=(client:IncusClient)=>database===prisma?client:client.withMaintenanceDatabase(database)
+  if (existingLock?.configuration === configuration) return scoped(await existingLock.promise)
   const pooled = clientPool.get(key)
   if (pooled?.configuration === configuration && pooled.client.connected && !existingLock) {
     pooled.lastUsed = Date.now()
-    return pooled.client
+    return scoped(pooled.client)
   }
 
   // Invalidate before any await: an old connect/close cannot republish or erase
@@ -120,7 +121,7 @@ export async function getIncusClient(host: Host, database: Pick<Prisma.Transacti
     try {
       if (pooled) await pooled.client.close()
       if (!current()) throw new Error('Incus connection configuration changed')
-      client = new Client(options)
+      client = new Client({ ...options, id: host.id })
       await client.connect(connectTimeout)
       if (!current()) throw new Error('Incus connection invalidated while connecting')
       const confirmed = await database.host.findUnique({ where: { id: host.id }, select: {
@@ -141,7 +142,7 @@ export async function getIncusClient(host: Host, database: Pick<Prisma.Transacti
     }
   })
   connectingLocks.set(key, { configuration, promise: connectPromise })
-  return connectPromise
+  return scoped(await connectPromise)
 }
 
 /**

@@ -3,6 +3,7 @@
  */
 
 export interface IncusClientOptions {
+  id?: number
   serverCertificate?: string | null
   serverFingerprint?: string | null
   url: string
@@ -56,6 +57,7 @@ export interface IncusInstance {
   devices?: Record<string, Record<string, unknown>>
   expanded_config?: Record<string, string>
   expanded_devices?: Record<string, Record<string, unknown>>
+  profiles?: string[]
 }
 
 export interface IncusImage {

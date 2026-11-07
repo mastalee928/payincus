@@ -2582,6 +2582,7 @@ function formatShortDate(dateStr: string | null | undefined): string {
               </span>
             </div>
             <p class="page-description mt-0.5 font-mono tabular-nums">{{ formatImageName(instance.image, (instance as any).imageName) }}<span v-if="isAdminEntry"> · <span class="uppercase">{{ (instance as any).host?.name || (instance as any).host || '-' }}</span></span></p>
+            <RouterLink v-if="isAdminEntry && authStore.user?.role === 'admin' && instance.host_id" :to="hostDetailPath(instance.host_id)" class="inline-flex min-h-[44px] items-center text-sm text-themed underline underline-offset-4">{{t('securityHardening.detail')}}</RouterLink>
           </div>
         </div>
 

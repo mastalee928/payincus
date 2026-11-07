@@ -97,7 +97,7 @@ import {
 import {
   resolveInstanceNetworkAddresses
 } from '../lib/instance-network-sync.js'
-import { syncInstanceNetworkAndProxySites, readProxyNetworkSyncHostIdentity, ProxyNetworkSyncError } from '../lib/instance-proxy-network-sync.js'
+import { syncInstanceNetworkAndProxySites, syncObservedInstanceStatus, readProxyNetworkSyncHostIdentity, ProxyNetworkSyncError } from '../lib/instance-proxy-network-sync.js'
 import {
   USER_BALANCE_LOCK_NAMESPACE,
   tryAdvisoryTransactionLock
@@ -2815,6 +2815,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       if (!host) {
         throw new Error('Host not found')
       }
+      const hostConnectionIdentity = await readProxyNetworkSyncHostIdentity(host.id)
       const client = await getIncusClient(host)
 
       const state = await getInstanceState(client, instance.incus_id) as {
@@ -2832,8 +2833,19 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
         const incusStatus = mapInstanceStatus(state.status)
         // 仅在状态不一致且是有效状态时更新
         if (incusStatus !== 'unknown' && instance.status !== incusStatus) {
-          console.log(`[StatusSync] Passive sync: Instance ${instance.id} status ${instance.status} → ${incusStatus}`)
-          await db.updateInstanceStatus(instanceId, incusStatus as 'creating' | 'running' | 'stopped' | 'error')
+          try {
+            await syncObservedInstanceStatus({
+              id: instanceId, name: instance.name, hostId: instance.host_id,
+              incusId: instance.incus_id, userId: instance.user_id, updatedAt: instance.updated_at,
+              hostOwnerId: host.user_id!, hostUrl: host.url,
+              hostConnectionIdentity,
+              networkMode: instance.network_mode, ipv4: instance.ipv4, ipv6: instance.ipv6
+            }, incusStatus as InstanceStatus, user)
+          } catch (error) {
+            // A concurrent maintenance/transfer/newer sample does not invalidate
+            // read-only metrics and cannot authorize a status overwrite.
+            if (!(error instanceof ProxyNetworkSyncError)) throw error
+          }
         }
       }
 

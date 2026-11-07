@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from './prisma.js'
 import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from './advisory-locks.js'
 import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
+import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 
 export class ProxySiteMutationError extends Error {
   constructor(readonly statusCode: number, message: string, readonly code?: string) {
@@ -34,6 +35,9 @@ export async function withProxySiteMutation<T>(
     await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.hostId} FOR SHARE`
     const host = await tx.host.findUnique({ where: { id: instance.hostId } })
     if (!host) throw new ProxySiteMutationError(404, '宿主机不存在')
+    if (hostMaintenanceBlocked(host.securityHardening)) {
+      throw new ProxySiteMutationError(409, '宿主正在执行安全维护，反代操作将在验收后继续', 'HOST_SECURITY_MAINTENANCE')
+    }
     if (!await authorizeUserWrite(tx, actor.id, actor, true) || instance.userId !== actor.id) {
       throw new ProxySiteMutationError(403, '无权操作此实例', 'FORBIDDEN')
     }

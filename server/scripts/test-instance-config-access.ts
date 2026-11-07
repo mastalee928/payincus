@@ -107,6 +107,7 @@ try {
     headers: { 'x-test-identity': 'buyer' }, payload: { instanceIds: [42], config: { limitsProcesses: 1000 } } })
   assert.equal(batchEdit.statusCode, 403)
   for (const [key, value] of Object.entries({
+    nested: true, privileged: true,
     swapEnabled: false, swapSize: 0, limitsRead: null, limitsWrite: '100MB', limitsReadIops: 0,
     limitsWriteIops: 500, limitsIngress: null, limitsEgress: '300Mbit', limitsProcesses: 1000,
     limitsCpuPriority: 10, bootAutostart: false, bootAutostartPriority: 0,
@@ -117,6 +118,11 @@ try {
     assert.equal(response.statusCode, 403, `non-admin host owners cannot bypass advanced configuration restrictions via ${key}`)
   }
   assert.equal(instanceWrite.mock.callCount(), 0)
+  for (const value of [true, 'true', 1]) {
+    const denied = await app.inject({ method: 'POST', url: '/hosts/10/instances/batch-config',
+      headers: { 'x-test-identity': 'admin' }, payload: { instanceIds: [42], config: { privileged: value } } })
+    assert.equal(denied.statusCode, 400, 'Even administrators cannot enable customer privilege')
+  }
   assert.equal(databaseConnect.mock.callCount(), 0)
   console.log('Instance configuration access tests passed: anonymous/customer denial, alternate endpoints, admin read and validation, zero mutations')
 } finally {

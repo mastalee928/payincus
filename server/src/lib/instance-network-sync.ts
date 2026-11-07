@@ -1,5 +1,6 @@
 import type { Host, Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
+import { hostMaintenanceBlocked } from './host-maintenance-gate.js'
 import type { IncusInstance } from '../types/incus.js'
 import {
   IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE,
@@ -390,6 +391,9 @@ export async function persistResolvedInstanceNetworkAddressesInTransaction(
   }
   await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${current.hostId} FOR SHARE`
   const host = await tx.host.findUnique({ where: { id: current.hostId } })
+  if (host && hostMaintenanceBlocked(host.securityHardening)) {
+    throw new Error('Host is in security maintenance; preserve the instance network until verification')
+  }
   if (!host || host.userId !== instance.hostOwnerId || instanceNetworkHostIdentity(host) !== instance.hostConnectionIdentity) {
     throw new Error('Host network observation changed; reconnect before syncing')
   }

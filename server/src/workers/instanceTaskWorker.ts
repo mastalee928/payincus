@@ -1,5 +1,6 @@
 import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, } from '../db/snapshot-operation-guards.js'
 import { executeHostReplacement } from '../services/host-replacement.js'
+import { HostMaintenanceError, assertHostNotMaintaining } from '../lib/host-maintenance-gate.js'
 import { processPoolCleanupQueue } from '../services/host-pool-cleanup.js'
 import { prepareDedicatedDelivery } from '../services/dedicated-delivery.js'
 import { prepareDedicatedIpv6Delivery } from '../services/host-public-ipv6-sync.js'
@@ -19,6 +20,7 @@ import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations } fro
 import { InstanceTaskType, Prisma } from '@prisma/client'
 import { getIncusClient, getInstance, updateInstance, deleteInstance, createInstance } from '../lib/incus/index.js'
 import { IncusApiError } from '../lib/incus/incus-client.js'
+import { readCustomerIsolation, rejectCustomerPrivilege } from '../lib/incus/customer-isolation.js'
 import {
   startInstance,
   stopInstance,
@@ -555,6 +557,8 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
       return
     }
     if (task.status !== 'PROCESSING' || task.startedAt?.getTime() !== attempt.startedAt.getTime() || task.retryCount !== attempt.retryCount) return
+    await assertHostNotMaintaining(task.hostId)
+    if (task.targetHostId !== null) await assertHostNotMaintaining(task.targetHostId)
 
     let materials = await validateDestructiveTaskExecution(task)
 
@@ -635,6 +639,13 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     console.log(`[InstanceTaskWorker] 任务 ${taskId} (${task.taskType}) 完成，耗时 ${taskDuration}ms`)
 
   } catch (err) {
+    if (err instanceof HostMaintenanceError) {
+      // Keep the original authorized task and latest business intent. Security
+      // maintenance must not turn a queued stop/delete into a failed intent.
+      await prisma.instanceTask.updateMany({ where: { id:taskId,status:'PROCESSING',startedAt:attempt.startedAt,retryCount:attempt.retryCount },
+        data: { status:'PENDING',startedAt:null,error:'HOST_SECURITY_MAINTENANCE' } })
+      return
+    }
     const errorMessage = err instanceof Error ? err.message : String(err)
     console.error(`[InstanceTaskWorker] 任务 ${taskId} 失败:`, errorMessage)
 
@@ -1247,6 +1258,7 @@ async function executeRecreateTask(
 ): Promise<void> {
   const imageAlias = task.imageAlias || instance.image
   const oldIncusId = instance.incus_id
+  if (instance.package_id) rejectCustomerPrivilege((await db.getPackageById(instance.package_id))?.privileged)
   const { sshKey, extraShellCommands } = materials
   const allowCancelBusyUpdate = isAlpineImageAlias(instance.image) || isAlpineImageAlias(imageAlias)
 
@@ -1645,6 +1657,7 @@ async function executeChangeHostTask(
   if (!pkg) {
     throw new Error('实例套餐不存在，无法改节点')
   }
+  rejectCustomerPrivilege(pkg.privileged)
 
   const packageHostIds = (pkg as { host_ids?: number[] }).host_ids || []
   if (!packageHostIds.includes(targetHostId)) {
@@ -2182,11 +2195,15 @@ async function executeCloneTask(
       name: newIncusId,
       source: {
         type: 'copy',
+        instance_only: true,
         source: sourceInstance.incus_id
       }
     }
 
-    await client.request('POST', '/1.0/instances', copyPayload, 300000) // 5分钟超时
+    await readCustomerIsolation(client, sourceInstance.incus_id)
+    // Copy only the instance; historical snapshots may contain unsafe host settings.
+    await client.request('POST', '/1.0/instances', copyPayload, 300000)
+    await readCustomerIsolation(client, newIncusId)
 
     // 2. 获取新实例的设备信息，更新端口映射
     const newInstanceInfo = await getInstance(client, newIncusId) as { devices?: Record<string, { type?: string; listen?: string; connect?: string }> }

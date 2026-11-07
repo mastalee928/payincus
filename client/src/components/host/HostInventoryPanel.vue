@@ -5,6 +5,7 @@ import HostManagementRepairStatus from './HostManagementRepairStatus.vue'
 import HostRecoveryBatchModal from './HostRecoveryBatchModal.vue'
 import HostPublicIpModal from './HostPublicIpModal.vue'
 import HostProtocolBatchModal from './HostProtocolBatchModal.vue'
+import HostHardeningDetails from './HostHardeningDetails.vue'
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
@@ -87,6 +88,7 @@ const sshForm = ref({ host: '', port: 22, username: 'root' })
 const removeHost = ref<ManagedHost | null>(null)
 const replacement = ref<{ id: number; name: string } | null>(null)
 const recoveryHost = ref<ManagedHost | null>(null)
+const hardeningHost = ref<ManagedHost | null>(null)
 const recoveryTargets = ref<ManagedHost[]>([])
 function openBatchRecovery(targets: ManagedHost[]) { recoveryTargets.value = targets.filter(host => host.poolFaulted) }
 const publicIpHost = ref<ManagedHost | null>(null)
@@ -463,6 +465,7 @@ defineExpose({ refresh, findHost })
             <button v-if="host.poolFaulted" type="button" class="inline-flex items-center rounded-full border border-red-300 bg-red-50 px-3 py-1 text-xs text-red-700 transition-colors hover:bg-red-100 dark:border-red-900 dark:bg-red-950 dark:text-red-300" :title="t('hostPoolOps.quarantineHint')" @click="recoveryHost = host">{{ t('hostPoolOps.recovery.title') }}</button>
           </div>
           <p class="text-xs text-themed-muted">{{ t('hostPoolOps.assignedInstances', { count: host.instanceCount }) }}</p>
+          <button type="button" class="text-xs text-themed underline underline-offset-4 min-h-[44px] text-left" :title="t('securityHardening.detail')" @click="hardeningHost = host">{{t('securityHardening.title')}} · {{t('securityHardening.' + (host.securityHardening?.status || 'pending'))}}</button>
           <p class="text-xs font-medium" :class="host.stock === 'available' ? 'text-green-600 dark:text-green-400' : 'text-themed-muted'">{{ t('hostInventory.stock.' + host.stock) }}</p>
           <p v-if="host.sellReason" class="text-xs font-medium text-amber-600 dark:text-amber-400">{{ sellReasonText(host.sellReason) }}</p>
           <p v-if="host.poolFaulted && !compactView" class="text-xs text-themed-muted">{{ t('hostPoolOps.quarantineHint') }}</p>
@@ -497,6 +500,7 @@ defineExpose({ refresh, findHost })
     </div>
 
     <HostReplacementModal v-if="replacement" :instance-id="replacement.id" :instance-name="replacement.name" @close="replacement = null" @changed="refresh" />
+    <HostHardeningDetails v-if="hardeningHost" :host-id="hardeningHost.id" :host-name="hardeningHost.name" :initial="hardeningHost.securityHardening" @close="hardeningHost = null" />
     <HostPublicIpModal v-if="publicIpHost" :host-id="publicIpHost.id" :host-name="publicIpHost.name" @close="publicIpHost = null" @changed="refresh" />
     <HostProtocolBatchModal v-if="protocolTargets.length" :hosts="protocolTargets" @close="protocolTargets = []" @submitted="protocolsSubmitted" />
     <HostRecoveryModal v-if="recoveryHost" :host-id="recoveryHost.id" :host-name="recoveryHost.name" @close="recoveryHost = null" @changed="refresh" />

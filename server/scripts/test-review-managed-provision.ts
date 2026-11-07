@@ -22,7 +22,7 @@ execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey'
   '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', keyPath, '-out', certPath], { stdio: 'pipe', windowsHide: true })
 const certificate = await readFile(certPath, 'utf8')
 let mode = '', target = '', instanceId = 0
-let remote: { name: string; config: Record<string, string>; status: string } | null = null
+let remote: { name: string; type?: string; config: Record<string, string>; devices?: Record<string, Record<string, string>>; profiles?: string[]; status: string } | null = null
 const actions: string[] = []
 let afterCreate: (() => Promise<void>) | undefined
 let afterStop: (() => Promise<void>) | undefined
@@ -42,7 +42,9 @@ const server = createServer({ key: await readFile(keyPath), cert: certificate, c
       assert.equal(config.name, target)
       if (mode === 'existing') return fail(409, 'instance already exists')
       if (['absent', 'pending_create'].includes(mode)) return fail(500, 'image download failed')
-      remote = { name: target, config: { ...config.config, 'volatile.uuid': randomUUID() }, status: 'Running' }
+      assert.equal(config.config['security.privileged'], 'false')
+      assert.deepEqual(config.profiles, [])
+      remote = { name: target, type: config.type, devices: config.devices, profiles: config.profiles, config: { ...config.config, 'volatile.uuid': randomUUID() }, status: 'Running' }
       await afterCreate?.()
       return ok()
     }

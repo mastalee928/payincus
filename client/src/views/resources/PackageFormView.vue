@@ -658,7 +658,7 @@ async function loadPackage(id: number, context: FormContext): Promise<void> {
       networkMode: pkg.network_mode || 'nat',
       instanceType: (pkg.instance_type === 'vm' ? 'vm' : 'container') as 'container' | 'vm',
       // 处理布尔值：可能是 1/0 或 true/false
-      privileged: pkg.privileged === 1 || pkg.privileged === true,
+      privileged: false,
       nested: pkg.nested === 1 || pkg.nested === true,
       active: pkg.active === 1 || pkg.active === true,
       monthlyTrafficLimitGB: bytesToGB(pkg.monthly_traffic_limit),
@@ -817,7 +817,7 @@ async function savePackage(): Promise<void> {
       hostTrafficMultipliers,
       networkMode: form.value.networkMode,
       instanceType: form.value.instanceType,
-      privileged: form.value.privileged,
+      privileged: false,
       nested: form.value.nested,
       active: form.value.active,
       monthlyTrafficLimit: trafficLimitBytes,
@@ -1633,10 +1633,6 @@ function goBack(): void {
             <h2 class="font-semibold text-themed">{{ t('packageForm.sections.advancedOptions') }}</h2>
           </div>
           <div class="flex items-center gap-6">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input v-model="form.privileged" type="checkbox" class="h-4 w-4 rounded border-themed text-primary-600 focus:ring-primary-500" />
-              <span class="text-sm text-themed">{{ t('admin.packages.privileged') }}</span>
-            </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <input v-model="form.nested" type="checkbox" class="h-4 w-4 rounded border-themed text-primary-600 focus:ring-primary-500" />
               <span class="text-sm text-themed">{{ t('admin.packages.nested') }}</span>

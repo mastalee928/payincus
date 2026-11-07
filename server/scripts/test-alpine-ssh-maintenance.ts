@@ -31,7 +31,7 @@ const instance = await prisma.instance.create({ data: { userId: buyer.id, hostId
     managedCleanup: { uuid, attempt, endpointHash: createHash('sha256').update(endpoint).digest('hex') } } } })
 let updated = 0, holds = 0, logins = 0, fixed = false, changed = false, failUpdate = false, sessionFail = false
 const events: string[] = []
-const client = { baseUrl: endpoint, request: async () => ({ name: prefix, config: { 'volatile.uuid': changed ? randomUUID() : uuid, 'user.payincus.provisioning-attempt': attempt } }) } as any
+const client = { baseUrl: endpoint, request: async () => ({ name: prefix, type: 'container', profiles: [], devices: { root: { type: 'disk', path: '/', pool: 'fixture' } }, config: { 'security.privileged': 'false', 'volatile.uuid': changed ? randomUUID() : uuid, 'user.payincus.provisioning-attempt': attempt } }) } as any
 const deps = {
   connect: async () => client,
   inspect: async () => ({ alpine: true, fixed, fingerprints: ['SHA256:original'] }),
@@ -95,7 +95,7 @@ try {
     request.user = { id: admin.id, username: admin.username, role: 'admin', ...session }
   })
   let calls = 0
-  await app.register(securityRoutes, { prefix: '/instances', maintain: async (id, actorId, _deps, actualSession) => {
+  await app.register(securityRoutes, { prefix: '/instances', maintain: async (id: number, actorId: number, _deps: unknown, actualSession?: { sid: string; iat: number }) => {
     assert.equal(id, instance.id); assert.equal(actorId, admin.id); assert.equal(actualSession?.sid, session.sid)
     calls++; return { instanceId: id, status: 'already-fixed', passwordLoginPreserved: true }
   } })

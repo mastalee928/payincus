@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
-const source = readFileSync(resolve(__dirname, '../src/routes/instances.ts'), 'utf8')
+const source = readFileSync(resolve(__dirname, '../src/routes/instances.ts'), 'utf8').replace(/\r\n/g, '\n')
 const kvmProxyStrategySource = readFileSync(resolve(__dirname, '../src/lib/proxy/KvmProxyStrategy.ts'), 'utf8')
 // 单条端口映射的下发逻辑（含安全序列）住在这里 —— 用户手动添加的路由和创建实例时的自动下发
 // 共用同一份实现，守卫必须钉住真正的实现处，而不是路由里那层薄薄的转发。

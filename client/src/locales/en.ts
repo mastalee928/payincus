@@ -1,3 +1,4 @@
+import { en as securityHardening } from './security-hardening'
 import { en as ossMessages } from './aliyun-oss'
 import { en as ipv6Delivery } from './ipv6-delivery'
 import { en as managementGateway } from './management-gateway'
@@ -6,6 +7,7 @@ import { en as gatewayEndpoint } from './gateway-endpoint'
 import { en as hostAbuse } from './host-abuse-policy'
 import { en as automaticRecovery } from './automatic-recovery'
 export default {
+    securityHardening,
     automaticRecovery,
     hostAbuse,
     homeMapDemo: {

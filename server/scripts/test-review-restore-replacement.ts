@@ -59,6 +59,7 @@ const server = createServer({ cert, key: await readFile(keyPath), ca: cert, requ
       if (mode === 'wrong-device') copy.devices!.eth0['ipv6.address'] = 'fd00:99::bad'
       if (mode === 'wrong-pool') copy.devices!.root.pool = 'new-package-pool'
       if (mode === 'missing-uuid') delete copy.config!['volatile.uuid']
+      if (mode === 'unsafe-privilege') copy.config!['security.privileged'] = 'true'
       remote.set(taskTemp, copy)
       if (mode === 'original-reused') remote.get(tag)!.config!['volatile.uuid'] = randomUUID()
       if (mode === 'ban-after-import') await prisma.user.update({ where: { id: user.id }, data: { status: 'banned' } })
@@ -116,7 +117,7 @@ const actor = { id: user.id, sid: randomUUID(), iat: Math.floor(Date.now() / 100
 const trigger = `restore_final_${user.id}`
 let triggerInstalled = false
 try {
-  for (const scenario of ['success', 'wrong-device', 'wrong-pool', 'missing-uuid', 'original-reused', 'ban-after-import', 'late-backup',
+  for (const scenario of ['success', 'unsafe-privilege', 'wrong-device', 'wrong-pool', 'missing-uuid', 'original-reused', 'ban-after-import', 'late-backup',
     'import-error', 'delete-error', 'delete-present', 'delete-disconnect', 'rename-error', 'rename-wrong-uuid', 'start-error', 'final-db-error']) {
     mode = scenario; requests = []; deleteCount = 0
     remote = new Map([[tag, structuredClone(blueprint)]])
@@ -155,7 +156,7 @@ try {
       const before = requests.length
       await cleanupStaleTasks(); await cleanupTimeoutTasks(); await executeRestoreTask(id)
       assert.equal(requests.length, before, 'restart/late execution never repeats import/delete')
-      if (['wrong-device', 'wrong-pool', 'missing-uuid', 'original-reused', 'ban-after-import', 'late-backup', 'import-error'].includes(mode)) {
+      if (['unsafe-privilege', 'wrong-device', 'wrong-pool', 'missing-uuid', 'original-reused', 'ban-after-import', 'late-backup', 'import-error'].includes(mode)) {
         assert.equal(deleteCount, 0, mode); assert.equal(remote.size, 2, mode)
       }
       if (['delete-disconnect', 'rename-error'].includes(mode)) assert.ok(remote.has(taskTemp), mode + ': unique temp preserved')
@@ -167,7 +168,7 @@ try {
     await prisma.backup.deleteMany({ where: { instanceId: instance.id, id: { not: backup.id } } })
     await prisma.restoreTask.update({ where: { id }, data: { status: 'FAILED' } })
   }
-  console.log('PASS 15 real PG/mTLS worker replacement scenarios: source pool/UUID/devices, persisted operation before wait, original reuse, changed IPv6/pool/missing UUID, revocation, changed manifest, remote import/delete/rename/start faults and atomic final DB failure; all remaining copies and workflow fences preserved; zero network-forward deletions. Disk contents and guest connectivity are fixtures, not real Incus evidence.')
+  console.log('PASS 16 real PG/mTLS worker replacement scenarios: source pool/UUID/devices, persisted operation before wait, original reuse, privileged import refused before deletion, changed IPv6/pool/missing UUID, revocation, changed manifest, remote import/delete/rename/start faults and atomic final DB failure; all remaining copies and workflow fences preserved; zero network-forward deletions. Disk contents and guest connectivity are fixtures, not real Incus evidence.')
 } finally {
   if (triggerInstalled) { await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${trigger} ON restore_tasks`); await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${trigger}()`) }
   await prisma.restoreTask.deleteMany({ where: { hostId: host.id } })

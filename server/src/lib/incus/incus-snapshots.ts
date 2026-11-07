@@ -4,6 +4,7 @@
 
 import type { IncusClient } from './incus-client.js'
 import type { IncusSnapshot } from '../../types/incus.js'
+import { assertCustomerProfiles, readCustomerIsolation } from './customer-isolation.js'
 
 /**
  * 获取快照列表
@@ -58,6 +59,13 @@ export async function restoreSnapshot(
   instanceName: string,
   snapshotName: string
 ): Promise<unknown> {
+  const current = await readCustomerIsolation(client, instanceName)
+  const snapshot = await client.request('GET', `/1.0/instances/${encodeURIComponent(instanceName)}/snapshots/${encodeURIComponent(snapshotName)}`)
+  if (!snapshot || typeof snapshot !== 'object' || !(snapshot as { config?: unknown }).config || !(snapshot as { devices?: unknown }).devices) {
+    throw new Error('快照隔离配置不完整，恢复未开始')
+  }
+  const snapshotConfig = snapshot as Parameters<typeof assertCustomerProfiles>[1]
+  await assertCustomerProfiles(client, { type: current.type, ...snapshotConfig })
   return client.request('PUT', `/1.0/instances/${instanceName}`, {
     restore: snapshotName
   })

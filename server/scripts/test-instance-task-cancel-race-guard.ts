@@ -8,7 +8,7 @@ const __dirname = dirname(__filename)
 
 const source = readFileSync(resolve(__dirname, '../src/db/instance-tasks.ts'), 'utf8')
 const workerSource = readFileSync(resolve(__dirname, '../src/workers/instanceTaskWorker.ts'), 'utf8')
-const instanceRoutesSource = readFileSync(resolve(__dirname, '../src/routes/instances.ts'), 'utf8')
+const instanceRoutesSource = readFileSync(resolve(__dirname, '../src/routes/instances.ts'), 'utf8').replace(/\r\n/g, '\n')
 
 const start = source.indexOf('export async function cancelInstanceTask(')
 assert.notEqual(start, -1, 'cancelInstanceTask function not found')

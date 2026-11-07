@@ -19,7 +19,7 @@ import time
 STATE = Path('/var/lib/incudal-onboarding')
 HELPER = Path('/usr/local/sbin/incudal-onboarding-gateway')
 TOOLS = Path('/usr/local/libexec/incudal-onboarding-dns')
-NAMES = {'onboarding-gateway.py', 'refresh-host-gateway-endpoint.py', 'install-host-gateway-dns.sh'}
+NAMES = {'onboarding-gateway.py', 'refresh-host-gateway-endpoint.py', 'install-host-gateway-dns.sh', 'alpine-ssh-security.sh', 'host-security-maintenance.py'}
 IDENTITY = {'publicKey', 'controlIp', 'network', 'managementSshPublicKey'}
 DEADLINE = None
 
@@ -133,7 +133,7 @@ def upgrade(request):
         directories(TOOLS)
         # Publish the protocol-advertising entry point last. Interrupted copies
         # leave the old protocol visible and can be resumed with the same pin.
-        for name in ['refresh-host-gateway-endpoint.py', 'install-host-gateway-dns.sh', 'onboarding-gateway.py']:
+        for name in ['refresh-host-gateway-endpoint.py', 'install-host-gateway-dns.sh', 'alpine-ssh-security.sh', 'host-security-maintenance.py', 'onboarding-gateway.py']:
             checkpoint()
             target = HELPER if name == 'onboarding-gateway.py' else TOOLS / name
             publish(target, sources[name], 0o755 if target == HELPER else 0o644)

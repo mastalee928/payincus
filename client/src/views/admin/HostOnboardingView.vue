@@ -102,6 +102,10 @@ let loadSequence = 0
 let timer: ReturnType<typeof setTimeout> | undefined
 
 function errorText(code?: string | null): string {
+  if (code?.startsWith('HARDENING_')) {
+    const key=`securityHardening.reasons.${code}`
+    return te(key)?t(key):t('securityHardening.unknown')
+  }
   const key = `onboarding.errors.${code}`
   return code && te(key) ? t(key) : t('onboarding.actionFailed')
 }
@@ -356,7 +360,7 @@ onUnmounted(() => { disposed = true; ++addressSequence; clearTimeout(addressTime
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2 text-xs">
                     <span class="px-2 py-1 rounded" :class="statusClasses[node.status]">{{ t(`onboarding.status.${node.status}`) }}</span>
-                    <span v-if="node.status !== 'succeeded' && node.status !== 'cancelled'" class="text-themed-muted">{{ t(`onboarding.steps.${node.step}`) }}</span>
+                    <span v-if="node.status !== 'succeeded' && node.status !== 'cancelled'" class="text-themed-muted">{{ node.step === 'hardening' ? t('securityHardening.title') : t(`onboarding.steps.${node.step}`) }}</span>
                     <span v-if="node.attempt > 0" class="text-themed-muted">{{ t('onboarding.attempt', { count: node.attempt }) }}</span>
                   </div>
                   <p v-if="node.errorCode" class="text-xs text-red-600 dark:text-red-400 mt-2 break-words">{{ errorText(node.errorCode) }}</p>

@@ -169,12 +169,27 @@ try {
   const late = await app.inject({ method: 'POST', url: `${base}/retry`, payload: { requestId: secondId, expectedRevision: 2 } })
   assert.equal(late.statusCode, 404, late.body)
   assert.equal(await pendingCount(), 0)
-  for (const scenario of ['etag_retry', 'fresh_applying', 'stale_applying', 'changed_host', 'revoked_actor', 'supersede_applying', 'process_killed'] as const) {
+  for (const scenario of ['maintenance_wait', 'etag_retry', 'fresh_applying', 'stale_applying', 'changed_host', 'revoked_actor', 'supersede_applying', 'process_killed'] as const) {
     const candidate = await prisma.proxySite.create({ data: { instanceId: instance.id, hostId: host.id,
       domain: `${scenario.replaceAll('_', '-')}.fixture.example`, targetPort: 8080, httpsEnabled: false, enabled: true } })
     const operation = await prepareProxySiteOperation(instance.id, candidate.id, actor,
       { requestId: randomUUID(), expectedRevision: 0, action: 'upsert', changes: { targetPort: 8888, remark: scenario } })
-    if (scenario === 'etag_retry') {
+    if (scenario === 'maintenance_wait') {
+      await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { maintenance: { phase: 'waiting-boot' } } } })
+      const count = remoteCalls.length
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await prisma.proxySiteOperation.update({ where: { id: operation.id }, data: { nextRetryAt: new Date(0) } })
+        const held = await applyProxySiteOperation(operation.id)
+        assert.equal(held.state, 'retry')
+        assert.equal(held.attempts, 0, 'maintenance waiting does not consume the Caddy failure budget')
+      }
+      assert.equal(remoteCalls.length, count, 'a durable maintenance fence blocks independent Caddy execution')
+      assert.equal((await app.inject({ method: 'POST', url: `/instances/${instance.id}/sites/${candidate.id}/toggle`,
+        payload: { enabled: false, requestId: randomUUID(), expectedRevision: 1 } })).statusCode, 409)
+      await prisma.host.update({ where: { id: host.id }, data: { securityHardening: {} } })
+      await prisma.proxySiteOperation.update({ where: { id: operation.id }, data: { nextRetryAt: new Date(0) } })
+      assert.equal((await applyProxySiteOperation(operation.id)).state, 'succeeded', 'the original durable intent resumes after maintenance')
+    } else if (scenario === 'etag_retry') {
       let conflicts = 0
       beforePost = async () => { if (conflicts++ < 2) revision++ }
       assert.equal((await applyProxySiteOperation(operation.id)).state, 'succeeded')
