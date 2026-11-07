@@ -132,11 +132,11 @@ fi
 . /opt/alpine-ssh-security.sh
 # Real BusyBox timeout watcher may still hold the inherited gate after the
 # command returns. Acquisition waits for its actual exit, never force-unlocks.
-(exec 9>>/run/incudal-alpine-ssh-security.flock; flock -n 9; busybox timeout 20 true)
+(exec 9>>/run/incudal-alpine-ssh-security.flock; flock -w 2 9; busybox timeout 20 true)
 alpine_ssh_security_update update
 # A live inherited lock must survive the death of its original shell.
 mkdir -m 700 /run/incudal-alpine-ssh-security.lock
-sh -c 'exec 9>>/run/incudal-alpine-ssh-security.flock; flock -n 9; IFS=" " read -r p rest < /proc/self/stat; t=$(sed "s/.*) //" /proc/$p/stat); set -- $t; shift 19; t=$1; printf "v2 %s %s %s\\n" "$(cat /proc/sys/kernel/random/boot_id)" "$p" "$t" > /run/incudal-alpine-ssh-security.lock/owner; chmod 600 /run/incudal-alpine-ssh-security.lock/owner; sleep 5 & echo ready > /tmp/incudal-lock-ready; wait' &
+sh -c 'exec 9>>/run/incudal-alpine-ssh-security.flock; flock -w 2 9; IFS=" " read -r p rest < /proc/self/stat; t=$(sed "s/.*) //" /proc/$p/stat); set -- $t; shift 19; t=$1; printf "v2 %s %s %s\\n" "$(cat /proc/sys/kernel/random/boot_id)" "$p" "$t" > /run/incudal-alpine-ssh-security.lock/owner; chmod 600 /run/incudal-alpine-ssh-security.lock/owner; sleep 5 & echo ready > /tmp/incudal-lock-ready; wait' &
 owner=$!
 while [ ! -f /tmp/incudal-lock-ready ]; do sleep 0.05; done
 kill -KILL "$owner"; wait "$owner" 2>/dev/null || true
