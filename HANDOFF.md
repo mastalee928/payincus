@@ -2,7 +2,8 @@
 
 ## 2026-11-08 加固代码复审与源码分支推送
 
-- Owner最新授权精修后提交推送`codex/alpine-ssh-security`；远端分支复核仍为原HEAD `586cc3b491dd82a40f6a8d2442d36a4db6191055`，没有覆盖其他提交。当前为提交前记录；实际推送身份及Actions终态在本节后续补记，不新增main/tag/发行或生产操作。
+- Owner最新授权精修后提交推送`codex/alpine-ssh-security`；已从原HEAD `586cc3b491dd82a40f6a8d2442d36a4db6191055`非force推送源码`baedf3dbdad448eaed3b011b257859238cfcfcb9` / tree `ef35745f11ae565dd7a56d7580adfcaa491cfda1`，远端完整SHA一致，没有覆盖其他提交。没有main/tag/发行或生产操作。
+- 同源码[专项42425826725](https://github.com/mastalee928/payincus/actions/runs/42425826725)九job全部终态：AMD64/ARM64维护两job success，七个原生SSH job均在测试入口被Node24/tsx loader API拒绝，未进入Docker补丁流程。原日志与终态快照保留；最小修测试入口使用tsx公开`tsImport` API，加实际同bootstrap子进程导入守卫，保留原生密码/SSH/SFTP断言。首次Windows路径导入缺file URL导致守卫非零，修pathToFileURL后自然exit0；不放宽产品认证、不盲rerun旧运行。后续同来源CI身份与终态在本节补记。
 - 本轮精修三处：维护准备、远端自启条件更新和恢复动作均要求Incus明确`ephemeral=false`，拒绝临时/缺失/非布尔持久属性，防止停止临时实例自动删盘；宿主维护获节点锁后复核完整管理身份与batch，拒绝等待锁期间变更的旧地址；新接入最终完成再次核独占模式、故障隔离及公网IP门禁，不采纳旧加固成功或清接入凭据。
 - 真实隔离PG/原证书mTLS客户恢复专项、AMD64/ARM64空宿主维护协议专项和队列专项自然exit0。新增真实READ COMMITTED节点锁竞争明确观测锁等待，原管理地址改变后零远端准备/重启；临时实例运行/停止均零start/stop；新接入三种当前门禁变化均拒绝完成并保留凭据。队列专项移除强制exit0，仅导入期间的后台cache timer unref，失败仍自然非零。三项隔离/SSH/加固守卫与Python七项夹具、源码及四专项类型检查通过；构建与日志见ignored `logs/security-hardening-v8-*`。一次守卫选择名称不匹配未执行，记录原非零日志后改正确三项清单，未算通过。
 - 本轮前端无新增修改，沿v7源文件hash核复用双端构建、v6真实Vue/Chrome三语/移动/键盘及撤权回执证据；已有SSH补丁、非特权、反代维护协调和内存实验按原范围集成提交，不重跑未变大矩阵。

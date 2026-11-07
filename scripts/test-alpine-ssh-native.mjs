@@ -2,11 +2,12 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
-import { fileURLToPath } from 'node:url'
-import { register } from 'node:module'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 import ssh2 from '../server/node_modules/ssh2/lib/index.js'
-register('tsx/esm', new URL('../server/', import.meta.url))
-const { alpineSshPreflightScript, readAlpineSshPreflight } = await import('../server/src/lib/alpine-ssh-preflight.ts')
+const requireFromServer = createRequire(new URL('../server/package.json', import.meta.url))
+const { tsImport } = await import(pathToFileURL(requireFromServer.resolve('tsx/esm/api')).href)
+const { alpineSshPreflightScript, readAlpineSshPreflight } = await tsImport('../server/src/lib/alpine-ssh-preflight.ts', import.meta.url)
 const { Client } = ssh2
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
 
