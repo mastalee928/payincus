@@ -37,14 +37,19 @@ import { IncusApiError } from '../lib/incus/incus-client.js'
 import { removeDedicatedForward } from '../lib/incus/dedicated-network.js'
 import { verifyInstanceDeleted } from '../lib/incus/verify-instance-deleted.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { registeredGuestIdentity } from '../lib/registered-guest-identity.js'
 import { recoveryScope, type RecoveryInstance } from './host-pool-recovery.js'
 import { sendReleaseNotification } from '../lib/release-notifier.js'
 import { acquireLock, releaseLock } from '../lib/distributed-lock.js'
 import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
-import { enforceExpiredStop } from './billing-expiry-enforcement.js'
+import { enforceExpiredStop, isCurrentExpirySuspension } from './billing-expiry-enforcement.js'
 import { recoveryHeld } from './platform-backup-core.js'
 import { queueDeletedPoolHost } from './host-pool-cleanup.js'
-import { isAutoRenewEligible } from '../lib/instance-auto-renew.js'
+import { isAutoRenewEligible, EXPIRY_RETENTION_DAYS, expiryRetentionCutoff } from '../lib/instance-auto-renew.js'
+import { registerRechargeRenewalConsumer } from '../lib/recharge-renewal.js'
+import { retryRenewalResumes } from './renewal-resume.js'
+import { cleanupProxySitesForLifecycle } from '../db/proxy-site-operations.js'
+import { hasPendingProxySiteOperations } from '../db/proxy-site-operation-guards.js'
 import { latestExpiryRunRecord, writeExpiryRunRecord } from './expiry-enforcement-history.js'
 import { EXPIRY_LOG_RETENTION_DAYS } from '../lib/expiry-enforcement-history.js'
 
@@ -53,13 +58,14 @@ const limit = pLimit(5)
 
 // 配置常量
 const AUTO_RENEW_HOURS_BEFORE = 24 // 到期前24小时尝试自动续费
-const AUTO_RENEW_MAX_ATTEMPTS = 3 // 最大自动续费尝试次数
-const SUSPEND_AFTER_DELETE_DAYS = 3 // 封停后3天自动删除
+const SUSPEND_AFTER_DELETE_DAYS = EXPIRY_RETENTION_DAYS
 const EXPIRY_NOTIFY_DAYS = [3, 2, 1] // 到期前 3/2/1 天各提醒一次
 const INSTANCE_BILLING_JOB_LOCK_EXPIRE_MS = 30 * 60 * 1000
 const INSTANCE_BILLING_JOB_LOCK_WAIT_MS = 100
 let schedulerStarted = false
 let autoRenewPromise: Promise<void> | null = null
+let allRenewalsRequested = false
+const renewalUsersRequested = new Set<number>()
 let expiryEnforcementRunning = false
 let expiryEnforcementTask: ReturnType<typeof schedule> | null = null
 let expiryStartPromise: Promise<void> | null = null
@@ -131,6 +137,7 @@ function buildAutoRenewAttemptGuard(instance: any, now: Date, expiryThreshold: D
     now,
     expiryThreshold,
     version: instance.version,
+    userId: instance.userId, hostId: instance.hostId, expiresAt: instance.expiresAt,
     currentAttempts: instance.autoRenewAttempts || 0
   }
 }
@@ -140,14 +147,39 @@ function buildAutoRenewAttemptGuard(instance: any, now: Date, expiryThreshold: D
 /**
  * 执行自动续费
  */
-async function executeAutoRenew(): Promise<void> {
+async function executeAutoRenew(userId?: number): Promise<void> {
+  if (recoveryHeld()) return
+  if (userId === undefined) allRenewalsRequested = true
+  else {
+    if (!Number.isSafeInteger(userId) || userId < 1) throw new Error('AUTO_RENEW_USER_INVALID')
+    renewalUsersRequested.add(userId)
+    if (renewalUsersRequested.size > 1000) { allRenewalsRequested = true; renewalUsersRequested.clear() }
+  }
+  return drainAutoRenewRequests()
+}
+async function drainAutoRenewRequests(): Promise<void> {
   if (recoveryHeld()) return
   if (autoRenewPromise) return autoRenewPromise
-  const running = runAutoRenew()
+  // A recharge arriving during a scan must get a later fresh selection. Joining
+  // only the old promise can otherwise lose the post-credit wakeup.
+  const running = Promise.resolve().then(async () => {
+    // Let expiry enforcement proceed even during a sustained stream of credits.
+    for (let pass = 0; pass < 2 && (allRenewalsRequested || renewalUsersRequested.size); pass++) {
+      const users = allRenewalsRequested ? undefined : [...renewalUsersRequested]
+      allRenewalsRequested = false; renewalUsersRequested.clear()
+      if (recoveryHeld()) return
+      await runAutoRenew(users)
+    }
+  })
   autoRenewPromise = running
-  try { await running } finally { if (autoRenewPromise === running) autoRenewPromise = null }
+  try { await running } finally {
+    if (autoRenewPromise === running) autoRenewPromise = null
+    if (allRenewalsRequested || renewalUsersRequested.size) {
+      setTimeout(() => { void drainAutoRenewRequests().catch(console.error) }, 0).unref()
+    }
+  }
 }
-async function runAutoRenew(): Promise<void> {
+async function runAutoRenew(userIds?: number[]): Promise<void> {
   console.log('[Billing] Starting auto-renew job...')
   const startTime = Date.now()
   autoRenewAlertSummary.successes.length = 0
@@ -157,7 +189,7 @@ async function runAutoRenew(): Promise<void> {
 
   try {
     // 获取24小时内到期且开启了自动续费的实例
-    const instances = await getAutoRenewInstances(AUTO_RENEW_HOURS_BEFORE)
+    const instances = await getAutoRenewInstances(AUTO_RENEW_HOURS_BEFORE, userIds)
 
     console.log(`[Billing] Found ${instances.length} instances for auto-renew`)
 
@@ -168,11 +200,21 @@ async function runAutoRenew(): Promise<void> {
       const group = byUser.get(instance.userId) || []
       group.push(instance); byUser.set(instance.userId, group)
     }
-    await Promise.all(
+    const outcomes = await Promise.allSettled(
       [...byUser.values()].map(group => limit(async () => {
-        for (const instance of group) await withInstanceBillingJobLock('auto-renew', instance.id, () => processAutoRenew(instance))
+        for (const instance of group) {
+          let balanceBusy = false
+          await withInstanceBillingJobLock('auto-renew', instance.id, async () => {
+            balanceBusy = await processAutoRenew(instance) === 'balance-busy'
+          })
+          // Preserve this buyer's priority when the shared account is locked.
+          if (balanceBusy) break
+        }
       }))
     )
+    // Keep the shared run occupied until every buyer lane stops, even if one
+    // database read fails; a new recharge must not overlap unfinished lanes.
+    const failed = outcomes.find(outcome => outcome.status === 'rejected')
 
     if (autoRenewAlertSummary.successes.length > 0 || autoRenewAlertSummary.failures.length > 0) {
       void notifyAdminAutoRenewSummary({
@@ -182,6 +224,7 @@ async function runAutoRenew(): Promise<void> {
     }
 
     await flushAutoRenewUserNotifications()
+    if (failed?.status === 'rejected') throw failed.reason
 
     const duration = Date.now() - startTime
     console.log(`[Billing] Auto-renew job completed in ${duration}ms`)
@@ -204,19 +247,23 @@ async function flushAutoRenewUserNotifications(): Promise<void> {
   for (const [userId, items] of failuresByUser) {
     try {
       const first = items[0]
-      const failReason = [...new Set(items.map(item => item.failReason))].join('；')
+      const failReason = [...new Set(items.map(item => item.failReason.slice(0, 150)))].slice(0, 3).join('；')
+      const renewalDetails = items.slice(0, 15).map(item => `${item.instanceName}：${item.renewAmount === null ? item.failReason.slice(0, 100) : `需 ¥${item.renewAmount.toFixed(2)}`}`).join('；') +
+        (items.length > 15 ? '；其余实例请在控制面板查看' : '')
       const knownAmounts = items.map(item => item.renewAmount).filter((value): value is number => value !== null)
       if (items.length === 1) {
         await sendNotification(userId, 'auto_renew_failed', {
           instanceName: first.instanceName,
           failReason: first.failReason,
+          renewalDetails,
           ...(first.renewAmount !== null ? { renewAmount: first.renewAmount } : {})
         })
       } else {
         await sendNotification(userId, 'auto_renew_failed', {
           instanceNames: items.map(item => item.instanceName),
           failReason,
-          ...(knownAmounts.length > 0 ? { renewAmount: knownAmounts.reduce((sum, value) => sum + value, 0) } : {})
+          renewalDetails,
+          ...(knownAmounts.length > 0 ? { renewAmount: knownAmounts.reduce((sum, value) => sum + Math.round(value * 100), 0) / 100 } : {})
         })
       }
       if (first.email) {
@@ -226,7 +273,7 @@ async function flushAutoRenewUserNotifications(): Promise<void> {
             instanceName: first.instanceName,
             failReason,
             currentAttempt: first.currentAttempt,
-            maxAttempts: AUTO_RENEW_MAX_ATTEMPTS,
+            renewalDetails,
             expiresAt: first.expiresAt,
             aggregateNames: items.length > 1 ? items.map(item => item.instanceName) : undefined
           })
@@ -249,7 +296,9 @@ async function flushAutoRenewUserNotifications(): Promise<void> {
   for (const [userId, items] of successesByUser) {
     try {
       const first = items[0]
-      const totalAmount = items.reduce((sum, item) => sum + item.amount, 0)
+      const totalAmount = items.reduce((sum, item) => sum + Math.round(item.amount * 100), 0) / 100
+      const renewalDetails = items.slice(0, 15).map(item => `${item.instanceName}：¥${item.amount.toFixed(2)}，${item.renewMonths}个月，到期 ${item.newExpiresAt.toISOString()}`).join('；') +
+        (items.length > 15 ? '；其余实例请在控制面板查看' : '')
       if (items.length === 1) {
         await sendNotification(userId, 'instance_renewed', {
           instanceName: first.instanceName,
@@ -260,7 +309,8 @@ async function flushAutoRenewUserNotifications(): Promise<void> {
       } else {
         await sendNotification(userId, 'instance_renewed', {
           instanceNames: items.map(item => item.instanceName),
-          renewAmount: totalAmount
+          renewAmount: totalAmount,
+          renewalDetails
         })
       }
       if (first.email) {
@@ -276,6 +326,7 @@ async function flushAutoRenewUserNotifications(): Promise<void> {
             months: first.renewMonths,
             newExpiresAt: first.newExpiresAt,
             newBalance: Number(userAfter?.balance ?? 0),
+            renewalDetails,
             aggregateNames: items.length > 1 ? items.map(item => item.instanceName) : undefined
           })
         } catch (emailErr) {
@@ -292,14 +343,15 @@ async function flushAutoRenewUserNotifications(): Promise<void> {
 /**
  * 处理单个实例的自动续费
  */
-export async function processAutoRenew(instance: any): Promise<void> {
+export async function processAutoRenew(instance: any): Promise<'balance-busy' | void> {
   const now = new Date()
   const expiryThreshold = new Date(now.getTime() + AUTO_RENEW_HOURS_BEFORE * 60 * 60 * 1000)
   const latestInstance = await prisma.instance.findUnique({
     where: { id: instance.id }
   })
   if (
-    !latestInstance ||
+    !latestInstance || latestInstance.userId !== instance.userId || latestInstance.hostId !== instance.hostId ||
+    latestInstance.incusId !== instance.incusId ||
     recoveryHeld() || !isAutoRenewEligible(latestInstance, now, expiryThreshold)
   ) {
     console.log(`[Billing] Skip auto-renew for instance ${instance.id}: no longer eligible`)
@@ -310,18 +362,8 @@ export async function processAutoRenew(instance: any): Promise<void> {
   const pending = { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
   if (await prisma.instanceTask.count({ where: pending }) || await prisma.restoreTask.count({ where: pending }) ||
     await prisma.backupUploadTask.count({ where: pending })) return
-  const attempts = (instance.autoRenewAttempts || 0) + 1
+  const attempts = Math.min(2147483647, (instance.autoRenewAttempts || 0) + 1)
   const attemptGuard = buildAutoRenewAttemptGuard(instance, now, expiryThreshold)
-
-  // 检查是否超过最大尝试次数
-  if (attempts > AUTO_RENEW_MAX_ATTEMPTS) {
-    console.log(`[Billing] Instance ${instance.id} exceeded max auto-renew attempts, disabling`)
-    const attemptClaimed = await updateAutoRenewAttempt(instance.id, attempts, true, attemptGuard)
-    if (!attemptClaimed) {
-      console.log(`[Billing] Skip max-attempt update for instance ${instance.id}: no longer eligible`)
-    }
-    return
-  }
 
   try {
     // 按原计费周期续费（如季付续3个月）
@@ -331,15 +373,11 @@ export async function processAutoRenew(instance: any): Promise<void> {
     // 获取用户信息（包括邮箱）
     const user = await prisma.user.findUnique({
       where: { id: instance.userId },
-      select: { balance: true, email: true, username: true }
+      select: { balance: true, email: true, username: true, status: true }
     })
 
-    if (!user) {
+    if (!user || user.status !== 'active') {
       console.log(`[Billing] User ${instance.userId} not found for instance ${instance.id}`)
-      const attemptClaimed = await updateAutoRenewAttempt(instance.id, attempts, false, attemptGuard)
-      if (!attemptClaimed) {
-        console.log(`[Billing] Skip auto-renew attempt update for instance ${instance.id}: no longer eligible`)
-      }
       return
     }
 
@@ -355,7 +393,7 @@ export async function processAutoRenew(instance: any): Promise<void> {
     // 余额不足
     if (balance < renewAmount) {
       console.log(`[Billing] Insufficient balance for instance ${instance.id}: need ${renewAmount}, have ${balance}`)
-      const attemptClaimed = await updateAutoRenewAttempt(instance.id, attempts, false, attemptGuard)
+      const attemptClaimed = await updateAutoRenewAttempt(instance.id, attempts, attemptGuard)
       if (!attemptClaimed) {
         console.log(`[Billing] Skip auto-renew failure notification for instance ${instance.id}: no longer eligible`)
         return
@@ -366,7 +404,7 @@ export async function processAutoRenew(instance: any): Promise<void> {
         userId: instance.userId,
         username: user.username,
         email: user.email,
-        instanceName: instance.name,
+        instanceName: `${instance.name.slice(0, 60)} (#${instance.id})`,
         failReason: `余额不足（需要 ¥${renewAmount.toFixed(2)}，当前 ¥${balance.toFixed(2)}）`,
         renewAmount,
         expiresAt: instance.expiresAt,
@@ -393,14 +431,24 @@ export async function processAutoRenew(instance: any): Promise<void> {
     }
 
     // 执行续费
-    const result = await performRenewal(instance.userId, instance, renewMonths, { expiryThreshold })
+    const result = await (async () => {
+      for (let retry = 0; ; retry++) {
+        try { return await performRenewal(instance.userId, instance, renewMonths, { expiryThreshold }) }
+        catch (error) {
+          // A duplicate payment callback can briefly hold the balance lock even
+          // after the real credit committed. Never turn this into a failed debit.
+          if (!(error instanceof Error) || error.message !== '余额正在处理，请稍后重试' || retry >= 3) throw error
+          await delay(100 * 2 ** retry)
+        }
+      }
+    })()
 
     // 用户通知（站内信/TG/邮件）延后到本轮结束时按用户聚合发送
     autoRenewUserSuccesses.push({
       userId: instance.userId,
       username: user.username,
       email: user.email,
-      instanceName: instance.name,
+      instanceName: `${instance.name.slice(0, 60)} (#${instance.id})`,
       renewMonths,
       amount: result.amount, // 元（performRenewal 返回的是元）
       newExpiresAt: result.newExpiresAt
@@ -446,8 +494,12 @@ export async function processAutoRenew(instance: any): Promise<void> {
       return
     }
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    if (errorMessage === '余额正在处理，请稍后重试' || errorMessage === '实例正在处理，请稍后重试') {
+      console.log(`[Billing] Auto-renew deferred for instance ${instance.id}: current operation busy`)
+      return errorMessage === '余额正在处理，请稍后重试' ? 'balance-busy' : undefined
+    }
     console.error(`[Billing] Auto-renew failed for instance ${instance.id}:`, errorMessage)
-    const attemptClaimed = await updateAutoRenewAttempt(instance.id, attempts, false, attemptGuard)
+    const attemptClaimed = await updateAutoRenewAttempt(instance.id, attempts, attemptGuard)
     if (!attemptClaimed) {
       console.log(`[Billing] Skip auto-renew failure notification for instance ${instance.id}: no longer eligible`)
       return
@@ -463,7 +515,7 @@ export async function processAutoRenew(instance: any): Promise<void> {
       userId: instance.userId,
       username: userForEmail?.username || `用户#${instance.userId}`,
       email: userForEmail?.email || null,
-      instanceName: instance.name,
+      instanceName: `${instance.name.slice(0, 60)} (#${instance.id})`,
       failReason: errorMessage,
       renewAmount: null,
       expiresAt: instance.expiresAt,
@@ -613,20 +665,45 @@ async function stopCurrentExpiredInstance(instanceId: number) {
   const pending = { instanceId, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
   if (await prisma.instanceTask.count({ where: pending }) || await prisma.restoreTask.count({ where: pending }) ||
     await prisma.backupUploadTask.count({ where: pending })) return
-  const { getInstanceState, stopInstance } = await import('../lib/incus/index.js')
-  const result = await enforceExpiredStop({
-    load: () => prisma.instance.findUnique({ where: { id: instanceId } }),
-    state: async instance => {
-      const host = await db.getHostById(instance.hostId)
-      if (!host) throw new Error('EXPIRY_HOST_UNAVAILABLE')
-      return await getInstanceState(await getIncusClient(host), instance.incusId) as { status?: string }
-    },
-    stop: async instance => {
-      const host = await db.getHostById(instance.hostId)
-      if (!host) throw new Error('EXPIRY_HOST_UNAVAILABLE')
-      await stopInstance(await getIncusClient(host), instance.incusId, true)
-    }
-  })
+  const scope = recoveryScope(55000)
+  let result: 'skipped' | 'stopped' | 'already-stopped'
+  try {
+    result = await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`
+      if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)) return 'skipped' as const
+      await tx.$queryRaw`SELECT id FROM instances WHERE id=${instanceId} FOR UPDATE`
+      const current = await tx.instance.findUnique({ where: { id: instanceId } })
+      if (!isCurrentExpirySuspension(current) || current.deletionIntent || current.deletionBillingPending || current.provisioningCleanupPending) return 'skipped' as const
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id=${current.hostId} FOR SHARE`
+      const host = await tx.host.findUniqueOrThrow({ where: { id: current.hostId } })
+      const idle = async () => !recoveryHeld() && !await tx.instanceTask.count({ where: pending }) &&
+        !await tx.restoreTask.count({ where: pending }) && !await tx.backupUploadTask.count({ where: pending }) &&
+        !await hasPendingSnapshotOperation(instanceId, tx) && !await hasPendingProxySiteOperations(instanceId, tx)
+      if (!await idle()) return 'skipped' as const
+      const identity = await registeredGuestIdentity(tx, current, host)
+      const client = scope.client(await scope.run(() => getIncusClient(host, tx, Math.min(8000, scope.remaining()))))
+      const path = `/1.0/instances/${encodeURIComponent(current.incusId)}`
+      const read = async () => {
+        const guest = await client.request<RecoveryInstance & { ephemeral?: boolean }>('GET', path)
+        if (!identity.uuid || !/^[a-f0-9-]{36}$/i.test(identity.uuid) || !identity.createdAt || !Number.isFinite(Date.parse(identity.createdAt)) ||
+            guest.name !== current.incusId || (guest.project || 'default') !== 'default' || guest.config?.['volatile.uuid'] !== identity.uuid ||
+            guest.created_at !== identity.createdAt || guest.ephemeral !== false) throw new Error('EXPIRY_STOP_IDENTITY_UNVERIFIED')
+        return guest
+      }
+      return enforceExpiredStop({
+        load: () => tx.instance.findUnique({ where: { id: instanceId } }),
+        state: read,
+        stop: async () => {
+          if (!await idle()) throw new Error('EXPIRY_STOP_BUSY')
+          const guest = await read()
+          if (guest.status === 'Stopped') return
+          if (!['Running', 'Frozen'].includes(guest.status)) throw new Error('EXPIRY_REMOTE_STATE_UNKNOWN')
+          if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
+          await client.request('PUT', `${path}/state`, { action: 'stop', force: true, timeout: 5 })
+        }
+      })
+    }, { timeout: scope.remaining(), maxWait: 3000 })
+  } finally { scope.close() }
   if (result === 'stopped') {
     const instance = await prisma.instance.findUnique({ where: { id: instanceId }, select: { userId: true } })
     if (instance) await createLog(instance.userId, 'instance', 'instance.expiry_stop_reconciled',
@@ -680,13 +757,9 @@ async function processExpiryDelete(instance: any): Promise<void> {
     if (!latest || latest.deletionIntent || latest.suspendReason !== 'expired' || latest.suspendedBy !== null || !latest.packagePlanId || !latest.expiresAt || latest.expiresAt >= new Date()) return
     const resumingCleanup = latest.status === 'deleted' && latest.deletionBillingPending && latest.suspendedBy === null
     if (latest.status !== 'suspended' && !resumingCleanup) return
-    // A missed renewal may still be waiting for its next bounded retry. Stop
-    // enforcement remains active, but preserve the disk until retries finish.
-    if (!resumingCleanup && latest.autoRenew && latest.autoRenewAttempts < AUTO_RENEW_MAX_ATTEMPTS) return
     instance = latest
-    const deleteThreshold = new Date()
-    deleteThreshold.setDate(deleteThreshold.getDate() - SUSPEND_AFTER_DELETE_DAYS)
-    if (!instance.suspendedAt || instance.suspendedAt >= deleteThreshold) return
+    const deleteThreshold = expiryRetentionCutoff(new Date())
+    if (!instance.suspendedAt || instance.suspendedAt > deleteThreshold) return
     const pending = { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
     if (await prisma.instanceTask.count({ where: pending }) || await prisma.restoreTask.count({ where: pending }) ||
       await prisma.backupUploadTask.count({ where: pending })) return
@@ -701,8 +774,9 @@ async function processExpiryDelete(instance: any): Promise<void> {
     }
     const remote = await loadRemote()
     const saved = instance.snapshottedSpecs?.expiryDeletion
+    const registered = await registeredGuestIdentity(prisma, instance, host)
     const identity = saved || { hostIdentity: transferHostIdentity(host), name: instance.incusId,
-      ...(remote ? { uuid: remote.config?.['volatile.uuid'], createdAt: remote.created_at } : { absent: true }) }
+      ...(remote ? { uuid: registered.uuid, createdAt: registered.createdAt } : { absent: true }) }
     const verifyTarget = (guest: RecoveryInstance | null) => {
       if (identity.hostIdentity !== transferHostIdentity(host) || identity.name !== instance.incusId ||
           guest && (identity.absent || guest.name !== identity.name || (guest.project || 'default') !== 'default' ||
@@ -729,7 +803,15 @@ async function processExpiryDelete(instance: any): Promise<void> {
       const current = await tx.instance.findUniqueOrThrow({ where: { id: instance.id } })
       if (current.version !== instance.version || current.deletionIntent || current.hostId !== instance.hostId || current.incusId !== instance.incusId ||
           current.suspendReason !== 'expired' || current.suspendedBy !== null || !current.expiresAt || current.expiresAt >= new Date()) return { count: 0 }
-      if (await hasPendingSnapshotOperation(instance.id, tx)) return { count: 0 }
+      if (!resumingCleanup && remote) {
+        const original = await registeredGuestIdentity(tx, current, host)
+        if (original.uuid !== identity.uuid || original.createdAt !== identity.createdAt) throw new Error('EXPIRY_ORIGINAL_IDENTITY_CHANGED')
+      }
+      if (await tx.instanceTask.count({ where: pending }) || await tx.restoreTask.count({ where: pending }) ||
+          await tx.backupUploadTask.count({ where: pending })) return { count: 0 }
+      if (await hasPendingSnapshotOperation(instance.id, tx) ||
+          (!resumingCleanup && await hasPendingProxySiteOperations(instance.id, tx))) return { count: 0 }
+      if (!resumingCleanup) identity.sites = await tx.proxySite.findMany({ where: { instanceId: instance.id }, select: { id: true, siteKey: true, revision: true } })
       return resumingCleanup ? { count: 1 } : await tx.instance.updateMany({
       where: {
         id: instance.id,
@@ -740,11 +822,12 @@ async function processExpiryDelete(instance: any): Promise<void> {
         suspendedBy: null,
         suspendedAt: {
           not: null,
-          lt: deleteThreshold
+          lte: deleteThreshold
         }
       },
       data: {
         status: 'deleted',
+        autoRenew: false,
         deletionBillingPending: true,
         snapshottedSpecs: { ...(instance.snapshottedSpecs || {}), expiryDeletion: identity },
         version: { increment: 1 }
@@ -759,6 +842,8 @@ async function processExpiryDelete(instance: any): Promise<void> {
     }
 
     try {
+      const sites = await cleanupProxySitesForLifecycle(instance.id, { kind: 'delete' }, identity.sites, true)
+      if (sites.pending || sites.errors.length) throw new Error('EXPIRY_PROXY_CLEANUP_PENDING')
       await prisma.$transaction(async tx => {
         await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`
         await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.hostId} FOR UPDATE`
@@ -769,17 +854,20 @@ async function processExpiryDelete(instance: any): Promise<void> {
         if (recoveryHeld() || current.status !== 'deleted' || !current.deletionBillingPending || current.deletionIntent ||
             current.version !== instance.version + (resumingCleanup ? 0 : 1) || current.hostId !== host.id || current.incusId !== identity.name ||
             transferHostIdentity(currentHost) !== identity.hostIdentity || await hasPendingSnapshotOperation(instance.id, tx)) throw new Error('EXPIRY_DELETE_STATE_CHANGED')
+        // Use this transaction for the transport's maintenance fence as well;
+        // concurrent deletes must not borrow a second pooled DB connection.
+        const guardedClient = scope.client(await scope.run(() => getIncusClient(currentHost, tx, Math.min(8000, scope.remaining()))))
         const before = await loadRemote(); verifyTarget(before)
         if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
-        if (before && before.status !== 'Stopped') await client.request('PUT', `${path}/state`, { action: 'stop', force: true, timeout: 5 })
+        if (before && before.status !== 'Stopped') await guardedClient.request('PUT', `${path}/state`, { action: 'stop', force: true, timeout: 5 })
         const stopped = await loadRemote(); verifyTarget(stopped)
         if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
         if (stopped) {
           if (stopped.status !== 'Stopped') throw new Error('EXPIRY_STOP_NOT_VERIFIED')
-          await deleteIncusInstance(client as Awaited<ReturnType<typeof getIncusClient>>, instance.incusId)
+          await deleteIncusInstance(guardedClient as Awaited<ReturnType<typeof getIncusClient>>, instance.incusId)
         } else {
-          await removeDedicatedForward(client, instance.incusId)
-          await verifyInstanceDeleted(client, instance.incusId)
+          await removeDedicatedForward(guardedClient, instance.incusId)
+          await verifyInstanceDeleted(guardedClient, instance.incusId)
         }
       }, { timeout: scope.remaining(), maxWait: 3000 })
       const names = await client.request<unknown>('GET', '/1.0/instances')
@@ -802,12 +890,21 @@ async function processExpiryDelete(instance: any): Promise<void> {
     // Recomputing rather than decrementing makes cleanup retries idempotent.
     await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM hosts WHERE id=${instance.hostId} FOR UPDATE`
+      if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)) throw new Error('EXPIRY_DELETE_BUSY')
+      await tx.$queryRaw`SELECT id FROM instances WHERE id=${instance.id} FOR UPDATE`
       const current = await tx.instance.findUnique({ where: { id: instance.id } })
       if (recoveryHeld() || !current || current.status !== 'deleted' || !current.deletionBillingPending || current.deletionIntent ||
           current.hostId !== instance.hostId || current.incusId !== identity.name ||
           current.version !== instance.version + (resumingCleanup ? 0 : 1) ||
           transferHostIdentity(await tx.host.findUniqueOrThrow({ where: { id: instance.hostId } })) !== identity.hostIdentity) throw new Error('EXPIRY_DELETE_STATE_CHANGED')
+      if (await tx.proxySite.count({ where: { instanceId: instance.id } }) || await hasPendingProxySiteOperations(instance.id, tx)) throw new Error('EXPIRY_PROXY_CLEANUP_PENDING')
       await tx.portMapping.deleteMany({ where: { instanceId: instance.id } })
+      await tx.snapshot.deleteMany({ where: { instanceId: instance.id } })
+      await tx.backup.deleteMany({ where: { instanceId: instance.id } })
+      await tx.snapshotPolicy.deleteMany({ where: { instanceId: instance.id } })
+      await tx.backupPolicy.deleteMany({ where: { instanceId: instance.id } })
+      await tx.trafficSnapshot.deleteMany({ where: { instanceId: instance.id } })
+      await tx.dailyTraffic.deleteMany({ where: { instanceId: instance.id } })
       await tx.ipAddress.deleteMany({ where: { instanceId: instance.id } })
       await tx.ipv6Subnet.deleteMany({ where: { instanceId: instance.id } })
       await db.releasePublicIpv4ForInstance(tx, instance.id)
@@ -820,7 +917,7 @@ async function processExpiryDelete(instance: any): Promise<void> {
         cpuUsed: usedResources._sum.cpu || 0, memoryUsed: usedResources._sum.memory || 0,
         diskUsed: usedResources._sum.disk || 0, natPortsUsedCount: actualPortsUsed
       } })
-      await tx.instance.update({ where: { id: instance.id }, data: { deletionBillingPending: false } })
+      await tx.instance.update({ where: { id: instance.id }, data: { deletionBillingPending: false, autoRenew: false, rootPassword: null } })
     }, { maxWait: 5000, timeout: 10000 })
     console.log(`[Billing] Expiry deletion finalized; released ${portMappingsCount} port mapping(s)`)
 
@@ -1102,6 +1199,8 @@ export async function executeExpiryEnforcement(): Promise<void> {
     // Catch missed renewals before stopping or deleting the restored inventory.
     try { await executeAutoRenew() } catch { noteExpiryFailure('EXPIRY_AUTO_RENEW_SCAN_FAILED'); return }
     if (recoveryHeld()) return
+    try { await retryRenewalResumes() }
+    catch { noteExpiryFailure('EXPIRY_RESUME_SCAN_FAILED'); console.error('[Billing] Paid resume scan failed; next patrol will retry') }
     await executeExpirySuspend()
     await executeExpiryDelete()
   } finally {
@@ -1148,6 +1247,7 @@ export function startBillingScheduler(): void {
   }
 
   schedulerStarted = true
+  registerRechargeRenewalConsumer(userId => executeAutoRenew(userId))
 
   // 每小时检查自动续费（整点）
   schedule('0 * * * *', () => {
@@ -1173,7 +1273,7 @@ export function startBillingScheduler(): void {
   })
 
   console.log('[Billing] Scheduler started')
-  console.log('[Billing] - Auto-renew: hourly at :00 (24h before expiry, max 3 attempts)')
+  console.log('[Billing] - Auto-renew: recharge wakeup and five-minute patrol (24h before expiry through suspension retention; hourly failure notices)')
   console.log('[Billing] - Expiry enforcement: every 5 minutes; stop retries and deletion after 3 suspended days')
   console.log('[Billing] - Expiry reminders: hourly at :15 (T-3/T-2/T-1, aggregated per user, auto-renew instances skipped)')
   console.log('[Billing] - Expired recharge cleanup: hourly at :30')

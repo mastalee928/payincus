@@ -445,7 +445,19 @@ export async function cleanupOldTasks(): Promise<number> {
   const result = await prisma.instanceTask.deleteMany({
     where: {
       status: { in: ['COMPLETED', 'FAILED'] },
-      finishedAt: { lt: sevenDaysAgo }
+      finishedAt: { lt: sevenDaysAgo },
+      // Replacement evidence is also the registered identity used by later
+      // renewal starts and expiry deletion. Retain ambiguous history too: its
+      // removal must not make the pre-rebuild identity appear current again.
+      NOT: { status: 'COMPLETED', taskType: { in: ['replace_host', 'change_host', 'rebuild', 'recreate'] },
+        instance: { OR: [{ status: { not: 'deleted' } }, { deletionBillingPending: true }, { provisioningCleanupPending: true }] } },
+      // Keep both the paid resume intent and newer user actions until it is
+      // terminal. Otherwise history cleanup could revive an older start.
+      instance: { instanceTasks: { none: {
+        operationEntry: 'auto-renew-resume-v1', status: { in: ['PENDING', 'PROCESSING', 'FAILED'] },
+        replacementState: { path: ['terminal'], equals: false },
+        OR: [{ error: null }, { error: { not: '用户取消' } }]
+      } } }
     }
   })
 

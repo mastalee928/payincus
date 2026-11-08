@@ -6,6 +6,8 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:auto-renew-credit-integration": "node --import tsx scripts/test-auto-renew-credit-integration.ts",
+    "test:renewal-resume-integration": "node --import tsx scripts/test-renewal-resume-integration.ts",
     "test:security-hardening-guards": "node --import tsx scripts/test-security-hardening-guards.ts",
     "test:security-hardening-queue": "node --import tsx scripts/test-security-hardening-queue.ts",
     "test:host-security-maintenance": "node --import tsx scripts/test-host-security-maintenance.ts",

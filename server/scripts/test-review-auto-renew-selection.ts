@@ -74,7 +74,7 @@ try {
   assert.deepEqual(await state(), afterDisable)
   console.log('PASS in-flight renewal conflicts with disable instead of reporting false success; disable after settlement blocks further charges')
 
-  for (const change of [{ autoRenewAttempts: 3 }, { lastAutoRenewAttemptAt: new Date() }, { deletionBillingPending: true },
+  for (const change of [{ deletionBillingPending: true },
     { provisioningCleanupPending: true }, { status: 'suspended' as const, suspendReason: 'manual', suspendedBy: owner.id }]) {
     const old = await make()
     await prisma.instance.update({ where: { id: old.id }, data: change })
@@ -87,7 +87,7 @@ try {
   assert.equal(await prisma.balanceLog.count({ where: { userId: buyer.id } }), 4)
   await wait(() => { const stats = getDbPoolStats(); return stats.idleCount === stats.totalCount && stats.waitingCount === 0 }, 'pool fully reclaimed')
   assert.equal(Number((await monitor.query(`SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state LIKE 'idle in transaction%'`)).rows[0].count), 0)
-  console.log('PASS retry ceiling, retry spacing, cleanup and manual suspension preserve all records; 4 exact renewals, balance 60, no idle transaction')
+  console.log('PASS cleanup and manual suspension preserve all records; 4 exact renewals, balance 60, no idle transaction')
 } catch (error) { failure = error }
 finally {
   await holder.query('ROLLBACK').catch(() => undefined); await Promise.allSettled([...pending])

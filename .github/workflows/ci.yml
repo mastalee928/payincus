@@ -500,6 +500,10 @@ jobs:
         run: pnpm --filter server test:review-batch-config-input-boundaries
       - name: Automatic renewal rejects disabled selections and serializes switch changes with settlement
         run: pnpm --filter server test:review-auto-renew-selection
+      - name: Recharge resumes single and partial multi-instance renewal only within retention
+        run: pnpm --filter server test:auto-renew-credit-integration
+      - name: Paid expiry resumption persists and verifies original guest start without another debit
+        run: pnpm --filter server test:renewal-resume-integration
       - name: Legacy shared NAT port retries respect both range endpoints and protocol quota
         run: pnpm --filter server test:review-batch-port-range-integration
       - name: Package plan creation and editing enforce exact resource and money boundaries

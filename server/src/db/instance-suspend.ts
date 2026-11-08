@@ -5,7 +5,7 @@
 
 import { prisma } from './prisma.js'
 import type { Instance } from '@prisma/client'
-import { autoRenewEligibility } from '../lib/instance-auto-renew.js'
+import { autoRenewEligibility, AUTO_RENEW_RETRY_MS } from '../lib/instance-auto-renew.js'
 
 // ==================== 封停操作 ====================
 
@@ -241,13 +241,15 @@ export async function updateExpiryNotifiedAt(
  * @param hoursBeforeExpiry 到期前多少小时
  */
 export async function getAutoRenewInstances(
-  hoursBeforeExpiry: number
+  hoursBeforeExpiry: number,
+  userIds?: number[]
 ): Promise<Instance[]> {
   const now = new Date()
   const expiryThreshold = new Date(now.getTime() + hoursBeforeExpiry * 60 * 60 * 1000)
 
   return prisma.instance.findMany({
-    where: autoRenewEligibility(now, expiryThreshold)
+    where: { ...autoRenewEligibility(now, expiryThreshold), ...(userIds ? { userId: { in: userIds } } : {}) },
+    orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }]
   })
 }
 
@@ -259,29 +261,29 @@ type AutoRenewAttemptGuard = {
   expiryThreshold: Date
   version: number
   currentAttempts: number
+  userId: number
+  hostId: number
+  expiresAt: Date
 }
 
 export async function updateAutoRenewAttempt(
   instanceId: number,
   attempt: number,
-  disableAutoRenew: boolean = false,
-  guard?: AutoRenewAttemptGuard
+  guard: AutoRenewAttemptGuard
 ): Promise<boolean> {
   const result = await prisma.instance.updateMany({
     where: {
       id: instanceId,
-      ...(guard
-        ? {
-            ...autoRenewEligibility(guard.now, guard.expiryThreshold),
-            version: guard.version,
-            autoRenewAttempts: guard.currentAttempts
-          }
-        : {})
+      ...autoRenewEligibility(new Date(), guard.expiryThreshold),
+      version: guard.version,
+      userId: guard.userId, hostId: guard.hostId,
+      autoRenewAttempts: guard.currentAttempts,
+      AND: [{ expiresAt: guard.expiresAt }, { OR: [{ lastAutoRenewAttemptAt: null },
+        { lastAutoRenewAttemptAt: { lte: new Date(guard.now.getTime() - AUTO_RENEW_RETRY_MS) } }] }]
     },
     data: {
       autoRenewAttempts: attempt,
-      lastAutoRenewAttemptAt: new Date(),
-      ...(disableAutoRenew ? { autoRenew: false } : {})
+      lastAutoRenewAttemptAt: new Date()
     }
   })
   return result.count > 0
@@ -304,15 +306,14 @@ export async function resetAutoRenewAttempts(instanceId: number): Promise<void> 
  * 获取封停超过指定天数的实例（用于自动删除）
  */
 export async function getSuspendedInstancesOlderThan(days: number): Promise<Instance[]> {
-  const threshold = new Date()
-  threshold.setDate(threshold.getDate() - days)
+  const threshold = new Date(Date.now() - days * 86400000)
 
   return prisma.instance.findMany({
     where: {
       status: 'suspended',
       suspendedAt: {
         not: null,
-        lt: threshold
+        lte: threshold
       }
     }
   })

@@ -8,8 +8,9 @@ import { authorizeUserWrite, type WriteSession } from './user-write-authorizatio
 import { authorizePublicApiWrite, type PublicApiWriteAuthorization } from './public-api-write-authorization.js'
 import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
 import { lockRenewalRequest, saveRenewalItem, type RenewalRequest } from './renewal-requests.js'
-import { autoRenewEligibility } from '../lib/instance-auto-renew.js'
+import { autoRenewEligibility, expiryRetentionEnded } from '../lib/instance-auto-renew.js'
 import { recoveryHeld } from '../services/platform-backup-core.js'
+import { queueRenewalResume } from '../services/renewal-resume.js'
 import { Prisma, type Instance, type PackagePlan } from '@prisma/client'
 import { getInstanceAffBinding, processAffCommission } from './aff.js'
 import { getInstanceBillingLineageIds } from './billing-records.js'
@@ -585,7 +586,7 @@ async function performRenewalMutation(
   }
 
   // 手动封停的实例不允许续费
-  if (instance.status === 'suspended' && instance.suspendReason !== 'expired') {
+  if (instance.status === 'suspended' && (instance.suspendReason !== 'expired' || instance.suspendedBy !== null)) {
     throw new Error('实例已被手动封停，请联系宿主机所有者解封后再续费')
   }
 
@@ -607,9 +608,11 @@ async function performRenewalMutation(
     if (await tx.instanceTransfer.count({ where: { instanceId: instance.id, status: { in: ['pending', 'processing'] } } })) throw new Error('实例正在转移，请等待转移完成')
     const current = await tx.instance.findUnique({ where: { id: instance.id } })
     if (!current || current.userId !== userId || current.userId !== instance.userId || current.hostId !== instance.hostId ||
-      current.version !== instance.version || current.status !== instance.status ||
+      current.version !== instance.version || current.status !== instance.status || current.incusId !== instance.incusId ||
       current.packagePlanId !== instance.packagePlanId || current.expiresAt?.getTime() !== instance.expiresAt?.getTime() ||
-      current.suspendReason !== instance.suspendReason || current.deletionBillingPending || current.provisioningCleanupPending) throw new Error('实例状态已变更，请重试')
+      current.suspendedBy !== instance.suspendedBy || current.suspendedAt?.getTime() !== instance.suspendedAt?.getTime() ||
+      current.suspendReason !== instance.suspendReason || current.deletionIntent || current.deletionBillingPending || current.provisioningCleanupPending) throw new Error('实例状态已变更，请重试')
+    if (expiryRetentionEnded(current, new Date())) throw new Error('实例保留期已结束，无法续费')
     await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${current.hostId} FOR SHARE`
     const currentHost = await tx.host.findUnique({ where: { id: current.hostId }, select: { userId: true } })
     if (!currentHost) throw new Error('宿主机不存在')
@@ -677,6 +680,7 @@ async function performRenewalMutation(
     const newBalance = Number(updatedUser.balance)
 
     // 乐观锁：检查实例版本号并更新
+    if (expiryRetentionEnded(current, new Date())) throw new Error('实例保留期已结束，无法续费')
     if (automatic && recoveryHeld()) throw new Error('AUTO_RENEW_RECOVERY_HELD')
     if (automatic) {
       const pending = { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
@@ -690,8 +694,7 @@ async function performRenewalMutation(
         hostId: current.hostId,
         status: { not: 'deleted' },
         version: instance.version,  // 确保版本号未变
-        ...(automatic ? { AND: [autoRenewEligibility(new Date(), automatic.expiryThreshold), { expiresAt: instance.expiresAt }],
-          autoRenewAttempts: { lt: 3 } } : {})
+        ...(automatic ? { AND: [autoRenewEligibility(new Date(), automatic.expiryThreshold), { expiresAt: instance.expiresAt }] } : {})
       },
       data: {
         expiresAt: newExpiresAt,
@@ -745,6 +748,10 @@ async function performRenewalMutation(
           : `续费 ${months} 个月`
       }
     })
+
+    if (automatic && current.status === 'suspended' && current.suspendReason === 'expired' && current.suspendedBy === null) {
+      await queueRenewalResume(tx, current, await tx.host.findUniqueOrThrow({ where: { id: current.hostId } }), newExpiresAt, balanceLog.id)
+    }
 
     // 如果有 AFF 绑定，给优惠码创建者返利
     if (affBinding?.affCode.enabled && pricingSource === 'aff') {
@@ -1046,8 +1053,11 @@ export async function updateAutoRenew(
     await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
     if (await tx.instanceTransfer.count({ where: { instanceId, status: { in: ['pending', 'processing'] } } })) throw new Error('实例正在转移，请等待转移完成')
     if (!await authorizeUserWrite(tx, userId, session, true)) throw new Error('用户权限已变更，请重新登录')
+    const current = await tx.instance.findUnique({ where: { id: instanceId } })
+    if (autoRenew && current && expiryRetentionEnded(current, new Date())) throw new Error('实例保留期已结束，无法开启自动续费')
     const result = await tx.instance.updateMany({ where: {
       id: instanceId, userId, status: { not: 'deleted' }, packagePlanId: { not: null },
+      deletionIntent: { equals: Prisma.DbNull },
       deletionBillingPending: false, provisioningCleanupPending: false
     }, data: { autoRenew } })
     if (!result.count) throw new Error('实例状态已变更，请重试')
@@ -1103,6 +1113,9 @@ export async function getInstanceBillingInfo(instanceId: number): Promise<{
   if (!instance) return null
 
   const isPaid = instance.packagePlanId !== null
+  const renewalBlocked = instance.status === 'deleted' || !!instance.deletionIntent || instance.deletionBillingPending ||
+    instance.provisioningCleanupPending || expiryRetentionEnded(instance, new Date()) ||
+    (instance.status === 'suspended' && (instance.suspendReason !== 'expired' || instance.suspendedBy !== null))
 
   // 判断是否为托管实例（节点所有者不是管理员）
   const isHostedInstance = instance.host?.user.role === 'user'
@@ -1173,7 +1186,7 @@ export async function getInstanceBillingInfo(instanceId: number): Promise<{
     status: instance.status,
     suspendReason: instance.suspendReason,
     packagePlan: instance.packagePlan,
-    renewPreview,
+    renewPreview: renewalBlocked ? [] : renewPreview,
     affDiscount,
     isHostedInstance,
     daysUntilExpire,

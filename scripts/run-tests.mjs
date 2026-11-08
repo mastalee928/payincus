@@ -50,6 +50,8 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:auto-renew-credit-integration', 'requires isolated local *_pool_test PostgreSQL; committed recharge wakeups, deterministic partial funding, suspension retention, exact debit and actual row-lock cutoff races'],
+  ['test:renewal-resume-integration', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; durable post-renewal starts, actual worker, HTTPS identity checks, receipt loss, row-lock suspension races and bounded retries'],
   ['test:security-hardening-queue', 'requires isolated PostgreSQL; durable automatic host/guest hardening, original identities, permission/hold/task fences, retry and unchanged customer state'],
   ['test:host-security-maintenance', 'requires isolated PostgreSQL; persisted maintenance intent, lost replies/crash continuation, exact fixed protocol, dual architecture, current permissions and no duplicate reboot; transport fixtures do not prove native reboot'],
   ['test:customer-boot-recovery', 'requires isolated local PostgreSQL and OpenSSL; pinned mTLS exact original-instance start, lost receipt, current billing/stop/delete/authority and original password/network/config preservation; not native boot acceptance'],

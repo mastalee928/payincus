@@ -38,10 +38,10 @@ const autoRenewAttemptFunction = sectionBetween(
 )
 
 assert.ok(autoRenewAttemptFunction.includes('prisma.instance.updateMany'), 'auto-renew attempt updates must be conditional')
-assert.ok(autoRenewAttemptFunction.includes('...autoRenewEligibility(guard.now, guard.expiryThreshold)'), 'failed attempts must use the same catchup eligibility as selection and charging')
+assert.ok(autoRenewAttemptFunction.includes('...autoRenewEligibility(new Date(), guard.expiryThreshold)'), 'failed notifications must recheck current renewal eligibility')
 assert.ok(autoRenewSource.includes('autoRenew: true, packagePlanId: { not: null }') && autoRenewSource.includes('expiresAt: { not: null, lte: expiryThreshold }'), 'catchup must include expired paid instances without charging beyond the renewal window')
-assert.ok(autoRenewSource.includes("{ status: 'suspended', suspendReason: 'expired', suspendedBy: null }") && autoRenewSource.includes("status: { notIn: ['suspended', 'deleted'] }"), 'only system expiry suspensions may be renewed')
-assert.ok(autoRenewSource.includes('lastAutoRenewAttemptAt: { lte:') && autoRenewSource.includes('60 * 60 * 1000'), 'five-minute scans must preserve hourly retry spacing')
+assert.ok(autoRenewSource.includes("suspendReason: 'expired', suspendedBy: null, suspendedAt: { gt: expiryRetentionCutoff(now) }") && autoRenewSource.includes("status: { in: ['running', 'stopped'] }"), 'only eligible live instances and system expiry suspensions within retention may be renewed')
+assert.ok(autoRenewAttemptFunction.includes('lastAutoRenewAttemptAt: { lte:') && autoRenewSource.includes('60 * 60 * 1000'), 'hourly failure notifications must not block funded five-minute scans')
 assert.ok(autoRenewAttemptFunction.includes('version: guard.version'), 'auto-renew attempt updates must use the locked instance version')
 assert.ok(autoRenewAttemptFunction.includes('autoRenewAttempts: guard.currentAttempts'), 'auto-renew attempt updates must claim the expected attempt counter')
 assert.ok(autoRenewAttemptFunction.includes('return result.count > 0'), 'auto-renew attempt updates must report stale rows to the scheduler')
@@ -73,17 +73,17 @@ assert.ok(processSuspend.includes('return'), 'scheduler stale suspend branch mus
 
 const processAutoRenew = sectionBetween(
   schedulerSource,
-  'async function processAutoRenew(instance: any): Promise<void> {',
+  'export async function processAutoRenew(',
   '// ==================== 到期封停任务 ===================='
 )
 
 const latestReadIndex = processAutoRenew.indexOf('const latestInstance = await prisma.instance.findUnique')
-const performRenewalIndex = processAutoRenew.indexOf('const result = await performRenewal')
+const performRenewalIndex = processAutoRenew.indexOf('await performRenewal(instance.userId, instance, renewMonths, { expiryThreshold })')
 assert.notEqual(latestReadIndex, -1, 'auto-renew must re-read the instance inside the per-instance scheduler lock')
 assert.notEqual(performRenewalIndex, -1, 'auto-renew renewal call not found')
 assert.ok(latestReadIndex < performRenewalIndex, 'auto-renew eligibility must be rechecked before renewal side effects')
 assert.ok(processAutoRenew.includes('!isAutoRenewEligible(latestInstance, now, expiryThreshold)') && processAutoRenew.includes('recoveryHeld()'), 'catchup must recheck current identity eligibility and recovery protection')
-assert.ok(billingSource.includes('AND: [autoRenewEligibility(new Date(), automatic.expiryThreshold)') && billingSource.includes('expiresAt: instance.expiresAt') && billingSource.includes('autoRenewAttempts: { lt: 3 }'), 'automatic charge transaction must recheck exact expiry, renewal window, retry ceiling, manual suspension and opt-in')
+assert.ok(billingSource.includes('AND: [autoRenewEligibility(new Date(), automatic.expiryThreshold)') && billingSource.includes('expiresAt: instance.expiresAt') && billingSource.includes('expiryRetentionEnded(current, new Date())') && !billingSource.includes('autoRenewAttempts: { lt: 3 }'), 'charge transaction must recheck exact expiry, retention deadline, manual suspension and opt-in without revoking low-balance consent')
 const enforcement = sectionBetween(schedulerSource, 'export async function executeExpiryEnforcement()', 'function noteExpiryFailure')
 assert.ok(enforcement.indexOf('await executeAutoRenew()') < enforcement.indexOf('await executeExpirySuspend()'), 'missed auto renewal must settle before expiry stop/delete')
 assert.ok(schedulerSource.includes('if (autoRenewPromise) return autoRenewPromise'), 'overlapping hourly/five-minute jobs must share one complete renewal run')

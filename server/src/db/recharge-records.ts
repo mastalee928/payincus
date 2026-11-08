@@ -10,6 +10,7 @@ import { USER_BALANCE_LOCK_NAMESPACE, PAYMENT_SETTLEMENT_LOCK_NAMESPACE, advisor
 import { getCurrentRechargeGatewayOrderNo } from '../lib/recharge-order-guard.js'
 import { sanitizeObject } from '../lib/log-sanitizer.js'
 import { lockAdministrativeUserMutation, type WriteActor } from './user-write-authorization.js'
+import { notifyRechargeCredited } from '../lib/recharge-renewal.js'
 
 // ==================== 类型定义 ====================
 
@@ -520,6 +521,7 @@ export async function completeRecharge(
   })
 
   if (result.completedNow) {
+    notifyRechargeCredited(result.userId)
   }
 
   return result

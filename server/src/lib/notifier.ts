@@ -688,7 +688,7 @@ const EVENT_TEMPLATES: Record<EventType, EventTemplate> = {
         let msg = `您有 ${names.length} 台实例自动续费成功`
         if (data.renewAmount !== undefined) msg += `\n合计扣费: ¥${Number(data.renewAmount).toFixed(2)}`
         msg += `\n实例: ${shown.join('、')}${names.length > shown.length ? ` …等共 ${names.length} 台` : ''}`
-        msg += `\n到期时间已自动顺延`
+        msg += data.renewalDetails ? `\n续费明细: ${data.renewalDetails}` : `\n到期时间已自动顺延`
         return msg
       }
       let msg = `实例「${data.instanceName}」续费成功`
@@ -787,13 +787,14 @@ const EVENT_TEMPLATES: Record<EventType, EventTemplate> = {
         if (data.failReason) msg += `\n原因: ${data.failReason}`
         if (data.renewAmount !== undefined) msg += `\n合计所需金额: ¥${Number(data.renewAmount).toFixed(2)}`
         msg += `\n实例: ${shown.join('、')}${names.length > shown.length ? ` …等共 ${names.length} 台` : ''}`
-        msg += `\n请确保余额充足或手动续费`
+        if (data.renewalDetails) msg += `\n待续费明细: ${data.renewalDetails}`
+        msg += `\n自动续费仍开启；暂停保留期内到账后尝试补续，每五分钟巡检。保留期结束后删除，不再续费或补扣。`
         return msg
       }
       let msg = `实例「${data.instanceName}」自动续费失败`
       if (data.failReason) msg += `\n原因: ${data.failReason}`
       if (data.renewAmount !== undefined) msg += `\n所需金额: ¥${Number(data.renewAmount).toFixed(2)}`
-      msg += `\n请确保余额充足或手动续费`
+      msg += `\n自动续费仍开启；暂停保留期内到账后尝试补续，每五分钟巡检。保留期结束后删除，不再续费或补扣。`
       return msg
     }
   },

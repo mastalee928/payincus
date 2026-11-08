@@ -51,6 +51,7 @@ import {
   tryAdvisoryTransactionLock
 } from '../db/advisory-locks.js'
 import { createWorkerDbBackoff } from './db-failure-backoff.js'
+import { executeRenewalResume, RENEWAL_RESUME_ENTRY } from '../services/renewal-resume.js'
 import { recoverIpv6RouteAndStart } from '../lib/incus/ipv6-route-recovery.js'
 
 import { resetInstanceCloudInitState } from '../lib/cloud-init-status.js'
@@ -462,7 +463,7 @@ export async function claimLightTask(hostId: number, taskId: number) {
       where: { id: task.instanceId },
       select: { status: true }
     })
-    if (!instance || instance.status === 'deleted') return null
+    if (!instance || (instance.status === 'deleted' && task.operationEntry !== RENEWAL_RESUME_ENTRY)) return null
 
     // 标记为 PROCESSING
     const claimed = await tx.instanceTask.updateMany({
@@ -557,6 +558,10 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
       return
     }
     if (task.status !== 'PROCESSING' || task.startedAt?.getTime() !== attempt.startedAt.getTime() || task.retryCount !== attempt.retryCount) return
+    if (task.operationEntry === RENEWAL_RESUME_ENTRY) {
+      await executeRenewalResume(task.id, attempt)
+      return
+    }
     await assertHostNotMaintaining(task.hostId)
     if (task.targetHostId !== null) await assertHostNotMaintaining(task.targetHostId)
 

@@ -14,6 +14,9 @@ await chmod(root, 0o700)
 process.env.NODE_ENV = 'test'
 process.env.PLATFORM_BACKUP_STATE_DIR = root
 process.env.ENV_FILE = join(root, 'missing.env')
+// Import-only legacy cache timers must not keep an otherwise finished test alive.
+const originalInterval = globalThis.setInterval
+globalThis.setInterval = (...args) => { const timer = originalInterval(...args); timer.unref(); return timer }
 execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost', '-keyout', join(root, 'tls.key'), '-out', join(root, 'tls.crt')], { stdio: 'pipe' })
 await chmod(join(root, 'tls.key'), 0o600)
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
@@ -24,9 +27,19 @@ const { executeAutoRenew, executeExpiryEnforcement, getExpiryEnforcementStatus, 
 const { performRenewal } = await import('../src/db/billing-operations.js')
 const { withInstanceBillingMutation } = await import('../src/lib/instance-billing-mutation.js')
 const cron = await import('node-cron')
+globalThis.setInterval = originalInterval
+const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
+const { executeExpiryDelete } = await import('../src/services/billing-scheduler.js')
+const { processPoolCleanup, readPoolCleanup, retryPoolCleanup } = await import('../src/services/host-pool-cleanup.js')
+const { dedicatedHostReadyWhere, HOST_OCCUPIED_INSTANCE_WHERE } = await import('../src/lib/host-resource-usage.js')
+const { PORT_PROTOCOL_CAPABILITY } = await import('../src/services/host-port-protocol.js')
+const { closeCaddyClients } = await import('../src/lib/caddy-client.js')
+const originalCaddyCa = process.env.CADDY_CA_PATH, originalCaddyName = process.env.CADDY_TLS_SERVER_NAME
+let poolHostId, poolServer
 const remote = new Map()
 const identities = new Map()
 let offline = true, failDelete = false, stopCount = 0, deleteCount = 0
+let beforeGuestRead
 const server = createServer({ key: await readFile(root + '/tls.key'), cert: await readFile(root + '/tls.crt') }, async (request, response) => {
   const url = new URL(request.url, 'https://fixture')
   let body = ''; for await (const chunk of request) body += chunk
@@ -42,7 +55,10 @@ const server = createServer({ key: await readFile(root + '/tls.key'), cert: awai
   const name = match[1]
   if (!remote.has(name)) return send({}, 404)
   if (request.method === 'GET' && match[2]) return send({ status: remote.get(name) || 'Stopped' })
-  if (request.method === 'GET') return send({ name, project: 'default', status: remote.get(name), ...identities.get(name) })
+  if (request.method === 'GET') {
+    if (beforeGuestRead) await beforeGuestRead(name)
+    return send({ name, project: 'default', status: remote.get(name), ...identities.get(name) })
+  }
   if (request.method === 'PUT') { assert.equal(JSON.parse(body).action, 'stop'); stopCount++; remote.set(name, 'Stopped'); return send({}) }
   if (request.method === 'DELETE') { deleteCount++; if (failDelete) { if (failDelete === 'accepted') remote.delete(name); return send({}, 503) } remote.delete(name); return send({}) }
   return send({})
@@ -58,10 +74,12 @@ const host = await prisma.host.create({ data: { userId: owner.id, name: 'expiry-
   certPath: root + '/tls.crt', keyPath: root + '/tls.key', status: 'online', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 34 } })
 async function instance(name, data = {}) {
   remote.set(name, 'Running')
-  identities.set(name, { created_at: new Date(Date.now() - 60000).toISOString(), config: { 'volatile.uuid': randomUUID() } })
+  identities.set(name, { ephemeral: false, created_at: new Date(Date.now() - 60000).toISOString(), config: { 'volatile.uuid': randomUUID() } })
   return prisma.instance.create({ data: { userId: user.id, hostId: host.id, name, incusId: name, status: 'running', image: 'fixture',
     cpu: 100, memory: 128, disk: 1024, packageId: pkg.id, packagePlanId: plan.id, billingPrice: 10, billingCycle: 1,
-    expiresAt: new Date(Date.now() - 60000), ...data } })
+    expiresAt: new Date(Date.now() - 60000), snapshottedSpecs: { recoveryIdentity: {
+      uuid: identities.get(name).config['volatile.uuid'], createdAt: identities.get(name).created_at, project: 'default'
+    } }, ...data } })
 }
 const stopTarget = await instance('expiry-stop-retry')
 const renewed = await instance('expiry-renew-before-run')
@@ -118,7 +136,7 @@ try {
   await withInstanceBillingMutation(stopTarget.id, async () => {})
   const catchup = await instance('expiry-missed-renew-running', { autoRenew: true, expiresAt: new Date(Date.now() - 36 * 3600000) })
   const catchupSuspended = await instance('expiry-missed-renew-suspended', { autoRenew: true, status: 'suspended', suspendReason: 'expired', suspendedBy: null,
-    suspendedAt: new Date(Date.now() - 4 * 86400000), expiresAt: new Date(Date.now() - 5 * 86400000) })
+    suspendedAt: new Date(Date.now() - 2 * 86400000), expiresAt: new Date(Date.now() - 2 * 86400000) })
   const manualAuto = await instance('expiry-auto-manual', { autoRenew: true, status: 'suspended', suspendReason: 'manual', suspendedBy: owner.id })
   const freeAuto = await instance('expiry-auto-free', { autoRenew: true, packagePlanId: null })
   const farAuto = await instance('expiry-auto-far', { autoRenew: true, expiresAt: new Date(Date.now() + 7 * 86400000) })
@@ -144,32 +162,200 @@ try {
   await assert.rejects(performRenewal(user.id, staleAutomatic, 1, { expiryThreshold: new Date(Date.now() + 86400000) }))
   assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).balance), 70, 'disabled automatic charge rolls back the balance transaction')
   const insufficient = await instance('expiry-auto-insufficient', { userId: poor.id, autoRenew: true })
+  await prisma.instance.update({ where: { id: insufficient.id }, data: { rootPassword: 'fixture-removed-after-delete' } })
+  await prisma.snapshot.create({ data: { instanceId: insufficient.id, name: 'saved', incusName: 'saved' } })
+  await prisma.backup.create({ data: { instanceId: insufficient.id, name: 'saved', incusName: 'saved', status: 'ready' } })
+  await prisma.snapshotPolicy.create({ data: { instanceId: insufficient.id, enabled: true } })
+  await prisma.backupPolicy.create({ data: { instanceId: insufficient.id, enabled: true } })
   await executeExpiryEnforcement(); await executeExpiryEnforcement()
   let failed = await prisma.instance.findUniqueOrThrow({ where: { id: insufficient.id } })
-  assert.equal(failed.autoRenewAttempts, 1, 'repeated five-minute runs preserve hourly retries')
+  assert.equal(failed.autoRenewAttempts, 1, 'repeated five-minute runs preserve hourly failure notification spacing')
   assert.equal(failed.status, 'suspended'); assert.equal(remote.get(insufficient.incusId), 'Stopped')
-  for (const expected of [2, 3]) {
-    await prisma.instance.update({ where: { id: insufficient.id }, data: { lastAutoRenewAttemptAt: new Date(Date.now() - 61 * 60000), suspendedAt: new Date(Date.now() - 4 * 86400000) } })
+  for (const expected of [2, 3, 4]) {
+    await prisma.instance.update({ where: { id: insufficient.id }, data: { lastAutoRenewAttemptAt: new Date(Date.now() - 61 * 60000) } })
     await executeExpiryEnforcement()
     failed = await prisma.instance.findUniqueOrThrow({ where: { id: insufficient.id } })
     assert.equal(failed.autoRenewAttempts, expected)
-    if (expected < 3) assert.equal(remote.has(insufficient.incusId), true, 'pending bounded retries retain stopped disk')
+    assert.equal(failed.autoRenew, true, 'low balance never revokes consent')
+    assert.equal(remote.has(insufficient.incusId), true, 'retention keeps the stopped disk')
   }
-  assert.equal(remote.has(insufficient.incusId), false, 'exhausted retries do not retain unpaid expired disks past grace')
+  await prisma.instance.update({ where: { id: insufficient.id }, data: { suspendedAt: new Date(Date.now() - 4 * 86400000), autoRenewAttempts: 0 } })
+  await prisma.user.update({ where: { id: poor.id }, data: { balance: 100 } })
+  await executeExpiryEnforcement()
+  assert.equal(remote.has(insufficient.incusId), false, 'retention deadline deletes even with funds and unused retries')
+  assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: poor.id } })).balance), 100)
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: insufficient.id } })).autoRenew, false)
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: insufficient.id } })).rootPassword, null)
+  for (const model of [prisma.snapshot, prisma.backup, prisma.snapshotPolicy, prisma.backupPolicy]) {
+    assert.equal(await model.count({ where: { instanceId: insufficient.id } }), 0)
+  }
+  assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: renewed.id, type: 'renew' } }), 1, 'historical billing is preserved')
   assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: insufficient.id, type: 'renew' } }), 0)
+  const originalCheck = await instance('expiry-original-identity', { status: 'suspended', suspendReason: 'expired', suspendedBy: null,
+    suspendedAt: new Date(Date.now() - 4 * 86400000) })
+  const registered = identities.get(originalCheck.incusId)
+  await prisma.instance.update({ where: { id: originalCheck.id }, data: { snapshottedSpecs: {
+    recoveryIdentity: { uuid: registered.config['volatile.uuid'], createdAt: registered.created_at, project: 'default' }
+  } } })
+  identities.set(originalCheck.incusId, { ...registered, config: { 'volatile.uuid': randomUUID() } })
+  const deleteBeforeMismatch = deleteCount
+  await executeExpiryDelete()
+  assert.equal(deleteCount, deleteBeforeMismatch, 'first delete must reject a same-name guest that differs from the original delivery UUID')
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: originalCheck.id } })).status, 'suspended')
+  assert.equal(remote.has(originalCheck.incusId), true)
+  identities.set(originalCheck.incusId, registered)
+  await executeExpiryDelete()
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: originalCheck.id } })).deletionBillingPending, false)
+  assert.equal(remote.has(originalCheck.incusId), false)
+  console.log('PASS first expiry deletion rejects a replaced same-name UUID; exact original identity can resume cleanup')
+  const unregistered = await instance('expiry-unregistered', { status: 'suspended', suspendReason: 'expired',
+    suspendedAt: new Date(Date.now() - 4 * 86400000), snapshottedSpecs: {} })
+  const beforeMissing = deleteCount
+  await executeExpiryDelete()
+  assert.equal(deleteCount, beforeMissing); assert.equal(remote.has(unregistered.incusId), true)
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: unregistered.id } })).status, 'suspended')
+  // A new task arrives after initial selection, while the read-only remote probe
+  // is underway. The deletion claim must see it before any lifecycle write.
+  const competing = await instance('expiry-competing-task', { status: 'suspended', suspendReason: 'expired',
+    suspendedAt: new Date(Date.now() - 4 * 86400000) })
+  let competingTask
+  beforeGuestRead = async name => {
+    if (name !== competing.incusId || competingTask) return
+    competingTask = await prisma.instanceTask.create({ data: { instanceId: competing.id, hostId: host.id,
+      userId: user.id, taskType: 'stop', status: 'PENDING' } })
+  }
+  try { await executeExpiryDelete() } finally { beforeGuestRead = undefined }
+  assert.ok(competingTask); assert.equal(deleteCount, beforeMissing)
+  assert.equal(remote.has(competing.incusId), true)
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: competing.id } })).status, 'suspended')
+  await prisma.instanceTask.delete({ where: { id: competingTask.id } })
+  await executeExpiryDelete(); assert.equal(remote.has(competing.incusId), false)
+  // Keep the missing-identity fixture protected; it must never adopt live data.
+  await prisma.instance.update({ where: { id: unregistered.id }, data: { suspendedBy: owner.id } })
+  console.log('PASS missing delivery identity blocks deletion; a task arriving during the remote probe blocks claim, then cleanup resumes after it ends')
+  // Follow one real DB expiry deletion through the normal persistent pool queue.
+  // The HTTPS endpoint is isolated; leftover customer storage must keep it unsold.
+  let poolGuest = true, foreignVolume = true, poolDeleteCount = 0, failProxy = true, proxyRevision = 0
+  let proxyConfig = { apps: { http: { servers: {} } } }
+  const poolName = 'expiry-dedicated-cleanup'
+  const poolIdentity = { name: poolName, project: 'default', status: 'Stopped', created_at: new Date(Date.now() - 86400000).toISOString(), config: { 'volatile.uuid': randomUUID() } }
+  poolServer = createServer({ key: await readFile(root + '/tls.key'), cert: await readFile(root + '/tls.crt') }, async (request, response) => {
+    const url = new URL(request.url, 'https://fixture')
+    if (url.pathname.startsWith('/config/')) {
+      const respond = (code, value) => { response.writeHead(code, { 'Content-Type': 'application/json', etag: `"/config/ ${proxyRevision}"` }); response.end(JSON.stringify(value)) }
+      if (request.headers.authorization !== `Basic ${Buffer.from('fixture:fixture').toString('base64')}`) return respond(401, {})
+      if (request.method === 'GET' && url.pathname === '/config/') return respond(200, proxyConfig)
+      if (request.method === 'POST' && url.pathname === '/config/apps/http') {
+        if (failProxy) return respond(500, { error: 'isolated proxy cleanup failure' })
+        if (request.headers['if-match'] !== `"/config/ ${proxyRevision}"`) return respond(412, {})
+        let body = ''; for await (const chunk of request) body += chunk
+        proxyConfig.apps.http = JSON.parse(body); proxyRevision++
+        return respond(200, {})
+      }
+      return respond(404, {})
+    }
+    const send = (metadata, code = 200) => { response.writeHead(code, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ type: code === 200 ? 'sync' : 'error', metadata, error: code === 404 ? 'Instance not found' : '' })) }
+    if (url.pathname === '/1.0') return send({ api_version: '1.0' })
+    if (url.pathname === '/1.0/projects') return send([{ name: 'default' }])
+    if (url.pathname === '/1.0/operations') return send({})
+    if (url.pathname === '/1.0/networks') return send([{ name: 'incusbr0', type: 'bridge', managed: true }])
+    if (url.pathname.includes('/forwards')) return send([])
+    if (url.pathname === '/1.0/storage-pools') return send([{ name: 'default', status: 'Created' }])
+    if (url.pathname.includes('/volumes')) return send(foreignVolume ? [{ name: 'unidentified-customer-data', type: 'custom' }] : [])
+    if (url.pathname === '/1.0/instances') return send(poolGuest ? [url.searchParams.has('recursion') ? poolIdentity : '/1.0/instances/' + poolName] : [])
+    if (url.pathname === '/1.0/instances/' + poolName && poolGuest) {
+      if (request.method === 'DELETE') { poolGuest = false; poolDeleteCount++; return send({}) }
+      return send(poolIdentity)
+    }
+    return send({}, 404)
+  })
+  await new Promise(resolve => poolServer.listen(0, '127.0.0.1', resolve))
+  process.env.CADDY_CA_PATH = root + '/tls.crt'; process.env.CADDY_TLS_SERVER_NAME = 'localhost'
+  const poolHost = await prisma.host.create({ data: { userId: owner.id, name: poolName, url: 'https://127.0.0.1:' + poolServer.address().port,
+    ipAddress: '127.0.0.1', caddyEnabled: true, caddyUsername: 'fixture', caddyPassword: 'fixture', caddyPort: poolServer.address().port,
+    certPath: root + '/tls.crt', keyPath: root + '/tls.key', singleTenant: true, status: 'online', isInstalled: true, instanceType: 'container',
+    natPublicIp: '127.0.0.1', natBindIp: '10.0.0.18', natPortStart: 20000, natPortEnd: 30000,
+    resourcePreset: 'E2', customerDiskGiB: 30, architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 34,
+    portProtocol: 'tcp', portProtocolRevision: 1, portProtocolApplied: 'tcp', portProtocolAppliedRevision: 1,
+    agent: { create: { agentId: poolName, secretHash: 'fixture-unused', secretEncrypted: 'fixture-unused', lastSeenAt: new Date(), capabilities: [PORT_PROTOCOL_CAPABILITY] } },
+    storagePools: { create: { name: 'default', driver: 'dir', purpose: 'instance_data' } } } }); poolHostId = poolHost.id
+  const poolInstance = await prisma.instance.create({ data: { userId: poor.id, hostId: poolHost.id, packageId: pkg.id, packagePlanId: plan.id,
+    name: poolName, incusId: poolName, image: 'fixture', cpu: 100, memory: 128, disk: 1024,
+    status: 'suspended', suspendReason: 'expired', suspendedAt: new Date(Date.now() - 4 * 86400000), expiresAt: new Date(Date.now() - 4 * 86400000),
+    billingPrice: 10, autoRenew: true, ipv4: '10.0.0.2',
+    snapshottedSpecs: { recoveryIdentity: { uuid: poolIdentity.config['volatile.uuid'], createdAt: poolIdentity.created_at, project: 'default' } } } })
+  const poolSite = await prisma.proxySite.create({ data: { instanceId: poolInstance.id, hostId: poolHost.id,
+    domain: 'expiry-cleanup.example.invalid', targetPort: 8080, httpsEnabled: false, status: 'active' } })
+  const saleReady = () => prisma.host.count({ where: { ...dedicatedHostReadyWhere(), id: poolHost.id, instances: { none: HOST_OCCUPIED_INSTANCE_WHERE } } })
+  assert.equal(await saleReady(), 0)
+  await executeExpiryDelete()
+  assert.equal(poolGuest, true); assert.equal(poolDeleteCount, 0, 'unconfirmed proxy cleanup retains guest and allocation')
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: poolInstance.id } })).deletionBillingPending, true)
+  assert.equal(await saleReady(), 0)
+  failProxy = false
+  await prisma.proxySiteOperation.updateMany({ where: { instanceId: poolInstance.id, state: 'retry' }, data: { nextRetryAt: new Date(0) } })
+  await executeExpiryDelete()
+  assert.equal(await prisma.proxySite.count({ where: { id: poolSite.id } }), 0)
+  assert.equal(await prisma.proxySiteOperation.count({ where: { instanceId: poolInstance.id, state: 'succeeded', action: 'delete' } }), 1)
+  assert.ok(JSON.stringify(proxyConfig).includes(`site-v3-${poolSite.siteKey}-1-deleted`))
+  assert.equal(poolGuest, false); assert.equal(poolDeleteCount, 1)
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: poolInstance.id } })).deletionBillingPending, false)
+  assert.equal(readPoolCleanup((await prisma.host.findUniqueOrThrow({ where: { id: poolHost.id } })).poolCleanup)?.status, 'pending')
+  assert.equal(await saleReady(), 0)
+  await processPoolCleanup(poolHost.id)
+  assert.equal(await saleReady(), 0, 'unknown customer storage cannot be cleared or released for sale')
+  assert.equal(foreignVolume, true)
+  foreignVolume = false // Fixture models independently resolved storage; worker must only inspect.
+  await retryPoolCleanup(poolHost.id, owner.id); await processPoolCleanup(poolHost.id)
+  assert.equal(readPoolCleanup((await prisma.host.findUniqueOrThrow({ where: { id: poolHost.id } })).poolCleanup)?.status, 'done')
+  assert.equal(await saleReady(), 1); assert.equal(poolDeleteCount, 1)
+  assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: poolInstance.id } }), 0)
+  console.log('PASS expiry proxy cleanup failure holds guest/allocation; exact TLS cleanup receipt resumes deletion -> persistent pool queue -> unknown storage blocks sale -> verified empty host returns to sale; no repeated deletion or late debit')
+  const scanFailure = await instance('expiry-resume-scan-failure')
+  const originalTaskScan = prisma.instanceTask.findMany
+  let injectedScanFailure = false
+  prisma.instanceTask.findMany = args => {
+    if (args.where?.operationEntry === 'auto-renew-resume-v1') {
+      injectedScanFailure = true; throw Error('isolated paid resume read failure')
+    }
+    return originalTaskScan(args)
+  }
+  try { await executeExpiryEnforcement() } finally { prisma.instanceTask.findMany = originalTaskScan }
+  assert.ok(injectedScanFailure)
+  assert.equal(remote.get(scanFailure.incusId), 'Stopped', 'resume queue failure must not skip unrelated expiry enforcement')
+  const failedRun = await getExpiryEnforcementStatus()
+  assert.ok(failedRun.failureCount > 0); assert.equal(failedRun.lastError, 'EXPIRY_RESUME_SCAN_FAILED')
+  console.log('PASS paid resume scan failure is recorded while unrelated expiry enforcement still completes')
+  for (const changed of ['uuid', 'ephemeral']) {
+    const stoppedGuest = await instance('expiry-stop-' + changed)
+    const original = identities.get(stoppedGuest.incusId)
+    identities.set(stoppedGuest.incusId, changed === 'uuid' ? { ...original, config: { 'volatile.uuid': randomUUID() } } : { ...original, ephemeral: true })
+    const beforeStop = stopCount
+    await executeExpiryEnforcement()
+    assert.equal(stopCount, beforeStop, 'expiry suspension must not stop a replaced or ephemeral guest')
+    assert.equal(remote.get(stoppedGuest.incusId), 'Running')
+    identities.set(stoppedGuest.incusId, original)
+    await executeExpiryEnforcement()
+    assert.equal(remote.get(stoppedGuest.incusId), 'Stopped'); assert.equal(stopCount, beforeStop + 1)
+  }
+  console.log('PASS expiry stop rejects same-name UUID replacement and ephemeral guests; exact original persistent guest resumes safely')
   const result = { passed: true, realPostgres: true, httpIncusFixture: true, realCustomerOperations: false, offlineSuspensionPreserved: true,
     reconnectStopRetried: true, manualAndFreePreserved: true, concurrentRenewChargedOnce: true, renewedNotStopped: true,
     uncertainDeleteKeepsAllocation: true, laterDeleteFinalizesOnce: true, noDuplicateStops: true, restartIdempotent: true,
-    missedRenewalCatchup: true, renewalBeforeDeletion: true, recoveryBlocksCharges: true, boundedHourlyRetries: true, staleAutomaticRollsBack: true, stopCount, deleteCount }
+    missedRenewalCatchup: true, renewalBeforeDeletion: true, recoveryBlocksCharges: true, hourlyFailureNotices: true,
+    retentionDeadlineNoCharge: true, deletedMetadataCleaned: true, verifiedPoolReturn: true, staleAutomaticRollsBack: true, stopCount, deleteCount }
   console.log(JSON.stringify(result)); passed = true
 } finally {
   for (const task of cron.getTasks().values()) await task.destroy()
+  if (poolHostId) { await prisma.instance.deleteMany({ where: { hostId: poolHostId } }); await prisma.host.delete({ where: { id: poolHostId } }) }
+  await closeCaddyClients()
+  if (poolServer) await new Promise(resolve => poolServer.close(resolve))
+  if (originalCaddyCa === undefined) delete process.env.CADDY_CA_PATH; else process.env.CADDY_CA_PATH = originalCaddyCa
+  if (originalCaddyName === undefined) delete process.env.CADDY_TLS_SERVER_NAME; else process.env.CADDY_TLS_SERVER_NAME = originalCaddyName
   await prisma.instance.deleteMany({ where: { hostId: host.id } })
   await prisma.host.delete({ where: { id: host.id } })
   await prisma.package.delete({ where: { id: pkg.id } })
   await prisma.user.deleteMany({ where: { id: { in: [owner.id, user.id, poor.id] } } })
-  await closePrismaDatabase(); await new Promise(resolve => server.close(resolve))
+  closeAllClients(); await closePrismaDatabase(); await new Promise(resolve => server.close(resolve))
   await unlink(join(root, 'tls.key')); await unlink(join(root, 'tls.crt'))
-  // Existing notifier/security timers are process-wide; the isolated test exits explicitly.
-  setTimeout(() => process.exit(passed ? 0 : 1), 50)
 }

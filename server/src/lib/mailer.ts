@@ -1808,6 +1808,7 @@ export async function sendAutoRenewSuccessEmail(
         newExpiresAt: Date
         newBalance: number
         aggregateNames?: string[]
+        renewalDetails?: string
     }
 ): Promise<{ success: boolean; error?: string }> {
     try {
@@ -1835,9 +1836,9 @@ export async function sendAutoRenewSuccessEmail(
             infoTitle: '续费详情',
             infoItems: [
                 { label: aggregateNames ? '续费实例' : '实例名称', value: aggregateListText },
-                { label: '续费时长', value: `${data.months} 个月` },
+                ...(data.renewalDetails ? [{ label: '逐台续费明细（UTC）', value: data.renewalDetails }] : [{ label: '续费时长', value: `${data.months} 个月` }]),
                 { label: '扣费金额', value: `￥${data.amount.toFixed(2)}` },
-                { label: '新到期时间', value: newExpiresAtStr },
+                ...(!data.renewalDetails ? [{ label: '新到期时间', value: newExpiresAtStr }] : []),
                 { label: '剩余余额', value: `￥${data.newBalance.toFixed(2)}` }
             ],
             footerNote: '此邮件为自动续费通知，如有疑问请登录控制面板查看。',
@@ -1854,9 +1855,9 @@ export async function sendAutoRenewSuccessEmail(
             infoTitle: '续费详情',
             infoItems: [
                 { label: aggregateNames ? '续费实例' : '实例名称', value: aggregateListText },
-                { label: '续费时长', value: `${data.months} 个月` },
+                ...(data.renewalDetails ? [{ label: '逐台续费明细（UTC）', value: data.renewalDetails }] : [{ label: '续费时长', value: `${data.months} 个月` }]),
                 { label: '扣费金额', value: `￥${data.amount.toFixed(2)}` },
-                { label: '新到期时间', value: newExpiresAtStr },
+                ...(!data.renewalDetails ? [{ label: '新到期时间', value: newExpiresAtStr }] : []),
                 { label: '剩余余额', value: `￥${data.newBalance.toFixed(2)}` }
             ],
             brandName,
@@ -1889,7 +1890,7 @@ export async function sendAutoRenewFailedEmail(
         instanceName: string
         failReason: string
         currentAttempt: number
-        maxAttempts: number
+        renewalDetails: string
         expiresAt: Date
         aggregateNames?: string[]
     }
@@ -1908,17 +1909,9 @@ export async function sendAutoRenewFailedEmail(
         const aggregateListText = aggregateNames
             ? `${data.instanceName} 等 ${aggregateNames.length} 台（${aggregateNames.slice(0, 15).join('、')}${aggregateNames.length > 15 ? ' …' : ''}）`
             : data.instanceName
-        const remainingAttempts = data.maxAttempts - data.currentAttempt
-        const isLastAttempt = remainingAttempts <= 0
-
-        const alertType = isLastAttempt ? 'danger' : 'warning'
-        const alertTitle = isLastAttempt 
-            ? '自动续费已失败（无剩余尝试次数）' 
-            : `自动续费失败（第 ${data.currentAttempt} 次尝试）`
-
-        const attemptsInfo = isLastAttempt
-            ? '已达到最大尝试次数，自动续费已关闭。请手动续费以避免实例被封停。'
-            : `还剩 ${remainingAttempts} 次尝试机会，系统将在稍后自动重试。建议您尽快充值或手动续费。`
+        const alertType = 'warning'
+        const alertTitle = '自动续费待处理'
+        const attemptsInfo = '自动续费仍然开启。请在到期暂停保留期结束前补足余额；充值到账后会尝试补续，系统每五分钟巡检兜底。保留期结束后不再续费或补扣，实例将自动删除。'
 
         const htmlContent = generateEmailHtml({
             title: '自动续费失败',
@@ -1935,10 +1928,10 @@ export async function sendAutoRenewFailedEmail(
             infoItems: [
                 { label: aggregateNames ? '失败实例' : '实例名称', value: aggregateListText },
                 { label: '失败原因', value: data.failReason },
-                { label: '当前尝试', value: `第 ${data.currentAttempt} 次 / 共 ${data.maxAttempts} 次` },
+                { label: '待续费明细', value: data.renewalDetails },
                 { label: '到期时间', value: expiresAtStr }
             ],
-            actionTip: `请尽快登录 ${brandName} 控制面板进行手动续费，避免实例到期后被封停。`,
+            actionTip: `请在保留期结束前补足余额，或登录 ${brandName} 控制面板手动续费。`,
             brandName,
         brandLogoUrl
         })
@@ -1957,10 +1950,10 @@ export async function sendAutoRenewFailedEmail(
             infoItems: [
                 { label: aggregateNames ? '失败实例' : '实例名称', value: aggregateListText },
                 { label: '失败原因', value: data.failReason },
-                { label: '当前尝试', value: `第 ${data.currentAttempt} 次 / 共 ${data.maxAttempts} 次` },
+                { label: '待续费明细', value: data.renewalDetails },
                 { label: '到期时间', value: expiresAtStr }
             ],
-            actionTip: `请尽快登录 ${brandName} 控制面板进行手动续费。`,
+            actionTip: `请在保留期结束前补足余额，或登录 ${brandName} 控制面板手动续费。`,
             brandName,
         brandLogoUrl
         })

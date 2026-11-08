@@ -127,7 +127,7 @@ assert.ok(
 
 const processAutoRenew = sectionBetween(
   billingSchedulerSource,
-  'async function processAutoRenew(instance: any): Promise<void> {',
+  'export async function processAutoRenew(',
   '// ==================== 到期封停任务 ===================='
 )
 
