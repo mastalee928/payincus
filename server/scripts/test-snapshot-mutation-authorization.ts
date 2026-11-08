@@ -21,6 +21,8 @@ const tag = 'snapshot-auth-' + randomUUID(), sid = randomUUID(), iat = Math.floo
 const root = await mkdtemp(join(tmpdir(), tag)), keyPath = join(root, 'key.pem'), certPath = join(root, 'cert.pem')
 execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=snapshot-fixture', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', keyPath, '-out', certPath], { stdio: 'pipe', windowsHide: true })
 const certificate = await readFile(certPath, 'utf8'), writes: Array<{ method: string; path: string }> = []
+const isolationReads: string[] = []
+let isolationFixture = 'safe'
 let holdRestore = false, restoreReached: (() => void) | undefined, restoreRelease: Promise<void> | undefined
 let failDelete = false
 const remote = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, reply) => {
@@ -28,6 +30,16 @@ const remote = createServer({ key: await readFile(keyPath), cert: certificate, c
   reply.setHeader('content-type', 'application/json')
   if (request.url === '/1.0') return reply.end(JSON.stringify({ type: 'sync', metadata: { api_version: '1.0' } }))
   assert.ok(request.url?.startsWith('/1.0/instances/' + tag), 'only the captured test instance is touched')
+  if (request.method === 'GET') {
+    const target = request.url === `/1.0/instances/${tag}` ? 'current' : 'snapshot'
+    assert.ok(target === 'current' || request.url === `/1.0/instances/${tag}/snapshots/captured`, 'only the captured snapshot is read')
+    isolationReads.push(target)
+    const metadata = isolationFixture === `${target}-incomplete` ? {} : {
+      type: 'container', profiles: [], config: { 'security.privileged': isolationFixture === `${target}-privileged` ? 'true' : 'false' },
+      devices: { root: { type: 'disk', path: '/', pool: 'fixture' } }
+    }
+    return reply.end(JSON.stringify({ type: 'sync', metadata }))
+  }
   writes.push({ method: request.method!, path: request.url! })
   for await (const _chunk of request) { /* drain the actual payload */ }
   if (request.method === 'DELETE' && failDelete) { reply.statusCode = 500; return reply.end(JSON.stringify({ type: 'error', error: 'controlled deletion failure', error_code: 500 })) }
@@ -53,6 +65,7 @@ const invoke = (op: Operation, asAdmin = false) => app.inject({ method: op === '
   url: `/instances/${instance.id}/` + (op === 'policy' ? 'snapshot-policy' : op === 'create' ? 'snapshots' : `snapshots/${snapshotId}` + (op === 'restore' ? '/restore' : '')),
   headers: asAdmin ? { 'x-test-admin': '1' } : {}, ...(op === 'delete' ? {} : { payload: op === 'create' ? { name: 'current' } : op === 'policy' ? { enabled: true, intervalMinutes: 60 } : {} }) })
 async function reset() {
+  isolationFixture = 'safe'
   await prisma.tokenInvalidation.deleteMany({ where: { userId: { in: users } } })
   await prisma.user.updateMany({ where: { id: { in: users } }, data: { status: 'active', role: 'user' } }); await prisma.user.update({ where: { id: admin.id }, data: { role: 'admin' } })
   await prisma.instanceTransfer.deleteMany({ where: { instanceId: instance.id } })
@@ -88,15 +101,27 @@ async function waitForRestoreFixture(reached: Promise<void>, response: Promise<{
   } finally { if (timer) clearTimeout(timer) }
 }
 try {
+  for (const fixture of ['current-incomplete', 'current-privileged', 'snapshot-incomplete', 'snapshot-privileged']) {
+    await reset(); isolationFixture = fixture
+    const before = writes.length, readBefore = isolationReads.length
+    const rejected = await invoke('restore')
+    assert.equal(rejected.statusCode, 500, rejected.body)
+    assert.match(rejected.body, /隔离|禁止特权/)
+    assert.equal(writes.length, before, 'unsafe or incomplete isolation must dispatch zero restore writes')
+    assert.deepEqual(isolationReads.slice(readBefore), fixture.startsWith('current-') ? ['current'] : ['current', 'snapshot'])
+  }
+  console.log('PASS mTLS snapshot isolation: incomplete or privileged current instance and snapshot rejected before any restore write')
   if (process.env.REVIEW_SNAPSHOT_SINGLE_CONNECTION === '1') {
     assert.equal(process.env.DB_POOL_MAX, '1', 'single-connection regression must use one PG connection')
     for (const op of ['create', 'restore', 'delete'] as const) {
       await reset()
       await closeAllClients() // exercise both connection configuration reads, not just a warm cache
       const before = writes.length
+      const readBefore = isolationReads.length
       const result = await invoke(op)
       assert.equal(result.statusCode, op === 'create' ? 201 : 200, `${op}: ${result.body}`)
       assert.equal(writes.length, before + 1, `${op}: exactly one remote mutation`)
+      assert.deepEqual(isolationReads.slice(readBefore), op === 'restore' ? ['current', 'snapshot'] : [], 'restore reads both effective configurations before its sole write')
       const stats = getDbPoolStats()
       assert.equal(stats.totalCount, 1)
       assert.equal(stats.waitingCount, 0)
