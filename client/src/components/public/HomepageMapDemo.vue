@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowRight, Menu, Monitor, Moon, Sun, X } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -28,25 +28,34 @@ function goToConsole() {
   if (authStore.isAuthenticated) { void router.push(dashboardPath()); return }
   void router.push(loginPath())
 }
-function closeMenu() { menuOpen.value = false }
+const menuButton = ref<HTMLButtonElement>()
+function closeMenu(restoreFocus = false) { menuOpen.value = false; if (restoreFocus) menuButton.value?.focus() }
+async function toggleMenu() {
+  menuOpen.value = !menuOpen.value
+  if (menuOpen.value) { await nextTick(); pageRoot.value?.querySelector<HTMLAnchorElement>('#home-mobile-nav a')?.focus() }
+}
 const catalog = ref<PoolCatalogRegion[]>([])
 const loading = ref(true)
 const failed = ref(false)
 const menuOpen = ref(false)
 const updatedAt = ref('')
 const pageRoot = ref<HTMLElement | null>(null)
+watch(() => router.currentRoute.value.fullPath, () => closeMenu())
 let layoutObserver: ResizeObserver | undefined
 function fitMapToViewport() {
   const root = pageRoot.value
   if (!root) return
+  if (window.innerWidth >= 768) menuOpen.value = false
   const availableHeight = window.visualViewport?.height || window.innerHeight
   const reserved = ['.home-header', '.home-intro', '.atlas-toolbar', '.home-footer'].reduce((sum, selector) => {
     const element = root.querySelector<HTMLElement>(selector)
     if (!element) return sum
     const style = getComputedStyle(element)
-    return sum + element.getBoundingClientRect().height + parseFloat(style.marginTop || '0') + parseFloat(style.marginBottom || '0')
+    return sum + element.getBoundingClientRect().height + (selector === '.home-footer' && window.innerWidth >= 768 ? 0 : parseFloat(style.marginTop || '0')) + parseFloat(style.marginBottom || '0')
   }, 0)
-  root.style.setProperty('--home-map-height', `${Math.max(240, availableHeight - reserved - 24)}px`)
+  const mainGap = parseFloat(getComputedStyle(root.querySelector('main')!).paddingBottom) || 0
+  const minimumMapHeight = window.innerWidth >= 768 && availableHeight >= 560 ? 200 : 240
+  root.style.setProperty('--home-map-height', `${Math.max(minimumMapHeight, availableHeight - reserved - mainGap)}px`)
 }
 onMounted(() => {
   layoutObserver = new ResizeObserver(fitMapToViewport)
@@ -81,11 +90,11 @@ onMounted(() => { motionPreference.addEventListener('change', syncMotionPreferen
   <div ref="pageRoot" class="homepage-map-demo" :data-home-theme="homeTheme">
     <header class="home-header">
       <div class="header-inner">
-        <button class="mobile-menu" type="button" :aria-expanded="menuOpen" aria-controls="home-mobile-nav" :aria-label="t(menuOpen ? 'homeMapDemo.closeMenu' : 'homeMapDemo.openMenu')" @click="menuOpen = !menuOpen"><X v-if="menuOpen" :size="21" /><Menu v-else :size="21" /></button>
+        <button ref="menuButton" class="mobile-menu" type="button" :aria-expanded="menuOpen" aria-controls="home-mobile-nav" :aria-label="t(menuOpen ? 'homeMapDemo.closeMenu' : 'homeMapDemo.openMenu')" @click="toggleMenu"><X v-if="menuOpen" :size="21" /><Menu v-else :size="21" /></button>
         <RouterLink to="/" class="brand"><img :src="brand.brandLogoUrl" :alt="brand.brandName" /><span><strong>{{ brand.brandName }}</strong><small>{{ brand.brandSubtitle }}</small></span></RouterLink>
         <nav class="desktop-nav" :aria-label="t('homeMapDemo.navigation')"><RouterLink to="/purchase">{{ t('homeMapDemo.products') }}</RouterLink><RouterLink :to="helpPath()">{{ t('homeMapDemo.solutions') }}</RouterLink><RouterLink :to="dashboardPath()">{{ t('homeMapDemo.console') }}</RouterLink></nav>
         <div class="header-actions"><button type="button" class="home-theme-toggle" :aria-label="t('nav.toggleTheme') + ' · ' + themeLabel" :title="themeLabel" @click="themeStore.toggleTheme"><Moon v-if="themeStore.mode === 'dark'" :size="18" aria-hidden="true" /><Sun v-else-if="themeStore.mode === 'light'" :size="18" aria-hidden="true" /><Monitor v-else :size="18" aria-hidden="true" /></button><PublicLanguageSwitch /><button type="button" class="header-login" @click="goToConsole">{{ accountActionLabel }} <ArrowRight :size="14" /></button></div>
-      </div><nav v-if="menuOpen" id="home-mobile-nav" class="mobile-nav" :aria-label="t('homeMapDemo.navigation')" @keydown.esc="closeMenu"><RouterLink to="/purchase" @click="closeMenu">{{ t('homeMapDemo.products') }}</RouterLink><RouterLink :to="helpPath()" @click="closeMenu">{{ t('homeMapDemo.solutions') }}</RouterLink><RouterLink :to="dashboardPath()" @click="closeMenu">{{ t('homeMapDemo.console') }}</RouterLink></nav>
+      </div><nav v-if="menuOpen" id="home-mobile-nav" class="mobile-nav" :aria-label="t('homeMapDemo.navigation')" @keydown.esc.prevent.stop="closeMenu(true)"><RouterLink to="/purchase" @click="closeMenu()">{{ t('homeMapDemo.products') }}</RouterLink><RouterLink :to="helpPath()" @click="closeMenu()">{{ t('homeMapDemo.solutions') }}</RouterLink><RouterLink :to="dashboardPath()" @click="closeMenu()">{{ t('homeMapDemo.console') }}</RouterLink></nav>
     </header>
 
     <main>
@@ -106,6 +115,8 @@ onMounted(() => { motionPreference.addEventListener('change', syncMotionPreferen
 <style scoped>
 .homepage-map-demo {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: #080b10;
   color: #f5f5f7;
   font-family: 'Inter Variable',Inter,-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;
@@ -148,6 +159,10 @@ button:focus-visible,a:focus-visible,select:focus-visible {
   align-items: center;
   gap: 34px;
 }
+.brand, .desktop-nav, .mobile-nav {
+  -webkit-user-select: none;
+  user-select: none;
+}
 .brand {
   display: flex;
   align-items: center;
@@ -155,15 +170,20 @@ button:focus-visible,a:focus-visible,select:focus-visible {
   min-width: 0;
 }
 .brand img {
+  flex-shrink: 0;
   width: 26px;
   height: 26px;
   object-fit: contain;
 }
 .brand>span {
+  min-width: 0;
   display: grid;
   gap: 4px;
 }
 .brand strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 14px;
   font-weight: 650;
 }
@@ -176,6 +196,7 @@ button:focus-visible,a:focus-visible,select:focus-visible {
   white-space: nowrap;
 }
 .desktop-nav {
+  flex-shrink: 0;
   display: flex;
   gap: 5px;
   align-items: center;
@@ -196,6 +217,7 @@ button:focus-visible,a:focus-visible,select:focus-visible {
   background: #282e38;
 }
 .header-actions {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 23px;
@@ -206,6 +228,7 @@ button:focus-visible,a:focus-visible,select:focus-visible {
   display: flex;
 }
 .header-login {
+  white-space: nowrap;
   border: 0;
   display: flex;
   align-items: center;
@@ -231,6 +254,8 @@ button:focus-visible,a:focus-visible,select:focus-visible {
   padding-bottom: 20px;
 }
 .home-intro h1 {
+  -webkit-user-select: none;
+  user-select: none;
   font-size: 48px;
   font-weight: 650;
   line-height: 1.25;
@@ -522,7 +547,7 @@ button:focus-visible,a:focus-visible,select:focus-visible {
 <style scoped>
 .home-footer { display: block; margin-top: 80px; padding: 28px 0 22px; }
 .footer-main { display: flex; align-items: center; justify-content: space-between; gap: 28px; }
-.footer-brand { display: grid; gap: 8px; }
+.footer-brand { display: grid; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
 .footer-brand strong { color: #edf0f5; font-size: 16px; font-weight: 600; }
 .footer-brand > span { color: #a1a7b3; font-size: 12px; }
 .footer-links { display: flex; align-items: center; flex-wrap: wrap; gap: 24px; font-size: 12px; color: #ccd2dd; }
@@ -537,13 +562,14 @@ button:focus-visible,a:focus-visible,select:focus-visible {
   }
   .content-width, .header-inner { width: var(--home-content-width); }
   .home-intro h1 { font-size: clamp(40px, min(3.4vw, 5svh), 72px); }
-  .home-footer { margin-top: 32px; padding: 20px 0 16px; }
+  .home-footer { margin-top: auto; padding: 20px 0 16px; }
+  .homepage-map-demo > main { padding-bottom: 32px; }
   .footer-bottom { margin-top: 12px; }
 }
 @media (min-width: 768px) and (max-height: 700px) {
   .home-intro { padding-top: 18px; padding-bottom: 12px; }
   .home-intro h1 { font-size: clamp(28px, 4.8svh, 40px); }
-  .home-footer { margin-top: 16px; }
+  .homepage-map-demo > main { padding-bottom: 16px; }
 }
 @media (max-width: 767px) {
   .home-intro { padding-top: 12px; padding-bottom: 10px; }
@@ -566,4 +592,25 @@ button:focus-visible,a:focus-visible,select:focus-visible {
 }
 .brand small, .desktop-nav a, .header-login, .footer-brand > span, .footer-links,
 .footer-bottom, .mobile-footer-contact, .preview-note, .preview-note button { font-size: 13px; }
+@media (min-width: 768px) {
+  .desktop-nav a, .header-login { min-height: 44px; display: inline-flex; align-items: center; }
+  .brand { max-width: min(28vw, 360px); }
+  .brand small { max-width: 100%; }
+  .footer-links { flex-shrink: 0; }
+}
+@media (min-width: 768px) and (max-width: 1050px) {
+  .header-inner { gap: 16px; }
+  .brand { max-width: 210px; flex: 1; }
+  .brand small { font-size: 13px; }
+  .header-actions { gap: 8px; }
+  .desktop-nav a { padding-inline: 8px; }
+}
+@media (min-width: 1920px) {
+  .desktop-nav a, .header-login, .footer-links, .footer-brand > span { font-size: 15px; }
+  .brand strong { font-size: 16px; }
+}
+@media (max-width: 767px) {
+  .home-header { max-height: 100svh; overflow-y: auto; overflow-x: clip; }
+  .home-header:has(.public-language-menu) { overflow: visible; }
+}
 </style>

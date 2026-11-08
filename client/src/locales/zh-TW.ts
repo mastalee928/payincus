@@ -1,3 +1,5 @@
+import { zhTW as adminUserEmail } from './admin-user-email'
+import { zhTW as instanceExpiry } from './instance-expiry'
 import { zhTW as securityHardening } from './security-hardening'
 import { zhTW as ossMessages } from './aliyun-oss'
 // 繁體中文（台灣）語言檔案
@@ -11,6 +13,8 @@ import { zhTW as gatewayEndpoint } from './gateway-endpoint'
 import { zhTW as hostAbuse } from './host-abuse-policy'
 import { zhTW as automaticRecovery } from './automatic-recovery'
 const zhTW = {
+    adminUserEmail,
+    instanceExpiry,
     securityHardening,
     automaticRecovery,
     hostAbuse,
@@ -4135,6 +4139,7 @@ pool: {
         'user.delete': '刪除使用者',
         'user.update_quota': '更新使用者配額',
         'user.revoke_sessions': '撤銷使用者會話',
+        'user.email.update': '修改使用者信箱',
         // 個人設定
         'profile.update': '更新個人資料',
         'password.change': '變更密碼',

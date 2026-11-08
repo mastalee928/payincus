@@ -21,3 +21,10 @@ const names: Record<string, readonly [string, string]> = {
 export function homeMapCityName(city: string, locale: string): string {
   return locale === 'zh-CN' ? names[city]?.[0] ?? city : locale === 'zh-TW' ? names[city]?.[1] ?? city : city
 }
+
+/** Distinct service regions can share a city; retain their published regional name. */
+export function homeMapRegionLabel(location: { city: string; code: string }, locale: string, duplicatedCity = false): string {
+  if (location.code === 'ap-singapore-2') return locale === 'en' ? 'Singapore West' : '新加坡西部'
+  if (location.code === 'ap-singapore-1') return homeMapCityName(location.city, locale)
+  return homeMapCityName(location.city, locale) + (duplicatedCity ? ` ${location.code.split('-').at(-1)}` : '')
+}

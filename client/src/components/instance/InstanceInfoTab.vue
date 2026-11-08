@@ -39,6 +39,7 @@ interface Props {
   showPassword: Record<string, boolean>
   instancePassword?: Record<string, string | null>
   canEditConfig?: boolean
+  canEditExpiry?: boolean
   enableResourcePool?: boolean
 }
 
@@ -46,6 +47,7 @@ interface Emits {
   (e: 'toggle-password', instanceId: number): void
   (e: 'copy', text: string): void
   (e: 'edit-config'): void
+  (e: 'edit-expiry'): void
   (e: 'redeem'): void
 }
 
@@ -277,13 +279,14 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
           </dd>
         </div>
         <!-- 到期时间 -->
-        <div v-if="instance.expires_at" class="flex justify-between">
+        <div v-if="instance.expires_at" class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <dt class="text-themed-muted">{{ t('instance.detail.info.expiresAt') }}</dt>
           <dd
-            class="text-xs"
+            class="flex flex-wrap items-center justify-end gap-2 text-xs tabular-nums"
             :class="new Date(instance.expires_at) <= new Date() ? 'text-rose-600 dark:text-rose-400' : 'text-themed-muted'"
           >
             {{ formatDate(instance.expires_at) }}
+            <button v-if="isAdminEntry && canEditExpiry" type="button" class="expiry-edit text-sm text-themed underline underline-offset-4 rounded-md min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2" @click="emit('edit-expiry')">{{ t('instanceExpiry.edit') }}</button>
           </dd>
         </div>
         <!-- 封停信息 -->

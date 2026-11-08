@@ -8,6 +8,7 @@ import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js
 
 import type { FastifyInstance } from 'fastify'
 import rechargeReconciliationRoutes from './recharge-reconciliation.js'
+import adminInstanceExpiryRoutes from './admin-instance-expiry.js'
 import { Prisma, type FinancialReconciliationItemType, type FinancialReconciliationStatus, type InstanceStatus } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { assertNoPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
@@ -692,6 +693,7 @@ async function buildBatchPriceUpdatePreview(
 
 export default async function adminBillingRoutes(app: FastifyInstance): Promise<void> {
   await app.register(rechargeReconciliationRoutes)
+  await app.register(adminInstanceExpiryRoutes)
   await registerExpiryEnforcementRoutes(app, { status: getExpiryEnforcementStatus, start: startExpiryEnforcement, run: executeExpiryEnforcement, logs: getExpiryEnforcementHistory })
   // ==================== 计费概览 ====================
 

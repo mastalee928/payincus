@@ -178,15 +178,31 @@ jobs:
     if: needs.version.outputs.should_release == 'true'
     permissions:
       contents: write
+    concurrency:
+      group: agent-release-${{ needs.version.outputs.version }}
+      cancel-in-progress: false
 
     steps:
+      - name: Checkout publication validator
+        uses: actions/checkout@v4
+      - name: Setup publication validator
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Download Agent artifacts
         uses: actions/download-artifact@v4
         with:
           name: incudal-agent-${{ needs.version.outputs.version }}
           path: agent-release
 
+      - name: Verify immutable Agent release identity
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-agent-release-state.mjs '${{ needs.version.outputs.version }}' '${{ github.sha }}' agent-release
+
       - name: Publish GitHub Release
+        if: steps.existing.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: agent-${{ needs.version.outputs.version }}
@@ -201,4 +217,4 @@ jobs:
           make_latest: false
           prerelease: ${{ contains(needs.version.outputs.version, '-') }}
           fail_on_unmatched_files: true
-          overwrite_files: true
+          overwrite_files: false

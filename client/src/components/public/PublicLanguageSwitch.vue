@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, useId } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { supportedLocales, setLocale, type Locale } from '@/locales'
 
@@ -12,7 +12,13 @@ const optionsId = `public-language-options-${useId()}`
 function handleClickOutside(event: MouseEvent): void {
   if (langMenuRef.value && !langMenuRef.value.contains(event.target as Node)) langMenuOpen.value = false
 }
-function toggleLangMenu(): void { langMenuOpen.value = !langMenuOpen.value }
+async function toggleLangMenu(): Promise<void> {
+  langMenuOpen.value = !langMenuOpen.value
+  if (langMenuOpen.value) {
+    await nextTick()
+    langMenuRef.value?.querySelector<HTMLButtonElement>('.public-language-option.is-active')?.focus()
+  }
+}
 function changeLocale(nextLocale: Locale): void { setLocale(nextLocale); closeLangMenu() }
 function closeLangMenu(): void { langMenuOpen.value = false; langMenuButton.value?.focus() }
 function currentLocaleShort(): string {
@@ -36,9 +42,10 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 </template>
 
 <style scoped>
-.public-header-icon { color: var(--text-secondary); transition: background 150ms, color 150ms; }
+.public-header-icon { min-width: 44px; min-height: 44px; color: var(--text-secondary); transition: background 150ms, color 150ms; }
 .public-header-icon:hover { color: var(--text-primary); background: var(--bg-secondary); }
 .public-language-menu { z-index: 60; color: var(--text-primary); background: var(--bg-elevated); border-color: var(--border-color); }
+.public-language-option { min-height: 44px; }
 .public-language-option:hover, .public-language-option.is-active { background: var(--bg-secondary); }
 button:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 3px; }
 @media (max-width: 767px) { .public-header-icon { min-width: 44px; min-height: 44px; } .public-language-option { min-height: 44px; } }

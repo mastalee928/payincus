@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import { geoCentroid, geoDistance, geoGraticule10, geoOrthographic, geoPath, type GeoPermissibleObjects } from 'd3-geo'
+import { geoDistance, geoGraticule10, geoOrthographic, geoPath, type GeoPermissibleObjects } from 'd3-geo'
 import { useI18n } from 'vue-i18n'
 import { RotateCcw, X } from 'lucide-vue-next'
 import type { AtlasRegion } from '@/utils/homeRegionAtlas'
+import { fitGlobeViewport, MAX_GLOBE_ZOOM } from '@/utils/homeGlobeViewport'
+import { layoutMapLabels } from '@/utils/homeMapLabels'
+import { homeMapRegionLabel } from '@/utils/homeMapCityNames'
 
 const { t, locale } = useI18n()
 const props = defineProps<{ regions: AtlasRegion[]; selectedSlug: string; continent: string; loading?: boolean; failed?: boolean }>()
@@ -12,7 +15,10 @@ const svg = ref<SVGSVGElement>()
 const frame = ref<HTMLElement>()
 const rotation = ref<[number, number, number]>([77.48749, -39.04372, 0])
 const zoom = ref(1)
-const hitRadius = ref(23)
+const size = ref({ width: 400, height: 400 })
+const center = computed<[number, number]>(() => [size.value.width / 2, size.value.height / 2])
+const radius = computed(() => Math.min(size.value.width, size.value.height) * 0.44 * zoom.value)
+const hitRadius = 22
 const land = shallowRef<GeoPermissibleObjects[]>([])
 const landFailed = ref(false)
 const interacting = ref(false)
@@ -24,27 +30,47 @@ const candidateAnchor = ref({ x: 100, y: 100 })
 let candidatePressSlug = ''
 const selected = computed(() => props.regions.find(region => region.slug === props.selectedSlug))
 const candidates = computed(() => candidateSlugs.value.map(slug => props.regions.find(region => region.slug === slug)).filter((region): region is AtlasRegion => !!region))
-const projection = computed(() => geoOrthographic().translate([200, 200]).scale(176 * zoom.value).rotate(rotation.value).clipAngle(90).precision(0.6))
+const projection = computed(() => geoOrthographic().translate(center.value).scale(radius.value).rotate(rotation.value).clipAngle(90).precision(0.6))
 const paths = computed(() => { const path = geoPath(projection.value); return land.value.map(feature => path(feature) ?? '') })
 const grid = computed(() => geoPath(projection.value)(geoGraticule10()) ?? '')
 const points = computed(() => {
-  const center = projection.value.invert?.([200, 200]) ?? [0, 0]
+  const locationCenter = projection.value.invert?.(center.value) ?? [0, 0]
   return props.regions.flatMap(region => {
     const location = region.geography
     if (!location) return []
     const coordinate: [number, number] = [location.longitude, location.latitude]
-    if (geoDistance(coordinate, center) >= Math.PI / 2 - 0.008) return []
+    if (geoDistance(coordinate, locationCenter) >= Math.PI / 2 - 0.008) return []
     const point = projection.value(coordinate)
     if (!point) return []
     // Presentation-only separation for same-city regions; geographic coordinates are retained.
     const x = point[0] + ((region.displayX ?? location.x) - location.x) * 0.6
     const y = point[1] + ((region.displayY ?? location.y) - location.y) * 0.6
-    return x >= 4 && x <= 396 && y >= 4 && y <= 396 ? [{ region, x, y }] : []
+    return x >= 4 && x <= size.value.width - 4 && y >= 4 && y <= size.value.height - 4 ? [{ region, x, y }] : []
   })
 })
 const selectedPoint = computed(() => points.value.find(point => point.region.slug === props.selectedSlug))
 const name = (region: AtlasRegion) => region.geography?.code === 'eu-madrid-3' ? t('homeMapDemo.madrid') : region.geography?.code === 'ap-kulai-2' ? t('homeMapDemo.kulai') : locale.value === 'en' ? region.nameEn : locale.value === 'zh-TW' ? region.nameZhTW : region.name
 const status = (region: AtlasRegion) => props.loading ? t('homeMapDemo.stockLoading') : props.failed ? t('homeMapDemo.stockUnknown') : region.stock > 0 ? t('homeMapDemo.available', { count: region.stock }) : region.products.length ? t('homeMapDemo.noStock') : t('homeMapDemo.unlisted')
+const measureContext = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d')
+if (measureContext) measureContext.font = '500 13px "Inter Variable", Inter, "Microsoft YaHei", sans-serif'
+const labels = computed(() => {
+  if (props.continent === 'all' || interacting.value || cameraMoving.value) return []
+  const visible = points.value.filter(point => props.continent === 'all' || point.region.continent === props.continent)
+  return layoutMapLabels(visible.map(({ region, x, y }) => ({
+    id: region.slug, x, y, text: homeMapRegionLabel(region.geography!, locale.value,
+      visible.filter(point => point.region.geography!.city === region.geography!.city).length > 1),
+    selected: region.slug === props.selectedSlug,
+    priority: region.slug === props.selectedSlug ? 3 : region.stock > 0 && !props.loading && !props.failed ? 2 : 1
+  })), size.value.width, size.value.height, text => {
+    const measured = text === 'Singapore West' ? 'Singapore' : text
+    return Math.max(44, measureContext?.measureText(measured).width ?? measured.length * 13)
+  },
+  [{ x: size.value.width - 74, y: size.value.height - 68, width: 74, height: 68 }], new Map(), 44)
+})
+function chooseLabel(slug: string) {
+  const point = points.value.find(point => point.region.slug === slug)
+  if (point) choose(point.region)
+}
 const feedbackStyle = computed(() => {
   const matrix = svg.value?.getScreenCTM(), box = frame.value?.getBoundingClientRect()
   if (!matrix || !box) return {}
@@ -58,6 +84,7 @@ const feedbackStyle = computed(() => {
 function reduced() { return document.documentElement.dataset.homeDemoMotion === 'full' ? false : document.documentElement.dataset.homeDemoMotion === 'reduced' || matchMedia('(prefers-reduced-motion: reduce)').matches }
 let animation = 0
 let movedByUser = false
+let fittedContinent = ''
 function animateTo(target: [number, number, number], targetZoom = 1) {
   cancelAnimationFrame(animation)
   feedbackOpen.value = false
@@ -80,20 +107,28 @@ function animateTo(target: [number, number, number], targetZoom = 1) {
 function focusRegion(region: AtlasRegion) {
   if (!region.geography) return
   movedByUser = true
-  animateTo([-region.geography.longitude, -region.geography.latitude, 0], Math.min(2.5, Math.max(1.14, zoom.value * 1.08)))
+  fittedContinent = ''
+  animateTo([-region.geography.longitude, -region.geography.latitude, 0], Math.min(MAX_GLOBE_ZOOM, Math.max(1.14, zoom.value)))
 }
 function focusContinent(value: string) {
   movedByUser = true
   if (value === 'all') { reset(); return }
-  const locations = props.regions.filter(region => region.continent === value && region.geography).map(region => [region.geography!.longitude, region.geography!.latitude])
-  if (!locations.length) return
-  const center = geoCentroid({ type: 'MultiPoint', coordinates: locations })
-  animateTo([-center[0], -center[1], 0], 1.1)
+  const locations = props.regions.filter(region => region.continent === value && region.geography).map(region => [region.geography!.longitude, region.geography!.latitude] as [number, number])
+  const view = fitGlobeViewport(locations, size.value.width, size.value.height)
+  if (!view) return
+  fittedContinent = value
+  animateTo(view.rotation, view.zoom)
 }
 function reset() {
+  movedByUser = true
+  fittedContinent = ''
   const region = selected.value ?? props.regions.find(region => region.stock > 0) ?? props.regions.find(region => region.geography)
   if (region?.geography) animateTo([-region.geography.longitude, -region.geography.latitude, 0])
   else animateTo([0, -20, 0])
+}
+function resetContinentView() {
+  if (props.continent === 'all') reset()
+  else focusContinent(props.continent)
 }
 defineExpose({ focusRegion, focusContinent, reset })
 watch(() => props.regions, () => {
@@ -102,6 +137,7 @@ watch(() => props.regions, () => {
   if (region?.geography) rotation.value = [-region.geography.longitude, -region.geography.latitude, 0]
 }, { immediate: true })
 watch(() => props.selectedSlug, () => { closeCandidates(); if (!cameraMoving.value) feedbackOpen.value = true })
+if (typeof document !== 'undefined') void document.fonts.ready.then(() => { size.value = { ...size.value } })
 function closeCandidates() { candidateSlugs.value = []; candidatePressSlug = ''; candidateHighlightSlug.value = '' }
 function beginCandidatePress(region: AtlasRegion) { candidatePressSlug = region.slug; candidateHighlightSlug.value = region.slug }
 function choose(region: AtlasRegion) { closeCandidates(); feedbackOpen.value = true; emit('choose', region) }
@@ -113,9 +149,11 @@ function chooseCandidate(region: AtlasRegion, event: MouseEvent) {
   focusRegion(region)
 }
 const pointers = new Map<number, { x: number; y: number }>()
+let pressedLabel = ''
 let origin = { x: 0, y: 0 }, initialRotation: [number, number, number] = [0, 0, 0], initialZoom = 1, initialDistance = 0, dragged = false
 function down(event: PointerEvent) {
   if (event.button !== 0) return
+  pressedLabel = ''
   movedByUser = true
   cancelAnimationFrame(animation)
   cameraMoving.value = false
@@ -127,30 +165,43 @@ function down(event: PointerEvent) {
   initialRotation = [...rotation.value]
   initialZoom = zoom.value
   dragged = false
-  if (pointers.size === 2) {
+  if (pointers.size >= 2) {
+    fittedContinent = ''
     const pair = [...pointers.values()]
     initialDistance = Math.hypot(pair[0].x - pair[1].x, pair[0].y - pair[1].y)
     dragged = true; interacting.value = true
   }
 }
+function downLabel(event: PointerEvent, slug: string) {
+  down(event)
+  if (event.button === 0 && pointers.size === 1) pressedLabel = slug
+}
 function move(event: PointerEvent) {
   if (!pointers.has(event.pointerId)) return
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
-  if (pointers.size === 2) {
+  if (pointers.size >= 2) {
     const pair = [...pointers.values()], distance = Math.hypot(pair[0].x - pair[1].x, pair[0].y - pair[1].y)
-    zoom.value = Math.min(2.5, Math.max(0.85, initialZoom * distance / Math.max(1, initialDistance)))
+    zoom.value = Math.min(MAX_GLOBE_ZOOM, Math.max(0.85, initialZoom * distance / Math.max(1, initialDistance)))
     return
   }
   const dx = event.clientX - origin.x, dy = event.clientY - origin.y
-  if (Math.hypot(dx, dy) > 5) { dragged = true; interacting.value = true }
+  if (Math.hypot(dx, dy) > 5) { fittedContinent = ''; dragged = true; interacting.value = true }
   if (dragged) rotation.value = [initialRotation[0] + dx * 0.38 / zoom.value, Math.max(-80, Math.min(80, initialRotation[1] - dy * 0.3 / zoom.value)), 0]
 }
 function up(event: PointerEvent) {
+  if (!pointers.has(event.pointerId)) return
   const wasDrag = dragged
+  const label = pressedLabel
+  pressedLabel = ''
   pointers.delete(event.pointerId)
   if (!pointers.size) interacting.value = false
-  else { origin = [...pointers.values()][0]; initialRotation = [...rotation.value]; dragged = true }
-  if (wasDrag || event.type === 'pointercancel') return
+  else {
+    const remaining = [...pointers.values()]
+    origin = remaining[0]; initialRotation = [...rotation.value]; initialZoom = zoom.value; dragged = true
+    if (remaining.length >= 2) initialDistance = Math.hypot(remaining[0].x - remaining[1].x, remaining[0].y - remaining[1].y)
+  }
+  if (wasDrag || event.type !== 'pointerup') return
+  if (label) { chooseLabel(label); return }
   const matrix = svg.value?.getScreenCTM()
   if (!matrix) return
   const nearby = points.value.map(point => { const position = new DOMPoint(point.x, point.y).matrixTransform(matrix); return { ...point, distance: Math.hypot(position.x - event.clientX, position.y - event.clientY) } })
@@ -164,7 +215,12 @@ function up(event: PointerEvent) {
 const controller = new AbortController()
 let resize: ResizeObserver | undefined
 onMounted(async () => {
-  resize = new ResizeObserver(() => { const scale = svg.value?.getScreenCTM()?.a ?? 1; hitRadius.value = 22 / Math.max(0.1, Math.abs(scale)) })
+  resize = new ResizeObserver(() => {
+    const box = frame.value?.getBoundingClientRect()
+    if (!box?.width || !box.height || (box.width === size.value.width && box.height === size.value.height)) return
+    size.value = { width: box.width, height: box.height }
+    if (fittedContinent) focusContinent(fittedContinent)
+  })
   if (frame.value) resize.observe(frame.value)
   try {
     const response = await fetch('/maps/mobile-globe-land.json', { signal: controller.signal })
@@ -178,27 +234,31 @@ onBeforeUnmount(() => { cancelAnimationFrame(animation); controller.abort(); res
 
 <template>
   <div ref="frame" class="mobile-vector-globe" :class="interacting ? 'is-interacting' : ''">
-    <svg ref="svg" viewBox="0 0 400 400" class="vector-globe-svg" role="group" :aria-label="t('homeMapDemo.globeLabel')" :data-rotation="rotation.join(',')" :data-zoom="zoom" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up">
+    <svg ref="svg" :viewBox="`0 0 ${size.width} ${size.height}`" class="vector-globe-svg" role="group" :aria-label="t('homeMapDemo.globeLabel')" :data-rotation="rotation.join(',')" :data-zoom="zoom" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @lostpointercapture="up">
       <defs>
         <radialGradient id="globe-ocean" cx="34%" cy="27%" r="75%"><stop offset="0" stop-color="var(--globe-ocean-start, #152334)" /><stop offset="0.66" stop-color="var(--globe-ocean-mid, #0b1420)" /><stop offset="1" stop-color="var(--globe-ocean-end, #04090f)" /></radialGradient>
         <radialGradient id="globe-light" cx="30%" cy="22%" r="82%"><stop offset="0" stop-color="#a1b9d0" stop-opacity="0.07" /><stop offset="0.7" stop-color="#060a12" stop-opacity="0" /><stop offset="1" stop-color="#000" stop-opacity="var(--globe-shade-opacity, .55)" /></radialGradient>
         <filter id="globe-point-light" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="3" /><feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-        <clipPath id="globe-circle"><circle cx="200" cy="200" :r="176 * zoom" /></clipPath>
+        <clipPath id="globe-circle"><circle :cx="center[0]" :cy="center[1]" :r="radius" /></clipPath>
       </defs>
-      <circle cx="200" cy="200" :r="178 * zoom" fill="var(--globe-rim, #101b2b)" stroke="var(--globe-rim-stroke, #344458)" stroke-width="0.8" />
+      <circle :cx="center[0]" :cy="center[1]" :r="radius + 2" fill="var(--globe-rim, #101b2b)" stroke="var(--globe-rim-stroke, #344458)" stroke-width="0.8" />
       <g clip-path="url(#globe-circle)">
-        <circle cx="200" cy="200" :r="176 * zoom" fill="url(#globe-ocean)" />
+        <circle :cx="center[0]" :cy="center[1]" :r="radius" fill="url(#globe-ocean)" />
         <path :d="grid" fill="none" stroke="var(--globe-grid, #4c637c)" stroke-opacity="0.13" stroke-width="0.7" />
         <path v-for="(path, index) in paths" :key="index" :d="path" fill="var(--globe-land, #202d3c)" stroke="var(--globe-land-stroke, #526378)" stroke-opacity="0.55" stroke-width="0.65" />
-        <circle cx="200" cy="200" :r="176 * zoom" fill="url(#globe-light)" pointer-events="none" />
-        <g v-for="point in points" :key="point.region.slug" class="globe-region-point" :class="[point.region.stock > 0 && !loading && !failed ? 'available' : '', point.region.slug === selectedSlug ? 'selected' : '', point.region.slug === candidateHighlightSlug ? 'previewed' : '', continent !== 'all' && point.region.continent !== continent ? 'dimmed' : '']" :transform="`translate(${point.x} ${point.y})`" role="button" tabindex="0" :aria-label="`${name(point.region)}，${status(point.region)}`" @keydown.enter.prevent="choose(point.region)" @keydown.space.prevent="choose(point.region)">
+        <circle :cx="center[0]" :cy="center[1]" :r="radius" fill="url(#globe-light)" pointer-events="none" />
+        <g v-for="point in points" :key="point.region.slug" class="globe-region-point" :class="[point.region.stock > 0 && !loading && !failed ? 'available' : '', point.region.slug === selectedSlug ? 'selected' : '', point.region.slug === candidateHighlightSlug ? 'previewed' : '', continent !== 'all' && point.region.continent !== continent ? 'dimmed' : '']" :transform="`translate(${point.x} ${point.y})`" role="button" :tabindex="continent === 'all' || point.region.continent === continent ? 0 : -1" :aria-hidden="continent !== 'all' && point.region.continent !== continent" :aria-pressed="point.region.slug === selectedSlug" :aria-label="`${name(point.region)}，${status(point.region)}`" @keydown.enter.prevent="choose(point.region)" @keydown.space.prevent="choose(point.region)">
           <circle :r="hitRadius" fill="transparent" class="globe-node-hit" />
           <circle v-if="point.region.slug === selectedSlug || point.region.slug === candidateHighlightSlug" class="globe-point-ring" r="12" fill="none" stroke="#7edde5" stroke-width="0.9" opacity="0.8" />
           <circle class="globe-node-core" :r="point.region.stock > 0 ? 5 : 3.5" />
         </g>
       </g>
     </svg>
-    <button type="button" class="globe-reset" :aria-label="t('homeMapDemo.resetGlobe')" @click="reset"><RotateCcw :size="15" /></button>
+    <div class="globe-label-layer">
+      <svg aria-hidden="true"><line v-for="label in labels" :key="label.id" :x1="label.nodeX" :y1="label.nodeY" :x2="Math.max(label.x, Math.min(label.x + label.width, label.nodeX))" :y2="Math.max(label.y + 12, Math.min(label.y + label.height - 12, label.nodeY))" /></svg>
+      <button v-for="label in labels" :key="label.id" type="button" class="globe-city-label" :class="{ 'is-selected': label.selected }" :data-region="label.id" :aria-pressed="label.selected" :style="{ left: `${label.x}px`, top: `${label.y}px`, width: `${label.width}px` }" @pointerdown="downLabel($event, label.id)" @click="$event.detail === 0 && chooseLabel(label.id)">{{ label.text }}</button>
+    </div>
+    <button type="button" class="globe-reset" :aria-label="t('homeMapDemo.resetGlobe')" @click="resetContinentView"><RotateCcw :size="15" /></button>
     <div v-if="candidates.length" class="globe-feedback" :style="feedbackStyle"><div class="globe-feedback-title"><strong>{{ t('homeMapDemo.nearby') }}</strong><button type="button" :aria-label="t('homeMapDemo.closeNearby')" @click="closeCandidates"><X :size="14" /></button></div><div class="globe-candidates"><button v-for="region in candidates" :key="region.slug" type="button" @pointerenter="candidateHighlightSlug = region.slug" @pointerleave="candidateHighlightSlug = ''" @focus="candidateHighlightSlug = region.slug" @blur="candidateHighlightSlug = ''" @pointerdown="beginCandidatePress(region)" @pointercancel="candidateHighlightSlug = ''; candidatePressSlug = ''" @click="chooseCandidate(region, $event)"><span>{{ name(region) }}</span><small>{{ status(region) }}</small></button></div></div>
     <div v-else-if="feedbackOpen && selectedPoint && selected" class="globe-feedback" :style="feedbackStyle" role="status"><div class="globe-feedback-title"><span><strong>{{ name(selected) }}</strong><small>{{ status(selected) }}</small></span><button type="button" :aria-label="t('homeMapDemo.closeGlobeFeedback')" @click="feedbackOpen = false"><X :size="14" /></button></div></div>
     <p v-if="landFailed" class="coastline-error" role="alert">{{ t('homeMapDemo.coastlineFailed') }}</p>
@@ -206,7 +266,12 @@ onBeforeUnmount(() => { cancelAnimationFrame(animation); controller.abort(); res
 </template>
 
 <style scoped>
-.mobile-vector-globe { position: relative; width: 100%; height: 100%; isolation: isolate; }
+.mobile-vector-globe { position: relative; width: 100%; height: 100%; isolation: isolate; overflow: hidden; }
+.globe-label-layer { position: absolute; inset: 0; pointer-events: none; }
+.globe-label-layer svg { width: 100%; height: 100%; }
+.globe-label-layer line { stroke: var(--home-map-leader, #69788b); stroke-width: .75; opacity: .65; }
+.globe-city-label { position: absolute; min-width: 44px; height: 44px; padding: 0; border: 0; background: transparent; color: var(--home-map-label, #d1d8e3); font: 500 13px/20px 'Inter Variable',Inter,'Microsoft YaHei',sans-serif; text-align: left; white-space: normal; pointer-events: auto; touch-action: none; cursor: pointer; }
+.globe-city-label.is-selected { color: var(--home-map-active, #8ce6eb); }
 .vector-globe-svg { width: 100%; height: 100%; touch-action: none; user-select: none; cursor: grab; }
 .is-interacting .vector-globe-svg { cursor: grabbing; }
 .globe-region-point { outline: none; cursor: pointer; }

@@ -6,7 +6,8 @@ import { ArrowDown, ArrowUpRight, Check, ChevronDown, Globe2, Minus, Plus, Rotat
 import FlagIcon from '@/components/FlagIcon.vue'
 import HomeMapLabels from './HomeMapLabels.vue'
 import type { MapLabelPoint } from '@/utils/homeMapLabels'
-import { homeMapCityName } from '@/utils/homeMapCityNames'
+import { fitMapViewport } from '@/utils/homeMapViewport'
+import { homeMapRegionLabel } from '@/utils/homeMapCityNames'
 import { buildAtlasRegions, atlasPurchaseTarget, atlasRegionPurchaseTarget, atlasRegionFromQuery, type AtlasRegion } from '@/utils/homeRegionAtlas'
 import { formatMemoryMiB, formatPublicPrice, presetLabel, type PoolCatalogRegion } from '@/utils/poolCatalog'
 
@@ -40,8 +41,10 @@ const catalogElement = ref<HTMLElement>()
 const zoom = ref(1)
 const pan = ref({ x: 0, y: 0 })
 const mapWidth = ref(1440)
+let continentView = false
 const isGesturing = ref(false)
 const touchMode = ref(false)
+const coarsePointer = ref(false)
 const expandedSlug = ref('')
 const mobileStrip = ref<HTMLElement>()
 const mobileCardIndex = ref(0)
@@ -76,13 +79,14 @@ const mapRegions = computed(() => regions.value.filter(region => region.displayX
 const statusText = (region: AtlasRegion) => region.status === 'available' ? t('homeMapDemo.available', { count: region.stock }) : region.status === 'sold-out' ? t('homeMapDemo.soldOut') : t('homeMapDemo.unlisted')
 const regionName = (region: AtlasRegion) => region.geography?.code === 'eu-madrid-3' ? t('homeMapDemo.madrid') : region.geography?.code === 'ap-kulai-2' ? t('homeMapDemo.kulai') : locale.value === 'en' ? region.nameEn : locale.value === 'zh-TW' ? region.nameZhTW : region.name
 const transform = computed(() => `translate(${pan.value.x} ${pan.value.y}) translate(720 250) scale(${zoom.value}) translate(-720 -250)`)
-const hitRadius = computed(() => touchMode.value ? 22 * 1440 / Math.max(1, mapWidth.value) / zoom.value : 14 / zoom.value)
+const markerScale = computed(() => 1440 / Math.max(1, mapWidth.value) / zoom.value)
 const labelPoints = computed<MapLabelPoint[]>(() => mapRegions.value.map(region => {
   const active = region.slug === selectedSlug.value || region.slug === hoverSlug.value
   const available = region.stock > 0 && !props.loading && !props.failed
   return {
     id: region.slug, x: region.displayX!, y: region.displayY!,
-    text: region.geography?.city ? homeMapCityName(region.geography.city, locale.value) : regionName(region) ?? region.name,
+    text: region.geography?.city ? homeMapRegionLabel(region.geography, locale.value,
+      mapRegions.value.filter(item => item.geography?.city === region.geography?.city).length > 1) : regionName(region) ?? region.name,
     priority: active ? (region.slug === hoverSlug.value ? 3 : 2) : !matchesControls(region) ? -1 : available ? 1 : continent.value !== 'all' || zoom.value >= 1.6 ? 0 : -1,
     selected: region.slug === selectedSlug.value
   }
@@ -107,10 +111,14 @@ const tooltipStyle = computed(() => {
   return { left: `${Math.max(12, Math.min(mapWidth.value - 292, left))}px`, top: `${Math.max(12, Math.min(mapFrame.value.clientHeight - 260, y - 110))}px` }
 })
 watch([continent, search, onlyAvailable, activeRegionSlug], () => { visibleCount.value = 10 })
-watch([search, onlyAvailable, () => props.catalog], () => {
+watch([search, onlyAvailable], () => {
   if (search.value.trim() || onlyAvailable.value) focusMatchingRegions()
-  else if (!activeRegionSlug.value && !globeTrial.value && !(minimal.value && touchMode.value && continent.value !== 'all')) resetView()
+  else if (continent.value !== 'all') focusContinentView()
+  else if (!activeRegionSlug.value && !globeTrial.value) resetView()
 })
+// Stock refreshes must not override a continent selection or a manually adjusted view.
+watch(() => props.catalog, () => { if (search.value.trim() || onlyAvailable.value) focusMatchingRegions() })
+watch(mobileGlobe, globe => { if (globeTrial.value && continent.value !== 'all') globe?.focusContinent?.(continent.value) })
 watch(() => route.query.region, query => {
   // Our own URL synchronization must not reopen a card the user just collapsed.
   if (query !== selectedSlug.value) restoreRegion()
@@ -132,7 +140,7 @@ function restoreRegion() {
     selectedSlug.value = found.slug
     activeRegionSlug.value = minimal.value ? '' : found.slug
     expandedSlug.value = found.slug
-    if (!(minimal.value && touchMode.value) || (continent.value !== 'all' && continent.value !== found.continent)) continent.value = 'all'
+    alignContinent(found)
     search.value = ''
     onlyAvailable.value = false
     const index = filtered.value.findIndex(region => region.slug === found.slug)
@@ -151,7 +159,7 @@ async function selectRegion(region: AtlasRegion, source: 'map' | 'list' | 'toolt
   expandedSlug.value = source === 'list' && wasExpanded ? '' : region.slug
   tooltipPinned.value = false
   hoverSlug.value = ''
-  if (!(minimal.value && touchMode.value) || (continent.value !== 'all' && continent.value !== region.continent)) continent.value = 'all'
+  alignContinent(region)
   search.value = ''
   onlyAvailable.value = false
   const index = filtered.value.findIndex(item => item.slug === region.slug)
@@ -159,7 +167,7 @@ async function selectRegion(region: AtlasRegion, source: 'map' | 'list' | 'toolt
   await router.push({ query: { ...route.query, region: region.slug } })
   if (source === 'list' && region.displayX !== null) focusRegion(region)
   await nextTick()
-  if (minimal.value && touchMode.value && !globeTrial.value) {
+  if (minimal.value && (touchMode.value || coarsePointer.value) && !globeTrial.value) {
     clearTimeout(mobileFeedbackTimer)
     mobileCandidateSlugs.value = []
     if (source === 'list') mobileFeedbackTimer = setTimeout(() => showMobileRegion(region), reducedMotion() ? 0 : 720)
@@ -178,12 +186,14 @@ function limitPan() {
   pan.value = { x: Math.max(-maxX, Math.min(maxX, pan.value.x)), y: Math.max(-maxY, Math.min(maxY, pan.value.y)) }
 }
 function focusRegion(region: AtlasRegion) {
-  if (globeTrial.value) { mobileGlobe.value?.focusRegion(region); return }
+  continentView = false
+  if (globeTrial.value) { mobileGlobe.value?.focusRegion?.(region); return }
   zoom.value = touchMode.value ? minimal.value ? Math.max(2.8, zoom.value) : 1.7 : 1.25
   pan.value = { x: (720 - region.displayX!) * zoom.value, y: (250 - region.displayY!) * zoom.value }
   limitPan()
 }
 function focusMatchingRegions() {
+  continentView = false
   const points = mapRegions.value.filter(matchesControls)
   if (!points.length) { resetView(); return }
   const xs = points.map(region => region.displayX!), ys = points.map(region => region.displayY!)
@@ -193,6 +203,23 @@ function focusMatchingRegions() {
     y: (250 - ys.reduce((sum, y) => sum + y, 0) / ys.length) * zoom.value }
   limitPan()
 }
+function alignContinent(region: AtlasRegion) {
+  if (continent.value === 'all' || continent.value === region.continent) return
+  continent.value = filterOptions.value.some(option => option.value === region.continent) ? region.continent : 'all'
+  focusContinentView()
+}
+function focusContinentView() {
+  const value = continent.value
+  if (value === 'all') { resetView(); return }
+  continentView = true
+  if (globeTrial.value) { void nextTick(() => { if (globeTrial.value) mobileGlobe.value?.focusContinent?.(continent.value) }); return }
+  const points = mapRegions.value.filter(region => region.continent === value)
+  const frame = svg.value?.getBoundingClientRect()
+  const view = fitMapViewport(points.map(region => ({ x: region.displayX!, y: region.displayY! })),
+    frame?.width || mapWidth.value, frame?.height || mapWidth.value * 500 / 1440)
+  zoom.value = view.zoom
+  pan.value = view.pan
+}
 function setContinent(value: string) {
   closeMobileFeedback()
   activeRegionSlug.value = ''
@@ -201,26 +228,16 @@ function setContinent(value: string) {
   removeRegionQuery()
   continent.value = value
   search.value = ''
+  onlyAvailable.value = false
   hoverSlug.value = ''
-  if (globeTrial.value) { void nextTick(() => mobileGlobe.value?.focusContinent(value)); return }
-  if (value === 'all') { resetView(); return }
-  const points = mapRegions.value.filter(region => region.continent === value)
-  if (!points.length) return
-  const x = points.reduce((sum, region) => sum + region.displayX!, 0) / points.length
-  const y = points.reduce((sum, region) => sum + region.displayY!, 0) / points.length
-  const spanX = Math.max(...points.map(region => region.displayX!)) - Math.min(...points.map(region => region.displayX!))
-  const spanY = Math.max(...points.map(region => region.displayY!)) - Math.min(...points.map(region => region.displayY!))
-  const scale = mapWidth.value / 1440
-  zoom.value = touchMode.value && minimal.value
-    ? boundedZoom(Math.max(2.4, Math.min((mapWidth.value - 64) / Math.max(1, spanX * scale), 170 / Math.max(1, spanY * scale))))
-    : touchMode.value ? 1.8 : 1.35
-  pan.value = { x: (720 - x) * zoom.value, y: (250 - y) * zoom.value }
-  limitPan()
+  focusContinentView()
 }
-function resetView() { zoom.value = 1; pan.value = { x: 0, y: 0 }; hoverSlug.value = ''; closeMobileFeedback(); if (globeTrial.value) mobileGlobe.value?.reset() }
-function changeZoom(delta: number) { zoom.value = boundedZoom(zoom.value + delta); limitPan(); hoverSlug.value = '' }
+function resetView() { continentView = false; zoom.value = 1; pan.value = { x: 0, y: 0 }; hoverSlug.value = ''; closeMobileFeedback(); if (globeTrial.value) void nextTick(() => { if (globeTrial.value && continent.value === 'all') mobileGlobe.value?.reset?.() }) }
+function resetMapView() { closeMobileFeedback(); hoverSlug.value = ''; focusContinentView() }
+function changeZoom(delta: number) { continentView = false; zoom.value = boundedZoom(zoom.value + delta); limitPan(); hoverSlug.value = '' }
 function handleMapWheel(event: WheelEvent) {
   if (touchMode.value || !svg.value || event.deltaY === 0) return
+  continentView = false
   event.preventDefault()
   const matrix = svg.value.getScreenCTM()
   if (!matrix) return
@@ -286,7 +303,7 @@ async function showSelectedConfigurations() {
 }
 let hideTimer: ReturnType<typeof setTimeout> | undefined
 function showTooltip(region: AtlasRegion) {
-  if (touchMode.value || isGesturing.value) return
+  if (touchMode.value || coarsePointer.value || isGesturing.value) return
   clearTimeout(hideTimer)
   hoverSlug.value = region.slug
 }
@@ -321,6 +338,7 @@ function onMobileCardScroll() {
   if (strip && first) mobileCardIndex.value = Math.min(mobileRegionChoices.value.length - 1, Math.max(0, Math.round(strip.scrollLeft / (first.offsetWidth + 12))))
 }
 const pointers = new Map<number, { x: number; y: number }>()
+let pressedLabel = ''
 let pointerOrigin = { x: 0, y: 0 }
 let initialPan = { x: 0, y: 0 }
 let initialDistance = 0
@@ -328,6 +346,7 @@ let initialZoom = 1
 let dragged = false
 function pointerDown(event: PointerEvent) {
   if (event.button !== 0) return
+  pressedLabel = ''
   closeMobileFeedback()
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
   svg.value?.setPointerCapture(event.pointerId)
@@ -336,24 +355,29 @@ function pointerDown(event: PointerEvent) {
   initialZoom = zoom.value
   dragged = false
   hoverSlug.value = ''
-  if (pointers.size === 2) {
+  if (pointers.size >= 2) {
+    continentView = false
     const values = [...pointers.values()]
     initialDistance = Math.hypot(values[0].x - values[1].x, values[0].y - values[1].y)
     isGesturing.value = true
     dragged = true
   }
 }
+function pointerDownLabel(event: PointerEvent, slug: string) {
+  pointerDown(event)
+  if (event.button === 0 && pointers.size === 1) pressedLabel = slug
+}
 function pointerMove(event: PointerEvent) {
   if (!pointers.has(event.pointerId)) return
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
-  if (pointers.size === 2) {
+  if (pointers.size >= 2) {
     const values = [...pointers.values()]
     const distance = Math.hypot(values[0].x - values[1].x, values[0].y - values[1].y)
     zoom.value = boundedZoom(initialZoom * distance / Math.max(1, initialDistance))
     limitPan()
   } else {
     const dx = event.clientX - pointerOrigin.x, dy = event.clientY - pointerOrigin.y
-    if (Math.hypot(dx, dy) > 5) { dragged = true; isGesturing.value = true }
+    if (Math.hypot(dx, dy) > 5) { continentView = false; dragged = true; isGesturing.value = true }
     if (dragged) {
       pan.value = { x: initialPan.x + dx * 1440 / mapWidth.value, y: initialPan.y + dy * 1440 / mapWidth.value }
       limitPan()
@@ -361,21 +385,32 @@ function pointerMove(event: PointerEvent) {
   }
 }
 function pointerUp(event: PointerEvent) {
+  if (!pointers.has(event.pointerId)) return
   const wasDrag = dragged
+  const label = pressedLabel
+  pressedLabel = ''
   pointers.delete(event.pointerId)
   if (!pointers.size) isGesturing.value = false
-  else { pointerOrigin = [...pointers.values()][0]; initialPan = { ...pan.value }; dragged = true }
-  if (wasDrag || event.type === 'pointercancel') return
+  else {
+    const remaining = [...pointers.values()]
+    pointerOrigin = remaining[0]; initialPan = { ...pan.value }; initialZoom = zoom.value; dragged = true
+    if (remaining.length >= 2) initialDistance = Math.hypot(remaining[0].x - remaining[1].x, remaining[0].y - remaining[1].y)
+  }
+  if (wasDrag || event.type !== 'pointerup') return
+  if (label) { selectLabel(label); return }
   // Hit testing in CSS pixels keeps the touch radius >=22px regardless of zoom or SVG letterboxing.
   const matrix = mapGroup.value?.getScreenCTM()
   if (!matrix) return
-  const ranked = mapRegions.value.filter(region => !(minimal.value && touchMode.value) || continent.value === 'all' || region.continent === continent.value).map(region => {
+  const touch = event.pointerType === 'touch' || touchMode.value || coarsePointer.value
+  const ranked = mapRegions.value.filter(region => continent.value === 'all' || region.continent === continent.value).map(region => {
     const point = new DOMPoint(region.displayX!, region.displayY!).matrixTransform(matrix)
-    return { region, distance: Math.hypot(point.x - event.clientX, point.y - event.clientY) }
+    return { region, distance: Math.hypot(point.x - event.clientX, point.y - event.clientY),
+      radius: touch ? 22 : 14 }
   })
+    .filter(item => item.distance <= item.radius)
     .sort((a, b) => a.distance - b.distance)
   const nearest = ranked[0]
-  if (minimal.value && touchMode.value) {
+  if (minimal.value && touch) {
     const nearby = ranked.filter(item => item.distance <= 22)
     if (nearby.length > 1) {
       mobileCandidateSlugs.value = nearby.map(item => item.region.slug)
@@ -384,19 +419,27 @@ function pointerUp(event: PointerEvent) {
       return
     }
   }
-  if (nearest && nearest.distance <= (touchMode.value ? 22 : 14)) void selectRegion(nearest.region, 'map')
+  if (nearest) void selectRegion(nearest.region, 'map')
 }
 let resize: ResizeObserver | undefined
 let mobileQuery: MediaQueryList | undefined
-function updateMobile() { touchMode.value = mobileQuery?.matches ?? false; resetView() }
+let pointerQuery: MediaQueryList | undefined
+function updatePointer() { coarsePointer.value = pointerQuery?.matches ?? false }
+function updateMobile() { touchMode.value = mobileQuery?.matches ?? false; void nextTick(focusContinentView) }
 onMounted(() => {
   mobileQuery = window.matchMedia('(max-width: 767px)')
   touchMode.value = mobileQuery.matches
   mobileQuery.addEventListener('change', updateMobile)
-  resize = new ResizeObserver(entries => { mapWidth.value = entries[0]?.contentRect.width ?? 1440 })
+  pointerQuery = window.matchMedia('(pointer: coarse)')
+  updatePointer()
+  pointerQuery.addEventListener('change', updatePointer)
+  resize = new ResizeObserver(entries => {
+    mapWidth.value = entries[0]?.contentRect.width ?? 1440
+    if (continentView && !globeTrial.value) focusContinentView()
+  })
   if (mapFrame.value) resize.observe(mapFrame.value)
 })
-onBeforeUnmount(() => { resize?.disconnect(); mobileQuery?.removeEventListener('change', updateMobile); clearTimeout(hideTimer); clearTimeout(mobileFeedbackTimer) })
+onBeforeUnmount(() => { resize?.disconnect(); mobileQuery?.removeEventListener('change', updateMobile); pointerQuery?.removeEventListener('change', updatePointer); clearTimeout(hideTimer); clearTimeout(mobileFeedbackTimer) })
 </script>
 
 <template>
@@ -412,33 +455,33 @@ onBeforeUnmount(() => { resize?.disconnect(); mobileQuery?.removeEventListener('
       <MobileRegionGlobe v-if="globeTrial" ref="mobileGlobe" :regions="regions" :selected-slug="selectedSlug" :continent="continent" :loading="loading" :failed="failed" @choose="selectRegion($event, 'map')" />
       <template v-else>
         <div class="globe-atmosphere" aria-hidden="true"></div>
-        <svg ref="svg" class="map-svg" viewBox="0 0 1440 500" preserveAspectRatio="xMidYMid meet" role="group" :aria-label="minimal ? t('homeMapDemo.mapLabel') : t('homeMapDemo.catalogMapLabel')" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerUp" @wheel="handleMapWheel" @dblclick.prevent="changeZoom(0.6)">
+        <svg ref="svg" class="map-svg" viewBox="0 0 1440 500" preserveAspectRatio="xMidYMid meet" role="group" :aria-label="minimal ? t('homeMapDemo.mapLabel') : t('homeMapDemo.catalogMapLabel')" @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerUp" @lostpointercapture="pointerUp" @wheel="handleMapWheel" @dblclick.prevent="changeZoom(0.6)">
           <defs>
             <filter id="atlas-neon" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="3.2" /><feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge></filter>
             <radialGradient id="atlas-pool"><stop offset="0" stop-color="#00f2fe" stop-opacity="0.14" /><stop offset="1" stop-color="#00f2fe" stop-opacity="0" /></radialGradient>
           </defs>
           <g ref="mapGroup" class="map-transformation" :transform="transform">
             <image :href="light ? '/maps/home-world-light.svg' : '/maps/home-world.svg'" width="1440" height="500" class="world-outline" />
-            <g v-for="(region, index) in mapRegions" :key="region.slug" class="map-marker" :class="[region.stock > 0 && !props.loading && !props.failed ? 'available' : '', selectedSlug === region.slug ? 'selected' : '', !matchesControls(region) ? 'dimmed' : '']" :style="{ '--pulse-delay': `${-(index % 7) * 0.21}s` }" :transform="`translate(${region.displayX} ${region.displayY})`" role="button" tabindex="0" :aria-label="`${regionName(region)}，${props.loading ? t('homeMapDemo.stockLoading') : props.failed ? t('homeMapDemo.stockFailed') : statusText(region)}`" :aria-pressed="selectedSlug === region.slug" @pointerenter="showTooltip(region)" @pointerleave="hideTooltip" @focus="showTooltip(region)" @blur="hideTooltip" @keydown.enter.prevent="selectRegion(region, 'map')" @keydown.space.prevent="selectRegion(region, 'map')" @keydown.esc="hoverSlug = ''">
-              <circle class="node-hit" :r="hitRadius" fill="transparent" />
+            <g v-for="(region, index) in mapRegions" :key="region.slug" class="map-marker" :class="[region.stock > 0 && !props.loading && !props.failed ? 'available' : '', selectedSlug === region.slug ? 'selected' : '', !matchesControls(region) ? 'dimmed' : '']" :style="{ '--pulse-delay': `${-(index % 7) * 0.21}s` }" :transform="`translate(${region.displayX} ${region.displayY})`" role="button" :tabindex="matchesControls(region) ? 0 : -1" :aria-hidden="!matchesControls(region)" :aria-label="`${regionName(region)}，${props.loading ? t('homeMapDemo.stockLoading') : props.failed ? t('homeMapDemo.stockFailed') : statusText(region)}`" :aria-pressed="selectedSlug === region.slug" @pointerenter="showTooltip(region)" @pointerleave="hideTooltip" @focus="showTooltip(region)" @blur="hideTooltip" @keydown.enter.prevent="selectRegion(region, 'map')" @keydown.space.prevent="selectRegion(region, 'map')" @keydown.esc="hoverSlug = ''">
+              <g :transform="`scale(${markerScale})`"><circle class="node-hit" :r="coarsePointer || touchMode ? 22 : 14" fill="transparent" />
               <circle v-if="region.stock > 0 && !loading && !failed" class="node-pool" r="48" fill="url(#atlas-pool)" pointer-events="none" />
               <circle class="node-ring" r="12" pointer-events="none" />
               <circle class="node-ping" r="9" pointer-events="none" />
-              <circle class="node-core" :r="region.stock > 0 ? 4.8 : 3.4" pointer-events="none" />
+              <circle class="node-core" :r="region.stock > 0 ? 5.5 : 4" pointer-events="none" /></g>
             </g>
           </g>
         </svg>
-        <HomeMapLabels v-if="!touchMode" :frame="mapFrame" :map-group="mapGroup" :points="labelPoints" :view-transform="transform" :hover-slug="hoverSlug" @select="selectLabel" />
+        <HomeMapLabels v-if="!touchMode" :frame="mapFrame" :map-group="mapGroup" :points="labelPoints" :view-transform="transform" :hover-slug="hoverSlug" :touch="coarsePointer" @select="selectLabel" @press="pointerDownLabel" @wheel="handleMapWheel" />
         <p v-if="!minimal" class="mobile-map-hint">{{ t('homeMapDemo.mapHint') }}</p>
         <div class="map-controls" role="group" :aria-label="t('homeMapDemo.zoomControls')">
           <button v-if="!(minimal && touchMode)" type="button" :disabled="zoom >= 4" :aria-label="t('homeMapDemo.zoomIn')" @click="changeZoom(0.4)"><Plus :size="16" /></button>
           <button v-if="!(minimal && touchMode)" type="button" :disabled="zoom <= 1" :aria-label="t('homeMapDemo.zoomOut')" @click="changeZoom(-0.4)"><Minus :size="16" /></button>
-          <button type="button" :aria-label="t('homeMapDemo.resetMap')" @click="resetView"><RotateCcw :size="14" /></button>
+          <button type="button" :aria-label="t('homeMapDemo.resetMap')" @click="resetMapView"><RotateCcw :size="14" /></button>
         </div>
-        <div v-if="minimal && touchMode && mobileCandidates.length" class="mobile-node-feedback candidate-feedback" :style="mobileFeedbackStyle"><div class="feedback-heading"><strong>{{ t('homeMapDemo.nearby') }}</strong><button type="button" :aria-label="t('homeMapDemo.closeNearby')" @click="closeMobileFeedback"><X :size="14" /></button></div><div class="candidate-list"><button v-for="region in mobileCandidates" :key="region.slug" type="button" @pointerdown="mobileCandidatePressSlug = region.slug" @click="chooseMobileCandidate(region, $event)"><span>{{ regionName(region) }}</span><small>{{ loading ? t('homeMapDemo.loading') : failed ? t('homeMapDemo.stockUnknown') : statusText(region) }}</small></button></div></div>
-        <div v-else-if="minimal && touchMode && mobileBubbleRegion" class="mobile-node-feedback" :style="mobileFeedbackStyle" role="status"><div class="feedback-heading"><span><strong>{{ regionName(mobileBubbleRegion) }}</strong><small>{{ loading ? t('homeMapDemo.stockLoading') : failed ? t('homeMapDemo.stockUnknown') : statusText(mobileBubbleRegion) }}</small></span><button type="button" :aria-label="t('homeMapDemo.closeFeedback')" @click="closeMobileFeedback"><X :size="14" /></button></div></div>
+        <div v-if="minimal && (touchMode || coarsePointer) && mobileCandidates.length" class="mobile-node-feedback candidate-feedback" :style="mobileFeedbackStyle"><div class="feedback-heading"><strong>{{ t('homeMapDemo.nearby') }}</strong><button type="button" :aria-label="t('homeMapDemo.closeNearby')" @click="closeMobileFeedback"><X :size="14" /></button></div><div class="candidate-list"><button v-for="region in mobileCandidates" :key="region.slug" type="button" @pointerdown="mobileCandidatePressSlug = region.slug" @click="chooseMobileCandidate(region, $event)"><span>{{ regionName(region) }}</span><small>{{ loading ? t('homeMapDemo.loading') : failed ? t('homeMapDemo.stockUnknown') : statusText(region) }}</small></button></div></div>
+        <div v-else-if="minimal && (touchMode || coarsePointer) && mobileBubbleRegion" class="mobile-node-feedback" :style="mobileFeedbackStyle" role="status"><div class="feedback-heading"><span><strong>{{ regionName(mobileBubbleRegion) }}</strong><small>{{ loading ? t('homeMapDemo.stockLoading') : failed ? t('homeMapDemo.stockUnknown') : statusText(mobileBubbleRegion) }}</small></span><button type="button" :aria-label="t('homeMapDemo.closeFeedback')" @click="closeMobileFeedback"><X :size="14" /></button></div></div>
         <Transition name="tooltip">
-          <div v-if="hovered && !touchMode" class="map-tooltip" :style="tooltipStyle" @pointerenter="keepTooltip" @pointerleave="hideTooltip" @focusin="tooltipPinned = true" @focusout="tooltipPinned = false; hideTooltip()" @keydown.esc="hoverSlug = ''; tooltipPinned = false">
+          <div v-if="hovered && !touchMode && !coarsePointer" class="map-tooltip" :style="tooltipStyle" @pointerenter="keepTooltip" @pointerleave="hideTooltip" @focusin="tooltipPinned = true" @focusout="tooltipPinned = false; hideTooltip()" @keydown.esc="hoverSlug = ''; tooltipPinned = false">
             <div class="tooltip-title"><FlagIcon v-if="hovered.countryCode" :code="hovered.countryCode" class="atlas-flag" aria-hidden="true" /><strong>{{ regionName(hovered) }}</strong><button type="button" :aria-label="t('homeMapDemo.closeDetails')" @click="hoverSlug = ''"><X :size="14" /></button></div>
             <p v-if="!minimal" class="tooltip-code">{{ hovered.geography?.code ?? t('homeMapDemo.missingCode') }}</p>
             <div class="tooltip-availability" :class="hovered.stock > 0 ? 'available' : ''"><span></span>{{ props.loading ? t('homeMapDemo.stockLoading') : props.failed ? t('homeMapDemo.stockFailed') : statusText(hovered) }}</div>
@@ -1677,6 +1720,32 @@ button:disabled {
   .minimal-atlas .atlas-map { width: var(--home-map-width, min(100%, 2160px)); aspect-ratio: 1440 / 500; }
   .minimal-atlas .content-width { width: var(--home-content-width, min(1920px, 84vw)); }
   .minimal-atlas .map-controls { bottom: 20px; right: max(20px, 4%); }
+  .minimal-atlas .map-bottom { width: calc(100% - 48px); grid-template-columns: minmax(0, 1fr) minmax(280px, 440px) 144px; bottom: 16px; }
+  .minimal-atlas .map-selection { width: auto; min-width: 0; padding: 12px 16px; min-height: 72px; }
+  .minimal-atlas .atlas-toolbar { flex-wrap: wrap; gap: 8px 20px; padding-bottom: 8px; }
+  .minimal-atlas .all-regions-link { margin-left: auto; font-size: 13px; }
+  .minimal-atlas .map-controls button { width: 44px; height: 44px; }
+}
+@media (min-width: 768px) and (max-width: 900px) {
+  .minimal-atlas .continent-tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); width: 100%; }
+  .minimal-atlas .continent-tabs button { white-space: normal; line-height: 1.4; padding: 8px 6px; font-size: 13px; }
+  .minimal-atlas .all-regions-link { min-height: 36px; }
+}
+@media (min-width: 768px) and (max-width: 1050px) {
+  .minimal-atlas .map-bottom { grid-template-columns: minmax(0, 1fr) minmax(0, 1.65fr); gap: 12px; }
+  .minimal-atlas .atlas-map:has(.map-selection) .map-controls { top: 12px; bottom: auto; }
+  .minimal-atlas .map-selection { gap: 10px; }
+}
+/* A tablet has a touch pointer even when it uses the wider, flat map layout. */
+@media (min-width: 768px) and (pointer: coarse) {
+  .mobile-node-feedback { position: absolute; z-index: 24; width: 240px; border: 1px solid var(--border-color); background: var(--bg-elevated); border-radius: 8px; color: var(--text-primary); }
+  .feedback-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px 8px 14px; }
+  .feedback-heading > span { display: grid; gap: 4px; }
+  .feedback-heading strong { font-size: 13px; line-height: 1.6; }
+  .feedback-heading small, .candidate-list small { display: block; font-size: 12px; color: var(--text-secondary); }
+  .feedback-heading > button { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; border: 0; background: none; color: inherit; }
+  .candidate-list { max-height: 132px; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px; }
+  .candidate-list > button { display: grid; gap: 3px; width: 100%; min-height: 48px; padding: 8px 0; text-align: left; background: none; border: 0; color: inherit; font-size: 13px; }
 }
 @media (max-width: 767px) {
   .minimal-atlas .atlas-map.globe-trial-frame { height: clamp(310px, 46svh, 430px); aspect-ratio: auto; }

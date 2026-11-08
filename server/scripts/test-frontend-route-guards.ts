@@ -96,6 +96,13 @@ assert.ok(instanceCreateViewSource.includes("watch(promoContextKey, invalidatePr
   instanceCreateViewSource.includes('promoPageActive.value = false; invalidatePromoCode()'),
   'legacy create coupon quotes must belong to the current code/plan/session and stop stale submit continuations')
 const instanceDetailViewSource = readRepoFile('client/src/views/InstanceDetailView.vue')
+assert.ok(instanceDetailViewSource.includes('const AdminExpiryModal = isAdminEntry') &&
+  instanceDetailViewSource.includes('v-if="isAdminEntry && authStore.isAdmin && showAdminExpiry && instance"') &&
+  instanceInfoTabSource.includes('v-if="isAdminEntry && canEditExpiry"'),
+  'absolute expiry editing must be compiled and rendered only for administrators')
+assert.ok(instanceDetailViewSource.replace(/\r\n/g, '\n').includes('watch([() => instance.value?.expiryIdentity?.ownerId, () => instance.value?.expiryIdentity?.hostId, () => instance.value?.expiryIdentity?.incusId], () => {\n  showAdminExpiry.value = false\n}, { flush: \'sync\' })') &&
+  instanceDetailViewSource.includes(':owner-id="instance.expiryIdentity?.ownerId"') && instanceDetailViewSource.includes(':host-id="instance.expiryIdentity?.hostId"') &&
+  instanceDetailViewSource.includes(':incus-id="instance.expiryIdentity?.incusId"'), 'expiry editor must bind the actual admin detail identity and close synchronously on same-ID ownership/host/guest changes')
 for (const required of ['function captureDetailRead(', 'generation === detailReadGeneration', 'sequence === readSequences[channel]',
   'session === detailSessionKey.value', 'rawId === String(route.params.id', 'watch([() => route.params.id, () => route.name, detailSessionKey]',
   'if (context.current() && !refreshInterval)', "captureDetailRead('instance', false)", "captureDetailRead('stats')",
@@ -1446,7 +1453,10 @@ assert.match(gatewayManagementPanelSource, /<GatewayExtensionEntrypoints :purpos
 assert.match(gatewayManagementPanelSource, /const selected = ref<'local' \| 'independent' \| 'backup' \| null>\(null\)/)
 assert.match(gatewayManagementPanelSource, /gatewayEndpoint\.flow\.current/)
 assert.match(gatewayManagementPanelSource, /gatewayEndpoint\.flow\.choose/)
-assert.match(gatewayManagementPanelSource, /gateway\.value\?\.local === false/)
+assert.match(gatewayManagementPanelSource, /gateway\.value\?\.setupAllowed === true && !hasCurrent\.value && !savedHostname\.value/,
+  'all registered gateways, including external and offline ones, block initial setup')
+assert.match(gatewayManagementPanelSource, /pendingPlan = computed\(\(\) => setupAllowed\.value/)
+assert.match(gatewayManagementPanelSource, /api\.hostOnboarding\.checkControllerGateway\(\)/)
 assert.match(gatewayExtensionSource, /v-model\.trim="hostname" required/)
 assert.match(gatewayExtensionSource, /name: name\.value\.trim\(\) \|\| hostname\.value\.trim\(\)/)
 assert.match(gatewayExtensionSource, /api\.hostOnboarding\.restartGatewayCandidate\(gateway\.id\)/)
@@ -1480,6 +1490,11 @@ assert.match(gatewayInstallationPanelSource, /const \{ slot, network, address, l
 assert.doesNotMatch(gatewayInstallationPanelSource, /\.\.\.inspection\.request/)
 assert.match(gatewayInstallationPanelSource, /if \(dialog\.value\?\.open\) return/)
 const expiryPanel = readRepoFile('client/src/components/admin/ExpiryEnforcementPanel.vue')
+const userEmailView = readRepoFile('client/src/views/admin/UsersView.vue')
+const userEmailModal = readRepoFile('client/src/components/admin/AdminUserEmailModal.vue')
+assert.equal((userEmailView.match(/@click="openEmailModal\(user\)"/g) || []).length, 2, 'mobile and desktop users expose email editor')
+assert.ok(userEmailView.includes('emailUser && dialogsAvailable') && userEmailView.includes('user.id !== authStore.user?.id'))
+assert.ok(userEmailModal.includes('session.current()') && userEmailModal.includes('version === generation') && userEmailModal.includes('result.email !== email'), 'editor binds asynchronous receipts to current authentication and requested email')
 const endpointPanel = readRepoFile('client/src/components/host/GatewayEndpointPanel.vue')
 assert.ok(gatewayManagementPanelSource.includes('<GatewayEndpointPanel @changed="savedHostname = $event" />'), 'current local and external gateways share the domain migration editor')
 assert.ok(gatewayManagementPanelSource.includes('v-model.trim="hostname"') && gatewayManagementPanelSource.includes('api.hostOnboarding.confirmControllerGateway'))

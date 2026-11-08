@@ -95,6 +95,8 @@ export interface OnboardingListResponse {
   retirements?: Array<{ id: string; name: string; publicIp: string; status: 'pending' | 'blocked' | 'done'; attempts: number; nextAttemptAt: string; error: string | null }>
 }
 export interface OnboardingGatewayStatus {
+  setupAllowed?: boolean
+  setupBlockedCode?: string | null
   local?: boolean
   target?: string
   ready: boolean

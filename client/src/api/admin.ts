@@ -1,4 +1,6 @@
 import type { ProxySiteView, ProxySiteOperationRequest, ProxySiteMutationResult, ProxySiteDnsResult } from '@/types/proxy-sites'
+import type { InstanceExpirySnapshot } from '@/types/instance-expiry'
+import type { AdminUserEmailSnapshot } from '@/types/admin-user-email'
 import type { HostSshConnection, OnboardingCredentials, CreateOnboardingRequest, OnboardingListResponse, OnboardingGatewayStatus, HostRegionGroup, HostMachineGroup, HostInventoryResponse, HostInventoryQuery, UpdateHostGroupsRequest, HostPoolPrice, HostPoolPriceInput, HostPoolInventoryRow } from '@/types/host-pool'
 import axios, { type AxiosInstance } from 'axios'
 import type { HostAbuseOverview, HostAbusePolicy } from '@/types/host-abuse-policy'
@@ -382,6 +384,8 @@ const api = {
 
   // 用户管理
   users: {
+    getEmail: (id: number, signal?: AbortSignal): Promise<AdminUserEmailSnapshot> => http.get(`/users/${id}/admin-email`, { signal }),
+    setEmail: (id: number, data: { email: string; revision: string }, signal?: AbortSignal): Promise<AdminUserEmailSnapshot> => http.put(`/users/${id}/admin-email`, data, { signal }),
     list: (params: Record<string, unknown> = {}): Promise<PaginatedResponse<User>> =>
       http.get('/users', { params }),
     get: (id: number): Promise<User> => http.get(`/users/${id}`),
@@ -2558,6 +2562,8 @@ const api = {
       http.delete(`/admin/hosting/zones/${id}`),
 
     // ==================== 计费管理 ====================
+    getInstanceExpiry: (id: number, signal?: AbortSignal): Promise<InstanceExpirySnapshot> => http.get(`/admin/instances/${id}/expiry`, { signal }),
+    setInstanceExpiry: (id: number, data: { expiresAt: string; revision: string }, signal?: AbortSignal): Promise<InstanceExpirySnapshot> => http.put(`/admin/instances/${id}/expiry`, data, { signal }),
     expiryEnforcementStatus: (signal?: AbortSignal): Promise<ExpiryEnforcementStatus> => http.get('/admin/billing/expiry-enforcement', { signal }),
     expiryEnforcementHistory: (params: ExpiryHistoryQuery = {}, signal?: AbortSignal): Promise<ExpiryHistoryResponse> => http.get('/admin/billing/expiry-enforcement/logs', { params, signal }),
     startExpiryEnforcement: (): Promise<ExpiryEnforcementStatus> => http.post('/admin/billing/expiry-enforcement/start', {}),
@@ -3834,6 +3840,7 @@ hostOnboarding: {
     installGatewayDnsHost: (id: string): Promise<{ queued: number }> => http.post(`/host-onboarding/gateway/endpoint/hosts/${id}`, {}),
     synchronizeGatewayDnsHosts: (failedOnly = false): Promise<{ queued: number }> => http.post('/host-onboarding/gateway/endpoint/hosts', { failedOnly }),
     gatewaySetupStatus: (): Promise<{ available: boolean; latest: GatewaySetupProgress | null; gateway: OnboardingGatewayStatus | null }> => http.get('/host-onboarding/gateway/setup'),
+    checkControllerGateway: (): Promise<OnboardingGatewayStatus> => http.get('/host-onboarding/gateway/setup/check'),
     configureControllerGateway: (input: { requestId: string }): Promise<GatewaySetupProgress> => http.post('/host-onboarding/gateway/setup', input),
     controllerGatewayTask: (id: string): Promise<GatewaySetupProgress> => http.get(`/host-onboarding/gateway/setup/${id}`),
     confirmControllerGateway: (id: string, planHash: string, hostname?: string): Promise<GatewaySetupProgress> => http.post(`/host-onboarding/gateway/setup/${id}/confirm`, { planHash, hostname }),

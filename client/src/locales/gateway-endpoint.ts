@@ -66,6 +66,13 @@ export const zhCN = {
     "GATEWAY_DNS_SERVICE_BUSY": "这台服务器的地址更新服务正忙，系统会稍后自动重试并保留结果。"
   },
   "setup": {
+    "recheck": "重新检查",
+    "checking": "正在检查…",
+    "readOnlyHint": "重新检查只读取当前网关连接状态，不重写配置、不重启后台或宿主。",
+    "protected": "此入口仅用于首次配置。已有配置或尚未确认状态时，不会重复安装。",
+    "checkFailed": "当前连接未通过检查。请根据具体错误检查原网关服务与网络；更换域名请使用下方域名设置，迁移或恢复请使用对应流程。",
+    "checkedAt": "最近连接检查：{time}",
+    "oldPlanBlocked": "历史配置计划已停用，当前仅允许重新检查。",
     "lastAttempt": "最近配置记录",
     "title": "主控管理网关",
     "description": "当前主控同时担任管理网关。系统直接检查本机、规划网络并配置服务。",
@@ -91,6 +98,7 @@ export const zhCN = {
       "confirm": "安装前检查已通过"
     },
     "errors": {
+      "SIMPLE_GATEWAY_ALREADY_CONFIGURED": "已存在网关配置或原管理身份，已阻止重复安装。请重新检查；修改域名、迁移或恢复请使用对应入口。",
       "SIMPLE_GATEWAY_FAILED": "本机配置步骤没有完成，具体任务结果会保留，可重新检查。",
       "SIMPLE_GATEWAY_ADMIN_REQUIRED": "需要管理员登录后配置。",
       "SIMPLE_GATEWAY_EXECUTOR_UNAVAILABLE": "网关执行器尚未就绪，请升级当前版本后重试。",
@@ -206,6 +214,13 @@ export const zhTW = {
   },
   "setup": {
     "lastAttempt": "最近設定記錄",
+    "recheck": "重新檢查",
+    "checking": "正在檢查…",
+    "readOnlyHint": "重新檢查只讀取目前網關連線狀態，不重寫設定、不重新啟動後台或宿主。",
+    "protected": "此入口僅用於首次設定。已有設定或尚未確認狀態時，不會重複安裝。",
+    "checkFailed": "目前連線未通過檢查。請依具體錯誤檢查原網關服務與網路；更換網域請使用下方網域設定，遷移或還原請使用對應流程。",
+    "checkedAt": "最近連線檢查：{time}",
+    "oldPlanBlocked": "歷史設定計畫已停用，目前僅允許重新檢查。",
     "title": "主控管理網關",
     "description": "目前主控同時擔任管理網關，系統直接檢查本機、規劃網路並配置服務。",
     "address": "SSH IP / 位址",
@@ -234,6 +249,7 @@ export const zhTW = {
     },
     "errors": {
       "SIMPLE_GATEWAY_FAILED": "本機配置步驟未完成，任務結果會保留，可重新檢查。",
+      "SIMPLE_GATEWAY_ALREADY_CONFIGURED": "已存在網關設定或原管理身分，已阻止重複安裝。請重新檢查；修改網域、遷移或還原請使用對應入口。",
       "SIMPLE_GATEWAY_ADMIN_REQUIRED": "需要管理員登入後配置。",
       "SIMPLE_GATEWAY_EXECUTOR_UNAVAILABLE": "網關執行器尚未就緒，請升級後重試。",
       "SIMPLE_GATEWAY_CURRENT_CONTROLLER_REQUIRED": "請填寫目前主控伺服器的 SSH 位址。",
@@ -345,6 +361,13 @@ export const en = {
   },
   "setup": {
     "lastAttempt": "Latest setup attempt",
+    "recheck": "Recheck connection",
+    "checking": "Checking…",
+    "readOnlyHint": "Rechecking only reads the current gateway connection status. It does not rewrite configuration or restart the backend or hosts.",
+    "protected": "This entry is for initial setup only. Existing or unverified configuration cannot be reinstalled here.",
+    "checkFailed": "The connection check did not pass. Use the specific error to check the original gateway service and network. For domain changes, migration or recovery, use the corresponding flow.",
+    "checkedAt": "Last connection check: {time}",
+    "oldPlanBlocked": "The previous setup plan is disabled. Only connection checks are available here.",
     "title": "Controller gateway",
     "description": "This controller also runs the gateway. The system checks this machine, plans the network and configures its services directly.",
     "address": "SSH IP / address",
@@ -370,6 +393,7 @@ export const en = {
     },
     "errors": {
       "SIMPLE_GATEWAY_FAILED": "The local setup step did not finish. Results are retained; run the checks again.",
+      "SIMPLE_GATEWAY_ALREADY_CONFIGURED": "Gateway configuration or an original management identity already exists. Reinstallation was blocked. Recheck the connection; use the corresponding flow for domain changes, migration or recovery.",
       "SIMPLE_GATEWAY_ADMIN_REQUIRED": "Sign in as an administrator to configure the gateway.",
       "SIMPLE_GATEWAY_EXECUTOR_UNAVAILABLE": "The gateway worker is unavailable. Upgrade and retry.",
       "SIMPLE_GATEWAY_CURRENT_CONTROLLER_REQUIRED": "Enter the current controller server’s SSH address.",

@@ -1,3 +1,5 @@
+import { zhCN as adminUserEmail } from './admin-user-email'
+import { zhCN as instanceExpiry } from './instance-expiry'
 import { zhCN as securityHardening } from './security-hardening'
 import { zhCN as ossMessages } from './aliyun-oss'
 import { zhCN as ipv6Delivery } from './ipv6-delivery'
@@ -7,6 +9,8 @@ import { zhCN as gatewayEndpoint } from './gateway-endpoint'
 import { zhCN as hostAbuse } from './host-abuse-policy'
 import { zhCN as automaticRecovery } from './automatic-recovery'
 export default {
+    adminUserEmail,
+    instanceExpiry,
     securityHardening,
     automaticRecovery,
     hostAbuse,
@@ -5605,6 +5609,7 @@ pool: {
         'user.delete': '删除用户',
         'user.update_quota': '更新用户配额',
         'user.revoke_sessions': '撤销用户会话',
+        'user.email.update': '修改用户邮箱',
         // 个人设置
         'profile.update': '更新个人信息',
         'password.change': '修改密码',

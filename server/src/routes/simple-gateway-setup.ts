@@ -7,6 +7,11 @@ import { OnboardingError } from '../lib/host-onboarding.js'
 const installed = { request: requestSimpleGatewaySetup, read: readSimpleGatewaySetup, available: simpleGatewayExecutorAvailable, confirm: confirmSimpleGatewaySetup, latest: latestSimpleGatewaySetup, status: simpleGatewayStatus }
 type Operations = Omit<typeof installed, 'latest' | 'status'> & { latest?: typeof latestSimpleGatewaySetup; status?: typeof simpleGatewayStatus }
 export async function registerSimpleGatewaySetupRoutes(app: FastifyInstance, operations: Operations = installed) {
+  app.get('/gateway/setup/check', { onRequest: [app.authenticateAdmin], config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    // Rechecking must not create, resume or expire an installation task.
+    return operations.status ? operations.status() : { ready: false, setupAllowed: false, code: 'GATEWAY_NOT_CONFIGURED' }
+  })
   app.get('/gateway/setup', { onRequest: [app.authenticateAdmin], config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store')
     const [latest, gateway] = await Promise.all([operations.latest?.(request.user.id), operations.status?.()])

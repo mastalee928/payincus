@@ -96,6 +96,11 @@ coverage/
 
 # ==================== 文档 (内部) ====================
 docs/*
+!docs/release-v1.8.4-validation.md
+!docs/release-v1.8.4-owner-click-test.md
+!docs/admin-user-email.md
+!docs/gateway-recheck-2026-11-09.md
+!docs/admin-instance-expiry.md
 !docs/automatic-security-hardening.md
 !docs/customer-instance-isolation-2026-11-07.md
 !docs/host-memory-review-2026-11-06.md

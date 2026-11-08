@@ -770,6 +770,7 @@ export interface BadgeMultiDrawResponse {
 // ==================== 实例相关 ====================
 
 export interface Instance {
+  expiryIdentity?: { ownerId: number; hostId: number; incusId: string } // Admin-only expiry edit binding
   activeTransfer?: { id: number; status: 'pending' | 'processing' } | null
   serviceFault?: boolean
   dedicatedIpv4?: boolean

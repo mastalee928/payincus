@@ -8,6 +8,7 @@ const __dirname = dirname(__filename)
 
 const source = readFileSync(resolve(__dirname, '../src/routes/admin-billing.ts'), 'utf8').replace(/\r\n/g, '\n')
 const billingOperationsSource = readFileSync(resolve(__dirname, '../src/db/billing-operations.ts'), 'utf8')
+assert.ok(source.includes("await app.register(adminInstanceExpiryRoutes)"), 'admin billing must register the absolute-expiry routes')
 const manualRefundRoute = source.slice(
   source.indexOf("app.post('/api/admin/instances/:id/refund'"),
   source.indexOf('// ==================== 管理员删除并退款 ====================')

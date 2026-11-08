@@ -2461,6 +2461,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       // 自动续费
       autoRenew?: boolean
       ociAccountLabel?: string | null
+      expiryIdentity?: { ownerId: number; hostId: number; incusId: string }
       // 托管节点所有者信息（仅用户托管节点）
       hostOwnerInfo?: {
         id: number
@@ -2671,6 +2672,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
     const statusAgent = await prisma.hostAgent.findUnique({ where: { hostId: instance.host_id }, select: { enabled: true, lastSeenAt: true, lastReport: true } })
     if (isAdmin) {
+      response.expiryIdentity = { ownerId: instance.user_id, hostId: instance.host_id, incusId: instance.incus_id }
       const accountHost = await prisma.host.findUnique({ where: { id: instance.host_id }, select: {
         location: true, onboardingNode: { select: { batch: { select: { accountLabel: true } } } } } })
       response.ociAccountLabel = accountHost?.onboardingNode?.batch.accountLabel || accountHost?.location || null

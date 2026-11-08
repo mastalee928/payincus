@@ -6,8 +6,21 @@ import { validateSimpleGatewayRequest, simpleGatewayPlanHash, detectedGatewayPub
 import { GATEWAY_DNS_MAX_ATTEMPTS, gatewayDnsRetry, resumeGatewayDnsState } from '../src/lib/gateway-dns-queue.js'
 import { registerSimpleGatewaySetupRoutes } from '../src/routes/simple-gateway-setup.js'
 import { gatewaySshHost } from '../src/services/onboarding-ssh.js'
+import { configuredGatewayBlocker, simpleGatewaySetupBlocker, assertSimpleGatewayUnconfigured } from '../src/services/local-gateway-setup-protection.js'
 
 const id = '11111111-1111-4111-8111-111111111111', now = 1700000000000
+const blank = { settings: () => ({}), diskSettings: async () => ({}), identityExists: async () => false, registered: async () => false }
+assert.equal(await simpleGatewaySetupBlocker(blank), null, 'fresh setup remains available')
+for (const key of ['ONBOARDING_GATEWAY_HOST', 'ONBOARDING_GATEWAY_KEY_PATH', 'ONBOARDING_GATEWAY_FINGERPRINT', 'ONBOARDING_WG_ENDPOINT']) {
+  const settings = { [key]: key === 'ONBOARDING_GATEWAY_HOST' ? '127.0.0.1' : 'fixture' }
+  assert.equal(configuredGatewayBlocker(settings), 'SIMPLE_GATEWAY_ALREADY_CONFIGURED')
+  await assert.rejects(assertSimpleGatewayUnconfigured({ ...blank, settings: () => settings }), /ALREADY_CONFIGURED/)
+  await assert.rejects(assertSimpleGatewayUnconfigured({ ...blank, diskSettings: async () => settings }), /ALREADY_CONFIGURED/, 'stale backend environment cannot overwrite new disk configuration')
+}
+await assert.rejects(assertSimpleGatewayUnconfigured({ ...blank, registered: async () => true }), /ALREADY_CONFIGURED/)
+await assert.rejects(assertSimpleGatewayUnconfigured({ ...blank, identityExists: async () => true }), /ALREADY_CONFIGURED/)
+await assert.rejects(assertSimpleGatewayUnconfigured({ ...blank, diskSettings: async () => { throw Error('unreadable') } }), /unreadable/, 'unknown is not a clean first installation')
+assert.equal(configuredGatewayBlocker({ ONBOARDING_GATEWAY_HOST: 'gateway.example.com' }), 'SIMPLE_GATEWAY_MIGRATION_REQUIRED')
 assert.equal(gatewaySshHost('gateway.example.com:51820', { gatewayHost: '127.0.0.1', jumpHost: '8.8.4.4', configuredEndpoint: '8.8.4.4:51820' }), 'gateway.example.com')
 assert.equal(gatewaySshHost('gateway.example.com:51820', { gatewayHost: '127.0.0.1', jumpHost: 'bastion.example.com', configuredEndpoint: '8.8.4.4:51820' }), 'bastion.example.com')
 assert.equal(gatewaySshHost('gateway.example.com:51820', { gatewayHost: '10.0.0.2', jumpHost: 'bastion.example.com', configuredEndpoint: '8.8.4.4:51820' }), 'bastion.example.com')
@@ -55,13 +68,21 @@ app.decorate('authenticateAdmin', async (req, reply) => {
 })
 const old = process.env.ADMIN_FRONTEND_URL
 process.env.ADMIN_FRONTEND_URL = 'https://admin.example.com'
-let writes = 0
+let writes = 0, checks = 0, historyReads = 0
 const progress = { id, actorId: 1, state: 'queued', step: 'connect', errorCode: null, updatedAt: new Date(now).toISOString() }
 await registerSimpleGatewaySetupRoutes(app, { available: () => true, read: async () => progress,
+  latest: async () => { historyReads++; return progress },
+  status: async () => { checks++; return { ready: true, local: true, setupAllowed: false, setupBlockedCode: 'SIMPLE_GATEWAY_ALREADY_CONFIGURED', target: '127.0.0.1', gateway: { network: '10.253.240.0/20', controlIp: '10.253.240.1', sshHost: 'gateway.example.com' } } },
   request: async () => { writes++; return progress }, confirm: async () => { writes++; return progress } })
 const headers = { 'x-role': 'admin', origin: 'https://admin.example.com', authorization: 'Bearer fixture' }
 try {
-  for (const path of ['/gateway/setup', '/gateway/setup/' + id]) assert.equal((await app.inject({ url: path })).statusCode, 403)
+  for (const path of ['/gateway/setup', '/gateway/setup/check', '/gateway/setup/' + id]) assert.equal((await app.inject({ url: path })).statusCode, 403)
+  for (let n = 0; n < 3; n++) {
+    const checked = await app.inject({ url: '/gateway/setup/check', headers })
+    assert.equal(checked.statusCode, 200); assert.equal(checked.json().setupAllowed, false)
+    assert.equal(checked.headers['cache-control'], 'no-store')
+  }
+  assert.equal(checks, 3); assert.equal(writes, 0); assert.equal(historyReads, 0, 'checks do not touch task history or expire old plans')
   for (const path of ['/gateway/setup', '/gateway/setup/' + id + '/confirm']) {
     const payload = path.endsWith('/confirm') ? { planHash: hash } : { requestId: id }
     for (const change of [{ 'x-role': 'user' }, { origin: 'https://evil.example.com' }, { 'x-no-session': '1' },
@@ -76,9 +97,11 @@ try {
 } finally { await app.close(); if (old === undefined) delete process.env.ADMIN_FRONTEND_URL; else process.env.ADMIN_FRONTEND_URL = old }
 const worker = readFileSync(fileURLToPath(new URL('../src/scripts/run-simple-gateway-setup.ts', import.meta.url)), 'utf8')
 const setupService = readFileSync(fileURLToPath(new URL('../src/services/simple-gateway-setup.ts', import.meta.url)), 'utf8')
-assert.equal((setupService.match(/throw new LocalGatewaySetupError\('SIMPLE_GATEWAY_MIGRATION_REQUIRED'\)/g) || []).length, 2,
-  'both planning and confirmation must block overwriting an external gateway without handover')
-assert.match(setupService, /return \{ ready: false, local, target, code:/, 'failed checks retain current route without claiming readiness')
+assert.equal((setupService.match(/await assertSimpleGatewayUnconfigured\(\)/g) || []).length, 2,
+  'both planning and confirmation block any installed gateway, including unreachable gateways')
+assert.match(setupService, /return \{ ready: false, local, target, \.\.\.protection, code:/, 'failed checks retain the route and installation protection')
+assert.equal((worker.match(/await assertSimpleGatewayUnconfigured\(\)/g) || []).length, 2)
+assert.ok(worker.lastIndexOf('await assertSimpleGatewayUnconfigured()') < worker.indexOf("writing = true"), 'serialized worker rechecks before any installer writes, including old queued manifests')
 assert.match(worker, /constants\.O_RDWR \| constants\.O_NOFOLLOW/)
 assert.match(worker, /info\.nlink !== 1/)
 assert.match(worker, /info\.uid !== owner/)
@@ -92,5 +115,6 @@ const installer = readFileSync(fileURLToPath(new URL('../../scripts/install-loca
 assert.match(installer, /\/usr\/bin\/systemctl daemon-reload/)
 assert.match(installer, /ReadWritePaths=\/var\/lib\/incudal-local-gateway\/inbox/)
 assert.doesNotMatch(installer, /^systemctl /m)
-console.log('Simple gateway: strict requests, immutable plans, route authorization, bounded retries and restart recovery passed')
+await import('./test-simple-gateway-recheck.js')
+console.log('Simple gateway: strict requests, immutable plans, read-only rechecks, repeat-install protection, route authorization, bounded retries and restart recovery passed')
 process.exit(0)

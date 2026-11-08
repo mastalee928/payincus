@@ -3,6 +3,7 @@
  */
 
 import { randomInt } from 'node:crypto'
+import adminUserEmailRoutes from './admin-user-email.js'
 import { Prisma } from '@prisma/client'
 
 // @ts-ignore - bcryptjs has its own types
@@ -102,6 +103,7 @@ function generateInitialPassword(length = 16): string {
 }
 
 export default async function userRoutes(fastify: FastifyInstance) {
+  await fastify.register(adminUserEmailRoutes)
   async function validateEmailChangeTarget(
     rawEmail: string,
     currentEmail: string | null,
@@ -502,6 +504,9 @@ export default async function userRoutes(fastify: FastifyInstance) {
     }
 
     const { email, password, avatarStyle, currentPassword, emailCode } = request.body
+    if (email !== undefined && request.user.id !== userId) {
+      return reply.code(400).send({ code: 'ADMIN_EMAIL_USE_EDITOR' })
+    }
     if (password && shouldProtectDemoAccount(request, user)) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN, DEMO_ACCOUNT_PROTECTED_MESSAGE))
     }

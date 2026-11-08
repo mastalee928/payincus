@@ -1,3 +1,5 @@
+import { en as adminUserEmail } from './admin-user-email'
+import { en as instanceExpiry } from './instance-expiry'
 import { en as securityHardening } from './security-hardening'
 import { en as ossMessages } from './aliyun-oss'
 import { en as ipv6Delivery } from './ipv6-delivery'
@@ -7,6 +9,8 @@ import { en as gatewayEndpoint } from './gateway-endpoint'
 import { en as hostAbuse } from './host-abuse-policy'
 import { en as automaticRecovery } from './automatic-recovery'
 export default {
+    adminUserEmail,
+    instanceExpiry,
     securityHardening,
     automaticRecovery,
     hostAbuse,
@@ -5545,6 +5549,7 @@ pool: {
         'user.delete': 'Delete User',
         'user.update_quota': 'Update User Quota',
         'user.revoke_sessions': 'Revoke User Sessions',
+        'user.email.update': 'Change User Email',
         // Personal settings
         'profile.update': 'Update Profile',
         'password.change': 'Change Password',

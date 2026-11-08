@@ -1,5 +1,98 @@
 # 版本与验证记录
 
+## 2026-11-09 v1.8.4 发行准备
+
+- Owner已授权本线程累计改动提交推送及正式发新版。现从已推送`3f4f83d0cb0c7a792c1a685e383c6eada8bca61e`整理v1.8.4，main基线`18858dd6c0f81d1ac789bcacebb4ffcf64c6fc37`；此前各小节“未提交/未发行”为当时阶段记录，最新结果以本节及`logs/release-v1.8.4-plan.json`为准。保留`.taste-skill/`和本地临时日志，不加入docs-site/Pages。
+- 本版包括SSH官方修订/原密码保护、实例隔离与持久安全检查、自动续费/到账补续/原身份开机与截止回池、管理员改期/改邮箱、已配置网关只读检查和首页改进。Agent启动标识上报需要独立版本，递增为v1.0.5；原agent-v1.0.4 tag/三资产不覆盖。面板与Agent双架构CI和公开包分别核验。
+- 既有对应PG/HTTPS/浏览器/类型/守卫/双端build证据已归档，本轮补邮箱/网关UI进入CI。候选CI、213完整守卫的预览双构建/241迁移双首装、正式运行及下载资产未完成前不报告发行成功。
+- 本轮完整lint捕获手机球体computed内初始化/修改canvas测量缓存，已移到组件setup，字体ready后仍重算布局；不是更改地图定位或文字尺寸。lint修后0错误（既有369警告），相关route/labels通过，完整camera/双端build继续核验。Windows直接跑Agent因Linux Statfs API编译失败，保留日志，原生Go验证交给Linux双架构流水线；首次camera因本线程Demo已占19834失败，已核进程归属后改用现有`--reuse-demo`测试入口，未停止Demo。
+- 修后完整camera（19尺寸、684状态、三语深浅、所有原触摸/手势）已自然exit0；Chrome收尾较慢，定向检查时原进程已退出，未执行终止动作。待完成构建后按精确路径保存；原生Agent不以Windows编译失败或其它包通过冒充通过。
+- 最终新版双端build（各含vue-tsc）/dist边界已自然exit0。发行依赖核对发现首装要求公开Agent不低于仓库VERSION，因此先经候选原生/Agent验证并独立发布v1.0.5，再运行面板预览。Agent发布增加同版本串行、同源同hash仅跳过、异源/缺资产拒绝和禁止覆盖；对应行为测试及既有Agent安装守卫通过，不改变下载/密码/客户生命周期逻辑。
+- 原生自动重启白名单仍为空、内存实验默认关闭；未知身份/未满足隔离门禁不放行。原生内核/AppArmor/实际客户恢复与网络、VM、独立救援、真实OSS新B/原客户公网/近千台72小时缺口保留。此次未授权代做生产OTA、重启、账号/账务/DNS或OSS恢复。说明及网页检查见`docs/release-v1.8.4-validation.md`、`docs/release-v1.8.4-owner-click-test.md`。
+
+## 2026-11-09 管理员修改用户邮箱（未提交源码）
+
+- 本轮复审修复：管理员允许`+/%`但原找回密码拒绝的规则错配、认证存储先变化/旧请求返回时保存状态卡住、254字符邮箱把铅笔挤出屏幕；保留owner指定同行细线图标。补三语日志动作名、公开说明gitignore例外。真实API复现校验问题并修复；追加PUT真实行锁降权/锁超时无迟到写入/恢复保护，Chrome追加存储同步间隙和1440/768/390/320长地址验证，详情与实际证据在`docs/admin-user-email.md`及ignored `logs/admin-email-*`。
+
+- 复审最终结果：当前真实PG/API、七项相关守卫/测试清单、完整Chrome 18组合及新增边界、双端build/dist边界均已自然exit0；本轮server源码及邮箱集成测试类型检查工具exit0，双端build各含vue-tsc。没有以旧类型日志冒充本轮重跑。独立索引`logs/admin-email-review-evidence.json`绑定当前源码/日志SHA256，原`admin-email-final-evidence.json`与两处修前失败日志保留；原profile/reset专项复用未变流程证据。构建仅保留既有大chunk提示，未提交、推送或部署。
+
+- 用户管理正式手机/电脑页面邮箱右侧增加细线铅笔图标（owner指定同行图标，替换第一版单独文字入口）。弹窗读取当前邮箱后确认，支持无邮箱账号；管理员自己的邮箱仍走个人验证。保存后用户需重新登录，密码/2FA/余额/实例/封禁保持。
+- 独立管理员GET/PUT、管理来源/演示站/恢复门禁、事务内当前身份会话复核、版本防旧表单覆盖、邮箱与注册共锁；邮箱/验证码/操作验证/会话撤销/脱敏审计原子提交，失败整笔回滚。旧通用profile禁止管理员给他人改邮箱以免绕过，个人验证保留。
+- 真实PG/Fastify/生产JWT函数验证客户/伪造身份/失效会话/降权、实际行锁竞争、6并发保存、注册邮箱抢占、审计故障回滚与旧验证码失效；既有profile/reset专项通过。Chrome正式页面三语三宽深浅18组合、图标同行和手机点击区、焦点/ESC/重复提交/迟到回执；七守卫/清单/相关类型/双端build/dist边界通过。证据ignored `logs/admin-email-*`及`.taste-skill/admin-email/`，详见[功能与边界](docs/admin-user-email.md)。不以隔离验证代替线上实证；本轮未commit/push/部署/发送生产邮件，保留既有未提交改动。
+
+## 2026-11-09 已配置本机网关重复确认保护（未提交源码）
+
+- Owner担心正常使用中的主控兼网关还能再次确认配置。现已配置入口只读「重新检查」，独立GET不读取/推进配置任务；旧计划隐藏确认，服务端prepare/confirm及受限worker写入前拦截已有配置、原身份和登记记录。离线/缺部分配置不回退首次安装，不重写网关、不重启后台、不下发宿主配置。首次全新配置与域名/迁移/恢复流程分开。
+- 真实loopback SSH+HTTP/service专项、三语1440/768/390 Vue/Chrome（含暗色、旧计划、并发状态变化、重复点击、网络失败、首次确认、等待检查期间切换会话不得继续配置）、server types、route/i18n、双端build含vue-tsc、dist边界全exit0。浏览器API/数据库读取为隔离替身；未执行root安装/真实宿主流程，不把它说成生产验证。完整实现/日志与限制见`docs/gateway-recheck-2026-11-09.md`。
+- 已查看各宽度截图；设计inspect最终0FAIL/0WARN（仅允许隔离示例域名），lint三处shadow提示均为原`none`。保留已有chunk提示。未commit/push/发行或操作线上，原其它未提交改动及`.taste-skill/`保留。
+
+## 2026-11-09 首页品牌及导航文字禁选（未提交源码）
+
+- Owner截图要求顶部品牌名称、副标题与产品/解决方案/控制台文字不可选中。正式组件`client/src/components/public/HomepageMapDemo.vue`局部为`.brand,.desktop-nav,.mobile-nav`添加标准及WebKit `user-select:none`；仍为真实文本/原RouterLink，桌面与手机菜单对应一致。正式`PortalView.vue`使用该组件且`preview=false`，本机demo只是同组件的固定目录预览。
+- `logs/home-header-selection/browser.log`真实Vue/Chrome桌面和手机模拟exit0：五处computed禁选、品牌双击和Ctrl+A不选导航、页脚仍可选、实际产品点击及手机Enter导航正常；已查看桌面与手机截图。route守卫、双端build（各含vue-tsc）、dist边界全部exit0，保留既有chunk警告。未修改购买/权限/后端，未commit/push/部署。
+
+## 2026-11-08 首页最后一轮代码与浏览器复审（未提交源码）
+
+- 本轮重新审查标签布局、地区命名/购买目标、手势生命周期、筛选/刷新/旋转屏幕、导航与主题，并重新查看实际截图。真实触摸复现平板从城市文字开始拖动不响应：HomeMapLabels原先只有click，事件不进入地图手势。现将文字按下/滚轮接入同一地图处理，短按保留原地区ID，拖动不误选，键盘/辅助技术click保持。
+- 真实复现手机点选城市后缩窄视口仍保留旧洲倍率（465px欧洲4.6443，320px正确值4.1949）。只有实际拖动/捏合才退出自动取景，点选仍在旋转屏幕后按洲适配。双地图同时补多指离开后的缩放/平移基准重算及lostpointercapture清理；平板品牌副标题由12px调至13px。
+- 新增`check-home-map-gestures.mjs`并接入既有camera专项：390/820触摸、1440鼠标真实输入核文字点选/拖动/滚轮、取消、第三指加入/第一指离开后连续捏合、主动释放真实capture后恢复，无意外选城；465→320点选后取景与重置一致。`logs/home-final-review/probe-before.log`与`resize-before.log`保存修前证据，修后专项及完整camera均自然exit0。
+- 本轮独立证据：`logs/home-final-review/camera.log`及`camera/after.json`：19尺寸/三语/两主题/六筛选684布局状态、原桌面与手机洲聚焦/库存失败禁购/刷新/历史/真实触摸/键盘/动画，以及新增手势全部通过；`app.log`实际App首页/购买/品牌/SEO/共享主题exit0。几何、frontend-route、i18n、test:check、双端build（各含vue-tsc）、dist边界全部exit0；构建仍有原大chunk警告。最终源码与日志SHA256见`logs/home-final-review/evidence.json`。
+- 已看手机全部/五洲、320px英文暗色、19尺寸接触表与inspect三端fold/page。390中文亚太12/12、南美5/5、欧洲12/13，手机全部0文字/0引线；四个指定名称及新加坡西部分别保留，320英文完整两行不溢出。密集其它名称仍可能让位，保留节点/近邻/地区卡。大竖屏平板及4K仍按原地图比例和最大宽度显示，留白较多，未以改变地理比例或扩大本轮为整页重做来填满。
+- `.taste-skill/home-final-review/critique.md`记录剩余设计inspect 5FAIL/3WARN（比本轮修前少small-text提示），四组件源码lint20FAIL/16WARN包含原样式/未使用旧选择器，不等同于新增功能失败；保留owner地图/球体/卡片方向，不称设计全绿或绝对完美。全部为Chrome156桌面设备模拟和本地固定目录，未做Safari/真实iOS/Android或生产验收。Demo19834保持；未commit/push/发行/部署，其他工作区修改保留。
+
+## 2026-11-08 补齐四处地图名称并区分新加坡西部（未提交源码）
+
+- Owner指出瓦尔帕莱索、春川、新加坡、新加坡西部在选洲图中漏显，随后明确两新加坡地区必须分别命名。原目录正确，旧标签只用city+编号；新增共享`homeMapRegionLabel`按原code显示「新加坡」「新加坡西部」/Singapore/Singapore West，保留地区ID、坐标和购买关联。
+- 触摸标签从单个顺序放置改为密集区域共同尝试邻近位置，仍保留32px文字距离、44px触摸、边界/节点/标签避让。固定搜索预算防无限计算；手机英文Singapore West在窄处两行完整显示。没有放大引线或挪真实经纬，移动「全部」仍0文字/0引线。已看390px亚太12标签/12节点、南美5/5及320px英文截图；极密集其它名称仍可能让位，不宣称所有尺寸全部名称齐显。
+- 新增四名称和新加坡区别的明确断言，最终`logs/home-labels-missing/camera.log`完整专项exit0：19尺寸/684布局状态、三语深浅、短引线/44px/无越界碰撞、原桌面/球体/库存/购买/手势/历史/动画；320英文、390简中、465繁中逐一真实触摸四标签核原地区ID。`geometry-final.log`/`route.log`/`i18n.log`/`build.log`/`boundary.log`分别exit0，双端build各含vue-tsc，保留既有chunk警告。布局本机12点压力样本中位约1.4ms、P95约3.2ms，限于Chrome156桌面模拟。最终源码/日志hash见ignored `logs/home-labels-missing/evidence.json`。
+- 查看最终亚太/南美、320英文及inspect三端fold；`.taste-skill/home-labels-missing/critique.md`记录整页5FAIL/5WARN，包括既有地图风格和本轮13px边距警告，标签未裁切，不称设计全绿。所有验证为本地静态目录和Chrome模拟，非手机硬件、Safari或生产。Demo端口19834保持；未commit/push/发行/部署，其余工作区改动完整保留。
+
+## 2026-11-08 首页全设备响应式与城市文字收尾（未提交源码）
+
+- 以owner最新要求纠正下方手机阶段记录：移动端「全部」不标城市文字/引线；选洲后显示该洲附近名称。删除为凑齐标签新增的远距离位置，文字行离真实节点最多32px；密集处隐藏部分文字并保留节点、近邻选择、地区卡和原数字购买目标。390px中文浅色欧洲13节点/11标签、亚太12节点/8标签，不再以“13标签全显”作为验收目标。
+- 复审修正：触摸平板44px标签/节点命中与近邻选择、地图圆点固定屏幕尺寸、筛选外节点退出Tab；窄平板筛选换行、选中卡避开控件、长品牌不挤坏登录；菜单打开聚焦/ESC返回/离开路由关闭，语言菜单聚焦当前选项；桌面页脚贴底、低屏保留导航/页脚空间、超宽主要操作文字提高可读性。相关源码与范围见[响应式检查记录](docs/homepage-responsive-review-2026-11-08.md)。
+- 真实失败已记录：标签旧缓存位置越界导致脚本异常，已检查索引；低屏页脚挤出修正最小地图高度与间距。完整串行浏览器专项曾在平板点选失败，事件记录显示只有兼容鼠标click、没有Pointer/Touch事件；同一失败文档替换纯HTML按钮也复现，独立页面正常。响应式矩阵改用独立CDP页面并强制断言真实touch PointerEvent按下/抬起及选中/近邻结果，产品未加入伪造事件或绕过业务；底层浏览器内部原因未进一步断言。旧失败日志保留于`logs/home-responsive-camera-verified.log`、`home-responsive-camera-traced.log`和`home-responsive-touch-static.log`。
+- 最终`node scripts/test-home-map-camera.mjs --reuse-demo`自然exit0，日志`logs/home-responsive-camera-final-isolated.log`：原地图/球体聚焦、刷新失败/恢复、购买目标、键盘/拖动/捏合、历史和真实/减弱动画；新增19尺寸320×568至3840×2160、3语言×2主题×6筛选共684布局状态，标题/节点/标签/控件不越界不重叠，长品牌、等效缩放、平板触摸与低屏菜单全部通过。结果在`logs/home-map-camera/after.json`；另核手机五洲最终截图及全部0文字/0引线。
+- 相关几何、frontend-route、i18n、测试清单、client类型、双端构建（各含vue-tsc）及dist边界均exit0；实际App首页/购买/品牌/SEO/共享主题回归`logs/home-responsive-theme-final.log`exit0。构建保留既有大chunk警告；最终源文件与日志hash在ignored `logs/home-responsive/evidence.json`。
+- 已看最终手机全球/五洲/亚太暗色、19尺寸接触表及768/3440原图；`.taste-skill/home-responsive/critique.md`记录剩余设计inspect 5FAIL/4WARN（原地图渐变、细线、摄影/影片、静态初载、卡片、横滑、品牌副标题等），保留owner地图/球体方向，不宣称整页设计全绿。本机Chrome156设备模拟，未做iOS/Android硬件或Safari；Edge未建立CDP会话，旧smoke的“PASS Edge”文字以其实际Chrome版本纠正。
+- Demo继续仅监听`http://127.0.0.1:19834/`（45地区/4可售静态目录，无生产后端）；本轮未commit/push/发行/部署。原管理员改期等未提交修改及`.taste-skill/`完整保留。
+
+## 2026-11-08 手机欧洲取景纠错（未提交源码）
+
+- Owner指出本机Demo手机欧洲仍是整球、节点挤在中心。上一节手机专项只验证了洲筛选/球体朝向，不能证明手机可读与交付；旧截图已另存`logs/home-map-camera/before-mobile-correction.png`，本节纠正该验收缺口。
+- `homeGlobeViewport`按当前洲经纬范围与手机实际画面拟合正射球体，保留64px横向/60px纵向空间，缩放1–6倍；390px欧洲约4.63倍，不再固定1.1倍。视口使用实际宽高，切全部回全球，区域卡定位不再被旧2.5倍上限缩回；日期变更线、目录顺序/重复节点、非法/单点数据已核。
+- 手机新增13px本地化城市文字及引线，44px触摸范围避让、同城地区编号区分。390/465px欧洲13地区标签同时可见；320px极窄屏部分标签让位，全部13节点保留并支持近邻列表精确选择，不承诺所有宽度所有标签同时显示。地图仍使用原球体投影与经纬坐标、库存/数字购买目标，未改后端业务。
+- 真实触摸首轮发现新标签挡住双指缩放，已让标签手势统一交由球体处理；触摸选择、从文字开始拖动与双指缩放、键盘选择均实测。第二轮临时Vue模板表达式语法错误已纠正；两次非零日志保留，不以重试掩盖产品问题。
+- 最终自然exit0：`logs/home-map-mobile-geometry.log`、`home-map-mobile-route.log`、`home-map-mobile-camera-final.log`、`home-map-mobile-extended.log`、`home-map-mobile-build.log`、`home-map-mobile-boundary.log`、`home-map-mobile-test-check.log`。真实Vue/Chrome四手机宽度320/390/465/767、五洲所有筛选节点在范围内、三语深浅、44px文字目标不重叠、欧洲13地区逐个真实触摸/近邻选择、库存失败禁购/刷新、售罄禁购、文字拖动不误选、卡片定位/键盘、异步首载、实际动画与减弱动画；原桌面四宽度/地图回退/历史与刷新专项一起通过。双端构建各含vue-tsc，保留既有大chunk警告。
+- 已查看390/465手机浅色、390英文暗色、320窄屏及设计inspect桌面/平板/手机fold和page图。设计inspect仍为既有5FAIL/3WARN（原地图渐变/分隔线/摄影/动画数量/卡片等），源码lint2FAIL为原浮层阴影/列表分隔线；未因局部修复扩展整页设计、加照片/动效或宣称设计全绿。审查与截图见`.taste-skill/home-map-mobile-correction/`，纠正上一轮critique第3项的不足。
+- Demo继续仅监听`http://127.0.0.1:19834/preview?inspect-continent=europe`；真实组件搭配本地静态库存，不是生产。未commit/push/发行/部署；管理员改期、标题与其余未提交文件均保留。
+
+## 2026-11-08 首页切洲自动聚焦与复查（未提交源码）
+
+- Owner确认图1区域聚焦效果并授权实现检查。新增`homeMapViewport`按各洲投影节点包围盒、SVG实际视口和标签/底部控件边距计算1–4倍取景；欧洲/北美可放大4倍，亚太/南美/中东非洲按跨度适配；全部保持全球。沿用原地图、CSS动画与减弱动画偏好，不更换引擎、地理数据、库存或购买标识。
+- `HomeRegionAtlas`保留同洲城市选择、目录首载/刷新/失败重试及手动平移缩放后的视角；跨洲历史/选择对齐，主动切洲清原城市，窗口变化按自动取景状态重算。重置回所选洲；手机默认仍使用原球体，跨断点/异步加载按当前洲对齐，球体重置同样保持当前洲。
+- 复审真实复现放大后圆点边缘仍按14px判断导致无法点击，已按实际变换后的圆点半径匹配；保留触控22px和近邻选择。浏览器首次完整复测捕获异步球体loading组件不含方法，已检查方法就绪并在组件可用时对齐；对应失败日志保留。原键盘复查脚本漏Enter字符事件导致失败，补正确CDP输入后通过，没有因此修改产品键盘行为。
+- 最终自然exit0：地图标签/五洲取景守卫、frontend-route守卫、测试清单、`test:homepage-map-camera-ui`真实Vue/Chrome专项（五洲四桌面宽度、手机球体及平面回退、三语/深浅、节点和标签边界、点击边缘、键盘/拖动/滚轮、加载后到达/刷新/失败、手动视角、城市选择/数字购买目标、历史返回、真实动画/减弱动画），原`test:homepage-theme-ui`实际App首页/购买流程回归，双端构建各含vue-tsc、frontend-dist-boundary。新增浏览器专项已登记CI，尚未推送运行；不以本地通过写成CI/线上实证。
+- 截图及证据在ignored `logs/home-map-camera/`与`.taste-skill/home-map-camera/`，最终索引`logs/home-map-camera/evidence.json`。完整页面设计inspect仍有既有地图渐变/分隔线/无摄影/静态加载/移动卡边框5FAIL、3WARN；本轮按owner范围保留原样式，不声称整体设计审查全绿。首轮合并筛选参数不被runner支持，修正调用；首个双端build为修节点点击而主动中止，最终重建全部通过。
+- 未commit/push/部署；此前标题禁选和管理员改期未提交改动保留。本轮没有实施上一轮审视提出的全屏容器/主选购入口重做。
+
+## 2026-11-08 首页标题禁选与全屏布局审视（未提交源码）
+
+- 按owner要求，仅在`HomepageMapDemo.vue`的标题局部增加标准及WebKit `user-select: none`，保留真实文字和读屏语义，不全局拦截复制。普通鼠标选取后复制被阻止；不表示可阻止源码、截图或OCR提取。
+- 真实App/Vue/Chrome配本地静态catalog验证3440×1440、1920×1080、1440×900和390×844：标题禁选、无横向溢出和控制台错误，修改前后布局尺寸保持。三击控制组可选中标题，恢复产品CSS后标题不被选中，页脚仍可正常选择。证据在ignored `logs/home-title-review/`。
+- `frontend-route-guards`、双端前端构建（各含vue-tsc）及`frontend-dist-boundary-guards`均自然exit0；构建保留既有大chunk警告。设计lint/inspect有既有页面规则失败，属于本轮审视发现，未宣称设计检查全绿；详情见`.taste-skill/home-fullscreen-review/critique.md`。
+- 全屏问题仅诊断：3440×1440时正文最大1920px、左右各760px，地图2160px封顶，页脚后留白约206px；导航/选购辅助文字12–13px偏小，“查看全部地区与配置”远离标题且不醒目。建议下一步统一超宽屏容器与垂直布局、提高文字可读性并突出选购入口。本轮未改全屏布局、导航或地图行为，未提交、推送或部署；之前管理员改期未提交改动保留。
+
+## 2026-11-08 管理员校正用户实例到期时间（未提交源码）
+
+- 复审及owner追加管理员专属要求：修复实际API错误码层级不符、取消自动开机历史永久挡改期、长billing lane排队超时后仍写入、同ID归属/宿主/客机与往返变化旧弹窗、DST回拨歧义/UTC年份边界/编辑中变更时区。详情新增仅管理员可见expiryIdentity，与独立改期快照匹配；未放宽服务端最新权限、恢复及资金守卫。最终验证索引见ignored `logs/admin-expiry-review-evidence.json`。
+- 复审最终证据：真实PG/Fastify＋原生产鉴权函数（不启动app worker）/真实JWT验签，客户、宿主所有者、伪造role、坏签名/PAT/OAuth、缺sid/过期/撤销会话、降权/封禁均拒绝，正常管理员成功；直接服务调用也拒绝客户，真实详情仅管理员返回编辑绑定，用户rename/config夹带期限/role不生效。改期与真实续费互斥、免费延期不增加实付可退金额、审计失败回滚，最终专项exit0。Vue/Chrome18组合及同ID身份往返、顶层错误码、DST跳时/回拨、UTC年份边界/设备时区切换通过；类型含新专项、七相关守卫、测试清单、双端build/用户包边界与后端build均通过。七守卫首轮六过一失败为新增断言CRLF不兼容，规范换行后仅重跑失败项通过；JWT测试声明类型错误和旧非零回归日志均保留，未弱化权限/业务断言。最终inspect0FAIL/2WARN仍为已有背景示例对比及资源卡空白。没有线上测试、commit/push或新发行。
+- Owner要求在实例详情到期时间旁编辑准确日期时间。新增管理员独立GET/PUT接口和admin-only异步弹窗，精确秒/时区；无扣费、退款或续费账单。系统到期暂停改未来解除为stopped，手动封停保持；不下发客户生命周期命令。规则见[管理员实例改期](docs/admin-instance-expiry.md)。
+- 共用实例billing lane/advisory/行锁，事务内当前管理员角色/会话复核，摘要防覆盖续费/转移/归属/暂停变化；删除/清理、任务/恢复/快照/反代、自动开机重试和宿主维护门禁保留。前后UTC和操作者审计同事务，失败回滚；不重置原已暂停保留期。
+- 实际PG/Fastify专项通过，包括真实行锁竞争、审计注入失败零改期、真实续费与改期前后互斥且零额外扣款。Vue/Chrome三语三宽深浅18组及重复提交/时区/DST/旧回执拦截通过；类型、六相关守卫及最终三守卫/入口两守卫、测试清单/双端构建边界通过，实际退出均0；最终源码/日志hash与18截图索引在ignored `logs/admin-expiry-final-evidence.json`。
+- 首次PG夹具siteKey非UUID、浏览器夹具JS/字体解析、零秒显示/ESC事件编码错误已修，保留原非零日志。实测全局!important紫色按钮与暗色文本覆盖已用弹窗局部黑白样式修复，未放宽资金/权限断言。UI inspect允许原生dialog背景覆盖及既有背景卡阴影，最终0FAIL/2WARN仅背景示例对比与旧资源卡空白；18截图与critique在`.taste-skill/admin-expiry-notes.md`及ignored日志。
+- 本轮未commit/push/合并main/发行/生产改期；原源码推送、稳定包及自动续费证据保持，不将隔离测试写成生产验收。
+
 ## 2026-11-08 单台与多台自动续费、到账补续和到期回池
 
 - 源码已按owner授权非force推送：`5f5f9f8f954e1db0dad79ee0d2a86c9dfffa96e0` / tree `f0ebe5a8f4d323e624a60012c9850cc06329fdbd`，远端`codex/alpine-ssh-security`完整SHA回读一致。该分支无打开PR；CI仅main/dev push或main PR触发，Alpine专项路径亦不匹配本批；按完整SHA查询Actions返回0项，不能写作CI通过。26文件源码/专项/脱敏文档已保存；生产、正式包及原生未验收范围保持。随后仅补推送事实的文档提交`[skip ci]`，不改变本次运行源码。

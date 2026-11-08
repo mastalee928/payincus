@@ -8,8 +8,9 @@ const props = defineProps<{
   points: MapLabelPoint[]
   viewTransform: string
   hoverSlug: string
+  touch?: boolean
 }>()
-const emit = defineEmits<{ select: [id: string] }>()
+const emit = defineEmits<{ select: [id: string]; press: [event: PointerEvent, id: string]; wheel: [event: WheelEvent] }>()
 const labels = ref<MapLabelPlacement[]>([])
 let frameId = 0, animateUntil = 0, disposed = false
 let resize: ResizeObserver | undefined
@@ -31,13 +32,13 @@ function render() {
   if (!matrix || !frame.width) return
   const points = props.points.map(point => {
     const p = new DOMPoint(point.x, point.y).matrixTransform(matrix)
-    return { ...point, x: p.x - frame.x, y: p.y - frame.y, radius: Math.max(7, 5 * Math.hypot(matrix.a, matrix.b)) }
+    return { ...point, x: p.x - frame.x, y: p.y - frame.y, radius: 7 }
   })
   const obstacles = [...props.frame.querySelectorAll('.map-tooltip, .map-controls, .atlas-legend, .map-selection')].map(element => {
     const r = element.getBoundingClientRect()
     return { x: r.x - frame.x, y: r.y - frame.y, width: r.width, height: r.height }
   })
-  labels.value = layoutMapLabels(points, frame.width, frame.height, measure, obstacles, previous)
+  labels.value = layoutMapLabels(points, frame.width, frame.height, text => props.touch ? Math.max(44, measure(text)) : measure(text), obstacles, previous, props.touch ? 44 : 20)
   for (const label of labels.value) previous.set(label.id, label.slot)
   if (performance.now() < animateUntil) frameId = requestAnimationFrame(render)
 }
@@ -47,7 +48,7 @@ function schedule(animated = false) {
   if (!frameId) frameId = requestAnimationFrame(render)
 }
 watch(() => props.viewTransform, () => schedule(true), { flush: 'post' })
-watch([() => props.points, () => props.hoverSlug], () => schedule(true), { flush: 'post' })
+watch([() => props.points, () => props.hoverSlug, () => props.touch], () => schedule(true), { flush: 'post' })
 watch([() => props.frame, () => props.mapGroup], () => {
   resize?.disconnect()
   if (props.frame) {
@@ -61,7 +62,7 @@ onBeforeUnmount(() => { disposed = true; cancelAnimationFrame(frameId); resize?.
 </script>
 
 <template>
-  <div class="map-label-layer">
+  <div class="map-label-layer" :class="{ 'touch-labels': touch }">
     <svg class="map-label-leaders" aria-hidden="true">
       <line
         v-for="label in labels" :key="label.id" :x1="label.nodeX" :y1="label.nodeY"
@@ -71,8 +72,8 @@ onBeforeUnmount(() => { disposed = true; cancelAnimationFrame(frameId); resize?.
     </svg>
     <button
       v-for="label in labels" :key="label.id" class="map-region-label" :class="{ 'is-selected': label.selected }"
-      :data-region="label.id" :style="{ transform: `translate(${label.x}px, ${label.y}px)`, width: `${label.width}px` }"
-      type="button" :aria-pressed="label.selected" @click="emit('select', label.id)"
+      :data-region="label.id" :style="{ transform: `translate(${label.x}px, ${label.y}px)`, width: `${label.width}px`, height: `${label.height}px` }"
+      type="button" :aria-pressed="label.selected" @pointerdown="emit('press', $event, label.id)" @wheel="emit('wheel', $event)" @click="$event.detail === 0 && emit('select', label.id)"
     >
       {{ label.text }}
     </button>
@@ -83,7 +84,7 @@ onBeforeUnmount(() => { disposed = true; cancelAnimationFrame(frameId); resize?.
 .map-label-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 12; }
 .map-label-leaders { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .map-label-leaders line { stroke: var(--home-map-leader, #69788b); stroke-width: .75; opacity: .65; }
-.map-region-label { position: absolute; top: 0; left: 0; padding: 0; border: 0; background: transparent; text-align: left; white-space: nowrap; color: var(--home-map-label, #d1d8e3); font: 500 13px/20px 'Inter Variable',Inter,'Microsoft YaHei',sans-serif; pointer-events: auto; cursor: pointer; }
+.map-region-label { position: absolute; top: 0; left: 0; padding: 0; border: 0; background: transparent; text-align: left; white-space: nowrap; color: var(--home-map-label, #d1d8e3); font: 500 13px/20px 'Inter Variable',Inter,'Microsoft YaHei',sans-serif; pointer-events: auto; touch-action: none; user-select: none; cursor: pointer; }
 .map-region-label.is-selected { color: var(--home-map-active, #8ce6eb); }
 .map-region-label:hover { color: var(--home-map-active, #8ce6eb); }
 .map-region-label:focus-visible { outline: 2px solid var(--home-map-active, #8ce6eb); outline-offset: 3px; }

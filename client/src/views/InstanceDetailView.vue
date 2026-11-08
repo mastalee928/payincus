@@ -50,6 +50,10 @@ const HostReplacementModal = isAdminEntry
   ? defineAsyncComponent(() => import('@/components/host/HostReplacementModal.vue'))
   : null
 const showHostReplacement = ref(false)
+const AdminExpiryModal = isAdminEntry
+  ? defineAsyncComponent(() => import('@/components/instance/modals/AdminExpiryModal.vue'))
+  : null
+const showAdminExpiry = ref(false)
 
 // 格式化镜像名称：优先使用 imageName，否则去掉 images: 前缀
 function formatImageName(image: string, imageName?: string | null): string {
@@ -317,6 +321,10 @@ const quotaError = ref<string>('')
 let quotaTargetGeneration = 0
 watch([() => instance.value?.host_id, () => instance.value?.user_id, () => instance.value?.incus_id, () => instance.value?.isHostOwner], () => {
   quotaTargetGeneration++
+  showAdminExpiry.value = false
+}, { flush: 'sync' })
+watch([() => instance.value?.expiryIdentity?.ownerId, () => instance.value?.expiryIdentity?.hostId, () => instance.value?.expiryIdentity?.incusId], () => {
+  showAdminExpiry.value = false
 }, { flush: 'sync' })
 const userQuota = ref<UserQuota | null>(null) // 用户配额信息
 interface RemainingQuota {
@@ -693,6 +701,7 @@ watch([() => route.params.id, () => route.name, detailSessionKey], async ([newId
       terminalTabCount.value = 0
 
       // 关闭所有弹窗
+      showAdminExpiry.value = false
       showAddPortModal.value = false
       showRenameModal.value = false
       showRebuildModal.value = false
@@ -3225,10 +3234,12 @@ function formatShortDate(dateStr: string | null | undefined): string {
               :show-password="showPassword"
               :instance-password="instancePassword"
               :can-edit-config="instance.isHostOwner === true"
+              :can-edit-expiry="isAdminEntry && authStore.isAdmin && instance.status !== 'deleted'"
               :enable-resource-pool="!isAdminEntry && (instance as any).enableResourcePool === true"
               @toggle-password="togglePasswordVisibility"
               @copy="copyToClipboard"
               @edit-config="openConfigEditModal"
+              @edit-expiry="showAdminExpiry = true"
               @redeem="openRedeemModal"
             />
           </div>
@@ -3351,6 +3362,17 @@ function formatShortDate(dateStr: string | null | undefined): string {
       @cancel="handlePortConflictCancel"
     />
 
+    <AdminExpiryModal
+      v-if="isAdminEntry && authStore.isAdmin && showAdminExpiry && instance"
+      :instance-id="instance.id"
+      :instance-name="instance.name"
+      :session-key="detailSessionKey"
+      :owner-id="instance.expiryIdentity?.ownerId"
+      :host-id="instance.expiryIdentity?.hostId"
+      :incus-id="instance.expiryIdentity?.incusId"
+      @close="showAdminExpiry = false"
+      @changed="loadInstance(); toast.success(t('instanceExpiry.success'))"
+    />
     <HostReplacementModal
       v-if="isAdminEntry && showHostReplacement && instance"
       :key="instance.id"

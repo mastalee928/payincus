@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import api from '@/api/admin'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
+import AdminUserEmailModal from '@/components/admin/AdminUserEmailModal.vue'
 import VipLevelRulesEditor from '@/components/admin/VipLevelRulesEditor.vue'
 import VipBenefitHallSettings from '@/components/admin/VipBenefitHallSettings.vue'
 import { useToast } from '@/stores/toast'
@@ -146,6 +147,18 @@ const dialogSession = computed(() => {
   return `${authStore.user?.id}:${identity}`
 })
 const dialogsAvailable = computed(() => dialogsActive.value && activeTab.value === 'users' && !!dialogSession.value)
+const emailUser = ref(null)
+watch([dialogsAvailable, dialogSession], () => { emailUser.value = null }, { flush: 'sync' })
+function openEmailModal(user) {
+  if (dialogsAvailable.value && user.id !== authStore.user?.id) emailUser.value = { id: user.id, username: user.username }
+}
+function emailChanged(result) {
+  if (!dialogsAvailable.value || emailUser.value?.id !== result.userId) return
+  const user = users.value.find(user => user.id === result.userId)
+  if (user) user.email = result.email
+  toast.success(t('adminUserEmail.success'))
+  void loadUsers()
+}
 const balanceDialogGeneration = ref(0), loginDialogGeneration = ref(0)
 const balanceContext = computed(() => [dialogsAvailable.value, dialogSession.value, showBalanceModal.value, balanceDialogGeneration.value, balanceUser.value?.id, balanceTab.value])
 const loginContext = computed(() => [dialogsAvailable.value, dialogSession.value, showLoginRecordsModal.value, loginDialogGeneration.value, loginRecordsUser.value?.id, loginRecordsPage.value, loginRecordsPageSize.value])
@@ -1298,7 +1311,12 @@ function _getQuotaPercent(used, limit) {
                 />
                 <div class="min-w-0">
                   <div class="truncate text-sm font-medium text-themed">{{ user.username }}</div>
-                  <div class="truncate text-xs text-themed-muted">{{ user.email || t('admin.users.noEmail') }}</div>
+                  <div class="user-email-line flex min-w-0 items-center text-xs text-themed-muted">
+                    <span class="truncate" :title="user.email || undefined">{{ user.email || t('admin.users.noEmail') }}</span>
+                    <button v-if="authStore.isAdmin && user.id !== authStore.user?.id" type="button" class="user-email-edit" :title="t('adminUserEmail.edit')" :aria-label="t('adminUserEmail.edit') + ' · ' + user.username" @click="openEmailModal(user)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 4 4 4M4 20l4.5-1 11-11a2.83 2.83 0 0 0-4-4l-11 11L4 20Z" /></svg>
+                    </button>
+                  </div>
                   <div class="mt-1 font-mono tabular-nums text-xs text-themed-muted">#{{ user.id }}</div>
                 </div>
               </div>
@@ -1493,7 +1511,12 @@ function _getQuotaPercent(used, limit) {
                     />
                     <div class="min-w-0">
                       <div class="text-sm font-medium text-themed truncate">{{ user.username }}</div>
-                      <div class="text-xs text-themed-muted truncate">{{ user.email || t('admin.users.noEmail') }}</div>
+                      <div class="user-email-line flex min-w-0 items-center text-xs text-themed-muted">
+                        <span class="truncate" :title="user.email || undefined">{{ user.email || t('admin.users.noEmail') }}</span>
+                        <button v-if="authStore.isAdmin && user.id !== authStore.user?.id" type="button" class="user-email-edit" :title="t('adminUserEmail.edit')" :aria-label="t('adminUserEmail.edit') + ' · ' + user.username" @click="openEmailModal(user)">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 4 4 4M4 20l4.5-1 11-11a2.83 2.83 0 0 0-4-4l-11 11L4 20Z" /></svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </td>
@@ -3317,9 +3340,16 @@ function _getQuotaPercent(used, limit) {
       </Transition>
     </Teleport>
   </div>
+  <AdminUserEmailModal v-if="emailUser && dialogsAvailable" :user-id="emailUser.id" :username="emailUser.username" :session-key="dialogSession" @close="emailUser = null" @changed="emailChanged" />
 </template>
 
 <style scoped>
+.user-email-line { max-width: 18rem; }
+.user-email-edit { display: inline-flex; align-items: center; justify-content: flex-start; flex-shrink: 0; width: 24px; height: 24px; padding: 4px; margin-left: 2px; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
+.user-email-edit:hover { color: var(--text-primary, #171717); }
+.user-email-edit:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+:global(.dark) .user-email-edit:hover { color: #fafafa; }
+@media (pointer: coarse), (max-width: 639px) { .user-email-edit { width: 44px; height: 44px; } }
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,

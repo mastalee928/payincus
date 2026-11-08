@@ -50,6 +50,11 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:admin-user-email-integration', 'requires isolated local *_pool_test PostgreSQL; real JWT/admin authorization, email allocation races, credential revocation and audit rollback'],
+  ['test:admin-user-email-browser', 'requires Chrome/Edge and local Vite; real UsersView/email modal, three locales/viewports/themes, repeat submit and stale replies with isolated API fixture'],
+  ['test:gateway-recheck-ui', 'requires Chrome/Edge and local Vite; actual gateway panel with isolated API, repeated read-only checks, old-plan protection and first setup'],
+  ['test:admin-instance-expiry-integration', 'requires isolated local *_pool_test PostgreSQL; actual admin expiry API, monetary invariants, audit rollback and renewal/deletion/authorization races'],
+  ['test:admin-instance-expiry-browser', 'requires Chrome/Edge and local Vite; actual expiry modal, 18 locale/viewport/theme combinations, dates/DST, duplicate submit and stale session/target receipts; isolated API fixture'],
   ['test:auto-renew-credit-integration', 'requires isolated local *_pool_test PostgreSQL; committed recharge wakeups, deterministic partial funding, suspension retention, exact debit and actual row-lock cutoff races'],
   ['test:renewal-resume-integration', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; durable post-renewal starts, actual worker, HTTPS identity checks, receipt loss, row-lock suspension races and bounded retries'],
   ['test:security-hardening-queue', 'requires isolated PostgreSQL; durable automatic host/guest hardening, original identities, permission/hold/task fences, retry and unchanged customer state'],
@@ -92,6 +97,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-pool-cart-ui', 'requires Chrome and Vite; two-tab cart persistence, corrupt storage and purchase selector lifecycle'],
   ['test:pool-purchase-selection-ui', 'requires Chrome and Vite; real purchase continent/region/configuration selection, first-frame replacement and stale image isolation'],
   ['test:homepage-theme-ui', 'requires Chrome and Vite; actual homepage/shared theme modes, real system preference changes, persistence, localized controls and media listener lifecycle'],
+  ['test:homepage-map-camera-ui', 'requires Chrome and Vite; actual continent framing, stock refresh/selection/manual camera preservation, bounds/labels, deep links, motion and mobile globe/map'],
   ['test:review-pool-stock', 'requires isolated PostgreSQL; allocator revalidation after an actual host row lock wait'],
   ['test:review-recharge-create', 'requires isolated PostgreSQL; persistent recharge creation identity, recovery and account lock races'],
   ['test:review-pool-provision', 'requires isolated PostgreSQL and OpenSSL; actual pool creation identity, cleanup and refund lifecycle with authenticated mTLS'],

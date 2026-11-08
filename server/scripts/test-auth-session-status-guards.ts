@@ -16,6 +16,14 @@ const turnstileLibSource = readFileSync(resolve(__dirname, '../src/lib/turnstile
 const adminUsersViewSource = readFileSync(resolve(__dirname, '../../client/src/views/admin/UsersView.vue'), 'utf8')
 const apiSource = readFileSync(resolve(__dirname, '../../client/src/api/index.ts'), 'utf8')
 const adminApiSource = readFileSync(resolve(__dirname, '../../client/src/api/admin.ts'), 'utf8')
+const adminEmailRoute = readFileSync(resolve(__dirname, '../src/routes/admin-user-email.ts'), 'utf8')
+const adminEmailService = readFileSync(resolve(__dirname, '../src/services/admin-user-email.ts'), 'utf8')
+assert.ok(adminEmailRoute.includes('onRequest: [app.authenticateAdmin]') && adminEmailService.includes('lockAdministrativeUserMutation(tx, userId, actor)'), 'email changes must authenticate and recheck current admin under row locks')
+assert.ok(usersRouteSource.includes("code: 'ADMIN_EMAIL_USE_EDITOR'") && adminEmailService.includes('before.revision !== change.revision'), 'legacy profile writes cannot bypass the admin email revision fence')
+assert.ok(adminEmailService.includes('USER_EMAIL_REGISTRATION_LOCK_NAMESPACE') && adminEmailService.includes('EMAIL_VERIFICATION_LOCK_NAMESPACE') &&
+  adminEmailService.includes('revokeUserSessionsInTransaction(tx, userId)') && adminEmailService.includes('tx.log.create'), 'email allocation, code invalidation, session revocation and audit are transactional')
+assert.ok(!apiSource.includes('/admin-email'), 'customer API must not expose admin email editor')
+assert.ok(adminEmailService.includes("containsDangerousChars(email.replace(/[@.]/g, ''))"), 'admin email must remain compatible with current password recovery validation')
 
 function routeSection(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)

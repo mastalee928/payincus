@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -11,6 +12,8 @@ const installScriptSource = readFileSync(resolve(__dirname, '../templates/agent-
 const hostAgentCredentialsSource = readFileSync(resolve(__dirname, '../src/lib/host-agent-credentials.ts'), 'utf8')
 const agentBuildReleaseScriptSource = readFileSync(resolve(__dirname, '../../agent/scripts/build-release.sh'), 'utf8')
 const agentReleaseWorkflowSource = readFileSync(resolve(__dirname, '../../.github/workflows/agent-release.yml'), 'utf8')
+assert.ok(agentReleaseWorkflowSource.includes('overwrite_files: false') && agentReleaseWorkflowSource.includes("if: steps.existing.outputs.exists != 'true'"), 'stable Agent assets must not be overwritten by a later main push')
+execFileSync(process.execPath, [resolve(__dirname, '../../scripts/test-agent-release-state.mjs')], { stdio: 'inherit' })
 const onlineUpdateUnitSource = readFileSync(resolve(__dirname, '../../deploy/incudal-online-update@.service.example'), 'utf8')
 const onlineRollbackUnitSource = readFileSync(resolve(__dirname, '../../deploy/incudal-online-rollback@.service.example'), 'utf8')
 const onlineTaskHelperSource = readFileSync(resolve(__dirname, '../../deploy/incudal-online-task.sh.example'), 'utf8')

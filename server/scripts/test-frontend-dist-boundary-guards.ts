@@ -121,6 +121,7 @@ assertNoFixedMarkers('customer', userBuildFiles, [
 ])
 
 assertNoRegexMarkers('customer', userBuildFiles, [
+  { label: 'admin user email endpoint', pattern: /\/users\/[^"'`\s]+\/admin-email/g },
   { label: 'admin user password reset endpoint', pattern: /\/users\/[^"'`\s]+\/reset-password/g },
   { label: 'admin user disable 2FA endpoint', pattern: /\/users\/[^"'`\s]+\/disable-2fa/g },
   { label: 'admin user OAuth endpoint', pattern: /\/users\/[^"'`\s]+\/oauth\//g },
@@ -164,6 +165,8 @@ assertNoRegexMarkers('user', userBuildFiles, [
   { label: 'gateway installation control endpoint', pattern: /management-gateways\/(?:installations|tasks)/g },
   { label: 'gateway private material retrieval', pattern: /retrieveGatewayBootstrap|prepareGatewayInstallation/g },
   { label: 'admin expiry enforcement control', pattern: /\/admin\/billing\/expiry-enforcement/g },
+  { label: 'admin absolute expiry API', pattern: /\/admin\/instances\/[^\s`"']*\/expiry/g },
+  { label: 'admin absolute expiry editor', pattern: /expiry-dialog|expiry-save|AdminExpiryModal/g },
   { label: 'host gateway DNS control', pattern: /host-onboarding\/gateway\/endpoint/g }
 ])
 console.log('frontend dist boundary guard tests passed')

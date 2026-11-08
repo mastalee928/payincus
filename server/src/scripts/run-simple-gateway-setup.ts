@@ -12,6 +12,7 @@ import { localGatewaySetupId, LocalGatewaySetupError, validateSimpleGatewayReque
 import { recoveryHeld } from '../services/platform-backup-core.js'
 import { loadStableGatewayEndpoint, saveStableGatewayEndpoint, resolveGatewayEndpointAddress } from '../services/onboarding-gateway-endpoint.js'
 import { queueHostGatewayDns } from '../services/host-gateway-dns.js'
+import { assertSimpleGatewayUnconfigured } from '../services/local-gateway-setup-protection.js'
 
 const id = localGatewaySetupId(process.argv[2]), exec = promisify(execFile)
 const requestPath = join(SIMPLE_GATEWAY_ROOT, 'inbox', id + '.json'), resultPath = join(SIMPLE_GATEWAY_ROOT, 'results', id + '.json')
@@ -61,6 +62,7 @@ try {
     { sessionId: null, invalidatedAt: { gte: Math.floor(request.createdAt / 1000) } }
   ] }, select: { id: true } })
   if (revoked) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_ADMIN_REQUIRED')
+  await assertSimpleGatewayUnconfigured()
   const oldState = request.operation === 'apply' ? JSON.parse(await readFile(resultPath, 'utf8')) : null
   const observed = await observedStateHash()
   const publicHost = request.operation === 'apply' ? oldState?.plan?.publicHost : request.publicHost || await discoverPublicIPv4()
@@ -83,6 +85,7 @@ try {
     keepSecret = true
   } else {
   if (await observedStateHash() !== observed) throw new LocalGatewaySetupError('SIMPLE_GATEWAY_PLAN_EXPIRED')
+  await assertSimpleGatewayUnconfigured()
   step = 'configure'; writing = true; await state('running')
   try {
     await exec('/usr/bin/python3', ['-I', '-B', join(app, 'scripts/setup-onboarding-control.py'), '--auto-network', '--public-host', request.confirmedHostname || publicHost,

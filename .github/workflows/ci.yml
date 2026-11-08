@@ -395,6 +395,16 @@ jobs:
         run: pnpm --filter server test:admin-instance-push-integration
       - name: Host extensions commit all expiries and their audit together
         run: pnpm --filter server test:review-host-extend-all
+      - name: Admin expiry changes preserve balances and reject stale authority or expiry
+        run: pnpm --filter server test:admin-instance-expiry-integration
+      - name: Admin expiry form preserves timezone and current target/session
+        run: pnpm --filter server test:admin-instance-expiry-browser
+      - name: Admin email changes enforce authority and atomic credential invalidation
+        run: pnpm --filter server test:admin-user-email-integration
+      - name: Admin email form preserves session and inline edit controls
+        run: pnpm --filter server test:admin-user-email-browser
+      - name: Configured local gateways permit read-only rechecks
+        run: pnpm --filter server test:gateway-recheck-ui
       - name: Instance detail reads stay on the current route and session
         run: pnpm --filter server test:review-instance-detail-reads
       - name: Transfer and verification modals keep the current draft and session
@@ -488,6 +498,8 @@ jobs:
           pnpm --filter server test:review-pool-provision
           pnpm --filter server test:review-transfer-cleanup-integration
           pnpm --filter server test:homepage-theme-ui
+      - name: Homepage continent camera preserves framing and selection
+        run: pnpm --filter server test:homepage-map-camera-ui
       - name: Pool allocation rechecks architecture after waiting for host locks
         run: pnpm --filter server test:review-pool-stock
       - name: Recharge creation retries recover the same account-bound order
