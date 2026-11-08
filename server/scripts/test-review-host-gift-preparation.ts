@@ -22,7 +22,7 @@ execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey'
   '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', keyPath, '-out', certPath], { stdio: 'pipe', windowsHide: true })
 const certificate = await readFile(certPath, 'utf8')
 const actions: string[] = []
-const remotes = new Map<string, { config: Record<string, string>; status: string }>()
+const remotes = new Map<string, { name: string; type: string; profiles: string[]; config: Record<string, string>; devices: Record<string, Record<string, string>>; status: string }>()
 const remoteServer = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
   const send = (metadata: unknown, status = 200) => {
     response.writeHead(status, { 'content-type': 'application/json' })
@@ -38,7 +38,11 @@ const remoteServer = createServer({ key: await readFile(keyPath), cert: certific
       const input = JSON.parse(body)
       assert.ok(input.config['user.payincus.provisioning-attempt'])
       assert.equal(input.devices.root.pool, 'test')
-      remotes.set(input.name, { config: input.config, status: 'Stopped' })
+      assert.equal(input.type, 'container')
+      assert.deepEqual(input.profiles, [])
+      assert.equal(input.config['security.privileged'], 'false')
+      remotes.set(input.name, { name: input.name, type: input.type, profiles: input.profiles,
+        config: input.config, devices: input.devices, status: 'Stopped' })
       return send({})
     }
     if (path.includes('/files?')) return send({})
@@ -47,7 +51,7 @@ const remoteServer = createServer({ key: await readFile(keyPath), cert: certific
       const remote = remotes.get(match[1]!)!
       if (request.method === 'GET') return send(remote)
       let body = ''; for await (const chunk of request) body += chunk
-      assert.equal(request.method, 'PUT'); assert.equal(JSON.parse(body).action, 'start')
+      assert.equal(request.method, 'PUT'); assert.equal(match[2], '/state'); assert.equal(JSON.parse(body).action, 'start')
       remote.status = 'Running'; return send({})
     }
     return send({}, 404)
@@ -115,6 +119,10 @@ try {
       assert.equal(response.json().instance.user.id, buyer.id)
       assert.equal(response.json().instance.charged, false)
       assert.equal(actions.filter(action => action === 'POST /1.0/instances').length, 1)
+      const inspected = actions.indexOf(`GET /1.0/instances/${instance.incusId}`)
+      const started = actions.indexOf(`PUT /1.0/instances/${instance.incusId}/state`)
+      assert.ok(inspected >= 0 && started > inspected, 'gifted customer effective isolation is read before its first start')
+      assert.equal(actions.filter(action => action === `PUT /1.0/instances/${instance.incusId}/state`).length, 1)
       assert.equal(remotes.get(instance.incusId)?.status, 'Running')
     } else {
       assert.ok([409, 503].includes(response.statusCode), `${scenario}: expected explicit preparation failure, got ${response.statusCode}`)
