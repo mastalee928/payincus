@@ -31,6 +31,7 @@ assert.ok(restoreTransportSource.includes('error.statusCode === 404 && error.pat
 assert.ok(restoreTransportSource.includes("confirmed.status !== 'Stopped'") && restoreTransportSource.includes('AbortSignal.timeout(timeoutMs)'),
   'restore must confirm actual stopped state with a total deadline')
 assert.ok(backupDeleteSource.includes('withSnapshotMutation(expected, actor, false') &&
+  backupDeleteSource.includes('new IncusClient(instance.host, tx)') &&
   backupDeleteSource.includes("error.statusCode === 404 && error.path === path") &&
   backupDeleteSource.includes("client.request('GET', path") && backupDeleteSource.includes('if (!missing)'),
   'backup deletion must fence current authorization/tasks and confirm exact remote absence')

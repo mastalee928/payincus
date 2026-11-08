@@ -6,6 +6,7 @@ import { IncusClient } from '../lib/incus/incus-client.js'
 import type { WriteActor } from './user-write-authorization.js'
 import type { Host, Instance } from '../types/database.js'
 import { prisma } from './prisma.js'
+import { assertHostNotMaintaining, HostMaintenanceError } from '../lib/host-maintenance-gate.js'
 
 export class ProcessBoostError extends Error {
   constructor(readonly statusCode: number, readonly code: string, message: string,
@@ -29,6 +30,7 @@ export async function boostInstanceProcessesAuthorized(expected: Instance, origi
       }
       await assertNoPendingSnapshotOperations(tx, instance.id)
       await assertNoPendingProxySiteOperations(tx, instance.id)
+      await assertHostNotMaintaining(host.id, tx)
       if (instance.packageId) await tx.$queryRaw`SELECT id FROM packages WHERE id = ${instance.packageId} FOR SHARE`
       const pkg = instance.packageId ? await tx.package.findUnique({ where: { id: instance.packageId }, select: { instanceType: true } }) : null
       targetLimit = pkg?.instanceType === 'vm' ? 2000 : 1000
@@ -43,7 +45,7 @@ export async function boostInstanceProcessesAuthorized(expected: Instance, origi
       const signal = AbortSignal.timeout(remaining)
       // The operation owns its transport. Bound the cold mTLS handshake as well
       // as GET/PUT without changing or cancelling another pooled caller.
-      const client = new IncusClient(host)
+      const client = new IncusClient(host, tx)
       const request = client.request.bind(client)
       client.request = ((method, path, body = null, timeout = 120000, callerSignal, conditions) => {
         signal.throwIfAborted()
@@ -63,6 +65,9 @@ export async function boostInstanceProcessesAuthorized(expected: Instance, origi
     })
   } catch (error) {
     if (error instanceof ProcessBoostError) throw error
+    if (error instanceof HostMaintenanceError && !remoteWriteStarted) {
+      throw new ProcessBoostError(409, error.code, error.message)
+    }
     const message = error instanceof Error ? error.message : String(error)
     if (remoteWriteStarted) {
       // A failed/late PUT or COMMIT does not prove either side's current value.

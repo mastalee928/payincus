@@ -40,7 +40,10 @@ export class IncusClient {
   agent: Agent | null = null
   connected: boolean = false
 
-  constructor(options: IncusClientOptions) {
+  constructor(options: IncusClientOptions, maintenanceDatabase?: Pick<Prisma.TransactionClient, 'host'>) {
+    // Owned transports may live inside a transaction that already holds the
+    // only DB connection. Keep the final mutation gate on that same connection.
+    this.maintenanceDatabase = maintenanceDatabase
     this.hostId = options.id
     this.serverCertificate = options.serverCertificate || null
     this.serverFingerprint = options.serverFingerprint || null

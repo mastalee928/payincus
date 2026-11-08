@@ -14,6 +14,9 @@ const { prisma, closePrismaDatabase, getDbPoolStats } = await import('../src/db/
 const { default: routes } = await import('../src/routes/instances.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const { stopSessionCleanup } = await import('../src/lib/terminal-proxy.js')
+const { deleteAuthorizedBackup } = await import('../src/db/backup-deletion.js')
+const { transferHostIdentity } = await import('../src/lib/transfer-host-identity.js')
+const { Prisma } = await import('@prisma/client')
 const tag = 'boost-wire-' + randomUUID()
 const root = resolve(process.cwd(), 'logs')
 await mkdir(root, { recursive: true })
@@ -29,6 +32,7 @@ const config: Record<string, string> = { 'limits.processes': '500', 'user.marker
 const devices = { eth0: { type: 'nic', name: 'eth0' }, root: { type: 'disk', path: '/', pool: 'fixture' } }
 const sockets = new Set<import('node:stream').Duplex>()
 let mode = 'success', writes = 0, reads = 0, connects = 0, applied = 0
+let backupDeletes = 0, backupChecks = 0
 const remote = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate,
   requestCert: true, rejectUnauthorized: true }, async (request, reply) => {
   assert.ok((request.socket as any).authorized, 'mTLS client must authenticate')
@@ -41,6 +45,12 @@ const remote = createServer({ key: await readFile(keyPath), cert: certificate, c
     return sync({ api_version: '1.0' })
   }
   if (request.url === '/1.0/operations?recursion=1') return sync([])
+  if (request.url === `/1.0/instances/${tag}/backups/saved`) {
+    if (request.method === 'DELETE') { backupDeletes++; return sync({}) }
+    assert.equal(request.method, 'GET'); backupChecks++
+    reply.statusCode = 404
+    return reply.end(JSON.stringify({ type: 'error', error: 'not found', error_code: 404 }))
+  }
   assert.equal(request.url, `/1.0/instances/${tag}`)
   if (request.method === 'GET') { reads++; return sync({ name: tag, config, devices }) }
   assert.equal(request.method, 'PUT'); writes++
@@ -79,6 +89,31 @@ try {
   assert.equal((await submit()).statusCode, 200)
   assert.equal(config['limits.processes'], '1000'); assert.equal(config['user.marker'], tag)
   assert.deepEqual([connects, writes, applied], [1, 1, 1]); await reclaimed()
+  await prisma.instance.update({ where: { id: instance.id }, data: { limitsProcesses: null } })
+  // Both owned clients must retain the real maintenance gate without asking
+  // for a second PG connection while their authorization transaction is open.
+  const backup = await prisma.backup.create({ data: { instanceId: instance.id, incusName: 'saved', name: 'saved', status: 'ready' } })
+  const deleteBackup = () => deleteAuthorizedBackup({ id: instance.id, user_id: admin.id, host_id: host.id, incus_id: tag },
+    { id: backup.id, incus_name: 'saved' }, { id: admin.id, sid: tag, iat: Math.floor(Date.now() / 1000) + 10 }, transferHostIdentity(host))
+  for (const maintenance of ['malformed', { revision: 'host-maintenance-v1', phase: 'prepared' }]) {
+    await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { maintenance } } })
+    const counts = [writes, applied, backupDeletes, backupChecks]
+    const blocked = await submit()
+    assert.equal(blocked.statusCode, 409, blocked.body)
+    assert.equal(blocked.json().code, 'HOST_SECURITY_MAINTENANCE')
+    await assert.rejects(deleteBackup(), { code: 'HOST_SECURITY_MAINTENANCE' })
+    assert.deepEqual([writes, applied, backupDeletes, backupChecks], counts, 'maintenance must dispatch zero remote mutations')
+    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).limitsProcesses, null)
+    assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'ready')
+    await reclaimed()
+  }
+  await prisma.host.update({ where: { id: host.id }, data: { securityHardening: Prisma.DbNull } })
+  assert.equal((await submit()).statusCode, 200); await reclaimed()
+  assert.equal((await deleteBackup()).deletedNow, true); await reclaimed()
+  assert.deepEqual([backupDeletes, backupChecks], [1, 1])
+  assert.equal((await deleteBackup()).deletedNow, false); await reclaimed()
+  assert.deepEqual([backupDeletes, backupChecks], [1, 1], 'terminal backup replay must not dispatch')
+  console.log('PASS owned process and backup transports share one PG connection, maintenance blocks zero writes, cleared maintenance resumes and deletion confirms absence once')
   await prisma.instance.update({ where: { id: instance.id }, data: { limitsProcesses: 650 } })
   mode = 'reject'
   const rejected = await submit(); assert.equal(rejected.statusCode, 500)
@@ -115,6 +150,7 @@ finally {
   for (const socket of sockets) socket.destroy()
   await new Promise<void>(done => remote.close(() => done()))
   await prisma.log.deleteMany({ where: { OR: [{ userId: admin.id }, { action: 'instance.boost_processes', content: { contains: `instance #${instance.id}:` } }] } })
+  await prisma.backup.deleteMany({ where: { instanceId: instance.id } })
   await prisma.instance.delete({ where: { id: instance.id } }); await prisma.host.delete({ where: { id: host.id } })
   await prisma.user.delete({ where: { id: admin.id } }); await closePrismaDatabase()
   assert.ok(resolve(folder).startsWith(root + sep)); await rm(folder, { recursive: true, force: true })

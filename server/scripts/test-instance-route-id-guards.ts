@@ -132,7 +132,7 @@ assert.ok(boostMutation.includes("'PROCESS_LIMIT_BOOST_PARTIAL_FAILURE'") &&
   boostMutation.includes("databaseLimit: current ? current.limitsProcesses : 'unknown'"),
   'failed PUT/COMMIT must report the current DB observation and remote uncertainty')
 assert.ok(boostMutation.indexOf('const operationDeadline = Date.now() + 90000') < boostMutation.indexOf('return await withBatchInstanceMutation') &&
-  boostMutation.includes('const client = new IncusClient(host)') &&
+  boostMutation.includes('const client = new IncusClient(host, tx)') &&
   boostMutation.indexOf('client.request =') < boostMutation.indexOf('await client.connect()') &&
   boostMutation.includes('AbortSignal.any([signal, callerSignal])') &&
   boostMutation.includes('signal.throwIfAborted()') && boostMutation.includes('finally { await client.close() }'),

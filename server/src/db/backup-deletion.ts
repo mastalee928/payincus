@@ -35,7 +35,7 @@ export async function deleteAuthorizedBackup(
     const verification = await claimOperationVerificationRequirement(actor.id, 'delete_backup', current.id, actor, tx)
     if (!verification.verified) throw new BackupDeletionVerificationError(verification.required)
     const path = `/1.0/instances/${encodeURIComponent(instance.incusId)}/backups/${encodeURIComponent(current.incusName)}`
-    const client = new IncusClient(instance.host)
+    const client = new IncusClient(instance.host, tx)
     const absent = (error: unknown) => error instanceof IncusApiError && error.statusCode === 404 && error.path === path
     try {
       await client.connect()
