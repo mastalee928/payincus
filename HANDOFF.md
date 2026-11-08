@@ -1,6 +1,30 @@
 # 版本与验证记录
 
+## 2026-11-09 v1.8.4 正式发行完成
+
+- 正式源码`2c3201122bfface31b7c20e6497437b5814ce699` / tree `512e37424d51cf66fab1a7ade5c3ca2323fd94de`；PR #6合入main同SHA，稳定注释tag对象`6a516f547ba52b3816450e1041cdf5b945f8eda4`不移动。
+- 候选CI42512962099与main CI42524993262各十job全部成功、实际checkout及关键断言独立核验；全部同源码Alpine/Agent关联run终态success，无未处理失败。预览42523751752四必需job成功/Release skipped；正式42535118475五job全部成功，213守卫/241迁移/双原生首装与完整恢复拒绝断言核验。
+- [正式Release](https://github.com/mastalee928/payincus/releases/tag/v1.8.4)于`2026-11-08T23:40:17Z`公开，六资产实际下载并核API digest/大小/双OTA/包内修复与原受信Ed25519签名，latest与说明回读一致；Agent v1.0.5三资产同来源已核，旧v1.0.4不变。六资产完整摘要与全部run见[公开验证](docs/release-v1.8.4-validation.md)。
+- 原三次失败由最终候选及main完整CI闭环，原日志保留。最终只补脱敏文档`[skip ci]`到main，tag与产品源码不变；文档提交及关联run留本地发行台账。
+- Owner自行按[网页升级检查](docs/release-v1.8.4-owner-click-test.md)操作，本次未代做生产OTA/账号账务/重启/DNS/OSS恢复。自动重启白名单仍为空、内存实验关闭；真实OSS新B、独立备用、原客户公网、千台/72小时与原生自动重启缺口仍未验收。下文“未提交/未发行”仅为当时阶段记录。
+
 ## 2026-11-09 v1.8.4 发行准备
+
+- main CI42524993262十job全部终态success并独立核实际checkout同`2c3201122bfface31b7c20e6497437b5814ce699`及全部关键断言；main Alpine42524993258九job、Agent42524993286（同源同hash跳过重复发布）成功。全部关联运行已发现并核验，无未处理失败。稳定注释tag v1.8.4对象`6a516f547ba52b3816450e1041cdf5b945f8eda4`于`2026-11-08T23:25:38.449471+00:00`推送，解引用同源码；正式Build & Release42535118475运行中，尚待正式五job和六公开资产核验。禁止重复打tag或移动稳定来源。
+
+- Agent v1.0.5发布42523460346三job成功、三公开资产实际下载校验且旧v1.0.4不变；预览42523751752四必需job成功/Release skipped，双原生首装/213守卫/241迁移/完整恢复拒绝断言已独立核。main于`2026-11-08T21:23:47.922220+00:00`从原基线精确FF到`2c3201122bfface31b7c20e6497437b5814ce699`；PR首次即时读取因状态尚未传播断言失败，随后回读MERGED/mergeCommit同候选，未重复push。当前main CI42524993262、Alpine42524993258、Agent42524993286，稳定v1.8.4 tag尚未创建，等待main所有关联验证后再打tag。
+
+- 候选`2c3201122bfface31b7c20e6497437b5814ce699`的CI42512962099十job全部终态success并逐job核实际checkout/完整关键断言，包括三种90秒连接回收与新增维护零写入；前三次失败按新源码闭环。Alpine42512962116九job及Agent候选42512962052已核同来源success。Agent v1.0.5发布42523460346已仅触发一次，当前等待终态与三公开资产；面板预览/main/tag尚未开始。
+
+- 最新候选`2c3201122bfface31b7c20e6497437b5814ce699` / tree `512e37424d51cf66fab1a7ade5c3ca2323fd94de`已非force推送，实际PR checkout `3cb612ea094764fb679e921c4ae130d7caa6d3a9` tree相同。本轮独占连接修复及回归已完成，本机类型/后端构建自然exit0；当前CI42512962099、Alpine42512962116、Agent42512962052运行中。前述三次失败历史保留，待当前完整CI闭环；未发布Agent/面板稳定版本。
+
+- 候选`5eaeb523b807264f5f920f4337f97d2878a048f4`的CI42510521255终态failure，唯一Pool128822369944 step57：进程上限独占IncusClient在持有唯一PG连接的事务中用全局Prisma查维护状态，实际正常请求超时500。本机先复现同错；修为独占客户端复用当前tx，保留最终维护门禁、原TLS pin、90秒总期限与独占transport关闭；定向发现备份删除同类遗漏一并修复。新增真实单连接维护阻断零写入、恢复后继续/备份确切缺失与幂等回执；三种90秒stall、原权限/并发/COMMIT失败、完整上传删除专项与五守卫均自然exit0。新源码类型已通过、后端构建继续中；未推进main/发布Agent/稳定tag。旧Alpine42510521276九job及Agent42510521249已独立核同来源终态success，保留历史，不作为新候选证据。
+
+- 最新候选`5eaeb523b807264f5f920f4337f97d2878a048f4` / tree `2526e274357f15de5f18f8beb6ab2f0c75584377`已推送，PR checkout `71fa2b29725f8dd91b1e3f86953e4645c8fc7891` tree一致。前一候选Pool step18再次捕获旧赠送夹具未保存实际type/profiles/devices而被开机隔离拒绝；仅补测试保留生成配置并核非特权、隔离读取在首次且唯一开机之前。本机完整赠送13场景、IPv6单连接、创建补偿守卫和含测试类型全部自然exit0；生产逻辑未改。旧CI/Alpine/Agent记录保留，等待新候选全部终态后再发布Agent，避免未定稿源码占用稳定身份。
+
+- 当前候选已更新为`efddf8edfdad614cb1cec80fdb7244f3cf8c4fc0` / tree `f3fdc2a64a5a6ee11196e58d72653a2cba022f4e`，PR实际checkout `3f4c1d25309b89478a76db510336c68628dca17c`独立tree一致。原CI42509303581终态failure，唯一Pool step9旧mTLS快照夹具空metadata被新隔离门禁拒绝；原Alpine42509303611/Agent42509303603终态success并逐job核来源，历史不作新SHA证据。仅修测试返回完整当前/快照配置并区分读取与写入，补四类不完整/特权拒绝零写入；本机真实PG/mTLS权限20竞争、单连接、隔离/快照守卫和含测试类型均自然exit0。新CI42509959699、Alpine42509959701、Agent42509959734跟踪中；未推进main/稳定tag/公开Agent。
+
+- 候选`2a25cd0a9229c22bb757e1f0c9bce4ab8788fe36` / tree `3d68d1d10c0042d3e5d79e83225120730cd901e8`已精确88路径提交并非force推送`codex/release-v1.8.4`，[PR #6](https://github.com/mastalee928/payincus/pull/6)已附聊天。PR checkout `2f90630e8d1cb8087d6479035bcbdbc58107fe01`独立tree一致。当前CI42509303581、Alpine42509303611、Agent42509303603运行中，以plan.pendingRuns为准；未打稳定tag/推进main。面板预览等待候选Agent发布后再触发，防首装因旧公开Agent版本不符失败。
 
 - Owner已授权本线程累计改动提交推送及正式发新版。现从已推送`3f4f83d0cb0c7a792c1a685e383c6eada8bca61e`整理v1.8.4，main基线`18858dd6c0f81d1ac789bcacebb4ffcf64c6fc37`；此前各小节“未提交/未发行”为当时阶段记录，最新结果以本节及`logs/release-v1.8.4-plan.json`为准。保留`.taste-skill/`和本地临时日志，不加入docs-site/Pages。
 - 本版包括SSH官方修订/原密码保护、实例隔离与持久安全检查、自动续费/到账补续/原身份开机与截止回池、管理员改期/改邮箱、已配置网关只读检查和首页改进。Agent启动标识上报需要独立版本，递增为v1.0.5；原agent-v1.0.4 tag/三资产不覆盖。面板与Agent双架构CI和公开包分别核验。

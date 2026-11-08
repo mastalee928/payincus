@@ -1,6 +1,6 @@
 # v1.8.4 网页升级与检查
 
-发行完成后从[正式Release](https://github.com/mastalee928/payincus/releases/tag/v1.8.4)及[验证记录](release-v1.8.4-validation.md)核源码和资产。当前准备阶段请勿将本页当作已发行通知。由owner自行网页升级，以下业务验证使用专用测试账户与已授权测试实例。
+从[正式Release](https://github.com/mastalee928/payincus/releases/tag/v1.8.4)及[验证记录](release-v1.8.4-validation.md)核源码和资产。本版已完成正式发行核验，目标生产环境仍需自行升级和验证。由owner自行网页升级，以下业务验证使用专用测试账户与已授权测试实例。
 
 ## 网页升级
 
