@@ -2,6 +2,8 @@
 
 2026-11-08 源码与隔离验证记录。Owner在复审完成后授权提交推送`codex/alpine-ssh-security`源码分支，准确提交和Actions记录见[HANDOFF](../HANDOFF.md)。此变更尚未包含在正式安装包中，未操作生产客户和实际付款。
 
+已推送源码：[5f5f9f8f954e1db0dad79ee0d2a86c9dfffa96e0](https://github.com/mastalee928/payincus/commit/5f5f9f8f954e1db0dad79ee0d2a86c9dfffa96e0)。完整SHA查询无关联Actions，本次分支和路径未触发CI；本地通过不表示CI或发行包通过。
+
 ## 扣款规则
 
 - 开启自动续费的付费实例，从到期前24小时开始尝试。原计费周期、AFF/VIP择优价格及账户权限继续在事务内复核。
