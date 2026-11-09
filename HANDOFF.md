@@ -1,6 +1,24 @@
 # 版本与验证记录
 
-## 2026-11-09 v1.8.5 发行准备
+## 2026-11-09 v1.8.5 正式发行完成
+
+- 正式源码`e7faf22a03f920532ee0a35466f06597921767bb` / tree `64aa7d4a309be4d266fab92a3a499a993ea8026d`；PR #7合入main同SHA，注释tag对象`4bf4a6644c1451d15eebbe745c5b20b469c87dba`，旧稳定tag不移动。
+- 候选CI42577102595与main CI42590910672各十job、Alpine关联run全部终态success。预览42577106537四必需job成功/Release skipped，正式42607390425五job成功，213守卫/241迁移/双原生首装与完整恢复拒绝断言核验；所有关联运行无未处理失败。
+- [Release](https://github.com/mastalee928/payincus/releases/tag/v1.8.5)于`2026-11-09T11:27:19Z`公开；六资产实际下载核API digest/大小/双OTA、包内下载器三个编译文件/首页居中及菜单修复、原受信Ed25519签名，说明与latest回读一致。Agent v1.0.5原来源/三资产保持。详见[完整运行与六资产摘要](docs/release-v1.8.5-validation.md)。
+- Owner自行按[网页升级检查](docs/release-v1.8.5-owner-click-test.md)升级。旧安装首次下载仍由当前下载器执行，新下载器随新版安装生效；本轮未代生产OTA/重启/OSS恢复。真实OSS新B、独立备用、客户公网、千台/72小时仍未验收。
+
+
+## 2026-11-09 v1.8.5 发行准备（历史阶段记录）
+
+以下保留当时状态；最终发行结果以上方完成记录为准。
+
+- main CI42590910672十job已全部终态success，逐job实际checkout同正式源码及本批修复断言独立核验。稳定注释tag v1.8.5对象`4bf4a6644c1451d15eebbe745c5b20b469c87dba`于2026-11-09T11:14:14.060065+00:00仅推送一次，解引用同源码。正式Build & Release42607390425运行中，尚待正式五job/双原生首装和六资产验证；禁止重复tag/移动稳定来源。
+
+- 候选CI42577102595十job已全部终态success并逐job核实际PR checkout/tree与下载、本轮首页居中/触摸和完整业务断言，日志已归档。main于2026-11-09T09:07:05.215300+00:00从原基线精确非force FF到`e7faf22a03f920532ee0a35466f06597921767bb`；PR #7已MERGED，mergeCommit同候选。稳定v1.8.5 tag尚未创建，等待main完整CI。
+
+- 双架构预览42577106537已四必需job全部终态success/Release skipped；独立核实际完整checkout、213守卫、241迁移、双原生首装与全部备份/预检/恢复/回退续接/SQL ZIP及旧CRLF拒绝断言，下载器504与真实断流/超时回归标记已核。Alpine42577102536九job已核同来源success。当前仅候选CI42577102595的Pool串行回归待终态，其余九job已成功；未推进main或tag。
+
+- 候选`e7faf22a03f920532ee0a35466f06597921767bb` / tree `64aa7d4a309be4d266fab92a3a499a993ea8026d`已精确20路径提交并推`codex/release-v1.8.5`，[PR #7](https://github.com/mastalee928/payincus/pull/7)已附聊天。实际PR checkout `b6d0b062c5a6dd71f306ac709841c8d10a5d2611`独立tree相同。候选CI42577102595、Alpine42577102536、双架构预览42577106537运行中；同SHA完整终态前不推进稳定tag。补跑测试清单/下载器/路由与lint均自然exit0，lint保留既有369警告。Agent v1.0.5原tag/tree及三资产digest/大小/更新时间比原实际下载基线一致。
 
 - Owner已授权重新发行，包含OTA下载504修复和首页三轮修复。基线main为`b36e77f7fc7b89cfb2b354c50c3bd8a40b2dba62`，递增v1.8.5；旧稳定v1.8.4及Agent v1.0.5保持。阶段与完整来源记录在ignored `logs/release-v1.8.5-plan.json`。
 - 下载器对暂时错误最多三次尝试，切换经同Release元数据绑定的官方asset API；完整流超时、私有临时文件、大小/SHA256和重定向凭据隔离保持，永久/完整性错误拒绝安装。首页地区卡两侧等宽居中，短窗口按地图实际宽度避让，手机语言与导航菜单互斥。

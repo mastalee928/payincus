@@ -1,5 +1,13 @@
 # 网关灾备工程进度
 
+## 2026-11-09 v1.8.5 正式发行完成
+
+- 正式源码`e7faf22a03f920532ee0a35466f06597921767bb` / tree `64aa7d4a309be4d266fab92a3a499a993ea8026d`；PR #7合入main同SHA，注释tag对象`4bf4a6644c1451d15eebbe745c5b20b469c87dba`，旧稳定tag不移动。
+- 候选CI42577102595与main CI42590910672各十job、Alpine关联run全部终态success。预览42577106537四必需job成功/Release skipped，正式42607390425五job成功，213守卫/241迁移/双原生首装与完整恢复拒绝断言核验；所有关联运行无未处理失败。
+- [Release](https://github.com/mastalee928/payincus/releases/tag/v1.8.5)于`2026-11-09T11:27:19Z`公开；六资产实际下载核API digest/大小/双OTA、包内下载器三个编译文件/首页居中及菜单修复、原受信Ed25519签名，说明与latest回读一致。Agent v1.0.5原来源/三资产保持。详见[完整运行与六资产摘要](docs/release-v1.8.5-validation.md)。
+- Owner自行按[网页升级检查](docs/release-v1.8.5-owner-click-test.md)升级。旧安装首次下载仍由当前下载器执行，新下载器随新版安装生效；本轮未代生产OTA/重启/OSS恢复。真实OSS新B、独立备用、客户公网、千台/72小时仍未验收。
+
+
 ## 2026-11-09 v1.8.5 发行准备
 
 首页布局及下载器修复进入新版本发行验证。网关身份/协议、Agent v1.0.5和241个累计迁移保持；不代生产升级、OSS恢复或宿主重启。完整真实OSS新B灾备、独立备用、原客户公网、千台/72小时缺口仍保留。

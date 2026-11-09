@@ -2,7 +2,13 @@
 
 适用仓库：[mastalee928/payincus](https://github.com/mastalee928/payincus)。当前版本与验证证据以 [HANDOFF.md](HANDOFF.md) 为准。此文件只包含可公开的运维规则；实际地址、账号、凭据和备份证据另存于维护者内部记录。
 
-## v1.8.4 当前发行范围
+## v1.8.5 当前发行范围
+
+[v1.8.5正式包](https://github.com/mastalee928/payincus/releases/tag/v1.8.5)已包含OTA下载504有限重试/官方asset API备用、完整流超时/完整性核验，以及首页底部地区卡居中/短窗口避让/手机菜单互斥。双架构首装、恢复和实际公开资产已核，详见[验证记录](docs/release-v1.8.5-validation.md)与[网页升级检查](docs/release-v1.8.5-owner-click-test.md)。
+
+新下载器安装新版后用于后续更新；旧端首次下载仍用当前下载器，不能把包内修复说成旧端已部署。Agent保持v1.0.5，累计241迁移未增加；生产升级事实另核。其余原生自动重启/真实OSS新B/独立备用/客户公网/千台72小时缺口保持。
+
+## v1.8.4 历史发行范围
 
 [v1.8.4正式包](https://github.com/mastalee928/payincus/releases/tag/v1.8.4)及Agent v1.0.5已完成同源码CI、双架构首装和实际公开资产核验；准确来源/运行/摘要见[验证记录](docs/release-v1.8.4-validation.md)。本手册下方此前“下一版/未发行”描述的本线程SSH、隔离/维护、自动续费、管理员改期/改邮箱、网关只读检查已收入本包，生产部署事实另核，不能据发行推断目标已升级。按[网页升级与检查](docs/release-v1.8.4-owner-click-test.md)验目标结果。
 
