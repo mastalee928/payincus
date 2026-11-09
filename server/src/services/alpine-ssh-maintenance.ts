@@ -135,17 +135,18 @@ export async function maintainAlpineCustomerSsh(instanceId: number, actorId: num
       if (automatic && (expected?.uuid !== uuid || expected.attempt !== identity.attempt || expected.endpointHash !== identity.endpointHash)) throw new Error('ALPINE_SSH_INSTANCE_IDENTITY_CHANGED')
       const before = await deps.inspect(client, instance.incusId)
       if (!before.alpine) return { instanceId, status: 'not-alpine' as const, passwordLoginPreserved: true as const }
-      if (automatic && !expected?.inspectOnly) await (deps.preflight || alpineSshMaintenanceDependencies.preflight!)(client, instance.incusId)
+      const needsUpdate = !before.fixed
+      if (automatic && !expected?.inspectOnly && needsUpdate) await (deps.preflight || alpineSshMaintenanceDependencies.preflight!)(client, instance.incusId)
       if (automatic && expected?.inspectOnly && !before.fixed) throw new Error('ALPINE_SSH_PATCH_REQUIRED')
       const password = decryptSensitiveData(instance.rootPassword)
       if (!password) throw new Error('ALPINE_SSH_PASSWORD_UNAVAILABLE')
       const session = await deps.hold(host.natPublicIp, password, before.fingerprints, instance.sshPort || 22)
       try {
         if (recoveryHeld()) throw new Error('ALPINE_SSH_RECOVERY_HELD')
-        if (automatic && !expected?.inspectOnly) await (deps.preflight || alpineSshMaintenanceDependencies.preflight!)(client, instance.incusId)
+        if (automatic && !expected?.inspectOnly && needsUpdate) await (deps.preflight || alpineSshMaintenanceDependencies.preflight!)(client, instance.incusId)
         // Even a previously installed package must verify the running listener;
         // a failed reload must not turn a retry into a false already-fixed result.
-        if (!automatic || !expected?.inspectOnly) await deps.update(client, instance.incusId)
+        if (needsUpdate && (!automatic || !expected?.inspectOnly)) await deps.update(client, instance.incusId)
         const after = await deps.inspect(client, instance.incusId)
         const current = await readCustomerIsolation(client, instance.incusId)
         if (current.config?.['volatile.uuid'] !== uuid || current.config?.['user.payincus.provisioning-attempt'] !== identity.attempt) {

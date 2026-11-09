@@ -1,4 +1,4 @@
-export const SECURITY_HARDENING_REVISION = 'customer-hardening-v2'
+export const SECURITY_HARDENING_REVISION = 'customer-hardening-v3'
 export const SECURITY_HARDENING_ENABLED_KEY = 'automatic_security_hardening'
 export type HardeningPhase = 'authority' | 'inventory' | 'runtime' | 'host-inspection' | 'customer-ssh' | 'receipt' | 'finished'
 export type HardeningDiagnostic = {
@@ -32,7 +32,8 @@ export function hardeningFailure(error: unknown): HardeningCheck {
     'HARDENING_ARCH_UNSUPPORTED', 'HARDENING_VM_RUNTIME_UNVERIFIED', 'HARDENING_FILESYSTEM_READONLY',
     'HARDENING_APPARMOR_KERNEL_UNSUPPORTED', 'HARDENING_APPARMOR_BOOT_DISABLED', 'HARDENING_JOURNAL_CONFLICT',
     'HARDENING_RECIPE_UNSUPPORTED','HARDENING_BOOT_LAYOUT_UNSUPPORTED','HARDENING_CONTROL_PLANE_TARGET',
-    'HARDENING_APPARMOR_TOOLS_REQUIRED','HARDENING_CUSTOMER_BOOT_RECOVERY_UNVERIFIED','HARDENING_RECONNECT_TIMEOUT']
+    'HARDENING_APPARMOR_TOOLS_REQUIRED','HARDENING_CUSTOMER_BOOT_RECOVERY_UNVERIFIED','HARDENING_RECONNECT_TIMEOUT',
+    'HARDENING_PREPARATION_RETRY_EXHAUSTED']
   if (reasons.includes(message)) return { status: 'needs-maintenance', reason: message }
   return { status: 'retry', reason: ['HARDENING_BUSY', 'HARDENING_OFFLINE', 'HARDENING_RECOVERY_HELD',
     'ALPINE_SSH_INSTANCE_BUSY', 'ALPINE_SSH_TARGET_NOT_READY', 'ALPINE_SSH_RECOVERY_HELD',
@@ -86,6 +87,7 @@ export function hardeningReason(reason?: string): string {
     HARDENING_PROBE_UNSUPPORTED: '宿主缺少经过验证的检查工具或系统，不自动安装或升级',
     HARDENING_GATEWAY_PROTOCOL_REQUIRED: '原网关组件尚不支持当前检查协议，等待经原受信升级流程更新组件',
     HARDENING_RETRY_EXHAUSTED: '自动重试连续六次仍未通过，已停止更新；检查原通道和失败步骤后安排维护',
+    HARDENING_PREPARATION_RETRY_EXHAUSTED: '防护准备已安全回退两次仍未通过，已停止重新准备；保留原回执和具体失败步骤继续复核',
     HARDENING_GUEST_RUNTIME_UNSAFE: '客户实际 UID/GID 映射或 Seccomp 未通过检查',
     HARDENING_GUEST_NOT_RUNNING: '客户未运行，保留原状态；运行后再核实际隔离和 SSH',
     CUSTOMER_PRIVILEGE_FORBIDDEN: '客户配置启用了特权，转换需要安排维护',
@@ -113,6 +115,18 @@ export function hardeningReason(reason?: string): string {
     HARDENING_MEMORY_PRESSURE: '宿主正在承受内存回收压力，推迟更新并保留自动续接',
     HARDENING_DISK_LOW: '宿主根分区空间或 inode 不足，未清理客户数据，稍后复核',
     HARDENING_PACKAGE_BUSY: '宿主包管理器仍在执行或持锁，等待结束后重新检查',
+    HARDENING_RECIPE_UNSUPPORTED: '当前系统与架构尚无通过启动验收的自动维护方案',
+    HARDENING_BOOT_LAYOUT_UNSUPPORTED: '实际引导配置不符合已验证方案，保留原配置并记录差异',
+    HARDENING_CONTROL_PLANE_TARGET: '目标承载主控或网关，须先验证独立受信恢复通道',
+    HARDENING_APPARMOR_TOOLS_REQUIRED: '防护依赖尚未准备完成，将核对原维护记录和官方包后续接',
+    HARDENING_CUSTOMER_BOOT_RECOVERY_UNVERIFIED: '原客户身份、持久属性或恢复条件未通过，保留原实例并复核',
+    HARDENING_RECONNECT_TIMEOUT: '未在维护期限内确认重连，保留回执继续核原启动身份，不重复重启',
+    HARDENING_PREPARE_FAILED: '防护准备未完成，按原任务核对实际结果后继续',
+    HARDENING_PREPARE_INCOMPLETE: '防护准备中断，将按原配置与回执续接',
+    HARDENING_RECONNECT_INCOMPLETE: '重启后的管理通道、防护或客户恢复尚未全部通过，继续沿原身份验收',
+    HARDENING_REMOTE_RESULT_UNKNOWN: '远端回执未明确，继续查询原请求结果',
+    HARDENING_BATCH_PAUSED: '前一台维护尚未验收，自动等待后再处理下一台',
+    HARDENING_REQUEST_EXPIRED: '本次受限请求已过期，复核原任务后自动续接',
     SSH_CONNECT_FAILED: '原受信 SSH 管理通道暂无法连接，稍后重连检查',
     SSH_DISCONNECTED: '原管理连接中断，先检查实际执行结果后续接',
     SSH_COMMAND_TIMEOUT: '管理操作等待超时，先检查远端实际结果，不视为进程已停止',

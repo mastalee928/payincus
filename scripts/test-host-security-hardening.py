@@ -214,6 +214,9 @@ class SecurityTests(unittest.TestCase):
                 with patch.object(os,'open',side_effect=opened):
                     exec(compile(ast.Module(body=functions,type_ignores=[]),'actual-journal','exec'),scope)
                     before={'preflight':{'bootId':self.job,'architecture':'aarch64'}}
+                    (target/'maintenance.json').write_text('{"separate":"boot maintenance"}')
+                    scope['journal_readonly'](before)
+                    self.assertFalse((target/'update.lock').exists(),'boot-only journal does not require a fictitious SSH update lock')
                     self.assertTrue(scope['journal_update'](before));self.assertEqual(calls,['update'])
                     self.assertFalse(scope['journal_update'](before));self.assertEqual(calls,['update'],'lost response does not replay installed update')
                     scope['journal_readonly'](before)

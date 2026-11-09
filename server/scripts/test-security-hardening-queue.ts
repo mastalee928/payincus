@@ -213,22 +213,22 @@ try {
     update: async () => { automaticUpdates++ }, hold: async () => ({ verify: async () => {}, close: () => {} }), login: async () => {} }
   await prisma.instance.update({ where: { id: instance.id }, data: { rootPassword: encryptSensitiveData('original-fixture-password') } })
   assert.equal((await maintainAlpineCustomerSsh(instance.id, admin.id, maintenance, undefined, true, expected)).status, 'already-fixed')
-  assert.equal(automaticUpdates, 1)
+  assert.equal(automaticUpdates, 0,'already-patched listener is verified without another write')
   await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, maintenance, undefined, true, { ...expected, uuid: randomUUID() }), /IDENTITY_CHANGED/)
   await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, maintenance, undefined, true, { ...expected, hostId: host.id+1 }), /IDENTITY_CHANGED/)
   await prisma.systemConfig.update({ where: { key: SECURITY_HARDENING_ENABLED_KEY }, data: { value: 'false' } })
   await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, maintenance, undefined, true, expected), /ADMIN_REQUIRED/)
   await prisma.systemConfig.update({ where: { key: SECURITY_HARDENING_ENABLED_KEY }, data: { value: 'true' } })
-  assert.equal(automaticUpdates, 1, 'changed expected target and disabled policy make no customer update')
-  await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, { ...maintenance, preflight: async () => {
+  assert.equal(automaticUpdates, 0, 'changed expected target and disabled policy make no customer update')
+  await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, { ...maintenance, inspect:async()=>({alpine:true,fixed:false,fingerprints:['SHA256:original']}),preflight: async () => {
     throw new Error('HARDENING_MEMORY_LOW')
   } }, undefined, true, expected), /HARDENING_MEMORY_LOW/)
-  assert.equal(automaticUpdates,1,'customer resource gate rejects before an update')
+  assert.equal(automaticUpdates,0,'customer resource gate rejects before an update')
   assert.equal((await maintainAlpineCustomerSsh(instance.id,admin.id,maintenance,undefined,true,{ ...expected,inspectOnly:true })).status,'already-fixed')
-  assert.equal(automaticUpdates,1,'read-only recovery verifies a completed patch without another remote update')
+  assert.equal(automaticUpdates,0,'read-only recovery verifies a completed patch without another remote update')
   await assert.rejects(maintainAlpineCustomerSsh(instance.id,admin.id,{ ...maintenance,inspect:async()=>({ alpine:true,fixed:false,fingerprints:['SHA256:original'] }) },
     undefined,true,{ ...expected,inspectOnly:true }),/PATCH_REQUIRED/)
-  assert.equal(automaticUpdates,1,'read-only recovery cannot retry an unverified patch immediately')
+  assert.equal(automaticUpdates,0,'read-only recovery cannot retry an unverified patch immediately')
   const app = Fastify(); app.decorate('authenticateAdmin', async (request, reply) => {
     if (request.headers['x-fixture-admin'] !== 'yes') reply.code(403).send({ error: 'forbidden' })
   }); await app.register(routes, { prefix: '/hosts' })

@@ -6,7 +6,7 @@ import type { HostMaintenanceIntent } from '../lib/host-maintenance-plan.js'
 export type MaintenanceOperation = Pick<HostMaintenanceIntent,'requestId'|'identityHash'|'bootId'|'prepareHash'|'recipe'|'architecture'> &
   {action:'prepare'|'status'|'reboot'|'rollback'|'restore-customers';customers?:HostMaintenanceIntent['customers']}
 export type MaintenanceReceipt = {nodeId:string;requestId:string;identityHash:string;prepareHash:string;originalBootId:string;
-  bootId:string;architecture:string;recipe:string;phase:'prepared'|'preparing'|'reboot-intent'|'customers-restored'|'rolled-back'}
+  bootId:string;architecture:string;recipe:string;phase:'absent'|'prepared'|'preparing'|'reboot-intent'|'customers-restored'|'rolled-back'}
 /** Select the wire protocol explicitly: callers may hold a larger durable
  * intent, but neither customer baselines nor database phases leave the server. */
 export function maintenanceWireOperation(operation:MaintenanceOperation,nodeId:string,expiresAt:number) {
@@ -30,7 +30,9 @@ export async function hostMaintenanceCommand(target:HostSecurityTarget,operation
       receipt.nodeId!==node.id||receipt.requestId!==operation.requestId||receipt.identityHash!==operation.identityHash||
       receipt.originalBootId!==operation.bootId||receipt.architecture!==operation.architecture||receipt.recipe!==operation.recipe||
       !/^[a-f0-9]{64}$/.test(receipt.prepareHash)||!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(receipt.bootId)||
-      !['prepared','preparing','reboot-intent','customers-restored','rolled-back'].includes(receipt.phase)||operation.action!=='prepare'&&receipt.prepareHash!==operation.prepareHash)throw Error('HARDENING_REMOTE_RESULT_UNKNOWN')
+      !['absent','prepared','preparing','reboot-intent','customers-restored','rolled-back'].includes(receipt.phase)||
+      receipt.phase==='absent'&&(operation.action!=='status'||operation.prepareHash!=='0'.repeat(64)||receipt.prepareHash!=='0'.repeat(64))||
+      operation.action!=='prepare'&&!(operation.action==='status'&&operation.prepareHash==='0'.repeat(64))&&receipt.prepareHash!==operation.prepareHash)throw Error('HARDENING_REMOTE_RESULT_UNKNOWN')
     return receipt
   }finally{client.destroy()}
 }

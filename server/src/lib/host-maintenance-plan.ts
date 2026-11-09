@@ -7,7 +7,7 @@ export type CustomerBootBaseline = { id:number; hostId:number; userId:number; in
   boot?: { configurationHash:string; autostart:string|null; guardedHash:string; fingerprints:string[]; networkHash:string } }
 export type HostMaintenanceIntent = { revision:typeof HOST_MAINTENANCE_REVISION; requestId:string; identityHash:string;
   bootId:string; prepareHash:string; recipe:string; architecture:'x86_64'|'aarch64'; phase:'prepared'|'reboot-intent'|'waiting-boot'|'restoring'|'verified'|'blocked'|'aborted';
-  rebootIssued:boolean; startedAt:string; deadline:string; customers:CustomerBootBaseline[]; error?:string; history?:MaintenanceEvent[] }
+  rebootIssued:boolean; startedAt:string; deadline:string; customers:CustomerBootBaseline[]; error?:string; history?:MaintenanceEvent[]; preparationRetries?:number }
 const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/
 const digest=/^[a-f0-9]{64}$/
 const object=(value:unknown):Record<string,unknown>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{}
@@ -21,6 +21,7 @@ export function readHostMaintenanceIntent(value:unknown):HostMaintenanceIntent {
     typeof row.startedAt!=='string'||typeof row.deadline!=='string'||!Number.isFinite(Date.parse(row.startedAt))||
     !Number.isFinite(Date.parse(row.deadline))||Date.parse(row.deadline)<=Date.parse(row.startedAt)||
     Date.parse(row.deadline)-Date.parse(row.startedAt)>20*60000||!Array.isArray(row.customers)||row.customers.length>1)fail()
+  if(row.preparationRetries!==undefined&&(!Number.isSafeInteger(row.preparationRetries)||Number(row.preparationRetries)<0||Number(row.preparationRetries)>2))fail()
   const customers=(row.customers as unknown[]).map(value=>{
     const c=object(value)
     if(![c.id,c.hostId,c.userId].every(n=>Number.isSafeInteger(n)&&Number(n)>0&&Number(n)<=2147483647)||
@@ -48,7 +49,7 @@ export function readHostMaintenanceIntent(value:unknown):HostMaintenanceIntent {
   }):[]
   return {revision:HOST_MAINTENANCE_REVISION,requestId:row.requestId,identityHash:row.identityHash,bootId:row.bootId,
     prepareHash:row.prepareHash,recipe:row.recipe,architecture:row.architecture,phase:row.phase,rebootIssued:row.rebootIssued,
-    startedAt:row.startedAt,deadline:row.deadline,customers,history,
+    startedAt:row.startedAt,deadline:row.deadline,customers,history,preparationRetries:Number(row.preparationRetries||0),
     ...(typeof row.error==='string'&&/^HARDENING_[A-Z_]{1,90}$/.test(row.error)?{error:row.error}:{})} as HostMaintenanceIntent
 }
 export function recordMaintenanceEvent(intent:HostMaintenanceIntent,reason?:string) {
@@ -81,6 +82,7 @@ export function nextMaintenanceAction(intent:HostMaintenanceIntent,proof:{identi
   if(proof.identityHash!==intent.identityHash||proof.prepareHash!==intent.prepareHash)return 'blocked' as const
   if(['verified','aborted'].includes(intent.phase))return 'none' as const
   if(proof.bootId!==intent.bootId)return intent.rebootIssued&&['reboot-intent','customers-restored'].includes(proof.remotePhase)&&['reboot-intent','waiting-boot','restoring','blocked'].includes(intent.phase)?'restore' as const:'blocked' as const
+  if(proof.remotePhase==='absent')return !intent.rebootIssued&&intent.prepareHash==='0'.repeat(64)&&now>=Date.parse(intent.deadline)?'aborted' as const:'blocked' as const
   if(proof.remotePhase==='rolled-back')return 'aborted' as const
   // Only a matching, original-boot remote journal before its reboot barrier
   // permits undoing our own preparation. Expiry never authorizes a reboot.
@@ -100,6 +102,10 @@ export function nextMaintenanceAction(intent:HostMaintenanceIntent,proof:{identi
  * evidence for this exact recipe on each architecture. Empty until that gate
  * passes; compiling a recipe or a mocked reboot does not activate it. */
 export const NATIVE_VALIDATED_MAINTENANCE_RECIPES:ReadonlyArray<string>=Object.freeze([])
+export function hostMaintenanceRecipe(environment:{bootloader?:unknown}):string|null {
+  return environment.bootloader==='grub'?'alpine-apparmor-grub-v1':
+    environment.bootloader==='extlinux'?'alpine-apparmor-extlinux-v1':null
+}
 export function automaticMaintenanceRecipeAllowed(recipe:string,architecture:string):boolean {
   return NATIVE_VALIDATED_MAINTENANCE_RECIPES.includes(`${recipe}:${architecture}`)
 }

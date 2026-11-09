@@ -82,7 +82,7 @@ try {
   assert.equal((await maintainAlpineCustomerSsh(instance.id, admin.id, deps)).status, 'already-fixed')
   assert.equal(updated, count)
   failUpdate = true
-  await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, deps), /UPDATE_FAILED/)
+  assert.equal((await maintainAlpineCustomerSsh(instance.id, admin.id, deps)).status,'already-fixed','patched listener never enters update even when an update would fail')
   failUpdate = false
   sessionFail = true
   await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, deps), /VERIFICATION_FAILED/)

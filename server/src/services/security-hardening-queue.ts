@@ -18,7 +18,6 @@ import { recoveryHeld } from './platform-backup-core.js'
 import { hardeningIdentityHash } from '../lib/hardening-identity.js'
 import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { prepareAutomaticHostMaintenance, resumeAutomaticHostMaintenance } from './host-security-maintenance.js'
-import { automaticMaintenanceRecipeAllowed } from '../lib/host-maintenance-plan.js'
 
 const include = { onboardingNode: { include: { batch: true } } } as const
 type SecurityHost = Prisma.HostGetPayload<{ include: typeof include }>
@@ -306,7 +305,7 @@ export async function processSecurityHardeningQueue(deps = securityHardeningDepe
     }
     if (state.revision !== SECURITY_HARDENING_REVISION || !state.nextCheckAt || Date.parse(state.nextCheckAt) <= Date.now()) {
       await hardenExistingHost(host.id, deps)
-      if(deps===securityHardeningDependencies&&['x86_64','aarch64'].some(arch=>automaticMaintenanceRecipeAllowed('alpine-apparmor-extlinux-v1',arch)))await prepareAutomaticHostMaintenance(host.id)
+      if(deps===securityHardeningDependencies)await prepareAutomaticHostMaintenance(host.id)
       return
     }
   }

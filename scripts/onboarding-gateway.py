@@ -224,13 +224,16 @@ def journal_readonly(before):
  directory=pathlib.Path('/var/lib/incudal-hardening')
  if not directory.exists():return
  protected(directory,True)
+ journal=directory/'ssh.json'
+ # AppArmor maintenance shares this protected directory but does not create
+ # an SSH update journal. Its presence alone is not a broken SSH transaction.
+ if not journal.exists():return
  lock=directory/'update.lock'
  if not lock.exists():raise ValueError('HARDENING_JOURNAL_CONFLICT')
  protected(lock);fd=os.open(lock,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
  try:
   try:fcntl.flock(fd,fcntl.LOCK_SH|fcntl.LOCK_NB)
   except BlockingIOError:raise ValueError('HARDENING_REMOTE_BUSY')
-  journal=directory/'ssh.json'
   if not journal.exists():return
   protected(journal)
   with journal.open('r') as stream:previous=json.loads(stream.read(65537))
@@ -343,7 +346,7 @@ def maintain_host(job, control):
     if not isinstance(request,dict) or set(request)!=keys:raise ValueError('invalid maintenance request')
     operation=request['operation']
     if not isinstance(operation,dict) or set(operation)!={'action','nodeId','requestId','identityHash','bootId','prepareHash','recipe','architecture','expiresAt','customers'}:raise ValueError('invalid operation')
-    if operation['nodeId']!=job or operation['recipe']!='alpine-apparmor-extlinux-v1' or operation['action'] not in ['prepare','status','reboot','rollback','restore-customers']:raise ValueError('invalid operation')
+    if operation['nodeId']!=job or operation['recipe'] not in ['alpine-apparmor-extlinux-v1','alpine-apparmor-grub-v1'] or operation['action'] not in ['prepare','status','reboot','rollback','restore-customers']:raise ValueError('invalid operation')
     if type(operation['expiresAt']) is not int or not time.time()*1000<operation['expiresAt']<=time.time()*1000+60000:raise ValueError('expired maintenance')
     if any(not isinstance(operation[key],str) or not re.fullmatch(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}',operation[key]) for key in ['nodeId','requestId','bootId']):raise ValueError('invalid identity')
     if not isinstance(operation['identityHash'],str) or not re.fullmatch('[a-f0-9]{64}',operation['identityHash']):raise ValueError('invalid identity')
@@ -376,9 +379,9 @@ def maintain_host(job, control):
         except ValueError:raise GatewayOperationError('HARDENING_REMOTE_RESULT_UNKNOWN')
         if result.returncode:
             code=receipt.get('error') if isinstance(receipt,dict) else None
-            permitted=['HARDENING_JOURNAL_CONFLICT','HARDENING_REMOTE_BUSY','HARDENING_PREPARE_FAILED','HARDENING_RECIPE_UNSUPPORTED',
+            permitted=['HARDENING_JOURNAL_CONFLICT','HARDENING_REMOTE_BUSY','HARDENING_PREPARE_FAILED','HARDENING_RECIPE_UNSUPPORTED','HARDENING_RETRY_EXHAUSTED',
               'HARDENING_CONTROL_PLANE_TARGET','HARDENING_BOOT_LAYOUT_UNSUPPORTED','HARDENING_APPARMOR_KERNEL_UNSUPPORTED',
-              'HARDENING_APPARMOR_TOOLS_REQUIRED','HARDENING_PREPARE_INCOMPLETE','HARDENING_FILESYSTEM_READONLY','HARDENING_DISK_LOW','HARDENING_REQUEST_EXPIRED','HARDENING_IDENTITY_CHANGED','HARDENING_CUSTOMER_BOOT_RECOVERY_UNVERIFIED','HARDENING_BUSY','HARDENING_GUEST_RUNTIME_UNSAFE']
+              'HARDENING_APPARMOR_TOOLS_REQUIRED','HARDENING_PREPARE_INCOMPLETE','HARDENING_FILESYSTEM_READONLY','HARDENING_DISK_LOW','HARDENING_MEMORY_LOW','HARDENING_PACKAGE_BUSY','HARDENING_REQUEST_EXPIRED','HARDENING_IDENTITY_CHANGED','HARDENING_CUSTOMER_BOOT_RECOVERY_UNVERIFIED','HARDENING_BUSY','HARDENING_GUEST_RUNTIME_UNSAFE']
             raise GatewayOperationError(code if code in permitted else 'HARDENING_REMOTE_RESULT_UNKNOWN')
         return receipt
 

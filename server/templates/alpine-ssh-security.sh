@@ -11,6 +11,7 @@ alpine_ssh_minimum() {
     3.22) printf '%s\n' '10.0_p1-r11' ;;
     3.23) printf '%s\n' '10.2_p1-r1' ;;
     3.24) printf '%s\n' '10.3_p1-r2' ;;
+    3.25) printf '%s\n' '10.6_p2-r0' ;;
     *) alpine_ssh_fail 'this Alpine branch has no verified password-authentication patch baseline'; return 1 ;;
   esac
 }
@@ -25,6 +26,10 @@ alpine_ssh_version() {
 alpine_ssh_assert_fixed() {
   alpine_ssh_release=$(cat /etc/alpine-release) || return 1
   alpine_ssh_branch=$(printf '%s' "$alpine_ssh_release" | cut -d. -f1,2)
+  # This baseline belongs to the observed edge development release. A future
+  # stable 3.25 must not silently use edge repositories during maintenance.
+  case "$alpine_ssh_branch:$alpine_ssh_release" in
+    3.25:3.25.0_alpha[0-9]*) ;; 3.25:*) return 1 ;; esac
   alpine_ssh_min=$(alpine_ssh_minimum "$alpine_ssh_branch") || return 1
   alpine_ssh_installed=$(alpine_ssh_version openssh-server)
   [ -n "$alpine_ssh_installed" ] || { alpine_ssh_fail 'openssh-server is not installed'; return 1; }
@@ -163,6 +168,8 @@ alpine_ssh_security_update() (
   [ "$(id -u)" = 0 ] || { alpine_ssh_fail 'root is required'; exit 1; }
   alpine_ssh_release=$(cat /etc/alpine-release)
   alpine_ssh_branch=$(printf '%s' "$alpine_ssh_release" | cut -d. -f1,2)
+  case "$alpine_ssh_branch:$alpine_ssh_release" in
+    3.25:3.25.0_alpha[0-9]*) ;; 3.25:*) alpine_ssh_fail 'stable 3.25 requires its own signed branch baseline'; exit 1 ;; esac
   alpine_ssh_min=$(alpine_ssh_minimum "$alpine_ssh_branch") || exit 1
   # Signed packages and indexes from this branch only; never change repositories.
   alpine_ssh_lock=/run/incudal-alpine-ssh-security.lock
@@ -176,7 +183,11 @@ alpine_ssh_security_update() (
   alpine_ssh_lock_acquire || { alpine_ssh_fail 'update lock ownership could not be verified'; exit 1; }
   trap 'alpine_ssh_lock_release' EXIT
   trap 'exit 1' HUP INT TERM
-  printf 'https://dl-cdn.alpinelinux.org/alpine/v%s/main\n' "$alpine_ssh_branch" > "$alpine_ssh_lock/repositories"
+  if [ "$alpine_ssh_branch" = 3.25 ]; then
+    printf '%s\n' 'https://dl-cdn.alpinelinux.org/alpine/edge/main' > "$alpine_ssh_lock/repositories"
+  else
+    printf 'https://dl-cdn.alpinelinux.org/alpine/v%s/main\n' "$alpine_ssh_branch" > "$alpine_ssh_lock/repositories"
+  fi
   if [ "$alpine_ssh_mode" = update ]; then
     alpine_ssh_standard_service || { alpine_ssh_fail 'custom SSH service arguments require separate validation'; exit 1; }
     alpine_ssh_old=$(alpine_ssh_version openssh-server)
@@ -186,7 +197,7 @@ alpine_ssh_security_update() (
       alpine_ssh_fail 'cross-version SSH upgrade requires separate connection-preservation validation'; exit 1;
     }
     case "$alpine_ssh_branch" in
-      3.22|3.23|3.24)
+      3.22|3.23|3.24|3.25)
         [ "$(apk version -t "$alpine_ssh_old" '10.0_p1-r2')" != '<' ] || {
           alpine_ssh_fail 'this old revision has an automatic restart hook and requires separate validation'; exit 1;
         } ;;

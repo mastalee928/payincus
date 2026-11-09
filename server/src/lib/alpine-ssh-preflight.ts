@@ -27,6 +27,13 @@ if [ -r /proc/pressure/memory ]; then
 fi
 disk=$(df -Pk / | awk 'NR==2 {print $4; exit}')
 inodes=$(df -Pi / | awk 'NR==2 {print $4; exit}')
+# Btrfs allocates inodes dynamically and reports a zero total/free count.
+# Only that positively identified case is unbounded; ext4 zero remains full.
+inode_total=$(df -Pi / | awk 'NR==2 {print $2; exit}')
+filesystem=$(stat -f -c '%T' /)
+if [ "$filesystem" = btrfs ] && [ "$inode_total" = 0 ] && [ "$inodes" = 0 ]; then
+  inodes=dynamic
+fi
 readonly=$(awk '$2=="/" {if ($4 ~ /(^|,)ro(,|$)/) print 1; else print 0; exit}' /proc/mounts)
 busy=0
 for process in /proc/[0-9]*/comm; do
@@ -38,17 +45,18 @@ printf 'INCUDAL_SSH_PREFLIGHT %s %s %s %s %s %s %s\\n' "$architecture" "$availab
 `
 
 export function readAlpineSshPreflight(output: string): HardeningCheck {
-  const match = /^INCUDAL_SSH_PREFLIGHT ([a-zA-Z0-9_-]{1,32}) (\d+) (none|\d+(?:\.\d+)?) (\d+) (\d+) ([01]) ([01])\s*$/.exec(output.trim())
+  const match = /^INCUDAL_SSH_PREFLIGHT ([a-zA-Z0-9_-]{1,32}) (\d+) (none|\d+(?:\.\d+)?) (\d+) (\d+|dynamic) ([01]) ([01])\s*$/.exec(output.trim())
   if (!match) throw new Error('HARDENING_PROBE_UNSUPPORTED')
-  const [memory, diskKiB, inodes] = [match[2], match[4], match[5]].map(Number)
+  const [memory, diskKiB] = [match[2], match[4]].map(Number)
+  const inodes = match[5] === 'dynamic' ? null : Number(match[5])
   const pressure = match[3] === 'none' ? null : Number(match[3])
-  if (![memory, diskKiB, inodes].every(value => Number.isSafeInteger(value) && value >= 0) ||
+  if (![memory, diskKiB, ...(inodes === null ? [] : [inodes])].every(value => Number.isSafeInteger(value) && value >= 0) ||
     pressure !== null && (!Number.isFinite(pressure) || pressure < 0 || pressure > 100)) throw new Error('HARDENING_PROBE_UNSUPPORTED')
   if (!['x86_64', 'aarch64'].includes(match[1])) return { status: 'needs-maintenance', reason: 'HARDENING_ARCH_UNSUPPORTED' }
   if (match[6] === '1') return { status: 'needs-maintenance', reason: 'HARDENING_FILESYSTEM_READONLY' }
   if (match[7] === '1') return { status: 'retry', reason: 'HARDENING_PACKAGE_BUSY' }
   if (memory < 128 * 1024) return { status: 'retry', reason: 'HARDENING_MEMORY_LOW' }
   if (pressure !== null && pressure >= 5) return { status: 'retry', reason: 'HARDENING_MEMORY_PRESSURE' }
-  if (diskKiB < 128 * 1024 || inodes < 512) return { status: 'retry', reason: 'HARDENING_DISK_LOW' }
+  if (diskKiB < 128 * 1024 || inodes !== null && inodes < 512) return { status: 'retry', reason: 'HARDENING_DISK_LOW' }
   return { status: 'verified' }
 }

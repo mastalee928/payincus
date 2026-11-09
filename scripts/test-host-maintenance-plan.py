@@ -29,7 +29,7 @@ class MaintenanceTests(unittest.TestCase):
         def opened(path,flags,*args,**kwargs):
             if os.name=='nt' and str(path)==str(root):return original_open(root/'maintenance.lock',os.O_RDWR)
             return original_open(path,flags,*args,**kwargs)
-        for name,value in [('ROOT',root),('Path',mapped),('identity',lambda _:None),('environment',lambda:None),
+        for name,value in [('ROOT',root),('Path',mapped),('identity',lambda _:None),('environment',lambda *_:None),
             ('protected',lambda *_:None),('boot',lambda:boot_value[0]),('runlevel_enabled',lambda:enabled[0]),('empty_remote',lambda:None),('command',command)]:
             stack.enter_context(patch.object(module,name,value))
         stack.enter_context(patch.object(module.os,'getuid',return_value=0,create=True))
@@ -84,6 +84,38 @@ class MaintenanceTests(unittest.TestCase):
                 self.assertEqual(rolled['phase'],'rolled-back');self.assertEqual(config.read_bytes(),before)
                 self.assertEqual(enabled[0],initial_enabled,'restore exactly the prior AppArmor boot runlevel')
                 self.assertEqual(module.execute({**request,'action':'rollback'}),rolled,'lost rollback receipt is safely replayed')
+    def test_unknown_prepare_status_is_read_only(self):
+        stack,root,config,before,value,calls,enabled,_=self.fixture()
+        with stack:
+            absent=module.execute({**value,'action':'status'})
+            self.assertEqual(absent['phase'],'absent')
+            self.assertEqual(absent['prepareHash'],'0'*64)
+            self.assertFalse((root/'maintenance.json').exists())
+            self.assertEqual(config.read_bytes(),before);self.assertEqual(calls,[])
+            prepared=module.execute(value)
+            journal=root/'maintenance.json';state=json.loads(journal.read_text());state['phase']='preparing';journal.write_text(json.dumps(state))
+            count=len(calls)
+            discovered=module.execute({**value,'action':'status'})
+            self.assertEqual(discovered['phase'],'preparing')
+            self.assertEqual(discovered['prepareHash'],prepared['prepareHash'])
+            self.assertEqual(len(calls),count,'discovery must not finish preparation')
+            with self.assertRaisesRegex(ValueError,'JOURNAL'):
+                module.execute({**value,'action':'status','requestId':value['nodeId']})
+    def test_rolled_back_preparation_can_resume_only_exact_original(self):
+        stack,root,config,before,value,calls,enabled,_=self.fixture()
+        with stack:
+            prepared=module.execute(value)
+            module.execute({**value,'action':'rollback','prepareHash':prepared['prepareHash']})
+            with self.assertRaisesRegex(ValueError,'REMOTE_BUSY'):module.execute(value)
+            state=json.loads((root/'maintenance.json').read_text());state['rolledBackAt']=-120000
+            (root/'maintenance.json').write_text(json.dumps(state))
+            config.write_bytes(b'new administrator configuration')
+            with self.assertRaisesRegex(ValueError,'JOURNAL'):module.execute(value)
+            self.assertEqual(config.read_bytes(),b'new administrator configuration')
+            config.write_bytes(before)
+            resumed=module.execute(value)
+            self.assertEqual(resumed['phase'],'prepared')
+            self.assertEqual(resumed['prepareHash'],prepared['prepareHash'])
     def test_fixed_boot_changes_preserve_root_network_and_other_bytes(self):
         before=b'DEFAULT stable\nTIMEOUT 20\nLABEL stable\n KERNEL /boot/vmlinuz-lts\n INITRD /boot/initramfs-lts\n APPEND root=UUID=original console=ttyS0 apparmor=0 lsm=landlock,lockdown,yama\n'
         after=module.prepare_boot(before)
@@ -104,10 +136,123 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual(module.request(value),value)
             for delta in [{'script':'reboot'},{'path':'/etc/shadow'},{'action':'arbitrary'},{'expiresAt':True},{'architecture':'riscv64'},{'identityHash':'private'}]:
                 with self.assertRaises(ValueError):module.request({**value,**delta})
+
+    def test_grub_retains_kernel_root_and_persistent_defaults(self):
+        defaults=b'GRUB_TIMEOUT=1\nGRUB_CMDLINE_LINUX_DEFAULT="modules=sd-mod,ext4 console=ttyS0 rootfstype=ext4"\nGRUB_DISABLE_RECOVERY=true\n'
+        config=b'set default="0"\nmenuentry "Alpine" {\n linux /boot/vmlinuz-virt root=UUID=original ro modules=sd-mod,ext4 console=ttyS0\n initrd /boot/initramfs-virt\n}\n'
+        changed=module.prepare_grub_config(config)
+        self.assertIn(b'root=UUID=original ro modules=sd-mod,ext4 console=ttyS0',changed)
+        self.assertIn(b'loadpin,safesetid,integrity,apparmor,bpf',changed)
+        self.assertEqual(module.prepare_grub_config(changed),changed)
+        after=module.prepare_grub_defaults(defaults)
+        self.assertEqual(module.prepare_grub_defaults(after),after)
+        self.assertTrue(after.endswith(b'GRUB_DISABLE_RECOVERY=true\n'))
+        self.assertIn(b'apparmor=1 security=apparmor',after)
+        for malformed in [config+config,config.replace(b'root=UUID=original',b'root=$unknown'),
+            config.replace(b' ro ',b' security=selinux '),config.replace(b' ro ',b' apparmor=0 apparmor=1 '),config.replace(b' ro ',b' lsm=selinux '),config.replace(b'\n',b'\r\n')]:
+            with self.assertRaisesRegex(ValueError,'BOOT_LAYOUT'):module.prepare_grub_config(malformed)
+        for malformed in [defaults+defaults,defaults+b'GRUB_CMDLINE_LINUX="apparmor=0"\n',defaults.replace(b'console=ttyS0',b'console=$(malicious)')]:
+            with self.assertRaisesRegex(ValueError,'BOOT_LAYOUT'):module.prepare_grub_defaults(malformed)
+
+    def test_grub_defaults_conditional_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);config=root/'grub';config.write_bytes(b'GRUB_CMDLINE_LINUX_DEFAULT="console=ttyS0"\n');before=config.read_bytes()
+            original=Path
+            original_stat=original.stat
+            def file_stat(path,*args,**kwargs):
+                if path==config:return types.SimpleNamespace(st_mode=0o100644)
+                return original_stat(path,*args,**kwargs)
+            with patch.object(module,'ROOT',root),patch.object(module,'protected',lambda *_:None),patch.object(module,'Path',side_effect=lambda p:config if p=='/etc/default/grub' else original(p)),patch.object(original,'stat',file_stat):
+                saved={'beforeHash':module.digest(before),'afterHash':module.digest(module.prepare_grub_defaults(before)),'mode':0o644}
+                (root/'grub-defaults.before').write_bytes(before)
+                state={'grubDefaults':saved}
+                module.grub_defaults_check(state)
+                config.write_bytes(b'other writer')
+                with self.assertRaisesRegex(ValueError,'JOURNAL'):module.grub_defaults_check(state)
+                self.assertEqual(config.read_bytes(),b'other writer')
     def test_control_plane_target_no_reboot(self):
         value={'nodeId':'node','architecture':'aarch64'}
         with patch.object(Path,'read_text',return_value='node'),patch.object(module.os,'uname',return_value=types.SimpleNamespace(machine='aarch64'),create=True),patch.object(Path,'exists',side_effect=lambda:True):
             with self.assertRaisesRegex(ValueError,'CONTROL_PLANE'):module.identity(value)
+
+    def test_grub_dependency_install_is_journaled_and_yields_before_boot_changes(self):
+        stack,root,config,before,value,calls,enabled,_=self.fixture()
+        config.write_bytes(b'menuentry "Alpine" {\n linux /boot/vmlinuz-virt root=UUID=original ro\n initrd /boot/initramfs-virt\n}\n')
+        before=config.read_bytes();value={**value,'recipe':module.GRUB_RECIPE}
+        install_calls=[]
+        def install(fd,state,persist):
+            self.assertTrue((root/'maintenance.json').exists())
+            self.assertEqual(json.loads((root/'maintenance.json').read_text())['phase'],'preparing')
+            self.assertEqual(config.read_bytes(),before,'no boot change during dependency transaction')
+            self.assertFalse(enabled[0])
+            install_calls.append(fd)
+            if len(install_calls)==1:raise TimeoutError('lost package result')
+            return len(install_calls)==2
+        original_command=self.fixture_command
+        def command(args,**_):
+            if args[0]=='grub-script-check':return b''
+            return original_command(args,calls,enabled)
+        with stack,patch.object(module,'boot_path',return_value=config),patch.object(module,'grub_defaults_state',return_value={}), \
+            patch.object(module,'grub_defaults_check'),patch.object(module,'ensure_grub_tools',side_effect=install),patch.object(module,'command',side_effect=command):
+            with self.assertRaises(TimeoutError):module.execute(value)
+            pending=module.execute(value)
+            self.assertEqual(pending['phase'],'preparing')
+            self.assertEqual(config.read_bytes(),before)
+            prepared=module.execute(value)
+            self.assertEqual(prepared['phase'],'prepared')
+            self.assertEqual(prepared['prepareHash'],pending['prepareHash'])
+            self.assertIn(b'apparmor=1',config.read_bytes())
+            rolled=module.execute({**value,'action':'rollback','prepareHash':prepared['prepareHash']})
+            self.assertEqual(rolled['phase'],'rolled-back');self.assertEqual(config.read_bytes(),before)
+
+    def test_dependency_plan_yields_pins_versions_and_rejects_changed_baseline(self):
+        stack,root,_,_,_,_,_,_=self.fixture()
+        (root/'maintenance.lock').touch()
+        saved={};snapshots=[['incus-7.0.1-r2','kernel-6.18.58-r0']]
+        writes=[];ready=[False];persisted=[]
+        class FakePath:
+            def __init__(self,value):self.value=str(value)
+            def read_text(self):
+                if self.value=='/etc/alpine-release':return '3.24.3'
+                if self.value=='/sys/module/apparmor/parameters/enabled':return 'N'
+                if self.value=='/proc/meminfo':return 'MemAvailable: 262144 kB\n'
+                raise AssertionError(self.value)
+            def iterdir(self):return []
+        def run(args,**options):
+            writes.append(args)
+            self.assertIn('pass_fds',options)
+            if '--simulate' in args:
+                self.assertEqual(options['timeout'],30)
+                return types.SimpleNamespace(returncode=0,stdout=b'(1/2) Installing apparmor (4.1.7-r1)\n(2/2) Installing apparmor-openrc (4.1.7-r1)\n',stderr=b'')
+            self.assertEqual(args[-2:],['apparmor=4.1.7-r1','apparmor-openrc=4.1.7-r1'])
+            ready[0]=True
+            snapshots[0]+=['apparmor-4.1.7-r1','apparmor-openrc-4.1.7-r1']
+            return types.SimpleNamespace(returncode=0,stdout=b'',stderr=b'')
+        # Keep this focused on the actual planner/installer, not the surrounding
+        # boot fixture. Network simulation and installation must be separate.
+        with stack,patch.object(module,'Path',FakePath),patch.object(module,'apparmor_tools_ready',side_effect=lambda:ready[0]), \
+            patch.object(module,'installed_packages',side_effect=lambda:sorted(snapshots[0])), \
+            patch.object(module.os,'statvfs',return_value=types.SimpleNamespace(f_flag=0,f_bavail=262144,f_frsize=4096,f_favail=4096),create=True), \
+            patch.object(module.os,'ST_RDONLY',getattr(module.os,'ST_RDONLY',1),create=True), \
+            patch.object(module.subprocess,'run',side_effect=run):
+            self.assertTrue(module.ensure_grub_tools(9,saved,lambda:persisted.append(json.loads(json.dumps(saved)))))
+            self.assertEqual(len(writes),1,'simulation yields without starting installation')
+            self.assertEqual(persisted[0],saved)
+            snapshots[0]=['incus-7.0.2-r0','kernel-6.18.58-r0']
+            with self.assertRaisesRegex(ValueError,'PACKAGE_BUSY'):module.ensure_grub_tools(9,saved,lambda:None)
+            self.assertEqual(len(writes),1,'changed package baseline never reaches install')
+            snapshots[0]=saved['dependencyPlan']['installed'].copy()
+            self.assertTrue(module.ensure_grub_tools(9,saved,lambda:None))
+            self.assertEqual(len(writes),2)
+            with patch.object(module,'command',return_value=b'') as compile_rules:
+                self.assertTrue(module.ensure_grub_tools(9,saved,lambda:None),'compile yields separately after install')
+                self.assertEqual(compile_rules.call_count,1)
+                self.assertFalse(module.ensure_grub_tools(9,saved,lambda:None),'verified tools avoid repeating install or compile')
+                self.assertEqual(compile_rules.call_count,1)
+            snapshots[0].append('unexpected-1.0-r0')
+            with self.assertRaisesRegex(ValueError,'PACKAGE_BUSY'):module.ensure_grub_tools(9,saved,lambda:None)
+            snapshots[0]=saved['dependencyPlan']['installed']+['apparmor-4.1.7-r1']
+            with self.assertRaisesRegex(ValueError,'TOOLS_REQUIRED'):module.ensure_grub_tools(9,saved,lambda:None)
 
     def test_customer_autostart_journal_cas_lost_reply_and_exact_restore(self):
         for original in [None,'true','1','false','0']:

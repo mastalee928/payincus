@@ -18,17 +18,17 @@ const {beginHostMutation,withHostMaintenanceLane}=await import('../src/lib/host-
 const {maintenanceWireOperation}=await import('../src/services/host-maintenance-channel.js')
 const {SECURITY_HARDENING_ENABLED_KEY,SECURITY_HARDENING_REVISION}=await import('../src/lib/security-hardening.js')
 globalThis.setInterval=originalSetInterval
-const prefix='maintenance-'+randomUUID().slice(0,8),recipe='alpine-apparmor-extlinux-v1'
+const prefix='maintenance-'+randomUUID().slice(0,8),recipe=process.env.MAINTENANCE_TEST_BOOTLOADER==='grub'?'alpine-apparmor-grub-v1':'alpine-apparmor-extlinux-v1'
 const policy=await prisma.systemConfig.findUnique({where:{key:SECURITY_HARDENING_ENABLED_KEY}})
 const admin=await prisma.user.create({data:{username:prefix,passwordHash:'fixture',role:'admin'}})
 const batch=await prisma.hostOnboardingBatch.create({data:{id:randomUUID(),name:prefix,accountLabel:prefix,createdById:admin.id,defaults:{}}})
 const hosts:number[]=[]
-let held=false,losePrepare=false,loseReboot=false,loseRollback=false,failBeforeDispatch=false,mutateInventory=false,reportApparmor=true
+let held=false,losePrepare=false,loseReboot=false,loseRollback=false,failBeforeDispatch=false,mutateInventory=false,reportApparmor=true,dependencyInstall=false
 let commands:string[]=[],reboots=0,currentBoot=randomUUID(),remotePhase='prepared'
 const originalBoot=currentBoot,prepareHash='d'.repeat(64)
 const preflight=(architecture:string)=>({architecture,bootId:currentBoot,pageSize:architecture==='aarch64'?65536:4096,
   memoryAvailableKiB:262144,memoryPressure:0,rootAvailableBytes:268435456,rootAvailableInodes:1024,rootReadonly:false,packageBusy:false,
-  apparmorKernelSupport:true,apparmorBootDisabled:true,apparmorActive:false,bootloader:'extlinux' as const})
+  apparmorKernelSupport:true,apparmorBootDisabled:true,apparmorActive:false,bootloader:process.env.MAINTENANCE_TEST_BOOTLOADER==='grub'?'grub' as const:'extlinux' as const})
 async function create(architecture:'x86_64'|'aarch64') {
   const ip=`10.253.212.${randomInt(24,220)}`
   let publicIp=''
@@ -53,6 +53,7 @@ const deps={...hostMaintenanceDependencies,held:()=>held,accepted:(name:string,a
     commands.push(operation.action)
     if(operation.action==='prepare'){
       if(losePrepare){losePrepare=false;throw Error('simulated lost preparation reply')}
+      if(dependencyInstall){dependencyInstall=false;remotePhase='preparing'}else if(remotePhase==='preparing')remotePhase='prepared'
     } else if(operation.action==='reboot'){
       if(failBeforeDispatch){failBeforeDispatch=false;throw Error('simulated stopped before remote dispatch')}
       if(remotePhase==='prepared'){remotePhase='reboot-intent';reboots++}
@@ -89,6 +90,7 @@ try {
   const release=beginHostMutation(arm.id)
   await assert.rejects(prepareAutomaticHostMaintenance(arm.id,deps),/HARDENING_BUSY/)
   assert.equal((await state(arm.id)).maintenance,undefined,'active API work blocks maintenance registration')
+  assert.equal((await state(arm.id)).diagnostic.reason,'HARDENING_BUSY','pre-intent failure is durable and visible')
   release();release()
   await withHostMaintenanceLane(arm.id,async()=>{
     assert.throws(()=>beginHostMutation(arm.id),/安全维护/)
@@ -137,6 +139,15 @@ try {
   await resumeAutomaticHostMaintenance(amd.id,deps);assert.equal((await state(amd.id)).maintenance.error,'HARDENING_RECONNECT_INCOMPLETE')
   reportApparmor=true;await resumeAutomaticHostMaintenance(amd.id,deps)
   assert.equal((await state(amd.id)).maintenance.phase,'verified')
+  await reset(amd.id,'x86_64');dependencyInstall=true
+  await prepareAutomaticHostMaintenance(amd.id,deps)
+  assert.deepEqual(commands,['prepare'],'dependency transaction yields instead of issuing a second bounded write in one call')
+  assert.equal((await state(amd.id)).maintenance.prepareHash,prepareHash)
+  assert.equal(reboots,0)
+  await resumeAutomaticHostMaintenance(amd.id,deps)
+  assert.equal(reboots,1);assert.equal((await state(amd.id)).maintenance.phase,'waiting-boot')
+  await arrive(amd.id);await resumeAutomaticHostMaintenance(amd.id,deps)
+  assert.equal((await state(amd.id)).maintenance.phase,'verified')
   // Real READ COMMITTED race: the initial include sees the old node while a
   // writer holds its newer management address; authorization must re-read all
   // identity fields after acquiring the node lock, before remote dispatch.
@@ -166,11 +177,47 @@ try {
   const expired=(await state(amd.id)).maintenance
   await prisma.host.update({where:{id:amd.id},data:{securityHardening:{...await state(amd.id),maintenance:{...expired,
     startedAt:new Date(Date.now()-21*60000).toISOString(),deadline:new Date(Date.now()-60000).toISOString()}}}})
+  commands=[]
   loseRollback=true;await resumeAutomaticHostMaintenance(amd.id,deps)
+  assert.deepEqual(commands,['status','rollback'],'expired unknown preparation is only discovered and rolled back, never replayed')
   assert.equal(remotePhase,'rolled-back');assert.equal(reboots,0)
   await resumeAutomaticHostMaintenance(amd.id,deps)
   assert.equal((await state(amd.id)).maintenance.phase,'aborted','lost rollback reply resumes from the same remote journal')
   assert.equal(hostMaintenanceBlocked(await state(amd.id)),false)
+  await reset(amd.id,'x86_64');losePrepare=true;await prepareAutomaticHostMaintenance(amd.id,deps)
+  const undispatched=(await state(amd.id)).maintenance
+  await prisma.host.update({where:{id:amd.id},data:{securityHardening:{...await state(amd.id),maintenance:{...undispatched,
+    startedAt:new Date(Date.now()-21*60000).toISOString(),deadline:new Date(Date.now()-60000).toISOString()}}}})
+  const absentDeps={...deps,command:async(target:any,operation:any)=>{
+    assert.equal(operation.action,'status','an expired absent journal cannot start preparation')
+    return {...await deps.command(target,operation),prepareHash:'0'.repeat(64),phase:'absent'} as any
+  }}
+  await resumeAutomaticHostMaintenance(amd.id,absentDeps)
+  assert.equal((await state(amd.id)).maintenance.phase,'aborted')
+  assert.equal(reboots,0)
+  await prepareAutomaticHostMaintenance(amd.id,deps)
+  assert.equal((await state(amd.id)).maintenance.phase,'aborted','retry waits beyond every old wire-request lifetime')
+  const exhausted=(await state(amd.id)).maintenance
+  await prisma.host.update({where:{id:amd.id},data:{securityHardening:{...await state(amd.id),maintenance:{...exhausted,preparationRetries:2}}}})
+  const beforeExhausted=commands.length
+  await prepareAutomaticHostMaintenance(amd.id,deps)
+  assert.equal(commands.length,beforeExhausted,'exhausted preparation grants no remote write')
+  assert.equal((await state(amd.id)).diagnostic.reason,'HARDENING_PREPARATION_RETRY_EXHAUSTED')
+  assert.equal((await state(amd.id)).diagnostic.action,'blocked')
+  await prisma.host.update({where:{id:amd.id},data:{securityHardening:{...await state(amd.id),maintenance:exhausted}}})
+  const aborted=(await state(amd.id)).maintenance
+  await prisma.host.update({where:{id:amd.id},data:{securityHardening:{...await state(amd.id),maintenance:{...aborted,
+    startedAt:new Date(Date.now()-23*60000).toISOString(),deadline:new Date(Date.now()-3*60000).toISOString()}}}})
+  const retryDeps={...deps,command:async(target:any,operation:any)=>{
+    if(operation.action==='status'&&operation.prepareHash==='0'.repeat(64))return {...await deps.command(target,operation),prepareHash:'0'.repeat(64),phase:'absent'} as any
+    return deps.command(target,operation)
+  }}
+  await prepareAutomaticHostMaintenance(amd.id,retryDeps)
+  assert.equal((await state(amd.id)).maintenance.preparationRetries,1)
+  assert.equal((await state(amd.id)).maintenance.requestId,aborted.requestId,'retry retains original authority and customer baseline')
+  assert.equal(reboots,1)
+  await arrive(amd.id);await resumeAutomaticHostMaintenance(amd.id,deps)
+  assert.equal((await state(amd.id)).maintenance.phase,'verified')
   await reset(amd.id,'x86_64');failBeforeDispatch=true;await prepareAutomaticHostMaintenance(amd.id,deps)
   await prisma.user.update({where:{id:admin.id},data:{role:'user'}})
   const revoked=commands.length;await resumeAutomaticHostMaintenance(amd.id,deps)

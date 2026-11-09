@@ -7,9 +7,9 @@ import { inspectHostSecurity, hardeningPreflightCheck, safeCustomerRuntime } fro
 import { hardeningIdentityHash } from '../lib/hardening-identity.js'
 import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { withHostMaintenanceLane } from '../lib/host-operation-lane.js'
-import { automaticMaintenanceRecipeAllowed, readHostMaintenanceIntent, nextMaintenanceAction, recordMaintenanceEvent,
+import { automaticMaintenanceRecipeAllowed, hostMaintenanceRecipe, readHostMaintenanceIntent, nextMaintenanceAction, recordMaintenanceEvent,
   type HostMaintenanceIntent } from '../lib/host-maintenance-plan.js'
-import { SECURITY_HARDENING_ENABLED_KEY, SECURITY_HARDENING_REVISION } from '../lib/security-hardening.js'
+import { SECURITY_HARDENING_ENABLED_KEY, SECURITY_HARDENING_REVISION, hardeningDiagnostic } from '../lib/security-hardening.js'
 import { getIncusClient, removeIncusClient } from '../lib/incus/incus-pool.js'
 import { captureCustomerBootBaseline, recoverCustomerAfterBoot } from './customer-boot-recovery.js'
 import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '../db/advisory-locks.js'
@@ -25,7 +25,6 @@ type Host=Prisma.HostGetPayload<{include:typeof include}>
 type Enrollment={nodeId:string;leaseToken:string}
 const record=(value:unknown):Record<string,unknown>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{}
 const json=(value:unknown)=>value as Prisma.InputJsonValue
-const recipe='alpine-apparmor-extlinux-v1'
 export const hostMaintenanceDependencies={held:recoveryHeld,command:hostMaintenanceCommand,inspect:inspectHostSecurity,
   connect:getIncusClient,invalidate:removeIncusClient,accepted:automaticMaintenanceRecipeAllowed,
   capture: captureCustomerBootBaseline, recover: recoverCustomerAfterBoot}
@@ -109,8 +108,11 @@ async function assertRemoteBaseline(host:Host,tx:Prisma.TransactionClient,deps:t
 export async function prepareAutomaticHostMaintenance(hostId:number,deps=hostMaintenanceDependencies,enrollment?:Enrollment):Promise<void> {
   if(deps.held())return
   const candidate=await prisma.host.findUnique({where:{id:hostId},select:{securityHardening:true}})
-  if(!candidate||!deps.accepted(recipe,String(record(record(candidate.securityHardening).environment).architecture)))return
-  const planned=await withHostMaintenanceLane(hostId,()=>prisma.$transaction(async tx=>{
+  const candidateEnvironment=record(record(candidate?.securityHardening).environment)
+  const recipe=hostMaintenanceRecipe(candidateEnvironment)
+  if(!candidate||!recipe||!deps.accepted(recipe,String(candidateEnvironment.architecture)))return
+  let planned: {host:Host;intent:HostMaintenanceIntent}|null
+  try { planned=await withHostMaintenanceLane(hostId,()=>prisma.$transaction(async tx=>{
     await tx.$executeRaw`SET LOCAL lock_timeout='2s'`
     // One global change lane, short-held. Persisted nonterminal intents block
     // the next target even after the process exits or its queue lease expires.
@@ -119,14 +121,44 @@ export async function prepareAutomaticHostMaintenance(hostId:number,deps=hostMai
     const host=await tx.host.findUniqueOrThrow({where:{id:hostId},include})
     await authorized(tx,host,deps.held,enrollment)
     const state=record(host.securityHardening),environment=record(state.environment)
-    if(state.maintenance){readHostMaintenanceIntent(state.maintenance);return null}
-    if(!deps.accepted(recipe,String(environment.architecture)))return null
+    const previous=state.maintenance?readHostMaintenanceIntent(state.maintenance):undefined
+    if(previous&&previous.phase!=='aborted')return null
+    if(previous&&(previous.preparationRetries||0)>=2){
+      const reason='HARDENING_PREPARATION_RETRY_EXHAUSTED'
+      await tx.host.update({where:{id:hostId},data:{securityHardening:json({...state,status:'needs-maintenance',
+        diagnostic:hardeningDiagnostic(reason,'host-inspection'),nextCheckAt:new Date(Date.now()+6*60*60000).toISOString()})}})
+      return null
+    }
+    if(previous&&Date.now()<Date.parse(previous.deadline)+120000){
+      await tx.host.update({where:{id:hostId},data:{securityHardening:json({...state,nextCheckAt:new Date(Date.parse(previous.deadline)+120000).toISOString()})}})
+      return null
+    }
+    if(hostMaintenanceRecipe(environment)!==recipe||!deps.accepted(recipe,String(environment.architecture)))return null
     if(!['x86_64','aarch64'].includes(String(environment.architecture))||!environment.apparmorKernelSupport||
-      environment.bootloader!=='extlinux'||state.identityHash!==hardeningIdentityHash(host)||host.status!=='online')throw Error('HARDENING_RECIPE_UNSUPPORTED')
+      state.identityHash!==hardeningIdentityHash(host)||host.status!=='online')throw Error('HARDENING_RECIPE_UNSUPPORTED')
+    if(state.status==='verified'||record(record(state.host).apparmor).status==='verified')return null
+    if(record(record(state.host).preflight).status!=='verified'&&state.host!==undefined)throw Error('HARDENING_BUSY')
     const others=await tx.host.findMany({where:{id:{not:hostId},securityHardening:{path:['maintenance'],not:Prisma.AnyNull}},select:{securityHardening:true}})
     if(others.some(row=>hostMaintenanceBlocked(row.securityHardening)))throw Error('HARDENING_BATCH_PAUSED')
     const customers=await noCustomerConflicts(tx,hostId)
     if(enrollment&&customers.length)throw Error('HARDENING_IDENTITY_CHANGED')
+    if(previous){
+      // Retry only an exactly rolled-back, never-dispatched preparation after
+      // all prior one-minute wire requests have expired. Keep the original
+      // identity/config baseline and finite budget; no new trust or reboot.
+      if(previous.rebootIssued||previous.identityHash!==hardeningIdentityHash(host)||previous.bootId!==environment.bootId||
+        previous.recipe!==recipe||previous.architecture!==environment.architecture)throw Error('HARDENING_IDENTITY_CHANGED')
+      await noCustomerConflicts(tx,hostId,previous)
+      await assertRemoteBaseline(host,tx,deps,previous)
+      const proof=await deps.command(host,{...previous,action:'status'})
+      if(!['rolled-back','absent'].includes(proof.phase)||proof.bootId!==previous.bootId)throw Error('HARDENING_JOURNAL_CONFLICT')
+      const now=Date.now()
+      const intent:HostMaintenanceIntent={...previous,phase:'prepared',prepareHash:'0'.repeat(64),
+        preparationRetries:(previous.preparationRetries||0)+1,startedAt:new Date(now).toISOString(),deadline:new Date(now+20*60000).toISOString()}
+      delete intent.error;recordMaintenanceEvent(intent)
+      await tx.host.update({where:{id:hostId},data:{securityHardening:json({...state,status:'retry',maintenance:intent})}})
+      return {host,intent}
+    }
     const client=customers.length?await deps.connect(host,tx,8000):null
     const baselines=[]
     for(const customer of customers)baselines.push(await deps.capture(client!,customer,host.natPublicIp||'',undefined,()=>authorized(tx,host,deps.held,enrollment)))
@@ -140,7 +172,23 @@ export async function prepareAutomaticHostMaintenance(hostId:number,deps=hostMai
     // never permission to reboot. Remote status/prepare resolves lost replies.
     await tx.host.update({where:{id:hostId},data:{securityHardening:json({...state,status:'retry',maintenance:intent})}})
     return {host,intent}
-  },{maxWait:3000,timeout:60000}))
+  },{maxWait:3000,timeout:60000})) } catch(error) {
+    // A prerequisite failure before an intent exists must still be visible
+    // and scheduled. No synthetic intent may claim a remote write occurred.
+    const raw=error instanceof Error?error.message:''
+    const code=/^(HARDENING|ALPINE_SSH)_[A-Z_]{1,90}$/.test(raw)?raw:'HARDENING_PREPARE_FAILED'
+    await prisma.$transaction(async tx=>{
+      await tx.$executeRaw`SET LOCAL lock_timeout='2s'`
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id=${hostId} FOR UPDATE`
+      const host=await tx.host.findUnique({where:{id:hostId},include});if(!host)return
+      const state=record(host.securityHardening)
+      if(state.identityHash!==hardeningIdentityHash(host))return
+      if(state.maintenance&&readHostMaintenanceIntent(state.maintenance).phase!=='aborted')return
+      await tx.host.update({where:{id:hostId},data:{securityHardening:json({...state,status:'retry',
+        diagnostic:hardeningDiagnostic(code,'host-inspection'),nextCheckAt:new Date(Date.now()+30000).toISOString()})}})
+    },{maxWait:3000,timeout:8000})
+    throw error
+  }
   if(planned)await resumeAutomaticHostMaintenance(hostId,deps,enrollment)
 }
 
@@ -161,16 +209,26 @@ async function resumeMaintenance(hostId:number,deps:typeof hostMaintenanceDepend
       await authorized(tx,host,deps.held,enrollment)
       if(hardeningIdentityHash(host)!==intent.identityHash)throw Error('HARDENING_IDENTITY_CHANGED')
       if(!deps.accepted(intent.recipe,intent.architecture))throw Error('HARDENING_RECIPE_UNSUPPORTED')
-      if(intent.prepareHash==='0'.repeat(64)) {
+      const firstPreparation=intent.prepareHash==='0'.repeat(64)
+      const expired=Date.now()>=Date.parse(intent.deadline)
+      if(firstPreparation&&!expired) {
         await noCustomerConflicts(tx,hostId,intent)
         await assertRemoteBaseline(host,tx,deps,intent)
       }
-      let receipt=await deps.command(host,{...intent,action:intent.prepareHash==='0'.repeat(64)?'prepare':'status'})
+      // An expired lost preparation reply grants only discovery/rollback.
+      // Replaying prepare here could install packages or edit boot settings
+      // after the maintenance deadline, before immediately undoing them.
+      let receipt=await deps.command(host,{...intent,action:firstPreparation&&!expired?'prepare':'status'})
       if(intent.prepareHash==='0'.repeat(64))intent.prepareHash=receipt.prepareHash
-      if(receipt.phase==='preparing'&&Date.now()<Date.parse(intent.deadline)){
+      if(receipt.phase==='preparing'&&Date.now()<Date.parse(intent.deadline)&&!firstPreparation){
         await noCustomerConflicts(tx,hostId,intent)
         await assertRemoteBaseline(host,tx,deps,intent)
         receipt=await deps.command(host,{...intent,action:'prepare'})
+      }
+      if(receipt.phase==='preparing'&&Date.now()<Date.parse(intent.deadline)){
+        recordMaintenanceEvent(intent)
+        await tx.host.update({where:{id:hostId},data:{securityHardening:json({...state,maintenance:intent,nextCheckAt:new Date(Date.now()+30000).toISOString()})}})
+        return null
       }
       const decision=nextMaintenanceAction(intent,{identityHash:receipt.identityHash,prepareHash:receipt.prepareHash,bootId:receipt.bootId,
         remotePhase:receipt.phase,recoveryHeld:deps.held()})
