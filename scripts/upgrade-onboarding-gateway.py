@@ -111,7 +111,9 @@ def upgrade(request):
     for name, value in request['sources'].items():
         require(type(value) is str and len(value) <= 174764)
         raw = base64.b64decode(value, validate=True)
-        require(0 < len(raw) <= 131072 and b'\0' not in raw)
+        # Python accepts CRLF during compilation, but a Linux shebang does not.
+        # Reject noncanonical scripts before any identity reads or publication.
+        require(0 < len(raw) <= 131072 and b'\0' not in raw and b'\r' not in raw)
         if name.endswith('.py'):
             compile(raw, name, 'exec')
         sources[name] = raw

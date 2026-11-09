@@ -56,7 +56,10 @@ async function allowed(tx: Prisma.TransactionClient, host: SecurityHost, held = 
   await tx.$queryRaw`SELECT id FROM users WHERE id = ${node.batch.createdById} FOR SHARE`
   const actor = await tx.user.findUnique({ where: { id: node.batch.createdById }, select: { status: true, role: true } })
   if (actor?.status !== 'active' || actor.role !== 'admin') throw new Error('HARDENING_ADMIN_REQUIRED')
-  if (host.status !== 'online' || host.poolFaulted || host.publicIpSyncBlocked || host.installPending) throw new Error('HARDENING_OFFLINE')
+  if (host.status !== 'online') throw new Error('HARDENING_OFFLINE')
+  if (host.poolFaulted) throw new Error('HARDENING_HOST_QUARANTINED')
+  if (host.publicIpSyncBlocked) throw new Error('HARDENING_PUBLIC_IP_PENDING')
+  if (host.installPending) throw new Error('HARDENING_INSTALL_PENDING')
 }
 function currentState(value: Prisma.JsonValue | null): Partial<HardeningState> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Partial<HardeningState> : {} }
 
@@ -148,7 +151,7 @@ export async function hardenExistingHost(hostId: number, deps = securityHardenin
           uuids.set(instance.id, uuid)
           if (instance.status === 'running' && current.type === 'container') {
             const runtime = await client.request<{ pid?: number; status?: string }>('GET', `/1.0/instances/${encodeURIComponent(instance.incusId)}/state`, null, 8000)
-            if (runtime.status !== 'Running' || !Number.isSafeInteger(runtime.pid) || runtime.pid! <= 0) throw new Error('HARDENING_OFFLINE')
+            if (runtime.status !== 'Running' || !Number.isSafeInteger(runtime.pid) || runtime.pid! <= 0) throw new Error('HARDENING_GUEST_NOT_RUNNING')
             guests.push({ instanceId: instance.id, pid: runtime.pid! })
           } else if (current.type === 'container') {
             entry.isolation = { status: 'needs-maintenance', reason: 'HARDENING_GUEST_NOT_RUNNING' }

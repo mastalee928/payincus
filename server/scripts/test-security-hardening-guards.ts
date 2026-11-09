@@ -50,6 +50,11 @@ assert.equal(hardeningUpdateBudget({ updateAttempts: 6, error: 'HARDENING_BUSY' 
 assert.equal(hardeningUpdateBudget({ updateAttempts: -1 }),0)
 assert.equal(hardeningDiagnostic('SSH_COMMAND_TIMEOUT','host-inspection').action,'inspect')
 assert.equal(hardeningDiagnostic('HARDENING_MEMORY_LOW','host-inspection').action,'wait')
+for(const reason of ['HARDENING_HOST_QUARANTINED','HARDENING_PUBLIC_IP_PENDING','HARDENING_INSTALL_PENDING']) {
+  assert.equal(hardeningFailure(new Error(reason)).reason,reason)
+  assert.equal(hardeningDiagnostic(reason,'authority').action,'wait')
+  assert.ok(!hardeningReason(reason).includes('管理通道暂未就绪'),'online fences have distinct explanations')
+}
 assert.equal(hardeningDiagnostic('secret payload','inventory').reason,'HARDENING_CHECK_FAILED')
 assert.equal(hardeningNeedsReadOnlyRecovery({ leaseToken:'expired-original-lease' }),true)
 assert.equal(hardeningNeedsReadOnlyRecovery({ error:'SSH_COMMAND_TIMEOUT' }),true)

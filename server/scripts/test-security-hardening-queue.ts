@@ -78,6 +78,16 @@ try {
   assert.equal((await state()).instances[0].ssh.status, 'verified')
   assert.equal(guestWrites, 1)
   await hardenExistingHost(host.id, deps); assert.equal(guestWrites, 1, 'recent receipt prevents duplicate work')
+  for (const [change,reason] of [[{status:'offline'},'HARDENING_OFFLINE'], [{poolFaulted:true},'HARDENING_HOST_QUARANTINED'],
+    [{publicIpSyncBlocked:true},'HARDENING_PUBLIC_IP_PENDING'], [{installPending:true},'HARDENING_INSTALL_PENDING']] as const) {
+    const before={connections,hostCalls,guestWrites}
+    await due(); await prisma.host.update({where:{id:host.id},data:change}); await hardenExistingHost(host.id,deps)
+    assert.equal((await state()).diagnostic.reason,reason)
+    assert.equal((await state()).diagnostic.phase,'authority')
+    assert.equal((await state()).diagnostic.action,'wait')
+    assert.deepEqual({connections,hostCalls,guestWrites},before,'waiting fences prohibit all remote actions')
+    await prisma.host.update({where:{id:host.id},data:{status:'online',poolFaulted:false,publicIpSyncBlocked:false,installPending:false}})
+  }
   await due(); apparmor = true; failCustomer = true
   await hardenExistingHost(host.id, deps)
   assert.equal((await state()).status, 'retry'); assert.equal((await state()).instances[0].ssh.reason, 'ALPINE_SSH_UPDATE_FAILED')

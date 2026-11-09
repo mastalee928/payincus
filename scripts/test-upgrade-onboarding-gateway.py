@@ -75,6 +75,14 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(self.files[upgrade.HELPER], b'# old helper\n')
         self.assertEqual(upgrade.upgrade(self.request)['dnsProtocolVersion'], 2)
 
+    def test_crlf_scripts_fail_before_publication(self):
+        for name in upgrade.NAMES:
+            raw = b'#!/usr/bin/env python3\r\n' if name.endswith('.py') else b'#!/bin/sh\r\n'
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                upgrade.upgrade({**self.request, 'sources': {**self.request['sources'], name: base64.b64encode(raw).decode()}})
+        self.assertEqual(self.writes, [])
+        upgrade.identity.assert_not_called()
+
     def test_changed_transport_never_returns_success(self):
         with patch.object(upgrade, 'snapshot', side_effect=[{'peers': 'old'}, {'peers': 'changed'}]):
             with self.assertRaisesRegex(ValueError, 'IDENTITY_CHANGED'):

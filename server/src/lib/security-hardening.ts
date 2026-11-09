@@ -36,6 +36,7 @@ export function hardeningFailure(error: unknown): HardeningCheck {
     'HARDENING_PREPARATION_RETRY_EXHAUSTED']
   if (reasons.includes(message)) return { status: 'needs-maintenance', reason: message }
   return { status: 'retry', reason: ['HARDENING_BUSY', 'HARDENING_OFFLINE', 'HARDENING_RECOVERY_HELD',
+    'HARDENING_HOST_QUARANTINED', 'HARDENING_PUBLIC_IP_PENDING', 'HARDENING_INSTALL_PENDING',
     'ALPINE_SSH_INSTANCE_BUSY', 'ALPINE_SSH_TARGET_NOT_READY', 'ALPINE_SSH_RECOVERY_HELD',
     'ALPINE_SSH_UPDATE_FAILED', 'ALPINE_SSH_VERIFICATION_FAILED', 'HOST_SECURITY_MAINTENANCE', 'HARDENING_MEMORY_LOW', 'HARDENING_MEMORY_PRESSURE',
     'HARDENING_DISK_LOW', 'HARDENING_PACKAGE_BUSY', 'SSH_CONNECT_FAILED', 'SSH_DISCONNECTED', 'SSH_COMMAND_TIMEOUT',
@@ -61,6 +62,7 @@ export function hardeningPhaseLabel(phase: HardeningPhase): string {
 export function hardeningDiagnostic(reason: string, phase: HardeningPhase, instanceId?: number): HardeningDiagnostic {
   const check = hardeningFailure(new Error(reason))
   const waiting = ['HARDENING_BUSY', 'HARDENING_OFFLINE', 'HARDENING_RECOVERY_HELD', 'ALPINE_SSH_INSTANCE_BUSY',
+    'HARDENING_HOST_QUARANTINED', 'HARDENING_PUBLIC_IP_PENDING', 'HARDENING_INSTALL_PENDING',
     'ALPINE_SSH_TARGET_NOT_READY', 'ALPINE_SSH_RECOVERY_HELD', 'HARDENING_MEMORY_LOW', 'HARDENING_MEMORY_PRESSURE',
     'HARDENING_DISK_LOW', 'HARDENING_PACKAGE_BUSY', 'SSH_CONNECT_FAILED', 'SSH_DISCONNECTED'].includes(check.reason || '')
   const action = check.status === 'needs-maintenance' ? 'blocked' : waiting ? 'wait' : 'inspect'
@@ -100,6 +102,9 @@ export function hardeningReason(reason?: string): string {
     ALPINE_SSH_ADMIN_REQUIRED: '当前管理员授权无效', SSH_HOST_KEY_CHANGED: '管理 SSH 身份与原记录不符',
     ALPINE_SSH_UNSUPPORTED: '当前 Alpine 分支或 OpenSSH 配置不在已验证补丁范围',
     HARDENING_BUSY: '有关任务仍在执行，稍后自动继续', HARDENING_OFFLINE: '宿主管理通道暂未就绪',
+    HARDENING_HOST_QUARANTINED: '宿主故障隔离尚未通过恢复核验，等待原恢复流程自动继续',
+    HARDENING_PUBLIC_IP_PENDING: '宿主公网 IP 同步保护尚未解除，等待原身份与入口核验后自动继续',
+    HARDENING_INSTALL_PENDING: '宿主安装尚未完成，等待安装核验后自动继续',
     ALPINE_SSH_INSTANCE_BUSY: '客户有未完成操作，稍后自动继续',
     ALPINE_SSH_TARGET_NOT_READY: '客户原密码连接或管理状态尚未就绪',
     ALPINE_SSH_UPDATE_FAILED: '官方 SSH 补丁或服务重载未完成，将重新核验后续接',
