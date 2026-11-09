@@ -1717,10 +1717,11 @@ button:disabled {
 .minimal-load-error button { border: 0; background: none; color: #eff4fa; min-height: 44px; }
 .minimal-atlas .atlas-legend small { font-size: 13px; }
 @media (min-width: 768px) {
-  .minimal-atlas .atlas-map { width: var(--home-map-width, min(100%, 2160px)); aspect-ratio: 1440 / 500; }
+  .minimal-atlas .atlas-map { width: var(--home-map-width, min(100%, 2160px)); aspect-ratio: 1440 / 500; container: home-atlas / inline-size; }
   .minimal-atlas .content-width { width: var(--home-content-width, min(1920px, 84vw)); }
   .minimal-atlas .map-controls { bottom: 20px; right: max(20px, 4%); }
-  .minimal-atlas .map-bottom { width: calc(100% - 48px); grid-template-columns: minmax(0, 1fr) minmax(280px, 440px) 144px; bottom: 16px; }
+  /* Equal side tracks keep the region card centered regardless of legend/control widths. */
+  .minimal-atlas .map-bottom { width: calc(100% - 48px); grid-template-columns: minmax(0, 1fr) minmax(0, 440px) minmax(0, 1fr); bottom: 16px; }
   .minimal-atlas .map-selection { width: auto; min-width: 0; padding: 12px 16px; min-height: 72px; }
   .minimal-atlas .atlas-toolbar { flex-wrap: wrap; gap: 8px 20px; padding-bottom: 8px; }
   .minimal-atlas .all-regions-link { margin-left: auto; font-size: 13px; }
@@ -1731,8 +1732,10 @@ button:disabled {
   .minimal-atlas .continent-tabs button { white-space: normal; line-height: 1.4; padding: 8px 6px; font-size: 13px; }
   .minimal-atlas .all-regions-link { min-height: 36px; }
 }
-@media (min-width: 768px) and (max-width: 1050px) {
-  .minimal-atlas .map-bottom { grid-template-columns: minmax(0, 1fr) minmax(0, 1.65fr); gap: 12px; }
+/* A short desktop window also shrinks the map, independently of viewport width. */
+@container home-atlas (max-width: 1050px) {
+  .minimal-atlas .map-bottom { grid-template-columns: minmax(0, 1fr) minmax(0, clamp(280px, 40cqw, 400px)) minmax(0, 1fr); gap: 12px; }
+  .minimal-atlas .atlas-legend { white-space: normal; }
   .minimal-atlas .atlas-map:has(.map-selection) .map-controls { top: 12px; bottom: auto; }
   .minimal-atlas .map-selection { gap: 10px; }
 }

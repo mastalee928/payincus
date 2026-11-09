@@ -1,22 +1,19 @@
 import '../config/env.js'
-import { createHash } from 'crypto'
-import { appendFile, mkdir, cp, rm, writeFile, readdir, stat, lstat, readlink, symlink, rename, statfs, access } from 'fs/promises'
-import { constants, createReadStream, createWriteStream, existsSync } from 'fs'
+import { appendFile, mkdir, cp, rm, writeFile, readdir, lstat, readlink, symlink, rename, statfs, access } from 'fs/promises'
+import { constants, existsSync } from 'fs'
 import { dirname, join, resolve, sep } from 'path'
-import { Readable } from 'stream'
-import { pipeline } from 'stream/promises'
 import { prisma, closePrismaDatabase } from '../db/prisma.js'
 import { tryMarkSystemUpdateTaskRunning } from '../db/system-update-tasks.js'
 import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication, backupSystemUpdateApplication, systemUpdateExecutionDirectory } from '../lib/system-update-files.js'
 import { assertBundledSystemUpdateRuntime, runBundledSystemUpdateMigrations } from '../lib/system-update-runtime.js'
 import { runSystemUpdateCommand, SystemUpdateCommandNotStopped } from '../lib/system-update-command.js'
+import { downloadSystemUpdateArtifact } from '../lib/system-update-download.js'
 import {
   getCurrentVersionMetadata,
   getOtaReleaseInfo,
   getReleaseToken,
   getRuntimeArch,
   getRuntimePlatform,
-  isTrustedReleaseHost,
   isValidReleaseTag,
   selectRuntimeArtifact,
   type OtaArtifactInfo
@@ -382,42 +379,12 @@ async function switchCurrentRelease(targetDir: string): Promise<void> {
   await log(`Switched current release to ${targetDir}`)
 }
 
-async function sha256File(path: string): Promise<string> {
-  const hash = createHash('sha256')
-  await pipeline(createReadStream(path), hash)
-  return hash.digest('hex')
-}
-
 async function downloadArtifact(artifact: OtaArtifactInfo): Promise<string> {
   await mkdir(updateDownloadDir, { recursive: true })
   const artifactPath = join(updateDownloadDir, `${taskId}-${artifact.name}`)
   await log(`Downloading OTA artifact ${artifact.name} (${artifact.size ?? 'unknown'} bytes)`)
 
-  const headers: Record<string, string> = {
-    'user-agent': 'payincus-online-update'
-  }
-  const token = getReleaseToken()
-  // 仅对可信 GitHub 主机附带 release token，避免被构造的 artifact.url 把凭证泄露到攻击者主机
-  if (token && isTrustedReleaseHost(artifact.url)) headers.authorization = `Bearer ${token}`
-
-  const response = await fetch(artifact.url, { headers })
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download OTA artifact: HTTP ${response.status}`)
-  }
-
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(artifactPath))
-
-  const fileStat = await stat(artifactPath)
-  if (artifact.size !== null && fileStat.size !== artifact.size) {
-    throw new Error(`OTA artifact size mismatch: expected ${artifact.size}, got ${fileStat.size}`)
-  }
-
-  const actualSha256 = await sha256File(artifactPath)
-  if (actualSha256 !== artifact.sha256) {
-    throw new Error(`OTA artifact sha256 mismatch: expected ${artifact.sha256}, got ${actualSha256}`)
-  }
-
-  await log(`OTA artifact verified: sha256=${actualSha256}`)
+  await downloadSystemUpdateArtifact(artifact, artifactPath, { token: getReleaseToken(), log })
   return artifactPath
 }
 

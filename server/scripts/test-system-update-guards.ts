@@ -7,6 +7,7 @@ import { ensureSystemUpdateEnvironmentDefaults, restoreSystemUpdateApplication, 
 import { systemUpdateUnitStillStarting } from '../src/lib/system-update-worker-state.js'
 import { assertBundledSystemUpdateRuntime, runBundledSystemUpdateMigrations } from '../src/lib/system-update-runtime.js'
 import { runSystemUpdateCommand } from '../src/lib/system-update-command.js'
+import { verifySystemUpdateDownloads } from './test-system-update-download.js'
 
 for (const ActiveState of ['activating', 'active', 'reloading']) {
   assert.equal(systemUpdateUnitStillStarting({ ActiveState, SubState: 'start', Result: 'success', ExecMainStatus: '0', Job: '0' }), true, 'slow sealed-file verification must remain pending')
@@ -43,6 +44,7 @@ const onlineTaskHelper = read('deploy/incudal-online-task.sh.example')
 const systemctlWrapper = read('deploy/incudal-systemctl-wrapper.sh.example')
 const otaChownWrapper = read('deploy/incudal-ota-chown-wrapper.sh.example')
 const runTask = read('server/src/scripts/run-system-update-task.ts')
+const downloadSource = read('server/src/lib/system-update-download.ts')
 const startTask = read('server/src/scripts/start-system-update-task.ts')
 const rollbackTask = read('server/src/scripts/rollback-system-update-task.ts')
 const systemUpdateTasksDb = read('server/src/db/system-update-tasks.ts')
@@ -191,8 +193,9 @@ assert.ok(
     runTask.includes('getOtaReleaseInfo(targetVersion)') &&
     runTask.includes('selectRuntimeArtifact') &&
     runTask.includes('downloadArtifact') &&
-    runTask.includes('createHash') &&
-    runTask.includes('OTA artifact sha256 mismatch') &&
+    runTask.includes('await downloadSystemUpdateArtifact(artifact, artifactPath,') &&
+    downloadSource.includes("createHash('sha256')") &&
+    downloadSource.includes('OTA artifact sha256 mismatch') &&
     runTask.includes("tar', ['--no-same-owner', '-xzf', artifactPath") &&
     runTask.includes('assertArtifactStaging') &&
     runTask.includes("'.git'") &&
@@ -517,4 +520,5 @@ try {
     assert.equal(await readFile(counter, 'utf8'), stopped, 'timed-out grandchildren must stop writing before rollback can run')
   } else console.log('Linux CI and native validation cover command process-group termination')
 } finally { await rm(runtimeFixture, { recursive: true, force: true }) }
-console.log('system update guards passed: trusted rollback, complete bundled runtime, bounded child lifecycle and pending observation')
+await verifySystemUpdateDownloads()
+console.log('system update guards passed: trusted rollback, complete bundled runtime, bounded downloads/child lifecycle and pending observation')

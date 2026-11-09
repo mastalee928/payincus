@@ -7,6 +7,7 @@ import { Browser, sleep } from '../.agents/skills/design-taste-frontend/scripts/
 import { checkHomeMapMobile } from './lib/check-home-map-mobile.mjs'
 import { checkHomeResponsive } from './lib/check-home-responsive.mjs'
 import { checkHomeMapGestures } from './lib/check-home-map-gestures.mjs'
+import { checkHomeSelection } from './lib/check-home-selection.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url)).replaceAll('\\', '/')
 const outputIndex = process.argv.indexOf('--out')
@@ -32,6 +33,15 @@ try {
   if (!reuseDemo) await server.listen()
   if (process.argv.includes('--serve')) { console.log('Map camera fixture http://127.0.0.1:19834'); await new Promise(() => {}) }
   browser = await Browser.launch(); const page = await browser.newPage({ reducedMotion: true })
+  if (process.argv.includes('--selection-only')) {
+    try {
+      observations.push({ name: 'selected-region-card', checks: await checkHomeSelection(page, out) })
+      writeFileSync(out + '/selection.json', JSON.stringify({ at: new Date().toISOString(), scope: 'Real Vue/Chrome; local catalog; no backend', observations }, null, 2))
+    } catch (error) {
+      await page.screenshot({ path: out + '/selection-failure.png', format: 'png', fullPage: true })
+      throw error
+    }
+  } else {
   const wait = async (fn, arg) => { const end = Date.now() + 15000; while (!await page.eval(fn, arg)) { assert.ok(Date.now() < end, 'Timed out: ' + String(fn) + '\n' + page.consoleErrors.join('\n')); await sleep(40) } }
   const click = async selector => {
     const box = await page.eval(s => { const e = document.querySelector(s); if (!e) throw new Error('Missing ' + s); e.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } }, selector)
@@ -175,7 +185,11 @@ try {
     try { observations.push({ name:'responsive-home', checks:await checkHomeResponsive(responsivePage,out) }) }
     finally { await responsivePage.close() }
     observations.push({ name:'map-label-gestures', checks:await checkHomeMapGestures(browser,out) })
+    const selectionPage = await browser.newPage({ reducedMotion: true })
+    try { observations.push({ name:'selected-region-card', checks:await checkHomeSelection(selectionPage,out) }) }
+    finally { await selectionPage.close() }
     console.log('PASS five continents/four widths, bounds/labels, stock refresh/failure, same-city selection/purchase URL, manual/reset, deep links, three languages/two themes, actual animation/reduced motion and mobile globe/map')
   }
   writeFileSync(out+'/'+phase+'.json',JSON.stringify({phase,at:new Date().toISOString(),scope:'Real Vue/Chrome; local static catalog; no backend',observations},null,2))
+  }
 } finally { if(browser) await browser.close(); await server.close() }

@@ -2,6 +2,7 @@ import { execFile } from 'child_process'
 import { readFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { promisify } from 'util'
+import { fetchReleaseJson } from './system-update-download.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -40,6 +41,8 @@ export interface OtaArtifactInfo {
   url: string
   sha256: string
   size: number | null
+  /** Derived from matching GitHub Release metadata, never from the manifest. */
+  apiUrl?: string
 }
 
 export interface OtaReleaseInfo {
@@ -50,8 +53,10 @@ export interface OtaReleaseInfo {
 }
 
 interface GitHubReleaseAsset {
+  id?: number
   name?: string
   size?: number
+  digest?: string
   browser_download_url?: string
 }
 
@@ -118,7 +123,7 @@ function normalizeOtaArtifact(input: unknown): OtaArtifactInfo | null {
     ? value.size
     : null
 
-  if (!name || !platform || !arch || !url || !/^[a-f0-9]{64}$/.test(sha256)) return null
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) || !platform || !arch || !url || !/^[a-f0-9]{64}$/.test(sha256)) return null
   return { name, platform, arch, url, sha256, size }
 }
 
@@ -142,18 +147,13 @@ export function isTrustedReleaseHost(rawUrl: string): boolean {
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const headers: Record<string, string> = {
-    accept: 'application/vnd.github+json',
-    'user-agent': 'payincus-online-update'
-  }
-  const token = getReleaseToken()
-  if (token && isTrustedReleaseHost(url)) headers.authorization = `Bearer ${token}`
+  return await fetchReleaseJson<T>(url, undefined, { token: getReleaseToken() })
+}
 
-  const response = await fetch(url, { headers })
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
-  }
-  return await response.json() as T
+function assetApiUrl(repository: string, asset: GitHubReleaseAsset | undefined): string | undefined {
+  const id = asset?.id
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) return undefined
+  return `https://api.github.com/repos/${repository}/releases/assets/${id}`
 }
 
 export async function getOtaReleaseInfo(tag: string): Promise<OtaReleaseInfo> {
@@ -162,6 +162,7 @@ export async function getOtaReleaseInfo(tag: string): Promise<OtaReleaseInfo> {
 
   try {
     const release = await fetchJson<GitHubReleaseResponse>(releaseApiUrl)
+    if (release.tag_name !== tag || release.draft) throw new Error('GitHub Release tag does not match the requested version')
     const assets = Array.isArray(release.assets) ? release.assets : []
     const manifestAsset = assets.find(asset =>
       asset.name === 'ota-manifest.json' ||
@@ -177,10 +178,17 @@ export async function getOtaReleaseInfo(tag: string): Promise<OtaReleaseInfo> {
       }
     }
 
-    const manifest = await fetchJson<{ artifacts?: unknown[] }>(manifestUrl)
+    const manifest = await fetchReleaseJson<{ artifacts?: unknown[] }>(manifestUrl, assetApiUrl(repository, manifestAsset), { token: getReleaseToken() })
     const artifacts = (Array.isArray(manifest.artifacts) ? manifest.artifacts : [])
       .map(normalizeOtaArtifact)
       .filter((artifact): artifact is OtaArtifactInfo => artifact !== null)
+      .map(artifact => {
+        const asset = assets.find(item => item.name === artifact.name && item.browser_download_url === artifact.url)
+        if (!asset || (artifact.size !== null && asset.size !== artifact.size) || (asset.digest && asset.digest !== `sha256:${artifact.sha256}`)) {
+          throw new Error('OTA manifest artifact does not match GitHub Release metadata')
+        }
+        return { ...artifact, apiUrl: assetApiUrl(repository, asset) }
+      })
 
     return {
       manifestAvailable: artifacts.length > 0,

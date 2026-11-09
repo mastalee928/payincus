@@ -96,6 +96,8 @@ coverage/
 
 # ==================== 文档 (内部) ====================
 docs/*
+!docs/release-v1.8.5-validation.md
+!docs/release-v1.8.5-owner-click-test.md
 !docs/release-v1.8.4-validation.md
 !docs/release-v1.8.4-owner-click-test.md
 !docs/admin-user-email.md
