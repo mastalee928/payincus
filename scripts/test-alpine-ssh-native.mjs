@@ -46,7 +46,19 @@ try {
 apk add --no-cache openrc openssh-server-common-openrc ca-certificates util-linux
 mkdir /opt/old-ssh
 for package in openssh-server openssh-server-common openssh-keygen; do
-  wget -T 20 -O "/opt/old-ssh/$package.apk" "https://dl-cdn.alpinelinux.org/alpine/v${branch}/main/$(apk --print-arch)/$package-${oldRevision}.apk"
+  # Old fixtures occasionally return a temporary CDN 404. Keep the exact
+  # official branch/version and require a complete download before apk verifies
+  # its signature; no newer or unsigned package substitutes the old baseline.
+  downloaded=0
+  for download_attempt in 1 2 3; do
+    if wget -T 20 -O "/opt/old-ssh/$package.apk.part" "https://dl-cdn.alpinelinux.org/alpine/v${branch}/main/$(apk --print-arch)/$package-${oldRevision}.apk"; then
+      mv "/opt/old-ssh/$package.apk.part" "/opt/old-ssh/$package.apk"
+      downloaded=1; break
+    fi
+    rm -f "/opt/old-ssh/$package.apk.part"
+    [ "$download_attempt" -eq 3 ] || sleep "$download_attempt"
+  done
+  [ "$downloaded" -eq 1 ] || exit 1
 done
 apk add --no-cache /opt/old-ssh/openssh-server.apk /opt/old-ssh/openssh-server-common.apk /opt/old-ssh/openssh-keygen.apk
 ## Legacy OpenRC expects boot to create its state and exclusive-lock directories.
