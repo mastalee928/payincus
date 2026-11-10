@@ -22,7 +22,7 @@ execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey'
   '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', keyPath, '-out', certPath], { stdio: 'pipe', windowsHide: true })
 const certificate = await readFile(certPath, 'utf8')
 const actions: string[] = []
-const remotes = new Map<string, { name: string; type: string; profiles: string[]; config: Record<string, string>; devices: Record<string, Record<string, string>>; status: string }>()
+const remotes = new Map<string, { name: string; type: string; created_at: string; profiles: string[]; config: Record<string, string>; devices: Record<string, Record<string, string>>; status: string }>()
 const remoteServer = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
   const send = (metadata: unknown, status = 200) => {
     response.writeHead(status, { 'content-type': 'application/json' })
@@ -41,8 +41,9 @@ const remoteServer = createServer({ key: await readFile(keyPath), cert: certific
       assert.equal(input.type, 'container')
       assert.deepEqual(input.profiles, [])
       assert.equal(input.config['security.privileged'], 'false')
-      remotes.set(input.name, { name: input.name, type: input.type, profiles: input.profiles,
-        config: input.config, devices: input.devices, status: 'Stopped' })
+      // Incus assigns these identities when creating a new instance.
+      remotes.set(input.name, { name: input.name, type: input.type, created_at: new Date().toISOString(), profiles: input.profiles,
+        config: { ...input.config, 'volatile.uuid': randomUUID() }, devices: input.devices, status: 'Stopped' })
       return send({})
     }
     if (path.includes('/files?')) return send({})

@@ -44,8 +44,10 @@ try {
   }finally{docker(['rm','-f',limited])}
   // Retired CDN objects are retained byte-for-byte for deterministic regression
   // tests. Hash-check before copying; apk still checks Alpine's trusted signature.
-  const archived = JSON.parse(readFileSync(new URL('./fixtures/alpine-ssh/manifest.json', import.meta.url), 'utf8'))[branch]
-  if (archived?.architecture === actualArchitecture) {
+  const archived = JSON.parse(readFileSync(new URL('./fixtures/alpine-ssh/manifest.json', import.meta.url), 'utf8'))[`${branch}:${actualArchitecture}`]
+  assert.ok(archived, 'Exact signed baseline must be archived for this tested branch and architecture')
+  assert.equal(archived.architecture, actualArchitecture)
+  {
     assert.equal(archived.version, oldRevision)
     docker(['exec', name, 'mkdir', '-p', '/opt/old-ssh'])
     for (const packageName of ['openssh-server', 'openssh-server-common', 'openssh-keygen']) {
@@ -57,30 +59,14 @@ try {
       docker(['cp', path, `${name}:/opt/old-ssh/${packageName}.apk`])
     }
   }
-  // Old signed revision is fetched through the branch's package trust keys.
+  // The old revision must still pass the branch's original package trust keys.
   docker(['exec', '-i', name, 'sh', '-s'], `set -eu
 apk add --no-cache openrc openssh-server-common-openrc ca-certificates util-linux
 mkdir -p /opt/old-ssh
 for package in openssh-server openssh-server-common openssh-keygen; do
   [ ! -s "/opt/old-ssh/$package.apk" ] || continue
-  # Old fixtures occasionally return a temporary CDN 404. Keep the exact
-  # official branch/version and require a complete download before apk verifies
-  # its signature; no newer or unsigned package substitutes the old baseline.
-  downloaded=0
-  for download_attempt in 1 2 3; do
-    package_url="https://dl-cdn.alpinelinux.org/alpine/v${branch}/main/$(apk --print-arch)/$package-${oldRevision}.apk"
-    # Retry the same signed artifact while bypassing a cached negative CDN
-    # response. The branch, architecture and vulnerable revision never change.
-    [ "$download_attempt" -eq 1 ] || package_url="$package_url?incudal-fixture-retry=$download_attempt"
-    echo "Fetching exact signed fixture: $package ${oldRevision}, attempt $download_attempt"
-    if wget -T 20 --header='Cache-Control: no-cache' -O "/opt/old-ssh/$package.apk.part" "$package_url"; then
-      mv "/opt/old-ssh/$package.apk.part" "/opt/old-ssh/$package.apk"
-      downloaded=1; break
-    fi
-    rm -f "/opt/old-ssh/$package.apk.part"
-    [ "$download_attempt" -eq 3 ] || sleep "$download_attempt"
-  done
-  [ "$downloaded" -eq 1 ] || exit 1
+  echo "Missing verified archived baseline: $package" >&2
+  exit 1
 done
 apk add --no-cache /opt/old-ssh/openssh-server.apk /opt/old-ssh/openssh-server-common.apk /opt/old-ssh/openssh-keygen.apk
 ## Legacy OpenRC expects boot to create its state and exclusive-lock directories.

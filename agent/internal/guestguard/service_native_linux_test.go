@@ -104,7 +104,7 @@ func TestNativeBootDependencyContinuation(t *testing.T) {
 		}
 	}
 	if output, err := action("start"); err == nil {
-		t.Fatal("daemon started despite failed protection")
+		t.Fatal("daemon started despite failed protection", output)
 	} else {
 		t.Log("expected initial dependency failure", output, err)
 	}

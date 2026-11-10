@@ -178,6 +178,12 @@ func ensureServiceForBinary(ctx context.Context, binary string) error {
 			}
 		}
 		_, err = command(ctx, "rc-update", "", "add", filepath.Base(path), "boot")
+		if err == nil {
+			// OpenRC compares dependency-cache mtimes at whole-second precision.
+			// A conf.d edit in the cache's second is otherwise invisible, including
+			// at fast first enrollment. Rebuild before acknowledging installation.
+			_, err = command(ctx, "rc-update", "", "-u")
+		}
 	} else {
 		for _, name := range []string{"incus.service", "incus.socket"} {
 			dropin := "/etc/systemd/system/" + name + ".d/30-incudal-guest-guard.conf"
