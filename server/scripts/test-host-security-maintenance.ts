@@ -45,6 +45,12 @@ async function create(architecture:'x86_64'|'aarch64') {
   await prisma.hostAgent.create({data:{hostId:host.id,agentId:randomUUID(),secretHash:'fixture',secretEncrypted:'fixture',enabled:true,lastSeenAt:new Date()}})
   return host
 }
+// Derive both ends from one instant so the exact 20-minute journal limit
+// is independent of a clock tick between constructing the fixture fields.
+const expiredWindow=(minutesAgo:number)=>{
+  const deadline=Date.now()-minutesAgo*60000
+  return {startedAt:new Date(deadline-20*60000).toISOString(),deadline:new Date(deadline).toISOString()}
+}
 const state=async(id:number)=>(await prisma.host.findUniqueOrThrow({where:{id}})).securityHardening as any
 const deps={...hostMaintenanceDependencies,held:()=>held,accepted:(name:string,arch:string)=>name===recipe&&['x86_64','aarch64'].includes(arch),invalidate:async()=>{},
   command:async(target:any,operation:any)=>{
@@ -190,7 +196,7 @@ try {
   await reset(arm.id,'aarch64');await prepareAutomaticHostMaintenance(arm.id,deps);await arrive(arm.id)
   const intent=(await state(arm.id)).maintenance
   await prisma.host.update({where:{id:arm.id},data:{securityHardening:{...await state(arm.id),maintenance:{...intent,
-    phase:'blocked',startedAt:new Date(Date.now()-21*60000).toISOString(),deadline:new Date(Date.now()-60000).toISOString(),error:'HARDENING_RECONNECT_TIMEOUT'}}}})
+    phase:'blocked',...expiredWindow(1),error:'HARDENING_RECONNECT_TIMEOUT'}}}})
   await resumeAutomaticHostMaintenance(arm.id,deps)
   assert.equal((await state(arm.id)).maintenance.phase,'verified','late original-identity boot gets read-only verification')
   assert.equal((await state(arm.id)).maintenance.error,undefined);assert.equal(reboots,1)
@@ -272,7 +278,7 @@ try {
   await reset(amd.id,'x86_64');losePrepare=true;await prepareAutomaticHostMaintenance(amd.id,deps)
   const expired=(await state(amd.id)).maintenance
   await prisma.host.update({where:{id:amd.id},data:{securityHardening:{...await state(amd.id),maintenance:{...expired,
-    startedAt:new Date(Date.now()-21*60000).toISOString(),deadline:new Date(Date.now()-60000).toISOString()}}}})
+    ...expiredWindow(1)}}}})
   commands=[]
   loseRollback=true;await resumeAutomaticHostMaintenance(amd.id,deps)
   assert.deepEqual(commands,['status','rollback'],'expired unknown preparation is only discovered and rolled back, never replayed')
@@ -283,7 +289,7 @@ try {
   await reset(amd.id,'x86_64');losePrepare=true;await prepareAutomaticHostMaintenance(amd.id,deps)
   const undispatched=(await state(amd.id)).maintenance
   await prisma.host.update({where:{id:amd.id},data:{securityHardening:{...await state(amd.id),maintenance:{...undispatched,
-    startedAt:new Date(Date.now()-21*60000).toISOString(),deadline:new Date(Date.now()-60000).toISOString()}}}})
+    ...expiredWindow(1)}}}})
   const absentDeps={...deps,command:async(target:any,operation:any)=>{
     assert.equal(operation.action,'status','an expired absent journal cannot start preparation')
     return {...await deps.command(target,operation),prepareHash:'0'.repeat(64),phase:'absent'} as any
@@ -303,7 +309,7 @@ try {
   await prisma.host.update({where:{id:amd.id},data:{securityHardening:{...await state(amd.id),maintenance:exhausted}}})
   const aborted=(await state(amd.id)).maintenance
   await prisma.host.update({where:{id:amd.id},data:{securityHardening:{...await state(amd.id),maintenance:{...aborted,
-    startedAt:new Date(Date.now()-23*60000).toISOString(),deadline:new Date(Date.now()-3*60000).toISOString()}}}})
+    ...expiredWindow(3)}}}})
   const retryDeps={...deps,command:async(target:any,operation:any)=>{
     if(operation.action==='status'&&operation.prepareHash==='0'.repeat(64))return {...await deps.command(target,operation),prepareHash:'0'.repeat(64),phase:'absent'} as any
     return deps.command(target,operation)
