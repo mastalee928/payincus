@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import './test-ssh-keygen-leading-zero.js'
 import Fastify from 'fastify'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

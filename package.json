@@ -275,7 +275,8 @@
       "caniuse-lite": "^1.0.30001799"
     },
     "patchedDependencies": {
-      "@prisma/client@7.1.0": "patches/@prisma__client@7.1.0.patch"
+      "@prisma/client@7.1.0": "patches/@prisma__client@7.1.0.patch",
+      "ssh2@1.17.0": "patches/ssh2@1.17.0.patch"
     }
   },
   "packageManager": "pnpm@9.14.2"

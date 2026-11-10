@@ -1,0 +1,25 @@
+diff --git a/lib/keygen.js b/lib/keygen.js
+index 570c90eef1ef6f572863bcf147f82749da4c5beb..38fc8c4f720c466c6814168f66e17127db6b70af 100644
+--- a/lib/keygen.js
++++ b/lib/keygen.js
+@@ -287,14 +287,12 @@ function parseDERs(keyType, pub, priv) {
+         throw new Error('Bad ED25519 public OID');
+       // - Attributes (absent for ED25519)
+ 
+-      let pubBin = reader.readString(Ber.BitString, true);
+-      {
+-        // Remove leading zero bytes
+-        let i = 0;
+-        for (; i < pubBin.length && pubBin[i] === 0x00; ++i);
+-        if (i > 0)
+-          pubBin = pubBin.slice(i);
+-      }
++      const publicBits = reader.readString(Ber.BitString, true);
++      // BIT STRING starts with one unused-bits count byte, not integer padding.
++      // Ed25519 public keys are exactly 32 bytes, including leading zero bytes.
++      if (!publicBits || publicBits.length !== 33 || publicBits[0] !== 0x00)
++        throw new Error('Malformed ED25519 public key bit string');
++      const pubBin = publicBits.slice(1);
+ 
+       // Parse private key
+       reader = new Ber.Reader(priv);
