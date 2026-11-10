@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import Fastify from 'fastify'
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 
 const url = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) && url.pathname.endsWith('_pool_test'), 'Use an isolated local *_pool_test database')
@@ -26,7 +27,8 @@ async function makeHost(extra: Record<string, unknown> = {}) {
     status: 'online', isInstalled: true, certPath: 'fixture.crt', keyPath: 'fixture.key', singleTenant: true, machineGroupId: group.id,
     regionGroupId: region.id, resourcePreset: 'E2', architecture: 'x86_64',
     cpuAllowanceMax: 200, memoryMax: 768, storageSize: 38, customerDiskGiB: 30,
-    natPublicIp: `192.0.2.${sequence}`, natPortStart: 20000, natPortEnd: 30000, ...extra
+    natPublicIp: `192.0.2.${sequence}`, natPortStart: 20000, natPortEnd: 30000,
+    agent: { create: protectedAgentFixture() }, ...extra
   } })
   await prisma.storagePool.create({ data: { hostId: host.id, name: 'test', driver: 'btrfs', purpose: 'instance_data' } })
   return host

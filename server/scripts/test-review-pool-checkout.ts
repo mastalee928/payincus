@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Client } from 'pg'
 import Fastify from 'fastify'
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 
 const database = new URL(process.env.DATABASE_URL || '')
 assert.ok(['127.0.0.1', 'localhost'].includes(database.hostname) && database.pathname.endsWith('_pool_test'))
@@ -32,7 +33,8 @@ try {
   const session = { sid: tag, iat: Math.floor(Date.now() / 1000) - 60 }
   const machine = await prisma.host.create({ data: { userId: admin.id, name: tag, url: 'https://127.0.0.1:1', singleTenant: true,
     machineGroupId: group.id, regionGroupId: region.id, resourcePreset: 'E2', customerDiskGiB: 30, status: 'online', isInstalled: true, certPath: 'fixture.crt', keyPath: 'fixture.key',
-    architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 38, natPublicIp: '192.0.2.20', natPortStart: 20000, natPortEnd: 30000 } }); hostIds.push(machine.id)
+    architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 38, natPublicIp: '192.0.2.20', natPortStart: 20000, natPortEnd: 30000,
+    agent: { create: protectedAgentFixture() } } }); hostIds.push(machine.id)
   await prisma.storagePool.create({ data: { hostId: machine.id, name: 'fixture', driver: 'btrfs', purpose: 'instance_data' } })
   app.decorate('authenticate', async (request: any) => { request.user = { ...actor } })
   app.decorate('authenticateAdmin', async (request: any) => { request.user = { ...actor } })
