@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { setTimeout as wait } from 'node:timers/promises'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { tryAdvisoryTransactionLock, INSTANCE_OPERATION_LOCK_NAMESPACE } from '../db/advisory-locks.js'
@@ -18,6 +19,7 @@ import { recoveryHeld } from './platform-backup-core.js'
 import { hardeningIdentityHash } from '../lib/hardening-identity.js'
 import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { prepareAutomaticHostMaintenance, resumeAutomaticHostMaintenance } from './host-security-maintenance.js'
+import { onboardingOwnsHardening, ownsOnboardingHardeningLease } from '../lib/onboarding-hardening-owner.js'
 
 const include = { onboardingNode: { include: { batch: true } } } as const
 type SecurityHost = Prisma.HostGetPayload<{ include: typeof include }>
@@ -72,8 +74,15 @@ export async function hardenExistingHost(hostId: number, deps = securityHardenin
     const rows = await tx.$queryRaw<Array<{ id: number }>>`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
     if (!rows.length) return null
     const host = await tx.host.findUniqueOrThrow({ where: { id: hostId }, include })
+    if (enrollment ? !ownsOnboardingHardeningLease(host.onboardingNode, enrollment) : onboardingOwnsHardening(host.onboardingNode)) return null
     const previous = currentState(host.securityHardening)
     if (previous.revision === SECURITY_HARDENING_REVISION && previous.nextCheckAt && Date.parse(previous.nextCheckAt) > Date.now()) return null
+    // Paid pool delivery already owns this host. A periodic inspection cannot
+    // overwrite its admission receipt and then wait for that same delivery.
+    // Keep the due time unchanged: after delivery/cleanup the next scan resumes.
+    if (!hostMaintenanceBlocked(host.securityHardening) && await tx.instance.count({ where: {
+      hostId, status: 'creating', purchaseBatchId: { not: null }
+    } })) return null
     const leaseToken = randomUUID()
     const sameRevision = previous.revision === SECURITY_HARDENING_REVISION
     const state: HardeningState = { revision: SECURITY_HARDENING_REVISION, status: 'retry',
@@ -118,6 +127,7 @@ export async function hardenExistingHost(hostId: number, deps = securityHardenin
       for (const instance of instances) {
         await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instance.id} FOR UPDATE`
         if (!['running', 'stopped', 'suspended'].includes(instance.status) || instance.provisioningCleanupPending || instance.deletionBillingPending ||
+          instance.deletionIntent || instance.status === 'running' && instance.expiresAt && instance.expiresAt <= new Date() ||
           await hasActiveTransferWorkflow(instance.id, tx) ||
           await tx.restoreTask.count({ where: { instanceId: instance.id, status: pending } }) ||
           await tx.backupUploadTask.count({ where: { instanceId: instance.id, status: pending } }) ||
@@ -231,7 +241,6 @@ export async function hardenExistingHost(hostId: number, deps = securityHardenin
   const checks = [state.error ? hardeningFailure(new Error(state.error)) : null,
     state.host?.preflight, state.host?.apparmor, state.host?.ssh, ...(state.instances || []).flatMap(instance => [instance.isolation, instance.ssh])].filter(Boolean) as HardeningCheck[]
   Object.assign(state, hardeningSchedule(checks, state.attempts))
-  if (state.status === 'verified') state.updateAttempts = 0
   if (state.updateAttempts! >= 6 && state.status !== 'verified') {
     state.error = 'HARDENING_RETRY_EXHAUSTED'
     Object.assign(state, hardeningSchedule([{ status: 'needs-maintenance' }], state.attempts))
@@ -248,21 +257,57 @@ export async function hardenExistingHost(hostId: number, deps = securityHardenin
   delete state.leaseToken
   await prisma.$transaction(async tx => {
     await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`
+    let receiptBusy = false
     for (const instance of auditedInstances || []) {
-      if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)) return
+      // Frequent traffic/status observations hold this lane briefly. Give
+      // them a bounded chance to finish, instead of repeatedly missing the
+      // same small window and retaining an unfinished receipt indefinitely.
+      const until = Date.now() + 1500
+      let acquired = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)
+      while (!acquired && Date.now() < until) {
+        await wait(Math.min(100, until - Date.now()))
+        acquired = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)
+      }
+      if (!acquired) { receiptBusy = true; break }
     }
     await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
     const host = await tx.host.findUnique({ where: { id: hostId }, include })
     if (!host || currentState(host.securityHardening).leaseToken !== leaseToken) return
-    if (identity(host) !== identity(original)) {
-      state.error = 'HARDENING_IDENTITY_CHANGED'
+    // Maintenance may register between the probe and this receipt. Preserve
+    // its current durable fence; a successful older probe cannot erase it.
+    const currentMaintenance = currentState(host.securityHardening).maintenance
+    if (currentMaintenance === undefined) delete state.maintenance
+    else state.maintenance = currentMaintenance
+    if (receiptBusy) {
+      // Without the current customer lane no inspection result may grant
+      // success. Persist only scheduling/diagnostic fields on our own claim;
+      // retain its lease so the next pass inspects before any further update.
+      const pending = currentState(host.securityHardening)
+      await tx.host.update({ where: { id: hostId }, data: { securityHardening: stateJson({
+        ...pending, revision: pending.revision!, status: 'retry', phase: 'receipt',
+        updateAttempts: Math.max(hardeningUpdateBudget(pending), state.updateAttempts || 0),
+        diagnostic: hardeningDiagnostic('HARDENING_BUSY', 'receipt'),
+        nextCheckAt: new Date(Date.now() + 30000).toISOString()
+      } as HardeningState) } })
+      return
+    }
+    try {
+      if (identity(host) !== identity(original)) throw new Error('HARDENING_IDENTITY_CHANGED')
+      if (auditedInstances) {
+        await allowed(tx, host, deps.held, enrollment)
+        if (hostMaintenanceBlocked(host.securityHardening)) throw new Error('HOST_SECURITY_MAINTENANCE')
+      }
+    } catch (error) {
+      state.error = hardeningFailure(error).reason
       state.phase = 'receipt'
-      state.diagnostic = hardeningDiagnostic(state.error, state.phase)
+      state.diagnostic = hardeningDiagnostic(state.error!, state.phase)
       state.host = undefined; state.instances = undefined; state.environment = undefined
       Object.assign(state, hardeningSchedule([hardeningFailure(new Error(state.error))], state.attempts))
     }
     if (auditedInstances) {
       const current = await tx.instance.findMany({ where: { hostId, ...HOST_OCCUPIED_INSTANCE_WHERE }, orderBy: { id: 'asc' } })
+      const pendingWork = await tx.instanceTask.count({ where: { status: pending, OR: [{ hostId }, { targetHostId: hostId },
+        { replacementState: { path: ['sourceHostId'], equals: hostId } }] } }) || await tx.checkoutReservation.count({ where: { hostId } })
       if (current.length !== auditedInstances.length || current.some((row, index) => {
         const before = auditedInstances![index]
         const saved = (before.snapshottedSpecs as { managedCleanup?: unknown } | null)?.managedCleanup
@@ -275,8 +320,15 @@ export async function hardenExistingHost(hostId: number, deps = securityHardenin
         Object.assign(state, hardeningSchedule([hardeningFailure(new Error(state.error))], state.attempts))
         state.instances = state.instances?.map(row => ({ instanceId: row.instanceId,
           isolation: hardeningFailure(new Error(state.error)), ssh: hardeningFailure(new Error(state.error)) }))
+      } else if (state.status === 'verified' && (pendingWork || current.some(row => row.provisioningCleanupPending || row.deletionBillingPending || row.deletionIntent ||
+        row.status === 'running' && row.expiresAt && row.expiresAt <= new Date()))) {
+        state.error = 'HARDENING_BUSY'
+        state.phase = 'receipt'
+        state.diagnostic = hardeningDiagnostic(state.error, state.phase)
+        Object.assign(state, hardeningSchedule([hardeningFailure(new Error(state.error))], state.attempts))
       }
     }
+    if (state.status === 'verified') state.updateAttempts = 0
     await tx.host.update({ where: { id: hostId }, data: { securityHardening: stateJson(state) } })
     const reasons = [...new Set([...checks.map(check => check.reason), state.error].filter(Boolean))]
     const oldReasons = JSON.stringify(previous.host) + JSON.stringify(previous.instances) + previous.error
@@ -290,10 +342,41 @@ export async function hardenExistingHost(hostId: number, deps = securityHardenin
 /** Bounded keyset pages; leased/recent successes cannot starve offline or newly
  * installed hosts. One target runs at a time, independent from repair queues. */
 let cursor = 0
-export async function processSecurityHardeningQueue(deps = securityHardeningDependencies, stopped = () => false) {
+export const securityHardeningMaintenanceDependencies={resume:resumeAutomaticHostMaintenance}
+export async function processSecurityHardeningQueue(deps = securityHardeningDependencies, stopped = () => false,
+  maintenance=securityHardeningMaintenanceDependencies) {
   if (deps.held() || stopped()) return
   const policy = await prisma.systemConfig.findUnique({ where: { key: SECURITY_HARDENING_ENABLED_KEY } })
   if (!policy || !['true', '1'].includes(policy.value)) return
+  // A preparation has a finite deadline. Resume its durable owner before
+  // inspecting later hosts; otherwise a large keyset pass can consume that
+  // deadline while every new target merely reports the global batch fence.
+  // Include changed/offline/deleted enrollments: their original maintenance
+  // remains a blocker until the recovery path verifies current authority.
+  const pendingMaintenance=await prisma.host.findMany({where:{securityHardening:{path:['maintenance'],not:Prisma.AnyNull}},
+    select:{id:true,securityHardening:true,onboardingNode:{select:{id:true,status:true,step:true,deletedAt:true}}},orderBy:{id:'asc'}})
+  const active=pendingMaintenance.find(host=>hostMaintenanceBlocked(host.securityHardening))
+  if(active) {
+    // Enrollment owns its lease and due time. Calling the general resumer
+    // without that lease used to reject authority and postpone it forever.
+    if(onboardingOwnsHardening(active.onboardingNode))return
+    const state=currentState(active.securityHardening)
+    if(!stopped()&&(!state.nextCheckAt||Date.parse(state.nextCheckAt)<=Date.now()))await maintenance.resume(active.id)
+    return
+  }
+  const completed=pendingMaintenance.find(host=>{
+    if(onboardingOwnsHardening(host.onboardingNode))return false
+    const state=currentState(host.securityHardening)
+    return state.status!=='verified'&&state.maintenance&&typeof state.maintenance==='object'&&!Array.isArray(state.maintenance)&&
+      (state.maintenance as {phase?:unknown}).phase==='verified'&&(!state.nextCheckAt||Date.parse(state.nextCheckAt)<=Date.now())
+  })
+  if(completed&&!deps.held()&&!stopped()) {
+    // Recovery marks the intent complete, then the normal full inspection
+    // grants saleability. Do that before starting the next host's maintenance,
+    // so a recovered empty host is not stranded behind the entire batch.
+    await hardenExistingHost(completed.id,deps)
+    return
+  }
   const hosts = await prisma.host.findMany({ where: { id: { gt: cursor }, singleTenant:true,isInstalled:true,
     onboardingNode: { is: { status: 'succeeded',deletedAt:null } } },
     select: { id: true, securityHardening: true }, orderBy: { id: 'asc' }, take: 50 })

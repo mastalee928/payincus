@@ -11,7 +11,7 @@ const dbInstancesSource = readFileSync(resolve(__dirname, '../src/db/instances.t
 const hostsSource = readFileSync(resolve(__dirname, '../src/routes/hosts.ts'), 'utf8')
 const statusSchedulerSource = readFileSync(resolve(__dirname, '../src/services/status-scheduler.ts'), 'utf8')
 const taskDatabase = readFileSync(resolve(__dirname, '../src/db/instance-tasks.ts'), 'utf8')
-assert.ok(taskDatabase.includes("data.taskType === 'rebuild' || data.taskType === 'recreate'\n      ? await authorizeSensitiveTaskAdmission(tx, data) : {}") &&
+assert.ok(taskDatabase.includes("data.taskType === 'rebuild' || data.taskType === 'recreate'\n      ? await authorizeSensitiveTaskAdmission(tx, data) : ['clone', 'change_host'].includes(data.taskType) ? await authorizeCopyMove(tx, data) : {}") &&
   taskDatabase.includes('authorizeUserWrite(tx, data.userId, authorization.actor)') &&
   taskDatabase.includes('transferHostIdentity(host) !== authorization.expectedHostIdentity') &&
   taskDatabase.includes('claimOperationVerificationRequirement(data.userId, operation, instance.id, authorization.actor, tx)') &&

@@ -50,6 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:instance-reinstall-identity', 'requires isolated local *_pool_test PostgreSQL and local mTLS Incus transport; real rebuild/recreate worker identity, lost replies and cleanup retention'],
   ['test:admin-user-email-integration', 'requires isolated local *_pool_test PostgreSQL; real JWT/admin authorization, email allocation races, credential revocation and audit rollback'],
   ['test:admin-user-email-browser', 'requires Chrome/Edge and local Vite; real UsersView/email modal, three locales/viewports/themes, repeat submit and stale replies with isolated API fixture'],
   ['test:gateway-recheck-ui', 'requires Chrome/Edge and local Vite; actual gateway panel with isolated API, repeated read-only checks, old-plan protection and first setup'],
@@ -58,6 +59,8 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:auto-renew-credit-integration', 'requires isolated local *_pool_test PostgreSQL; committed recharge wakeups, deterministic partial funding, suspension retention, exact debit and actual row-lock cutoff races'],
   ['test:renewal-resume-integration', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; durable post-renewal starts, actual worker, HTTPS identity checks, receipt loss, row-lock suspension races and bounded retries'],
   ['test:security-hardening-queue', 'requires isolated PostgreSQL; durable automatic host/guest hardening, original identities, permission/hold/task fences, retry and unchanged customer state'],
+  ['test:hardening-saleability', 'requires isolated local PostgreSQL; AMD64/ARM64 hardening reinspection through actual inventory, public catalog, admin route, locked allocator and enrollment; no native boot acceptance'],
+  ['test:onboarding-hardening-continuation', 'requires isolated local PostgreSQL; competing schedulers, expired enrollment recovery, original maintenance, both architectures and actual saleability; remote boot is a fixture'],
   ['test:host-security-maintenance', 'requires isolated PostgreSQL; persisted maintenance intent, lost replies/crash continuation, exact fixed protocol, dual architecture, current permissions and no duplicate reboot; transport fixtures do not prove native reboot'],
   ['test:customer-boot-recovery', 'requires isolated local PostgreSQL and OpenSSL; pinned mTLS exact original-instance start, lost receipt, current billing/stop/delete/authority and original password/network/config preservation; not native boot acceptance'],
   ['test:alpine-ssh-maintenance', 'requires isolated PostgreSQL; admin/identity/task fencing, unchanged customer data, original password/session and retry receipts'],
@@ -101,6 +104,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-pool-stock', 'requires isolated PostgreSQL; allocator revalidation after an actual host row lock wait'],
   ['test:review-recharge-create', 'requires isolated PostgreSQL; persistent recharge creation identity, recovery and account lock races'],
   ['test:review-pool-provision', 'requires isolated PostgreSQL and OpenSSL; actual pool creation identity, cleanup and refund lifecycle with authenticated mTLS'],
+  ['test:pool-ipv6-reservation', 'requires isolated local *_pool_test PostgreSQL; actual pool preparation waits for concurrent IPv6 reservation, retries conflicts and rolls back without remote operations'],
   ['test:review-gift-card-counts', 'requires isolated PostgreSQL; original admin batch routes reject invalid counts without mutations and persist exact min/max quantities and value limits'],
   ['test:review-gift-card-id-boundaries', 'requires isolated PostgreSQL; invalid card IDs and mixed batches preserve balances, cards and ledger before any refund, normal mutations remain idempotent'],
   ['test:review-batch-config-input-boundaries', 'requires isolated PostgreSQL; exact batch target membership, host and instance Int bounds, traffic bigint boundaries and unchanged unrelated state'],

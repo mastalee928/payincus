@@ -11,6 +11,7 @@ const { requestHostReplacement, replacementCandidates, executeHostReplacement } 
 const { default: routes } = await import('../src/routes/host-replacements.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const { IncusApiError } = await import('../src/lib/incus/incus-client.js')
+const { prepareDedicatedDelivery } = await import('../src/services/dedicated-delivery.js')
 
 const prefix = `replace-test-${randomUUID().slice(0, 8)}`
 const owner = await prisma.user.create({ data: { username: `${prefix}-admin`, passwordHash: 'unusable-test-hash', role: 'admin' } })
@@ -52,6 +53,15 @@ try {
   const target = await makeHost()
   const crossRegion = await makeHost({ regionGroupId: otherRegion.id, countryCode: 'us' })
   const quarantined = await makeHost({ poolFaulted: true })
+  let quarantineWrites = 0
+  const quarantineClient = { request: async () => { quarantineWrites++; throw Error('must not contact a quarantined target') } } as any
+  await assert.rejects(prepareDedicatedDelivery(quarantineClient, a.id, {
+    hostId: quarantined.id, name: a.incusId, ipv4: '10.10.1.46', password: 'fixture-only'
+  }), /管理通道或公网配置未就绪/)
+  await assert.rejects(prepareDedicatedDelivery(quarantineClient, a.id, {
+    hostId: quarantined.id, name: a.incusId, ipv4: '10.10.1.46', password: 'fixture-only', replacementTaskId: 2147483647
+  }), /管理通道或公网配置未就绪/)
+  assert.equal(quarantineWrites, 0, 'credentials or an unrelated receipt cannot bypass quarantine')
   const missingCertificate = await makeHost({ certPath: null, keyPath: null })
   await makeHost({ architecture: 'aarch64' })
   await makeHost({ memoryMax: 512 })
@@ -121,14 +131,15 @@ try {
   await prisma.instanceTask.update({ where: { id: crossTask.id }, data: { status: 'FAILED' } })
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: crossRegion.id } })).cpuUsed, 0)
 
-  for (const fault of ['existing-target', 'create-response-lost', 'start-failed']) {
+  for (const fault of ['existing-target', 'create-response-lost', 'start-failed', 'success']) {
     const spare = await makeHost()
     const queued = await requestHostReplacement(before.id, spare.id, owner.id)
     const running = await prisma.instanceTask.update({ where: { id: queued.taskId }, data: { status: 'PROCESSING' } })
+    if (fault === 'success') await prisma.instance.update({ where: { id: before.id }, data: { dedicatedIpv4: false } })
     const targetName = `u${before.userId}-replace${running.id}`
     let remote: any = fault === 'existing-target' ? { name: targetName, status: 'Running' } : null
     const calls: string[] = []
-    const connect: any = async () => ({ request: async (method: string, path: string, payload: any) => {
+    const connect: any = async () => ({ baseUrl: spare.url, request: async (method: string, path: string, payload: any) => {
       calls.push(method + ' ' + path)
       if (method === 'GET') {
         if (!remote) throw new IncusApiError('Instance not found', 404, path)
@@ -137,20 +148,40 @@ try {
       if (method === 'POST' && path === '/1.0/instances') {
         const saved = (await prisma.instanceTask.findUniqueOrThrow({ where: { id: running.id } })).replacementState as any
         assert.equal(saved.stage, 'creating'); assert.equal(saved.targetMarker, payload.config['user.payincus.replacement'])
-        remote = { name: targetName, status: 'Stopped', project: 'default', created_at: new Date().toISOString(),
+        assert.equal(saved.targetMarker, payload.config['user.payincus.provisioning-attempt'])
+        remote = { name: targetName, type: 'container', devices: payload.devices, profiles: payload.profiles, status: 'Stopped', project: 'default', created_at: new Date().toISOString(),
           config: { ...payload.config, 'volatile.uuid': randomUUID() } }
         if (fault === 'create-response-lost') throw Error('creation accepted; response lost')
         return {}
       }
-      if (method === 'PUT' && payload.action === 'start') throw Error('start failed')
+      if (method === 'PUT' && payload.action === 'start') {
+        if (fault !== 'success') throw Error('start failed')
+        remote.status = 'Running'; return {}
+      }
+      if (method === 'DELETE' && path.includes('/files?')) return {}
       throw Error('unexpected replacement fixture request')
     } })
+    if (fault === 'success') {
+      await executeHostReplacement(running, connect)
+      const delivered = await prisma.instance.findUniqueOrThrow({ where: { id: before.id } })
+      assert.equal(delivered.hostId, spare.id)
+      assert.equal((delivered.snapshottedSpecs as any).managedCleanup.uuid, remote.config['volatile.uuid'])
+      assert.equal((delivered.snapshottedSpecs as any).managedCleanup.attempt, remote.config['user.payincus.provisioning-attempt'])
+      assert.equal((delivered.snapshottedSpecs as any).recoveryIdentity.createdAt, remote.created_at)
+      const { registeredGuestIdentity } = await import('../src/lib/registered-guest-identity.js')
+      assert.deepEqual(await registeredGuestIdentity(prisma, delivered, spare), { uuid: remote.config['volatile.uuid'], createdAt: remote.created_at })
+      assert.equal(delivered.expiresAt!.getTime(), before.expiresAt!.getTime())
+      await prisma.host.update({ where: { id: before.hostId }, data: { poolFaulted: false } })
+      await prisma.instance.update({ where: { id: before.id }, data: { hostId: before.hostId, incusId: before.incusId, dedicatedIpv4: true } })
+      console.log('PASS replacement success: persisted current provisioning and lifecycle identity, original expiry retained')
+      continue
+    }
     await assert.rejects(executeHostReplacement(running, connect))
     await prisma.instanceTask.update({ where: { id: running.id }, data: { status: 'FAILED' } })
     const cleanup = (await prisma.host.findUniqueOrThrow({ where: { id: spare.id } })).poolCleanup as any
     assert.equal(cleanup.kind, fault === 'existing-target' ? 'verify_empty' : 'failed_target')
     assert.equal(cleanup.name, targetName)
-    assert.ok(!calls.some(call => call.startsWith('DELETE')), 'failure persists cleanup instead of blindly deleting by name')
+    assert.ok(!calls.some(call => call === `DELETE /1.0/instances/${targetName}`), 'failure persists cleanup instead of blindly deleting the instance by name')
     if (fault === 'existing-target') assert.ok(calls.every(call => call.startsWith('GET')))
     if (fault === 'start-failed') { assert.equal(cleanup.uuid, remote.config['volatile.uuid']); assert.equal(cleanup.createdAt, remote.created_at) }
     if (fault === 'create-response-lost') assert.equal(cleanup.marker, remote.config['user.payincus.replacement'])

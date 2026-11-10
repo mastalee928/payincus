@@ -124,6 +124,7 @@ for chain in INCUDAL_OCI_IN INCUDAL_OCI_FWD; do
     iptables -w -N "$chain" 2>/dev/null || iptables -w -S "$chain" >/dev/null
     iptables -w -F "$chain"
 done
+iptables -w -A INCUDAL_OCI_IN -i "$bridge" -m conntrack --ctdir REPLY -j ACCEPT
 iptables -w -A INCUDAL_OCI_IN -i lo -p tcp --dport "$api_port" -j ACCEPT
 local control_source=(-s "$control_ip/32")
 [[ -z "$management_interface" ]] || control_source+=(-i "$management_interface")
@@ -145,6 +146,7 @@ fi
 # Container traffic uses FORWARD, so the OCI host's OUTPUT restrictions do not
 # protect instance metadata. Deny that destination before allowing egress.
 iptables -w -A INCUDAL_OCI_FWD -i "$bridge" -d 169.254.0.0/16 -j REJECT --reject-with icmp-admin-prohibited
+iptables -w -A INCUDAL_OCI_FWD -i "$bridge" -m conntrack --ctdir REPLY -j ACCEPT
 if [[ -n "$dedicated_ip" || -n "$management_interface" ]]; then
     # Keep the customer away from the OCI VCN and the management overlay.
     local subnet
@@ -189,6 +191,7 @@ fi
 # listener publicly reachable if the host later receives an IPv6 address.
 ip6tables -w -N INCUDAL_OCI_IN 2>/dev/null || ip6tables -w -S INCUDAL_OCI_IN >/dev/null
 ip6tables -w -F INCUDAL_OCI_IN
+ip6tables -w -A INCUDAL_OCI_IN -i "$bridge" -m conntrack --ctdir REPLY -j ACCEPT
 ip6tables -w -A INCUDAL_OCI_IN -i lo -p tcp --dport "$api_port" -j ACCEPT
 ip6tables -w -A INCUDAL_OCI_IN -p tcp --dport "$api_port" -j REJECT --reject-with tcp-reset
 # Static IPv6 guests still need neighbour discovery to reach their gateway.

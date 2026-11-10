@@ -150,16 +150,20 @@ try {
   assert.deepEqual(await prisma.instance.findUniqueOrThrow({ where: { id: current.id } }), current, 'the replacement customer instance and billing remain untouched')
   assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), 123)
   const occupiedHost = await makeHost(false)
+  const originalUuid = randomUUID(), originalCreated = '2025-01-01T00:00:00Z'
   const liveInstance = await prisma.instance.create({ data: { userId: buyer.id, hostId: occupiedHost.id, name: `${prefix}-occupied`,
     incusId: `${prefix}-occupied`, status: 'running', image: 'images:alpine/3.21', cpu: 200, memory: 768, disk: 30720,
     ipv4: '10.10.4.2', storagePoolName: 'default', dedicatedIpv4: true, dedicatedNetworkReady: true, billingPrice: 9.5,
-    autoRenew: true, expiresAt: new Date('2030-01-01T00:00:00Z') } })
+    autoRenew: true, expiresAt: new Date('2030-01-01T00:00:00Z'),
+    snapshottedSpecs: { recoveryIdentity: { uuid: originalUuid, createdAt: originalCreated, project: 'default' } } } })
   const occupiedBefore = await prisma.host.update({ where: { id: occupiedHost.id }, data: { poolFaulted: true, cpuUsed: 200, memoryUsed: 768, diskUsed: 30720 } })
   let mismatchedInstance = false, mismatchedNetwork = false, extraDataVolume = false
   let ipv6ForwardPresent = false, occupiedStatus = 'Running'
+  let occupiedUuid = originalUuid, occupiedType = 'container', occupiedCreated = originalCreated
   const occupiedConnect = async () => ({ request: async (method: string, path: string) => {
     assert.equal(method, 'GET', 'occupied recovery must never mutate customer systems, snapshots or network rules')
-    if (path.startsWith('/1.0/instances?')) return [{ name: mismatchedInstance ? 'unknown' : liveInstance.incusId, status: occupiedStatus, project: 'default' }]
+    if (path.startsWith('/1.0/instances?')) return [{ name: mismatchedInstance ? 'unknown' : liveInstance.incusId, status: occupiedStatus, project: 'default',
+      type: occupiedType, created_at: occupiedCreated, config: { 'volatile.uuid': occupiedUuid }, devices: { root: { type: 'disk', path: '/', pool: 'default' } } }]
     if (path.startsWith('/1.0/projects?')) return [{ name: 'default' }]
     if (path.startsWith('/1.0/networks?')) return [{ name: 'incusbr0', managed: true, type: 'bridge' }]
     if (path.startsWith('/1.0/operations?')) return { running: [] }
@@ -175,6 +179,20 @@ try {
     await assert.rejects(recoverPoolHost(occupiedHost.id, owner.id, { confirmation: blocked.confirmation, acknowledgeCleanup: false }, occupiedConnect), error => error instanceof HostRecoveryError && error.code === 'HOST_RECOVERY_BLOCKED')
   }
   mismatchedInstance = false; mismatchedNetwork = false; extraDataVolume = false
+  for (const mismatch of ['uuid', 'type', 'created']) {
+    occupiedUuid = mismatch === 'uuid' ? randomUUID() : originalUuid
+    occupiedType = mismatch === 'type' ? 'virtual-machine' : 'container'
+    occupiedCreated = mismatch === 'created' ? '2020-01-01T00:00:00Z' : originalCreated
+    assert.ok((await inspectHostRecovery(occupiedHost.id, occupiedConnect)).blockers.includes('assigned-mismatch'), 'same-name replacement never releases occupied quarantine')
+  }
+  occupiedUuid = originalUuid; occupiedType = 'container'; occupiedCreated = originalCreated
+  const unauthorized = await inspectHostRecovery(occupiedHost.id, occupiedConnect)
+  await assert.rejects(recoverPoolHost(occupiedHost.id, buyer.id, { confirmation: unauthorized.confirmation, acknowledgeCleanup: false }, occupiedConnect),
+    error => error instanceof HostRecoveryError && error.code === 'FORBIDDEN')
+  assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: occupiedHost.id } })).poolFaulted, true)
+  await prisma.host.update({ where: { id: occupiedHost.id }, data: { installPending: true } })
+  assert.ok((await inspectHostRecovery(occupiedHost.id, occupiedConnect)).blockers.includes('busy'))
+  await prisma.host.update({ where: { id: occupiedHost.id }, data: { installPending: false } })
   const occupiedReport = await inspectHostRecovery(occupiedHost.id, occupiedConnect)
   assert.equal(occupiedReport.mode, 'preserve')
   assert.equal(occupiedReport.canRecover, true)

@@ -22,7 +22,13 @@ export function applyCustomerInstanceView(response: Record<string, any>, instanc
   delete response.dedicatedIpv6
   if (!admin) {
     if (response.host && typeof response.host === 'object') {
-      response.host = { ...response.host, name: '', ip_address: null }
+      // Explicit customer fields: future Host selections must not silently
+      // expose management endpoints, onboarding credentials or OCI metadata.
+      const host = response.host
+      response.host = { name: '', ip_address: null }
+      for (const key of ['country_code', 'nat_public_ip', 'resourcePreset', 'architecture', 'regionGroupName', 'storageDriver']) {
+        if (Object.prototype.hasOwnProperty.call(host, key)) response.host[key] = host[key]
+      }
     }
     delete response.hostIpAddress
     delete response.host_ip_address

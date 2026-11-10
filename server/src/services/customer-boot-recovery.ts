@@ -11,6 +11,7 @@ import { assertNoPendingSnapshotOperations } from '../db/snapshot-operation-guar
 import { assertNoPendingProxySiteOperations } from '../db/proxy-site-operation-guards.js'
 import { alpineSshMaintenanceDependencies } from './alpine-ssh-maintenance.js'
 import { decryptSensitiveData } from '../lib/security.js'
+import { assertGuestNetworkProtection } from '../lib/guest-network-protection.js'
 
 const record=(value:unknown):Record<string,unknown>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{}
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex')
@@ -55,6 +56,7 @@ export async function captureCustomerBootBaseline(client:IncusClient,instance:In
     if(!password)fail('ALPINE_SSH_PASSWORD_UNAVAILABLE')
     // Original password must already work before permitting maintenance.
     if(!publicHost)fail('ALPINE_SSH_PASSWORD_UNAVAILABLE')
+    await assertGuestNetworkProtection(client)
     await deps.login(publicHost,password,fingerprints,instance.sshPort||22)
   }
   const baseline:CustomerBootBaseline={id:instance.id,hostId:instance.hostId,userId:instance.userId,incusId:instance.incusId,
@@ -69,7 +71,11 @@ async function customerNetworkHash(client:IncusClient,name:string) {
   const forwards=await client.request<unknown[]>('GET','/1.0/networks/incusbr0/forwards?recursion=1',null,8000)
   if(!network||!network.config||!Array.isArray(forwards))fail('HARDENING_RECONNECT_INCOMPLETE')
   const owned=forwards.filter(value=>record(value).description===`payincus-dedicated:${name}`)
-  return hash([network.config,owned.sort((a,b)=>String(record(a).listen_address).localeCompare(String(record(b).listen_address),'en'))])
+  const config={...record(network.config)}
+  // Host-only protection receipts refresh independently of customer network
+  // identity. Keep every address/route/forward and all other settings guarded.
+  delete config['user.payincus.guest-guard']
+  return hash([config,owned.sort((a,b)=>String(record(a).listen_address).localeCompare(String(record(b).listen_address),'en'))])
 }
 
 /** Caller holds the host maintenance lane and current host row. The instance
@@ -86,6 +92,7 @@ export async function recoverCustomerAfterBoot(tx:Prisma.TransactionClient,clien
   await tx.$queryRaw`SELECT id FROM users WHERE id=${instance.userId} FOR SHARE`
   const owner=await tx.user.findUnique({where:{id:instance.userId},select:{status:true}})
   const remote=await readCustomerIsolation(client,instance.incusId),config=record(remote.config)
+  if(remote.type!=='container')fail('HARDENING_VM_RUNTIME_UNVERIFIED')
   if(remote.ephemeral!==false)fail('HARDENING_CUSTOMER_BOOT_RECOVERY_UNVERIFIED')
   const saved=record(record(instance.snapshottedSpecs).managedCleanup)
   if(saved.endpointHash!==managedCleanupEndpointHash(client)||saved.uuid!==before.uuid||saved.attempt!==before.attempt||
@@ -126,6 +133,7 @@ export async function recoverCustomerAfterBoot(tx:Prisma.TransactionClient,clien
     if(!instance.rootPassword)fail('ALPINE_SSH_PASSWORD_UNAVAILABLE')
     const password=decryptSensitiveData(instance.rootPassword)
     if(!password||!publicHost)fail('ALPINE_SSH_PASSWORD_UNAVAILABLE')
+    await assertGuestNetworkProtection(client)
     await deps.login(publicHost,password,before.boot.fingerprints,instance.sshPort||22)
   }
   await allowed()

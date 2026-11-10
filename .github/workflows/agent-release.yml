@@ -13,6 +13,7 @@ on:
       - 'server/src/lib/host-agent-credentials.ts'
       - 'server/src/services/agent-instance-report.ts'
       - 'scripts/test-dedicated-ipv6-network.py'
+      - 'scripts/configure-oci-node-network.sh'
       - '.github/workflows/agent-release.yml'
   pull_request:
     branches:
@@ -25,6 +26,7 @@ on:
       - 'server/src/lib/host-agent-credentials.ts'
       - 'server/src/services/agent-instance-report.ts'
       - 'scripts/test-dedicated-ipv6-network.py'
+      - 'scripts/configure-oci-node-network.sh'
       - '.github/workflows/agent-release.yml'
   workflow_dispatch:
     inputs:
@@ -169,12 +171,51 @@ jobs:
             agent/release/LICENSE
           retention-days: 30
 
+  guest-protection:
+    name: Customer network protection (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: agent/go.mod
+      - name: Prepare disposable Linux network tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq iproute2 nftables iptables python3 util-linux
+      - name: Native metadata isolation, management source protection and normal customer packets
+        run: |
+          (cd agent && CGO_ENABLED=0 go test -c -o /tmp/incudal-guest-guard-tests ./internal/guestguard)
+          sudo env INCUDAL_GUEST_GUARD_NATIVE=1 /tmp/incudal-guest-guard-tests -test.v
+      - name: Native systemd boot dependency failure and automatic continuation
+        run: |
+          (cd agent && CGO_ENABLED=0 go build -o /tmp/incudal-agent-probe ./cmd/incudal-agent)
+          sudo env INCUDAL_GUEST_GUARD_SERVICE_TEST=1 INCUDAL_GUEST_GUARD_AGENT_BINARY=/tmp/incudal-agent-probe /tmp/incudal-guest-guard-tests -test.run TestNativeBootDependencyContinuation -test.v
+      - name: Native Alpine OpenRC dependency failure and automatic continuation
+        run: |
+          docker run --rm --privileged -v /tmp/incudal-guest-guard-tests:/test:ro -v /tmp/incudal-agent-probe:/agent:ro alpine:3.24 sh -ec '
+            apk add --no-cache openrc nftables
+            mkdir -p /run/openrc
+            touch /run/openrc/softlevel
+            rc-service localmount start
+            INCUDAL_GUEST_GUARD_SERVICE_TEST=1 INCUDAL_GUEST_GUARD_AGENT_BINARY=/agent /test -test.run TestNativeBootDependencyContinuation -test.v
+          '
+
   release-agent:
     name: Publish Agent Release
     runs-on: ubuntu-latest
     needs:
       - version
       - build-agent
+      - guest-protection
     if: needs.version.outputs.should_release == 'true'
     permissions:
       contents: write

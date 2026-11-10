@@ -25,6 +25,8 @@ APPARMOR_PACKAGES = ['apparmor','apparmor-openrc','apparmor-profiles-tunables','
 UUID = re.compile(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}')
 def fail(code='HARDENING_JOURNAL_CONFLICT'): raise ValueError(code)
 def digest(data): return hashlib.sha256(data).hexdigest()
+def require_current_request(value):
+    if time.time()*1000>=value['expiresAt']:fail('HARDENING_REQUEST_EXPIRED')
 def protected(path, directory=False):
     for parent in [path, *path.parents]:
         info=parent.lstat()
@@ -184,7 +186,7 @@ def apparmor_tools_ready():
     if packages.returncode:return False
     return True
 
-def ensure_grub_tools(lock_fd,state,persist):
+def ensure_grub_tools(lock_fd,state,persist,allowed=lambda:None):
     # Signed official same-branch packages only. No kernel/Incus/SSH upgrade,
     # and the child retains the root maintenance lock if transport is lost.
     branch='.'.join(Path('/etc/alpine-release').read_text().strip().split('.')[:2])
@@ -198,6 +200,7 @@ def ensure_grub_tools(lock_fd,state,persist):
     # package baseline. Tool presence alone cannot bypass that transaction.
     plan=state.get('dependencyPlan')
     if plan is None and apparmor_tools_ready():
+        allowed()
         command(['apparmor_parser','-Q','-T','-j','1','/etc/apparmor.d'],timeout=15)
         return False
     mem=re.search(r'^MemAvailable:\s+(\d+) kB$',Path('/proc/meminfo').read_text(),re.M)
@@ -208,6 +211,7 @@ def ensure_grub_tools(lock_fd,state,persist):
         except OSError:continue
         if name in ['apk','apt','apt-get','dpkg','rpm','dnf']:fail('HARDENING_PACKAGE_BUSY')
     repositories=ROOT/'apparmor.repositories'
+    allowed()
     atomic(repositories,('https://dl-cdn.alpinelinux.org/alpine/v'+branch+'/main\nhttps://dl-cdn.alpinelinux.org/alpine/v'+branch+'/community\n').encode())
     # Simulate the signed dependency transaction first. Installing a missing
     # dependency is fine; replacing existing packages is a separate operation.
@@ -216,6 +220,7 @@ def ensure_grub_tools(lock_fd,state,persist):
         # exact versions and the installed package baseline before yielding;
         # installation never shares the simulation's remaining time budget.
         before=installed_packages()
+        allowed()
         simulated=subprocess.run(['apk','--simulate','--no-cache','--repositories-file',str(repositories),'add',*APPARMOR_PACKAGES],capture_output=True,timeout=30,pass_fds=(lock_fd,),env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'})
         if simulated.returncode:fail('HARDENING_APPARMOR_TOOLS_REQUIRED')
         simulation=(simulated.stdout+simulated.stderr).decode(errors='replace')
@@ -236,9 +241,11 @@ def ensure_grub_tools(lock_fd,state,persist):
         if plan.get('phase')=='verified':return False
         # Compilation is its own bounded request after installation, never
         # shares apk's 35-second budget. Use one worker on small hosts.
+        allowed()
         command(['apparmor_parser','-Q','-T','-j','1','/etc/apparmor.d'],timeout=15)
         plan['phase']='verified';persist();return True
     if plan.get('phase','planned')!='planned':fail('HARDENING_APPARMOR_TOOLS_REQUIRED')
+    allowed()
     result=subprocess.run(['timeout','30','apk','--no-cache','--repositories-file',str(repositories),'add',*plan['packages']],capture_output=True,timeout=35,pass_fds=(lock_fd,),env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'})
     if result.returncode:fail('HARDENING_APPARMOR_TOOLS_REQUIRED')
     if set(installed_packages())!=set(plan['installed'])|new:fail('HARDENING_PACKAGE_BUSY')
@@ -321,7 +328,7 @@ def guest_read(customer):
     if config.get('volatile.uuid')!=customer['uuid'] or config.get('user.payincus.provisioning-attempt')!=customer['attempt']:fail('HARDENING_IDENTITY_CHANGED')
     return remote,etag
 
-def customer_boot_change(customer,saved,restore=False):
+def customer_boot_change(customer,saved,restore=False,allowed=lambda:None):
     remote,etag=guest_read(customer);current=remote['config'].get('boot.autostart')
     original=customer['autostart'];wanted=original if restore else 'false'
     if guest_guard(remote)!=saved['guardHash'] or current not in [original,'false']:fail('HARDENING_IDENTITY_CHANGED')
@@ -331,6 +338,7 @@ def customer_boot_change(customer,saved,restore=False):
         else:config['boot.autostart']=wanted
         fields=['architecture','description','devices','ephemeral','profiles']
         if any(key not in remote for key in fields):fail()
+        allowed()
         result,_=local_incus('PUT','/1.0/instances/'+customer['name'],{**{key:remote[key] for key in fields},'config':config},etag)
         if result.get('type')=='async':
             operation=result.get('operation')
@@ -396,22 +404,31 @@ def execute(raw):
             # A lost reply may leave our exact before/after bytes. Under the
             # inherited lock, finish only this journal's deterministic change.
             if boot()!=value['bootId']:fail('HARDENING_IDENTITY_CHANGED')
+            require_current_request(value)
             # Persisted preparation owns dependency installation too. Return
             # after that bounded transaction; boot/customer changes happen on
             # the next request, within the gateway's separate time budget.
-            if value['recipe']==GRUB_RECIPE and ensure_grub_tools(fd,state,persist):return
+            if value['recipe']==GRUB_RECIPE and ensure_grub_tools(fd,state,persist,lambda:require_current_request(value)):return
             environment(value);assert_customer_baseline(value['customers'],preparing=True);path=boot_path(value);current=read(path);before=read(boot_before(value))
             grub_defaults_check(state)
             if (digest(before)!=state['beforeHash'] or digest(prepare_boot_for(value,before))!=state['afterHash'] or
                 digest(current) not in [state['beforeHash'],state['afterHash']] or path.stat().st_mode&0o777!=state['bootMode']):fail()
             enabled=runlevel_enabled()
             if state['runlevelBefore'] and not enabled:fail()
+            require_current_request(value)
             if not enabled:
                 command(['rc-update','add','apparmor','boot'])
                 if not runlevel_enabled():fail('HARDENING_PREPARE_INCOMPLETE')
-            for customer,saved in zip(value['customers'],state['customerBoot']):customer_boot_change(customer,saved)
+            for customer,saved in zip(value['customers'],state['customerBoot']):
+                customer_boot_change(customer,saved,allowed=lambda:require_current_request(value))
             assert_customer_baseline(value['customers'],prepared=True)
+            require_current_request(value)
             grub_defaults_check(state,write=True)
+            # Customer/API and runlevel checks above can take time. Compare
+            # fresh bytes and mode before replacing the original boot file.
+            current=read(path)
+            if digest(current) not in [state['beforeHash'],state['afterHash']] or path.stat().st_mode&0o777!=state['bootMode']:fail()
+            require_current_request(value)
             if digest(current)==state['beforeHash']:atomic(path,prepare_boot_for(value,before),state['bootMode'])
             if digest(read(path))!=state['afterHash']:fail()
             if value['recipe']==GRUB_RECIPE:command(['grub-script-check',str(path)])
@@ -444,6 +461,7 @@ def execute(raw):
             path=boot_path(value);before=read(path);after=prepare_boot_for(value,before)
             defaults=grub_defaults_state(value)
             if value['recipe']!=GRUB_RECIPE:environment(value)
+            require_current_request(value)
             # Save the original file before any modification. A changed file
             # between inspection and writing cannot be overwritten.
             backup=boot_before(value);atomic(backup,before)
@@ -462,6 +480,7 @@ def execute(raw):
         if value['action']=='status':return receipt(value,state)
         if value['action']=='restore-customers':
             if state['phase'] not in ['reboot-intent','customers-restored'] or boot()==value['bootId']:fail()
+            if not value['customers']:empty_remote()
             for customer,saved in zip(value['customers'],state['customerBoot']):customer_boot_change(customer,saved,restore=True)
             state['phase']='customers-restored';persist();return receipt(value,state)
         if value['action']=='rollback':
@@ -479,6 +498,9 @@ def execute(raw):
                 if runlevel_enabled():fail('HARDENING_PREPARE_INCOMPLETE')
             for customer,saved in zip(value['customers'],state['customerBoot']):customer_boot_change(customer,saved,restore=True)
             grub_defaults_check(state,write=True,restore=True)
+            # Runlevel/customer recovery can wait on external processes. Do
+            # not replace an administrator edit made during that interval.
+            if digest(read(path)) not in [state['beforeHash'],state['afterHash']] or path.stat().st_mode&0o777!=state['bootMode']:fail()
             atomic(path,before,state['bootMode']);state['phase']='rolled-back';state['rolledBackAt']=int(time.time()*1000);persist();return receipt(value,state)
         if state['phase'] in ['reboot-intent','customers-restored'] or boot()!=value['bootId']:return receipt(value,state)
         if state['phase']!='prepared' or digest(read(boot_path(value)))!=state['afterHash'] or not runlevel_enabled():fail()
@@ -486,6 +508,7 @@ def execute(raw):
         if value['recipe']==GRUB_RECIPE and digest(read(Path('/etc/default/grub')))!=state['grubDefaults']['afterHash']:fail()
         if time.time()*1000>=value['expiresAt']:fail('HARDENING_REQUEST_EXPIRED')
         identity(value);assert_customer_baseline(value['customers'],prepared=True)
+        if time.time()*1000>=value['expiresAt']:fail('HARDENING_REQUEST_EXPIRED')
         # fsync the single intent before launching the fixed reboot. A lost
         # response, old DB or expired lease cannot enter this branch again.
         state['phase']='reboot-intent';persist()

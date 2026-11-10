@@ -21,7 +21,7 @@ function section(source: string, startPattern: string, endPattern: string): stri
 }
 
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
-const hostsSource = readFileSync(resolve(repoRoot, 'server/src/routes/hosts.ts'), 'utf8')
+const hostsSource = readFileSync(resolve(repoRoot, 'server/src/routes/hosts.ts'), 'utf8').replace(/\r\n/g, '\n')
 
 assert(
   hostsSource.includes('async function deleteIncusInstanceForMigration'),

@@ -152,6 +152,9 @@ export interface CloudInitNetworkOptions {
   ipv6List?: string[]
   /** 网卡 MAC 地址（优先使用，避免依赖来宾接口命名） */
   nicMacs?: Partial<VmNicMacs>
+  ipv4PrefixLength?: number
+  ipv4Gateway?: string
+  dns?: string[]
 }
 
 
@@ -185,6 +188,21 @@ function getCurrentNetworkMac(current: CurrentNetworkIdentity, device: 'eth0' | 
   return normalizeNetworkMac(mac || undefined)
 }
 
+export function existingVmNicMacs(current: { type?: string; config?: Record<string, string>; devices?: Record<string, Record<string, unknown>>;
+  expanded_devices?: Record<string, Record<string, unknown>> }, ipv6: boolean): { eth0: string; eth1?: string } {
+  const macDevices = (devices: typeof current.devices) => Object.fromEntries(Object.entries(devices || {}).map(([name, device]) => {
+    if (device.hwaddr !== undefined && typeof device.hwaddr !== 'string') throw Error('VM_NETWORK_IDENTITY_MISSING')
+    return [name, typeof device.hwaddr === 'string' ? { hwaddr: device.hwaddr } : {}]
+  })) as Record<string, Record<string, string>>
+  const normalized = { ...current, config: current.config || {}, devices: macDevices(current.devices),
+    expanded_devices: macDevices(current.expanded_devices), profiles: [] }
+  const eth0 = getCurrentNetworkMac(normalized, 'eth0')
+  const hasEth1 = ipv6 || Boolean(current.devices?.eth1 || current.expanded_devices?.eth1)
+  const eth1 = hasEth1 ? getCurrentNetworkMac(normalized, 'eth1') : undefined
+  if (!eth0 || hasEth1 && !eth1) throw Error('VM_NETWORK_IDENTITY_MISSING')
+  return { eth0, ...(eth1 ? { eth1 } : {}) }
+}
+
 /**
  * 生成 cloud-init network-config v2 YAML
  * 
@@ -196,7 +214,9 @@ function getCurrentNetworkMac(current: CurrentNetworkIdentity, device: 'eth0' | 
  */
 export function generateCloudInitNetworkConfig(options: CloudInitNetworkOptions): string {
   const { ipv4Address, ipv6List } = options
-  const { gateway } = IPV4_CONFIG
+  const gateway = options.ipv4Gateway || IPV4_CONFIG.gateway
+  const prefix = options.ipv4PrefixLength ?? 22
+  const dns = options.dns?.length ? options.dns : ['10.10.0.1']
   const eth0Mac = normalizeNetworkMac(options.nicMacs?.eth0)
   const eth1Mac = normalizeNetworkMac(options.nicMacs?.eth1)
   const matchYaml = (mac: string | undefined) => mac ? `    match:\n      macaddress: "${mac}"\n` : ''
@@ -209,13 +229,13 @@ ${matchYaml(eth0Mac)}    dhcp4: false
     dhcp6: false
     accept-ra: false
     addresses:
-      - ${ipv4Address}/22
+      - ${ipv4Address}/${prefix}
     routes:
       - to: 0.0.0.0/0
         via: ${gateway}
     nameservers:
       addresses:
-        - 10.10.0.1
+${dns.map(address => `        - ${address}`).join('\n')}
 `
 
   // eth1: 静态 IPv6 配置 (如果有)
@@ -241,7 +261,7 @@ ${addressesYaml}
     gateway6: fe80::1
     nameservers:
       addresses:
-        - 10.10.0.1
+${dns.map(address => `        - ${address}`).join('\n')}
 `
   }
 

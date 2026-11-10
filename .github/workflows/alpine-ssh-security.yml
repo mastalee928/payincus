@@ -103,6 +103,14 @@ jobs:
         run: pnpm --filter server test:security-hardening-queue
       - name: Maintenance protocol, durable reboot intent and interruption recovery with PostgreSQL
         run: pnpm --filter server test:host-security-maintenance
+      - name: Automatic onboarding continuation through saleable stock and locked allocation
+        run: |
+          pnpm --filter server test:onboarding-hardening-continuation
+          pnpm --filter server test:hardening-saleability
+          pnpm --filter server test:guest-network-protection
+          pnpm --filter server test:onboarding-bootstrap-guards
+          python3 scripts/test-host-timezone.py
+          python3 scripts/test-host-swap.py
       - name: Original customer boot recovery and current billing intentions with pinned mTLS
         run: pnpm --filter server test:customer-boot-recovery
       - name: Fixed boot recipe journal and conditional rollback fixtures

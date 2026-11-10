@@ -22,14 +22,16 @@ export function hardeningPublicView(value: unknown) {
   let history:Array<{phase:string;at:string;reason:string|null}>=[]
   try{history=(readHostMaintenanceIntent(state.maintenance).history||[]).map(event=>({phase:event.phase,at:event.at,
     reason:event.reason?hardeningFailure(new Error(event.reason)).reason||null:null}))}catch{/* invalid intent remains blocked */}
-  const reason = typeof diagnostic.reason === 'string' ? hardeningFailure(new Error(diagnostic.reason)).reason :
+  const maintenanceBlocked = maintenance.phase === 'blocked'
+  const reason = maintenanceBlocked && typeof maintenance.error === 'string' ? hardeningFailure(new Error(maintenance.error)).reason :
+    typeof diagnostic.reason === 'string' ? hardeningFailure(new Error(diagnostic.reason)).reason :
     typeof state.error === 'string' ? hardeningFailure(new Error(state.error)).reason : null
-  const failurePhase = phases.includes(diagnostic.phase as HardeningPhase) ? diagnostic.phase as HardeningPhase : phase || 'authority'
+  const failurePhase = maintenanceBlocked ? 'host-inspection' : phases.includes(diagnostic.phase as HardeningPhase) ? diagnostic.phase as HardeningPhase : phase || 'authority'
   const failure = reason ? hardeningDiagnostic(reason,failurePhase) : null
   const safeNumber = (key: string, max = Number.MAX_SAFE_INTEGER) => typeof environment[key] === 'number' &&
     Number.isFinite(environment[key]) && Number(environment[key]) >= 0 && Number(environment[key]) <= max ? environment[key] as number : null
   return {
-    revision: current ? SECURITY_HARDENING_REVISION : null, status: status === 'verified' && (!fresh || phase !== 'finished' || hostMaintenanceBlocked(state)) ? 'pending' : status,
+    revision: current ? SECURITY_HARDENING_REVISION : null, status: maintenanceBlocked ? 'needs-maintenance' : status === 'verified' && (!fresh || phase !== 'finished' || hostMaintenanceBlocked(state)) ? 'pending' : status,
     fresh, attempts: count(state.attempts), updateAttempts: count(state.updateAttempts), checkedAt: date(state.checkedAt), nextCheckAt,
     phase, phaseLabel: phase ? hardeningPhaseLabel(phase) : null,
     host: Object.keys(host).length ? { apparmor: check(host.apparmor), ssh: check(host.ssh), preflight: check(host.preflight) } : null,

@@ -4,9 +4,16 @@ import type { HostSecurityTarget } from './host-security-inspection.js'
 import type { HostMaintenanceIntent } from '../lib/host-maintenance-plan.js'
 
 export type MaintenanceOperation = Pick<HostMaintenanceIntent,'requestId'|'identityHash'|'bootId'|'prepareHash'|'recipe'|'architecture'> &
-  {action:'prepare'|'status'|'reboot'|'rollback'|'restore-customers';customers?:HostMaintenanceIntent['customers']}
+  {action:'prepare'|'status'|'reboot'|'rollback'|'restore-customers';customers?:HostMaintenanceIntent['customers'];deadline?:string}
 export type MaintenanceReceipt = {nodeId:string;requestId:string;identityHash:string;prepareHash:string;originalBootId:string;
   bootId:string;architecture:string;recipe:string;phase:'absent'|'prepared'|'preparing'|'reboot-intent'|'customers-restored'|'rolled-back'}
+export function maintenanceWireExpiry(operation:MaintenanceOperation,now=Date.now()):number {
+  const expiresAt=now+59000
+  if(!['prepare','reboot'].includes(operation.action))return expiresAt
+  const deadline=Date.parse(operation.deadline||'')
+  if(!Number.isFinite(deadline)||deadline<=now)throw Error('HARDENING_REQUEST_EXPIRED')
+  return Math.min(expiresAt,deadline)
+}
 /** Select the wire protocol explicitly: callers may hold a larger durable
  * intent, but neither customer baselines nor database phases leave the server. */
 export function maintenanceWireOperation(operation:MaintenanceOperation,nodeId:string,expiresAt:number) {
@@ -24,7 +31,7 @@ export async function hostMaintenanceCommand(target:HostSecurityTarget,operation
     async fingerprint=>fingerprint===process.env.ONBOARDING_GATEWAY_FINGERPRINT)
   try{
     const input={managementIp:node.managementIp,sshPort:node.sshPort,sshFingerprint:node.sshFingerprint,nodePublicKey:node.nodePublicKey,
-      operation:maintenanceWireOperation(operation,node.id,Date.now()+59000)}
+      operation:maintenanceWireOperation(operation,node.id,maintenanceWireExpiry(operation))}
     const receipt=JSON.parse(await sshExec(client,`security-maintenance ${node.id}`,JSON.stringify(input),60000,8192))
     if(!receipt||Object.keys(receipt).sort().join(',')!=='architecture,bootId,identityHash,nodeId,originalBootId,phase,prepareHash,recipe,requestId'||
       receipt.nodeId!==node.id||receipt.requestId!==operation.requestId||receipt.identityHash!==operation.identityHash||

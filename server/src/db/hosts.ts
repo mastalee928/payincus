@@ -1,4 +1,4 @@
-import { dedicatedHostReadyWhere, HOST_OCCUPIED_INSTANCE_WHERE, hostPendingMoveWhere } from '../lib/host-resource-usage.js'
+import { dedicatedHostReadyWhere, HOST_OCCUPIED_INSTANCE_WHERE, hostPendingMoveWhere, hostUnfinishedCreationWhere } from '../lib/host-resource-usage.js'
 import { hardeningIdentityInclude, hardeningReceiptMatches } from '../lib/hardening-identity.js'
 /**
  * 主机相关数据库操�?
@@ -715,7 +715,7 @@ export async function deleteHost(id: number): Promise<void> {
     if (await tx.instance.count({ where: { hostId: id, ...HOST_OCCUPIED_INSTANCE_WHERE } })) throw new HostRemovalError('HOST_HAS_INSTANCES')
     const tasks = await tx.instanceTask.count({ where: { OR: [{ hostId: id }, { targetHostId: id }], status: { in: ['PENDING', 'PROCESSING'] } } })
     const onboarding = await tx.hostOnboardingNode.count({ where: { hostId: id, status: { in: ['queued', 'running'] } } })
-    if (tasks || onboarding) throw new HostRemovalError('HOST_HAS_PENDING_TASKS')
+    if (tasks || onboarding || await tx.instanceTask.count({ where: hostUnfinishedCreationWhere(id) })) throw new HostRemovalError('HOST_HAS_PENDING_TASKS')
     const nodes = await tx.hostOnboardingNode.findMany({ where: { hostId: id } })
     for (const node of nodes) await tx.hostOnboardingNode.update({ where: { id: node.id }, data: {
       deletedAt: new Date(), credentialsEncrypted: null, leaseToken: null, leaseUntil: null,
@@ -871,6 +871,7 @@ export async function selectAvailableHost(options: {
 
   // 过滤和评�?
   for (const host of hosts) {
+    if (await prisma.instanceTask.count({ where: hostUnfinishedCreationWhere(host.id) })) continue
     // 检查标签选择�?
     if (nodeSelectors.length > 0) {
       const hostTags = (host.tags as string[]) || []
@@ -1108,6 +1109,7 @@ export async function selectAndReserveHostWithLock(
 
   // 遍历候选宿主机，检查资源并预占
   for (const host of hosts) {
+    if (await tx.instanceTask.count({ where: hostUnfinishedCreationWhere(host.id) })) continue
     if (options.poolMachineGroupId !== undefined) {
       // Recheck after obtaining the row lock: inventory can change while waiting.
       const ready = await tx.host.findFirst({ where: { id: host.id, singleTenant: true,

@@ -3,11 +3,17 @@ import { ensureDedicatedForward, removeDedicatedForward, removeObsoleteDedicated
 import { applyCustomerInstanceView, publicInstanceIpv6 } from '../src/lib/customer-instance-view.js'
 import { readFileSync } from 'node:fs'
 import { generateIncusConfig } from '../src/lib/incus-config-generator.js'
+import { getImageDistroFromAlias } from '../src/db/custom-init-commands.js'
 import { createHash } from 'node:crypto'
 import ssh2 from 'ssh2'
 import { checkSshLogin, DedicatedSshVerificationError } from '../src/lib/dedicated-ssh.js'
 
 const forwards: Array<any> = []
+for (const [os, distro] of [['alpine', 'alpine'], ['debian', 'debian'], ['rocky', 'rhel'], ['almalinux', 'rhel'], ['opensuse', 'suse'], ['archlinux', 'arch']]) {
+  for (const architecture of ['amd64', 'arm64', 'aarch64']) {
+    assert.equal(getImageDistroFromAlias(`images:${os}/current/${architecture}`), distro)
+  }
+}
 const calls: string[] = []
 const client = { request: async (method: string, path: string, body?: any) => {
   calls.push(`${method} ${path}`)
@@ -99,7 +105,7 @@ assert.ok(materialLoader.includes('if (task.sshKeyId !== null)') && materialLoad
   'material validation must enforce selected-key ownership and restrict the latest-key fallback to recreate')
 assert.ok(execution.includes('let materials = await validateDestructiveTaskExecution(task)') &&
   execution.indexOf('materials = await validateDestructiveTaskExecution(task, { prepareRebuild: true })') > execution.indexOf('await getIncusClient(host)') &&
-  execution.indexOf('materials = await validateDestructiveTaskExecution(task, { prepareRebuild: true })') < execution.indexOf('await executeRebuildTask(task, instance, host, client, materials)'),
+  execution.indexOf('materials = await validateDestructiveTaskExecution(task, { prepareRebuild: true })') < execution.indexOf('await executeRebuildTask(task, instance, host, client, materials, reinstall!)'),
   'the worker must validate selected material again after connecting and before dispatching destructive work')
 assert.ok(!rebuild.includes('getSSHKeysByUserId') && rebuild.includes('const { sshKey, extraShellCommands } = materials') &&
   rebuild.indexOf('const { sshKey, extraShellCommands } = materials') < rebuild.indexOf('deleting_snapshots'),
@@ -144,6 +150,19 @@ for (const [alias, service, packageManager] of osPasswordMatrix) {
   }
 }
 console.log(`Customer password policy passed: ${osPasswordMatrix.length} OS/version aliases × container/VM × password-only/key-and-password`)
+
+for (const [alias, , packageManager] of osPasswordMatrix) {
+  for (const architecture of ['amd64', 'arm64', 'aarch64']) {
+    const imageAlias = `images:${alias}/${architecture}`
+    const generated = generateIncusConfig({ instanceName: 'architecture-password', imageAlias,
+      rootPassword: 'local-password-policy-guard', type: 'container', networkMode: 'nat' })
+    assert.ok(generated.configPayload['user.user-data'].includes(packageManager === 'apk' ? 'apk add' : `${packageManager} install`),
+      `${imageAlias}: architecture suffix must not change the OS package manager`)
+    assert.notEqual(generated.metaData.osFamily, 'arch', `${imageAlias}: aarch64 is not Arch Linux`)
+  }
+}
+assert.equal(generateIncusConfig({ instanceName: 'arch-family', imageAlias: 'images:archlinux/current/cloud',
+  rootPassword: 'local-password-policy-guard', type: 'container', networkMode: 'nat' }).metaData.osFamily, 'arch')
 
 // Exercise real SSH negotiation/authentication so failures remain actionable
 // without accepting another host key or exposing a password in the error.

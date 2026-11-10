@@ -1,21 +1,31 @@
 import { Prisma } from '@prisma/client'
 import { SECURITY_HARDENING_REVISION } from './security-hardening.js'
+import { guestProtectionReadyWhere } from './guest-network-protection.js'
 
 /** Uninspected legacy hosts keep their existing readiness rules. Once a host
  * enters hardening, only a current successful receipt can release new stock. */
-export function hostHardeningReadyWhere(): Prisma.HostWhereInput {
+export function hostHardeningReadyWhere(receiptValidAt = new Date()): Prisma.HostWhereInput {
   return { OR: [
     { securityHardening: { equals: Prisma.DbNull } },
     { AND: [
       { securityHardening: { path: ['revision'], equals: SECURITY_HARDENING_REVISION } },
       { securityHardening: { path: ['status'], equals: 'verified' } },
       { securityHardening: { path: ['phase'], equals: 'finished' } },
-      { securityHardening: { path: ['nextCheckAt'], gte: new Date().toISOString() } },
+      { securityHardening: { path: ['nextCheckAt'], gte: receiptValidAt.toISOString() } },
       { OR: [
         { securityHardening: { path: ['maintenance'], equals: Prisma.AnyNull } },
         { AND: [
           { securityHardening: { path: ['maintenance','revision'], equals: 'host-maintenance-v1' } },
-          { securityHardening: { path: ['maintenance','phase'], equals: 'verified' } }
+          // A conditional rollback ends maintenance too. Stock still requires
+          // the fresh complete hardening receipt above; rollback alone grants
+          // no saleability and must not erase its original audit history.
+          { OR: [
+            { securityHardening: { path: ['maintenance','phase'], equals: 'verified' } },
+            { AND: [
+              { securityHardening: { path: ['maintenance','phase'], equals: 'aborted' } },
+              { securityHardening: { path: ['maintenance','rebootIssued'], equals: false } }
+            ] }
+          ] }
         ] }
       ] }
     ] }
@@ -30,16 +40,17 @@ export const HOST_OCCUPIED_INSTANCE_WHERE: Prisma.InstanceWhereInput = {
   OR: [{ status: { not: 'deleted' } }, { provisioningCleanupPending: true }, { deletionBillingPending: true }]
 }
 
-export function dedicatedHostReadyWhere(): Prisma.HostWhereInput {
+export function dedicatedHostReadyWhere(receiptValidAt = new Date()): Prisma.HostWhereInput {
   return {
-    poolFaulted: false, publicIpSyncBlocked: false, status: 'online', isInstalled: true, instanceType: { in: ['container', 'both'] },
+    poolFaulted: false, publicIpSyncBlocked: false, status: 'online', isInstalled: true, installPending: false, instanceType: { in: ['container', 'both'] },
     certPath: { not: null }, keyPath: { not: null },
     storagePools: { some: { purpose: 'instance_data' } },
     natPublicIp: { not: null }, natPortStart: { not: null }, natPortEnd: { not: null },
+    agent: { is: guestProtectionReadyWhere() },
     OR: [
-      { onboardingNode: { is: null }, ...hostHardeningReadyWhere() },
+      { onboardingNode: { is: null }, ...hostHardeningReadyWhere(receiptValidAt) },
       { onboardingNode: { is: { status: 'succeeded' } },
-        ...hostHardeningReadyWhere(),
+        ...hostHardeningReadyWhere(receiptValidAt),
         agent: { is: { enabled: true, lastSeenAt: { gte: new Date(Date.now() - 90000) } } } }
     ]
   }
@@ -48,6 +59,16 @@ export function dedicatedHostReadyWhere(): Prisma.HostWhereInput {
 export function hostPendingMoveWhere(hostId: number, instanceId?: number): Prisma.InstanceTaskWhereInput {
   return { targetHostId: hostId, taskType: { in: ['change_host', 'replace_host'] }, status: { in: ['PENDING', 'PROCESSING'] },
     ...(instanceId === undefined ? {} : { instanceId: { not: instanceId } }) }
+}
+
+/** Uncommitted creations and old copies must not disappear during counter sync. */
+export function hostUnfinishedCreationWhere(hostId?: number): Prisma.InstanceTaskWhereInput {
+  return { taskType: { in: ['clone', 'change_host', 'recreate'] },
+    ...(hostId === undefined ? {} : { OR: [{ hostId }, { targetHostId: hostId }, { replacementState: { path: ['sourceHostId'], equals: hostId } }] }),
+    AND: [{ OR: [
+      ...['prepared', 'creating', 'reserved', 'cleanup_pending', 'source_cleanup'].map(phase => ({ replacementState: { path: ['targetPhase'], equals: phase } })),
+      { status: { not: 'COMPLETED' }, replacementState: { path: ['targetPhase'], equals: 'verified' } }
+    ] }] }
 }
 
 export function isHostAllocationError(error: unknown): boolean {

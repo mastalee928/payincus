@@ -434,6 +434,12 @@ try {
       let snapshotReads = 0, stateReads = 0, oldInstanceDeletes = 0, instanceCreates = 0
       let snapshotFailure: 'none' | 'list-failure' | 'invalid-list' | 'invalid-name' | 'delete-failure' | 'still-present' | 'confirmation-failure' | 'success' = 'none', snapshotDeleted = false
       let missingOriginal: 'none' | 'state-only' | 'confirmed' | 'forbidden' | 'unavailable' | 'misleading' = 'none'
+      let imageMetadataUnavailable = false
+      let misleadingDeleteFailure = false
+      const legacyImageConfig = { 'image.os': 'Alpine', 'user.vendor-data': 'obsolete vendor data', 'volatile.cloud-init.instance-id': 'old-boot' }
+      const originalUuid = randomUUID(), originalAttempt = randomUUID(), originalCreatedAt = new Date().toISOString()
+      const originalRemote = () => ({ name: resourceInstances[0].incusId, type: 'container', created_at: originalCreatedAt,
+        config: { ...legacyImageConfig, 'volatile.uuid': originalUuid, 'user.payincus.provisioning-attempt': originalAttempt }, devices: {} })
       materialRemote = createHttpsServer({ cert: certificate, key: await readFile(keyPath), ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
         const reply = (status: number, metadata: unknown) => {
           response.writeHead(status, { 'content-type': 'application/json' })
@@ -448,7 +454,13 @@ try {
             return reply(200, {})
           }
           if (request.method !== 'GET') remoteWrites++
-          if (request.method === 'DELETE' && request.url === `/1.0/instances/${resourceInstances[0].incusId}`) oldInstanceDeletes++
+          if (request.method === 'DELETE' && request.url === `/1.0/instances/${resourceInstances[0].incusId}`) {
+            oldInstanceDeletes++
+            if (misleadingDeleteFailure) {
+              response.writeHead(500, { 'content-type': 'application/json' })
+              response.end(JSON.stringify({ type: 'error', error: 'storage backend not found' })); return
+            }
+          }
           if (request.method === 'POST' && request.url === '/1.0/instances') instanceCreates++
           if (request.method === 'GET' && request.url?.endsWith('/snapshots')) {
             snapshotReads++
@@ -486,11 +498,11 @@ try {
               response.writeHead(500, { 'content-type': 'application/json' })
               response.end(JSON.stringify({ type: 'error', error: 'Instance not found' })); return
             }
-            return reply(200, { type: 'container', config: {}, devices: {} })
+            return reply(200, originalRemote())
           }
-          if (request.method === 'GET' && request.url?.includes('/images/aliases/')) return reply(200, { target: 'fixture-image' })
+          if (request.method === 'GET' && request.url?.includes('/images/aliases/')) return reply(imageMetadataUnavailable ? 500 : 200, { target: 'fixture-image' })
           if (request.method === 'GET' && request.url?.includes('/images/')) return reply(200, { properties: {} })
-          if (request.method === 'GET') return reply(200, { type: 'container', config: {}, devices: {} })
+          if (request.method === 'GET') return reply(200, originalRemote())
           if (request.method === 'PUT') {
             if (request.url?.endsWith('/state')) return reply(stopFailure === 'request-failure' ? 500 : 200, {})
             configWrites++
@@ -505,6 +517,11 @@ try {
         url: `https://127.0.0.1:${(materialRemote.address() as { port: number }).port}`, certPath: certificatePath, keyPath,
         serverCertificate: certificate, serverFingerprint: new X509Certificate(certificate).fingerprint256
       } })
+      const { createHash } = await import('node:crypto')
+      await prisma.instance.update({ where: { id: firstResourceId }, data: { snapshottedSpecs: {
+        managedCleanup: { uuid: originalUuid, attempt: originalAttempt, endpointHash: createHash('sha256').update(remoteHost.url).digest('hex') },
+        recoveryIdentity: { uuid: originalUuid, createdAt: originalCreatedAt }
+      } } })
       for (const mode of ['key', 'command', 'banned', 'session'] as const) {
         connectionMutation = mode
         await prisma.instance.update({ where: { id: firstResourceId }, data: { dedicatedIpv4: true, dedicatedNetworkReady: true } })
@@ -628,8 +645,9 @@ try {
       const originalBeforeConfirmedCleanup = await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } })
       const fixturePool = await prisma.storagePool.create({ data: { hostId: resourceHost.id, name: `${tag}-recreate`, driver: 'dir' } })
       try {
-        for (const mode of ['present', 'confirmed-missing'] as const) {
-          missingOriginal = mode === 'present' ? 'none' : 'confirmed'
+        for (const mode of ['present', 'confirmed-missing', 'misleading-delete'] as const) {
+          missingOriginal = mode === 'confirmed-missing' ? 'confirmed' : 'none'
+          misleadingDeleteFailure = mode === 'misleading-delete'
           snapshotDeleted = false; snapshotReads = 0; configWrites = 0; oldInstanceDeletes = 0; instanceCreates = 0
           await prisma.instance.update({ where: { id: firstResourceId }, data: { cloudInitState: 'completed' } })
           const admission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
@@ -640,12 +658,13 @@ try {
           const running = await prisma.instanceTask.update({ where: { id: admission.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
           await executeTask(running.id, { startedAt: running.startedAt, retryCount: running.retryCount })
           const result = await prisma.instanceTask.findUniqueOrThrow({ where: { id: running.id } })
-          assert.equal(result.status, 'FAILED', 'fixture deliberately rejects the subsequent original DELETE')
-          assert.match(result.error!, /删除旧实例失败: fixture rebuild ends after configuration dispatch/)
+          assert.equal(result.status, 'PROCESSING', 'unconfirmed original DELETE retains the prepared identity receipt')
+          assert.equal((result.replacementState as any).cleanupFromPhase, 'prepared')
+          assert.match(result.error!, /REINSTALL_CLEANUP_PENDING/)
           assert.equal(oldInstanceDeletes, 1, `${mode}: confirmed preflight must reach the original deletion boundary`)
           assert.equal(instanceCreates, 0); assert.equal(configWrites, 0)
-          assert.equal(snapshotReads, mode === 'present' ? 2 : 0)
-          assert.equal(snapshotDeleted, mode === 'present')
+          assert.equal(snapshotReads, mode === 'confirmed-missing' ? 0 : 2)
+          assert.equal(snapshotDeleted, mode !== 'confirmed-missing')
           assert.equal(await prisma.snapshot.count({ where: { id: resourceSnapshot.id } }), 0)
           const afterCleanup = await prisma.instance.findUniqueOrThrow({ where: { id: firstResourceId } })
           assert.equal(afterCleanup.cloudInitState, null)
@@ -655,6 +674,7 @@ try {
           await prisma.instance.update({ where: { id: firstResourceId }, data: { ipv4: originalBeforeConfirmedCleanup.ipv4 } })
         }
       } finally {
+        misleadingDeleteFailure = false
         await prisma.storagePool.delete({ where: { id: fixturePool.id } })
         await prisma.natIpv4Reservation.deleteMany({ where: { hostId: resourceHost.id } })
       }
@@ -693,6 +713,7 @@ try {
       await prisma.snapshot.create({ data: resourceSnapshot })
       console.log('PASS rebuild snapshots reject six read/shape/delete/confirmation faults while retaining platform records; actual nonempty deletion requires the confirmed empty list before configuration')
       snapshotFailure = 'none'
+      imageMetadataUnavailable = true
       const workerAdmission = await createInstanceTask({ instanceId: firstResourceId, hostId: resourceHost.id, userId: actor.id,
         taskType, imageAlias: fixtureImage.remoteAlias, sshKeyId: ownerKey.id, customInitCommandIds: [ownerCommand.id], sensitiveAuthorization: {
           actor: currentActor(), entry: 'user', expectedOwnerId: users[0].id, expectedIncusId: resourceInstances[0].incusId,
@@ -704,7 +725,12 @@ try {
       assert.ok(dispatchedConfig?.['user.user-data'].includes(ownerKey.publicKey))
       assert.ok(dispatchedConfig?.['user.user-data'].includes(ownerCommand.command))
       assert.ok(!dispatchedConfig?.['user.user-data'].includes('fixture-changed-after-validation'))
-      assert.match((await prisma.instanceTask.findUniqueOrThrow({ where: { id: workerTask.id } })).error!, /fixture rebuild ends after configuration dispatch/)
+      for (const key of Object.keys(legacyImageConfig)) {
+        assert.equal(dispatchedConfig?.[key], '', `unavailable image metadata must still clear ${key} before cross-OS rebuild`)
+      }
+      const dispatchFailure = await prisma.instanceTask.findUniqueOrThrow({ where: { id: workerTask.id } })
+      assert.equal((dispatchFailure.replacementState as any).targetPhase, 'rebuild_uncertain')
+      assert.match(dispatchFailure.error!, /重装结果未确认/)
       await prisma.instanceTask.delete({ where: { id: workerTask.id } })
       await prisma.snapshot.create({ data: resourceSnapshot })
       await prisma.sshKey.update({ where: { id: ownerKey.id }, data: { publicKey: ownerKey.publicKey } })

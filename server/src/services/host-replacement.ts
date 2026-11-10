@@ -23,6 +23,8 @@ import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { verifyInstanceAbsent } from '../lib/incus/verify-instance-deleted.js'
 import type { RecoveryInstance } from './host-pool-recovery.js'
 import { recoveryHeld } from './platform-backup-core.js'
+import { managedCleanupEndpointHash } from '../lib/managed-cleanup-identity.js'
+import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
 
 type ReplacementState = {
   sourceHostId: number; sourceIncusId: string; backupUploadId: number | null
@@ -155,12 +157,17 @@ export async function executeHostReplacement(task: InstanceTask, connect = getIn
     state.targetMarker = randomUUID()
     state.targetCreationStartedAt = new Date().toISOString()
     ;(config.config as Record<string, string>)['user.payincus.replacement'] = state.targetMarker
+    ;(config.config as Record<string, string>)['user.payincus.provisioning-attempt'] = state.targetMarker
     state.stage = 'creating'
     await save(state.backupUploadId ? 'restoring_backup' : 'creating_on_target')
-    const saveTargetIdentity = async () => {
+    const saveTargetIdentity = async (requireMarker = false) => {
       const remote = await client!.request<RecoveryInstance>('GET', `/1.0/instances/${encodeURIComponent(state.targetIncusId!)}`)
       if (remote.name !== state.targetIncusId || (remote.project || 'default') !== 'default' ||
-          !/^[a-f0-9-]{36}$/i.test(remote.config?.['volatile.uuid'] || '') || !Number.isFinite(Date.parse(remote.created_at || ''))) throw new Error('TARGET_INSTANCE_IDENTITY_UNVERIFIED')
+          !/^[a-f0-9-]{36}$/i.test(remote.config?.['volatile.uuid'] || '') || !Number.isFinite(Date.parse(remote.created_at || '')) ||
+          state.targetUuid && state.targetUuid !== remote.config?.['volatile.uuid'] ||
+          state.targetCreatedAt && state.targetCreatedAt !== remote.created_at ||
+          requireMarker && (remote.config?.['user.payincus.replacement'] !== state.targetMarker ||
+            remote.config?.['user.payincus.provisioning-attempt'] !== state.targetMarker)) throw new Error('TARGET_INSTANCE_IDENTITY_UNVERIFIED')
       state.targetUuid = remote.config!['volatile.uuid']; state.targetCreatedAt = remote.created_at
       await save('target_created')
     }
@@ -173,6 +180,7 @@ export async function executeHostReplacement(task: InstanceTask, connect = getIn
       finally { stream.destroy() }
       await saveTargetIdentity()
       await updateInstance(client, state.targetIncusId, { config: config.config as Record<string, string>, devices: config.devices as Record<string, Record<string, string>> })
+      await saveTargetIdentity(true)
       await startInstance(client, state.targetIncusId)
       // Re-run the generated configuration on a restored system. Customer data
       // remains on the restored root disk; network and login match this delivery.
@@ -181,13 +189,16 @@ export async function executeHostReplacement(task: InstanceTask, connect = getIn
       await restartInstance(client, state.targetIncusId, true)
     } else {
       await createInstance(client, config)
-      await saveTargetIdentity()
+      await saveTargetIdentity(true)
+      await prepareNewContainerCloudInit(client, state.targetIncusId, configPayload)
       await startInstance(client, state.targetIncusId)
     }
     await assertActive()
     await save('verifying_public_ssh')
-    await prepareDedicatedDelivery(client, instance.id, { hostId: targetId, name: state.targetIncusId, ipv4: state.ipv4, password })
+    await prepareDedicatedDelivery(client, instance.id, { hostId: targetId, name: state.targetIncusId, ipv4: state.ipv4, password, replacementTaskId: task.id })
     const dedicatedIpv6 = await prepareDedicatedIpv6Delivery(client, instance.id, targetId, state.targetIncusId)
+    await saveTargetIdentity(true)
+    const endpointHash = managedCleanupEndpointHash(client)
     await prisma.$transaction(async tx => {
       await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)
       await tx.$queryRaw`SELECT id FROM instance_tasks WHERE id = ${task.id} FOR UPDATE`
@@ -201,6 +212,9 @@ export async function executeHostReplacement(task: InstanceTask, connect = getIn
       await tx.trafficSnapshot.deleteMany({ where: { instanceId: instance.id } })
       // Price, billing records, owner, name, expiry and renew settings stay intact.
       await tx.instance.update({ where: { id: instance.id }, data: { hostId: targetId, incusId: state.targetIncusId,
+        snapshottedSpecs: { ...(currentInstance.snapshottedSpecs as Prisma.JsonObject || {}),
+          managedCleanup: { attempt: state.targetMarker!, uuid: state.targetUuid!, endpointHash },
+          recoveryIdentity: { uuid: state.targetUuid!, createdAt: state.targetCreatedAt!, project: 'default' } },
         ipv4: state.ipv4, ipv6: state.ipv6 || null, storagePoolName: state.storagePool, networkMode, status: 'running',
         dedicatedNetworkReady: true, dedicatedIpv6: dedicatedIpv6 ? dedicatedIpv6 as unknown as Prisma.InputJsonValue : Prisma.JsonNull,
         rootPassword: encryptSensitiveData(password), monthlyTrafficLimit: null,

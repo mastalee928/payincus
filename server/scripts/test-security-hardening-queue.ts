@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID, randomInt, createHash } from 'node:crypto'
 import Fastify from 'fastify'
+import { Prisma } from '@prisma/client'
 import type { AutomaticSshTarget } from '../src/services/alpine-ssh-maintenance.js'
 const url = new URL(process.env.DATABASE_URL || '')
 assert.equal(url.hostname, '127.0.0.1')
@@ -9,7 +10,7 @@ process.env.ENCRYPTION_KEY = 'security-hardening-isolated-fixture'
 const originalSetInterval=globalThis.setInterval
 globalThis.setInterval=((...args:Parameters<typeof setInterval>)=>originalSetInterval(...args).unref()) as typeof setInterval
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { hardenExistingHost } = await import('../src/services/security-hardening-queue.js')
+const { hardenExistingHost,processSecurityHardeningQueue } = await import('../src/services/security-hardening-queue.js')
 const { maintainAlpineCustomerSsh } = await import('../src/services/alpine-ssh-maintenance.js')
 const { encryptSensitiveData } = await import('../src/lib/security.js')
 const { SECURITY_HARDENING_ENABLED_KEY, SECURITY_HARDENING_REVISION } = await import('../src/lib/security-hardening.js')
@@ -94,6 +95,19 @@ try {
   await due(); failCustomer = false; await hardenExistingHost(host.id, deps)
   assert.equal((await state()).status, 'verified'); assert.ok(!(await state()).leaseToken)
   assert.equal((await state()).phase,'finished'); assert.equal((await state()).environment.architecture,'aarch64')
+  const order = await prisma.poolOrder.create({ data: { id: randomUUID(), userId: buyer.id, requestHash: prefix, totalCents: 900 } })
+  const admission = { ...await state(), nextCheckAt: new Date(0).toISOString() }
+  await prisma.host.update({ where: { id: host.id }, data: { securityHardening: admission } })
+  await prisma.instance.update({ where: { id: instance.id }, data: { status: 'creating', purchaseBatchId: order.id } })
+  const beforeDelivery = { connections, hostCalls, guestWrites }
+  await hardenExistingHost(host.id, deps)
+  assert.deepEqual(await state(), admission, 'periodic hardening must not invalidate the receipt of an in-flight pool delivery')
+  assert.deepEqual({ connections, hostCalls, guestWrites }, beforeDelivery)
+  await prisma.instance.update({ where: { id: instance.id }, data: { status: 'running', purchaseBatchId: null } })
+  await prisma.poolOrder.delete({ where: { id: order.id } })
+  await hardenExistingHost(host.id, deps)
+  assert.equal((await state()).status, 'verified')
+  assert.ok(hostCalls > beforeDelivery.hostCalls, 'the due check resumes naturally after delivery')
   await prisma.host.update({ where: { id:host.id },data:{ securityHardening:{ revision:SECURITY_HARDENING_REVISION,
     phase:'host-inspection',status:'retry',leaseToken:randomUUID(),nextCheckAt:new Date(0).toISOString() } } })
   await hardenExistingHost(host.id,deps)
@@ -106,6 +120,24 @@ try {
   await hardenExistingHost(host.id,deps)
   assert.deepEqual((await state()).maintenance,maintenanceIntent,'queue preserves unfinished maintenance across retries')
   assert.equal(guestWrites,writesBeforeMaintenance)
+  const validMaintenance={revision:'host-maintenance-v1',requestId:randomUUID(),identityHash:'a'.repeat(64),bootId:uuid,
+    prepareHash:'b'.repeat(64),recipe:'alpine-apparmor-grub-v1',architecture:'x86_64',phase:'waiting-boot',rebootIssued:true,
+    startedAt:new Date().toISOString(),deadline:new Date(Date.now()+20*60000).toISOString(),customers:[]}
+  await prisma.host.update({where:{id:host.id},data:{securityHardening:{...beforeMaintenance,maintenance:validMaintenance,nextCheckAt:new Date(0).toISOString()}}})
+  const resumed:number[]=[],beforePriority={connections,hostCalls,guestWrites}
+  await processSecurityHardeningQueue(deps,()=>false,{resume:async id=>{resumed.push(id)}})
+  assert.deepEqual(resumed,[host.id],'due durable maintenance resumes before scanning later inventory')
+  assert.deepEqual({connections,hostCalls,guestWrites},beforePriority,'active maintenance does not spend its deadline inspecting other hosts')
+  await prisma.host.update({where:{id:host.id},data:{securityHardening:{...beforeMaintenance,maintenance:validMaintenance,nextCheckAt:new Date(Date.now()+30000).toISOString()}}})
+  await processSecurityHardeningQueue(deps,()=>false,{resume:async id=>{resumed.push(id)}})
+  assert.deepEqual(resumed,[host.id],'waiting maintenance retains the batch fence without early resumption or scans')
+  assert.deepEqual({connections,hostCalls,guestWrites},beforePriority)
+  await prisma.host.update({where:{id:host.id},data:{securityHardening:{...beforeMaintenance,status:'retry',maintenance:{...validMaintenance,phase:'verified'},nextCheckAt:new Date(0).toISOString()}}})
+  await processSecurityHardeningQueue(deps,()=>false,{resume:async id=>{resumed.push(id)}})
+  assert.equal((await state()).status,'verified','completed recovery receives its full inspection before another host starts')
+  assert.equal((await state()).maintenance.phase,'verified')
+  assert.equal(connections,beforePriority.connections+1)
+  assert.deepEqual(resumed,[host.id],'terminal proof is inspected rather than rebooted or resumed again')
   await prisma.host.update({where:{id:host.id},data:{securityHardening:beforeMaintenance}})
   const beforeResource = guestWrites
   await due(); preflight.memoryAvailableKiB = 1; await hardenExistingHost(host.id,deps)
@@ -158,6 +190,116 @@ try {
   const second = hardenExistingHost(host.id, deps)
   releaseHost!(); await Promise.all([first, second])
   assert.equal((await state()).status, 'verified', 'two claims share one lease and do not overwrite final receipt')
+  await due()
+  let releaseReceipt!:()=>void
+  let receiptBlocker!:Promise<void>
+  const receiptGate=new Promise<void>(resolve=>{releaseReceipt=resolve})
+  const beforeReceiptWrites=guestWrites
+  try {
+    await hardenExistingHost(host.id,{...deps,customer:async(...args:Parameters<typeof deps.customer>)=>{
+      const result=await deps.customer(...args)
+      let entered!:()=>void
+      const acquired=new Promise<void>(resolve=>{entered=resolve})
+      receiptBlocker=prisma.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(${INSTANCE_OPERATION_LOCK_NAMESPACE}, ${instance.id})::text`
+        entered();await receiptGate
+      },{timeout:15000})
+      await acquired
+      return result
+    }})
+    const pendingReceipt=await state()
+    assert.equal(pendingReceipt.status,'retry','a concurrent lifecycle owner prevents granting verified status')
+    assert.equal(pendingReceipt.phase,'receipt','receipt contention is durably distinguished from unfinished SSH work')
+    assert.equal(pendingReceipt.diagnostic.reason,'HARDENING_BUSY')
+    assert.ok(pendingReceipt.leaseToken,'unknown final result retains the read-only recovery fence')
+    assert.ok(Date.parse(pendingReceipt.nextCheckAt)>Date.now()&&Date.parse(pendingReceipt.nextCheckAt)<=Date.now()+40000,'receipt contention retries promptly rather than leaving the ten-minute claim')
+    assert.equal(guestWrites,beforeReceiptWrites+1)
+  }finally{releaseReceipt();await receiptBlocker}
+  await prisma.host.update({where:{id:host.id},data:{securityHardening:{...await state(),nextCheckAt:new Date(0).toISOString()}}})
+  await hardenExistingHost(host.id,deps)
+  assert.equal((await state()).status,'verified')
+  assert.equal(guestWrites,beforeReceiptWrites+1,'receipt contention recovers by inspection without repeating the customer update')
+  await due()
+  let transientBlocker!:Promise<void>
+  await hardenExistingHost(host.id,{...deps,customer:async(...args:Parameters<typeof deps.customer>)=>{
+    const result=await deps.customer(...args)
+    let acquired!:()=>void
+    const entered=new Promise<void>(resolve=>{acquired=resolve})
+    transientBlocker=prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(${INSTANCE_OPERATION_LOCK_NAMESPACE}, ${instance.id})::text`
+      acquired();await new Promise(resolve=>setTimeout(resolve,250))
+    },{timeout:5000})
+    await entered
+    return result
+  }})
+  await transientBlocker
+  assert.equal((await state()).status,'verified','a short real traffic/lifecycle lane conflict is awaited within the final receipt budget')
+  assert.ok(!(await state()).leaseToken)
+  for (const [change, reason] of [[{ status: 'offline' }, 'HARDENING_OFFLINE'],
+    [{ installPending: true }, 'HARDENING_INSTALL_PENDING']] as const) {
+    await due()
+    await hardenExistingHost(host.id, { ...deps, customer: async (...args: Parameters<typeof deps.customer>) => {
+      const result = await deps.customer(...args)
+      await prisma.host.update({ where: { id: host.id }, data: change })
+      return result
+    } })
+    assert.notEqual((await state()).status, 'verified', 'new host readiness invalidates the previous successful probe')
+    assert.equal((await state()).diagnostic.reason, reason)
+    await prisma.host.update({ where: { id: host.id }, data: { status: 'online', installPending: false } })
+  }
+  await due()
+  await hardenExistingHost(host.id, { ...deps, customer: async (...args: Parameters<typeof deps.customer>) => {
+    const result = await deps.customer(...args)
+    await prisma.systemConfig.update({ where: { key: SECURITY_HARDENING_ENABLED_KEY }, data: { value: 'false' } })
+    return result
+  } })
+  assert.notEqual((await state()).status, 'verified', 'policy revocation before receipt cannot grant success')
+  assert.equal((await state()).diagnostic.reason, 'HARDENING_DISABLED')
+  await prisma.systemConfig.update({ where: { key: SECURITY_HARDENING_ENABLED_KEY }, data: { value: 'true' } })
+  await due()
+  const concurrentMaintenance = { ...validMaintenance, phase: 'waiting-boot' }
+  await hardenExistingHost(host.id, { ...deps, customer: async (...args: Parameters<typeof deps.customer>) => {
+    const result = await deps.customer(...args)
+    await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { ...await state(), maintenance: concurrentMaintenance } } })
+    return result
+  } })
+  assert.deepEqual((await state()).maintenance, concurrentMaintenance, 'final receipt must preserve a newer durable maintenance intent')
+  assert.notEqual((await state()).status, 'verified')
+  for (const change of [{ deletionIntent: { phase: 'requested' } }, { expiresAt: new Date(0) }]) {
+    await due()
+    await hardenExistingHost(host.id, { ...deps, customer: async (...args: Parameters<typeof deps.customer>) => {
+      const result = await deps.customer(...args)
+      await prisma.instance.update({ where: { id: instance.id }, data: change })
+      return result
+    } })
+    assert.notEqual((await state()).status, 'verified', 'a newer deletion/expiry invalidates the previous customer receipt')
+    assert.equal((await state()).diagnostic.phase, 'receipt')
+    await prisma.instance.update({ where: { id: instance.id }, data: { deletionIntent: Prisma.DbNull, expiresAt: instance.expiresAt } })
+  }
+  await due()
+  let newestTask: number | undefined
+  try {
+    await hardenExistingHost(host.id, { ...deps, customer: async (...args: Parameters<typeof deps.customer>) => {
+      const result = await deps.customer(...args)
+      newestTask = (await prisma.instanceTask.create({ data: { instanceId: instance.id, hostId: host.id, userId: buyer.id,
+        taskType: 'stop', status: 'PENDING' } })).id
+      return result
+    } })
+    assert.notEqual((await state()).status, 'verified', 'a newer queued stop must be retained without claiming a settled customer receipt')
+    assert.equal((await state()).diagnostic.reason, 'HARDENING_BUSY')
+    assert.equal((await prisma.instanceTask.findUniqueOrThrow({ where: { id: newestTask } })).status, 'PENDING')
+  } finally { if (newestTask) await prisma.instanceTask.delete({ where: { id: newestTask } }) }
+  await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { revision: SECURITY_HARDENING_REVISION,
+    updateAttempts: 3, nextCheckAt: new Date(0).toISOString() } } })
+  await hardenExistingHost(host.id, { ...deps, customer: async (...args: Parameters<typeof deps.customer>) => {
+    const result = await deps.customer(...args)
+    await prisma.user.update({ where: { id: admin.id }, data: { role: 'user' } })
+    return result
+  } })
+  assert.notEqual((await state()).status, 'verified', 'revoked current administrator invalidates the final result')
+  assert.equal((await state()).diagnostic.reason, 'HARDENING_ADMIN_REQUIRED')
+  assert.equal((await state()).updateAttempts, 3, 'rejected final authority cannot reset the finite update budget')
+  await prisma.user.update({ where: { id: admin.id }, data: { role: 'admin' } })
   await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { revision: SECURITY_HARDENING_REVISION, status: 'retry', error: 'ALPINE_SSH_UPDATE_FAILED', attempts: 6, updateAttempts: 6, nextCheckAt: new Date(0).toISOString() } } })
   const beforeExhausted = guestWrites
   apparmor=false
@@ -223,6 +365,24 @@ try {
     update: async () => { automaticUpdates++ }, hold: async () => ({ verify: async () => {}, close: () => {} }), login: async () => {} }
   await prisma.instance.update({ where: { id: instance.id }, data: { rootPassword: encryptSensitiveData('original-fixture-password') } })
   assert.equal((await maintainAlpineCustomerSsh(instance.id, admin.id, maintenance, undefined, true, expected)).status, 'already-fixed')
+  let shortReady!:()=>void
+  const shortAcquired=new Promise<void>(resolve=>{shortReady=resolve})
+  const shortCustomerLock=prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(${INSTANCE_OPERATION_LOCK_NAMESPACE}, ${instance.id})::text`
+    shortReady();await new Promise(resolve=>setTimeout(resolve,250))
+  },{timeout:5000})
+  await shortAcquired
+  assert.equal((await maintainAlpineCustomerSsh(instance.id,admin.id,maintenance,undefined,true,{...expected,inspectOnly:true})).status,'already-fixed','automatic SSH inspection waits through a short real observer lock')
+  await shortCustomerLock
+  let longReady!:()=>void,longRelease!:()=>void
+  const longAcquired=new Promise<void>(resolve=>{longReady=resolve}),longGate=new Promise<void>(resolve=>{longRelease=resolve})
+  const longCustomerLock=prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(${INSTANCE_OPERATION_LOCK_NAMESPACE}, ${instance.id})::text`
+    longReady();await longGate
+  },{timeout:10000})
+  await longAcquired
+  try{await assert.rejects(maintainAlpineCustomerSsh(instance.id,admin.id,maintenance,undefined,true,{...expected,inspectOnly:true}),/INSTANCE_BUSY/)}
+  finally{longRelease();await longCustomerLock}
   assert.equal(automaticUpdates, 0,'already-patched listener is verified without another write')
   await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, maintenance, undefined, true, { ...expected, uuid: randomUUID() }), /IDENTITY_CHANGED/)
   await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, maintenance, undefined, true, { ...expected, hostId: host.id+1 }), /IDENTITY_CHANGED/)

@@ -8,7 +8,7 @@ import { hardeningPublicView } from '../src/lib/hardening-view.js'
 import { hostMaintenanceBlocked } from '../src/lib/host-maintenance-gate.js'
 import { hardeningIdentityHash, hardeningReceiptMatches } from '../src/lib/hardening-identity.js'
 import { customerBootIdentity, customerBootRecoveryAction, nextMaintenanceAction, readHostMaintenanceIntent, automaticMaintenanceRecipeAllowed } from '../src/lib/host-maintenance-plan.js'
-import { maintenanceWireOperation } from '../src/services/host-maintenance-channel.js'
+import { maintenanceWireOperation, maintenanceWireExpiry } from '../src/services/host-maintenance-channel.js'
 const check = { instanceId: 1, pid: 100, uidMap: '0 1000000 1000000000', gidMap: '0 1000000 1000000000', seccomp: 2, apparmor: 'incus-fixture (enforce)' }
 assert.ok(safeCustomerRuntime(check))
 for (const delta of [{ uidMap: '0 0 4294967295' }, { gidMap: '0 0 65536' }, { uidMap: 'invalid' }, { uidMap: null },
@@ -18,11 +18,25 @@ const preflight = { architecture: 'aarch64', bootId: '11111111-1111-4111-8111-11
   rootReadonly: false, packageBusy: false, apparmorKernelSupport:true,apparmorBootDisabled:false,apparmorActive:true,bootloader:'grub' as const }
 const report = { apparmor: true, alpine: true, fixed: true, branch: '3.22', guests: [check], preflight }
 assert.deepEqual(validateHostSecurityRuntime(report, [{ instanceId: 1, pid: 100 }]), report)
+for(const [architecture,pages] of [['x86_64',[4096]],['aarch64',[4096,16384,65536]]] as const)for(const pageSize of pages){
+  const actual={...report,preflight:{...preflight,architecture,pageSize}}
+  assert.deepEqual(validateHostSecurityRuntime(actual,[{instanceId:1,pid:100}]).preflight,actual.preflight)
+  assert.equal(hardeningPreflightCheck(actual.preflight).status,'verified','target architecture/page size does not inherit the controller architecture')
+}
 for (const value of [{ ...report, apparmor: 'true' }, { ...report, guests: [] }, { ...report, guests: [{ ...check, pid: 101 }] },
   { ...report, branch: 'shell value' }, { ...report, guests: [{ ...check, seccomp: '2' }] }]) {
   assert.throws(() => validateHostSecurityRuntime(value, [{ instanceId: 1, pid: 100 }]), /UNSUPPORTED/)
 }
 const now = 1000000
+const deadlineOperation={action:'reboot' as const,deadline:new Date(now+1000).toISOString()} as Parameters<typeof maintenanceWireExpiry>[0]
+assert.equal(maintenanceWireExpiry(deadlineOperation,now),now+1000,'the wire deadline cannot extend the durable reboot deadline')
+assert.throws(()=>maintenanceWireExpiry(deadlineOperation,now+1000),/REQUEST_EXPIRED/)
+for(const deadline of [undefined,'invalid'])assert.throws(()=>maintenanceWireExpiry({...deadlineOperation,deadline},now),/REQUEST_EXPIRED/)
+assert.equal(maintenanceWireExpiry({...deadlineOperation,action:'prepare'},now),now+1000)
+assert.throws(()=>maintenanceWireExpiry({...deadlineOperation,action:'prepare'},now+1000),/REQUEST_EXPIRED/)
+for(const deadline of [undefined,'invalid'])assert.throws(()=>maintenanceWireExpiry({...deadlineOperation,action:'prepare',deadline},now),/REQUEST_EXPIRED/)
+for(const action of ['status','rollback','restore-customers'] as const)
+  assert.equal(maintenanceWireExpiry({...deadlineOperation,action},now+2000),now+61000,'late discovery/rollback/customer restoration remains available')
 assert.equal(hardeningSchedule([{ status: 'verified' }, { status: 'not-applicable' }], 1, now).status, 'verified')
 assert.equal(hardeningSchedule([{ status: 'needs-maintenance' }, { status: 'retry' }], 1, now).status, 'retry')
 assert.equal(hardeningSchedule([{ status: 'needs-maintenance' }], 1, now).status, 'needs-maintenance')
@@ -56,6 +70,11 @@ for(const reason of ['HARDENING_HOST_QUARANTINED','HARDENING_PUBLIC_IP_PENDING',
   assert.ok(!hardeningReason(reason).includes('管理通道暂未就绪'),'online fences have distinct explanations')
 }
 assert.equal(hardeningDiagnostic('secret payload','inventory').reason,'HARDENING_CHECK_FAILED')
+assert.equal(hardeningFailure(new Error('HARDENING_NATIVE_ACCEPTANCE_REQUIRED')).status,'needs-maintenance')
+assert.equal(hardeningPublicView({diagnostic:{phase:'host-inspection',reason:'HARDENING_NATIVE_ACCEPTANCE_REQUIRED'}}).diagnostic?.reason,
+  'HARDENING_NATIVE_ACCEPTANCE_REQUIRED','the specific activation failure survives public redaction')
+assert.match(hardeningDiagnostic('HARDENING_NATIVE_ACCEPTANCE_REQUIRED','host-inspection').nextAction,/尚未放行.*自动启动维护/)
+assert.match(hardeningReason('HARDENING_NATIVE_ACCEPTANCE_REQUIRED'),/自动维护尚未启动/)
 assert.equal(hardeningNeedsReadOnlyRecovery({ leaseToken:'expired-original-lease' }),true)
 assert.equal(hardeningNeedsReadOnlyRecovery({ error:'SSH_COMMAND_TIMEOUT' }),true)
 assert.equal(hardeningNeedsReadOnlyRecovery({ instances:[{ instanceId:1,isolation:{status:'verified'},ssh:{status:'retry',reason:'ALPINE_SSH_UPDATE_FAILED'} }] }),true)
@@ -96,6 +115,9 @@ assert.equal(nextMaintenanceAction(intent,proof,now+120001),'rollback')
 assert.equal(nextMaintenanceAction(intent,{...proof,remotePhase:'reboot-intent'},now+120001),'blocked')
 assert.equal(nextMaintenanceAction(intent,{...proof,remotePhase:'rolled-back'},now),'aborted')
 assert.equal(automaticMaintenanceRecipeAllowed(intent.recipe,'aarch64'),false,'native evidence is required before activation')
+assert.equal(automaticMaintenanceRecipeAllowed('alpine-apparmor-grub-v1','x86_64'),true,'accepted native Alpine/GRUB AMD64 recipe is available')
+assert.equal(automaticMaintenanceRecipeAllowed('alpine-apparmor-grub-v1','aarch64'),false,'AMD64 acceptance never activates ARM64')
+assert.equal(automaticMaintenanceRecipeAllowed('alpine-apparmor-extlinux-v1','x86_64'),false,'GRUB acceptance never activates Extlinux')
 const wire=maintenanceWireOperation({...intent,action:'reboot'},preflight.bootId,now+59000)
 assert.deepEqual(Object.keys(wire).sort(),['action','architecture','bootId','customers','expiresAt','identityHash','nodeId','prepareHash','recipe','requestId'])
 assert.equal(hostMaintenanceBlocked({maintenance:{...intent,phase:'verified',rebootIssued:true}}),false)
@@ -108,6 +130,11 @@ for (const value of [null,'malformed',[],{instances:'private-token'},{instances:
   assert.doesNotMatch(JSON.stringify(view),/private-token|secret-raw|secret-phase|private-key/)
 }
 assert.equal(hardeningPublicView({revision:'old',status:'verified',phase:'finished',nextCheckAt:new Date(Date.now()+60000).toISOString()}).status,'pending')
+const blockedView=hardeningPublicView({status:'retry',diagnostic:{phase:'runtime',reason:'HARDENING_APPARMOR_REQUIRED'},
+  maintenance:{...intent,phase:'blocked',error:'HARDENING_IDENTITY_CHANGED'}})
+assert.equal(blockedView.status,'needs-maintenance')
+assert.equal(blockedView.diagnostic?.reason,'HARDENING_IDENTITY_CHANGED','the maintenance failure must not be hidden by the earlier initial probe')
+assert.equal(blockedView.diagnostic?.phase,'host-inspection')
 assert.equal(readAlpineSshPreflight('INCUDAL_SSH_PREFLIGHT aarch64 262144 0.00 262144 1024 0 0\n').status,'verified')
 assert.equal(readAlpineSshPreflight('INCUDAL_SSH_PREFLIGHT x86_64 131071 none 262144 1024 0 0\n').reason,'HARDENING_MEMORY_LOW')
 assert.equal(readAlpineSshPreflight('INCUDAL_SSH_PREFLIGHT aarch64 262144 5.00 262144 1024 0 0\n').reason,'HARDENING_MEMORY_PRESSURE')

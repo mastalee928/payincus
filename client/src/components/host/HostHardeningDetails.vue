@@ -17,6 +17,8 @@ const current=()=>alive&&authentication.aligned&&authentication.current()&&auth.
 function close(){alive=false;sequence++;clearTimeout(timer);opened.value=false;dialog.value?.close();emit('close')}
 useDialogFocus(dialog,()=>opened.value,close)
 const label=(code:string,prefix='')=>te(`securityHardening.${prefix}${code}`)?t(`securityHardening.${prefix}${code}`):t('securityHardening.unknown')
+const nextAction=()=>report.value?.diagnostic?.reason==='HARDENING_NATIVE_ACCEPTANCE_REQUIRED'?t('securityHardening.nativeAcceptanceNext'):
+  report.value?.diagnostic?.reason==='HARDENING_BOOT_LAYOUT_UNSUPPORTED'?t('securityHardening.bootLayoutNext'):label(report.value?.diagnostic?.action||'')
 const time=(value:string|null)=>value?new Date(value).toLocaleString(locale.value):'—'
 const result=(value:HardeningCheckView)=>label(value.status)
 async function refresh(){
@@ -51,7 +53,7 @@ onBeforeUnmount(()=>{alive=false;sequence++;clearTimeout(timer);window.removeEve
         <section v-if="report.diagnostic" class="diagnostic">
           <h3>{{t('securityHardening.reason')}}</h3><p>{{label(report.diagnostic.reason,'reasons.')}}</p>
           <p v-if="report.diagnostic.instanceId">{{t('securityHardening.guest',{id:report.diagnostic.instanceId})}}</p>
-          <h3>{{t('securityHardening.nextAction')}}</h3><p>{{label(report.diagnostic.action)}}</p>
+          <h3>{{t('securityHardening.nextAction')}}</h3><p>{{nextAction()}}</p>
         </section>
         <section v-if="report.maintenance" class="diagnostic">
           <h3>{{t('securityHardening.maintenanceTitle')}}</h3>
@@ -93,6 +95,6 @@ onBeforeUnmount(()=>{alive=false;sequence++;clearTimeout(timer);window.removeEve
 .hardening-details::backdrop{background:rgb(0 0 0 / .55)}
 .action-history{list-style:none;padding:0}.action-history li{padding:8px 0}.action-history time{color:#737373;font-size:12px;font-variant-numeric:tabular-nums}.action-history p{margin:4px 0}
 h2{font-size:20px;font-weight:600;margin:0}h3{font-size:14px;font-weight:600;margin:16px 0 8px}p,dl,li{font-size:14px;line-height:1.6;overflow-wrap:anywhere}p{color:#525252;margin:8px 0}dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:8px 16px;margin:16px 0}dt{color:#525252}dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}.checks{padding:0;list-style:none;margin:16px 0}.checks li{padding:12px 0;border-top:1px solid #e5e5e5}.checks li>div{display:flex;justify-content:space-between;gap:12px}.checks strong{font-size:13px;font-weight:500}.diagnostic{border:1px solid #d4d4d4;padding:0 16px 8px;border-radius:8px}.verified{color:#166534}.retry,.needs-maintenance{color:#92400e}.failure{color:#b91c1c}footer{border-top:1px solid #e5e5e5;padding-top:12px}button{display:block;margin-left:auto;min-height:44px;padding:8px 16px;border:1px solid #d4d4d4;border-radius:6px;background:transparent;color:inherit;font-size:14px}button:focus-visible{outline:2px solid currentColor;outline-offset:3px}
-:global(.dark) .hardening-details{background:#171717;color:#f5f5f5;border-color:#525252}:global(.dark) p,:global(.dark) dt{color:#bdbdbd}:global(.dark) .checks li,:global(.dark) footer{border-color:#404040}:global(.dark) .verified{color:#4ade80}:global(.dark) .retry,:global(.dark) .needs-maintenance{color:#fbbf24}:global(.dark) .failure{color:#f87171}
+:global(.dark .hardening-details){background:#171717;color:#f5f5f5;border-color:#525252}:global(.dark .hardening-details p),:global(.dark .hardening-details dt){color:#bdbdbd}:global(.dark .hardening-details .checks li),:global(.dark .hardening-details footer){border-color:#404040}:global(.dark .hardening-details .diagnostic),:global(.dark .hardening-details button){border-color:#525252}:global(.dark .hardening-details .verified){color:#4ade80}:global(.dark .hardening-details .retry),:global(.dark .hardening-details .needs-maintenance){color:#fbbf24}:global(.dark .hardening-details .failure){color:#f87171}
 @media(max-width:480px){.hardening-details{padding:18px}dl{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:8px}}
 </style>

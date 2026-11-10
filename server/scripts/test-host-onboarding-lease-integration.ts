@@ -8,11 +8,18 @@ database.searchParams.set('options', '-c timezone=Asia/Shanghai')
 process.env.DATABASE_URL = database.href
 process.env.ENCRYPTION_KEY = 'onboarding-retry-integration-fixture'
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { claimHostOnboardingNode } = await import('../src/workers/hostOnboardingWorker.js')
+const { claimHostOnboardingNode, assertOnboardingAuthority } = await import('../src/workers/hostOnboardingWorker.js')
 const batchId = randomUUID()
 const actor = await prisma.user.create({ data: { username: `lease-${batchId}`, role: 'admin', passwordHash: 'fixture-only' } })
 
 try {
+  await assertOnboardingAuthority(actor.id)
+  for (const data of [{ role: 'user' as const }, { role: 'admin' as const, status: 'banned' as const }]) {
+    await prisma.user.update({ where: { id: actor.id }, data })
+    await assert.rejects(assertOnboardingAuthority(actor.id), /ADMIN_REQUIRED/)
+  }
+  await prisma.user.update({ where: { id: actor.id }, data: { role: 'admin', status: 'active' } })
+  await assertOnboardingAuthority(actor.id)
   const timezone = await prisma.$queryRawUnsafe<Array<{ TimeZone: string }>>('SHOW TIMEZONE')
   assert.equal(timezone[0]?.TimeZone, 'Asia/Shanghai')
   assert.equal(await prisma.hostOnboardingNode.count({ where: { deletedAt: null, status: { in: ['queued', 'running'] } } }), 0, 'test database must have no active onboarding jobs')
@@ -22,12 +29,21 @@ try {
   } })
   const first = await claimHostOnboardingNode()
   assert.equal(first?.batchId, batchId)
+  assert.equal(first?.installerRestartAllowed, true)
   assert.equal(await claimHostOnboardingNode(), null, 'a valid UTC lease must not be reclaimed in a non-UTC database session')
   await prisma.hostOnboardingNode.update({ where: { id: first!.id }, data: { leaseUntil: new Date(Date.now() - 60000) } })
   const recovered = await claimHostOnboardingNode()
   assert.equal(recovered?.id, first!.id, 'an expired lease must remain recoverable')
   assert.notEqual(recovered?.leaseToken, first!.leaseToken)
   assert.equal(recovered?.attempt, first!.attempt, 'recovery must not impersonate an explicit retry')
+  assert.equal(recovered?.installerRestartAllowed, false, 'lease recovery is not an explicit full-installer retry')
+  await prisma.hostOnboardingNode.update({ where: { id: first!.id }, data: { status: 'queued', step: 'tunnel',
+    errorCode: 'HOST_DEPENDENCIES_PENDING', leaseToken: null, leaseUntil: null, attempt: 3 } })
+  assert.equal(await claimHostOnboardingNode(), null, 'transient bootstrap failure must back off without a new database field')
+  await prisma.hostOnboardingNode.update({ where: { id: first!.id }, data: { updatedAt: new Date(Date.now() - 61000) } })
+  const automatic = await claimHostOnboardingNode()
+  assert.equal(automatic?.id, first!.id, 'due retries work with a non-UTC database session')
+  assert.equal(automatic?.installerRestartAllowed, false, 'automatic retries cannot replay unknown installation failures')
   const { default: onboardingRoutes } = await import('../src/routes/host-onboarding.js')
   const app = Fastify({ ajv: { customOptions: { removeAdditional: false } } })
   app.decorate('authenticateAdmin', async (request, reply) => {
@@ -51,6 +67,13 @@ try {
     assert.equal(retried.sshFingerprint, 'old-ubuntu-identity', 'requesting a retry cannot overwrite identity before current root authentication')
     assert.equal((retried.identityReset as { reason: string }).reason, 'retry')
     assert.ok(retried.credentialsEncrypted && !retried.credentialsEncrypted.includes('new-system-fixture'))
+    const listing = await app.inject({ method: 'GET', url: '/onboarding/', headers })
+    assert.equal(listing.statusCode, 200)
+    assert.ok(!listing.body.includes('new-system-fixture') && !listing.body.includes(retried.credentialsEncrypted!))
+    await prisma.hostOnboardingNode.update({ where: { id: first!.id }, data: { status: 'failed',
+      credentialsEncrypted: JSON.stringify({ password: 'plaintext-fixture' }) } })
+    const plaintext = await app.inject({ method: 'POST', url, headers, payload: {} })
+    assert.equal(plaintext.statusCode, 400); assert.equal(plaintext.json().code, 'SSH_CREDENTIALS_INVALID')
     const audit = await prisma.log.findFirst({ where: { action: 'host.onboarding.current_system_requested', content: { contains: batchId } } })
     assert.ok(audit?.content.includes('old-ubuntu-identity'), 'the previous identity remains in the audit record')
     await prisma.hostOnboardingNode.update({ where: { id: first!.id }, data: { status: 'failed', step: 'checking',

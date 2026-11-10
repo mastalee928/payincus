@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash, randomUUID, randomInt } from 'node:crypto'
 import Fastify from 'fastify'
+import { Prisma } from '@prisma/client'
 const database = new URL(process.env.DATABASE_URL || '')
 assert.equal(database.hostname, '127.0.0.1')
 assert.ok(database.pathname.endsWith('_pool_test'))
@@ -31,7 +32,7 @@ const instance = await prisma.instance.create({ data: { userId: buyer.id, hostId
     managedCleanup: { uuid, attempt, endpointHash: createHash('sha256').update(endpoint).digest('hex') } } } })
 let updated = 0, holds = 0, logins = 0, fixed = false, changed = false, failUpdate = false, sessionFail = false
 const events: string[] = []
-const client = { baseUrl: endpoint, request: async () => ({ name: prefix, type: 'container', profiles: [], devices: { root: { type: 'disk', path: '/', pool: 'fixture' } }, config: { 'security.privileged': 'false', 'volatile.uuid': changed ? randomUUID() : uuid, 'user.payincus.provisioning-attempt': attempt } }) } as any
+const client = { baseUrl: endpoint, request: async (_method:string,path:string) => path==='/1.0/networks/incusbr0' ? {config:{'user.payincus.guest-guard':`v1:${'a'.repeat(64)}:${Date.now()}`}} : ({ name: prefix, type: 'container', profiles: [], devices: { root: { type: 'disk', path: '/', pool: 'fixture' } }, config: { 'security.privileged': 'false', 'volatile.uuid': changed ? randomUUID() : uuid, 'user.payincus.provisioning-attempt': attempt } }) } as any
 const deps = {
   connect: async () => client,
   inspect: async () => ({ alpine: true, fixed, fingerprints: ['SHA256:original'] }),
@@ -51,6 +52,18 @@ try {
   await prisma.tokenInvalidation.create({ data: { userId: admin.id, sessionId: session.sid, invalidatedAt: session.iat } })
   await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, deps, session), /ADMIN_REQUIRED/)
   await prisma.tokenInvalidation.deleteMany({ where: { userId: admin.id } })
+  for (const change of [{ deletionIntent: { requested: true } }, { expiresAt: new Date(0) }]) {
+    await prisma.instance.update({ where: { id: instance.id }, data: change })
+    await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, deps), /TARGET_NOT_READY/,
+      'a pending deletion or elapsed running lease grants no SSH patch authority')
+    assert.equal(holds, 0); assert.equal(updated, 0)
+    await prisma.instance.update({ where: { id: instance.id }, data: { deletionIntent: Prisma.DbNull, expiresAt: instance.expiresAt } })
+  }
+  await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { maintenance: { phase: 'waiting-boot' } } } })
+  await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, deps), /INSTANCE_BUSY/,
+    'a durable maintenance fence also blocks the explicit SSH action before connecting')
+  assert.equal(holds, 0); assert.equal(updated, 0)
+  await prisma.host.update({ where: { id: host.id }, data: { securityHardening: Prisma.DbNull } })
   changed = true
   await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, deps), /IDENTITY_CHANGED/)
   assert.equal(holds, 0)
@@ -89,6 +102,19 @@ try {
   assert.equal(updated, count)
   assert.equal(Number((await prisma.user.findUniqueOrThrow({ where: { id: buyer.id } })).balance), 77)
   assert.ok(await prisma.log.count({ where: { instanceId: instance.id, result: 'error' } }) > 0)
+  const expiry = new Date(Date.now() + 1500)
+  await prisma.instance.update({ where: { id: instance.id }, data: { expiresAt: expiry } })
+  let expiryHold = false
+  await assert.rejects(maintainAlpineCustomerSsh(instance.id, admin.id, { ...deps,
+    inspect: async () => ({ alpine: true, fixed: false, fingerprints: ['SHA256:original'] }),
+    hold: async () => {
+      expiryHold = true
+      await new Promise(resolve => setTimeout(resolve, Math.max(1, expiry.getTime() - Date.now() + 25)))
+      return { verify: async () => {}, close: () => {} }
+    }, update: async () => { throw Error('unexpected late patch') }
+  }), /TARGET_NOT_READY/, 'expiry during original password handshake prevents the actual patch')
+  assert.ok(expiryHold, 'the elapsed boundary is exercised after the initial readiness gate')
+  await prisma.instance.update({ where: { id: instance.id }, data: { expiresAt: instance.expiresAt } })
   const app = Fastify({ ajv: { customOptions: { removeAdditional: false } } })
   app.decorate('authenticateAdmin', async (request, reply) => {
     if (request.headers['x-test-admin'] !== 'yes') { reply.code(403).send({ error: 'forbidden' }); return }

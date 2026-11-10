@@ -38,6 +38,7 @@ const db: any = {
   } }
 }
 const tx: any = { ...db,
+  user: { findUnique: async ({ where }: any) => where.id === 101 ? { role: 'admin', status: 'active' } : null },
   $queryRaw: async () => { const hook = lockHook; lockHook = undefined; hook?.(); return [{ id: host.id }] },
   host: {
     findUnique: async () => structuredClone(host),

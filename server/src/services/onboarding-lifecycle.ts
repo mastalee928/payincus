@@ -6,6 +6,7 @@ import { preflightScript } from './onboarding-scripts.js'
 import { randomUUID } from 'node:crypto'
 import { isIPv4 } from 'node:net'
 import { currentHostAddressWhere, lockOnboardingAddresses } from './onboarding-conflicts.js'
+import { assertOnboardingLease } from './onboarding-authority.js'
 
 export type GatewayRegistration = { nodePublicKey: string; managementIp: string }
 export type PeerRetirement = { version: 1; requestId: string; status: 'pending' | 'blocked' | 'done'; registration?: GatewayRegistration | null; enrollmentKey?: string; attempts: number; nextAttemptAt: string; error: string | null }
@@ -33,21 +34,29 @@ export function readPeerRetirement(value: unknown): PeerRetirement | null {
 export async function inspectCurrentOnboardingSystem(node: {
   id: string; publicIp: string; sshPort: number; leaseToken: string | null; identityReset: unknown; name: string
 }, actorId: number, credentials: OnboardingCredentials) {
-  const current = await prisma.hostOnboardingNode.findUniqueOrThrow({ where: { id: node.id } })
-  const intent = current.identityReset as { version?: number; reason?: string; requestId?: string } | null
+  const current = await assertOnboardingLease(node)
+  if (current.batch.createdById !== actorId) throw new OnboardingError('ADMIN_REQUIRED')
+  const intent = current.identityReset as { version?: number; reason?: string; requestId?: string; verifiedFingerprint?: string } | null
   if (current.hostId !== null || current.deletedAt || current.leaseToken !== node.leaseToken || current.status !== 'running' || intent?.version !== 1 ||
     !['retry', 'new'].includes(intent.reason || '') || intent.requestId !== (node.identityReset as { requestId?: string } | null)?.requestId) throw new OnboardingError('WORKER_INTERRUPTED')
   if (await prisma.host.count({ where: currentHostAddressWhere(node.publicIp) })) throw new OnboardingError('HOST_IP_ALREADY_REGISTERED')
   let fingerprint: string | null = null
-  const client = await connectOnboardingSsh({ host: node.publicIp, port: node.sshPort, ...credentials }, async current => { fingerprint = current; return true })
+  const client = await connectOnboardingSsh({ host: node.publicIp, port: node.sshPort, ...credentials }, async observed => {
+    const latest = await assertOnboardingLease(node)
+    const reset = latest.identityReset as typeof intent
+    if (reset?.requestId !== intent?.requestId) throw new OnboardingError('WORKER_INTERRUPTED')
+    fingerprint = observed
+    return !reset?.verifiedFingerprint || reset.verifiedFingerprint === observed
+  })
   try {
     // Authentication and the remote no-customer preflight must both complete
     // before a candidate SSH identity is persisted.
+    await assertOnboardingLease(node)
     await sshExec(client, 'sh -s', preflightScript(node.id))
     if (!fingerprint) throw new OnboardingError('SSH_IDENTITY_CHECK_FAILED')
     await prisma.$transaction(async tx => {
       await lockOnboardingLifecycle(tx)
-      const current = await tx.hostOnboardingNode.findUniqueOrThrow({ where: { id: node.id } })
+      const current = await assertOnboardingLease(node, tx)
       const reset = current.identityReset as { version?: number; reason?: string; requestId?: string } | null
       if (current.hostId !== null || current.deletedAt || current.leaseToken !== node.leaseToken || current.status !== 'running' || reset?.version !== 1 ||
         reset.requestId !== (node.identityReset as { requestId?: string } | null)?.requestId) throw new OnboardingError('WORKER_INTERRUPTED')
@@ -56,6 +65,7 @@ export async function inspectCurrentOnboardingSystem(node: {
       const retirement = readPeerRetirement(current.peerRetirement)
       await tx.hostOnboardingNode.update({ where: { id: node.id }, data: {
         sshFingerprint: fingerprint,
+        identityReset: { ...reset, verifiedFingerprint: fingerprint },
         ...(changed ? { resolvedResources: Prisma.DbNull,
           peerRetirement: retirement?.status === 'done' ? current.peerRetirement as Prisma.InputJsonValue : (retirement || pendingPeerRetirement(current.nodePublicKey && current.managementIp ? { nodePublicKey: current.nodePublicKey, managementIp: current.managementIp } : undefined)) as unknown as Prisma.InputJsonValue } : {})
       } })
@@ -114,7 +124,7 @@ export async function retireOnboardingPeer(tx: Prisma.TransactionClient, node: {
 }
 
 export async function enrollOnboardingGateway(node: { id: string; publicIp: string; leaseToken: string | null }, publicKey: string, inspectCurrentSystem: boolean) {
-  const initial = await prisma.hostOnboardingNode.findUniqueOrThrow({ where: { id: node.id } })
+  const initial = await assertOnboardingLease(node)
   const pending = readPeerRetirement(initial.peerRetirement)
   let saved: GatewayRegistration | null = null
   if (initial.hostId === null && (inspectCurrentSystem || pending?.status === 'pending' || pending?.enrollmentKey)) {
@@ -124,7 +134,7 @@ export async function enrollOnboardingGateway(node: { id: string; publicIp: stri
   }
   await prisma.$transaction(async tx => {
     await lockOnboardingLifecycle(tx)
-    const current = await tx.hostOnboardingNode.findUniqueOrThrow({ where: { id: node.id } })
+    const current = await assertOnboardingLease(node, tx)
     if (current.leaseToken !== node.leaseToken || current.status !== 'running' || current.deletedAt) throw new OnboardingError('WORKER_INTERRUPTED')
     if (saved && saved.nodePublicKey !== publicKey) {
       if (!inspectCurrentSystem || current.hostId !== null) throw new OnboardingError('MANAGEMENT_NETWORK_CONFLICT')
@@ -144,7 +154,7 @@ export async function enrollOnboardingGateway(node: { id: string; publicIp: stri
   // therefore resumes at registration, without repeating the old retirement.
   await prisma.$transaction(async tx => {
     await lockOnboardingLifecycle(tx)
-    const current = await tx.hostOnboardingNode.findUniqueOrThrow({ where: { id: node.id } })
+    const current = await assertOnboardingLease(node, tx)
     if (current.leaseToken !== node.leaseToken || current.status !== 'running' || current.deletedAt) throw new OnboardingError('WORKER_INTERRUPTED')
     const state = readPeerRetirement(current.peerRetirement)
     if (state && state.status !== 'done') await retireOnboardingPeer(tx, current)
@@ -153,7 +163,7 @@ export async function enrollOnboardingGateway(node: { id: string; publicIp: stri
   // A timeout after remote success can then resume or delete that exact peer.
   await prisma.$transaction(async tx => {
     await lockOnboardingLifecycle(tx)
-    const current = await tx.hostOnboardingNode.findUniqueOrThrow({ where: { id: node.id } })
+    const current = await assertOnboardingLease(node, tx)
     if (current.leaseToken !== node.leaseToken || current.status !== 'running' || current.deletedAt) throw new OnboardingError('WORKER_INTERRUPTED')
     const state = readPeerRetirement(current.peerRetirement)
     if (state && state.status !== 'done') throw new OnboardingError('GATEWAY_RETIREMENT_PENDING')
@@ -165,7 +175,7 @@ export async function enrollOnboardingGateway(node: { id: string; publicIp: stri
   return prisma.$transaction(async tx => {
     await lockOnboardingAddresses(tx, [node.publicIp])
     await lockOnboardingLifecycle(tx)
-    const current = await tx.hostOnboardingNode.findUniqueOrThrow({ where: { id: node.id } })
+    const current = await assertOnboardingLease(node, tx)
     if (current.leaseToken !== node.leaseToken || current.status !== 'running' || current.deletedAt) throw new OnboardingError('WORKER_INTERRUPTED')
     if (current.hostId === null && await tx.host.count({ where: currentHostAddressWhere(node.publicIp) })) throw new OnboardingError('HOST_IP_ALREADY_REGISTERED')
     const gateway = await gatewayCommand(`add ${node.id} ${publicKey}`)

@@ -4,8 +4,16 @@
  */
 
 import { prisma } from './prisma.js'
+import { hostUnfinishedCreationWhere } from '../lib/host-resource-usage.js'
 import { getHostById } from './hosts.js'
 import type { PortMapping } from '../types/database.js'
+import type { Prisma } from '@prisma/client'
+import { advisoryTransactionLockString, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE } from './advisory-locks.js'
+
+async function heldCreationPorts(hostId: number, client: Pick<Prisma.TransactionClient, 'instanceTask'> = prisma) {
+  const tasks = await client.instanceTask.findMany({ where: hostUnfinishedCreationWhere(hostId), select: { replacementState: true } })
+  return tasks.flatMap(task => (task.replacementState as { targetPorts?: Array<{ protocol: string; publicPort: number }> } | null)?.targetPorts || [])
+}
 
 /**
  * 获取实例的端口映射列表
@@ -98,7 +106,10 @@ export async function createPortMapping(data: {
   // 创建实例时系统自动下发的远程端口。这条不计入用户端口配额（见 checkPortQuota）。
   systemManaged?: boolean
 }): Promise<number> {
-  const mapping = await prisma.portMapping.create({
+  const mapping = await prisma.$transaction(async tx => {
+    await advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, `ports:host:${data.hostId}`)
+    if ((await heldCreationPorts(data.hostId, tx)).some(port => port.protocol === data.protocol && port.publicPort === data.publicPort)) throw Error('PORT_RESERVED_BY_CREATION')
+    return tx.portMapping.create({
     data: {
       instanceId: data.instanceId,
       hostId: data.hostId,
@@ -108,6 +119,7 @@ export async function createPortMapping(data: {
       remark: data.remark || null,
       systemManaged: data.systemManaged ?? false
     }
+    })
   })
 
   return mapping.id
@@ -119,19 +131,20 @@ export async function createPortMapping(data: {
 export async function allocatePort(
   hostId: number,
   protocol: 'tcp' | 'udp' = 'tcp',
-  excludedPorts: number[] = []
+  excludedPorts: number[] = [],
+  client: Pick<Prisma.TransactionClient, 'portMapping' | 'instanceTask' | 'host'> = prisma
 ): Promise<number | null> {
   // 获取宿主机的端口范围
-  const host = await getHostById(hostId)
-  if (!host || !host.nat_port_start || !host.nat_port_end) {
+  const host = await client.host.findUnique({ where: { id: hostId }, select: { natPortStart: true, natPortEnd: true } })
+  if (!host || !host.natPortStart || !host.natPortEnd) {
     return null
   }
 
-  const portStart = host.nat_port_start
-  const portEnd = host.nat_port_end
+  const portStart = host.natPortStart
+  const portEnd = host.natPortEnd
 
   // 获取该宿主机已使用的端口
-  const usedMappings = await prisma.portMapping.findMany({
+  const usedMappings = await client.portMapping.findMany({
     where: {
       hostId,
       protocol
@@ -141,6 +154,7 @@ export async function allocatePort(
     }
   })
   const usedPorts = new Set(usedMappings.map(m => m.publicPort))
+  for (const port of await heldCreationPorts(hostId, client)) if (port.protocol === protocol) usedPorts.add(port.publicPort)
   for (const port of excludedPorts) {
     if (Number.isInteger(port)) {
       usedPorts.add(port)
@@ -206,6 +220,10 @@ export async function allocatePorts(
       select: { publicPort: true }
     })
     usedMappings.forEach(m => usedPorts.add(m.publicPort))
+  }
+
+  for (const port of await heldCreationPorts(hostId)) {
+    if (checkBothProtocols || port.protocol === protocol) usedPorts.add(port.publicPort)
   }
 
   // 收集所有可用端口
@@ -356,6 +374,9 @@ export async function suggestAvailablePorts(
   
   // 将排除端口也加入已使用集合
   excludePorts.forEach(p => usedPorts.add(p))
+  for (const port of await heldCreationPorts(hostId)) {
+    if (checkBothProtocols || port.protocol === protocol) usedPorts.add(port.publicPort)
+  }
 
   // 收集所有可用端口
   const availablePorts: number[] = []
@@ -385,9 +406,17 @@ export async function createPortMappingsBatch(data: Array<{
   privatePort: number
   remark?: string
 }>): Promise<number[]> {
-  const results = await prisma.$transaction(
-    data.map(item => 
-      prisma.portMapping.create({
+  const results = await prisma.$transaction(async tx => {
+    // Stable lock order prevents cross-host batches from deadlocking.
+    for (const hostId of [...new Set(data.map(item => item.hostId))].sort((a, b) => a - b)) {
+      await advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, `ports:host:${hostId}`)
+      const held = await heldCreationPorts(hostId, tx)
+      if (data.some(item => item.hostId === hostId && held.some(port => port.protocol === item.protocol && port.publicPort === item.publicPort))) {
+        throw Error('PORT_RESERVED_BY_CREATION')
+      }
+    }
+    const rows = []
+    for (const item of data) rows.push(await tx.portMapping.create({
         data: {
           instanceId: item.instanceId,
           hostId: item.hostId,
@@ -396,9 +425,9 @@ export async function createPortMappingsBatch(data: Array<{
           privatePort: item.privatePort,
           remark: item.remark || null
         }
-      })
-    )
-  )
+      }))
+    return rows
+  })
 
   return results.map(r => r.id)
 }

@@ -21,6 +21,16 @@ export interface ResolvedHostResources {
   diskReserveGiB: number
 }
 
+/** The authenticated Incus endpoint must agree with the SSH resource probe. */
+export function verifyOnboardingArchitecture(value: unknown, expected: HostResourceProbe['architecture']): HostResourceProbe['architecture'] {
+  const architecture = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  const normalized = ['x86_64', 'amd64', 'x64'].includes(architecture) ? 'x86_64'
+    : ['aarch64', 'arm64'].includes(architecture) ? 'aarch64' : null
+  if (!normalized) throw new OnboardingError('RESOURCE_PROBE_INVALID')
+  if (normalized !== expected) throw new OnboardingError('RESOURCE_ARCHITECTURE_MISMATCH')
+  return normalized
+}
+
 export function parseResourceProbe(output: string): HostResourceProbe {
   let data: HostResourceProbe
   try { data = JSON.parse(output.trim()) } catch { throw new OnboardingError('RESOURCE_PROBE_INVALID') }

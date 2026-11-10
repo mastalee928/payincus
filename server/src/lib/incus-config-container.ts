@@ -135,7 +135,7 @@ function detectOsInfo(imageAlias: string): OsInfo {
     return { family: 'ubuntu', packageManager: 'apt', initSystem: 'systemd', sshServiceName: 'ssh', defaultShell: '/bin/bash', defaultUsers: ['root', 'ubuntu'], supportsInclude: true }
   }
 
-  if (alias.includes('arch')) {
+  if (/(^|[:/])arch(?:linux)?(?=\/|$)/.test(alias)) {
     return {
       family: 'arch',
       packageManager: 'pacman',

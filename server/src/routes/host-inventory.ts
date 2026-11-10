@@ -7,6 +7,7 @@ import { HostRecoveryError, inspectHostRecovery, recoverPoolHost } from '../serv
 import { retryPoolCleanup } from '../services/host-pool-cleanup.js'
 import { managementRepairView } from '../services/host-management-repair.js'
 import { hardeningPublicView } from '../lib/hardening-view.js'
+import { hardeningReceiptMatches, hardeningStockSelect } from '../lib/hardening-identity.js'
 import type { FastifyInstance } from 'fastify'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
@@ -18,8 +19,8 @@ import { deleteHost, HostRemovalError } from '../db/hosts.js'
 import { removeIncusClient } from '../lib/incus/index.js'
 import { hostSshConnection } from '../lib/host-ssh.js'
 import { lockHostGroups, resolveHostGroups, type HostGroupInput } from '../services/host-groups.js'
-import { HOST_OCCUPIED_INSTANCE_WHERE, dedicatedHostReadyWhere } from '../lib/host-resource-usage.js'
-import { poolCapacityReady, poolCapacitySelect, poolKeyOf, poolKeyString, priceKeyOf, unsellableReason, type UnsellableReason } from '../lib/pool-stock.js'
+import { HOST_OCCUPIED_INSTANCE_WHERE, dedicatedHostReadyWhere, hostUnfinishedCreationWhere } from '../lib/host-resource-usage.js'
+import { poolCapacityReady, poolCapacitySelect, poolKeyOf, poolKeyString, priceKeyOf, unsellableReason, unfinishedPoolTaskSelect, unfinishedPoolHostIds, type UnsellableReason } from '../lib/pool-stock.js'
 
 const occupied = HOST_OCCUPIED_INSTANCE_WHERE
 const count = () => ({ total: 0, available: 0, assigned: 0, unavailable: 0 })
@@ -51,25 +52,26 @@ export default async function hostInventoryRoutes(fastify: FastifyInstance) {
       ] } : {})
     }
     // A compact snapshot makes counts independent of the current page and search.
-    const [inventory, groups, moves, priceRows, readyHosts] = await Promise.all([
+    const [inventory, groups, moves, priceRows, readyHosts, unfinished] = await Promise.all([
       prisma.host.findMany({ select: { ...poolCapacitySelect, id: true, machineGroupId: true, regionGroupId: true, resourcePreset: true, customerDiskGiB: true, singleTenant: true, status: true, isInstalled: true, poolFaulted: true, publicIpSyncBlocked: true,
         _count: { select: { instances: { where: occupied } } }, onboardingNode: { select: { status: true } }, agent: { select: { enabled: true, lastSeenAt: true } } } }),
       prisma.hostMachineGroup.findMany({ orderBy: { id: 'asc' }, include: { regions: { orderBy: { id: 'asc' } } } }),
       prisma.instanceTask.findMany({ where: { taskType: { in: ['change_host', 'replace_host'] }, status: { in: ['PENDING', 'PROCESSING'] }, targetHostId: { not: null } }, select: { targetHostId: true } }),
       prisma.hostPoolPrice.findMany({ where: { active: true }, select: { machineGroupId: true, resourcePreset: true, regionGroupId: true, diskGiB: true } }),
-      prisma.host.findMany({ where: dedicatedHostReadyWhere(), select: { id: true } })
+      prisma.host.findMany({ where: dedicatedHostReadyWhere(), select: hardeningStockSelect }),
+      prisma.instanceTask.findMany({ where: hostUnfinishedCreationWhere(), select: unfinishedPoolTaskSelect })
     ])
     // 「真正可售」与客户公开目录同一套判据：有定价行 + 单租户 + 就绪 + 未占用 + 已设规格。
     // 只按「在线空闲」判定会让人以为机器能卖，其实客户侧对不上池子。
     const pricedPoolKeys = new Set(priceRows.map(price => priceKeyOf(price)))
-    const ready = new Set(readyHosts.map(host => host.id))
+    const ready = new Set(readyHosts.filter(hardeningReceiptMatches).map(host => host.id))
     const summary = count(), ungrouped = count()
     const machineCounts = new Map<number, Counts>(), regionCounts = new Map<number, Counts>()
     const stateById = new Map<number, StockState>()
     const reasonById = new Map<number, UnsellableReason | null>()
     const increment = (target: Counts, state: StockState) => { target.total++; target[state]++ }
     const reservations = await prisma.checkoutReservation.findMany({ select: { hostId: true } })
-    const reserved = new Set([...moves.map(task => task.targetHostId), ...reservations.map(row => row.hostId)])
+    const reserved = new Set([...moves.map(task => task.targetHostId), ...reservations.map(row => row.hostId), ...unfinishedPoolHostIds(unfinished)])
     for (const host of inventory) {
       const reason = unsellableReason({
         occupied: host._count.instances > 0, reserved: reserved.has(host.id), quarantined: host.poolFaulted,

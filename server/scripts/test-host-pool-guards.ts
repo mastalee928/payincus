@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { hostSshConnection } from '../src/lib/host-ssh.js'
 import { poolCapacityReady, unsellableReason } from '../src/lib/pool-stock.js'
-import { resolveHostResources } from '../src/lib/onboarding-resources.js'
+import { resolveHostResources, verifyOnboardingArchitecture } from '../src/lib/onboarding-resources.js'
 import { buildPoolPurchaseRegions, localizePoolRegionName, poolPurchaseRegionStock } from '../../client/src/utils/poolRegionCatalog.js'
 import { ociMachineShape } from '../../client/src/utils/poolCatalog.js'
 import { groupByContinent } from '../../client/src/utils/countryContinent.js'
@@ -81,6 +81,17 @@ assert.match(tunnel.command!, /incudal-host-management.*2200.*10\.90\.0\.2/)
 assert.match(tunnel.gatewayCommand!, /gateway\.example\.com/)
 
 const probe = { architecture: 'x86_64' as const, cpuCount: 2, memoryMiB: 1024, diskTotalBytes: String(60n * 1073741824n), diskAvailableBytes: String(50n * 1073741824n), diskSwapMiB: 0 }
+for (const value of ['x86_64', 'amd64', 'x64']) assert.equal(verifyOnboardingArchitecture(value, 'x86_64'), 'x86_64')
+for (const value of ['aarch64', 'arm64', ' ARM64 ']) assert.equal(verifyOnboardingArchitecture(value, 'aarch64'), 'aarch64')
+for (const expected of ['x86_64', 'aarch64'] as const) {
+  for (const value of [null, undefined, '', 'x86', 'i686', 'armv7l', 'riscv64', 64]) {
+    assert.throws(() => verifyOnboardingArchitecture(value, expected), /RESOURCE_PROBE_INVALID/)
+  }
+  assert.throws(() => verifyOnboardingArchitecture(expected === 'aarch64' ? 'amd64' : 'arm64', expected), /RESOURCE_ARCHITECTURE_MISMATCH/)
+}
+const onboardingWorker = readFileSync(new URL('../src/workers/hostOnboardingWorker.ts', import.meta.url), 'utf8')
+assert.ok(onboardingWorker.indexOf('verifyOnboardingArchitecture(info.environment?.kernel_architecture, resources.probe.architecture)') <
+  onboardingWorker.indexOf("const poolName = 'payincus-pool'"), 'reject unknown or conflicting architecture before storage mutation')
 const defaults = { countryCode: 'us', resourcePreset: 'E2' as const, customerDiskGiB: 30 }
 const onboardingInput = { requestId: '11111111-1111-4111-8111-111111111111', name: 'protocol-fixture', accountLabel: '',
   defaults, credentials: { password: 'fixture-only' }, nodes: [{ name: 'protocol-host', publicIp: '8.8.8.8' }] }

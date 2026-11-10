@@ -1060,6 +1060,18 @@ export function decryptSensitiveData(ciphertext: string): string | null {
     }
 }
 
+/** Credential consumers must fail closed; legacy plaintext compatibility is
+ * intentionally limited to the older callers above. */
+export function decryptSensitiveDataStrict(ciphertext: string): string | null {
+    if (!/^[a-f0-9]{32}:[a-f0-9]{32}:(?:[a-f0-9]{2})+$/i.test(ciphertext)) return null
+    try {
+        const [ivHex, tagHex, encrypted] = ciphertext.split(':')
+        const decipher = crypto.createDecipheriv(ENCRYPTION_CONFIG.algorithm, getEncryptionKey(), Buffer.from(ivHex, 'hex')) as crypto.DecipherGCM
+        decipher.setAuthTag(Buffer.from(tagHex, 'hex'))
+        return decipher.update(encrypted, 'hex', 'utf8') + decipher.final('utf8')
+    } catch { return null }
+}
+
 /**
  * 检查数据是否已加密
  */

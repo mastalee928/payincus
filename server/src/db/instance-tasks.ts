@@ -13,6 +13,7 @@ import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { claimOperationVerificationRequirement } from '../lib/operation-verification.js'
 import { getImageDistroFromAlias } from './custom-init-commands.js'
 import { getSystemImageAvailabilityForHost } from './images.js'
+import { recoveryHeld } from '../services/platform-backup-core.js'
 
 export type DestructiveTaskMaterials = Readonly<{ binding: string; sshKey?: string; extraShellCommands?: string }>
 type DestructiveTaskInput = Pick<InstanceTask, 'taskType' | 'imageAlias' | 'sshKeyId' | 'customInitCommandIds'>
@@ -99,6 +100,59 @@ export class InstanceTaskAuthorizationError extends Error {
   constructor(public readonly code: string, message: string, public readonly statusCode = 403) { super(message) }
 }
 
+async function authorizeCopyMove(tx: Prisma.TransactionClient, data: CreateInstanceTaskData) {
+  const actor = data.sensitiveAuthorization?.actor
+  const instance = await tx.instance.findUniqueOrThrow({ where: { id: data.instanceId } })
+  const host = await tx.host.findUniqueOrThrow({ where: { id: instance.hostId } })
+  if (recoveryHeld() || !actor || actor.id !== data.userId || !await authorizeUserWrite(tx, actor.id, actor)) {
+    throw new InstanceTaskAuthorizationError('AUTHENTICATION_STATE_CHANGED', '原登录授权已失效，请重新提交')
+  }
+  const user = await tx.user.findUniqueOrThrow({ where: { id: actor.id } })
+  if (data.taskType === 'clone' ? actor.id !== instance.userId :
+    actor.id !== instance.userId && actor.id !== host.userId && user.role !== 'admin') throw new InstanceTaskAuthorizationError('FORBIDDEN', '无权操作此实例')
+  if (data.taskType === 'clone' && (instance.packagePlanId || instance.billingCycle || instance.expiresAt || instance.billingPrice !== null)) {
+    throw new InstanceTaskAuthorizationError('PAID_INSTANCE_CLONE_REQUIRES_PURCHASE', '计费实例请通过购买创建新实例，不能直接克隆生成未计费副本', 409)
+  }
+  // Public address ownership is one-to-one with an instance. Copy/move has no
+  // reservation/switch protocol for it yet; never replace it with a NAT IP.
+  if (['public_ipv4', 'public_ipv4_ipv6'].includes(instance.networkMode)) {
+    throw new InstanceTaskAuthorizationError('PUBLIC_IPV4_COPY_MOVE_UNSUPPORTED', '独立公网 IPv4 实例暂不支持克隆或改节点；原实例和公网地址保持不变', 409)
+  }
+  if (instance.dedicatedIpv4 || data.taskType === 'clone' && host.singleTenant ||
+    ['deleted', 'suspended', 'creating'].includes(instance.status) || instance.provisioningCleanupPending || instance.deletionBillingPending ||
+    data.taskType === 'clone' && instance.status !== 'stopped' ||
+    data.sensitiveAuthorization!.expectedOwnerId !== instance.userId || data.sensitiveAuthorization!.expectedIncusId !== instance.incusId ||
+    data.sensitiveAuthorization!.expectedHostIdentity !== transferHostIdentity(host)) {
+    throw new InstanceTaskAuthorizationError('INSTANCE_STATE_CHANGED', '实例状态或身份已变化，请刷新后重试', 409)
+  }
+  const target = await tx.host.findUniqueOrThrow({ where: { id: data.targetHostId || data.hostId } })
+  if (data.taskType === 'clone' ? data.hostId !== host.id || target.id !== host.id :
+    target.id === host.id || data.hostId !== target.id) throw new InstanceTaskAuthorizationError('INSTANCE_STATE_CHANGED', '任务节点与原实例不一致', 409)
+  const active = { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] as ('PENDING' | 'PROCESSING')[] } }
+  if (await tx.restoreTask.count({ where: active }) || await tx.backupUploadTask.count({ where: active }) ||
+    await tx.instanceTransfer.count({ where: { instanceId: instance.id, status: { in: ['pending', 'processing'] } } })) throw new InstanceTaskConflictError()
+  const identity = JSON.stringify([instance.id, instance.hostId, instance.incusId, instance.userId, transferHostIdentity(host),
+    transferHostIdentity(target), data.taskType, data.sshKeyId ?? null, user.role])
+  return { operationOwnerId: instance.userId, actorSid: actor.sid, actorIat: actor.iat, operationEntry: 'copy-move-v1',
+    operationIdentity: 'copy-move-v1:' + createHash('sha256').update(identity).digest('hex') }
+}
+
+export async function assertCopyMoveAuthority(tx: Prisma.TransactionClient, task: InstanceTask) {
+  const current = await tx.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+  if (current.status !== 'PROCESSING' || current.startedAt?.getTime() !== task.startedAt?.getTime() ||
+    current.retryCount !== task.retryCount || !task.startedAt || Date.now() - task.startedAt.getTime() >= 30 * 60000 ||
+    current.operationIdentity !== task.operationIdentity) throw Error('COPY_MOVE_TASK_CHANGED')
+  const instance = await tx.instance.findUniqueOrThrow({ where: { id: task.instanceId } })
+  const host = await tx.host.findUniqueOrThrow({ where: { id: instance.hostId } })
+  const authorization = await authorizeCopyMove(tx, { ...task, imageAlias: task.imageAlias ?? undefined,
+    sshKeyId: task.sshKeyId ?? undefined, targetHostId: task.targetHostId ?? undefined, customInitCommandIds: undefined,
+    targetName: undefined, snapshotName: undefined, sensitiveAuthorization: {
+      actor: { id: task.userId, sid: task.actorSid ?? undefined, iat: task.actorIat ?? undefined }, entry: 'user',
+      expectedOwnerId: task.operationOwnerId!, expectedIncusId: instance.incusId, expectedHostIdentity: transferHostIdentity(host)
+    } })
+  if (authorization.operationIdentity !== task.operationIdentity) throw Error('COPY_MOVE_IDENTITY_CHANGED')
+}
+
 function destructiveTaskIdentity(task: Pick<InstanceTask, 'taskType' | 'imageAlias' | 'sshKeyId' | 'customInitCommandIds' | 'actorSid' | 'actorIat'>, instance: Instance, host: Host, role: string, materialBinding: string) {
   return 'destructive-task:v3:' + createHash('sha256').update(JSON.stringify([task.taskType, instance.id, instance.userId, instance.hostId,
     instance.incusId, instance.createdAt.toISOString(), transferHostIdentity(host), role,
@@ -175,7 +229,8 @@ export async function validateDestructiveTaskExecution(task: InstanceTask, optio
     const instance = await tx.instance.findUnique({ where: { id: task.instanceId } })
     if (!instance || instance.hostId !== currentTask.hostId || instance.userId !== currentTask.operationOwnerId ||
       instance.status === 'deleted' || instance.status === 'suspended' || instance.provisioningCleanupPending || instance.deletionBillingPending ||
-      currentTask.taskType === 'rebuild' && instance.status !== 'stopped') {
+      currentTask.taskType === 'rebuild' && instance.status !== 'stopped' &&
+        !(instance.status === 'running' && (currentTask.replacementState as Prisma.JsonObject | null)?.rebuildCompleted === true)) {
       throw new InstanceTaskAuthorizationError('INSTANCE_STATE_CHANGED', '原实例状态或归属已变化，请重新提交', 409)
     }
     await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.hostId} FOR SHARE`
@@ -213,6 +268,12 @@ const PUBLIC_INSTANCE_TASK_SELECT = {
   targetName: true, targetHostId: true, replacementState: true, snapshotName: true,
   newInstanceId: true, error: true, createdAt: true, startedAt: true, finishedAt: true
 } satisfies Prisma.InstanceTaskSelect
+
+function publicTask<T extends { replacementState?: unknown } | null>(task: T): T {
+  if (!task || !task.replacementState || typeof task.replacementState !== 'object') return task
+  const { pendingRootPassword: _secret, ...state } = task.replacementState as Record<string, unknown>
+  return { ...task, replacementState: state }
+}
 
 export interface InstanceTaskWithDetails {
   id: number
@@ -299,10 +360,10 @@ export async function createInstanceTask(data: CreateInstanceTaskData): Promise<
       ]
     })
     if (activeTask) {
-      throw new InstanceTaskConflictError(activeTask as unknown as InstanceTaskWithDetails)
+      throw new InstanceTaskConflictError(publicTask(activeTask) as unknown as InstanceTaskWithDetails)
     }
     const operationAuthorization = data.taskType === 'rebuild' || data.taskType === 'recreate'
-      ? await authorizeSensitiveTaskAdmission(tx, data) : {}
+      ? await authorizeSensitiveTaskAdmission(tx, data) : ['clone', 'change_host'].includes(data.taskType) ? await authorizeCopyMove(tx, data) : {}
 
     return tx.instanceTask.create({
       select: PUBLIC_INSTANCE_TASK_SELECT,
@@ -322,7 +383,7 @@ export async function createInstanceTask(data: CreateInstanceTaskData): Promise<
       }
     })
   })
-  return result as unknown as InstanceTaskWithDetails
+  return publicTask(result) as unknown as InstanceTaskWithDetails
 }
 
 /**
@@ -332,7 +393,7 @@ export async function getInstanceTaskById(taskId: number): Promise<InstanceTaskW
   const result = await prisma.instanceTask.findUnique({
     where: { id: taskId }, select: PUBLIC_INSTANCE_TASK_SELECT
   })
-  return result as unknown as InstanceTaskWithDetails | null
+  return publicTask(result) as unknown as InstanceTaskWithDetails | null
 }
 
 /**
@@ -347,7 +408,7 @@ export async function getActiveTaskForInstance(instanceId: number): Promise<Inst
     },
     orderBy: { createdAt: 'desc' }
   })
-  return result as unknown as InstanceTaskWithDetails | null
+  return publicTask(result) as unknown as InstanceTaskWithDetails | null
 }
 
 /**
@@ -376,7 +437,7 @@ export async function getUserInstanceTasks(
     prisma.instanceTask.count({ where })
   ])
 
-  return { items: items as unknown as InstanceTaskWithDetails[], total }
+  return { items: items.map(publicTask) as unknown as InstanceTaskWithDetails[], total }
 }
 
 /**
@@ -401,7 +462,7 @@ export async function updateInstanceTaskStatus(
       ...updates
     }
   })
-  return result as unknown as InstanceTaskWithDetails
+  return publicTask(result) as unknown as InstanceTaskWithDetails
 }
 
 /**
@@ -446,6 +507,14 @@ export async function cleanupOldTasks(): Promise<number> {
     where: {
       status: { in: ['COMPLETED', 'FAILED'] },
       finishedAt: { lt: sevenDaysAgo },
+      AND: [{ OR: [{ replacementState: { equals: Prisma.DbNull } }, { replacementState: { path: ['targetPhase'], equals: Prisma.AnyNull } },
+        { AND: [{ NOT: { replacementState: { path: ['targetPhase'], equals: 'verified' } } },
+          { NOT: { replacementState: { path: ['targetPhase'], equals: 'prepared' } } },
+          { NOT: { replacementState: { path: ['targetPhase'], equals: 'reserved' } } },
+          { NOT: { replacementState: { path: ['targetPhase'], equals: 'creating' } } },
+          { NOT: { replacementState: { path: ['targetPhase'], equals: 'cleanup_pending' } } },
+          { NOT: { replacementState: { path: ['targetPhase'], equals: 'source_cleanup' } } },
+          { NOT: { replacementState: { path: ['targetPhase'], equals: 'rebuild_uncertain' } } }] }] }],
       // Replacement evidence is also the registered identity used by later
       // renewal starts and expiry deletion. Retain ambiguous history too: its
       // removal must not make the pre-rebuild identity appear current again.
@@ -502,5 +571,5 @@ export async function cancelInstanceTask(taskId: number): Promise<InstanceTaskWi
       where: { id: taskId }, select: PUBLIC_INSTANCE_TASK_SELECT
     })
   })
-  return result as unknown as InstanceTaskWithDetails
+  return publicTask(result) as unknown as InstanceTaskWithDetails
 }

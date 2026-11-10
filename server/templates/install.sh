@@ -1305,6 +1305,15 @@ install_deps() {
     step "步骤 [2/5]  安装系统依赖..."
 
     export DEBIAN_FRONTEND=noninteractive
+    # The one-host/one-customer enrollment already selects Btrfs explicitly.
+    # Do not compile ZFS or offer a kernel switch on that noninteractive path.
+    if [[ "${INCUDAL_ONBOARDING_STORAGE:-}" == btrfs ]]; then
+        timeout 120 apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update -qq || return 75
+        timeout 180 apt-get -o DPkg::Lock::Timeout=60 -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y -qq curl gpg btrfs-progs || return 75
+        modprobe btrfs || true
+        grep -qw btrfs /proc/filesystems || return 1
+        return 0
+    fi
     apt-get update -qq 2>/dev/null
 
     # Debian 系统需要确保 contrib 组件已启用（ZFS 包在 contrib 中）
@@ -1746,6 +1755,33 @@ install_incus() {
         local current_ver
         current_ver=$(incus version 2>/dev/null | awk '/Client version/ {print $3}' || echo "未知")
         info "Incus 服务已安装并运行（版本: ${current_ver}），跳过安装"
+        return 0
+    fi
+
+    # Only package preparation may request a fresh automatic attempt. Never
+    # classify Incus initialization, trust or Agent failures as replay-safe.
+    if [[ "${INCUDAL_ONBOARDING_STORAGE:-}" == btrfs ]]; then
+        install -d -m 0755 /etc/apt/keyrings
+        local key_file
+        key_file=$(mktemp /etc/apt/keyrings/.incudal-zabbly.XXXXXX)
+        if ! curl --retry 3 --retry-delay 5 --retry-max-time 100 --connect-timeout 15 --max-time 30 -fsSL https://pkgs.zabbly.com/key.asc -o "$key_file"; then
+            rm -f "$key_file"; exit 75
+        fi
+        gpg --yes --dearmor -o /etc/apt/keyrings/zabbly.gpg "$key_file" || { rm -f "$key_file"; exit 1; }
+        chmod 0644 /etc/apt/keyrings/zabbly.gpg
+        rm -f "$key_file"
+        cat > /etc/apt/sources.list.d/zabbly-incus-stable.sources <<SRC
+Enabled: yes
+Types: deb
+URIs: https://pkgs.zabbly.com/incus/stable
+Suites: ${OS_CODENAME}
+Components: main
+Architectures: ${ARCH}
+Signed-By: /etc/apt/keyrings/zabbly.gpg
+SRC
+        chmod 0644 /etc/apt/sources.list.d/zabbly-incus-stable.sources
+        timeout 120 apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update -qq || exit 75
+        timeout 180 apt-get -o DPkg::Lock::Timeout=60 -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y -qq incus nftables || exit 75
         return 0
     fi
 
@@ -3428,7 +3464,10 @@ main() {
     setup_kernel      # 1/5 内核参数
 
     # 2/5 系统依赖（用户可能拒绝 DKMS 编译并返回主菜单）
-    if ! install_deps; then
+    local dependency_result=0
+    install_deps || dependency_result=$?
+    if [[ "$dependency_result" -ne 0 ]]; then
+        if [[ "${INCUDAL_ONBOARDING_STORAGE:-}" == btrfs ]]; then exit "$dependency_result"; fi
         warn "安装已中断，返回主菜单..."
         echo ""
         local restart_script=""

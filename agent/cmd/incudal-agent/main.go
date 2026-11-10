@@ -13,6 +13,7 @@ import (
 	"incudal-agent/internal/abuse"
 	"incudal-agent/internal/config"
 	"incudal-agent/internal/dedicatedipv6"
+	"incudal-agent/internal/guestguard"
 	"incudal-agent/internal/ingress"
 	"incudal-agent/internal/panel"
 	"incudal-agent/internal/report"
@@ -22,14 +23,25 @@ import (
 var version = "dev"
 var lastPortProtocolStatus *ingress.Status
 var abusePolicy = abuse.New()
+var guestProtection = guestguard.New()
 
 func main() {
 	configPath := flag.String("config", "/etc/incudal-agent/config.yaml", "agent config file")
 	once := flag.Bool("once", false, "send one heartbeat and exit")
 	restoreIngress := flag.Bool("restore-port-protocol", false, "restore saved ingress policy")
+	restoreGuest := flag.Bool("restore-guest-guard", false, "restore saved customer network protection")
+	syncGuest := flag.Bool("sync-guest-guard", false, "reconcile customer network protection")
 	restoreAbuse := flag.Bool("restore-abuse-policy", false, "restore saved customer abuse policy")
 	syncIPv6 := flag.Bool("sync-dedicated-ipv6", false, "reconcile managed dedicated IPv6 networking")
 	flag.Parse()
+	if *restoreGuest {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := guestProtection.RestoreAtBoot(ctx); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if *restoreAbuse {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -62,9 +74,29 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	// Enrolled hosts need fresh security receipts even when an older config
+	// requested sparse monitoring. Report the interval actually used.
+	if _, enrolled := os.Stat("/etc/incudal-onboarding-id"); enrolled == nil && cfg.HeartbeatInterval > time.Minute {
+		cfg.HeartbeatInterval = time.Minute
+		cfg.HeartbeatIntervalSeconds = 60
+	}
+	if *syncGuest {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		if err := guestProtection.Sync(ctx, cfg.PanelURL); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if err := guestProtection.Restore(ctx); err != nil {
+		log.Printf("restore customer network protection failed")
+	}
+	// Upgrade applies protection to existing managed hosts without restarting
+	// Incus/guests, and reconciliation continues during control-plane outages.
+	go reconcileGuestProtection(ctx, cfg.PanelURL)
 
 	if err := ingress.Restore(ctx); err != nil {
 		log.Printf("restore ingress: %v", err)
@@ -115,6 +147,29 @@ func main() {
 	}
 }
 
+func reconcileGuestProtection(ctx context.Context, panelURL string) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		bootCtx, bootCancel := context.WithTimeout(ctx, 60*time.Second)
+		err := guestProtection.RecoverBoot(bootCtx)
+		bootCancel()
+		applyCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+		if err == nil {
+			err = guestProtection.Sync(applyCtx, panelURL)
+		}
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			log.Printf("customer network protection pending")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 func reconcileIPv6(ctx context.Context) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
@@ -148,6 +203,7 @@ func reconcileAbuse(ctx context.Context) {
 
 func sendHeartbeat(ctx context.Context, client *panel.Client, heartbeatIntervalSeconds int) (panel.HeartbeatResult, error) {
 	payload := report.HeartbeatPayload(ctx, version, heartbeatIntervalSeconds)
+	payload["guestProtectionStatus"] = guestProtection.Status()
 	if status := abusePolicy.Sync(ctx, nil); status != nil {
 		payload["abusePolicyStatus"] = *status
 	}

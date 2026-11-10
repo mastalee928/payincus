@@ -12,6 +12,7 @@ import { isIP } from 'net'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { prisma } from '../db/prisma.js'
+import { normalizeGuestProtectionStatus } from '../lib/guest-network-protection.js'
 import { createLog, LogModule, LogResult } from '../db/logs.js'
 import { decryptSensitiveData } from '../lib/security.js'
 import {
@@ -51,6 +52,7 @@ interface AgentInstallCommandBody {
 
 interface AgentHeartbeatBody {
   portProtocolStatus?: Record<string, unknown>
+  guestProtectionStatus?: Record<string, unknown>
   abusePolicyStatus?: Record<string, unknown>
   version?: string
   capabilities?: string[]
@@ -1033,6 +1035,7 @@ async function serializeAgentStatus(agent: HostAgentRecord) {
 
 function buildHeartbeatReport(body: AgentHeartbeatBody): Record<string, unknown> {
   return {
+    guestProtectionStatus: normalizeGuestProtectionStatus(body.guestProtectionStatus),
     abusePolicyStatus: normalizeAbuseStatus(body.abusePolicyStatus),
     runtime: body.runtime ?? {},
     incus: body.incus ?? {},

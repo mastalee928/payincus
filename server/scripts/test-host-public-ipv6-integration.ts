@@ -70,6 +70,18 @@ try {
   assert.deepEqual((await getPoolOrderResult(buyer.id, orderId))!.instances[0]!.publicIpv6Addresses, [a, b])
   assert.deepEqual(customerIpv6View((await getInstanceById(instance.id))!.dedicated_ipv6)?.addresses, [a, b])
   assert.deepEqual(customerIpv6View((await getInstancesPaginated({ userId: buyer.id })).items[0]!.dedicated_ipv6)?.addresses, [a, b])
+  const hostBeforeMaintenance=await prisma.host.findUniqueOrThrow({where:{id:host.id}}),customerBeforeMaintenance=await prisma.instance.findUniqueOrThrow({where:{id:instance.id}})
+  const deliveriesBeforeMaintenance=deliveries
+  await prisma.host.update({where:{id:host.id},data:{securityHardening:{maintenance:{phase:'waiting-boot'}}}})
+  readError=true
+  const paused=await syncHostPublicIpv6(host.id,{force:true},{...deps,connect:async()=>{throw Error('maintenance must not call remote IPv6 tools')}})
+  assert.equal(paused.status,'synced')
+  assert.equal(deliveries,deliveriesBeforeMaintenance)
+  assert.deepEqual((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).publicIpv6Sync,hostBeforeMaintenance.publicIpv6Sync)
+  assert.deepEqual(await prisma.instance.findUniqueOrThrow({where:{id:instance.id}}),customerBeforeMaintenance,'maintenance preserves original IPv6 customer state')
+  readError=false
+  await prisma.host.update({where:{id:host.id},data:{securityHardening:(await import('@prisma/client')).Prisma.DbNull}})
+  assert.equal((await syncHostPublicIpv6(host.id,{},deps)).status,'synced','IPv6 resumes after the durable maintenance fence ends')
   await prisma.instance.update({ where: { id: instance.id }, data: { ipv6: 'fd42::2' } })
   assert.deepEqual((await getPoolOrderResult(buyer.id, orderId))!.instances[0]!.publicIpv6Addresses, [a, b], 'agent-reported internal addresses do not replace public mappings')
 

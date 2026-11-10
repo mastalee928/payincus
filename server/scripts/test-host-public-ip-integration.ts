@@ -102,6 +102,48 @@ try {
   assert.equal(initial.onboardingNode!.activePublicIp, candidate, 'DB effective index follows verified host IP')
   assert.equal(initial.onboardingNode!.publicIp, host.onboardingNode!.publicIp, 'the original onboarding address remains historical evidence')
 
+  const beforeMaintenanceIp=await prisma.host.findUniqueOrThrow({where:{id:host.id}})
+  const beforeMaintenanceCalls={connections,writes:writes.length,verifications:verifications.length}
+  await prisma.host.update({where:{id:host.id},data:{securityHardening:{maintenance:{phase:'waiting-boot'}}}})
+  handshake=0
+  const duringMaintenance=await syncHostPublicIp(host.id,{force:true},deps)
+  assert.equal(duringMaintenance.error,beforeMaintenanceIp.publicIpSync&&typeof beforeMaintenanceIp.publicIpSync==='object'?
+    (beforeMaintenanceIp.publicIpSync as any).error:null,'a planned reboot is not converted into a new IP failure')
+  const heldIp=await prisma.host.findUniqueOrThrow({where:{id:host.id}})
+  assert.deepEqual(heldIp.publicIpSync,beforeMaintenanceIp.publicIpSync,'original IP receipt is retained during maintenance')
+  assert.equal(heldIp.publicIpSyncBlocked,false)
+  assert.deepEqual({connections,writes:writes.length,verifications:verifications.length},beforeMaintenanceCalls)
+  await assert.rejects(syncHostPublicIp(host.id,{settings:{mode:'manual',publicIp:'9.9.9.8'}},deps),/IP_SYNC_BUSY/)
+  await prisma.host.update({where:{id:host.id},data:{publicIpSyncBlocked:true}})
+  await syncHostPublicIp(host.id,{},deps)
+  assert.equal((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).publicIpSyncBlocked,true,'an existing IP protection is never cleared by maintenance')
+  await prisma.host.update({where:{id:host.id},data:{securityHardening:(await import('@prisma/client')).Prisma.DbNull,publicIpSyncBlocked:false}})
+  handshake=Math.floor(Date.now()/1000)
+  assert.equal((await syncHostPublicIp(host.id,{},deps)).status,'synced','the same IP reconciliation resumes after maintenance')
+
+  // Real row-lock race: a scan selected a host before maintenance registration,
+  // then observes the durable fence after waiting for the registration commit.
+  let registered!:()=>void,releaseRegistration!:()=>void
+  const registrationReady=new Promise<void>(resolve=>{registered=resolve}),registrationGate=new Promise<void>(resolve=>{releaseRegistration=resolve})
+  const registrar=prisma.$transaction(async tx=>{
+    await tx.host.update({where:{id:host.id},data:{securityHardening:{maintenance:{phase:'prepared'}}}})
+    registered();await registrationGate
+  },{timeout:10000})
+  await registrationReady
+  const callsBeforeRace=connections,racingScan=syncHostPublicIp(host.id,{},deps)
+  try {
+    let waiting=false
+    for(let i=0;i<100;i++) {
+      const rows=await prisma.$queryRaw<Array<{waiting:boolean}>>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%hosts%FOR UPDATE%') AS waiting`
+      if(rows[0]?.waiting){waiting=true;break}
+      await new Promise(resolve=>setTimeout(resolve,20))
+    }
+    assert.ok(waiting,'observed actual IP reconciliation host-row lock wait')
+  }finally{releaseRegistration()}
+  await registrar;await racingScan
+  assert.equal(connections,callsBeforeRace,'maintenance registered while waiting prevents late scan calls')
+  await prisma.host.update({where:{id:host.id},data:{securityHardening:(await import('@prisma/client')).Prisma.DbNull}})
+
   const orderId = randomUUID()
   await prisma.poolOrder.create({ data: { id: orderId, userId: buyer.id, requestHash: 'test-only', totalCents: 100 } })
   const instance = await prisma.instance.create({ data: { userId: buyer.id, hostId: host.id, incusId: `${prefix}-customer`, name: 'customer-kept', status: 'running',

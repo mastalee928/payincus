@@ -1,4 +1,4 @@
-export const SECURITY_HARDENING_REVISION = 'customer-hardening-v3'
+export const SECURITY_HARDENING_REVISION = 'customer-hardening-v4'
 export const SECURITY_HARDENING_ENABLED_KEY = 'automatic_security_hardening'
 export type HardeningPhase = 'authority' | 'inventory' | 'runtime' | 'host-inspection' | 'customer-ssh' | 'receipt' | 'finished'
 export type HardeningDiagnostic = {
@@ -33,9 +33,9 @@ export function hardeningFailure(error: unknown): HardeningCheck {
     'HARDENING_APPARMOR_KERNEL_UNSUPPORTED', 'HARDENING_APPARMOR_BOOT_DISABLED', 'HARDENING_JOURNAL_CONFLICT',
     'HARDENING_RECIPE_UNSUPPORTED','HARDENING_BOOT_LAYOUT_UNSUPPORTED','HARDENING_CONTROL_PLANE_TARGET',
     'HARDENING_APPARMOR_TOOLS_REQUIRED','HARDENING_CUSTOMER_BOOT_RECOVERY_UNVERIFIED','HARDENING_RECONNECT_TIMEOUT',
-    'HARDENING_PREPARATION_RETRY_EXHAUSTED']
+    'HARDENING_PREPARATION_RETRY_EXHAUSTED','HARDENING_NATIVE_ACCEPTANCE_REQUIRED']
   if (reasons.includes(message)) return { status: 'needs-maintenance', reason: message }
-  return { status: 'retry', reason: ['HARDENING_BUSY', 'HARDENING_OFFLINE', 'HARDENING_RECOVERY_HELD',
+  return { status: 'retry', reason: ['GUEST_NETWORK_PROTECTION_PENDING', 'HARDENING_BUSY', 'HARDENING_OFFLINE', 'HARDENING_RECOVERY_HELD',
     'HARDENING_HOST_QUARANTINED', 'HARDENING_PUBLIC_IP_PENDING', 'HARDENING_INSTALL_PENDING',
     'ALPINE_SSH_INSTANCE_BUSY', 'ALPINE_SSH_TARGET_NOT_READY', 'ALPINE_SSH_RECOVERY_HELD',
     'ALPINE_SSH_UPDATE_FAILED', 'ALPINE_SSH_VERIFICATION_FAILED', 'HOST_SECURITY_MAINTENANCE', 'HARDENING_MEMORY_LOW', 'HARDENING_MEMORY_PRESSURE',
@@ -61,13 +61,16 @@ export function hardeningPhaseLabel(phase: HardeningPhase): string {
 }
 export function hardeningDiagnostic(reason: string, phase: HardeningPhase, instanceId?: number): HardeningDiagnostic {
   const check = hardeningFailure(new Error(reason))
-  const waiting = ['HARDENING_BUSY', 'HARDENING_OFFLINE', 'HARDENING_RECOVERY_HELD', 'ALPINE_SSH_INSTANCE_BUSY',
+  const waiting = ['GUEST_NETWORK_PROTECTION_PENDING', 'HARDENING_BUSY', 'HARDENING_OFFLINE', 'HARDENING_RECOVERY_HELD', 'ALPINE_SSH_INSTANCE_BUSY',
     'HARDENING_HOST_QUARANTINED', 'HARDENING_PUBLIC_IP_PENDING', 'HARDENING_INSTALL_PENDING',
     'ALPINE_SSH_TARGET_NOT_READY', 'ALPINE_SSH_RECOVERY_HELD', 'HARDENING_MEMORY_LOW', 'HARDENING_MEMORY_PRESSURE',
     'HARDENING_DISK_LOW', 'HARDENING_PACKAGE_BUSY', 'SSH_CONNECT_FAILED', 'SSH_DISCONNECTED'].includes(check.reason || '')
   const action = check.status === 'needs-maintenance' ? 'blocked' : waiting ? 'wait' : 'inspect'
   return { phase, reason: check.reason!, ...(instanceId ? { instanceId } : {}), action,
-    nextAction: action === 'blocked' ? '保留原身份与客户状态；只读复核阻断条件，未通过前不继续更新' :
+    nextAction: check.reason === 'HARDENING_NATIVE_ACCEPTANCE_REQUIRED' ?
+      '当前版本尚未放行此系统与架构的自动启动维护；完成该方案的独立启动及原客户恢复验收并安装修复版后，队列自动重新判断。当前未下发准备或重启，空闲宿主仍不可售' :
+      check.reason === 'HARDENING_BOOT_LAYOUT_UNSUPPORTED' ? '当前引导布局没有可执行的固定维护方案；保留原配置，安装支持该布局的修复版后自动重新判断' :
+      action === 'blocked' ? '保留原身份与客户状态；只读复核阻断条件，未通过前不继续更新' :
       action === 'wait' ? '按退避时间复核当前条件，恢复后沿原身份自动继续' :
         '先只读核原身份、实际补丁及监听状态，确认后再决定是否续接；不凭超时重做更新' }
 }
@@ -80,6 +83,7 @@ export function hardeningSchedule(checks: HardeningCheck[], attempts: number, no
 }
 export function hardeningReason(reason?: string): string {
   const reasons: Record<string, string> = {
+    GUEST_NETWORK_PROTECTION_PENDING: '宿主客户网络防护尚未就绪，Agent自动修复后继续验收；未修改客户密码或重做补丁',
     HARDENING_APPARMOR_REQUIRED: '宿主未启用 AppArmor，需验证内核支持并安排维护',
     HARDENING_ONBOARDING_PENDING: '接入安全检查尚未全部通过，系统将自动复核；宿主暂不可售',
     HARDENING_APPARMOR_KERNEL_UNSUPPORTED: '未取得当前内核 AppArmor 支持证据，重启不能代替内核支持检查',
@@ -121,6 +125,7 @@ export function hardeningReason(reason?: string): string {
     HARDENING_DISK_LOW: '宿主根分区空间或 inode 不足，未清理客户数据，稍后复核',
     HARDENING_PACKAGE_BUSY: '宿主包管理器仍在执行或持锁，等待结束后重新检查',
     HARDENING_RECIPE_UNSUPPORTED: '当前系统与架构尚无通过启动验收的自动维护方案',
+    HARDENING_NATIVE_ACCEPTANCE_REQUIRED: '自动维护尚未启动：当前系统与架构的固定方案尚未完成独立启动及原客户恢复验收',
     HARDENING_BOOT_LAYOUT_UNSUPPORTED: '实际引导配置不符合已验证方案，保留原配置并记录差异',
     HARDENING_CONTROL_PLANE_TARGET: '目标承载主控或网关，须先验证独立受信恢复通道',
     HARDENING_APPARMOR_TOOLS_REQUIRED: '防护依赖尚未准备完成，将核对原维护记录和官方包后续接',

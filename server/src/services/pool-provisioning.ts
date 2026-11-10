@@ -12,6 +12,11 @@ import type { Host } from '../types/database.js'
 import { completedPoolReinspection, poolCleanupRecord, readPoolCleanup } from './host-pool-cleanup.js'
 import { redactAuditText } from '../lib/risk-audit.js'
 import { automaticOperationAudit } from '../lib/automatic-operation-audit.js'
+import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { hardeningIdentityHash, hardeningIdentityInclude, hardeningReceiptMatches } from '../lib/hardening-identity.js'
+import { dedicatedHostReadyWhere } from '../lib/host-resource-usage.js'
+import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
+import { assertCustomerProfiles } from '../lib/incus/customer-isolation.js'
 
 const active = new Map<number, AbortController>()
 export class PoolProvisionOwnershipError extends Error {}
@@ -23,7 +28,14 @@ export async function beginPoolProvision(instanceId: number, host: Host, client:
   const instance = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId } })
   if (!instance.purchaseBatchId) return null
   const controller = new AbortController()
-  const endpoint = await prisma.host.findUniqueOrThrow({ where: { id: host.id }, select: { url: true } })
+  const admittedAt = new Date()
+  const endpoint = await prisma.host.findUniqueOrThrow({ where: { id: host.id }, include: hardeningIdentityInclude })
+  if (endpoint.url !== host.url || endpoint.installPending || hostMaintenanceBlocked(endpoint.securityHardening)) {
+    throw new Error('Pool host installation or maintenance is in progress')
+  }
+  if (instance.dedicatedIpv4 && (!hardeningReceiptMatches(endpoint) || !await prisma.host.count({ where: {
+    id: host.id, singleTenant: true, ...dedicatedHostReadyWhere(admittedAt)
+  } }))) throw new Error('Pool host is not ready for delivery')
   const specs = (instance.snapshottedSpecs || {}) as Specs
   if (specs.poolProvision?.phase === 'creating') throw new PoolProvisionOwnershipError('Pool creation already started')
   const saved=specs.managedCleanup
@@ -39,20 +51,25 @@ export async function beginPoolProvision(instanceId: number, host: Host, client:
   if (claimed.count !== 1) throw new PoolProvisionOwnershipError('Pool creation no longer owns the target')
   active.set(instanceId, controller)
   let uuid: string | undefined
-  const check = async () => {
+  let createdAt: string | undefined
+  const check = async (database: Prisma.TransactionClient | typeof prisma = prisma) => {
     controller.signal.throwIfAborted()
-    const current = await prisma.instance.findUnique({ where: { id: instanceId } })
+    const current = await database.instance.findUnique({ where: { id: instanceId } })
     if (!current || current.status !== 'creating' || current.provisioningCleanupPending || current.hostId !== host.id ||
       current.incusId !== name || current.userId !== instance.userId ||
       (current.snapshottedSpecs as Specs)?.managedCleanup?.attempt !== attempt) throw new PoolProvisionOwnershipError('Pool creation was cancelled or replaced')
-    const latestEndpoint = await prisma.host.findUnique({ where: { id: host.id }, select: { url: true } })
-    if (!latestEndpoint || latestEndpoint.url !== endpoint.url) throw new Error('Pool host endpoint changed during creation')
+    const latestEndpoint = await database.host.findUnique({ where: { id: host.id }, include: hardeningIdentityInclude })
+    if (!latestEndpoint || transferHostIdentity(latestEndpoint) !== transferHostIdentity(endpoint) ||
+        hardeningIdentityHash(latestEndpoint) !== hardeningIdentityHash(endpoint) || latestEndpoint.architecture !== endpoint.architecture ||
+        latestEndpoint.installPending || hostMaintenanceBlocked(latestEndpoint.securityHardening)) throw new Error('Pool host identity or maintenance changed during creation')
   }
   const identity = async () => {
-    const remote = await client.request<IncusInstance>('GET', `/1.0/instances/${encodeURIComponent(name)}`, null, 10000, controller.signal)
+    const remote = await client.request<IncusInstance & { created_at?: string; project?: string }>('GET', `/1.0/instances/${encodeURIComponent(name)}`, null, 10000, controller.signal)
     const actualUuid = remote.config?.['volatile.uuid']
     if (remote.name !== name || remote.config?.['user.payincus.provisioning-attempt'] !== attempt ||
-      !actualUuid || !/^[a-f0-9-]{36}$/i.test(actualUuid) || (uuid && uuid !== actualUuid)) throw new Error('Pool remote creation identity does not match')
+      remote.type !== 'container' || (remote.project || 'default') !== 'default' || !remote.created_at || !Number.isFinite(Date.parse(remote.created_at)) ||
+      (createdAt && createdAt !== remote.created_at) || !actualUuid || !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(actualUuid) ||
+      (uuid && uuid !== actualUuid)) throw new Error('Pool remote creation identity does not match')
     if (!uuid) {
       const current = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId } })
       const currentSpecs = current.snapshottedSpecs as Specs
@@ -65,6 +82,8 @@ export async function beginPoolProvision(instanceId: number, host: Host, client:
       if (!saved.count) throw new Error('Pool creation was finalized before identity confirmation')
     }
     uuid = actualUuid
+    createdAt = remote.created_at
+    return remote
   }
   const guarded = new Proxy(client, { get(target, property) {
     if (property === 'request') return async <T>(method: string, path: string, body: unknown = null, timeout = 120000, signal?: AbortSignal, conditions?: IncusRequestConditions) => {
@@ -77,10 +96,29 @@ export async function beginPoolProvision(instanceId: number, host: Host, client:
     return typeof value === 'function' ? value.bind(target) : value
   } })
   const complete = async (data: Prisma.InstanceUpdateManyMutationInput) => {
-    await check(); await identity(); await check()
-    return prisma.instance.updateMany({ where: { id: instanceId, userId: instance.userId, hostId: host.id, incusId: name,
+    await check()
+    const remote = await identity()
+    await assertCustomerProfiles(client, remote)
+    const state = await client.request<{ status?: string }>('GET', `/1.0/instances/${encodeURIComponent(name)}/state`, null, 10000, controller.signal)
+    if (state.status !== 'Running') throw new Error('Pool guest is not running; delivery remains unconfirmed')
+    return prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${host.id} FOR UPDATE`
+      await check(tx)
+      if (instance.dedicatedIpv4) {
+        // The same receipt can become due during image download. It admitted
+        // this purchase; expiry alone must not fail a healthy in-flight order.
+        // Changed protection/identity and current liveness still fail closed.
+        const sameReceipt = JSON.stringify((await tx.host.findUniqueOrThrow({ where: { id: host.id } })).securityHardening) === JSON.stringify(endpoint.securityHardening)
+        const ready = await tx.host.findFirst({ where: { id: host.id, singleTenant: true, ...dedicatedHostReadyWhere(sameReceipt ? admittedAt : new Date()) }, include: hardeningIdentityInclude })
+        if (!ready || !hardeningReceiptMatches(ready) || ready.natPublicIp !== endpoint.natPublicIp || ready.natBindIp !== endpoint.natBindIp) {
+          throw new Error('Pool host no longer satisfies delivery readiness')
+        }
+      }
+      return tx.instance.updateMany({ where: { id: instanceId, userId: instance.userId, hostId: host.id, incusId: name,
       status: 'creating', provisioningCleanupPending: false,
       snapshottedSpecs: { path: ['managedCleanup', 'attempt'], equals: attempt } }, data })
+    }, { maxWait: 5000, timeout: 10000 })
   }
   return { attempt, client: guarded, check, identity, complete, finish: () => { if (active.get(instanceId) === controller) active.delete(instanceId) } }
 }

@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import { setTimeout as wait } from 'node:timers/promises'
 import { prisma } from '../db/prisma.js'
 import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '../db/advisory-locks.js'
 import { hasActiveTransferWorkflow } from '../db/transfers.js'
@@ -10,11 +11,13 @@ import { IncusClient } from '../lib/incus/incus-client.js'
 import { managedCleanupEndpointHash } from '../lib/managed-cleanup-identity.js'
 import { alpineSshFingerprintInspectionCommand, alpineSshSecurityScript, assertAlpineSshSecurityInspection } from '../lib/alpine-ssh-security.js'
 import { checkSshLogin, holdCustomerSshSession } from '../lib/dedicated-ssh.js'
+import { assertGuestNetworkProtection } from '../lib/guest-network-protection.js'
 import { decryptSensitiveData } from '../lib/security.js'
 import { recoveryHeld } from './platform-backup-core.js'
 import { createLog } from '../db/logs.js'
 import { authorizeUserWrite, type WriteSession } from '../db/user-write-authorization.js'
 import { readCustomerIsolation } from '../lib/incus/customer-isolation.js'
+import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { SECURITY_HARDENING_ENABLED_KEY } from '../lib/security-hardening.js'
 import { alpineSshPreflightScript, readAlpineSshPreflight } from '../lib/alpine-ssh-preflight.js'
 
@@ -74,7 +77,13 @@ export async function maintainAlpineCustomerSsh(instanceId: number, actorId: num
     const result = await prisma.$transaction(async tx => {
       await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
       if (recoveryHeld()) throw new Error('ALPINE_SSH_RECOVERY_HELD')
-      if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)) throw new Error('ALPINE_SSH_INSTANCE_BUSY')
+      let acquired = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
+      const until = Date.now() + (automatic ? 1500 : 0)
+      while (!acquired && Date.now() < until) {
+        await wait(Math.min(100, until - Date.now()))
+        acquired = await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
+      }
+      if (!acquired) throw new Error('ALPINE_SSH_INSTANCE_BUSY')
       await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
       const instance = await tx.instance.findUniqueOrThrow({ where: { id: instanceId } })
       hostId = instance.hostId
@@ -105,13 +114,16 @@ export async function maintainAlpineCustomerSsh(instanceId: number, actorId: num
       }
       const host = await tx.host.findUniqueOrThrow({ where: { id: hostId }, select: {
         id: true, url: true, singleTenant: true, isInstalled: true, poolFaulted: true, publicIpSyncBlocked: true,
+        securityHardening: true,
         serverCertificate: true, serverFingerprint: true, natPublicIp: true,
         onboardingNode: { select: { status: true, managementIp: true } }
       } })
+      if (hostMaintenanceBlocked(host.securityHardening)) throw new Error('ALPINE_SSH_INSTANCE_BUSY')
       if (!host.singleTenant || !host.isInstalled || host.poolFaulted || host.publicIpSyncBlocked ||
         !host.serverCertificate || !host.serverFingerprint || host.onboardingNode?.status !== 'succeeded' ||
         !host.onboardingNode.managementIp || !host.natPublicIp || !instance.dedicatedIpv4 || !instance.dedicatedNetworkReady ||
-        instance.status !== 'running' || instance.provisioningCleanupPending || instance.deletionBillingPending || !instance.rootPassword) {
+        instance.status !== 'running' || instance.provisioningCleanupPending || instance.deletionBillingPending || instance.deletionIntent ||
+        instance.expiresAt && instance.expiresAt <= new Date() || !instance.rootPassword) {
         throw new Error('ALPINE_SSH_TARGET_NOT_READY')
       }
       if (await hasActiveTransferWorkflow(instanceId, tx) ||
@@ -140,10 +152,12 @@ export async function maintainAlpineCustomerSsh(instanceId: number, actorId: num
       if (automatic && expected?.inspectOnly && !before.fixed) throw new Error('ALPINE_SSH_PATCH_REQUIRED')
       const password = decryptSensitiveData(instance.rootPassword)
       if (!password) throw new Error('ALPINE_SSH_PASSWORD_UNAVAILABLE')
+      await assertGuestNetworkProtection(client)
       const session = await deps.hold(host.natPublicIp, password, before.fingerprints, instance.sshPort || 22)
       try {
         if (recoveryHeld()) throw new Error('ALPINE_SSH_RECOVERY_HELD')
         if (automatic && !expected?.inspectOnly && needsUpdate) await (deps.preflight || alpineSshMaintenanceDependencies.preflight!)(client, instance.incusId)
+        if (instance.expiresAt && instance.expiresAt <= new Date()) throw new Error('ALPINE_SSH_TARGET_NOT_READY')
         // Even a previously installed package must verify the running listener;
         // a failed reload must not turn a retry into a false already-fixed result.
         if (needsUpdate && (!automatic || !expected?.inspectOnly)) await deps.update(client, instance.incusId)
@@ -155,6 +169,7 @@ export async function maintainAlpineCustomerSsh(instanceId: number, actorId: num
         assertAlpineSshSecurityInspection(after.alpine && after.fixed ? 'INCUDAL_ALPINE_SSH_FIXED' : '')
         if (JSON.stringify([...before.fingerprints].sort()) !== JSON.stringify([...after.fingerprints].sort())) throw new Error('ALPINE_SSH_INSTANCE_IDENTITY_CHANGED')
         await session.verify()
+        await assertGuestNetworkProtection(client)
         await deps.login(host.natPublicIp, password, before.fingerprints, instance.sshPort || 22)
         if (recoveryHeld()) throw new Error('ALPINE_SSH_RECOVERY_HELD')
         await tx.instance.update({ where: { id: instanceId }, data: { snapshottedSpecs: {
@@ -168,6 +183,7 @@ export async function maintainAlpineCustomerSsh(instanceId: number, actorId: num
       : `实例 #${instanceId}：Alpine SSH 检查通过，原密码登录、原身份及验证连接保持`, 'success', { instanceId })
     return result
   } catch (error) {
+    if (error instanceof Error && error.message === 'GUEST_NETWORK_PROTECTION_PENDING') throw error
     const isolationCode = (error as { code?: string } | null)?.code
     if (automatic && ['CUSTOMER_PRIVILEGE_FORBIDDEN', 'CUSTOMER_ISOLATION_UNSAFE'].includes(isolationCode || '')) throw error
     if (automatic && error instanceof Error && ['HARDENING_ARCH_UNSUPPORTED', 'HARDENING_FILESYSTEM_READONLY',

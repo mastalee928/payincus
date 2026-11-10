@@ -22,6 +22,7 @@ const {hostMaintenanceDependencies,prepareAutomaticHostMaintenance,resumeAutomat
 const {SECURITY_HARDENING_ENABLED_KEY,SECURITY_HARDENING_REVISION}=await import('../src/lib/security-hardening.js')
 const {hardeningIdentityHash}=await import('../src/lib/hardening-identity.js')
 const {hostMaintenanceBlocked}=await import('../src/lib/host-maintenance-gate.js')
+const {INSTANCE_OPERATION_LOCK_NAMESPACE}=await import('../src/db/advisory-locks.js')
 globalThis.setInterval=originalSetInterval
 const root=await mkdtemp(join(tmpdir(),'customer-boot-'))
 const key=join(root,'key.pem'),cert=join(root,'cert.pem')
@@ -57,7 +58,7 @@ const server=createServer({key:await readFile(key),cert:certificate,ca:certifica
     if(loseStart)return response.destroy()
     return send({})
   }
-  if(path==='/1.0/networks/incusbr0')return send({config:{'ipv4.address':'10.44.0.1/24','ipv4.nat':'true'}})
+  if(path==='/1.0/networks/incusbr0')return send({config:{'ipv4.address':'10.44.0.1/24','ipv4.nat':'true','user.payincus.guest-guard':`v1:${'a'.repeat(64)}:${Date.now()}`}})
   if(path==='/1.0/networks/incusbr0/forwards?recursion=1')return send([{description:`payincus-dedicated:${name}`,listen_address:'192.0.2.10',config:{target_address:networkIp},ports:[]}])
   if(path===`/1.0/instances/${name}/exec`&&request.method==='POST') {
     let body='';for await(const chunk of request)body+=chunk
@@ -108,6 +109,10 @@ try {
     assert.equal(startCalls,0);assert.equal(stopCalls,0,'ephemeral or unknown persistence cannot reach a lifecycle mutation')
   }
   ephemeral=false;remoteState='Stopped'
+  remoteType='virtual-machine'
+  await assert.rejects(recover(before),/VM_RUNTIME_UNVERIFIED/,'a container baseline cannot authorize recovery of a KVM instance with copied UUID and attempt')
+  assert.equal(startCalls,0,'unsupported changed type must be rejected before any start')
+  remoteType='container'
   await assert.rejects(client.request('PUT',`/1.0/instances/${name}/state`,{action:'start',timeout:30}),/安全维护/)
   const capability=client.withMaintenanceStart(name,allowed)
   for(const [method,path,body] of [['DELETE',`/1.0/instances/${name}`,null],['PUT',`/1.0/instances/${name}`,{config:{}}],
@@ -185,7 +190,7 @@ try {
     managementSshHost:node.managementIp,managementSshPort:22,managementSshUser:'root'},include:{onboardingNode:{include:{batch:true}}}})
   hadPolicy=true
   await prisma.systemConfig.upsert({where:{key:SECURITY_HARDENING_ENABLED_KEY},update:{value:'true'},create:{key:SECURITY_HARDENING_ENABLED_KEY,value:'true'}})
-  const oldBoot=randomUUID();let newBoot=oldBoot,phase='prepared',hostReboots=0,failedReport=true,loseRestore=true
+  const oldBoot=randomUUID();let newBoot=oldBoot,phase='prepared',hostReboots=0,failedReport=true,loseRestore=true,apparmorActive=true,failedGuestReport=false,unexpectedBoot:string|undefined
   autostart='true';remoteState='Running'
   const environment=()=>({architecture:'aarch64',bootId:newBoot,pageSize:65536,memoryAvailableKiB:262144,memoryPressure:0,rootAvailableBytes:268435456,
     rootAvailableInodes:1024,rootReadonly:false,packageBusy:false,apparmorKernelSupport:true,apparmorBootDisabled:true,apparmorActive:false,bootloader:'extlinux' as const})
@@ -206,22 +211,123 @@ try {
         originalBootId:oldBoot,bootId:newBoot,architecture:'aarch64',recipe:operation.recipe,phase} as any
     },inspect:async(_host:any,guests:any,update:boolean,a:()=>Promise<void>)=>{
       assert.equal(update,false);await a()
-      return {preflight:{...environment(),apparmorActive:true},apparmor:!failedReport,alpine:true,fixed:true,branch:'3.22',hostSshUpdated:false,
-        guests:guests.map((guest:any)=>({...guest,uidMap:'0 1000000 65536',gidMap:'0 1000000 65536',seccomp:2,apparmor:'incus-fixture (enforce)'}))}
+      return {preflight:{...environment(),bootId:unexpectedBoot??newBoot,apparmorActive},apparmor:!failedReport,alpine:true,fixed:true,branch:'3.22',hostSshUpdated:false,
+        guests:guests.map((guest:any)=>({...guest,uidMap:'0 1000000 65536',gidMap:'0 1000000 65536',seccomp:2,apparmor:failedGuestReport?'unconfined':'incus-fixture (enforce)'}))}
     }}
-  await prepareAutomaticHostMaintenance(host.id,coordinator);assert.equal(hostReboots,1);assert.equal(autostart,'false')
+  // Reports acquire the instance lane before the host row. Maintenance must
+  // wait before owning that host row, or it makes the report its own blocker.
+  let releaseReport!:()=>void,reportEntered!:()=>void
+  const reportGate=new Promise<void>(resolve=>{releaseReport=resolve})
+  const longReportReady=new Promise<void>(resolve=>{reportEntered=resolve})
+  const longReport=prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(${INSTANCE_OPERATION_LOCK_NAMESPACE}, ${customer.id})::text`
+    reportEntered();await reportGate
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id=${host.id} FOR SHARE`
+  },{timeout:15000})
+  await longReportReady
+  try {
+    await assert.rejects(prepareAutomaticHostMaintenance(host.id,coordinator),/HARDENING_BUSY/)
+    const pending=await prisma.host.findUniqueOrThrow({where:{id:host.id}})
+    assert.equal((pending.securityHardening as any).maintenance,undefined)
+    assert.equal(hostReboots,0);assert.equal(autostart,'true');assert.equal(remoteState,'Running')
+  }finally{releaseReport();await longReport}
+  let shortReportEntered!:()=>void
+  const shortReportReady=new Promise<void>(resolve=>{shortReportEntered=resolve})
+  const shortReport=prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(${INSTANCE_OPERATION_LOCK_NAMESPACE}, ${customer.id})::text`
+    shortReportEntered();await new Promise(resolve=>setTimeout(resolve,250))
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id=${host.id} FOR SHARE`
+  },{timeout:5000})
+  await shortReportReady
+  try {await prepareAutomaticHostMaintenance(host.id,coordinator)}finally{await shortReport}
+  assert.equal(hostReboots,1,'a short real report instance→host lock sequence must not strand maintenance')
+  assert.equal(autostart,'false')
+  let releasePendingReport!:()=>void,pendingReportEntered!:()=>void
+  const pendingReportGate=new Promise<void>(resolve=>{releasePendingReport=resolve})
+  const pendingReportReady=new Promise<void>(resolve=>{pendingReportEntered=resolve})
+  const pendingReport=prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(${INSTANCE_OPERATION_LOCK_NAMESPACE}, ${customer.id})::text`
+    pendingReportEntered();await pendingReportGate
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id=${host.id} FOR SHARE`
+  },{timeout:15000})
+  await pendingReportReady
+  try {
+    await resumeAutomaticHostMaintenance(host.id,coordinator)
+    const pending=await prisma.host.findUniqueOrThrow({where:{id:host.id}})
+    assert.equal((pending.securityHardening as any).maintenance.error,'HARDENING_BUSY')
+    assert.ok(Date.parse((pending.securityHardening as any).nextCheckAt)<=Date.now()+40000)
+    assert.equal(hostReboots,1);assert.equal(remoteState,'Stopped');assert.equal(autostart,'false')
+  }finally{releasePendingReport();await pendingReport}
   newBoot=randomUUID();await prisma.hostAgent.update({where:{hostId:host.id},data:{lastSeenAt:new Date(),lastReport:{metrics:{bootId:newBoot}}}})
+  const startsBeforeHostProof=startCalls
+  failedReport=false;remoteType='virtual-machine'
+  await resumeAutomaticHostMaintenance(host.id,coordinator)
+  const wrongType=await prisma.host.findUniqueOrThrow({where:{id:host.id}})
+  assert.equal((wrongType.securityHardening as any).maintenance.error,'HARDENING_VM_RUNTIME_UNVERIFIED')
+  assert.equal(startCalls,startsBeforeHostProof,'the host coordinator also rejects copied container identity on a KVM target')
+  assert.equal(autostart,'false');assert.equal(hostReboots,1)
+  remoteType='container';failedReport=true
   await resumeAutomaticHostMaintenance(host.id,coordinator)
   const partial=await prisma.host.findUniqueOrThrow({where:{id:host.id}})
   assert.equal(phase,'reboot-intent');assert.equal(autostart,'false');assert.equal(hostMaintenanceBlocked(partial.securityHardening),true,'failed kernel report keeps durable boot policy fence')
-  const starts=startCalls;failedReport=false;await resumeAutomaticHostMaintenance(host.id,coordinator)
+  assert.equal(startCalls,startsBeforeHostProof,'missing post-boot AppArmor must block customer start, not only final verification')
+  assert.equal(remoteState,'Stopped','the customer remains stopped until the host defense is independently verified')
+  failedReport=false;apparmorActive=false
+  await resumeAutomaticHostMaintenance(host.id,coordinator)
+  assert.equal(startCalls,startsBeforeHostProof,'a summary flag cannot override an inactive AppArmor runtime')
+  apparmorActive=true
+  await prisma.hostAgent.update({where:{hostId:host.id},data:{lastReport:{metrics:{bootId:oldBoot}}}})
+  await resumeAutomaticHostMaintenance(host.id,coordinator)
+  assert.equal(startCalls,startsBeforeHostProof,'a stale Agent boot cannot grant customer start')
+  await prisma.hostAgent.update({where:{hostId:host.id},data:{lastReport:{metrics:{bootId:newBoot}}}})
+  unexpectedBoot=randomUUID()
+  await prisma.hostAgent.update({where:{hostId:host.id},data:{lastReport:{metrics:{bootId:unexpectedBoot}}}})
+  await resumeAutomaticHostMaintenance(host.id,coordinator)
+  assert.equal(startCalls,startsBeforeHostProof,'a different live boot cannot override the original remote-journal receipt')
+  unexpectedBoot=undefined
+  await prisma.hostAgent.update({where:{hostId:host.id},data:{lastReport:{metrics:{bootId:newBoot}}}})
+  failedGuestReport=true
+  let restoreReportEntered!:()=>void
+  const restoreReportReady=new Promise<void>(resolve=>{restoreReportEntered=resolve})
+  const restoreReport=prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(${INSTANCE_OPERATION_LOCK_NAMESPACE}, ${customer.id})::text`
+    restoreReportEntered();await new Promise(resolve=>setTimeout(resolve,250))
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id=${host.id} FOR SHARE`
+  },{timeout:5000})
+  await restoreReportReady
+  try {await resumeAutomaticHostMaintenance(host.id,coordinator)}finally{await restoreReport}
+  assert.equal(startCalls,startsBeforeHostProof+1,'successful host defense permits exactly one original-customer start')
+  assert.equal(phase,'reboot-intent','missing guest enforcement still prevents restoration completion')
+  failedGuestReport=false
+  await resumeAutomaticHostMaintenance(host.id,coordinator)
   assert.equal(phase,'customers-restored');assert.equal(autostart,'true')
+  assert.equal(startCalls,startsBeforeHostProof+1,'guest verification retry cannot start the running original again')
+  const starts=startCalls
   assert.equal(hostMaintenanceBlocked((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).securityHardening),true,'lost restoration reply keeps DB fence')
   await resumeAutomaticHostMaintenance(host.id,coordinator)
   assert.equal(hostMaintenanceBlocked((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).securityHardening),false)
   assert.equal(hostReboots,1);assert.equal(startCalls,starts,'lost final report does not start or reboot again')
   const current=await prisma.instance.findUniqueOrThrow({where:{id:customer.id}})
   for(const key of ['userId','hostId','incusId','rootPassword','cpu','memory','disk','ipv4','snapshottedSpecs'] as const)assert.deepEqual(current[key],customer[key])
+  for(const status of ['stopped','suspended'] as const) {
+    const stoppedOriginal=await prisma.instance.update({where:{id:customer.id},data:{status,expiresAt:null}})
+    remoteState='Stopped';phase='prepared';autostart='true';hostReboots=0;loseRestore=false
+    const startsBefore=startCalls,stopsBefore=stopCalls,loginsBefore=logins
+    await prisma.host.update({where:{id:host.id},data:{securityHardening:{revision:SECURITY_HARDENING_REVISION,status:'needs-maintenance',
+      identityHash:hardeningIdentityHash(managedHost),environment:environment(),
+      host:{preflight:{status:'verified'},apparmor:{status:'needs-maintenance',reason:'HARDENING_APPARMOR_REQUIRED'},ssh:{status:'verified'}},
+      instances:[{instanceId:customer.id,isolation:{status:'needs-maintenance',reason:'HARDENING_GUEST_NOT_RUNNING'},
+        ssh:{status:'needs-maintenance',reason:'HARDENING_GUEST_NOT_RUNNING'}}]}}})
+    await prepareAutomaticHostMaintenance(host.id,coordinator)
+    assert.equal(hostReboots,1,`${status} customers must not prevent their host's validated boot maintenance`)
+    newBoot=randomUUID();await prisma.hostAgent.update({where:{hostId:host.id},data:{lastSeenAt:new Date(),lastReport:{metrics:{bootId:newBoot}}}})
+    await resumeAutomaticHostMaintenance(host.id,coordinator)
+    const completed=await prisma.host.findUniqueOrThrow({where:{id:host.id}})
+    assert.equal((completed.securityHardening as any).maintenance.phase,'verified')
+    assert.equal(remoteState,'Stopped');assert.equal(autostart,'true')
+    assert.equal(startCalls,startsBefore);assert.equal(stopCalls,stopsBefore);assert.equal(logins,loginsBefore)
+    assert.deepEqual(await prisma.instance.findUniqueOrThrow({where:{id:customer.id}}),stoppedOriginal,'stopped customer data and business state remain exact')
+  }
   console.log('PASS customer boot recovery: real PostgreSQL/pinned mTLS, exact start/stop/read-only SSH capabilities, lost reply no duplicate, current stop/delete/expiry/hold/owner and queued intent, original password/config/network hashes, stopped remains stopped, explicit autostart prepare/restored receipt, full host coordinator/final-report failure continuation, unsafe/VM rejection; no native kernel or boot acceptance')
 } finally {
   await client.close();await new Promise<void>(resolve=>server.close(()=>resolve()))

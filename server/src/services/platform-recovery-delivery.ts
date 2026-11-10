@@ -12,6 +12,7 @@ import { readOriginalDedicatedNetwork } from './platform-recovery-network.js'
 import { publicIpv6State, type DedicatedIpv6State } from '../lib/host-public-ipv6.js'
 import { decryptSensitiveData } from '../lib/security.js'
 import { checkSshLogin } from '../lib/dedicated-ssh.js'
+import { assertGuestNetworkProtection } from '../lib/guest-network-protection.js'
 import { recoveryHostErrorCode, recoveryHostPolicy } from './platform-recovery-policy.js'
 import { recoveryHostSourceHash } from './platform-recovery-state.js'
 import { restoreMissingDeliveryForwards } from './platform-recovery-delivery-network.js'
@@ -135,7 +136,7 @@ async function inspectPendingDelivery(row:Pending,step:(value:DeliveryStep)=>voi
       ensure(fingerprints.length && row.rootPassword && host.natPublicIp,'OSS_RECOVERY_DELIVERY_SSH_PENDING',409)
       const password=decryptSensitiveData(row.rootPassword!)
       ensure(password,'OSS_RECOVERY_DELIVERY_SSH_PENDING',409)
-      try{await checkSshLogin(host.natPublicIp!,password!,fingerprints)}
+      try{await assertGuestNetworkProtection(client);await checkSshLogin(host.natPublicIp!,password!,fingerprints)}
       catch{ensure(false,'OSS_RECOVERY_DELIVERY_SSH_PENDING',409)}
     }
     return {status:live[0].status==='Running'?'running':'stopped',identity,network,location}

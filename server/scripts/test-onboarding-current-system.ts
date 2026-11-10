@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import type { Prisma } from '@prisma/client'
 import { randomUUID, generateKeyPairSync } from 'node:crypto'
 import { once } from 'node:events'
 import ssh2 from 'ssh2'
@@ -19,7 +20,9 @@ const { default: routes } = await import('../src/routes/host-onboarding.js')
 const id = randomUUID(), actor = await prisma.user.create({ data: { username: 'current-' + id, passwordHash: 'fixture', role: 'admin' } })
 const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' })
 let preflightFailure = false
+const fixtureConnections = new Set<ssh2.Connection>()
 const ssh = new ssh2.Server({ hostKeys: [key] }, connection => {
+  fixtureConnections.add(connection); connection.on('close', () => fixtureConnections.delete(connection))
   connection.on('error', () => {})
   connection.on('authentication', context => context.method === 'password' && context.password === 'current-root-fixture' ? context.accept() : context.reject())
   connection.on('ready', () => connection.on('session', accept => {
@@ -102,6 +105,15 @@ try {
   const retry = () => app.inject({ method: 'POST', url: `/onboarding/nodes/${node.id}/retry`, headers, payload: { password: 'current-root-fixture' } })
   assert.equal((await retry()).statusCode, 200)
   let claimed = (await claimHostOnboardingNode())!
+  await prisma.hostOnboardingNode.update({ where: { id: node.id }, data: { leaseUntil: new Date(Date.now() - 1000) } })
+  await assert.rejects(() => inspectCurrentOnboardingSystem(claimed, actor.id, { password: 'current-root-fixture' }), /WORKER_INTERRUPTED/)
+  await assert.rejects(() => enrollOnboardingGateway(claimed, oldPeer.nodePublicKey, false), /WORKER_INTERRUPTED/)
+  assert.equal(retireCalls, 0, 'expired enrollment cannot mutate a gateway')
+  await prisma.hostOnboardingNode.update({ where: { id: node.id }, data: { leaseUntil: new Date(Date.now() + 60000) } })
+  await prisma.user.update({ where: { id: actor.id }, data: { role: 'user' } })
+  await assert.rejects(() => inspectCurrentOnboardingSystem(claimed, actor.id, { password: 'current-root-fixture' }), /ADMIN_REQUIRED/)
+  await assert.rejects(() => enrollOnboardingGateway(claimed, oldPeer.nodePublicKey, false), /ADMIN_REQUIRED/)
+  await prisma.user.update({ where: { id: actor.id }, data: { role: 'admin' } })
   await assert.rejects(() => inspectCurrentOnboardingSystem(claimed, actor.id, { password: 'wrong-root' }), /SSH_AUTH_FAILED/)
   assert.equal((await prisma.hostOnboardingNode.findUniqueOrThrow({ where: { id: node.id } })).sshFingerprint, 'old-system')
   preflightFailure = true
@@ -113,6 +125,11 @@ try {
   assert.match(current.sshFingerprint!, /^SHA256:/)
   assert.equal((current.peerRetirement as { status: string }).status, 'pending')
   const changedFingerprint = current.sshFingerprint
+  const originalIntent = current.identityReset as Prisma.InputJsonObject
+  await prisma.hostOnboardingNode.update({ where: { id: node.id }, data: { identityReset: { ...originalIntent, verifiedFingerprint: 'SHA256:different-system' } } })
+  await assert.rejects(() => inspectCurrentOnboardingSystem(claimed, actor.id, { password: 'current-root-fixture' }), /SSH_HOST_KEY_CHANGED/)
+  assert.equal((await prisma.hostOnboardingNode.findUniqueOrThrow({ where: { id: node.id } })).sshFingerprint, changedFingerprint)
+  await prisma.hostOnboardingNode.update({ where: { id: node.id }, data: { identityReset: originalIntent } })
   await prisma.hostOnboardingNode.update({ where: { id: node.id }, data: { status: 'failed', leaseToken: null, leaseUntil: null } })
   assert.equal((await retry()).statusCode, 200); claimed = (await claimHostOnboardingNode())!
   const again = await inspectCurrentOnboardingSystem(claimed, actor.id, { password: 'current-root-fixture' }); again.end()
@@ -184,6 +201,7 @@ try {
   assert.equal((await claimHostOnboardingNode())?.id, queued.id, 'the persisted task becomes claimable when backoff expires')
   console.log('Current-system authentication, protected preflight, duplicate IP, delete/recreate, helper compatibility, durable retirement/lost receipt/add interruption, heartbeat and background cleanup passed (real local PG and SSH protocol, gateway OS fixture)')
 } finally {
+  for (const connection of fixtureConnections) connection.end()
   await app.close(); await new Promise<void>(resolve => ssh.close(() => resolve()))
   await new Promise<void>(resolve => gateway.close(() => resolve())); await unlink(keyFile); await rmdir(fixtureDirectory)
   await prisma.host.deleteMany({ where: { userId: actor.id } }); await prisma.hostOnboardingBatch.deleteMany({ where: { createdById: actor.id } }); await prisma.user.delete({ where: { id: actor.id } }); await closePrismaDatabase()

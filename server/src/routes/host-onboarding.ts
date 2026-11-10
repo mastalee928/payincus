@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { prisma } from '../db/prisma.js'
 import { createLog } from '../db/logs.js'
 import { encryptSensitiveData } from '../lib/security.js'
+import { readOnboardingCredentials } from '../lib/onboarding-credentials.js'
 import { OnboardingError, RESOURCE_PRESETS, validateCredentials, validateOnboardingInput, resolveOnboardingInput, onboardingCredentials, onboardingPanelOrigin, refreshUnprovisionedSshIdentity, type OnboardingRequest, type OnboardingCredentials } from '../lib/host-onboarding.js'
 import { gatewayCommand, gatewayConfigured } from '../services/onboarding-ssh.js'
 import { resolveHostGroups } from '../services/host-groups.js'
@@ -200,6 +201,7 @@ export default async function hostOnboardingRoutes(fastify: FastifyInstance) {
       try { validateCredentials(request.body) } catch { return reply.code(400).send({ code: 'SSH_CREDENTIALS_INVALID' }) }
       encrypted = encryptSensitiveData(JSON.stringify({ password: request.body.password, privateKey: request.body.privateKey }))
     } else if (!encrypted || node.credentialsExpireAt < new Date()) return reply.code(400).send({ code: 'SSH_CREDENTIALS_REQUIRED' })
+    try { readOnboardingCredentials(encrypted!) } catch { return reply.code(400).send({ code: 'SSH_CREDENTIALS_INVALID' }) }
     const refreshIdentity = refreshUnprovisionedSshIdentity(node) || (node.hostId === null && !node.sshFingerprint)
     const oldRetirement = readPeerRetirement(node.peerRetirement)
     const updated = await prisma.$transaction(async tx => {

@@ -67,7 +67,8 @@ import { issueHostAgentInstallToken } from '../lib/host-agent-credentials.js'
 import { checkHostCaddyCredentials, confirmHostCaddyCredentials, prepareHostCaddyCredentials, loadCaddyScriptCredentials } from '../db/host-caddy-credentials.js'
 import { createCaddyScriptToken, verifyCaddyScriptToken } from '../lib/caddy-script-token.js'
 import { hostLiveStatus } from '../lib/host-live-status.js'
-import { HOST_OCCUPIED_INSTANCE_WHERE } from '../lib/host-resource-usage.js'
+import { HOST_OCCUPIED_INSTANCE_WHERE, hostPendingMoveWhere, hostUnfinishedCreationWhere } from '../lib/host-resource-usage.js'
+import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { resolveInstanceNetworkAddresses } from '../lib/instance-network-sync.js'
 import { syncObservedInstanceNetwork, syncInstanceNetworkAndProxySites, readProxyNetworkSyncHostIdentity, ProxyNetworkSyncError } from '../lib/instance-proxy-network-sync.js'
 import { recordUnverifiedInstanceObservation } from '../lib/instance-sync-observation-error.js'
@@ -1417,6 +1418,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           name: true,
           isInstalled: true,
           installPending: true,
+          singleTenant: true,
+          securityHardening: true,
           installTokenExpire: true
         }
       })
@@ -1441,6 +1444,13 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         request.log.warn(`Install script download failed: token expired for host ${host.name}`)
         return reply.code(403).send('# Error: Install token has expired (24 hours)')
       }
+
+      // An old token must not turn a now-occupied host into a fresh install.
+      // Existing customer reconnection uses the original management repair path.
+      if (hostMaintenanceBlocked(host.securityHardening) || host.singleTenant && (
+        await prisma.instance.count({ where: { hostId: host.id, ...HOST_OCCUPIED_INSTANCE_WHERE } }) ||
+        await prisma.instanceTask.count({ where: { OR: [hostPendingMoveWhere(host.id), hostUnfinishedCreationWhere(host.id)] } })
+      )) return reply.code(409).send('# Error: Host occupied or under maintenance; full installation is unavailable')
 
       // 读取安装脚本
       const scriptPath = join(__dirname, request.query.os === 'alpine' ? '../../templates/install-alpine.sh' : '../../templates/install.sh')
@@ -1868,10 +1878,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       const actor = await tx.user.findUnique({ where: { id: user.id }, select: { role: true } })
       if (current.userId !== user.id && actor?.role !== 'admin') return false
       if (await tx.hostOnboardingNode.count({ where: { hostId, status: { in: ['queued', 'running'] } } })) return false
+      if (hostMaintenanceBlocked(current.securityHardening) || current.singleTenant && (
+        await tx.instance.count({ where: { hostId, ...HOST_OCCUPIED_INSTANCE_WHERE } }) ||
+        await tx.instanceTask.count({ where: { OR: [hostPendingMoveWhere(hostId), hostUnfinishedCreationWhere(hostId)] } })
+      )) return false
       await tx.host.update({ where: { id: hostId }, data: { installToken, installTokenExpire, installPending: true } })
       return true
     })
-    if (!prepared) return reply.code(409).send({ error: '宿主正在接入或归属已改变，请等待当前操作完成', code: 'HOST_INSTALL_BUSY' })
+    if (!prepared) return reply.code(409).send({ error: '宿主有客户占用、待完成任务、安全维护或授权已改变，不能重新安装；已有客户的管理连接由系统按原身份自动修复', code: 'HOST_INSTALL_BUSY' })
 
     // 生成安装命令（面板地址和 token 自动注入脚本）
     const panelUrl = derivePanelUrl(request)

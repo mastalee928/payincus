@@ -23,7 +23,7 @@ const policy=await prisma.systemConfig.findUnique({where:{key:SECURITY_HARDENING
 const admin=await prisma.user.create({data:{username:prefix,passwordHash:'fixture',role:'admin'}})
 const batch=await prisma.hostOnboardingBatch.create({data:{id:randomUUID(),name:prefix,accountLabel:prefix,createdById:admin.id,defaults:{}}})
 const hosts:number[]=[]
-let held=false,losePrepare=false,loseReboot=false,loseRollback=false,failBeforeDispatch=false,mutateInventory=false,reportApparmor=true,dependencyInstall=false
+let held=false,losePrepare=false,loseReboot=false,loseRollback=false,loseRestore=false,failBeforeDispatch=false,mutateInventory=false,reportApparmor=true,dependencyInstall=false
 let commands:string[]=[],reboots=0,currentBoot=randomUUID(),remotePhase='prepared'
 const originalBoot=currentBoot,prepareHash='d'.repeat(64)
 const preflight=(architecture:string)=>({architecture,bootId:currentBoot,pageSize:architecture==='aarch64'?65536:4096,
@@ -59,9 +59,14 @@ const deps={...hostMaintenanceDependencies,held:()=>held,accepted:(name:string,a
       if(remotePhase==='prepared'){remotePhase='reboot-intent';reboots++}
       if(loseReboot){loseReboot=false;throw Error('simulated lost reboot reply')}
     } else if(operation.action==='rollback'){
-      assert.equal(currentBoot,wire.bootId);assert.equal(remotePhase,'prepared')
+      assert.equal(currentBoot,wire.bootId);assert.ok(['prepared','preparing'].includes(remotePhase))
       remotePhase='rolled-back'
       if(loseRollback){loseRollback=false;throw Error('simulated lost rollback reply')}
+    } else if(operation.action==='restore-customers'){
+      assert.notEqual(currentBoot,wire.bootId)
+      assert.ok(['reboot-intent','customers-restored'].includes(remotePhase))
+      remotePhase='customers-restored'
+      if(loseRestore){loseRestore=false;throw Error('simulated lost completion reply')}
     }
     return {nodeId:wire.nodeId,requestId:wire.requestId,identityHash:wire.identityHash,prepareHash,originalBootId:wire.bootId,
       bootId:currentBoot,architecture:wire.architecture,recipe,phase:remotePhase} as any
@@ -98,7 +103,63 @@ try {
   })
   await prepareAutomaticHostMaintenance(arm.id,{...deps,accepted:()=>false})
   assert.equal(commands.length,0);assert.equal((await state(arm.id)).maintenance,undefined,'unvalidated recipes stay inactive')
+  assert.equal((await state(arm.id)).diagnostic.reason,'HARDENING_NATIVE_ACCEPTANCE_REQUIRED','a disabled recipe is reported instead of silently returning')
+  assert.equal((await state(arm.id)).diagnostic.action,'blocked')
+  assert.equal(await prisma.log.count({where:{module:'host',action:'host.security_hardening',content:{contains:`#${arm.id} 自动维护未启动`}}}),1)
+  await prepareAutomaticHostMaintenance(arm.id,{...deps,accepted:()=>false})
+  assert.equal(await prisma.log.count({where:{module:'host',action:'host.security_hardening',content:{contains:`#${arm.id} 自动维护未启动`}}}),1,'unchanged activation failures do not flood logs')
+  await reset(arm.id,'aarch64')
+  const unsafeReceipt={...await state(arm.id),diagnostic:{phase:'runtime',reason:'CUSTOMER_PRIVILEGE_FORBIDDEN',action:'blocked'},
+    instances:[{instanceId:1,isolation:{status:'needs-maintenance',reason:'CUSTOMER_PRIVILEGE_FORBIDDEN'},ssh:{status:'needs-maintenance',reason:'CUSTOMER_PRIVILEGE_FORBIDDEN'}}]}
+  await prisma.host.update({where:{id:arm.id},data:{securityHardening:unsafeReceipt}})
+  await prepareAutomaticHostMaintenance(arm.id,{...deps,accepted:()=>false})
+  assert.deepEqual(await state(arm.id),unsafeReceipt,'actual privilege failure must not be hidden by a missing boot recipe')
+  await reset(arm.id,'aarch64')
+  const notStoppedReceipt={...await state(arm.id),instances:[{instanceId:1,isolation:{status:'needs-maintenance',reason:'HARDENING_GUEST_NOT_RUNNING'},
+    ssh:{status:'needs-maintenance',reason:'HARDENING_GUEST_NOT_RUNNING'}}]}
+  await prisma.host.update({where:{id:arm.id},data:{securityHardening:notStoppedReceipt}})
+  await prepareAutomaticHostMaintenance(arm.id,deps)
+  assert.deepEqual(await state(arm.id),notStoppedReceipt,'a missing or foreign stopped customer receipt grants no maintenance authority')
+  await reset(arm.id,'aarch64')
+  const failedSshReceipt={...await state(arm.id),diagnostic:{phase:'host-inspection',reason:'ALPINE_SSH_PATCH_REQUIRED',action:'inspect'},
+    host:{preflight:{status:'verified'},apparmor:{status:'needs-maintenance',reason:'HARDENING_APPARMOR_REQUIRED'},
+      ssh:{status:'retry',reason:'ALPINE_SSH_PATCH_REQUIRED'}}}
+  await prisma.host.update({where:{id:arm.id},data:{securityHardening:failedSshReceipt}})
+  await prepareAutomaticHostMaintenance(arm.id,{...deps,accepted:()=>false})
+  assert.deepEqual(await state(arm.id),failedSshReceipt,'actual host SSH failure must remain the primary diagnosis')
+  await reset(arm.id,'aarch64')
+  const resourceReceipt={...failedSshReceipt,diagnostic:{phase:'host-inspection',reason:'HARDENING_MEMORY_LOW',action:'wait'},
+    host:{...failedSshReceipt.host,preflight:{status:'retry',reason:'HARDENING_MEMORY_LOW'},ssh:{status:'verified'}}}
+  await prisma.host.update({where:{id:arm.id},data:{securityHardening:resourceReceipt}})
+  await prepareAutomaticHostMaintenance(arm.id,deps)
+  assert.deepEqual(await state(arm.id),resourceReceipt,'resource failures retain their exact reason and retry schedule')
+  await reset(arm.id,'aarch64')
+  for(const [delta,reason] of [[{status:'offline'},'HARDENING_OFFLINE'],[{poolFaulted:true},'HARDENING_HOST_QUARANTINED'],
+    [{publicIpSyncBlocked:true},'HARDENING_PUBLIC_IP_PENDING'],[{installPending:true},'HARDENING_INSTALL_PENDING']] as const) {
+    await prisma.host.update({where:{id:arm.id},data:delta})
+    await assert.rejects(prepareAutomaticHostMaintenance(arm.id,deps),new RegExp(reason))
+    assert.equal(commands.length,0,'current host gates prohibit all remote preparation')
+    assert.equal((await state(arm.id)).maintenance,undefined)
+    await prisma.host.update({where:{id:arm.id},data:{status:'online',poolFaulted:false,publicIpSyncBlocked:false,installPending:false}})
+    await reset(arm.id,'aarch64')
+  }
   losePrepare=true
+  const prepareNow=Date.now
+  let prepareOffset=0
+  Date.now=()=>prepareNow()+prepareOffset
+  try {
+    await prepareAutomaticHostMaintenance(arm.id,{...deps,connect:async()=>{
+      const client=await deps.connect()
+      return {...client,request:async(...args:Parameters<typeof client.request>)=>{
+        const result=await client.request(...args)
+        if(String(args[1]).startsWith('/1.0/instances?'))prepareOffset=21*60000
+        return result
+      }} as typeof client
+    }})
+    assert.ok(!commands.includes('prepare'),'a slow initial baseline cannot dispatch preparation after its durable deadline')
+    assert.equal(reboots,0)
+  } finally {Date.now=prepareNow}
+  await reset(arm.id,'aarch64');losePrepare=true
   await prepareAutomaticHostMaintenance(arm.id,deps)
   assert.equal((await state(arm.id)).maintenance.prepareHash,'0'.repeat(64));assert.equal(reboots,0)
   failBeforeDispatch=true
@@ -135,10 +196,25 @@ try {
   assert.equal((await state(arm.id)).maintenance.error,undefined);assert.equal(reboots,1)
   await reset(amd.id,'x86_64');await prepareAutomaticHostMaintenance(amd.id,deps)
   assert.equal((await state(amd.id)).maintenance.architecture,'x86_64');assert.equal((await state(amd.id)).maintenance.phase,'waiting-boot')
+  for(const [delta,reason] of [[{poolFaulted:true},'HARDENING_HOST_QUARANTINED'],[{publicIpSyncBlocked:true},'HARDENING_PUBLIC_IP_PENDING'],
+    [{installPending:true},'HARDENING_INSTALL_PENDING']] as const) {
+    const count=commands.length
+    await prisma.host.update({where:{id:amd.id},data:delta})
+    await resumeAutomaticHostMaintenance(amd.id,deps)
+    assert.equal(commands.length,count,'resume must reacquire current host gates')
+    assert.equal((await state(amd.id)).maintenance.error,reason)
+    await prisma.host.update({where:{id:amd.id},data:{poolFaulted:false,publicIpSyncBlocked:false,installPending:false}})
+  }
   await arrive(amd.id);reportApparmor=false
   await resumeAutomaticHostMaintenance(amd.id,deps);assert.equal((await state(amd.id)).maintenance.error,'HARDENING_RECONNECT_INCOMPLETE')
-  reportApparmor=true;await resumeAutomaticHostMaintenance(amd.id,deps)
+  reportApparmor=true;loseRestore=true;await resumeAutomaticHostMaintenance(amd.id,deps)
+  assert.equal(remotePhase,'customers-restored','empty hosts also complete the independent remote journal')
+  assert.notEqual((await state(amd.id)).maintenance.phase,'verified','a lost completion receipt cannot mark the host verified')
+  assert.equal(hostMaintenanceBlocked(await state(amd.id)),true)
+  const beforeRestoreRetry=reboots
+  await resumeAutomaticHostMaintenance(amd.id,deps)
   assert.equal((await state(amd.id)).maintenance.phase,'verified')
+  assert.equal(reboots,beforeRestoreRetry,'completion retry never reboots')
   await reset(amd.id,'x86_64');dependencyInstall=true
   await prepareAutomaticHostMaintenance(amd.id,deps)
   assert.deepEqual(commands,['prepare'],'dependency transaction yields instead of issuing a second bounded write in one call')
@@ -148,6 +224,26 @@ try {
   assert.equal(reboots,1);assert.equal((await state(amd.id)).maintenance.phase,'waiting-boot')
   await arrive(amd.id);await resumeAutomaticHostMaintenance(amd.id,deps)
   assert.equal((await state(amd.id)).maintenance.phase,'verified')
+  await reset(amd.id,'x86_64');dependencyInstall=true
+  await prepareAutomaticHostMaintenance(amd.id,deps)
+  const continuationNow=Date.now
+  let continuationOffset=0
+  commands=[];Date.now=()=>continuationNow()+continuationOffset
+  try {
+    await resumeAutomaticHostMaintenance(amd.id,{...deps,connect:async()=>{
+      const client=await deps.connect()
+      return {...client,request:async(...args:Parameters<typeof client.request>)=>{
+        const result=await client.request(...args)
+        if(String(args[1]).startsWith('/1.0/instances?'))continuationOffset=21*60000
+        return result
+      }} as typeof client
+    }})
+    assert.deepEqual(commands,['status'],'a slow continuation baseline cannot dispatch another preparation after expiry')
+    assert.equal(reboots,0);assert.equal(remotePhase,'preparing')
+    await resumeAutomaticHostMaintenance(amd.id,deps)
+    assert.deepEqual(commands,['status','status','rollback'],'expired partial preparation still permits exact rollback')
+    assert.equal((await state(amd.id)).maintenance.phase,'aborted')
+  } finally {Date.now=continuationNow}
   // Real READ COMMITTED race: the initial include sees the old node while a
   // writer holds its newer management address; authorization must re-read all
   // identity fields after acquiring the node lock, before remote dispatch.
@@ -218,6 +314,25 @@ try {
   assert.equal(reboots,1)
   await arrive(amd.id);await resumeAutomaticHostMaintenance(amd.id,deps)
   assert.equal((await state(amd.id)).maintenance.phase,'verified')
+  await reset(amd.id,'x86_64')
+  const realNow=Date.now
+  let clockOffset=0,inventoryReads=0
+  Date.now=()=>realNow()+clockOffset
+  try {
+    await prepareAutomaticHostMaintenance(amd.id,{...deps,connect:async(...args:Parameters<typeof deps.connect>)=>{
+      const client=await deps.connect(...args)
+      return {...client,request:async(...requestArgs:Parameters<typeof client.request>)=>{
+        const result=await client.request(...requestArgs)
+        if(String(requestArgs[1]).startsWith('/1.0/instances?')&&++inventoryReads===3)clockOffset=21*60000
+        return result
+      }} as typeof client
+    }})
+    assert.equal(reboots,0,'expiry during final remote baseline check prohibits dispatch')
+    assert.equal((await state(amd.id)).maintenance.error,'HARDENING_REQUEST_EXPIRED')
+    assert.equal(remotePhase,'prepared','the remote reboot barrier was never crossed')
+    await resumeAutomaticHostMaintenance(amd.id,deps)
+    assert.equal((await state(amd.id)).maintenance.phase,'aborted','expired undispatched intent rolls back its exact original preparation')
+  } finally {Date.now=realNow}
   await reset(amd.id,'x86_64');failBeforeDispatch=true;await prepareAutomaticHostMaintenance(amd.id,deps)
   await prisma.user.update({where:{id:admin.id},data:{role:'user'}})
   const revoked=commands.length;await resumeAutomaticHostMaintenance(amd.id,deps)

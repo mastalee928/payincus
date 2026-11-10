@@ -3,6 +3,8 @@ import { SECURITY_HARDENING_ENABLED_KEY, SECURITY_HARDENING_REVISION } from '../
 import { hardeningIdentityHash } from '../lib/hardening-identity.js'
 import { recoveryHeld } from './platform-backup-core.js'
 import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
+import { hostUnfinishedCreationWhere } from '../lib/host-resource-usage.js'
+import { guestProtectionReady } from '../lib/guest-network-protection.js'
 
 /** Completion consumes a current receipt under both row locks. No credentials
  * are cleared and no success is published when the original lease was lost. */
@@ -23,6 +25,7 @@ export async function finishSecureOnboarding(nodeId: string, leaseToken: string,
     const actor = await tx.user.findUnique({ where: { id: actorId } })
     if (actor?.role !== 'admin' || actor.status !== 'active') throw new Error('HARDENING_ADMIN_REQUIRED')
     const state = host?.securityHardening as { revision?: string; status?: string; phase?: string; nextCheckAt?: string; identityHash?: string } | null
+    if (!guestProtectionReady(host?.agent)) throw new Error('HARDENING_ONBOARDING_PENDING')
     if (!host || hostMaintenanceBlocked(host.securityHardening) || host.status !== 'online' || !host.singleTenant || !host.isInstalled ||
       host.installPending || host.poolFaulted || host.publicIpSyncBlocked || !host.serverCertificate || !host.serverFingerprint ||
       host.managementSshHost !== node.managementIp || host.managementSshPort !== node.sshPort || host.managementSshUser !== 'root' ||
@@ -34,10 +37,12 @@ export async function finishSecureOnboarding(nodeId: string, leaseToken: string,
     }
     if (await tx.instance.count({ where: { hostId, OR: [{ status: { not: 'deleted' } }, { provisioningCleanupPending: true }, { deletionBillingPending: true }] } }) ||
       await tx.checkoutReservation.count({ where: { hostId } }) ||
+      await tx.instanceTask.count({ where: hostUnfinishedCreationWhere(hostId) }) ||
       await tx.instanceTask.count({ where: { status: { in: ['PENDING','PROCESSING'] }, OR: [{ hostId }, { targetHostId: hostId }] } })) {
       throw new Error('HARDENING_BUSY')
     }
-    await tx.hostOnboardingNode.update({ where: { id: nodeId }, data: { step: 'done', status: 'succeeded',
-      credentialsEncrypted: null, completedAt: new Date(), leaseUntil: null, leaseToken: null } })
+    const completed = await tx.hostOnboardingNode.updateMany({ where: { id: nodeId, leaseToken, leaseUntil: { gt: new Date() } }, data: { step: 'done', status: 'succeeded',
+      credentialsEncrypted: null, errorCode: null, completedAt: new Date(), leaseUntil: null, leaseToken: null } })
+    if (!completed.count) throw new Error('WORKER_INTERRUPTED')
   }, { maxWait: 3000, timeout: 8000 })
 }

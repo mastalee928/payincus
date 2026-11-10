@@ -51,7 +51,12 @@ for package in openssh-server openssh-server-common openssh-keygen; do
   # its signature; no newer or unsigned package substitutes the old baseline.
   downloaded=0
   for download_attempt in 1 2 3; do
-    if wget -T 20 -O "/opt/old-ssh/$package.apk.part" "https://dl-cdn.alpinelinux.org/alpine/v${branch}/main/$(apk --print-arch)/$package-${oldRevision}.apk"; then
+    package_url="https://dl-cdn.alpinelinux.org/alpine/v${branch}/main/$(apk --print-arch)/$package-${oldRevision}.apk"
+    # Retry the same signed artifact while bypassing a cached negative CDN
+    # response. The branch, architecture and vulnerable revision never change.
+    [ "$download_attempt" -eq 1 ] || package_url="$package_url?incudal-fixture-retry=$download_attempt"
+    echo "Fetching exact signed fixture: $package ${oldRevision}, attempt $download_attempt"
+    if wget -T 20 --header='Cache-Control: no-cache' -O "/opt/old-ssh/$package.apk.part" "$package_url"; then
       mv "/opt/old-ssh/$package.apk.part" "/opt/old-ssh/$package.apk"
       downloaded=1; break
     fi

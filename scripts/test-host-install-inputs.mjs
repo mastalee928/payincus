@@ -81,3 +81,28 @@ for (const item of cases) {
   }
 }
 console.log('PASS host installer noninteractive inputs: default/explicit port, injected values, confirmation and no terminal reads')
+const dependencies = `set -eu
+step() { :; }
+timeout() { shift; "$@"; }
+apt-get() { printf '%s\\n' "$*"; [ "\${FAIL_PACKAGE:-0}" != 1 ]; }
+modprobe() { [ "$1" = btrfs ]; }
+grep() { [ "$2" = btrfs ] && [ "$3" = /proc/filesystems ]; }
+install_zfs_prebuilt() { echo UNEXPECTED_ZFS; exit 98; }
+install_zfs_dkms() { echo UNEXPECTED_ZFS; exit 98; }
+${extract('install_deps')}
+INCUDAL_ONBOARDING_STORAGE=btrfs install_deps
+`
+const dependencyPath = fileURLToPath(new URL('btrfs-dependencies.sh', outputDirectory))
+writeFileSync(dependencyPath, dependencies)
+const dependencyResult = spawnSync(bash, [dependencyPath], { encoding: 'utf8', timeout: 10000, input: '', windowsHide: true })
+assert.equal(dependencyResult.status, 0, dependencyResult.stdout + dependencyResult.stderr)
+assert.match(dependencyResult.stdout, /btrfs-progs/)
+assert.doesNotMatch(dependencyResult.stdout, /UNEXPECTED_ZFS/)
+console.log('PASS dedicated Btrfs enrollment skips unrelated ZFS compilation/kernel replacement')
+const dependencyFailure = spawnSync(bash, [dependencyPath], { encoding: 'utf8', timeout: 10000, input: '', windowsHide: true, env: { ...process.env, FAIL_PACKAGE: '1' } })
+assert.equal(dependencyFailure.status, 75, 'package locks/downloads must return the explicit resumable status')
+assert.doesNotMatch(dependencyFailure.stdout, /UNEXPECTED_ZFS/)
+console.log('PASS Btrfs package preparation signals a resumable failure without entering a menu')
+const incusInstall = extract('install_incus')
+assert.ok(incusInstall.includes('install -d -m 0755 /etc/apt/keyrings') && incusInstall.includes('chmod 0644 /etc/apt/keyrings/zabbly.gpg') &&
+  incusInstall.includes('chmod 0644 /etc/apt/sources.list.d/zabbly-incus-stable.sources'), 'apt sandbox must read public signing keys/sources even under the enrollment 077 umask')

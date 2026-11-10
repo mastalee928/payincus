@@ -307,7 +307,7 @@ export function getImageDistroFromAlias(imageAlias: string): string {
   if (alias.includes('ubuntu')) return 'ubuntu'
   if (alias.includes('debian') || alias.includes('kali')) return 'debian'
   if (alias.includes('alpine')) return 'alpine'
-  if (alias.includes('arch')) return 'arch'
+  if (/(^|[:/])arch(?:linux)?(?=\/|$)/.test(alias)) return 'arch'
   if (alias.includes('opensuse') || alias.includes('suse') || alias.includes('tumbleweed') || alias.includes('leap')) return 'suse'
   if (alias.includes('alma') || alias.includes('rocky') || alias.includes('oracle') || alias.includes('centos') || alias.includes('rhel') || alias.includes('fedora')) return 'rhel'
 

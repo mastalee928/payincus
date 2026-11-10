@@ -64,7 +64,8 @@ async function fixture(legacy = false) {
     taskType: 'replace_host', status: 'FAILED', finishedAt: new Date(), replacementState: { stage: 'cleaned', sourceHostId: host.id,
       sourceIncusId: name, ...(legacy ? {} : { sourceHostIdentity: transferHostIdentity(host) }) } } })
   await prisma.host.update({ where: { id: host.id }, data: { poolFaulted: true } })
-  records.set(host.id, { guest: { name, status: 'Running', project: 'default', created_at: new Date(Date.now() - 45000).toISOString(), config: { 'volatile.uuid': randomUUID() } },
+  records.set(host.id, { guest: { name, status: 'Running', type: 'container', project: 'default', created_at: new Date(Date.now() - 45000).toISOString(), config: { 'volatile.uuid': randomUUID() },
+    devices: { root: { type: 'disk', path: '/', pool: 'default' } } },
     addresses: ['10.10.1.240', 'fd00::3', 'fd00::4'], forwards: [
       { listen_address: '10.0.0.3', description: 'payincus-dedicated:' + name, config: { target_address: '10.10.1.240' } },
       { listen_address: '2603:c020:802a:cc00::3', description: 'payincus-dedicated:' + name, config: { target_address: 'fd00::4' },

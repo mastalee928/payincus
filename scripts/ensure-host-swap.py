@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 
@@ -17,7 +18,15 @@ LOCK_FILE = Path('/run/incudal-swap.lock')
 
 
 def run(*args):
-    return subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).stdout.strip()
+    return subprocess.run(args, check=True, timeout=120, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).stdout.strip()
+
+
+def trusted_directory(path):
+    if path.parent != path:
+        trusted_directory(path.parent)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) & 0o022:
+        raise RuntimeError('unsafe swap directory')
 
 
 def unescape(value):
@@ -39,6 +48,9 @@ def swaps():
 
 def persist(paths):
     fstab = FSTAB
+    trusted_directory(fstab.parent)
+    if fstab.is_symlink() or fstab.exists() and not fstab.is_file():
+        raise RuntimeError('unsafe fstab')
     lines = fstab.read_text().splitlines() if fstab.exists() else []
     missing = set(paths)
     for index, line in enumerate(lines):
@@ -80,19 +92,30 @@ def persist(paths):
 def ensure_swap():
     if os.geteuid() != 0:
         raise RuntimeError('root required')
-    with open(LOCK_FILE, 'w') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    trusted_directory(LOCK_FILE.parent)
+    descriptor = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, 'r+') as lock:
+        info = os.fstat(lock.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1:
+            raise RuntimeError('unsafe swap lock')
+        # Older versions created a root-owned 0644 lock. Restrict this same
+        # inode rather than rejecting a valid upgrade or unlinking a live lock.
+        os.fchmod(lock.fileno(), 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         current = swaps()
         if sum(size for _, size in current) < SIZE - 1024 ** 2:
             directory = SWAP_DIRECTORY
             if directory.is_symlink():
                 raise RuntimeError('swap directory is a symlink')
+            trusted_directory(directory.parent)
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            trusted_directory(directory)
             target = directory / 'swapfile'
             if target.is_symlink():
                 raise RuntimeError('swap file is a symlink')
             if target.exists():
-                if not target.is_file() or target.stat().st_size != SIZE or run('blkid', '-p', '-s', 'TYPE', '-o', 'value', str(target)) != 'swap':
+                info = target.stat()
+                if not target.is_file() or info.st_size != SIZE or info.st_uid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) & 0o077 or run('blkid', '-p', '-s', 'TYPE', '-o', 'value', str(target)) != 'swap':
                     raise RuntimeError('existing swap file is not managed swap')
             else:
                 temp = directory / 'swapfile.preparing'
@@ -131,6 +154,9 @@ def ensure_swap():
 if __name__ == '__main__':
     try:
         ensure_swap()
+    except (BlockingIOError, subprocess.TimeoutExpired):
+        print('INCUDAL_ERROR:HOST_SWAP_PENDING')
+        raise SystemExit(1)
     except Exception:
         # Keep host paths and command output out of the API error response.
         print('INCUDAL_ERROR:HOST_SWAP_FAILED')

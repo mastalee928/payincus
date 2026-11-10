@@ -11,6 +11,7 @@ import { chooseBindAddress, publicIpSettings, publicIpState, publicIpFailureCode
 import { gatewayCommand, gatewayConfigured, type GatewayPeer } from './onboarding-ssh.js'
 import { portProtocolView } from './host-port-protocol.js'
 import { currentHostAddressWhere, lockOnboardingAddresses } from './onboarding-conflicts.js'
+import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 
 type Client = Awaited<ReturnType<typeof getIncusClient>>
 type Network = { name: string; type: string; managed: boolean }
@@ -95,6 +96,14 @@ async function reconcile(hostId: number, settings: PublicIpSettings | undefined,
     const locked = await tx.$queryRaw<Array<{ id: number }>>`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
     if (!locked.length) throw new PublicIpSyncError('HOST_NOT_FOUND')
     const host = await tx.host.findUniqueOrThrow({ where: { id: hostId }, include })
+    // Registration and this reconciliation share the host row lock. Preserve
+    // the prior address/protection during the planned reboot, including if a
+    // scan read its peer snapshot before maintenance was registered. Otherwise
+    // temporary SSH loss creates an IP fence that prevents customer recovery.
+    if(hostMaintenanceBlocked(host.securityHardening)) {
+      if(settings)throw new PublicIpSyncError('IP_SYNC_BUSY')
+      return {view:publicIpView(host),changed:false,stateChanged:false,previousIp:host.natPublicIp,actorId:actorId??host.userId}
+    }
     if (!publicIpView(host).supported || !host.serverCertificate || !host.serverFingerprint) throw new PublicIpSyncError('IP_SYNC_UNSUPPORTED')
     const node = host.onboardingNode!
     const state = publicIpState(host.publicIpSync)

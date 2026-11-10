@@ -17,7 +17,7 @@ import { prepareDedicatedIpv6Delivery } from '../services/host-public-ipv6-sync.
 
 import { prisma } from '../db/prisma.js'
 import { assertNoPendingProxySiteOperations, hasPendingProxySiteOperations } from '../db/proxy-site-operation-guards.js'
-import { InstanceTaskType, Prisma } from '@prisma/client'
+import { InstanceTaskType, Prisma, type InstanceTask } from '@prisma/client'
 import { getIncusClient, getInstance, updateInstance, deleteInstance, createInstance } from '../lib/incus/index.js'
 import { IncusApiError } from '../lib/incus/incus-client.js'
 import { readCustomerIsolation, rejectCustomerPrivilege } from '../lib/incus/customer-isolation.js'
@@ -32,11 +32,12 @@ import { listSnapshots, deleteSnapshot as deleteIncusSnapshot } from '../lib/inc
 import { sendNotification } from '../lib/notifier.js'
 import { createLog } from '../db/logs.js'
 import * as db from '../db/index.js'
-import { updateInstanceTaskProgress, validateDestructiveTaskExecution, InstanceTaskAuthorizationError, InstanceTaskConflictError, type DestructiveTaskMaterials } from '../db/instance-tasks.js'
+import { updateInstanceTaskProgress, validateDestructiveTaskExecution, assertCopyMoveAuthority, InstanceTaskAuthorizationError, InstanceTaskConflictError, type DestructiveTaskMaterials } from '../db/instance-tasks.js'
 import { closeInstanceSessions } from '../lib/terminal-proxy.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
 import { encryptSensitiveData, decryptSensitiveData } from '../lib/security.js'
 import { generateVmNicMacs } from '../lib/vm-network-identifiers.js'
+import { existingVmNicMacs, generateCloudInitNetworkConfig } from '../lib/network-payload-builder.js'
 import { customAlphabet } from 'nanoid'
 import { generateRandomIPv6 } from '../lib/ip-calculator.js'
 import pLimit from 'p-limit'
@@ -56,11 +57,20 @@ import { recoverIpv6RouteAndStart } from '../lib/incus/ipv6-route-recovery.js'
 
 import { resetInstanceCloudInitState } from '../lib/cloud-init-status.js'
 import { resolveIncusSwapValue } from '../lib/instance-swap.js'
-import { selectBindableIpv4ListenAddress } from '../lib/network-address.js'
 import { getSystemImageAvailabilityForHost } from '../db/images.js'
 import { prepareInstanceTaskSiteCleanup } from '../services/instance-task-site-cleanup.js'
 import { resolveInstanceTrafficLimitForHost } from '../lib/traffic-multiplier.js'
 import { calculateInstanceTrafficStatus } from '../services/traffic-utils.js'
+import { beginInstanceReinstall, reconcileInterruptedReinstalls } from '../services/instance-reinstall-identity.js'
+import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
+import { cleanupManagedInstanceRemote, managedCleanupEndpointHash } from '../lib/managed-cleanup-identity.js'
+import { readRegisteredGuest, readCreatedGuest, guardCopyMoveClient } from '../lib/guest-delivery-identity.js'
+import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { randomUUID } from 'node:crypto'
+import { isIP } from 'node:net'
+import { Address6 } from 'ip-address'
+import { networkModeNeedsPublicIpv4, networkModeNeedsRoutedIpv6 } from '../lib/network-modes.js'
+import { recoveryHeld } from '../services/platform-backup-core.js'
 
 // 任务超时时间：轻量任务保持短超时，重建/克隆/改节点等重任务允许更长执行窗口
 const LIGHT_TASK_TIMEOUT = 5 * 60 * 1000
@@ -106,13 +116,13 @@ function isAlpineImageAlias(imageAlias?: string | null): boolean {
 /**
  * 从实例状态中提取 IPv4 地址
  */
-function extractIPv4(state: { network?: Record<string, { addresses?: Array<{ family: string; address: string; scope?: string }> }> }): string | null {
+function extractIPv4(state: { network?: Record<string, { addresses?: Array<{ family: string; address: string; scope?: string }> }> }, expected?: string | null): string | null {
   if (!state.network) return null
   for (const [iface, info] of Object.entries(state.network)) {
     if (iface === 'lo') continue
     const addrs = info.addresses || []
     for (const addr of addrs) {
-      if (addr.family === 'inet' && addr.scope === 'global') {
+      if (addr.family === 'inet' && addr.scope === 'global' && (!expected || addr.address === expected)) {
         return addr.address
       }
     }
@@ -125,7 +135,7 @@ function extractIPv4(state: { network?: Record<string, { addresses?: Array<{ fam
  * 排除 ULA (fd00::/8, fc00::/7) 和 link-local (fe80::/10) 地址
  * 仅返回真正的全球可路由 IPv6 地址
  */
-function extractIPv6(state: { network?: Record<string, { addresses?: Array<{ family: string; address: string; scope?: string }> }> }): string | null {
+function extractIPv6(state: { network?: Record<string, { addresses?: Array<{ family: string; address: string; scope?: string }> }> }, expected?: string | null): string | null {
   if (!state.network) return null
   for (const [iface, info] of Object.entries(state.network)) {
     if (iface === 'lo') continue
@@ -137,6 +147,10 @@ function extractIPv6(state: { network?: Record<string, { addresses?: Array<{ fam
         if (ip.startsWith('fd') || ip.startsWith('fc') || ip.startsWith('fe80:')) {
           continue
         }
+        if (expected) {
+          if (isIP(addr.address) !== 6 || isIP(expected) !== 6 || new Address6(addr.address).correctForm() !== new Address6(expected).correctForm()) continue
+          return expected
+        }
         return addr.address
       }
     }
@@ -144,8 +158,8 @@ function extractIPv6(state: { network?: Record<string, { addresses?: Array<{ fam
   return null
 }
 
-async function cleanupRecreatedInstanceRecords(instanceId: number, hostId: number): Promise<{ deletedPortMappingsCount: number }> {
-  return prisma.$transaction(async (tx) => {
+async function cleanupRecreatedInstanceRecords(instanceId: number, hostId: number, transaction?: Prisma.TransactionClient): Promise<{ deletedPortMappingsCount: number }> {
+  const cleanup = async (tx: Prisma.TransactionClient) => {
     await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)
     await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
     await assertNoPendingSnapshotOperations(tx, instanceId)
@@ -178,7 +192,19 @@ async function cleanupRecreatedInstanceRecords(instanceId: number, hostId: numbe
     await tx.trafficSnapshot.deleteMany({ where: { instanceId } })
 
     return { deletedPortMappingsCount: deletedPortMappings.count }
-  })
+  }
+  return transaction ? cleanup(transaction) : prisma.$transaction(cleanup)
+}
+
+async function originalPublicNetwork(instanceId: number, instance: { host_id: number; network_mode: string; ipv4?: string | null }) {
+  if (!networkModeNeedsPublicIpv4(instance.network_mode)) return undefined
+  const address = await prisma.publicIpv4Address.findUnique({ where: { instanceId }, include: { pool: true } })
+  const gateway = address?.gateway || address?.pool?.gateway
+  if (!address || address.hostId !== instance.host_id || address.status !== 'assigned' || address.address !== instance.ipv4 ||
+    isIP(address.address) !== 4 || !gateway || isIP(gateway) !== 4 || address.prefixLength < 1 || address.prefixLength > 32) throw Error('REINSTALL_PUBLIC_IPV4_IDENTITY_MISSING')
+  const addresses = (value: unknown) => Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && isIP(v) !== 0) : []
+  const dns = addresses(address.dns).length ? addresses(address.dns) : addresses(address.pool?.dns)
+  return { ipv4PrefixLength: address.prefixLength, ipv4Gateway: gateway, dns: dns.length ? dns : ['1.1.1.1', '8.8.8.8'] }
 }
 
 async function notifyInstanceTaskFailure(task: InstanceTaskFailureNotice, errorMessage: string): Promise<void> {
@@ -215,6 +241,9 @@ export async function failExpiredInstanceTaskAttempt(
   now = new Date()
 ): Promise<boolean> {
   if (runningTaskIds.has(task.id)) return false
+  const receipt = (await prisma.instanceTask.findUnique({ where: { id: task.id }, select: { replacementState: true } }))?.replacementState as { targetPhase?: string } | null
+  if (task.taskType === 'rebuild' && receipt?.targetPhase === 'rebuild_uncertain') return false
+  if (['recreate', 'clone', 'change_host'].includes(task.taskType) && ['prepared', 'reserved', 'creating', 'verified', 'cleanup_pending', 'source_cleanup'].includes(receipt?.targetPhase || '')) return false
   const threshold = new Date(now.getTime() - (HEAVY_TASK_NAMES.has(task.taskType) ? HEAVY_TASK_TIMEOUT : LIGHT_TASK_TIMEOUT))
   const result = await prisma.instanceTask.updateMany({
     where: {
@@ -566,6 +595,7 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     if (task.targetHostId !== null) await assertHostNotMaintaining(task.targetHostId)
 
     let materials = await validateDestructiveTaskExecution(task)
+    if (['clone', 'change_host'].includes(task.taskType)) await prisma.$transaction(tx => assertCopyMoveAuthority(tx, task!))
 
     console.log(`[InstanceTaskWorker] 开始执行任务 ${taskId} (${task.taskType})`)
 
@@ -596,11 +626,18 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     if (!host) throw new Error('宿主机不存在')
 
     const clientStartTime = Date.now()
-    const client = await getIncusClient(host)
+    let client = await getIncusClient(host)
     const clientDuration = Date.now() - clientStartTime
     if (task.taskType === 'rebuild' || task.taskType === 'recreate') {
       materials = await validateDestructiveTaskExecution(task, { prepareRebuild: true })
     }
+    const reinstall = task.taskType === 'rebuild' || task.taskType === 'recreate' ? await beginInstanceReinstall(task, client) : undefined
+    if (reinstall) {
+      await reinstall.source(task.taskType === 'recreate')
+      client = reinstall.client
+    }
+
+    if (['clone', 'change_host'].includes(task.taskType)) client = guardCopyMoveClient(client, task, await prisma.host.findUniqueOrThrow({ where: { id: task.hostId } }))
 
     // 记录连接池响应时间
     updateClientResponseTime(host.id, clientDuration)
@@ -617,14 +654,14 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
         break
       case 'rebuild':
         if (!materials) throw new InstanceTaskAuthorizationError('INSTANCE_TASK_AUTHORIZATION_MISSING', '原任务缺少身份验证记录，请重新提交')
-        await executeRebuildTask(task, instance, host, client, materials)
+        await executeRebuildTask(task, instance, host, client, materials, reinstall!)
         break
       case 'clone':
         await executeCloneTask(task, instance, host, client)
         break
       case 'recreate':
         if (!materials) throw new InstanceTaskAuthorizationError('INSTANCE_TASK_AUTHORIZATION_MISSING', '原任务缺少身份验证记录，请重新提交')
-        await executeRecreateTask(task, instance, host, client, materials)
+        await executeRecreateTask(task, instance, host, client, materials, reinstall!)
         break
       case 'change_host':
         await executeChangeHostTask(task, instance, host, client)
@@ -644,6 +681,25 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     console.log(`[InstanceTaskWorker] 任务 ${taskId} (${task.taskType}) 完成，耗时 ${taskDuration}ms`)
 
   } catch (err) {
+    const reinstallReceipt = (await prisma.instanceTask.findUnique({ where: { id: taskId }, select: { replacementState: true } }))?.replacementState as { targetPhase?: string } | null
+    if (task?.taskType === 'rebuild' && reinstallReceipt?.targetPhase === 'rebuild_uncertain') {
+      const saved = (await prisma.instanceTask.findUniqueOrThrow({ where: { id: taskId } })).replacementState as Prisma.JsonObject
+      const resumable = (saved.rebuildOperation || saved.rebuildCompleted) && Number(saved.rebuildResumeAttempts || 0) < 6 && Date.now() - attempt.startedAt.getTime() < HEAVY_TASK_TIMEOUT
+      await prisma.instanceTask.updateMany({ where: { id: taskId, status: 'PROCESSING', startedAt: attempt.startedAt, retryCount: attempt.retryCount },
+        data: { progress: resumable ? 'rebuild_reconciling' : 'manual_intervention',
+          replacementState: { ...saved, rebuildNextAt: new Date(Date.now() + 60000).toISOString() },
+          error: resumable ? '重装等待原操作回执；60秒后核验并续接启动，不重复重装或重置密码' :
+            '重装结果未确认或自动续接预算已用尽；保留原身份、占用及加密待用密码，需核对原操作回执，禁止直接重复重装' } })
+      return
+    }
+    if (task && ['recreate', 'clone', 'change_host'].includes(task.taskType) && ['prepared', 'reserved', 'creating', 'verified', 'cleanup_pending', 'source_cleanup'].includes(reinstallReceipt?.targetPhase || '')) {
+      const current = await prisma.instanceTask.findUniqueOrThrow({ where: { id: taskId } })
+      await prisma.instanceTask.updateMany({ where: { id: taskId, status: 'PROCESSING', startedAt: attempt.startedAt, retryCount: attempt.retryCount },
+        data: { error: 'REINSTALL_CLEANUP_PENDING：保留原任务等待创建残留核验', progress: 'cleanup_pending',
+          replacementState: { ...(current.replacementState as Prisma.JsonObject || {}), cleanupFromPhase: (current.replacementState as Prisma.JsonObject || {}).cleanupFromPhase || reinstallReceipt?.targetPhase,
+            targetPhase: reinstallReceipt?.targetPhase === 'source_cleanup' ? 'source_cleanup' : 'cleanup_pending' } } })
+      return
+    }
     if (err instanceof HostMaintenanceError) {
       // Keep the original authorized task and latest business intent. Security
       // maintenance must not turn a queued stop/delete into a failed intent.
@@ -651,7 +707,9 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
         data: { status:'PENDING',startedAt:null,error:'HOST_SECURITY_MAINTENANCE' } })
       return
     }
-    const errorMessage = err instanceof Error ? err.message : String(err)
+    const errorMessage = reinstallReceipt?.targetPhase === 'rebuild_uncertain'
+      ? '重装请求结果尚未确认，保留原实例身份、占用及加密待用密码；请核对原任务与远端操作结果，未确认前不自动重复重装'
+      : err instanceof Error ? err.message : String(err)
     console.error(`[InstanceTaskWorker] 任务 ${taskId} 失败:`, errorMessage)
 
     const failed = await finalizeInstanceTaskAttempt(taskId, attempt, 'FAILED', errorMessage)
@@ -979,10 +1037,17 @@ async function executeRebuildTask(
   instance: { incus_id: string; name: string; user_id: number; image: string; network_mode: string; ipv4?: string | null; ipv6?: string | null; host_id: number; swap_enabled?: boolean; swap_size?: number | null },
   host: { name: string },
   client: Awaited<ReturnType<typeof getIncusClient>>,
-  materials: DestructiveTaskMaterials
+  materials: DestructiveTaskMaterials,
+  reinstall: Awaited<ReturnType<typeof beginInstanceReinstall>>
 ): Promise<void> {
   const imageAlias = task.imageAlias
   if (!imageAlias) throw new Error('未指定重装镜像')
+  const publicNetwork = await originalPublicNetwork(task.instanceId, instance)
+  const resumed = await reinstall.resumeRebuild()
+  if (resumed) {
+    await finishRebuildTask(task, instance, host, client, reinstall, resumed.config, resumed.encryptedPassword)
+    return
+  }
   // Only inject a key explicitly selected for this rebuild. Omitting it means password login.
   const { sshKey, extraShellCommands } = materials
   const allowCancelBusyUpdate = isAlpineImageAlias(instance.image) || isAlpineImageAlias(imageAlias)
@@ -1040,9 +1105,9 @@ async function executeRebuildTask(
     networkMode: instance.network_mode as 'nat' | 'nat_ipv6' | 'nat_ipv6_nat' | 'ipv6_only' | 'ipv6_nat',
     type: instanceType,
     network: instanceType !== 'virtual-machine' && instance.ipv4 ? {
-      ipAddress: `${instance.ipv4}/22`,
-      gateway: '10.10.0.1',
-      dns: ['10.10.0.1'],
+      ipAddress: `${instance.ipv4}/${publicNetwork?.ipv4PrefixLength ?? 22}`,
+      gateway: publicNetwork?.ipv4Gateway || '10.10.0.1',
+      dns: publicNetwork?.dns || ['10.10.0.1'],
       ipv6Address: instance.ipv6 ? `${instance.ipv6}/128` : undefined,
       ipv6Gateway: instance.ipv6 ? 'fe80::1' : undefined
     } : undefined,
@@ -1062,15 +1127,19 @@ async function executeRebuildTask(
       rootPassword: newPassword,
       sshKey,
       network: instance.ipv4 ? {
-        ipAddress: `${instance.ipv4}/22`,
-        gateway: '10.10.0.1',  // NAT 网关 (与 incusbr0 一致)
-        dns: ['10.10.0.1'],
+        ipAddress: `${instance.ipv4}/${publicNetwork?.ipv4PrefixLength ?? 22}`,
+        gateway: publicNetwork?.ipv4Gateway || '10.10.0.1',
+        dns: publicNetwork?.dns || ['10.10.0.1'],
         ipv6Address: instance.ipv6 ? `${instance.ipv6}` : undefined,
         ipv6Gateway: instance.ipv6 ? (hostInfo?.ipv6_gateway || undefined) : undefined
       } : undefined,
       extraShellCommands
     })
     configPayload = vmResult.configPayload
+    if (instance.ipv4) configPayload['user.network-config'] = generateCloudInitNetworkConfig({
+      ipv4Address: instance.ipv4, ipv6List: instance.ipv6 ? [instance.ipv6] : undefined, ...publicNetwork,
+      nicMacs: existingVmNicMacs(incusInstance, Boolean(instance.ipv6))
+    })
     console.log(`[Rebuild] VM network-config 已更新: IPv4=${instance.ipv4 || 'dhcp'}, IPv6=${instance.ipv6 || 'none'}`)
   } else {
     console.log(`[Rebuild] Container network-config 已更新: IPv4=${instance.ipv4 || 'dhcp'}, IPv6=${instance.ipv6 || 'none'}`)
@@ -1084,7 +1153,7 @@ async function executeRebuildTask(
     if (hasIpv6Support(instance.network_mode as any) && instance.ipv6) {
       console.log(`[Rebuild] (Container) 检测到 IPv6 Routed 网络模式，强制覆盖应用标准双栈 user.network-config...`)
       configPayload['user.network-config'] = generateCloudInitNetworkConfig({
-        ipv4Address: instance.ipv4,
+        ipv4Address: instance.ipv4, ...publicNetwork,
         ipv6List: [instance.ipv6]
       })
     }
@@ -1097,22 +1166,17 @@ async function executeRebuildTask(
   const rebuildConfig: Record<string, string> = { ...configPayload }
 
   // 关键修复：清除旧的云初始化缓存键和残留系统属性（防止 Alpine <-> Debian 等跨发行版重装时 vendor-data 不兼容导致 cloud-init 崩溃）
+  // Clearing the previous OS is mandatory even when optional image metadata is unavailable.
+  const currentConfig = incusInstance.config || {}
+  for (const key of Object.keys(currentConfig)) {
+    if (key.startsWith('image.') || key === 'user.vendor-data' || key.startsWith('volatile.cloud-init.')) {
+      rebuildConfig[key] = ''
+    }
+  }
   try {
     const { getImageAlias, getImage } = await import('../lib/incus/incus-images.js')
     const aliasInfo = await getImageAlias(client, imageAlias)
     const newImage = await getImage(client, aliasInfo.target)
-
-    // 把当前实例里所有旧的 'image.*'、'user.vendor-data'、'volatile.cloud-init.*'清空
-    const currentConfig = (incusInstance as any).config || {}
-    for (const key of Object.keys(currentConfig)) {
-      if (
-        key.startsWith('image.') ||
-        key === 'user.vendor-data' ||
-        key.startsWith('volatile.cloud-init.')
-      ) {
-        rebuildConfig[key] = '' // 空字符串代表由于我们使用 PATCH(updateInstance) 告知 Incus 删除这些键
-      }
-    }
 
     // 重新注入新镜像自带的属性
     if (newImage.properties) {
@@ -1134,7 +1198,7 @@ async function executeRebuildTask(
   let rebuildDevices: Record<string, Record<string, string>> | undefined
   if (instanceType === 'virtual-machine') {
     rebuildConfig['security.secureboot'] = 'false'
-    const vmNicMacs = generateVmNicMacs(instance.incus_id)
+    const vmNicMacs = existingVmNicMacs(incusInstance, Boolean(instance.ipv6))
     const currentDevices = ((incusInstance as unknown as { devices?: Record<string, Record<string, string>> }).devices) || {}
     rebuildDevices = { ...currentDevices }
 
@@ -1146,6 +1210,7 @@ async function executeRebuildTask(
     }
 
     if (rebuildDevices.eth1) {
+      if (!vmNicMacs.eth1) throw Error('VM_NETWORK_IDENTITY_MISSING')
       rebuildDevices.eth1 = {
         ...rebuildDevices.eth1,
         hwaddr: rebuildDevices.eth1.hwaddr || vmNicMacs.eth1
@@ -1164,28 +1229,41 @@ async function executeRebuildTask(
 
   // 执行重装（不再传递 config，因为已经在上面更新了）
   console.log(`[Rebuild] 开始重装实例 ${instance.incus_id}，镜像: ${imageAlias}`)
+  // The remote may replace rootfs then lose its response. Retain the encrypted
+  // pending credential without advertising it as the active password yet.
+  await reinstall.prepareRebuildPassword(encryptSensitiveData(newPassword), (await getInstance(client, instance.incus_id)).config || {})
   await rebuildInstance(client, instance.incus_id, { alias: imageAlias }, undefined, {
     allowCancelBusyUpdate,
     busyUpdateCancelAfterMs: allowCancelBusyUpdate ? ALPINE_BUSY_UPDATE_CANCEL_AFTER_MS : undefined
   })
 
-  await prisma.trafficSnapshot.deleteMany({ where: { instanceId: task.instanceId } })
+  await reinstall.rebuilt()
+  await finishRebuildTask(task, instance, host, client, reinstall, configPayload, encryptSensitiveData(newPassword))
+}
 
-  // 更新数据库记录
-  await prisma.instance.update({
-    where: { id: task.instanceId },
-    data: {
-      image: imageAlias,
-      rootPassword: encryptSensitiveData(newPassword)
+async function finishRebuildTask(
+  task: Parameters<typeof executeRebuildTask>[0],
+  instance: Parameters<typeof executeRebuildTask>[1],
+  host: Parameters<typeof executeRebuildTask>[2],
+  client: Parameters<typeof executeRebuildTask>[3],
+  reinstall: Parameters<typeof executeRebuildTask>[5],
+  configPayload: Record<string, string>,
+  encryptedPassword: string
+) {
+  const imageAlias = task.imageAlias!
+  const instanceType = (await getInstance(client, instance.incus_id)).type
+  const rebuiltSpecs = await reinstall.proof(false)
+
+  // A lost start response may already have booted the rebuilt rootfs. Observe
+  // first; do not rerun boot preparation on an already-running guest.
+  if ((await getInstanceState(client, instance.incus_id) as { status?: string }).status !== 'Running') {
+    await prepareNewContainerCloudInit(client, instance.incus_id, configPayload, instanceType === 'virtual-machine' ? 'vm' : 'container')
+    await updateInstanceTaskProgress(task.id, 'starting')
+    try {
+      await startInstance(client, instance.incus_id)
+    } catch (startErr) {
+      if (!await recoverIpv6RouteAndStart(client, instance.incus_id, startErr)) throw startErr
     }
-  })
-
-  // 启动实例（带 IPv6 路由冲突自动回退：stop 后内核路由可能残留）
-  await updateInstanceTaskProgress(task.id, 'starting')
-  try {
-    await startInstance(client, instance.incus_id)
-  } catch (startErr) {
-    if (!await recoverIpv6RouteAndStart(client, instance.incus_id, startErr)) throw startErr
   }
 
   // 等待网络初始化
@@ -1195,17 +1273,21 @@ async function executeRebuildTask(
   const isVMRebuild = instanceType === 'virtual-machine'
   const maxAttempts = isVMRebuild ? 60 : 30    // VM: 60×3s=180s, 容器: 30×2s=60s
   const pollIntervalRebuild = isVMRebuild ? 3000 : 2000
+  let running = false
   // 根据网络模式判断是否需要等待 IPv6
-  const needsIPv6 = ['nat_ipv6', 'ipv6_only'].includes(instance.network_mode)
+  const needsIPv6 = networkModeNeedsRoutedIpv6(instance.network_mode)
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await new Promise(resolve => setTimeout(resolve, pollIntervalRebuild))
     try {
       const state = await getInstanceState(client, instance.incus_id) as {
+        status?: string
         network?: Record<string, { addresses?: Array<{ family: string; address: string; scope?: string }> }>
       }
-      ipv4 = extractIPv4(state)
-      ipv6 = extractIPv6(state)
+      running = state.status === 'Running'
+      if (!running) continue
+      ipv4 = extractIPv4(state, instance.ipv4)
+      ipv6 = extractIPv6(state, instance.ipv6)
       // NAT 模式只需要 IPv4，nat_ipv6 模式需要 IPv4 和 IPv6
       if (needsIPv6) {
         if (ipv4 && ipv6) {
@@ -1224,9 +1306,20 @@ async function executeRebuildTask(
     }
   }
 
-  const dedicatedReady = await prepareDedicatedDelivery(client, task.instanceId)
-  if (dedicatedReady) await prisma.instance.update({ where: { id: task.instanceId }, data: { dedicatedNetworkReady: true } })
-  await db.updateInstanceStatus(task.instanceId, 'running', { ipv4, ipv6 })
+  if (!running) throw new Error('重装后未确认实例运行，保留原占用等待检查')
+  if (!ipv4 || instance.ipv4 && ipv4 !== instance.ipv4 || needsIPv6 && (!ipv6 || instance.ipv6 && ipv6 !== instance.ipv6)) {
+    throw Error('REBUILD_NETWORK_UNCONFIRMED')
+  }
+  await reinstall.source()
+  const password = decryptSensitiveData(encryptedPassword)
+  if (!password) throw Error('REBUILD_PASSWORD_UNAVAILABLE')
+  const dedicatedReady = await prepareDedicatedDelivery(client, task.instanceId, {
+    hostId: instance.host_id, name: instance.incus_id, ipv4: ipv4 || instance.ipv4 || '', password
+  })
+  const dedicatedIpv6 = dedicatedReady ? await prepareDedicatedIpv6Delivery(client, task.instanceId, instance.host_id, instance.incus_id) : null
+  await reinstall.complete({ status: 'running', ipv4, ipv6, image: imageAlias, rootPassword: encryptedPassword,
+    dedicatedNetworkReady: dedicatedReady, snapshottedSpecs: rebuiltSpecs,
+    ...(dedicatedIpv6 ? { dedicatedIpv6: dedicatedIpv6 as unknown as Prisma.InputJsonValue } : {}) })
   const { reconcileTrafficStateForInstanceIds } = await import('../services/traffic-scheduler.js')
   await reconcileTrafficStateForInstanceIds([task.instanceId])
 
@@ -1259,9 +1352,11 @@ async function executeRecreateTask(
   },
   host: { id: number; name: string; nat_public_ip?: string | null; ip_address?: string | null; ipv6_gateway?: string | null; ipv6_parent_interface?: string | null },
   client: Awaited<ReturnType<typeof getIncusClient>>,
-  materials: DestructiveTaskMaterials
+  materials: DestructiveTaskMaterials,
+  reinstall: Awaited<ReturnType<typeof beginInstanceReinstall>>
 ): Promise<void> {
   const imageAlias = task.imageAlias || instance.image
+  const publicNetwork = await originalPublicNetwork(task.instanceId, instance)
   const oldIncusId = instance.incus_id
   if (instance.package_id) rejectCustomerPrivilege((await db.getPackageById(instance.package_id))?.privileged)
   const { sshKey, extraShellCommands } = materials
@@ -1333,7 +1428,8 @@ async function executeRecreateTask(
   await updateInstanceTaskProgress(task.id, 'creating')
   let newIPv4: string | null = null
   try {
-    newIPv4 = await db.allocateAndReserveNatIpv4(host.id, task.instanceId)
+    // Keep the original displayed/routed address until the identity switch.
+    newIPv4 = publicNetwork ? instance.ipv4 : await db.allocateAndReserveNatIpv4(host.id)
     if (newIPv4) {
       console.log(`[Recreate] 分配并预留新的内网 IPv4: ${newIPv4}`)
     }
@@ -1356,9 +1452,9 @@ async function executeRecreateTask(
     networkMode: instance.network_mode as 'nat' | 'nat_ipv6' | 'nat_ipv6_nat' | 'ipv6_only' | 'ipv6_nat',
     type: instanceType,
     network: instanceType !== 'virtual-machine' ? {
-      ipAddress: `${newIPv4}/22`,
-      gateway: '10.10.0.1',
-      dns: ['10.10.0.1'],
+      ipAddress: `${newIPv4}/${publicNetwork?.ipv4PrefixLength ?? 22}`,
+      gateway: publicNetwork?.ipv4Gateway || '10.10.0.1',
+      dns: publicNetwork?.dns || ['10.10.0.1'],
       ipv6Address: instance.ipv6 ? `${instance.ipv6}/128` : undefined,
       ipv6Gateway: instance.ipv6 ? 'fe80::1' : undefined
     } : undefined,
@@ -1372,6 +1468,9 @@ async function executeRecreateTask(
   let oldInstanceDeleted = false
   let newInstanceCreated = false
   let databaseSwitched = false
+  let creationAttempt: string | undefined
+  let creationStarted = false
+  let replacementCleaned = true
 
   try {
     // VM 需要 network-config（使用新分配的 IP）
@@ -1384,9 +1483,9 @@ async function executeRecreateTask(
         rootPassword: newPassword,
         sshKey,
         network: {
-          ipAddress: `${newIPv4}/22`,
-          gateway: '10.10.0.1',
-          dns: ['10.10.0.1'],
+          ipAddress: `${newIPv4}/${publicNetwork?.ipv4PrefixLength ?? 22}`,
+          gateway: publicNetwork?.ipv4Gateway || '10.10.0.1',
+          dns: publicNetwork?.dns || ['10.10.0.1'],
           ipv6Address: instance.ipv6 ? `${instance.ipv6}` : undefined,
           ipv6Gateway: instance.ipv6 ? (host.ipv6_gateway || undefined) : undefined
         },
@@ -1444,6 +1543,14 @@ async function executeRecreateTask(
     bootHostShutdownTimeout: instance.boot_host_shutdown_timeout
   })
 
+  creationAttempt = await reinstall.prepareTarget(newIncusId, instanceType)
+  if (publicNetwork) (incusConfig.config as Record<string, string>)['user.network-config'] = generateCloudInitNetworkConfig({
+    ipv4Address: newIPv4, ipv6List: instance.ipv6 ? [instance.ipv6] : undefined, ...publicNetwork,
+    nicMacs: instanceType === 'virtual-machine' ? generateVmNicMacs(newIncusId) : undefined
+  })
+  await reinstall.targetAddress(newIPv4)
+  ;(incusConfig.config as Record<string, string>)['user.payincus.provisioning-attempt'] = creationAttempt
+
   // 12. 删除旧 Incus 实例（如果还存在）
   await updateInstanceTaskProgress(task.id, 'deleting_old')
   console.log(`[Recreate] 删除旧实例 ${oldIncusId}（如果存在）...`)
@@ -1451,23 +1558,24 @@ async function executeRecreateTask(
     await deleteInstance(client, oldIncusId)
     console.log(`[Recreate] 旧实例 ${oldIncusId} 删除成功`)
     oldInstanceDeleted = true
+    reinstall.originalDeleted()
   } catch (err) {
-    // 检查是否是实例不存在的错误
+    // deleteInstance already handles an exact 404 and verifies guest, storage
+    // and forwards are absent. Any remaining error is an unconfirmed deletion.
     const errMsg = err instanceof Error ? err.message : String(err)
-    if (errMsg.includes('not found') || errMsg.includes('Instance not found')) {
-      console.log(`[Recreate] 旧实例 ${oldIncusId} 已不存在，继续执行`)
-      oldInstanceDeleted = true
-    } else {
-      // 其他错误则抛出，不继续执行
-      console.error(`[Recreate] 删除旧实例失败:`, err)
-      throw new Error(`删除旧实例失败: ${errMsg}`)
-    }
+    console.error(`[Recreate] 删除旧实例失败:`, err)
+    throw new Error(`删除旧实例失败: ${errMsg}`)
   }
 
   // 12. 创建新实例
   console.log(`[Recreate] 创建新实例 ${newIncusId}...`)
+  await reinstall.phase('creating')
+  creationStarted = true
+  replacementCleaned = false
   await createInstance(client, incusConfig)
   newInstanceCreated = true
+  await reinstall.targetIdentity()
+  await prepareNewContainerCloudInit(client, newIncusId, configPayload, instanceType === 'virtual-machine' ? 'vm' : 'container')
 
   if (instanceType === 'container') {
     await updateInstance(client, newIncusId, {
@@ -1484,15 +1592,21 @@ async function executeRecreateTask(
 
   // 14. 等待网络初始化
   let actualIpv6: string | null = null
-  const needsIPv6 = ['nat_ipv6', 'ipv6_only'].includes(instance.network_mode)
+  let observedIpv4: string | null = null
+  let running = false
+  const needsIPv6 = networkModeNeedsRoutedIpv6(instance.network_mode)
   for (let attempt = 0; attempt < 30; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 2000))
     try {
       const state = await getInstanceState(client, newIncusId) as {
+        status?: string
         network?: Record<string, { addresses?: Array<{ family: string; address: string; scope?: string }> }>
       }
-      const stateIpv4 = extractIPv4(state)
-      actualIpv6 = extractIPv6(state)
+      running = state.status === 'Running'
+      if (!running) continue
+      const stateIpv4 = extractIPv4(state, newIPv4)
+      observedIpv4 = stateIpv4
+      actualIpv6 = extractIPv6(state, instance.ipv6)
       if (needsIPv6) {
         if (stateIpv4 && actualIpv6) {
           console.log(`[Recreate] IP 确认成功: IPv4=${stateIpv4}, IPv6=${actualIpv6}`)
@@ -1507,6 +1621,9 @@ async function executeRecreateTask(
     } catch { /* ignore */ }
   }
 
+  if (!running) throw new Error('重建后未确认实例运行，保留占用并清理本次创建')
+  if (observedIpv4 !== newIPv4 || needsIPv6 && (!actualIpv6 || instance.ipv6 && actualIpv6 !== instance.ipv6)) throw Error('RECREATE_NETWORK_UNCONFIRMED')
+  const recreatedSpecs = await reinstall.proof(true)
   const dedicatedReady = await prepareDedicatedDelivery(client, task.instanceId, {
     hostId: instance.host_id, name: newIncusId, ipv4: newIPv4, password: newPassword
   })
@@ -1515,39 +1632,10 @@ async function executeRecreateTask(
   // 15. 更新数据库（使用新分配的 IP）
   await updateInstanceTaskProgress(task.id, 'updating_database')
 
-  const cleanupResult = await cleanupRecreatedInstanceRecords(task.instanceId, instance.host_id)
-  if (cleanupResult.deletedPortMappingsCount > 0) {
-    console.log(`[Recreate] 删除 ${cleanupResult.deletedPortMappingsCount} 个端口映射记录并释放 NAT 端口计数`)
-  }
-
-  // 更新 IpAddress 表（删除旧的 IPv4 记录，创建新的）
-  if (instance.ipv4 && instance.ipv4 !== newIPv4) {
-    // 删除旧的 IPv4 地址记录
-    await prisma.ipAddress.deleteMany({
-      where: {
-        instanceId: task.instanceId,
-        type: 'inet4',
-        address: instance.ipv4
-      }
-    })
-    console.log(`[Recreate] 删除旧 IPv4 记录: ${instance.ipv4}`)
-  }
-
-  // 创建新的 IPv4 地址记录
-  await db.createIpAddress({
-    address: newIPv4,
-    type: 'inet4',
-    isPrimary: true,
-    device: 'eth0',
-    instanceId: task.instanceId
-  })
-  console.log(`[Recreate] 创建新 IPv4 记录: ${newIPv4}`)
-
-  // 更新 Instance 表
-  await prisma.instance.update({
-    where: { id: task.instanceId },
-    data: {
+  // Associations, credentials, identity and task result switch in one commit.
+  await reinstall.complete({
       incusId: newIncusId,
+      snapshottedSpecs: recreatedSpecs,
       image: imageAlias,
       rootPassword: encryptSensitiveData(newPassword),
       status: 'running',
@@ -1557,7 +1645,10 @@ async function executeRecreateTask(
       ipv6: actualIpv6 || instance.ipv6,  // IPv6 可能从网络获取或保留旧值
       storagePoolName: storagePool
       // 保留计费字段：packagePlanId, billingPrice, billingCycle, expiresAt, autoRenew 等
-    }
+  }, async tx => {
+    await cleanupRecreatedInstanceRecords(task.instanceId, instance.host_id, tx)
+    await tx.ipAddress.deleteMany({ where: { instanceId: task.instanceId, type: 'inet4' } })
+    await tx.ipAddress.create({ data: { address: newIPv4!, type: 'inet4', isPrimary: true, device: 'eth0', hostId: instance.host_id, instanceId: task.instanceId } })
   })
   databaseSwitched = true
 
@@ -1575,21 +1666,18 @@ async function executeRecreateTask(
 
   await createLog(task.userId, 'instance', 'instance.recreate', `Recreated instance "${instance.name}" with image ${imageAlias} (${oldIncusId} -> ${newIncusId})`, 'success', { instanceId: task.instanceId })
   } catch (err) {
-    if (!databaseSwitched && newInstanceCreated) {
+    if (!databaseSwitched && (newInstanceCreated || creationStarted)) {
       try {
-        try {
-          await stopInstance(client, newIncusId, true)
-        } catch {
-          // The replacement may not have reached running state; deletion can still proceed.
-        }
-        await deleteInstance(client, newIncusId)
+        await cleanupManagedInstanceRemote(client, newIncusId, creationAttempt!)
+        replacementCleaned = true
+        await reinstall.phase('cleaned')
         console.log(`[Recreate] 已清理失败的新实例 ${newIncusId}`)
       } catch (cleanupErr) {
         console.warn(`[Recreate] 清理失败的新实例 ${newIncusId} 失败:`, cleanupErr)
       }
     }
 
-    if (!databaseSwitched && oldInstanceDeleted) {
+    if (!databaseSwitched && oldInstanceDeleted && replacementCleaned) {
       try {
         await cleanupRecreatedInstanceRecords(task.instanceId, instance.host_id)
         await prisma.ipAddress.deleteMany({ where: { instanceId: task.instanceId } })
@@ -1608,6 +1696,11 @@ async function executeRecreateTask(
       }
     }
 
+    if (!databaseSwitched && creationStarted && !replacementCleaned) {
+      await reinstall.phase('cleanup_pending')
+      throw new Error('REINSTALL_CLEANUP_PENDING：新实例清理未确认，保留身份、地址和宿主占用')
+    }
+
     throw err
   }
 }
@@ -1617,7 +1710,7 @@ async function executeRecreateTask(
  * 在目标节点创建新 Incus 实例，成功切换数据库后再清理源节点旧实例。
  */
 async function executeChangeHostTask(
-  task: { id: number; userId: number; instanceId: number; targetHostId: number | null; sshKeyId: number | null },
+  task: InstanceTask,
   instance: {
     id: number; incus_id: string; name: string; user_id: number; image: string; ipv4: string | null; ipv6: string | null;
     cpu: number; memory: number; disk: number; network_mode: string; root_password: string | null; package_id: number | null; host_id: number; status: string;
@@ -1638,6 +1731,8 @@ async function executeChangeHostTask(
   let targetResourcesReserved = false
   let dbSwitched = false
   let newIncusId = ''
+  const targetAttempt = randomUUID()
+  let targetUuid: string | undefined
 
   if (!task.sshKeyId) {
     throw new Error('改节点失败：请选择 SSH 密钥')
@@ -1653,6 +1748,10 @@ async function executeChangeHostTask(
   if (!sourceHost) {
     throw new Error('源节点不存在')
   }
+  const originalRecord = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
+  const originalHost = await prisma.host.findUniqueOrThrow({ where: { id: sourceHostId } })
+  const originalClient = await getIncusClient(sourceHost)
+  const sourceProof = await readRegisteredGuest(prisma, originalClient, originalRecord, originalHost)
 
   if (!instance.package_id) {
     throw new Error('该实例没有绑定套餐，无法改节点')
@@ -1707,7 +1806,8 @@ async function executeChangeHostTask(
     await prepareInstanceTaskSiteCleanup(task.id, instance)
     await updateInstanceTaskProgress(task.id, 'checking_capacity')
     const reservedHost = await prisma.$transaction(async (tx) => {
-      return db.selectAndReserveHostWithLock(tx, {
+      await assertCopyMoveAuthority(tx, task)
+      const reserved = await db.selectAndReserveHostWithLock(tx, {
         packageHostIds,
         cpu: instance.cpu,
         memory: instance.memory,
@@ -1717,6 +1817,19 @@ async function executeChangeHostTask(
         portCount: 0,
         packageId: instance.package_id
       })
+      if (reserved) {
+        const receipt = await tx.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+        await tx.instanceTask.update({ where: { id: task.id }, data: { replacementState: {
+          ...(receipt.replacementState as Prisma.JsonObject || {}), targetPhase: 'reserved', targetAttempt,
+          sourceHostId, sourceIncusId: oldIncusId, sourceOwnerId: instance.user_id,
+          sourceUuid: sourceProof.config!['volatile.uuid'], sourceCreatedAt: sourceProof.created_at,
+          sourceHostIdentity: transferHostIdentity(originalHost), sourceType: sourceProof.type,
+          sourceAttempt: sourceProof.config!['user.payincus.provisioning-attempt'],
+          targetHostIdentity: transferHostIdentity(await tx.host.findUniqueOrThrow({ where: { id: targetHostId } })),
+          targetEndpointHash: managedCleanupEndpointHash(targetClient), targetType: packageInstanceType === 'vm' ? 'virtual-machine' : 'container'
+        } } })
+      }
+      return reserved
     }, {
       isolationLevel: 'Serializable',
       timeout: 15000
@@ -1743,14 +1856,17 @@ async function executeChangeHostTask(
     if (!staticIPv4) {
       throw new Error('IPv4 地址池已耗尽，无法分配新地址')
     }
+    const addressReceipt = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+    await prisma.instanceTask.update({ where: { id: task.id }, data: { replacementState: {
+      ...(addressReceipt.replacementState as Prisma.JsonObject), targetIpv4: staticIPv4
+    } } })
 
     let staticIPv6: string | null = null
     const needsRoutedIPv6 = ['nat_ipv6', 'ipv6_only'].includes(instance.network_mode)
     if (needsRoutedIPv6 && targetHost.ipv6_subnet) {
       for (let attempts = 0; attempts < 50; attempts++) {
         staticIPv6 = generateRandomIPv6(targetHost.ipv6_subnet)
-        const exists = await db.isIpAddressExists(staticIPv6)
-        if (!exists) break
+        if (await db.reserveInstanceTaskIpv6(task.id, staticIPv6)) break
         staticIPv6 = null
       }
       if (!staticIPv6) {
@@ -1843,24 +1959,42 @@ async function executeChangeHostTask(
 
     await updateInstanceTaskProgress(task.id, 'creating_on_target')
     console.log(`[ChangeHost] 在目标节点 ${targetHost.name} 创建实例 ${newIncusId}...`)
+    ;(incusConfig.config as Record<string, string>)['user.payincus.provisioning-attempt'] = targetAttempt
+    const moveRecord = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+    const targetRecord = await prisma.host.findUniqueOrThrow({ where: { id: targetHostId } })
+    await prisma.instanceTask.update({ where: { id: task.id }, data: { replacementState: {
+      ...(moveRecord.replacementState as Prisma.JsonObject || {}), targetAttempt, targetIncusId: newIncusId,
+      targetHostIdentity: transferHostIdentity(targetRecord), targetPhase: 'creating'
+    } } })
     await createInstance(targetClient, incusConfig)
+    let targetProof = await readCreatedGuest(targetClient, newIncusId, targetAttempt, instanceType)
+    targetUuid = targetProof.managedCleanup.uuid
+    const createdReceipt = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+    await prisma.instanceTask.update({ where: { id: task.id }, data: { replacementState: {
+      ...(createdReceipt.replacementState as Prisma.JsonObject), targetUuid, targetCreatedAt: targetProof.recoveryIdentity.createdAt
+    } } })
+    await prepareNewContainerCloudInit(targetClient, newIncusId, configPayload, instanceType === 'virtual-machine' ? 'vm' : 'container')
 
     await updateInstanceTaskProgress(task.id, 'starting_target')
     await startInstance(targetClient, newIncusId)
 
-    let actualIpv4: string | null = staticIPv4
-    let actualIpv6: string | null = staticIPv6
+    let actualIpv4: string | null = null
+    let actualIpv6: string | null = null
     const maxAttempts = instanceType === 'virtual-machine' ? 60 : 30
     const pollInterval = instanceType === 'virtual-machine' ? 3000 : 2000
+    let targetRunning = false
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await new Promise(resolve => setTimeout(resolve, pollInterval))
       try {
         const state = await getInstanceState(targetClient, newIncusId) as {
+          status?: string
           network?: Record<string, { addresses?: Array<{ family: string; address: string; scope?: string }> }>
         }
-        actualIpv4 = extractIPv4(state) || actualIpv4
+        targetRunning = state.status === 'Running'
+        if (!targetRunning) continue
+        actualIpv4 = extractIPv4(state, staticIPv4)
         if (needsRoutedIPv6) {
-          actualIpv6 = extractIPv6(state) || actualIpv6
+          actualIpv6 = extractIPv6(state, staticIPv6)
         }
         if (needsRoutedIPv6) {
           if (actualIpv4 && actualIpv6) break
@@ -1872,9 +2006,12 @@ async function executeChangeHostTask(
       }
     }
 
+    if (!targetRunning) throw Error('目标实例尚未确认运行，保留原实例')
+    if (actualIpv4 !== staticIPv4 || needsRoutedIPv6 && (!actualIpv6 || actualIpv6 !== staticIPv6)) throw Error('CHANGE_HOST_NETWORK_UNCONFIRMED')
+    targetProof = await readCreatedGuest(targetClient, newIncusId, targetAttempt, instanceType, targetUuid)
+
     await updateInstanceTaskProgress(task.id, 'switching_database')
 
-    let deletedPortMappingsCount = 0
     let baseTrafficLimit = pkg.monthly_traffic_limit ? BigInt(pkg.monthly_traffic_limit) : null
     if (instance.package_plan_id) {
       const plan = await db.getPlanById(instance.package_plan_id)
@@ -1884,6 +2021,12 @@ async function executeChangeHostTask(
     }
 
     await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM instances WHERE id = ${task.instanceId} FOR UPDATE`
+      await tx.$queryRaw`SELECT id FROM instance_tasks WHERE id = ${task.id} FOR UPDATE`
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id IN (${sourceHostId}, ${targetHostId}) ORDER BY id FOR SHARE`
+      await assertCopyMoveAuthority(tx, task)
+      await assertHostNotMaintaining(targetHostId, tx)
+      await assertHostNotMaintaining(sourceHostId, tx)
       const monthlyTrafficLimit = await resolveInstanceTrafficLimitForHost(tx as any, {
         packageId: instance.package_id,
         hostId: targetHostId,
@@ -1894,8 +2037,7 @@ async function executeChangeHostTask(
         select: { monthlyTrafficUsed: true }
       })
 
-      const deletedPortMappings = await tx.portMapping.deleteMany({ where: { instanceId: task.instanceId } })
-      deletedPortMappingsCount = deletedPortMappings.count
+      await tx.portMapping.deleteMany({ where: { instanceId: task.instanceId } })
       await tx.snapshot.deleteMany({ where: { instanceId: task.instanceId } })
       await tx.backup.deleteMany({ where: { instanceId: task.instanceId } })
       await tx.restoreTask.deleteMany({
@@ -1947,6 +2089,7 @@ async function executeChangeHostTask(
         data: {
           hostId: targetHostId,
           incusId: newIncusId,
+          snapshottedSpecs: { ...(originalRecord.snapshottedSpecs as Prisma.JsonObject || {}), ...targetProof },
           rootPassword: encryptSensitiveData(rootPassword),
           status: 'running',
           ipv4: actualIpv4,
@@ -1962,6 +2105,12 @@ async function executeChangeHostTask(
           cloudInitManualCompletedBy: null
         }
       })
+
+      const identityTask = await tx.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+      await tx.instanceTask.update({ where: { id: task.id }, data: { replacementState: {
+        ...(identityTask.replacementState as Prisma.JsonObject || {}), targetUuid, targetCreatedAt: targetProof.recoveryIdentity.createdAt,
+        targetPhase: 'source_cleanup'
+      } as Prisma.InputJsonValue } })
 
       if (actualIpv4) {
         await tx.ipAddress.create({
@@ -1994,114 +2143,11 @@ async function executeChangeHostTask(
     dbSwitched = true
 
 
-    await updateInstanceTaskProgress(task.id, 'deleting_old')
-    let sourceClient: Awaited<ReturnType<typeof getIncusClient>> | null = null
-    let sourceInstanceReleased = false
-    try {
-      sourceClient = await getIncusClient(sourceHost)
-      const allowCancelBusyUpdate = isAlpineImageAlias(instance.image)
-      try {
-        await stopInstance(sourceClient, oldIncusId, true, {
-          allowCancelBusyUpdate,
-          busyUpdateCancelAfterMs: allowCancelBusyUpdate ? ALPINE_BUSY_UPDATE_CANCEL_AFTER_MS : undefined
-        })
-      } catch (err) {
-        console.warn(`[ChangeHost] 停止源实例 ${oldIncusId} 失败，继续尝试删除:`, err)
-      }
-      await deleteInstance(sourceClient, oldIncusId)
-      console.log(`[ChangeHost] 源实例 ${oldIncusId} 已删除`)
-      sourceInstanceReleased = true
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      if (errMsg.includes('not found') || errMsg.includes('Instance not found')) {
-        console.log(`[ChangeHost] 源实例 ${oldIncusId} 已不存在`)
-        sourceInstanceReleased = true
-      } else {
-        console.warn(`[ChangeHost] 源实例 ${oldIncusId} 删除失败，需要人工清理: ${errMsg}`)
-      }
-    }
-
-    try {
-      if (sourceInstanceReleased) {
-        await db.rollbackResources({
-          hostId: sourceHostId,
-          cpu: instance.cpu,
-          memory: instance.memory,
-          disk: instance.disk,
-          portCount: deletedPortMappingsCount
-        })
-
-        const actualSourcePortsUsed = await prisma.portMapping.count({
-          where: {
-            instance: {
-              hostId: sourceHostId,
-              status: { not: 'deleted' }
-            }
-          }
-        })
-        const [sourceResourcesCalculated, targetResourcesCalculated, sourceHostAfterRelease, targetHostCurrent] = await Promise.all([
-          db.calculateHostResourcesFromInstances(sourceHostId),
-          db.calculateHostResourcesFromInstances(targetHostId),
-          prisma.host.findUnique({
-            where: { id: sourceHostId },
-            select: {
-              cpuUsed: true,
-              memoryUsed: true,
-              diskUsed: true,
-              natPortsUsedCount: true
-            }
-          }),
-          prisma.host.findUnique({
-            where: { id: targetHostId },
-            select: {
-              cpuUsed: true,
-              memoryUsed: true,
-              diskUsed: true
-            }
-          })
-        ])
-        const sourceResources = {
-          cpuUsed: Math.max(sourceResourcesCalculated.cpuUsed, sourceHostAfterRelease?.cpuUsed ?? 0),
-          memoryUsed: Math.max(sourceResourcesCalculated.memoryUsed, sourceHostAfterRelease?.memoryUsed ?? 0),
-          diskUsed: Math.max(sourceResourcesCalculated.diskUsed, sourceHostAfterRelease?.diskUsed ?? 0)
-        }
-        const targetResources = {
-          cpuUsed: Math.max(targetResourcesCalculated.cpuUsed, targetHostCurrent?.cpuUsed ?? 0),
-          memoryUsed: Math.max(targetResourcesCalculated.memoryUsed, targetHostCurrent?.memoryUsed ?? 0),
-          diskUsed: Math.max(targetResourcesCalculated.diskUsed, targetHostCurrent?.diskUsed ?? 0)
-        }
-        const sourceNatPortsUsed = Math.max(actualSourcePortsUsed, sourceHostAfterRelease?.natPortsUsedCount ?? 0)
-        await Promise.all([
-          db.updateHostResources(sourceHostId, sourceResources),
-          db.updateHostResources(targetHostId, targetResources),
-          prisma.host.update({
-            where: { id: sourceHostId },
-            data: { natPortsUsedCount: sourceNatPortsUsed }
-          })
-        ])
-      } else {
-        const [targetResourcesCalculated, targetHostCurrent] = await Promise.all([
-          db.calculateHostResourcesFromInstances(targetHostId),
-          prisma.host.findUnique({
-            where: { id: targetHostId },
-            select: {
-              cpuUsed: true,
-              memoryUsed: true,
-              diskUsed: true
-            }
-          })
-        ])
-        const targetResources = {
-          cpuUsed: Math.max(targetResourcesCalculated.cpuUsed, targetHostCurrent?.cpuUsed ?? 0),
-          memoryUsed: Math.max(targetResourcesCalculated.memoryUsed, targetHostCurrent?.memoryUsed ?? 0),
-          diskUsed: Math.max(targetResourcesCalculated.diskUsed, targetHostCurrent?.diskUsed ?? 0)
-        }
-        await db.updateHostResources(targetHostId, targetResources)
-        console.warn(`[ChangeHost] 源实例 ${oldIncusId} 未确认删除，暂不释放源节点 ${sourceHost.name} 的资源占用`)
-      }
-    } catch (err) {
-      console.warn(`[ChangeHost] 更新节点资源失败:`, err)
-    }
+    // The original UUID is recorded before switching. Reconcile its deletion
+    // after the switch and keep both hosts reserved until absence is verified.
+    await reconcileInterruptedReinstalls(id => id !== task.id && runningTaskIds.has(id))
+    const cleanupReceipt = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+    if (cleanupReceipt.status !== 'COMPLETED') throw Error('COPY_MOVE_SOURCE_CLEANUP_PENDING')
 
     try {
       const { reconcileTrafficStateForInstanceIds } = await import('../services/traffic-scheduler.js')
@@ -2127,46 +2173,62 @@ async function executeChangeHostTask(
       { instanceId: task.instanceId }
     )
   } catch (err) {
-    if (!dbSwitched) {
-      let targetInstanceReleased = !newIncusId
-      if (newIncusId) {
-        targetInstanceReleased = false
-        try {
-          try {
-            await stopInstance(targetClient, newIncusId, true)
-          } catch {
-            // Instance may not have reached running state; deletion can still proceed.
-          }
-          await deleteInstance(targetClient, newIncusId)
-          targetInstanceReleased = true
-        } catch (cleanupErr) {
-          const cleanupMessage = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)
-          if (cleanupMessage.includes('not found') || cleanupMessage.includes('Instance not found')) {
-            targetInstanceReleased = true
-          } else {
-            console.warn(`[ChangeHost] 清理目标节点新实例 ${newIncusId} 失败:`, cleanupErr)
-          }
-        }
-      }
-      if (targetResourcesReserved) {
-        if (targetInstanceReleased) {
-          try {
-            await db.rollbackResources({
-              hostId: targetHostId,
-              cpu: instance.cpu,
-              memory: instance.memory,
-              disk: instance.disk,
-              portCount: 0
-            })
-          } catch (rollbackErr) {
-            console.warn(`[ChangeHost] 回滚目标节点资源失败:`, rollbackErr)
-          }
-        } else {
-          console.warn(`[ChangeHost] 目标实例 ${newIncusId} 未确认清理，暂不释放目标节点 ${targetHost.name} 的资源预占`)
-        }
-      }
+    // Resource reservation and identity receipts were persisted before dispatch.
+    // The bounded reconciler confirms cleanup before releasing that reservation.
+    if (targetResourcesReserved && !dbSwitched) {
+      const current = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+      await prisma.instanceTask.update({ where: { id: task.id }, data: { replacementState: {
+        ...(current.replacementState as Prisma.JsonObject || {}), cleanupFromPhase: (current.replacementState as Prisma.JsonObject || {}).targetPhase,
+        targetPhase: 'cleanup_pending'
+      } } })
     }
     throw err
+  }
+}
+
+async function setCopyPhase(taskId: number, phase: string) {
+  const current = await prisma.instanceTask.findUniqueOrThrow({ where: { id: taskId } })
+  await prisma.instanceTask.updateMany({ where: { id: taskId, status: 'PROCESSING', replacementState: { equals: current.replacementState! } },
+    data: { replacementState: { ...(current.replacementState as Prisma.JsonObject || {}), targetPhase: phase } } })
+}
+
+/** Resume only the recorded rebuild operation, never issue another rebuild. */
+export async function reconcileInterruptedRebuilds() {
+  if (recoveryHeld()) return
+  const expired = new Date(Date.now() - HEAVY_TASK_TIMEOUT)
+  await prisma.instanceTask.updateMany({ where: { taskType: 'rebuild', status: 'PROCESSING', startedAt: { lte: expired },
+    progress: { not: 'manual_intervention' }, replacementState: { path: ['targetPhase'], equals: 'rebuild_uncertain' } },
+    data: { progress: 'manual_intervention', error: '原重装自动续接期限已届满；保留原操作回执和资源，需核对原操作结果' } })
+  const tasks = await prisma.instanceTask.findMany({ where: { taskType: 'rebuild', status: 'PROCESSING',
+    startedAt: { gt: expired }, replacementState: { path: ['targetPhase'], equals: 'rebuild_uncertain' },
+    AND: [
+      { OR: [{ replacementState: { path: ['rebuildCompleted'], equals: true } }, { replacementState: { path: ['rebuildOperation'], string_starts_with: '/1.0/operations/' } }] },
+      { OR: [{ replacementState: { path: ['rebuildResumeAttempts'], equals: Prisma.AnyNull } }, { replacementState: { path: ['rebuildResumeAttempts'], lt: 6 } }] },
+      { OR: [{ replacementState: { path: ['rebuildNextAt'], equals: Prisma.AnyNull } }, { replacementState: { path: ['rebuildNextAt'], lte: new Date().toISOString() } }] }
+    ] }, orderBy: { id: 'asc' }, take: 10 })
+  for (const task of tasks) {
+    if (runningTaskIds.has(task.id)) continue
+    const state = task.replacementState as Prisma.JsonObject
+    if (!task.startedAt || Date.now() - task.startedAt.getTime() >= HEAVY_TASK_TIMEOUT) {
+      await prisma.instanceTask.updateMany({ where: { id: task.id, status: 'PROCESSING', replacementState: { equals: state } },
+        data: { progress: 'manual_intervention', error: '原重装自动续接期限已届满；保留原操作回执和资源，需核对原操作结果' } })
+      continue
+    }
+    if ((!state.rebuildOperation && state.rebuildCompleted !== true) || Number(state.rebuildResumeAttempts || 0) >= 6 ||
+      typeof state.rebuildNextAt === 'string' && Date.parse(state.rebuildNextAt) > Date.now()) continue
+    const claim = await prisma.$transaction(async tx => {
+      if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, task.instanceId)) return false
+      try { await assertHostNotMaintaining(task.hostId, tx) }
+      catch (error) { if (error instanceof HostMaintenanceError) return false; throw error }
+      if (recoveryHeld() || await hasPendingSnapshotOperation(task.instanceId, tx) || await hasPendingProxySiteOperations(task.instanceId, tx) ||
+        await tx.instanceTask.count({ where: { instanceId: task.instanceId, id: { not: task.id }, status: 'PROCESSING' } }) ||
+        await tx.restoreTask.count({ where: { hostId: task.hostId, status: 'PROCESSING' } }) ||
+        await tx.backupUploadTask.count({ where: { hostId: task.hostId, status: 'PROCESSING' } })) return false
+      return (await tx.instanceTask.updateMany({ where: { id: task.id, status: 'PROCESSING', replacementState: { equals: state } },
+        data: { replacementState: { ...state, rebuildResumeAttempts: Number(state.rebuildResumeAttempts || 0) + 1,
+          rebuildNextAt: new Date(Date.now() + 60000).toISOString() } } })).count === 1
+    })
+    if (claim) await executeTask(task.id, task)
   }
 }
 
@@ -2175,7 +2237,7 @@ async function executeChangeHostTask(
  * 注意：克隆任务比较复杂，需要处理新实例的创建
  */
 async function executeCloneTask(
-  task: { id: number; userId: number; instanceId: number },
+  task: InstanceTask,
   sourceInstance: { incus_id: string; name: string; user_id: number; image: string; cpu: number; memory: number; disk: number; network_mode: string; ssh_port: number | null; root_password: string | null; package_id: number | null; package_plan_id?: number | null; host_id: number; port_limit: number | null; snapshot_limit: number | null; backup_limit: number | null; site_limit: number | null; swap_enabled?: boolean; swap_size?: number | null; storage_pool_name?: string | null },
   host: { id: number; name: string; nat_public_ip?: string | null; ip_address?: string | null; caddy_enabled?: boolean; caddy_username?: string | null; caddy_password?: string | null; caddy_port?: number | null; nat_port_start: number | null; nat_port_end: number | null; nat_ports_used_count?: number; ipv6_subnet?: string | null; ipv6_gateway?: string | null; ipv6_parent_interface?: string | null; cpu_allowance_max?: number; memory_max?: number; instance_type?: 'container' | 'vm' | 'both' },
   client: Awaited<ReturnType<typeof getIncusClient>>
@@ -2186,18 +2248,38 @@ async function executeCloneTask(
   const newInstanceName = `${sourceInstance.name}-clone`
   const shortId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 8)()
   const newIncusId = `u${task.userId}-${shortId}`
+  const cloneAttempt = randomUUID()
+  let cloneUuid: string | undefined
+  const cloneSource = await prisma.instance.findUniqueOrThrow({ where: { id: task.instanceId } })
+  const cloneHost = await prisma.host.findUniqueOrThrow({ where: { id: sourceInstance.host_id } })
+  const originalGuest = await readRegisteredGuest(prisma, client, cloneSource, cloneHost)
 
   // 获取源实例的端口映射
   const sourcePortMappings = await db.getPortMappings(task.instanceId)
 
   // 跟踪资源是否已预占（用于失败时回滚）
   let resourcesReserved = false
-  let newPortMappingsCount = 0
 
   try {
+    await prisma.$transaction(async tx => {
+      await assertCopyMoveAuthority(tx, task)
+      const reserved = await db.selectAndReserveHostWithLock(tx, {
+        hostId: host.id, ownerId: cloneHost.userId, packageId: sourceInstance.package_id,
+        cpu: sourceInstance.cpu, memory: sourceInstance.memory, disk: sourceInstance.disk,
+        networkMode: sourceInstance.network_mode
+      })
+      if (!reserved) throw Error('CLONE_RESOURCES_UNAVAILABLE')
+      await tx.instanceTask.update({ where: { id: task.id }, data: { targetHostId: host.id, replacementState: {
+        targetAttempt: cloneAttempt, targetIncusId: newIncusId, targetHostIdentity: transferHostIdentity(cloneHost),
+        targetEndpointHash: managedCleanupEndpointHash(client), targetType: originalGuest.type, targetPhase: 'reserved',
+        sourceHostId: host.id, sourceIncusId: sourceInstance.incus_id, sourceOwnerId: sourceInstance.user_id
+      } } })
+    })
+    resourcesReserved = true
     // 1. 复制实例（使用 Incus copy API）
     const copyPayload = {
       name: newIncusId,
+      config: { 'user.payincus.provisioning-attempt': cloneAttempt },
       source: {
         type: 'copy',
         instance_only: true,
@@ -2206,94 +2288,56 @@ async function executeCloneTask(
     }
 
     await readCustomerIsolation(client, sourceInstance.incus_id)
+    await setCopyPhase(task.id, 'creating')
     // Copy only the instance; historical snapshots may contain unsafe host settings.
     await client.request('POST', '/1.0/instances', copyPayload, 300000)
     await readCustomerIsolation(client, newIncusId)
+    const cloneProof = await readCreatedGuest(client, newIncusId, cloneAttempt, originalGuest.type)
+    cloneUuid = cloneProof.managedCleanup.uuid
+    const identityReceipt = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+    await prisma.instanceTask.update({ where: { id: task.id }, data: { replacementState: {
+      ...(identityReceipt.replacementState as Prisma.JsonObject), targetUuid: cloneUuid, targetCreatedAt: cloneProof.recoveryIdentity.createdAt
+    } } })
 
     // 2. 获取新实例的设备信息，更新端口映射
-    const newInstanceInfo = await getInstance(client, newIncusId) as { devices?: Record<string, { type?: string; listen?: string; connect?: string }> }
-    const devices = newInstanceInfo.devices || {}
+    const newInstanceInfo = await getInstance(client, newIncusId)
+    // Materialize inherited NIC/proxy overrides too; retaining an old profile
+    // address underneath the clone would duplicate the source network.
+    const devices = { ...newInstanceInfo.expanded_devices, ...newInstanceInfo.devices } as Record<string, Record<string, string>>
 
-    // 查找所有 proxy 设备并更新端口
-    const updatedDevices: Record<string, unknown> = {}
-    const newPortMappings: Array<{ protocol: 'tcp' | 'udp'; publicPort: number; privatePort: number; remark: string | null }> = []
-    const selectedClonePortsByProtocol: Record<'tcp' | 'udp', Set<number>> = {
-      tcp: new Set<number>(),
-      udp: new Set<number>()
-    }
-
+    // Two devices in a dual-stack mapping share one public-port reservation.
+    // The clone stays on this host: keep each proven bind/connect address and
+    // NAT mode instead of guessing the address family from the instance mode.
+    const updatedDevices: Record<string, any> = {}
+    const newPortMappings: Array<{ protocol: 'tcp' | 'udp'; publicPort: number; privatePort: number; remark: string | null; systemManaged: boolean }> = []
+    await prisma.$transaction(async tx => {
+    await advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, `ports:host:${host.id}`)
+    await assertCopyMoveAuthority(tx, task)
+    const mapped = new Map<string, (typeof newPortMappings)[number]>()
     for (const [deviceName, device] of Object.entries(devices)) {
-      if (device.type === 'proxy' && device.listen) {
-        // 解析 listen 格式：tcp:0.0.0.0:8080
-        const listenMatch = device.listen.match(/^(tcp|udp):(.+):(\d+)$/)
-        if (listenMatch) {
-          const protocol = listenMatch[1] as 'tcp' | 'udp'
-          const connect = device.connect || ''
-
-          // 从源端口映射中找到对应的映射（通过 listen 端口匹配）
-          const listenPort = parseInt(listenMatch[3])
-          const sourceMapping = sourcePortMappings.find(m =>
-            m.protocol === protocol && m.public_port === listenPort
-          )
-
-          // 解析 connect 获取 privatePort
-          const connectMatch = connect.match(/^(tcp|udp):(.+):(\d+)$/)
-          const privatePort = connectMatch ? parseInt(connectMatch[3]) : (sourceMapping?.private_port || 80)
-
-          // 分配新端口
-          const newPublicPort = await db.allocatePort(
-            host.id,
-            protocol,
-            Array.from(selectedClonePortsByProtocol[protocol])
-          )
-          if (!newPublicPort) {
-            throw new Error('No available port for clone operation')
-          }
-          selectedClonePortsByProtocol[protocol].add(newPublicPort)
-
-          // 根据网络模式决定 listen 地址
-          let cloneListenAddr: string
-          const fullHost = await db.getHostById(host.id)
-          const bindableIpv4 = selectBindableIpv4ListenAddress(
-            (fullHost as any)?.nat_bind_ip || null,
-            host.nat_public_ip,
-            fullHost?.url || null,
-            fullHost?.ip_address || null
-          )
-          if (['ipv6_only', 'ipv6_nat'].includes(sourceInstance.network_mode)) {
-            // 纯 IPv6 模式：从数据库获取宿主机的公网 IPv6 地址
-            const hostIpv6 = fullHost?.nat_public_ipv6 || fullHost?.ipv6_gateway || fullHost?.ip_address
-            if (hostIpv6 && hostIpv6.includes(':')) {
-              cloneListenAddr = `[${hostIpv6.replace(/^\[|\]$/g, '')}]`
-            } else {
-              cloneListenAddr = bindableIpv4
-            }
-          } else {
-            cloneListenAddr = bindableIpv4
-          }
-          const cloneConnectAddr = ['ipv6_only', 'ipv6_nat'].includes(sourceInstance.network_mode) ? '[::]' : '0.0.0.0'
-          const proxyConfig: Record<string, string> = {
-            type: 'proxy',
-            listen: `${protocol}:${cloneListenAddr}:${newPublicPort}`,
-            connect: `${protocol}:${cloneConnectAddr}:${privatePort}`
-          }
-          if (!['ipv6_only', 'ipv6_nat'].includes(sourceInstance.network_mode)) {
-            proxyConfig.nat = 'true'
-          }
-          updatedDevices[deviceName] = proxyConfig
-
-          newPortMappings.push({
-            protocol,
-            publicPort: newPublicPort,
-            privatePort,
-            remark: sourceMapping?.remark || null
-          })
-        }
-      } else {
-        // 保留非 proxy 设备
-        updatedDevices[deviceName] = device
+      if (device.type !== 'proxy') { updatedDevices[deviceName] = { ...device }; continue }
+      const listen = device.listen?.match(/^(tcp|udp):(.+):(\d+)$/)
+      const connect = device.connect?.match(/^(tcp|udp):(.+):(\d+)$/)
+      if (!listen || !connect || listen[1] !== connect[1]) throw Error('CLONE_PROXY_LAYOUT_UNSUPPORTED')
+      const protocol = listen[1] as 'tcp' | 'udp'
+      const sourceMapping = sourcePortMappings.find(m => m.protocol === protocol && m.public_port === Number(listen[3]))
+      if (!sourceMapping || sourceMapping.private_port !== Number(connect[3])) throw Error('CLONE_PROXY_MAPPING_UNCONFIRMED')
+      const key = protocol + ':' + listen[3]
+      let mapping = mapped.get(key)
+      if (!mapping) {
+        const publicPort = await db.allocatePort(host.id, protocol, newPortMappings.filter(m => m.protocol === protocol).map(m => m.publicPort), tx)
+        if (!publicPort) throw Error('CLONE_PORTS_UNAVAILABLE')
+        mapping = { protocol, publicPort, privatePort: sourceMapping.private_port, remark: sourceMapping.remark, systemManaged: sourceMapping.system_managed === true }
+        mapped.set(key, mapping); newPortMappings.push(mapping)
       }
+      updatedDevices[deviceName] = { ...device, listen: protocol + ':' + listen[2] + ':' + mapping.publicPort }
     }
+    if (mapped.size !== sourcePortMappings.length) throw Error('CLONE_PROXY_MAPPING_UNCONFIRMED')
+    const portsReceipt = await tx.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+    await tx.instanceTask.update({ where: { id: task.id }, data: { replacementState: {
+      ...(portsReceipt.replacementState as Prisma.JsonObject), targetPorts: newPortMappings
+    } } })
+    })
 
     // 3. 分配新的 IPv4 地址（克隆实例必须使用新的 IPv4，避免 IP 冲突）
     let newIPv4: string | null = null
@@ -2301,6 +2345,10 @@ async function executeCloneTask(
       // 克隆此刻还没有新实例行（incus 设备配置要先定 IP），因此只做预留，不写 instance.ipv4。
       newIPv4 = await db.allocateAndReserveNatIpv4(host.id)
       if (newIPv4) {
+        const currentReceipt = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+        await prisma.instanceTask.update({ where: { id: task.id }, data: { replacementState: {
+          ...(currentReceipt.replacementState as Prisma.JsonObject), targetIpv4: newIPv4
+        } } })
         console.log(`[Clone] 为新实例分配并预留内网 IPv4: ${newIPv4}`)
       }
 
@@ -2333,7 +2381,8 @@ async function executeCloneTask(
     let newIPv6: string | null = null
 
     // 先计算 IPv6 地址（不创建数据库记录）
-    if (sourceInstance.network_mode !== 'nat' && host.ipv6_subnet) {
+    const cloneNeedsRoutedIpv6 = ['nat_ipv6', 'ipv6_only'].includes(sourceInstance.network_mode)
+    if (cloneNeedsRoutedIpv6 && host.ipv6_subnet) {
       try {
         // 随机生成 IPv6 地址，如果地址已存在则重新生成
         let attempts = 0
@@ -2341,9 +2390,7 @@ async function executeCloneTask(
 
         while (attempts < maxAttempts) {
           newIPv6 = generateRandomIPv6(host.ipv6_subnet)
-          const exists = await db.isIpAddressExists(newIPv6)
-
-          if (!exists) {
+          if (await db.reserveInstanceTaskIpv6(task.id, newIPv6)) {
             console.log(`[Clone] 为新实例随机分配 IPv6: ${newIPv6} (尝试次数: ${attempts + 1})`)
             break
           }
@@ -2374,9 +2421,7 @@ async function executeCloneTask(
               nictype: 'routed',
               parent: host.ipv6_parent_interface || 'eth0',
               name: 'eth1',
-              'ipv6.address': newIPv6,
-              'security.ipv6_filtering': 'true',
-              'security.mac_filtering': 'true'
+              'ipv6.address': newIPv6
             }
           }
         }
@@ -2389,7 +2434,7 @@ async function executeCloneTask(
           const networkConfig = generateCloudInitNetworkConfig({
             ipv4Address: newIPv4,
             ipv6List: [newIPv6],
-            nicMacs: generateVmNicMacs(newIncusId)
+            nicMacs: originalGuest.type === 'virtual-machine' ? generateVmNicMacs(newIncusId) : undefined
           })
 
           // 更新实例的 cloud-init 配置
@@ -2402,11 +2447,16 @@ async function executeCloneTask(
         }
       } catch (err) {
         console.warn(`[Clone] IPv6 计算失败:`, err)
-        // 如果 IPv6 计算失败，继续执行但不设置 newIPv6
-        newIPv6 = null
+        throw new Error('CLONE_IPV6_PREPARATION_FAILED')
       }
     }
 
+    if (cloneNeedsRoutedIpv6 && !newIPv6) throw Error('CLONE_IPV6_UNAVAILABLE')
+    // VM cloud-init must match the MACs actually assigned to its new NICs.
+    if (originalGuest.type === 'virtual-machine') {
+      const macs = generateVmNicMacs(newIncusId)
+      for (const nic of ['eth0', 'eth1'] as const) if (updatedDevices[nic]) updatedDevices[nic].hwaddr = macs[nic]
+    }
     // 4. 更新新实例的设备配置（端口映射 + IPv4 + IPv6）
     if (Object.keys(updatedDevices).length > 0) {
       await updateInstance(client, newIncusId, { devices: updatedDevices })
@@ -2418,7 +2468,7 @@ async function executeCloneTask(
       const { generateVmNicMacs } = await import('../lib/vm-network-identifiers.js')
       const networkConfig = generateCloudInitNetworkConfig({
         ipv4Address: newIPv4,
-        nicMacs: generateVmNicMacs(newIncusId)
+        nicMacs: originalGuest.type === 'virtual-machine' ? generateVmNicMacs(newIncusId) : undefined
       })
       await updateInstance(client, newIncusId, {
         config: {
@@ -2436,6 +2486,7 @@ async function executeCloneTask(
 
     // 6. 创建数据库记录
     const snapshotSpecs = {
+      ...cloneProof,
       packageId: pkg.id,
       packageName: pkg.name,
       cpuMax: pkg.cpu_max,
@@ -2462,98 +2513,40 @@ async function executeCloneTask(
       baseTrafficLimit
     })
 
-    const newInstanceId = await db.createInstance({
-      incusId: newIncusId,
-      name: newInstanceName,
-      userId: task.userId,
-      hostId: sourceInstance.host_id,
-      packageId: sourceInstance.package_id!,
-      storagePoolName: sourceInstance.storage_pool_name ?? null,
-      image: sourceInstance.image,
-      cpu: sourceInstance.cpu,
-      memory: sourceInstance.memory,
-      disk: sourceInstance.disk,
-      networkMode: sourceInstance.network_mode as 'nat' | 'nat_ipv6' | 'nat_ipv6_nat' | 'ipv6_only' | 'ipv6_nat',
-      snapshotSpecs,
-      sshPort: 22,  // SSH 端口固定为 22
-      rootPassword: sourceInstance.root_password, // 复制密码
-      monthlyTrafficLimit,
-      // 复制配额限制
-      portLimit: sourceInstance.port_limit,
-      snapshotLimit: sourceInstance.snapshot_limit,
-      backupLimit: sourceInstance.backup_limit,
-      siteLimit: sourceInstance.site_limit,
-      swapEnabled: sourceInstance.swap_enabled === true,
-      swapSize: sourceInstance.swap_size ?? null
-    })
-
-    // 8. 创建端口映射记录
-    for (const mapping of newPortMappings) {
-      await db.createPortMapping({
-        instanceId: newInstanceId,
-        hostId: sourceInstance.host_id,
-        protocol: mapping.protocol,
-        publicPort: mapping.publicPort,
-        privatePort: mapping.privatePort,
-        remark: mapping.remark || undefined
-      })
-    }
-
-    // 9. 创建 IP 地址记录并更新实例的 ipv4/ipv6 字段
-    // 创建 IPv4 地址记录
-    if (newIPv4) {
-      await db.createIpAddress({
-        address: newIPv4,
-        type: 'inet4',
-        isPrimary: true,
-        device: 'eth0',
-        instanceId: newInstanceId
-      })
-      // 更新实例的 ipv4 字段
-      await prisma.instance.update({
-        where: { id: newInstanceId },
-        data: { ipv4: newIPv4 }
-      })
-      console.log(`[Clone] 新实例 ${newInstanceId} IPv4 已更新: ${newIPv4} (device: eth0)`)
-    }
-
-    // 创建 IPv6 地址记录
-    if (newIPv6) {
-      // 创建 IP 地址记录（实例已创建，可以使用有效的 instanceId）
-      // 新架构: device 为 eth1
-      await db.createIpAddress({
-        address: newIPv6,
-        type: 'inet6',
-        isPrimary: true,
-        device: 'eth1',
-        instanceId: newInstanceId
-      })
-      // 更新实例的 ipv6 字段
-      await prisma.instance.update({
-        where: { id: newInstanceId },
-        data: { ipv6: newIPv6 }
-      })
-      console.log(`[Clone] 新实例 ${newInstanceId} IPv6 已更新: ${newIPv6} (device: eth1)`)
-    }
-
-    // 10. 更新资源使用量
-    newPortMappingsCount = newPortMappings.length
-    await db.reserveResources({
-      hostId: sourceInstance.host_id,
-      cpu: sourceInstance.cpu,
-      memory: sourceInstance.memory,
-      disk: sourceInstance.disk,
-      portCount: newPortMappingsCount
-    })
-    resourcesReserved = true
-
-    // 11. 更新实例状态为 stopped（因为复制后默认是停止状态）
-    await db.updateInstanceStatus(newInstanceId, 'stopped')
-
-    // 更新任务记录，记录新实例ID
-    await prisma.instanceTask.update({
-      where: { id: task.id },
-      data: { newInstanceId }
+    await readCreatedGuest(client, newIncusId, cloneAttempt, originalGuest.type, cloneUuid)
+    const newInstanceId = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM instances WHERE id = ${task.instanceId} FOR UPDATE`
+      await tx.$queryRaw`SELECT id FROM instance_tasks WHERE id = ${task.id} FOR UPDATE`
+      await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${host.id} FOR UPDATE`
+      await assertCopyMoveAuthority(tx, task)
+      await assertHostNotMaintaining(host.id, tx)
+      const row = await tx.instance.create({ data: {
+        incusId: newIncusId, name: newInstanceName, userId: task.userId, hostId: host.id,
+        packageId: sourceInstance.package_id, storagePoolName: sourceInstance.storage_pool_name ?? null,
+        image: sourceInstance.image, cpu: sourceInstance.cpu, memory: sourceInstance.memory, disk: sourceInstance.disk,
+        networkMode: sourceInstance.network_mode as any, snapshottedSpecs: snapshotSpecs,
+        sshPort: 22, rootPassword: sourceInstance.root_password, monthlyTrafficLimit,
+        portLimit: sourceInstance.port_limit, snapshotLimit: sourceInstance.snapshot_limit,
+        backupLimit: sourceInstance.backup_limit, siteLimit: sourceInstance.site_limit,
+        swapEnabled: sourceInstance.swap_enabled === true, swapSize: sourceInstance.swap_size ?? null,
+        status: 'stopped', ipv4: newIPv4, ipv6: newIPv6
+      } })
+      for (const mapping of newPortMappings) await tx.portMapping.create({ data: {
+        instanceId: row.id, hostId: host.id, ...mapping
+      } })
+      for (const [address, type, device] of [[newIPv4, 'inet4', 'eth0'], [newIPv6, 'inet6', 'eth1']] as const) {
+        if (!address) continue
+        await advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, address)
+        const existing = await tx.ipAddress.findFirst({ where: { address, hostId: host.id } })
+        if (existing && (existing.instanceId !== null || type !== 'inet4')) throw Error('CLONE_IP_CONFLICT')
+        if (existing) await tx.ipAddress.update({ where: { id: existing.id }, data: { instanceId: row.id, isPrimary: true, device } })
+        else await tx.ipAddress.create({ data: { instanceId: row.id, hostId: host.id, address, type, device, isPrimary: true } })
+      }
+      await tx.host.update({ where: { id: host.id }, data: { natPortsUsedCount: { increment: newPortMappings.length } } })
+      const current = await tx.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+      await tx.instanceTask.update({ where: { id: task.id }, data: { newInstanceId: row.id, status: 'COMPLETED',
+        progress: 'completed', finishedAt: new Date(), replacementState: { ...(current.replacementState as Prisma.JsonObject), targetPhase: 'verified' } } })
+      return row.id
     })
 
     await sendNotification(task.userId, 'instance_cloned', {
@@ -2571,71 +2564,9 @@ async function executeCloneTask(
       { instanceId: newInstanceId }
     )
   } catch (error) {
-    // 如果创建失败，尝试清理已创建的资源
-
-    // 1. 清理 Incus 中的实例
-    let incusCloneReleased = false
-    try {
-      await deleteInstance(client, newIncusId)
-      console.log(`[Clone] 已清理失败的 Incus 实例: ${newIncusId}`)
-      incusCloneReleased = true
-    } catch (cleanupErr) {
-      const cleanupMessage = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)
-      if (cleanupMessage.includes('not found') || cleanupMessage.includes('Instance not found')) {
-        incusCloneReleased = true
-      } else {
-        console.warn(`[Clone] 清理失败 Incus 实例失败，保留数据库记录和资源占用以便人工处理: ${newIncusId}`, cleanupErr)
-      }
-    }
-
-    // 2. 只有确认 Incus 克隆实例已清理，才删除数据库记录；否则保留为 error 供人工处理。
-    let cloneDbRecordRemoved = false
-    let cloneDbRecordExists = false
-    try {
-      // 检查是否存在具有该 incusId 的实例记录
-      const existingInstance = await prisma.instance.findFirst({
-        where: { incusId: newIncusId }
-      })
-      if (existingInstance) {
-        cloneDbRecordExists = true
-        if (incusCloneReleased) {
-          await prisma.instance.delete({
-            where: { id: existingInstance.id }
-          })
-          cloneDbRecordRemoved = true
-          console.log(`[Clone] 已清理失败的 Instance 记录: ${existingInstance.id}`)
-        } else {
-          await prisma.instance.update({
-            where: { id: existingInstance.id },
-            data: { status: 'error' }
-          })
-          console.warn(`[Clone] Incus 克隆实例 ${newIncusId} 未确认清理，数据库实例 ${existingInstance.id} 已标记为 error`)
-        }
-      }
-    } catch (dbCleanupErr) {
-      console.warn(`[Clone] 清理 Instance 记录失败:`, dbCleanupErr)
-    }
-
-    // 3. 只有确认远端和数据库记录都清理后，才释放已预占宿主机资源。
-    if (resourcesReserved) {
-      if (incusCloneReleased && (!cloneDbRecordExists || cloneDbRecordRemoved)) {
-        try {
-          await db.rollbackResources({
-            hostId: sourceInstance.host_id,
-            cpu: sourceInstance.cpu,
-            memory: sourceInstance.memory,
-            disk: sourceInstance.disk,
-            portCount: newPortMappingsCount
-          })
-          console.log(`[Clone] 已回滚宿主机资源`)
-        } catch (rollbackErr) {
-          console.error(`[Clone] 回滚资源失败:`, rollbackErr)
-        }
-      } else {
-        console.warn(`[Clone] 克隆实例 ${newIncusId} 未确认完全清理，暂不释放宿主机资源占用`)
-      }
-    }
-
+    const current = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+    if (current.status === 'COMPLETED') return // Notification failure cannot delete a delivered clone.
+    if (resourcesReserved) await setCopyPhase(task.id, 'cleanup_pending')
     throw error
   }
 }
@@ -2651,7 +2582,7 @@ export function startInstanceTaskWorker(): void {
 
   console.log('[InstanceTaskWorker] 启动 Worker...')
   const cleanupPool = () => {
-    if (!dbBackoff.shouldSkip()) void processPoolCleanupQueue().catch(err => {
+    if (!dbBackoff.shouldSkip()) void reconcileInterruptedRebuilds().then(() => reconcileInterruptedReinstalls(id => runningTaskIds.has(id))).then(() => processPoolCleanupQueue()).catch(err => {
       console.error('[InstanceTaskWorker] 机器池回收失败:', err)
       dbBackoff.arm(err)
     })

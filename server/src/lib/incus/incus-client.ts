@@ -24,6 +24,7 @@ export class IncusApiError extends Error {
 export interface IncusRequestConditions {
   ifMatch?: string
   onEtag?: (etag: string | undefined) => void
+  onOperation?: (path: string) => Promise<void>
 }
 
 export class IncusClient {
@@ -214,6 +215,10 @@ export class IncusClient {
 
       // 异步操作需要等待完成
       if (data.type === 'async' && data.operation) {
+        // Persist the receipt before waiting: a timed-out waiter must not
+        // submit a second destructive request to discover its result.
+        if (!/^\/1\.0\/operations\/[a-z0-9_-]+$/i.test(data.operation)) throw new Error('INCUS_OPERATION_PATH_INVALID')
+        await conditions?.onOperation?.(data.operation)
         const remaining = timeout - (Date.now() - startedAt)
         if (remaining <= 0) throw new Error(`Incus request timeout (${timeout} ms)`)
         return await waitForOperation(this, data.operation, remaining, requestSignal) as T

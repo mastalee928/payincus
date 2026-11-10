@@ -1,4 +1,5 @@
 import { prepareNewContainerCloudInit } from '../src/lib/new-container-cloud-init.js'
+import { IncusApiError } from '../src/lib/incus/incus-client.js'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -251,9 +252,9 @@ await prepareNewContainerCloudInit(cloudInitClient, 'vm', { 'user.user-data': '#
 assert.equal(cloudInitRequests.length, 0, 'VMs and creates without requested cloud-init must not touch guest files')
 await prepareNewContainerCloudInit(cloudInitClient, 'new-cloud-key', { 'cloud-init.user-data': '#cloud-config\n{}' })
 assert.equal(cloudInitRequests.length, 1)
-const missingMarkerClient = { async request<T>(): Promise<T> { throw Error('open /etc/cloud/cloud-init.disabled: no such file or directory') } }
+const missingMarkerClient = { async request<T>(_method: string, path: string): Promise<T> { throw new IncusApiError('marker absent', 404, path) } }
 await prepareNewContainerCloudInit(missingMarkerClient, 'new-no-marker', { 'user.user-data': '#cloud-config\n{}' })
-for (const failure of ['permission denied', 'Incus unavailable']) {
+for (const failure of ['permission denied', 'Incus unavailable', 'open /etc/cloud/cloud-init.disabled: no such file or directory']) {
   const failingClient = { async request<T>(): Promise<T> { throw Error(failure) } }
   await assert.rejects(prepareNewContainerCloudInit(failingClient, 'new-failing', { 'user.user-data': '#cloud-config\n{}' }), new RegExp(failure))
 }
@@ -263,7 +264,15 @@ for (const source of [createInstanceAsyncSection, adminAsyncSection, managedAsyn
   const start = source.indexOf('await startInstance(client, config.name)')
   assert.ok(create >= 0 && prepare > create && start > prepare, 'new container initialization must be prepared after creation and before its first start')
 }
-for (const path of ['src/workers/instanceTaskWorker.ts', 'src/workers/restoreTaskWorker.ts', 'src/services/platform-backup-worker.ts', 'src/lib/incus/incus-instances.ts']) {
+for (const path of ['src/workers/restoreTaskWorker.ts', 'src/services/platform-backup-worker.ts', 'src/lib/incus/incus-instances.ts']) {
   assert.ok(!readFileSync(resolve(__dirname, '../', path), 'utf8').includes('prepareNewContainerCloudInit'), 'existing instance restore/move/recreate and generic Incus calls must not initialize customer disks')
 }
+const taskWorker = readSource('../src/workers/instanceTaskWorker.ts')
+assert.equal((taskWorker.match(/await prepareNewContainerCloudInit\(/g) || []).length, 3,
+  'only proven fresh rebuild/recreate/change-system targets may remove their disable marker')
+assert.ok(taskWorker.includes('await reinstall.targetIdentity()\n  await prepareNewContainerCloudInit') &&
+  taskWorker.includes('const rebuiltSpecs = await reinstall.proof(false)') &&
+  taskWorker.includes("if ((await getInstanceState(client, instance.incus_id) as { status?: string }).status !== 'Running')") &&
+  taskWorker.includes('await readCreatedGuest(targetClient, newIncusId, targetAttempt, instanceType)'),
+  'destructive reinstall authorization and exact newly created identity must precede fresh rootfs initialization')
 console.log('Fresh container cloud-init preparation passed: disable marker, missing marker, failure, VM/no-config exclusion and existing-disk boundaries')

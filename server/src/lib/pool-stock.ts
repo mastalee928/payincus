@@ -14,6 +14,16 @@ import { RESOURCE_PRESETS, type ResourcePreset } from './host-onboarding.js'
 
 export { HOST_OCCUPIED_INSTANCE_WHERE } from './host-resource-usage.js'
 
+/** Unfinished replacement receipts keep both the old and new host reserved,
+ * even after the customer row has become deleted. Release follows cleanup. */
+export const unfinishedPoolTaskSelect = { hostId: true, targetHostId: true, replacementState: true } as const
+export function unfinishedPoolHostIds(tasks: Array<{ hostId: number; targetHostId: number | null; replacementState: unknown }>): number[] {
+  return tasks.flatMap(task => {
+    const source = (task.replacementState as { sourceHostId?: unknown } | null)?.sourceHostId
+    return [task.hostId, task.targetHostId, source].filter((id): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0)
+  })
+}
+
 /** 能进入一机一卖池子的宿主机：单租户 + 就绪。 */
 export const POOL_HOST_WHERE: Prisma.HostWhereInput = {
   singleTenant: true,

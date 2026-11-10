@@ -1,4 +1,6 @@
 export const zhCN = {
+  nativeAcceptanceNext:'当前版本尚未放行此系统与架构的自动启动维护。完成独立启动及原客户恢复验收并安装修复版后，队列自动重新判断；当前未下发准备或重启，空闲宿主仍不可售。',
+  bootLayoutNext:'当前引导布局没有可执行的固定维护方案。保留原配置，安装支持该布局的修复版后自动重新判断。',
   actionHistory:'已做动作与结果',
   maintenanceTitle:'宿主维护进度',maintenanceStarted:'维护开始',maintenanceDeadline:'重连核验期限',
   maintenancePhases:{prepared:'准备防护配置', 'reboot-intent':'已保存唯一重启意图','waiting-boot':'等待原身份重新连接',restoring:'核验新启动与客户状态',verified:'维护已验证',blocked:'维护已暂停，保留原回执',aborted:'准备已撤销'},
@@ -13,7 +15,7 @@ export const zhCN = {
   environment:'实际目标环境',architecture:'架构',pageSize:'内存页大小',memory:'可用内存',pressure:'内存压力',disk:'根分区可用空间',inodes:'可用 inode',
   unknown:'未取得受支持的检查结果，系统将继续只读复核。',
   phases:{authority:'授权与原身份',inventory:'客户清单与任务冲突',runtime:'客户实际隔离','host-inspection':'宿主检查与补丁','customer-ssh':'客户 SSH 检查与补丁',receipt:'最终身份与归属复核',finished:'验证完成'},
-  reasons:{HARDENING_APPARMOR_REQUIRED:'宿主尚未启用 AppArmor，仍需准备和实际防护验收。',
+  reasons:{GUEST_NETWORK_PROTECTION_PENDING:'宿主客户网络防护尚未就绪，系统自动修复并重新验收后继续。',HARDENING_NATIVE_ACCEPTANCE_REQUIRED:'自动维护尚未启动：当前系统与架构的方案尚未完成独立启动及原客户恢复验收。',HARDENING_APPARMOR_REQUIRED:'宿主尚未启用 AppArmor，仍需准备和实际防护验收。',
     HOST_SECURITY_MAINTENANCE:'宿主维护尚未验收，相关操作保留排队。',HARDENING_RECIPE_UNSUPPORTED:'当前系统／架构尚无已验收的自动重启方案。',HARDENING_BOOT_LAYOUT_UNSUPPORTED:'引导布局尚不在已验证范围，未改启动配置。',HARDENING_CONTROL_PLANE_TARGET:'目标承载主控或网关，缺少独立受信恢复路径，未重启。',HARDENING_APPARMOR_TOOLS_REQUIRED:'缺少适用 AppArmor 工具，未盲目安装。',HARDENING_CUSTOMER_BOOT_RECOVERY_UNVERIFIED:'当前客户重启恢复路径尚未原生验收，保留原客户。',HARDENING_RECONNECT_TIMEOUT:'维护重连期限已到，停止后续重启并保留恢复回执。',HARDENING_PREPARE_FAILED:'防护准备未完成，系统先核实际配置。',HARDENING_PREPARE_INCOMPLETE:'中断准备尚未核一致性，未重复修改。',HARDENING_RECONNECT_INCOMPLETE:'新启动后的管理与防护尚未全部验收。',HARDENING_REMOTE_RESULT_UNKNOWN:'未取得远端明确结果，先查询原请求。',HARDENING_BATCH_PAUSED:'已有未完成维护，暂停下一台重启。',HARDENING_REQUEST_EXPIRED:'受限维修请求已过期，重新核验后续接。',
     HARDENING_ONBOARDING_PENDING:'接入安全检查尚未全部通过，自动复核中；宿主暂不可售。',
     HARDENING_REMOTE_BUSY:'原远端更新任务仍在运行，保持同请求等待并只读核验。',HARDENING_JOURNAL_CONFLICT:'远端回执或原配置变化，停止更新并保留原身份。',
@@ -37,6 +39,8 @@ export const zhCN = {
     SSH_AUTH_FAILED:'原管理密钥认证未通过。',SSH_HOST_KEY_CHANGED:'SSH 身份与原记录不符，未重新信任。',SSH_COMMAND_FAILED:'受限命令未取得有效回执。'}
 }
 export const en = {
+  nativeAcceptanceNext:'This version has not enabled automatic boot maintenance for this system and architecture. After independent boot and original-customer recovery verification and installation of the fixed version, the queue rechecks automatically. No preparation or reboot was dispatched; idle hosts remain unavailable for sale.',
+  bootLayoutNext:'No fixed maintenance recipe supports this boot layout. Original configuration is preserved; the queue rechecks after a version supporting this layout is installed.',
   actionHistory:'Actions and results',
   maintenanceTitle:'Host maintenance progress',maintenanceStarted:'Maintenance started',maintenanceDeadline:'Reconnect deadline',
   maintenancePhases:{prepared:'Preparing protection','reboot-intent':'Single reboot intent saved','waiting-boot':'Waiting for the original identity',restoring:'Verifying new boot and customers',verified:'Maintenance verified',blocked:'Maintenance paused; receipts retained',aborted:'Preparation cancelled'},
@@ -51,7 +55,7 @@ export const en = {
   environment:'Actual target environment',architecture:'Architecture',pageSize:'Memory page size',memory:'Available memory',pressure:'Memory pressure',disk:'Free root disk space',inodes:'Free inodes',
   unknown:'A supported result is unavailable; read-only diagnosis continues.',
   phases:{authority:'Authorization and original identity',inventory:'Customer inventory and conflicts',runtime:'Actual customer isolation','host-inspection':'Host checks and patch','customer-ssh':'Customer SSH checks and patch',receipt:'Final identity and ownership check',finished:'Verification complete'},
-  reasons:{HARDENING_APPARMOR_REQUIRED:'AppArmor is not active; preparation and actual protection verification remain.',
+  reasons:{GUEST_NETWORK_PROTECTION_PENDING:'Customer network protection is not ready. Automatic repair and verification will continue.',HARDENING_NATIVE_ACCEPTANCE_REQUIRED:'Automatic maintenance did not start: this system and architecture have not passed independent boot and original-customer recovery verification.',HARDENING_APPARMOR_REQUIRED:'AppArmor is not active; preparation and actual protection verification remain.',
     HOST_SECURITY_MAINTENANCE:'Host maintenance is incomplete; related operations stay queued.',HARDENING_RECIPE_UNSUPPORTED:'No accepted reboot recipe exists for this system and architecture.',HARDENING_BOOT_LAYOUT_UNSUPPORTED:'The boot layout is outside verified scope; it was not changed.',HARDENING_CONTROL_PLANE_TARGET:'This controller or gateway needs an independent trusted recovery path before reboot.',HARDENING_APPARMOR_TOOLS_REQUIRED:'Required AppArmor tools are missing; no speculative installation was performed.',HARDENING_CUSTOMER_BOOT_RECOVERY_UNVERIFIED:'Customer boot recovery has not passed native acceptance; customers were preserved.',HARDENING_RECONNECT_TIMEOUT:'The reconnect deadline expired. Further reboots stopped; receipts remain.',HARDENING_PREPARE_FAILED:'Protection preparation is incomplete; inspect actual configuration first.',HARDENING_PREPARE_INCOMPLETE:'Interrupted preparation has not been verified; no repeated change was made.',HARDENING_RECONNECT_INCOMPLETE:'Management and protection after boot are not fully verified.',HARDENING_REMOTE_RESULT_UNKNOWN:'No definitive remote result; query the original request first.',HARDENING_BATCH_PAUSED:'Another maintenance is unfinished; the next reboot waits.',HARDENING_REQUEST_EXPIRED:'The restricted request expired; recheck before continuing.',
     HARDENING_ONBOARDING_PENDING:'Enrollment security checks are incomplete. Automatic checks continue; the host cannot be sold.',
     HARDENING_REMOTE_BUSY:'The original remote update is still running. Wait and inspect using the same request.',HARDENING_JOURNAL_CONFLICT:'The remote receipt or original configuration changed; updates stopped.',
@@ -75,6 +79,8 @@ export const en = {
     SSH_AUTH_FAILED:'The original management key was not accepted.',SSH_HOST_KEY_CHANGED:'SSH identity differs from the record; no new trust was granted.',SSH_COMMAND_FAILED:'No valid restricted-command receipt was returned.'}
 }
 export const zhTW = { title:'安全加固',detail:'查看安全加固詳情',host:'宿主 {name}',automatic:'系統自動檢查和續接，無需逐台操作。',
+  nativeAcceptanceNext:'目前版本尚未放行此系統與架構的自動啟動維護。完成獨立啟動及原客戶恢復驗證並安裝修復版後，佇列自動重新判斷；目前未下發準備或重新啟動，閒置宿主仍不可售。',
+  bootLayoutNext:'目前引導配置沒有可執行的固定維護方案。保留原設定，安裝支援該配置的修復版後自動重新判斷。',
   actionHistory:'已做動作與結果',
   maintenanceTitle:'宿主維護進度',maintenanceStarted:'維護開始',maintenanceDeadline:'重新連線驗證期限',
   maintenancePhases:{prepared:'準備防護設定','reboot-intent':'已儲存唯一重新啟動意圖','waiting-boot':'等待原身分重新連線',restoring:'驗證新啟動與客戶狀態',verified:'維護已驗證',blocked:'維護已暫停，保留原回執',aborted:'準備已撤銷'},
@@ -87,7 +93,7 @@ export const zhTW = { title:'安全加固',detail:'查看安全加固詳情',hos
   preflight:'資源與套件管理',apparmor:'AppArmor 防護',ssh:'SSH 安全修補',isolation:'客戶隔離',guest:'客戶 #{id}',
   environment:'實際目標環境',architecture:'架構',pageSize:'記憶體分頁大小',memory:'可用記憶體',pressure:'記憶體壓力',disk:'根分割區可用空間',inodes:'可用 inode',
   phases:{authority:'授權與原身分',inventory:'客戶清單與工作衝突',runtime:'客戶實際隔離','host-inspection':'宿主檢查與修補','customer-ssh':'客戶 SSH 檢查與修補',receipt:'最終身分與歸屬複核',finished:'驗證完成'},
-  reasons:{HARDENING_APPARMOR_REQUIRED:'宿主尚未啟用 AppArmor，仍需準備及實際防護驗證。',
+  reasons:{GUEST_NETWORK_PROTECTION_PENDING:'宿主客戶網路防護尚未就緒，系統自動修復並重新驗證後繼續。',HARDENING_NATIVE_ACCEPTANCE_REQUIRED:'自動維護尚未啟動：目前系統與架構的方案尚未完成獨立啟動及原客戶恢復驗證。',HARDENING_APPARMOR_REQUIRED:'宿主尚未啟用 AppArmor，仍需準備及實際防護驗證。',
     HOST_SECURITY_MAINTENANCE:'宿主維護尚未驗證，相關操作保留排隊。',HARDENING_RECIPE_UNSUPPORTED:'目前系統／架構尚無已驗證的自動重新啟動方案。',HARDENING_BOOT_LAYOUT_UNSUPPORTED:'引導配置尚不在已驗證範圍，未變更啟動設定。',HARDENING_CONTROL_PLANE_TARGET:'目標承載主控或網關，缺少獨立受信恢復路徑，未重新啟動。',HARDENING_APPARMOR_TOOLS_REQUIRED:'缺少適用 AppArmor 工具，未盲目安裝。',HARDENING_CUSTOMER_BOOT_RECOVERY_UNVERIFIED:'目前客戶重新啟動恢復路徑尚未原生驗證，保留原客戶。',HARDENING_RECONNECT_TIMEOUT:'維護重新連線期限已到，停止後續重新啟動並保留恢復回執。',HARDENING_PREPARE_FAILED:'防護準備未完成，系統先核對實際設定。',HARDENING_PREPARE_INCOMPLETE:'中斷準備尚未確認一致性，未重複修改。',HARDENING_RECONNECT_INCOMPLETE:'新啟動後的管理與防護尚未全部驗證。',HARDENING_REMOTE_RESULT_UNKNOWN:'未取得遠端明確結果，先查詢原請求。',HARDENING_BATCH_PAUSED:'已有未完成維護，暫停下一台重新啟動。',HARDENING_REQUEST_EXPIRED:'受限維修請求已過期，重新驗證後續接。',
     HARDENING_ONBOARDING_PENDING:'接入安全檢查尚未全部通過，自動複核中；宿主暫不可售。',
     HARDENING_REMOTE_BUSY:'原遠端更新工作仍在執行，保留同一請求等待並唯讀核對。',HARDENING_JOURNAL_CONFLICT:'遠端回執或原設定已變更，停止更新並保留原身分。',

@@ -104,7 +104,7 @@ class SecurityTests(unittest.TestCase):
             self.assertEqual(self.calls,[])
 
     def host_script(self, unsafe=False, changed=False, fixed=False, patch_failure=False, architecture='x86_64',
-                    memory=262144, pressure=0, disk=268435456, inodes=1024, readonly=False, package_busy=False, boot_changed=False, boot_disabled=False):
+                    memory=262144, pressure=0, disk=268435456, inodes=1024, readonly=False, package_busy=False, boot_changed=False, boot_disabled=False, page_size=None):
         writes=[]; probes=0
         def read(path, **_):
             name=path.as_posix()
@@ -139,7 +139,7 @@ class SecurityTests(unittest.TestCase):
         with patch.object(pathlib.Path,'open',opened), patch.object(pathlib.Path,'iterdir',return_value=iter(processes)), \
              patch.object(gateway.subprocess,'run',side_effect=shell), patch.object(gateway.time,'time',return_value=1), \
              patch.object(gateway.os,'uname',return_value=types.SimpleNamespace(machine=architecture),create=True), \
-             patch.object(gateway.os,'sysconf',return_value=65536 if architecture=='aarch64' else 4096,create=True), \
+             patch.object(gateway.os,'sysconf',return_value=page_size or (65536 if architecture=='aarch64' else 4096),create=True), \
              patch.object(gateway.os,'statvfs',return_value=types.SimpleNamespace(f_bavail=disk//4096,f_frsize=4096,f_favail=inodes,f_flag=1 if readonly else 0),create=True), \
              patch.object(gateway.os,'ST_RDONLY',1,create=True), \
              patch.object(gateway.os,'open',side_effect=FileNotFoundError), \
@@ -169,11 +169,13 @@ class SecurityTests(unittest.TestCase):
         self.assertIn('HARDENING_IDENTITY_CHANGED',self.host_script(changed=True)[1])
 
     def test_target_architecture_and_resource_zero_write(self):
-        writes,output=self.host_script(architecture='aarch64')
-        self.assertEqual(writes,['patch'])
-        self.assertEqual(json.loads(output)['runtime']['preflight']['pageSize'],65536)
-        self.assertEqual(json.loads(output)['runtime']['preflight']['architecture'],'aarch64')
-        for options in [{'architecture':'riscv64'},{'memory':131071},{'pressure':5},{'disk':134213632},
+        for architecture,sizes in [('x86_64',[4096]),('aarch64',[4096,16384,65536])]:
+            for page_size in sizes:
+                writes,output=self.host_script(architecture=architecture,page_size=page_size)
+                self.assertEqual(writes,['patch'])
+                self.assertEqual(json.loads(output)['runtime']['preflight']['pageSize'],page_size)
+                self.assertEqual(json.loads(output)['runtime']['preflight']['architecture'],architecture)
+        for options in [{'architecture':'riscv64'},{'architecture':'aarch64','page_size':8192},{'memory':131071},{'pressure':5},{'disk':134213632},
                         {'inodes':511},{'readonly':True},{'package_busy':True}]:
             with self.subTest(options=options):
                 writes,output=self.host_script(**options)

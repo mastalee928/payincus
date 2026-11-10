@@ -1,4 +1,4 @@
-import type { IncusClient } from './incus/incus-client.js'
+import { IncusApiError, type IncusClient } from './incus/incus-client.js'
 
 /** Only used between creating a brand-new container and its first start. */
 export async function prepareNewContainerCloudInit(
@@ -10,11 +10,12 @@ export async function prepareNewContainerCloudInit(
   if (instanceType !== 'container' || !cloudInitConfig ||
     !['cloud-init.user-data', 'user.user-data'].some(key => cloudInitConfig[key]?.trim())) return
 
+  const path = `/1.0/instances/${encodeURIComponent(name)}/files?path=/etc/cloud/cloud-init.disabled`
   try {
     // Some published cloud images retain the build-time disable marker.
     // Never clean cloud-init state or rerun initialization on an existing disk.
-    await client.request('DELETE', `/1.0/instances/${encodeURIComponent(name)}/files?path=/etc/cloud/cloud-init.disabled`)
+    await client.request('DELETE', path)
   } catch (error) {
-    if (!(error instanceof Error) || !/no such file|not found|does not exist/i.test(error.message)) throw error
+    if (!(error instanceof IncusApiError) || error.statusCode !== 404 || error.path !== path) throw error
   }
 }

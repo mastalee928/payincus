@@ -98,10 +98,10 @@ export function nextMaintenanceAction(intent:HostMaintenanceIntent,proof:{identi
   return intent.phase==='prepared'&&proof.remotePhase==='prepared'?'reboot' as const:'blocked' as const
 }
 
-/** Production activation requires independent native boot/customer recovery
- * evidence for this exact recipe on each architecture. Empty until that gate
- * passes; compiling a recipe or a mocked reboot does not activate it. */
-export const NATIVE_VALIDATED_MAINTENANCE_RECIPES:ReadonlyArray<string>=Object.freeze([])
+/** Activate only independently accepted native boot/customer recovery pairs.
+ * AMD64 Alpine/GRUB evidence: automatic-hardening-native-2026-11-10.md.
+ * Other architectures and boot layouts retain their separate acceptance gate. */
+export const NATIVE_VALIDATED_MAINTENANCE_RECIPES:ReadonlyArray<string>=Object.freeze(['alpine-apparmor-grub-v1:x86_64'])
 export function hostMaintenanceRecipe(environment:{bootloader?:unknown}):string|null {
   return environment.bootloader==='grub'?'alpine-apparmor-grub-v1':
     environment.bootloader==='extlinux'?'alpine-apparmor-extlinux-v1':null

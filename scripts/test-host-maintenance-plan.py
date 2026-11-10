@@ -84,6 +84,22 @@ class MaintenanceTests(unittest.TestCase):
                 self.assertEqual(rolled['phase'],'rolled-back');self.assertEqual(config.read_bytes(),before)
                 self.assertEqual(enabled[0],initial_enabled,'restore exactly the prior AppArmor boot runlevel')
                 self.assertEqual(module.execute({**request,'action':'rollback'}),rolled,'lost rollback receipt is safely replayed')
+    def test_empty_host_completion_is_durable_and_rejects_new_inventory(self):
+        stack,root,config,before,value,calls,enabled,boot_value=self.fixture()
+        with stack:
+            first=module.execute(value);request={**value,'prepareHash':first['prepareHash']}
+            with patch.object(module.subprocess,'Popen') as reboot:
+                module.execute({**request,'action':'reboot'})
+                boot_value[0]='44444444-4444-4444-8444-444444444444'
+                with patch.object(module,'empty_remote',side_effect=ValueError('HARDENING_IDENTITY_CHANGED')):
+                    with self.assertRaisesRegex(ValueError,'IDENTITY_CHANGED'):module.execute({**request,'action':'restore-customers'})
+                self.assertEqual(json.loads((root/'maintenance.json').read_text())['phase'],'reboot-intent')
+                restored=module.execute({**request,'action':'restore-customers'})
+                self.assertEqual(restored['phase'],'customers-restored')
+                self.assertEqual(module.execute({**request,'action':'status'}),restored)
+                self.assertEqual(module.execute({**request,'action':'restore-customers'}),restored)
+                module.execute({**request,'action':'reboot'})
+                self.assertEqual(reboot.call_count,1,'completed empty-host receipt never dispatches a second reboot')
     def test_unknown_prepare_status_is_read_only(self):
         stack,root,config,before,value,calls,enabled,_=self.fixture()
         with stack:
@@ -101,6 +117,77 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual(len(calls),count,'discovery must not finish preparation')
             with self.assertRaisesRegex(ValueError,'JOURNAL'):
                 module.execute({**value,'action':'status','requestId':value['nodeId']})
+    def test_reboot_expiry_during_baseline_blocks_durable_dispatch(self):
+        stack,root,config,before,value,calls,enabled,boot_value=self.fixture()
+        with stack:
+            prepared=module.execute(value)
+            request={**value,'action':'reboot','prepareHash':prepared['prepareHash']}
+            actual_baseline=module.assert_customer_baseline
+            clock=[1]
+            def baseline(*args,**kwargs):
+                actual_baseline(*args,**kwargs)
+                clock[0]=60
+            with patch.object(module.time,'time',side_effect=lambda:clock[0]), \
+                patch.object(module,'assert_customer_baseline',side_effect=baseline), \
+                patch.object(module.subprocess,'Popen') as reboot:
+                with self.assertRaisesRegex(ValueError,'REQUEST_EXPIRED'):module.execute(request)
+                reboot.assert_not_called()
+                self.assertEqual(json.loads((root/'maintenance.json').read_text())['phase'],'prepared')
+    def test_preparation_expiry_after_read_only_checks_has_no_system_write(self):
+        stack,root,config,before,value,calls,enabled,_=self.fixture()
+        with stack:
+            clock=[1]
+            def environment(*_):clock[0]=60
+            with patch.object(module.time,'time',side_effect=lambda:clock[0]), \
+                patch.object(module,'environment',side_effect=environment):
+                with self.assertRaisesRegex(ValueError,'REQUEST_EXPIRED'):module.execute(value)
+                self.assertEqual(config.read_bytes(),before)
+                self.assertFalse(enabled[0]);self.assertEqual(calls,[])
+    def test_new_boot_file_edit_during_preparation_is_never_overwritten(self):
+        for action in ['prepare','rollback']:
+            stack,root,config,before,value,calls,enabled,_=self.fixture()
+            with stack:
+                if action=='rollback':
+                    prepared=module.execute(value)
+                    value={**value,'action':action,'prepareHash':prepared['prepareHash']}
+                original_command=module.command
+                def command(args,**kwargs):
+                    result=original_command(args,**kwargs)
+                    config.write_bytes(b'new administrator boot configuration')
+                    return result
+                with patch.object(module,'command',side_effect=command):
+                    with self.assertRaisesRegex(ValueError,'JOURNAL'):module.execute(value)
+                    self.assertEqual(config.read_bytes(),b'new administrator boot configuration')
+
+    def test_expiry_during_customer_read_blocks_configuration_put_and_resumes(self):
+        stack,root,config,before,value,calls,enabled,_=self.fixture()
+        customer={'name':'original','uuid':value['nodeId'],'attempt':value['requestId'],'state':'running','autostart':'true'}
+        value={**value,'customers':[customer]}
+        remote={'name':'original','type':'container','status':'Running','architecture':'aarch64','description':'original',
+            'profiles':[],'ephemeral':False,'devices':{'root':{'type':'disk','path':'/','pool':'original'}},
+            'config':{'volatile.uuid':customer['uuid'],'user.payincus.provisioning-attempt':customer['attempt'],
+                'boot.autostart':'true','security.privileged':'false'}}
+        clock=[1];expire=[True];writes=[]
+        def api(method,path,body=None,etag=None):
+            self.assertEqual(path,'/1.0/instances/original')
+            if method=='GET':
+                if expire[0] and (root/'maintenance.json').exists():clock[0]=60
+                return {'type':'sync','metadata':json.loads(json.dumps(remote))},'revision'
+            self.assertEqual(method,'PUT');self.assertEqual(etag,'revision')
+            writes.append(body);remote['config']=body['config']
+            return {'type':'sync','metadata':{}},'revision'
+        def command(args,**kwargs):
+            if args[:2]==['incus','list']:return json.dumps([remote]).encode()
+            return self.fixture_command(args,calls,enabled)
+        with stack,patch.object(module,'local_incus',side_effect=api),patch.object(module,'command',side_effect=command), \
+            patch.object(module.time,'time',side_effect=lambda:clock[0]):
+            with self.assertRaisesRegex(ValueError,'REQUEST_EXPIRED'):module.execute(value)
+            self.assertEqual(writes,[],'a slow customer GET must not authorize a config PUT after expiry')
+            self.assertEqual(config.read_bytes(),before)
+            self.assertEqual(json.loads((root/'maintenance.json').read_text())['phase'],'preparing')
+            clock[0]=1;expire[0]=False
+            self.assertEqual(module.execute(value)['phase'],'prepared')
+            self.assertEqual(len(writes),1,'a fresh bounded request resumes the same preparation')
     def test_rolled_back_preparation_can_resume_only_exact_original(self):
         stack,root,config,before,value,calls,enabled,_=self.fixture()
         with stack:
@@ -180,7 +267,8 @@ class MaintenanceTests(unittest.TestCase):
         config.write_bytes(b'menuentry "Alpine" {\n linux /boot/vmlinuz-virt root=UUID=original ro\n initrd /boot/initramfs-virt\n}\n')
         before=config.read_bytes();value={**value,'recipe':module.GRUB_RECIPE}
         install_calls=[]
-        def install(fd,state,persist):
+        def install(fd,state,persist,allowed):
+            allowed()
             self.assertTrue((root/'maintenance.json').exists())
             self.assertEqual(json.loads((root/'maintenance.json').read_text())['phase'],'preparing')
             self.assertEqual(config.read_bytes(),before,'no boot change during dependency transaction')
@@ -242,6 +330,16 @@ class MaintenanceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'PACKAGE_BUSY'):module.ensure_grub_tools(9,saved,lambda:None)
             self.assertEqual(len(writes),1,'changed package baseline never reaches install')
             snapshots[0]=saved['dependencyPlan']['installed'].copy()
+            checks=[]
+            def expiry_before_install():
+                checks.append(True)
+                # The repositories write is allowed, then the package
+                # baseline lookup consumes the remaining request lifetime.
+                if len(checks)==2:raise ValueError('HARDENING_REQUEST_EXPIRED')
+            with self.assertRaisesRegex(ValueError,'REQUEST_EXPIRED'):
+                module.ensure_grub_tools(9,saved,lambda:None,expiry_before_install)
+            self.assertEqual(len(writes),1,'expired preparation cannot start the real package install')
+            self.assertEqual(saved['dependencyPlan']['phase'],'planned')
             self.assertTrue(module.ensure_grub_tools(9,saved,lambda:None))
             self.assertEqual(len(writes),2)
             with patch.object(module,'command',return_value=b'') as compile_rules:

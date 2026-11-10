@@ -10,6 +10,7 @@ const sshVerificationReasons = {
   securityPatch: 'Alpine SSH 安全补丁尚未安装，保留密码登录并等待安全初始化完成',
   identityUnavailable: '实例内尚未取得 SSH 主机公钥',
   inspection: '无法通过已认证的管理通道检查实例 SSH',
+  networkProtection: '宿主客户网络防护尚未就绪，等待自动修复后继续公网验收',
   command: '客户 SSH 登录后无法执行验证命令',
   root: '客户 SSH 登录后的身份不是 root'
 } as const

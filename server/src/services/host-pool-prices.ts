@@ -3,9 +3,10 @@ import { prisma } from '../db/prisma.js'
 import { getSystemConfigNumber } from '../db/system-config.js'
 import { OnboardingError, RESOURCE_PRESETS, type ResourcePreset } from '../lib/host-onboarding.js'
 import { presetQuota } from '../lib/onboarding-resources.js'
-import { HOST_OCCUPIED_INSTANCE_WHERE, dedicatedHostReadyWhere } from '../lib/host-resource-usage.js'
-import { poolCapacityReady, poolCapacitySelect, poolKeyOf, poolKeyString } from '../lib/pool-stock.js'
+import { HOST_OCCUPIED_INSTANCE_WHERE, dedicatedHostReadyWhere, hostUnfinishedCreationWhere } from '../lib/host-resource-usage.js'
+import { poolCapacityReady, poolCapacitySelect, poolKeyOf, poolKeyString, unfinishedPoolTaskSelect, unfinishedPoolHostIds } from '../lib/pool-stock.js'
 import { lockHostGroups } from './host-groups.js'
+import { hardeningReceiptMatches, hardeningStockSelect } from '../lib/hardening-identity.js'
 
 type DbClient = Prisma.TransactionClient | typeof prisma
 
@@ -281,18 +282,19 @@ export async function listPoolPrices(machineGroupId?: number, resourcePreset?: s
  *   否则会出现「页面显示有货、下单却挑不到机器」。
  */
 export async function poolInventory(_options: { readyOnly?: boolean; replacing?: { userId: number; source: 'direct' | 'cart' } } = {}): Promise<PoolInventoryRow[]> {
-  const [hosts, readyHosts, moves, reservations] = await Promise.all([
+  const [hosts, readyHosts, moves, reservations, unfinished] = await Promise.all([
     prisma.host.findMany({ where: { singleTenant: true }, select: {
       id: true, machineGroupId: true, resourcePreset: true, regionGroupId: true, customerDiskGiB: true,
       ...poolCapacitySelect, _count: { select: { instances: { where: HOST_OCCUPIED_INSTANCE_WHERE } } }
     } }),
-    prisma.host.findMany({ where: { singleTenant: true, ...dedicatedHostReadyWhere() }, select: { id: true } }),
+    prisma.host.findMany({ where: { singleTenant: true, ...dedicatedHostReadyWhere() }, select: hardeningStockSelect }),
     prisma.instanceTask.findMany({ where: { taskType: { in: ['change_host', 'replace_host'] }, status: { in: ['PENDING', 'PROCESSING'] }, targetHostId: { not: null } }, select: { targetHostId: true } }),
     prisma.checkoutReservation.findMany({ where: _options.replacing ? {
       NOT: { order: { userId: _options.replacing.userId, source: _options.replacing.source, status: 'pending' } }
-    } : {}, select: { hostId: true } })
+    } : {}, select: { hostId: true } }),
+    prisma.instanceTask.findMany({ where: hostUnfinishedCreationWhere(), select: unfinishedPoolTaskSelect })
   ])
-  const ready = new Set(readyHosts.map(host => host.id)), reserved = new Set([...moves.map(task => task.targetHostId), ...reservations.map(row => row.hostId)])
+  const ready = new Set(readyHosts.filter(hardeningReceiptMatches).map(host => host.id)), reserved = new Set([...moves.map(task => task.targetHostId), ...reservations.map(row => row.hostId), ...unfinishedPoolHostIds(unfinished)])
   const byPool = new Map<string, PoolInventoryRow>()
   for (const host of hosts) {
     const key = poolKeyOf(host), id = poolKeyString(key)

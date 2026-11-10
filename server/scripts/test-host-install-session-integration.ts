@@ -31,6 +31,28 @@ try {
   assert.equal(failed.statusCode, 409, 'existing pin is used even in a pending session; failed connection never resets identity')
   const retained = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
   assert.equal(retained.installPending, true); assert.equal(retained.certPath, before.certPath); assert.equal(retained.serverFingerprint, before.serverFingerprint)
+  for (const architecture of ['x86_64', 'aarch64']) {
+    await prisma.host.update({ where: { id: host.id }, data: { singleTenant: true, architecture, cpuAllowanceMax: 200, memoryMax: 768, storageSize: 38, customerDiskGiB: 30 } })
+    const customer = await prisma.instance.create({ data: { hostId: host.id, userId: owner.id, name: tag, incusId: tag, image: 'alpine/3.22', status: 'running', cpu: 200, memory: 768, disk: 30720 } })
+    const refusesInstall = async () => {
+      assert.equal((await app.inject({ method: 'POST', url: `/hosts/${host.id}/regenerate-install` })).statusCode, 409)
+      for (const suffix of ['', '?os=alpine']) assert.equal((await app.inject({ method: 'GET', url: `/hosts/install.sh/${prepared.installToken}${suffix}` })).statusCode, 409)
+      const current = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
+      for (const key of ['installPending', 'installToken', 'serverFingerprint', 'serverCertificate', 'certPath', 'keyPath'] as const) assert.equal(current[key], prepared[key])
+    }
+    await refusesInstall()
+    await prisma.instance.update({ where: { id: customer.id }, data: { status: 'deleted', provisioningCleanupPending: true } })
+    await refusesInstall()
+    await prisma.instance.update({ where: { id: customer.id }, data: { provisioningCleanupPending: false } })
+    await prisma.instanceTask.create({ data: { hostId: host.id, instanceId: customer.id, userId: owner.id, taskType: 'recreate', status: 'FAILED',
+      replacementState: { targetPhase: 'cleanup_pending' } } })
+    await refusesInstall()
+    await prisma.instance.delete({ where: { id: customer.id } })
+    console.log('PASS', architecture, 'occupied dedicated host and unfinished cleanup reject full installers without changing original identity')
+  }
+  await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { maintenance: { phase: 'waiting-boot' } } } })
+  assert.equal((await app.inject({ method: 'POST', url: `/hosts/${host.id}/regenerate-install` })).statusCode, 409)
+  await prisma.host.update({ where: { id: host.id }, data: { securityHardening: (await import('@prisma/client')).Prisma.DbNull } })
   afterAuth = () => prisma.user.update({ where: { id: actor.id }, data: { role: 'user' } })
   const denied = await app.inject({ method: 'POST', url: `/hosts/${host.id}/regenerate-install` })
   assert.equal(denied.statusCode, 409)
@@ -42,6 +64,7 @@ try {
   console.log('PASS actual installer routes preserve installed state/TLS pin; pending installer can fetch Agent config; current demotion/session revocation block issuance')
 } finally {
   await app.close(); await closeAllClients()
+  await prisma.instance.deleteMany({ where: { hostId: host.id } })
   await prisma.host.delete({ where: { id: host.id } })
   await prisma.user.deleteMany({ where: { id: { in: [actor.id, owner.id] } } })
   await closePrismaDatabase()

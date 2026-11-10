@@ -87,7 +87,7 @@ assert.ok(
   'IP address allocation must have a dedicated advisory lock namespace'
 )
 assert.ok(
-  dbSource.includes('advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, data.address)') &&
+  dbSource.includes('advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, new Address6(data.address).correctForm())') &&
     dbSource.includes('async function assertIpAddressAvailable(') &&
     dbSource.includes("throw new Error(IP_ADDRESS_ALREADY_EXISTS_ERROR)") &&
     dbSource.includes('export async function updateIpAddressAddress(') &&

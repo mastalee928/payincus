@@ -1,0 +1,981 @@
+{
+  "nftables": [
+    {
+      "metainfo": {
+        "version": "1.1.6",
+        "release_name": "Commodore Bullmoose #7",
+        "json_schema_version": 1
+      }
+    },
+    {
+      "table": {
+        "family": "inet",
+        "name": "incudal_guest_guard",
+        "handle": 2
+      }
+    },
+    {
+      "chain": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "name": "before_nat",
+        "handle": 1,
+        "type": "filter",
+        "hook": "prerouting",
+        "prio": -110,
+        "policy": "accept"
+      }
+    },
+    {
+      "chain": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "name": "input",
+        "handle": 2,
+        "type": "filter",
+        "hook": "input",
+        "prio": -25,
+        "policy": "accept"
+      }
+    },
+    {
+      "chain": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "name": "forward",
+        "handle": 3,
+        "type": "filter",
+        "hook": "forward",
+        "prio": -25,
+        "policy": "accept"
+      }
+    },
+    {
+      "chain": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "name": "validation_source",
+        "handle": 4,
+        "type": "nat",
+        "hook": "postrouting",
+        "prio": 90,
+        "policy": "accept"
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "before_nat",
+        "handle": 5,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "ct": {
+                  "key": "direction"
+                }
+              },
+              "right": "original"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip",
+                  "field": "daddr"
+                }
+              },
+              "right": {
+                "prefix": {
+                  "addr": "169.254.0.0",
+                  "len": 16
+                }
+              }
+            }
+          },
+          {
+            "counter": {
+              "packets": 0,
+              "bytes": 0
+            }
+          },
+          {
+            "drop": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "input",
+        "handle": 6,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "ct": {
+                  "key": "direction"
+                }
+              },
+              "right": "reply"
+            }
+          },
+          {
+            "return": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "input",
+        "handle": 8,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "udp",
+                  "field": "dport"
+                }
+              },
+              "right": {
+                "set": [
+                  53,
+                  67,
+                  547
+                ]
+              }
+            }
+          },
+          {
+            "return": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "input",
+        "handle": 9,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "tcp",
+                  "field": "dport"
+                }
+              },
+              "right": 53
+            }
+          },
+          {
+            "return": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "input",
+        "handle": 11,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip6",
+                  "field": "hoplimit"
+                }
+              },
+              "right": 255
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "icmpv6",
+                  "field": "type"
+                }
+              },
+              "right": {
+                "set": [
+                  "nd-router-solicit",
+                  "nd-neighbor-solicit",
+                  "nd-neighbor-advert"
+                ]
+              }
+            }
+          },
+          {
+            "return": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "input",
+        "handle": 12,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "counter": {
+              "packets": 0,
+              "bytes": 0
+            }
+          },
+          {
+            "drop": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "forward",
+        "handle": 13,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip",
+                  "field": "daddr"
+                }
+              },
+              "right": {
+                "prefix": {
+                  "addr": "169.254.0.0",
+                  "len": 16
+                }
+              }
+            }
+          },
+          {
+            "counter": {
+              "packets": 0,
+              "bytes": 0
+            }
+          },
+          {
+            "drop": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "forward",
+        "handle": 15,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "ct": {
+                  "key": "direction"
+                }
+              },
+              "right": "original"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip",
+                  "field": "daddr"
+                }
+              },
+              "right": {
+                "set": [
+                  {
+                    "prefix": {
+                      "addr": "0.0.0.0",
+                      "len": 8
+                    }
+                  },
+                  {
+                    "prefix": {
+                      "addr": "10.0.0.0",
+                      "len": 8
+                    }
+                  },
+                  {
+                    "prefix": {
+                      "addr": "127.0.0.0",
+                      "len": 8
+                    }
+                  },
+                  {
+                    "prefix": {
+                      "addr": "172.16.0.0",
+                      "len": 12
+                    }
+                  },
+                  {
+                    "prefix": {
+                      "addr": "192.168.0.0",
+                      "len": 16
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "counter": {
+              "packets": 0,
+              "bytes": 0
+            }
+          },
+          {
+            "drop": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "forward",
+        "handle": 17,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "ct": {
+                  "key": "direction"
+                }
+              },
+              "right": "original"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip6",
+                  "field": "daddr"
+                }
+              },
+              "right": {
+                "set": [
+                  "::1",
+                  {
+                    "prefix": {
+                      "addr": "fc00::",
+                      "len": 7
+                    }
+                  },
+                  {
+                    "prefix": {
+                      "addr": "fe80::",
+                      "len": 10
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "counter": {
+              "packets": 0,
+              "bytes": 0
+            }
+          },
+          {
+            "drop": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "forward",
+        "handle": 18,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "ct": {
+                  "key": "direction"
+                }
+              },
+              "right": "original"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "oifname"
+                }
+              },
+              "right": "incudal-mgmt"
+            }
+          },
+          {
+            "counter": {
+              "packets": 0,
+              "bytes": 0
+            }
+          },
+          {
+            "drop": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "forward",
+        "handle": 19,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "ct": {
+                  "key": "direction"
+                }
+              },
+              "right": "original"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip",
+                  "field": "daddr"
+                }
+              },
+              "right": "192.0.2.20"
+            }
+          },
+          {
+            "match": {
+              "op": "!=",
+              "left": {
+                "meta": {
+                  "key": "l4proto"
+                }
+              },
+              "right": "tcp"
+            }
+          },
+          {
+            "counter": {
+              "packets": 0,
+              "bytes": 0
+            }
+          },
+          {
+            "drop": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "forward",
+        "handle": 21,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "ct": {
+                  "key": "direction"
+                }
+              },
+              "right": "original"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip",
+                  "field": "daddr"
+                }
+              },
+              "right": "192.0.2.20"
+            }
+          },
+          {
+            "match": {
+              "op": "!=",
+              "left": {
+                "payload": {
+                  "protocol": "tcp",
+                  "field": "dport"
+                }
+              },
+              "right": {
+                "set": [
+                  80,
+                  443
+                ]
+              }
+            }
+          },
+          {
+            "counter": {
+              "packets": 0,
+              "bytes": 0
+            }
+          },
+          {
+            "drop": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "forward",
+        "handle": 22,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "ct": {
+                  "key": "direction"
+                }
+              },
+              "right": "original"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip6",
+                  "field": "daddr"
+                }
+              },
+              "right": "2001:db8::20"
+            }
+          },
+          {
+            "match": {
+              "op": "!=",
+              "left": {
+                "meta": {
+                  "key": "l4proto"
+                }
+              },
+              "right": "tcp"
+            }
+          },
+          {
+            "counter": {
+              "packets": 0,
+              "bytes": 0
+            }
+          },
+          {
+            "drop": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "forward",
+        "handle": 24,
+        "expr": [
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "ct": {
+                  "key": "direction"
+                }
+              },
+              "right": "original"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip6",
+                  "field": "daddr"
+                }
+              },
+              "right": "2001:db8::20"
+            }
+          },
+          {
+            "match": {
+              "op": "!=",
+              "left": {
+                "payload": {
+                  "protocol": "tcp",
+                  "field": "dport"
+                }
+              },
+              "right": {
+                "set": [
+                  80,
+                  443
+                ]
+              }
+            }
+          },
+          {
+            "counter": {
+              "packets": 0,
+              "bytes": 0
+            }
+          },
+          {
+            "drop": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "validation_source",
+        "handle": 25,
+        "expr": [
+          {
+            "match": {
+              "op": "!=",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "oifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "ct": {
+                  "key": "direction"
+                }
+              },
+              "right": "original"
+            }
+          },
+          {
+            "match": {
+              "op": "in",
+              "left": {
+                "ct": {
+                  "key": "status"
+                }
+              },
+              "right": "dnat"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip",
+                  "field": "saddr"
+                }
+              },
+              "right": "192.0.2.20"
+            }
+          },
+          {
+            "masquerade": null
+          }
+        ]
+      }
+    },
+    {
+      "rule": {
+        "family": "inet",
+        "table": "incudal_guest_guard",
+        "chain": "validation_source",
+        "handle": 26,
+        "expr": [
+          {
+            "match": {
+              "op": "!=",
+              "left": {
+                "meta": {
+                  "key": "iifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "meta": {
+                  "key": "oifname"
+                }
+              },
+              "right": "incusbr0"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "ct": {
+                  "key": "direction"
+                }
+              },
+              "right": "original"
+            }
+          },
+          {
+            "match": {
+              "op": "in",
+              "left": {
+                "ct": {
+                  "key": "status"
+                }
+              },
+              "right": "dnat"
+            }
+          },
+          {
+            "match": {
+              "op": "==",
+              "left": {
+                "payload": {
+                  "protocol": "ip6",
+                  "field": "saddr"
+                }
+              },
+              "right": "2001:db8::20"
+            }
+          },
+          {
+            "masquerade": null
+          }
+        ]
+      }
+    }
+  ]
+}

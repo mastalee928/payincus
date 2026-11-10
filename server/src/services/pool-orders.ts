@@ -15,7 +15,7 @@ import { IncusClient } from '../lib/incus/incus-client.js'
 import { Prisma } from '@prisma/client'
 import { customAlphabet } from 'nanoid'
 import { createHash, randomUUID } from 'node:crypto'
-import { advisoryTransactionLock, USER_BALANCE_LOCK_NAMESPACE } from '../db/advisory-locks.js'
+import { advisoryTransactionLock, advisoryTransactionLockString, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, USER_BALANCE_LOCK_NAMESPACE } from '../db/advisory-locks.js'
 import { lockHostGroups } from './host-groups.js'
 import * as db from '../db/index.js'
 import { prisma } from '../db/prisma.js'
@@ -485,6 +485,9 @@ export async function startProvisioning(userId: number, sshKey: string, entry: C
     if (hostWithIpv6.ipv6_subnet && !reserved.ipv6) {
       for (let attempt = 0; attempt < 20; attempt++) {
         const candidate = generateRandomIPv6(hostWithIpv6.ipv6_subnet)
+        // The same address can be selected on two hosts with overlapping
+        // subnets. Keep the check and reservation in the shared address lane.
+        await advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, candidate)
         if (await db.isIpAddressExists(candidate, tx)) continue
         await tx.ipAddress.create({ data: { address: candidate, type: 'inet6', isPrimary: true, device: 'eth1', hostId: host.id, instanceId } })
         reserved.ipv6 = candidate

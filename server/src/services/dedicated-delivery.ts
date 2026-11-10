@@ -7,6 +7,7 @@ import { portProtocolSelect, portProtocolView, PORT_PROTOCOL_CAPABILITY } from '
 import { prepareDedicatedIpv6Delivery } from './host-public-ipv6-sync.js'
 import type { Prisma } from '@prisma/client'
 import { checkSshLogin, DedicatedSshVerificationError } from '../lib/dedicated-ssh.js'
+import { assertGuestNetworkProtection } from '../lib/guest-network-protection.js'
 import { alpineSshSecurityInspection, assertAlpineSshSecurityInspection } from '../lib/alpine-ssh-security.js'
 export { checkSshLogin } from '../lib/dedicated-ssh.js'
 
@@ -26,6 +27,7 @@ export async function verifyDedicatedSsh(client: IncusClient, name: string, publ
       try {
         // Pin all keys read through authenticated Incus, including older images
         // whose negotiated key is ECDSA/RSA rather than Ed25519.
+        await assertGuestNetworkProtection(client)
         await checkSshLogin(publicIp, password, fingerprints)
         return
       } catch (error) {
@@ -36,7 +38,8 @@ export async function verifyDedicatedSsh(client: IncusClient, name: string, publ
     } catch (error) {
       // SSH/cloud-init may still be starting. Retain only controlled reasons,
       // never raw SSH errors, credentials or guest command output.
-      lastFailure = error instanceof DedicatedSshVerificationError ? error : new DedicatedSshVerificationError('inspection')
+      lastFailure = error instanceof DedicatedSshVerificationError ? error : new DedicatedSshVerificationError(
+        error instanceof Error && error.message === 'GUEST_NETWORK_PROTECTION_PENDING' ? 'networkProtection' : 'inspection')
     }
     await new Promise(resolve => setTimeout(resolve, 3000))
   }
@@ -44,7 +47,7 @@ export async function verifyDedicatedSsh(client: IncusClient, name: string, publ
 }
 
 export async function prepareDedicatedDelivery(client: IncusClient, instanceId: number, options?: {
-  hostId: number; name: string; ipv4: string; password: string
+  hostId: number; name: string; ipv4: string; password: string; replacementTaskId?: number
 }): Promise<boolean> {
   const instance = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId } })
   if (!instance.dedicatedIpv4) return false
@@ -53,7 +56,16 @@ export async function prepareDedicatedDelivery(client: IncusClient, instanceId: 
     ...portProtocolSelect, onboardingNode: { select: { status: true, managementIp: true } },
     agent: { select: { enabled: true, capabilities: true, lastSeenAt: true } }
   } })
-  if (!host.singleTenant || (host.poolFaulted && !options) || !host.natPublicIp || !host.natBindIp ||
+  // Only the dedicated replacement workflow deliberately reserves its target
+  // with poolFaulted. New credentials/name alone must not bypass quarantine.
+  const reservedReplacement = host.poolFaulted && options?.replacementTaskId ? await prisma.instanceTask.findFirst({ where: {
+    id: options.replacementTaskId, instanceId, hostId: host.id, targetHostId: host.id,
+    taskType: 'replace_host', status: 'PROCESSING', AND: [
+      { replacementState: { path: ['stage'], equals: 'creating' } },
+      { replacementState: { path: ['targetIncusId'], equals: options.name } }
+    ]
+  }, select: { id: true } }) : null
+  if (!host.singleTenant || (host.poolFaulted && !reservedReplacement) || !host.natPublicIp || !host.natBindIp ||
       host.onboardingNode?.status !== 'succeeded' || !host.onboardingNode.managementIp) {
     throw new Error('独占主机管理通道或公网配置未就绪')
   }

@@ -10,6 +10,7 @@ import { HOST_OCCUPIED_INSTANCE_WHERE } from '../lib/host-resource-usage.js'
 import { publicIpState } from '../lib/host-public-ip.js'
 import { portProtocolView } from './host-port-protocol.js'
 import type { IncusClient } from '../lib/incus/incus-client.js'
+import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 
 const include = { onboardingNode: { select: { status: true, managementIp: true } },
   agent: { select: { enabled: true, capabilities: true } } } as const
@@ -55,6 +56,9 @@ async function reconcileHost(hostId: number, force: boolean, deps: typeof public
     const locked = await tx.$queryRaw<Array<{ id: number }>>`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
     if (!locked.length) throw new PublicIpv6SyncError('HOST_NOT_FOUND')
     const host = await tx.host.findUniqueOrThrow({ where: { id: hostId }, include })
+    // A planned boot must not retire customer addresses or alter forwarding
+    // while recovery verifies the original network/configuration baseline.
+    if(hostMaintenanceBlocked(host.securityHardening))return publicIpv6View(host)
     if (!supportsAutomaticIpv6(host) || !host.serverCertificate || !host.serverFingerprint) throw new PublicIpv6SyncError('IPV6_SYNC_UNSUPPORTED')
     const state = publicIpv6State(host.publicIpv6Sync)
     state.checkedAt = new Date().toISOString()

@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
-import { recoveryGuestStateMatches } from './platform-recovery-inventory.js'
+import { recoveryGuestStateMatches, compareRecoveryIdentities } from './platform-recovery-inventory.js'
+import { registeredGuestIdentity } from '../lib/registered-guest-identity.js'
+import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { prisma } from '../db/prisma.js'
 import { createLog } from '../db/logs.js'
 import { HOST_OCCUPIED_INSTANCE_WHERE } from '../lib/host-resource-usage.js'
@@ -15,7 +17,7 @@ import { recoveryNetworkHash } from './platform-recovery-network.js'
 type Db = Prisma.TransactionClient | typeof prisma
 type Client = Pick<Awaited<ReturnType<typeof getIncusClient>>, 'request'>
 type Connect = typeof getIncusClient
-export type RecoveryInstance = { name: string; status: string; created_at?: string; project?: string; config?: Record<string, string> }
+export type RecoveryInstance = { name: string; status: string; type?: string; created_at?: string; project?: string; config?: Record<string, string>; devices?: Record<string, Record<string, string>>; expanded_devices?: Record<string, Record<string, string>> }
 type RemoteInstance = RecoveryInstance
 type Forward = { listen_address: string; description: string; config: Record<string, string>; ports?: Array<{ protocol: string; listen_port: string; target_address?: string; target_port?: string; snat?: boolean }> }
 type Residue = { name: string; status: string; removable: boolean }
@@ -44,7 +46,7 @@ export class HostRecoveryError extends Error {
 const pending = ['PENDING', 'PROCESSING'] as const
 const hostSelect = {
   id: true, url: true, certPath: true, keyPath: true, status: true, poolFaulted: true, poolCleanup: true,
-  singleTenant: true, isInstalled: true, instanceType: true, natPublicIp: true, natBindIp: true,
+  singleTenant: true, isInstalled: true, installPending: true, securityHardening: true, instanceType: true, natPublicIp: true, natBindIp: true,
   portProtocol: true, portProtocolRevision: true, portProtocolApplied: true, portProtocolAppliedRevision: true, portProtocolError: true,
   resourcePreset: true, customerDiskGiB: true, architecture: true, cpuAllowanceMax: true,
   memoryMax: true, storageSize: true, cpuUsed: true, memoryUsed: true, diskUsed: true,
@@ -109,6 +111,7 @@ export async function inspectPoolRecovery(db: Db, hostId: number, connect: Conne
   if (!host) throw new HostRecoveryError('HOST_NOT_FOUND')
   const blockers = new Set<RecoveryBlocker>()
   if (!host.poolFaulted) blockers.add('not-quarantined')
+  if (host.installPending || hostMaintenanceBlocked(host.securityHardening)) blockers.add('busy')
   if (host.status !== 'online') blockers.add('offline')
   if (!host.agent?.enabled || !host.agent.lastSeenAt || host.agent.lastSeenAt.getTime() < Date.now() - 90000) blockers.add('agent-offline')
   if (!host.singleTenant || !host.isInstalled || !['container', 'both'].includes(host.instanceType) ||
@@ -122,7 +125,7 @@ export async function inspectPoolRecovery(db: Db, hostId: number, connect: Conne
     db.instance.findMany({ where: { hostId, ...HOST_OCCUPIED_INSTANCE_WHERE }, select: {
       id: true, incusId: true, status: true, dedicatedIpv4: true, dedicatedNetworkReady: true, dedicatedIpv6: true,
       ipv4: true, cpu: true, memory: true, disk: true, provisioningCleanupPending: true, deletionBillingPending: true,
-      storagePoolName: true, userId: true
+      storagePoolName: true, userId: true, snapshottedSpecs: true
     }, orderBy: { id: 'asc' } }),
     db.instanceTask.count({ where: { status: { in: [...pending] }, OR: [
       { hostId }, { targetHostId: hostId }, { replacementState: { path: ['sourceHostId'], equals: hostId } }
@@ -207,6 +210,18 @@ export async function inspectPoolRecovery(db: Db, hostId: number, connect: Conne
         if (assigned !== 1 || instances.length !== 1 || !expected || instances[0].name !== expected.incusId ||
             (instances[0].project || 'default') !== 'default' || !recoveryGuestStateMatches(expected.status,instances[0].status,snapshotRestore)) blockers.add('assigned-mismatch')
         if (expected) {
+          const original = await registeredGuestIdentity(db, expected, await db.host.findUniqueOrThrow({ where: { id: hostId } }))
+          const identity = compareRecoveryIdentities([{ name: expected.incusId, uuid: original.uuid ?? undefined,
+            createdAt: original.createdAt ?? undefined, project: 'default', ownerId: expected.userId,
+            status: expected.status, storagePoolName: expected.storagePoolName }], instances, snapshotRestore)
+          // The historical failed-move coordinator alone verifies legacy
+          // delivery time bounds, original pinned host and repeated UUID reads
+          // after this inspection. Preserve that existing recovery path; an
+          // ordinary inventory recovery cannot establish identity from a name.
+          const legacySourceInspection = expected.id === failedSourceInstanceId && !original.uuid &&
+            !identity.missing.length && !identity.unexpected.length && identity.conflicts.length > 0 &&
+            identity.conflicts.every(conflict => conflict.reason === 'original-identity-missing')
+          if ((!identity.inventoryMatched && !legacySourceInspection) || instances[0]?.type !== 'container') blockers.add('assigned-mismatch')
           const owner = `payincus-dedicated:${expected.incusId}`
           const ipv6 = dedicatedIpv6State(expected.dedicatedIpv6)
           // Quarantine intentionally pauses IPv6 reconciliation. Verify its retained mappings
@@ -315,6 +330,9 @@ export async function recoverPoolHost(hostId: number, actorId: number, options: 
         const rows = await tx.$queryRaw<Array<{ id: number }>>`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
         scope.remaining()
         if (!rows.length) throw new HostRecoveryError('HOST_NOT_FOUND')
+        await tx.$queryRaw`SELECT id FROM users WHERE id = ${actorId} FOR SHARE`
+        const actor = await tx.user.findUnique({ where: { id: actorId }, select: { role: true, status: true } })
+        if (actor?.role !== 'admin' || actor.status !== 'active') throw new HostRecoveryError('FORBIDDEN')
         await tx.$queryRaw`SELECT id FROM instances WHERE host_id = ${hostId} ORDER BY id FOR UPDATE`
         scope.remaining()
         const before = await inspectPoolRecovery(tx, hostId, connect, scope)

@@ -48,7 +48,8 @@ prisma.$transaction = (async (input: any, options: any) => {
   return result
 }) as typeof prisma.$transaction
 const body = { version: 'current-fixture', runtime: { goos: 'linux', goarch: 'amd64' }, metrics: { heartbeatIntervalSeconds: 30 } }
-const reports = { ...body, portProtocolStatus: { mode: 'tcp_udp', revision: 2, applied: true }, instances: { reportedAt: new Date().toISOString(), items: [{ name: tag, status: 'running', traffic: { rxBytes: '120', txBytes: '240' }, network: { ipv4: '192.0.2.123', ipv6: '2001:db8::123' } }] } }
+const reports = { ...body, guestProtectionStatus: { applied: true, checkedAt: new Date().toISOString(), management: ['private-fixture-only'], error: 'raw-fixture-only' },
+  portProtocolStatus: { mode: 'tcp_udp', revision: 2, applied: true }, instances: { reportedAt: new Date().toISOString(), items: [{ name: tag, status: 'running', traffic: { rxBytes: '120', txBytes: '240' }, network: { ipv4: '192.0.2.123', ipv6: '2001:db8::123' } }] } }
 const serialize = (value: unknown) => JSON.stringify(value, (_key, entry) => typeof entry === 'bigint' ? entry.toString() : entry)
 const sign = (agentId: string, agentSecret: string, payload: unknown = body) => {
   const timestamp = String(Date.now()), nonce = randomUUID(), bodyHash = createAgentBodyHash(payload)
@@ -107,6 +108,8 @@ try {
   const reportHeaders = sign(credentials.agentId, credentials.agentSecret, reports)
   const acceptedReport = await app.inject({ method: 'POST', url: '/agent/heartbeat', headers: reportHeaders, payload: reports })
   assert.equal(acceptedReport.statusCode, 200)
+  assert.deepEqual(((await prisma.hostAgent.findUniqueOrThrow({ where: { hostId: host.id } })).lastReport as any).guestProtectionStatus,
+    { applied: true, checkedAt: reports.guestProtectionStatus.checkedAt, error: null }, 'authenticated protection receipt persists only controlled fields')
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).portProtocolAppliedRevision, 2)
   assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'running')
   assert.equal(await prisma.trafficSnapshot.count({ where: { instanceId: instance.id } }), 1)

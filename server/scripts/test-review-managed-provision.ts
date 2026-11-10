@@ -22,7 +22,7 @@ execFileSync(process.env.REVIEW_OPENSSL || 'openssl', ['req', '-x509', '-newkey'
   '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', keyPath, '-out', certPath], { stdio: 'pipe', windowsHide: true })
 const certificate = await readFile(certPath, 'utf8')
 let mode = '', target = '', instanceId = 0
-let remote: { name: string; type?: string; config: Record<string, string>; devices?: Record<string, Record<string, string>>; profiles?: string[]; status: string } | null = null
+let remote: { name: string; type?: string; created_at?: string; config: Record<string, string>; devices?: Record<string, Record<string, string>>; profiles?: string[]; status: string } | null = null
 const actions: string[] = []
 let afterCreate: (() => Promise<void>) | undefined
 let afterStop: (() => Promise<void>) | undefined
@@ -44,11 +44,11 @@ const server = createServer({ key: await readFile(keyPath), cert: certificate, c
       if (['absent', 'pending_create'].includes(mode)) return fail(500, 'image download failed')
       assert.equal(config.config['security.privileged'], 'false')
       assert.deepEqual(config.profiles, [])
-      remote = { name: target, type: config.type, devices: config.devices, profiles: config.profiles, config: { ...config.config, 'volatile.uuid': randomUUID() }, status: 'Running' }
+      remote = { name: target, type: config.type, created_at: new Date().toISOString(), devices: config.devices, profiles: config.profiles, config: { ...config.config, 'volatile.uuid': randomUUID() }, status: 'Running' }
       await afterCreate?.()
       return ok()
     }
-    if (path.includes('/files?')) return ['success', 'success_lost_claim'].includes(mode) ? ok() : fail(500, 'fixture cloud-init preparation failed')
+    if (path.includes('/files?')) return ['success', 'success_lost_claim', 'start_timeout'].includes(mode) ? ok() : fail(500, 'fixture cloud-init preparation failed')
     if (path === '/1.0/operations?recursion=1') return ok(mode === 'pending_create' ? { running: [{ id: 'pending-create', status: 'Running', resources: { instances: [`/1.0/instances/${target}`] } }] } : {})
     if (path === '/1.0/storage-pools?recursion=1') {
       if (mode === 'storage_refused') return fail(500, 'fixture storage API unavailable')
@@ -80,8 +80,8 @@ const server = createServer({ key: await readFile(keyPath), cert: certificate, c
       let body = ''; for await (const chunk of request) body += chunk
       const action = JSON.parse(body).action
       if (action === 'start') {
-        assert.ok(['success', 'success_lost_claim'].includes(mode))
-        if (remote) remote.status = 'Running'
+        assert.ok(['success', 'success_lost_claim', 'start_timeout'].includes(mode))
+        if (remote) remote.status = mode === 'start_timeout' ? 'Stopped' : 'Running'
         if (mode === 'success_lost_claim') await prisma.instance.update({ where: { id: instanceId }, data: { status: 'stopped' } })
         return ok()
       }
@@ -127,7 +127,7 @@ prisma.$transaction = new Proxy(originalTransaction, {
   }
 })
 try {
-  for (const scenario of ['delete_refused', 'stop_refused', 'still_running', 'uuid_changed', 'delete_unconfirmed', 'delete_false_404', 'not_found_text', 'forward_refused', 'forward_unconfirmed', 'storage_refused', 'storage_unknown', 'disk_residue', 'snapshot_residue', 'existing', 'pending_create', 'absent', 'confirmed', 'lost_claim', 'host_changed', 'allocation_changed', 'locked_cleanup', 'db_failure', 'success', 'success_lost_claim', 'cleanup_lock_deadline', 'compensation_failed', 'already_refunded', 'unpaid']) {
+  for (const scenario of ['delete_refused', 'stop_refused', 'still_running', 'uuid_changed', 'delete_unconfirmed', 'delete_false_404', 'not_found_text', 'forward_refused', 'forward_unconfirmed', 'storage_refused', 'storage_unknown', 'disk_residue', 'snapshot_residue', 'existing', 'pending_create', 'absent', 'confirmed', 'lost_claim', 'host_changed', 'allocation_changed', 'locked_cleanup', 'db_failure', 'success', 'success_lost_claim', 'start_timeout', 'cleanup_lock_deadline', 'compensation_failed', 'already_refunded', 'unpaid']) {
     const selected = process.env.REVIEW_MANAGED_SCENARIOS?.split(',')
     if (selected && !selected.includes(scenario)) continue
     mode = scenario; target = `${tag}-${mode}`; actions.length = 0; afterCreate = undefined; afterStop = undefined
@@ -182,9 +182,13 @@ try {
       assert.equal(idle[0].count, 0, 'no idle transaction remains after cleanup deadline')
     }
     const current = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId } })
+    if (mode === 'success') {
+      assert.equal((current.snapshottedSpecs as any).managedCleanup.uuid, remote?.config['volatile.uuid'])
+      assert.equal((current.snapshottedSpecs as any).recoveryIdentity.createdAt, remote?.created_at)
+    }
     const resources = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
     const address = await prisma.publicIpv4Address.findFirstOrThrow({ where: { hostId: host.id } })
-    const cleaned = ['absent', 'confirmed', 'host_changed', 'locked_cleanup', 'already_refunded', 'unpaid'].includes(mode)
+    const cleaned = ['absent', 'confirmed', 'host_changed', 'locked_cleanup', 'already_refunded', 'unpaid', 'start_timeout'].includes(mode)
     assert.equal(resources.cpuUsed, cleaned ? 75 : 125, `${mode}: retain resources until remote absence and forward cleanup are confirmed`)
     assert.equal(resources.memoryUsed, cleaned ? 512 : 768)
     assert.equal(resources.diskUsed, cleaned ? 3072 : 4096)

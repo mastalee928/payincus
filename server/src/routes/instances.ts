@@ -3525,7 +3525,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       userId: user.id,
       taskType: 'change_host' as any,
       targetHostId,
-      sshKeyId
+      sshKeyId,
+      sensitiveAuthorization: { actor: user, entry: 'user', expectedOwnerId: instance.user_id,
+        expectedIncusId: instance.incus_id, expectedHostIdentity: transferHostIdentity(await prisma.host.findUniqueOrThrow({ where: { id: instance.host_id } })) }
     })
     if (!task) return
 
@@ -4922,7 +4924,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       instanceId,
       hostId: sourceInstance.host_id,
       userId: user.id,
-      taskType: 'clone'
+      taskType: 'clone',
+      sensitiveAuthorization: { actor: user, entry: 'user', expectedOwnerId: sourceInstance.user_id,
+        expectedIncusId: sourceInstance.incus_id, expectedHostIdentity: transferHostIdentity(await prisma.host.findUniqueOrThrow({ where: { id: sourceInstance.host_id } })) }
     })
     if (!task) return
 

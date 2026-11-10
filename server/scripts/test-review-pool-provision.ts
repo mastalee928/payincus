@@ -18,11 +18,13 @@ const { beginPoolProvision, PoolProvisionOwnershipError } = await import('../src
 const { IncusClient } = await import('../src/lib/incus/incus-client.js')
 const { getHostById } = await import('../src/db/hosts.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
+const { hardeningIdentityHash, hardeningIdentityInclude } = await import('../src/lib/hardening-identity.js')
+const { SECURITY_HARDENING_REVISION } = await import('../src/lib/security-hardening.js')
 const tag='pool-provision-'+randomUUID(), root=await mkdtemp(join(tmpdir(),tag))
 const keyPath=join(root,'key.pem'),certPath=join(root,'cert.pem')
 execFileSync(process.env.REVIEW_OPENSSL || 'openssl',['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=incus-fixture','-addext','subjectAltName=IP:127.0.0.1','-keyout',keyPath,'-out',certPath],{stdio:'pipe',windowsHide:true})
 const certificate=await readFile(certPath,'utf8'), actions:string[]=[]
-let mode='existing', name='', currentId=0, remote: {name:string;status:string;config:Record<string,string>}|null=null
+let mode='existing', name='', currentId=0, remote: {name:string;status:string;type?:string;created_at?:string;project?:string;devices?:Record<string,any>;profiles?:string[];config:Record<string,string>}|null=null
 const storagePending = ['storage-refused','storage-unknown','disk-residue','snapshot-residue']
 const server=createServer({key:await readFile(keyPath),cert:certificate,ca:certificate,requestCert:true,rejectUnauthorized:true},async(req,res)=>{
   const ok=(metadata:unknown={})=>res.end(JSON.stringify({type:'sync',metadata})),fail=(code:number,error:string)=>{res.statusCode=code;res.end(JSON.stringify({type:'error',error}))}
@@ -35,7 +37,7 @@ const server=createServer({key:await readFile(keyPath),cert:certificate,ca:certi
       const config=JSON.parse(body);assert.equal(config.name,name)
       if(mode==='existing')return fail(409,'already exists')
       if(mode==='pending')return fail(500,'creation result unknown')
-      remote={name,status:'Running',config:{...config.config,'volatile.uuid':randomUUID()}}
+      remote={name,status:'Running',type:'container',created_at:new Date().toISOString(),devices:config.devices,profiles:[],config:{...config.config,'volatile.uuid':randomUUID()}}
       if(mode==='lost-response')return fail(502,'response lost after creation')
       if(mode==='superseded')await prisma.instance.update({where:{id:currentId},data:{status:'running'}})
       if(mode==='timed-out')await failPoolProvision(currentId,null,'fixture timeout during creation')
@@ -67,7 +69,11 @@ const server=createServer({key:await readFile(keyPath),cert:certificate,ca:certi
 await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve))
 const user=await prisma.user.create({data:{username:tag,passwordHash:'fixture',balance:88}})
 const host=await prisma.host.create({data:{userId:user.id,name:tag,singleTenant:true,resourcePreset:'E2',customerDiskGiB:30,
-  cpuAllowanceMax:200,memoryMax:768,storageSize:38,architecture:'x86_64',url:`https://127.0.0.1:${(server.address() as {port:number}).port}`,certPath,keyPath,serverCertificate:certificate,serverFingerprint:new X509Certificate(certificate).fingerprint256}})
+  cpuAllowanceMax:200,memoryMax:768,storageSize:38,architecture:'x86_64',isInstalled:true,status:'online',natPublicIp:'192.0.2.20',natBindIp:'10.0.0.20',natPortStart:20000,natPortEnd:20999,
+  storagePools:{create:{name:'fixture',driver:'btrfs',purpose:'instance_data'}},
+  agent:{create:{agentId:randomUUID(),secretHash:'fixture',secretEncrypted:'fixture',lastSeenAt:new Date(),
+    capabilities:['guest-network-protection-v1'],lastReport:{guestProtectionStatus:{applied:true,checkedAt:new Date().toISOString()}}}},
+  url:`https://127.0.0.1:${(server.address() as {port:number}).port}`,certPath,keyPath,serverCertificate:certificate,serverFingerprint:new X509Certificate(certificate).fingerprint256}})
 let failure:unknown
 try {
   for(const scenario of ['existing','confirmed','lost-response','delete-refused',...storagePending,'uuid-changed','replaced-before-cleanup','pending','superseded','timed-out','prepared','unpaid','refund-failed']) {
@@ -150,6 +156,57 @@ try {
       assert.equal(actions.length,count,'completed compensation does not repeat remote actions')
     }
     await prisma.instance.delete({where:{id:instance.id}});console.log('PASS pool creation',scenario)
+  }
+  // Exercise the actual pool completion fence, independently of SSH/network
+  // adapter tests. Both architectures must accept the normal customer and
+  // reject stale host/guest evidence without any remote mutation.
+  for (const architecture of ['x86_64', 'aarch64']) {
+    for (const scenario of ['valid', 'receipt-became-due', 'receipt-invalidated', 'stopped', 'privileged', 'wrong-type', 'wrong-project', 'missing-created', 'changed-created', 'changed-pin', 'changed-management', 'install-pending', 'maintenance', 'faulted']) {
+      mode='completion'; name=tag+'-'+architecture+'-'+scenario
+      await prisma.host.update({where:{id:host.id},data:{architecture,poolFaulted:false,installPending:false,managementSshHost:null,
+        securityHardening:(await import('@prisma/client')).Prisma.DbNull,serverFingerprint:host.serverFingerprint}})
+      let expires = 0
+      if (scenario.startsWith('receipt-')) {
+        expires = Date.now() + 2000
+        const current = await prisma.host.findUniqueOrThrow({where:{id:host.id},include:hardeningIdentityInclude})
+        await prisma.host.update({where:{id:host.id},data:{securityHardening:{revision:SECURITY_HARDENING_REVISION,status:'verified',phase:'finished',
+          identityHash:hardeningIdentityHash(current),nextCheckAt:new Date(expires).toISOString()}}})
+      }
+      const order=await prisma.poolOrder.create({data:{id:randomUUID(),userId:user.id,requestHash:tag,totalCents:1200}})
+      const instance=await prisma.instance.create({data:{name,incusId:name,userId:user.id,hostId:host.id,purchaseBatchId:order.id,dedicatedIpv4:true,
+        status:'creating',cpu:200,memory:768,disk:30720,image:'debian/12',networkMode:'nat'}})
+      const client=new IncusClient({...host,architecture})
+      let fence:Awaited<ReturnType<typeof beginPoolProvision>>=null
+      try {
+        await client.connect()
+        fence=await beginPoolProvision(instance.id,(await getHostById(host.id))!,client,name)
+        assert.ok(fence)
+        remote={name,type:'container',project:'default',created_at:new Date().toISOString(),status:'Running',profiles:[],
+          config:{'volatile.uuid':randomUUID(),'user.payincus.provisioning-attempt':fence.attempt,'security.privileged':'false'},
+          devices:{root:{type:'disk',path:'/',pool:'fixture'}}}
+        await fence.identity()
+        if(scenario==='stopped')remote.status='Stopped'
+        if(scenario==='privileged')remote.config['security.privileged']='true'
+        if(scenario==='wrong-type')remote.type='virtual-machine'
+        if(scenario==='wrong-project')remote.project='foreign'
+        if(scenario==='missing-created')delete remote.created_at
+        if(scenario==='changed-created')remote.created_at='2020-01-01T00:00:00Z'
+        if(scenario==='changed-pin')await prisma.host.update({where:{id:host.id},data:{serverFingerprint:'changed'}})
+        if(scenario==='changed-management')await prisma.host.update({where:{id:host.id},data:{managementSshHost:'192.0.2.21'}})
+        if(scenario==='install-pending')await prisma.host.update({where:{id:host.id},data:{installPending:true}})
+        if(scenario==='maintenance')await prisma.host.update({where:{id:host.id},data:{securityHardening:{maintenance:{phase:'waiting-boot'}}}})
+        if(scenario==='faulted')await prisma.host.update({where:{id:host.id},data:{poolFaulted:true}})
+        if(scenario==='receipt-became-due')await new Promise(resolve=>setTimeout(resolve,Math.max(0,expires-Date.now()+25)))
+        if(scenario==='receipt-invalidated')await prisma.host.update({where:{id:host.id},data:{securityHardening:{revision:SECURITY_HARDENING_REVISION,status:'retry',phase:'host-inspection'}}})
+        const before=actions.length
+        const valid = ['valid','receipt-became-due'].includes(scenario)
+        if(valid)assert.equal((await fence.complete({status:'running',dedicatedNetworkReady:true})).count,1)
+        else await assert.rejects(fence.complete({status:'running',dedicatedNetworkReady:true}))
+        assert.equal((await prisma.instance.findUniqueOrThrow({where:{id:instance.id}})).status,valid?'running':'creating')
+        assert.ok(actions.slice(before).every(action=>action.startsWith('GET ')),'completion never mutates the guest')
+        console.log('PASS pool completion',architecture,scenario)
+      } finally { fence?.finish(); await client.close(); await prisma.instance.delete({where:{id:instance.id}}) }
+    }
   }
 }catch(error){failure=error}
 finally {

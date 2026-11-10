@@ -2,7 +2,11 @@
  * IP 地址数据库操作
  */
 import { prisma } from './prisma.js'
-import type { IpAddress, IpType, Prisma } from '@prisma/client'
+import { isIP } from 'node:net'
+import { Address6 } from 'ip-address'
+import { Prisma } from '@prisma/client'
+import { hostUnfinishedCreationWhere } from '../lib/host-resource-usage.js'
+import type { IpAddress, IpType } from '@prisma/client'
 import {
     IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE,
     advisoryTransactionLockString
@@ -26,6 +30,34 @@ export interface UpdateIpAddressAddressData {
 }
 
 const IP_ADDRESS_ALREADY_EXISTS_ERROR = 'IP_ADDRESS_ALREADY_EXISTS'
+
+async function unfinishedIpv6Reservation(address: string, client: Pick<Prisma.TransactionClient, 'instanceTask'>) {
+    return client.instanceTask.findFirst({ where: { AND: [hostUnfinishedCreationWhere(),
+        { replacementState: { path: ['targetIpv6'], equals: isIP(address) === 6 ? new Address6(address).correctForm() : address } }] }, select: { id: true } })
+}
+
+/** Reserve before any remote NIC write, including across a process restart.
+ * Release is the task's confirmed identity/cleanup transition, never a TTL. */
+export async function reserveInstanceTaskIpv6(taskId: number, address: string): Promise<boolean> {
+    if (isIP(address) !== 6) throw Error('INVALID_IPV6_ADDRESS')
+    address = new Address6(address).correctForm()
+    return prisma.$transaction(async tx => {
+        await advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, address)
+        const task = await tx.instanceTask.findUniqueOrThrow({ where: { id: taskId } })
+        if (task.status !== 'PROCESSING' || !['clone', 'change_host'].includes(task.taskType)) throw Error('IP_RESERVATION_TASK_CHANGED')
+        const state = task.replacementState as Prisma.JsonObject | null
+        if (!state || !['reserved', 'creating'].includes(String(state.targetPhase))) throw Error('IP_RESERVATION_PHASE_CHANGED')
+        if (state.targetIpv6) {
+            if (state.targetIpv6 !== address) throw Error('IP_RESERVATION_ALREADY_ASSIGNED')
+            return true
+        }
+        if (await isIpAddressExists(address, tx)) return false
+        const result = await tx.instanceTask.updateMany({ where: { id: task.id, status: 'PROCESSING', replacementState: { equals: state } },
+            data: { replacementState: { ...state, targetIpv6: address } } })
+        if (result.count !== 1) throw Error('IP_RESERVATION_TASK_CHANGED')
+        return true
+    })
+}
 
 export function isIpAddressAlreadyExistsError(error: unknown): boolean {
     return error instanceof Error && error.message === IP_ADDRESS_ALREADY_EXISTS_ERROR
@@ -57,6 +89,8 @@ async function assertIpAddressAvailable(
     if (input.type !== 'inet6') {
         return
     }
+
+    if (await unfinishedIpv6Reservation(input.address, tx)) throw new Error(IP_ADDRESS_ALREADY_EXISTS_ERROR)
 
     const existingIp = await tx.ipAddress.findFirst({
         where: {
@@ -94,7 +128,7 @@ export async function createIpAddress(data: CreateIpAddressData): Promise<IpAddr
 
     if (data.type === 'inet6') {
         return prisma.$transaction(async (tx) => {
-            await advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, data.address)
+            await advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, new Address6(data.address).correctForm())
             await assertIpAddressAvailable(tx, {
                 address: data.address,
                 type: data.type,
@@ -158,7 +192,7 @@ export async function updateIpAddressAddress(data: UpdateIpAddressAddressData): 
         }
 
         if (record.type === 'inet6') {
-            await advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, data.address)
+            await advisoryTransactionLockString(tx, IP_ADDRESS_ALLOCATION_LOCK_NAMESPACE, new Address6(data.address).correctForm())
             await assertIpAddressAvailable(tx, {
                 address: data.address,
                 type: record.type,
@@ -275,7 +309,8 @@ export async function getNextDeviceName(instanceId: number): Promise<string> {
  * 注意：排除已删除状态的实例
  */
 export async function isIpAddressExists(address: string,
-    client: Pick<Prisma.TransactionClient, 'ipAddress' | 'instance'> = prisma): Promise<boolean> {
+    client: Pick<Prisma.TransactionClient, 'ipAddress' | 'instance' | 'instanceTask'> = prisma): Promise<boolean> {
+    if (await unfinishedIpv6Reservation(address, client)) return true
     // 1. 检查 IpAddress 表（排除已删除的实例）
     const existingInIpTable = await client.ipAddress.findFirst({
         where: {
@@ -420,6 +455,12 @@ export async function allocateAndReserveNatIpv4(
         for (const row of usedInIpTable) used.add(row.address)
         for (const row of usedOnInstances) if (row.ipv4) used.add(row.ipv4)
         for (const row of reserved) used.add(row.address)
+        // Expiring a lease does not prove that its remote guest was removed.
+        const unfinished = await tx.instanceTask.findMany({ where: hostUnfinishedCreationWhere(hostId), select: { replacementState: true } })
+        for (const task of unfinished) {
+            const state = task.replacementState as { targetIpv4?: string } | null
+            if (state?.targetIpv4) used.add(state.targetIpv4)
+        }
 
         const free = listNatIpv4Pool().filter(address => !used.has(address))
         if (free.length === 0) return null

@@ -1,6 +1,8 @@
 import { prepareNewContainerCloudInit } from './new-container-cloud-init.js'
 import { randomUUID } from 'node:crypto'
 import { prisma } from '../db/prisma.js'
+import { Prisma } from '@prisma/client'
+import type { IncusInstance } from '../types/incus.js'
 import * as db from '../db/index.js'
 import { buildInstanceConfig, createInstance, getIncusClient, getInstanceState, startInstance } from '../lib/incus/index.js'
 import type { IncusClient } from './incus/incus-client.js'
@@ -121,17 +123,32 @@ export async function provisionManagedInstanceAsync(
 
     await startInstance(client, config.name)
 
+    let running = false
     for (let i = 0; i < 30; i++) {
       await new Promise(resolve => setTimeout(resolve, 2000))
       try {
         const stateResp = await getInstanceState(client, config.name) as { status?: string }
         if (stateResp?.status === 'Running') {
+          running = true
           break
         }
       } catch {
         // keep waiting
       }
     }
+
+    if (!running) {
+      throw new Error('Instance startup timed out before Running was confirmed')
+    }
+
+    const remote = await client.request<IncusInstance & { created_at: string }>('GET', `/1.0/instances/${encodeURIComponent(config.name)}`)
+    if (remote.name !== config.name || remote.type !== (config.instanceType === 'vm' ? 'virtual-machine' : 'container') ||
+      remote.config?.['user.payincus.provisioning-attempt'] !== attempt || !/^[a-f0-9-]{36}$/i.test(remote.config?.['volatile.uuid'] || '') ||
+      !Number.isFinite(Date.parse(remote.created_at))) throw Error('Managed delivery identity not confirmed')
+    const current = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId } })
+    const specs = current.snapshottedSpecs && typeof current.snapshottedSpecs === 'object' && !Array.isArray(current.snapshottedSpecs) ? current.snapshottedSpecs : {}
+    const deliveredSpecs = { ...specs, managedCleanup: { attempt, uuid: remote.config!['volatile.uuid'], endpointHash: managedCleanupEndpointHash(client) },
+      recoveryIdentity: { uuid: remote.config!['volatile.uuid'], createdAt: remote.created_at, project: 'default' } }
 
     let ipv4: string | null = config.ipv4Address || null
     let ipv6: string | null = config.ipv6Address || null
@@ -155,9 +172,10 @@ export async function provisionManagedInstanceAsync(
     }
 
     const updateResult = await prisma.instance.updateMany({
-      where: { ...target, status: 'creating', provisioningCleanupPending: false },
+      where: { ...target, status: 'creating', provisioningCleanupPending: false, snapshottedSpecs: { equals: current.snapshottedSpecs ?? Prisma.DbNull } },
       data: {
         status: 'running',
+        snapshottedSpecs: deliveredSpecs,
         ipv4,
         ipv6,
         storagePoolName: config.storagePool || 'default'

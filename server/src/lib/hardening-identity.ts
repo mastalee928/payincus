@@ -13,6 +13,11 @@ export function hardeningIdentityHash(host: HardeningIdentityTarget) {
 }
 
 export const hardeningIdentityInclude = { onboardingNode: { include: { batch: true } } } as const
+/** Compact server-only selection for stock checks. Never return pins or
+ * certificates in the public inventory response. */
+export const hardeningStockSelect = { id:true,securityHardening:true,url:true,serverCertificate:true,serverFingerprint:true,
+  managementSshHost:true,managementSshPort:true,managementSshUser:true,
+  onboardingNode:{select:{id:true,managementIp:true,sshFingerprint:true,nodePublicKey:true,batch:{select:{createdById:true}}}} } as const
 export function hardeningReceiptMatches(host: HardeningIdentityTarget & { securityHardening: unknown }): boolean {
   if (host.securityHardening === null) return true
   const state = host.securityHardening

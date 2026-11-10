@@ -15,7 +15,7 @@ import { verifyInstanceDeleted } from '../lib/incus/verify-instance-deleted.js'
 import { removeDedicatedForward } from '../lib/incus/dedicated-network.js'
 import { assertManagedCleanupIdentity, deletePendingManagedInstance } from '../lib/managed-cleanup-identity.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
-import { HOST_OCCUPIED_INSTANCE_WHERE } from '../lib/host-resource-usage.js'
+import { HOST_OCCUPIED_INSTANCE_WHERE, hostUnfinishedCreationWhere } from '../lib/host-resource-usage.js'
 import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
 import { sendNotification, sendHostManagedInstanceNotification } from '../lib/notifier.js'
 import { sendReleaseNotification } from '../lib/release-notifier.js'
@@ -66,7 +66,9 @@ export async function assertDeletionAuthority(tx: Prisma.TransactionClient, inst
   }
   await assertNoPendingSnapshotOperations(tx, instance.id)
   const pending = { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
-  if (await tx.instanceTask.count({ where: pending }) || await tx.restoreTask.count({ where: pending }) ||
+  if (await tx.instanceTask.count({ where: pending }) ||
+      await tx.instanceTask.count({ where: { instanceId: instance.id, ...hostUnfinishedCreationWhere() } }) ||
+      await tx.restoreTask.count({ where: pending }) ||
       await tx.backupUploadTask.count({ where: pending }) ||
       await tx.instanceTransfer.count({ where: { instanceId: instance.id, status: { in: ['pending', 'processing'] } } })) throw new Error('DELETE_WORKFLOW_BUSY')
 }
