@@ -54,10 +54,10 @@ try {
     }, include: { onboardingNode: { include: { batch: true } } } }); hostIds.push(host.id)
     await prisma.storagePool.create({ data: { hostId: host.id, name: 'fixture', driver: 'btrfs', purpose: 'instance_data' } })
     await prisma.hostAgent.create({ data: { hostId: host.id, agentId: randomUUID(), secretHash: 'fixture', secretEncrypted: 'fixture', enabled: true, lastSeenAt: new Date(),capabilities:['guest-network-protection-v1'],lastReport:{guestProtectionStatus:{applied:true,checkedAt:new Date().toISOString()}} } })
-    const bootId = randomUUID(), requestId = randomUUID()
+    const bootId = randomUUID(), requestId = randomUUID(), expiredAt = Date.now() - 4 * 60000
     const maintenance = { revision: 'host-maintenance-v1', requestId, identityHash: hardeningIdentityHash(host), bootId, prepareHash: 'b'.repeat(64),
       recipe: 'alpine-apparmor-grub-v1', architecture, phase: 'aborted', rebootIssued: false,
-      startedAt: new Date(Date.now() - 24 * 60000).toISOString(), deadline: new Date(Date.now() - 4 * 60000).toISOString(), customers: [] }
+      startedAt: new Date(expiredAt - 20 * 60000).toISOString(), deadline: new Date(expiredAt).toISOString(), customers: [] }
     let active = false, inspections = 0, remoteWrites = 0
     const deps = { held: () => false, connect: async () => ({ request: async (method: string, path: string) => {
       assert.equal(method, 'GET'); assert.ok(path.startsWith('/1.0/instances?')); return []

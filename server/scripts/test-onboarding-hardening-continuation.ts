@@ -120,7 +120,7 @@ try {
   assert.equal(await prisma.hostOnboardingNode.count({ where: { deletedAt: null, status: { in: ['queued', 'running'] } } }), 0, 'isolated DB must have no active onboarding')
   await prisma.systemConfig.upsert({ where: { key: SECURITY_HARDENING_ENABLED_KEY }, update: { value: 'true' }, create: { key: SECURITY_HARDENING_ENABLED_KEY, value: 'true' } })
   const second = await create('aarch64'), first = await create('x86_64')
-  const originalRequest = randomUUID(), remote = remotes.get(first.id)!
+  const originalRequest = randomUUID(), remote = remotes.get(first.id)!, expiredAt = Date.now() - 5 * 60000
   // Exact old failure shape: queued without lease, expired preparation, unchanged identity, no reboot.
   await prisma.host.update({ where: { id: first.id }, data: { securityHardening: {
     revision: SECURITY_HARDENING_REVISION, status: 'retry', identityHash: hardeningIdentityHash(first), nextCheckAt: new Date(0).toISOString(),
@@ -128,8 +128,8 @@ try {
     diagnostic: { phase: 'host-inspection', reason: 'HARDENING_APPARMOR_REQUIRED', action: 'blocked' },
     maintenance: { revision: 'host-maintenance-v1', requestId: originalRequest, identityHash: hardeningIdentityHash(first),
       bootId: remote.originalBoot, prepareHash: 'c'.repeat(64), recipe: 'alpine-apparmor-grub-v1', architecture: 'x86_64',
-      phase: 'blocked', error: 'HARDENING_IDENTITY_MISSING', rebootIssued: false, startedAt: new Date(Date.now() - 25 * 60000).toISOString(),
-      deadline: new Date(Date.now() - 5 * 60000).toISOString(), customers: [] }
+      phase: 'blocked', error: 'HARDENING_IDENTITY_MISSING', rebootIssued: false, startedAt: new Date(expiredAt - 20 * 60000).toISOString(),
+      deadline: new Date(expiredAt).toISOString(), customers: [] }
   } } })
   const before = await state(first.id)
   for (let i = 0; i < 3; i++) await processSecurityHardeningQueue(security, () => false, { resume: id => resumeAutomaticHostMaintenance(id, maintenance) })

@@ -122,9 +122,10 @@ try {
   await hardenExistingHost(host.id,deps)
   assert.deepEqual((await state()).maintenance,maintenanceIntent,'queue preserves unfinished maintenance across retries')
   assert.equal(guestWrites,writesBeforeMaintenance)
+  const maintenanceStartedAt=Date.now()
   const validMaintenance={revision:'host-maintenance-v1',requestId:randomUUID(),identityHash:'a'.repeat(64),bootId:uuid,
     prepareHash:'b'.repeat(64),recipe:'alpine-apparmor-grub-v1',architecture:'x86_64',phase:'waiting-boot',rebootIssued:true,
-    startedAt:new Date().toISOString(),deadline:new Date(Date.now()+20*60000).toISOString(),customers:[]}
+    startedAt:new Date(maintenanceStartedAt).toISOString(),deadline:new Date(maintenanceStartedAt+20*60000).toISOString(),customers:[]}
   await prisma.host.update({where:{id:host.id},data:{securityHardening:{...beforeMaintenance,maintenance:validMaintenance,nextCheckAt:new Date(0).toISOString()}}})
   const resumed:number[]=[],beforePriority={connections,hostCalls,guestWrites}
   await processSecurityHardeningQueue(deps,()=>false,{resume:async id=>{resumed.push(id)}})
