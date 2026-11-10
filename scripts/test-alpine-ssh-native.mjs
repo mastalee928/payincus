@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
 import ssh2 from '../server/node_modules/ssh2/lib/index.js'
 const requireFromServer = createRequire(new URL('../server/package.json', import.meta.url))
 const { tsImport } = await import(pathToFileURL(requireFromServer.resolve('tsx/esm/api')).href)
@@ -41,11 +42,27 @@ try {
     assert.equal(readAlpineSshPreflight(docker(['exec','-i',limited,'sh','-s'],alpineSshPreflightScript)).reason,'HARDENING_MEMORY_LOW',
       'real cgroup headroom rejects a low-memory customer without changing its password or resource limit')
   }finally{docker(['rm','-f',limited])}
+  // Retired CDN objects are retained byte-for-byte for deterministic regression
+  // tests. Hash-check before copying; apk still checks Alpine's trusted signature.
+  const archived = JSON.parse(readFileSync(new URL('./fixtures/alpine-ssh/manifest.json', import.meta.url), 'utf8'))[branch]
+  if (archived?.architecture === actualArchitecture) {
+    assert.equal(archived.version, oldRevision)
+    docker(['exec', name, 'mkdir', '-p', '/opt/old-ssh'])
+    for (const packageName of ['openssh-server', 'openssh-server-common', 'openssh-keygen']) {
+      const entry = archived.packages[packageName]
+      const path = fileURLToPath(new URL(`./fixtures/alpine-ssh/${branch}/${actualArchitecture}/${packageName}.apk`, import.meta.url))
+      const data = readFileSync(path)
+      assert.equal(data.length, entry.size)
+      assert.equal(createHash('sha256').update(data).digest('hex'), entry.sha256)
+      docker(['cp', path, `${name}:/opt/old-ssh/${packageName}.apk`])
+    }
+  }
   // Old signed revision is fetched through the branch's package trust keys.
   docker(['exec', '-i', name, 'sh', '-s'], `set -eu
 apk add --no-cache openrc openssh-server-common-openrc ca-certificates util-linux
-mkdir /opt/old-ssh
+mkdir -p /opt/old-ssh
 for package in openssh-server openssh-server-common openssh-keygen; do
+  [ ! -s "/opt/old-ssh/$package.apk" ] || continue
   # Old fixtures occasionally return a temporary CDN 404. Keep the exact
   # official branch/version and require a complete download before apk verifies
   # its signature; no newer or unsigned package substitutes the old baseline.

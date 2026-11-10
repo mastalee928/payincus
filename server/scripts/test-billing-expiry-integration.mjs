@@ -1,3 +1,4 @@
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 import assert from 'node:assert/strict'
 import { readFile, mkdtemp, chmod, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -277,7 +278,7 @@ try {
     natPublicIp: '127.0.0.1', natBindIp: '10.0.0.18', natPortStart: 20000, natPortEnd: 30000,
     resourcePreset: 'E2', customerDiskGiB: 30, architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 34,
     portProtocol: 'tcp', portProtocolRevision: 1, portProtocolApplied: 'tcp', portProtocolAppliedRevision: 1,
-    agent: { create: { agentId: poolName, secretHash: 'fixture-unused', secretEncrypted: 'fixture-unused', lastSeenAt: new Date(), capabilities: [PORT_PROTOCOL_CAPABILITY] } },
+    agent: { create: { ...protectedAgentFixture([PORT_PROTOCOL_CAPABILITY]) } },
     storagePools: { create: { name: 'default', driver: 'dir', purpose: 'instance_data' } } } }); poolHostId = poolHost.id
   const poolInstance = await prisma.instance.create({ data: { userId: poor.id, hostId: poolHost.id, packageId: pkg.id, packagePlanId: plan.id,
     name: poolName, incusId: poolName, image: 'fixture', cpu: 100, memory: 128, disk: 1024,

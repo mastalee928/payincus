@@ -62,17 +62,50 @@ func command(ctx context.Context, name, input string, args ...string) (string, e
 	return commandWithin(ctx, 5*time.Second, name, input, args...)
 }
 func commandWithin(ctx context.Context, limit time.Duration, name, input string, args ...string) (string, error) {
+	out, _, err := commandOutputWithin(ctx, limit, name, input, args...)
+	if err != nil {
+		return "", fmt.Errorf("guest protection command %s failed", name)
+	}
+	return out, nil
+}
+
+// Keep diagnostics available to isolated native tests, never to Agent reports.
+func commandOutputWithin(ctx context.Context, limit time.Duration, name, input string, args ...string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
+	if name == "nft" && input != "" {
+		// nft 1.0.9 probes JSON input before falling back to its native grammar.
+		// A pipe cannot be rewound: the prefix is consumed and valid rules fail
+		// parsing. A private seekable file preserves the exact atomic transaction.
+		args = append([]string(nil), args...)
+		for i := 1; i < len(args); i++ {
+			if args[i-1] != "-f" || args[i] != "-" {
+				continue
+			}
+			f, err := os.CreateTemp("", "incudal-guest-guard-*.nft")
+			if err != nil {
+				return "", "", err
+			}
+			defer os.Remove(f.Name())
+			_, writeErr := f.WriteString(input)
+			closeErr := f.Close()
+			if writeErr != nil {
+				return "", "", writeErr
+			}
+			if closeErr != nil {
+				return "", "", closeErr
+			}
+			args[i], input = f.Name(), ""
+			break
+		}
+	}
 	c := exec.CommandContext(ctx, name, args...)
 	c.Stdin = strings.NewReader(input)
 	var out, errout limitedBuffer
 	c.Stdout = &out
 	c.Stderr = &errout
-	if err := c.Run(); err != nil {
-		return "", fmt.Errorf("guest protection command %s failed", name)
-	}
-	return out.String(), nil
+	err := c.Run()
+	return out.String(), errout.String(), err
 }
 func atomicWrite(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

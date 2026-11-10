@@ -1,3 +1,4 @@
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 import assert from 'node:assert/strict'
 import { randomUUID, createHash } from 'node:crypto'
 import { once } from 'node:events'
@@ -33,7 +34,7 @@ async function makeHost() {
     serverCertificate: 'isolated-fake-certificate', serverFingerprint: 'isolated-fake-pin', managementSshHost: `10.253.240.${seq + 1}`,
     portProtocol: 'tcp', portProtocolApplied: 'tcp', portProtocolRevision: 1, portProtocolAppliedRevision: 1,
     storagePools: { create: { name: 'default', driver: 'dir', purpose: 'instance_data' } },
-    agent: { create: { agentId: `${prefix}-${seq}`, secretHash: 'unused', secretEncrypted: 'unused', lastSeenAt: new Date(), capabilities: ['ingress-port-protocol-v1'] } },
+    agent: { create: { ...protectedAgentFixture(['ingress-port-protocol-v1']) } },
     onboardingNode: { create: { batchId, name: `${prefix}-${seq}`, publicIp: `8.8.8.${seq}`, managementIp: `10.253.240.${seq + 1}`,
       sshPort: 2200, sshFingerprint: 'SHA256:host-fixture', status: 'succeeded', credentialsExpireAt: new Date(0) } }
   }, include: { onboardingNode: true } })

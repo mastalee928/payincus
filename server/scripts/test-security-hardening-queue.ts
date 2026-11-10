@@ -1,3 +1,4 @@
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 import assert from 'node:assert/strict'
 import { randomUUID, randomInt, createHash } from 'node:crypto'
 import Fastify from 'fastify'
@@ -47,6 +48,7 @@ let mutateAfterCustomer = false
 let releaseHost: (() => void) | undefined, hostEntered: (() => void) | undefined
 const client = { baseUrl: host.url, request: async (method: string, path: string) => {
   assert.equal(method, 'GET', 'Inspection makes no Incus mutation')
+  if (path === '/1.0/networks/incusbr0') return { config: { 'user.payincus.guest-guard': `v1:${'a'.repeat(64)}:${Date.now()}` } }
   if (path.startsWith('/1.0/instances?')) return [{ name: prefix, project: 'default' }]
   if (path.endsWith('/state')) return { pid: 100, status: 'Running' }
   return { name: prefix, type: vm ? 'virtual-machine' : 'container', profiles: [], config: { 'volatile.uuid': changed ? randomUUID() : uuid,
@@ -315,7 +317,7 @@ try {
   // checks identity/receipt/Agent/current authority after hardening returns.
   const enrolledNode = await prisma.hostOnboardingNode.findUniqueOrThrow({ where: { hostId: host.id } })
   const onboardingLease = randomUUID()
-  await prisma.hostAgent.create({ data: { hostId: host.id, agentId:randomUUID(),secretHash: 'fixture',secretEncrypted:'fixture', enabled: true, lastSeenAt: new Date() } })
+  await prisma.hostAgent.create({ data: { hostId: host.id, ...protectedAgentFixture() } })
   await prisma.instance.update({ where: { id: instance.id }, data: { status: 'deleted' } })
   const realRequest = client.request
   client.request = async (method: string, path: string) => path.startsWith('/1.0/instances?') ? [] : realRequest(method,path)

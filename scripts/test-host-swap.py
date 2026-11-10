@@ -11,7 +11,8 @@ import unittest
 from unittest.mock import patch
 
 # Windows checks the file/decision logic only. Linux uses actual flock and
-# POSIX metadata; no test invokes real swapon, mkswap or service management.
+# POSIX file types/modes; root identity is modeled for unprivileged CI too.
+# No test invokes real swapon, mkswap or service management.
 if sys.platform == 'win32':
     sys.modules['fcntl'] = types.SimpleNamespace(LOCK_EX=2, LOCK_NB=4, flock=lambda *_: None)
     os.geteuid = lambda: 0
@@ -32,12 +33,14 @@ class SwapTests(unittest.TestCase):
             self.assertTrue(path == self.root or path.is_relative_to(self.root))
             self.assertFalse(path.is_symlink())
         p = patch.object(swap, 'trusted_directory', side_effect=fixture_directory); p.start(); self.addCleanup(p.stop)
-        if sys.platform == 'win32':
-            original_fstat = os.fstat
-            def lock_metadata(fd):
-                fields = list(original_fstat(fd)); fields[0] = 0o100600; fields[3] = 1; fields[4] = 0
-                return os.stat_result(fields)
-            p = patch.object(swap.os, 'fstat', side_effect=lock_metadata); p.start(); self.addCleanup(p.stop)
+        p = patch.object(swap.os, 'geteuid', return_value=0); p.start(); self.addCleanup(p.stop)
+        original_fstat = os.fstat
+        def lock_metadata(fd):
+            fields = list(original_fstat(fd)); fields[4] = 0
+            if sys.platform == 'win32':
+                fields[0] = 0o100600; fields[3] = 1
+            return os.stat_result(fields)
+        p = patch.object(swap.os, 'fstat', side_effect=lock_metadata); p.start(); self.addCleanup(p.stop)
         for name, path in {'FSTAB': self.root / 'fstab', 'SWAPS': self.root / 'swaps', 'SWAP_DIRECTORY': self.root / 'incudal', 'LOCK_FILE': self.root / 'lock'}.items():
             p = patch.object(swap, name, path)
             p.start()
@@ -140,6 +143,16 @@ class SwapTests(unittest.TestCase):
             with self.assertRaises(swap.subprocess.TimeoutExpired):
                 swap.run('swapon', '/fixture')
             self.assertEqual(run.call_args.kwargs['timeout'], 120)
+
+    def test_untrusted_lock_and_nonroot_execution_are_rejected(self):
+        with patch.object(swap.os, 'geteuid', return_value=1000):
+            with self.assertRaisesRegex(RuntimeError, 'root required'):
+                swap.ensure_swap()
+        for mode, uid, links in [(0o100600, 1000, 1), (0o100600, 0, 2), (0o040700, 0, 1)]:
+            metadata = types.SimpleNamespace(st_mode=mode, st_uid=uid, st_nlink=links)
+            with patch.object(swap.os, 'fstat', return_value=metadata):
+                with self.assertRaisesRegex(RuntimeError, 'unsafe swap lock'):
+                    swap.ensure_swap()
 
 
 if __name__ == '__main__':

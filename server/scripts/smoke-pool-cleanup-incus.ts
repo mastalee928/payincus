@@ -1,3 +1,4 @@
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { X509Certificate } from 'node:crypto'
@@ -34,8 +35,7 @@ try {
       architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 34,
       cpuUsed: 200, memoryUsed: 768, diskUsed: 30720, natPortStart: 20000, natPortEnd: 30000,
       portProtocol: 'tcp', portProtocolRevision: 1, portProtocolApplied: 'tcp', portProtocolAppliedRevision: 1,
-      agent: { create: { agentId: 'actual-incus-fixture', secretHash: 'unused', secretEncrypted: 'unused',
-        lastSeenAt: new Date(), capabilities: [PORT_PROTOCOL_CAPABILITY] } },
+      agent: { create: { ...protectedAgentFixture([PORT_PROTOCOL_CAPABILITY]) } },
       storagePools: { create: { name: 'cleanup-test', driver: 'dir', purpose: 'instance_data' } } } })
     try {
       if (process.env.INSTANCE_DELETION_WORKER === '1') {

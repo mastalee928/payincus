@@ -92,15 +92,15 @@ func TestNativeNftTransaction(t *testing.T) {
 		defer cancel()
 		e := New()
 		var echo, live string
-		if os.Getenv("INCUDAL_GUEST_GUARD_SLOW_VM") == "1" {
+		{
 			e.run = func(ctx context.Context, name, input string, args ...string) (string, error) {
-				c := exec.CommandContext(ctx, name, args...)
-				c.Stdin = strings.NewReader(input)
-				var stderr strings.Builder
-				c.Stderr = &stderr
-				out, err := c.Output()
+				limit := 5 * time.Second
+				if os.Getenv("INCUDAL_GUEST_GUARD_SLOW_VM") == "1" {
+					limit = nativeTestTimeout(t)
+				}
+				out, stderr, err := commandOutputWithin(ctx, limit, name, input, args...)
 				if err != nil {
-					return "", fmt.Errorf("%s: %w", stderr.String(), err)
+					return "", fmt.Errorf("%s: %w", stderr, err)
 				}
 				if input != "" {
 					echo = string(out)

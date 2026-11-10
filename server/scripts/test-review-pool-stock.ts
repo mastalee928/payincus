@@ -1,3 +1,4 @@
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { Client } from 'pg'
@@ -13,7 +14,7 @@ const tag='pool-stock-'+randomUUID(),holder=new Client({connectionString:databas
 const owner=await prisma.user.create({data:{username:tag,passwordHash:'fixture'}})
 const group=await prisma.hostMachineGroup.create({data:{name:tag}})
 const region=await prisma.hostRegionGroup.create({data:{name:tag,machineGroupId:group.id,countryCode:'us'}})
-const host=await prisma.host.create({data:{name:tag,userId:owner.id,url:'https://127.0.0.1:1',singleTenant:true,machineGroupId:group.id,regionGroupId:region.id,resourcePreset:'E2',customerDiskGiB:30,status:'online',isInstalled:true,architecture:'x86_64',cpuAllowanceMax:200,memoryMax:768,storageSize:38,natPublicIp:'192.0.2.1',natPortStart:20000,natPortEnd:30000}})
+const host=await prisma.host.create({data:{name:tag,userId:owner.id,url:'https://127.0.0.1:1',singleTenant:true,machineGroupId:group.id,regionGroupId:region.id,resourcePreset:'E2',customerDiskGiB:30,status:'online',isInstalled:true,architecture:'x86_64',cpuAllowanceMax:200,memoryMax:768,storageSize:38,natPublicIp:'192.0.2.1',natPortStart:20000,natPortEnd:30000,agent:{create:protectedAgentFixture()}}})
 await prisma.storagePool.create({data:{hostId:host.id,name:'fixture',driver:'btrfs',purpose:'instance_data'}})
 let failure:unknown,pending:Promise<unknown>|undefined
 try {

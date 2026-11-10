@@ -1,0 +1,44 @@
+{
+  "3.19": {
+    "architecture": "x86_64",
+    "version": "9.6_p1-r2",
+    "packages": {
+      "openssh-server": {
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.19/main/x86_64/openssh-server-9.6_p1-r2.apk",
+        "sha256": "14aa117f133bd89ee3601987e10c5cd684411d629362cfd2275a227ea59beb1f",
+        "size": 383681
+      },
+      "openssh-server-common": {
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.19/main/x86_64/openssh-server-common-9.6_p1-r2.apk",
+        "sha256": "85a83f2124031b32a11b06b79fcdae1fe8dd5afba1dd8e3c4a76a7b52ca56db3",
+        "size": 3120
+      },
+      "openssh-keygen": {
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.19/main/x86_64/openssh-keygen-9.6_p1-r2.apk",
+        "sha256": "19c648b8dd579a6e9ba42cca539b3435d14a8c48f9552d56dc93d0cc3a9e1e84",
+        "size": 209971
+      }
+    }
+  },
+  "3.23": {
+    "architecture": "x86_64",
+    "version": "10.2_p1-r0",
+    "packages": {
+      "openssh-server": {
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/openssh-server-10.2_p1-r0.apk",
+        "sha256": "8677fb525548b1030bbb58b399d28e582d0b9c5838fd2c29a811c883ba08b8ce",
+        "size": 987424
+      },
+      "openssh-server-common": {
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/openssh-server-common-10.2_p1-r0.apk",
+        "sha256": "2c9b213ab73f231f43f0e10a8c29670ff4a942012020969e4755985b1c7b39cc",
+        "size": 3191
+      },
+      "openssh-keygen": {
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/openssh-keygen-10.2_p1-r0.apk",
+        "sha256": "6b24d17c7d17125064bfd381668197bc02afd8bac0fcf8c66feb9894283f7e7e",
+        "size": 207568
+      }
+    }
+  }
+}
