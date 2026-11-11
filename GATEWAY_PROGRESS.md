@@ -1,5 +1,54 @@
 # 网关灾备工程进度
 
+## 2026-11-11 02:18 UTC v1.8.6／Agent v1.0.6 发行核验完成
+
+- 源码 `00b39869a85a592ec50f3d67935d409968613a86`，tree `bb256ed37bab9c2e8619af5779a8edd7726acf9a`；PR #9精确快进合并，前序PR #8保留，v1.8.6注释tag `3a5bb59ec510357d249ea92af5da4bf154f778f1` 解引用同源码。Agent v1.0.6来自`fea9d66cfeeb0a2ce804a644d9ddd3e14c2b9f8f`且Agent全部输入相同；历史tag不动。
+- 候选CI `42908470060`、原Agent `42883551153`、Alpine `42908470077`、公开Agent `42903794983`、预览 `42908807624`、main CI `42927242059`、正式 `42943161374`及全部对应来源关联run已终态通过并独立核逐job来源。前序失败有新来源闭环。
+- 六公开面板资产及三Agent资产已实际下载核hash／size／API digest、双架构／迁移／修复内容和原受信组件签名；Release说明回读一致、latest=v1.8.6。完整六资产表与所有关联运行见[发行验证](docs/release-v1.8.6-validation.md)，网页操作见[检查清单](docs/release-v1.8.6-owner-click-test.md)。
+- 本轮未连接或部署生产。自动引导原生白名单仍仅Alpine／GRUB／AMD64；ARM／Debian需未验收方案时保持具体阻断。完整纯净宿主原生端到端、客户公网／全端口、真实OSS新B、独立备用、千台72小时仍未验收，首装OSS为本地传输替身。
+
+## 2026-11-11 主分支全通过，正式双架构首装验证中
+
+- main CI `42927242059` 十job全部终态success，逐job实际checkout精确为`00b39869a85a592ec50f3d67935d409968613a86`，完整239个Pool业务步骤及本批markers通过，十份日志和独立proof已归档。
+- 注释稳定tag v1.8.6对象`3a5bb59ec510357d249ea92af5da4bf154f778f1`于`2026-11-11T02:02:04Z`核验推送，解引用同正式源码；不再执行promotion或移动tag。正式Build & Release `42943161374` 双构建success，两架构全新安装验证中，无新失败。
+- Agent v1.0.6保持原来源`fea9d66cfeeb0a2ce804a644d9ddd3e14c2b9f8f`及已验公开资产。panel正式首装、公开六资产与最终文档收尾尚未完成；本轮未连接或部署生产。
+
+## 2026-11-11 新候选全部通过并精确合main
+
+- 候选 `00b39869a85a592ec50f3d67935d409968613a86`，tree `bb256ed37bab9c2e8619af5779a8edd7726acf9a`；CI `42908470060`十job全部success，逐job实际PR checkout `9edbff6933e1a62ca6daacee5560df139a56f059`独立核tree一致，完整Pool日志与关键业务／两架构可售／三语触控markers均通过。Alpine `42908470077`全部必需终态success。
+- 新预览 `42908807624`双构建／双首装完整success，Release预期skipped；215守卫／241迁移／公开Agent／完整备份恢复回退续接及异常拒绝均核。旧main CI `42906307040`终态failure，唯一Ed25519守卫失败，八job成功、依赖Build跳过，完整失败清单归档；新来源CI已闭环。
+- main从`fea9d66cfeeb0a2ce804a644d9ddd3e14c2b9f8f`精确非force FF至正式候选，PR #9 MERGED／mergeCommit同来源，主分支CI `42927242059`验证中。Agent v1.0.6原来源／资产保持；Node补丁与测试之外全部Agent输入一致核验。面板尚未打tag，未操作生产。
+
+## 2026-11-11 main CI密钥生成边界修复
+
+- main CI `42906307040` 的管理网关守卫失败，定位为ssh2生成Ed25519时误删公钥零前缀，实际复现31字节公钥；正式网关首次生成管理密钥也使用该依赖。按ASN.1只去一个unused-bits字节，pnpm固定补丁同时进入生产依赖。确定性同步／异步零前缀回归修前失败、修后及独立签名验证通过；真实SSH网关复查、身份／密码与类型通过。
+- 修复源码 `00b39869a85a592ec50f3d67935d409968613a86`、tree `bb256ed37bab9c2e8619af5779a8edd7726acf9a`，PR #9；新候选完整CI／Alpine及双架构预览待核。原main完整CI仍继续核全部终态，失败日志保留，不盲rerun。
+- 已公开Agent v1.0.6保持原来源`fea9d66cfeeb0a2ce804a644d9ddd3e14c2b9f8f`和三资产；本次仅Node依赖与测试，Agent输入逐文件不变核验后复用原原生证据，不伪称与新面板commit相同。面板v1.8.6仍未打tag，未连接或部署生产。
+
+## 2026-11-11 双架构预览通过并精确合main
+
+- 正式Agent v1.0.6运行 `42903794983`全部终态success，三个公开资产已实际下载并独立核API digest／大小／ELF／新防护标记，与同源候选artifact摘要一致；旧v1.0.5身份和资产不变。
+- 同源码面板预览 `42904065791`四必需job完整success，Release预期skipped；独立核215守卫／241迁移、双原生首装、公开Agent、完整备份／预检／恢复／改变后回退续接／SQL和加密ZIP及旧CRLF拒绝，日志归档。
+- main已从`0613e6e7a68c1b3091b4fec20c926c14e7c41445`精确非force FF至`fea9d66cfeeb0a2ce804a644d9ddd3e14c2b9f8f`；PR #8 MERGED／mergeCommit同源码。main CI `42906307040`、Alpine `42906307160`、Agent `42906307022`在跑，均完整同源码；最终全通过后才打v1.8.6注释tag。尚未发行panel v1.8.6，未操作生产。
+
+## 2026-11-11 候选全部通过，Agent发行开始
+
+- 最终候选 `fea9d66cfeeb0a2ce804a644d9ddd3e14c2b9f8f` 的CI `42883550989`十job全部success，实际PR checkout `47234223c70edd2890e9970855d8c427d529d71b`逐job独立核tree一致；239个Pool业务步骤及完整关键日志已核，包含购买／开通／账务／补续／身份与三语触摸。Agent `42883551153`、Alpine `42883551226`全必需终态通过；全部历史源码失败由当前完整证据闭环，原日志保留。
+- Agent v1.0.6首次正式发行已同源触发 `42903794983`；随后实际下载公开三资产，与当前候选artifact逐字节摘要比对，再进行panel预览。此时尚未合main、未打panel v1.8.6稳定tag，未操作生产。
+
+## 2026-11-11 购买与备用库存测试前提收尾
+
+- 最新候选 `fea9d66cfeeb0a2ce804a644d9ddd3e14c2b9f8f`，tree `cce1e2c9e4e42bff421e2a626fa85ba77cb549c3`，已推PR #8。购买与换机库存测试补当前Agent防护回执；产品源码及拒售／不扣款门槛未改。本机购买、两架构开通、换机、回池专项及类型／库存守卫通过。
+- 最新Agent `42883551153`与Alpine `42883551226`已必需job全终态success，逐job checkout `47234223c70edd2890e9970855d8c427d529d71b`独立核tree一致；双架构真实网络／nft／systemd／OpenRC与7组SSH原生验证、两架构维护续接通过。三Agent artifact文件实际下载核hash／size／ELF和新防护标记。CI `42883550989`仍在运行；历史step81缺回执失败保存，须由新CI全终态关闭。
+- 仍未合main、未发行Agent v1.0.6／panel v1.8.6或操作生产；接下来沿Agent公开依赖→panel预览→main→正式tag→资产次序核验。
+
+## 2026-11-11 最终时间夹具精修
+
+- 最新候选 `6b7f2935cd790acc709389e98244b65c348808f7`，tree `59ab5c4c24f5eb5615b7638db6ad4d50bc9f3d78`；PR #8。前候选Agent／Alpine完整原生已通过，最后统一修正可售／接入续接／加固队列三处相同的双取时测试夹具，产品源码未变；本机三专项及类型均exit0。
+- 当前同来源CI `42881124514`、Agent `42881124309`、Alpine `42881124286` 验证中。历史CI `42877797696`、`42879169447`尚在跑，保留并核终态；不把历史分项成功代替最新候选。以logs计划的pendingRuns为准。
+- 未合main、未发行新Agent／panel或部署。待必需运行全部终态后先发行Agent、核三公开资产，再进行依赖就绪的panel预览及正式发行；不移动历史tag。
+
+
 ## 2026-11-11 原生Agent通过与维护测试时间边界
 
 - 候选 `538333fac506639935ba5047a8bd19e7b2425ff5` 的Agent运行 `42877797742` 已全部必需job终态success，发布job按PR预期skipped。逐job实际checkout `73a211eb3fffc2c208e5d2f853220439725f5d6d` 已独立核tree与候选一致；双架构完整客户网络、nft原子事务、systemd与OpenRC依赖失败→自动恢复→保留手工停止均通过。依赖缓存精修在原生实证闭环。

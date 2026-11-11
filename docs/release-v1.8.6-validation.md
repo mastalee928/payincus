@@ -1,52 +1,74 @@
 # v1.8.6 验证记录
 
-## 2026-11-11 原生Agent通过与维护测试时间边界
+核验时间：2026-11-11 02:18 UTC。面板 [v1.8.6](https://github.com/mastalee928/payincus/releases/tag/v1.8.6) 与配套 [Agent v1.0.6](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.6) 已公开发行；面板为最新稳定版。此次仅发行软件，未代部署生产。
 
-- 候选 `538333fac506639935ba5047a8bd19e7b2425ff5` 的Agent运行 `42877797742` 已全部必需job终态success，发布job按PR预期skipped。逐job实际checkout `73a211eb3fffc2c208e5d2f853220439725f5d6d` 已独立核tree与候选一致；双架构完整客户网络、nft原子事务、systemd与OpenRC依赖失败→自动恢复→保留手工停止均通过。依赖缓存精修在原生实证闭环。
-- Alpine `42877797691` 七组官方旧APK均原生验签与原密码／错误认证／持续SSH和SFTP专项通过；ARM维护测试第311行因两次Date.now构造20分钟窗口跨毫秒，触发严格journal上限，唯一失败已保留。测试改为同一时间基准构造四处过期窗口，本机完整PG维护专项通过；产品20分钟门槛不变，下一来源须核完整Alpine终态。
-- 当前CI仍运行，后续结果以logs计划为准。未发行Agent／panel，未合main或部署；最终Agent公开后再跑面板预览，不能用旧Agent绕过首装验证。
+## 源码与发行身份
 
-
-## 2026-11-11 第二候选验证与发行依赖
-
-- 第二候选 `e13e65a48c163d42c67264dc30ffde8fe52cef95` 的CI `42875164548`、Agent `42875164484`、Alpine `42875164099`、预览 `42875159117` 均已终态failure，日志已保留。双架构实际网络隔离、旧nft默认5秒原子事务和systemd失败恢复均通过；OpenRC依赖失败拒绝未过，不能报全成功。
-- OpenRC源码确认依赖缓存以秒级mtime判断，补安装后显式刷新依赖树；原生闭环待下一候选。赠送实例测试补真实Incus自动生成的UUID／创建时间，13项真实PG与TLS夹具完整通过，产品身份门槛不变。全部7组旧SSH官方签名包21文件已固定hash／size／包名／版本／架构，实际apk验签继续由原生CI核验。
-- 两端预览已成功安装并迁移，但公开Agent仍v1.0.5，新面板要求v1.0.6，故首装版本断言正确阻断。调整发行依赖顺序：候选代码／Agent原生／Alpine全部通过后，先从同完整来源发行并核Agent v1.0.6，再重新进行依赖已就绪的面板预览；全部通过才推进main和面板正式tag。既有失败不盲rerun，不弱化公开Agent检查。
-- 本轮未连接或部署生产，仍未合main／打新版稳定tag。AMD64／ARM64未验收启动方案、完整纯净宿主原生端到端与客户公网、OSS新B／独立备用／规模验收范围保持。
-
-
-## 2026-11-11 候选发行失败闭环精修
-
-- 已推候选 `d5110bbb2bc25230056c83218592b2c6431ae68b`，PR #8。候选CI `42871014771`、Agent `42871014863`、Alpine `42871014986`、双架构预览 `42871064145` 均已终态failure，原日志保留；不将其中成功分项当作全部通过，未合main、未打新稳定tag或部署。
-- 双架构实际metadata／客户网络包及OCI脚本共存通过。旧nftables 1.0.9的JSON探测会消耗不可回退的管道输入，隔离Alpine复现同一规则文件成功、管道失败；改为0600唯一临时规则文件，保持5秒产品命令时限、原子事务与逐规则回读。修后旧nft实际原子／重复／清空恢复通过；TCG耗时不代表原生时限，云端默认时限仍待核。
-- 库存／清理／支付／加固旧fixture补齐新增Agent防护前提，未降低产品门槛。11项swap决策与权限拒绝、真实PG库存／清理回池／IP／并发锁／支付与加固／到期专项、相关守卫与类型通过。真实Incus清理及最终云端双架构待新来源闭环。
-- 官方旧版SSH包在CI持续404，精确保存3.19／3.23六个官方签名APK、URL／hash／size和原许可，仅供隔离CI，apk继续使用原Alpine受信密钥验签；不收入安装包、不替换为新包。
-
-
-
-当前为发行候选准备，尚未正式发布或代部署。面板版本1.8.6，Agent v1.0.6，累计241迁移。最终源码、全部关联运行及公开资产将按实际核验结果补入本页。
+- 正式完整源码：`00b39869a85a592ec50f3d67935d409968613a86`；tree：`bb256ed37bab9c2e8619af5779a8edd7726acf9a`。
+- main 从 `fea9d66cfeeb0a2ce804a644d9ddd3e14c2b9f8f` 非强制快进至该提交；[PR #9](https://github.com/mastalee928/payincus/pull/9) 已合并，mergeCommit 与正式源码相同。
+- 注释标签 v1.8.6：`3a5bb59ec510357d249ea92af5da4bf154f778f1`，解引用指向上述正式源码；历史稳定标签未移动。
+- Agent v1.0.6 的完整来源为 `fea9d66cfeeb0a2ce804a644d9ddd3e14c2b9f8f`，已先行公开并核实三项资产。面板随后仅补充Node SSH生成器补丁与回归；Agent源码树、构建脚本、工作流和安装／协议输入逐项完全相同，继续使用原稳定Agent资产。新面板预览与正式首装独立验证该依赖组合。后续文档提交不改变标签源码。
 
 ## 本版范围
 
-1. 全自动宿主接入：当前管理员权限／任务租约、原SSH身份、加密密码、纯净Alpine／Debian依赖、UTC／ipinfo时区、BBR能力与至少1GiB磁盘swap；失败按阶段续接，不重放未知安装动作。
-2. 非特权加固至一机一卖可售：保留原维护请求、原客户／boot／网络／密码／账期；修复巡检抢接入任务、旧等待状态和完整回执后无法入库；库存、目录与带锁分配器一致，残留未清不得可售。
-3. 客户网络防护：宿主侧持续隔离OCI元数据和管理网络，已识别管理验收来源定向转换，普通客户来源及公网／全端口保留；失败回执、原子规则回读、开机依赖恢复与旧OCI规则兼容。
-4. 保留此前实例生命周期、重装原身份、IPv6预占及失败清理修复。前期相关修复不因本版重点调整而删除。
+1. 修复普通巡检抢占接入维护、旧等待状态、完成回执未结束入库等问题。沿当前权限、租约、SSH／Agent／Incus身份继续原任务；无客户与无清理占用、完整防护回执后才进入一机一卖可售。
+2. 纯净 Alpine／Debian 准备依赖、准确UTC、ipinfo有效IANA当地时区、时间同步、内核支持时BBR及至少1GiB磁盘swap。原swap不缩小不关闭，密码严格加密保存、成功清理；包锁、下载和临时网络故障按阶段退避。
+3. 配套Agent持续隔离客户访问OCI元数据、私网与已识别管理地址；保留宿主OCI探测、必要DNS／IPv6、普通公网连接来源和密码登录。已识别管理验收连接定向转换来源，防护失败不发布可售回执。
+4. 旧nft使用0600唯一临时文件原子加载并完整回读；systemd／OpenRC防护依赖失败后自动续接，OpenRC安装时刷新依赖缓存，保留手工停止与原客户运行状态。
+5. SSH依赖生成Ed25519时仅移除ASN.1的unused-bits字节，保留公钥零前缀；确定性同步／异步、签名和真实SSH验证覆盖，原身份不变。
+6. 保留前期实例生命周期、重装原身份、IPv6预占、失败清理回池及相关业务修复。累计241个数据库迁移。
 
-详细问题与条件见[客户防护三轮复审](customer-infrastructure-protection-review-2026-11-11.md)、[全自动接入三轮复审](automatic-onboarding-three-round-review-2026-11-10.md)、[一机一卖五轮审视](host-pool-lifecycle-review-2026-11-10.md)。
+三轮问题与修复见[客户防护复审](customer-infrastructure-protection-review-2026-11-11.md)、[全自动接入复审](automatic-onboarding-three-round-review-2026-11-10.md)；一机一卖范围见[五轮审视](host-pool-lifecycle-review-2026-11-10.md)。
 
-## 本地证据
+## 当前面板来源全部关联运行
 
-- 215项全量已完整执行，212项首次通过，3项旧守卫经核对产品实现后精确修正并各自通过，保留原失败与闭环日志。
-- 真实本地PG／JWT或HMAC／回环SSH及受信TLS协议专项、两架构库存／分配器、权限与租约竞争、失败回执恢复已核；这些不等同原生宿主或公网验收。
-- 双端构建、Linux网络／服务管理器及同候选CI仍在最终验证，未终态项目不报告通过。
-- 历史源码2620f05b的Alpine 3.23专项因旧签名测试包CDN三次404，在SSH断言之前失败；当前同官方包实际下载可用。已补同路径缓存绕过重试，候选完整原生专项仍需通过才闭环。
+| 工作流 | Run ID | 终态 |
+| --- | --- | --- |
+| [CI / pull_request](https://github.com/mastalee928/payincus/actions/runs/42908470060) | 42908470060 | success |
+| [Alpine SSH security / pull_request](https://github.com/mastalee928/payincus/actions/runs/42908470077) | 42908470077 | success |
+| [Build & Release / workflow_dispatch](https://github.com/mastalee928/payincus/actions/runs/42908807624) | 42908807624 | success |
+| [CI / push](https://github.com/mastalee928/payincus/actions/runs/42927242059) | 42927242059 | success |
+| [Build & Release / push](https://github.com/mastalee928/payincus/actions/runs/42943161374) | 42943161374 | success |
 
-## 证据边界
+逐job从日志提取实际完整checkout并核提交／tree。候选CI与main CI均为十job全部success，包含真实Incus清理；预览双构建和双首装success，发布job预期skipped；正式双构建、双首装和发布共五job全部success。
 
-本次不代生产OTA、宿主重启、客户操作或OSS恢复。Agent新版先独立验收并公开，面板沿受信自动升级链路更新已登记Agent；发行不代表目标已经生效。当前已原生验收的自动引导维护仅Alpine／GRUB／AMD64，其余需要改引导的系统架构仍不能跳过验收门禁。纯净系统原生端到端、真实客户公网与全端口、真实OSS全新B灾备、独立备用、千台72小时分别保留未验收范围。
+- Agent双架构：由原Agent来源的候选与正式原生运行核实际客户网络包、OCI metadata与已有连接阻断、管理来源转换、普通来源保留、IPv6与门户、旧OCI回包共存、nft原子／幂等／漂移恢复、systemd与Alpine OpenRC依赖失败→修复后续接→保留手工停止。Agent来源及链接见下方资产证据，与新面板的Node补丁来源分别记录。
+- Alpine七组旧版官方签名APK原生验证：原密码／新登录、错误／长／空密码拒绝、持续SSH／SFTP、幂等及reload失败恢复。旧包仅隔离测试，未收入安装包。
+- 两架构维护与接入专项：原超期请求、条件回退、退避／单次重启、完整回执、完成前崩溃续接、失效lease／FAILED清理占用拒绝、真实PG库存与带锁分配器；引导和远端命令夹具不等同真实整机重启。
+- 付款／余额／续费／购买／重放／删除清理、管理员权限与行锁、原实例身份和浏览器流程全部纳入完整CI；本批购买、换机、回池及开通专项本机亦通过。
+- 215项守卫、类型、双端与后端构建通过。双原生首装核241迁移、唯一后台、双前端、管理员登录、公开Agent下载；完整备份／预检／恢复／改变后回退／续接／SQL与加密ZIP／旧版CRLF迁移及拒绝断言全部通过。
 
-网页操作见[升级与检查](release-v1.8.6-owner-click-test.md)。
+历史失败保留：main CI `42906307040` 的Ed25519公钥零前缀缺陷由上述新来源完整CI和确定性回归关闭，原运行八job成功、Lint失败、依赖Build跳过，不计为成功运行。旧nft管道兼容、OpenRC依赖缓存、旧官方APK CDN、赠送／购买／换机库存测试前提及重复取时时间窗口均保留原日志与闭环。实际产品问题最小修复，测试补前提未降低产品门槛；最终候选完整运行关闭这些失败。旧预览依赖公开Agent v1.0.5被正确拒绝，由v1.0.6公开后的新面板完整预览关闭，未用测试二进制替代公开资产。
 
+## 六项公开面板资产
 
-2026-11-11 02:00（本机）补记：双端／后端build、路由／三语／边界、类型与lint检查已通过（lint有既有警告，无错误）。Alpine AMD64 TCG实际通过核心metadata阻断、原已建立连接阻断、主控验收来源转换、普通客户来源保留、IPv6／门户与源地址变化阻断，以及nft原子／幂等／清空恢复。完整OCI脚本阶段在80秒测试时限停止；OpenRC实际依赖拒绝与boot失败回执通过，恢复nft命令超过产品5秒时限，整体专项仍失败。正式通过以云端原生默认时限结果为准，不调宽产品nft时限以迎合TCG。
+所有文件实际下载并独立核API digest／大小／SHA256。双OTA清单字节一致，两个架构URL／hash／大小与实际tar一致。
+
+| 资产 | 字节 | SHA256 |
+| --- | ---: | --- |
+| incudal-v1.8.6-linux-amd64.tar.gz | 214454575 | `d92ab050ccd97d851757481e5cad5e2de21e6fd4fba575aef828591a45dcfc48` |
+| incudal-v1.8.6-linux-amd64.tar.gz.sha256 | 100 | `415ec012399c713fa107898466896b6af130e8a425a3face122442f524e8b53f` |
+| incudal-v1.8.6-linux-arm64.tar.gz | 213670636 | `b264d0010c0610b838c211dd71541628f830e3c1b76afecae42a2d6074db7ba4` |
+| incudal-v1.8.6-linux-arm64.tar.gz.sha256 | 100 | `24dbbafef01f0c4fcb746a885ea46393704f1728229d20d48851f4f7a4323a8d` |
+| incudal-v1.8.6-ota-manifest.json | 993 | `82918c8a50bdb1d853dc34c4d264df0b0252d1f08ea2259e4b73a4b029969da6` |
+| ota-manifest.json | 993 | `82918c8a50bdb1d853dc34c4d264df0b0252d1f08ea2259e4b73a4b029969da6` |
+
+两包检查版本、241迁移、LICENSE、root归属、安全路径与原生ELF架构；新增准备模板／防护及身份模块、既有业务修复编译文件和双端首页标记均存在；两包安装的ssh2生成器与已验补丁字节一致，锁文件及patch同时入包。每包双架构网关的catalog及签名payload均绑定完整正式sourceCommit；20文件hash／大小／模式／ELF逐项核。Ed25519公钥沿用v1.8.5原受信基线，未信任包内新key。Release说明回读一致，六资产未变且latest=v1.8.6。
+
+## Agent公开资产
+
+| 资产 | 字节 | SHA256 |
+| --- | ---: | --- |
+| incudal-agent-aarch64-v1.0.6 | 5111960 | `52aea6349cf9c2bbbe1261e72c05a87cc041b6a7ddd31c166c1784b2d723c5c2` |
+| incudal-agent-x86_64-v1.0.6 | 5410968 | `1c381d5cc2e2c8e804c53b0a1a634aa6dee3f17e4610db03fb336ecf951ef4a7` |
+| LICENSE | 1496 | `5659dbf51fa91752f85fe0fb6677086ac1fbc368768ac3d230a70af86afdad6b` |
+
+三公开文件与原Agent来源候选artifact逐字节摘要一致；候选Agent [42883551153](https://github.com/mastalee928/payincus/actions/runs/42883551153)、正式原生Agent [42903794983](https://github.com/mastalee928/payincus/actions/runs/42903794983)、原main Agent [42906307022](https://github.com/mastalee928/payincus/actions/runs/42906307022)／Alpine [42906307160](https://github.com/mastalee928/payincus/actions/runs/42906307160)均全必需终态通过，日志保持原SHA归属；双ELF架构、版本及新防护标记通过。原v1.0.5 tag、三资产hash／大小／更新时间保持基线不变；原main关联Agent发布检查同源同摘要后跳过重复发布；新面板依赖补丁未触发Agent发布。
+
+## 实证边界
+
+自动改引导已原生放行范围仍仅 `alpine-apparmor-grub-v1:x86_64`。ARM／Debian已有完整防护时可验收，但需要未验收引导方案时继续保护并显示具体原因；不能承诺任意身份冲突、坏盘、未知安装中断、云平台或网络阻断均无条件自动变可售。可售还要求已有商品分组和定价。
+
+本次不代生产OTA、宿主重启、客户操作或OSS恢复。双首装OSS使用本地传输替身；完整纯净宿主原生接入端到端、真实客户公网／全端口、真实OSS全新B灾备、独立备用、千台／72小时仍各自未验收。源码、CI和软件发行不等于目标机器已升级或生产恢复。
+
+管理员网页升级和检查见[操作清单](release-v1.8.6-owner-click-test.md)。
