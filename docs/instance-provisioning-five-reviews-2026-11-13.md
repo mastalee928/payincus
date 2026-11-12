@@ -15,3 +15,5 @@ P15原库存guest保护是误判，保留正确门禁。P14旧QEMU CPU不能证�
 本次原生本地初始化命令遭automatic approval review拒绝（仅提供blocked by policy），未执行宿主setup；不换壳绕过，继续仓库一次性CI。Windows原生go test ./...被既有report syscall.Statfs平台代码阻止，两架构Linux编译成功与CI原生Go测试分开。frozen安装同时重建依赖链接使第二遍resume首次MODULE_NOT_FOUND，链接恢复后续跑，保留失败记录。
 
 仍需核全部Actions、实际包签名与原worker升级；未完成的公网IPv6／全端口／KVM／生产点击／完整OSS灾备独立保留。不得将测试脚本生成或检查退出当作六系统成功；不代退款追扣、客户重建、生产停止／删除或OTA。
+
+最终本地219/219全量自然exit0（logs/test-run-20261113-013523），两遍九组共18场真实PG／mTLS回归已完成；第二遍resume依赖安装冲突后恢复通过。候选0dcb2d24已推PR12，同来源CI发现工具探针把unsquashfs正常非零当坏工具、部分fixture缺新回执及exec输出；均补原语义后测试。六系统CI首次Alpine已创建Running但marker未就绪，仍未通过；追加live脱敏诊断继续定位，不能发布。

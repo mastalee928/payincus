@@ -4,6 +4,7 @@ package provisioning
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -86,11 +87,17 @@ func check(ctx context.Context) error {
 	// Dynamic-library/executable failures must not mint readiness from file presence.
 	for _, n := range required {
 		flag := "--help"
-		// unsquashfs prints help but exits 1; its version path exits 0.
+		// Older unsquashfs versions exit 1 even on the version path. Require
+		// their real version output; missing loaders and crashes still fail.
 		if n == "unsquashfs" {
 			flag = "-version"
 		}
-		if _, e := run(ctx, n, flag); e != nil {
+		out, e := run(ctx, n, flag)
+		var exit *exec.ExitError
+		if n == "unsquashfs" && errors.As(e, &exit) && exit.ExitCode() == 1 && regexp.MustCompile(`(?m)^unsquashfs version [0-9]+\.[0-9]+`).Match(out) {
+			e = nil
+		}
+		if e != nil {
 			return fmt.Errorf("host tool %s execution failed", n)
 		}
 	}

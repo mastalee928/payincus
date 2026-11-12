@@ -5616,7 +5616,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         console.log(`[Migrate] 在目标节点创建实例 ${newIncusId}...`)
         await createInstance(targetClient, incusConfig)
         targetIncusCreated = true
-        await prepareNewContainerCloudInit(targetClient, newIncusId, incusConfig.config as Record<string, string>, 'container')
+        await prepareNewContainerCloudInit(targetClient, newIncusId, incusConfig.config as Record<string, string>, instanceType)
 
         // 15. 启动新实例
         console.log(`[Migrate] 启动新实例 ${newIncusId}...`)

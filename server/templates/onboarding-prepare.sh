@@ -46,7 +46,7 @@ if [ "$ID" != alpine ] && [ "$(cat /sys/module/apparmor/parameters/enabled 2>/de
 fi
 
 # BBR is optional performance, never an onboarding/sales prerequisite. The
-# installed Agent owns safe persistence and continual host/customer follow-up.
+# installed Agent owns safe persistence and continual host follow-up.
 # Do not overwrite administrator files here or replay installation for BBR.
 modprobe tcp_bbr >/dev/null 2>&1 || true
 if ! available=$(sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null); then
