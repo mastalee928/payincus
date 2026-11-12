@@ -210,6 +210,7 @@ async function runAutoRenew(userIds?: number[]): Promise<void> {
     }
     const outcomes = await Promise.allSettled(
       [...byUser.values()].map(group => limit(async () => {
+        let itemFailure: unknown
         for (const instance of group) {
           let balanceBusy = false
           try {
@@ -221,10 +222,14 @@ async function runAutoRenew(userIds?: number[]): Promise<void> {
             // buyer's unrelated renewals rather than lose their paid deadlines.
             console.warn(`[Billing] Auto-renew instance #${instance.id} pending retry`)
             noteExpiryFailure('EXPIRY_AUTO_RENEW_ITEM_PENDING')
+            itemFailure ||= error
           }
           // Preserve this buyer's priority when the shared account is locked.
           if (balanceBusy) break
         }
+        // Finish every independent target, then report incomplete selection so
+        // expiry stop/delete cannot run after an uncertain renewal read.
+        if (itemFailure) throw itemFailure
       }))
     )
     // Keep the shared run occupied until every buyer lane stops, even if one
