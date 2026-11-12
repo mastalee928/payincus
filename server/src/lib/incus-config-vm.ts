@@ -240,6 +240,8 @@ systemctl restart qemu-guest-agent 2>/dev/null || true`
 
   return `#!/bin/sh
 set -e
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 LOG_FILE="/var/log/incudal-vm-setup.log"
 exec >>"$LOG_FILE" 2>&1
 # 不启用 shell trace，避免 ROOT_PASSWORD/SSH_KEY 写入 guest 日志

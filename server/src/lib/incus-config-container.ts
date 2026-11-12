@@ -333,6 +333,8 @@ function generateSetupScript(
 
   return `#!/bin/sh
 set -e
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 SSH_KEY="${escapedKey}"
 ROOT_PASSWORD='${escapedPassword}'
@@ -386,6 +388,7 @@ mv "$POLICY" "$SSH_CONFIG"
 SSHD="$(command -v sshd)"
 [ -n "$SSHD" ]
 "$SSHD" -t
+"$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -E '^(passwordauthentication|permitrootlogin) '
 "$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -q '^passwordauthentication yes$'
 "$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -q '^permitrootlogin yes$'
 
@@ -591,7 +594,7 @@ export function generateContainerConfig(params: IncusConfigParams): IncusConfigR
     '    owner: root:root',
     "    permissions: '0700'",
     '    content: |',
-    ...['#!/bin/sh', 'set -e', 'mkdir -p /var/lib/incudal', `trap 'code=$?; if [ "$code" != 0 ]; then printf "%s\\n" "$code" > /var/lib/incudal/initialization-failed; fi' EXIT`, ...requiredInit.flatMap((command, index) => [`printf '%s\\n' 'INCUDAL_INIT_STAGE_${index}'`, command]), 'touch /var/lib/incudal/initialization-ready'].join('\n').split('\n').map(l => `      ${l}`),
+    ...['#!/bin/sh', 'set -e', 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'export PATH', 'mkdir -p /var/lib/incudal', `trap 'code=$?; if [ "$code" != 0 ]; then printf "%s\\n" "$code" > /var/lib/incudal/initialization-failed; fi' EXIT`, ...requiredInit.flatMap((command, index) => [`printf '%s\\n' 'INCUDAL_INIT_STAGE_${index}'`, command]), 'touch /var/lib/incudal/initialization-ready'].join('\n').split('\n').map(l => `      ${l}`),
     ...(isAlpine ? [
       '  - path: /usr/local/bin/incudal-alpine-ssh-security.sh',
       '    owner: root:root',
