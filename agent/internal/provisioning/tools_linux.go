@@ -215,7 +215,10 @@ func repair(ctx context.Context) error {
 			if len(pinned) == 0 {
 				return fmt.Errorf("tool repair plan unavailable")
 			}
-			_, e = run(ctx, "apk", append([]string{"--no-cache", "--wait", "5", "fix"}, pinned...)...)
+			// apk fix selects installed package names, not name=version atoms.
+			// The simulated plan forbids unrelated changes; fix preserves the
+			// installed version rather than upgrading the distribution.
+			_, e = run(ctx, "apk", append([]string{"--no-cache", "--wait", "5", "fix"}, packages...)...)
 		} else {
 			_, e = run(ctx, "apk", append([]string{"--no-cache", "--wait", "5", "add"}, pinned...)...)
 		}

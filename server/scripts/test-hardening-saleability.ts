@@ -1,3 +1,4 @@
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 /** Actual local PG queue, inventory and allocator; host kernel/SSH reports are fixtures. */
 import assert from 'node:assert/strict'
 import { randomUUID, randomInt } from 'node:crypto'
@@ -53,7 +54,7 @@ try {
         managementIp: '127.0.0.1', sshPort: 22, sshFingerprint: 'SHA256:fixture', nodePublicKey: 'A'.repeat(43) + '=', status: 'succeeded', credentialsExpireAt: new Date(0) } }
     }, include: { onboardingNode: { include: { batch: true } } } }); hostIds.push(host.id)
     await prisma.storagePool.create({ data: { hostId: host.id, name: 'fixture', driver: 'btrfs', purpose: 'instance_data' } })
-    await prisma.hostAgent.create({ data: { hostId: host.id, agentId: randomUUID(), secretHash: 'fixture', secretEncrypted: 'fixture', enabled: true, lastSeenAt: new Date(),capabilities:['guest-network-protection-v1'],lastReport:{guestProtectionStatus:{applied:true,checkedAt:new Date().toISOString()}} } })
+    await prisma.hostAgent.create({ data: { hostId: host.id, ...protectedAgentFixture() } })
     const bootId = randomUUID(), requestId = randomUUID(), expiredAt = Date.now() - 4 * 60000
     const maintenance = { revision: 'host-maintenance-v1', requestId, identityHash: hardeningIdentityHash(host), bootId, prepareHash: 'b'.repeat(64),
       recipe: 'alpine-apparmor-grub-v1', architecture, phase: 'aborted', rebootIssued: false,
@@ -102,11 +103,11 @@ try {
       'fresh heartbeats after admission must not be rejected as future reports')
     const liveAgent = await prisma.hostAgent.findUniqueOrThrow({where:{hostId:host.id}})
     await prisma.hostAgent.update({where:{hostId:host.id},data:{lastSeenAt:admittedEarlier,
-      lastReport:{guestProtectionStatus:{applied:true,checkedAt:admittedEarlier.toISOString()}}}})
+      lastReport:{...protectedAgentFixture().lastReport,guestProtectionStatus:{applied:true,checkedAt:admittedEarlier.toISOString()}}}})
     assert.equal(await prisma.host.count({where:{id:host.id,...dedicatedHostReadyWhere(admittedEarlier)}}),0,
       'original admission time cannot grant current liveness to expired network protection')
     await prisma.hostAgent.update({where:{hostId:host.id},data:{lastSeenAt:liveAgent.lastSeenAt,lastReport:liveAgent.lastReport!}})
-    const protectedReport = { guestProtectionStatus: { applied: true, checkedAt: new Date().toISOString() } }
+    const protectedReport = protectedAgentFixture().lastReport
     for (const lastReport of [{}, { guestProtectionStatus: { applied: false, checkedAt: new Date().toISOString() } },
       { guestProtectionStatus: { applied: true, checkedAt: new Date(0).toISOString() } },
       { guestProtectionStatus: { applied: true, checkedAt: new Date(Date.now() + 600000).toISOString() } }]) {

@@ -4,6 +4,7 @@
  */
 
 import crypto from 'crypto'
+import { rootCertificates } from 'node:tls'
 import { alpineSshSecurityScript } from './alpine-ssh-security.js'
 
 // ==================== 类型定义 ====================
@@ -577,6 +578,16 @@ export function generateContainerConfig(params: IncusConfigParams): IncusConfigR
   const packagesYaml = packages.map(p => `  - ${p}`).join('\n')
 
   const writeFilesYaml = [
+    ...(isAlpine ? [
+      // Some minimal cloud images have apk but no CA bundle. Prepare trusted
+      // public roots before the first signed HTTPS package download. The
+      // installed ca-certificates package owns subsequent bundle maintenance.
+      '  - path: /etc/ssl/cert.pem',
+      '    owner: root:root',
+      "    permissions: '0644'",
+      '    content: |',
+      ...rootCertificates.join('\n').split('\n').map(line => `      ${line}`)
+    ] : []),
     '  - path: /usr/local/bin/incudal-required-init.sh',
     '    owner: root:root',
     "    permissions: '0700'",

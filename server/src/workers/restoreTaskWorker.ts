@@ -180,6 +180,9 @@ export async function claimNextTask(hostId: number) {
                 assertRestoreBinding(taskToRun, current)
                 if (await restoreWorkflowBusy(tx, current.instance, taskToRun.id) || recoveryHeld()) return null
             } catch (error) {
+                // Cleanup/billing owns the current guest. Retain this queued
+                // restore without aborting the worker's remaining hosts.
+                if (error instanceof Error && error.message === 'INSTANCE_BOOT_BLOCKED') return null
                 if (!(error instanceof RestoreAuthorizationError)) throw error
                 await tx.restoreTask.updateMany({ where: { id: taskToRun.id, status: 'PENDING' },
                     data: { status: 'FAILED', progress: 'authorization_failed', error: error.message, finishedAt: new Date() } })
@@ -225,7 +228,12 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
             await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
             if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, task.instanceId)) return null
             if (!await tx.restoreTask.findFirst({ where: restoreAttempt(task) })) return null
-            const current = await loadAuthorizedRestore(tx, task, { sid: task.actorSid ?? undefined, iat: task.actorIat ?? undefined })
+            let current: Awaited<ReturnType<typeof loadAuthorizedRestore>>
+            try { current = await loadAuthorizedRestore(tx, task, { sid: task.actorSid ?? undefined, iat: task.actorIat ?? undefined }) }
+            catch (error) {
+                if (error instanceof Error && error.message === 'INSTANCE_BOOT_BLOCKED') return null
+                throw error
+            }
             assertRestoreBinding(task, current)
             if (await restoreWorkflowBusy(tx, current.instance, task.id) || recoveryHeld()) return null
             return current

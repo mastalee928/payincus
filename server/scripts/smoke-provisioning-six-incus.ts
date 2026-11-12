@@ -34,7 +34,7 @@ try {
     const diagnostics = setInterval(() => {
       try {
         const output = execFileSync('incus', ['exec', name, '--', 'sh', '-c',
-          'cloud-init status --long; tail -n 35 /var/log/cloud-init-output.log; ls -l /var/lib/incudal /usr/local/bin/incudal-required-init.sh; ps | head -n 16'],
+          'cloud-init status --long; tail -n 35 /var/log/cloud-init-output.log; ls -l /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt /var/lib/incudal /usr/local/bin/incudal-required-init.sh; date -u; ps | head -n 16'],
           { encoding: 'utf8', timeout: 5000, maxBuffer: 32768 })
         console.log(output.replaceAll(password, '[redacted]').replace(/(password|passwd|secret|token)[^\n]*/gi, '[redacted line]'))
       } catch { console.log('Native init diagnostic is not yet available') }

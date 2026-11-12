@@ -1,3 +1,4 @@
+import { rootCertificates } from 'node:tls'
 import { generateVmNicMacs, type VmNicMacs } from './vm-network-identifiers.js'
 import { alpineSshSecurityScript } from './alpine-ssh-security.js'
 
@@ -553,7 +554,12 @@ ssh_pwauth: true
 disable_root: false
 
 write_files:
-  - path: /root/incudal-vm-setup.sh
+${osInfo.family === 'alpine' ? `  - path: /etc/ssl/cert.pem
+    permissions: '0644'
+    owner: root:root
+    content: |
+${indentString(rootCertificates.join('\n'), 6)}
+` : ''}  - path: /root/incudal-vm-setup.sh
     permissions: '0755'
     owner: root:root
     content: |
