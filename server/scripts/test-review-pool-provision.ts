@@ -196,7 +196,11 @@ try {
         if(scenario==='install-pending')await prisma.host.update({where:{id:host.id},data:{installPending:true}})
         if(scenario==='maintenance')await prisma.host.update({where:{id:host.id},data:{securityHardening:{maintenance:{phase:'waiting-boot'}}}})
         if(scenario==='faulted')await prisma.host.update({where:{id:host.id},data:{poolFaulted:true}})
-        if(scenario==='receipt-became-due')await new Promise(resolve=>setTimeout(resolve,Math.max(0,expires-Date.now()+25)))
+        if(scenario==='receipt-became-due') {
+          await new Promise(resolve=>setTimeout(resolve,Math.max(0,expires-Date.now()+6000)))
+          await prisma.hostAgent.update({where:{hostId:host.id},data:{lastSeenAt:new Date(),
+            lastReport:{guestProtectionStatus:{applied:true,checkedAt:new Date().toISOString()}}}})
+        }
         if(scenario==='receipt-invalidated')await prisma.host.update({where:{id:host.id},data:{securityHardening:{revision:SECURITY_HARDENING_REVISION,status:'retry',phase:'host-inspection'}}})
         const before=actions.length
         const valid = ['valid','receipt-became-due'].includes(scenario)

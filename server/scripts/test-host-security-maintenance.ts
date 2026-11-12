@@ -224,6 +224,7 @@ try {
   await reset(amd.id,'x86_64');dependencyInstall=true
   await prepareAutomaticHostMaintenance(amd.id,deps)
   assert.deepEqual(commands,['prepare'],'dependency transaction yields instead of issuing a second bounded write in one call')
+  assert.ok(Date.parse((await state(amd.id)).nextCheckAt) - Date.now() <= 1000, 'successful preparation has no fixed 30s backoff')
   assert.equal((await state(amd.id)).maintenance.prepareHash,prepareHash)
   assert.equal(reboots,0)
   await resumeAutomaticHostMaintenance(amd.id,deps)

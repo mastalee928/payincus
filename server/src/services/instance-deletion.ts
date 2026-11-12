@@ -299,13 +299,13 @@ export async function processInstanceDeletion(instanceId: number, connect = getI
   }
 }
 
-export async function processInstanceDeletionQueue() {
+export async function processInstanceDeletionQueue(maxTargets = 5) {
   if (recoveryHeld()) return
   const rows = await prisma.$queryRaw<Array<{ id: number }>>`SELECT id FROM instances
     WHERE status = 'deleted' AND deletion_billing_pending AND deletion_intent IS NOT NULL
       AND deletion_intent->>'status' IN ('pending', 'retry', 'blocked')
       AND (deletion_intent->>'nextAttemptAt' IS NULL OR deletion_intent->>'nextAttemptAt' <= ${new Date().toISOString()})
-    ORDER BY deletion_intent->>'nextAttemptAt' NULLS FIRST, id LIMIT 5`
+    ORDER BY deletion_intent->>'nextAttemptAt' NULLS FIRST, id LIMIT ${maxTargets}`
   for (const row of rows) {
     if (recoveryHeld()) return
     try { await processInstanceDeletion(row.id) } catch { console.warn(`[InstanceDeletion] Instance #${row.id} retry could not be saved; next task continues`) }

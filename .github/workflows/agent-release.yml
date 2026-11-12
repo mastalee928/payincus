@@ -191,6 +191,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq iproute2 nftables iptables python3 util-linux
+      - name: Native pool host BBR, customer preservation and automatic repair
+        run: |
+          (cd agent && CGO_ENABLED=0 go test -c -o /tmp/incudal-bbr-tests ./internal/performance)
+          sudo env INCUDAL_BBR_NATIVE_TEST=1 /tmp/incudal-bbr-tests -test.v
       - name: Native metadata isolation, management source protection and normal customer packets
         run: |
           (cd agent && CGO_ENABLED=0 go test -c -o /tmp/incudal-guest-guard-tests ./internal/guestguard)

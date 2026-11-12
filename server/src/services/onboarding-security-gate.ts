@@ -25,12 +25,18 @@ export async function finishSecureOnboarding(nodeId: string, leaseToken: string,
     const actor = await tx.user.findUnique({ where: { id: actorId } })
     if (actor?.role !== 'admin' || actor.status !== 'active') throw new Error('HARDENING_ADMIN_REQUIRED')
     const state = host?.securityHardening as { revision?: string; status?: string; phase?: string; nextCheckAt?: string; identityHash?: string } | null
-    if (!guestProtectionReady(host?.agent)) throw new Error('HARDENING_ONBOARDING_PENDING')
-    if (!host || hostMaintenanceBlocked(host.securityHardening) || host.status !== 'online' || !host.singleTenant || !host.isInstalled ||
-      host.installPending || host.poolFaulted || host.publicIpSyncBlocked || !host.serverCertificate || !host.serverFingerprint ||
+    if (!host) throw new Error('HARDENING_IDENTITY_MISSING')
+    if (hostMaintenanceBlocked(host.securityHardening)) throw new Error('HARDENING_MAINTENANCE_PENDING')
+    if (host.status !== 'online') throw new Error('HARDENING_OFFLINE')
+    if (!host.isInstalled || host.installPending) throw new Error('HARDENING_INSTALL_PENDING')
+    if (host.poolFaulted) throw new Error('HARDENING_HOST_QUARANTINED')
+    if (host.publicIpSyncBlocked) throw new Error('HARDENING_PUBLIC_IP_PENDING')
+    if (!guestProtectionReady(host.agent)) throw new Error('HARDENING_GUEST_NETWORK_PENDING')
+    if (!host.singleTenant || !host.serverCertificate || !host.serverFingerprint ||
       host.managementSshHost !== node.managementIp || host.managementSshPort !== node.sshPort || host.managementSshUser !== 'root' ||
-      !node.nodePublicKey || !node.sshFingerprint || !host.agent?.enabled || !host.agent.lastSeenAt ||
-      Date.now() - host.agent.lastSeenAt.getTime() >= 90000 || state?.revision !== SECURITY_HARDENING_REVISION ||
+      !node.nodePublicKey || !node.sshFingerprint) throw new Error('HARDENING_IDENTITY_MISSING')
+    if (!host.agent?.enabled || !host.agent.lastSeenAt || Date.now() - host.agent.lastSeenAt.getTime() >= 90000) throw new Error('HARDENING_OFFLINE')
+    if (state?.revision !== SECURITY_HARDENING_REVISION ||
       state.status !== 'verified' || state.identityHash !== hardeningIdentityHash(host) || state.phase !== 'finished' ||
       !state.nextCheckAt || !(Date.parse(state.nextCheckAt) > Date.now())) {
       throw new Error('HARDENING_ONBOARDING_PENDING')

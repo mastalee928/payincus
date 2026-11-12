@@ -1,6 +1,6 @@
 {
   "name": "payincus",
-  "version": "1.8.6",
+  "version": "1.8.7",
   "description": "PayIncus commercial Incus platform",
   "type": "module",
   "private": true,
@@ -46,6 +46,7 @@
   },
   "testGuards": [
     "pnpm --filter server test:guest-network-protection",
+    "pnpm --filter server test:time-sync",
     "pnpm --filter server test:security-hardening-guards",
     "pnpm --filter server test:onboarding-bootstrap-guards",
     "pnpm --filter server test:customer-isolation",
@@ -203,6 +204,8 @@
     "pnpm --filter server test:user-telegram-notify-guards",
     "pnpm --filter server test:billing-query-guards",
     "pnpm --filter server test:instance-billing-route-id-guards",
+    "pnpm --filter server test:instance-renewal-price-guards",
+    "pnpm --filter server test:registered-guest-identity",
     "pnpm --filter server test:instance-operation-conflict-guards",
     "pnpm --filter server test:instance-quota-zero-guards",
     "pnpm --filter server test:instance-task-cancel-race-guard",

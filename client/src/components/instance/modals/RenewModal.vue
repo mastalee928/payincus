@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useConfigStore } from '@/stores/config'
+import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
+import { assertRenewalReceipt, isRenewalMoney } from '@/api/renewal-receipt'
 import type { InstanceBillingInfo, RenewPreview } from '@/types/api'
 import { freeSiteCopy } from '@/utils/freeSiteFun'
 import { walletPath } from '@/utils/app-paths'
@@ -11,6 +13,7 @@ import { walletPath } from '@/utils/app-paths'
 const { t } = useI18n()
 const themeStore = useThemeStore()
 const configStore = useConfigStore()
+const auth = useAuthStore()
 
 interface Props {
   show: boolean
@@ -31,6 +34,20 @@ const billingInfo = ref<InstanceBillingInfo | null>(null)
 const userBalance = ref<number>(0)
 const selectedMonths = ref<number>(1)
 const error = ref<string>('')
+const sessionKey = computed(() => {
+  if (!auth.token) return ''
+  try {
+    const claims = JSON.parse(atob(auth.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (claims.sid) return `${claims.id}:${claims.role || ''}:${claims.sid}`
+  } catch { /* Legacy tokens retain their full identity. */ }
+  return auth.token
+})
+let alive = true, generation = 0
+function requestContext() {
+  const id = props.instanceId, version = ++generation, session = auth.captureAuthentication()
+  return { id, current: () => alive && props.show && id === props.instanceId && version === generation &&
+    !!auth.token && session.aligned && session.current() }
+}
 
 // 续费选项
 const renewOptions = computed<RenewPreview[]>(() => {
@@ -107,15 +124,24 @@ function formatDate(dateStr: string): string {
 
 // 加载计费信息
 async function loadBillingInfo() {
+  const request = requestContext()
+  if (!request.current()) return
   loading.value = true
   error.value = ''
   
   try {
     const [billingRes, balanceRes] = await Promise.all([
-      api.billing.getInstanceBilling(props.instanceId),
+      api.billing.getInstanceBilling(request.id),
       api.billing.getUserBalance()
     ])
     
+    if (!request.current()) return
+    const preview = billingRes.billing?.renewPreview
+    if (billingRes.billing?.instanceId !== request.id || typeof balanceRes.balance?.balance !== 'number' ||
+      !Number.isFinite(balanceRes.balance.balance) || balanceRes.balance.balance < 0 ||
+      (preview !== null && (!Array.isArray(preview) || new Set(preview.map(option => option.months)).size !== preview.length ||
+        !preview.every(option => Number.isSafeInteger(option.months) && option.months >= 1 && option.months <= 24 &&
+          isRenewalMoney(option.price) && isRenewalMoney(option.discountedPrice))))) throw new Error(t('common.loadFailed'))
     billingInfo.value = billingRes.billing as InstanceBillingInfo
     userBalance.value = balanceRes.balance.balance
     
@@ -124,9 +150,9 @@ async function loadBillingInfo() {
       selectedMonths.value = renewOptions.value[0].months
     }
   } catch (err: any) {
-    error.value = err.message || t('common.loadFailed')
+    if (request.current()) error.value = err.message || t('common.loadFailed')
   } finally {
-    loading.value = false
+    if (request.current()) loading.value = false
   }
 }
 
@@ -134,32 +160,38 @@ async function loadBillingInfo() {
 async function handleRenew() {
   if (renewing.value || insufficientBalance.value || !selectedRenewOption.value || !canHostedInstanceRenew.value) return
   
+  const request = requestContext(), months = selectedMonths.value, amount = actualPrice.value
+  if (!request.current()) return
   renewing.value = true
   error.value = ''
   
   try {
-    await api.billing.renewInstance(props.instanceId, selectedMonths.value)
+    const result = await api.billing.renewInstance(request.id, months, amount)
+    if (!request.current()) return
+    assertRenewalReceipt(`/instances/${request.id}/renew`, { months }, result)
     emit('success')
     emit('update:show', false)
   } catch (err: any) {
-    error.value = err.message || t('billing.renewFailed')
+    if (request.current()) error.value = err.message || t('billing.renewFailed')
   } finally {
-    renewing.value = false
+    if (request.current()) renewing.value = false
   }
 }
 
 // 监听显示状态
-watch(() => props.show, (newVal) => {
-  if (newVal) {
+watch([() => props.show, () => props.instanceId, sessionKey, () => auth.user?.id], ([show]) => {
+  generation++
+  billingInfo.value = null
+  userBalance.value = 0
+  selectedMonths.value = 1
+  error.value = ''
+  loading.value = false
+  renewing.value = false
+  if (show) {
     loadBillingInfo()
-  } else {
-    // 重置状态
-    billingInfo.value = null
-    userBalance.value = 0
-    selectedMonths.value = 1
-    error.value = ''
   }
-})
+}, { flush: 'sync', immediate: true })
+onBeforeUnmount(() => { alive = false; generation++ })
 
 function handleClose() {
   emit('update:show', false)

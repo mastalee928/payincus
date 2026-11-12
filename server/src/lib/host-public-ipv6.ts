@@ -22,6 +22,7 @@ export type DedicatedIpv6State = {
   hostId: number
   instanceName: string
   mappings: DedicatedIpv6Mapping[]
+  assignedAddresses?: string[]
   configured?: boolean
   primary: string | null
   status: 'none' | 'ready' | 'pending' | 'failed'
@@ -74,6 +75,7 @@ export function dedicatedIpv6State(value: unknown): DedicatedIpv6State | null {
       ...(['public-ssh', 'guest-network'].includes(mapping.verification || '') ? { verification: mapping.verification } : {}),
       checkedAt: typeof mapping.checkedAt === 'string' && Number.isFinite(Date.parse(mapping.checkedAt)) ? mapping.checkedAt : null }))
   return { version: 1, hostId: input.hostId!, instanceName: input.instanceName, mappings, configured: input.configured === true || mappings.length > 0,
+    ...(Array.isArray(input.assignedAddresses) ? { assignedAddresses: orderedPublicIpv6(input.assignedAddresses, input.primary) } : {}),
     primary: publicIpv6(input.primary), status: input.status ?? 'pending', checkedAt: input.checkedAt ?? null, error: input.error ?? null }
 }
 
@@ -87,7 +89,13 @@ export function customerIpv6View(value: unknown, identity?: { hostId?: number; i
     return { addresses: [] as string[], primary: null, status: 'pending' as const }
   }
   const addresses = orderedPublicIpv6(state.mappings.filter(mapping => mapping.ready).map(mapping => mapping.publicIp), state.primary)
-  return { addresses, primary: addresses[0] ?? null, status: state.status }
+  // A deliberately stopped/suspended guest does not invalidate previously
+  // verified, still assigned mappings. This says allocation is confirmed;
+  // it does not claim that an inactive customer can currently use the address.
+  const stoppedWithConfirmedAllocation = state.error === 'IPV6_INSTANCE_STOPPED' && state.configured &&
+    state.mappings.length > 0 && state.mappings.every(mapping => mapping.ready) && addresses.includes(state.primary || '') &&
+    (!state.assignedAddresses || state.assignedAddresses.length === addresses.length && state.assignedAddresses.every(address => addresses.includes(address)))
+  return { addresses, primary: addresses[0] ?? null, status: stoppedWithConfirmedAllocation ? 'ready' as const : state.status }
 }
 
 export async function discoverHostPublicIpv6(client: Pick<IncusClient, 'request'>, previousPrimary?: string | null): Promise<string[]> {

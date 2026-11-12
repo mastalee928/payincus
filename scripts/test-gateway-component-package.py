@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -58,7 +59,7 @@ class PackageTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_valid(self):
-        self.assertEqual(self.verify()['files'], 20)
+        self.assertEqual(self.verify()['files'], 21)
         self.assertFalse(self.verify()['canWrite'])
 
     def test_binding(self):
@@ -95,11 +96,11 @@ class PackageTests(unittest.TestCase):
 
     def test_privileged_staging_preserves_signed_modes_under_restrictive_umask(self):
         broken = self.root / 'copy-without-mode'
-        subprocess.run(['/usr/bin/bash', '-c', 'umask 077; cp -R "$1" "$2"', 'copy', str(self.package), str(broken)], check=True, capture_output=True)
+        subprocess.run([shutil.which('bash') or '/bin/bash', '-c', 'umask 077; cp -R "$1" "$2"', 'copy', str(self.package), str(broken)], check=True, capture_output=True)
         with self.assertRaises(ValueError):
             verifier.verify_package(broken, self.pinned, 'arm64', '1.7.1', 'a' * 40)
         fixed = self.root / 'copy-with-mode'
-        subprocess.run(['/usr/bin/bash', '-c', 'umask 077; cp -R --preserve=mode --no-preserve=ownership "$1" "$2"', 'copy', str(self.package), str(fixed)], check=True, capture_output=True)
+        subprocess.run([shutil.which('bash') or '/bin/bash', '-c', 'umask 077; cp -R --preserve=mode --no-preserve=ownership "$1" "$2"', 'copy', str(self.package), str(fixed)], check=True, capture_output=True)
         self.assertTrue(verifier.verify_package(fixed, self.pinned, 'arm64', '1.7.1', 'a' * 40)['verified'])
         self.assertEqual((fixed / 'ui/index.html').stat().st_mode & 0o777, 0o644)
         self.assertEqual((fixed / 'bin/incudal-gateway').stat().st_mode & 0o777, 0o755)

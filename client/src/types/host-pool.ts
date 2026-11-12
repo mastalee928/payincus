@@ -75,7 +75,8 @@ export interface OnboardingNode {
   createdAt: string
   updatedAt: string
   completedAt: string | null
-  host: { status: string; isInstalled: boolean; architecture: string; agent: { lastSeenAt: string | null } | null } | null
+  host: { status: string; isInstalled: boolean; architecture: string; agent: { lastSeenAt: string | null } | null;
+    securityHardening?: import('./security-hardening').HardeningView } | null
 }
 export interface OnboardingBatch {
   id: string

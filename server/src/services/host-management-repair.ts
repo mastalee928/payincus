@@ -64,12 +64,14 @@ export async function repairHostManagement(hostId: number, deps = managementRepa
       if (current?.nextAttemptAt && Date.parse(current.nextAttemptAt) > Date.now()) return
       const missingCertificate = !host.certPath || !host.keyPath
       const agent = host.agent
+      const staleAgent = !!agent?.enabled && agent.status !== 'disabled' && !!agent.lastSeenAt &&
+        agent.lastSeenAt.getTime() < Date.now() - 5 * 60000 && !!agent.version && !agent.installTokenKeepsIdentity
       // Legacy installer issuance clears version/heartbeat and leaves its token
       // unused. Do not resurrect explicit credential revocations or disabled agents.
       const legacyAgent = !!agent?.enabled && agent.status !== 'disabled' && agent.lastSeenAt === null && agent.version === null &&
         !!agent.installTokenHash && agent.installTokenUsedAt === null && !agent.installTokenKeepsIdentity
       const awaitingHeartbeat = current?.status === 'waiting-heartbeat' || (!!current?.agentId && current.status !== 'done')
-      if (!missingCertificate && !legacyAgent && !awaitingHeartbeat) return
+      if (!missingCertificate && !legacyAgent && !staleAgent && !awaitingHeartbeat) return
       attempted = true; originalIdentity = transferHostIdentity(host); originalState = host.managementRepair; attempts = (current?.attempts || 0) + 1
       auditActorId = node.batch.createdById
       await tx.$queryRaw`SELECT id FROM users WHERE id = ${node.batch.createdById} FOR SHARE`
@@ -94,10 +96,10 @@ export async function repairHostManagement(hostId: number, deps = managementRepa
           content: automaticOperationAudit({ hostId, hostName: host.name, stage: step, attempt: attempts, result: '恢复成功；原身份与当前心跳均已核验' }) } })
         return
       }
-      if (!missingCertificate && !legacyAgent) throw new Error('AGENT_REPAIR_IDENTITY_SUPERSEDED')
+      if (!missingCertificate && !legacyAgent && !staleAgent) throw new Error('AGENT_REPAIR_IDENTITY_SUPERSEDED')
       step = '核验原 TLS 管理连接'
       await scope.run(() => deps.verify(host, signal), 10000)
-      if (legacyAgent && agent) {
+      if ((legacyAgent || staleAgent) && agent) {
         step = '对齐原管理通道下的 Agent 认证配置'
         attemptedAgentId = agent.agentId
         // Host row lock serializes issuance, explicit revocation and heartbeat;
@@ -112,13 +114,13 @@ export async function repairHostManagement(hostId: number, deps = managementRepa
       scope.remaining(); if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
       await tx.host.update({ where: { id: hostId }, data: {
         ...(missingCertificate ? panelCertificatePaths() : {}),
-        managementRepair: json({ status: legacyAgent ? 'waiting-heartbeat' : 'done', attempts,
+        managementRepair: json({ status: legacyAgent || staleAgent ? 'waiting-heartbeat' : 'done', attempts,
           checkedAt: new Date().toISOString(), agentId: attemptedAgentId, nextAttemptAt: new Date(Date.now() + 120000).toISOString() })
       } })
       await tx.log.create({ data: { userId: node.batch.createdById, module: 'host', action: 'host.management.repair_applied', result: 'success',
         content: automaticOperationAudit({ hostId, hostName: host.name, stage: step, attempt: attempts,
-          result: `修复已执行；补齐证书引用=${missingCertificate}；对齐 Agent 配置=${legacyAgent}；${legacyAgent ? '后台继续核验心跳' : '原管理连接已核验'}；客户机器保持原状`,
-          nextAttemptAt: legacyAgent ? new Date(Date.now() + 120000).toISOString() : undefined }) } })
+          result: `修复已执行；补齐证书引用=${missingCertificate}；对齐 Agent 配置=${legacyAgent || staleAgent}；${legacyAgent || staleAgent ? '后台继续核验心跳' : '原管理连接已核验'}；客户机器保持原状`,
+          nextAttemptAt: legacyAgent || staleAgent ? new Date(Date.now() + 120000).toISOString() : undefined }) } })
     }, { timeout: 59000, maxWait: 2000 })
   } catch (error) {
     if (attempted) await prisma.$transaction(async tx => {
@@ -140,16 +142,17 @@ export async function repairHostManagement(hostId: number, deps = managementRepa
 }
 
 let managementCursor = 0
-export async function repairHostManagementQueue(deps = managementRepairDependencies): Promise<void> {
+export async function repairHostManagementQueue(deps = managementRepairDependencies, maxTargets = 5): Promise<void> {
   const hosts = await prisma.host.findMany({ where: { singleTenant: true, isInstalled: true, onboardingNode: { is: { status: 'succeeded', deletedAt: null } },
     OR: [{ certPath: null }, { keyPath: null }, { agent: { is: { enabled: true, lastSeenAt: null, version: null, installTokenHash: { not: null }, installTokenUsedAt: null, installTokenKeepsIdentity: false } } },
+      { agent: { is: { enabled: true, status: { not: 'disabled' }, version: { not: null }, lastSeenAt: { lt: new Date(Date.now() - 5 * 60000) }, installTokenKeepsIdentity: false } } },
       ...['waiting-heartbeat', 'retry', 'blocked'].map(status => ({ managementRepair: { path: ['status'], equals: status } }))] }, orderBy: { id: 'asc' }, select: { id: true, managementRepair: true } })
   const due = hosts.filter(host => {
     const next = (host.managementRepair as RepairState | null)?.nextAttemptAt
     return !next || Date.parse(next) <= Date.now()
   })
   const rotated = [...due.filter(host => host.id > managementCursor), ...due.filter(host => host.id <= managementCursor)]
-  for (const host of rotated.slice(0, 5)) {
+  for (const host of rotated.slice(0, maxTargets)) {
     if (recoveryHeld()) return
     managementCursor = host.id
     try { await repairHostManagement(host.id, deps) } catch { console.warn(`[HostRepair] Host #${host.id} retry could not be saved; next host continues`) }

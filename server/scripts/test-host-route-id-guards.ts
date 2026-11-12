@@ -154,6 +154,11 @@ assert.ok(
     source.includes('if (!hostId || !instanceId || newPrice === null)'),
   'host renewal price must reject non-finite and out-of-range body values at route boundary'
 )
+const retiredPriceRoute = source.slice(source.indexOf('// PATCH /api/hosts/:id/instances/:instanceId/renewal-price'),
+  source.indexOf('// ========== 宿主机运维中心'))
+assert.ok(retiredPriceRoute.includes('onRequest: [fastify.authenticateAdmin]') &&
+  retiredPriceRoute.includes("code: 'RENEWAL_PRICE_ADMIN_EDITOR_REQUIRED'") &&
+  !retiredPriceRoute.includes('prisma.instance.update'), 'legacy host price route must be read-only for admins and forbidden to ordinary host owners')
 
 assert.ok(
   source.includes('function formatStoragePoolCreateError(error: unknown): string') &&

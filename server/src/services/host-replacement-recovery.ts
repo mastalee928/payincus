@@ -96,7 +96,7 @@ export async function recoverFailedReplacement(taskId: number, connect = getIncu
 }
 
 let sourceCursor = 0
-export async function recoverFailedReplacementSources(connect = getIncusClient): Promise<void> {
+export async function recoverFailedReplacementSources(connect = getIncusClient, maxTargets = 5): Promise<void> {
   const tasks = await prisma.instanceTask.findMany({ where: { taskType: 'replace_host', status: 'FAILED',
     instance: { dedicatedNetworkReady: false, dedicatedIpv4: true, host: { poolFaulted: true } },
     replacementState: { path: ['stage'], equals: 'cleaned' } }, orderBy: { id: 'asc' }, select: { id: true, replacementState: true } })
@@ -105,7 +105,7 @@ export async function recoverFailedReplacementSources(connect = getIncusClient):
     return recovery?.status !== 'done' && (!recovery?.nextAttemptAt || Date.parse(recovery.nextAttemptAt) <= Date.now())
   })
   const rotated = [...due.filter(task => task.id > sourceCursor), ...due.filter(task => task.id <= sourceCursor)]
-  for (const task of rotated.slice(0, 5)) {
+  for (const task of rotated.slice(0, maxTargets)) {
     if (recoveryHeld()) return
     sourceCursor = task.id
     try { await recoverFailedReplacement(task.id, connect) } catch { console.warn(`[HostRepair] Source task #${task.id} retry could not be saved; next task continues`) }

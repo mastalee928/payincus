@@ -56,3 +56,24 @@ func TestHeartbeatAbusePolicyContract(t *testing.T) {
 		})
 	}
 }
+
+func TestPoolHostBBRContract(t *testing.T) {
+	for _, tc := range []struct {
+		response string
+		expected *bool
+	}{
+		{`{"poolHostBbr":true}`, boolPointer(true)}, {`{"poolHostBbr":false}`, boolPointer(false)}, {`{"ok":true}`, nil}, {`{"poolHostBbr":"true"}`, nil},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(tc.response)) }))
+		client := New(config.Config{PanelURL: server.URL, AgentID: "local-test", AgentSecret: "local-fixture", RequestTimeout: time.Second})
+		result, err := client.Heartbeat(context.Background(), map[string]any{})
+		server.Close()
+		if err != nil || (result.PoolHostBBR == nil) != (tc.expected == nil) {
+			t.Fatal(result, err)
+		}
+		if tc.expected != nil && *result.PoolHostBBR != *tc.expected {
+			t.Fatal(result.PoolHostBBR)
+		}
+	}
+}
+func boolPointer(value bool) *bool { return &value }

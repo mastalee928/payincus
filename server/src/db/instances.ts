@@ -195,6 +195,8 @@ export async function getInstanceById(id: number): Promise<(Instance & {
   package_plan_id?: number | null
   auto_renew?: boolean
   billing_price?: number | null  // 实例专属价格（元）
+  renewal_price?: number | null
+  billing_cycle?: number | null
   swap_enabled?: boolean
   swap_size?: number | null
   storage_pool_name?: string | null
@@ -278,7 +280,9 @@ export async function getInstanceById(id: number): Promise<(Instance & {
     last_ipv6_reassign_at: inst.lastIpv6ReassignAt?.toISOString() ?? null,
     package_plan_id: inst.packagePlanId ?? null,
     auto_renew: inst.autoRenew,
-    billing_price: inst.billingPrice ? Number(inst.billingPrice) : null
+    billing_price: inst.billingPrice !== null ? Number(inst.billingPrice) : null,
+    renewal_price: inst.renewalPrice !== null ? Number(inst.renewalPrice) : null,
+    billing_cycle: inst.billingCycle
   }
 }
 

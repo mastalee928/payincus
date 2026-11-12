@@ -17,7 +17,7 @@ function readTextFilesRecursively(root: string, extensions: Set<string>): Array<
     const fullPath = join(root, entry)
     const stat = statSync(fullPath)
     if (stat.isDirectory()) {
-      files.push(...readTextFilesRecursively(fullPath, extensions))
+      for (const file of readTextFilesRecursively(fullPath, extensions)) files.push(file)
       continue
     }
     if (stat.isFile() && extensions.has(extname(entry))) {
@@ -37,7 +37,7 @@ function listRepoFilesRecursively(root: string): string[] {
     const fullPath = join(root, entry)
     const stat = statSync(fullPath)
     if (stat.isDirectory()) {
-      files.push(...listRepoFilesRecursively(fullPath))
+      for (const file of listRepoFilesRecursively(fullPath)) files.push(file)
       continue
     }
     if (stat.isFile()) {

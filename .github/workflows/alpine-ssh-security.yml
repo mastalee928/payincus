@@ -108,6 +108,9 @@ jobs:
           pnpm --filter server test:onboarding-hardening-continuation
           pnpm --filter server test:hardening-saleability
           pnpm --filter server test:guest-network-protection
+          pnpm --filter server test:guest-network-clock-transport
+          pnpm --filter server test:review-agent-credentials-integration
+          sudo python3 scripts/test-time-sync.py
           pnpm --filter server test:onboarding-bootstrap-guards
           python3 scripts/test-host-timezone.py
           python3 scripts/test-host-swap.py

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { isAdminEntry } from '@/utils/app-paths'
-import { ref, computed } from 'vue'
+import { ref, computed, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatMemory, formatDisk, formatDate } from '@/utils/formatters'
 import type { Instance } from '@/types/api'
@@ -9,6 +9,9 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import { getVipBadgeInlineStyle, normalizeVipBadgeStyle } from '@/utils/vipBadge'
 
 const { t } = useI18n()
+const AdminRenewalPriceRow = isAdminEntry
+  ? defineAsyncComponent(() => import('./AdminRenewalPriceRow.vue'))
+  : null
 
 // SSH 连接帮助弹窗
 const showSshHelpModal = ref(false)
@@ -40,6 +43,7 @@ interface Props {
   instancePassword?: Record<string, string | null>
   canEditConfig?: boolean
   canEditExpiry?: boolean
+  canEditRenewalPrice?: boolean
   enableResourcePool?: boolean
 }
 
@@ -48,6 +52,7 @@ interface Emits {
   (e: 'copy', text: string): void
   (e: 'edit-config'): void
   (e: 'edit-expiry'): void
+  (e: 'edit-renewal-price'): void
   (e: 'redeem'): void
 }
 
@@ -279,6 +284,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
           </dd>
         </div>
         <!-- 到期时间 -->
+        <AdminRenewalPriceRow v-if="isAdminEntry && instance.packagePlanId" :price="instance.renewalPrice ?? instance.billingPrice" :cycle="instance.billingCycle" :can-edit="canEditRenewalPrice" @edit="emit('edit-renewal-price')" />
         <div v-if="instance.expires_at" class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <dt class="text-themed-muted">{{ t('instance.detail.info.expiresAt') }}</dt>
           <dd

@@ -32,7 +32,8 @@ import {
   USER_BALANCE_LOCK_NAMESPACE,
   tryAdvisoryTransactionLock
 } from './advisory-locks.js'
-import { arbitrateVipPrice, getUserContinuousVipBenefit, type VipPriceSource } from '../services/vip-benefits.js'
+import { getUserContinuousVipBenefit, type VipPriceSource } from '../services/vip-benefits.js'
+import { decideRenewalPrice } from '../lib/renewal-price.js'
 
 const HOSTING_FREEZE_DAYS = 30
 
@@ -350,7 +351,7 @@ export async function calculateInstanceRefund(instance: {
  * 续费费用计算（支持任意月数）
  */
 export function calculateRenewBilling(
-  instance: { billingPrice: any; billingCycle: number | null; expiresAt: Date | null },
+  instance: { billingPrice: any; billingCycle: number | null; expiresAt: Date | null; renewalPrice?: any },
   months: number = 1
 ): RenewBillingResult {
   // 验证续费月数范围
@@ -358,7 +359,7 @@ export function calculateRenewBilling(
     throw new Error('续费月数必须在 1-24 之间')
   }
 
-  const monthlyPrice = calculateMonthlyPrice(instance)
+  const monthlyPrice = calculateMonthlyPrice({ ...instance, billingPrice: instance.renewalPrice ?? instance.billingPrice })
   const amount = Number((monthlyPrice * months).toFixed(2)) // 保留两位小数
 
   // 从当前到期时间续期（如已过期则从现在开始）
@@ -529,7 +530,7 @@ export async function calculateInstancePriceAdjustmentQuote(
  * 续费价格预览（前端调用）
  */
 export function previewRenewPrices(
-  instance: { billingPrice: any; billingCycle: number | null; expiresAt: Date | null }
+  instance: { billingPrice: any; billingCycle: number | null; expiresAt: Date | null; renewalPrice?: any }
 ): Array<{ months: number; amount: number; expiresAt: Date }> {
   const options = [1, 3, 6, 12] // 常用续费选项
   return options.map(months => {
@@ -561,16 +562,18 @@ export async function performRenewal(
   automatic?: { expiryThreshold: Date },
   session?: WriteSession,
   apiAuthorization?: PublicApiWriteAuthorization,
-  request?: RenewalRequest
+  request?: RenewalRequest,
+  expectedAmount?: number
 ): Promise<RenewalResult> {
-  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months, automatic, session, apiAuthorization, request))
+  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months, automatic, session, apiAuthorization, request, expectedAmount))
 }
 
 async function performRenewalMutation(
   userId: number, instance: Instance, months: number, automatic?: { expiryThreshold: Date }, session?: WriteSession,
-  apiAuthorization?: PublicApiWriteAuthorization, request?: RenewalRequest
+  apiAuthorization?: PublicApiWriteAuthorization, request?: RenewalRequest, expectedAmount?: number
 ): Promise<RenewalResult> {
   if (automatic && recoveryHeld()) throw new Error('AUTO_RENEW_RECOVERY_HELD')
+  if (!automatic && recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
   if (instance.status === 'deleted') {
     throw new Error('实例已删除，无法续费')
   }
@@ -609,7 +612,9 @@ async function performRenewalMutation(
     const current = await tx.instance.findUnique({ where: { id: instance.id } })
     if (!current || current.userId !== userId || current.userId !== instance.userId || current.hostId !== instance.hostId ||
       current.version !== instance.version || current.status !== instance.status || current.incusId !== instance.incusId ||
-      current.packagePlanId !== instance.packagePlanId || current.expiresAt?.getTime() !== instance.expiresAt?.getTime() ||
+      current.packagePlanId !== instance.packagePlanId || String(current.billingPrice) !== String(instance.billingPrice) ||
+      String(current.renewalPrice ?? null) !== String(instance.renewalPrice ?? null) || current.billingCycle !== instance.billingCycle ||
+      current.expiresAt?.getTime() !== instance.expiresAt?.getTime() ||
       current.suspendedBy !== instance.suspendedBy || current.suspendedAt?.getTime() !== instance.suspendedAt?.getTime() ||
       current.suspendReason !== instance.suspendReason || current.deletionIntent || current.deletionBillingPending || current.provisioningCleanupPending) throw new Error('实例状态已变更，请重试')
     if (expiryRetentionEnded(current, new Date())) throw new Error('实例保留期已结束，无法续费')
@@ -632,14 +637,18 @@ async function performRenewalMutation(
       if (current.expiresAt && Math.ceil((current.expiresAt.getTime() - Date.now()) / 86400000) > 7) throw new Error('用户托管节点的实例仅可在到期前7天内续费')
     }
     const { amount: originalAmount, newExpiresAt, periodStart } = calculateRenewBilling(current, months)
-    const affBinding = await getInstanceAffBinding(current.id, tx)
-    const vip = await getUserContinuousVipBenefit(userId, tx)
-    const renewalPrice = arbitrateVipPrice({ basePrice: originalAmount,
+    const affBinding = current.renewalPrice === null ? await getInstanceAffBinding(current.id, tx) : null
+    const vip = current.renewalPrice === null ? await getUserContinuousVipBenefit(userId, tx) : null
+    const renewalPrice = decideRenewalPrice({ basePrice: originalAmount,
       affDiscountRate: affBinding?.affCode.enabled ? Number(affBinding.affCode.discountRate) : 0,
-      vipDiscountPercent: vip.benefit.orderDiscountPercent })
+      vipDiscountPercent: vip?.benefit.orderDiscountPercent }, current.renewalPrice)
     const finalAmount = renewalPrice.finalPrice
     const pricingSource: VipPriceSource = renewalPrice.source
     const discountAmount = renewalPrice.discountAmount
+    if (!automatic && ((session && current.renewalPrice !== null && expectedAmount === undefined) ||
+      (expectedAmount !== undefined && (!Number.isFinite(expectedAmount) || expectedAmount !== finalAmount)))) {
+      throw new Error('续费价格已变化，请重新打开续费窗口确认')
+    }
 
     // 获取用户当前余额
     const user = await tx.user.findUnique({
@@ -653,6 +662,7 @@ async function performRenewalMutation(
     if (user.status !== 'active') throw new Error('用户权限已变更，请重新登录')
 
     const oldBalance = Number(user.balance)
+    if (recoveryHeld()) throw new Error(automatic ? 'AUTO_RENEW_RECOVERY_HELD' : 'PLATFORM_RECOVERY_HELD')
     if (oldBalance < finalAmount) {
       throw new Error('余额不足')
     }
@@ -682,6 +692,7 @@ async function performRenewalMutation(
     // 乐观锁：检查实例版本号并更新
     if (expiryRetentionEnded(current, new Date())) throw new Error('实例保留期已结束，无法续费')
     if (automatic && recoveryHeld()) throw new Error('AUTO_RENEW_RECOVERY_HELD')
+    if (!automatic && recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
     if (automatic) {
       const pending = { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
       if (await tx.instanceTask.count({ where: pending }) || await tx.restoreTask.count({ where: pending }) ||
@@ -785,6 +796,7 @@ async function performRenewalMutation(
     }
 
     if (request) await saveRenewalItem(tx, userId, request, instance.id, { balanceLogId: balanceLog.id, instanceName: instance.name, hostingIncomeResult, newExpiresAt, amount: finalAmount, discountAmount })
+    if (recoveryHeld()) throw new Error(automatic ? 'AUTO_RENEW_RECOVERY_HELD' : 'PLATFORM_RECOVERY_HELD')
     return { balanceLogId: balanceLog.id, hostingIncomeResult, newExpiresAt, finalAmount, discountAmount, replayed: false }
   })
 
@@ -1134,14 +1146,14 @@ export async function getInstanceBillingInfo(instanceId: number): Promise<{
   let renewPreview: Array<{ months: number; amount: number; discountedAmount: number; expiresAt: Date }> | null = null
   let affDiscount: { discountRate: number; affCodeId: number } | null = null
 
-  if (isPaid && instance.billingPrice) {
+  if (isPaid && instance.billingPrice !== null) {
     monthlyPrice = calculateMonthlyPrice({
-      billingPrice: instance.billingPrice,
+      billingPrice: instance.renewalPrice ?? instance.billingPrice,
       billingCycle: instance.billingCycle
     })
 
     // 获取 AFF 绑定信息，计算折扣
-    const affBinding = await getInstanceAffBinding(instanceId)
+    const affBinding = instance.renewalPrice === null ? await getInstanceAffBinding(instanceId) : null
     let discountRate = 0
     if (affBinding) {
       discountRate = Number(affBinding.affCode.discountRate)
@@ -1150,11 +1162,12 @@ export async function getInstanceBillingInfo(instanceId: number): Promise<{
         affCodeId: affBinding.affCode.id
       }
     }
-    const vip = await getUserContinuousVipBenefit(instance.userId)
+    const vip = instance.renewalPrice === null ? await getUserContinuousVipBenefit(instance.userId) : null
 
     // 计算续费预览（包含折扣价）
     const originalPreview = previewRenewPrices({
       billingPrice: instance.billingPrice,
+      renewalPrice: instance.renewalPrice,
       billingCycle: instance.billingCycle,
       expiresAt: instance.expiresAt
     })
@@ -1167,11 +1180,11 @@ export async function getInstanceBillingInfo(instanceId: number): Promise<{
     renewPreview = filteredPreview.map(p => ({
       months: p.months,
       amount: p.amount,  // 原价（元）
-      discountedAmount: arbitrateVipPrice({
+      discountedAmount: decideRenewalPrice({
         basePrice: p.amount,
         affDiscountRate: discountRate,
-        vipDiscountPercent: vip.benefit.orderDiscountPercent
-      }).finalPrice,
+        vipDiscountPercent: vip?.benefit.orderDiscountPercent
+      }, instance.renewalPrice).finalPrice,
       expiresAt: p.expiresAt
     }))
   }
@@ -1179,7 +1192,7 @@ export async function getInstanceBillingInfo(instanceId: number): Promise<{
   return {
     isPaid,
     expiresAt: instance.expiresAt,
-    billingPrice: instance.billingPrice ? Number(instance.billingPrice) : null,
+    billingPrice: instance.renewalPrice !== null ? Number(instance.renewalPrice) : instance.billingPrice !== null ? Number(instance.billingPrice) : null,
     billingCycle: instance.billingCycle,
     monthlyPrice,
     autoRenew: instance.autoRenew,

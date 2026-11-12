@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import HostHardeningDetails from '@/components/host/HostHardeningDetails.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -85,6 +86,7 @@ const actionNodeId = ref<string | null>(null)
 const retryNode = ref<OnboardingNode | null>(null)
 const deleteNode = ref<OnboardingNode | null>(null)
 const sshNode = ref<OnboardingNode | null>(null)
+const hardeningNode = ref<OnboardingNode | null>(null)
 const requestId = ref(crypto.randomUUID())
 const batchName = ref('')
 const accountLabel = ref('')
@@ -361,9 +363,11 @@ onUnmounted(() => { disposed = true; ++addressSequence; clearTimeout(addressTime
                   <div class="flex flex-wrap items-center gap-2 text-xs">
                     <span class="px-2 py-1 rounded" :class="statusClasses[node.status]">{{ t(`onboarding.status.${node.status}`) }}</span>
                     <span v-if="node.status !== 'succeeded' && node.status !== 'cancelled'" class="text-themed-muted">{{ node.step === 'hardening' ? t('securityHardening.title') : t(`onboarding.steps.${node.step}`) }}</span>
-                    <span v-if="node.attempt > 0" class="text-themed-muted">{{ t('onboarding.attempt', { count: node.attempt }) }}</span>
+                    <span v-if="node.attempt > 0 && node.step !== 'hardening' && node.step !== 'done'" class="text-themed-muted">{{ t('onboarding.attempt', { count: node.attempt }) }}</span>
                   </div>
-                  <p v-if="node.errorCode" class="text-xs text-red-600 dark:text-red-400 mt-2 break-words">{{ errorText(node.errorCode) }}</p>
+                  <p v-if="node.errorCode" class="text-xs mt-2 break-words" :class="node.status === 'queued' ? 'text-amber-700 dark:text-amber-400' : 'text-red-600 dark:text-red-400'">{{ errorText(node.errorCode) }}</p>
+                  <p v-if="node.step === 'hardening' && node.host?.securityHardening?.maintenance" class="text-xs text-themed-muted mt-2 break-words">{{ t(`securityHardening.maintenancePhases.${node.host.securityHardening.maintenance.phase}`) }}</p>
+                  <button v-if="node.hostId && node.host?.securityHardening" type="button" class="text-xs text-themed underline underline-offset-4 min-h-11 text-left" @click="hardeningNode = node">{{ t('securityHardening.detail') }}</button>
                   <p v-if="node.status === 'succeeded' && node.host" class="text-xs text-themed-muted mt-2">{{ node.host.architecture }} · {{ t(`onboarding.hostStatus.${node.host.status}`) }}</p>
                 </div>
                 <div class="flex flex-wrap gap-2 md:justify-end">
@@ -383,6 +387,7 @@ onUnmounted(() => { disposed = true; ++addressSequence; clearTimeout(addressTime
         </div>
       </div>
     </div>
+    <HostHardeningDetails v-if="hardeningNode?.hostId" :host-id="hardeningNode.hostId" :host-name="hardeningNode.name" :initial="hardeningNode.host?.securityHardening" @close="hardeningNode = null" />
     <Teleport to="body">
       <div v-if="showCreate" class="modal-overlay" @keydown.esc="closeCreate">
         <div class="modal-backdrop" @click="closeCreate"></div>

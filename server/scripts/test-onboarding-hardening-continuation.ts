@@ -150,10 +150,19 @@ try {
   assert.equal(remote.reboots, 1)
   assert.equal((await state(first.id)).maintenance.phase, 'waiting-boot')
   await first.stock(0)
+  const secondNode = await prisma.hostOnboardingNode.update({ where: { hostId: second.id }, data: { errorCode: 'HARDENING_BATCH_PAUSED' } })
+  const secondCommands = remotes.get(second.id)!.commands.length
+  for (let i=0;i<3;i++) {
+    await due(second.id)
+    assert.equal(await claimHostOnboardingNode(), null, 'waiting enrollment is not repeatedly claimed while another maintenance is active')
+  }
+  assert.equal(remotes.get(second.id)!.commands.length, secondCommands)
+  assert.equal((await prisma.hostOnboardingNode.findUniqueOrThrow({where:{id:secondNode.id}})).attempt, secondNode.attempt)
   // A lost process lease cannot be reused; the valid newly claimed owner proceeds.
   await due(first.id)
   const lost = await claimHostOnboardingNode()
   assert.equal(lost?.hostId, first.id)
+  assert.equal(lost?.attempt, 0, 'hardening continuation is not an installation failure attempt')
   assert.equal(await claimHostOnboardingNode().then(node => node?.id === lost?.id), false)
   await prisma.hostOnboardingNode.update({ where: { id: lost!.id }, data: { leaseUntil: new Date(Date.now() - 60000) } })
   const recovered = await claimHostOnboardingNode()

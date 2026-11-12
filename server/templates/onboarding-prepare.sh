@@ -44,24 +44,20 @@ if [ "$ID" != alpine ] && [ "$(cat /sys/module/apparmor/parameters/enabled 2>/de
   systemctl enable --now apparmor >/dev/null 2>&1 || fail HOST_DEPENDENCIES_PENDING
 fi
 
+# BBR is optional performance, never an onboarding/sales prerequisite. The
+# installed Agent owns safe persistence and continual host/customer follow-up.
+# Do not overwrite administrator files here or replay installation for BBR.
 modprobe tcp_bbr >/dev/null 2>&1 || true
-if sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null | tr ' ' '\n' | grep -qx bbr; then
+if ! available=$(sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null); then
+  echo INCUDAL_BBR:pending
+elif printf '%s\n' "$available" | tr ' ' '\n' | grep -qx bbr; then
   modprobe sch_fq >/dev/null 2>&1 || true
-  mkdir -p /etc/sysctl.d /etc/modules-load.d
-  [ ! -L /etc/sysctl.d/90-incudal-bbr.conf ] && [ ! -L /etc/modules-load.d/incudal-bbr.conf ] || fail HOST_BOOTSTRAP_CONFLICT
-  printf '%s\n' 'net.core.default_qdisc=fq' 'net.ipv4.tcp_congestion_control=bbr' > /etc/sysctl.d/90-incudal-bbr.conf
-  printf '%s\n' 'tcp_bbr' 'sch_fq' > /etc/modules-load.d/incudal-bbr.conf
-  if [ "$ID" = alpine ]; then
-    [ ! -L /etc/modules ] || fail HOST_BOOTSTRAP_CONFLICT
-    touch /etc/modules
-    grep -qx tcp_bbr /etc/modules || printf '%s\n' tcp_bbr >> /etc/modules
-    grep -qx sch_fq /etc/modules || printf '%s\n' sch_fq >> /etc/modules
+  if sysctl -w net.core.default_qdisc=fq net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 &&
+      [ "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)" = bbr ]; then
+    echo INCUDAL_BBR:enabled
+  else
+    echo INCUDAL_BBR:pending
   fi
-  sysctl -p /etc/sysctl.d/90-incudal-bbr.conf >/dev/null 2>&1 || fail HOST_BBR_PENDING
-  [ "$(sysctl -n net.ipv4.tcp_congestion_control)" = bbr ] || fail HOST_BBR_PENDING
-  echo INCUDAL_BBR:enabled
 else
-  # Optional performance capability is not an isolation prerequisite. Keep
-  # the kernel's working algorithm; do not replace its kernel to obtain BBR.
   echo INCUDAL_BBR:kernel-unavailable
 fi

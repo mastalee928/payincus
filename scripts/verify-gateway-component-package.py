@@ -18,6 +18,7 @@ FILES = sorted([
     'ui/index.html', 'ui/console.css', 'ui/console.js',
     'scripts/install-management-gateway.sh', 'scripts/install-management-channels.sh', 'scripts/install-gateway-console.sh',
     'scripts/install-gateway-backup.sh', 'scripts/probe-management-gateway.py',
+    'scripts/ensure-time-sync.py',
     'scripts/gateway-install-plan.py', 'scripts/verify-gateway-component-package.py',
     'scripts/execute-gateway-install.py',
 ])

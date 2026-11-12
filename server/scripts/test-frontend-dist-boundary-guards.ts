@@ -167,6 +167,9 @@ assertNoRegexMarkers('user', userBuildFiles, [
   { label: 'admin expiry enforcement control', pattern: /\/admin\/billing\/expiry-enforcement/g },
   { label: 'admin absolute expiry API', pattern: /\/admin\/instances\/[^\s`"']*\/expiry/g },
   { label: 'admin absolute expiry editor', pattern: /expiry-dialog|expiry-save|AdminExpiryModal/g },
+  { label: 'admin renewal price editor', pattern: /renewal-price-dialog|renewal-price-save|renewal-price-edit|AdminRenewalPriceModal|setInstanceRenewalPrice/g },
+  { label: 'legacy host renewal price client', pattern: /updateInstanceRenewalPrice/g },
+  { label: 'legacy host renewal price endpoint', pattern: /\/hosts\/[^\s`"']*\/instances\/[^\s`"']*\/renewal-price/g },
   { label: 'host gateway DNS control', pattern: /host-onboarding\/gateway\/endpoint/g }
 ])
 console.log('frontend dist boundary guard tests passed')

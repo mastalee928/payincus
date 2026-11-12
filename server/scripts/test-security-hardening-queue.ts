@@ -334,9 +334,13 @@ try {
   await prisma.host.update({where:{id:host.id},data:{serverFingerprint:'changed-fixture-pin'}})
   await assert.rejects(finishSecureOnboarding(enrolledNode.id,onboardingLease,host.id),/ONBOARDING_PENDING/)
   await prisma.host.update({where:{id:host.id},data:{serverFingerprint:host.serverFingerprint}})
-  for(const change of [{poolFaulted:true},{publicIpSyncBlocked:true},{singleTenant:false}]) {
+  for(const [change, expected] of [
+    [{poolFaulted:true}, /HARDENING_HOST_QUARANTINED/],
+    [{publicIpSyncBlocked:true}, /HARDENING_PUBLIC_IP_PENDING/],
+    [{singleTenant:false}, /HARDENING_IDENTITY_MISSING/]
+  ] as const) {
     await prisma.host.update({where:{id:host.id},data:change})
-    await assert.rejects(finishSecureOnboarding(enrolledNode.id,onboardingLease,host.id),/ONBOARDING_PENDING/,
+    await assert.rejects(finishSecureOnboarding(enrolledNode.id,onboardingLease,host.id),expected,
       'a newer host fault or allocation mode invalidates earlier hardening success')
     assert.equal((await prisma.hostOnboardingNode.findUniqueOrThrow({where:{id:enrolledNode.id}})).credentialsEncrypted,'encrypted-retained')
     await prisma.host.update({where:{id:host.id},data:{poolFaulted:false,publicIpSyncBlocked:false,singleTenant:true}})

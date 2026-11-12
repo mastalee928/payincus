@@ -7,6 +7,9 @@ const valid = { release, refs: { [ref]: commit }, version, commit, assets }
 assert.equal(check({ ...valid, release: null, refs: {} }), false)
 assert.equal(check(valid), true)
 assert.equal(check({ ...valid, refs: { [ref]: 'b'.repeat(40), [`${ref}^{}`]: commit } }), true)
+assert.equal(check({ ...valid, commit: 'b'.repeat(40), identicalPublishedSource: commit }), true,
+  'verified identical build inputs and asset digests may reuse the immutable published source after a panel-only commit')
+assert.throws(() => check({ ...valid, commit: 'b'.repeat(40), identicalPublishedSource: 'c'.repeat(40) }))
 for (const change of [
   { release: null }, { refs: {} }, { refs: { [ref]: 'b'.repeat(40) } },
   { release: { ...release, draft: true } }, { release: { ...release, prerelease: true } },

@@ -39,14 +39,15 @@ const originalCaddyCa = process.env.CADDY_CA_PATH, originalCaddyName = process.e
 let poolHostId, poolServer
 const remote = new Map()
 const identities = new Map()
-let offline = true, failDelete = false, stopCount = 0, deleteCount = 0
+let offline = true, failDelete = false, failStop = false, stopCount = 0, deleteCount = 0
 let beforeGuestRead
+let remoteOperations = {}
 const server = createServer({ key: await readFile(root + '/tls.key'), cert: await readFile(root + '/tls.crt') }, async (request, response) => {
   const url = new URL(request.url, 'https://fixture')
   let body = ''; for await (const chunk of request) body += chunk
   const send = (metadata, code = 200) => { response.writeHead(code, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ type: code === 200 ? 'sync' : 'error', metadata, error: code === 200 ? '' : code === 404 ? 'Instance not found' : 'offline fixture' })) }
   if (url.pathname === '/1.0') return send({ api_version: '1.0' })
-  if (url.pathname === '/1.0/operations') return send({})
+  if (url.pathname === '/1.0/operations') return send(remoteOperations)
   if (url.pathname === '/1.0/storage-pools' || url.pathname === '/1.0/networks') return send([])
   if (url.pathname.includes('/forwards')) return send([])
   if (offline) return send({}, 503)
@@ -60,7 +61,12 @@ const server = createServer({ key: await readFile(root + '/tls.key'), cert: awai
     if (beforeGuestRead) await beforeGuestRead(name)
     return send({ name, project: 'default', status: remote.get(name), ...identities.get(name) })
   }
-  if (request.method === 'PUT') { assert.equal(JSON.parse(body).action, 'stop'); stopCount++; remote.set(name, 'Stopped'); return send({}) }
+  if (request.method === 'PUT') {
+    assert.equal(JSON.parse(body).action, 'stop'); stopCount++
+    if (failStop === 'noop') return send({})
+    remote.set(name, 'Stopped')
+    return send({}, failStop === 'lost' ? 503 : 200)
+  }
   if (request.method === 'DELETE') { deleteCount++; if (failDelete) { if (failDelete === 'accepted') remote.delete(name); return send({}, 503) } remote.delete(name); return send({}) }
   return send({})
 })
@@ -83,6 +89,8 @@ async function instance(name, data = {}) {
     } }, ...data } })
 }
 const stopTarget = await instance('expiry-stop-retry')
+await prisma.instanceTask.create({ data: { instanceId: stopTarget.id, hostId: host.id, userId: user.id,
+  taskType: 'rebuild', status: 'COMPLETED', replacementState: {}, finishedAt: new Date() } })
 const renewed = await instance('expiry-renew-before-run')
 const manual = await instance('expiry-manual', { status: 'suspended', suspendReason: 'manual', suspendedBy: owner.id })
 const free = await instance('expiry-free', { packagePlanId: null })
@@ -307,11 +315,13 @@ try {
   assert.equal(await saleReady(), 0, 'unknown customer storage cannot be cleared or released for sale')
   assert.equal(foreignVolume, true)
   foreignVolume = false // Fixture models independently resolved storage; worker must only inspect.
-  await retryPoolCleanup(poolHost.id, owner.id); await processPoolCleanup(poolHost.id)
+  const retainedCleanup = readPoolCleanup((await prisma.host.findUniqueOrThrow({ where: { id: poolHost.id } })).poolCleanup)
+  await prisma.host.update({ where: { id: poolHost.id }, data: { poolCleanup: { ...retainedCleanup, nextAttemptAt: new Date(0).toISOString() } } })
+  await executeExpiryEnforcement()
   assert.equal(readPoolCleanup((await prisma.host.findUniqueOrThrow({ where: { id: poolHost.id } })).poolCleanup)?.status, 'done')
   assert.equal(await saleReady(), 1); assert.equal(poolDeleteCount, 1)
   assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: poolInstance.id } }), 0)
-  console.log('PASS expiry proxy cleanup failure holds guest/allocation; exact TLS cleanup receipt resumes deletion -> persistent pool queue -> unknown storage blocks sale -> verified empty host returns to sale; no repeated deletion or late debit')
+  console.log('PASS expiry proxy cleanup failure -> persistent retry -> resolved storage -> five-minute patrol returns empty host to sale without administrator reset; no repeated deletion or late debit')
   const scanFailure = await instance('expiry-resume-scan-failure')
   const originalTaskScan = prisma.instanceTask.findMany
   let injectedScanFailure = false
@@ -340,6 +350,57 @@ try {
     assert.equal(remote.get(stoppedGuest.incusId), 'Stopped'); assert.equal(stopCount, beforeStop + 1)
   }
   console.log('PASS expiry stop rejects same-name UUID replacement and ephemeral guests; exact original persistent guest resumes safely')
+  const frozen = await instance('expiry-stop-frozen')
+  remote.set(frozen.incusId, 'Frozen')
+  await executeExpiryEnforcement()
+  assert.equal(remote.get(frozen.incusId), 'Stopped', 'expiry enforces Stopped even when the guest was Frozen')
+  const unverifiedStop = await instance('expiry-stop-noop')
+  failStop = 'noop'
+  await executeExpiryEnforcement()
+  assert.equal(remote.get(unverifiedStop.incusId), 'Running')
+  assert.ok((await getExpiryEnforcementStatus()).failureCount > 0, 'a successful HTTP reply without actual stop must remain a recorded failure')
+  assert.equal(await prisma.log.count({ where: { userId: user.id, instanceId: unverifiedStop.id, action: 'instance.suspended_expired', result: 'warning' } }), 1)
+  failStop = false
+  await executeExpiryEnforcement()
+  assert.equal(remote.get(unverifiedStop.incusId), 'Stopped', 'next patrol verifies and completes the actual stop')
+  const lostStop = await instance('expiry-stop-lost-reply')
+  failStop = 'lost'; await executeExpiryEnforcement()
+  assert.equal(remote.get(lostStop.incusId), 'Stopped')
+  const beforeLostRetry = stopCount
+  failStop = false; await executeExpiryEnforcement()
+  assert.equal(stopCount, beforeLostRetry, 'already stopped after lost reply is verified without a second stop')
+  const busyStop = await instance('expiry-stop-busy')
+  const busyTask = await prisma.instanceTask.create({ data: { instanceId: busyStop.id, hostId: host.id, userId: user.id,
+    taskType: 'stop', status: 'PENDING' } })
+  const beforeBusyStop = stopCount
+  await executeExpiryEnforcement()
+  assert.equal(stopCount, beforeBusyStop)
+  assert.equal(remote.get(busyStop.incusId), 'Running')
+  assert.ok((await getExpiryEnforcementStatus()).failureCount > 0, 'busy expiry stop is pending rather than falsely successful')
+  await prisma.instanceTask.delete({ where: { id: busyTask.id } })
+  await executeExpiryEnforcement()
+  assert.equal(remote.get(busyStop.incusId), 'Stopped', 'original guest is stopped once its competing task ends')
+  console.log('PASS Frozen -> Stopped, unverified success -> retry, lost reply -> no duplicate stop, busy -> recorded pending then verified stop')
+  const remoteBusy = await instance('expiry-remote-pending')
+  remoteOperations = { running: [{ status: 'Running', resources: { instances: ['/1.0/instances/' + remoteBusy.incusId] } }] }
+  const beforeRemoteStop = stopCount
+  await executeExpiryEnforcement()
+  assert.equal(stopCount, beforeRemoteStop, 'pending remote operation cannot cause a duplicate stop')
+  assert.equal(remote.get(remoteBusy.incusId), 'Running')
+  remoteOperations = {}
+  await executeExpiryEnforcement()
+  assert.equal(remote.get(remoteBusy.incusId), 'Stopped')
+  await prisma.instance.update({ where: { id: remoteBusy.id }, data: { suspendedAt: new Date(Date.now() - 4 * 86400000) } })
+  remoteOperations = { running: [{ status: 'Running', resources: { instances: ['/1.0/instances/' + remoteBusy.incusId] } }] }
+  const beforeRemoteDelete = deleteCount
+  await executeExpiryEnforcement()
+  assert.equal(deleteCount, beforeRemoteDelete, 'unsettled remote delete cannot be repeated')
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: remoteBusy.id } })).deletionBillingPending, true)
+  remoteOperations = {}
+  await executeExpiryEnforcement()
+  assert.equal(remote.has(remoteBusy.incusId), false)
+  assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: remoteBusy.id } })).deletionBillingPending, false)
+  console.log('PASS remote operation remains in flight -> no duplicate stop/delete -> natural completion -> automatic cleanup succeeds')
   const result = { passed: true, realPostgres: true, httpIncusFixture: true, realCustomerOperations: false, offlineSuspensionPreserved: true,
     reconnectStopRetried: true, manualAndFreePreserved: true, concurrentRenewChargedOnce: true, renewedNotStopped: true,
     uncertainDeleteKeepsAllocation: true, laterDeleteFinalizesOnce: true, noDuplicateStops: true, restartIdempotent: true,

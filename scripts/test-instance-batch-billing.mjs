@@ -116,7 +116,10 @@ try {
     await run(() => { window.batchHarness.view().selectedIds = new Set([2]) })
     await confirm(); const write = await last(kind)
     assert.deepEqual(await page.eval(index => window.batchHarness.pending[index].data.ids, write), [1])
-    if (kind === 'renew') assert.equal(await page.eval(index => window.batchHarness.pending[index].data.months, write), 1)
+    if (kind === 'renew') {
+      assert.equal(await page.eval(index => window.batchHarness.pending[index].data.months, write), 1)
+      assert.deepEqual(await page.eval(index => window.batchHarness.pending[index].data.expectedAmounts, write), { 1: item(1).options[0].discountedPrice })
+    }
     await confirm(); assert.equal(await last(kind), write, `${kind} duplicate confirmation`)
     await close(); assert.equal(await view(modal), true, `${kind} pending write blocks manual close`)
     await run(() => { window.batchHarness.view().selectedIds = new Set([1, 2]) })

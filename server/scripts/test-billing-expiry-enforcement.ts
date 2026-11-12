@@ -5,6 +5,29 @@ import { withInstanceBillingMutation } from '../src/lib/instance-billing-mutatio
 import { enforceExpiredStop, type ExpirySuspension } from '../src/services/billing-expiry-enforcement.js'
 import { registerExpiryEnforcementRoutes } from '../src/routes/billing-expiry-enforcement.js'
 import { expiryHistoryWhere, parseExpiryRunRecord } from '../src/lib/expiry-enforcement-history.js'
+import { runRepairPatrol } from '../src/services/instance-patrol.js'
+import { lifecycleOperationPending } from '../src/lib/incus/lifecycle-operation-idle.js'
+for (const value of [null, [], { running: null }, { running: [null] }, { running: [{ status: 'Running' }] },
+  { running: [{ status: 'Running', resources: { instances: ['/1.0/instances/original'] } }] }]) assert.equal(lifecycleOperationPending(value, 'original'), true)
+for (const value of [{}, { success: [{ status: 'Success' }] }, { running: [{ status: 'Running', resources: { instances: ['/1.0/instances/another'] } }] }]) assert.equal(lifecycleOperationPending(value, 'original'), false)
+const repairOrder: string[] = []
+let repairHeld = false
+const repairOperations = { held: () => repairHeld,
+  management: async () => { repairOrder.push('management'); throw Error('temporary connection repair scan failure') },
+  deletions: async () => { repairOrder.push('accepted-deletions') },
+  replacements: async () => { repairOrder.push('replacement-sources') },
+  cleanup: async () => { repairOrder.push('pool-cleanup') },
+  failed: (step: string) => { repairOrder.push('retry:' + step) } }
+await runRepairPatrol(repairOperations, 'before-billing')
+repairOrder.push('renew/stop/delete')
+await runRepairPatrol(repairOperations, 'after-billing')
+assert.deepEqual(repairOrder, ['management', 'retry:management', 'accepted-deletions', 'replacement-sources', 'renew/stop/delete', 'pool-cleanup'])
+repairHeld = true
+await runRepairPatrol(repairOperations, 'before-billing')
+assert.equal(repairOrder.length, 6, 'recovery protection stops all automatic repair mutations')
+repairHeld = false
+await runRepairPatrol({ ...repairOperations, management: async () => { repairHeld = true } }, 'before-billing')
+assert.equal(repairOrder.length, 6, 'late recovery protection prevents subsequent repair phases')
 let current: ExpirySuspension | null = { id: 1, hostId: 2, incusId: 'existing-instance', status: 'suspended', suspendReason: 'expired',
   packagePlanId: 3, expiresAt: new Date(Date.now() - 100000), version: 4, suspendedBy: null }
 let remoteStatus = 'Running', stops = 0, offline = true
@@ -69,6 +92,8 @@ try {
   assert.deepEqual([starts, runs], [1, 1])
 } finally { await app.close(); if (oldOrigin === undefined) delete process.env.ADMIN_FRONTEND_URL; else process.env.ADMIN_FRONTEND_URL = oldOrigin }
 const scheduler = await readFile(new URL('../src/services/billing-scheduler.ts', import.meta.url), 'utf8')
+assert.ok(scheduler.includes("await runRepairPatrol(repairs, 'before-billing')") && scheduler.includes("await runRepairPatrol(repairs, 'after-billing')"), 'five-minute patrol must resume trusted management, accepted deletions and final pool cleanup')
+assert.ok(scheduler.includes('instance.expiry_stop_pending') && scheduler.includes('instance.expiry_delete_pending'), 'per-instance retry reasons and next patrol time must persist')
 assert.ok(scheduler.includes('await persist(null)') && scheduler.includes('await persist(expiryLastFinishedAt)'), 'each run must persist start and completion, including empty runs')
 assert.ok(scheduler.includes('latestExpiryRunRecord()') && scheduler.includes('EXPIRY_RUN_INTERRUPTED'), 'restart must retain previous history and identify missing completion')
 assert.ok(scheduler.includes("stopPending ? 'warning' : 'success'"), 'an unverified remote stop must not be logged as successful')

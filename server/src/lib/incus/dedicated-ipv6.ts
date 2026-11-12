@@ -62,6 +62,18 @@ export async function ensureDedicatedIpv6Bridge(client: Pick<IncusClient, 'reque
   return gateway
 }
 
+// BusyBox/POSIX awk is available even on minimal Alpine guests. Normalize
+// IPv6 words before comparing the obsolete SLAAC address to the NIC's EUI-64.
+export const legacyIpv6SlaacSelector = `function expand(a, out, halves, l, r, n, k, j, part) {
+  n=split(a,halves,"::"); l=split(halves[1],part,":"); if(halves[1]=="")l=0
+  k=0; for(j=1;j<=l;j++)out[++k]=part[j]
+  if(n==2){r=split(halves[2],part,":");if(halves[2]=="")r=0;for(j=1;j<=8-l-r;j++)out[++k]="0";for(j=1;j<=r;j++)out[++k]=part[j]}
+  for(j=1;j<=k;j++){sub(/^0+/,"",out[j]);if(out[j]=="")out[j]="0"}
+  return k
+}
+BEGIN {expand(primary,p);expand(suffix,s);for(j=1;j<=4;j++)expected[j]=p[j];for(j=1;j<=4;j++)expected[j+4]=s[j]}
+$3=="inet6" && /mngtmpaddr/ {split($4,address,"/");if(address[2]!="64")next;delete actual;n=expand(address[1],actual);matchAddress=n==8;for(j=1;j<=8;j++)if(actual[j]!=expected[j])matchAddress=0;if(matchAddress)print address[1]}`
+
 /** Own only our addresses and route (protocol 242); preserve customer files and IPv4. */
 export const dedicatedIpv6GuestScript = `#!/bin/sh
 set -eu
@@ -90,6 +102,15 @@ if [ -f "$directory/applied" ]; then
   done < "$directory/applied"
 fi
 cp "$directory/addresses" "$directory/applied"
+# Remove only the obsolete SLAAC address derived from this NIC's own MAC.
+# It was left by the old generated network config; keep explicit customer
+# addresses and both owned TCP/UDP/default-protocol mapping addresses.
+mac=$(cat /sys/class/net/eth0/address)
+if [ -n "$primary" ]; then
+  suffix=$(IFS=:; set -- $mac; printf '%x:%x:%x:%x' "$(( (0x$1 ^ 2) * 256 + 0x$2 ))" "$(( 0x$3 * 256 + 255 ))" "$(( 0xfe * 256 + 0x$4 ))" "$(( 0x$5 * 256 + 0x$6 ))")
+  legacy=$(ip -o -6 addr show dev eth0 | awk -v primary="$primary" -v suffix="$suffix" '${legacyIpv6SlaacSelector}')
+  if [ -n "$legacy" ] && ! grep -Fxq "$legacy" "$directory/addresses"; then ip -6 addr del "$legacy/64" dev eth0 2>/dev/null || true; fi
+fi
 `
 
 const systemdUnit = `[Unit]
@@ -174,6 +195,7 @@ export async function reconcileDedicatedIpv6(client: IncusClient, input: {
   const sameInstance = previous !== null && previous.hostId === input.hostId && previous.instanceName === input.name
   const addresses = orderedPublicIpv6(input.addresses, sameInstance ? previous.primary : null)
   const state: DedicatedIpv6State = { version: 1, hostId: input.hostId, instanceName: input.name,
+    assignedAddresses: addresses,
     primary: addresses[0] ?? null, mappings: [], status: addresses.length ? 'pending' : 'none',
     configured: sameInstance && previous.configured, checkedAt: new Date().toISOString(), error: null }
   try {

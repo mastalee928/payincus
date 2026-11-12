@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client'
 export const EXPIRY_LOG_RETENTION_DAYS = 90
 export const EXPIRY_HISTORY_ACTIONS = ['system.expiry_enforcement_started', 'system.expiry_enforcement',
   'instance.auto_renew', 'instance.auto_renew_failed', 'instance.suspended_expired',
-  'instance.deleted_expired', 'instance.expiry_stop_reconciled'] as const
+  'instance.deleted_expired', 'instance.expiry_stop_reconciled', 'instance.expiry_stop_pending', 'instance.expiry_delete_pending'] as const
 const renewalActions = ['instance.auto_renew', 'instance.auto_renew_failed']
 const runActions = ['system.expiry_enforcement_started', 'system.expiry_enforcement']
 export interface ExpiryHistoryQuery {
@@ -40,8 +40,8 @@ export function expiryHistoryWhere(input: ExpiryHistoryQuery, now = Date.now()):
     else if (['巡检', 'patrol', 'inspection'].includes(term)) conditions.push({ action: { in: runActions } })
     else if (['开始', '已开始', '开始巡检'].includes(term)) conditions.push({ action: 'system.expiry_enforcement_started' })
     else if (['余额不足', '餘額不足'].includes(term)) conditions.push({ OR: [{ content: { contains: '余额不足' } }, { content: { contains: 'insufficient balance', mode: 'insensitive' } }] })
-    else if (['封停', '到期封停', '停机', '停機'].includes(term)) conditions.push({ action: { in: ['instance.suspended_expired', 'instance.expiry_stop_reconciled'] } })
-    else if (['删除', '刪除', '到期删除', '到期刪除'].includes(term)) conditions.push({ action: 'instance.deleted_expired' })
+    else if (['封停', '到期封停', '停机', '停機'].includes(term)) conditions.push({ action: { in: ['instance.suspended_expired', 'instance.expiry_stop_reconciled', 'instance.expiry_stop_pending'] } })
+    else if (['删除', '刪除', '到期删除', '到期刪除'].includes(term)) conditions.push({ action: { in: ['instance.deleted_expired', 'instance.expiry_delete_pending'] } })
     else conditions.push({ content: { contains: original, mode: 'insensitive' } })
   }
   return { AND: conditions }

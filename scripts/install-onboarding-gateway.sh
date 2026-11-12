@@ -5,10 +5,13 @@ umask 077
 [[ $EUID -eq 0 ]] || { echo 'Run this script as root.' >&2; exit 1; }
 app_key_path="${1:-/opt/incudal/server/certs/onboarding-gateway.key}"
 [[ "$app_key_path" = /* && "$app_key_path" != /root/.ssh/incudal-host-management ]] || { echo 'Use an absolute path for a dedicated application key.' >&2; exit 1; }
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 for tool in python3 wg ssh-keygen; do command -v "$tool" >/dev/null; done
 wg show incudal-mgmt public-key >/dev/null
 test -f /etc/wireguard/incudal-mgmt.conf
+if ! python3 "$script_dir/ensure-time-sync.py" --install; then
+  echo 'TIME_SYNC_INSTALL_PENDING: clock scheduler installation failed; see /var/lib/incudal-time-sync/status.json. Gateway configuration continues.' >&2
+fi
 install -d -m 700 /root/.ssh
 install -d -m 700 /var/lib/incudal-onboarding
 install -d /usr/local/sbin

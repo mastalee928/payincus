@@ -53,6 +53,10 @@ const showHostReplacement = ref(false)
 const AdminExpiryModal = isAdminEntry
   ? defineAsyncComponent(() => import('@/components/instance/modals/AdminExpiryModal.vue'))
   : null
+const AdminRenewalPriceModal = isAdminEntry
+  ? defineAsyncComponent(() => import('@/components/instance/modals/AdminRenewalPriceModal.vue'))
+  : null
+const showAdminRenewalPrice = ref(false)
 const showAdminExpiry = ref(false)
 
 // 格式化镜像名称：优先使用 imageName，否则去掉 images: 前缀
@@ -321,10 +325,11 @@ const quotaError = ref<string>('')
 let quotaTargetGeneration = 0
 watch([() => instance.value?.host_id, () => instance.value?.user_id, () => instance.value?.incus_id, () => instance.value?.isHostOwner], () => {
   quotaTargetGeneration++
-  showAdminExpiry.value = false
+  showAdminExpiry.value = false; showAdminRenewalPrice.value = false
 }, { flush: 'sync' })
 watch([() => instance.value?.expiryIdentity?.ownerId, () => instance.value?.expiryIdentity?.hostId, () => instance.value?.expiryIdentity?.incusId], () => {
   showAdminExpiry.value = false
+  showAdminRenewalPrice.value = false
 }, { flush: 'sync' })
 const userQuota = ref<UserQuota | null>(null) // 用户配额信息
 interface RemainingQuota {
@@ -701,7 +706,7 @@ watch([() => route.params.id, () => route.name, detailSessionKey], async ([newId
       terminalTabCount.value = 0
 
       // 关闭所有弹窗
-      showAdminExpiry.value = false
+      showAdminExpiry.value = false; showAdminRenewalPrice.value = false
       showAddPortModal.value = false
       showRenameModal.value = false
       showRebuildModal.value = false
@@ -2434,6 +2439,7 @@ function getRenewPrice(inst: InstanceWithDetails | null): number {
   if (!inst) return 0
   const instAny = inst as any
   // 优先使用实例专属价格（管理员设置的价格）
+  if (instAny.renewalPrice !== null && instAny.renewalPrice !== undefined) return instAny.renewalPrice
   const originalPrice = instAny.billingPrice ?? instAny.planPrice
   if (originalPrice !== undefined && originalPrice !== null) {
     // 如果有 AFF 折扣率，应用折扣
@@ -3234,12 +3240,14 @@ function formatShortDate(dateStr: string | null | undefined): string {
               :show-password="showPassword"
               :instance-password="instancePassword"
               :can-edit-config="instance.isHostOwner === true"
+              :can-edit-renewal-price="isAdminEntry && authStore.isAdmin && !!instance.packagePlanId && instance.status !== 'deleted'"
               :can-edit-expiry="isAdminEntry && authStore.isAdmin && instance.status !== 'deleted'"
               :enable-resource-pool="!isAdminEntry && (instance as any).enableResourcePool === true"
               @toggle-password="togglePasswordVisibility"
               @copy="copyToClipboard"
               @edit-config="openConfigEditModal"
               @edit-expiry="showAdminExpiry = true"
+              @edit-renewal-price="showAdminRenewalPrice = true"
               @redeem="openRedeemModal"
             />
           </div>
@@ -3372,6 +3380,17 @@ function formatShortDate(dateStr: string | null | undefined): string {
       :incus-id="instance.expiryIdentity?.incusId"
       @close="showAdminExpiry = false"
       @changed="loadInstance(); toast.success(t('instanceExpiry.success'))"
+    />
+    <AdminRenewalPriceModal
+      v-if="isAdminEntry && authStore.isAdmin && showAdminRenewalPrice && instance"
+      :instance-id="instance.id"
+      :instance-name="instance.name"
+      :session-key="detailSessionKey"
+      :owner-id="instance.expiryIdentity?.ownerId"
+      :host-id="instance.expiryIdentity?.hostId"
+      :incus-id="instance.expiryIdentity?.incusId"
+      @close="showAdminRenewalPrice = false"
+      @changed="loadInstance(); toast.success(t('instanceRenewalPrice.success'))"
     />
     <HostReplacementModal
       v-if="isAdminEntry && showHostReplacement && instance"

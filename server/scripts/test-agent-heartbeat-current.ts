@@ -109,7 +109,8 @@ try {
   const acceptedReport = await app.inject({ method: 'POST', url: '/agent/heartbeat', headers: reportHeaders, payload: reports })
   assert.equal(acceptedReport.statusCode, 200)
   assert.deepEqual(((await prisma.hostAgent.findUniqueOrThrow({ where: { hostId: host.id } })).lastReport as any).guestProtectionStatus,
-    { applied: true, checkedAt: reports.guestProtectionStatus.checkedAt, error: null }, 'authenticated protection receipt persists only controlled fields')
+    { applied: true, checkedAt: reports.guestProtectionStatus.checkedAt, sourceCheckedAt: reports.guestProtectionStatus.checkedAt, error: null },
+    'authenticated protection receipt keeps controlled normalized time and original timestamp without raw private fields')
   assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).portProtocolAppliedRevision, 2)
   assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'running')
   assert.equal(await prisma.trafficSnapshot.count({ where: { instanceId: instance.id } }), 1)

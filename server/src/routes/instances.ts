@@ -766,6 +766,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           package_plan_id: number | null
           icon_badge_id: string | null
           billing_price: number | null
+          renewal_price: number | null
+          billing_cycle: number | null
           monthly_traffic_limit: string | null
           monthly_traffic_used: string
           limits_ingress: string | null
@@ -808,6 +810,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           packageName?: string | null
           packagePlanId?: number | null
           billingPrice?: number | null
+          renewalPrice?: number | null
+          billingCycle?: number | null
           trafficResetPrice?: number
           monthlyTrafficLimit?: string | null
           monthlyTrafficUsed?: string
@@ -857,7 +861,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           iconBadgeId: (instance as { icon_badge_id?: string | null }).icon_badge_id ?? null,
           packageName: instance.package_name || null,
           packagePlanId: instance.package_plan_id || null,
-          billingPrice: instance.billing_price || null,
+          billingPrice: instance.billing_price ?? null,
+          renewalPrice: instance.renewal_price,
+          billingCycle: instance.billing_cycle,
           trafficResetPrice: Number((instance as any).traffic_reset_price || 0),
           monthlyTrafficLimit: instance.monthly_traffic_limit || null,
           monthlyTrafficUsed: instance.monthly_traffic_used || '0',
@@ -2443,6 +2449,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       planName?: string | null
       planPrice?: number | null  // 方案月价格
       billingPrice?: number | null  // 实例专属价格（管理员设置的价格，优先于方案价格）
+      renewalPrice?: number | null
       trafficResetPrice?: number
       billingCycle?: number | null  // 计费周期（月）
       affDiscountRate?: number | null  // AFF优惠码折扣率
@@ -2527,9 +2534,10 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       planName: planName,
       planPrice: planPrice,
       billingPrice: (instance as any).billing_price ?? null,  // 实例专属价格
+      renewalPrice: (instance as any).renewal_price ?? null,
       trafficResetPrice,
-      billingCycle: billingCycle,
-      affDiscountRate: affDiscountRate,
+      billingCycle: (instance as any).billing_cycle ?? billingCycle,
+      affDiscountRate: (instance as any).renewal_price != null ? null : affDiscountRate,
       hasAffBinding,
       isHostedInstance,
       hostAnnouncement: host?.announcement || null,

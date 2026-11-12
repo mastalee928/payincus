@@ -285,6 +285,8 @@ function stripAdminOnlyLocaleMessages(source: string): string {
 
 function stripUserOnlyLocaleMessages(source: string): string {
   let stripped = removeLocaleObjectProperty(source, 'oss', 4)
+  stripped = stripped.replace(/^import \{ (?:zhCN|zhTW|en) as instanceRenewalPrice \} from '\.\/instance-renewal-price'\r?\n/m, '')
+    .replace(/^    instanceRenewalPrice,\r?\n/m, '')
   const adminOnlyTopLevelKeys = [
     'statistics',
     'hosting',

@@ -41,7 +41,7 @@ interface CustomerBillingApi {
     }>
     previewBatchRenew: (instanceIds: number[]) => Promise<{ items: typeof batchRenewPreview.value }>
     getUserBalance: () => Promise<{ balance: UserBalance }>
-    renewInstancesBatch: (instanceIds: number[], months: number) => Promise<{
+    renewInstancesBatch: (instanceIds: number[], months: number, expectedAmounts?: Record<string, number>) => Promise<{
       message: string
       successCount: number
       skippedCount: number
@@ -800,8 +800,8 @@ async function confirmResetTraffic(): Promise<void> {
 }
 
 function getInstanceMonthlyPrice(instance: Instance): string {
-  const price = Number(instance.billingPrice ?? instance.planPrice ?? 0)
-  if (price <= 0) return '-'
+  const price = Number(instance.renewalPrice ?? instance.billingPrice ?? instance.planPrice ?? 0) / Math.max(instance.billingCycle || 1, 1)
+  if (!instance.packagePlanId) return '-'
   return `${formatCurrency(price)}${t('instance.card.perMonth')}`
 }
 
@@ -1376,7 +1376,8 @@ async function confirmBatchRenew(): Promise<void> {
 
   batchRenewSubmitting.value = true
   try {
-    const result = await customerBillingApi.billing.renewInstancesBatch(instanceIds, months)
+    const expectedAmounts = Object.fromEntries(batchRenewPreview.value.filter(item => instanceIds.includes(item.id)).map(item => [item.id, item.options.find(option => option.months === months)!.discountedPrice]))
+    const result = await customerBillingApi.billing.renewInstancesBatch(instanceIds, months, expectedAmounts)
     if (!current()) return
     if (result.failedCount > 0) {
       toast.warning(t('instance.batch.partialResult', {

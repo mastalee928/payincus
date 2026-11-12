@@ -1141,14 +1141,6 @@ const api = {
         giftDays?: number | null
       }
     }> => http.post(`/hosts/${hostId}/instances/create-for-user`, data),
-    // 修改付费实例的续费价格（托管节点所有者专用）
-    updateInstanceRenewalPrice: (hostId: number, instanceId: number, newPrice: number): Promise<{
-      message: string
-      instanceId: number
-      instanceName: string
-      oldPrice: number
-      newPrice: number
-    }> => http.patch(`/hosts/${hostId}/instances/${instanceId}/renewal-price`, { newPrice }),
     // 批量同步实例状态
     batchSyncInstanceStatus: (hostId: number, instanceIds: number[]): Promise<{
       message: string
@@ -2726,6 +2718,11 @@ const api = {
       message: string
       discountRate: number
     }> => http.post(`/admin/instances/${instanceId}/apply-aff`, { affCode }),
+
+    getInstanceRenewalPrice: (instanceId: number, signal?: AbortSignal): Promise<import('@/types/instance-renewal-price').InstanceRenewalPriceSnapshot> =>
+      http.get(`/admin/instances/${instanceId}/renewal-price`, { signal }),
+    setInstanceRenewalPrice: (instanceId: number, data: { price: string; revision: string }, signal?: AbortSignal): Promise<import('@/types/instance-renewal-price').InstanceRenewalPriceSnapshot> =>
+      http.put(`/admin/instances/${instanceId}/renewal-price`, data, { signal }),
 
     // 修改实例专属价格
     updateInstancePrice: (instanceId: number, newPrice: number, settleBalance: boolean, expectedVersion?: number): Promise<{

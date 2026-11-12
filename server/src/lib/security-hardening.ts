@@ -36,7 +36,7 @@ export function hardeningFailure(error: unknown): HardeningCheck {
     'HARDENING_PREPARATION_RETRY_EXHAUSTED','HARDENING_NATIVE_ACCEPTANCE_REQUIRED']
   if (reasons.includes(message)) return { status: 'needs-maintenance', reason: message }
   return { status: 'retry', reason: ['GUEST_NETWORK_PROTECTION_PENDING', 'HARDENING_BUSY', 'HARDENING_OFFLINE', 'HARDENING_RECOVERY_HELD',
-    'HARDENING_HOST_QUARANTINED', 'HARDENING_PUBLIC_IP_PENDING', 'HARDENING_INSTALL_PENDING',
+    'HARDENING_HOST_QUARANTINED', 'HARDENING_PUBLIC_IP_PENDING', 'HARDENING_INSTALL_PENDING', 'HARDENING_MAINTENANCE_PENDING', 'HARDENING_GUEST_NETWORK_PENDING',
     'ALPINE_SSH_INSTANCE_BUSY', 'ALPINE_SSH_TARGET_NOT_READY', 'ALPINE_SSH_RECOVERY_HELD',
     'ALPINE_SSH_UPDATE_FAILED', 'ALPINE_SSH_VERIFICATION_FAILED', 'HOST_SECURITY_MAINTENANCE', 'HARDENING_MEMORY_LOW', 'HARDENING_MEMORY_PRESSURE',
     'HARDENING_DISK_LOW', 'HARDENING_PACKAGE_BUSY', 'SSH_CONNECT_FAILED', 'SSH_DISCONNECTED', 'SSH_COMMAND_TIMEOUT',
@@ -62,7 +62,7 @@ export function hardeningPhaseLabel(phase: HardeningPhase): string {
 export function hardeningDiagnostic(reason: string, phase: HardeningPhase, instanceId?: number): HardeningDiagnostic {
   const check = hardeningFailure(new Error(reason))
   const waiting = ['GUEST_NETWORK_PROTECTION_PENDING', 'HARDENING_BUSY', 'HARDENING_OFFLINE', 'HARDENING_RECOVERY_HELD', 'ALPINE_SSH_INSTANCE_BUSY',
-    'HARDENING_HOST_QUARANTINED', 'HARDENING_PUBLIC_IP_PENDING', 'HARDENING_INSTALL_PENDING',
+    'HARDENING_HOST_QUARANTINED', 'HARDENING_PUBLIC_IP_PENDING', 'HARDENING_INSTALL_PENDING', 'HARDENING_MAINTENANCE_PENDING', 'HARDENING_GUEST_NETWORK_PENDING', 'HARDENING_BATCH_PAUSED',
     'ALPINE_SSH_TARGET_NOT_READY', 'ALPINE_SSH_RECOVERY_HELD', 'HARDENING_MEMORY_LOW', 'HARDENING_MEMORY_PRESSURE',
     'HARDENING_DISK_LOW', 'HARDENING_PACKAGE_BUSY', 'SSH_CONNECT_FAILED', 'SSH_DISCONNECTED'].includes(check.reason || '')
   const action = check.status === 'needs-maintenance' ? 'blocked' : waiting ? 'wait' : 'inspect'
@@ -83,6 +83,8 @@ export function hardeningSchedule(checks: HardeningCheck[], attempts: number, no
 }
 export function hardeningReason(reason?: string): string {
   const reasons: Record<string, string> = {
+    HARDENING_MAINTENANCE_PENDING: '正在按原维护记录完成防护准备、必要重启和恢复核验；自动继续，无需重新对接',
+    HARDENING_GUEST_NETWORK_PENDING: '等待宿主 Agent 的有效客户网络防护回执；系统自动修复并复核，无需重做加固',
     GUEST_NETWORK_PROTECTION_PENDING: '宿主客户网络防护尚未就绪，Agent自动修复后继续验收；未修改客户密码或重做补丁',
     HARDENING_APPARMOR_REQUIRED: '宿主未启用 AppArmor，需验证内核支持并安排维护',
     HARDENING_ONBOARDING_PENDING: '接入安全检查尚未全部通过，系统将自动复核；宿主暂不可售',

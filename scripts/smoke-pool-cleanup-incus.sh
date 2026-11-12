@@ -40,5 +40,9 @@ incus init cleanup-fixture cleanup-guest -c raw.lxc='lxc.init.cmd = /init'
 incus start cleanup-guest
 incus snapshot create cleanup-guest before-delete
 INSTANCE_DELETION_WORKER=1 pnpm --filter server exec tsx scripts/smoke-pool-cleanup-incus.ts
+incus init cleanup-fixture cleanup-guest -c raw.lxc='lxc.init.cmd = /init'
+incus start cleanup-guest
+incus snapshot create cleanup-guest before-delete
+EXPIRY_DELETION_WORKER=1 pnpm --filter server exec tsx scripts/smoke-pool-cleanup-incus.ts
 incus list --format=json | python3 -c 'import json,sys; assert json.load(sys.stdin)==[]'
 echo 'Actual Incus running guest, snapshot, disk volume and forward deletion verified.'

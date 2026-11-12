@@ -1,3 +1,4 @@
+import { en as instanceRenewalPrice } from './instance-renewal-price'
 import { en as adminUserEmail } from './admin-user-email'
 import { en as instanceExpiry } from './instance-expiry'
 import { en as securityHardening } from './security-hardening'
@@ -11,6 +12,7 @@ import { en as automaticRecovery } from './automatic-recovery'
 export default {
     adminUserEmail,
     instanceExpiry,
+    instanceRenewalPrice,
     securityHardening,
     automaticRecovery,
     hostAbuse,

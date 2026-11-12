@@ -55,5 +55,30 @@ try {
   assert.equal(await page.eval(() => document.querySelector('form[role="dialog"] button[type="submit"]').disabled), true)
   await click('onboarding.viewExistingTask')
   assert.equal(await page.eval(() => document.querySelector('#pool-tab-tasks').getAttribute('aria-selected')), 'true')
+  await run(() => {
+    const h=window.onboardingHarness, now=new Date().toISOString()
+    h.fixture.hardening={hostId:51,status:'retry',fresh:false,phase:'host-inspection',checkedAt:now,nextCheckAt:now,
+      attempts:15,updateAttempts:0,host:null,instances:[],environment:null,
+      diagnostic:{phase:'host-inspection',reason:'HARDENING_MAINTENANCE_PENDING',action:'wait'},
+      maintenance:{phase:'waiting-boot',startedAt:now,deadline:now,rebootIssued:true,reason:null,
+        history:[{phase:'prepared',at:now},{phase:'reboot-intent',at:now},{phase:'waiting-boot',at:now}]}}
+    h.fixture.batches=[{id:'batch-fixture',name:'San Jose acceptance',accountLabel:'Clock repair',createdAt:now,defaults:{},nodes:[{
+      id:'node-fixture',name:'sanjose-isolated-amd',publicIp:'192.0.2.51',hostId:51,managementIp:'10.253.240.51',
+      status:'queued',step:'hardening',attempt:15,errorCode:'HARDENING_MAINTENANCE_PENDING',
+      host:{status:'online',architecture:'x86_64',securityHardening:h.fixture.hardening}}]}]
+  })
+  await click('common.refresh')
+  for(const locale of ['zh-CN','zh-TW','en'])for(const width of [390,768,1440]) {
+    await run(({locale,width})=>{const h=window.onboardingHarness;h.setLocale(locale);h.theme.setTheme(width===390?'dark':'light')},{locale,width})
+    await page.setViewport({width,height:900,mobile:width===390})
+    assert.equal(await page.eval(()=>document.body.innerText.includes(window.onboardingHarness.t('onboarding.attempt',{count:15}))),false,'maintenance polls must not be labelled repeated failures')
+    await click('securityHardening.detail')
+    assert.equal(await page.eval(()=>document.querySelectorAll('dialog .action-history li').length),3)
+    assert.equal(await page.eval(()=>document.querySelector('dialog').innerText.includes('HARDENING_')),false)
+    assert.equal(await page.eval(()=>document.documentElement.scrollWidth<=innerWidth),true)
+    await page.screenshot({path:resolve(output,`hardening-${locale}-${width}.png`)})
+    await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});await sleep(100)
+    assert.equal(await page.eval(()=>document.querySelector('dialog')===null),true)
+  }
   console.log('PASS actual Vue onboarding: duplicate IP immediate message, existing Host search, task navigation, stale address/closed modal isolation; 3 locales and 3 widths, light/dark (controlled API)')
 } finally { if (browser) await browser.close(); await server.close() }

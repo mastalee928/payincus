@@ -226,7 +226,8 @@ async function executeRenewForUser(
   user: { id: number; username: string } & WriteSession,
   instanceId: number,
   months: number,
-  request: RenewalRequest
+  request: RenewalRequest,
+  expectedAmount?: number
 ): Promise<BatchRenewResultItem> {
   const existing = (await readRenewalItems(user.id, request, user))[instanceId]
   if (existing) {
@@ -281,7 +282,7 @@ async function executeRenewForUser(
   }
 
   try {
-    const result = await db.performRenewal(user.id, instance, months, undefined, user, undefined, request)
+    const result = await db.performRenewal(user.id, instance, months, undefined, user, undefined, request, expectedAmount)
     if (result.replayed) return { id: instance.id, name: instance.name, success: true, amount: result.amount, newExpiresAt: result.newExpiresAt.toISOString() }
 
     await sendNotification(user.id, 'instance_renewed', {
@@ -341,7 +342,8 @@ async function executeRenewForUser(
       id: preview.id,
       name: preview.name,
       success: false,
-      reason: error instanceof db.AffCodeEligibilityError ? error.message : '续费失败'
+      reason: error instanceof db.AffCodeEligibilityError || error instanceof Error && error.message === '续费价格已变化，请重新打开续费窗口确认'
+        ? error.message : '续费失败'
     }
   }
 }
@@ -441,7 +443,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
   // POST /api/instances/:id/renew
   fastify.post<{
     Params: { id: string }
-    Body: { months: number }
+    Body: { months: number; expectedAmount?: number }
   }>('/:id/renew', {
     onRequest: [fastify.authenticateUser],
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
@@ -450,7 +452,8 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
         type: 'object',
         required: ['months'],
         properties: {
-          months: { type: 'integer', minimum: 1, maximum: 24 }
+          months: { type: 'integer', minimum: 1, maximum: 24 },
+          expectedAmount: { type: 'number', minimum: 0, maximum: 2400000 }
         }
       }
     }
@@ -533,7 +536,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await db.performRenewal(user.id, instance, months, undefined, user, undefined, renewal)
+      const result = await db.performRenewal(user.id, instance, months, undefined, user, undefined, renewal, request.body.expectedAmount)
       if (result.replayed) return { message: '续费成功', amount: result.amount, months, newExpiresAt: result.newExpiresAt.toISOString() }
 
       // 发送续费成功通知
@@ -602,6 +605,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '续费失败'
       if (error instanceof RenewalRequestError) return reply.code(error.statusCode).send({ error: error.message, code: error.code })
+      if (errorMessage === '续费价格已变化，请重新打开续费窗口确认') return reply.code(409).send({ error: errorMessage, code: 'RENEWAL_PRICE_CHANGED' })
       return reply.code(error instanceof db.AffCodeEligibilityError ? error.statusCode : 400).send({ error: errorMessage })
     }
   })
@@ -637,7 +641,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post<{
-    Body: { instanceIds: number[]; months: number }
+    Body: { instanceIds: number[]; months: number; expectedAmounts?: Record<string, number> }
   }>('/batch/renew', {
     onRequest: [fastify.authenticateUser],
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
@@ -652,7 +656,8 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
             minItems: 1,
             maxItems: 100
           },
-          months: { type: 'integer', minimum: 1, maximum: 24 }
+          months: { type: 'integer', minimum: 1, maximum: 24 },
+          expectedAmounts: { type: 'object', maxProperties: 100, additionalProperties: { type: 'number', minimum: 0, maximum: 2400000 } }
         },
         additionalProperties: false
       }
@@ -681,7 +686,7 @@ export default async function instanceBillingRoutes(fastify: FastifyInstance) {
 
     const results: BatchRenewResultItem[] = []
     for (const instanceId of uniqueIds) {
-      const item = await executeRenewForUser(userMeta, instanceId, request.body.months, renewal)
+      const item = await executeRenewForUser(userMeta, instanceId, request.body.months, renewal, request.body.expectedAmounts?.[String(instanceId)])
       if (!item.success) {
         const saved = await recordRenewalFailure(userMeta.id, renewal, instanceId, item, userMeta)
         if (saved && typeof saved === 'object' && 'failure' in saved) results.push(saved.failure as unknown as BatchRenewResultItem)

@@ -23,7 +23,8 @@ import {
   calculateRenewBilling
 } from '../db/billing-operations.js'
 import { AffCodeBusyError, getInstanceAffBinding } from '../db/aff.js'
-import { arbitrateVipPrice, getUserContinuousVipBenefit } from './vip-benefits.js'
+import { getUserContinuousVipBenefit } from './vip-benefits.js'
+import { decideRenewalPrice } from '../lib/renewal-price.js'
 import {
   getAutoRenewInstances,
   getExpiredUnsuspendedInstances,
@@ -52,6 +53,13 @@ import { cleanupProxySitesForLifecycle } from '../db/proxy-site-operations.js'
 import { hasPendingProxySiteOperations } from '../db/proxy-site-operation-guards.js'
 import { latestExpiryRunRecord, writeExpiryRunRecord } from './expiry-enforcement-history.js'
 import { EXPIRY_LOG_RETENTION_DAYS } from '../lib/expiry-enforcement-history.js'
+import { runRepairPatrol, type PatrolStep } from './instance-patrol.js'
+import { repairHostManagementQueue } from './host-management-repair.js'
+import { processInstanceDeletionQueue } from './instance-deletion.js'
+import { recoverFailedReplacementSources } from './host-replacement-recovery.js'
+import { processPoolCleanupQueue } from './host-pool-cleanup.js'
+import { automaticOperationAudit } from '../lib/automatic-operation-audit.js'
+import { lifecycleOperationPending } from '../lib/incus/lifecycle-operation-idle.js'
 
 // 并发限制
 const limit = pLimit(5)
@@ -202,14 +210,26 @@ async function runAutoRenew(userIds?: number[]): Promise<void> {
     }
     const outcomes = await Promise.allSettled(
       [...byUser.values()].map(group => limit(async () => {
+        let itemFailure: unknown
         for (const instance of group) {
           let balanceBusy = false
-          await withInstanceBillingJobLock('auto-renew', instance.id, async () => {
-            balanceBusy = await processAutoRenew(instance) === 'balance-busy'
-          })
+          try {
+            await withInstanceBillingJobLock('auto-renew', instance.id, async () => {
+              balanceBusy = await processAutoRenew(instance) === 'balance-busy'
+            })
+          } catch (error) {
+            // Preserve the failed target for a later patrol, but continue this
+            // buyer's unrelated renewals rather than lose their paid deadlines.
+            console.warn(`[Billing] Auto-renew instance #${instance.id} pending retry`)
+            noteExpiryFailure('EXPIRY_AUTO_RENEW_ITEM_PENDING')
+            itemFailure ||= error
+          }
           // Preserve this buyer's priority when the shared account is locked.
           if (balanceBusy) break
         }
+        // Finish every independent target, then report incomplete selection so
+        // expiry stop/delete cannot run after an uncertain renewal read.
+        if (itemFailure) throw itemFailure
       }))
     )
     // Keep the shared run occupied until every buyer lane stops, even if one
@@ -382,13 +402,13 @@ export async function processAutoRenew(instance: any): Promise<'balance-busy' | 
     }
 
     const balance = Number(user.balance)
-    const affBinding = await getInstanceAffBinding(instance.id)
-    const vip = await getUserContinuousVipBenefit(instance.userId)
-    const renewAmount = arbitrateVipPrice({
+    const affBinding = instance.renewalPrice === null ? await getInstanceAffBinding(instance.id) : null
+    const vip = instance.renewalPrice === null ? await getUserContinuousVipBenefit(instance.userId) : null
+    const renewAmount = decideRenewalPrice({
       basePrice: renewInfo.amount,
       affDiscountRate: affBinding?.affCode.enabled ? Number(affBinding.affCode.discountRate) : 0,
-      vipDiscountPercent: vip.benefit.orderDiscountPercent
-    }).finalPrice
+      vipDiscountPercent: vip?.benefit.orderDiscountPercent
+    }, instance.renewalPrice).finalPrice
 
     // 余额不足
     if (balance < renewAmount) {
@@ -565,7 +585,7 @@ async function executeExpirySuspend(): Promise<void> {
 
     // 并发处理（先完成封停与停机，通知在本轮末尾按用户聚合发送）
     const suspendedNotifications: Array<{ userId: number; instanceName: string; expiresAt: Date | null }> = []
-    await Promise.all(
+    const suspensionOutcomes = await Promise.allSettled(
       instances.map(instance =>
         limit(() => withInstanceBillingJobLock('expiry-suspend', instance.id, async () => {
           const suspended = await processExpirySuspend(instance)
@@ -573,6 +593,7 @@ async function executeExpirySuspend(): Promise<void> {
         }))
       )
     )
+    if (suspensionOutcomes.some(outcome => outcome.status === 'rejected')) noteExpiryFailure('EXPIRY_SUSPEND_ITEM_PENDING')
 
     const suspendedByUser = new Map<number, Array<{ instanceName: string; expiresAt: Date | null }>>()
     for (const item of suspendedNotifications) {
@@ -631,6 +652,7 @@ async function processExpirySuspend(instance: any): Promise<{ userId: number; in
     } catch (stopError) {
       stopPending = true
       noteExpiryFailure('EXPIRY_REMOTE_STOP_PENDING')
+      await logExpiryPending(suspendedInstance.id, 'stop', stopError)
       // 停止失败不影响封停逻辑
       console.log(`[Billing] Failed to stop Incus instance ${suspendedInstance.incusId}:`, stopError)
     }
@@ -656,15 +678,28 @@ async function processExpirySuspend(instance: any): Promise<{ userId: number; in
   } catch (error) {
     noteExpiryFailure('EXPIRY_REMOTE_STOP_PENDING')
     console.error(`[Billing] Failed to suspend instance ${instance.id}:`, error)
+    await logExpiryPending(instance.id, 'stop', error)
     return null
   }
 }
 
+async function logExpiryPending(instanceId: number, stage: 'stop' | 'delete', error: unknown) {
+  try {
+    const current = await prisma.instance.findUnique({ where: { id: instanceId }, include: { host: { select: { name: true } } } })
+    if (!current) return
+    const code = error instanceof Error && /^[A-Z_]{1,100}$/.test(error.message) ? error.message : 'EXPIRY_MANAGEMENT_RETRY'
+    const action = stage === 'stop' ? 'instance.expiry_stop_pending' : 'instance.expiry_delete_pending'
+    const attempt = await prisma.log.count({ where: { instanceId, action } }) + 1
+    await createLog(current.userId, 'instance', action,
+      automaticOperationAudit({ hostId: current.hostId, hostName: current.host.name, instanceId,
+        stage: stage === 'stop' ? '到期停止原实例并核验Stopped' : '保留期结束删除原Incus容器、磁盘及转发', attempt,
+        result: '后台自动复核管理连接与原任务并续接；未确认清理前保持原库存占用', error: code,
+        nextAttemptAt: new Date(Date.now() + 5 * 60000).toISOString() }), 'warning', { instanceId })
+  } catch { console.warn(`[Billing] Pending ${stage} audit for instance #${instanceId} will retry`) }
+}
+
 async function stopCurrentExpiredInstance(instanceId: number) {
-  if (await hasPendingSnapshotOperation(instanceId)) return
   const pending = { instanceId, status: { in: ['PENDING', 'PROCESSING'] as Array<'PENDING' | 'PROCESSING'> } }
-  if (await prisma.instanceTask.count({ where: pending }) || await prisma.restoreTask.count({ where: pending }) ||
-    await prisma.backupUploadTask.count({ where: pending })) return
   const scope = recoveryScope(55000)
   let result: 'skipped' | 'stopped' | 'already-stopped'
   try {
@@ -698,12 +733,21 @@ async function stopCurrentExpiredInstance(instanceId: number) {
           const guest = await read()
           if (guest.status === 'Stopped') return
           if (!['Running', 'Frozen'].includes(guest.status)) throw new Error('EXPIRY_REMOTE_STATE_UNKNOWN')
+          if (lifecycleOperationPending(await client.request('GET', '/1.0/operations?recursion=1'), current.incusId)) throw new Error('EXPIRY_REMOTE_OPERATION_PENDING')
           if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
           await client.request('PUT', `${path}/state`, { action: 'stop', force: true, timeout: 5 })
         }
       })
     }, { timeout: scope.remaining(), maxWait: 3000 })
   } finally { scope.close() }
+  if (result === 'skipped') {
+    const current = await prisma.instance.findUnique({ where: { id: instanceId } })
+    if (isCurrentExpirySuspension(current) && !current.deletionIntent && !current.deletionBillingPending && !current.provisioningCleanupPending) {
+      // A busy/held original guest remains protected and is retried next patrol.
+      // Do not report its host stop as successful before it was verified.
+      throw new Error('EXPIRY_STOP_BUSY')
+    }
+  }
   if (result === 'stopped') {
     const instance = await prisma.instance.findUnique({ where: { id: instanceId }, select: { userId: true } })
     if (instance) await createLog(instance.userId, 'instance', 'instance.expiry_stop_reconciled',
@@ -733,11 +777,12 @@ async function executeExpiryDelete(): Promise<void> {
 
     console.log(`[Billing] Found ${expiredInstances.length} expired instances to delete`)
 
-    // 串行处理删除（避免并发问题）
-    for (const instance of [...expiredInstances, ...cleanup]) {
+    // Independent targets share bounded concurrency; each still holds its
+    // instance/host locks. A failed target cannot abort the rest of the scan.
+    const deletionOutcomes = await Promise.allSettled([...expiredInstances, ...cleanup].map(instance => limit(async () => {
       await withInstanceBillingJobLock('expiry-delete', instance.id, () => processExpiryDelete(instance))
-      await delay(1000) // 间隔1秒
-    }
+    })))
+    if (deletionOutcomes.some(outcome => outcome.status === 'rejected')) noteExpiryFailure('EXPIRY_DELETE_ITEM_PENDING')
 
     const duration = Date.now() - startTime
     console.log(`[Billing] Expiry delete job completed in ${duration}ms`)
@@ -859,11 +904,13 @@ async function processExpiryDelete(instance: any): Promise<void> {
         const guardedClient = scope.client(await scope.run(() => getIncusClient(currentHost, tx, Math.min(8000, scope.remaining()))))
         const before = await loadRemote(); verifyTarget(before)
         if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
+        if (before && lifecycleOperationPending(await guardedClient.request('GET', '/1.0/operations?recursion=1'), instance.incusId)) throw new Error('EXPIRY_REMOTE_OPERATION_PENDING')
         if (before && before.status !== 'Stopped') await guardedClient.request('PUT', `${path}/state`, { action: 'stop', force: true, timeout: 5 })
         const stopped = await loadRemote(); verifyTarget(stopped)
         if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
         if (stopped) {
           if (stopped.status !== 'Stopped') throw new Error('EXPIRY_STOP_NOT_VERIFIED')
+          if (lifecycleOperationPending(await guardedClient.request('GET', '/1.0/operations?recursion=1'), instance.incusId)) throw new Error('EXPIRY_REMOTE_OPERATION_PENDING')
           await deleteIncusInstance(guardedClient as Awaited<ReturnType<typeof getIncusClient>>, instance.incusId)
         } else {
           await removeDedicatedForward(guardedClient, instance.incusId)
@@ -877,6 +924,7 @@ async function processExpiryDelete(instance: any): Promise<void> {
       // DELETE may already have been accepted remotely. Keep occupied pending
       // cleanup instead of resurrecting a possibly destroyed instance.
       noteExpiryFailure('EXPIRY_REMOTE_DELETE_PENDING')
+      await logExpiryPending(instance.id, 'delete', incusError)
       console.log(`[Billing] Failed to delete Incus instance ${instance.incusId}, pending reconciliation:`, incusError)
       return
     }
@@ -921,18 +969,18 @@ async function processExpiryDelete(instance: any): Promise<void> {
     }, { maxWait: 5000, timeout: 10000 })
     console.log(`[Billing] Expiry deletion finalized; released ${portMappingsCount} port mapping(s)`)
 
-    // 发送删除通知
-    await sendNotification(instance.userId, 'instance_deleted', {
-      instanceName: instance.name
-    })
-
     await createLog(
       instance.userId,
       'instance',
       'instance.deleted_expired',
       `Instance "${instance.name}" automatically deleted after ${SUSPEND_AFTER_DELETE_DAYS} days of suspension`,
-      'success'
+      'success', { instanceId: instance.id }
     )
+
+    // A notification outage cannot turn confirmed guest/disk deletion back
+    // into an apparent lifecycle failure or repeat its cleanup.
+    try { await sendNotification(instance.userId, 'instance_deleted', { instanceName: instance.name }) }
+    catch { console.warn(`[Billing] Deletion notification for instance #${instance.id} pending delivery`) }
 
     console.log(`[Billing] Deleted expired instance ${instance.id}`)
 
@@ -948,6 +996,7 @@ async function processExpiryDelete(instance: any): Promise<void> {
 
   } catch (error) {
     noteExpiryFailure('EXPIRY_DELETE_RECONCILIATION_PENDING')
+    await logExpiryPending(instance.id, 'delete', error)
     console.error(`[Billing] Failed to delete instance ${instance.id}:`, error)
   } finally { scope.close() }
 }
@@ -1195,7 +1244,13 @@ export async function executeExpiryEnforcement(): Promise<void> {
     catch { expiryHistoryError = 'EXPIRY_LOG_WRITE_FAILED'; console.error('[Billing] Expiry run history write failed') }
   }
   await persist(null)
+  // Supplement the continuously running queues with one rotating target per
+  // phase; a long management repair cannot monopolize the billing patrol.
+  const repairs = { held: recoveryHeld, management: () => repairHostManagementQueue(undefined, 1), deletions: () => processInstanceDeletionQueue(1),
+    replacements: () => recoverFailedReplacementSources(undefined, 1), cleanup: () => processPoolCleanupQueue(undefined, 1),
+    failed: (step: PatrolStep) => noteExpiryFailure(`EXPIRY_REPAIR_${step.toUpperCase().replaceAll('-', '_')}_PENDING`) }
   try {
+    await runRepairPatrol(repairs, 'before-billing')
     // Catch missed renewals before stopping or deleting the restored inventory.
     try { await executeAutoRenew() } catch { noteExpiryFailure('EXPIRY_AUTO_RENEW_SCAN_FAILED'); return }
     if (recoveryHeld()) return
@@ -1203,6 +1258,7 @@ export async function executeExpiryEnforcement(): Promise<void> {
     catch { noteExpiryFailure('EXPIRY_RESUME_SCAN_FAILED'); console.error('[Billing] Paid resume scan failed; next patrol will retry') }
     await executeExpirySuspend()
     await executeExpiryDelete()
+    await runRepairPatrol(repairs, 'after-billing')
   } finally {
     expiryLastFinishedAt = new Date().toISOString()
     await persist(expiryLastFinishedAt)

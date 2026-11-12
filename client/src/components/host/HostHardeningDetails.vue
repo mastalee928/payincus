@@ -42,7 +42,7 @@ onBeforeUnmount(()=>{alive=false;sequence++;clearTimeout(timer);window.removeEve
 <template>
   <Teleport to="body">
     <dialog ref="dialog" class="hardening-details" aria-labelledby="hardening-title" @cancel.prevent="close">
-      <header><h2 id="hardening-title">{{t('securityHardening.title')}}</h2><p>{{t('securityHardening.host',{name:hostName})}}</p></header>
+      <header><h2 id="hardening-title" tabindex="0" autofocus>{{t('securityHardening.title')}}</h2><p>{{t('securityHardening.host',{name:hostName})}}</p></header>
       <p>{{t('securityHardening.automatic')}}</p>
       <p v-if="failed" class="failure" role="alert">{{t('securityHardening.loadFailed')}}</p>
       <section v-if="report" :aria-busy="loading">

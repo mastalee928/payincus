@@ -16,6 +16,7 @@ import (
 	"incudal-agent/internal/guestguard"
 	"incudal-agent/internal/ingress"
 	"incudal-agent/internal/panel"
+	"incudal-agent/internal/performance"
 	"incudal-agent/internal/report"
 	"incudal-agent/internal/upgrade"
 )
@@ -24,6 +25,7 @@ var version = "dev"
 var lastPortProtocolStatus *ingress.Status
 var abusePolicy = abuse.New()
 var guestProtection = guestguard.New()
+var tcpPerformance = performance.New()
 
 func main() {
 	configPath := flag.String("config", "/etc/incudal-agent/config.yaml", "agent config file")
@@ -97,6 +99,8 @@ func main() {
 	// Upgrade applies protection to existing managed hosts without restarting
 	// Incus/guests, and reconciliation continues during control-plane outages.
 	go reconcileGuestProtection(ctx, cfg.PanelURL)
+	// Pool scope arrives on heartbeat for legacy hosts without a marker.
+	go tcpPerformance.Run(ctx)
 
 	if err := ingress.Restore(ctx); err != nil {
 		log.Printf("restore ingress: %v", err)
@@ -204,6 +208,7 @@ func reconcileAbuse(ctx context.Context) {
 func sendHeartbeat(ctx context.Context, client *panel.Client, heartbeatIntervalSeconds int) (panel.HeartbeatResult, error) {
 	payload := report.HeartbeatPayload(ctx, version, heartbeatIntervalSeconds)
 	payload["guestProtectionStatus"] = guestProtection.Status()
+	payload["runtime"].(map[string]any)["bbr"] = tcpPerformance.Status()
 	if status := abusePolicy.Sync(ctx, nil); status != nil {
 		payload["abusePolicyStatus"] = *status
 	}
@@ -213,6 +218,9 @@ func sendHeartbeat(ctx context.Context, client *panel.Client, heartbeatIntervalS
 	result, err := client.Heartbeat(ctx, payload)
 	if err != nil {
 		return result, err
+	}
+	if result.PoolHostBBR != nil {
+		tcpPerformance.SetPoolHost(*result.PoolHostBBR)
 	}
 	abusePolicy.Sync(ctx, result.AbusePolicy)
 	if result.PortProtocol != nil {

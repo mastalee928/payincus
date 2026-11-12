@@ -263,7 +263,11 @@ jobs:
           HOST_GATEWAY_DNS_INTEGRATION_TEST: '1'
 
   pool-delivery-integration:
-    name: Pool delivery and deletion integration
+    name: Pool delivery and deletion integration (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -271,7 +275,7 @@ jobs:
         env:
           POSTGRES_USER: pool_test
           POSTGRES_PASSWORD: pool_test
-          POSTGRES_DB: ci_release_pool_test
+          POSTGRES_DB: ci_release_${{ matrix.shard }}_pool_test
         ports:
           - 5432:5432
         options: >-
@@ -280,7 +284,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://pool_test:pool_test@127.0.0.1:5432/ci_release_pool_test
+      DATABASE_URL: postgresql://pool_test:pool_test@127.0.0.1:5432/ci_release_${{ matrix.shard }}_pool_test
       JWT_SECRET: isolated-ci-pool-test-only
     steps:
       - uses: actions/checkout@v5
@@ -295,6 +299,7 @@ jobs:
           pnpm --filter server exec prisma generate
           pnpm --filter server exec prisma migrate deploy
       - name: Verify pool accounting, IPv6 and actual TLS deletion boundary
+        if: matrix.shard == 0
         run: |
           pnpm --filter server test:host-pool-integration
           pnpm --filter server test:host-public-ipv6-integration
@@ -305,12 +310,15 @@ jobs:
           pnpm --filter server test:host-replacement-recovery-integration
           pnpm --filter server test:destroy-email-verification
       - name: Transaction admission timeouts reclaim all eight PostgreSQL connections
+        if: matrix.shard == 1
         timeout-minutes: 2
         run: pnpm --filter server test:prisma-transaction-start-timeout
       - name: Snapshot writes recheck current account, ownership and restore locks
+        if: matrix.shard == 2
         timeout-minutes: 3
         run: pnpm --filter server test:snapshot-mutation-authorization
       - name: Snapshot transactions complete without borrowing another PostgreSQL connection
+        if: matrix.shard == 3
         timeout-minutes: 2
         run: pnpm --filter server test:snapshot-mutation-authorization
         env:
@@ -318,15 +326,18 @@ jobs:
           DB_CONNECTION_TIMEOUT: '1000'
           REVIEW_SNAPSHOT_SINGLE_CONNECTION: '1'
       - name: Batch configuration completes using one PostgreSQL connection
+        if: matrix.shard == 4
         timeout-minutes: 2
         run: pnpm --filter server test:batch-config-single-connection
         env:
           DB_POOL_MAX: '1'
           DB_CONNECTION_TIMEOUT: '1000'
       - name: Batch configuration preserves current authorization and atomic resource accounting
+        if: matrix.shard == 5
         timeout-minutes: 2
         run: pnpm --filter server test:review-batch-config-integration
       - name: Verify backup upload authorization, queue races and export completion
+        if: matrix.shard == 0
         run: |
           pnpm --filter server test:review-upload-completion-integration
           pnpm --filter server test:review-backup-export
@@ -334,6 +345,7 @@ jobs:
           pnpm --filter server test:review-restore-authorization
           pnpm --filter server test:review-restore-replacement
       - name: Verify ticket pagination against PostgreSQL
+        if: matrix.shard == 1
         run: |
           pnpm --filter server test:review-ticket-pagination
           pnpm --filter server test:review-ticket-target
@@ -341,16 +353,21 @@ jobs:
           pnpm --filter server test:review-ticket-image-proxy
           pnpm --filter server test:review-ticket-public-authorization
       - name: Verify traffic reset authorization against PostgreSQL
+        if: matrix.shard == 2
         run: |
           pnpm --filter server test:review-traffic-reset-auth
           pnpm --filter server test:review-traffic-limit
       - name: Verify managed provision cleanup against PostgreSQL and mTLS
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-managed-provision
       - name: Public IPv4 allocation and row locks
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-public-ipv4
       - name: Host gift preparation and notification failures
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-host-gift-preparation
       - name: IPv6 gift preparation reuses its transaction connection
+        if: matrix.shard == 0
         timeout-minutes: 2
         run: pnpm --filter server test:review-host-gift-preparation
         env:
@@ -358,449 +375,674 @@ jobs:
           DB_CONNECTION_TIMEOUT: '1000'
           REVIEW_GIFT_SCENARIOS: 'ipv6_storage'
       - name: Host network observation identity and generation
+        if: matrix.shard == 1
         run: |
           pnpm --filter server test:review-host-network-sync
           pnpm --filter server test:review-network-persistence
       - name: Instance quota override semantics
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-instance-quota
       - name: Dedicated machines cannot enter legacy package migration
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-host-migrate-dedicated
       - name: Storage capacity API validates before connecting to hosts
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-storage-size
       - name: Storage updates preserve descriptions and reject stale configuration versions
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-storage-update
       - name: Storage import requires confirmed absence and valid existing pool metadata
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-storage-import
       - name: Storage purpose updates verify current access and commit with their audit
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-storage-purpose
       - name: Price updates roll back billing changes when the operation audit fails
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-billing-price-audit
       - name: Direct balance adjustments commit their ledger and audit atomically
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-user-balance-audit
       - name: Points adjustments recheck current administrators and retain atomic audit
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-user-points-write
       - name: Hosting adjustments commit their balance, frozen ledger and audit together
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-user-hosting-write
       - name: Host lists preserve architecture, network state and stable cross-owner pagination
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-host-pagination
       - name: Gifted days preserve current ownership and paid expiry
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-host-gift-days
       - name: Host calibration locks current inputs and commits resource counters with its audit
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-host-recalculate
       - name: Sensitive verification targets, budgets and SMTP receipts remain consistent
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-verification-resend
       - name: Consumed verification grants preserve send history and profile rollback
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-verification-integration
       - name: Admin and user PUSH preserve verification and instance billing contracts
+        if: matrix.shard == 5
         run: pnpm --filter server test:admin-instance-push-integration
       - name: Host extensions commit all expiries and their audit together
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-host-extend-all
       - name: Admin expiry changes preserve balances and reject stale authority or expiry
+        if: matrix.shard == 1
         run: pnpm --filter server test:admin-instance-expiry-integration
+      - name: Admin final renewal prices preserve paid bills and current authority
+        if: matrix.shard == 2
+        run: pnpm --filter server test:admin-instance-renewal-price-integration
+      - name: Old instance price cannot change same-host resale pricing
+        if: matrix.shard == 3
+        run: pnpm --filter server test:pool-instance-renewal-price-resale
+      - name: Admin renewal price form preserves target and session
+        if: matrix.shard == 4
+        run: pnpm --filter server test:admin-instance-renewal-price-browser
       - name: Admin expiry form preserves timezone and current target/session
+        if: matrix.shard == 5
         run: pnpm --filter server test:admin-instance-expiry-browser
       - name: Admin email changes enforce authority and atomic credential invalidation
+        if: matrix.shard == 0
         run: pnpm --filter server test:admin-user-email-integration
       - name: Admin email form preserves session and inline edit controls
+        if: matrix.shard == 1
         run: pnpm --filter server test:admin-user-email-browser
       - name: Configured local gateways permit read-only rechecks
+        if: matrix.shard == 2
         run: pnpm --filter server test:gateway-recheck-ui
       - name: Instance detail reads stay on the current route and session
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-instance-detail-reads
       - name: Transfer and verification modals keep the current draft and session
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-transfer-modal-lifecycle
       - name: Plan upgrades submit only the current approved preview
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-change-plan-lifecycle
       - name: Cached terminals release page shortcuts and discard late clipboard reads
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-terminal-lifecycle
       - name: Terminal sessions reject old identity and connection results
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-terminal-session
       - name: Terminal selectors include complete instance pages and retain read failures
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-terminal-pagination
       - name: Terminal opening sessions stop on revocation and clean their mTLS sockets
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-terminal-opening
       - name: Terminal reconnects cancel pending requests and release sockets within the total deadline
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-terminal-reconnect
       - name: Terminal openings bind current session and original target under PostgreSQL locks
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-terminal-authorization
       - name: Terminal reconnects recheck current authorization and clean sockets before pending transactions finish
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-terminal-reconnect-authorization
       - name: Terminal reservations retain limits and persist concurrent audits without deadlock
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-terminal-reservations
       - name: Command routes preserve PostgreSQL ID bounds, quotas and current authorization
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-command-integration
       - name: Ticket auto-close serializes with public reply deletion and returns only committed receipts
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-ticket-autoclose
       - name: Process boosts retain current authorization and serialize with batch configuration
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-process-boost
       - name: Process boost mTLS connect and busy retries release the only database connection within their deadline
+        if: matrix.shard == 5
         env:
           DB_POOL_MAX: 1
         run: pnpm --filter server test:review-process-boost-transport
       - name: Traffic notifications bound stalled attempts and reject private connection DNS results
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-traffic-notification-transport
       - name: Snapshot routes reject PostgreSQL ID overflow before any resource access
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-snapshot-id-boundaries
       - name: Agent host routes reject PostgreSQL ID overflow before reading or rotating credentials
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-agent-id-boundaries
       - name: Proxy site routes reject PostgreSQL ID overflow before any Caddy dispatch
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-proxy-id-boundaries
       - name: Host audit history preserves pagination bounds and isolates host and instance records
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-host-audit-history
       - name: Public Turnstile availability matches all five authentication verifiers
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-turnstile-config
       - name: Custom Telegram notifications cancel stalled responses and settle their logs
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-custom-telegram-transport
       - name: Lottery notifications reject private destinations and release completed response bodies
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-lottery-notification-transport
       - name: OAuth nonces remain single-use across exact expiry and cleanup boundaries
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-oauth-nonce-expiry
       - name: Notification channel IDs and enums reject invalid values before side effects
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-notification-id-boundaries
       - name: Redeem code batches reject missing and foreign host IDs before changing any code
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-redeem-host-scope
       - name: Ticket image transport rejects private DNS changes and bounds real response streams
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-ticket-image-transport
       - name: Administrator recharge sync decrypts effective credentials and settles each order once
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-recharge-sync
       - name: User payment verification rejects obsolete provider results after repayment
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-recharge-verify
       - name: Signed payment callbacks preserve replacements and never credit stale payment attempts
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-recharge-callback-races
       - name: Payment callbacks bind merchant identity and reject malformed invoice amounts
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-payment-integrity
       - name: Public renewal checks current API and OAuth authorization before charging
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-public-renewal
       - name: Mail renewal checks current authorization and quote with atomic accounting
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-mail-renewal
       - name: Renewal requests persist results across retries and process restarts
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-renewal-idempotency
       - name: Browser renewal retries preserve their original request key
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-renewal-request-ui
       - name: Recharge terminal states survive real row-lock competition without duplicate accounting
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-recharge-terminal-states
       - name: Late payments reconcile once and protect terminal orders
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-late-payments
       - name: Late payment review preserves current sessions and explicit settlement actions
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-late-payments-ui
       - name: Pool checkout rechecks the original session before charging and replaying
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-pool-checkout
       - name: Pool checkout preserves request identity and isolates old browser replies
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-pool-checkout-ui
       - name: Pool results expose only owned ready credentials and current clipboard replies
+        if: matrix.shard == 1
         run: |
           pnpm --filter server test:review-pool-result
           pnpm --filter server test:review-pool-result-ui
       - name: Pool cart preserves concurrent entries and current purchase choices
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-pool-cart-ui
       - name: Pool creation and transfer conflict recovery preserve identity and accounting
+        if: matrix.shard == 3
         run: |
           pnpm --filter server test:review-pool-provision
           pnpm --filter server test:review-transfer-cleanup-integration
           pnpm --filter server test:homepage-theme-ui
       - name: Homepage continent camera preserves framing and selection
+        if: matrix.shard == 4
         run: pnpm --filter server test:homepage-map-camera-ui
       - name: Pool allocation rechecks architecture after waiting for host locks
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-pool-stock
       - name: Recharge creation retries recover the same account-bound order
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-recharge-create
       - name: Gift card batch quantities reject invalid input and preserve exact boundary counts
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-gift-card-counts
       - name: Invalid gift card IDs reject entire batches before refunding or changing valid cards
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-gift-card-id-boundaries
       - name: Batch configuration validates every target and persists exact traffic limit boundaries
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-batch-config-input-boundaries
       - name: Automatic renewal rejects disabled selections and serializes switch changes with settlement
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-auto-renew-selection
       - name: Recharge resumes single and partial multi-instance renewal only within retention
+        if: matrix.shard == 5
         run: pnpm --filter server test:auto-renew-credit-integration
       - name: Paid expiry resumption persists and verifies original guest start without another debit
+        if: matrix.shard == 0
         run: pnpm --filter server test:renewal-resume-integration
       - name: Legacy shared NAT port retries respect both range endpoints and protocol quota
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-batch-port-range-integration
       - name: Package plan creation and editing enforce exact resource and money boundaries
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-package-plan-boundaries
       - name: Package regions reject unknown sources and preserve private package visibility
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-package-region-scope
       - name: Authentication rechecks current account roles and session revocations after warm requests
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-auth-current-state
       - name: VM network changes keep existing MAC identity through real mTLS
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-vm-network-macs-transport
       - name: Recreate and host change retain source routes until durable Caddy cleanup is confirmed
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-instance-task-site-cleanup
       - name: OAuth login settings use each locale and preserve blank existing secrets
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-oauth-locales
       - name: Saved commands preserve drafts and current account state
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-terminal-commands-lifecycle
       - name: Ticket details and replies preserve the current page and draft
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-ticket-lifecycle
       - name: Ticket actions keep their original target and preserve later drafts
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-ticket-actions
       - name: Ticket instance choices include all pages and retain failed inventory reads
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-ticket-instance-pagination
       - name: Ticket instance cards discard stale actions and release all polling
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-ticket-instance-card
       - name: Batch renewal and destruction submit only the approved preview targets
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-instance-batch-billing
       - name: Destroy email confirmation keeps the current account and instance set
+        if: matrix.shard == 2
         run: pnpm --filter server test:destroy-email-ui
       - name: Legacy create coupons preserve the current quote and hosting source
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-create-promo
       - name: Instance logs preserve current search and instance context
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-instance-logs
       - name: Reinstall dialogs submit only current images and keys
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-reinstall-selection
       - name: Port conflicts reject malformed and duplicate ports
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-port-conflict
       - name: Ticket attachment controls honor disabled state
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-ticket-uploader
       - name: Host instance reads stay bound to current host and session
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-host-instance-reads
       - name: Host deletion keeps reviewed targets and current results
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-host-delete-lifecycle
       - name: Order details and lists reject obsolete account and drawer replies
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-order-reads
       - name: Host batch state actions keep targets and current results
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-host-batch-actions
       - name: Host gifts keep paid targets and current results
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-host-gift-lifecycle
       - name: Host renewal prices keep targets and newer drafts
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-host-price-lifecycle
       - name: Host traffic resets keep targets and committed success
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-host-reset-lifecycle
       - name: Host notifications keep recipients and newer drafts
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-host-notify-lifecycle
       - name: Host recreation keeps prepared options and original targets
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-host-recreate-lifecycle
       - name: Host single actions guard preparation and old receipts
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-host-single-actions
       - name: Host batch config keeps reviewed targets and failed-only retries
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-host-batch-config
       - name: Host batch configuration numeric and zero values
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-host-batch-config-inputs
       - name: Host batch configuration role permissions
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-host-batch-config-roles
       - name: Resource-specific quota display and detail tabs
+        if: matrix.shard == 3
         run: |
           pnpm --filter server test:review-host-quota-display
           pnpm --filter server test:review-quota-views
       - name: Instance quota editor retains current values and drafts
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-instance-quota-editor
       - name: Instance quota submission validates values and lifecycle
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-instance-quota-submit
       - name: Host storage reads stay with the current host and session
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-host-storage-reads
       - name: Host storage writes retain their original target and result
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-host-storage-writes
       - name: Host storage capacity validates numeric input and units
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-host-storage-inputs
       - name: Admin price changes require the current settlement preview
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-billing-price-preview
       - name: Admin price writes keep their draft and session through completion
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-billing-price-submit
       - name: User balance and login dialogs keep their current target and read scope
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-user-dialog-reads
       - name: Hosting balance reads keep their current target and tab
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-user-hosting-reads
       - name: Hosting adjustments retain their target and confirmed receipt
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-user-hosting-submit
       - name: Two-factor setup and settings prevent concurrent submissions
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-two-factor-busy
       - name: Two-factor status failures remain actionable without allowing setup
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-two-factor-reads
       - name: Two-factor secrets and receipts stay with their current session
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-two-factor-session
       - name: Two-factor setup validates its code material and confirmed result
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-two-factor-receipts
       - name: Disable two-factor verification retains the submitted credentials and current account
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-two-factor-verification
       - name: Disable two-factor requires a current account operation grant and revokes access
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-2fa-disable-verification
       - name: Email verification and updates retain their submitted address and session
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-change-email-scope
       - name: Email changes validate codes and confirmed API results
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-change-email-receipts
       - name: Help article editor reads retain their current target and session
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-help-editor-reads
       - name: Help article saves retain their current draft and confirmed receipt
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-help-editor-writes
       - name: Password change retries retain their submitted credentials and session
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-password-scope
       - name: Password changes require confirmed receipts and current verification callbacks
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-password-receipts
       - name: System settings saves preserve drafts across groups and background refreshes
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-system-settings-drafts
       - name: System settings responses retain their current administrator and session
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-system-settings-scope
       - name: System settings require valid reads and confirmed saves
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-system-settings-receipts
       - name: SMTP tests retain their recipient and confirmed provider result
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-system-settings-smtp
       - name: Package priorities preserve legal zero values
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-package-priorities
       - name: Lottery single and ten draws retain their target and reject stale results
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-lottery-draw
       - name: Telegram binding searches retain their current target and retry errors
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-telegram-bindings
       - name: Telegram channel editors load their current target before allowing saves
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-telegram-channel-editor
       - name: Telegram channel saves retain their draft and confirmed result
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-telegram-channel-submit
       - name: Telegram and invite pricing translations fit long addresses on phones
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-telegram-pricing-locales
       - name: Snapshot policy editors preserve Boolean state on unchanged saves
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-snapshot-policy-ui
       - name: Snapshot responses retain the current session and active instance
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-snapshot-session
       - name: Snapshot mutations reject conflicts and preserve current drafts
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-snapshot-submit
       - name: Snapshot mutations require valid data and confirmed current receipts
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-snapshot-receipts
       - name: Account avatar saves retain their submitted style and current session
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-avatar-submit
       - name: SSH key creation dates use the current API response field
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-ssh-key-dates
       - name: SSH key inventory reads retain the current session and page
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-ssh-key-list
       - name: SSH key writes reject conflicts and isolate private display results
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-ssh-key-submit
       - name: Login history recognizes mobile devices and specific browsers
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-login-history-devices
       - name: Login history retains current pages and account sessions
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-login-history-reads
       - name: Telegram profile rejects obsolete binding results and restores failed notification controls
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-telegram-profile
       - name: Heartbeat writes require the current enabled Agent identity after authentication
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-agent-heartbeat-current
       - name: Agent traffic retains the current instance owner and host across lifecycle changes
+        if: matrix.shard == 0
         run: pnpm --filter server test:agent-report-identity
       - name: Optional upgrade lookups stay within the heartbeat response deadline
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-agent-upgrade-deadline
       - name: Concurrent Agent release misses share metadata and verified binary downloads
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-agent-release-concurrency
       - name: Host Agent metrics tolerate malformed stored values and preserve real zeros
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-host-info-metrics
       - name: Host info reads and polling stay with the current host and session
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-host-info-reads
       - name: Host resource totals use complete instance pages
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-host-info-pagination
       - name: Host Agent command copy confirms current clipboard completion and handles retry
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-host-info-copy
       - name: Host mutations confirm the current target and serialize pending operations
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-host-info-mutations
       - name: Reinstall command copying waits and keeps feedback in the current host dialog
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-host-detail-copy
       - name: Host detail reads cannot replace the current route or account
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-host-detail-reads
       - name: Host detail actions keep current targets and reject duplicate requests
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-host-detail-actions
       - name: Host extensions submit integer days with current targets and handle retry
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-host-detail-extend
       - name: Host image policies reject unknown reads and obsolete save completions
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-host-images
       - name: Host Caddy status and sites retain current session and pagination
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-host-caddy-reads
       - name: Host Caddy operations and credentials retain their current target
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-host-caddy-actions
       - name: Host Caddy dialog controls retain their full size from the first frame
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-host-caddy-touch
       - name: Inbox reads and mutations retain their current session and valid page
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-inbox-receipts
       - name: Inbox unread polling rejects obsolete counts and stops when the layout unmounts
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-inbox-polling
       - name: Dashboard summaries retain their current account and cannot restart polling after unmount
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-dashboard-session
       - name: Dashboard instance totals include all validated pages and reject obsolete middle pages
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-dashboard-pagination
       - name: Identity reads and login logout receipts stay within the current session
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-auth-session
       - name: Both API clients share refresh and reject obsolete request retries
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-auth-refresh
       - name: Notification history reads stay within the current session filter and page
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-notification-reads
       - name: Notification mutations protect submitted drafts and reject duplicate operations
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-notification-actions
       - name: Host config preserves the registered connection endpoint
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-host-config-endpoint
       - name: Host config sends explicit clears and keeps IPv6 mode gates
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-host-config-clear
       - name: Image selector removes its exact global listeners and open menu on unmount
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-image-selector-lifecycle
       - name: Host config clear values persist and route mode stays protected
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-host-config-clear-pg
       - name: Inventory specification saves retain their current target and draft
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-inventory-spec
       - name: Host protocol changes validate each target and commit with current authorization and audit
+        if: matrix.shard == 5
         run: pnpm --filter server test:host-port-protocol-update
       - name: Host onboarding and batch protocol selectors prefer TCP and retain individual results
+        if: matrix.shard == 0
         run: pnpm --filter server test:host-port-protocol-ui
       - name: Host config drafts and save receipts stay with the current view
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-host-config-submit
       - name: Host type refusals use the configured locale and keep the draft
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-host-config-type
       - name: Host type incompatibility rejects before configuration writes
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-host-config-type-pg
       - name: Snapshot policy changes schedule their next execution from the current update
+        if: matrix.shard == 4
         run: pnpm --filter server test:snapshot-policy-schedule-integration
       - name: User and administrator logins reject repeated in-flight submissions
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-login-submit
       - name: Balance adjustments keep their target, draft and confirmed receipt
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-user-balance-submit
       - name: Points adjustments reject stale receipts and repeated submissions
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-user-points-submit
       - name: Host redeem reads stay with the current host and code
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-host-redeem-reads
       - name: Host redeem writes retain their selected target and result
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-host-redeem-writes
       - name: Host redeem copies and batch dialogs stay with the current context
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-host-redeem-copy
       - name: Host migration reads stay with the selected destination
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-host-migrate-reads
       - name: Host migration writes retain their selected targets and results
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-host-migrate-writes
       - name: Host migration parent fixes selection and validates current identities
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-host-migrate-parent
       - name: Verify init command selector in Chrome
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-init-command-selector
       - name: Verify init command modals in Chrome
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-init-command-modals
       - name: Verify static caching in Chrome
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-service-worker-browser
       - name: Verify package form in Chrome
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-package-form
       - name: Verify current package reads and deletion replies
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-package-reads
       - name: Gift card pagination and writes retain current administrator context
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-gift-card-admin
       - name: Package host names and search include every page
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-package-host-pagination
       - name: Complete host calibration targets keep current authorization and retry only failed hosts
+        if: matrix.shard == 3
         run: pnpm --filter server test:review-my-host-calibration
       - name: Verify expiry panel lifecycle in Chrome
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-expiry-panel
       - name: Verify badge image recovery in Chrome
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-badge-image
       - name: Verify badge motion in Chrome
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-badge-motion
       - name: Verify badge center lifecycle in Chrome
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-badge-center
       - name: Verify instance badge modal in Chrome
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-instance-badge
       - name: Verify prize stock and editor
+        if: matrix.shard == 3
         run: |
           pnpm --filter server test:review-prize-stock
           pnpm --filter server test:review-prize-editor
       - name: Verify VIP reward description clearing
+        if: matrix.shard == 4
         run: pnpm --filter server test:review-vip-reward-description
       - name: Verify VIP reward editor in Chrome
+        if: matrix.shard == 5
         run: pnpm --filter server test:review-vip-reward-editor
       - name: Verify VIP benefit hall in Chrome
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-vip-benefit-hall
       - name: Verify VIP level rule editor in Chrome
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-vip-level-rules
       - name: Verify host instance editor in Chrome
+        if: matrix.shard == 2
         run: pnpm --filter server test:review-host-create-instance
       - name: Verify administrator pool creation in Chrome
+        if: matrix.shard == 3
         run: |
           pnpm --filter server test:review-admin-pool-create
           pnpm --filter server test:review-admin-pool-create-load
@@ -808,16 +1050,20 @@ jobs:
           pnpm --filter server test:review-admin-package-create
           pnpm --filter server test:review-admin-package-options
       - name: Verify terms language in Chrome
+        if: matrix.shard == 4
         run: |
           pnpm --filter server test:review-terms-language
           pnpm --filter server test:review-terms-lifecycle
       - name: Verify Markdown rendering in Chrome
+        if: matrix.shard == 5
         run: |
           pnpm --filter server test:review-markdown-browser
           pnpm --filter server test:review-markdown-attributes
       - name: Verify payment locales in Chrome
+        if: matrix.shard == 0
         run: pnpm --filter server test:review-payment-locales
       - name: Verify package empty fields in PostgreSQL
+        if: matrix.shard == 1
         run: pnpm --filter server test:review-package-empty-fields
 
   remote-gateway-setup-integration:

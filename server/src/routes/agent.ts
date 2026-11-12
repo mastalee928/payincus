@@ -12,7 +12,7 @@ import { isIP } from 'net'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { prisma } from '../db/prisma.js'
-import { normalizeGuestProtectionStatus } from '../lib/guest-network-protection.js'
+import { acceptGuestProtectionStatus, GUEST_CLOCK_SKEW_MS, GUEST_REPORT_MAX_AGE_MS } from '../lib/guest-network-protection.js'
 import { createLog, LogModule, LogResult } from '../db/logs.js'
 import { decryptSensitiveData } from '../lib/security.js'
 import {
@@ -1033,9 +1033,10 @@ async function serializeAgentStatus(agent: HostAgentRecord) {
   }
 }
 
-function buildHeartbeatReport(body: AgentHeartbeatBody): Record<string, unknown> {
+function buildHeartbeatReport(body: AgentHeartbeatBody, signedAt: number, receivedAt: number): Record<string, unknown> {
   return {
-    guestProtectionStatus: normalizeGuestProtectionStatus(body.guestProtectionStatus),
+    signedAt: Math.abs(signedAt - receivedAt) <= GUEST_CLOCK_SKEW_MS ? signedAt : null,
+    guestProtectionStatus: acceptGuestProtectionStatus(body.guestProtectionStatus, signedAt, receivedAt),
     abusePolicyStatus: normalizeAbuseStatus(body.abusePolicyStatus),
     runtime: body.runtime ?? {},
     incus: body.incus ?? {},
@@ -1638,13 +1639,27 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     try {
       await prisma.$transaction(async tx => {
         await lockCurrentHostAgent(tx, agent, 'agent')
+        // Slow earlier handlers must not overwrite a newer committed heartbeat.
+        const latest = await tx.hostAgent.findUniqueOrThrow({ where: { id: agent.id }, select: { lastSeenAt: true, lastReport: true } })
+        if (latest.lastSeenAt && latest.lastSeenAt > now) return
+        const previousSignedAt = (latest.lastReport as Record<string, unknown> | null)?.signedAt
+        const signedAt = Number(readAgentAuthHeaders(request.headers)!.timestamp)
+        // A delayed success cannot replace a newer failure. If the host clock
+        // was explicitly corrected backwards, only stale receipts may reset
+        // ordering; their old success can no longer satisfy inventory gates.
+        if (typeof previousSignedAt === 'number' && signedAt <= previousSignedAt && latest.lastSeenAt &&
+          now.getTime() - latest.lastSeenAt.getTime() < GUEST_REPORT_MAX_AGE_MS) return
+        const report = buildHeartbeatReport(request.body, signedAt, now.getTime())
+        // Invalid clock data revokes readiness but cannot erase ordering. A
+        // subsequent delayed success must still be older than this watermark.
+        if (report.signedAt === null && typeof previousSignedAt === 'number') report.signedAt = previousSignedAt
         await tx.hostAgent.update({
           where: { id: agent.id },
           data: {
             status: 'online',
             version: sanitizeShortString(request.body.version, 128),
             capabilities: normalizeCapabilities(request.body.capabilities) as Prisma.InputJsonValue,
-            lastReport: buildHeartbeatReport(request.body) as Prisma.InputJsonObject,
+            lastReport: report as Prisma.InputJsonObject,
             lastSeenAt: now,
             lastHeartbeatIp: sanitizeShortString(getAgentHeartbeatIp(request), 128)
           }
@@ -1665,8 +1680,9 @@ export default async function agentRoutes(fastify: FastifyInstance) {
         request.log.warn({ hostId: agent.hostId, code: error.code }, 'Host abuse policy is invalid; retaining existing host protection')
       }
     }
-    const hostProtocol = await prisma.host.findUniqueOrThrow({ where: { id: agent.hostId }, select: { portProtocol: true, portProtocolRevision: true } })
+    const hostProtocol = await prisma.host.findUniqueOrThrow({ where: { id: agent.hostId }, select: { portProtocol: true, portProtocolRevision: true, singleTenant: true } })
     return {
+      poolHostBbr: hostProtocol.singleTenant,
       portProtocol: { mode: hostProtocol.portProtocol, revision: hostProtocol.portProtocolRevision },
       abusePolicy,
       ok: true,

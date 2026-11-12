@@ -7,7 +7,7 @@ export default {
   users: { async get(id) { return { user: { id, username: `Fixture ${id}` } } } },
   billing: {
     previewBatchRenew: ids => defer('renew-preview', { ids }), getUserBalance: () => defer('balance'),
-    renewInstancesBatch: (ids, months) => defer('renew', { ids, months }),
+    renewInstancesBatch: (ids, months, expectedAmounts) => defer('renew', { ids, months, expectedAmounts }),
     getBatchDestroyInfo: ids => defer('destroy-preview', { ids }), destroyInstancesBatch: (ids, emailCode) => defer('destroy', { ids, emailCode }),
     requestDestroyVerification: ids => defer('destroy-code', { ids }),
     setAutoRenewBatch: (ids, autoRenew) => defer('auto-renew', { ids, autoRenew }),

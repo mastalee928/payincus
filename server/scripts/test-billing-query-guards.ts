@@ -132,18 +132,18 @@ const processAutoRenew = sectionBetween(
 )
 
 assert.ok(
-  processAutoRenew.includes('const affBinding = await getInstanceAffBinding(instance.id)') &&
+  processAutoRenew.includes('const affBinding = instance.renewalPrice === null ? await getInstanceAffBinding(instance.id) : null') &&
     processAutoRenew.includes('affBinding?.affCode.enabled') &&
-    processAutoRenew.includes('const vip = await getUserContinuousVipBenefit(instance.userId)') &&
-    processAutoRenew.includes('const renewAmount = arbitrateVipPrice({') &&
+    processAutoRenew.includes('const vip = instance.renewalPrice === null ? await getUserContinuousVipBenefit(instance.userId) : null') &&
+    processAutoRenew.includes('const renewAmount = decideRenewalPrice({') &&
     processAutoRenew.includes('if (balance < renewAmount)'),
   'auto-renew balance preflight must use the same AFF/VIP best-price arbitration as the actual renewal charge'
 )
 
 assert.ok(
-  billingOperationsSource.includes('const renewalPrice = arbitrateVipPrice({') &&
+  billingOperationsSource.includes('const renewalPrice = decideRenewalPrice({') &&
     billingOperationsSource.includes("affBinding?.affCode.enabled && pricingSource === 'aff'") &&
-    billingOperationsSource.includes('discountedAmount: arbitrateVipPrice({') &&
+    billingOperationsSource.includes('discountedAmount: decideRenewalPrice({') &&
     instanceRouteSource.includes('const priceDecision = arbitrateVipPrice({') &&
     instanceRouteSource.includes('vipDiscountPercent: vip.benefit.orderDiscountPercent'),
   'new purchase, renewal preview, manual renewal, and auto-renew must enforce one non-stacking backend price arbiter'

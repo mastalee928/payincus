@@ -8,6 +8,11 @@ for file in "$root/deploy/incudal-online-task.sh.example" "$root/deploy/incudal-
   [[ -f "$file" && ! -L "$file" && $(stat -c %u "$file") == 0 ]] || { echo 'Untrusted helper source.' >&2; exit 1; }
 done
 install -d -o root -g root -m 0755 /usr/local/libexec/incudal
+# Old OTA workers already invoke this installer from the newly verified
+# package. Schedule clock upkeep here so the first upgrade gains the fix.
+if ! python3 "$root/scripts/ensure-time-sync.py" --install; then
+  echo 'TIME_SYNC_INSTALL_PENDING: clock scheduler installation failed; see /var/lib/incudal-time-sync/status.json. Backend startup continues.' >&2
+fi
 install -d -o root -g incudal -m 0750 /var/lib/incudal-backup
 install -d -o incudal -g incudal -m 0700 /var/lib/incudal-backup/inbox
 install -d -o root -g incudal -m 0750 /var/lib/incudal-backup/results
