@@ -11,6 +11,14 @@ systemctl start incus
 incus admin waitready --timeout=60
 incus storage create default dir
 incus network create incusbr0 ipv4.address=10.198.0.1/24 ipv4.nat=true ipv6.address=none
+# The PostgreSQL service container enables Docker's FORWARD drop policy on
+# this disposable runner. Incus nft rules cannot override that iptables chain.
+# Permit only the freshly created test bridge, leaving all other traffic intact.
+iptables -S FORWARD
+if iptables -n -L DOCKER-USER >/dev/null 2>&1; then
+  iptables -I DOCKER-USER 1 -i incusbr0 -j ACCEPT
+  iptables -I DOCKER-USER 1 -o incusbr0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+fi
 root=$(mktemp -d /root/incudal-provisioning-XXXXXX)
 trap 'rm -rf -- "$root"' EXIT
 openssl req -x509 -newkey rsa:2048 -nodes -keyout "$root/client.key" -out "$root/client.crt" -days 1 -subj /CN=provisioning-test >/dev/null 2>&1
