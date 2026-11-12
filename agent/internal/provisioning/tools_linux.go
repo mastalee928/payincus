@@ -85,8 +85,13 @@ func check(ctx context.Context) error {
 	}
 	// Dynamic-library/executable failures must not mint readiness from file presence.
 	for _, n := range required {
-		if _, e := run(ctx, n, "--help"); e != nil {
-			return e
+		flag := "--help"
+		// unsquashfs prints help but exits 1; its version path exits 0.
+		if n == "unsquashfs" {
+			flag = "-version"
+		}
+		if _, e := run(ctx, n, flag); e != nil {
+			return fmt.Errorf("host tool %s execution failed", n)
 		}
 	}
 	return nil

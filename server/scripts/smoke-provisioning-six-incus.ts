@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { randomUUID, X509Certificate } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { prisma, closePrismaDatabase } from '../src/db/prisma.js'
@@ -30,9 +31,19 @@ try {
     const instance = await prisma.instance.create({ data: { userId: user.id, hostId: host.id, incusId: name, name,
       image: `images:${image}`, status: 'creating', networkMode: 'nat', cpu: 100, memory: 1024, disk: 4096, portLimit: 0 } })
     await prisma.host.update({ where: { id: host.id }, data: { cpuUsed: 100, memoryUsed: 1024, diskUsed: 4096 } })
+    try {
     await createInstanceAsync(instance.id, (await getHostById(host.id))!, { name, image: `images:${image}`, cpu: 100, memory: 1024,
       disk: 4096, cloudInitConfig: generated.configPayload, networkMode: 'nat', ipv4Address: ip, autoRemotePort: false }, user.id,
     { cpu: 100, memory: 1024, disk: 4096 })
+    } catch (error) {
+      try {
+        const output = execFileSync('incus', ['exec', name, '--', 'sh', '-c',
+          'cloud-init status --long; cat /var/lib/cloud/data/result.json; tail -n 70 /var/log/cloud-init-output.log; ls -l /var/lib/incudal /usr/local/bin/incudal-required-init.sh'],
+          { encoding: 'utf8', timeout: 10000, maxBuffer: 65536 })
+        console.log(output.replaceAll(password, '[redacted]').replace(/(password|passwd|secret|token)[^\n]*/gi, '[redacted line]'))
+      } catch { console.log('Native initialization diagnostics unavailable after cleanup') }
+      throw error
+    }
     assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'running')
     let verified = false
     for (let attempt = 0; attempt < 60; attempt++) {

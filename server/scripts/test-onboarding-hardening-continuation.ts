@@ -1,3 +1,4 @@
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 /** Real local PG schedulers, maintenance and sales gates; remote host/boot are fixtures. */
 import assert from 'node:assert/strict'
 import { randomUUID, randomInt } from 'node:crypto'
@@ -85,7 +86,7 @@ async function create(architecture: 'x86_64' | 'aarch64') {
       sshFingerprint: 'SHA256:fixture-original', nodePublicKey: 'A'.repeat(43) + '=', status: 'queued', step: 'hardening', credentialsExpireAt: new Date(0) } }
   }, include: { onboardingNode: { include: { batch: true } } } }); hosts.push(host.id)
   await prisma.storagePool.create({ data: { hostId: host.id, name: 'fixture', driver: 'btrfs', purpose: 'instance_data' } })
-  await prisma.hostAgent.create({ data: { hostId: host.id, agentId: randomUUID(), secretHash: 'fixture', secretEncrypted: 'fixture', enabled: true, lastSeenAt: new Date(), capabilities:['guest-network-protection-v1'],lastReport:{guestProtectionStatus:{applied:true,checkedAt:new Date().toISOString()}} } })
+  await prisma.hostAgent.create({ data: { hostId: host.id, ...protectedAgentFixture() } })
   const bootId = randomUUID()
   remotes.set(host.id, { architecture, bootId, originalBoot: bootId, phase: 'preparing', active: false, reboots: 0, commands: [], requests: [], losePrepare: false, loseReboot: false })
   await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { revision: SECURITY_HARDENING_REVISION, status: 'retry', nextCheckAt: new Date(0).toISOString() } } })
@@ -178,7 +179,7 @@ try {
   // Any second slot claimed above is returned to the queue like an interrupted worker.
   await prisma.hostOnboardingNode.updateMany({ where: { batchId: batch.id, status: 'running' }, data: { status: 'queued', leaseToken: null, leaseUntil: null } })
   remote.active = true; remote.bootId = randomUUID()
-  await prisma.hostAgent.update({ where: { hostId: first.id }, data: { lastSeenAt: new Date(), lastReport: { metrics: { bootId: remote.bootId },guestProtectionStatus:{applied:true,checkedAt:new Date().toISOString()} } } })
+  await prisma.hostAgent.update({ where: { hostId: first.id }, data: { lastSeenAt: new Date(), lastReport: { metrics: { bootId: remote.bootId },...protectedAgentFixture().lastReport } } })
   await due(first.id); await cycle(first.id)
   assert.equal((await state(first.id)).status, 'verified'); assert.equal((await state(first.id)).maintenance.phase, 'verified')
   assert.equal((await prisma.hostOnboardingNode.findUniqueOrThrow({ where: { hostId: first.id } })).status, 'succeeded')
@@ -189,7 +190,7 @@ try {
   assert.equal(remotes.get(second.id)!.reboots, 1, 'next enrollment advances after the first completes')
   const r2 = remotes.get(second.id)!
   r2.active = true; r2.bootId = randomUUID()
-  await prisma.hostAgent.update({ where: { hostId: second.id }, data: { lastSeenAt: new Date(), lastReport: { metrics: { bootId: r2.bootId },guestProtectionStatus:{applied:true,checkedAt:new Date().toISOString()} } } })
+  await prisma.hostAgent.update({ where: { hostId: second.id }, data: { lastSeenAt: new Date(), lastReport: { metrics: { bootId: r2.bootId },...protectedAgentFixture().lastReport } } })
   await due(second.id); await cycle(second.id)
   await second.stock(1); await first.stock(1)
   assert.equal(hostMaintenanceBlocked(await state(second.id)), false)

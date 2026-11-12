@@ -1,3 +1,4 @@
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 import assert from 'node:assert/strict'
 import { createHash, randomUUID, X509Certificate } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
@@ -71,8 +72,7 @@ const user=await prisma.user.create({data:{username:tag,passwordHash:'fixture',b
 const host=await prisma.host.create({data:{userId:user.id,name:tag,singleTenant:true,resourcePreset:'E2',customerDiskGiB:30,
   cpuAllowanceMax:200,memoryMax:768,storageSize:38,architecture:'x86_64',isInstalled:true,status:'online',natPublicIp:'192.0.2.20',natBindIp:'10.0.0.20',natPortStart:20000,natPortEnd:20999,
   storagePools:{create:{name:'fixture',driver:'btrfs',purpose:'instance_data'}},
-  agent:{create:{agentId:randomUUID(),secretHash:'fixture',secretEncrypted:'fixture',lastSeenAt:new Date(),
-    capabilities:['guest-network-protection-v1'],lastReport:{guestProtectionStatus:{applied:true,checkedAt:new Date().toISOString()}}}},
+  agent:{create:{...protectedAgentFixture()}},
   url:`https://127.0.0.1:${(server.address() as {port:number}).port}`,certPath,keyPath,serverCertificate:certificate,serverFingerprint:new X509Certificate(certificate).fingerprint256}})
 let failure:unknown
 try {
@@ -199,7 +199,7 @@ try {
         if(scenario==='receipt-became-due') {
           await new Promise(resolve=>setTimeout(resolve,Math.max(0,expires-Date.now()+6000)))
           await prisma.hostAgent.update({where:{hostId:host.id},data:{lastSeenAt:new Date(),
-            lastReport:{guestProtectionStatus:{applied:true,checkedAt:new Date().toISOString()}}}})
+            lastReport:protectedAgentFixture().lastReport}})
         }
         if(scenario==='receipt-invalidated')await prisma.host.update({where:{id:host.id},data:{securityHardening:{revision:SECURITY_HARDENING_REVISION,status:'retry',phase:'host-inspection'}}})
         const before=actions.length
