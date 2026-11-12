@@ -1,5 +1,25 @@
 # v1.8.8 升级回滚修复与包内容核验
 
+## 正式发行
+
+[v1.8.8](https://github.com/mastalee928/payincus/releases/tag/v1.8.8)已于2026-11-12 06:48:37 UTC公开，latest=v1.8.8。PR #11已合入，正式source=`a7d7d841aec3a692c2e5f3fba67cb0a01de96817`，tree=`3bd0703177d93342208770454e9fb69667d75610`，与已验候选99defedb源码树完全一致；注释tag=`673d55d5d7d94fe370bce43afa252a2db3401da8`，解引用同正式source。
+
+- 最终候选CI43165702787全部15job success；Alpine43165702695全success；预览43165731736双构建／双首装／六旧升级全部success，Release预期skipped。
+- 合入后的main CI43169146619全部15job success；正式源码树与候选一致，未以候选结果冒充main结果。
+- 正式43169238237双构建／双首装／六旧升级／Release共11job全部success，使用同正式source。故障注入后实际旧版后端及组件登记恢复、原身份保持、再次升级成功已在两架构实跑。候选及正式包每次逐文件核3284个构建／迁移／模板／运行文件。
+- 六正式资产全部实际下载，SHA256、API digest／size及OTA条目相符，两个OTA manifest逐字相同；Release说明回读一致。两正式包独立核完整source／版本、242迁移、用户无改价编辑器、停删巡查、校时和新旧兼容脚本与仓库精确一致、root属主／安全路径及原受信公钥签名双组件hash／模式／ELF全部通过。
+- Agentv1.0.7的全部源码／构建／协议输入与已发布source c99067be一致，继续使用原公开资产，不移动历史tag或覆盖下载。
+- 没有生产OTA、修配置／DB、重建身份、客户停删或DNS／DD。线上仍为取证时v1.8.6回滚状态；[更新后检查](release-v1.8.8-owner-click-test.md)。
+
+| 正式资产 | 字节 | SHA256 |
+|---|---:|---|
+| incudal-v1.8.8-linux-amd64.tar.gz | 214490930 | `18bb18c26d2d970b3b589953d9314dcb4a3ea8a2d720c0217b91f8fa458c36ff` |
+| incudal-v1.8.8-linux-amd64.tar.gz.sha256 | 100 | `8bafbd8435222b0797e1948619275427baf155f294974ce5d2e8d12c7fa1434d` |
+| incudal-v1.8.8-linux-arm64.tar.gz | 213724144 | `21168680c4d3413755f4e30900981524a05be29b60b226a77b19ee84fb6d2e3a` |
+| incudal-v1.8.8-linux-arm64.tar.gz.sha256 | 100 | `9aa7a92419569fa9aba28837b83666b2251ddbbeea365d61ffd5459681e0fe79` |
+| incudal-v1.8.8-ota-manifest.json | 1053 | `8c52c3b7a25336232fde492197feb70cdbc67f9d20e7eb63be6b90b9f4810be4` |
+| ota-manifest.json | 1053 | `8c52c3b7a25336232fde492197feb70cdbc67f9d20e7eb63be6b90b9f4810be4` |
+
 ## 生产只读取证
 
 2026-11-12，owner报告v1.8.6升级v1.8.7失败并回滚。主控任务33在12:34:01开始，ARM64包下载及哈希验证成功；242个迁移中的新增实例续费价迁移成功。安装新包备份／网关助手时，在`existing-identity`阶段报`GATEWAY_CONTROLLER_PROVISIONING_REJECTED`，12:35:51完成回滚。
