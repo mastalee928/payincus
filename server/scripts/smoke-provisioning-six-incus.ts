@@ -85,3 +85,7 @@ try {
   await prisma.user.delete({ where: { id: user.id } })
   await closePrismaDatabase()
 }
+// Route imports own process-level interval caches; the disposable smoke has
+// awaited all DB/transport cleanup and must not wait for those application timers.
+console.log('PASS native provisioning and database/transport cleanup completed')
+process.exit(0)
