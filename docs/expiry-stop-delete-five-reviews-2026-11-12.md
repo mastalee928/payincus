@@ -1,6 +1,6 @@
 # 到期停删整份修复、五轮审视与两遍排查
 
-记录：2026-11-12，北京时间；源码基线 `7dc5d22a265de422a474efb9b829c4ac1382557d`，43 个产品文件的最终哈希保存在 ignored `logs/expiry-fix-five-review-source.json`。本批尚未提交、推送、发行或部署。此文记录后续修复，前一份[彻查报告](expiry-stop-delete-audit-2026-11-12.md)保留当时未修源码及只读生产事实。
+记录：2026-11-12，北京时间；源码基线 `7dc5d22a265de422a474efb9b829c4ac1382557d`，43 个产品文件的最终哈希保存在 ignored `logs/expiry-fix-five-review-source.json`。22:50经owner明确授权，本批69文件已提交 `5b13db743e7b3b779fc1130f5cd631f2d10f708a` 并推送origin/main、核远端一致；尚未发行或部署。CI／Alpine SSH已触发但未终态，见HANDOFF顶部。本地与云端证据分开。此文记录后续修复，前一份[彻查报告](expiry-stop-delete-audit-2026-11-12.md)保留当时未修源码及只读生产事实。
 
 ## 范围和实际状态
 
