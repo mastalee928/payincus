@@ -1093,13 +1093,11 @@ jobs:
           node-version: '24'
           cache: 'pnpm'
       - name: Prepare isolated schema
-        if: matrix.shard == 2
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
           pnpm --filter server exec prisma generate
           pnpm --filter server exec prisma migrate deploy
       - name: Global abuse policy and remote domain recovery
-        if: matrix.shard == 3
         run: |
           pnpm --filter server test:gateway-dns-channel
           pnpm --filter server test:host-abuse-policy
@@ -1107,21 +1105,17 @@ jobs:
         env:
           JWT_SECRET: isolated-gateway-policy-ci-fixture
       - name: Legacy backup import and interrupted migration in PostgreSQL
-        if: matrix.shard == 4
         run: pnpm --filter server test:platform-backup-history-integration
         env:
           BACKUP_TEST_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
       - name: Administrator bulk policy and three-role domain browser flows
-        if: matrix.shard == 5
         run: |
           pnpm --filter server test:gateway-abuse-ui
           node scripts/test-host-protocol.mjs
       - name: Gateway management identity on first external setup and restore
-        if: matrix.shard == 0
         working-directory: server
         run: sudo env DATABASE_URL="$DATABASE_URL" "$(command -v node)" --import tsx scripts/test-gateway-domain-key-integration.ts
       - name: Verify persistent planning, DNS pinning and credential boundaries
-        if: matrix.shard == 1
         run: pnpm --filter server test:remote-gateway-setup-integration
 
   gateway-component-package:
