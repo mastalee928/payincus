@@ -153,13 +153,13 @@ func safePlan(output string, alpine bool) error {
 	if alpine {
 		for _, m := range apkChange.FindAllStringSubmatch(output, -1) {
 			if m[1] != "Installing" && !allowed[m[2]] {
-				return fmt.Errorf("unrelated installed package change refused")
+				return fmt.Errorf("unrelated installed package %s change refused", m[2])
 			}
 		}
 	} else {
 		for _, m := range aptChange.FindAllStringSubmatch(output, -1) {
 			if strings.Contains(m[2], "[") && !allowed[strings.Split(m[1], ":")[0]] {
-				return fmt.Errorf("unrelated installed package change refused")
+				return fmt.Errorf("unrelated installed package %s change refused", m[1])
 			}
 		}
 	}
@@ -227,7 +227,7 @@ func repair(ctx context.Context) error {
 		}
 	} else {
 		prefix := []string{"-o", "DPkg::Lock::Timeout=5", "-o", "Acquire::Retries=1", "-o", "Acquire::http::Timeout=10", "-o", "Acquire::https::Timeout=10"}
-		args := append(append([]string{}, prefix...), "--simulate", "install", "--reinstall", "--no-remove", "--no-install-recommends")
+		args := append(append([]string{}, prefix...), "--simulate", "install", "--reinstall", "--no-upgrade", "--no-remove", "--no-install-recommends")
 		args = append(args, packages...)
 		out, e := run(ctx, "apt-get", args...)
 		if e != nil {
@@ -249,7 +249,7 @@ func repair(ctx context.Context) error {
 		if len(pinned) == 0 {
 			return fmt.Errorf("tool repair plan unavailable")
 		}
-		args = append(append([]string{}, prefix...), "install", "-y", "--reinstall", "--no-remove", "--no-install-recommends")
+		args = append(append([]string{}, prefix...), "install", "-y", "--reinstall", "--no-upgrade", "--no-remove", "--no-install-recommends")
 		args = append(args, pinned...)
 		if _, e = run(ctx, "apt-get", args...); e != nil {
 			return e
