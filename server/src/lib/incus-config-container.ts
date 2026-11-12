@@ -342,6 +342,8 @@ USERS="${usersListForLoop}"
 
 ${osInfo.family === 'alpine' ? '/usr/local/bin/incudal-alpine-ssh-security.sh check || exit 1' : ''}
 
+printf '%s\n' 'INCUDAL_SETUP_PASSWORD'
+command -v chpasswd || true
 if echo "root:$ROOT_PASSWORD" | chpasswd >/dev/null 2>&1; then
   :
 else
@@ -350,6 +352,7 @@ fi
 
 passwd -u root >/dev/null 2>&1 || usermod -U root >/dev/null 2>&1 || true
 
+printf '%s\n' 'INCUDAL_SETUP_HOME'
 mkdir -p /root/.ssh
 chmod 700 /root/.ssh
 if [ -n "$SSH_KEY" ]; then
@@ -376,6 +379,7 @@ for u in $USERS; do
   fi
 done
 
+printf '%s\n' 'INCUDAL_SETUP_SSH_POLICY'
 SED_BIN="sed"
 SSH_CONFIG="/etc/ssh/sshd_config"
 
@@ -387,6 +391,7 @@ chmod 600 "$POLICY"
 mv "$POLICY" "$SSH_CONFIG"
 SSHD="$(command -v sshd)"
 [ -n "$SSHD" ]
+printf '%s\n' 'INCUDAL_SETUP_SSH_TEST'
 "$SSHD" -t
 "$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -E '^(passwordauthentication|permitrootlogin) '
 "$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -q '^passwordauthentication yes$'
