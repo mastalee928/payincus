@@ -398,6 +398,9 @@ SSHD="$(command -v sshd)"
 [ -n "$SSHD" ]
 printf '%s\n' 'INCUDAL_SETUP_SSH_TEST'
 SETUP_STAGE=ssh-test
+ssh-keygen -A
+mkdir -p /run/sshd
+chmod 755 /run/sshd
 "$SSHD" -t
 # New OpenSSH may need multiple writes for -T. Do not let grep -q close the
 # pipe early and deliver SIGPIPE while the daemon is emitting its config.
