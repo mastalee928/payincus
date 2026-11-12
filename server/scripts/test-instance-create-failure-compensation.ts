@@ -53,12 +53,6 @@ const postTransactionPreparationSection = section(
   '    // ==================== 阶段六: 异步执行创建 ===================='
 )
 
-const publicIpv4ReleaseHelperSection = section(
-  instancesSource,
-  'async function releaseReservedPublicIpv4ForFailedCreation(',
-  '\n}\n\nasync function compensateFailedInstanceCreation('
-)
-
 const compensationHelperSection = section(
   instancesSource,
   'async function compensateFailedInstanceCreation(',
@@ -85,60 +79,19 @@ assert.ok(
   'all synchronous post-transaction IP and storage preparation failures must be compensated immediately'
 )
 
-assert.ok(
-  failureSection.includes('await compensateFailedInstanceCreation({') &&
-    compensationHelperSection.includes("status: 'creating'") &&
-    compensationHelperSection.includes('if (updateResult.count === 0)') &&
-    compensationHelperSection.includes('await db.rollbackResources({') &&
-    compensationHelperSection.includes('await releaseReservedPublicIpv4ForFailedCreation(instanceId, networkMode)') &&
-    compensationHelperSection.includes('await db.compensateFailedInstancePurchase(instanceId, userId, host.id)'),
-  'sync preparation and async provisioning failures must share the idempotent creating->error compensation helper'
-)
-
-assert.ok(
-  publicIpv4ReleaseHelperSection.includes('if (!networkModeNeedsPublicIpv4(networkMode))') &&
-    publicIpv4ReleaseHelperSection.includes('db.releasePublicIpv4ForInstance(tx, instanceId)') &&
-    instancesSource.match(/db\.releasePublicIpv4ForInstance\(tx, instanceId\)/g)?.length === 1,
-  'all user-create failure branches must release reserved public IPv4 through one shared helper'
-)
-
-assert.ok(
-  appSource.includes('const { getStuckCreatingInstances, getHostById, compensateFailedInstancePurchase, releasePublicIpv4ForInstance } = await import') &&
-    appSource.includes("status: 'creating' // 原子条件：只有状态仍为 creating 时才更新") &&
-    appSource.includes('const compensation = await compensateFailedInstancePurchase(instance.id, instance.user_id, instance.host_id)'),
-  'create-timeout cleanup must run paid purchase compensation after winning creating->error transition'
-)
-
-assert.ok(
-  appSource.includes('const instanceCreationReservesPorts = (networkMode: string) => networkModeAllowsPortMapping(networkMode)') &&
-    appSource.includes('portCount: instanceCreationReservesPorts(instance.network_mode) ? (instance.port_limit || 0) : 0') &&
-    appSource.includes('if (networkModeNeedsPublicIpv4(instance.network_mode))') &&
-    appSource.includes('await prisma.$transaction((tx) => releasePublicIpv4ForInstance(tx, instance.id))'),
-  'create-timeout cleanup must use the shared network-mode helper for port quota and release reserved public IPv4 addresses'
-)
-
-const adminAsyncSection = section(
-  adminBillingSource,
-  'async function createInstanceAsync(',
-  '\n}\n'
-)
-
-assert.ok(
-  adminAsyncSection.includes("where: { id: instanceId, status: 'creating' }") &&
-    adminAsyncSection.includes('await db.rollbackResources({') &&
-    adminAsyncSection.includes('await prisma.$transaction((tx) => db.releasePublicIpv4ForInstance(tx, instanceId))') &&
-    adminAsyncSection.includes('await db.compensateFailedInstancePurchase(instanceId, userId, host.id)') &&
-    adminAsyncSection.includes('await deleteInstance(client, config.name)'),
-  'admin paid instance async failures must atomically claim creating->error, release host resources/public IPv4, compensate billing, and clean Incus leftovers'
-)
-
-assert.ok(
-  adminAsyncSection.includes('await stopInstance(client, config.name, true)') &&
-    adminAsyncSection.includes('await deleteInstance(client, config.name)') &&
-    adminAsyncSection.indexOf("where: { id: instanceId, status: 'creating' }") <
-      adminAsyncSection.indexOf('console.log(`[Admin Provisioning] 实例 ${instanceId} 创建成功`)'),
-  'admin async success must use conditional creating->running update and clean Incus if timeout cleanup won the race'
-)
+const lifecycleSource = readSource('../src/lib/managed-provisioning-lifecycle.ts')
+assert.ok(failureSection.includes('await compensateFailedInstanceCreation({') &&
+  compensationHelperSection.includes('await failManagedProvision(instanceId, host, input.beforeRemoteCreate)'))
+assert.ok(appSource.includes('createCleanupRunning') && appSource.includes('await failManagedProvision(instance.id, host)') &&
+  appSource.includes('Target remains pending') && !appSource.includes('await rollbackResources({'),
+  'timeout scan isolates each target and uses pending cleanup rather than premature resource rollback')
+const adminAsyncSection = section(adminBillingSource, 'async function createInstanceAsync(', '\n}\n')
+assert.ok(adminAsyncSection.includes('await failManagedProvision(instanceId, host, !lifecycle)') &&
+  adminAsyncSection.includes('if (!running) throw new Error') && adminAsyncSection.includes('await lifecycle.complete('))
+assert.ok(lifecycleSource.indexOf('await cleanupManagedInstanceRemote(') < lifecycleSource.indexOf('UPDATE hosts SET cpu_used') &&
+  lifecycleSource.includes('provisioningCleanupPending: true') && lifecycleSource.includes('await db.releasePublicIpv4ForInstance(tx, instanceId)') &&
+  lifecycleSource.includes('await db.compensateFailedInstancePurchase(') && lifecycleSource.includes('Original creation attempt is not recorded'),
+  'original attempt absence plus disk/forward verification must precede releasing resources; billing retries independently')
 
 const managedAsyncSection = section(
   managedProvisionSource,
@@ -154,7 +107,7 @@ assert.ok(
     managedAsyncSection.includes('await db.compensateFailedInstancePurchase(instanceId, instance.userId, instance.hostId)') &&
     managedAsyncSection.includes('if (!billingSettled || current.deletionBillingPending) throw new Error') &&
     managedAsyncSection.includes("data: { status: 'deleted', provisioningCleanupPending: false }") &&
-    indexOfOrThrow(managedAsyncSection, 'await cleanupManagedInstanceRemote(client, config.name, attempt, cleanupDeadline)', 'confirmed remote cleanup') <
+    indexOfOrThrow(managedAsyncSection, 'await cleanupManagedInstanceRemote(transport, config.name, attempt, cleanupDeadline)', 'confirmed remote cleanup') <
       indexOfOrThrow(managedAsyncSection, 'UPDATE hosts SET cpu_used', 'resource release'),
   'managed failures must claim the same target, preserve pending resources until confirmed remote cleanup, and release resources/IP atomically under the instance lock; refunds remain independent'
 )

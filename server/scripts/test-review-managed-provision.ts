@@ -27,6 +27,7 @@ const actions: string[] = []
 let afterCreate: (() => Promise<void>) | undefined
 let afterStop: (() => Promise<void>) | undefined
 let firstCleanupRead = true
+let concurrentStop:Promise<unknown>|undefined
 const server = createServer({ key: await readFile(keyPath), cert: certificate, ca: certificate, requestCert: true, rejectUnauthorized: true }, async (request, response) => {
   response.setHeader('content-type', 'application/json')
   const ok = (metadata: unknown = {}) => response.end(JSON.stringify({ type: 'sync', metadata }))
@@ -70,7 +71,7 @@ const server = createServer({ key: await readFile(keyPath), cert: certificate, c
     if (request.method === 'GET') {
       if (mode === 'not_found_text') return fail(500, 'backend not found')
       if (!remote) return fail(404, 'not found')
-      if (mode === 'cleanup_lock_deadline' && firstCleanupRead && !path.endsWith('/state')) {
+      if (mode === 'cleanup_lock_deadline' && lockDelayInjected && firstCleanupRead && !path.endsWith('/state')) {
         firstCleanupRead = false
         await new Promise(resolve => setTimeout(resolve, 26000))
       }
@@ -82,7 +83,7 @@ const server = createServer({ key: await readFile(keyPath), cert: certificate, c
       if (action === 'start') {
         assert.ok(['success', 'success_lost_claim', 'start_timeout'].includes(mode))
         if (remote) remote.status = mode === 'start_timeout' ? 'Stopped' : 'Running'
-        if (mode === 'success_lost_claim') await prisma.instance.update({ where: { id: instanceId }, data: { status: 'stopped' } })
+        if (mode === 'success_lost_claim') concurrentStop=prisma.instance.update({ where: { id: instanceId }, data: { status: 'stopped' } }).then(() => undefined)
         return ok()
       }
       assert.equal(action, 'stop')
@@ -162,6 +163,7 @@ try {
     })
     if (mode === 'success') await provisioning; else await assert.rejects(provisioning)
     await mutation
+    await concurrentStop;concurrentStop=undefined
     if (mode === 'cleanup_lock_deadline') {
       const elapsed = performance.now() - startedAt
       assert.ok(lockDelayInjected, 'hold a real row lock before the actual cleanup transaction')

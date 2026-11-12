@@ -20,7 +20,7 @@ var incusSocketCandidates = []string{
 func HeartbeatPayload(ctx context.Context, version string, heartbeatIntervalSeconds int) map[string]any {
 	return map[string]any{
 		"version":      version,
-		"capabilities": []any{"heartbeat", "report", "host-metrics", "instance-status", "traffic-counters", "ingress-port-protocol-v1", "dedicated-ipv6-v1", "abuse-policy-v1", "abuse-speedtest-v1", "guest-network-protection-v1"},
+		"capabilities": []any{"heartbeat", "report", "host-metrics", "instance-status", "traffic-counters", "ingress-port-protocol-v1", "dedicated-ipv6-v1", "abuse-policy-v1", "abuse-speedtest-v1", "guest-network-protection-v1", "host-provisioning-tools-v1"},
 		"runtime": map[string]any{
 			"goos":   runtime.GOOS,
 			"goarch": runtime.GOARCH,

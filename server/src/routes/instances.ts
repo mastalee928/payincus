@@ -1,6 +1,6 @@
-import { persistCreatedGuestIdentity } from '../lib/persist-created-guest.js'
+import { beginManagedProvision, failManagedProvision, ManagedProvisionOwnershipError } from '../lib/managed-provisioning-lifecycle.js'
 import { hasPendingSnapshotOperation, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
-import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
+import { prepareNewContainerCloudInit, waitForNewGuestInitialization } from '../lib/new-container-cloud-init.js'
 import { applyCustomerInstanceView } from '../lib/customer-instance-view.js'
 import { hostLiveStatus } from '../lib/host-live-status.js'
 import { prepareDedicatedDelivery } from '../services/dedicated-delivery.js'
@@ -27,7 +27,6 @@ import {
   createInstance,
   startInstance,
   stopInstance,
-  deleteInstance,
   updateInstance,
   addDevice,
   removeDevice,
@@ -66,7 +65,7 @@ import { generateRandomIPv6 } from '../lib/ip-calculator.js'
 import { calculateVipLevel, getVipBadgeStyleForLevel, getVipRules } from '../services/vip-levels.js'
 import { ProxyStrategyFactory } from '../lib/proxy/index.js'
 import { sendHostManagedInstanceNotification, sendNotification } from '../lib/notifier.js'
-import { notifyAdminInstanceCreateFailed, notifyAdminInstanceCreated, notifyAdminInstancePurchase } from '../lib/admin-alerts.js'
+import { notifyAdminInstanceCreated, notifyAdminInstancePurchase } from '../lib/admin-alerts.js'
 import {
   createInstanceTask,
   InstanceTaskConflictError,
@@ -2172,7 +2171,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
         networkMode,
         portLimit: pkgWithExtras.port_limit || 0,
         instanceName: incusId,
-        errorMessage
+        errorMessage, beforeRemoteCreate: true
       })
       return reply.code(503).send(apiError(ErrorCode.HOST_RESOURCES_INSUFFICIENT, errorMessage))
     }
@@ -6035,18 +6034,6 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
 // ==================== 辅助函数 ====================
 
-async function releaseReservedPublicIpv4ForFailedCreation(
-  instanceId: number,
-  networkMode: NetworkMode
-): Promise<void> {
-  if (!networkModeNeedsPublicIpv4(networkMode)) {
-    return
-  }
-
-  await prisma.$transaction((tx) => db.releasePublicIpv4ForInstance(tx, instanceId))
-  console.log(`[Provisioning] 独立 IPv4 已释放: instance=${instanceId}`)
-}
-
 async function compensateFailedInstanceCreation(input: {
   instanceId: number
   host: Host
@@ -6056,6 +6043,7 @@ async function compensateFailedInstanceCreation(input: {
   portLimit: number
   instanceName: string
   errorMessage: string
+  beforeRemoteCreate?: boolean
 }): Promise<{
   claimed: boolean
   refundStatus: 'refunded' | 'not_required' | 'already_refunded' | 'not_completed' | 'failed' | 'already_handled'
@@ -6067,97 +6055,15 @@ async function compensateFailedInstanceCreation(input: {
     instanceId,
     host,
     userId,
-    resources,
-    networkMode,
-    portLimit,
     instanceName: _instanceName
   } = input
   if (await failPoolProvision(instanceId, host, input.errorMessage)) {
     const refund = await prisma.instanceBillingRecord.findFirst({ where: { instanceId, userId, type: 'refund', remark: { contains: '实例创建失败自动退款' } } })
     return { claimed: true, refundStatus: refund ? 'refunded' : 'not_completed', refundAmount: Number(refund?.amount || 0) }
   }
-  const updateResult = await prisma.instance.updateMany({
-    where: {
-      id: instanceId,
-      status: 'creating'
-    },
-    data: {
-      status: 'error'
-    }
-  })
-
-  // creating -> error 是资源、IPv4 和账务补偿的幂等总闸门。
-  if (updateResult.count === 0) {
-    console.log(`[Provisioning] 实例 ${instanceId} 已被其他失败补偿或超时清理处理，跳过重复补偿`)
-    return { claimed: false, refundStatus: 'already_handled', refundAmount: 0 }
-  }
-
-  const rollbackPortCount = networkModeAllowsPortMapping(networkMode) ? portLimit : 0
-  try {
-    await db.rollbackResources({
-      hostId: host.id,
-      cpu: resources.cpu,
-      memory: resources.memory,
-      disk: resources.disk,
-      portCount: rollbackPortCount
-    })
-    console.log(`[Provisioning] 用户 ${userId} 资源已回滚 (CPU=${resources.cpu}, Mem=${resources.memory}MB, Disk=${resources.disk}MB)`)
-  } catch (rollbackErr) {
-    console.error(`[Provisioning] 资源回滚失败:`, rollbackErr)
-  }
-
-  try {
-    await releaseReservedPublicIpv4ForFailedCreation(instanceId, networkMode)
-  } catch (releaseErr) {
-    console.error(`[Provisioning] 释放独立 IPv4 失败:`, releaseErr)
-  }
-
-  try {
-    const compensation = await db.compensateFailedInstancePurchase(instanceId, userId, host.id)
-    if (compensation.refunded) {
-      console.log(`[Provisioning] 实例 ${instanceId} 创建失败已自动退款 ¥${compensation.refundAmount.toFixed(2)}`)
-    } else if (compensation.reason !== 'not_paid_purchase') {
-      console.log(`[Provisioning] 实例 ${instanceId} 创建失败无需退款: ${compensation.reason || 'unknown'}`)
-    }
-    void notifyAdminInstanceCreateFailed({
-      userId,
-      instanceId,
-      errorMessage: input.errorMessage,
-      refundStatus: compensation.refunded
-        ? 'refunded'
-        : compensation.reason === 'not_paid_purchase'
-          ? 'not_required'
-          : compensation.reason === 'already_refunded'
-            ? 'already_refunded'
-            : 'not_completed',
-      refundAmount: compensation.refundAmount,
-      refundReason: compensation.reason
-    }).catch(err => console.warn('[Provisioning] 管理员失败告警发送失败:', err))
-    return {
-      claimed: true,
-      refundStatus: compensation.refunded
-        ? 'refunded'
-        : compensation.reason === 'not_paid_purchase'
-          ? 'not_required'
-          : compensation.reason === 'already_refunded'
-            ? 'already_refunded'
-            : 'not_completed',
-      refundAmount: compensation.refundAmount,
-      refundReason: compensation.reason
-    }
-  } catch (compensationErr) {
-    const refundError = compensationErr instanceof Error ? compensationErr.message : String(compensationErr)
-    console.error(`[Provisioning] 实例 ${instanceId} 创建失败后的账务补偿失败:`, compensationErr)
-    void notifyAdminInstanceCreateFailed({
-      userId,
-      instanceId,
-      errorMessage: input.errorMessage,
-      refundStatus: 'failed',
-      refundAmount: 0,
-      refundError
-    }).catch(err => console.warn('[Provisioning] 管理员失败告警发送失败:', err))
-    return { claimed: true, refundStatus: 'failed', refundAmount: 0, refundError }
-  }
+  const claimed = await failManagedProvision(instanceId, host, input.beforeRemoteCreate)
+  const refund = await prisma.instanceBillingRecord.findFirst({ where: { instanceId, userId, type: 'refund', remark: { contains: '实例创建失败自动退款' } } })
+  return { claimed, refundStatus: refund ? 'refunded' : claimed ? 'not_completed' : 'already_handled', refundAmount: Math.abs(Number(refund?.amount || 0)) }
 }
 
 /**
@@ -6214,6 +6120,7 @@ async function createInstanceAsync(
   const original = await prisma.instance.findUnique({ where: { id: instanceId } })
   const poolPurchase = !!original?.purchaseBatchId
   let poolCommitted = false
+  let managedProvision: Awaited<ReturnType<typeof beginManagedProvision>> | undefined
   if (poolPurchase && (original.status !== 'creating' || original.provisioningCleanupPending ||
     (original.snapshottedSpecs as { poolProvision?: { phase?: string } } | null)?.poolProvision?.phase === 'creating')) {
     throw new Error('Pool creation already started or was finalized')
@@ -6225,6 +6132,7 @@ async function createInstanceAsync(
     let client = await getIncusClient(host)
     poolProvision = await beginPoolProvision(instanceId, host, client, config.name)
     if (poolProvision) client = poolProvision.client
+    else { managedProvision = await beginManagedProvision(instanceId, host, client, config.name); client = managedProvision.client }
 
     console.log(`[Provisioning] 正在构建 Incus 配置...`)
     // 构建 IPv6Config (如果有静态 IPv6)
@@ -6275,10 +6183,10 @@ async function createInstanceAsync(
     console.log(`[Provisioning] 资源配置: CPU=${config.cpu}, Memory=${config.memory}MB, Disk=${config.disk}MB`)
     console.log(`[Provisioning] Incus 配置已生成，敏感字段已跳过日志输出`)
 
-    if (poolProvision) (incusConfig.config as Record<string, string>)['user.payincus.provisioning-attempt'] = poolProvision.attempt
+    ;(incusConfig.config as Record<string, string>)['user.payincus.provisioning-attempt'] = (poolProvision || managedProvision)!.attempt
     await createInstance(client, incusConfig)
     if (poolProvision) { await poolProvision.check(); await poolProvision.identity() }
-    if(!poolProvision)await persistCreatedGuestIdentity(client,instanceId,config.name)
+    if (managedProvision) await managedProvision.identity()
     await prepareNewContainerCloudInit(client, config.name, config.cloudInitConfig, config.instanceType)
     const instanceTypeLabel = config.instanceType === 'vm' ? '虚拟机' : '容器'
     console.log(`[Provisioning] 实例 ${config.name} ${instanceTypeLabel}创建完成`)
@@ -6307,9 +6215,11 @@ async function createInstanceAsync(
         } catch { /* 继续等待 */ }
       }
       if (!vmStarted) {
-        console.warn(`[Provisioning] VM ${config.name} 启动等待超时 (180s)，继续流程`)
+        throw new Error(`Instance ${config.name} startup timed out before Running was confirmed`)
       }
     }
+
+    if ((await getInstanceState(client, config.name) as { status?: string }).status !== 'Running') throw new Error('Instance startup not confirmed')
 
     // 使用传入的静态 IP 地址
     const ipv4: string | null = config.ipv4Address || null
@@ -6318,6 +6228,7 @@ async function createInstanceAsync(
     console.log(`[Provisioning] 实例 ${config.name} IP 配置: IPv4=${ipv4}, IPv6=${ipv6}`)
 
     await prisma.instance.updateMany({ where: { id: instanceId, status: 'creating' }, data: { ipv4, ipv6 } })
+    await waitForNewGuestInitialization(client, config.name, config.cloudInitConfig)
     const dedicatedReady = await prepareDedicatedDelivery(client, instanceId)
 
     // 使用原子操作更新状态，防止与超时清理任务竞争
@@ -6326,31 +6237,11 @@ async function createInstanceAsync(
       status: 'running' as const, dedicatedNetworkReady: dedicatedReady,
       ipv4: ipv4 ?? null, ipv6: ipv6 ?? null, storagePoolName: config.storagePool || 'default'
     }
-    const updateResult = poolProvision ? await poolProvision.complete(completedData) : await prisma.instance.updateMany({
-      where: {
-        id: instanceId,
-        status: 'creating' // 原子条件
-      },
-      data: completedData
-    })
-
-    // 如果状态已被超时清理任务修改（变为 error），需要清理已创建的 Incus 实例
-    if (updateResult.count === 0) {
-      if (poolPurchase) throw new Error('Pool creation was finalized by another operation')
-      console.log(`[Provisioning] 实例 ${instanceId} 已被超时清理任务处理，清理已创建的 Incus 实例`)
-      try {
-        await stopInstance(client, config.name, true)
-        await deleteInstance(client, config.name)
-        console.log(`[Provisioning] Incus 实例 ${config.name} 已清理（因超时）`)
-      } catch (cleanupErr) {
-        console.error(`[Provisioning] 清理超时实例失败:`, cleanupErr)
-      }
-      // 不再继续后续流程（IP 记录、通知等）
-      return
-    }
+    const updateResult = await (poolProvision || managedProvision)!.complete(completedData)
+    if (updateResult.count === 0) throw new Error('Creation was finalized by another operation')
 
     // 创建 IP 地址记录 (新双网卡架构: eth0=IPv4, eth1=IPv6)
-    poolCommitted = poolPurchase
+    poolCommitted = true
     if (ipv4) {
       try {
         await db.createIpAddress({
@@ -6477,8 +6368,8 @@ async function createInstanceAsync(
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    if (error instanceof PoolProvisionOwnershipError) throw error
-    if (poolCommitted) { console.warn('[Provisioning] Pool instance delivered; post-delivery notification or log failed', instanceId); return }
+    if (error instanceof PoolProvisionOwnershipError || error instanceof ManagedProvisionOwnershipError) throw error
+    if (poolCommitted) { console.warn('[Provisioning] Instance delivered; post-delivery notification or log failed', instanceId); return }
     console.error(`[Provisioning] ✘ 实例 ${instanceId} 创建失败:`, errorMessage)
 
     try {
@@ -6490,19 +6381,10 @@ async function createInstanceAsync(
         networkMode: config.networkMode,
         portLimit: config.portLimit || 0,
         instanceName: config.name,
-        errorMessage
+        errorMessage, beforeRemoteCreate: !managedProvision
       })
     } catch (compensationError) {
       console.error(`[Provisioning] 实例 ${instanceId} 创建失败补偿流程异常:`, compensationError)
-    }
-
-    if (!poolPurchase) try {
-      const client = await getIncusClient(host)
-      await deleteInstance(client, config.name)
-      console.log(`[Provisioning] 残留容器 ${config.name} 已清理`)
-    } catch (cleanupErr) {
-      const errorMessage = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)
-      console.log(`[Provisioning] 清理残留容器失败 (可能不存在):`, errorMessage)
     }
 
     const instance = await db.getInstanceById(instanceId)

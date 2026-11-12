@@ -31,6 +31,8 @@ const remoteServer = createServer({ key: await readFile(keyPath), cert: certific
   try {
     assert.ok((request.socket as any).authorized)
     const path = request.url || ''
+    if (path.endsWith('/exec') && request.method === 'POST') return send({ return: 0, output: { '1': '/fixture-initialization-output' } })
+    if (path === '/fixture-initialization-output') { response.writeHead(200, { 'content-type': 'text/plain' }); return response.end('INCUDAL_INITIALIZATION_READY') }
     actions.push(`${request.method} ${path}`)
     if (path === '/1.0') return send({ api_version: '1.0' })
     if (path === '/1.0/instances' && request.method === 'POST') {

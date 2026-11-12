@@ -115,7 +115,7 @@ const osPasswordMatrix = [
   ['alpine/3.21/cloud', 'sshd', 'apk'], ['alpine/3.23/cloud', 'sshd', 'apk'],
   ['alpine/3.24/cloud', 'sshd', 'apk'], ['alpine/3.24/tinycloud', 'sshd', 'apk'],
   ['debian/10/cloud', 'ssh', 'apt-get'], ['debian/11/cloud', 'ssh', 'apt-get'],
-  ['debian/12/cloud', 'ssh', 'apt-get'], ['debian/13/cloud', 'ssh', 'apt-get'],
+  ['debian/12/cloud', 'ssh', 'apt-get'], ['debian/13/cloud', 'ssh', 'apt-get'], ['debian/14/cloud', 'ssh', 'apt-get'],
   ['ubuntu/20.04/cloud', 'ssh', 'apt-get'], ['ubuntu/22.04/cloud', 'ssh', 'apt-get'], ['ubuntu/24.04/cloud', 'ssh', 'apt-get'],
   ['rockylinux/8/cloud', 'sshd', 'yum'], ['rockylinux/9/cloud', 'sshd', 'dnf'],
   ['almalinux/8/cloud', 'sshd', 'yum'], ['almalinux/9/cloud', 'sshd', 'dnf'],
@@ -135,7 +135,7 @@ for (const [alias, service, packageManager] of osPasswordMatrix) {
       assert.equal(cloudConfig.includes('ssh_authorized_keys:'), Boolean(sshKey), `${label}: never invent a customer key`)
       assert.ok(cloudConfig.includes(type === 'container' ? '/etc/ssh/sshd_config.d/00-incus.conf' : '/etc/ssh/sshd_config.d/00-incudal-force.conf'),
         `${label}: platform policy loads before cloud defaults`)
-      assert.ok(cloudConfig.includes('-T -f /dev/stdin'), `${label}: detect server-side Include through a real config, not unsupported command-line Include`)
+      assert.ok(cloudConfig.includes(type === 'container' ? '-T -C user=root' : '-T -f /dev/stdin'), `${label}: detect server-side Include through a real config, not unsupported command-line Include`)
       assert.ok(!cloudConfig.includes('-o "Include /dev/null"'), `${label}: Include is not a valid sshd command-line option`)
       assert.ok(cloudConfig.includes(packageManager === 'apk' ? 'apk add' : `${packageManager} install`), `${label}: correct package manager`)
       if (type === 'virtual-machine' && ['yum', 'dnf'].includes(packageManager)) {

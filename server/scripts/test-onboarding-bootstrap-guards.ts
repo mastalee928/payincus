@@ -62,6 +62,7 @@ uname() { echo '${arch}'; }
 date() { if [ "$1" = -u ] && [ "$2" = +%s ]; then echo 1; else echo clock-set >> actions; fi; }
 timeout() { shift; "$@"; }
 apk() { echo apk >> actions; [ "\${FAIL_PACKAGES:-0}" != 1 ]; }
+aa-exec() { [ "\${FAIL_TOOLS:-0}" != 1 ]; }
 apt-get() { echo apt >> actions; [ "\${FAIL_PACKAGES:-0}" != 1 ]; }
 dpkg() { return 0; }
 modprobe() { :; }

@@ -163,8 +163,8 @@ export async function restoreFromBackup(
     profiles: [],
     config: { 'security.privileged': 'false' },
     source: {
-      type: 'backup',
-      ...backupData
+      ...backupData,
+      type: 'backup'
     }
   })
   return result

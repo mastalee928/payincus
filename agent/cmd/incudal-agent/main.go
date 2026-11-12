@@ -17,6 +17,7 @@ import (
 	"incudal-agent/internal/ingress"
 	"incudal-agent/internal/panel"
 	"incudal-agent/internal/performance"
+	"incudal-agent/internal/provisioning"
 	"incudal-agent/internal/report"
 	"incudal-agent/internal/upgrade"
 )
@@ -26,6 +27,7 @@ var lastPortProtocolStatus *ingress.Status
 var abusePolicy = abuse.New()
 var guestProtection = guestguard.New()
 var tcpPerformance = performance.New()
+var provisioningTools = provisioning.New()
 
 func main() {
 	configPath := flag.String("config", "/etc/incudal-agent/config.yaml", "agent config file")
@@ -101,6 +103,7 @@ func main() {
 	go reconcileGuestProtection(ctx, cfg.PanelURL)
 	// Pool scope arrives on heartbeat for legacy hosts without a marker.
 	go tcpPerformance.Run(ctx)
+	go provisioningTools.Run(ctx)
 
 	if err := ingress.Restore(ctx); err != nil {
 		log.Printf("restore ingress: %v", err)
@@ -209,6 +212,7 @@ func sendHeartbeat(ctx context.Context, client *panel.Client, heartbeatIntervalS
 	payload := report.HeartbeatPayload(ctx, version, heartbeatIntervalSeconds)
 	payload["guestProtectionStatus"] = guestProtection.Status()
 	payload["runtime"].(map[string]any)["bbr"] = tcpPerformance.Status()
+	payload["hostProvisioningStatus"] = provisioningTools.Status()
 	if status := abusePolicy.Sync(ctx, nil); status != nil {
 		payload["abusePolicyStatus"] = *status
 	}
@@ -221,6 +225,7 @@ func sendHeartbeat(ctx context.Context, client *panel.Client, heartbeatIntervalS
 	}
 	if result.PoolHostBBR != nil {
 		tcpPerformance.SetPoolHost(*result.PoolHostBBR)
+		provisioningTools.SetPoolHost(*result.PoolHostBBR)
 	}
 	abusePolicy.Sync(ctx, result.AbusePolicy)
 	if result.PortProtocol != nil {

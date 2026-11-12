@@ -15,7 +15,6 @@ import { startSecurityHardeningWorker, stopSecurityHardeningWorker } from './wor
 import { startHostPublicIpSync, stopHostPublicIpSync } from './services/host-public-ip-sync.js'
 import { startHostPublicIpv6Sync, stopHostPublicIpv6Sync } from './services/host-public-ipv6-sync.js'
 import { startHostOfflineAlertWorker, stopHostOfflineAlertWorker } from './workers/hostOfflineAlertWorker.js'
-import { notifyAdminInstanceCreateFailed } from './lib/admin-alerts.js'
 // 确保环境变量被加载（必须在最前面）
 import './config/env.js'
 import adminAliyunOssRoutes from './routes/admin-aliyun-oss.js'
@@ -45,7 +44,6 @@ import { checkJwtConfig, isAccessTokenInvalidated } from './lib/security.js'
 // 导入日志敏感信息过滤器
 import { logSerializers } from './lib/log-sanitizer.js'
 import { closeCaddyClients } from './lib/caddy-client.js'
-import { networkModeAllowsPortMapping, networkModeNeedsPublicIpv4 } from './lib/network-modes.js'
 import { getTrustProxyConfig } from './lib/trust-proxy-config.js'
 import { getCorsOrigins } from './lib/origin-config.js'
 import {
@@ -961,153 +959,33 @@ const start = async (): Promise<void> => {
     }, 5 * 60 * 1000) // 5分钟
 
     // 启动创建超时清理任务（清理10分钟仍处于创建中的实例）
-    const { getStuckCreatingInstances, getHostById, compensateFailedInstancePurchase, releasePublicIpv4ForInstance } = await import('./db/index.js')
-    const { getIncusClient, deleteInstance } = await import('./lib/incus/index.js')
-    const { createLog } = await import('./db/logs.js')
-    const CREATE_TIMEOUT_MS = 10 * 60 * 1000 // 10分钟
-    const CREATE_TIMEOUT_CHECK_INTERVAL = 2 * 60 * 1000 // 每2分钟检查一次
-    
-    const instanceCreationReservesPorts = (networkMode: string) => networkModeAllowsPortMapping(networkMode)
-
+    const { getStuckCreatingInstances, getHostById } = await import('./db/index.js')
+    const { failManagedProvision } = await import('./lib/managed-provisioning-lifecycle.js')
+    const { failPoolProvision } = await import('./services/pool-provisioning.js')
+    let createCleanupRunning = false
     const runCreateTimeoutCleanup = async () => {
+      if (createCleanupRunning) return
+      createCleanupRunning = true
       try {
-        const stuckInstances = await getStuckCreatingInstances(CREATE_TIMEOUT_MS)
-        
-        for (const instance of stuckInstances) {
-          if (instance.purchase_batch_id) {
-            const { failPoolProvision } = await import('./services/pool-provisioning.js')
-            await failPoolProvision(instance.id, await getHostById(instance.host_id), '创建超时或先前补偿待处理').catch(error => {
-              console.error('[CreateTimeout] Pool cleanup remains pending', instance.id, error)
-            })
-            continue
-          }
-          console.log(`[CreateTimeout] 清理超时创建实例: ${instance.name} (ID: ${instance.id})`)
-          
-          // 使用原子操作更新状态，防止与 createInstanceAsync 的失败回滚竞争
-          // 只有状态仍为 'creating' 时才执行清理
-          const { prisma } = await import('./db/prisma.js')
-          const updateResult = await prisma.instance.updateMany({
-            where: {
-              id: instance.id,
-              status: 'creating' // 原子条件：只有状态仍为 creating 时才更新
-            },
-            data: {
-              status: 'error'
-            }
-          })
-          
-          // 如果没有更新任何记录，说明状态已被其他进程修改（如 createInstanceAsync 失败回滚）
-          if (updateResult.count === 0) {
-            console.log(`[CreateTimeout] 实例 ${instance.name} 状态已被其他进程修改，跳过清理`)
-            continue
-          }
-          
-          // 状态更新成功，执行资源回滚
-          // 2. 回滚资源
-          try {
-            const { rollbackResources } = await import('./db/index.js')
-            await rollbackResources({
-              hostId: instance.host_id,
-              cpu: instance.cpu,
-              memory: instance.memory,
-              disk: instance.disk,
-              portCount: instanceCreationReservesPorts(instance.network_mode) ? (instance.port_limit || 0) : 0
-            })
-            console.log(`[CreateTimeout] 实例 ${instance.name} 资源已回滚`)
-          } catch (rollbackErr) {
-            console.error(`[CreateTimeout] 资源回滚失败:`, rollbackErr)
-          }
-
-          if (networkModeNeedsPublicIpv4(instance.network_mode)) {
-            try {
-              await prisma.$transaction((tx) => releasePublicIpv4ForInstance(tx, instance.id))
-              console.log(`[CreateTimeout] 实例 ${instance.name} 独立 IPv4 已释放`)
-            } catch (releaseErr) {
-              console.error(`[CreateTimeout] 释放独立 IPv4 失败:`, releaseErr)
-            }
-          }
-
-          try {
-            const compensation = await compensateFailedInstancePurchase(instance.id, instance.user_id, instance.host_id)
-            if (compensation.refunded) {
-              console.log(`[CreateTimeout] 实例 ${instance.name} 创建超时已自动退款 ¥${compensation.refundAmount.toFixed(2)}`)
-            } else if (compensation.reason !== 'not_paid_purchase') {
-              console.log(`[CreateTimeout] 实例 ${instance.name} 创建超时无需退款: ${compensation.reason || 'unknown'}`)
-            }
-
-            void notifyAdminInstanceCreateFailed({
-              userId: instance.user_id,
-              instanceId: instance.id,
-              errorMessage: '创建超时（10 分钟未完成，已按失败清理）',
-              refundStatus: compensation.refunded
-                ? 'refunded'
-                : compensation.reason === 'not_paid_purchase'
-                  ? 'not_required'
-                  : compensation.reason === 'already_refunded'
-                    ? 'already_refunded'
-                    : 'not_completed',
-              refundAmount: compensation.refundAmount,
-              refundReason: compensation.reason
-            }).catch(() => {})
-          } catch (compensationErr) {
-            console.error(`[CreateTimeout] 实例 ${instance.name} 创建超时后的账务补偿失败:`, compensationErr)
-            void notifyAdminInstanceCreateFailed({
-              userId: instance.user_id,
-              instanceId: instance.id,
-              errorMessage: '创建超时（10 分钟未完成，已按失败清理）',
-              refundStatus: 'failed',
-              refundAmount: 0,
-              refundError: compensationErr instanceof Error ? compensationErr.message : String(compensationErr)
-            }).catch(() => {})
-          }
-          
-          // 3. 尝试清理 Incus 残留
+        const targets = await getStuckCreatingInstances(10 * 60 * 1000)
+        const deadline = Date.now() + 60000
+        const { default: pLimit } = await import('p-limit')
+        const limit = pLimit(4)
+        await Promise.all(targets.map(instance => limit(async () => {
+          if (Date.now() >= deadline) return
           try {
             const host = await getHostById(instance.host_id)
-            if (host) {
-              const client = await getIncusClient(host)
-              await deleteInstance(client, instance.incus_id)
-              console.log(`[CreateTimeout] 残留容器 ${instance.incus_id} 已清理`)
-            }
-          } catch (cleanupErr) {
-            // 清理失败不影响流程（容器可能不存在或已被删除）
-            console.log(`[CreateTimeout] 清理残留容器失败 (可能不存在)`)
+            if (instance.purchase_batch_id) await failPoolProvision(instance.id, host, '创建超时或先前补偿待处理')
+            else await failManagedProvision(instance.id, host)
+          } catch (error) {
+            console.error('[CreateTimeout] Target remains pending', instance.id, error)
           }
-          
-          // 4. 发送用户通知
-          try {
-            const { sendNotification } = await import('./lib/notifier.js')
-            const host = await getHostById(instance.host_id)
-            await sendNotification(instance.user_id, 'instance_create_timeout', {
-              instanceName: instance.name,
-              hostName: host?.name || undefined
-            })
-          } catch (notifyErr) {
-            console.error(`[CreateTimeout] 发送通知失败:`, notifyErr)
-          }
-          
-          // 5. 记录日志
-          await createLog(
-            instance.user_id,
-            'instance',
-            'instance.create_timeout',
-            `Instance "${instance.name}" creation timed out after 10 minutes`,
-            'failed',
-            { instanceId: instance.id }
-          )
-        }
-        
-        if (stuckInstances.length > 0) {
-          console.log(`[CreateTimeout] 清理了 ${stuckInstances.length} 个超时创建实例`)
-        }
-      } catch (err) {
-        console.error('[CreateTimeout] 清理失败:', err)
-      }
+        })))
+      } catch (error) { console.error('[CreateTimeout] Scan failed', error) }
+      finally { createCleanupRunning = false }
     }
-    // 每2分钟检查一次
-    setInterval(runCreateTimeoutCleanup, CREATE_TIMEOUT_CHECK_INTERVAL)
-    // 启动时也执行一次
-    runCreateTimeoutCleanup()
+    setInterval(runCreateTimeoutCleanup, 2 * 60 * 1000)
+    void runCreateTimeoutCleanup()
     console.log('⏱️ 创建超时清理任务已启动（10分钟超时）')
 
     // 启动实例任务清理定时任务（清理7天前的已完成任务）

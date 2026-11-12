@@ -17,6 +17,8 @@ import { hardeningIdentityHash, hardeningIdentityInclude, hardeningReceiptMatche
 import { dedicatedHostReadyWhere } from '../lib/host-resource-usage.js'
 import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { assertCustomerProfiles } from '../lib/incus/customer-isolation.js'
+import { assertInstanceMayBoot } from '../lib/instance-expiry.js'
+import { hostProvisioningToolsReadyWhere } from '../lib/host-provisioning-tools.js'
 
 const active = new Map<number, AbortController>()
 export class PoolProvisionOwnershipError extends Error {}
@@ -58,6 +60,7 @@ export async function beginPoolProvision(instanceId: number, host: Host, client:
     if (!current || current.status !== 'creating' || current.provisioningCleanupPending || current.hostId !== host.id ||
       current.incusId !== name || current.userId !== instance.userId ||
       (current.snapshottedSpecs as Specs)?.managedCleanup?.attempt !== attempt) throw new PoolProvisionOwnershipError('Pool creation was cancelled or replaced')
+    assertInstanceMayBoot(current)
     const latestEndpoint = await database.host.findUnique({ where: { id: host.id }, include: hardeningIdentityInclude })
     if (!latestEndpoint || transferHostIdentity(latestEndpoint) !== transferHostIdentity(endpoint) ||
         hardeningIdentityHash(latestEndpoint) !== hardeningIdentityHash(endpoint) || latestEndpoint.architecture !== endpoint.architecture ||
@@ -90,6 +93,9 @@ export async function beginPoolProvision(instanceId: number, host: Host, client:
       await check()
       if (method !== 'GET' && path !== '/1.0/instances') await identity()
       await check()
+      if (method === 'POST' && path === '/1.0/instances' && instance.dedicatedIpv4 && !await prisma.hostAgent.count({
+        where: { hostId: host.id, ...hostProvisioningToolsReadyWhere() }
+      })) throw new Error('HOST_PROVISIONING_TOOLS_PENDING')
       return target.request<T>(method, path, body, timeout, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal, conditions)
     }
     const value = Reflect.get(target, property)
@@ -148,10 +154,6 @@ export async function failPoolProvision(instanceId: number, host: Host | null, r
     } })
     await tx.host.update({ where: { id: instance.hostId }, data: { poolFaulted: true,
       ...(inspection ? { poolCleanup: inspection as unknown as Prisma.InputJsonValue } : {}) } })
-    if (current.status === 'creating') await tx.log.create({ data: { userId: current.userId, instanceId,
-      module: 'instance', action: 'instance.create', result: 'failed', content: automaticOperationAudit({
-        hostId: currentHost.id, hostName: currentHost.name, instanceId, stage: '实例开通失败并隔离宿主', attempt: 1,
-        result: `开通失败：${failureReason}；保留原身份，退款与清理独立处理，完成后自动只读核验库存` }) } })
     return { ...result, firstFailure: current.status === 'creating' }
   }, { maxWait: 5000, timeout: 10000 })
   if (!claimed.count) return true
@@ -159,6 +161,10 @@ export async function failPoolProvision(instanceId: number, host: Host | null, r
   // buys it, even after its previous allocation and refund are fully settled.
   const firstFailure = claimed.firstFailure
   active.get(instanceId)?.abort(new Error('Pool provisioning failed or timed out'))
+  if (firstFailure) await createLog(instance.userId, 'instance', 'instance.create', automaticOperationAudit({
+    hostId: instance.hostId, hostName: host?.name || '', instanceId, stage: '实例开通失败，自动修复交付能力', attempt: 1,
+    result: `开通失败：${failureReason}；退款、清理和宿主工具自动修复分别续接，确认后恢复库存`
+  }), 'failed', { instanceId }).catch(() => undefined)
   let billingSettled = false, refundAmount = 0
   try {
     const result = await compensateFailedInstancePurchase(instanceId, instance.userId, instance.hostId)

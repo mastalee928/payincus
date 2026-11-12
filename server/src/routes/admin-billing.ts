@@ -1,9 +1,9 @@
-import { persistCreatedGuestIdentity } from '../lib/persist-created-guest.js'
+import { beginManagedProvision, failManagedProvision, ManagedProvisionOwnershipError } from '../lib/managed-provisioning-lifecycle.js'
 import { wakeExpiryDeadlines } from '../lib/instance-expiry.js'
 import { refundInstancePayment } from '../services/checkout-refunds.js'
 import { requestInstanceDeletion } from '../services/instance-deletion.js'
 import { assertNoPendingSnapshotOperations, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
-import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
+import { prepareNewContainerCloudInit, waitForNewGuestInitialization } from '../lib/new-container-cloud-init.js'
 /**
  * 管理员计费相关路由
  */
@@ -53,7 +53,7 @@ import { sendAdminInstanceCreatedEmail, sendInstanceDestroyRefundEmail } from '.
 import { generateRandomIPv6 } from '../lib/ip-calculator.js'
 import { validateCommandsOwnership, mergeCommandContents, getImageDistroFromAlias } from '../db/custom-init-commands.js'
 import { customAlphabet } from 'nanoid'
-import { buildInstanceConfig, getIncusClient, createInstance, deleteInstance, startInstance, stopInstance, getInstanceState } from '../lib/incus/index.js'
+import { buildInstanceConfig, getIncusClient, createInstance, startInstance, getInstanceState } from '../lib/incus/index.js'
 import { restoreBandwidth } from '../lib/incus/incus-traffic.js'
 import { calculateCreateBilling, getMaxRefundable } from '../db/billing-operations.js'
 import { shouldSyncInstanceSwapSizeWithPlan } from '../lib/instance-swap.js'
@@ -4668,14 +4668,17 @@ async function createInstanceAsync(
     bootAutostartDelay?: number | null
     bootHostShutdownTimeout?: number | null
   },
-  userId: number,
-  resources: { cpu: number; memory: number; disk: number }
+  _userId: number,
+  _resources: { cpu: number; memory: number; disk: number }
 ): Promise<void> {
+  let lifecycle: Awaited<ReturnType<typeof beginManagedProvision>> | undefined
+  let committed = false
   try {
     console.log(`\n[Admin Provisioning] ===== 开始创建实例流程 =====`)
     console.log(`[Admin Provisioning] 实例ID: ${instanceId}, 名称: ${config.name}, 宿主机: ${host.name}`)
 
-    const client = await getIncusClient(host)
+    lifecycle = await beginManagedProvision(instanceId, host, await getIncusClient(host), config.name)
+    const client = lifecycle.client
 
     const ipv6Config = config.ipv6Address ? { primaryIp: config.ipv6Address } : null
 
@@ -4715,8 +4718,9 @@ async function createInstanceAsync(
     })
 
     console.log(`[Admin Provisioning] 正在调用 Incus API 创建实例...`)
+    ;(incusConfig.config as Record<string, string>)['user.payincus.provisioning-attempt'] = lifecycle.attempt
     await createInstance(client, incusConfig)
-    await persistCreatedGuestIdentity(client,instanceId,config.name)
+    await lifecycle.identity()
     await prepareNewContainerCloudInit(client, config.name, config.cloudInitConfig, config.instanceType)
 
     // 等待实例创建完成
@@ -4743,17 +4747,21 @@ async function createInstanceAsync(
     await startInstance(client, config.name)
 
     // 等待启动完成
+    let running = false
     for (let i = 0; i < 30; i++) {
       await new Promise(resolve => setTimeout(resolve, 2000))
       try {
         const stateResp = await getInstanceState(client, config.name) as { status?: string }
         if (stateResp?.status === 'Running') {
+          running = true
           break
         }
       } catch {
         // 继续等待
       }
     }
+
+    if (!running) throw new Error('Instance startup timed out before Running was confirmed')
 
     // 获取 IP 地址
     let ipv4: string | null = config.ipv4Address || null
@@ -4775,73 +4783,24 @@ async function createInstanceAsync(
       // 使用预分配的 IP
     }
 
+    await waitForNewGuestInitialization(client, config.name, config.cloudInitConfig)
     // 更新数据库
-    const updateResult = await prisma.instance.updateMany({
-      where: { id: instanceId, status: 'creating' },
-      data: {
+    const updateResult = await lifecycle.complete({
         status: 'running',
         ipv4,
         ipv6,
         storagePoolName: config.storagePool || 'default'
-      }
     })
 
-    if (updateResult.count === 0) {
-      console.log(`[Admin Provisioning] 实例 ${instanceId} 已被超时清理任务处理，清理已创建的 Incus 实例`)
-      try {
-        await stopInstance(client, config.name, true)
-        await deleteInstance(client, config.name)
-      } catch (cleanupErr) {
-        console.error(`[Admin Provisioning] 清理超时实例失败:`, cleanupErr)
-      }
-      return
-    }
+    if (updateResult.count === 0) throw new Error('Creation was finalized by another operation')
+    committed = true
 
     console.log(`[Admin Provisioning] 实例 ${instanceId} 创建成功`)
 
   } catch (error) {
-    console.error(`[Admin Provisioning] 实例 ${instanceId} 创建失败:`, error)
-
-    const updateResult = await prisma.instance.updateMany({
-      where: { id: instanceId, status: 'creating' },
-      data: { status: 'error' }
-    }).catch(() => ({ count: 0 }))
-
-    if (updateResult.count > 0) {
-      try {
-        await db.rollbackResources({
-          hostId: host.id,
-          cpu: resources.cpu,
-          memory: resources.memory,
-          disk: resources.disk,
-          portCount: networkModeAllowsPortMapping(config.networkMode) ? (config.portLimit || 0) : 0
-        })
-      } catch (rollbackErr) {
-        console.error(`[Admin Provisioning] 资源回滚失败:`, rollbackErr)
-      }
-
-      if (networkModeNeedsPublicIpv4(config.networkMode)) {
-        try {
-          await prisma.$transaction((tx) => db.releasePublicIpv4ForInstance(tx, instanceId))
-        } catch (releaseErr) {
-          console.error(`[Admin Provisioning] 释放独立 IPv4 失败:`, releaseErr)
-        }
-      }
-
-      try {
-        await db.compensateFailedInstancePurchase(instanceId, userId, host.id)
-      } catch (compensationErr) {
-        console.error(`[Admin Provisioning] 创建失败后的账务补偿失败:`, compensationErr)
-      }
-    }
-
-    try {
-      const client = await getIncusClient(host)
-      await deleteInstance(client, config.name)
-    } catch {
-      // 实例可能尚未创建或已被超时清理流程删除。
-    }
-
+    if (error instanceof ManagedProvisionOwnershipError) throw error
+    if (committed) return
+    await failManagedProvision(instanceId, host, !lifecycle).catch(() => undefined)
     throw error
   }
 }

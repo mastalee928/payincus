@@ -1,3 +1,4 @@
+import { protectedAgentFixture } from './fixtures/guest-protection.js'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -49,7 +50,7 @@ async function fixture(legacy = false) {
     status: 'online', singleTenant: true, isInstalled: true, instanceType: 'container', resourcePreset: 'E2', customerDiskGiB: 30,
     architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768, storageSize: 34, natPublicIp: '192.0.2.3', natBindIp: '10.0.0.3', natPortStart: 1, natPortEnd: 65535,
     portProtocol: 'tcp', portProtocolApplied: 'tcp', portProtocolRevision: 1, portProtocolAppliedRevision: 1,
-    agent: { create: { agentId: name, enabled: true, secretHash: 'fixture', secretEncrypted: 'fixture', lastSeenAt: new Date(), capabilities: [PORT_PROTOCOL_CAPABILITY] } },
+    agent: { create: { ...protectedAgentFixture([PORT_PROTOCOL_CAPABILITY]), agentId: name } },
     storagePools: { create: { name: 'default', driver: 'dir', purpose: 'instance_data' } }
   } }); hostIds.push(host.id)
   const ipv6 = { version: 1, hostId: host.id, instanceName: name, primary: '2603:c020:802a:cc00::3', status: 'pending', error: 'IPV6_HOST_QUARANTINED',

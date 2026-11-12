@@ -191,7 +191,7 @@ try {
     const task = stage === 'admission' ? null : await makeTask(stage)
     const before = requests
     await set()
-    if (stage === 'admission') await assert.rejects(createRestoreTask(data()), /正在执行/, name)
+    if (stage === 'admission') await assert.rejects(createRestoreTask(data()), /正在执行|INSTANCE_BOOT_BLOCKED/, name)
     else if (stage === 'claim') assert.equal(await claimNextTask(host.id), null, name)
     else await executeRestoreTask(task!.id)
     if (task) assert.equal((await prisma.restoreTask.findUniqueOrThrow({ where: { id: task.id } })).status, 'PENDING', name)

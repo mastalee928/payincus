@@ -21,7 +21,9 @@ import time
 ROOT = Path('/var/lib/incudal-hardening')
 RECIPE = 'alpine-apparmor-extlinux-v1'
 GRUB_RECIPE = 'alpine-apparmor-grub-v1'
-APPARMOR_PACKAGES = ['apparmor','apparmor-openrc','apparmor-profiles-tunables','apparmor-profiles-abstractions','apparmor-profiles-api']
+def apparmor_packages(branch):
+    base=['apparmor','apparmor-utils','apparmor-openrc']
+    return base+(['apparmor-profiles-tunables','apparmor-profiles-abstractions','apparmor-profiles-api'] if branch=='3.24' else ['apparmor-profiles'])
 UUID = re.compile(r'[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}')
 def fail(code='HARDENING_JOURNAL_CONFLICT'): raise ValueError(code)
 def digest(data): return hashlib.sha256(data).hexdigest()
@@ -180,9 +182,13 @@ def installed_packages():
     return sorted(lines)
 
 def apparmor_tools_ready():
+    branch='.'.join(Path('/etc/alpine-release').read_text().strip().split('.')[:2])
+    if not Path('/usr/bin/aa-exec').is_file() or not os.access('/usr/bin/aa-exec',os.X_OK):return False
+    check=subprocess.run(['/usr/bin/aa-exec','--help'],capture_output=True,timeout=5,env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'})
+    if check.returncode:return False
     if not Path('/etc/init.d/apparmor').is_file() or not any(Path(p).is_file() for p in ['/sbin/apparmor_parser','/usr/sbin/apparmor_parser']):return False
     if not Path('/etc/apparmor.d/tunables/global').is_file() or not Path('/etc/apparmor.d/abstractions/base').is_file():return False
-    packages=subprocess.run(['apk','info','-e',*APPARMOR_PACKAGES,'libapparmor'],capture_output=True,timeout=10,env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'})
+    packages=subprocess.run(['apk','info','-e',*apparmor_packages(branch),'libapparmor'],capture_output=True,timeout=10,env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'})
     if packages.returncode:return False
     return True
 
@@ -221,7 +227,7 @@ def ensure_grub_tools(lock_fd,state,persist,allowed=lambda:None):
         # installation never shares the simulation's remaining time budget.
         before=installed_packages()
         allowed()
-        simulated=subprocess.run(['apk','--simulate','--no-cache','--repositories-file',str(repositories),'add',*APPARMOR_PACKAGES],capture_output=True,timeout=30,pass_fds=(lock_fd,),env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'})
+        simulated=subprocess.run(['apk','--simulate','--no-cache','--repositories-file',str(repositories),'add',*apparmor_packages(branch)],capture_output=True,timeout=30,pass_fds=(lock_fd,),env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'})
         if simulated.returncode:fail('HARDENING_APPARMOR_TOOLS_REQUIRED')
         simulation=(simulated.stdout+simulated.stderr).decode(errors='replace')
         if re.search(r'\b(Upgrading|Downgrading|Purging|Reinstalling)\b',simulation):fail('HARDENING_APPARMOR_TOOLS_REQUIRED')

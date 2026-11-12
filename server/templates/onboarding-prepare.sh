@@ -26,7 +26,7 @@ packages() {
         grep -Eq "/v$branch/$component/?$" /etc/apk/repositories ||
           printf 'https://dl-cdn.alpinelinux.org/alpine/v%s/%s\n' "$branch" "$component" >> /etc/apk/repositories
       done
-      timeout 150 apk add --no-cache bash curl ca-certificates python3 iproute2 wireguard-tools util-linux btrfs-progs tzdata chrony kmod
+      timeout 150 apk add --no-cache bash curl ca-certificates python3 iproute2 wireguard-tools util-linux btrfs-progs tzdata chrony kmod apparmor apparmor-utils
       ;;
     debian|ubuntu)
       export DEBIAN_FRONTEND=noninteractive
@@ -40,12 +40,13 @@ packages() {
   esac
 }
 packages >/dev/null 2>&1 || fail HOST_DEPENDENCIES_PENDING
+command -v aa-exec >/dev/null && aa-exec --help >/dev/null 2>&1 || fail HOST_DEPENDENCIES_PENDING
 if [ "$ID" != alpine ] && [ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null || true)" = Y ]; then
   systemctl enable --now apparmor >/dev/null 2>&1 || fail HOST_DEPENDENCIES_PENDING
 fi
 
 # BBR is optional performance, never an onboarding/sales prerequisite. The
-# installed Agent owns safe persistence and continual host/customer follow-up.
+# installed Agent owns safe persistence and continual host follow-up.
 # Do not overwrite administrator files here or replay installation for BBR.
 modprobe tcp_bbr >/dev/null 2>&1 || true
 if ! available=$(sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null); then

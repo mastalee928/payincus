@@ -186,6 +186,18 @@ try {
   const otherSession = await app.inject({ method: 'DELETE', url: `/instances/${instance.id}/snapshots/${snapshotId}`, headers: { 'x-test-session': 'other' } })
   assert.equal(otherSession.statusCode, 403); assert.equal(writes.length, before)
   assert.deepEqual(await prisma.operationVerification.findUniqueOrThrow({ where: { id: grant.id } }), initialGrant)
+  // A rejected reply is sent inside the transaction callback. Fastify inject
+  // can deliver it before PostgreSQL finishes COMMIT and releases the gate.
+  // Observe the actual transaction end before starting an unrelated control.
+  const releaseDeadline = Date.now() + 3000
+  let released = false
+  while (Date.now() < releaseDeadline) {
+    const [gate] = await prisma.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM pg_locks
+      WHERE locktype = 'advisory' AND classid = 4106 AND objid = ${instance.id} AND granted`
+    if (!gate.count) { released = true; break }
+    await delay(10)
+  }
+  assert.equal(released, true, 'foreign-session rejection releases the actual operation transaction')
   let releaseVerifiedRestore!: () => void
   restoreRelease = new Promise<void>(resolve => { releaseVerifiedRestore = resolve })
   const verifiedReached = new Promise<void>(resolve => { restoreReached = resolve }); holdRestore = true

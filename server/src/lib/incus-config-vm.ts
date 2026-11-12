@@ -1,3 +1,4 @@
+import { rootCertificates } from 'node:tls'
 import { generateVmNicMacs, type VmNicMacs } from './vm-network-identifiers.js'
 import { alpineSshSecurityScript } from './alpine-ssh-security.js'
 
@@ -238,6 +239,9 @@ systemctl enable qemu-guest-agent 2>/dev/null || true
 systemctl restart qemu-guest-agent 2>/dev/null || true`
 
   return `#!/bin/sh
+set -e
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 LOG_FILE="/var/log/incudal-vm-setup.log"
 exec >>"$LOG_FILE" 2>&1
 # 不启用 shell trace，避免 ROOT_PASSWORD/SSH_KEY 写入 guest 日志
@@ -297,7 +301,7 @@ user_home_dir() {
 set_password() {
   user="$1"
   id "$user" >/dev/null 2>&1 || return 0
-  echo "$user:$ROOT_PASSWORD" | chpasswd >/dev/null 2>&1 || true
+  echo "$user:$ROOT_PASSWORD" | chpasswd >/dev/null 2>&1 || return 1
   passwd -u "$user" >/dev/null 2>&1 || usermod -U "$user" >/dev/null 2>&1 || true
 }
 
@@ -354,35 +358,18 @@ update_sshd_main_config() {
   config_path="/etc/ssh/sshd_config"
   [ -f "$config_path" ] || return 0
 
-  # 极其暴力的 SED：不管前面有没有注释，只要包含这两个关键句语意，统统连根铲除或覆盖
-  sed -i -E 's/^[#[:space:]]*PermitRootLogin.*/PermitRootLogin yes/' "$config_path" 2>/dev/null || true
-  sed -i -E 's/^[#[:space:]]*PasswordAuthentication.*/PasswordAuthentication yes/' "$config_path" 2>/dev/null || true
-  sed -i -E 's/^[#[:space:]]*PubkeyAuthentication.*/PubkeyAuthentication yes/' "$config_path" 2>/dev/null || true
-  sed -i -E 's/^[#[:space:]]*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' "$config_path" 2>/dev/null || true
+  tmp_path="$config_path.incudal-policy"
+  { printf '%s\\n' 'PermitRootLogin yes' 'PasswordAuthentication yes' 'PubkeyAuthentication yes' 'ChallengeResponseAuthentication no'; if [ "${osInfo.family}" != "alpine" ]; then printf '%s\\n' 'UsePAM yes'; fi; cat "$config_path"; } > "$tmp_path" || return 1
+  chmod 600 "$tmp_path" && mv "$tmp_path" "$config_path" || return 1
+  sed -i -E 's/^[#[:space:]]*Subsystem[[:space:]]+sftp.*/Subsystem sftp internal-sftp/' "$config_path" || return 1
+  grep -q '^Subsystem sftp ' "$config_path" || sed -i '1i Subsystem sftp internal-sftp' "$config_path"
+  ssh-keygen -A || return 1
+  mkdir -p /run/sshd && chmod 755 /run/sshd || return 1
+  "$(command -v sshd)" -t || return 1
+  mkdir -p /var/lib/incudal
+  "$(command -v sshd)" -T -C user=root,host=localhost,addr=127.0.0.1 > /var/lib/incudal/sshd-effective-config || return 1
+  grep -qi '^passwordauthentication yes$' /var/lib/incudal/sshd-effective-config
 
-  # 有些极端的镜像会直接把 PasswordAuthentication no 写好几遍，甚至藏在别的 drop-in 里。
-  # 我们强行剔除其他零散文件里的阻碍
-  if ls /etc/ssh/sshd_config.d/*.conf 1> /dev/null 2>&1; then
-      for f in /etc/ssh/sshd_config.d/*.conf; do
-          if [ "$f" != "${sshdPrimaryDropInPath}" ]; then
-              sed -i -E 's/^[#[:space:]]*(PasswordAuthentication|PermitRootLogin)[[:space:]]+no/# &/' "$f" 2>/dev/null || true
-          fi
-      done
-  fi
-
-  grep -q '^PermitRootLogin ' "$config_path" || printf '\\n%s\\n' 'PermitRootLogin yes' >> "$config_path"
-  grep -q '^PasswordAuthentication ' "$config_path" || printf '%s\\n' 'PasswordAuthentication yes' >> "$config_path"
-  grep -q '^PubkeyAuthentication ' "$config_path" || printf '%s\\n' 'PubkeyAuthentication yes' >> "$config_path"
-  grep -q '^ChallengeResponseAuthentication ' "$config_path" || printf '%s\\n' 'ChallengeResponseAuthentication no' >> "$config_path"
-
-  # 无论如何暴力统一注入内置 internal-sftp 子系统来抵抗外部缺失包
-  sed -i -E 's/^[#[:space:]]*Subsystem[[:space:]]+sftp.*/Subsystem sftp internal-sftp/' "$config_path" 2>/dev/null || true
-  grep -q '^Subsystem sftp ' "$config_path" || printf '\\n%s\\n' 'Subsystem sftp internal-sftp' >> "$config_path"
-
-  if [ "${osInfo.family}" != "alpine" ]; then
-    sed -i -E 's/^[#[:space:]]*UsePAM.*/UsePAM yes/' "$config_path" 2>/dev/null || true
-    grep -q '^UsePAM ' "$config_path" || printf '%s\\n' 'UsePAM yes' >> "$config_path"
-  fi
 }
 
 disable_firewall() {
@@ -398,7 +385,7 @@ disable_firewall() {
 echo "Installing base packages..."
 ensure_dns_fallback
 wait_for_network || true
-${packageInstallCommand} || true
+${packageInstallCommand} || exit 1
 
 ${osInfo.family === 'alpine' ? 'alpine_ssh_security_update install || exit 1' : ''}
 
@@ -407,11 +394,11 @@ command -v ssh-keygen >/dev/null 2>&1 && ssh-keygen -A || true
 
 echo "Configuring SSH access..."
 disable_firewall
-write_sshd_dropin
-update_sshd_main_config
+write_sshd_dropin || exit 1
+update_sshd_main_config || exit 1
 
 for user in $DEFAULT_USERS; do
-  set_password "$user"
+  set_password "$user" || exit 1
   set_authorized_key "$user"
 done
 
@@ -424,6 +411,9 @@ ${serialConsoleCommands}
 
 echo "Enabling guest services..."
 ${serviceEnableCommands}
+"$(command -v sshd)" -t || exit 1
+mkdir -p /var/lib/incudal
+touch /var/lib/incudal/initialization-ready
 
 echo "Installing persistent IPv4-only guard for primary NIC..."
 cat > /usr/local/bin/incudal-ipv4-only.sh <<'EOF'
@@ -570,7 +560,12 @@ ssh_pwauth: true
 disable_root: false
 
 write_files:
-  - path: /root/incudal-vm-setup.sh
+${osInfo.family === 'alpine' ? `  - path: /etc/ssl/cert.pem
+    permissions: '0644'
+    owner: root:root
+    content: |
+${indentString(rootCertificates.join('\n'), 6)}
+` : ''}  - path: /root/incudal-vm-setup.sh
     permissions: '0755'
     owner: root:root
     content: |

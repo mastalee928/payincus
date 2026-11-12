@@ -1,3 +1,4 @@
+import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
 import { assertInstanceMayBoot } from '../lib/instance-expiry.js'
 import { requestInstanceDeletion, processInstanceDeletion, instanceDeletionResult } from '../services/instance-deletion.js'
 import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
@@ -5615,6 +5616,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         console.log(`[Migrate] 在目标节点创建实例 ${newIncusId}...`)
         await createInstance(targetClient, incusConfig)
         targetIncusCreated = true
+        await prepareNewContainerCloudInit(targetClient, newIncusId, incusConfig.config as Record<string, string>, instanceType)
 
         // 15. 启动新实例
         console.log(`[Migrate] 启动新实例 ${newIncusId}...`)

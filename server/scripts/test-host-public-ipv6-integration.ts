@@ -33,7 +33,7 @@ const host = await prisma.host.create({ data: {
 let addresses = [a], readError = false, deliveries = 0
 let remotes: Array<{ name: string; status: string; project: string }> = []
 const deps: any = {
-  connect: async () => ({ request: async (_method: string, path: string, _body: unknown, _timeout: number, signal: AbortSignal) => {
+  connect: async () => ({ withMaintenanceDatabase(){return this}, request: async (_method: string, path: string, _body: unknown, _timeout: number, signal: AbortSignal) => {
     assert.ok(signal, 'network reads have an abort signal')
     assert.equal(path, '/1.0/instances?recursion=1&all-projects=true')
     return remotes

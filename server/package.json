@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "1.8.8",
+  "version": "1.8.9",
   "description": "PayIncus backend service",
   "type": "module",
   "main": "dist/app.js",
@@ -575,7 +575,8 @@
     "test:alpine-ssh-security-guards": "node --import tsx scripts/test-alpine-ssh-security-guards.ts",
     "test:alpine-ssh-maintenance": "node --import tsx scripts/test-alpine-ssh-maintenance.ts",
     "test:alpine-ssh-native": "node ../scripts/test-alpine-ssh-native.mjs",
-    "test:alpine-ssh-web": "node ../scripts/test-alpine-ssh-web.mjs"
+    "test:alpine-ssh-web": "node ../scripts/test-alpine-ssh-web.mjs",
+    "test:host-provisioning-tools": "node --import tsx scripts/test-host-provisioning-tools.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",
