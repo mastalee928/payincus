@@ -1,5 +1,13 @@
 # 版本与验证记录
 
+## 2026-11-12 v1.8.7／Agentv1.0.7三轮审视及正式发行完成
+
+- 已公开[面板v1.8.7](https://github.com/mastalee928/payincus/releases/tag/v1.8.7)和[Agentv1.0.7](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.7)，latest=v1.8.7。正式source=`41077946d0c789fe510aff53dd67675b101ffe3c`，tree=`0d402f51ebd098a8a0017ae6bfdbbd92133c9358`；PR #10合入，同已验候选835f06c6源码树一致，v1.8.7注释tag`3bf8a977b594f1123f0d2f3921d9690e479123b9`解引用正式source。历史tag／资产未改。
+- 三轮覆盖管理员当前单实例最终价／用户无改价／回卖原价、宿主BBR新旧接入自动修复／失败正常销售、实际IncusStopped／72小时截止原容器与磁盘快照转发删除、五分钟原管理／Agent恢复／已受理删除／失败换机恢复／自动回池。新增远端在途不重发停删、单项续费错误继续后续并在lane收尾报告扫描未完成、持久累计目标原因与重试、通知与已确认删除结果分开。详见[三轮报告](docs/instance-patrol-three-round-review-2026-11-12.md)。
+- 最终候选CI43138646402全部15job success，原236池集成步骤六独立DB片全覆盖、独立网关6步保持；原生Alpine43138646313／Agent43138646528、最终预览43138640777全必需终态通过。main CI43142231591全15成功、main Alpine43142231543／Agent43142231877成功；正式43142302663双构建、双首装与Release共5job success。真实Incus巡查实际Stopped→截止DELETE→系统卷／快照／转发消失→回池已实跑；完整242迁移、双端／唯一后台／公开Agent下载、备份／恢复／SQL／加密ZIP／回退／续接通过。OSS传输为适配器。
+- 六面板公开资产实际下载核API digest／size／hash，双OTA一致；正式双包源码／242迁移／用户无改价编辑器／root归属／安全路径／巡查代码／受信网关21文件签名hash模式ELF通过；Release说明回读一致。Agentsource=c99067be，三公开资产和最终artifact相同，后续Agent全部构建／协议输入未变；main发行检查相同后跳过覆盖。完整hash表／所有失败闭环见[发行记录](docs/release-v1.8.7-validation.md)，使用检查见[更新后检查](docs/release-v1.8.7-owner-click-test.md)。
+- 原Alpine错误码断言、VIP最终价断言、自动续费整轮信号、旧心跳sourceCheckedAt及误分片独立网关的失败均保留并由新来源闭环；未靠重跑相同输入／删测试／放宽保护。全部必需终态与资产日志保存ignored最终索引。本轮没有生产OTA／客户停删／配置／DNS／DD；ARM／Debian新引导、真实纯净宿主接入、客户公网全端口、真实OSS全新B／独立备用／千台72小时仍未验收。
+
 ## 2026-11-12 Owner恢复发行：本批三轮代码审视与五分钟自动巡查
 
 - 完整cb31b4ef CI43129303540再失败旧心跳回执断言第111行漏sourceCheckedAt；生产只保存受控原检查时间、归一化时钟与error，未泄露私有management/raw字段。补断言后真实HMAC＋PG禁用／轮转／5行锁／7并发／nonce专项通过。原242个集成步骤仅加入0–5分片条件、六独立PG数据库；每个原run/env/工作目录/时限逐字比较保持、总数242保持，减少串行两小时后才发现失败的问题。新来源继续所有六片／原生／双架构预览终态，不略过失败或减少验收。
