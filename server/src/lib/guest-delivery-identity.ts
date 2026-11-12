@@ -7,6 +7,7 @@ import { prisma } from '../db/prisma.js'
 import { assertCopyMoveAuthority } from '../db/instance-tasks.js'
 import type { InstanceTask } from '@prisma/client'
 import { transferHostIdentity } from './transfer-host-identity.js'
+import { sameGuestCreationTime } from './guest-identity-time.js'
 
 /** Recheck the persisted actor and both host identities before each dispatch. */
 export function guardCopyMoveClient(original: IncusClient, task: InstanceTask, host: Host) {
@@ -47,7 +48,7 @@ export async function readRegisteredGuest(database: Pick<Prisma.TransactionClien
   const cleanup = (instance.snapshottedSpecs as { managedCleanup?: { uuid?: string; attempt?: string; endpointHash?: string } } | null)?.managedCleanup
   const remote = await client.request<Remote>('GET', `/1.0/instances/${encodeURIComponent(instance.incusId)}`)
   if (remote.name !== instance.incusId || remote.config?.['volatile.uuid'] !== expected.uuid ||
-    remote.type !== expectedType || remote.created_at !== expected.createdAt || (remote.project || 'default') !== 'default' ||
+    remote.type !== expectedType || !sameGuestCreationTime(remote.created_at,expected.createdAt) || (remote.project || 'default') !== 'default' ||
     cleanup?.uuid === expected.uuid && (cleanup.endpointHash !== managedCleanupEndpointHash(client) ||
       cleanup.attempt !== remote.config?.['user.payincus.provisioning-attempt'])) throw Error('GUEST_DELIVERY_SOURCE_IDENTITY_CHANGED')
   return remote

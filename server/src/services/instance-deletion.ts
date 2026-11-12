@@ -125,9 +125,9 @@ export async function instanceDeletionResult(instanceId: number) {
 
 async function lockedTarget(tx: Prisma.TransactionClient, instanceId: number, expected: DeletionIntent) {
   await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`
-  await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${expected.hostId} FOR UPDATE`
   if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)) throw new Error('DELETE_WORKFLOW_BUSY')
   await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
+  await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${expected.hostId} FOR UPDATE`
   const instance = await tx.instance.findUniqueOrThrow({ where: { id: instanceId } })
   const state = readDeletionIntent(instance.deletionIntent)
   if (!state || state.revision !== expected.revision || state.status === 'done') throw new Error('DELETE_ATTEMPT_SUPERSEDED')

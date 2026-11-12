@@ -28,7 +28,7 @@ const fixtureRequest = async (method: string, path: string, body?: any) => {
   assert.equal(body.config['volatile.uuid'], base.config['volatile.uuid']); assert.equal(body.config['user.fixture'], 'keep')
   state = { ...state, ...structuredClone(body) }; return {}
 }
-let client = { request: fixtureRequest } as unknown as IncusClient
+let client = { restorePaidBootPolicy:async()=>{}, request: fixtureRequest } as unknown as IncusClient
 let closeTransport: (() => Promise<void>) | undefined
 if (process.argv.includes('--mtls')) {
   const { mkdtemp, readFile, rm } = await import('node:fs/promises')

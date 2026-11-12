@@ -1,3 +1,4 @@
+import { assertInstanceMayBoot } from '../lib/instance-expiry.js'
 import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, } from '../db/snapshot-operation-guards.js'
 import { executeHostReplacement } from '../services/host-replacement.js'
 import { HostMaintenanceError, assertHostNotMaintaining } from '../lib/host-maintenance-gate.js'
@@ -604,6 +605,7 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     if (instance.status === 'deleted') {
       throw new Error('实例已删除，任务取消')
     }
+    if(task.taskType!=='stop')assertInstanceMayBoot(await prisma.instance.findUniqueOrThrow({where:{id:task.instanceId}}))
 
     const earliestActiveTask = await prisma.instanceTask.findFirst({
       where: {
@@ -627,6 +629,7 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
 
     const clientStartTime = Date.now()
     let client = await getIncusClient(host)
+    client=client.withBillingInstance(task.instanceId)
     const clientDuration = Date.now() - clientStartTime
     if (task.taskType === 'rebuild' || task.taskType === 'recreate') {
       materials = await validateDestructiveTaskExecution(task, { prepareRebuild: true })

@@ -43,7 +43,7 @@ for (const device of [
 let state = { ...structuredClone(generated), status: 'Stopped' }, profile: any = { config: {}, devices: {} }
 let snapshot: any = structuredClone(state)
 const writes: Array<{ method: string; path: string; body: any }> = []
-const client = { request: async (method: string, path: string, body?: any) => {
+const client = { restorePaidBootPolicy:async()=>{}, request: async (method: string, path: string, body?: any) => {
   if (method === 'GET') {
     if (path === '/1.0/profiles/default') return structuredClone(profile)
     if (path.endsWith('/snapshots/safe')) return structuredClone(snapshot)

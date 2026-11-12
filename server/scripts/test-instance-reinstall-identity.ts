@@ -344,7 +344,7 @@ try {
             await reconcileInterruptedReinstalls()
           }
           const exhausted = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
-          assert.equal((exhausted.replacementState as any).cleanupAttempts, 6); assert.equal(exhausted.progress, 'manual_intervention')
+          assert.equal((exhausted.replacementState as any).cleanupAttempts, 6); assert.equal(exhausted.progress, 'cleanup_pending')
           const count = calls.length; await reconcileInterruptedReinstalls(); assert.equal(calls.length, count)
         }
       }

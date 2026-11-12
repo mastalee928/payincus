@@ -68,8 +68,9 @@ async function reconcileHost(hostId: number, force: boolean, deps: typeof public
     const instance = instances.length === 1 ? instances[0] : undefined
     try {
       signal.throwIfAborted()
-      const client = ipv6BoundedClient(await waitForIpv6Connection(deps.connect(host),
-        AbortSignal.any([signal, AbortSignal.timeout(15000)])), signal)
+      const transport=await waitForIpv6Connection(deps.connect(host),
+        AbortSignal.any([signal, AbortSignal.timeout(15000)]))
+      const client = ipv6BoundedClient(transport.withMaintenanceDatabase(tx), signal)
       const addresses = await deps.discover(client, state.primary)
       if (addresses.length > MAX_PUBLIC_IPV6_ADDRESSES) throw new PublicIpv6SyncError('IPV6_TOO_MANY_ADDRESSES')
       if (JSON.stringify(addresses) !== JSON.stringify(state.addresses)) state.changedAt = state.checkedAt

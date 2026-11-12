@@ -16,7 +16,7 @@ process.env.PLATFORM_BACKUP_STATE_DIR = root
 const interval = globalThis.setInterval
 globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => { const timer = interval(...args); timer.unref(); return timer }) as typeof setInterval
 const { prisma, closePrismaDatabase } = await import('../src/db/prisma.js')
-const { executeAutoRenew, processAutoRenew, startBillingScheduler } = await import('../src/services/billing-scheduler.js')
+const { executeAutoRenew, processAutoRenew, startBillingScheduler, stopExpiryEnforcement, getExpiryEnforcementStatus } = await import('../src/services/billing-scheduler.js')
 const { performRenewal, updateAutoRenew, getInstanceBillingInfo } = await import('../src/db/billing-operations.js')
 const { completeRecharge } = await import('../src/db/recharge-records.js')
 const { registerRechargeRenewalConsumer } = await import('../src/lib/recharge-renewal.js')
@@ -58,6 +58,8 @@ try {
   startBillingScheduler()
   const cron = await import('node-cron')
   await delay(20)
+  await stopExpiryEnforcement()
+  await wait(async()=>!(await getExpiryEnforcementStatus()).running,'startup expiry catchup settled')
   for (const task of cron.getTasks().values()) await task.destroy()
   const buyer = async (balance = 0) => {
     const user = await prisma.user.create({ data: { username: tag + '-' + users.length, passwordHash: 'unusable', balance } }); users.push(user.id); return user
@@ -243,7 +245,7 @@ try {
   console.log('PASS credit during an active renewal scan queues a fresh follow-up without duplicate debit')
 
   const cutoffUser = await buyer(30), cutoff = await make(cutoffUser.id, 30, { status: 'suspended', suspendReason: 'expired',
-    expiresAt: new Date(Date.now() - 86400000), suspendedAt: new Date(Date.now() - 3 * 86400000 + 1200) })
+    expiresAt: new Date(Date.now() - 3 * 86400000 + 1200), suspendedAt: new Date(Date.now() - 86400000) })
   await holder.query('BEGIN'); await holder.query('SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE', [cutoffUser.id])
   const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid
   const pending = capture(performRenewal(cutoffUser.id, cutoff, 1, { expiryThreshold: expiry }))

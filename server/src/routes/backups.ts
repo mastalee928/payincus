@@ -1,3 +1,4 @@
+import { assertInstanceMayBoot } from '../lib/instance-expiry.js'
 /**
  * 备份管理路由
  * 处理实例备份的创建、列表、删除、导出等操作
@@ -11,7 +12,10 @@ import { Readable } from 'stream'
 import * as db from '../db/index.js'
 import { prisma } from '../db/prisma.js'
 import { BackupUploadAuthorizationError, uploadStorageIdentity } from '../db/backup-upload-authorization.js'
-import { RestoreAuthorizationError } from '../db/restore-task-authorization.js'
+import { RestoreAuthorizationError, loadRestoreInstance } from '../db/restore-task-authorization.js'
+import { readRestoreIdentity } from '../lib/incus/restore-identity.js'
+import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '../db/advisory-locks.js'
+import { InstanceExpiredError } from '../lib/instance-expiry.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { deleteAuthorizedBackup, BackupDeletionVerificationError } from '../db/backup-deletion.js'
 import { SnapshotMutationError, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
@@ -1001,6 +1005,7 @@ export default async function backupRoutes(fastify: FastifyInstance) {
           return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
         }
         const client = await getIncusClient(host)
+        assertInstanceMayBoot(await prisma.instance.findUniqueOrThrow({where:{id:instanceIdNum}}))
 
         // 先确认并启动原实例，再清理临时实例。
         // 如果原实例不存在，临时实例可能是最后一个可人工恢复的副本，不能先删。
@@ -1021,7 +1026,15 @@ export default async function backupRoutes(fastify: FastifyInstance) {
           })
         }
 
-        await startInstance(client, task.originalIncusId)
+        await prisma.$transaction(async tx=>{
+          if(!await tryAdvisoryTransactionLock(tx,INSTANCE_OPERATION_LOCK_NAMESPACE,instanceIdNum))throw new RestoreAuthorizationError('实例正在处理，请稍后重试')
+          const current=await loadRestoreInstance(tx,instanceIdNum,request.user)
+          const source=(task.recoveryState as {original?:Parameters<typeof readRestoreIdentity>[2]}).original
+          if(current.instance.hostId!==task.hostId||current.instance.incusId!==task.originalIncusId||!source)throw new RestoreAuthorizationError('原恢复目标已变化')
+          const scoped=client.withMaintenanceDatabase(tx).withBillingInstance(instanceIdNum)
+          await readRestoreIdentity(scoped,task.originalIncusId,source)
+          await startInstance(scoped, task.originalIncusId)
+        },{timeout:90000,maxWait:3000})
 
         // 原实例已确认可启动后，再删除临时实例（如果存在）
         if (task.tempInstanceName) {
@@ -1049,6 +1062,7 @@ export default async function backupRoutes(fastify: FastifyInstance) {
           message: '回滚完成'
         }
       } catch (err) {
+        if(err instanceof InstanceExpiredError)return reply.code(403).send({error:err.code,message:err.message})
         const errorMessage = err instanceof Error ? err.message : String(err)
         await createLog(
           request.user.id,

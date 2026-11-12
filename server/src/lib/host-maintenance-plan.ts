@@ -66,7 +66,7 @@ export type CustomerCurrentIntent = {id:number;hostId:number;userId:number;incus
  * payment, suspension, stop, delete, move or customer identity. */
 export function customerBootRecoveryAction(before:CustomerBootBaseline,current:CustomerCurrentIntent):'start'|'stop'|'keep'|'wait'|'blocked' {
   if(before.identityHash!==customerBootIdentity(current))return 'blocked'
-  if(before.state==='suspended')return current.remoteState==='Stopped'?'keep':'blocked'
+  if(before.state==='suspended')return current.remoteState==='Stopped'?'keep':['Running','Frozen'].includes(current.remoteState)?'stop':'wait'
   // Keep queued work intact. Once its original is safely stopped, finishing
   // host verification releases the fence so the normal authorized worker can
   // continue. A newer intent must never wait for an obsolete baseline start.

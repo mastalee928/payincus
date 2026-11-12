@@ -85,6 +85,7 @@ async function customerNetworkHash(client:IncusClient,name:string) {
 export async function recoverCustomerAfterBoot(tx:Prisma.TransactionClient,client:IncusClient,before:CustomerBootBaseline,
   allowed:()=>Promise<void>,publicHost:string,deps=customerBootDependencies,bootPolicyRestored=false):Promise<{instanceId:number;state:'running'|'stopped'}> {
   if(!before.boot)fail('HARDENING_CUSTOMER_BOOT_RECOVERY_UNVERIFIED')
+  client=client.withMaintenanceDatabase(tx)
   if(!await tryAdvisoryTransactionLock(tx,INSTANCE_OPERATION_LOCK_NAMESPACE,before.id))fail('HARDENING_BUSY')
   await tx.$queryRaw`SELECT id FROM instances WHERE id=${before.id} FOR UPDATE`
   const instance=await tx.instance.findUnique({where:{id:before.id}})

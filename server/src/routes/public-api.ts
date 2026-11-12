@@ -1,3 +1,4 @@
+import { instanceTermExpired } from '../lib/instance-expiry.js'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { renewalRequest, readRenewalItems, RenewalRequestError, type RenewalRequest } from '../db/renewal-requests.js'
 import { restoreRenewalResult } from '../db/billing-operations.js'
@@ -592,12 +593,13 @@ function normalizePublicServiceRenewMonths(value: unknown): number | null {
 }
 
 async function assertPublicServiceOperationAllowed(
-  service: { id: number; status: string; suspendReason?: string | null },
+  service: { id: number; status: string; suspendReason?: string | null; expiresAt: Date | null },
   action: PublicApiServiceOperation
 ): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string; details?: Record<string, unknown> }> {
   if (service.status === 'deleted') {
     return { ok: false, status: 404, code: 'SERVICE_NOT_FOUND', message: 'Service not found' }
   }
+  if(action!=='stop' && instanceTermExpired(service))return {ok:false,status:403,code:'SERVICE_EXPIRED',message:'Service expired; renew before operating'}
   if (service.status === 'suspended') {
     return {
       ok: false,
@@ -1685,7 +1687,8 @@ export default async function publicApiRoutes(fastify: FastifyInstance) {
         userId: true,
         name: true,
         status: true,
-        suspendReason: true
+        suspendReason: true,
+        expiresAt: true
       }
     })
     if (!service) return reply.code(404).send({ error: 'Service not found', code: 'SERVICE_NOT_FOUND' })

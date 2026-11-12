@@ -6,7 +6,7 @@ const original = { eth0: { type: 'nic', nictype: 'bridged', hwaddr: '00:16:3e:11
   eth1: { type: 'nic', nictype: 'routed', parent: 'ens3', 'ipv6.address': '2001:db8::123', hwaddr: '00:16:3e:44:55:66' },
   root: { type: 'disk', path: '/', pool: 'fixture' } }
 let devices: Record<string, Record<string, unknown>>, calls: string[], failStart: boolean, failRestore: boolean
-const client = { request: async (method: string, path: string, body?: any) => {
+const client = { restorePaidBootPolicy:async()=>{}, request: async (method: string, path: string, body?: any) => {
   calls.push(`${method} ${path}`)
   if (method === 'GET') return { name: 'fixture', type: 'container', devices: structuredClone(devices), config: { 'user.fixture': 'preserved' } }
   if (path.endsWith('/state')) {

@@ -1,3 +1,4 @@
+import { wakeExpiryDeadlines } from '../lib/instance-expiry.js'
 /**
  * 计费业务逻辑操作
  * 处理付费实例开通、续费、升降级等核心计费业务
@@ -565,7 +566,9 @@ export async function performRenewal(
   request?: RenewalRequest,
   expectedAmount?: number
 ): Promise<RenewalResult> {
-  return withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months, automatic, session, apiAuthorization, request, expectedAmount))
+  const result=await withInstanceBillingMutation(instance.id, () => performRenewalMutation(userId, instance, months, automatic, session, apiAuthorization, request, expectedAmount))
+  wakeExpiryDeadlines()
+  return result
 }
 
 async function performRenewalMutation(

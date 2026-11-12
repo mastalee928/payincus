@@ -343,8 +343,11 @@ export async function canDeletePlan(id: number): Promise<{
  * 删除套餐方案
  */
 export async function deletePlan(id: number): Promise<void> {
-  await prisma.packagePlan.delete({
-    where: { id }
+  await prisma.$transaction(async tx => {
+    // FK key-share checks for a new instance serialize with this delete lock.
+    await tx.$queryRaw`SELECT id FROM package_plans WHERE id = ${id} FOR UPDATE`
+    if (await tx.instance.count({ where: { packagePlanId: id } })) throw new Error('PLAN_HAS_INSTANCES')
+    await tx.packagePlan.delete({ where: { id } })
   })
 }
 

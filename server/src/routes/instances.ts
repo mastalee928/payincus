@@ -1,3 +1,4 @@
+import { persistCreatedGuestIdentity } from '../lib/persist-created-guest.js'
 import { hasPendingSnapshotOperation, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
 import { applyCustomerInstanceView } from '../lib/customer-instance-view.js'
@@ -6277,6 +6278,7 @@ async function createInstanceAsync(
     if (poolProvision) (incusConfig.config as Record<string, string>)['user.payincus.provisioning-attempt'] = poolProvision.attempt
     await createInstance(client, incusConfig)
     if (poolProvision) { await poolProvision.check(); await poolProvision.identity() }
+    if(!poolProvision)await persistCreatedGuestIdentity(client,instanceId,config.name)
     await prepareNewContainerCloudInit(client, config.name, config.cloudInitConfig, config.instanceType)
     const instanceTypeLabel = config.instanceType === 'vm' ? '虚拟机' : '容器'
     console.log(`[Provisioning] 实例 ${config.name} ${instanceTypeLabel}创建完成`)

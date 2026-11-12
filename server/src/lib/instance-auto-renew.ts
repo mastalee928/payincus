@@ -8,18 +8,17 @@ export function expiryRetentionCutoff(now: Date): Date {
   return new Date(now.getTime() - EXPIRY_RETENTION_DAYS * 86400000)
 }
 export function expiryRetentionEnded(instance: Pick<Instance, 'status' | 'suspendReason' | 'suspendedBy' | 'suspendedAt' | 'expiresAt'>, now: Date): boolean {
-  return instance.status === 'suspended' && instance.suspendReason === 'expired' && instance.suspendedBy === null &&
-    !!instance.expiresAt && instance.expiresAt <= now && (!instance.suspendedAt || instance.suspendedAt <= expiryRetentionCutoff(now))
+  return !!instance.expiresAt && instance.expiresAt <= expiryRetentionCutoff(now)
 }
 export function autoRenewEligibility(now: Date, expiryThreshold: Date): Prisma.InstanceWhereInput {
   return {
     autoRenew: true, packagePlanId: { not: null },
-    expiresAt: { not: null, lte: expiryThreshold },
+    expiresAt: { not: null, lte: expiryThreshold, gt: expiryRetentionCutoff(now) },
     deletionBillingPending: false, provisioningCleanupPending: false,
     deletionIntent: { equals: Prisma.DbNull }, user: { status: 'active' },
     OR: [
       { status: { in: ['running', 'stopped'] } },
-      { status: 'suspended', suspendReason: 'expired', suspendedBy: null, suspendedAt: { gt: expiryRetentionCutoff(now) } }
+      { status: 'suspended', suspendReason: 'expired', suspendedBy: null }
     ],
     transfers: { none: { status: { in: ['pending', 'processing'] } } },
     instanceTasks: { none: { status: { in: ['PENDING', 'PROCESSING'] } } }

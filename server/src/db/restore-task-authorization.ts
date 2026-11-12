@@ -4,6 +4,7 @@ import { authorizeUserWrite, type WriteActor, type WriteSession } from './user-w
 import { hasPendingSnapshotOperation } from './snapshot-operation-guards.js'
 import { hasPendingProxySiteOperations } from './proxy-site-operation-guards.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { assertInstanceMayBoot } from '../lib/instance-expiry.js'
 
 export class RestoreAuthorizationError extends Error {
   constructor(message: string, readonly statusCode = 409, readonly code = 'RESTORE_TARGET_CHANGED') { super(message) }
@@ -14,6 +15,7 @@ export async function loadRestoreInstance(tx: Prisma.TransactionClient, instance
   await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
   const instance = await tx.instance.findUnique({ where: { id: instanceId } })
   if (!instance || instance.status === 'deleted') throw new RestoreAuthorizationError('实例已删除或不存在')
+  assertInstanceMayBoot(instance)
   await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.hostId} FOR SHARE`
   const host = await tx.host.findUnique({ where: { id: instance.hostId } })
   if (!host) throw new RestoreAuthorizationError('原宿主已不存在')

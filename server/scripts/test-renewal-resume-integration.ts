@@ -256,6 +256,8 @@ try {
     if (change === 'missing') {
       const task = await taskFor(row.instance.id)
       await prisma.instanceTask.update({ where: { id: task.id }, data: { replacementState: { ...(task.replacementState as any), uuid: null } } })
+      assert.equal((await run(row.instance.id)).status,'COMPLETED','persisted delivery identity repairs a missing resume field')
+      await assertPaidOnce(row.instance.id);continue
     }
     if (change === 'privileged') row.guest.config['security.privileged'] = 'true'
     if (change === 'ephemeral') row.guest.ephemeral = true
@@ -323,13 +325,13 @@ try {
     }
     fault = ''; await due(retry.instance.id)
     const confirmed = await run(retry.instance.id)
-    assert.equal(confirmed.status, failure === 'last-receipt-lost' ? 'COMPLETED' : 'FAILED')
+    assert.equal(confirmed.status, 'COMPLETED')
     assert.equal((confirmed.replacementState as any).terminal, true)
-    assert.equal(starts.get(retry.instance.incusId), 6); await assertPaidOnce(retry.instance.id)
+    assert.equal(starts.get(retry.instance.incusId), failure === 'last-receipt-lost' ? 6 : 7); await assertPaidOnce(retry.instance.id)
     await due(retry.instance.id); assert.equal((await taskFor(retry.instance.id)).status, confirmed.status)
     await executeAutoRenew(retry.user.id); assert.equal(await prisma.instanceBillingRecord.count({ where: { instanceId: retry.instance.id } }), 1)
   }
-  console.log('PASS six rejected or ineffective starts stop further writes; final lost receipt is confirmed read-only, with no duplicate debit')
+  console.log('PASS six temporary failures still recover automatically; lost accepted receipt confirms without duplicate start/debit')
 } finally {
   await holder.query('ROLLBACK').catch(() => {})
   await prisma.instance.deleteMany({ where: { hostId: { in: hostIds } } })

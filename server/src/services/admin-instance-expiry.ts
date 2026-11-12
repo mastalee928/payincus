@@ -9,6 +9,7 @@ import { hasPendingProxySiteOperations } from '../db/proxy-site-operation-guards
 import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
 import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { recoveryHeld } from './platform-backup-core.js'
+import { wakeExpiryDeadlines } from '../lib/instance-expiry.js'
 
 export class InstanceExpiryError extends Error {
   constructor(readonly code: string, readonly statusCode = 409) { super(code) }
@@ -38,7 +39,7 @@ function snapshot(instance: Instance) {
 /** No remote effects and no financial records. Share renewal/expiry fences. */
 export async function adminInstanceExpiry(instanceId: number, actor: WriteActor, change?: { revision: string; expiresAt: Date }) {
   if (recoveryHeld()) return reject('EXPIRY_RECOVERY_HELD')
-  return withInstanceBillingMutation(instanceId, () => prisma.$transaction(async tx => {
+  const result=await withInstanceBillingMutation(instanceId, () => prisma.$transaction(async tx => {
     await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
     if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instanceId)) return reject('EXPIRY_BUSY')
     await tx.$queryRaw`SELECT id FROM instances WHERE id=${instanceId} FOR UPDATE`
@@ -73,4 +74,6 @@ export async function adminInstanceExpiry(instanceId: number, actor: WriteActor,
     if (recoveryHeld()) return reject('EXPIRY_RECOVERY_HELD')
     return { ...snapshot(updated), changed: true }
   }, { maxWait: 5000, timeout: 10000 }), { onBusy: () => reject('EXPIRY_BUSY') })
+  if(change)wakeExpiryDeadlines()
+  return result
 }

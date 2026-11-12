@@ -7,6 +7,7 @@ import { hasActiveTransferWorkflow } from './transfers.js'
 import { hasPendingSnapshotOperation } from './snapshot-operation-guards.js'
 import { hasPendingProxySiteOperations } from './proxy-site-operation-guards.js'
 import { getNotificationContent } from '../lib/notifier.js'
+import { wakeExpiryDeadlines } from '../lib/instance-expiry.js'
 
 export class HostExtensionError extends Error {
   constructor(readonly statusCode: number, message: string) { super(message) }
@@ -22,7 +23,7 @@ export async function extendHostPaidInstances(hostId: number, actor: WriteActor,
   const targets = await prisma.instance.findMany({ where: { hostId, packagePlanId: { not: null },
     status: { not: 'deleted' }, expiresAt: { not: null } }, orderBy: { id: 'asc' },
     select: { id: true, userId: true, hostId: true, incusId: true, packagePlanId: true } })
-  return billingLanes(targets.map(row => row.id), () => prisma.$transaction(async tx => {
+  const result=await billingLanes(targets.map(row => row.id), () => prisma.$transaction(async tx => {
     await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`
     for (const target of targets) {
       if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, target.id)) {
@@ -66,4 +67,6 @@ export async function extendHostPaidInstances(hostId: number, actor: WriteActor,
     } })
     return { extendedCount: targets.length, hostName: host.name, affectedUserIds: [...affectedUserIds] }
   }, { maxWait: 5000, timeout: 60000 }))
+  wakeExpiryDeadlines()
+  return result
 }

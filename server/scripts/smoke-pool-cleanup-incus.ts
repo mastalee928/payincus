@@ -52,7 +52,7 @@ try {
         await executeExpiryEnforcement()
         assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'suspended')
         assert.equal((await client.request<{status:string}>('GET','/1.0/instances/cleanup-guest')).status, 'Stopped')
-        await prisma.instance.update({ where: { id: instance.id }, data: { suspendedAt: new Date(Date.now() - 4 * 86400000) } })
+        await prisma.instance.update({ where: { id: instance.id }, data: { expiresAt: new Date(Date.now() - 4 * 86400000), suspendedAt: new Date(Date.now() - 4 * 86400000) } })
         await executeExpiryEnforcement()
         const deleted = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
         assert.equal(deleted.status, 'deleted'); assert.equal(deleted.deletionBillingPending, false)

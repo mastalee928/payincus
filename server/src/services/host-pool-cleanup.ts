@@ -87,6 +87,7 @@ export async function processPoolCleanup(hostId: number, connect = getIncusClien
   const scope = recoveryScope()
   try {
     await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM instances WHERE host_id = ${hostId} ORDER BY id FOR UPDATE`
       await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
       scope.remaining()
       if (recoveryHeld()) return
@@ -122,6 +123,7 @@ export async function processPoolCleanup(hostId: number, connect = getIncusClien
     if (!attempt) return
     const claimed = attempt
     await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM instances WHERE host_id = ${hostId} ORDER BY id FOR UPDATE`
       await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
       scope.remaining()
       if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')

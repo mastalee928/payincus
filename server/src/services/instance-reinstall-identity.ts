@@ -1,3 +1,4 @@
+import { assertInstanceMayBoot } from '../lib/instance-expiry.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { Prisma, type InstanceTask } from '@prisma/client'
@@ -13,6 +14,7 @@ import type { IncusInstance as BaseIncusInstance } from '../types/incus.js'
 import { recoveryHeld } from './platform-backup-core.js'
 import { authorizeUserWrite } from '../db/user-write-authorization.js'
 import { assertHostNotMaintaining } from '../lib/host-maintenance-gate.js'
+import { sameGuestCreationTime } from '../lib/guest-identity-time.js'
 
 const record = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {}
 const validUuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(value)
@@ -39,6 +41,7 @@ export async function beginInstanceReinstall(task: InstanceTask, original: Incus
     if (recoveryHeld()) throw Error('PLATFORM_RECOVERY_HELD')
     const current = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
     const row = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
+    assertInstanceMayBoot(row)
     const currentHost = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
     const actor = await prisma.user.findUnique({ where: { id: task.userId } })
     const revoked = await prisma.tokenInvalidation.findFirst({ where: { userId: task.userId,
@@ -61,7 +64,7 @@ export async function beginInstanceReinstall(task: InstanceTask, original: Incus
       throw error
     }
     if ((remote.project || 'default') !== 'default' || remote.name !== instance.incusId || remote.config?.['volatile.uuid'] !== saved.uuid ||
-      saved.createdAt && remote.created_at !== saved.createdAt || remote.type !== expectedType) {
+      saved.createdAt && !sameGuestCreationTime(remote.created_at,saved.createdAt) || remote.type !== expectedType) {
       throw Error('REINSTALL_ORIGINAL_IDENTITY_CHANGED')
     }
     if (cleanup.uuid === saved.uuid && (cleanup.endpointHash !== managedCleanupEndpointHash(original) ||
@@ -168,6 +171,7 @@ export async function beginInstanceReinstall(task: InstanceTask, original: Incus
         await tx.$queryRaw`SELECT id FROM instance_tasks WHERE id = ${task.id} FOR UPDATE`
         await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${host.id} FOR SHARE`
         const row = await tx.instance.findUniqueOrThrow({ where: { id: instance.id } })
+        assertInstanceMayBoot(row)
         const current = await tx.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
         if (recoveryHeld() || current.status !== 'PROCESSING' || current.startedAt?.getTime() !== task.startedAt?.getTime() ||
           current.retryCount !== task.retryCount || current.operationIdentity !== task.operationIdentity ||
@@ -197,8 +201,7 @@ export async function reconcileInterruptedReinstalls(isRunning: (id: number) => 
   if (recoveryHeld()) return
   const tasks = await prisma.instanceTask.findMany({ where: {
     taskType: { in: ['recreate', 'clone', 'change_host'] }, status: { in: ['PROCESSING', 'FAILED'] },
-    AND: [{ OR: [{ replacementState: { path: ['cleanupAttempts'], equals: Prisma.AnyNull } }, { replacementState: { path: ['cleanupAttempts'], lt: 6 } }] },
-      { OR: [{ replacementState: { path: ['cleanupNextAt'], equals: Prisma.AnyNull } }, { replacementState: { path: ['cleanupNextAt'], lte: new Date().toISOString() } }] }],
+    AND: [{ OR: [{ replacementState: { path: ['cleanupNextAt'], equals: Prisma.AnyNull } }, { replacementState: { path: ['cleanupNextAt'], lte: new Date().toISOString() } }] }],
     OR: [{ replacementState: { path: ['targetPhase'], equals: 'cleanup_pending' } },
       { replacementState: { path: ['targetPhase'], equals: 'source_cleanup' } },
       ...['prepared', 'reserved', 'creating', 'verified'].map(phase => ({ startedAt: { lt: new Date(Date.now() - 30 * 60000) }, replacementState: { path: ['targetPhase'], equals: phase } }))]
@@ -218,12 +221,12 @@ export async function reconcileInterruptedReinstalls(isRunning: (id: number) => 
         const state = record(current.replacementState)
         if (recoveryHeld() || !['PROCESSING', 'FAILED'].includes(current.status) ||
           !isDeepStrictEqual(current.replacementState, task.replacementState)) return
-        const next = { ...state, cleanupAttempts: (state.cleanupAttempts || 0) + 1,
+        const next = { ...state, cleanupAttempts: Math.min(2147483647,(state.cleanupAttempts || 0) + 1),
           cleanupFromPhase: state.cleanupFromPhase || state.targetPhase,
           cleanupNextAt: new Date(Date.now() + 60000).toISOString(),
           targetPhase: state.targetPhase === 'source_cleanup' ? 'source_cleanup' : 'cleanup_pending' }
         await tx.instanceTask.update({ where: { id: task.id }, data: { status: 'PROCESSING', replacementState: next as Prisma.InputJsonValue,
-          error: `清理核验第${next.cleanupAttempts}/6次；保留占用，等待原实例和存储核验` } })
+          error: `清理核验第${next.cleanupAttempts}次；保留占用，等待原实例和存储核验` } })
         return next
       }, { timeout: 6000, maxWait: 2000 })
       if (!claimed) continue
@@ -249,7 +252,7 @@ export async function reconcileInterruptedReinstalls(isRunning: (id: number) => 
         const sourceOwner = await tx.host.findUnique({ where: { id: state.sourceHostId || task.hostId }, select: { userId: true } })
         if (actor.id !== state.sourceOwnerId && actor.id !== sourceOwner?.userId && actor.role !== 'admin') throw Error('CLEANUP_AUTHORIZATION_CHANGED')
         if (row.userId !== state.sourceOwnerId || row.provisioningCleanupPending || row.deletionBillingPending ||
-          ['deleted', 'suspended'].includes(row.status) || transferHostIdentity(host) !== (sourceCleanup ? state.sourceHostIdentity : state.targetHostIdentity)) throw Error('CLEANUP_ORIGINAL_IDENTITY_CHANGED')
+          row.status==='deleted' || transferHostIdentity(host) !== (sourceCleanup ? state.sourceHostIdentity : state.targetHostIdentity)) throw Error('CLEANUP_ORIGINAL_IDENTITY_CHANGED')
         if (sourceCleanup) {
           if (row.hostId !== task.targetHostId || row.incusId !== state.targetIncusId ||
             record(record(row.snapshottedSpecs).recoveryIdentity).uuid !== state.targetUuid) throw Error('CLEANUP_SWITCH_NOT_CONFIRMED')
@@ -338,8 +341,8 @@ export async function reconcileInterruptedReinstalls(isRunning: (id: number) => 
         continue
       }
       await prisma.instanceTask.updateMany({ where: { id: task.id, status: 'PROCESSING', replacementState: { equals: claimed as Prisma.InputJsonValue } },
-        data: { progress: claimed.cleanupAttempts >= 6 ? 'manual_intervention' : 'cleanup_pending',
-          error: `宿主${task.hostId}实例${task.instanceId}清理核验未完成（${reason}）；已尝试${claimed.cleanupAttempts}/6次。保留原身份与资源${claimed.cleanupAttempts >= 6 ? '，自动次数已用尽，请核对原宿主连接、同名实例身份与存储后处理原任务' : '，60秒后自动续接'}` } }).catch(() => {})
+        data: { progress: 'cleanup_pending',
+          error: `宿主${task.hostId}实例${task.instanceId}清理核验未完成（${reason}）；已尝试${claimed.cleanupAttempts}次。保留原资源，60秒后自动续接` } }).catch(() => {})
     }
   }
 }

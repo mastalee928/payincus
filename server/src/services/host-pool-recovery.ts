@@ -327,13 +327,13 @@ export async function recoverPoolHost(hostId: number, actorId: number, options: 
     await prisma.$transaction(async tx => {
       try {
         scope.remaining()
+        await tx.$queryRaw`SELECT id FROM instances WHERE host_id = ${hostId} ORDER BY id FOR UPDATE`
         const rows = await tx.$queryRaw<Array<{ id: number }>>`SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE`
         scope.remaining()
         if (!rows.length) throw new HostRecoveryError('HOST_NOT_FOUND')
         await tx.$queryRaw`SELECT id FROM users WHERE id = ${actorId} FOR SHARE`
         const actor = await tx.user.findUnique({ where: { id: actorId }, select: { role: true, status: true } })
         if (actor?.role !== 'admin' || actor.status !== 'active') throw new HostRecoveryError('FORBIDDEN')
-        await tx.$queryRaw`SELECT id FROM instances WHERE host_id = ${hostId} ORDER BY id FOR UPDATE`
         scope.remaining()
         const before = await inspectPoolRecovery(tx, hostId, connect, scope)
         if (before.report.automaticCleanup && ['pending', 'retry', 'blocked'].includes(before.report.automaticCleanup.status)) {

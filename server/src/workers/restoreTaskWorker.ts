@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 /**
  * 恢复任务队列调度器
  * 确保同一台宿主机同一时间只有一个恢复任务在执行
@@ -326,9 +327,9 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
         state.stage = 'starting'
         await saveRestoreState(task, state)
         console.log(`[RestoreWorker] Task ${taskId}: 启动实例`)
-        await restoreStep(task, async () => {
+        await restoreStep(task, async tx => {
             await readRestoreIdentity(client!, task.originalIncusId, state!.restored!, true)
-            await startInstance(client!, task.originalIncusId)
+            await startInstance(client!.withMaintenanceDatabase(tx).withBillingInstance(task.instanceId), task.originalIncusId)
             await readRestoreIdentity(client!, task.originalIncusId, state!.restored!)
             const started = await client!.request<{ status?: string }>('GET', `${restoreInstancePath(task.originalIncusId)}/state`, null, 30000)
             if (started.status !== 'Running') throw new Error('恢复后实例未确认运行，已保留副本及操作门禁')
@@ -341,6 +342,9 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
         // 名称格式: 原名 | restored:备份名
         const newInstanceName = `${task.originalInstanceName} | restored:${backup?.name || 'unknown'}`
         await restoreStep(task, async tx => {
+            const current=await tx.instance.findUniqueOrThrow({where:{id:task.instanceId}})
+            const imported=await client!.request<{created_at:string;config:Record<string,string>}>('GET',restoreInstancePath(task.originalIncusId))
+            if(imported.config?.['volatile.uuid']!==state!.restored!.uuid||!Number.isFinite(Date.parse(imported.created_at)))throw Error('RESTORE_CURRENT_IDENTITY_MISSING')
             await assertRestoreManifest(tx, task, state!)
             await tx.trafficSnapshot.deleteMany({ where: { instanceId: task.instanceId } })
             await tx.backup.updateMany({ where: { instanceId: task.instanceId, OR: state!.backups }, data: { status: 'deleted' } })
@@ -351,6 +355,8 @@ export async function executeRestoreTask(taskId: number): Promise<void> {
                     status: { not: 'deleted' }
                 },
                 data: {
+                    snapshottedSpecs:{...(current.snapshottedSpecs as Prisma.JsonObject||{}),
+                      recoveryIdentity:{uuid:state!.restored!.uuid,createdAt:imported.created_at,project:'default'}},
                     name: newInstanceName,
                     storagePoolName: storagePool,
                     restoredFrom: {

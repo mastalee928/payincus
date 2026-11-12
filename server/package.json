@@ -6,6 +6,8 @@
   "main": "dist/app.js",
   "types": "dist/app.d.ts",
   "scripts": {
+    "test:expiry-enforcement-regressions": "node --import tsx scripts/test-expiry-enforcement-regressions.ts",
+    "test:expiry-concurrency-regressions": "node --import tsx scripts/test-expiry-concurrency-regressions.ts",
     "test:guest-network-clock-transport": "node --import tsx scripts/test-guest-network-clock-transport.ts",
     "test:time-sync": "python ../scripts/test-time-sync.py",
     "test:guest-network-protection": "node --import tsx scripts/test-guest-network-protection.ts",

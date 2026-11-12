@@ -11,12 +11,14 @@ let task: any = { taskType: 'rebuild', status: 'COMPLETED', hostId: host.id, tar
 const db: any = { instanceTask: { findFirst: async () => task } }
 assert.deepEqual(await registeredGuestIdentity(db, instance, host), { uuid: saved.uuid, createdAt: saved.createdAt }, 'legacy in-place rebuild preserves original identity')
 for (const mutation of [{ taskType: 'recreate' }, { taskType: 'change_host' }, { hostId: 999 }, { targetHostId: 999 },
-  { replacementState: { targetUuid: randomUUID() } }, { replacementState: null }, { replacementState: [] },
+  { replacementState: { targetUuid: randomUUID() } }, { replacementState: [] },
   { replacementState: 'corrupted' }, { status: 'PROCESSING' }]) {
   const before = task; task = { ...task, ...mutation }
   assert.deepEqual(await registeredGuestIdentity(db, instance, host), { uuid: null, createdAt: null }, 'unknown/partial switch must not adopt saved identity')
   task = before
 }
+task.replacementState=null
+assert.deepEqual(await registeredGuestIdentity(db,instance,host),{uuid:saved.uuid,createdAt:saved.createdAt},'SQL/JSON null legacy in-place rebuild retains original identity')
 task = { ...task, taskType: 'replace_host', targetHostId: host.id, replacementState: { targetUuid: saved.uuid,
   targetCreatedAt: saved.createdAt, targetIncusId: instance.incusId, targetHostIdentity: transferHostIdentity(host) } }
 assert.deepEqual(await registeredGuestIdentity(db, instance, host), { uuid: saved.uuid, createdAt: saved.createdAt })

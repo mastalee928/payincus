@@ -2,6 +2,10 @@ import { redactAuditText } from './risk-audit.js'
 
 function reasonText(error: string): string {
   const reasons: Record<string, string> = {
+    EXPIRY_STOP_NOT_VERIFIED:'已下发到期停止，宿主尚未确认Stopped，程序继续停止并核验',
+    EXPIRY_AUTOSTART_NOT_DISABLED:'实例已停止，自动启动设置尚未核验关闭，程序继续修复',
+    EXPIRY_DELETE_NOT_VERIFIED:'已执行删除，宿主实例清单尚未核空，程序继续删除清理',
+    EXPIRY_TERM_OR_TARGET_CHANGED:'当前账期或实例绑定已更新，程序重新读取后执行当前目标',
     'agent-offline': '尚未收到宿主 Agent 的有效心跳',
     'not-ready': '宿主安装、存储或 Agent 能力尚未满足可售条件',
     'capacity': '宿主可用资源不足以满足当前规格',

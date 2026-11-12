@@ -22,6 +22,7 @@ import type { WebSocket } from 'ws'
 import { consumeTerminalAccessTicket, generateTerminalAccessTicket } from '../lib/action-ticket.js'
 import { isAccessTokenInvalidated } from '../lib/security.js'
 import { withTerminalOpeningAuthorization } from '../db/terminal-opening-authorization.js'
+import { instanceTermExpired } from '../lib/instance-expiry.js'
 
 // 终端专用连接限制
 const TERMINAL_LIMITS = {
@@ -183,7 +184,7 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
             return reply.code(403).send({ error: 'Forbidden', code: 'FORBIDDEN' })
         }
 
-        if (instance.status !== 'running') {
+        if (instance.status !== 'running' || instanceTermExpired({expiresAt:instance.expires_at})) {
             return reply.code(400).send({ error: 'Instance must be running to access terminal', code: 'INSTANCE_NOT_RUNNING' })
         }
 
@@ -354,7 +355,7 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
         }
 
         // 7. 实例状态检查
-        if (instance.status !== 'running') {
+        if (instance.status !== 'running' || instanceTermExpired({expiresAt:instance.expires_at})) {
             safeSend(socket, JSON.stringify({
                 type: 'error',
                 code: 'INSTANCE_NOT_RUNNING',

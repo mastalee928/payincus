@@ -178,7 +178,7 @@ const restoreRollbackRouteSection = section(
 )
 const rollbackOriginalCheckIndex = restoreRollbackRouteSection.indexOf('const originalExists = await instanceExists(client, task.originalIncusId)')
 const rollbackUnsafeIndex = restoreRollbackRouteSection.indexOf("error: 'ROLLBACK_UNSAFE'")
-const rollbackStartIndex = restoreRollbackRouteSection.indexOf('await startInstance(client, task.originalIncusId)')
+const rollbackStartIndex = restoreRollbackRouteSection.indexOf('await startInstance(scoped, task.originalIncusId)')
 const rollbackTempCheckIndex = restoreRollbackRouteSection.indexOf('if (task.tempInstanceName)')
 const rollbackDeleteTempIndex = restoreRollbackRouteSection.indexOf('await deleteInstance(client, task.tempInstanceName)')
 const rollbackLegacyCheckIndex = restoreRollbackRouteSection.indexOf('if (!task.recoveryState)')

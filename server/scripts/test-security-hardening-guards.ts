@@ -98,7 +98,7 @@ for(const delta of [{deletionIntent:{}},{pendingOperation:true},{expired:true},{
 assert.equal(customerBootRecoveryAction(baseline,{...latest,status:'stopped'}),'keep')
 assert.equal(customerBootRecoveryAction({...baseline,state:'stopped'},latest),'keep')
 assert.equal(customerBootRecoveryAction({...baseline,state:'suspended'},{...latest,remoteState:'Stopped'}),'keep')
-assert.equal(customerBootRecoveryAction({...baseline,state:'suspended'},{...latest,remoteState:'Frozen'}),'blocked')
+assert.equal(customerBootRecoveryAction({...baseline,state:'suspended'},{...latest,remoteState:'Frozen'}),'stop')
 assert.equal(customerBootRecoveryAction(baseline,{...latest,userId:4}),'blocked')
 const intent=readHostMaintenanceIntent({revision:'host-maintenance-v1',requestId:preflight.bootId,bootId:preflight.bootId,
   identityHash:'a'.repeat(64),prepareHash:'b'.repeat(64),recipe:'alpine-apparmor-extlinux-v1',architecture:'aarch64',phase:'prepared',rebootIssued:false,

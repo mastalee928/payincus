@@ -297,6 +297,7 @@ export async function deleteInstance(client: IncusClient, name: string): Promise
  */
 export async function startInstance(client: IncusClient, name: string): Promise<unknown> {
   await readCustomerIsolation(client, name)
+  await client.restorePaidBootPolicy(name)
   return client.request('PUT', `/1.0/instances/${name}/state`, {
     action: 'start',
     timeout: 60  // 60秒
@@ -337,6 +338,7 @@ export async function stopInstance(
  */
 export async function restartInstance(client: IncusClient, name: string, force: boolean = false): Promise<unknown> {
   await readCustomerIsolation(client, name)
+  await client.restorePaidBootPolicy(name)
   return client.request('PUT', `/1.0/instances/${name}/state`, {
     action: 'restart',
     timeout: 60,  // 60秒

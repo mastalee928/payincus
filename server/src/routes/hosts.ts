@@ -1,3 +1,4 @@
+import { assertInstanceMayBoot } from '../lib/instance-expiry.js'
 import { requestInstanceDeletion, processInstanceDeletion, instanceDeletionResult } from '../services/instance-deletion.js'
 import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
 /**
@@ -5617,7 +5618,9 @@ export default async function hostRoutes(fastify: FastifyInstance) {
 
         // 15. 启动新实例
         console.log(`[Migrate] 启动新实例 ${newIncusId}...`)
-        await startInstance(targetClient, newIncusId)
+        assertInstanceMayBoot(await prisma.instance.findUniqueOrThrow({where:{id:instance.id}}))
+        await startInstance(targetClient.withBillingInstance(instance.id), newIncusId)
+        const migratedIdentity=await targetClient.request<{created_at:string;config:Record<string,string>}>('GET',`/1.0/instances/${encodeURIComponent(newIncusId)}`)
 
         // 16. 获取原实例的 AFF 绑定信息
         const affBinding = await getInstanceAffBinding(instance.id)
@@ -5645,7 +5648,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
               memory: instance.memory,
               disk: instance.disk,
               networkMode: instance.networkMode,
-              snapshottedSpecs: instance.snapshottedSpecs as any,
+              snapshottedSpecs: {...(instance.snapshottedSpecs as Prisma.JsonObject||{}),
+                recoveryIdentity:{uuid:migratedIdentity.config['volatile.uuid'],createdAt:migratedIdentity.created_at,project:'default'}},
               sshPort: metaData.sshPort,
               rootPassword: encryptSensitiveData(rootPassword),
               status: 'running',

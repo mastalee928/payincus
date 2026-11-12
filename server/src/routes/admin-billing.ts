@@ -1,3 +1,5 @@
+import { persistCreatedGuestIdentity } from '../lib/persist-created-guest.js'
+import { wakeExpiryDeadlines } from '../lib/instance-expiry.js'
 import { refundInstancePayment } from '../services/checkout-refunds.js'
 import { requestInstanceDeletion } from '../services/instance-deletion.js'
 import { assertNoPendingSnapshotOperations, SnapshotOperationPendingError } from '../db/snapshot-operation-guards.js'
@@ -1931,6 +1933,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         { instanceId }
       )
 
+      wakeExpiryDeadlines()
       // 通知用户
       await sendNotification(instance.userId, 'instance_extended', {
         instanceName: instance.name,
@@ -4713,6 +4716,7 @@ async function createInstanceAsync(
 
     console.log(`[Admin Provisioning] 正在调用 Incus API 创建实例...`)
     await createInstance(client, incusConfig)
+    await persistCreatedGuestIdentity(client,instanceId,config.name)
     await prepareNewContainerCloudInit(client, config.name, config.cloudInitConfig, config.instanceType)
 
     // 等待实例创建完成

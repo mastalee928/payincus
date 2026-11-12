@@ -130,7 +130,7 @@ async function reconcile(hostId: number, settings: PublicIpSettings | undefined,
         { hostId }, { targetHostId: hostId }, { replacementState: { path: ['sourceHostId'], equals: hostId } },
         ...(instance ? [{ instanceId: instance.id }] : [])
       ] }
-      const client = await boundedRead(deps.connect(host), signal)
+      const client = (await boundedRead(deps.connect(host), signal)).withMaintenanceDatabase(tx)
       // Abort the HTTP request rather than abandoning its promise. Owned writes
       // are idempotent, so a lost response can be checked again on the next pass.
       const remote: Pick<Client, 'request'> = {

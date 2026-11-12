@@ -1,5 +1,45 @@
 # 版本与验证记录
 
+2026-11-12 owner已明确授权提交推送本批 E01–E21 修复、守卫与五轮／两遍／原生验收记录。以下“未提交推送”保留验证收尾时状态；实际Git提交、远端与CI证据另记，未授权生产部署或发新版。
+
+## 2026-11-12 整份 E01–E21 源码修复／五轮审视／两遍排查（未部署）
+
+- Owner 已结束补充并明确修好整份彻查结果，不能缩为最后两条；本批恢复实施。完整[修复与五轮证据](docs/expiry-stop-delete-five-reviews-2026-11-12.md)逐项对照 E01–E21，前一份[未修彻查报告](docs/expiry-stop-delete-audit-2026-11-12.md)保留当时事实。基线 main `7dc5d22a265de422a474efb9b829c4ac1382557d`，43 个最终产品文件哈希与接续核验一致，未提交／推送／发行／部署或操作客户。
+- 当前 expiresAt 与实例绑定决定 stop；不因旧 UUID／创建时间／NULL rebuild／plan／标签／快照反代任务／终端／旧 lease／其他客户续费错误跳过。实际强制 stop 并回读 Stopped，保存原自启且核 false；统一 expiresAt+72h 删除，远端先于反代，确认实例／系统卷／快照／转发后才释放；一机一卖持行锁且核无其他客户后清所有项目残留。补启动／截止／失败重试、全部开机门禁、restore 新身份、续费恢复、六次永久失败、锁竞争等。原账务／权限／其他客户与灾备保护不放宽。
+- 五轮分别审账期事务、实际入口竞争、调度故障、完整删除库存、最终 diff 与证据，均有补修和守卫／实际执行日志。两遍各九组 execution/concurrency/billing/resume/credit/restore/reinstall/price/resale，共18个独立真实PG库及TLS/WebSocket业务实跑，全部自然 exit0；日志hash与最终源码一致。两遍客机磁盘多数为fixture；另补原生容器完整停删／SSH实证，不混同生产或原生VM。
+- 全量218实际跑完216过2失败；backup旧scoped-start字符串守卫更新后定向过，Agent installer原十场景／原60秒时限复验57秒exit0。218条都有最终通过证据，**没有一次完整全绿run**；原失败保留。最终server types/build、相关五守卫、lint均exit0；lint 0error/369既有frontend warning。新增两集成脚本登记EXCLUDED并核清单，未改client。ignored证据前缀expiry-fix，索引expiry-fix-final-evidence-summary.json。
+- 22:45最终原生 `expiry-native-ssh-final3.exit=0`：真实Alpine3.24/Incus7.0.1容器Running，经当前PG账期与产品巡查实际Stopped，错误历史身份不阻stop、旧SSH关闭／新SSH拒绝、自启false与付费后原策略恢复；宽限期DELETE确认所有项目列表为空、系统卷／快照／真实dedicated forward消失，pending与计数清零。为Windows ARM64本机QEMU运行x86_64 Linux，SSH经本地relay和真实Incus NAT，非公网客户、KVM或完整宿主断电重启。前期w32内部cowsql超时与测试forward误用管理IP、未处理二次SSH error均保留失败，只改隔离环境／测试，43产品hash未变。
+- 生产仍只读主控；本轮没有再连生产或代停删。JHTONE最新实证仍是19:47未完成stop的旧部署，不能说新代码已生效。原生KVM／完整宿主重启、主控离线时宿主持久截止协议未完成范围详见报告；本地阶段通过不代表新版已发行或生产已停止。
+
+## 2026-11-12 补充期间暂停：到期stop不得以UUID等记录拒绝
+
+- Owner再次扩大为**其他所有异常**：到期未续费必须执行stop并核实际Stopped，超宽限期仍未续费直接删该用户实例；机器池一机一卖宿主最终`incus list`无任何实例，系统盘／快照／转发及平台占用清理核验。任何异常不能转为业务skip或延期，真实连接／操作／核验失败须自动恢复并继续，不能伪记成功或提前回池。最新要求已同步OWNER_REQUIREMENTS；当前只保存补充，产品修改／验证仍暂停，生产只读边界保持。
+
+- Owner已授权修源码、完成后五轮代码审视并再次彻查；随后表示还有补充，当前暂停产品修改与验证，仅保存要求。已开始的本地修改包括有限账期判断／续费宽限期、旧NULL rebuild兼容、空身份段回退、创建时间规范化工具及方案删除事务检查；尚未运行对应守卫／类型／隔离验证，五轮审视未开始，不能视为完成。未提交／推送／发版／生产停删或部署。
+- 最新补充：五分钟巡检是全主控兜底，任何报错不能暂停整轮或放宽到期／过宽限期执行。确认用户当前实例账期已到且未成功续费后直接下发stop并核Stopped，历史身份／UUID／创建时间／原任务不得作为停机前拒绝或跳过理由。此条取代此前到期stop须完整历史身份才准执行的方案；后续从当前实例绑定实施并审查，生产仅只读范围保持。等owner明确补充完再恢复统一实施。
+
+## 2026-11-12 继续彻查：入口／循环／死锁实际复现（未修复）
+
+- Owner认为初轮检查不够彻底，本轮继续原v1.8.8全链路；[完整检查报告](docs/expiry-stop-delete-audit-2026-11-12.md)第二轮补实际调度器、worker、HTTP／PAT、票据／WebSocket、续费与清理函数的证据。**产品源码未修改、未提交／推送／发行／部署或生产停删。** 初轮E05–E12的代码风险已分别补实跑范围，不能沿用旧“均未跑”或“全已修”表述。
+- 主控北京时间19:47:39仅READ ONLY核：JHTONE #28仍suspended，原地rebuild #24为SQL NULL，最新19:45:01.233日志#11643仍expiry_stop_pending；无open snapshot／proxy、无该实例计费锁。此前已部署解析器返回空uuid／createdAt；正式包hash一致。客户仍可使用由owner实测，本轮未进入宿主核实时Incus。当前删除截止11月13日10:45:00.052未到，stop早已逾期。
+- 新确证：旧expired+suspended start任务COMPLETED并远端Running；有效用户PAT对expired但stopped实例得202，实际worker启动；restore rollback HTTP200启动已封停到期原机。终端票据与exec双WebSocket对expired但running实例实际建立，巡查封停后仍存活，exec挡stop。成功stop后autostart仍true；restore成功后的uuid改变但平台登记仍旧；等价时间尾零与空identity段遮完整记录均stopCalls0。
+- 删除明确E13：claim DB deleted+pending后先Caddy清理，再stop；Caddy失败远端Running、stopCalls0，后续stop扫描排除deleted。库存占用保护正确但不能保证已停止。E20：中断recreate清理因suspended拒绝，六次后仍PROCESSING/manual_intervention，后续不再claim并继续挡停删。E19：旧NULL身份自动续费实付一笔，resume FAILED/terminal=true后巡查不再排队；无重复扣费，手动续费正常解除为stopped、待用户开机。
+- 实际PG/TLS再确认：单目标补续读取异常阻整轮opted-out停机；五个busy billing lane消耗pLimit槽拖第六个目标；活30分钟lease静默skip且failureCount0；迟封停／缺suspendedAt漏删、running过宽限期仍可补续。正常方案删除有实例保护，检查与删除之间创建提交的DB竞争才会SetNull漏停；不是所有删除方案都会触发。原recoverPoolHost与expiry服务在第一把锁后用时序屏障复现40P01，原SQL不变，PG回滚expiry、该轮stop未发；不冒称生产永久死锁或IPv6那条也必死锁。
+- 最终7组实验自然exit0：deep-lab round3、deep-power round4、restore-identity、deep-scan、deep-final-boundary、deep-identity、deep-access round6；最新access含9项观察，核所有资源关闭。原4守卫绿只证明漏覆盖。真实PG与受信TLS/WebSocket、原源码业务执行；Incus/Caddy客机响应与磁盘是fixture，不能冒充生产或原生Incus删除/SSH验收。证据ignored logs/expiry188-*与仓库外private/payincus/hardening29；早期fixture／断言错误保留失败，不用部分输出作通过。
+- 后续修复需当前expiresAt与截止统一选择／门禁、合法旧记录与恢复身份自动核补、任务／exec分类自动收尾、独立先stop后清理、autostart保存／恢复、有界公平调度与统一锁顺序，真实Incus磁盘／快照／转发清理与原价回池独立验收。已明确正确保护：机器池pending占用和整池残留拒售、普通状态同步不复活封停、部分维护到期门禁、自动resume的账单/paidUntil检查；修复不能削弱这些保护。
+
+## 2026-11-12 到期停机／宽限期删除彻查（未修复，主控只读）
+
+- [完整检查报告](docs/expiry-stop-delete-audit-2026-11-12.md)记录12项缺口／风险和对应代码与验收场景。JHTONE实际E01：旧同宿主COMPLETED rebuild #24 replacementState为SQL NULL，现解析器把原uuid／createdAt丢弃，stop未下发；已用实际记录本地复现、核主控与双正式包hash一致，现有四停删守卫仍全绿，错误测试规格漏真旧数据。
+- 主控当前未删除库存两台只有#28到期；#27未到期但仅managedCleanup.uuid、缺createdAt，存在后续E02阻断。#28无pending实例／恢复／上传／快照／反代任务、无计费锁，恢复保护关闭；原到期已由管理员11月9日修改审计确认，autoRenew=false。18:40巡查仍报身份未验证。删除截止当前为北京时间11月13日10:45:00.052，尚未届满；停机早已应执行。
+- 其余确认缺口含有期限无plan／手工封停排除、迟封停拖延宽限期、五分钟无精确截止／启动补扫、blocked任务／长期exec阻塞、单目标续费异常提前退出整轮、旧开机／恢复执行期限缺门禁、自启未禁用、restore换UUID未更新登记及静默skip／模糊日志。代码风险与JHTONE实际根因分开，不声称全部已在生产发生。本轮产品代码未修／未部署／未停删，最新owner要求与生产只读边界同步OWNER_REQUIREMENTS。
+
+## 2026-11-12 18:32 JHTONE升级v1.8.8后仍未实际停机（只读诊断）
+
+- Owner明确仅授权只读主控。已确认主控实际v1.8.8／source a7d7d841aec3，backend active、NRestarts=0；宿主seoul-amd-2 (#24) Agentv1.0.7在线。实例#28/JHTONE为系统expired封停，expiresAt北京时间11月10日10:44:29、suspendedAt10:45:00.052，autoRenew=false；无删除意图／清理标记，无PENDING／PROCESSING实例、恢复或上传任务，恢复保护关闭。
+- 五分钟巡查一直选中#28，最近18:30仍报EXPIRY_STOP_IDENTITY_UNVERIFIED。主控保存原recoveryIdentity UUID及创建时间，但实际部署的registeredGuestIdentity返回uuid=null／createdAt=null。原因是最新原地rebuild任务#24（11月6日19:47:46–19:48:39，同宿主、COMPLETED、targetHostId=null）的replacementState为null；v1.8.8只兼容空对象{}，把真实旧记录null排除，因而抛弃保存身份。已有test-registered-guest-identity.ts还明确断言null拒绝，错误测试规格掩盖漏修；正式两个包内身份模块hash与主控一致，非漏包／未升级。
+- “当前身份或登记与原任务不一致”为automatic-operation-audit.ts的通用文案；本次实证是程序未解析旧记录，不能据此声称客户换机、UUID变化或原凭据损坏。客户仍可登录由owner实测；本轮未连接宿主／客户验证实时Incus状态，也未停机或修生产。原始只读证据在仓库外private/payincus/hardening29/instance28-after188-20261112.json及private.log。后续需从源码修正确旧null兼容及错误文案／守卫，并验证当前实例原身份，尚未实施或发行。
+
 ## 2026-11-12 v1.8.7事故教训已固化
 
 - Owner要求防止复发，已记录[独立事故复盘](docs/postmortem-v1.8.7-upgrade-2026-11-12.md)，并接入AGENTS发版必读与发行验证skill。明确新21项清单误拒旧20项登记、漏验原旧worker、回退反向兼容、代码回滚后迁移留库，以及14秒修复入包但回滚后未运行的区别。后续保留双首装／六旧升级和实际tar核验，升级起点随支持版本更新；本次只更新文档规范。

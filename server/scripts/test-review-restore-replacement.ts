@@ -27,6 +27,7 @@ let mode = 'success', requests: string[] = [], activeId = 0, taskTemp = '', dele
 let remote = new Map<string, IncusInstance>()
 const originalUuid = randomUUID(), restoredUuid = randomUUID(), operation = `/1.0/operations/${randomUUID()}`
 const blueprint: IncusInstance = { name: tag, type: 'container', status: 'Stopped', status_code: 102,
+  ...({created_at:'2026-11-01T00:00:00.123Z'} as Record<string,string>),
   config: { 'volatile.uuid': originalUuid, 'volatile.eth0.hwaddr': '00:16:3e:00:11:22', 'limits.cpu': '2', 'security.nesting': 'true' },
   devices: { root: { type: 'disk', path: '/', pool: 'original-disk', size: '20GiB' },
     eth0: { type: 'nic', network: 'incusbr0', 'ipv4.address': '10.99.0.2', 'ipv6.address': 'fd00:99::2', hwaddr: '00:16:3e:00:11:22' },
@@ -56,6 +57,7 @@ const server = createServer({ cert, key: await readFile(keyPath), ca: cert, requ
       assert.equal(req.headers['x-incus-pool'], 'original-disk', 'must retain actual root pool')
       const copy = structuredClone(blueprint)
       copy.name = taskTemp; copy.config!['volatile.uuid'] = restoredUuid
+      ;(copy as IncusInstance & {created_at:string}).created_at='2026-11-12T00:00:00.456000000Z'
       if (mode === 'wrong-device') copy.devices!.eth0['ipv6.address'] = 'fd00:99::bad'
       if (mode === 'wrong-pool') copy.devices!.root.pool = 'new-package-pool'
       if (mode === 'missing-uuid') delete copy.config!['volatile.uuid']
@@ -142,6 +144,9 @@ try {
     if (mode === 'success') {
       assert.equal(result.status, 'COMPLETED', result.error ?? '')
       assert.equal(remote.size, 1); assert.equal(remote.get(tag)?.status, 'Running'); assert.equal(remote.get(tag)?.config?.['volatile.uuid'], restoredUuid)
+      const identity=(await prisma.instance.findUniqueOrThrow({where:{id:instance.id}})).snapshottedSpecs as {recoveryIdentity?:{uuid:string;createdAt:string}}
+      assert.equal(identity.recoveryIdentity?.uuid,restoredUuid)
+      assert.equal(identity.recoveryIdentity?.createdAt,'2026-11-12T00:00:00.456000000Z')
       assert.equal(current.storagePoolName, 'original-disk')
       assert.equal((await prisma.backup.findUniqueOrThrow({ where: { id: backup.id } })).status, 'deleted')
       assert.equal(await hasActiveTransferWorkflow(instance.id), false)

@@ -29,7 +29,7 @@ const publicIpv4ReleaseIndex = expiryDeleteSection.indexOf('await db.releasePubl
 const recalcIndex = expiryDeleteSection.indexOf('const usedResources = await tx.instance.aggregate')
 const actualPortsIndex = expiryDeleteSection.indexOf('const actualPortsUsed = await tx.portMapping.count')
 const hostUpdateIndex = expiryDeleteSection.indexOf('natPortsUsedCount: actualPortsUsed')
-const incusDeleteIndex = expiryDeleteSection.indexOf('await deleteIncusInstance')
+const incusDeleteIndex = expiryDeleteSection.indexOf("await guardedClient.request('DELETE', path)")
 const pendingIndex = expiryDeleteSection.indexOf('deletionBillingPending: true')
 
 assert.notEqual(countIndex, -1, 'expiry delete must count actual port mappings before rollback')
@@ -62,4 +62,6 @@ assert.ok(
   'expiry delete must not use portLimit as released port count'
 )
 
+assert.ok(incusDeleteIndex < expiryDeleteSection.indexOf('await cleanupProxySitesForLifecycle'), 'proxy outage cannot block deletion of expired guest')
+assert.ok(expiryDeleteSection.includes('host.singleTenant && names.length !== 0'), 'dedicated host must have no guest before release')
 console.log('billing expiry delete safety tests passed')

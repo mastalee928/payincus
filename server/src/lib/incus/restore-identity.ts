@@ -3,7 +3,7 @@ import { IncusApiError, type IncusClient } from './incus-client.js'
 import type { IncusInstance } from '../../types/incus.js'
 import { assertCustomerProfiles } from './customer-isolation.js'
 
-export type RestoreInstanceIdentity = { uuid: string; type: string; pool: string; configurationHash: string }
+export type RestoreInstanceIdentity = { uuid: string; type: string; pool: string; configurationHash: string; createdAt?:string }
 /** The boot coordinator may compare its temporary autostart change separately.
  * Ordinary restore identity always protects every original boot setting. */
 export function restoreConfigurationHash(remote:Parameters<typeof assertCustomerProfiles>[1],ignoreAutostart=false):string {
@@ -39,7 +39,8 @@ export async function readRestoreIdentity(client: IncusClient, name: string, exp
   }
   // UUID and generated start-time metadata change after import. Network addresses,
   // MACs, idmaps, explicit devices, resource limits and security settings may not.
-  const identity = { uuid, type: remote.type, pool: roots[0].pool,
+  const createdAt=(remote as IncusInstance & {created_at?:string}).created_at
+  const identity = { uuid, type: remote.type, pool: roots[0].pool, ...(createdAt?{createdAt}:{}),
     configurationHash: restoreConfigurationHash(remote) }
   if (expected && (identity.uuid !== expected.uuid || identity.type !== expected.type || identity.pool !== expected.pool ||
     identity.configurationHash !== expected.configurationHash)) throw new Error('恢复实例身份或网络/磁盘配置已变化，已停止后续操作')

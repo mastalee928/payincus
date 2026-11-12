@@ -1,3 +1,4 @@
+import { assertInstanceMayBoot } from '../lib/instance-expiry.js'
 import { assertNoPendingSnapshotOperations, } from '../db/snapshot-operation-guards.js'
 import { Prisma, type InstanceTask } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
@@ -69,6 +70,7 @@ export async function requestHostReplacement(instanceId: number, targetHostId: n
     await assertNoPendingProxySiteOperations(tx, instanceId)
     await lockHostGroups(tx)
     const instance = await tx.instance.findUniqueOrThrow({ where: { id: instanceId }, include: { host: true } })
+    assertInstanceMayBoot(instance)
     if (!instance.dedicatedIpv4 || !['running', 'stopped', 'error'].includes(instance.status)) throw new Error('实例当前状态不允许换机')
     if (targetHostId === instance.hostId) throw new Error('请选择其他备用机器')
     await tx.$queryRaw`SELECT id FROM hosts WHERE id IN (${instance.hostId}, ${targetHostId}) ORDER BY id FOR UPDATE`
@@ -118,6 +120,7 @@ export async function executeHostReplacement(task: InstanceTask, connect = getIn
     if (recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')
     const current = await prisma.instanceTask.findUnique({ where: { id: task.id }, select: { status: true } })
     if (current?.status !== 'PROCESSING') throw new Error('换机任务已取消或超时')
+    assertInstanceMayBoot(await prisma.instance.findUniqueOrThrow({where:{id:instance.id}}))
   }
   const save = async (progress: string) => {
     const updated = await prisma.instanceTask.updateMany({ where: { id: task.id, status: 'PROCESSING' },
@@ -130,6 +133,7 @@ export async function executeHostReplacement(task: InstanceTask, connect = getIn
     // A restarted worker must reconcile the previous attempt, never create over it.
     if (state.stage !== 'reserved') throw new Error('TARGET_CREATION_RECONCILIATION_PENDING')
     client = await connect(target)
+    client=client.withBillingInstance(instance.id)
     state.targetIncusId ||= `u${instance.userId}-replace${task.id}`
     state.storagePool ||= (await db.resolveStoragePoolForNewInstance(targetId)) || undefined
     if (!state.storagePool) throw new Error('备用机器没有系统盘存储池')
@@ -201,9 +205,11 @@ export async function executeHostReplacement(task: InstanceTask, connect = getIn
     const endpointHash = managedCleanupEndpointHash(client)
     await prisma.$transaction(async tx => {
       await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id)
+      await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instance.id} FOR UPDATE`
       await tx.$queryRaw`SELECT id FROM instance_tasks WHERE id = ${task.id} FOR UPDATE`
       const current = await tx.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
       const currentInstance = await tx.instance.findUniqueOrThrow({ where: { id: instance.id } })
+      assertInstanceMayBoot(currentInstance)
       if (current.status !== 'PROCESSING' || currentInstance.hostId !== state.sourceHostId || currentInstance.status === 'deleted') throw new Error('换机任务状态已改变')
       await tx.ipAddress.deleteMany({ where: { instanceId: instance.id } })
       await tx.portMapping.deleteMany({ where: { instanceId: instance.id } })

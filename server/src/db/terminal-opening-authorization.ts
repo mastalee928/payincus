@@ -3,6 +3,7 @@ import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '.
 import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
 import { hasActiveTransferWorkflow } from './transfers.js'
 import type { Host, Instance } from '../types/database.js'
+import { instanceTermExpired } from '../lib/instance-expiry.js'
 
 /** Keep the original target and current authorization fixed through initial dispatch. */
 export async function withTerminalOpeningAuthorization<T>(
@@ -20,7 +21,7 @@ export async function withTerminalOpeningAuthorization<T>(
     const instance = await tx.instance.findUnique({ where: { id: expected.id } })
     if (!instance || instance.userId !== expected.user_id || instance.hostId !== expected.host_id ||
       instance.incusId !== expected.incus_id || instance.createdAt.toISOString() !== expected.created_at ||
-      instance.packageId !== expected.package_id || instance.status !== 'running' ||
+      instance.packageId !== expected.package_id || instance.status !== 'running' || instanceTermExpired(instance) ||
       instance.provisioningCleanupPending || instance.deletionBillingPending) {
       throw new Error('TERMINAL_INSTANCE_CHANGED')
     }

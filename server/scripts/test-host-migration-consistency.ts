@@ -48,7 +48,7 @@ assert(migrationSection.includes('id: { in: [sourceHostId, targetHostId] }, sing
   migrationSection.includes('instances.some(instance => instance.dedicatedIpv4)'),
   'legacy migration must reject both dedicated hosts and every dedicated selected instance')
 const createTarget = indexOfOrThrow(migrationSection, 'await createInstance(targetClient, incusConfig)', 'target Incus create')
-const startTarget = indexOfOrThrow(migrationSection, 'await startInstance(targetClient, newIncusId)', 'target Incus start')
+const startTarget = indexOfOrThrow(migrationSection, 'await startInstance(targetClient.withBillingInstance(instance.id), newIncusId)', 'target Incus start')
 const createDb = indexOfOrThrow(migrationSection, 'const { createdInstance: newInstance, migratedBillingRecordCount } = await prisma.$transaction', 'new DB instance transaction')
 const sourceStatusClaim = indexOfOrThrow(migrationSection, 'data: { status: \'deleted\' }', 'source DB deleted claim')
 const deleteSource = indexOfOrThrow(migrationSection, 'await deleteIncusInstanceForMigration(', 'strict source Incus delete')

@@ -50,6 +50,8 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:expiry-enforcement-regressions', 'requires empty local *_expiry_test PostgreSQL and OpenSSL; real expiry worker, PAT, terminal WebSocket, stop/delete, plan/lease/lane failures and renewal restoration'],
+  ['test:expiry-concurrency-regressions', 'requires empty local *_expiry_test PostgreSQL and OpenSSL; actual row-lock renew/stop/deletion races, recovery lock ordering, nanosecond identity precision and dedicated-host residual cleanup'],
   ['test:guest-network-clock-transport', 'requires OpenSSL and a local mTLS server; authentic Incus Date, stale receipts, missing pin/header and excessive skew'],
   ['test:instance-reinstall-identity', 'requires isolated local *_pool_test PostgreSQL and local mTLS Incus transport; real rebuild/recreate worker identity, lost replies and cleanup retention'],
   ['test:admin-user-email-integration', 'requires isolated local *_pool_test PostgreSQL; real JWT/admin authorization, email allocation races, credential revocation and audit rollback'],

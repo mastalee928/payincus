@@ -6,6 +6,7 @@ import { hasActiveTransferWorkflow } from './transfers.js'
 import { hasPendingSnapshotOperation } from './snapshot-operation-guards.js'
 import { hasPendingProxySiteOperations } from './proxy-site-operation-guards.js'
 import { withInstanceBillingMutation } from '../lib/instance-billing-mutation.js'
+import { wakeExpiryDeadlines } from '../lib/instance-expiry.js'
 
 export class InstanceGiftDaysError extends Error {}
 
@@ -14,7 +15,7 @@ export async function giftInstanceDays(
   actor: WriteActor, days: number
 ): Promise<Date> {
   if (!Number.isSafeInteger(days) || days < 1 || days > 365) throw new InstanceGiftDaysError('赠送天数必须为1至365的整数')
-  return withInstanceBillingMutation(expected.id, async () => {
+  const result=await withInstanceBillingMutation(expected.id, async () => {
     try {
       return await prisma.$transaction(async tx => {
         await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`
@@ -62,4 +63,6 @@ export async function giftInstanceDays(
       throw error
     }
   })
+  wakeExpiryDeadlines()
+  return result
 }

@@ -34,8 +34,8 @@ let remoteStatus = 'Running', stops = 0, offline = true
 const operations = { load: async () => current, state: async () => { if (offline) throw Error('offline'); return { status: remoteStatus } },
   stop: async () => { stops++; remoteStatus = 'Stopped' } }
 await assert.rejects(enforceExpiredStop(operations), /offline/)
-assert.equal(stops, 0)
-offline = false
+assert.equal(stops, 1, 'state discovery failure still dispatches stop')
+stops=0;remoteStatus='Running';offline = false
 assert.equal(await enforceExpiredStop(operations), 'stopped'); assert.equal(stops, 1)
 assert.equal(await enforceExpiredStop(operations), 'already-stopped'); assert.equal(stops, 1)
 remoteStatus = 'Running'
@@ -43,10 +43,10 @@ const expired = { ...current! }
 let reads = 0
 assert.equal(await enforceExpiredStop({ ...operations, load: async () => ++reads === 1 ? expired : { ...expired, expiresAt: new Date(Date.now() + 100000), version: 5 } }), 'skipped')
 assert.equal(stops, 1, 'renewal committed during state read must prevent stop')
-current = { ...expired, suspendReason: 'manual' }; assert.equal(await enforceExpiredStop(operations), 'skipped')
-current = { ...expired, suspendedBy: 1 }; assert.equal(await enforceExpiredStop(operations), 'skipped')
-current = { ...expired, packagePlanId: null }; assert.equal(await enforceExpiredStop(operations), 'skipped')
-current = expired; remoteStatus = 'Unknown'; await assert.rejects(enforceExpiredStop(operations), /REMOTE_STATE_UNKNOWN/)
+current = { ...expired, suspendReason: 'manual' }; remoteStatus='Running';assert.equal(await enforceExpiredStop(operations), 'stopped')
+current = { ...expired, suspendedBy: 1 };remoteStatus='Running'; assert.equal(await enforceExpiredStop(operations), 'stopped')
+current = { ...expired, packagePlanId: null };remoteStatus='Running'; assert.equal(await enforceExpiredStop(operations), 'stopped')
+current = expired; remoteStatus = 'Unknown';assert.equal(await enforceExpiredStop(operations), 'stopped')
 remoteStatus = 'Running'; await assert.rejects(enforceExpiredStop({ ...operations, stop: async () => {} }), /STOP_NOT_VERIFIED/)
 let release: () => void = () => {}, entered: () => void = () => {}
 const started = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
@@ -103,11 +103,11 @@ for (const patch of [{ token: 'not-returned' }, { failureCount: -1 }, { lastErro
   assert.equal(parseExpiryRunRecord(JSON.stringify({ ...runRecord, ...patch })), null)
 }
 assert.ok(scheduler.includes("schedule('*/5 * * * *'") && scheduler.includes('expiryEnforcementRunning'))
-assert.ok(scheduler.includes("status: 'suspended', suspendReason: 'expired'") && scheduler.includes('enforceExpiredStop'))
+assert.ok(scheduler.includes("status: 'suspended', suspendReason: 'expired'") && scheduler.includes('stopExpiredCurrentGuest'))
 assert.ok(scheduler.includes('resumingCleanup') && scheduler.includes('deletionBillingPending: true'))
-assert.ok(scheduler.indexOf('await deleteIncusInstance') < scheduler.indexOf('await tx.portMapping.deleteMany'))
+assert.ok(scheduler.indexOf("await guardedClient.request('DELETE', path)") < scheduler.indexOf('await tx.portMapping.deleteMany'))
 assert.ok(scheduler.indexOf("names.includes('/1.0/instances/' + instance.incusId)") < scheduler.indexOf('await tx.portMapping.deleteMany'), 'verify remote absence before releasing allocations')
-assert.ok(scheduler.includes('withInstanceBillingMutation(instanceId, async () => { if (!recoveryHeld()) await fn() })'), 'queued patrol must recheck recovery protection after acquiring the mutation lane')
+assert.ok(scheduler.includes("if(purpose==='expiry-suspend'||purpose==='expiry-delete'){await fn();return}"), 'abandoned lease and busy billing lane cannot suppress expiry')
 const renewalSource = await readFile(new URL('../src/db/billing-operations.ts', import.meta.url), 'utf8')
 assert.ok(renewalSource.includes('withInstanceBillingMutation(instance.id, () => performRenewalMutation'))
 assert.ok(scheduler.includes('renewedSuspensions') && scheduler.includes('expiresAt: { gt: new Date() }'), 'correct obsolete expiry suspension using current dates')

@@ -18,10 +18,9 @@ export async function suspendInstanceByExpiry(
   const result = await prisma.instance.updateMany({
     where: {
       id: instanceId,
-      packagePlanId: { not: null },
       expiresAt: {
         not: null,
-        lt: new Date()
+        lte: new Date()
       },
       status: { notIn: ['suspended', 'deleted'] }
     },
@@ -183,16 +182,15 @@ export async function getExpiringInstances(
 
 /**
  * 获取已到期但未封停的实例
- * 注意：只查询付费实例（packagePlanId 不为 null）
+ * 有明确账期的旧实例也必须处理，方案删除不会取消已有期限。
  * 排除已删除和已封停的实例
  */
 export async function getExpiredUnsuspendedInstances(): Promise<Instance[]> {
   return prisma.instance.findMany({
     where: {
-      packagePlanId: { not: null },  // 明确排除免费实例
       expiresAt: {
         not: null,
-        lt: new Date()
+        lte: new Date()
       },
       status: { notIn: ['suspended', 'deleted'] }  // 排除已封停和已删除
     }
@@ -310,8 +308,8 @@ export async function getSuspendedInstancesOlderThan(days: number): Promise<Inst
 
   return prisma.instance.findMany({
     where: {
-      status: 'suspended',
-      suspendedAt: {
+      OR: [{ status: { not: 'deleted' } }, { deletionBillingPending: true }],
+      expiresAt: {
         not: null,
         lte: threshold
       }

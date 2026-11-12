@@ -14,13 +14,14 @@ import { restoreConfigurationHash } from '../lib/incus/restore-identity.js'
 import { recoveryHeld } from './platform-backup-core.js'
 import { recoveryScope } from './host-pool-recovery.js'
 import type { IncusInstance } from '../types/incus.js'
+import { sameGuestCreationTime } from '../lib/guest-identity-time.js'
+import { reconcileRegisteredGuestIdentity } from '../lib/reconcile-guest-identity.js'
 
 export const RENEWAL_RESUME_ENTRY = 'auto-renew-resume-v1'
-const MAX_ATTEMPTS = 6
 const record = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {}
 type Resume = { version: 1; ownerId: number; hostIdentity: string; incusId: string; uuid: string | null;
   createdAt: string | null; paidUntil: string; billId: number; attempts: number; nextAttemptAt?: string;
-  terminal?: boolean; configurationHash?: string; confirmationAttempted?: boolean }
+  terminal?: boolean; configurationHash?: string; confirmationAttempted?: boolean; expiryAutostart?:string|null }
 const asJson = (value: Resume) => value as unknown as Prisma.InputJsonValue
 class ResumeBlocked extends Error {}
 class ResumeDeferred extends Error {}
@@ -28,10 +29,12 @@ class ResumeDeferred extends Error {}
 /** Called inside the same transaction as the one successful automatic debit. */
 export async function queueRenewalResume(tx: Prisma.TransactionClient, instance: Instance, host: Host, paidUntil: Date, billId: number): Promise<void> {
   const identity = await registeredGuestIdentity(tx, instance, host)
+  const boot=record(record(instance.snapshottedSpecs).expiryBoot)
   const state: Resume = { version: 1, ownerId: instance.userId, hostIdentity: transferHostIdentity(host), incusId: instance.incusId,
     uuid: typeof identity.uuid === 'string' ? identity.uuid : null,
     createdAt: typeof identity.createdAt === 'string' ? identity.createdAt : null,
-    paidUntil: paidUntil.toISOString(), billId, attempts: 0, terminal: false }
+    paidUntil: paidUntil.toISOString(), billId, attempts: 0, terminal: false,
+    ...(boot.hostId===host.id&&boot.incusId===instance.incusId&&boot.uuid===identity.uuid?{expiryAutostart:typeof boot.autostart==='string'?boot.autostart:null}:{}) }
   await tx.instanceTask.create({ data: { instanceId: instance.id, hostId: host.id, userId: instance.userId,
     taskType: 'start', status: 'PENDING', operationEntry: RENEWAL_RESUME_ENTRY, operationOwnerId: instance.userId,
     operationIdentity: state.hostIdentity, replacementState: asJson(state), progress: '续费已到账，等待自动开机' } })
@@ -52,8 +55,9 @@ async function readOriginalGuest(client: IncusClient, expected: Resume) {
   if (!expected.uuid || !/^[a-f0-9-]{36}$/i.test(expected.uuid) || !expected.createdAt || !Number.isFinite(Date.parse(expected.createdAt))) throw new ResumeBlocked('原客机UUID或创建时间缺失，自动开机未执行，请核验实例身份')
   const remote = await readCustomerIsolation(client, expected.incusId) as unknown as IncusInstance & { created_at?: string; project?: string; ephemeral?: boolean }
   if (remote.name !== expected.incusId || (remote.project || 'default') !== 'default' ||
-    remote.config?.['volatile.uuid'] !== expected.uuid || remote.created_at !== expected.createdAt || remote.ephemeral !== false) throw new ResumeBlocked('原客机身份或持久属性不匹配，自动开机未执行')
-  const hash = restoreConfigurationHash(remote)
+    remote.config?.['volatile.uuid'] !== expected.uuid || !sameGuestCreationTime(remote.created_at,expected.createdAt) || remote.ephemeral !== false) throw new ResumeBlocked('原客机身份或持久属性不匹配，自动开机未执行')
+  if(expected.expiryAutostart!==undefined && ![null,'false',expected.expiryAutostart].includes(remote.config?.['boot.autostart']||null))throw new ResumeBlocked('原客机自动启动策略已被后续操作改变')
+  const hash = restoreConfigurationHash(remote,expected.expiryAutostart!==undefined)
   if (expected.configurationHash && hash !== expected.configurationHash) throw new ResumeBlocked('原客机配置已变化，自动开机已停止')
   return { remote, hash }
 }
@@ -81,7 +85,7 @@ export async function retryRenewalResumes(): Promise<void> {
   if (recoveryHeld()) return
   const tasks = await prisma.instanceTask.findMany({ where: { operationEntry: RENEWAL_RESUME_ENTRY, taskType: 'start', status: 'FAILED',
     OR: [{ error: null }, { error: { not: '用户取消' } }],
-    AND: [{ replacementState: { path: ['terminal'], equals: false } }, { replacementState: { path: ['attempts'], lte: MAX_ATTEMPTS } },
+    AND: [{ replacementState: { path: ['terminal'], equals: false } },
       { OR: [{ replacementState: { path: ['nextAttemptAt'], equals: Prisma.AnyNull } },
         { replacementState: { path: ['nextAttemptAt'], lte: new Date().toISOString() } }] }] }, orderBy: [{ finishedAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }], take: 100 })
   for (const task of tasks) {
@@ -108,19 +112,27 @@ export async function executeRenewalResume(taskId: number, attempt: { startedAt:
     if (task.operationEntry !== RENEWAL_RESUME_ENTRY || task.taskType !== 'start' || task.status !== 'PROCESSING' ||
       task.startedAt?.getTime() !== attempt.startedAt?.getTime() || task.retryCount !== attempt.retryCount) return
     let state: Resume | undefined
-    let confirmationOnly = false
     let startIssued = false
     const scope = recoveryScope(55000)
     const attemptWhere = { id: task.id, status: 'PROCESSING' as const, startedAt: task.startedAt, retryCount: task.retryCount }
     try {
       state = readResume(task.replacementState)
-      if (state.terminal || state.attempts > MAX_ATTEMPTS || (state.attempts === MAX_ATTEMPTS && state.confirmationAttempted)) throw new ResumeBlocked('自动开机重试预算已耗尽，请检查实例任务；不会再次扣款')
-      confirmationOnly = state.attempts === MAX_ATTEMPTS
+      if (state.terminal) throw new ResumeBlocked('自动开机意图已被后续操作终止；续费账单保留')
       // Persist attempt before remote I/O; a lost process cannot reset its budget.
-      // One final read-only attempt can confirm a lost sixth start receipt.
-      state = { ...state, attempts: state.attempts + (confirmationOnly ? 0 : 1), confirmationAttempted: confirmationOnly, terminal: false }
+      // Recoverable transport failures keep retrying with capped backoff.
+      state = { ...state, attempts: Math.min(2147483647,state.attempts + 1), confirmationAttempted: false, terminal: false }
       if (!(await prisma.instanceTask.updateMany({ where: attemptWhere, data: { replacementState: asJson(state), progress: '核验已续费实例与原身份' } })).count) return
       const expected = state
+      if(!expected.uuid || !expected.createdAt){
+        const current=await prisma.instance.findUniqueOrThrow({where:{id:task.instanceId}})
+        const host=await prisma.host.findUniqueOrThrow({where:{id:task.hostId}})
+        if(current.hostId!==host.id||current.userId!==expected.ownerId||current.incusId!==expected.incusId||transferHostIdentity(host)!==expected.hostIdentity)throw new ResumeBlocked('原实例绑定已变化')
+        const client=scope.client(await scope.run(()=>getIncusClient(host,prisma,Math.min(8000,scope.remaining()))))
+        const identity=await reconcileRegisteredGuestIdentity(prisma,client,current,host)
+        if(!identity.uuid||!identity.createdAt)throw new ResumeDeferred('原实例登记待自动补齐，续费账单保留')
+        expected.uuid=identity.uuid;expected.createdAt=identity.createdAt
+        await prisma.instanceTask.updateMany({where:attemptWhere,data:{replacementState:asJson(expected)}})
+      }
       // First persist a read-only baseline without retaining a transaction
       // connection. The write transaction below rechecks every binding and the
       // baseline, and never borrows a second connection while holding row locks.
@@ -165,7 +177,8 @@ export async function executeRenewalResume(taskId: number, attempt: { startedAt:
         }
         await valid()
         if (!current || !host) return
-        const client = scope.client(await scope.run(() => getIncusClient(host, tx, Math.min(8000, scope.remaining())))) as Awaited<ReturnType<typeof getIncusClient>>
+        const transport=await scope.run(() => getIncusClient(host, tx, Math.min(8000, scope.remaining())))
+        const client = scope.client(transport) as Awaited<ReturnType<typeof getIncusClient>>
         const path = `/1.0/instances/${encodeURIComponent(expected.incusId)}`
         const read = () => readOriginalGuest(client, expected)
         const before = await read()
@@ -175,9 +188,14 @@ export async function executeRenewalResume(taskId: number, attempt: { startedAt:
         const fresh = await read()
         if (!['Stopped', 'Running'].includes(fresh.remote.status)) throw new ResumeDeferred('客机状态尚未稳定，等待下次开机核验')
         if (fresh.remote.status === 'Stopped') {
-          if (confirmationOnly) throw new ResumeBlocked('自动开机六次尝试后仍未运行，已停止下发；续费账单保留，请检查宿主与实例任务')
           if (recoveryHeld()) throw new ResumeDeferred('平台处于恢复保护，暂缓开机')
           startIssued = true
+          await transport.restorePaidBootPolicy(expected.incusId)
+          // This exact locked guest's saved boot policy is our own change.
+          // Bind the restored configuration before start, preserving all other
+          // protected fields and the previous receipt across a lost response.
+          expected.configurationHash=restoreConfigurationHash(await readCustomerIsolation(client,expected.incusId),expected.expiryAutostart!==undefined)
+          await tx.instanceTask.updateMany({where:attemptWhere,data:{replacementState:asJson(expected)}})
           await client.request('PUT', `${path}/state`, { action: 'start', timeout: 30 })
         }
         const after = await read()
@@ -197,10 +215,10 @@ export async function executeRenewalResume(taskId: number, attempt: { startedAt:
       const lockBusy = sqlState === '55P03'
       const deferred = error instanceof ResumeDeferred || lockBusy
       const unsafe = ['CUSTOMER_ISOLATION_UNSAFE', 'CUSTOMER_PRIVILEGE_FORBIDDEN'].includes(String((error as { code?: string })?.code))
-      const terminal = error instanceof ResumeBlocked || unsafe || (!deferred && confirmationOnly)
+      const terminal = error instanceof ResumeBlocked || unsafe
       const message = lockBusy ? '实例或账户正在处理，等待下次开机检查' : error instanceof ResumeBlocked || error instanceof ResumeDeferred ? error.message : unsafe ? '客机隔离检查未通过，自动开机已停止；请检查实例安全配置' :
-        terminal ? '自动开机重试预算已耗尽，续费账单保留；请检查宿主连接与实例任务' : '开机连接或执行未确认；保留续费账单，稍后核验重试'
-      if (state) state = { ...state, attempts: deferred && !confirmationOnly && !startIssued ? Math.max(0, state.attempts - 1) : state.attempts, terminal,
+        terminal ? '自动开机意图已失效，续费账单保留；请查看实例任务' : '开机连接或执行未确认；保留续费账单，稍后核验重试'
+      if (state) state = { ...state, attempts: deferred && !startIssued ? Math.max(0, state.attempts - 1) : state.attempts, terminal,
         confirmationAttempted: deferred ? false : state.confirmationAttempted,
         nextAttemptAt: new Date(Date.now() + Math.min(3600000, 300000 * 2 ** Math.max(0, state.attempts - 1))).toISOString() }
       await prisma.instanceTask.updateMany({ where: attemptWhere, data: { status: 'FAILED', finishedAt: new Date(),

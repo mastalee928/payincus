@@ -1,3 +1,4 @@
+import { assertInstanceMayBoot } from '../lib/instance-expiry.js'
 import { assertNoPendingSnapshotOperations, } from './snapshot-operation-guards.js'
 /**
  * 实例操作任务数据库操作
@@ -103,6 +104,7 @@ export class InstanceTaskAuthorizationError extends Error {
 async function authorizeCopyMove(tx: Prisma.TransactionClient, data: CreateInstanceTaskData) {
   const actor = data.sensitiveAuthorization?.actor
   const instance = await tx.instance.findUniqueOrThrow({ where: { id: data.instanceId } })
+  assertInstanceMayBoot(instance)
   const host = await tx.host.findUniqueOrThrow({ where: { id: instance.hostId } })
   if (recoveryHeld() || !actor || actor.id !== data.userId || !await authorizeUserWrite(tx, actor.id, actor)) {
     throw new InstanceTaskAuthorizationError('AUTHENTICATION_STATE_CHANGED', '原登录授权已失效，请重新提交')
@@ -167,6 +169,7 @@ async function authorizeSensitiveTaskAdmission(tx: Prisma.TransactionClient, dat
   const instance = await tx.instance.findUnique({ where: { id: data.instanceId } })
   if (!instance || instance.userId !== authorization.expectedOwnerId || instance.hostId !== data.hostId ||
     instance.incusId !== authorization.expectedIncusId) throw new InstanceTaskAuthorizationError('INSTANCE_STATE_CHANGED', '实例归属或位置已变化，请刷新后重试', 409)
+  assertInstanceMayBoot(instance)
   await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${instance.hostId} FOR SHARE`
   const host = await tx.host.findUniqueOrThrow({ where: { id: instance.hostId } })
   if (transferHostIdentity(host) !== authorization.expectedHostIdentity) {
@@ -227,6 +230,7 @@ export async function validateDestructiveTaskExecution(task: InstanceTask, optio
       throw new InstanceTaskAuthorizationError('INSTANCE_TASK_AUTHORIZATION_MISSING', '原任务缺少身份验证记录，请重新提交')
     }
     const instance = await tx.instance.findUnique({ where: { id: task.instanceId } })
+    if(instance)assertInstanceMayBoot(instance)
     if (!instance || instance.hostId !== currentTask.hostId || instance.userId !== currentTask.operationOwnerId ||
       instance.status === 'deleted' || instance.status === 'suspended' || instance.provisioningCleanupPending || instance.deletionBillingPending ||
       currentTask.taskType === 'rebuild' && instance.status !== 'stopped' &&
@@ -345,6 +349,7 @@ export async function createInstanceTask(data: CreateInstanceTaskData): Promise<
       throw new InstanceTaskConflictError()
     }
     await tx.$queryRaw`SELECT id FROM instances WHERE id = ${data.instanceId} FOR UPDATE`
+    if(data.taskType!=='stop')assertInstanceMayBoot(await tx.instance.findUniqueOrThrow({where:{id:data.instanceId}}))
     await assertNoPendingSnapshotOperations(tx, data.instanceId)
     await assertNoPendingProxySiteOperations(tx, data.instanceId)
 

@@ -25,8 +25,8 @@ const suspendFunction = sectionBetween(
 )
 
 assert.ok(suspendFunction.includes('prisma.instance.updateMany'), 'expiry suspend must use conditional updateMany')
-assert.ok(suspendFunction.includes('packagePlanId: { not: null }'), 'expiry suspend must only process paid instances')
-assert.ok(suspendFunction.includes('expiresAt:') && suspendFunction.includes('lt: new Date()'), 'expiry suspend must recheck expiresAt at update time')
+assert.ok(!suspendFunction.includes('packagePlanId: { not: null }'), 'a finite term survives a missing plan')
+assert.ok(suspendFunction.includes('expiresAt:') && suspendFunction.includes('lte: new Date()'), 'expiry suspend must recheck expiresAt at update time')
 assert.ok(suspendFunction.includes("status: { notIn: ['suspended', 'deleted'] }"), 'expiry suspend must not overwrite suspended or deleted instances')
 assert.ok(suspendFunction.includes('version: { increment: 1 }'), 'expiry suspend must increment instance version')
 assert.ok(suspendFunction.includes('if (result.count === 0) return null'), 'expiry suspend must report stale ineligible rows')
@@ -39,8 +39,8 @@ const autoRenewAttemptFunction = sectionBetween(
 
 assert.ok(autoRenewAttemptFunction.includes('prisma.instance.updateMany'), 'auto-renew attempt updates must be conditional')
 assert.ok(autoRenewAttemptFunction.includes('...autoRenewEligibility(new Date(), guard.expiryThreshold)'), 'failed notifications must recheck current renewal eligibility')
-assert.ok(autoRenewSource.includes('autoRenew: true, packagePlanId: { not: null }') && autoRenewSource.includes('expiresAt: { not: null, lte: expiryThreshold }'), 'catchup must include expired paid instances without charging beyond the renewal window')
-assert.ok(autoRenewSource.includes("suspendReason: 'expired', suspendedBy: null, suspendedAt: { gt: expiryRetentionCutoff(now) }") && autoRenewSource.includes("status: { in: ['running', 'stopped'] }"), 'only eligible live instances and system expiry suspensions within retention may be renewed')
+assert.ok(autoRenewSource.includes('autoRenew: true, packagePlanId: { not: null }') && autoRenewSource.includes('expiresAt: { not: null, lte: expiryThreshold, gt: expiryRetentionCutoff(now) }'), 'catchup must include expired paid instances without charging beyond the renewal window')
+assert.ok(autoRenewSource.includes("suspendReason: 'expired', suspendedBy: null") && autoRenewSource.includes("status: { in: ['running', 'stopped'] }"), 'only eligible live instances and system expiry suspensions within retention may be renewed')
 assert.ok(autoRenewAttemptFunction.includes('lastAutoRenewAttemptAt: { lte:') && autoRenewSource.includes('60 * 60 * 1000'), 'hourly failure notifications must not block funded five-minute scans')
 assert.ok(autoRenewAttemptFunction.includes('version: guard.version'), 'auto-renew attempt updates must use the locked instance version')
 assert.ok(autoRenewAttemptFunction.includes('autoRenewAttempts: guard.currentAttempts'), 'auto-renew attempt updates must claim the expected attempt counter')
@@ -70,7 +70,7 @@ const processSuspend = sectionBetween(
   '// ==================== 到期删除任务 ===================='
 )
 
-assert.ok(processSuspend.includes('const suspendedInstance = await suspendInstanceByExpiry'), 'scheduler must use the conditional suspend result')
+assert.ok(processSuspend.includes('suspendedInstance=await suspendInstanceByExpiry'), 'scheduler must use the conditional suspend result')
 assert.ok(processSuspend.includes('if (!suspendedInstance)'), 'scheduler must skip stale expiry suspend rows')
 assert.ok(processSuspend.includes('return'), 'scheduler stale suspend branch must stop side effects')
 
@@ -88,7 +88,7 @@ assert.ok(latestReadIndex < performRenewalIndex, 'auto-renew eligibility must be
 assert.ok(processAutoRenew.includes('!isAutoRenewEligible(latestInstance, now, expiryThreshold)') && processAutoRenew.includes('recoveryHeld()'), 'catchup must recheck current identity eligibility and recovery protection')
 assert.ok(billingSource.includes('AND: [autoRenewEligibility(new Date(), automatic.expiryThreshold)') && billingSource.includes('expiresAt: instance.expiresAt') && billingSource.includes('expiryRetentionEnded(current, new Date())') && !billingSource.includes('autoRenewAttempts: { lt: 3 }'), 'charge transaction must recheck exact expiry, retention deadline, manual suspension and opt-in without revoking low-balance consent')
 const enforcement = sectionBetween(schedulerSource, 'export async function executeExpiryEnforcement()', 'function noteExpiryFailure')
-assert.ok(enforcement.indexOf('await executeAutoRenew()') < enforcement.indexOf('await executeExpirySuspend()'), 'missed auto renewal must settle before expiry stop/delete')
+assert.ok(enforcement.indexOf('executeAutoRenew().catch') < enforcement.indexOf('await executeExpirySuspend()'), 'missed auto renewal must settle before expiry stop/delete')
 assert.ok(schedulerSource.includes('if (autoRenewPromise) return autoRenewPromise'), 'overlapping hourly/five-minute jobs must share one complete renewal run')
 assert.ok(processAutoRenew.includes('instance = latestInstance'), 'auto-renew must use the reloaded instance for attempts, pricing, and optimistic version')
 assert.ok(processAutoRenew.includes('const attemptGuard = buildAutoRenewAttemptGuard(instance, now, expiryThreshold)'), 'auto-renew must build attempt guards from the locked instance snapshot')
@@ -103,7 +103,7 @@ const processDelete = sectionBetween(
 )
 
 const claimIndex = processDelete.indexOf('await tx.instance.updateMany')
-const incusDeleteIndex = processDelete.indexOf('await deleteIncusInstance')
+const incusDeleteIndex = processDelete.indexOf("await guardedClient.request('DELETE', path)")
 const networkReleaseIndex = processDelete.indexOf('await tx.portMapping.deleteMany')
 const pendingIndex = processDelete.indexOf('deletionBillingPending: true')
 
@@ -115,7 +115,7 @@ assert.ok(claimIndex < incusDeleteIndex, 'expiry delete must claim before Incus 
 assert.ok(claimIndex < networkReleaseIndex, 'expiry delete must claim before releasing network allocations')
 assert.ok(incusDeleteIndex < networkReleaseIndex, 'expiry delete must delete Incus before releasing network allocations')
 assert.ok(processDelete.includes('version: instance.version'), 'expiry delete claim must use optimistic version')
-assert.ok(processDelete.includes("status: 'suspended'"), 'expiry delete claim must require suspended status')
+assert.ok(processDelete.includes('expiryDeleteDue'), 'expiry delete uses the current finite term cutoff')
 assert.ok(processDelete.includes("suspendReason: 'expired'"), 'expiry delete claim must require expired suspension')
 assert.ok(processDelete.includes("status: 'deleted'"), 'expiry delete claim must mark the row deleted')
 assert.ok(processDelete.includes('version: { increment: 1 }'), 'expiry delete claim must increment version')
@@ -125,7 +125,7 @@ assert.ok(
   processDelete.includes('if (!host)') && processDelete.includes('pending reconciliation'),
   'expiry delete must defer host failure and retain occupied allocation after uncertain deletion'
 )
-assert.ok(processDelete.includes('expiresAt: { lt: new Date() }') && processDelete.includes('const latest = await prisma.instance.findUnique'), 'expiry deletion must recheck latest paid expiry immediately before claiming')
+assert.ok(processDelete.includes('expiresAt: { lte: deleteThreshold }') && processDelete.includes('const latest = await prisma.instance.findUnique'), 'expiry deletion must recheck the current term grace deadline immediately before claiming')
 
 const processNotify = sectionBetween(
   schedulerSource,
