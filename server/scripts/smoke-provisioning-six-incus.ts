@@ -31,6 +31,14 @@ try {
     const instance = await prisma.instance.create({ data: { userId: user.id, hostId: host.id, incusId: name, name,
       image: `images:${image}`, status: 'creating', networkMode: 'nat', cpu: 100, memory: 1024, disk: 4096, portLimit: 0 } })
     await prisma.host.update({ where: { id: host.id }, data: { cpuUsed: 100, memoryUsed: 1024, diskUsed: 4096 } })
+    const diagnostics = setInterval(() => {
+      try {
+        const output = execFileSync('incus', ['exec', name, '--', 'sh', '-c',
+          'cloud-init status --long; tail -n 35 /var/log/cloud-init-output.log; ls -l /var/lib/incudal /usr/local/bin/incudal-required-init.sh; ps | head -n 16'],
+          { encoding: 'utf8', timeout: 5000, maxBuffer: 32768 })
+        console.log(output.replaceAll(password, '[redacted]').replace(/(password|passwd|secret|token)[^\n]*/gi, '[redacted line]'))
+      } catch { console.log('Native init diagnostic is not yet available') }
+    }, 30000)
     try {
     await createInstanceAsync(instance.id, (await getHostById(host.id))!, { name, image: `images:${image}`, cpu: 100, memory: 1024,
       disk: 4096, cloudInitConfig: generated.configPayload, networkMode: 'nat', ipv4Address: ip, autoRemotePort: false }, user.id,
@@ -43,7 +51,7 @@ try {
         console.log(output.replaceAll(password, '[redacted]').replace(/(password|passwd|secret|token)[^\n]*/gi, '[redacted line]'))
       } catch { console.log('Native initialization diagnostics unavailable after cleanup') }
       throw error
-    }
+    } finally { clearInterval(diagnostics) }
     assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'running')
     let verified = false
     for (let attempt = 0; attempt < 60; attempt++) {
