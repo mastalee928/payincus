@@ -42,7 +42,7 @@ def read_environment(path):
     return raw, value
 
 
-def release_catalog(app):
+def release_catalog(app, *, runtime_legacy=False):
     stage('release-directory')
     enrollment.directory(app)
     stage('catalog-file')
@@ -61,23 +61,24 @@ def release_catalog(app):
     require(version.get('version') == catalog['version'])
     for architecture in catalog['architectures']:
         stage('verify-' + architecture)
-        package.verify_package(app / 'vendor/gateway' / architecture, catalog['packageSigningKey'], architecture, catalog['version'], catalog['sourceCommit'])
+        package.verify_package(app / 'vendor/gateway' / architecture, catalog['packageSigningKey'], architecture, catalog['version'], catalog['sourceCommit'],
+                               enrolled_legacy=runtime_legacy)
     return catalog
 
 
-def persist_component(app, catalog, architecture, component_root):
+def persist_component(app, catalog, architecture, component_root, *, runtime_legacy=False):
     source = app / 'vendor/gateway' / architecture
     manifest = package.protected_read(source / 'manifest.json', 49152, 0o644)
     digest = hashlib.sha256(manifest).hexdigest()
     destination = component_root / digest
     if destination.exists() or destination.is_symlink():
-        package.verify_package(destination, catalog['packageSigningKey'], architecture, catalog['version'], catalog['sourceCommit'])
+        package.verify_package(destination, catalog['packageSigningKey'], architecture, catalog['version'], catalog['sourceCommit'], enrolled_legacy=runtime_legacy)
     else:
         temporary = component_root / ('.stage-' + uuid.uuid4().hex)
         try:
             # Package verification has already rejected links and unexpected files.
             shutil.copytree(source, temporary)
-            package.verify_package(temporary, catalog['packageSigningKey'], architecture, catalog['version'], catalog['sourceCommit'])
+            package.verify_package(temporary, catalog['packageSigningKey'], architecture, catalog['version'], catalog['sourceCommit'], enrolled_legacy=runtime_legacy)
             os.rename(temporary, destination)
             descriptor = os.open(component_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
             try:
@@ -90,15 +91,17 @@ def persist_component(app, catalog, architecture, component_root):
     return {'directory': str(destination), 'version': catalog['version'], 'sourceCommit': catalog['sourceCommit']}
 
 
-def provision_locked(action, app, env_path, controller_root, component_root):
+def provision_locked(action, app, env_path, controller_root, component_root, *, runtime_legacy=False):
     require(action in ['initialize', 'refresh'])
     app = Path(app)
-    catalog = release_catalog(app)
+    require(not runtime_legacy or action == 'refresh')
+    catalog = release_catalog(app, runtime_legacy=runtime_legacy)
     stage('environment')
     raw, platform = read_environment(env_path)
     if action == 'refresh':
         stage('existing-identity')
         saved = enrollment.verify_enrollment(controller_root)
+        stage('existing-platform-and-trust')
         require(platform == saved['platformId'] and catalog['packageSigningKey'] == saved['packageSigningKey'])
     else:
         stage('fresh-identity')
@@ -106,10 +109,10 @@ def provision_locked(action, app, env_path, controller_root, component_root):
         require(not controller_root.exists() or set(item.name for item in controller_root.iterdir()) <= {'enrollment.lock'})
         platform = platform or str(uuid.uuid4())
     stage('persist-components')
-    components = {architecture: persist_component(app, catalog, architecture, component_root) for architecture in catalog['architectures']}
+    components = {architecture: persist_component(app, catalog, architecture, component_root, runtime_legacy=runtime_legacy) for architecture in catalog['architectures']}
     value = {'platformId': platform, 'packageSigningKey': catalog['packageSigningKey'], 'components': components}
     stage('enroll-identity')
-    result = enrollment.enroll(action, value, controller_root)
+    result = enrollment.enroll(action, value, controller_root, runtime_legacy=runtime_legacy)
     if action == 'initialize':
         stage('publish-environment')
         # Preserve the exact runtime file except the platform identity setting.
@@ -142,7 +145,7 @@ def provision_locked(action, app, env_path, controller_root, component_root):
     return result
 
 
-def provision(action, app, env_path=INSTALL / '.env', controller_root=enrollment.ROOT, component_root=COMPONENT_ROOT):
+def provision(action, app, env_path=INSTALL / '.env', controller_root=enrollment.ROOT, component_root=COMPONENT_ROOT, *, runtime_legacy=False):
     stage('component-directory')
     component_root = Path(component_root)
     env_path = Path(env_path)
@@ -158,17 +161,21 @@ def provision(action, app, env_path=INSTALL / '.env', controller_root=enrollment
         require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1 and stat.S_IMODE(info.st_mode) == 0o600)
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         stage('release-catalog')
-        return provision_locked(action, app, env_path, controller_root, component_root)
+        return provision_locked(action, app, env_path, controller_root, component_root, runtime_legacy=runtime_legacy)
     finally:
         os.close(descriptor)
 
 
 def main():
     try:
-        require(os.geteuid() == 0 and len(sys.argv) == 3 and sys.argv[1] in ['--initialize', '--refresh'])
+        require(os.geteuid() == 0 and len(sys.argv) == 3 and sys.argv[1] in ['--initialize', '--refresh', '--sync-runtime'])
         app = Path(sys.argv[2])
         require(app == INSTALL or (app.is_absolute() and app.parent == INSTALL / 'releases'))
-        print(json.dumps(provision(sys.argv[1][2:], app), separators=(',', ':')))
+        sync_runtime = sys.argv[1] == '--sync-runtime'
+        if sync_runtime:
+            current = INSTALL / 'current'
+            require(app == (current.resolve() if current.is_symlink() else INSTALL))
+        print(json.dumps(provision('refresh' if sync_runtime else sys.argv[1][2:], app, runtime_legacy=sync_runtime), separators=(',', ':')))
         return 0
     except (ValueError, OSError, KeyError, TypeError, RecursionError, subprocess.SubprocessError):
         print(json.dumps({'code': 'GATEWAY_CONTROLLER_PROVISIONING_REJECTED', 'stage': PROVISION_STAGE, 'canWrite': False}, separators=(',', ':')))

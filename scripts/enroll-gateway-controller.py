@@ -56,7 +56,7 @@ def exact(value, keys):
     return value
 
 
-def validate_input(value):
+def validate_input(value, *, enrolled_legacy=False):
     exact(value, ['platformId', 'packageSigningKey', 'components'])
     require(isinstance(value['platformId'], str) and UUID.fullmatch(value['platformId']))
     public = value['packageSigningKey']
@@ -69,7 +69,8 @@ def validate_input(value):
         exact(component, ['directory', 'version', 'sourceCommit'])
         require(isinstance(component['directory'], str) and re.fullmatch(r'/[A-Za-z0-9_./-]+', component['directory']))
         directory(component['directory'])
-        package.verify_package(component['directory'], public, architecture, component['version'], component['sourceCommit'])
+        package.verify_package(component['directory'], public, architecture, component['version'], component['sourceCommit'],
+                               enrolled_legacy=enrolled_legacy)
     return value
 
 
@@ -113,11 +114,13 @@ def verify_enrollment(root):
     require(identity['schemaVersion'] == 1 and all(saved[field] == identity[field] for field in ['platformId', 'signingKeyId', 'packageSigningKey']))
     public = public_key(root / 'signing.pem')
     require(saved['signingKeyId'] == key_id(public) and public != saved['packageSigningKey'])
-    validate_input({field: saved[field] for field in ['platformId', 'packageSigningKey', 'components']})
+    # Validate the old signed layout using the registered version/commit and
+    # original trust. New components still pass strict validate_input below.
+    validate_input({field: saved[field] for field in ['platformId', 'packageSigningKey', 'components']}, enrolled_legacy=True)
     return saved
 
 
-def enroll(action, value=None, root=ROOT):
+def enroll(action, value=None, root=ROOT, *, runtime_legacy=False):
     require(action in ['initialize', 'refresh', 'verify'])
     root = Path(root)
     directory(root.parent)
@@ -135,7 +138,7 @@ def enroll(action, value=None, root=ROOT):
             saved = verify_enrollment(root)
         elif action == 'refresh':
             saved = verify_enrollment(root)
-            value = validate_input(value)
+            value = validate_input(value, enrolled_legacy=runtime_legacy)
             require(saved['platformId'] == value['platformId'] and saved['packageSigningKey'] == value['packageSigningKey'])
             saved['components'] = value['components']
             write_atomic(root / 'enrollment.json', encode(saved))

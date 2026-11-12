@@ -1160,6 +1160,7 @@ jobs:
           protected_root=$(sudo mktemp -d /root/incudal-component-ci-XXXXXX)
           sudo cp -R --preserve=mode --no-preserve=ownership "$test_root/package" "$protected_root/package"
           sudo install -m 600 "$test_root/pinned.pub" "$protected_root/pinned.pub"
+          sudo python3 -B scripts/test-gateway-component-package.py
           sudo python3 -B scripts/test-gateway-controller-enrollment.py
           sudo python3 -B scripts/test-gateway-controller-provisioning.py
           sudo python3 scripts/verify-gateway-component-package.py "$protected_root/package" "$protected_root/pinned.pub" "$PACKAGE_ARCH" "$(node -p 'require("./server/package.json").version')" "$(git rev-parse HEAD)"
