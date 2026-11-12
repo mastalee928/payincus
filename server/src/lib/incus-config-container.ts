@@ -335,6 +335,9 @@ function generateSetupScript(
 set -e
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
+mkdir -p /var/lib/incudal
+SETUP_STAGE=password
+trap 'code=$?; [ "$code" = 0 ] || printf "%s:%s\\n" "$SETUP_STAGE" "$code" > /var/lib/incudal/ssh-setup-failed' EXIT
 
 SSH_KEY="${escapedKey}"
 ROOT_PASSWORD='${escapedPassword}'
@@ -353,6 +356,7 @@ fi
 passwd -u root >/dev/null 2>&1 || usermod -U root >/dev/null 2>&1 || true
 
 printf '%s\n' 'INCUDAL_SETUP_HOME'
+SETUP_STAGE=home
 mkdir -p /root/.ssh
 chmod 700 /root/.ssh
 if [ -n "$SSH_KEY" ]; then
@@ -380,6 +384,7 @@ for u in $USERS; do
 done
 
 printf '%s\n' 'INCUDAL_SETUP_SSH_POLICY'
+SETUP_STAGE=ssh-policy
 SED_BIN="sed"
 SSH_CONFIG="/etc/ssh/sshd_config"
 
@@ -392,6 +397,7 @@ mv "$POLICY" "$SSH_CONFIG"
 SSHD="$(command -v sshd)"
 [ -n "$SSHD" ]
 printf '%s\n' 'INCUDAL_SETUP_SSH_TEST'
+SETUP_STAGE=ssh-test
 "$SSHD" -t
 "$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -E '^(passwordauthentication|permitrootlogin) '
 "$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -q '^passwordauthentication yes$'
