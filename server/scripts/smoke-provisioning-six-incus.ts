@@ -25,6 +25,7 @@ const host = await prisma.host.create({ data: { userId: user.id, name: 'native-i
 try {
   const transport = await getIncusClient((await getHostById(host.id))!)
   for (const [index, image] of ['alpine/3.24/cloud', 'debian/14/cloud', 'ubuntu/24.04/cloud', 'rockylinux/9/cloud', 'almalinux/9/cloud', 'centos/9-Stream/cloud'].entries()) {
+    if (process.env.INCUDAL_NATIVE_IMAGE && image !== process.env.INCUDAL_NATIVE_IMAGE) continue
     const name = `native-delivery-${index}`, password = randomUUID() + '-Aa1!', ip = `10.198.0.${100 + index}`
     const generated = generateIncusConfig({ instanceName: name, imageAlias: `images:${image}`, rootPassword: password,
       type: 'container', networkMode: 'nat', network: { ipAddress: `${ip}/24`, gateway: '10.198.0.1', dns: ['10.198.0.1'] } })
@@ -54,7 +55,8 @@ try {
     } finally { clearInterval(diagnostics) }
     assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'running')
     let verified = false
-    for (let attempt = 0; attempt < 60; attempt++) {
+    const sshDeadline = Date.now() + 180000
+    for (let attempt = 0; Date.now() < sshDeadline; attempt++) {
       try {
         const inspection = await execWithOutput(transport, name, ['sh', '-c',
           'test -f /var/lib/incudal/initialization-ready && for key in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf "$key" -E sha256; done'], {}, 10000)
@@ -64,7 +66,10 @@ try {
         await checkSshLogin(ip, password, pins)
         verified = true
         break
-      } catch { await new Promise(resolve => setTimeout(resolve, 3000)) }
+      } catch (error) {
+        if (attempt % 5 === 0) console.log(`Native ${image} SSH verification attempt ${attempt}: ${error instanceof Error ? error.message.replaceAll(password, '[redacted]') : 'unverified'}`)
+        await new Promise(resolve => setTimeout(resolve, 3000))
+      }
     }
     assert.equal(verified, true, `${image}: generated initialization and real password SSH`)
     await prisma.instance.update({ where: { id: instance.id }, data: { status: 'error' } })

@@ -115,7 +115,7 @@ const osPasswordMatrix = [
   ['alpine/3.21/cloud', 'sshd', 'apk'], ['alpine/3.23/cloud', 'sshd', 'apk'],
   ['alpine/3.24/cloud', 'sshd', 'apk'], ['alpine/3.24/tinycloud', 'sshd', 'apk'],
   ['debian/10/cloud', 'ssh', 'apt-get'], ['debian/11/cloud', 'ssh', 'apt-get'],
-  ['debian/12/cloud', 'ssh', 'apt-get'], ['debian/13/cloud', 'ssh', 'apt-get'],
+  ['debian/12/cloud', 'ssh', 'apt-get'], ['debian/13/cloud', 'ssh', 'apt-get'], ['debian/14/cloud', 'ssh', 'apt-get'],
   ['ubuntu/20.04/cloud', 'ssh', 'apt-get'], ['ubuntu/22.04/cloud', 'ssh', 'apt-get'], ['ubuntu/24.04/cloud', 'ssh', 'apt-get'],
   ['rockylinux/8/cloud', 'sshd', 'yum'], ['rockylinux/9/cloud', 'sshd', 'dnf'],
   ['almalinux/8/cloud', 'sshd', 'yum'], ['almalinux/9/cloud', 'sshd', 'dnf'],

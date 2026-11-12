@@ -23,3 +23,5 @@ P15原库存guest保护是误判，保留正确门禁。P14旧QEMU CPU不能证�
 原生深化追加：Debian schema实际拒create_home已移除；持久阶段回执确认必要安装到stage10（SSH设置）退出，补固定system PATH；Incus6 /wait?timeout=10 返回context deadline exceeded不代表整个创建失败，精确同operation/path错误才重新GET原任务、总时限保持，新增回归通过。最新候选2ad8d7cc双架构Agent／Alpine维护通过，六系统仍在实跑。晚期新增修复后只相关守卫／types／build过，最终全部发行检查仍须按最新source重新核。
 
 03:00后继续实跑：固定PATH并未解除Debian stage10失败，缺包猜测被原镜像文件检查否定；最新87f402b9持久ssh-setup-failed分阶段与退出码，等待双架构真实回执；本次不把观察猜测登记为根因或假成功。Incus wait修复相关core/IPv6/backup守卫与types通过；无生产写入，正式发行仍未完成。
+
+实机修正最终根因：OpenSSH10.6 -T输出改首字母大写，大小写归一后Debian14双架构创建／marker／真实原密码SSH／磁盘清理通过；Ubuntu24.04下一步sshd -t因/run/sshd尚未由服务创建报Missing privilege separation directory，补首启mkdir/chmod与ssh-keygen -A（保已有键）后继续六系统。不能把之前PATH或管道推断当唯一根因；均保实机证据，当前未发行。

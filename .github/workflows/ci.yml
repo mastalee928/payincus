@@ -8,13 +8,14 @@ on:
 
 jobs:
   native-provisioning:
-    name: Six guest provisioning (${{ matrix.runner }})
+    name: Guest provisioning (${{ matrix.runner }}, ${{ matrix.image }})
     strategy:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        image: ['alpine/3.24/cloud', 'debian/14/cloud', 'ubuntu/24.04/cloud', 'rockylinux/9/cloud', 'almalinux/9/cloud', 'centos/9-Stream/cloud']
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -28,6 +29,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://native_provision:native_provision@127.0.0.1:55459/native_provision_pool_test
       JWT_SECRET: native-provision-isolated-ci-only
+      INCUDAL_NATIVE_IMAGE: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5
@@ -40,7 +42,7 @@ jobs:
           pnpm --filter server exec prisma generate
           pnpm --filter server exec prisma migrate deploy
       - name: Real AppArmor image unpack, generated initialization, password SSH and cleanup
-        run: sudo env "PATH=$PATH" "DATABASE_URL=$DATABASE_URL" "JWT_SECRET=$JWT_SECRET" GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted bash scripts/smoke-provisioning-six-incus.sh
+        run: sudo env "PATH=$PATH" "DATABASE_URL=$DATABASE_URL" "JWT_SECRET=$JWT_SECRET" "INCUDAL_NATIVE_IMAGE=$INCUDAL_NATIVE_IMAGE" GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted bash scripts/smoke-provisioning-six-incus.sh
   onboarding-ip-integration:
     name: Onboarding lifecycle and OCI IP reuse
     runs-on: ubuntu-24.04
