@@ -7,7 +7,7 @@
 - 预览43297411954 success：双构建、双首装、六条原v1.8.8包worker正常／迁移留库／后半程故障回滚再升级全部success；Release预期skipped。两实际tar无重复，修复模块hash一致，242迁移完整，root属主，四份21文件组件原pin签名、文件hash/size/source/版本/架构独立核通过。
 - Agentv1.0.8正式43295979532，source=de246805e233bca57031d947d6be4ae018d2cef5，五job成功；候选与Agent源码输入无变化。实际下载AMD64 5484696字节SHA256 8351147066886d1efa1c251182bfcd064342920d0cdd3679e7bde28d587f6d6f；ARM64 5177496字节SHA256 1ecd95e766c90001f8288fc921286d836dbac6aa958082cc231ab68b71573863；API digest一致。
 - [面板v1.8.9](https://github.com/mastalee928/payincus/releases/tag/v1.8.9)2026-11-12T20:57:03Z正式公开且latest；[正式发行43302419882](https://github.com/mastalee928/payincus/actions/runs/43302419882)11/11全部success（双构建／双首装／六旧升级／Release）。两正式包源码73337d2c8f25，242迁移，原签名四组件文件／hash／size／root属主与修复模块核通过。
-- main重跑43302361534仍在后半程，已有原生12项、types/build/Agent及维护通过，最终整轮终态另记；正式release已通过其必需全部检查，候选CI27/27独立保留。
+- main重跑43302361534最终27/27全部success（2026-11-12T21:06Z观察终态），原生12项、types/build/Agent及维护同正式source全部通过；正式release已通过其必需全部检查，候选CI27/27独立保留。
 
 | 正式资产 | 字节 | SHA256 |
 | --- | --- | --- |

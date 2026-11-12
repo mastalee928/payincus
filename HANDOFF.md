@@ -2,7 +2,7 @@
 
 ## 2026-11-13 v1.8.9／Agentv1.0.8正式发行
 
-- PR12合入main，source73337d2c8f25969e67b1584b6cf570997264d152，与全绿候选d3aa8ca2源码树一致；面板v1.8.9已公开且latest，正式43302419882双构建／双首装／六原v1.8.8 worker升级与故障回滚再升级／Release全部11/11success。候选CI43297365382全部27/27、原生六系统×双架构12/12、Agent及维护全通过；main43302361534仍在后半程，终态另记。
+- PR12合入main，source73337d2c8f25969e67b1584b6cf570997264d152，与全绿候选d3aa8ca2源码树一致；面板v1.8.9已公开且latest，正式43302419882双构建／双首装／六原v1.8.8 worker升级与故障回滚再升级／Release全部11/11success。候选CI43297365382全部27/27、原生六系统×双架构12/12、Agent及维护全通过；main43302361534最终27/27全部success。
 - Agentv1.0.8已公开，双官方资产hash/digest/size独立核一致。面板两正式包及checksum／OTA共六资产核一致，原公钥签名和242迁移／修复模块／root属主核通过；详见[发行记录](docs/release-v1.8.9-validation.md)。源码修复／五轮及两遍完整回归见[记录](docs/instance-provisioning-five-reviews-2026-11-13.md)。没有生产OTA或现场修改，不能称目标主控已升级。
 
 ## 2026-11-13 v1.8.9开通修复候选（未发行／部署）

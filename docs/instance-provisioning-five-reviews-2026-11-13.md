@@ -31,3 +31,5 @@ P15原库存guest保护是误判，保留正确门禁。P14旧QEMU CPU不能证�
 候选de246805源码CI43295861909原生12/12全部success，Agentv1.0.8正式43295979532全5job成功，双资产已下载核API digest/size/SHA256。snapshot-mutation-authorization外会话拒绝回复在COMMIT前返回导致下一控制争锁，夹具改实际pg_locks观测释放，不放宽产品并发守卫；最终必须新source全CI通过。
 
 最终候选d3aa8ca2完整CI27/27、十二原生、Agent／维护及双预览首装／六旧升级全过；PR12合入main73337d2c，正式v1.8.9发行43302419882全11job通过并资产核验。见release-v1.8.9-validation.md；此前未发行／待验为历史步骤，生产仍未升级。
+
+最终正式source73337d2c的main CI43302361534全27/27success；面板发行43302419882全11/11success、公开六资产及Agent双资产独立核验完成。v1.8.9/Agentv1.0.8已发行，未代生产OTA。
