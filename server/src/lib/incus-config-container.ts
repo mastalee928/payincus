@@ -509,7 +509,6 @@ export function generateContainerConfig(params: IncusConfigParams): IncusConfigR
       const lines = [
         `  - name: ${u}`,
         `    lock_passwd: false`,
-        `    create_home: true`,
         `    shell: ${osInfo.defaultShell}`,
         `    sudo: ALL=(ALL) NOPASSWD:ALL`
       ]
@@ -592,7 +591,7 @@ export function generateContainerConfig(params: IncusConfigParams): IncusConfigR
     '    owner: root:root',
     "    permissions: '0700'",
     '    content: |',
-    ...['#!/bin/sh', 'set -e', ...requiredInit, 'mkdir -p /var/lib/incudal', 'touch /var/lib/incudal/initialization-ready'].join('\n').split('\n').map(l => `      ${l}`),
+    ...['#!/bin/sh', 'set -e', 'mkdir -p /var/lib/incudal', `trap 'code=$?; if [ "$code" != 0 ]; then printf "%s\\n" "$code" > /var/lib/incudal/initialization-failed; fi' EXIT`, ...requiredInit.flatMap((command, index) => [`printf '%s\\n' 'INCUDAL_INIT_STAGE_${index}'`, command]), 'touch /var/lib/incudal/initialization-ready'].join('\n').split('\n').map(l => `      ${l}`),
     ...(isAlpine ? [
       '  - path: /usr/local/bin/incudal-alpine-ssh-security.sh',
       '    owner: root:root',
