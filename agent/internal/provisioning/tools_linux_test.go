@@ -21,4 +21,7 @@ func TestRepairPlanProtectsExistingPackages(t *testing.T) {
 	if safePlan("Inst apparmor [3.0] (3.0 Debian:stable)", false) != nil {
 		t.Fatal("tool repair rejected")
 	}
+	if safePlan("Inst libpopt0 (1.19 Debian:stable [arm64])", false) != nil {
+		t.Fatal("new dependency architecture was mistaken for an installed version")
+	}
 }

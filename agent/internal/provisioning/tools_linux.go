@@ -158,7 +158,7 @@ func safePlan(output string, alpine bool) error {
 		}
 	} else {
 		for _, m := range aptChange.FindAllStringSubmatch(output, -1) {
-			if strings.Contains(m[2], "[") && !allowed[strings.Split(m[1], ":")[0]] {
+			if strings.HasPrefix(strings.TrimSpace(m[2]), "[") && !allowed[strings.Split(m[1], ":")[0]] {
 				return fmt.Errorf("unrelated installed package %s change refused", m[1])
 			}
 		}
