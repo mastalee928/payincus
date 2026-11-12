@@ -21,3 +21,5 @@ P15原库存guest保护是误判，保留正确门禁。P14旧QEMU CPU不能证�
 后续真实CI审查：unsquashfs旧版正常exit1以版本输出核证，apk fix使用原包名，APT架构尾标不误判旧版本并固定已安装工具版本；五发行版双架构Agent原生43276833127成功。Alpine完整创建／密码SSH／清理在修正Docker DOCKER-USER测试桥路径后双架构成功；Debian cloud-init done但required脚本无marker，仍在追加schema／runcmd实际日志排查。此前缺CA结论收紧为初步假设，真实已写CA仍被测试桥转发阻断；生产授权未扩大。恢复pending cleanup在claim/dispatch保留排队回归通过，维护双架构CI43275184315成功。当前未达发行门槛，无正式tag／Release／生产部署。
 
 原生深化追加：Debian schema实际拒create_home已移除；持久阶段回执确认必要安装到stage10（SSH设置）退出，补固定system PATH；Incus6 /wait?timeout=10 返回context deadline exceeded不代表整个创建失败，精确同operation/path错误才重新GET原任务、总时限保持，新增回归通过。最新候选2ad8d7cc双架构Agent／Alpine维护通过，六系统仍在实跑。晚期新增修复后只相关守卫／types／build过，最终全部发行检查仍须按最新source重新核。
+
+03:00后继续实跑：固定PATH并未解除Debian stage10失败，缺包猜测被原镜像文件检查否定；最新87f402b9持久ssh-setup-failed分阶段与退出码，等待双架构真实回执；本次不把观察猜测登记为根因或假成功。Incus wait修复相关core/IPv6/backup守卫与types通过；无生产写入，正式发行仍未完成。

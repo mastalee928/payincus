@@ -399,9 +399,14 @@ SSHD="$(command -v sshd)"
 printf '%s\n' 'INCUDAL_SETUP_SSH_TEST'
 SETUP_STAGE=ssh-test
 "$SSHD" -t
-"$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -E '^(passwordauthentication|permitrootlogin) '
-"$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -q '^passwordauthentication yes$'
-"$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -q '^permitrootlogin yes$'
+# New OpenSSH may need multiple writes for -T. Do not let grep -q close the
+# pipe early and deliver SIGPIPE while the daemon is emitting its config.
+SETUP_STAGE=ssh-effective-policy
+"$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 > /var/lib/incudal/sshd-effective-config
+grep '^passwordauthentication ' /var/lib/incudal/sshd-effective-config
+grep '^permitrootlogin ' /var/lib/incudal/sshd-effective-config
+grep -q '^passwordauthentication yes$' /var/lib/incudal/sshd-effective-config
+grep -q '^permitrootlogin yes$' /var/lib/incudal/sshd-effective-config
 
 ${restartSshCmd}
 
