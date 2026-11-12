@@ -15,6 +15,7 @@ export UPGRADE_DRILL_WORK="$work"
 stage=legacy-install
 report_failure() {
   echo "Legacy upgrade failed at $stage ($scenario). Sanitized diagnostics follow."
+  journalctl -u incudal-backend --no-pager -n 60 > "$work/backend.log" 2>&1 || true
   # Raw logs stay on the disposable runner; redact generated credentials.
   python3 - <<'PY'
 import pathlib,re,os,urllib.parse
@@ -31,7 +32,7 @@ if env.exists():
                 if password:secrets.append(password)
             except ValueError:pass
 work=pathlib.Path(os.environ['UPGRADE_DRILL_WORK'])
-paths=[work/'old-install.log',work/'prior-migration.log',work/'worker.log',*pathlib.Path('/opt/incudal/update-logs').glob('system-update-*.log')]
+paths=[work/'old-install.log',work/'prior-migration.log',work/'worker.log',work/'backend.log',*pathlib.Path('/opt/incudal/update-logs').glob('system-update-*.log')]
 for p in paths:
     if not p.exists():continue
     text=p.read_text(errors='replace')
@@ -118,6 +119,9 @@ if Path('/opt/incudal/current').is_symlink():
     shutil.copy2(p, '/opt/incudal/current/.env')
 PY
 systemctl daemon-reload
+# The cloned old release must receive the real installer/OTA ownership before
+# its service account reads .env or certs. copy2 preserves modes, not groups.
+/usr/local/libexec/incudal/incudal-online-task seal
 systemctl restart incudal-backend
 curl -fsS --retry 20 --retry-delay 2 --retry-connrefused https://user.upgrade.test/api/health >/dev/null
 node "$repo/scripts/smoke-legacy-online-upgrade.mjs" before "$candidate"
