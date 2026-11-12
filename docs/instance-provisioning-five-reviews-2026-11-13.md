@@ -25,3 +25,7 @@ P15原库存guest保护是误判，保留正确门禁。P14旧QEMU CPU不能证�
 03:00后继续实跑：固定PATH并未解除Debian stage10失败，缺包猜测被原镜像文件检查否定；最新87f402b9持久ssh-setup-failed分阶段与退出码，等待双架构真实回执；本次不把观察猜测登记为根因或假成功。Incus wait修复相关core/IPv6/backup守卫与types通过；无生产写入，正式发行仍未完成。
 
 实机修正最终根因：OpenSSH10.6 -T输出改首字母大写，大小写归一后Debian14双架构创建／marker／真实原密码SSH／磁盘清理通过；Ubuntu24.04下一步sshd -t因/run/sshd尚未由服务创建报Missing privilege separation directory，补首启mkdir/chmod与ssh-keygen -A（保已有键）后继续六系统。不能把之前PATH或管道推断当唯一根因；均保实机证据，当前未发行。
+
+完整双架构原生六系统已逐项PASS（8297d04c来源CI43291004763，job131436910023/131436910026），包含原密码真实SSH与磁盘／转发删除。测试进程在全部清理后被路由import定时器留活，观察误以为仍验收中；取消后读完整日志确认六项03:35前均通过。新增独立12job和清理后显式退出修fixture终态，不冒称取消run全绿；后续新来源CI及正式发行仍待。
+
+候选de246805源码CI43295861909原生12/12全部success，Agentv1.0.8正式43295979532全5job成功，双资产已下载核API digest/size/SHA256。snapshot-mutation-authorization外会话拒绝回复在COMMIT前返回导致下一控制争锁，夹具改实际pg_locks观测释放，不放宽产品并发守卫；最终必须新source全CI通过。
