@@ -8,6 +8,16 @@ for file in "$root/deploy/incudal-online-task.sh.example" "$root/deploy/incudal-
   [[ -f "$file" && ! -L "$file" && $(stat -c %u "$file") == 0 ]] || { echo 'Untrusted helper source.' >&2; exit 1; }
 done
 install -d -o root -g root -m 0755 /usr/local/libexec/incudal
+# Keep the verifier outside releases so an old worker can reconcile component
+# enrollment after switching back to an older release. Install before replacing
+# the root launcher; only the current trusted package supplies these tools.
+controller_tools=/usr/local/libexec/incudal/gateway-controller-tools
+install -d -o root -g root -m 0755 "$controller_tools"
+for name in verify-gateway-component-package.py enroll-gateway-controller.py provision-gateway-controller.py; do
+  source="$root/scripts/$name"
+  [[ -f "$source" && ! -L "$source" && $(stat -c %u "$source") == 0 && -z $(find "$source" -perm /022 -print -quit) ]] || exit 1
+  install -o root -g root -m 0644 "$source" "$controller_tools/$name"
+done
 # Old OTA workers already invoke this installer from the newly verified
 # package. Schedule clock upkeep here so the first upgrade gains the fix.
 if ! python3 "$root/scripts/ensure-time-sync.py" --install; then

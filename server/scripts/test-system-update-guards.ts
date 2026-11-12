@@ -51,6 +51,11 @@ const systemUpdateTasksDb = read('server/src/db/system-update-tasks.ts')
 const rootPackage = read('package.json')
 const serverPackage = read('server/package.json')
 const freshInstall = read('scripts/smoke-fresh-install.sh')
+assert.ok(onlineTaskHelper.includes('--sync-runtime "$app_dir"') && onlineTaskHelper.includes('gateway-controller-tools'),
+  'old OTA workers must reconcile signed enrollment after switching the current runtime, including rollback')
+const backupInstaller = read('scripts/install-platform-backup.sh')
+assert.ok(backupInstaller.indexOf('controller_tools=') < backupInstaller.indexOf('install -o root -g root -m 0755 "$root/deploy/incudal-online-task.sh.example"'),
+  'preserved compatibility tools must be installed before the launcher starts calling them')
 for (const worker of [runTask, rollbackTask]) {
   assert.ok(worker.includes('const deadline = Date.now() + 180000'),
     'allow a bounded three-minute cold startup on small hosts while retaining health checks')

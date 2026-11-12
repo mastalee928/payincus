@@ -89,6 +89,7 @@ class ProvisioningTests(unittest.TestCase):
         identity = (self.controller / 'identity.json').read_bytes()
         env = self.env.read_bytes()
         self.assertEqual(self.provision('refresh'), result)
+
         self.assertEqual((self.controller / 'signing.pem').read_bytes(), key)
         self.assertEqual((self.controller / 'identity.json').read_bytes(), identity)
         self.assertEqual(self.env.read_bytes(), env)
@@ -131,6 +132,21 @@ class ProvisioningTests(unittest.TestCase):
         for component in enrollment['components'].values():
             self.assertEqual(component['version'], '1.8.8')
             self.assertTrue((Path(component['directory']) / 'scripts/ensure-time-sync.py').is_file())
+        self.assertEqual(self.provision('refresh'), result)
+
+        # Old workers call the preserved verifier after a code rollback. The
+        # target's old catalog is accepted only by this root runtime operation.
+        (old_app / 'server/package.json').write_text('{"version":"1.8.6"}')
+        old_catalog = {**self.catalog, 'version': '1.8.6'}
+        (old_app / 'vendor/gateway/catalog.json').write_text(json.dumps(old_catalog))
+        with self.assertRaises(ValueError):
+            provisioner.provision('refresh', old_app, self.env, self.controller, self.components)
+        provisioner.provision('refresh', old_app, self.env, self.controller, self.components, runtime_legacy=True)
+        saved = provisioner.enrollment.verify_enrollment(self.controller)
+        self.assertTrue(all(component['version'] == '1.8.6' for component in saved['components'].values()))
+        self.assertEqual((self.controller / 'signing.pem').read_bytes(), key)
+        self.assertEqual((self.controller / 'identity.json').read_bytes(), identity)
+        self.assertEqual(self.env.read_bytes(), environment)
         self.assertEqual(self.provision('refresh'), result)
 
     def test_initialize_refuses_existing_and_partial_identity(self):

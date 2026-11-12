@@ -127,6 +127,19 @@ apply_secure_ownership() {
     "${HELPER_DIR}/incudal-online-task" \
     "${HELPER_DIR}/systemctl" \
     "${HELPER_DIR}/ota-path/chown"
+
+  # A legacy worker calls harden after switching current, including rollback.
+  # Use the preserved new verifier to reconcile the signed current catalog
+  # before an older startup hook tries to validate the newer enrollment.
+  local controller_tools="${HELPER_DIR}/gateway-controller-tools"
+  if [[ -f /var/lib/incudal-gateway-controller/enrollment.json && -f "$app_dir/vendor/gateway/catalog.json" && -d "$controller_tools" && ! -e /var/lib/incudal-backup/recovery-hold.json ]]; then
+    [[ ! -L "$controller_tools" && $(stat -c '%u:%g:%a' "$controller_tools") == 0:0:755 ]] || fail "untrusted controller reconciliation tools"
+    local tool
+    for tool in verify-gateway-component-package.py enroll-gateway-controller.py provision-gateway-controller.py; do
+      [[ -f "$controller_tools/$tool" && ! -L "$controller_tools/$tool" && $(stat -c '%u:%g:%a' "$controller_tools/$tool") == 0:0:644 ]] || fail "untrusted controller reconciliation tool"
+    done
+    /usr/bin/python3 -I -B "$controller_tools/provision-gateway-controller.py" --sync-runtime "$app_dir"
+  fi
 }
 
 verify_git_control() {

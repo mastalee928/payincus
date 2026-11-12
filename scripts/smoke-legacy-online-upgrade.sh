@@ -6,7 +6,7 @@ repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 candidate=$(readlink -f -- "${1:?new release archive required}")
 old=$(readlink -f -- "${2:?official v1.8.6 archive required}")
 scenario=${3:-clean}
-[[ $scenario == clean || $scenario == migrated-atomic ]] || exit 1
+[[ $scenario == clean || $scenario == migrated-atomic || $scenario == rollback ]] || exit 1
 export UPGRADE_DRILL_SCENARIO="$scenario"
 test -s "$candidate"; test -s "$old"; test -s "$old.sha256"
 (cd "$(dirname "$old")"; sha256sum --check "$(basename "$old").sha256")
@@ -32,7 +32,7 @@ if env.exists():
                 if password:secrets.append(password)
             except ValueError:pass
 work=pathlib.Path(os.environ['UPGRADE_DRILL_WORK'])
-paths=[work/'old-install.log',work/'prior-migration.log',work/'worker.log',work/'backend.log',*pathlib.Path('/opt/incudal/update-logs').glob('system-update-*.log')]
+paths=[work/'old-install.log',work/'prior-migration.log',work/'worker.log',work/'retry-worker.log',work/'backend.log',*pathlib.Path('/opt/incudal/update-logs').glob('system-update-*.log')]
 for p in paths:
     if not p.exists():continue
     text=p.read_text(errors='replace')
@@ -57,7 +57,7 @@ systemctl is-active --quiet incudal-backend
 # All setup is confined to this disposable VM and uses the actual archives.
 frontend_root=/opt/incudal
 stage=prior-migration-setup
-if [[ $scenario == migrated-atomic ]]; then
+if [[ $scenario == migrated-atomic || $scenario == rollback ]]; then
   install -d -m 755 /opt/incudal/releases/v1.8.6-baseline "$work/candidate"
   tar --no-same-owner -xzf "$old" -C /opt/incudal/releases/v1.8.6-baseline
   cp -a /opt/incudal/server/certs /opt/incudal/releases/v1.8.6-baseline/server/
@@ -126,6 +126,25 @@ systemctl restart incudal-backend
 curl -fsS --retry 20 --retry-delay 2 --retry-connrefused https://user.upgrade.test/api/health >/dev/null
 node "$repo/scripts/smoke-legacy-online-upgrade.mjs" before "$candidate"
 stage=old-worker-upgrade
+if [[ $scenario == rollback ]]; then
+  # The actual worker reaches its production verification only after installing
+  # and registering new components. Fail that check once, leaving every other
+  # command, migration, service operation and rollback on the original path.
+  install -d -m 755 "$work/path"
+  export UPGRADE_DRILL_ORIGINAL_PNPM
+  UPGRADE_DRILL_ORIGINAL_PNPM=$(command -v pnpm)
+  cat > "$work/path/pnpm" <<'EOF'
+#!/usr/bin/env bash
+if [[ $* == verify:production && ! -e "$UPGRADE_DRILL_WORK/failure-injected" ]]; then
+  touch "$UPGRADE_DRILL_WORK/failure-injected"
+  echo 'Injected post-install production-check failure for rollback verification' >&2
+  exit 70
+fi
+exec "$UPGRADE_DRILL_ORIGINAL_PNPM" "$@"
+EOF
+  chmod 755 "$work/path/pnpm"
+  export PATH="$work/path:$PATH"
+fi
 # Do not bypass the old worker's migration, production DB or health checks.
 (
   cd /opt/incudal
@@ -134,8 +153,16 @@ stage=old-worker-upgrade
   # Refresh deliberately changed only the disposable test origin configuration.
   # Keep the same hardened filesystem and sealed source checks as real OTA.
   /usr/local/libexec/incudal/incudal-online-task seal
-  NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/incudal-upgrade.crt \
-    node "$repo/scripts/smoke-legacy-online-upgrade.mjs" worker "$candidate" > "$work/worker.log" 2>&1
+  if NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/incudal-upgrade.crt \
+    node "$repo/scripts/smoke-legacy-online-upgrade.mjs" worker "$candidate" > "$work/worker.log" 2>&1; then
+    [[ $scenario != rollback ]]
+  else
+    [[ $scenario == rollback && -f "$work/failure-injected" ]]
+    node "$repo/scripts/smoke-legacy-online-upgrade.mjs" rolled-back "$candidate"
+    UPGRADE_DRILL_RETRY=true node "$repo/scripts/smoke-legacy-online-upgrade.mjs" before "$candidate"
+    NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/incudal-upgrade.crt \
+      node "$repo/scripts/smoke-legacy-online-upgrade.mjs" worker "$candidate" > "$work/retry-worker.log" 2>&1
+  fi
   /usr/local/libexec/incudal/incudal-online-task seal
 )
 stage=post-upgrade-verification

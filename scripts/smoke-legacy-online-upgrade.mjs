@@ -15,7 +15,7 @@ assert.equal(process.env.GITHUB_ACTIONS, 'true')
 assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
 assert.equal(process.platform, 'linux'); assert.equal(process.getuid(), 0)
 const [mode, archiveArg] = process.argv.slice(2)
-assert.ok(['migrate', 'before', 'worker', 'after'].includes(mode))
+assert.ok(['migrate', 'before', 'worker', 'rolled-back', 'after'].includes(mode))
 const archive = resolve(archiveArg), stateFile = '/root/incudal-legacy-upgrade.json'
 const atomic = await lstat('/opt/incudal/current').then(info => info.isSymbolicLink()).catch(() => false)
 const app = await realpath(atomic ? '/opt/incudal/current' : '/opt/incudal')
@@ -54,7 +54,7 @@ if (mode === 'migrate') {
       assert.equal(manifest.files.length, 20)
     }
     const applied = (await client.query("SELECT count(*)::int AS n FROM _prisma_migrations WHERE migration_name='20261111170000_instance_renewal_price' AND finished_at IS NOT NULL AND rolled_back_at IS NULL")).rows[0].n
-    assert.equal(applied, atomic ? 1 : 0)
+    assert.equal(applied, atomic || process.env.UPGRADE_DRILL_RETRY === 'true' ? 1 : 0)
     await writeFile(stateFile, JSON.stringify({ taskId: task.id, target, original, atomic, oldApp: app, oldComponents: enrollment.components }), { mode: 0o600 })
     console.log('PASS legacy baseline: genuine v1.8.6 installed, original 20-file components and controller/network identity recorded')
   } finally { await client.end() }
@@ -87,6 +87,20 @@ if (mode === 'migrate') {
   process.argv = [process.execPath, app + '/server/dist/scripts/run-system-update-task.js', String(state.taskId), state.target]
   // Same platform maintenance lock as the root wrapper is held by the shell.
   await import(app + '/server/dist/scripts/run-system-update-task.js')
+} else if (mode === 'rolled-back') {
+  const state = JSON.parse(await readFile(stateFile))
+  const client = new Client({ connectionString: env.DATABASE_URL }); await client.connect()
+  try {
+    const task = (await client.query('SELECT status FROM system_update_tasks WHERE id=$1', [state.taskId])).rows[0]
+    assert.equal(task.status, 'rolled_back')
+    assert.equal(JSON.parse(await readFile(app + '/server/package.json')).version, '1.8.6')
+    for (const file of identities) assert.equal(hash(await readFile(file)), state.original[file])
+    const enrollment = JSON.parse(await readFile('/var/lib/incudal-gateway-controller/enrollment.json'))
+    assert.ok(Object.values(enrollment.components).every(component => component.version === '1.8.6'))
+    await exec('python3', ['-I', '-B', app + '/scripts/enroll-gateway-controller.py', '--verify'])
+    await exec('systemctl', ['is-active', '--quiet', 'incudal-backend'])
+    console.log('PASS actual old worker recovered after post-install failure: old runtime and component enrollment restored, original identities preserved')
+  } finally { await client.end() }
 } else {
   const state = JSON.parse(await readFile(stateFile))
   const client = new Client({ connectionString: env.DATABASE_URL }); await client.connect()

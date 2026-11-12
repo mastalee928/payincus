@@ -120,7 +120,7 @@ def verify_enrollment(root):
     return saved
 
 
-def enroll(action, value=None, root=ROOT):
+def enroll(action, value=None, root=ROOT, *, runtime_legacy=False):
     require(action in ['initialize', 'refresh', 'verify'])
     root = Path(root)
     directory(root.parent)
@@ -138,7 +138,7 @@ def enroll(action, value=None, root=ROOT):
             saved = verify_enrollment(root)
         elif action == 'refresh':
             saved = verify_enrollment(root)
-            value = validate_input(value)
+            value = validate_input(value, enrolled_legacy=runtime_legacy)
             require(saved['platformId'] == value['platformId'] and saved['packageSigningKey'] == value['packageSigningKey'])
             saved['components'] = value['components']
             write_atomic(root / 'enrollment.json', encode(saved))

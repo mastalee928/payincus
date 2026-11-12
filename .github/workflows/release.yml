@@ -350,6 +350,12 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
             scenario: migrated-atomic
+          - arch: amd64
+            runner: ubuntu-latest
+            scenario: rollback
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            scenario: rollback
     permissions:
       contents: read
     steps:
