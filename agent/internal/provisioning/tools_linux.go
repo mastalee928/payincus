@@ -227,8 +227,20 @@ func repair(ctx context.Context) error {
 		}
 	} else {
 		prefix := []string{"-o", "DPkg::Lock::Timeout=5", "-o", "Acquire::Retries=1", "-o", "Acquire::http::Timeout=10", "-o", "Acquire::https::Timeout=10"}
-		args := append(append([]string{}, prefix...), "--simulate", "install", "--reinstall", "--no-upgrade", "--no-remove", "--no-install-recommends")
-		args = append(args, packages...)
+		// Pin already installed tools to their exact version. --no-upgrade
+		// makes apt skip them even with --reinstall, so cannot heal lost files.
+		requested := []string{}
+		for _, name := range packages {
+			installed, err := run(ctx, "dpkg-query", "-W", "-f=${Version}", name)
+			version := strings.TrimSpace(string(installed))
+			if err == nil && regexp.MustCompile(`^[0-9][a-zA-Z0-9+_.:~-]*$`).MatchString(version) {
+				requested = append(requested, name+"="+version)
+			} else {
+				requested = append(requested, name)
+			}
+		}
+		args := append(append([]string{}, prefix...), "--simulate", "install", "--reinstall", "--no-remove", "--no-install-recommends")
+		args = append(args, requested...)
 		out, e := run(ctx, "apt-get", args...)
 		if e != nil {
 			if _, e = run(ctx, "apt-get", append(append([]string{}, prefix...), "update", "-qq")...); e != nil {
@@ -249,7 +261,7 @@ func repair(ctx context.Context) error {
 		if len(pinned) == 0 {
 			return fmt.Errorf("tool repair plan unavailable")
 		}
-		args = append(append([]string{}, prefix...), "install", "-y", "--reinstall", "--no-upgrade", "--no-remove", "--no-install-recommends")
+		args = append(append([]string{}, prefix...), "install", "-y", "--reinstall", "--no-remove", "--no-install-recommends")
 		args = append(args, pinned...)
 		if _, e = run(ctx, "apt-get", args...); e != nil {
 			return e
