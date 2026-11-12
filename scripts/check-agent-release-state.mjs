@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-export function checkPublishedAgentRelease({ release, refs, version, commit, assets }) {
+export function checkPublishedAgentRelease({ release, refs, version, commit, assets, identicalPublishedSource }) {
   assert.match(version, /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
   assert.match(commit, /^[a-f0-9]{40}$/)
   const tag = `agent-${version}`, ref = `refs/tags/${tag}`
@@ -17,7 +17,8 @@ export function checkPublishedAgentRelease({ release, refs, version, commit, ass
   assert.equal(release.tag_name, tag)
   assert.equal(release.draft, false)
   assert.equal(release.prerelease, version.includes('-'))
-  assert.equal(resolved, commit, 'Stable Agent tag belongs to another source; increment the version')
+  assert.ok(typeof resolved === 'string' && (resolved === commit || identicalPublishedSource === resolved),
+    'Stable Agent tag has different build/protocol inputs; increment the version')
   assert.deepEqual(release.assets.map(a => a.name).sort(), assets.map(a => a.name).sort())
   for (const asset of assets) {
     const published = release.assets.find(a => a.name === asset.name)
@@ -41,11 +42,26 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const ref = `refs/tags/agent-${version}`
   const raw = execFileSync('git', ['ls-remote', 'origin', ref, `${ref}^{}`], { encoding: 'utf8' }).trim()
   const refs = Object.fromEntries(raw ? raw.split(/\r?\n/).map(line => { const [sha, name] = line.split(/\s+/); return [name, sha] }) : [])
+  const publishedSource = refs[`${ref}^{}`] || refs[ref]
+  let identicalPublishedSource
+  if (publishedSource && publishedSource !== commit) {
+    // A panel-only repair may follow an already verified Agent publication.
+    // Reuse that immutable tag only when every Agent build/protocol input and
+    // every newly built asset digest is unchanged; never retarget or overwrite.
+    execFileSync('git', ['fetch', '--no-tags', 'origin', ref], { stdio: 'pipe' })
+    const inputs = ['agent', 'server/templates/agent-install.sh', 'server/src/routes/agent.ts', 'server/src/lib/agent-auth.ts',
+      'server/src/lib/host-agent-credentials.ts', 'server/src/services/agent-instance-report.ts',
+      '.github/workflows/agent-release.yml']
+    try {
+      execFileSync('git', ['diff', '--quiet', publishedSource, commit, '--', ...inputs], { stdio: 'pipe' })
+      identicalPublishedSource = publishedSource
+    } catch { /* The immutable-source assertion below remains closed. */ }
+  }
   const response = await fetch(`https://api.github.com/repos/${repository}/releases/tags/agent-${version}`, {
     headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(30000)
   })
   if (response.status !== 404 && !response.ok) throw Error(`Agent release lookup failed: HTTP ${response.status}`)
-  const exists = checkPublishedAgentRelease({ release: response.status === 404 ? null : await response.json(), refs, version, commit, assets })
+  const exists = checkPublishedAgentRelease({ release: response.status === 404 ? null : await response.json(), refs, version, commit, assets, identicalPublishedSource })
   appendFileSync(process.env.GITHUB_OUTPUT, `exists=${exists}\n`)
   console.log(exists ? 'PASS existing Agent release has identical source and asset digests; publication skipped' : 'PASS Agent tag and release are unused; first publication allowed')
 }
