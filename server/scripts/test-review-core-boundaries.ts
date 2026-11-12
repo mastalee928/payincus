@@ -1,3 +1,4 @@
+import { IncusApiError } from '../src/lib/incus/incus-client.js'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
@@ -46,6 +47,17 @@ for (const status of ['Cancelled', 'Canceled', 'Failure']) {
     '/1.0/operations/one', 100), /specific reason/)
   assert.equal(calls, 1)
 }
+
+const operationReads: string[] = []
+const recovered = await waitForOperation({ request: async (method: string, path: string) => {
+  assert.equal(method, 'GET'); operationReads.push(path)
+  if (path.includes('/wait?') && operationReads.length === 1) throw new IncusApiError('context deadline exceeded', 200, path)
+  return path.endsWith('/one') ? { status: 'Running' } : { status: 'Success', metadata: { created: true } }
+} } as any, '/1.0/operations/one', 30000)
+assert.deepEqual(recovered, { created: true })
+assert.deepEqual(operationReads, ['/1.0/operations/one/wait?timeout=10', '/1.0/operations/one', '/1.0/operations/one/wait?timeout=10'])
+await assert.rejects(waitForOperation({ request: async () => { throw new IncusApiError('context deadline exceeded', 404, '/different') } } as any,
+  '/1.0/operations/one', 30000), /context deadline exceeded/)
 
 let outputStatus = 200, stalled = false
 const http = createServer((req, res) => {

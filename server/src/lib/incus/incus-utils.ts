@@ -3,7 +3,7 @@
  */
 
 
-import type { IncusClient } from './incus-client.js'
+import { IncusApiError, type IncusClient } from './incus-client.js'
 import type { IncusOperation } from '../../types/incus.js'
 
 /**
@@ -23,7 +23,17 @@ export async function waitForOperation(
     const remaining = timeout - (Date.now() - startTime)
     if (remaining <= 0) break
     const waitSeconds = Math.min(10, Math.max(1, Math.ceil(remaining / 1000)))
-    const op = await client.request<IncusOperation>('GET', `${operationUrl}/wait?timeout=${waitSeconds}`, null, remaining, signal)
+    let op: IncusOperation
+    try { op = await client.request<IncusOperation>('GET', `${operationUrl}/wait?timeout=${waitSeconds}`, null, remaining, signal) }
+    catch (error) {
+      // Incus 6 returns a sync/error envelope when this bounded wait expires,
+      // although the image/create operation is still running. Read that same
+      // operation receipt; never repeat POST or extend the overall deadline.
+      if (!(error instanceof IncusApiError) || ![200, 408, 504].includes(error.statusCode) ||
+        error.path !== `${operationUrl}/wait?timeout=${waitSeconds}` || error.message !== 'context deadline exceeded' ||
+        signal?.aborted || Date.now() - startTime >= timeout) throw error
+      op = await client.request<IncusOperation>('GET', operationUrl, null, timeout - (Date.now() - startTime), signal)
+    }
 
     if (op.status === 'Success') {
       return op.metadata
