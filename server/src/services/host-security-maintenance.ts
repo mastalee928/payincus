@@ -308,7 +308,10 @@ async function resumeMaintenance(hostId:number,deps:typeof hostMaintenanceDepend
       }
       if(receipt.phase==='preparing'&&Date.now()<Date.parse(intent.deadline)){
         recordMaintenanceEvent(intent)
-        await tx.host.update({where:{id:hostId},data:{securityHardening:json({...state,maintenance:intent,nextCheckAt:new Date(Date.now()+30000).toISOString()})}})
+        // A successful bounded preparation step is ready for the next request.
+        // Keep each write separate; the scheduler supplies the next lease.
+        await tx.host.update({where:{id:hostId},data:{securityHardening:json({...state,maintenance:intent,
+          diagnostic:hardeningDiagnostic('HARDENING_MAINTENANCE_PENDING','host-inspection'),nextCheckAt:new Date(Date.now()+1000).toISOString()})}})
         return null
       }
       const decision=nextMaintenanceAction(intent,{identityHash:receipt.identityHash,prepareHash:receipt.prepareHash,bootId:receipt.bootId,

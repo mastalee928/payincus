@@ -75,6 +75,9 @@ input.addresses = [a, b]
 const initial = await reconcileDedicatedIpv6(client, input, deps)
 assert.equal(initial.status, 'ready')
 assert.deepEqual(customerIpv6View(initial)?.addresses, [a, b])
+assert.equal(customerIpv6View({ ...initial, status: 'pending', error: 'IPV6_INSTANCE_STOPPED' })?.status, 'ready', 'stopped instance keeps confirmed address allocation without a false configuring message')
+assert.equal(customerIpv6View({ ...initial, status: 'pending', error: 'IPV6_INSTANCE_STOPPED', mappings: initial.mappings.map(m => ({ ...m, ready: false })) })?.status, 'pending', 'stopping cannot turn unverified mappings into ready')
+assert.deepEqual(customerIpv6View({ ...initial, status: 'pending', error: 'IPV6_INSTANCE_STOPPED' }, { hostId: 999 })?.addresses, [], 'stopped mapping never bypasses original host binding')
 assert.equal(new Set(initial.mappings.map(mapping => mapping.privateIp)).size, 2, 'each public source has a separate internal address')
 assert.equal(dedicatedIpv6Address(gateway, 22, a), initial.mappings[0]!.privateIp, 'mapping remains stable over restarts')
 for (const address of [a, b]) {

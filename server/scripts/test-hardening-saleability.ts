@@ -95,6 +95,17 @@ try {
     assert.deepEqual((await state()).maintenance, maintenance)
     assert.equal(await prisma.host.count({ where: { id: host.id, ...dedicatedHostReadyWhere() } }), 1, architecture + ': complete reinspection after rollback must restore readiness')
     await stock(1, 'complete reinspection after rollback restores actual sales')
+    // An in-flight delivery may reuse its original hardening admission time.
+    // Agent liveness and network protection must still use the current clock.
+    const admittedEarlier = new Date(Date.now() - 600000)
+    assert.equal(await prisma.host.count({where:{id:host.id,...dedicatedHostReadyWhere(admittedEarlier)}}),1,
+      'fresh heartbeats after admission must not be rejected as future reports')
+    const liveAgent = await prisma.hostAgent.findUniqueOrThrow({where:{hostId:host.id}})
+    await prisma.hostAgent.update({where:{hostId:host.id},data:{lastSeenAt:admittedEarlier,
+      lastReport:{guestProtectionStatus:{applied:true,checkedAt:admittedEarlier.toISOString()}}}})
+    assert.equal(await prisma.host.count({where:{id:host.id,...dedicatedHostReadyWhere(admittedEarlier)}}),0,
+      'original admission time cannot grant current liveness to expired network protection')
+    await prisma.hostAgent.update({where:{hostId:host.id},data:{lastSeenAt:liveAgent.lastSeenAt,lastReport:liveAgent.lastReport!}})
     const protectedReport = { guestProtectionStatus: { applied: true, checkedAt: new Date().toISOString() } }
     for (const lastReport of [{}, { guestProtectionStatus: { applied: false, checkedAt: new Date().toISOString() } },
       { guestProtectionStatus: { applied: true, checkedAt: new Date(0).toISOString() } },
@@ -104,6 +115,24 @@ try {
     }
     await prisma.hostAgent.update({ where: { hostId: host.id }, data: { lastReport: protectedReport } })
     await stock(1, 'fresh protection automatically restores stock and allocation')
+    const beforeBBR = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
+    for (const bbr of [undefined,
+      { state: 'pending', error: 'BBR_CAPABILITY_UNAVAILABLE' },
+      { state: 'pending', error: 'BBR_CONFIG_CONFLICT' },
+      { state: 'pending', error: 'BBR_HOST_APPLY_FAILED', hostApplied: false },
+      { state: 'unsupported', error: 'BBR_KERNEL_UNAVAILABLE' },
+      { state: 'applied', hostApplied: true, persistent: true }]) {
+      await prisma.hostAgent.update({ where: { hostId: host.id }, data: {
+        lastReport: { ...protectedReport, runtime: bbr ? { bbr } : {} }
+      } })
+      await stock(1, 'optional BBR ' + (bbr?.error || bbr?.state || 'legacy absent') + ' never withdraws valid stock')
+      assert.deepEqual(await prisma.host.findUniqueOrThrow({ where: { id: host.id } }), beforeBBR, 'BBR report does not mutate host readiness or pricing')
+    }
+    await prisma.hostAgent.update({ where: { hostId: host.id }, data: {
+      lastReport: { guestProtectionStatus: { applied: false, checkedAt: new Date().toISOString() }, runtime: { bbr: { state: 'applied' } } }
+    } })
+    await stock(0, 'successful BBR cannot bypass failed customer network protection')
+    await prisma.hostAgent.update({ where: { hostId: host.id }, data: { lastReport: protectedReport } })
     const exhausted = { ...(await state()), maintenance: { ...maintenance, preparationRetries: 2 } }
     await prisma.host.update({ where: { id: host.id }, data: { securityHardening: exhausted } })
     await prepareAutomaticHostMaintenance(host.id, { ...hostMaintenanceDependencies, held: () => false,

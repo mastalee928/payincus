@@ -11,6 +11,7 @@ import { poolCleanupRecord, processPoolCleanup, readPoolCleanup } from '../src/s
 import { PORT_PROTOCOL_CAPABILITY } from '../src/services/host-port-protocol.js'
 import { dedicatedHostReadyWhere, HOST_OCCUPIED_INSTANCE_WHERE } from '../src/lib/host-resource-usage.js'
 import { requestInstanceDeletion, readDeletionIntent } from '../src/services/instance-deletion.js'
+import { executeExpiryEnforcement } from '../src/services/billing-scheduler.js'
 assert.equal(process.env.GITHUB_ACTIONS, 'true')
 assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
 const serverCertificate = readFileSync('/var/lib/incus/server.crt', 'utf8')
@@ -23,7 +24,7 @@ try {
   assert.equal((await client.request<unknown[]>('GET', '/1.0/instances/cleanup-guest/snapshots?recursion=1')).length, 1)
   await ensureDedicatedForward(client, 'cleanup-guest', '192.0.2.99', '10.199.0.99')
   assert.equal((await client.request<unknown[]>('GET', '/1.0/networks/incusbr0/forwards?recursion=1')).length, 1)
-  if (process.env.POOL_CLEANUP_WORKER === '1' || process.env.INSTANCE_DELETION_WORKER === '1') {
+  if (process.env.POOL_CLEANUP_WORKER === '1' || process.env.INSTANCE_DELETION_WORKER === '1' || process.env.EXPIRY_DELETION_WORKER === '1') {
     const database = new URL(process.env.DATABASE_URL!)
     assert.equal(database.hostname, '127.0.0.1'); assert.ok(database.pathname.endsWith('_pool_test'))
     const actor = await prisma.user.create({ data: { username: 'actual-incus-fixture', role: 'admin', passwordHash: 'unused-fixture' } })
@@ -38,7 +39,27 @@ try {
       agent: { create: { ...protectedAgentFixture([PORT_PROTOCOL_CAPABILITY]) } },
       storagePools: { create: { name: 'cleanup-test', driver: 'dir', purpose: 'instance_data' } } } })
     try {
-      if (process.env.INSTANCE_DELETION_WORKER === '1') {
+      if (process.env.EXPIRY_DELETION_WORKER === '1') {
+        await prisma.host.update({ where: { id: host.id }, data: { poolFaulted: false } })
+        const original = await client.request<{ created_at: string; config: Record<string, string> }>('GET', '/1.0/instances/cleanup-guest')
+        const pkg = await prisma.package.create({ data: { userId: actor.id, name: 'actual-expiry', cpuMax: 200, memoryMax: 768, diskMax: 30720 } })
+        const plan = await prisma.packagePlan.create({ data: { packageId: pkg.id, name: 'actual-expiry', cpu: 200, memory: 768, disk: 30720,
+          portLimit: 0, snapshotLimit: 0, backupLimit: 0, siteLimit: 0, trafficLimit: 0n, price: 10 } })
+        const instance = await prisma.instance.create({ data: { userId: actor.id, hostId: host.id, name: 'cleanup-guest', incusId: 'cleanup-guest',
+          image: 'cleanup-fixture', status: 'running', cpu: 200, memory: 768, disk: 30720, storagePoolName: 'cleanup-test',
+          packageId: pkg.id, packagePlanId: plan.id, billingPrice: 10, billingCycle: 1, expiresAt: new Date(Date.now() - 60000),
+          snapshottedSpecs: { recoveryIdentity: { uuid: original.config['volatile.uuid'], createdAt: original.created_at, project: 'default' } } } })
+        await executeExpiryEnforcement()
+        assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'suspended')
+        assert.equal((await client.request<{status:string}>('GET','/1.0/instances/cleanup-guest')).status, 'Stopped')
+        await prisma.instance.update({ where: { id: instance.id }, data: { suspendedAt: new Date(Date.now() - 4 * 86400000) } })
+        await executeExpiryEnforcement()
+        const deleted = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
+        assert.equal(deleted.status, 'deleted'); assert.equal(deleted.deletionBillingPending, false)
+        await verifyInstanceDeleted(client, 'cleanup-guest')
+        await prisma.instance.delete({ where: { id: instance.id } }); await prisma.package.delete({ where: { id: pkg.id } })
+        console.log('PASS actual five-minute expiry path: Incus Stopped -> retention cutoff -> container/snapshot/disk/forward deleted -> pool released')
+      } else if (process.env.INSTANCE_DELETION_WORKER === '1') {
         await prisma.host.update({ where: { id: host.id }, data: { poolFaulted: false } })
         const instance = await prisma.instance.create({ data: { userId: actor.id, hostId: host.id, name: 'cleanup-guest', incusId: 'cleanup-guest',
           image: 'cleanup-fixture', status: 'running', cpu: 200, memory: 768, disk: 30720, storagePoolName: 'cleanup-test' } })

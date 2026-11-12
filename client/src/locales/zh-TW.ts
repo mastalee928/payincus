@@ -1,3 +1,4 @@
+import { zhTW as instanceRenewalPrice } from './instance-renewal-price'
 import { zhTW as adminUserEmail } from './admin-user-email'
 import { zhTW as instanceExpiry } from './instance-expiry'
 import { zhTW as securityHardening } from './security-hardening'
@@ -15,6 +16,7 @@ import { zhTW as automaticRecovery } from './automatic-recovery'
 const zhTW = {
     adminUserEmail,
     instanceExpiry,
+    instanceRenewalPrice,
     securityHardening,
     automaticRecovery,
     hostAbuse,

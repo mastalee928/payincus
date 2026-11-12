@@ -977,14 +977,6 @@ poolOrder: (data: {
         giftDays?: number | null
       }
     }> => http.post(`/hosts/${hostId}/instances/create-for-user`, data),
-    // 修改付费实例的续费价格（托管节点所有者专用）
-    updateInstanceRenewalPrice: (hostId: number, instanceId: number, newPrice: number): Promise<{
-      message: string
-      instanceId: number
-      instanceName: string
-      oldPrice: number
-      newPrice: number
-    }> => http.patch(`/hosts/${hostId}/instances/${instanceId}/renewal-price`, { newPrice }),
     // 批量同步实例状态
     batchSyncInstanceStatus: (hostId: number, instanceIds: number[]): Promise<{
       message: string
@@ -2504,17 +2496,17 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
         billingCycle: number | null
         expiresAt: string | null
         autoRenew: boolean
-        renewPreview: Array<{ months: number; price: number; expiresAt: string }> | null
+        renewPreview: Array<{ months: number; price: number; discountedPrice: number; expiresAt: string }> | null
       }
     }> => http.get(`/instances/${instanceId}/billing`),
 
     // 实例续费
-    renewInstance: (instanceId: number, months: number): Promise<{
+    renewInstance: (instanceId: number, months: number, expectedAmount?: number): Promise<{
       message: string
       amount: number
       months: number
       newExpiresAt: string
-    }> => postRenewal(http, `/instances/${instanceId}/renew`, { months }),
+    }> => postRenewal(http, `/instances/${instanceId}/renew`, { months, expectedAmount }),
 
     applyAffCodeToInstance: (instanceId: number, affCode: string): Promise<{
       success: boolean
@@ -2541,7 +2533,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
       }>
     }> => http.post('/instances/batch/renew-preview', { instanceIds }, { timeout: TIMEOUT.BATCH }),
 
-    renewInstancesBatch: (instanceIds: number[], months: number): Promise<{
+    renewInstancesBatch: (instanceIds: number[], months: number, expectedAmounts?: Record<string, number>): Promise<{
       message: string
       successCount: number
       skippedCount: number
@@ -2555,7 +2547,7 @@ getPublicCatalog: (): Promise<{ maxInstances?: number; regions: Array<{
         amount?: number
         newExpiresAt?: string
       }>
-    }> => postRenewal(http, '/instances/batch/renew', { instanceIds: [...new Set(instanceIds)].sort((a, b) => a - b), months }, TIMEOUT.BATCH),
+    }> => postRenewal(http, '/instances/batch/renew', { instanceIds: [...new Set(instanceIds)].sort((a, b) => a - b), months, expectedAmounts }, TIMEOUT.BATCH),
 
     // 升降级预览
     getChangePlanPreview: (instanceId: number, newPlanId: number): Promise<{

@@ -100,7 +100,7 @@ assert.ok(instanceDetailViewSource.includes('const AdminExpiryModal = isAdminEnt
   instanceDetailViewSource.includes('v-if="isAdminEntry && authStore.isAdmin && showAdminExpiry && instance"') &&
   instanceInfoTabSource.includes('v-if="isAdminEntry && canEditExpiry"'),
   'absolute expiry editing must be compiled and rendered only for administrators')
-assert.ok(instanceDetailViewSource.replace(/\r\n/g, '\n').includes('watch([() => instance.value?.expiryIdentity?.ownerId, () => instance.value?.expiryIdentity?.hostId, () => instance.value?.expiryIdentity?.incusId], () => {\n  showAdminExpiry.value = false\n}, { flush: \'sync\' })') &&
+assert.ok(instanceDetailViewSource.replace(/\r\n/g, '\n').includes('watch([() => instance.value?.expiryIdentity?.ownerId, () => instance.value?.expiryIdentity?.hostId, () => instance.value?.expiryIdentity?.incusId], () => {\n  showAdminExpiry.value = false\n  showAdminRenewalPrice.value = false\n}, { flush: \'sync\' })') &&
   instanceDetailViewSource.includes(':owner-id="instance.expiryIdentity?.ownerId"') && instanceDetailViewSource.includes(':host-id="instance.expiryIdentity?.hostId"') &&
   instanceDetailViewSource.includes(':incus-id="instance.expiryIdentity?.incusId"'), 'expiry editor must bind the actual admin detail identity and close synchronously on same-ID ownership/host/guest changes')
 for (const required of ['function captureDetailRead(', 'generation === detailReadGeneration', 'sequence === readSequences[channel]',

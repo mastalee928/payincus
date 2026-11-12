@@ -16,13 +16,14 @@ import simpleGatewaySetupRoutes from './simple-gateway-setup.js'
 import { lockOnboardingLifecycle, pendingPeerRetirement, readPeerRetirement, deletedPeerRetirement } from '../services/onboarding-lifecycle.js'
 import { onboardingAddressConflict, lockOnboardingAddresses } from '../services/onboarding-conflicts.js'
 import { publicIpState } from '../lib/host-public-ip.js'
+import { hardeningPublicView } from '../lib/hardening-view.js'
 
 const nodeSelect = {
   id: true, name: true, publicIp: true, sshPort: true, sshFingerprint: true, managementIp: true,
   machineGroup: true, regionGroup: true, machineGroupId: true, regionGroupId: true, countryCode: true,
   resourcePreset: true, customerDiskGiB: true, resolvedResources: true,
   hostId: true, status: true, step: true, errorCode: true, attempt: true, createdAt: true, updatedAt: true,
-  completedAt: true, host: { select: { status: true, isInstalled: true, architecture: true, natPublicIp: true, publicIpSync: true, agent: { select: { lastSeenAt: true } } } }
+  completedAt: true, host: { select: { status: true, isInstalled: true, architecture: true, natPublicIp: true, publicIpSync: true, securityHardening: true, agent: { select: { lastSeenAt: true } } } }
 } as const
 const batchSelect = {
   id: true, name: true, accountLabel: true, defaults: true, createdAt: true,
@@ -87,7 +88,8 @@ export default async function hostOnboardingRoutes(fastify: FastifyInstance) {
     return { batches: batches.map(batch => ({ ...batch, nodes: batch.nodes.map(node => {
       const state = publicIpState(node.host?.publicIpSync)
       return { ...node, currentPublicIp: node.host ? state.observedIp || node.host.natPublicIp : null,
-        host: node.host ? { status: node.host.status, isInstalled: node.host.isInstalled, architecture: node.host.architecture, agent: node.host.agent } : null }
+        host: node.host ? { status: node.host.status, isInstalled: node.host.isInstalled, architecture: node.host.architecture, agent: node.host.agent,
+          securityHardening: hardeningPublicView(node.host.securityHardening) } : null }
     }) })), total, page, pageSize: 10, gatewaySshHost: process.env.ONBOARDING_SSH_JUMP_HOST || process.env.ONBOARDING_GATEWAY_HOST || null,
       retirementTotal, retirements: retiredNodes.map(node => { const state = readPeerRetirement(node.peerRetirement)!; return {
         id: node.id, name: node.name, publicIp: node.publicIp, status: state.status, attempts: state.attempts, nextAttemptAt: state.nextAttemptAt, error: state.error

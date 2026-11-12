@@ -5,6 +5,7 @@ import { assertNoPendingSnapshotOperations, hasPendingSnapshotOperation, Snapsho
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import { Prisma } from '@prisma/client'
 import { existsSync, readFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { join } from 'path'
@@ -50,7 +51,7 @@ import { sendReleaseNotification } from '../lib/release-notifier.js'
 import { createCaddyClient } from '../lib/caddy-client.js'
 import { normalizeArchitecture } from '../lib/architecture.js'
 import { generateIncusConfig } from '../lib/incus-config-generator.js'
-import { sendAdminInstanceCreatedEmail, sendRenewalPriceUpdatedEmail } from '../lib/mailer.js'
+import { sendAdminInstanceCreatedEmail } from '../lib/mailer.js'
 import { generateRandomIPv6 } from '../lib/ip-calculator.js'
 import { calculateCreateBilling } from '../db/billing-operations.js'
 import { getDnsRecordType } from '../lib/network-address.js'
@@ -6660,128 +6661,20 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // PATCH /api/hosts/:id/instances/:instanceId/renewal-price - 节点所有者修改付费实例的续费价格
+  // PATCH /api/hosts/:id/instances/:instanceId/renewal-price - retired; use the administrator final-price editor
   fastify.patch<{
     Params: { id: string; instanceId: string }
     Body: { newPrice: number }
   }>('/:id/instances/:instanceId/renewal-price', {
-    onRequest: [fastify.authenticate],
-    schema: {
-      body: {
-        type: 'object',
-        required: ['newPrice'],
-        properties: {
-          newPrice: { type: 'number', minimum: 0, maximum: 99999 }
-        }
-      }
-    }
+    onRequest: [fastify.authenticateAdmin],
+    schema: { body: { type: 'object', required: ['newPrice'], additionalProperties: false,
+      properties: { newPrice: { type: 'number', minimum: 0, maximum: 99999 } } } }
   }, async (request, reply) => {
-    const { user } = request
     const hostId = parsePositiveRouteId(request.params.id)
     const instanceId = parsePositiveRouteId(request.params.instanceId)
     const newPrice = parseFiniteNumberBody(request.body.newPrice, 0, HOST_RENEWAL_PRICE_MAX)
-
-    if (!hostId || !instanceId || newPrice === null) {
-      return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
-    }
-
-    // 验证节点存在且属于当前用户
-    const host = await db.getHostById(hostId)
-    if (!host) {
-      return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
-    }
-
-    // 权限检查：只有节点所有者可以修改价格
-    if (host.user_id !== user.id) {
-      return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
-    }
-
-    // 获取实例并验证
-    const instance = await prisma.instance.findUnique({
-      where: { id: instanceId },
-      include: {
-        user: { select: { id: true, username: true, email: true } }
-      }
-    })
-
-    if (!instance) {
-      return reply.code(404).send(apiError(ErrorCode.INSTANCE_NOT_FOUND))
-    }
-
-    // 验证实例属于该节点
-    if (instance.hostId !== hostId) {
-      return reply.code(400).send({ error: '实例不属于该节点' })
-    }
-
-    // 验证是付费实例
-    if (!instance.packagePlanId) {
-      return reply.code(400).send({ error: '只能修改付费实例的续费价格' })
-    }
-
-    // 验证实例未删除
-    if (instance.status === 'deleted') {
-      return reply.code(400).send({ error: '实例已删除' })
-    }
-
-    const oldPrice = instance.billingPrice ? Number(instance.billingPrice) : 0
-
-    // 检查价格是否有变化
-    if (Math.abs(oldPrice - newPrice) < 0.001) {
-      return reply.code(400).send({ error: '新价格与原价格相同，无需修改' })
-    }
-
-    // 更新实例续费价格
-    await prisma.instance.update({
-      where: { id: instanceId },
-      data: {
-        billingPrice: newPrice
-      }
-    })
-
-    // 发送通知给用户
-    try {
-      await sendNotification(instance.userId, 'instance_renewal_price_updated', {
-        instanceName: instance.name,
-        oldPrice,
-        newPrice,
-        hostName: host.name
-      })
-    } catch (err) {
-      fastify.log.error(`[UpdateRenewalPrice] Failed to send notification: ${err}`)
-    }
-
-    if (instance.user?.email) {
-      try {
-        await sendRenewalPriceUpdatedEmail(instance.user.email, {
-          username: instance.user.username,
-          instanceName: instance.name,
-          hostName: host.name,
-          oldPrice,
-          newPrice
-        })
-      } catch (err) {
-        fastify.log.error(`[UpdateRenewalPrice] Failed to send email: ${err}`)
-      }
-    }
-
-    // 记录日志
-    await createLog(
-      user.id,
-      'host',
-      'host.update_instance_renewal_price',
-      `Updated renewal price for instance "${instance.name}" (ID: ${instanceId}): ¥${oldPrice.toFixed(2)} -> ¥${newPrice.toFixed(2)}`,
-      'success'
-    )
-
-    fastify.log.info(`[UpdateRenewalPrice] Host owner ${user.username} updated renewal price for instance ${instance.name}: ¥${oldPrice.toFixed(2)} -> ¥${newPrice.toFixed(2)}`)
-
-    return {
-      message: '续费价格已更新',
-      instanceId,
-      instanceName: instance.name,
-      oldPrice,
-      newPrice
-    }
+    if (!hostId || !instanceId || newPrice === null) return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
+    return reply.code(409).send({ code: 'RENEWAL_PRICE_ADMIN_EDITOR_REQUIRED', error: '请在管理员实例详情修改续费价格' })
   })
 
   // ========== 宿主机运维中心 ==========

@@ -832,6 +832,7 @@ export interface Instance {
   planName?: string | null
   planPrice?: number | null
   billingPrice?: number | null
+  renewalPrice?: number | null
   billingCycle?: number | null
   affDiscountRate?: number | null
   hasAffBinding?: boolean

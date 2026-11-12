@@ -1,3 +1,4 @@
+import { zhCN as instanceRenewalPrice } from './instance-renewal-price'
 import { zhCN as adminUserEmail } from './admin-user-email'
 import { zhCN as instanceExpiry } from './instance-expiry'
 import { zhCN as securityHardening } from './security-hardening'
@@ -11,6 +12,7 @@ import { zhCN as automaticRecovery } from './automatic-recovery'
 export default {
     adminUserEmail,
     instanceExpiry,
+    instanceRenewalPrice,
     securityHardening,
     automaticRecovery,
     hostAbuse,

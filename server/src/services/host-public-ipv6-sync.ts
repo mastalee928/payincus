@@ -41,6 +41,7 @@ function pendingInstanceState(previous: unknown, hostId: number, name: string, a
   const old = dedicatedIpv6State(previous)
   const same = old?.hostId === hostId && old.instanceName === name
   return { version: 1, hostId, instanceName: name,
+    assignedAddresses: addresses,
     mappings: same ? old.mappings.filter(mapping => addresses.includes(mapping.publicIp)) : [],
     configured: same && old.configured, primary: addresses[0] ?? null, status: 'pending', checkedAt: new Date().toISOString(), error }
 }

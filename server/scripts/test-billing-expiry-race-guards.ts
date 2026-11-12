@@ -45,6 +45,9 @@ assert.ok(autoRenewAttemptFunction.includes('lastAutoRenewAttemptAt: { lte:') &&
 assert.ok(autoRenewAttemptFunction.includes('version: guard.version'), 'auto-renew attempt updates must use the locked instance version')
 assert.ok(autoRenewAttemptFunction.includes('autoRenewAttempts: guard.currentAttempts'), 'auto-renew attempt updates must claim the expected attempt counter')
 assert.ok(autoRenewAttemptFunction.includes('return result.count > 0'), 'auto-renew attempt updates must report stale rows to the scheduler')
+assert.ok(billingSource.includes("if (!automatic && recoveryHeld()) throw new Error('PLATFORM_RECOVERY_HELD')") &&
+  billingSource.includes("if (recoveryHeld()) throw new Error(automatic ? 'AUTO_RENEW_RECOVERY_HELD' : 'PLATFORM_RECOVERY_HELD')"),
+  'manual and automatic billing must both recheck recovery protection inside the actual mutation')
 
 const expiryNotificationClaimFunction = sectionBetween(
   suspendSource,

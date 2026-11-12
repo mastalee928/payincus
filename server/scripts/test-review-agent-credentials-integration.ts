@@ -9,6 +9,7 @@ const credentials = await import('../src/lib/host-agent-credentials.js')
 const { encryptSensitiveData, decryptSensitiveData } = await import('../src/lib/security.js')
 const { hashAgentSecret, createAgentBodyHash, createAgentSignature } = await import('../src/lib/agent-auth.js')
 const { default: routes } = await import('../src/routes/agent.js')
+const { guestProtectionReady, guestProtectionReadyWhere } = await import('../src/lib/guest-network-protection.js')
 const tag = randomUUID()
 const user = await prisma.user.create({ data: { username: `agent-credentials-${tag}`, passwordHash: 'unusable-fixture' } })
 const other = await prisma.user.create({ data: { username: `agent-other-${tag}`, passwordHash: 'unusable-fixture' } })
@@ -36,6 +37,74 @@ const heartbeat = (agentId: string, agentSecret: string) => {
 try {
   await app.register(routes, { prefix: '/agent' })
   const original = await rotate()
+  // Real signed HTTP handlers persist host-clock checks on the controller
+  // timeline without extending old checks or weakening nonce authentication.
+  for (const offset of [14000,-14000,65000]) {
+    await prisma.hostAgent.update({where:{hostId:host.id},data:{lastReport:{}}})
+    const timestamp=String(Date.now()+offset),nonce=randomUUID()
+    const body={version:'v1.0.6',capabilities:['guest-network-protection-v1'],guestProtectionStatus:{applied:true,checkedAt:new Date(Number(timestamp)-10000).toISOString()}}
+    const bodyHash=createAgentBodyHash(body)
+    const headers={'x-incudal-agent-id':original.agentId,'x-incudal-timestamp':timestamp,'x-incudal-nonce':nonce,'x-incudal-body-sha256':bodyHash,
+      'x-incudal-signature':createAgentSignature(original.agentSecret,{method:'POST',path:'/agent/heartbeat',timestamp,nonce,bodyHash})}
+    assert.equal((await app.inject({method:'POST',url:'/agent/heartbeat',payload:body,headers})).statusCode,200)
+    const stored=await snapshot(), accepted=offset!==65000
+    assert.equal(guestProtectionReady(stored),accepted)
+    assert.equal(await prisma.hostAgent.count({where:{id:stored.id,...guestProtectionReadyWhere()}}),accepted?1:0,'SQL inventory and in-memory gate agree')
+    assert.equal((await app.inject({method:'POST',url:'/agent/heartbeat',payload:body,headers})).statusCode,401,'same signed packet cannot be replayed')
+    assert.deepEqual(await snapshot(),stored,'replay cannot refresh receipt age')
+  }
+  await prisma.hostAgent.update({where:{hostId:host.id},data:{lastReport:{}}})
+  const packet=async (signedAt:number,applied:boolean) => {
+    const timestamp=String(signedAt),nonce=randomUUID(),body={capabilities:['guest-network-protection-v1'],guestProtectionStatus:{applied,checkedAt:new Date(signedAt-1000).toISOString()}}
+    const bodyHash=createAgentBodyHash(body)
+    return app.inject({method:'POST',url:'/agent/heartbeat',payload:body,headers:{'x-incudal-agent-id':original.agentId,'x-incudal-timestamp':timestamp,'x-incudal-nonce':nonce,'x-incudal-body-sha256':bodyHash,
+      'x-incudal-signature':createAgentSignature(original.agentSecret,{method:'POST',path:'/agent/heartbeat',timestamp,nonce,bodyHash})}})
+  }
+  const sendTime=Date.now()
+  assert.equal((await packet(sendTime,false)).statusCode,200)
+  const failedReceipt=await snapshot()
+  assert.equal((await packet(sendTime-10000,true)).statusCode,200)
+  assert.deepEqual(await snapshot(),failedReceipt,'delayed older success cannot replace a newer failure or refresh lastSeenAt')
+  assert.equal(guestProtectionReady(await snapshot()),false)
+  // An out-of-bound clock report must not erase the last ordered failure.
+  assert.equal((await packet(Date.now()+65000,true)).statusCode,200)
+  assert.equal(guestProtectionReady(await snapshot()),false)
+  assert.equal((await snapshot()).lastReport && ((await snapshot()).lastReport as any).signedAt, sendTime)
+  assert.equal((await packet(sendTime-5000,true)).statusCode,200)
+  assert.equal(guestProtectionReady(await snapshot()),false,'invalid clock report cannot reset ordering and admit an older success')
+  assert.equal((await packet(Date.now(),true)).statusCode,200)
+  assert.equal(guestProtectionReady(await snapshot()),true,'new valid heartbeat restores readiness without waiting for the bad clock')
+  const originalHost = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
+  for (const bbr of [
+    { state: 'pending', error: 'BBR_CAPABILITY_UNAVAILABLE' },
+    { state: 'pending', error: 'BBR_CONFIG_CONFLICT' },
+    { state: 'pending', error: 'BBR_HOST_APPLY_FAILED', hostApplied: false },
+    { state: 'unsupported', error: 'BBR_KERNEL_UNAVAILABLE' },
+    { state: 'applied', hostApplied: true, persistent: true }
+  ]) {
+    const timestamp = String(Date.now()), nonce = randomUUID(), body = {
+      version: 'v1.0.7', runtime: { goos: 'linux', goarch: 'amd64', bbr },
+      capabilities: ['guest-network-protection-v1'], guestProtectionStatus: { applied: true, checkedAt: new Date(Number(timestamp) - 1000).toISOString() }
+    }
+    const bodyHash = createAgentBodyHash(body)
+    const response = await app.inject({ method: 'POST', url: '/agent/heartbeat', payload: body, headers: {
+      'x-incudal-agent-id': original.agentId, 'x-incudal-timestamp': timestamp, 'x-incudal-nonce': nonce, 'x-incudal-body-sha256': bodyHash,
+      'x-incudal-signature': createAgentSignature(original.agentSecret, { method: 'POST', path: '/agent/heartbeat', timestamp, nonce, bodyHash })
+    } })
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.json().poolHostBbr, false, 'ordinary host is excluded from machine-pool BBR')
+    const stored = await snapshot()
+    assert.equal(stored.status, 'online'); assert.equal(guestProtectionReady(stored), true)
+    assert.deepEqual((stored.lastReport as any).runtime.bbr, bbr, 'BBR errors remain observable without losing heartbeat')
+    assert.deepEqual(await prisma.host.findUniqueOrThrow({ where: { id: host.id } }), originalHost, 'optional BBR reports cannot alter machine-pool host state')
+  }
+  await prisma.host.update({ where: { id: host.id }, data: { singleTenant: true } })
+  const poolResponse = await packet(Date.now(), true)
+  assert.equal(poolResponse.statusCode, 200)
+  assert.equal(poolResponse.json().poolHostBbr, true, 'legacy pool host is selected even without onboarding node/marker')
+  await prisma.host.update({ where: { id: host.id }, data: { singleTenant: originalHost.singleTenant } })
+  console.log('PASS signed BBR pending/failure/unsupported/applied heartbeats preserve online status, security receipt and original host')
+  await prisma.hostAgentNonce.deleteMany({where:{agentId:original.agentId}})
   await prisma.hostAgentNonce.create({ data: { agentId: original.agentId, nonce: tag, expiresAt: new Date(Date.now() + 60000) } })
   const before = await snapshot()
   afterAuthentication = () => prisma.host.update({ where: { id: host.id }, data: { userId: other.id } })

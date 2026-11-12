@@ -65,7 +65,12 @@ apk() { echo apk >> actions; [ "\${FAIL_PACKAGES:-0}" != 1 ]; }
 apt-get() { echo apt >> actions; [ "\${FAIL_PACKAGES:-0}" != 1 ]; }
 dpkg() { return 0; }
 modprobe() { :; }
-sysctl() { if [ "$1" = -n ]; then echo bbr; else echo bbr-set >> actions; fi; }
+sysctl() {
+  if [ "$1" = -n ]; then
+    [ "\${FAIL_BBR:-0}" != capability ] || return 1
+    if [ "\${FAIL_BBR:-0}" = unsupported ]; then echo cubic; else echo bbr; fi
+  else echo bbr-set >> actions; [ "\${FAIL_BBR:-0}" != apply ]; fi
+}
 python3() { echo timezone >> actions; }
 rc-update() { :; }
 rc-service() { :; }
@@ -81,6 +86,14 @@ ${fixture}
     writeFileSync(join(directory, 'actions'), '')
     const first = run(); assert.equal(first.status, 0, first.stdout + first.stderr)
     const second = run(); assert.equal(second.status, 0, second.stdout + second.stderr)
+    const settings = join(directory, 'etc/sysctl.d/90-incudal-bbr.conf')
+    writeFileSync(settings, '# administrator original\nnet.ipv4.tcp_keepalive_time=123\n')
+    for (const failure of ['capability', 'unsupported', 'apply']) {
+      const result = run({ FAIL_BBR: failure })
+      assert.equal(result.status, 0, 'optional BBR cannot interrupt onboarding: ' + result.stdout + result.stderr)
+      assert.match(result.stdout, failure === 'unsupported' ? /INCUDAL_BBR:kernel-unavailable/ : /INCUDAL_BBR:pending/)
+      assert.equal(readFileSync(settings, 'utf8'), '# administrator original\nnet.ipv4.tcp_keepalive_time=123\n')
+    }
     const key = readFileSync(join(directory, `root/.incudal-onboarding/${id}/wg.key`), 'utf8')
     assert.equal(key.trim(), 'private-fixture-key')
     assert.ok(readFileSync(join(directory, 'actions'), 'utf8').includes('timezone'))

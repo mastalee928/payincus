@@ -50,6 +50,10 @@ if [[ "$init" == openrc ]]; then unit=/etc/init.d/incudal-gateway; fi
 if [[ -e "$unit" ]]; then
     [[ ! -L "$unit" ]] && grep -Fxq '# payincus-gateway-transport-v1' "$unit" || { echo 'Unrelated existing gateway service.' >&2; exit 1; }
 fi
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+if ! python3 "$script_dir/ensure-time-sync.py" --install; then
+  echo 'TIME_SYNC_INSTALL_PENDING: clock scheduler installation failed; see /var/lib/incudal-time-sync/status.json. Gateway configuration continues.' >&2
+fi
 "$binary" --apply "$config"
 install -d -m 0755 /usr/local/libexec
 install -m 0755 "$binary" "$target"

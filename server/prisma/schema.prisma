@@ -1124,6 +1124,7 @@ model Instance {
   suspendReason    String?   @map("suspend_reason")    // 封停原因（expired=到期封停，其他=手动封停原因）
   // 计费价格（从方案复制，支持后续调整）
   billingPrice     Decimal?  @map("billing_price") @db.Decimal(10, 2)  // 单周期价格（元），区别于PackagePlan.price的分
+  renewalPrice     Decimal?  @map("renewal_price") @db.Decimal(10, 2) // 管理员设定的下期最终价（元/原周期），null沿原计价
   billingCycle     Int?      @map("billing_cycle")  // 计费周期（月）
   // 自动续费
   autoRenew        Boolean   @default(false) @map("auto_renew")

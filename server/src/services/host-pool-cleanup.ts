@@ -214,7 +214,7 @@ export async function processPoolCleanup(hostId: number, connect = getIncusClien
 
 /** Bounded, rotating scan: each failed item retains its own backoff. */
 let cleanupCursor = 0
-export async function processPoolCleanupQueue(connect = getIncusClient): Promise<void> {
+export async function processPoolCleanupQueue(connect = getIncusClient, maxTargets = 5): Promise<void> {
   if (running || recoveryHeld()) return
   running = true
   try {
@@ -272,7 +272,7 @@ export async function processPoolCleanupQueue(connect = getIncusClient): Promise
         }
         if (state && ['pending', 'retry', 'blocked'].includes(state.status)) await processPoolCleanup(host.id, connect)
       } catch { console.warn(`[HostRepair] Cleanup host #${host.id} will retry; other hosts continue`) }
-      if (++processed >= 5) break
+      if (++processed >= maxTargets) break
     }
   } finally { running = false }
 }

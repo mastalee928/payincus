@@ -22,6 +22,7 @@ export class IncusApiError extends Error {
 }
 
 export interface IncusRequestConditions {
+  onResponseDate?: (date: string | undefined) => void
   ifMatch?: string
   onEtag?: (etag: string | undefined) => void
   onOperation?: (path: string) => Promise<void>
@@ -212,6 +213,9 @@ export class IncusClient {
 
       const etag = response.headers.etag
       conditions?.onEtag?.(typeof etag === 'string' ? etag : undefined)
+      // Legacy manually registered transports may not have a pinned peer.
+      // Their clock cannot grant extra freshness to a security receipt.
+      conditions?.onResponseDate?.(this.baseUrl.startsWith('https://') && this.serverCertificate && this.serverFingerprint && typeof response.headers.date === 'string' ? response.headers.date : undefined)
 
       // 异步操作需要等待完成
       if (data.type === 'async' && data.operation) {

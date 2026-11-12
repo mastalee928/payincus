@@ -16,11 +16,19 @@ export async function registeredGuestIdentity(database: Pick<Prisma.TransactionC
     taskType: { in: ['replace_host', 'change_host', 'rebuild', 'recreate'] } }, orderBy: { id: 'desc' } })
   const replaced = record(replacement?.replacementState)
   const saved = record(specs.recoveryIdentity ?? specs.managedCleanup)
+  // Historical in-place rebuilds keep Incus UUID and creation time. Older
+  // workers recorded an empty task state, which must not erase the existing
+  // delivery proof. A recreation/migration or any partial identity receipt
+  // still requires its own verified target and must never use this fallback.
+  const legacyInPlaceRebuild = replacement?.taskType === 'rebuild' && replacement.status === 'COMPLETED' &&
+    replacement.hostId === host.id && (replacement.targetHostId === null || replacement.targetHostId === host.id) &&
+    replacement.replacementState !== null && typeof replacement.replacementState === 'object' &&
+    !Array.isArray(replacement.replacementState) && Object.keys(replaced).length === 0
   const durableSwitch = replacement?.status === 'COMPLETED' || (['verified', 'source_cleanup'].includes(String(replaced.targetPhase)) &&
     replaced.targetUuid === saved.uuid && replaced.targetCreatedAt === saved.createdAt)
-  const identity = replacement ? (durableSwitch && replaced.targetHostIdentity === transferHostIdentity(host) &&
+  const identity = !replacement || legacyInPlaceRebuild ? saved : (durableSwitch && replaced.targetHostIdentity === transferHostIdentity(host) &&
     replaced.targetIncusId === instance.incusId && replacement.targetHostId === host.id
-    ? { uuid: replaced.targetUuid, createdAt: replaced.targetCreatedAt } : {}) : saved
+    ? { uuid: replaced.targetUuid, createdAt: replaced.targetCreatedAt } : {})
   return {
     uuid: typeof identity.uuid === 'string' ? identity.uuid : null,
     createdAt: typeof identity.createdAt === 'string' ? identity.createdAt : null

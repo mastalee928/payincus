@@ -70,6 +70,20 @@ try {
   assert.deepEqual((await getPoolOrderResult(buyer.id, orderId))!.instances[0]!.publicIpv6Addresses, [a, b])
   assert.deepEqual(customerIpv6View((await getInstanceById(instance.id))!.dedicated_ipv6)?.addresses, [a, b])
   assert.deepEqual(customerIpv6View((await getInstancesPaginated({ userId: buyer.id })).items[0]!.dedicated_ipv6)?.addresses, [a, b])
+  const deliveryCount = deliveries
+  await prisma.instance.update({where:{id:instance.id},data:{status:'suspended',suspendReason:'expired',suspendedBy:null,suspendedAt:new Date()}})
+  assert.equal((await syncHostPublicIpv6(host.id,{},deps)).error,'IPV6_INSTANCE_STOPPED')
+  const retained=customerIpv6View((await getInstanceById(instance.id))!.dedicated_ipv6)
+  assert.deepEqual(retained?.addresses,[a,b]);assert.equal(retained?.status,'ready')
+  assert.equal(deliveries,deliveryCount,'suspension does not reconfigure or reverify the guest')
+  addresses=[a,b,'2603:c020:802a:cc00::3']
+  assert.equal((await syncHostPublicIpv6(host.id,{},deps)).error,'IPV6_INSTANCE_STOPPED')
+  const newAddressWhileStopped=customerIpv6View((await getInstanceById(instance.id))!.dedicated_ipv6)
+  assert.deepEqual(newAddressWhileStopped?.addresses,[a,b])
+  assert.equal(newAddressWhileStopped?.status,'pending','a newly assigned address is not verified merely because older mappings are ready')
+  addresses=[a,b]
+  await prisma.instance.update({where:{id:instance.id},data:{status:'running',suspendReason:null,suspendedAt:null}})
+  assert.equal((await syncHostPublicIpv6(host.id,{},deps)).status,'synced')
   const hostBeforeMaintenance=await prisma.host.findUniqueOrThrow({where:{id:host.id}}),customerBeforeMaintenance=await prisma.instance.findUniqueOrThrow({where:{id:instance.id}})
   const deliveriesBeforeMaintenance=deliveries
   await prisma.host.update({where:{id:host.id},data:{securityHardening:{maintenance:{phase:'waiting-boot'}}}})

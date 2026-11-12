@@ -79,9 +79,29 @@ test "$(systemctl show incudal-backend -p NRestarts --value)" = 0
 test "$(ss -ltnp 'sport = :3001' | tail -n +2 | wc -l)" = 1
 systemctl is-active --quiet wg-quick@incudal-mgmt
 
+# Verify the helper from the installed archive on the actual systemd host.
+# The old OTA worker invokes this same backup installer on the next upgrade.
+cmp /opt/incudal/scripts/ensure-time-sync.py /usr/local/libexec/incudal/ensure-time-sync.py
+systemctl is-enabled --quiet incudal-time-sync.timer
+systemctl is-active --quiet incudal-time-sync.timer
+systemctl start incudal-time-sync.service
+python3 - <<'PY'
+import json, pathlib, subprocess, time
+state=json.loads(pathlib.Path('/var/lib/incudal-time-sync/status.json').read_text())
+assert state['state'] in ('synchronized','synchronizing'), state
+assert isinstance(state['synchronized'],bool) and state['synchronized']==(state['state']=='synchronized'), state
+assert -5 <= time.time()-state['checkedAt'] < 300, state
+assert state['service'] in ('incudal-clock','chrony','chronyd','ntpsec','ntp','systemd-timesyncd'), state
+subprocess.run(['systemctl','is-active','--quiet',state['service']],check=True)
+print('PASS installed continuous time sync: exact packaged helper, enabled timer, live clock service and fresh truthful status; no clock step')
+PY
+
 for file in client/dist/user/index.html client/dist/admin/index.html server/dist/services/admin-instance-push.js \
   server/dist/workers/hostOnboardingWorker.js server/templates/install-alpine.sh scripts/ensure-host-swap.py \
   server/dist/services/host-public-ipv6-sync.js server/dist/lib/incus/dedicated-ipv6.js \
+  server/dist/services/instance-patrol.js server/dist/lib/incus/lifecycle-operation-idle.js \
+  server/dist/services/admin-instance-renewal-price.js server/dist/routes/admin-instance-renewal-price.js \
+  server/prisma/migrations/20261111170000_instance_renewal_price/migration.sql \
   server/dist/lib/agent-version.js server/dist/lib/upaypro.js \
   server/prisma/migrations/202610160002_dedicated_ipv6/migration.sql \
   scripts/probe-management-gateway.py scripts/onboarding-gateway.py scripts/setup-onboarding-control.py \

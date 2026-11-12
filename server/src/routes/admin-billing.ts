@@ -9,6 +9,7 @@ import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js
 import type { FastifyInstance } from 'fastify'
 import rechargeReconciliationRoutes from './recharge-reconciliation.js'
 import adminInstanceExpiryRoutes from './admin-instance-expiry.js'
+import adminInstanceRenewalPriceRoutes from './admin-instance-renewal-price.js'
 import { Prisma, type FinancialReconciliationItemType, type FinancialReconciliationStatus, type InstanceStatus } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { assertNoPendingProxySiteOperations, ProxySiteOperationPendingError } from '../db/proxy-site-operation-guards.js'
@@ -622,6 +623,13 @@ async function buildBatchPriceUpdatePreview(
       : null
     const oldPrice = Number(instance.billingPrice) || 0
 
+    if (instance.renewalPrice !== null) {
+      items.push({ id: instance.id, name: instance.name, user, oldPrice, newPrice,
+        billingCycle: instance.billingCycle, remainingDays: 0, priceDiff: 0, discountRate: 0,
+        status: 'failed', error: '已设置最终续费价，请在实例详情修改续费价格' })
+      continue
+    }
+
     if (instance.status === 'deleted') {
       items.push({
         id: instance.id,
@@ -694,6 +702,7 @@ async function buildBatchPriceUpdatePreview(
 export default async function adminBillingRoutes(app: FastifyInstance): Promise<void> {
   await app.register(rechargeReconciliationRoutes)
   await app.register(adminInstanceExpiryRoutes)
+  await app.register(adminInstanceRenewalPriceRoutes)
   await registerExpiryEnforcementRoutes(app, { status: getExpiryEnforcementStatus, start: startExpiryEnforcement, run: executeExpiryEnforcement, logs: getExpiryEnforcementHistory })
   // ==================== 计费概览 ====================
 
@@ -2445,6 +2454,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         if (!currentInstance.packagePlanId) {
           throw new BatchPriceUpdateError('免费实例不支持修改价格')
         }
+        if (currentInstance.renewalPrice !== null) throw new BatchPriceUpdateError('已设置最终续费价，请在实例详情修改续费价格', 409)
 
         const currentOldPrice = Number(currentInstance.billingPrice) || 0
         const comparisonVersion = Number.isInteger(expectedVersion) ? expectedVersion : instance.version
@@ -2643,6 +2653,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       }
 
       // 预览与执行共用实付账单剩余价值口径，避免按 billingPrice 名义价抵扣。
+      if (instance.renewalPrice !== null) return reply.status(409).send({ error: '已设置最终续费价，请在实例详情修改续费价格' })
       const quote = await db.calculateInstancePriceAdjustmentQuote(instance, newPrice, settleBalance)
       const userBalance = Number(instance.user?.balance || 0)
 
@@ -3015,7 +3026,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
             package: inst.package,
             packagePlan: inst.packagePlan,
             packagePlanId: inst.packagePlanId,
-            billingPrice: inst.billingPrice ? Number(inst.billingPrice) : null,
+            billingPrice: inst.renewalPrice !== null ? Number(inst.renewalPrice) : inst.billingPrice !== null ? Number(inst.billingPrice) : null,
             billingCycle: inst.billingCycle,
             expiresAt: inst.expiresAt?.toISOString(),
             createdAt: inst.createdAt.toISOString(),

@@ -107,6 +107,19 @@ try {
   assert.equal(state(await snapshot(lost.id)).status, 'done')
   assert.equal(agentCalls, afterLost, 'a verified heartbeat resolves a lost repair receipt without another write')
   console.log('PASS lost receipt completes automatically from the same current signed identity heartbeat')
+  const stoppedAgent = await fixture(false)
+  await prisma.host.update({ where: { id: stoppedAgent.id }, data: panelCertificatePaths() })
+  await prisma.hostAgent.update({ where: { hostId: stoppedAgent.id }, data: { version: 'v1.0.6', lastSeenAt: new Date(Date.now() - 6 * 60000) } })
+  const beforeReconnect = agentCalls
+  await repairHostManagementQueue(deps)
+  assert.equal(agentCalls, beforeReconnect + 1, 'stale established Agent is automatically reconciled over original trusted channel')
+  assert.equal(state(await snapshot(stoppedAgent.id)).status, 'waiting-heartbeat')
+  assert.equal((await snapshot(stoppedAgent.id)).agent!.agentId, stoppedAgent.agent!.agentId)
+  await prisma.hostAgent.update({ where: { hostId: stoppedAgent.id }, data: { lastSeenAt: new Date(), status: 'online' } })
+  await due(stoppedAgent.id); await repairHostManagementQueue(deps)
+  assert.equal(state(await snapshot(stoppedAgent.id)).status, 'done')
+  assert.equal(agentCalls, beforeReconnect + 1)
+  console.log('PASS established Agent disappears -> automatic current-config repair -> same identity heartbeat confirms recovery without customer restart')
 
   for (const mode of ['disabled', 'revoked', 'new-installer', 'pending-install', 'wrong-binding', 'revoked-admin', 'not-installed', 'hold']) {
     const host = await fixture(); const before = agentCalls

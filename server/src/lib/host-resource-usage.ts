@@ -41,17 +41,20 @@ export const HOST_OCCUPIED_INSTANCE_WHERE: Prisma.InstanceWhereInput = {
 }
 
 export function dedicatedHostReadyWhere(receiptValidAt = new Date()): Prisma.HostWhereInput {
+  // In-flight delivery can retain its admission time for the hardening proof.
+  // Liveness and network protection must always use one current timestamp.
+  const observedAt = new Date()
   return {
     poolFaulted: false, publicIpSyncBlocked: false, status: 'online', isInstalled: true, installPending: false, instanceType: { in: ['container', 'both'] },
     certPath: { not: null }, keyPath: { not: null },
     storagePools: { some: { purpose: 'instance_data' } },
     natPublicIp: { not: null }, natPortStart: { not: null }, natPortEnd: { not: null },
-    agent: { is: guestProtectionReadyWhere() },
+    agent: { is: guestProtectionReadyWhere(observedAt) },
     OR: [
       { onboardingNode: { is: null }, ...hostHardeningReadyWhere(receiptValidAt) },
       { onboardingNode: { is: { status: 'succeeded' } },
         ...hostHardeningReadyWhere(receiptValidAt),
-        agent: { is: { enabled: true, lastSeenAt: { gte: new Date(Date.now() - 90000) } } } }
+        agent: { is: { enabled: true, lastSeenAt: { gte: new Date(observedAt.getTime() - 90000) } } } }
     ]
   }
 }

@@ -220,6 +220,7 @@ const publicServiceSelect = {
   suspendedAt: true,
   suspendReason: true,
   billingPrice: true,
+  renewalPrice: true,
   billingCycle: true,
   autoRenew: true,
   createdAt: true,
@@ -826,7 +827,7 @@ function serializePublicService(instance: PublicServiceRecord) {
       expiresAt: instance.expiresAt?.toISOString() ?? null,
       suspendedAt: instance.suspendedAt?.toISOString() ?? null,
       suspendReason: instance.suspendReason,
-      billingPrice: instance.billingPrice === null ? null : toMoney(instance.billingPrice),
+      billingPrice: instance.renewalPrice !== null ? toMoney(instance.renewalPrice) : instance.billingPrice === null ? null : toMoney(instance.billingPrice),
       billingCycle: instance.billingCycle,
       autoRenew: instance.autoRenew,
       plan: instance.packagePlan ? {

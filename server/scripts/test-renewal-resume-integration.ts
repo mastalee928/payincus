@@ -158,11 +158,12 @@ try {
   assert.equal(starts.get(invalid.instance.incusId) ?? 0, 0); await assertPaidOnce(invalid.instance.id)
   console.log('PASS malformed paid start intent terminates without blocking the queue or recharging')
 
-  for (const verified of [true, false]) {
+  for (const verified of [true, false, 'legacy-rebuild'] as const) {
     const replaced = await make()
     const history = await prisma.instanceTask.create({ data: { instanceId: replaced.instance.id, hostId: replaced.host.id,
-      targetHostId: replaced.host.id, userId: replaced.user.id, taskType: verified ? 'replace_host' : 'recreate', status: 'COMPLETED',
-      finishedAt: new Date(Date.now() - 8 * 86400000), replacementState: verified ? {
+      targetHostId: verified === 'legacy-rebuild' ? null : replaced.host.id, userId: replaced.user.id,
+      taskType: verified === 'legacy-rebuild' ? 'rebuild' : verified ? 'replace_host' : 'recreate', status: 'COMPLETED',
+      finishedAt: new Date(Date.now() - 8 * 86400000), replacementState: verified === true ? {
         targetHostIdentity: transferHostIdentity(replaced.host), targetIncusId: replaced.instance.incusId,
         targetUuid: replaced.guest.config['volatile.uuid'], targetCreatedAt: replaced.guest.created_at
       } : {} } })

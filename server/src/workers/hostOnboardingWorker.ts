@@ -6,6 +6,7 @@ import type { Client } from 'ssh2'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { guestProtectionReady } from '../lib/guest-network-protection.js'
+import { hardeningReason } from '../lib/security-hardening.js'
 import { createLog } from '../db/logs.js'
 import { readOnboardingCredentials } from '../lib/onboarding-credentials.js'
 import { ONBOARDING_RETRY_CODES, canAutomaticallyResumeOnboarding } from '../lib/onboarding-retry.js'
@@ -46,6 +47,11 @@ export async function claimHostOnboardingNode() {
           (h.security_hardening->>'nextCheckAt' IS NULL OR h.security_hardening->>'nextCheckAt' <= ${new Date().toISOString()} OR
             (h.security_hardening->>'status' = 'verified' AND h.security_hardening->>'phase' = 'finished' AND
               n.updated_at <= (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 seconds')))) AND
+        (error_code IS DISTINCT FROM 'HARDENING_BATCH_PAUSED' OR NOT EXISTS (
+          SELECT 1 FROM hosts other WHERE other.id <> n.host_id AND
+            other.security_hardening->'maintenance' IS NOT NULL AND
+            other.security_hardening->'maintenance' <> 'null'::jsonb AND
+            COALESCE(other.security_hardening->'maintenance'->>'phase','') NOT IN ('verified','aborted'))) AND
         (peer_retirement->>'nextAttemptAt' IS NULL OR peer_retirement->>'nextAttemptAt' <= ${new Date().toISOString()})
         OR (status = 'running' AND lease_until < (NOW() AT TIME ZONE 'UTC')))
       ORDER BY CASE WHEN step = 'hardening' AND EXISTS (SELECT 1 FROM hosts h WHERE h.id = host_id AND
@@ -59,7 +65,7 @@ export async function claimHostOnboardingNode() {
     const current = await tx.hostOnboardingNode.findUniqueOrThrow({ where: { id: rows[0].id } })
     const claimed = await tx.hostOnboardingNode.update({ where: { id: current.id }, data: {
       status: 'running', leaseToken: randomUUID(), leaseUntil: new Date(Date.now() + 60000),
-      attempt: current.status === 'queued' ? { increment: 1 } : undefined,
+      attempt: current.status === 'queued' && current.step !== 'hardening' ? { increment: 1 } : undefined,
       startedAt: current.startedAt || new Date(), errorCode: null
     }, include: { batch: true, host: true } })
     return { ...claimed, installerRestartAllowed: current.status === 'queued' && !current.startedAt && !current.errorCode }
@@ -322,10 +328,12 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
       const resumable = gatewayStage && current?.hostId === null && retirement && retirement.attempts < 5 &&
         ['GATEWAY_RETIREMENT_FAILED', 'GATEWAY_RETIREMENT_EXPIRED', 'GATEWAY_RECOVERY_BUSY', 'SSH_CONNECT_FAILED', 'SSH_DISCONNECTED', 'SSH_COMMAND_TIMEOUT'].includes(code)
       const bootstrapResume = !gatewayStage && current && canAutomaticallyResumeOnboarding(current, code)
-      await prisma.hostOnboardingNode.updateMany({ where, data: { status: resumable || hardeningResume || bootstrapResume ? 'queued' : 'failed', errorCode: code,
+      const saved = await prisma.hostOnboardingNode.updateMany({ where, data: { status: resumable || hardeningResume || bootstrapResume ? 'queued' : 'failed', errorCode: code,
         completedAt: resumable || hardeningResume || bootstrapResume ? null : new Date(), leaseToken: null, leaseUntil: null,
         ...(resumable ? { peerRetirement: { ...retirement, attempts: retirement.attempts + 1, error: code,
           nextAttemptAt: new Date(Date.now() + Math.min(300000, 15000 * 2 ** retirement.attempts)).toISOString() } as unknown as Prisma.InputJsonValue } : {}) } })
+      if (saved.count && hardeningResume) await createLog(node.batch.createdById, 'host', 'host.onboarding.wait',
+        `宿主 #${current!.hostId} 接入安全验收：${hardeningReason(code)}。保留原任务自动续接。`, 'warning')
     }
   } finally { clearInterval(heartbeat); ssh?.end() }
 }

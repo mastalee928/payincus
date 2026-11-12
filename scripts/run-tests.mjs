@@ -50,11 +50,17 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
+  ['test:guest-network-clock-transport', 'requires OpenSSL and a local mTLS server; authentic Incus Date, stale receipts, missing pin/header and excessive skew'],
   ['test:instance-reinstall-identity', 'requires isolated local *_pool_test PostgreSQL and local mTLS Incus transport; real rebuild/recreate worker identity, lost replies and cleanup retention'],
   ['test:admin-user-email-integration', 'requires isolated local *_pool_test PostgreSQL; real JWT/admin authorization, email allocation races, credential revocation and audit rollback'],
   ['test:admin-user-email-browser', 'requires Chrome/Edge and local Vite; real UsersView/email modal, three locales/viewports/themes, repeat submit and stale replies with isolated API fixture'],
   ['test:gateway-recheck-ui', 'requires Chrome/Edge and local Vite; actual gateway panel with isolated API, repeated read-only checks, old-plan protection and first setup'],
   ['test:admin-instance-expiry-integration', 'requires isolated local *_pool_test PostgreSQL; actual admin expiry API, monetary invariants, audit rollback and renewal/deletion/authorization races'],
+  ['test:admin-instance-renewal-price-integration', 'requires isolated local *_pool_test PostgreSQL; signed admin price API, final/zero-price renewals, paid refunds, authorization/row-lock races, audit rollback and automatic scheduler'],
+  ['test:pool-instance-renewal-price-resale', 'requires isolated local *_pool_test PostgreSQL; modified current instance, verified empty pool cleanup and same-host resale at original product price'],
+  ['test:ipv6-legacy-address-script', 'requires awk; executes exact pure old SLAAC selector with recorded address flags, preserving static/current mapping addresses'],
+  ['test:ipv6-status-browser', 'requires Chrome/Edge and local Vue; confirmed allocation no false configuration hint, true pending state, locales and mobile/desktop'],
+  ['test:admin-instance-renewal-price-browser', 'requires Chrome/Edge and local Vite; real price editor, three locales/viewports/themes, strict/zero prices, keyboard and stale binding/session receipts'],
   ['test:admin-instance-expiry-browser', 'requires Chrome/Edge and local Vite; actual expiry modal, 18 locale/viewport/theme combinations, dates/DST, duplicate submit and stale session/target receipts; isolated API fixture'],
   ['test:auto-renew-credit-integration', 'requires isolated local *_pool_test PostgreSQL; committed recharge wakeups, deterministic partial funding, suspension retention, exact debit and actual row-lock cutoff races'],
   ['test:renewal-resume-integration', 'requires isolated local *_pool_test PostgreSQL and OpenSSL; durable post-renewal starts, actual worker, HTTPS identity checks, receipt loss, row-lock suspension races and bounded retries'],
@@ -181,7 +187,7 @@ const EXCLUDED_FROM_SUITE = new Map([
   ['test:review-host-delete-lifecycle', 'requires Chrome/Edge and local Vite; host deletion fixed targets, preview validation, pending writes and session/cache lifecycle'],
   ['test:review-host-batch-actions', 'requires Chrome/Edge and local Vite; host suspension, unsuspension and sync fixed targets, partial failures and session/query lifecycle'],
   ['test:review-host-gift-lifecycle', 'requires Chrome/Edge and local Vite; host gift paid targets, strict days, partial retry and session/cache lifecycle'],
-  ['test:review-host-price-lifecycle', 'requires Chrome/Edge and local Vite; host renewal price target, amount bounds, newer drafts and list/session/cache lifecycle'],
+  ['test:review-host-price-lifecycle', 'requires Chrome/Edge and local Vite; customer and administrator host lists, all locales/widths, no legacy price controls/editor or mutation client'],
   ['test:review-host-reset-lifecycle', 'requires Chrome/Edge and local Vite; host traffic reset target, success versus display failure and list/session/cache lifecycle'],
   ['test:review-host-notify-lifecycle', 'requires Chrome/Edge and local Vite; host notification target snapshot, draft preservation and session/cache lifecycle'],
   ['test:review-host-recreate-lifecycle', 'requires Chrome/Edge and local Vite; host recreate image/key preparation, fixed target and session/cache lifecycle'],

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { decideRenewalPrice } from '../src/lib/renewal-price.js'
 
 const routeSource = readFileSync(resolve(process.cwd(), 'src/routes/vip-benefits.ts'), 'utf8')
 const serviceSource = readFileSync(resolve(process.cwd(), 'src/services/vip-benefits.ts'), 'utf8')
@@ -30,9 +31,13 @@ assert.ok(
     serviceSource.includes('candidate.price < best.price') &&
     instanceRouteSource.includes('const priceDecision = arbitrateVipPrice({') &&
     instanceRouteSource.includes('vipDiscountPercent: vip.benefit.orderDiscountPercent') &&
-    billingSource.includes('const renewalPrice = arbitrateVipPrice({'),
-  'new purchase and renewal pricing must use one backend arbiter and choose one best AFF/VIP discount'
+    billingSource.includes('const renewalPrice = decideRenewalPrice({'),
+  'new purchase and renewal pricing must retain one backend arbiter; the per-instance final-price decision controls renewal discounts'
 )
+assert.equal(decideRenewalPrice({ basePrice: 100, affDiscountRate: 0.2, vipDiscountPercent: 5 }, null).finalPrice, 80,
+  'ordinary renewals still choose the best AFF/VIP discount')
+assert.equal(decideRenewalPrice({ basePrice: 12.34, affDiscountRate: 0.2, vipDiscountPercent: 5 }, 12.34).finalPrice, 12.34,
+  'administrator final renewal price cannot receive another AFF/VIP discount')
 
 assert.ok(
   trafficSource.includes('const vipExtraTrafficQuota = await getVipExtraTrafficQuota(instance.userId, instance.monthlyTrafficLimit)') &&

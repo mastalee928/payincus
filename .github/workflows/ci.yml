@@ -397,6 +397,12 @@ jobs:
         run: pnpm --filter server test:review-host-extend-all
       - name: Admin expiry changes preserve balances and reject stale authority or expiry
         run: pnpm --filter server test:admin-instance-expiry-integration
+      - name: Admin final renewal prices preserve paid bills and current authority
+        run: pnpm --filter server test:admin-instance-renewal-price-integration
+      - name: Old instance price cannot change same-host resale pricing
+        run: pnpm --filter server test:pool-instance-renewal-price-resale
+      - name: Admin renewal price form preserves target and session
+        run: pnpm --filter server test:admin-instance-renewal-price-browser
       - name: Admin expiry form preserves timezone and current target/session
         run: pnpm --filter server test:admin-instance-expiry-browser
       - name: Admin email changes enforce authority and atomic credential invalidation
