@@ -1,5 +1,7 @@
 # v1.8.7 发行验证记录
 
+> 2026-11-12后续实证：主控从v1.8.6升级本版失败并回滚，根因为新组件清单误拒历史已登记组件。下文是当时的发行／首装证据，不能视作旧版升级通过；现已由v1.8.8修复，latest历史值仅对应当时。后续发版必读[事故复盘](postmortem-v1.8.7-upgrade-2026-11-12.md)和[v1.8.8修复验收](release-v1.8.8-validation.md)。
+
 2026-11-12已公开发行 [面板v1.8.7](https://github.com/mastalee928/payincus/releases/tag/v1.8.7) 与 [Agentv1.0.7](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.7)。面板latest=v1.8.7。三轮审视后精修、提交推送、最终同来源CI、六片集成、双架构首装恢复和六公开资产均完成；没有代部署生产。
 
 正式源码 `41077946d0c789fe510aff53dd67675b101ffe3c`，tree `0d402f51ebd098a8a0017ae6bfdbbd92133c9358`，与完整通过候选 `835f06c615b5727747cb41abc1f54c7f05ce0324` 同树。PR #10已合入；v1.8.7注释tag对象 `3bf8a977b594f1123f0d2f3921d9690e479123b9` 解引用正式源码。Agent公开source=`c99067be2c5d2e0439dc8abd9f9aea1b6a5ba778`，其后仅面板账务／测试／发行校验变化，Agent全部构建协议输入及最终asset逐字节一致，原Agent tag与资产保持，main工作流验相同后跳过重复发布。
