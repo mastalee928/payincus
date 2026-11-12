@@ -22,6 +22,18 @@ FILES = sorted([
     'scripts/gateway-install-plan.py', 'scripts/verify-gateway-component-package.py',
     'scripts/execute-gateway-install.py',
 ])
+# Persisted v1.7/v1.8.0-6 components predate the clock helper. This frozen
+# layout is accepted only when verifying an already enrolled component, never
+# as the contents of a new release or an incoming installation request.
+LEGACY_FILES = sorted([
+    'LICENSE',
+    'bin/incudal-channels', 'bin/incudal-gateway', 'bin/incudal-maintenance', 'bin/node',
+    'lib/gateway-console.cjs', 'lib/gateway-backup.cjs', 'lib/controller-discovery.cjs', 'lib/controller-witness.cjs',
+    'ui/index.html', 'ui/console.css', 'ui/console.js',
+    'scripts/install-management-gateway.sh', 'scripts/install-management-channels.sh', 'scripts/install-gateway-console.sh',
+    'scripts/install-gateway-backup.sh', 'scripts/probe-management-gateway.py',
+    'scripts/gateway-install-plan.py', 'scripts/verify-gateway-component-package.py', 'scripts/execute-gateway-install.py',
+])
 PREFIX = b'payincus/gateway-component-package/v1\n'
 PROTOCOLS = {'gatewayTransport': 1, 'managementChannels': 1, 'maintenance': 1, 'discovery': 1, 'witness': 1, 'console': 1, 'backup': 1}
 
@@ -84,7 +96,7 @@ def verify_signature(envelope, pinned, *, prefix=PREFIX):
     return canonical_json(payload)
 
 
-def verify_package(directory, pinned, architecture, expected_version, expected_commit):
+def verify_package(directory, pinned, architecture, expected_version, expected_commit, *, enrolled_legacy=False):
     require(architecture in ('amd64', 'arm64') and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?', expected_version) and re.fullmatch(r'[a-f0-9]{40}', expected_commit))
     root = Path(directory)
     manifest_raw = protected_read(root / 'manifest.json', 49152, 0o644)
@@ -93,8 +105,11 @@ def verify_package(directory, pinned, architecture, expected_version, expected_c
     require(type(manifest['schemaVersion']) is int and manifest['schemaVersion'] == 1 and manifest['purpose'] == 'gateway-component-package')
     require(manifest['architecture'] == architecture and manifest['version'] == expected_version and manifest['sourceCommit'] == expected_commit)
     require(manifest['protocols'] == PROTOCOLS and all(type(value) is int for value in manifest['protocols'].values()))
-    require(isinstance(manifest['files'], list) and all(isinstance(item, dict) for item in manifest['files']) and
-            [item.get('path') for item in manifest['files']] == FILES)
+    require(isinstance(manifest['files'], list) and all(isinstance(item, dict) for item in manifest['files']))
+    names = [item.get('path') for item in manifest['files']]
+    legacy_version = re.fullmatch(r'1\.(?:7\.(?:0|[1-9][0-9]*)|8\.[0-6])', expected_version)
+    files = LEGACY_FILES if enrolled_legacy and legacy_version and names == LEGACY_FILES else FILES
+    require(names == files)
     observed_files, observed_directories = [], []
     def walk(path):
         for item in path.iterdir():
@@ -108,7 +123,7 @@ def verify_package(directory, pinned, architecture, expected_version, expected_c
                 require(stat.S_ISREG(info.st_mode))
                 observed_files.append(relative)
     walk(root)
-    require(sorted(observed_files) == sorted(FILES + ['manifest.json', 'package.json']) and sorted(observed_directories) == ['bin', 'lib', 'scripts', 'ui'])
+    require(sorted(observed_files) == sorted(files + ['manifest.json', 'package.json']) and sorted(observed_directories) == ['bin', 'lib', 'scripts', 'ui'])
     require(protected_read(root / 'package.json', 128, 0o644) == b'{"type":"commonjs","private":true}')
     total = 0
     for item in manifest['files']:
@@ -123,7 +138,7 @@ def verify_package(directory, pinned, architecture, expected_version, expected_c
         total += item['size']
     require(total <= 256 * 1024 * 1024)
     return {'verified': True, 'architecture': architecture, 'version': expected_version, 'sourceCommit': expected_commit,
-            'files': len(FILES), 'manifestHash': hashlib.sha256(manifest_raw).hexdigest(), 'canWrite': False}
+            'files': len(files), 'manifestHash': hashlib.sha256(manifest_raw).hexdigest(), 'canWrite': False}
 
 
 def main():

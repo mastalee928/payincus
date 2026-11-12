@@ -138,6 +138,47 @@ class PackageTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.verify()
 
+    def legacy_layout(self, version='1.8.6'):
+        self.manifest['version'] = version
+        self.manifest['files'] = [item for item in self.manifest['files'] if item['path'] != 'scripts/ensure-time-sync.py']
+        (self.package / 'scripts/ensure-time-sync.py').unlink()
+        self.sign()
+
+    def test_registered_legacy_layout_only_accepts_complete_original_files(self):
+        self.legacy_layout()
+        with self.assertRaises(ValueError):
+            self.verify(version='1.8.6')
+        verified = verifier.verify_package(self.package, self.pinned, 'arm64', '1.8.6', 'a' * 40, enrolled_legacy=True)
+        self.assertEqual(verified['files'], 20)
+        (self.package / 'ui/console.js').write_bytes(b'tampered')
+        with self.assertRaises(ValueError):
+            verifier.verify_package(self.package, self.pinned, 'arm64', '1.8.6', 'a' * 40, enrolled_legacy=True)
+
+    def test_current_version_cannot_downgrade_its_signed_file_layout(self):
+        self.legacy_layout('1.8.7')
+        with self.assertRaises(ValueError):
+            verifier.verify_package(self.package, self.pinned, 'arm64', '1.8.7', 'a' * 40, enrolled_legacy=True)
+
+    def test_legacy_layout_still_rejects_missing_extra_link_and_permission(self):
+        self.legacy_layout()
+        verify = lambda: verifier.verify_package(self.package, self.pinned, 'arm64', '1.8.6', 'a' * 40, enrolled_legacy=True)
+        target = self.package / 'ui/console.js'
+        original = target.read_bytes()
+        target.unlink()
+        with self.assertRaises((ValueError, OSError)):
+            verify()
+        target.write_bytes(original); target.chmod(0o644)
+        extra = self.package / 'extra'; extra.write_bytes(b'extra')
+        with self.assertRaises(ValueError):
+            verify()
+        extra.unlink()
+        target.chmod(0o666)
+        with self.assertRaises(ValueError):
+            verify()
+        target.chmod(0o644); target.unlink(); target.symlink_to('/etc/passwd')
+        with self.assertRaises(ValueError):
+            verify()
+
 
 if __name__ == '__main__':
     unittest.main()

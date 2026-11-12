@@ -35,7 +35,7 @@ class ProvisioningTests(unittest.TestCase):
         self.app = self.fixture.root / 'release'
         self.app.mkdir(mode=0o755)
         (self.app / 'server').mkdir(mode=0o755)
-        (self.app / 'server/package.json').write_text('{"version":"1.7.1"}')
+        (self.app / 'server/package.json').write_text('{"version":"1.8.8"}')
         (self.app / 'version.json').write_text(json.dumps({'gitCommit': 'a' * 12}))
         (self.app / 'vendor/gateway').mkdir(parents=True, mode=0o755)
         for architecture in ['amd64', 'arm64']:
@@ -43,6 +43,7 @@ class ProvisioningTests(unittest.TestCase):
             shutil.copytree(self.fixture.package, target)
             manifest = copy.deepcopy(self.fixture.manifest)
             manifest['architecture'] = architecture
+            manifest['version'] = '1.8.8'
             for item in manifest['files']:
                 if item['path'].startswith('bin/'):
                     data = (target / item['path']).read_bytes()
@@ -55,7 +56,7 @@ class ProvisioningTests(unittest.TestCase):
             message.write_bytes(fixtures.verifier.PREFIX + key_id.encode() + b'\n' + payload.encode())
             signature = subprocess.run(['/usr/bin/openssl', 'pkeyutl', '-sign', '-rawin', '-inkey', str(self.fixture.private), '-in', str(message)], check=True, capture_output=True).stdout
             (target / 'manifest.json').write_bytes(json.dumps({'schemaVersion': 1, 'keyId': key_id, 'payload': payload, 'signature': base64.b64encode(signature).decode()}, separators=(',', ':')).encode())
-        self.catalog = {'schemaVersion': 1, 'packageSigningKey': self.fixture.pinned, 'version': '1.7.1', 'sourceCommit': 'a'*40, 'architectures': ['amd64', 'arm64']}
+        self.catalog = {'schemaVersion': 1, 'packageSigningKey': self.fixture.pinned, 'version': '1.8.8', 'sourceCommit': 'a'*40, 'architectures': ['amd64', 'arm64']}
         self.write_catalog()
         self.env = self.fixture.root / '.env'
         self.env.write_text('ENCRYPTION_KEY=fixture-only\nDATABASE_URL=fixture-only\n')
@@ -91,6 +92,46 @@ class ProvisioningTests(unittest.TestCase):
         self.assertEqual((self.controller / 'signing.pem').read_bytes(), key)
         self.assertEqual((self.controller / 'identity.json').read_bytes(), identity)
         self.assertEqual(self.env.read_bytes(), env)
+
+    def test_old_enrolled_release_to_new_complete_release(self):
+        # Reproduce the live v1.8.6 -> v1.8.7 failure using genuine signatures:
+        # both old registered packages lack only the newly introduced helper.
+        old_app = self.fixture.root / 'old-release'
+        shutil.copytree(self.app, old_app)
+        for arch in ['amd64', 'arm64']:
+            target = old_app / 'vendor/gateway' / arch
+            manifest = json.loads(base64.b64decode(json.loads((target / 'manifest.json').read_bytes())['payload']))
+            manifest['version'] = '1.8.6'
+            manifest['files'] = [item for item in manifest['files'] if item['path'] != 'scripts/ensure-time-sync.py']
+            (target / 'scripts/ensure-time-sync.py').unlink()
+            payload = base64.b64encode(json.dumps(manifest, separators=(',', ':')).encode()).decode()
+            key_id = 'key_' + hashlib.sha256(base64.b64decode(self.fixture.pinned)).hexdigest()
+            message = self.fixture.root / 'old-message'
+            message.write_bytes(fixtures.verifier.PREFIX + key_id.encode() + b'\n' + payload.encode())
+            signature = subprocess.run(['/usr/bin/openssl', 'pkeyutl', '-sign', '-rawin', '-inkey', str(self.fixture.private), '-in', str(message)], check=True, capture_output=True).stdout
+            (target / 'manifest.json').write_bytes(json.dumps({'schemaVersion': 1, 'keyId': key_id, 'payload': payload,
+                'signature': base64.b64encode(signature).decode()}, separators=(',', ':')).encode())
+        value = {'platformId': '33333333-3333-4333-8333-333333333333', 'packageSigningKey': self.fixture.pinned,
+                 'components': {arch: {'directory': str(old_app / 'vendor/gateway' / arch), 'version': '1.8.6', 'sourceCommit': 'a' * 40}
+                                for arch in ['amd64', 'arm64']}}
+        # Only setup models the old verifier. The actual refresh uses the new
+        # verifier unchanged, including full old/new signatures and file hashes.
+        with patch.object(provisioner.package, 'FILES', provisioner.package.LEGACY_FILES):
+            provisioner.enrollment.enroll('initialize', value, self.controller)
+        self.env.write_text('GATEWAY_PLATFORM_ID=' + value['platformId'] + '\nOTHER=preserved\n')
+        key = (self.controller / 'signing.pem').read_bytes()
+        identity = (self.controller / 'identity.json').read_bytes()
+        environment = self.env.read_bytes()
+        result = self.provision('refresh')
+        self.assertTrue(result['verified'])
+        self.assertEqual((self.controller / 'signing.pem').read_bytes(), key)
+        self.assertEqual((self.controller / 'identity.json').read_bytes(), identity)
+        self.assertEqual(self.env.read_bytes(), environment)
+        enrollment = provisioner.enrollment.verify_enrollment(self.controller)
+        for component in enrollment['components'].values():
+            self.assertEqual(component['version'], '1.8.8')
+            self.assertTrue((Path(component['directory']) / 'scripts/ensure-time-sync.py').is_file())
+        self.assertEqual(self.provision('refresh'), result)
 
     def test_initialize_refuses_existing_and_partial_identity(self):
         self.provision()

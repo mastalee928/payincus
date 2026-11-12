@@ -99,6 +99,7 @@ def provision_locked(action, app, env_path, controller_root, component_root):
     if action == 'refresh':
         stage('existing-identity')
         saved = enrollment.verify_enrollment(controller_root)
+        stage('existing-platform-and-trust')
         require(platform == saved['platformId'] and catalog['packageSigningKey'] == saved['packageSigningKey'])
     else:
         stage('fresh-identity')

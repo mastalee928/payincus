@@ -1,5 +1,11 @@
 # 版本与验证记录
 
+## 2026-11-12 v1.8.7生产升级回滚，v1.8.8代码修复中
+
+- Owner授权只读查日志及仅从源码修复后发新版。本轮只读确认任务33的新续费价迁移成功，但新组件验证器拿21文件清单核已登记v1.8.6原20文件组件，导致`existing-identity`拒绝和自动回滚。原签名／身份／信任／权限／文件hash均正确。生产仍v1.8.6、唯一后端健康；没有代修或OTA。
+- v1.8.8仅给已登记旧版本精确清单兼容，所有签名／身份／内容／路径检查保持，新包仍严格完整清单。新增真实旧发行包worker升级门槛，AMD64／ARM64分别覆盖正常旧版与迁移已成功的原子回滚状态；不能再用首装成功代替旧版升级成功。
+- owner追加14秒时差漏包核查：两个v1.8.7公开tar及签名网关组件确有校时、心跳归一化、固定Incus响应Date及旧worker安装入口；升级回滚导致主控旧逻辑继续生效。真实mTLS与PG／HMAC偏差、防重放专项通过。完整状态见[本轮记录](docs/release-v1.8.8-validation.md)，候选尚未提交／推送／发行。
+
 ## 2026-11-12 v1.8.7／Agentv1.0.7三轮审视及正式发行完成
 
 - 已公开[面板v1.8.7](https://github.com/mastalee928/payincus/releases/tag/v1.8.7)和[Agentv1.0.7](https://github.com/mastalee928/payincus/releases/tag/agent-v1.0.7)，latest=v1.8.7。正式source=`41077946d0c789fe510aff53dd67675b101ffe3c`，tree=`0d402f51ebd098a8a0017ae6bfdbbd92133c9358`；PR #10合入，同已验候选835f06c6源码树一致，v1.8.7注释tag`3bf8a977b594f1123f0d2f3921d9690e479123b9`解引用正式source。历史tag／资产未改。
