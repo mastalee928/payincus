@@ -403,6 +403,8 @@ SETUP_STAGE=ssh-test
 # pipe early and deliver SIGPIPE while the daemon is emitting its config.
 SETUP_STAGE=ssh-effective-policy
 "$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 > /var/lib/incudal/sshd-effective-config
+tr '[:upper:]' '[:lower:]' < /var/lib/incudal/sshd-effective-config > /var/lib/incudal/sshd-policy-normalized
+mv /var/lib/incudal/sshd-policy-normalized /var/lib/incudal/sshd-effective-config
 grep '^passwordauthentication ' /var/lib/incudal/sshd-effective-config
 grep '^permitrootlogin ' /var/lib/incudal/sshd-effective-config
 grep -q '^passwordauthentication yes$' /var/lib/incudal/sshd-effective-config

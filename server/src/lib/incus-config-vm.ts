@@ -364,7 +364,9 @@ update_sshd_main_config() {
   sed -i -E 's/^[#[:space:]]*Subsystem[[:space:]]+sftp.*/Subsystem sftp internal-sftp/' "$config_path" || return 1
   grep -q '^Subsystem sftp ' "$config_path" || sed -i '1i Subsystem sftp internal-sftp' "$config_path"
   "$(command -v sshd)" -t || return 1
-  "$(command -v sshd)" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -q '^passwordauthentication yes$'
+  mkdir -p /var/lib/incudal
+  "$(command -v sshd)" -T -C user=root,host=localhost,addr=127.0.0.1 > /var/lib/incudal/sshd-effective-config || return 1
+  grep -qi '^passwordauthentication yes$' /var/lib/incudal/sshd-effective-config
 
 }
 
