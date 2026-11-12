@@ -6,6 +6,7 @@ import type { Client } from 'ssh2'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { guestProtectionReady } from '../lib/guest-network-protection.js'
+import { hostProvisioningToolsReady } from '../lib/host-provisioning-tools.js'
 import { hardeningReason } from '../lib/security-hardening.js'
 import { createLog } from '../db/logs.js'
 import { readOnboardingCredentials } from '../lib/onboarding-credentials.js'
@@ -308,7 +309,7 @@ async function runNode(node: NonNullable<Awaited<ReturnType<typeof claimHostOnbo
     for (let attempt = 0; attempt < 36; attempt++) {
       await checkpoint('verifying')
       const check = await prisma.host.findUniqueOrThrow({ where: { id: host.id }, include: { agent: true } })
-      if (guestProtectionReady(check.agent)) { agentReady = true; break }
+      if (guestProtectionReady(check.agent)&&hostProvisioningToolsReady(check.agent)) { agentReady = true; break }
       await pause(5000)
     }
     if (!agentReady) throw new OnboardingError('AGENT_NOT_READY')

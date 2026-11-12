@@ -138,7 +138,7 @@ try {
   const expiresAt=new Date(Date.now()+1500)
   await prisma.instance.update({where:{id:customer.id},data:{expiresAt}})
   authorizationDelayUntil=expiresAt.getTime()+25
-  await assert.rejects(recover(before),/HARDENING_BUSY/,'expiry crossing during authority check blocks the actual start request')
+  await assert.rejects(recover(before),(e:any)=>e.code==='INSTANCE_EXPIRED','expiry crossing during authority check blocks the actual start request')
   authorizationDelayUntil=0;assert.equal(startCalls,1)
   await prisma.instance.update({where:{id:customer.id},data:{expiresAt:null}})
   await prisma.instance.update({where:{id:customer.id},data:{status:'stopped'}})

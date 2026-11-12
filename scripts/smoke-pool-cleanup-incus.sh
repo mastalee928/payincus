@@ -3,7 +3,9 @@ set -euo pipefail
 [[ ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted && $EUID -eq 0 ]] || exit 1
 [[ ! -d /var/lib/incus/containers || -z $(ls -A /var/lib/incus/containers) ]] || { echo 'Disposable empty Incus host required'; exit 1; }
 apt-get update -qq
-apt-get install -y -qq incus busybox-static openssl
+apt-get install -y -qq incus busybox-static openssl apparmor
+command -v aa-exec
+aa-exec --help >/dev/null
 systemctl start incus
 incus admin waitready --timeout=30
 incus storage create cleanup-test dir

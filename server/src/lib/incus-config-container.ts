@@ -246,6 +246,7 @@ function wrapWithNetworkRetry(cmd: string): string {
     j=$((j+1))
     sleep ${CONFIG.NETWORK_RETRY_DELAY}
   done
+  [ $j -lt ${CONFIG.NETWORK_RETRY_COUNT} ] || exit 1
   `
 }
 
@@ -271,7 +272,7 @@ function getSetupCommands(osInfo: OsInfo): string[] {
     switch (osInfo.packageManager) {
       case 'apt':
         cmds.push(wrapWithNetworkRetry('DEBIAN_FRONTEND=noninteractive apt-get update'))
-        cmds.push('DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server sed grep iproute2 || true')
+        cmds.push(wrapWithNetworkRetry('DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server sed grep iproute2'))
         break
       case 'dnf':
         cmds.push(wrapWithNetworkRetry('dnf install -y openssh-server openssh-clients sed grep iproute'))
@@ -281,7 +282,7 @@ function getSetupCommands(osInfo: OsInfo): string[] {
         break
       case 'zypper':
         cmds.push(wrapWithNetworkRetry('zypper --non-interactive refresh'))
-        cmds.push('zypper --non-interactive install -y openssh sed grep iproute2 || true')
+        cmds.push(wrapWithNetworkRetry('zypper --non-interactive install -y openssh sed grep iproute2'))
         break
     }
   }
@@ -324,9 +325,9 @@ function generateSetupScript(
 
   let restartSshCmd: string
   if (osInfo.initSystem === 'openrc') {
-    restartSshCmd = `rc-service ${sshServiceName} restart 2>/dev/null || /etc/init.d/${sshServiceName} restart || /etc/init.d/${sshServiceName} start || true`
+    restartSshCmd = `rc-service ${sshServiceName} restart 2>/dev/null || /etc/init.d/${sshServiceName} restart || /etc/init.d/${sshServiceName} start`
   } else {
-    restartSshCmd = `systemctl restart ${sshServiceName} 2>/dev/null || service ${sshServiceName} restart || true`
+    restartSshCmd = `systemctl restart ${sshServiceName} 2>/dev/null || service ${sshServiceName} restart`
   }
 
   return `#!/bin/sh
@@ -341,7 +342,7 @@ ${osInfo.family === 'alpine' ? '/usr/local/bin/incudal-alpine-ssh-security.sh ch
 if echo "root:$ROOT_PASSWORD" | chpasswd >/dev/null 2>&1; then
   :
 else
-  echo -e "$ROOT_PASSWORD\\n$ROOT_PASSWORD" | passwd root >/dev/null 2>&1 || true
+  printf "%s\\n%s\\n" "$ROOT_PASSWORD" "$ROOT_PASSWORD" | passwd root >/dev/null 2>&1 || exit 1
 fi
 
 passwd -u root >/dev/null 2>&1 || usermod -U root >/dev/null 2>&1 || true
@@ -375,18 +376,17 @@ done
 SED_BIN="sed"
 SSH_CONFIG="/etc/ssh/sshd_config"
 
-$SED_BIN -i 's/^PermitRootLogin/#PermitRootLogin/g' $SSH_CONFIG 2>/dev/null || true
-$SED_BIN -i 's/^PasswordAuthentication/#PasswordAuthentication/g' $SSH_CONFIG 2>/dev/null || true
-$SED_BIN -i 's/^PubkeyAuthentication/#PubkeyAuthentication/g' $SSH_CONFIG 2>/dev/null || true
-
-if printf '%s\\n' 'Include /dev/null' | "$(command -v sshd)" -T -f /dev/stdin >/dev/null 2>&1 &&
-   ! grep -q "^Include /etc/ssh/sshd_config.d" $SSH_CONFIG; then
-    $SED_BIN -i "1i Include /etc/ssh/sshd_config.d/*.conf" $SSH_CONFIG 2>/dev/null || true
-fi
-
-echo "PermitRootLogin yes" >> $SSH_CONFIG
-echo "PasswordAuthentication yes" >> $SSH_CONFIG
-echo "PubkeyAuthentication yes" >> $SSH_CONFIG
+# Put global policy before any Include or Match block: first value wins.
+# Do not append global directives inside an image's Match block.
+POLICY="$SSH_CONFIG.incudal-new"
+{ printf '%s\\n' 'PermitRootLogin yes' 'PasswordAuthentication yes' 'PubkeyAuthentication yes'; cat "$SSH_CONFIG"; } > "$POLICY"
+chmod 600 "$POLICY"
+mv "$POLICY" "$SSH_CONFIG"
+SSHD="$(command -v sshd)"
+[ -n "$SSHD" ]
+"$SSHD" -t
+"$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -q '^passwordauthentication yes$'
+"$SSHD" -T -C user=root,host=localhost,addr=127.0.0.1 | grep -q '^permitrootlogin yes$'
 
 ${restartSshCmd}
 
@@ -559,10 +559,15 @@ export function generateContainerConfig(params: IncusConfigParams): IncusConfigR
       ]
     : []
 
-  const runcmd = [
+  const requiredInit = [
     'mkdir -p /etc/ssh/sshd_config.d || true',
     ...setupCmds,
-    isAlpine ? '/usr/local/bin/incus-setup.sh' : '/usr/local/bin/incus-setup.sh || true',
+    '/usr/local/bin/incus-setup.sh',
+  ]
+  // cloud-init runs all runcmd entries even after a failed entry. Keep the
+  // required installation and login setup in one fail-fast script instead.
+  const runcmd = [
+    '/usr/local/bin/incudal-required-init.sh',
     ...routedIpv6GuardCmds,
     ...userCustomCmds
   ]
@@ -572,6 +577,11 @@ export function generateContainerConfig(params: IncusConfigParams): IncusConfigR
   const packagesYaml = packages.map(p => `  - ${p}`).join('\n')
 
   const writeFilesYaml = [
+    '  - path: /usr/local/bin/incudal-required-init.sh',
+    '    owner: root:root',
+    "    permissions: '0700'",
+    '    content: |',
+    ...['#!/bin/sh', 'set -e', ...requiredInit, 'mkdir -p /var/lib/incudal', 'touch /var/lib/incudal/initialization-ready'].join('\n').split('\n').map(l => `      ${l}`),
     ...(isAlpine ? [
       '  - path: /usr/local/bin/incudal-alpine-ssh-security.sh',
       '    owner: root:root',

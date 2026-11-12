@@ -13,6 +13,7 @@ import { removeDedicatedForward } from '../lib/incus/dedicated-network.js'
 import { portProtocolView, PORT_PROTOCOL_CAPABILITY } from './host-port-protocol.js'
 import { dedicatedIpv6State, normalizeIpv6 } from '../lib/host-public-ipv6.js'
 import { recoveryNetworkHash } from './platform-recovery-network.js'
+import { hostProvisioningToolsReady } from '../lib/host-provisioning-tools.js'
 
 type Db = Prisma.TransactionClient | typeof prisma
 type Client = Pick<Awaited<ReturnType<typeof getIncusClient>>, 'request'>
@@ -51,7 +52,7 @@ const hostSelect = {
   resourcePreset: true, customerDiskGiB: true, architecture: true, cpuAllowanceMax: true,
   memoryMax: true, storageSize: true, cpuUsed: true, memoryUsed: true, diskUsed: true,
   natPortStart: true, natPortEnd: true, natPortsUsedCount: true,
-  agent: { select: { enabled: true, lastSeenAt: true, capabilities: true } },
+  agent: { select: { enabled: true, lastSeenAt: true, capabilities: true,lastReport:true } },
   onboardingNode: { select: { status: true } },
   storagePools: { select: { name: true, purpose: true } }
 } as const
@@ -114,6 +115,7 @@ export async function inspectPoolRecovery(db: Db, hostId: number, connect: Conne
   if (host.installPending || hostMaintenanceBlocked(host.securityHardening)) blockers.add('busy')
   if (host.status !== 'online') blockers.add('offline')
   if (!host.agent?.enabled || !host.agent.lastSeenAt || host.agent.lastSeenAt.getTime() < Date.now() - 90000) blockers.add('agent-offline')
+  if (!hostProvisioningToolsReady(host.agent)) blockers.add('not-ready')
   if (!host.singleTenant || !host.isInstalled || !['container', 'both'].includes(host.instanceType) ||
       !host.natPublicIp || !host.natBindIp || !host.storagePools.some(pool => pool.purpose === 'instance_data') ||
       (host.onboardingNode && host.onboardingNode.status !== 'succeeded') ||

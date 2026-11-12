@@ -1,3 +1,4 @@
+import { HOST_PROVISIONING_CAPABILITY } from '../src/lib/host-provisioning-tools.js'
 import assert from 'node:assert/strict'
 
 // Exercise the real recovery service and connector with a controlled database
@@ -121,7 +122,7 @@ function reset(count = 1) {
     portProtocolApplied: 'tcp', portProtocolAppliedRevision: 1, portProtocolError: null,
     resourcePreset: 'E2', customerDiskGiB: 30, architecture: 'x86_64', cpuAllowanceMax: 200, memoryMax: 768,
     storageSize: 34, cpuUsed: 200, memoryUsed: 768, diskUsed: 30720, natPortStart: 20000, natPortEnd: 30000,
-    natPortsUsedCount: 0, agent: { enabled: true, lastSeenAt: new Date(now), capabilities: ['ingress-port-protocol-v1'] },
+    natPortsUsedCount: 0, agent: { lastReport: { hostProvisioningStatus: { version: 1, ready: true, checkedAt: new Date(now).toISOString() } }, enabled: true, lastSeenAt: new Date(now), capabilities: ['ingress-port-protocol-v1', HOST_PROVISIONING_CAPABILITY] },
     onboardingNode: null, storagePools: [{ name: 'default', purpose: 'instance_data' }] }
 }
 async function options() {

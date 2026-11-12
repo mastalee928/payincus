@@ -81,11 +81,11 @@ assert.equal(
 
 const instancesSource = readServerFile('src/routes/instances.ts')
 assert.ok(
-  instancesSource.includes("import { notifyAdminInstanceCreateFailed, notifyAdminInstanceCreated, notifyAdminInstancePurchase } from '../lib/admin-alerts.js'") &&
-    instancesSource.includes('void notifyAdminInstancePurchase({') &&
-    instancesSource.includes('void notifyAdminInstanceCreated({') &&
-    (instancesSource.match(/void notifyAdminInstanceCreateFailed\(\{/g)?.length ?? 0) === 2,
-  'instance create flow must hook purchase, success and both failure alert paths'
+  instancesSource.includes('notifyAdminInstanceCreated') && instancesSource.includes('notifyAdminInstancePurchase') &&
+    instancesSource.includes('await failManagedProvision(') &&
+    readFileSync(new URL('../src/lib/managed-provisioning-lifecycle.ts', import.meta.url), 'utf8').includes('void notifyAdminInstanceCreateFailed('),
+  'purchase and success alerts remain; both creation and timeout failures use shared lifecycle alerts'
+
 )
 
 const billingRouteSource = readServerFile('src/routes/instance-billing.ts')
@@ -160,8 +160,9 @@ assert.ok(
   appSource.includes("import { startHostOfflineAlertWorker, stopHostOfflineAlertWorker } from './workers/hostOfflineAlertWorker.js'") &&
     appSource.includes('startHostOfflineAlertWorker()') &&
     appSource.includes('stopHostOfflineAlertWorker()') &&
-    (appSource.match(/void notifyAdminInstanceCreateFailed\(\{/g)?.length ?? 0) === 2,
-  'app must register the offline worker and alert on create-timeout refusals'
+    appSource.includes('await failManagedProvision(instance.id, host)') && appSource.includes('await failPoolProvision(instance.id, host'),
+  'timeouts use the shared lifecycle alert and compensation path'
+
 )
 
 const schemaSource = readServerFile('prisma/schema.prisma')

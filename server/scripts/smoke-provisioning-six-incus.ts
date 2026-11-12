@@ -1,0 +1,63 @@
+import assert from 'node:assert/strict'
+import { randomUUID, X509Certificate } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { prisma, closePrismaDatabase } from '../src/db/prisma.js'
+import { createInstanceAsync } from '../src/routes/instances.js'
+import { generateIncusConfig } from '../src/lib/incus-config-generator.js'
+import { getHostById } from '../src/db/hosts.js'
+import { getIncusClient, closeAllClients } from '../src/lib/incus/incus-pool.js'
+import { execWithOutput } from '../src/lib/incus/incus-instances.js'
+import { checkSshLogin } from '../src/lib/dedicated-ssh.js'
+import { failManagedProvision } from '../src/lib/managed-provisioning-lifecycle.js'
+
+assert.equal(process.env.GITHUB_ACTIONS, 'true')
+assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
+assert.equal(process.platform, 'linux')
+const database = new URL(process.env.DATABASE_URL!)
+assert.equal(database.hostname, '127.0.0.1')
+assert.ok(database.pathname.endsWith('_pool_test'))
+const cert = readFileSync('/var/lib/incus/server.crt', 'utf8')
+const user = await prisma.user.create({ data: { username: `native-${randomUUID()}`, passwordHash: 'unusable-native-fixture' } })
+const host = await prisma.host.create({ data: { userId: user.id, name: 'native-incus', url: 'https://127.0.0.1:18443',
+  certPath: process.env.INCUDAL_PROVISIONING_CERT!, keyPath: process.env.INCUDAL_PROVISIONING_KEY!,
+  serverCertificate: cert, serverFingerprint: new X509Certificate(cert).fingerprint256 } })
+try {
+  const transport = await getIncusClient((await getHostById(host.id))!)
+  for (const [index, image] of ['alpine/3.24/cloud', 'debian/14/cloud', 'ubuntu/24.04/cloud', 'rockylinux/9/cloud', 'almalinux/9/cloud', 'centos/9-Stream/cloud'].entries()) {
+    const name = `native-delivery-${index}`, password = randomUUID() + '-Aa1!', ip = `10.198.0.${100 + index}`
+    const generated = generateIncusConfig({ instanceName: name, imageAlias: `images:${image}`, rootPassword: password,
+      type: 'container', networkMode: 'nat', network: { ipAddress: `${ip}/24`, gateway: '10.198.0.1', dns: ['10.198.0.1'] } })
+    const instance = await prisma.instance.create({ data: { userId: user.id, hostId: host.id, incusId: name, name,
+      image: `images:${image}`, status: 'creating', networkMode: 'nat', cpu: 100, memory: 1024, disk: 4096, portLimit: 0 } })
+    await prisma.host.update({ where: { id: host.id }, data: { cpuUsed: 100, memoryUsed: 1024, diskUsed: 4096 } })
+    await createInstanceAsync(instance.id, (await getHostById(host.id))!, { name, image: `images:${image}`, cpu: 100, memory: 1024,
+      disk: 4096, cloudInitConfig: generated.configPayload, networkMode: 'nat', ipv4Address: ip, autoRemotePort: false }, user.id,
+    { cpu: 100, memory: 1024, disk: 4096 })
+    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'running')
+    let verified = false
+    for (let attempt = 0; attempt < 60; attempt++) {
+      try {
+        const inspection = await execWithOutput(transport, name, ['sh', '-c',
+          'test -f /var/lib/incudal/initialization-ready && for key in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf "$key" -E sha256; done'], {}, 10000)
+        assert.equal((inspection.metadata as { return?: number }).return, 0)
+        const pins = inspection.stdout.match(/SHA256:[A-Za-z0-9+/]+/g) || []
+        assert.ok(pins.length)
+        await checkSshLogin(ip, password, pins)
+        verified = true
+        break
+      } catch { await new Promise(resolve => setTimeout(resolve, 3000)) }
+    }
+    assert.equal(verified, true, `${image}: generated initialization and real password SSH`)
+    await prisma.instance.update({ where: { id: instance.id }, data: { status: 'error' } })
+    await failManagedProvision(instance.id, (await getHostById(host.id))!)
+    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'deleted')
+    assert.equal((await prisma.host.findUniqueOrThrow({ where: { id: host.id } })).diskUsed, 0)
+    console.log(`PASS native ${process.arch} ${image}: current create entry, original password SSH, complete cleanup`)
+  }
+} finally {
+  await closeAllClients()
+  await prisma.instance.deleteMany({ where: { hostId: host.id } })
+  await prisma.host.delete({ where: { id: host.id } })
+  await prisma.user.delete({ where: { id: user.id } })
+  await closePrismaDatabase()
+}

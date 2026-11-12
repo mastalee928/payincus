@@ -39,9 +39,9 @@ export function managedCleanupEndpointHash(client: IncusClient): string {
 export async function finalizeManagedCleanupForDeletion(instanceId: number): Promise<void> {
   await queueDeletedPoolHost(instanceId)
   await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
     const located = await tx.instance.findUniqueOrThrow({ where: { id: instanceId }, select: { hostId: true } })
     await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${located.hostId} FOR UPDATE`
-    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${instanceId} FOR UPDATE`
     const instance = await tx.instance.findUniqueOrThrow({ where: { id: instanceId } })
     if (instance.status !== 'deleted') throw new Error('实例删除状态已变化，保留清理标记')
     await tx.$executeRaw`UPDATE public_ipv4_addresses SET status = 'free', instance_id = NULL, released_at = NOW(), updated_at = NOW()

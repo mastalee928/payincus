@@ -12,9 +12,8 @@ for (const branch of ['3.19', '3.20', '3.21', '3.22', '3.23', '3.24']) {
     assert.ok(data.includes('PasswordAuthentication yes') && data.includes('ssh_pwauth: true'))
     assert.ok(!data.includes('--allow-untrusted') && !data.includes('s/https:/http:/'))
     assert.ok(!data.includes('echo "PasswordAuthentication no"') && !data.includes('PasswordAuthentication no/'))
-    // VM's non-Alpine conditional remains in the generated shell; it must not
-    // become an Alpine auth-mode migration in this fix.
-    if (generate === generateVmConfig) assert.ok(data.includes('if [ "alpine" != "alpine" ]; then'))
+    // Both generators retain Alpine password login and verify parsed policy.
+    if (generate === generateVmConfig) assert.ok(data.includes('passwordauthentication yes$'))
   }
 }
 assert.doesNotThrow(() => assertAlpineSshSecurityInspection('INCUDAL_SSH_NOT_ALPINE\n'))

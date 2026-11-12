@@ -78,7 +78,8 @@ install_alpine() {
   grep -Eq "/$branch/community/?$" /etc/apk/repositories || printf '%s/community\n' "$repository" >> /etc/apk/repositories
   timeout 180 apk add --no-cache incus incus-client incus-openrc bash curl ca-certificates \
     openssl python3 iproute2 iptables ip6tables nftables util-linux coreutils shadow-subids \
-    dnsmasq btrfs-progs rsync squashfs-tools tar gzip xz || exit 75
+    dnsmasq btrfs-progs rsync squashfs-tools tar gzip xz apparmor apparmor-utils || exit 75
+  command -v aa-exec >/dev/null && aa-exec --help >/dev/null 2>&1 || exit 75
 
   rc-update add cgroups boot
   rc-service cgroups status >/dev/null 2>&1 || rc-service cgroups start

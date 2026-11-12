@@ -629,8 +629,10 @@ export async function getStuckCreatingInstances(timeoutMs: number): Promise<Arra
   const instances = await prisma.instance.findMany({
     where: {
       OR: [{ status: 'creating', createdAt: { lt: threshold } },
-        { status: 'error', purchaseBatchId: { not: null }, provisioningCleanupPending: true, updatedAt: { lt: threshold } }]
+        { status: 'error', provisioningCleanupPending: true, updatedAt: { lt: threshold } }]
     },
+    orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+    take: 32,
     select: {
       id: true,
       purchaseBatchId: true,

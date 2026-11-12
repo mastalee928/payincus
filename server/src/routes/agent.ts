@@ -13,6 +13,7 @@ import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { prisma } from '../db/prisma.js'
 import { acceptGuestProtectionStatus, GUEST_CLOCK_SKEW_MS, GUEST_REPORT_MAX_AGE_MS } from '../lib/guest-network-protection.js'
+import { acceptHostProvisioningStatus } from '../lib/host-provisioning-tools.js'
 import { createLog, LogModule, LogResult } from '../db/logs.js'
 import { decryptSensitiveData } from '../lib/security.js'
 import {
@@ -51,6 +52,7 @@ interface AgentInstallCommandBody {
 }
 
 interface AgentHeartbeatBody {
+  hostProvisioningStatus?: Record<string, unknown>
   portProtocolStatus?: Record<string, unknown>
   guestProtectionStatus?: Record<string, unknown>
   abusePolicyStatus?: Record<string, unknown>
@@ -1037,6 +1039,7 @@ function buildHeartbeatReport(body: AgentHeartbeatBody, signedAt: number, receiv
   return {
     signedAt: Math.abs(signedAt - receivedAt) <= GUEST_CLOCK_SKEW_MS ? signedAt : null,
     guestProtectionStatus: acceptGuestProtectionStatus(body.guestProtectionStatus, signedAt, receivedAt),
+    hostProvisioningStatus: acceptHostProvisioningStatus(body.hostProvisioningStatus, signedAt, receivedAt),
     abusePolicyStatus: normalizeAbuseStatus(body.abusePolicyStatus),
     runtime: body.runtime ?? {},
     incus: body.incus ?? {},

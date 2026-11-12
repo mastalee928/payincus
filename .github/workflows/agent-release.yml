@@ -191,6 +191,12 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq iproute2 nftables iptables python3 util-linux
+      - name: Native host unpacking tools and automatic binary repair
+        run: |
+          (cd agent && CGO_ENABLED=0 go test -c -o /tmp/incudal-provisioning-tests ./internal/provisioning)
+          for image in alpine:3.22 alpine:3.23 alpine:3.24 debian:trixie ubuntu:24.04; do
+            docker run --rm -v /tmp/incudal-provisioning-tests:/test:ro -e INCUDAL_PROVISIONING_NATIVE_TEST=disposable "$image" /test -test.run 'TestNativeRepairAndDrift|TestRepairPlanProtectsExistingPackages' -test.v
+          done
       - name: Native pool host BBR, customer preservation and automatic repair
         run: |
           (cd agent && CGO_ENABLED=0 go test -c -o /tmp/incudal-bbr-tests ./internal/performance)

@@ -54,7 +54,7 @@ try {
   let identityError = false, connections = 0, extraAddresses: string[] = []
   const writes: string[] = []
   const verifications: Array<{ host: string; port: number; fingerprints: string[] }> = []
-  const client: any = { request: async (method: string, path: string, body?: any, _timeout?: number, signal?: AbortSignal) => {
+  const client: any = { withMaintenanceDatabase(){return this}, request: async (method: string, path: string, body?: any, _timeout?: number, signal?: AbortSignal) => {
     assert.ok(signal, 'network requests have an actual abort signal')
     if (method === 'GET') {
       if (path === '/1.0/networks?recursion=1') return [{ name: 'eth0', type: 'physical', managed: false }, { name: 'incusbr0', type: 'bridge', managed: true }]
@@ -334,7 +334,7 @@ try {
     const reuseWrites: string[] = []
     const forwardsByHost = new Map([a, b].map((row, i) => [row.id, [{ listen_address: '10.0.0.13',
       description: `payincus-dedicated:${customers[i]!.incusId}`, config: { target_address: customers[i]!.ipv4! }, ports: [] }]]))
-    const clientsByHost = new Map([a, b].map((row, i) => [row.id, { request: async (method: string, path: string) => {
+    const clientsByHost = new Map([a, b].map((row, i) => [row.id, { withMaintenanceDatabase(){return this}, request: async (method: string, path: string) => {
       assert.equal(method, 'GET', 'OCI public remapping must never rewrite unchanged private forwards')
       if (path === '/1.0/networks?recursion=1') return [{ name: 'eth0', type: 'physical', managed: false }]
       if (path.endsWith('/state')) return { state: 'up', addresses: [{ family: 'inet', scope: 'global', address: '10.0.0.13' }] }
@@ -447,7 +447,7 @@ try {
   // Cross-host contenders share an address lock; only one may claim it.
   const competitors = await Promise.all([makeHost(), makeHost()])
   const competingDeps = { ...deps, peers: async () => competitors.map(row => ({ nodeId: row.onboardingNode!.id, managementIp: row.onboardingNode!.managementIp!, publicIp: '4.2.2.2', lastHandshakeAt: Math.floor(Date.now() / 1000) })),
-    connect: async () => ({ request: async (method: string, path: string) => {
+    connect: async () => ({ withMaintenanceDatabase(){return this}, request: async (method: string, path: string) => {
       assert.equal(method, 'GET')
       if (path.includes('networks?')) return [{ name: 'eth0', type: 'physical', managed: false }]
       if (path.includes('/state')) return { state: 'up', addresses: [{ family: 'inet', scope: 'global', address: '10.0.0.13' }] }

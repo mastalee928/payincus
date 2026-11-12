@@ -1,7 +1,5 @@
-import { prepareNewContainerCloudInit } from './new-container-cloud-init.js'
-import { randomUUID } from 'node:crypto'
+import { prepareNewContainerCloudInit, waitForNewGuestInitialization } from './new-container-cloud-init.js'
 import { prisma } from '../db/prisma.js'
-import { Prisma } from '@prisma/client'
 import type { IncusInstance } from '../types/incus.js'
 import * as db from '../db/index.js'
 import { buildInstanceConfig, createInstance, getIncusClient, getInstanceState, startInstance } from '../lib/incus/index.js'
@@ -10,6 +8,7 @@ import { cleanupManagedInstanceRemote, managedCleanupEndpointHash } from './mana
 import type { Host } from '../types/database.js'
 import { networkModeAllowsPortMapping, networkModeNeedsPublicIpv4 } from './network-modes.js'
 import { provisionAutoRemotePort } from './instance-port-mapping.js'
+import { beginManagedProvision, failManagedProvision, ManagedProvisionOwnershipError } from './managed-provisioning-lifecycle.js'
 
 export interface ManagedInstanceProvisionConfig {
   name: string
@@ -56,14 +55,19 @@ export async function provisionManagedInstanceAsync(
     throw new Error('Managed instance creation no longer owns the target')
   }
   const target = { id: instanceId, userId: instance.userId, hostId: host.id, incusId: config.name }
-  const attempt = randomUUID()
+  let attempt: string | undefined
+  let lifecycle: Awaited<ReturnType<typeof beginManagedProvision>> | undefined
+  let transport: IncusClient | undefined
   let client: IncusClient | undefined
 
   try {
     console.log(`\n[Managed Provisioning] ===== start =====`)
     console.log(`[Managed Provisioning] instanceId=${instanceId}, name=${config.name}, host=${host.name}`)
 
-    client = await getIncusClient(host)
+    transport = await getIncusClient(host)
+    lifecycle = await beginManagedProvision(instanceId, host, transport, config.name)
+    attempt = lifecycle.attempt
+    client = lifecycle.client
     const ipv6Config = config.ipv6Address ? { primaryIp: config.ipv6Address } : null
 
     const incusConfig = buildInstanceConfig({
@@ -101,6 +105,7 @@ export async function provisionManagedInstanceAsync(
 
     ;(incusConfig.config as Record<string, string>)['user.payincus.provisioning-attempt'] = attempt
     await createInstance(client, incusConfig)
+    await lifecycle.identity()
     await prepareNewContainerCloudInit(client, config.name, config.cloudInitConfig, config.instanceType)
 
     let ready = false
@@ -112,8 +117,8 @@ export async function provisionManagedInstanceAsync(
           ready = true
           break
         }
-      } catch {
-        // keep waiting
+      } catch (error) {
+        if (error instanceof ManagedProvisionOwnershipError) throw error
       }
     }
 
@@ -132,8 +137,8 @@ export async function provisionManagedInstanceAsync(
           running = true
           break
         }
-      } catch {
-        // keep waiting
+      } catch (error) {
+        if (error instanceof ManagedProvisionOwnershipError) throw error
       }
     }
 
@@ -145,11 +150,6 @@ export async function provisionManagedInstanceAsync(
     if (remote.name !== config.name || remote.type !== (config.instanceType === 'vm' ? 'virtual-machine' : 'container') ||
       remote.config?.['user.payincus.provisioning-attempt'] !== attempt || !/^[a-f0-9-]{36}$/i.test(remote.config?.['volatile.uuid'] || '') ||
       !Number.isFinite(Date.parse(remote.created_at))) throw Error('Managed delivery identity not confirmed')
-    const current = await prisma.instance.findUniqueOrThrow({ where: { id: instanceId } })
-    const specs = current.snapshottedSpecs && typeof current.snapshottedSpecs === 'object' && !Array.isArray(current.snapshottedSpecs) ? current.snapshottedSpecs : {}
-    const deliveredSpecs = { ...specs, managedCleanup: { attempt, uuid: remote.config!['volatile.uuid'], endpointHash: managedCleanupEndpointHash(client) },
-      recoveryIdentity: { uuid: remote.config!['volatile.uuid'], createdAt: remote.created_at, project: 'default' } }
-
     let ipv4: string | null = config.ipv4Address || null
     let ipv6: string | null = config.ipv6Address || null
 
@@ -171,17 +171,10 @@ export async function provisionManagedInstanceAsync(
       // keep pre-allocated addresses
     }
 
-    const updateResult = await prisma.instance.updateMany({
-      where: { ...target, status: 'creating', provisioningCleanupPending: false, snapshottedSpecs: { equals: current.snapshottedSpecs ?? Prisma.DbNull } },
-      data: {
-        status: 'running',
-        snapshottedSpecs: deliveredSpecs,
-        ipv4,
-        ipv6,
-        storagePoolName: config.storagePool || 'default'
-      }
+    await waitForNewGuestInitialization(client, config.name, config.cloudInitConfig)
+    const updateResult = await lifecycle.complete({
+      status: 'running', ipv4, ipv6, storagePoolName: config.storagePool || 'default'
     })
-
     if (updateResult.count === 0) {
       throw new Error('Managed instance creation was finalized by another operation; cleanup deferred to its owner')
     }
@@ -284,6 +277,8 @@ export async function provisionManagedInstanceAsync(
       }
     }
   } catch (error) {
+    if (error instanceof ManagedProvisionOwnershipError) throw error
+    if (!lifecycle) { await failManagedProvision(instanceId, host, true); throw error }
     console.error(`[Managed Provisioning] instance ${instanceId} failed:`, error)
 
     const updateResult = await prisma.$transaction(async tx => {
@@ -295,7 +290,7 @@ export async function provisionManagedInstanceAsync(
       return tx.instance.updateMany({
         where: { ...target, status: 'creating', provisioningCleanupPending: false },
         data: { status: 'error', provisioningCleanupPending: true,
-          snapshottedSpecs: { ...specs, managedCleanup: { attempt, endpointHash: client ? managedCleanupEndpointHash(client) : null } } }
+          snapshottedSpecs: { ...specs, ...(attempt ? { managedCleanup: { ...(specs.managedCleanup as object || {}), attempt, endpointHash: transport ? managedCleanupEndpointHash(transport) : null } } : {}) } }
       })
     })
     if (updateResult.count === 0) throw error
@@ -324,8 +319,8 @@ export async function provisionManagedInstanceAsync(
           current.networkMode !== instance.networkMode || current.portLimit !== instance.portLimit) {
           throw new Error('Instance allocation changed before cleanup')
         }
-        if (!client) throw new Error('Original Incus connection unavailable; cleanup not confirmed')
-        await cleanupManagedInstanceRemote(client, config.name, attempt, cleanupDeadline)
+        if (!transport || !attempt) throw new Error('Original Incus connection unavailable; cleanup not confirmed')
+        await cleanupManagedInstanceRemote(transport, config.name, attempt, cleanupDeadline)
         // Do not hide a failed purchase from compensation while its billing is
         // unresolved. Confirmed absence alone is insufficient to release stock.
         if (!billingSettled || current.deletionBillingPending) throw new Error('远端清理已确认，但创建失败账务尚未结清；记录、库存和地址继续保留')
@@ -334,6 +329,8 @@ export async function provisionManagedInstanceAsync(
           data: { status: 'deleted', provisioningCleanupPending: false }
         })
         if (released.count === 0) return
+        await tx.ipAddress.deleteMany({ where: { instanceId } })
+        if (current.ipv4) await tx.natIpv4Reservation.deleteMany({ where: { hostId: current.hostId, address: current.ipv4 } })
         const portCount = networkModeAllowsPortMapping(instance.networkMode) ? (instance.portLimit || 0) : 0
         await tx.$executeRaw`
           UPDATE hosts SET cpu_used = GREATEST(cpu_used - ${instance.cpu}, 0),

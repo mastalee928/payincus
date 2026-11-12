@@ -1,5 +1,19 @@
 # 版本与验证记录
 
+## 2026-11-13 v1.8.9开通修复候选（未发行／部署）
+
+- 已授权源码、五轮审视及通过后推送发行；候选面板v1.8.9／Agentv1.0.8。修复及分项证据见[五轮记录](docs/instance-provisioning-five-reviews-2026-11-13.md)。P01–P20原检查的“产品未修”是历史状态。已补宿主tools、旧包名、新鲜回执／全池Agent自修、创建状态及清理、初始化吞错、UUID／锁／期限竞争与CI夹具；原账务权限与停删保护保留。当前本地219首次216/3、失败定向全过，最终全量与第二遍PG仍在跑，六原生／旧升级待CI。生产未操作。
+
+## 2026-11-13 全系统开通失败完整检查（产品未修，生产仅主控只读）
+
+- Owner报告Alpine/Debian/Ubuntu/Rocky/Alma/CentOS全部开通失败并要求完整彻查。已核主控v1.8.8，两条近期新建#30/seoul-amd-1 #23、#31/mumbai-amd-1 #40均Incus镜像解包缺aa-exec。两台Agent在线、接入/加固通过。32池宿主中31存verified，但回执不含解包工具证明，其余宿主仅同源风险，未入生产宿主逐台核。完整[P01–P20检查/维修清单](docs/instance-provisioning-complete-audit-2026-11-13.md)覆盖新旧接入、实际解包、全部创建入口、初始化、退款、清理回池、并发/锁与升级/测试覆盖，区分确认bug、旁支风险、正确保护与未完成实证。
+- 根因实证：官方Alpine3.22/3.24包基础apparmor无aa-exec，apparmor-utils含/usr/bin/aa-exec；3.24 ARM64同。Debian/Ubuntu基础apparmor包含该工具，不能机械统一包名。旧Alpine3.22/3.23又无3.24拆分profiles包。当前安装/维护清单漏utils、空宿主加固只核内核/parser/规则，失败清理只核空库存，没有恢复交付能力。两失败退款已核账本全额11元，poolCleanup verify_empty done、poolFaulted=false，说明原缺工具未修就重新放售。
+- 原生隔离：Alpine3.24标准ISO/kernel6.18.60-lts真实AppArmor启用、Incus7.0.1缺aa-exec→POST create任务Failure，错误与现场完全一致；隔离宿主补utils后6类官方镜像均真解包创建。Alpine/Debian/Ubuntu Running；RHEL9三类旧模拟CPU报glibc不支持x86-64-v2，max CPU保原Rocky/Alma磁盘Running、CentOS同缓存新建Running。不能用CPU环境失败说OCI不能运行RHEL。后续当前生成器初始化/SSH全6类均未获得完整通过，exec/创建超时与cloud-init仍running范围记录；不以inspection exit0称验收。待清理回执残留与测试磁盘保存在private目录。
+- 对此前并发叙述纠正：managed success_lost_claim fixture在Incus start响应前await同库实例更新，与产品持行锁互等；真实PG复现Query read timeout，但**不是线上Incus修改主控数据库**证据。IPv4/IPv6fixture缺withMaintenanceDatabase，Alpine双maintenance断言仍期望HARDENING_BUSY实际INSTANCE_EXPIRED。待修夹具/独立并发验证。新P15复审确认顶级guestProtectionReadyWhere未被OR嵌套agent覆盖，属误判，不改正确门禁。
+- 本次5相关守卫自然exit0，仍漏缺aa-exec＋启用内核＋实际新建组合；业务43文件hash不变，仅需求/报告/台账修改。没有修改生产身份/依赖、客户、触发巡检、退款、重建或部署，也没有新push/tag/发行。
+- 最终五类缓存检查自然exit0，全部initializationVerified=false，不能视验收通过；观察结束两测试残留Ubuntu/Alma均Stopped、forward=0，操作/卷/清理未确认范围及完整测试磁盘保留私有档。实际PID10976/8116核父进程和启动路径后定向停止，无活动本次QEMU；后续从本报告继续修与验收，不沿用“完整初始化已通过”。
+- 已推expiry源码CI43241386494终态failure：15job/12success，失败131262413524/131262413618/131262413526；Alpine SSH43241386488终态failure，两maintenance131262406690/131262407472失败，其余native分项不代表整轮。原22:50queued记录为历史，接续须以本条失败及固定job日志修后新来源闭环。
+
 2026-11-12 22:50 owner已明确授权提交推送，本批 E01–E21 修复、守卫与五轮／两遍／原生验收记录69文件已提交 `5b13db743e7b3b779fc1130f5cd631f2d10f708a` 并推送origin/main，`ls-remote`核远端同SHA。CI [43241386494](https://github.com/mastalee928/payincus/actions/runs/43241386494) queued、Alpine SSH [43241386488](https://github.com/mastalee928/payincus/actions/runs/43241386488) in_progress（22:50快照），尚非终态，接续须查；以下“未提交推送”保留验证收尾时状态。只保存Git，不发新版或部署生产；无关.taste-skill和logs-temp-hardening-types.txt保留未跟踪。Owner随后还有更严重的问题待补充。
 
 ## 2026-11-12 整份 E01–E21 源码修复／五轮审视／两遍排查（未部署）

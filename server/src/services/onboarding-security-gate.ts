@@ -5,6 +5,7 @@ import { recoveryHeld } from './platform-backup-core.js'
 import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { hostUnfinishedCreationWhere } from '../lib/host-resource-usage.js'
 import { guestProtectionReady } from '../lib/guest-network-protection.js'
+import { hostProvisioningToolsReady } from '../lib/host-provisioning-tools.js'
 
 /** Completion consumes a current receipt under both row locks. No credentials
  * are cleared and no success is published when the original lease was lost. */
@@ -32,6 +33,7 @@ export async function finishSecureOnboarding(nodeId: string, leaseToken: string,
     if (host.poolFaulted) throw new Error('HARDENING_HOST_QUARANTINED')
     if (host.publicIpSyncBlocked) throw new Error('HARDENING_PUBLIC_IP_PENDING')
     if (!guestProtectionReady(host.agent)) throw new Error('HARDENING_GUEST_NETWORK_PENDING')
+    if (!hostProvisioningToolsReady(host.agent)) throw new Error('HOST_PROVISIONING_TOOLS_PENDING')
     if (!host.singleTenant || !host.serverCertificate || !host.serverFingerprint ||
       host.managementSshHost !== node.managementIp || host.managementSshPort !== node.sshPort || host.managementSshUser !== 'root' ||
       !node.nodePublicKey || !node.sshFingerprint) throw new Error('HARDENING_IDENTITY_MISSING')
