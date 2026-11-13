@@ -23,7 +23,7 @@ jobs:
         run: |
           mkdir -p output
           docker run --rm -v "$PWD/scripts/build-incus-sysinfo-compat.py:/build.py:ro" -v "$PWD/output:/out" alpine:3.24 sh -ec '
-            apk add --no-cache go python3 build-base cowsql-dev raft-cowsql-dev eudev-dev libcap-dev libuv-dev linux-headers lxc-dev lz4-dev sqlite-dev gettext-dev
+            apk add --no-cache go python3 build-base acl-dev cowsql-dev raft-cowsql-dev eudev-dev libcap-dev libuv-dev linux-headers lxc-dev lz4-dev sqlite-dev gettext-dev
             python3 /build.py
           '
       - uses: actions/upload-artifact@v4
