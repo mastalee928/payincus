@@ -31,7 +31,7 @@ LimitNOFILE=65536
 NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/incudal /opt/incudal/current /opt/incudal/releases /opt/incudal/server/certs /opt/incudal/.npm /opt/incudal/.cache /opt/incudal/.git /opt/incudal/update-logs
+ReadWritePaths=/opt/incudal /opt/incudal/current /opt/incudal/releases /opt/incudal/server/certs /opt/incudal/.npm /opt/incudal/.cache /opt/incudal/.git /opt/incudal/update-logs /var/lib/incudal-images
 PrivateTmp=true
 
 StandardOutput=journal

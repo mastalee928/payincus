@@ -879,6 +879,8 @@ create_user() {
     # 创建 npm 缓存目录（npx/prisma 需要可写的 home 目录）
     mkdir -p "${INSTALL_DIR}/.npm"
     mkdir -p "${INSTALL_DIR}/.cache"
+    [[ ! -L /var/lib/incudal-images ]] || { error '镜像库目录不能是符号链接'; return 1; }
+    install -d -o "$RUN_USER" -g "$RUN_USER" -m 0750 /var/lib/incudal-images
 
     # Nginx runs as www-data and must be able to traverse the install root
     # to serve client/dist while .env stays owner-only below.
@@ -1148,7 +1150,7 @@ RestartSec=10
 NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=${INSTALL_DIR} ${INSTALL_DIR}/current ${INSTALL_DIR}/releases ${INSTALL_DIR}/server/certs ${INSTALL_DIR}/.npm ${INSTALL_DIR}/.cache ${INSTALL_DIR}/.git ${INSTALL_DIR}/update-logs
+ReadWritePaths=${INSTALL_DIR} ${INSTALL_DIR}/current ${INSTALL_DIR}/releases ${INSTALL_DIR}/server/certs ${INSTALL_DIR}/.npm ${INSTALL_DIR}/.cache ${INSTALL_DIR}/.git ${INSTALL_DIR}/update-logs /var/lib/incudal-images
 PrivateTmp=true
 
 # 资源限制

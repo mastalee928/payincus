@@ -9,7 +9,7 @@ from pathlib import Path
 
 def check(archive_path, root):
     expected = {}
-    for directory in ['server/dist', 'server/prisma', 'server/templates', 'server/images', 'client/dist']:
+    for directory in ['server/dist', 'server/prisma', 'server/templates', 'client/dist']:
         files = [path for path in (root / directory).rglob('*') if path.is_file()]
         if not files:
             raise ValueError('Missing build directory: ' + directory)
@@ -35,6 +35,8 @@ def check(archive_path, root):
     with tarfile.open(archive_path, 'r|gz') as archive:
         for member in archive:
             name = member.name.removeprefix('./')
+            if name.startswith('server/images/'):
+                raise ValueError('Persistent image library must not be bundled with program updates')
             if name in seen:
                 raise ValueError('Duplicate archive path: ' + name)
             seen.add(name)

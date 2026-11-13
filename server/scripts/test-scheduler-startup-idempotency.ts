@@ -65,3 +65,7 @@ assert.notEqual(mailSetIntervalIndex, -1, 'mail expiry scheduler must assign the
 assert.ok(mailGuardIndex < mailSetIntervalIndex, 'mail expiry scheduler must guard before registering a new interval')
 
 console.log('scheduler startup idempotency checks passed')
+const images = readRepoFile('server/src/workers/systemImageCacheWorker.ts')
+assert.ok(images.includes('if (timer) return') && images.includes('if (active || stopped) return') &&
+  images.includes('if (stopped || recoveryHeld()) return') && appSource.includes('startSystemImageCacheWorker()') &&
+  appSource.includes("fastify.addHook('onClose', stopSystemImageCacheWorker)"), 'image prefetch is single, recovery-protected and closed with the backend')

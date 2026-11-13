@@ -24,6 +24,9 @@ if ! python3 "$root/scripts/ensure-time-sync.py" --install; then
   echo 'TIME_SYNC_INSTALL_PENDING: clock scheduler installation failed; see /var/lib/incudal-time-sync/status.json. Backend startup continues.' >&2
 fi
 install -d -o root -g incudal -m 0750 /var/lib/incudal-backup
+# Independent persistent image data; never lives inside an OTA release tree.
+[[ ! -L /var/lib/incudal-images ]] || { echo 'Untrusted persistent image directory.' >&2; exit 1; }
+install -d -o incudal -g incudal -m 0750 /var/lib/incudal-images
 install -d -o incudal -g incudal -m 0700 /var/lib/incudal-backup/inbox
 install -d -o root -g incudal -m 0750 /var/lib/incudal-backup/results
 install -d -o root -g root -m 0700 /var/lib/incudal-backup/private
@@ -42,6 +45,7 @@ work_dir=/opt/incudal
 cat > /etc/systemd/system/incudal-backend.service.d/platform-backup.conf <<EOF
 [Service]
 ReadWritePaths=/var/lib/incudal-backup/inbox
+ReadWritePaths=/var/lib/incudal-images
 ExecStartPre=
 ExecStartPre=+/usr/bin/bash $work_dir/scripts/install-platform-backup.sh
 ExecStartPre=+/usr/local/libexec/incudal/incudal-online-task recovery-startup

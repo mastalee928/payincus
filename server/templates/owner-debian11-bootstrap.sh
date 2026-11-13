@@ -10,7 +10,7 @@ test -s /var/lib/cloud/seed/nocloud-net/meta-data
 # The package's own services see this marker until its installation finishes.
 touch /etc/cloud/cloud-init.disabled
 attempt=0
-until timeout 35 apt-get -o Acquire::Retries=2 update && timeout 80 apt-get -o Acquire::Retries=2 install -y --no-install-recommends cloud-init; do
+until timeout 35 apt-get -o APT::Update::Error-Mode=any -o Acquire::Retries=2 update && timeout 80 apt-get -o Acquire::Retries=2 install -y --no-install-recommends cloud-init; do
   attempt=$((attempt+1))
   test "$attempt" -lt 3
   sleep 3

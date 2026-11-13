@@ -96,12 +96,6 @@ jobs:
       - name: 编译后端 (TypeScript)
         run: pnpm --filter server build
 
-      - uses: actions/cache@v4
-        with:
-          path: .cache/bundled-system-images
-          key: debian11-owner-sources-v1
-      - name: 构建内置双架构 Debian 11 镜像
-        run: node scripts/build-bundled-system-images.mjs
 
       - name: 构建受信双架构网关组件
         env:
@@ -161,7 +155,6 @@ jobs:
           cp server/prisma.config.ts release/server/
           cp server/package.json release/server/
           cp -r server/templates release/server/
-          cp -r server/images release/server/
 
           # 复制根配置文件
           cp package.json release/

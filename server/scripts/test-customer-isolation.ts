@@ -5,7 +5,9 @@ import { buildInstanceConfig, createInstance, updateInstance, startInstance, add
 import { restoreSnapshot } from '../src/lib/incus/incus-snapshots.js'
 import type { IncusClient } from '../src/lib/incus/incus-client.js'
 
-const options = { name: 'customer-fixture', image: 'images:debian/13', cpu: 100, memory: 512, disk: 1024, password: 'fixture-original-password' }
+// This guard exercises isolation/configuration, not a remote image service.
+// Image acquisition has its own real mTLS/cache and native provisioning tests.
+const options = { name: 'customer-fixture', image: 'fixture/debian/13', cpu: 100, memory: 512, disk: 1024, password: 'fixture-original-password' }
 for (const value of [true, 'true', '1', 1, 'yes', 'on', 'TRUE', {}, []]) {
   assert.throws(() => rejectCustomerPrivilege(value), /禁止特权/)
 }

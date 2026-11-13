@@ -50,7 +50,7 @@ environment:
  * 新增守卫若不属于这一类，请加进根 package.json 的 `testGuards`，不要加到这里。
  */
 const EXCLUDED_FROM_SUITE = new Map([
-  ['test:bundled-system-images', 'requires built server/images archives and OpenSSL; both actual tar hashes and authenticated binary import/cache reuse without network fetch; native initialization runs in CI'],
+  ['test:bundled-system-images', 'requires isolated persistent SYSTEM_IMAGE_CACHE_DIR and OpenSSL; both actual tar hashes and authenticated binary import/cache reuse without network fetch; native initialization runs in CI'],
   ['test:expiry-enforcement-regressions', 'requires empty local *_expiry_test PostgreSQL and OpenSSL; real expiry worker, PAT, terminal WebSocket, stop/delete, plan/lease/lane failures and renewal restoration'],
   ['test:expiry-concurrency-regressions', 'requires empty local *_expiry_test PostgreSQL and OpenSSL; actual row-lock renew/stop/deletion races, recovery lock ordering, nanosecond identity precision and dedicated-host residual cleanup'],
   ['test:guest-network-clock-transport', 'requires OpenSSL and a local mTLS server; authentic Incus Date, stale receipts, missing pin/header and excessive skew'],

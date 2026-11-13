@@ -57,6 +57,7 @@ templates:
         'rootfs/etc/machine-id': (b'', 0o644),
         'rootfs/var/lib/dbus/machine-id': (b'', 0o644),
         'rootfs/etc/cloud/cloud-init.disabled': (b'', 0o644),
+        'rootfs/etc/apt/sources.list': (b'deb https://archive.debian.org/debian bullseye main contrib\ndeb https://archive.debian.org/debian-security bullseye-security main contrib\n', 0o644),
         'rootfs/usr/local/sbin/payincus-image-bootstrap': (BOOTSTRAP, 0o700),
         'rootfs/etc/systemd/system/payincus-image-bootstrap.service': (b'''[Unit]
 Description=Initialize owner-selected Debian 11 image
@@ -100,7 +101,8 @@ WantedBy=multi-user.target
                 elf_verified = True
                 # A small native binary, retained byte-for-byte.
                 content = io.BytesIO(head + content.read())
-            if name in extra or name.startswith('rootfs/etc/ssh/ssh_host_') or name.startswith('rootfs/root/.ssh/'):
+            if name in extra or name.startswith('rootfs/etc/ssh/ssh_host_') or name.startswith('rootfs/root/.ssh/') or \
+                    name.startswith('rootfs/var/lib/apt/lists/') or name.startswith('rootfs/var/cache/apt/archives/'):
                 continue
             # Lock inherited account passwords. New passwords come exclusively
             # from the platform's generated initialization after import.

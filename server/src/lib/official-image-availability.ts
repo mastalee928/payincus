@@ -1,4 +1,5 @@
 import { ownerSelectedContainerImage } from './owner-selected-images.js'
+import { cachedSystemImagePresent } from '../services/system-image-cache.js'
 
 const endpoint = 'https://images.linuxcontainers.org/streams/v1/images.json'
 type Catalog = Set<string>
@@ -57,6 +58,8 @@ export function officialImagePresent(aliases: Catalog, remoteAlias: string, arch
 export async function officialImageAvailable(remoteAlias: string, architecture: string, type: 'container' | 'vm' | 'both'): Promise<boolean | null> {
   if (ownerSelectedContainerImage(remoteAlias, architecture)) return type !== 'vm'
   if (!remoteAlias.startsWith('images:')) return true
+  if (type === 'both' ? await cachedSystemImagePresent(remoteAlias, architecture, 'container') || await cachedSystemImagePresent(remoteAlias, architecture, 'vm') :
+    await cachedSystemImagePresent(remoteAlias, architecture, type)) return true
   const data = await catalog()
   return data ? officialImagePresent(data, remoteAlias, architecture, type) : null
 }
@@ -64,5 +67,12 @@ export async function officialImageAvailable(remoteAlias: string, architecture: 
 export async function filterAvailableOfficialImages<T extends { remoteAlias: string; architecture: string; instanceType: string }>(images: T[], type?: 'container' | 'vm'): Promise<T[]> {
   if (!images.some(image => image.remoteAlias.startsWith('images:'))) return images
   const data = await catalog()
-  return data ? images.filter(image => officialImagePresent(data, image.remoteAlias, image.architecture, type || image.instanceType as 'container' | 'vm' | 'both')) : images
+  if (!data) return images
+  const available = await Promise.all(images.map(async image => {
+    const target = type || image.instanceType as 'container' | 'vm' | 'both'
+    return officialImagePresent(data, image.remoteAlias, image.architecture, target) ||
+      (target === 'both' ? await cachedSystemImagePresent(image.remoteAlias, image.architecture, 'container') || await cachedSystemImagePresent(image.remoteAlias, image.architecture, 'vm') :
+        await cachedSystemImagePresent(image.remoteAlias, image.architecture, target))
+  }))
+  return images.filter((_image, index) => available[index])
 }

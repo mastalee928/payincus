@@ -121,6 +121,7 @@
     "pnpm --filter server test:hosting-balance-guards",
     "pnpm --filter server test:host-notification-email-task-guards",
     "pnpm --filter server test:image-route-guards",
+    "pnpm --filter server test:system-image-cache",
     "pnpm --filter server test:inbox-query-guards",
     "pnpm --filter server test:instance-route-id-guards",
     "pnpm --filter server test:instance-config-access",
