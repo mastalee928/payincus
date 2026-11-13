@@ -440,9 +440,27 @@ func prepareIncusCompatibility(ctx context.Context, permit *CompatPermit) error 
 	if e != nil || pid < 2 {
 		return fmt.Errorf("compatibility daemon identity missing")
 	}
-	exe, e := filepath.EvalSymlinks(fmt.Sprintf("/proc/%d/exe", pid))
-	if e != nil || exe != "/usr/sbin/incusd" {
+	processStart, e := compatProcessStart(pid)
+	if e != nil {
+		return fmt.Errorf("compatibility daemon process unavailable")
+	}
+	executablePath := fmt.Sprintf("/proc/%d/exe", pid)
+	exe, e := os.Readlink(executablePath)
+	if e != nil || strings.TrimSuffix(exe, " (deleted)") != "/usr/sbin/incusd" {
 		return fmt.Errorf("compatibility daemon changed")
+	}
+	// A prepared recovery atomically restores the original file while the
+	// original daemon still holds its unlinked inode. Compare that process's
+	// actual executable, never treat a matching pathname as sufficient.
+	executable, e := os.Open(executablePath)
+	if e != nil {
+		return fmt.Errorf("compatibility daemon executable unavailable")
+	}
+	runningBinary, e := io.ReadAll(io.LimitReader(executable, int64(len(installed))+1))
+	executable.Close()
+	currentStart, startErr := compatProcessStart(pid)
+	if e != nil || startErr != nil || currentStart != processStart || compatHash(runningBinary) != compatHash(installed) {
+		return fmt.Errorf("compatibility original daemon content changed")
 	}
 	if s, e := os.Lstat("/usr/sbin/incusd"); e != nil || !s.Mode().IsRegular() || s.Mode()&0022 != 0 || s.Sys().(*syscall.Stat_t).Uid != 0 {
 		return fmt.Errorf("compatibility original binary unsafe")
