@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- afa6候选预览43478689882 AMD64首装132074777966失败在published-Agent>=v1.0.9（公开仍1.0.8），backend/243迁移/网关首装均正常。原发版顺序禁止先公开Agent再测，因此无tag预览增加同提交构建的Agent artifact与sourceCommit/hash/ELF核验，用安装后的正常manifest/binary接口验证下载；正式tag首装继续验证公开Agent。仅一次性GitHub预览可设目录，不能伪称公开资产通过或改变生产鉴权。双实际afa6tar/source243迁移/原签名/修复/无图库及无Debian11专用文件已核通过；新预览来源仍须全部首装/旧worker升级。最新资源挂载14原生和Agent服务已过，综合CI尚末段。
+
 - 本地最终221/221(test-run-20261114-014424)过；实时挂载独立复审补持有原/proc/PID/root/proc目录fd，mount继承fd定位，避免核验后PID退出/复用重定向目标。原UUID/PID与只读资源文件检查保持，新的fd版本待双架构原生，不能沿用上一字串PID路径已绿代替。目标主控仍preview-9d4984e，无本次资源候选部署；第36失败任务尚待。
 
 - 62eae8fb Agent43477081610已双架构全部success（真实LXCFS服务/包hook含原模块、解包工具及漂移修复）。前19959af5 CI43476273057双架构14类原生全部过，但verification-resend分片132060786201旧fixture缺root设备失败；补真实root后本地同脚本验证自然exit0，未放宽新重装quota门槛。新来源62CI43477081639/预览43477200648运行；本地221已接近末段无失败，目标热更新仍待完整最终来源。

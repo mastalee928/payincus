@@ -69,6 +69,16 @@ trap 'journalctl -u incudal-backend --no-pager -n 35 > /var/tmp/incudal-fresh-se
 printf 'installer@example.invalid\n3\n' | ONBOARDING_PUBLIC_HOST=gateway.example.com \
   bash "$repo_dir/scripts/install-panel.sh" > /var/tmp/incudal-fresh-install.log 2>&1
 
+if [[ -n "${INCUDAL_PREVIEW_AGENT_DIR:-}" ]]; then
+  # Unpublished same-source artifact is only permitted for disposable previews.
+  install -d -m 0755 /opt/incudal/agent-release
+  cp "$INCUDAL_PREVIEW_AGENT_DIR"/* /opt/incudal/agent-release/
+  chown -R root:root /opt/incudal/agent-release
+  chmod 0644 /opt/incudal/agent-release/*
+  printf '\nINCUDAL_AGENT_RELEASE_DIR=/opt/incudal/agent-release\n' >> /opt/incudal/.env
+  systemctl restart incudal-backend
+fi
+
 for attempt in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:3001/api/health >/dev/null; then break; fi
   sleep 2

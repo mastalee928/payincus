@@ -302,9 +302,32 @@ jobs:
           path: incudal-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}.tar.gz
           retention-days: 30
 
+  preview-agent:
+    name: 候选 Agent 下载验证准备
+    if: github.ref_type != 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache-dependency-path: agent/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: bash agent/scripts/build-release.sh
+      - run: node scripts/prepare-preview-agent.mjs agent/dist preview-agent
+      - uses: actions/upload-artifact@v4
+        with:
+          name: incudal-preview-agent
+          path: preview-agent/
+          retention-days: 30
+
   fresh-install:
     name: 全新安装验证 (${{ matrix.arch }})
-    needs: build
+    needs: [build, preview-agent]
+    if: always() && needs.build.result == 'success' && (needs.preview-agent.result == 'success' || github.ref_type == 'tag')
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -324,11 +347,18 @@ jobs:
           pattern: incudal-*-linux-${{ matrix.arch }}
           path: install-artifact
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        if: github.ref_type != 'tag'
+        with:
+          name: incudal-preview-agent
+          path: preview-agent
       - name: 从发行包安装并验证
         run: |
           package=$(find "$PWD/install-artifact" -maxdepth 1 -name '*.tar.gz' -type f)
           test "$(printf '%s\n' "$package" | wc -l)" = 1
-          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted INCUDAL_AGENT_RELEASE_TOKEN=${{ github.token }} bash scripts/smoke-fresh-install.sh "$package"
+          preview_agent=''
+          if [[ '${{ github.ref_type }}' != tag ]]; then preview_agent="$PWD/preview-agent"; fi
+          sudo env GITHUB_ACTIONS=true GITHUB_SHA=${{ github.sha }} RUNNER_ENVIRONMENT=github-hosted INCUDAL_AGENT_RELEASE_TOKEN=${{ github.token }} INCUDAL_PREVIEW_AGENT_DIR="$preview_agent" bash scripts/smoke-fresh-install.sh "$package"
 
   legacy-upgrade:
     name: 旧版在线升级验证 (${{ matrix.arch }}, ${{ matrix.scenario }})

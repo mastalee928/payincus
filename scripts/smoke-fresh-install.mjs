@@ -56,6 +56,12 @@ assert.equal(gateway.controlIp, '10.253.240.1', 'backend must reach the restrict
 // Exercise the same published manifest and checksum-pinned downloads used by a
 // newly onboarded host. A panel release must not depend on local test binaries.
 const expectedAgentVersion = (await readFile(new URL('../agent/VERSION', import.meta.url), 'utf8')).trim()
+if(process.env.INCUDAL_PREVIEW_AGENT_DIR){
+  assert.equal(process.env.GITHUB_ACTIONS,'true');assert.equal(process.env.RUNNER_ENVIRONMENT,'github-hosted')
+  const preview=JSON.parse(await readFile('/opt/incudal/agent-release/manifest.json','utf8'))
+  assert.equal(preview.version,expectedAgentVersion)
+  assert.equal(preview.sourceCommit,process.env.GITHUB_SHA,'preview Agent source must equal this build source')
+}
 const { compareAgentVersions } = await import('/opt/incudal/server/dist/lib/agent-version.js')
 const manifestResponse = await fetch('http://127.0.0.1:8081/api/agent/manifest.json', { signal: AbortSignal.timeout(60000) })
 assert.equal(manifestResponse.status, 200, 'new installation must resolve a published Agent')
