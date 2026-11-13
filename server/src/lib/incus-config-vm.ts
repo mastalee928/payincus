@@ -1,6 +1,7 @@
 import { rootCertificates } from 'node:tls'
 import { generateVmNicMacs, type VmNicMacs } from './vm-network-identifiers.js'
 import { alpineSshSecurityScript } from './alpine-ssh-security.js'
+import { rhelPackageInstallCommand } from './rhel-package-install.js'
 
 // ================= 类型定义 =================
 
@@ -161,9 +162,9 @@ function getPackageInstallCommand(osInfo: VmOsInfo): string {
     case 'apt':
       return 'retry_cmd "DEBIAN_FRONTEND=noninteractive apt-get update" && retry_cmd "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends qemu-guest-agent openssh-server curl ca-certificates"'
     case 'dnf':
-      return 'retry_cmd "dnf install -y qemu-guest-agent openssh-server openssh-clients curl ca-certificates"'
+      return `retry_cmd "${rhelPackageInstallCommand('dnf', ['qemu-guest-agent', 'openssh-server', 'openssh-clients', 'curl', 'ca-certificates'])}"`
     case 'yum':
-      return 'retry_cmd "yum install -y qemu-guest-agent openssh-server openssh-clients curl ca-certificates"'
+      return `retry_cmd "${rhelPackageInstallCommand('yum', ['qemu-guest-agent', 'openssh-server', 'openssh-clients', 'curl', 'ca-certificates'])}"`
     case 'apk':
       return 'retry_cmd "apk update" && retry_cmd "apk add --no-cache qemu-guest-agent openssh curl ca-certificates shadow util-linux"'
     default:

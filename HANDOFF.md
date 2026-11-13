@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 实购复查已确认五台35–39全部Running、扣款55元一次且每台IPv4/IPv6原密码SSH实连成功。Debian14新增OpenSSH MLDSA44-ED25519公钥导致IPv6页面误报已在PR14/51130340修，四守卫/types/build/PG+客户恢复通过。其CI43356510458 Alma9 ARM初始化遇空repomd.xml、20次旧缓存重试失败，其余原生11通过；预览43356630579success，但不得发行。继续补dnf/yum失败后clean all并强制元数据刷新，保持GPG/TLS和仓库，需新来源原生验证。CentOS x86在生产镜像目录hidden，是现有策略非页面bug。新候选尚未部署，主控仍preview-d5e7c85，test36 IPv6显示待修复部署后自然巡查验收。
+
 - 2026-11-13候选热更新任务36已success：原v1.8.9 worker＋原seal完整性检查、受信完整候选包d5e7c854、本地固定下载映射，备份/opt/incudal.bak.20261113021338，DB/双端/Agent/日志检查通过；运行preview-d5e7c85，非正式Release。systemd-run外层30秒超时但任务实际运行，核task36终态与unit0，未重复启动。指定账户实购Alpine3.24 #35/hyderabad-amd-1成功，IPv4/IPv6原密码SSH本机实连通过、扣款11元一次；四系统购物车订单ee52172d-7dd4-4d3a-9a95-fda977ce666e扣44一次，实例36–39开通中/部分已成功，Debian36出现IPv6身份核验失败待查。正式发行继续暂停，需全部实测问题修复。私有凭据及SSH材料仅仓库外，ignored logs/v1810-*为本批工具。
 
 - 2026-11-13发行顺序错误：全部候选27/27和十预览已通过后，agent误先合入main df0ec8ae并推v1.8.10tag。Owner纠正必须先候选热更新实购、修复复测后才正式发布；43349268063正式工作流取消，尚无v1.8.10Release，误推tag撤回。先使用已独立验签候选包走原更新worker的备份／迁移／回滚执行，再测试vm.oci.ee指定账户，最后正式发布。不能重新犯先发布后测试。mainCI43349189161仍需核終态，候选d5e7c854产品树一致，仅记录不同。

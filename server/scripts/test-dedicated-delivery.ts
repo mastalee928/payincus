@@ -6,6 +6,9 @@ import { generateIncusConfig } from '../src/lib/incus-config-generator.js'
 import { getImageDistroFromAlias } from '../src/db/custom-init-commands.js'
 import { createHash } from 'node:crypto'
 import ssh2 from 'ssh2'
+import { spawnSync } from 'node:child_process'
+import { rhelPackageInstallCommand } from '../src/lib/rhel-package-install.js'
+import { generateVmConfig } from '../src/lib/incus-config-vm.js'
 import { checkSshLogin, DedicatedSshVerificationError } from '../src/lib/dedicated-ssh.js'
 
 const forwards: Array<any> = []
@@ -15,6 +18,24 @@ for (const [os, distro] of [['alpine', 'alpine'], ['debian', 'debian'], ['rocky'
   }
 }
 const calls: string[] = []
+for (const manager of ['dnf', 'yum'] as const) {
+  const install = rhelPackageInstallCommand(manager, ['openssh-server', 'openssh-clients'])
+  const refreshed = manager === 'dnf' ? '--refresh' : '--setopt=metadata_expire=0'
+  const fake = `${manager}() { printf '%s\\n' "$*"; case "$*" in 'clean all') repaired=1; return 0;; *) [ "\${mode}" = healthy ] && return 0; [ "\${mode}" = broken ] && return 1; [ "\${repaired:-0}" = 1 ] && case "$*" in '${refreshed}'*) return 0;; esac; return 1;; esac; }; `
+  for (const mode of ['healthy','stale','broken']) {
+    const result=spawnSync(process.platform==='win32'?'C:/Program Files/Git/bin/bash.exe':'bash',['-c',`mode=${mode}; ${fake}${install}`],{encoding:'utf8',timeout:10000})
+    assert.equal(result.status===0,mode!=='broken',`${manager}/${mode}: failed repair must not be reported as successful`)
+    assert.equal(result.stdout.includes('clean all'),mode!=='healthy',`${manager}: repair only follows a real failed installation`)
+    if(mode==='stale')assert.ok(result.stdout.includes(refreshed),'a broken metadata cache is discarded and freshly retrieved')
+  }
+  assert.doesNotMatch(install,/nogpgcheck|sslverify|skip_if_unavailable|disablerepo|baseurl/)
+}
+for (const image of ['almalinux/9/cloud','rockylinux/9/cloud','centos/9-Stream/cloud']) {
+  for(const generate of [generateIncusConfig,generateVmConfig]) {
+    const config=generate({instanceName:'metadata-recovery',imageAlias:'images:'+image,rootPassword:'fixture-only'})
+    assert.ok(config.configPayload['user.user-data'].includes('clean all'),'container and VM initialize through the same metadata recovery')
+  }
+}
 const client = { request: async (method: string, path: string, body?: any) => {
   calls.push(`${method} ${path}`)
   if (method === 'GET') return forwards

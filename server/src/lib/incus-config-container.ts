@@ -6,6 +6,7 @@
 import crypto from 'crypto'
 import { rootCertificates } from 'node:tls'
 import { alpineSshSecurityScript } from './alpine-ssh-security.js'
+import { rhelPackageInstallCommand } from './rhel-package-install.js'
 
 // ==================== 类型定义 ====================
 
@@ -276,10 +277,10 @@ function getSetupCommands(osInfo: OsInfo): string[] {
         cmds.push(wrapWithNetworkRetry('DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server sed grep iproute2'))
         break
       case 'dnf':
-        cmds.push(wrapWithNetworkRetry('dnf install -y openssh-server openssh-clients sed grep iproute'))
+        cmds.push(wrapWithNetworkRetry(rhelPackageInstallCommand('dnf', ['openssh-server', 'openssh-clients', 'sed', 'grep', 'iproute'])))
         break
       case 'yum':
-        cmds.push(wrapWithNetworkRetry('yum install -y openssh-server openssh-clients sed grep iproute'))
+        cmds.push(wrapWithNetworkRetry(rhelPackageInstallCommand('yum', ['openssh-server', 'openssh-clients', 'sed', 'grep', 'iproute'])))
         break
       case 'zypper':
         cmds.push(wrapWithNetworkRetry('zypper --non-interactive refresh'))
