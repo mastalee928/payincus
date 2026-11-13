@@ -519,6 +519,8 @@ export async function cleanupOldTasks(): Promise<number> {
           { NOT: { replacementState: { path: ['targetPhase'], equals: 'creating' } } },
           { NOT: { replacementState: { path: ['targetPhase'], equals: 'cleanup_pending' } } },
           { NOT: { replacementState: { path: ['targetPhase'], equals: 'source_cleanup' } } },
+          { NOT: { replacementState: { path: ['targetPhase'], equals: 'rebuild_failed' } } },
+          { NOT: { replacementState: { path: ['targetPhase'], equals: 'rebuild_configuring' } } },
           { NOT: { replacementState: { path: ['targetPhase'], equals: 'rebuild_uncertain' } } }] }] }],
       // Replacement evidence is also the registered identity used by later
       // renewal starts and expiry deletion. Retain ambiguous history too: its

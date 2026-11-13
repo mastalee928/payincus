@@ -67,6 +67,7 @@ import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js
 import { cleanupManagedInstanceRemote, managedCleanupEndpointHash } from '../lib/managed-cleanup-identity.js'
 import { readRegisteredGuest, readCreatedGuest, guardCopyMoveClient } from '../lib/guest-delivery-identity.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { officialImageAvailable } from '../lib/official-image-availability.js'
 import { randomUUID } from 'node:crypto'
 import { isIP } from 'node:net'
 import { Address6 } from 'ip-address'
@@ -627,6 +628,11 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     } else {
     const host = await db.getHostById(task.hostId)
     if (!host) throw new Error('宿主机不存在')
+    const taskPackage = instance.package_id ? await db.getPackageById(instance.package_id) : null
+    if (['rebuild', 'recreate'].includes(task.taskType) && !task.replacementState && task.imageAlias &&
+        await officialImageAvailable(task.imageAlias, host.architecture || '', taskPackage?.instance_type === 'vm' ? 'vm' : 'container') === false) {
+      throw new InstanceTaskAuthorizationError('INSTANCE_IMAGE_UNAVAILABLE', '所选镜像已被官方源下架，原实例保持不变，请重新选择', 400)
+    }
 
     const clientStartTime = Date.now()
     let client = await getIncusClient(host)
@@ -1238,6 +1244,7 @@ async function executeRebuildTask(
   if (rebuildDevices) {
     rebuildUpdates.devices = rebuildDevices
   }
+  await reinstall.preparingConfig()
   await updateInstance(client, instance.incus_id, rebuildUpdates)
 
   // 执行重装（不再传递 config，因为已经在上面更新了）
@@ -2206,9 +2213,24 @@ async function setCopyPhase(taskId: number, phase: string) {
 }
 
 /** Resume only the recorded rebuild operation, never issue another rebuild. */
+let reconcilingRebuilds = false
 export async function reconcileInterruptedRebuilds() {
-  if (recoveryHeld()) return
+  if (recoveryHeld() || reconcilingRebuilds) return
+  reconcilingRebuilds = true
+  try {
   const expired = new Date(Date.now() - HEAVY_TASK_TIMEOUT)
+  const expiredTasks = await prisma.instanceTask.findMany({ where: { taskType: 'rebuild', status: 'PROCESSING',
+    startedAt: { lte: expired }, replacementState: { path: ['targetPhase'], equals: 'rebuild_uncertain' },
+    OR: [{ replacementState: { path: ['rebuildFailureCheckAt'], equals: Prisma.AnyNull } },
+      { replacementState: { path: ['rebuildFailureCheckAt'], lte: new Date().toISOString() } }] },
+    orderBy: { id: 'asc' }, take: 10 })
+  for (const task of expiredTasks) {
+    if (runningTaskIds.has(task.id)) continue
+    try { await (await import('../services/instance-reinstall-identity.js')).reconcileExpiredRebuild(task) }
+    catch (error) { console.warn(`[Rebuild] 原任务 ${task.id} 收尾核验暂未通过:`, error instanceof Error ? error.message : 'verification failed') }
+    await prisma.instanceTask.updateMany({ where: { id: task.id, status: 'PROCESSING', replacementState: { equals: task.replacementState! } },
+      data: { replacementState: { ...(task.replacementState as Prisma.JsonObject), rebuildFailureCheckAt: new Date(Date.now() + 60000).toISOString() } } })
+  }
   await prisma.instanceTask.updateMany({ where: { taskType: 'rebuild', status: 'PROCESSING', startedAt: { lte: expired },
     progress: { not: 'manual_intervention' }, replacementState: { path: ['targetPhase'], equals: 'rebuild_uncertain' } },
     data: { progress: 'manual_intervention', error: '原重装自动续接期限已届满；保留原操作回执和资源，需核对原操作结果' } })
@@ -2243,6 +2265,7 @@ export async function reconcileInterruptedRebuilds() {
     })
     if (claim) await executeTask(task.id, task)
   }
+  } finally { reconcilingRebuilds = false }
 }
 
 /**

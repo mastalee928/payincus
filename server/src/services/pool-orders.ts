@@ -24,6 +24,7 @@ import { calculateCreateBilling } from '../db/billing-operations.js'
 import { getPlanById } from '../db/package-plans.js'
 import { getSystemConfigNumber } from '../db/system-config.js'
 import { isImageCompatibleWithMemory } from '../db/images.js'
+import { officialImageAvailable } from '../lib/official-image-availability.js'
 import { validateCommandsOwnership, mergeCommandContents, getImageDistroFromAlias } from '../db/custom-init-commands.js'
 import { ErrorCode, type ErrorCodeType } from '../lib/errors.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
@@ -172,6 +173,9 @@ export async function prepareOrder(userId: number, input: PoolOrderInput, sshKey
     // 镜像：必须存在、可见、容器镜像、架构与机型一致、与配额内存兼容。
     const image = await prisma.systemImage.findUnique({ where: { remoteAlias: item.image } })
     if (!image || image.hidden) throw new PoolOrderError(ErrorCode.IMAGE_NOT_FOUND, `镜像不可用：${item.image}`, { poolPriceId: item.poolPriceId })
+    if (await officialImageAvailable(item.image, image.architecture, 'container') === false) {
+      throw new PoolOrderError(ErrorCode.IMAGE_NOT_FOUND, '所选镜像已被官方源下架，请刷新并重新选择', { poolPriceId: item.poolPriceId })
+    }
     if (image.instanceType === 'vm') throw new PoolOrderError(ErrorCode.IMAGE_TYPE_MISMATCH, `镜像 ${item.image} 只支持虚拟机`, { poolPriceId: item.poolPriceId })
     const architecture = architectureOfPreset(product.price.resourcePreset)
     if (image.architecture !== architecture) {

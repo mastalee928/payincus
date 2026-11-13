@@ -7,7 +7,7 @@ import { registeredGuestIdentity } from '../lib/registered-guest-identity.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { managedCleanupEndpointHash, cleanupManagedInstanceRemote } from '../lib/managed-cleanup-identity.js'
 import { getIncusClient, deleteInstance } from '../lib/incus/index.js'
-import { stopInstance } from '../lib/incus/incus-instances.js'
+import { stopInstance, assertNoActiveInstanceOperations } from '../lib/incus/incus-instances.js'
 import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from '../db/advisory-locks.js'
 import { IncusApiError, type IncusClient } from '../lib/incus/incus-client.js'
 import type { IncusInstance as BaseIncusInstance } from '../types/incus.js'
@@ -15,6 +15,7 @@ import { recoveryHeld } from './platform-backup-core.js'
 import { authorizeUserWrite } from '../db/user-write-authorization.js'
 import { assertHostNotMaintaining } from '../lib/host-maintenance-gate.js'
 import { sameGuestCreationTime } from '../lib/guest-identity-time.js'
+import { IncusOperationFailedError } from '../lib/incus/incus-utils.js'
 
 const record = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {}
 const validUuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(value)
@@ -105,15 +106,24 @@ export async function beginInstanceReinstall(task: InstanceTask, original: Incus
       if (task.taskType === 'rebuild' && method === 'POST' && path === originalPath + '/rebuild') {
         args[5] = { ...args[5], onOperation: async path => { await persist({ rebuildOperation: path }) } }
       }
-      return object.request(...args)
+      try { return await object.request(...args) }
+      catch (error) {
+        if (task.taskType === 'rebuild' && method === 'POST' && path === originalPath + '/rebuild' &&
+            (error instanceof IncusOperationFailedError || error instanceof IncusApiError && error.path === path && [400, 404].includes(error.statusCode))) {
+          await source()
+          await persist({ targetPhase: 'rebuild_failed', rebuildFailure: error.message.slice(0, 500), pendingRootPassword: null, requiresRebuild: true })
+        }
+        throw error
+      }
     }
     const value = Reflect.get(object, property)
     return typeof value === 'function' ? value.bind(object) : value
   } })
   return { client, source, check, targetIdentity,
+    async preparingConfig() { await persist({ targetPhase: 'rebuild_configuring', requiresRebuild: true }) },
     async targetAddress(address: string) { await persist({ targetIpv4: address }) },
     async prepareRebuildPassword(encryptedPassword: string, config: Record<string, string>) {
-      await persist({ targetPhase: 'rebuild_uncertain', pendingRootPassword: encryptedPassword,
+      await persist({ targetPhase: 'rebuild_uncertain', requiresRebuild: true, pendingRootPassword: encryptedPassword,
         rebuildConfigHash: rebuildConfigHash(config),
         targetHostIdentity: hostIdentity, targetIncusId: instance.incusId,
         rebuildSourceUuid: saved.uuid, rebuildSourceCreatedAt: saved.createdAt })
@@ -127,7 +137,12 @@ export async function beginInstanceReinstall(task: InstanceTask, original: Incus
         state.targetHostIdentity !== hostIdentity || state.targetIncusId !== instance.incusId) throw Error('REBUILD_ORIGINAL_IDENTITY_CHANGED')
       if (!state.rebuildCompleted) {
         if (!/^\/1\.0\/operations\/[a-f0-9-]+$/i.test(state.rebuildOperation || '')) throw Error('REBUILD_OPERATION_RECEIPT_MISSING')
-        const operation = await client.request<{ status?: string; status_code?: number }>('GET', state.rebuildOperation, null, 8000)
+        const operation = await client.request<{ status?: string; status_code?: number; err?: string }>('GET', state.rebuildOperation, null, 8000)
+        if (operation.status === 'Failure' && operation.status_code === 400) {
+          await source()
+          await persist({ targetPhase: 'rebuild_failed', rebuildFailure: (operation.err || 'Incus rebuild failed').slice(0, 500), pendingRootPassword: null, requiresRebuild: true })
+          throw new IncusOperationFailedError(operation.err || 'Incus rebuild failed', state.rebuildOperation)
+        }
         if (operation.status !== 'Success' || operation.status_code !== 200) throw Error('REBUILD_OPERATION_NOT_CONFIRMED')
       }
       const remote = await source()
@@ -187,12 +202,70 @@ export async function beginInstanceReinstall(task: InstanceTask, original: Incus
         if (task.taskType === 'rebuild') await tx.trafficSnapshot.deleteMany({ where: { instanceId: instance.id } })
         await tx.instance.update({ where: { id: instance.id }, data })
         const { pendingRootPassword: _password, ...receipt } = record(current.replacementState)
-        await tx.instanceTask.update({ where: { id: task.id }, data: { status: 'COMPLETED', finishedAt: new Date(), progress: 'completed',
-          replacementState: { ...receipt, targetPhase: 'verified' } as Prisma.InputJsonValue } })
+        await tx.instanceTask.update({ where: { id: task.id }, data: { status: 'COMPLETED', finishedAt: new Date(), progress: 'completed', error: null,
+          replacementState: { ...receipt, requiresRebuild: false, targetPhase: 'verified' } as Prisma.InputJsonValue } })
       }, { maxWait: 3000, timeout: 10000 })
     },
     async phase(value: string) { await persist({ targetPhase: value }) }
   }
+}
+
+/** Close an expired, stopped rebuild only after the original authenticated
+ * endpoint proves no operation is in flight. This is a failed task, never a
+ * successful rebuild or proof that the old root filesystem is intact. */
+export async function reconcileExpiredRebuild(task: InstanceTask): Promise<boolean> {
+  if (recoveryHeld() || !task.startedAt || Date.now() - task.startedAt.getTime() < 30 * 60000) return false
+  const state = record(task.replacementState)
+  if (state.targetPhase !== 'rebuild_uncertain' || state.rebuildCompleted ||
+      state.rebuildOperation && !/^\/1\.0\/operations\/[a-f0-9-]+$/i.test(state.rebuildOperation)) return false
+  const row = await prisma.instance.findUniqueOrThrow({ where: { id: task.instanceId } })
+  const host = await prisma.host.findUniqueOrThrow({ where: { id: task.hostId } })
+  if (row.hostId !== host.id || row.incusId !== state.targetIncusId || row.userId !== task.operationOwnerId ||
+      row.status !== 'stopped' || row.provisioningCleanupPending || row.deletionBillingPending || row.deletionIntent ||
+      transferHostIdentity(host) !== state.targetHostIdentity) return false
+  await assertHostNotMaintaining(host.id)
+  const identity = await registeredGuestIdentity(prisma, row, host)
+  if (identity.uuid !== state.rebuildSourceUuid || !sameGuestCreationTime(identity.createdAt, state.rebuildSourceCreatedAt)) return false
+  const connection = await (await import('../db/hosts.js')).getHostById(host.id)
+  if (!connection) return false
+  const client = await getIncusClient(connection)
+  let result = state.rebuildOperation ? 'operation_expired' : 'operation_receipt_missing'
+  if (state.rebuildOperation) try {
+    const op = await client.request<{ status?: string; status_code?: number }>('GET', state.rebuildOperation, null, 8000)
+    if (op.status !== 'Failure' || op.status_code !== 400) return false
+    result = 'operation_failed'
+  } catch (error) {
+    if (!(error instanceof IncusApiError) || error.statusCode !== 404 || error.path !== state.rebuildOperation) throw error
+  }
+  await assertNoActiveInstanceOperations(client, row.incusId)
+  const remote = await client.request<IncusInstance>('GET', `/1.0/instances/${encodeURIComponent(row.incusId)}`, null, 8000)
+  const pkg = row.packageId ? await prisma.package.findUnique({ where: { id: row.packageId } }) : null
+  const cleanup = record(record(row.snapshottedSpecs).managedCleanup)
+  if (remote.name !== row.incusId || (remote.project || 'default') !== 'default' || remote.status !== 'Stopped' ||
+      remote.type !== (pkg?.instanceType === 'vm' ? 'virtual-machine' : 'container') ||
+      remote.config?.['volatile.uuid'] !== identity.uuid || !sameGuestCreationTime(remote.created_at, identity.createdAt) ||
+      cleanup.uuid === identity.uuid && (cleanup.endpointHash !== managedCleanupEndpointHash(client) ||
+        remote.config?.['user.payincus.provisioning-attempt'] !== cleanup.attempt) ||
+      rebuildConfigHash(remote.config || {}) !== state.rebuildConfigHash) return false
+  return prisma.$transaction(async tx => {
+    if (!await tryAdvisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, row.id)) return false
+    await tx.$queryRaw`SELECT id FROM instances WHERE id = ${row.id} FOR UPDATE`
+    const current = await tx.instance.findUniqueOrThrow({ where: { id: row.id } })
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${host.id} FOR SHARE`
+    await assertHostNotMaintaining(host.id, tx)
+    if (recoveryHeld() || current.updatedAt.getTime() !== row.updatedAt.getTime() || current.status !== 'stopped' ||
+        transferHostIdentity(await tx.host.findUniqueOrThrow({ where: { id: host.id } })) !== state.targetHostIdentity ||
+        await tx.restoreTask.count({ where: { instanceId: row.id, status: { in: ['PENDING', 'PROCESSING'] } } }) ||
+        await tx.backupUploadTask.count({ where: { instanceId: row.id, status: { in: ['PENDING', 'PROCESSING'] } } }) ||
+        await tx.instanceTask.count({ where: { instanceId: row.id, id: { not: task.id }, status: { in: ['PENDING', 'PROCESSING'] } } })) return false
+    const { pendingRootPassword: _password, ...receipt } = state
+    return (await tx.instanceTask.updateMany({ where: { id: task.id, status: 'PROCESSING', startedAt: task.startedAt,
+      retryCount: task.retryCount, replacementState: { equals: task.replacementState! } }, data: {
+      status: 'FAILED', finishedAt: new Date(), progress: 'failed',
+      error: '重装未完成，已确认实例停止且无在途操作；请重新选择镜像重装',
+      replacementState: { ...receipt, targetPhase: 'rebuild_failed', requiresRebuild: true, failureEvidence: result }
+    } })).count === 1
+  })
 }
 
 /** Reconcile only the recorded copy after interruption. Before a switch, clean

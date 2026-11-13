@@ -77,6 +77,7 @@ import {
 } from '../db/instance-tasks.js'
 import type { CreateInstanceTaskData, InstanceTaskWithDetails } from '../db/instance-tasks.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
+import { officialImageAvailable } from '../lib/official-image-availability.js'
 import { validateCommandsOwnership, mergeCommandContents, getImageDistroFromAlias } from '../db/custom-init-commands.js'
 import { getPlanById, isPaidPackage } from '../db/package-plans.js'
 import { calculateCreateBilling } from '../db/billing-operations.js'
@@ -3636,6 +3637,9 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
     const rebuildPackage = instance.package_id ? await db.getPackageById(instance.package_id) : null
     const rebuildInstanceType = (rebuildPackage as { instance_type?: 'container' | 'vm' } | null)?.instance_type || 'container'
+    if (await officialImageAvailable(imageAlias, reinstallHost.architecture, rebuildInstanceType) === false) {
+      return reply.code(400).send(apiError(ErrorCode.INSTANCE_IMAGE_UNAVAILABLE, '所选镜像已被官方源下架，请刷新并重新选择'))
+    }
     const rebuildImageAvailability = await getSystemImageAvailabilityForHost(imageAlias, instance.host_id, {
       instanceType: rebuildInstanceType,
       memory: instance.memory

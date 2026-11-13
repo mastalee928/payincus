@@ -132,7 +132,7 @@ try {
       console.log(`PASS ${entry}/${kind}: current instances, counters, ports, addresses, sites and occupied inventory retained`)
     }
   }
-  for (const kind of ['same_state', 'changed_state', 'newer_same_state', 'suspended', 'maintenance', 'owner_changed', 'host_pin_changed', 'transfer', 'operation_busy'] as const) {
+  for (const kind of ['same_state', 'changed_state', 'newer_same_state', 'suspended', 'maintenance', 'owner_changed', 'host_pin_changed', 'transfer', 'operation_busy', 'active_task'] as const) {
     const label = `${tag}-success-${kind}`
     const host = await prisma.host.create({ data: { userId: owner.id, name: label, url: `https://127.0.0.1:${port}`,
       certPath, keyPath, serverCertificate: certificate, serverFingerprint: fingerprint, status: 'online', singleTenant: true,
@@ -157,6 +157,8 @@ try {
       if (kind === 'host_pin_changed') await prisma.host.update({ where: { id: host.id }, data: { serverFingerprint: 'changed-fixture-pin' } })
       if (kind === 'transfer') await prisma.instanceTransfer.create({ data: {
         instanceId: instance.id, fromUserId: owner.id, toUserId: other.id, status: 'processing', fee: 0, snapshot: {} } })
+      if (kind === 'active_task') await prisma.instanceTask.create({ data: { instanceId: instance.id, hostId: host.id,
+        userId: owner.id, taskType: 'restart', status: 'PROCESSING' } })
       if (kind === 'operation_busy') {
         let acquired!: () => void
         const ready = new Promise<void>(resolve => { acquired = resolve })

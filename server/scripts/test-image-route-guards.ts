@@ -41,3 +41,43 @@ const databaseSource = readFileSync(resolve(process.cwd(), 'src/db/images.ts'), 
 const saveAllowlist = databaseSource.slice(databaseSource.indexOf('export async function saveHostAllowedImages('), databaseSource.indexOf('export async function getSystemImageAvailabilityForHost('))
 assert.ok(saveAllowlist.indexOf('SELECT id FROM hosts WHERE id = ${hostId} FOR UPDATE') < saveAllowlist.indexOf('await tx.hostAllowedImage.deleteMany('),
   'host allowlist replacement must take the host lock before changing existing or empty allowlists')
+
+const { officialImageAvailable, filterAvailableOfficialImages, parseOfficialImageCatalog, officialImagePresent } = await import('../src/lib/official-image-availability.js')
+const catalog = { products: {
+  amd: { aliases: 'debian/12/cloud,debian/bookworm/cloud', arch: 'amd64', versions: { current: { items: { root: { ftype: 'squashfs' }, vm: { ftype: 'disk-kvm.img' } } } } },
+  arm: { aliases: 'alpine/3.24/tinycloud', arch: 'arm64', versions: { current: { items: { root: { ftype: 'root.tar.xz' } } } } }
+} }
+const parsed = parseOfficialImageCatalog(catalog)
+assert.equal(officialImagePresent(parsed, 'images:debian/12/cloud', 'x86_64', 'vm'), true)
+assert.equal(officialImagePresent(parsed, 'images:debian/12/cloud/arm64', 'aarch64', 'container'), false)
+assert.equal(officialImagePresent(parsed, 'images:alpine/3.24/tinycloud/arm64', 'aarch64', 'container'), true)
+assert.equal(officialImagePresent(parsed, 'images:alpine/3.24/tinycloud', 'arm64', 'vm'), false)
+assert.throws(() => parseOfficialImageCatalog({ products: {} }))
+const originalFetch = globalThis.fetch, originalNow = Date.now
+let now = originalNow(), requests = 0, fail = false
+Date.now = () => now
+globalThis.fetch = (async (url: string | URL | Request) => {
+  requests++
+  assert.equal(String(url), 'https://images.linuxcontainers.org/streams/v1/images.json')
+  if (fail) throw Error('isolated upstream outage')
+  return new Response(JSON.stringify(catalog))
+}) as typeof fetch
+try {
+  assert.equal(await officialImageAvailable('custom:debian/11', 'x86_64', 'container'), true)
+  assert.equal(requests, 0)
+  const checks = await Promise.all(Array.from({ length: 8 }, () => officialImageAvailable('images:debian/11/cloud', 'x86_64', 'container')))
+  assert.ok(checks.every(value => value === false)); assert.equal(requests, 1, 'concurrent lookups share one bounded fetch')
+  const images = [
+    { remoteAlias: 'images:debian/12/cloud', architecture: 'x86_64', instanceType: 'both' },
+    { remoteAlias: 'images:debian/11/cloud', architecture: 'x86_64', instanceType: 'both' }
+  ]
+  assert.equal((await filterAvailableOfficialImages(images, 'container')).length, 1)
+  fail = true; now += 16 * 60000
+  assert.equal(await officialImageAvailable('images:debian/11/cloud', 'x86_64', 'container'), false)
+  assert.equal(await officialImageAvailable('images:debian/11/cloud', 'x86_64', 'container'), false)
+  assert.equal(requests, 2, 'failed upstream requests back off')
+  now += 61 * 60000
+  assert.equal(await officialImageAvailable('images:debian/11/cloud', 'x86_64', 'container'), null)
+  assert.equal((await filterAvailableOfficialImages(images)).length, 2, 'unknown upstream state must not erase inventory')
+} finally { globalThis.fetch = originalFetch; Date.now = originalNow }
+console.log('official catalog: withdrawal, architecture/type, custom sources, concurrency, stale cache and outage passed')

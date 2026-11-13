@@ -18,6 +18,7 @@ import { beginHostMutation } from '../host-operation-lane.js'
 import { alpineSshFingerprintInspectionCommand } from '../alpine-ssh-security.js'
 import { prisma } from '../../db/prisma.js'
 import { assertInstanceMayBoot } from '../instance-expiry.js'
+import { assertRebuildBootReady } from '../instance-rebuild-state.js'
 
 export class IncusApiError extends Error {
   constructor(message: string, readonly statusCode: number, readonly path: string) { super(message) }
@@ -200,7 +201,7 @@ export class IncusClient {
         const database=this.maintenanceDatabase as typeof prisma|undefined
         const target=this.billingInstanceId!==undefined?await(database?.instance??prisma.instance).findUnique({where:{id:this.billingInstanceId}}):
           this.hostId!==undefined?await(database?.instance??prisma.instance).findFirst({where:{hostId:this.hostId,incusId:decodeURIComponent(path.split('/')[3])}}):null
-        if(target)assertInstanceMayBoot(target)
+        if(target){assertInstanceMayBoot(target);await assertRebuildBootReady(database ?? prisma,target.id)}
       }
       const url = `${this.baseUrl}${path}`
       const options: {

@@ -14,6 +14,7 @@ import {
 } from '../db/images.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { logSuccess } from '../db/logs.js'
+import { filterAvailableOfficialImages } from '../lib/official-image-availability.js'
 
 const POSITIVE_INTEGER_PATTERN = /^[1-9]\d*$/
 
@@ -54,7 +55,7 @@ export default async function imageRoutes(fastify: FastifyInstance) {
       return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
     }
 
-    const images = await getVisibleSystemImages(type, memoryNum, hostIdNum)
+    const images = await filterAvailableOfficialImages(await getVisibleSystemImages(type, memoryNum, hostIdNum), type)
     return {
       success: true,
       images: images.map(img => ({

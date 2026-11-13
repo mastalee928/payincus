@@ -104,6 +104,21 @@ try {
   const maintenanceRunning=await processAgentInstanceReport(host.id,payload,agent)
   assert.equal(maintenanceRunning.statusUpdated,0);assert.equal(maintenanceRunning.trafficUpdated,1,'maintenance must not drop real traffic accounting')
   await prisma.host.update({where:{id:host.id},data:{securityHardening:Prisma.DbNull}})
+  const stopTask = await prisma.instanceTask.create({ data: { instanceId: instance.id, hostId: host.id, userId: owner.id,
+    taskType: 'stop', status: 'COMPLETED', finishedAt: new Date() } })
+  for (const skew of [-300000, -14000, 0, 14000, 300000]) {
+    await restore()
+    await prisma.instance.update({ where: { id: instance.id }, data: { status: 'stopped' } })
+    const stale = await processAgentInstanceReport(host.id, { ...payload, reportedAt: new Date(Date.now() + skew).toISOString() }, agent)
+    assert.equal(stale.statusUpdated, 0, `late running heartbeat with ${skew}ms skew cannot undo stop`)
+    assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'stopped')
+    await assertAccountingUnchanged()
+  }
+  await prisma.instanceTask.update({ where: { id: stopTask.id }, data: { status: 'PROCESSING', finishedAt: null } })
+  assert.equal((await processAgentInstanceReport(host.id, payload, agent)).statusUpdated, 0, 'active user task owns status')
+  await prisma.instanceTask.update({ where: { id: stopTask.id }, data: { status: 'COMPLETED', finishedAt: new Date(Date.now() - 120000) } })
+  assert.equal((await processAgentInstanceReport(host.id, { ...payload, reportedAt: new Date().toISOString() }, agent)).statusUpdated, 1, 'fresh report eventually resumes status sync')
+  await prisma.instanceTask.delete({ where: { id: stopTask.id } })
   for (const phase of ['lookup', 'status'] as const) for (const change of ['owner', 'host', 'incus'] as const) {
     await restore()
     const mutate = async () => { await prisma.instance.update({ where: { id: instance.id }, data: changeData(change) }) }

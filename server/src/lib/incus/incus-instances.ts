@@ -89,6 +89,20 @@ async function listActiveInstanceOperations(client: IncusClient, instanceName: s
   )
 }
 
+export async function assertNoActiveInstanceOperations(client: IncusClient, instanceName: string): Promise<void> {
+  const payload = await client.request<unknown>('GET', '/1.0/operations?recursion=1', null, 8000)
+  // Only accept the documented recursive operation structure, never treat an
+  // unreadable response as evidence that destructive work has ended.
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw Error('INCUS_OPERATIONS_UNVERIFIED')
+  for (const entries of Object.values(payload)) {
+    if (!Array.isArray(entries) || entries.some(entry => !entry || typeof entry !== 'object' || typeof entry.id !== 'string')) {
+      throw Error('INCUS_OPERATIONS_UNVERIFIED')
+    }
+  }
+  if (normalizeOperationsPayload(payload).some(op => isOperationRunning(op) &&
+      (!op.resources || operationTouchesInstance(op.resources, instanceName)))) throw Error('INSTANCE_OPERATION_STILL_RUNNING')
+}
+
 function describeOperations(operations: IncusOperation[]): string {
   return operations.map(describeOperation).join(', ')
 }

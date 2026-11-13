@@ -261,6 +261,7 @@ export async function syncInstanceStatus(
                 hostNow.certPath !== instance.host.certPath || hostNow.keyPath !== instance.host.keyPath ||
                 hostNow.serverCertificate !== instance.host.serverCertificate || hostNow.serverFingerprint !== instance.host.serverFingerprint ||
                 await hasActiveTransferWorkflow(instance.id, tx) ||
+                await tx.instanceTask.count({ where: { instanceId: instance.id, status: { in: ['PENDING', 'PROCESSING'] } } }) ||
                 await tx.instanceTransfer.count({ where: { instanceId: instance.id, status: { in: ['pending', 'processing'] } } })) {
                 throw new Error('INSTANCE_SYNC_SOURCE_CHANGED')
             }

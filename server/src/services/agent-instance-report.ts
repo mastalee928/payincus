@@ -361,6 +361,12 @@ async function processOneAgentInstanceReport(
           // A reboot's temporary Stopped observation cannot consume the original
           // running intent needed for recovery. Traffic counters still continue.
           if(!host||hostMaintenanceBlocked(host.securityHardening))return {count:0}
+          // A heartbeat sampled before a completed stop/start must not undo
+          // that newer user operation while its next task is being admitted.
+          if (await tx.instanceTask.count({ where: { instanceId: instance.id, OR: [
+            { status: { in: ['PENDING','PROCESSING'] } },
+            { status: { in: ['COMPLETED', 'FAILED'] }, finishedAt: { gte: new Date(Math.min(sampledAt.getTime(), now.getTime()) - 60000) } }
+          ] } })) return { count: 0 }
           return tx.instance.updateMany({
             where: {
               id: instance.id,

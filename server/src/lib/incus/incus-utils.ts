@@ -6,6 +6,10 @@
 import { IncusApiError, type IncusClient } from './incus-client.js'
 import type { IncusOperation } from '../../types/incus.js'
 
+export class IncusOperationFailedError extends Error {
+  constructor(message: string, readonly operationPath: string) { super(message) }
+}
+
 /**
  * 等待异步操作完成
  * @param timeout 超时时间（毫秒），默认 120 秒
@@ -40,7 +44,7 @@ export async function waitForOperation(
     }
 
     if (op.status === 'Failure') {
-      throw new Error(op.err || op.error || '操作失败')
+      throw new IncusOperationFailedError(op.err || op.error || '操作失败', operationUrl)
     }
     if (op.status?.toLowerCase() === 'cancelled' || op.status?.toLowerCase() === 'canceled') {
       throw new Error(op.err || op.error || 'Incus operation cancelled')

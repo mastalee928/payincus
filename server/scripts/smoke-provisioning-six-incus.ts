@@ -12,7 +12,11 @@ import { checkSshLogin } from '../src/lib/dedicated-ssh.js'
 import { failPoolProvision } from '../src/services/pool-provisioning.js'
 import { syncHostPublicIp } from '../src/services/host-public-ip-sync.js'
 import { verifyPublicSshIdentity } from '../src/lib/host-public-ip.js'
-import { encryptSensitiveData } from '../src/lib/security.js'
+import { encryptSensitiveData, decryptSensitiveData } from '../src/lib/security.js'
+import { createInstanceTask } from '../src/db/instance-tasks.js'
+import { executeTask } from '../src/workers/instanceTaskWorker.js'
+import { transferHostIdentity } from '../src/lib/transfer-host-identity.js'
+import { assertRebuildBootReady } from '../src/lib/instance-rebuild-state.js'
 import { acceptGuestProtectionStatus } from '../src/lib/guest-network-protection.js'
 import { acceptHostProvisioningStatus } from '../src/lib/host-provisioning-tools.js'
 import { instanceSshFingerprints, dedicatedIpv6InstallScript } from '../src/lib/incus/dedicated-ipv6.js'
@@ -29,7 +33,7 @@ const batch = await prisma.hostOnboardingBatch.create({ data: { id: randomUUID()
 const host = await prisma.host.create({ data: { userId: user.id, name: 'native-incus', url: 'https://127.0.0.1:18443',
   certPath: process.env.INCUDAL_PROVISIONING_CERT!, keyPath: process.env.INCUDAL_PROVISIONING_KEY!,
   serverCertificate: cert, serverFingerprint: new X509Certificate(cert).fingerprint256,
-  singleTenant: true, status: 'online', isInstalled: true, instanceType: 'container',
+  singleTenant: true, status: 'online', isInstalled: true, instanceType: 'container', architecture: process.arch === 'arm64' ? 'aarch64' : 'x86_64',
   cpuAllowanceMax: 100, memoryMax: 1024, customerDiskGiB: 4,
   natPublicIp: '11.0.0.99', natBindIp: '11.0.0.99', natPortStart: 1, natPortEnd: 65535,
   portProtocol: 'tcp_udp', portProtocolRevision: 1, portProtocolApplied: 'tcp_udp', portProtocolAppliedRevision: 1,
@@ -76,9 +80,9 @@ try {
   assert.equal((await syncHostPublicIp(host.id, {}, ipDependencies)).blocked, false)
   for (const [index, image] of ['alpine/3.24/cloud', 'alpine/3.21/tinycloud', 'debian/14/cloud', 'ubuntu/24.04/cloud', 'rockylinux/9/cloud', 'almalinux/9/cloud', 'centos/9-Stream/cloud'].entries()) {
     if (process.env.INCUDAL_NATIVE_IMAGE && image !== process.env.INCUDAL_NATIVE_IMAGE) continue
-    const name = `native-delivery-${index}`, password = randomUUID() + '-Aa1!', ip = `10.198.0.${100 + index}`
+    const name = `native-delivery-${index}`, password = randomUUID() + '-Aa1!', ip = `10.10.1.${100 + index}`
     const generated = generateIncusConfig({ instanceName: name, imageAlias: `images:${image}`, rootPassword: password,
-      type: 'container', networkMode: 'nat', network: { ipAddress: `${ip}/24`, gateway: '10.198.0.1', dns: ['10.198.0.1'] } })
+      type: 'container', networkMode: 'nat', network: { ipAddress: `${ip}/22`, gateway: '10.10.0.1', dns: ['10.10.0.1'] } })
     const order = await prisma.poolOrder.create({ data: { id: randomUUID(), userId: user.id, requestHash: name, totalCents: 0 } })
     const instance = await prisma.instance.create({ data: { userId: user.id, hostId: host.id, incusId: name, name,
       image: `images:${image}`, status: 'creating', networkMode: 'nat', cpu: 100, memory: 1024, disk: 4096, portLimit: 0, dedicatedIpv4: true, purchaseBatchId: order.id,
@@ -184,6 +188,38 @@ try {
       assert.deepEqual(await instanceSshFingerprints(transport, name), pinnedKeys, 'host keys are preserved across repair and reboot')
       await checkSshLogin('11.0.0.99', password, pinnedKeys)
       console.log('PASS real Debian reboot: old IPv6/cloud-init cycle repaired, next boot completes, original initialization/password/keys retained')
+    }
+    if (image === 'alpine/3.24/cloud') {
+      // Native Incus failure (not a mocked response) followed by fresh owner
+      // consent must unlock and successfully rebuild the same paid instance.
+      execFileSync('incus', ['stop', name, '--force'], { timeout: 30000 })
+      await prisma.instance.update({ where: { id: instance.id }, data: { status: 'stopped' } })
+      const missingAlias = `native-missing-${randomUUID()}`
+      const fixtureImages = await Promise.all([missingAlias, `images:${image}`].map(remoteAlias => prisma.systemImage.create({ data: {
+        name: remoteAlias, remoteAlias, icon: 'alpine', architecture: host.architecture, instanceType: 'container'
+      } })))
+      const requestRebuild = async (imageAlias: string) => {
+        const admitted = await createInstanceTask({ instanceId: instance.id, hostId: host.id, userId: user.id, taskType: 'rebuild', imageAlias,
+          sensitiveAuthorization: { actor: { id: user.id, sid: 'native-acceptance', iat: Math.floor(Date.now() / 1000) }, entry: 'host',
+            expectedOwnerId: user.id, expectedIncusId: name, expectedHostIdentity: transferHostIdentity(await prisma.host.findUniqueOrThrow({ where: { id: host.id } })) } })
+        const claimed = await prisma.instanceTask.update({ where: { id: admitted.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+        await executeTask(claimed.id, claimed)
+        return prisma.instanceTask.findUniqueOrThrow({ where: { id: claimed.id } })
+      }
+      try {
+        const failed = await requestRebuild(missingAlias)
+        assert.equal(failed.status, 'FAILED', failed.error || '')
+        assert.equal((failed.replacementState as any).targetPhase, 'rebuild_failed')
+        await assert.rejects(assertRebuildBootReady(prisma, instance.id), /重新选择镜像重装/)
+        assert.equal(JSON.parse(execFileSync('incus', ['query', `/1.0/instances/${name}/state`], { encoding: 'utf8' })).status, 'Stopped')
+        const retry = await requestRebuild(`images:${image}`)
+        assert.equal(retry.status, 'COMPLETED', retry.error || '')
+        const recovered = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
+        assert.equal(recovered.status, 'running'); assert.equal(recovered.expiresAt?.getTime(), instance.expiresAt?.getTime())
+        assert.equal(recovered.purchaseBatchId, instance.purchaseBatchId)
+        await checkSshLogin('11.0.0.99', decryptSensitiveData(recovered.rootPassword!), await instanceSshFingerprints(transport, name))
+        console.log('PASS native rebuild: genuine missing image failure is terminal, stopped retained, fresh consent rebuild succeeds with real password SSH and unchanged paid term')
+      } finally { await prisma.systemImage.deleteMany({ where: { id: { in: fixtureImages.map(row => row.id) } } }) }
     }
     await prisma.instance.update({ where: { id: instance.id }, data: { status: 'error' } })
     await failPoolProvision(instance.id, (await getHostById(host.id))!, 'native completed pool lifecycle cleanup')
