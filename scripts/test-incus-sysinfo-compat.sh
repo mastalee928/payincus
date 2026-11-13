@@ -39,7 +39,15 @@ if test -x /out/provisioning-test; then
   # process title can be empty, so pgrep would reproduce the sysinfo bug in
   # the fixture before the production reload even starts.
   printf '%s\n' "$old" > /run/incus/incusd.pid
-  /out/provisioning-test -test.run '^TestNativeCompatibilityAutomaticReload$' -test.v
+  if ! /out/provisioning-test -test.run '^TestNativeCompatibilityAutomaticReload$' -test.v; then
+    # These contain only this disposable test guest. Preserve the actual
+    # OpenRC failure rather than inferring a dependency or rerunning blindly.
+    rc-service incusd start || true
+    rc-status -a || true
+    cat /tmp/incusd-original.log || true
+    test ! -f /var/log/incus/incusd.log || tail -n 60 /var/log/incus/incusd.log
+    exit 1
+  fi
 else
 kill -TERM "$old"
 for n in $(seq 1 60);do kill -0 "$old" 2>/dev/null || break;sleep 1;done

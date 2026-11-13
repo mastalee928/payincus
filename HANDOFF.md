@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 2ed86183原生43525192402 AMD132229087689在自动流程OpenRC incusd start明确失败；此前补服务包不足以解释完整运行依赖。新增仅一次性测试环境服务/daemon失败日志，继续查真正启动错误，不放宽产品身份或用手动切换替代。尚未热更新或正式发行；最新自动应用未完成。
+
 - e87b4d56自动原生43524653219两架构已进入prepare但exit1，一次性Alpine夹具仅装incus/client/openrc，遗漏实际安装模板已有incus-openrc；补真实服务包并将服务zap/start/waitready错误分阶段且不打印原始输出。双vet/测试编译过，下一原生仍待，未对主控应用；不得用前手动启动成功覆盖自动OpenRC重载缺口。
 
 - 24b5f9d2真实自动43524290263两架构已越过JSON读取，失败在原生测试用pgrep找空标题Alpine原daemon，尚未进入产品替换。夹具改用shell启动时真实PID并核exe/cgroup/客机PID，不放宽产品校验；双vet/测试编译过。全量test-run-20261114-064925自然结束221/221，Agent43523276562success/Release skipped，原5fed预览双构建及兼容双构建success，六旧升级尚待；新来源自动测试和完整包继续，仍未热更新发行。
