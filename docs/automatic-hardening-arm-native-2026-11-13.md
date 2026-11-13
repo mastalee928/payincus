@@ -1,5 +1,7 @@
 # ARM64 Alpine / UEFI GRUB 原生加固验收
 
+最终结果：818cc097完整CI29/29、14原生、Alpine9/9、Agent及十项安装升级预览全部通过，双包独立校验通过。主控候选热更新42于20:37:23北京时间成功，运行preview-818cc09；原接入队列20:37:14自动将#53完成为succeeded/done，AppArmor/SSH/资源全部verified，未再次重启。按owner指定月费10元、初装1元经正常管理员API建立并上架price18，管理库存available、客户目录库存1、浏览器显示首期11元。最后真实宿主回读AppArmor Y、服务started、BBR=bbr、原核/新boot保持，Incus容器与本次镜像空清理完成。下方“待候选”是当时记录，本阶段已完成；完整ARM用户镜像操作矩阵等待owner后续新增机器。
+
 Owner要求先完成x86重装矩阵，再修新增新加坡西部ARM宿主到正常接入可售。目标为新接入空闲宿主`singapore2-arm-1`（#53），Alpine3.24.4、aarch64、4KiB页、UEFI/GRUB、6.18.63-virt内核、Incus与Agentv1.0.8。初始内核具备AppArmor但未启用，Agent网络防护与解包工具回执正常；旧程序仅开放AMD64原生方案，故长期停`HARDENING_NATIVE_ACCEPTANCE_REQUIRED`，无客户实例。
 
 ## 真实原系统验收
