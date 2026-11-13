@@ -290,13 +290,16 @@ func startCompatDaemon(ctx context.Context) error {
 	// The old OpenRC runlevel marker survives a SIGTERM daemon reload.
 	// Clear only its stale marker after the exact original PID has exited.
 	if _, e := run(ctx, "rc-service", "incusd", "zap"); e != nil {
-		return e
+		return fmt.Errorf("compatibility stale service marker: %w", e)
 	}
 	if _, e := run(ctx, "rc-service", "incusd", "start"); e != nil {
-		return e
+		return fmt.Errorf("compatibility daemon service start: %w", e)
 	}
 	_, e := run(ctx, "incus", "admin", "waitready", "--timeout=60")
-	return e
+	if e != nil {
+		return fmt.Errorf("compatibility daemon readiness: %w", e)
+	}
+	return nil
 }
 func prepareIncusCompatibility(ctx context.Context, permit *CompatPermit) error {
 	if !validCompatPermit(permit) {

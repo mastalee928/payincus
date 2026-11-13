@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- e87b4d56自动原生43524653219两架构已进入prepare但exit1，一次性Alpine夹具仅装incus/client/openrc，遗漏实际安装模板已有incus-openrc；补真实服务包并将服务zap/start/waitready错误分阶段且不打印原始输出。双vet/测试编译过，下一原生仍待，未对主控应用；不得用前手动启动成功覆盖自动OpenRC重载缺口。
+
 - 24b5f9d2真实自动43524290263两架构已越过JSON读取，失败在原生测试用pgrep找空标题Alpine原daemon，尚未进入产品替换。夹具改用shell启动时真实PID并核exe/cgroup/客机PID，不放宽产品校验；双vet/测试编译过。全量test-run-20261114-064925自然结束221/221，Agent43523276562success/Release skipped，原5fed预览双构建及兼容双构建success，六旧升级尚待；新来源自动测试和完整包继续，仍未热更新发行。
 
 - 自动应用候选5fed06b3已推，CI43523276444、Agent43523276562、预览43523268718及Alpine43523276345仍待终态。真实自动reload43523276506两架构在第一步compatGuests解析失败，未进入替换；原固定artifact手动切换成功不能替代此自动函数。修Agent宿主Incus调用固定--force-local，并隔离stdout/stderr，避免首次提示混入JSON及用户默认remote影响；只报解析类型/字节数，不输出guest配置。专项host-tools、双Go vet与双架构测试编译已过，新来源原生仍待。此次未热更新/正式发布。

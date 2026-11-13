@@ -6,7 +6,7 @@ test ! -e /var/lib/incus/database
 ls -ld /proc /proc/self
 cat /proc/self/status | head -n12
 mount | head -n12
-apk add --no-cache incus incus-client openrc apparmor-utils iproute2 python3
+apk add --no-cache incus incus-client incus-openrc openrc apparmor-utils iproute2 python3
 mkdir -p /run/openrc /run/dbus
 touch /run/openrc/softlevel
 dbus-daemon --system --fork
