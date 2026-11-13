@@ -181,8 +181,9 @@ func compatGuests(ctx context.Context) ([]compatGuest, error) {
 		return nil, e
 	}
 	var rows []compatGuest
-	if json.Unmarshal(b, &rows) != nil {
-		return nil, fmt.Errorf("compatibility guest list invalid")
+	if e = json.Unmarshal(b, &rows); e != nil {
+		// Describe the parse failure without exposing guest configuration.
+		return nil, fmt.Errorf("compatibility guest list invalid (bytes=%d): %w", len(b), e)
 	}
 	for _, r := range rows {
 		if !guestName.MatchString(r.Name) || !guestUUID.MatchString(r.Config["volatile.uuid"]) || r.Status != "Running" && r.Status != "Stopped" {

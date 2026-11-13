@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 自动应用候选5fed06b3已推，CI43523276444、Agent43523276562、预览43523268718及Alpine43523276345仍待终态。真实自动reload43523276506两架构在第一步compatGuests解析失败，未进入替换；原固定artifact手动切换成功不能替代此自动函数。修Agent宿主Incus调用固定--force-local，并隔离stdout/stderr，避免首次提示混入JSON及用户默认remote影响；只报解析类型/字节数，不输出guest配置。专项host-tools、双Go vet与双架构测试编译已过，新来源原生仍待。此次未热更新/正式发布。
+
 - Incus兼容真实固定artifact切换43518949938双架构全部success，原PID/UUID/boot/marker保持，guest syscall sysinfo=128MiB精确（22:26UTC）；前Docker/chroot/pivot失败均测试准备，最终递归保留dev/sys、重挂proc后闭环。现接Agent1.0.11官方压缩嵌入对应架构（约30–33MB，原64MB升级边界保持）；主控持久incusCompat门禁/当前受信Agent/原host/guest UUID/state许可，Agent原PID start-time/库依赖/原包backup/重载续接/回读/回滚，普通加固不得擦此门禁。新增PG/mTLS原许可续接/阻新任务/回执解除/旧实例账务回归已通过，server types和双Go vet过，本地全量221运行；新Agent自动函数native及同来源完整CI/打包/候选OTA尚待，未应用这批生产也未正式发版。
 
 - 2026-11-14镜像矩阵收尾：最终候选6093777/Agent1.0.10，AMD24/24于20:52:31UTC，ARM24/24于21:32:06UTC全通过，实际系统各72次核验无错配。重装/停启/重启、原密码/公钥/boot变化/测试文件/IPv4IPv6/内存视图通过，余额前后999876.88、AMD5/ARM1购买账单数不变，6测试实例归属/host/账期/原价/续费价保持。sysinfo的Alpine Incus兼容仍未闭环；固定官方7.0.1双架构补丁构建43510197753成功，真实旧daemon切换43511172924/43512260817在原客机起步失败，完整日志定位Docker未委派cgroup(memory.max缺)，不是切换或产品回补失败。1dda9219夹具专用cgroup委派后43512869484运行；未放宽生产规则。未提交agent/internal/provisioning/incus_compat_linux.go与compat/草稿尚未接入或部署；须补完整互斥/回滚/原身份与真正sysinfo，再发正式版本。

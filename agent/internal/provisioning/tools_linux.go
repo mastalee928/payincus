@@ -47,14 +47,24 @@ func runWithFiles(ctx context.Context, name string, files []*os.File, args ...st
 	if e != nil {
 		return nil, e
 	}
+	if name == "incus" {
+		// The provisioning capability is scoped to this authenticated host.
+		// A user's default remote and first-run hints must never select another
+		// daemon or contaminate its machine-readable local response.
+		args = append([]string{"--force-local"}, args...)
+	}
 	c := exec.Command(p, args...)
 	c.ExtraFiles = files
 	c.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C", "DEBIAN_FRONTEND=noninteractive", "NEEDRESTART_MODE=l", "UCF_FORCE_CONFFOLD=1"}
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// Output is bounded and never placed in heartbeat/logs (mirrors may be private).
 	var out limitedBuffer
+	var diagnostics limitedBuffer
 	c.Stdout = &out
 	c.Stderr = &out
+	if name == "incus" {
+		c.Stderr = &diagnostics
+	}
 	if e = c.Start(); e != nil {
 		return nil, e
 	}
@@ -62,7 +72,7 @@ func runWithFiles(ctx context.Context, name string, files []*os.File, args ...st
 	go func() { done <- c.Wait() }()
 	select {
 	case e = <-done:
-		if out.overflow {
+		if out.overflow || diagnostics.overflow {
 			return nil, fmt.Errorf("host command output exceeded limit")
 		}
 		return out.data, e
