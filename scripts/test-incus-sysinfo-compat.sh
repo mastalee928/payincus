@@ -3,6 +3,9 @@
 set -eux
 test "${INCUDAL_SYSINFO_COMPAT_TEST:-}" = disposable
 test ! -e /var/lib/incus/database
+ls -ld /proc /proc/self
+cat /proc/self/status | head -n12
+mount | head -n12
 apk add --no-cache incus incus-client openrc apparmor-utils iproute2 python3
 mkdir -p /run/openrc /run/dbus
 touch /run/openrc/softlevel
@@ -10,6 +13,7 @@ dbus-daemon --system --fork
 /usr/sbin/incusd --group incus >/tmp/incusd-original.log 2>&1 &
 old=$!
 sleep 2
+kill -0 "$old" || { wait "$old"; cat /tmp/incusd-original.log; exit 1; }
 ps -o pid,ppid,args
 ls -l /proc/$old/exe /run/incus /var/lib/incus || true
 cat /tmp/incusd-original.log

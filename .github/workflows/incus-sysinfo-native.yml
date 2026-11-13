@@ -61,5 +61,5 @@ jobs:
             cd "$1"
             mkdir .oldroot
             pivot_root . .oldroot
-            exec /bin/sh -ec "umount -l /.oldroot; apk add --no-cache go; sh /test.sh"
+            exec /bin/sh -ec "umount -l /.oldroot; mount -t proc proc /proc; apk add --no-cache go; sh /test.sh"
           ' -- "$root"
