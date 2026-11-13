@@ -41,8 +41,7 @@ jobs:
           if [[ '${{ matrix.architecture }}' == arm64 ]]; then arch=aarch64; digest=4b14c18f7e90a063b61462ea1462a5732c154bf6adad594974fe6487cd98a8de; fi
           root=$(mktemp -d)
           curl -fsSLo alpine.tar.gz "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/$arch/alpine-minirootfs-3.24.4-$arch.tar.gz"
-          printf '%s  alpine.tar.gz
-' "$digest" | sha256sum -c -
+          printf '%s  alpine.tar.gz\n' "$digest" | sha256sum -c -
           sudo tar -xzf alpine.tar.gz -C "$root"
           sudo cp /etc/resolv.conf "$root/etc/resolv.conf"
           sudo mkdir -p "$root/out"
