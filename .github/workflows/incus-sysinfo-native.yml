@@ -36,9 +36,21 @@ jobs:
           PY
       - name: Original daemon reload retains guest and corrects real sysinfo
         run: |
-          sudo systemctl start incudalsysinfo.slice
-          echo '+cpuset +cpu +io +memory +pids' | sudo tee /sys/fs/cgroup/incudalsysinfo.slice/cgroup.subtree_control
-          docker run --rm --privileged --cgroupns=host --cgroup-parent=incudalsysinfo.slice -v /sys/fs/cgroup:/sys/fs/cgroup:rw -v "$PWD/output:/out:ro" -v "$PWD/scripts/test-incus-sysinfo-compat.sh:/test.sh:ro" -e INCUDAL_SYSINFO_COMPAT_TEST=disposable alpine:3.24 sh -ec '
-            apk add --no-cache go
-            sh /test.sh
-          '
+          set -euo pipefail
+          arch=x86_64; digest=cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012
+          if [[ '${{ matrix.architecture }}' == arm64 ]]; then arch=aarch64; digest=4b14c18f7e90a063b61462ea1462a5732c154bf6adad594974fe6487cd98a8de; fi
+          root=$(mktemp -d)
+          curl -fsSLo alpine.tar.gz "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/$arch/alpine-minirootfs-3.24.4-$arch.tar.gz"
+          printf '%s  alpine.tar.gz
+' "$digest" | sha256sum -c -
+          sudo tar -xzf alpine.tar.gz -C "$root"
+          sudo cp /etc/resolv.conf "$root/etc/resolv.conf"
+          sudo mkdir -p "$root/out"
+          sudo cp output/incusd "$root/out/incusd"
+          sudo cp scripts/test-incus-sysinfo-compat.sh "$root/test.sh"
+          sudo mount --rbind /dev "$root/dev"
+          sudo mount --make-rslave "$root/dev"
+          sudo mount -t proc proc "$root/proc"
+          sudo mount --rbind /sys "$root/sys"
+          sudo mount --make-rslave "$root/sys"
+          sudo env INCUDAL_SYSINFO_COMPAT_TEST=disposable chroot "$root" /bin/sh -ec 'apk add --no-cache go; sh /test.sh'
