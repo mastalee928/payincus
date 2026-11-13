@@ -7,6 +7,7 @@ import { dedicatedIpv6Address, dedicatedIpv6Gateway, dedicatedIpv6State, normali
   PublicIpv6SyncError, MAX_PUBLIC_IPV6_ADDRESSES, type DedicatedIpv6Mapping, type DedicatedIpv6State } from '../host-public-ipv6.js'
 import { verifyPublicSshIdentity, PublicIpSyncError } from '../host-public-ip.js'
 import { verifyDedicatedIpv6FromGuest } from './dedicated-ipv6-probe.js'
+import { guestSshFingerprintsCommand } from '../ssh-host-identity.js'
 
 const bridge = '/1.0/networks/incusbr0'
 const guestDirectory = '/etc/payincus/ipv6'
@@ -171,7 +172,7 @@ export async function configureDedicatedIpv6Guest(client: IncusClient, name: str
 
 export async function instanceSshFingerprints(client: IncusClient, name: string): Promise<string[]> {
   const result = await execWithOutput(client, name, ['sh', '-c',
-    'for key in /etc/ssh/ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ecdsa_key.pub /etc/ssh/ssh_host_rsa_key.pub; do [ ! -f "$key" ] || ssh-keygen -lf "$key" -E sha256; done'], {}, 8000)
+    guestSshFingerprintsCommand], {}, 8000)
   if ((result.metadata as { return?: number } | null)?.return !== 0) throw new PublicIpv6SyncError('IPV6_IDENTITY_UNAVAILABLE')
   const fingerprints = result.stdout.match(/SHA256:[A-Za-z0-9+/]+/g) ?? []
   if (!fingerprints.length) throw new PublicIpv6SyncError('IPV6_IDENTITY_UNAVAILABLE')

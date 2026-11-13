@@ -5,7 +5,11 @@ import { ensureDedicatedForward, removeObsoleteDedicatedForwards, removeDedicate
 import { reconcileDedicatedIpv6, dedicatedIpv6InstallScript, dedicatedIpv6NetworkDigest, MAX_IPV6_VERIFICATIONS_PER_PASS } from '../src/lib/incus/dedicated-ipv6.js'
 import { ipv6BoundedClient } from '../src/lib/incus/ipv6-deadline.js'
 import { waitForOperation } from '../src/lib/incus/incus-utils.js'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { guestSshFingerprintsCommand } from '../src/lib/ssh-host-identity.js'
 import { applyCustomerInstanceView } from '../src/lib/customer-instance-view.js'
 import { PublicIpSyncError } from '../src/lib/host-public-ip.js'
 import { dedicatedIpv6ProbeScript, validateDedicatedIpv6Probe } from '../src/lib/incus/dedicated-ipv6-probe.js'
@@ -179,6 +183,24 @@ assert.equal(guestVerifications, 1, 'an actual public SSH identity mismatch must
 assert.equal((await reconcileDedicatedIpv6(client, { ...input, previous: failedGuest }, deps)).status, 'ready', 'automatic retry completes after guest connectivity recovers')
 const output = `256 SHA256:fixture key\nSSH_KEY_EXCHANGE_OK\nIPV6_SOURCE:${a}\n`
 validateDedicatedIpv6Probe(0, output, a, ['SHA256:fixture'])
+const modernKeys = ['SHA256:ed25519', 'SHA256:mldsa44ed25519']
+const modernOutput = `256 ${modernKeys[0]} host (ED25519)\n512 ${modernKeys[1]} host (MLDSA44-ED25519)\nSSH_KEY_EXCHANGE_OK\nIPV6_SOURCE:${a}\n`
+validateDedicatedIpv6Probe(0, modernOutput, a, modernKeys)
+const keyDirectory = mkdtempSync(join(tmpdir(), 'payincus-host-key-'))
+try {
+  for (const type of ['rsa','ecdsa','ed25519','mldsa44_ed25519']) writeFileSync(join(keyDirectory, `ssh_host_${type}_key.pub`), 'isolated fixture')
+  const script = guestSshFingerprintsCommand.replace('/etc/ssh/', `${keyDirectory.replaceAll('\\','/')}/`)
+  const result = spawnSync(process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash', ['-c',
+    'ssh-keygen() { printf "%s\\n" "$2"; }; ' + script], { encoding: 'utf8', timeout: 10000 })
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.stdout.trim().split('\n').length, 4, 'the generated probe enumerates all real matching public-key files')
+  assert.match(result.stdout, /ssh_host_mldsa44_ed25519_key\.pub/)
+  const refused = spawnSync(process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash', ['-c',
+    'ssh-keygen() { return 1; }; ' + script], { encoding: 'utf8', timeout: 10000 })
+  assert.notEqual(refused.status, 0, 'a failed key read must not silently return partial trusted fingerprints')
+} finally { rmSync(keyDirectory, { recursive: true, force: true }) }
+assert.throws(() => validateDedicatedIpv6Probe(0, modernOutput, a, modernKeys.slice(0, 1)), /IPV6_IDENTITY_MISMATCH/,
+  'every scanned key still needs an authenticated pin, including new host-key algorithms')
 for (const [code, value] of [[78, output], [0, output.replace(a, b)], [0, output.replace('fixture', 'changed')], [0, output.replace('SSH_KEY_EXCHANGE_OK', 'SSH_BANNER_ONLY')]] as const) {
   assert.throws(() => validateDedicatedIpv6Probe(code, value, a, ['SHA256:fixture']))
 }

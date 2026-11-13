@@ -12,6 +12,7 @@ import { gatewayCommand, gatewayConfigured, type GatewayPeer } from './onboardin
 import { portProtocolView } from './host-port-protocol.js'
 import { currentHostAddressWhere, lockOnboardingAddresses } from './onboarding-conflicts.js'
 import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
+import { guestSshFingerprintsCommand } from '../lib/ssh-host-identity.js'
 
 type Client = Awaited<ReturnType<typeof getIncusClient>>
 type Network = { name: string; type: string; managed: boolean }
@@ -32,7 +33,8 @@ const dependencies: PublicIpSyncDependencies = {
   connect: host => getIncusClient(host, prisma, 8000),
   fingerprints: async (client, name) => {
     const result = await execWithOutput(client, name, ['sh', '-c',
-      'for key in /etc/ssh/ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ecdsa_key.pub /etc/ssh/ssh_host_rsa_key.pub; do [ ! -f "$key" ] || ssh-keygen -lf "$key" -E sha256; done'], {}, 6000)
+      guestSshFingerprintsCommand], {}, 6000)
+    if ((result.metadata as { return?: number } | null)?.return !== 0) throw new PublicIpSyncError('IP_IDENTITY_UNAVAILABLE')
     return result.stdout.match(/SHA256:[A-Za-z0-9+/]+/g) || []
   },
   verify: verifyPublicSshIdentity

@@ -9,6 +9,7 @@ import type { Prisma } from '@prisma/client'
 import { checkSshLogin, DedicatedSshVerificationError } from '../lib/dedicated-ssh.js'
 import { assertGuestNetworkProtection } from '../lib/guest-network-protection.js'
 import { alpineSshSecurityInspection, assertAlpineSshSecurityInspection } from '../lib/alpine-ssh-security.js'
+import { guestSshFingerprintsCommand } from '../lib/ssh-host-identity.js'
 export { checkSshLogin } from '../lib/dedicated-ssh.js'
 
 export const DEDICATED_BANDWIDTH = '100000Mbit'
@@ -19,7 +20,7 @@ export async function verifyDedicatedSsh(client: IncusClient, name: string, publ
   for (let attempt = 0; attempt < 24; attempt++) {
     try {
       const result = await execWithOutput(client, name, ['sh', '-c',
-        `${alpineSshSecurityInspection}\nfor key in /etc/ssh/ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ecdsa_key.pub /etc/ssh/ssh_host_rsa_key.pub; do [ ! -f "$key" ] || ssh-keygen -lf "$key" -E sha256; done; /usr/sbin/sshd -T 2>/dev/null | tr '[:upper:]' '[:lower:]' | grep "^passwordauthentication " || true`], {}, 15000)
+        `${alpineSshSecurityInspection}\n${guestSshFingerprintsCommand}; /usr/sbin/sshd -T 2>/dev/null | tr '[:upper:]' '[:lower:]' | grep "^passwordauthentication " || true`], {}, 15000)
       try { assertAlpineSshSecurityInspection(result.stdout) }
       catch { throw new DedicatedSshVerificationError('securityPatch') }
       const fingerprints = result.stdout.match(/SHA256:[A-Za-z0-9+/]+/g) || []

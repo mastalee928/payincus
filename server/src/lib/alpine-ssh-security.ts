@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { guestSshFingerprintsCommand } from './ssh-host-identity.js'
 
 /** Revisions containing Alpine's upstream 90f9c2f password-authentication fix.
  * aports main/openssh/pw.patch, corresponding stable branches. Backports retain
@@ -23,9 +24,7 @@ fi`
 /** Fixed read-only guest probe. A maintenance capability may execute these
  * exact bytes, never a caller supplied command or environment. */
 export const alpineSshFingerprintInspectionCommand = `${alpineSshSecurityInspection}
-for key in /etc/ssh/ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ecdsa_key.pub /etc/ssh/ssh_host_rsa_key.pub; do
-  [ ! -f "$key" ] || ssh-keygen -lf "$key" -E sha256
-done`
+${guestSshFingerprintsCommand}`
 
 export function assertAlpineSshSecurityInspection(output: string): void {
   if (/^INCUDAL_ALPINE_SSH_UNPATCHED$/m.test(output)) throw new Error('ALPINE_SSH_PATCH_REQUIRED')

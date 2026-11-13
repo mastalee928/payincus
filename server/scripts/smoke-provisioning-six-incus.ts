@@ -15,6 +15,7 @@ import { verifyPublicSshIdentity } from '../src/lib/host-public-ip.js'
 import { encryptSensitiveData } from '../src/lib/security.js'
 import { acceptGuestProtectionStatus } from '../src/lib/guest-network-protection.js'
 import { acceptHostProvisioningStatus } from '../src/lib/host-provisioning-tools.js'
+import { instanceSshFingerprints } from '../src/lib/incus/dedicated-ipv6.js'
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true')
 assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
@@ -138,6 +139,12 @@ try {
       }
     }
     assert.equal(verified, true, `${image}: generated initialization and real password SSH`)
+    const pinnedKeys = await instanceSshFingerprints(transport, name)
+    const scanned = await execWithOutput(transport, name, ['sh', '-c',
+      'set -eu; directory=$(mktemp -d); trap \'rm -f "$directory/keys"; rmdir "$directory"\' EXIT; ssh-keyscan -T 4 127.0.0.1 > "$directory/keys" 2>/dev/null; ssh-keygen -lf "$directory/keys" -E sha256'], {}, 15000)
+    assert.equal((scanned.metadata as { return?: number }).return, 0)
+    const scannedKeys = scanned.stdout.match(/SHA256:[A-Za-z0-9+/]+/g) || []
+    assert.ok(scannedKeys.length && scannedKeys.every(key => pinnedKeys.includes(key)), `${image}: every OpenSSH host key is pinned, including newly supported algorithms`)
     await prisma.instance.update({ where: { id: instance.id }, data: { status: 'error' } })
     await failPoolProvision(instance.id, (await getHostById(host.id))!, 'native completed pool lifecycle cleanup')
     assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'deleted')
