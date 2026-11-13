@@ -195,9 +195,15 @@ try {
       execFileSync('incus', ['stop', name, '--force'], { timeout: 30000 })
       await prisma.instance.update({ where: { id: instance.id }, data: { status: 'stopped' } })
       const missingAlias = `native-missing-${randomUUID()}`
-      const fixtureImages = await Promise.all([missingAlias, `images:${image}`].map(remoteAlias => prisma.systemImage.create({ data: {
-        name: remoteAlias, remoteAlias, icon: 'alpine', architecture: host.architecture, instanceType: 'container'
-      } })))
+      const availableAlias = `images:${image}${process.arch === 'arm64' ? '/arm64' : ''}`
+      const fixtureImages: Array<{ id: number }> = []
+      for (const remoteAlias of [missingAlias, availableAlias]) {
+        const seeded = await prisma.systemImage.findUnique({ where: { remoteAlias } })
+        if (seeded) { assert.equal(seeded.architecture, host.architecture); assert.equal(seeded.hidden, false); continue }
+        fixtureImages.push(await prisma.systemImage.create({ data: {
+          name: remoteAlias, remoteAlias, icon: 'alpine', architecture: host.architecture, instanceType: 'container'
+        } }))
+      }
       const requestRebuild = async (imageAlias: string) => {
         const admitted = await createInstanceTask({ instanceId: instance.id, hostId: host.id, userId: user.id, taskType: 'rebuild', imageAlias,
           sensitiveAuthorization: { actor: { id: user.id, sid: 'native-acceptance', iat: Math.floor(Date.now() / 1000) }, entry: 'host',
@@ -212,7 +218,7 @@ try {
         assert.equal((failed.replacementState as any).targetPhase, 'rebuild_failed')
         await assert.rejects(assertRebuildBootReady(prisma, instance.id), /重新选择镜像重装/)
         assert.equal(JSON.parse(execFileSync('incus', ['query', `/1.0/instances/${name}/state`], { encoding: 'utf8' })).status, 'Stopped')
-        const retry = await requestRebuild(`images:${image}`)
+        const retry = await requestRebuild(availableAlias)
         assert.equal(retry.status, 'COMPLETED', retry.error || '')
         const recovered = await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })
         assert.equal(recovered.status, 'running'); assert.equal(recovered.expiresAt?.getTime(), instance.expiresAt?.getTime())
