@@ -35,6 +35,10 @@ CGO_ENABLED=0 go build -o /tmp/sysinfo /tmp/sysinfo.go
 incus file push --mode=0700 /tmp/sysinfo native-sysinfo/root/sysinfo
 timeout -s KILL 5 incus exec native-sysinfo -- timeout -s KILL 3 /root/sysinfo >/tmp/sysinfo-old || true
 if test -x /out/provisioning-test; then
+  # Preserve the actual daemon PID captured at launch. Alpine's original
+  # process title can be empty, so pgrep would reproduce the sysinfo bug in
+  # the fixture before the production reload even starts.
+  printf '%s\n' "$old" > /run/incus/incusd.pid
   /out/provisioning-test -test.run '^TestNativeCompatibilityAutomaticReload$' -test.v
 else
 kill -TERM "$old"

@@ -54,28 +54,19 @@ func TestNativeCompatibilityAutomaticReload(t *testing.T) {
 	}
 	// The fixture launched a real original daemon rather than OpenRC. Record
 	// that actual PID as an installed service would, without replacing the guest.
-	raw, e := run(ctx, "pgrep", "-x", "incusd")
+	raw, e := os.ReadFile("/run/incus/incusd.pid")
 	if e != nil {
 		t.Fatal(e)
 	}
-	var pid int
-	for _, part := range strings.Fields(string(raw)) {
-		n, _ := strconv.Atoi(part)
-		exe, _ := os.Readlink("/proc/" + part + "/exe")
-		if exe == "/usr/sbin/incusd" {
-			var state struct {
-				PID int `json:"pid"`
-			}
-			data, _ := run(ctx, "incus", "query", "/1.0/instances/native-sysinfo/state")
-			_ = json.Unmarshal(data, &state)
-			cgroup, _ := os.ReadFile("/proc/" + part + "/cgroup")
-			if n != state.PID && !strings.Contains(string(cgroup), "lxc.monitor.") {
-				pid = n
-				break
-			}
-		}
+	part := strings.TrimSpace(string(raw))
+	pid, e := strconv.Atoi(part)
+	exe, _ := os.Readlink("/proc/" + part + "/exe")
+	cgroup, _ := os.ReadFile("/proc/" + part + "/cgroup")
+	var state struct {
+		PID int `json:"pid"`
 	}
-	if pid < 2 {
+	data, readErr := run(ctx, "incus", "query", "/1.0/instances/native-sysinfo/state")
+	if e != nil || pid < 2 || exe != "/usr/sbin/incusd" || readErr != nil || json.Unmarshal(data, &state) != nil || pid == state.PID || strings.Contains(string(cgroup), "lxc.monitor.") {
 		t.Fatal("original daemon pid")
 	}
 	if e = os.MkdirAll("/var/lib/incudal-agent", 0700); e != nil {
