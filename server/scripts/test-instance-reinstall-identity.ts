@@ -46,7 +46,7 @@ const remote = createServer({ key: await readFile(keyPath), cert, ca: cert, requ
     }
     if (path === rebuildOperation) {
       if (mode.startsWith('expired-') && mode !== 'expired-success') return fail(404, 'Operation not found')
-      if (mode === 'failed-receipt') return ok({ status: 'Failure', status_code: 400, err: 'image download failed' })
+      if (mode === 'failed-receipt' || mode === 'failed-envelope') return ok({ status: 'Failure', status_code: 400, err: 'image download failed' })
       return ok({ status: 'Success', status_code: 200 })
     }
     if (path.startsWith('/1.0/images/aliases/')) return ok({ target: 'fixture' })
@@ -112,7 +112,7 @@ try {
   const currentHost = await prisma.host.update({ where: { id: host.id }, data: { architecture } })
   await prisma.systemImage.update({ where: { id: image.id }, data: { architecture } })
   await prisma.host.update({ where: { id: targetHost.id }, data: { architecture } })
-  for (const taskType of ['rebuild', 'recreate', 'clone', 'change_host'] as const) for (const scenario of ['success', 'unknown-original', 'wrong-uuid', 'wrong-type', 'lost-response', 'cleanup-refused', 'alien-target', 'actor-revoked', 'late-cancel', 'lost-waiter', 'legacy-marker', 'dual-stack', 'running-source', 'vm-macs', 'public-ipv4', 'public-vm', 'failed-operation', 'failed-receipt', 'expired-missing', 'expired-busy', 'expired-success', 'expired-malformed', 'expired-wrong-uuid']) {
+  for (const taskType of ['rebuild', 'recreate', 'clone', 'change_host'] as const) for (const scenario of ['success', 'unknown-original', 'wrong-uuid', 'wrong-type', 'lost-response', 'cleanup-refused', 'alien-target', 'actor-revoked', 'late-cancel', 'lost-waiter', 'legacy-marker', 'dual-stack', 'running-source', 'vm-macs', 'public-ipv4', 'public-vm', 'failed-operation', 'failed-envelope', 'expired-missing', 'expired-busy', 'expired-success', 'expired-malformed', 'expired-wrong-uuid']) {
     if ((scenario.startsWith('expired-') || scenario.startsWith('failed-')) && taskType !== 'rebuild') continue
     if (process.env.REVIEW_REINSTALL_SCOPE === 'pool-cleanup' && (taskType !== 'recreate' || scenario !== 'cleanup-refused')) continue
     if (['public-ipv4', 'public-vm'].includes(scenario) && !['rebuild', 'recreate'].includes(taskType)) continue

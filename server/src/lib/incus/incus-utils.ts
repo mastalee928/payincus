@@ -30,6 +30,19 @@ export async function waitForOperation(
     let op: IncusOperation
     try { op = await client.request<IncusOperation>('GET', `${operationUrl}/wait?timeout=${waitSeconds}`, null, remaining, signal) }
     catch (error) {
+      // Incus 6 can return the operation's failure as an error envelope from
+      // /wait. Fetch its exact receipt immediately, before Incus expires it;
+      // an HTTP/gateway error alone is never proof the rebuild failed.
+      if (error instanceof IncusApiError && error.path === `${operationUrl}/wait?timeout=${waitSeconds}` &&
+          !signal?.aborted && Date.now() - startTime < timeout && error.message !== 'context deadline exceeded') {
+        let receipt: IncusOperation | undefined
+        try { receipt = await client.request<IncusOperation>('GET', operationUrl, null, Math.min(8000, timeout - (Date.now() - startTime)), signal) }
+        catch { /* Preserve the original uncertainty if its receipt cannot be read. */ }
+        if (receipt?.status === 'Failure' && receipt.status_code === 400) {
+          throw new IncusOperationFailedError(receipt.err || receipt.error || error.message, operationUrl)
+        }
+        throw error
+      }
       // Incus 6 returns a sync/error envelope when this bounded wait expires,
       // although the image/create operation is still running. Read that same
       // operation receipt; never repeat POST or extend the overall deadline.

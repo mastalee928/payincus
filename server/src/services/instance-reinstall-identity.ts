@@ -109,7 +109,8 @@ export async function beginInstanceReinstall(task: InstanceTask, original: Incus
       try { return await object.request(...args) }
       catch (error) {
         if (task.taskType === 'rebuild' && method === 'POST' && path === originalPath + '/rebuild' &&
-            (error instanceof IncusOperationFailedError || error instanceof IncusApiError && error.path === path && [400, 404].includes(error.statusCode))) {
+            (error instanceof IncusOperationFailedError || error instanceof IncusApiError && error.path === path &&
+              [400, 404].includes(error.statusCode) && !/busy running a /i.test(error.message))) {
           await source()
           await persist({ targetPhase: 'rebuild_failed', rebuildFailure: error.message.slice(0, 500), pendingRootPassword: null, requiresRebuild: true })
         }

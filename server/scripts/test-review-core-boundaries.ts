@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { Agent } from 'undici'
 import { isPaymentAmountWithinTolerance, parsePositivePaymentMoney } from '../src/lib/payment-money.js'
 import { IncusClient } from '../src/lib/incus/incus-client.js'
-import { waitForOperation } from '../src/lib/incus/incus-utils.js'
+import { IncusOperationFailedError, waitForOperation } from '../src/lib/incus/incus-utils.js'
 import { formatBytes } from '../../client/src/utils/formatters.js'
 
 // The inspected read-only API shares a module with persistence helpers. It must
@@ -58,6 +58,19 @@ assert.deepEqual(recovered, { created: true })
 assert.deepEqual(operationReads, ['/1.0/operations/one/wait?timeout=10', '/1.0/operations/one', '/1.0/operations/one/wait?timeout=10'])
 await assert.rejects(waitForOperation({ request: async () => { throw new IncusApiError('context deadline exceeded', 404, '/different') } } as any,
   '/1.0/operations/one', 30000), /context deadline exceeded/)
+for (const receiptStatus of ['Failure', 'Running', 'Success', 'missing']) {
+  const reads: string[] = []
+  const originalError = new IncusApiError('wait returned error envelope', 500, '/1.0/operations/one/wait?timeout=10')
+  await assert.rejects(waitForOperation({ request: async (_method: string, path: string) => {
+    reads.push(path)
+    if (path.includes('/wait?')) throw originalError
+    if (receiptStatus === 'missing') throw new IncusApiError('Operation not found', 404, path)
+    return { status: receiptStatus, status_code: receiptStatus === 'Failure' ? 400 : 200, err: 'actual failure receipt' }
+  } } as any, '/1.0/operations/one', 30000), error => receiptStatus === 'Failure'
+    ? error instanceof IncusOperationFailedError && error.operationPath === '/1.0/operations/one'
+    : error === originalError)
+  assert.deepEqual(reads, ['/1.0/operations/one/wait?timeout=10', '/1.0/operations/one'])
+}
 
 let outputStatus = 200, stalled = false
 const http = createServer((req, res) => {
