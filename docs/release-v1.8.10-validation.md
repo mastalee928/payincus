@@ -1,5 +1,15 @@
 # v1.8.10候选验证（未正式发行）
 
+最后来源d5e7c854ae9c08ba581de9b8ec679e02667ab05b完整CI43345508215最终27/27success；六系统×双架构机器池12/12、Alpine43345508238success、预览43345595678十必需jobsuccess和两实际包独立核全部完成。原批与新增退款全部修完并同来源验收，现在允许正式合入发行；正式Release资产、主控OTA及实购另验。
+
+最终来源d5e7c854预览43345595678已终态success：十必需job全部success，Release预期skipped；双构建、双首装、六原v1.8.9worker升级及后半程回滚再升级全部通过。完整CI43345508215尚在审查尾段，无已知失败。不能据此提前正式发布，等待最后CI终态。
+
+最终补充源码d5e7c854ae9c08ba581de9b8ec679e02667ab05b已推PR13：真实第三方开通失败自动退余额、同事务／去重／后台失败续查、新文案及订单／恢复账务精修。专项和五轮见failed-checkout-wallet-refund-2026-11-13.md。本地218/219后外层超时的Agent守卫同源码单跑10场景通过，所有对应守卫有通过证据；其余types/build/PG/browser成功。
+
+最后来源CI43345508215原生池12/12success，整体尚未结束；Alpine43345508238已success。最后预览43345595678运行中，不能用下面旧原批绿代替。Owner新增正式全绿后主控OTA＋实购授权，地址已改vm.oci.ee；无正式Release／OTA／实购，待终态。
+
+最后双预览包已逐文件独立核通过：来源d5e7c854ae9c、242迁移、原pin签名／四组件21文件hash／size／mode／ELF架构，IP／退款／恢复模块同最后build，新余额提示与管理退款API打包存在；用户续费改价入口不存在。日志failed-refund-preview-package-verify.log自然exit0。正式包身份及生产更新仍待。
+
 原批源码2f0ff43f940bda0244dff885b4ace5d90ff73e71，PR13。修复IP巡查错误阻断正常机器池创建和管理退款API缺失，结果页不对已失败退款实例显示IPv6配置中。详细五轮见pool-ip-provisioning-race-2026-11-13.md。
 
 - 本地全量219/219、最终类型／相关守卫／双端构建／dist边界、实际PG巡查竞争、退款状态与真实管理API及生产bundle浏览器全部自然exit0。
