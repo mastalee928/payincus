@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 资源live mount第二轮边界复审：原目录fd要求Fstatfs=procfs，mount --no-canonicalize避免挂载工具重新解析fd回原PID字串；原UUID/PID/只读文件检查保持，Linux双架构编译通过，新版本待原生复验。无对客户系统或主控应用此未验方案。
+
 - afa6候选预览43478689882 AMD64首装132074777966失败在published-Agent>=v1.0.9（公开仍1.0.8），backend/243迁移/网关首装均正常。原发版顺序禁止先公开Agent再测，因此无tag预览增加同提交构建的Agent artifact与sourceCommit/hash/ELF核验，用安装后的正常manifest/binary接口验证下载；正式tag首装继续验证公开Agent。仅一次性GitHub预览可设目录，不能伪称公开资产通过或改变生产鉴权。双实际afa6tar/source243迁移/原签名/修复/无图库及无Debian11专用文件已核通过；新预览来源仍须全部首装/旧worker升级。最新资源挂载14原生和Agent服务已过，综合CI尚末段。
 
 - 本地最终221/221(test-run-20261114-014424)过；实时挂载独立复审补持有原/proc/PID/root/proc目录fd，mount继承fd定位，避免核验后PID退出/复用重定向目标。原UUID/PID与只读资源文件检查保持，新的fd版本待双架构原生，不能沿用上一字串PID路径已绿代替。目标主控仍preview-9d4984e，无本次资源候选部署；第36失败任务尚待。

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 var guestName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
@@ -52,6 +53,11 @@ func repairGuestVisibility(ctx context.Context, guests []Guest) error {
 		proc, err := os.Open("/proc/" + pid + "/root/proc")
 		if err != nil {
 			return err
+		}
+		var filesystem syscall.Statfs_t
+		if syscall.Fstatfs(int(proc.Fd()), &filesystem) != nil || filesystem.Type != 0x9fa0 {
+			proc.Close()
+			return fmt.Errorf("resource target is not procfs")
 		}
 		err = mountGuestResourceFiles(ctx, guest, runtime.Pid, proc)
 		proc.Close()
@@ -105,10 +111,10 @@ func mountGuestResourceFiles(ctx context.Context, guest Guest, pidNumber int, pr
 		if err != nil || json.Unmarshal(check, &latest) != nil || latest.Pid != pidNumber {
 			break
 		}
-		if _, err = runWithFiles(ctx, "mount", []*os.File{proc}, "--bind", source, target); err != nil {
+		if _, err = runWithFiles(ctx, "mount", []*os.File{proc}, "--no-canonicalize", "--bind", source, target); err != nil {
 			return err
 		}
-		if _, err = runWithFiles(ctx, "mount", []*os.File{proc}, "-o", "remount,bind,ro", target); err != nil {
+		if _, err = runWithFiles(ctx, "mount", []*os.File{proc}, "--no-canonicalize", "-o", "remount,bind,ro", target); err != nil {
 			return err
 		}
 	}
