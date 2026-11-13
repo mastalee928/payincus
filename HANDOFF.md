@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 495bf1e8持久库CI43449735959 AMD64 Debian11 job131968444588：首次开通与重装SSH已成功，随后bootstrap-complete即时断言失败，重装过早完成（云初始化末段回执尚未结束）。补首次初始化等待自有bootstrap-complete、Debian11重装同门槛，真实停启/重启仍待。主控仍preview-818cc09，此批未热更新；#40 test-arm-1授权已核，所有默认镜像独立持久库策略继续。
+
 - 持久镜像库候选全量220跑完219过/1旧customer-isolation夹具误走外网获取而缺architecture失败（test-run-20261113-225127），该夹具改本地fixture源后与最终缓存/安装/backup守卫全部定向通过。两真实Debian11 tar+mTLS禁fetch缓存复用、官方Debian12目录/两文件/组合hash真实下载及新进程禁网复用/损坏修复通过。最后types/build待自然退出；新增原生全16及旧升级/目标热更新仍待。Debian11实时安全包404已精修为官方archive签名源、清原apt缓存、强制更新。原2f8测试轮失败日志保留，此新策略产品不可用旧包部署。
 
 - Owner最新改为所有默认镜像主控独立持久库，程序更新不含大镜像/不重下整库；新增授权poolbuyer/test-arm-1已只读核#40/host53/aarch64/stopped，后续候选通过后可重装停启重启/SSHIPv6。源码改/var/lib/incudal-images独立权限/安装钩子、持久hash/alias收据、官方双文件组合hash/mTLS导入缓存、原源优先及后台预取、缺失损坏原pin修复、关闭取消；删除之前发行包内置下载构建。Debian11服务日志确认旧apt/实时安全源404，改官方archive并清缓存/严更新，待原生。专项/两真实tar导入禁fetch/新进程复用/官方Debian12下载hash通过，最终220仍运行。详见[持久库记录](docs/persistent-system-image-library-2026-11-13.md)。生产尚preview-818cc09，此新增未热更新；正式暂停。

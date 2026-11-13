@@ -63,7 +63,8 @@ import { prepareInstanceTaskSiteCleanup } from '../services/instance-task-site-c
 import { resolveInstanceTrafficLimitForHost } from '../lib/traffic-multiplier.js'
 import { calculateInstanceTrafficStatus } from '../services/traffic-utils.js'
 import { beginInstanceReinstall, reconcileInterruptedReinstalls } from '../services/instance-reinstall-identity.js'
-import { prepareNewContainerCloudInit } from '../lib/new-container-cloud-init.js'
+import { prepareNewContainerCloudInit, waitForNewGuestInitialization } from '../lib/new-container-cloud-init.js'
+import { ownerSelectedContainerImage } from '../lib/owner-selected-images.js'
 import { cleanupManagedInstanceRemote, managedCleanupEndpointHash } from '../lib/managed-cleanup-identity.js'
 import { readRegisteredGuest, readCreatedGuest, guardCopyMoveClient } from '../lib/guest-delivery-identity.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
@@ -1336,6 +1337,9 @@ async function finishRebuildTask(
     throw Error('REBUILD_NETWORK_UNCONFIRMED')
   }
   await reinstall.source()
+  if (ownerSelectedContainerImage(imageAlias, imageAlias.endsWith('/arm64') ? 'aarch64' : 'x86_64')) {
+    await waitForNewGuestInitialization(client, instance.incus_id, configPayload)
+  }
   const password = decryptSensitiveData(encryptedPassword)
   if (!password) throw Error('REBUILD_PASSWORD_UNAVAILABLE')
   const dedicatedReady = await prepareDedicatedDelivery(client, task.instanceId, {
