@@ -13,7 +13,7 @@ dbus-daemon --system --fork
 /usr/sbin/incusd --group incus >/tmp/incusd-original.log 2>&1 &
 old=$!
 sleep 2
-kill -0 "$old" || { wait "$old"; cat /tmp/incusd-original.log; exit 1; }
+kill -0 "$old" || { wait "$old" || true; cat /tmp/incusd-original.log; exit 1; }
 ps -o pid,ppid,args
 ls -l /proc/$old/exe /run/incus /var/lib/incus || true
 cat /tmp/incusd-original.log
