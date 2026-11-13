@@ -9,7 +9,7 @@ from pathlib import Path
 
 def check(archive_path, root):
     expected = {}
-    for directory in ['server/dist', 'server/prisma', 'server/templates', 'client/dist']:
+    for directory in ['server/dist', 'server/prisma', 'server/templates', 'server/images', 'client/dist']:
         files = [path for path in (root / directory).rglob('*') if path.is_file()]
         if not files:
             raise ValueError('Missing build directory: ' + directory)
@@ -27,7 +27,10 @@ def check(archive_path, root):
     for arch in ['amd64', 'arm64']:
         for name in ['ensure-time-sync.py', 'install-management-gateway.sh', 'verify-gateway-component-package.py']:
             expected[f'vendor/gateway/{arch}/scripts/{name}'] = root / 'scripts' / name
-    hashes = {name: hashlib.sha256(path.read_bytes()).digest() for name, path in expected.items()}
+    hashes = {}
+    for name, path in expected.items():
+        with path.open('rb') as stream:
+            hashes[name] = hashlib.file_digest(stream, 'sha256').digest()
     seen = set()
     with tarfile.open(archive_path, 'r|gz') as archive:
         for member in archive:

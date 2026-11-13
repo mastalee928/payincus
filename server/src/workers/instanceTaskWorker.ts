@@ -68,6 +68,7 @@ import { cleanupManagedInstanceRemote, managedCleanupEndpointHash } from '../lib
 import { readRegisteredGuest, readCreatedGuest, guardCopyMoveClient } from '../lib/guest-delivery-identity.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
 import { officialImageAvailable } from '../lib/official-image-availability.js'
+import { resolveOwnerSelectedImage } from '../services/owner-selected-image-import.js'
 import { randomUUID } from 'node:crypto'
 import { isIP } from 'node:net'
 import { Address6 } from 'ip-address'
@@ -1067,6 +1068,10 @@ async function executeRebuildTask(
     await finishRebuildTask(task, instance, host, client, reinstall, resumed.config, resumed.encryptedPassword)
     return
   }
+  // Validate/import bundled bytes before removing snapshots or changing the
+  // original disk/config. The final rebuild still uses the guarded request.
+  const originalType = (await getInstance(client, instance.incus_id)).type
+  const bundledFingerprint = await resolveOwnerSelectedImage(client, imageAlias, originalType === 'virtual-machine' ? 'vm' : 'container')
   // Only inject a key explicitly selected for this rebuild. Omitting it means password login.
   const { sshKey, extraShellCommands } = materials
   const allowCancelBusyUpdate = isAlpineImageAlias(instance.image) || isAlpineImageAlias(imageAlias)
@@ -1194,8 +1199,8 @@ async function executeRebuildTask(
   }
   try {
     const { getImageAlias, getImage } = await import('../lib/incus/incus-images.js')
-    const aliasInfo = await getImageAlias(client, imageAlias)
-    const newImage = await getImage(client, aliasInfo.target)
+    const imageFingerprint = bundledFingerprint || (await getImageAlias(client, imageAlias)).target
+    const newImage = await getImage(client, imageFingerprint)
 
     // 重新注入新镜像自带的属性
     if (newImage.properties) {
@@ -1252,7 +1257,7 @@ async function executeRebuildTask(
   // The remote may replace rootfs then lose its response. Retain the encrypted
   // pending credential without advertising it as the active password yet.
   await reinstall.prepareRebuildPassword(encryptSensitiveData(newPassword), (await getInstance(client, instance.incus_id)).config || {})
-  await rebuildInstance(client, instance.incus_id, { alias: imageAlias }, undefined, {
+  await rebuildInstance(client, instance.incus_id, bundledFingerprint ? { fingerprint: bundledFingerprint } : { alias: imageAlias }, undefined, {
     allowCancelBusyUpdate,
     busyUpdateCancelAfterMs: allowCancelBusyUpdate ? ALPINE_BUSY_UPDATE_CANCEL_AFTER_MS : undefined
   })

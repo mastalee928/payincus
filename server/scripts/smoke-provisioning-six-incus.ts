@@ -78,7 +78,7 @@ try {
     verify: async (...args: Parameters<typeof verifyPublicSshIdentity>) => { addressVerifications++; return verifyPublicSshIdentity(...args) }
   }
   assert.equal((await syncHostPublicIp(host.id, {}, ipDependencies)).blocked, false)
-  for (const [index, image] of ['alpine/3.24/cloud', 'alpine/3.21/tinycloud', 'debian/14/cloud', 'ubuntu/24.04/cloud', 'rockylinux/9/cloud', 'almalinux/9/cloud', 'centos/9-Stream/cloud'].entries()) {
+  for (const [index, image] of ['alpine/3.24/cloud', 'alpine/3.21/tinycloud', 'debian/14/cloud', 'ubuntu/24.04/cloud', 'rockylinux/9/cloud', 'almalinux/9/cloud', 'centos/9-Stream/cloud', 'debian/11/cloud'].entries()) {
     if (process.env.INCUDAL_NATIVE_IMAGE && image !== process.env.INCUDAL_NATIVE_IMAGE) continue
     const name = `native-delivery-${index}`, password = randomUUID() + '-Aa1!', ip = `10.10.1.${100 + index}`
     const generated = generateIncusConfig({ instanceName: name, imageAlias: `images:${image}`, rootPassword: password,
@@ -189,7 +189,7 @@ try {
       await checkSshLogin('11.0.0.99', password, pinnedKeys)
       console.log('PASS real Debian reboot: old IPv6/cloud-init cycle repaired, next boot completes, original initialization/password/keys retained')
     }
-    if (image === 'alpine/3.24/cloud') {
+    if (image === 'alpine/3.24/cloud' || image === 'debian/11/cloud') {
       // Native Incus failure (not a mocked response) followed by fresh owner
       // consent must unlock and successfully rebuild the same paid instance.
       execFileSync('incus', ['stop', name, '--force'], { timeout: 30000 })
@@ -201,7 +201,7 @@ try {
         const seeded = await prisma.systemImage.findUnique({ where: { remoteAlias } })
         if (seeded) { assert.equal(seeded.architecture, host.architecture); assert.equal(seeded.hidden, false); continue }
         fixtureImages.push(await prisma.systemImage.create({ data: {
-          name: remoteAlias, remoteAlias, icon: 'alpine', architecture: host.architecture, instanceType: 'container'
+          name: remoteAlias, remoteAlias, icon: image.startsWith('debian/') ? 'debian' : 'alpine', architecture: host.architecture, instanceType: 'container'
         } }))
       }
       const requestRebuild = async (imageAlias: string) => {
@@ -224,6 +224,37 @@ try {
         assert.equal(recovered.status, 'running'); assert.equal(recovered.expiresAt?.getTime(), instance.expiresAt?.getTime())
         assert.equal(recovered.purchaseBatchId, instance.purchaseBatchId)
         await checkSshLogin('11.0.0.99', decryptSensitiveData(recovered.rootPassword!), await instanceSshFingerprints(transport, name))
+        if (image === 'debian/11/cloud') {
+          const beforeKeys = await instanceSshFingerprints(transport, name)
+          const initial = await execWithOutput(transport, name, ['sh', '-c', 'set -e; . /etc/os-release; test "$VERSION_ID" = 11; test -f /var/lib/incudal/image-bootstrap-complete; test -f /var/lib/cloud/instance/boot-finished; printf original > /root/owner-image-marker; cat /proc/sys/kernel/random/boot_id'], {}, 10000)
+          assert.equal((initial.metadata as any).return, 0)
+          execFileSync('incus', ['stop', name, '--force'], { timeout: 30000 })
+          execFileSync('incus', ['start', name], { timeout: 30000 })
+          let newBoot = ''
+          for (let step = 0; step < 40; step++) {
+            try {
+              const check = await execWithOutput(transport, name, ['sh', '-c', 'set -e; test "$(cat /root/owner-image-marker)" = original; test -f /var/lib/cloud/instance/boot-finished; cat /proc/sys/kernel/random/boot_id'], {}, 6000)
+              if ((check.metadata as any).return === 0) { newBoot = check.stdout; break }
+            } catch { /* Native guest startup is observed, not presumed. */ }
+            await new Promise(resolve => setTimeout(resolve, 1500))
+          }
+          assert.ok(newBoot && newBoot !== initial.stdout)
+          assert.deepEqual(await instanceSshFingerprints(transport, name), beforeKeys)
+          await checkSshLogin('11.0.0.99', decryptSensitiveData(recovered.rootPassword!), await instanceSshFingerprints(transport, name))
+          execFileSync('incus', ['restart', name, '--force'], { timeout: 30000 })
+          let restarted = false
+          for (let step = 0; step < 40; step++) {
+            try {
+              const check = await execWithOutput(transport, name, ['sh', '-c', 'set -e; test "$(cat /root/owner-image-marker)" = original; test -f /var/lib/cloud/instance/boot-finished; cat /proc/sys/kernel/random/boot_id'], {}, 6000)
+              if ((check.metadata as any).return === 0 && check.stdout !== newBoot) { restarted = true; break }
+            } catch { /* Observe restart completion. */ }
+            await new Promise(resolve => setTimeout(resolve, 1500))
+          }
+          assert.equal(restarted, true)
+          assert.deepEqual(await instanceSshFingerprints(transport, name), beforeKeys)
+          await checkSshLogin('11.0.0.99', decryptSensitiveData(recovered.rootPassword!), await instanceSshFingerprints(transport, name))
+          console.log('PASS owner Debian 11 native purchase/create, rebuild, stop/start and restart with retained disk/password and real SSH')
+        }
         console.log('PASS native rebuild: genuine missing image failure is terminal, stopped retained, fresh consent rebuild succeeds with real password SSH and unchanged paid term')
       } finally { await prisma.systemImage.deleteMany({ where: { id: { in: fixtureImages.map(row => row.id) } } }) }
     }

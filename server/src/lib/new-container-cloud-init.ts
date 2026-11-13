@@ -1,5 +1,6 @@
 import { IncusApiError, type IncusClient } from './incus/incus-client.js'
 import { execWithOutput } from './incus/incus-instances.js'
+import { OWNER_DEBIAN11_IMAGES } from './owner-selected-images.js'
 
 /** Only used between creating a brand-new container and its first start. */
 export async function prepareNewContainerCloudInit(
@@ -10,6 +11,13 @@ export async function prepareNewContainerCloudInit(
 ): Promise<void> {
   if (instanceType !== 'container' || !cloudInitConfig ||
     !['cloud-init.user-data', 'user.user-data'].some(key => cloudInitConfig[key]?.trim())) return
+
+  const image = await client.request<{ config?: Record<string, string> }>('GET', `/1.0/instances/${encodeURIComponent(name)}`)
+  if (Object.values(OWNER_DEBIAN11_IMAGES).some(source => source.sha256 === image.config?.['image.user.payincus.source-sha256'])) {
+    // Its first-boot installer owns this disable marker until cloud-init and
+    // all prerequisites have been installed. Removing it here races apt.
+    return
+  }
 
   const path = `/1.0/instances/${encodeURIComponent(name)}/files?path=/etc/cloud/cloud-init.disabled`
   try {

@@ -1,3 +1,5 @@
+import { ownerSelectedContainerImage } from './owner-selected-images.js'
+
 const endpoint = 'https://images.linuxcontainers.org/streams/v1/images.json'
 type Catalog = Set<string>
 let saved: { at: number; aliases: Catalog } | undefined
@@ -42,6 +44,7 @@ async function catalog(): Promise<Catalog | null> {
 }
 
 export function officialImagePresent(aliases: Catalog, remoteAlias: string, architecture: string, type: 'container' | 'vm' | 'both'): boolean {
+  if (ownerSelectedContainerImage(remoteAlias, architecture)) return type !== 'vm'
   if (!remoteAlias.startsWith('images:')) return true
   const arch = ['aarch64','arm64'].includes(architecture) ? 'arm64' : ['amd64','x86_64'].includes(architecture) ? 'amd64' : null
   if (!arch) return true // Unknown architectures are handled by the existing host gate.
@@ -52,6 +55,7 @@ export function officialImagePresent(aliases: Catalog, remoteAlias: string, arch
 /** Only a complete successful catalog proves an alias was withdrawn.
  * Network failure is not an empty inventory and never rewrites admin data. */
 export async function officialImageAvailable(remoteAlias: string, architecture: string, type: 'container' | 'vm' | 'both'): Promise<boolean | null> {
+  if (ownerSelectedContainerImage(remoteAlias, architecture)) return type !== 'vm'
   if (!remoteAlias.startsWith('images:')) return true
   const data = await catalog()
   return data ? officialImagePresent(data, remoteAlias, architecture, type) : null

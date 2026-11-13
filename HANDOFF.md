@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- Debian11内置候选本地全量219/219（logs/test-run-20261113-213644，16m19s）、最后types/build、三相关守卫、实际大文件mTLS禁fetch导入/缓存复用和92场景+6新同意重装已通过。待同来源CI16原生（新增Debian11×双架构）真实初始化/重装/停启/重启；生产未部署此候选。Owner另要求其余全部默认镜像也内置，先收尾本Debian11后实施，正式发行仍暂停。
+
+- Owner要求新Debian11 AMD64/ARM64两镜像替代旧失效官方源并安装包内置。原包hash/ELF/系统已核，缺cloud-init且有预置主机密钥/machine-id；源码补构建转换/两架构内置manifest、受信mTLS首次导入和缓存复用、运行无外网回退、原ID/alias及实例账务保持，重装镜像核验先于磁盘动作。固定本地两tar+禁fetch实际mTLS导入/缓存、types及三个守卫、92PG场景+6新同意重装通过，完整219仍运行，真实双架构初始化和候选包验收待。详见[内置镜像记录](docs/bundled-debian11-2026-11-13.md)。生产仍preview-818cc09，未部署此新增，正式发行暂停。
+
 - 818cc097最后产品来源CI43422268917最终29/29、原生14/14，Alpine43422268867 9/9和Agent43422268848success，预览43422312032十必需job success/Release skipped；AMD64/ARM64真实包本次加固模块/原签名/242迁移/权限/用户价格边界独立核通过。热更新42于2026-11-13 20:37:23北京时间success，主控preview-818cc09，备份/opt/incudal.bak.20261113123507。#53由自然原接入队列20:37:14完成succeeded/done，AppArmor/SSH/preflight全verified，无再次重启；独占池原空库存1台。Owner明确月费10/初装1后经正常管理员登录和定价PUT保存price18，active=true，实际管理库存available、客户公开商品idle=1/月费1000分/初装100分，浏览器同值。最终原宿主AppArmor Y/service started、BBR=bbr、原新boot保持、Incus/镜像空列表。x86可用22镜像完整矩阵已通过；测试#37后续有明确用户stop任务155，保持Stopped，其余四台Running/IPv6 ready。正式发行仍暂停，等待owner新增ARM宿主再做全部ARM用户镜像操作矩阵。凭据/原始证据仓库外；后续报告修改不改变已验收产品来源。
 
 - #53新加坡西部ARM已完成原系统独立原生固定AppArmor加固：Alpine3.24.4/aarch64/UEFI-GRUB/4KiB，一次重启，新boot原受信SSH/Agent重连，测试容器原UUID/UID/GID/密码/公钥/文件权限/网络保持、AppArmor enforce与实际拒绝、Seccomp2、同请求重放不再重启；测试UUID/导入镜像清理、空库存恢复。源码补ARM GRUB原生放行与旧验收阻断立即重新检查，现代OpenSSH维护回执支持有界4+公钥。三PG维护/可售/续接、types/守卫通过，待最终候选CI/包/热更新及#53自然接入可售。详见[ARM原生记录](docs/automatic-hardening-arm-native-2026-11-13.md)。正式暂停，ARM用户矩阵待owner增加机器。

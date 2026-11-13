@@ -170,3 +170,5 @@ namecrane_modules/
 !docs/release-v1.8.10-validation.md
 !docs/failed-checkout-wallet-refund-2026-11-13.md
 !docs/v1.8.10-live-purchase-validation.md
+/.cache/bundled-system-images/
+/server/images/

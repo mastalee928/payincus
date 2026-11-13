@@ -48,6 +48,10 @@ const catalog = { products: {
   arm: { aliases: 'alpine/3.24/tinycloud', arch: 'arm64', versions: { current: { items: { root: { ftype: 'root.tar.xz' } } } } }
 } }
 const parsed = parseOfficialImageCatalog(catalog)
+assert.equal(officialImagePresent(parsed, 'images:debian/11/cloud', 'x86_64', 'container'), true)
+assert.equal(officialImagePresent(parsed, 'images:debian/11/cloud/arm64', 'aarch64', 'container'), true)
+assert.equal(officialImagePresent(parsed, 'images:debian/11/cloud/arm64', 'x86_64', 'container'), false)
+assert.equal(officialImagePresent(parsed, 'images:debian/11/cloud', 'x86_64', 'vm'), false)
 assert.equal(officialImagePresent(parsed, 'images:debian/12/cloud', 'x86_64', 'vm'), true)
 assert.equal(officialImagePresent(parsed, 'images:debian/12/cloud/arm64', 'aarch64', 'container'), false)
 assert.equal(officialImagePresent(parsed, 'images:alpine/3.24/tinycloud/arm64', 'aarch64', 'container'), true)
@@ -65,19 +69,19 @@ globalThis.fetch = (async (url: string | URL | Request) => {
 try {
   assert.equal(await officialImageAvailable('custom:debian/11', 'x86_64', 'container'), true)
   assert.equal(requests, 0)
-  const checks = await Promise.all(Array.from({ length: 8 }, () => officialImageAvailable('images:debian/11/cloud', 'x86_64', 'container')))
+  const checks = await Promise.all(Array.from({ length: 8 }, () => officialImageAvailable('images:ubuntu/25.10/cloud', 'x86_64', 'container')))
   assert.ok(checks.every(value => value === false)); assert.equal(requests, 1, 'concurrent lookups share one bounded fetch')
   const images = [
     { remoteAlias: 'images:debian/12/cloud', architecture: 'x86_64', instanceType: 'both' },
-    { remoteAlias: 'images:debian/11/cloud', architecture: 'x86_64', instanceType: 'both' }
+    { remoteAlias: 'images:ubuntu/25.10/cloud', architecture: 'x86_64', instanceType: 'both' }
   ]
   assert.equal((await filterAvailableOfficialImages(images, 'container')).length, 1)
   fail = true; now += 16 * 60000
-  assert.equal(await officialImageAvailable('images:debian/11/cloud', 'x86_64', 'container'), false)
-  assert.equal(await officialImageAvailable('images:debian/11/cloud', 'x86_64', 'container'), false)
+  assert.equal(await officialImageAvailable('images:ubuntu/25.10/cloud', 'x86_64', 'container'), false)
+  assert.equal(await officialImageAvailable('images:ubuntu/25.10/cloud', 'x86_64', 'container'), false)
   assert.equal(requests, 2, 'failed upstream requests back off')
   now += 61 * 60000
-  assert.equal(await officialImageAvailable('images:debian/11/cloud', 'x86_64', 'container'), null)
+  assert.equal(await officialImageAvailable('images:ubuntu/25.10/cloud', 'x86_64', 'container'), null)
   assert.equal((await filterAvailableOfficialImages(images)).length, 2, 'unknown upstream state must not erase inventory')
 } finally { globalThis.fetch = originalFetch; Date.now = originalNow }
 console.log('official catalog: withdrawal, architecture/type, custom sources, concurrency, stale cache and outage passed')

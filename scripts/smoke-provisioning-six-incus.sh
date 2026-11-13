@@ -42,6 +42,10 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout "$root/client.key" -out "$root
 incus config trust add-certificate "$root/client.crt" --name provisioning-test
 incus config set core.https_address 127.0.0.1:18443
 export INCUDAL_PROVISIONING_CERT="$root/client.crt" INCUDAL_PROVISIONING_KEY="$root/client.key"
+if [[ ${INCUDAL_NATIVE_IMAGE:-} == debian/11/cloud ]]; then
+  node scripts/build-bundled-system-images.mjs
+  pnpm --filter server test:bundled-system-images
+fi
 pnpm --filter server exec tsx scripts/smoke-provisioning-six-incus.ts
 incus list --format=json | python3 -c 'import json,sys; assert json.load(sys.stdin)==[]'
 echo 'PASS six guest families: actual AppArmor unpack, current generator, Running, original password SSH and verified cleanup.'

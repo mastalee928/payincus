@@ -13,6 +13,7 @@ import { networkModeNeedsNatIpv4 } from '../network-modes.js'
 import { generateVmNicMacs } from '../vm-network-identifiers.js'
 import { resolveIncusSwapValue } from '../instance-swap.js'
 import { assertCustomerIsolation, assertCustomerProfiles, readCustomerIsolation, rejectCustomerPrivilege } from './customer-isolation.js'
+import { resolveOwnerSelectedImage } from '../../services/owner-selected-image-import.js'
 
 const INSTANCE_BUSY_WAIT_TIMEOUT_MS = 300000
 const INSTANCE_BUSY_POLL_INTERVAL_MS = 2000
@@ -287,7 +288,11 @@ export async function createInstance(client: IncusClient, config: unknown): Prom
   await assertCustomerProfiles(client, { ...config, expanded_config: undefined, expanded_devices: undefined } as Parameters<typeof assertCustomerProfiles>[1])
   // Preserve the caller's create/compensation receipt; check the effective remote
   // configuration before starting it or replacing any original restore source.
-  return client.request('POST', '/1.0/instances', config)
+  const typed = config as { type?: string; source?: { alias?: string; server?: string; protocol?: string } }
+  const alias = typed.source?.server === 'https://images.linuxcontainers.org' && typed.source?.protocol === 'simplestreams'
+    ? 'images:' + typed.source.alias : typed.source?.alias
+  const fingerprint = alias ? await resolveOwnerSelectedImage(client, alias, typed.type === 'virtual-machine' ? 'vm' : 'container') : null
+  return client.request('POST', '/1.0/instances', fingerprint ? { ...config, source: { type: 'image', fingerprint } } : config)
 }
 
 /**
@@ -394,10 +399,14 @@ export async function rebuildInstance(
 ): Promise<unknown> {
   await readCustomerIsolation(client, name)
   assertCustomerIsolation({ config })
+  const fingerprint = imageSource.alias ? await resolveOwnerSelectedImage(client, imageSource.alias,
+    (await getInstance(client, name)).type === 'virtual-machine' ? 'vm' : 'container') : null
   // 处理远程镜像源
   // 如果 alias 以 "images:" 开头，表示从远程 images.linuxcontainers.org 拉取
   let source: Record<string, string>
-  if (imageSource.alias?.startsWith('images:')) {
+  if (fingerprint) {
+    source = { type: 'image', fingerprint }
+  } else if (imageSource.alias?.startsWith('images:')) {
     const remoteAlias = imageSource.alias.replace('images:', '')
     source = {
       type: 'image',
