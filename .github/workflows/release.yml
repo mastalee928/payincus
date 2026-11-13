@@ -21,6 +21,8 @@ env:
   NODE_VERSION: '24'
 
 jobs:
+  incus-compat:
+    uses: ./.github/workflows/incus-sysinfo-compat.yml
   # ===== 构建发行包（多架构矩阵） =====
   build:
     name: 构建 (${{ matrix.arch }})
@@ -305,8 +307,11 @@ jobs:
   preview-agent:
     name: 候选 Agent 下载验证准备
     if: github.ref_type != 'tag'
-    needs: build
+    needs: [build, incus-compat]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -316,6 +321,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - run: node scripts/prepare-incus-compat.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INCUS_COMPAT_BUILD_RUN: ${{ github.run_id }}
       - run: bash agent/scripts/build-release.sh
       - run: node scripts/prepare-preview-agent.mjs agent/dist preview-agent
       - uses: actions/upload-artifact@v4

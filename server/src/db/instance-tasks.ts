@@ -8,6 +8,7 @@ import { prisma } from './prisma.js'
 import { Prisma, type InstanceTaskType, type InstanceTaskStatus, type InstanceTask, type Host, type Instance } from '@prisma/client'
 import { createHash } from 'node:crypto'
 import { INSTANCE_OPERATION_LOCK_NAMESPACE, tryAdvisoryTransactionLock } from './advisory-locks.js'
+import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { assertNoPendingProxySiteOperations } from './proxy-site-operation-guards.js'
 import { authorizeUserWrite, type WriteActor } from './user-write-authorization.js'
 import { transferHostIdentity } from '../lib/transfer-host-identity.js'
@@ -349,6 +350,9 @@ export async function createInstanceTask(data: CreateInstanceTaskData): Promise<
       throw new InstanceTaskConflictError()
     }
     await tx.$queryRaw`SELECT id FROM instances WHERE id = ${data.instanceId} FOR UPDATE`
+    await tx.$queryRaw`SELECT id FROM hosts WHERE id = ${data.hostId} FOR SHARE`
+    const admissionHost=await tx.host.findUniqueOrThrow({where:{id:data.hostId}})
+    if(hostMaintenanceBlocked(admissionHost.securityHardening))throw new InstanceTaskConflictError()
     if(data.taskType!=='stop')assertInstanceMayBoot(await tx.instance.findUniqueOrThrow({where:{id:data.instanceId}}))
     await assertNoPendingSnapshotOperations(tx, data.instanceId)
     await assertNoPendingProxySiteOperations(tx, data.instanceId)

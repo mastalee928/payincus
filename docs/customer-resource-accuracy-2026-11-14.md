@@ -1,5 +1,7 @@
 # 客户资源限额与开通中 IPv6 展示
 
+Incus修复固定artifact双架构原生切换43518949938已success：原daemon SIGTERM平滑退出、固定官方7.0.1回补daemon启动后客机UUID/PID/boot/文件保持，sysinfo=128MiB。Agent1.0.11将对应架构压缩daemon嵌入已有可信升级包、构建依赖官方源码/精确patchedSource hash，不依赖永久历史artifact；主控持久门禁→原实例许可→Agent真实原PID/启动时间、库依赖、backups/重载/回读及回滚→原身份回执解除，新旧普通加固保持该门禁。PG/mTLS许可/续接/阻新任务/回执/完整重装账务回归已过，新自动函数同来源CI、全部回滚/真实目标应用仍待。此前原始sysinfo失败及试验记录保留，不能宣称这一批已上线。
+
 Owner已确认资源截图是自用SSH工具，不是本程序资源页面；后续不做该工具UI或PayIncus资源页面改造。实际Incus/cgroup内存768MiB/4096MiB与Btrfs30GiB配额已修正，八运行池客户/proc及只读资源视图回读全部正确。外部工具的df/statfs可能显示34GiB整池，不等于客户可写34GiB；sysinfo的旧Alpine Incus归属失败另行修复。
 
 现场sysinfo专项未闭环：Alpine Incus7.0.1监控进程cmdline为空，原findContainerForPid只认标题`[lxc monitor]`，用monitor PID的namespace回退无法对应guest；Incus debug事件明确`Failed to find container for monitor 26821`，限时SSH ctypes.sysinfo返回宿主1013125120B，而/proc和实际cgroup为768MiB。#37无guest timeout的额外诊断曾挂住monitor，主控Error；核原进程/父进程后只kill测试诊断恢复同boot Running。不得把这次恢复当sysinfo修好了。原地标题试验未有效且已恢复原空argv，不用于产品。固定官方7.0.1源码hash回补上游cgroup识别与第一payload/monitor路径锚定安全修复的双架构构建正在验证；后续必须真测旧daemon无客户重启替换/重载和sysinfo精确值。正式未发布。

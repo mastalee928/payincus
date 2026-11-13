@@ -1,5 +1,5 @@
 // Package provisioning repairs Incus image tools and LXCFS resource visibility.
-// It never restarts Incus or customers or changes host identity.
+// Its scoped compatibility reload preserves running customers and host identity.
 package provisioning
 
 import (
@@ -12,22 +12,39 @@ import (
 )
 
 type Status struct {
-	Version   int    `json:"version"`
-	Ready     bool   `json:"ready"`
-	CheckedAt string `json:"checkedAt"`
-	Error     string `json:"error,omitempty"`
+	Version       int    `json:"version"`
+	Ready         bool   `json:"ready"`
+	CheckedAt     string `json:"checkedAt"`
+	Error         string `json:"error,omitempty"`
+	IncusCompat   string `json:"incusCompat,omitempty"`
+	CompatRequest string `json:"compatRequest,omitempty"`
+	CompatHash    string `json:"compatHash,omitempty"`
 }
 type Engine struct {
-	mu      sync.Mutex
-	enabled *bool
-	status  Status
-	guests  []Guest
+	mu           sync.Mutex
+	enabled      *bool
+	status       Status
+	guests       []Guest
+	compatPermit *CompatPermit
 }
 type Guest struct {
 	Name      string `json:"name"`
 	UUID      string `json:"uuid"`
 	MemoryMiB int    `json:"memoryMiB"`
 }
+type CompatPermit struct {
+	RequestID    string              `json:"requestId"`
+	ExpiresAt    string              `json:"expiresAt"`
+	HostIdentity string              `json:"hostIdentity"`
+	Guests       []CompatGuestPermit `json:"guests"`
+}
+type CompatGuestPermit struct {
+	Name  string `json:"name"`
+	UUID  string `json:"uuid"`
+	State string `json:"state"`
+}
+
+func (e *Engine) SetCompatPermit(p *CompatPermit) { e.mu.Lock(); e.compatPermit = p; e.mu.Unlock() }
 
 func New() *Engine                   { return &Engine{} }
 func (e *Engine) SetPoolHost(v bool) { e.mu.Lock(); e.enabled = &v; e.mu.Unlock() }
@@ -42,9 +59,17 @@ func (e *Engine) Run(ctx context.Context) {
 		e.mu.Lock()
 		enabled := e.enabled != nil && *e.enabled
 		guests := append([]Guest(nil), e.guests...)
+		permit := e.compatPermit
 		e.mu.Unlock()
 		if enabled {
-			c, cancel := context.WithTimeout(ctx, 55*time.Second)
+			c, cancel := context.WithTimeout(ctx, 180*time.Second)
+			compatStatus, compatRequest, compatHashValue := incusCompatibilityStatus(c)
+			if compatStatus == "needed" || compatStatus == "pending" {
+				if permit != nil && validCompatPermit(permit) {
+					_ = prepareIncusCompatibility(c, permit)
+					compatStatus, compatRequest, compatHashValue = incusCompatibilityStatus(c)
+				}
+			}
 			err := repair(c)
 			if err == nil {
 				err = ensureResourceVisibility(c)
@@ -53,7 +78,7 @@ func (e *Engine) Run(ctx context.Context) {
 				err = repairGuestVisibility(c, guests)
 			}
 			cancel()
-			s := Status{Version: 1, Ready: err == nil, CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+			s := Status{Version: 1, Ready: err == nil, CheckedAt: time.Now().UTC().Format(time.RFC3339), IncusCompat: compatStatus, CompatRequest: compatRequest, CompatHash: compatHashValue}
 			if err != nil {
 				s.Error = "HOST_PROVISIONING_TOOLS_PENDING"
 			}

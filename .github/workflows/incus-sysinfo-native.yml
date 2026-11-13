@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'scripts/test-incus-sysinfo-compat.sh'
+      - 'scripts/prepare-incus-compat.mjs'
+      - 'agent/internal/provisioning/**'
       - '.github/workflows/incus-sysinfo-native.yml'
 jobs:
   runtime:
@@ -22,6 +24,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
       - name: Download independently verified fixed-source compatibility build
         env:
           GH_TOKEN: ${{ github.token }}
@@ -37,6 +45,8 @@ jobs:
       - name: Original daemon reload retains guest and corrects real sysinfo
         run: |
           set -euo pipefail
+          GH_TOKEN='${{ github.token }}' node scripts/prepare-incus-compat.mjs
+          (cd agent && CGO_ENABLED=0 go test -c -o ../output/provisioning-test ./internal/provisioning)
           arch=x86_64; digest=cdaa38cb8de3537967ee5b6c9b6cd00cc962da2b018e6eea48696bb274923012
           if [[ '${{ matrix.architecture }}' == arm64 ]]; then arch=aarch64; digest=4b14c18f7e90a063b61462ea1462a5732c154bf6adad594974fe6487cd98a8de; fi
           root=$(mktemp -d)
@@ -46,6 +56,8 @@ jobs:
           sudo cp /etc/resolv.conf "$root/etc/resolv.conf"
           sudo mkdir -p "$root/out"
           sudo cp output/incusd "$root/out/incusd"
+          sudo cp output/provisioning-test "$root/out/provisioning-test"
+          sudo chmod 755 "$root/out/provisioning-test"
           sudo cp scripts/test-incus-sysinfo-compat.sh "$root/test.sh"
           sudo mount --rbind /dev "$root/dev"
           sudo mount --make-rslave "$root/dev"

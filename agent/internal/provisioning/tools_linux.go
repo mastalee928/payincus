@@ -23,7 +23,8 @@ func systemTool(name string) (string, error) {
 		if e != nil {
 			continue
 		}
-		if !strings.HasPrefix(resolved, "/usr/") && !strings.HasPrefix(resolved, "/bin/") && !strings.HasPrefix(resolved, "/sbin/") {
+		muslLdd := name == "ldd" && (resolved == "/lib/ld-musl-x86_64.so.1" || resolved == "/lib/ld-musl-aarch64.so.1")
+		if !muslLdd && !strings.HasPrefix(resolved, "/usr/") && !strings.HasPrefix(resolved, "/bin/") && !strings.HasPrefix(resolved, "/sbin/") {
 			continue
 		}
 		i, e := os.Stat(resolved)

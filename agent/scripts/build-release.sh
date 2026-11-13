@@ -23,6 +23,10 @@ if [[ ! "${VERSION}" =~ ${VERSION_PATTERN} ]]; then
 fi
 
 mkdir -p "${DIST_DIR}"
+for arch in amd64 arm64; do
+  test -s "${ROOT_DIR}/internal/provisioning/compat/incusd-${arch}.gz" || { echo 'Incus compatibility payload must be prepared before Agent release'; exit 1; }
+  test -s "${ROOT_DIR}/internal/provisioning/compat_payload_${arch}.go" || exit 1
+done
 
 build_one() {
   local goarch="$1"

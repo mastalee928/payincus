@@ -1,10 +1,10 @@
 name: Alpine Incus sysinfo compatibility
 on:
+  workflow_call:
   workflow_dispatch:
   pull_request:
     paths:
       - 'scripts/build-incus-sysinfo-compat.py'
-      - 'scripts/test-incus-sysinfo-compat.sh'
       - '.github/workflows/incus-sysinfo-compat.yml'
 jobs:
   build:
@@ -17,6 +17,8 @@ jobs:
           - runner: ubuntu-24.04-arm
             architecture: arm64
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
@@ -27,16 +29,8 @@ jobs:
             apk add --no-cache go python3 build-base acl-dev cowsql-dev raft-cowsql-dev eudev-dev libcap-dev libuv-dev linux-headers lxc-dev lz4-dev sqlite-dev gettext-dev
             python3 /build.py
           '
-      - name: Original daemon reload retains guest and corrects real sysinfo
-        run: |
-          sudo systemctl start incudalsysinfo.slice
-          echo '+cpuset +cpu +io +memory +pids' | sudo tee /sys/fs/cgroup/incudalsysinfo.slice/cgroup.subtree_control
-          docker run --rm --privileged --cgroupns=host --cgroup-parent=incudalsysinfo.slice -v /sys/fs/cgroup:/sys/fs/cgroup:rw -v "$PWD/output:/out:ro" -v "$PWD/scripts/test-incus-sysinfo-compat.sh:/test.sh:ro" -e INCUDAL_SYSINFO_COMPAT_TEST=disposable alpine:3.24 sh -ec '
-            apk add --no-cache go
-            sh /test.sh
-          '
       - uses: actions/upload-artifact@v4
         with:
           name: incudal-incusd-sysinfo-${{ matrix.architecture }}
           path: output/
-          retention-days: 14
+          retention-days: 90

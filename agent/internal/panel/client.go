@@ -36,6 +36,7 @@ type HeartbeatResult struct {
 	LatencyMs      int64
 	PoolHostBBR    *bool
 	ResourceGuests []provisioning.Guest
+	IncusCompat    *provisioning.CompatPermit
 }
 
 type UpgradeInstruction struct {
@@ -48,11 +49,12 @@ type UpgradeInstruction struct {
 }
 
 type heartbeatResponse struct {
-	AbusePolicy    *abuse.Instruction   `json:"abusePolicy"`
-	PortProtocol   *ingress.Instruction `json:"portProtocol"`
-	Upgrade        *UpgradeInstruction  `json:"upgrade"`
-	PoolHostBBR    *bool                `json:"poolHostBbr"`
-	ResourceGuests []provisioning.Guest `json:"resourceGuests"`
+	AbusePolicy    *abuse.Instruction         `json:"abusePolicy"`
+	PortProtocol   *ingress.Instruction       `json:"portProtocol"`
+	Upgrade        *UpgradeInstruction        `json:"upgrade"`
+	PoolHostBBR    *bool                      `json:"poolHostBbr"`
+	ResourceGuests []provisioning.Guest       `json:"resourceGuests"`
+	IncusCompat    *provisioning.CompatPermit `json:"incusCompat"`
 }
 
 func New(cfg config.Config) *Client {
@@ -121,6 +123,7 @@ func (client *Client) Heartbeat(ctx context.Context, payload map[string]any) (He
 		result.AbusePolicy = parsedResponse.AbusePolicy
 		result.PoolHostBBR = parsedResponse.PoolHostBBR
 		result.ResourceGuests = parsedResponse.ResourceGuests
+		result.IncusCompat = parsedResponse.IncusCompat
 	}
 
 	var parsed map[string]any

@@ -34,6 +34,9 @@ GO
 CGO_ENABLED=0 go build -o /tmp/sysinfo /tmp/sysinfo.go
 incus file push --mode=0700 /tmp/sysinfo native-sysinfo/root/sysinfo
 timeout -s KILL 5 incus exec native-sysinfo -- timeout -s KILL 3 /root/sysinfo >/tmp/sysinfo-old || true
+if test -x /out/provisioning-test; then
+  /out/provisioning-test -test.run '^TestNativeCompatibilityAutomaticReload$' -test.v
+else
 kill -TERM "$old"
 for n in $(seq 1 60);do kill -0 "$old" 2>/dev/null || break;sleep 1;done
 if kill -0 "$old" 2>/dev/null;then cat /tmp/incusd-original.log;exit 1;fi
@@ -41,6 +44,7 @@ cp /usr/sbin/incusd /tmp/incusd-original
 install -m 0755 /out/incusd /usr/sbin/incusd
 /usr/sbin/incusd --group incus >/tmp/incusd-fixed.log 2>&1 &
 if ! incus admin waitready --timeout=60; then cat /tmp/incusd-fixed.log; exit 1; fi
+fi
 incus query /1.0/instances/native-sysinfo > /tmp/identity-after.json
 incus query /1.0/instances/native-sysinfo/state > /tmp/state-after.json
 incus exec native-sysinfo -- cat /proc/sys/kernel/random/boot_id > /tmp/boot-after

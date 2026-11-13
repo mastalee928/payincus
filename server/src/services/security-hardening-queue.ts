@@ -77,6 +77,7 @@ export async function hardenExistingHost(hostId: number, deps = securityHardenin
     const host = await tx.host.findUniqueOrThrow({ where: { id: hostId }, include })
     if (enrollment ? !ownsOnboardingHardeningLease(host.onboardingNode, enrollment) : onboardingOwnsHardening(host.onboardingNode)) return null
     const previous = currentState(host.securityHardening)
+    if(previous.incusCompat && (previous.incusCompat as {phase?:string}).phase!=='verified')return null
     if (previous.revision === SECURITY_HARDENING_REVISION && previous.nextCheckAt && Date.parse(previous.nextCheckAt) > Date.now() &&
         !hardeningAcceptanceReadyForRetry(previous)) return null
     // Paid pool delivery already owns this host. A periodic inspection cannot
@@ -94,6 +95,7 @@ export async function hardenExistingHost(hostId: number, deps = securityHardenin
       checkedAt: new Date().toISOString(), nextCheckAt: new Date(Date.now() + 600000).toISOString(), leaseToken,
       identityHash: identity(host) }
     if (previous.maintenance !== undefined) state.maintenance = previous.maintenance
+    if (previous.incusCompat !== undefined) state.incusCompat = previous.incusCompat
     state.remoteRequestId = typeof previous.remoteRequestId === 'string' && /^[a-f0-9-]{36}$/.test(previous.remoteRequestId)
       ? previous.remoteRequestId : randomUUID()
     await tx.host.update({ where: { id: hostId }, data: { securityHardening: stateJson(state) } })
@@ -278,6 +280,7 @@ export async function hardenExistingHost(hostId: number, deps = securityHardenin
     // Maintenance may register between the probe and this receipt. Preserve
     // its current durable fence; a successful older probe cannot erase it.
     const currentMaintenance = currentState(host.securityHardening).maintenance
+    state.incusCompat=currentState(host.securityHardening).incusCompat
     if (currentMaintenance === undefined) delete state.maintenance
     else state.maintenance = currentMaintenance
     if (receiptBusy) {

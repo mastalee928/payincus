@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import {Prisma}from'@prisma/client'
 import { createHash, randomUUID, X509Certificate } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
@@ -21,6 +22,7 @@ const { assertRebuildBootReady } = await import('../src/lib/instance-rebuild-sta
 const { requestInstanceDeletion } = await import('../src/services/instance-deletion.js')
 const { encryptSensitiveData } = await import('../src/lib/security.js')
 const { reconcilePoolInstanceResources } = await import('../src/services/pool-resource-reconciliation.js')
+const { incusCompatibilityPermit }=await import('../src/services/incus-compatibility.js')
 const { closeAllClients } = await import('../src/lib/incus/incus-pool.js')
 const tag = 'reinstall-' + randomUUID().slice(0, 8), root = await mkdtemp(join(tmpdir(), tag))
 const keyPath = join(root, 'key.pem'), certPath = join(root, 'cert.pem')
@@ -160,6 +162,21 @@ try {
         ...(scenario === 'legacy-marker' ? {} : { managedCleanup: { uuid, attempt, endpointHash: createHash('sha256').update(host.url).digest('hex') } }), recoveryIdentity: { uuid, createdAt } } } })
     ids.push(instance.id)
     if (taskType === 'rebuild' && scenario === 'success') {
+      const {hostMaintenanceBlocked}=await import('../src/lib/host-maintenance-gate.js')
+      const cleanHost=await prisma.host.findUniqueOrThrow({where:{id:host.id}})
+      const hash='a'.repeat(64)
+      await prisma.host.update({where:{id:host.id},data:{singleTenant:true}})
+      const rawAgent=await prisma.hostAgent.create({data:{hostId:host.id,agentId:'agt_'+randomUUID().replaceAll('-',''),secretHash:'test-hash',secretEncrypted:'fixture-secret',enabled:true,capabilities:['incus-sysinfo-compat-v1'],lastReport:{hostProvisioningStatus:{incusCompat:'needed',compatHash:hash}}}})
+      const permit=await incusCompatibilityPermit(rawAgent)
+      assert.ok(permit,'idle original guest receives daemon reload permit')
+      assert.equal(hostMaintenanceBlocked((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).securityHardening),true)
+      await assert.rejects(createInstanceTask({instanceId:instance.id,hostId:host.id,userId:owner.id,taskType:'start'}))
+      const repeat=await incusCompatibilityPermit(rawAgent)
+      assert.equal(repeat?.requestId,permit.requestId,'same fence is resumed')
+      await incusCompatibilityPermit({...rawAgent,lastReport:{hostProvisioningStatus:{incusCompat:'verified',compatHash:hash,compatRequest:permit.requestId}}})
+      assert.equal(hostMaintenanceBlocked((await prisma.host.findUniqueOrThrow({where:{id:host.id}})).securityHardening),false)
+      await prisma.hostAgent.delete({where:{id:rawAgent.id}})
+      await prisma.host.update({where:{id:host.id},data:{singleTenant:cleanHost.singleTenant,securityHardening:cleanHost.securityHardening===null?Prisma.DbNull:cleanHost.securityHardening}})
       const savedHost = await prisma.host.findUniqueOrThrow({ where: { id: host.id } })
       await prisma.host.update({ where: { id: host.id }, data: { singleTenant: true } })
       await prisma.instance.update({ where: { id: instance.id }, data: { dedicatedIpv4: true } })

@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- Incus兼容真实固定artifact切换43518949938双架构全部success，原PID/UUID/boot/marker保持，guest syscall sysinfo=128MiB精确（22:26UTC）；前Docker/chroot/pivot失败均测试准备，最终递归保留dev/sys、重挂proc后闭环。现接Agent1.0.11官方压缩嵌入对应架构（约30–33MB，原64MB升级边界保持）；主控持久incusCompat门禁/当前受信Agent/原host/guest UUID/state许可，Agent原PID start-time/库依赖/原包backup/重载续接/回读/回滚，普通加固不得擦此门禁。新增PG/mTLS原许可续接/阻新任务/回执解除/旧实例账务回归已通过，server types和双Go vet过，本地全量221运行；新Agent自动函数native及同来源完整CI/打包/候选OTA尚待，未应用这批生产也未正式发版。
+
 - 2026-11-14镜像矩阵收尾：最终候选6093777/Agent1.0.10，AMD24/24于20:52:31UTC，ARM24/24于21:32:06UTC全通过，实际系统各72次核验无错配。重装/停启/重启、原密码/公钥/boot变化/测试文件/IPv4IPv6/内存视图通过，余额前后999876.88、AMD5/ARM1购买账单数不变，6测试实例归属/host/账期/原价/续费价保持。sysinfo的Alpine Incus兼容仍未闭环；固定官方7.0.1双架构补丁构建43510197753成功，真实旧daemon切换43511172924/43512260817在原客机起步失败，完整日志定位Docker未委派cgroup(memory.max缺)，不是切换或产品回补失败。1dda9219夹具专用cgroup委派后43512869484运行；未放宽生产规则。未提交agent/internal/provisioning/incus_compat_linux.go与compat/草稿尚未接入或部署；须补完整互斥/回滚/原身份与真正sysinfo，再发正式版本。
 
 - 2026-11-14最新补充：AMD24/24完整矩阵已success（20:52:31UTC），ARM22/24继续CentOS9/10，原系统/密码key/boot/文件/内存/账务核验无失败。实际sysinfo专项发现Incus7.0.1 Alpine监控进程cmdline为空，findContainerForPid无法识别，seccomp延迟回退host内存；#37一未加客机超时的测试采样曾阻塞监控而Error，定向核父进程/命令后只终止挂住的诊断恢复原Running/boot，无客户重启。SSH限时采样同样回宿主值，确为产品兼容缺口，不把此前Ubuntu原生绿当现场成功。原地补监控标题试验未生效，已恢复原空argv（未纳入源码）。新增固定官方Incus7.0.1源码hash，仅回补上游5daa427d+锚定安全补83eaa5e1的cgroup识别；双架构构建43509802950失败缺acl-dev，补8ae6e6fd后43510197753运行。新兼容二进制尚未用于生产，自动修复/平滑重载/客机sysinfo仍待，正式发行继续等待全部闭环。

@@ -172,3 +172,6 @@ namecrane_modules/
 !docs/v1.8.10-live-purchase-validation.md
 /.cache/bundled-system-images/
 /server/images/
+/agent/internal/provisioning/compat/*.gz
+/agent/internal/provisioning/compat/manifest-*.json
+/agent/internal/provisioning/compat_payload_*.go
