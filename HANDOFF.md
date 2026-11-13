@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 8b669aac诊断43525525068两架构服务日志明确ifquery无法解析缺失的/etc/network/interfaces，OpenRC networking阻止incusd。一次性minirootfs仅补loopback真实配置，不改runner公网接口、不修改产品服务或跳依赖。下一来源自动维护/客户保持/sysinfo回读继续；221本地已过，最新同来源CI及完整预览/目标热更新仍待。
+
 - 2ed86183原生43525192402 AMD132229087689在自动流程OpenRC incusd start明确失败；此前补服务包不足以解释完整运行依赖。新增仅一次性测试环境服务/daemon失败日志，继续查真正启动错误，不放宽产品身份或用手动切换替代。尚未热更新或正式发行；最新自动应用未完成。
 
 - e87b4d56自动原生43524653219两架构已进入prepare但exit1，一次性Alpine夹具仅装incus/client/openrc，遗漏实际安装模板已有incus-openrc；补真实服务包并将服务zap/start/waitready错误分阶段且不打印原始输出。双vet/测试编译过，下一原生仍待，未对主控应用；不得用前手动启动成功覆盖自动OpenRC重载缺口。

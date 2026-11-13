@@ -7,6 +7,10 @@ ls -ld /proc /proc/self
 cat /proc/self/status | head -n12
 mount | head -n12
 apk add --no-cache incus incus-client incus-openrc openrc apparmor-utils iproute2 python3
+# The minirootfs has no interface configuration. OpenRC must validate a real
+# networking dependency, without reconfiguring the runner's external link.
+mkdir -p /etc/network
+printf 'auto lo\niface lo inet loopback\n' > /etc/network/interfaces
 mkdir -p /run/openrc /run/dbus
 touch /run/openrc/softlevel
 dbus-daemon --system --fork
