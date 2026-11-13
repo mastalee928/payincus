@@ -1,5 +1,7 @@
 # 客户资源限额与开通中 IPv6 展示
 
+现场sysinfo专项未闭环：Alpine Incus7.0.1监控进程cmdline为空，原findContainerForPid只认标题`[lxc monitor]`，用monitor PID的namespace回退无法对应guest；Incus debug事件明确`Failed to find container for monitor 26821`，限时SSH ctypes.sysinfo返回宿主1013125120B，而/proc和实际cgroup为768MiB。#37无guest timeout的额外诊断曾挂住monitor，主控Error；核原进程/父进程后只kill测试诊断恢复同boot Running。不得把这次恢复当sysinfo修好了。原地标题试验未有效且已恢复原空argv，不用于产品。固定官方7.0.1源码hash回补上游cgroup识别与第一payload/monitor路径锚定安全修复的双架构构建正在验证；后续必须真测旧daemon无客户重启替换/重载和sysinfo精确值。正式未发布。
+
 后续同来源bebeb93f的双实际tar、243迁移、原签名及全部旧升级/首装预览43495815626通过，Agent43495823040 success且无正式Release。正常主控manifest五分钟缓存更新后自动升级34/34到候选1.0.10，所有资源工具回执ready、宿主online且未新增poolFaulted。八运行池实例/proc+cgroup+只读视图7项正确；历史#27持久managedCleanup有原UUID和受信endpointHash但没有createdAt，旧后台修正误跳过。只为精确旧配额修复接受原UUID+原endpoint持久证据，仍核受信宿主、最新绑定/任务、ETag与原UUID，不以同名替代；双架构PG/mTLS新增缺时间正确修复/错误endpoint拒绝/幂等与账務保持通过，server types/build完成。AMD/ARM各24可选镜像矩阵20:06UTC启动，已开始真实重装/停启/重启/SSH/IPv6/内存视图逐项验收，执行期间不升级backend。
 
 2026-11-14 03:19最新目标实证：热更新任务44成功，主控运行preview-3773087（37730870e006）、243迁移，原worker/签名/DB支付/双前端检查通过。34台宿主自然升级到候选Agent1.0.9，全部online/poolFaulted=false；E2/ARM1C后台MiB限额及Btrfs30GiB qgroup已经生效，88份持久镜像收据、136文件18.66GB更新期间全部保留、无新下载。旧#36任务225自然FAILED且远端Stopped，允许正常重新选镜像。

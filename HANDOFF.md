@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 2026-11-14最新补充：AMD24/24完整矩阵已success（20:52:31UTC），ARM22/24继续CentOS9/10，原系统/密码key/boot/文件/内存/账务核验无失败。实际sysinfo专项发现Incus7.0.1 Alpine监控进程cmdline为空，findContainerForPid无法识别，seccomp延迟回退host内存；#37一未加客机超时的测试采样曾阻塞监控而Error，定向核父进程/命令后只终止挂住的诊断恢复原Running/boot，无客户重启。SSH限时采样同样回宿主值，确为产品兼容缺口，不把此前Ubuntu原生绿当现场成功。原地补监控标题试验未生效，已恢复原空argv（未纳入源码）。新增固定官方Incus7.0.1源码hash，仅回补上游5daa427d+锚定安全补83eaa5e1的cgroup识别；双架构构建43509802950失败缺acl-dev，补8ae6e6fd后43510197753运行。新兼容二进制尚未用于生产，自动修复/平滑重载/客机sysinfo仍待，正式发行继续等待全部闭环。
+
 - 2026-11-14最终源码60937775：CI43499445962 29/29、Agent43499445858、Alpine43499445943、预览43499441752双首装/六旧worker升级全部success；双tar独立原签名/source/243迁移/无图库/用户改价边界通过。热更新45于20:44:29UTC成功preview-6093777（备份/opt/incudal.bak.20261113204213），原身份/worker/DB支付/双前端/唯一backend保持，243迁移无待执行。历史#27由后台自然修到768MiB/30GiB，原运行状态和身份保持；34宿主Agent1.0.10工具全ready，无新poolFaulted。前矩阵AMD22/24、ARM11/24完整通过后自然收尾；最终源码剩余AMD2/ARM13镜像矩阵20:45UTC启动，尚未完成，正式未发布。创建中IPv6专项已过，目标真实成功订单原IPv6展示保持。五轮复审记录见docs/resource-image-checkout-final-review-2026-11-14.md。
 
 - 2026-11-14资源detached mount修复bebeb93f已推，Agent43495823040全部success/公开Release skipped；完整CI43495823271的14原生全部success、综合分片尚收尾；预览43495815626双构建/双首装/六旧worker升级全部success。两实际tar独立原签名/完整source/243迁移/无图库/用户价格边界通过。候选Agent1.0.10同来源artifact经主控正常manifest自动升级34/34，所有宿主online/provisioning ready/poolFaulted=false，无客户重启；八运行池实例资源回读7正确，历史#27缺createdAt但持久UUID+原endpoint匹配仍旧MB。源码仅此精确配额兼容补修，双架构PG/mTLS重装回归、types/build完成（resource-legacy-proof-db.log）；本批新候选待。剩余镜像矩阵已启动（各24项），不在任务期间升级主控，最终目标与正式发行仍待。
