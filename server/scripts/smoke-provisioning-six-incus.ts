@@ -104,6 +104,12 @@ try {
     })()
     const diagnostics = setInterval(() => {
       try {
+        if (image === 'debian/11/cloud') {
+          const bootstrap = execFileSync('incus', ['exec', name, '--', 'sh', '-c',
+            'systemctl status payincus-image-bootstrap.service systemd-networkd.service systemd-networkd-wait-online.service --no-pager; journalctl -u payincus-image-bootstrap.service -b --no-pager -n 80; find /var/lib/cloud/seed -type f -printf "%p %s bytes\\n"; ls -l /var/lib/incudal /usr/local/sbin/payincus-image-bootstrap; cat /var/lib/incudal/image-bootstrap-failed; ip -4 addr show; ip -4 route show; cat /etc/resolv.conf'],
+            { encoding: 'utf8', timeout: 10000, maxBuffer: 32768 })
+          console.log(bootstrap.replaceAll(password, '[redacted]').replace(/(password|passwd|secret|token)[^\n]*/gi, '[redacted line]'))
+        }
         const output = execFileSync('incus', ['exec', name, '--', 'sh', '-c',
           'cloud-init status --long; cloud-init schema --system; cat /var/lib/cloud/instance/scripts/runcmd; grep -E \"runcmd|scripts-user|ERROR|failed|WARN\" /var/log/cloud-init.log | tail -n 20; grep -E \"INCUDAL_INIT|INCUDAL_SETUP|error|Error|not found|Missing|failed|apt|Get:|Hit:|sshd|Permission\" /var/log/cloud-init-output.log | tail -n 45; tail -n 15 /var/log/cloud-init-output.log; ls -l /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt /var/lib/incudal /usr/local/bin/incudal-required-init.sh /usr/local/bin/incus-setup.sh; cat /var/lib/incudal/ssh-setup-failed /var/lib/incudal/initialization-failed; head -n 25 /var/lib/incudal/sshd-effective-config; /usr/sbin/sshd -t; /usr/sbin/sshd -T -C user=root,host=localhost,addr=127.0.0.1 | grep -E \"^(passwordauthentication|permitrootlogin) \"; date -u; ps | head -n 16; cat /etc/resolv.conf; cat /sys/class/net/eth0/mtu; python3 -c \"import ssl,urllib.request; print(ssl.get_default_verify_paths()); print(urllib.request.urlopen(\\\"https://dl-cdn.alpinelinux.org/alpine/v3.24/main/\\\", timeout=3).status)\"'],
           { encoding: 'utf8', timeout: 5000, maxBuffer: 32768 })
