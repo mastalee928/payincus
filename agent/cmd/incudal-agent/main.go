@@ -30,6 +30,12 @@ var tcpPerformance = performance.New()
 var provisioningTools = provisioning.New()
 
 func main() {
+	if handled, err := provisioning.ResourceMountHelper(); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	configPath := flag.String("config", "/etc/incudal-agent/config.yaml", "agent config file")
 	once := flag.Bool("once", false, "send one heartbeat and exit")
 	restoreIngress := flag.Bool("restore-port-protocol", false, "restore saved ingress policy")

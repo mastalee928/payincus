@@ -2,7 +2,25 @@
 
 package provisioning
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
+
+func TestResourceMountHelperRejectsUntrustedArguments(t *testing.T) {
+	old := os.Args
+	defer func() { os.Args = old }()
+	for _, args := range [][]string{{"agent", resourceMountArgument, "../../etc/passwd"}, {"agent", resourceMountArgument, "meminfo", "extra"}, {"agent", resourceMountArgument, "meminfo"}} {
+		os.Args = args
+		if handled, err := ResourceMountHelper(); !handled || err == nil {
+			t.Fatal("untrusted helper invocation accepted", args)
+		}
+	}
+	os.Args = []string{"agent", "-config", "ordinary"}
+	if handled, _ := ResourceMountHelper(); handled {
+		t.Fatal("ordinary agent invocation intercepted")
+	}
+}
 
 func TestBoundedCommandOutputNeverSilentlyTruncatesJSON(t *testing.T) {
 	var out limitedBuffer

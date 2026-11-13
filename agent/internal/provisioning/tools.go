@@ -80,14 +80,14 @@ func packagesFor(release string) ([]string, error) {
 	}
 	switch fields["ID"] {
 	case "alpine":
-		return []string{"apparmor-utils", "tar", "gzip", "xz", "squashfs-tools", "rsync", "lxcfs", "lxcfs-openrc"}, nil
+		return []string{"apparmor-utils", "tar", "gzip", "xz", "squashfs-tools", "rsync", "lxcfs", "lxcfs-openrc", "util-linux"}, nil
 	case "debian", "ubuntu":
-		return []string{"apparmor", "tar", "gzip", "xz-utils", "squashfs-tools", "rsync", "lxcfs"}, nil
+		return []string{"apparmor", "tar", "gzip", "xz-utils", "squashfs-tools", "rsync", "lxcfs", "util-linux"}, nil
 	default:
 		return nil, fmt.Errorf("host distribution unsupported")
 	}
 }
 
-var required = []string{"aa-exec", "tar", "gzip", "xz", "unsquashfs", "rsync"}
+var required = []string{"aa-exec", "tar", "gzip", "xz", "unsquashfs", "rsync", "nsenter"}
 
 func releaseFile() (string, error) { b, e := os.ReadFile("/etc/os-release"); return string(b), e }

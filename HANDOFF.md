@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 2026-11-14主控候选热更新44最终success（19:13:36 UTC），preview-3773087/source37730870e006，备份/opt/incudal.bak.20261113191149；243迁移、原worker/签名/DB支付/唯一backend及双前端检查通过。34宿主自动Agent1.0.9均online无新poolFaulted；旧#36/225自然FAILED/Stopped，E2/ARM1C真实MiB/cgroup和30GiB qgroup已生效，88份镜像持久收据更新后原样保留。旧客机LXCFS补挂载在两Alpine目标返回EINVAL，静态与Ubuntu原生绿不能代表现场；已授权测试#37/#40核原UUID/PID后以固定fd的detached只读mount方案实证内存768MiB/4096MiB且无重启，源码Agent1.0.10补此缺口并加强helper/namespace固定句柄。新来源CI/自动升级、剩余全镜像及正式发行仍待，详见资源记录。
+
 - 资源进一步复审补sysinfo路径：LXCFS只修/proc，外部工具可用sysinfo看到宿主内存；新容器及重装设Incus原生security.syscalls.intercept.sysinfo，旧池原身份后台更新并回读（无liveupdate，后续正常启动生效，不擅自重启客户）。新增实际客机Go sysinfo总RAM=1024MiB原生断言，类型/资源与隔离守卫、Linux双编译过，最终PG/build与新CI仍待；不声称旧在用客户sysinfo已即时修复。
 
 - 资源live mount第二轮边界复审：原目录fd要求Fstatfs=procfs，mount --no-canonicalize避免挂载工具重新解析fd回原PID字串；原UUID/PID/只读文件检查保持，Linux双架构编译通过，新版本待原生复验。无对客户系统或主控应用此未验方案。

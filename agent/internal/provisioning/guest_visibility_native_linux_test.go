@@ -5,6 +5,7 @@ package provisioning
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +13,16 @@ import (
 	"testing"
 	"time"
 )
+
+func init() {
+	if handled, err := ResourceMountHelper(); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+}
 
 func TestNativeGuestResourceVisibility(t *testing.T) {
 	name := os.Getenv("INCUDAL_NATIVE_VISIBILITY_GUEST")
@@ -54,6 +65,10 @@ func TestNativeGuestResourceVisibility(t *testing.T) {
 	}
 	if err = repairGuestVisibility(ctx, []Guest{{Name: name, UUID: guest.Config["volatile.uuid"], MemoryMiB: 1024}}); err != nil {
 		t.Fatal("idempotency", err)
+	}
+	result, err = run(ctx, "incus", "exec", name, "--", "sh", "-c", "grep ' /proc/meminfo ' /proc/self/mountinfo")
+	if err != nil || !strings.Contains(string(result), " ro,") || !strings.Contains(string(result), " - fuse.lxcfs ") {
+		t.Fatal("resource mount must remain read-only", err, string(result))
 	}
 }
 

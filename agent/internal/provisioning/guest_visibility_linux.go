@@ -50,17 +50,24 @@ func repairGuestVisibility(ctx context.Context, guests []Guest) error {
 		pid := strconv.Itoa(runtime.Pid)
 		// Hold the process root/proc directory itself. If the PID exits or is
 		// recycled, fd-relative targets cannot resolve into another process.
-		proc, err := os.Open("/proc/" + pid + "/root/proc")
+		process, err := os.Open("/proc/" + pid)
 		if err != nil {
+			return err
+		}
+		proc, err := os.Open("/proc/self/fd/" + strconv.Itoa(int(process.Fd())) + "/root/proc")
+		if err != nil {
+			process.Close()
 			return err
 		}
 		var filesystem syscall.Statfs_t
 		if syscall.Fstatfs(int(proc.Fd()), &filesystem) != nil || filesystem.Type != 0x9fa0 {
 			proc.Close()
+			process.Close()
 			return fmt.Errorf("resource target is not procfs")
 		}
-		err = mountGuestResourceFiles(ctx, guest, runtime.Pid, proc)
+		err = mountGuestResourceFiles(ctx, guest, runtime.Pid, process, proc)
 		proc.Close()
+		process.Close()
 		if err != nil {
 			return err
 		}
@@ -68,27 +75,42 @@ func repairGuestVisibility(ctx context.Context, guests []Guest) error {
 	return nil
 }
 
-func mountGuestResourceFiles(ctx context.Context, guest Guest, pidNumber int, proc *os.File) error {
-	pid := strconv.Itoa(pidNumber)
-	var err error
+func mountGuestResourceFiles(ctx context.Context, guest Guest, pidNumber int, process, proc *os.File) error {
+	original := "/proc/self/fd/" + strconv.Itoa(int(process.Fd()))
+	namespace, err := os.Open(original + "/ns/mnt")
+	if err != nil {
+		return err
+	}
+	defer namespace.Close()
+	pidNamespace, err := os.Open(original + "/ns/pid")
+	if err != nil {
+		return err
+	}
+	defer pidNamespace.Close()
+	// Execute our held binary through its descriptor after entering the guest
+	// namespaces. A host pathname may not exist there; guest files are never run.
+	binary, err := os.Open("/proc/self/exe")
+	if err != nil {
+		return err
+	}
+	defer binary.Close()
 	for _, name := range []string{"meminfo", "cpuinfo", "stat", "uptime", "swaps", "loadavg"} {
 		source := filepath.Join("/var/lib/lxcfs/proc", name)
 		if _, err = os.Stat(source); err != nil {
 			continue
 		}
-		target := "/proc/self/fd/3/" + name
 		localTarget := "/proc/self/fd/" + strconv.Itoa(int(proc.Fd())) + "/" + name
 		info, err := os.Lstat(localTarget)
 		if err != nil || !info.Mode().IsRegular() {
 			return fmt.Errorf("resource target invalid")
 		}
-		mounts, err := os.ReadFile("/proc/" + pid + "/mountinfo")
+		mounts, err := os.ReadFile(original + "/mountinfo")
 		if err != nil {
 			return err
 		}
 		mounted := false
 		for _, line := range strings.Split(string(mounts), "\n") {
-			if strings.Contains(line, " /proc/"+name+" ") && strings.Contains(line, " - fuse.lxcfs ") {
+			if fields := strings.Fields(line); len(fields) > 5 && fields[4] == "/proc/"+name && strings.Contains(line, " - fuse.lxcfs ") && strings.HasPrefix(fields[5], "ro,") {
 				mounted = true
 				break
 			}
@@ -111,11 +133,15 @@ func mountGuestResourceFiles(ctx context.Context, guest Guest, pidNumber int, pr
 		if err != nil || json.Unmarshal(check, &latest) != nil || latest.Pid != pidNumber {
 			break
 		}
-		if _, err = runWithFiles(ctx, "mount", []*os.File{proc}, "--no-canonicalize", "--bind", source, target); err != nil {
+		tree, err := cloneResourceMount(source)
+		if err != nil {
 			return err
 		}
-		if _, err = runWithFiles(ctx, "mount", []*os.File{proc}, "--no-canonicalize", "-o", "remount,bind,ro", target); err != nil {
-			return err
+		_, err = runWithFiles(ctx, "nsenter", []*os.File{proc, namespace, tree, binary, pidNamespace},
+			"--mount=/proc/self/fd/4", "--pid=/proc/self/fd/7", "--", "/proc/self/fd/6", resourceMountArgument, name)
+		tree.Close()
+		if err != nil {
+			return fmt.Errorf("resource view %s attach failed: %w", name, err)
 		}
 	}
 	return nil
