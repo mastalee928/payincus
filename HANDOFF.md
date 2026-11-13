@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 50b14fb8六组原生43526588595 ARM normal通过，rollback-retry已通过故障→持久rolling-back→旧binary/服务/guest恢复，最终立即重试遇实际operations暂未idle。测试补有界重复prepare，保留实际operations门槛且仅超时输出一次性目标诊断；不取消任务或跳过产品检查。双vet/测试编译已过，最终六场景/完整CI/预览/主控实际sysinfo仍待。
+
 - 2cc559fe自动原生43526018569双架构success（132231848423/132231848561），实际Agent函数+OpenRC重载/幂等完成，原UUID/PID/boot/marker保持，sysinfo精确128MiB。随后回滚复审发现服务启动失败且旧binary已恢复后仍留reloading导致下轮NewHash拒绝；新增持久rolling-back状态，重试先核旧hash恢复/服务/客户，完成再重试修复。扩展AMD/ARM×normal/prepared-resume/rollback-retry六真实场景；双vet/测试编译过，新来源运行及完整候选/目标尚待。旧原生成功只代表正常自动流程，不能替代这次回滚验收。
 
 - 8b669aac诊断43525525068两架构服务日志明确ifquery无法解析缺失的/etc/network/interfaces，OpenRC networking阻止incusd。一次性minirootfs仅补loopback真实配置，不改runner公网接口、不修改产品服务或跳依赖。下一来源自动维护/客户保持/sysinfo回读继续；221本地已过，最新同来源CI及完整预览/目标热更新仍待。

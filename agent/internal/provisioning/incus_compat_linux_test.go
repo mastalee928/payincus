@@ -140,7 +140,25 @@ func TestNativeCompatibilityAutomaticReload(t *testing.T) {
 			t.Fatal("rollback changed guest", readErr)
 		}
 	}
-	if e = prepareIncusCompatibility(ctx, p); e != nil {
+	for {
+		e = prepareIncusCompatibility(ctx, p)
+		if e == nil || !strings.Contains(e.Error(), "waits for active operations") {
+			break
+		}
+		// A recovered original daemon can still be settling its real Incus
+		// operations. Exercise the same bounded retry as the Agent; do not
+		// cancel operations or waive the product's idle requirement.
+		select {
+		case <-ctx.Done():
+			diagnosticCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+			operations, _ := run(diagnosticCtx, "incus", "query", "/1.0/operations?recursion=1")
+			stop()
+			t.Log("disposable operations", string(operations))
+			t.Fatal("automatic reload did not become idle", ctx.Err())
+		case <-time.After(time.Second):
+		}
+	}
+	if e != nil {
 		t.Fatal("automatic reload", e)
 	}
 	after, e := compatGuests(ctx)
