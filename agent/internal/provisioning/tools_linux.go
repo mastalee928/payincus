@@ -39,11 +39,15 @@ func systemTool(name string) (string, error) {
 	return "", fmt.Errorf("required host tool missing")
 }
 func run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return runWithFiles(ctx, name, nil, args...)
+}
+func runWithFiles(ctx context.Context, name string, files []*os.File, args ...string) ([]byte, error) {
 	p, e := systemTool(name)
 	if e != nil {
 		return nil, e
 	}
 	c := exec.Command(p, args...)
+	c.ExtraFiles = files
 	c.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C", "DEBIAN_FRONTEND=noninteractive", "NEEDRESTART_MODE=l", "UCF_FORCE_CONFFOLD=1"}
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// Output is bounded and never placed in heartbeat/logs (mirrors may be private).

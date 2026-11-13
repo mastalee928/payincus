@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 本地最终221/221(test-run-20261114-014424)过；实时挂载独立复审补持有原/proc/PID/root/proc目录fd，mount继承fd定位，避免核验后PID退出/复用重定向目标。原UUID/PID与只读资源文件检查保持，新的fd版本待双架构原生，不能沿用上一字串PID路径已绿代替。目标主控仍preview-9d4984e，无本次资源候选部署；第36失败任务尚待。
+
 - 62eae8fb Agent43477081610已双架构全部success（真实LXCFS服务/包hook含原模块、解包工具及漂移修复）。前19959af5 CI43476273057双架构14类原生全部过，但verification-resend分片132060786201旧fixture缺root设备失败；补真实root后本地同脚本验证自然exit0，未放宽新重装quota门槛。新来源62CI43477081639/预览43477200648运行；本地221已接近末段无失败，目标热更新仍待完整最终来源。
 
 - 后续19959af5 CI43476273057 AMD64Tiny原生job132060786091已success，含live LXCFS移除旧meminfo挂载→原UUID/PID修复→准确1024MiB→幂等及原SSH；ARM仍待。debb272b Agent43476394741服务测试失败日志确认Docker缺/lib/modules，OpenRC modprobe失败，非同类产品启动判断；夹具提供实际host模块目录并预加载fuse/autofs4后重新验。静默截断已新来源闭环部分，整个双架构/最终CI尚未通过，禁止热更新。

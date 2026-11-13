@@ -47,47 +47,69 @@ func repairGuestVisibility(ctx context.Context, guests []Guest) error {
 			continue
 		}
 		pid := strconv.Itoa(runtime.Pid)
-		for _, name := range []string{"meminfo", "cpuinfo", "stat", "uptime", "swaps", "loadavg"} {
-			source := filepath.Join("/var/lib/lxcfs/proc", name)
-			if _, err = os.Stat(source); err != nil {
-				continue
-			}
-			target := "/proc/" + pid + "/root/proc/" + name
-			info, err := os.Lstat(target)
-			if err != nil || !info.Mode().IsRegular() {
-				return fmt.Errorf("resource target invalid")
-			}
-			mounts, err := os.ReadFile("/proc/" + pid + "/mountinfo")
-			if err != nil {
-				return err
-			}
-			mounted := false
-			for _, line := range strings.Split(string(mounts), "\n") {
-				if strings.Contains(line, " /proc/"+name+" ") && strings.Contains(line, " - fuse.lxcfs ") {
-					mounted = true
-					break
-				}
-			}
-			if mounted {
-				continue
-			}
-			// Recheck Incus UUID and PID directly before each mount. The only
-			// writes are packaged read-only resource files, never guest disks.
-			check, err := run(ctx, "incus", "query", "/1.0/instances/"+guest.Name)
-			if err != nil || json.Unmarshal(check, &current) != nil || current.Config["volatile.uuid"] != guest.UUID || current.Status != "Running" {
+		// Hold the process root/proc directory itself. If the PID exits or is
+		// recycled, fd-relative targets cannot resolve into another process.
+		proc, err := os.Open("/proc/" + pid + "/root/proc")
+		if err != nil {
+			return err
+		}
+		err = mountGuestResourceFiles(ctx, guest, runtime.Pid, proc)
+		proc.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mountGuestResourceFiles(ctx context.Context, guest Guest, pidNumber int, proc *os.File) error {
+	pid := strconv.Itoa(pidNumber)
+	var err error
+	for _, name := range []string{"meminfo", "cpuinfo", "stat", "uptime", "swaps", "loadavg"} {
+		source := filepath.Join("/var/lib/lxcfs/proc", name)
+		if _, err = os.Stat(source); err != nil {
+			continue
+		}
+		target := "/proc/self/fd/3/" + name
+		localTarget := "/proc/self/fd/" + strconv.Itoa(int(proc.Fd())) + "/" + name
+		info, err := os.Lstat(localTarget)
+		if err != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("resource target invalid")
+		}
+		mounts, err := os.ReadFile("/proc/" + pid + "/mountinfo")
+		if err != nil {
+			return err
+		}
+		mounted := false
+		for _, line := range strings.Split(string(mounts), "\n") {
+			if strings.Contains(line, " /proc/"+name+" ") && strings.Contains(line, " - fuse.lxcfs ") {
+				mounted = true
 				break
 			}
-			check, err = run(ctx, "incus", "query", "/1.0/instances/"+guest.Name+"/state")
-			var latest struct{ Pid int }
-			if err != nil || json.Unmarshal(check, &latest) != nil || latest.Pid != runtime.Pid {
-				break
-			}
-			if _, err = run(ctx, "mount", "--bind", source, target); err != nil {
-				return err
-			}
-			if _, err = run(ctx, "mount", "-o", "remount,bind,ro", target); err != nil {
-				return err
-			}
+		}
+		if mounted {
+			continue
+		}
+		// Recheck Incus UUID and PID directly before each mount. The only
+		// writes are packaged read-only resource files, never guest disks.
+		check, err := run(ctx, "incus", "query", "/1.0/instances/"+guest.Name)
+		var current struct {
+			Type, Status string
+			Config       map[string]string
+		}
+		if err != nil || json.Unmarshal(check, &current) != nil || current.Config["volatile.uuid"] != guest.UUID || current.Status != "Running" {
+			break
+		}
+		check, err = run(ctx, "incus", "query", "/1.0/instances/"+guest.Name+"/state")
+		var latest struct{ Pid int }
+		if err != nil || json.Unmarshal(check, &latest) != nil || latest.Pid != pidNumber {
+			break
+		}
+		if _, err = runWithFiles(ctx, "mount", []*os.File{proc}, "--bind", source, target); err != nil {
+			return err
+		}
+		if _, err = runWithFiles(ctx, "mount", []*os.File{proc}, "-o", "remount,bind,ro", target); err != nil {
+			return err
 		}
 	}
 	return nil
