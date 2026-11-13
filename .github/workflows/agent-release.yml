@@ -199,7 +199,9 @@ jobs:
           done
       - name: Native LXCFS service and container resource hooks
         run: |
-          docker run --rm --privileged -v /tmp/incudal-provisioning-tests:/test:ro -e INCUDAL_PROVISIONING_NATIVE_TEST=disposable -e INCUDAL_PROVISIONING_VISIBILITY_TEST=1 alpine:3.24 sh -ec 'apk add --no-cache openrc; mkdir -p /run/openrc; touch /run/openrc/softlevel; /test -test.run TestNativeRepairAndDrift -test.v'
+          sudo modprobe fuse
+          sudo modprobe autofs4
+          docker run --rm --privileged -v /lib/modules:/lib/modules:ro -v /tmp/incudal-provisioning-tests:/test:ro -e INCUDAL_PROVISIONING_NATIVE_TEST=disposable -e INCUDAL_PROVISIONING_VISIBILITY_TEST=1 alpine:3.24 sh -ec 'apk add --no-cache openrc; mkdir -p /run/openrc; touch /run/openrc/softlevel; /test -test.run TestNativeRepairAndDrift -test.v'
       - name: Native pool host BBR, customer preservation and automatic repair
         run: |
           (cd agent && CGO_ENABLED=0 go test -c -o /tmp/incudal-bbr-tests ./internal/performance)

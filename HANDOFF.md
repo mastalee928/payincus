@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 后续19959af5 CI43476273057 AMD64Tiny原生job132060786091已success，含live LXCFS移除旧meminfo挂载→原UUID/PID修复→准确1024MiB→幂等及原SSH；ARM仍待。debb272b Agent43476394741服务测试失败日志确认Docker缺/lib/modules，OpenRC modprobe失败，非同类产品启动判断；夹具提供实际host模块目录并预加载fuse/autofs4后重新验。静默截断已新来源闭环部分，整个双架构/最终CI尚未通过，禁止热更新。
+
 - 3d2af63f原生CI43475690849 Alpine Tiny双架构jobs132058801629/132058801711失败：实际创建/SSH已过，新增LXCFS live-repair读取Incus完整config时JSON unexpectedly ended。Agent provisioning共享输出上限262144静默截断含CA/cloud-init的配置，属实际产品缺陷；改1MiB有界输出并显式overflow拒绝，新增不静默截断断言，保留原身份校验，待新来源双架构原生。此候选禁止热更新。Agent43475696569暂未失败，预览43475676386仍运行；本地221和双端build/PG/types/browser证据分别保留。
 
 - 2026-11-14资源补充已取证：E2/ARM1C DB原规格正确，Incus768MB/4096MB/root30720MB单位错配；cgroup实值768000000/4096000000，宿主49/53无LXCFS，/proc宿主内存及df34GiB池可见，btrfs qgroup实际28.61GiB。源码改MiB及旧原身份/ETag定向后台修正，Agent候选v1.0.9补LXCFS新旧宿主/原UUID资源只读挂载。开通中IPv6只ready渲染，原成功展示保持，真实browser/route/i18n过；MiB/恢复/参数化双架构PGmTLS重装与旧单位修正过。最终前后端build收尾、Linux编译过但完整原生服务/挂载及目标实测仍待；新docs明确缺口。WindowsGo原Statfs平台编译失败非此产品断言；新原生CI须核。详见[资源记录](docs/customer-resource-accuracy-2026-11-14.md)。镜像撤除28f8179aCI43469531943最终29/29success，本次#36收尾尚未热更新，先前9d候选主控保持。
