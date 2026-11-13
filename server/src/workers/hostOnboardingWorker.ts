@@ -26,6 +26,7 @@ import { hardenExistingHost } from '../services/security-hardening-queue.js'
 import { finishSecureOnboarding } from '../services/onboarding-security-gate.js'
 import { prepareAutomaticHostMaintenance, resumeAutomaticHostMaintenance } from '../services/host-security-maintenance.js'
 import { assertOnboardingAuthority, assertOnboardingLease } from '../services/onboarding-authority.js'
+import { NATIVE_VALIDATED_MAINTENANCE_RECIPES } from '../lib/host-maintenance-plan.js'
 export { assertOnboardingAuthority } from '../services/onboarding-authority.js'
 
 let timer: ReturnType<typeof setInterval> | undefined
@@ -46,6 +47,12 @@ export async function claimHostOnboardingNode() {
             (LEAST(300, 15 * POWER(2, LEAST(GREATEST(attempt - 1, 0), 5))) * INTERVAL '1 second')) AND
         (step <> 'hardening' OR EXISTS (SELECT 1 FROM hosts h WHERE h.id = host_id AND
           (h.security_hardening->>'nextCheckAt' IS NULL OR h.security_hardening->>'nextCheckAt' <= ${new Date().toISOString()} OR
+            (h.security_hardening->>'status' = 'needs-maintenance' AND
+              h.security_hardening->'diagnostic'->>'reason' = 'HARDENING_NATIVE_ACCEPTANCE_REQUIRED' AND
+              COALESCE(h.security_hardening->'maintenance'->>'phase', 'aborted') IN ('verified', 'aborted') AND
+              CONCAT(CASE h.security_hardening->'environment'->>'bootloader'
+                WHEN 'grub' THEN 'alpine-apparmor-grub-v1' WHEN 'extlinux' THEN 'alpine-apparmor-extlinux-v1' ELSE '' END,
+                ':', h.security_hardening->'environment'->>'architecture') IN (${Prisma.join([...NATIVE_VALIDATED_MAINTENANCE_RECIPES])})) OR
             (h.security_hardening->>'status' = 'verified' AND h.security_hardening->>'phase' = 'finished' AND
               n.updated_at <= (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 seconds')))) AND
         (error_code IS DISTINCT FROM 'HARDENING_BATCH_PAUSED' OR NOT EXISTS (

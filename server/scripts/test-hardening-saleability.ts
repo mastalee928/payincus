@@ -91,7 +91,11 @@ try {
     await stock(0, 'safe rollback does not grant stock while AppArmor is absent')
     // A corrected environment must be proven by the actual queue; never edit
     // the database to verified or remove the preserved rollback history.
-    active = true; await due(); await hardenExistingHost(host.id, deps)
+    active = true
+    const prior = await state()
+    await prisma.host.update({ where: { id: host.id }, data: { securityHardening: { ...prior,
+      diagnostic: { reason: 'HARDENING_NATIVE_ACCEPTANCE_REQUIRED' }, nextCheckAt: new Date(Date.now() + 6 * 60 * 60000).toISOString() } } })
+    await hardenExistingHost(host.id, deps)
     assert.equal((await state()).status, 'verified'); assert.equal((await state()).phase, 'finished')
     assert.deepEqual((await state()).maintenance, maintenance)
     assert.equal(await prisma.host.count({ where: { id: host.id, ...dedicatedHostReadyWhere() } }), 1, architecture + ': complete reinspection after rollback must restore readiness')
@@ -186,6 +190,7 @@ try {
     await hardenExistingHost(host.id, deps)
     if (architecture === 'aarch64') {
       await prepareAutomaticHostMaintenance(host.id, { ...hostMaintenanceDependencies, held: () => false,
+        accepted: () => false,
         command: async () => { remoteWrites++; throw Error('unaccepted architecture must not dispatch') },
         connect: async () => { remoteWrites++; throw Error('unaccepted architecture must not connect') } })
       assert.equal((await state()).diagnostic.reason, 'HARDENING_NATIVE_ACCEPTANCE_REQUIRED')

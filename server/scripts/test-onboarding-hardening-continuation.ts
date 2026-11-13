@@ -249,6 +249,25 @@ try {
     await prisma.instance.delete({ where: { id: customer.id } })
   }
   console.log('PASS both architectures reject FAILED cleanup occupancy and expired completion leases; finish after cleanup receipt and clear stale errors')
+  // Old ARM nodes must be claimable immediately after the independently
+  // accepted recipe ships, even with the old six-hour retry time in the DB.
+  const acceptedState = await state(second.id)
+  await prisma.host.update({ where: { id: second.id }, data: { securityHardening: {
+    ...acceptedState, status: 'needs-maintenance', diagnostic: { reason: 'HARDENING_NATIVE_ACCEPTANCE_REQUIRED' },
+    environment: { ...acceptedState.environment, bootloader: 'extlinux' }, nextCheckAt: new Date(Date.now() + 6 * 60 * 60000).toISOString()
+  } } })
+  await prisma.hostOnboardingNode.update({ where: { hostId: second.id }, data: { status: 'queued', step: 'hardening',
+    completedAt: null, leaseToken: null, leaseUntil: null, errorCode: 'HARDENING_ONBOARDING_PENDING' } })
+  assert.equal(await claimHostOnboardingNode(), null, 'unaccepted boot layouts keep their retry deadline')
+  await prisma.host.update({ where: { id: second.id }, data: { securityHardening: {
+    ...await state(second.id), environment: { ...acceptedState.environment, bootloader: 'grub' }
+  } } })
+  const rebootsBefore = remotes.get(second.id)!.reboots
+  await cycle(second.id)
+  assert.equal((await prisma.hostOnboardingNode.findUniqueOrThrow({ where: { hostId: second.id } })).status, 'succeeded')
+  assert.equal(remotes.get(second.id)!.reboots, rebootsBefore, 'fresh reinspection of active AppArmor must not reboot again')
+  await second.stock(1)
+  console.log('PASS old ARM native-acceptance hold with future retry time automatically reinspects, completes and becomes saleable; no repeated reboot')
 } finally {
   await prisma.log.deleteMany({ where: { userId: owner.id } })
   await prisma.host.deleteMany({ where: { id: { in: hosts } } })

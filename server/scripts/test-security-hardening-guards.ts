@@ -7,7 +7,7 @@ import { readAlpineSshPreflight } from '../src/lib/alpine-ssh-preflight.js'
 import { hardeningPublicView } from '../src/lib/hardening-view.js'
 import { hostMaintenanceBlocked } from '../src/lib/host-maintenance-gate.js'
 import { hardeningIdentityHash, hardeningReceiptMatches } from '../src/lib/hardening-identity.js'
-import { customerBootIdentity, customerBootRecoveryAction, nextMaintenanceAction, readHostMaintenanceIntent, automaticMaintenanceRecipeAllowed } from '../src/lib/host-maintenance-plan.js'
+import { customerBootIdentity, customerBootRecoveryAction, nextMaintenanceAction, readHostMaintenanceIntent, automaticMaintenanceRecipeAllowed, hardeningAcceptanceReadyForRetry } from '../src/lib/host-maintenance-plan.js'
 import { maintenanceWireOperation, maintenanceWireExpiry } from '../src/services/host-maintenance-channel.js'
 const check = { instanceId: 1, pid: 100, uidMap: '0 1000000 1000000000', gidMap: '0 1000000 1000000000', seccomp: 2, apparmor: 'incus-fixture (enforce)' }
 assert.ok(safeCustomerRuntime(check))
@@ -104,6 +104,12 @@ const intent=readHostMaintenanceIntent({revision:'host-maintenance-v1',requestId
   identityHash:'a'.repeat(64),prepareHash:'b'.repeat(64),recipe:'alpine-apparmor-extlinux-v1',architecture:'aarch64',phase:'prepared',rebootIssued:false,
   startedAt:new Date(now).toISOString(),deadline:new Date(now+120000).toISOString(),customers:[baseline],secret:'private raw payload'})
 assert.ok(!JSON.stringify(intent).includes('private raw'))
+const modernKeys = ['A', 'B', 'C', 'D'].map(letter => 'SHA256:' + letter.repeat(43))
+const bootReceipt = { configurationHash: 'a'.repeat(64), guardedHash: 'b'.repeat(64), networkHash: 'c'.repeat(64),
+  autostart: 'true', fingerprints: modernKeys }
+assert.deepEqual(readHostMaintenanceIntent({ ...intent, customers: [{ ...baseline, boot: bootReceipt }] }).customers[0].boot?.fingerprints,
+  modernKeys, 'modern OpenSSH fourth host key remains bound through maintenance')
+assert.throws(() => readHostMaintenanceIntent({ ...intent, customers: [{ ...baseline, boot: { ...bootReceipt, fingerprints: Array(33).fill(modernKeys[0]) } }] }), /HARDENING_JOURNAL_CONFLICT/)
 const proof={identityHash:intent.identityHash,prepareHash:intent.prepareHash,bootId:intent.bootId,remotePhase:'prepared',recoveryHeld:false}
 assert.equal(nextMaintenanceAction(intent,proof,now),'reboot')
 assert.equal(nextMaintenanceAction({...intent,rebootIssued:true,phase:'reboot-intent'},proof,now),'reboot','resume only the same request when remote journal proves it is still prepared')
@@ -116,8 +122,15 @@ assert.equal(nextMaintenanceAction(intent,{...proof,remotePhase:'reboot-intent'}
 assert.equal(nextMaintenanceAction(intent,{...proof,remotePhase:'rolled-back'},now),'aborted')
 assert.equal(automaticMaintenanceRecipeAllowed(intent.recipe,'aarch64'),false,'native evidence is required before activation')
 assert.equal(automaticMaintenanceRecipeAllowed('alpine-apparmor-grub-v1','x86_64'),true,'accepted native Alpine/GRUB AMD64 recipe is available')
-assert.equal(automaticMaintenanceRecipeAllowed('alpine-apparmor-grub-v1','aarch64'),false,'AMD64 acceptance never activates ARM64')
+assert.equal(automaticMaintenanceRecipeAllowed('alpine-apparmor-grub-v1','aarch64'),true,'independent ARM64 boot, customer recovery and replay acceptance activates ARM64 GRUB')
 assert.equal(automaticMaintenanceRecipeAllowed('alpine-apparmor-extlinux-v1','x86_64'),false,'GRUB acceptance never activates Extlinux')
+assert.equal(automaticMaintenanceRecipeAllowed('alpine-apparmor-extlinux-v1','aarch64'),false,'ARM GRUB acceptance never activates Extlinux')
+const acceptanceWait = { status: 'needs-maintenance', diagnostic: { reason: 'HARDENING_NATIVE_ACCEPTANCE_REQUIRED' },
+  environment: { bootloader: 'grub', architecture: 'aarch64' } }
+assert.equal(hardeningAcceptanceReadyForRetry(acceptanceWait), true)
+assert.equal(hardeningAcceptanceReadyForRetry({ ...acceptanceWait, environment: { bootloader: 'extlinux', architecture: 'aarch64' } }), false)
+assert.equal(hardeningAcceptanceReadyForRetry({ ...acceptanceWait, diagnostic: { reason: 'HARDENING_IDENTITY_CHANGED' } }), false)
+assert.equal(hardeningAcceptanceReadyForRetry({ ...acceptanceWait, maintenance: { phase: 'waiting-boot' } }), false)
 const wire=maintenanceWireOperation({...intent,action:'reboot'},preflight.bootId,now+59000)
 assert.deepEqual(Object.keys(wire).sort(),['action','architecture','bootId','customers','expiresAt','identityHash','nodeId','prepareHash','recipe','requestId'])
 assert.equal(hostMaintenanceBlocked({maintenance:{...intent,phase:'verified',rebootIssued:true}}),false)

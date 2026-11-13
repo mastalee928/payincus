@@ -33,7 +33,7 @@ export function readHostMaintenanceIntent(value:unknown):HostMaintenanceIntent {
       const b=object(c.boot)
       if(![b.configurationHash,b.guardedHash,b.networkHash].every(value=>typeof value==='string'&&digest.test(value))||
         !(b.autostart===null||typeof b.autostart==='string'&&['true','false','0','1'].includes(b.autostart))||
-        !Array.isArray(b.fingerprints)||b.fingerprints.length>3||b.fingerprints.some(value=>typeof value!=='string'||!/^SHA256:[A-Za-z0-9+/]{43}$/.test(value)))fail()
+        !Array.isArray(b.fingerprints)||b.fingerprints.length>32||b.fingerprints.some(value=>typeof value!=='string'||!/^SHA256:[A-Za-z0-9+/]{43}$/.test(value)))fail()
       boot={configurationHash:b.configurationHash,guardedHash:b.guardedHash,networkHash:b.networkHash,autostart:b.autostart,fingerprints:b.fingerprints} as NonNullable<CustomerBootBaseline['boot']>
     }
     return {id:c.id,hostId:c.hostId,userId:c.userId,incusId:c.incusId,uuid:c.uuid,attempt:c.attempt,state:c.state,identityHash:c.identityHash,...(boot?{boot}:{})} as CustomerBootBaseline
@@ -100,12 +100,26 @@ export function nextMaintenanceAction(intent:HostMaintenanceIntent,proof:{identi
 
 /** Activate only independently accepted native boot/customer recovery pairs.
  * AMD64 Alpine/GRUB evidence: automatic-hardening-native-2026-11-10.md.
- * Other architectures and boot layouts retain their separate acceptance gate. */
-export const NATIVE_VALIDATED_MAINTENANCE_RECIPES:ReadonlyArray<string>=Object.freeze(['alpine-apparmor-grub-v1:x86_64'])
+ * ARM64 Alpine/UEFI-GRUB: automatic-hardening-arm-native-2026-11-13.md.
+ * Other boot layouts retain their separate acceptance gate. */
+export const NATIVE_VALIDATED_MAINTENANCE_RECIPES:ReadonlyArray<string>=Object.freeze([
+  'alpine-apparmor-grub-v1:x86_64', 'alpine-apparmor-grub-v1:aarch64'
+])
 export function hostMaintenanceRecipe(environment:{bootloader?:unknown}):string|null {
   return environment.bootloader==='grub'?'alpine-apparmor-grub-v1':
     environment.bootloader==='extlinux'?'alpine-apparmor-extlinux-v1':null
 }
 export function automaticMaintenanceRecipeAllowed(recipe:string,architecture:string):boolean {
   return NATIVE_VALIDATED_MAINTENANCE_RECIPES.includes(`${recipe}:${architecture}`)
+}
+
+/** New native acceptance changes a prior release prerequisite. Reinspect that
+ * exact failure promptly; its old six-hour delay is not remote authority. */
+export function hardeningAcceptanceReadyForRetry(value: unknown): boolean {
+  const state = object(value), diagnostic = object(state.diagnostic), environment = object(state.environment)
+  if (state.status !== 'needs-maintenance' || diagnostic.reason !== 'HARDENING_NATIVE_ACCEPTANCE_REQUIRED') return false
+  const maintenance = object(state.maintenance)
+  if (state.maintenance && !['verified', 'aborted'].includes(String(maintenance.phase))) return false
+  const recipe = hostMaintenanceRecipe(environment)
+  return Boolean(recipe && automaticMaintenanceRecipeAllowed(recipe, String(environment.architecture)))
 }

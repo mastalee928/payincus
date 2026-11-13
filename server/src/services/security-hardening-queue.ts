@@ -20,6 +20,7 @@ import { hardeningIdentityHash } from '../lib/hardening-identity.js'
 import { hostMaintenanceBlocked } from '../lib/host-maintenance-gate.js'
 import { prepareAutomaticHostMaintenance, resumeAutomaticHostMaintenance } from './host-security-maintenance.js'
 import { onboardingOwnsHardening, ownsOnboardingHardeningLease } from '../lib/onboarding-hardening-owner.js'
+import { hardeningAcceptanceReadyForRetry } from '../lib/host-maintenance-plan.js'
 
 const include = { onboardingNode: { include: { batch: true } } } as const
 type SecurityHost = Prisma.HostGetPayload<{ include: typeof include }>
@@ -76,7 +77,8 @@ export async function hardenExistingHost(hostId: number, deps = securityHardenin
     const host = await tx.host.findUniqueOrThrow({ where: { id: hostId }, include })
     if (enrollment ? !ownsOnboardingHardeningLease(host.onboardingNode, enrollment) : onboardingOwnsHardening(host.onboardingNode)) return null
     const previous = currentState(host.securityHardening)
-    if (previous.revision === SECURITY_HARDENING_REVISION && previous.nextCheckAt && Date.parse(previous.nextCheckAt) > Date.now()) return null
+    if (previous.revision === SECURITY_HARDENING_REVISION && previous.nextCheckAt && Date.parse(previous.nextCheckAt) > Date.now() &&
+        !hardeningAcceptanceReadyForRetry(previous)) return null
     // Paid pool delivery already owns this host. A periodic inspection cannot
     // overwrite its admission receipt and then wait for that same delivery.
     // Keep the due time unchanged: after delivery/cleanup the next scan resumes.
@@ -389,7 +391,7 @@ export async function processSecurityHardeningQueue(deps = securityHardeningDepe
       if(!state.nextCheckAt||Date.parse(state.nextCheckAt)<=Date.now())await resumeAutomaticHostMaintenance(host.id)
       continue
     }
-    if (state.revision !== SECURITY_HARDENING_REVISION || !state.nextCheckAt || Date.parse(state.nextCheckAt) <= Date.now()) {
+    if (state.revision !== SECURITY_HARDENING_REVISION || !state.nextCheckAt || Date.parse(state.nextCheckAt) <= Date.now() || hardeningAcceptanceReadyForRetry(state)) {
       await hardenExistingHost(host.id, deps)
       if(deps===securityHardeningDependencies)await prepareAutomaticHostMaintenance(host.id)
       return

@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- #53新加坡西部ARM已完成原系统独立原生固定AppArmor加固：Alpine3.24.4/aarch64/UEFI-GRUB/4KiB，一次重启，新boot原受信SSH/Agent重连，测试容器原UUID/UID/GID/密码/公钥/文件权限/网络保持、AppArmor enforce与实际拒绝、Seccomp2、同请求重放不再重启；测试UUID/导入镜像清理、空库存恢复。源码补ARM GRUB原生放行与旧验收阻断立即重新检查，现代OpenSSH维护回执支持有界4+公钥。三PG维护/可售/续接、types/守卫通过，待最终候选CI/包/热更新及#53自然接入可售。详见[ARM原生记录](docs/automatic-hardening-arm-native-2026-11-13.md)。正式暂停，ARM用户矩阵待owner增加机器。
+
+- 6a7a8e54最后来源CI43409361072最终29/29（原生14/14，新增真实Incus6失败回执→重新重装→SSH双架构通过），Alpine43409361031及Agent43409360976success；无tag预览43409445448十必需job全部success，双包独立核原签名/权限/242迁移及本次模块一致。热更新41于19:04:29北京时间success，主控preview-6a7a8e5，备份/opt/incudal.bak.20261113110243。第四轮19:10–19:18完成最后五项，当前22个可用x86镜像完整矩阵全通过，余额999898.88/5购买账单不变，原86/114自动FAILED收尾，下架两项不展示且API拒绝无新增任务。开始后续ARM：#53 singapore2-arm-1，新加坡西部，Alpine3.24.4/aarch64/UEFI-GRUB/kernel6.18.63-virt，空库存、Agentv1.0.8网络防护/解包回执正常，AppArmor N；卡HARDENING_NATIVE_ACCEPTANCE_REQUIRED，ARM固定方案尚未原生放行，正做独立验收。正式发布暂停。
+
 - b93fdd9d原生重装继续揭示真实Incus6差异：/wait把已失败操作返回error envelope，旧catch直到60秒续查时原receipt已过期，仍PROCESSING（CI43404491798 jobs131815368397/131815368409）。修wait错误时立即读取同一operation，只有真实Failure/400才类型化终结，网关错误/404/未知仍保留；不扩大错误推断。bd08e预览43402731185已success，新b93预览43406330627待终态；这些旧候选不能部署。继续修后原生复验。
 
 - bd08e39b已推PR14，CI43402642295新增Alpine双架构原生fixture在重装前重复插入迁移已预置的镜像，unique冲突（jobs131809051355/131809051608），非Incus重装运行失败；源码测试修为复用已存在且架构/可见性正确的记录，ARM取/arm64别名，只删除自建fixture。CI其余12原生通过，预览43402731185仍需核终态，禁止部署/发行。新测试来源须完整复验。
