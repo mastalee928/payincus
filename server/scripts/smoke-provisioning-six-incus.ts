@@ -15,7 +15,7 @@ import { verifyPublicSshIdentity } from '../src/lib/host-public-ip.js'
 import { encryptSensitiveData } from '../src/lib/security.js'
 import { acceptGuestProtectionStatus } from '../src/lib/guest-network-protection.js'
 import { acceptHostProvisioningStatus } from '../src/lib/host-provisioning-tools.js'
-import { instanceSshFingerprints } from '../src/lib/incus/dedicated-ipv6.js'
+import { instanceSshFingerprints, dedicatedIpv6InstallScript } from '../src/lib/incus/dedicated-ipv6.js'
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true')
 assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
@@ -145,6 +145,44 @@ try {
     assert.equal((scanned.metadata as { return?: number }).return, 0)
     const scannedKeys = scanned.stdout.match(/SHA256:[A-Za-z0-9+/]+/g) || []
     assert.ok(scannedKeys.length && scannedKeys.every(key => pinnedKeys.includes(key)), `${image}: every OpenSSH host key is pinned, including newly supported algorithms`)
+    if (image === 'debian/14/cloud') {
+      const install = () => execWithOutput(transport, name, ['sh', '-c', dedicatedIpv6InstallScript(null, [])], {}, 20000)
+      const configured = await install()
+      assert.equal((configured.metadata as { return?: number }).return, 0, 'initial IPv6 service installation')
+      const baseline = await execWithOutput(transport, name, ['sh', '-c', 'stat -c %Y /var/lib/incudal/initialization-ready'], {}, 5000)
+      // Reproduce the shipped old cycle on this disposable guest. Debian's new
+      // cloud-final is ordered after multi-user.target, so its boot job is dropped.
+      const legacy = await execWithOutput(transport, name, ['sh', '-c',
+        'systemctl disable payincus-ipv6.service; sed -i s/WantedBy=cloud-init.target/WantedBy=multi-user.target/ /etc/systemd/system/payincus-ipv6.service; systemctl daemon-reload; systemctl enable payincus-ipv6.service'], {}, 10000)
+      assert.equal((legacy.metadata as { return?: number }).return, 0)
+      execFileSync('incus', ['restart', name, '--force'], { timeout: 30000 })
+      let repaired = false
+      for (let attempt = 0; attempt < 40; attempt++) {
+        try {
+          const repair = await install()
+          if ((repair.metadata as { return?: number }).return === 0) { repaired = true; break }
+        } catch { /* Guest management comes back after the restart. */ }
+        await new Promise(resolve => setTimeout(resolve, 1500))
+      }
+      assert.equal(repaired, true, 'old circular IPv6 unit automatically repairs and finishes cloud-init after reboot')
+      execFileSync('incus', ['restart', name, '--force'], { timeout: 30000 })
+      let booted = false
+      for (let attempt = 0; attempt < 40; attempt++) {
+        try {
+          const state = await execWithOutput(transport, name, ['sh', '-c',
+            'test -f /var/lib/cloud/instance/boot-finished && systemctl is-active --quiet payincus-ipv6.service && test ! -e /etc/systemd/system/multi-user.target.wants/payincus-ipv6.service && stat -c %Y /var/lib/incudal/initialization-ready'], {}, 6000)
+          if ((state.metadata as { return?: number }).return === 0) {
+            assert.equal(state.stdout, baseline.stdout, 'recovery must not rerun customer initialization')
+            booted = true; break
+          }
+        } catch { /* Wait for the real second boot. */ }
+        await new Promise(resolve => setTimeout(resolve, 1500))
+      }
+      assert.equal(booted, true, 'new IPv6 service boots without a cloud-final ordering cycle')
+      assert.deepEqual(await instanceSshFingerprints(transport, name), pinnedKeys, 'host keys are preserved across repair and reboot')
+      await checkSshLogin('11.0.0.99', password, pinnedKeys)
+      console.log('PASS real Debian reboot: old IPv6/cloud-init cycle repaired, next boot completes, original initialization/password/keys retained')
+    }
     await prisma.instance.update({ where: { id: instance.id }, data: { status: 'error' } })
     await failPoolProvision(instance.id, (await getHostById(host.id))!, 'native completed pool lifecycle cleanup')
     assert.equal((await prisma.instance.findUniqueOrThrow({ where: { id: instance.id } })).status, 'deleted')

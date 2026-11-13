@@ -125,8 +125,12 @@ ExecStart=/usr/local/sbin/payincus-ipv6
 RemainAfterExit=yes
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=cloud-init.target
 `
+// Older units became a prerequisite of multi-user.target while waiting for
+// cloud-final, which newer cloud-init explicitly orders after multi-user.
+const legacySystemdUnit = systemdUnit.replace('WantedBy=cloud-init.target', 'WantedBy=multi-user.target')
+const standaloneSystemdUnit = systemdUnit.replace(' cloud-final.service', '').replace('WantedBy=cloud-init.target', 'WantedBy=multi-user.target')
 const openrcUnit = `#!/sbin/openrc-run
 description="PayIncus instance IPv6 addresses"
 depend() { need networking; after cloud-final; }
@@ -142,6 +146,23 @@ export function dedicatedIpv6InstallScript(gateway: string | null, addresses: st
   if ((gateway !== null && !privateIpv6(gateway)) ||
       addresses.some(address => !privateIpv6(address))) throw new PublicIpv6SyncError('IPV6_GUEST_CONFIG_INVALID')
   return `set -eu
+# Repair our exact old unit before waiting for cloud-init: that unit can be
+# the reason the final stage was dropped during this boot. Do not clean or
+# rerun cloud-init; queue only its normal unfinished final service.
+if [ -d /run/systemd/system ] && [ -f /var/lib/incudal/initialization-ready ] &&
+  { [ ! -f /var/lib/cloud/instance/boot-finished ] || [ -L /etc/systemd/system/multi-user.target.wants/payincus-ipv6.service ]; } && {
+  printf '%s' '${base64(legacySystemdUnit)}' | base64 -d | cmp -s - /etc/systemd/system/payincus-ipv6.service ||
+  printf '%s' '${base64(systemdUnit)}' | base64 -d | cmp -s - /etc/systemd/system/payincus-ipv6.service;
+}; then
+  ${writeGuestFile('/etc/systemd/system/payincus-ipv6.service', systemdUnit)}
+  old_link=/etc/systemd/system/multi-user.target.wants/payincus-ipv6.service
+  if [ -L "$old_link" ] && [ "$(readlink -f "$old_link")" = /etc/systemd/system/payincus-ipv6.service ]; then rm "$old_link"; fi
+  systemctl daemon-reload
+  systemctl enable payincus-ipv6.service >/dev/null 2>&1
+  if [ ! -f /var/lib/cloud/instance/boot-finished ] && systemctl is-active --quiet cloud-init-main.service; then
+    systemctl start --no-block cloud-final.service
+  fi
+fi
 # cloud-init used to disable IPv6 for NAT guests; let that first boot finish first.
 if [ -d /var/lib/cloud/instance ] && [ ! -f /var/lib/cloud/instance/boot-finished ]; then exit 75; fi
 command -v ip >/dev/null
@@ -152,7 +173,11 @@ ${writeGuestFile(`${guestDirectory}/gateway`, gateway ? gateway + '\n' : '')}
 ${writeGuestFile('/usr/local/sbin/payincus-ipv6', dedicatedIpv6GuestScript, '0755')}
 ${writeGuestFile('/etc/sysctl.d/99-payincus-ipv6.conf', 'net.ipv6.conf.eth0.disable_ipv6 = 0\nnet.ipv6.conf.eth0.accept_ra = 0\nnet.ipv6.conf.eth0.autoconf = 0\n')}
 if [ -d /run/systemd/system ]; then
-  ${writeGuestFile('/etc/systemd/system/payincus-ipv6.service', systemdUnit)}
+  if systemctl cat cloud-final.service >/dev/null 2>&1; then
+    ${writeGuestFile('/etc/systemd/system/payincus-ipv6.service', systemdUnit)}
+  else
+    ${writeGuestFile('/etc/systemd/system/payincus-ipv6.service', standaloneSystemdUnit)}
+  fi
   systemctl daemon-reload
   systemctl enable payincus-ipv6.service >/dev/null 2>&1
 else

@@ -150,6 +150,15 @@ await removeDedicatedForward(client, input.name)
 assert.equal(forwards.length, 0)
 assert.throws(() => dedicatedIpv6InstallScript('fd42::1; command', []), /IPV6_GUEST_CONFIG_INVALID/)
 assert.throws(() => dedicatedIpv6InstallScript('fd42::1', ['fd42::2\ncommand']), /IPV6_GUEST_CONFIG_INVALID/)
+const bootInstall = dedicatedIpv6InstallScript('fd42::1', ['fd42::2'])
+const unitPayloads = [...bootInstall.matchAll(/printf '%s' '([A-Za-z0-9+/=]+)'/g)].map(match => Buffer.from(match[1], 'base64').toString())
+assert.ok(unitPayloads.some(unit => unit.includes('After=network-online.target cloud-final.service') && unit.includes('WantedBy=cloud-init.target')),
+  'cloud-final may run after multi-user, so the dependent IPv6 unit belongs to cloud-init.target')
+assert.ok(bootInstall.indexOf('systemctl start --no-block cloud-final.service') < bootInstall.indexOf('then exit 75; fi'),
+  'repair the old ordering cycle before waiting for the missing cloud-init completion marker')
+assert.match(bootInstall, /cmp -s - \/etc\/systemd\/system\/payincus-ipv6.service/)
+assert.match(bootInstall, /readlink -f "\$old_link"/)
+assert.doesNotMatch(bootInstall, /cloud-init clean|cloud-init init|reboot|systemctl restart cloud/)
 
 // A missing host-side source mapping must not be advertised as working IPv6.
 input.previous = null; input.addresses = [a]; input.force = false
