@@ -51,4 +51,3 @@ timeout -s KILL 5 incus exec native-sysinfo -- timeout -s KILL 3 /root/sysinfo |
 grep -q '^SYSINFO_BYTES=134217728$' /tmp/sysinfo-fixed
 incus delete --force native-sysinfo
 echo 'PASS original Alpine daemon to fixed same version: UUID/PID/boot/disk retained and actual sysinfo=128MiB'
-
