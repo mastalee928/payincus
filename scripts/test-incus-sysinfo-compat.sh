@@ -1,6 +1,6 @@
 #!/bin/sh
 # Only the disposable GitHub Docker host created by the compatibility workflow.
-set -eu
+set -eux
 test "${INCUDAL_SYSINFO_COMPAT_TEST:-}" = disposable
 test ! -e /var/lib/incus/database
 apk add --no-cache incus incus-client openrc apparmor-utils iproute2 python3
@@ -9,6 +9,10 @@ touch /run/openrc/softlevel
 dbus-daemon --system --fork
 /usr/sbin/incusd --group incus >/tmp/incusd-original.log 2>&1 &
 old=$!
+sleep 2
+ps -o pid,ppid,args
+ls -l /proc/$old/exe /run/incus /var/lib/incus || true
+cat /tmp/incusd-original.log
 if ! incus admin waitready --timeout=60; then cat /tmp/incusd-original.log; exit 1; fi
 incus storage create default dir
 incus init images:alpine/3.24/tinycloud native-sysinfo -s default -c limits.memory=128MiB -c security.syscalls.intercept.sysinfo=true
