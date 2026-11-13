@@ -577,6 +577,7 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
   const taskStartTime = Date.now()
   runningTaskIds.add(taskId)
   let task: Awaited<ReturnType<typeof prisma.instanceTask.findUnique>> = null
+  let destructiveAdmissionPending = true
 
   try {
     task = await prisma.instanceTask.findUnique({
@@ -634,6 +635,7 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     if (task.taskType === 'rebuild' || task.taskType === 'recreate') {
       materials = await validateDestructiveTaskExecution(task, { prepareRebuild: true })
     }
+    destructiveAdmissionPending = false
     const reinstall = task.taskType === 'rebuild' || task.taskType === 'recreate' ? await beginInstanceReinstall(task, client) : undefined
     if (reinstall) {
       await reinstall.source(task.taskType === 'recreate')
@@ -684,6 +686,14 @@ export async function executeTask(taskId: number, attempt: InstanceTaskAttempt):
     console.log(`[InstanceTaskWorker] 任务 ${taskId} (${task.taskType}) 完成，耗时 ${taskDuration}ms`)
 
   } catch (err) {
+    if (task && destructiveAdmissionPending && err instanceof InstanceTaskConflictError && ['rebuild', 'recreate'].includes(task.taskType)) {
+      // A patrol may acquire the short instance lock after the queue claim.
+      // No destructive remote operation has started; keep the same consent
+      // and retry admission on the next worker pass, rechecking authorization.
+      await prisma.instanceTask.updateMany({ where: { id:taskId,status:'PROCESSING',startedAt:attempt.startedAt,retryCount:attempt.retryCount },
+        data: { status:'PENDING',startedAt:null,progress:'waiting_for_instance',error:null } })
+      return
+    }
     const reinstallReceipt = (await prisma.instanceTask.findUnique({ where: { id: taskId }, select: { replacementState: true } }))?.replacementState as { targetPhase?: string } | null
     if (task?.taskType === 'rebuild' && reinstallReceipt?.targetPhase === 'rebuild_uncertain') {
       const saved = (await prisma.instanceTask.findUniqueOrThrow({ where: { id: taskId } })).replacementState as Prisma.JsonObject

@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- 矩阵第二轮3/24通过，任务48/50在worker开始前遭巡查try-lock竞争被误标FAILED。源码修复只将破坏动作前的InstanceTaskConflictError原任务重排，保留授权/原身份、下轮重验，避免复发；真实PG锁竞争＋双架构80重装等场景通过、types/guards通过，待新候选。主控当前preview-0664ddc、热更新39成功；24镜像仍未完成，正式发布禁止。
+
+- 全镜像首批实测2/24已通过（Alpine3.21/3.22），Tiny3.21/3.22发现curl缺失/IPv6旧回执沿用，另TASK_IN_PROGRESS是收尾短窗口。源码0664ddc6补必要curl、既有Tiny自动补依赖、交付强制重验、旧回执15分钟更新及失败不沿用ready，CI43374514277最终29/29、原生14/14（新增Tiny×双架构）、Alpine43374514208和十预览43374509403success，双包独立核通过；开始第四次候选热更新，续测24镜像。正式发行继续暂停，不能把2项通过说成全矩阵完成。
+
 - 候选37已success，主控preview-f1ae68d，五测试SSH会话12分钟285次检查0错误、每实例boot标识唯一。重启测试发现Debian新cloud-final After multi-user与平台IPv6单元旧WantedBy循环，源码38afbffc修target及精确旧单元自动迁移/正常续接，CI43367480964原生12/12含双Debian旧循环→自动修复→再次重启通过；整体尚待尾段，预览43367475941success。Owner新增所有用户可选镜像重装/停启/重启逐项验收，当前实际24个x86选项，无在线ARM宿主；此矩阵待本候选部署闭环后执行。仍无正式Release。
 
 - 实购复查已确认五台35–39全部Running、扣款55元一次且每台IPv4/IPv6原密码SSH实连成功。Debian14新增OpenSSH MLDSA44-ED25519公钥导致IPv6页面误报已在PR14/51130340修，四守卫/types/build/PG+客户恢复通过。其CI43356510458 Alma9 ARM初始化遇空repomd.xml、20次旧缓存重试失败，其余原生11通过；预览43356630579success，但不得发行。继续补dnf/yum失败后clean all并强制元数据刷新，保持GPG/TLS和仓库，需新来源原生验证。CentOS x86在生产镜像目录hidden，是现有策略非页面bug。新候选尚未部署，主控仍preview-d5e7c85，test36 IPv6显示待修复部署后自然巡查验收。

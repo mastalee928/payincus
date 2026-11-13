@@ -172,8 +172,23 @@ try {
       targetHostId: taskType === 'change_host' ? targetHost.id : undefined, sshKeyId: sshKey.id, userId: owner.id, taskType, imageAlias: image.remoteAlias,
       sensitiveAuthorization: { actor: { id: owner.id, sid: tag, iat: Math.floor(Date.now() / 1000) + 1 }, entry: 'host',
         expectedOwnerId: owner.id, expectedIncusId: instance.incusId, expectedHostIdentity: transferHostIdentity(host) } })
-    const task = await prisma.instanceTask.update({ where: { id: admission.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+    let task = await prisma.instanceTask.update({ where: { id: admission.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
     taskId = task.id
+    if (taskType === 'rebuild' && scenario === 'success') {
+      const { advisoryTransactionLock, INSTANCE_OPERATION_LOCK_NAMESPACE } = await import('../src/db/advisory-locks.js')
+      let locked!: () => void, release!: () => void
+      const ready = new Promise<void>(resolve => { locked = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+      const holder = prisma.$transaction(async tx => { await advisoryTransactionLock(tx, INSTANCE_OPERATION_LOCK_NAMESPACE, instance.id); locked(); await gate }, { timeout: 15000 })
+      await ready
+      const beforeCalls = calls.length
+      try { await executeTask(task.id, task) } finally { release(); await holder }
+      const waiting = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
+      assert.equal(waiting.status, 'PENDING', 'a patrol taking the operation lock after claim must requeue, not fail the accepted rebuild')
+      assert.equal(waiting.operationIdentity, task.operationIdentity, 'the original user consent is retained for revalidation')
+      assert.equal(waiting.startedAt, null)
+      assert.equal(calls.length, beforeCalls, 'busy admission cannot write or rebuild the remote guest')
+      task = await prisma.instanceTask.update({ where: { id: task.id }, data: { status: 'PROCESSING', startedAt: new Date() } })
+    }
     await executeTask(task.id, task)
     if (scenario === 'lost-waiter') {
       const waiting = await prisma.instanceTask.findUniqueOrThrow({ where: { id: task.id } })
