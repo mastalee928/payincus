@@ -4,6 +4,19 @@ package provisioning
 
 import "testing"
 
+func TestBoundedCommandOutputNeverSilentlyTruncatesJSON(t *testing.T) {
+	var out limitedBuffer
+	data := make([]byte, 300000)
+	out.Write(data)
+	if out.overflow || len(out.data) != len(data) {
+		t.Fatal("normal generated cloud-init configuration truncated")
+	}
+	out.Write(make([]byte, 1048576))
+	if !out.overflow || len(out.data) != 1048576 {
+		t.Fatal("excessive output must be flagged and bounded")
+	}
+}
+
 func TestRepairPlanProtectsExistingPackages(t *testing.T) {
 	for _, v := range []string{"(1/1) Upgrading incus (7.0.2-r0)", "(1/1) Downgrading openssh (9.1-r0)", "(1/1) Purging linux-lts (6.0-r0)"} {
 		if safePlan(v, true) == nil {

@@ -57,6 +57,9 @@ func run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	go func() { done <- c.Wait() }()
 	select {
 	case e = <-done:
+		if out.overflow {
+			return nil, fmt.Errorf("host command output exceeded limit")
+		}
 		return out.data, e
 	case <-ctx.Done():
 		_ = syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
@@ -65,12 +68,18 @@ func run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	}
 }
 
-type limitedBuffer struct{ data []byte }
+type limitedBuffer struct {
+	data     []byte
+	overflow bool
+}
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	n := len(p)
-	if len(b.data) < 262144 {
-		left := 262144 - len(b.data)
+	if len(b.data)+n > 1048576 {
+		b.overflow = true
+	}
+	if len(b.data) < 1048576 {
+		left := 1048576 - len(b.data)
 		if n > left {
 			p = p[:left]
 		}
