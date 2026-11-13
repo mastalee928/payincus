@@ -79,6 +79,67 @@ func TestNativeCompatibilityAutomaticReload(t *testing.T) {
 	for _, g := range before {
 		p.Guests = append(p.Guests, CompatGuestPermit{Name: g.Name, UUID: g.Config["volatile.uuid"], State: g.Status})
 	}
+	if os.Getenv("INCUDAL_COMPAT_RELOAD_SCENARIO") == "prepared-resume" {
+		original, readErr := os.ReadFile("/usr/sbin/incusd")
+		fixed, payloadErr := compatibilityBinary()
+		start, startErr := compatProcessStart(pid)
+		if readErr != nil || payloadErr != nil || startErr != nil {
+			t.Fatal("prepared fixture", readErr, payloadErr, startErr)
+		}
+		if e = os.WriteFile(compatBackupPath, original, 0700); e != nil {
+			t.Fatal(e)
+		}
+		j := compatJournal{Version: 1, OldHash: compatHash(original), NewHash: compatHash(fixed), PID: pid, ProcessStart: start, RequestID: p.RequestID, HostIdentity: p.HostIdentity, Phase: "prepared", Guests: before}
+		if e = saveCompatJournal(j); e != nil {
+			t.Fatal(e)
+		}
+		if e = replaceCompatBinary(fixed); e != nil {
+			t.Fatal(e)
+		}
+		if e = prepareIncusCompatibility(ctx, p); e != nil {
+			t.Fatal("prepared recovery", e)
+		}
+		current, _ := os.ReadFile("/usr/sbin/incusd")
+		if compatHash(current) != j.OldHash {
+			t.Fatal("prepared recovery did not restore original binary")
+		}
+	}
+	if os.Getenv("INCUDAL_COMPAT_RELOAD_SCENARIO") == "rollback-retry" {
+		// An invalid networking dependency makes the first real OpenRC start
+		// fail. Repair the disposable dependency and let the saved reloading
+		// journal resume, with the original guest still present.
+		path := "/etc/network/interfaces"
+		original, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if e = os.Remove(path); e != nil {
+			t.Fatal(e)
+		}
+		e = prepareIncusCompatibility(ctx, p)
+		if restoreErr := os.WriteFile(path, original, 0644); restoreErr != nil {
+			t.Fatal(restoreErr)
+		}
+		if e == nil {
+			t.Fatal("failed service startup reported success")
+		}
+		journalData, readErr := os.ReadFile(compatJournalPath)
+		var j compatJournal
+		if readErr != nil || json.Unmarshal(journalData, &j) != nil || j.Phase != "rolling-back" {
+			t.Fatal("failed service lost durable reload intent", readErr)
+		}
+		if e = prepareIncusCompatibility(ctx, p); e == nil || !strings.Contains(e.Error(), "rolled back; retry pending") {
+			t.Fatal("automatic rollback", e)
+		}
+		current, _ := os.ReadFile("/usr/sbin/incusd")
+		if compatHash(current) != j.OldHash {
+			t.Fatal("rollback binary not restored")
+		}
+		restored, readErr := compatGuests(ctx)
+		if readErr != nil || !sameCompatGuests(before, restored) {
+			t.Fatal("rollback changed guest", readErr)
+		}
+	}
 	if e = prepareIncusCompatibility(ctx, p); e != nil {
 		t.Fatal("automatic reload", e)
 	}

@@ -15,6 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        scenario: [normal, prepared-resume, rollback-retry]
         include:
           - runner: ubuntu-24.04
             architecture: amd64
@@ -68,7 +70,7 @@ jobs:
           # which has no Ubuntu AppArmor profile. Only this disposable runtime
           # fixture adjusts that host restriction; product rules stay intact.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          sudo env INCUDAL_SYSINFO_COMPAT_TEST=disposable unshare --mount --propagation private /bin/bash -c '
+          sudo env INCUDAL_SYSINFO_COMPAT_TEST=disposable INCUDAL_COMPAT_RELOAD_SCENARIO='${{ matrix.scenario }}' unshare --mount --propagation private /bin/bash -c '
             mount --rbind "$1" "$1"
             cd "$1"
             mkdir .oldroot

@@ -1,5 +1,7 @@
 # 客户资源限额与开通中 IPv6 展示
 
+自动Agent函数正常流程已于43526018569双架构原生通过：OpenRC重载及幂等、原客机UUID/PID/boot/marker保持、sysinfo精确128MiB。回滚复审随后补持久rolling-back阶段，避免旧binary已恢复但服务未起时reloading/NewHash阻断自动续接；六场景正常/准备后中断/启动失败回滚重试×双架构继续验证，尚未新候选热更新或发行。
+
 Agent自动函数真实原生43523276506在两架构第一步实例JSON解析失败，尚未替换daemon。命令执行器将stdout/stderr合并且没有明确本地socket，首次Incus提示/默认remote可干扰；修为固定--force-local、Incus单独有界stderr，错误只保留解析诊断而不输出客户配置。双架构vet/测试编译和host-tools已过，新的自动应用/重载/原客户保持仍须验证。此前手动原生成功不作为这次自动流程通过证据。
 
 Incus修复固定artifact双架构原生切换43518949938已success：原daemon SIGTERM平滑退出、固定官方7.0.1回补daemon启动后客机UUID/PID/boot/文件保持，sysinfo=128MiB。Agent1.0.11将对应架构压缩daemon嵌入已有可信升级包、构建依赖官方源码/精确patchedSource hash，不依赖永久历史artifact；主控持久门禁→原实例许可→Agent真实原PID/启动时间、库依赖、backups/重载/回读及回滚→原身份回执解除，新旧普通加固保持该门禁。PG/mTLS许可/续接/阻新任务/回执/完整重装账务回归已过，新自动函数同来源CI、全部回滚/真实目标应用仍待。此前原始sysinfo失败及试验记录保留，不能宣称这一批已上线。

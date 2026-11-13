@@ -85,7 +85,7 @@ func incusCompatibilityStatus(ctx context.Context) (string, string, string) {
 	}
 	var j compatJournal
 	if b, e := os.ReadFile(compatJournalPath); e == nil && json.Unmarshal(b, &j) == nil {
-		if j.Phase == "reloading" || j.Phase == "prepared" {
+		if j.Phase == "reloading" || j.Phase == "prepared" || j.Phase == "rolling-back" {
 			return "pending", j.RequestID, j.NewHash
 		}
 	}
@@ -319,7 +319,7 @@ func prepareIncusCompatibility(ctx context.Context, permit *CompatPermit) error 
 	defer unlock()
 	var journal compatJournal
 	if b, readErr := os.ReadFile(compatJournalPath); readErr == nil {
-		if json.Unmarshal(b, &journal) != nil || journal.Version != 1 || len(journal.OldHash) != 64 || len(journal.NewHash) != 64 || journal.PID < 2 || journal.ProcessStart == "" || !strings.Contains("|prepared|reloading|verified|rolled-back|", "|"+journal.Phase+"|") {
+		if json.Unmarshal(b, &journal) != nil || journal.Version != 1 || len(journal.OldHash) != 64 || len(journal.NewHash) != 64 || journal.PID < 2 || journal.ProcessStart == "" || !strings.Contains("|prepared|reloading|verified|rolling-back|rolled-back|", "|"+journal.Phase+"|") {
 			return fmt.Errorf("compatibility journal invalid")
 		}
 	} else if !os.IsNotExist(readErr) {
@@ -327,6 +327,9 @@ func prepareIncusCompatibility(ctx context.Context, permit *CompatPermit) error 
 	}
 	if journal.Phase != "" && (journal.RequestID != permit.RequestID || journal.HostIdentity != permit.HostIdentity) {
 		return fmt.Errorf("compatibility journal authority changed")
+	}
+	if journal.Phase == "rolling-back" {
+		return rollbackIncusCompatibility(ctx, journal)
 	}
 	if journal.Phase == "prepared" {
 		old, e := os.ReadFile(compatBackupPath)
@@ -521,6 +524,10 @@ func rollbackIncusCompatibility(ctx context.Context, journal compatJournal) erro
 	b, e := os.ReadFile(compatBackupPath)
 	if e != nil || compatHash(b) != journal.OldHash {
 		return fmt.Errorf("compatibility rollback identity invalid")
+	}
+	journal.Phase = "rolling-back"
+	if e = saveCompatJournal(journal); e != nil {
+		return e
 	}
 	if e = replaceCompatBinary(b); e != nil {
 		return e

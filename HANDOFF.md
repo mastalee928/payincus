@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 2cc559fe自动原生43526018569双架构success（132231848423/132231848561），实际Agent函数+OpenRC重载/幂等完成，原UUID/PID/boot/marker保持，sysinfo精确128MiB。随后回滚复审发现服务启动失败且旧binary已恢复后仍留reloading导致下轮NewHash拒绝；新增持久rolling-back状态，重试先核旧hash恢复/服务/客户，完成再重试修复。扩展AMD/ARM×normal/prepared-resume/rollback-retry六真实场景；双vet/测试编译过，新来源运行及完整候选/目标尚待。旧原生成功只代表正常自动流程，不能替代这次回滚验收。
+
 - 8b669aac诊断43525525068两架构服务日志明确ifquery无法解析缺失的/etc/network/interfaces，OpenRC networking阻止incusd。一次性minirootfs仅补loopback真实配置，不改runner公网接口、不修改产品服务或跳依赖。下一来源自动维护/客户保持/sysinfo回读继续；221本地已过，最新同来源CI及完整预览/目标热更新仍待。
 
 - 2ed86183原生43525192402 AMD132229087689在自动流程OpenRC incusd start明确失败；此前补服务包不足以解释完整运行依赖。新增仅一次性测试环境服务/daemon失败日志，继续查真正启动错误，不放宽产品身份或用手动切换替代。尚未热更新或正式发行；最新自动应用未完成。
