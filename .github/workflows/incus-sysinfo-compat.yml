@@ -1,0 +1,33 @@
+name: Alpine Incus sysinfo compatibility
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/build-incus-sysinfo-compat.py'
+      - '.github/workflows/incus-sysinfo-compat.yml'
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build pinned official daemon with anchored upstream monitor fix
+        run: |
+          mkdir -p output
+          docker run --rm -v "$PWD/scripts/build-incus-sysinfo-compat.py:/build.py:ro" -v "$PWD/output:/out" alpine:3.24 sh -ec '
+            apk add --no-cache go python3 build-base cowsql-dev raft-cowsql-dev eudev-dev libcap-dev libuv-dev linux-headers lxc-dev lz4-dev sqlite-dev gettext-dev
+            python3 /build.py
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: incudal-incusd-sysinfo-${{ matrix.architecture }}
+          path: output/
+          retention-days: 14
