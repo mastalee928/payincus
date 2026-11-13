@@ -4,7 +4,7 @@ set -eu
 test "${INCUDAL_SYSINFO_COMPAT_TEST:-}" = disposable
 test ! -e /var/lib/incus/database
 apk add --no-cache incus incus-client openrc apparmor-utils iproute2 python3
-mkdir -p /run/openrc
+mkdir -p /run/openrc /run/dbus
 touch /run/openrc/softlevel
 dbus-daemon --system --fork
 /usr/sbin/incusd --group incus >/tmp/incusd-original.log 2>&1 &
