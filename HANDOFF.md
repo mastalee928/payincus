@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 2026-11-14镜像矩阵收尾：最终候选6093777/Agent1.0.10，AMD24/24于20:52:31UTC，ARM24/24于21:32:06UTC全通过，实际系统各72次核验无错配。重装/停启/重启、原密码/公钥/boot变化/测试文件/IPv4IPv6/内存视图通过，余额前后999876.88、AMD5/ARM1购买账单数不变，6测试实例归属/host/账期/原价/续费价保持。sysinfo的Alpine Incus兼容仍未闭环；固定官方7.0.1双架构补丁构建43510197753成功，真实旧daemon切换43511172924/43512260817在原客机起步失败，完整日志定位Docker未委派cgroup(memory.max缺)，不是切换或产品回补失败。1dda9219夹具专用cgroup委派后43512869484运行；未放宽生产规则。未提交agent/internal/provisioning/incus_compat_linux.go与compat/草稿尚未接入或部署；须补完整互斥/回滚/原身份与真正sysinfo，再发正式版本。
+
 - 2026-11-14最新补充：AMD24/24完整矩阵已success（20:52:31UTC），ARM22/24继续CentOS9/10，原系统/密码key/boot/文件/内存/账务核验无失败。实际sysinfo专项发现Incus7.0.1 Alpine监控进程cmdline为空，findContainerForPid无法识别，seccomp延迟回退host内存；#37一未加客机超时的测试采样曾阻塞监控而Error，定向核父进程/命令后只终止挂住的诊断恢复原Running/boot，无客户重启。SSH限时采样同样回宿主值，确为产品兼容缺口，不把此前Ubuntu原生绿当现场成功。原地补监控标题试验未生效，已恢复原空argv（未纳入源码）。新增固定官方Incus7.0.1源码hash，仅回补上游5daa427d+锚定安全补83eaa5e1的cgroup识别；双架构构建43509802950失败缺acl-dev，补8ae6e6fd后43510197753运行。新兼容二进制尚未用于生产，自动修复/平滑重载/客机sysinfo仍待，正式发行继续等待全部闭环。
 
 - 2026-11-14最终源码60937775：CI43499445962 29/29、Agent43499445858、Alpine43499445943、预览43499441752双首装/六旧worker升级全部success；双tar独立原签名/source/243迁移/无图库/用户改价边界通过。热更新45于20:44:29UTC成功preview-6093777（备份/opt/incudal.bak.20261113204213），原身份/worker/DB支付/双前端/唯一backend保持，243迁移无待执行。历史#27由后台自然修到768MiB/30GiB，原运行状态和身份保持；34宿主Agent1.0.10工具全ready，无新poolFaulted。前矩阵AMD22/24、ARM11/24完整通过后自然收尾；最终源码剩余AMD2/ARM13镜像矩阵20:45UTC启动，尚未完成，正式未发布。创建中IPv6专项已过，目标真实成功订单原IPv6展示保持。五轮复审记录见docs/resource-image-checkout-final-review-2026-11-14.md。
