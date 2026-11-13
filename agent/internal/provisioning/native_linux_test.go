@@ -21,6 +21,10 @@ func TestNativeRepairAndDrift(t *testing.T) {
 	}
 	if os.Getenv("INCUDAL_PROVISIONING_VISIBILITY_TEST") == "1" {
 		if err := ensureResourceVisibility(ctx); err != nil {
+			out, _ := run(ctx, "rc-service", "lxcfs", "status")
+			t.Log("LXCFS service status:", string(out))
+			out, _ = run(ctx, "rc-service", "lxcfs", "start")
+			t.Log("LXCFS start diagnostic:", string(out))
 			t.Fatal("native LXCFS service and packaged hook", err)
 		}
 	}

@@ -28,7 +28,7 @@ func TestNativeGuestResourceVisibility(t *testing.T) {
 	}
 	var guest struct{ Config map[string]string }
 	if err = json.Unmarshal(raw, &guest); err != nil {
-		t.Fatal(err)
+		t.Fatalf("guest identity query bytes=%d: %v", len(raw), err)
 	}
 	raw, err = run(ctx, "incus", "query", "/1.0/instances/"+name+"/state")
 	if err != nil {
