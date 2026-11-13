@@ -22,7 +22,7 @@ if (suppliedAgentToken) {
 }
 assert.equal(env.SYSTEM_UPDATE_RELEASE_REPOSITORY, 'mastalee928/payincus')
 assert.equal(env.INCUDAL_AGENT_RELEASE_REPOSITORY, 'mastalee928/payincus')
-assert.equal(env.INCUDAL_AGENT_RELEASE_DIR, '')
+assert.equal(env.INCUDAL_AGENT_RELEASE_DIR, process.env.INCUDAL_PREVIEW_AGENT_DIR ? '/opt/incudal/agent-release' : '')
 const expectedPackage = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 for (const path of ['/opt/incudal/package.json', '/opt/incudal/server/package.json']) {
   assert.equal(JSON.parse(await readFile(path, 'utf8')).version, expectedPackage.version, 'installed package must match the release source')
