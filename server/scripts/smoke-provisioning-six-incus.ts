@@ -164,6 +164,8 @@ try {
     const pinnedKeys = await instanceSshFingerprints(transport, name)
     execFileSync('/tmp/incudal-resource-tests', ['-test.run', '^TestNativeGuestResourceVisibility$', '-test.v'],
       {env:{...process.env,INCUDAL_NATIVE_VISIBILITY_GUEST:name},stdio:'inherit',timeout:40000})
+    execFileSync('incus',['file','push','/tmp/incudal-resource-tests',name+'/root/incudal-resource-tests'],{timeout:10000})
+    execFileSync('incus',['exec',name,'--','env','INCUDAL_GUEST_SYSINFO_TEST=1','/root/incudal-resource-tests','-test.run','^TestGuestSysinfoLimit$','-test.v'],{stdio:'inherit',timeout:15000})
     const resourceMemory = await execWithOutput(transport, name, ['sh', '-c', 'head -n 1 /proc/meminfo; cat /sys/fs/cgroup/memory.max'], {}, 5000)
     assert.equal((resourceMemory.metadata as {return?:number}).return,0)
     assert.match(resourceMemory.stdout,/^MemTotal:\s+1048576 kB/m,'LXCFS must show the 1024 MiB guest rather than host physical memory')

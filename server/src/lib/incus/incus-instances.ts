@@ -708,6 +708,7 @@ export function buildInstanceConfig(options: BuildInstanceConfigOptions): Record
     'limits.cpu.allowance': `${cpu}%`,
     'limits.memory': incusResourceSize(memory)
   }
+  if(instanceType==='container')configObj['security.syscalls.intercept.sysinfo']='true'
 
   if (instanceType === 'container' && (swapEnabled !== undefined || swapSize !== undefined)) {
     configObj['limits.memory.swap'] = resolveIncusSwapValue(swapEnabled === true, swapSize)

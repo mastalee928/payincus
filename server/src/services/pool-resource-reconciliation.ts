@@ -39,6 +39,7 @@ export async function reconcilePoolInstanceResources(instanceId: number): Promis
     const roots=Object.entries(remote.devices||{}).filter(([,d])=>d.type==='disk'&&d.path==='/')
     if(roots.length!==1)return false
     const config:Record<string,string>={},devices:Record<string,Record<string,string>>={}
+    if(remote.config['security.syscalls.intercept.sysinfo']!=='true')config['security.syscalls.intercept.sysinfo']='true'
     if(remote.config['limits.memory']===`${current.memory}MB`)config['limits.memory']=incusResourceSize(current.memory)
     if(roots[0][1].size===`${current.disk}MB`)devices[roots[0][0]]={...roots[0][1],size:incusResourceSize(current.disk)}
     if(!Object.keys(config).length&&!Object.keys(devices).length)return true
@@ -46,6 +47,7 @@ export async function reconcilePoolInstanceResources(instanceId: number): Promis
       {...(Object.keys(config).length?{config}:{}),...(Object.keys(devices).length?{devices}:{})},8000,undefined,{ifMatch:etag})
     const checked=await client.request<{config?:Record<string,string>;devices?:Record<string,Record<string,string>>}>('GET',`/1.0/instances/${encodeURIComponent(row.incusId)}`,null,5000)
     if(checked.config?.['volatile.uuid']!==original.uuid||
+      (config['security.syscalls.intercept.sysinfo']&&checked.config?.['security.syscalls.intercept.sysinfo']!=='true')||
       (config['limits.memory']&&checked.config?.['limits.memory']!==config['limits.memory'])||
       (devices[roots[0][0]]&&checked.devices?.[roots[0][0]]?.size!==devices[roots[0][0]].size))throw Error('POOL_RESOURCE_CORRECTION_UNCONFIRMED')
     return true

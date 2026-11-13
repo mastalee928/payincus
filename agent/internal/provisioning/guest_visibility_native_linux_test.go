@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -53,5 +54,18 @@ func TestNativeGuestResourceVisibility(t *testing.T) {
 	}
 	if err = repairGuestVisibility(ctx, []Guest{{Name: name, UUID: guest.Config["volatile.uuid"], MemoryMiB: 1024}}); err != nil {
 		t.Fatal("idempotency", err)
+	}
+}
+
+func TestGuestSysinfoLimit(t *testing.T) {
+	if os.Getenv("INCUDAL_GUEST_SYSINFO_TEST") != "1" {
+		t.Skip("native guest only")
+	}
+	var info syscall.Sysinfo_t
+	if err := syscall.Sysinfo(&info); err != nil {
+		t.Fatal(err)
+	}
+	if uint64(info.Totalram)*uint64(info.Unit) != 1073741824 {
+		t.Fatal("sysinfo memory must be 1024 MiB", uint64(info.Totalram)*uint64(info.Unit))
 	}
 }

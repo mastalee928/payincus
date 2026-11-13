@@ -8,6 +8,7 @@ for (const memory of [768,4096]) {
   const config = buildInstanceConfig({ name: 'resource-size', cpu: memory===768?200:100, memory, disk: 30720, image: 'fixture/debian' } as any)
   assert.equal(config.config?.['limits.memory'], `${memory}MiB`)
   assert.equal(config.devices?.root.size, '30720MiB')
+  assert.equal(config.config?.['security.syscalls.intercept.sysinfo'],'true')
   let patch: any
   await patchInstanceResources({ request: async (method: string, _path: string, body: unknown) => {
     if(method==='GET')return {devices:{root:{type:'disk',pool:'original',path:'/',size:'30720MB'}}}

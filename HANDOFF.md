@@ -1,5 +1,7 @@
 # 版本与验证记录
 
+- 资源进一步复审补sysinfo路径：LXCFS只修/proc，外部工具可用sysinfo看到宿主内存；新容器及重装设Incus原生security.syscalls.intercept.sysinfo，旧池原身份后台更新并回读（无liveupdate，后续正常启动生效，不擅自重启客户）。新增实际客机Go sysinfo总RAM=1024MiB原生断言，类型/资源与隔离守卫、Linux双编译过，最终PG/build与新CI仍待；不声称旧在用客户sysinfo已即时修复。
+
 - 资源live mount第二轮边界复审：原目录fd要求Fstatfs=procfs，mount --no-canonicalize避免挂载工具重新解析fd回原PID字串；原UUID/PID/只读文件检查保持，Linux双架构编译通过，新版本待原生复验。无对客户系统或主控应用此未验方案。
 
 - afa6候选预览43478689882 AMD64首装132074777966失败在published-Agent>=v1.0.9（公开仍1.0.8），backend/243迁移/网关首装均正常。原发版顺序禁止先公开Agent再测，因此无tag预览增加同提交构建的Agent artifact与sourceCommit/hash/ELF核验，用安装后的正常manifest/binary接口验证下载；正式tag首装继续验证公开Agent。仅一次性GitHub预览可设目录，不能伪称公开资产通过或改变生产鉴权。双实际afa6tar/source243迁移/原签名/修复/无图库及无Debian11专用文件已核通过；新预览来源仍须全部首装/旧worker升级。最新资源挂载14原生和Agent服务已过，综合CI尚末段。

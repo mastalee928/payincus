@@ -1192,6 +1192,7 @@ async function executeRebuildTask(
   const rebuildConfig: Record<string, string> = { ...configPayload }
   const recordedResources = await prisma.instance.findUniqueOrThrow({ where: { id: task.instanceId }, select: { memory: true, disk: true } })
   rebuildConfig['limits.memory'] = incusResourceSize(recordedResources.memory)
+  if(instanceType==='container')rebuildConfig['security.syscalls.intercept.sysinfo']='true'
 
   // 关键修复：清除旧的云初始化缓存键和残留系统属性（防止 Alpine <-> Debian 等跨发行版重装时 vendor-data 不兼容导致 cloud-init 崩溃）
   // Clearing the previous OS is mandatory even when optional image metadata is unavailable.
