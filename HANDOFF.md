@@ -1,5 +1,9 @@
 # 版本与验证记录
 
+- 2026-11-14主控候选热更新43成功：preview-9d4984e/source9d4984e6c9ca，备份/opt/incudal.bak.20261113162202；沿原sealed helper/worker，包sha/242迁移（无待迁移）/DB支付就绪/双前端API+WS/Agent清单/日志暴露检查全过。最终CI43456711297已31/31success、十预览43456762975success，双包独立签名和源码一致。主控/var/lib/incudal-images已创建并后台逐项保存，程序包无整库。ARM#40有另一条用户Debian11重装#178占用（后已COMPLETED），初轮矩阵409无重装；x86初轮一项短暂锁409、三项全流程通过后收尾。测试脚本原固定60s等锁过短，改观察前一任务结束、持久等待25m（不清保护）后分别新ARM25/x8623镜像矩阵r3已启动，尚未完成。正式发行仍暂停。
+
+- 9d4984e6最终本地全量220/220及后端build自然exit0；双架构八类原生16/16成功，Debian11真实首次交付/失败重装/新重装/平台停启/重启/原key密码磁盘保持和完整清理成功（CI43456711297 jobs131992648112/131992648301）。Agent43456711138和Alpine43456711218success；无tag预览43456762975十必需job全部success，实际双tar已核原签名/source/242迁移/修复/用户无改价入口/无图库。完整CI六综合分片尚收尾；主控仍preview-818cc09，本批未热更新，#40/test-arm-1只读核stopped。主控镜像目录尚无、空余130GB、默认目录86可获取目标约16.6GB，最新持久库策略仍继续。详见[持久库记录](docs/persistent-system-image-library-2026-11-13.md)。
+
 - 1d3ad2fd诊断CI43454675508 Debian11 jobs131985559269/131985559506：重装及即时公网SSH实际已通过，原先误认失败在重装后；堆栈没有异步调用行，失败实际位于后续原生CLI stop/start。测试只读新boot_id/磁盘旧boot-finished便立刻连接，日志此刻networkd刚启动且ssh inactive，forward正确。改使用实际平台stop/start/restart任务（含公网SSH就绪）后独立复核Stopped、boot变化、原key/密码/文件，保留失败诊断。生产源码没有因此放宽或增加延时；仍待这条真实流程原生验收，本批未热更新，正式暂停。
 
 - fa0963f0双架构Debian11原生CI43451754003 jobs131975405762/131975405935均失败：首次交付成功、missing镜像失败正确终结、新重装完成bootstrap并第一次公网SSH验证后，第二次连接报unreachable，停启/重启尚未验收。补在失败清理前保留真实客机SSH/networkd/bootstrap journal、监听/地址/路由及宿主forward/nft/邻居日志，继续定位，不加等待掩盖。预览43451744878十必需job全部success、Release预期skipped；Agent43451754038与Alpine43451754061success，整体CI六分片尚未终态。主控仍preview-818cc09，本批禁止热更新或正式发布。
