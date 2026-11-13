@@ -9,7 +9,7 @@ touch /run/openrc/softlevel
 dbus-daemon --system --fork
 /usr/sbin/incusd --group incus >/tmp/incusd-original.log 2>&1 &
 old=$!
-incus admin waitready --timeout=60
+if ! incus admin waitready --timeout=60; then cat /tmp/incusd-original.log; exit 1; fi
 incus storage create default dir
 incus init images:alpine/3.24/tinycloud native-sysinfo -s default -c limits.memory=128MiB -c security.syscalls.intercept.sysinfo=true
 if ! incus start native-sysinfo; then incus info --show-log native-sysinfo; cat /tmp/incusd-original.log; exit 1; fi
@@ -32,7 +32,7 @@ if kill -0 "$old" 2>/dev/null;then cat /tmp/incusd-original.log;exit 1;fi
 cp /usr/sbin/incusd /tmp/incusd-original
 install -m 0755 /out/incusd /usr/sbin/incusd
 /usr/sbin/incusd --group incus >/tmp/incusd-fixed.log 2>&1 &
-incus admin waitready --timeout=60
+if ! incus admin waitready --timeout=60; then cat /tmp/incusd-fixed.log; exit 1; fi
 incus query /1.0/instances/native-sysinfo > /tmp/identity-after.json
 incus query /1.0/instances/native-sysinfo/state > /tmp/state-after.json
 incus exec native-sysinfo -- cat /proc/sys/kernel/random/boot_id > /tmp/boot-after
